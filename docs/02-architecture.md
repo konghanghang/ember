@@ -2,46 +2,51 @@
 
 > **项目名称：Ember**
 > 日期：2025-12-06
-> 版本：v1.0
+> 版本：v2.0（Next.js 全栈）
 
 ---
 
 ## 系统架构概览
 
+### 方案 A：Vercel 部署（推荐）
+
 ```
 ┌─────────────────────────────────────────────┐
-│           Docker Container (Port 8080)       │
-│                                              │
+│         Vercel Edge Network                 │
+│                                             │
 │  ┌────────────────────────────────────────┐ │
-│  │         Go (Gin) Web Server            │ │
+│  │         Next.js 15 Server              │ │
 │  │                                        │ │
 │  │  ┌──────────────┐  ┌────────────────┐ │ │
-│  │  │  API Routes  │  │  Static Files  │ │ │
-│  │  │  /api/*      │  │  /*            │ │ │
+│  │  │Server Actions│  │Server Components│ │ │
+│  │  │(推荐)        │  │                 │ │ │
 │  │  └──────────────┘  └────────────────┘ │ │
 │  │         │                   │          │ │
 │  │         ▼                   ▼          │ │
 │  │  ┌─────────────────────────────────┐  │ │
 │  │  │     Business Logic Layer        │  │ │
-│  │  │  - User Service                 │  │ │
-│  │  │  - Invite Service               │  │ │
-│  │  │  - Emby Client                  │  │ │
-│  │  │  - MoviePilot Client            │  │ │
-│  │  │  - Email Service                │  │ │
+│  │  │  - lib/services/                │  │ │
+│  │  │    - user-service.ts            │  │ │
+│  │  │    - invite-service.ts          │  │ │
+│  │  │  - lib/clients/                 │  │ │
+│  │  │    - emby.ts                    │  │ │
+│  │  │    - moviepilot.ts              │  │ │
+│  │  │    - email.ts                   │  │ │
 │  │  └─────────────────────────────────┘  │ │
 │  │                   │                    │ │
 │  │                   ▼                    │ │
 │  │  ┌─────────────────────────────────┐  │ │
-│  │  │     Data Access Layer (GORM)    │  │ │
+│  │  │   Data Access Layer (Prisma)    │  │ │
+│  │  │   - lib/db.ts                   │  │ │
 │  │  └─────────────────────────────────┘  │ │
 │  └────────────────────────────────────────┘ │
-│                     │                        │
 └─────────────────────┼────────────────────────┘
                       │
                       ▼
         ┌──────────────────────────┐
         │   PostgreSQL Database    │
-        │   (Separate Container)   │
+        │   (Vercel Postgres or    │
+        │    Supabase)             │
         └──────────────────────────┘
                       │
         ┌─────────────┼─────────────┐
@@ -53,89 +58,133 @@
    └────────┘   └────────┘   └──────────┘
 ```
 
+### 方案 B：Docker 自建部署
+
+```
+┌─────────────────────────────────────────────┐
+│       Docker Container (Port 3000)          │
+│                                             │
+│  ┌────────────────────────────────────────┐ │
+│  │     Next.js 15 Standalone Server       │ │
+│  │     (Server Actions + API Routes)      │ │
+│  └────────────────────────────────────────┘ │
+└─────────────────────┼────────────────────────┘
+                      │
+                      ▼
+        ┌──────────────────────────┐
+        │   PostgreSQL Container   │
+        └──────────────────────────┘
+```
+
 ---
 
-## 单镜像部署架构
+## Next.js 全栈部署架构
 
-### 构建流程
+### 构建流程（Docker）
 
 ```
 ┌─────────────────────────────────────────────┐
 │          Multi-Stage Dockerfile             │
 ├─────────────────────────────────────────────┤
 │                                             │
-│  Stage 1: Build Frontend                    │
+│  Stage 1: Dependencies                      │
 │  ┌─────────────────────────────────────┐   │
-│  │  FROM node:20-alpine                │   │
-│  │  WORKDIR /app/frontend              │   │
-│  │  COPY frontend/ .                   │   │
+│  │  FROM node:20-alpine AS deps        │   │
+│  │  WORKDIR /app                       │   │
+│  │  COPY package*.json ./              │   │
 │  │  RUN npm ci                         │   │
+│  └─────────────────────────────────────┘   │
+│                                             │
+│  Stage 2: Build                             │
+│  ┌─────────────────────────────────────┐   │
+│  │  FROM node:20-alpine AS builder     │   │
+│  │  WORKDIR /app                       │   │
+│  │  COPY --from=deps /app/node_modules │   │
+│  │  COPY . .                           │   │
+│  │  RUN npx prisma generate            │   │
 │  │  RUN npm run build                  │   │
 │  │  → Output: .next/standalone         │   │
 │  └─────────────────────────────────────┘   │
 │                                             │
-│  Stage 2: Build Backend                     │
+│  Stage 3: Runner                            │
 │  ┌─────────────────────────────────────┐   │
-│  │  FROM golang:1.22-alpine            │   │
-│  │  WORKDIR /app/backend               │   │
-│  │  COPY backend/ .                    │   │
-│  │  RUN go mod download                │   │
-│  │  RUN go build -o server cmd/main.go │   │
-│  │  → Output: server (binary)          │   │
-│  └─────────────────────────────────────┘   │
-│                                             │
-│  Stage 3: Final Image                       │
-│  ┌─────────────────────────────────────┐   │
-│  │  FROM alpine:latest                 │   │
-│  │  COPY --from=stage1 .next/standalone│   │
-│  │  COPY --from=stage2 server          │   │
-│  │  EXPOSE 8080                        │   │
-│  │  CMD ["./server"]                   │   │
+│  │  FROM node:20-alpine AS runner      │   │
+│  │  WORKDIR /app                       │   │
+│  │  ENV NODE_ENV=production            │   │
+│  │  COPY --from=builder /app/public    │   │
+│  │  COPY --from=builder /app/.next     │   │
+│  │  EXPOSE 3000                        │   │
+│  │  CMD ["node", "server.js"]          │   │
 │  └─────────────────────────────────────┘   │
 └─────────────────────────────────────────────┘
 ```
 
-### 路由设计
+### Server Actions 架构（推荐）
 
-**Go (Gin) 路由分配：**
+**Next.js Server Actions 优势：**
 
-```go
-router := gin.Default()
+- ✅ 端到端类型安全（TypeScript）
+- ✅ 无需手动定义 API 路由
+- ✅ 自动错误处理和重试
+- ✅ 更好的性能（减少网络往返）
+- ✅ 内置表单处理
 
-// API 路由（优先匹配）
-api := router.Group("/api/v1")
-{
-    api.POST("/auth/login", authHandler.Login)
-    api.POST("/auth/refresh", authHandler.Refresh)
+```typescript
+// app/actions/user-actions.ts
+'use server'
 
-    // 需要认证的路由
-    authorized := api.Group("")
-    authorized.Use(authMiddleware.JWTAuth())
-    {
-        authorized.GET("/users", userHandler.List)
-        authorized.POST("/invites", inviteHandler.Create)
-        // ... 其他 API
-    }
+import { prisma } from '@/lib/db'
+import { embyClient } from '@/lib/emby'
+
+export async function createUser(data: CreateUserInput) {
+  // 直接访问数据库
+  const user = await prisma.user.create({ data })
+
+  // 直接调用 Emby API
+  await embyClient.createUser(user)
+
+  return user
 }
 
-// 静态文件（Next.js 输出）
-router.NoRoute(func(c *gin.Context) {
-    // 托管 Next.js standalone 输出
-    c.File("./frontend/.next/standalone" + c.Request.URL.Path)
-})
+// 客户端直接调用
+import { createUser } from '@/app/actions/user-actions'
+
+function RegisterForm() {
+  async function handleSubmit(formData: FormData) {
+    const result = await createUser(formData) // 自动序列化
+  }
+}
 ```
 
-### 端口映射
+### Docker Compose 配置
 
 ```yaml
 # docker-compose.yml
+version: '3.8'
+
 services:
-  emby-manager:
+  ember:
+    build: .
     ports:
-      - "8080:8080"   # 单一端口
+      - "3000:3000"
     environment:
-      - DATABASE_URL=postgres://...
-      - JWT_SECRET=...
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/ember
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - EMBY_URL=${EMBY_URL}
+      - EMBY_API_KEY=${EMBY_API_KEY}
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: ember
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
 ```
 
 ---
@@ -144,141 +193,136 @@ services:
 
 ```
 ember/
-├── backend/                    # Go 后端
-│   ├── cmd/
-│   │   └── server/
-│   │       └── main.go        # 程序入口
+├── app/                          # Next.js App Router
+│   ├── (auth)/                  # 认证页面组（共享 layout）
+│   │   ├── login/
+│   │   │   └── page.tsx
+│   │   └── register/
+│   │       └── page.tsx
 │   │
-│   ├── internal/
-│   │   ├── api/               # HTTP 处理器
-│   │   │   ├── handler/
-│   │   │   │   ├── auth_handler.go
-│   │   │   │   ├── user_handler.go
-│   │   │   │   ├── invite_handler.go
-│   │   │   │   └── moviepilot_handler.go
-│   │   │   ├── middleware/
-│   │   │   │   ├── auth.go
-│   │   │   │   ├── cors.go
-│   │   │   │   └── logger.go
-│   │   │   └── router/
-│   │   │       └── router.go
-│   │   │
-│   │   ├── service/           # 业务逻辑
-│   │   │   ├── user_service.go
-│   │   │   ├── invite_service.go
-│   │   │   ├── auth_service.go
-│   │   │   ├── emby_service.go
-│   │   │   └── moviepilot_service.go
-│   │   │
-│   │   ├── repository/        # 数据访问
-│   │   │   ├── user_repo.go
-│   │   │   ├── invite_repo.go
-│   │   │   └── audit_repo.go
-│   │   │
-│   │   ├── model/             # 数据模型
-│   │   │   ├── user.go
-│   │   │   ├── invite.go
-│   │   │   ├── profile.go
-│   │   │   └── audit.go
-│   │   │
-│   │   ├── client/            # 外部客户端
-│   │   │   ├── emby/
-│   │   │   │   ├── client.go
-│   │   │   │   └── types.go
-│   │   │   └── moviepilot/
-│   │   │       ├── client.go
-│   │   │       └── types.go
-│   │   │
-│   │   ├── notification/      # 通知服务
-│   │   │   ├── email.go
-│   │   │   └── template.go
-│   │   │
-│   │   ├── scheduler/         # 定时任务
-│   │   │   ├── cron.go
-│   │   │   └── jobs/
-│   │   │       ├── expiry_check.go
-│   │   │       └── cleanup.go
-│   │   │
-│   │   └── config/            # 配置
-│   │       └── config.go
+│   ├── (admin)/                 # 管理后台（需要 admin 权限）
+│   │   ├── layout.tsx          # 管理后台布局
+│   │   ├── dashboard/
+│   │   │   └── page.tsx
+│   │   ├── users/
+│   │   │   ├── page.tsx
+│   │   │   └── [id]/
+│   │   │       ├── page.tsx    # 用户详情
+│   │   │       └── edit/
+│   │   │           └── page.tsx
+│   │   ├── invites/
+│   │   │   └── page.tsx
+│   │   ├── profiles/
+│   │   │   └── page.tsx
+│   │   └── settings/
+│   │       └── page.tsx
 │   │
-│   ├── pkg/                   # 公共库
-│   │   ├── jwt/
-│   │   │   └── jwt.go
-│   │   ├── validator/
-│   │   │   └── validator.go
-│   │   └── utils/
-│   │       ├── hash.go
-│   │       └── random.go
-│   │
-│   ├── migrations/            # 数据库迁移（可选）
-│   │   └── 001_init.sql
-│   │
-│   ├── go.mod
-│   └── go.sum
-│
-├── frontend/                   # Next.js 前端
-│   ├── app/
-│   │   ├── (auth)/            # 认证相关页面
-│   │   │   ├── login/
-│   │   │   │   └── page.tsx
-│   │   │   └── register/
-│   │   │       └── page.tsx
-│   │   │
-│   │   ├── admin/             # 管理后台
-│   │   │   ├── layout.tsx
-│   │   │   ├── dashboard/
-│   │   │   │   └── page.tsx
-│   │   │   ├── users/
-│   │   │   │   ├── page.tsx
-│   │   │   │   └── [id]/
-│   │   │   │       └── page.tsx
-│   │   │   ├── invites/
-│   │   │   │   └── page.tsx
-│   │   │   ├── profiles/
-│   │   │   │   └── page.tsx
-│   │   │   └── settings/
-│   │   │       └── page.tsx
-│   │   │
-│   │   ├── user/              # 用户面板
-│   │   │   ├── layout.tsx
-│   │   │   ├── profile/
-│   │   │   │   └── page.tsx
-│   │   │   ├── devices/
-│   │   │   │   └── page.tsx
-│   │   │   └── moviepilot/
-│   │   │       └── page.tsx
-│   │   │
+│   ├── (user)/                  # 用户面板
 │   │   ├── layout.tsx
-│   │   └── page.tsx
+│   │   ├── profile/
+│   │   │   └── page.tsx
+│   │   ├── devices/
+│   │   │   └── page.tsx
+│   │   └── moviepilot/
+│   │       └── page.tsx
 │   │
-│   ├── components/            # UI 组件
-│   │   ├── ui/               # shadcn/ui 组件
-│   │   ├── admin/            # 管理后台组件
-│   │   │   ├── user-table.tsx
-│   │   │   ├── invite-form.tsx
-│   │   │   └── stats-card.tsx
-│   │   └── user/             # 用户面板组件
-│   │       ├── profile-card.tsx
-│   │       └── device-list.tsx
+│   ├── actions/                 # Server Actions（推荐）
+│   │   ├── auth-actions.ts     # 认证相关 actions
+│   │   ├── user-actions.ts     # 用户管理 actions
+│   │   ├── invite-actions.ts   # 邀请码 actions
+│   │   └── moviepilot-actions.ts
 │   │
-│   ├── lib/                  # 工具函数
-│   │   ├── api.ts           # API 客户端
-│   │   ├── auth.ts          # 认证工具
-│   │   └── utils.ts         # 通用工具
+│   ├── api/                     # API Routes（可选，用于 Webhook）
+│   │   ├── auth/
+│   │   │   └── [...nextauth]/
+│   │   │       └── route.ts    # NextAuth.js 路由
+│   │   ├── webhooks/
+│   │   │   ├── emby/
+│   │   │   │   └── route.ts
+│   │   │   └── moviepilot/
+│   │   │       └── route.ts
+│   │   └── cron/               # Vercel Cron Jobs
+│   │       ├── check-expiry/
+│   │       │   └── route.ts
+│   │       └── cleanup/
+│   │           └── route.ts
 │   │
-│   ├── types/                # TypeScript 类型
+│   ├── layout.tsx               # 根布局
+│   ├── page.tsx                 # 首页
+│   └── globals.css              # 全局样式
+│
+├── components/                   # React 组件
+│   ├── ui/                      # shadcn/ui 组件
+│   │   ├── button.tsx
+│   │   ├── input.tsx
+│   │   ├── table.tsx
+│   │   └── ...
+│   ├── admin/                   # 管理后台组件
+│   │   ├── user-table.tsx
+│   │   ├── invite-form.tsx
+│   │   ├── stats-card.tsx
+│   │   └── profile-form.tsx
+│   ├── user/                    # 用户面板组件
+│   │   ├── profile-card.tsx
+│   │   ├── device-list.tsx
+│   │   └── moviepilot-search.tsx
+│   └── shared/                  # 共享组件
+│       ├── header.tsx
+│       ├── sidebar.tsx
+│       └── footer.tsx
+│
+├── lib/                          # 工具库和服务
+│   ├── db.ts                    # Prisma 客户端初始化
+│   ├── auth.ts                  # 认证工具（NextAuth 或 JWT）
+│   │
+│   ├── services/                # 业务逻辑层
+│   │   ├── user-service.ts
+│   │   ├── invite-service.ts
+│   │   └── profile-service.ts
+│   │
+│   ├── clients/                 # 外部 API 客户端
+│   │   ├── emby.ts             # Emby API 封装
+│   │   ├── moviepilot.ts       # MoviePilot API 封装
+│   │   └── email.ts            # 邮件服务（Nodemailer）
+│   │
+│   ├── cron/                    # 定时任务（仅 Docker 部署）
+│   │   ├── index.ts
+│   │   ├── expiry-check.ts
+│   │   └── cleanup.ts
+│   │
+│   ├── validators/              # Zod 验证 Schema
 │   │   ├── user.ts
 │   │   ├── invite.ts
-│   │   └── api.ts
+│   │   └── auth.ts
 │   │
-│   ├── next.config.js
-│   ├── package.json
-│   └── tailwind.config.ts
+│   └── utils.ts                 # 通用工具函数
 │
-├── Dockerfile                 # 单镜像构建
-├── docker-compose.yml         # 完整部署配置
-├── Makefile                   # 构建脚本
+├── prisma/                       # Prisma 配置
+│   ├── schema.prisma            # 数据库 Schema
+│   ├── migrations/              # 数据库迁移文件
+│   └── seed.ts                  # 初始数据脚本
+│
+├── types/                        # TypeScript 类型定义
+│   ├── user.ts
+│   ├── invite.ts
+│   ├── profile.ts
+│   └── index.ts
+│
+├── config/                       # 配置文件
+│   └── site.ts                  # 站点配置
+│
+├── public/                       # 静态资源
+│   ├── images/
+│   └── favicon.ico
+│
+├── .env.example                  # 环境变量示例
+├── .env.local                    # 本地环境变量（不提交）
+├── next.config.js                # Next.js 配置
+├── tailwind.config.ts            # Tailwind 配置
+├── tsconfig.json                 # TypeScript 配置
+├── package.json
+├── Dockerfile                    # Docker 构建文件
+├── docker-compose.yml            # Docker Compose 配置
 └── README.md
 ```
 
@@ -379,16 +423,52 @@ ember/
 
 ---
 
+## Next.js 全栈优势总结
+
+### 为什么选择 Next.js 而非 Go + Next.js？
+
+**用户规模考虑：**
+- 预期用户：< 2000 人
+- 并发需求：低（用户管理操作频率低）
+- 性能瓶颈：数据库查询，而非应用层
+
+**开发效率：**
+| 指标 | Go + Next.js | Next.js 全栈 | 优势 |
+|------|-------------|-------------|------|
+| 开发时间 | 5-6 周 | 2.5-3 周 | **节省 50%** |
+| 语言数量 | 2 (Go + TS) | 1 (TypeScript) | **统一技术栈** |
+| 代码库 | 2 个 | 1 个 | **简化维护** |
+| 部署复杂度 | 多阶段构建 | 单镜像 | **简化部署** |
+| 类型安全 | 需手动同步 | 端到端自动 | **减少错误** |
+
+**性能对比：**
+- Next.js 轻松支持 2000-5000 用户
+- Server Actions 减少网络往返
+- 主要瓶颈在数据库，而非 Node.js vs Go
+
+**未来扩展性：**
+如果真的遇到性能瓶颈（极少可能）：
+1. 添加 Redis 缓存
+2. 优化数据库索引
+3. 使用 Vercel Edge Functions
+4. 渐进式迁移部分重负载 API 到 Go
+
+---
+
 ## 下一步：数据库设计
 
-现在技术架构已经清晰，我们需要设计数据库 Schema。
+现在 Next.js 全栈架构已经清晰，接下来需要设计数据库 Schema。
 
-**需要讨论的表：**
-1. users - 用户表
-2. invites - 邀请码表
-3. profiles - 权限配置表
-4. audit_logs - 操作日志表
-5. notifications - 通知队列表
-6. refresh_tokens - Refresh Token 存储表（可选）
+**待设计的表：**
+1. `users` - 用户表
+2. `invites` - 邀请码表
+3. `profiles` - 权限配置表
+4. `audit_logs` - 操作日志表
+5. `notifications` - 通知队列表
+6. `sessions` - 会话表（NextAuth.js 或可选）
 
-准备好讨论数据库设计了吗？
+**Prisma 优势：**
+- ✅ 类型安全的查询
+- ✅ 自动迁移管理
+- ✅ 优雅的关系定义
+- ✅ TypeScript 类型自动生成

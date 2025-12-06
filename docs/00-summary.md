@@ -24,20 +24,22 @@
 ┌─────────────────────────────────────┐
 │           技术栈总览                │
 ├─────────────────────────────────────┤
-│ 前端：Next.js 15                    │
+│ 全栈框架：Next.js 15                │
 │       - App Router                  │
-│       - shadcn/ui + Tailwind CSS   │
+│       - Server Actions              │
+│       - Server Components           │
+│       - TypeScript 5.x              │
 │                                     │
-│ 后端：Go 1.22+                      │
-│       - Gin (Web 框架)              │
-│       - GORM (ORM)                  │
-│       - JWT (认证)                  │
+│ 数据层：Prisma ORM                  │
+│       - PostgreSQL 16.x             │
+│       - 类型安全的查询              │
 │                                     │
-│ 数据库：PostgreSQL                  │
+│ 认证：NextAuth.js v5                │
+│       - 或自实现 JWT                │
 │                                     │
-│ 部署：单 Docker 镜像                │
-│       - 多阶段构建                  │
-│       - 单端口 (8080)               │
+│ UI：shadcn/ui + Tailwind CSS        │
+│                                     │
+│ 部署：Vercel 或 Docker 单容器       │
 └─────────────────────────────────────┘
 ```
 
@@ -87,26 +89,57 @@
 
 ```
 ember/
-├── backend/              # Go 后端
-│   ├── cmd/
-│   ├── internal/
-│   │   ├── api/         # HTTP 层
-│   │   ├── service/     # 业务逻辑
-│   │   ├── repository/  # 数据访问
-│   │   ├── model/       # 数据模型
-│   │   ├── client/      # 外部客户端 (Emby/MoviePilot)
-│   │   └── scheduler/   # 定时任务
-│   └── pkg/             # 公共库
+├── app/                        # Next.js App Router
+│   ├── (auth)/                # 认证页面组 (layout 共享)
+│   │   ├── login/
+│   │   └── register/
+│   │
+│   ├── (admin)/               # 管理后台
+│   │   ├── layout.tsx        # 管理后台布局
+│   │   ├── dashboard/
+│   │   ├── users/
+│   │   ├── invites/
+│   │   └── settings/
+│   │
+│   ├── (user)/                # 用户面板
+│   │   ├── layout.tsx
+│   │   ├── profile/
+│   │   └── devices/
+│   │
+│   ├── actions/               # Server Actions（推荐）
+│   │   ├── auth-actions.ts
+│   │   ├── user-actions.ts
+│   │   └── invite-actions.ts
+│   │
+│   ├── api/                   # API Routes（可选）
+│   │   └── webhooks/
+│   │
+│   ├── layout.tsx            # 根布局
+│   └── page.tsx              # 首页
 │
-├── frontend/            # Next.js 前端
-│   ├── app/
-│   │   ├── (auth)/     # 登录注册
-│   │   ├── admin/      # 管理后台
-│   │   └── user/       # 用户面板
-│   ├── components/
-│   └── lib/
+├── components/                # React 组件
+│   ├── ui/                   # shadcn/ui 组件
+│   ├── admin/                # 管理后台组件
+│   └── user/                 # 用户面板组件
 │
-├── Dockerfile           # 单镜像构建
+├── lib/                       # 工具库
+│   ├── db.ts                 # Prisma 客户端
+│   ├── auth.ts               # 认证工具
+│   ├── emby.ts               # Emby API 客户端
+│   ├── moviepilot.ts         # MoviePilot 客户端
+│   ├── email.ts              # 邮件服务
+│   └── utils.ts              # 通用工具
+│
+├── prisma/                    # Prisma 配置
+│   ├── schema.prisma         # 数据库 Schema
+│   └── migrations/           # 迁移文件
+│
+├── types/                     # TypeScript 类型定义
+│   ├── user.ts
+│   ├── invite.ts
+│   └── index.ts
+│
+├── Dockerfile                 # Docker 构建
 ├── docker-compose.yml
 └── README.md
 ```
@@ -115,47 +148,47 @@ ember/
 
 ## 🎯 路由设计
 
-### API 路由 (Go/Gin)
+### Server Actions（推荐方式）
+
+```typescript
+// app/actions/auth-actions.ts
+'use server'
+export async function login(data: LoginInput)
+export async function logout()
+
+// app/actions/user-actions.ts
+'use server'
+export async function getUsers()
+export async function createUser(data: CreateUserInput)
+export async function updateUser(id: string, data: UpdateUserInput)
+export async function deleteUser(id: string)
+export async function extendExpiry(id: string, days: number)
+
+// app/actions/invite-actions.ts
+'use server'
+export async function getInvites()
+export async function createInvite(data: CreateInviteInput)
+export async function validateInvite(code: string)
+export async function deleteInvite(id: string)
+
+// app/actions/moviepilot-actions.ts
+'use server'
+export async function searchMovies(query: string)
+export async function subscribe(movieId: string)
+export async function getSubscriptionStatus(id: string)
+```
+
+### API Routes（可选，用于 Webhook）
 
 ```
-/api/v1
-├── /auth
-│   ├── POST /login          # 登录
-│   ├── POST /refresh        # 刷新 Token
-│   └── POST /logout         # 登出
+/api
+├── /webhooks
+│   ├── POST /emby           # Emby Webhook
+│   └── POST /moviepilot     # MoviePilot Webhook
 │
-├── /admin (需要管理员权限)
-│   ├── /users
-│   │   ├── GET    /         # 用户列表
-│   │   ├── GET    /:id      # 用户详情
-│   │   ├── PUT    /:id      # 更新用户
-│   │   ├── DELETE /:id      # 删除用户
-│   │   └── POST   /:id/extend # 延长到期
-│   │
-│   ├── /invites
-│   │   ├── GET    /         # 邀请码列表
-│   │   ├── POST   /         # 创建邀请码
-│   │   └── DELETE /:id      # 删除邀请码
-│   │
-│   └── /profiles
-│       ├── GET    /         # 配置列表
-│       ├── POST   /         # 创建配置
-│       └── PUT    /:id      # 更新配置
-│
-├── /user (需要用户权限)
-│   ├── GET  /profile        # 个人信息
-│   ├── PUT  /password       # 修改密码
-│   ├── GET  /devices        # 设备列表
-│   └── DELETE /devices/:id  # 删除设备
-│
-├── /moviepilot
-│   ├── GET  /search         # 搜索影片
-│   ├── POST /subscribe      # 订阅影片
-│   └── GET  /status/:id     # 查询状态
-│
-└── /register
-    ├── GET  /validate/:code # 验证邀请码
-    └── POST /              # 用户注册
+└── /cron (Vercel Cron)
+    ├── GET /check-expiry    # 检查到期账号
+    └── GET /cleanup         # 清理已删除账号
 ```
 
 ### 前端路由 (Next.js)
@@ -207,15 +240,42 @@ ember/
 
 ## 📦 部署架构
 
+### 方案 A：Vercel（推荐）
+
+```
+┌─────────────────────────────────┐
+│    Vercel Edge Network          │
+│                                 │
+│  Next.js 15 App                 │
+│  ├── Server Components          │
+│  ├── Server Actions             │
+│  └── API Routes                 │
+└─────────────────────────────────┘
+              │
+              ▼
+    ┌──────────────────┐
+    │ PostgreSQL       │
+    │ (Vercel Postgres │
+    │  或 Supabase)    │
+    └──────────────────┘
+```
+
+**启动命令：**
+```bash
+vercel deploy
+```
+
+### 方案 B：Docker 自建
+
 ```
 ┌────────────────────────────────┐
-│   Docker Container (8080)      │
+│   Docker Container (3000)      │
 │                                │
 │  ┌──────────────────────────┐ │
-│  │   Go (Gin) Server        │ │
-│  │   - API Routes (/api/*)  │ │
-│  │   - Static Files (/*)    │ │
-│  │   - Next.js Standalone   │ │
+│  │   Next.js Server         │ │
+│  │   - Server Actions       │ │
+│  │   - API Routes           │ │
+│  │   - Static Files         │ │
 │  └──────────────────────────┘ │
 └────────────────────────────────┘
               │
@@ -228,7 +288,7 @@ ember/
 **启动命令：**
 ```bash
 docker compose up -d
-# 访问: http://localhost:8080
+# 访问: http://localhost:3000
 ```
 
 ---

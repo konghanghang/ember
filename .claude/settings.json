@@ -1,0 +1,51 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(rm:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git log:*)",
+      "Bash(git config:*)",
+      "Bash(git reset:*)",
+
+      "Bash(mvn:*)",
+      "Bash(gradle:*)",
+      "Bash(./gradlew:*)",
+
+      "Bash(java:*)",
+      "Bash(javac:*)",
+      "Bash(jar:*)",
+
+      "Bash(mvn test:*)",
+      "Bash(gradle test:*)",
+
+      "Bash(mvn dependency:*)",
+      "Bash(gradle dependencies:*)"
+    ],
+
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Read(./.env)",
+      "Read(./secrets/**)"
+    ],
+
+    "additionalDirectories": [
+    ],
+
+    "defaultMode": "acceptEdits",
+    "disableBypassPermissionsMode": "disable"
+  },
+
+  "env": {
+    "MAVEN_OPTS": "-Xmx1024m"
+  },
+
+  "outputStyle": "Explanatory"
+}
