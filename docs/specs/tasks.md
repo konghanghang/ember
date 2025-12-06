@@ -15,8 +15,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
 
 ### Day 1-2: 项目初始化 + 数据库 + 管理员登录
 
-- [ ] **1. 项目初始化**
-    - [ ] 1.1. 创建 Next.js 15 项目
+- [x] **1. 项目初始化**
+    - [x] 1.1. 创建 Next.js 15 项目
         - *Goal*: 初始化项目脚手架
         - *Details*:
           ```bash
@@ -29,7 +29,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - Tailwind CSS
         - *时间*: 1 小时
 
-    - [ ] 1.2. 配置 Prisma + PostgreSQL
+    - [x] 1.2. 配置 Prisma + PostgreSQL
         - *Goal*: 设置数据库 ORM
         - *Details*:
           ```bash
@@ -43,7 +43,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 创建 `lib/db.ts`（Prisma 客户端单例）
         - *时间*: 2 小时
 
-    - [ ] 1.3. 数据库 Schema 实现
+    - [x] 1.3. 数据库 Schema 实现
         - *Goal*: 创建数据库表
         - *Details*:
           - 实现 `Admin`、`Invite`、`User`、`Log` 四个 model
@@ -56,7 +56,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           ```
         - *时间*: 2 小时
 
-    - [ ] 1.4. 创建初始管理员（Seed）
+    - [x] 1.4. 创建初始管理员（Seed）
         - *Goal*: 初始化默认管理员账号
         - *Details*:
           - 创建 `prisma/seed.ts`
@@ -68,8 +68,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           ```
         - *时间*: 1 小时
 
-- [ ] **2. 管理员登录功能**
-    - [ ] 2.1. JWT 工具函数
+- [x] **2. 管理员登录功能**
+    - [x] 2.1. JWT 工具函数
         - *Goal*: 实现 JWT Token 生成和验证
         - *Details*:
           - 创建 `lib/auth.ts`
@@ -78,7 +78,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - JWT_SECRET 从环境变量读取
         - *时间*: 2 小时
 
-    - [ ] 2.2. 登录 Server Action
+    - [x] 2.2. 登录 Server Action
         - *Goal*: 实现管理员登录逻辑
         - *Details*:
           - 创建 `app/actions/auth.ts`
@@ -88,7 +88,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 记录登录日志
         - *时间*: 2 小时
 
-    - [ ] 2.3. 登录页面 UI
+    - [x] 2.3. 登录页面 UI
         - *Goal*: 创建管理员登录界面
         - *Details*:
           - 创建 `app/(auth)/login/page.tsx`
@@ -97,7 +97,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 登录成功跳转到 `/admin/users`
         - *时间*: 3 小时
 
-    - [ ] 2.4. 路由保护中间件
+    - [x] 2.4. 路由保护中间件
         - *Goal*: 保护管理后台路由
         - *Details*:
           - 创建 `app/(admin)/layout.tsx`
@@ -111,8 +111,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
 
 ### Day 3-4: 邀请码生成 + 用户注册 + Emby 集成
 
-- [ ] **3. Emby API 客户端**
-    - [ ] 3.1. 实现 Emby API 封装
+- [x] **3. Emby API 客户端**
+    - [x] 3.1. 实现 Emby API 封装
         - *Goal*: 创建 Emby API 客户端
         - *Details*:
           - 创建 `lib/emby.ts`
@@ -134,8 +134,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 验证权限设置
         - *时间*: 1 小时
 
-- [ ] **4. 邀请码管理**
-    - [ ] 4.1. 邀请码生成工具
+- [x] **4. 邀请码管理**
+    - [x] 4.1. 邀请码生成工具
         - *Goal*: 实现邀请码生成逻辑
         - *Details*:
           - 在 `lib/utils.ts` 中实现 `generateInviteCode()`
@@ -143,7 +143,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 确保唯一性（查询数据库）
         - *时间*: 1 小时
 
-    - [ ] 4.2. 邀请码 Server Actions
+    - [x] 4.2. 邀请码 Server Actions
         - *Goal*: 实现邀请码 CRUD
         - *Details*:
           - 创建 `app/actions/invites.ts`
@@ -154,7 +154,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
             - `validateInvite()` - 验证邀请码有效性
         - *时间*: 3 小时
 
-    - [ ] 4.3. 邀请码管理页面
+    - [x] 4.3. 邀请码管理页面
         - *Goal*: 创建邀请码管理界面
         - *Details*:
           - 创建 `app/(admin)/invites/page.tsx`
@@ -163,8 +163,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 删除邀请码按钮
         - *时间*: 4 小时
 
-- [ ] **5. 用户注册功能**
-    - [ ] 5.1. 用户注册 Server Action
+- [x] **5. 用户注册功能**
+    - [x] 5.1. 用户注册 Server Action
         - *Goal*: 实现用户注册逻辑（核心功能）
         - *Details*:
           - 创建 `app/actions/users.ts`
@@ -182,7 +182,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
             - 用户名已存在 → 抛出错误
         - *时间*: 4 小时
 
-    - [ ] 5.2. 用户注册页面
+    - [x] 5.2. 用户注册页面
         - *Goal*: 创建用户注册界面
         - *Details*:
           - 创建 `app/(auth)/register/page.tsx`
@@ -197,8 +197,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
 
 ### Day 5: 用户管理 + 延长到期
 
-- [ ] **6. 用户列表和管理**
-    - [ ] 6.1. 用户查询 Server Actions
+- [x] **6. 用户列表和管理**
+    - [x] 6.1. 用户查询 Server Actions
         - *Goal*: 实现用户列表查询
         - *Details*:
           - 在 `app/actions/users.ts` 中实现：
@@ -208,7 +208,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - Include 邀请码信息
         - *时间*: 2 小时
 
-    - [ ] 6.2. 用户列表页面
+    - [x] 6.2. 用户列表页面
         - *Goal*: 创建用户管理界面
         - *Details*:
           - 创建 `app/(admin)/users/page.tsx`
@@ -220,7 +220,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 搜索框（实时搜索）
         - *时间*: 5 小时
 
-    - [ ] 6.3. 延长到期功能
+    - [x] 6.3. 延长到期功能
         - *Goal*: 实现延长到期时间
         - *Details*:
           - 弹窗输入延长天数
@@ -237,8 +237,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
 
 ### Day 6-7: 禁用/删除用户 + 定时任务
 
-- [ ] **7. 用户禁用和删除**
-    - [ ] 7.1. 禁用/启用 Server Action
+- [x] **7. 用户禁用和删除**
+    - [x] 7.1. 禁用/启用 Server Action
         - *Goal*: 实现用户禁用/启用
         - *Details*:
           - 在 `app/actions/users.ts` 中实现 `toggleUserStatus()`
@@ -247,7 +247,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 记录日志
         - *时间*: 2 小时
 
-    - [ ] 7.2. 删除用户 Server Action
+    - [x] 7.2. 删除用户 Server Action
         - *Goal*: 实现用户删除
         - *Details*:
           - 在 `app/actions/users.ts` 中实现 `deleteUser()`
@@ -258,7 +258,7 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 错误处理：Emby API 失败时回滚
         - *时间*: 2 小时
 
-    - [ ] 7.3. UI 集成
+    - [x] 7.3. UI 集成
         - *Goal*: 在用户列表中添加禁用/删除功能
         - *Details*:
           - 禁用/启用按钮（切换状态）
@@ -266,8 +266,8 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 操作成功后刷新列表
         - *时间*: 2 小时
 
-- [ ] **8. 定时任务：到期检查**
-    - [ ] 8.1. 定时任务 Server Action
+- [x] **8. 定时任务：到期检查**
+    - [x] 8.1. 定时任务 Server Action
         - *Goal*: 实现到期账号检查逻辑
         - *Details*:
           - 创建 `app/actions/cron.ts`
@@ -280,17 +280,17 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
           - 错误处理：单个用户失败不影响其他用户
         - *时间*: 3 小时
 
-    - [ ] 8.2. node-cron 定时任务
+    - [x] 8.2. Vercel Cron API 路由
         - *Goal*: 设置定时任务调度
         - *Details*:
-          - 创建 `lib/cron.ts`
-          - 使用 `node-cron` 库
+          - 创建 `app/api/cron/route.ts`
+          - 创建 `vercel.json` 配置文件
           - 定时规则：每天凌晨 2:00
           - 调用 `checkExpiredUsers()`
           - 记录执行结果（禁用用户数）
         - *时间*: 2 小时
 
-    - [ ] 8.3. 手动触发到期检查
+    - [x] 8.3. 手动触发到期检查
         - *Goal*: 在管理后台添加手动触发按钮
         - *Details*:
           - 在设置页面 `app/(admin)/settings/page.tsx` 添加按钮
@@ -304,29 +304,23 @@ Week 2 (Day 6-10) → 到期管理 + 部署 + 测试
 
 ### Day 8: Docker 部署 + 配置管理
 
-- [ ] **9. 系统配置管理**
-    - [ ] 9.1. 环境变量配置
-        - *Goal*: 创建配置文件
+- [x] **9. 系统配置管理**
+    - [x] 9.1. 系统信息 Server Actions
+        - *Goal*: 实现系统信息查询
         - *Details*:
-          - 创建 `.env.example`
-          - 配置项：
-            ```
-            DATABASE_URL=postgresql://user:pass@localhost:5432/ember
-            JWT_SECRET=your-secret-key-min-32-chars
-            EMBY_URL=https://your-emby.com
-            EMBY_API_KEY=your-api-key
-            ```
-          - 创建 `.env.local`（不提交到 Git）
+          - 创建 `app/actions/settings.ts`
+          - 实现 `getSystemInfo()` - 获取用户数、邀请码数等
+          - 实现 `testEmbyConnection()` - 测试 Emby 连接
         - *时间*: 1 小时
 
-    - [ ] 9.2. 系统设置页面
+    - [x] 9.2. 系统设置页面
         - *Goal*: 创建设置界面
         - *Details*:
           - 创建 `app/(admin)/settings/page.tsx`
-          - 显示 Emby 连接状态
+          - 显示系统信息（用户数、活跃用户数、邀请码数）
           - 测试 Emby 连接按钮
           - 手动触发到期检查按钮
-          - 显示系统信息（用户数、邀请码数）
+          - 显示环境信息
         - *时间*: 3 小时
 
 - [ ] **10. Docker 部署配置**

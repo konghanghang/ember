@@ -87,19 +87,18 @@ npm run build
 - **语言:** TypeScript 5.x
 - **ORM:** Prisma
 - **数据库:** PostgreSQL 16.x
-- **认证:** NextAuth.js v5 或自实现 JWT
+- **认证:** 自实现 JWT（7天有效期）
 
 ### UI 层
-- **组件库:** shadcn/ui + Radix UI
-- **样式:** Tailwind CSS
-- **图标:** Lucide Icons
-- **状态管理:** React Query + Zustand (可选)
+- **组件库:** Tailwind CSS
+- **图标:** Lucide Icons（可选）
+- **状态管理:** React useState/useEffect
 
 ### 工具库
-- **验证:** Zod
-- **邮件:** Nodemailer
-- **定时任务:** node-cron
+- **密码加密:** bcrypt
+- **定时任务:** Vercel Cron
 - **日期处理:** date-fns
+- **验证:** TypeScript
 
 ### 部署
 - **推荐:** Vercel (一键部署)
@@ -110,18 +109,20 @@ npm run build
 
 ## 📋 功能路线图
 
-### Phase 1: MVP ✅ (设计中)
+### Phase 1: MVP ✅ (已完成 90%)
 
 - [x] 项目架构设计
 - [x] 技术选型确定
-- [ ] 数据库 Schema 设计
-- [ ] API 接口设计
-- [ ] 核心功能开发
-  - [ ] 管理员认证
-  - [ ] 用户管理 CRUD
-  - [ ] 邀请码系统
-  - [ ] 账号到期管理
-  - [ ] 邮件通知
+- [x] 数据库 Schema 设计
+- [x] API 接口设计（Server Actions）
+- [x] 核心功能开发
+  - [x] 管理员认证（JWT）
+  - [x] 用户管理 CRUD（列表、搜索、延长、禁用、删除）
+  - [x] 邀请码系统（生成、使用、删除）
+  - [x] 账号到期管理（定时任务自动禁用）
+  - [x] 系统设置（Emby 连接测试、手动触发定时任务）
+  - [ ] 邮件通知（待开发）
+  - [ ] Docker 部署配置（待开发）
 
 ### Phase 2: 增强功能
 
@@ -189,29 +190,23 @@ ember/
 
 ```bash
 # 数据库
-DATABASE_URL=postgres://user:pass@localhost:5432/ember
+DATABASE_URL="postgresql://postgres:password@localhost:5432/ember?schema=public"
 
-# NextAuth.js (如使用)
-NEXTAUTH_SECRET=your-secret-key
-NEXTAUTH_URL=http://localhost:3000
+# JWT 认证（至少 32 个字符）
+JWT_SECRET="your-secret-key-min-32-chars-change-this-in-production"
 
-# 或自实现 JWT
-JWT_SECRET=your-secret-key
+# Emby 服务器
+EMBY_URL="https://your-emby-server.com"
+EMBY_API_KEY="your-emby-api-key"
 
-# Emby
-EMBY_URL=https://your-emby.com
-EMBY_API_KEY=your-api-key
+# Cron 任务验证密钥（可选，用于保护 /api/cron 端点）
+CRON_SECRET="your-cron-secret-key"
 
-# SMTP
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-password
-
-# MoviePilot (可选)
-MOVIEPILOT_URL=https://your-moviepilot.com
-MOVIEPILOT_TOKEN=your-token
+# Next.js
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ```
+
+详细配置请参考 [.env.example](./.env.example) 文件。
 
 ---
 

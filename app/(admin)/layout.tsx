@@ -86,6 +86,16 @@ export default function AdminLayout({
                 >
                   用户管理
                 </a>
+                <a
+                  href="/admin/settings"
+                  className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors ${
+                    pathname === '/admin/settings'
+                      ? 'border-indigo-500 text-gray-900 dark:text-white'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  系统设置
+                </a>
               </div>
             </div>
 
@@ -126,6 +136,16 @@ export default function AdminLayout({
               }`}
             >
               用户管理
+            </a>
+            <a
+              href="/admin/settings"
+              className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
+                pathname === '/admin/settings'
+                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              系统设置
             </a>
           </div>
         </div>

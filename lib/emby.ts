@@ -114,9 +114,9 @@ export class EmbyClient {
           )
         }
 
-        // 解析 JSON（如果响应为空则返回 null）
+        // 解析 JSON（如果响应为空则返回空对象）
         const text = await response.text()
-        return text ? JSON.parse(text) : null
+        return text ? JSON.parse(text) : ({} as T)
       } catch (error) {
         // 最后一次重试失败，抛出异常
         if (attempt === retries - 1) {
