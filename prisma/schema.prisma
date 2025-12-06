@@ -1,14 +1,71 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Ember - Emby 用户管理系统数据库 Schema
 
 generator client {
-  provider = "prisma-client"
-  output   = "../app/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// 管理员表
+model Admin {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String   // bcrypt hash, cost=10
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admins")
+}
+
+// 邀请码表
+model Invite {
+  id          String    @id @default(cuid())
+  code        String    @unique // 8位随机字符串
+  maxUses     Int       @default(1) // 最大使用次数
+  usedCount   Int       @default(0) // 已使用次数
+  expiresAt   DateTime? // 可选的过期时间
+  defaultDays Int       @default(30) // 默认账号有效天数
+  createdAt   DateTime  @default(now())
+
+  // 关系：一个邀请码可以创建多个用户
+  users User[]
+
+  @@map("invites")
+  @@index([code])
+}
+
+// 用户表
+model User {
+  id         String    @id @default(cuid())
+  username   String    @unique
+  email      String
+  embyId     String    @unique // Emby用户ID（Emby返回）
+  inviteCode String // 使用的邀请码
+  expiresAt  DateTime? // 账号到期时间（null=永久有效）
+  isActive   Boolean   @default(true) // 账号状态
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // 关系：属于某个邀请码
+  invite Invite @relation(fields: [inviteCode], references: [code])
+
+  @@map("users")
+  @@index([username])
+  @@index([embyId])
+  @@index([expiresAt]) // 定时任务查询到期用户
+}
+
+// 操作日志表（简化版，可选）
+model Log {
+  id        String   @id @default(cuid())
+  action    String // "admin_login", "create_user", "delete_user", etc.
+  targetId  String? // 目标对象ID（如用户ID）
+  details   Json? // 额外信息（JSON格式）
+  createdAt DateTime @default(now())
+
+  @@map("logs")
+  @@index([action])
+  @@index([createdAt])
 }
