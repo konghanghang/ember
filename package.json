@@ -20,12 +20,14 @@
   "dependencies": {
     "@prisma/client": "^7.1.0",
     "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "jsonwebtoken": "^9.0.3",
     "next": "^15.0.0",
     "prisma": "^7.1.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
