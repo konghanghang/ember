@@ -9,7 +9,7 @@
 
 ## 项目概述
 
-**Ember** 是一个基于 **Go + Next.js** 的现代化 Emby 用户管理系统，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成等功能。
+**Ember** 是一个基于 **Next.js 15 全栈**的现代化 Emby 用户管理系统，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成等功能。采用**全栈单体架构**（Full-Stack Monolithic Application），适合中小规模用户场景。
 
 ### 项目命名
 
@@ -34,14 +34,14 @@
 
 | 技术 | 选择 | 原因 |
 |------|------|------|
-| **前端框架** | Next.js 15 | 全栈一体、App Router、SEO 友好 |
-| **后端框架** | Go + Gin | 高性能、生态成熟、文档丰富 |
-| **ORM** | GORM | 功能全面、自动迁移、易用 |
-| **数据库** | PostgreSQL | 生产级可靠性、功能完善 |
-| **UI 库** | shadcn/ui + Tailwind | 现代化、组件丰富、可定制 |
-| **通信方式** | REST API | 简单可靠、通用性强 |
-| **认证方式** | JWT + Refresh Token | 无状态、现代化、用户体验好 |
-| **部署方式** | 单 Docker 镜像 | 部署简单、资源占用少 |
+| **全栈框架** | Next.js 15 | App Router、Server Actions、全栈一体 |
+| **语言** | TypeScript 5.x | 类型安全、开发效率高 |
+| **ORM** | Prisma | 类型安全、自动类型生成、迁移管理 |
+| **数据库** | PostgreSQL 16.x | 生产级可靠性、功能完善 |
+| **UI 库** | shadcn/ui + Tailwind CSS | 现代化、组件丰富、可定制 |
+| **认证** | NextAuth.js v5 或自实现 JWT | 现代化认证方案 |
+| **状态管理** | React Query + Zustand | 服务端状态缓存 + 客户端状态 |
+| **部署方式** | Docker 单容器 或 Vercel | 部署简单、开发效率高 |
 
 ---
 
@@ -331,28 +331,49 @@
 
 ## 架构设计决策
 
-### 单镜像部署方案 ✅
+### 全栈单体架构 ✅
+
+**架构类型：** Full-Stack Monolithic Application
 
 **实现方式：**
 ```
-Next.js (Standalone Build) → 静态文件
-            ↓
-Go (Gin) 服务器 → 托管静态文件 + 提供 API
-            ↓
-        单个 Docker 镜像
+┌─────────────────────────────────┐
+│   Next.js 15 Application        │
+│                                 │
+│  ┌─────────────────────────┐   │
+│  │ Presentation Layer      │   │  ← React Components
+│  └─────────────────────────┘   │
+│                                 │
+│  ┌─────────────────────────┐   │
+│  │ API Layer               │   │  ← Server Actions
+│  └─────────────────────────┘   │
+│                                 │
+│  ┌─────────────────────────┐   │
+│  │ Business Logic Layer    │   │  ← Services
+│  └─────────────────────────┘   │
+│                                 │
+│  ┌─────────────────────────┐   │
+│  │ Data Access Layer       │   │  ← Prisma ORM
+│  └─────────────────────────┘   │
+└────────────┬────────────────────┘
+             │
+             ▼
+    ┌────────────────┐
+    │  PostgreSQL    │
+    └────────────────┘
 ```
 
 **优势：**
-- ✅ 部署简单：一个镜像包含所有
-- ✅ 资源占用少：共享端口、减少容器数
-- ✅ 管理方便：统一版本、统一配置
+- ✅ 开发效率高：单一代码库，统一技术栈
+- ✅ 类型安全：端到端 TypeScript
+- ✅ 部署简单：单容器或 Vercel 一键部署
+- ✅ 性能充足：轻松支持 2000+ 用户
+- ✅ 维护成本低：无需管理多服务通信
 
 **实现细节：**
-1. Next.js 使用 `output: 'standalone'` 模式构建
-2. Go 服务器同时处理：
-   - `/api/*` → API 路由
-   - `/*` → 静态文件（Next.js 输出）
-3. 多阶段 Dockerfile 构建
+1. Next.js 15 使用 App Router + Server Actions
+2. Prisma 提供类型安全的数据访问
+3. Docker 单容器部署或 Vercel Serverless 部署
 
 ### 认证机制 ✅
 
@@ -377,23 +398,28 @@ Refresh Token 过期 → 重新登录
 | **到期处理** | 禁用 + 延迟删除 | 到期立即禁用，30天后删除 |
 | **MoviePilot 集成** | 完整集成 | 搜索、订阅、状态查询 |
 | **密码策略** | 最小 8 位 + 复杂度检测 | 数字+字母 |
-| **邮件服务** | 支持自定义 SMTP | 配置化 |
-| **任务调度** | 内置 cron | 使用 `github.com/robfig/cron` |
+| **邮件服务** | Nodemailer | 支持自定义 SMTP |
+| **任务调度** | Vercel Cron / node-cron | 根据部署方式选择 |
 
 ### 待细化问题 🤔
 
 1. **数据库迁移策略**
-   - GORM AutoMigrate
-   - 或独立迁移工具（如 golang-migrate）
+   - Prisma Migrate（推荐）
+   - 版本控制和回滚机制
 
 2. **日志处理**
-   - 使用 zap / logrus
+   - Next.js 内置日志
+   - 或使用 winston / pino
    - 结构化日志
 
 3. **配置管理**
-   - 环境变量
-   - 配置文件（YAML/JSON）
-   - 或两者结合
+   - 环境变量（.env）
+   - Next.js 环境变量系统
+   - 运行时配置 vs 构建时配置
+
+4. **定时任务方案**
+   - Vercel Cron（Vercel 部署）
+   - node-cron（Docker 部署）
 
 ---
 

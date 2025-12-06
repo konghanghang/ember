@@ -2,11 +2,12 @@
 
 > A modern user management system for Emby media server
 
-**Ember** 是一个基于 **Go + Next.js** 的现代化 Emby 用户管理系统，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成等功能。
+**Ember** 是一个基于 **Next.js 15 全栈**的现代化 Emby 用户管理系统，采用**全栈单体架构**设计，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成等功能。
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8.svg)](https://go.dev/)
 [![Next.js](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![Prisma](https://img.shields.io/badge/prisma-5.x-2D3748.svg)](https://www.prisma.io/)
 
 ---
 
@@ -43,14 +44,13 @@ open http://localhost:8080
 
 ```bash
 # 安装依赖
-cd backend && go mod download
-cd ../frontend && npm install
+npm install
 
 # 开发模式
-make dev
+npm run dev
 
 # 生产构建
-make build
+npm run build
 ```
 
 ---
@@ -71,22 +71,28 @@ make build
 
 ## 🛠️ 技术栈
 
-### 后端
-- **语言:** Go 1.22+
-- **框架:** Gin
-- **ORM:** GORM
-- **数据库:** PostgreSQL
-- **认证:** JWT
-
-### 前端
+### 全栈框架
 - **框架:** Next.js 15 (App Router)
-- **UI:** shadcn/ui + Tailwind CSS
-- **语言:** TypeScript
-- **状态管理:** React Query + Zustand
+- **语言:** TypeScript 5.x
+- **ORM:** Prisma
+- **数据库:** PostgreSQL 16.x
+- **认证:** NextAuth.js v5 或自实现 JWT
+
+### UI 层
+- **组件库:** shadcn/ui + Radix UI
+- **样式:** Tailwind CSS
+- **图标:** Lucide Icons
+- **状态管理:** React Query + Zustand (可选)
+
+### 工具库
+- **验证:** Zod
+- **邮件:** Nodemailer
+- **定时任务:** node-cron
+- **日期处理:** date-fns
 
 ### 部署
-- **容器化:** Docker (单镜像)
-- **编排:** Docker Compose
+- **推荐:** Vercel (一键部署)
+- **自建:** Docker (单容器)
 - **反向代理:** Nginx / Caddy (可选)
 
 ---
@@ -128,24 +134,40 @@ make build
 
 ```
 ember/
-├── backend/              # Go 后端
-│   ├── cmd/             # 入口
-│   ├── internal/        # 核心逻辑
-│   │   ├── api/        # HTTP 处理
-│   │   ├── service/    # 业务逻辑
-│   │   ├── repository/ # 数据访问
-│   │   └── client/     # 外部客户端
-│   └── pkg/            # 公共库
+├── app/                  # Next.js App Router
+│   ├── (auth)/          # 认证页面组
+│   │   ├── login/
+│   │   └── register/
+│   ├── (admin)/         # 管理后台
+│   │   ├── dashboard/
+│   │   ├── users/
+│   │   ├── invites/
+│   │   └── settings/
+│   ├── (user)/          # 用户面板
+│   │   ├── profile/
+│   │   └── devices/
+│   ├── actions/         # Server Actions
+│   └── api/             # API Routes (可选)
 │
-├── frontend/            # Next.js 前端
-│   ├── app/            # 页面路由
-│   ├── components/     # UI 组件
-│   └── lib/            # 工具函数
+├── components/          # UI 组件
+│   ├── ui/             # shadcn/ui 组件
+│   ├── admin/          # 管理后台组件
+│   └── user/           # 用户面板组件
 │
+├── lib/                 # 工具库
+│   ├── db.ts           # Prisma 客户端
+│   ├── auth.ts         # 认证工具
+│   ├── emby.ts         # Emby API 客户端
+│   └── email.ts        # 邮件服务
+│
+├── prisma/             # Prisma 配置
+│   ├── schema.prisma   # 数据库 Schema
+│   └── migrations/     # 迁移文件
+│
+├── types/              # TypeScript 类型
 ├── docs/               # 项目文档
-├── Dockerfile          # 单镜像构建
-├── docker-compose.yml  # 部署配置
-└── Makefile           # 构建脚本
+├── Dockerfile          # Docker 构建
+└── docker-compose.yml  # 部署配置
 ```
 
 ---
@@ -158,10 +180,12 @@ ember/
 # 数据库
 DATABASE_URL=postgres://user:pass@localhost:5432/ember
 
-# JWT
+# NextAuth.js (如使用)
+NEXTAUTH_SECRET=your-secret-key
+NEXTAUTH_URL=http://localhost:3000
+
+# 或自实现 JWT
 JWT_SECRET=your-secret-key
-JWT_ACCESS_EXPIRY=15m
-JWT_REFRESH_EXPIRY=7d
 
 # Emby
 EMBY_URL=https://your-emby.com
