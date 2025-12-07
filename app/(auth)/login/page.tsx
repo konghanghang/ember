@@ -1,11 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { adminLogin } from '@/app/actions/auth'
 
 export default function LoginPage() {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -18,17 +16,15 @@ export default function LoginPage() {
     const username = formData.get('username') as string
     const password = formData.get('password') as string
 
+    // Server Action 会设置 cookie 并自动 redirect
+    // 只有在登录失败时才会返回错误信息
     const result = await adminLogin({ username, password })
 
-    if (result.success && result.token) {
-      // 保存 Token 到 localStorage
-      localStorage.setItem('token', result.token)
-      // 跳转到管理后台
-      router.push('/admin/invites')
-    } else {
+    if (result && !result.success) {
       setError(result.error || '登录失败')
       setLoading(false)
     }
+    // 如果成功，Server Action 会直接 redirect，这里不需要处理
   }
 
   return (

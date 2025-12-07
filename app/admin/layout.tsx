@@ -1,42 +1,36 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
-import { verifyToken } from '@/lib/auth'
+import { usePathname } from 'next/navigation'
+import { getCurrentUser, adminLogout } from '@/app/actions/auth'
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const router = useRouter()
   const pathname = usePathname()
   const [loading, setLoading] = useState(true)
   const [username, setUsername] = useState<string | null>(null)
 
   useEffect(() => {
-    // 验证 Token
-    const token = localStorage.getItem('token')
+    // 从服务端获取当前用户信息
+    // Middleware 已经保护了路由，这里只是获取用户信息用于显示
+    getCurrentUser()
+      .then((user) => {
+        if (user) {
+          setUsername(user.username)
+        }
+        setLoading(false)
+      })
+      .catch(() => {
+        setLoading(false)
+      })
+  }, [])
 
-    if (!token) {
-      router.push('/login')
-      return
-    }
-
-    try {
-      const payload = verifyToken(token)
-      setUsername(payload.username)
-      setLoading(false)
-    } catch (error) {
-      // Token 无效或过期
-      localStorage.removeItem('token')
-      router.push('/login')
-    }
-  }, [router])
-
-  function handleLogout() {
-    localStorage.removeItem('token')
-    router.push('/login')
+  async function handleLogout() {
+    // 调用 Server Action 清除 cookie 并重定向
+    await adminLogout()
   }
 
   if (loading) {
@@ -44,7 +38,7 @@ export default function AdminLayout({
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-          <p className="mt-4 text-gray-600 dark:text-gray-400">验证登录状态...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">加载中...</p>
         </div>
       </div>
     )
