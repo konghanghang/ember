@@ -37,6 +37,7 @@ export interface EmbyUserPolicy {
   EnableAudioPlaybackTranscoding: boolean
   EnableVideoPlaybackTranscoding: boolean
   EnablePlaybackRemuxing: boolean
+  SimultaneousStreamLimit?: number // 最大同步视频流数量
 }
 
 /**
@@ -221,7 +222,9 @@ export class EmbyClient {
   /**
    * 获取默认用户权限配置
    *
-   * 根据需求文档 (docs/specs/requirements.md) 定义的默认权限
+   * 根据需求定义的默认权限：
+   * - 禁用所有转码（节省服务器资源）
+   * - 限制最大同步视频流为 5
    */
   static getDefaultPolicy(): EmbyUserPolicy {
     return {
@@ -235,9 +238,12 @@ export class EmbyClient {
       EnableContentDownloading: false,
       EnableSyncTranscoding: false,
       EnableMediaPlayback: true,
-      EnableAudioPlaybackTranscoding: true,
-      EnableVideoPlaybackTranscoding: true,
-      EnablePlaybackRemuxing: true,
+      // 禁用所有转码以节省服务器资源
+      EnableAudioPlaybackTranscoding: false,
+      EnableVideoPlaybackTranscoding: false,
+      EnablePlaybackRemuxing: false,
+      // 限制并发视频流数量
+      SimultaneousStreamLimit: 5,
     }
   }
 }
