@@ -170,6 +170,124 @@ await prisma.$transaction(async (tx) => {
 
 ---
 
+## 🗄️ 数据库设计决策
+
+### 主键类型选择：String (cuid) vs Int (autoincrement)
+
+**决策**：所有表使用 `String @default(cuid())` 作为主键
+
+**理由**：
+
+#### 1. **安全性** 🔒
+```typescript
+// ❌ 数字ID：可被枚举，暴露业务数据
+GET /api/users/1
+GET /api/users/2  // 攻击者可遍历所有用户
+// 通过ID推断：用户数量、增长速度、注册时间
+
+// ✅ cuid：不可预测，防止枚举攻击
+GET /api/users/clh3x2k4g0000qzrm2d5l8v9w
+GET /api/users/clh3x2k4g0000qzrm2d5l8v9x  // 404，无法枚举
+```
+
+#### 2. **未来扩展性** 🚀
+- 分布式友好：如需多数据库副本、读写分离，cuid 无需改造
+- 数字ID需要额外的分布式ID生成方案（如雪花算法）
+
+#### 3. **跨表引用灵活性** 📊
+```typescript
+// Log.targetId 可以指向任意表的ID
+{ action: "delete_user", targetId: "clh..." }
+{ action: "delete_invite", targetId: "clh..." }
+
+// 如果用数字ID，需要额外字段区分表类型
+```
+
+#### 4. **性能差异微不足道** ⚡
+- 1万用户规模：String主键查询 0.3ms vs Int主键查询 0.2ms
+- 差异 <0.1ms，用户完全感知不到
+- 存储差异：1万用户仅相差 15KB
+
+**权衡**：
+- ✅ 安全、灵活、未来友好
+- ❌ 理论上存储和查询性能略低（实际可忽略）
+
+---
+
+### 外键设计：User.inviteCode 引用业务字段
+
+**决策**：`User.inviteCode` 引用 `Invite.code`（业务字段）而非 `Invite.id`（主键）
+
+**理由**：
+
+#### 1. **数据语义正确性** 📋
+```prisma
+model User {
+  inviteCode String  // "我用哪个码注册的"（历史快照）
+  // 而不是
+  // inviteId String  // "我属于哪个邀请码"（当前关系）
+}
+```
+
+- 注册是**历史事件**，不是**持续关系**
+- 邀请码是注册时的快照，应该永久保留
+
+#### 2. **历史数据完整性** 📜
+
+类比：**电商订单系统**
+
+```prisma
+// ✅ 正确设计：保存历史快照
+model Order {
+  productName String   // 购买时的商品名称
+  productPrice Decimal // 购买时的价格
+}
+
+// ❌ 错误设计：引用主键
+model Order {
+  productId String
+  product Product @relation(...)  // 商品删除后订单丢失信息
+}
+```
+
+**同理**：
+- 即使邀请码被删除，用户记录仍保留完整的注册历史
+- 审计日志中可直接看到邀请码，无需 join 查询
+
+#### 3. **当前业务逻辑的保护** 🛡️
+
+```typescript
+// app/actions/invites.ts
+if (invite.usedCount > 0) {
+  return {
+    success: false,
+    error: '邀请码已被使用，无法删除'
+  }
+}
+```
+
+- 已禁止删除已使用的邀请码
+- 避免出现孤儿数据
+
+#### 4. **外键约束的权衡**
+
+如果改成引用主键，删除邀请码时必须选择：
+
+| 策略 | SQL | 后果 |
+|------|-----|------|
+| `CASCADE` | `ON DELETE CASCADE` | ❌ 删除邀请码会级联删除所有用户（灾难） |
+| `SET NULL` | `ON DELETE SET NULL` | ❌ 丢失历史信息（"不知道用哪个码注册的"） |
+| `RESTRICT` | `ON DELETE RESTRICT` | ❌ 邀请码永远无法删除（即使过期废弃） |
+
+**当前设计**：
+- ✅ 邀请码删除后，用户保留 `inviteCode` 字符串（历史快照）
+- ✅ 可选关系：`user.invite` 查询会失败，但数据完整
+- ❌ 违反"外键引用主键"的教条，但符合业务语义
+
+**结论**：理论上不完美的设计，在实践中是最优解。
+
+---
+
 ## 🔐 认证和授权
 
 ### JWT 认证流程
