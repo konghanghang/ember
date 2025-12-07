@@ -161,6 +161,21 @@ export class EmbyClient {
   }
 
   /**
+   * 设置用户密码
+   * @param userId Emby 用户 ID
+   * @param password 新密码
+   */
+  async setUserPassword(userId: string, password: string): Promise<void> {
+    await this.request(`/Users/${userId}/Password`, {
+      method: 'POST',
+      body: JSON.stringify({
+        Id: userId,
+        NewPw: password,
+      }),
+    })
+  }
+
+  /**
    * 更新用户权限策略
    * @param userId Emby 用户 ID
    * @param policy 权限策略（部分更新）

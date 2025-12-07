@@ -48,11 +48,14 @@ export async function registerUser(data: {
         Password: data.password,
       })
 
-      // 3.2 应用默认用户策略（禁用转码，限制视频流）
+      // 3.2 设置用户密码（Emby API 创建用户时不会设置密码）
+      await embyClient.setUserPassword(embyUser.Id, data.password)
+
+      // 3.3 应用默认用户策略（禁用转码，限制视频流）
       const { EmbyClient } = await import('@/lib/emby')
       await embyClient.setUserPolicy(embyUser.Id, EmbyClient.getDefaultPolicy())
 
-      // 3.3 保存到数据库
+      // 3.4 保存到数据库
       const newUser = await tx.user.create({
         data: {
           username: data.username,
@@ -63,7 +66,7 @@ export async function registerUser(data: {
         },
       })
 
-      // 3.4 更新邀请码使用次数
+      // 3.5 更新邀请码使用次数
       await tx.invite.update({
         where: { code: data.inviteCode },
         data: {
@@ -73,7 +76,7 @@ export async function registerUser(data: {
         },
       })
 
-      // 3.5 记录日志
+      // 3.6 记录日志
       await tx.log.create({
         data: {
           action: 'create_user',
