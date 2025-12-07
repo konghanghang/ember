@@ -172,11 +172,22 @@ export async function extendExpiry(userId: string, days: number) {
     // 计算新的到期时间
     const newExpiresAt = add(user.expiresAt || new Date(), { days })
 
-    // 更新到期时间
+    // 判断是否需要重新启用账号
+    const shouldReactivate = !user.isActive && newExpiresAt > new Date()
+
+    // 如果需要重新启用，同步到 Emby
+    if (shouldReactivate) {
+      await embyClient.setUserPolicy(user.embyId, {
+        IsDisabled: false,
+      })
+    }
+
+    // 更新到期时间（如果需要则同时更新状态）
     await prisma.user.update({
       where: { id: userId },
       data: {
         expiresAt: newExpiresAt,
+        ...(shouldReactivate && { isActive: true }),
       },
     })
 
@@ -190,6 +201,7 @@ export async function extendExpiry(userId: string, days: number) {
           days,
           oldExpiresAt: user.expiresAt?.toISOString(),
           newExpiresAt: newExpiresAt.toISOString(),
+          reactivated: shouldReactivate,
         },
       },
     })
@@ -224,16 +236,19 @@ export async function toggleUserStatus(userId: string) {
       }
     }
 
-    // 同步到 Emby
+    // 计算目标状态
+    const targetStatus = !user.isActive
+
+    // 同步到 Emby（注意：IsDisabled 和 isActive 相反）
     await embyClient.setUserPolicy(user.embyId, {
-      IsDisabled: !user.isActive,
+      IsDisabled: !targetStatus,
     })
 
     // 更新数据库
     await prisma.user.update({
       where: { id: userId },
       data: {
-        isActive: !user.isActive,
+        isActive: targetStatus,
       },
     })
 
