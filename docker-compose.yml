@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: ember-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-password}
+      POSTGRES_DB: ember
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ember-network
+
+  # Ember 应用
+  ember:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ember-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # 数据库配置
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-change-this-password}@postgres:5432/ember?schema=public
+
+      # JWT 密钥（必须修改，至少 32 个字符）
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-secure-random-string-at-least-32-chars-long}
+
+      # Emby 服务器配置（必须修改）
+      EMBY_URL: ${EMBY_URL:-https://your-emby-server.com}
+      EMBY_API_KEY: ${EMBY_API_KEY:-your-emby-api-key}
+
+      # Cron 任务密钥（可选，用于保护 /api/cron 端点）
+      CRON_SECRET: ${CRON_SECRET:-your-cron-secret-key}
+
+      # Next.js 配置
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ember-network
+    # 启动命令：先运行数据库迁移，再启动应用
+    command: >
+      sh -c "
+        npx prisma migrate deploy &&
+        npx prisma db seed &&
+        node server.js
+      "
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  ember-network:
+    driver: bridge
