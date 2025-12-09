@@ -87,3 +87,91 @@ export async function adminLogout() {
   cookieStore.delete('auth-token')
   redirect('/login')
 }
+
+/**
+ * 修改管理员密码
+ * @param data { currentPassword, newPassword }
+ * @returns { success: boolean, error?: string }
+ */
+export async function updateAdminPassword(data: {
+  currentPassword: string
+  newPassword: string
+}) {
+  try {
+    // 1. 获取当前登录用户
+    const auth = await getServerAuth()
+    if (!auth) {
+      return {
+        success: false,
+        error: '未登录或登录已过期',
+      }
+    }
+
+    // 2. 验证新密码长度
+    if (data.newPassword.length < 6) {
+      return {
+        success: false,
+        error: '新密码长度至少 6 个字符',
+      }
+    }
+
+    // 3. 查找管理员
+    const admin = await prisma.admin.findUnique({
+      where: { id: auth.id },
+    })
+
+    if (!admin) {
+      return {
+        success: false,
+        error: '管理员账号不存在',
+      }
+    }
+
+    // 4. 验证当前密码
+    const isCurrentPasswordValid = await verifyPassword(
+      data.currentPassword,
+      admin.password
+    )
+
+    if (!isCurrentPasswordValid) {
+      return {
+        success: false,
+        error: '当前密码错误',
+      }
+    }
+
+    // 5. 加密新密码
+    const bcrypt = await import('bcryptjs')
+    const hashedPassword = await bcrypt.hash(data.newPassword, 10)
+
+    // 6. 更新密码
+    await prisma.admin.update({
+      where: { id: auth.id },
+      data: {
+        password: hashedPassword,
+      },
+    })
+
+    // 7. 记录日志
+    await prisma.log.create({
+      data: {
+        action: 'update_password',
+        targetId: auth.id,
+        details: {
+          username: admin.username,
+          timestamp: new Date().toISOString(),
+        },
+      },
+    })
+
+    return {
+      success: true,
+    }
+  } catch (error) {
+    console.error('修改密码失败：', error)
+    return {
+      success: false,
+      error: '修改密码失败，请稍后重试',
+    }
+  }
+}

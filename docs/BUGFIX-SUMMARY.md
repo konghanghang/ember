@@ -1,6 +1,6 @@
 # 🔧 Bug 修复总结
 
-> **修复日期**: 2025-12-08
+> **修复日期**: 2025-12-08 ~ 2025-12-09
 > **修复人员**: Kong Hang (with Claude Code)
 > **修复方案**: 方案 B - 完整修复所有问题
 
@@ -15,9 +15,10 @@
 | #3 | 用户状态同步不一致 | 🟡 中等 | ✅ 已修复 |
 | #4 | 延期功能状态同步不一致 | 🟡 中等 | ✅ 已修复 |
 | #5 | 邀请码并发安全问题 | 🟡 中等 | ✅ 已修复 |
+| #6 | 管理员密码安全隐患 | 🔴 严重 | ✅ 已修复 |
 
-**总修复时间**: ~4 小时
-**修改文件数**: 7 个
+**总修复时间**: ~5 小时
+**修改文件数**: 11 个
 
 ---
 
@@ -396,6 +397,187 @@ ab -n 10 -c 10 -p register.json \
 
 ---
 
+## 🔐 问题 #6：管理员密码安全隐患（新增修复）
+
+### 问题描述
+
+**原始设计的安全隐患**：
+
+1. **默认密码硬编码**
+   - 管理员密码硬编码为 `admin123`（`prisma/seed.ts`）
+   - 所有环境都使用相同密码
+   - 无法在初始化时自定义密码
+
+2. **无法修改密码**
+   - 系统未提供修改密码功能
+   - 密码一旦泄露无法补救
+
+3. **登录页面暴露密码**
+   - 登录页面显示 "默认账号：admin / admin123"
+   - 公网部署时等同于公开管理员密码
+
+**后果**：
+- ❌ 公网部署极度危险（任何人都知道密码）
+- ❌ 账号被入侵后无法修改密码
+- ❌ 违反安全最佳实践
+
+### 修复方案
+
+采用 **方案 A（修改密码功能）+ 方案 B（环境变量配置）**：
+
+#### 方案 A：添加修改密码功能
+
+**新增文件**：
+- `app/actions/auth.ts` - 添加 `updateAdminPassword()` 函数
+- 更新 `app/admin/settings/page.tsx` - 添加修改密码表单
+
+**功能特性**：
+```typescript
+export async function updateAdminPassword(data: {
+  currentPassword: string
+  newPassword: string
+}) {
+  // 1. 验证当前密码
+  const isValid = await verifyPassword(currentPassword, admin.password)
+  if (!isValid) return { error: '当前密码错误' }
+
+  // 2. 验证新密码长度（至少 6 个字符）
+  if (newPassword.length < 6) return { error: '新密码太短' }
+
+  // 3. 加密并更新
+  const hashed = await bcrypt.hash(newPassword, 10)
+  await prisma.admin.update({ data: { password: hashed } })
+
+  // 4. 记录日志
+  await prisma.log.create({ action: 'update_password', ... })
+
+  return { success: true }
+}
+```
+
+**UI 界面**：
+- 位置：系统设置 → 修改密码
+- 表单字段：当前密码、新密码、确认新密码
+- 前端验证：密码一致性检查
+- 实时反馈：成功/失败提示
+
+#### 方案 B：环境变量配置初始密码
+
+**修改文件**：`prisma/seed.ts`
+
+**实现**：
+```typescript
+async function main() {
+  // 优先使用环境变量，否则使用默认密码
+  const plainPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'admin123'
+  const password = await bcrypt.hash(plainPassword, 10)
+
+  await prisma.admin.upsert({
+    where: { username: 'admin' },
+    create: { username: 'admin', password },
+  })
+
+  // 显示警告
+  if (plainPassword === 'admin123') {
+    console.log('⚠️  警告：当前使用默认密码 "admin123"')
+    console.log('   生产环境请在 .env 中设置 ADMIN_DEFAULT_PASSWORD')
+  }
+}
+```
+
+**使用方法**：
+```bash
+# .env 文件
+ADMIN_DEFAULT_PASSWORD="your-secure-password"
+
+# 重新初始化
+npm run db:seed
+```
+
+#### 方案 C：移除登录页面的密码提示
+
+**修改文件**：`app/(auth)/login/page.tsx`
+
+**变更**：
+- ❌ 删除：`<p>默认账号：admin / admin123</p>`
+- ✅ 保留：登录表单和返回首页链接
+
+**理由**：
+- 公开显示默认密码是严重安全隐患
+- 强制管理员妥善保管密码
+- 符合生产环境安全标准
+
+---
+
+### 完整的密码管理策略
+
+#### 部署前配置（推荐）
+
+```bash
+# .env 文件
+ADMIN_DEFAULT_PASSWORD="$(openssl rand -base64 16)"
+```
+
+**优势**：
+- ✅ 不同环境使用不同密码
+- ✅ 避免使用弱密码
+- ✅ 密码不暴露在代码中
+
+#### 首次登录后修改（必须）
+
+**步骤**：
+1. 登录管理后台（用户名：`admin`）
+2. 导航到"系统设置" → "修改密码"
+3. 填写当前密码和新密码
+4. 点击"修改密码"
+
+**密码策略**：
+- 最小长度：6 个字符
+- 推荐：12+ 个字符，包含大小写字母、数字、特殊字符
+- 禁止：弱密码如 `123456`、`password`、`admin`
+
+#### 密码重置（管理员忘记密码）
+
+如果管理员忘记密码，可以通过数据库重置：
+
+```bash
+# 方法 1：重新运行 seed（会重置为环境变量中的密码）
+npm run db:seed
+
+# 方法 2：直接更新数据库（需要生成 bcrypt hash）
+# 生成新密码的 hash
+node -e "console.log(require('bcryptjs').hashSync('new-password', 10))"
+
+# 更新数据库
+docker compose exec postgres psql -U postgres ember -c \
+  "UPDATE \"Admin\" SET password = 'YOUR_HASH_HERE' WHERE username = 'admin';"
+```
+
+---
+
+### 安全性对比
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| **公网部署** | ❌ 默认密码 `admin123`，无法修改 | ✅ 环境变量配置 + 可修改 |
+| **登录页面** | ❌ 显示默认密码提示 | ✅ 无密码提示 |
+| **密码泄露** | ❌ 无法补救 | ✅ 立即修改密码 |
+| **多环境部署** | ❌ 所有环境同一密码 | ✅ 每个环境独立密码 |
+| **密码强度** | ❌ 弱密码 `admin123` | ✅ 支持强密码 |
+
+---
+
+### 修改文件列表
+
+1. **prisma/seed.ts** - 支持环境变量配置初始密码
+2. **app/actions/auth.ts** - 添加 `updateAdminPassword()` 函数
+3. **app/admin/settings/page.tsx** - 添加修改密码表单
+4. **app/(auth)/login/page.tsx** - 移除密码提示
+5. **.env.example** - 添加 `ADMIN_DEFAULT_PASSWORD` 配置
+6. **docs/DEPLOYMENT.md** - 更新密码管理文档
+
+---
+
 ## 🚀 后续优化建议
 
 ### P0 - 高优先级
@@ -420,20 +602,22 @@ ab -n 10 -c 10 -p register.json \
 
 ## 📝 总结
 
-本次修复解决了 **5 个核心问题**，包括：
+本次修复解决了 **6 个核心问题**，包括：
 - 2 个严重的数据一致性问题
 - 3 个中等的状态同步和并发问题
+- 1 个严重的安全隐患（密码管理）
 
 所有修复均遵循以下原则：
 1. **最终一致性** - 确保 Emby 和数据库最终状态一致
 2. **补偿机制** - 失败时自动尝试恢复
 3. **可观测性** - 所有异常情况都有日志追踪
 4. **实用主义** - 解决实际问题，不过度设计
+5. **安全第一** - 生产环境部署的安全性保障
 
 **修复后的系统具备生产环境部署条件。**
 
 ---
 
 **修复人员**: Kong Hang (with Claude Code)
-**修复日期**: 2025-12-08
+**修复日期**: 2025-12-08 ~ 2025-12-09
 **下一步**: 部署到生产环境并监控运行状况

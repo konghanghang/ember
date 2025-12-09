@@ -39,6 +39,9 @@ POSTGRES_PASSWORD="your-secure-password"
 # JWT 密钥（至少 32 个字符）
 JWT_SECRET="$(openssl rand -base64 32)"
 
+# 管理员初始密码（强烈建议修改）
+ADMIN_DEFAULT_PASSWORD="your-secure-admin-password"
+
 # Emby 服务器配置
 EMBY_URL="https://your-emby-server.com"
 NEXT_PUBLIC_EMBY_URL="https://your-emby-server.com"
@@ -65,13 +68,22 @@ docker compose up -d
 docker compose logs -f ember
 ```
 
-### 4. 验证部署
+### 4. 验证部署并修改密码
 
-访问 http://localhost:3000，默认管理员账号：
+访问 http://localhost:3000，使用管理员账号登录：
 - 用户名：`admin`
-- 密码：`admin123`
+- 密码：`.env` 中配置的 `ADMIN_DEFAULT_PASSWORD`（默认为 `admin123`）
 
-⚠️ **重要**：首次登录后请立即修改密码！
+⚠️ **首次登录后必须立即修改密码**：
+1. 登录后导航到"系统设置"页面
+2. 找到"修改密码"区块
+3. 填写当前密码和新密码
+4. 点击"修改密码"保存
+
+🔒 **安全提示**：
+- 生产环境强烈建议在 `.env` 中配置 `ADMIN_DEFAULT_PASSWORD`
+- 新密码长度至少 6 个字符
+- 建议使用包含大小写字母、数字和特殊字符的强密码
 
 ---
 
@@ -164,15 +176,40 @@ cat backup.sql | docker compose exec -T postgres psql -U postgres ember
 
 ### 生产环境必做
 
-1. **修改默认密码**
-   - 首次登录后立即修改管理员密码
-   - 数据库密码使用强密码（至少 16 位）
+1. **管理员密码管理**
 
-2. **使用 HTTPS**
+   **部署前配置**（推荐）：
+   ```bash
+   # .env 文件
+   ADMIN_DEFAULT_PASSWORD="$(openssl rand -base64 16)"
+   ```
+
+   **首次登录后修改**（必须）：
+   1. 登录管理后台（用户名：`admin`）
+   2. 导航到"系统设置" → "修改密码"
+   3. 填写当前密码和新密码
+   4. 点击"修改密码"
+
+   **密码策略**：
+   - ✅ 最小长度：6 个字符
+   - ✅ 推荐：12+ 个字符，包含大小写字母、数字、特殊字符
+   - ❌ 禁止：弱密码如 `123456`、`password`、`admin`
+
+   **重要提示**：
+   - ⚠️ 如果未配置 `ADMIN_DEFAULT_PASSWORD`，系统将使用默认密码 `admin123`
+   - ⚠️ 默认密码仅供开发测试使用，生产环境**必须修改**
+   - ⚠️ 登录页面不再显示默认密码提示，请妥善保管密码
+
+2. **数据库密码安全**
+   - 使用强密码（至少 16 位）
+   - 不要使用默认密码 `password`
+   - 定期更换数据库密码
+
+3. **使用 HTTPS**
    - 配置 Nginx/Caddy 反向代理
    - 启用 SSL 证书（Let's Encrypt）
 
-3. **配置防火墙**
+4. **配置防火墙**
    ```bash
    # 只允许 Web 端口
    ufw allow 80/tcp
@@ -180,7 +217,7 @@ cat backup.sql | docker compose exec -T postgres psql -U postgres ember
    ufw enable
    ```
 
-4. **定期备份数据库**
+5. **定期备份数据库**
    ```bash
    # 添加到 crontab
    0 2 * * * docker compose -f /path/to/ember/docker-compose.yml exec postgres pg_dump -U postgres ember > /backup/ember-$(date +\%Y\%m\%d).sql

@@ -96,13 +96,6 @@ export default function LoginPage() {
               {loading ? '登录中...' : '登录'}
             </button>
           </form>
-
-          {/* 提示信息 */}
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              默认账号：admin / admin123
-            </p>
-          </div>
         </div>
 
         {/* 底部链接 */}
