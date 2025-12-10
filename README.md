@@ -4,10 +4,11 @@
 
 **Ember** 是一个基于 **Next.js 15 全栈**的现代化 Emby 用户管理系统，采用**全栈单体架构**设计，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成等功能。
 
+[![CI](https://github.com/konghanghang/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/konghanghang/ember/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Next.js](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Prisma](https://img.shields.io/badge/prisma-5.x-2D3748.svg)](https://www.prisma.io/)
+[![Prisma](https://img.shields.io/badge/prisma-7.x-2D3748.svg)](https://www.prisma.io/)
 
 ---
 
@@ -77,6 +78,7 @@ npm run build
 | [需求设计](./docs/01-requirements.md) | 完整需求规划（归档） |
 | [架构设计](./docs/02-architecture.md) | 系统架构设计（归档） |
 | [技术选型](./docs/tech-stack-decision.md) | 技术栈决策记录（归档） |
+| [CI/CD 指南](./docs/cicd-guide.md) | GitHub Actions 自动化流程 |
 
 ---
 
@@ -101,8 +103,9 @@ npm run build
 - **验证:** TypeScript
 
 ### 部署
-- **推荐:** Vercel (一键部署)
-- **自建:** Docker (单容器)
+- **Docker:** GitHub Container Registry (ghcr.io)
+- **CI/CD:** GitHub Actions 自动化
+- **自建:** Docker Compose / Kubernetes
 - **反向代理:** Nginx / Caddy (可选)
 
 ---
