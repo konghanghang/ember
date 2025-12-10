@@ -41,8 +41,9 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# 复制 public 文件（如果有）
-COPY --from=builder /app/public ./public
+# 注意：public 目录为空，且 standalone 模式会自动处理静态文件
+# 如果将来需要添加静态资源，取消下面这行的注释：
+# COPY --from=builder /app/public ./public
 
 # 复制 Prisma 文件（用于运行迁移）
 COPY --from=builder /app/prisma ./prisma
