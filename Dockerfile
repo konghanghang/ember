@@ -53,6 +53,9 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
+# 复制 dotenv（prisma.config.ts 需要，但 standalone 不包含）
+COPY --from=builder /app/node_modules/dotenv ./node_modules/dotenv
+
 # 切换到非 root 用户
 USER nextjs
 
