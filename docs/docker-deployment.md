@@ -81,10 +81,15 @@ docker compose up -d
 # SQL 文件位置：prisma/migrations/*/migration.sql
 psql $DATABASE_URL -f prisma/migrations/20251207010855_ember/migration.sql
 
-# 2. 构建并启动应用
+# 2. 初始化管理员账号（首次部署必需）
+psql $DATABASE_URL -f prisma/migrations/init-admin.sql
+# 默认账号：admin / admin123
+# ⚠️ 登录后请立即修改密码！
+
+# 3. 构建并启动应用
 docker compose up -d --build
 
-# 3. 查看日志
+# 4. 查看日志
 docker compose logs -f ember
 ```
 
@@ -118,6 +123,43 @@ docker compose -f docker-compose.local.yml logs -f
 访问：http://localhost:3000
 
 > **注意**：本地模式会在 Docker 中启动 PostgreSQL，数据存储在 `postgres_data` volume 中。
+
+## 👤 管理员账号初始化
+
+### 方式一：使用默认账号（快速）
+
+```bash
+# 执行初始化脚本
+psql $DATABASE_URL -f prisma/migrations/init-admin.sql
+
+# 默认账号
+# 用户名：admin
+# 密码：admin123
+```
+
+⚠️ **安全提醒**：首次登录后请立即修改密码！
+
+### 方式二：创建自定义账号（推荐）
+
+```bash
+# 生成自定义管理员账号的 SQL
+node scripts/create-admin.js 你的用户名 你的密码 > /tmp/admin.sql
+
+# 执行 SQL
+psql $DATABASE_URL -f /tmp/admin.sql
+
+# 清理临时文件
+rm /tmp/admin.sql
+```
+
+### 方式三：一键执行（最快）
+
+```bash
+# 直接生成并执行
+node scripts/create-admin.js admin MySecurePass123 | psql $DATABASE_URL
+```
+
+---
 
 ## 📋 配置说明
 
