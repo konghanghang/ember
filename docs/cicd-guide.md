@@ -30,7 +30,60 @@ Ember 使用 GitHub Actions 实现自动化的持续集成和持续部署。
 
 ---
 
-## 🚀 Release - 发布流程
+## 🧪 Master 镜像 - 测试环境
+
+**触发条件**：
+- Push 代码到 `master` 分支（代码修改时）
+- 与 CI 使用相同的 `paths-ignore` 规则
+
+**构建内容**：
+自动构建并推送两个测试镜像标签：
+```bash
+# 最新的 master 分支镜像（总是覆盖）
+ghcr.io/konghanghang/ember:master
+
+# 特定 commit 的镜像（可回溯）
+ghcr.io/konghanghang/ember:master-abc1234
+```
+
+**典型开发流程**：
+
+```bash
+# 1. 开发并推送代码
+git add .
+git commit -m "feat: 添加新功能"
+git push origin master
+
+# 2. GitHub Actions 自动执行（并行）：
+#    ✅ CI 验证（2-3 分钟）
+#    ✅ 构建 master 镜像（3-5 分钟）
+
+# 3. 在测试环境拉取最新 master 镜像
+docker pull ghcr.io/konghanghang/ember:master
+
+# 4. 测试验证
+docker run -d -p 3000:3000 --env-file .env \
+  ghcr.io/konghanghang/ember:master
+
+# 5. 测试通过后打生产 tag
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+**使用场景**：
+- 🧪 测试环境部署最新开发版本
+- 🔄 持续集成测试
+- 🐛 快速验证 bug 修复
+- 📋 回滚到特定 commit（使用 `master-<sha>` 标签）
+
+**注意事项**：
+- ⚠️ `master` 镜像仅用于测试，不要用于生产环境
+- ⚠️ `master` 镜像会被每次 push 覆盖
+- ✅ 如需回滚到特定版本，使用 `master-<commit-sha>` 标签
+
+---
+
+## 🚀 Release - 发布生产版本
 
 ### 发布新版本
 
@@ -64,30 +117,55 @@ v<主版本>.<次版本>.<修订版本>
 - v2.0.0  - 破坏性更新（不兼容旧版本）
 ```
 
-### Docker 镜像标签
+### Docker 镜像标签策略
+
+项目提供两类镜像：**测试镜像**和**生产镜像**
+
+#### 测试镜像（Master 分支）
+
+```bash
+# 最新的 master 分支（每次 push master 自动更新）
+ghcr.io/konghanghang/ember:master
+
+# 特定 commit 的测试镜像（可回溯）
+ghcr.io/konghanghang/ember:master-abc1234
+```
+
+#### 生产镜像（Tag 发布）
 
 每次发布会生成以下标签：
 
 ```bash
 # 完整版本号
-ghcr.io/<用户名>/ember:v1.2.3
-ghcr.io/<用户名>/ember:1.2.3
+ghcr.io/konghanghang/ember:v1.2.3
+ghcr.io/konghanghang/ember:1.2.3
 
 # 主版本号 + 次版本号
-ghcr.io/<用户名>/ember:1.2
+ghcr.io/konghanghang/ember:1.2
 
 # 主版本号
-ghcr.io/<用户名>/ember:1
+ghcr.io/konghanghang/ember:1
 
-# 最新版本
-ghcr.io/<用户名>/ember:latest
+# 最新生产版本
+ghcr.io/konghanghang/ember:latest
 ```
+
+#### 使用场景对比
+
+| 环境 | 推荐镜像 | 更新频率 | 稳定性 |
+|------|---------|---------|--------|
+| 开发/测试 | `:master` | 每次 push | 不稳定 |
+| 预发布 | `:v1.2.3` | 手动发布 | 稳定 |
+| 生产环境 | `:v1.2.3` | 手动发布 | 稳定 |
 
 **使用示例**：
 
 ```bash
-# 拉取最新版本
-docker pull ghcr.io/<用户名>/ember:latest
+# 测试环境：拉取最新开发版本
+docker pull ghcr.io/konghanghang/ember:master
+
+# 生产环境：拉取最新稳定版本
+docker pull ghcr.io/konghanghang/ember:latest
 
 # 拉取特定版本（推荐）
 docker pull ghcr.io/<用户名>/ember:v1.2.3

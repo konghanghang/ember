@@ -2,12 +2,73 @@
 
 ## 📦 部署模式选择
 
-Ember 提供两种 Docker 部署模式：
+Ember 提供三种 Docker 部署模式：
 
-| 模式 | 配置文件 | 适用场景 | 数据库 |
-|------|---------|---------|--------|
-| **生产模式** | `docker-compose.yaml` | 生产环境、远程数据库 | 使用远程 PostgreSQL |
-| **本地模式** | `docker-compose.local.yml` | 本地开发、快速体验 | 包含本地 PostgreSQL |
+| 模式 | 配置文件 | 适用场景 | 镜像来源 |
+|------|---------|---------|---------|
+| **生产模式** | `docker-compose.yaml` | 生产环境 | 本地构建 |
+| **本地模式** | `docker-compose.local.yml` | 本地开发 | 本地构建 |
+| **预构建镜像** | 修改 compose 文件 | 快速部署/测试 | GitHub Packages |
+
+---
+
+## 🎯 模式零：使用预构建镜像（最快）
+
+**直接使用 GitHub 自动构建的镜像，无需本地构建**
+
+### 测试环境（最新开发版）
+
+```bash
+# 1. 修改 docker-compose.yaml，将 build 替换为 image
+services:
+  ember:
+    image: ghcr.io/konghanghang/ember:master  # 使用最新 master 分支镜像
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: ember-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+
+# 2. 拉取并启动
+docker compose pull
+docker compose up -d
+
+# 3. 查看日志
+docker compose logs -f ember
+```
+
+### 生产环境（稳定版本）
+
+```bash
+# 使用特定版本的生产镜像
+services:
+  ember:
+    image: ghcr.io/konghanghang/ember:v1.0.0  # 或 :latest
+    container_name: ember-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+
+# 拉取并启动
+docker compose pull
+docker compose up -d
+```
+
+**优点**：
+- ✅ 无需本地构建（节省 3-5 分钟）
+- ✅ 镜像经过 CI 验证
+- ✅ 适合快速部署和测试
+
+**镜像标签说明**：
+- `:master` - 最新开发版本（测试用，每次 push master 自动更新）
+- `:latest` - 最新稳定版本（生产推荐）
+- `:v1.0.0` - 特定版本（生产推荐）
 
 ---
 
