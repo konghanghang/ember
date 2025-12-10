@@ -77,11 +77,11 @@ docker compose up -d
 **使用远程 PostgreSQL 数据库**
 
 ```bash
-# 1. 执行数据库迁移（本地执行，仅首次或更新时需要）
-npm install
-npx prisma migrate deploy
+# 1. 执行数据库迁移（首次部署或更新时需要）
+# SQL 文件位置：prisma/migrations/*/migration.sql
+psql $DATABASE_URL -f prisma/migrations/20251207010855_ember/migration.sql
 
-# 2. 构建并启动容器
+# 2. 构建并启动应用
 docker compose up -d --build
 
 # 3. 查看日志
@@ -89,6 +89,11 @@ docker compose logs -f ember
 ```
 
 访问：http://localhost:3000
+
+> **💡 关于数据库迁移**：
+> - Prisma 生成的标准 SQL 文件在 `prisma/migrations/*/migration.sql`
+> - 直接用 psql 或你熟悉的工具执行
+> - 应用镜像：351MB（纯运行时，不含任何迁移工具）
 
 ---
 
@@ -100,12 +105,11 @@ docker compose logs -f ember
 # 1. 配置 .env 文件（设置本地数据库密码）
 echo "POSTGRES_PASSWORD=your-secure-password" >> .env
 
-# 2. 执行数据库迁移
-npm install
-npx prisma migrate deploy
-
-# 3. 启动所有服务（应用 + 数据库）
+# 2. 启动所有服务（应用 + 数据库）
 docker compose -f docker-compose.local.yml up -d --build
+
+# 3. 执行数据库迁移
+psql $DATABASE_URL -f prisma/migrations/20251207010855_ember/migration.sql
 
 # 4. 查看日志
 docker compose -f docker-compose.local.yml logs -f
@@ -159,7 +163,7 @@ docker compose down
 
 # 更新代码后重新部署
 git pull
-npx prisma migrate deploy  # 如果有新的迁移
+psql $DATABASE_URL -f prisma/migrations/新迁移目录/migration.sql  # 如果有新的迁移
 docker compose up -d --build
 ```
 
@@ -221,22 +225,32 @@ curl http://localhost:3000/api/health
 
 ### 镜像特性
 
-- **多阶段构建**：最小化镜像体积（~200MB）
-- **非 root 用户**：nextjs:1001，增强安全性
-- **Standalone 输出**：Next.js 优化模式
-- **健康检查**：自动检测服务可用性
+- **应用镜像**：351MB（纯运行时）
+  - 多阶段构建，Next.js standalone 输出
+  - 只包含 Prisma Client，无任何迁移工具
+  - 非 root 用户（nextjs:1001）
+  - 内置健康检查
 
-### 为什么不在容器内执行迁移？
+### 数据库迁移
 
-❌ **不推荐**：容器启动时自动迁移
-- 并发启动时的竞态条件
-- 迁移失败阻止应用启动
-- 生产镜像包含开发依赖
+**Prisma 生成的 SQL 文件**：
+- 位置：`prisma/migrations/*/migration.sql`
+- 标准 PostgreSQL SQL，可用任何工具执行
+- 无需额外容器或工具
 
-✅ **推荐**：本地或 CI/CD 中执行迁移
-- 迁移和应用启动解耦
-- 失败时易于调试
-- 镜像保持纯净
+**执行方式**：
+```bash
+# 使用 psql（推荐）
+psql $DATABASE_URL -f prisma/migrations/20251207010855_ember/migration.sql
+
+# 或使用你熟悉的数据库工具（DBeaver、pgAdmin 等）
+```
+
+**优势**：
+- ✅ **极简主义**：应用镜像 351MB，无冗余工具
+- ✅ **灵活性**：用你熟悉的方式执行 SQL
+- ✅ **透明性**：直接看到执行的 SQL，无黑盒
+- ✅ **无依赖**：不需要 Node.js、Prisma CLI 或额外容器
 
 ## 🔄 更新流程
 
@@ -244,10 +258,10 @@ curl http://localhost:3000/api/health
 # 1. 拉取最新代码
 git pull
 
-# 2. 执行数据库迁移（如果有）
-npx prisma migrate deploy
+# 2. 执行数据库迁移（如果有新的迁移）
+psql $DATABASE_URL -f prisma/migrations/新迁移目录/migration.sql
 
-# 3. 重新构建并启动
+# 3. 重新构建并启动应用
 docker compose up -d --build
 
 # 4. 验证

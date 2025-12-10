@@ -45,12 +45,9 @@ COPY --from=builder /app/.next/static ./.next/static
 # 如果将来需要添加静态资源，取消下面这行的注释：
 # COPY --from=builder /app/public ./public
 
-# 复制 Prisma 文件（用于运行迁移）
-COPY --from=builder /app/prisma ./prisma
-
-# 复制 Prisma Client（已生成，standalone 可能不包含）
+# 复制 Prisma Client（运行时依赖）
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
 # 切换到非 root 用户
 USER nextjs
