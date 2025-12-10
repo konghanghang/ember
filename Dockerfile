@@ -1,19 +1,5 @@
 # ==========================================
-# Stage 1: 依赖安装
-# ==========================================
-FROM node:20-alpine AS deps
-
-WORKDIR /app
-
-# 复制依赖定义文件
-COPY package.json package-lock.json* ./
-
-# 安装生产依赖
-RUN npm ci --only=production && \
-    npm cache clean --force
-
-# ==========================================
-# Stage 2: 构建
+# Stage 1: 构建
 # ==========================================
 FROM node:20-alpine AS builder
 
@@ -36,7 +22,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # ==========================================
-# Stage 3: 运行时
+# Stage 2: 运行时
 # ==========================================
 FROM node:20-alpine AS runner
 
@@ -51,20 +37,20 @@ ENV NODE_ENV=production \
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
+# 复制 Next.js standalone 输出（包含精简的运行时依赖）
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# 复制 public 文件（如果有）
+COPY --from=builder /app/public ./public
+
 # 复制 Prisma 文件（用于运行迁移）
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
-# 复制 Prisma Client（已生成）
+# 复制 Prisma Client（已生成，standalone 可能不包含）
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
-# 复制生产依赖
-COPY --from=deps /app/node_modules ./node_modules
-
-# 复制 Next.js standalone 输出
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
 
 # 切换到非 root 用户
 USER nextjs
