@@ -43,7 +43,11 @@ export default function InvitesPage() {
   async function handleCreate() {
     setCreating(true)
 
-    const data: any = {
+    const data: {
+      maxUses: number
+      defaultDays: number
+      expiresAt?: Date
+    } = {
       maxUses,
       defaultDays,
     }

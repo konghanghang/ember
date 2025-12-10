@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { adminLogin } from '@/app/actions/auth'
 
 export default function LoginPage() {
@@ -100,12 +101,12 @@ export default function LoginPage() {
 
         {/* 底部链接 */}
         <div className="mt-6 text-center">
-          <a
+          <Link
             href="/"
             className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
           >
             ← 返回首页
-          </a>
+          </Link>
         </div>
       </div>
     </div>

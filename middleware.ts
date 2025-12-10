@@ -18,7 +18,7 @@ export async function middleware(request: NextRequest) {
       const secret = new TextEncoder().encode(JWT_SECRET)
       await jwtVerify(token, secret)
       isAuthenticated = true
-    } catch (error) {
+    } catch {
       // Token 无效或过期
       isAuthenticated = false
     }

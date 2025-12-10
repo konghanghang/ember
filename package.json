@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -34,6 +34,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.3",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
@@ -42,6 +43,8 @@
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.16",
     "dotenv": "^17.2.3",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.5.7",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
     "ts-node": "^10.9.2",

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { registerUser } from '@/app/actions/users'
 
 export default function RegisterPage() {
@@ -69,12 +70,12 @@ export default function RegisterPage() {
               </p>
             </div>
 
-            <a
+            <Link
               href="/"
               className="inline-block px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
             >
               返回首页
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -198,12 +199,12 @@ export default function RegisterPage() {
 
         {/* 底部链接 */}
         <div className="mt-6 text-center">
-          <a
+          <Link
             href="/"
             className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
           >
             ← 返回首页
-          </a>
+          </Link>
         </div>
       </div>
     </div>

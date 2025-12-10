@@ -93,7 +93,7 @@ export async function getServerAuth(): Promise<JwtPayload | null> {
 
     const payload = verifyToken(token)
     return payload
-  } catch (error) {
+  } catch {
     // Token 无效或过期
     return null
   }
