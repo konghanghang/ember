@@ -1,0 +1,38 @@
+# ==========================================
+# Docker Compose - 生产部署模式
+# ==========================================
+#
+# 此配置仅包含 Ember 应用服务，适用于：
+# - 生产环境部署
+# - 使用远程 PostgreSQL 数据库
+# - 更灵活的数据库管理
+#
+# 使用方法：
+#   docker compose up -d
+#
+# 前置要求：
+# - .env 文件中配置远程数据库的 DATABASE_URL
+# - 执行数据库迁移：npx prisma migrate deploy
+#
+# 详细文档：
+#   - DOCKER_QUICKSTART.md
+#   - docs/docker-deployment.md
+# ==========================================
+
+services:
+  ember:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ember-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    networks:
+      - ember-network
+
+networks:
+  ember-network:
+    driver: bridge

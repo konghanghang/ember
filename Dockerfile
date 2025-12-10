@@ -28,7 +28,8 @@ RUN npm ci
 # 复制源代码
 COPY . .
 
-# 生成 Prisma Client
+# 生成 Prisma Client（使用虚拟 DATABASE_URL，仅用于构建）
+ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 RUN npx prisma generate
 
 # 构建 Next.js 应用
@@ -52,6 +53,7 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 # 复制 Prisma 文件（用于运行迁移）
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
 # 复制 Prisma Client（已生成）
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
@@ -63,7 +65,6 @@ COPY --from=deps /app/node_modules ./node_modules
 # 复制 Next.js standalone 输出
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
 
 # 切换到非 root 用户
 USER nextjs
