@@ -47,14 +47,10 @@ COPY --from=builder /app/.next/static ./.next/static
 
 # 复制 Prisma 文件（用于运行迁移）
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
 # 复制 Prisma Client（已生成，standalone 可能不包含）
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
-# 复制 dotenv（prisma.config.ts 需要，但 standalone 不包含）
-COPY --from=builder /app/node_modules/dotenv ./node_modules/dotenv
 
 # 切换到非 root 用户
 USER nextjs
