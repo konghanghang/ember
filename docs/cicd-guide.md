@@ -10,6 +10,14 @@ Ember 使用 GitHub Actions 实现自动化的持续集成和持续部署。
 - Push 到 `master`、`main` 或 `develop` 分支
 - 创建 Pull Request 到 `master` 或 `main` 分支
 
+**智能跳过**：
+以下文件修改时不会触发 CI（节省构建时间）：
+- 📝 所有 Markdown 文件（`*.md`）
+- 📚 文档目录（`docs/**`）
+- 📄 LICENSE、.gitignore 等配置文件
+
+> **示例**：只修改 `README.md` 或 `docs/` 目录时，CI 会自动跳过
+
 **验证内容**：
 1. ✅ Prisma Schema 验证
 2. ✅ 生成 Prisma Client
@@ -122,6 +130,84 @@ services:
 # 拉取并启动
 docker compose pull
 docker compose up -d
+```
+
+---
+
+## ⚙️ CI 触发规则详解
+
+### 会触发 CI 的修改
+
+以下文件修改会触发 CI 验证：
+
+```bash
+✅ 代码文件
+app/**/*.{ts,tsx,js,jsx}
+src/**/*.{ts,tsx,js,jsx}
+lib/**/*.{ts,tsx,js,jsx}
+components/**/*.{ts,tsx,js,jsx}
+
+✅ 配置文件
+package.json
+package-lock.json
+tsconfig.json
+next.config.ts
+tailwind.config.ts
+
+✅ 数据库相关
+prisma/schema.prisma
+prisma.config.ts
+prisma/migrations/**
+
+✅ Docker 相关
+Dockerfile
+docker-compose.yaml
+docker-compose.local.yml
+
+✅ CI/CD 配置
+.github/workflows/*.yml
+```
+
+### 不会触发 CI 的修改
+
+以下文件修改会跳过 CI（节省资源）：
+
+```bash
+❌ 文档文件
+README.md
+docs/**/*.md
+DOCKER_QUICKSTART.md
+*.md
+
+❌ 配置文件
+LICENSE
+.gitignore
+.prettierrc
+.editorconfig
+```
+
+### 示例场景
+
+```bash
+# 场景 1：只修改 README.md
+git commit -m "docs: 更新安装说明"
+git push
+# 结果：CI 跳过 ⏭️
+
+# 场景 2：修改代码和文档
+git commit -m "feat: 添加新功能并更新文档"
+git push
+# 结果：CI 触发 ✅（因为包含代码修改）
+
+# 场景 3：只修改 Dockerfile
+git commit -m "chore: 优化 Docker 构建"
+git push
+# 结果：CI 触发 ✅
+
+# 场景 4：批量更新文档
+git commit -m "docs: 完善部署文档"
+git push
+# 结果：CI 跳过 ⏭️（如果只修改了 docs/*.md）
 ```
 
 ---
