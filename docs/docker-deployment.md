@@ -126,38 +126,46 @@ docker compose -f docker-compose.local.yml logs -f
 
 ## 👤 管理员账号初始化
 
-### 方式一：使用默认账号（快速）
+### 本地环境（有 psql 命令）
 
 ```bash
 # 执行初始化脚本
 psql $DATABASE_URL -f prisma/migrations/init-admin.sql
 
-# 默认账号
-# 用户名：admin
-# 密码：admin123
+# 默认账号：admin / admin123
 ```
 
-⚠️ **安全提醒**：首次登录后请立即修改密码！
+### Docker 环境（推荐）
 
-### 方式二：创建自定义账号（推荐）
+**本地 PostgreSQL 容器**：
+```bash
+# 迁移 + 初始化管理员（一键完成）
+cat prisma/migrations/20251207010855_ember/migration.sql \
+    prisma/migrations/init-admin.sql | \
+  docker compose -f docker-compose.local.yml exec -T postgres \
+    psql -U postgres -d ember
+```
+
+**远程 PostgreSQL**：
+```bash
+# 使用临时 postgres 容器执行
+cat prisma/migrations/20251207010855_ember/migration.sql \
+    prisma/migrations/init-admin.sql | \
+  docker run --rm -i postgres:16-alpine psql "$DATABASE_URL"
+```
+
+### 自定义管理员账号
 
 ```bash
-# 生成自定义管理员账号的 SQL
-node scripts/create-admin.js 你的用户名 你的密码 > /tmp/admin.sql
+# 生成自定义账号 SQL 并执行
+node scripts/create-admin.js 你的用户名 你的密码 | psql $DATABASE_URL
 
-# 执行 SQL
-psql $DATABASE_URL -f /tmp/admin.sql
-
-# 清理临时文件
-rm /tmp/admin.sql
+# 或在 Docker 中执行
+node scripts/create-admin.js admin MyPass123 | \
+  docker run --rm -i postgres:16-alpine psql "$DATABASE_URL"
 ```
 
-### 方式三：一键执行（最快）
-
-```bash
-# 直接生成并执行
-node scripts/create-admin.js admin MySecurePass123 | psql $DATABASE_URL
-```
+⚠️ **安全提醒**：默认密码 admin123，登录后请立即修改！
 
 ---
 
