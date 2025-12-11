@@ -12,26 +12,49 @@ import { signToken, verifyPassword, getServerAuth } from '@/lib/auth'
  */
 export async function adminLogin(data: { username: string; password: string }) {
   try {
+    console.log('[登录] 开始登录验证:', { username: data.username })
+
     // 1. 查找管理员
     const admin = await prisma.admin.findUnique({
       where: { username: data.username },
     })
 
-    // 2. 验证管理员存在性和密码
-    if (!admin || !(await verifyPassword(data.password, admin.password))) {
+    console.log('[登录] 数据库查询结果:', {
+      found: !!admin,
+      username: admin?.username,
+      hasPassword: !!admin?.password,
+    })
+
+    // 2. 验证管理员存在性
+    if (!admin) {
+      console.log('[登录] 失败 - 用户不存在:', data.username)
       return {
         success: false,
         error: '用户名或密码错误',
       }
     }
 
-    // 3. 生成 JWT Token
+    // 3. 验证密码
+    const isPasswordValid = await verifyPassword(data.password, admin.password)
+    console.log('[登录] 密码验证结果:', { isPasswordValid })
+
+    if (!isPasswordValid) {
+      console.log('[登录] 失败 - 密码错误')
+      return {
+        success: false,
+        error: '用户名或密码错误',
+      }
+    }
+
+    console.log('[登录] 验证成功，生成 Token')
+
+    // 4. 生成 JWT Token
     const token = await signToken({
       id: admin.id,
       username: admin.username,
     })
 
-    // 4. 设置 httpOnly cookie（安全存储）
+    // 5. 设置 httpOnly cookie（安全存储）
     const cookieStore = await cookies()
     cookieStore.set('auth-token', token, {
       httpOnly: true,
@@ -41,7 +64,7 @@ export async function adminLogin(data: { username: string; password: string }) {
       path: '/',
     })
 
-    // 5. 记录登录日志
+    // 6. 记录登录日志
     await prisma.log.create({
       data: {
         action: 'admin_login',
@@ -53,7 +76,9 @@ export async function adminLogin(data: { username: string; password: string }) {
       },
     })
 
-    // 6. 重定向到管理后台（这会抛出 NEXT_REDIRECT，属于正常流程）
+    console.log('[登录] 登录成功，重定向到管理后台')
+
+    // 7. 重定向到管理后台（这会抛出 NEXT_REDIRECT，属于正常流程）
     redirect('/admin/invites')
   } catch (error) {
     // redirect() 会抛出 NEXT_REDIRECT 错误，需要重新抛出
