@@ -8,6 +8,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [embyUrl, setEmbyUrl] = useState<string>('')
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -26,6 +27,7 @@ export default function RegisterPage() {
 
     if (result.success) {
       setSuccess(true)
+      setEmbyUrl(result.embyUrl || '')
     } else {
       setError(result.error || '注册失败')
       setLoading(false)
@@ -66,7 +68,7 @@ export default function RegisterPage() {
                 Emby 服务器地址：
               </p>
               <p className="text-lg font-mono text-indigo-600 dark:text-indigo-400">
-                {process.env.NEXT_PUBLIC_EMBY_URL || 'https://your-emby.com'}
+                {embyUrl || 'https://your-emby.com'}
               </p>
             </div>
 

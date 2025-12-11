@@ -117,6 +117,7 @@ export async function registerUser(data: {
     return {
       success: true,
       user,
+      embyUrl: process.env.EMBY_URL, // 服务端环境变量，运行时可用
     }
   } catch (error) {
     console.error('用户注册失败：', error)
