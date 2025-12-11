@@ -23,11 +23,13 @@ INSERT INTO admins (id, username, password, "createdAt", "updatedAt")
 VALUES (
     'cm3admin00000000000000000',  -- 固定 ID（方便识别）
     'admin',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',  -- admin123
+    '$2b$10$a8cXST9ZOqacvHlvKkoO.uSmYyxK2l4ei9PYMhv6PC.Gs2G5GR3s2',  -- admin123
     NOW(),
     NOW()
 )
-ON CONFLICT (username) DO NOTHING;  -- 如果已存在则跳过
+ON CONFLICT (username) DO UPDATE SET
+    password = EXCLUDED.password,
+    "updatedAt" = NOW();  -- 更新密码和时间戳
 
 -- 验证插入结果
 SELECT
