@@ -127,6 +127,7 @@ model Subscription {
   tmdbId    String             // TMDB ID（唯一标识）
   status    SubscriptionStatus @default(PENDING) // 订阅状态
   note      String?            // 用户备注（可选）
+  mpError   String?            // MoviePilot 同步错误信息（仅在 status=APPROVED 且同步失败时有值）
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 

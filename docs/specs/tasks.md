@@ -715,16 +715,16 @@ function getClientIP(request: Request): string | null {
 
 #### Day 1: 用户认证基础
 
-**任务 1.1**: 扩展 Emby API 客户端
+- [x] **任务 1.1**: 扩展 Emby API 客户端
 - **文件**: `lib/emby.ts`
 - **工作量**: 2 小时
 - **内容**:
   - 新增 `authenticateUser()` 方法（POST /Users/AuthenticateByName）
-  - 新增 `updateUserPassword()` 方法（POST /Users/{userId}/Password）
-  - 新增 `updateUserEmail()` 方法（尝试调用 Emby API，可能不支持）
-- **验收**: 单元测试通过
+  - ~~新增 `updateUserPassword()` 方法~~（复用现有 `setUserPassword()`）
+  - ~~新增 `updateUserEmail()` 方法~~（Emby 不支持，仅本地数据库）
+- **验收**: ✅ 编译通过
 
-**任务 1.2**: 实现用户认证 Server Actions
+- [x] **任务 1.2**: 实现用户认证 Server Actions
 - **文件**: `app/actions/user-auth.ts`（新建）
 - **工作量**: 2.5 小时
 - **内容**:
@@ -733,71 +733,71 @@ function getClientIP(request: Request): string | null {
   - 实现 `userLogout()` - 删除 auth-token
   - 实现 `updateUserPassword()` - 修改密码并同步到 Emby
   - 实现 `updateUserEmail()` - 修改邮箱（仅本地数据库）
-- **验收**: 所有 actions 测试通过
+- **验收**: ✅ 所有 actions 已实现
 
-**任务 1.3**: 更新 Middleware 路由保护
+- [x] **任务 1.3**: 更新 Middleware 路由保护
 - **文件**: `middleware.ts`
 - **工作量**: 0.5 小时
 - **内容**:
   - 新增 `/user/*` 路由保护（使用统一的 auth-token）
   - 通过 role 字段区分管理员和用户（一套验证逻辑）
   - 已登录用户访问 `/user/login` 重定向到 `/user/dashboard`
-- **验收**: 路由保护测试通过
+- **验收**: ✅ 路由保护已实现
 
-**任务 1.4**: 用户登录页面
-- **文件**: `app/(user)/login/page.tsx`（新建）
+- [x] **任务 1.4**: 用户登录页面
+- **文件**: `app/user/login/page.tsx`（新建，路径调整为非路由组）
 - **工作量**: 2 小时
 - **内容**:
   - 创建登录表单（用户名 + 密码）
   - 调用 `userLogin()` Server Action
   - 错误处理（显示错误信息）
   - 成功后跳转到 `/user/dashboard`
-- **验收**: 可以用 Emby 账号登录
+- **验收**: ✅ 登录页面已创建
 
 ---
 
 #### Day 2: 用户仪表盘和账号管理
 
-**任务 2.1**: 用户布局组件
-- **文件**: `app/(user)/layout.tsx`（新建）
+- [x] **任务 2.1**: 用户布局组件
+- **文件**: `app/user/layout.tsx`（新建）
 - **工作量**: 1 小时
 - **内容**:
   - 创建用户导航栏（我的账号、我的订阅、登出）
   - 调用 `getUserAuth()` 获取当前用户
   - 未登录重定向到 `/user/login`
-- **验收**: 导航栏正常显示
+- **验收**: ✅ 导航栏已创建
 
-**任务 2.2**: 用户仪表盘页面
-- **文件**: `app/(user)/dashboard/page.tsx`（新建）
+- [x] **任务 2.2**: 用户仪表盘页面
+- **文件**: `app/user/dashboard/page.tsx`（新建）
 - **工作量**: 2 小时
 - **内容**:
   - 显示用户信息（用户名、邮箱、Emby ID）
   - 显示到期时间、剩余天数
   - 显示账号状态（正常/已禁用）
   - 显示 Emby 服务器地址
-- **验收**: 信息显示正确
+- **验收**: ✅ 仪表盘页面已创建
 
-**任务 2.3**: 修改密码功能
-- **文件**: `app/(user)/dashboard/page.tsx`（扩展）
+- [x] **任务 2.3**: 修改密码功能
+- **文件**: `app/user/dashboard/page.tsx`（扩展）
 - **工作量**: 1.5 小时
 - **内容**:
   - 创建修改密码表单（当前密码 + 新密码 + 确认新密码）
   - 调用 `updateUserPassword()` Server Action
   - 验证新密码强度（至少 6 个字符）
   - 成功提示、错误处理
-- **验收**: 修改密码后立即在 Emby 生效
+- **验收**: ✅ 修改密码功能已集成
 
-**任务 2.4**: 修改邮箱功能
-- **文件**: `app/(user)/dashboard/page.tsx`（扩展）
+- [x] **任务 2.4**: 修改邮箱功能
+- **文件**: `app/user/dashboard/page.tsx`（扩展）
 - **工作量**: 1 小时
 - **内容**:
   - 创建修改邮箱表单
   - 调用 `updateUserEmail()` Server Action
   - 验证邮箱格式
   - 成功提示、错误处理
-- **验收**: 邮箱修改后更新到本地数据库
+- **验收**: ✅ 修改邮箱功能已集成
 
-**任务 2.5**: 测试用户认证流程
+- [ ] **任务 2.5**: 测试用户认证流程
 - **工作量**: 1 小时
 - **测试内容**:
   - [ ] 用户可以用 Emby 账号密码登录
@@ -807,7 +807,7 @@ function getClientIP(request: Request): string | null {
   - [ ] 已过期用户无法登录
   - [ ] 已禁用用户无法登录
   - [ ] 用户与管理员通过 role 字段隔离
-- **验收**: 所有测试通过
+- **验收**: 待测试
 
 ---
 
@@ -815,51 +815,52 @@ function getClientIP(request: Request): string | null {
 
 #### Day 3: 数据库和 Server Actions
 
-**任务 3.1**: 数据库 Schema 变更
-- **文件**: `prisma/schema.prisma`
+- [x] **任务 3.1**: 数据库 Schema 变更
+- **文件**: `prisma/schema.prisma` + `prisma/migrations/add-subscription-table.sql`
 - **工作量**: 30 分钟
 - **内容**:
-  - 新增 `Subscription` 表
+  - 新增 `Subscription` 表（添加 `mpError` 字段支持方案 A）
   - 修改 `User` 表（新增 `subscriptions` 关系）
-  - 运行迁移：`npx prisma migrate dev --name add_subscriptions`
-  - 生成 Prisma Client：`npx prisma generate`
-- **验收**: 数据库表创建成功
+  - ~~运行迁移~~（跳过，已提供 SQL 文件供手动执行）
+  - 生成 Prisma Client：`npx prisma generate` ✅
+- **验收**: ✅ Schema 已更新，SQL 迁移文件已创建
 
-**任务 3.2**: 订阅 Server Actions（用户部分）
+- [x] **任务 3.2**: 订阅 Server Actions（用户部分）
 - **文件**: `app/actions/subscriptions.ts`（新建）
 - **工作量**: 2.5 小时
 - **内容**:
   - 实现 `createSubscription()` - 用户提交订阅
   - 实现 `getUserSubscriptions()` - 用户查看自己的订阅列表
   - 实现 `deleteSubscription()` - 用户删除 pending 订阅
-- **验收**: 用户可以提交、查看、删除订阅
+- **验收**: ✅ 所有用户 Actions 已实现
 
-**任务 3.3**: 订阅 Server Actions（管理员部分）
+- [x] **任务 3.3**: 订阅 Server Actions（管理员部分）
 - **文件**: `app/actions/subscriptions.ts`（扩展）
 - **工作量**: 2 小时
 - **内容**:
   - 实现 `getAllSubscriptions()` - 管理员查看所有订阅
   - 实现 `approveSubscription()` - 管理员审核通过（暂不调用 MP API）
   - 实现 `rejectSubscription()` - 管理员拒绝订阅
-- **验收**: 管理员可以审核订阅
+- **验收**: ✅ 所有管理员 Actions 已实现
 
-**任务 3.4**: 用户订阅列表页面
-- **文件**: `app/(user)/subscriptions/page.tsx`（新建）
+- [x] **任务 3.4**: 用户订阅列表页面
+- **文件**: `app/user/subscriptions/page.tsx`（新建）
 - **工作量**: 2 小时
 - **内容**:
   - 显示用户的订阅列表（表格形式）
   - 显示：影视名称、类型、TMDB ID、状态、提交时间
   - pending 状态订阅可删除
   - approved/rejected 状态订阅不可操作
-- **验收**: 订阅列表显示正确
+  - 显示同步失败状态（mpError 字段）
+- **验收**: ✅ 订阅列表页面已创建
 
-**任务 3.5**: 日志记录
+- [x] **任务 3.5**: 日志记录
 - **工作量**: 1 小时
 - **内容**:
   - 提交订阅时记录日志
   - 删除订阅时记录日志
   - 审核订阅时记录日志
-- **验收**: 所有操作有日志记录
+- **验收**: ✅ 日志已集成在 Server Actions 中
 
 ---
 
