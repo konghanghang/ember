@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/db'
 import { signToken, verifyPassword, getServerAuth } from '@/lib/auth'
+import { validatePasswordStrength, hashPassword } from '@/lib/auth-helpers'
 
 /**
  * 管理员登录
@@ -132,11 +133,12 @@ export async function updateAdminPassword(data: {
       }
     }
 
-    // 2. 验证新密码长度
-    if (data.newPassword.length < 6) {
+    // 2. 验证新密码强度
+    const passwordValidation = validatePasswordStrength(data.newPassword)
+    if (!passwordValidation.valid) {
       return {
         success: false,
-        error: '新密码长度至少 6 个字符',
+        error: passwordValidation.reason || '密码不符合要求',
       }
     }
 
@@ -166,8 +168,7 @@ export async function updateAdminPassword(data: {
     }
 
     // 5. 加密新密码
-    const bcrypt = await import('bcryptjs')
-    const hashedPassword = await bcrypt.hash(data.newPassword, 10)
+    const hashedPassword = await hashPassword(data.newPassword, 10)
 
     // 6. 更新密码
     await prisma.admin.update({

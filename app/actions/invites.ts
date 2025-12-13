@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { generateInviteCode } from '@/lib/utils'
+import { canInviteBeUsed, canInviteBeDeleted } from '@/lib/invite-helpers'
 
 /**
  * 生成邀请码
@@ -105,10 +106,9 @@ export async function getInvites() {
  */
 export async function deleteInvite(id: string) {
   try {
-    // 1. 检查邀请码是否已被使用
+    // 1. 查找邀请码
     const invite = await prisma.invite.findUnique({
       where: { id },
-      include: { users: true },
     })
 
     if (!invite) {
@@ -118,19 +118,20 @@ export async function deleteInvite(id: string) {
       }
     }
 
-    if (invite.usedCount > 0) {
+    // 2. 验证是否可以删除
+    if (!canInviteBeDeleted(invite)) {
       return {
         success: false,
         error: '邀请码已被使用，无法删除',
       }
     }
 
-    // 2. 删除邀请码
+    // 3. 删除邀请码
     await prisma.invite.delete({
       where: { id },
     })
 
-    // 3. 记录日志
+    // 4. 记录日志
     await prisma.log.create({
       data: {
         action: 'delete_invite',
@@ -160,11 +161,11 @@ export async function deleteInvite(id: string) {
  */
 export async function validateInvite(code: string) {
   try {
+    // 1. 查找邀请码
     const invite = await prisma.invite.findUnique({
       where: { code },
     })
 
-    // 1. 检查邀请码是否存在
     if (!invite) {
       return {
         success: false,
@@ -172,19 +173,12 @@ export async function validateInvite(code: string) {
       }
     }
 
-    // 2. 检查使用次数
-    if (invite.usedCount >= invite.maxUses) {
+    // 2. 验证邀请码是否可用
+    const validation = canInviteBeUsed(invite)
+    if (!validation.valid) {
       return {
         success: false,
-        error: '邀请码已达使用上限',
-      }
-    }
-
-    // 3. 检查是否过期
-    if (invite.expiresAt && invite.expiresAt < new Date()) {
-      return {
-        success: false,
-        error: '邀请码已过期',
+        error: validation.reason || '邀请码无效',
       }
     }
 
