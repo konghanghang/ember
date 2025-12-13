@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/db'
 import { getServerAuth } from '@/lib/auth'
 import { MediaType, SubscriptionStatus } from '@prisma/client'
+import { moviepilotClient } from '@/lib/moviepilot'
 
 /**
  * 用户提交订阅
@@ -246,11 +247,35 @@ export async function approveSubscription(id: string) {
       }
     }
 
-    // 4. 更新状态为 APPROVED（暂不调用 MoviePilot API）
+    // 4. 调用 MoviePilot API 并更新状态
+    let mpError: string | null = null
+    let mpSuccess = false
+
+    // 尝试调用 MoviePilot API（如果已配置）
+    if (moviepilotClient.isConfigured()) {
+      try {
+        await moviepilotClient.createSubscription({
+          type: subscription.type === 'MOVIE' ? 'movie' : 'tv',
+          name: subscription.name,
+          tmdbid: subscription.tmdbId,
+        })
+        mpSuccess = true
+      } catch (error) {
+        // MP API 失败时保存错误信息，但仍将订阅状态设为 APPROVED
+        mpError = error instanceof Error ? error.message : '未知错误'
+        console.error('MoviePilot API 调用失败：', error)
+      }
+    } else {
+      // 未配置 MoviePilot 时跳过 API 调用
+      mpError = 'MoviePilot 未配置'
+    }
+
+    // 更新订阅状态为 APPROVED（无论 MP API 是否成功）
     await prisma.subscription.update({
       where: { id },
       data: {
         status: 'APPROVED',
+        mpError: mpError, // 保存 MP API 错误信息
       },
     })
 
@@ -263,6 +288,8 @@ export async function approveSubscription(id: string) {
           subscriptionId: id,
           name: subscription.name,
           adminUsername: auth.username,
+          moviepilotSuccess: mpSuccess,
+          moviepilotError: mpError,
           timestamp: new Date().toISOString(),
         },
       },

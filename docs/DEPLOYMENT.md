@@ -107,7 +107,20 @@ NEXT_PUBLIC_APP_URL="https://your-domain.com"
 
 # 环境
 NODE_ENV=production
+
+# MoviePilot 集成（可选，用于自动订阅影视资源）
+# 如果不配置，订阅功能仍可使用，但不会自动调用 MoviePilot API
+MOVIEPILOT_URL="http://your-moviepilot-server:3001"
+MOVIEPILOT_USERNAME="admin"
+MOVIEPILOT_PASSWORD="your-moviepilot-password"
 ```
+
+**MoviePilot 配置说明**：
+
+- **作用**：审核通过订阅时，自动调用 MoviePilot API 创建订阅
+- **可选性**：如果不配置，用户仍可提交订阅、管理员仍可审核，但不会调用 MP API
+- **错误处理**：MP API 调用失败时，订阅状态仍为"已批准"，但会显示同步失败信息
+- **验证配置**：登录管理后台，查看订阅管理页面的同步状态
 
 ### 2. 数据库迁移
 
