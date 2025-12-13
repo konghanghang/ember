@@ -706,4 +706,301 @@ function getClientIP(request: Request): string | null {
 
 ---
 
-**任务拆分完成，等待审核。**
+## Phase 2: 用户面板与订阅系统开发任务
+
+**更新时间**: 2025-12-13
+**总工作量**: 5 天
+
+### 阶段 1: 用户认证与面板 (2 天)
+
+#### Day 1: 用户认证基础
+
+**任务 1.1**: 扩展 Emby API 客户端
+- **文件**: `lib/emby.ts`
+- **工作量**: 2 小时
+- **内容**:
+  - 新增 `authenticateUser()` 方法（POST /Users/AuthenticateByName）
+  - 新增 `updateUserPassword()` 方法（POST /Users/{userId}/Password）
+  - 新增 `updateUserEmail()` 方法（尝试调用 Emby API，可能不支持）
+- **验收**: 单元测试通过
+
+**任务 1.2**: 实现用户认证 Server Actions
+- **文件**: `app/actions/user-auth.ts`（新建）
+- **工作量**: 3 小时
+- **内容**:
+  - 实现 `userLogin()` - 调用 Emby API 验证 + 生成 user-token
+  - 实现 `getUserAuth()` - 从 cookie 获取当前用户
+  - 实现 `userLogout()` - 删除 user-token
+  - 实现 `updateUserPassword()` - 修改密码并同步到 Emby
+  - 实现 `updateUserEmail()` - 修改邮箱并同步到 Emby
+- **验收**: 所有 actions 测试通过
+
+**任务 1.3**: 更新 Middleware 路由保护
+- **文件**: `middleware.ts`
+- **工作量**: 1 小时
+- **内容**:
+  - 新增 `/user/*` 路由保护（使用 user-token）
+  - 区分管理员 token 和用户 token（检查 role 字段）
+  - 已登录用户访问 `/user/login` 重定向到 `/user/dashboard`
+- **验收**: 路由保护测试通过
+
+**任务 1.4**: 用户登录页面
+- **文件**: `app/(user)/login/page.tsx`（新建）
+- **工作量**: 2 小时
+- **内容**:
+  - 创建登录表单（用户名 + 密码）
+  - 调用 `userLogin()` Server Action
+  - 错误处理（显示错误信息）
+  - 成功后跳转到 `/user/dashboard`
+- **验收**: 可以用 Emby 账号登录
+
+---
+
+#### Day 2: 用户仪表盘和账号管理
+
+**任务 2.1**: 用户布局组件
+- **文件**: `app/(user)/layout.tsx`（新建）
+- **工作量**: 1 小时
+- **内容**:
+  - 创建用户导航栏（我的账号、我的订阅、登出）
+  - 调用 `getUserAuth()` 获取当前用户
+  - 未登录重定向到 `/user/login`
+- **验收**: 导航栏正常显示
+
+**任务 2.2**: 用户仪表盘页面
+- **文件**: `app/(user)/dashboard/page.tsx`（新建）
+- **工作量**: 2 小时
+- **内容**:
+  - 显示用户信息（用户名、邮箱、Emby ID）
+  - 显示到期时间、剩余天数
+  - 显示账号状态（正常/已禁用）
+  - 显示 Emby 服务器地址
+- **验收**: 信息显示正确
+
+**任务 2.3**: 修改密码功能
+- **文件**: `app/(user)/dashboard/page.tsx`（扩展）
+- **工作量**: 1.5 小时
+- **内容**:
+  - 创建修改密码表单（当前密码 + 新密码 + 确认新密码）
+  - 调用 `updateUserPassword()` Server Action
+  - 验证新密码强度（至少 6 个字符）
+  - 成功提示、错误处理
+- **验收**: 修改密码后立即在 Emby 生效
+
+**任务 2.4**: 修改邮箱功能
+- **文件**: `app/(user)/dashboard/page.tsx`（扩展）
+- **工作量**: 1.5 小时
+- **内容**:
+  - 创建修改邮箱表单
+  - 调用 `updateUserEmail()` Server Action
+  - 验证邮箱格式
+  - 成功提示、错误处理
+- **验收**: 邮箱修改后同步到本地数据库和 Emby
+
+**任务 2.5**: 测试用户认证流程
+- **工作量**: 1 小时
+- **测试内容**:
+  - [ ] 用户可以用 Emby 账号密码登录
+  - [ ] 用户可以查看账号信息
+  - [ ] 用户可以修改密码（同步到 Emby）
+  - [ ] 用户可以修改邮箱
+  - [ ] 已过期用户无法登录
+  - [ ] 已禁用用户无法登录
+- **验收**: 所有测试通过
+
+---
+
+### 阶段 2: 订阅管理系统 (2 天)
+
+#### Day 3: 数据库和 Server Actions
+
+**任务 3.1**: 数据库 Schema 变更
+- **文件**: `prisma/schema.prisma`
+- **工作量**: 30 分钟
+- **内容**:
+  - 新增 `Subscription` 表
+  - 修改 `User` 表（新增 `subscriptions` 关系）
+  - 运行迁移：`npx prisma migrate dev --name add_subscriptions`
+  - 生成 Prisma Client：`npx prisma generate`
+- **验收**: 数据库表创建成功
+
+**任务 3.2**: 订阅 Server Actions（用户部分）
+- **文件**: `app/actions/subscriptions.ts`（新建）
+- **工作量**: 2.5 小时
+- **内容**:
+  - 实现 `createSubscription()` - 用户提交订阅
+  - 实现 `getUserSubscriptions()` - 用户查看自己的订阅列表
+  - 实现 `deleteSubscription()` - 用户删除 pending 订阅
+- **验收**: 用户可以提交、查看、删除订阅
+
+**任务 3.3**: 订阅 Server Actions（管理员部分）
+- **文件**: `app/actions/subscriptions.ts`（扩展）
+- **工作量**: 2 小时
+- **内容**:
+  - 实现 `getAllSubscriptions()` - 管理员查看所有订阅
+  - 实现 `approveSubscription()` - 管理员审核通过（暂不调用 MP API）
+  - 实现 `rejectSubscription()` - 管理员拒绝订阅
+- **验收**: 管理员可以审核订阅
+
+**任务 3.4**: 用户订阅列表页面
+- **文件**: `app/(user)/subscriptions/page.tsx`（新建）
+- **工作量**: 2 小时
+- **内容**:
+  - 显示用户的订阅列表（表格形式）
+  - 显示：影视名称、类型、TMDB ID、状态、提交时间
+  - pending 状态订阅可删除
+  - approved/rejected 状态订阅不可操作
+- **验收**: 订阅列表显示正确
+
+**任务 3.5**: 日志记录
+- **工作量**: 1 小时
+- **内容**:
+  - 提交订阅时记录日志
+  - 删除订阅时记录日志
+  - 审核订阅时记录日志
+- **验收**: 所有操作有日志记录
+
+---
+
+#### Day 4: 订阅页面开发
+
+**任务 4.1**: 提交新订阅页面
+- **文件**: `app/(user)/subscriptions/new/page.tsx`（新建）
+- **工作量**: 2.5 小时
+- **内容**:
+  - 创建表单：类型（电影/电视剧）、影视名称、年份、TMDB ID、备注
+  - 调用 `createSubscription()` Server Action
+  - 表单验证（必填项检查）
+  - 成功后跳转到订阅列表
+- **验收**: 可以提交订阅
+
+**任务 4.2**: 管理员审核页面
+- **文件**: `app/admin/subscriptions/page.tsx`（新建）
+- **工作量**: 3 小时
+- **内容**:
+  - 显示所有待审核订阅（可按状态筛选）
+  - 显示：用户名、影视名称、类型、TMDB ID、提交时间
+  - 审核通过/拒绝按钮
+  - 搜索功能（按用户名或影视名称）
+- **验收**: 管理员可以查看和审核订阅
+
+**任务 4.3**: 管理员导航栏更新
+- **文件**: `app/admin/layout.tsx`
+- **工作量**: 30 分钟
+- **内容**:
+  - 新增"订阅管理"导航链接
+- **验收**: 导航栏显示订阅管理
+
+**任务 4.4**: 测试订阅管理流程
+- **工作量**: 1.5 小时
+- **测试内容**:
+  - [ ] 用户可以提交订阅
+  - [ ] 用户可以查看自己的订阅列表
+  - [ ] 用户可以删除 pending 订阅
+  - [ ] 用户无法删除 approved 订阅
+  - [ ] 管理员可以查看所有订阅
+  - [ ] 管理员可以审核通过订阅（暂不调用 MP API）
+  - [ ] 管理员可以拒绝订阅
+- **验收**: 所有测试通过
+
+---
+
+### 阶段 3: MoviePilot API 集成 (1 天)
+
+#### Day 5: MoviePilot 集成
+
+**任务 5.1**: MoviePilot API 客户端
+- **文件**: `lib/moviepilot.ts`（新建）
+- **工作量**: 2 小时
+- **内容**:
+  - 实现 `getAccessToken()` - OAuth2 认证
+  - 实现 `createSubscription()` - 创建订阅
+  - 错误处理（登录失败、API 调用失败）
+  - Token 缓存机制（避免频繁登录）
+- **验收**: 可以调用 MoviePilot API
+
+**任务 5.2**: 更新审核 Server Action
+- **文件**: `app/actions/subscriptions.ts`（修改 `approveSubscription()`）
+- **工作量**: 1.5 小时
+- **内容**:
+  - 审核通过时调用 `moviepilotClient.createSubscription()`
+  - 参数映射（movie → "电影"、tv → "电视剧"）
+  - 错误处理（MP API 失败时返回错误信息）
+  - 日志记录（包含 MP API 调用结果）
+- **验收**: 审核通过后订阅提交到 MoviePilot
+
+**任务 5.3**: 环境变量配置
+- **文件**: `.env.example`
+- **工作量**: 15 分钟
+- **内容**:
+  - 新增 `MOVIEPILOT_URL`
+  - 新增 `MOVIEPILOT_USERNAME`
+  - 新增 `MOVIEPILOT_PASSWORD`
+- **验收**: 配置文件完整
+
+**任务 5.4**: 完整流程测试
+- **工作量**: 2 小时
+- **测试内容**:
+  - [ ] 用户提交订阅
+  - [ ] 管理员审核通过
+  - [ ] MoviePilot API 调用成功
+  - [ ] 订阅状态变为 approved
+  - [ ] MP API 失败时显示错误信息
+  - [ ] 所有操作记录到日志
+- **验收**: 端到端流程正常
+
+**任务 5.5**: 文档更新
+- **工作量**: 1.5 小时
+- **内容**:
+  - 更新 `docs/specs/design.md` 反映实际实现
+  - 更新 `README.md` 新增 Phase 2 功能说明
+  - 更新 `DEPLOYMENT.md` 新增 MoviePilot 配置说明
+- **验收**: 文档完整准确
+
+---
+
+## 任务总结
+
+### 文件清单
+
+**新建文件（11 个）**:
+- `app/actions/user-auth.ts` - 用户认证 Server Actions
+- `app/actions/subscriptions.ts` - 订阅管理 Server Actions
+- `app/(user)/login/page.tsx` - 用户登录页
+- `app/(user)/dashboard/page.tsx` - 用户仪表盘
+- `app/(user)/subscriptions/page.tsx` - 用户订阅列表
+- `app/(user)/subscriptions/new/page.tsx` - 提交新订阅
+- `app/(user)/layout.tsx` - 用户布局
+- `app/admin/subscriptions/page.tsx` - 管理员审核页
+- `lib/moviepilot.ts` - MoviePilot API 客户端
+- `lib/user-auth-helpers.ts` - 用户认证辅助函数（如需）
+- `lib/subscription-helpers.ts` - 订阅辅助函数（如需）
+
+**修改文件（4 个）**:
+- `lib/emby.ts` - 新增用户认证方法
+- `middleware.ts` - 新增用户路由保护
+- `prisma/schema.prisma` - 新增 Subscription 表
+- `app/admin/layout.tsx` - 新增订阅管理导航
+
+### 工作量统计
+
+| 阶段   | 主要任务           | 工作量 | 关键文件数 |
+|--------|-------------------|--------|-----------|
+| 阶段 1 | 用户认证 + 仪表盘   | 2 天   | 5 个      |
+| 阶段 2 | 订阅管理系统       | 2 天   | 4 个      |
+| 阶段 3 | MoviePilot 集成    | 1 天   | 2 个      |
+| **总计** |                   | **5 天** | **15 个** |
+
+### 开发顺序建议
+
+按照依赖关系，严格按以下顺序开发：
+
+1. **Day 1**: 用户认证基础（Emby API + Server Actions + Middleware）
+2. **Day 2**: 用户仪表盘和账号管理（登录页 + 仪表盘 + 修改密码/邮箱）
+3. **Day 3**: 订阅数据模型和 Server Actions（数据库 + 后端逻辑）
+4. **Day 4**: 订阅页面开发（用户订阅页 + 管理员审核页）
+5. **Day 5**: MoviePilot 集成（MP API + 完整流程测试）
+
+---
+
+**Phase 2 任务拆分完成，等待实施。**

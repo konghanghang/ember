@@ -870,17 +870,744 @@ main()
 
 ---
 
-## Future Improvements (Phase 2)
+## Phase 2: 用户面板与订阅系统设计
 
-MVP 完成后，可以考虑：
+**更新时间**: 2025-12-13
+**背景**: 基于 MVP 真实用户反馈设计
 
-1. **邮件通知**：Nodemailer + 模板系统
-2. **MoviePilot 集成**：新增 MoviePilot API 客户端
-3. **批量操作**：用户列表批量选择
-4. **用户自助面板**：用户登录、查看到期时间
-5. **Redis 缓存**：缓存用户列表、邀请码列表
-6. **Webhook**：用户注册/到期事件通知
+### Phase 2.1: 用户认证与面板
+
+#### 数据库 Schema 变更
+
+**无需修改现有表**，直接使用 MVP 的 User 表。
+
+**关键设计决策**：
+- ✅ 用户使用 Emby 账号密码登录（不存储 Ember 独立密码）
+- ✅ 直接调用 Emby API 验证用户
+- ✅ 无需在 User 表新增 password 字段
+
+#### 认证机制设计
+
+**双 Token 系统**（隔离管理员和用户）：
+
+| Token 类型   | Cookie 名称 | 用途       | Payload                       | 有效期 |
+|--------------|-------------|------------|-------------------------------|--------|
+| 管理员 Token | auth-token  | 管理后台   | { adminId, username, role }   | 7 天   |
+| 用户 Token   | user-token  | 用户面板   | { userId, username, embyId, role } | 7 天   |
+
+**为什么需要两个 Token？**
+- ✅ 安全隔离：用户无法访问管理后台
+- ✅ 权限清晰：role 字段区分 'admin' 和 'user'
+- ✅ 独立管理：用户登出不影响管理员，反之亦然
+
+#### Emby API 新增方法
+
+**lib/emby.ts** 新增：
+
+```typescript
+class EmbyClient {
+  // 用户认证（Phase 2 新增）
+  async authenticateUser(username: string, password: string): Promise<{
+    Id: string
+    Name: string
+    ServerId: string
+  }> {
+    // POST /Users/AuthenticateByName
+    // Body: { Username, Pw }
+    // 返回 { User: { Id, Name }, AccessToken, ServerId }
+  }
+
+  // 修改用户密码（Phase 2 新增）
+  async updateUserPassword(userId: string, currentPwd: string, newPwd: string): Promise<void> {
+    // 1. 先用 authenticateUser() 验证当前密码
+    // 2. 调用 POST /Users/{userId}/Password
+    // Body: { CurrentPw, NewPw }
+  }
+
+  // 修改用户邮箱（Phase 2 新增，可能 Emby 不支持）
+  async updateUserEmail(userId: string, email: string): Promise<void> {
+    // 尝试调用 Emby API 更新用户配置
+    // 注意：Emby 可能不支持，仅更新本地数据库
+  }
+}
+```
+
+#### Server Actions 设计
+
+**新文件**: `app/actions/user-auth.ts`
+
+```typescript
+'use server'
+
+import { prisma } from '@/lib/db'
+import { embyClient } from '@/lib/emby'
+import { signToken } from '@/lib/auth'
+import { cookies } from 'next/headers'
+
+// 用户登录
+export async function userLogin(data: {
+  username: string
+  password: string
+}) {
+  // 1. 调用 Emby API 验证用户
+  const embyUser = await embyClient.authenticateUser(data.username, data.password)
+
+  // 2. 查询本地数据库（通过 embyId）
+  const user = await prisma.user.findUnique({
+    where: { embyId: embyUser.Id }
+  })
+
+  if (!user) {
+    throw new Error('用户不存在（未通过 Ember 注册）')
+  }
+
+  // 3. 验证账号是否有效
+  if (!user.isActive) {
+    throw new Error('账号已禁用，请联系管理员')
+  }
+
+  if (user.expiresAt && user.expiresAt < new Date()) {
+    throw new Error('账号已过期，请联系管理员续期')
+  }
+
+  // 4. 生成 JWT Token
+  const token = signToken({
+    userId: user.id,
+    username: user.username,
+    embyId: user.embyId,
+    role: 'user' // 区分管理员和用户
+  })
+
+  // 5. 设置 cookie（httpOnly, secure）
+  cookies().set('user-token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 7 * 24 * 60 * 60 // 7 天
+  })
+
+  // 6. 记录日志
+  await prisma.log.create({
+    data: {
+      action: 'user_login',
+      targetId: user.id,
+      details: { username: user.username }
+    }
+  })
+
+  return { success: true, user: { id: user.id, username: user.username } }
+}
+
+// 获取当前用户信息
+export async function getUserAuth() {
+  const token = cookies().get('user-token')?.value
+  if (!token) return null
+
+  try {
+    const payload = verifyToken(token)
+    if (payload.role !== 'user') return null // 只允许用户 token
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId }
+    })
+
+    return user
+  } catch {
+    return null
+  }
+}
+
+// 用户登出
+export async function userLogout() {
+  cookies().delete('user-token')
+  return { success: true }
+}
+
+// 修改密码
+export async function updateUserPassword(data: {
+  currentPassword: string
+  newPassword: string
+}) {
+  const user = await getUserAuth()
+  if (!user) {
+    throw new Error('未登录')
+  }
+
+  // 验证新密码强度
+  if (data.newPassword.length < 6) {
+    throw new Error('密码至少 6 个字符')
+  }
+
+  // 调用 Emby API 修改密码
+  await embyClient.updateUserPassword(
+    user.embyId,
+    data.currentPassword,
+    data.newPassword
+  )
+
+  // 记录日志
+  await prisma.log.create({
+    data: {
+      action: 'user_change_password',
+      targetId: user.id
+    }
+  })
+
+  return { success: true }
+}
+
+// 修改邮箱
+export async function updateUserEmail(email: string) {
+  const user = await getUserAuth()
+  if (!user) {
+    throw new Error('未登录')
+  }
+
+  // 验证邮箱格式
+  if (!/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/.test(email)) {
+    throw new Error('邮箱格式不正确')
+  }
+
+  // 更新本地数据库
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { email }
+  })
+
+  // 尝试同步到 Emby（可能不支持）
+  try {
+    await embyClient.updateUserEmail(user.embyId, email)
+  } catch {
+    // Emby 可能不支持修改邮箱，忽略错误
+  }
+
+  // 记录日志
+  await prisma.log.create({
+    data: {
+      action: 'user_change_email',
+      targetId: user.id,
+      details: { newEmail: email }
+    }
+  })
+
+  return { success: true }
+}
+```
+
+#### 路由保护（Middleware）
+
+**middleware.ts** 修改：
+
+```typescript
+export const config = {
+  matcher: ['/admin/:path*', '/user/:path*', '/login', '/user/login']
+}
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // 管理员路由保护（使用 auth-token）
+  if (pathname.startsWith('/admin')) {
+    const token = request.cookies.get('auth-token')?.value
+    if (!token) {
+      return NextResponse.redirect(new URL('/login?redirect=' + pathname, request.url))
+    }
+    // 验证 token 的 role 是否为 'admin'
+  }
+
+  // 用户路由保护（使用 user-token）
+  if (pathname.startsWith('/user') && pathname !== '/user/login') {
+    const token = request.cookies.get('user-token')?.value
+    if (!token) {
+      return NextResponse.redirect(new URL('/user/login?redirect=' + pathname, request.url))
+    }
+    // 验证 token 的 role 是否为 'user'
+  }
+
+  // 已登录用户访问登录页，重定向到仪表盘
+  if (pathname === '/user/login') {
+    const token = request.cookies.get('user-token')?.value
+    if (token) {
+      return NextResponse.redirect(new URL('/user/dashboard', request.url))
+    }
+  }
+
+  return NextResponse.next()
+}
+```
+
+#### 目录结构变更
+
+```diff
+ ember/
+ ├── app/
+ │   ├── (auth)/
+ │   │   ├── login/page.tsx              # 管理员登录
+ │   │   └── register/page.tsx           # 用户注册
+ │   │
+++│   ├── (user)/                          # Phase 2 新增
+++│   │   ├── layout.tsx                   # 用户布局
+++│   │   ├── login/page.tsx               # 用户登录
+++│   │   ├── dashboard/page.tsx           # 用户仪表盘
+++│   │   └── subscriptions/               # Phase 2.2 订阅系统
+ │   │
+ │   ├── (admin)/
+++│   │   ├── subscriptions/page.tsx       # Phase 2.2 管理员审核
+ │   │
+ │   ├── actions/
+ │   │   ├── auth.ts                     # 管理员认证
+++│   │   ├── user-auth.ts                 # Phase 2 用户认证
+++│   │   └── subscriptions.ts             # Phase 2.2 订阅管理
+ │   │
+ ├── lib/
+++│   ├── moviepilot.ts                    # Phase 2.2 MoviePilot API
+```
 
 ---
 
-**设计文档完成，等待审核。**
+### Phase 2.2: MoviePilot 订阅集成
+
+#### 数据库 Schema 变更
+
+**新增 Subscription 表**：
+
+```prisma
+// prisma/schema.prisma
+
+model Subscription {
+  id        String   @id @default(cuid())
+  userId    String   // 关联用户
+  type      String   // "movie" | "tv"
+  name      String   // 影视名称
+  year      Int?     // 年份（可选）
+  tmdbId    String   // TMDB ID
+  status    String   // "pending" | "approved" | "rejected"
+  note      String?  // 用户备注（可选）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系：属于某个用户
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// 修改 User 表（新增关系）
+model User {
+  // ... 现有字段
+  subscriptions Subscription[] // Phase 2 新增
+}
+```
+
+**数据库迁移**：
+
+```bash
+npx prisma migrate dev --name add_subscriptions
+npx prisma generate
+```
+
+#### MoviePilot API 客户端
+
+**新文件**: `lib/moviepilot.ts`
+
+```typescript
+export class MoviePilotClient {
+  private baseUrl: string
+  private username: string
+  private password: string
+  private accessToken: string | null = null
+
+  constructor() {
+    this.baseUrl = process.env.MOVIEPILOT_URL!.replace(/\/$/, '')
+    this.username = process.env.MOVIEPILOT_USERNAME!
+    this.password = process.env.MOVIEPILOT_PASSWORD!
+  }
+
+  // 获取 Access Token（OAuth2）
+  private async getAccessToken(): Promise<string> {
+    if (this.accessToken) {
+      return this.accessToken
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/v1/login/access-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        username: this.username,
+        password: this.password,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`MoviePilot 登录失败: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    this.accessToken = data.access_token
+    return this.accessToken
+  }
+
+  // 创建订阅
+  async createSubscription(data: {
+    type: 'movie' | 'tv'
+    name: string
+    year?: number
+    tmdbid: string
+  }) {
+    const token = await this.getAccessToken()
+
+    const response = await fetch(`${this.baseUrl}/api/v1/subscribe/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: data.type === 'movie' ? '电影' : '电视剧',
+        name: data.name,
+        year: data.year?.toString(),
+        tmdbid: parseInt(data.tmdbid),
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`MoviePilot API 错误: ${error}`)
+    }
+
+    return await response.json()
+  }
+}
+
+export const moviepilotClient = new MoviePilotClient()
+```
+
+#### 订阅 Server Actions
+
+**新文件**: `app/actions/subscriptions.ts`
+
+```typescript
+'use server'
+
+import { prisma } from '@/lib/db'
+import { getUserAuth } from './user-auth'
+import { getCurrentAdmin } from './auth'
+import { moviepilotClient } from '@/lib/moviepilot'
+
+// 用户提交订阅
+export async function createSubscription(data: {
+  type: 'movie' | 'tv'
+  name: string
+  year?: number
+  tmdbId: string
+  note?: string
+}) {
+  // 1. 获取当前用户
+  const user = await getUserAuth()
+  if (!user) {
+    throw new Error('未登录')
+  }
+
+  // 2. 验证用户是否有效
+  if (!user.isActive) {
+    throw new Error('账号已禁用，无法提交订阅')
+  }
+
+  if (user.expiresAt && user.expiresAt < new Date()) {
+    throw new Error('账号已过期，无法提交订阅')
+  }
+
+  // 3. 创建订阅记录
+  const subscription = await prisma.subscription.create({
+    data: {
+      userId: user.id,
+      type: data.type,
+      name: data.name,
+      year: data.year,
+      tmdbId: data.tmdbId,
+      note: data.note,
+      status: 'pending'
+    }
+  })
+
+  // 4. 记录日志
+  await prisma.log.create({
+    data: {
+      action: 'create_subscription',
+      targetId: subscription.id,
+      details: {
+        userId: user.id,
+        username: user.username,
+        name: data.name,
+        tmdbId: data.tmdbId
+      }
+    }
+  })
+
+  return { success: true, subscription }
+}
+
+// 用户查看自己的订阅列表
+export async function getUserSubscriptions() {
+  const user = await getUserAuth()
+  if (!user) {
+    throw new Error('未登录')
+  }
+
+  const subscriptions = await prisma.subscription.findMany({
+    where: { userId: user.id },
+    orderBy: { createdAt: 'desc' }
+  })
+
+  return { success: true, subscriptions }
+}
+
+// 用户删除订阅（只能删除 pending）
+export async function deleteSubscription(id: string) {
+  const user = await getUserAuth()
+  if (!user) {
+    throw new Error('未登录')
+  }
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { id }
+  })
+
+  if (!subscription) {
+    throw new Error('订阅不存在')
+  }
+
+  if (subscription.userId !== user.id) {
+    throw new Error('无权操作此订阅')
+  }
+
+  if (subscription.status !== 'pending') {
+    throw new Error('只能删除待审核的订阅')
+  }
+
+  await prisma.subscription.delete({
+    where: { id }
+  })
+
+  // 记录日志
+  await prisma.log.create({
+    data: {
+      action: 'delete_subscription',
+      targetId: id,
+      details: { name: subscription.name }
+    }
+  })
+
+  return { success: true }
+}
+
+// 管理员查看所有订阅
+export async function getAllSubscriptions(params?: {
+  status?: string
+  search?: string
+}) {
+  const admin = await getCurrentAdmin()
+  if (!admin) {
+    throw new Error('未授权')
+  }
+
+  const subscriptions = await prisma.subscription.findMany({
+    where: {
+      status: params?.status,
+      ...(params?.search && {
+        OR: [
+          { name: { contains: params.search, mode: 'insensitive' } },
+          { user: { username: { contains: params.search, mode: 'insensitive' } } }
+        ]
+      })
+    },
+    include: { user: true },
+    orderBy: { createdAt: 'desc' }
+  })
+
+  return { success: true, subscriptions }
+}
+
+// 管理员审核通过
+export async function approveSubscription(id: string) {
+  const admin = await getCurrentAdmin()
+  if (!admin) {
+    throw new Error('未授权')
+  }
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { id },
+    include: { user: true }
+  })
+
+  if (!subscription) {
+    throw new Error('订阅不存在')
+  }
+
+  if (subscription.status !== 'pending') {
+    throw new Error('订阅已处理')
+  }
+
+  try {
+    // 调用 MoviePilot API
+    await moviepilotClient.createSubscription({
+      type: subscription.type as 'movie' | 'tv',
+      name: subscription.name,
+      year: subscription.year || undefined,
+      tmdbid: subscription.tmdbId
+    })
+
+    // 更新状态
+    await prisma.subscription.update({
+      where: { id },
+      data: { status: 'approved', updatedAt: new Date() }
+    })
+
+    // 记录日志
+    await prisma.log.create({
+      data: {
+        action: 'approve_subscription',
+        targetId: id,
+        details: {
+          subscriptionId: id,
+          userId: subscription.userId,
+          username: subscription.user.username,
+          name: subscription.name,
+          tmdbId: subscription.tmdbId
+        }
+      }
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error('审核订阅失败：', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '未知错误'
+    }
+  }
+}
+
+// 管理员拒绝
+export async function rejectSubscription(id: string, reason?: string) {
+  const admin = await getCurrentAdmin()
+  if (!admin) {
+    throw new Error('未授权')
+  }
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { id }
+  })
+
+  if (!subscription) {
+    throw new Error('订阅不存在')
+  }
+
+  if (subscription.status !== 'pending') {
+    throw new Error('订阅已处理')
+  }
+
+  await prisma.subscription.update({
+    where: { id },
+    data: { status: 'rejected', updatedAt: new Date() }
+  })
+
+  // 记录日志
+  await prisma.log.create({
+    data: {
+      action: 'reject_subscription',
+      targetId: id,
+      details: { reason }
+    }
+  })
+
+  return { success: true }
+}
+```
+
+#### 环境变量配置
+
+**`.env`** 新增：
+
+```bash
+# MoviePilot 配置
+MOVIEPILOT_URL="http://localhost:3001"
+MOVIEPILOT_USERNAME="admin"
+MOVIEPILOT_PASSWORD="your-password"
+```
+
+---
+
+## Phase 2 架构图
+
+```
+┌─────────────────────────────────────┐
+│   Next.js 15 Application            │
+│                                     │
+│  ┌───────────────────────────────┐ │
+│  │  User Panel (Phase 2)         │ │
+│  │  - /user/login                │ │
+│  │  - /user/dashboard            │ │
+│  │  - /user/subscriptions        │ │
+│  └───────────────────────────────┘ │
+│               │                     │
+│               ▼                     │
+│  ┌───────────────────────────────┐ │
+│  │  Server Actions               │ │
+│  │  - user-auth.ts               │ │
+│  │  - subscriptions.ts           │ │
+│  └───────────────────────────────┘ │
+│               │                     │
+│               ▼                     │
+│  ┌───────────────────────────────┐ │
+│  │  Data Layer                   │ │
+│  │  - User, Subscription 表      │ │
+│  └───────────────────────────────┘ │
+└─────────────────┬───────────────────┘
+                  │
+         ┌────────┴────────┐
+         ▼                 ▼
+    ┌────────┐        ┌────────────┐
+    │  Emby  │        │ MoviePilot │
+    │ Server │        │            │
+    └────────┘        └────────────┘
+         ↑                 ↑
+         │                 │
+  用户认证/密码修改    订阅创建
+```
+
+---
+
+## Phase 2 技术要点
+
+### 认证隔离
+- 管理员和用户使用不同的 cookie（auth-token vs user-token）
+- JWT Payload 包含 role 字段区分身份
+- 中间件分别保护 /admin/* 和 /user/* 路由
+
+### 密码同步
+- 用户密码存储在 Emby，Ember 不存储
+- 修改密码时调用 Emby API
+- 验证当前密码后允许修改新密码
+
+### 订阅状态机
+```
+pending → (approve) → approved (immutable)
+        ↘ (reject) → rejected (terminal)
+```
+- pending: 用户可删除
+- approved/rejected: 不可修改/删除
+
+### MoviePilot 集成
+- OAuth2 认证：用户名密码 → access_token
+- API 调用：POST /api/v1/subscribe/
+- 参数映射：movie → "电影", tv → "电视剧"
+- 错误处理：API 失败时显示明确错误
+
+---
+
+**Phase 2 设计文档完成，等待实施。**
