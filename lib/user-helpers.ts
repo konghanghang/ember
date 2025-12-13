@@ -112,6 +112,7 @@ export async function createUserLog(
  * @param _error 错误对象
  * @returns 用户友好的错误消息
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function formatEmbyError(_error: unknown): string {
   return 'Emby 操作失败，请稍后重试'
 }
@@ -121,6 +122,7 @@ export function formatEmbyError(_error: unknown): string {
  * @param _error 错误对象
  * @returns 用户友好的错误消息
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function formatDatabaseError(_error: unknown): string {
   return '数据库操作失败，请稍后重试'
 }
