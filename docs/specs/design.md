@@ -888,17 +888,38 @@ main()
 
 #### 认证机制设计
 
-**双 Token 系统**（隔离管理员和用户）：
+**统一 Token 系统**：
 
-| Token 类型   | Cookie 名称 | 用途       | Payload                       | 有效期 |
-|--------------|-------------|------------|-------------------------------|--------|
-| 管理员 Token | auth-token  | 管理后台   | { adminId, username, role }   | 7 天   |
-| 用户 Token   | user-token  | 用户面板   | { userId, username, embyId, role } | 7 天   |
+| 配置项      | 值                                     |
+|-------------|---------------------------------------|
+| Cookie 名称 | auth-token                            |
+| 有效期      | 7 天                                  |
+| httpOnly    | true                                  |
+| secure      | production 环境启用                    |
 
-**为什么需要两个 Token？**
-- ✅ 安全隔离：用户无法访问管理后台
-- ✅ 权限清晰：role 字段区分 'admin' 和 'user'
-- ✅ 独立管理：用户登出不影响管理员，反之亦然
+**JWT Payload 统一格式**：
+
+```typescript
+// 管理员
+{
+  id: string          // Admin.id
+  username: string
+  role: 'admin'
+}
+
+// 用户
+{
+  id: string          // User.id
+  username: string
+  embyId: string
+  role: 'user'
+}
+```
+
+**设计理由**：
+- ✅ **简化逻辑**：一个 cookie，一套验证逻辑
+- ✅ **安全隔离**：通过 role 字段区分权限（middleware 一个 if 判断）
+- ✅ **消除特殊情况**：不需要两套 token 管理代码
 
 #### Emby API 新增方法
 
@@ -923,14 +944,10 @@ class EmbyClient {
     // 2. 调用 POST /Users/{userId}/Password
     // Body: { CurrentPw, NewPw }
   }
-
-  // 修改用户邮箱（Phase 2 新增，可能 Emby 不支持）
-  async updateUserEmail(userId: string, email: string): Promise<void> {
-    // 尝试调用 Emby API 更新用户配置
-    // 注意：Emby 可能不支持，仅更新本地数据库
-  }
 }
 ```
+
+**注意**：删除了 `updateUserEmail()` 方法。经查阅 Emby API 文档，不支持直接修改用户邮箱。邮箱只存储在本地数据库中。
 
 #### Server Actions 设计
 
@@ -972,14 +989,14 @@ export async function userLogin(data: {
 
   // 4. 生成 JWT Token
   const token = signToken({
-    userId: user.id,
+    id: user.id,
     username: user.username,
     embyId: user.embyId,
     role: 'user' // 区分管理员和用户
   })
 
-  // 5. 设置 cookie（httpOnly, secure）
-  cookies().set('user-token', token, {
+  // 5. 设置 cookie（httpOnly, secure，与管理员使用相同的 cookie 名称）
+  cookies().set('auth-token', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     maxAge: 7 * 24 * 60 * 60 // 7 天
@@ -999,7 +1016,7 @@ export async function userLogin(data: {
 
 // 获取当前用户信息
 export async function getUserAuth() {
-  const token = cookies().get('user-token')?.value
+  const token = cookies().get('auth-token')?.value
   if (!token) return null
 
   try {
@@ -1007,7 +1024,7 @@ export async function getUserAuth() {
     if (payload.role !== 'user') return null // 只允许用户 token
 
     const user = await prisma.user.findUnique({
-      where: { id: payload.userId }
+      where: { id: payload.id }
     })
 
     return user
@@ -1018,7 +1035,7 @@ export async function getUserAuth() {
 
 // 用户登出
 export async function userLogout() {
-  cookies().delete('user-token')
+  cookies().delete('auth-token')
   return { success: true }
 }
 
@@ -1055,7 +1072,7 @@ export async function updateUserPassword(data: {
   return { success: true }
 }
 
-// 修改邮箱
+// 修改邮箱（仅更新本地数据库，Emby 不支持修改邮箱）
 export async function updateUserEmail(email: string) {
   const user = await getUserAuth()
   if (!user) {
@@ -1073,13 +1090,6 @@ export async function updateUserEmail(email: string) {
     data: { email }
   })
 
-  // 尝试同步到 Emby（可能不支持）
-  try {
-    await embyClient.updateUserEmail(user.embyId, email)
-  } catch {
-    // Emby 可能不支持修改邮箱，忽略错误
-  }
-
   // 记录日志
   await prisma.log.create({
     data: {
@@ -1095,7 +1105,7 @@ export async function updateUserEmail(email: string) {
 
 #### 路由保护（Middleware）
 
-**middleware.ts** 修改：
+**middleware.ts** 修改（简化为一套逻辑）：
 
 ```typescript
 export const config = {
@@ -1105,30 +1115,43 @@ export const config = {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // 管理员路由保护（使用 auth-token）
+  // 统一获取 token
+  const token = request.cookies.get('auth-token')?.value
+
+  // 验证 token
+  let payload: { id: string; username: string; role: 'admin' | 'user'; embyId?: string } | null = null
+  if (token) {
+    try {
+      payload = verifyToken(token)
+    } catch {
+      // Token 无效或过期，清除 cookie
+      const response = NextResponse.redirect(new URL('/login', request.url))
+      response.cookies.delete('auth-token')
+      return response
+    }
+  }
+
+  // 管理员路由保护
   if (pathname.startsWith('/admin')) {
-    const token = request.cookies.get('auth-token')?.value
-    if (!token) {
+    if (!payload || payload.role !== 'admin') {
       return NextResponse.redirect(new URL('/login?redirect=' + pathname, request.url))
     }
-    // 验证 token 的 role 是否为 'admin'
   }
 
-  // 用户路由保护（使用 user-token）
+  // 用户路由保护
   if (pathname.startsWith('/user') && pathname !== '/user/login') {
-    const token = request.cookies.get('user-token')?.value
-    if (!token) {
+    if (!payload || payload.role !== 'user') {
       return NextResponse.redirect(new URL('/user/login?redirect=' + pathname, request.url))
     }
-    // 验证 token 的 role 是否为 'user'
   }
 
-  // 已登录用户访问登录页，重定向到仪表盘
-  if (pathname === '/user/login') {
-    const token = request.cookies.get('user-token')?.value
-    if (token) {
-      return NextResponse.redirect(new URL('/user/dashboard', request.url))
-    }
+  // 已登录用户访问登录页，重定向到对应的仪表盘
+  if (pathname === '/login' && payload?.role === 'admin') {
+    return NextResponse.redirect(new URL('/admin/users', request.url))
+  }
+
+  if (pathname === '/user/login' && payload?.role === 'user') {
+    return NextResponse.redirect(new URL('/user/dashboard', request.url))
   }
 
   return NextResponse.next()
@@ -1173,17 +1196,29 @@ export async function middleware(request: NextRequest) {
 ```prisma
 // prisma/schema.prisma
 
+// 订阅状态枚举
+enum SubscriptionStatus {
+  PENDING  // 待审核
+  APPROVED // 已批准
+  REJECTED // 已拒绝
+}
+
+// 媒体类型枚举
+enum MediaType {
+  MOVIE // 电影
+  TV    // 电视剧
+}
+
 model Subscription {
-  id        String   @id @default(cuid())
-  userId    String   // 关联用户
-  type      String   // "movie" | "tv"
-  name      String   // 影视名称
-  year      Int?     // 年份（可选）
-  tmdbId    String   // TMDB ID
-  status    String   // "pending" | "approved" | "rejected"
-  note      String?  // 用户备注（可选）
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String             @id @default(cuid())
+  userId    String             // 关联用户
+  type      MediaType          // 媒体类型（电影/电视剧）
+  name      String             // 影视名称
+  tmdbId    String             // TMDB ID（唯一标识）
+  status    SubscriptionStatus @default(PENDING) // 订阅状态
+  note      String?            // 用户备注（可选）
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
   // 关系：属于某个用户
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1217,7 +1252,6 @@ export class MoviePilotClient {
   private baseUrl: string
   private username: string
   private password: string
-  private accessToken: string | null = null
 
   constructor() {
     this.baseUrl = process.env.MOVIEPILOT_URL!.replace(/\/$/, '')
@@ -1225,12 +1259,8 @@ export class MoviePilotClient {
     this.password = process.env.MOVIEPILOT_PASSWORD!
   }
 
-  // 获取 Access Token（OAuth2）
-  private async getAccessToken(): Promise<string> {
-    if (this.accessToken) {
-      return this.accessToken
-    }
-
+  // 获取 Access Token（每次都重新登录，不缓存）
+  private async login(): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/v1/login/access-token`, {
       method: 'POST',
       headers: {
@@ -1247,18 +1277,17 @@ export class MoviePilotClient {
     }
 
     const data = await response.json()
-    this.accessToken = data.access_token
-    return this.accessToken
+    return data.access_token
   }
 
   // 创建订阅
   async createSubscription(data: {
     type: 'movie' | 'tv'
     name: string
-    year?: number
     tmdbid: string
   }) {
-    const token = await this.getAccessToken()
+    // 每次调用都重新登录获取 token
+    const token = await this.login()
 
     const response = await fetch(`${this.baseUrl}/api/v1/subscribe/`, {
       method: 'POST',
@@ -1269,7 +1298,6 @@ export class MoviePilotClient {
       body: JSON.stringify({
         type: data.type === 'movie' ? '电影' : '电视剧',
         name: data.name,
-        year: data.year?.toString(),
         tmdbid: parseInt(data.tmdbid),
       }),
     })
@@ -1302,7 +1330,6 @@ import { moviepilotClient } from '@/lib/moviepilot'
 export async function createSubscription(data: {
   type: 'movie' | 'tv'
   name: string
-  year?: number
   tmdbId: string
   note?: string
 }) {
@@ -1327,10 +1354,9 @@ export async function createSubscription(data: {
       userId: user.id,
       type: data.type,
       name: data.name,
-      year: data.year,
       tmdbId: data.tmdbId,
       note: data.note,
-      status: 'pending'
+      status: 'PENDING'
     }
   })
 
@@ -1385,7 +1411,7 @@ export async function deleteSubscription(id: string) {
     throw new Error('无权操作此订阅')
   }
 
-  if (subscription.status !== 'pending') {
+  if (subscription.status !== 'PENDING') {
     throw new Error('只能删除待审核的订阅')
   }
 
@@ -1448,7 +1474,7 @@ export async function approveSubscription(id: string) {
     throw new Error('订阅不存在')
   }
 
-  if (subscription.status !== 'pending') {
+  if (subscription.status !== 'PENDING') {
     throw new Error('订阅已处理')
   }
 
@@ -1457,14 +1483,13 @@ export async function approveSubscription(id: string) {
     await moviepilotClient.createSubscription({
       type: subscription.type as 'movie' | 'tv',
       name: subscription.name,
-      year: subscription.year || undefined,
       tmdbid: subscription.tmdbId
     })
 
     // 更新状态
     await prisma.subscription.update({
       where: { id },
-      data: { status: 'approved', updatedAt: new Date() }
+      data: { status: 'APPROVED', updatedAt: new Date() }
     })
 
     // 记录日志
@@ -1507,13 +1532,13 @@ export async function rejectSubscription(id: string, reason?: string) {
     throw new Error('订阅不存在')
   }
 
-  if (subscription.status !== 'pending') {
+  if (subscription.status !== 'PENDING') {
     throw new Error('订阅已处理')
   }
 
   await prisma.subscription.update({
     where: { id },
-    data: { status: 'rejected', updatedAt: new Date() }
+    data: { status: 'REJECTED', updatedAt: new Date() }
   })
 
   // 记录日志

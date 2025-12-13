@@ -78,7 +78,9 @@ model User {
   updatedAt  DateTime  @updatedAt
 
   // 关系：注册时使用的邀请码（可选关系，邀请码可能被删除）
-  invite Invite @relation(fields: [inviteCode], references: [code])
+  invite        Invite         @relation(fields: [inviteCode], references: [code])
+  // 关系：用户的订阅记录（Phase 2）
+  subscriptions Subscription[]
 
   @@map("users")
   @@index([username])
@@ -96,5 +98,43 @@ model Log {
 
   @@map("logs")
   @@index([action])
+  @@index([createdAt])
+}
+
+// ===========================
+// Phase 2: 订阅系统
+// ===========================
+
+// 订阅状态枚举
+enum SubscriptionStatus {
+  PENDING  // 待审核
+  APPROVED // 已批准
+  REJECTED // 已拒绝
+}
+
+// 媒体类型枚举
+enum MediaType {
+  MOVIE // 电影
+  TV    // 电视剧
+}
+
+// 订阅表
+model Subscription {
+  id        String             @id @default(cuid())
+  userId    String             // 关联用户
+  type      MediaType          // 媒体类型（电影/电视剧）
+  name      String             // 影视名称
+  tmdbId    String             // TMDB ID（唯一标识）
+  status    SubscriptionStatus @default(PENDING) // 订阅状态
+  note      String?            // 用户备注（可选）
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  // 关系：属于某个用户
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+  @@index([userId])
+  @@index([status])
   @@index([createdAt])
 }

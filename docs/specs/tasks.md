@@ -726,21 +726,21 @@ function getClientIP(request: Request): string | null {
 
 **任务 1.2**: 实现用户认证 Server Actions
 - **文件**: `app/actions/user-auth.ts`（新建）
-- **工作量**: 3 小时
+- **工作量**: 2.5 小时
 - **内容**:
-  - 实现 `userLogin()` - 调用 Emby API 验证 + 生成 user-token
-  - 实现 `getUserAuth()` - 从 cookie 获取当前用户
-  - 实现 `userLogout()` - 删除 user-token
+  - 实现 `userLogin()` - 调用 Emby API 验证 + 生成 auth-token (role: 'user')
+  - 实现 `getUserAuth()` - 从 auth-token cookie 获取当前用户
+  - 实现 `userLogout()` - 删除 auth-token
   - 实现 `updateUserPassword()` - 修改密码并同步到 Emby
-  - 实现 `updateUserEmail()` - 修改邮箱并同步到 Emby
+  - 实现 `updateUserEmail()` - 修改邮箱（仅本地数据库）
 - **验收**: 所有 actions 测试通过
 
 **任务 1.3**: 更新 Middleware 路由保护
 - **文件**: `middleware.ts`
-- **工作量**: 1 小时
+- **工作量**: 0.5 小时
 - **内容**:
-  - 新增 `/user/*` 路由保护（使用 user-token）
-  - 区分管理员 token 和用户 token（检查 role 字段）
+  - 新增 `/user/*` 路由保护（使用统一的 auth-token）
+  - 通过 role 字段区分管理员和用户（一套验证逻辑）
   - 已登录用户访问 `/user/login` 重定向到 `/user/dashboard`
 - **验收**: 路由保护测试通过
 
@@ -789,13 +789,13 @@ function getClientIP(request: Request): string | null {
 
 **任务 2.4**: 修改邮箱功能
 - **文件**: `app/(user)/dashboard/page.tsx`（扩展）
-- **工作量**: 1.5 小时
+- **工作量**: 1 小时
 - **内容**:
   - 创建修改邮箱表单
   - 调用 `updateUserEmail()` Server Action
   - 验证邮箱格式
   - 成功提示、错误处理
-- **验收**: 邮箱修改后同步到本地数据库和 Emby
+- **验收**: 邮箱修改后更新到本地数据库
 
 **任务 2.5**: 测试用户认证流程
 - **工作量**: 1 小时
@@ -803,9 +803,10 @@ function getClientIP(request: Request): string | null {
   - [ ] 用户可以用 Emby 账号密码登录
   - [ ] 用户可以查看账号信息
   - [ ] 用户可以修改密码（同步到 Emby）
-  - [ ] 用户可以修改邮箱
+  - [ ] 用户可以修改邮箱（仅本地数据库）
   - [ ] 已过期用户无法登录
   - [ ] 已禁用用户无法登录
+  - [ ] 用户与管理员通过 role 字段隔离
 - **验收**: 所有测试通过
 
 ---
@@ -866,9 +867,9 @@ function getClientIP(request: Request): string | null {
 
 **任务 4.1**: 提交新订阅页面
 - **文件**: `app/(user)/subscriptions/new/page.tsx`（新建）
-- **工作量**: 2.5 小时
+- **工作量**: 2 小时
 - **内容**:
-  - 创建表单：类型（电影/电视剧）、影视名称、年份、TMDB ID、备注
+  - 创建表单：类型（电影/电视剧）、影视名称、TMDB ID、备注
   - 调用 `createSubscription()` Server Action
   - 表单验证（必填项检查）
   - 成功后跳转到订阅列表
@@ -911,17 +912,16 @@ function getClientIP(request: Request): string | null {
 
 **任务 5.1**: MoviePilot API 客户端
 - **文件**: `lib/moviepilot.ts`（新建）
-- **工作量**: 2 小时
+- **工作量**: 1.5 小时
 - **内容**:
-  - 实现 `getAccessToken()` - OAuth2 认证
+  - 实现 `login()` - OAuth2 认证（每次调用都重新登录）
   - 实现 `createSubscription()` - 创建订阅
   - 错误处理（登录失败、API 调用失败）
-  - Token 缓存机制（避免频繁登录）
 - **验收**: 可以调用 MoviePilot API
 
 **任务 5.2**: 更新审核 Server Action
 - **文件**: `app/actions/subscriptions.ts`（修改 `approveSubscription()`）
-- **工作量**: 1.5 小时
+- **工作量**: 1 小时
 - **内容**:
   - 审核通过时调用 `moviepilotClient.createSubscription()`
   - 参数映射（movie → "电影"、tv → "电视剧"）
