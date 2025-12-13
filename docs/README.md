@@ -1,90 +1,148 @@
-# Ember 文档目录
+# Ember 项目文档
 
-> 项目设计和开发文档
+> Ember MVP - 核心用户管理系统文档中心
+
+**⚠️ 上线前必读**: [Bug 修复总结](BUGFIX-SUMMARY.md) - 6 个严重问题已修复 ✅
 
 ---
 
-## 📚 文档列表
+## 🚀 快速上手（3 步）
 
-### 设计阶段文档
+新用户从这里开始：
 
-| 序号 | 文档 | 状态 | 描述 |
-|------|------|------|------|
-| 00 | [项目总览](./00-summary.md) | ✅ 完成 | 项目概况、技术栈、功能清单 |
-| 01 | [需求设计](./01-requirements.md) | ✅ 完成 | 详细功能需求和决策记录 |
-| 02 | [架构设计](./02-architecture.md) | ✅ 完成 | 系统架构、部署方案、认证流程 |
+1. **[需求文档](specs/requirements.md)** - 了解 MVP 核心功能
+2. **[设计文档](specs/design.md)** - 理解系统架构和实现细节
+3. **[部署指南](DEPLOYMENT.md)** - 一键部署到生产环境
 
-### MVP 开发文档
+---
 
-| 文档 | 状态 | 描述 |
-|------|------|------|
-| [需求文档](./specs/requirements.md) | ✅ 完成 | MVP 核心功能需求 |
-| [设计文档](./specs/design.md) | ✅ 完成 | 数据库 Schema + API 设计 |
-| [任务拆分](./specs/tasks.md) | ✅ 完成 | 开发任务列表（Day 1-9 已完成） |
-| [开发指南](./development-guide.md) | ✅ 完成 | 环境搭建、开发流程、代码规范 |
+## 👨‍💻 开发者指南
 
-### 待创建文档
+开发和维护 Ember 必读：
 
-| 文档 | 描述 |
+### 核心文档
+- **[开发规范](development-guide.md)** - 环境搭建、代码规范、数据库设计决策
+- **[Emby API 参考](emby-api-guide.md)** - Emby 集成文档和 API 使用示例
+- **[CI/CD 指南](cicd-guide.md)** - 自动化部署流程和 GitHub Actions 配置
+
+### 开发任务
+- **[任务拆分](specs/tasks.md)** - 开发任务列表（Day 1-9 已完成）
+
+---
+
+## 🧪 测试验收
+
+确保系统质量：
+
+- **[测试检查清单](testing-checklist.md)** - 20 项核心功能 ✅ 20/20 通过
+- **[测试指南](testing-guide.md)** - 完整测试步骤、环境准备和故障排查
+- **[测试报告](test-reports/)** - 历史测试记录
+
+---
+
+## 📚 设计历史（参考）
+
+<details>
+<summary>点击展开：设计演化过程和技术决策</summary>
+
+### 设计阶段文档（已归档）
+
+这些文档记录了 Ember 从概念到 MVP 的完整设计过程：
+
+- **[项目总结](archive/00-summary.md)** - Phase 1/2/3 规划概览
+- **[完整需求](archive/01-requirements.md)** - 包含未来功能的完整需求文档
+- **[完整架构](archive/02-architecture.md)** - 全面的系统架构设计
+- **[技术决策](archive/tech-stack-decision.md)** - 为什么选择 Next.js 全栈架构
+
+**注意**：这些文档已归档至 `archive/` 目录，仅供参考。当前实现以 `specs/` 目录下的文档为准。
+
+</details>
+
+---
+
+## 📋 文档结构
+
+```
+docs/
+├── README.md                          # 📍 本文档（导航入口）
+│
+├── 🚀 快速上手
+│   ├── specs/requirements.md          # MVP 需求文档
+│   ├── specs/design.md                # 设计文档（数据库 + API）
+│   └── DEPLOYMENT.md                  # 部署指南
+│
+├── 👨‍💻 开发指南
+│   ├── development-guide.md           # 开发规范
+│   ├── emby-api-guide.md              # Emby 集成
+│   ├── cicd-guide.md                  # CI/CD 流程
+│   └── specs/tasks.md                 # 任务拆分
+│
+├── 🧪 测试验收
+│   ├── testing-checklist.md           # 测试清单
+│   ├── testing-guide.md               # 测试指南
+│   └── test-reports/                  # 测试报告
+│
+├── 🐛 问题修复
+│   └── BUGFIX-SUMMARY.md              # 重大 Bug 修复总结
+│
+└── 📚 archive/（设计历史）
+    ├── 00-summary.md                  # 项目总览
+    ├── 01-requirements.md             # 完整需求
+    ├── 02-architecture.md             # 完整架构
+    └── tech-stack-decision.md         # 技术选型
+```
+
+---
+
+## 🎯 文档索引
+
+### 按角色查找
+
+| 角色 | 推荐文档 |
+|------|---------|
+| **新用户/产品经理** | requirements.md → design.md |
+| **部署运维** | DEPLOYMENT.md → cicd-guide.md |
+| **前端开发** | development-guide.md → design.md (API 部分) |
+| **后端开发** | development-guide.md → design.md → emby-api-guide.md |
+| **测试人员** | testing-guide.md → testing-checklist.md |
+
+### 按任务查找
+
+| 任务 | 文档 |
 |------|------|
-| 部署指南 | Docker 部署、配置说明、运维手册 |
-| API 参考 | 完整的 Server Actions 接口文档 |
-| 故障排查 | 常见问题和解决方案 |
+| 搭建开发环境 | development-guide.md |
+| 部署到生产 | DEPLOYMENT.md |
+| 了解 API 设计 | design.md (Server Actions 部分) |
+| 集成 Emby | emby-api-guide.md |
+| 配置 CI/CD | cicd-guide.md |
+| 执行测试 | testing-guide.md |
 
 ---
 
-## 📖 阅读顺序
+## 🔄 文档维护
 
-### 新手快速了解
+### 更新频率
 
-```
-1. README.md (项目主页)
-   ↓
-2. 00-summary.md (项目总览)
-   ↓
-3. 01-requirements.md (功能需求)
-```
+| 文档类型 | 更新时机 |
+|---------|---------|
+| **specs/** | 需求或设计变更时立即更新 |
+| **development-guide.md** | 开发流程变更时更新 |
+| **DEPLOYMENT.md** | 部署流程或配置变更时更新 |
+| **testing-*.md** | 新增测试用例或流程变更时更新 |
+| **BUGFIX-SUMMARY.md** | 发现和修复重大 Bug 时更新 |
 
-### 开发者深入理解
+### 文档规范
 
-```
-1. 02-architecture.md (架构设计)
-   ↓
-2. 03-database.md (数据库设计)
-   ↓
-3. 04-api.md (API 设计)
-   ↓
-4. 05-frontend.md (前端设计)
-```
+**命名规范**：
+- 使用小写和连字符：`development-guide.md`
+- 目录使用小写：`specs/`, `test-reports/`
+- 核心文档使用大写：`README.md`, `DEPLOYMENT.md`
 
----
-
-## 🎯 文档状态说明
-
-| 图标 | 状态 | 说明 |
-|------|------|------|
-| ✅ | 完成 | 文档已完成并审核 |
-| 🔄 | 进行中 | 正在编写或讨论 |
-| ⏳ | 待开始 | 计划中，尚未开始 |
-| 🔍 | 需审核 | 待审核或讨论 |
-| 🔧 | 需更新 | 需要根据变更更新 |
-
----
-
-## 📝 文档规范
-
-### 文档命名
-
-- 使用数字前缀排序：`00-`, `01-`, `02-`
-- 使用小写和连字符：`database-design.md`
-- 英文命名，便于国际化
-
-### 文档结构
-
+**结构规范**：
 ```markdown
 # 文档标题
 
-> 简短描述
+> 简短描述（一句话）
 
 ## 概述
 ...
@@ -92,43 +150,34 @@
 ## 详细内容
 ...
 
-## 示例
-...
-
 ## 相关文档
 ...
-```
 
-### 更新记录
+---
 
-每个文档底部应包含变更记录：
-
-```markdown
-## 变更记录
-
-- 2025-12-06: 初始创建
-- 2025-12-07: 更新数据库 Schema
+**文档更新日期**: YYYY-MM-DD
 ```
 
 ---
 
-## 🔗 相关资源
-
-- **项目主页:** [README.md](../README.md)
-- **GitHub Issues:** 功能讨论和问题追踪
-- **代码仓库:** `backend/` 和 `frontend/` 目录
-
----
-
-## 💡 贡献文档
+## 💡 贡献指南
 
 欢迎改进文档！提交 PR 时请确保：
 
-- ✅ 使用 Markdown 格式
-- ✅ 保持文档结构清晰
-- ✅ 添加必要的代码示例
-- ✅ 更新变更记录
+- ✅ 使用 Markdown 格式，保持风格一致
+- ✅ 添加必要的代码示例和截图
+- ✅ 更新文档底部的"文档更新日期"
+- ✅ 在相关文档中添加交叉引用链接
 
 ---
 
-**最后更新:** 2025-12-06 (Day 1-9 MVP 开发完成)
+## 🆘 获取帮助
+
+- **GitHub Issues**: https://github.com/yourusername/ember/issues
+- **讨论区**: https://github.com/yourusername/ember/discussions
+
+---
+
+**文档最后更新**: 2025-12-13
+
+**MVP 状态**: ✅ 核心功能已完成，测试通过 20/20

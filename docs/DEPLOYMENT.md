@@ -1,6 +1,6 @@
 # 🚀 Ember 部署指南
 
-> 本文档描述如何使用 Docker Compose 部署 Ember MVP 版本
+> 完整的 Docker 部署文档，涵盖快速开始、生产部署和故障排查
 
 ---
 
@@ -12,29 +12,77 @@
 
 ---
 
-## 🔧 快速部署
+## 📦 部署模式选择
 
-### 1. 克隆代码
+Ember 提供三种 Docker 部署模式：
+
+| 模式 | 配置文件 | 适用场景 | 镜像来源 |
+|------|---------|---------|---------|
+| **模式零：预构建镜像** | 修改 compose 文件 | 快速部署/测试 | GitHub Packages |
+| **模式一：生产部署** | `docker-compose.yaml` | 生产环境 | 本地构建 |
+| **模式二：本地开发** | `docker-compose.local.yml` | 本地开发 | 本地构建 |
+
+---
+
+## 🎯 模式零：使用预构建镜像（最快）
+
+**直接使用 GitHub 自动构建的镜像，无需本地构建**
+
+### 快速开始
 
 ```bash
+# 1. 克隆代码
 git clone https://github.com/yourusername/ember.git
 cd ember
+
+# 2. 配置环境变量
+cp .env.example .env
+nano .env  # 修改必要配置（见下方）
+
+# 3. 修改 docker-compose.yaml，使用预构建镜像
+# 将 build 部分替换为：
+#   image: ghcr.io/konghanghang/ember:latest  # 生产稳定版
+#   或
+#   image: ghcr.io/konghanghang/ember:master  # 最新开发版
+
+# 4. 拉取并启动
+docker compose pull
+docker compose up -d
+
+# 5. 查看日志
+docker compose logs -f ember
 ```
 
-### 2. 配置环境变量
+**镜像标签说明**：
+- `:latest` - 最新稳定版本（生产推荐）
+- `:v1.0.0` - 特定版本（生产推荐）
+- `:master` - 最新开发版本（测试用）
+
+**优点**：
+- ✅ 无需本地构建（节省 3-5 分钟）
+- ✅ 镜像经过 CI 验证
+- ✅ 适合快速部署和测试
+
+---
+
+## 🚀 模式一：生产部署（推荐）
+
+**使用远程 PostgreSQL 数据库**
+
+### 1. 配置环境变量
 
 复制 `.env.example` 为 `.env` 并修改配置：
 
 ```bash
 cp .env.example .env
-nano .env  # 或使用其他编辑器
+nano .env
 ```
 
 **必须修改的配置**：
 
 ```bash
-# 数据库密码
-POSTGRES_PASSWORD="your-secure-password"
+# 数据库连接（远程 PostgreSQL）
+DATABASE_URL="postgresql://用户名:密码@主机:端口/数据库名"
 
 # JWT 密钥（至少 32 个字符）
 JWT_SECRET="$(openssl rand -base64 32)"
@@ -56,19 +104,47 @@ CRON_SECRET="$(openssl rand -base64 32)"
 
 # 应用访问地址
 NEXT_PUBLIC_APP_URL="https://your-domain.com"
+
+# 环境
+NODE_ENV=production
 ```
 
-### 3. 启动服务
+### 2. 数据库迁移
+
+**首次部署或更新时需要执行**
+
+```bash
+# 方法 1：使用 psql（推荐）
+psql $DATABASE_URL -f prisma/migrations/20251207010855_ember/migration.sql
+
+# 方法 2：使用临时 postgres 容器
+cat prisma/migrations/20251207010855_ember/migration.sql | \
+  docker run --rm -i postgres:16-alpine psql "$DATABASE_URL"
+```
+
+### 3. 初始化管理员账号
+
+```bash
+# 执行初始化脚本
+psql $DATABASE_URL -f prisma/migrations/init-admin.sql
+
+# 或使用自定义账号
+node scripts/create-admin.js admin MyPass123 | psql $DATABASE_URL
+
+# 默认账号：admin / admin123
+```
+
+### 4. 启动应用
 
 ```bash
 # 构建并启动
-docker compose up -d
+docker compose up -d --build
 
 # 查看日志
 docker compose logs -f ember
 ```
 
-### 4. 验证部署并修改密码
+### 5. 验证部署并修改密码
 
 访问 http://localhost:3000，使用管理员账号登录：
 - 用户名：`admin`
@@ -80,10 +156,33 @@ docker compose logs -f ember
 3. 填写当前密码和新密码
 4. 点击"修改密码"保存
 
-🔒 **安全提示**：
-- 生产环境强烈建议在 `.env` 中配置 `ADMIN_DEFAULT_PASSWORD`
-- 新密码长度至少 6 个字符
-- 建议使用包含大小写字母、数字和特殊字符的强密码
+---
+
+## 🏠 模式二：本地开发
+
+**包含本地 PostgreSQL 数据库**
+
+```bash
+# 1. 配置 .env 文件
+cp .env.example .env
+echo "POSTGRES_PASSWORD=your-secure-password" >> .env
+
+# 2. 启动所有服务（应用 + 数据库）
+docker compose -f docker-compose.local.yml up -d --build
+
+# 3. 执行数据库迁移
+cat prisma/migrations/20251207010855_ember/migration.sql \
+    prisma/migrations/init-admin.sql | \
+  docker compose -f docker-compose.local.yml exec -T postgres \
+    psql -U postgres -d ember
+
+# 4. 查看日志
+docker compose -f docker-compose.local.yml logs -f
+```
+
+访问：http://localhost:3000
+
+> **注意**：本地模式会在 Docker 中启动 PostgreSQL，数据存储在 `postgres_data` volume 中。
 
 ---
 
@@ -92,16 +191,101 @@ docker compose logs -f ember
 ```
 ┌─────────────────┐
 │  Ember App      │  端口: 3000
-│  (Next.js)      │
+│  (Next.js)      │  镜像大小: 351MB
 └────────┬────────┘
          │
-         ├─ 连接 PostgreSQL (内部网络)
+         ├─ 连接 PostgreSQL (内部网络或远程)
          └─ 调用 Emby API (外部)
 
 ┌─────────────────┐
 │  PostgreSQL     │  端口: 5432
-│  (数据库)       │
+│  (数据库)       │  (可选，本地开发模式)
 └─────────────────┘
+```
+
+**镜像特性**：
+- 351MB 纯运行时（多阶段构建，standalone 输出）
+- 只包含 Prisma Client，无迁移工具
+- 非 root 用户运行（nextjs:1001）
+- 内置健康检查
+
+---
+
+## 🔧 常用命令
+
+### 生产模式命令
+
+```bash
+# 查看容器状态
+docker compose ps
+
+# 查看实时日志
+docker compose logs -f ember
+
+# 最近 100 行日志
+docker compose logs --tail=100 ember
+
+# 重启服务
+docker compose restart
+
+# 只重启 Ember
+docker compose restart ember
+
+# 停止服务
+docker compose down
+
+# 进入容器 Shell（调试用）
+docker compose exec ember sh
+
+# 重新构建镜像（无缓存）
+docker compose build --no-cache
+
+# 更新应用
+git pull
+psql $DATABASE_URL -f prisma/migrations/新迁移目录/migration.sql  # 如果有新的迁移
+docker compose up -d --build
+```
+
+### 本地模式命令
+
+```bash
+# 查看容器状态
+docker compose -f docker-compose.local.yml ps
+
+# 查看所有服务日志
+docker compose -f docker-compose.local.yml logs -f
+
+# 只查看应用日志
+docker compose -f docker-compose.local.yml logs -f ember
+
+# 只查看数据库日志
+docker compose -f docker-compose.local.yml logs -f postgres
+
+# 停止所有服务
+docker compose -f docker-compose.local.yml down
+
+# 停止并删除数据卷（⚠️ 会删除数据库数据）
+docker compose -f docker-compose.local.yml down -v
+```
+
+### 手动触发定时任务
+
+```bash
+# 方法 1：通过 API
+curl http://localhost:3000/api/cron
+
+# 方法 2：在容器中执行
+docker compose exec ember node -e "require('./server.js')"
+```
+
+### 数据库备份和恢复
+
+```bash
+# 备份数据库
+docker compose exec postgres pg_dump -U postgres ember > backup.sql
+
+# 恢复数据库
+cat backup.sql | docker compose exec -T postgres psql -U postgres ember
 ```
 
 ---
@@ -145,7 +329,7 @@ curl -H "X-Emby-Token: $EMBY_API_KEY" "$EMBY_URL/Users"
 
 **现象**：`docker compose up` 失败，提示端口被占用
 
-**解决**：修改 `docker-compose.yml` 中的端口映射：
+**解决**：修改 `docker-compose.yaml` 中的端口映射：
 
 ```yaml
 services:
@@ -154,21 +338,50 @@ services:
       - "8080:3000"  # 改为其他端口
 ```
 
-### 4. 数据持久化
-
-PostgreSQL 数据存储在 Docker 卷 `postgres_data` 中。
-
-**备份数据库**：
+### 4. 容器无法启动
 
 ```bash
-docker compose exec postgres pg_dump -U postgres ember > backup.sql
+# 查看详细日志
+docker compose logs ember
+
+# 检查环境变量配置
+docker compose config
+
+# 重新构建（无缓存）
+docker compose build --no-cache
 ```
 
-**恢复数据库**：
+### 5. 数据库连接失败
+
+1. 检查 .env 文件中的 DATABASE_URL 格式
+2. 确认数据库服务器可访问：`ping 数据库主机`
+3. 检查防火墙规则
+4. 测试网络连通性：`docker compose exec ember ping 数据库主机`
+
+### 6. 健康检查失败
+
+等待 40 秒启动时间后再检查：
 
 ```bash
-cat backup.sql | docker compose exec -T postgres psql -U postgres ember
+# 手动测试健康检查
+curl http://localhost:3000/api/health
+
+# 预期响应
+{
+  "status": "ok",
+  "timestamp": "2025-12-13T...",
+  "database": "connected"
+}
+
+# 查看应用日志是否有错误
+docker compose logs -f ember
 ```
+
+### 7. 应用运行但无法访问
+
+1. 检查端口映射：`docker compose ps`
+2. 确认防火墙未阻止 3000 端口
+3. 验证 NEXT_PUBLIC_APP_URL 配置
 
 ---
 
@@ -198,7 +411,6 @@ cat backup.sql | docker compose exec -T postgres psql -U postgres ember
    **重要提示**：
    - ⚠️ 如果未配置 `ADMIN_DEFAULT_PASSWORD`，系统将使用默认密码 `admin123`
    - ⚠️ 默认密码仅供开发测试使用，生产环境**必须修改**
-   - ⚠️ 登录页面不再显示默认密码提示，请妥善保管密码
 
 2. **数据库密码安全**
    - 使用强密码（至少 16 位）
@@ -231,62 +443,75 @@ cat backup.sql | docker compose exec -T postgres psql -U postgres ember
 
 ---
 
-## 🛠️ 维护操作
+## 🏭 生产环境最佳实践
 
-### 查看日志
+### 1. 环境变量管理
 
-```bash
-# 实时日志
-docker compose logs -f ember
+**不推荐**：将敏感信息直接写在 .env 文件中
 
-# 最近 100 行
-docker compose logs --tail=100 ember
+**推荐方案**：
+- 使用 Docker Secrets（Docker Swarm）
+- 使用外部密钥管理服务（AWS Secrets Manager、HashiCorp Vault）
+- 使用环境变量注入（Kubernetes ConfigMap/Secret）
+
+### 2. 数据库迁移策略
+
+**最佳实践**：
+- ✅ 在部署流水线中独立执行迁移
+- ✅ 迁移完成后再更新应用容器
+- ❌ 不要在容器启动时自动运行迁移（避免竞态条件）
+
+### 3. 反向代理和 SSL
+
+推荐使用 Nginx 或 Caddy：
+
+```yaml
+# docker-compose.prod.yml 示例
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - ember
+
+  ember:
+    # ... 应用配置
+    expose:
+      - "3000"  # 只暴露给内部网络
 ```
 
-### 重启服务
+### 4. 监控和日志
 
-```bash
-# 重启所有服务
-docker compose restart
+**日志收集**：
+- 使用 ELK Stack（Elasticsearch、Logstash、Kibana）
+- 或 Loki + Grafana
+- 配置日志轮转避免磁盘占满
 
-# 只重启 Ember
-docker compose restart ember
-```
+**性能监控**：
+- 应用性能：New Relic、Datadog
+- 容器监控：Prometheus + Grafana
+- 数据库监控：pg_stat_statements
 
-### 更新应用
+### 5. 资源限制
 
-```bash
-# 拉取最新代码
-git pull
-
-# 重新构建并启动
-docker compose up -d --build
-
-# 运行数据库迁移（如果有）
-docker compose exec ember npx prisma migrate deploy
-```
-
-### 手动触发定时任务
-
-```bash
-# 方法 1：通过 API
-curl http://localhost:3000/api/cron
-
-# 方法 2：在容器中执行
-docker compose exec ember node -e "require('./server.js')"
-```
-
-### 清理数据
-
-```bash
-# 停止并删除容器
-docker compose down
-
-# 删除数据卷（⚠️ 会丢失所有数据）
-docker compose down -v
-
-# 删除镜像
-docker rmi ember-ember
+```yaml
+# docker-compose.yaml
+services:
+  ember:
+    # ... 其他配置
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
 ```
 
 ---
@@ -301,16 +526,6 @@ docker compose ps
 
 # 应用健康检查
 curl http://localhost:3000/api/health
-```
-
-预期响应：
-
-```json
-{
-  "status": "ok",
-  "timestamp": "2025-12-08T...",
-  "database": "connected"
-}
 ```
 
 ### 性能监控
@@ -358,12 +573,32 @@ docker compose exec postgres psql -U postgres ember
 
 ---
 
+## 🔄 更新流程
+
+```bash
+# 1. 拉取最新代码
+git pull
+
+# 2. 执行数据库迁移（如果有新的迁移）
+psql $DATABASE_URL -f prisma/migrations/新迁移目录/migration.sql
+
+# 3. 重新构建并启动应用
+docker compose up -d --build
+
+# 4. 验证
+curl http://localhost:3000/api/health
+```
+
+---
+
 ## 📚 相关文档
 
 - [README.md](../README.md) - 项目概览
 - [需求文档](./specs/requirements.md) - MVP 功能需求
+- [设计文档](./specs/design.md) - 详细设计
 - [测试清单](./testing-checklist.md) - 测试验收标准
-- [技术决策](./tech-stack-decision.md) - 技术选型说明
+- [开发指南](./development-guide.md) - 开发环境搭建和规范
+- [CI/CD 指南](./cicd-guide.md) - 自动化部署流程
 
 ---
 
@@ -374,4 +609,17 @@ docker compose exec postgres psql -U postgres ember
 
 ---
 
+## 📝 注意事项
+
+1. **.env 文件不会被打包到镜像中**（安全考虑）
+2. **数据库迁移必须在启动前完成**
+3. **首次启动需等待 40 秒**（健康检查 start_period）
+4. **生产环境强烈建议使用反向代理**（Nginx/Caddy + SSL）
+5. **定期备份数据库**，避免数据丢失
+6. **监控磁盘空间**，配置日志轮转
+
+---
+
 **部署成功后，请立即修改默认密码并配置 Emby 连接！**
+
+**文档更新日期**: 2025-12-13
