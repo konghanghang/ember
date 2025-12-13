@@ -53,6 +53,7 @@ export async function adminLogin(data: { username: string; password: string }) {
     const token = await signToken({
       id: admin.id,
       username: admin.username,
+      role: 'admin',
     })
 
     // 5. 设置 httpOnly cookie（安全存储）

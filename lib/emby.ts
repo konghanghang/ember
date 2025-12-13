@@ -49,6 +49,23 @@ export interface CreateUserRequest {
 }
 
 /**
+ * 用户认证响应
+ */
+export interface AuthenticateResponse {
+  User: EmbyUser
+  SessionInfo: {
+    Id: string
+    ServerId: string
+    Client: string
+    DeviceId: string
+    DeviceName: string
+    [key: string]: unknown
+  }
+  AccessToken: string
+  ServerId: string
+}
+
+/**
  * Emby API 错误
  */
 export class EmbyAPIError extends Error {
@@ -205,6 +222,25 @@ export class EmbyClient {
    */
   async getUser(userId: string): Promise<EmbyUser> {
     return this.request<EmbyUser>(`/Users/${userId}`)
+  }
+
+  /**
+   * 用户认证（登录验证）
+   * @param username 用户名
+   * @param password 密码
+   * @returns 认证信息（包含 AccessToken 和用户信息）
+   */
+  async authenticateUser(
+    username: string,
+    password: string
+  ): Promise<AuthenticateResponse> {
+    return this.request<AuthenticateResponse>('/Users/AuthenticateByName', {
+      method: 'POST',
+      body: JSON.stringify({
+        Username: username,
+        Pw: password,
+      }),
+    })
   }
 
   /**

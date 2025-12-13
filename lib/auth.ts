@@ -15,6 +15,7 @@ const JWT_EXPIRES_IN = 7 * 24 * 60 * 60 // 7天
 export interface JwtPayload {
   id: string
   username: string
+  role: 'admin' | 'user' // 用户角色
 }
 
 /**
@@ -47,6 +48,8 @@ export async function verifyToken(token: string): Promise<JwtPayload> {
     return {
       id: payload.id as string,
       username: payload.username as string,
+      // 向后兼容：旧 token 没有 role 字段，默认为 admin
+      role: (payload.role as 'admin' | 'user') || 'admin',
     }
   } catch (error) {
     if (error instanceof Error) {
