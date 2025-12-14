@@ -78,7 +78,7 @@ export default function PricingSection() {
 
           {/* 提示信息 */}
           <p className="text-center mt-6 text-sm text-gray-500 dark:text-gray-400">
-            💡 适合有网络加速工具的用户 · 后续将推出优化线路版本
+            💡 适合有网络加速工具的用户 · 后续将推出优化线路版本（18元/月，国内直连）
           </p>
         </div>
       </div>
