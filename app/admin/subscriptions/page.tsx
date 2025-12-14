@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import {
   getAllSubscriptions,
   approveSubscription,
@@ -15,6 +16,7 @@ interface Subscription {
   type: MediaType
   name: string
   tmdbId: string
+  posterPath: string | null
   status: SubscriptionStatus
   note: string | null
   mpError: string | null
@@ -123,6 +125,13 @@ export default function AdminSubscriptionsPage() {
     )
   }
 
+  // 获取 TMDB URL
+  function getTmdbUrl(type: MediaType, tmdbId: string) {
+    const baseUrl = 'https://www.themoviedb.org'
+    const mediaType = type === 'MOVIE' ? 'movie' : 'tv'
+    return `${baseUrl}/${mediaType}/${tmdbId}`
+  }
+
   // 客户端搜索过滤
   const filteredSubscriptions = subscriptions.filter(
     (sub) =>
@@ -221,16 +230,13 @@ export default function AdminSubscriptionsPage() {
               <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    封面
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     用户
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    影视名称
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    类型
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    TMDB ID
+                    影视信息
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     状态
@@ -249,6 +255,26 @@ export default function AdminSubscriptionsPage() {
                     key={sub.id}
                     className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                   >
+                    {/* 封面图片 */}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex-shrink-0 w-12 h-18 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden relative">
+                        {sub.posterPath ? (
+                          <Image
+                            src={`https://image.tmdb.org/t/p/w92${sub.posterPath}`}
+                            alt={sub.name}
+                            fill
+                            className="object-cover"
+                            sizes="48px"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                            无图
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 用户信息 */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900 dark:text-white">
                         {sub.user.username}
@@ -257,12 +283,38 @@ export default function AdminSubscriptionsPage() {
                         {sub.user.email}
                       </div>
                     </td>
+
+                    {/* 影视信息 */}
                     <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">
+                      <div className="text-sm font-medium text-gray-900 dark:text-white mb-1">
                         {sub.name}
                       </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        {getTypeBadge(sub.type)}
+                        <a
+                          href={getTmdbUrl(sub.type, sub.tmdbId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-1"
+                        >
+                          <span>TMDB: {sub.tmdbId}</span>
+                          <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                            />
+                          </svg>
+                        </a>
+                      </div>
                       {sub.note && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           备注：{sub.note}
                         </div>
                       )}
@@ -272,22 +324,20 @@ export default function AdminSubscriptionsPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getTypeBadge(sub.type)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <code className="text-sm text-gray-900 dark:text-white">
-                        {sub.tmdbId}
-                      </code>
-                    </td>
+
+                    {/* 状态 */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(sub.status, sub.mpError)}
                     </td>
+
+                    {/* 提交时间 */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {format(new Date(sub.createdAt), 'yyyy-MM-dd HH:mm', {
                         locale: zhCN,
                       })}
                     </td>
+
+                    {/* 操作 */}
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                       {sub.status === 'PENDING' && (
                         <div className="flex justify-end gap-2">

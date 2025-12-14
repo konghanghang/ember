@@ -14,6 +14,7 @@ export default function NewSubscriptionPage() {
   const [selectedMedia, setSelectedMedia] = useState<{
     tmdbId: string
     name: string
+    posterPath: string | null
   } | null>(null)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -33,6 +34,7 @@ export default function NewSubscriptionPage() {
       type: mediaType,
       name: selectedMedia.name,
       tmdbId: selectedMedia.tmdbId,
+      posterPath: selectedMedia.posterPath || undefined,
       note: formData.get('note') as string,
     }
 
@@ -51,7 +53,7 @@ export default function NewSubscriptionPage() {
     setSelectedMedia(null) // 切换类型时清空选择
   }
 
-  const handleMediaSelect = (result: { tmdbId: string; name: string }) => {
+  const handleMediaSelect = (result: { tmdbId: string; name: string; posterPath: string | null }) => {
     setSelectedMedia(result)
     setError('') // 清除错误提示
   }

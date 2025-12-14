@@ -7,13 +7,14 @@ import { moviepilotClient } from '@/lib/moviepilot'
 
 /**
  * 用户提交订阅
- * @param data { type, name, tmdbId, note }
+ * @param data { type, name, tmdbId, posterPath, note }
  * @returns { success: boolean, error?: string }
  */
 export async function createSubscription(data: {
   type: MediaType
   name: string
   tmdbId: string
+  posterPath?: string
   note?: string
 }) {
   try {
@@ -41,6 +42,7 @@ export async function createSubscription(data: {
         type: data.type,
         name: data.name,
         tmdbId: data.tmdbId,
+        posterPath: data.posterPath,
         note: data.note,
         status: 'PENDING',
       },

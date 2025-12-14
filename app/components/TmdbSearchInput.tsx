@@ -16,7 +16,7 @@ interface TmdbResult {
 
 interface TmdbSearchInputProps {
   mediaType: MediaType
-  onSelect: (result: { tmdbId: string; name: string }) => void
+  onSelect: (result: { tmdbId: string; name: string; posterPath: string | null }) => void
   placeholder?: string
 }
 
@@ -89,6 +89,7 @@ export default function TmdbSearchInput({
     onSelect({
       tmdbId: String(result.id),
       name: result.title,
+      posterPath: result.posterPath,
     })
     setQuery(result.title)
     setShowResults(false)

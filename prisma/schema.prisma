@@ -120,16 +120,17 @@ enum MediaType {
 
 // 订阅表
 model Subscription {
-  id        String             @id @default(cuid())
-  userId    String             // 关联用户
-  type      MediaType          // 媒体类型（电影/电视剧）
-  name      String             // 影视名称
-  tmdbId    String             // TMDB ID（唯一标识）
-  status    SubscriptionStatus @default(PENDING) // 订阅状态
-  note      String?            // 用户备注（可选）
-  mpError   String?            // MoviePilot 同步错误信息（仅在 status=APPROVED 且同步失败时有值）
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id         String             @id @default(cuid())
+  userId     String             // 关联用户
+  type       MediaType          // 媒体类型（电影/电视剧）
+  name       String             // 影视名称
+  tmdbId     String             // TMDB ID（唯一标识）
+  posterPath String?            // TMDB 封面图片路径（可选，如 /path/to/poster.jpg）
+  status     SubscriptionStatus @default(PENDING) // 订阅状态
+  note       String?            // 用户备注（可选）
+  mpError    String?            // MoviePilot 同步错误信息（仅在 status=APPROVED 且同步失败时有值）
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
 
   // 关系：属于某个用户
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

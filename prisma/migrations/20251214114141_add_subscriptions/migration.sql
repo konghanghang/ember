@@ -1,6 +1,6 @@
 -- Phase 2: 订阅系统数据库迁移
--- 创建时间: 2025-12-13
--- 说明: 新增订阅表和相关枚举类型
+-- 创建时间: 2025-12-14
+-- 说明: 新增订阅表、枚举类型和 posterPath 字段
 
 -- CreateEnum
 CREATE TYPE "SubscriptionStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
@@ -13,6 +13,7 @@ CREATE TABLE "subscriptions" (
     "type" "MediaType" NOT NULL,
     "name" TEXT NOT NULL,
     "tmdbId" TEXT NOT NULL,
+    "posterPath" TEXT,
     "status" "SubscriptionStatus" NOT NULL DEFAULT 'PENDING',
     "note" TEXT,
     "mpError" TEXT,
@@ -32,10 +33,11 @@ ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_userId_fkey"
     FOREIGN KEY ("userId") REFERENCES "users"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
--- 说明:
+-- 字段说明:
 -- 1. SubscriptionStatus: 订阅状态（待审核/已批准/已拒绝）
 -- 2. MediaType: 媒体类型（电影/电视剧）
--- 3. mpError: MoviePilot 同步错误信息（方案 A：审核通过但同步失败时记录错误）
+-- 3. posterPath: TMDB 封面图片路径（可选，如 /path/to/poster.jpg）
+-- 4. mpError: MoviePilot 同步错误信息
 --    - status='APPROVED' + mpError=null: 已同步成功
 --    - status='APPROVED' + mpError='xxx': 同步失败，允许管理员重试
--- 4. onDelete CASCADE: 用户删除时级联删除其订阅记录
+-- 5. onDelete CASCADE: 用户删除时级联删除其订阅记录

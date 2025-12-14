@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { getUserSubscriptions, deleteSubscription } from '@/app/actions/subscriptions'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
@@ -12,6 +13,7 @@ interface Subscription {
   type: MediaType
   name: string
   tmdbId: string
+  posterPath: string | null
   status: SubscriptionStatus
   note: string | null
   mpError: string | null
@@ -53,7 +55,6 @@ export default function UserSubscriptionsPage() {
     const result = await deleteSubscription(id)
 
     if (result.success) {
-      // 从列表中移除
       setSubscriptions((prev) => prev.filter((sub) => sub.id !== id))
     } else {
       alert(result.error || '删除失败')
@@ -106,10 +107,17 @@ export default function UserSubscriptionsPage() {
     )
   }
 
+  // 获取 TMDB URL
+  function getTmdbUrl(type: MediaType, tmdbId: string) {
+    const baseUrl = 'https://www.themoviedb.org'
+    const mediaType = type === 'MOVIE' ? 'movie' : 'tv'
+    return `${baseUrl}/${mediaType}/${tmdbId}`
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-12">
-        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     )
   }
@@ -128,7 +136,7 @@ export default function UserSubscriptionsPage() {
         </div>
         <Link
           href="/user/subscriptions/new"
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
         >
           提交新订阅
         </Link>
@@ -149,85 +157,109 @@ export default function UserSubscriptionsPage() {
           </p>
           <Link
             href="/user/subscriptions/new"
-            className="mt-4 inline-block px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
+            className="mt-4 inline-block px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
           >
             提交第一个订阅
           </Link>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-900">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  影视名称
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  类型
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  TMDB ID
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  状态
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  提交时间
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  操作
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {subscriptions.map((sub) => (
-                <tr key={sub.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      {sub.name}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {subscriptions.map((sub) => (
+            <div
+              key={sub.id}
+              className="bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition-shadow overflow-hidden"
+            >
+              <div className="flex gap-4 p-4">
+                {/* 封面图片 */}
+                <div className="flex-shrink-0 w-24 h-36 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden relative">
+                  {sub.posterPath ? (
+                    <Image
+                      src={`https://image.tmdb.org/t/p/w185${sub.posterPath}`}
+                      alt={sub.name}
+                      fill
+                      className="object-cover"
+                      sizes="96px"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                      无封面
                     </div>
-                    {sub.note && (
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {sub.note}
-                      </div>
-                    )}
-                    {sub.mpError && (
-                      <div className="text-xs text-red-600 dark:text-red-400 mt-1">
-                        同步错误：{sub.mpError}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  )}
+                </div>
+
+                {/* 信息区域 */}
+                <div className="flex-1 min-w-0 flex flex-col">
+                  {/* 标题 */}
+                  <h3 className="font-semibold text-gray-900 dark:text-white truncate">
+                    {sub.name}
+                  </h3>
+
+                  {/* 类型和状态 */}
+                  <div className="flex gap-2 mt-2">
                     {getTypeBadge(sub.type)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <code className="text-sm text-gray-900 dark:text-white">
-                      {sub.tmdbId}
-                    </code>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
                     {getStatusBadge(sub.status, sub.mpError)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {format(new Date(sub.createdAt), 'yyyy-MM-dd HH:mm', {
-                      locale: zhCN,
-                    })}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                  </div>
+
+                  {/* TMDB ID 链接 */}
+                  <div className="mt-2">
+                    <a
+                      href={getTmdbUrl(sub.type, sub.tmdbId)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-1"
+                    >
+                      <span>TMDB: {sub.tmdbId}</span>
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                        />
+                      </svg>
+                    </a>
+                  </div>
+
+                  {/* 备注 */}
+                  {sub.note && (
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+                      {sub.note}
+                    </p>
+                  )}
+
+                  {/* 错误信息 */}
+                  {sub.mpError && (
+                    <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                      同步错误：{sub.mpError}
+                    </p>
+                  )}
+
+                  {/* 底部：时间和操作 */}
+                  <div className="mt-auto pt-3 flex items-center justify-between">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {format(new Date(sub.createdAt), 'MM-dd HH:mm', {
+                        locale: zhCN,
+                      })}
+                    </span>
                     {sub.status === 'PENDING' && (
                       <button
                         onClick={() => handleDelete(sub.id)}
                         disabled={deleteLoading === sub.id}
-                        className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 font-medium disabled:opacity-50"
+                        className="text-sm text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 font-medium disabled:opacity-50"
                       >
                         {deleteLoading === sub.id ? '删除中...' : '删除'}
                       </button>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
