@@ -8,7 +8,7 @@ export default function QuickStartSection() {
     {
       number: '2',
       title: '购买邀请码',
-      description: '群内联系管理员购买邀请码（10元/月），账号权限已自动配���',
+      description: '群内联系管理员购买邀请码（10元/月），账号权限已自动配置',
     },
     {
       number: '3',
