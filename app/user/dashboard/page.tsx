@@ -6,6 +6,7 @@ import {
   updateUserPassword,
   updateUserEmail,
 } from '@/app/actions/user-auth'
+import { getEmbyConfig } from '@/app/actions/media'
 import { format, differenceInDays } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import MediaStats from '@/app/components/MediaStats'
@@ -25,6 +26,7 @@ export default function UserDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<UserInfo | null>(null)
   const [error, setError] = useState('')
+  const [embyUrl, setEmbyUrl] = useState<string>('')
 
   // 修改密码表单状态
   const [passwordForm, setPasswordForm] = useState({
@@ -43,8 +45,9 @@ export default function UserDashboardPage() {
   const [emailSuccess, setEmailSuccess] = useState(false)
 
   useEffect(() => {
-    getUserAuth()
-      .then((userData) => {
+    // 并行加载用户信息和 Emby 配置
+    Promise.all([getUserAuth(), getEmbyConfig()])
+      .then(([userData, embyConfig]) => {
         if (userData) {
           setUser(userData as UserInfo)
           // 初始化邮箱输入框
@@ -52,6 +55,11 @@ export default function UserDashboardPage() {
         } else {
           setError('无法获取用户信息')
         }
+
+        if (embyConfig.success && embyConfig.url) {
+          setEmbyUrl(embyConfig.url)
+        }
+
         setLoading(false)
       })
       .catch(() => {
@@ -192,7 +200,7 @@ export default function UserDashboardPage() {
               Emby 服务器:
             </span>
             <span className="font-mono text-indigo-600 dark:text-indigo-400">
-              {process.env.NEXT_PUBLIC_EMBY_URL || '请联系管理员获取'}
+              {embyUrl || '请联系管理员获取'}
             </span>
           </div>
         </div>

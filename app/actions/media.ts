@@ -8,6 +8,38 @@ let cachedStats: MediaStats | null = null
 let cacheTimestamp: number = 0
 
 /**
+ * 获取 Emby 服务器配置
+ * 优先返回公网地址,回退到内部地址
+ */
+export async function getEmbyConfig(): Promise<{
+  success: boolean
+  url?: string
+  error?: string
+}> {
+  try {
+    const url = process.env.NEXT_PUBLIC_EMBY_URL || process.env.EMBY_URL
+
+    if (!url) {
+      return {
+        success: false,
+        error: '未配置 Emby 服务器地址',
+      }
+    }
+
+    return {
+      success: true,
+      url,
+    }
+  } catch (error) {
+    console.error('获取 Emby 配置失败:', error)
+    return {
+      success: false,
+      error: '获取配置失败',
+    }
+  }
+}
+
+/**
  * 获取媒体库统计信息（带缓存）
  * @returns 媒体库统计数据或错误
  */
