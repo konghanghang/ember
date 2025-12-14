@@ -37,7 +37,7 @@ export default function UserLayout({
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-400">加载中...</p>
         </div>
       </div>
@@ -60,9 +60,9 @@ export default function UserLayout({
             <div className="flex">
               {/* Logo */}
               <div className="flex-shrink-0 flex items-center">
-                <h1 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                <a href="/" className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors">
                   Ember
-                </h1>
+                </a>
               </div>
 
               {/* 导航链接 */}
@@ -71,7 +71,7 @@ export default function UserLayout({
                   href="/user/dashboard"
                   className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors ${
                     pathname === '/user/dashboard'
-                      ? 'border-emerald-500 text-gray-900 dark:text-white'
+                      ? 'border-indigo-500 text-gray-900 dark:text-white'
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
                 >
@@ -81,7 +81,7 @@ export default function UserLayout({
                   href="/user/subscriptions"
                   className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors ${
                     pathname.startsWith('/user/subscriptions')
-                      ? 'border-emerald-500 text-gray-900 dark:text-white'
+                      ? 'border-indigo-500 text-gray-900 dark:text-white'
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
                 >
@@ -112,7 +112,7 @@ export default function UserLayout({
               href="/user/dashboard"
               className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
                 pathname === '/user/dashboard'
-                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400'
                   : 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
               }`}
             >
@@ -122,7 +122,7 @@ export default function UserLayout({
               href="/user/subscriptions"
               className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
                 pathname.startsWith('/user/subscriptions')
-                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400'
                   : 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
               }`}
             >
