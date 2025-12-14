@@ -4,34 +4,56 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSubscription } from '@/app/actions/subscriptions'
 import { MediaType } from '@prisma/client'
+import TmdbSearchInput from '@/app/components/TmdbSearchInput'
 
 export default function NewSubscriptionPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [mediaType, setMediaType] = useState<MediaType>('MOVIE')
+  const [selectedMedia, setSelectedMedia] = useState<{
+    tmdbId: string
+    name: string
+  } | null>(null)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
+
+    // 验证是否已选择影视作品
+    if (!selectedMedia) {
+      setError('请先搜索并选择影视作品')
+      return
+    }
+
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
     const data = {
-      type: formData.get('type') as MediaType,
-      name: formData.get('name') as string,
-      tmdbId: formData.get('tmdbId') as string,
+      type: mediaType,
+      name: selectedMedia.name,
+      tmdbId: selectedMedia.tmdbId,
       note: formData.get('note') as string,
     }
 
     const result = await createSubscription(data)
 
     if (result.success) {
-      // 成功后跳转到订阅列表
       router.push('/user/subscriptions')
     } else {
       setError(result.error || '提交订阅失败')
       setLoading(false)
     }
+  }
+
+  const handleMediaTypeChange = (newType: MediaType) => {
+    setMediaType(newType)
+    setSelectedMedia(null) // 切换类型时清空选择
+  }
+
+  const handleMediaSelect = (result: { tmdbId: string; name: string }) => {
+    setSelectedMedia(result)
+    setError('') // 清除错误提示
   }
 
   return (
@@ -43,7 +65,7 @@ export default function NewSubscriptionPage() {
             提交新订阅
           </h1>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            填写影视信息，管理员审核通过后将自动添加到订阅列表
+            搜索并选择影视作品，管理员审核通过后将自动添加到订阅列表
           </p>
         </div>
 
@@ -66,64 +88,38 @@ export default function NewSubscriptionPage() {
             </label>
             <select
               id="type"
-              name="type"
-              required
+              value={mediaType}
+              onChange={(e) =>
+                handleMediaTypeChange(e.target.value as MediaType)
+              }
               disabled={loading}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
             >
               <option value="MOVIE">电影</option>
               <option value="TV">电视剧</option>
             </select>
           </div>
 
-          {/* 影视名称 */}
+          {/* TMDB 搜索 */}
           <div>
-            <label
-              htmlFor="name"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-            >
-              影视名称 <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              搜索影视作品 <span className="text-red-500">*</span>
             </label>
-            <input
-              id="name"
-              name="name"
-              type="text"
-              required
-              disabled={loading}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-              placeholder="例如：肖申克的救赎"
+            <TmdbSearchInput
+              mediaType={mediaType}
+              onSelect={handleMediaSelect}
+              placeholder={`搜索${mediaType === 'MOVIE' ? '电影' : '电视剧'}...`}
             />
-          </div>
-
-          {/* TMDB ID */}
-          <div>
-            <label
-              htmlFor="tmdbId"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-            >
-              TMDB ID <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="tmdbId"
-              name="tmdbId"
-              type="text"
-              required
-              disabled={loading}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-              placeholder="例如：278"
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              在{' '}
-              <a
-                href="https://www.themoviedb.org/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
-              >
-                TheMovieDB
-              </a>{' '}
-              搜索影视作品，从 URL 中获取 ID
-            </p>
+            {selectedMedia && (
+              <div className="mt-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg">
+                <p className="text-sm text-indigo-900 dark:text-indigo-100">
+                  ✓ 已选择：<span className="font-medium">{selectedMedia.name}</span>
+                </p>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
+                  TMDB ID: {selectedMedia.tmdbId}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* 备注 */}
@@ -139,7 +135,7 @@ export default function NewSubscriptionPage() {
               name="note"
               rows={3}
               disabled={loading}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors resize-none"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors resize-none"
               placeholder="补充说明，例如：希望尽快添加"
             />
           </div>
@@ -156,8 +152,8 @@ export default function NewSubscriptionPage() {
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+              disabled={loading || !selectedMedia}
+              className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             >
               {loading ? '提交中...' : '提交订阅'}
             </button>
