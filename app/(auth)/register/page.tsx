@@ -68,7 +68,7 @@ export default function RegisterPage() {
                 Emby 服务器地址：
               </p>
               <p className="text-lg font-mono text-indigo-600 dark:text-indigo-400">
-                {embyUrl || 'https://your-emby.com'}
+                {embyUrl || '请联系管理员获取'}
               </p>
             </div>
 

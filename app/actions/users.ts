@@ -373,7 +373,7 @@ export async function registerUser(data: {
     return {
       success: true,
       user,
-      embyUrl: process.env.EMBY_URL,
+      embyUrl: process.env.NEXT_PUBLIC_EMBY_URL || process.env.EMBY_URL,
     }
   } catch (error) {
     console.error('用户注册失败：', error)
