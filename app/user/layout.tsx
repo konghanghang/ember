@@ -44,6 +44,13 @@ export default function UserLayout({
     )
   }
 
+  // 登录页面不需要 layout 的导航栏和背景
+  const isLoginPage = pathname === '/user/login'
+
+  if (isLoginPage) {
+    return <>{children}</>
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* 顶部导航栏 */}
