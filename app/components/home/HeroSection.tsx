@@ -11,21 +11,27 @@ export default function HeroSection() {
 
         {/* 副标题 */}
         <p className="text-2xl md:text-3xl text-gray-700 dark:text-gray-200 mb-4">
-          统一管理你的 Emby 媒体服务器
+          你的私人流媒体影音库
         </p>
 
-        <p className="text-lg text-gray-600 dark:text-gray-400 mb-12 max-w-2xl mx-auto">
-          简化用户账号管理、订阅计划、邀请码等运营工作，让你专注于为用户提供优质的媒体服务
+        <p className="text-lg text-gray-600 dark:text-gray-400 mb-8 max-w-2xl mx-auto">
+          海量 4K 高清资源，热门剧集同步更新
+        </p>
+
+        <p className="text-base text-gray-500 dark:text-gray-500 mb-12">
+          基于 CloudFlare 全球加速 · 💰 10元/月
         </p>
 
         {/* CTA 按钮组 */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-          <Link
-            href="/register"
+          <a
+            href="https://t.me/NextNewEP_emby_chat"
+            target="_blank"
+            rel="noopener noreferrer"
             className="px-8 py-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium text-lg shadow-lg hover:shadow-xl"
           >
-            开始使用
-          </Link>
+            📱 加入 Telegram 群组
+          </a>
           <Link
             href="/user/login"
             className="px-8 py-4 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium text-lg border border-gray-200 dark:border-gray-700"

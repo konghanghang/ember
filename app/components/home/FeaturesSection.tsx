@@ -1,19 +1,19 @@
 export default function FeaturesSection() {
   const features = [
     {
-      icon: '👥',
-      title: '用户管理',
-      description: '统一管理 Emby 用户账号，支持批量操作、权限控制和状态监控',
+      icon: '🎬',
+      title: '海量影视资源',
+      description: '涵盖电影、剧集、纪录片、动漫等多种类型，支持 4K 超高清播放',
     },
     {
-      icon: '📋',
-      title: '订阅系统',
-      description: '灵活的订阅计划管理，自动化到期提醒和续费流程，提升运营效率',
+      icon: '⚡',
+      title: '新番同步追更',
+      description: '热门剧集及时更新，不错过每一集精彩内容，第一时间观看最新剧集',
     },
     {
       icon: '🎫',
-      title: '邀请码管理',
-      description: '精细化控制新用户注册，支持批量生成、使用追踪和权限配置',
+      title: '邀请制社区',
+      description: '基于邀请码的精品社区，高质量用户群体，共享优质观影体验',
     },
   ]
 
@@ -23,10 +23,10 @@ export default function FeaturesSection() {
         {/* 标题 */}
         <div className="text-center mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
-            核心功能
+            核心特色
           </h2>
           <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            为 Emby 服务器管理员量身打造的运营工具
+            优质流媒体资源，极致观影体验
           </p>
         </div>
 
