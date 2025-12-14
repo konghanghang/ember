@@ -11,6 +11,11 @@ export default function FeaturesSection() {
       description: '热门剧集及时更新，不错过每一集精彩内容，第一时间观看最新剧集',
     },
     {
+      icon: '📺',
+      title: '点播订阅',
+      description: '想看什么就订什么，提交订阅申请后自动追番更新，打造您的专属影音库',
+    },
+    {
       icon: '🎫',
       title: '邀请制社区',
       description: '基于邀请码的精品社区，高质量用户群体，共享优质观影体验',
@@ -31,7 +36,7 @@ export default function FeaturesSection() {
         </div>
 
         {/* 功能卡片 */}
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
           {features.map((feature, index) => (
             <div
               key={index}
