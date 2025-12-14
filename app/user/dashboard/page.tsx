@@ -8,6 +8,7 @@ import {
 } from '@/app/actions/user-auth'
 import { format, differenceInDays } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import MediaStats from '@/app/components/MediaStats'
 
 interface UserInfo {
   id: string
@@ -162,6 +163,14 @@ export default function UserDashboardPage() {
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
           查看和管理您的 Emby 账号信息
         </p>
+      </div>
+
+      {/* 媒体库统计 */}
+      <div>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+          媒体库统计
+        </h2>
+        <MediaStats />
       </div>
 
       {/* 账号状态警告 */}

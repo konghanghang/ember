@@ -66,6 +66,18 @@ export interface AuthenticateResponse {
 }
 
 /**
+ * 媒体库统计信息
+ */
+export interface MediaStats {
+  MovieCount: number
+  SeriesCount: number
+  EpisodeCount: number
+  MusicVideoCount?: number
+  TrailerCount?: number
+  SongCount?: number
+}
+
+/**
  * Emby API 错误
  */
 export class EmbyAPIError extends Error {
@@ -266,6 +278,25 @@ export class EmbyClient {
           error instanceof EmbyAPIError
             ? error.message
             : 'Emby 连接失败：未知错误',
+      }
+    }
+  }
+
+  /**
+   * 获取媒体库统计信息
+   * @returns 媒体库统计数据（电影、电视剧、剧集数量）
+   */
+  async getMediaStats(): Promise<MediaStats> {
+    try {
+      const stats = await this.request<MediaStats>('/Items/Counts')
+      return stats
+    } catch (error) {
+      // 如果 /Items/Counts 不可用，返回空统计
+      console.error('获取媒体库统计失败:', error)
+      return {
+        MovieCount: 0,
+        SeriesCount: 0,
+        EpisodeCount: 0,
       }
     }
   }
