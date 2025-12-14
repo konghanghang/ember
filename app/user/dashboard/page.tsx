@@ -165,12 +165,37 @@ export default function UserDashboardPage() {
         </p>
       </div>
 
-      {/* 媒体库统计 */}
-      <div>
+      {/* 媒体库信息 */}
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-          媒体库统计
+          媒体库信息
         </h2>
         <MediaStats />
+
+        {/* Emby 服务器信息横幅 */}
+        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <svg
+              className="w-5 h-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+              />
+            </svg>
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              Emby 服务器:
+            </span>
+            <span className="font-mono text-indigo-600 dark:text-indigo-400">
+              {process.env.NEXT_PUBLIC_EMBY_URL || '请联系管理员获取'}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* 账号状态警告 */}
@@ -361,30 +386,6 @@ export default function UserDashboardPage() {
                 {user.isActive ? '正常' : '已禁用'}
               </span>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Emby 服务器信息 */}
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
-        <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-white">
-            Emby 服务器
-          </h2>
-        </div>
-        <div className="px-6 py-5">
-          <div>
-            <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
-              服务器地址
-            </label>
-            <p className="mt-1 text-sm text-gray-900 dark:text-white font-mono">
-              {process.env.NEXT_PUBLIC_EMBY_URL || '请联系管理员获取'}
-            </p>
-          </div>
-          <div className="mt-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              使用您的用户名和密码登录 Emby 客户端即可开始观看。
-            </p>
           </div>
         </div>
       </div>
