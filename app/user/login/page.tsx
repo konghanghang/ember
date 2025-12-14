@@ -102,6 +102,17 @@ export default function UserLoginPage() {
         {/* 底部链接 */}
         <div className="mt-6 text-center space-y-2">
           <div>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              还没有账号？
+            </span>
+            <Link
+              href="/register"
+              className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline ml-1 font-medium"
+            >
+              立即注册
+            </Link>
+          </div>
+          <div>
             <Link
               href="/login"
               className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"

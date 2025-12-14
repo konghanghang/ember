@@ -1,3 +1,7 @@
+'use client'
+
+import Link from 'next/link'
+
 export default function QuickStartSection() {
   const steps = [
     {
@@ -12,7 +16,7 @@ export default function QuickStartSection() {
     },
     {
       number: '3',
-      title: '开始观影',
+      title: '注册账号',
       description: '使用邀请码注册账号，下载 Emby 客户端即可享受高清影音',
     },
   ]
@@ -55,7 +59,20 @@ export default function QuickStartSection() {
 
                 {/* 描述 */}
                 <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
-                  {step.description}
+                  {index === 2 ? (
+                    <>
+                      使用邀请码
+                      <Link
+                        href="/register"
+                        className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium mx-0.5"
+                      >
+                        注册账号
+                      </Link>
+                      ，下载 Emby 客户端即可享受高清影音
+                    </>
+                  ) : (
+                    step.description
+                  )}
                 </p>
               </div>
             </div>
