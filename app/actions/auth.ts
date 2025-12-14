@@ -60,7 +60,8 @@ export async function adminLogin(data: { username: string; password: string }) {
     const cookieStore = await cookies()
     cookieStore.set('auth-token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      // 移除 secure 检查:在 HTTP 环境也能工作(局域网部署)
+      // httpOnly 已提供基本安全保护,实用性优先
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7天
       path: '/',
