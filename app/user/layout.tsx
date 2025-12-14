@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
+import Link from 'next/link'
 import { getUserAuth, userLogout } from '@/app/actions/user-auth'
 
 export default function UserLayout({
@@ -60,9 +61,9 @@ export default function UserLayout({
             <div className="flex">
               {/* Logo */}
               <div className="flex-shrink-0 flex items-center">
-                <a href="/" className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors">
+                <Link href="/" className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors">
                   Ember
-                </a>
+                </Link>
               </div>
 
               {/* 导航链接 */}
