@@ -11,6 +11,7 @@ import {
   formatEmbyError,
   formatDatabaseError,
 } from '@/lib/user-helpers'
+import { notifyNewRegistration } from '@/lib/telegram'
 import type { Invite } from '@prisma/client'
 
 // ==================== 用户注册相关辅助函数 ====================
@@ -369,6 +370,17 @@ export async function registerUser(data: {
       embyUserId,
       inviteValidation.invite
     )
+
+    // 5. 发送 Telegram 通知（异步，不阻塞返回）
+    notifyNewRegistration({
+      username: user.username,
+      email: user.email,
+      inviteCode: data.inviteCode,
+      expiresAt: user.expiresAt,
+      createdAt: user.createdAt,
+    }).catch((error) => {
+      console.error('[注册] Telegram 通知失败', error)
+    })
 
     return {
       success: true,

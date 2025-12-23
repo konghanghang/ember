@@ -1,7 +1,7 @@
 /**
  * Telegram 通知工具
  *
- * 用于向管理员发送订阅请求通知
+ * 用于向管理员发送订阅请求和用户注册通知
  */
 
 import { MediaType } from '@prisma/client'
@@ -69,6 +69,53 @@ ${subscription.note ? `💬 备注：${subscription.note}` : ''}
     }
 
     console.log('[Telegram] 新订阅通知已发送', { username, name: subscription.name })
+  } catch (error) {
+    // 通知失败不影响主流程，仅记录日志
+    console.error('[Telegram] 发送通知失败', error)
+  }
+}
+
+/**
+ * 发送新用户注册通知给管理员
+ *
+ * @param user 用户数据
+ */
+export async function notifyNewRegistration(user: {
+  username: string
+  email: string
+  inviteCode: string
+  expiresAt?: Date | null
+  createdAt: Date
+}): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID
+
+  // 未配置时跳过通知
+  if (!token || !chatId) {
+    console.log('[Telegram] 未配置 Telegram，跳过通知')
+    return
+  }
+
+  try {
+    // 格式化到期时间
+    const expiryText = user.expiresAt
+      ? user.expiresAt.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+      : '永久'
+
+    // 构建通知消息
+    const message = `
+👥 新用户注册
+
+👤 用户名：${user.username}
+📧 邮箱：${user.email}
+🎫 邀请码：${user.inviteCode}
+⏰ 注册时间：${user.createdAt.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
+📅 到期时间：${expiryText}
+    `.trim()
+
+    await sendTelegramMessage(token, chatId, message)
+
+    console.log('[Telegram] 新用户注册通知已发送', { username: user.username })
   } catch (error) {
     // 通知失败不影响主流程，仅记录日志
     console.error('[Telegram] 发送通知失败', error)
