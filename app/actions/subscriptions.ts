@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import { getServerAuth } from '@/lib/auth'
 import { MediaType, SubscriptionStatus } from '@prisma/client'
 import { moviepilotClient } from '@/lib/moviepilot'
+import { notifyNewSubscription } from '@/lib/telegram'
 
 /**
  * 用户提交订阅
@@ -36,7 +37,7 @@ export async function createSubscription(data: {
     }
 
     // 3. 创建订阅
-    await prisma.subscription.create({
+    const subscription = await prisma.subscription.create({
       data: {
         userId: auth.id,
         type: data.type,
@@ -61,6 +62,11 @@ export async function createSubscription(data: {
         },
       },
     })
+
+    // 5. 发送 Telegram 通知（异步，失败不影响主流程）
+    notifyNewSubscription(subscription, auth.username).catch((err) =>
+      console.error('[订阅] Telegram 通知失败', err)
+    )
 
     return {
       success: true,
