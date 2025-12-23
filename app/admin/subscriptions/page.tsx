@@ -257,7 +257,7 @@ export default function AdminSubscriptionsPage() {
                   >
                     {/* 封面图片 */}
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex-shrink-0 w-12 h-18 bg-gray-200 dark:bg-gray-700 rounded overflow-hidden relative">
+                      <div className="flex-shrink-0 w-12 h-[72px] bg-gray-200 dark:bg-gray-700 rounded overflow-hidden relative">
                         {sub.posterPath ? (
                           <Image
                             src={`https://image.tmdb.org/t/p/w92${sub.posterPath}`}
