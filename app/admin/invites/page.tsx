@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createInvite, getInvites, deleteInvite } from '@/app/actions/invites'
 import { formatDateTime } from '@/lib/utils'
+import Pagination from '@/app/components/Pagination'
+import PageSizeSelector from '@/app/components/PageSizeSelector'
 
 interface Invite {
   id: string
@@ -21,6 +23,11 @@ export default function InvitesPage() {
   const [creating, setCreating] = useState(false)
   const [showForm, setShowForm] = useState(false)
 
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [total, setTotal] = useState(0)
+
   // 表单状态
   const [maxUses, setMaxUses] = useState(1)
   const [defaultDays, setDefaultDays] = useState(30)
@@ -29,13 +36,15 @@ export default function InvitesPage() {
 
   useEffect(() => {
     loadInvites()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, pageSize])
 
   async function loadInvites() {
     setLoading(true)
-    const result = await getInvites()
+    const result = await getInvites(currentPage, pageSize)
     if (result.success && result.invites) {
       setInvites(result.invites as Invite[])
+      setTotal(result.total || 0)
     }
     setLoading(false)
   }
@@ -263,6 +272,27 @@ export default function InvitesPage() {
           </div>
         )}
       </div>
+
+      {/* 分页控件 */}
+      {total > 0 && (
+        <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <PageSizeSelector
+            pageSize={pageSize}
+            onPageSizeChange={(size) => {
+              setPageSize(size)
+              setCurrentPage(1) // 改变每页数量时重置到第一页
+            }}
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(total / pageSize)}
+            onPageChange={setCurrentPage}
+          />
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            共 {total} 条记录
+          </div>
+        </div>
+      )}
     </div>
   )
 }

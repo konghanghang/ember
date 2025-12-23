@@ -66,28 +66,38 @@ export async function createInvite(data: {
 
 /**
  * 获取邀请码列表
- * @returns 邀请码列表（含使用情况）
+ * @param page 页码（从 1 开始）
+ * @param pageSize 每页数量
+ * @returns 邀请码列表（含使用情况）和总数
  */
-export async function getInvites() {
+export async function getInvites(page = 1, pageSize = 10) {
   try {
-    const invites = await prisma.invite.findMany({
-      include: {
-        users: {
-          select: {
-            id: true,
-            username: true,
-            createdAt: true,
+    const skip = (page - 1) * pageSize
+
+    const [invites, total] = await prisma.$transaction([
+      prisma.invite.findMany({
+        include: {
+          users: {
+            select: {
+              id: true,
+              username: true,
+              createdAt: true,
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    })
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: pageSize,
+      }),
+      prisma.invite.count(),
+    ])
 
     return {
       success: true,
       invites,
+      total,
     }
   } catch (error) {
     console.error('获取邀请码列表失败：', error)
@@ -95,6 +105,7 @@ export async function getInvites() {
       success: false,
       error: '获取邀请码列表失败',
       invites: [],
+      total: 0,
     }
   }
 }

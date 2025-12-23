@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { getUsers, extendExpiry, toggleUserStatus, deleteUser } from '@/app/actions/users'
 import { formatDateTime } from '@/lib/utils'
+import Pagination from '@/app/components/Pagination'
+import PageSizeSelector from '@/app/components/PageSizeSelector'
 
 interface User {
   id: string
@@ -22,6 +24,11 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
 
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [total, setTotal] = useState(0)
+
   // 延长到期时间对话框状态
   const [extendDialogOpen, setExtendDialogOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
@@ -31,18 +38,24 @@ export default function UsersPage() {
   useEffect(() => {
     loadUsers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [currentPage, pageSize])
 
   async function loadUsers() {
     setLoading(true)
-    const result = await getUsers({ search: searchTerm || undefined })
+    const result = await getUsers({
+      search: searchTerm || undefined,
+      page: currentPage,
+      pageSize,
+    })
     if (result.success && result.users) {
       setUsers(result.users as User[])
+      setTotal(result.total || 0)
     }
     setLoading(false)
   }
 
   async function handleSearch() {
+    setCurrentPage(1) // 搜索时重置到第一页
     await loadUsers()
   }
 
@@ -243,6 +256,27 @@ export default function UsersPage() {
           </div>
         )}
       </div>
+
+      {/* 分页控件 */}
+      {total > 0 && (
+        <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <PageSizeSelector
+            pageSize={pageSize}
+            onPageSizeChange={(size) => {
+              setPageSize(size)
+              setCurrentPage(1)
+            }}
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(total / pageSize)}
+            onPageChange={setCurrentPage}
+          />
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            共 {total} 条记录
+          </div>
+        </div>
+      )}
 
       {/* 延长到期时间对话框 */}
       {extendDialogOpen && selectedUser && (

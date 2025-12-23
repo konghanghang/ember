@@ -186,9 +186,15 @@ export async function deleteSubscription(id: string) {
 /**
  * 获取所有订阅（管理员）
  * @param status 可选的状态筛选
- * @returns 订阅列表
+ * @param page 页码（从 1 开始）
+ * @param pageSize 每页数量
+ * @returns 订阅列表和总数
  */
-export async function getAllSubscriptions(status?: SubscriptionStatus) {
+export async function getAllSubscriptions(
+  status?: SubscriptionStatus,
+  page = 1,
+  pageSize = 10
+) {
   try {
     // 1. 获取当前登录用户
     const auth = await getServerAuth()
@@ -196,23 +202,32 @@ export async function getAllSubscriptions(status?: SubscriptionStatus) {
       return null
     }
 
-    // 2. 查询订阅列表
-    const subscriptions = await prisma.subscription.findMany({
-      where: status ? { status } : undefined,
-      include: {
-        user: {
-          select: {
-            username: true,
-            email: true,
+    // 2. 计算分页参数
+    const skip = (page - 1) * pageSize
+    const where = status ? { status } : undefined
+
+    // 3. 查询订阅列表和总数
+    const [subscriptions, total] = await prisma.$transaction([
+      prisma.subscription.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              username: true,
+              email: true,
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    })
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: pageSize,
+      }),
+      prisma.subscription.count({ where }),
+    ])
 
-    return subscriptions
+    return { data: subscriptions, total }
   } catch (error) {
     console.error('获取订阅列表失败：', error)
     return null

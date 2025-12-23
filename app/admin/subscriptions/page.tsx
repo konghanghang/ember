@@ -10,6 +10,8 @@ import {
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import type { MediaType, SubscriptionStatus } from '@prisma/client'
+import Pagination from '@/app/components/Pagination'
+import PageSizeSelector from '@/app/components/PageSizeSelector'
 
 interface Subscription {
   id: string
@@ -34,17 +36,28 @@ export default function AdminSubscriptionsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
 
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [total, setTotal] = useState(0)
+
+  useEffect(() => {
+    setCurrentPage(1) // 筛选变化时重置到第一页
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter])
+
   useEffect(() => {
     loadSubscriptions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter])
+  }, [statusFilter, currentPage, pageSize])
 
   async function loadSubscriptions() {
     setLoading(true)
     const filter = statusFilter === 'ALL' ? undefined : statusFilter
-    const data = await getAllSubscriptions(filter)
-    if (data) {
-      setSubscriptions(data as Subscription[])
+    const result = await getAllSubscriptions(filter, currentPage, pageSize)
+    if (result) {
+      setSubscriptions(result.data as Subscription[])
+      setTotal(result.total || 0)
     }
     setLoading(false)
   }
@@ -366,13 +379,27 @@ export default function AdminSubscriptionsPage() {
         </div>
       )}
 
-      {/* 统计信息 */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-        <p className="text-sm text-blue-800 dark:text-blue-300">
-          共 {filteredSubscriptions.length} 条订阅
-          {searchTerm && ` (已过滤)`}
-        </p>
-      </div>
+      {/* 分页控件 */}
+      {total > 0 && (
+        <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <PageSizeSelector
+            pageSize={pageSize}
+            onPageSizeChange={(size) => {
+              setPageSize(size)
+              setCurrentPage(1)
+            }}
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(total / pageSize)}
+            onPageChange={setCurrentPage}
+          />
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            共 {total} 条记录
+            {searchTerm && ` (搜索: ${filteredSubscriptions.length} 条)`}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

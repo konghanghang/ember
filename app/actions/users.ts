@@ -392,31 +392,47 @@ export async function registerUser(data: {
 
 /**
  * 获取用户列表
- * @param params 查询参数 { search?: string }
- * @returns 用户列表
+ * @param params 查询参数 { search?: string, page?: number, pageSize?: number }
+ * @returns 用户列表和总数
  */
-export async function getUsers(params?: { search?: string }) {
+export async function getUsers(params?: {
+  search?: string
+  page?: number
+  pageSize?: number
+}) {
   try {
-    const users = await prisma.user.findMany({
-      where: params?.search
-        ? {
-            username: {
-              contains: params.search,
-              mode: 'insensitive',
-            },
-          }
-        : undefined,
-      include: {
-        invite: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    })
+    const page = params?.page || 1
+    const pageSize = params?.pageSize || 10
+    const skip = (page - 1) * pageSize
+
+    const where = params?.search
+      ? {
+          username: {
+            contains: params.search,
+            mode: 'insensitive' as const,
+          },
+        }
+      : undefined
+
+    const [users, total] = await prisma.$transaction([
+      prisma.user.findMany({
+        where,
+        include: {
+          invite: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: pageSize,
+      }),
+      prisma.user.count({ where }),
+    ])
 
     return {
       success: true,
       users,
+      total,
     }
   } catch (error) {
     console.error('获取用户列表失败：', error)
@@ -424,6 +440,7 @@ export async function getUsers(params?: { search?: string }) {
       success: false,
       error: '获取用户列表失败',
       users: [],
+      total: 0,
     }
   }
 }
