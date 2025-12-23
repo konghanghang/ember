@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { embyClient } from '@/lib/emby'
+import { notifyExpiredUsers } from '@/lib/telegram'
 
 /**
  * 检查并禁用过期用户
@@ -12,6 +13,12 @@ export async function checkExpiredUsers() {
     const now = new Date()
     const errors: string[] = []
     let disabledCount = 0
+    const disabledUsers: Array<{
+      username: string
+      email: string
+      expiresAt: Date | null
+    }> = []
+    const failedUsers: Array<{ username: string; error: string }> = []
 
     // 查询已到期但仍启用的用户
     const expiredUsers = await prisma.user.findMany({
@@ -56,14 +63,23 @@ export async function checkExpiredUsers() {
         })
 
         disabledCount++
+        disabledUsers.push({
+          username: user.username,
+          email: user.email,
+          expiresAt: user.expiresAt,
+        })
         console.log(`[Cron] 已禁用用户: ${user.username} (${user.id})`)
       } catch (error) {
         // 单个用户失败不影响其他用户
-        const errorMsg = `禁用用户 ${user.username} 失败: ${
+        const errorMsg = `${
           error instanceof Error ? error.message : String(error)
         }`
-        errors.push(errorMsg)
-        console.error(`[Cron] ${errorMsg}`)
+        errors.push(`禁用用户 ${user.username} 失败: ${errorMsg}`)
+        failedUsers.push({
+          username: user.username,
+          error: errorMsg,
+        })
+        console.error(`[Cron] 禁用用户 ${user.username} 失败: ${errorMsg}`)
 
         // 记录错误日志
         await prisma.log.create({
@@ -80,7 +96,18 @@ export async function checkExpiredUsers() {
       }
     }
 
-    console.log(`[Cron] 定时任务完成，已禁用 ${disabledCount}/${expiredUsers.length} 个用户`)
+    console.log(
+      `[Cron] 定时任务完成，已禁用 ${disabledCount}/${expiredUsers.length} 个用户`
+    )
+
+    // 发送 Telegram 通知（异步，不阻塞返回）
+    notifyExpiredUsers({
+      disabledUsers,
+      failedUsers,
+      totalExpired: expiredUsers.length,
+    }).catch((error) => {
+      console.error('[Cron] Telegram 通知失败', error)
+    })
 
     return {
       success: true,

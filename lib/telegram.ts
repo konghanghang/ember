@@ -1,7 +1,7 @@
 /**
  * Telegram 通知工具
  *
- * 用于向管理员发送订阅请求和用户注册通知
+ * 用于向管理员发送订阅请求、用户注册和用户过期通知
  */
 
 import { MediaType } from '@prisma/client'
@@ -116,6 +116,88 @@ export async function notifyNewRegistration(user: {
     await sendTelegramMessage(token, chatId, message)
 
     console.log('[Telegram] 新用户注册通知已发送', { username: user.username })
+  } catch (error) {
+    // 通知失败不影响主流程，仅记录日志
+    console.error('[Telegram] 发送通知失败', error)
+  }
+}
+
+/**
+ * 发送用户过期批量禁用通知
+ *
+ * @param result 定时任务执行结果
+ */
+export async function notifyExpiredUsers(result: {
+  disabledUsers: Array<{
+    username: string
+    email: string
+    expiresAt: Date | null
+  }>
+  failedUsers: Array<{
+    username: string
+    error: string
+  }>
+  totalExpired: number
+}): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID
+
+  // 未配置或无过期用户时跳过通知
+  if (!token || !chatId || result.totalExpired === 0) {
+    if (result.totalExpired === 0) {
+      console.log('[Telegram] 无过期用户，跳过通知')
+    } else {
+      console.log('[Telegram] 未配置 Telegram，跳过通知')
+    }
+    return
+  }
+
+  try {
+    // 构建成功禁用的用户列表
+    const disabledList =
+      result.disabledUsers.length > 0
+        ? result.disabledUsers
+            .map((user) => {
+              const expiry = user.expiresAt
+                ? user.expiresAt.toLocaleDateString('zh-CN')
+                : '未知'
+              return `  • ${user.username} (${user.email}) - 过期时间: ${expiry}`
+            })
+            .join('\n')
+        : '  无'
+
+    // 构建失败的用户列表
+    const failedList =
+      result.failedUsers.length > 0
+        ? result.failedUsers
+            .map((user) => `  • ${user.username}: ${user.error}`)
+            .join('\n')
+        : '  无'
+
+    // 构建通知消息
+    const message = `
+⏰ 定时任务：用户过期检查
+
+📊 统计：
+  • 发现过期用户：${result.totalExpired} 个
+  • 成功禁用：${result.disabledUsers.length} 个
+  • 失败：${result.failedUsers.length} 个
+
+✅ 已禁用用户：
+${disabledList}
+
+${result.failedUsers.length > 0 ? `❌ 禁用失败：\n${failedList}` : ''}
+
+🕐 执行时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
+    `.trim()
+
+    await sendTelegramMessage(token, chatId, message)
+
+    console.log('[Telegram] 用户过期通知已发送', {
+      totalExpired: result.totalExpired,
+      disabled: result.disabledUsers.length,
+      failed: result.failedUsers.length,
+    })
   } catch (error) {
     // 通知失败不影响主流程，仅记录日志
     console.error('[Telegram] 发送通知失败', error)
