@@ -12,6 +12,7 @@ import {
   formatDatabaseError,
 } from '@/lib/user-helpers'
 import { notifyNewRegistration } from '@/lib/telegram'
+import { generateRandomPassword } from '@/lib/auth-helpers'
 import type { Invite } from '@prisma/client'
 
 // ==================== 用户注册相关辅助函数 ====================
@@ -663,6 +664,68 @@ export async function deleteUser(userId: string) {
     return {
       success: false,
       error: '删除用户失败，请稍后重试',
+    }
+  }
+}
+
+/**
+ * 重置用户密码
+ * @param userId 用户 ID
+ * @returns { success: boolean, password?: string, error?: string }
+ */
+export async function resetPassword(userId: string) {
+  try {
+    // 1. 查找用户
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    })
+
+    if (!user) {
+      return {
+        success: false,
+        error: '用户不存在',
+      }
+    }
+
+    // 2. 生成随机密码
+    const newPassword = generateRandomPassword(12)
+
+    // 3. 先更新 Emby 密码
+    try {
+      await embyClient.setUserPassword(user.embyId, newPassword)
+    } catch (embyError) {
+      console.error('Emby 密码重置失败：', embyError)
+      return {
+        success: false,
+        error: formatEmbyError(embyError),
+      }
+    }
+
+    // 4. 记录日志
+    try {
+      await prisma.$transaction(async (tx) => {
+        await createUserLog(tx, 'reset_password', userId, {
+          username: user.username,
+          embyId: user.embyId,
+        })
+      })
+
+      return {
+        success: true,
+        password: newPassword,
+      }
+    } catch (dbError) {
+      console.error('记录日志失败：', dbError)
+      return {
+        success: false,
+        error: formatDatabaseError(dbError),
+      }
+    }
+  } catch (error) {
+    console.error('重置密码失败：', error)
+    return {
+      success: false,
+      error: '重置密码失败，请稍后重试',
     }
   }
 }

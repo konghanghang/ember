@@ -6,6 +6,8 @@
  * 2. 工具函数：密码加密
  */
 
+import { randomInt } from 'node:crypto'
+
 // ==================== 纯函数：密码验证 ====================
 
 /**
@@ -54,4 +56,35 @@ export async function hashPassword(
 ): Promise<string> {
   const bcrypt = await import('bcryptjs')
   return bcrypt.hash(password, rounds)
+}
+
+/**
+ * 生成随机密码
+ * @param length 密码长度（默认 12）
+ * @returns 随机密码（包含大小写字母、数字、特殊字符）
+ */
+export function generateRandomPassword(length: number = 12): string {
+  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  const lowercase = 'abcdefghijklmnopqrstuvwxyz'
+  const numbers = '0123456789'
+  const specials = '!@#$%^&*'
+  const all = uppercase + lowercase + numbers + specials
+
+  // 确保至少包含每种类型的字符各一个
+  let password = ''
+  password += uppercase[randomInt(0, uppercase.length)]
+  password += lowercase[randomInt(0, lowercase.length)]
+  password += numbers[randomInt(0, numbers.length)]
+  password += specials[randomInt(0, specials.length)]
+
+  // 填充剩余长度
+  for (let i = password.length; i < length; i++) {
+    password += all[randomInt(0, all.length)]
+  }
+
+  // 打乱顺序
+  return password
+    .split('')
+    .sort(() => randomInt(-1, 2))
+    .join('')
 }

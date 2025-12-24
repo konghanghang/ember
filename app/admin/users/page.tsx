@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getUsers, extendExpiry, toggleUserStatus, deleteUser } from '@/app/actions/users'
+import { getUsers, extendExpiry, toggleUserStatus, deleteUser, resetPassword } from '@/app/actions/users'
 import { formatDateTime } from '@/lib/utils'
 import Pagination from '@/app/components/Pagination'
 import PageSizeSelector from '@/app/components/PageSizeSelector'
@@ -34,6 +34,13 @@ export default function UsersPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [extendDays, setExtendDays] = useState(30)
   const [extending, setExtending] = useState(false)
+
+  // 重置密码对话框状态
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false)
+  const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [resetting, setResetting] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     loadUsers()
@@ -103,6 +110,40 @@ export default function UsersPage() {
     } else {
       alert(result.error || '删除失败')
     }
+  }
+
+  // 重置密码
+  async function handleResetPassword(user: User) {
+    setResetPasswordUser(user)
+    setResetting(true)
+    setResetPasswordDialogOpen(true)
+
+    const result = await resetPassword(user.id)
+
+    if (result.success && result.password) {
+      setNewPassword(result.password)
+    } else {
+      alert(result.error || '重置失败')
+      setResetPasswordDialogOpen(false)
+      setResetPasswordUser(null)
+    }
+
+    setResetting(false)
+  }
+
+  // 复制密码
+  function handleCopyPassword() {
+    navigator.clipboard.writeText(newPassword)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  // 关闭重置密码对话框
+  function closeResetPasswordDialog() {
+    setResetPasswordDialogOpen(false)
+    setResetPasswordUser(null)
+    setNewPassword('')
+    setCopied(false)
   }
 
   // 判断用户是否已过期
@@ -233,6 +274,14 @@ export default function UsersPage() {
                         延长
                       </button>
 
+                      {/* 重置密码 */}
+                      <button
+                        onClick={() => handleResetPassword(user)}
+                        className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        重置密码
+                      </button>
+
                       {/* 启用/禁用 */}
                       <button
                         onClick={() => handleToggleStatus(user)}
@@ -325,6 +374,62 @@ export default function UsersPage() {
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium rounded-lg transition-colors"
               >
                 {extending ? '处理中...' : '确认延长'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 重置密码对话框 */}
+      {resetPasswordDialogOpen && resetPasswordUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+              重置密码
+            </h2>
+
+            {resetting ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+                <p className="text-gray-600 dark:text-gray-400">正在生成新密码...</p>
+              </div>
+            ) : (
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  用户: <span className="font-medium text-gray-900 dark:text-white">{resetPasswordUser.username}</span>
+                </p>
+
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  新密码
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newPassword}
+                    readOnly
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white font-mono"
+                  />
+                  <button
+                    onClick={handleCopyPassword}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
+                  >
+                    {copied ? '已复制' : '复制'}
+                  </button>
+                </div>
+
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  请将新密码发送给用户，用户可以使用此密码登录 Emby。
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                onClick={closeResetPasswordDialog}
+                disabled={resetting}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-medium rounded-lg transition-colors"
+              >
+                关闭
               </button>
             </div>
           </div>
