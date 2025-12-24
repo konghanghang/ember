@@ -44,6 +44,83 @@ export function isUserExpired(user: Pick<User, 'expiresAt'>): boolean {
   return user.expiresAt < new Date()
 }
 
+// ==================== 纯函数：用户名验证 ====================
+
+/**
+ * 用户名保留词列表
+ */
+const RESERVED_USERNAMES = [
+  'admin',
+  'administrator',
+  'system',
+  'root',
+  'user',
+  'guest',
+  'test',
+  'demo',
+  'api',
+  'emby',
+]
+
+/**
+ * 验证用户名格式
+ *
+ * 规则：
+ * - 长度：3-20 字符
+ * - 字符：仅允许英文字母（大小写）和数字
+ * - 必须包含至少一个英文字母（禁止纯数字）
+ * - 禁止使用保留词
+ *
+ * @param username 用户名
+ * @returns { valid: boolean, reason?: string }
+ */
+export function validateUsername(username: string): {
+  valid: boolean
+  reason?: string
+} {
+  // 1. 检查是否为空
+  if (!username || username.trim() === '') {
+    return { valid: false, reason: '用户名不能为空' }
+  }
+
+  // 2. 检查长度
+  if (username.length < 3) {
+    return { valid: false, reason: '用户名长度至少 3 个字符' }
+  }
+  if (username.length > 20) {
+    return { valid: false, reason: '用户名长度不能超过 20 个字符' }
+  }
+
+  // 3. 检查字符（仅允许英文字母和数字）
+  const validCharsRegex = /^[a-zA-Z0-9]+$/
+  if (!validCharsRegex.test(username)) {
+    return {
+      valid: false,
+      reason: '用户名只能包含英文字母和数字',
+    }
+  }
+
+  // 4. 禁止纯数字
+  const isOnlyNumbers = /^\d+$/.test(username)
+  if (isOnlyNumbers) {
+    return {
+      valid: false,
+      reason: '用户名不能为纯数字',
+    }
+  }
+
+  // 5. 检查保留词（不区分大小写）
+  const lowerUsername = username.toLowerCase()
+  if (RESERVED_USERNAMES.includes(lowerUsername)) {
+    return {
+      valid: false,
+      reason: '该用户名为系统保留，请更换',
+    }
+  }
+
+  return { valid: true }
+}
+
 // ==================== 纯函数：状态判断 ====================
 
 /**

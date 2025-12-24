@@ -10,6 +10,7 @@ import {
   createUserLog,
   formatEmbyError,
   formatDatabaseError,
+  validateUsername,
 } from '@/lib/user-helpers'
 import { notifyNewRegistration } from '@/lib/telegram'
 import { generateRandomPassword } from '@/lib/auth-helpers'
@@ -350,7 +351,16 @@ export async function registerUser(data: {
       }
     }
 
-    // 2. 检查用户名是否已存在
+    // 2. 验证用户名格式
+    const usernameValidation = validateUsername(data.username)
+    if (!usernameValidation.valid) {
+      return {
+        success: false,
+        error: usernameValidation.reason || '用户名格式不正确',
+      }
+    }
+
+    // 3. 检查用户名是否已存在
     const existingUser = await prisma.user.findUnique({
       where: { username: data.username },
     })
@@ -362,17 +372,17 @@ export async function registerUser(data: {
       }
     }
 
-    // 3. 创建 Emby 用户并设置策略
+    // 4. 创建 Emby 用户并设置策略
     embyUserId = await createEmbyUserWithPolicy(data.username, data.password)
 
-    // 4. 保存到数据库（含邀请码更新和日志）
+    // 5. 保存到数据库（含邀请码更新和日志）
     const user = await saveRegistrationToDatabase(
       data,
       embyUserId,
       inviteValidation.invite
     )
 
-    // 5. 发送 Telegram 通知（异步，不阻塞返回）
+    // 6. 发送 Telegram 通知（异步，不阻塞返回）
     notifyNewRegistration({
       username: user.username,
       email: user.email,

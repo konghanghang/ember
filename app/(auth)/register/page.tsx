@@ -4,15 +4,94 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { registerUser } from '@/app/actions/users'
 
+// 用户名保留词列表
+const RESERVED_USERNAMES = [
+  'admin',
+  'administrator',
+  'system',
+  'root',
+  'user',
+  'guest',
+  'test',
+  'demo',
+  'api',
+  'emby',
+]
+
+// 客户端用户名验证函数
+function validateUsernameClient(username: string): {
+  valid: boolean
+  reason?: string
+} {
+  if (!username || username.trim() === '') {
+    return { valid: false, reason: '用户名不能为空' }
+  }
+
+  if (username.length < 3) {
+    return { valid: false, reason: '用户名长度至少 3 个字符' }
+  }
+
+  if (username.length > 20) {
+    return { valid: false, reason: '用户名长度不能超过 20 个字符' }
+  }
+
+  const validCharsRegex = /^[a-zA-Z0-9]+$/
+  if (!validCharsRegex.test(username)) {
+    return {
+      valid: false,
+      reason: '用户名只能包含英文字母和数字',
+    }
+  }
+
+  const isOnlyNumbers = /^\d+$/.test(username)
+  if (isOnlyNumbers) {
+    return {
+      valid: false,
+      reason: '用户名不能为纯数字',
+    }
+  }
+
+  const lowerUsername = username.toLowerCase()
+  if (RESERVED_USERNAMES.includes(lowerUsername)) {
+    return {
+      valid: false,
+      reason: '该用户名为系统保留，请更换',
+    }
+  }
+
+  return { valid: true }
+}
+
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [embyUrl, setEmbyUrl] = useState<string>('')
+  const [usernameError, setUsernameError] = useState('')
+  const [username, setUsername] = useState('')
+
+  // 用户名变化处理
+  function handleUsernameChange(value: string) {
+    setUsername(value)
+    if (value) {
+      const validation = validateUsernameClient(value)
+      setUsernameError(validation.valid ? '' : validation.reason || '')
+    } else {
+      setUsernameError('')
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
+
+    // 前端验证用户名
+    const validation = validateUsernameClient(username)
+    if (!validation.valid) {
+      setUsernameError(validation.reason || '用户名格式不正确')
+      return
+    }
+
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
@@ -138,10 +217,36 @@ export default function RegisterPage() {
                 type="text"
                 required
                 autoComplete="username"
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-                placeholder="请输入用户名"
+                value={username}
+                onChange={(e) => handleUsernameChange(e.target.value)}
+                pattern="[a-zA-Z0-9]{3,20}"
+                minLength={3}
+                maxLength={20}
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors ${
+                  usernameError
+                    ? 'border-red-500 dark:border-red-500'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
+                placeholder="3-20位字母或数字"
                 disabled={loading}
               />
+              {/* 用户名验证提示 */}
+              {usernameError && (
+                <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                  {usernameError}
+                </p>
+              )}
+              {!usernameError && username && (
+                <p className="mt-2 text-sm text-green-600 dark:text-green-400">
+                  ✓ 用户名格式正确
+                </p>
+              )}
+              {/* 帮助文本 */}
+              {!username && (
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  仅允许英文字母和数字，3-20个字符，至少包含一个字母
+                </p>
+              )}
             </div>
 
             <div>
