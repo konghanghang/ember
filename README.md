@@ -219,14 +219,16 @@ JWT_SECRET="your-secret-key-min-32-chars-change-this-in-production"
 EMBY_URL="https://your-emby-server.com"
 EMBY_API_KEY="your-emby-api-key"
 
-# Cron 任务验证密钥（可选，用于保护 /api/cron 端点）
-CRON_SECRET="your-cron-secret-key"
+# Cron 任务配置（可选）
+CRON_SECRET="your-cron-secret-key"      # API 验证密钥
+CRON_SCHEDULE="0 2 * * *"               # 执行时间（每天凌晨 2:00）
+CRON_TIMEZONE="Asia/Shanghai"           # 时区
 
 # Next.js
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ```
 
-详细配置请参考 [.env.example](./.env.example) 文件。
+详细配置和更多 Cron 表达式示例请参考 [.env.example](./.env.example) 文件。
 
 ---
 

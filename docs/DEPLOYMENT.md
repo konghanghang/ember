@@ -281,15 +281,142 @@ docker compose -f docker-compose.local.yml down
 docker compose -f docker-compose.local.yml down -v
 ```
 
-### 手动触发定时任务
+### 定时任务配置
+
+**✅ 应用已内置定时任务调度器，无需额外配置！**
+
+应用启动时会自动初始化定时任务，每天凌晨 2:00（Asia/Shanghai 时区）执行用户过期检查。
+
+#### 工作原理
+
+应用使用内置的 `node-cron` 调度器，在服务器启动时自动初始化：
+
+```
+应用启动 → instrumentation.ts → lib/scheduler.ts → 定时任务运行
+```
+
+**优点**：
+- ✅ 自包含，无需外部配置
+- ✅ Docker 容器启动即生效
+- ✅ 代码即配置，便于维护
+- ✅ 支持多实例部署（每个实例独立运行）
+
+#### 手动触发（测试用）
 
 ```bash
-# 方法 1：通过 API
+# 如果未设置 CRON_SECRET
 curl http://localhost:3000/api/cron
 
-# 方法 2：在容器中执行
-docker compose exec ember node -e "require('./server.js')"
+# 如果设置了 CRON_SECRET（推荐）
+curl -H "Authorization: Bearer your-cron-secret-key" http://localhost:3000/api/cron
+
+# 查看格式化的 JSON 输出
+curl -s http://localhost:3000/api/cron | jq .
+
+# 预期响应示例
+{
+  "success": true,
+  "message": "已处理 0 个过期用户，成功禁用 0 个",
+  "data": {
+    "disabledCount": 0,
+    "totalExpired": 0,
+    "errors": []
+  }
+}
 ```
+
+**验证步骤**：
+
+1. **检查应用是否运行**：
+   ```bash
+   curl http://localhost:3000/api/health
+   # 预期返回: {"status":"ok", ...}
+   ```
+
+2. **手动触发定时任务**：
+   ```bash
+   curl http://localhost:3000/api/cron
+   ```
+
+3. **查看应用日志**：
+   ```bash
+   docker compose logs -f ember | grep -E "(Scheduler|Cron)"
+   ```
+
+#### 查看日志
+
+```bash
+# Docker 部署
+docker compose logs -f ember | grep Scheduler
+
+# 查看定时任务执行日志
+docker compose logs -f ember | grep "Cron"
+```
+
+#### 修改执行时间
+
+通过环境变量配置（推荐）：
+
+```bash
+# 在 .env 文件中设置
+CRON_SCHEDULE="0 2 * * *"      # 每天凌晨 2:00（默认）
+CRON_TIMEZONE="Asia/Shanghai"  # 中国标准时间（默认）
+```
+
+**常用 Cron 表达式示例**：
+
+```bash
+# 每天执行一次
+CRON_SCHEDULE="0 2 * * *"     # 每天凌晨 2:00
+CRON_SCHEDULE="0 12 * * *"    # 每天中午 12:00
+CRON_SCHEDULE="0 0 * * *"     # 每天午夜 0:00
+
+# 每隔几小时执行
+CRON_SCHEDULE="0 */6 * * *"   # 每 6 小时执行一次（0:00, 6:00, 12:00, 18:00）
+CRON_SCHEDULE="0 */12 * * *"  # 每 12 小时执行一次
+
+# 每周执行
+CRON_SCHEDULE="0 2 * * 0"     # 每周日凌晨 2:00
+CRON_SCHEDULE="0 2 * * 1"     # 每周一凌晨 2:00
+
+# 测试用（高频执行）
+CRON_SCHEDULE="*/30 * * * *"  # 每 30 分钟执行一次
+CRON_SCHEDULE="*/5 * * * *"   # 每 5 分钟执行一次
+```
+
+**时区配置示例**：
+
+```bash
+CRON_TIMEZONE="Asia/Shanghai"      # 中国（UTC+8）
+CRON_TIMEZONE="America/New_York"   # 美国东部
+CRON_TIMEZONE="Europe/London"      # 英国
+CRON_TIMEZONE="UTC"                # 协调世界时
+```
+
+**Cron 表达式格式**：`分 时 日 月 周`（5 个字段）
+
+| 字段 | 允许值 | 特殊字符 |
+|------|--------|----------|
+| 分   | 0-59   | `*` `,` `-` `/` |
+| 时   | 0-23   | `*` `,` `-` `/` |
+| 日   | 1-31   | `*` `,` `-` `/` |
+| 月   | 1-12   | `*` `,` `-` `/` |
+| 周   | 0-7    | `*` `,` `-` `/` (0 和 7 都表示周日) |
+
+#### Vercel 部署
+
+Vercel 平台会使用 `vercel.json` 中的配置：
+
+```json
+{
+  "crons": [{
+    "path": "/api/cron",
+    "schedule": "0 2 * * *"
+  }]
+}
+```
+
+**注意**：Vercel 部署时，应用内部的调度器和 Vercel Cron 会同时生效，不会冲突（两者都是调用同一个函数）。
 
 ### 数据库备份和恢复
 
