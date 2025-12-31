@@ -30,7 +30,7 @@ export default function PricingSection() {
                   💎 标准版
                 </h3>
                 <div className="flex items-baseline justify-center gap-2">
-                  <span className="text-5xl font-bold text-indigo-600">10</span>
+                  <span className="text-5xl font-bold text-indigo-600">18</span>
                   <span className="text-xl text-gray-600 dark:text-gray-400">元/月</span>
                 </div>
               </div>
@@ -40,7 +40,7 @@ export default function PricingSection() {
                 {[
                   '海量 4K 高清影视资源',
                   '热门剧集同步更新',
-                  '基于 CloudFlare CDN 加速',
+                  '优化线路国内直连',
                   '支持 5 个设备同时观看',
                   'Emby 全平台客户端支持',
                   '7x24 小时在线服务',
@@ -78,7 +78,7 @@ export default function PricingSection() {
 
           {/* 提示信息 */}
           <p className="text-center mt-6 text-sm text-gray-500 dark:text-gray-400">
-            💡 适合有网络加速工具的用户 · 后续将推出优化线路版本（18元/月，国内直连）
+            💡 优化线路，国内用户无需额外工具即可流畅观看
           </p>
         </div>
       </div>

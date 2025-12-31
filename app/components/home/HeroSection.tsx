@@ -19,7 +19,7 @@ export default function HeroSection() {
         </p>
 
         <p className="text-base text-gray-500 dark:text-gray-500 mb-12">
-          基于 CloudFlare 全球加速 · 💰 10元/月
+          基于优化线路 · 💰 18元/月 · 国内直连
         </p>
 
         {/* CTA 按钮组 */}

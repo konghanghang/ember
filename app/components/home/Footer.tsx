@@ -33,11 +33,6 @@ export default function Footer() {
                 </a>
               </li>
               <li>
-                <a href="#pricing" className="hover:text-white transition-colors">
-                  套餐定价
-                </a>
-              </li>
-              <li>
                 <a href="#quickstart" className="hover:text-white transition-colors">
                   快速开始
                 </a>
