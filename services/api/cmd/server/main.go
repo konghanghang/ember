@@ -45,8 +45,9 @@ func main() {
 		// 管理员登录
 		api.POST("/admin/login", authHandler.AdminLogin)
 
-		// 用户登录
+		// 用户认证
 		api.POST("/user/login", authHandler.UserLogin)
+		api.POST("/user/register", authHandler.RegisterUser)
 
 		// 邀请码验证（公开）
 		api.GET("/invites/:code/validate", inviteHandler.ValidateInvite)
@@ -86,10 +87,10 @@ func main() {
 			user.POST("/logout", authHandler.UserLogout)
 
 			// 个人信息
-			// TODO: user.GET("/profile", userHandler.GetProfile)
-			// TODO: user.PUT("/profile", userHandler.UpdateProfile)
-			// TODO: user.PUT("/password", userHandler.UpdatePassword)
-			// TODO: user.PUT("/email", userHandler.UpdateEmail)
+			user.GET("/profile", userHandler.GetProfile)
+			user.PUT("/profile", userHandler.UpdateProfile)
+			user.PUT("/password", userHandler.UpdatePassword)
+			user.PUT("/email", userHandler.UpdateEmail)
 
 			// 订阅管理
 			// TODO: user.GET("/subscriptions", subscriptionHandler.GetUserSubscriptions)

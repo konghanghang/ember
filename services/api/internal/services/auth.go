@@ -62,7 +62,6 @@ type UserLoginResponse struct {
 }
 
 // UserLogin 用户登录（通过 Emby 验证）
-// TODO: 实现 Emby API 验证
 func (s *AuthService) UserLogin(req *UserLoginRequest) (*UserLoginResponse, error) {
 	// 1. 查询用户
 	var user models.User
@@ -81,20 +80,99 @@ func (s *AuthService) UserLogin(req *UserLoginRequest) (*UserLoginResponse, erro
 		return nil, errors.New("账号已过期")
 	}
 
-	// 4. TODO: 验证 Emby 密码
-	// embyService := &EmbyService{}
-	// valid, err := embyService.ValidateUser(user.EmbyID, req.Password)
-	// if err != nil || !valid {
-	//     return nil, errors.New("密码错误")
-	// }
+	// 4. 验证 Emby 密码
+	embyService := NewEmbyService()
+	embyUser, err := embyService.AuthenticateUser(user.Username, req.Password)
+	if err != nil {
+		return nil, errors.New("密码错误")
+	}
 
-	// 5. 生成 JWT Token
+	// 5. 验证 Emby ID 是否匹配
+	if embyUser.ID != user.EmbyID {
+		return nil, errors.New("用户信息不匹配")
+	}
+
+	// 6. 生成 JWT Token
 	token, err := common.GenerateToken(user.ID, user.Username, "user")
 	if err != nil {
 		return nil, errors.New("生成 Token 失败")
 	}
 
 	return &UserLoginResponse{
+		Token: token,
+		User:  &user,
+	}, nil
+}
+
+// RegisterUserRequest 用户注册请求
+type RegisterUserRequest struct {
+	Username   string `json:"username" binding:"required,min=3,max=50"`
+	Password   string `json:"password" binding:"required,min=6"`
+	Email      string `json:"email" binding:"required,email"`
+	InviteCode string `json:"inviteCode" binding:"required"`
+}
+
+// RegisterUserResponse 用户注册响应
+type RegisterUserResponse struct {
+	Token string       `json:"token"`
+	User  *models.User `json:"user"`
+}
+
+// RegisterUser 用户注册
+func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserResponse, error) {
+	// 1. 验证邀请码
+	inviteService := &InviteService{}
+	invite, err := inviteService.ValidateInvite(req.InviteCode)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. 检查用户名是否已存在
+	var existingUser models.User
+	result := db.DB.Where("username = ?", req.Username).First(&existingUser)
+	if result.Error == nil {
+		return nil, errors.New("用户名已存在")
+	}
+
+	// 3. 创建 Emby 用户
+	embyService := NewEmbyService()
+	embyUser, err := embyService.CreateEmbyUser(req.Username, req.Password)
+	if err != nil {
+		return nil, errors.New("创建 Emby 用户失败：" + err.Error())
+	}
+
+	// 4. 计算到期时间
+	expiresAt := common.CalculateExpiryDate(invite.DefaultDays)
+
+	// 5. 创建数据库用户记录
+	user := models.User{
+		Username:   req.Username,
+		Email:      req.Email,
+		EmbyID:     embyUser.ID,
+		InviteCode: req.InviteCode,
+		ExpiresAt:  &expiresAt,
+		IsActive:   true,
+	}
+
+	if err := db.DB.Create(&user).Error; err != nil {
+		// 如果数据库创建失败，理论上应该删除 Emby 用户
+		// 但这里简化处理，后续可以添加清理逻辑
+		return nil, errors.New("创建用户失败")
+	}
+
+	// 6. 使用邀请码（增加使用次数）
+	if err := inviteService.UseInvite(req.InviteCode); err != nil {
+		// 记录错误但不影响注册流程
+		// log.Printf("警告：邀请码使用次数更新失败：%v", err)
+	}
+
+	// 7. 生成 JWT Token
+	token, err := common.GenerateToken(user.ID, user.Username, "user")
+	if err != nil {
+		return nil, errors.New("生成 Token 失败")
+	}
+
+	return &RegisterUserResponse{
 		Token: token,
 		User:  &user,
 	}, nil

@@ -135,6 +135,36 @@ func (h *AuthHandler) UserLogout(c *gin.Context) {
 	})
 }
 
+// RegisterUser 用户注册
+// @Summary 用户注册
+// @Tags 认证
+// @Accept json
+// @Produce json
+// @Param body body services.RegisterUserRequest true "注册信息"
+// @Success 200 {object} services.RegisterUserResponse
+// @Failure 400 {object} ErrorResponse
+// @Router /api/v1/user/register [post]
+func (h *AuthHandler) RegisterUser(c *gin.Context) {
+	var req services.RegisterUserRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "请求参数错误",
+		})
+		return
+	}
+
+	resp, err := h.authService.RegisterUser(&req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
 // ErrorResponse 错误响应结构
 type ErrorResponse struct {
 	Error string `json:"error"`

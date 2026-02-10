@@ -163,7 +163,6 @@ type ResetPasswordRequest struct {
 }
 
 // ResetPassword 重置用户密码（管理员操作）
-// TODO: 需要调用 Emby API 重置密码
 func (s *UserService) ResetPassword(userID string, newPassword string) error {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
@@ -171,12 +170,102 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 		return errors.New("用户不存在")
 	}
 
-	// TODO: 调用 Emby API 重置密码
-	// embyService := &EmbyService{}
-	// err := embyService.ResetUserPassword(user.EmbyID, newPassword)
-	// if err != nil {
-	//     return err
-	// }
+	// 调用 Emby API 重置密码
+	embyService := NewEmbyService()
+	err := embyService.UpdateUserPassword(user.EmbyID, newPassword)
+	if err != nil {
+		return errors.New("重置密码失败：" + err.Error())
+	}
 
 	return nil
+}
+
+// GetProfile 获取用户个人信息
+func (s *UserService) GetProfile(userID string) (*models.User, error) {
+	var user models.User
+	result := db.DB.Where("id = ?", userID).First(&user)
+	if result.Error != nil {
+		return nil, errors.New("用户不存在")
+	}
+	return &user, nil
+}
+
+// UpdateProfileRequest 更新个人信息请求
+type UpdateProfileRequest struct {
+	Email string `json:"email" binding:"omitempty,email"`
+}
+
+// UpdateProfile 更新用户个人信息
+func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*models.User, error) {
+	var user models.User
+	result := db.DB.Where("id = ?", userID).First(&user)
+	if result.Error != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	// 更新邮箱（如果提供）
+	if req.Email != "" {
+		user.Email = req.Email
+	}
+
+	// 保存到数据库
+	if err := db.DB.Save(&user).Error; err != nil {
+		return nil, errors.New("更新失败")
+	}
+
+	return &user, nil
+}
+
+// UpdatePasswordRequest 修改密码请求
+type UpdatePasswordRequest struct {
+	OldPassword string `json:"oldPassword" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required,min=6"`
+}
+
+// UpdatePassword 修改用户密码
+func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) error {
+	var user models.User
+	result := db.DB.Where("id = ?", userID).First(&user)
+	if result.Error != nil {
+		return errors.New("用户不存在")
+	}
+
+	// 1. 验证旧密码（通过 Emby）
+	embyService := NewEmbyService()
+	_, err := embyService.AuthenticateUser(user.Username, req.OldPassword)
+	if err != nil {
+		return errors.New("旧密码错误")
+	}
+
+	// 2. 更新 Emby 密码
+	err = embyService.UpdateUserPassword(user.EmbyID, req.NewPassword)
+	if err != nil {
+		return errors.New("密码更新失败：" + err.Error())
+	}
+
+	return nil
+}
+
+// UpdateEmailRequest 修改邮箱请求
+type UpdateEmailRequest struct {
+	NewEmail string `json:"newEmail" binding:"required,email"`
+}
+
+// UpdateEmail 修改用户邮箱
+func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*models.User, error) {
+	var user models.User
+	result := db.DB.Where("id = ?", userID).First(&user)
+	if result.Error != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	// 更新邮箱
+	user.Email = req.NewEmail
+
+	// 保存到数据库
+	if err := db.DB.Save(&user).Error; err != nil {
+		return nil, errors.New("更新失败")
+	}
+
+	return &user, nil
 }
