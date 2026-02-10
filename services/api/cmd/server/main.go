@@ -36,6 +36,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler()
 	userHandler := handlers.NewUserHandler()
 	inviteHandler := handlers.NewInviteHandler()
+	subscriptionHandler := handlers.NewSubscriptionHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -73,10 +74,10 @@ func main() {
 			admin.POST("/invites", inviteHandler.CreateInvite)
 			admin.DELETE("/invites/:id", inviteHandler.DeleteInvite)
 
-			// TODO: 订阅管理
-			// admin.GET("/subscriptions", subscriptionHandler.GetAllSubscriptions)
-			// admin.PUT("/subscriptions/:id/approve", subscriptionHandler.ApproveSubscription)
-			// admin.PUT("/subscriptions/:id/reject", subscriptionHandler.RejectSubscription)
+			// 订阅管理
+			admin.GET("/subscriptions", subscriptionHandler.GetAllSubscriptions)
+			admin.PUT("/subscriptions/:id/approve", subscriptionHandler.ApproveSubscription)
+			admin.PUT("/subscriptions/:id/reject", subscriptionHandler.RejectSubscription)
 		}
 
 		// ==================== 用户路由（需要认证） ====================
@@ -93,9 +94,9 @@ func main() {
 			user.PUT("/email", userHandler.UpdateEmail)
 
 			// 订阅管理
-			// TODO: user.GET("/subscriptions", subscriptionHandler.GetUserSubscriptions)
-			// TODO: user.POST("/subscriptions", subscriptionHandler.CreateSubscription)
-			// TODO: user.DELETE("/subscriptions/:id", subscriptionHandler.DeleteSubscription)
+			user.GET("/subscriptions", subscriptionHandler.GetMySubscriptions)
+			user.POST("/subscriptions", subscriptionHandler.CreateSubscription)
+			user.DELETE("/subscriptions/:id", subscriptionHandler.DeleteSubscription)
 		}
 	}
 

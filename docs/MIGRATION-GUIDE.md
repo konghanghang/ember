@@ -121,14 +121,14 @@
 #### 4️⃣ 订阅管理 (6 个)
 
 **管理员操作**:
-- [ ] `GET /api/v1/admin/subscriptions` - 所有订阅列表 ← `getAllSubscriptions`
-- [ ] `PUT /api/v1/admin/subscriptions/:id/approve` - 批准订阅 ← `approveSubscription`
-- [ ] `PUT /api/v1/admin/subscriptions/:id/reject` - 拒绝订阅 ← `rejectSubscription`
+- [x] `GET /api/v1/admin/subscriptions` - 所有订阅列表 ← `getAllSubscriptions`
+- [x] `PUT /api/v1/admin/subscriptions/:id/approve` - 批准订阅 ← `approveSubscription`
+- [x] `PUT /api/v1/admin/subscriptions/:id/reject` - 拒绝订阅 ← `rejectSubscription`
 
 **用户操作**:
-- [ ] `GET /api/v1/user/subscriptions` - 我的订阅列表 ← `getUserSubscriptions`
-- [ ] `POST /api/v1/user/subscriptions` - 创建订阅请求 ← `createSubscription`
-- [ ] `DELETE /api/v1/user/subscriptions/:id` - 删除订阅 ← `deleteSubscription`
+- [x] `GET /api/v1/user/subscriptions` - 我的订阅列表 ← `getUserSubscriptions`
+- [x] `POST /api/v1/user/subscriptions` - 创建订阅请求 ← `createSubscription`
+- [x] `DELETE /api/v1/user/subscriptions/:id` - 删除订阅 ← `deleteSubscription`
 
 ---
 
@@ -168,7 +168,7 @@
 
 ---
 
-**端点统计**: **33 个 REST API** (已完成: 1, 待实现: 32)
+**端点统计**: **33 个 REST API** (已完成: 27, 待实现: 6)
 
 ---
 
@@ -228,12 +228,12 @@
 
 #### 🏗️ 需要实现的服务层 (6 个)
 
-- [ ] `services/auth.go` - 认证服务（JWT 生成/验证、Emby 验证）
-- [ ] `services/user.go` - 用户管理（CRUD、延长、禁用）
-- [ ] `services/invite.go` - 邀请码管理（生成、验证、使用）
-- [ ] `services/subscription.go` - 订阅管理（创建、审核、查询）
-- [ ] `services/emby.go` - Emby API 集成（用户验证、配置获取）
-- [ ] `services/moviepilot.go` - MoviePilot API 集成（自动订阅）
+- [x] `services/auth.go` - 认证服务（JWT 生成/验证、Emby 验证）
+- [x] `services/user.go` - 用户管理（CRUD、延长、禁用）
+- [x] `services/invite.go` - 邀请码管理（生成、验证、使用）
+- [x] `services/subscription.go` - 订阅管理（创建、审核、查询）
+- [x] `services/emby.go` - Emby API 集成（用户验证、配置获取）
+- [x] `services/moviepilot.go` - MoviePilot API 集成（自动订阅）
 
 ---
 
@@ -317,22 +317,55 @@
 |------|--------|---------|------|------|
 | 阶段 0: 架构决策 | 架构设计、技术选型 | 1 天 | ✅ 完成 | 100% |
 | 阶段 1: Monorepo 搭建 | 目录结构、Makefile、Docker | 1 天 | ✅ 完成 | 100% |
-| 阶段 2: Go API 实现 | **33 个 REST API** + 中间件 + 服务层 | **6-9 天** | 🚧 进行中 | 3% (1/33) |
+| 阶段 2: Go API 实现 | **33 个 REST API** + 中间件 + 服务层 | **6-9 天** | 🚧 进行中 | 82% (27/33) |
 | 阶段 3: Vue 3 前端 | 管理后台 + 用户面板 | 1-2 周 | ⏳ 待开始 | 0% |
 | 阶段 4: Python Bot | Telegram Bot + 命令处理 | 3-5 天 | ⏳ 待开始 | 0% |
 | 阶段 5: 数据迁移 | 迁移脚本 + 演练 + 回滚 | 1 周 | ⏳ 待开始 | 0% |
 | 阶段 6: 监控日志 | Prometheus + Grafana（可选） | 2-3 天 | ⏳ 待开始 | 0% |
-| **总计** | | **5-7 周** | **进行中** | **约 10%** |
+| **总计** | | **5-7 周** | **进行中** | **约 45%** |
 
 **关键指标**:
 - **已完成**: 阶段 0-1（架构基础）
-- **进行中**: 阶段 2 - Go API（1/33 端点完成）
-- **下一个里程碑**: Go API 完成 → 项目进度达到 35%
+- **进行中**: 阶段 2 - Go API（27/33 端点完成）
+- **下一个里程碑**: Go API 完成（剩余 6 个端点）→ 项目进度达到 50%
 - **预计完成时间**: 2026 年 3 月底
 
 ---
 
 ### 📝 开发笔记
+
+#### 2026-02-10 22:00: 第 3 优先级完成（订阅管理）
+
+**完成工作**:
+- ✅ MoviePilot API 客户端实现（OAuth2 认证）
+- ✅ 订阅服务层实现（6 个方法）
+- ✅ 订阅 HTTP 处理器（6 个端点）
+- ✅ 路由注册完成
+
+**实现的 API（6 个）**:
+1. `POST /api/v1/user/subscriptions` - 创建订阅
+2. `GET /api/v1/user/subscriptions` - 我的订阅列表
+3. `DELETE /api/v1/user/subscriptions/:id` - 删除订阅（仅 PENDING）
+4. `GET /api/v1/admin/subscriptions` - 所有订阅列表（分页）
+5. `PUT /api/v1/admin/subscriptions/:id/approve` - 批准订阅
+6. `PUT /api/v1/admin/subscriptions/:id/reject` - 拒绝订阅
+
+**核心设计**:
+- **MoviePilot 容错** - 批准时 API 失败不回滚状态，仅记录错误
+- **状态限制** - 只能删除 PENDING 状态的订阅
+- **分页查询** - 支持按状态筛选（PENDING/APPROVED/REJECTED）
+- **关联查询** - 管理员列表包含用户信息（Preload User）
+
+**环境变量**:
+- `MOVIEPILOT_URL` - MoviePilot API 地址
+- `MOVIEPILOT_USERNAME` - 登录用户名
+- `MOVIEPILOT_PASSWORD` - 登录密码
+
+**进度更新**:
+- API 完成度: **82%** (27/33)
+- 剩余工作: 6 个辅助 API（媒体、系统、定时任务、工具）
+
+---
 
 #### 2026-02-10 18:30: API 端点统计完成
 
