@@ -6,6 +6,7 @@ toolchain go1.24.13
 
 require (
 	github.com/gin-gonic/gin v1.10.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/crypto v0.23.0
 	gorm.io/driver/postgres v1.5.7
