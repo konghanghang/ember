@@ -2,282 +2,289 @@
 
 > A modern user management system for Emby media server
 
-**Ember** 是一个基于 **Next.js 15 全栈**的现代化 Emby 用户管理系统，采用**全栈单体架构**设计，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成等功能。
+**Ember** 是一个现代化的 Emby 用户管理系统，采用 **Monorepo 微服务架构**，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成、Telegram Bot 等功能。
 
 [![CI](https://github.com/konghanghang/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/konghanghang/ember/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Next.js](https://img.shields.io/badge/next.js-15-black.svg)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Prisma](https://img.shields.io/badge/prisma-7.x-2D3748.svg)](https://www.prisma.io/)
+[![Go](https://img.shields.io/badge/go-1.23-blue.svg)](https://go.dev/)
+[![Vue](https://img.shields.io/badge/vue-3.x-green.svg)](https://vuejs.org/)
+[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://python.org/)
 
 ---
 
-## ✨ 特性
+## 🏗️ 项目架构
 
-### Phase 1: 核心用户管理（已完成 ✅）
+本项目采用 **Monorepo 微服务架构**，将所有服务集中管理，便于代码共享和统一部署。
+
+### 目录结构
+
+```
+ember/
+├── services/                     # 微服务目录
+│   ├── api/                     # Go API 服务
+│   │   ├── cmd/                 # 命令入口
+│   │   ├── internal/            # 内部包
+│   │   ├── configs/             # 配置文件
+│   │   └── Dockerfile
+│   ├── web/                     # Vue 3 前端（🚧 开发中）
+│   │   ├── src/                 # 源代码
+│   │   ├── components/          # 组件
+│   │   └── Dockerfile
+│   └── bot/                     # Python Telegram Bot（🚧 待实现）
+│       ├── handlers/            # 命令处理器
+│       ├── services/            # 业务逻辑
+│       └── Dockerfile
+├── infrastructure/              # 基础设施配置
+│   ├── docker/                 # Docker 相关
+│   │   └── docker-compose.yml
+│   ├── nginx/                  # Nginx 配置
+│   └── database/               # 数据库脚本
+├── docs/                       # 项目文档
+│   ├── MIGRATION-GUIDE.md      # 迁移指南
+│   └── specs/                  # 规范文档
+├── Makefile                    # 统一命令入口
+└── README.md                   # 本文档
+```
+
+### 技术栈
+
+- **后端**: Go 1.23 + Gin + GORM + PostgreSQL
+- **前端**: Vue 3 + Vite + TypeScript + Element Plus（🚧 开发中）
+- **Bot**: Python 3.11 + python-telegram-bot（🚧 待实现）
+- **基础设施**: Docker + Docker Compose + Nginx
+
+### 架构优势
+
+- **统一管理** - 所有服务在同一仓库，版本同步，易于维护
+- **服务分离** - 各服务独立部署和扩展
+- **简化部署** - 一键部署所有服务，环境配置统一
+- **开发友好** - 统一的开发环境和工具链
+
+---
+
+## ✨ 核心功能
+
+### Phase 1: 核心用户管理（✅ 已完成）
 
 - 🎫 **邀请码系统** - 随机生成邀请码，设置使用次数和到期时间
 - 👥 **用户管理** - 用户列表、搜索、延长到期、禁用/删除
 - ⏰ **账号到期** - 定时任务自动禁用过期账号
 - 🔐 **管理员认证** - JWT 认证，Token 7 天有效
-- 🎨 **现代 UI** - 基于 Tailwind CSS 的精美界面
-- 🐳 **单镜像部署** - Docker Compose 一键启动
 
-### Phase 2: 用户面板与订阅系统（已完成 ✅）
+### Phase 2: 用户面板与订阅系统（✅ 已完成）
 
-- 👤 **用户认证与面板**
-  - 用户登录（使用 Emby 账号密码）
-  - 个人仪表盘（查看到期时间、账号状态）
-  - 修改密码和邮箱
+- 👤 **用户认证与面板** - 用户登录、个人仪表盘、修改密码和邮箱
+- 📺 **订阅管理** - 提交订阅请求、管理员审核、状态跟踪
+- 🎬 **MoviePilot 集成** - 自动调用 API 创建订阅、同步失败提示
 
-- 📺 **订阅管理**
-  - 用户提交影视订阅请求（TMDB ID）
-  - 管理员审核订阅（批准/拒绝）
-  - 订阅状态跟踪（待审核/已批准/已拒绝）
+### Phase 3: 架构重构（🚧 进行中）
 
-- 🎬 **MoviePilot 集成**
-  - 自动调用 MoviePilot API 创建订阅
-  - 同步失败时显示错误信息
-  - 支持电影和电视剧订阅
+- ✅ **Go 后端** - Gin + GORM 实现，健康检查 API 完成
+- 🚧 **Vue 3 前端** - 重写管理后台和用户面板（开发中）
+- 🚧 **Telegram Bot** - 用户注册、信息查询、订阅管理（待实现）
 
 ---
 
 ## 🚀 快速开始
 
-### 使用 Docker Compose（推荐）
+### 环境要求
+
+- Go 1.23+
+- Node.js 18+（前端开发）
+- Python 3.11+（Bot 开发）
+- PostgreSQL 14+
+- Docker + Docker Compose（推荐）
+
+### 1. 克隆项目
 
 ```bash
-# 克隆仓库
-git clone https://github.com/yourusername/ember.git
+git clone https://github.com/konghanghang/ember.git
 cd ember
-
-# 启动服务
-docker compose up -d
-
-# 访问应用
-open http://localhost:8080
 ```
 
-### 从源码构建
+### 2. 初始化项目
 
 ```bash
-# 安装依赖
-npm install
+# 使用 Makefile 初始化
+make init
 
-# 开发模式
-npm run dev
+# 或手动创建配置文件
+cp .env.example .env
+cp services/api/.env.example services/api/.env
+# 编辑 .env 文件填入必要配置
+```
 
-# 生产构建
-npm run build
+### 3. 启动服务
+
+#### 使用 Docker Compose（推荐）
+
+```bash
+# 构建并启动所有服务
+make docker-up
+
+# 或直接使用 docker-compose
+docker-compose -f infrastructure/docker/docker-compose.yml up -d
+```
+
+#### 开发模式
+
+```bash
+# 启动数据库
+docker-compose -f infrastructure/docker/docker-compose.yml up -d postgres
+
+# 启动 Go API 服务
+make dev-api
+# 或
+cd services/api && go run cmd/server/main.go
+
+# 启动 Vue 前端（待实现）
+make dev-web
+
+# 启动 Python Bot（待实现）
+make dev-bot
+```
+
+### 4. 访问服务
+
+- **API 服务**: http://localhost:8080
+- **健康检查**: http://localhost:8080/health
+- **Web 前端**: http://localhost:3000（待实现）
+
+---
+
+## 🔧 开发工具
+
+### 使用 Makefile
+
+```bash
+make help          # 显示所有可用命令
+make init          # 初始化项目
+make setup         # 安装依赖
+make build         # 构建所有服务
+make dev-api       # 启动 API（开发模式）
+make test-api      # 运行测试
+make docker-up     # 启动 Docker 服务
+make docker-down   # 停止 Docker 服务
+make clean         # 清理项目
+```
+
+### 构建服务
+
+```bash
+# 构建 Go API
+make build-api
+
+# 构建所有服务
+make build
+```
+
+### 运行测试
+
+```bash
+# 测试 Go API
+make test-api
+
+# 测试健康检查
+make test-health
 ```
 
 ---
 
 ## 📚 文档
 
-### 开发文档（以此为准）
+### 核心文档
 
-**当前开发的需求和设计文档位于 [`docs/specs/`](./docs/specs/)**：
+- [迁移指南](./docs/MIGRATION-GUIDE.md) - Next.js → Vue 3 + Go + Python 完整迁移方案
+- [开发规范](./CLAUDE.md) - AI 协作指南和开发规范
+- [API 文档](./services/api/README.md) - Go API 服务文档
 
-| 文档 | 描述 | 状态 |
-|------|------|------|
-| [需求文档](./docs/specs/requirements.md) | MVP 核心功能需求 | ✅ 已完成 |
-| [设计文档](./docs/specs/design.md) | 数据库 Schema + API 设计 | 🚧 进行中 |
-| [任务拆分](./docs/specs/tasks.md) | 开发任务列表 | ⏳ 待开始 |
+### 服务文档
 
-### 设计草稿（已归档）
-
-**以下文档是设计阶段的草稿，包含完整的 Phase 1/2/3 规划，仅供参考**：
-
-| 文档 | 描述 |
-|------|------|
-| [项目总览](./docs/00-summary.md) | 设计阶段的项目概况（归档） |
-| [需求设计](./docs/01-requirements.md) | 完整需求规划（归档） |
-| [架构设计](./docs/02-architecture.md) | 系统架构设计（归档） |
-| [技术选型](./docs/tech-stack-decision.md) | 技术栈决策记录（归档） |
-| [CI/CD 指南](./docs/cicd-guide.md) | GitHub Actions 自动化流程 |
+- [API 服务](./services/api/README.md) - Go 后端架构和设计决策
+- [Web 前端](./services/web/README.md) - Vue 3 前端开发指南
+- [Telegram Bot](./services/bot/README.md) - Python Bot 功能设计
 
 ---
 
-## 🛠️ 技术栈
+## 📈 项目状态
 
-### 全栈框架
-- **框架:** Next.js 15 (App Router)
-- **语言:** TypeScript 5.x
-- **ORM:** Prisma
-- **数据库:** PostgreSQL 16.x
-- **认证:** 自实现 JWT（7天有效期）
+### ✅ 已完成
 
-### UI 层
-- **组件库:** Tailwind CSS
-- **图标:** Lucide Icons（可选）
-- **状态管理:** React useState/useEffect
+- [x] Go 后端基础框架（Gin + GORM）
+- [x] GORM 数据模型（保留业务语义设计）
+- [x] 数据库连接层（与 Prisma 兼容）
+- [x] 健康检查 API
+- [x] Monorepo 架构搭建
+- [x] Docker + Docker Compose 配置
+- [x] Makefile 统一命令
 
-### 工具库
-- **密码加密:** bcrypt
-- **定时任务:** Vercel Cron
-- **日期处理:** date-fns
-- **验证:** TypeScript
+### 🚧 进行中
 
-### 部署
-- **Docker:** GitHub Container Registry (ghcr.io)
-- **CI/CD:** GitHub Actions 自动化
-- **自建:** Docker Compose / Kubernetes
-- **反向代理:** Nginx / Caddy (可选)
+- [ ] Go API 完整实现（登录、用户管理、邀请码等）
+- [ ] Vue 3 前端开发
+- [ ] JWT 中间件
+- [ ] API 文档生成
 
----
+### ⏳ 待开始
 
-## 📋 功能路线图
-
-### Phase 1: MVP ✅ (已完成 90%)
-
-- [x] 项目架构设计
-- [x] 技术选型确定
-- [x] 数据库 Schema 设计
-- [x] API 接口设计（Server Actions）
-- [x] 核心功能开发
-  - [x] 管理员认证（JWT）
-  - [x] 用户管理 CRUD（列表、搜索、延长、禁用、删除）
-  - [x] 邀请码系统（生成、使用、删除）
-  - [x] 账号到期管理（定时任务自动禁用）
-  - [x] 系统设置（Emby 连接测试、手动触发定时任务）
-  - [ ] 邮件通知（待开发）
-  - [ ] Docker 部署配置（待开发）
-
-### Phase 2: 增强功能
-
-- [ ] MoviePilot 完整集成
-- [ ] 批量操作
-- [ ] 设备管理
-- [ ] 客户端过滤
-- [ ] 操作审计
-- [ ] Webhook 支持
-
-### Phase 3: 可选功能
-
-- [ ] 引荐系统
-- [ ] Telegram 通知
-- [ ] 多管理员
-- [ ] UI 定制
+- [ ] Python Telegram Bot
+- [ ] 数据迁移脚本
+- [ ] 监控和日志（Prometheus + Grafana）
+- [ ] 完整测试覆盖
 
 ---
 
-## 🏗️ 项目结构
-
-```
-ember/
-├── app/                  # Next.js App Router
-│   ├── (auth)/          # 认证页面组
-│   │   ├── login/
-│   │   └── register/
-│   ├── (admin)/         # 管理后台
-│   │   ├── dashboard/
-│   │   ├── users/
-│   │   ├── invites/
-│   │   └── settings/
-│   ├── (user)/          # 用户面板
-│   │   ├── profile/
-│   │   └── devices/
-│   ├── actions/         # Server Actions
-│   └── api/             # API Routes (可选)
-│
-├── components/          # UI 组件
-│   ├── ui/             # shadcn/ui 组件
-│   ├── admin/          # 管理后台组件
-│   └── user/           # 用户面板组件
-│
-├── lib/                 # 工具库
-│   ├── db.ts           # Prisma 客户端
-│   ├── auth.ts         # 认证工具
-│   ├── emby.ts         # Emby API 客户端
-│   └── email.ts        # 邮件服务
-│
-├── prisma/             # Prisma 配置
-│   ├── schema.prisma   # 数据库 Schema
-│   └── migrations/     # 迁移文件
-│
-├── types/              # TypeScript 类型
-├── docs/               # 项目文档
-├── Dockerfile          # Docker 构建
-└── docker-compose.yml  # 部署配置
-```
-
----
-
-## ⚙️ 配置
-
-### 环境变量
-
-```bash
-# 数据库
-DATABASE_URL="postgresql://postgres:password@localhost:5432/ember?schema=public"
-
-# JWT 认证（至少 32 个字符）
-JWT_SECRET="your-secret-key-min-32-chars-change-this-in-production"
-
-# Emby 服务器
-EMBY_URL="https://your-emby-server.com"
-EMBY_API_KEY="your-emby-api-key"
-
-# Cron 任务配置（可选）
-CRON_SECRET="your-cron-secret-key"      # API 验证密钥
-CRON_SCHEDULE="0 2 * * *"               # 执行时间（每天凌晨 2:00）
-CRON_TIMEZONE="Asia/Shanghai"           # 时区
-
-# Next.js
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
-```
-
-详细配置和更多 Cron 表达式示例请参考 [.env.example](./.env.example) 文件。
-
----
-
-## 🤝 贡献
-
-目前项目处于 **设计阶段**，欢迎：
-
-- 💡 功能建议和需求讨论
-- 🐛 Bug 报告
-- 📖 文档改进
-- 🎨 UI/UX 反馈
+## 🤝 贡献指南
 
 ### 开发流程
 
-```bash
-# 1. Fork 项目
-# 2. 创建功能分支
-git checkout -b feature/amazing-feature
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/新功能`)
+3. 提交更改 (`git commit -m 'feat: 添加新功能'`)
+4. 推送分支 (`git push origin feature/新功能`)
+5. 创建 Pull Request
 
-# 3. 提交更改
-git commit -m 'Add amazing feature'
+### Git 提交规范
 
-# 4. 推送到分支
-git push origin feature/amazing-feature
-
-# 5. 创建 Pull Request
-```
-
----
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+- `feat:` 新功能
+- `fix:` 修复问题
+- `docs:` 文档更新
+- `refactor:` 代码重构
+- `test:` 测试相关
+- `chore:` 构建/工具变动
 
 ---
 
-## 🙏 致谢
+## 📋 最近更新
 
-- [Wizarr](https://github.com/wizarrrr/wizarr) - UI 设计灵感
-- [jfa-go](https://github.com/hrfee/jfa-go) - 功能参考
-- [shadcn/ui](https://ui.shadcn.com/) - UI 组件库
+### v3.0.0 (2026-02-10) - 架构重构
+
+- ✨ **Monorepo 架构** - 采用微服务 Monorepo 架构
+- ✨ **Go 后端** - 使用 Go + Gin + GORM 重写后端
+- ✨ **项目结构** - services/ 目录管理所有微服务
+- ✨ **基础设施** - infrastructure/ 集中管理 Docker 配置
+- ✨ **Makefile** - 统一命令入口，简化开发流程
+- 📚 **文档完善** - 迁移指南、服务文档
+
+### v2.0.0 (2024-12) - MVP 完成
+
+- ✅ 核心用户管理功能
+- ✅ 订阅系统和 MoviePilot 集成
+- ✅ Next.js 15 全栈实现
+
+[查看完整更新日志](./CHANGELOG.md)
 
 ---
 
-## 📞 联系方式
+## 📞 问题反馈
 
-- **作者:** Kong Hang
-- **项目主页:** https://github.com/yourusername/ember
-- **问题反馈:** https://github.com/yourusername/ember/issues
+如有问题或建议，请通过项目 Issues 提交反馈
+
+---
+
+## ⚖️ 免责声明
+
+本项目仅供学习交流使用。我们不存储任何影视文件，只提供用户管理服务。请支持正版！
 
 ---
 
@@ -286,5 +293,7 @@ git push origin feature/amazing-feature
 **[文档](./docs/)** • **[问题](../../issues)** • **[讨论](../../discussions)**
 
 Made with ❤️ by Kong Hang
+
+*架构参考: [NextNewEP](https://github.com/konghanghang/nextnewep)*
 
 </div>
