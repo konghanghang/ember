@@ -72,60 +72,177 @@
 
 ### 🚧 当前阶段：阶段 2 - Go API 完整实现
 
-**目标**: 实现完整的 REST API，替代 Next.js API Routes
+**目标**: 实现完整的 REST API，替代 Next.js Server Actions 和 API Routes
 
-**待实现的 API 端点**:
+**Next.js 接口统计**:
+- Server Actions: 30 个函数
+- API Routes: 3 个端点
+- **总计**: 33 个接口
 
-#### 认证相关
-- [ ] `POST /api/v1/admin/login` - 管理员登录（JWT）
-- [ ] `POST /api/v1/user/login` - 用户登录（Emby 验证）
-- [ ] `POST /api/v1/user/register` - 用户注册（使用邀请码）
+**Go API 需要实现**: **33 个 REST API 端点**
 
-#### 用户管理（管理员）
-- [ ] `GET /api/v1/admin/users` - 用户列表（分页、搜索）
-- [ ] `GET /api/v1/admin/users/:id` - 用户详情
-- [ ] `PUT /api/v1/admin/users/:id/extend` - 延长到期时间
-- [ ] `PUT /api/v1/admin/users/:id/disable` - 禁用/启用用户
-- [ ] `DELETE /api/v1/admin/users/:id` - 删除用户
+---
 
-#### 邀请码管理
-- [ ] `GET /api/v1/admin/invites` - 邀请码列表
-- [ ] `POST /api/v1/admin/invites` - 创建邀请码
-- [ ] `DELETE /api/v1/admin/invites/:id` - 删除邀请码
-- [ ] `GET /api/v1/invites/:code/validate` - 验证邀请码
+#### 1️⃣ 认证相关 (7 个)
 
-#### 订阅管理
-- [ ] `GET /api/v1/admin/subscriptions` - 订阅列表（管理员）
-- [ ] `PUT /api/v1/admin/subscriptions/:id/approve` - 批准订阅
-- [ ] `PUT /api/v1/admin/subscriptions/:id/reject` - 拒绝订阅
-- [ ] `GET /api/v1/user/subscriptions` - 我的订阅列表
-- [ ] `POST /api/v1/user/subscriptions` - 创建订阅请求
+**管理员认证**:
+- [ ] `POST /api/v1/admin/login` - 管理员登录（JWT）← `adminLogin`
+- [ ] `GET /api/v1/admin/current` - 获取当前管理员信息 ← `getCurrentUser`
+- [ ] `POST /api/v1/admin/logout` - 管理员登出 ← `adminLogout`
+- [ ] `PUT /api/v1/admin/password` - 更新管理员密码 ← `updateAdminPassword`
 
-#### 用户面板
-- [ ] `GET /api/v1/user/profile` - 个人信息
-- [ ] `PUT /api/v1/user/profile` - 更新个人信息
-- [ ] `PUT /api/v1/user/password` - 修改密码
+**用户认证**:
+- [ ] `POST /api/v1/user/login` - 用户登录（Emby 验证）← `userLogin`
+- [ ] `POST /api/v1/user/logout` - 用户登出 ← `userLogout`
+- [ ] `POST /api/v1/user/register` - 用户注册（使用邀请码）← `registerUser`
 
-**需要实现的中间件**:
-- [ ] JWT 认证中间件
-- [ ] CORS 中间件（白名单）
-- [ ] Rate Limiting 中间件
-- [ ] 输入验证中间件
-- [ ] 日志中间件（结构化日志）
-- [ ] 错误处理中间件
+---
 
-**需要实现的服务层**:
-- [ ] `services/auth.go` - 认证服务（JWT、Emby）
-- [ ] `services/user.go` - 用户管理
-- [ ] `services/invite.go` - 邀请码管理
-- [ ] `services/subscription.go` - 订阅管理
-- [ ] `services/emby.go` - Emby API 集成
-- [ ] `services/moviepilot.go` - MoviePilot API 集成
+#### 2️⃣ 用户管理 - 管理员 (6 个)
 
-**测试要求**:
-- [ ] 单元测试覆盖率 > 70%
-- [ ] 集成测试通过
-- [ ] API 文档生成（Swagger）
+- [ ] `GET /api/v1/admin/users` - 用户列表（分页、搜索）← `getUsers`
+- [ ] `GET /api/v1/admin/users/:id` - 用户详情（新增）
+- [ ] `PUT /api/v1/admin/users/:id/extend` - 延长到期时间 ← `extendExpiry`
+- [ ] `PUT /api/v1/admin/users/:id/toggle` - 启用/禁用用户 ← `toggleUserStatus`
+- [ ] `PUT /api/v1/admin/users/:id/reset-password` - 重置密码 ← `resetPassword`
+- [ ] `DELETE /api/v1/admin/users/:id` - 删除用户 ← `deleteUser`
+
+---
+
+#### 3️⃣ 邀请码管理 (4 个)
+
+- [ ] `GET /api/v1/admin/invites` - 邀请码列表 ← `getInvites`
+- [ ] `POST /api/v1/admin/invites` - 创建邀请码 ← `createInvite`
+- [ ] `DELETE /api/v1/admin/invites/:id` - 删除邀请码 ← `deleteInvite`
+- [ ] `GET /api/v1/invites/:code/validate` - 验证邀请码 ← `validateInvite`
+
+---
+
+#### 4️⃣ 订阅管理 (6 个)
+
+**管理员操作**:
+- [ ] `GET /api/v1/admin/subscriptions` - 所有订阅列表 ← `getAllSubscriptions`
+- [ ] `PUT /api/v1/admin/subscriptions/:id/approve` - 批准订阅 ← `approveSubscription`
+- [ ] `PUT /api/v1/admin/subscriptions/:id/reject` - 拒绝订阅 ← `rejectSubscription`
+
+**用户操作**:
+- [ ] `GET /api/v1/user/subscriptions` - 我的订阅列表 ← `getUserSubscriptions`
+- [ ] `POST /api/v1/user/subscriptions` - 创建订阅请求 ← `createSubscription`
+- [ ] `DELETE /api/v1/user/subscriptions/:id` - 删除订阅 ← `deleteSubscription`
+
+---
+
+#### 5️⃣ 用户面板 (4 个)
+
+- [ ] `GET /api/v1/user/profile` - 获取个人信息 ← `getUserAuth`
+- [ ] `PUT /api/v1/user/profile` - 更新个人信息（新增）
+- [ ] `PUT /api/v1/user/password` - 修改密码 ← `updateUserPassword`
+- [ ] `PUT /api/v1/user/email` - 修改邮箱 ← `updateUserEmail`
+
+---
+
+#### 6️⃣ 媒体相关 (2 个)
+
+- [ ] `GET /api/v1/emby/config` - 获取 Emby 配置 ← `getEmbyConfig`
+- [ ] `GET /api/v1/media/stats` - 获取媒体统计 ← `getMediaStats`
+
+---
+
+#### 7️⃣ 系统相关 (2 个)
+
+- [ ] `GET /api/v1/system/info` - 获取系统信息 ← `getSystemInfo`
+- [ ] `POST /api/v1/system/test-emby` - 测试 Emby 连接 ← `testEmbyConnection`
+
+---
+
+#### 8️⃣ 定时任务 (1 个)
+
+- [ ] `POST /api/v1/cron/check-expired` - 检查并禁用过期用户 ← `checkExpiredUsers`
+
+---
+
+#### 9️⃣ 工具接口 (2 个)
+
+- [ ] `GET /api/v1/health` - 健康检查（已完成 ✅）
+- [ ] `GET /api/v1/tmdb/search` - TMDB 搜索 ← API Route
+
+---
+
+**端点统计**: **33 个 REST API** (已完成: 1, 待实现: 32)
+
+---
+
+#### 🎯 API 实现优先级
+
+按照功能依赖关系，建议按以下顺序实现：
+
+**第 1 优先级（核心功能）- 2-3 天**:
+1. JWT 认证中间件
+2. 管理员登录 API (`POST /api/v1/admin/login`)
+3. 用户列表 API (`GET /api/v1/admin/users`)
+4. 邀请码列表 API (`GET /api/v1/admin/invites`)
+5. 创建邀请码 API (`POST /api/v1/admin/invites`)
+
+**第 2 优先级（用户管理）- 2 天**:
+6. 用户注册 API (`POST /api/v1/user/register`)
+7. 用户登录 API (`POST /api/v1/user/login`)
+8. 延长到期时间 API (`PUT /api/v1/admin/users/:id/extend`)
+9. 启用/禁用用户 API (`PUT /api/v1/admin/users/:id/toggle`)
+10. 删除用户 API (`DELETE /api/v1/admin/users/:id`)
+
+**第 3 优先级（订阅系统）- 2 天**:
+11. 创建订阅 API (`POST /api/v1/user/subscriptions`)
+12. 我的订阅列表 API (`GET /api/v1/user/subscriptions`)
+13. 所有订阅列表 API (`GET /api/v1/admin/subscriptions`)
+14. 批准订阅 API (`PUT /api/v1/admin/subscriptions/:id/approve`)
+15. 拒绝订阅 API (`PUT /api/v1/admin/subscriptions/:id/reject`)
+16. MoviePilot 集成
+
+**第 4 优先级（用户面板）- 1 天**:
+17. 获取个人信息 API (`GET /api/v1/user/profile`)
+18. 修改密码 API (`PUT /api/v1/user/password`)
+19. 修改邮箱 API (`PUT /api/v1/user/email`)
+20. 获取当前管理员 API (`GET /api/v1/admin/current`)
+
+**第 5 优先级（辅助功能）- 1-2 天**:
+21. 其他邀请码 API（删除、验证）
+22. 其他用户管理 API（重置密码、详情）
+23. 其他认证 API（登出、更新密码）
+24. 其他订阅 API（删除）
+25. 媒体和系统相关 API
+26. 定时任务 API
+27. 工具接口（TMDB 搜索）
+
+---
+
+#### 🛠️ 需要实现的中间件 (6 个)
+
+- [ ] **JWT 认证中间件** - 验证 Token，提取用户信息（优先级最高）
+- [ ] **CORS 中间件** - 白名单配置，允许前端跨域
+- [ ] **错误处理中间件** - 统一错误响应格式
+- [ ] **日志中间件** - 结构化日志（请求 ID、耗时）
+- [ ] **输入验证中间件** - 使用 validator 库
+- [ ] **Rate Limiting 中间件** - 防止 API 滥用（可选）
+
+---
+
+#### 🏗️ 需要实现的服务层 (6 个)
+
+- [ ] `services/auth.go` - 认证服务（JWT 生成/验证、Emby 验证）
+- [ ] `services/user.go` - 用户管理（CRUD、延长、禁用）
+- [ ] `services/invite.go` - 邀请码管理（生成、验证、使用）
+- [ ] `services/subscription.go` - 订阅管理（创建、审核、查询）
+- [ ] `services/emby.go` - Emby API 集成（用户验证、配置获取）
+- [ ] `services/moviepilot.go` - MoviePilot API 集成（自动订阅）
+
+---
+
+#### ✅ 测试要求
+
+- [ ] **单元测试** - 覆盖率 > 70%（Handler、Service 层）
+- [ ] **集成测试** - 端到端 API 测试（使用 testify）
+- [ ] **API 文档** - 使用 Swagger/OpenAPI 生成
+- [ ] **性能测试** - 使用 wrk/ab 测试并发能力
 
 ---
 
@@ -196,20 +313,50 @@
 
 ### 🎯 里程碑
 
-| 阶段 | 预计时间 | 状态 |
-|------|---------|------|
-| 阶段 0: 架构决策 | 1 天 | ✅ 完成 |
-| 阶段 1: Monorepo 搭建 | 1 天 | ✅ 完成 |
-| 阶段 2: Go API 实现 | 3-5 天 | 🚧 进行中 |
-| 阶段 3: Vue 3 前端 | 1-2 周 | ⏳ 待开始 |
-| 阶段 4: Python Bot | 3-5 天 | ⏳ 待开始 |
-| 阶段 5: 数据迁移 | 1 周 | ⏳ 待开始 |
-| 阶段 6: 监控日志 | 2-3 天 | ⏳ 待开始 |
-| **总计** | **4-6 周** | **进度: 15%** |
+| 阶段 | 工作量 | 预计时间 | 状态 | 进度 |
+|------|--------|---------|------|------|
+| 阶段 0: 架构决策 | 架构设计、技术选型 | 1 天 | ✅ 完成 | 100% |
+| 阶段 1: Monorepo 搭建 | 目录结构、Makefile、Docker | 1 天 | ✅ 完成 | 100% |
+| 阶段 2: Go API 实现 | **33 个 REST API** + 中间件 + 服务层 | **6-9 天** | 🚧 进行中 | 3% (1/33) |
+| 阶段 3: Vue 3 前端 | 管理后台 + 用户面板 | 1-2 周 | ⏳ 待开始 | 0% |
+| 阶段 4: Python Bot | Telegram Bot + 命令处理 | 3-5 天 | ⏳ 待开始 | 0% |
+| 阶段 5: 数据迁移 | 迁移脚本 + 演练 + 回滚 | 1 周 | ⏳ 待开始 | 0% |
+| 阶段 6: 监控日志 | Prometheus + Grafana（可选） | 2-3 天 | ⏳ 待开始 | 0% |
+| **总计** | | **5-7 周** | **进行中** | **约 10%** |
+
+**关键指标**:
+- **已完成**: 阶段 0-1（架构基础）
+- **进行中**: 阶段 2 - Go API（1/33 端点完成）
+- **下一个里程碑**: Go API 完成 → 项目进度达到 35%
+- **预计完成时间**: 2026 年 3 月底
 
 ---
 
 ### 📝 开发笔记
+
+#### 2026-02-10 18:30: API 端点统计完成
+
+**完成工作**:
+- ✅ 统计 Next.js 项目所有接口：**33 个**
+  - Server Actions: 30 个函数
+  - API Routes: 3 个端点
+- ✅ 更新迁移文档，补充完整的 33 个 REST API 端点列表
+- ✅ 标注每个端点对应的 Next.js Server Action
+- ✅ 按功能分类：认证、用户、邀请码、订阅、媒体、系统、工具
+- ✅ 制定 API 实现优先级（5 个阶段）
+- ✅ 更新里程碑：阶段 2 预计 **6-9 天**（而非原 3-5 天）
+
+**关键发现**:
+- 原计划只规划了 23 个端点，遗漏了 10 个
+- 遗漏的主要是：登出 API、密码/邮箱更新、媒体/系统相关接口
+- Go API 需要 1:1 映射所有 Next.js 功能，确保零遗漏
+
+**下一步重点**:
+- 🎯 按优先级实现 API（从核心认证开始）
+- 🎯 第一优先级：JWT 中间件 + 管理员登录 + 用户/邀请码列表
+- 🎯 预计 2-3 天完成核心功能
+
+---
 
 #### 2026-02-10: 架构重构完成
 
@@ -223,11 +370,6 @@
 - ❌ 最初误解需求，以为只需轻量级调整
 - ✅ 澄清后理解是完全重构为微服务架构
 - ✅ 参考 nextnewep 后成功搭建 Monorepo 结构
-
-**下一步重点**:
-- 🎯 实现 JWT 中间件和登录 API
-- 🎯 实现用户管理 CRUD
-- 🎯 编写单元测试
 
 ---
 
