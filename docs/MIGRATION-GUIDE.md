@@ -14,6 +14,223 @@
 
 ---
 
+## 📍 迁移进度追踪
+
+> **最后更新**: 2026-02-10 18:15
+> **当前阶段**: 阶段 1 - Monorepo 架构搭建 ✅
+> **负责人**: Kong Hang + Claude Sonnet 4.5
+
+### 已完成的工作
+
+#### ✅ 阶段 0：架构决策（2026-02-10）
+
+- [x] 技术栈选型确认（Vue 3 + Go + Python）
+- [x] 参考 nextnewep 项目架构设计
+- [x] 确定 Monorepo 微服务架构方案
+- [x] 创建迁移文档（本文档）
+
+#### ✅ 阶段 1：Monorepo 架构搭建（2026-02-10）
+
+**提交记录**:
+- `0b1ec5f` - feat(backend): 添加 Go 后端基础框架
+- `87c9479` - refactor(architecture): 重构为 Monorepo 微服务架构
+
+**完成内容**:
+- [x] 创建 `services/` 目录结构
+  - [x] `services/api/` - Go 后端服务（从 `backend/` 移动）
+  - [x] `services/web/` - Vue 3 前端（框架就绪）
+  - [x] `services/bot/` - Python Bot（框架就绪）
+- [x] 创建 `infrastructure/` 目录
+  - [x] `infrastructure/docker/` - Docker Compose 配置
+  - [x] `infrastructure/nginx/` - Nginx 配置目录
+  - [x] `infrastructure/database/` - 数据库脚本目录
+- [x] 实现 Go API 基础框架
+  - [x] GORM 数据模型（Admin, Invite, User, Subscription）
+  - [x] 数据库连接层（与 Prisma 兼容）
+  - [x] 健康检查 API (`GET /health`)
+  - [x] Dockerfile 多阶段构建
+- [x] 创建 Makefile（22 个统一命令）
+- [x] 更新 README.md（反映 Monorepo 架构）
+- [x] 配置 .gitignore（忽略编译产物和日志）
+
+**设计决策**:
+- ✅ **保留 `InviteCode string` 外键** - 反映业务语义（历史事件）
+- ✅ **使用 `cuid` 而非 `UUID`** - 与 Prisma 数据兼容
+- ✅ **不执行 AutoMigrate** - 避免破坏现有表结构
+- ✅ **保留 `app/` 目录** - Next.js 代码作为参考（legacy）
+
+**验证结果**:
+```bash
+✅ make help         - Makefile 命令正常
+✅ make build-api    - Go 编译成功（17MB 二进制）
+✅ make info         - 项目信息显示正确
+✅ Go 格式化通过     - go fmt ./...
+✅ 静态检查通过      - go vet ./...
+```
+
+---
+
+### 🚧 当前阶段：阶段 2 - Go API 完整实现
+
+**目标**: 实现完整的 REST API，替代 Next.js API Routes
+
+**待实现的 API 端点**:
+
+#### 认证相关
+- [ ] `POST /api/v1/admin/login` - 管理员登录（JWT）
+- [ ] `POST /api/v1/user/login` - 用户登录（Emby 验证）
+- [ ] `POST /api/v1/user/register` - 用户注册（使用邀请码）
+
+#### 用户管理（管理员）
+- [ ] `GET /api/v1/admin/users` - 用户列表（分页、搜索）
+- [ ] `GET /api/v1/admin/users/:id` - 用户详情
+- [ ] `PUT /api/v1/admin/users/:id/extend` - 延长到期时间
+- [ ] `PUT /api/v1/admin/users/:id/disable` - 禁用/启用用户
+- [ ] `DELETE /api/v1/admin/users/:id` - 删除用户
+
+#### 邀请码管理
+- [ ] `GET /api/v1/admin/invites` - 邀请码列表
+- [ ] `POST /api/v1/admin/invites` - 创建邀请码
+- [ ] `DELETE /api/v1/admin/invites/:id` - 删除邀请码
+- [ ] `GET /api/v1/invites/:code/validate` - 验证邀请码
+
+#### 订阅管理
+- [ ] `GET /api/v1/admin/subscriptions` - 订阅列表（管理员）
+- [ ] `PUT /api/v1/admin/subscriptions/:id/approve` - 批准订阅
+- [ ] `PUT /api/v1/admin/subscriptions/:id/reject` - 拒绝订阅
+- [ ] `GET /api/v1/user/subscriptions` - 我的订阅列表
+- [ ] `POST /api/v1/user/subscriptions` - 创建订阅请求
+
+#### 用户面板
+- [ ] `GET /api/v1/user/profile` - 个人信息
+- [ ] `PUT /api/v1/user/profile` - 更新个人信息
+- [ ] `PUT /api/v1/user/password` - 修改密码
+
+**需要实现的中间件**:
+- [ ] JWT 认证中间件
+- [ ] CORS 中间件（白名单）
+- [ ] Rate Limiting 中间件
+- [ ] 输入验证中间件
+- [ ] 日志中间件（结构化日志）
+- [ ] 错误处理中间件
+
+**需要实现的服务层**:
+- [ ] `services/auth.go` - 认证服务（JWT、Emby）
+- [ ] `services/user.go` - 用户管理
+- [ ] `services/invite.go` - 邀请码管理
+- [ ] `services/subscription.go` - 订阅管理
+- [ ] `services/emby.go` - Emby API 集成
+- [ ] `services/moviepilot.go` - MoviePilot API 集成
+
+**测试要求**:
+- [ ] 单元测试覆盖率 > 70%
+- [ ] 集成测试通过
+- [ ] API 文档生成（Swagger）
+
+---
+
+### ⏳ 下一步计划
+
+#### 阶段 3：Vue 3 前端开发（预计 1-2 周）
+
+**任务列表**:
+- [ ] 初始化 Vue 3 + Vite 项目
+  ```bash
+  cd services/web
+  npm create vue@latest
+  ```
+- [ ] 安装依赖（Element Plus、Pinia、Vue Router）
+- [ ] 实现管理后台页面
+  - [ ] 登录页面
+  - [ ] 用户管理页面
+  - [ ] 邀请码管理页面
+  - [ ] 订阅管理页面
+- [ ] 实现用户面板页面
+  - [ ] 用户登录
+  - [ ] 个人信息
+  - [ ] 订阅管理
+- [ ] API 集成（调用 Go 后端）
+- [ ] E2E 测试（Playwright）
+
+#### 阶段 4：Python Telegram Bot（预计 3-5 天）
+
+**任务列表**:
+- [ ] 初始化 Python 项目
+  ```bash
+  cd services/bot
+  python -m venv venv
+  pip install python-telegram-bot httpx
+  ```
+- [ ] 实现 Bot 基础框架
+- [ ] 实现用户命令
+  - [ ] `/start` - 开始使用
+  - [ ] `/register <code>` - 注册
+  - [ ] `/me` - 查看信息
+  - [ ] `/subscribe <tmdb_id>` - 订阅
+- [ ] 实现管理员命令
+  - [ ] `/admin users` - 用户列表
+  - [ ] `/admin invite` - 生成邀请码
+- [ ] 集成 Go API（HTTP 客户端）
+- [ ] 错误处理和重试机制
+
+#### 阶段 5：数据迁移（预计 1 周）
+
+**任务列表**:
+- [ ] 编写数据导出脚本（Prisma → JSON）
+- [ ] 编写数据转换脚本（字符串外键 → UUID 映射）
+- [ ] 编写数据验证脚本（一致性检查）
+- [ ] 编写数据导入脚本（JSON → GORM）
+- [ ] 在测试环境演练迁移（至少 3 次）
+- [ ] 编写回滚脚本
+- [ ] 准备生产环境迁移计划
+
+#### 阶段 6：监控和日志（可选）
+
+**任务列表**:
+- [ ] 配置 Prometheus 指标暴露
+- [ ] 配置 Grafana Dashboard
+- [ ] 配置 Loki 日志聚合
+- [ ] 配置告警规则
+
+---
+
+### 🎯 里程碑
+
+| 阶段 | 预计时间 | 状态 |
+|------|---------|------|
+| 阶段 0: 架构决策 | 1 天 | ✅ 完成 |
+| 阶段 1: Monorepo 搭建 | 1 天 | ✅ 完成 |
+| 阶段 2: Go API 实现 | 3-5 天 | 🚧 进行中 |
+| 阶段 3: Vue 3 前端 | 1-2 周 | ⏳ 待开始 |
+| 阶段 4: Python Bot | 3-5 天 | ⏳ 待开始 |
+| 阶段 5: 数据迁移 | 1 周 | ⏳ 待开始 |
+| 阶段 6: 监控日志 | 2-3 天 | ⏳ 待开始 |
+| **总计** | **4-6 周** | **进度: 15%** |
+
+---
+
+### 📝 开发笔记
+
+#### 2026-02-10: 架构重构完成
+
+**重要决策**:
+1. **保留业务语义** - `InviteCode string` 不改为 UUID，因为它表示历史事件而非关系
+2. **参考 nextnewep** - 学习了 Monorepo 架构的最佳实践
+3. **Makefile 优先** - 统一命令入口，简化开发流程
+4. **渐进式迁移** - 保留 Next.js 代码作为参考，可随时回滚
+
+**遇到的问题**:
+- ❌ 最初误解需求，以为只需轻量级调整
+- ✅ 澄清后理解是完全重构为微服务架构
+- ✅ 参考 nextnewep 后成功搭建 Monorepo 结构
+
+**下一步重点**:
+- 🎯 实现 JWT 中间件和登录 API
+- 🎯 实现用户管理 CRUD
+- 🎯 编写单元测试
+
+---
+
 ## ⚠️ 重要警告
 
 > **"Theory and practice sometimes clash. Theory loses. Every single time." - Linus Torvalds**
