@@ -13,9 +13,9 @@ export default {
           surfaceLight: '#F3F4F6', // 亮：浅灰
         },
         ember: {
-          DEFAULT: '#0F766E', // Deep Ocean Teal
-          glow: '#14B8A6',
-          dim: 'rgba(15, 118, 110, 0.1)',
+          DEFAULT: '#E50914', // Netflix Red
+          glow: '#F40612',
+          dim: 'rgba(229, 9, 20, 0.1)',
           gold: '#F59E0B',
           teal: '#14B8A6',
         },

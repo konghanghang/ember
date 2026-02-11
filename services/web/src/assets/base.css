@@ -9,20 +9,20 @@
   --bg-surface: #FFFFFF;      /* 纯白 */
   --bg-surface-light: #F3F4F6; /* 浅灰高亮 */
 
-  /* Deep Ocean Accents */
-  --ember-teal: #0F766E;      /* 深海青 */
-  --ember-glow: #14B8A6;      /* 浅青微光 */
-  --ember-gold: #F59E0B;      /* 琥珀金 */
-  --ember-dim: rgba(15, 118, 110, 0.1); /* 青色微光 */
+  /* Netflix Red Accents */
+  --ember-red: #E50914;       /* Netflix Red */
+  --ember-glow: #F40612;      /* Vivid Red */
+  --ember-gold: #F59E0B;      /* Amber */
+  --ember-dim: rgba(229, 9, 20, 0.1); /* Red Dim */
 
   /* High Contrast Text */
-  --text-primary: #111827;    /* 深黑灰 */
-  --text-secondary: #6B7280;  /* 中灰 */
-  --text-muted: #9CA3AF;      /* 浅灰 */
+  --text-primary: #111827;    /* Dark Gray */
+  --text-secondary: #6B7280;  /* Mid Gray */
+  --text-muted: #9CA3AF;      /* Light Gray */
 
   /* Borders & Shadows */
-  --border-subtle: #E5E7EB;   /* 极浅边框 */
-  --border-focus: var(--ember-teal);    /* 聚焦青 */
+  --border-subtle: #E5E7EB;   /* Light Border */
+  --border-focus: var(--ember-red);    /* Focus Red */
   --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
 }
 
@@ -48,14 +48,14 @@ body {
   transition: all 0.2s ease;
 }
 .input-ember input:focus {
-  border-color: var(--ember-teal);
+  border-color: var(--ember-red);
   box-shadow: 0 0 0 3px var(--ember-dim);
   background: #FFFFFF;
 }
 
 /* Vitality Button */
 .btn-ember {
-  background: linear-gradient(135deg, var(--ember-teal), #0D9488);
+  background: linear-gradient(135deg, var(--ember-red), #B20710);
   color: white;
   border: none;
   font-weight: 600;
@@ -63,7 +63,7 @@ body {
 }
 .btn-ember:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+  box-shadow: 0 4px 12px rgba(229, 9, 20, 0.3);
   filter: brightness(1.05);
 }
 .btn-ember:active {
@@ -72,7 +72,7 @@ body {
 
 /* Override Element Plus */
 :root {
-  --el-color-primary: var(--ember-teal);
+  --el-color-primary: var(--ember-red);
   --el-bg-color: var(--bg-surface);
   --el-text-color-primary: var(--text-primary);
   --el-text-color-regular: var(--text-secondary);
@@ -85,5 +85,5 @@ body {
   box-shadow: 0 0 0 1px var(--border-subtle) inset !important;
 }
 .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px var(--ember-teal) inset !important;
+  box-shadow: 0 0 0 1px var(--ember-red) inset !important;
 }
