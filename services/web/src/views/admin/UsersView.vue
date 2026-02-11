@@ -2,15 +2,25 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUsers, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
+import type { UserInfo, UserListQuery } from '@/types/api'
 
-const tableData = ref([])
+const tableData = ref<UserInfo[]>([])
 const total = ref(0)
 const loading = ref(false)
-const queryParams = ref({
+const queryParams = ref<UserListQuery>({
   page: 1,
   pageSize: 10,
   search: ''
 })
+
+const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
+
+const generatePassword = (length = 16) => {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*'
+  const randomValues = new Uint32Array(length)
+  window.crypto.getRandomValues(randomValues)
+  return Array.from(randomValues, (value) => charset[value % charset.length]).join('')
+}
 
 const fetchData = async () => {
   loading.value = true
@@ -23,7 +33,7 @@ const fetchData = async () => {
   }
 }
 
-const handleExtend = async (row: any) => {
+const handleExtend = async (row: UserInfo) => {
   try {
     await ElMessageBox.prompt('请输入延长天数', '延长到期时间', {
       confirmButtonText: '确定',
@@ -36,22 +46,24 @@ const handleExtend = async (row: any) => {
       ElMessage.success('延长成功')
       fetchData()
     })
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      ElMessage.error('延长失败，请稍后重试')
+    }
   }
 }
 
-const handleToggle = async (row: any) => {
+const handleToggle = async (row: UserInfo) => {
   try {
     await toggleUserStatus(row.id)
     ElMessage.success(row.isActive ? '已禁用' : '已启用')
     fetchData()
   } catch {
-    // error
+    ElMessage.error('操作失败，请稍后重试')
   }
 }
 
-const handleDelete = async (row: any) => {
+const handleDelete = async (row: UserInfo) => {
   try {
     await ElMessageBox.confirm('确定删除该用户吗？此操作不可恢复', '警告', {
       confirmButtonText: '确定',
@@ -61,12 +73,14 @@ const handleDelete = async (row: any) => {
     await deleteUser(row.id)
     ElMessage.success('删除成功')
     fetchData()
-  } catch {
-    // cancelled
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      ElMessage.error('删除失败，请稍后重试')
+    }
   }
 }
 
-const handleResetPassword = async (row: any) => {
+const handleResetPassword = async (row: UserInfo) => {
   try {
     const { value } = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
       confirmButtonText: '确定',
@@ -75,15 +89,17 @@ const handleResetPassword = async (row: any) => {
     
     let password = value
     if (!password) {
-      password = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8)
+      password = generatePassword()
       await ElMessageBox.alert(`已生成随机密码: ${password}`, '提示')
     }
     
     await resetUserPassword(row.id, password)
     ElMessage.success('密码重置成功')
-    loadUsers()
-  } catch {
-    // cancelled
+    fetchData()
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      ElMessage.error('重置密码失败，请稍后重试')
+    }
   }
 }
 

@@ -2,10 +2,23 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getUserProfile, updateUserEmail, updateUserPassword, getEmbyConfig, getMediaStats } from '@/api/user'
+import type { MediaStats, UserInfo } from '@/types/api'
 
-const user = ref<any>({})
+const user = ref<UserInfo>({
+  id: '',
+  username: '',
+  email: '',
+  embyId: '',
+  expiresAt: '',
+  isActive: false,
+  createdAt: ''
+})
 const embyUrl = ref('')
-const stats = ref<any>({})
+const stats = ref<MediaStats>({
+  MovieCount: 0,
+  SeriesCount: 0,
+  EpisodeCount: 0
+})
 const loading = ref(false)
 
 // Password Form
@@ -38,7 +51,7 @@ const handleUpdateEmail = async () => {
     await updateUserEmail(user.value.email)
     ElMessage.success('邮箱更新成功')
   } catch {
-    // error
+    ElMessage.error('邮箱更新失败，请稍后重试')
   }
 }
 
@@ -56,7 +69,7 @@ const handleUpdatePassword = async () => {
     ElMessage.success('密码修改成功')
     passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   } catch {
-    // error
+    ElMessage.error('密码修改失败，请稍后重试')
   }
 }
 

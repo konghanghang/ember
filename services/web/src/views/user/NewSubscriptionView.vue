@@ -4,10 +4,11 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createSubscription } from '@/api/user'
 import TmdbSearch from '@/components/TmdbSearch.vue'
+import type { CreateSubscriptionRequest, TmdbSelection, MediaType } from '@/types/api'
 
 const router = useRouter()
-const form = ref({
-  type: 'MOVIE' as 'MOVIE' | 'TV',
+const form = ref<CreateSubscriptionRequest>({
+  type: 'MOVIE' as MediaType,
   name: '',
   tmdbId: '',
   posterPath: '',
@@ -15,7 +16,7 @@ const form = ref({
 })
 const loading = ref(false)
 
-const handleSelectMedia = (media: any) => {
+const handleSelectMedia = (media: TmdbSelection) => {
   form.value.name = media.name
   form.value.tmdbId = media.tmdbId
   form.value.posterPath = media.posterPath
@@ -33,7 +34,7 @@ const handleSubmit = async () => {
     ElMessage.success('提交成功')
     router.push('/user/subscriptions')
   } catch {
-    // error
+    ElMessage.error('提交失败，请稍后重试')
   } finally {
     loading.value = false
   }

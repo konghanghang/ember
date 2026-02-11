@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ElInput } from 'element-plus'
+import { ElInput, ElMessage } from 'element-plus'
 import { searchTmdb } from '@/api/user'
+import type { TmdbSearchItem, TmdbSelection } from '@/types/api'
 
 const props = defineProps<{
   type: 'movie' | 'tv'
 }>()
 
-const emit = defineEmits(['select'])
+const emit = defineEmits<{
+  (event: 'select', value: TmdbSelection): void
+}>()
 
 const query = ref('')
 const loading = ref(false)
-const results = ref<any[]>([])
+const results = ref<TmdbSearchItem[]>([])
 const showResults = ref(false)
 
 const handleSearch = async () => {
@@ -22,12 +25,16 @@ const handleSearch = async () => {
     const res = await searchTmdb(query.value, props.type)
     results.value = res.results || []
     showResults.value = true
+  } catch {
+    ElMessage.error('搜索失败，请稍后重试')
+    results.value = []
+    showResults.value = false
   } finally {
     loading.value = false
   }
 }
 
-const handleSelect = (item: any) => {
+const handleSelect = (item: TmdbSearchItem) => {
   emit('select', {
     tmdbId: item.id.toString(),
     name: item.title, // standardized from backend
