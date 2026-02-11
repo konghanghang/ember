@@ -1,14 +1,22 @@
 import request from './request'
+import type {
+  CreateSubscriptionRequest,
+  EmbyConfigResponse,
+  MediaStatsResponse,
+  Subscription,
+  TmdbSearchResponse,
+  UserInfo
+} from '@/types/api'
 
 // User Profile
-export function getUserProfile() {
+export function getUserProfile(): Promise<UserInfo> {
   return request({
     url: '/user/profile',
     method: 'get'
   })
 }
 
-export function updateUserProfile(data: any) {
+export function updateUserProfile(data: { email: string }): Promise<{ success: boolean }> {
   return request({
     url: '/user/profile',
     method: 'put',
@@ -16,7 +24,7 @@ export function updateUserProfile(data: any) {
   })
 }
 
-export function updateUserEmail(email: string) {
+export function updateUserEmail(email: string): Promise<{ success: boolean }> {
   return request({
     url: '/user/email',
     method: 'put',
@@ -24,7 +32,7 @@ export function updateUserEmail(email: string) {
   })
 }
 
-export function updateUserPassword(data: any) {
+export function updateUserPassword(data: { oldPassword: string; newPassword: string }): Promise<{ success: boolean }> {
   return request({
     url: '/user/password',
     method: 'put',
@@ -33,14 +41,14 @@ export function updateUserPassword(data: any) {
 }
 
 // Media Info
-export function getEmbyConfig() {
+export function getEmbyConfig(): Promise<EmbyConfigResponse> {
   return request({
     url: '/emby/config',
     method: 'get'
   })
 }
 
-export function getMediaStats() {
+export function getMediaStats(): Promise<MediaStatsResponse> {
   return request({
     url: '/media/stats',
     method: 'get'
@@ -48,14 +56,14 @@ export function getMediaStats() {
 }
 
 // Subscriptions
-export function getUserSubscriptions() {
+export function getUserSubscriptions(): Promise<Subscription[]> {
   return request({
     url: '/user/subscriptions',
     method: 'get'
   })
 }
 
-export function createSubscription(data: any) {
+export function createSubscription(data: CreateSubscriptionRequest): Promise<{ success: boolean }> {
   return request({
     url: '/user/subscriptions',
     method: 'post',
@@ -63,7 +71,7 @@ export function createSubscription(data: any) {
   })
 }
 
-export function deleteSubscription(id: string) {
+export function deleteSubscription(id: string): Promise<{ success: boolean }> {
   return request({
     url: `/user/subscriptions/${id}`,
     method: 'delete'
@@ -71,7 +79,7 @@ export function deleteSubscription(id: string) {
 }
 
 // TMDB Search
-export function searchTmdb(query: string, type: 'movie' | 'tv') {
+export function searchTmdb(query: string, type: 'movie' | 'tv'): Promise<TmdbSearchResponse> {
   return request({
     url: '/tmdb/search',
     method: 'get',

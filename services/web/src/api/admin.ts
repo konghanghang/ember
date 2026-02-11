@@ -1,7 +1,18 @@
 import request from './request'
+import type {
+  CreateInviteRequest,
+  InviteListResponse,
+  Subscription,
+  SubscriptionListQuery,
+  SystemInfoResponse,
+  UserInfo,
+  UserListQuery,
+  UserListResponse,
+  CronCheckResponse
+} from '@/types/api'
 
 // User Management
-export function getUsers(params: any) {
+export function getUsers(params: UserListQuery): Promise<UserListResponse> {
   return request({
     url: '/admin/users',
     method: 'get',
@@ -9,7 +20,7 @@ export function getUsers(params: any) {
   })
 }
 
-export function getUserDetail(id: string) {
+export function getUserDetail(id: string): Promise<UserInfo> {
   return request({
     url: `/admin/users/${id}`,
     method: 'get'
@@ -47,7 +58,7 @@ export function resetUserPassword(id: string, newPassword: string) {
 }
 
 // Invite Management
-export function getInvites(params: any) {
+export function getInvites(params?: Record<string, never>): Promise<InviteListResponse> {
   return request({
     url: '/admin/invites',
     method: 'get',
@@ -55,7 +66,7 @@ export function getInvites(params: any) {
   })
 }
 
-export function createInvite(data: any) {
+export function createInvite(data: CreateInviteRequest): Promise<{ invite: InviteListResponse['invites'][number] }> {
   return request({
     url: '/admin/invites',
     method: 'post',
@@ -71,7 +82,7 @@ export function deleteInvite(id: string) {
 }
 
 // Subscription Management
-export function getAllSubscriptions(params: any) {
+export function getAllSubscriptions(params: SubscriptionListQuery): Promise<{ data: Subscription[]; total: number }> {
   return request({
     url: '/admin/subscriptions',
     method: 'get',
@@ -94,21 +105,21 @@ export function rejectSubscription(id: string) {
 }
 
 // System Settings
-export function getSystemInfo() {
+export function getSystemInfo(): Promise<SystemInfoResponse> {
   return request({
     url: '/admin/system/info',
     method: 'get'
   })
 }
 
-export function testEmbyConnection() {
+export function testEmbyConnection(): Promise<{ success: boolean; message?: string; error?: string }> {
   return request({
     url: '/admin/system/test-emby',
     method: 'post'
   })
 }
 
-export function runCronJob() {
+export function runCronJob(): Promise<CronCheckResponse> {
   return request({
     url: '/admin/cron/check-expired',
     method: 'post'

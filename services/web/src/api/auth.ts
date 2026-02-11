@@ -1,7 +1,16 @@
 import request from './request'
+import type {
+  AdminInfo,
+  AdminLoginResponse,
+  LoginCredentials,
+  RegisterRequest,
+  RegisterResponse,
+  UserLoginResponse,
+  ValidateInviteResponse
+} from '@/types/api'
 
 // 管理员登录
-export function login(data: any) {
+export function login(data: LoginCredentials): Promise<AdminLoginResponse> {
   return request({
     url: '/admin/login',
     method: 'post',
@@ -10,7 +19,7 @@ export function login(data: any) {
 }
 
 // 获取当前管理员信息
-export function getCurrentAdmin() {
+export function getCurrentAdmin(): Promise<AdminInfo> {
   return request({
     url: '/admin/current',
     method: 'get'
@@ -26,7 +35,7 @@ export function adminLogout() {
 }
 
 // 用户登录
-export function userLogin(data: any) {
+export function userLogin(data: LoginCredentials): Promise<UserLoginResponse> {
   return request({
     url: '/user/login',
     method: 'post',
@@ -43,7 +52,7 @@ export function userLogout() {
 }
 
 // 用户注册
-export function register(data: any) {
+export function register(data: RegisterRequest): Promise<RegisterResponse> {
   return request({
     url: '/user/register',
     method: 'post',
@@ -52,7 +61,7 @@ export function register(data: any) {
 }
 
 // 验证邀请码
-export function validateInviteCode(code: string) {
+export function validateInviteCode(code: string): Promise<ValidateInviteResponse> {
   return request({
     url: `/invites/${code}/validate`,
     method: 'get'
