@@ -249,3 +249,124 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 
 	return &user, nil
 }
+
+// GetUsers 获取所有 Emby 用户
+func (s *EmbyService) GetUsers() ([]EmbyUser, error) {
+	if s.baseURL == "" || s.apiKey == "" {
+		return nil, errors.New("Emby 配置未设置")
+	}
+
+	url := fmt.Sprintf("%s/emby/Users?api_key=%s", s.baseURL, s.apiKey)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("获取 Emby 用户列表失败")
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var users []EmbyUser
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+// MediaStats 媒体库统计信息
+type MediaStats struct {
+	MovieCount   int `json:"MovieCount"`
+	SeriesCount  int `json:"SeriesCount"`
+	EpisodeCount int `json:"EpisodeCount"`
+}
+
+// GetMediaStats 获取媒体库统计信息
+func (s *EmbyService) GetMediaStats() (*MediaStats, error) {
+	if s.baseURL == "" || s.apiKey == "" {
+		return nil, errors.New("Emby 配置未设置")
+	}
+
+	url := fmt.Sprintf("%s/emby/Items/Counts?api_key=%s", s.baseURL, s.apiKey)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		// 如果 API 不可用，返回空统计
+		return &MediaStats{
+			MovieCount:   0,
+			SeriesCount:  0,
+			EpisodeCount: 0,
+		}, nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var stats MediaStats
+	if err := json.Unmarshal(body, &stats); err != nil {
+		return nil, err
+	}
+
+	return &stats, nil
+}
+
+// EmbyUserPolicy Emby 用户权限策略
+type EmbyUserPolicy struct {
+	IsDisabled bool `json:"IsDisabled"`
+}
+
+// SetUserPolicy 更新用户权限策略
+func (s *EmbyService) SetUserPolicy(embyUserID string, policy EmbyUserPolicy) error {
+	if s.baseURL == "" || s.apiKey == "" {
+		return errors.New("Emby 配置未设置")
+	}
+
+	url := fmt.Sprintf("%s/emby/Users/%s/Policy", s.baseURL, embyUserID)
+
+	jsonData, err := json.Marshal(policy)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Emby-Token", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 204 && resp.StatusCode != 200 {
+		return fmt.Errorf("更新用户策略失败")
+	}
+
+	return nil
+}

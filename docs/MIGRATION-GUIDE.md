@@ -143,32 +143,32 @@
 
 #### 6️⃣ 媒体相关 (2 个)
 
-- [ ] `GET /api/v1/emby/config` - 获取 Emby 配置 ← `getEmbyConfig`
-- [ ] `GET /api/v1/media/stats` - 获取媒体统计 ← `getMediaStats`
+- [x] `GET /api/v1/emby/config` - 获取 Emby 配置 ← `getEmbyConfig`
+- [x] `GET /api/v1/media/stats` - 获取媒体统计 ← `getMediaStats`
 
 ---
 
 #### 7️⃣ 系统相关 (2 个)
 
-- [ ] `GET /api/v1/system/info` - 获取系统信息 ← `getSystemInfo`
-- [ ] `POST /api/v1/system/test-emby` - 测试 Emby 连接 ← `testEmbyConnection`
+- [x] `GET /api/v1/system/info` - 获取系统信息 ← `getSystemInfo`
+- [x] `POST /api/v1/system/test-emby` - 测试 Emby 连接 ← `testEmbyConnection`
 
 ---
 
 #### 8️⃣ 定时任务 (1 个)
 
-- [ ] `POST /api/v1/cron/check-expired` - 检查并禁用过期用户 ← `checkExpiredUsers`
+- [x] `POST /api/v1/cron/check-expired` - 检查并禁用过期用户 ← `checkExpiredUsers`
 
 ---
 
 #### 9️⃣ 工具接口 (2 个)
 
-- [ ] `GET /api/v1/health` - 健康检查（已完成 ✅）
-- [ ] `GET /api/v1/tmdb/search` - TMDB 搜索 ← API Route
+- [x] `GET /api/v1/health` - 健康检查（已完成 ✅）
+- [x] `GET /api/v1/tmdb/search` - TMDB 搜索 ← API Route
 
 ---
 
-**端点统计**: **33 个 REST API** (已完成: 27, 待实现: 6)
+**端点统计**: **33 个 REST API** (已完成: 33, 待实现: 0)
 
 ---
 
@@ -317,22 +317,91 @@
 |------|--------|---------|------|------|
 | 阶段 0: 架构决策 | 架构设计、技术选型 | 1 天 | ✅ 完成 | 100% |
 | 阶段 1: Monorepo 搭建 | 目录结构、Makefile、Docker | 1 天 | ✅ 完成 | 100% |
-| 阶段 2: Go API 实现 | **33 个 REST API** + 中间件 + 服务层 | **6-9 天** | 🚧 进行中 | 82% (27/33) |
+| 阶段 2: Go API 实现 | **33 个 REST API** + 中间件 + 服务层 | **6-9 天** | ✅ 完成 | 100% (33/33) |
 | 阶段 3: Vue 3 前端 | 管理后台 + 用户面板 | 1-2 周 | ⏳ 待开始 | 0% |
 | 阶段 4: Python Bot | Telegram Bot + 命令处理 | 3-5 天 | ⏳ 待开始 | 0% |
 | 阶段 5: 数据迁移 | 迁移脚本 + 演练 + 回滚 | 1 周 | ⏳ 待开始 | 0% |
 | 阶段 6: 监控日志 | Prometheus + Grafana（可选） | 2-3 天 | ⏳ 待开始 | 0% |
-| **总计** | | **5-7 周** | **进行中** | **约 45%** |
+| **总计** | | **5-7 周** | **进行中** | **约 50%** |
 
 **关键指标**:
-- **已完成**: 阶段 0-1（架构基础）
-- **进行中**: 阶段 2 - Go API（27/33 端点完成）
-- **下一个里程碑**: Go API 完成（剩余 6 个端点）→ 项目进度达到 50%
+- **已完成**: 阶段 0-2（架构基础 + Go API 完整实现）
+- **进行中**: 阶段 3 - Vue 3 前端开发
+- **下一个里程碑**: Vue 3 前端完成 → 项目进度达到 75%
 - **预计完成时间**: 2026 年 3 月底
 
 ---
 
 ### 📝 开发笔记
+
+#### 2026-02-11 11:00: 🎉 阶段 2 完成 - 所有 33 个 API 实现完毕
+
+**完成工作**:
+- ✅ 媒体相关 API（2 个）- Emby 配置、媒体统计（带缓存）
+- ✅ 系统相关 API（2 个）- 系统信息、测试 Emby 连接
+- ✅ 定时任务 API（1 个）- 检查并禁用过期用户
+- ✅ 工具接口 API（1 个）- TMDB 搜索代理
+
+**实现的 API（6 个）**:
+1. `GET /api/v1/emby/config` - 获取 Emby 配置
+2. `GET /api/v1/media/stats` - 获取媒体统计（5分钟缓存）
+3. `GET /api/v1/system/info` - 获取系统信息（用户数、邀请码数）
+4. `POST /api/v1/system/test-emby` - 测试 Emby 连接
+5. `POST /api/v1/cron/check-expired` - 检查过期用户（自动禁用）
+6. `GET /api/v1/tmdb/search` - TMDB 搜索（支持电影/电视剧）
+
+**新增文件（5 个）**:
+- `services/media.go` - 媒体服务（带缓存）
+- `services/system.go` - 系统服务（统计、定时任务）
+- `handlers/media.go` - 媒体处理器
+- `handlers/system.go` - 系统处理器
+- `handlers/tmdb.go` - TMDB 处理器
+
+**扩展的服务**:
+- `services/emby.go` - 添加 GetUsers、GetMediaStats、SetUserPolicy
+
+**核心设计**:
+1. **媒体统计缓存** - 5分钟缓存，减少 Emby API 调用
+   ```go
+   type MediaService struct {
+       cacheMutex     sync.RWMutex
+       cachedStats    *MediaStats
+       cacheTimestamp time.Time
+       cacheDuration  time.Duration  // 5 分钟
+   }
+   ```
+
+2. **定时任务容错** - 单个用户失败不影响其他用户
+   ```go
+   for _, user := range expiredUsers {
+       err := embyService.SetUserPolicy(user.EmbyID, ...)
+       if err != nil {
+           errors = append(errors, ...)  // 记录错误但继续
+           continue
+       }
+       // 更新数据库...
+   }
+   ```
+
+3. **TMDB 搜索代理** - 统一电影/电视剧返回格式
+   ```go
+   // 电影用 title，电视剧用 name
+   title := item.Title ?? item.Name
+   // 统一返回格式
+   return UnifiedSearchResult{...}
+   ```
+
+**环境变量**:
+- `NEXT_PUBLIC_EMBY_URL` - Emby 公网地址（优先）
+- `EMBY_URL` - Emby 内部地址（回退）
+- `TMDB_API_KEY` - TMDB API 密钥
+
+**进度更新**:
+- ✅ **阶段 2 完成**：Go API 实现 - 100% (33/33)
+- 🎊 **里程碑达成**：后端 API 完整迁移完成
+- ⏳ **下一阶段**：Vue 3 前端开发
+
+---
 
 #### 2026-02-10 22:00: 第 3 优先级完成（订阅管理）
 

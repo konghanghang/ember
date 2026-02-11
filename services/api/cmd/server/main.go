@@ -37,6 +37,9 @@ func main() {
 	userHandler := handlers.NewUserHandler()
 	inviteHandler := handlers.NewInviteHandler()
 	subscriptionHandler := handlers.NewSubscriptionHandler()
+	mediaHandler := handlers.NewMediaHandler()
+	systemHandler := handlers.NewSystemHandler()
+	tmdbHandler := handlers.NewTMDBHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -52,6 +55,9 @@ func main() {
 
 		// 邀请码验证（公开）
 		api.GET("/invites/:code/validate", inviteHandler.ValidateInvite)
+
+		// TMDB 搜索（公开）
+		api.GET("/tmdb/search", tmdbHandler.Search)
 
 		// ==================== 管理员路由（需要认证） ====================
 		admin := api.Group("/admin")
@@ -78,6 +84,13 @@ func main() {
 			admin.GET("/subscriptions", subscriptionHandler.GetAllSubscriptions)
 			admin.PUT("/subscriptions/:id/approve", subscriptionHandler.ApproveSubscription)
 			admin.PUT("/subscriptions/:id/reject", subscriptionHandler.RejectSubscription)
+
+			// 系统管理
+			admin.GET("/system/info", systemHandler.GetSystemInfo)
+			admin.POST("/system/test-emby", systemHandler.TestEmbyConnection)
+
+			// 定时任务
+			admin.POST("/cron/check-expired", systemHandler.CheckExpiredUsers)
 		}
 
 		// ==================== 用户路由（需要认证） ====================
@@ -97,6 +110,10 @@ func main() {
 			user.GET("/subscriptions", subscriptionHandler.GetMySubscriptions)
 			user.POST("/subscriptions", subscriptionHandler.CreateSubscription)
 			user.DELETE("/subscriptions/:id", subscriptionHandler.DeleteSubscription)
+
+			// 媒体相关（需要认证）
+			user.GET("/emby/config", mediaHandler.GetEmbyConfig)
+			user.GET("/media/stats", mediaHandler.GetMediaStats)
 		}
 	}
 
