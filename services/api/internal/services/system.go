@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
@@ -61,11 +62,11 @@ func (s *SystemService) TestEmbyConnection() error {
 
 // CheckExpiredUsersResult 定时任务结果
 type CheckExpiredUsersResult struct {
-	DisabledCount int                                     `json:"disabledCount"`
-	TotalExpired  int                                     `json:"totalExpired"`
-	Errors        []string                                `json:"errors"`
-	DisabledUsers []DisabledUserInfo                      `json:"disabledUsers,omitempty"`
-	FailedUsers   []map[string]interface{}                `json:"failedUsers,omitempty"`
+	DisabledCount int                      `json:"disabledCount"`
+	TotalExpired  int                      `json:"totalExpired"`
+	Errors        []string                 `json:"errors"`
+	DisabledUsers []DisabledUserInfo       `json:"disabledUsers,omitempty"`
+	FailedUsers   []map[string]interface{} `json:"failedUsers,omitempty"`
 }
 
 // DisabledUserInfo 被禁用的用户信息
@@ -92,7 +93,7 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 		return nil, fmt.Errorf("查询过期用户失败: %w", err)
 	}
 
-	fmt.Printf("[Cron] 发现 %d 个过期用户\n", len(expiredUsers))
+	log.Printf("[Cron] 发现 %d 个过期用户", len(expiredUsers))
 
 	// 循环处理每个过期用户
 	for _, user := range expiredUsers {
@@ -109,7 +110,7 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 				"username": user.Username,
 				"error":    err.Error(),
 			})
-			fmt.Printf("[Cron] %s\n", errorMsg)
+			log.Printf("[Cron] %s", errorMsg)
 			continue
 		}
 
@@ -122,7 +123,7 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 				"username": user.Username,
 				"error":    err.Error(),
 			})
-			fmt.Printf("[Cron] %s\n", errorMsg)
+			log.Printf("[Cron] %s", errorMsg)
 			continue
 		}
 
@@ -138,10 +139,10 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 			Email:     user.Email,
 			ExpiresAt: expiresAtStr,
 		})
-		fmt.Printf("[Cron] 已禁用用户: %s (%s)\n", user.Username, user.ID)
+		log.Printf("[Cron] 已禁用用户: %s (%s)", user.Username, user.ID)
 	}
 
-	fmt.Printf("[Cron] 定时任务完成，已禁用 %d/%d 个用户\n", disabledCount, len(expiredUsers))
+	log.Printf("[Cron] 定时任务完成，已禁用 %d/%d 个用户", disabledCount, len(expiredUsers))
 
 	return &CheckExpiredUsersResult{
 		DisabledCount: disabledCount,

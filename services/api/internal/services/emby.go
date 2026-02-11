@@ -311,12 +311,8 @@ func (s *EmbyService) GetMediaStats() (*MediaStats, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		// 如果 API 不可用，返回空统计
-		return &MediaStats{
-			MovieCount:   0,
-			SeriesCount:  0,
-			EpisodeCount: 0,
-		}, nil
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Emby API 返回异常状态码 %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
