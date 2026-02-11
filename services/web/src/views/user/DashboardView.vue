@@ -80,111 +80,117 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="dashboard-container">
+  <div class="max-w-6xl mx-auto py-8">
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-primary mb-2">欢迎回来, {{ user.username }}</h1>
+      <p class="text-secondary">管理您的 Emby 账号和订阅</p>
+    </div>
+
     <!-- Media Stats -->
-    <el-row :gutter="20" class="mb-20">
-      <el-col :span="8">
-        <el-card shadow="always" class="stat-card movie">
-          <div class="stat-content">
-            <div class="stat-label">电影</div>
-            <div class="stat-num">{{ stats.MovieCount || 0 }}</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card shadow="always" class="stat-card tv">
-          <div class="stat-content">
-            <div class="stat-label">剧集</div>
-            <div class="stat-num">{{ stats.SeriesCount || 0 }}</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card shadow="always" class="stat-card episode">
-          <div class="stat-content">
-            <div class="stat-label">单集</div>
-            <div class="stat-num">{{ stats.EpisodeCount || 0 }}</div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div class="panel-clean p-6 flex items-center justify-between border-l-4 border-l-purple-500">
+        <div>
+          <div class="text-secondary text-sm mb-1">电影收藏</div>
+          <div class="text-3xl font-bold text-primary">{{ stats.MovieCount || 0 }}</div>
+        </div>
+        <div class="bg-purple-50 p-3 rounded-full">
+          <i class="el-icon-film text-purple-500 text-xl"></i>
+        </div>
+      </div>
+      
+      <div class="panel-clean p-6 flex items-center justify-between border-l-4 border-l-green-500">
+        <div>
+          <div class="text-secondary text-sm mb-1">剧集收藏</div>
+          <div class="text-3xl font-bold text-primary">{{ stats.SeriesCount || 0 }}</div>
+        </div>
+        <div class="bg-green-50 p-3 rounded-full">
+          <i class="el-icon-monitor text-green-500 text-xl"></i>
+        </div>
+      </div>
+
+      <div class="panel-clean p-6 flex items-center justify-between border-l-4 border-l-ember">
+        <div>
+          <div class="text-secondary text-sm mb-1">单集总数</div>
+          <div class="text-3xl font-bold text-primary">{{ stats.EpisodeCount || 0 }}</div>
+        </div>
+        <div class="bg-ember/10 p-3 rounded-full">
+          <i class="el-icon-video-play text-ember text-xl"></i>
+        </div>
+      </div>
+    </div>
 
     <el-alert
       v-if="embyUrl"
       :title="`Emby 服务器地址: ${embyUrl}`"
-      type="info"
+      type="success"
       :closable="false"
-      class="mb-20"
+      class="mb-8"
       show-icon
     />
 
-    <el-row :gutter="20">
-      <el-col :span="12">
-        <el-card header="账号信息">
-          <el-form label-width="80px">
-            <el-form-item label="用户名">
-              <el-input v-model="user.username" disabled />
-            </el-form-item>
-            <el-form-item label="Emby ID">
-              <el-input v-model="user.embyId" disabled />
-            </el-form-item>
-            <el-form-item label="到期时间">
-              <el-input :value="new Date(user.expiresAt).toLocaleDateString()" disabled />
-            </el-form-item>
-            <el-form-item label="邮箱">
-              <el-input v-model="user.email" placeholder="输入新邮箱" />
-              <el-button type="primary" link @click="handleUpdateEmail" style="margin-left: 10px">更新</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <!-- Profile Info -->
+      <div class="panel-clean p-6">
+        <h3 class="text-lg font-bold text-primary mb-6 border-b border-gray-100 pb-4">账号信息</h3>
+        <el-form label-position="top" class="custom-form">
+          <el-form-item label="用户名">
+            <el-input v-model="user.username" disabled class="input-ember" />
+          </el-form-item>
+          <el-form-item label="Emby ID">
+            <el-input v-model="user.embyId" disabled class="input-ember" />
+          </el-form-item>
+          <el-form-item label="到期时间">
+            <el-input :value="new Date(user.expiresAt).toLocaleDateString()" disabled class="input-ember" />
+          </el-form-item>
+          <el-form-item label="邮箱">
+            <div class="flex w-full gap-4">
+              <el-input v-model="user.email" placeholder="输入新邮箱" class="input-ember flex-1" />
+              <button class="btn-ember px-4 py-2 rounded-lg text-sm" @click="handleUpdateEmail">
+                更新
+              </button>
+            </div>
+          </el-form-item>
+        </el-form>
+      </div>
       
-      <el-col :span="12">
-        <el-card header="修改密码">
-          <el-form label-width="80px">
-            <el-form-item label="旧密码">
-              <el-input v-model="passwordForm.oldPassword" type="password" show-password />
-            </el-form-item>
-            <el-form-item label="新密码">
-              <el-input v-model="passwordForm.newPassword" type="password" show-password />
-            </el-form-item>
-            <el-form-item label="确认密码">
-              <el-input v-model="passwordForm.confirmPassword" type="password" show-password />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" @click="handleUpdatePassword">修改密码</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
-    </el-row>
+      <!-- Change Password -->
+      <div class="panel-clean p-6">
+        <h3 class="text-lg font-bold text-primary mb-6 border-b border-gray-100 pb-4">安全设置</h3>
+        <el-form label-position="top" class="custom-form">
+          <el-form-item label="旧密码">
+            <el-input v-model="passwordForm.oldPassword" type="password" show-password class="input-ember" />
+          </el-form-item>
+          <el-form-item label="新密码">
+            <el-input v-model="passwordForm.newPassword" type="password" show-password class="input-ember" />
+          </el-form-item>
+          <el-form-item label="确认密码">
+            <el-input v-model="passwordForm.confirmPassword" type="password" show-password class="input-ember" />
+          </el-form-item>
+          <el-form-item class="mt-8">
+            <button class="btn-ember w-full py-2.5 rounded-lg font-medium" @click="handleUpdatePassword">
+              修改密码
+            </button>
+          </el-form-item>
+        </el-form>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.dashboard-container {
-  max-width: 1200px;
-  margin: 0 auto;
+/* 覆盖 Element Plus 默认样式以匹配设计 */
+:deep(.el-form-item__label) {
+  color: var(--color-text-secondary);
+  font-weight: 500;
 }
-.mb-20 {
-  margin-bottom: 20px;
-}
-.stat-card {
-  color: white;
-}
-.stat-card.movie { background: linear-gradient(135deg, #a855f7, #9333ea); }
-.stat-card.tv { background: linear-gradient(135deg, #22c55e, #16a34a); }
-.stat-card.episode { background: linear-gradient(135deg, #f97316, #ea580c); }
 
-.stat-content {
-  text-align: center;
+:deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px #e5e7eb inset;
+  background-color: #f9fafb;
 }
-.stat-label {
-  font-size: 14px;
-  opacity: 0.9;
-}
-.stat-num {
-  font-size: 32px;
-  font-weight: bold;
+
+:deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px var(--color-ember) inset !important;
+  background-color: white;
 }
 </style>

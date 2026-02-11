@@ -32,15 +32,15 @@ const handleLogin = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-amber-100 dark:from-gray-900 dark:to-gray-800 px-4">
+  <div class="min-h-screen flex items-center justify-center bg-cinema-bg px-4">
     <div class="w-full max-w-md">
-      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+      <div class="panel-clean rounded-2xl p-8">
         <!-- Logo -->
         <div class="text-center mb-8">
-          <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+          <h1 class="text-3xl font-bold text-ember">
             Ember
           </h1>
-          <p class="text-gray-600 dark:text-gray-400 mt-2">
+          <p class="text-text-secondary mt-2">
             管理员登录
           </p>
         </div>
@@ -48,24 +48,24 @@ const handleLogin = async () => {
         <!-- Login Form -->
         <el-form :model="form" @submit.prevent="handleLogin" size="large">
           <el-form-item>
-            <el-input v-model="form.username" placeholder="请输入用户名" prefix-icon="User" />
+            <el-input v-model="form.username" placeholder="请输入用户名" prefix-icon="User" class="input-ember" />
           </el-form-item>
           <el-form-item>
-            <el-input v-model="form.password" type="password" placeholder="请输入密码" prefix-icon="Lock" show-password />
+            <el-input v-model="form.password" type="password" placeholder="请输入密码" prefix-icon="Lock" show-password class="input-ember" />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" native-type="submit" :loading="loading" class="w-full bg-orange-600 hover:bg-orange-700 border-none">
+            <el-button native-type="submit" :loading="loading" class="btn-ember w-full">
               登录
             </el-button>
           </el-form-item>
         </el-form>
-      </div>
 
-      <!-- Footer Link -->
-      <div class="mt-6 text-center">
-        <router-link to="/" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
-          ← 返回首页
-        </router-link>
+        <!-- Footer Link -->
+        <div class="mt-6 text-center">
+          <router-link to="/" class="text-sm text-text-secondary hover:text-ember transition-colors">
+            ← 返回首页
+          </router-link>
+        </div>
       </div>
     </div>
   </div>

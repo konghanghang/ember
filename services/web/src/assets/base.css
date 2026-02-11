@@ -1,0 +1,89 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Modern Clean Style - Base Variables */
+:root {
+  /* Bright Foundations */
+  --bg-cinema: #F9FAFB;       /* 浅暖灰 */
+  --bg-surface: #FFFFFF;      /* 纯白 */
+  --bg-surface-light: #F3F4F6; /* 浅灰高亮 */
+
+  /* Deep Ocean Accents */
+  --ember-teal: #0F766E;      /* 深海青 */
+  --ember-glow: #14B8A6;      /* 浅青微光 */
+  --ember-gold: #F59E0B;      /* 琥珀金 */
+  --ember-dim: rgba(15, 118, 110, 0.1); /* 青色微光 */
+
+  /* High Contrast Text */
+  --text-primary: #111827;    /* 深黑灰 */
+  --text-secondary: #6B7280;  /* 中灰 */
+  --text-muted: #9CA3AF;      /* 浅灰 */
+
+  /* Borders & Shadows */
+  --border-subtle: #E5E7EB;   /* 极浅边框 */
+  --border-focus: var(--ember-teal);    /* 聚焦青 */
+  --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+}
+
+body {
+  background-color: var(--bg-cinema);
+  color: var(--text-primary);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Clean Panel - No Glass, Just Soft Shadow */
+.panel-clean {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Vitality Input */
+.input-ember input {
+  background: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+.input-ember input:focus {
+  border-color: var(--ember-teal);
+  box-shadow: 0 0 0 3px var(--ember-dim);
+  background: #FFFFFF;
+}
+
+/* Vitality Button */
+.btn-ember {
+  background: linear-gradient(135deg, var(--ember-teal), #0D9488);
+  color: white;
+  border: none;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+.btn-ember:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+  filter: brightness(1.05);
+}
+.btn-ember:active {
+  transform: translateY(0);
+}
+
+/* Override Element Plus */
+:root {
+  --el-color-primary: var(--ember-teal);
+  --el-bg-color: var(--bg-surface);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-border-color-light: var(--border-subtle);
+  --el-fill-color-blank: #FFFFFF;
+}
+
+.el-input__wrapper {
+  background-color: #FFFFFF !important;
+  box-shadow: 0 0 0 1px var(--border-subtle) inset !important;
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--ember-teal) inset !important;
+}

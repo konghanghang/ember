@@ -3,41 +3,34 @@ const currentYear = new Date().getFullYear()
 </script>
 
 <template>
-  <footer class="bg-gray-900 text-gray-400 py-12 px-4">
-    <div class="max-w-7xl mx-auto">
-      <div class="grid md:grid-cols-4 gap-8 mb-8">
-        <div class="md:col-span-2">
-          <h3 class="text-2xl font-bold text-white mb-3">Ember</h3>
-          <p class="text-sm leading-relaxed mb-4">
-            专注于提供优质流媒体影音体验的用户管理平台。海量 4K 资源，热门剧集同步更新，邀请制精品社区。
-          </p>
-          <a href="https://t.me/NextNewEP_emby_chat" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium">
-            📱 Telegram 群组
-          </a>
-        </div>
+  <footer class="bg-gray-50 text-text-primary pt-24 pb-12 px-6 border-t border-gray-200">
+    <div class="max-w-4xl mx-auto flex flex-col items-center text-center">
+      
+      <!-- Brand & Slogan -->
+      <div class="flex items-center gap-2 mb-6">
+        <div class="w-10 h-10 bg-ember rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg shadow-ember/20">E</div>
+        <span class="text-3xl font-black tracking-tighter text-text-primary">EMBER</span>
+      </div>
+      
+      <p class="text-text-secondary text-lg mb-10 max-w-lg leading-relaxed font-medium">
+        连接您的媒体世界。<br/>简单，优雅，自由。
+      </p>
 
-        <div>
-          <h4 class="text-white font-semibold mb-3">快捷链接</h4>
-          <ul class="space-y-2 text-sm">
-            <li><a href="#features" class="hover:text-white transition-colors">核心特色</a></li>
-            <li><a href="#pricing" class="hover:text-white transition-colors">价格方案</a></li>
-            <li><a href="#faq" class="hover:text-white transition-colors">常见问题</a></li>
-          </ul>
-        </div>
+      <!-- Community Button -->
+      <a href="https://t.me/NextNewEP_emby_chat" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-3 px-6 py-3 bg-white hover:bg-gray-50 text-text-primary rounded-xl transition-all font-bold border border-gray-200 hover:border-gray-300 shadow-sm hover:shadow-md mb-16 group">
+        <i class="el-icon-chat-dot-round text-xl text-ember group-hover:scale-110 transition-transform"></i>
+        <span>加入 Telegram 社区</span>
+      </a>
 
-        <div>
-          <h4 class="text-white font-semibold mb-3">用户入口</h4>
-          <ul class="space-y-2 text-sm">
-            <li><router-link to="/user/login" class="hover:text-white transition-colors">用户登录</router-link></li>
-            <li><router-link to="/register" class="hover:text-white transition-colors">新用户注册</router-link></li>
-            <li><router-link to="/login" class="hover:text-white transition-colors">管理员登录</router-link></li>
-          </ul>
+      <!-- Bottom Info -->
+      <div class="w-full pt-8 border-t border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-text-secondary font-medium tracking-wide">
+        <p>© {{ currentYear }} Ember Media. All rights reserved.</p>
+        <div class="flex gap-8">
+          <a href="#" class="hover:text-ember transition-colors">隐私政策</a>
+          <a href="#" class="hover:text-ember transition-colors">服务条款</a>
         </div>
       </div>
 
-      <div class="border-t border-gray-800 pt-8 text-center text-sm">
-        <p>© {{ currentYear }} Ember. All rights reserved.</p>
-      </div>
     </div>
   </footer>
 </template>
