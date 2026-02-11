@@ -1,18 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as authApi from '@/api/auth'
-
-interface LoginCredentials {
-  username: string
-  password: string
-}
-
-interface RegisterData {
-  username: string
-  password: string
-  email: string
-  inviteCode: string
-}
+import type { LoginCredentials, RegisterRequest, AdminLoginResponse, UserLoginResponse, RegisterResponse } from '@/types/api'
 
 export const useAuthStore = defineStore('auth', () => {
   // 状态
@@ -30,7 +19,7 @@ export const useAuthStore = defineStore('auth', () => {
    * 管理员登录
    */
   const adminLogin = async (credentials: LoginCredentials) => {
-    const res: any = await authApi.login(credentials)
+    const res: AdminLoginResponse = await authApi.login(credentials)
     setAuth(res.token, 'admin')
     return res
   }
@@ -39,7 +28,7 @@ export const useAuthStore = defineStore('auth', () => {
    * 用户登录
    */
   const userLogin = async (credentials: LoginCredentials) => {
-    const res: any = await authApi.userLogin(credentials)
+    const res: UserLoginResponse = await authApi.userLogin(credentials)
     setAuth(res.token, 'user')
     return res
   }
@@ -47,8 +36,8 @@ export const useAuthStore = defineStore('auth', () => {
   /**
    * 用户注册
    */
-  const register = async (data: RegisterData) => {
-    const res: any = await authApi.register(data)
+  const register = async (data: RegisterRequest) => {
+    const res: RegisterResponse = await authApi.register(data)
     setAuth(res.token, 'user')
     return res
   }

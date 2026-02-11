@@ -1,43 +1,21 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as userApi from '@/api/user'
-
-interface UserProfile {
-  id: string
-  username: string
-  email: string
-  embyId: string
-  expiresAt: string
-  isActive: boolean
-  createdAt: string
-}
-
-interface Subscription {
-  id: string
-  type: string
-  name: string
-  tmdbId: string
-  status: string
-  posterPath?: string
-  note?: string
-  mpError?: string
-  createdAt: string
-}
-
-interface MediaStats {
-  MovieCount: number
-  SeriesCount: number
-  EpisodeCount: number
-}
+import type {
+  CreateSubscriptionRequest,
+  MediaStats,
+  Subscription,
+  UserInfo
+} from '@/types/api'
 
 export const useUserStore = defineStore('user', () => {
-  const profile = ref<UserProfile | null>(null)
+  const profile = ref<UserInfo | null>(null)
   const subscriptions = ref<Subscription[]>([])
   const mediaStats = ref<MediaStats | null>(null)
   const embyUrl = ref<string>('')
 
   const fetchProfile = async () => {
-    const res: any = await userApi.getUserProfile()
+    const res = await userApi.getUserProfile()
     profile.value = res
     return res
   }
@@ -54,18 +32,12 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const fetchSubscriptions = async () => {
-    const res: any = await userApi.getUserSubscriptions()
+    const res = await userApi.getUserSubscriptions()
     subscriptions.value = res
     return res
   }
 
-  const createSubscription = async (data: {
-    type: string
-    name: string
-    tmdbId: string
-    posterPath?: string
-    note?: string
-  }) => {
+  const createSubscription = async (data: CreateSubscriptionRequest) => {
     await userApi.createSubscription(data)
     await fetchSubscriptions()
   }
@@ -76,13 +48,13 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const fetchMediaStats = async () => {
-    const res: any = await userApi.getMediaStats()
+    const res = await userApi.getMediaStats()
     mediaStats.value = res.data
     return res.data
   }
 
   const fetchEmbyConfig = async () => {
-    const res: any = await userApi.getEmbyConfig()
+    const res = await userApi.getEmbyConfig()
     embyUrl.value = res.url
     return res.url
   }

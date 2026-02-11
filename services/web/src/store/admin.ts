@@ -2,18 +2,13 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as adminApi from '@/api/admin'
 import * as authApi from '@/api/auth'
-
-interface AdminInfo {
-  id: string
-  username: string
-  createdAt: string
-}
+import type { AdminInfo } from '@/types/api'
 
 export const useAdminStore = defineStore('admin', () => {
   const info = ref<AdminInfo | null>(null)
 
   const fetchCurrentAdmin = async () => {
-    const res: any = await authApi.getCurrentAdmin()
+    const res = await authApi.getCurrentAdmin()
     info.value = res
     return res
   }
