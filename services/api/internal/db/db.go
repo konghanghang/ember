@@ -18,9 +18,25 @@ var DB *gorm.DB
 // InitDB 初始化数据库连接
 // 设计原则：保持与 Prisma 的数据兼容性
 func InitDB() {
-	// 加载 .env 文件
-	if err := godotenv.Load("../.env"); err != nil {
-		log.Println("⚠️  警告：无法加载 .env 文件，使用环境变量")
+	// 尝试加载 .env 文件（多个可能的位置）
+	envPaths := []string{
+		".env",                    // 当前目录
+		"../../.env",              // 项目根目录
+		"../../../.env",           // 以防万一
+		"services/api/.env",       // 从根目录运行时
+	}
+
+	envLoaded := false
+	for _, path := range envPaths {
+		if err := godotenv.Load(path); err == nil {
+			log.Printf("✅ 成功加载环境变量：%s", path)
+			envLoaded = true
+			break
+		}
+	}
+
+	if !envLoaded {
+		log.Println("⚠️  警告：无法从文件加载 .env，将使用系统环境变量")
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
