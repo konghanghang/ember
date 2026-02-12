@@ -14,28 +14,18 @@ export interface RegisterRequest {
   inviteCode: string
 }
 
-export interface AdminInfo {
-  id: string
-  username: string
-  createdAt: string
-}
-
 export interface UserInfo {
   id: string
   username: string
-  email: string
-  embyId: string
-  expiresAt: string
+  role: UserRole
+  email?: string
+  embyId?: string
+  expiresAt?: string
   isActive: boolean
   createdAt: string
 }
 
-export interface AdminLoginResponse {
-  token: string
-  admin: AdminInfo
-}
-
-export interface UserLoginResponse {
+export interface LoginResponse {
   token: string
   user: UserInfo
 }
