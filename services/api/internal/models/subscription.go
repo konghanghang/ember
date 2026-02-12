@@ -26,17 +26,17 @@ const (
 // Subscription 订阅模型
 // 对应 Prisma schema 的 Subscription 模型
 type Subscription struct {
-	ID         string             `json:"id" gorm:"type:varchar(25);primaryKey"` // cuid
-	UserID     string             `json:"userId" gorm:"type:varchar(25);not null;index"`
-	Type       MediaType          `json:"type" gorm:"type:varchar(10);not null"`
-	Name       string             `json:"name" gorm:"size:255;not null"`
-	TmdbID     string             `json:"tmdbId" gorm:"size:50;not null"`
-	PosterPath *string            `json:"posterPath,omitempty" gorm:"size:500"`
-	Status     SubscriptionStatus `json:"status" gorm:"type:varchar(20);not null;default:'PENDING'"`
-	Note       *string            `json:"note,omitempty" gorm:"type:text"`
-	MpError    *string            `json:"mpError,omitempty" gorm:"size:500"` // MoviePilot 同步错误
-	CreatedAt  time.Time          `json:"createdAt" gorm:"autoCreateTime"`
-	UpdatedAt  time.Time          `json:"updatedAt" gorm:"autoUpdateTime"`
+	ID         string             `json:"id" gorm:"column:id;type:varchar(25);primaryKey"` // cuid
+	UserID     string             `json:"userId" gorm:"column:userId;type:varchar(25);not null;index"`
+	Type       MediaType          `json:"type" gorm:"column:type;type:varchar(10);not null"`
+	Name       string             `json:"name" gorm:"column:name;size:255;not null"`
+	TmdbID     string             `json:"tmdbId" gorm:"column:tmdbId;size:50;not null"`
+	PosterPath *string            `json:"posterPath,omitempty" gorm:"column:posterPath;size:500"`
+	Status     SubscriptionStatus `json:"status" gorm:"column:status;type:varchar(20);not null;default:'PENDING'"`
+	Note       *string            `json:"note,omitempty" gorm:"column:note;type:text"`
+	MpError    *string            `json:"mpError,omitempty" gorm:"column:mpError;size:500"` // MoviePilot 同步错误
+	CreatedAt  time.Time          `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	UpdatedAt  time.Time          `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 
 	// 关联：属于某个用户
 	User *User `json:"-" gorm:"foreignKey:UserID"`

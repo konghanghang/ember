@@ -44,9 +44,20 @@ func InitDB() {
 		log.Fatal("❌ DATABASE_URL 环境变量未设置")
 	}
 
+	// 创建自定义 logger，显示详细的 SQL 日志
+	newLogger := logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		logger.Config{
+			SlowThreshold:             time.Second,   // 慢查询阈值
+			LogLevel:                  logger.Info,   // 日志级别：Info 显示所有 SQL
+			IgnoreRecordNotFoundError: false,         // 不忽略 RecordNotFound 错误
+			Colorful:                  true,          // 彩色输出
+		},
+	)
+
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: newLogger,
 
 		// 使用 UTC 时间（与 Prisma 保持一致）
 		NowFunc: func() time.Time {

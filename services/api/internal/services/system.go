@@ -37,7 +37,7 @@ func (s *SystemService) GetSystemInfo() (*SystemInfo, error) {
 	}
 
 	// 查询活跃用户数
-	if err := db.DB.Model(&models.User{}).Where("is_active = ?", true).Count(&activeUserCount).Error; err != nil {
+	if err := db.DB.Model(&models.User{}).Where("\"isActive\" = ?", true).Count(&activeUserCount).Error; err != nil {
 		return nil, fmt.Errorf("查询活跃用户数失败: %w", err)
 	}
 
@@ -86,7 +86,7 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 	// 查询已到期但仍启用的用户
 	var expiredUsers []models.User
 	err := db.DB.
-		Where("expires_at < ? AND is_active = ?", "NOW()", true).
+		Where("\"expiresAt\" < NOW() AND \"isActive\" = ?", true).
 		Find(&expiredUsers).Error
 
 	if err != nil {

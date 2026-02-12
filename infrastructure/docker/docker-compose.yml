@@ -30,7 +30,7 @@ services:
     container_name: ember-api
     environment:
       - PORT=8080
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ember?schema=public
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ember?search_path=public
       - JWT_SECRET=${JWT_SECRET}
       - EMBY_URL=${EMBY_URL}
       - EMBY_API_KEY=${EMBY_API_KEY}

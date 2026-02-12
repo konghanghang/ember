@@ -59,8 +59,8 @@ func (s *SubscriptionService) GetUserSubscriptions(userID string) ([]models.Subs
 	var subscriptions []models.Subscription
 
 	err := db.DB.
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
+		Where("\"userId\" = ?", userID).
+		Order("\"createdAt\" DESC").
 		Find(&subscriptions).Error
 
 	if err != nil {
@@ -132,7 +132,7 @@ func (s *SubscriptionService) GetAllSubscriptions(status *models.SubscriptionSta
 	var subscriptions []models.Subscription
 	err := query.
 		Preload("User").
-		Order("created_at DESC").
+		Order("\"createdAt\" DESC").
 		Offset(offset).
 		Limit(pageSize).
 		Find(&subscriptions).Error

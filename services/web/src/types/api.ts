@@ -72,8 +72,10 @@ export interface Invite {
 }
 
 export interface InviteListResponse {
-  invites: Invite[]
-  total?: number
+  data: Invite[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface ValidateInviteResponse {

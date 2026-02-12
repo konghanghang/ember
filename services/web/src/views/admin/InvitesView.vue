@@ -22,13 +22,8 @@ const fetchData = async () => {
   loading.value = true
   try {
     const res = await getInvites(queryParams.value)
-    tableData.value = res.invites
-    total.value = res.total || 0 // Assuming backend returns total for pagination?
-    // Note: The API Spec for getInvites response: { invites: [...] } 
-    // It didn't explicitly say "total" in the response example for invites list (3.1), 
-    // but usually paginated APIs do. If not, we might need to adjust.
-    // API Spec 2.1 Users has total. 3.1 Invites example doesn't show total.
-    // I'll assume it exists or I'll fix later.
+    tableData.value = res.data
+    total.value = res.total || 0
   } finally {
     loading.value = false
   }

@@ -8,6 +8,7 @@
 
 ## 📋 目录
 
+- [响应规范](#响应规范)
 - [1. 认证相关 (7个)](#1-认证相关)
 - [2. 用户管理 - 管理员 (6个)](#2-用户管理---管理员)
 - [3. 邀请码管理 (4个)](#3-邀请码管理)
@@ -17,6 +18,220 @@
 - [7. 系统相关 (2个)](#7-系统相关)
 - [8. 定时任务 (1个)](#8-定时任务)
 - [9. 工具接口 (1个)](#9-工具接口)
+
+---
+
+## 📐 响应规范
+
+为了保持 API 响应的一致性和可维护性，本项目遵循以下统一的响应格式规范。
+
+### 1. 列表类接口（带分页）
+
+**适用场景**: 返回多条记录，需要分页的接口
+
+**响应格式**:
+```json
+{
+  "data": [...],        // 数据列表，统一使用 data 字段
+  "total": 100,         // 总记录数
+  "page": 1,            // 当前页码
+  "pageSize": 20,       // 每页数量
+  "totalPages": 5       // 总页数（可选）
+}
+```
+
+**示例接口**:
+- `GET /admin/users` - 用户列表
+- `GET /admin/invites` - 邀请码列表
+- `GET /admin/subscriptions` - 订阅列表
+
+**设计原因**:
+- ✅ **一致性**: 所有列表接口统一使用 `data` 字段包裹数据
+- ✅ **可扩展性**: 便于添加元数据（如分页信息、统计信息）
+- ✅ **行业标准**: 符合 JSON:API、GraphQL 等主流规范
+- ✅ **类型安全**: 前端可使用泛型 `ListResponse<T>` 统一处理
+
+---
+
+### 2. 单个实体接口
+
+**适用场景**: 返回单个对象或包含多个字段的复杂响应
+
+**响应格式**:
+```json
+{
+  "token": "...",
+  "user": {...},
+  "otherField": "..."
+}
+```
+
+**示例接口**:
+- `POST /admin/login` - 登录响应（token + admin）
+- `POST /user/register` - 注册响应（token + user）
+- `GET /admin/users/:id` - 单个用户详情
+
+**设计原因**:
+- ✅ **语义清晰**: 字段名直接表达含义
+- ✅ **扁平结构**: 减少不必要的嵌套
+- ✅ **向后兼容**: 易于添加新字段
+
+---
+
+### 3. 操作结果接口
+
+**适用场景**: 执行操作后返回状态信息
+
+**响应格式**:
+```json
+{
+  "success": true,
+  "message": "操作成功",
+  "disabledCount": 3,
+  "errors": [...]
+}
+```
+
+**示例接口**:
+- `POST /admin/cron/check-expired` - 定时任务结果
+- `POST /admin/system/test-emby` - Emby 连接测试
+- `PUT /admin/users/:id/extend` - 延长用户到期时间
+
+**设计原因**:
+- ✅ **明确状态**: `success` 字段明确表示操作是否成功
+- ✅ **附加信息**: 可包含操作统计、错误详情等
+- ✅ **错误处理**: `errors` 数组可记录部分失败的情况
+
+---
+
+### 4. 错误响应
+
+**统一错误格式**:
+```json
+{
+  "error": "错误描述信息"
+}
+```
+
+**HTTP 状态码规范**:
+| 状态码 | 说明 | 示例 |
+|--------|------|------|
+| 200 | 成功 | 正常返回数据 |
+| 400 | 请求参数错误 | `{"error": "用户名格式错误"}` |
+| 401 | 未认证 | `{"error": "Token 无效或已过期"}` |
+| 403 | 权限不足 | `{"error": "需要管理员权限"}` |
+| 404 | 资源不存在 | `{"error": "用户不存在"}` |
+| 500 | 服务器错误 | `{"error": "数据库连接失败"}` |
+
+---
+
+### 5. 字段命名规范
+
+**JSON 字段命名**: 使用 **camelCase（驼峰命名）**
+
+```json
+{
+  "userId": "xxx",        ✅ 正确
+  "user_id": "xxx",       ❌ 错误（蛇形命名）
+  "createdAt": "...",     ✅ 正确
+  "created_at": "...",    ❌ 错误
+}
+```
+
+**原因**:
+- JavaScript/TypeScript 的标准命名风格
+- 与前端代码风格保持一致
+- 无需额外的字段名转换
+
+---
+
+### 6. 时间格式规范
+
+**统一使用 ISO 8601 格式**:
+```json
+{
+  "createdAt": "2026-02-11T10:30:00Z",      // UTC 时间
+  "expiresAt": "2027-01-15T23:59:59Z"
+}
+```
+
+**时区要求**:
+- 后端存储和返回均使用 **UTC 时间**（末尾带 `Z`）
+- 前端负责转换为用户本地时区显示
+
+---
+
+### 7. 布尔值规范
+
+**直接使用 JSON boolean**:
+```json
+{
+  "isActive": true,       ✅ 正确
+  "isActive": "true",     ❌ 错误（字符串）
+  "isActive": 1           ❌ 错误（数字）
+}
+```
+
+---
+
+### 8. 空值处理
+
+**可选字段的空值表示**:
+```json
+{
+  "note": null,           ✅ 推荐（明确表示为空）
+  "note": ""              ⚠️ 可接受（空字符串）
+  // "note" 省略          ❌ 避免（前端需要额外判断）
+}
+```
+
+**建议**:
+- 可选字段返回 `null` 而不是省略
+- 前端可以统一处理 `null` 值
+
+---
+
+### 9. 前后端类型对齐
+
+**Go 后端结构体示例**:
+```go
+type GetUsersResponse struct {
+    Data       []models.User `json:"data"`       // 统一使用 data
+    Total      int64         `json:"total"`
+    Page       int           `json:"page"`
+    PageSize   int           `json:"pageSize"`
+    TotalPages int           `json:"totalPages"`
+}
+```
+
+**TypeScript 前端类型示例**:
+```typescript
+interface UserListResponse {
+  data: UserInfo[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages?: number
+}
+```
+
+**强制要求**:
+- Go 结构体的 `json` tag 必须与前端 TypeScript 类型完全一致
+- 新增接口必须先定义类型，再实现代码
+- 修改响应结构需同步更新前后端类型定义
+
+---
+
+### 10. 规范检查清单
+
+**新增接口时请确认**:
+- [ ] 列表接口使用 `data` 字段
+- [ ] 分页信息包含 `total`, `page`, `pageSize`
+- [ ] 字段名使用 camelCase
+- [ ] 时间字段使用 ISO 8601 UTC 格式
+- [ ] 错误响应包含 `error` 字段
+- [ ] HTTP 状态码使用正确
+- [ ] 前后端类型定义已同步
 
 ---
 
@@ -457,12 +672,20 @@ curl -X DELETE http://localhost:8080/api/v1/admin/users/clxxxx \
 
 **接口**: `GET /admin/invites`
 **认证**: Bearer Token (Admin)
-**描述**: 获取所有邀请码列表
+**描述**: 分页查询邀请码列表
+
+#### 查询参数
+
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| page | integer | 否 | 1 | 页码 |
+| pageSize | integer | 否 | 20 | 每页数量 |
+| showAll | boolean | 否 | false | 是否显示已过期和已用完的邀请码 |
 
 #### 请求示例
 
 ```bash
-curl http://localhost:8080/api/v1/admin/invites \
+curl "http://localhost:8080/api/v1/admin/invites?page=1&pageSize=10" \
   -H "Authorization: Bearer {admin_token}"
 ```
 
@@ -470,7 +693,7 @@ curl http://localhost:8080/api/v1/admin/invites \
 
 ```json
 {
-  "invites": [
+  "data": [
     {
       "id": "clxxxx",
       "code": "INVITE123",
@@ -480,7 +703,10 @@ curl http://localhost:8080/api/v1/admin/invites \
       "expiresAt": "2027-01-01T00:00:00Z",
       "createdAt": "2026-01-01T00:00:00Z"
     }
-  ]
+  ],
+  "total": 50,
+  "page": 1,
+  "pageSize": 10
 }
 ```
 

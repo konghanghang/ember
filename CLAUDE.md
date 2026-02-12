@@ -162,15 +162,28 @@
 
 路径：`docs/specs/*`
 
+---
+
 ## Ember项目开发指南
 
 ### 💬 基础规范
 
 **项目信息**：
-- 项目：Ember（Emby 用户管理系统）
-- 技术栈：Next.js 15 全栈
-- 架构：单体架构
-- 详细信息：[README.md](./README.md)
+- **项目名称**：Ember（Emby 用户管理系统）
+- **架构模式**：Monorepo 微服务架构
+- **技术栈**：
+  - 后端：Go 1.23 + GORM + PostgreSQL
+  - 前端：Vue 3 + TypeScript + Element Plus
+  - 数据库：PostgreSQL 15（使用 Prisma 管理 Schema）
+- **详细信息**：[README.md](./README.md)
+
+**目录结构**：
+```
+services/
+  ├─ api/    # Go API 服务（主要开发目录）
+  ├─ web/    # Vue 3 前端
+  └─ bot/    # Telegram Bot（待开发）
+```
 
 **沟通输出**：
 - 文档和代码注释使用中文
@@ -179,84 +192,48 @@
 
 ---
 
-### 🚫 开发服务管理
+### 📐 项目技术规范
 
-**核心原则**：AI 不操作开发服务器，仅负责代码质量
+**API 响应格式**：
+- 列表接口统一使用 `data` 字段
+- 字段命名使用 camelCase（驼峰）
+- GORM 模型必须显式指定 `gorm:"column:xxx"`
+- 详见：[docs/API-RESPONSE-STANDARD.md](docs/API-RESPONSE-STANDARD.md)
 
-**工作流程**：
-1. 分析问题 → 修复代码
-2. 运行 `npm run build` 验证编译
-3. 告诉用户如何启动服务验证
+---
 
-**示例**：
-```text
-✅ 代码已修复并通过编译。验证步骤：
-   1. 重启开发服务器：npm run dev
-   2. 访问 http://localhost:3000
-   3. 测试相关功能
-```
+### 🚫 服务管理规范
+
+**禁止操作**：
+- ❌ 启动服务（`go run`、`npm run dev`）
+- ❌ 后台运行（`run_in_background`）
+- ❌ 测试运行中的服务（`curl`、`wget`）
+
+**允许操作**：
+- ✅ 编译验证（`go build ./...`、`npm run build`）
+- ✅ Lint 检查、单元测试
+
+**流程**：修改代码 → 编译验证 → 告知用户启动方式
 
 ---
 
 ### 📦 Git 提交规范
 
-**核心原则**：AI 不得在未经用户确认的情况下执行 `git commit`
+**核心原则**：❌ 绝对不主动提交，必须询问用户
 
-**标准流程**：
-1. 完成代码修改
-2. 运行验证：
-   - `npm run lint` - 代码规范检查
-   - `npm run test:run` - 测试用例验证
-   - `npm run build` - 生产构建验证
-3. 询问用户："✅ 代码已通过 lint、测试和构建验证。是否需要提交？"
-4. 等待用户确认
-5. 执行 `git commit`
+**流程**：
+1. 修改代码
+2. 编译验证（`go build`、`npm run build`）
+3. **询问用户**："✅ 代码编译通过，是否需要提交？"
+4. 等待用户明确回复
+5. 用户确认后执行 `git commit`
 
-**验证失败处理**：
-- **Lint 失败**：报告错误位置，询问是否修复或临时忽略
-- **测试失败**：展示失败用例，询问是否修复或继续提交
-- **构建失败**：必须修复后才能提交
-
-**可跳过验证的情况**：
-- 纯文档修改（README.md、CLAUDE.md）→ 可跳过测试
-- 样式调整（CSS、Tailwind）→ 可跳过测试
-- 配置文件修改 → 根据影响范围决定
-
-**提交信息格式**：
-```
-type(scope): description
-
-常用类型：
-- feat: 新功能
-- fix: 修复
-- refactor: 重构
-- style: 样式
-- docs: 文档
-- test: 测试
-
-示例：feat(home): 重构首页为门户网站风格
-```
-
-**示例对话**：
-```text
-✅ 正确流程：
-AI: "✅ 用户登录页面配色统一完成。
-    - Lint：通过
-    - 测试：通过
-    - 构建：通过
-    是否需要提交？"
-User: "是的"
-AI: [执行 git commit]
-
-⚠️ 验证失败：
-AI: "⚠️ Lint 检测发现 3 个错误：
-    - user/login.tsx:23 - 未使用的变量
-    - user/login.tsx:45 - 缺少类型注解
-    是否修复后再提交？"
-User: "修复吧"
-AI: [修复错误 → 重新验证 → 询问提交]
-```
+**提交格式**：`type(scope): description`
+- 常用类型：`feat`、`fix`、`refactor`、`docs`
 
 ---
 
-**编码前请务必查阅以上文档，避免违反项目规范！**
+**⚠️ 工作守则**：
+- ❌ 不启动服务、不主动提交代码
+- ✅ 只做编译验证，询问后再提交
+- 📚 详细规范参考：[docs/API-RESPONSE-STANDARD.md](docs/API-RESPONSE-STANDARD.md)

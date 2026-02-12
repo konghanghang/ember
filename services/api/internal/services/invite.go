@@ -29,7 +29,7 @@ type GetInvitesRequest struct {
 
 // GetInvitesResponse 获取邀请码列表响应
 type GetInvitesResponse struct {
-	Invites    []models.Invite `json:"invites"`
+	Data       []models.Invite `json:"data"`       // 统一使用 data 字段
 	Total      int64           `json:"total"`
 	Page       int             `json:"page"`
 	PageSize   int             `json:"pageSize"`
@@ -77,8 +77,8 @@ func (s *InviteService) GetInvites(req *GetInvitesRequest) (*GetInvitesResponse,
 	// 如果不显示全部，只显示有效的邀请码
 	if !req.ShowAll {
 		now := time.Now()
-		query = query.Where("used_count < max_uses").
-			Where("(expires_at IS NULL OR expires_at > ?)", now)
+		query = query.Where("\"usedCount\" < \"maxUses\"").
+			Where("(\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", now)
 	}
 
 	// 统计总数
@@ -90,7 +90,7 @@ func (s *InviteService) GetInvites(req *GetInvitesRequest) (*GetInvitesResponse,
 	// 分页查询
 	var invites []models.Invite
 	offset := (req.Page - 1) * req.PageSize
-	if err := query.Offset(offset).Limit(req.PageSize).Order("created_at DESC").Find(&invites).Error; err != nil {
+	if err := query.Offset(offset).Limit(req.PageSize).Order("\"createdAt\" DESC").Find(&invites).Error; err != nil {
 		return nil, err
 	}
 
@@ -101,7 +101,7 @@ func (s *InviteService) GetInvites(req *GetInvitesRequest) (*GetInvitesResponse,
 	}
 
 	return &GetInvitesResponse{
-		Invites:    invites,
+		Data:       invites,
 		Total:      total,
 		Page:       req.Page,
 		PageSize:   req.PageSize,

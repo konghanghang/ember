@@ -14,15 +14,15 @@ import (
 // 而不是"我属于哪个邀请码"（当前关系）
 // 详见：prisma/schema.prisma 第24-35行注释
 type User struct {
-	ID         string     `json:"id" gorm:"type:varchar(25);primaryKey"` // cuid
-	Username   string     `json:"username" gorm:"uniqueIndex;size:50;not null"`
-	Email      string     `json:"email" gorm:"size:255;not null"`
-	EmbyID     string     `json:"embyId" gorm:"uniqueIndex;size:50;not null"` // Emby用户ID
-	InviteCode string     `json:"inviteCode" gorm:"size:20;not null;index"`   // ✅ 保留字符串外键
-	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`                        // 账号到期时间（null=永久有效）
-	IsActive   bool       `json:"isActive" gorm:"default:true;not null"`
-	CreatedAt  time.Time  `json:"createdAt" gorm:"autoCreateTime"`
-	UpdatedAt  time.Time  `json:"updatedAt" gorm:"autoUpdateTime"`
+	ID         string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"` // cuid
+	Username   string     `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
+	Email      string     `json:"email" gorm:"column:email;size:255;not null"`
+	EmbyID     string     `json:"embyId" gorm:"column:embyId;uniqueIndex;size:50;not null"` // Emby用户ID
+	InviteCode string     `json:"inviteCode" gorm:"column:inviteCode;size:20;not null;index"`   // ✅ 保留字符串外键
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`                        // 账号到期时间（null=永久有效）
+	IsActive   bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
+	CreatedAt  time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	UpdatedAt  time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 
 	// 关联：注册时使用的邀请码（可选关系，邀请码可能被删除）
 	Invite *Invite `json:"-" gorm:"foreignKey:InviteCode;references:Code"`

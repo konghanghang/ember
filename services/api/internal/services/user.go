@@ -21,7 +21,7 @@ type GetUsersRequest struct {
 
 // GetUsersResponse 获取用户列表响应
 type GetUsersResponse struct {
-	Users      []models.User `json:"users"`
+	Data       []models.User `json:"data"`       // 前端期望 data 字段
 	Total      int64         `json:"total"`
 	Page       int           `json:"page"`
 	PageSize   int           `json:"pageSize"`
@@ -48,7 +48,7 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 
 	// 是否启用筛选
 	if req.IsActive != nil {
-		query = query.Where("is_active = ?", *req.IsActive)
+		query = query.Where("\"isActive\" = ?", *req.IsActive)
 	}
 
 	// 统计总数
@@ -60,7 +60,7 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 	// 分页查询
 	var users []models.User
 	offset := (req.Page - 1) * req.PageSize
-	if err := query.Offset(offset).Limit(req.PageSize).Order("created_at DESC").Find(&users).Error; err != nil {
+	if err := query.Offset(offset).Limit(req.PageSize).Order("\"createdAt\" DESC").Find(&users).Error; err != nil {
 		return nil, err
 	}
 
@@ -71,7 +71,7 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 	}
 
 	return &GetUsersResponse{
-		Users:      users,
+		Data:       users,
 		Total:      total,
 		Page:       req.Page,
 		PageSize:   req.PageSize,

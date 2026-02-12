@@ -10,11 +10,11 @@ import (
 // Admin 管理员模型
 // 对应 Prisma schema 的 Admin 模型
 type Admin struct {
-	ID        string    `json:"id" gorm:"type:varchar(25);primaryKey"` // cuid (25字符)
-	Username  string    `json:"username" gorm:"uniqueIndex;size:50;not null"`
-	Password  string    `json:"-" gorm:"not null"` // 永不序列化密码
-	CreatedAt time.Time `json:"createdAt" gorm:"autoCreateTime"`
-	UpdatedAt time.Time `json:"updatedAt" gorm:"autoUpdateTime"`
+	ID        string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"` // cuid (25字符)
+	Username  string    `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
+	Password  string    `json:"-" gorm:"column:password;not null"` // 永不序列化密码
+	CreatedAt time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	UpdatedAt time.Time `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
 
 func (Admin) TableName() string {
