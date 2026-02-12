@@ -37,9 +37,6 @@ type Subscription struct {
 	MpError    *string            `json:"mpError,omitempty" gorm:"column:mpError;size:500"` // MoviePilot 同步错误
 	CreatedAt  time.Time          `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 	UpdatedAt  time.Time          `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
-
-	// 关联：属于某个用户
-	User *User `json:"-" gorm:"foreignKey:UserID"`
 }
 
 func (Subscription) TableName() string {

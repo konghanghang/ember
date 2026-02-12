@@ -21,9 +21,6 @@ type User struct {
 	IsActive   bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
 	CreatedAt  time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 	UpdatedAt  time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
-
-	Invite        *Invite        `json:"-" gorm:"foreignKey:InviteCode;references:Code"`
-	Subscriptions []Subscription `json:"-" gorm:"foreignKey:UserID"`
 }
 
 func (User) TableName() string {

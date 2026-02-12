@@ -128,10 +128,9 @@ func (s *SubscriptionService) GetAllSubscriptions(status *models.SubscriptionSta
 		return nil, fmt.Errorf("查询订阅总数失败: %w", err)
 	}
 
-	// 查询订阅列表（包含用户信息）
+	// 查询订阅列表
 	var subscriptions []models.Subscription
 	err := query.
-		Preload("User").
 		Order("\"createdAt\" DESC").
 		Offset(offset).
 		Limit(pageSize).
@@ -141,13 +140,33 @@ func (s *SubscriptionService) GetAllSubscriptions(status *models.SubscriptionSta
 		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
 	}
 
+	// 收集所有 UserID
+	userIDs := make([]string, len(subscriptions))
+	for i, sub := range subscriptions {
+		userIDs[i] = sub.UserID
+	}
+
+	// 批量查询用户信息
+	var users []models.User
+	if len(userIDs) > 0 {
+		if err := db.DB.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+			return nil, fmt.Errorf("查询用户信息失败: %w", err)
+		}
+	}
+
+	// 构建 UserID → User 映射
+	userMap := make(map[string]*models.User)
+	for i := range users {
+		userMap[users[i].ID] = &users[i]
+	}
+
 	// 构建响应（包含用户名和邮箱）
 	result := make([]SubscriptionWithUser, len(subscriptions))
 	for i, sub := range subscriptions {
 		result[i].Subscription = sub
-		if sub.User != nil {
-			result[i].User.Username = sub.User.Username
-			result[i].User.Email = sub.User.Email
+		if user, ok := userMap[sub.UserID]; ok {
+			result[i].User.Username = user.Username
+			result[i].User.Email = user.Email
 		}
 	}
 

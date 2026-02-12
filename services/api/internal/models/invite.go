@@ -16,9 +16,6 @@ type Invite struct {
 	ExpiresAt   *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"` // 可选的过期时间
 	DefaultDays int        `json:"defaultDays" gorm:"column:defaultDays;not null;default:30"`
 	CreatedAt   time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
-
-	// 关联：一个邀请码可以创建多个用户
-	Users []User `json:"-" gorm:"foreignKey:InviteCode;references:Code"`
 }
 
 func (Invite) TableName() string {
