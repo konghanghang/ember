@@ -174,7 +174,7 @@
 - **技术栈**：
   - 后端：Go 1.23 + GORM + PostgreSQL
   - 前端：Vue 3 + TypeScript + Element Plus
-  - 数据库：PostgreSQL 15（使用 Prisma 管理 Schema）
+  - 数据库：PostgreSQL 15（使用 GORM 管理 Schema）
 - **详细信息**：[README.md](./README.md)
 
 **目录结构**：

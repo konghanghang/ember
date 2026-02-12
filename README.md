@@ -212,7 +212,7 @@ make test-health
 
 - [x] Go 后端基础框架（Gin + GORM）
 - [x] GORM 数据模型（保留业务语义设计）
-- [x] 数据库连接层（与 Prisma 兼容）
+- [x] 数据库连接层（GORM ORM）
 - [x] 健康检查 API
 - [x] Monorepo 架构搭建
 - [x] Docker + Docker Compose 配置

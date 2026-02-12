@@ -34,14 +34,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# prisma
-# 注意：prisma/migrations/ 应该被提交，作为数据库 schema 的版本控制
-# 只排除生成的文件：
-*.db
-*.db-journal
-
-/app/generated/prisma
-
 # services
 /services/api/bin/
 /services/api/.env

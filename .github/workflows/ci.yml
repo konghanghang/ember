@@ -39,17 +39,6 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 验证 Prisma Schema
-        run: npx prisma validate
-        env:
-          # Prisma 7 需要虚拟 DATABASE_URL 用于验证
-          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
-
-      - name: 生成 Prisma Client
-        run: npx prisma generate
-        env:
-          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
-
       - name: 代码风格检查
         run: npm run lint
 

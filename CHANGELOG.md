@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **前端**: Next.js 15 App Router + React 19
 - **后端**: Next.js Server Actions
-- **数据库**: PostgreSQL 16 + Prisma ORM
+- **数据库**: PostgreSQL 16 + GORM
 - **UI**: Tailwind CSS + shadcn/ui
 - **部署**: Docker + Docker Compose
 
@@ -80,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✅ bcrypt 密码加密
 - ✅ Emby API Key 环境变量保护
 - ✅ Docker 非 root 用户运行
-- ✅ SQL 注入防护（Prisma ORM）
+- ✅ SQL 注入防护（GORM 参数化查询）
 
 ### 📦 Docker 镜像
 
