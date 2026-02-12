@@ -10,17 +10,17 @@ import (
 // User 统一用户模型（admin + user）
 // role 字段区分角色：admin 使用本地密码，user 通过 Emby 认证
 type User struct {
-	ID         string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	Username   string     `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
-	Role       string     `json:"role" gorm:"column:role;size:10;not null;default:user"`
-	Password   string     `json:"-" gorm:"column:password"`                                    // admin 专用，bcrypt hash，user 为空
-	Email      string     `json:"email,omitempty" gorm:"column:email;size:255"`                // user 专用
-	EmbyID     string     `json:"embyId,omitempty" gorm:"column:embyId;size:50;index"`         // user 专用
-	InviteCode string     `json:"inviteCode,omitempty" gorm:"column:inviteCode;size:20;index"` // user 专用
-	ExpiresAt  *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
-	IsActive   bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
-	CreatedAt  time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
-	UpdatedAt  time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
+	ID           string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+	Username     string     `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
+	Role         string     `json:"role" gorm:"column:role;size:10;not null;default:user"`
+	Password     string     `json:"-" gorm:"column:password"` // bcrypt hash，所有用户通用
+	Email        string     `json:"email,omitempty" gorm:"column:email;size:255;uniqueIndex"`
+	EmbyID       string     `json:"embyId,omitempty" gorm:"column:embyId;size:50;index"`
+	EmbyDisabled bool       `json:"embyDisabled" gorm:"column:embyDisabled;default:false;not null"`
+	ExpiresAt    *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
+	IsActive     bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
+	CreatedAt    time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	UpdatedAt    time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
 
 func (User) TableName() string {

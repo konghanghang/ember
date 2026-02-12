@@ -16,7 +16,6 @@ import (
 var DB *gorm.DB
 
 // InitDB 初始化数据库连接
-// 设计原则：保持与 Prisma 的数据兼容性
 func InitDB() {
 	// 尝试加载 .env 文件（多个可能的位置）
 	envPaths := []string{
@@ -59,7 +58,6 @@ func InitDB() {
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: newLogger,
 
-		// 使用 UTC 时间（与 Prisma 保持一致）
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -107,6 +105,7 @@ func InitDB() {
 
 	// 初始化默认管理员
 	seedDefaultAdmin()
+	seedDefaultSettings()
 
 	fmt.Println("✅ 数据库连接成功")
 }
@@ -142,6 +141,16 @@ func seedDefaultAdmin() {
 	log.Printf("✅ 默认管理员已创建：%s", admin.Username)
 }
 
+func seedDefaultSettings() {
+	if err := DB.FirstOrCreate(&models.Setting{Key: "default_trial_days"}, models.Setting{Value: "7"}).Error; err != nil {
+		log.Printf("⚠️  初始化 default_trial_days 失败：%v", err)
+	}
+
+	if err := DB.FirstOrCreate(&models.Setting{Key: "registration_mode"}, models.Setting{Value: "open"}).Error; err != nil {
+		log.Printf("⚠️  初始化 registration_mode 失败：%v", err)
+	}
+}
+
 // Close 关闭数据库连接
 func Close() error {
 	sqlDB, err := DB.DB()
@@ -154,9 +163,21 @@ func Close() error {
 // AutoMigrate 手动执行数据库迁移（可选）
 // 仅在确认需要时调用
 func AutoMigrate() error {
-	return DB.AutoMigrate(
-		&models.Invite{},
+	if err := DB.AutoMigrate(
+		&models.RedemptionCode{},
+		&models.Redemption{},
+		&models.Setting{},
 		&models.User{},
 		&models.Subscription{},
-	)
+	); err != nil {
+		return err
+	}
+
+	if DB.Migrator().HasTable("invites") {
+		if err := DB.Migrator().DropTable("invites"); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

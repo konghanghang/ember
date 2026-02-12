@@ -3,12 +3,15 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/handlers"
 	"github.com/konghang/ember/backend/internal/middleware"
+	"github.com/konghang/ember/backend/internal/services"
+	"github.com/robfig/cron/v3"
 )
 
 func main() {
@@ -35,7 +38,8 @@ func main() {
 	// 创建 Handlers
 	authHandler := handlers.NewAuthHandler()
 	userHandler := handlers.NewUserHandler()
-	inviteHandler := handlers.NewInviteHandler()
+	redemptionCodeHandler := handlers.NewRedemptionCodeHandler()
+	settingHandler := handlers.NewSettingHandler()
 	subscriptionHandler := handlers.NewSubscriptionHandler()
 	mediaHandler := handlers.NewMediaHandler()
 	systemHandler := handlers.NewSystemHandler()
@@ -51,9 +55,8 @@ func main() {
 		// 统一登出（JWT 无状态，仅需认证，不区分角色）
 		api.POST("/logout", middleware.JWTAuth(), authHandler.Logout)
 		api.POST("/user/register", authHandler.RegisterUser)
-
-		// 邀请码验证（公开）
-		api.GET("/invites/:code/validate", inviteHandler.ValidateInvite)
+		api.GET("/register/mode", settingHandler.GetRegistrationMode)
+		api.GET("/register/code/:code/validate", redemptionCodeHandler.ValidateCode)
 
 		// TMDB 搜索（公开）
 		api.GET("/tmdb/search", tmdbHandler.Search)
@@ -73,10 +76,12 @@ func main() {
 			admin.PUT("/users/:id/reset-password", userHandler.ResetPassword)
 			admin.DELETE("/users/:id", userHandler.DeleteUser)
 
-			// 邀请码管理
-			admin.GET("/invites", inviteHandler.GetInvites)
-			admin.POST("/invites", inviteHandler.CreateInvite)
-			admin.DELETE("/invites/:id", inviteHandler.DeleteInvite)
+			admin.GET("/redemption-codes", redemptionCodeHandler.GetRedemptionCodes)
+			admin.POST("/redemption-codes", redemptionCodeHandler.CreateRedemptionCode)
+			admin.DELETE("/redemption-codes/:id", redemptionCodeHandler.DeleteRedemptionCode)
+			admin.GET("/settings", settingHandler.GetSettings)
+			admin.PUT("/settings/:key", settingHandler.UpdateSetting)
+			admin.GET("/redemptions", userHandler.GetAllRedemptions)
 
 			// 订阅管理
 			admin.GET("/subscriptions", subscriptionHandler.GetAllSubscriptions)
@@ -100,6 +105,9 @@ func main() {
 			user.PUT("/profile", userHandler.UpdateProfile)
 			user.PUT("/password", userHandler.UpdatePassword)
 			user.PUT("/email", userHandler.UpdateEmail)
+			user.POST("/redeem", userHandler.RedeemCode)
+			user.GET("/redeem/:code/validate", userHandler.ValidateRedeemCode)
+			user.GET("/redemptions", userHandler.GetRedemptions)
 
 			// 订阅管理
 			user.GET("/subscriptions", subscriptionHandler.GetMySubscriptions)
@@ -109,6 +117,47 @@ func main() {
 			// 媒体相关（需要认证）
 			user.GET("/emby/config", mediaHandler.GetEmbyConfig)
 			user.GET("/media/stats", mediaHandler.GetMediaStats)
+		}
+	}
+
+	cronEnabled := os.Getenv("CRON_ENABLED")
+	if cronEnabled == "" {
+		cronEnabled = "true"
+	}
+
+	if cronEnabled == "true" {
+		schedule := os.Getenv("CRON_SCHEDULE")
+		if schedule == "" {
+			schedule = "0 2 * * *"
+		}
+
+		tzName := os.Getenv("CRON_TIMEZONE")
+		if tzName == "" {
+			tzName = "Asia/Shanghai"
+		}
+
+		tz, err := time.LoadLocation(tzName)
+		if err != nil {
+			log.Printf("时区解析失败，使用 UTC：%v", err)
+			tz = time.UTC
+		}
+
+		systemService := services.NewSystemService()
+		c := cron.New(cron.WithLocation(tz))
+		if _, err := c.AddFunc(schedule, func() {
+			log.Println("[Cron] 开始检查过期用户...")
+			result, err := systemService.CheckExpiredUsers()
+			if err != nil {
+				log.Printf("[Cron] 检查失败：%v", err)
+				return
+			}
+			log.Printf("[Cron] 完成，封禁 %d/%d 个用户", result.DisabledCount, result.TotalExpired)
+		}); err != nil {
+			log.Printf("定时任务注册失败：%v", err)
+		} else {
+			c.Start()
+			defer c.Stop()
+			log.Printf("定时任务已启用：%s (%s)", schedule, tzName)
 		}
 	}
 

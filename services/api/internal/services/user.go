@@ -21,7 +21,7 @@ type GetUsersRequest struct {
 
 // GetUsersResponse 获取用户列表响应
 type GetUsersResponse struct {
-	Data       []models.User `json:"data"`       // 前端期望 data 字段
+	Data       []models.User `json:"data"` // 前端期望 data 字段
 	Total      int64         `json:"total"`
 	Page       int           `json:"page"`
 	PageSize   int           `json:"pageSize"`
@@ -177,6 +177,13 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 		return errors.New("重置密码失败：" + err.Error())
 	}
 
+	if err := user.SetPassword(newPassword); err != nil {
+		return errors.New("重置密码失败：本地密码更新失败")
+	}
+	if err := db.DB.Save(&user).Error; err != nil {
+		return errors.New("重置密码失败：本地密码保存失败")
+	}
+
 	return nil
 }
 
@@ -241,6 +248,13 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 	err = embyService.UpdateUserPassword(user.EmbyID, req.NewPassword)
 	if err != nil {
 		return errors.New("密码更新失败：" + err.Error())
+	}
+
+	if err := user.SetPassword(req.NewPassword); err != nil {
+		return errors.New("密码更新失败：本地密码更新失败")
+	}
+	if err := db.DB.Save(&user).Error; err != nil {
+		return errors.New("密码更新失败：本地密码保存失败")
 	}
 
 	return nil

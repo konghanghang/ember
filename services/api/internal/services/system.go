@@ -22,14 +22,14 @@ func NewSystemService() *SystemService {
 
 // SystemInfo 系统统计信息
 type SystemInfo struct {
-	UserCount       int64 `json:"userCount"`
-	ActiveUserCount int64 `json:"activeUserCount"`
-	InviteCount     int64 `json:"inviteCount"`
+	UserCount           int64 `json:"userCount"`
+	ActiveUserCount     int64 `json:"activeUserCount"`
+	RedemptionCodeCount int64 `json:"redemptionCodeCount"`
 }
 
 // GetSystemInfo 获取系统信息
 func (s *SystemService) GetSystemInfo() (*SystemInfo, error) {
-	var userCount, activeUserCount, inviteCount int64
+	var userCount, activeUserCount, redemptionCodeCount int64
 
 	// 查询用户总数
 	if err := db.DB.Model(&models.User{}).Count(&userCount).Error; err != nil {
@@ -41,15 +41,14 @@ func (s *SystemService) GetSystemInfo() (*SystemInfo, error) {
 		return nil, fmt.Errorf("查询活跃用户数失败: %w", err)
 	}
 
-	// 查询邀请码总数
-	if err := db.DB.Model(&models.Invite{}).Count(&inviteCount).Error; err != nil {
-		return nil, fmt.Errorf("查询邀请码总数失败: %w", err)
+	if err := db.DB.Model(&models.RedemptionCode{}).Count(&redemptionCodeCount).Error; err != nil {
+		return nil, fmt.Errorf("查询兑换码总数失败: %w", err)
 	}
 
 	return &SystemInfo{
-		UserCount:       userCount,
-		ActiveUserCount: activeUserCount,
-		InviteCount:     inviteCount,
+		UserCount:           userCount,
+		ActiveUserCount:     activeUserCount,
+		RedemptionCodeCount: redemptionCodeCount,
 	}, nil
 }
 
@@ -83,10 +82,9 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 	disabledUsers := []DisabledUserInfo{}
 	failedUsers := []map[string]interface{}{}
 
-	// 查询已到期但仍启用的用户
 	var expiredUsers []models.User
 	err := db.DB.
-		Where("\"expiresAt\" < NOW() AND \"isActive\" = ?", true).
+		Where("\"expiresAt\" < NOW() AND \"embyDisabled\" = ?", false).
 		Find(&expiredUsers).Error
 
 	if err != nil {
@@ -115,7 +113,7 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 		}
 
 		// 2. 更新数据库状态
-		user.IsActive = false
+		user.EmbyDisabled = true
 		if err := db.DB.Save(&user).Error; err != nil {
 			errorMsg := fmt.Sprintf("更新数据库失败 %s: %v", user.Username, err)
 			errors = append(errors, errorMsg)

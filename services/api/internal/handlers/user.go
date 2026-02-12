@@ -9,13 +9,17 @@ import (
 
 // UserHandler 用户处理器
 type UserHandler struct {
-	userService *services.UserService
+	userService           *services.UserService
+	redemptionService     *services.RedemptionService
+	redemptionCodeService *services.RedemptionCodeService
 }
 
 // NewUserHandler 创建用户处理器
 func NewUserHandler() *UserHandler {
 	return &UserHandler{
-		userService: &services.UserService{},
+		userService:           &services.UserService{},
+		redemptionService:     &services.RedemptionService{},
+		redemptionCodeService: &services.RedemptionCodeService{},
 	}
 }
 
@@ -301,4 +305,75 @@ func (h *UserHandler) UpdateEmail(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user)
+}
+
+func (h *UserHandler) RedeemCode(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	var req services.RedeemCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	resp, err := h.redemptionService.RedeemCode(userID.(string), &req)
+	if err != nil {
+		switch err.Error() {
+		case "兑换码不存在", "兑换码已失效":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case "Emby 解封失败，请稍后重试", "兑换失败，请稍后重试":
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *UserHandler) ValidateRedeemCode(c *gin.Context) {
+	code := c.Param("code")
+
+	resp, err := h.redemptionCodeService.ValidateCode(code)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *UserHandler) GetRedemptions(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	var req services.GetRedemptionsRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	resp, err := h.redemptionService.GetRedemptions(userID.(string), &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *UserHandler) GetAllRedemptions(c *gin.Context) {
+	var req services.GetAllRedemptionsRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	resp, err := h.redemptionService.GetAllRedemptions(&req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
