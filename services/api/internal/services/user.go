@@ -104,9 +104,10 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 
 	// 计算新的到期时间
 	var newExpiry time.Time
-	if user.ExpiresAt == nil || user.ExpiresAt.Before(time.Now()) {
+	now := time.Now().UTC()
+	if user.ExpiresAt == nil || user.ExpiresAt.Before(now) {
 		// 如果未设置过期或已过期，从当前时间开始计算
-		newExpiry = time.Now().AddDate(0, 0, days)
+		newExpiry = now.AddDate(0, 0, days)
 	} else {
 		// 从原到期时间延长
 		newExpiry = user.ExpiresAt.AddDate(0, 0, days)

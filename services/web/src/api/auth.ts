@@ -1,5 +1,6 @@
 import request from './request'
 import type {
+  AdminInfo,
   LoginCredentials,
   LoginResponse,
   RedemptionCode,
@@ -43,4 +44,13 @@ export function validateRegistrationCode(code: string): Promise<RedemptionCode> 
     url: `/register/code/${code}/validate`,
     method: 'get'
   })
+}
+
+// 获取当前管理员信息
+export async function getCurrentAdmin(): Promise<AdminInfo> {
+  const response = await request<{ user: AdminInfo }>({
+    url: '/admin/current',
+    method: 'get'
+  })
+  return response.user
 }

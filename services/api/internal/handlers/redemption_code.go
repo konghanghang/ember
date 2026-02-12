@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -50,7 +51,7 @@ func (h *RedemptionCodeHandler) GetRedemptionCodes(c *gin.Context) {
 func (h *RedemptionCodeHandler) DeleteRedemptionCode(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.service.DeleteRedemptionCode(id); err != nil {
-		if err.Error() == "兑换码不存在" {
+		if errors.Is(err, services.ErrRedemptionCodeNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}

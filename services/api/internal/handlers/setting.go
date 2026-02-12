@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,7 @@ func (h *SettingHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	if err := h.service.SetSetting(key, req.Value); err != nil {
-		if err.Error() == "配置项不存在" {
+		if errors.Is(err, services.ErrSettingNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}

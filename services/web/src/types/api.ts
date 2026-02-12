@@ -200,3 +200,7 @@ export interface TmdbSelection {
   name: string
   posterPath?: string
 }
+
+// AdminInfo 是 UserInfo 的类型别名
+// 后端使用统一的 User 模型，通过 role 字段区分 admin 和 user
+export type AdminInfo = UserInfo

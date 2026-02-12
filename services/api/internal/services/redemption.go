@@ -69,7 +69,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		return nil, errors.New("用户不存在")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	var newExpiry time.Time
 	if user.ExpiresAt == nil || user.ExpiresAt.Before(now) {
 		newExpiry = now.AddDate(0, 0, code.DefaultDays)
@@ -79,7 +79,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
-		return nil, errors.New("兑换失败，请稍后重试")
+		return nil, ErrRedeemFailed
 	}
 
 	user.ExpiresAt = &newExpiry
@@ -88,14 +88,14 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		embyService := NewEmbyService()
 		if err := embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{IsDisabled: false}); err != nil {
 			tx.Rollback()
-			return nil, errors.New("Emby 解封失败，请稍后重试")
+			return nil, ErrEmbyUnbanFailed
 		}
 		user.EmbyDisabled = false
 	}
 
 	if err := tx.Save(&user).Error; err != nil {
 		tx.Rollback()
-		return nil, errors.New("兑换失败，请稍后重试")
+		return nil, ErrRedeemFailed
 	}
 
 	result := tx.Model(&models.RedemptionCode{}).
@@ -103,11 +103,11 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
 	if result.Error != nil {
 		tx.Rollback()
-		return nil, errors.New("兑换失败，请稍后重试")
+		return nil, ErrRedeemFailed
 	}
 	if result.RowsAffected == 0 {
 		tx.Rollback()
-		return nil, errors.New("兑换码已失效")
+		return nil, ErrRedemptionCodeInvalid
 	}
 
 	if err := tx.Create(&models.Redemption{
@@ -116,11 +116,11 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		Days:   code.DefaultDays,
 	}).Error; err != nil {
 		tx.Rollback()
-		return nil, errors.New("兑换失败，请稍后重试")
+		return nil, ErrRedeemFailed
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		return nil, errors.New("兑换失败，请稍后重试")
+		return nil, ErrRedeemFailed
 	}
 
 	return &RedeemCodeResponse{

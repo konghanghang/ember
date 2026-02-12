@@ -33,7 +33,7 @@ func (r *RedemptionCode) IsValid() bool {
 	if r.UsedCount >= r.MaxUses {
 		return false
 	}
-	if r.ExpiresAt != nil && r.ExpiresAt.Before(time.Now()) {
+	if r.ExpiresAt != nil && r.ExpiresAt.Before(time.Now().UTC()) {
 		return false
 	}
 	return true

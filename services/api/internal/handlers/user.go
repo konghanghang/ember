@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -318,10 +319,10 @@ func (h *UserHandler) RedeemCode(c *gin.Context) {
 
 	resp, err := h.redemptionService.RedeemCode(userID.(string), &req)
 	if err != nil {
-		switch err.Error() {
-		case "兑换码不存在", "兑换码已失效":
+		switch {
+		case errors.Is(err, services.ErrRedemptionCodeNotFound), errors.Is(err, services.ErrRedemptionCodeInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case "Emby 解封失败，请稍后重试", "兑换失败，请稍后重试":
+		case errors.Is(err, services.ErrEmbyUnbanFailed), errors.Is(err, services.ErrRedeemFailed):
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -39,7 +39,7 @@ func (u *User) IsExpired() bool {
 	if u.ExpiresAt == nil {
 		return false
 	}
-	return u.ExpiresAt.Before(time.Now())
+	return u.ExpiresAt.Before(time.Now().UTC())
 }
 
 // IsAdmin 是否为管理员

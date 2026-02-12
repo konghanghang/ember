@@ -117,11 +117,11 @@ func (s *RedemptionCodeService) ValidateCode(code string) (*models.RedemptionCod
 	var redemptionCode models.RedemptionCode
 	result := db.DB.Where("code = ?", code).First(&redemptionCode)
 	if result.Error != nil {
-		return nil, errors.New("兑换码不存在")
+		return nil, ErrRedemptionCodeNotFound
 	}
 
 	if !redemptionCode.IsValid() {
-		return nil, errors.New("兑换码已失效")
+		return nil, ErrRedemptionCodeInvalid
 	}
 
 	return &redemptionCode, nil
@@ -137,7 +137,7 @@ func (s *RedemptionCodeService) UseCode(code string) error {
 		return errors.New("使用兑换码失败")
 	}
 	if result.RowsAffected == 0 {
-		return errors.New("兑换码已失效")
+		return ErrRedemptionCodeInvalid
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 // AuthService 认证服务
@@ -131,16 +132,31 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		ExpiresAt: &expiresAt,
 		IsActive:  true,
 	}
-	user.SetPassword(req.Password)
+	if err := user.SetPassword(req.Password); err != nil {
+		return nil, errors.New("创建用户失败")
+	}
 
-	if err := db.DB.Create(&user).Error; err != nil {
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		return nil, errors.New("创建用户失败")
+	}
+
+	if err := tx.Create(&user).Error; err != nil {
+		tx.Rollback()
 		return nil, errors.New("创建用户失败")
 	}
 
 	if mode == "invite" && redemptionCode != nil {
-		codeService := &RedemptionCodeService{}
-		if err := codeService.UseCode(req.Code); err != nil {
-			log.Printf("⚠️  兑换码使用次数更新失败（不影响注册）：code=%s, err=%v", req.Code, err)
+		result := tx.Model(&models.RedemptionCode{}).
+			Where("code = ? AND \"usedCount\" < \"maxUses\"", req.Code).
+			Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
+		if result.Error != nil {
+			tx.Rollback()
+			return nil, errors.New("创建用户失败")
+		}
+		if result.RowsAffected == 0 {
+			tx.Rollback()
+			return nil, ErrRedemptionCodeInvalid
 		}
 
 		redemption := models.Redemption{
@@ -148,7 +164,14 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 			Code:   req.Code,
 			Days:   defaultDays,
 		}
-		db.DB.Create(&redemption)
+		if err := tx.Create(&redemption).Error; err != nil {
+			tx.Rollback()
+			return nil, errors.New("创建用户失败")
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, errors.New("创建用户失败")
 	}
 
 	token, err := common.GenerateToken(user.ID, user.Username, "user")

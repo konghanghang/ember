@@ -32,7 +32,7 @@ func (s *SettingService) GetSettingModel(key string) (*models.Setting, error) {
 // SetSetting 设置配置值（带校验）
 func (s *SettingService) SetSetting(key, value string) error {
 	if key != "registration_mode" && key != "default_trial_days" {
-		return errors.New("配置项不存在")
+		return ErrSettingNotFound
 	}
 
 	switch key {
@@ -49,7 +49,7 @@ func (s *SettingService) SetSetting(key, value string) error {
 
 	var setting models.Setting
 	if err := db.DB.Where("key = ?", key).First(&setting).Error; err != nil {
-		return errors.New("配置项不存在")
+		return ErrSettingNotFound
 	}
 
 	setting.Value = value

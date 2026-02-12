@@ -213,7 +213,7 @@ onMounted(refreshAll)
           <el-form-item label="邮箱">
             <div class="flex w-full gap-4">
               <el-input v-model="user.email" placeholder="输入新邮箱" class="input-ember flex-1" />
-              <button class="btn-ember px-4 py-2 rounded-lg text-sm" @click="handleUpdateEmail">更新</button>
+              <button type="button" class="btn-ember px-4 py-2 rounded-lg text-sm" @click="handleUpdateEmail">更新</button>
             </div>
           </el-form-item>
         </el-form>
@@ -232,7 +232,7 @@ onMounted(refreshAll)
             <el-input v-model="passwordForm.confirmPassword" type="password" show-password class="input-ember" />
           </el-form-item>
           <el-form-item class="mt-8">
-            <button class="btn-ember w-full py-2.5 rounded-lg font-medium" @click="handleUpdatePassword">修改密码</button>
+            <button type="button" class="btn-ember w-full py-2.5 rounded-lg font-medium" @click="handleUpdatePassword">修改密码</button>
           </el-form-item>
         </el-form>
       </div>
