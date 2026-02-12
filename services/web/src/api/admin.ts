@@ -1,7 +1,11 @@
 import request from './request'
 import type {
-  CreateInviteRequest,
-  InviteListResponse,
+  CreateRedemptionCodeRequest,
+  RedemptionCode,
+  RedemptionCodeListResponse,
+  RedemptionListResponse,
+  Setting,
+  UpdateSettingRequest,
   Subscription,
   SubscriptionListQuery,
   SystemInfoResponse,
@@ -57,28 +61,50 @@ export function resetUserPassword(id: string, newPassword: string) {
   })
 }
 
-// Invite Management
-export function getInvites(params?: Record<string, never>): Promise<InviteListResponse> {
+export function getRedemptionCodes(params?: { page?: number; pageSize?: number; showAll?: boolean }): Promise<RedemptionCodeListResponse> {
   return request({
-    url: '/admin/invites',
+    url: '/admin/redemption-codes',
     method: 'get',
     params
   })
 }
 
-export function createInvite(data: CreateInviteRequest): Promise<{ invite: InviteListResponse['invites'][number] }> {
+export function createRedemptionCode(data: CreateRedemptionCodeRequest): Promise<RedemptionCode> {
   return request({
-    url: '/admin/invites',
+    url: '/admin/redemption-codes',
     method: 'post',
     data
   })
 }
 
-export function deleteInvite(id: string) {
+export function deleteRedemptionCode(id: string) {
   return request({
-    url: `/admin/invites/${id}`,
+    url: `/admin/redemption-codes/${id}`,
     method: 'delete'
   })
+}
+
+export function getSettings(): Promise<Setting[]> {
+	return request({
+		url: '/admin/settings',
+		method: 'get'
+	})
+}
+
+export function updateSetting(key: string, data: UpdateSettingRequest): Promise<Setting> {
+	return request({
+		url: `/admin/settings/${key}`,
+		method: 'put',
+		data
+	})
+}
+
+export function getAllRedemptions(params?: { page?: number; pageSize?: number; userId?: string }): Promise<RedemptionListResponse> {
+	return request({
+		url: '/admin/redemptions',
+		method: 'get',
+		params
+	})
 }
 
 // Subscription Management

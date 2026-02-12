@@ -36,7 +36,7 @@ const router = useRouter()
           <p class="text-lg text-gray-500 max-w-lg mx-auto lg:mx-0 mb-8 font-medium leading-relaxed">
             为您的 Emby 服务器打造的自动化管家。
             <br class="hidden md:block"/>
-            从邀请注册到求片订阅，一切自动完成。
+            从注册到求片订阅，一切自动完成。
           </p>
           
           <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
@@ -155,7 +155,7 @@ const router = useRouter()
             </div>
             <h4 class="text-lg font-bold text-gray-900 mb-3">自助注册系统</h4>
             <p class="text-sm text-gray-500 leading-relaxed">
-              告别手动发号。用户通过邀请码即可自助完成 Emby 账号注册，权限自动下发，省时省力。
+              告别手动发号。用户可直接注册体验 Emby 服务，权限自动下发，省时省力。
             </p>
           </div>
 
@@ -213,5 +213,4 @@ const router = useRouter()
   animation: float 5s ease-in-out infinite;
 }
 </style>
-
 

@@ -54,9 +54,9 @@ const router = createRouter({
           component: () => import('../views/admin/UsersView.vue'),
         },
         {
-          path: 'invites',
-          name: 'admin-invites',
-          component: () => import('../views/admin/InvitesView.vue'),
+          path: 'redemption-codes',
+          name: 'admin-redemption-codes',
+          component: () => import('../views/admin/RedemptionCodesView.vue'),
         },
         {
           path: 'subscriptions',

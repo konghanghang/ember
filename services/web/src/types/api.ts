@@ -11,7 +11,7 @@ export interface RegisterRequest {
   username: string
   password: string
   email: string
-  inviteCode: string
+  code?: string
 }
 
 export interface UserInfo {
@@ -20,6 +20,7 @@ export interface UserInfo {
   role: UserRole
   email?: string
   embyId?: string
+  embyDisabled?: boolean
   expiresAt?: string
   isActive: boolean
   createdAt: string
@@ -28,6 +29,7 @@ export interface UserInfo {
 export interface LoginResponse {
   token: string
   user: UserInfo
+  isExpired?: boolean
 }
 
 export interface RegisterResponse {
@@ -51,7 +53,7 @@ export interface UserListResponse {
   pageSize: number
 }
 
-export interface Invite {
+export interface RedemptionCode {
   id: string
   code: string
   maxUses: number
@@ -61,22 +63,60 @@ export interface Invite {
   createdAt: string
 }
 
-export interface InviteListResponse {
-  data: Invite[]
+export interface RedemptionCodeListResponse {
+  data: RedemptionCode[]
   total: number
   page: number
   pageSize: number
+  totalPages: number
 }
 
-export interface ValidateInviteResponse {
-  valid: boolean
-  invite: Invite
-}
-
-export interface CreateInviteRequest {
-  maxUses?: number
-  defaultDays?: number
+export interface CreateRedemptionCodeRequest {
+  maxUses: number
+  defaultDays: number
   expiresAt?: string | null
+}
+
+export interface Redemption {
+  id: string
+  userId: string
+  code: string
+  days: number
+  createdAt: string
+  username?: string
+}
+
+export interface RedemptionListResponse {
+  data: Redemption[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+export interface RedeemCodeRequest {
+  code: string
+}
+
+export interface RedeemCodeResponse {
+  message: string
+  days: number
+  expiresAt: string
+}
+
+export interface RegistrationModeResponse {
+  mode: 'open' | 'invite'
+  defaultTrialDays?: number
+}
+
+export interface Setting {
+  key: string
+  value: string
+  updatedAt: string
+}
+
+export interface UpdateSettingRequest {
+  value: string
 }
 
 export interface Subscription {
@@ -113,7 +153,7 @@ export interface SystemInfoResponse {
   info: {
     userCount: number
     activeUserCount: number
-    inviteCount: number
+    redemptionCodeCount: number
   }
 }
 

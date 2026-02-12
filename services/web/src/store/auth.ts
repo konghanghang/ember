@@ -54,10 +54,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  const validateInvite = async (code: string) => {
-    return await authApi.validateInviteCode(code)
-  }
-
   return {
     token,
     role,
@@ -69,7 +65,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     setAuth,
     clearAuth,
-    restoreAuth,
-    validateInvite
+    restoreAuth
   }
 })

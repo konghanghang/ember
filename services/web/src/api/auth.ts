@@ -2,9 +2,10 @@ import request from './request'
 import type {
   LoginCredentials,
   LoginResponse,
+  RedemptionCode,
+  RegistrationModeResponse,
   RegisterRequest,
-  RegisterResponse,
-  ValidateInviteResponse
+  RegisterResponse
 } from '@/types/api'
 
 // 统一登录
@@ -30,10 +31,16 @@ export function register(data: RegisterRequest): Promise<RegisterResponse> {
   })
 }
 
-// 验证邀请码
-export function validateInviteCode(code: string): Promise<ValidateInviteResponse> {
+export function getRegistrationMode(): Promise<RegistrationModeResponse> {
   return request({
-    url: `/invites/${code}/validate`,
+    url: '/register/mode',
+    method: 'get'
+  })
+}
+
+export function validateRegistrationCode(code: string): Promise<RedemptionCode> {
+  return request({
+    url: `/register/code/${code}/validate`,
     method: 'get'
   })
 }

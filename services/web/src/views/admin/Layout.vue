@@ -29,9 +29,9 @@ const handleLogout = async () => {
             <el-icon><User /></el-icon>
             <span>用户管理</span>
           </el-menu-item>
-          <el-menu-item index="/admin/invites">
+          <el-menu-item index="/admin/redemption-codes">
             <el-icon><Ticket /></el-icon>
-            <span>邀请码管理</span>
+            <span>兑换码管理</span>
           </el-menu-item>
           <el-menu-item index="/admin/subscriptions">
             <el-icon><VideoPlay /></el-icon>

@@ -3,6 +3,10 @@ import type {
   CreateSubscriptionRequest,
   EmbyConfigResponse,
   MediaStatsResponse,
+  RedeemCodeRequest,
+  RedeemCodeResponse,
+  RedemptionCode,
+  RedemptionListResponse,
   Subscription,
   TmdbSearchResponse,
   UserInfo
@@ -38,6 +42,29 @@ export function updateUserPassword(data: { oldPassword: string; newPassword: str
     method: 'put',
     data
   })
+}
+
+export function redeemCode(data: RedeemCodeRequest): Promise<RedeemCodeResponse> {
+	return request({
+		url: '/user/redeem',
+		method: 'post',
+		data
+	})
+}
+
+export function validateRedeemCode(code: string): Promise<RedemptionCode> {
+	return request({
+		url: `/user/redeem/${code}/validate`,
+		method: 'get'
+	})
+}
+
+export function getRedemptions(params?: { page?: number; pageSize?: number }): Promise<RedemptionListResponse> {
+	return request({
+		url: '/user/redemptions',
+		method: 'get',
+		params
+	})
 }
 
 // Media Info
