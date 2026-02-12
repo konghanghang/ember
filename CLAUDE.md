@@ -176,6 +176,7 @@
   - 前端：Vue 3 + TypeScript + Element Plus
   - 数据库：PostgreSQL 15（使用 GORM 管理 Schema）
 - **详细信息**：[README.md](./README.md)
+- **⭐ 系统架构**：[docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md) — 数据模型、服务逻辑、API 端点、前端结构的完整参考，**开始工作前务必先读此文件**
 
 **目录结构**：
 ```
