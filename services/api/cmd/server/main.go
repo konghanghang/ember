@@ -46,11 +46,10 @@ func main() {
 	{
 		// ==================== 公开路由（无需认证） ====================
 
-		// 管理员登录
-		api.POST("/admin/login", authHandler.AdminLogin)
-
-		// 用户认证
-		api.POST("/user/login", authHandler.UserLogin)
+		// 统一登录（admin/user）
+		api.POST("/login", authHandler.Login)
+		// 统一登出（JWT 无状态，仅需认证，不区分角色）
+		api.POST("/logout", middleware.JWTAuth(), authHandler.Logout)
 		api.POST("/user/register", authHandler.RegisterUser)
 
 		// 邀请码验证（公开）
@@ -65,7 +64,6 @@ func main() {
 		{
 			// 认证相关
 			admin.GET("/current", authHandler.GetCurrentUser)
-			admin.POST("/logout", authHandler.AdminLogout)
 
 			// 用户管理
 			admin.GET("/users", userHandler.GetUsers)
@@ -97,9 +95,6 @@ func main() {
 		user := api.Group("/user")
 		user.Use(middleware.JWTAuth(), middleware.UserOnly())
 		{
-			// 认证相关
-			user.POST("/logout", authHandler.UserLogout)
-
 			// 个人信息
 			user.GET("/profile", userHandler.GetProfile)
 			user.PUT("/profile", userHandler.UpdateProfile)
