@@ -1012,42 +1012,907 @@ router.push('/login')
 
 ---
 
+## 附加清理：彻底删除 Prisma + 移除所有外键
+
+### 背景
+
+当前项目遗留了 Prisma 备份文件和文档引用，且 GORM model 中定义了外键关系。需要：
+1. 彻底删除所有 Prisma 相关文件和引用
+2. 移除所有 GORM model 中的外键定义（保留简单关联查询，删除约束）
+
+### 步骤 A：删除 Prisma 残留
+
+#### A1. 删除备份文件
+
+```bash
+# 删除 Prisma schema 备份（已无用）
+rm -rf /Users/konghang/data/me/github/ember/backups/backup_20260210_173715/
+```
+
+#### A2. 清理 .gitignore
+
+**文件**：`.gitignore`
+
+移除第 37-43 行的 Prisma 相关配置：
+
+```bash
+# 改前（第 37-43 行）
+# Prisma
+*.db
+*.db-journal
+/app/generated/prisma
+
+# prisma/migrations/ 应该被提交，作为数据库 schema 的版本控制
+
+# 改后（删除整段）
+```
+
+#### A3. 更新文档引用
+
+**文件 1**：`CLAUDE.md`（第 177 行）
+
+```markdown
+<!-- 改前 -->
+数据库：PostgreSQL 15（使用 Prisma 管理 Schema）
+
+<!-- 改后 -->
+数据库：PostgreSQL 15（使用 GORM 管理 Schema）
+```
+
+**文件 2**：`README.md`（第 215 行）
+
+```markdown
+<!-- 改前 -->
+数据库连接层（与 Prisma 兼容）
+
+<!-- 改后 -->
+数据库连接层（GORM ORM）
+```
+
+**文件 3**：`CHANGELOG.md`（第 39、83 行）
+
+```markdown
+<!-- 改前 -->
+**数据库**: PostgreSQL 16 + Prisma ORM
+
+<!-- 改后 -->
+**数据库**: PostgreSQL 16 + GORM
+
+<!-- 改前 -->
+✅ SQL 注入防护（Prisma ORM）
+
+<!-- 改后 -->
+✅ SQL 注入防护（GORM 参数化查询）
+```
+
+**文件 4-7**：归档文档（可选删除或标注过期）
+
+- `docs/MIGRATION-GUIDE.md` - 保留作为历史记录，或删除
+- `docs/specs/archive/*.md` - 归档文件，建议保留不改
+
+#### A4. 清理 CI/CD
+
+**文件**：`.github/workflows/ci.yml`
+
+检查是否有 Prisma 相关步骤（如 `prisma validate`、`prisma generate`），删除：
+
+```yaml
+# 改前（示例）
+- name: Validate Prisma Schema
+  run: npx prisma validate
+
+# 改后（删除整个 step）
+```
+
+---
+
+### 步骤 B：删除所有外键定义
+
+#### 当前外键关系
+
+```
+invites.code ←─ users.inviteCode  (GORM foreignKey)
+users.id     ←─ subscriptions.userId  (GORM foreignKey)
+```
+
+#### B1. User Model 移除外键
+
+**文件**：`services/api/internal/models/user.go`
+
+```go
+// 改前（第 28-31 行）
+	// 关联：注册时使用的邀请码（可选关系，邀请码可能被删除）
+	Invite *Invite `json:"-" gorm:"foreignKey:InviteCode;references:Code"`
+
+	// 关联：用户的订阅记录
+	Subscriptions []Subscription `json:"-" gorm:"foreignKey:UserID"`
+
+// 改后（完全删除）
+	// （删除 Invite 关联）
+	// （删除 Subscriptions 关联）
+```
+
+**说明**：
+- 删除 `Invite` 字段 → 不再支持 `db.Preload("Invite")` 关联查询
+- 删除 `Subscriptions` 字段 → 不再支持 `db.Preload("Subscriptions")` 关联查询
+- 如需查询关联数据，改为手动 JOIN 或多次查询
+
+#### B2. Subscription Model 移除外键
+
+**文件**：`services/api/internal/models/subscription.go`
+
+```go
+// 改前（第 42 行）
+	User *User `json:"-" gorm:"foreignKey:UserID"`
+
+// 改后（删除）
+	// （删除 User 关联）
+```
+
+#### B3. Invite Model 移除外键
+
+**文件**：`services/api/internal/models/invite.go`
+
+```go
+// 改前（第 21 行）
+	Users []User `json:"-" gorm:"foreignKey:InviteCode;references:Code"`
+
+// 改后（删除）
+	// （删除 Users 关联）
+```
+
+#### B4. 检查代码中的关联查询
+
+搜索 `Preload` 使用：
+
+```bash
+grep -r "Preload" services/api/internal --include="*.go"
+```
+
+如果发现类似代码：
+
+```go
+// 改前（需要修改）
+db.Preload("Invite").Find(&users)
+db.Preload("Subscriptions").First(&user, userID)
+
+// 改后（手动查询或 JOIN）
+// 方案 1：手动查询
+db.Find(&users)
+var invite Invite
+db.Where("code = ?", user.InviteCode).First(&invite)
+
+// 方案 2：使用 JOIN（如果需要）
+db.Table("users").
+  Select("users.*, invites.code").
+  Joins("LEFT JOIN invites ON users.invite_code = invites.code").
+  Find(&users)
+```
+
+#### B5. 数据库迁移 SQL
+
+如果数据库已存在外键约束（由 GORM AutoMigrate 或手动创建），需删除：
+
+```sql
+-- 删除 users 表的外键约束
+ALTER TABLE users DROP CONSTRAINT IF EXISTS fk_invites_users;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_invite_code_fkey;
+
+-- 删除 subscriptions 表的外键约束
+ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS fk_users_subscriptions;
+ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS subscriptions_user_id_fkey;
+
+-- 验证外键是否全部删除
+SELECT conname, conrelid::regclass, confrelid::regclass
+FROM pg_constraint
+WHERE contype = 'f';
+-- 预期：无结果或只剩其他表的外键
+```
+
+---
+
+### 步骤 C：验证清理结果
+
+#### C1. 检查 Prisma 残留
+
+```bash
+# 搜索 "prisma" 关键词（忽略大小写）
+grep -ri "prisma" . \
+  --exclude-dir=node_modules \
+  --exclude-dir=.git \
+  --exclude-dir=backups \
+  --exclude="*.md" \
+  | grep -v "Binary file"
+
+# 预期：无结果或仅在注释/归档文档中
+```
+
+#### C2. 检查外键定义
+
+```bash
+# 搜索 GORM foreignKey 标签
+grep -r "foreignKey" services/api/internal/models --include="*.go"
+
+# 预期：无结果
+```
+
+#### C3. 编译验证
+
+```bash
+cd services/api
+go build ./...
+
+# 预期：编译成功，无错误
+```
+
+#### C4. 数据库验证
+
+```bash
+# 连接数据库检查外键
+psql $DATABASE_URL -c "
+SELECT conname AS constraint_name,
+       conrelid::regclass AS table_name,
+       confrelid::regclass AS referenced_table
+FROM pg_constraint
+WHERE contype = 'f';
+"
+
+# 预期：无结果（所有外键已删除）
+```
+
+---
+
+### 为什么删除外键？
+
+**Linus 的观点**：数据库的职责是存储数据，不是强制业务规则。
+
+**问题**：
+1. `inviteCode` 是历史快照（记录用哪个码注册的），不是活跃关系
+2. admin 用户没有 `inviteCode`，外键阻止创建
+3. 文档自己说"邀请码删除不影响用户"，但外键会阻止删除邀请码
+4. 外键增加数据库复杂度，应用层已有验证（注册时检查邀请码有效性）
+
+**解决**：
+- 删除外键约束
+- 保留字段（`inviteCode`、`userId`）用于应用层关联
+- 应用层负责数据一致性验证
+
+---
+
 ## 变更总览
 
-| 操作 | 文件 |
-|------|------|
-| 删除 | `services/api/internal/models/admin.go` |
-| 删除 | `services/web/src/views/admin/LoginView.vue` |
-| 删除 | `services/web/src/views/user/LoginView.vue` |
-| 新建 | `services/web/src/views/LoginView.vue` |
-| 修改 | `services/api/internal/models/user.go` |
-| 修改 | `services/api/internal/db/db.go` |
-| 修改 | `services/api/internal/services/auth.go` |
-| 修改 | `services/api/internal/handlers/auth.go` |
-| 修改 | `services/api/cmd/server/main.go` |
-| 修改 | `services/web/src/types/api.ts` |
-| 修改 | `services/web/src/api/auth.ts` |
-| 修改 | `services/web/src/store/auth.ts` |
-| 修改 | `services/web/src/router/index.ts` |
-| 修改 | `services/web/src/api/request.ts` |
-| 修改 | `services/web/src/components/home/Navbar.vue` |
-| 修改 | `services/web/src/views/HomeView.vue` |
+| 操作 | 文件 | 说明 |
+|------|------|------|
+| **统一认证** |||
+| 删除 | `services/api/internal/models/admin.go` | 删除 Admin 模型 |
+| 删除 | `services/web/src/views/admin/LoginView.vue` | 删除 admin 登录页 |
+| 删除 | `services/web/src/views/user/LoginView.vue` | 删除 user 登录页 |
+| 新建 | `services/web/src/views/LoginView.vue` | 统一登录页 |
+| 修改 | `services/api/internal/models/user.go` | 新增 role/password，移除外键 |
+| 修改 | `services/api/internal/db/db.go` | AutoMigrate 开关，seedDefaultAdmin |
+| 修改 | `services/api/internal/services/auth.go` | 统一 Login，移除 AdminLogin/UserLogin |
+| 修改 | `services/api/internal/handlers/auth.go` | 统一 Login/Logout handler |
+| 修改 | `services/api/cmd/server/main.go` | 统一 /login 路由 |
+| 修改 | `services/web/src/types/api.ts` | 删除 AdminInfo，UserInfo 新增 role |
+| 修改 | `services/web/src/api/auth.ts` | 统一 login()，删除 userLogin() |
+| 修改 | `services/web/src/store/auth.ts` | 统一 login action |
+| 修改 | `services/web/src/router/index.ts` | 统一 /login 路由 |
+| 修改 | `services/web/src/api/request.ts` | 简化 401 处理 |
+| 修改 | `services/web/src/components/home/Navbar.vue` | 登录链接指向 /login |
+| 修改 | `services/web/src/views/HomeView.vue` | 登录按钮文案 |
+| **清理 Prisma** |||
+| 删除 | `backups/backup_20260210_173715/` | 删除 Prisma schema 备份 |
+| 修改 | `.gitignore` | 移除 Prisma 相关配置 |
+| 修改 | `CLAUDE.md` | 更新数据库描述 |
+| 修改 | `README.md` | 更新数据库描述 |
+| 修改 | `CHANGELOG.md` | 更新 ORM 引用 |
+| 修改 | `.github/workflows/ci.yml` | 删除 Prisma 验证步骤（如有） |
+| **移除外键** |||
+| 修改 | `services/api/internal/models/user.go` | 删除 Invite/Subscriptions 关联 |
+| 修改 | `services/api/internal/models/subscription.go` | 删除 User 关联 |
+| 修改 | `services/api/internal/models/invite.go` | 删除 Users 关联 |
+| 执行 | SQL 迁移 | DROP CONSTRAINT 删除数据库外键 |
 
-**净效果**：删 3 文件，新建 1 文件，修改 12 文件。代码总量净减少。
+**净效果**：
+- **统一认证**：删 3 文件，新建 1 文件，修改 12 文件
+- **清理 Prisma**：删 1 目录，修改 5 文件
+- **移除外键**：修改 3 models，执行 SQL
+- **总计**：删除 4 项，新建 1 文件，修改 20 文件，代码总量净减少
 
 ---
 
 ## 验证步骤
 
-1. 后端编译：`cd services/api && go build ./...`
-2. 前端构建：`cd services/web && npm run build`
-3. 手动测试：
-   - `POST /api/v1/login`（admin 凭据）→ 返回 `role: "admin"`
-   - `POST /api/v1/login`（user 凭据）→ 返回 `role: "user"`
-   - `POST /api/v1/logout`（任意有效 token）→ 200
-   - `POST /api/v1/logout`（无 token）→ 401
-   - admin token 访问 `/api/v1/admin/*` → 200
-   - user token 访问 `/api/v1/admin/*` → 403
-   - 前端 `/login` 页面正常渲染
-   - admin 登录后跳转 `/admin/users`
-   - user 登录后跳转 `/user/dashboard`
+### 1. 代码验证
+
+```bash
+# 后端编译
+cd services/api && go build ./...
+
+# 前端构建
+cd services/web && npm run build
+
+# 检查 Prisma 残留
+grep -ri "prisma" . \
+  --exclude-dir=node_modules \
+  --exclude-dir=.git \
+  --exclude-dir=backups \
+  --exclude="*.md" | grep -v "Binary"
+# 预期：无结果
+
+# 检查 GORM 外键定义
+grep -r "foreignKey" services/api/internal/models --include="*.go"
+# 预期：无结果
+```
+
+### 2. 数据库验证
+
+```bash
+# 检查外键约束
+psql $DATABASE_URL -c "
+SELECT conname, conrelid::regclass, confrelid::regclass
+FROM pg_constraint
+WHERE contype = 'f';
+"
+# 预期：无结果或只剩无关外键
+
+# 验证表结构
+psql $DATABASE_URL -c "\d users"
+# 预期：有 role、password 字段，inviteCode/email/embyId 可为 NULL
+```
+
+### 3. 功能测试
+
+**统一认证**：
+- `POST /api/v1/login`（admin 凭据）→ 返回 `role: "admin"`
+- `POST /api/v1/login`（user 凭据）→ 返回 `role: "user"`
+- `POST /api/v1/logout`（任意有效 token）→ 200
+- `POST /api/v1/logout`（无 token）→ 401
+- admin token 访问 `/api/v1/admin/*` → 200
+- user token 访问 `/api/v1/admin/*` → 403
+
+**前端**：
+- `/login` 页面正常渲染
+- admin 登录后跳转 `/admin/users`
+- user 登录后跳转 `/user/dashboard`
+
+**管理员初始化**：
+- 首次启动输出 `✅ 默认管理员已创建：admin`
+- 再次启动静默跳过（幂等）
+
+**外键删除验证**：
+- 删除邀请码后，相关用户记录不受影响
+- 创建 admin 用户成功（`inviteCode` 为空）
+
+---
+
+## 上线指南：管理员初始化
+
+### 生产环境部署流程
+
+统一认证后，管理员账号通过 **环境变量自动初始化**，无需手动执行 SQL 脚本。
+
+#### 1. 配置环境变量
+
+在 `.env` 文件（或部署环境的环境变量配置）中添加：
+
+```bash
+# ===========================================
+# 管理员初始化配置（首次部署必须配置）
+# ===========================================
+
+ADMIN_USERNAME=admin                      # 管理员用户名
+ADMIN_PASSWORD=你的超强密码123!@#         # 管理员密码（必须修改）
+
+# ===========================================
+# 数据库迁移开关（首次部署或更新时开启）
+# ===========================================
+
+AUTO_MIGRATE=true                         # 启用自动迁移（新项目开启）
+
+# ===========================================
+# 其他必要配置
+# ===========================================
+
+DATABASE_URL=postgresql://...             # 数据库连接
+JWT_SECRET=$(openssl rand -base64 32)     # JWT 密钥（32+ 字符）
+```
+
+**密码要求**：
+- ✅ 最少 8 个字符（推荐 16+ 字符）
+- ✅ 包含大小写字母、数字、特殊字符
+- ❌ 禁止弱密码：`admin`、`123456`、`password`
+
+**生成强密码命令**：
+```bash
+# 方法 1: 使用 openssl（16 字符）
+openssl rand -base64 16
+
+# 方法 2: 使用 pwgen（20 字符，包含特殊字符）
+pwgen -s 20 1
+
+# 方法 3: 使用 /dev/urandom（32 字符）
+head /dev/urandom | tr -dc A-Za-z0-9 | head -c 32
+```
+
+#### 2. 启动应用
+
+```bash
+# Docker Compose 部署
+docker compose up -d
+
+# 查看日志确认初始化成功
+docker compose logs api | grep -E "(管理员|admin)"
+
+# 预期输出（成功）：
+# ✅ 默认管理员已创建：admin
+
+# 预期输出（已存在，跳过）：
+# （无日志输出，静默跳过）
+
+# 预期输出（未配置环境变量）：
+# ⚠️  跳过 admin 初始化：ADMIN_USERNAME 或 ADMIN_PASSWORD 未设置
+```
+
+#### 3. 验证登录
+
+```bash
+# 测试管理员登录
+curl -X POST http://localhost:8080/api/v1/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "你配置的密码"
+  }'
+
+# 预期响应：
+{
+  "token": "eyJhbGciOiJIUzI1Ni...",
+  "user": {
+    "id": "clxxxxx",
+    "username": "admin",
+    "role": "admin",
+    "isActive": true,
+    "createdAt": "2026-02-12T..."
+  }
+}
+```
+
+#### 4. 前端登录测试
+
+访问 `http://localhost:3000/login`（或生产域名），使用管理员账号登录：
+
+- **用户名**：`admin`（或 `.env` 中配置的 `ADMIN_USERNAME`）
+- **密码**：`.env` 中配置的 `ADMIN_PASSWORD`
+
+登录成功后应跳转到 `/admin/users`。
+
+---
+
+### 工作原理
+
+**自动初始化逻辑**（`services/api/internal/db/db.go`）：
+
+```go
+func seedDefaultAdmin() {
+    // 1. 检查是否已存在 admin 用户（幂等）
+    var count int64
+    DB.Model(&models.User{}).Where("role = ?", "admin").Count(&count)
+    if count > 0 {
+        return  // 已存在，跳过
+    }
+
+    // 2. 读取环境变量
+    username := os.Getenv("ADMIN_USERNAME")
+    password := os.Getenv("ADMIN_PASSWORD")
+    if username == "" || password == "" {
+        log.Println("⚠️  跳过 admin 初始化：ADMIN_USERNAME 或 ADMIN_PASSWORD 未设置")
+        return
+    }
+
+    // 3. 创建管理员用户
+    admin := models.User{
+        Username: username,
+        Role:     "admin",
+        IsActive: true,
+    }
+    admin.SetPassword(password)  // bcrypt 加密
+    DB.Create(&admin)
+
+    log.Printf("✅ 默认管理员已创建：%s", admin.Username)
+}
+```
+
+**执行时机**：
+- `InitDB()` → `AutoMigrate()` → `seedDefaultAdmin()` → 应用启动完成
+
+**幂等保证**：
+- 启动 N 次只会创建 1 次
+- 已存在 admin 时，静默跳过
+- 多实例部署也安全（数据库层 `uniqueIndex` 保护）
+
+---
+
+### 安全最佳实践
+
+#### 部署前
+
+```bash
+# ✅ 使用强密码生成器
+ADMIN_PASSWORD=$(openssl rand -base64 20)
+
+# ✅ 将密码保存到安全的密码管理器
+# 如：1Password、Bitwarden、LastPass
+
+# ✅ 确保 .env 在 .gitignore 中
+echo ".env" >> .gitignore
+```
+
+#### 部署后（可选）
+
+```bash
+# 移除 .env 中的 ADMIN_PASSWORD 行（防止泄露）
+# 注意：移除后无法通过环境变量自动创建新 admin，但已有 admin 不受影响
+sed -i '/ADMIN_PASSWORD/d' .env
+
+# 或者设为空（效果相同）
+sed -i 's/ADMIN_PASSWORD=.*/ADMIN_PASSWORD=/' .env
+```
+
+#### 定期审计
+
+```bash
+# 检查数据库中的 admin 用户
+psql $DATABASE_URL -c "SELECT id, username, role, \"createdAt\" FROM users WHERE role='admin';"
+
+# 预期输出：应该只有 1 个 admin 用户
+```
+
+---
+
+### 常见问题
+
+#### Q1: 首次启动未创建管理员怎么办？
+
+**原因**：未配置 `ADMIN_USERNAME` 或 `ADMIN_PASSWORD`
+
+**解决**：
+```bash
+# 1. 补充 .env 配置
+echo "ADMIN_USERNAME=admin" >> .env
+echo "ADMIN_PASSWORD=你的强密码" >> .env
+
+# 2. 重启应用
+docker compose restart api
+```
+
+#### Q2: 多次重启会重复创建吗？
+
+**答**：不会。`seedDefaultAdmin()` 有幂等检查：
+
+```go
+if count > 0 {
+    return  // 已存在，跳过
+}
+```
+
+即使忘记移除 `ADMIN_PASSWORD` 也不会重复创建。
+
+#### Q3: 如何创建第二个管理员？
+
+**方式 1**：通过管理后台（推荐，待开发）
+
+未来可在管理后台添加"创建管理员"功能。
+
+**方式 2**：手动执行 SQL
+
+```sql
+INSERT INTO users (id, username, role, password, "isActive", "createdAt", "updatedAt")
+VALUES (
+  generate_cuid(),  -- 使用 CUID 生成函数
+  'admin2',
+  'admin',
+  '$2a$10$...',  -- bcrypt 密码哈希（见下方生成方法）
+  true,
+  NOW(),
+  NOW()
+);
+```
+
+**生成密码哈希**：
+```bash
+# 使用 Go（推荐，与应用一致）
+cd services/api
+go run -e "package main; import (\"fmt\"; \"golang.org/x/crypto/bcrypt\"); func main() { h, _ := bcrypt.GenerateFromPassword([]byte(\"新密码\"), 10); fmt.Println(string(h)) }"
+
+# 使用 Node.js（需要安装 bcryptjs）
+node -e "console.log(require('bcryptjs').hashSync('新密码', 10))"
+
+# 使用 Python（需要安装 bcrypt）
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'新密码', bcrypt.gensalt(10)).decode())"
+```
+
+#### Q4: 忘记管理员密码怎么办？
+
+**解决方法**：通过数据库重置密码
+
+```bash
+# 1. 生成新密码的 bcrypt 哈希（使用上面的方法之一）
+NEW_HASH=$(node -e "console.log(require('bcryptjs').hashSync('新密码123', 10))")
+
+# 2. 更新数据库
+psql $DATABASE_URL -c "UPDATE users SET password='$NEW_HASH' WHERE role='admin' AND username='admin'"
+
+# 3. 使用新密码登录
+```
+
+#### Q5: 如何禁用自动迁移（生产环境）？
+
+**原因**：生产环境应由 CI/CD 独立执行迁移，避免应用启动时的竞态条件。
+
+**配置**：
+```bash
+# .env 文件
+AUTO_MIGRATE=false  # 或完全不设置（默认 false）
+```
+
+应用日志输出：
+```
+ℹ️  AUTO_MIGRATE 未启用，跳过数据库迁移
+```
+
+---
+
+### 生产环境检查清单
+
+部署前确认：
+
+- [ ] `ADMIN_USERNAME` 已配置（推荐保持 `admin`）
+- [ ] `ADMIN_PASSWORD` 已设为强密码（16+ 字符）
+- [ ] `AUTO_MIGRATE=true`（首次部署时）
+- [ ] `JWT_SECRET` 已配置（32+ 字符）
+- [ ] `DATABASE_URL` 已配置并测试连通性
+- [ ] `.env` 文件在 `.gitignore` 中
+- [ ] 密码已保存到安全的密码管理器
+
+部署后验证：
+
+- [ ] 查看日志确认 admin 创建成功
+- [ ] 使用配置的密码成功登录
+- [ ] 登录后跳转到 `/admin/users`
+- [ ] 测试 admin token 可访问 `/api/v1/admin/*` 路由
+- [ ] （可选）从 `.env` 移除 `ADMIN_PASSWORD` 行
+
+定期检查：
+
+- [ ] 每季度审计 admin 用户数量（应为 1 个）
+- [ ] 每半年更换 admin 密码
+- [ ] 监控异常登录尝试（待开发日志功能）
+
+---
+
+## 附：环境变量完整清单
+
+统一认证后的必要环境变量：
+
+```bash
+# =================== 数据库 ===================
+DATABASE_URL=postgresql://user:pass@host:port/db
+
+# =================== JWT ===================
+JWT_SECRET=至少32个字符的随机字符串
+
+# =============== 管理员初始化 ===============
+ADMIN_USERNAME=admin                    # 首次部署时配置
+ADMIN_PASSWORD=你的超强密码             # 首次部署时配置
+
+# =============== 数据库迁移开关 ===============
+AUTO_MIGRATE=true                       # 开发/首次部署=true，生产=false
+
+# =================== Go API ===================
+PORT=8080                               # API 端口（可选，默认 8080）
+
+# ================= 其他配置 =================
+# Emby、TMDB、MoviePilot 等配置保持不变
+```
+
+---
+
+## Docker 环境变量传递方式
+
+### 兼容性说明
+
+当前代码使用 `os.Getenv()` 读取所有配置，**完全兼容**以下方式：
+
+1. ✅ Docker Compose `environment` 字段
+2. ✅ Docker Compose `env_file` 引用
+3. ✅ `docker run -e` 命令行参数
+4. ✅ Kubernetes ConfigMap/Secret
+5. ✅ Docker Swarm Secrets
+6. ✅ 本地 .env 文件（开发环境回退）
+
+**优先级**：Docker 传入的环境变量 > .env 文件
+
+### 方式 1：docker-compose.yml + env_file（推荐）
+
+```yaml
+# infrastructure/docker/docker-compose.yml
+services:
+  api:
+    build:
+      context: ../../services/api
+    env_file:
+      - .env  # 自动读取 .env 文件中的所有变量
+    environment:
+      # 也可以覆盖或补充特定变量
+      - PORT=8080
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ember
+```
+
+```bash
+# .env 文件（同目录）
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=你的超强密码
+AUTO_MIGRATE=true
+JWT_SECRET=超长随机字符串
+```
+
+### 方式 2：docker-compose.yml 直接配置
+
+```yaml
+services:
+  api:
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ember
+      - JWT_SECRET=${JWT_SECRET}                      # 从宿主机环境变量读取
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}       # 默认值 admin
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}              # 从宿主机环境变量读取
+      - AUTO_MIGRATE=${AUTO_MIGRATE:-false}           # 默认值 false
+      - EMBY_URL=${EMBY_URL}
+      - EMBY_API_KEY=${EMBY_API_KEY}
+```
+
+### 方式 3：docker run 命令
+
+```bash
+docker run -d \
+  --name ember-api \
+  -p 8080:8080 \
+  -e PORT=8080 \
+  -e DATABASE_URL="postgresql://..." \
+  -e JWT_SECRET="超长随机字符串" \
+  -e ADMIN_USERNAME="admin" \
+  -e ADMIN_PASSWORD="你的超强密码" \
+  -e AUTO_MIGRATE="true" \
+  -e EMBY_URL="https://emby.example.com" \
+  -e EMBY_API_KEY="your-api-key" \
+  ghcr.io/your-org/ember-api:latest
+```
+
+### 方式 4：Kubernetes（生产推荐）
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ember-secrets
+type: Opaque
+stringData:
+  admin-password: "你的超强密码"
+  jwt-secret: "超长随机字符串"
+  database-url: "postgresql://..."
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ember-api
+spec:
+  template:
+    spec:
+      containers:
+      - name: api
+        image: ghcr.io/your-org/ember-api:latest
+        env:
+        - name: ADMIN_USERNAME
+          value: "admin"
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ember-secrets
+              key: admin-password
+        - name: AUTO_MIGRATE
+          value: "false"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: ember-secrets
+              key: jwt-secret
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: ember-secrets
+              key: database-url
+```
+
+### godotenv 工作原理
+
+```go
+// db.go 中的加载逻辑
+if err := godotenv.Load(".env"); err == nil {
+    // .env 文件存在，但只加载「未设置」的变量
+    // Docker 已传入的变量不会被覆盖
+}
+
+// 读取环境变量（优先使用 Docker 传入的值）
+dsn := os.Getenv("DATABASE_URL")
+```
+
+**实际效果示例**：
+
+```bash
+# Docker 传入 + .env 文件同时存在
+docker run -e ADMIN_PASSWORD=docker密码 ...
+
+# .env 文件中
+ADMIN_PASSWORD=env文件密码
+JWT_SECRET=env文件密钥
+
+# 结果
+os.Getenv("ADMIN_PASSWORD") → "docker密码"     （Docker 优先）
+os.Getenv("JWT_SECRET")     → "env文件密钥"    （Docker 未传，使用 .env）
+```
+
+### 建议的 docker-compose.yml 配置
+
+更新 `infrastructure/docker/docker-compose.yml`：
+
+```yaml
+services:
+  api:
+    build:
+      context: ../../services/api
+      dockerfile: Dockerfile
+    container_name: ember-api
+    env_file:
+      - .env  # 从 .env 文件读取所有变量（推荐）
+    environment:
+      # 可选：覆盖或补充特定变量
+      - PORT=8080
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ember?search_path=public
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ember-network
+    restart: unless-stopped
+```
+
+配套 `.env` 文件：
+
+```bash
+# ========== 管理员初始化 ==========
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=$(openssl rand -base64 20)
+
+# ========== 数据库迁移 ==========
+AUTO_MIGRATE=true
+
+# ========== JWT ==========
+JWT_SECRET=$(openssl rand -base64 32)
+
+# ========== Emby ==========
+EMBY_URL=https://your-emby-server.com
+EMBY_API_KEY=your-emby-api-key
+
+# ========== TMDB（可选）==========
+TMDB_API_KEY=your-tmdb-api-key
+
+# ========== MoviePilot（可选）==========
+MOVIEPILOT_URL=http://moviepilot:3001
+MOVIEPILOT_USERNAME=admin
+MOVIEPILOT_PASSWORD=your-mp-password
+```

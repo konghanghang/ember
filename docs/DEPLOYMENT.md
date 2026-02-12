@@ -137,14 +137,83 @@ cat prisma/migrations/20251207010855_ember/migration.sql | \
 
 ### 3. 初始化管理员账号
 
+**⚠️ 重要：统一认证后的新方式**
+
+管理员账号通过环境变量自动初始化，无需手动执行 SQL 脚本。
+
+**配置方式**（在 `.env` 文件中）：
+
 ```bash
-# 执行初始化脚本
-psql $DATABASE_URL -f prisma/migrations/init-admin.sql
+# 管理员账号配置
+ADMIN_USERNAME=admin              # 管理员用户名（推荐保持 admin）
+ADMIN_PASSWORD=你的强密码         # 管理员密码（必须修改！）
 
-# 或使用自定义账号
-node scripts/create-admin.js admin MyPass123 | psql $DATABASE_URL
+# 数据库迁移开关（首次部署需开启）
+AUTO_MIGRATE=true
+```
 
-# 默认账号：admin / admin123
+**初始化流程**：
+
+```bash
+# 1. 配置环境变量（.env 文件）
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=$(openssl rand -base64 16)  # 生成强密码
+AUTO_MIGRATE=true
+
+# 2. 启动应用（会自动执行）
+docker compose up -d
+
+# 3. 查看日志确认
+docker compose logs ember | grep "管理员"
+# 预期输出：✅ 默认管理员已创建：admin
+```
+
+**工作原理**：
+
+1. 应用启动时检查是否存在 `role=admin` 的用户
+2. 如果不存在，读取 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD`
+3. 使用 bcrypt 加密密码后插入数据库
+4. 幂等设计：多次启动不会重复创建
+
+**安全建议**：
+
+- ✅ 首次部署前在 `.env` 中配置强密码
+- ✅ 管理员创建成功后，可从 `.env` 移除 `ADMIN_PASSWORD`（可选）
+- ✅ 即使忘记移除也无影响（幂等检查会跳过）
+- ❌ 禁止使用弱密码（如 `admin123`、`password`）
+
+**常见问题**：
+
+Q: 如果忘记配置 `ADMIN_USERNAME` 或 `ADMIN_PASSWORD` 怎么办？
+A: 应用会输出警告日志并跳过 admin 初始化，需要补充环境变量后重启。
+
+Q: 多次重启会重复创建管理员吗？
+A: 不会。代码检查到已存在 admin 用户会直接跳过。
+
+Q: 如何重置管理员密码？
+A: 需要手动执行 SQL 更新（见下方"重置管理员密码"章节）。
+
+---
+
+### 3.1 重置管理员密码（可选）
+
+如果忘记管理员密码，可通过数据库手动重置：
+
+```bash
+# 1. 生成新的 bcrypt 密码哈希（使用 Node.js）
+node -e "console.log(require('bcryptjs').hashSync('新密码', 10))"
+
+# 2. 更新数据库
+psql $DATABASE_URL -c "UPDATE users SET password='上一步生成的哈希' WHERE role='admin' AND username='admin'"
+```
+
+或使用 Python：
+
+```bash
+# 生成密码哈希
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'新密码', bcrypt.gensalt()).decode())"
+
+# 更新数据库（同上）
 ```
 
 ### 4. 启动应用
