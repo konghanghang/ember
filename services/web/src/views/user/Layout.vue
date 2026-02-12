@@ -9,7 +9,7 @@ const authStore = useAuthStore()
 const handleLogout = async () => {
   await authStore.logout()
   ElMessage.success('已登出')
-  router.push('/user/login')
+  router.push('/login')
 }
 </script>
 
@@ -18,6 +18,7 @@ const handleLogout = async () => {
     <el-header class="header">
       <div class="logo">Ember 用户中心</div>
       <div class="user-info">
+        <el-button link @click="router.push('/')">首页</el-button>
         <el-button link type="primary" @click="handleLogout">登出</el-button>
       </div>
     </el-header>

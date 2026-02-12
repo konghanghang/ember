@@ -1,10 +1,25 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/store/auth'
 import Navbar from '../components/home/Navbar.vue'
 import Footer from '../components/home/Footer.vue'
 import { VideoPlay, User, Connection, ArrowRight, Monitor } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const authStore = useAuthStore()
+
+const handleLoginClick = () => {
+  authStore.restoreAuth()
+  if (authStore.isAuthenticated) {
+    if (authStore.role === 'admin') {
+      router.push('/admin/users')
+      return
+    }
+    router.push('/user/dashboard')
+    return
+  }
+  router.push('/login')
+}
 </script>
 
 <template>
@@ -48,7 +63,7 @@ const router = useRouter()
               <div class="absolute inset-0 bg-black/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
             </button>
             
-            <button @click="router.push('/login')" class="px-8 py-3.5 bg-white border border-gray-200 text-gray-700 text-base font-bold tracking-wide rounded-lg hover:border-gray-900 hover:text-gray-900 transition-all">
+            <button @click="handleLoginClick" class="px-8 py-3.5 bg-white border border-gray-200 text-gray-700 text-base font-bold tracking-wide rounded-lg hover:border-gray-900 hover:text-gray-900 transition-all">
               登录
             </button>
           </div>
@@ -213,4 +228,3 @@ const router = useRouter()
   animation: float 5s ease-in-out infinite;
 }
 </style>
-

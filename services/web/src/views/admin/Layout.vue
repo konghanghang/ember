@@ -18,6 +18,7 @@ const handleLogout = async () => {
     <el-header class="header">
       <div class="logo">Ember 管理后台</div>
       <div class="user-info">
+        <el-button link @click="router.push('/')">首页</el-button>
         <span>管理员</span>
         <el-button link type="primary" @click="handleLogout">登出</el-button>
       </div>

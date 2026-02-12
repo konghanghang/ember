@@ -84,6 +84,15 @@ router.beforeEach((to, _from, next) => {
 
   authStore.restoreAuth()
 
+  if (to.name === 'login' && authStore.isAuthenticated) {
+    if (authStore.role === 'admin') {
+      next({ name: 'admin-users' })
+      return
+    }
+    next({ name: 'user-dashboard' })
+    return
+  }
+
   if (to.meta.requiresAuth) {
     if (!authStore.isAuthenticated) {
       next({ name: 'login', query: { redirect: to.fullPath } })
