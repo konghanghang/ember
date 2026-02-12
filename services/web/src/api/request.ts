@@ -33,12 +33,7 @@ service.interceptors.response.use(
       ElMessage.error('登录已过期，请重新登录')
       const authStore = useAuthStore()
       authStore.clearAuth()
-      
-      if (window.location.pathname.startsWith('/admin')) {
-        router.push('/login')
-      } else {
-        router.push('/user/login')
-      }
+      router.push('/login')
     } else {
       ElMessage.error(message)
     }

@@ -11,13 +11,8 @@ const router = createRouter({
     },
     {
       path: '/login',
-      name: 'admin-login',
-      component: () => import('../views/admin/LoginView.vue'),
-    },
-    {
-      path: '/user/login',
-      name: 'user-login',
-      component: () => import('../views/user/LoginView.vue'),
+      name: 'login',
+      component: () => import('../views/LoginView.vue'),
     },
     {
       path: '/register',
@@ -86,16 +81,12 @@ const router = createRouter({
 // Navigation Guard
 router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore()
-  
+
   authStore.restoreAuth()
 
   if (to.meta.requiresAuth) {
     if (!authStore.isAuthenticated) {
-      if (to.meta.role === 'admin') {
-        next({ name: 'admin-login', query: { redirect: to.fullPath } })
-      } else {
-        next({ name: 'user-login', query: { redirect: to.fullPath } })
-      }
+      next({ name: 'login', query: { redirect: to.fullPath } })
       return
     }
 

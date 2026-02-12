@@ -49,7 +49,7 @@ const router = useRouter()
             </button>
             
             <button @click="router.push('/login')" class="px-8 py-3.5 bg-white border border-gray-200 text-gray-700 text-base font-bold tracking-wide rounded-lg hover:border-gray-900 hover:text-gray-900 transition-all">
-              用户登录
+              登录
             </button>
           </div>
           
