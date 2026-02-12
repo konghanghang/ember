@@ -3,31 +3,26 @@ package models
 import (
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
-// User 用户模型
-// 对应 Prisma schema 的 User 模型
-//
-// 设计决策：保留 InviteCode string（业务外键）
-// 理由：注册是"历史事件"，保存的是"我用哪个码注册的"（历史快照）
-// 而不是"我属于哪个邀请码"（当前关系）
-// 详见：prisma/schema.prisma 第24-35行注释
+// User 统一用户模型（admin + user）
+// role 字段区分角色：admin 使用本地密码，user 通过 Emby 认证
 type User struct {
-	ID         string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"` // cuid
+	ID         string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	Username   string     `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
-	Email      string     `json:"email" gorm:"column:email;size:255;not null"`
-	EmbyID     string     `json:"embyId" gorm:"column:embyId;uniqueIndex;size:50;not null"` // Emby用户ID
-	InviteCode string     `json:"inviteCode" gorm:"column:inviteCode;size:20;not null;index"`   // ✅ 保留字符串外键
-	ExpiresAt  *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`                        // 账号到期时间（null=永久有效）
+	Role       string     `json:"role" gorm:"column:role;size:10;not null;default:user"`
+	Password   string     `json:"-" gorm:"column:password"`                                    // admin 专用，bcrypt hash，user 为空
+	Email      string     `json:"email,omitempty" gorm:"column:email;size:255"`                // user 专用
+	EmbyID     string     `json:"embyId,omitempty" gorm:"column:embyId;size:50;index"`         // user 专用
+	InviteCode string     `json:"inviteCode,omitempty" gorm:"column:inviteCode;size:20;index"` // user 专用
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
 	IsActive   bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
 	CreatedAt  time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 	UpdatedAt  time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 
-	// 关联：注册时使用的邀请码（可选关系，邀请码可能被删除）
-	Invite *Invite `json:"-" gorm:"foreignKey:InviteCode;references:Code"`
-
-	// 关联：用户的订阅记录
+	Invite        *Invite        `json:"-" gorm:"foreignKey:InviteCode;references:Code"`
 	Subscriptions []Subscription `json:"-" gorm:"foreignKey:UserID"`
 }
 
@@ -35,7 +30,6 @@ func (User) TableName() string {
 	return "users"
 }
 
-// BeforeCreate 钩子
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.ID == "" {
 		u.ID = generateCUID()
@@ -46,7 +40,28 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 // IsExpired 检查账号是否过期
 func (u *User) IsExpired() bool {
 	if u.ExpiresAt == nil {
-		return false // 永久有效
+		return false
 	}
 	return u.ExpiresAt.Before(time.Now())
+}
+
+// IsAdmin 是否为管理员
+func (u *User) IsAdmin() bool {
+	return u.Role == "admin"
+}
+
+// SetPassword 设置加密密码（admin 专用）
+func (u *User) SetPassword(password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	u.Password = string(hash)
+	return nil
+}
+
+// CheckPassword 验证密码（admin 专用）
+func (u *User) CheckPassword(password string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
+	return err == nil
 }

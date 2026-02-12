@@ -20,10 +20,10 @@ var DB *gorm.DB
 func InitDB() {
 	// 尝试加载 .env 文件（多个可能的位置）
 	envPaths := []string{
-		".env",                    // 当前目录
-		"../../.env",              // 项目根目录
-		"../../../.env",           // 以防万一
-		"services/api/.env",       // 从根目录运行时
+		".env",              // 当前目录
+		"../../.env",        // 项目根目录
+		"../../../.env",     // 以防万一
+		"services/api/.env", // 从根目录运行时
 	}
 
 	envLoaded := false
@@ -48,10 +48,10 @@ func InitDB() {
 	newLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		logger.Config{
-			SlowThreshold:             time.Second,   // 慢查询阈值
-			LogLevel:                  logger.Info,   // 日志级别：Info 显示所有 SQL
-			IgnoreRecordNotFoundError: false,         // 不忽略 RecordNotFound 错误
-			Colorful:                  true,          // 彩色输出
+			SlowThreshold:             time.Second, // 慢查询阈值
+			LogLevel:                  logger.Info, // 日志级别：Info 显示所有 SQL
+			IgnoreRecordNotFoundError: false,       // 不忽略 RecordNotFound 错误
+			Colorful:                  true,        // 彩色输出
 		},
 	)
 
@@ -95,11 +95,51 @@ func InitDB() {
 	DB.Raw("SHOW server_version").Scan(&pgVersion)
 	fmt.Printf("✅ PostgreSQL 版本：%s\n", pgVersion)
 
-	// ⚠️ 重要：不执行 AutoMigrate
-	// 因为表已经由 Prisma 创建，我们只是连接现有数据库
-	// 如果需要迁移，使用 prisma migrate deploy
+	// 按需自动迁移表结构
+	if os.Getenv("AUTO_MIGRATE") == "true" {
+		if err := AutoMigrate(); err != nil {
+			log.Fatalf("❌ 数据库迁移失败：%v", err)
+		}
+		log.Println("✅ 数据库迁移完成")
+	} else {
+		log.Println("ℹ️  AUTO_MIGRATE 未启用，跳过数据库迁移")
+	}
+
+	// 初始化默认管理员
+	seedDefaultAdmin()
 
 	fmt.Println("✅ 数据库连接成功")
+}
+
+// seedDefaultAdmin 初始化默认管理员账号
+func seedDefaultAdmin() {
+	var count int64
+	DB.Model(&models.User{}).Where("role = ?", "admin").Count(&count)
+	if count > 0 {
+		return
+	}
+
+	username := os.Getenv("ADMIN_USERNAME")
+	password := os.Getenv("ADMIN_PASSWORD")
+	if username == "" || password == "" {
+		log.Println("⚠️  跳过 admin 初始化：ADMIN_USERNAME 或 ADMIN_PASSWORD 未设置")
+		return
+	}
+
+	admin := models.User{
+		Username: username,
+		Role:     "admin",
+		IsActive: true,
+	}
+	if err := admin.SetPassword(password); err != nil {
+		log.Printf("❌ 创建默认管理员失败：%v", err)
+		return
+	}
+	if err := DB.Create(&admin).Error; err != nil {
+		log.Printf("❌ 创建默认管理员失败：%v", err)
+		return
+	}
+	log.Printf("✅ 默认管理员已创建：%s", admin.Username)
 }
 
 // Close 关闭数据库连接
@@ -115,7 +155,6 @@ func Close() error {
 // 仅在确认需要时调用
 func AutoMigrate() error {
 	return DB.AutoMigrate(
-		&models.Admin{},
 		&models.Invite{},
 		&models.User{},
 		&models.Subscription{},
