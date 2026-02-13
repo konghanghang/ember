@@ -6,9 +6,10 @@ import { ElMessage } from 'element-plus'
 import {
   Fold,
   Expand,
-  ArrowRight,
   Bell,
   Search,
+  ChatDotRound,
+  TopRight,
   UserFilled,
   SwitchButton
 } from '@element-plus/icons-vue'
@@ -49,6 +50,17 @@ const breadcrumbs = computed(() => {
   }
   return paths
 })
+
+const communityLinks = [
+  {
+    title: '交流群组',
+    url: 'https://t.me/NextNewEP_emby_chat'
+  },
+  {
+    title: '入库通知频道',
+    url: 'https://t.me/NextNewEP'
+  }
+]
 </script>
 
 <template>
@@ -86,6 +98,27 @@ const breadcrumbs = computed(() => {
         <el-icon :size="20"><Bell /></el-icon>
         <span class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
       </button>
+
+      <el-dropdown trigger="click" placement="bottom-end">
+        <button class="p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-ember transition-colors">
+          <el-icon :size="20"><ChatDotRound /></el-icon>
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu class="w-52">
+            <el-dropdown-item v-for="item in communityLinks" :key="item.url">
+              <a
+                :href="item.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="w-full flex items-center justify-between gap-2 text-sm text-gray-700"
+              >
+                <span>{{ item.title }}</span>
+                <el-icon :size="12" class="text-gray-400"><TopRight /></el-icon>
+              </a>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
 
       <div class="h-6 w-px bg-gray-200 mx-1"></div>
 
