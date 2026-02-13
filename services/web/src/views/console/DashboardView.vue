@@ -314,7 +314,12 @@ onMounted(refreshAll)
                 联系邮箱
               </h4>
               <div class="flex gap-3">
-                <el-input v-model="user.email" placeholder="new@email.com" class="input-ember" />
+                <el-input
+                  v-model="user.email"
+                  placeholder="new@email.com"
+                  class="input-ember"
+                  :prefix-icon="Message"
+                />
                 <button 
                   @click="handleUpdateEmail"
                   class="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors text-sm font-bold"
@@ -337,6 +342,7 @@ onMounted(refreshAll)
                 show-password 
                 placeholder="当前密码" 
                 class="input-ember"
+                :prefix-icon="Lock"
               />
               <el-input 
                 v-model="passwordForm.newPassword" 
@@ -344,6 +350,7 @@ onMounted(refreshAll)
                 show-password 
                 placeholder="新密码" 
                 class="input-ember"
+                :prefix-icon="Lock"
               />
               <el-input 
                 v-model="passwordForm.confirmPassword" 
@@ -351,6 +358,7 @@ onMounted(refreshAll)
                 show-password 
                 placeholder="确认新密码" 
                 class="input-ember"
+                :prefix-icon="Lock"
               />
               <button 
                 @click="handleUpdatePassword"
