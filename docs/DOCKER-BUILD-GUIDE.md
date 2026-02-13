@@ -66,7 +66,8 @@ Ember 采用 **Monorepo 微服务架构**，为每个服务独立构建 Docker �
 ### 镜像构建流程 (`build-*.yml`)
 
 **触发条件**：
-- Push tag `v*`（例如 `v1.0.0`）
+1. **预览构建**：Push 到 `pre_release` 分支
+2. **正式构建**：Push tag `v*`（例如 `v1.0.0`）
 
 **执行内容**：
 - 为每个服务独立构建 Docker 镜像
@@ -75,8 +76,11 @@ Ember 采用 **Monorepo 微服务架构**，为每个服务独立构建 Docker �
 - 使用 GitHub Actions Cache 加速构建
 
 **生成的镜像 tag**：
-- `{service}:v1.0.0` - 版本号 tag
-- `{service}:latest` - 最新版本 tag
+
+| 触发方式 | 镜像 Tag | 说明 |
+|---------|----------|------|
+| Push `pre_release` 分支 | `preview`<br>`preview-{sha}` | 测试版本，覆盖式更新 |
+| Push tag `v1.0.0` | `v1.0.0`<br>`latest` | 正式版本，不可变 |
 
 ### Release 流程 (`create-release.yml`)
 
@@ -110,10 +114,43 @@ cd services/bot
 python -m py_compile main.py
 ```
 
-### 2. 创建 Release
+### 2. 构建预览版本（测试用）
 
 ```bash
-# 1. 确保在 master 分支且代码已提交
+# 1. 切换到 pre_release 分支
+git checkout pre_release
+
+# 2. 合并 master 分支的最新代码
+git merge master
+
+# 3. 推送到远程，触发预览镜像构建
+git push origin pre_release
+
+# 4. GitHub Actions 会自动构建并推送预览镜像
+# - ghcr.io/konghanghang/ember-api:preview
+# - ghcr.io/konghanghang/ember-web:preview
+# - ghcr.io/konghanghang/ember-bot:preview
+```
+
+### 3. 测试预览镜像
+
+```bash
+# 使用预览镜像部署测试
+cd infrastructure/docker
+
+# 修改 docker-compose.yml，使用 preview tag
+# image: ghcr.io/konghanghang/ember-api:preview
+
+docker-compose pull
+docker-compose up -d
+
+# 进行功能测试...
+```
+
+### 4. 发布正式版本
+
+```bash
+# 1. 确认测试通过，切回 master 分支
 git checkout master
 git pull
 
@@ -122,13 +159,13 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-### 3. GitHub Actions 自动执行
+### 5. GitHub Actions 自动执行
 
-- ✅ 构建 3 个服务的 Docker 镜像
-- ✅ 推送镜像到 GHCR
+- ✅ 构建 3 个服务的正式 Docker 镜像
+- ✅ 推送镜像到 GHCR（tag: v1.0.0 + latest）
 - ✅ 创建 Draft Release
 
-### 4. 手动发布 Release
+### 6. 手动发布 Release
 
 1. 访问 GitHub Releases 页面
 2. 编辑 Draft Release

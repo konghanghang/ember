@@ -15,7 +15,7 @@ import {
   UserFilled
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
-import { approveSubscription, rejectSubscription } from '@/api/admin'
+import { approveSubscription, rejectSubscription, deleteSubscriptionAsAdmin } from '@/api/admin'
 import { deleteSubscription, getSubscriptions } from '@/api/console'
 import type { Subscription, SubscriptionStatus } from '@/types/api'
 
@@ -90,14 +90,26 @@ const handleReject = async (sub: Subscription) => {
 }
 
 const handleDelete = async (sub: Subscription) => {
+  const isAdminDelete = isAdmin.value
+
   try {
-    await ElMessageBox.confirm(`确定取消 "${sub.name}" 的订阅吗？`, '取消确认', { 
-      confirmButtonText: '确定取消',
-      cancelButtonText: '保留',
+    await ElMessageBox.confirm(
+      isAdminDelete ? `确定删除 "${sub.name}" 的订阅记录吗？此操作不可恢复。` : `确定取消 "${sub.name}" 的订阅吗？`,
+      isAdminDelete ? '删除确认' : '取消确认',
+      {
+      confirmButtonText: isAdminDelete ? '确认删除' : '确定取消',
+      cancelButtonText: isAdminDelete ? '取消' : '保留',
       type: 'warning'
     })
-    await deleteSubscription(sub.id)
-    ElMessage.success('已取消订阅')
+
+    if (isAdminDelete) {
+      await deleteSubscriptionAsAdmin(sub.id)
+      ElMessage.success('已删除订阅记录')
+    } else {
+      await deleteSubscription(sub.id)
+      ElMessage.success('已取消订阅')
+    }
+
     fetchData()
   } catch {
     // cancelled
@@ -211,21 +223,29 @@ onMounted(fetchData)
 
             <!-- Hover Actions -->
             <div 
-              v-if="sub.status === 'PENDING'"
+              v-if="isAdmin || sub.status === 'PENDING'"
               class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center gap-3 backdrop-blur-sm p-4"
             >
               <template v-if="isAdmin">
+                <template v-if="sub.status === 'PENDING'">
+                  <button 
+                    @click="handleApprove(sub)"
+                    class="w-full py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center gap-1"
+                  >
+                    <el-icon><Check /></el-icon> 批准
+                  </button>
+                  <button 
+                    @click="handleReject(sub)"
+                    class="w-full py-2 bg-white/20 hover:bg-red-500 text-white rounded-lg font-bold text-xs backdrop-blur-md transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 delay-75 flex items-center justify-center gap-1"
+                  >
+                    <el-icon><Close /></el-icon> 拒绝
+                  </button>
+                </template>
                 <button 
-                  @click="handleApprove(sub)"
-                  class="w-full py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center gap-1"
+                  @click="handleDelete(sub)"
+                  class="w-full py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 delay-100 flex items-center justify-center gap-1"
                 >
-                  <el-icon><Check /></el-icon> 批准
-                </button>
-                <button 
-                  @click="handleReject(sub)"
-                  class="w-full py-2 bg-white/20 hover:bg-red-500 text-white rounded-lg font-bold text-xs backdrop-blur-md transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 delay-75 flex items-center justify-center gap-1"
-                >
-                  <el-icon><Close /></el-icon> 拒绝
+                  <el-icon><Delete /></el-icon> 删除记录
                 </button>
               </template>
               <template v-else>

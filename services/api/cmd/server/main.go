@@ -89,6 +89,7 @@ func main() {
 			admin.GET("/subscriptions", subscriptionHandler.GetAllSubscriptions)
 			admin.PUT("/subscriptions/:id/approve", subscriptionHandler.ApproveSubscription)
 			admin.PUT("/subscriptions/:id/reject", subscriptionHandler.RejectSubscription)
+			admin.DELETE("/subscriptions/:id", subscriptionHandler.AdminDeleteSubscription)
 
 			// 系统管理
 			admin.GET("/system/info", systemHandler.GetSystemInfo)

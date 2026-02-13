@@ -149,7 +149,7 @@ func (s *SubscriptionService) DeleteSubscription(subscriptionID, userID string) 
 	// 查询订阅
 	var subscription models.Subscription
 	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
-		return errors.New("订阅不存在")
+		return ErrSubscriptionNotFound
 	}
 
 	// 验证所有权
@@ -163,6 +163,20 @@ func (s *SubscriptionService) DeleteSubscription(subscriptionID, userID string) 
 	}
 
 	// 删除订阅
+	if err := db.DB.Delete(&subscription).Error; err != nil {
+		return fmt.Errorf("删除订阅失败: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteSubscriptionAsAdmin 管理员删除订阅（不限制状态和所有权）
+func (s *SubscriptionService) DeleteSubscriptionAsAdmin(subscriptionID string) error {
+	var subscription models.Subscription
+	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
+		return ErrSubscriptionNotFound
+	}
+
 	if err := db.DB.Delete(&subscription).Error; err != nil {
 		return fmt.Errorf("删除订阅失败: %w", err)
 	}
@@ -255,7 +269,7 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 	// 查询订阅
 	var subscription models.Subscription
 	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
-		return errors.New("订阅不存在")
+		return ErrSubscriptionNotFound
 	}
 
 	// 验证状态（只能审核 PENDING）
@@ -306,7 +320,7 @@ func (s *SubscriptionService) RejectSubscription(subscriptionID string) error {
 	// 查询订阅
 	var subscription models.Subscription
 	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
-		return errors.New("订阅不存在")
+		return ErrSubscriptionNotFound
 	}
 
 	// 验证状态（只能审核 PENDING）

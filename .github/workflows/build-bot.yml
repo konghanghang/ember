@@ -2,8 +2,10 @@ name: Build and Push Bot Image
 
 on:
   push:
+    branches:
+      - pre_release  # 推送到 pre_release 分支时构建预览镜像
     tags:
-      - 'v*'  # 当推送 v* 格式的 tag 时触发（如 v1.0.0）
+      - 'v*'  # 推送 tag 时构建正式版本镜像
 
 env:
   GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/ember-bot
@@ -20,13 +22,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
+      - name: Determine image tags
+        id: meta
         run: |
-          # 从 refs/tags/v1.0.0 提取 v1.0.0
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Version: ${VERSION}"
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Tag 触发 - 构建正式版本
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "tags=${{ env.GHCR_IMAGE }}:${VERSION},${{ env.GHCR_IMAGE }}:latest" >> $GITHUB_OUTPUT
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "📦 Building release version: ${VERSION}"
+          else
+            # pre_release 分支触发 - 构建预览版本
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            echo "tags=${{ env.GHCR_IMAGE }}:preview,${{ env.GHCR_IMAGE }}:preview-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "version=preview-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "🚧 Building preview version: preview-${SHORT_SHA}"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -45,31 +58,37 @@ jobs:
           file: ./services/bot/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ env.GHCR_IMAGE }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Summary
         run: |
-          echo "### 🎉 Bot 镜像构建成功" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**版本**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**GitHub Container Registry**:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.GHCR_IMAGE }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.meta.outputs.is_release }}" == "true" ]]; then
+            echo "### 🎉 Bot 正式版镜像构建成功" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**版本**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**镜像标签**:" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.GHCR_IMAGE }}:${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.GHCR_IMAGE }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 🚧 Bot 预览版镜像构建成功" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**版本**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**镜像标签**:" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.GHCR_IMAGE }}:preview\`" >> $GITHUB_STEP_SUMMARY
+            echo "- \`${{ env.GHCR_IMAGE }}:${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **注意**: 这是预览版本，仅用于测试，不推荐生产使用" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**使用方式**:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "# 拉取最新版本" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.GHCR_IMAGE }}:latest" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# 拉取指定版本" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.GHCR_IMAGE }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.GHCR_IMAGE }}:${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

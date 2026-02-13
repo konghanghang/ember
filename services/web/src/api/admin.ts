@@ -137,6 +137,13 @@ export function rejectSubscription(id: string) {
   })
 }
 
+export function deleteSubscriptionAsAdmin(id: string) {
+  return request({
+    url: `/admin/subscriptions/${id}`,
+    method: 'delete'
+  })
+}
+
 // System Settings
 export function getSystemInfo(): Promise<SystemInfoResponse> {
   return request({

@@ -221,3 +221,24 @@ func (h *SubscriptionHandler) RejectSubscription(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+// AdminDeleteSubscription 管理员删除订阅
+// DELETE /api/v1/admin/subscriptions/:id
+func (h *SubscriptionHandler) AdminDeleteSubscription(c *gin.Context) {
+	subscriptionID := c.Param("id")
+	if subscriptionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "订阅 ID 不能为空"})
+		return
+	}
+
+	if err := h.service.DeleteSubscriptionAsAdmin(subscriptionID); err != nil {
+		if errors.Is(err, services.ErrSubscriptionNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
