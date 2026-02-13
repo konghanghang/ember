@@ -262,14 +262,23 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 
 	// 1. 验证旧密码（通过 Emby）
 	embyService := NewEmbyService()
-	_, err := embyService.AuthenticateUser(user.Username, req.OldPassword)
-	if err != nil {
+	oldPasswordVerified := false
+	if _, err := embyService.AuthenticateUser(user.Username, req.OldPassword); err == nil {
+		oldPasswordVerified = true
+	}
+	// 兼容历史本地密码，允许先通过旧哈希完成一次同步改密
+	if !oldPasswordVerified && user.Password != "" && user.CheckPassword(req.OldPassword) {
+		oldPasswordVerified = true
+	}
+	if !oldPasswordVerified {
 		return errors.New("旧密码错误")
 	}
 
 	// 2. 更新 Emby 密码
-	err = embyService.UpdateUserPassword(user.EmbyID, req.NewPassword)
-	if err != nil {
+	if user.EmbyID == "" {
+		return errors.New("密码更新失败：用户缺少 Emby ID")
+	}
+	if err := embyService.UpdateUserPassword(user.EmbyID, req.NewPassword); err != nil {
 		return errors.New("密码更新失败：" + err.Error())
 	}
 

@@ -37,18 +37,30 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 
 	if user.IsAdmin() {
 		authenticated = user.CheckPassword(req.Password)
-	} else if user.Password != "" {
-		authenticated = user.CheckPassword(req.Password)
 	} else {
 		embyService := NewEmbyService()
 		embyUser, err := embyService.AuthenticateUser(user.Username, req.Password)
-		if err != nil || embyUser.ID != user.EmbyID {
+		if err == nil && embyUser.ID == user.EmbyID {
+			authenticated = true
+		} else if user.Password != "" && user.CheckPassword(req.Password) {
+			// 兜底：允许历史本地密码登录，并尝试同步回 Emby
+			authenticated = true
+			if user.EmbyID != "" {
+				if syncErr := embyService.UpdateUserPassword(user.EmbyID, req.Password); syncErr != nil {
+					log.Printf("⚠️  登录时同步 Emby 密码失败：userID=%s, err=%v", user.ID, syncErr)
+				}
+			}
+		} else {
 			return nil, errors.New("用户名或密码错误")
 		}
-		authenticated = true
-		user.SetPassword(req.Password)
-		if err := db.DB.Save(&user).Error; err != nil {
-			log.Printf("⚠️  存量用户密码迁移失败（不影响登录）：userID=%s, err=%v", user.ID, err)
+
+		// 登录成功后，确保本地哈希与当前密码一致
+		if !user.CheckPassword(req.Password) {
+			if err := user.SetPassword(req.Password); err != nil {
+				log.Printf("⚠️  登录时更新本地密码哈希失败（不影响登录）：userID=%s, err=%v", user.ID, err)
+			} else if err := db.DB.Save(&user).Error; err != nil {
+				log.Printf("⚠️  登录时保存本地密码哈希失败（不影响登录）：userID=%s, err=%v", user.ID, err)
+			}
 		}
 	}
 
