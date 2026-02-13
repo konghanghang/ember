@@ -21,6 +21,17 @@ func NewSubscriptionHandler() *SubscriptionHandler {
 	}
 }
 
+func parseSubscriptionStatus(statusStr string) *models.SubscriptionStatus {
+	if statusStr == "" {
+		return nil
+	}
+	s := models.SubscriptionStatus(statusStr)
+	if s == models.SubscriptionPending || s == models.SubscriptionApproved || s == models.SubscriptionRejected {
+		return &s
+	}
+	return nil
+}
+
 // CreateSubscription 用户创建订阅
 // POST /api/v1/user/subscriptions
 func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
@@ -65,6 +76,50 @@ func (h *SubscriptionHandler) GetMySubscriptions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, subscriptions)
+}
+
+// GetSubscriptions 统一订阅列表（角色感知）
+// GET /api/v1/subscriptions
+func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
+	userID, hasUserID := c.Get("userID")
+	role, hasRole := c.Get("role")
+	if !hasUserID || !hasRole {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+
+	statusStr := c.Query("status")
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("pageSize", "12")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 || pageSize > 100 {
+		pageSize = 12
+	}
+
+	status := parseSubscriptionStatus(statusStr)
+
+	if role.(string) == "admin" {
+		result, err := h.service.GetAllSubscriptions(status, page, pageSize)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, result)
+		return
+	}
+
+	result, err := h.service.GetUserSubscriptionsPaginated(userID.(string), status, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // DeleteSubscription 删除订阅（仅 PENDING 状态）
@@ -112,15 +167,7 @@ func (h *SubscriptionHandler) GetAllSubscriptions(c *gin.Context) {
 		pageSize = 10
 	}
 
-	// 解析 status 参数
-	var status *models.SubscriptionStatus
-	if statusStr != "" {
-		s := models.SubscriptionStatus(statusStr)
-		// 验证状态值
-		if s == models.SubscriptionPending || s == models.SubscriptionApproved || s == models.SubscriptionRejected {
-			status = &s
-		}
-	}
+	status := parseSubscriptionStatus(statusStr)
 
 	// 查询订阅列表
 	result, err := h.service.GetAllSubscriptions(status, page, pageSize)

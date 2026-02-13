@@ -57,7 +57,7 @@ const handleRegister = async () => {
       code: form.value.code || undefined
     })
     ElMessage.success('注册成功')
-    router.push('/user/dashboard')
+    router.push('/console/dashboard')
   } finally {
     loading.value = false
   }

@@ -2,9 +2,9 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { createSubscription } from '@/api/user'
+import { createSubscription } from '@/api/console'
 import TmdbSearch from '@/components/TmdbSearch.vue'
-import type { CreateSubscriptionRequest, TmdbSelection, MediaType } from '@/types/api'
+import type { CreateSubscriptionRequest, MediaType, TmdbSelection } from '@/types/api'
 
 const router = useRouter()
 const form = ref<CreateSubscriptionRequest>({
@@ -32,7 +32,7 @@ const handleSubmit = async () => {
   try {
     await createSubscription(form.value)
     ElMessage.success('提交成功')
-    router.push('/user/subscriptions')
+    router.push('/console/subscriptions')
   } catch {
     ElMessage.error('提交失败，请稍后重试')
   } finally {
@@ -50,11 +50,11 @@ const handleSubmit = async () => {
           <el-radio-button label="TV">电视剧</el-radio-button>
         </el-radio-group>
       </el-form-item>
-      
+
       <el-form-item label="搜索">
-        <TmdbSearch 
-          :type="form.type === 'MOVIE' ? 'movie' : 'tv'" 
-          @select="handleSelectMedia" 
+        <TmdbSearch
+          :type="form.type === 'MOVIE' ? 'movie' : 'tv'"
+          @select="handleSelectMedia"
         />
       </el-form-item>
 
@@ -63,9 +63,9 @@ const handleSubmit = async () => {
       </div>
 
       <el-form-item label="备注">
-        <el-input 
-          v-model="form.note" 
-          type="textarea" 
+        <el-input
+          v-model="form.note"
+          type="textarea"
           placeholder="可选备注，如：希望能尽快下载"
         />
       </el-form-item>

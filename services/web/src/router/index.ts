@@ -19,57 +19,64 @@ const router = createRouter({
       name: 'register',
       component: () => import('../views/user/RegisterView.vue'),
     },
-    // User Panel Routes
+
+    // Unified Console Routes
     {
-      path: '/user',
-      component: () => import('../views/user/Layout.vue'),
-      meta: { requiresAuth: true, role: 'user' },
+      path: '/console',
+      component: () => import('../views/console/Layout.vue'),
+      meta: { requiresAuth: true },
       children: [
         {
+          path: '',
+          redirect: '/console/dashboard',
+        },
+        {
           path: 'dashboard',
-          name: 'user-dashboard',
-          component: () => import('../views/user/DashboardView.vue'),
+          name: 'console-dashboard',
+          component: () => import('../views/console/DashboardView.vue'),
         },
         {
           path: 'subscriptions',
-          name: 'user-subscriptions',
-          component: () => import('../views/user/SubscriptionsView.vue'),
+          name: 'console-subscriptions',
+          component: () => import('../views/console/SubscriptionsView.vue'),
         },
         {
           path: 'subscriptions/new',
-          name: 'user-subscriptions-new',
-          component: () => import('../views/user/NewSubscriptionView.vue'),
+          name: 'console-subscriptions-new',
+          component: () => import('../views/console/NewSubscriptionView.vue'),
         },
-      ],
-    },
-    // Admin Panel Routes
-    {
-      path: '/admin',
-      component: () => import('../views/admin/Layout.vue'),
-      meta: { requiresAuth: true, role: 'admin' },
-      children: [
         {
           path: 'users',
-          name: 'admin-users',
+          name: 'console-users',
+          meta: { role: 'admin' },
           component: () => import('../views/admin/UsersView.vue'),
         },
         {
           path: 'redemption-codes',
-          name: 'admin-redemption-codes',
+          name: 'console-redemption-codes',
+          meta: { role: 'admin' },
           component: () => import('../views/admin/RedemptionCodesView.vue'),
         },
         {
-          path: 'subscriptions',
-          name: 'admin-subscriptions',
-          component: () => import('../views/admin/SubscriptionsView.vue'),
-        },
-        {
           path: 'settings',
-          name: 'admin-settings',
+          name: 'console-settings',
+          meta: { role: 'admin' },
           component: () => import('../views/admin/SettingsView.vue'),
         },
       ],
     },
+
+    // Legacy redirects
+    { path: '/admin/users', redirect: '/console/users' },
+    { path: '/admin/redemption-codes', redirect: '/console/redemption-codes' },
+    { path: '/admin/subscriptions', redirect: '/console/subscriptions' },
+    { path: '/admin/settings', redirect: '/console/settings' },
+    { path: '/user/dashboard', redirect: '/console/dashboard' },
+    { path: '/user/subscriptions/new', redirect: '/console/subscriptions/new' },
+    { path: '/user/subscriptions', redirect: '/console/subscriptions' },
+    { path: '/admin/:pathMatch(.*)*', redirect: '/console/dashboard' },
+    { path: '/user/:pathMatch(.*)*', redirect: '/console/dashboard' },
+
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
@@ -85,11 +92,7 @@ router.beforeEach((to, _from, next) => {
   authStore.restoreAuth()
 
   if (to.name === 'login' && authStore.isAuthenticated) {
-    if (authStore.role === 'admin') {
-      next({ name: 'admin-users' })
-      return
-    }
-    next({ name: 'user-dashboard' })
+    next({ name: 'console-dashboard' })
     return
   }
 
@@ -100,7 +103,7 @@ router.beforeEach((to, _from, next) => {
     }
 
     if (to.meta.role && to.meta.role !== authStore.role) {
-      next({ name: 'home' })
+      next({ name: 'console-dashboard' })
       return
     }
   }

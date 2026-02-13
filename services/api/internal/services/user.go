@@ -238,6 +238,20 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 		return errors.New("用户不存在")
 	}
 
+	// 管理员密码仅在本地维护
+	if user.IsAdmin() {
+		if !user.CheckPassword(req.OldPassword) {
+			return errors.New("旧密码错误")
+		}
+		if err := user.SetPassword(req.NewPassword); err != nil {
+			return errors.New("密码更新失败：本地密码更新失败")
+		}
+		if err := db.DB.Save(&user).Error; err != nil {
+			return errors.New("密码更新失败：本地密码保存失败")
+		}
+		return nil
+	}
+
 	// 1. 验证旧密码（通过 Emby）
 	embyService := NewEmbyService()
 	_, err := embyService.AuthenticateUser(user.Username, req.OldPassword)

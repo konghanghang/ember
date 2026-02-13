@@ -6,8 +6,6 @@ import type {
   RedemptionListResponse,
   Setting,
   UpdateSettingRequest,
-  Subscription,
-  SubscriptionListQuery,
   SystemInfoResponse,
   UserInfo,
   UserListQuery,
@@ -105,15 +103,6 @@ export function getAllRedemptions(params?: { page?: number; pageSize?: number; u
 		method: 'get',
 		params
 	})
-}
-
-// Subscription Management
-export function getAllSubscriptions(params: SubscriptionListQuery): Promise<{ data: Subscription[]; total: number }> {
-  return request({
-    url: '/admin/subscriptions',
-    method: 'get',
-    params
-  })
 }
 
 export function approveSubscription(id: string) {

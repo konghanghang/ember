@@ -11,11 +11,7 @@ const authStore = useAuthStore()
 const handleLoginClick = () => {
   authStore.restoreAuth()
   if (authStore.isAuthenticated) {
-    if (authStore.role === 'admin') {
-      router.push('/admin/users')
-      return
-    }
-    router.push('/user/dashboard')
+    router.push('/console/dashboard')
     return
   }
   router.push('/login')

@@ -96,6 +96,26 @@ func main() {
 			admin.POST("/cron/check-expired", systemHandler.CheckExpiredUsers)
 		}
 
+		// ==================== 统一认证路由（admin + user 共享） ====================
+		authenticated := api.Group("")
+		authenticated.Use(middleware.JWTAuth())
+		{
+			// 订阅管理（统一）
+			authenticated.GET("/subscriptions", subscriptionHandler.GetSubscriptions)
+			authenticated.POST("/subscriptions", subscriptionHandler.CreateSubscription)
+			authenticated.DELETE("/subscriptions/:id", subscriptionHandler.DeleteSubscription)
+
+			// 个人信息
+			authenticated.GET("/profile", userHandler.GetProfile)
+			authenticated.PUT("/profile", userHandler.UpdateProfile)
+			authenticated.PUT("/password", userHandler.UpdatePassword)
+			authenticated.PUT("/email", userHandler.UpdateEmail)
+
+			// 媒体相关
+			authenticated.GET("/emby/config", mediaHandler.GetEmbyConfig)
+			authenticated.GET("/media/stats", mediaHandler.GetMediaStats)
+		}
+
 		// ==================== 用户路由（需要认证） ====================
 		user := api.Group("/user")
 		user.Use(middleware.JWTAuth(), middleware.UserOnly())

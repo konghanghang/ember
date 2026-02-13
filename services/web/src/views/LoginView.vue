@@ -1,17 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/store/auth'
 import { User, Lock, ArrowLeft } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const form = ref({
   username: '',
   password: ''
 })
 const loading = ref(false)
+const redirectTarget = ref('/console/dashboard')
+
+const updateRedirectTarget = () => {
+  const redirect = route.query.redirect
+  if (typeof redirect === 'string' && redirect) {
+    redirectTarget.value = redirect
+  }
+}
+
+updateRedirectTarget()
+watch(() => route.query.redirect, updateRedirectTarget)
 
 const handleLogin = async () => {
   if (!form.value.username || !form.value.password) {
@@ -21,13 +33,9 @@ const handleLogin = async () => {
 
   loading.value = true
   try {
-    const res = await authStore.login(form.value)
+    await authStore.login(form.value)
     ElMessage.success('登录成功')
-    if (res.user.role === 'admin') {
-      router.push('/admin/users')
-    } else {
-      router.push('/user/dashboard')
-    }
+    router.push(redirectTarget.value)
   } catch {
     ElMessage.error('登录失败，请检查用户名或密码')
   } finally {

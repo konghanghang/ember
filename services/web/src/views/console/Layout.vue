@@ -16,23 +16,39 @@ const handleLogout = async () => {
 <template>
   <el-container class="layout-container">
     <el-header class="header">
-      <div class="logo">Ember 用户中心</div>
+      <div class="logo">Ember 控制台</div>
       <div class="user-info">
         <el-button link @click="router.push('/')">首页</el-button>
+        <el-tag v-if="authStore.isAdmin" type="danger" size="small">管理员</el-tag>
         <el-button link type="primary" @click="handleLogout">登出</el-button>
       </div>
     </el-header>
     <el-container>
-      <el-aside width="200px" class="aside">
+      <el-aside width="220px" class="aside">
         <el-menu router :default-active="$route.path">
-          <el-menu-item index="/user/dashboard">
+          <el-menu-item index="/console/dashboard">
             <el-icon><Odometer /></el-icon>
             <span>我的账号</span>
           </el-menu-item>
-          <el-menu-item index="/user/subscriptions">
+          <el-menu-item index="/console/subscriptions">
             <el-icon><VideoPlay /></el-icon>
-            <span>我的订阅</span>
+            <span>订阅管理</span>
           </el-menu-item>
+
+          <el-menu-item-group v-if="authStore.isAdmin" title="管理">
+            <el-menu-item index="/console/users">
+              <el-icon><User /></el-icon>
+              <span>用户管理</span>
+            </el-menu-item>
+            <el-menu-item index="/console/redemption-codes">
+              <el-icon><Ticket /></el-icon>
+              <span>兑换码管理</span>
+            </el-menu-item>
+            <el-menu-item index="/console/settings">
+              <el-icon><Setting /></el-icon>
+              <span>系统设置</span>
+            </el-menu-item>
+          </el-menu-item-group>
         </el-menu>
       </el-aside>
       <el-main class="main">
@@ -55,6 +71,11 @@ const handleLogout = async () => {
 .logo {
   font-size: 20px;
   font-weight: bold;
+}
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .aside {
   border-right: 1px solid #dcdfe6;

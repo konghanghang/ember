@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import {
-  getUserProfile,
-  updateUserEmail,
-  updateUserPassword,
-  getEmbyConfig,
-  getMediaStats,
-  redeemCode
-} from '@/api/user'
+import { useAuthStore } from '@/store/auth'
+import { getEmbyConfig, getMediaStats, getProfile, updateEmail, updatePassword } from '@/api/console'
+import { redeemCode } from '@/api/user'
 import type { MediaStats, UserInfo } from '@/types/api'
+
+const authStore = useAuthStore()
 
 const user = ref<UserInfo>({
   id: '',
@@ -57,14 +54,14 @@ const expiryTagType = computed(() => {
 const fetchProfile = async () => {
   loading.value = true
   try {
-    user.value = await getUserProfile()
+    user.value = await getProfile()
   } finally {
     loading.value = false
   }
 }
 
 const fetchMediaInfo = async () => {
-  if (isExpired.value) return
+  if (!authStore.isAdmin && isExpired.value) return
   const [configRes, statsRes] = await Promise.all([getEmbyConfig(), getMediaStats()])
   if (configRes.success) embyUrl.value = configRes.url
   if (statsRes.success) stats.value = statsRes.data
@@ -94,7 +91,7 @@ const handleRedeem = async () => {
 
 const handleUpdateEmail = async () => {
   try {
-    await updateUserEmail(user.value.email || '')
+    await updateEmail(user.value.email || '')
     ElMessage.success('邮箱更新成功')
   } catch {
     ElMessage.error('邮箱更新失败，请稍后重试')
@@ -108,7 +105,7 @@ const handleUpdatePassword = async () => {
   }
 
   try {
-    await updateUserPassword({
+    await updatePassword({
       oldPassword: passwordForm.value.oldPassword,
       newPassword: passwordForm.value.newPassword
     })
@@ -130,7 +127,15 @@ onMounted(refreshAll)
     </div>
 
     <el-alert
-      v-if="isExpired"
+      v-if="authStore.isAdmin"
+      title="管理员账号"
+      type="info"
+      :closable="false"
+      class="mb-6"
+      show-icon
+    />
+    <el-alert
+      v-else-if="isExpired"
       title="你的账号已过期，Emby 访问已暂停。请使用兑换码续期。"
       type="warning"
       :closable="false"
@@ -146,7 +151,7 @@ onMounted(refreshAll)
       show-icon
     />
 
-    <div v-if="isExpired" class="panel-clean p-6 mb-8 border-l-4 border-l-red-500">
+    <div v-if="!authStore.isAdmin && isExpired" class="panel-clean p-6 mb-8 border-l-4 border-l-red-500">
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-lg font-semibold">账号续期</h3>
       </div>
@@ -156,7 +161,7 @@ onMounted(refreshAll)
       </div>
     </div>
 
-    <el-collapse v-else class="mb-8">
+    <el-collapse v-else-if="!authStore.isAdmin" class="mb-8">
       <el-collapse-item title="提前续期" name="1">
         <div class="flex gap-3">
           <el-input v-model="redeemForm.code" placeholder="请输入兑换码" class="input-ember" />
@@ -166,7 +171,7 @@ onMounted(refreshAll)
     </el-collapse>
 
     <div class="mb-8">
-      <div class="relative" :class="{ 'opacity-40 pointer-events-none': isExpired }">
+      <div class="relative" :class="{ 'opacity-40 pointer-events-none': !authStore.isAdmin && isExpired }">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div class="panel-clean p-6 flex items-center justify-between border-l-4 border-l-purple-500">
             <div>
@@ -190,10 +195,10 @@ onMounted(refreshAll)
           </div>
         </div>
       </div>
-      <div v-if="isExpired" class="text-center text-sm text-text-secondary mt-3">🔒 续期后自动恢复</div>
+      <div v-if="!authStore.isAdmin && isExpired" class="text-center text-sm text-text-secondary mt-3">🔒 续期后自动恢复</div>
     </div>
 
-    <el-alert v-if="embyUrl && !isExpired" :title="`Emby 服务器地址: ${embyUrl}`" type="success" :closable="false" class="mb-8" show-icon />
+    <el-alert v-if="embyUrl && (!isExpired || authStore.isAdmin)" :title="`Emby 服务器地址: ${embyUrl}`" type="success" :closable="false" class="mb-8" show-icon />
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
       <div class="panel-clean p-6">

@@ -27,7 +27,7 @@
         <a href="https://t.me/NextNewEP_emby_chat" target="_blank" rel="noopener noreferrer" class="px-8 py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium text-lg shadow-lg hover:shadow-xl">
           📱 加入 Telegram 群组
         </a>
-        <router-link to="/user/login" class="px-8 py-4 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium text-lg border border-gray-200 dark:border-gray-700">
+        <router-link to="/login" class="px-8 py-4 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium text-lg border border-gray-200 dark:border-gray-700">
           用户登录
         </router-link>
       </div>
@@ -35,7 +35,7 @@
       <!-- Hint Text -->
       <p class="mt-8 text-sm text-gray-500 dark:text-gray-400">
         已有账号？
-        <router-link to="/user/login" class="text-orange-600 dark:text-orange-400 hover:underline ml-1">
+        <router-link to="/login" class="text-orange-600 dark:text-orange-400 hover:underline ml-1">
           立即登录
         </router-link>
       </p>

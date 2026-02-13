@@ -70,6 +70,40 @@ func (s *SubscriptionService) GetUserSubscriptions(userID string) ([]models.Subs
 	return subscriptions, nil
 }
 
+// GetUserSubscriptionsPaginated 用户订阅分页查询
+func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, status *models.SubscriptionStatus, page, pageSize int) (*GetAllSubscriptionsResponse, error) {
+	offset := (page - 1) * pageSize
+
+	query := db.DB.Model(&models.Subscription{}).Where("\"userId\" = ?", userID)
+	if status != nil {
+		query = query.Where("status = ?", *status)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("查询订阅总数失败: %w", err)
+	}
+
+	var subscriptions []models.Subscription
+	if err := query.
+		Order("\"createdAt\" DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&subscriptions).Error; err != nil {
+		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
+	}
+
+	result := make([]SubscriptionWithUser, len(subscriptions))
+	for i, sub := range subscriptions {
+		result[i] = SubscriptionWithUser{Subscription: sub}
+	}
+
+	return &GetAllSubscriptionsResponse{
+		Data:  result,
+		Total: total,
+	}, nil
+}
+
 // DeleteSubscription 删除订阅（仅允许删除 PENDING 状态）
 func (s *SubscriptionService) DeleteSubscription(subscriptionID, userID string) error {
 	// 查询订阅
