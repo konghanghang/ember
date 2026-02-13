@@ -375,6 +375,7 @@ python-dotenv==1.0.1
 |------|------|------|------|--------|
 | `TELEGRAM_BOT_TOKEN` | 是 | string | BotFather 获取的 Bot Token | — |
 | `TELEGRAM_ADMIN_CHAT_ID` | 是 | int | 管理员的 Telegram Chat ID | — |
+| `TELEGRAM_WEBHOOK_SECRET` | 是 | string | Telegram webhook 请求头校验密钥 | — |
 | `INTERNAL_API_SECRET` | 是 | string | 与 Go API 共享的认证密钥 | — |
 | `API_URL` | 否 | string | Go API 地址 | `http://localhost:8080` |
 | `WEBHOOK_URL` | 是 | string | Bot 的公网 HTTPS 地址 | — |
@@ -521,7 +522,7 @@ tg_app.add_handler(CallbackQueryHandler(handle_callback))
 ```
 启动时：
   1. await tg_app.initialize()
-  2. await tg_app.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram/webhook")
+  2. await tg_app.bot.set_webhook(url=f"{WEBHOOK_URL}/telegram/webhook", secret_token=TELEGRAM_WEBHOOK_SECRET)
   3. await tg_app.start()
 
 关闭时：
@@ -533,7 +534,7 @@ tg_app.add_handler(CallbackQueryHandler(handle_callback))
 
 | 路径 | 方法 | 说明 | 认证 |
 |------|------|------|------|
-| `/telegram/webhook` | POST | 接收 Telegram 更新 | Telegram 自身机制（基于 webhook secret） |
+| `/telegram/webhook` | POST | 接收 Telegram 更新 | 校验 `X-Telegram-Bot-Api-Secret-Token` |
 | `/notify/subscription` | POST | 接收 Go API 订阅通知 | 验证 `X-Internal-Secret` header |
 | `/health` | GET | 健康检查 | 无 |
 
@@ -541,6 +542,10 @@ tg_app.add_handler(CallbackQueryHandler(handle_callback))
 ```python
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
     data = await request.json()
     update = Update.de_json(data, tg_app.bot)
     await tg_app.process_update(update)
@@ -613,6 +618,7 @@ CMD ["python", "main.py"]
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
       - API_URL=http://api:8080
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
       - WEBHOOK_URL=${WEBHOOK_URL}
@@ -640,6 +646,7 @@ CMD ["python", "main.py"]
 | 变量 | 使用服务 | 必需 | 说明 | 示例值 |
 |------|---------|------|------|--------|
 | `INTERNAL_API_SECRET` | API + Bot | 是 | 服务间认证密钥 | `openssl rand -hex 32` 生成 |
+| `TELEGRAM_WEBHOOK_SECRET` | Bot | 是 | Telegram webhook 请求来源校验密钥 | `openssl rand -hex 32` 生成 |
 | `BOT_NOTIFY_URL` | API | 否 | API 通知 Bot 地址，不配置则不发通知 | `http://bot:8000`（Docker）或 `http://localhost:8000` |
 | `API_URL` | Bot | 否 | Bot 调用 API 地址 | `http://api:8080`（Docker）或 `http://localhost:8080` |
 | `WEBHOOK_URL` | Bot | 是 | Bot 公网 HTTPS 地址 | `https://bot.example.com` |
@@ -746,7 +753,7 @@ cd services/bot && python -c "import main; import config; import api_client; imp
 
 ### 8.2 端到端测试
 
-1. 配置环境变量（`TELEGRAM_BOT_TOKEN`、`TELEGRAM_ADMIN_CHAT_ID`、`INTERNAL_API_SECRET` 等）
+1. 配置环境变量（`TELEGRAM_BOT_TOKEN`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_WEBHOOK_SECRET`、`INTERNAL_API_SECRET` 等）
 2. 启动 Go API 和 Python Bot
 3. 通过 Web 界面提交一个订阅请求
 4. 检查 Telegram 是否收到通知消息（含海报和按钮）
@@ -763,6 +770,7 @@ cd services/bot && python -c "import main; import config; import api_client; imp
 | API 未启动时点击按钮 | Bot 显示 "操作失败，请重试" 弹窗 |
 | 重复点击已处理订阅的按钮 | Go API 返回 "订阅已被处理"，Bot 显示 "操作失败" |
 | 非管理员点击按钮 | Bot 显示 "你没有权限操作" 弹窗 |
+| 伪造 webhook 请求（secret 不匹配） | Bot 返回 401，不处理 update |
 
 ---
 
