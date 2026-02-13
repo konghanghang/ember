@@ -1,6 +1,6 @@
-# Claude AI 协作指南
+# AI 协作指南
 
-本文件用于指导 Claude AI 在本项目中的协作方式和工作规范。
+本文件用于指导 AI 在本项目中的协作方式和工作规范。
 
 > ⚠️ **注意**：本文件仅用于 AI 协作指导，技术开发规范请参考 [docs/development-guide.md](docs/development-guide.md)
 
