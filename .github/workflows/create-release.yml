@@ -39,12 +39,15 @@ jobs:
         id: previoustag
         run: |
           # 获取上一个 tag
-          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF#refs/tags/}$" | head -n 1)
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          PREV_TAG=$(git tag --sort=-v:refname | grep -vx "${CURRENT_TAG}" | head -n 1)
           if [ -z "$PREV_TAG" ]; then
-            echo "tag=v0.0.0" >> $GITHUB_OUTPUT
-            echo "📌 No previous tag found, using v0.0.0"
+            echo "tag=" >> $GITHUB_OUTPUT
+            echo "has_previous=false" >> $GITHUB_OUTPUT
+            echo "📌 No previous tag found, this is the first release"
           else
             echo "tag=${PREV_TAG}" >> $GITHUB_OUTPUT
+            echo "has_previous=true" >> $GITHUB_OUTPUT
             echo "📌 Previous tag: ${PREV_TAG}"
           fi
 
@@ -53,6 +56,7 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
           PREV_TAG=${{ steps.previoustag.outputs.tag }}
+          HAS_PREVIOUS=${{ steps.previoustag.outputs.has_previous }}
 
           # 生成 changelog 模板
           echo "## 本次更新" > /tmp/release_notes.md
@@ -63,7 +67,15 @@ jobs:
           # 获取 commit 列表供参考
           echo "### Commits:" >> /tmp/release_notes.md
           echo "" >> /tmp/release_notes.md
-          git log ${PREV_TAG}..HEAD --pretty=format:"- [%h](https://github.com/${{ github.repository }}/commit/%H) %s" --reverse >> /tmp/release_notes.md
+          if [ "$HAS_PREVIOUS" = "true" ]; then
+            git log "${PREV_TAG}..HEAD" --pretty=format:"- [%h](https://github.com/${{ github.repository }}/commit/%H) %s" --reverse >> /tmp/release_notes.md
+            UPGRADE_TITLE="### 从 ${PREV_TAG} 升级"
+            FULL_CHANGELOG="**Full Changelog**: [${PREV_TAG}...${VERSION}](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${VERSION})"
+          else
+            git log --pretty=format:"- [%h](https://github.com/${{ github.repository }}/commit/%H) %s" --reverse >> /tmp/release_notes.md
+            UPGRADE_TITLE="### 首次发布安装"
+            FULL_CHANGELOG="**Full Changelog**: 首次发布，无历史版本对比。"
+          fi
 
           echo "" >> /tmp/release_notes.md
           echo "" >> /tmp/release_notes.md
@@ -89,7 +101,7 @@ jobs:
 
           ## 🔄 升级说明
 
-          ### 从 ${PREV_TAG} 升级
+          ${UPGRADE_TITLE}
 
           \`\`\`bash
           # 1. 拉取新镜像
@@ -109,11 +121,10 @@ jobs:
 
           - [项目 README](https://github.com/${{ github.repository }}/blob/${VERSION}/README.md)
           - [系统架构文档](https://github.com/${{ github.repository }}/blob/${VERSION}/docs/SYSTEM-ARCHITECTURE.md)
-          - [迁移指南](https://github.com/${{ github.repository }}/blob/${VERSION}/docs/MIGRATION-GUIDE.md)
 
           ---
 
-          **Full Changelog**: [${PREV_TAG}...${VERSION}](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${VERSION})
+          ${FULL_CHANGELOG}
           EOF
 
       - name: Create Draft Release with GitHub CLI
@@ -123,22 +134,21 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           PRERELEASE=${{ steps.version.outputs.prerelease }}
 
-          # 基础命令（创建草稿）
-          CMD="gh release create ${VERSION}"
-          CMD="$CMD --title 'Ember ${VERSION}'"
-          CMD="$CMD --notes-file /tmp/release_notes.md"
-          CMD="$CMD --draft"  # 创建为草稿，允许手动编辑
-
           # 如果是预发布版本，添加 prerelease 标记
           if [ "$PRERELEASE" = "true" ]; then
-            CMD="$CMD --prerelease"
             echo "🚧 Creating pre-release draft..."
+            gh release create "${VERSION}" \
+              --title "Ember ${VERSION}" \
+              --notes-file /tmp/release_notes.md \
+              --draft \
+              --prerelease
           else
             echo "📝 Creating draft release..."
+            gh release create "${VERSION}" \
+              --title "Ember ${VERSION}" \
+              --notes-file /tmp/release_notes.md \
+              --draft
           fi
-
-          # 执行命令
-          eval $CMD
 
           echo "### 📝 Release 草稿创建成功" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
