@@ -6,6 +6,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 // SubscriptionService 订阅服务
@@ -36,6 +37,17 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 		return errors.New("影视名称和 TMDB ID 为必填项")
 	}
 
+	// 全局去重：同一 type + tmdbId 只允许提交一次
+	var count int64
+	if err := db.DB.Model(&models.Subscription{}).
+		Where("type = ? AND \"tmdbId\" = ?", req.Type, req.TmdbID).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("创建订阅失败: %w", err)
+	}
+	if count > 0 {
+		return ErrSubscriptionDuplicated
+	}
+
 	// 创建订阅记录
 	subscription := &models.Subscription{
 		UserID:     userID,
@@ -48,6 +60,9 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 	}
 
 	if err := db.DB.Create(subscription).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return ErrSubscriptionDuplicated
+		}
 		return fmt.Errorf("创建订阅失败: %w", err)
 	}
 

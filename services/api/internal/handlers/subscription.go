@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -51,6 +52,10 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 
 	// 创建订阅
 	if err := h.service.CreateSubscription(userID.(string), req); err != nil {
+		if errors.Is(err, services.ErrSubscriptionDuplicated) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
