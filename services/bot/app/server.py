@@ -1,6 +1,7 @@
+import asyncio
 import logging
+from contextlib import asynccontextmanager, suppress
 from hmac import compare_digest
-from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
@@ -27,19 +28,47 @@ tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 tg_app.add_handler(CallbackQueryHandler(handle_callback))
 
 
+async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
+    webhook_url = f"{WEBHOOK_URL}/telegram/webhook"
+    retry_delay = 2
+
+    while not stop_event.is_set():
+        try:
+            await tg_app.bot.set_webhook(
+                url=webhook_url,
+                secret_token=TELEGRAM_WEBHOOK_SECRET,
+            )
+            logger.info("Telegram webhook 已注册: %s", webhook_url)
+            return
+        except Exception as err:
+            logger.warning(
+                "Telegram webhook 注册失败，%s 秒后重试: %s",
+                retry_delay,
+                err,
+            )
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=retry_delay)
+            except asyncio.TimeoutError:
+                retry_delay = min(retry_delay * 2, 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    del app
     await tg_app.initialize()
-    await tg_app.bot.set_webhook(
-        url=f"{WEBHOOK_URL}/telegram/webhook",
-        secret_token=TELEGRAM_WEBHOOK_SECRET,
-    )
     await tg_app.start()
-    logger.info("Telegram webhook 已注册")
+    logger.info("Telegram Bot 服务已启动，开始异步注册 webhook")
+
+    stop_event = asyncio.Event()
+    webhook_task = asyncio.create_task(register_webhook_with_retry(stop_event))
 
     try:
         yield
     finally:
+        stop_event.set()
+        webhook_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await webhook_task
         await tg_app.stop()
         await tg_app.shutdown()
 
