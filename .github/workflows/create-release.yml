@@ -1,0 +1,155 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 当推送 v* 格式的 tag 时触发（如 v1.0.0）
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史
+
+      - name: Extract version info
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "📦 Version: ${VERSION}"
+
+          # 判断是否为预发布版本（包含 alpha, beta, rc 等）
+          if [[ $VERSION =~ (alpha|beta|rc) ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "🚧 This is a pre-release version"
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "✅ This is a stable release"
+          fi
+
+      - name: Get previous tag
+        id: previoustag
+        run: |
+          # 获取上一个 tag
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF#refs/tags/}$" | head -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            echo "tag=v0.0.0" >> $GITHUB_OUTPUT
+            echo "📌 No previous tag found, using v0.0.0"
+          else
+            echo "tag=${PREV_TAG}" >> $GITHUB_OUTPUT
+            echo "📌 Previous tag: ${PREV_TAG}"
+          fi
+
+      - name: Generate changelog template
+        id: changelog
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          PREV_TAG=${{ steps.previoustag.outputs.tag }}
+
+          # 生成 changelog 模板
+          echo "## 本次更新" > /tmp/release_notes.md
+          echo "" >> /tmp/release_notes.md
+          echo "<!-- 请根据以下 commits 编写更新内容 -->" >> /tmp/release_notes.md
+          echo "" >> /tmp/release_notes.md
+
+          # 获取 commit 列表供参考
+          echo "### Commits:" >> /tmp/release_notes.md
+          echo "" >> /tmp/release_notes.md
+          git log ${PREV_TAG}..HEAD --pretty=format:"- [%h](https://github.com/${{ github.repository }}/commit/%H) %s" --reverse >> /tmp/release_notes.md
+
+          echo "" >> /tmp/release_notes.md
+          echo "" >> /tmp/release_notes.md
+
+          # 添加额外信息
+          cat >> /tmp/release_notes.md <<EOF
+          ---
+
+          ## 📦 Docker 镜像
+
+          本版本的 Docker 镜像已自动构建并推送到 GitHub Container Registry：
+
+          \`\`\`bash
+          # API 服务
+          docker pull ghcr.io/${{ github.repository_owner }}/ember-api:${VERSION}
+
+          # Web 服务
+          docker pull ghcr.io/${{ github.repository_owner }}/ember-web:${VERSION}
+
+          # Bot 服务
+          docker pull ghcr.io/${{ github.repository_owner }}/ember-bot:${VERSION}
+          \`\`\`
+
+          ## 🔄 升级说明
+
+          ### 从 ${PREV_TAG} 升级
+
+          \`\`\`bash
+          # 1. 拉取新镜像
+          docker pull ghcr.io/${{ github.repository_owner }}/ember-api:${VERSION}
+          docker pull ghcr.io/${{ github.repository_owner }}/ember-web:${VERSION}
+          docker pull ghcr.io/${{ github.repository_owner }}/ember-bot:${VERSION}
+
+          # 2. 更新 docker-compose.yml 中的版本号
+          # 修改镜像 tag 为 ${VERSION}
+
+          # 3. 重启服务
+          docker-compose -f infrastructure/docker/docker-compose.yml down
+          docker-compose -f infrastructure/docker/docker-compose.yml up -d
+          \`\`\`
+
+          ## 📝 文档
+
+          - [项目 README](https://github.com/${{ github.repository }}/blob/${VERSION}/README.md)
+          - [系统架构文档](https://github.com/${{ github.repository }}/blob/${VERSION}/docs/SYSTEM-ARCHITECTURE.md)
+          - [迁移指南](https://github.com/${{ github.repository }}/blob/${VERSION}/docs/MIGRATION-GUIDE.md)
+
+          ---
+
+          **Full Changelog**: [${PREV_TAG}...${VERSION}](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${VERSION})
+          EOF
+
+      - name: Create Draft Release with GitHub CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          PRERELEASE=${{ steps.version.outputs.prerelease }}
+
+          # 基础命令（创建草稿）
+          CMD="gh release create ${VERSION}"
+          CMD="$CMD --title 'Ember ${VERSION}'"
+          CMD="$CMD --notes-file /tmp/release_notes.md"
+          CMD="$CMD --draft"  # 创建为草稿，允许手动编辑
+
+          # 如果是预发布版本，添加 prerelease 标记
+          if [ "$PRERELEASE" = "true" ]; then
+            CMD="$CMD --prerelease"
+            echo "🚧 Creating pre-release draft..."
+          else
+            echo "📝 Creating draft release..."
+          fi
+
+          # 执行命令
+          eval $CMD
+
+          echo "### 📝 Release 草稿创建成功" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**版本**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "**类型**: $([ "$PRERELEASE" = "true" ] && echo "预发布版本" || echo "稳定版本")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**⚠️ 注意**: Release 已创建为草稿状态，请手动编辑后发布" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release 链接**: https://github.com/${{ github.repository }}/releases/tag/${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**下一步**:" >> $GITHUB_STEP_SUMMARY
+          echo "1. 访问上面的链接" >> $GITHUB_STEP_SUMMARY
+          echo "2. 编辑 Release Notes（参考 Commits 列表）" >> $GITHUB_STEP_SUMMARY
+          echo "3. 点击 'Publish release' 发布" >> $GITHUB_STEP_SUMMARY

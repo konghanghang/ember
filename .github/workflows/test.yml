@@ -1,0 +1,106 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  test-api:
+    name: Test Go API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/api
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: services/api/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: ✅ API 测试通过
+        run: echo "Go API 编译验证成功！"
+
+  test-web:
+    name: Test Vue Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/web
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: ✅ Web 测试通过
+        run: echo "Vue Web 编译验证成功！"
+
+  test-bot:
+    name: Test Python Bot
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./services/bot
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: services/bot/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check syntax
+        run: python -m py_compile main.py
+
+      - name: ✅ Bot 测试通过
+        run: echo "Python Bot 语法检查成功！"

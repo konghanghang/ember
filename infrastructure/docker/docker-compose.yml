@@ -21,12 +21,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   # Go API 服务
   api:
-    build:
-      context: ../../services/api
-      dockerfile: Dockerfile
+    # 使用预构建的镜像（生产环境推荐）
+    image: ghcr.io/konghanghang/ember-api:latest
+
+    # 如需本地构建，取消下面两行注释并注释上面的 image 行
+    # build:
+    #   context: ../../services/api
+    #   dockerfile: Dockerfile
+
     container_name: ember-api
     environment:
       - PORT=8080
@@ -45,25 +51,43 @@ services:
       - ember-network
     restart: unless-stopped
     volumes:
-      - ../../services/api/logs:/app/logs
+      - api_logs:/app/logs
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # Vue 前端服务（待实现）
-  # web:
-  #   build:
-  #     context: ../../services/web
-  #     dockerfile: Dockerfile
-  #   container_name: ember-web
-  #   ports:
-  #     - "3000:3000"
-  #   networks:
-  #     - ember-network
-  #   restart: unless-stopped
+  # Vue 前端服务
+  web:
+    # 使用预构建的镜像（生产环境推荐）
+    image: ghcr.io/konghanghang/ember-web:latest
+
+    # 如需本地构建，取消下面两行注释并注释上面的 image 行
+    # build:
+    #   context: ../../services/web
+    #   dockerfile: Dockerfile
+
+    container_name: ember-web
+    ports:
+      - "80:80"
+    networks:
+      - ember-network
+    restart: unless-stopped
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Python Telegram Bot
   bot:
-    build:
-      context: ../../services/bot
-      dockerfile: Dockerfile
+    # 使用预构建的镜像（生产环境推荐）
+    image: ghcr.io/konghanghang/ember-bot:latest
+
+    # 如需本地构建，取消下面两行注释并注释上面的 image 行
+    # build:
+    #   context: ../../services/bot
+    #   dockerfile: Dockerfile
+
     container_name: ember-bot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -80,13 +104,16 @@ services:
     networks:
       - ember-network
     restart: unless-stopped
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Nginx 反向代理（可选）
   # nginx:
   #   image: nginx:alpine
   #   container_name: ember-nginx
   #   ports:
-  #     - "80:80"
   #     - "443:443"
   #   volumes:
   #     - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -104,3 +131,4 @@ networks:
 
 volumes:
   postgres_data:
+  api_logs:

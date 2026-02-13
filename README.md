@@ -4,7 +4,7 @@
 
 **Ember** 是一个现代化的 Emby 用户管理系统，采用 **Monorepo 微服务架构**，提供邀请码注册、用户管理、账号到期控制、MoviePilot 集成、Telegram Bot 等功能。
 
-[![CI](https://github.com/konghanghang/ember/actions/workflows/ci.yml/badge.svg)](https://github.com/konghanghang/ember/actions/workflows/ci.yml)
+[![Test](https://github.com/konghanghang/ember/actions/workflows/test.yml/badge.svg)](https://github.com/konghanghang/ember/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.23-blue.svg)](https://go.dev/)
 [![Vue](https://img.shields.io/badge/vue-3.x-green.svg)](https://vuejs.org/)
@@ -116,7 +116,26 @@ cp services/api/.env.example services/api/.env
 
 ### 3. 启动服务
 
-#### 使用 Docker Compose（推荐）
+#### 使用 Docker 镜像（推荐）
+
+```bash
+# 进入 docker 目录
+cd infrastructure/docker
+
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件填入实际配置
+
+# 拉取镜像并启动
+docker-compose pull
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+docker-compose logs -f
+```
+
+#### 使用源码构建
 
 ```bash
 # 构建并启动所有服务
@@ -196,6 +215,7 @@ make test-health
 
 - [迁移指南](./docs/MIGRATION-GUIDE.md) - Next.js → Vue 3 + Go + Python 完整迁移方案
 - [开发规范](./CLAUDE.md) - AI 协作指南和开发规范
+- [Docker 构建指南](./docs/DOCKER-BUILD-GUIDE.md) - Docker 镜像构建和发布流程
 - [API 文档](./services/api/README.md) - Go API 服务文档
 
 ### 服务文档
@@ -216,6 +236,8 @@ make test-health
 - [x] 健康检查 API
 - [x] Monorepo 架构搭建
 - [x] Docker + Docker Compose 配置
+- [x] GitHub Actions CI/CD 流程
+- [x] 多服务 Docker 镜像构建
 - [x] Makefile 统一命令
 
 ### 🚧 进行中
