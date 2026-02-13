@@ -12,6 +12,7 @@
 | **[API 响应规范](API-RESPONSE-STANDARD.md)** | JSON 格式、字段命名、GORM 映射约定 | 后端开发 |
 | **[部署指南](DEPLOYMENT.md)** | Docker 部署、环境变量、CI/CD | 运维 |
 | **[测试指南](TESTING.md)** | 测试步骤、环境准备、故障排查 | 测试 |
+| **[Cloudflared 本地联调](CLOUDFLARED-LOCAL-TESTING.md)** | Telegram webhook 本地联调与 Surge 排障 | 开发/测试 |
 | **[Emby API 参考](emby-api-guide.md)** | Emby 集成接口、调试技巧 | 后端开发 |
 
 ---
@@ -46,6 +47,7 @@ docs/
 ├── API-RESPONSE-STANDARD.md     # API 响应规范
 ├── DEPLOYMENT.md                # 部署指南
 ├── TESTING.md                   # 测试指南
+├── CLOUDFLARED-LOCAL-TESTING.md # Cloudflared 本地联调
 ├── emby-api-guide.md            # Emby API 参考
 └── specs/
     ├── design.md                # MVP 需求文档

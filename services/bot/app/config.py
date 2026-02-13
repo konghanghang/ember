@@ -1,8 +1,11 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+BOT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(BOT_ROOT / ".env.local", override=False)
+load_dotenv(BOT_ROOT / ".env", override=False)
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_ADMIN_CHAT_ID = int(os.environ["TELEGRAM_ADMIN_CHAT_ID"])

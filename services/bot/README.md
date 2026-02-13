@@ -47,8 +47,16 @@ services/bot/
 ```bash
 cd services/bot
 pip install -r requirements.txt
+# 首次本地调试建议使用本地配置文件
+cp .env.example .env.local
+# 编辑 .env.local 填入本地测试配置
 python main.py
 ```
+
+配置优先级说明：
+- 系统环境变量优先（Docker/生产环境）
+- `.env.local` 次之（本地调试）
+- `.env` 兜底兼容（可选）
 
 ## HTTP 端点
 
