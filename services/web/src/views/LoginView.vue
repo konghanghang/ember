@@ -37,7 +37,7 @@ const handleLogin = async () => {
     ElMessage.success('登录成功')
     router.push(redirectTarget.value)
   } catch {
-    ElMessage.error('登录失败，请检查用户名或密码')
+    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
   } finally {
     loading.value = false
   }

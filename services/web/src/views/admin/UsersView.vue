@@ -49,7 +49,7 @@ const handleExtend = async (row: UserInfo) => {
     })
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
-      ElMessage.error('延长失败，请稍后重试')
+      // 错误提示由全局请求拦截器统一处理，避免重复弹窗
     }
   }
 }
@@ -60,7 +60,7 @@ const handleToggle = async (row: UserInfo) => {
     ElMessage.success(row.isActive ? '已禁用' : '已启用')
     fetchData()
   } catch {
-    ElMessage.error('操作失败，请稍后重试')
+    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
   }
 }
 
@@ -76,7 +76,7 @@ const handleDelete = async (row: UserInfo) => {
     fetchData()
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
-      ElMessage.error('删除失败，请稍后重试')
+      // 错误提示由全局请求拦截器统一处理，避免重复弹窗
     }
   }
 }
@@ -99,7 +99,7 @@ const handleResetPassword = async (row: UserInfo) => {
     fetchData()
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
-      ElMessage.error('重置密码失败，请稍后重试')
+      // 错误提示由全局请求拦截器统一处理，避免重复弹窗
     }
   }
 }

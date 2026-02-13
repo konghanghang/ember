@@ -35,7 +35,7 @@ const handleSubmit = async () => {
     ElMessage.success('提交成功')
     router.push('/console/subscriptions')
   } catch {
-    ElMessage.error('提交失败，请稍后重试')
+    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
   } finally {
     loading.value = false
   }

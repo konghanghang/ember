@@ -95,7 +95,7 @@ const handleUpdateEmail = async () => {
     await updateEmail(user.value.email || '')
     ElMessage.success('邮箱更新成功')
   } catch {
-    ElMessage.error('邮箱更新失败，请稍后重试')
+    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
   }
 }
 
@@ -113,7 +113,7 @@ const handleUpdatePassword = async () => {
     ElMessage.success('密码修改成功')
     passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   } catch {
-    ElMessage.error('密码修改失败，请稍后重试')
+    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
   }
 }
 

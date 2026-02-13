@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { searchTmdb } from '@/api/user'
 import type { TmdbSearchItem, TmdbSelection } from '@/types/api'
@@ -27,7 +26,7 @@ const handleSearch = async () => {
     results.value = res.results || []
     showResults.value = true
   } catch {
-    ElMessage.error('搜索失败，请稍后重试')
+    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
     results.value = []
     showResults.value = false
   } finally {
