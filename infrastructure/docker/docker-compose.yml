@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   # Go API 服务
-  api:
+  ember-api:
     # 使用预构建的镜像（生产环境推荐）
     image: ghcr.io/konghanghang/ember-api:latest
 
@@ -41,7 +41,7 @@ services:
       - EMBY_URL=${EMBY_URL}
       - EMBY_API_KEY=${EMBY_API_KEY}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
-      - BOT_NOTIFY_URL=http://bot:8000
+      - BOT_NOTIFY_URL=http://ember-bot:8000
     ports:
       - "8080:8080"
     depends_on:
@@ -58,7 +58,7 @@ services:
         max-file: "3"
 
   # Vue 前端服务
-  web:
+  ember-web:
     # 使用预构建的镜像（生产环境推荐）
     image: ghcr.io/konghanghang/ember-web:latest
 
@@ -79,7 +79,7 @@ services:
         max-file: "3"
 
   # Python Telegram Bot
-  bot:
+  ember-bot:
     # 使用预构建的镜像（生产环境推荐）
     image: ghcr.io/konghanghang/ember-bot:latest
 
@@ -93,14 +93,14 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID}
       - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
-      - API_URL=http://api:8080
+      - API_URL=http://ember-api:8080
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
       - WEBHOOK_URL=${WEBHOOK_URL}
       - BOT_PORT=8000
     ports:
       - "8000:8000"
     depends_on:
-      - api
+      - ember-api
     networks:
       - ember-network
     restart: unless-stopped
@@ -119,8 +119,8 @@ services:
   #     - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
   #     - ../nginx/ssl:/etc/nginx/ssl:ro
   #   depends_on:
-  #     - api
-  #     - web
+  #     - ember-api
+  #     - ember-web
   #   networks:
   #     - ember-network
   #   restart: unless-stopped
