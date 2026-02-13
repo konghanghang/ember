@@ -1,7 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { 
+  Check, 
+  Close, 
+  Delete, 
+  Plus, 
+  Search, 
+  Refresh, 
+  Filter,
+  VideoPlay,
+  Film,
+  UserFilled
+} from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import { approveSubscription, rejectSubscription } from '@/api/admin'
 import { deleteSubscription, getSubscriptions } from '@/api/console'
@@ -13,50 +25,30 @@ const authStore = useAuthStore()
 const subscriptions = ref<Subscription[]>([])
 const loading = ref(false)
 const total = ref(0)
-const queryParams = ref<{
-  page: number
-  pageSize: number
-  status?: SubscriptionStatus
-}>({
+const queryParams = ref({
   page: 1,
-  pageSize: 12
+  pageSize: 20,
+  status: '' as SubscriptionStatus | ''
 })
 
-const statusFilter = ref<'' | SubscriptionStatus>('')
+const isAdmin = computed(() => authStore.isAdmin)
 
-const canReview = computed(() => authStore.isAdmin)
-
-const statusTagType = (status: SubscriptionStatus) => {
-  const map: Record<SubscriptionStatus, 'warning' | 'success' | 'info'> = {
-    PENDING: 'warning',
-    APPROVED: 'success',
-    REJECTED: 'info',
-    EXPIRED: 'info'
-  }
-  return map[status] || 'info'
-}
-
-const statusText = (status: SubscriptionStatus) => {
-  const map: Record<SubscriptionStatus, string> = {
-    PENDING: '待审核',
-    APPROVED: '已批准',
-    REJECTED: '已拒绝',
-    EXPIRED: '已过期'
-  }
-  return map[status] || status
-}
-
-const mediaTypeText = (type: string) => {
-  return type === 'MOVIE' ? '电影' : '剧集'
-}
+const statusOptions = [
+  { label: '全部', value: '' },
+  { label: '待审核', value: 'PENDING' },
+  { label: '已批准', value: 'APPROVED' },
+  { label: '已拒绝', value: 'REJECTED' },
+]
 
 const fetchData = async () => {
   loading.value = true
   try {
-    const params = {
+    const params: any = {
       page: queryParams.value.page,
-      pageSize: queryParams.value.pageSize,
-      ...(statusFilter.value ? { status: statusFilter.value } : {})
+      pageSize: queryParams.value.pageSize
+    }
+    if (queryParams.value.status) {
+      params.status = queryParams.value.status
     }
     const res = await getSubscriptions(params)
     subscriptions.value = res.data || []
@@ -66,36 +58,30 @@ const fetchData = async () => {
   }
 }
 
-const handleStatusChange = () => {
+watch(() => queryParams.value.status, () => {
   queryParams.value.page = 1
   fetchData()
-}
+})
 
-const handleSizeChange = (size: number) => {
-  queryParams.value.pageSize = size
-  queryParams.value.page = 1
-  fetchData()
-}
-
-const handlePageChange = (page: number) => {
-  queryParams.value.page = page
-  fetchData()
-}
-
-const handleApprove = async (id: string) => {
+const handleApprove = async (sub: Subscription) => {
   try {
-    await approveSubscription(id)
-    ElMessage.success('已批准')
+    await approveSubscription(sub.id)
+    ElMessage.success(`已批准: ${sub.name}`)
     fetchData()
   } catch {
-    // handled by interceptor
+    // handled
   }
 }
 
-const handleReject = async (id: string) => {
+const handleReject = async (sub: Subscription) => {
   try {
-    await ElMessageBox.confirm('确定拒绝该订阅申请吗？', '提示', { type: 'warning' })
-    await rejectSubscription(id)
+    await ElMessageBox.confirm(`确定拒绝 "${sub.name}" 的订阅申请吗？`, '拒绝确认', { 
+      confirmButtonText: '拒绝',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    })
+    await rejectSubscription(sub.id)
     ElMessage.success('已拒绝')
     fetchData()
   } catch {
@@ -103,201 +89,219 @@ const handleReject = async (id: string) => {
   }
 }
 
-const handleDelete = async (id: string) => {
+const handleDelete = async (sub: Subscription) => {
   try {
-    await ElMessageBox.confirm('确定取消该订阅吗？', '提示', { type: 'warning' })
-    await deleteSubscription(id)
-    ElMessage.success('已删除')
+    await ElMessageBox.confirm(`确定取消 "${sub.name}" 的订阅吗？`, '取消确认', { 
+      confirmButtonText: '确定取消',
+      cancelButtonText: '保留',
+      type: 'warning'
+    })
+    await deleteSubscription(sub.id)
+    ElMessage.success('已取消订阅')
     fetchData()
   } catch {
     // cancelled
   }
 }
 
+const getStatusColor = (status: SubscriptionStatus) => {
+  switch (status) {
+    case 'PENDING': return 'bg-yellow-500'
+    case 'APPROVED': return 'bg-green-500'
+    case 'REJECTED': return 'bg-red-500'
+    case 'EXPIRED': return 'bg-gray-400'
+    default: return 'bg-gray-400'
+  }
+}
+
+const getStatusText = (status: SubscriptionStatus) => {
+  switch (status) {
+    case 'PENDING': return '审核中'
+    case 'APPROVED': return '已批准'
+    case 'REJECTED': return '已拒绝'
+    case 'EXPIRED': return '已过期'
+    default: return status
+  }
+}
+
+const getImageUrl = (path?: string) => {
+  return path ? `https://image.tmdb.org/t/p/w300${path}` : 'https://via.placeholder.com/300x450?text=No+Poster'
+}
+
 onMounted(fetchData)
 </script>
 
 <template>
-  <el-card>
-    <template #header>
-      <div class="card-header">
-        <h2 class="title">订阅管理</h2>
-        <div class="actions">
-          <el-radio-group v-model="statusFilter" @change="handleStatusChange">
-            <el-radio-button label="">全部</el-radio-button>
-            <el-radio-button label="PENDING">待审核</el-radio-button>
-            <el-radio-button label="APPROVED">已批准</el-radio-button>
-            <el-radio-button label="REJECTED">已拒绝</el-radio-button>
-          </el-radio-group>
-          <el-button type="primary" @click="router.push('/console/subscriptions/new')">
-            + 提交新订阅
-          </el-button>
+  <div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          订阅管理
+          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ total }} 个订阅</span>
+        </h1>
+        <p class="text-gray-500 text-sm mt-1">查看和管理您的影视订阅请求</p>
+      </div>
+      
+      <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+        <div class="flex bg-gray-100 p-1 rounded-xl flex-shrink-0">
+          <button 
+            v-for="opt in statusOptions"
+            :key="opt.value"
+            @click="queryParams.status = opt.value as any"
+            class="px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap"
+            :class="queryParams.status === opt.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+        
+        <button 
+          @click="fetchData" 
+          class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+          title="刷新列表"
+        >
+          <el-icon :size="20"><Refresh /></el-icon>
+        </button>
+
+        <button 
+          @click="router.push('/console/subscriptions/new')"
+          class="flex items-center gap-2 px-4 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95 flex-shrink-0 whitespace-nowrap"
+        >
+          <el-icon><Plus /></el-icon>
+          <span>新建订阅</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div v-loading="loading" class="min-h-[300px]">
+      <div v-if="subscriptions.length > 0" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 animate-fade-in-up">
+        <div 
+          v-for="sub in subscriptions" 
+          :key="sub.id"
+          class="group relative bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl hover:border-ember/30 transition-all duration-300"
+        >
+          <!-- Poster -->
+          <div class="aspect-[2/3] relative bg-gray-100 overflow-hidden">
+            <img 
+              :src="getImageUrl(sub.posterPath)" 
+              class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+              loading="lazy"
+            />
+            
+            <!-- Gradient Overlay -->
+            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60"></div>
+
+            <!-- Status Badge -->
+            <div class="absolute top-2 right-2">
+              <span 
+                class="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm backdrop-blur-md"
+                :class="getStatusColor(sub.status)"
+              >
+                {{ getStatusText(sub.status) }}
+              </span>
+            </div>
+
+            <!-- Type Icon -->
+            <div class="absolute bottom-2 left-2 text-white/80">
+              <el-icon v-if="sub.type === 'MOVIE'" :size="16"><Film /></el-icon>
+              <el-icon v-else :size="16"><VideoPlay /></el-icon>
+            </div>
+
+            <!-- Hover Actions -->
+            <div 
+              v-if="sub.status === 'PENDING'"
+              class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center gap-3 backdrop-blur-sm p-4"
+            >
+              <template v-if="isAdmin">
+                <button 
+                  @click="handleApprove(sub)"
+                  class="w-full py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center gap-1"
+                >
+                  <el-icon><Check /></el-icon> 批准
+                </button>
+                <button 
+                  @click="handleReject(sub)"
+                  class="w-full py-2 bg-white/20 hover:bg-red-500 text-white rounded-lg font-bold text-xs backdrop-blur-md transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 delay-75 flex items-center justify-center gap-1"
+                >
+                  <el-icon><Close /></el-icon> 拒绝
+                </button>
+              </template>
+              <template v-else>
+                <button 
+                  @click="handleDelete(sub)"
+                  class="w-full py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center gap-1"
+                >
+                  <el-icon><Delete /></el-icon> 取消订阅
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Info -->
+          <div class="p-3">
+            <h3 class="font-bold text-gray-900 text-sm line-clamp-1 mb-1" :title="sub.name">{{ sub.name }}</h3>
+            <div class="flex items-center justify-between text-xs text-gray-500">
+              <span>{{ new Date(sub.createdAt).toLocaleDateString() }}</span>
+              <div v-if="isAdmin && sub.user" class="flex items-center gap-1" :title="sub.user.username">
+                <el-icon><UserFilled /></el-icon>
+                <span class="max-w-[60px] truncate">{{ sub.user.username }}</span>
+              </div>
+            </div>
+            
+            <div v-if="sub.note" class="mt-2 pt-2 border-t border-gray-100">
+              <p class="text-[10px] text-gray-400 line-clamp-2 italic">"{{ sub.note }}"</p>
+            </div>
+          </div>
         </div>
       </div>
-    </template>
 
-    <el-skeleton :loading="loading" animated :count="6">
-      <template #template>
-        <div class="grid">
-          <div v-for="i in 6" :key="i" class="skeleton-card">
-            <el-skeleton-item variant="image" style="height: 300px; width: 100%" />
-            <div style="padding: 12px">
-              <el-skeleton-item variant="h3" style="width: 70%" />
-              <el-skeleton-item variant="text" style="width: 50%; margin-top: 8px" />
-            </div>
-          </div>
+      <!-- Empty State -->
+      <div v-else class="flex flex-col items-center justify-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+        <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
+          <el-icon :size="40"><Film /></el-icon>
         </div>
-      </template>
+        <p class="text-lg font-medium text-gray-500">暂无订阅记录</p>
+        <p class="text-sm mt-1 mb-6">您还没有提交过任何订阅请求</p>
+        <button 
+          @click="router.push('/console/subscriptions/new')"
+          class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors"
+        >
+          去添加
+        </button>
+      </div>
+    </div>
 
-      <template #default>
-        <el-empty v-if="subscriptions.length === 0" description="暂无订阅" />
-
-        <div v-else class="grid">
-          <div v-for="sub in subscriptions" :key="sub.id" class="sub-card">
-            <div class="poster-wrapper">
-              <img
-                v-if="sub.posterPath"
-                :src="`https://image.tmdb.org/t/p/w300${sub.posterPath}`"
-                class="poster"
-                :alt="sub.name"
-              />
-              <div v-else class="no-poster">无封面</div>
-
-              <div class="actions-overlay" v-if="sub.status === 'PENDING'">
-                <template v-if="canReview">
-                  <el-button type="success" size="small" @click.stop="handleApprove(sub.id)">批准</el-button>
-                  <el-button type="danger" size="small" @click.stop="handleReject(sub.id)">拒绝</el-button>
-                </template>
-                <template v-else>
-                  <el-button type="danger" size="small" @click.stop="handleDelete(sub.id)">删除</el-button>
-                </template>
-              </div>
-            </div>
-
-            <div class="content">
-              <div class="title-row">
-                <div class="name" :title="sub.name">{{ sub.name }}</div>
-              </div>
-              <div class="meta">
-                <el-tag size="small">{{ mediaTypeText(sub.type) }}</el-tag>
-                <el-tag size="small" :type="statusTagType(sub.status)">{{ statusText(sub.status) }}</el-tag>
-              </div>
-              <div v-if="canReview && sub.user?.username" class="owner">
-                申请人: {{ sub.user.username }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-    </el-skeleton>
-
-    <div class="pagination-wrap">
+    <!-- Pagination -->
+    <div v-if="total > 0" class="flex justify-end pt-4">
       <el-pagination
-        :current-page="queryParams.page"
-        :page-size="queryParams.pageSize"
-        :page-sizes="[12, 24, 48]"
+        v-model:current-page="queryParams.page"
+        v-model:page-size="queryParams.pageSize"
         :total="total"
+        :page-sizes="[20, 40, 80]"
         layout="total, sizes, prev, pager, next"
-        @size-change="handleSizeChange"
-        @current-change="handlePageChange"
+        @size-change="fetchData"
+        @current-change="fetchData"
+        background
       />
     </div>
-  </el-card>
+  </div>
 </template>
 
 <style scoped>
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out forwards;
 }
-.title {
-  margin: 0;
-  font-size: 20px;
-}
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 20px;
-}
-.sub-card {
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-}
-.poster-wrapper {
-  position: relative;
-  height: 300px;
-  background: #f3f4f6;
-}
-.poster {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.no-poster {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #9ca3af;
-}
-.actions-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: rgba(0, 0, 0, 0.45);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-.poster-wrapper:hover .actions-overlay {
-  opacity: 1;
-}
-.content {
-  padding: 12px;
-}
-.title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.name {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-.owner {
-  margin-top: 8px;
-  color: #6b7280;
-  font-size: 12px;
-}
-.pagination-wrap {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
-.skeleton-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

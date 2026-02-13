@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Key, Lock, Message, Ticket, User, CircleCloseFilled, Film, Top, Monitor, InfoFilled, CopyDocument, VideoPlay } from '@element-plus/icons-vue'
+import { 
+  UserFilled, 
+  Key, 
+  Message, 
+  Ticket, 
+  Lock, 
+  CircleCloseFilled, 
+  VideoPlay, 
+  Monitor, 
+  Film,
+  CopyDocument,
+  ArrowRight
+} from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import { getEmbyConfig, getMediaStats, getProfile, updateEmail, updatePassword } from '@/api/console'
 import { redeemCode } from '@/api/user'
@@ -25,8 +37,8 @@ const embyUrl = ref('')
 const stats = ref<MediaStats>({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 })
 const loading = ref(false)
 const redeeming = ref(false)
-
 const redeemForm = ref({ code: '' })
+const showRenewDialog = ref(false)
 
 const passwordForm = ref({
   oldPassword: '',
@@ -43,13 +55,6 @@ const daysLeft = computed(() => {
   if (!user.value.expiresAt) return 0
   const ms = new Date(user.value.expiresAt).getTime() - Date.now()
   return Math.ceil(ms / (24 * 60 * 60 * 1000))
-})
-
-const expiryTagType = computed(() => {
-  if (!user.value.expiresAt) return 'info'
-  if (isExpired.value) return 'danger'
-  if (daysLeft.value < 7) return 'warning'
-  return 'success'
 })
 
 const fetchProfile = async () => {
@@ -84,7 +89,10 @@ const handleRedeem = async () => {
     const res = await redeemCode({ code: redeemForm.value.code })
     ElMessage.success(res.message)
     redeemForm.value.code = ''
+    showRenewDialog.value = false
     await refreshAll()
+  } catch {
+    // handled
   } finally {
     redeeming.value = false
   }
@@ -95,7 +103,7 @@ const handleUpdateEmail = async () => {
     await updateEmail(user.value.email || '')
     ElMessage.success('邮箱更新成功')
   } catch {
-    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
+    // handled
   }
 }
 
@@ -113,7 +121,16 @@ const handleUpdatePassword = async () => {
     ElMessage.success('密码修改成功')
     passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   } catch {
-    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
+    // handled
+  }
+}
+
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('复制成功')
+  } catch {
+    ElMessage.error('复制失败')
   }
 }
 
@@ -121,55 +138,225 @@ onMounted(refreshAll)
 </script>
 
 <template>
-  <div class="space-y-6" v-loading="loading">
-    <!-- Header Section -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">欢迎回来, {{ user.username }}</h1>
-        <p class="text-gray-500 mt-1">管理您的 Emby 账号和订阅状态</p>
-      </div>
-      <div class="flex items-center gap-3">
-        <span 
-          class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ring-1 ring-inset"
-          :class="{
-            'bg-green-50 text-green-700 ring-green-600/20': !isExpired && !authStore.isAdmin,
-            'bg-red-50 text-red-700 ring-red-600/20': isExpired && !authStore.isAdmin,
-            'bg-blue-50 text-blue-700 ring-blue-600/20': authStore.isAdmin
-          }"
-        >
-          {{ authStore.isAdmin ? '管理员' : (isExpired ? '已过期' : '订阅有效') }}
-        </span>
-        <span v-if="!authStore.isAdmin && user.expiresAt" class="text-sm text-gray-500">
-          有效期至 {{ new Date(user.expiresAt).toLocaleDateString() }}
-        </span>
+  <div class="space-y-8 animate-fade-in" v-loading="loading">
+    <!-- Hero Membership Card -->
+    <div class="relative overflow-hidden rounded-3xl bg-gray-900 text-white shadow-xl">
+      <!-- Background Gradients -->
+      <div class="absolute top-0 right-0 -mr-20 -mt-20 w-96 h-96 bg-ember rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
+      <div class="absolute bottom-0 left-0 -ml-20 -mb-20 w-96 h-96 bg-purple-600 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+      
+      <div class="relative p-8 md:p-10">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <!-- User Profile -->
+          <div class="flex items-center gap-6">
+            <div class="w-20 h-20 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 border-4 border-gray-800 flex items-center justify-center shadow-lg">
+              <span class="text-3xl font-bold text-gray-400">
+                {{ user.username.charAt(0).toUpperCase() }}
+              </span>
+            </div>
+            <div>
+              <div class="flex items-center gap-3">
+                <h1 class="text-3xl font-bold tracking-tight">{{ user.username }}</h1>
+                <span 
+                  class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border"
+                  :class="authStore.isAdmin ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' : 'bg-ember/20 border-ember/50 text-red-300'"
+                >
+                  {{ authStore.isAdmin ? '管理员' : '高级会员' }}
+                </span>
+              </div>
+              <p class="text-gray-400 mt-2 font-mono text-sm flex items-center gap-2">
+                ID: {{ user.embyId || '待激活' }}
+                <button v-if="user.embyId" @click="copyToClipboard(user.embyId)" class="hover:text-white transition-colors">
+                  <el-icon><CopyDocument /></el-icon>
+                </button>
+              </p>
+            </div>
+          </div>
+
+          <!-- Status & Actions -->
+          <div class="flex flex-col items-end gap-4">
+            <div class="text-right">
+              <p class="text-sm text-gray-400 mb-1">订阅状态</p>
+              <div class="flex items-center gap-2 justify-end">
+                <div class="w-2 h-2 rounded-full" :class="isExpired ? 'bg-red-500' : 'bg-green-500 animate-pulse'"></div>
+                <span class="text-xl font-bold" :class="isExpired ? 'text-red-400' : 'text-green-400'">
+                  {{ isExpired ? '已过期' : '有效' }}
+                </span>
+              </div>
+            </div>
+            
+            <button 
+              v-if="!authStore.isAdmin"
+              @click="showRenewDialog = true"
+              class="group flex items-center gap-2 px-6 py-2.5 bg-white text-gray-900 rounded-xl font-bold hover:bg-gray-100 transition-all shadow-lg active:scale-95"
+            >
+              <el-icon><Ticket /></el-icon>
+              <span>{{ isExpired ? '立即续期' : '延长订阅' }}</span>
+              <el-icon class="group-hover:translate-x-1 transition-transform"><ArrowRight /></el-icon>
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress Bar (Visual Flair) -->
+        <div class="mt-10">
+          <div class="flex justify-between text-xs text-gray-500 mb-2 font-medium uppercase tracking-wider">
+            <span>会员有效期进度</span>
+            <span>{{ isExpired ? '剩余 0 天' : `剩余 ${daysLeft} 天` }}</span>
+          </div>
+          <div class="h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div 
+              class="h-full bg-gradient-to-r from-ember to-orange-500 rounded-full transition-all duration-1000 ease-out"
+              :style="{ width: isExpired ? '0%' : '100%' }"
+            ></div>
+          </div>
+          <div class="mt-2 text-right text-xs text-gray-600">
+            有效期至 {{ user.expiresAt ? new Date(user.expiresAt).toLocaleDateString() : '永久有效' }}
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Alerts / Banners -->
-    <div v-if="!authStore.isAdmin && isExpired" class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg shadow-sm">
-      <div class="flex">
-        <div class="flex-shrink-0">
-          <el-icon class="text-red-400" :size="20"><CircleCloseFilled /></el-icon>
+    <!-- Alert for Expired Users -->
+    <div v-if="isExpired && !authStore.isAdmin" class="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-center gap-4 text-red-800 animate-bounce-in">
+      <div class="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+        <el-icon :size="20"><CircleCloseFilled /></el-icon>
+      </div>
+      <div class="flex-1">
+        <h3 class="font-bold text-sm">服务已暂停</h3>
+        <p class="text-xs mt-1 text-red-600">您的订阅已过期。请续期以恢复 Emby 服务器访问权限。</p>
+      </div>
+      <button @click="showRenewDialog = true" class="text-sm font-bold underline hover:text-red-900">立即续期</button>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-purple-200 transition-colors group">
+        <div class="w-14 h-14 bg-purple-50 rounded-xl flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform duration-300">
+          <el-icon :size="28"><Film /></el-icon>
         </div>
-        <div class="ml-3">
-          <h3 class="text-sm font-medium text-red-800">账号已过期</h3>
-          <div class="mt-2 text-sm text-red-700">
-            <p>您的 Emby 访问权限已暂停。请使用兑换码续期以恢复服务。</p>
+        <div>
+          <p class="text-3xl font-bold text-gray-900">{{ stats.MovieCount }}</p>
+          <p class="text-sm text-gray-500 font-medium">电影收藏</p>
+        </div>
+      </div>
+      
+      <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-green-200 transition-colors group">
+        <div class="w-14 h-14 bg-green-50 rounded-xl flex items-center justify-center text-green-500 group-hover:scale-110 transition-transform duration-300">
+          <el-icon :size="28"><VideoPlay /></el-icon>
+        </div>
+        <div>
+          <p class="text-3xl font-bold text-gray-900">{{ stats.SeriesCount }}</p>
+          <p class="text-sm text-gray-500 font-medium">剧集收藏</p>
+        </div>
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-blue-200 transition-colors group">
+        <div class="w-14 h-14 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform duration-300">
+          <el-icon :size="28"><Monitor /></el-icon>
+        </div>
+        <div>
+          <p class="text-3xl font-bold text-gray-900">{{ stats.EpisodeCount }}</p>
+          <p class="text-sm text-gray-500 font-medium">总集数</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Server & Settings Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      
+      <!-- Emby Server Info -->
+      <div class="lg:col-span-1 space-y-6">
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden h-full">
+          <div class="p-6 border-b border-gray-50 bg-gray-50/50">
+            <h3 class="font-bold text-gray-900 flex items-center gap-2">
+              <el-icon class="text-ember"><Monitor /></el-icon>
+              服务器连接
+            </h3>
           </div>
-          <div class="mt-4">
-            <div class="flex items-center gap-3 max-w-md">
+          <div class="p-6">
+            <div v-if="embyUrl && (!isExpired || authStore.isAdmin)" class="space-y-4">
+              <div class="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                <p class="text-xs text-gray-500 uppercase tracking-wider font-bold mb-2">服务器地址</p>
+                <div class="flex items-center gap-2">
+                  <code class="flex-1 bg-white px-3 py-2 rounded border border-gray-200 text-sm font-mono text-gray-700 truncate select-all">
+                    {{ embyUrl }}
+                  </code>
+                  <button @click="copyToClipboard(embyUrl)" class="p-2 text-gray-400 hover:text-ember transition-colors">
+                    <el-icon><CopyDocument /></el-icon>
+                  </button>
+                </div>
+              </div>
+              <p class="text-xs text-gray-500 leading-relaxed">
+                使用此地址在 Emby 客户端登录。账号密码与本控制台一致。
+              </p>
+            </div>
+            <div v-else class="text-center py-8 text-gray-400">
+              <el-icon :size="48" class="mb-3 text-gray-300"><Lock /></el-icon>
+              <p class="text-sm">服务器访问已锁定。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account Management -->
+      <div class="lg:col-span-2 space-y-6">
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div class="flex border-b border-gray-100">
+            <div class="px-6 py-4 border-b-2 border-ember text-ember font-bold text-sm">账号设置</div>
+            <div class="px-6 py-4 text-gray-500 font-medium text-sm hover:text-gray-900 cursor-not-allowed opacity-50">偏好设置</div>
+          </div>
+          
+          <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
+            <!-- Email Update -->
+            <div class="space-y-4">
+              <h4 class="font-bold text-gray-900 text-sm flex items-center gap-2">
+                <el-icon class="text-gray-400"><Message /></el-icon>
+                联系邮箱
+              </h4>
+              <div class="flex gap-3">
+                <el-input v-model="user.email" placeholder="new@email.com" class="input-ember" />
+                <button 
+                  @click="handleUpdateEmail"
+                  class="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors text-sm font-bold"
+                >
+                  保存
+                </button>
+              </div>
+              <p class="text-xs text-gray-400">用于找回密码和接收系统通知。</p>
+            </div>
+
+            <!-- Password Update -->
+            <div class="space-y-4">
+              <h4 class="font-bold text-gray-900 text-sm flex items-center gap-2">
+                <el-icon class="text-gray-400"><Key /></el-icon>
+                修改密码
+              </h4>
               <el-input 
-                v-model="redeemForm.code" 
-                placeholder="输入兑换码" 
-                class="input-ember" 
-                :prefix-icon="Ticket"
+                v-model="passwordForm.oldPassword" 
+                type="password" 
+                show-password 
+                placeholder="当前密码" 
+                class="input-ember"
+              />
+              <el-input 
+                v-model="passwordForm.newPassword" 
+                type="password" 
+                show-password 
+                placeholder="新密码" 
+                class="input-ember"
+              />
+              <el-input 
+                v-model="passwordForm.confirmPassword" 
+                type="password" 
+                show-password 
+                placeholder="确认新密码" 
+                class="input-ember"
               />
               <button 
-                @click="handleRedeem" 
-                :disabled="redeeming"
-                class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 transition-colors"
+                @click="handleUpdatePassword"
+                class="w-full py-2.5 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95 text-sm"
               >
-                {{ redeeming ? '兑换中...' : '立即续期' }}
+                更新密码
               </button>
             </div>
           </div>
@@ -177,204 +364,66 @@ onMounted(refreshAll)
       </div>
     </div>
 
-    <!-- Quick Actions (Renew for active users) -->
-    <div v-else-if="!authStore.isAdmin" class="bg-white border border-gray-100 rounded-xl p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-4">
-        <div class="w-10 h-10 rounded-full bg-ember/10 flex items-center justify-center text-ember">
-          <el-icon :size="20"><Ticket /></el-icon>
+    <!-- Renew Dialog -->
+    <el-dialog v-model="showRenewDialog" title="续期会员" width="400px" align-center class="rounded-2xl">
+      <div class="p-6 pt-2 text-center">
+        <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-ember">
+          <el-icon :size="32"><Ticket /></el-icon>
         </div>
-        <div>
-          <h3 class="text-sm font-semibold text-gray-900">账号续期</h3>
-          <p class="text-xs text-gray-500">使用兑换码延长您的订阅时间</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-3 w-full md:w-auto">
+        <h3 class="text-lg font-bold text-gray-900 mb-2">输入兑换码</h3>
+        <p class="text-gray-500 text-sm mb-6">在下方输入您的兑换码以立即延长订阅。</p>
+        
         <el-input 
           v-model="redeemForm.code" 
-          placeholder="输入兑换码" 
-          class="input-ember w-full md:w-64"
-          :prefix-icon="Ticket"
+          placeholder="在此输入兑换码..." 
+          class="input-ember text-center text-lg mb-6"
+          size="large"
         />
+        
         <button 
           @click="handleRedeem" 
           :disabled="redeeming"
-          class="whitespace-nowrap px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ember transition-colors"
+          class="w-full py-3 bg-ember text-white rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl disabled:opacity-70 flex items-center justify-center gap-2"
         >
-          {{ redeeming ? '...' : '兑换' }}
+          <span v-if="redeeming" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
+          {{ redeeming ? '验证中...' : '确认兑换' }}
         </button>
       </div>
-    </div>
-
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
-        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-          <el-icon :size="64" class="text-purple-500"><Film /></el-icon>
-        </div>
-        <div class="relative z-10">
-          <p class="text-sm font-medium text-gray-500">电影收藏</p>
-          <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.MovieCount || 0 }}</p>
-          <div class="mt-4 flex items-center text-xs text-green-600 bg-green-50 w-fit px-2 py-1 rounded-full">
-            <el-icon class="mr-1"><Top /></el-icon>
-            <span>实时更新</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
-        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-          <el-icon :size="64" class="text-green-500"><VideoPlay /></el-icon>
-        </div>
-        <div class="relative z-10">
-          <p class="text-sm font-medium text-gray-500">剧集收藏</p>
-          <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.SeriesCount || 0 }}</p>
-          <div class="mt-4 flex items-center text-xs text-green-600 bg-green-50 w-fit px-2 py-1 rounded-full">
-            <el-icon class="mr-1"><Top /></el-icon>
-            <span>海量资源</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
-        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-          <el-icon :size="64" class="text-ember"><Monitor /></el-icon>
-        </div>
-        <div class="relative z-10">
-          <p class="text-sm font-medium text-gray-500">总集数</p>
-          <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.EpisodeCount || 0 }}</p>
-          <div class="mt-4 flex items-center text-xs text-blue-600 bg-blue-50 w-fit px-2 py-1 rounded-full">
-            <el-icon class="mr-1"><InfoFilled /></el-icon>
-            <span>持续收录</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Emby Server Info -->
-    <div v-if="embyUrl && (!isExpired || authStore.isAdmin)" class="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
-      <div class="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl"></div>
-      <div class="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center backdrop-blur-sm">
-            <el-icon :size="24"><Monitor /></el-icon>
-          </div>
-          <div>
-            <h3 class="text-lg font-bold">Emby 服务器地址</h3>
-            <p class="text-gray-400 text-sm mt-1">请使用此地址在客户端登录</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-2 bg-black/30 px-4 py-2 rounded-lg backdrop-blur-sm border border-white/10">
-          <code class="text-green-400 font-mono">{{ embyUrl }}</code>
-          <button class="text-gray-400 hover:text-white transition-colors">
-            <el-icon><CopyDocument /></el-icon>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Settings Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <!-- Account Info -->
-      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-        <div class="flex items-center justify-between mb-6">
-          <h3 class="text-lg font-bold text-gray-900">基本信息</h3>
-          <el-tag size="small" effect="plain">只读</el-tag>
-        </div>
-        
-        <el-form label-position="top" class="space-y-4">
-          <div class="grid grid-cols-2 gap-4">
-            <el-form-item label="用户名">
-              <el-input v-model="user.username" disabled class="input-ember" :prefix-icon="User" />
-            </el-form-item>
-            <el-form-item label="Emby ID">
-              <el-input v-model="user.embyId" disabled class="input-ember" :prefix-icon="Key" />
-            </el-form-item>
-          </div>
-          
-          <el-form-item label="注册邮箱">
-            <div class="flex w-full gap-3">
-              <el-input v-model="user.email" placeholder="输入新邮箱" class="input-ember flex-1" :prefix-icon="Message" />
-              <button 
-                type="button"
-                @click="handleUpdateEmail"
-                class="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
-              >
-                更新
-              </button>
-            </div>
-            <p class="text-xs text-gray-400 mt-1">用于找回密码和接收通知</p>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- Security Settings -->
-      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-        <div class="flex items-center justify-between mb-6">
-          <h3 class="text-lg font-bold text-gray-900">安全设置</h3>
-          <el-icon class="text-gray-400"><Lock /></el-icon>
-        </div>
-
-        <el-form label-position="top" class="space-y-4">
-          <el-form-item label="当前密码">
-            <el-input
-              v-model="passwordForm.oldPassword"
-              type="password"
-              show-password
-              class="input-ember"
-              placeholder="输入当前密码"
-              :prefix-icon="Lock"
-            />
-          </el-form-item>
-          
-          <div class="grid grid-cols-2 gap-4">
-            <el-form-item label="新密码">
-              <el-input
-                v-model="passwordForm.newPassword"
-                type="password"
-                show-password
-                class="input-ember"
-                placeholder="设置新密码"
-                :prefix-icon="Lock"
-              />
-            </el-form-item>
-            <el-form-item label="确认密码">
-              <el-input
-                v-model="passwordForm.confirmPassword"
-                type="password"
-                show-password
-                class="input-ember"
-                placeholder="重复新密码"
-                :prefix-icon="Lock"
-              />
-            </el-form-item>
-          </div>
-
-          <button 
-            type="button" 
-            @click="handleUpdatePassword"
-            class="w-full mt-2 py-2.5 bg-ember text-white font-medium rounded-lg hover:bg-red-700 active:scale-[0.99] transition-all shadow-sm shadow-red-200"
-          >
-            修改密码
-          </button>
-        </el-form>
-      </div>
-    </div>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-:deep(.el-form-item__label) {
-  color: var(--text-secondary);
-  font-weight: 500;
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out forwards;
+}
+
+.animate-blob {
+  animation: blob 7s infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes blob {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
 }
 
 :deep(.el-input__wrapper) {
-  box-shadow: 0 0 0 1px #e5e7eb inset;
   background-color: #f9fafb;
+  box-shadow: 0 0 0 1px #e5e7eb inset;
 }
-
 :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px var(--ember-red) inset !important;
   background-color: white;
+  box-shadow: 0 0 0 2px var(--ember-red) inset !important;
 }
 </style>
