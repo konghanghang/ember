@@ -1,87 +1,66 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { useAuthStore } from '@/store/auth'
+import { ref } from 'vue'
+import Sidebar from '@/components/console/Sidebar.vue'
+import TopBar from '@/components/console/TopBar.vue'
 
-const router = useRouter()
-const authStore = useAuthStore()
+const sidebarOpen = ref(false)
 
-const handleLogout = async () => {
-  await authStore.logout()
-  ElMessage.success('已登出')
-  router.push('/login')
+const toggleSidebar = () => {
+  sidebarOpen.value = !sidebarOpen.value
 }
 </script>
 
 <template>
-  <el-container class="layout-container">
-    <el-header class="header">
-      <div class="logo">Ember 控制台</div>
-      <div class="user-info">
-        <el-button link @click="router.push('/')">首页</el-button>
-        <el-tag v-if="authStore.isAdmin" type="danger" size="small">管理员</el-tag>
-        <el-button link type="primary" @click="handleLogout">登出</el-button>
-      </div>
-    </el-header>
-    <el-container>
-      <el-aside width="220px" class="aside">
-        <el-menu router :default-active="$route.path">
-          <el-menu-item index="/console/dashboard">
-            <el-icon><Odometer /></el-icon>
-            <span>我的账号</span>
-          </el-menu-item>
-          <el-menu-item index="/console/subscriptions">
-            <el-icon><VideoPlay /></el-icon>
-            <span>订阅管理</span>
-          </el-menu-item>
+  <div class="flex h-screen overflow-hidden bg-gray-50">
+    <!-- Desktop Sidebar -->
+    <div class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 lg:border-r lg:border-gray-200 lg:bg-white lg:pt-0 lg:pb-4">
+      <Sidebar />
+    </div>
 
-          <el-menu-item-group v-if="authStore.isAdmin" title="管理">
-            <el-menu-item index="/console/users">
-              <el-icon><User /></el-icon>
-              <span>用户管理</span>
-            </el-menu-item>
-            <el-menu-item index="/console/redemption-codes">
-              <el-icon><Ticket /></el-icon>
-              <span>兑换码管理</span>
-            </el-menu-item>
-            <el-menu-item index="/console/settings">
-              <el-icon><Setting /></el-icon>
-              <span>系统设置</span>
-            </el-menu-item>
-          </el-menu-item-group>
-        </el-menu>
-      </el-aside>
-      <el-main class="main">
-        <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+    <!-- Mobile Sidebar (Overlay) -->
+    <div v-if="sidebarOpen" class="fixed inset-0 z-40 flex lg:hidden" role="dialog" aria-modal="true">
+      <div class="fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity" @click="sidebarOpen = false"></div>
+      <div class="relative flex-1 flex flex-col max-w-xs w-full bg-white transition ease-in-out duration-300 transform translate-x-0">
+        <div class="absolute top-0 right-0 -mr-12 pt-2">
+          <button @click="sidebarOpen = false" class="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white">
+            <span class="sr-only">Close sidebar</span>
+            <!-- Icon for close -->
+            <svg class="h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <Sidebar />
+      </div>
+      <div class="flex-shrink-0 w-14"><!-- Dummy element to force sidebar width --></div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex flex-col flex-1 w-0 overflow-hidden lg:pl-64 transition-all duration-300">
+      <TopBar :collapsed="!sidebarOpen" @toggle-sidebar="toggleSidebar" />
+      
+      <main class="flex-1 relative overflow-y-auto focus:outline-none bg-gray-50/50">
+        <div class="py-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+          <router-view v-slot="{ Component }">
+            <transition name="fade-slide" mode="out-in">
+              <component :is="Component" />
+            </transition>
+          </router-view>
+        </div>
+      </main>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.layout-container {
-  height: 100vh;
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #dcdfe6;
-}
-.logo {
-  font-size: 20px;
-  font-weight: bold;
-}
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.aside {
-  border-right: 1px solid #dcdfe6;
-}
-.main {
-  background-color: #f0f2f5;
-  padding: 20px;
+
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
 }
 </style>
