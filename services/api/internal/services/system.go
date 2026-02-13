@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
@@ -63,6 +64,7 @@ func (s *SystemService) TestEmbyConnection() error {
 type CheckExpiredUsersResult struct {
 	DisabledCount int                      `json:"disabledCount"`
 	TotalExpired  int                      `json:"totalExpired"`
+	Processed     int                      `json:"processed"`
 	Errors        []string                 `json:"errors"`
 	DisabledUsers []DisabledUserInfo       `json:"disabledUsers,omitempty"`
 	FailedUsers   []map[string]interface{} `json:"failedUsers,omitempty"`
@@ -77,24 +79,35 @@ type DisabledUserInfo struct {
 
 // CheckExpiredUsers 检查并禁用过期用户
 func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
-	errors := []string{}
+	errMessages := []string{}
 	disabledCount := 0
+	processedCount := 0
 	disabledUsers := []DisabledUserInfo{}
 	failedUsers := []map[string]interface{}{}
+	cutoff := time.Now().UTC()
+
+	var totalExpired int64
+	if err := db.DB.Model(&models.User{}).
+		Where("\"expiresAt\" < ?", cutoff).
+		Count(&totalExpired).Error; err != nil {
+		return nil, fmt.Errorf("查询过期用户总数失败: %w", err)
+	}
 
 	var expiredUsers []models.User
 	err := db.DB.
-		Where("\"expiresAt\" < NOW() AND \"embyDisabled\" = ?", false).
+		Where("\"expiresAt\" < ? AND \"embyId\" <> ''", cutoff).
 		Find(&expiredUsers).Error
 
 	if err != nil {
 		return nil, fmt.Errorf("查询过期用户失败: %w", err)
 	}
 
-	log.Printf("[Cron] 发现 %d 个过期用户", len(expiredUsers))
+	log.Printf("[Cron] 发现 %d 个过期用户（可处理 %d 个）", totalExpired, len(expiredUsers))
 
 	// 循环处理每个过期用户
 	for _, user := range expiredUsers {
+		processedCount++
+
 		// 1. 调用 Emby API 禁用用户
 		err := s.embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{
 			IsDisabled: true,
@@ -103,7 +116,7 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 		if err != nil {
 			// 单个用户失败不影响其他用户
 			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, err)
-			errors = append(errors, errorMsg)
+			errMessages = append(errMessages, errorMsg)
 			failedUsers = append(failedUsers, map[string]interface{}{
 				"username": user.Username,
 				"error":    err.Error(),
@@ -112,40 +125,43 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 			continue
 		}
 
-		// 2. 更新数据库状态
-		user.EmbyDisabled = true
-		if err := db.DB.Save(&user).Error; err != nil {
-			errorMsg := fmt.Sprintf("更新数据库失败 %s: %v", user.Username, err)
-			errors = append(errors, errorMsg)
-			failedUsers = append(failedUsers, map[string]interface{}{
-				"username": user.Username,
-				"error":    err.Error(),
-			})
-			log.Printf("[Cron] %s", errorMsg)
-			continue
-		}
+		// 2. 仅在状态变化时更新数据库，避免无意义写入
+		if !user.EmbyDisabled {
+			user.EmbyDisabled = true
+			if err := db.DB.Save(&user).Error; err != nil {
+				errorMsg := fmt.Sprintf("更新数据库失败 %s: %v", user.Username, err)
+				errMessages = append(errMessages, errorMsg)
+				failedUsers = append(failedUsers, map[string]interface{}{
+					"username": user.Username,
+					"error":    err.Error(),
+				})
+				log.Printf("[Cron] %s", errorMsg)
+				continue
+			}
 
-		// 3. 记录成功
-		disabledCount++
-		var expiresAtStr *string
-		if user.ExpiresAt != nil {
-			str := user.ExpiresAt.Format("2006-01-02 15:04:05")
-			expiresAtStr = &str
+			// 3. 记录新封禁成功
+			disabledCount++
+			var expiresAtStr *string
+			if user.ExpiresAt != nil {
+				str := user.ExpiresAt.Format("2006-01-02 15:04:05")
+				expiresAtStr = &str
+			}
+			disabledUsers = append(disabledUsers, DisabledUserInfo{
+				Username:  user.Username,
+				Email:     user.Email,
+				ExpiresAt: expiresAtStr,
+			})
+			log.Printf("[Cron] 已禁用用户: %s (%s)", user.Username, user.ID)
 		}
-		disabledUsers = append(disabledUsers, DisabledUserInfo{
-			Username:  user.Username,
-			Email:     user.Email,
-			ExpiresAt: expiresAtStr,
-		})
-		log.Printf("[Cron] 已禁用用户: %s (%s)", user.Username, user.ID)
 	}
 
-	log.Printf("[Cron] 定时任务完成，已禁用 %d/%d 个用户", disabledCount, len(expiredUsers))
+	log.Printf("[Cron] 定时任务完成，新封禁 %d 个，处理 %d 个过期用户", disabledCount, processedCount)
 
 	return &CheckExpiredUsersResult{
 		DisabledCount: disabledCount,
-		TotalExpired:  len(expiredUsers),
-		Errors:        errors,
+		TotalExpired:  int(totalExpired),
+		Processed:     processedCount,
+		Errors:        errMessages,
 		DisabledUsers: disabledUsers,
 		FailedUsers:   failedUsers,
 	}, nil

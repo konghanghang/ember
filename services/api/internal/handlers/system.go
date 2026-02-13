@@ -71,6 +71,7 @@ func (h *SystemHandler) CheckExpiredUsers(c *gin.Context) {
 		"success":       true,
 		"disabledCount": result.DisabledCount,
 		"totalExpired":  result.TotalExpired,
+		"processed":     result.Processed,
 		"errors":        result.Errors,
 	})
 }
