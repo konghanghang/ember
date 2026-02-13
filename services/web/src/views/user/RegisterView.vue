@@ -23,6 +23,7 @@ const form = ref({
 const codeRequired = computed(() => mode.value === 'invite')
 const codeValidating = ref(false)
 const codeValidated = ref(false)
+const usernamePattern = /^[A-Za-z0-9]+$/
 
 const fetchRegistrationMode = async () => {
   loadingMode.value = true
@@ -35,8 +36,14 @@ const fetchRegistrationMode = async () => {
 }
 
 const handleRegister = async () => {
+  form.value.username = form.value.username.trim()
+
   if (!form.value.username || !form.value.password || !form.value.email) {
     ElMessage.warning('请填写必填项')
+    return
+  }
+  if (!usernamePattern.test(form.value.username)) {
+    ElMessage.warning('用户名只能包含字母和数字')
     return
   }
   if (codeRequired.value && !form.value.code) {
@@ -107,7 +114,7 @@ onMounted(fetchRegistrationMode)
           </el-form-item>
 
           <el-form-item label="用户名" required>
-            <el-input v-model="form.username" placeholder="3-50位字符" class="input-ember" :prefix-icon="User" />
+            <el-input v-model="form.username" placeholder="3-50位字母或数字" class="input-ember" :prefix-icon="User" />
           </el-form-item>
 
           <el-form-item label="密码" required>

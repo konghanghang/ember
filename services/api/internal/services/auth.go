@@ -3,6 +3,8 @@ package services
 import (
 	"errors"
 	"log"
+	"regexp"
+	"strings"
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
@@ -12,6 +14,8 @@ import (
 
 // AuthService 认证服务
 type AuthService struct{}
+
+var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 
 // LoginRequest 统一登录请求
 type LoginRequest struct {
@@ -95,6 +99,14 @@ type RegisterUserResponse struct {
 }
 
 func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserResponse, error) {
+	req.Username = strings.TrimSpace(req.Username)
+	if len(req.Username) < 3 || len(req.Username) > 50 {
+		return nil, errors.New("用户名长度必须为 3-50 位")
+	}
+	if !usernamePattern.MatchString(req.Username) {
+		return nil, errors.New("用户名只能包含字母和数字")
+	}
+
 	settingService := &SettingService{}
 	mode := settingService.GetRegistrationMode()
 
