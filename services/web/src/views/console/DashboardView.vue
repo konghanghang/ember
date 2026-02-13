@@ -192,7 +192,8 @@ onMounted(refreshAll)
         <el-input 
           v-model="redeemForm.code" 
           placeholder="输入兑换码" 
-          class="input-ember w-full md:w-64" 
+          class="input-ember w-full md:w-64"
+          :prefix-icon="Ticket"
         />
         <button 
           @click="handleRedeem" 
@@ -315,15 +316,36 @@ onMounted(refreshAll)
 
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="当前密码">
-            <el-input v-model="passwordForm.oldPassword" type="password" show-password class="input-ember" placeholder="输入当前密码" />
+            <el-input
+              v-model="passwordForm.oldPassword"
+              type="password"
+              show-password
+              class="input-ember"
+              placeholder="输入当前密码"
+              :prefix-icon="Lock"
+            />
           </el-form-item>
           
           <div class="grid grid-cols-2 gap-4">
             <el-form-item label="新密码">
-              <el-input v-model="passwordForm.newPassword" type="password" show-password class="input-ember" placeholder="设置新密码" />
+              <el-input
+                v-model="passwordForm.newPassword"
+                type="password"
+                show-password
+                class="input-ember"
+                placeholder="设置新密码"
+                :prefix-icon="Lock"
+              />
             </el-form-item>
             <el-form-item label="确认密码">
-              <el-input v-model="passwordForm.confirmPassword" type="password" show-password class="input-ember" placeholder="重复新密码" />
+              <el-input
+                v-model="passwordForm.confirmPassword"
+                type="password"
+                show-password
+                class="input-ember"
+                placeholder="重复新密码"
+                :prefix-icon="Lock"
+              />
             </el-form-item>
           </div>
 
