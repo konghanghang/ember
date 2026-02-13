@@ -62,10 +62,10 @@ const isActive = (path: string) => route.path === path
   <aside class="flex flex-col w-64 h-screen bg-white border-r border-gray-100 shadow-sm transition-all duration-300 z-20">
     <!-- Brand -->
     <div class="flex items-center justify-center h-16 px-6 border-b border-gray-50">
-      <div class="flex items-center gap-2 text-ember font-bold text-xl">
+      <router-link to="/" class="flex items-center gap-2 text-ember font-bold text-xl hover:opacity-80 transition-opacity">
         <el-icon :size="24"><Monitor /></el-icon>
         <span>Ember Console</span>
-      </div>
+      </router-link>
     </div>
 
     <!-- Navigation -->
