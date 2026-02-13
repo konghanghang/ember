@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Key, Lock, Message, Ticket, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import { getEmbyConfig, getMediaStats, getProfile, updateEmail, updatePassword } from '@/api/console'
 import { redeemCode } from '@/api/user'
@@ -156,7 +157,7 @@ onMounted(refreshAll)
         <h3 class="text-lg font-semibold">账号续期</h3>
       </div>
       <div class="flex gap-3">
-        <el-input v-model="redeemForm.code" placeholder="请输入兑换码" class="input-ember" />
+        <el-input v-model="redeemForm.code" placeholder="请输入兑换码" class="input-ember" :prefix-icon="Ticket" />
         <el-button type="primary" :loading="redeeming" @click="handleRedeem">兑换</el-button>
       </div>
     </div>
@@ -164,7 +165,7 @@ onMounted(refreshAll)
     <el-collapse v-else-if="!authStore.isAdmin" class="mb-8">
       <el-collapse-item title="提前续期" name="1">
         <div class="flex gap-3">
-          <el-input v-model="redeemForm.code" placeholder="请输入兑换码" class="input-ember" />
+          <el-input v-model="redeemForm.code" placeholder="请输入兑换码" class="input-ember" :prefix-icon="Ticket" />
           <el-button type="primary" :loading="redeeming" @click="handleRedeem">兑换</el-button>
         </div>
       </el-collapse-item>
@@ -205,10 +206,10 @@ onMounted(refreshAll)
         <h3 class="text-lg font-bold text-primary mb-6 border-b border-gray-100 pb-4">账号信息</h3>
         <el-form label-position="top" class="custom-form">
           <el-form-item label="用户名">
-            <el-input v-model="user.username" disabled class="input-ember" />
+            <el-input v-model="user.username" disabled class="input-ember" :prefix-icon="User" />
           </el-form-item>
           <el-form-item label="Emby ID">
-            <el-input v-model="user.embyId" disabled class="input-ember" />
+            <el-input v-model="user.embyId" disabled class="input-ember" :prefix-icon="Key" />
           </el-form-item>
           <el-form-item label="到期时间">
             <el-tag :type="expiryTagType as any">
@@ -217,7 +218,7 @@ onMounted(refreshAll)
           </el-form-item>
           <el-form-item label="邮箱">
             <div class="flex w-full gap-4">
-              <el-input v-model="user.email" placeholder="输入新邮箱" class="input-ember flex-1" />
+              <el-input v-model="user.email" placeholder="输入新邮箱" class="input-ember flex-1" :prefix-icon="Message" />
               <button type="button" class="btn-ember px-4 py-2 rounded-lg text-sm" @click="handleUpdateEmail">更新</button>
             </div>
           </el-form-item>
@@ -228,13 +229,13 @@ onMounted(refreshAll)
         <h3 class="text-lg font-bold text-primary mb-6 border-b border-gray-100 pb-4">安全设置</h3>
         <el-form label-position="top" class="custom-form">
           <el-form-item label="旧密码">
-            <el-input v-model="passwordForm.oldPassword" type="password" show-password class="input-ember" />
+            <el-input v-model="passwordForm.oldPassword" type="password" show-password class="input-ember" :prefix-icon="Lock" />
           </el-form-item>
           <el-form-item label="新密码">
-            <el-input v-model="passwordForm.newPassword" type="password" show-password class="input-ember" />
+            <el-input v-model="passwordForm.newPassword" type="password" show-password class="input-ember" :prefix-icon="Lock" />
           </el-form-item>
           <el-form-item label="确认密码">
-            <el-input v-model="passwordForm.confirmPassword" type="password" show-password class="input-ember" />
+            <el-input v-model="passwordForm.confirmPassword" type="password" show-password class="input-ember" :prefix-icon="Lock" />
           </el-form-item>
           <el-form-item class="mt-8">
             <button type="button" class="btn-ember w-full py-2.5 rounded-lg font-medium" @click="handleUpdatePassword">修改密码</button>
@@ -247,7 +248,7 @@ onMounted(refreshAll)
 
 <style scoped>
 :deep(.el-form-item__label) {
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -257,7 +258,7 @@ onMounted(refreshAll)
 }
 
 :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px var(--color-ember) inset !important;
+  box-shadow: 0 0 0 2px var(--ember-red) inset !important;
   background-color: white;
 }
 </style>

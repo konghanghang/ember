@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ElInput, ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
 import { searchTmdb } from '@/api/user'
 import type { TmdbSearchItem, TmdbSelection } from '@/types/api'
 
@@ -50,10 +51,12 @@ const handleSelect = (item: TmdbSearchItem) => {
     <el-input
       v-model="query"
       placeholder="输入名称搜索..."
+      class="input-ember"
+      :prefix-icon="Search"
       @keyup.enter="handleSearch"
     >
       <template #append>
-        <el-button :loading="loading" icon="Search" @click="handleSearch" />
+        <el-button :loading="loading" :icon="Search" @click="handleSearch" />
       </template>
     </el-input>
 

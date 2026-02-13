@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Calendar, Connection, RefreshRight, Setting, User } from '@element-plus/icons-vue'
 import { getSystemInfo, testEmbyConnection, runCronJob, getSettings, updateSetting } from '@/api/admin'
 
 const info = ref({
@@ -74,20 +75,28 @@ onMounted(async () => {
 <template>
   <div class="settings-container" v-loading="loading">
     <el-card class="mb-20" header="系统配置">
-      <el-form inline>
-        <el-form-item label="注册模式">
-          <el-select v-model="form.registration_mode" style="width: 200px">
+      <el-form inline class="settings-form">
+        <el-form-item>
+          <template #label>
+            <span class="label-with-icon"><el-icon><User /></el-icon>注册模式</span>
+          </template>
+          <el-select v-model="form.registration_mode" style="width: 220px" class="input-ember">
             <el-option label="开放注册" value="open" />
             <el-option label="邀请注册" value="invite" />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="默认试用天数">
+        <el-form-item>
+          <template #label>
+            <span class="label-with-icon"><el-icon><Calendar /></el-icon>默认试用天数</span>
+          </template>
           <el-input-number v-model="form.default_trial_days" :min="1" />
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" :loading="saving" @click="handleSaveSettings">保存配置</el-button>
+          <el-button type="primary" :loading="saving" @click="handleSaveSettings">
+            <el-icon class="mr-1"><Setting /></el-icon>保存配置
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -114,8 +123,12 @@ onMounted(async () => {
     </el-row>
 
     <el-card class="mt-20" header="系统操作">
-      <el-button type="primary" @click="handleTestEmby">测试 Emby 连接</el-button>
-      <el-button type="warning" @click="handleRunCron">手动执行过期检查</el-button>
+      <el-button type="primary" @click="handleTestEmby">
+        <el-icon class="mr-1"><Connection /></el-icon>测试 Emby 连接
+      </el-button>
+      <el-button type="warning" @click="handleRunCron">
+        <el-icon class="mr-1"><RefreshRight /></el-icon>手动执行过期检查
+      </el-button>
     </el-card>
   </div>
 </template>
@@ -124,6 +137,13 @@ onMounted(async () => {
 .settings-container {
   padding: 20px 0;
 }
+
+.label-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .mb-20 {
   margin-bottom: 20px;
 }

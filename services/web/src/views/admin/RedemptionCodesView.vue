@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Calendar, Clock, Ticket } from '@element-plus/icons-vue'
 import { getRedemptionCodes, createRedemptionCode, deleteRedemptionCode } from '@/api/admin'
 import type { CreateRedemptionCodeRequest, RedemptionCode } from '@/types/api'
 
@@ -95,19 +96,30 @@ onMounted(fetchData)
 
     <el-dialog v-model="dialogVisible" title="生成兑换码">
       <el-form :model="form" label-width="100px">
-        <el-form-item label="最大使用次数">
+        <el-form-item>
+          <template #label>
+            <span class="label-with-icon"><el-icon><Ticket /></el-icon>最大使用次数</span>
+          </template>
           <el-input-number v-model="form.maxUses" :min="1" />
         </el-form-item>
-        <el-form-item label="有效天数">
+        <el-form-item>
+          <template #label>
+            <span class="label-with-icon"><el-icon><Clock /></el-icon>有效天数</span>
+          </template>
           <el-input-number v-model="form.defaultDays" :min="1" />
         </el-form-item>
-        <el-form-item label="过期时间">
+        <el-form-item>
+          <template #label>
+            <span class="label-with-icon"><el-icon><Calendar /></el-icon>过期时间</span>
+          </template>
           <el-date-picker
             v-model="form.expiresAt"
             type="datetime"
             value-format="YYYY-MM-DDTHH:mm:ssZ"
             placeholder="可选，不填则永久有效"
+            :prefix-icon="Calendar"
             clearable
+            class="input-ember"
           />
         </el-form-item>
       </el-form>
@@ -124,5 +136,11 @@ onMounted(fetchData)
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.label-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>

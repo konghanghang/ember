@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
 import { getUsers, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
 import type { UserInfo, UserListQuery } from '@/types/api'
 
@@ -122,11 +123,13 @@ onMounted(() => {
         <el-input
           v-model="queryParams.search"
           placeholder="搜索用户名/邮箱"
-          style="width: 200px"
+          style="width: 240px"
+          class="input-ember"
+          :prefix-icon="Search"
           @keyup.enter="fetchData"
         >
           <template #append>
-            <el-button icon="Search" @click="fetchData" />
+            <el-button :icon="Search" @click="fetchData" />
           </template>
         </el-input>
       </div>

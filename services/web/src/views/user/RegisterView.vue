@@ -2,6 +2,7 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Lock, Message, Ticket, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import { getRegistrationMode, validateRegistrationCode } from '@/api/auth'
 
@@ -94,21 +95,34 @@ onMounted(fetchRegistrationMode)
         <el-form :model="form" @submit.prevent="handleRegister" size="large" label-position="top" v-loading="loadingMode">
           <el-form-item v-if="codeRequired" label="兑换码" required>
             <div class="flex gap-2 w-full">
-              <el-input v-model="form.code" placeholder="请输入兑换码" class="input-ember" @input="codeValidated = false" />
+              <el-input
+                v-model="form.code"
+                placeholder="请输入兑换码"
+                class="input-ember"
+                :prefix-icon="Ticket"
+                @input="codeValidated = false"
+              />
               <el-button :loading="codeValidating" @click="handleValidateCode">预验证</el-button>
             </div>
           </el-form-item>
 
           <el-form-item label="用户名" required>
-            <el-input v-model="form.username" placeholder="3-50位字符" class="input-ember" />
+            <el-input v-model="form.username" placeholder="3-50位字符" class="input-ember" :prefix-icon="User" />
           </el-form-item>
 
           <el-form-item label="密码" required>
-            <el-input v-model="form.password" type="password" placeholder="至少6位" show-password class="input-ember" />
+            <el-input
+              v-model="form.password"
+              type="password"
+              placeholder="至少6位"
+              show-password
+              class="input-ember"
+              :prefix-icon="Lock"
+            />
           </el-form-item>
 
           <el-form-item label="邮箱" required>
-            <el-input v-model="form.email" placeholder="请输入邮箱" class="input-ember" />
+            <el-input v-model="form.email" placeholder="请输入邮箱" class="input-ember" :prefix-icon="Message" />
           </el-form-item>
 
           <el-form-item class="mt-6">
