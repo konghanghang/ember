@@ -1,69 +1,57 @@
 # Ember Telegram Bot
 
-> Emby 用户管理系统的 Telegram Bot 服务（Monorepo 架构）
+Telegram 通知服务，负责两件事：
 
-**项目位置**: `services/bot/`
+1. 接收 Go API 的新订阅通知并推送给管理员  
+2. 接收 Telegram webhook 回调，点击按钮后调用 Go API 内部审批接口
 
-## 🎯 技术栈
+## 目录结构
 
-- **语言**: Python 3.11+
-- **框架**: python-telegram-bot
-- **HTTP 客户端**: httpx (异步)
-- **配置**: python-dotenv
+```
+services/bot/
+├── main.py
+├── app/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── server.py
+│   ├── clients/
+│   │   ├── __init__.py
+│   │   └── api_client.py
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   └── telegram_handler.py
+│   └── formatters/
+│       ├── __init__.py
+│       └── message_formatter.py
+├── requirements.txt
+└── Dockerfile
+```
 
-## 📦 开发状态
+## 环境变量
 
-🚧 **待实现** - Telegram Bot 正在开发中
+必填：
 
-计划功能：
-- [ ] 用户注册（使用邀请码）
-- [ ] 账号信息查询
-- [ ] 到期时间提醒
-- [ ] 订阅管理
-- [ ] 管理员命令
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_ADMIN_CHAT_ID`
+- `TELEGRAM_WEBHOOK_SECRET`
+- `INTERNAL_API_SECRET`
+- `WEBHOOK_URL`
 
-## 🚀 快速开始
+可选：
 
-### 安装依赖
+- `API_URL`（默认 `http://localhost:8080`）
+- `BOT_PORT`（默认 `8000`）
+
+## 本地运行
 
 ```bash
 cd services/bot
 pip install -r requirements.txt
-```
-
-### 配置环境变量
-
-```bash
-cp .env.example .env
-# 编辑 .env 填入 TELEGRAM_BOT_TOKEN
-```
-
-### 开发模式
-
-```bash
 python main.py
 ```
 
-## 📚 Bot 命令设计
+## HTTP 端点
 
-### 用户命令
-
-- `/start` - 开始使用 Bot
-- `/register <invite_code>` - 使用邀请码注册
-- `/me` - 查看个人信息
-- `/subscribe <tmdb_id>` - 订阅影视资源
-
-### 管理员命令
-
-- `/admin users` - 查看用户列表
-- `/admin invite <count> <days>` - 生成邀请码
-- `/admin extend <user_id> <days>` - 延长用户到期时间
-
-## 📚 文档
-
-- [迁移指南](../../docs/MIGRATION-GUIDE.md)
-- [Bot 架构设计](../../docs/bot-architecture.md)（待创建）
-
----
-
-Made with ❤️ by Kong Hang
+- `GET /health`：健康检查
+- `POST /notify/subscription`：Go API 通知入口（需 `X-Internal-Secret`）
+- `POST /telegram/webhook`：Telegram webhook 入口

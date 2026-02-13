@@ -34,6 +34,8 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - EMBY_URL=${EMBY_URL}
       - EMBY_API_KEY=${EMBY_API_KEY}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - BOT_NOTIFY_URL=http://bot:8000
     ports:
       - "8080:8080"
     depends_on:
@@ -57,20 +59,27 @@ services:
   #     - ember-network
   #   restart: unless-stopped
 
-  # Python Telegram Bot（待实现）
-  # bot:
-  #   build:
-  #     context: ../../services/bot
-  #     dockerfile: Dockerfile
-  #   container_name: ember-bot
-  #   environment:
-  #     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-  #     - API_URL=http://api:8080
-  #   depends_on:
-  #     - api
-  #   networks:
-  #     - ember-network
-  #   restart: unless-stopped
+  # Python Telegram Bot
+  bot:
+    build:
+      context: ../../services/bot
+      dockerfile: Dockerfile
+    container_name: ember-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
+      - API_URL=http://api:8080
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - BOT_PORT=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - api
+    networks:
+      - ember-network
+    restart: unless-stopped
 
   # Nginx 反向代理（可选）
   # nginx:

@@ -12,12 +12,14 @@ import (
 // SubscriptionService 订阅服务
 type SubscriptionService struct {
 	moviepilot *MoviePilotClient
+	notifier   *BotNotifier
 }
 
 // NewSubscriptionService 创建订阅服务
 func NewSubscriptionService() *SubscriptionService {
 	return &SubscriptionService{
 		moviepilot: NewMoviePilotClient(),
+		notifier:   NewBotNotifier(),
 	}
 }
 
@@ -65,6 +67,29 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 		}
 		return fmt.Errorf("创建订阅失败: %w", err)
 	}
+
+	// 通知 Bot（异步 fire-and-forget，失败不影响订阅创建）
+	go func(subscriptionID, userID string, req CreateSubscriptionRequest) {
+		if s.notifier == nil || !s.notifier.IsConfigured() {
+			return
+		}
+
+		var username string
+		var user models.User
+		if err := db.DB.Select("username").Where("id = ?", userID).First(&user).Error; err == nil {
+			username = user.Username
+		}
+
+		s.notifier.NotifyNewSubscription(SubscriptionNotification{
+			ID:         subscriptionID,
+			UserName:   username,
+			Type:       string(req.Type),
+			Name:       req.Name,
+			TmdbID:     req.TmdbID,
+			PosterPath: req.PosterPath,
+			Note:       req.Note,
+		})
+	}(subscription.ID, userID, req)
 
 	return nil
 }

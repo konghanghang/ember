@@ -1,0 +1,16 @@
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_ADMIN_CHAT_ID = int(os.environ["TELEGRAM_ADMIN_CHAT_ID"])
+TELEGRAM_WEBHOOK_SECRET = os.environ["TELEGRAM_WEBHOOK_SECRET"]
+INTERNAL_API_SECRET = os.environ["INTERNAL_API_SECRET"]
+WEBHOOK_URL = os.environ["WEBHOOK_URL"].rstrip("/")
+
+API_URL = os.getenv("API_URL", "http://localhost:8080").rstrip("/")
+BOT_PORT = int(os.getenv("BOT_PORT", "8000"))
+
+TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w300"

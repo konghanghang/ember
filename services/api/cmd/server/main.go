@@ -96,6 +96,14 @@ func main() {
 			admin.POST("/cron/check-expired", systemHandler.CheckExpiredUsers)
 		}
 
+		// ==================== 内部服务路由（Bot 调用） ====================
+		internal := api.Group("/internal")
+		internal.Use(middleware.InternalAuth())
+		{
+			internal.PUT("/subscriptions/:id/approve", subscriptionHandler.ApproveSubscription)
+			internal.PUT("/subscriptions/:id/reject", subscriptionHandler.RejectSubscription)
+		}
+
 		// ==================== 统一认证路由（admin + user 共享） ====================
 		authenticated := api.Group("")
 		authenticated.Use(middleware.JWTAuth())
