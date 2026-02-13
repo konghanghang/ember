@@ -22,6 +22,13 @@ type CreateRedemptionCodeRequest struct {
 	ExpiresAt   *time.Time `json:"expiresAt"`
 }
 
+// UpdateRedemptionCodeRequest 更新兑换码请求
+type UpdateRedemptionCodeRequest struct {
+	MaxUses     int        `json:"maxUses" binding:"required,min=1"`
+	DefaultDays int        `json:"defaultDays" binding:"required,min=1"`
+	ExpiresAt   *time.Time `json:"expiresAt"`
+}
+
 // GetRedemptionCodesRequest 获取兑换码列表请求
 type GetRedemptionCodesRequest struct {
 	Page     int  `form:"page" binding:"omitempty,min=1"`
@@ -107,9 +114,31 @@ func (s *RedemptionCodeService) DeleteRedemptionCode(id string) error {
 		return errors.New("删除兑换码失败")
 	}
 	if result.RowsAffected == 0 {
-		return errors.New("兑换码不存在")
+		return ErrRedemptionCodeNotFound
 	}
 	return nil
+}
+
+// UpdateRedemptionCode 更新兑换码
+func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedemptionCodeRequest) (*models.RedemptionCode, error) {
+	var redemptionCode models.RedemptionCode
+	if err := db.DB.Where("id = ?", id).First(&redemptionCode).Error; err != nil {
+		return nil, ErrRedemptionCodeNotFound
+	}
+
+	if req.MaxUses < redemptionCode.UsedCount {
+		return nil, ErrRedemptionCodeUsedOver
+	}
+
+	redemptionCode.MaxUses = req.MaxUses
+	redemptionCode.DefaultDays = req.DefaultDays
+	redemptionCode.ExpiresAt = req.ExpiresAt
+
+	if err := db.DB.Save(&redemptionCode).Error; err != nil {
+		return nil, errors.New("更新兑换码失败")
+	}
+
+	return &redemptionCode, nil
 }
 
 // ValidateCode 验证兑换码（用于注册和兑换）

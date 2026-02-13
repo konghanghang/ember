@@ -1,6 +1,7 @@
 import request from './request'
 import type {
   CreateRedemptionCodeRequest,
+  UpdateRedemptionCodeRequest,
   RedemptionCode,
   RedemptionCodeListResponse,
   RedemptionListResponse,
@@ -80,6 +81,14 @@ export function createRedemptionCode(data: CreateRedemptionCodeRequest): Promise
   return request({
     url: '/admin/redemption-codes',
     method: 'post',
+    data
+  })
+}
+
+export function updateRedemptionCode(id: string, data: UpdateRedemptionCodeRequest): Promise<RedemptionCode> {
+  return request({
+    url: `/admin/redemption-codes/${id}`,
+    method: 'put',
     data
   })
 }

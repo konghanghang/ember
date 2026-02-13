@@ -84,6 +84,12 @@ export interface CreateRedemptionCodeRequest {
   expiresAt?: string | null
 }
 
+export interface UpdateRedemptionCodeRequest {
+  maxUses: number
+  defaultDays: number
+  expiresAt?: string | null
+}
+
 export interface Redemption {
   id: string
   userId: string

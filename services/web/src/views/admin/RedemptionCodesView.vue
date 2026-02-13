@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Calendar, Clock, Ticket, Plus, Delete, Refresh, Search } from '@element-plus/icons-vue'
-import { getRedemptionCodes, createRedemptionCode, deleteRedemptionCode } from '@/api/admin'
-import type { CreateRedemptionCodeRequest, RedemptionCode } from '@/types/api'
+import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen } from '@element-plus/icons-vue'
+import { getRedemptionCodes, createRedemptionCode, updateRedemptionCode, deleteRedemptionCode } from '@/api/admin'
+import type { CreateRedemptionCodeRequest, RedemptionCode, UpdateRedemptionCodeRequest } from '@/types/api'
 
 const tableData = ref<RedemptionCode[]>([])
 const total = ref(0)
@@ -16,10 +16,20 @@ const queryParams = ref({
 
 const dialogVisible = ref(false)
 const generating = ref(false)
+const editDialogVisible = ref(false)
+const editing = ref(false)
 const form = ref<CreateRedemptionCodeRequest>({
   maxUses: 1,
   defaultDays: 30,
   expiresAt: null
+})
+const editForm = ref({
+  id: '',
+  usedCount: 0,
+  maxUses: 1,
+  defaultDays: 30,
+  neverExpire: false,
+  expiresAt: null as Date | null
 })
 
 const fetchData = async () => {
@@ -67,6 +77,52 @@ const handleDelete = async (id: string) => {
     // cancelled
   }
 }
+
+const openEditDialog = (row: RedemptionCode) => {
+  editForm.value = {
+    id: row.id,
+    usedCount: row.usedCount,
+    maxUses: row.maxUses,
+    defaultDays: row.defaultDays,
+    neverExpire: !row.expiresAt,
+    expiresAt: row.expiresAt ? new Date(row.expiresAt) : null
+  }
+  editDialogVisible.value = true
+}
+
+const handleUpdate = async () => {
+  if (editForm.value.maxUses < 1 || editForm.value.defaultDays < 1) {
+    ElMessage.warning('请输入有效的数值')
+    return
+  }
+  if (editForm.value.maxUses < editForm.value.usedCount) {
+    ElMessage.warning('总量不能小于已使用次数')
+    return
+  }
+  if (!editForm.value.neverExpire && !editForm.value.expiresAt) {
+    ElMessage.warning('请设置过期时间或选择永久有效')
+    return
+  }
+
+  const payload: UpdateRedemptionCodeRequest = {
+    maxUses: editForm.value.maxUses,
+    defaultDays: editForm.value.defaultDays,
+    expiresAt: editForm.value.neverExpire ? null : editForm.value.expiresAt?.toISOString() || null
+  }
+
+  editing.value = true
+  try {
+    await updateRedemptionCode(editForm.value.id, payload)
+    ElMessage.success('兑换码更新成功')
+    editDialogVisible.value = false
+    await fetchData()
+  } catch {
+    // handled
+  } finally {
+    editing.value = false
+  }
+}
+
 
 const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return '永久有效'
@@ -172,8 +228,15 @@ onMounted(fetchData)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
+            <button 
+              @click="openEditDialog(row)"
+              class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              title="编辑"
+            >
+              <el-icon :size="18"><EditPen /></el-icon>
+            </button>
             <button 
               @click="handleDelete(row.id)"
               class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -245,6 +308,66 @@ onMounted(fetchData)
             class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
           >
             {{ generating ? '生成中...' : '确认生成' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- Edit Dialog -->
+    <el-dialog 
+      v-model="editDialogVisible" 
+      title="编辑兑换码" 
+      width="480px"
+      align-center
+      class="rounded-2xl"
+    >
+      <div class="p-6 pt-2">
+        <el-form label-position="top" class="space-y-4">
+          <div class="grid grid-cols-2 gap-6">
+            <el-form-item label="最大使用次数">
+              <el-input-number v-model="editForm.maxUses" :min="editForm.usedCount" class="w-full !w-full" />
+            </el-form-item>
+            <el-form-item label="有效天数 (激活后)">
+              <el-input-number v-model="editForm.defaultDays" :min="1" class="w-full !w-full" />
+            </el-form-item>
+          </div>
+
+          <div class="text-xs text-gray-400 -mt-2">
+            已使用 {{ editForm.usedCount }} 次，最大使用次数不能小于该值。
+          </div>
+
+          <el-form-item label="永久有效">
+            <el-switch v-model="editForm.neverExpire" />
+          </el-form-item>
+
+          <el-form-item label="兑换码过期时间">
+            <el-date-picker
+              v-model="editForm.expiresAt"
+              type="datetime"
+              placeholder="不填则永久有效"
+              :prefix-icon="Calendar"
+              :disabled="editForm.neverExpire"
+              clearable
+              class="w-full !w-full input-ember"
+            />
+            <div class="text-xs text-gray-400 mt-1">修改后状态会按新规则实时生效。</div>
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
+          <button 
+            @click="editDialogVisible = false"
+            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+          >
+            取消
+          </button>
+          <button 
+            @click="handleUpdate" 
+            :disabled="editing"
+            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+          >
+            {{ editing ? '保存中...' : '保存修改' }}
           </button>
         </div>
       </template>

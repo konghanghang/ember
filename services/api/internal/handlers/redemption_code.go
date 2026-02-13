@@ -62,6 +62,31 @@ func (h *RedemptionCodeHandler) DeleteRedemptionCode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
 
+func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
+	id := c.Param("id")
+
+	var req services.UpdateRedemptionCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	code, err := h.service.UpdateRedemptionCode(id, &req)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrRedemptionCodeNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrRedemptionCodeUsedOver):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, code)
+}
+
 func (h *RedemptionCodeHandler) ValidateCode(c *gin.Context) {
 	code := c.Param("code")
 	resp, err := h.service.ValidateCode(code)
