@@ -1,19 +1,41 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
-import { getUsers, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
-import type { UserInfo, UserListQuery } from '@/types/api'
+import { 
+  Calendar, 
+  Search, 
+  Edit, 
+  Timer, 
+  Key, 
+  Delete, 
+  MoreFilled, 
+  UserFilled,
+  Lock,
+  Unlock
+} from '@element-plus/icons-vue'
+import { getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
+import type { UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
 
 const tableData = ref<UserInfo[]>([])
 const total = ref(0)
 const loading = ref(false)
+const savingUser = ref(false)
+const editDialogVisible = ref(false)
 const queryParams = ref<UserListQuery>({
   page: 1,
   pageSize: 10,
   search: ''
 })
 
+const editForm = ref({
+  id: '',
+  email: '',
+  isActive: true,
+  neverExpire: false,
+  expiresAt: null as Date | null
+})
+
+// ... (Keep existing logic methods) ...
 const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
 
 const generatePassword = (length = 16) => {
@@ -34,6 +56,50 @@ const fetchData = async () => {
   }
 }
 
+const handleOpenEdit = (row: UserInfo) => {
+  editForm.value = {
+    id: row.id,
+    email: row.email || '',
+    isActive: row.isActive,
+    neverExpire: !row.expiresAt,
+    expiresAt: row.expiresAt ? new Date(row.expiresAt) : null
+  }
+  editDialogVisible.value = true
+}
+
+const handleUpdateUser = async () => {
+  const email = editForm.value.email.trim()
+  if (!email) {
+    ElMessage.warning('邮箱不能为空')
+    return
+  }
+
+  if (!editForm.value.neverExpire && !editForm.value.expiresAt) {
+    ElMessage.warning('请设置到期时间或选择永不过期')
+    return
+  }
+
+  const payload: UpdateAdminUserRequest = {
+    email,
+    isActive: editForm.value.isActive,
+    clearExpiresAt: editForm.value.neverExpire
+  }
+
+  if (!editForm.value.neverExpire && editForm.value.expiresAt) {
+    payload.expiresAt = editForm.value.expiresAt.toISOString()
+  }
+
+  savingUser.value = true
+  try {
+    await updateAdminUser(editForm.value.id, payload)
+    ElMessage.success('用户信息更新成功')
+    editDialogVisible.value = false
+    await fetchData()
+  } finally {
+    savingUser.value = false
+  }
+}
+
 const handleExtend = async (row: UserInfo) => {
   try {
     await ElMessageBox.prompt('请输入延长天数', '延长到期时间', {
@@ -43,13 +109,13 @@ const handleExtend = async (row: UserInfo) => {
       inputErrorMessage: '请输入数字',
       inputValue: '30'
     }).then(async ({ value }) => {
-      await extendUserExpiry(row.id, parseInt(value))
+      await extendUserExpiry(row.id, parseInt(value, 10))
       ElMessage.success('延长成功')
-      fetchData()
+      await fetchData()
     })
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
-      // 错误提示由全局请求拦截器统一处理，避免重复弹窗
+      // handled
     }
   }
 }
@@ -58,9 +124,9 @@ const handleToggle = async (row: UserInfo) => {
   try {
     await toggleUserStatus(row.id)
     ElMessage.success(row.isActive ? '已禁用' : '已启用')
-    fetchData()
+    await fetchData()
   } catch {
-    // 错误提示由全局请求拦截器统一处理，避免重复弹窗
+    // handled
   }
 }
 
@@ -73,10 +139,10 @@ const handleDelete = async (row: UserInfo) => {
     })
     await deleteUser(row.id)
     ElMessage.success('删除成功')
-    fetchData()
+    await fetchData()
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
-      // 错误提示由全局请求拦截器统一处理，避免重复弹窗
+      // handled
     }
   }
 }
@@ -85,28 +151,27 @@ const handleResetPassword = async (row: UserInfo) => {
   try {
     const { value } = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
       confirmButtonText: '确定',
-      cancelButtonText: '取消',
+      cancelButtonText: '取消'
     })
-    
+
     let password = value
     if (!password) {
       password = generatePassword()
       await ElMessageBox.alert(`已生成随机密码: ${password}`, '提示')
     }
-    
+
     await resetUserPassword(row.id, password)
     ElMessage.success('密码重置成功')
-    fetchData()
+    await fetchData()
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
-      // 错误提示由全局请求拦截器统一处理，避免重复弹窗
+      // handled
     }
   }
 }
 
-// Format date helper
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
+const formatDate = (dateStr?: string | null) => {
+  if (!dateStr) return '永不过期'
   return new Date(dateStr).toLocaleString()
 }
 
@@ -116,73 +181,232 @@ onMounted(() => {
 </script>
 
 <template>
-  <el-card>
-    <template #header>
-      <div class="card-header">
-        <span>用户列表</span>
-        <el-input
-          v-model="queryParams.search"
-          placeholder="搜索用户名/邮箱"
-          style="width: 240px"
-          class="input-ember"
-          :prefix-icon="Search"
-          @keyup.enter="fetchData"
-        >
-          <template #append>
-            <el-button :icon="Search" @click="fetchData" />
-          </template>
-        </el-input>
+  <div class="space-y-6">
+    <!-- Header Area -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          用户管理
+          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
+        </h1>
+        <p class="text-gray-500 text-sm mt-1">管理系统注册用户及其权限状态</p>
       </div>
-    </template>
-    
-    <el-table :data="tableData" v-loading="loading" style="width: 100%">
-      <el-table-column prop="username" label="用户名" />
-      <el-table-column prop="email" label="邮箱" />
-      <el-table-column prop="embyId" label="Emby ID" />
-      <el-table-column label="状态">
-        <template #default="{ row }">
-          <el-tag :type="row.isActive ? 'success' : 'danger'">
-            {{ row.isActive ? '正常' : '禁用' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="到期时间">
-        <template #default="{ row }">
-          {{ formatDate(row.expiresAt) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="250">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="handleExtend(row)">延长</el-button>
-          <el-button link type="warning" @click="handleToggle(row)">
-            {{ row.isActive ? '禁用' : '启用' }}
-          </el-button>
-          <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-
-    <div class="pagination">
-      <el-pagination
-        v-model:current-page="queryParams.page"
-        v-model:page-size="queryParams.pageSize"
-        :total="total"
-        layout="total, prev, pager, next"
-        @current-change="fetchData"
-      />
+      
+      <div class="relative w-full md:w-80 group">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Search /></el-icon>
+        </div>
+        <input 
+          v-model="queryParams.search"
+          type="text"
+          placeholder="搜索用户名或邮箱..." 
+          class="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:border-ember focus:ring-4 focus:ring-ember/10 transition-all placeholder-gray-400"
+          @keyup.enter="fetchData"
+        />
+      </div>
     </div>
-  </el-card>
+
+    <!-- Users Table -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <el-table 
+        :data="tableData" 
+        v-loading="loading" 
+        style="width: 100%"
+        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
+      >
+        <!-- User Info -->
+        <el-table-column label="用户" min-width="200">
+          <template #default="{ row }">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-gray-500 flex-shrink-0 border border-white shadow-sm">
+                <el-icon :size="20"><UserFilled /></el-icon>
+              </div>
+              <div class="min-w-0">
+                <div class="font-bold text-gray-900 truncate">{{ row.username }}</div>
+                <div class="text-xs text-gray-500 truncate font-mono">{{ row.email || 'No Email' }}</div>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <!-- Emby ID -->
+        <el-table-column prop="embyId" label="Emby ID" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="font-mono text-gray-600 bg-gray-50 px-2 py-1 rounded text-xs">{{ row.embyId }}</span>
+          </template>
+        </el-table-column>
+
+        <!-- Status -->
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <div class="flex items-center gap-2">
+              <span class="relative flex h-2.5 w-2.5">
+                <span v-if="row.isActive" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2.5 w-2.5" :class="row.isActive ? 'bg-green-500' : 'bg-red-500'"></span>
+              </span>
+              <span class="text-sm font-medium" :class="row.isActive ? 'text-green-700' : 'text-red-700'">
+                {{ row.isActive ? '正常' : '禁用' }}
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <!-- Expiry -->
+        <el-table-column label="到期时间" min-width="180">
+          <template #default="{ row }">
+            <div class="flex items-center gap-2 text-sm text-gray-600">
+              <el-icon class="text-gray-400"><Calendar /></el-icon>
+              <span>{{ formatDate(row.expiresAt) }}</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <!-- Operations -->
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <div class="flex items-center justify-end gap-2">
+              <el-tooltip content="编辑信息" placement="top">
+                <button 
+                  @click="handleOpenEdit(row)"
+                  class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                >
+                  <el-icon :size="18"><Edit /></el-icon>
+                </button>
+              </el-tooltip>
+              
+              <el-tooltip content="延长有效期" placement="top">
+                <button 
+                  @click="handleExtend(row)"
+                  class="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                >
+                  <el-icon :size="18"><Timer /></el-icon>
+                </button>
+              </el-tooltip>
+
+              <el-dropdown trigger="click">
+                <button class="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                  <el-icon :size="18"><MoreFilled /></el-icon>
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu class="w-36">
+                    <el-dropdown-item :icon="Key" @click="handleResetPassword(row)">重置密码</el-dropdown-item>
+                    <el-dropdown-item 
+                      :icon="row.isActive ? Lock : Unlock" 
+                      @click="handleToggle(row)"
+                    >
+                      {{ row.isActive ? '禁用账号' : '启用账号' }}
+                    </el-dropdown-item>
+                    <el-dropdown-item :icon="Delete" class="text-red-500" divided @click="handleDelete(row)">删除用户</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- Pagination -->
+      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+        <el-pagination
+          v-model:current-page="queryParams.page"
+          v-model:page-size="queryParams.pageSize"
+          :total="total"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="fetchData"
+          @current-change="fetchData"
+          background
+        />
+      </div>
+    </div>
+
+    <!-- Edit Dialog -->
+    <el-dialog 
+      v-model="editDialogVisible" 
+      title="编辑用户" 
+      width="520px"
+      align-center
+      class="rounded-2xl"
+    >
+      <div class="p-6 pt-2">
+        <el-form label-position="top" class="space-y-4">
+          <el-form-item label="电子邮箱">
+            <el-input 
+              v-model="editForm.email" 
+              placeholder="user@example.com" 
+              class="input-ember" 
+            />
+          </el-form-item>
+          
+          <div class="grid grid-cols-2 gap-6">
+            <el-form-item label="账号状态">
+              <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
+                <span class="text-sm text-gray-700">{{ editForm.isActive ? '正常启用' : '已禁用' }}</span>
+                <el-switch v-model="editForm.isActive" />
+              </div>
+            </el-form-item>
+            
+            <el-form-item label="有效期设置">
+              <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
+                <span class="text-sm text-gray-700">永不过期</span>
+                <el-switch v-model="editForm.neverExpire" />
+              </div>
+            </el-form-item>
+          </div>
+
+          <el-form-item label="到期时间" v-if="!editForm.neverExpire">
+            <el-date-picker
+              v-model="editForm.expiresAt"
+              type="datetime"
+              placeholder="选择日期时间"
+              :prefix-icon="Calendar"
+              class="w-full !w-full input-ember"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
+          <button 
+            @click="editDialogVisible = false"
+            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+          >
+            取消
+          </button>
+          <button 
+            @click="handleUpdateUser" 
+            :disabled="savingUser"
+            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+          >
+            {{ savingUser ? '保存中...' : '保存更改' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+  </div>
 </template>
 
 <style scoped>
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+:deep(.el-table) {
+  --el-table-header-bg-color: #f9fafb;
+  --el-table-row-hover-bg-color: #fef2f2; /* Light red hover */
 }
-.pagination {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
+
+:deep(.el-table__inner-wrapper::before) {
+  display: none; /* Remove bottom border */
+}
+
+:deep(.el-dialog__header) {
+  margin-right: 0;
+  border-bottom: 1px solid #f3f4f6;
+  padding: 20px 24px;
+}
+
+:deep(.el-dialog__body) {
+  padding: 0;
+}
+
+:deep(.el-dialog__footer) {
+  padding: 0;
 }
 </style>

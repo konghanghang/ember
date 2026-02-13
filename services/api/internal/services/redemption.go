@@ -84,7 +84,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 
 	user.ExpiresAt = &newExpiry
 
-	if user.EmbyDisabled {
+	if user.EmbyDisabled && user.IsActive {
 		embyService := NewEmbyService()
 		if err := embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{IsDisabled: false}); err != nil {
 			tx.Rollback()

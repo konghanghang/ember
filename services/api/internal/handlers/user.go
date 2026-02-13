@@ -78,6 +78,46 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
+// UpdateUserByAdmin 管理员更新用户信息
+// @Summary 管理员更新用户信息
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param id path string true "用户ID"
+// @Param body body services.AdminUpdateUserRequest true "可更新字段"
+// @Success 200 {object} models.User
+// @Router /api/v1/admin/users/{id} [put]
+// @Security BearerAuth
+func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
+	userID := c.Param("id")
+
+	var req services.AdminUpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "请求参数错误",
+		})
+		return
+	}
+
+	user, err := h.userService.UpdateUserByAdmin(userID, &req)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		switch err.Error() {
+		case "用户不存在":
+			statusCode = http.StatusNotFound
+		case "至少提供一个可更新字段", "clearExpiresAt 和 expiresAt 不能同时设置", "邮箱不能为空", "邮箱格式错误", "expiresAt 必须是 RFC3339 格式", "邮箱已存在":
+			statusCode = http.StatusBadRequest
+		}
+
+		c.JSON(statusCode, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
 // ExtendExpiry 延长用户到期时间
 // @Summary 延长用户到期时间
 // @Tags 用户管理

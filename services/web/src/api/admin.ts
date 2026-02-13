@@ -10,7 +10,8 @@ import type {
   UserInfo,
   UserListQuery,
   UserListResponse,
-  CronCheckResponse
+  CronCheckResponse,
+  UpdateAdminUserRequest
 } from '@/types/api'
 
 // User Management
@@ -26,6 +27,14 @@ export function getUserDetail(id: string): Promise<UserInfo> {
   return request({
     url: `/admin/users/${id}`,
     method: 'get'
+  })
+}
+
+export function updateAdminUser(id: string, data: UpdateAdminUserRequest): Promise<UserInfo> {
+  return request({
+    url: `/admin/users/${id}`,
+    method: 'put',
+    data
   })
 }
 

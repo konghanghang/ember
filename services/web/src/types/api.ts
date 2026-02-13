@@ -53,6 +53,13 @@ export interface UserListResponse {
   pageSize: number
 }
 
+export interface UpdateAdminUserRequest {
+  email?: string
+  isActive?: boolean
+  expiresAt?: string
+  clearExpiresAt?: boolean
+}
+
 export interface RedemptionCode {
   id: string
   code: string

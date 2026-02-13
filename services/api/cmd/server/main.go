@@ -71,6 +71,7 @@ func main() {
 			// 用户管理
 			admin.GET("/users", userHandler.GetUsers)
 			admin.GET("/users/:id", userHandler.GetUserByID)
+			admin.PUT("/users/:id", userHandler.UpdateUserByAdmin)
 			admin.PUT("/users/:id/extend", userHandler.ExtendExpiry)
 			admin.PUT("/users/:id/toggle", userHandler.ToggleUserStatus)
 			admin.PUT("/users/:id/reset-password", userHandler.ResetPassword)
