@@ -72,15 +72,14 @@ Ember 采用 **Monorepo 微服务架构**，为每个服务独立构建 Docker �
 **执行内容**：
 - 为每个服务独立构建 Docker 镜像
 - 推送到 GitHub Container Registry (GHCR)
-- 支持 `linux/amd64` 和 `linux/arm64` 多架构
 - 使用 GitHub Actions Cache 加速构建
 
 **生成的镜像 tag**：
 
-| 触发方式 | 镜像 Tag | 说明 |
-|---------|----------|------|
-| Push `pre_release` 分支 | `preview`<br>`preview-{sha}` | 测试版本，覆盖式更新 |
-| Push tag `v1.0.0` | `v1.0.0`<br>`latest` | 正式版本，不可变 |
+| 触发方式 | 镜像 Tag | 架构支持 | 说明 |
+|---------|----------|---------|------|
+| Push `pre_release` 分支 | `preview`<br>`preview-{sha}` | `amd64` | 测试版本，仅 amd64 加快构建 |
+| Push tag `v1.0.0` | `v1.0.0`<br>`latest` | `amd64` + `arm64` | 正式版本，完整多架构支持 |
 
 ### Release 流程 (`create-release.yml`)
 

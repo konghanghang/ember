@@ -26,19 +26,21 @@ jobs:
         id: meta
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            # Tag 触发 - 构建正式版本
+            # Tag 触发 - 构建正式版本（多架构）
             VERSION=${GITHUB_REF#refs/tags/}
             echo "tags=${{ env.GHCR_IMAGE }}:${VERSION},${{ env.GHCR_IMAGE }}:latest" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64,linux/arm64" >> $GITHUB_OUTPUT
             echo "is_release=true" >> $GITHUB_OUTPUT
-            echo "📦 Building release version: ${VERSION}"
+            echo "📦 Building release version: ${VERSION} (amd64 + arm64)"
           else
-            # pre_release 分支触发 - 构建预览版本
+            # pre_release 分支触发 - 构建预览版本（仅 amd64，加快构建速度）
             SHORT_SHA=$(git rev-parse --short HEAD)
             echo "tags=${{ env.GHCR_IMAGE }}:preview,${{ env.GHCR_IMAGE }}:preview-${SHORT_SHA}" >> $GITHUB_OUTPUT
             echo "version=preview-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
             echo "is_release=false" >> $GITHUB_OUTPUT
-            echo "🚧 Building preview version: preview-${SHORT_SHA}"
+            echo "🚧 Building preview version: preview-${SHORT_SHA} (amd64 only)"
           fi
 
       - name: Set up Docker Buildx
@@ -56,7 +58,7 @@ jobs:
         with:
           context: ./services/bot
           file: ./services/bot/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.meta.outputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: |
