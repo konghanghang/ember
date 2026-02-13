@@ -16,7 +16,11 @@ from app.config import (
     TELEGRAM_WEBHOOK_SECRET,
     WEBHOOK_URL,
 )
-from app.handlers.telegram_handler import handle_callback, send_subscription_notification
+from app.handlers.telegram_handler import (
+    handle_callback,
+    send_registration_notification,
+    send_subscription_notification,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,6 +105,17 @@ async def notify_subscription(request: Request):
 
     data = await request.json()
     await send_subscription_notification(tg_app.bot, data)
+    return {"ok": True}
+
+
+@app.post("/notify/registration")
+async def notify_registration(request: Request):
+    secret = request.headers.get("X-Internal-Secret")
+    if secret != INTERNAL_API_SECRET:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    data = await request.json()
+    await send_registration_notification(tg_app.bot, data)
     return {"ok": True}
 
 

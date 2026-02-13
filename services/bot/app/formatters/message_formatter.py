@@ -11,6 +11,14 @@ def _format_media_type(media_type: str) -> str:
     return media_type
 
 
+def _format_registration_mode(mode: str) -> str:
+    if mode == "invite":
+        return "邀请码注册"
+    if mode == "open":
+        return "开放注册"
+    return mode or "-"
+
+
 def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
     media_type = _format_media_type(data.get("type", ""))
     name = escape(str(data.get("name", "")))
@@ -46,8 +54,26 @@ def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
     return "\n".join(lines), keyboard
 
 
+def format_registration_message(data: dict) -> str:
+    user_name = escape(str(data.get("userName", "") or "-"))
+    email = escape(str(data.get("email", "") or "-"))
+    emby_id = escape(str(data.get("embyId", "") or "-"))
+    mode = escape(_format_registration_mode(str(data.get("registrationMode", ""))))
+    expires_at = escape(str(data.get("expiresAt", "") or "永不过期"))
+
+    lines = [
+        "🆕 <b>新用户注册成功</b>",
+        "",
+        f"👤 用户名：{user_name}",
+        f"📧 邮箱：{email}",
+        f"🧾 Emby ID：<code>{emby_id}</code>",
+        f"🛂 注册方式：{mode}",
+        f"⏳ 到期时间：{expires_at}",
+    ]
+    return "\n".join(lines)
+
+
 def format_result_message(original_text: str, action: str) -> str:
     result = "✅ 已通过" if action == "approve" else "❌ 已拒绝"
     text = original_text.strip()
     return f"{text}\n\n────────────────────\n{result}"
-

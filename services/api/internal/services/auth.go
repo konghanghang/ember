@@ -13,7 +13,16 @@ import (
 )
 
 // AuthService 认证服务
-type AuthService struct{}
+type AuthService struct {
+	notifier *BotNotifier
+}
+
+// NewAuthService 创建认证服务
+func NewAuthService() *AuthService {
+	return &AuthService{
+		notifier: NewBotNotifier(),
+	}
+}
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 
@@ -197,6 +206,28 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 	if err := tx.Commit().Error; err != nil {
 		return nil, errors.New("创建用户失败")
 	}
+
+	// 通知 Bot（异步 fire-and-forget，失败不影响注册成功）
+	go func(user models.User, mode string) {
+		if s.notifier == nil || !s.notifier.IsConfigured() {
+			return
+		}
+
+		var expiresAt *string
+		if user.ExpiresAt != nil {
+			formatted := user.ExpiresAt.UTC().Format("2006-01-02 15:04:05 MST")
+			expiresAt = &formatted
+		}
+
+		s.notifier.NotifyNewRegistration(RegistrationNotification{
+			ID:               user.ID,
+			UserName:         user.Username,
+			Email:            user.Email,
+			EmbyID:           user.EmbyID,
+			RegistrationMode: mode,
+			ExpiresAt:        expiresAt,
+		})
+	}(user, mode)
 
 	token, err := common.GenerateToken(user.ID, user.Username, "user")
 	if err != nil {

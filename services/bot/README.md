@@ -62,4 +62,5 @@ python main.py
 
 - `GET /health`：健康检查
 - `POST /notify/subscription`：Go API 通知入口（需 `X-Internal-Secret`）
+- `POST /notify/registration`：Go API 注册通知入口（需 `X-Internal-Secret`）
 - `POST /telegram/webhook`：Telegram webhook 入口

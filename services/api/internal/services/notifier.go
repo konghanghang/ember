@@ -21,6 +21,16 @@ type SubscriptionNotification struct {
 	Note       *string `json:"note"`
 }
 
+// RegistrationNotification 新用户注册通知数据
+type RegistrationNotification struct {
+	ID               string  `json:"id"`
+	UserName         string  `json:"userName"`
+	Email            string  `json:"email"`
+	EmbyID           string  `json:"embyId"`
+	RegistrationMode string  `json:"registrationMode"`
+	ExpiresAt        *string `json:"expiresAt"`
+}
+
 // BotNotifier Bot 通知客户端
 type BotNotifier struct {
 	botURL string
@@ -57,6 +67,39 @@ func (n *BotNotifier) NotifyNewSubscription(data SubscriptionNotification) {
 	}
 
 	req, err := http.NewRequest("POST", n.botURL+"/notify/subscription", bytes.NewBuffer(body))
+	if err != nil {
+		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", n.secret)
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		fmt.Printf("Bot 通知失败：请求发送失败: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
+	}
+}
+
+// NotifyNewRegistration 通知 Bot 有新用户注册（fire-and-forget）
+func (n *BotNotifier) NotifyNewRegistration(data RegistrationNotification) {
+	if !n.IsConfigured() {
+		return
+	}
+
+	body, err := json.Marshal(data)
+	if err != nil {
+		fmt.Printf("Bot 通知失败：序列化请求失败: %v\n", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", n.botURL+"/notify/registration", bytes.NewBuffer(body))
 	if err != nil {
 		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
 		return

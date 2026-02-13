@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes
 from app.clients import api_client
 from app.config import TELEGRAM_ADMIN_CHAT_ID, TMDB_IMAGE_BASE
 from app.formatters.message_formatter import (
+    format_registration_message,
     format_result_message,
     format_subscription_message,
 )
@@ -36,6 +37,15 @@ async def send_subscription_notification(bot, data: dict) -> None:
         text=text,
         parse_mode="HTML",
         reply_markup=keyboard,
+    )
+
+
+async def send_registration_notification(bot, data: dict) -> None:
+    text = format_registration_message(data)
+    await bot.send_message(
+        chat_id=TELEGRAM_ADMIN_CHAT_ID,
+        text=text,
+        parse_mode="HTML",
     )
 
 
