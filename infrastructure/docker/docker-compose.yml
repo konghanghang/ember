@@ -36,12 +36,23 @@ services:
     container_name: ember-api
     environment:
       - PORT=8080
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ember?search_path=public
+      - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET=${JWT_SECRET}
+      - AUTO_MIGRATE=${AUTO_MIGRATE:-true}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - EMBY_URL=${EMBY_URL}
+      - NEXT_PUBLIC_EMBY_URL=${NEXT_PUBLIC_EMBY_URL}
       - EMBY_API_KEY=${EMBY_API_KEY}
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - MOVIEPILOT_URL=${MOVIEPILOT_URL}
+      - MOVIEPILOT_USERNAME=${MOVIEPILOT_USERNAME}
+      - MOVIEPILOT_PASSWORD=${MOVIEPILOT_PASSWORD}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
       - BOT_NOTIFY_URL=http://ember-bot:8000
+      - CRON_ENABLED=${CRON_ENABLED}
+      - CRON_SCHEDULE=${CRON_SCHEDULE}
+      - CRON_TIMEZONE=${CRON_TIMEZONE}
     ports:
       - "8080:8080"
     depends_on:
