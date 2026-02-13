@@ -150,6 +150,14 @@ func (s *UserService) DeleteUser(userID string) error {
 		return errors.New("用户不存在")
 	}
 
+	// 先删除 Emby 用户，避免本地删除成功但 Emby 残留
+	if user.EmbyID != "" {
+		embyService := NewEmbyService()
+		if err := embyService.DeleteUser(user.EmbyID); err != nil {
+			return errors.New("删除用户失败：" + err.Error())
+		}
+	}
+
 	// 软删除（如果需要硬删除，使用 Unscoped()）
 	if err := db.DB.Delete(&user).Error; err != nil {
 		return err

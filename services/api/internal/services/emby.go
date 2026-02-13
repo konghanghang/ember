@@ -250,6 +250,39 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 	return &user, nil
 }
 
+// DeleteUser 删除 Emby 用户
+func (s *EmbyService) DeleteUser(embyUserID string) error {
+	if s.baseURL == "" || s.apiKey == "" {
+		return errors.New("Emby 配置未设置")
+	}
+
+	url := fmt.Sprintf("%s/emby/Users/%s", s.baseURL, embyUserID)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("X-Emby-Token", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	// 删除接口按幂等处理：用户不存在也视为成功
+	if resp.StatusCode == 404 {
+		return nil
+	}
+
+	if resp.StatusCode != 200 && resp.StatusCode != 204 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("删除 Emby 用户失败：状态码 %d，响应 %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
 // GetUsers 获取所有 Emby 用户
 func (s *EmbyService) GetUsers() ([]EmbyUser, error) {
 	if s.baseURL == "" || s.apiKey == "" {
