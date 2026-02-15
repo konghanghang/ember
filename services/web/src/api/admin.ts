@@ -5,6 +5,7 @@ import type {
   RedemptionCode,
   RedemptionCodeListResponse,
   RedemptionListResponse,
+  RankingPreviewResponse,
   Setting,
   UpdateSettingRequest,
   SystemInfoResponse,
@@ -163,5 +164,14 @@ export function runCronJob(): Promise<CronCheckResponse> {
   return request({
     url: '/admin/cron/check-expired',
     method: 'post'
+  })
+}
+
+// ==================== 播放排行（管理员预览） ====================
+export function previewRanking(type: 'daily' | 'weekly'): Promise<RankingPreviewResponse> {
+  return request({
+    url: '/admin/rankings/preview',
+    method: 'post',
+    params: { type }
   })
 }

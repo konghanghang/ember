@@ -41,6 +41,11 @@ const router = createRouter({
           component: () => import('../views/console/SubscriptionsView.vue'),
         },
         {
+          path: 'rankings',
+          name: 'console-rankings',
+          component: () => import('../views/console/RankingsView.vue'),
+        },
+        {
           path: 'subscriptions/new',
           name: 'console-subscriptions-new',
           component: () => import('../views/console/NewSubscriptionView.vue'),

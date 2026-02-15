@@ -3,6 +3,8 @@ import type {
   CreateSubscriptionRequest,
   EmbyConfigResponse,
   MediaStatsResponse,
+  RankingHistoryResponse,
+  PlaybackRanking,
   Subscription,
   SubscriptionListQuery,
   UserInfo
@@ -76,5 +78,25 @@ export function getMediaStats(): Promise<MediaStatsResponse> {
   return request({
     url: '/media/stats',
     method: 'get'
+  })
+}
+
+// ==================== 播放排行 ====================
+export function getLatestRanking(
+  period: string,
+  category: string
+): Promise<{ data: PlaybackRanking[] }> {
+  return request({
+    url: '/rankings/latest',
+    method: 'get',
+    params: { period, category }
+  })
+}
+
+export function getRankingHistory(period: string, date: string): Promise<RankingHistoryResponse> {
+  return request({
+    url: '/rankings/history',
+    method: 'get',
+    params: { period, date }
   })
 }

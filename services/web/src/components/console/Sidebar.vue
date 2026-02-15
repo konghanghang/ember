@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth'
 import {
   Odometer,
   VideoPlay,
+  Trophy,
   User,
   Ticket,
   Setting,
@@ -26,6 +27,12 @@ const menuItems = computed(() => [
     title: '订阅管理',
     path: '/console/subscriptions',
     icon: VideoPlay,
+    role: 'user'
+  },
+  {
+    title: '播放排行榜',
+    path: '/console/rankings',
+    icon: Trophy,
     role: 'user'
   },
   {

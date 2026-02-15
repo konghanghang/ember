@@ -217,3 +217,40 @@ export interface TmdbSelection {
 // AdminInfo 是 UserInfo 的类型别名
 // 后端使用统一的 User 模型，通过 role 字段区分 admin 和 user
 export type AdminInfo = UserInfo
+
+// ==================== 播放排行 ====================
+export type RankingPeriod = 'daily' | 'weekly'
+export type RankingCategory = 'media_movie' | 'media_episode'
+
+export interface PlaybackRanking {
+  id: string
+  period: RankingPeriod
+  category: RankingCategory
+  rank: number
+  itemName: string
+  playCount: number
+  duration: number // 秒
+  snapshotAt: string
+  periodStart: string
+  periodEnd: string
+  createdAt: string
+}
+
+export interface RankingPreviewItem {
+  rank: number
+  itemName: string
+  playCount: number
+  duration: number
+}
+
+export interface RankingPreviewResponse {
+  period: RankingPeriod
+  snapshotAt?: string
+  periodStart: string
+  periodEnd: string
+  cutoffAt: string
+  movies: RankingPreviewItem[]
+  episodes: RankingPreviewItem[]
+}
+
+export type RankingHistoryResponse = RankingPreviewResponse
