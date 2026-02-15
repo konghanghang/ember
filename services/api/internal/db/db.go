@@ -169,6 +169,7 @@ func AutoMigrate() error {
 		&models.Setting{},
 		&models.User{},
 		&models.Subscription{},
+		&models.PlaybackRanking{},
 	); err != nil {
 		return err
 	}

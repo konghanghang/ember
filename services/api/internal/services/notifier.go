@@ -119,3 +119,54 @@ func (n *BotNotifier) NotifyNewRegistration(data RegistrationNotification) {
 		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
 	}
 }
+
+// RankingNotification 排行榜推送数据
+type RankingNotification struct {
+	Period      string              `json:"period"`      // "daily" 或 "weekly"
+	PeriodStart string              `json:"periodStart"` // "2026-02-14"
+	PeriodEnd   string              `json:"periodEnd"`   // "2026-02-14"
+	CutoffAt    string              `json:"cutoffAt"`    // "20:00" (阶段榜截止时间，可选)
+	Movies      []RankingItemNotify `json:"movies"`
+	Episodes    []RankingItemNotify `json:"episodes"`
+}
+
+// RankingItemNotify 排行条目
+type RankingItemNotify struct {
+	Rank     int    `json:"rank"`
+	Name     string `json:"name"`
+	Duration int64  `json:"duration"` // 秒
+	Count    int    `json:"count"`
+}
+
+// NotifyRanking 通知 Bot 发送排行榜到 Telegram 群组（fire-and-forget）
+func (n *BotNotifier) NotifyRanking(data RankingNotification) {
+	if !n.IsConfigured() {
+		return
+	}
+
+	body, err := json.Marshal(data)
+	if err != nil {
+		fmt.Printf("Bot 通知失败：序列化请求失败: %v\n", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", n.botURL+"/notify/ranking", bytes.NewBuffer(body))
+	if err != nil {
+		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", n.secret)
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		fmt.Printf("Bot 通知失败：请求发送失败: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
+	}
+}

@@ -561,3 +561,60 @@ func (s *EmbyService) SetUserPolicy(embyUserID string, policy EmbyUserPolicy) er
 
 	return nil
 }
+
+// CustomQueryResponse Emby user_usage_stats 插件自定义查询响应
+// 注意：插件返回的字段名是 "colums"（非 "columns"），这是插件本身的拼写
+type CustomQueryResponse struct {
+	Colums  []string        `json:"colums"`
+	Results [][]interface{} `json:"results"`
+	Message string          `json:"message"`
+}
+
+// QueryPlaybackStats 通过 Playback Reporting 插件执行自定义 SQL 查询
+// 插件 API：POST /emby/user_usage_stats/submit_custom_query
+// 请求体：{"CustomQueryString": "SQL"}
+func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, error) {
+	if s.baseURL == "" || s.apiKey == "" {
+		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	}
+
+	reqBody := map[string]string{
+		"CustomQueryString": sql,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/emby/user_usage_stats/submit_custom_query", s.baseURL)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Emby-Token", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Playback Reporting 查询失败：HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var out CustomQueryResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+
+	return &out, nil
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/handlers"
 	"github.com/konghang/ember/backend/internal/middleware"
+	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
 	"github.com/robfig/cron/v3"
 )
@@ -44,6 +45,7 @@ func main() {
 	mediaHandler := handlers.NewMediaHandler()
 	systemHandler := handlers.NewSystemHandler()
 	tmdbHandler := handlers.NewTMDBHandler()
+	rankingHandler := handlers.NewRankingHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -97,6 +99,10 @@ func main() {
 
 			// 定时任务
 			admin.POST("/cron/check-expired", systemHandler.CheckExpiredUsers)
+			admin.POST("/cron/generate-ranking", rankingHandler.GenerateRanking)
+
+			// 排行榜预览（不入库、不推送）
+			admin.POST("/rankings/preview", rankingHandler.PreviewRanking)
 		}
 
 		// ==================== 内部服务路由（Bot 调用） ====================
@@ -125,6 +131,10 @@ func main() {
 			// 媒体相关
 			authenticated.GET("/emby/config", mediaHandler.GetEmbyConfig)
 			authenticated.GET("/media/stats", mediaHandler.GetMediaStats)
+
+			// 播放排行
+			authenticated.GET("/rankings/latest", rankingHandler.GetLatestRanking)
+			authenticated.GET("/rankings/history", rankingHandler.GetHistoryRanking)
 		}
 
 		// ==================== 用户路由（需要认证） ====================
@@ -157,9 +167,25 @@ func main() {
 	}
 
 	if cronEnabled == "true" {
-		schedule := os.Getenv("CRON_SCHEDULE")
-		if schedule == "" {
-			schedule = "0 2 * * *"
+		expiredSchedule := os.Getenv("CRON_SCHEDULE")
+		if expiredSchedule == "" {
+			expiredSchedule = "0 2 * * *"
+		}
+
+		rankingCronEnabled := os.Getenv("RANKING_CRON_ENABLED")
+		if rankingCronEnabled == "" {
+			// 默认关闭，避免升级后在未配置 Playback Reporting 插件/Emby 环境变量时产生隐式行为变化
+			rankingCronEnabled = "false"
+		}
+
+		rankingDailySchedule := os.Getenv("RANKING_DAILY_SCHEDULE")
+		if rankingDailySchedule == "" {
+			rankingDailySchedule = "0 20 * * *"
+		}
+		rankingWeeklySchedule := os.Getenv("RANKING_WEEKLY_SCHEDULE")
+		if rankingWeeklySchedule == "" {
+			// 默认：周日 20:30
+			rankingWeeklySchedule = "30 20 * * 0"
 		}
 
 		tzName := os.Getenv("CRON_TIMEZONE")
@@ -173,9 +199,17 @@ func main() {
 			tz = time.UTC
 		}
 
-		systemService := services.NewSystemService()
 		c := cron.New(cron.WithLocation(tz))
-		if _, err := c.AddFunc(schedule, func() {
+
+		systemService := services.NewSystemService()
+		var rankingService *services.PlaybackRankingService
+		if rankingCronEnabled == "true" {
+			rankingService = services.NewPlaybackRankingService()
+		}
+
+		taskRegistered := false
+
+		if _, err := c.AddFunc(expiredSchedule, func() {
 			log.Println("[Cron] 开始检查过期用户...")
 			result, err := systemService.CheckExpiredUsers()
 			if err != nil {
@@ -184,11 +218,53 @@ func main() {
 			}
 			log.Printf("[Cron] 完成，封禁 %d/%d 个用户", result.DisabledCount, result.TotalExpired)
 		}); err != nil {
-			log.Printf("定时任务注册失败：%v", err)
+			log.Printf("定时任务注册失败（过期检查）：%v", err)
 		} else {
+			taskRegistered = true
+		}
+
+		if rankingCronEnabled == "true" {
+			if _, err := c.AddFunc(rankingDailySchedule, func() {
+				log.Println("[Cron] 开始生成播放日榜...")
+				if err := rankingService.GenerateRanking(models.RankingDaily, nil, nil); err != nil {
+					log.Printf("[Cron] 日榜生成失败：%v", err)
+					return
+				}
+				log.Println("[Cron] 日榜生成完成")
+			}); err != nil {
+				log.Printf("定时任务注册失败（日榜）：%v", err)
+			} else {
+				taskRegistered = true
+			}
+
+			if _, err := c.AddFunc(rankingWeeklySchedule, func() {
+				log.Println("[Cron] 开始生成播放周榜...")
+				if err := rankingService.GenerateRanking(models.RankingWeekly, nil, nil); err != nil {
+					log.Printf("[Cron] 周榜生成失败：%v", err)
+					return
+				}
+				log.Println("[Cron] 周榜生成完成")
+			}); err != nil {
+				log.Printf("定时任务注册失败（周榜）：%v", err)
+			} else {
+				taskRegistered = true
+			}
+		}
+
+		if taskRegistered {
 			c.Start()
 			defer c.Stop()
-			log.Printf("定时任务已启用：%s (%s)", schedule, tzName)
+			if rankingCronEnabled == "true" {
+				log.Printf(
+					"定时任务已启用：过期检查(%s), 日榜(%s), 周榜(%s) (%s)",
+					expiredSchedule,
+					rankingDailySchedule,
+					rankingWeeklySchedule,
+					tzName,
+				)
+			} else {
+				log.Printf("定时任务已启用：过期检查(%s) (%s)", expiredSchedule, tzName)
+			}
 		}
 	}
 
