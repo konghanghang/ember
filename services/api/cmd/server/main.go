@@ -135,6 +135,7 @@ func main() {
 			// 媒体相关
 			authenticated.GET("/emby/config", mediaHandler.GetEmbyConfig)
 			authenticated.GET("/media/stats", mediaHandler.GetMediaStats)
+			authenticated.GET("/media/latest", mediaHandler.GetLatestItems)
 
 			// 播放排行
 			authenticated.GET("/rankings/latest", rankingHandler.GetLatestRanking)

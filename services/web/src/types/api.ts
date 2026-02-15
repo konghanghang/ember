@@ -186,6 +186,24 @@ export interface MediaStatsResponse {
   data: MediaStats
 }
 
+// ==================== 最近入库 ====================
+export interface LatestMediaItem {
+  id: string
+  name: string
+  type: 'Movie' | 'Series'
+  productionYear: number
+  dateCreated: string
+  communityRating?: number
+  officialRating?: string
+  overview?: string
+  childCount: number
+}
+
+export interface LatestMediaResponse {
+  success: boolean
+  data: LatestMediaItem[]
+}
+
 export interface CronCheckResponse {
   success: boolean
   disabledCount: number

@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -346,6 +350,32 @@ type MediaStats struct {
 	EpisodeCount int `json:"EpisodeCount"`
 }
 
+// EmbyItem Emby 媒体项（/emby/Users/{userId}/Items/Latest 返回结构）
+type EmbyItem struct {
+	ID              string            `json:"Id"`
+	Name            string            `json:"Name"`
+	Type            string            `json:"Type"` // Movie / Series
+	ProductionYear  int               `json:"ProductionYear"`
+	DateCreated     string            `json:"DateCreated"`
+	CommunityRating *float64          `json:"CommunityRating,omitempty"`
+	OfficialRating  *string           `json:"OfficialRating,omitempty"`
+	Overview        *string           `json:"Overview,omitempty"`
+	ImageTags       map[string]string `json:"ImageTags"`
+	ChildCount      int               `json:"ChildCount"` // GroupItems=true 时的新增子项数
+}
+
+func sanitizeEmbyErrorBody(b []byte) string {
+	// Emby 有时会返回 HTML 编码的异常信息（例如 &#39;），这里做反转义以便阅读。
+	// 同时截断，避免把大段 HTML/堆栈塞进日志/响应里。
+	const maxLen = 2048
+	s := strings.TrimSpace(string(b))
+	s = html.UnescapeString(s)
+	if len(s) > maxLen {
+		return s[:maxLen] + "...(truncated)"
+	}
+	return s
+}
+
 // GetMediaStats 获取媒体库统计信息
 func (s *EmbyService) GetMediaStats() (*MediaStats, error) {
 	if s.baseURL == "" || s.apiKey == "" {
@@ -380,6 +410,69 @@ func (s *EmbyService) GetMediaStats() (*MediaStats, error) {
 	}
 
 	return &stats, nil
+}
+
+// GetLatestItems 获取用户视角的最近入库媒体
+// 使用 /emby/Users/{userId}/Items/Latest 端点（返回裸数组 []EmbyItem）
+func (s *EmbyService) GetLatestItems(embyUserID string, itemType string, limit int) ([]EmbyItem, error) {
+	if s.baseURL == "" || s.apiKey == "" {
+		return nil, errors.New("Emby 配置未设置")
+	}
+	if strings.TrimSpace(embyUserID) == "" {
+		return nil, errors.New("Emby 用户 ID 不能为空")
+	}
+	if itemType != "Movie" && itemType != "Series" {
+		return nil, errors.New("无效的 itemType（仅支持 Movie / Series）")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	base, err := url.Parse(s.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("Emby URL 无效：%w", err)
+	}
+
+	escapedUserID := url.PathEscape(embyUserID)
+	base.Path = strings.TrimRight(base.Path, "/") + "/emby/Users/" + escapedUserID + "/Items/Latest"
+
+	q := base.Query()
+	q.Set("IncludeItemTypes", itemType)
+	q.Set("Limit", strconv.Itoa(limit))
+	q.Set("GroupItems", "true")
+	q.Set("Fields", "Overview,DateCreated,ProductionYear,CommunityRating,OfficialRating")
+	q.Set("api_key", s.apiKey)
+	base.RawQuery = q.Encode()
+
+	req, err := http.NewRequest("GET", base.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Emby API 返回异常状态码 %d: %s", resp.StatusCode, sanitizeEmbyErrorBody(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var items []EmbyItem
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // EmbyUserPolicy Emby 用户权限策略
@@ -625,9 +718,9 @@ func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, erro
 type EmbyNowPlayingItem struct {
 	Name              string `json:"Name"`
 	ID                string `json:"Id"`
-	Type              string `json:"Type"`                       // "Movie" 或 "Episode"
-	MediaType         string `json:"MediaType"`                  // "Video"
-	RunTimeTicks      int64  `json:"RunTimeTicks"`               // 总时长（ticks，÷10000000=秒）
+	Type              string `json:"Type"`                        // "Movie" 或 "Episode"
+	MediaType         string `json:"MediaType"`                   // "Video"
+	RunTimeTicks      int64  `json:"RunTimeTicks"`                // 总时长（ticks，÷10000000=秒）
 	SeriesName        string `json:"SeriesName,omitempty"`        // 剧集名（仅 Episode）
 	IndexNumber       int    `json:"IndexNumber,omitempty"`       // 集号（仅 Episode）
 	ParentIndexNumber int    `json:"ParentIndexNumber,omitempty"` // 季号（仅 Episode）
@@ -647,8 +740,8 @@ type EmbySession struct {
 	ID                 string              `json:"Id"`
 	UserID             string              `json:"UserId"`
 	UserName           string              `json:"UserName"`
-	Client             string              `json:"Client"`         // 客户端名称（Emby Web, Infuse...）
-	DeviceName         string              `json:"DeviceName"`     // 设备名称
+	Client             string              `json:"Client"`     // 客户端名称（Emby Web, Infuse...）
+	DeviceName         string              `json:"DeviceName"` // 设备名称
 	DeviceID           string              `json:"DeviceId"`
 	RemoteEndPoint     string              `json:"RemoteEndPoint"` // 客户端 IP
 	ApplicationVersion string              `json:"ApplicationVersion"`

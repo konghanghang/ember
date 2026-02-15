@@ -6,6 +6,7 @@ import {
   Odometer,
   VideoPlay,
   Trophy,
+  Film,
   User,
   Ticket,
   Setting,
@@ -34,6 +35,12 @@ const menuItems = computed(() => [
     title: '播放排行榜',
     path: '/console/rankings',
     icon: Trophy,
+    role: 'user'
+  },
+  {
+    title: '媒体库',
+    path: '/console/library',
+    icon: Film,
     role: 'user'
   },
   {

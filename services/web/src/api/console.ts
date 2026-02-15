@@ -2,6 +2,7 @@ import request from './request'
 import type {
   CreateSubscriptionRequest,
   EmbyConfigResponse,
+  LatestMediaResponse,
   MediaStatsResponse,
   RankingHistoryResponse,
   PlaybackRanking,
@@ -78,6 +79,15 @@ export function getMediaStats(): Promise<MediaStatsResponse> {
   return request({
     url: '/media/stats',
     method: 'get'
+  })
+}
+
+// ==================== 最近入库 ====================
+export function getLatestMedia(type: 'Movie' | 'Series', limit: number = 20): Promise<LatestMediaResponse> {
+  return request({
+    url: '/media/latest',
+    method: 'get',
+    params: { type, limit }
   })
 }
 
