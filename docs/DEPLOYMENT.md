@@ -128,10 +128,10 @@ MOVIEPILOT_PASSWORD="your-moviepilot-password"
 
 ```bash
 # 方法 1：使用 psql（推荐）
-psql $DATABASE_URL -f prisma/migrations/20251207010855_ember/migration.sql
+psql $DATABASE_URL -f infrastructure/database/20260215_01_create_playback_rankings.sql
 
 # 方法 2：使用临时 postgres 容器
-cat prisma/migrations/20251207010855_ember/migration.sql | \
+cat infrastructure/database/20260215_01_create_playback_rankings.sql | \
   docker run --rm -i postgres:16-alpine psql "$DATABASE_URL"
 ```
 

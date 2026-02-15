@@ -6,7 +6,7 @@ Ember 正在替代 embyboss 项目。embyboss 有一个影片播放排行榜功�
 
 **本方案实现**：
 1. 通过 Emby Playback Reporting 插件 API 查询播放活动数据
-2. 每天 23:00 生成日榜，每周日 23:30 生成周榜
+2. 每天 20:00 生成日榜，每周日 20:30 生成周榜（阶段榜：截止到触发时刻）
 3. 排行快照存入 PostgreSQL，前端可查看当前和历史排行
 4. 排行结果自动推送到 Telegram 群组
 5. 管理员可通过 API 手动触发排行生成
@@ -74,7 +74,7 @@ sequenceDiagram
 graph TB
     subgraph Docker["🐳 Docker Network"]
         subgraph APIService["Go API (:8080)"]
-            CRON["Cron 定时器<br/>日榜 23:00 / 周榜 周日 23:30"]
+            CRON["Cron 定时器<br/>日榜 20:00 / 周榜 周日 20:30"]
             RANKING_SVC["PlaybackRankingService"]
             EMBY_SVC["EmbyService<br/>.QueryPlaybackStats()"]
             NOTIFIER["BotNotifier<br/>.NotifyRanking()"]
@@ -132,7 +132,7 @@ graph TB
 - 一张表搞定，数据结构简单无特殊情况
 
 **为什么日榜和周榜 cron 表达式硬编码**：
-- 这是固定的业务逻辑（每天 23:00 出日榜、每周日 23:30 出周榜），不是运维配置
+- 这是固定的业务逻辑（每天 20:00 出日榜、每周日 20:30 出周榜），不是运维配置
 - 过度参数化是假想的需求
 
 **为什么推送到群组而不是管理员**：
@@ -712,8 +712,8 @@ if cronEnabled == "true" {
         log.Printf("[Cron] 完成，封禁 %d/%d 个用户", result.DisabledCount, result.TotalExpired)
     })
 
-    // 日榜：每天 23:00（不传 start/end，自动计算当天范围）
-    c.AddFunc("0 23 * * *", func() {
+    // 日榜：每天 20:00（阶段榜：不传 start/end，自动计算当天 00:00 ~ 触发时刻）
+    c.AddFunc("0 20 * * *", func() {
         log.Println("[Cron] 开始生成播放日榜...")
         if err := rankingService.GenerateRanking(models.RankingDaily, nil, nil); err != nil {
             log.Printf("[Cron] 日榜生成失败：%v", err)
@@ -722,8 +722,8 @@ if cronEnabled == "true" {
         log.Println("[Cron] 日榜生成完成")
     })
 
-    // 周榜：每周日 23:30（不传 start/end，自动计算本周范围）
-    c.AddFunc("30 23 * * 0", func() {
+    // 周榜：每周日 20:30（阶段榜：不传 start/end，自动计算本周一 00:00 ~ 触发时刻）
+    c.AddFunc("30 20 * * 0", func() {
         log.Println("[Cron] 开始生成播放周榜...")
         if err := rankingService.GenerateRanking(models.RankingWeekly, nil, nil); err != nil {
             log.Printf("[Cron] 周榜生成失败：%v", err)
@@ -748,7 +748,7 @@ if cronEnabled == "true" {
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `services/bot/app/config.py` | **修改** | 新增 `TELEGRAM_GROUP_CHAT_ID` |
+| `services/bot/app/config.py` | **修改** | 新增 `TELEGRAM_GROUP_CHAT_ID`（可选） |
 | `services/bot/app/server.py` | **修改** | 新增 `/notify/ranking` 路由 |
 | `services/bot/app/handlers/telegram_handler.py` | **修改** | 新增 `send_ranking_notification` |
 | `services/bot/app/formatters/message_formatter.py` | **修改** | 新增 `format_ranking_message` |
@@ -758,7 +758,8 @@ if cronEnabled == "true" {
 **文件**：`services/bot/app/config.py`（第 11 行之后追加）
 
 ```python
-TELEGRAM_GROUP_CHAT_ID = int(os.environ["TELEGRAM_GROUP_CHAT_ID"])
+_group_chat_id = os.getenv("TELEGRAM_GROUP_CHAT_ID", "").strip()
+TELEGRAM_GROUP_CHAT_ID = int(_group_chat_id) if _group_chat_id else None
 ```
 
 使用 `os.environ`（必填），缺失时启动崩溃——配置错误应该在启动时暴露。
@@ -812,16 +813,20 @@ from app.formatters.message_formatter import (
 
 ```python
 async def send_ranking_notification(bot, data: dict) -> None:
-    """发送排行榜到 Telegram 群组"""
+    """发送排行榜到 Telegram 群组
+
+    未配置 TELEGRAM_GROUP_CHAT_ID 时，回退推送到管理员 chat，避免既有部署升级后崩溃。
+    """
     text = format_ranking_message(data)
+    chat_id = TELEGRAM_GROUP_CHAT_ID or TELEGRAM_ADMIN_CHAT_ID
     await bot.send_message(
-        chat_id=TELEGRAM_GROUP_CHAT_ID,
+        chat_id=chat_id,
         text=text,
         parse_mode="HTML",
     )
 ```
 
-**关键区别**：推送到 `TELEGRAM_GROUP_CHAT_ID`（群组），而非 `TELEGRAM_ADMIN_CHAT_ID`（管理员）。
+**关键区别**：优先推送到 `TELEGRAM_GROUP_CHAT_ID`（群组）；未配置时回退推送到 `TELEGRAM_ADMIN_CHAT_ID`（管理员），保证不破坏既有部署。
 
 ### 4.5 修改：message_formatter.py
 
@@ -1024,7 +1029,7 @@ import type {
 │ └─────────────────────────────────────────────────────┘  │
 │                                                          │
 │ ┌─ 暂无数据提示（当排行为空时显示） ──────────────────┐  │
-│ │  📭 暂无播放数据，排行榜将在每天 23:00 自动生成     │  │
+│ │  📭 暂无播放数据，排行榜将在每天 20:00 自动生成     │  │
 │ └─────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -1168,7 +1173,7 @@ import { TrophyBase } from '@element-plus/icons-vue'
 
 | 变量 | 使用服务 | 必需 | 说明 | 示例值 |
 |------|---------|------|------|--------|
-| `TELEGRAM_GROUP_CHAT_ID` | Bot | 是 | Telegram 群组 ID，排行榜推送目标 | `-1001234567890` |
+| `TELEGRAM_GROUP_CHAT_ID` | Bot | 否 | Telegram 群组 ID，排行榜推送目标（未配置时回退推送到管理员） | `-1001234567890` |
 
 ### 已有变量（无需修改）
 
@@ -1278,7 +1283,7 @@ LIMIT 10
 
 ### Phase 4：Bot 端
 
-11. 修改 `services/bot/app/config.py` — 新增 `TELEGRAM_GROUP_CHAT_ID`
+11. 修改 `services/bot/app/config.py` — 新增 `TELEGRAM_GROUP_CHAT_ID`（可选）
 12. 修改 `services/bot/app/formatters/message_formatter.py` — 新增格式化函数
 13. 修改 `services/bot/app/handlers/telegram_handler.py` — 新增发送函数
 14. 修改 `services/bot/app/server.py` — 新增 `/notify/ranking` 路由
@@ -1333,7 +1338,7 @@ cd services/web && npm run build
 
 ### 10.2 端到端测试
 
-1. 配置 `TELEGRAM_GROUP_CHAT_ID` 环境变量
+1. 可选配置 `TELEGRAM_GROUP_CHAT_ID` 环境变量（未配置时回退推送到管理员）
 2. 启动 Go API、Python Bot、前端
 3. 手动触发日榜（使用默认当天范围）：
    ```bash
@@ -1364,7 +1369,7 @@ cd services/web && npm run build
 | Emby Playback Reporting 插件未安装 | `QueryPlaybackStats` 返回 404，`GenerateDailyRanking` 返回 error，Cron 日志输出错误 |
 | Emby 无播放数据（新装服务器） | SQL 查询返回空 `results`，数据库不写入，Telegram 消息显示 "📭 暂无播放数据" |
 | Bot 未启动 | 排行快照正常写入数据库，Telegram 推送失败（日志记录），前端正常显示 |
-| `TELEGRAM_GROUP_CHAT_ID` 未配置 | Bot 启动崩溃（`os.environ` KeyError），排行数据正常写入数据库 |
+| `TELEGRAM_GROUP_CHAT_ID` 未配置 | Bot 不崩溃，排行榜推送回退到管理员；排行数据正常写入数据库 |
 | 重复触发同一天日榜 | 数据库新增一批快照（不会覆盖旧的），前端查询 `MAX(snapshot_at)` 取最新 |
 | 前端请求排行但无任何快照 | `GetLatestRanking` 返回空数组，前端显示空状态 |
 
