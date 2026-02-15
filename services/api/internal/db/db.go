@@ -10,6 +10,7 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -142,12 +143,18 @@ func seedDefaultAdmin() {
 }
 
 func seedDefaultSettings() {
-	if err := DB.FirstOrCreate(&models.Setting{Key: "default_trial_days"}, models.Setting{Value: "7"}).Error; err != nil {
-		log.Printf("⚠️  初始化 default_trial_days 失败：%v", err)
+	// NOTE:
+	// - FirstOrCreate 在多实例同时启动时会产生竞态：SELECT 未看到记录，随后 INSERT 冲突。
+	// - 用 ON CONFLICT DO NOTHING 保证幂等并避免启动时刷错日志。
+	defaultSettings := []models.Setting{
+		{Key: "default_trial_days", Value: "7"},
+		{Key: "registration_mode", Value: "open"},
 	}
 
-	if err := DB.FirstOrCreate(&models.Setting{Key: "registration_mode"}, models.Setting{Value: "open"}).Error; err != nil {
-		log.Printf("⚠️  初始化 registration_mode 失败：%v", err)
+	for _, s := range defaultSettings {
+		if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&s).Error; err != nil {
+			log.Printf("⚠️  初始化 %s 失败：%v", s.Key, err)
+		}
 	}
 }
 
