@@ -13,7 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../database:/docker-entrypoint-initdb.d
+      - ../database:/docker-entrypoint-initdb.d
     networks:
       - ember-network
     healthcheck:
@@ -53,6 +53,9 @@ services:
       - CRON_ENABLED=${CRON_ENABLED}
       - CRON_SCHEDULE=${CRON_SCHEDULE}
       - CRON_TIMEZONE=${CRON_TIMEZONE}
+      - RANKING_CRON_ENABLED=${RANKING_CRON_ENABLED}
+      - RANKING_DAILY_SCHEDULE=${RANKING_DAILY_SCHEDULE}
+      - RANKING_WEEKLY_SCHEDULE=${RANKING_WEEKLY_SCHEDULE}
     ports:
       - "8080:8080"
     depends_on:
@@ -103,6 +106,7 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID}
+      - TELEGRAM_GROUP_CHAT_ID=${TELEGRAM_GROUP_CHAT_ID}
       - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
       - API_URL=http://ember-api:8080
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
