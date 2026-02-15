@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  Calendar, 
-  Search, 
-  Edit, 
-  Timer, 
-  Key, 
-  Delete, 
-  MoreFilled, 
+import {
+  Calendar,
+  Search,
+  Edit,
+  Timer,
+  Key,
+  Delete,
+  MoreFilled,
   UserFilled,
   Lock,
   Unlock
@@ -198,7 +198,10 @@ onMounted(() => {
         </div>
         <input 
           v-model="queryParams.search"
-          type="text"
+          type="search"
+          inputmode="search"
+          autocomplete="off"
+          aria-label="搜索用户名或邮箱"
           placeholder="搜索用户名或邮箱..." 
           class="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:border-ember focus:ring-4 focus:ring-ember/10 transition-all placeholder-gray-400"
           @keyup.enter="fetchData"
@@ -268,7 +271,8 @@ onMounted(() => {
               <el-tooltip content="编辑信息" placement="top">
                 <button 
                   @click="handleOpenEdit(row)"
-                  class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  aria-label="编辑信息"
+                  class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                 >
                   <el-icon :size="18"><Edit /></el-icon>
                 </button>
@@ -277,14 +281,18 @@ onMounted(() => {
               <el-tooltip content="延长有效期" placement="top">
                 <button 
                   @click="handleExtend(row)"
-                  class="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                  aria-label="延长有效期"
+                  class="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
                 >
                   <el-icon :size="18"><Timer /></el-icon>
                 </button>
               </el-tooltip>
 
               <el-dropdown trigger="click">
-                <button class="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                <button
+                  aria-label="更多操作"
+                  class="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                >
                   <el-icon :size="18"><MoreFilled /></el-icon>
                 </button>
                 <template #dropdown>
@@ -369,14 +377,14 @@ onMounted(() => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button 
             @click="editDialogVisible = false"
-            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium cursor-pointer"
           >
             取消
           </button>
           <button 
             @click="handleUpdateUser" 
             :disabled="savingUser"
-            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+            class="btn-ember px-6 py-2 rounded-lg font-bold shadow-md hover:shadow-lg disabled:opacity-70 cursor-pointer"
           >
             {{ savingUser ? '保存中...' : '保存更改' }}
           </button>

@@ -161,30 +161,30 @@ onMounted(fetchData)
             v-for="opt in statusOptions"
             :key="opt.value"
             @click="queryParams.status = opt.value as any"
-            class="px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap"
+            class="px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap cursor-pointer"
             :class="queryParams.status === opt.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
           >
             {{ opt.label }}
           </button>
         </div>
         
-        <button 
-          @click="fetchData" 
-          class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
-          title="刷新列表"
-        >
-          <el-icon :size="20"><Refresh /></el-icon>
-        </button>
+          <button
+            @click="fetchData" 
+            class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0 cursor-pointer"
+            title="刷新列表"
+          >
+            <el-icon :size="20"><Refresh /></el-icon>
+          </button>
 
-        <button 
-          @click="router.push('/console/subscriptions/new')"
-          class="flex items-center gap-2 px-4 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95 flex-shrink-0 whitespace-nowrap"
-        >
-          <el-icon><Plus /></el-icon>
-          <span>新建订阅</span>
-        </button>
+          <button 
+            @click="router.push('/console/subscriptions/new')"
+            class="btn-ember flex items-center gap-2 px-4 py-2 rounded-lg font-bold shadow-md hover:shadow-lg active:scale-95 flex-shrink-0 whitespace-nowrap cursor-pointer"
+          >
+            <el-icon><Plus /></el-icon>
+            <span>新建订阅</span>
+          </button>
+        </div>
       </div>
-    </div>
 
     <!-- Content -->
     <div v-loading="loading" class="min-h-[300px]">
@@ -286,7 +286,7 @@ onMounted(fetchData)
         <p class="text-sm mt-1 mb-6">您还没有提交过任何订阅请求</p>
         <button 
           @click="router.push('/console/subscriptions/new')"
-          class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors"
+          class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors cursor-pointer"
         >
           去添加
         </button>

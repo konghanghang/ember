@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Trophy, Film, VideoCamera } from '@element-plus/icons-vue'
+import { Trophy, Film, VideoCamera, Calendar, Timer, VideoPlay } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import { getLatestRanking, getRankingHistory } from '@/api/console'
 import { previewRanking } from '@/api/admin'
@@ -30,8 +30,8 @@ const rangeText = computed(() => {
 
   const start = sample.periodStart?.slice(0, 10) || ''
   const end = sample.periodEnd?.slice(0, 10) || ''
-  if (start !== '' && start === end) return `📅 ${start}`
-  if (start !== '' && end !== '') return `📅 ${start} ~ ${end}`
+  if (start !== '' && start === end) return `${start}`
+  if (start !== '' && end !== '') return `${start} ~ ${end}`
   return ''
 })
 
@@ -55,11 +55,11 @@ function formatDuration(seconds: number): string {
   return `${minutes}m`
 }
 
-function medal(rank: number): string {
-  if (rank === 1) return '🥇'
-  if (rank === 2) return '🥈'
-  if (rank === 3) return '🥉'
-  return `${rank}.`
+function rankBadgeClass(rank: number): string {
+  if (rank === 1) return 'bg-amber-400'
+  if (rank === 2) return 'bg-gray-400'
+  if (rank === 3) return 'bg-amber-600'
+  return ''
 }
 
 async function fetchCategory(category: RankingCategory): Promise<PlaybackRanking[]> {
@@ -219,7 +219,10 @@ onMounted(() => {
         <div>
           <h1 class="text-2xl font-bold text-gray-900">播放排行榜</h1>
           <div class="flex items-center gap-2 mt-1">
-            <p class="text-sm text-gray-500" v-if="rangeTextWithCutoff">{{ rangeTextWithCutoff }}</p>
+            <p v-if="rangeTextWithCutoff" class="text-sm text-gray-500 flex items-center gap-1">
+              <el-icon :size="14" class="text-gray-400"><Calendar /></el-icon>
+              <span>{{ rangeTextWithCutoff }}</span>
+            </p>
             <span
               v-if="mode === 'preview'"
               class="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-semibold"
@@ -286,7 +289,10 @@ onMounted(() => {
               <el-icon class="text-ember" :size="18"><Film /></el-icon>
               <h2 class="text-lg font-semibold text-gray-900">电影 TOP 10</h2>
             </div>
-            <span class="text-xs text-gray-400">{{ rangeText }}</span>
+            <span v-if="rangeText" class="text-xs text-gray-400 flex items-center gap-1">
+              <el-icon :size="12" class="text-gray-300"><Calendar /></el-icon>
+              <span>{{ rangeText }}</span>
+            </span>
           </div>
 
           <div v-if="movies.length === 0" class="mt-6">
@@ -299,13 +305,30 @@ onMounted(() => {
               :key="item.id"
               class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors"
             >
-              <div class="w-9 text-sm font-semibold text-gray-700 tabular-nums">
-                {{ medal(item.rank) }}
+              <div class="w-9 flex items-center justify-center">
+                <span
+                  v-if="item.rank <= 3"
+                  class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                  :class="rankBadgeClass(item.rank)"
+                >
+                  {{ item.rank }}
+                </span>
+                <span v-else class="w-7 text-sm font-semibold text-gray-400 text-center tabular-nums">
+                  {{ item.rank }}
+                </span>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-gray-900 truncate">{{ item.itemName }}</div>
-                <div class="text-xs text-gray-500 mt-0.5">
-                  ⏱ {{ formatDuration(item.duration) }} · ▶ {{ item.playCount }} 次
+                <div class="text-xs text-gray-500 mt-0.5 flex items-center flex-wrap gap-x-2 gap-y-1">
+                  <span class="inline-flex items-center">
+                    <el-icon :size="12" class="mr-1 text-gray-400"><Timer /></el-icon>
+                    <span>{{ formatDuration(item.duration) }}</span>
+                  </span>
+                  <span class="text-gray-300">·</span>
+                  <span class="inline-flex items-center">
+                    <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
+                    <span>{{ item.playCount }} 次</span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -318,7 +341,10 @@ onMounted(() => {
               <el-icon class="text-ember" :size="18"><VideoCamera /></el-icon>
               <h2 class="text-lg font-semibold text-gray-900">剧集 TOP 10</h2>
             </div>
-            <span class="text-xs text-gray-400">{{ rangeText }}</span>
+            <span v-if="rangeText" class="text-xs text-gray-400 flex items-center gap-1">
+              <el-icon :size="12" class="text-gray-300"><Calendar /></el-icon>
+              <span>{{ rangeText }}</span>
+            </span>
           </div>
 
           <div v-if="episodes.length === 0" class="mt-6">
@@ -331,13 +357,30 @@ onMounted(() => {
               :key="item.id"
               class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors"
             >
-              <div class="w-9 text-sm font-semibold text-gray-700 tabular-nums">
-                {{ medal(item.rank) }}
+              <div class="w-9 flex items-center justify-center">
+                <span
+                  v-if="item.rank <= 3"
+                  class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                  :class="rankBadgeClass(item.rank)"
+                >
+                  {{ item.rank }}
+                </span>
+                <span v-else class="w-7 text-sm font-semibold text-gray-400 text-center tabular-nums">
+                  {{ item.rank }}
+                </span>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-gray-900 truncate">{{ item.itemName }}</div>
-                <div class="text-xs text-gray-500 mt-0.5">
-                  ⏱ {{ formatDuration(item.duration) }} · ▶ {{ item.playCount }} 次
+                <div class="text-xs text-gray-500 mt-0.5 flex items-center flex-wrap gap-x-2 gap-y-1">
+                  <span class="inline-flex items-center">
+                    <el-icon :size="12" class="mr-1 text-gray-400"><Timer /></el-icon>
+                    <span>{{ formatDuration(item.duration) }}</span>
+                  </span>
+                  <span class="text-gray-300">·</span>
+                  <span class="inline-flex items-center">
+                    <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
+                    <span>{{ item.playCount }} 次</span>
+                  </span>
                 </div>
               </div>
             </div>

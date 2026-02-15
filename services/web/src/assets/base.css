@@ -83,3 +83,15 @@ body {
 .el-input__wrapper.is-focus {
   box-shadow: 0 0 0 1px var(--ember-red) inset !important;
 }
+
+/* 无障碍：尊重用户减少动画偏好（全局兜底） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

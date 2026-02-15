@@ -166,7 +166,12 @@ onMounted(refreshAll)
               </div>
               <p class="text-gray-400 mt-2 font-mono text-sm flex items-center gap-2">
                 ID: {{ user.embyId || '待激活' }}
-                <button v-if="user.embyId" @click="copyToClipboard(user.embyId)" class="hover:text-white transition-colors">
+                <button
+                  v-if="user.embyId"
+                  @click="copyToClipboard(user.embyId)"
+                  aria-label="复制 Emby ID"
+                  class="hover:text-white transition-colors cursor-pointer"
+                >
                   <el-icon><CopyDocument /></el-icon>
                 </button>
               </p>
@@ -188,7 +193,7 @@ onMounted(refreshAll)
             <button 
               v-if="!authStore.isAdmin"
               @click="showRenewDialog = true"
-              class="group flex items-center gap-2 px-6 py-2.5 bg-white text-gray-900 rounded-xl font-bold hover:bg-gray-100 transition-all shadow-lg active:scale-95"
+              class="group flex items-center gap-2 px-6 py-2.5 bg-white text-gray-900 rounded-xl font-bold hover:bg-gray-100 transition-all shadow-lg active:scale-95 cursor-pointer"
             >
               <el-icon><Ticket /></el-icon>
               <span>{{ isExpired ? '立即续期' : '延长订阅' }}</span>
@@ -225,14 +230,14 @@ onMounted(refreshAll)
         <h3 class="font-bold text-sm">服务已暂停</h3>
         <p class="text-xs mt-1 text-red-600">您的订阅已过期。请续期以恢复 Emby 服务器访问权限。</p>
       </div>
-      <button @click="showRenewDialog = true" class="text-sm font-bold underline hover:text-red-900">立即续期</button>
+      <button @click="showRenewDialog = true" class="text-sm font-bold underline hover:text-red-900 cursor-pointer">立即续期</button>
     </div>
 
     <!-- Stats Row -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-purple-200 transition-colors group">
-        <div class="w-14 h-14 bg-purple-50 rounded-xl flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform duration-300">
-          <el-icon :size="28"><Film /></el-icon>
+        <div class="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform duration-300">
+          <el-icon :size="24"><Film /></el-icon>
         </div>
         <div>
           <p class="text-3xl font-bold text-gray-900">{{ stats.MovieCount }}</p>
@@ -241,8 +246,8 @@ onMounted(refreshAll)
       </div>
       
       <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-green-200 transition-colors group">
-        <div class="w-14 h-14 bg-green-50 rounded-xl flex items-center justify-center text-green-500 group-hover:scale-110 transition-transform duration-300">
-          <el-icon :size="28"><VideoPlay /></el-icon>
+        <div class="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center text-green-500 group-hover:scale-110 transition-transform duration-300">
+          <el-icon :size="24"><VideoPlay /></el-icon>
         </div>
         <div>
           <p class="text-3xl font-bold text-gray-900">{{ stats.SeriesCount }}</p>
@@ -251,8 +256,8 @@ onMounted(refreshAll)
       </div>
 
       <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 hover:border-blue-200 transition-colors group">
-        <div class="w-14 h-14 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform duration-300">
-          <el-icon :size="28"><Monitor /></el-icon>
+        <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform duration-300">
+          <el-icon :size="24"><Monitor /></el-icon>
         </div>
         <div>
           <p class="text-3xl font-bold text-gray-900">{{ stats.EpisodeCount }}</p>
@@ -281,7 +286,11 @@ onMounted(refreshAll)
                   <code class="flex-1 bg-white px-3 py-2 rounded border border-gray-200 text-sm font-mono text-gray-700 truncate select-all">
                     {{ embyUrl }}
                   </code>
-                  <button @click="copyToClipboard(embyUrl)" class="p-2 text-gray-400 hover:text-ember transition-colors">
+                  <button
+                    @click="copyToClipboard(embyUrl)"
+                    aria-label="复制服务器地址"
+                    class="p-2 text-gray-400 hover:text-ember transition-colors cursor-pointer"
+                  >
                     <el-icon><CopyDocument /></el-icon>
                   </button>
                 </div>
@@ -322,7 +331,7 @@ onMounted(refreshAll)
                 />
                 <button 
                   @click="handleUpdateEmail"
-                  class="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors text-sm font-bold"
+                  class="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors text-sm font-bold cursor-pointer"
                 >
                   保存
                 </button>
@@ -362,7 +371,7 @@ onMounted(refreshAll)
               />
               <button 
                 @click="handleUpdatePassword"
-                class="w-full py-2.5 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95 text-sm"
+                class="btn-ember w-full py-2.5 rounded-lg font-bold shadow-md hover:shadow-lg active:scale-95 text-sm cursor-pointer"
               >
                 更新密码
               </button>
@@ -391,7 +400,7 @@ onMounted(refreshAll)
         <button 
           @click="handleRedeem" 
           :disabled="redeeming"
-          class="w-full py-3 bg-ember text-white rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl disabled:opacity-70 flex items-center justify-center gap-2"
+          class="btn-ember w-full py-3 rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-70 flex items-center justify-center gap-2 cursor-pointer"
         >
           <span v-if="redeeming" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
           {{ redeeming ? '验证中...' : '确认兑换' }}

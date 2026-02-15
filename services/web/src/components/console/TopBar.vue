@@ -56,7 +56,8 @@ const breadcrumbs = computed(() => {
     <div class="flex items-center gap-4">
       <button 
         @click="$emit('toggle-sidebar')"
-        class="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors lg:hidden"
+        aria-label="切换侧边栏"
+        class="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors lg:hidden cursor-pointer"
       >
         <el-icon :size="20">
           <component :is="collapsed ? Expand : Fold" />

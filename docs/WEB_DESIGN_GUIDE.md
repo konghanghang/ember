@@ -57,27 +57,35 @@
 *   **交互:** 悬停时添加阴影或边框颜色变化：`hover:shadow-md hover:border-ember/30 transition-all`。
 
 ### 按钮 (Buttons)
-*   **主要按钮 (Primary):**
+*   **主要按钮 (Primary):** 优先使用 `.btn-ember` 作为“品牌主按钮”的基础样式，再叠加布局类（宽度/圆角/间距等）。
     ```html
-    <button class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95">
-      Button Text
+    <button class="btn-ember px-6 py-2 rounded-lg font-bold shadow-md hover:shadow-lg active:scale-95 cursor-pointer">
+      主要操作
     </button>
     ```
-    *   特点：红色背景、白色文字、阴影、点击缩放效果。
+    *   特点：品牌渐变、轻微上浮、红色阴影，适合表单提交与 CTA。
 
 *   **次要按钮 (Secondary/Outline):**
     ```html
-    <button class="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-      Cancel
+    <button class="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
+      次要操作
     </button>
     ```
 
 *   **图标按钮:**
     ```html
-    <button class="p-2 text-gray-400 hover:text-ember hover:bg-gray-100 rounded-lg transition-colors">
+    <button aria-label="编辑" class="p-2 text-gray-400 hover:text-ember hover:bg-gray-100 rounded-lg transition-colors cursor-pointer">
       <el-icon><Edit /></el-icon>
     </button>
     ```
+
+*   **按钮样式策略:**
+    | 场景 | 方式 | 说明 |
+    |------|------|------|
+    | 主要操作（表单提交、CTA） | `.btn-ember` | 保持全站一致的“品牌主按钮” |
+    | 页面内次要操作 | Tailwind 内联 | 取消/返回/筛选等不应抢主视觉 |
+    | 语义化操作（危险/成功） | Tailwind 内联 | 删除用红、批准用绿，语义优先于品牌色 |
+    | Element Plus 组件内 | 沿用现有主题覆盖 | Dialog footer 等保持一致即可 |
 
 ### 输入框 (Inputs)
 使用 `.input-ember` 类或以下 Tailwind 组合，替代 Element Plus 默认样式：
@@ -94,6 +102,34 @@
 }
 ```
 *   **特点:** 浅灰背景，聚焦时变白并显示品牌色光圈，带图标。
+
+### 搜索框模式 (Search Input Pattern)
+有些页面的搜索框需要更紧凑、更“像控制台工具”的感觉，并且希望完全掌控 icon、focus ring、间距。这类搜索框不使用 `.input-ember`，而是使用纯 Tailwind 的独立模式。
+
+适用场景：
+*   表格页/列表页的顶部搜索（例如用户管理、订阅管理等）
+*   需要 `group-focus-within` 统一驱动 icon 与外框状态的输入
+
+示例（来自用户管理页的模式）：
+```html
+<div class="relative w-full md:w-80 group">
+  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+    <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Search /></el-icon>
+  </div>
+  <input
+    type="search"
+    inputmode="search"
+    autocomplete="off"
+    aria-label="搜索用户名或邮箱"
+    placeholder="搜索用户名或邮箱..."
+    class="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:border-ember focus:ring-4 focus:ring-ember/10 transition-all placeholder-gray-400"
+  />
+</div>
+```
+要求：
+*   必须提供 `aria-label`（避免只有 placeholder）
+*   icon 使用 `pointer-events-none`，避免遮挡点击
+*   禁止使用 emoji 图标，统一使用 Element Plus 图标
 
 ---
 
@@ -143,7 +179,57 @@
 4.  [ ] 图标是否统一使用了 `@element-plus/icons-vue`？
 5.  [ ] 页面加载是否有过渡动画？
 6.  [ ] 是否适配了移动端 (Responsive)？
+7.  [ ] 是否避免使用 emoji 作为 UI 图标？
+8.  [ ] 图标按钮是否补齐 `aria-label`？
+9.  [ ] 动效是否尊重 `prefers-reduced-motion`？
+10. [ ] 可点击元素是否呈现合理的鼠标指针（pointer）？
 
 ---
 
 > **注意:** 本规范旨在提供指导，实际开发中可根据具体场景灵活调整，但应保持整体视觉风格的统一。
+
+## 8. 侧边栏与导航 (Navigation)
+
+控制台侧边栏参考 `services/web/src/components/console/Sidebar.vue`。
+
+*   **侧边栏容器:** `w-64 h-screen bg-white border-r border-gray-100 shadow-sm`
+*   **Logo 区:** `h-16 px-6 border-b border-gray-50`
+*   **导航区:** `flex-1 overflow-y-auto py-6 px-3 space-y-1`
+*   **导航项:**
+    *   默认态：`text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors cursor-pointer`
+    *   激活态：`bg-ember/10 text-ember font-medium` + 左侧指示条 `w-1 h-8 bg-ember rounded-r-full`
+
+## 9. 对话框与模态框 (Dialogs)
+
+*   统一使用 `el-dialog`，并保持圆角和 header 分割线清晰。
+*   推荐尺寸：
+    *   小型：`width="400px"` 确认操作、简单表单
+    *   中型：`width="520px"` 编辑表单、详情查看
+*   表单布局：优先 `label-position="top"`，复杂表单用 `grid` 做分栏。
+
+## 10. 徽章与状态标签 (Badges)
+
+*   **基础标签（带边框）**：
+    ```html
+    <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-sky-50 text-sky-700 border border-sky-100">
+      信息
+    </span>
+    ```
+*   **语义色彩**：成功绿、警告黄、错误红、信息蓝，避免“只靠颜色表达含义”。
+
+## 11. 空状态 (Empty States)
+
+优先使用 `el-empty`，外层套标准卡片容器（圆角、细边框、轻阴影），并提供下一步操作入口（可选）。
+
+## 12. 响应式策略 (Responsive)
+
+*   断点：移动优先（默认 < `md` 单列，`md` 适度分栏，`lg` 桌面布局）。
+*   常用模式：
+    *   Header：`flex flex-col md:flex-row ... gap-4`
+    *   Grid：`grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6`
+
+## 13. 无障碍 (Accessibility)
+
+*   **必须**尊重 `prefers-reduced-motion`（全局兜底 + 局部避免过度动画）。
+*   图标按钮（无文字）必须提供 `aria-label`。
+*   禁止使用 emoji 作为 UI 图标（跨平台渲染不一致，且难以一致对齐）。
