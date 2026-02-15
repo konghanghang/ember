@@ -77,3 +77,72 @@ def format_result_message(original_text: str, action: str) -> str:
     result = "✅ 已通过" if action == "approve" else "❌ 已拒绝"
     text = original_text.strip()
     return f"{text}\n\n────────────────────\n{result}"
+
+
+def _format_duration(seconds: int) -> str:
+    """将秒数格式化为可读时长"""
+    if seconds <= 0:
+        return "0m"
+
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    if hours > 24:
+        days = hours // 24
+        hours = hours % 24
+        return f"{days}天{hours}h{minutes}m"
+    if hours > 0:
+        return f"{hours}h{minutes}m"
+    return f"{minutes}m"
+
+
+def format_ranking_message(data: dict) -> str:
+    """格式化排行榜消息"""
+    period = data.get("period", "daily")
+    title = "日榜" if period == "daily" else "周榜"
+    period_start = str(data.get("periodStart", "") or "")
+    period_end = str(data.get("periodEnd", "") or "")
+    cutoff_at = str(data.get("cutoffAt", "") or "").strip()
+
+    date_line = (
+        f"📅 {escape(period_start)}"
+        if period_start == period_end
+        else f"📅 {escape(period_start)} ~ {escape(period_end)}"
+    )
+    if cutoff_at:
+        date_line = f"{date_line} 截至 {escape(cutoff_at)}"
+
+    lines: list[str] = [
+        f"🏆 <b>Ember 播放{title}</b>",
+        date_line,
+        "",
+    ]
+
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    movies = data.get("movies", []) or []
+    if movies:
+        lines.append("🎬 <b>电影 TOP 10</b>")
+        for item in movies:
+            rank = int(item.get("rank", 0) or 0)
+            medal = medals.get(rank, f"{rank}.")
+            name = escape(str(item.get("name", "") or ""))
+            duration = _format_duration(int(item.get("duration", 0) or 0))
+            count = int(item.get("count", 0) or 0)
+            lines.append(f"  {medal} {name}  ⏱{duration}  ▶{count}次")
+        lines.append("")
+
+    episodes = data.get("episodes", []) or []
+    if episodes:
+        lines.append("📺 <b>剧集 TOP 10</b>")
+        for item in episodes:
+            rank = int(item.get("rank", 0) or 0)
+            medal = medals.get(rank, f"{rank}.")
+            name = escape(str(item.get("name", "") or ""))
+            duration = _format_duration(int(item.get("duration", 0) or 0))
+            count = int(item.get("count", 0) or 0)
+            lines.append(f"  {medal} {name}  ⏱{duration}  ▶{count}次")
+
+    if not movies and not episodes:
+        lines.append("📭 暂无播放数据")
+
+    return "\n".join(lines)

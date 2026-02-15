@@ -20,6 +20,7 @@ from app.handlers.telegram_handler import (
     handle_callback,
     send_registration_notification,
     send_subscription_notification,
+    send_ranking_notification,
 )
 
 logging.basicConfig(
@@ -116,6 +117,17 @@ async def notify_registration(request: Request):
 
     data = await request.json()
     await send_registration_notification(tg_app.bot, data)
+    return {"ok": True}
+
+
+@app.post("/notify/ranking")
+async def notify_ranking(request: Request):
+    secret = request.headers.get("X-Internal-Secret")
+    if secret != INTERNAL_API_SECRET:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    data = await request.json()
+    await send_ranking_notification(tg_app.bot, data)
     return {"ok": True}
 
 

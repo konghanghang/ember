@@ -4,8 +4,9 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.clients import api_client
-from app.config import TELEGRAM_ADMIN_CHAT_ID, TMDB_IMAGE_BASE
+from app.config import TELEGRAM_ADMIN_CHAT_ID, TELEGRAM_GROUP_CHAT_ID, TMDB_IMAGE_BASE
 from app.formatters.message_formatter import (
+    format_ranking_message,
     format_registration_message,
     format_result_message,
     format_subscription_message,
@@ -44,6 +45,23 @@ async def send_registration_notification(bot, data: dict) -> None:
     text = format_registration_message(data)
     await bot.send_message(
         chat_id=TELEGRAM_ADMIN_CHAT_ID,
+        text=text,
+        parse_mode="HTML",
+    )
+
+
+async def send_ranking_notification(bot, data: dict) -> None:
+    """发送排行榜到 Telegram 群组
+
+    为了不破坏既有部署：
+    - 未配置 TELEGRAM_GROUP_CHAT_ID 时，回退到管理员 chat 推送
+    """
+    text = format_ranking_message(data)
+    chat_id = TELEGRAM_GROUP_CHAT_ID or TELEGRAM_ADMIN_CHAT_ID
+    if TELEGRAM_GROUP_CHAT_ID is None:
+        logger.warning("TELEGRAM_GROUP_CHAT_ID 未配置，排行榜消息将回退推送到管理员")
+    await bot.send_message(
+        chat_id=chat_id,
         text=text,
         parse_mode="HTML",
     )

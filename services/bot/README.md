@@ -39,6 +39,7 @@ services/bot/
 
 可选：
 
+- `TELEGRAM_GROUP_CHAT_ID`（用于播放排行榜等群推送；未配置时会回退推送到管理员）
 - `API_URL`（默认 `http://localhost:8080`）
 - `BOT_PORT`（默认 `8000`）
 
@@ -63,4 +64,5 @@ python main.py
 - `GET /health`：健康检查
 - `POST /notify/subscription`：Go API 通知入口（需 `X-Internal-Secret`）
 - `POST /notify/registration`：Go API 注册通知入口（需 `X-Internal-Secret`）
+- `POST /notify/ranking`：Go API 播放排行榜通知入口（需 `X-Internal-Secret`）
 - `POST /telegram/webhook`：Telegram webhook 入口

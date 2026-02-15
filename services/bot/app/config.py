@@ -9,6 +9,8 @@ load_dotenv(BOT_ROOT / ".env", override=False)
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_ADMIN_CHAT_ID = int(os.environ["TELEGRAM_ADMIN_CHAT_ID"])
+_group_chat_id = os.getenv("TELEGRAM_GROUP_CHAT_ID", "").strip()
+TELEGRAM_GROUP_CHAT_ID = int(_group_chat_id) if _group_chat_id else None
 TELEGRAM_WEBHOOK_SECRET = os.environ["TELEGRAM_WEBHOOK_SECRET"]
 INTERNAL_API_SECRET = os.environ["INTERNAL_API_SECRET"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"].rstrip("/")
