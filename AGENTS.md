@@ -232,6 +232,11 @@ services/
 **提交格式**：`type(scope): description`
 - 常用类型：`feat`、`fix`、`refactor`、`docs`
 
+**语言要求（新增）**：
+- ✅ 后续所有提交信息必须使用中文（包括 `description` 与可选的 commit body）
+- `type(scope)` 保持既有约定（如 `feat(api)`），但冒号后的描述必须是中文
+- 示例：`feat(sessions): 实现活跃会话监控`
+
 ---
 
 **⚠️ 工作守则**：
