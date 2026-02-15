@@ -8,8 +8,6 @@ import {
   Expand,
   Bell,
   Search,
-  ChatDotRound,
-  TopRight,
   UserFilled,
   SwitchButton
 } from '@element-plus/icons-vue'
@@ -50,17 +48,6 @@ const breadcrumbs = computed(() => {
   }
   return paths
 })
-
-const communityLinks = [
-  {
-    title: '交流群组',
-    url: 'https://t.me/NextNewEP_emby_chat'
-  },
-  {
-    title: '入库通知频道',
-    url: 'https://t.me/NextNewEP'
-  }
-]
 </script>
 
 <template>
@@ -93,30 +80,51 @@ const communityLinks = [
         />
       </div>
 
-      <!-- Notifications (Placeholder) -->
-      <button class="p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-ember transition-colors relative">
-        <el-icon :size="20"><Bell /></el-icon>
-        <span class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-      </button>
-
+      <!-- Community Dropdown -->
       <el-dropdown trigger="click" placement="bottom-end">
-        <button class="p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-ember transition-colors">
-          <el-icon :size="20"><ChatDotRound /></el-icon>
-        </button>
+        <div class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors group">
+          <div class="p-1.5 rounded-full bg-red-50 text-ember group-hover:bg-red-100 transition-colors relative">
+            <svg class="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            <span class="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+            </span>
+          </div>
+          <span class="hidden md:block text-sm font-medium text-gray-600 group-hover:text-gray-900">社区</span>
+        </div>
         <template #dropdown>
-          <el-dropdown-menu class="w-52">
-            <el-dropdown-item v-for="item in communityLinks" :key="item.url">
-              <a
-                :href="item.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="w-full flex items-center justify-between gap-2 text-sm text-gray-700"
-              >
-                <span>{{ item.title }}</span>
-                <el-icon :size="12" class="text-gray-400"><TopRight /></el-icon>
-              </a>
-            </el-dropdown-item>
-          </el-dropdown-menu>
+          <div class="w-64 p-2 bg-white rounded-xl shadow-lg border border-gray-100">
+            <div class="px-2 py-1.5 mb-1">
+              <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Community</p>
+            </div>
+            
+            <a href="https://t.me/NextNewEP" target="_blank" class="block no-underline">
+              <div class="flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors group/item cursor-pointer">
+                <div class="p-2 bg-red-50 text-red-500 rounded-lg group-hover/item:bg-red-100 transition-colors">
+                  <el-icon :size="18"><Bell /></el-icon>
+                </div>
+                <div>
+                  <p class="text-sm font-medium text-gray-900 flex items-center gap-2 m-0">
+                    通知频道
+                    <span class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">New</span>
+                  </p>
+                  <p class="text-xs text-gray-500 mt-0.5 m-0 leading-tight">获取最新入库通知</p>
+                </div>
+              </div>
+            </a>
+
+            <a href="https://t.me/NextNewEP_emby_chat" target="_blank" class="block mt-1 no-underline">
+              <div class="flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors group/item cursor-pointer">
+                <div class="p-2 bg-red-50 text-ember rounded-lg group-hover/item:bg-red-100 transition-colors">
+                  <svg class="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                </div>
+                <div>
+                  <p class="text-sm font-medium text-gray-900 m-0">交流群组</p>
+                  <p class="text-xs text-gray-500 mt-0.5 m-0 leading-tight">加入社区讨论与求助</p>
+                </div>
+              </div>
+            </a>
+          </div>
         </template>
       </el-dropdown>
 
