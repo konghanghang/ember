@@ -272,7 +272,7 @@ func (s *EmbyService) GetSessions() ([]EmbySession, error) {
 
 **设计要点**：
 - 在 Service 层过滤 `NowPlayingItem != nil`，不依赖 Emby 的 `?IsPlaying=true` 参数（版本兼容性不一致）
-- JSON 字段保持 Emby 原始 PascalCase，直接透传给前端
+- Ember 内部 API 字段使用 camelCase；在 Handler 层做 DTO 映射，避免把 Emby 的 PascalCase 数据模型泄漏到项目内部
 - 复用现有的 `s.client`（10 秒超时）和 `X-Emby-Token` 认证模式
 
 ### 3.3 新建：SessionHandler
@@ -360,41 +360,41 @@ admin.GET("/sessions", sessionHandler.GetActiveSessions)
 
 ```typescript
 // ==================== 活跃会话 ====================
-export interface EmbyNowPlayingItem {
-  Name: string
-  Id: string
-  Type: string              // "Movie" | "Episode"
-  MediaType: string
-  RunTimeTicks: number      // ticks（÷10000000=秒）
-  SeriesName?: string       // 仅 Episode
-  IndexNumber?: number      // 集号，仅 Episode
-  ParentIndexNumber?: number // 季号，仅 Episode
-  ProductionYear?: number
+export interface ActiveNowPlayingItem {
+  name: string
+  id: string
+  type: string              // "Movie" | "Episode"
+  mediaType: string
+  runTimeTicks: number      // ticks（÷10000000=秒）
+  seriesName?: string       // 仅 Episode
+  indexNumber?: number      // 集号，仅 Episode
+  parentIndexNumber?: number // 季号，仅 Episode
+  productionYear?: number
 }
 
-export interface EmbyPlayState {
-  PositionTicks: number     // ticks
-  IsPaused: boolean
-  IsMuted: boolean
-  PlayMethod: string        // "DirectPlay" | "DirectStream" | "Transcode"
+export interface ActivePlayState {
+  positionTicks: number     // ticks
+  isPaused: boolean
+  isMuted: boolean
+  playMethod: string        // "DirectPlay" | "DirectStream" | "Transcode"
 }
 
-export interface EmbySession {
-  Id: string
-  UserId: string
-  UserName: string
-  Client: string
-  DeviceName: string
-  DeviceId: string
-  RemoteEndPoint: string
-  ApplicationVersion: string
-  LastActivityDate: string
-  NowPlayingItem?: EmbyNowPlayingItem
-  PlayState?: EmbyPlayState
+export interface ActiveSession {
+  id: string
+  userId: string
+  userName: string
+  client: string
+  deviceName: string
+  deviceId: string
+  remoteEndpoint: string
+  applicationVersion: string
+  lastActivityDate: string
+  nowPlayingItem?: ActiveNowPlayingItem
+  playState?: ActivePlayState
 }
 ```
 
-**注意**：字段名保持 PascalCase（与后端透传的 Emby JSON 一致），这与项目中 `MediaStats` 接口的风格一致。
+**注意**：Ember 内部 API 使用 camelCase；后端会把 Emby 的原始字段映射成内部字段命名。
 
 ### 4.3 修改：admin.ts
 
@@ -402,20 +402,21 @@ export interface EmbySession {
 
 ```typescript
 // ==================== 活跃会话 ====================
-export function getActiveSessions(): Promise<{ data: EmbySession[] }> {
+export function getActiveSessions(opts?: { silent?: boolean }): Promise<{ data: ActiveSession[] }> {
   return request({
     url: '/admin/sessions',
-    method: 'get'
+    method: 'get',
+    silent: opts?.silent === true
   })
 }
 ```
 
-同时在文件顶部 import 中追加 `EmbySession` 类型：
+同时在文件顶部 import 中追加 `ActiveSession` 类型：
 
 ```typescript
 import type {
   // ... 现有类型 ...
-  EmbySession
+  ActiveSession
 } from '@/types/api'
 ```
 
@@ -613,28 +614,28 @@ import {
 {
   "data": [
     {
-      "Id": "session-xyz789",
-      "UserId": "e8837bc1ad67520e8cd2f629e3155721",
-      "UserName": "John",
-      "Client": "Emby Theater",
-      "DeviceName": "LIVINGROOM-PC",
-      "DeviceId": "LIVINGROOM-PC",
-      "RemoteEndPoint": "192.168.1.4",
-      "ApplicationVersion": "3.0.5243.22734",
-      "LastActivityDate": "2014-05-15T09:52:52Z",
-      "NowPlayingItem": {
-        "Name": "The Matrix",
-        "Id": "movie-001",
-        "Type": "Movie",
-        "MediaType": "Video",
-        "RunTimeTicks": 81840000000,
-        "ProductionYear": 2013
+      "id": "session-xyz789",
+      "userId": "e8837bc1ad67520e8cd2f629e3155721",
+      "userName": "John",
+      "client": "Emby Theater",
+      "deviceName": "LIVINGROOM-PC",
+      "deviceId": "LIVINGROOM-PC",
+      "remoteEndpoint": "192.168.1.4",
+      "applicationVersion": "3.0.5243.22734",
+      "lastActivityDate": "2014-05-15T09:52:52Z",
+      "nowPlayingItem": {
+        "name": "The Matrix",
+        "id": "movie-001",
+        "type": "Movie",
+        "mediaType": "Video",
+        "runTimeTicks": 81840000000,
+        "productionYear": 2013
       },
-      "PlayState": {
-        "PositionTicks": 100000000,
-        "IsPaused": false,
-        "IsMuted": false,
-        "PlayMethod": "DirectStream"
+      "playState": {
+        "positionTicks": 100000000,
+        "isPaused": false,
+        "isMuted": false,
+        "playMethod": "DirectStream"
       }
     }
   ]

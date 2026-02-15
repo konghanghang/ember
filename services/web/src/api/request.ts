@@ -28,6 +28,7 @@ service.interceptors.response.use(
   (error) => {
     const status = error.response?.status
     const message = error.response?.data?.error || '请求失败'
+    const silent = error.config?.silent === true
 
     if (status === 401) {
       ElMessage.error('登录已过期，请重新登录')
@@ -35,7 +36,9 @@ service.interceptors.response.use(
       authStore.clearAuth()
       router.push('/login')
     } else {
-      ElMessage.error(message)
+      if (!silent) {
+        ElMessage.error(message)
+      }
     }
     
     return Promise.reject(error)

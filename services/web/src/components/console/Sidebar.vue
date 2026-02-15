@@ -10,7 +10,8 @@ import {
   Ticket,
   Setting,
   Monitor,
-  SwitchButton
+  SwitchButton,
+  DataLine
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -50,6 +51,12 @@ const menuItems = computed(() => [
         title: '兑换码管理',
         path: '/console/redemption-codes',
         icon: Ticket,
+        role: 'admin'
+      },
+      {
+        title: '活跃会话',
+        path: '/console/sessions',
+        icon: DataLine,
         role: 'admin'
       },
       {

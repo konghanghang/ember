@@ -46,6 +46,7 @@ func main() {
 	systemHandler := handlers.NewSystemHandler()
 	tmdbHandler := handlers.NewTMDBHandler()
 	rankingHandler := handlers.NewRankingHandler()
+	sessionHandler := handlers.NewSessionHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -96,6 +97,9 @@ func main() {
 			// 系统管理
 			admin.GET("/system/info", systemHandler.GetSystemInfo)
 			admin.POST("/system/test-emby", systemHandler.TestEmbyConnection)
+
+			// 活跃会话监控
+			admin.GET("/sessions", sessionHandler.GetActiveSessions)
 
 			// 定时任务
 			admin.POST("/cron/check-expired", systemHandler.CheckExpiredUsers)

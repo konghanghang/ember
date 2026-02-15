@@ -618,3 +618,86 @@ func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, erro
 
 	return &out, nil
 }
+
+// ==================== Sessions（活跃会话） ====================
+
+// EmbyNowPlayingItem 当前播放媒体信息
+type EmbyNowPlayingItem struct {
+	Name              string `json:"Name"`
+	ID                string `json:"Id"`
+	Type              string `json:"Type"`                       // "Movie" 或 "Episode"
+	MediaType         string `json:"MediaType"`                  // "Video"
+	RunTimeTicks      int64  `json:"RunTimeTicks"`               // 总时长（ticks，÷10000000=秒）
+	SeriesName        string `json:"SeriesName,omitempty"`        // 剧集名（仅 Episode）
+	IndexNumber       int    `json:"IndexNumber,omitempty"`       // 集号（仅 Episode）
+	ParentIndexNumber int    `json:"ParentIndexNumber,omitempty"` // 季号（仅 Episode）
+	ProductionYear    int    `json:"ProductionYear,omitempty"`    // 年份
+}
+
+// EmbyPlayState 播放状态
+type EmbyPlayState struct {
+	PositionTicks int64  `json:"PositionTicks"` // 当前进度（ticks）
+	IsPaused      bool   `json:"IsPaused"`
+	IsMuted       bool   `json:"IsMuted"`
+	PlayMethod    string `json:"PlayMethod"` // "DirectPlay" / "DirectStream" / "Transcode"
+}
+
+// EmbySession Emby 会话信息
+type EmbySession struct {
+	ID                 string              `json:"Id"`
+	UserID             string              `json:"UserId"`
+	UserName           string              `json:"UserName"`
+	Client             string              `json:"Client"`         // 客户端名称（Emby Web, Infuse...）
+	DeviceName         string              `json:"DeviceName"`     // 设备名称
+	DeviceID           string              `json:"DeviceId"`
+	RemoteEndPoint     string              `json:"RemoteEndPoint"` // 客户端 IP
+	ApplicationVersion string              `json:"ApplicationVersion"`
+	LastActivityDate   string              `json:"LastActivityDate"`
+	NowPlayingItem     *EmbyNowPlayingItem `json:"NowPlayingItem,omitempty"` // 仅播放中存在
+	PlayState          *EmbyPlayState      `json:"PlayState,omitempty"`
+}
+
+// GetSessions 获取 Emby 当前正在播放的会话
+func (s *EmbyService) GetSessions() ([]EmbySession, error) {
+	if s.baseURL == "" || s.apiKey == "" {
+		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	}
+
+	url := fmt.Sprintf("%s/emby/Sessions", s.baseURL)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("X-Emby-Token", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("获取 Emby 会话列表失败：HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var sessions []EmbySession
+	if err := json.Unmarshal(body, &sessions); err != nil {
+		return nil, err
+	}
+
+	// 只返回正在播放的会话（有 NowPlayingItem 的）
+	playing := make([]EmbySession, 0)
+	for _, session := range sessions {
+		if session.NowPlayingItem != nil {
+			playing = append(playing, session)
+		}
+	}
+
+	return playing, nil
+}

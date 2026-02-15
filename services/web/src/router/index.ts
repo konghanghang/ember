@@ -68,6 +68,12 @@ const router = createRouter({
           meta: { role: 'admin' },
           component: () => import('../views/admin/SettingsView.vue'),
         },
+        {
+          path: 'sessions',
+          name: 'console-sessions',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/SessionsView.vue'),
+        },
       ],
     },
 

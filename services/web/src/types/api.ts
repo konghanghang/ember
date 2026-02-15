@@ -254,3 +254,37 @@ export interface RankingPreviewResponse {
 }
 
 export type RankingHistoryResponse = RankingPreviewResponse
+
+// ==================== 活跃会话 ====================
+export interface ActiveNowPlayingItem {
+  name: string
+  id: string
+  type: string // "Movie" | "Episode"
+  mediaType: string
+  runTimeTicks: number // ticks（÷10000000=秒）
+  seriesName?: string // 仅 Episode
+  indexNumber?: number // 集号，仅 Episode
+  parentIndexNumber?: number // 季号，仅 Episode
+  productionYear?: number
+}
+
+export interface ActivePlayState {
+  positionTicks: number // ticks
+  isPaused: boolean
+  isMuted: boolean
+  playMethod: string // "DirectPlay" | "DirectStream" | "Transcode"
+}
+
+export interface ActiveSession {
+  id: string
+  userId: string
+  userName: string
+  client: string
+  deviceName: string
+  deviceId: string
+  remoteEndpoint: string
+  applicationVersion: string
+  lastActivityDate: string
+  nowPlayingItem?: ActiveNowPlayingItem
+  playState?: ActivePlayState
+}

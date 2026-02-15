@@ -13,7 +13,8 @@ import type {
   UserListQuery,
   UserListResponse,
   CronCheckResponse,
-  UpdateAdminUserRequest
+  UpdateAdminUserRequest,
+  ActiveSession
 } from '@/types/api'
 
 // User Management
@@ -173,5 +174,14 @@ export function previewRanking(type: 'daily' | 'weekly'): Promise<RankingPreview
     url: '/admin/rankings/preview',
     method: 'post',
     params: { type }
+  })
+}
+
+// ==================== 活跃会话 ====================
+export function getActiveSessions(opts?: { silent?: boolean }): Promise<{ data: ActiveSession[] }> {
+  return request({
+    url: '/admin/sessions',
+    method: 'get',
+    silent: opts?.silent === true
   })
 }
