@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler
+from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters
 
 from app.config import (
     BOT_PORT,
@@ -18,9 +18,10 @@ from app.config import (
 )
 from app.handlers.telegram_handler import (
     handle_callback,
+    handle_new_member,
     send_registration_notification,
-    send_subscription_notification,
     send_ranking_notification,
+    send_subscription_notification,
 )
 
 logging.basicConfig(
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 tg_app.add_handler(CallbackQueryHandler(handle_callback))
+tg_app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
 
 
 async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:

@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from html import escape
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -107,3 +109,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     await query.edit_message_text(text=result_text, parse_mode="HTML")
+
+
+async def handle_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or message.new_chat_members is None:
+        return
+
+    new_users = [user for user in message.new_chat_members if not user.is_bot]
+    if not new_users:
+        return
+
+    notify_link = await api_client.get_setting("notify_group_link")
+    if not notify_link:
+        return
+
+    names = ", ".join(escape(user.first_name or user.full_name) for user in new_users)
+    text = (
+        f"👋 欢迎 <b>{names}</b> 加入！\n\n"
+        f"📢 入库通知群组：{escape(notify_link)}\n"
+        "⏳ 本消息将在 30 秒后自动删除"
+    )
+
+    sent = await message.reply_text(text, parse_mode="HTML")
+    asyncio.create_task(_delete_later(context.bot, sent.chat_id, sent.message_id, 30))
+
+
+async def _delete_later(bot, chat_id: int, message_id: int, delay: int) -> None:
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        pass

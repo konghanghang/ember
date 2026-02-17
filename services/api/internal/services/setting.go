@@ -31,7 +31,7 @@ func (s *SettingService) GetSettingModel(key string) (*models.Setting, error) {
 
 // SetSetting 设置配置值（带校验）
 func (s *SettingService) SetSetting(key, value string) error {
-	if key != "registration_mode" && key != "default_trial_days" {
+	if key != "registration_mode" && key != "default_trial_days" && key != "notify_group_link" {
 		return ErrSettingNotFound
 	}
 

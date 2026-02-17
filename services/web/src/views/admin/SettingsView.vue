@@ -21,7 +21,8 @@ const info = ref({
 
 const form = ref({
   registration_mode: 'open',
-  default_trial_days: 7
+  default_trial_days: 7,
+  notify_group_link: ''
 })
 
 const loading = ref(false)
@@ -40,8 +41,10 @@ const fetchSettings = async () => {
   const list = await getSettings()
   const mode = list.find(item => item.key === 'registration_mode')
   const trial = list.find(item => item.key === 'default_trial_days')
+  const notifyLink = list.find(item => item.key === 'notify_group_link')
   if (mode?.value) form.value.registration_mode = mode.value
   if (trial?.value) form.value.default_trial_days = Number(trial.value) || 7
+  if (notifyLink?.value !== undefined) form.value.notify_group_link = notifyLink.value
 }
 
 const handleSaveSettings = async () => {
@@ -49,6 +52,7 @@ const handleSaveSettings = async () => {
   try {
     await updateSetting('registration_mode', { value: form.value.registration_mode })
     await updateSetting('default_trial_days', { value: String(form.value.default_trial_days) })
+    await updateSetting('notify_group_link', { value: form.value.notify_group_link })
     ElMessage.success('配置保存成功')
   } finally {
     saving.value = false
@@ -185,6 +189,17 @@ onMounted(async () => {
                     controls-position="right"
                   />
                   <p class="text-xs text-gray-400 mt-2">新用户注册后获得的初始订阅时长（天）。设为 0 则无试用。</p>
+                </el-form-item>
+
+                <el-form-item label="入库通知群组">
+                  <el-input
+                    v-model="form.notify_group_link"
+                    placeholder="https://t.me/your_notify_group"
+                    clearable
+                  />
+                  <p class="text-xs text-gray-400 mt-2">
+                    新成员加入群组时展示的通知群组链接。留空则不发送欢迎消息。
+                  </p>
                 </el-form-item>
               </div>
 

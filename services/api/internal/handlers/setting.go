@@ -64,3 +64,11 @@ func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, resp)
 }
+
+// GetSettingByKey 获取单个配置值（内部服务调用）
+// GET /api/v1/internal/settings/:key
+func (h *SettingHandler) GetSettingByKey(c *gin.Context) {
+	key := c.Param("key")
+	value := h.service.GetSetting(key)
+	c.JSON(http.StatusOK, gin.H{"key": key, "value": value})
+}

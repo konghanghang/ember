@@ -115,6 +115,7 @@ func main() {
 		{
 			internal.PUT("/subscriptions/:id/approve", subscriptionHandler.ApproveSubscription)
 			internal.PUT("/subscriptions/:id/reject", subscriptionHandler.RejectSubscription)
+			internal.GET("/settings/:key", settingHandler.GetSettingByKey)
 		}
 
 		// ==================== 统一认证路由（admin + user 共享） ====================

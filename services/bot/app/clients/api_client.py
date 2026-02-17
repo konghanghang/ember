@@ -21,3 +21,18 @@ async def approve_subscription(subscription_id: str) -> bool:
 
 async def reject_subscription(subscription_id: str) -> bool:
     return await _call_subscription_action(subscription_id, "reject")
+
+
+async def get_setting(key: str) -> str:
+    url = f"{API_URL}/api/v1/internal/settings/{key}"
+    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=headers)
+        if resp.status_code == 200:
+            return str(resp.json().get("value", ""))
+    except Exception:
+        pass
+
+    return ""

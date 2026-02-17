@@ -149,6 +149,7 @@ func seedDefaultSettings() {
 	defaultSettings := []models.Setting{
 		{Key: "default_trial_days", Value: "7"},
 		{Key: "registration_mode", Value: "open"},
+		{Key: "notify_group_link", Value: ""},
 	}
 
 	for _, s := range defaultSettings {
