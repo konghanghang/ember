@@ -2,8 +2,6 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { 
-  Calendar, 
-  Connection, 
   RefreshRight, 
   Setting, 
   User, 
@@ -22,7 +20,8 @@ const info = ref({
 const form = ref({
   registration_mode: 'open',
   default_trial_days: 7,
-  notify_group_link: ''
+  notify_group_link: '',
+  email_verification: false
 })
 
 const loading = ref(false)
@@ -42,9 +41,11 @@ const fetchSettings = async () => {
   const mode = list.find(item => item.key === 'registration_mode')
   const trial = list.find(item => item.key === 'default_trial_days')
   const notifyLink = list.find(item => item.key === 'notify_group_link')
+  const emailVerify = list.find(item => item.key === 'email_verification')
   if (mode?.value) form.value.registration_mode = mode.value
   if (trial?.value) form.value.default_trial_days = Number(trial.value) || 7
   if (notifyLink?.value !== undefined) form.value.notify_group_link = notifyLink.value
+  if (emailVerify?.value !== undefined) form.value.email_verification = emailVerify.value === 'true'
 }
 
 const handleSaveSettings = async () => {
@@ -53,6 +54,7 @@ const handleSaveSettings = async () => {
     await updateSetting('registration_mode', { value: form.value.registration_mode })
     await updateSetting('default_trial_days', { value: String(form.value.default_trial_days) })
     await updateSetting('notify_group_link', { value: form.value.notify_group_link })
+    await updateSetting('email_verification', { value: String(form.value.email_verification) })
     ElMessage.success('配置保存成功')
   } finally {
     saving.value = false
@@ -199,6 +201,30 @@ onMounted(async () => {
                   />
                   <p class="text-xs text-gray-400 mt-2">
                     新成员加入群组时展示的通知群组链接。留空则不发送欢迎消息。
+                  </p>
+                </el-form-item>
+
+                <el-form-item label="邮箱验证">
+                  <div class="bg-gray-50 p-1 rounded-xl inline-flex w-full">
+                    <button
+                      type="button"
+                      @click="form.email_verification = true"
+                      class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all"
+                      :class="form.email_verification ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
+                    >
+                      开启
+                    </button>
+                    <button
+                      type="button"
+                      @click="form.email_verification = false"
+                      class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all"
+                      :class="!form.email_verification ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
+                    >
+                      关闭
+                    </button>
+                  </div>
+                  <p class="text-xs text-gray-400 mt-2">
+                    {{ form.email_verification ? '注册时需要邮箱验证码（需配置 SMTP）。' : '注册时不需要邮箱验证。' }}
                   </p>
                 </el-form-item>
               </div>

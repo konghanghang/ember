@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Lock, Message, Ticket, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
-import { getRegistrationMode, validateRegistrationCode } from '@/api/auth'
+import { getRegistrationMode, sendEmailCode, validateRegistrationCode } from '@/api/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -12,11 +12,16 @@ const authStore = useAuthStore()
 const mode = ref<'open' | 'invite'>('open')
 const loadingMode = ref(false)
 const loading = ref(false)
+const emailVerification = ref(false)
+const emailCodeCountdown = ref(0)
+const sendingCode = ref(false)
+let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 const form = ref({
   username: '',
   password: '',
   email: '',
+  emailCode: '',
   code: ''
 })
 
@@ -30,8 +35,41 @@ const fetchRegistrationMode = async () => {
   try {
     const res = await getRegistrationMode()
     mode.value = res.mode
+    emailVerification.value = res.emailVerification ?? false
   } finally {
     loadingMode.value = false
+  }
+}
+
+const handleSendCode = async () => {
+  if (!form.value.email) {
+    ElMessage.warning('请先输入邮箱')
+    return
+  }
+
+  sendingCode.value = true
+  try {
+    await sendEmailCode(form.value.email)
+    ElMessage.success('验证码已发送，请查收邮件')
+
+    if (countdownTimer) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
+
+    emailCodeCountdown.value = 60
+    countdownTimer = setInterval(() => {
+      emailCodeCountdown.value -= 1
+      if (emailCodeCountdown.value <= 0) {
+        emailCodeCountdown.value = 0
+        if (countdownTimer) {
+          clearInterval(countdownTimer)
+          countdownTimer = null
+        }
+      }
+    }, 1000)
+  } finally {
+    sendingCode.value = false
   }
 }
 
@@ -55,6 +93,10 @@ const handleRegister = async () => {
     const ok = await handleValidateCode()
     if (!ok) return
   }
+  if (emailVerification.value && !form.value.emailCode) {
+    ElMessage.warning('请输入邮箱验证码')
+    return
+  }
 
   loading.value = true
   try {
@@ -62,6 +104,7 @@ const handleRegister = async () => {
       username: form.value.username,
       password: form.value.password,
       email: form.value.email,
+      emailCode: emailVerification.value ? form.value.emailCode : undefined,
       code: form.value.code || undefined
     })
     ElMessage.success('注册成功')
@@ -88,6 +131,13 @@ const handleValidateCode = async () => {
 }
 
 onMounted(fetchRegistrationMode)
+
+onBeforeUnmount(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+})
 </script>
 
 <template>
@@ -129,7 +179,22 @@ onMounted(fetchRegistrationMode)
           </el-form-item>
 
           <el-form-item label="邮箱" required>
-            <el-input v-model="form.email" placeholder="请输入邮箱" class="input-ember" :prefix-icon="Message" />
+            <div v-if="emailVerification" class="flex gap-2 w-full">
+              <el-input v-model="form.email" placeholder="请输入邮箱" class="input-ember" :prefix-icon="Message" />
+              <el-button
+                native-type="button"
+                :loading="sendingCode"
+                :disabled="emailCodeCountdown > 0"
+                @click="handleSendCode"
+              >
+                {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '发送验证码' }}
+              </el-button>
+            </div>
+            <el-input v-else v-model="form.email" placeholder="请输入邮箱" class="input-ember" :prefix-icon="Message" />
+          </el-form-item>
+
+          <el-form-item v-if="emailVerification" label="邮箱验证码" required>
+            <el-input v-model="form.emailCode" placeholder="请输入 6 位验证码" maxlength="6" class="input-ember" />
           </el-form-item>
 
           <el-form-item class="mt-6">

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -9,14 +10,21 @@ import (
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
-	authService *services.AuthService
+	authService  *services.AuthService
+	emailService *services.EmailService
 }
 
 // NewAuthHandler 创建认证处理器
 func NewAuthHandler() *AuthHandler {
 	return &AuthHandler{
-		authService: services.NewAuthService(),
+		authService:  services.NewAuthService(),
+		emailService: services.NewEmailService(),
 	}
+}
+
+// SendEmailCodeRequest 发送邮箱验证码请求
+type SendEmailCodeRequest struct {
+	Email string `json:"email" binding:"required,email"`
 }
 
 // Login 统一登录
@@ -113,6 +121,35 @@ func (h *AuthHandler) RegisterUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// SendEmailCode 发送邮箱验证码
+// @Summary 发送邮箱验证码
+// @Tags 认证
+// @Accept json
+// @Produce json
+// @Param body body SendEmailCodeRequest true "邮箱信息"
+// @Success 200 {object} SuccessResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 429 {object} ErrorResponse
+// @Router /api/v1/register/send-code [post]
+func (h *AuthHandler) SendEmailCode(c *gin.Context) {
+	var req SendEmailCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供有效的邮箱地址"})
+		return
+	}
+
+	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP()); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, services.ErrEmailCodeRateLimit) || errors.Is(err, services.ErrEmailCodeIPRateLimit) {
+			status = http.StatusTooManyRequests
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "验证码已发送"})
 }
 
 // ErrorResponse 错误响应结构

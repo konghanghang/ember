@@ -1,9 +1,12 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -43,6 +46,7 @@ func InitDB() {
 	if dsn == "" {
 		log.Fatal("❌ DATABASE_URL 环境变量未设置")
 	}
+	dsn = withConnectTimeout(dsn, "8")
 
 	// 创建自定义 logger，显示详细的 SQL 日志
 	newLogger := logger.New(
@@ -56,6 +60,7 @@ func InitDB() {
 	)
 
 	var err error
+	log.Println("ℹ️  正在连接 PostgreSQL...")
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: newLogger,
 
@@ -85,7 +90,9 @@ func InitDB() {
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 
 	// 测试连接
-	if err := sqlDB.Ping(); err != nil {
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer pingCancel()
+	if err := sqlDB.PingContext(pingCtx); err != nil {
 		log.Fatalf("❌ 数据库无法 ping 通：%v", err)
 	}
 
@@ -109,6 +116,25 @@ func InitDB() {
 	seedDefaultSettings()
 
 	fmt.Println("✅ 数据库连接成功")
+}
+
+// withConnectTimeout 为 URL 形式的 PostgreSQL DSN 注入 connect_timeout（秒）
+// 仅在未显式配置 connect_timeout 时追加，避免无响应网络导致长时间阻塞。
+func withConnectTimeout(dsn string, seconds string) string {
+	if strings.Contains(dsn, "connect_timeout=") {
+		return dsn
+	}
+	if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
+		return dsn
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return dsn
+	}
+	query := u.Query()
+	query.Set("connect_timeout", seconds)
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 // seedDefaultAdmin 初始化默认管理员账号
@@ -150,6 +176,7 @@ func seedDefaultSettings() {
 		{Key: "default_trial_days", Value: "7"},
 		{Key: "registration_mode", Value: "open"},
 		{Key: "notify_group_link", Value: ""},
+		{Key: "email_verification", Value: "false"},
 	}
 
 	for _, s := range defaultSettings {
@@ -178,6 +205,7 @@ func AutoMigrate() error {
 		&models.User{},
 		&models.Subscription{},
 		&models.PlaybackRanking{},
+		&models.EmailVerification{},
 	); err != nil {
 		return err
 	}

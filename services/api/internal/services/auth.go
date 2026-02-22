@@ -14,13 +14,15 @@ import (
 
 // AuthService 认证服务
 type AuthService struct {
-	notifier *BotNotifier
+	notifier     *BotNotifier
+	emailService *EmailService
 }
 
 // NewAuthService 创建认证服务
 func NewAuthService() *AuthService {
 	return &AuthService{
-		notifier: NewBotNotifier(),
+		notifier:     NewBotNotifier(),
+		emailService: NewEmailService(),
 	}
 }
 
@@ -95,10 +97,11 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 
 // RegisterUserRequest 用户注册请求
 type RegisterUserRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=50"`
-	Password string `json:"password" binding:"required,min=6"`
-	Email    string `json:"email" binding:"required,email"`
-	Code     string `json:"code"` // 兑换码（invite 模式必填，open 模式忽略）
+	Username  string `json:"username" binding:"required,min=3,max=50"`
+	Password  string `json:"password" binding:"required,min=6"`
+	Email     string `json:"email" binding:"required,email"`
+	Code      string `json:"code"`      // 兑换码（invite 模式必填，open 模式忽略）
+	EmailCode string `json:"emailCode"` // 邮箱验证码（启用时必填）
 }
 
 // RegisterUserResponse 用户注册响应
@@ -114,6 +117,16 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 	}
 	if !usernamePattern.MatchString(req.Username) {
 		return nil, errors.New("用户名只能包含字母和数字")
+	}
+
+	// 邮箱验证码校验（仅在功能启用时生效）
+	if s.emailService.IsEnabled() {
+		if req.EmailCode == "" {
+			return nil, errors.New("请先获取邮箱验证码")
+		}
+		if err := s.emailService.VerifyCode(req.Email, req.EmailCode); err != nil {
+			return nil, err
+		}
 	}
 
 	settingService := &SettingService{}

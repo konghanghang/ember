@@ -58,6 +58,7 @@ func main() {
 		// 统一登出（JWT 无状态，仅需认证，不区分角色）
 		api.POST("/logout", middleware.JWTAuth(), authHandler.Logout)
 		api.POST("/user/register", authHandler.RegisterUser)
+		api.POST("/register/send-code", authHandler.SendEmailCode)
 		api.GET("/register/mode", settingHandler.GetRegistrationMode)
 		api.GET("/register/code/:code/validate", redemptionCodeHandler.ValidateCode)
 
@@ -208,12 +209,28 @@ func main() {
 		c := cron.New(cron.WithLocation(tz))
 
 		systemService := services.NewSystemService()
+		emailService := services.NewEmailService()
 		var rankingService *services.PlaybackRankingService
 		if rankingCronEnabled == "true" {
 			rankingService = services.NewPlaybackRankingService()
 		}
 
 		taskRegistered := false
+
+		if _, err := c.AddFunc("0 3 * * *", func() {
+			count, err := emailService.CleanupExpired()
+			if err != nil {
+				log.Printf("[Cron] 清理过期验证码失败：%v", err)
+				return
+			}
+			if count > 0 {
+				log.Printf("[Cron] 已清理 %d 条过期验证码", count)
+			}
+		}); err != nil {
+			log.Printf("定时任务注册失败（验证码清理）：%v", err)
+		} else {
+			taskRegistered = true
+		}
 
 		if _, err := c.AddFunc(expiredSchedule, func() {
 			log.Println("[Cron] 开始检查过期用户...")

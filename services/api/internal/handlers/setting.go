@@ -62,6 +62,8 @@ func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
 	if mode == "open" {
 		resp["defaultTrialDays"] = h.service.GetDefaultTrialDays()
 	}
+	emailService := services.NewEmailService()
+	resp["emailVerification"] = emailService.IsEnabled()
 	c.JSON(http.StatusOK, resp)
 }
 

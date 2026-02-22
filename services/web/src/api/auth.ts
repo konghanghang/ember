@@ -39,6 +39,15 @@ export function getRegistrationMode(): Promise<RegistrationModeResponse> {
   })
 }
 
+// 发送邮箱验证码
+export function sendEmailCode(email: string): Promise<{ message: string }> {
+  return request({
+    url: '/register/send-code',
+    method: 'post',
+    data: { email }
+  })
+}
+
 export function validateRegistrationCode(code: string): Promise<RedemptionCode> {
   return request({
     url: `/register/code/${code}/validate`,

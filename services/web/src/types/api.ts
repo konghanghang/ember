@@ -11,6 +11,7 @@ export interface RegisterRequest {
   username: string
   password: string
   email: string
+  emailCode?: string
   code?: string
 }
 
@@ -120,6 +121,7 @@ export interface RedeemCodeResponse {
 export interface RegistrationModeResponse {
   mode: 'open' | 'invite'
   defaultTrialDays?: number
+  emailVerification?: boolean
 }
 
 export interface Setting {

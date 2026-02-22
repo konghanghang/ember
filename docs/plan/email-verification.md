@@ -532,6 +532,41 @@ defaultSettings := []models.Setting{
 }
 ```
 
+#### 9.3 `AUTO_MIGRATE=false` 手动迁移 SQL（完整可执行）
+
+**新增文件**：`infrastructure/database/20260222_01_add_email_verification.sql`
+
+```sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id          varchar(25)  PRIMARY KEY,
+  email       varchar(255) NOT NULL,
+  code        varchar(6)   NOT NULL,
+  ip          varchar(45)  NOT NULL,
+  "expiresAt" timestamptz  NOT NULL,
+  "createdAt" timestamptz  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verifications_email
+  ON email_verifications (email);
+
+CREATE INDEX IF NOT EXISTS idx_email_verifications_ip
+  ON email_verifications (ip);
+
+INSERT INTO settings ("key", "value", "updatedAt")
+VALUES ('email_verification', 'false', now())
+ON CONFLICT ("key") DO NOTHING;
+
+COMMIT;
+```
+
+执行命令：
+
+```bash
+psql "$DATABASE_URL" -f infrastructure/database/20260222_01_add_email_verification.sql
+```
+
 ---
 
 ## 十、路由注册 + Cron

@@ -31,7 +31,7 @@ func (s *SettingService) GetSettingModel(key string) (*models.Setting, error) {
 
 // SetSetting 设置配置值（带校验）
 func (s *SettingService) SetSetting(key, value string) error {
-	if key != "registration_mode" && key != "default_trial_days" && key != "notify_group_link" {
+	if key != "registration_mode" && key != "default_trial_days" && key != "notify_group_link" && key != "email_verification" {
 		return ErrSettingNotFound
 	}
 
@@ -44,6 +44,10 @@ func (s *SettingService) SetSetting(key, value string) error {
 		days, err := strconv.Atoi(value)
 		if err != nil || days <= 0 {
 			return errors.New("无效的试用天数")
+		}
+	case "email_verification":
+		if value != "true" && value != "false" {
+			return errors.New("无效的值，必须为 true 或 false")
 		}
 	}
 
@@ -86,4 +90,9 @@ func (s *SettingService) GetRegistrationMode() string {
 		return "open" // 默认开放注册
 	}
 	return value
+}
+
+// IsEmailVerificationEnabled 检查邮箱验证是否启用
+func (s *SettingService) IsEmailVerificationEnabled() bool {
+	return s.GetSetting("email_verification") == "true"
 }
