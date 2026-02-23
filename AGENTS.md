@@ -174,6 +174,7 @@
 - **技术栈**：
   - 后端：Go 1.23 + GORM + PostgreSQL
   - 前端：Vue 3 + TypeScript + Element Plus
+  - Bot：Python 3.11 + python-telegram-bot + FastAPI
   - 数据库：PostgreSQL 15（使用 GORM 管理 Schema）
 - **详细信息**：[README.md](./README.md)
 - **⭐ 系统架构**：[docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md) — 数据模型、服务逻辑、API 端点、前端结构的完整参考，**开始工作前务必先读此文件**
@@ -183,7 +184,7 @@
 services/
   ├─ api/    # Go API 服务（主要开发目录）
   ├─ web/    # Vue 3 前端
-  └─ bot/    # Telegram Bot（待开发）
+  └─ bot/    # Python Telegram Bot
 ```
 
 **沟通输出**：
@@ -225,9 +226,10 @@ services/
 **流程**：
 1. 修改代码
 2. 编译验证（`go build`、`npm run build`）
-3. **询问用户**："✅ 代码编译通过，是否需要提交？"
-4. 等待用户明确回复
-5. 用户确认后执行 `git commit`
+3. 同步更新 `docs/SYSTEM-ARCHITECTURE.md`（如果本次变更涉及模型、服务、API、前端结构、环境变量等架构层面的改动）
+4. **询问用户**："✅ 代码编译通过，是否需要提交？"
+5. 等待用户明确回复
+6. 用户确认后执行 `git commit`
 
 **提交格式**：`type(scope): description`
 - 常用类型：`feat`、`fix`、`refactor`、`docs`

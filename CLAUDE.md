@@ -174,6 +174,7 @@
 - **技术栈**：
   - 后端：Go 1.23 + GORM + PostgreSQL
   - 前端：Vue 3 + TypeScript + Element Plus
+  - Bot：Python 3.11 + python-telegram-bot + FastAPI
   - 数据库：PostgreSQL 15（使用 GORM 管理 Schema）
 - **详细信息**：[README.md](./README.md)
 - **⭐ 系统架构**：[docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md) — 数据模型、服务逻辑、API 端点、前端结构的完整参考，**开始工作前务必先读此文件**
@@ -183,7 +184,7 @@
 services/
   ├─ api/    # Go API 服务（主要开发目录）
   ├─ web/    # Vue 3 前端
-  └─ bot/    # Telegram Bot（待开发）
+  └─ bot/    # Python Telegram Bot
 ```
 
 **沟通输出**：
@@ -225,9 +226,10 @@ services/
 **流程**：
 1. 修改代码
 2. 编译验证（`go build`、`npm run build`）
-3. **询问用户**："✅ 代码编译通过，是否需要提交？"
-4. 等待用户明确回复
-5. 用户确认后执行 `git commit`
+3. 同步更新 `docs/SYSTEM-ARCHITECTURE.md`（如果本次变更涉及模型、服务、API、前端结构、环境变量等架构层面的改动）
+4. **询问用户**："✅ 代码编译通过，是否需要提交？"
+5. 等待用户明确回复
+6. 用户确认后执行 `git commit`
 
 **提交格式**：`type(scope): description`
 - 常用类型：`feat`、`fix`、`refactor`、`docs`
@@ -241,6 +243,12 @@ services/
 当进入计划模式（Plan Mode）时，必须遵循以下流程：
 
 1. **探索阶段**：充分阅读相关代码和文档，理解现状
+
+   **探索原则**：
+   - 优先信任 `docs/SYSTEM-ARCHITECTURE.md` 中的架构描述，不要重复探索已记录的内容
+   - 仅对计划直接涉及的文件进行定向阅读（如需修改的 model、handler、前端组件）
+   - 禁止启动全局探索 agent，除非需求涉及文档中未记录的模块
+
 2. **分析阶段**：识别问题、评估方案、权衡取舍
 3. **撰写阶段**：将详细计划文档保存到 `docs/plan/` 目录下（而非默认的临时计划文件），文件名应语义化（如 `design-system-governance.md`）
 4. **停止**：计划完成后即停止，**不主动进入开发阶段**，不调用 ExitPlanMode
