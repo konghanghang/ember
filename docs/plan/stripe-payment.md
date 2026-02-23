@@ -339,6 +339,52 @@ AutoMigrate 新增：
 &models.Payment{},
 ```
 
+### 新增文件：`infrastructure/database/20260222_02_add_stripe_payment_tables.sql`
+
+当 `AUTO_MIGRATE=false` 时，使用手动迁移 SQL：
+
+```sql
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS plans (
+  id            varchar(25)  PRIMARY KEY,
+  name          varchar(100) NOT NULL,
+  description   varchar(500) NOT NULL DEFAULT '',
+  days          integer      NOT NULL,
+  price         bigint       NOT NULL,
+  currency      varchar(3)   NOT NULL DEFAULT 'usd',
+  "isActive"    boolean      NOT NULL DEFAULT true,
+  "sortOrder"   integer      NOT NULL DEFAULT 0,
+  "createdAt"   timestamptz  NOT NULL DEFAULT now(),
+  "updatedAt"   timestamptz  NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id                       varchar(25)  PRIMARY KEY,
+  "userId"                 varchar(25)  NOT NULL,
+  "planId"                 varchar(25)  NOT NULL,
+  "stripeSessionId"        varchar(255) NOT NULL,
+  "stripePaymentIntentId"  varchar(255) NOT NULL DEFAULT '',
+  amount                   bigint       NOT NULL,
+  currency                 varchar(3)   NOT NULL DEFAULT 'usd',
+  days                     integer      NOT NULL,
+  status                   varchar(20)  NOT NULL DEFAULT 'pending',
+  "createdAt"              timestamptz  NOT NULL DEFAULT now(),
+  "updatedAt"              timestamptz  NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_stripe_session
+  ON payments ("stripeSessionId");
+
+COMMIT;
+```
+
+执行命令：
+
+```bash
+psql "$DATABASE_URL" -f infrastructure/database/20260222_02_add_stripe_payment_tables.sql
+```
+
 ---
 
 ## 八、路由注册
@@ -600,7 +646,7 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 
 ## 文件变更清单（按执行顺序）
 
-### 新文件（6 个）
+### 新文件（7 个）
 
 | # | 文件 | 说明 |
 |---|------|------|
@@ -610,12 +656,12 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 | 4 | `services/api/internal/handlers/payment.go` | PaymentHandler |
 | 5 | `services/web/src/views/admin/PlansView.vue` | 管理员方案管理页 |
 | 6 | `services/web/src/views/console/PricingView.vue` | 用户购买页 |
+| 7 | `infrastructure/database/20260222_02_add_stripe_payment_tables.sql` | 手动迁移 SQL（Plan + Payment） |
 
-### 修改文件（9 个）
+### 修改文件（8 个）
 
 | # | 文件 | 说明 |
 |---|------|------|
-| 7 | `services/api/go.mod` + `go.sum` | 添加 `stripe-go/v81` 依赖 |
 | 8 | `services/api/internal/services/errors.go` | 新增 2 个 error 常量 |
 | 9 | `services/api/internal/db/db.go` | AutoMigrate 新增 Plan、Payment |
 | 10 | `services/api/cmd/server/main.go` | 创建 handler + 注册所有新路由 |
@@ -630,7 +676,7 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 ## 执行阶段
 
 **Phase 1 — 后端基础设施**（步骤 1-3）
-- 安装 stripe-go 依赖
+- 实现 Stripe Checkout Session 创建与 Webhook 验签
 - 创建 Plan、Payment 模型
 - 实现 PaymentService
 
@@ -654,7 +700,10 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
    - `cd services/api && go build ./...`
    - `cd services/web && npm run build`
 
-2. **功能验证**（手动）：
+2. **数据库迁移验证（手动迁移模式）**：
+   - `psql "$DATABASE_URL" -f infrastructure/database/20260222_02_add_stripe_payment_tables.sql`
+
+3. **功能验证**（手动）：
    - 管理员创建/编辑/删除方案
    - 用户页面展示启用的方案
    - 用户点击购买 → 跳转 Stripe Checkout

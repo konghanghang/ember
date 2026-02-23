@@ -56,6 +56,11 @@ const router = createRouter({
           component: () => import('../views/console/NewSubscriptionView.vue'),
         },
         {
+          path: 'pricing',
+          name: 'console-pricing',
+          component: () => import('../views/console/PricingView.vue'),
+        },
+        {
           path: 'users',
           name: 'console-users',
           meta: { role: 'admin' },
@@ -78,6 +83,12 @@ const router = createRouter({
           name: 'console-sessions',
           meta: { role: 'admin' },
           component: () => import('../views/admin/SessionsView.vue'),
+        },
+        {
+          path: 'plans',
+          name: 'console-plans',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/PlansView.vue'),
         },
       ],
     },

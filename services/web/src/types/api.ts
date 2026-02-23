@@ -163,6 +163,75 @@ export interface CreateSubscriptionRequest {
   note?: string
 }
 
+// ==================== 付费方案 ====================
+export interface Plan {
+  id: string
+  name: string
+  description: string
+  days: number
+  price: number
+  currency: string
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreatePlanRequest {
+  name: string
+  description?: string
+  days: number
+  price: number
+  sortOrder?: number
+}
+
+export interface UpdatePlanRequest {
+  name?: string
+  description?: string
+  days?: number
+  price?: number
+  isActive?: boolean
+  sortOrder?: number
+}
+
+export type PaymentStatus = 'pending' | 'completed' | 'failed'
+
+export interface Payment {
+  id: string
+  userId: string
+  planId: string
+  stripeSessionId: string
+  stripePaymentIntentId?: string
+  amount: number
+  currency: string
+  days: number
+  status: PaymentStatus
+  createdAt: string
+  updatedAt: string
+  username?: string
+  planName?: string
+}
+
+export interface PaymentListResponse {
+  data: Payment[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+export interface PlanListResponse {
+  data: Plan[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+export interface CheckoutResponse {
+  url: string
+}
+
 export interface SystemInfoResponse {
   success: boolean
   info: {

@@ -1,11 +1,14 @@
 import request from './request'
 import type {
+  CheckoutResponse,
   CreateSubscriptionRequest,
   EmbyConfigResponse,
   LatestMediaResponse,
   MediaStatsResponse,
-  RankingHistoryResponse,
+  PaymentListResponse,
   PlaybackRanking,
+  Plan,
+  RankingHistoryResponse,
   Subscription,
   SubscriptionListQuery,
   UserInfo
@@ -108,5 +111,29 @@ export function getRankingHistory(period: string, date: string): Promise<Ranking
     url: '/rankings/history',
     method: 'get',
     params: { period, date }
+  })
+}
+
+// ==================== 支付 ====================
+export function getActivePlans(): Promise<{ data: Plan[] }> {
+  return request({
+    url: '/plans',
+    method: 'get'
+  })
+}
+
+export function createCheckout(planId: string): Promise<CheckoutResponse> {
+  return request({
+    url: '/payments/checkout',
+    method: 'post',
+    data: { planId }
+  })
+}
+
+export function getMyPayments(params?: { page?: number; pageSize?: number }): Promise<PaymentListResponse> {
+  return request({
+    url: '/payments',
+    method: 'get',
+    params
   })
 }

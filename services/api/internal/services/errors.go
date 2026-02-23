@@ -17,4 +17,6 @@ var (
 	ErrEmailCodeIPRateLimit   = errors.New("请求过于频繁，请稍后再试")
 	ErrEmailCodeInvalid       = errors.New("邮箱验证码无效或已过期")
 	ErrEmailSendFailed        = errors.New("验证码发送失败，请稍后重试")
+	ErrPlanNotFound           = errors.New("方案不存在")
+	ErrPaymentFailed          = errors.New("支付处理失败")
 )

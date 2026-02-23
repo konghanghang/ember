@@ -204,6 +204,8 @@ func AutoMigrate() error {
 		&models.Setting{},
 		&models.User{},
 		&models.Subscription{},
+		&models.Plan{},
+		&models.Payment{},
 		&models.PlaybackRanking{},
 		&models.EmailVerification{},
 	); err != nil {

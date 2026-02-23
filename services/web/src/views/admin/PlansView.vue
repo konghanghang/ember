@@ -1,0 +1,383 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Delete, Refresh, EditPen, Goods } from '@element-plus/icons-vue'
+import { createPlan, deletePlan, getPlans, updatePlan } from '@/api/admin'
+import type { CreatePlanRequest, Plan, UpdatePlanRequest } from '@/types/api'
+
+const tableData = ref<Plan[]>([])
+const total = ref(0)
+const loading = ref(false)
+const creating = ref(false)
+const updating = ref(false)
+
+const queryParams = ref({
+  page: 1,
+  pageSize: 10,
+  showAll: true
+})
+
+const dialogVisible = ref(false)
+const editDialogVisible = ref(false)
+
+const form = ref({
+  name: '',
+  description: '',
+  days: 30,
+  priceDisplay: 9.99,
+  sortOrder: 0
+})
+
+const editForm = ref({
+  id: '',
+  name: '',
+  description: '',
+  days: 30,
+  priceDisplay: 9.99,
+  isActive: true,
+  sortOrder: 0
+})
+
+const activeCount = computed(() => tableData.value.filter(item => item.isActive).length)
+
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const res = await getPlans(queryParams.value)
+    tableData.value = res.data || []
+    total.value = res.total || 0
+  } finally {
+    loading.value = false
+  }
+}
+
+const formatPrice = (price: number) => {
+  return `$${(price / 100).toFixed(2)}`
+}
+
+const resetCreateForm = () => {
+  form.value = {
+    name: '',
+    description: '',
+    days: 30,
+    priceDisplay: 9.99,
+    sortOrder: 0
+  }
+}
+
+const validatePriceDisplay = (value: number) => {
+  return Number.isFinite(value) && value > 0
+}
+
+const handleCreate = async () => {
+  if (!form.value.name.trim()) {
+    ElMessage.warning('请输入方案名称')
+    return
+  }
+  if (form.value.days < 1) {
+    ElMessage.warning('天数必须大于 0')
+    return
+  }
+  if (!validatePriceDisplay(form.value.priceDisplay)) {
+    ElMessage.warning('请输入有效价格')
+    return
+  }
+
+  const payload: CreatePlanRequest = {
+    name: form.value.name.trim(),
+    description: form.value.description.trim(),
+    days: form.value.days,
+    price: Math.round(form.value.priceDisplay * 100),
+    sortOrder: form.value.sortOrder
+  }
+
+  creating.value = true
+  try {
+    await createPlan(payload)
+    ElMessage.success('方案创建成功')
+    dialogVisible.value = false
+    resetCreateForm()
+    await fetchData()
+  } finally {
+    creating.value = false
+  }
+}
+
+const openEditDialog = (row: Plan) => {
+  editForm.value = {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    days: row.days,
+    priceDisplay: row.price / 100,
+    isActive: row.isActive,
+    sortOrder: row.sortOrder
+  }
+  editDialogVisible.value = true
+}
+
+const handleUpdate = async () => {
+  if (!editForm.value.name.trim()) {
+    ElMessage.warning('请输入方案名称')
+    return
+  }
+  if (editForm.value.days < 1) {
+    ElMessage.warning('天数必须大于 0')
+    return
+  }
+  if (!validatePriceDisplay(editForm.value.priceDisplay)) {
+    ElMessage.warning('请输入有效价格')
+    return
+  }
+
+  const payload: UpdatePlanRequest = {
+    name: editForm.value.name.trim(),
+    description: editForm.value.description.trim(),
+    days: editForm.value.days,
+    price: Math.round(editForm.value.priceDisplay * 100),
+    isActive: editForm.value.isActive,
+    sortOrder: editForm.value.sortOrder
+  }
+
+  updating.value = true
+  try {
+    await updatePlan(editForm.value.id, payload)
+    ElMessage.success('方案更新成功')
+    editDialogVisible.value = false
+    await fetchData()
+  } finally {
+    updating.value = false
+  }
+}
+
+const handleDelete = async (id: string) => {
+  try {
+    await ElMessageBox.confirm('确定删除该方案吗？历史支付记录不会被删除。', '删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    })
+
+    await deletePlan(id)
+    ElMessage.success('删除成功')
+    await fetchData()
+  } catch {
+    // cancelled
+  }
+}
+
+onMounted(fetchData)
+</script>
+
+<template>
+  <div class="space-y-6">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          付费方案管理
+          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ activeCount }}/{{ total }} 启用</span>
+        </h1>
+        <p class="text-gray-500 text-sm mt-1">管理订阅购买套餐，价格单位为 USD</p>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
+          <span class="text-sm text-gray-600">显示全部</span>
+          <el-switch v-model="queryParams.showAll" @change="fetchData" size="small" />
+        </div>
+        <button
+          @click="fetchData"
+          class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          title="刷新列表"
+        >
+          <el-icon :size="20"><Refresh /></el-icon>
+        </button>
+        <button
+          @click="dialogVisible = true"
+          class="flex items-center gap-2 px-4 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95"
+        >
+          <el-icon><Plus /></el-icon>
+          <span>新建方案</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <el-table
+        :data="tableData"
+        v-loading="loading"
+        style="width: 100%"
+        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
+      >
+        <el-table-column label="方案" min-width="220">
+          <template #default="{ row }">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500">
+                <el-icon><Goods /></el-icon>
+              </div>
+              <div>
+                <div class="font-semibold text-gray-900">{{ row.name }}</div>
+                <div class="text-xs text-gray-500">{{ row.description || '无描述' }}</div>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="时长" width="100">
+          <template #default="{ row }">
+            <span class="font-medium text-gray-700">{{ row.days }} 天</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="价格" width="120">
+          <template #default="{ row }">
+            <span class="font-semibold text-gray-900">{{ formatPrice(row.price) }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.isActive ? 'success' : 'info'" effect="light" round size="small">
+              {{ row.isActive ? '启用' : '下架' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="排序" width="100">
+          <template #default="{ row }">
+            <span class="text-gray-600">{{ row.sortOrder }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <button
+              @click="openEditDialog(row)"
+              class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              title="编辑"
+            >
+              <el-icon :size="18"><EditPen /></el-icon>
+            </button>
+            <button
+              @click="handleDelete(row.id)"
+              class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              title="删除"
+            >
+              <el-icon :size="18"><Delete /></el-icon>
+            </button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+        <el-pagination
+          v-model:current-page="queryParams.page"
+          v-model:page-size="queryParams.pageSize"
+          :total="total"
+          layout="total, prev, pager, next"
+          @current-change="fetchData"
+          background
+        />
+      </div>
+    </div>
+
+    <el-dialog v-model="dialogVisible" title="新建付费方案" width="520px" align-center>
+      <div class="p-6 pt-2">
+        <el-form label-position="top" class="space-y-4">
+          <el-form-item label="方案名称">
+            <el-input v-model="form.name" placeholder="例如：月度会员" />
+          </el-form-item>
+
+          <el-form-item label="描述">
+            <el-input v-model="form.description" type="textarea" :rows="3" placeholder="可选，展示在购买卡片" />
+          </el-form-item>
+
+          <div class="grid grid-cols-2 gap-6">
+            <el-form-item label="时长（天）">
+              <el-input-number v-model="form.days" :min="1" class="w-full !w-full" />
+            </el-form-item>
+
+            <el-form-item label="价格（USD）">
+              <el-input-number v-model="form.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full" />
+            </el-form-item>
+          </div>
+
+          <el-form-item label="排序">
+            <el-input-number v-model="form.sortOrder" :min="0" class="w-full !w-full" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
+          <button
+            @click="dialogVisible = false"
+            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+          >
+            取消
+          </button>
+          <button
+            @click="handleCreate"
+            :disabled="creating"
+            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+          >
+            {{ creating ? '创建中...' : '确认创建' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="editDialogVisible" title="编辑付费方案" width="520px" align-center>
+      <div class="p-6 pt-2">
+        <el-form label-position="top" class="space-y-4">
+          <el-form-item label="方案名称">
+            <el-input v-model="editForm.name" placeholder="例如：月度会员" />
+          </el-form-item>
+
+          <el-form-item label="描述">
+            <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="可选，展示在购买卡片" />
+          </el-form-item>
+
+          <div class="grid grid-cols-2 gap-6">
+            <el-form-item label="时长（天）">
+              <el-input-number v-model="editForm.days" :min="1" class="w-full !w-full" />
+            </el-form-item>
+
+            <el-form-item label="价格（USD）">
+              <el-input-number v-model="editForm.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full" />
+            </el-form-item>
+          </div>
+
+          <div class="grid grid-cols-2 gap-6">
+            <el-form-item label="排序">
+              <el-input-number v-model="editForm.sortOrder" :min="0" class="w-full !w-full" />
+            </el-form-item>
+
+            <el-form-item label="状态">
+              <div class="h-8 flex items-center">
+                <el-switch v-model="editForm.isActive" active-text="启用" inactive-text="下架" />
+              </div>
+            </el-form-item>
+          </div>
+        </el-form>
+      </div>
+      <template #footer>
+        <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
+          <button
+            @click="editDialogVisible = false"
+            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+          >
+            取消
+          </button>
+          <button
+            @click="handleUpdate"
+            :disabled="updating"
+            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+          >
+            {{ updating ? '保存中...' : '保存修改' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+  </div>
+</template>

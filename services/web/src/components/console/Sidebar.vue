@@ -9,6 +9,8 @@ import {
   Film,
   User,
   Ticket,
+  Goods,
+  ShoppingCart,
   Setting,
   Monitor,
   SwitchButton,
@@ -44,6 +46,12 @@ const menuItems = computed(() => [
     role: 'user'
   },
   {
+    title: '购买订阅',
+    path: '/console/pricing',
+    icon: ShoppingCart,
+    role: 'user'
+  },
+  {
     title: '管理控制台',
     type: 'group',
     role: 'admin',
@@ -58,6 +66,12 @@ const menuItems = computed(() => [
         title: '兑换码管理',
         path: '/console/redemption-codes',
         icon: Ticket,
+        role: 'admin'
+      },
+      {
+        title: '付费方案',
+        path: '/console/plans',
+        icon: Goods,
         role: 'admin'
       },
       {

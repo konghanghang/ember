@@ -1,7 +1,15 @@
 import request from './request'
 import type {
+  ActiveSession,
+  CreatePlanRequest,
   CreateRedemptionCodeRequest,
+  CronCheckResponse,
+  PaymentListResponse,
+  Plan,
+  PlanListResponse,
+  UpdateAdminUserRequest,
   UpdateRedemptionCodeRequest,
+  UpdatePlanRequest,
   RedemptionCode,
   RedemptionCodeListResponse,
   RedemptionListResponse,
@@ -11,10 +19,7 @@ import type {
   SystemInfoResponse,
   UserInfo,
   UserListQuery,
-  UserListResponse,
-  CronCheckResponse,
-  UpdateAdminUserRequest,
-  ActiveSession
+  UserListResponse
 } from '@/types/api'
 
 // User Management
@@ -123,6 +128,46 @@ export function getAllRedemptions(params?: { page?: number; pageSize?: number; u
 		method: 'get',
 		params
 	})
+}
+
+// ==================== 付费方案 ====================
+export function getPlans(params?: { page?: number; pageSize?: number; showAll?: boolean }): Promise<PlanListResponse> {
+  return request({
+    url: '/admin/plans',
+    method: 'get',
+    params
+  })
+}
+
+export function createPlan(data: CreatePlanRequest): Promise<Plan> {
+  return request({
+    url: '/admin/plans',
+    method: 'post',
+    data
+  })
+}
+
+export function updatePlan(id: string, data: UpdatePlanRequest): Promise<Plan> {
+  return request({
+    url: `/admin/plans/${id}`,
+    method: 'put',
+    data
+  })
+}
+
+export function deletePlan(id: string) {
+  return request({
+    url: `/admin/plans/${id}`,
+    method: 'delete'
+  })
+}
+
+export function getAllPayments(params?: { page?: number; pageSize?: number; userId?: string }): Promise<PaymentListResponse> {
+  return request({
+    url: '/admin/payments',
+    method: 'get',
+    params
+  })
 }
 
 export function approveSubscription(id: string) {

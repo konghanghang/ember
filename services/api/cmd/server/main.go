@@ -47,6 +47,7 @@ func main() {
 	tmdbHandler := handlers.NewTMDBHandler()
 	rankingHandler := handlers.NewRankingHandler()
 	sessionHandler := handlers.NewSessionHandler()
+	paymentHandler := handlers.NewPaymentHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -61,6 +62,8 @@ func main() {
 		api.POST("/register/send-code", authHandler.SendEmailCode)
 		api.GET("/register/mode", settingHandler.GetRegistrationMode)
 		api.GET("/register/code/:code/validate", redemptionCodeHandler.ValidateCode)
+		api.GET("/plans", paymentHandler.GetActivePlans)
+		api.POST("/webhooks/stripe", paymentHandler.HandleStripeWebhook)
 
 		// TMDB 搜索（公开）
 		api.GET("/tmdb/search", tmdbHandler.Search)
@@ -102,6 +105,15 @@ func main() {
 			// 活跃会话监控
 			admin.GET("/sessions", sessionHandler.GetActiveSessions)
 
+			// 付费方案
+			admin.GET("/plans", paymentHandler.GetPlans)
+			admin.POST("/plans", paymentHandler.CreatePlan)
+			admin.PUT("/plans/:id", paymentHandler.UpdatePlan)
+			admin.DELETE("/plans/:id", paymentHandler.DeletePlan)
+
+			// 支付记录
+			admin.GET("/payments", paymentHandler.GetAllPayments)
+
 			// 定时任务
 			admin.POST("/cron/check-expired", systemHandler.CheckExpiredUsers)
 			admin.POST("/cron/generate-ranking", rankingHandler.GenerateRanking)
@@ -142,6 +154,10 @@ func main() {
 			// 播放排行
 			authenticated.GET("/rankings/latest", rankingHandler.GetLatestRanking)
 			authenticated.GET("/rankings/history", rankingHandler.GetHistoryRanking)
+
+			// 支付
+			authenticated.POST("/payments/checkout", paymentHandler.CreateCheckout)
+			authenticated.GET("/payments", paymentHandler.GetMyPayments)
 		}
 
 		// ==================== 用户路由（需要认证） ====================
