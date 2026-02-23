@@ -8,11 +8,14 @@
 ## 1. 系统概览
 
 Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
-- 用户注册/登录（可配置开放注册或兑换码注册）
+- 用户注册/登录（可配置开放注册或兑换码注册，支持邮箱验证码）
 - Emby 账号自动创建与生命周期管理（试用 → 续期 → 过期封禁）
 - 兑换码系统（注册门控 + 续期工具，统一模型）
+- 付费方案与 Stripe 一次性支付
 - 求片订阅（TMDB 搜索 → 管理员审批 → MoviePilot 自动下载）
-- 定时任务（每日检查过期用户，自动封禁 Emby 账号）
+- 播放排行榜（日榜 / 周榜，从 Emby PlaybackActivity 生成）
+- Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息）
+- 定时任务（过期检查、验证码清理、排行榜生成）
 
 ## 2. 技术栈
 
@@ -21,7 +24,9 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 | 后端 | Go 1.23 + Gin + GORM |
 | 数据库 | PostgreSQL 15 |
 | 前端 | Vue 3 + TypeScript + Element Plus + Tailwind CSS |
-| 外部集成 | Emby API, TMDB API, MoviePilot API |
+| Bot | Python 3.11 + python-telegram-bot + FastAPI |
+| 支付 | Stripe（一次性支付，Checkout Session 模式）|
+| 外部集成 | Emby API, TMDB API, MoviePilot API, Stripe API |
 | 定时任务 | robfig/cron/v3 |
 | 部署 | Docker + Docker Compose |
 
@@ -38,6 +43,10 @@ services/
 │     │  ├─ redemption.go        # Redemption（兑换历史）
 │     │  ├─ setting.go           # Setting（系统配置 KV）
 │     │  ├─ subscription.go      # Subscription（求片订阅）
+│     │  ├─ email_verification.go # EmailVerification（邮箱验证码）
+│     │  ├─ plan.go              # Plan（付费方案）
+│     │  ├─ payment.go           # Payment（支付记录）
+│     │  ├─ playback_ranking.go  # PlaybackRanking（播放排行快照）
 │     │  └─ utils.go             # generateCUID()
 │     ├─ services/               # 业务逻辑
 │     │  ├─ auth.go              # 登录 / 注册
@@ -49,13 +58,27 @@ services/
 │     │  ├─ emby.go              # Emby HTTP 客户端
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ subscription.go      # 订阅工作流
-│     │  └─ moviepilot.go        # MoviePilot HTTP 客户端
+│     │  ├─ moviepilot.go        # MoviePilot HTTP 客户端
+│     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
+│     │  ├─ notifier.go          # BotNotifier（火忘式推送通知给 Bot）
+│     │  ├─ playback_ranking.go  # PlaybackRankingService（播放排行生成）
+│     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
+│     │  └─ errors.go            # 统一错误定义
 │     ├─ handlers/               # HTTP 处理层（Gin）
-│     │  ├─ auth.go, user.go, redemption_code.go, setting.go
-│     │  ├─ system.go, media.go, subscription.go, tmdb.go
-│     │  └─ （每个 handler 对应一个 service）
+│     │  ├─ auth.go              # 登录 / 注册
+│     │  ├─ user.go              # 用户管理
+│     │  ├─ redemption_code.go   # 兑换码管理
+│     │  ├─ setting.go           # 系统配置
+│     │  ├─ system.go            # 系统信息
+│     │  ├─ media.go             # 媒体信息
+│     │  ├─ subscription.go      # 订阅管理
+│     │  ├─ tmdb.go              # TMDB 搜索
+│     │  ├─ ranking.go           # 播放排行
+│     │  ├─ session.go           # 活跃会话
+│     │  └─ payment.go           # 支付与方案
 │     ├─ middleware/
-│     │  └─ jwt.go               # JWTAuth + AdminOnly + UserOnly
+│     │  ├─ jwt.go               # JWTAuth + AdminOnly + UserOnly
+│     │  └─ internal_auth.go     # InternalAuth（Bot 内部通信认证）
 │     ├─ common/
 │     │  ├─ jwt.go               # Token 生成/解析（HS256, 7天有效）
 │     │  └─ utils.go             # CalculateExpiryDate
@@ -66,27 +89,50 @@ services/
 │  │  ├─ api/                    # Axios 请求层
 │  │  │  ├─ request.ts           # 基础配置：baseURL=/api/v1, 401拦截
 │  │  │  ├─ auth.ts              # login, register, getRegistrationMode
-│  │  │  ├─ user.ts              # profile, password, media, redeem
-│  │  │  └─ admin.ts             # users, redemption-codes, settings, subscriptions
+│  │  │  ├─ user.ts              # redeem, redemptions, tmdb
+│  │  │  ├─ admin.ts             # 管理后台全部接口
+│  │  │  └─ console.ts           # 统一认证路由接口（profile, subscriptions, payments, rankings 等）
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义
-│  │  ├─ store/auth.ts           # Pinia: token + role (localStorage 持久化)
+│  │  ├─ store/
+│  │  │  ├─ auth.ts              # Pinia: token + role (localStorage 持久化)
+│  │  │  ├─ user.ts              # 用户状态
+│  │  │  └─ admin.ts             # 管理员状态
 │  │  ├─ router/index.ts         # 路由 + 导航守卫（角色鉴权）
 │  │  └─ views/
 │  │     ├─ HomeView.vue         # 首页
-│  │     ├─ user/                # 用户面板
-│  │     │  ├─ RegisterView.vue  # 注册（动态模式：open/invite）
+│  │     ├─ LoginView.vue        # 登录
+│  │     ├─ NotFoundView.vue     # 404
+│  │     ├─ user/
+│  │     │  └─ RegisterView.vue  # 注册（动态模式：open/invite，支持邮箱验证码）
+│  │     ├─ console/             # 统一控制台（admin + user 共享布局）
+│  │     │  ├─ Layout.vue        # 控制台布局
 │  │     │  ├─ DashboardView.vue # 面板（双态：活跃/过期降级）
-│  │     │  ├─ SubscriptionsView.vue
-│  │     │  └─ NewSubscriptionView.vue
+│  │     │  ├─ SubscriptionsView.vue  # 求片订阅
+│  │     │  ├─ NewSubscriptionView.vue # 新建订阅
+│  │     │  ├─ LibraryView.vue   # 媒体库
+│  │     │  ├─ RankingsView.vue  # 播放排行
+│  │     │  └─ PricingView.vue   # 付费方案
 │  │     └─ admin/               # 管理后台
-│  │        ├─ Layout.vue        # 侧边栏布局
-│  │        ├─ UsersView.vue
-│  │        ├─ RedemptionCodesView.vue
-│  │        ├─ SubscriptionsView.vue
-│  │        └─ SettingsView.vue
+│  │        ├─ UsersView.vue     # 用户管理
+│  │        ├─ RedemptionCodesView.vue # 兑换码管理
+│  │        ├─ SettingsView.vue  # 系统设置
+│  │        ├─ PlansView.vue     # 方案管理
+│  │        └─ SessionsView.vue  # 活跃会话
 │  ├─ vite.config.ts             # dev:3000, proxy /api→:8080
 │  └─ tailwind.config.js         # 自定义色：ember(橙红), cinema
-└─ bot/                          # Telegram Bot（待开发）
+└─ bot/                          # Python Telegram Bot
+   ├─ main.py                    # 入口
+   ├─ requirements.txt           # Python 依赖
+   ├─ Dockerfile                 # 容器构建
+   └─ app/
+      ├─ config.py               # 环境变量加载
+      ├─ server.py               # FastAPI + Telegram Application（Webhook 模式）
+      ├─ handlers/
+      │  └─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息）
+      ├─ formatters/
+      │  └─ message_formatter.py # Telegram 消息格式化
+      └─ clients/
+         └─ api_client.py        # Ember API 内部客户端
 ```
 
 ---
@@ -129,10 +175,10 @@ services/
 |------|------|------|------|
 | ID | string(25) | id | CUID |
 | Code | string(20) | code | 唯一，16 字符 hex |
-| MaxUses | int | maxUses | 最大使用次数 |
-| UsedCount | int | usedCount | 已使用次数 |
+| MaxUses | int | maxUses | 最大使用次数（默认 1）|
+| UsedCount | int | usedCount | 已使用次数（默认 0）|
 | ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
-| DefaultDays | int | defaultDays | 每次兑换授予的天数 |
+| DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
 | CreatedAt | time.Time | createdAt | 自动 |
 
 **方法**：`IsValid()` — `UsedCount < MaxUses && (ExpiresAt == nil || ExpiresAt > now)`
@@ -166,6 +212,8 @@ services/
 **当前配置项**：
 - `registration_mode` — `"open"` 或 `"invite"`（默认 `"open"`）
 - `default_trial_days` — 开放注册时的试用天数（默认 `"7"`）
+- `notify_group_link` — Telegram 通知群链接（默认空）
+- `email_verification` — 是否开启邮箱验证（默认 `"false"`）
 
 ### 4.5 Subscription（订阅求片）
 
@@ -176,22 +224,94 @@ services/
 | ID | string(25) | id | CUID |
 | UserID | string(25) | userId | 用户 ID |
 | Type | MediaType | type | `"MOVIE"` 或 `"TV"` |
-| Name | string | name | 媒体名称 |
+| Name | string(255) | name | 媒体名称 |
 | TmdbID | string | tmdbId | TMDB ID |
-| PosterPath | *string | posterPath | 海报 URL |
+| PosterPath | *string(500) | posterPath | 海报 URL |
 | Status | SubscriptionStatus | status | `PENDING`/`APPROVED`/`REJECTED` |
 | Note | *string | note | 用户备注 |
-| MpError | *string | mpError | MoviePilot 同步错误 |
+| MpError | *string(500) | mpError | MoviePilot 同步错误 |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
 
-### 4.6 数据关系
+### 4.6 EmailVerification（邮箱验证码）
+
+**表名**: `email_verifications` | **文件**: `models/email_verification.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| Email | string(255) | email | 索引 |
+| Code | string(6) | code | 6 位验证码（JSON 隐藏）|
+| IP | string(45) | ip | 请求 IP（索引，JSON 隐藏）|
+| ExpiresAt | time.Time | expiresAt | 过期时间 |
+| CreatedAt | time.Time | createdAt | 自动 |
+
+### 4.7 Plan（付费方案）
+
+**表名**: `plans` | **文件**: `models/plan.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| Name | string(100) | name | 方案名称 |
+| Description | string(500) | description | 描述 |
+| Days | int | days | 天数 |
+| Price | int64 | price | 价格（分）|
+| Currency | string(3) | currency | 币种（默认 `"usd"`）|
+| IsActive | bool | isActive | 是否启用（默认 true）|
+| SortOrder | int | sortOrder | 排序（默认 0）|
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+### 4.8 Payment（支付记录）
+
+**表名**: `payments` | **文件**: `models/payment.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| UserID | string(25) | userId | 用户 ID（索引）|
+| PlanID | string(25) | planId | 方案 ID（索引）|
+| StripeSessionID | string | stripeSessionId | Stripe 会话（唯一）|
+| StripePaymentIntentID | string | stripePaymentIntentId | Stripe 支付意向 |
+| Amount | int64 | amount | 金额（分）|
+| Currency | string | currency | 币种（默认 `"usd"`）|
+| Days | int | days | 购买天数 |
+| Status | PaymentStatus | status | `pending`/`completed`/`failed` |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+### 4.9 PlaybackRanking（播放排行快照）
+
+**表名**: `playback_rankings` | **文件**: `models/playback_ranking.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| Period | RankingPeriod | period | `"daily"` 或 `"weekly"` |
+| Category | RankingCategory | category | `"media_movie"` 或 `"media_episode"` |
+| Rank | int | rank | 排名 |
+| ItemName | string(500) | itemName | 媒体名称 |
+| PlayCount | int | playCount | 播放次数 |
+| Duration | int64 | duration | 总时长（秒）|
+| SnapshotAt | time.Time | snapshotAt | 快照时间 |
+| PeriodStart | time.Time | periodStart | 周期开始 |
+| PeriodEnd | time.Time | periodEnd | 周期结束 |
+| CreatedAt | time.Time | createdAt | 自动 |
+
+### 4.10 数据关系
 
 ```
 User (1) ──→ (N) Redemption     （兑换历史）
 User (1) ──→ (N) Subscription   （求片记录）
+User (1) ──→ (N) Payment        （支付记录）
 User (1) ──→ (1) Emby User      （外部 Emby 账号，通过 EmbyID 关联）
 
-RedemptionCode ──→ Redemption    （码被使用时生成记录）
-Setting                          （全局 KV 配置，无外键）
+Plan (1) ──→ (N) Payment        （方案关联）
+RedemptionCode ──→ Redemption   （码被使用时生成记录）
+Setting                         （全局 KV 配置，无外键）
+EmailVerification               （独立验证码，无外键）
+PlaybackRanking                 （独立排行快照，无外键）
 ```
 
 ---
@@ -206,10 +326,12 @@ Setting                          （全局 KV 配置，无外键）
 
 **注册流程**：
 1. 读取 `registration_mode` → `"invite"`: 验证兑换码 → `"open"`: 读取 `default_trial_days`
-2. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）→ 签发 JWT
+2. 如果开启 `email_verification`：校验邮箱验证码
+3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）→ 签发 JWT
+4. 火忘式通知 Bot（新用户注册）
 
 **关键 struct**：
-- `RegisterUserRequest{Username, Password, Email, Code}` — Code 可选
+- `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
 - `LoginResponse{Token, User}`
 
 ### 5.2 UserService (`services/user.go`)
@@ -244,7 +366,7 @@ Setting                          （全局 KV 配置，无外键）
 - `GetSystemInfo()` — 统计：用户数、活跃数、兑换码数
 - `CheckExpiredUsers()` — **cron 核心**：查询 `expiresAt < NOW() AND embyDisabled = false` → 调用 Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`
 
-### 5.7 EmbyService (`services/emby.go`, 369 行)
+### 5.7 EmbyService (`services/emby.go`)
 
 Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
@@ -266,7 +388,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
-- `CreateSubscription(userID, type, name, tmdbId)` — 创建 PENDING 状态
+- `CreateSubscription(userID, type, name, tmdbId)` — 创建 PENDING 状态 + 火忘式通知 Bot
 - `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError）
 - `RejectSubscription(id)` — 设为 REJECTED
 
@@ -275,6 +397,56 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `IsConfigured()` — 检查三个环境变量是否都设置
 - `login()` — `POST /api/v1/login/access-token`（form-urlencoded）
 - `CreateSubscription(type, name, tmdbId)` — `POST /api/v1/subscribe/`（type 转中文：movie→电影, tv→电视剧）
+
+### 5.11 EmailService (`services/email.go`)
+
+邮箱验证码发送、校验和清理服务，基于 SMTP。
+
+- `SendVerificationCode(email, ip)` — 生成 6 位随机验证码 → 频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
+- `VerifyCode(email, code)` — 校验验证码是否有效且未过期
+- `CleanupExpiredCodes()` — 删除过期验证码（cron 调用）
+
+**频率限制**：
+- 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5）
+- 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15）
+- 验证码有效期：`EMAIL_CODE_EXPIRY_MINUTES`（默认 10 分钟）
+
+### 5.12 BotNotifier (`services/notifier.go`)
+
+火忘式 HTTP 推送通知服务，将事件推送给 Telegram Bot。
+
+**通知类型**：
+| 方法 | Bot 端点 | 触发时机 |
+|------|----------|----------|
+| `NotifyNewSubscription` | `POST /notify/subscription` | 用户创建求片订阅 |
+| `NotifyNewRegistration` | `POST /notify/registration` | 新用户注册 |
+| `NotifyRanking` | `POST /notify/ranking` | 排行榜生成完成 |
+
+**认证方式**：`X-Internal-Secret` 头（值 = `INTERNAL_API_SECRET`）
+
+### 5.13 PlaybackRankingService (`services/playback_ranking.go`)
+
+从 Emby PlaybackActivity 数据库生成播放排行。
+
+- `GenerateRanking(period)` — 查询 Emby 活动日志 → 按播放次数/时长排名 → 存入数据库 → 通知 Bot
+- `GetLatestRanking()` — 获取最新一期排行
+- `GetRankingHistory(page, pageSize)` — 分页查询历史排行
+- `PreviewRanking(period)` — 预览排行（不持久化）
+
+**支持周期**：`daily`（日榜）、`weekly`（周榜）
+
+### 5.14 PaymentService (`services/payment.go`)
+
+Stripe 一次性支付流程管理。
+
+- `CreateCheckoutSession(userID, planID)` — 创建 Stripe Checkout Session → 存储 Payment 记录（pending）
+- `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
+- Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`
+- `GetPayments(page, pageSize)` — 支付记录查询
+
+### 5.15 错误定义 (`services/errors.go`)
+
+统一的业务错误定义，用于 Service → Handler 的错误传递。
 
 ---
 
@@ -285,10 +457,32 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | POST | `/api/v1/login` | 登录 |
-| POST | `/api/v1/user/register` | 注册（code 可选）|
+| POST | `/api/v1/user/register` | 注册（code/emailCode 可选）|
+| POST | `/api/v1/register/send-code` | 发送邮箱验证码 |
 | GET | `/api/v1/register/mode` | 获取注册模式 |
 | GET | `/api/v1/register/code/:code/validate` | 验证兑换码（注册前）|
+| GET | `/api/v1/plans` | 公开方案列表（仅 isActive=true）|
+| POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
 | GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索 |
+
+### 统一认证路由（admin + user 共享，需 JWT）
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/api/v1/subscriptions` | 我的订阅 |
+| POST | `/api/v1/subscriptions` | 创建订阅 |
+| DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
+| GET | `/api/v1/profile` | 个人信息 |
+| PUT | `/api/v1/profile` | 更新资料 |
+| PUT | `/api/v1/password` | 修改密码 |
+| PUT | `/api/v1/email` | 修改邮箱 |
+| GET | `/api/v1/emby/config` | Emby 配置 |
+| GET | `/api/v1/media/stats` | 媒体统计 |
+| GET | `/api/v1/media/latest` | 最新入库 |
+| GET | `/api/v1/rankings/latest` | 最新排行 |
+| GET | `/api/v1/rankings/history` | 排行历史 |
+| POST | `/api/v1/payments/checkout` | Stripe 结账 |
+| GET | `/api/v1/payments` | 我的支付记录 |
 
 ### 用户路由（需认证 + role=user）
 
@@ -314,12 +508,14 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
 | GET | `/api/v1/admin/users` | 用户列表 |
 | GET | `/api/v1/admin/users/:id` | 用户详情 |
+| PUT | `/api/v1/admin/users/:id` | 更新用户 |
 | PUT | `/api/v1/admin/users/:id/extend` | 延长有效期 |
 | PUT | `/api/v1/admin/users/:id/toggle` | 切换激活状态 |
 | PUT | `/api/v1/admin/users/:id/reset-password` | 重置密码 |
 | DELETE | `/api/v1/admin/users/:id` | 删除用户 |
 | GET | `/api/v1/admin/redemption-codes` | 兑换码列表 |
 | POST | `/api/v1/admin/redemption-codes` | 创建兑换码 |
+| PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码 |
 | DELETE | `/api/v1/admin/redemption-codes/:id` | 删除兑换码 |
 | GET | `/api/v1/admin/settings` | 获取所有配置 |
 | PUT | `/api/v1/admin/settings/:key` | 更新配置 |
@@ -327,9 +523,26 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝 |
+| DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
+| GET | `/api/v1/admin/sessions` | 活跃会话 |
+| GET | `/api/v1/admin/plans` | 方案列表 |
+| POST | `/api/v1/admin/plans` | 创建方案 |
+| PUT | `/api/v1/admin/plans/:id` | 更新方案 |
+| DELETE | `/api/v1/admin/plans/:id` | 删除方案 |
+| GET | `/api/v1/admin/payments` | 全部支付记录 |
 | GET | `/api/v1/admin/system/info` | 系统统计 |
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
-| POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |
+| POST | `/api/v1/cron/check-expired` | 手动执行过期检查 |
+| POST | `/api/v1/cron/generate-ranking` | 手动生成排行 |
+| POST | `/api/v1/rankings/preview` | 排行预览 |
+
+### 内部服务路由（InternalAuth 中间件，Bot 调用）
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
+| PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝 |
+| GET | `/api/v1/internal/settings/:key` | 读取配置 |
 
 ### API 响应格式约定
 
@@ -346,6 +559,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - **JWT**：HS256，7 天有效期，Claims = {userID, username, role}
 - **Token 传递**：`Authorization: Bearer {token}`
 - **中间件链**：`JWTAuth()` → `AdminOnly()` / `UserOnly()`
+- **InternalAuth**：`middleware/internal_auth.go` — 校验 `X-Internal-Secret` header，用于 Bot ↔ API 内部通信
 - **Context 变量**：`userID`, `username`, `role`, `claims`
 - **密码存储**：bcrypt（DefaultCost），所有用户统一存本地 hash
 - **存量迁移**：`Password == ""` 时降级 Emby 认证，成功后自动补存本地 hash
@@ -356,10 +570,20 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 状态管理（Pinia）
 
-`store/auth.ts`：
-- State: `token`, `role`（localStorage 持久化）
-- Computed: `isAuthenticated`, `isAdmin`, `isUser`
-- Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`
+- `store/auth.ts`：Token + Role（localStorage 持久化）
+  - State: `token`, `role`
+  - Computed: `isAuthenticated`, `isAdmin`, `isUser`
+  - Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`
+- `store/user.ts`：用户状态管理
+- `store/admin.ts`：管理员状态管理
+
+### API 层
+
+- `api/request.ts` — 基础配置：baseURL=/api/v1, 401 拦截
+- `api/auth.ts` — login, register, getRegistrationMode, sendVerificationCode
+- `api/user.ts` — redeem, redemptions, tmdb
+- `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, rankings）
+- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby）
 
 ### 路由守卫
 
@@ -382,45 +606,164 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ---
 
-## 9. 定时任务
+## 9. Telegram Bot 架构
 
-| 环境变量 | 默认值 | 说明 |
-|----------|--------|------|
-| `CRON_ENABLED` | `"true"` | 是否启用 |
-| `CRON_SCHEDULE` | `"0 2 * * *"` | cron 表达式（默认每天凌晨2点）|
-| `CRON_TIMEZONE` | `"Asia/Shanghai"` | 时区 |
+### 技术栈
 
-**执行逻辑**：查询 `expiresAt < NOW() AND embyDisabled = false` → Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`。不修改 IsActive，不阻止用户登录。
+- Python 3.11 + python-telegram-bot（Webhook 模式，非 Polling）
+- FastAPI 作为 HTTP 服务器（接收 Telegram Webhook + API 通知）
+- 与 Go API 通过 `X-Internal-Secret` 双向通信
+
+### 通信模式
+
+```
+用户操作 → Go API → BotNotifier（火忘式 POST）→ Bot FastAPI → Telegram Bot → 发送消息
+Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go Internal API → 返回结果
+```
+
+### Bot 端点
+
+| 端点 | 用途 |
+|------|------|
+| `GET /health` | 健康检查 |
+| `POST /telegram/webhook` | Telegram Webhook 入口 |
+| `POST /notify/subscription` | 接收新订阅通知 |
+| `POST /notify/registration` | 接收新注册通知 |
+| `POST /notify/ranking` | 接收排行榜通知 |
+
+### 命令与处理器
+
+- **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
+- **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 配置）
+- **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）
+
+### 环境变量
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `TELEGRAM_BOT_TOKEN` | ✅ | — | Bot Token（@BotFather 获取）|
+| `TELEGRAM_ADMIN_CHAT_ID` | ✅ | — | 管理员 Chat ID |
+| `TELEGRAM_GROUP_CHAT_ID` | — | — | 群组 Chat ID（排行榜推送）|
+| `TELEGRAM_WEBHOOK_SECRET` | ✅ | — | Webhook 签名校验 |
+| `INTERNAL_API_SECRET` | ✅ | — | 与 Go API 共享密钥 |
+| `WEBHOOK_URL` | ✅ | — | 公开 HTTPS Webhook URL |
+| `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
+| `BOT_PORT` | — | `8000` | Bot 服务端口 |
 
 ---
 
-## 10. 环境变量完整列表
+## 10. 定时任务
+
+| 任务 | 调度 | 控制变量 | 说明 |
+|------|------|----------|------|
+| 过期用户检查 | `CRON_SCHEDULE`（默认 `0 2 * * *`）| `CRON_ENABLED` | 封禁过期 Emby 账号 |
+| 验证码清理 | `0 3 * * *` | `CRON_ENABLED` | 删除过期 EmailVerification |
+| 日榜生成 | `RANKING_DAILY_SCHEDULE`（默认 `0 20 * * *`）| `RANKING_CRON_ENABLED` | 从 Emby 生成日播放排行 |
+| 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
+
+**通用配置**：
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `CRON_ENABLED` | `"true"` | 是否启用（过期检查 + 验证码清理）|
+| `CRON_SCHEDULE` | `"0 2 * * *"` | 过期检查 cron 表达式 |
+| `CRON_TIMEZONE` | `"Asia/Shanghai"` | 时区 |
+| `RANKING_CRON_ENABLED` | `"false"` | 是否启用排行榜生成 |
+| `RANKING_DAILY_SCHEDULE` | `"0 20 * * *"` | 日榜 cron 表达式 |
+| `RANKING_WEEKLY_SCHEDULE` | `"30 20 * * 0"` | 周榜 cron 表达式 |
+
+**过期检查逻辑**：查询 `expiresAt < NOW() AND embyDisabled = false` → Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`。不修改 IsActive，不阻止用户登录。
+
+---
+
+## 11. 环境变量完整列表
+
+### 核心配置
 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
 | `DATABASE_URL` | ✅ | — | PostgreSQL DSN |
 | `JWT_SECRET` | ✅ | — | ≥32 字符 |
+| `PORT` | — | `8080` | 服务端口 |
+| `AUTO_MIGRATE` | — | `"false"` | `"true"` 启用 GORM 自动迁移 |
+| `ADMIN_USERNAME` | — | — | 默认管理员用户名（首次启动 seed）|
+| `ADMIN_PASSWORD` | — | — | 默认管理员密码 |
+
+### Emby 集成
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
 | `EMBY_URL` | — | — | Emby 服务器内部 URL |
 | `EMBY_API_KEY` | — | — | Emby API 密钥 |
 | `NEXT_PUBLIC_EMBY_URL` | — | — | Emby 公开 URL（给前端用）|
+
+### TMDB / MoviePilot
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `TMDB_API_KEY` | — | — | TMDB API 密钥 |
 | `MOVIEPILOT_URL` | — | — | MoviePilot 地址 |
 | `MOVIEPILOT_USERNAME` | — | — | MoviePilot 用户名 |
 | `MOVIEPILOT_PASSWORD` | — | — | MoviePilot 密码 |
-| `TMDB_API_KEY` | — | — | TMDB API 密钥 |
-| `ADMIN_USERNAME` | — | — | 默认管理员用户名（首次启动 seed）|
-| `ADMIN_PASSWORD` | — | — | 默认管理员密码 |
-| `AUTO_MIGRATE` | — | `"false"` | `"true"` 启用 GORM 自动迁移 |
-| `PORT` | — | `8080` | 服务端口 |
+
+### 邮件服务
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `SMTP_HOST` | — | — | SMTP 服务器地址 |
+| `SMTP_PORT` | — | `587` | SMTP 端口 |
+| `SMTP_USERNAME` | — | — | SMTP 用户名 |
+| `SMTP_PASSWORD` | — | — | SMTP 密码 |
+| `SMTP_FROM` | — | — | 发件人（回退 `SMTP_USERNAME`）|
+| `EMAIL_CODE_EXPIRY_MINUTES` | — | `10` | 验证码有效期（分钟）|
+| `EMAIL_CODE_DAILY_LIMIT` | — | `5` | 每邮箱每日发送上限 |
+| `EMAIL_CODE_IP_DAILY_LIMIT` | — | `15` | 每 IP 每日发送上限 |
+
+### Bot 通信
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `BOT_NOTIFY_URL` | — | — | Bot 通知 Webhook 地址 |
+| `INTERNAL_API_SECRET` | — | — | 内部通信共享密钥 |
+
+### Stripe 支付
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `STRIPE_SECRET_KEY` | — | — | Stripe API 密钥 |
+| `STRIPE_WEBHOOK_SECRET` | — | — | Stripe Webhook 签名密钥 |
+| `STRIPE_SUCCESS_URL` | — | — | 支付成功跳转 URL |
+| `STRIPE_CANCEL_URL` | — | — | 支付取消跳转 URL |
+
+### 定时任务
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
 | `CRON_ENABLED` | — | `"true"` | 启用定时任务 |
-| `CRON_SCHEDULE` | — | `"0 2 * * *"` | cron 表达式 |
+| `CRON_SCHEDULE` | — | `"0 2 * * *"` | 过期检查表达式 |
 | `CRON_TIMEZONE` | — | `"Asia/Shanghai"` | 时区 |
+| `RANKING_CRON_ENABLED` | — | `"false"` | 启用排行榜生成 |
+| `RANKING_DAILY_SCHEDULE` | — | `"0 20 * * *"` | 日榜表达式 |
+| `RANKING_WEEKLY_SCHEDULE` | — | `"30 20 * * 0"` | 周榜表达式 |
 
 ---
 
-## 11. 部署
+## 12. 外部集成汇总
+
+| 服务 | 用途 | 配置变量 |
+|------|------|----------|
+| **Emby API** | 用户创建/认证/封禁/解封、媒体统计、播放活动 | `EMBY_URL`, `EMBY_API_KEY` |
+| **TMDB API** | 电影/电视剧搜索（求片功能）| `TMDB_API_KEY` |
+| **MoviePilot API** | 自动订阅下载（审批后触发）| `MOVIEPILOT_URL/USERNAME/PASSWORD` |
+| **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
+| **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
+| **Telegram Bot API** | 通知推送、订阅审批、欢迎消息 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
+
+---
+
+## 13. 部署
 
 **Docker Compose**（`infrastructure/docker/docker-compose.yml`）：
-- PostgreSQL 16 + Go API + Vue 前端（可选）+ Nginx（可选）
+- PostgreSQL 16 + Go API + Vue 前端（可选）+ Telegram Bot + Nginx（可选）
 - API 以非 root 用户 `ember:ember`(UID 1000) 运行
 - 健康检查：`GET /health`
 
@@ -430,7 +773,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ---
 
-## 12. 代码模式速查
+## 14. 代码模式速查
 
 | 模式 | 说明 |
 |------|------|
@@ -442,4 +785,6 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | 码生成 | `crypto/rand.Read(bytes)` → `hex.EncodeToString` → 16 字符 |
 | 密码哈希 | `bcrypt.GenerateFromPassword(DefaultCost)` |
 | Emby 认证 | `X-Emby-Token: {apiKey}` 头 |
+| 内部通信 | `X-Internal-Secret: {secret}` 头（Bot ↔ API）|
 | 前端请求 | Axios 拦截器自动加 Bearer token，401 自动清除登录态 |
+| 火忘通知 | `go func() { http.Post(...) }()` 不阻塞主流程 |
