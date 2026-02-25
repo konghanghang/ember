@@ -17,6 +17,7 @@ type User struct {
 	Email        string     `json:"email,omitempty" gorm:"column:email;size:255;uniqueIndex"`
 	EmbyID       string     `json:"embyId,omitempty" gorm:"column:embyId;size:50;index"`
 	EmbyDisabled bool       `json:"embyDisabled" gorm:"column:embyDisabled;default:false;not null"`
+	TelegramID   *int64     `json:"telegramId,omitempty" gorm:"column:telegramId;uniqueIndex"`
 	ExpiresAt    *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
 	IsActive     bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
 	CreatedAt    time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`

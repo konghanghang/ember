@@ -11,6 +11,7 @@ import type {
   RankingHistoryResponse,
   Subscription,
   SubscriptionListQuery,
+  TelegramBindCodeResponse,
   UserInfo
 } from '@/types/api'
 
@@ -67,6 +68,20 @@ export function updateEmail(newEmail: string) {
     url: '/email',
     method: 'put',
     data: { newEmail }
+  })
+}
+
+export function generateTelegramBindCode(): Promise<TelegramBindCodeResponse> {
+  return request({
+    url: '/telegram/bindcode',
+    method: 'post'
+  })
+}
+
+export function unbindTelegram(): Promise<{ message: string }> {
+  return request({
+    url: '/telegram/unbind',
+    method: 'delete'
   })
 }
 

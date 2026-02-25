@@ -79,6 +79,65 @@ def format_result_message(original_text: str, action: str) -> str:
     return f"{text}\n\n────────────────────\n{result}"
 
 
+def format_bind_success(data: dict) -> str:
+    username = escape(str(data.get("username", "") or ""))
+    return (
+        "✅ <b>绑定成功</b>\n\n"
+        f"👤 已绑定账号：<b>{username}</b>\n\n"
+        "现在可以使用以下命令：\n"
+        "  /info - 查看账号信息\n"
+        "  /redeem <code>兑换码</code> - 续期"
+    )
+
+
+def format_account_info(data: dict) -> str:
+    username = escape(str(data.get("username", "") or ""))
+    email = escape(str(data.get("email", "") or "-"))
+    is_expired = bool(data.get("isExpired", False))
+    is_active = bool(data.get("isActive", True))
+    emby_disabled = bool(data.get("embyDisabled", False))
+    expires_at = str(data.get("expiresAt", "") or "")
+
+    expires_display = escape(expires_at[:10]) if expires_at else "永久有效"
+
+    if not is_expired and is_active and not emby_disabled:
+        status_emoji = "🟢"
+        status_text = "正常"
+    elif is_expired:
+        status_emoji = "🔴"
+        status_text = "已过期"
+    else:
+        status_emoji = "🔴"
+        status_text = "已禁用"
+
+    lines = [
+        "📋 <b>账号信息</b>",
+        "",
+        f"👤 用户名：<b>{username}</b>",
+        f"📧 邮箱：{email}",
+        f"{status_emoji} 状态：{status_text}",
+        f"⏳ 有效期至：{expires_display}",
+    ]
+
+    if is_expired:
+        lines.append("")
+        lines.append("💡 使用 /redeem <code>兑换码</code> 续期")
+
+    return "\n".join(lines)
+
+
+def format_redeem_success(data: dict) -> str:
+    days = int(data.get("days", 0) or 0)
+    expires_at = str(data.get("expiresAt", "") or "")
+    expires_display = escape(expires_at[:10]) if expires_at else "-"
+
+    return (
+        "🎉 <b>兑换成功</b>\n\n"
+        f"📅 续期天数：<b>{days}</b> 天\n"
+        f"⏳ 新到期时间：{expires_display}"
+    )
+
+
 def _format_duration(seconds: int) -> str:
     """将秒数格式化为可读时长"""
     if seconds <= 0:

@@ -1,9 +1,9 @@
 # Ember Telegram Bot
 
-Telegram 通知服务，负责两件事：
+Telegram 通知服务，负责两类能力：
 
-1. 接收 Go API 的新订阅通知并推送给管理员  
-2. 接收 Telegram webhook 回调，点击按钮后调用 Go API 内部审批接口
+1. 通知能力：接收 Go API 的通知并推送到 Telegram（订阅审批、新用户注册、播放排行榜）  
+2. 自助能力：接收 Telegram 用户命令并调用 Go API 内部接口（账号绑定、信息查询、兑换续期）
 
 ## 目录结构
 
@@ -66,3 +66,29 @@ python main.py
 - `POST /notify/registration`：Go API 注册通知入口（需 `X-Internal-Secret`）
 - `POST /notify/ranking`：Go API 播放排行榜通知入口（需 `X-Internal-Secret`）
 - `POST /telegram/webhook`：Telegram webhook 入口
+
+## Telegram 用户命令
+
+- `/bind <6位验证码>`：绑定 Telegram 与 Ember 账号
+- `/info`：查看当前绑定账号信息（用户名、邮箱、状态、有效期）
+- `/redeem <兑换码>`：为当前绑定账号兑换续期
+
+约束：
+- 以上命令仅支持私聊 Bot 使用
+- 群聊触发会提示用户改为私聊
+
+## 绑定流程
+
+1. 用户在 Ember 网站控制台点击“生成绑定验证码”
+2. 网站调用 `POST /api/v1/telegram/bindcode` 返回 6 位验证码（5 分钟有效）
+3. 用户向 Bot 发送 `/bind 123456`
+4. Bot 调用 `POST /api/v1/internal/telegram/bind` 完成绑定
+5. 绑定成功后可使用 `/info` 与 `/redeem`
+
+## Bot 依赖的 Internal API
+
+除原有订阅审批接口外，Bot 还依赖以下 Go API 内部端点（均需 `X-Internal-Secret`）：
+
+- `POST /api/v1/internal/telegram/bind`
+- `POST /api/v1/internal/telegram/info`
+- `POST /api/v1/internal/telegram/redeem`

@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { 
-  UserFilled, 
   Key, 
   Message, 
   Ticket, 
@@ -15,9 +14,17 @@ import {
   ArrowRight
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
-import { getEmbyConfig, getMediaStats, getProfile, updateEmail, updatePassword } from '@/api/console'
+import {
+  generateTelegramBindCode,
+  getEmbyConfig,
+  getMediaStats,
+  getProfile,
+  unbindTelegram,
+  updateEmail,
+  updatePassword
+} from '@/api/console'
 import { redeemCode } from '@/api/user'
-import type { MediaStats, UserInfo } from '@/types/api'
+import type { MediaStats, TelegramBindCodeResponse, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
 
@@ -39,6 +46,9 @@ const loading = ref(false)
 const redeeming = ref(false)
 const redeemForm = ref({ code: '' })
 const showRenewDialog = ref(false)
+const telegramBindCode = ref<TelegramBindCodeResponse | null>(null)
+const generatingBindCode = ref(false)
+const unbinding = ref(false)
 
 const passwordForm = ref({
   oldPassword: '',
@@ -57,10 +67,15 @@ const daysLeft = computed(() => {
   return Math.ceil(ms / (24 * 60 * 60 * 1000))
 })
 
+const isTelegramBound = computed(() => !!user.value.telegramId)
+
 const fetchProfile = async () => {
   loading.value = true
   try {
     user.value = await getProfile()
+    if (user.value.telegramId) {
+      telegramBindCode.value = null
+    }
   } finally {
     loading.value = false
   }
@@ -122,6 +137,31 @@ const handleUpdatePassword = async () => {
     passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   } catch {
     // handled
+  }
+}
+
+const handleGenerateBindCode = async () => {
+  generatingBindCode.value = true
+  try {
+    telegramBindCode.value = await generateTelegramBindCode()
+  } catch {
+    // handled
+  } finally {
+    generatingBindCode.value = false
+  }
+}
+
+const handleUnbindTelegram = async () => {
+  unbinding.value = true
+  try {
+    await unbindTelegram()
+    ElMessage.success('已解除 Telegram 绑定')
+    telegramBindCode.value = null
+    await refreshAll()
+  } catch {
+    // handled
+  } finally {
+    unbinding.value = false
   }
 }
 
@@ -375,6 +415,62 @@ onMounted(refreshAll)
               >
                 更新密码
               </button>
+            </div>
+
+            <!-- Telegram Binding -->
+            <div class="space-y-4 md:col-span-2 pt-6 border-t border-gray-100">
+              <h4 class="font-bold text-gray-900 text-sm">Telegram 绑定</h4>
+
+              <div v-if="isTelegramBound" class="bg-green-50 p-4 rounded-xl border border-green-100">
+                <div class="flex items-center justify-between gap-4">
+                  <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span class="text-sm font-bold text-green-800">已绑定</span>
+                    <span class="text-xs text-green-700 font-mono">ID: {{ user.telegramId }}</span>
+                  </div>
+                  <button
+                    @click="handleUnbindTelegram"
+                    :disabled="unbinding"
+                    class="text-xs text-red-500 hover:text-red-700 font-bold cursor-pointer disabled:opacity-60"
+                  >
+                    {{ unbinding ? '解绑中...' : '解除绑定' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-else>
+                <div v-if="!telegramBindCode">
+                  <p class="text-xs text-gray-500 mb-3">
+                    绑定后可在 Telegram Bot 中使用 /info 查询账号信息、使用 /redeem 兑换续期码。
+                  </p>
+                  <button
+                    @click="handleGenerateBindCode"
+                    :disabled="generatingBindCode"
+                    class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-bold cursor-pointer disabled:opacity-70"
+                  >
+                    {{ generatingBindCode ? '生成中...' : '生成绑定验证码' }}
+                  </button>
+                </div>
+
+                <div v-else class="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3">
+                  <div class="text-center">
+                    <p class="text-xs text-blue-700 mb-2">请向 Bot 发送以下命令：</p>
+                    <code class="block bg-white px-4 py-3 rounded-lg border border-blue-200 text-2xl font-mono font-bold text-blue-900 tracking-widest select-all">
+                      /bind {{ telegramBindCode.code }}
+                    </code>
+                  </div>
+                  <p class="text-xs text-gray-500 text-center">
+                    验证码有效至 {{ new Date(telegramBindCode.expiresAt).toLocaleTimeString() }}
+                  </p>
+                  <button
+                    @click="handleGenerateBindCode"
+                    :disabled="generatingBindCode"
+                    class="w-full text-xs text-blue-600 hover:text-blue-800 font-bold cursor-pointer text-center disabled:opacity-60"
+                  >
+                    {{ generatingBindCode ? '生成中...' : '重新生成' }}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

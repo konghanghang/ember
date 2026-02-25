@@ -8,8 +8,11 @@ from telegram.ext import ContextTypes
 from app.clients import api_client
 from app.config import TELEGRAM_ADMIN_CHAT_ID, TELEGRAM_GROUP_CHAT_ID, TMDB_IMAGE_BASE
 from app.formatters.message_formatter import (
+    format_account_info,
+    format_bind_success,
     format_ranking_message,
     format_registration_message,
+    format_redeem_success,
     format_result_message,
     format_subscription_message,
 )
@@ -133,6 +136,86 @@ async def handle_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     sent = await message.reply_text(text, parse_mode="HTML")
     asyncio.create_task(_delete_later(context.bot, sent.chat_id, sent.message_id, 30))
+
+
+async def handle_bind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        return
+
+    args = context.args or []
+    if len(args) != 1 or len(args[0]) != 6:
+        await message.reply_text(
+            "📝 <b>使用方式</b>\n\n"
+            "/bind <code>验证码</code>\n\n"
+            "请先在 Ember 网站生成绑定验证码。",
+            parse_mode="HTML",
+        )
+        return
+
+    result = await api_client.verify_telegram_bind(message.from_user.id, args[0])
+    if result is None:
+        await message.reply_text("❌ 服务暂不可用，请稍后重试")
+        return
+    if "error" in result:
+        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
+        return
+
+    await message.reply_text(format_bind_success(result), parse_mode="HTML")
+
+
+async def handle_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        return
+
+    result = await api_client.get_account_info(message.from_user.id)
+    if result is None:
+        await message.reply_text("❌ 服务暂不可用，请稍后重试")
+        return
+    if "error" in result:
+        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
+        return
+
+    await message.reply_text(format_account_info(result), parse_mode="HTML")
+
+
+async def handle_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        return
+
+    args = context.args or []
+    if len(args) != 1:
+        await message.reply_text(
+            "📝 <b>使用方式</b>\n\n"
+            "/redeem <code>兑换码</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    result = await api_client.redeem_by_telegram(message.from_user.id, args[0])
+    if result is None:
+        await message.reply_text("❌ 服务暂不可用，请稍后重试")
+        return
+    if "error" in result:
+        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
+        return
+
+    await message.reply_text(format_redeem_success(result), parse_mode="HTML")
 
 
 async def _delete_later(bot, chat_id: int, message_id: int, delay: int) -> None:

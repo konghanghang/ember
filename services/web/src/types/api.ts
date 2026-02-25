@@ -22,6 +22,7 @@ export interface UserInfo {
   email?: string
   embyId?: string
   embyDisabled?: boolean
+  telegramId?: number
   expiresAt?: string
   isActive: boolean
   createdAt: string
@@ -115,6 +116,11 @@ export interface RedeemCodeRequest {
 export interface RedeemCodeResponse {
   message: string
   days: number
+  expiresAt: string
+}
+
+export interface TelegramBindCodeResponse {
+  code: string
   expiresAt: string
 }
 

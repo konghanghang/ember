@@ -14,7 +14,7 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 - 付费方案与 Stripe 一次性支付
 - 求片订阅（TMDB 搜索 → 管理员审批 → MoviePilot 自动下载）
 - 播放排行榜（日榜 / 周榜，从 Emby PlaybackActivity 生成）
-- Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息）
+- Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息、账号绑定/查询/续期）
 - 定时任务（过期检查、验证码清理、排行榜生成）
 
 ## 2. 技术栈
@@ -44,6 +44,7 @@ services/
 │     │  ├─ setting.go           # Setting（系统配置 KV）
 │     │  ├─ subscription.go      # Subscription（求片订阅）
 │     │  ├─ email_verification.go # EmailVerification（邮箱验证码）
+│     │  ├─ telegram_bind_code.go # TelegramBindCode（Telegram 绑定验证码）
 │     │  ├─ plan.go              # Plan（付费方案）
 │     │  ├─ payment.go           # Payment（支付记录）
 │     │  ├─ playback_ranking.go  # PlaybackRanking（播放排行快照）
@@ -60,6 +61,7 @@ services/
 │     │  ├─ subscription.go      # 订阅工作流
 │     │  ├─ moviepilot.go        # MoviePilot HTTP 客户端
 │     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
+│     │  ├─ telegram.go          # TelegramService（绑定/查询/续期）
 │     │  ├─ notifier.go          # BotNotifier（火忘式推送通知给 Bot）
 │     │  ├─ playback_ranking.go  # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
@@ -75,6 +77,7 @@ services/
 │     │  ├─ tmdb.go              # TMDB 搜索
 │     │  ├─ ranking.go           # 播放排行
 │     │  ├─ session.go           # 活跃会话
+│     │  ├─ telegram.go          # Telegram 绑定与 Bot Internal API
 │     │  └─ payment.go           # 支付与方案
 │     ├─ middleware/
 │     │  ├─ jwt.go               # JWTAuth + AdminOnly + UserOnly
@@ -152,6 +155,7 @@ services/
 | Email | string(255) | email | 唯一索引 |
 | EmbyID | string(50) | embyId | Emby 用户 ID |
 | EmbyDisabled | bool | embyDisabled | cron 封禁标记 |
+| TelegramID | *int64 | telegramId | Telegram 绑定 ID（唯一，可空） |
 | ExpiresAt | *time.Time | expiresAt | 到期时间（nil=永不过期）|
 | IsActive | bool | isActive | 管理员手动开关 |
 | CreatedAt | time.Time | createdAt | 自动 |
@@ -299,12 +303,25 @@ services/
 | PeriodEnd | time.Time | periodEnd | 周期结束 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 4.10 数据关系
+### 4.10 TelegramBindCode（Telegram 绑定验证码）
+
+**表名**: `telegram_bind_codes` | **文件**: `models/telegram_bind_code.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| UserID | string(25) | userId | 用户 ID（索引） |
+| Code | string(6) | code | 6 位绑定验证码 |
+| ExpiresAt | time.Time | expiresAt | 过期时间（默认 5 分钟） |
+| CreatedAt | time.Time | createdAt | 自动 |
+
+### 4.11 数据关系
 
 ```
 User (1) ──→ (N) Redemption     （兑换历史）
 User (1) ──→ (N) Subscription   （求片记录）
 User (1) ──→ (N) Payment        （支付记录）
+User (1) ──→ (N) TelegramBindCode（临时绑定验证码）
 User (1) ──→ (1) Emby User      （外部 Emby 账号，通过 EmbyID 关联）
 
 Plan (1) ──→ (N) Payment        （方案关联）
@@ -448,6 +465,17 @@ Stripe 一次性支付流程管理。
 
 统一的业务错误定义，用于 Service → Handler 的错误传递。
 
+### 5.16 TelegramService (`services/telegram.go`)
+
+Telegram 账号绑定与 Bot 自助能力服务。
+
+- `GenerateBindCode(userID)` — 生成 6 位绑定验证码（5 分钟有效），并清理该用户旧验证码
+- `VerifyBind(telegramID, code)` — 校验验证码并绑定 Telegram ID（事务 + 行锁）
+- `Unbind(userID)` — 解绑 Telegram ID
+- `GetAccountInfo(telegramID)` — 查询绑定用户账号状态
+- `RedeemByTelegram(telegramID, code)` — 复用 `RedemptionService` 完成续期兑换
+- `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
+
 ---
 
 ## 6. API 端点完整列表
@@ -476,6 +504,8 @@ Stripe 一次性支付流程管理。
 | PUT | `/api/v1/profile` | 更新资料 |
 | PUT | `/api/v1/password` | 修改密码 |
 | PUT | `/api/v1/email` | 修改邮箱 |
+| POST | `/api/v1/telegram/bindcode` | 生成 Telegram 绑定验证码 |
+| DELETE | `/api/v1/telegram/unbind` | 解除 Telegram 绑定 |
 | GET | `/api/v1/emby/config` | Emby 配置 |
 | GET | `/api/v1/media/stats` | 媒体统计 |
 | GET | `/api/v1/media/latest` | 最新入库 |
@@ -543,6 +573,9 @@ Stripe 一次性支付流程管理。
 | PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝 |
 | GET | `/api/v1/internal/settings/:key` | 读取配置 |
+| POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
+| POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
+| POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
 
 ### API 响应格式约定
 
@@ -583,7 +616,7 @@ Stripe 一次性支付流程管理。
 - `api/auth.ts` — login, register, getRegistrationMode, sendVerificationCode
 - `api/user.ts` — redeem, redemptions, tmdb
 - `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, rankings）
-- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby）
+- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram）
 
 ### 路由守卫
 
@@ -635,6 +668,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 - **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
 - **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 配置）
+- **Commands**：`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）
 - **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）
 
 ### 环境变量
@@ -657,7 +691,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | 任务 | 调度 | 控制变量 | 说明 |
 |------|------|----------|------|
 | 过期用户检查 | `CRON_SCHEDULE`（默认 `0 2 * * *`）| `CRON_ENABLED` | 封禁过期 Emby 账号 |
-| 验证码清理 | `0 3 * * *` | `CRON_ENABLED` | 删除过期 EmailVerification |
+| 验证码清理 | `0 3 * * *` | `CRON_ENABLED` | 删除过期 EmailVerification + TelegramBindCode |
 | 日榜生成 | `RANKING_DAILY_SCHEDULE`（默认 `0 20 * * *`）| `RANKING_CRON_ENABLED` | 从 Emby 生成日播放排行 |
 | 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
 
@@ -756,7 +790,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | **MoviePilot API** | 自动订阅下载（审批后触发）| `MOVIEPILOT_URL/USERNAME/PASSWORD` |
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
-| **Telegram Bot API** | 通知推送、订阅审批、欢迎消息 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
+| **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
 
 ---
 

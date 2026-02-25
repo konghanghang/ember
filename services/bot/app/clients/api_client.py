@@ -23,6 +23,66 @@ async def reject_subscription(subscription_id: str) -> bool:
     return await _call_subscription_action(subscription_id, "reject")
 
 
+async def verify_telegram_bind(telegram_id: int, code: str) -> dict | None:
+    url = f"{API_URL}/api/v1/internal/telegram/bind"
+    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={
+                    "telegramId": telegram_id,
+                    "code": code,
+                },
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.json().get("error", "绑定失败")}
+    except Exception:
+        return None
+
+
+async def get_account_info(telegram_id: int) -> dict | None:
+    url = f"{API_URL}/api/v1/internal/telegram/info"
+    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={"telegramId": telegram_id},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.json().get("error", "查询失败")}
+    except Exception:
+        return None
+
+
+async def redeem_by_telegram(telegram_id: int, code: str) -> dict | None:
+    url = f"{API_URL}/api/v1/internal/telegram/redeem"
+    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={
+                    "telegramId": telegram_id,
+                    "code": code,
+                },
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.json().get("error", "兑换失败")}
+    except Exception:
+        return None
+
+
 async def get_setting(key: str) -> str:
     url = f"{API_URL}/api/v1/internal/settings/{key}"
     headers = {"X-Internal-Secret": INTERNAL_API_SECRET}

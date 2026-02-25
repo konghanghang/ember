@@ -208,6 +208,7 @@ func AutoMigrate() error {
 		&models.Payment{},
 		&models.PlaybackRanking{},
 		&models.EmailVerification{},
+		&models.TelegramBindCode{},
 	); err != nil {
 		return err
 	}

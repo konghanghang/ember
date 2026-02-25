@@ -48,6 +48,7 @@ func main() {
 	rankingHandler := handlers.NewRankingHandler()
 	sessionHandler := handlers.NewSessionHandler()
 	paymentHandler := handlers.NewPaymentHandler()
+	telegramHandler := handlers.NewTelegramHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -129,6 +130,9 @@ func main() {
 			internal.PUT("/subscriptions/:id/approve", subscriptionHandler.ApproveSubscription)
 			internal.PUT("/subscriptions/:id/reject", subscriptionHandler.RejectSubscription)
 			internal.GET("/settings/:key", settingHandler.GetSettingByKey)
+			internal.POST("/telegram/bind", telegramHandler.VerifyBind)
+			internal.POST("/telegram/info", telegramHandler.GetAccountInfo)
+			internal.POST("/telegram/redeem", telegramHandler.RedeemByTelegram)
 		}
 
 		// ==================== 统一认证路由（admin + user 共享） ====================
@@ -145,6 +149,8 @@ func main() {
 			authenticated.PUT("/profile", userHandler.UpdateProfile)
 			authenticated.PUT("/password", userHandler.UpdatePassword)
 			authenticated.PUT("/email", userHandler.UpdateEmail)
+			authenticated.POST("/telegram/bindcode", telegramHandler.GenerateBindCode)
+			authenticated.DELETE("/telegram/unbind", telegramHandler.Unbind)
 
 			// 媒体相关
 			authenticated.GET("/emby/config", mediaHandler.GetEmbyConfig)
@@ -226,6 +232,7 @@ func main() {
 
 		systemService := services.NewSystemService()
 		emailService := services.NewEmailService()
+		telegramService := services.NewTelegramService()
 		var rankingService *services.PlaybackRankingService
 		if rankingCronEnabled == "true" {
 			rankingService = services.NewPlaybackRankingService()
@@ -237,10 +244,15 @@ func main() {
 			count, err := emailService.CleanupExpired()
 			if err != nil {
 				log.Printf("[Cron] 清理过期验证码失败：%v", err)
-				return
-			}
-			if count > 0 {
+			} else if count > 0 {
 				log.Printf("[Cron] 已清理 %d 条过期验证码", count)
+			}
+
+			telegramCount, telegramErr := telegramService.CleanupExpiredBindCodes()
+			if telegramErr != nil {
+				log.Printf("[Cron] 清理过期 Telegram 绑定码失败：%v", telegramErr)
+			} else if telegramCount > 0 {
+				log.Printf("[Cron] 已清理 %d 条过期 Telegram 绑定码", telegramCount)
 			}
 		}); err != nil {
 			log.Printf("定时任务注册失败（验证码清理）：%v", err)
