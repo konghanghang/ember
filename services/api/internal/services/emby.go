@@ -226,11 +226,10 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 		return nil, errors.New("Emby 配置未设置")
 	}
 
-	url := fmt.Sprintf("%s/emby/Users/New?api_key=%s", s.baseURL, s.apiKey)
+	createURL := fmt.Sprintf("%s/emby/Users/New?api_key=%s", s.baseURL, s.apiKey)
 
 	reqBody := map[string]interface{}{
-		"Name":     username,
-		"Password": password,
+		"Name": username,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -238,7 +237,7 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", createURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -265,8 +264,13 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 		return nil, err
 	}
 
-	// 创建后立即收敛默认权限：禁止下载，最多 3 路同时播放。
-	// 如果设置失败，为避免产生“半成品用户”，尽量回滚删除该 Emby 用户。
+	// /Users/New 不支持在请求体中设置密码，必须通过独立的 Password 端点设置
+	if err := s.UpdateUserPassword(user.ID, password); err != nil {
+		_ = s.DeleteUser(user.ID)
+		return nil, fmt.Errorf("设置 Emby 用户密码失败: %w", err)
+	}
+
+	// 收敛默认权限：禁止下载，最多 3 路同时播放
 	if err := s.ApplyEmberDefaultUserPolicy(user.ID, false); err != nil {
 		_ = s.DeleteUser(user.ID)
 		return nil, fmt.Errorf("设置 Emby 用户默认权限失败: %w", err)
@@ -617,7 +621,7 @@ func (s *EmbyService) ApplyEmberDefaultUserPolicy(embyUserID string, isDisabled 
 		}
 	}
 
-	// 降级：旧行为（可能丢字段，但比“注册失败”更可接受）。
+	// 降级：旧行为（可能丢字段，但比"注册失败"更可接受）。
 	return s.SetUserPolicy(embyUserID, NewDefaultUserPolicy(isDisabled))
 }
 
