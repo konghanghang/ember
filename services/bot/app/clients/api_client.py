@@ -84,6 +84,28 @@ async def redeem_by_telegram(telegram_id: int, code: str) -> Optional[dict]:
         return None
 
 
+async def reset_password_by_telegram(telegram_id: int, new_password: str) -> Optional[dict]:
+    """通过 Telegram 身份重置密码"""
+    url = f"{API_URL}/api/v1/internal/telegram/reset-password"
+    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={
+                    "telegramId": telegram_id,
+                    "newPassword": new_password,
+                },
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.json().get("error", "密码重置失败")}
+    except Exception:
+        return None
+
+
 async def get_setting(key: str) -> str:
     url = f"{API_URL}/api/v1/internal/settings/{key}"
     headers = {"X-Internal-Secret": INTERNAL_API_SECRET}

@@ -19,6 +19,11 @@ const router = createRouter({
       name: 'register',
       component: () => import('../views/user/RegisterView.vue'),
     },
+    {
+      path: '/forgot-password',
+      name: 'forgot-password',
+      component: () => import('../views/ForgotPasswordView.vue'),
+    },
 
     // Unified Console Routes
     {

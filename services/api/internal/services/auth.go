@@ -124,7 +124,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		if req.EmailCode == "" {
 			return nil, errors.New("请先获取邮箱验证码")
 		}
-		if err := s.emailService.VerifyCode(req.Email, req.EmailCode); err != nil {
+		if err := s.emailService.VerifyCode(req.Email, req.EmailCode, models.VerificationTypeRegister); err != nil {
 			return nil, err
 		}
 	}

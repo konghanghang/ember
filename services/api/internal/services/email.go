@@ -90,22 +90,26 @@ func (s *EmailService) IsEnabled() bool {
 
 // SendVerificationCode 发送验证码
 // ip 参数由 handler 层通过 c.ClientIP() 传入
-func (s *EmailService) SendVerificationCode(email, ip string) error {
+// codeType 取值：models.VerificationTypeRegister 或 models.VerificationTypeReset
+func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 	if !s.IsConfigured() {
 		return ErrEmailNotConfigured
 	}
 
 	var existingUserCount int64
 	db.DB.Model(&models.User{}).Where("email = ?", email).Count(&existingUserCount)
-	if existingUserCount > 0 {
+	if codeType == models.VerificationTypeRegister && existingUserCount > 0 {
 		return ErrEmailAlreadyRegistered
+	}
+	if codeType == models.VerificationTypeReset && existingUserCount == 0 {
+		return ErrEmailNotRegistered
 	}
 
 	since := time.Now().UTC().Add(-24 * time.Hour)
 
 	var emailCount int64
 	db.DB.Model(&models.EmailVerification{}).
-		Where("email = ? AND \"createdAt\" > ?", email, since).
+		Where("email = ? AND \"type\" = ? AND \"createdAt\" > ?", email, codeType, since).
 		Count(&emailCount)
 	if emailCount >= int64(s.dailyLimit) {
 		return ErrEmailCodeRateLimit
@@ -124,6 +128,7 @@ func (s *EmailService) SendVerificationCode(email, ip string) error {
 	verification := models.EmailVerification{
 		Email:     email,
 		Code:      code,
+		Type:      codeType,
 		IP:        ip,
 		ExpiresAt: time.Now().UTC().Add(time.Duration(s.expiryMinutes) * time.Minute),
 	}
@@ -140,7 +145,12 @@ func (s *EmailService) SendVerificationCode(email, ip string) error {
 	}
 
 	subject := "Ember 注册验证码"
-	body := fmt.Sprintf("你的 Ember 注册验证码是：%s\n有效期 %d 分钟，请勿泄露给他人。", code, s.expiryMinutes)
+	action := "注册"
+	if codeType == models.VerificationTypeReset {
+		subject = "Ember 密码重置验证码"
+		action = "密码重置"
+	}
+	body := fmt.Sprintf("你的 Ember %s验证码是：%s\n有效期 %d 分钟，请勿泄露给他人。", action, code, s.expiryMinutes)
 	if err := s.sendEmail(email, subject, body); err != nil {
 		tx.Rollback()
 		log.Printf("发送验证码邮件失败 [%s]: %v", email, err)
@@ -155,9 +165,9 @@ func (s *EmailService) SendVerificationCode(email, ip string) error {
 }
 
 // VerifyCode 校验验证码
-func (s *EmailService) VerifyCode(email, code string) error {
+func (s *EmailService) VerifyCode(email, code, codeType string) error {
 	var verification models.EmailVerification
-	result := db.DB.Where("email = ?", email).
+	result := db.DB.Where("email = ? AND \"type\" = ?", email, codeType).
 		Order("\"createdAt\" DESC").
 		First(&verification)
 	if result.Error != nil {

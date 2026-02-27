@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
 )
 
@@ -140,7 +141,7 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 		return
 	}
 
-	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP()); err != nil {
+	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeRegister); err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, services.ErrEmailCodeRateLimit) || errors.Is(err, services.ErrEmailCodeIPRateLimit) {
 			status = http.StatusTooManyRequests
@@ -150,6 +151,47 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "验证码已发送"})
+}
+
+// SendResetCode 发送密码重置验证码
+func (h *AuthHandler) SendResetCode(c *gin.Context) {
+	var req SendEmailCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供有效的邮箱地址"})
+		return
+	}
+
+	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeReset); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, services.ErrEmailCodeRateLimit) || errors.Is(err, services.ErrEmailCodeIPRateLimit) {
+			status = http.StatusTooManyRequests
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "验证码已发送"})
+}
+
+// ResetPasswordByCode 通过验证码重置密码
+func (h *AuthHandler) ResetPasswordByCode(c *gin.Context) {
+	var req services.ResetPasswordByCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	userService := &services.UserService{}
+	if err := userService.ResetPasswordByCode(&req); err != nil {
+		if errors.Is(err, services.ErrEmailCodeInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
 }
 
 // ErrorResponse 错误响应结构

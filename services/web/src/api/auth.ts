@@ -48,6 +48,28 @@ export function sendEmailCode(email: string): Promise<{ message: string }> {
   })
 }
 
+// 发送密码重置验证码
+export function sendResetCode(email: string): Promise<{ message: string }> {
+  return request({
+    url: '/forgot-password/send-code',
+    method: 'post',
+    data: { email }
+  })
+}
+
+// 通过验证码重置密码
+export function resetPasswordByCode(data: {
+  email: string
+  code: string
+  newPassword: string
+}): Promise<{ message: string }> {
+  return request({
+    url: '/forgot-password/reset',
+    method: 'post',
+    data
+  })
+}
+
 export function validateRegistrationCode(code: string): Promise<RedemptionCode> {
   return request({
     url: `/register/code/${code}/validate`,

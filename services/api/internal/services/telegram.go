@@ -46,6 +46,12 @@ type TelegramRedeemRequest struct {
 	Code       string `json:"code" binding:"required"`
 }
 
+// TelegramResetPasswordRequest Bot 调 Internal API 重置密码
+type TelegramResetPasswordRequest struct {
+	TelegramID  int64  `json:"telegramId" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required,min=6"`
+}
+
 // TelegramIDRequest Bot 调 Internal API 查询账号信息
 type TelegramIDRequest struct {
 	TelegramID int64 `json:"telegramId" binding:"required"`
@@ -211,6 +217,33 @@ func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*Rede
 
 	redemptionService := &RedemptionService{}
 	return redemptionService.RedeemCode(user.ID, &RedeemCodeRequest{Code: code})
+}
+
+// ResetPassword 通过 Telegram 身份重置密码
+func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) error {
+	var user models.User
+	if err := db.DB.Where("\"telegramId\" = ?", telegramID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTelegramNotBound
+		}
+		return errors.New("密码重置失败，请稍后重试")
+	}
+
+	if user.EmbyID != "" {
+		embyService := NewEmbyService()
+		if err := embyService.UpdateUserPassword(user.EmbyID, newPassword); err != nil {
+			return errors.New("密码重置失败：" + err.Error())
+		}
+	}
+
+	if err := user.SetPassword(newPassword); err != nil {
+		return errors.New("密码重置失败：本地密码更新失败")
+	}
+	if err := db.DB.Save(&user).Error; err != nil {
+		return errors.New("密码重置失败：本地密码保存失败")
+	}
+
+	return nil
 }
 
 // CleanupExpiredBindCodes 清理过期绑定码

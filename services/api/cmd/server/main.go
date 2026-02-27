@@ -61,6 +61,8 @@ func main() {
 		api.POST("/logout", middleware.JWTAuth(), authHandler.Logout)
 		api.POST("/user/register", authHandler.RegisterUser)
 		api.POST("/register/send-code", authHandler.SendEmailCode)
+		api.POST("/forgot-password/send-code", authHandler.SendResetCode)
+		api.POST("/forgot-password/reset", authHandler.ResetPasswordByCode)
 		api.GET("/register/mode", settingHandler.GetRegistrationMode)
 		api.GET("/register/code/:code/validate", redemptionCodeHandler.ValidateCode)
 		api.GET("/plans", paymentHandler.GetActivePlans)
@@ -133,6 +135,7 @@ func main() {
 			internal.POST("/telegram/bind", telegramHandler.VerifyBind)
 			internal.POST("/telegram/info", telegramHandler.GetAccountInfo)
 			internal.POST("/telegram/redeem", telegramHandler.RedeemByTelegram)
+			internal.POST("/telegram/reset-password", telegramHandler.ResetPassword)
 		}
 
 		// ==================== 统一认证路由（admin + user 共享） ====================

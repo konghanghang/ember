@@ -246,6 +246,7 @@ services/
 | ID | string(25) | id | CUID |
 | Email | string(255) | email | 索引 |
 | Code | string(6) | code | 6 位验证码（JSON 隐藏）|
+| Type | string(20) | type | 验证码类型：`register`/`reset`（索引）|
 | IP | string(45) | ip | 请求 IP（索引，JSON 隐藏）|
 | ExpiresAt | time.Time | expiresAt | 过期时间 |
 | CreatedAt | time.Time | createdAt | 自动 |
@@ -419,12 +420,12 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
-- `SendVerificationCode(email, ip)` — 生成 6 位随机验证码 → 频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
-- `VerifyCode(email, code)` — 校验验证码是否有效且未过期
-- `CleanupExpiredCodes()` — 删除过期验证码（cron 调用）
+- `SendVerificationCode(email, ip, codeType)` — 生成 6 位随机验证码 → 按类型频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
+- `VerifyCode(email, code, codeType)` — 按类型校验验证码是否有效且未过期
+- `CleanupExpired()` — 删除过期验证码（cron 调用）
 
 **频率限制**：
-- 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5）
+- 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5，按 `codeType` 隔离计数）
 - 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15）
 - 验证码有效期：`EMAIL_CODE_EXPIRY_MINUTES`（默认 10 分钟）
 
@@ -474,6 +475,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `Unbind(userID)` — 解绑 Telegram ID
 - `GetAccountInfo(telegramID)` — 查询绑定用户账号状态
 - `RedeemByTelegram(telegramID, code)` — 复用 `RedemptionService` 完成续期兑换
+- `ResetPassword(telegramID, newPassword)` — 通过 Telegram 身份重置 Ember/Emby 密码
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 
 ---
@@ -487,6 +489,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/login` | 登录 |
 | POST | `/api/v1/user/register` | 注册（code/emailCode 可选）|
 | POST | `/api/v1/register/send-code` | 发送邮箱验证码 |
+| POST | `/api/v1/forgot-password/send-code` | 发送密码重置验证码 |
+| POST | `/api/v1/forgot-password/reset` | 通过验证码重置密码 |
 | GET | `/api/v1/register/mode` | 获取注册模式 |
 | GET | `/api/v1/register/code/:code/validate` | 验证兑换码（注册前）|
 | GET | `/api/v1/plans` | 公开方案列表（仅 isActive=true）|
@@ -576,6 +580,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
 | POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
+| POST | `/api/v1/internal/telegram/reset-password` | Bot 重置账号密码 |
 
 ### API 响应格式约定
 
@@ -613,7 +618,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ### API 层
 
 - `api/request.ts` — 基础配置：baseURL=/api/v1, 401 拦截
-- `api/auth.ts` — login, register, getRegistrationMode, sendVerificationCode
+- `api/auth.ts` — login, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
 - `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, rankings）
 - `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram）
@@ -668,7 +673,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 - **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
 - **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 配置）
-- **Commands**：`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）
+- **Commands**：`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）
 - **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）
 
 ### 环境变量

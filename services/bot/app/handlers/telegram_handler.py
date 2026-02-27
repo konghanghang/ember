@@ -218,6 +218,40 @@ async def handle_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await message.reply_text(format_redeem_success(result), parse_mode="HTML")
 
 
+async def handle_resetpw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        return
+
+    args = context.args or []
+    if len(args) != 1 or len(args[0]) < 6:
+        await message.reply_text(
+            "📝 <b>使用方式</b>\n\n"
+            "/resetpw <code>新密码</code>\n\n"
+            "密码至少 6 位，将同时更新 Ember 和 Emby 登录密码。",
+            parse_mode="HTML",
+        )
+        return
+
+    result = await api_client.reset_password_by_telegram(message.from_user.id, args[0])
+    if result is None:
+        await message.reply_text("❌ 服务暂不可用，请稍后重试")
+        return
+    if "error" in result:
+        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
+        return
+
+    await message.reply_text(
+        "✅ <b>密码重置成功</b>\n\n"
+        "新密码已同步到 Ember 和 Emby，请使用新密码登录。",
+        parse_mode="HTML",
+    )
+
+
 async def _delete_later(bot, chat_id: int, message_id: int, delay: int) -> None:
     await asyncio.sleep(delay)
     try:

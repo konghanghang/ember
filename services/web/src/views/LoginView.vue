@@ -91,6 +91,12 @@ const handleLogin = async () => {
             </div>
           </div>
 
+          <div class="text-right -mt-2 mb-2">
+            <router-link to="/forgot-password" class="text-xs text-text-secondary hover:text-ember transition-colors">
+              忘记密码？
+            </router-link>
+          </div>
+
           <el-button
             native-type="submit"
             :loading="loading"

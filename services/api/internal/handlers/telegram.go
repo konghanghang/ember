@@ -139,3 +139,23 @@ func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+// ResetPassword Bot 通过 Telegram 重置密码
+func (h *TelegramHandler) ResetPassword(c *gin.Context) {
+	var req services.TelegramResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := h.telegramService.ResetPassword(req.TelegramID, req.NewPassword); err != nil {
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, services.ErrTelegramNotBound) {
+			statusCode = http.StatusBadRequest
+		}
+		c.JSON(statusCode, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
+}

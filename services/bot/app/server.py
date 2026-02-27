@@ -28,6 +28,7 @@ from app.handlers.telegram_handler import (
     handle_info,
     handle_new_member,
     handle_redeem,
+    handle_resetpw,
     send_registration_notification,
     send_ranking_notification,
     send_subscription_notification,
@@ -45,6 +46,7 @@ tg_app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_
 tg_app.add_handler(CommandHandler("bind", handle_bind))
 tg_app.add_handler(CommandHandler("info", handle_info))
 tg_app.add_handler(CommandHandler("redeem", handle_redeem))
+tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
 
 
 async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
