@@ -2,7 +2,10 @@ package services
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"fmt"
+	"log"
+	"net"
 	"net/smtp"
 	"os"
 	"strconv"
@@ -11,6 +14,8 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 )
+
+const smtpTimeout = 10 * time.Second
 
 // EmailService 邮件验证服务
 type EmailService struct {
@@ -125,10 +130,12 @@ func (s *EmailService) SendVerificationCode(email, ip string) error {
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
+		log.Printf("发送验证码开启事务失败 [%s]: %v", email, tx.Error)
 		return ErrEmailSendFailed
 	}
 	if err := tx.Create(&verification).Error; err != nil {
 		tx.Rollback()
+		log.Printf("发送验证码保存记录失败 [%s]: %v", email, err)
 		return ErrEmailSendFailed
 	}
 
@@ -136,9 +143,11 @@ func (s *EmailService) SendVerificationCode(email, ip string) error {
 	body := fmt.Sprintf("你的 Ember 注册验证码是：%s\n有效期 %d 分钟，请勿泄露给他人。", code, s.expiryMinutes)
 	if err := s.sendEmail(email, subject, body); err != nil {
 		tx.Rollback()
+		log.Printf("发送验证码邮件失败 [%s]: %v", email, err)
 		return ErrEmailSendFailed
 	}
 	if err := tx.Commit().Error; err != nil {
+		log.Printf("发送验证码提交事务失败 [%s]: %v", email, err)
 		return ErrEmailSendFailed
 	}
 
@@ -173,15 +182,58 @@ func (s *EmailService) CleanupExpired() (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
-// sendEmail 通过 SMTP 发送邮件
+// sendEmail 通过 SMTP 发送邮件（带超时控制）
 func (s *EmailService) sendEmail(to, subject, body string) error {
+	addr := s.host + ":" + s.port
+
+	conn, err := net.DialTimeout("tcp", addr, smtpTimeout)
+	if err != nil {
+		return fmt.Errorf("connect SMTP %s: %w", addr, err)
+	}
+	defer conn.Close()
+
+	conn.SetDeadline(time.Now().Add(smtpTimeout))
+
+	client, err := smtp.NewClient(conn, s.host)
+	if err != nil {
+		return fmt.Errorf("create SMTP client: %w", err)
+	}
+	defer client.Close()
+
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		if err := client.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
+			return fmt.Errorf("SMTP STARTTLS: %w", err)
+		}
+	}
+
 	auth := smtp.PlainAuth("", s.username, s.password, s.host)
+	if err := client.Auth(auth); err != nil {
+		return fmt.Errorf("SMTP auth: %w", err)
+	}
+
+	if err := client.Mail(s.from); err != nil {
+		return fmt.Errorf("SMTP MAIL FROM: %w", err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("SMTP RCPT TO: %w", err)
+	}
+
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("SMTP DATA: %w", err)
+	}
 	msg := fmt.Sprintf(
 		"From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
 		s.from, to, subject, body,
 	)
-	addr := s.host + ":" + s.port
-	return smtp.SendMail(addr, auth, s.from, []string{to}, []byte(msg))
+	if _, err := w.Write([]byte(msg)); err != nil {
+		return fmt.Errorf("SMTP write body: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("SMTP close data: %w", err)
+	}
+
+	return client.Quit()
 }
 
 // generateVerificationCode 生成 6 位随机数字验证码
