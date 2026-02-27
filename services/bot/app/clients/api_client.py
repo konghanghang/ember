@@ -1,4 +1,5 @@
 import httpx
+from typing import Optional
 
 from app.config import API_URL, INTERNAL_API_SECRET
 
@@ -23,7 +24,7 @@ async def reject_subscription(subscription_id: str) -> bool:
     return await _call_subscription_action(subscription_id, "reject")
 
 
-async def verify_telegram_bind(telegram_id: int, code: str) -> dict | None:
+async def verify_telegram_bind(telegram_id: int, code: str) -> Optional[dict]:
     url = f"{API_URL}/api/v1/internal/telegram/bind"
     headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
 
@@ -44,7 +45,7 @@ async def verify_telegram_bind(telegram_id: int, code: str) -> dict | None:
         return None
 
 
-async def get_account_info(telegram_id: int) -> dict | None:
+async def get_account_info(telegram_id: int) -> Optional[dict]:
     url = f"{API_URL}/api/v1/internal/telegram/info"
     headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
 
@@ -62,7 +63,7 @@ async def get_account_info(telegram_id: int) -> dict | None:
         return None
 
 
-async def redeem_by_telegram(telegram_id: int, code: str) -> dict | None:
+async def redeem_by_telegram(telegram_id: int, code: str) -> Optional[dict]:
     url = f"{API_URL}/api/v1/internal/telegram/redeem"
     headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
 
