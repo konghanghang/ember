@@ -44,21 +44,82 @@
    ↓
 4a. 点击 [✅ 订阅] → 创建订阅 → 显示成功
 4b. 点击 [📝 添加备注] → Bot 提示输入 → 用户发送文本 → 创建订阅
+4b-1. 备注输入阶段发送 `/cancel` → 返回当前选中项详情页（恢复 [✅ 订阅] [📝 添加备注] [🔙 返回] 按钮）
 4c. 点击 [🔙 返回] → 编辑回结果列表
+5. 用户点击旧搜索消息上的按钮（非当前会话消息）→ 提示“该搜索已失效，请使用最新搜索结果”
 ```
 
 ---
 
 ## 实现顺序
 
-1. Go API：新增 Request + Service + Handler + 路由 → `go build ./...` 编译验证
+1. Go API：新增 Request + Service + Handler + 路由（`type` 使用 `oneof=MOVIE TV` 强校验）→ `go build ./...` 编译验证
 2. Bot：新建 `search_cache.py`
 3. Bot：`api_client.py` 新增 2 个方法
 4. Bot：`config.py` 新增常量
 5. Bot：`message_formatter.py` 新增 3 个格式化函数 + 精简 `format_bind_success`
 6. Bot：`telegram_handler.py` 新增所有 handler
-7. Bot：`server.py` 拆分 CallbackQueryHandler + 注册新 handlers + 命令菜单
+7. Bot：`server.py` 拆分 CallbackQueryHandler + 注册新 handlers（含 `/cancel`）+ 命令菜单（失败不阻塞启动）
 8. 更新 `docs/SYSTEM-ARCHITECTURE.md`
+
+---
+
+## 关键问题与修正方案
+
+### 问题 A：`/search` 把所有账号查询错误都当成“未绑定”
+
+- **风险**：当内部 API 短暂故障时，用户会被错误引导去 `/bind`，属于误导性反馈。
+- **修正**：仅当错误为 `尚未绑定 Telegram 账号` 时提示绑定；其他错误原样提示“服务异常，请稍后重试”。
+
+### 问题 B：备注提交失败会丢失上下文
+
+- **风险**：`handle_text_message` 在请求返回前删除 session，网络抖动会导致用户无法重试。
+- **修正**：仅在订阅成功后删除 session；失败时保留 `waiting_for_note`，允许用户重试或 `/cancel` 返回详情页。
+
+### 问题 C：旧搜索消息按钮误操作风险
+
+- **风险**：用户点击旧消息按钮可能影响当前会话。
+- **修正**：在 callback 里校验 `chat_id + message_id`，不匹配即提示”该搜索已失效，请使用最新搜索结果”（产品已确认可接受）。
+
+### 问题 D：Callback 子处理器成功路径缺少 `query.answer()`
+
+- **风险**：Telegram 要求每个 `CallbackQuery` 必须被 `answer()`，否则用户会看到按钮上持续转圈的 loading 指示器（约 30 秒后才自动消失）。`_handle_pick`、`_handle_toggle_type`、`_handle_back`、`_handle_subscribe`（成功时）、`_handle_request_note` 的成功路径均未调用 `query.answer()`。此外 `_handle_pick` 的 index 解析失败和越界 early return 也未 answer。
+- **修正**：每个子处理器在所有路径上都必须调用 `query.answer()`。成功路径在编辑消息前调用 `await query.answer()`（无弹窗），错误路径保持 `show_alert=True`。不在 `handle_search_callback` 入口统一 answer，因为错误路径需要 `show_alert`。
+
+### 问题 E：详情页海报不匹配
+
+- **风险**：当原始搜索结果以图片消息发送（第一条结果有海报），用户点击了一个**无海报**的结果时，`_handle_pick` 降级为 `edit_message_caption`，但旧海报仍然显示，导致张冠李戴——第一条结果的图片配上第三条结果的详情文字。
+- **修正**：当选中项无海报时，使用 TMDB 默认占位图替换海报，并在 `config.py` 新增 `TMDB_NO_POSTER_URL` 常量。若占位图也发送失败，降级为 `edit_message_caption` 并在 caption 开头加 `（该影片暂无海报）` 提示。
+
+### 问题 F：全局去重的错误提示对 Telegram 用户有误导
+
+- **风险**：`CreateSubscription` 做的是全局去重（同一 `type + tmdbId` 全站只允许一次），409 错误消息为 `”该影片已提交订阅，请勿重复提交”`。当用户 A 已订阅某影片，用户 B 通过 Bot 订阅同一影片时，会看到”请勿重复提交”——但他从未提交过，造成困惑。
+- **修正**：修改 `subscribe_by_telegram` 在错误响应中新增 `”status”` 字段（值为 HTTP 状态码），`_handle_subscribe` 和 `handle_text_message` 中按 `status == 409` 判断重复订阅，改为提示 `”该影片已有用户提交订阅，无需重复提交”`。不依赖中文子串匹配。
+
+### 问题 G：`handle_cancel_note` 双重反馈冗余
+
+- **风险**：取消备注后，既编辑了原始搜索消息（恢复详情页按钮），又发送了一条新消息 `”已取消备注输入，已返回详情页。”`。用户看到两条反馈，略显冗余。
+- **修正**：去掉额外的 `reply_text` 确认消息，仅通过编辑原始消息恢复详情页按钮即可，用户能直观看到状态变化。
+
+### 问题 H：切换类型/返回列表的海报错配
+
+- **风险**：`_handle_toggle_type` 和 `_handle_back` 在当前消息为照片消息、但新结果首条无海报时，仅编辑 caption 而不替换 media，导致旧海报与新文案错配（与问题 E 相同根因）。
+- **修正**：两个函数均改为”无海报时使用 `TMDB_NO_POSTER_URL` 占位图替换 media”，与 `_handle_pick` 保持一致。
+
+### 问题 I：成功消息发送前删除 session 的时序问题
+
+- **风险**：`_handle_subscribe` 和 `handle_text_message` 在 `delete_session` 后才发送成功消息。若消息编辑/发送失败（网络抖动、Telegram API 异常），用户既拿不到成功反馈，也无法通过 `/cancel` 或重试恢复上下文。
+- **修正**：将 `delete_session` 移到成功消息发送之后，确保用户看到反馈后再清理会话。
+
+### 问题 J：`_handle_pick` 无海报降级时重复拼接提示
+
+- **风险**：无海报分支先在 `caption` 前拼接 `”（该影片暂无海报）\n\n”`，若 `edit_message_media` 失败降级到 `edit_message_caption`，又拼接一次，导致提示重复。
+- **修正**：使用独立变量 `final_caption` 存储最终文案，避免对 `caption` 变量的多次修改。
+
+### 问题 K：未绑定判断耦合中文错误文案
+
+- **风险**：`handle_search` 通过 `error_text == “尚未绑定 Telegram 账号”` 判断用户未绑定，后端文案一改就失效。且无法区分”未绑定”（400）和”服务异常”（500）。
+- **修正**：修改 `api_client.get_account_info` 在错误响应中新增 `”status”` 字段（值为 HTTP 状态码），`handle_search` 改为 `status == 400` 判断未绑定，解耦文案依赖。与问题 F 的 `subscribe_by_telegram` 采用相同模式，所有 API Client 错误响应统一携带 `status` 字段。
 
 ---
 
@@ -76,7 +137,7 @@
 // TelegramSubscribeRequest Bot 调 Internal API 创建求片订阅
 type TelegramSubscribeRequest struct {
 	TelegramID int64  `json:"telegramId" binding:"required"`
-	Type       string `json:"type" binding:"required"`
+	Type       string `json:"type" binding:"required,oneof=MOVIE TV"`
 	Name       string `json:"name" binding:"required"`
 	TmdbID     string `json:"tmdbId" binding:"required"`
 	PosterPath string `json:"posterPath"`
@@ -154,7 +215,7 @@ func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 }
 ```
 
-**模式说明**：与 `RedeemByTelegram`（第 117-141 行）结构一致。错误映射：`ErrTelegramNotBound` → 400，`ErrSubscriptionDuplicated` → 409，其他 → 500。
+**模式说明**：与 `RedeemByTelegram`（第 117-141 行）结构一致。错误映射：参数错误（含非法 `type`）→ 400，`ErrTelegramNotBound` → 400，`ErrSubscriptionDuplicated` → 409，其他 → 500。
 
 ### 1.3 注册路由
 
@@ -266,13 +327,41 @@ def _cleanup_expired() -> None:
 - `Lock` 足够：Bot 是单进程 asyncio，锁竞争极低
 - 惰性清理：不需要后台定时器，每次 `set_session` 时顺便清理
 - 用户发起新搜索时，旧会话自然被覆盖
-- `SearchSession.message_id` 用于后续 `edit_message_media/caption` 操作
+- `SearchSession.message_id/chat_id` 不仅用于编辑消息，也用于 callback 归属校验（旧消息按钮自动失效）
 
 ---
 
 ## 三、Bot — API Client 新增方法
 
 **文件**：`services/bot/app/clients/api_client.py`
+
+### 3.1 修改现有 `get_account_info` 函数
+
+将第 48-63 行的 `get_account_info` 函数替换为：
+
+```python
+async def get_account_info(telegram_id: int) -> Optional[dict]:
+    url = f"{API_URL}/api/v1/internal/telegram/info"
+    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={"telegramId": telegram_id},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        # 错误响应包含 status 字段，供调用方按状态码分流
+        return {"error": resp.json().get("error", "查询失败"), "status": resp.status_code}
+    except Exception:
+        return None
+```
+
+**修改说明**：错误响应新增 `"status"` 字段，值为 HTTP 状态码。Go 侧 `GetAccountInfo` handler 对 `ErrTelegramNotBound` 返回 400，其他错误返回 500。这样 Bot 侧可以通过 `status == 400` 判断"未绑定"，而不依赖中文错误文案。
+
+### 3.2 新增 `search_tmdb` 和 `subscribe_by_telegram` 函数
 
 在文件末尾（`get_setting` 函数之后，约第 122 行）追加以下两个函数：
 
@@ -325,7 +414,7 @@ async def subscribe_by_telegram(
 
     media_type: "MOVIE" 或 "TV"（大写，与 Go API 一致）
     返回格式（成功时）：{"message": "订阅创建成功"}
-    返回格式（失败时）：{"error": "错误信息"}
+    返回格式（失败时）：{"error": "错误信息", "status": HTTP状态码}
     返回 None 表示网络异常
     """
     url = f"{API_URL}/api/v1/internal/telegram/subscribe"
@@ -345,7 +434,7 @@ async def subscribe_by_telegram(
             resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code == 200:
             return resp.json()
-        return {"error": resp.json().get("error", "订阅失败")}
+        return {"error": resp.json().get("error", "订阅失败"), "status": resp.status_code}
     except Exception:
         return None
 ```
@@ -362,9 +451,10 @@ async def subscribe_by_telegram(
 
 ```python
 TMDB_IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
+TMDB_NO_POSTER_URL = "https://image.tmdb.org/t/p/w500/wwemzKWzjKYJFfCeiB57q3r4Bcm.png"
 ```
 
-说明：`w300` 用于管理员通知（小图），`w500` 用于用户搜索结果展示（清晰大图）。
+说明：`w300` 用于管理员通知（小图），`w500` 用于用户搜索结果展示（清晰大图），`TMDB_NO_POSTER_URL` 用于选中项无海报时的占位图（TMDB 官方默认占位图）。
 
 ---
 
@@ -372,13 +462,9 @@ TMDB_IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
 
 **文件**：`services/bot/app/formatters/message_formatter.py`
 
-### 5.1 新增 import
+### 5.1 import 说明
 
-在文件顶部第 3 行（`from telegram import InlineKeyboardButton, InlineKeyboardMarkup`）修改为：
-
-```python
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-```
+`message_formatter.py` 原有 `InlineKeyboardButton` / `InlineKeyboardMarkup` 已满足新增函数需要，**无需新增 import**。
 
 ### 5.2 精简 `format_bind_success`
 
@@ -551,6 +637,7 @@ from app.config import (
     TELEGRAM_GROUP_CHAT_ID,
     TMDB_IMAGE_BASE,
     TMDB_IMAGE_BASE_W500,
+    TMDB_NO_POSTER_URL,
 )
 from app.formatters.message_formatter import (
     format_account_info,
@@ -574,7 +661,7 @@ from app.handlers.search_cache import (
 logger = logging.getLogger(__name__)
 ```
 
-新增内容：`InputMediaPhoto`, `TMDB_IMAGE_BASE_W500`, 三个搜索格式化函数, `search_cache` 模块。
+新增内容：`InputMediaPhoto`, `TMDB_IMAGE_BASE_W500`, `TMDB_NO_POSTER_URL`, 三个搜索格式化函数, `search_cache` 模块。
 
 ### 6.2 新增 `handle_search` 命令处理
 
@@ -613,11 +700,20 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await message.reply_text("❌ 服务暂不可用，请稍后重试")
         return
     if "error" in info:
-        await message.reply_text(
-            "❌ 请先绑定 Telegram 账号后再使用搜索功能\n\n"
-            "使用 /bind <code>验证码</code> 绑定",
-            parse_mode="HTML",
-        )
+        error_text = str(info.get("error", "") or "")
+        status_code = info.get("status", 500)
+        # 按状态码判断：400 = 未绑定，其他 = 服务异常
+        if status_code == 400:
+            await message.reply_text(
+                "❌ 请先绑定 Telegram 账号后再使用搜索功能\n\n"
+                "使用 /bind <code>验证码</code> 绑定",
+                parse_mode="HTML",
+            )
+        else:
+            await message.reply_text(
+                f"❌ {escape(error_text or '查询账号信息失败，请稍后重试')}",
+                parse_mode="HTML",
+            )
         return
 
     # 默认搜索电影
@@ -628,9 +724,9 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 ```python
 async def _do_search(message, user_id: int, query: str, media_type: str) -> None:
-    """执行 TMDB 搜索并发送结果（复用于首次搜索和切换类型）
+    """执行 TMDB 搜索并发送新消息（仅用于首次 /search 命令）
 
-    message: 可以是 Update.message 或 CallbackQuery.message
+    message: Update.message（首次搜索时的用户消息对象）
     """
     result = await api_client.search_tmdb(query, media_type)
     if result is None:
@@ -711,13 +807,24 @@ async def handle_search_callback(
     if query is None or query.data is None or query.from_user is None:
         return
 
-    await query.answer()
     user_id = query.from_user.id
     data = query.data
 
     session = get_session(user_id)
     if session is None:
         await query.answer("搜索已过期，请重新搜索", show_alert=True)
+        return
+
+    # 会话归属校验：只允许操作当前会话对应的那条消息
+    # 用户发起新搜索后，旧消息按钮自动失效（产品预期）
+    if query.message is None:
+        await query.answer("搜索已过期，请重新搜索", show_alert=True)
+        return
+    if (
+        query.message.chat_id != session.chat_id
+        or query.message.message_id != session.message_id
+    ):
+        await query.answer("该搜索已失效，请使用最新搜索结果", show_alert=True)
         return
 
     if data.startswith("sub:pick:"):
@@ -730,6 +837,8 @@ async def handle_search_callback(
         await _handle_request_note(query, session, user_id)
     elif data == "sub:back":
         await _handle_back(query, session, user_id)
+    else:
+        await query.answer()
 ```
 
 ### 6.5 新增 `_handle_pick` — 选中搜索结果
@@ -740,9 +849,11 @@ async def _handle_pick(query, session: SearchSession, user_id: int, data: str) -
     try:
         index = int(data.split(":")[-1])
     except (ValueError, IndexError):
+        await query.answer("该操作已失效，请重新选择", show_alert=True)
         return
 
     if index < 0 or index >= len(session.results):
+        await query.answer("该操作已失效，请重新选择", show_alert=True)
         return
 
     session.selected_index = index
@@ -753,15 +864,25 @@ async def _handle_pick(query, session: SearchSession, user_id: int, data: str) -
     caption = format_search_detail(item, session.media_type)
     keyboard = make_detail_keyboard()
 
+    await query.answer()
+
     # 尝试编辑消息媒体（切换海报）
     poster_path = item.get("posterPath")
-    if poster_path and query.message and query.message.photo:
-        poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}"
+    no_poster_prefix = "（该影片暂无海报）\n\n"
+
+    if query.message and query.message.photo:
+        if poster_path:
+            poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}"
+            final_caption = caption
+        else:
+            # 选中项无海报：使用占位图替换，避免张冠李戴
+            poster_url = TMDB_NO_POSTER_URL
+            final_caption = no_poster_prefix + caption
         try:
             await query.edit_message_media(
                 media=InputMediaPhoto(
                     media=poster_url,
-                    caption=caption,
+                    caption=final_caption,
                     parse_mode="HTML",
                 ),
                 reply_markup=keyboard,
@@ -771,13 +892,14 @@ async def _handle_pick(query, session: SearchSession, user_id: int, data: str) -
             logger.exception("编辑海报失败，降级为编辑文本")
 
     # 降级：只编辑文本/caption
+    final_caption = (no_poster_prefix + caption) if not poster_path else caption
     if query.message and query.message.photo:
         await query.edit_message_caption(
-            caption=caption, parse_mode="HTML", reply_markup=keyboard
+            caption=final_caption, parse_mode="HTML", reply_markup=keyboard
         )
     else:
         await query.edit_message_text(
-            text=caption,
+            text=final_caption,
             parse_mode="HTML",
             reply_markup=keyboard,
             disable_web_page_preview=True,
@@ -816,9 +938,15 @@ async def _handle_toggle_type(
     caption, keyboard = format_search_results(results, new_type, session.query)
     first_poster = results[0].get("posterPath")
 
+    await query.answer()
+
     # 尝试编辑消息媒体（切换海报）
-    if first_poster and query.message and query.message.photo:
-        poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}"
+    if query.message and query.message.photo:
+        if first_poster:
+            poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}"
+        else:
+            # 新类型首条结果无海报：使用占位图，避免保留旧海报
+            poster_url = TMDB_NO_POSTER_URL
         try:
             await query.edit_message_media(
                 media=InputMediaPhoto(
@@ -833,14 +961,16 @@ async def _handle_toggle_type(
         except Exception:
             logger.exception("切换类型编辑海报失败")
 
-    # 降级
+    # 降级：edit_message_media 失败或非照片消息
+    # 无海报时在 caption 前加提示，避免旧海报 + 新文案错配
+    final_caption = caption if first_poster else f"（暂无海报）\n\n{caption}"
     if query.message and query.message.photo:
         await query.edit_message_caption(
-            caption=caption, parse_mode="HTML", reply_markup=keyboard
+            caption=final_caption, parse_mode="HTML", reply_markup=keyboard
         )
     else:
         await query.edit_message_text(
-            text=caption,
+            text=final_caption,
             parse_mode="HTML",
             reply_markup=keyboard,
             disable_web_page_preview=True,
@@ -875,7 +1005,11 @@ async def _handle_subscribe(
         return
 
     if "error" in result:
-        await query.answer(str(result["error"]), show_alert=True)
+        error_text = str(result["error"])
+        # 全局去重：409 = 重复订阅，改为更友好的提示
+        if result.get("status") == 409:
+            error_text = "该影片已有用户提交订阅，无需重复提交"
+        await query.answer(error_text, show_alert=True)
         return
 
     # 成功：编辑消息显示结果，清除 session
@@ -885,14 +1019,28 @@ async def _handle_subscribe(
         f"📌 {title}\n\n"
         "已提交求片请求，请等待管理员审核。"
     )
-    delete_session(user_id)
 
-    if query.message and query.message.photo:
-        await query.edit_message_caption(
-            caption=success_text, parse_mode="HTML", reply_markup=None
-        )
-    else:
-        await query.edit_message_text(text=success_text, parse_mode="HTML")
+    await query.answer()
+
+    try:
+        if query.message and query.message.photo:
+            await query.edit_message_caption(
+                caption=success_text, parse_mode="HTML", reply_markup=None
+            )
+        else:
+            await query.edit_message_text(text=success_text, parse_mode="HTML")
+    except Exception:
+        logger.exception("订阅成功但编辑消息失败，降级为 reply_text")
+        try:
+            if query.message is not None:
+                await query.message.reply_text("✅ 订阅成功，请等待管理员审核。")
+            else:
+                logger.warning("订阅成功但无法发送反馈：query.message 为空")
+        except Exception:
+            pass
+
+    # 成功消息发送后再删除 session，避免编辑失败时丢失上下文
+    delete_session(user_id)
 ```
 
 ### 6.8 新增 `_handle_request_note` — 请求备注输入
@@ -917,6 +1065,9 @@ async def _handle_request_note(
         f"📌 {title}\n\n"
         "发送 /cancel 取消"
     )
+
+    await query.answer()
+
     if query.message and query.message.photo:
         await query.edit_message_caption(
             caption=text, parse_mode="HTML", reply_markup=None
@@ -941,8 +1092,14 @@ async def _handle_back(query, session: SearchSession, user_id: int) -> None:
         session.results[0].get("posterPath") if session.results else None
     )
 
-    if first_poster and query.message and query.message.photo:
-        poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}"
+    await query.answer()
+
+    if query.message and query.message.photo:
+        if first_poster:
+            poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}"
+        else:
+            # 返回列表首条无海报：使用占位图，避免保留详情页海报
+            poster_url = TMDB_NO_POSTER_URL
         try:
             await query.edit_message_media(
                 media=InputMediaPhoto(
@@ -956,20 +1113,106 @@ async def _handle_back(query, session: SearchSession, user_id: int) -> None:
         except Exception:
             logger.exception("返回列表编辑海报失败")
 
+    # 降级：edit_message_media 失败或非照片消息
+    # 无海报时在 caption 前加提示，避免旧海报 + 新文案错配
+    final_caption = caption if first_poster else f"（暂无海报）\n\n{caption}"
     if query.message and query.message.photo:
         await query.edit_message_caption(
-            caption=caption, parse_mode="HTML", reply_markup=keyboard
+            caption=final_caption, parse_mode="HTML", reply_markup=keyboard
         )
     else:
         await query.edit_message_text(
-            text=caption,
+            text=final_caption,
             parse_mode="HTML",
             reply_markup=keyboard,
             disable_web_page_preview=True,
         )
 ```
 
-### 6.10 新增 `handle_text_message` — 接收备注输入
+### 6.10 新增 `handle_cancel_note` — 取消备注输入
+
+```python
+async def handle_cancel_note(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """处理 /cancel：取消备注输入并恢复详情页按钮"""
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        return
+
+    user_id = message.from_user.id
+    session = get_session(user_id)
+    if session is None or not session.waiting_for_note:
+        await message.reply_text("当前没有待取消的备注输入。")
+        return
+
+    if session.selected_index < 0 or session.selected_index >= len(session.results):
+        delete_session(user_id)
+        await message.reply_text("搜索会话已失效，请重新发起 /search。")
+        return
+
+    session.waiting_for_note = False
+    set_session(user_id, session)
+
+    item = session.results[session.selected_index]
+    raw_caption = format_search_detail(item, session.media_type)
+    keyboard = make_detail_keyboard()
+    poster_path = item.get("posterPath")
+
+    # 恢复详情页：优先通过 edit_message_media 替换海报
+    if poster_path:
+        poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}"
+        caption = raw_caption
+    else:
+        # 无海报：使用占位图替换，避免保留旧海报
+        poster_url = TMDB_NO_POSTER_URL
+        caption = "（该影片暂无海报）\n\n" + raw_caption
+
+    try:
+        await context.bot.edit_message_media(
+            chat_id=session.chat_id,
+            message_id=session.message_id,
+            media=InputMediaPhoto(
+                media=poster_url,
+                caption=caption,
+                parse_mode="HTML",
+            ),
+            reply_markup=keyboard,
+        )
+        return
+    except Exception:
+        logger.exception("取消备注后恢复详情海报失败，降级为编辑文本")
+
+    # 降级恢复：编辑 caption / text（caption 已包含"暂无海报"前缀）
+    try:
+        await context.bot.edit_message_caption(
+            chat_id=session.chat_id,
+            message_id=session.message_id,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    except Exception:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=session.chat_id,
+                message_id=session.message_id,
+                text=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            logger.exception("取消备注后恢复详情页完全失败")
+            await message.reply_text(
+                "❌ 恢复详情页失败，请重新使用 /search 搜索。"
+            )
+```
+
+### 6.11 新增 `handle_text_message` — 接收备注输入
 
 ```python
 async def handle_text_message(
@@ -977,8 +1220,7 @@ async def handle_text_message(
 ) -> None:
     """处理私聊文本消息（仅用于接收备注输入）
 
-    仅在用户有 waiting_for_note=True 的搜索会话时处理，
-    否则静默忽略（不干扰其他消息流）。
+    仅在订阅成功后删除 session；失败时保留会话供用户重试或 /cancel。
     """
     del context
     message = update.message
@@ -997,12 +1239,8 @@ async def handle_text_message(
         return
 
     note = message.text.strip()
-
-    # /cancel 取消备注输入
-    if note.lower() == "/cancel":
-        session.waiting_for_note = False
-        set_session(user_id, session)
-        await message.reply_text("已取消备注输入。你可以重新发起 /search 搜索。")
+    if not note:
+        await message.reply_text("备注不能为空，请重新输入，或发送 /cancel 取消。")
         return
 
     item = session.results[session.selected_index]
@@ -1017,25 +1255,39 @@ async def handle_text_message(
         note=note,
     )
 
-    delete_session(user_id)
-
     if result is None:
-        await message.reply_text("❌ 服务暂不可用，请稍后重试")
+        await message.reply_text("❌ 服务暂不可用，请稍后重试，或发送 /cancel 返回详情页。")
         return
     if "error" in result:
+        error_text = str(result['error'])
+        # 全局去重：409 = 重复订阅，改为更友好的提示
+        if result.get("status") == 409:
+            error_text = "该影片已有用户提交订阅，无需重复提交"
         await message.reply_text(
-            f"❌ {escape(str(result['error']))}", parse_mode="HTML"
+            f"❌ {escape(error_text)}\n\n发送 /cancel 返回详情页，或直接修改备注后重试。",
+            parse_mode="HTML",
         )
         return
 
     title = escape(str(item.get("title", "")))
-    await message.reply_text(
-        f"✅ <b>订阅成功</b>\n\n"
-        f"📌 {title}\n"
-        f"💬 备注：{escape(note)}\n\n"
-        "已提交求片请求，请等待管理员审核。",
-        parse_mode="HTML",
-    )
+    try:
+        await message.reply_text(
+            f"✅ <b>订阅成功</b>\n\n"
+            f"📌 {title}\n"
+            f"💬 备注：{escape(note)}\n\n"
+            "已提交求片请求，请等待管理员审核。",
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("订阅成功但发送成功消息失败")
+        # 尝试发送纯文本兜底
+        try:
+            await message.reply_text("✅ 订阅成功，请等待管理员审核。")
+        except Exception:
+            pass
+
+    # 成功消息发送后再删除 session，避免发送失败时丢失上下文
+    delete_session(user_id)
 ```
 
 ---
@@ -1051,6 +1303,7 @@ async def handle_text_message(
 ```python
 from app.handlers.telegram_handler import (
     handle_bind,
+    handle_cancel_note,
     handle_callback,
     handle_info,
     handle_new_member,
@@ -1065,7 +1318,8 @@ from app.handlers.telegram_handler import (
 )
 ```
 
-新增 3 个 import：`handle_search`, `handle_search_callback`, `handle_text_message`。
+新增 4 个 import：`handle_search`, `handle_search_callback`, `handle_cancel_note`, `handle_text_message`。
+此外，确保 telegram import 为 `from telegram import BotCommand, Update`（命令菜单注册依赖 `BotCommand`）。
 
 ### 7.2 修改 handler 注册（第 43-49 行）
 
@@ -1085,9 +1339,10 @@ tg_app.add_handler(CommandHandler("info", handle_info))
 tg_app.add_handler(CommandHandler("redeem", handle_redeem))
 tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
 tg_app.add_handler(CommandHandler("search", handle_search))
+tg_app.add_handler(CommandHandler("cancel", handle_cancel_note))
 
 # 文本消息 handler 放在最后：仅处理 waiting_for_note 状态下的备注输入
-# 匹配：私聊 + 纯文本 + 非命令
+# 匹配：私聊 + 纯文本 + 非命令（/cancel 由专用 CommandHandler 处理）
 tg_app.add_handler(MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
     handle_text_message,
@@ -1098,10 +1353,13 @@ tg_app.add_handler(MessageHandler(
 - 第 44 行原来是 `CallbackQueryHandler(handle_callback)` 没有 `pattern` 参数
 - 必须改为 `pattern=r"^(approve|reject):"` 否则它会吞掉 `sub:*` 回调
 - 这是唯一影响现有功能的改动点，`approve:xxx` 和 `reject:xxx` 的回调行为完全不变
+- 搜索回调新增“消息归属校验”：只处理当前会话消息，旧搜索消息按钮会提示失效（产品确认可接受）
 
-### 7.3 修改 `lifespan` 函数（第 76-94 行）
+### 7.3 修改 `lifespan` 函数 — 更新命令菜单列表
 
-将第 76-94 行替换为：
+现有 `lifespan` 已包含 `set_my_commands` + try/except 结构（第 82-90 行），此处仅需**更新命令列表**，新增 `search` 和 `cancel` 两个命令。
+
+将第 82-87 行的命令列表替换为：
 
 ```python
 @asynccontextmanager
@@ -1109,19 +1367,19 @@ async def lifespan(app: FastAPI):
     del app
     await tg_app.initialize()
     await tg_app.start()
+    try:
+        await tg_app.bot.set_my_commands([
+            BotCommand("search", "搜索影视"),
+            BotCommand("bind", "绑定 Ember 账号"),
+            BotCommand("info", "查看账号信息"),
+            BotCommand("redeem", "兑换续期码"),
+            BotCommand("resetpw", "重置密码"),
+            BotCommand("cancel", "取消备注输入"),
+        ])
+        logger.info("Bot 命令菜单已注册")
+    except Exception as err:
+        logger.warning("Bot 命令菜单注册失败，不影响服务运行: %s", err)
     logger.info("Telegram Bot 服务已启动，开始异步注册 webhook")
-
-    # 注册 Bot 命令菜单
-    from telegram import BotCommand
-
-    await tg_app.bot.set_my_commands([
-        BotCommand("search", "搜索影视"),
-        BotCommand("bind", "绑定 Ember 账号"),
-        BotCommand("info", "查看账号信息"),
-        BotCommand("redeem", "兑换续期码"),
-        BotCommand("resetpw", "重置密码"),
-    ])
-    logger.info("Bot 命令菜单已注册")
 
     stop_event = asyncio.Event()
     webhook_task = asyncio.create_task(register_webhook_with_retry(stop_event))
@@ -1137,7 +1395,7 @@ async def lifespan(app: FastAPI):
         await tg_app.shutdown()
 ```
 
-新增内容：`set_my_commands` 调用，放在 `tg_app.start()` 之后、webhook 注册之前。
+新增内容：`set_my_commands` 调用，放在 `tg_app.start()` 之后、webhook 注册之前；命令注册失败仅告警，不阻塞服务启动。
 
 ---
 
@@ -1152,9 +1410,9 @@ async def lifespan(app: FastAPI):
    | POST | `/api/v1/internal/telegram/subscribe` | Bot 创建求片订阅 |
    ```
 
-2. **第 672-677 行 Bot 命令与处理器**：新增 `/search` 命令说明
+2. **第 672-677 行 Bot 命令与处理器**：新增 `/search` 与 `/cancel` 命令说明
    ```
-   - **Commands**：`/search`（搜索影视并订阅）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）
+   - **Commands**：`/search`（搜索影视并订阅）、`/cancel`（取消备注输入并回到详情页）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）
    ```
 
 3. **Bot 文件结构**（第 126-138 行）：新增 `search_cache.py`
@@ -1186,16 +1444,21 @@ Telegram callback_data 上限 64 bytes，所有格式均安全。
 
 | 场景 | 错误来源 | 处理方式 |
 |------|----------|----------|
-| 用户未绑定 | `get_account_info` 返回 `{"error": "..."}` | 提示先绑定 + 引导 `/bind` |
+| 用户未绑定 | `get_account_info` 返回 `status=400` | 提示先绑定 + 引导 `/bind` |
+| 账号查询接口异常 | `get_account_info` 返回 `status≠400`（如 500） | 原样提示接口错误，不引导绑定 |
 | TMDB 搜索无结果 | API 返回 `results: []` | 提示更换关键词 |
 | TMDB API 不可用 | `search_tmdb` 返回 `None` | 提示稍后重试 |
 | 搜索会话过期（10min） | `get_session` 返回 `None` | `callback.answer("搜索已过期")` |
-| 重复订阅 | Go API 返回 409 + `ErrSubscriptionDuplicated` | `callback.answer` 显示错误 |
-| 无海报（posterPath 为 null） | TMDB 数据缺失 | 退化为纯文本 `send_message` |
+| 点击旧搜索消息按钮 | `query.message_id/chat_id` 与 session 不一致 | `callback.answer("该搜索已失效，请使用最新搜索结果")` |
+| 重复订阅 | Go API 返回 409 + `ErrSubscriptionDuplicated` | Bot 统一显示"该影片已有用户提交订阅，无需重复提交"（callback 路径通过 `query.answer`，备注路径通过 `reply_text`） |
+| 无海报（posterPath 为 null） | TMDB 数据缺失 | 详情页使用占位图替换；若占位图也失败，降级文本并加"该影片暂无海报"提示；列表页退化为纯文本 `send_message` |
 | 海报 URL 请求失败 | Telegram API `send_photo` 异常 | catch exception → 降级文本 |
 | 编辑消息失败 | `edit_message_media` 异常 | catch exception → 降级 `edit_caption` |
 | 用户连续搜索 | 同一用户快速发 `/search` | 新搜索覆盖旧 session |
-| 备注输入时发送 /cancel | 用户主动取消 | 重置 `waiting_for_note`，提示已取消 |
+| 备注输入时发送 /cancel | `/cancel` 命令命中 `handle_cancel_note` | 重置 `waiting_for_note`，并恢复到详情页按钮状态 |
+| 备注提交失败 | `subscribe_by_telegram` 返回 `None`/`error` | 保留会话，提示用户重试或 `/cancel` 返回详情页 |
+| Bot 命令菜单注册失败 | Telegram API 临时错误 | 记录 warning，服务继续启动 |
+| TMDB API Key 未配置 | Go 侧 `TMDB_API_KEY` 环境变量为空 | 搜索返回 500 `"TMDB API 未配置"`，Bot 侧透传错误提示用户 |
 
 ---
 
@@ -1208,9 +1471,9 @@ Telegram callback_data 上限 64 bytes，所有格式均安全。
 | `services/api/cmd/server/main.go` | 修改 | +1 行（路由） |
 | `services/bot/app/handlers/search_cache.py` | **新建** | ~60 行 |
 | `services/bot/app/clients/api_client.py` | 修改 | +50 行（2 个函数） |
-| `services/bot/app/config.py` | 修改 | +1 行 |
+| `services/bot/app/config.py` | 修改 | +2 行 |
 | `services/bot/app/formatters/message_formatter.py` | 修改 | +90 行（3 个新函数 + 精简 1 个） |
-| `services/bot/app/handlers/telegram_handler.py` | 修改 | +250 行（import + 10 个函数） |
+| `services/bot/app/handlers/telegram_handler.py` | 修改 | +280 行（import + 11 个函数） |
 | `services/bot/app/server.py` | 修改 | +20 行（import + handler 注册 + 菜单） |
 | `docs/SYSTEM-ARCHITECTURE.md` | 修改 | 更新 3 处 |
 
@@ -1230,12 +1493,19 @@ Telegram callback_data 上限 64 bytes，所有格式均安全。
 
 3. **部署后端到端测试**：
    - `/search 搏击俱乐部` → 确认显示海报 + 结果列表 + 按钮
-   - 点击数字按钮 → 确认详情页正确（海报切换、标题、TMDB 链接）
+   - 点击数字按钮 → 确认详情页正确（海报切换、标题、TMDB 链接），且按钮无 loading 转圈
+   - 点击一个无海报的结果 → 确认显示占位图或"该影片暂无海报"提示，不出现张冠李戴
    - 点击 [📺 搜索电视剧] → 确认切换类型并重新搜索
    - 点击 [🔙 返回] → 确认回到结果列表
-   - 点击 [✅ 订阅] → 确认订阅创建成功 + 管理员收到审批通知
+   - 点击 [✅ 订阅] → 确认订阅创建成功 + 管理员收到审批通知，按钮无 loading 转圈
    - 点击 [📝 添加备注] → 输入文本 → 确认带备注订阅成功
-   - 重复订阅同一影片 → 确认提示「该影片已提交订阅，请勿重复提交」
+   - 点击 [📝 添加备注] 后发送 `/cancel` → 确认原始消息恢复详情页按钮，无额外确认消息
+   - 点击 [📝 添加备注] 后，模拟订阅接口失败（超时/500）→ 确认提示重试且会话仍保留，可继续输入或 `/cancel`
+   - 重复订阅同一影片（本人已订阅）→ 确认提示「该影片已有用户提交订阅，无需重复提交」
+   - 其他用户已订阅的影片再次订阅 → 确认提示「该影片已有用户提交订阅，无需重复提交」（非"请勿重复提交"）
    - 未绑定用户执行 `/search` → 确认提示先绑定
+   - 已绑定用户执行 `/search` 且账号查询接口返回 500 → 确认提示服务异常，不误导去 `/bind`
    - 等待 10 分钟后点击按钮 → 确认提示「搜索已过期」
+   - 连续发起两次 `/search` 后点击第一条旧消息按钮 → 确认提示「该搜索已失效，请使用最新搜索结果」
    - 搜索无结果的关键词 → 确认提示更换关键词
+   - TMDB API Key 未配置时执行 `/search` → 确认提示错误信息而非崩溃
