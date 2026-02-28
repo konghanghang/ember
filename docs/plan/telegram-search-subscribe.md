@@ -16,14 +16,14 @@
    │     [第一条结果的海报]     │
    ├─────────────────────────┤
    │ 🔍 搜索 "搏击俱乐部" 的  │
-   │    电影结果：              │
+   │    结果：                  │
    │                           │
    │ 1. 搏击俱乐部 (1999)      │
-   │    - Fight Club            │
-   │ 2. ...                     │
+   │    🎬 电影 - Fight Club    │
+   │ 2. 权力的游戏 (2011)      │
+   │    📺 电视剧 - Game of...  │
    ├─────────────────────────┤
    │ [1] [2] [3] [4]          │
-   │ [📺 搜索电视剧]           │
    └─────────────────────────┘
    ↓
 3. 用户点击数字按钮 → 编辑消息为详情页：
@@ -504,7 +504,6 @@ def format_search_results(
     keyboard 示例：
         [1] [2] [3] [4]
         [5] [6] [7] [8]
-        [📺 搜索电视剧]
     """
     type_label = "电影" if media_type == "movie" else "电视剧"
     tmdb_path = "movie" if media_type == "movie" else "tv"
@@ -542,9 +541,6 @@ def format_search_results(
         buttons.append(row)
 
     # 底部：切换类型按钮
-    toggle_label = "📺 搜索电视剧" if media_type == "movie" else "🎬 搜索电影"
-    buttons.append([InlineKeyboardButton(toggle_label, callback_data="sub:type")])
-
     return "\n".join(lines), InlineKeyboardMarkup(buttons)
 ```
 
@@ -797,7 +793,6 @@ async def handle_search_callback(
 
     路由规则：
     - sub:pick:{index} → 选中搜索结果
-    - sub:type         → 切换电影/电视剧
     - sub:ok           → 确认订阅
     - sub:note         → 请求输入备注
     - sub:back         → 返回搜索列表
@@ -829,8 +824,6 @@ async def handle_search_callback(
 
     if data.startswith("sub:pick:"):
         await _handle_pick(query, session, user_id, data)
-    elif data == "sub:type":
-        await _handle_toggle_type(query, session, user_id)
     elif data == "sub:ok":
         await _handle_subscribe(query, session, user_id)
     elif data == "sub:note":
@@ -1431,7 +1424,6 @@ async def lifespan(app: FastAPI):
 | `approve:{cuid}` | 审批通过（现有） | `handle_callback` | ~35 bytes |
 | `reject:{cuid}` | 审批拒绝（现有） | `handle_callback` | ~34 bytes |
 | `sub:pick:{0-7}` | 选中搜索结果 | `handle_search_callback` | 10 bytes |
-| `sub:type` | 切换搜索类型 | `handle_search_callback` | 8 bytes |
 | `sub:ok` | 确认订阅 | `handle_search_callback` | 6 bytes |
 | `sub:note` | 请求输入备注 | `handle_search_callback` | 8 bytes |
 | `sub:back` | 返回搜索列表 | `handle_search_callback` | 8 bytes |
@@ -1492,10 +1484,13 @@ Telegram callback_data 上限 64 bytes，所有格式均安全。
    ```
 
 3. **部署后端到端测试**：
-   - `/search 搏击俱乐部` → 确认显示海报 + 结果列表 + 按钮
+   - `/search 搏击俱乐部` → 确认显示混合结果（电影 + 电视剧），每条带类型标识（🎬/📺）
+   - `/search 权力的游戏` → 确认电视剧结果直接出现在混合列表中，无需切换类型
    - 点击数字按钮 → 确认详情页正确（海报切换、标题、TMDB 链接），且按钮无 loading 转圈
+   - 点击电影结果 → 确认详情页显示"类型：电影"，订阅后管理员通知中 `type=MOVIE`
+   - 点击电视剧结果 → 确认详情页显示"类型：电视剧"，订阅后管理员通知中 `type=TV`
    - 点击一个无海报的结果 → 确认显示占位图或"该影片暂无海报"提示，不出现张冠李戴
-   - 点击 [📺 搜索电视剧] → 确认切换类型并重新搜索
+   - 确认底部不再有 `[📺 搜索电视剧]` 按钮
    - 点击 [🔙 返回] → 确认回到结果列表
    - 点击 [✅ 订阅] → 确认订阅创建成功 + 管理员收到审批通知，按钮无 loading 转圈
    - 点击 [📝 添加备注] → 输入文本 → 确认带备注订阅成功

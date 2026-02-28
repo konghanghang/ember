@@ -315,7 +315,7 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             )
         return
 
-    await _do_search(message, user_id, query, "movie")
+    await _do_search(message, user_id, query, "multi")
 
 
 async def _do_search(message, user_id: int, query: str, media_type: str) -> None:
@@ -332,21 +332,25 @@ async def _do_search(message, user_id: int, query: str, media_type: str) -> None
 
     all_results = result.get("results", [])
     if not all_results:
-        type_label = "电影" if media_type == "movie" else "电视剧"
-        await message.reply_text(f"😔 未找到相关{type_label}，请尝试其他关键词")
+        await message.reply_text("😔 未找到相关内容，请尝试其他关键词")
         return
 
-    results = all_results[:8]
+    valid_results = [
+        item for item in all_results if item.get("mediaType") in ("movie", "tv")
+    ][:8]
+    if not valid_results:
+        await message.reply_text("😔 未找到相关内容，请尝试其他关键词")
+        return
 
     session = SearchSession(
-        results=results,
+        results=valid_results,
         media_type=media_type,
         query=query,
     )
 
-    caption, keyboard = format_search_results(results, media_type, query)
+    caption, keyboard = format_search_results(valid_results, query)
 
-    first_poster = results[0].get("posterPath")
+    first_poster = valid_results[0].get("posterPath")
     if first_poster:
         poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}"
         try:
@@ -403,8 +407,6 @@ async def handle_search_callback(
 
     if data.startswith("sub:pick:"):
         await _handle_pick(query, session, user_id, data)
-    elif data == "sub:type":
-        await _handle_toggle_type(query, session, user_id)
     elif data == "sub:ok":
         await _handle_subscribe(query, session, user_id)
     elif data == "sub:note":
@@ -432,7 +434,7 @@ async def _handle_pick(query, session: SearchSession, user_id: int, data: str) -
     set_session(user_id, session)
 
     item = session.results[index]
-    caption = format_search_detail(item, session.media_type)
+    caption = format_search_detail(item)
     keyboard = make_detail_keyboard()
 
     await query.answer()
@@ -474,71 +476,6 @@ async def _handle_pick(query, session: SearchSession, user_id: int, data: str) -
         )
 
 
-async def _handle_toggle_type(
-    query, session: SearchSession, user_id: int
-) -> None:
-    """切换搜索类型（电影 ↔ 电视剧），重新搜索并编辑消息"""
-    new_type = "tv" if session.media_type == "movie" else "movie"
-
-    result = await api_client.search_tmdb(session.query, new_type)
-    if result is None or "error" in result:
-        await query.answer("搜索失败，请重试", show_alert=True)
-        return
-
-    all_results = result.get("results", [])
-    if not all_results:
-        type_label = "电影" if new_type == "movie" else "电视剧"
-        await query.answer(f"未找到相关{type_label}", show_alert=True)
-        return
-
-    results = all_results[:8]
-    new_session = SearchSession(
-        results=results,
-        media_type=new_type,
-        query=session.query,
-        message_id=session.message_id,
-        chat_id=session.chat_id,
-    )
-
-    caption, keyboard = format_search_results(results, new_type, session.query)
-    first_poster = results[0].get("posterPath")
-
-    await query.answer()
-
-    if query.message and query.message.photo:
-        if first_poster:
-            poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}"
-        else:
-            poster_url = TMDB_NO_POSTER_URL
-        try:
-            await query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=poster_url,
-                    caption=caption,
-                    parse_mode="HTML",
-                ),
-                reply_markup=keyboard,
-            )
-            set_session(user_id, new_session)
-            return
-        except Exception:
-            logger.exception("切换类型编辑海报失败")
-
-    final_caption = caption if first_poster else f"（暂无海报）\n\n{caption}"
-    if query.message and query.message.photo:
-        await query.edit_message_caption(
-            caption=final_caption, parse_mode="HTML", reply_markup=keyboard
-        )
-    else:
-        await query.edit_message_text(
-            text=final_caption,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
-    set_session(user_id, new_session)
-
-
 async def _handle_subscribe(
     query, session: SearchSession, user_id: int
 ) -> None:
@@ -548,7 +485,8 @@ async def _handle_subscribe(
         return
 
     item = session.results[session.selected_index]
-    media_type_upper = "MOVIE" if session.media_type == "movie" else "TV"
+    item_media_type = item.get("mediaType", "movie")
+    media_type_upper = "MOVIE" if item_media_type == "movie" else "TV"
 
     result = await api_client.subscribe_by_telegram(
         telegram_id=user_id,
@@ -635,7 +573,7 @@ async def _handle_back(query, session: SearchSession, user_id: int) -> None:
     set_session(user_id, session)
 
     caption, keyboard = format_search_results(
-        session.results, session.media_type, session.query
+        session.results, session.query
     )
     first_poster = (
         session.results[0].get("posterPath") if session.results else None
@@ -701,7 +639,7 @@ async def handle_cancel_note(
     set_session(user_id, session)
 
     item = session.results[session.selected_index]
-    raw_caption = format_search_detail(item, session.media_type)
+    raw_caption = format_search_detail(item)
     keyboard = make_detail_keyboard()
     poster_path = item.get("posterPath")
 
@@ -777,7 +715,8 @@ async def handle_text_message(
         return
 
     item = session.results[session.selected_index]
-    media_type_upper = "MOVIE" if session.media_type == "movie" else "TV"
+    item_media_type = item.get("mediaType", "movie")
+    media_type_upper = "MOVIE" if item_media_type == "movie" else "TV"
 
     result = await api_client.subscribe_by_telegram(
         telegram_id=user_id,

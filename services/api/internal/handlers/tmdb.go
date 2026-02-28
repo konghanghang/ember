@@ -34,6 +34,7 @@ type TMDBSearchResult struct {
 	PosterPath    *string `json:"poster_path"`
 	ReleaseDate   *string `json:"release_date"`
 	FirstAirDate  *string `json:"first_air_date"`
+	MediaType     *string `json:"media_type"`
 }
 
 // TMDBApiResponse TMDB API 响应
@@ -54,11 +55,11 @@ type UnifiedSearchResult struct {
 }
 
 // Search TMDB 搜索 API 代理
-// GET /api/v1/tmdb/search?query=xxx&type=movie
+// GET /api/v1/tmdb/search?query=xxx&type=multi
 func (h *TMDBHandler) Search(c *gin.Context) {
 	// 获取查询参数
 	query := c.Query("query")
-	mediaType := c.DefaultQuery("type", "movie") // movie 或 tv
+	mediaType := c.DefaultQuery("type", "movie")
 
 	if query == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -75,9 +76,16 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 	}
 
 	// 根据类型选择搜索端点
-	endpoint := "search/movie"
-	if mediaType == "tv" {
+	endpoint := "search/multi"
+	if mediaType == "movie" {
+		endpoint = "search/movie"
+	} else if mediaType == "tv" {
 		endpoint = "search/tv"
+	} else if mediaType != "multi" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "type 参数必须是 movie、tv 或 multi",
+		})
+		return
 	}
 
 	// 构建 TMDB API URL
@@ -125,6 +133,14 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 	// 转换为统一格式
 	results := make([]UnifiedSearchResult, 0, len(tmdbResp.Results))
 	for _, item := range tmdbResp.Results {
+		itemMediaType := mediaType
+		if mediaType == "multi" && item.MediaType != nil {
+			itemMediaType = *item.MediaType
+		}
+		if itemMediaType == "person" {
+			continue
+		}
+
 		// 电影用 title，电视剧用 name
 		title := ""
 		if item.Title != nil {
@@ -152,7 +168,7 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 			Overview:      item.Overview,
 			PosterPath:    item.PosterPath,
 			ReleaseDate:   releaseDate,
-			MediaType:     mediaType,
+			MediaType:     itemMediaType,
 		})
 	}
 

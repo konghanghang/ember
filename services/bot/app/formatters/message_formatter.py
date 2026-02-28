@@ -206,15 +206,12 @@ def format_ranking_message(data: dict) -> str:
 
 def format_search_results(
     results: list[dict],
-    media_type: str,
     query: str,
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """格式化搜索结果列表"""
-    type_label = "电影" if media_type == "movie" else "电视剧"
-    tmdb_path = "movie" if media_type == "movie" else "tv"
+    """格式化搜索结果列表（混合展示电影和电视剧）"""
 
     lines = [
-        f"🔍 搜索 <b>{escape(query)}</b> 的{type_label}结果：",
+        f"🔍 搜索 <b>{escape(query)}</b> 的结果：",
         "",
     ]
 
@@ -224,10 +221,20 @@ def format_search_results(
         tmdb_id = item.get("id", "")
         release_date = str(item.get("releaseDate", "") or "")
         year = release_date[:4] if len(release_date) >= 4 else ""
+        item_media_type = item.get("mediaType", "movie")
+        if item_media_type == "movie":
+            type_emoji = "🎬"
+            type_label = "电影"
+            tmdb_path = "movie"
+        else:
+            type_emoji = "📺"
+            type_label = "电视剧"
+            tmdb_path = "tv"
 
         line = f"<b>{i + 1}.</b> <a href='https://www.themoviedb.org/{tmdb_path}/{tmdb_id}'>{title}</a>"
         if year:
             line += f" ({year})"
+        line += f" {type_emoji} {type_label}"
         if original_title and original_title != str(item.get("title", "")):
             line += f" - {escape(original_title)}"
         lines.append(line)
@@ -242,13 +249,10 @@ def format_search_results(
     if row:
         buttons.append(row)
 
-    toggle_label = "📺 搜索电视剧" if media_type == "movie" else "🎬 搜索电影"
-    buttons.append([InlineKeyboardButton(toggle_label, callback_data="sub:type")])
-
     return "\n".join(lines), InlineKeyboardMarkup(buttons)
 
 
-def format_search_detail(item: dict, media_type: str) -> str:
+def format_search_detail(item: dict) -> str:
     """格式化选中结果的详情"""
     title = escape(str(item.get("title", "")))
     original_title = str(item.get("originalTitle", "") or "")
@@ -256,8 +260,16 @@ def format_search_detail(item: dict, media_type: str) -> str:
     release_date = str(item.get("releaseDate", "") or "")
     year = release_date[:4] if len(release_date) >= 4 else ""
     overview = str(item.get("overview", "") or "")
-    type_label = "电影" if media_type == "movie" else "电视剧"
-    tmdb_path = "movie" if media_type == "movie" else "tv"
+    item_media_type = item.get("mediaType", "movie")
+    if item_media_type == "movie":
+        type_label = "电影"
+        tmdb_path = "movie"
+    elif item_media_type == "tv":
+        type_label = "电视剧"
+        tmdb_path = "tv"
+    else:
+        type_label = "未知"
+        tmdb_path = "movie"
 
     if len(overview) > 300:
         overview = overview[:300] + "..."
