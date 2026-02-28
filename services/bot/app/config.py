@@ -19,3 +19,5 @@ API_URL = os.getenv("API_URL", "http://localhost:8080").rstrip("/")
 BOT_PORT = int(os.getenv("BOT_PORT", "8000"))
 
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w300"
+TMDB_IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
+TMDB_NO_POSTER_URL = "https://image.tmdb.org/t/p/w500/wwemzKWzjKYJFfCeiB57q3r4Bcm.png"

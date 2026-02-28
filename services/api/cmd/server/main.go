@@ -136,6 +136,7 @@ func main() {
 			internal.POST("/telegram/info", telegramHandler.GetAccountInfo)
 			internal.POST("/telegram/redeem", telegramHandler.RedeemByTelegram)
 			internal.POST("/telegram/reset-password", telegramHandler.ResetPassword)
+			internal.POST("/telegram/subscribe", telegramHandler.SubscribeByTelegram)
 		}
 
 		// ==================== 统一认证路由（admin + user 共享） ====================

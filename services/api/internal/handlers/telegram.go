@@ -159,3 +159,26 @@ func (h *TelegramHandler) ResetPassword(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
 }
+
+// SubscribeByTelegram Bot 通过 Telegram 创建求片订阅
+func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
+	var req services.TelegramSubscribeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := h.telegramService.SubscribeByTelegram(req); err != nil {
+		statusCode := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, services.ErrTelegramNotBound):
+			statusCode = http.StatusBadRequest
+		case errors.Is(err, services.ErrSubscriptionDuplicated):
+			statusCode = http.StatusConflict
+		}
+		c.JSON(statusCode, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "订阅创建成功"})
+}

@@ -57,6 +57,16 @@ type TelegramIDRequest struct {
 	TelegramID int64 `json:"telegramId" binding:"required"`
 }
 
+// TelegramSubscribeRequest Bot 调 Internal API 创建求片订阅
+type TelegramSubscribeRequest struct {
+	TelegramID int64  `json:"telegramId" binding:"required"`
+	Type       string `json:"type" binding:"required,oneof=MOVIE TV"`
+	Name       string `json:"name" binding:"required"`
+	TmdbID     string `json:"tmdbId" binding:"required"`
+	PosterPath string `json:"posterPath"`
+	Note       string `json:"note"`
+}
+
 // GenerateBindCode 生成绑定验证码
 func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, error) {
 	var user models.User
@@ -244,6 +254,35 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 	}
 
 	return nil
+}
+
+// SubscribeByTelegram 通过 Telegram 身份创建求片订阅
+func (s *TelegramService) SubscribeByTelegram(req TelegramSubscribeRequest) error {
+	var user models.User
+	if err := db.DB.Where("\"telegramId\" = ?", req.TelegramID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTelegramNotBound
+		}
+		return errors.New("订阅失败，请稍后重试")
+	}
+
+	var posterPath *string
+	if req.PosterPath != "" {
+		posterPath = &req.PosterPath
+	}
+	var note *string
+	if req.Note != "" {
+		note = &req.Note
+	}
+
+	subService := NewSubscriptionService()
+	return subService.CreateSubscription(user.ID, CreateSubscriptionRequest{
+		Type:       models.MediaType(req.Type),
+		Name:       req.Name,
+		TmdbID:     req.TmdbID,
+		PosterPath: posterPath,
+		Note:       note,
+	})
 }
 
 // CleanupExpiredBindCodes 清理过期绑定码

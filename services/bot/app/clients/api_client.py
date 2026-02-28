@@ -58,7 +58,7 @@ async def get_account_info(telegram_id: int) -> Optional[dict]:
             )
         if resp.status_code == 200:
             return resp.json()
-        return {"error": resp.json().get("error", "查询失败")}
+        return {"error": resp.json().get("error", "查询失败"), "status": resp.status_code}
     except Exception:
         return None
 
@@ -119,3 +119,49 @@ async def get_setting(key: str) -> str:
         pass
 
     return ""
+
+
+async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:
+    """调用公开 TMDB 搜索 API（无需鉴权，直接 GET）"""
+    url = f"{API_URL}/api/v1/tmdb/search"
+    params = {"query": query, "type": media_type}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, params=params)
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.json().get("error", "搜索失败")}
+    except Exception:
+        return None
+
+
+async def subscribe_by_telegram(
+    telegram_id: int,
+    media_type: str,
+    name: str,
+    tmdb_id: str,
+    poster_path: str = "",
+    note: str = "",
+) -> Optional[dict]:
+    """通过 Telegram 身份创建求片订阅"""
+    url = f"{API_URL}/api/v1/internal/telegram/subscribe"
+    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+
+    payload = {
+        "telegramId": telegram_id,
+        "type": media_type,
+        "name": name,
+        "tmdbId": str(tmdb_id),
+        "posterPath": poster_path,
+        "note": note,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.json().get("error", "订阅失败"), "status": resp.status_code}
+    except Exception:
+        return None

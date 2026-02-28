@@ -202,3 +202,90 @@ def format_ranking_message(data: dict) -> str:
         lines.append("📭 暂无播放数据")
 
     return "\n".join(lines)
+
+
+def format_search_results(
+    results: list[dict],
+    media_type: str,
+    query: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """格式化搜索结果列表"""
+    type_label = "电影" if media_type == "movie" else "电视剧"
+    tmdb_path = "movie" if media_type == "movie" else "tv"
+
+    lines = [
+        f"🔍 搜索 <b>{escape(query)}</b> 的{type_label}结果：",
+        "",
+    ]
+
+    for i, item in enumerate(results):
+        title = escape(str(item.get("title", "")))
+        original_title = str(item.get("originalTitle", "") or "")
+        tmdb_id = item.get("id", "")
+        release_date = str(item.get("releaseDate", "") or "")
+        year = release_date[:4] if len(release_date) >= 4 else ""
+
+        line = f"<b>{i + 1}.</b> <a href='https://www.themoviedb.org/{tmdb_path}/{tmdb_id}'>{title}</a>"
+        if year:
+            line += f" ({year})"
+        if original_title and original_title != str(item.get("title", "")):
+            line += f" - {escape(original_title)}"
+        lines.append(line)
+
+    buttons: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for i in range(len(results)):
+        row.append(InlineKeyboardButton(str(i + 1), callback_data=f"sub:pick:{i}"))
+        if len(row) == 4:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    toggle_label = "📺 搜索电视剧" if media_type == "movie" else "🎬 搜索电影"
+    buttons.append([InlineKeyboardButton(toggle_label, callback_data="sub:type")])
+
+    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+
+def format_search_detail(item: dict, media_type: str) -> str:
+    """格式化选中结果的详情"""
+    title = escape(str(item.get("title", "")))
+    original_title = str(item.get("originalTitle", "") or "")
+    tmdb_id = item.get("id", "")
+    release_date = str(item.get("releaseDate", "") or "")
+    year = release_date[:4] if len(release_date) >= 4 else ""
+    overview = str(item.get("overview", "") or "")
+    type_label = "电影" if media_type == "movie" else "电视剧"
+    tmdb_path = "movie" if media_type == "movie" else "tv"
+
+    if len(overview) > 300:
+        overview = overview[:300] + "..."
+
+    lines = [f"📌 <b>{title}</b>"]
+    if original_title and original_title != str(item.get("title", "")):
+        lines.append(f"   {escape(original_title)}")
+    lines.append(f"🎭 类型：{type_label}")
+    if year:
+        lines.append(f"📅 年份：{year}")
+    lines.append(
+        f"🔗 <a href='https://www.themoviedb.org/{tmdb_path}/{tmdb_id}'>TMDB #{tmdb_id}</a>"
+    )
+    if overview:
+        lines.append("")
+        lines.append(escape(overview))
+
+    return "\n".join(lines)
+
+
+def make_detail_keyboard() -> InlineKeyboardMarkup:
+    """详情页的操作按钮"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ 订阅", callback_data="sub:ok"),
+            InlineKeyboardButton("📝 添加备注", callback_data="sub:note"),
+        ],
+        [
+            InlineKeyboardButton("🔙 返回", callback_data="sub:back"),
+        ],
+    ])

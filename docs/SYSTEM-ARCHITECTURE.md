@@ -131,7 +131,8 @@ services/
       ├─ config.py               # 环境变量加载
       ├─ server.py               # FastAPI + Telegram Application（Webhook 模式）
       ├─ handlers/
-      │  └─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息）
+      │  ├─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息）
+      │  └─ search_cache.py      # 搜索会话缓存
       ├─ formatters/
       │  └─ message_formatter.py # Telegram 消息格式化
       └─ clients/
@@ -581,6 +582,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
 | POST | `/api/v1/internal/telegram/reset-password` | Bot 重置账号密码 |
+| POST | `/api/v1/internal/telegram/subscribe` | Bot 创建求片订阅 |
 
 ### API 响应格式约定
 
@@ -673,7 +675,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 - **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
 - **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 配置）
-- **Commands**：`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）
+- **Commands**：`/search`（搜索影视并订阅）、`/cancel`（取消备注输入并回到详情页）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）
 - **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）
 
 ### 环境变量

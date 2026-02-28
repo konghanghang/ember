@@ -24,11 +24,15 @@ from app.config import (
 )
 from app.handlers.telegram_handler import (
     handle_bind,
+    handle_cancel_note,
     handle_callback,
     handle_info,
     handle_new_member,
     handle_redeem,
     handle_resetpw,
+    handle_search,
+    handle_search_callback,
+    handle_text_message,
     send_registration_notification,
     send_ranking_notification,
     send_subscription_notification,
@@ -41,12 +45,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-tg_app.add_handler(CallbackQueryHandler(handle_callback))
+tg_app.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^(approve|reject):"))
+tg_app.add_handler(CallbackQueryHandler(handle_search_callback, pattern=r"^sub:"))
 tg_app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
 tg_app.add_handler(CommandHandler("bind", handle_bind))
 tg_app.add_handler(CommandHandler("info", handle_info))
 tg_app.add_handler(CommandHandler("redeem", handle_redeem))
 tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
+tg_app.add_handler(CommandHandler("search", handle_search))
+tg_app.add_handler(CommandHandler("cancel", handle_cancel_note))
+tg_app.add_handler(MessageHandler(
+    filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+    handle_text_message,
+))
 
 
 async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
@@ -80,10 +91,12 @@ async def lifespan(app: FastAPI):
     await tg_app.start()
     try:
         await tg_app.bot.set_my_commands([
-            BotCommand("bind", "绑定 Ember 账户"),
-            BotCommand("info", "查看账户信息"),
-            BotCommand("redeem", "兑换码"),
+            BotCommand("search", "搜索影视"),
+            BotCommand("bind", "绑定 Ember 账号"),
+            BotCommand("info", "查看账号信息"),
+            BotCommand("redeem", "兑换续期码"),
             BotCommand("resetpw", "重置密码"),
+            BotCommand("cancel", "取消备注输入"),
         ])
         logger.info("Bot 命令菜单已注册")
     except Exception as err:
