@@ -8,9 +8,9 @@
 
 ## 方案
 
-两处改动，两个文件。
+三处改动，两个文件。
 
-### 改动 1：注册命令菜单
+### 改动 1：注册命令菜单（✅ 已完成）
 
 **文件**：`services/bot/app/server.py`
 
@@ -21,15 +21,17 @@ from telegram import BotCommand
 
 # lifespan 函数内，await tg_app.start() 之后添加：
 await tg_app.bot.set_my_commands([
-    BotCommand("bind", "绑定 Ember 账户"),
-    BotCommand("info", "查看账户信息"),
-    BotCommand("redeem", "兑换码"),
+    BotCommand("search", "搜索影视"),
+    BotCommand("bind", "绑定 Ember 账号"),
+    BotCommand("info", "查看账号信息"),
+    BotCommand("redeem", "兑换续期码"),
     BotCommand("resetpw", "重置密码"),
+    BotCommand("cancel", "取消备注输入"),
 ])
 logger.info("Bot 命令菜单已注册")
 ```
 
-### 改动 2：精简绑定成功消息
+### 改动 2：精简绑定成功消息（✅ 已完成）
 
 **文件**：`services/bot/app/formatters/message_formatter.py`
 
@@ -44,15 +46,53 @@ def format_bind_success(data: dict) -> str:
     )
 ```
 
+### 改动 3：覆盖高优先级 scope（✅ 已完成）
+
+**问题**：改动 1 已部署且日志确认 `set_my_commands` 成功，但私聊中菜单仍显示旧命令（缺少 search、cancel）。
+
+**原因**：Telegram `set_my_commands` 有 scope 优先级机制。旧命令可能通过 BotFather 或之前的 API 调用设置在了更高优先级的 scope（如 `BotCommandScopeAllPrivateChats`），当前代码只设置 `BotCommandScopeDefault`，无法覆盖高优先级 scope 的命令。
+
+> Telegram scope 优先级：`BotCommandScopeChat`（特定聊天）> `BotCommandScopeAllPrivateChats`（所有私聊）> `BotCommandScopeAllGroupChats`（所有群组）> `BotCommandScopeDefault`（默认）
+
+**文件**：`services/bot/app/server.py`
+
+为避免“先删后设”在 Telegram API 临时失败时清空现有菜单，采用无破坏顺序：
+1. 先设置 `BotCommandScopeDefault`
+2. 再设置 `BotCommandScopeAllPrivateChats`（覆盖私聊高优先级 scope）
+3. 最后仅对 `BotCommandScopeAllGroupChats` 做 best-effort 清理（失败忽略）
+
+```python
+from telegram import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
+
+commands = [
+    BotCommand("search", "搜索影视"),
+    BotCommand("bind", "绑定 Ember 账号"),
+    BotCommand("info", "查看账号信息"),
+    BotCommand("redeem", "兑换续期码"),
+    BotCommand("resetpw", "重置密码"),
+    BotCommand("cancel", "取消备注输入"),
+]
+
+await tg_app.bot.set_my_commands(commands)
+await tg_app.bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())
+with suppress(Exception):
+    await tg_app.bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
+logger.info("Bot 命令菜单已注册")
+```
+
+这样即使命令注册失败，也不会先删除旧菜单导致用户看到空命令列表。
+
 ## 涉及文件
 
-| 文件 | 改动 |
-|------|------|
-| `services/bot/app/server.py` | 新增 `set_my_commands` 调用 + import |
-| `services/bot/app/formatters/message_formatter.py` | 精简 `format_bind_success` 返回内容 |
+| 文件 | 改动 | 状态 |
+|------|------|------|
+| `services/bot/app/server.py` | 新增 `set_my_commands` 调用 + import | ✅ 已完成 |
+| `services/bot/app/formatters/message_formatter.py` | 精简 `format_bind_success` 返回内容 | ✅ 已完成 |
+| `services/bot/app/server.py` | 设置 Default + AllPrivateChats 命令，并 best-effort 清理 AllGroupChats | ✅ 已完成 |
 
 ## 验证方式
 
-1. `cd services/bot && python -c "from app.server import app; print('import ok')"` 验证语法
-2. 部署后在 Telegram 客户端打开 Bot 对话，点击输入框左下角 "/" 按钮，应能看到 4 个命令及其描述
-3. 执行 `/bind` 绑定成功后，确认消息只显示绑定结果，不再列出命令
+1. `cd services/bot && python3 -m py_compile app/server.py` 验证语法
+2. 部署后检查日志确认 `"Bot 命令菜单已注册"`
+3. 在 Telegram 私聊中点击 `/` 按钮，应看到 6 个命令：search、bind、info、redeem、resetpw、cancel
+4. 执行 `/bind` 绑定成功后，确认消息只显示绑定结果，不再列出命令

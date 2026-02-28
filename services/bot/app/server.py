@@ -6,7 +6,12 @@ from hmac import compare_digest
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from telegram import BotCommand, Update
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    Update,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -89,15 +94,22 @@ async def lifespan(app: FastAPI):
     del app
     await tg_app.initialize()
     await tg_app.start()
+    commands = [
+        BotCommand("search", "搜索影视"),
+        BotCommand("bind", "绑定 Ember 账号"),
+        BotCommand("info", "查看账号信息"),
+        BotCommand("redeem", "兑换续期码"),
+        BotCommand("resetpw", "重置密码"),
+        BotCommand("cancel", "取消备注输入"),
+    ]
     try:
-        await tg_app.bot.set_my_commands([
-            BotCommand("search", "搜索影视"),
-            BotCommand("bind", "绑定 Ember 账号"),
-            BotCommand("info", "查看账号信息"),
-            BotCommand("redeem", "兑换续期码"),
-            BotCommand("resetpw", "重置密码"),
-            BotCommand("cancel", "取消备注输入"),
-        ])
+        await tg_app.bot.set_my_commands(commands)
+        await tg_app.bot.set_my_commands(
+            commands,
+            scope=BotCommandScopeAllPrivateChats(),
+        )
+        with suppress(Exception):
+            await tg_app.bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
         logger.info("Bot 命令菜单已注册")
     except Exception as err:
         logger.warning("Bot 命令菜单注册失败，不影响服务运行: %s", err)
