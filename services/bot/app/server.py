@@ -6,7 +6,7 @@ from hmac import compare_digest
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -78,6 +78,16 @@ async def lifespan(app: FastAPI):
     del app
     await tg_app.initialize()
     await tg_app.start()
+    try:
+        await tg_app.bot.set_my_commands([
+            BotCommand("bind", "绑定 Ember 账户"),
+            BotCommand("info", "查看账户信息"),
+            BotCommand("redeem", "兑换码"),
+            BotCommand("resetpw", "重置密码"),
+        ])
+        logger.info("Bot 命令菜单已注册")
+    except Exception as err:
+        logger.warning("Bot 命令菜单注册失败，不影响服务运行: %s", err)
     logger.info("Telegram Bot 服务已启动，开始异步注册 webhook")
 
     stop_event = asyncio.Event()

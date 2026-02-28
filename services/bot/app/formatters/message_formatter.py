@@ -83,10 +83,7 @@ def format_bind_success(data: dict) -> str:
     username = escape(str(data.get("username", "") or ""))
     return (
         "✅ <b>绑定成功</b>\n\n"
-        f"👤 已绑定账号：<b>{username}</b>\n\n"
-        "现在可以使用以下命令：\n"
-        "  /info - 查看账号信息\n"
-        "  /redeem <code>兑换码</code> - 续期"
+        f"👤 已绑定账号：<b>{username}</b>"
     )
 
 
