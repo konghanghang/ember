@@ -756,11 +756,11 @@ curl -X GET "${EMBY_URL}/System/Info?api_key=${EMBY_API_KEY}"
 **步骤**:
 1. 访问 http://localhost:3000/admin/settings
 2. 找到 "定时任务" 部分
-3. 点击 "手动触发到期检查" 按钮
+3. 点击 "立即执行" 按钮（过期检查任务）
 4. 等待执行完成
 
 **验证**:
-- ✅ 显示执行结果，例如: "检查完成，禁用了 1 个用户"
+- ✅ 显示执行成功提示（例如 "任务执行成功"）
 - 📝 记录禁用用户数: ___________
 
 ---
@@ -770,7 +770,7 @@ curl -X GET "${EMBY_URL}/System/Info?api_key=${EMBY_API_KEY}"
 **用户列表验证**:
 1. 访问 http://localhost:3000/admin/users
 2. 找到 `expiretest01`
-3. ✅ 账号状态显示 "已禁用"
+3. ✅ 账号状态显示 "已过期"（或与过期一致的禁用态）
 
 **Emby 验证**:
 1. 登录 Emby 管理后台
@@ -779,13 +779,14 @@ curl -X GET "${EMBY_URL}/System/Info?api_key=${EMBY_API_KEY}"
 
 **Prisma Studio 验证**:
 1. 查看 `User` 表
-2. ✅ `expiretest01` 的 `isActive` = `false`
+2. ✅ `expiretest01` 的 `embyDisabled` = `true`
+3. ✅ `isActive` 字段保持原值（过期检查任务不修改该字段）
 
 **日志验证**:
-1. 查看 `Log` 表
+1. 查看 API 服务日志
 2. ✅ 存在定时任务日志:
-   - `action`: 包含 "cron" 或 "定时任务"
-   - `details`: 包含 `expiretest01` 或禁用用户数量
+   - 包含 `[Cron] 开始检查过期用户...`
+   - 包含 `[Cron] 完成，封禁 X/Y 个用户`
 
 ---
 
@@ -794,12 +795,12 @@ curl -X GET "${EMBY_URL}/System/Info?api_key=${EMBY_API_KEY}"
 **步骤**:
 
 ```bash
-# 使用 curl 调用 Cron API
-curl -X GET http://localhost:3000/api/cron \
-  -H "Authorization: Bearer test-cron-secret"
+# 使用管理员 JWT 调用 Cron API
+curl -X POST http://localhost:8080/api/v1/admin/cron/check-expired \
+  -H "Authorization: Bearer YOUR_ADMIN_JWT"
 ```
 
-（将 `test-cron-secret` 替换为你在 `.env` 中设置的 `CRON_SECRET`）
+（将 `YOUR_ADMIN_JWT` 替换为管理员登录后拿到的 JWT）
 
 **验证**:
 - ✅ 返回成功响应（HTTP 200）
@@ -810,7 +811,9 @@ curl -X GET http://localhost:3000/api/cron \
 {
   "success": true,
   "disabledCount": 0,
-  "message": "定时任务执行完成"
+  "totalExpired": 0,
+  "processed": 0,
+  "errors": []
 }
 ```
 
@@ -1778,8 +1781,8 @@ PORT=3001 npm run dev
 
 - [x] **访问系统设置页面**
   - 导航到 `/admin/settings`
-  - 点击 "手动触发到期检查"
-  - ✅ 预期: 显示 "检查完成，禁用了 X 个用户"
+  - 点击 "立即执行"（过期检查任务）
+  - ✅ 预期: 显示执行成功提示
   - 📝 禁用用户数: **通过** - 正确识别并禁用过期用户
 
 ### 5.3 验证执行结果
@@ -1787,7 +1790,7 @@ PORT=3001 npm run dev
 - [x] **验证用户被禁用**
   - 访问 `/admin/users`
   - 查看 `expiretest01`
-  - ✅ 预期: 账号状态显示 "已禁用"
+  - ✅ 预期: 账号状态显示 "已过期"（或与过期一致的禁用态）
   - 📝 结果: **通过** - 状态正确
 
 - [x] **验证 Emby 用户被禁用**
@@ -1797,12 +1800,12 @@ PORT=3001 npm run dev
 
 - [x] **验证数据库更新**
   - 打开 Prisma Studio
-  - ✅ 预期: `isActive` = false
+  - ✅ 预期: `embyDisabled` = true，且 `isActive` 保持原值
   - 📝 结果: **通过** - 数据库更新正确
 
 - [ ] **验证日志记录**
-  - 查看 `Log` 表
-  - ✅ 预期: 存在 "定时任务禁用过期用户" 日志
+  - 查看 API 服务日志
+  - ✅ 预期: 存在 `[Cron]` 前缀的过期检查执行日志
   - 📝 结果: **未验证** - 可选验证
 
 ### 5.4 Cron API 端点测试（可选）
@@ -1810,8 +1813,8 @@ PORT=3001 npm run dev
 - [ ] **直接调用 Cron API**
   - 使用 curl 或 Postman:
     ```bash
-    curl -X GET http://localhost:3000/api/cron \
-      -H "Authorization: Bearer YOUR_CRON_SECRET"
+    curl -X POST http://localhost:8080/api/v1/admin/cron/check-expired \
+      -H "Authorization: Bearer YOUR_ADMIN_JWT"
     ```
   - ✅ 预期: 返回成功响应
   - 📝 结果: **未测试** - 可选功能

@@ -88,21 +88,19 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 
 	var totalExpired int64
 	if err := db.DB.Model(&models.User{}).
-		Where("\"expiresAt\" < ?", cutoff).
+		Where("\"expiresAt\" < ? AND \"embyId\" <> '' AND \"embyDisabled\" = ?", cutoff, false).
 		Count(&totalExpired).Error; err != nil {
 		return nil, fmt.Errorf("查询过期用户总数失败: %w", err)
 	}
 
 	var expiredUsers []models.User
-	err := db.DB.
-		Where("\"expiresAt\" < ? AND \"embyId\" <> ''", cutoff).
-		Find(&expiredUsers).Error
-
-	if err != nil {
+	if err := db.DB.
+		Where("\"expiresAt\" < ? AND \"embyId\" <> '' AND \"embyDisabled\" = ?", cutoff, false).
+		Find(&expiredUsers).Error; err != nil {
 		return nil, fmt.Errorf("查询过期用户失败: %w", err)
 	}
 
-	log.Printf("[Cron] 发现 %d 个过期用户（可处理 %d 个）", totalExpired, len(expiredUsers))
+	log.Printf("[Cron] 发现 %d 个待封禁过期用户", totalExpired)
 
 	// 循环处理每个过期用户
 	for _, user := range expiredUsers {
@@ -125,34 +123,38 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 			continue
 		}
 
-		// 2. 仅在状态变化时更新数据库，避免无意义写入
-		if !user.EmbyDisabled {
-			user.EmbyDisabled = true
-			if err := db.DB.Save(&user).Error; err != nil {
-				errorMsg := fmt.Sprintf("更新数据库失败 %s: %v", user.Username, err)
-				errMessages = append(errMessages, errorMsg)
-				failedUsers = append(failedUsers, map[string]interface{}{
-					"username": user.Username,
-					"error":    err.Error(),
-				})
-				log.Printf("[Cron] %s", errorMsg)
-				continue
-			}
-
-			// 3. 记录新封禁成功
-			disabledCount++
-			var expiresAtStr *string
-			if user.ExpiresAt != nil {
-				str := user.ExpiresAt.Format("2006-01-02 15:04:05")
-				expiresAtStr = &str
-			}
-			disabledUsers = append(disabledUsers, DisabledUserInfo{
-				Username:  user.Username,
-				Email:     user.Email,
-				ExpiresAt: expiresAtStr,
+		// 2. 仅更新 embyDisabled 字段，避免 Save 全量写回覆盖并发更新
+		updateResult := db.DB.Model(&models.User{}).
+			Where("id = ? AND \"embyDisabled\" = ?", user.ID, false).
+			Update("\"embyDisabled\"", true)
+		if updateResult.Error != nil {
+			errorMsg := fmt.Sprintf("更新数据库失败 %s: %v", user.Username, updateResult.Error)
+			errMessages = append(errMessages, errorMsg)
+			failedUsers = append(failedUsers, map[string]interface{}{
+				"username": user.Username,
+				"error":    updateResult.Error.Error(),
 			})
-			log.Printf("[Cron] 已禁用用户: %s (%s)", user.Username, user.ID)
+			log.Printf("[Cron] %s", errorMsg)
+			continue
 		}
+		if updateResult.RowsAffected == 0 {
+			log.Printf("[Cron] 用户状态已更新，跳过重复写入: %s (%s)", user.Username, user.ID)
+			continue
+		}
+
+		// 3. 记录新封禁成功
+		disabledCount++
+		var expiresAtStr *string
+		if user.ExpiresAt != nil {
+			str := user.ExpiresAt.Format("2006-01-02 15:04:05")
+			expiresAtStr = &str
+		}
+		disabledUsers = append(disabledUsers, DisabledUserInfo{
+			Username:  user.Username,
+			Email:     user.Email,
+			ExpiresAt: expiresAtStr,
+		})
+		log.Printf("[Cron] 已禁用用户: %s (%s)", user.Username, user.ID)
 	}
 
 	log.Printf("[Cron] 定时任务完成，新封禁 %d 个，处理 %d 个过期用户", disabledCount, processedCount)

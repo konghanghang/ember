@@ -175,6 +175,80 @@ const formatDate = (dateStr?: string | null) => {
   return new Date(dateStr).toLocaleString()
 }
 
+const isExpired = (dateStr?: string | null) => {
+  if (!dateStr) return false
+  const timestamp = new Date(dateStr).getTime()
+  if (Number.isNaN(timestamp)) return false
+  return timestamp < Date.now()
+}
+
+const getEmberStatus = (row: UserInfo) => {
+  if (!row.isActive) {
+    return {
+      text: '禁用',
+      dotClass: 'bg-red-500',
+      textClass: 'text-red-700',
+      pulse: false
+    }
+  }
+  return {
+    text: '正常',
+    dotClass: 'bg-green-500',
+    textClass: 'text-green-700',
+    pulse: true
+  }
+}
+
+const getEmbyStatus = (row: UserInfo) => {
+  if (!row.embyId) {
+    return {
+      text: '未关联',
+      dotClass: 'bg-gray-400',
+      textClass: 'text-gray-600',
+      pulse: false,
+      reason: '无 Emby 账号'
+    }
+  }
+
+  if (!row.embyDisabled) {
+    return {
+      text: '可用',
+      dotClass: 'bg-green-500',
+      textClass: 'text-green-700',
+      pulse: true,
+      reason: '未禁用'
+    }
+  }
+
+  if (!row.isActive) {
+    return {
+      text: '禁用',
+      dotClass: 'bg-red-500',
+      textClass: 'text-red-700',
+      pulse: false,
+      reason: '跟随 Ember 禁用'
+    }
+  }
+
+  if (isExpired(row.expiresAt ?? null)) {
+    return {
+      text: '禁用',
+      dotClass: 'bg-yellow-500',
+      textClass: 'text-yellow-700',
+      pulse: false,
+      reason: '过期封禁'
+    }
+  }
+
+  return {
+    text: '禁用',
+    dotClass: 'bg-orange-500',
+    textClass: 'text-orange-700',
+    pulse: false,
+    reason: '手动/异常禁用'
+  }
+}
+
 onMounted(() => {
   fetchData()
 })
@@ -239,16 +313,36 @@ onMounted(() => {
           </template>
         </el-table-column>
 
-        <!-- Status -->
-        <el-table-column label="状态" width="100">
+        <!-- Ember Status -->
+        <el-table-column label="Ember 状态" width="120">
           <template #default="{ row }">
             <div class="flex items-center gap-2">
               <span class="relative flex h-2.5 w-2.5">
-                <span v-if="row.isActive" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-2.5 w-2.5" :class="row.isActive ? 'bg-green-500' : 'bg-red-500'"></span>
+                <span v-if="getEmberStatus(row).pulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2.5 w-2.5" :class="getEmberStatus(row).dotClass"></span>
               </span>
-              <span class="text-sm font-medium" :class="row.isActive ? 'text-green-700' : 'text-red-700'">
-                {{ row.isActive ? '正常' : '禁用' }}
+              <span class="text-sm font-medium" :class="getEmberStatus(row).textClass">
+                {{ getEmberStatus(row).text }}
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <!-- Emby Status -->
+        <el-table-column label="Emby 状态" min-width="180">
+          <template #default="{ row }">
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="relative flex h-2.5 w-2.5">
+                  <span v-if="getEmbyStatus(row).pulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2.5 w-2.5" :class="getEmbyStatus(row).dotClass"></span>
+                </span>
+                <span class="text-sm font-medium" :class="getEmbyStatus(row).textClass">
+                  {{ getEmbyStatus(row).text }}
+                </span>
+              </div>
+              <span class="inline-flex rounded px-2 py-0.5 text-xs bg-gray-100 text-gray-600">
+                {{ getEmbyStatus(row).reason }}
               </span>
             </div>
           </template>
