@@ -216,6 +216,33 @@ python3 -c "import bcrypt; print(bcrypt.hashpw(b'新密码', bcrypt.gensalt()).d
 # 更新数据库（同上）
 ```
 
+### 3.2 关联管理员 Emby 账号（可选）
+
+管理员账号初始化时不会创建 Emby 账号。如需使用媒体相关功能，需手动关联已有的 Emby 用户。
+
+**步骤 1：获取 Emby 用户 ID**
+
+方式 A — Emby 管理面板：
+
+打开 Emby 后台 → 用户 → 点击目标用户 → 浏览器地址栏 URL 中 `userId=` 后的值即为 Emby 用户 ID。
+
+方式 B — Emby API：
+
+```bash
+curl "http://你的Emby地址:8096/emby/Users?api_key=你的API_KEY"
+# 在返回的 JSON 数组中，找到 Name 匹配管理员用户名的记录，取 Id 字段
+```
+
+**步骤 2：更新数据库**
+
+```sql
+UPDATE users SET "embyId" = '你的Emby用户ID' WHERE username = '你的管理员用户名';
+```
+
+**验证**：登录管理后台，检查用户管理页面中管理员的 Emby ID 列是否已显示。
+
+---
+
 ### 4. 启动应用
 
 ```bash
