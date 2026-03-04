@@ -13,6 +13,8 @@ import (
 // UserService 用户服务
 type UserService struct{}
 
+var ErrInvalidExpiresAfter = errors.New("expiresAfter 必须是 YYYY-MM-DD 格式")
+
 func isUserExpired(expiresAt *time.Time) bool {
 	if expiresAt == nil {
 		return false
@@ -49,10 +51,11 @@ type AdminUpdateUserRequest struct {
 
 // GetUsersRequest 获取用户列表请求
 type GetUsersRequest struct {
-	Page     int    `form:"page" binding:"omitempty,min=1"`     // 页码，默认 1
-	PageSize int    `form:"pageSize" binding:"omitempty,min=1"` // 每页数量，默认 20
-	Search   string `form:"search"`                             // 搜索关键词（用户名/邮箱）
-	IsActive *bool  `form:"isActive"`                           // 是否启用（可选）
+	Page         int    `form:"page" binding:"omitempty,min=1"`     // 页码，默认 1
+	PageSize     int    `form:"pageSize" binding:"omitempty,min=1"` // 每页数量，默认 20
+	Search       string `form:"search"`                             // 搜索关键词（用户名/邮箱）
+	IsActive     *bool  `form:"isActive"`                           // 是否启用（可选）
+	ExpiresAfter string `form:"expiresAfter"`                       // 到期时间晚于该日期（YYYY-MM-DD）
 }
 
 // GetUsersResponse 获取用户列表响应
@@ -85,6 +88,15 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 	// 是否启用筛选
 	if req.IsActive != nil {
 		query = query.Where("\"isActive\" = ?", *req.IsActive)
+	}
+
+	// 到期时间筛选（只返回设置了到期时间且晚于指定日期的用户）
+	if req.ExpiresAfter != "" {
+		expiresAfter, err := time.Parse("2006-01-02", req.ExpiresAfter)
+		if err != nil {
+			return nil, ErrInvalidExpiresAfter
+		}
+		query = query.Where("\"expiresAt\" IS NOT NULL AND \"expiresAt\" > ?", expiresAfter.UTC())
 	}
 
 	// 统计总数

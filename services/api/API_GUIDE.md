@@ -109,18 +109,20 @@ Authorization: Bearer {token}
 
 #### 获取用户列表
 ```bash
-GET /api/v1/admin/users?page=1&pageSize=20&search=username
+GET /api/v1/admin/users?page=1&pageSize=20&search=username&expiresAfter=2026-03-01
 Authorization: Bearer {token}
 
 # 响应
 {
-  "users": [...],
+  "data": [...],
   "total": 100,
   "page": 1,
   "pageSize": 20,
   "totalPages": 5
 }
 ```
+
+`expiresAfter` 为可选参数，格式 `YYYY-MM-DD`，用于筛选“到期时间晚于该日期”的用户（不包含永不过期用户）。
 
 #### 获取用户详情
 ```bash

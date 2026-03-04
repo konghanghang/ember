@@ -46,6 +46,7 @@ export interface PaginationQuery {
 
 export interface UserListQuery extends PaginationQuery {
   search?: string
+  expiresAfter?: string
 }
 
 export interface UserListResponse {

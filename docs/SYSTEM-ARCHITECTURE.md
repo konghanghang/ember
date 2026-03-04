@@ -356,7 +356,7 @@ PlaybackRanking                 （独立排行快照，无外键）
 
 ### 5.2 UserService (`services/user.go`)
 
-- `GetUsers(page, pageSize, search, isActive)` — 分页搜索
+- `GetUsers(page, pageSize, search, isActive, expiresAfter)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`，排除永不过期）
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
 - `UpdatePassword(userID, old, new)` — Emby + 本地 hash 同步
 - `ResetPassword(userID, new)` — 管理员重置，Emby + 本地 hash 同步

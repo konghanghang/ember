@@ -32,6 +32,7 @@ func NewUserHandler() *UserHandler {
 // @Param pageSize query int false "每页数量" default(20)
 // @Param search query string false "搜索关键词"
 // @Param isActive query bool false "是否启用"
+// @Param expiresAfter query string false "到期时间晚于该日期（YYYY-MM-DD）"
 // @Success 200 {object} services.GetUsersResponse
 // @Router /api/v1/admin/users [get]
 // @Security BearerAuth
@@ -47,7 +48,12 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 
 	resp, err := h.userService.GetUsers(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, services.ErrInvalidExpiresAfter) {
+			statusCode = http.StatusBadRequest
+		}
+
+		c.JSON(statusCode, gin.H{
 			"error": err.Error(),
 		})
 		return
