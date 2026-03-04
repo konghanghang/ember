@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"os"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"gopkg.in/gomail.v2"
 )
 
 const smtpTimeout = 10 * time.Second
@@ -24,6 +26,7 @@ type EmailService struct {
 	username      string
 	password      string
 	from          string
+	fromAddress   string
 	expiryMinutes int
 	dailyLimit    int
 	ipDailyLimit  int
@@ -39,6 +42,12 @@ func NewEmailService() *EmailService {
 	from := os.Getenv("SMTP_FROM")
 	if from == "" {
 		from = os.Getenv("SMTP_USERNAME")
+	}
+	fromAddress := ""
+	if from != "" {
+		if addr, err := mail.ParseAddress(from); err == nil {
+			fromAddress = addr.Address
+		}
 	}
 
 	expiryMinutes := 10
@@ -68,6 +77,7 @@ func NewEmailService() *EmailService {
 		username:      os.Getenv("SMTP_USERNAME"),
 		password:      os.Getenv("SMTP_PASSWORD"),
 		from:          from,
+		fromAddress:   fromAddress,
 		expiryMinutes: expiryMinutes,
 		dailyLimit:    dailyLimit,
 		ipDailyLimit:  ipDailyLimit,
@@ -76,7 +86,7 @@ func NewEmailService() *EmailService {
 
 // IsConfigured 检查 SMTP 是否配置
 func (s *EmailService) IsConfigured() bool {
-	return s.host != "" && s.username != "" && s.password != ""
+	return s.host != "" && s.username != "" && s.password != "" && s.fromAddress != ""
 }
 
 // IsEnabled 综合判断：SMTP 已配置 + 业务开关开启
@@ -133,17 +143,6 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 		ExpiresAt: time.Now().UTC().Add(time.Duration(s.expiryMinutes) * time.Minute),
 	}
 
-	tx := db.DB.Begin()
-	if tx.Error != nil {
-		log.Printf("发送验证码开启事务失败 [%s]: %v", email, tx.Error)
-		return ErrEmailSendFailed
-	}
-	if err := tx.Create(&verification).Error; err != nil {
-		tx.Rollback()
-		log.Printf("发送验证码保存记录失败 [%s]: %v", email, err)
-		return ErrEmailSendFailed
-	}
-
 	subject := "Ember 注册验证码"
 	action := "注册"
 	if codeType == models.VerificationTypeReset {
@@ -151,11 +150,26 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 		action = "密码重置"
 	}
 	body := fmt.Sprintf("你的 Ember %s验证码是：%s\n有效期 %d 分钟，请勿泄露给他人。", action, code, s.expiryMinutes)
+
+	// 先保存记录，再发送邮件（保证一致性：邮件发送失败时回滚）
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		log.Printf("发送验证码开启事务失败 [%s]: %v", email, tx.Error)
+		return ErrEmailSendFailed
+	}
+
+	if err := tx.Create(&verification).Error; err != nil {
+		tx.Rollback()
+		log.Printf("发送验证码保存记录失败 [%s]: %v", email, err)
+		return ErrEmailSendFailed
+	}
+
 	if err := s.sendEmail(email, subject, body); err != nil {
 		tx.Rollback()
 		log.Printf("发送验证码邮件失败 [%s]: %v", email, err)
 		return ErrEmailSendFailed
 	}
+
 	if err := tx.Commit().Error; err != nil {
 		log.Printf("发送验证码提交事务失败 [%s]: %v", email, err)
 		return ErrEmailSendFailed
@@ -192,17 +206,22 @@ func (s *EmailService) CleanupExpired() (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
-// sendEmail 通过 SMTP 发送邮件（带超时控制）
+// sendEmail 通过 SMTP 发送邮件（使用 gomail 生成 MIME，并设置全链路超时）
 func (s *EmailService) sendEmail(to, subject, body string) error {
-	addr := s.host + ":" + s.port
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
 
+	addr := net.JoinHostPort(s.host, s.port)
 	conn, err := net.DialTimeout("tcp", addr, smtpTimeout)
 	if err != nil {
 		return fmt.Errorf("connect SMTP %s: %w", addr, err)
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(smtpTimeout))
+	_ = conn.SetDeadline(time.Now().Add(smtpTimeout))
 
 	client, err := smtp.NewClient(conn, s.host)
 	if err != nil {
@@ -221,9 +240,10 @@ func (s *EmailService) sendEmail(to, subject, body string) error {
 		return fmt.Errorf("SMTP auth: %w", err)
 	}
 
-	if err := client.Mail(s.from); err != nil {
+	if err := client.Mail(s.fromAddress); err != nil {
 		return fmt.Errorf("SMTP MAIL FROM: %w", err)
 	}
+
 	if err := client.Rcpt(to); err != nil {
 		return fmt.Errorf("SMTP RCPT TO: %w", err)
 	}
@@ -232,18 +252,22 @@ func (s *EmailService) sendEmail(to, subject, body string) error {
 	if err != nil {
 		return fmt.Errorf("SMTP DATA: %w", err)
 	}
-	msg := fmt.Sprintf(
-		"From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		s.from, to, subject, body,
-	)
-	if _, err := w.Write([]byte(msg)); err != nil {
+
+	if _, err := m.WriteTo(w); err != nil {
+		w.Close()
 		return fmt.Errorf("SMTP write body: %w", err)
 	}
+
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("SMTP close data: %w", err)
 	}
 
-	return client.Quit()
+	// 邮件主体发送完成即视为成功，QUIT 失败只记录日志不影响业务结果。
+	if err := client.Quit(); err != nil {
+		log.Printf("SMTP QUIT 失败 [%s]: %v", to, err)
+	}
+
+	return nil
 }
 
 // generateVerificationCode 生成 6 位随机数字验证码
