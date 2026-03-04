@@ -91,7 +91,7 @@ func (e *EmailVerification) IsExpired() bool {
 | `SMTP_PORT` | 否 | `587` | SMTP 端口 |
 | `SMTP_USERNAME` | 是 | — | SMTP 登录用户名 |
 | `SMTP_PASSWORD` | 是 | — | SMTP 登录密码 |
-| `SMTP_FROM` | 否 | 同 USERNAME | 发件人地址（如 `noreply@example.com`） |
+| `SMTP_FROM` | 否 | 同 USERNAME | 发件人（支持显示名），初始化时会解析出信封发件地址；解析失败视为未配置 |
 | `EMAIL_CODE_EXPIRY_MINUTES` | 否 | `10` | 验证码有效期（分钟） |
 | `EMAIL_CODE_DAILY_LIMIT` | 否 | `5` | 每邮箱每天发送上限 |
 | `EMAIL_CODE_IP_DAILY_LIMIT` | 否 | `15` | 每 IP 每天发送上限 |
@@ -141,195 +141,86 @@ func (s *SettingService) IsEmailVerificationEnabled() bool {
 
 ### 新文件：`services/api/internal/services/email.go`
 
+当前实现已从 `smtp.SendMail` 升级为“`gomail` 生成 MIME + `net/smtp` 手动会话发送”：
+
+- 使用 `gomail.NewMessage()` 处理 Header/Body 编码，避免手拼 MIME。
+- 初始化阶段解析 `SMTP_FROM`，缓存 `fromAddress`（信封发件地址）。
+- `IsConfigured()` 除了 host/username/password，还要求 `fromAddress` 有效。
+- 发送链路使用 `DialTimeout + SetDeadline`，避免 SMTP 操作阶段无限挂起。
+- 邮件主体写入并 `DATA` 成功后即视为发送成功，`QUIT` 失败仅记录日志，不影响业务返回。
+
+关键结构（精简）：
+
 ```go
-package services
-
-import (
-	"crypto/rand"
-	"fmt"
-	"net/smtp"
-	"os"
-	"strconv"
-	"time"
-
-	"github.com/konghang/ember/backend/internal/db"
-	"github.com/konghang/ember/backend/internal/models"
-)
-
-// EmailService 邮件验证服务
 type EmailService struct {
 	host          string
 	port          string
 	username      string
 	password      string
 	from          string
+	fromAddress   string
 	expiryMinutes int
 	dailyLimit    int
 	ipDailyLimit  int
 }
 
-// NewEmailService 从环境变量初始化
 func NewEmailService() *EmailService {
-	port := os.Getenv("SMTP_PORT")
-	if port == "" {
-		port = "587"
-	}
-
 	from := os.Getenv("SMTP_FROM")
 	if from == "" {
 		from = os.Getenv("SMTP_USERNAME")
 	}
-
-	expiryMinutes := 10
-	if v := os.Getenv("EMAIL_CODE_EXPIRY_MINUTES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			expiryMinutes = n
+	fromAddress := ""
+	if from != "" {
+		if addr, err := mail.ParseAddress(from); err == nil {
+			fromAddress = addr.Address
 		}
 	}
-
-	dailyLimit := 5
-	if v := os.Getenv("EMAIL_CODE_DAILY_LIMIT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			dailyLimit = n
-		}
-	}
-
-	ipDailyLimit := 15
-	if v := os.Getenv("EMAIL_CODE_IP_DAILY_LIMIT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			ipDailyLimit = n
-		}
-	}
-
-	return &EmailService{
-		host:          os.Getenv("SMTP_HOST"),
-		port:          port,
-		username:      os.Getenv("SMTP_USERNAME"),
-		password:      os.Getenv("SMTP_PASSWORD"),
-		from:          from,
-		expiryMinutes: expiryMinutes,
-		dailyLimit:    dailyLimit,
-		ipDailyLimit:  ipDailyLimit,
-	}
+	// ... 其他配置读取保持不变 ...
 }
 
-// IsConfigured 检查 SMTP 是否配置
 func (s *EmailService) IsConfigured() bool {
-	return s.host != "" && s.username != "" && s.password != ""
+	return s.host != "" && s.username != "" && s.password != "" && s.fromAddress != ""
+}
+```
+
+验证码业务接口（精简）：
+
+```go
+func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
+	// 1) 按 codeType 检查用户存在性（注册必须不存在，重置必须已存在）
+	// 2) 按邮箱+类型、按 IP 做 24h 限频
+	// 3) 生成验证码并开启事务：写入记录 -> 发送邮件 -> 提交
+	// 4) 发送失败或提交失败返回 ErrEmailSendFailed
 }
 
-// IsEnabled 综合判断：SMTP 已配置 + 业务开关开启
-func (s *EmailService) IsEnabled() bool {
-	if !s.IsConfigured() {
-		return false
-	}
-	settingService := &SettingService{}
-	return settingService.IsEmailVerificationEnabled()
+func (s *EmailService) VerifyCode(email, code, codeType string) error {
+	// 按 email + type 取最新验证码并校验
 }
+```
 
-// SendVerificationCode 发送验证码
-// ip 参数由 handler 层通过 c.ClientIP() 传入
-func (s *EmailService) SendVerificationCode(email, ip string) error {
-	if !s.IsConfigured() {
-		return ErrEmailNotConfigured
-	}
+SMTP 发送关键实现（精简）：
 
-	// 1. 检查邮箱是否已被注册
-	var count int64
-	db.DB.Model(&models.User{}).Where("email = ?", email).Count(&count)
-	if count > 0 {
-		return ErrEmailAlreadyRegistered
-	}
-
-	since := time.Now().UTC().Add(-24 * time.Hour)
-
-	// 2. 检查 24h 内该邮箱发送次数
-	var emailCount int64
-	db.DB.Model(&models.EmailVerification{}).
-		Where("email = ? AND \"createdAt\" > ?", email, since).
-		Count(&emailCount)
-	if emailCount >= int64(s.dailyLimit) {
-		return ErrEmailCodeRateLimit
-	}
-
-	// 3. 检查 24h 内该 IP 发送次数
-	var ipCount int64
-	db.DB.Model(&models.EmailVerification{}).
-		Where("ip = ? AND \"createdAt\" > ?", ip, since).
-		Count(&ipCount)
-	if ipCount >= int64(s.ipDailyLimit) {
-		return ErrEmailCodeIPRateLimit
-	}
-
-	// 4. 生成 6 位随机验证码
-	code := generateVerificationCode()
-
-	// 5. 写入数据库
-	verification := models.EmailVerification{
-		Email:     email,
-		Code:      code,
-		IP:        ip,
-		ExpiresAt: time.Now().UTC().Add(time.Duration(s.expiryMinutes) * time.Minute),
-	}
-	if err := db.DB.Create(&verification).Error; err != nil {
-		return ErrEmailSendFailed
-	}
-
-	// 6. 发送邮件
-	subject := "Ember 注册验证码"
-	body := fmt.Sprintf("你的 Ember 注册验证码是：%s\n有效期 %d 分钟，请勿泄露给他人。", code, s.expiryMinutes)
-	if err := s.sendEmail(email, subject, body); err != nil {
-		return ErrEmailSendFailed
-	}
-
-	return nil
-}
-
-// VerifyCode 校验验证码
-func (s *EmailService) VerifyCode(email, code string) error {
-	var verification models.EmailVerification
-	result := db.DB.Where("email = ?", email).
-		Order("\"createdAt\" DESC").
-		First(&verification)
-	if result.Error != nil {
-		return ErrEmailCodeInvalid
-	}
-
-	if verification.IsExpired() {
-		return ErrEmailCodeInvalid
-	}
-
-	if verification.Code != code {
-		return ErrEmailCodeInvalid
-	}
-
-	return nil
-}
-
-// CleanupExpired 清理过期验证码（供 cron 调用）
-func (s *EmailService) CleanupExpired() (int64, error) {
-	result := db.DB.Where("\"expiresAt\" < ?", time.Now().UTC()).
-		Delete(&models.EmailVerification{})
-	return result.RowsAffected, result.Error
-}
-
-// sendEmail 通过 SMTP 发送邮件
+```go
 func (s *EmailService) sendEmail(to, subject, body string) error {
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
-	msg := fmt.Sprintf(
-		"From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		s.from, to, subject, body,
-	)
-	addr := s.host + ":" + s.port
-	return smtp.SendMail(addr, auth, s.from, []string{to}, []byte(msg))
-}
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
 
-// generateVerificationCode 生成 6 位随机数字验证码
-func generateVerificationCode() string {
-	b := make([]byte, 3)
-	rand.Read(b)
-	num := (int(b[0])<<16 | int(b[1])<<8 | int(b[2])) % 1000000
-	return fmt.Sprintf("%06d", num)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(s.host, s.port), smtpTimeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(smtpTimeout))
+
+	// STARTTLS/AUTH/MAIL/RCPT/DATA
+	// MAIL FROM 使用 s.fromAddress（ASCII 信封地址）
+	// DATA 通过 m.WriteTo(w) 输出 MIME 正文
+	// QUIT 失败仅日志，不返回业务错误
+	return nil
 }
 ```
 
@@ -394,7 +285,7 @@ if s.emailService.IsEnabled() {
     if req.EmailCode == "" {
         return nil, errors.New("请先获取邮箱验证码")
     }
-    if err := s.emailService.VerifyCode(req.Email, req.EmailCode); err != nil {
+    if err := s.emailService.VerifyCode(req.Email, req.EmailCode, models.VerificationTypeRegister); err != nil {
         return nil, err
     }
 }
@@ -410,7 +301,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		if req.EmailCode == "" {
 			return nil, errors.New("请先获取邮箱验证码")
 		}
-		if err := s.emailService.VerifyCode(req.Email, req.EmailCode); err != nil {
+		if err := s.emailService.VerifyCode(req.Email, req.EmailCode, models.VerificationTypeRegister); err != nil {
 			return nil, err
 		}
 	}
@@ -459,7 +350,7 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 	}
 
 	// c.ClientIP() 自动处理 X-Forwarded-For / X-Real-IP
-	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP()); err != nil {
+	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeRegister); err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, services.ErrEmailCodeRateLimit) || errors.Is(err, services.ErrEmailCodeIPRateLimit) {
 			status = http.StatusTooManyRequests
@@ -579,6 +470,8 @@ psql "$DATABASE_URL" -f infrastructure/database/20260222_01_add_email_verificati
 
 ```go
 api.POST("/register/send-code", authHandler.SendEmailCode)
+api.POST("/forgot-password/send-code", authHandler.SendResetCode)
+api.POST("/forgot-password/reset", authHandler.ResetPasswordByCode)
 ```
 
 #### 10.2 新增 Cron 清理任务
