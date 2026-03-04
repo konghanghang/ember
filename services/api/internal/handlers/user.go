@@ -360,10 +360,10 @@ func (h *UserHandler) RedeemCode(c *gin.Context) {
 	resp, err := h.redemptionService.RedeemCode(userID.(string), &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrRedemptionCodeNotFound), errors.Is(err, services.ErrRedemptionCodeInvalid):
+		case errors.Is(err, services.ErrRedemptionCodeNotFound),
+			errors.Is(err, services.ErrRedemptionCodeInvalid),
+			errors.Is(err, services.ErrRedemptionDuplicate):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrEmbyUnbanFailed), errors.Is(err, services.ErrRedeemFailed):
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}

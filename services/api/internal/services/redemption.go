@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
@@ -58,14 +59,36 @@ type GetAllRedemptionsResponse struct {
 
 // RedeemCode 兑换续期
 func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
-	codeService := &RedemptionCodeService{}
-	code, err := codeService.ValidateCode(req.Code)
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		return nil, ErrRedeemFailed
+	}
+	defer tx.Rollback()
+
+	var code models.RedemptionCode
+	err := tx.Where("code = ?", req.Code).First(&code).Error
 	if err != nil {
-		return nil, err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrRedemptionCodeNotFound
+		}
+		return nil, ErrRedeemFailed
+	}
+
+	if !code.IsValid() {
+		return nil, ErrRedemptionCodeInvalid
+	}
+
+	var existingRedemption models.Redemption
+	err = tx.Where("\"userId\" = ? AND code = ?", userID, req.Code).First(&existingRedemption).Error
+	if err == nil {
+		return nil, ErrRedemptionDuplicate
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrRedeemFailed
 	}
 
 	var user models.User
-	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := tx.Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, errors.New("用户不存在")
 	}
 
@@ -77,46 +100,42 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		newExpiry = user.ExpiresAt.AddDate(0, 0, code.DefaultDays)
 	}
 
-	tx := db.DB.Begin()
-	if tx.Error != nil {
-		return nil, ErrRedeemFailed
+	updates := map[string]interface{}{
+		"expiresAt": newExpiry,
 	}
-
-	user.ExpiresAt = &newExpiry
 
 	if user.EmbyDisabled && user.IsActive {
 		embyService := NewEmbyService()
 		if err := embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{IsDisabled: false}); err != nil {
-			tx.Rollback()
 			return nil, ErrEmbyUnbanFailed
 		}
-		user.EmbyDisabled = false
+		updates["embyDisabled"] = false
 	}
 
-	if err := tx.Save(&user).Error; err != nil {
-		tx.Rollback()
+	if err := tx.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
+		return nil, ErrRedeemFailed
+	}
+
+	// 依赖唯一约束 (userId, code) 保证“一人一码一次”并发安全。
+	if err := tx.Create(&models.Redemption{
+		UserID: userID,
+		Code:   req.Code,
+		Days:   code.DefaultDays,
+	}).Error; err != nil {
+		if isRedemptionDuplicateInsert(err) {
+			return nil, ErrRedemptionDuplicate
+		}
 		return nil, ErrRedeemFailed
 	}
 
 	result := tx.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"usedCount\" < \"maxUses\"", req.Code).
+		Where("code = ? AND \"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", req.Code, now).
 		Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
 	if result.Error != nil {
-		tx.Rollback()
 		return nil, ErrRedeemFailed
 	}
 	if result.RowsAffected == 0 {
-		tx.Rollback()
 		return nil, ErrRedemptionCodeInvalid
-	}
-
-	if err := tx.Create(&models.Redemption{
-		UserID: user.ID,
-		Code:   req.Code,
-		Days:   code.DefaultDays,
-	}).Error; err != nil {
-		tx.Rollback()
-		return nil, ErrRedeemFailed
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -128,6 +147,16 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		Days:      code.DefaultDays,
 		ExpiresAt: &newExpiry,
 	}, nil
+}
+
+func isRedemptionDuplicateInsert(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+
+	// 23505: unique_violation
+	return pgErr.Code == "23505"
 }
 
 func (s *RedemptionService) GetRedemptions(userID string, req *GetRedemptionsRequest) (*GetRedemptionsResponse, error) {

@@ -127,7 +127,8 @@ func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
 		switch {
 		case errors.Is(err, services.ErrTelegramNotBound),
 			errors.Is(err, services.ErrRedemptionCodeNotFound),
-			errors.Is(err, services.ErrRedemptionCodeInvalid):
+			errors.Is(err, services.ErrRedemptionCodeInvalid),
+			errors.Is(err, services.ErrRedemptionDuplicate):
 			statusCode = http.StatusBadRequest
 		case errors.Is(err, services.ErrRedeemFailed),
 			errors.Is(err, services.ErrEmbyUnbanFailed):

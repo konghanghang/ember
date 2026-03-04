@@ -9,6 +9,7 @@ import {
   Film,
   User,
   Ticket,
+  Document,
   Goods,
   ShoppingCart,
   Setting,
@@ -66,6 +67,12 @@ const menuItems = computed(() => [
         title: '兑换码管理',
         path: '/console/redemption-codes',
         icon: Ticket,
+        role: 'admin'
+      },
+      {
+        title: '兑换历史',
+        path: '/console/redemption-history',
+        icon: Document,
         role: 'admin'
       },
       {

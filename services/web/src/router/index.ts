@@ -78,6 +78,12 @@ const router = createRouter({
           component: () => import('../views/admin/RedemptionCodesView.vue'),
         },
         {
+          path: 'redemption-history',
+          name: 'console-redemption-history',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/RedemptionHistoryView.vue'),
+        },
+        {
           path: 'settings',
           name: 'console-settings',
           meta: { role: 'admin' },

@@ -10,7 +10,7 @@
 Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 - 用户注册/登录（可配置开放注册或兑换码注册，支持邮箱验证码）
 - Emby 账号自动创建与生命周期管理（试用 → 续期 → 过期封禁）
-- 兑换码系统（注册门控 + 续期工具，统一模型）
+- 兑换码系统（注册门控 + 续期工具，统一模型；同一用户同一码仅可兑换一次）
 - 付费方案与 Stripe 一次性支付
 - 求片订阅（TMDB 搜索 → 管理员审批 → MoviePilot 自动下载）
 - 播放排行榜（日榜 / 周榜，从 Emby PlaybackActivity 生成）
@@ -118,6 +118,7 @@ services/
 │  │     └─ admin/               # 管理后台
 │  │        ├─ UsersView.vue     # 用户管理
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
+│  │        ├─ RedemptionHistoryView.vue # 兑换历史
 │  │        ├─ SettingsView.vue  # 系统设置
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        └─ SessionsView.vue  # 活跃会话
@@ -371,8 +372,11 @@ PlaybackRanking                 （独立排行快照，无外键）
 ### 5.4 RedemptionService (`services/redemption.go`)
 
 **核心方法 `RedeemCode(userID, code)`**：
-1. ValidateCode → 计算新 ExpiresAt → 开启事务
-2. 更新 User.ExpiresAt → 如果 EmbyDisabled: Emby 解封 → 原子递增 usedCount（`WHERE usedCount < maxUses` 防竞态）→ 创建 Redemption 记录 → 提交
+1. 开启事务后查询兑换码并校验 `IsValid()`
+2. 在事务中检查 `redemptions(userId, code)` 是否已存在，存在则返回 `ErrRedemptionDuplicate`
+3. 查询用户并计算新 ExpiresAt，按需调用 Emby 解封，仅更新 `expiresAt/embyDisabled`
+4. 先插入 Redemption 记录（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
+5. 原子递增 usedCount（`WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）→ 提交
 
 ### 5.5 SettingService (`services/setting.go`)
 
@@ -643,6 +647,13 @@ Telegram 账号绑定与 Bot 自助能力服务。
 用户面板根据 `isExpired` computed 做渐进式降级：
 - **活跃态**：绿色 banner + 媒体统计 + 兑换折叠面板
 - **过期态**：橙色警告 banner + 兑换码输入醒目展示 + 媒体统计灰化
+- **兑换历史**：普通用户在 Dashboard 查看个人兑换记录（分页 + 手动刷新）
+
+### 管理端兑换历史
+
+- 新增路由：`/console/redemption-history`（admin）
+- 新增视图：`views/admin/RedemptionHistoryView.vue`
+- 数据源：`GET /api/v1/admin/redemptions`（支持 userId 分页筛选）
 
 ---
 

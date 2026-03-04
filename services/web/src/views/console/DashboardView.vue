@@ -11,7 +11,8 @@ import {
   Monitor, 
   Film,
   CopyDocument,
-  ArrowRight
+  ArrowRight,
+  Refresh
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import {
@@ -23,8 +24,9 @@ import {
   updateEmail,
   updatePassword
 } from '@/api/console'
-import { redeemCode } from '@/api/user'
-import type { MediaStats, TelegramBindCodeResponse, UserInfo } from '@/types/api'
+import { getRedemptions, redeemCode } from '@/api/user'
+import { formatDate } from '@/utils/date'
+import type { MediaStats, Redemption, TelegramBindCodeResponse, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
 
@@ -46,6 +48,11 @@ const loading = ref(false)
 const redeeming = ref(false)
 const redeemForm = ref({ code: '' })
 const showRenewDialog = ref(false)
+const redemptions = ref<Redemption[]>([])
+const redemptionsLoading = ref(false)
+const redemptionPage = ref(1)
+const redemptionPageSize = ref(10)
+const redemptionTotal = ref(0)
 const telegramBindCode = ref<TelegramBindCodeResponse | null>(null)
 const generatingBindCode = ref(false)
 const unbinding = ref(false)
@@ -93,6 +100,28 @@ const refreshAll = async () => {
   await fetchMediaInfo()
 }
 
+const fetchRedemptions = async () => {
+  redemptionsLoading.value = true
+  try {
+    const res = await getRedemptions({
+      page: redemptionPage.value,
+      pageSize: redemptionPageSize.value
+    })
+    redemptions.value = res.data
+    redemptionTotal.value = res.total
+  } catch {
+    // handled
+  } finally {
+    redemptionsLoading.value = false
+  }
+}
+
+const handleRedemptionPageSizeChange = (size: number) => {
+  redemptionPageSize.value = size
+  redemptionPage.value = 1
+  fetchRedemptions()
+}
+
 const handleRedeem = async () => {
   if (!redeemForm.value.code) {
     ElMessage.warning('请输入兑换码')
@@ -105,7 +134,11 @@ const handleRedeem = async () => {
     ElMessage.success(res.message)
     redeemForm.value.code = ''
     showRenewDialog.value = false
-    await refreshAll()
+    const tasks: Promise<void>[] = [refreshAll()]
+    if (!authStore.isAdmin) {
+      tasks.push(fetchRedemptions())
+    }
+    await Promise.all(tasks)
   } catch {
     // handled
   } finally {
@@ -174,7 +207,13 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-onMounted(refreshAll)
+onMounted(async () => {
+  const tasks: Promise<void>[] = [refreshAll()]
+  if (!authStore.isAdmin) {
+    tasks.push(fetchRedemptions())
+  }
+  await Promise.all(tasks)
+})
 </script>
 
 <template>
@@ -474,6 +513,50 @@ onMounted(refreshAll)
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Redemption History -->
+    <div v-if="!authStore.isAdmin" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h2 class="text-xl font-semibold text-gray-900">兑换历史</h2>
+          <p class="text-sm text-gray-500 mt-1">查看你的兑换码使用记录</p>
+        </div>
+        <el-button :icon="Refresh" @click="fetchRedemptions" :loading="redemptionsLoading">
+          刷新
+        </el-button>
+      </div>
+
+      <el-table
+        :data="redemptions"
+        v-loading="redemptionsLoading"
+        style="width: 100%"
+        :header-cell-style="{ backgroundColor: '#f9fafb' }"
+      >
+        <el-table-column prop="code" label="兑换码" width="180" />
+        <el-table-column prop="days" label="延长天数" width="120">
+          <template #default="{ row }">
+            <el-tag type="success">{{ row.days }} 天</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createdAt" label="兑换时间" width="200">
+          <template #default="{ row }">
+            {{ formatDate(row.createdAt) }}
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="mt-4 flex justify-end bg-gray-50/50 p-4 rounded-lg">
+        <el-pagination
+          v-model:current-page="redemptionPage"
+          v-model:page-size="redemptionPageSize"
+          :total="redemptionTotal"
+          :page-sizes="[5, 10, 20]"
+          layout="total, sizes, prev, pager, next"
+          @current-change="fetchRedemptions"
+          @size-change="handleRedemptionPageSizeChange"
+        />
       </div>
     </div>
 
