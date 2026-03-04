@@ -14,6 +14,7 @@ import (
 type UserService struct{}
 
 var ErrInvalidExpiresAfter = errors.New("expiresAfter 必须是 YYYY-MM-DD 格式")
+var ErrInvalidEmbyStatus = errors.New("embyStatus 仅支持 available/disabled/unlinked")
 
 func isUserExpired(expiresAt *time.Time) bool {
 	if expiresAt == nil {
@@ -56,6 +57,7 @@ type GetUsersRequest struct {
 	Search       string `form:"search"`                             // 搜索关键词（用户名/邮箱）
 	IsActive     *bool  `form:"isActive"`                           // 是否启用（可选）
 	ExpiresAfter string `form:"expiresAfter"`                       // 到期时间晚于该日期（YYYY-MM-DD）
+	EmbyStatus   string `form:"embyStatus"`                         // Emby 状态筛选（available/disabled/unlinked）
 }
 
 // GetUsersResponse 获取用户列表响应
@@ -97,6 +99,20 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 			return nil, ErrInvalidExpiresAfter
 		}
 		query = query.Where("\"expiresAt\" IS NOT NULL AND \"expiresAt\" > ?", expiresAfter.UTC())
+	}
+
+	// Emby 状态筛选
+	switch strings.TrimSpace(req.EmbyStatus) {
+	case "":
+		// 不筛选
+	case "available":
+		query = query.Where("COALESCE(\"embyId\", '') <> '' AND \"embyDisabled\" = ?", false)
+	case "disabled":
+		query = query.Where("COALESCE(\"embyId\", '') <> '' AND \"embyDisabled\" = ?", true)
+	case "unlinked":
+		query = query.Where("COALESCE(\"embyId\", '') = ''")
+	default:
+		return nil, ErrInvalidEmbyStatus
 	}
 
 	// 统计总数

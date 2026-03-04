@@ -109,7 +109,7 @@ Authorization: Bearer {token}
 
 #### 获取用户列表
 ```bash
-GET /api/v1/admin/users?page=1&pageSize=20&search=username&expiresAfter=2026-03-01
+GET /api/v1/admin/users?page=1&pageSize=20&search=username&expiresAfter=2026-03-01&embyStatus=disabled
 Authorization: Bearer {token}
 
 # 响应
@@ -123,6 +123,7 @@ Authorization: Bearer {token}
 ```
 
 `expiresAfter` 为可选参数，格式 `YYYY-MM-DD`，用于筛选“到期时间晚于该日期”的用户（不包含永不过期用户）。
+`embyStatus` 为可选参数，支持：`available`（可用）、`disabled`（禁用）、`unlinked`（未关联）。
 
 #### 获取用户详情
 ```bash

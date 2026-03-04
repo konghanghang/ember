@@ -47,6 +47,7 @@ export interface PaginationQuery {
 export interface UserListQuery extends PaginationQuery {
   search?: string
   expiresAfter?: string
+  embyStatus?: 'available' | 'disabled' | 'unlinked' | ''
 }
 
 export interface UserListResponse {

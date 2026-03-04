@@ -90,9 +90,8 @@
 适用于用户管理、兑换历史、支付记录等列表页。
 
 - 标题在上，筛选卡片在下，禁止左右并排导致大面积空白。
-- 筛选卡片内部两层：
-  - 第一层：筛选字段 + 操作按钮（查询/重置）
-  - 第二层：已生效筛选标签（仅有筛选时显示）
+- 筛选卡片默认一层：筛选字段 + 操作按钮（查询/重置）。
+- “已生效筛选标签”是可选增强，不是默认要求。
 - 筛选按钮组统一右对齐：
   - 桌面端右对齐
   - 移动端换行后也保持按钮组靠右
@@ -106,11 +105,11 @@
 - `5~8` 个条件：主区保留高频，其他放“更多筛选（折叠）”
 - `>8` 个条件：使用“高级筛选抽屉/弹层”
 
-### 5.4 已生效筛选反馈
+### 5.4 已生效筛选反馈（可选）
 
-- 使用轻量 badge 展示当前筛选值
-- 支持“清空单项”和“重置全部”
-- 无筛选时不显示该区块
+- 默认不展示该区块，避免筛选区视觉噪音。
+- 当筛选条件较多、用户容易忘记当前条件时，可开启该反馈。
+- 若开启，建议支持“清空单项”和“重置全部”。
 
 ### 5.5 可复制模板（Vue + Tailwind）
 
@@ -178,28 +177,6 @@
       </div>
     </div>
 
-    <!-- 已生效筛选：仅有筛选时展示 -->
-    <div v-if="filters.keyword || filters.expiresAfter" class="mt-3 flex flex-wrap items-center gap-2">
-      <span class="text-xs font-medium text-gray-500">已生效筛选</span>
-      <span
-        v-if="filters.keyword"
-        class="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-xs text-red-700"
-      >
-        关键词：{{ filters.keyword }}
-      </span>
-      <span
-        v-if="filters.expiresAfter"
-        class="inline-flex items-center rounded-full border border-orange-100 bg-orange-50 px-2.5 py-1 text-xs text-orange-700"
-      >
-        到期晚于：{{ filters.expiresAfter }}
-      </span>
-      <button
-        @click="clearSingleFilter('expiresAfter')"
-        class="text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2 cursor-pointer"
-      >
-        清空日期
-      </button>
-    </div>
   </div>
 </template>
 
@@ -259,6 +236,7 @@
 - `1` 个条件：将字段区容器改为 `w-full lg:max-w-md`，避免大面积空白。
 - 若已有“查询”，不要再放“刷新”按钮。
 - 新增条件优先追加到字段区，不先加按钮。
+- “已生效筛选”默认关闭，仅在复杂筛选场景按需开启。
 
 ---
 
@@ -295,7 +273,7 @@
 1. 是否使用统一列表骨架（Header Card + Table Card）？
 2. 筛选输入是否有可见 label、统一高度（42px）？
 3. 查询/重置按钮是否右对齐且顺序固定？
-4. 是否展示“已生效筛选”并支持清空？
+4. 如场景复杂，是否需要展示“已生效筛选”并支持清空？
 5. 是否删除了重复语义操作（例如刷新）？
 6. 表格/分页是否采用统一容器样式？
 7. 是否通过移动端与桌面端断点检查？

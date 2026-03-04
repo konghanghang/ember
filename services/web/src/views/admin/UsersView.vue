@@ -25,7 +25,8 @@ const queryParams = ref<UserListQuery>({
   page: 1,
   pageSize: 10,
   search: '',
-  expiresAfter: undefined
+  expiresAfter: undefined,
+  embyStatus: ''
 })
 
 const editForm = ref({
@@ -67,14 +68,10 @@ const handleFilterChange = () => {
   fetchData()
 }
 
-const handleClearExpiryFilter = () => {
-  queryParams.value.expiresAfter = undefined
-  handleFilterChange()
-}
-
 const handleResetFilters = () => {
   queryParams.value.search = ''
   queryParams.value.expiresAfter = undefined
+  queryParams.value.embyStatus = ''
   queryParams.value.page = 1
   fetchData()
 }
@@ -328,6 +325,26 @@ onMounted(() => {
                 />
               </div>
             </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">Emby 状态</label>
+              <div class="relative w-full group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
+                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Lock /></el-icon>
+                </div>
+                <el-select
+                  v-model="queryParams.embyStatus"
+                  class="w-full filter-select"
+                  placeholder="全部状态"
+                  @change="handleFilterChange"
+                >
+                  <el-option label="全部状态" value="" />
+                  <el-option label="可用" value="available" />
+                  <el-option label="禁用" value="disabled" />
+                  <el-option label="未关联" value="unlinked" />
+                </el-select>
+              </div>
+            </div>
           </div>
 
           <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
@@ -345,28 +362,6 @@ onMounted(() => {
               查询
             </button>
           </div>
-        </div>
-
-        <div v-if="queryParams.search || queryParams.expiresAfter" class="mt-3 flex flex-wrap items-center gap-2">
-          <span class="text-xs font-medium text-gray-500">已生效筛选</span>
-          <span
-            v-if="queryParams.search"
-            class="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-xs text-red-700"
-          >
-            关键词：{{ queryParams.search }}
-          </span>
-          <span
-            v-if="queryParams.expiresAfter"
-            class="inline-flex items-center rounded-full border border-orange-100 bg-orange-50 px-2.5 py-1 text-xs text-orange-700"
-          >
-            到期晚于：{{ queryParams.expiresAfter }}
-          </span>
-          <button
-            @click="handleClearExpiryFilter"
-            class="text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2 cursor-pointer"
-          >
-            清空日期
-          </button>
         </div>
       </div>
     </div>
@@ -649,6 +644,34 @@ onMounted(() => {
 :deep(.filter-date .el-input__inner) {
   height: 100%;
   padding-left: 2.5rem;
+  font-size: 0.875rem;
+}
+
+:deep(.filter-select .el-select__wrapper) {
+  height: 42px;
+  min-height: 42px;
+  background-color: #f9fafb !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.filter-select:hover .el-select__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-select .el-select__wrapper.is-focused),
+:deep(.filter-select .el-select__wrapper.is-focus),
+:deep(.filter-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.filter-select .el-select__selected-item),
+:deep(.filter-select .el-select__placeholder) {
+  padding-left: 1.8rem;
   font-size: 0.875rem;
 }
 </style>

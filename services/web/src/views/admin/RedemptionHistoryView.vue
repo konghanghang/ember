@@ -46,12 +46,6 @@ const handleReset = () => {
   fetchData()
 }
 
-const handleClearUserFilter = () => {
-  queryParams.value.userId = ''
-  queryParams.value.page = 1
-  fetchData()
-}
-
 const handleSizeChange = (size: number) => {
   queryParams.value.pageSize = size
   queryParams.value.page = 1
@@ -111,19 +105,6 @@ onMounted(() => {
               查询
             </button>
           </div>
-        </div>
-
-        <div v-if="queryParams.userId" class="mt-3 flex flex-wrap items-center gap-2">
-          <span class="text-xs font-medium text-gray-500">已生效筛选</span>
-          <span class="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-xs text-red-700">
-            用户 ID：{{ queryParams.userId }}
-          </span>
-          <button
-            @click="handleClearUserFilter"
-            class="text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2 cursor-pointer"
-          >
-            清空条件
-          </button>
         </div>
       </div>
     </div>

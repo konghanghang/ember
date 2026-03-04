@@ -33,6 +33,7 @@ func NewUserHandler() *UserHandler {
 // @Param search query string false "搜索关键词"
 // @Param isActive query bool false "是否启用"
 // @Param expiresAfter query string false "到期时间晚于该日期（YYYY-MM-DD）"
+// @Param embyStatus query string false "Emby 状态（available/disabled/unlinked）"
 // @Success 200 {object} services.GetUsersResponse
 // @Router /api/v1/admin/users [get]
 // @Security BearerAuth
@@ -49,7 +50,7 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 	resp, err := h.userService.GetUsers(&req)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, services.ErrInvalidExpiresAfter) {
+		if errors.Is(err, services.ErrInvalidExpiresAfter) || errors.Is(err, services.ErrInvalidEmbyStatus) {
 			statusCode = http.StatusBadRequest
 		}
 
