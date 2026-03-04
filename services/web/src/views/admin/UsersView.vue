@@ -24,7 +24,8 @@ const editDialogVisible = ref(false)
 const queryParams = ref<UserListQuery>({
   page: 1,
   pageSize: 10,
-  search: ''
+  search: '',
+  expiresAfter: undefined
 })
 
 const editForm = ref({
@@ -54,6 +55,28 @@ const fetchData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleSearch = () => {
+  queryParams.value.page = 1
+  fetchData()
+}
+
+const handleFilterChange = () => {
+  queryParams.value.page = 1
+  fetchData()
+}
+
+const handleClearExpiryFilter = () => {
+  queryParams.value.expiresAfter = undefined
+  handleFilterChange()
+}
+
+const handleResetFilters = () => {
+  queryParams.value.search = ''
+  queryParams.value.expiresAfter = undefined
+  queryParams.value.page = 1
+  fetchData()
 }
 
 const handleOpenEdit = (row: UserInfo) => {
@@ -257,7 +280,7 @@ onMounted(() => {
 <template>
   <div class="space-y-6">
     <!-- Header Area -->
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
       <div>
         <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
           用户管理
@@ -265,21 +288,86 @@ onMounted(() => {
         </h1>
         <p class="text-gray-500 text-sm mt-1">管理系统注册用户及其权限状态</p>
       </div>
-      
-      <div class="relative w-full md:w-80 group">
-        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Search /></el-icon>
+
+      <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
+        <div class="flex flex-col xl:flex-row xl:items-end gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-3 flex-1">
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">关键词</label>
+              <div class="relative w-full group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Search /></el-icon>
+                </div>
+                <input
+                  v-model="queryParams.search"
+                  type="search"
+                  inputmode="search"
+                  autocomplete="off"
+                  aria-label="搜索用户名或邮箱"
+                  placeholder="输入用户名或邮箱"
+                  class="filter-input w-full pl-10 pr-4"
+                  @keyup.enter="handleSearch"
+                />
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">到期晚于</label>
+              <div class="relative w-full group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
+                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Calendar /></el-icon>
+                </div>
+                <el-date-picker
+                  v-model="queryParams.expiresAfter"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  placeholder="选择日期"
+                  clearable
+                  class="w-full filter-date"
+                  @change="handleFilterChange"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
+            <button
+              @click="handleResetFilters"
+              class="px-4 py-2.5 text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+            >
+              重置
+            </button>
+            <button
+              @click="handleSearch"
+              class="btn-ember px-4 py-2.5 text-sm rounded-xl font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <el-icon><Search /></el-icon>
+              查询
+            </button>
+          </div>
         </div>
-        <input 
-          v-model="queryParams.search"
-          type="search"
-          inputmode="search"
-          autocomplete="off"
-          aria-label="搜索用户名或邮箱"
-          placeholder="搜索用户名或邮箱..." 
-          class="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:bg-white focus:border-ember focus:ring-4 focus:ring-ember/10 transition-all placeholder-gray-400"
-          @keyup.enter="fetchData"
-        />
+
+        <div v-if="queryParams.search || queryParams.expiresAfter" class="mt-3 flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium text-gray-500">已生效筛选</span>
+          <span
+            v-if="queryParams.search"
+            class="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-xs text-red-700"
+          >
+            关键词：{{ queryParams.search }}
+          </span>
+          <span
+            v-if="queryParams.expiresAfter"
+            class="inline-flex items-center rounded-full border border-orange-100 bg-orange-50 px-2.5 py-1 text-xs text-orange-700"
+          >
+            到期晚于：{{ queryParams.expiresAfter }}
+          </span>
+          <button
+            @click="handleClearExpiryFilter"
+            class="text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2 cursor-pointer"
+          >
+            清空日期
+          </button>
+        </div>
       </div>
     </div>
 
@@ -510,5 +598,57 @@ onMounted(() => {
 
 :deep(.el-dialog__footer) {
   padding: 0;
+}
+
+.filter-input {
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  height: 42px;
+  line-height: 1.2;
+  font-size: 0.875rem;
+  color: #111827;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.filter-input::placeholder {
+  color: #9ca3af;
+}
+
+.filter-input:hover {
+  background-color: #ffffff;
+}
+
+.filter-input:focus {
+  background-color: #ffffff;
+  border-color: var(--ember-red);
+  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
+}
+
+:deep(.filter-date .el-input__wrapper) {
+  height: 42px;
+  min-height: 42px;
+  background-color: #f9fafb !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.filter-date:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-date .el-input__wrapper.is-focus) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.filter-date .el-input__inner) {
+  height: 100%;
+  padding-left: 2.5rem;
+  font-size: 0.875rem;
 }
 </style>
