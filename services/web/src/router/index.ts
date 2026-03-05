@@ -96,6 +96,12 @@ const router = createRouter({
           component: () => import('../views/admin/SessionsView.vue'),
         },
         {
+          path: 'devices',
+          name: 'console-devices',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/DevicesView.vue'),
+        },
+        {
           path: 'plans',
           name: 'console-plans',
           meta: { role: 'admin' },

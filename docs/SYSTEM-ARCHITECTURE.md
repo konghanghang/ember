@@ -48,6 +48,8 @@ services/
 │     │  ├─ plan.go              # Plan（付费方案）
 │     │  ├─ payment.go           # Payment（支付记录）
 │     │  ├─ playback_ranking.go  # PlaybackRanking（播放排行快照）
+│     │  ├─ client_blacklist.go  # ClientBlacklist（客户端黑名单）
+│     │  ├─ device_action.go     # DeviceAction（设备操作日志）
 │     │  └─ utils.go             # generateCUID()
 │     ├─ services/               # 业务逻辑
 │     │  ├─ auth.go              # 登录 / 注册
@@ -65,6 +67,7 @@ services/
 │     │  ├─ notifier.go          # BotNotifier（火忘式推送通知给 Bot）
 │     │  ├─ playback_ranking.go  # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
+│     │  ├─ device.go            # DeviceService（设备管理）
 │     │  └─ errors.go            # 统一错误定义
 │     ├─ handlers/               # HTTP 处理层（Gin）
 │     │  ├─ auth.go              # 登录 / 注册
@@ -77,6 +80,7 @@ services/
 │     │  ├─ tmdb.go              # TMDB 搜索
 │     │  ├─ ranking.go           # 播放排行
 │     │  ├─ session.go           # 活跃会话
+│     │  ├─ device.go            # 设备管理
 │     │  ├─ telegram.go          # Telegram 绑定与 Bot Internal API
 │     │  └─ payment.go           # 支付与方案
 │     ├─ middleware/
@@ -121,7 +125,8 @@ services/
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
 │  │        ├─ SettingsView.vue  # 系统设置
 │  │        ├─ PlansView.vue     # 方案管理
-│  │        └─ SessionsView.vue  # 活跃会话
+│  │        ├─ SessionsView.vue  # 活跃会话
+│  │        └─ DevicesView.vue   # 设备管理
 │  ├─ vite.config.ts             # dev:3000, proxy /api→:8080
 │  └─ tailwind.config.js         # 自定义色：ember(橙红), cinema
 └─ bot/                          # Python Telegram Bot
@@ -307,7 +312,33 @@ services/
 | PeriodEnd | time.Time | periodEnd | 周期结束 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 4.10 TelegramBindCode（Telegram 绑定验证码）
+### 4.10 ClientBlacklist（客户端黑名单）
+
+**表名**: `client_blacklists` | **文件**: `models/client_blacklist.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| ClientName | string(100) | clientName | 客户端名称 |
+| NormalizedClientName | string(100) | normalizedClientName | 归一化名称（唯一索引） |
+| Reason | string(255) | reason | 黑名单原因 |
+| CreatedAt | time.Time | createdAt | 自动 |
+
+### 4.11 DeviceAction（设备操作日志）
+
+**表名**: `device_actions` | **文件**: `models/device_action.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| DeviceID | string(100) | deviceId | 设备 ID（索引） |
+| UserID | string(25) | userId | 用户 ID（索引） |
+| ClientName | string(100) | clientName | 客户端名 |
+| Action | string(50) | action | 操作类型（blacklist/unblacklist/logout） |
+| Note | string(255) | note | 备注 |
+| CreatedAt | time.Time | createdAt | 自动 |
+
+### 4.12 TelegramBindCode（Telegram 绑定验证码）
 
 **表名**: `telegram_bind_codes` | **文件**: `models/telegram_bind_code.go`
 
@@ -319,7 +350,7 @@ services/
 | ExpiresAt | time.Time | expiresAt | 过期时间（默认 5 分钟） |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 4.11 数据关系
+### 4.13 数据关系
 
 ```
 User (1) ──→ (N) Redemption     （兑换历史）
@@ -334,6 +365,7 @@ RedemptionCode ──→ Redemption   （码被使用时生成记录）
 Setting                         （全局 KV 配置，无外键）
 EmailVerification               （独立验证码，无外键）
 PlaybackRanking                 （独立排行快照，无外键）
+ClientBlacklist ──→ DeviceAction（按 clientName 审计）
 ```
 
 ---
@@ -406,6 +438,9 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | `SetUserPolicy` | `POST /emby/Users/{id}/Policy` | 封禁/解封（IsDisabled） |
 | `GetMediaStats` | `GET /emby/Items/Counts` | 媒体库统计 |
 | `GetUsers` | `GET /emby/Users` | 连接测试 |
+| `GetDevices` | `GET /emby/Devices` | 设备列表 |
+| `GetAllSessions` | `GET /emby/Sessions` | 全量会话（含非播放） |
+| `LogoutDevice` | `DELETE /emby/Devices/{id}` | 强制设备下线 |
 
 **认证方式**：`X-Emby-Token` 头
 
@@ -420,13 +455,22 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError）
 - `RejectSubscription(id)` — 设为 REJECTED
 
-### 5.10 MoviePilotClient (`services/moviepilot.go`)
+### 5.10 DeviceService (`services/device.go`)
+
+- `GetDevices(req)` — 设备列表（支持 userId/clientName/isBlacklisted 过滤 + 分页）
+- `GetBlacklist()` / `AddClientToBlacklist()` / `RemoveClientFromBlacklist()` — 客户端黑名单管理
+- `LogoutDevice(deviceID)` — 强制注销单设备
+- `LogoutBlacklistedDevices()` — 批量注销黑名单设备
+- `GetStats()` — 客户端分布、设备分布、黑名单数量、活跃会话数
+- `GetDeviceActions(limit)` — 最近设备操作日志
+
+### 5.11 MoviePilotClient (`services/moviepilot.go`)
 
 - `IsConfigured()` — 检查三个环境变量是否都设置
 - `login()` — `POST /api/v1/login/access-token`（form-urlencoded）
 - `CreateSubscription(type, name, tmdbId)` — `POST /api/v1/subscribe/`（type 转中文：movie→电影, tv→电视剧）
 
-### 5.11 EmailService (`services/email.go`)
+### 5.12 EmailService (`services/email.go`)
 
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
@@ -439,7 +483,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15）
 - 验证码有效期：`EMAIL_CODE_EXPIRY_MINUTES`（默认 10 分钟）
 
-### 5.12 BotNotifier (`services/notifier.go`)
+### 5.13 BotNotifier (`services/notifier.go`)
 
 火忘式 HTTP 推送通知服务，将事件推送给 Telegram Bot。
 
@@ -452,7 +496,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **认证方式**：`X-Internal-Secret` 头（值 = `INTERNAL_API_SECRET`）
 
-### 5.13 PlaybackRankingService (`services/playback_ranking.go`)
+### 5.14 PlaybackRankingService (`services/playback_ranking.go`)
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 
@@ -463,7 +507,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **支持周期**：`daily`（日榜）、`weekly`（周榜）
 
-### 5.14 PaymentService (`services/payment.go`)
+### 5.15 PaymentService (`services/payment.go`)
 
 Stripe 一次性支付流程管理。
 
@@ -472,11 +516,11 @@ Stripe 一次性支付流程管理。
 - Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
 - `GetPayments(page, pageSize)` — 支付记录查询
 
-### 5.15 错误定义 (`services/errors.go`)
+### 5.16 错误定义 (`services/errors.go`)
 
 统一的业务错误定义，用于 Service → Handler 的错误传递。
 
-### 5.16 TelegramService (`services/telegram.go`)
+### 5.17 TelegramService (`services/telegram.go`)
 
 Telegram 账号绑定与 Bot 自助能力服务。
 
@@ -570,6 +614,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝 |
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
+| GET | `/api/v1/admin/devices` | 设备列表 |
+| GET | `/api/v1/admin/devices/stats` | 设备统计 |
+| GET | `/api/v1/admin/devices/actions` | 设备操作日志 |
+| GET | `/api/v1/admin/devices/blacklist` | 黑名单列表 |
+| POST | `/api/v1/admin/devices/blacklist` | 添加黑名单 |
+| DELETE | `/api/v1/admin/devices/blacklist/:clientName` | 移除黑名单 |
+| POST | `/api/v1/admin/devices/logout/:deviceId` | 强制注销设备 |
+| POST | `/api/v1/admin/devices/blacklist/logout-all` | 批量注销黑名单设备 |
 | GET | `/api/v1/admin/plans` | 方案列表 |
 | POST | `/api/v1/admin/plans` | 创建方案 |
 | PUT | `/api/v1/admin/plans/:id` | 更新方案 |
@@ -632,7 +684,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `api/request.ts` — 基础配置：baseURL=/api/v1, 401 拦截
 - `api/auth.ts` — login, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
-- `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, rankings）
+- `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings）
 - `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram）
 
 ### 路由守卫
@@ -660,6 +712,16 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 新增路由：`/console/redemption-history`（admin）
 - 新增视图：`views/admin/RedemptionHistoryView.vue`
 - 数据源：`GET /api/v1/admin/redemptions`（支持 userId 分页筛选）
+
+### 管理端设备管理
+
+- 新增路由：`/console/devices`（admin）
+- 新增视图：`views/admin/DevicesView.vue`
+- 数据源：
+  - `GET /api/v1/admin/devices`
+  - `GET /api/v1/admin/devices/stats`
+  - `GET /api/v1/admin/devices/blacklist`
+  - `POST /api/v1/admin/devices/logout/:deviceId`
 
 ---
 

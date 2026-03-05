@@ -15,7 +15,8 @@ import {
   Setting,
   Monitor,
   SwitchButton,
-  DataLine
+  DataLine,
+  Iphone
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -85,6 +86,12 @@ const menuItems = computed(() => [
         title: '活跃会话',
         path: '/console/sessions',
         icon: DataLine,
+        role: 'admin'
+      },
+      {
+        title: '设备管理',
+        path: '/console/devices',
+        icon: Iphone,
         role: 'admin'
       },
       {

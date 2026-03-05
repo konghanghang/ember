@@ -25,4 +25,7 @@ var (
 	ErrTelegramBindCodeInvalid  = errors.New("绑定验证码无效或已过期")
 	ErrTelegramNotBound         = errors.New("尚未绑定 Telegram 账号")
 	ErrUserAlreadyBoundTelegram = errors.New("该账号已绑定 Telegram")
+	ErrClientBlacklistNotFound  = errors.New("客户端黑名单不存在")
+	ErrDeviceClientNameRequired = errors.New("客户端名称不能为空")
+	ErrDeviceIDRequired         = errors.New("设备 ID 不能为空")
 )

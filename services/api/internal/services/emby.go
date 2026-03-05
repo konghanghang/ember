@@ -775,14 +775,13 @@ type EmbySession struct {
 	PlayState          *EmbyPlayState      `json:"PlayState,omitempty"`
 }
 
-// GetSessions 获取 Emby 当前正在播放的会话
-func (s *EmbyService) GetSessions() ([]EmbySession, error) {
+func (s *EmbyService) fetchSessions(playingOnly bool) ([]EmbySession, error) {
 	if s.baseURL == "" || s.apiKey == "" {
 		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
 	}
 
-	url := fmt.Sprintf("%s/emby/Sessions", s.baseURL)
-	req, err := http.NewRequest("GET", url, nil)
+	endpoint := fmt.Sprintf("%s/emby/Sessions", s.baseURL)
+	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -809,6 +808,10 @@ func (s *EmbyService) GetSessions() ([]EmbySession, error) {
 		return nil, err
 	}
 
+	if !playingOnly {
+		return sessions, nil
+	}
+
 	// 只返回正在播放的会话（有 NowPlayingItem 的）
 	playing := make([]EmbySession, 0)
 	for _, session := range sessions {
@@ -818,4 +821,111 @@ func (s *EmbyService) GetSessions() ([]EmbySession, error) {
 	}
 
 	return playing, nil
+}
+
+// GetSessions 获取 Emby 当前正在播放的会话
+func (s *EmbyService) GetSessions() ([]EmbySession, error) {
+	return s.fetchSessions(true)
+}
+
+// GetAllSessions 获取 Emby 所有会话（包含非播放中会话）
+func (s *EmbyService) GetAllSessions() ([]EmbySession, error) {
+	return s.fetchSessions(false)
+}
+
+// EmbyDevice Emby 设备信息
+type EmbyDevice struct {
+	ID               string `json:"Id"`
+	Name             string `json:"Name"`
+	AppName          string `json:"AppName"`
+	AppVersion       string `json:"AppVersion"`
+	LastUserName     string `json:"LastUserName"`
+	LastUserID       string `json:"LastUserId"`
+	LastActivityDate string `json:"LastActivityDate"`
+	LastUsedDate     string `json:"LastUsedDate"`
+	DateCreated      string `json:"DateCreated"`
+}
+
+type embyDeviceListResponse struct {
+	Items   []EmbyDevice `json:"Items"`
+	Devices []EmbyDevice `json:"Devices"`
+}
+
+// GetDevices 获取 Emby 设备列表
+func (s *EmbyService) GetDevices() ([]EmbyDevice, error) {
+	if s.baseURL == "" || s.apiKey == "" {
+		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	}
+
+	endpoint := fmt.Sprintf("%s/emby/Devices?api_key=%s", s.baseURL, s.apiKey)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Emby-Token", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("获取 Emby 设备列表失败：HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	trimmed := strings.TrimSpace(string(body))
+	if strings.HasPrefix(trimmed, "[") {
+		var devices []EmbyDevice
+		if err := json.Unmarshal(body, &devices); err != nil {
+			return nil, err
+		}
+		return devices, nil
+	}
+
+	var wrapper embyDeviceListResponse
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		return nil, err
+	}
+	if len(wrapper.Items) > 0 {
+		return wrapper.Items, nil
+	}
+	return wrapper.Devices, nil
+}
+
+// LogoutDevice 强制设备下线
+func (s *EmbyService) LogoutDevice(deviceID string) error {
+	if s.baseURL == "" || s.apiKey == "" {
+		return errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	}
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return errors.New("设备 ID 不能为空")
+	}
+
+	escaped := url.PathEscape(deviceID)
+	endpoint := fmt.Sprintf("%s/emby/Devices/%s?api_key=%s", s.baseURL, escaped, s.apiKey)
+	req, err := http.NewRequest("DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Emby-Token", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("强制设备下线失败：HTTP %d: %s", resp.StatusCode, string(body))
 }

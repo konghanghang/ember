@@ -1,0 +1,398 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Iphone, Plus, RefreshRight, WarningFilled, SwitchButton } from '@element-plus/icons-vue'
+import {
+  addDeviceBlacklist,
+  getDeviceActions,
+  getDeviceBlacklist,
+  getDevices,
+  getDeviceStats,
+  logoutBlacklistedDevices,
+  logoutDevice,
+  removeDeviceBlacklist
+} from '@/api/admin'
+import type { ClientBlacklist, DeviceAction, DeviceItem, DeviceStats } from '@/types/api'
+
+const loading = ref(false)
+const blacklistsLoading = ref(false)
+const statsLoading = ref(false)
+const actionsLoading = ref(false)
+const submitting = ref(false)
+const batchProcessing = ref(false)
+
+const deviceList = ref<DeviceItem[]>([])
+const total = ref(0)
+const stats = ref<DeviceStats>({
+  clientDistribution: [],
+  topDevices: [],
+  blacklistedClientCount: 0,
+  activeSessionCount: 0
+})
+const blacklists = ref<ClientBlacklist[]>([])
+const actions = ref<DeviceAction[]>([])
+
+const query = ref({
+  page: 1,
+  pageSize: 20,
+  userId: '',
+  clientName: '',
+  isBlacklisted: '' as '' | 'true' | 'false'
+})
+
+const blacklistForm = ref({
+  clientName: '',
+  reason: ''
+})
+
+const blacklistedInCurrentPage = computed(() => deviceList.value.filter((item) => item.isBlacklisted).length)
+
+const fetchDevices = async () => {
+  loading.value = true
+  try {
+    const params: Record<string, string | number | boolean> = {
+      page: query.value.page,
+      pageSize: query.value.pageSize
+    }
+    if (query.value.userId.trim()) {
+      params.userId = query.value.userId.trim()
+    }
+    if (query.value.clientName.trim()) {
+      params.clientName = query.value.clientName.trim()
+    }
+    if (query.value.isBlacklisted === 'true') {
+      params.isBlacklisted = true
+    }
+    if (query.value.isBlacklisted === 'false') {
+      params.isBlacklisted = false
+    }
+
+    const res = await getDevices(params)
+    deviceList.value = res.data || []
+    total.value = res.total || 0
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchStats = async () => {
+  statsLoading.value = true
+  try {
+    const res = await getDeviceStats()
+    stats.value = res.data || stats.value
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+const fetchBlacklists = async () => {
+  blacklistsLoading.value = true
+  try {
+    const res = await getDeviceBlacklist()
+    blacklists.value = res.data || []
+  } finally {
+    blacklistsLoading.value = false
+  }
+}
+
+const fetchActions = async () => {
+  actionsLoading.value = true
+  try {
+    const res = await getDeviceActions({ limit: 20 })
+    actions.value = res.data || []
+  } finally {
+    actionsLoading.value = false
+  }
+}
+
+const refreshAll = async () => {
+  await Promise.all([fetchDevices(), fetchStats(), fetchBlacklists(), fetchActions()])
+}
+
+const handleAddBlacklist = async () => {
+  if (!blacklistForm.value.clientName.trim()) {
+    ElMessage.warning('请输入客户端名称')
+    return
+  }
+
+  submitting.value = true
+  try {
+    await addDeviceBlacklist({
+      clientName: blacklistForm.value.clientName.trim(),
+      reason: blacklistForm.value.reason.trim() || undefined
+    })
+    ElMessage.success('黑名单添加成功')
+    blacklistForm.value.clientName = ''
+    blacklistForm.value.reason = ''
+    await Promise.all([fetchBlacklists(), fetchDevices(), fetchStats(), fetchActions()])
+  } finally {
+    submitting.value = false
+  }
+}
+
+const handleRemoveBlacklist = async (clientName: string) => {
+  try {
+    await ElMessageBox.confirm(`确认将客户端 "${clientName}" 移出黑名单？`, '操作确认', {
+      type: 'warning',
+      confirmButtonText: '确认移除',
+      cancelButtonText: '取消'
+    })
+    await removeDeviceBlacklist(clientName)
+    ElMessage.success('已移除黑名单')
+    await Promise.all([fetchBlacklists(), fetchDevices(), fetchStats(), fetchActions()])
+  } catch {
+    // canceled
+  }
+}
+
+const handleLogoutDevice = async (row: DeviceItem) => {
+  if (!row.deviceId) return
+
+  try {
+    await ElMessageBox.confirm(`确认强制注销设备 "${row.deviceName}"？`, '操作确认', {
+      type: 'warning',
+      confirmButtonText: '确认注销',
+      cancelButtonText: '取消'
+    })
+    await logoutDevice(row.deviceId)
+    ElMessage.success('设备已强制注销')
+    await Promise.all([fetchDevices(), fetchStats(), fetchActions()])
+  } catch {
+    // canceled
+  }
+}
+
+const handleLogoutBlacklistedDevices = async () => {
+  try {
+    await ElMessageBox.confirm('确认批量注销所有黑名单客户端设备？', '高风险操作', {
+      type: 'warning',
+      confirmButtonText: '确认执行',
+      cancelButtonText: '取消'
+    })
+    batchProcessing.value = true
+    const res = await logoutBlacklistedDevices()
+    ElMessage.success(`批量注销完成，本次处理 ${res.count ?? 0} 台设备`)
+    await Promise.all([fetchDevices(), fetchStats(), fetchActions()])
+  } catch {
+    // canceled or error handled
+  } finally {
+    batchProcessing.value = false
+  }
+}
+
+const formatTime = (value?: string) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+const actionLabelMap: Record<string, string> = {
+  blacklist: '加入黑名单',
+  unblacklist: '移除黑名单',
+  logout: '设备注销'
+}
+
+onMounted(refreshAll)
+</script>
+
+<template>
+  <div class="space-y-6">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-ember/10 text-ember flex items-center justify-center">
+          <el-icon :size="20"><Iphone /></el-icon>
+        </div>
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">设备管理</h1>
+          <p class="text-sm text-gray-500 mt-1">黑名单治理、设备下线与行为审计</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          @click="refreshAll"
+          class="px-4 py-2 rounded-lg bg-gray-900 text-white font-semibold hover:bg-black transition-colors flex items-center gap-2"
+        >
+          <el-icon><RefreshRight /></el-icon>
+          刷新
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm" v-loading="statsLoading">
+        <div class="text-xs text-gray-500">活跃播放会话</div>
+        <div class="mt-2 text-3xl font-bold text-gray-900">{{ stats.activeSessionCount }}</div>
+      </div>
+      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm" v-loading="statsLoading">
+        <div class="text-xs text-gray-500">黑名单客户端</div>
+        <div class="mt-2 text-3xl font-bold text-red-600">{{ stats.blacklistedClientCount }}</div>
+      </div>
+      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+        <div class="text-xs text-gray-500">当前页命中黑名单</div>
+        <div class="mt-2 text-3xl font-bold text-orange-600">{{ blacklistedInCurrentPage }}</div>
+      </div>
+      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm" v-loading="statsLoading">
+        <div class="text-xs text-gray-500">客户端种类数</div>
+        <div class="mt-2 text-3xl font-bold text-gray-900">{{ stats.clientDistribution.length }}</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-bold text-gray-900">客户端黑名单</h2>
+          <button
+            type="button"
+            @click="handleLogoutBlacklistedDevices"
+            :disabled="batchProcessing"
+            class="px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center gap-2"
+          >
+            <el-icon><SwitchButton /></el-icon>
+            一键注销黑名单设备
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <el-input v-model="blacklistForm.clientName" placeholder="客户端名称，例如 Infuse" />
+          <el-input v-model="blacklistForm.reason" placeholder="原因（可选）" />
+          <button
+            type="button"
+            @click="handleAddBlacklist"
+            :disabled="submitting"
+            class="px-4 py-2 rounded-lg bg-gray-900 text-white font-semibold hover:bg-black transition-colors flex items-center justify-center gap-2"
+          >
+            <el-icon><Plus /></el-icon>
+            添加黑名单
+          </button>
+        </div>
+
+        <el-table :data="blacklists" v-loading="blacklistsLoading" size="small" style="width: 100%">
+          <el-table-column prop="clientName" label="客户端" min-width="140" />
+          <el-table-column prop="reason" label="原因" min-width="150" />
+          <el-table-column label="创建时间" min-width="170">
+            <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="110" fixed="right">
+            <template #default="{ row }">
+              <button
+                type="button"
+                class="text-red-600 hover:text-red-700 font-semibold"
+                @click="handleRemoveBlacklist(row.clientName)"
+              >
+                移除
+              </button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+        <h2 class="text-lg font-bold text-gray-900 mb-4">设备分布 Top</h2>
+        <div class="space-y-3" v-loading="statsLoading">
+          <div
+            v-for="item in stats.topDevices.slice(0, 8)"
+            :key="item.deviceName"
+            class="flex items-center justify-between rounded-xl border border-gray-100 px-3 py-2"
+          >
+            <span class="text-sm text-gray-700 truncate">{{ item.deviceName }}</span>
+            <span class="text-xs font-semibold text-gray-500">{{ item.count }}</span>
+          </div>
+          <div v-if="stats.topDevices.length === 0" class="text-sm text-gray-400">暂无数据</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 space-y-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="text-lg font-bold text-gray-900 mr-2">设备列表</h2>
+        <el-input v-model="query.userId" placeholder="按用户ID筛选" clearable class="!w-52" @keyup.enter="fetchDevices" />
+        <el-input v-model="query.clientName" placeholder="按客户端筛选" clearable class="!w-52" @keyup.enter="fetchDevices" />
+        <el-select v-model="query.isBlacklisted" class="!w-40">
+          <el-option label="全部状态" value="" />
+          <el-option label="仅黑名单" value="true" />
+          <el-option label="仅非黑名单" value="false" />
+        </el-select>
+        <button
+          type="button"
+          class="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-black transition-colors"
+          @click="query.page = 1; fetchDevices()"
+        >
+          查询
+        </button>
+      </div>
+
+      <el-table :data="deviceList" v-loading="loading" style="width: 100%">
+        <el-table-column prop="deviceName" label="设备" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="clientName" label="客户端" min-width="140" show-overflow-tooltip />
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.isActive ? 'success' : 'info'" effect="light">
+              {{ row.isActive ? '在线' : '离线' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="黑名单" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.isBlacklisted" type="danger" effect="light">
+              命中
+            </el-tag>
+            <span v-else class="text-gray-400">否</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="用户" min-width="160">
+          <template #default="{ row }">
+            <span class="text-gray-700">{{ row.userName || '-' }}</span>
+            <div class="text-xs text-gray-400">{{ row.userId || '-' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="最后活动" min-width="170">
+          <template #default="{ row }">{{ formatTime(row.lastActivityDate) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <button
+              type="button"
+              class="px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 text-sm font-semibold"
+              @click="handleLogoutDevice(row)"
+            >
+              强制注销
+            </button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="flex justify-end pt-2">
+        <el-pagination
+          v-model:current-page="query.page"
+          v-model:page-size="query.pageSize"
+          :total="total"
+          layout="total, prev, pager, next"
+          background
+          @current-change="fetchDevices"
+        />
+      </div>
+    </div>
+
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
+      <div class="flex items-center gap-2 mb-4">
+        <el-icon class="text-orange-500"><WarningFilled /></el-icon>
+        <h2 class="text-lg font-bold text-gray-900">最近操作日志</h2>
+      </div>
+      <el-table :data="actions" v-loading="actionsLoading" size="small" style="width: 100%">
+        <el-table-column label="操作" width="130">
+          <template #default="{ row }">{{ actionLabelMap[row.action] || row.action }}</template>
+        </el-table-column>
+        <el-table-column prop="clientName" label="客户端" min-width="140" />
+        <el-table-column prop="deviceId" label="设备ID" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="userId" label="用户ID" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="note" label="备注" min-width="150" />
+        <el-table-column label="时间" min-width="180">
+          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+        </el-table-column>
+      </el-table>
+    </div>
+  </div>
+</template>

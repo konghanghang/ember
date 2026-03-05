@@ -1,9 +1,14 @@
 import request from './request'
 import type {
   ActiveSession,
+  ClientBlacklist,
   CreatePlanRequest,
   CreateRedemptionCodeRequest,
   CronCheckResponse,
+  DeviceAction,
+  DeviceListQuery,
+  DeviceListResponse,
+  DeviceStats,
   PaymentListResponse,
   Plan,
   PlanListResponse,
@@ -236,5 +241,65 @@ export function getActiveSessions(opts?: { silent?: boolean }): Promise<{ data: 
     url: '/admin/sessions',
     method: 'get',
     silent: opts?.silent === true
+  })
+}
+
+// ==================== 设备管理 ====================
+export function getDevices(params?: DeviceListQuery): Promise<DeviceListResponse> {
+  return request({
+    url: '/admin/devices',
+    method: 'get',
+    params
+  })
+}
+
+export function getDeviceStats(): Promise<{ data: DeviceStats }> {
+  return request({
+    url: '/admin/devices/stats',
+    method: 'get'
+  })
+}
+
+export function getDeviceActions(params?: { limit?: number }): Promise<{ data: DeviceAction[] }> {
+  return request({
+    url: '/admin/devices/actions',
+    method: 'get',
+    params
+  })
+}
+
+export function getDeviceBlacklist(): Promise<{ data: ClientBlacklist[] }> {
+  return request({
+    url: '/admin/devices/blacklist',
+    method: 'get'
+  })
+}
+
+export function addDeviceBlacklist(data: { clientName: string; reason?: string }) {
+  return request({
+    url: '/admin/devices/blacklist',
+    method: 'post',
+    data
+  })
+}
+
+export function removeDeviceBlacklist(clientName: string) {
+  return request({
+    url: `/admin/devices/blacklist/${encodeURIComponent(clientName)}`,
+    method: 'delete'
+  })
+}
+
+export function logoutDevice(deviceId: string) {
+  return request({
+    url: `/admin/devices/logout/${encodeURIComponent(deviceId)}`,
+    method: 'post'
+  })
+}
+
+export function logoutBlacklistedDevices() {
+  return request({
+    url: '/admin/devices/blacklist/logout-all',
+    method: 'post'
   })
 }

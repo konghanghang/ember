@@ -396,3 +396,63 @@ export interface ActiveSession {
   nowPlayingItem?: ActiveNowPlayingItem
   playState?: ActivePlayState
 }
+
+// ==================== 设备管理 ====================
+export interface DeviceItem {
+  deviceId: string
+  deviceName: string
+  clientName: string
+  userId?: string
+  userName?: string
+  embyUserId?: string
+  isActive: boolean
+  isBlacklisted: boolean
+  blacklistReason?: string
+  lastActivityDate?: string
+  applicationVersion?: string
+  remoteEndpoint?: string
+}
+
+export interface DeviceListQuery extends PaginationQuery {
+  userId?: string
+  clientName?: string
+  isBlacklisted?: boolean
+}
+
+export interface DeviceListResponse {
+  data: DeviceItem[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+export interface ClientBlacklist {
+  id: string
+  clientName: string
+  reason?: string
+  createdAt: string
+}
+
+export interface DeviceAction {
+  id: string
+  deviceId?: string
+  userId?: string
+  clientName?: string
+  action: string
+  note?: string
+  createdAt: string
+}
+
+export interface DeviceStats {
+  clientDistribution: Array<{
+    clientName: string
+    count: number
+  }>
+  topDevices: Array<{
+    deviceName: string
+    count: number
+  }>
+  blacklistedClientCount: number
+  activeSessionCount: number
+}

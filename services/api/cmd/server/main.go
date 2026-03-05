@@ -47,6 +47,7 @@ func main() {
 	tmdbHandler := handlers.NewTMDBHandler()
 	rankingHandler := handlers.NewRankingHandler()
 	sessionHandler := handlers.NewSessionHandler()
+	deviceHandler := handlers.NewDeviceHandler()
 	paymentHandler := handlers.NewPaymentHandler()
 	telegramHandler := handlers.NewTelegramHandler()
 
@@ -108,6 +109,16 @@ func main() {
 
 			// 活跃会话监控
 			admin.GET("/sessions", sessionHandler.GetActiveSessions)
+
+			// 设备管理
+			admin.GET("/devices", deviceHandler.GetDevices)
+			admin.GET("/devices/stats", deviceHandler.GetStats)
+			admin.GET("/devices/actions", deviceHandler.GetActions)
+			admin.GET("/devices/blacklist", deviceHandler.GetBlacklist)
+			admin.POST("/devices/blacklist", deviceHandler.AddToBlacklist)
+			admin.DELETE("/devices/blacklist/:clientName", deviceHandler.RemoveFromBlacklist)
+			admin.POST("/devices/blacklist/logout-all", deviceHandler.LogoutBlacklistedDevices)
+			admin.POST("/devices/logout/:deviceId", deviceHandler.LogoutDevice)
 
 			// 付费方案
 			admin.GET("/plans", paymentHandler.GetPlans)

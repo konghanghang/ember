@@ -203,6 +203,8 @@ func AutoMigrate() error {
 		&models.Redemption{},
 		&models.Setting{},
 		&models.User{},
+		&models.ClientBlacklist{},
+		&models.DeviceAction{},
 		&models.Subscription{},
 		&models.Plan{},
 		&models.Payment{},
