@@ -11,6 +11,21 @@
 
 ---
 
+## 📊 进度状态（更新于 2026-03-05）
+
+- [ ] P0-1 追剧日历（TV Calendar）
+- [x] P0-2 客户端设备管理（Client Device Management）
+- [x] P0-3 权限模板机制（Permission Template）
+- [ ] P1-1 媒体库质量盘点（Media Quality Insight）
+- [ ] P1-2 播放历史查询（Playback History）
+- [ ] P1-3 用户画像（User Profile Analytics）
+- [ ] P2-1 求片分季支持（Subscription Season Support）
+- [ ] P2-2 用户头像管理（User Avatar Management）
+- [ ] P2-3 媒体库列表查询（Library List）
+- [ ] P2-4 兑换码备注字段（Redemption Code Notes）
+
+---
+
 ## ✅ 对齐基线（必须遵守）
 
 ### 数据与模型
