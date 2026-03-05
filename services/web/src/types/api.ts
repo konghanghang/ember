@@ -182,6 +182,30 @@ export interface CreateSubscriptionRequest {
   note?: string
 }
 
+export type TVCalendarStatus = 'ready' | 'missing' | 'upcoming' | 'today'
+
+export interface TVCalendarItem {
+  id: string
+  tmdbId: string
+  season: number
+  episode: number
+  airDate: string
+  episodeName: string
+  status: TVCalendarStatus
+  embyItemId?: string
+  showName: string
+  posterUrl?: string
+}
+
+export interface TVCalendarSubscription {
+  id: string
+  userId: string
+  tmdbId: string
+  showName: string
+  posterUrl?: string
+  createdAt: string
+}
+
 // ==================== 付费方案 ====================
 export interface Plan {
   id: string

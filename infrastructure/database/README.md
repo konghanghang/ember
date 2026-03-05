@@ -8,6 +8,9 @@
 
 ```bash
 psql "$DATABASE_URL" -f infrastructure/database/20260215_01_create_playback_rankings.sql
+
+# 追剧日历功能迁移（2026-03-05）
+psql "$DATABASE_URL" -f infrastructure/database/20260305_03_add_tv_calendar_tables.sql
 ```
 
 2. **Docker 首次初始化（仅首次）**
@@ -16,4 +19,3 @@ psql "$DATABASE_URL" -f infrastructure/database/20260215_01_create_playback_rank
 
 - 只在数据库数据卷为空时执行一次
 - 如果数据库已存在，需要用上面的 `psql` 手动执行迁移
-

@@ -56,6 +56,11 @@ const router = createRouter({
           component: () => import('../views/console/LibraryView.vue'),
         },
         {
+          path: 'tv-calendar',
+          name: 'console-tv-calendar',
+          component: () => import('../views/console/TVCalendarView.vue'),
+        },
+        {
           path: 'subscriptions/new',
           name: 'console-subscriptions-new',
           component: () => import('../views/console/NewSubscriptionView.vue'),

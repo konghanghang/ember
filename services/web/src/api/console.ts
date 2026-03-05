@@ -11,6 +11,9 @@ import type {
   RankingHistoryResponse,
   Subscription,
   SubscriptionListQuery,
+  TVCalendarItem,
+  TVCalendarSubscription,
+  TVCalendarStatus,
   TelegramBindCodeResponse,
   UserInfo
 } from '@/types/api'
@@ -150,5 +153,44 @@ export function getMyPayments(params?: { page?: number; pageSize?: number }): Pr
     url: '/payments',
     method: 'get',
     params
+  })
+}
+
+// ==================== 追剧日历 ====================
+export function getTVCalendar(params?: {
+  startDate?: string
+  endDate?: string
+  status?: TVCalendarStatus | ''
+}): Promise<{ data: TVCalendarItem[] }> {
+  return request({
+    url: '/tv-calendar',
+    method: 'get',
+    params
+  })
+}
+
+export function getTVCalendarSubscriptions(): Promise<{ data: TVCalendarSubscription[] }> {
+  return request({
+    url: '/tv-calendar/subscriptions',
+    method: 'get'
+  })
+}
+
+export function subscribeTVCalendar(data: {
+  tmdbId: string
+  showName: string
+  posterUrl?: string
+}): Promise<{ success: boolean }> {
+  return request({
+    url: '/tv-calendar/subscriptions',
+    method: 'post',
+    data
+  })
+}
+
+export function unsubscribeTVCalendar(tmdbId: string): Promise<{ success: boolean }> {
+  return request({
+    url: `/tv-calendar/subscriptions/${encodeURIComponent(tmdbId)}`,
+    method: 'delete'
   })
 }

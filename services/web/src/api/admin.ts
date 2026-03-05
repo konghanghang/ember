@@ -303,3 +303,12 @@ export function logoutBlacklistedDevices() {
     method: 'post'
   })
 }
+
+// ==================== 追剧日历 ====================
+export function refreshTVCalendar(data?: { tmdbId?: string; force?: boolean }): Promise<{ success: boolean; count: number }> {
+  return request({
+    url: '/admin/tv-calendar/refresh',
+    method: 'post',
+    data: data ?? {}
+  })
+}

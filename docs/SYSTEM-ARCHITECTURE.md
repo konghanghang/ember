@@ -50,6 +50,7 @@ services/
 │     │  ├─ playback_ranking.go  # PlaybackRanking（播放排行快照）
 │     │  ├─ client_blacklist.go  # ClientBlacklist（客户端黑名单）
 │     │  ├─ device_action.go     # DeviceAction（设备操作日志）
+│     │  ├─ tv_calendar.go       # TVCalendar（追剧日历 + 订阅 + TMDB 缓存）
 │     │  └─ utils.go             # generateCUID()
 │     ├─ services/               # 业务逻辑
 │     │  ├─ auth.go              # 登录 / 注册
@@ -68,6 +69,7 @@ services/
 │     │  ├─ playback_ranking.go  # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
 │     │  ├─ device.go            # DeviceService（设备管理）
+│     │  ├─ tv_calendar.go       # TVCalendarService（追剧日历）
 │     │  └─ errors.go            # 统一错误定义
 │     ├─ handlers/               # HTTP 处理层（Gin）
 │     │  ├─ auth.go              # 登录 / 注册
@@ -82,7 +84,8 @@ services/
 │     │  ├─ session.go           # 活跃会话
 │     │  ├─ device.go            # 设备管理
 │     │  ├─ telegram.go          # Telegram 绑定与 Bot Internal API
-│     │  └─ payment.go           # 支付与方案
+│     │  ├─ payment.go           # 支付与方案
+│     │  └─ tv_calendar.go       # 追剧日历
 │     ├─ middleware/
 │     │  ├─ jwt.go               # JWTAuth + AdminOnly + UserOnly
 │     │  └─ internal_auth.go     # InternalAuth（Bot 内部通信认证）
@@ -116,6 +119,7 @@ services/
 │  │     │  ├─ DashboardView.vue # 面板（双态：活跃/过期降级）
 │  │     │  ├─ SubscriptionsView.vue  # 求片订阅
 │  │     │  ├─ NewSubscriptionView.vue # 新建订阅
+│  │     │  ├─ TVCalendarView.vue # 追剧日历
 │  │     │  ├─ LibraryView.vue   # 媒体库
 │  │     │  ├─ RankingsView.vue  # 播放排行
 │  │     │  └─ PricingView.vue   # 付费方案
@@ -350,7 +354,47 @@ services/
 | ExpiresAt | time.Time | expiresAt | 过期时间（默认 5 分钟） |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 4.13 数据关系
+### 4.13 TVCalendar（追剧日历）
+
+**表名**: `tv_calendar_items` | **文件**: `models/tv_calendar.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| TmdbID | string(50) | tmdbId | TMDB 剧集 ID（联合唯一索引） |
+| SeriesID | string(50) | seriesId | Emby SeriesId（可空） |
+| Season | int | season | 季号（联合唯一索引） |
+| Episode | int | episode | 集号（联合唯一索引） |
+| AirDate | time.Time | airDate | 播出日期（UTC 00:00:00） |
+| EpisodeName | string(255) | episodeName | 集标题 |
+| Status | string(20) | status | `ready/missing/upcoming/today` |
+| EmbyItemID | string(50) | embyItemId | Emby 集条目 ID（可空） |
+| LastChecked | time.Time | lastChecked | 最近同步时间 |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+**表名**: `tv_calendar_subscriptions` | **文件**: `models/tv_calendar.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| UserID | string(25) | userId | 用户 ID（联合唯一索引） |
+| TmdbID | string(50) | tmdbId | TMDB 剧集 ID（联合唯一索引） |
+| ShowName | string(255) | showName | 剧名 |
+| PosterURL | string(500) | posterUrl | 海报地址 |
+| CreatedAt | time.Time | createdAt | 自动 |
+
+**表名**: `tmdb_cache` | **文件**: `models/tv_calendar.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| CacheKey | string(255) | cacheKey | 缓存键（唯一） |
+| CacheValue | text | cacheValue | TMDB JSON 响应 |
+| ExpiresAt | time.Time | expiresAt | 过期时间 |
+| CreatedAt | time.Time | createdAt | 自动 |
+
+### 4.14 数据关系
 
 ```
 User (1) ──→ (N) Redemption     （兑换历史）
@@ -366,6 +410,9 @@ Setting                         （全局 KV 配置，无外键）
 EmailVerification               （独立验证码，无外键）
 PlaybackRanking                 （独立排行快照，无外键）
 ClientBlacklist ──→ DeviceAction（按 clientName 审计）
+User (1) ──→ (N) TVCalendarSubscription（用户追剧订阅）
+TVCalendarSubscription (N) ──→ (N) TVCalendarItem（按 tmdbId 关联）
+TMDBCache（独立缓存表）
 ```
 
 ---
@@ -532,6 +579,17 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `ResetPassword(telegramID, newPassword)` — 通过 Telegram 身份重置 Ember/Emby 密码
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 
+### 5.18 TVCalendarService (`services/tv_calendar.go`)
+
+追剧日历聚合服务，使用三层缓存（内存 + PostgreSQL + TMDB）。
+
+- `FetchCalendar(userID, startDate, endDate, status)` — 按用户订阅查询日历，按需触发增量刷新
+- `Subscribe(userID, tmdbId, showName, posterUrl)` — 创建或更新用户追剧订阅
+- `GetSubscriptions(userID)` — 获取用户订阅剧集列表
+- `Unsubscribe(userID, tmdbId)` — 取消订阅
+- `RefreshCalendar(tmdbId, force)` — 管理员手动刷新（单剧 / 全部）
+- `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
+
 ---
 
 ## 6. API 端点完整列表
@@ -549,6 +607,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/register/code/:code/validate` | 验证兑换码（注册前）|
 | GET | `/api/v1/plans` | 公开方案列表（仅 isActive=true）|
 | POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
+| POST | `/api/v1/webhooks/emby?token=` | Emby 入库 Webhook（追剧日历） |
 | GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索 |
 
 ### 统一认证路由（admin + user 共享，需 JWT）
@@ -571,6 +630,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/rankings/history` | 排行历史 |
 | POST | `/api/v1/payments/checkout` | Stripe 结账 |
 | GET | `/api/v1/payments` | 我的支付记录 |
+| GET | `/api/v1/tv-calendar` | 追剧日历 |
+| GET | `/api/v1/tv-calendar/subscriptions` | 我的追剧订阅 |
+| POST | `/api/v1/tv-calendar/subscriptions` | 订阅剧集 |
+| DELETE | `/api/v1/tv-calendar/subscriptions/:tmdbId` | 取消订阅剧集 |
 
 ### 用户路由（需认证 + role=user）
 
@@ -629,9 +692,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/payments` | 全部支付记录 |
 | GET | `/api/v1/admin/system/info` | 系统统计 |
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
+| POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |
 | POST | `/api/v1/cron/check-expired` | 手动执行过期检查 |
 | POST | `/api/v1/cron/generate-ranking` | 手动生成排行 |
 | POST | `/api/v1/rankings/preview` | 排行预览 |
+
+追剧日历刷新接口说明：`POST /api/v1/admin/tv-calendar/refresh` 请求体可选；空 body 表示刷新全部订阅剧集。
 
 ### 内部服务路由（InternalAuth 中间件，Bot 调用）
 
@@ -815,6 +881,8 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `EMBY_URL` | — | — | Emby 服务器内部 URL |
 | `EMBY_API_KEY` | — | — | Emby API 密钥 |
 | `NEXT_PUBLIC_EMBY_URL` | — | — | Emby 公开 URL（给前端用）|
+| `WEBHOOK_TOKEN` | — | — | Emby Webhook token（`/api/v1/webhooks/emby?token=`）|
+| `EMBY_WEBHOOK_TOKEN` | — | — | `WEBHOOK_TOKEN` 兼容别名 |
 
 ### TMDB / MoviePilot
 

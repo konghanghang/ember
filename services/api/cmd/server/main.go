@@ -50,6 +50,7 @@ func main() {
 	deviceHandler := handlers.NewDeviceHandler()
 	paymentHandler := handlers.NewPaymentHandler()
 	telegramHandler := handlers.NewTelegramHandler()
+	tvCalendarHandler := handlers.NewTVCalendarHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -68,6 +69,7 @@ func main() {
 		api.GET("/register/code/:code/validate", redemptionCodeHandler.ValidateCode)
 		api.GET("/plans", paymentHandler.GetActivePlans)
 		api.POST("/webhooks/stripe", paymentHandler.HandleStripeWebhook)
+		api.POST("/webhooks/emby", tvCalendarHandler.HandleEmbyWebhook)
 
 		// TMDB 搜索（公开）
 		api.GET("/tmdb/search", tmdbHandler.Search)
@@ -119,6 +121,9 @@ func main() {
 			admin.DELETE("/devices/blacklist/:clientName", deviceHandler.RemoveFromBlacklist)
 			admin.POST("/devices/blacklist/logout-all", deviceHandler.LogoutBlacklistedDevices)
 			admin.POST("/devices/logout/:deviceId", deviceHandler.LogoutDevice)
+
+			// 追剧日历
+			admin.POST("/tv-calendar/refresh", tvCalendarHandler.Refresh)
 
 			// 付费方案
 			admin.GET("/plans", paymentHandler.GetPlans)
@@ -180,6 +185,12 @@ func main() {
 			// 支付
 			authenticated.POST("/payments/checkout", paymentHandler.CreateCheckout)
 			authenticated.GET("/payments", paymentHandler.GetMyPayments)
+
+			// 追剧日历
+			authenticated.GET("/tv-calendar", tvCalendarHandler.GetCalendar)
+			authenticated.GET("/tv-calendar/subscriptions", tvCalendarHandler.GetSubscriptions)
+			authenticated.POST("/tv-calendar/subscriptions", tvCalendarHandler.Subscribe)
+			authenticated.DELETE("/tv-calendar/subscriptions/:tmdbId", tvCalendarHandler.Unsubscribe)
 		}
 
 		// ==================== 用户路由（需要认证） ====================

@@ -132,6 +132,9 @@ Response:
 
 `POST /api/v1/admin/tv-calendar/refresh`
 
+说明：
+- 请求体可选；空 body 表示“刷新全部订阅剧集”
+
 ```json
 {
   "tmdbId": "1399",

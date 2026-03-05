@@ -16,7 +16,8 @@ import {
   Monitor,
   SwitchButton,
   DataLine,
-  Iphone
+  Iphone,
+  Calendar
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -45,6 +46,12 @@ const menuItems = computed(() => [
     title: '媒体库',
     path: '/console/library',
     icon: Film,
+    role: 'user'
+  },
+  {
+    title: '追剧日历',
+    path: '/console/tv-calendar',
+    icon: Calendar,
     role: 'user'
   },
   {
