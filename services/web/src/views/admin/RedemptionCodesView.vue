@@ -2,8 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen } from '@element-plus/icons-vue'
-import { getRedemptionCodes, createRedemptionCode, updateRedemptionCode, deleteRedemptionCode } from '@/api/admin'
-import type { CreateRedemptionCodeRequest, RedemptionCode, UpdateRedemptionCodeRequest } from '@/types/api'
+import { getRedemptionCodes, createRedemptionCode, updateRedemptionCode, deleteRedemptionCode, getUserTemplates } from '@/api/admin'
+import type { CreateRedemptionCodeRequest, RedemptionCode, UpdateRedemptionCodeRequest, UserTemplate } from '@/types/api'
 
 const tableData = ref<RedemptionCode[]>([])
 const total = ref(0)
@@ -13,6 +13,7 @@ const queryParams = ref({
   pageSize: 10,
   showAll: false
 })
+const userTemplates = ref<UserTemplate[]>([])
 
 const dialogVisible = ref(false)
 const generating = ref(false)
@@ -21,6 +22,7 @@ const editing = ref(false)
 const form = ref<CreateRedemptionCodeRequest>({
   maxUses: 1,
   defaultDays: 30,
+  templateUserId: null,
   expiresAt: null
 })
 const editForm = ref({
@@ -28,6 +30,7 @@ const editForm = ref({
   usedCount: 0,
   maxUses: 1,
   defaultDays: 30,
+  templateUserId: null as string | null,
   neverExpire: false,
   expiresAt: null as Date | null
 })
@@ -40,6 +43,15 @@ const fetchData = async () => {
     total.value = res.total || 0
   } finally {
     loading.value = false
+  }
+}
+
+const fetchUserTemplates = async () => {
+  try {
+    const res = await getUserTemplates()
+    userTemplates.value = res.data || []
+  } catch {
+    userTemplates.value = []
   }
 }
 
@@ -84,6 +96,7 @@ const openEditDialog = (row: RedemptionCode) => {
     usedCount: row.usedCount,
     maxUses: row.maxUses,
     defaultDays: row.defaultDays,
+    templateUserId: row.templateUserId || null,
     neverExpire: !row.expiresAt,
     expiresAt: row.expiresAt ? new Date(row.expiresAt) : null
   }
@@ -107,6 +120,7 @@ const handleUpdate = async () => {
   const payload: UpdateRedemptionCodeRequest = {
     maxUses: editForm.value.maxUses,
     defaultDays: editForm.value.defaultDays,
+    templateUserId: editForm.value.templateUserId,
     expiresAt: editForm.value.neverExpire ? null : editForm.value.expiresAt?.toISOString() || null
   }
 
@@ -129,13 +143,20 @@ const formatDate = (dateStr?: string | null) => {
   return new Date(dateStr).toLocaleString()
 }
 
+const formatTemplate = (row: RedemptionCode) => {
+  if (!row.templateUserId) return '无'
+  return row.templateUserName || row.templateUserId
+}
+
 const getUsageStatus = (row: RedemptionCode) => {
   if (row.usedCount >= row.maxUses) return { type: 'danger', text: '已耗尽' }
   if (row.expiresAt && new Date(row.expiresAt) < new Date()) return { type: 'info', text: '已过期' }
   return { type: 'success', text: '有效' }
 }
 
-onMounted(fetchData)
+onMounted(async () => {
+  await Promise.all([fetchData(), fetchUserTemplates()])
+})
 </script>
 
 <template>
@@ -222,6 +243,12 @@ onMounted(fetchData)
           </template>
         </el-table-column>
 
+        <el-table-column label="权限模板" min-width="160">
+          <template #default="{ row }">
+            <span class="text-gray-700">{{ formatTemplate(row) }}</span>
+          </template>
+        </el-table-column>
+
         <el-table-column label="过期时间" min-width="180">
           <template #default="{ row }">
             <span :class="{'text-gray-400': !row.expiresAt}">{{ formatDate(row.expiresAt) }}</span>
@@ -292,6 +319,24 @@ onMounted(fetchData)
             />
             <div class="text-xs text-gray-400 mt-1">设置兑换码本身的有效期，过期后无法兑换。</div>
           </el-form-item>
+
+          <el-form-item label="权限模板用户 (可选)">
+            <el-select
+              v-model="form.templateUserId"
+              placeholder="不选择则沿用默认权限"
+              clearable
+              filterable
+              class="w-full !w-full"
+            >
+              <el-option
+                v-for="item in userTemplates"
+                :key="item.id"
+                :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
+                :value="item.id"
+              />
+            </el-select>
+            <div class="text-xs text-gray-400 mt-1">仅在邀请码注册时生效，续期不受影响。</div>
+          </el-form-item>
         </el-form>
       </div>
       <template #footer>
@@ -351,6 +396,23 @@ onMounted(fetchData)
               class="w-full !w-full input-ember"
             />
             <div class="text-xs text-gray-400 mt-1">修改后状态会按新规则实时生效。</div>
+          </el-form-item>
+
+          <el-form-item label="权限模板用户 (可选)">
+            <el-select
+              v-model="editForm.templateUserId"
+              placeholder="不选择则沿用默认权限"
+              clearable
+              filterable
+              class="w-full !w-full"
+            >
+              <el-option
+                v-for="item in userTemplates"
+                :key="item.id"
+                :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
+                :value="item.id"
+              />
+            </el-select>
           </el-form-item>
         </el-form>
       </div>

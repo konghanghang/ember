@@ -17,16 +17,18 @@ type RedemptionCodeService struct{}
 
 // CreateRedemptionCodeRequest 创建兑换码请求
 type CreateRedemptionCodeRequest struct {
-	MaxUses     int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays int        `json:"defaultDays" binding:"required,min=1"`
-	ExpiresAt   *time.Time `json:"expiresAt"`
+	MaxUses        int        `json:"maxUses" binding:"required,min=1"`
+	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
+	ExpiresAt      *time.Time `json:"expiresAt"`
+	TemplateUserID *string    `json:"templateUserId"`
 }
 
 // UpdateRedemptionCodeRequest 更新兑换码请求
 type UpdateRedemptionCodeRequest struct {
-	MaxUses     int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays int        `json:"defaultDays" binding:"required,min=1"`
-	ExpiresAt   *time.Time `json:"expiresAt"`
+	MaxUses        int        `json:"maxUses" binding:"required,min=1"`
+	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
+	ExpiresAt      *time.Time `json:"expiresAt"`
+	TemplateUserID *string    `json:"templateUserId"`
 }
 
 // GetRedemptionCodesRequest 获取兑换码列表请求
@@ -45,18 +47,35 @@ type GetRedemptionCodesResponse struct {
 	TotalPages int                     `json:"totalPages"`
 }
 
+type UserTemplate struct {
+	ID        string     `json:"id"`
+	Username  string     `json:"username"`
+	Email     string     `json:"email,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+}
+
+type GetUserTemplatesResponse struct {
+	Data []UserTemplate `json:"data"`
+}
+
 // CreateRedemptionCode 创建兑换码
 func (s *RedemptionCodeService) CreateRedemptionCode(req *CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
+	templateUserID, err := s.validateTemplateUserID(req.TemplateUserID)
+	if err != nil {
+		return nil, err
+	}
+
 	code, err := s.generateCode(16)
 	if err != nil {
 		return nil, errors.New("生成兑换码失败")
 	}
 
 	redemptionCode := models.RedemptionCode{
-		Code:        code,
-		MaxUses:     req.MaxUses,
-		DefaultDays: req.DefaultDays,
-		ExpiresAt:   req.ExpiresAt,
+		Code:           code,
+		MaxUses:        req.MaxUses,
+		DefaultDays:    req.DefaultDays,
+		ExpiresAt:      req.ExpiresAt,
+		TemplateUserID: templateUserID,
 	}
 
 	if err := db.DB.Create(&redemptionCode).Error; err != nil {
@@ -98,6 +117,10 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 		return nil, errors.New("获取兑换码列表失败")
 	}
 
+	if err := s.fillTemplateUserNames(codes); err != nil {
+		return nil, errors.New("获取兑换码列表失败")
+	}
+
 	return &GetRedemptionCodesResponse{
 		Data:       codes,
 		Total:      total,
@@ -126,6 +149,11 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 		return nil, ErrRedemptionCodeNotFound
 	}
 
+	templateUserID, err := s.validateTemplateUserID(req.TemplateUserID)
+	if err != nil {
+		return nil, err
+	}
+
 	if req.MaxUses < redemptionCode.UsedCount {
 		return nil, ErrRedemptionCodeUsedOver
 	}
@@ -133,12 +161,46 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 	redemptionCode.MaxUses = req.MaxUses
 	redemptionCode.DefaultDays = req.DefaultDays
 	redemptionCode.ExpiresAt = req.ExpiresAt
+	redemptionCode.TemplateUserID = templateUserID
 
 	if err := db.DB.Save(&redemptionCode).Error; err != nil {
 		return nil, errors.New("更新兑换码失败")
 	}
 
+	if redemptionCode.TemplateUserID != nil && *redemptionCode.TemplateUserID != "" {
+		var user models.User
+		if err := db.DB.Model(&models.User{}).Select("username").Where("id = ?", *redemptionCode.TemplateUserID).First(&user).Error; err == nil {
+			redemptionCode.TemplateUserName = &user.Username
+		}
+	}
+
 	return &redemptionCode, nil
+}
+
+func (s *RedemptionCodeService) GetUserTemplates() (*GetUserTemplatesResponse, error) {
+	now := time.Now().UTC()
+	var users []models.User
+	if err := db.DB.
+		Model(&models.User{}).
+		Where("role = ? AND \"isActive\" = true AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", "user", now).
+		Order("username ASC").
+		Find(&users).Error; err != nil {
+		return nil, errors.New("获取模板用户失败")
+	}
+
+	templates := make([]UserTemplate, 0, len(users))
+	for _, user := range users {
+		templates = append(templates, UserTemplate{
+			ID:        user.ID,
+			Username:  user.Username,
+			Email:     user.Email,
+			ExpiresAt: user.ExpiresAt,
+		})
+	}
+
+	return &GetUserTemplatesResponse{
+		Data: templates,
+	}, nil
 }
 
 // ValidateCode 验证兑换码（用于注册和兑换）
@@ -178,4 +240,71 @@ func (s *RedemptionCodeService) generateCode(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes)[:length], nil
+}
+
+func (s *RedemptionCodeService) validateTemplateUserID(templateUserID *string) (*string, error) {
+	if templateUserID == nil {
+		return nil, nil
+	}
+
+	if *templateUserID == "" {
+		return nil, nil
+	}
+
+	var user models.User
+	if err := db.DB.Where("id = ?", *templateUserID).First(&user).Error; err != nil {
+		return nil, errors.New("模板用户不存在")
+	}
+
+	if user.Role != "user" {
+		return nil, errors.New("模板用户必须是普通用户")
+	}
+
+	if user.EmbyID == "" {
+		return nil, errors.New("模板用户未关联 Emby 账号")
+	}
+
+	validID := user.ID
+	return &validID, nil
+}
+
+func (s *RedemptionCodeService) fillTemplateUserNames(codes []models.RedemptionCode) error {
+	userIDs := make([]string, 0)
+	seen := make(map[string]struct{})
+	for i := range codes {
+		if codes[i].TemplateUserID == nil || *codes[i].TemplateUserID == "" {
+			continue
+		}
+		id := *codes[i].TemplateUserID
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		userIDs = append(userIDs, id)
+	}
+
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	var users []models.User
+	if err := db.DB.Model(&models.User{}).Select("id", "username").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return err
+	}
+
+	nameMap := make(map[string]string, len(users))
+	for _, user := range users {
+		nameMap[user.ID] = user.Username
+	}
+
+	for i := range codes {
+		if codes[i].TemplateUserID == nil || *codes[i].TemplateUserID == "" {
+			continue
+		}
+		if name, ok := nameMap[*codes[i].TemplateUserID]; ok {
+			codes[i].TemplateUserName = &name
+		}
+	}
+
+	return nil
 }

@@ -70,6 +70,8 @@ export interface RedemptionCode {
   maxUses: number
   usedCount: number
   defaultDays: number
+  templateUserId?: string | null
+  templateUserName?: string | null
   expiresAt?: string | null
   createdAt: string
 }
@@ -85,13 +87,22 @@ export interface RedemptionCodeListResponse {
 export interface CreateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number
+  templateUserId?: string | null
   expiresAt?: string | null
 }
 
 export interface UpdateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number
+  templateUserId?: string | null
   expiresAt?: string | null
+}
+
+export interface UserTemplate {
+  id: string
+  username: string
+  email?: string
+  expiresAt?: string
 }
 
 export interface Redemption {

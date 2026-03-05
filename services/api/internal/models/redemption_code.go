@@ -8,13 +8,15 @@ import (
 
 // RedemptionCode 兑换码模型（统一用于注册门控和续期）
 type RedemptionCode struct {
-	ID          string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	Code        string     `json:"code" gorm:"column:code;uniqueIndex;size:20;not null"`
-	MaxUses     int        `json:"maxUses" gorm:"column:maxUses;not null;default:1"`
-	UsedCount   int        `json:"usedCount" gorm:"column:usedCount;not null;default:0"`
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
-	DefaultDays int        `json:"defaultDays" gorm:"column:defaultDays;not null;default:30"`
-	CreatedAt   time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	ID               string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+	Code             string     `json:"code" gorm:"column:code;uniqueIndex;size:20;not null"`
+	MaxUses          int        `json:"maxUses" gorm:"column:maxUses;not null;default:1"`
+	UsedCount        int        `json:"usedCount" gorm:"column:usedCount;not null;default:0"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
+	DefaultDays      int        `json:"defaultDays" gorm:"column:defaultDays;not null;default:30"`
+	TemplateUserID   *string    `json:"templateUserId,omitempty" gorm:"column:templateUserId;type:varchar(25);index"`
+	TemplateUserName *string    `json:"templateUserName,omitempty" gorm:"-"`
+	CreatedAt        time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 }
 
 func (RedemptionCode) TableName() string {

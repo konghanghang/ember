@@ -96,3 +96,13 @@ func (h *RedemptionCodeHandler) ValidateCode(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, resp)
 }
+
+func (h *RedemptionCodeHandler) GetUserTemplates(c *gin.Context) {
+	resp, err := h.service.GetUserTemplates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

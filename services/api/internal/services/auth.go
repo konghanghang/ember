@@ -189,6 +189,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 
 	if err := tx.Create(&user).Error; err != nil {
 		tx.Rollback()
+		_ = embyService.DeleteUser(embyUser.ID)
 		return nil, errors.New("创建用户失败")
 	}
 
@@ -198,10 +199,12 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 			Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
 		if result.Error != nil {
 			tx.Rollback()
+			_ = embyService.DeleteUser(embyUser.ID)
 			return nil, errors.New("创建用户失败")
 		}
 		if result.RowsAffected == 0 {
 			tx.Rollback()
+			_ = embyService.DeleteUser(embyUser.ID)
 			return nil, ErrRedemptionCodeInvalid
 		}
 
@@ -212,7 +215,14 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		}
 		if err := tx.Create(&redemption).Error; err != nil {
 			tx.Rollback()
+			_ = embyService.DeleteUser(embyUser.ID)
 			return nil, errors.New("创建用户失败")
+		}
+
+		if err := s.applyTemplatePolicyIfNeeded(user.EmbyID, redemptionCode.TemplateUserID); err != nil {
+			tx.Rollback()
+			_ = embyService.DeleteUser(embyUser.ID)
+			return nil, err
 		}
 	}
 
@@ -251,6 +261,43 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		Token: token,
 		User:  &user,
 	}, nil
+}
+
+func (s *AuthService) applyTemplatePolicyIfNeeded(newEmbyID string, templateUserID *string) error {
+	if templateUserID == nil || *templateUserID == "" {
+		return nil
+	}
+
+	var templateUser models.User
+	if err := db.DB.Where("id = ?", *templateUserID).First(&templateUser).Error; err != nil {
+		return errors.New("模板用户不存在")
+	}
+	if templateUser.EmbyID == "" {
+		return errors.New("模板用户未关联 Emby 账号")
+	}
+
+	embyService := NewEmbyService()
+	sourcePolicy, err := embyService.GetUserPolicyRaw(templateUser.EmbyID)
+	if err != nil {
+		return errors.New("读取模板用户权限失败")
+	}
+
+	whitelistFields := []string{
+		"EnableAllFolders",
+		"EnabledFolders",
+		"ExcludedSubFolders",
+		"EnableContentDownloading",
+		"EnableSyncTranscoding",
+		"EnableVideoPlaybackTranscoding",
+		"EnablePlaybackRemuxing",
+		"EnableAudioPlaybackTranscoding",
+		"MaxParentalRating",
+	}
+	if err := embyService.PatchUserPolicyFields(newEmbyID, sourcePolicy, whitelistFields); err != nil {
+		return errors.New("应用模板用户权限失败")
+	}
+
+	return nil
 }
 
 // GetCurrentUser 获取当前用户信息

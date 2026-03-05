@@ -185,6 +185,7 @@ services/
 | UsedCount | int | usedCount | 已使用次数（默认 0）|
 | ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
 | DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
+| TemplateUserID | *string(25) | templateUserId | 模板用户 ID（可空，仅邀请码注册时生效）|
 | CreatedAt | time.Time | createdAt | 自动 |
 
 **方法**：`IsValid()` — `UsedCount < MaxUses && (ExpiresAt == nil || ExpiresAt > now)`
@@ -325,6 +326,7 @@ User (1) ──→ (N) Redemption     （兑换历史）
 User (1) ──→ (N) Subscription   （求片记录）
 User (1) ──→ (N) Payment        （支付记录）
 User (1) ──→ (N) TelegramBindCode（临时绑定验证码）
+User (1) ──→ (N) RedemptionCode （模板用户引用，可空）
 User (1) ──→ (1) Emby User      （外部 Emby 账号，通过 EmbyID 关联）
 
 Plan (1) ──→ (N) Payment        （方案关联）
@@ -347,8 +349,10 @@ PlaybackRanking                 （独立排行快照，无外键）
 **注册流程**：
 1. 读取 `registration_mode` → `"invite"`: 验证兑换码 → `"open"`: 读取 `default_trial_days`
 2. 如果开启 `email_verification`：校验邮箱验证码
-3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）→ 签发 JWT
-4. 火忘式通知 Bot（新用户注册）
+3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）
+4. invite 模式且兑换码绑定 `templateUserId` 时：按白名单字段复制模板用户 Emby Policy
+5. 签发 JWT
+6. 火忘式通知 Bot（新用户注册）
 
 **关键 struct**：
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
@@ -364,8 +368,9 @@ PlaybackRanking                 （独立排行快照，无外键）
 
 ### 5.3 RedemptionCodeService (`services/redemption_code.go`)
 
-- `CreateRedemptionCode(maxUses, defaultDays, expiresAt)` — 生成 16 字符 hex 码
+- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId)` — 生成 16 字符 hex 码
 - `GetRedemptionCodes(page, pageSize, showAll)` — showAll=false 过滤已失效
+- `GetUserTemplates()` — 获取可选模板用户列表（启用且未过期）
 - `ValidateCode(code)` — 查找 + IsValid()
 - `UseCode(code)` — 原子递增 usedCount
 
@@ -556,6 +561,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/admin/redemption-codes` | 创建兑换码 |
 | PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码 |
 | DELETE | `/api/v1/admin/redemption-codes/:id` | 删除兑换码 |
+| GET | `/api/v1/admin/user-templates` | 模板用户列表 |
 | GET | `/api/v1/admin/settings` | 获取所有配置 |
 | PUT | `/api/v1/admin/settings/:key` | 更新配置 |
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史 |

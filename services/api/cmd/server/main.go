@@ -91,6 +91,7 @@ func main() {
 			admin.POST("/redemption-codes", redemptionCodeHandler.CreateRedemptionCode)
 			admin.PUT("/redemption-codes/:id", redemptionCodeHandler.UpdateRedemptionCode)
 			admin.DELETE("/redemption-codes/:id", redemptionCodeHandler.DeleteRedemptionCode)
+			admin.GET("/user-templates", redemptionCodeHandler.GetUserTemplates)
 			admin.GET("/settings", settingHandler.GetSettings)
 			admin.PUT("/settings/:key", settingHandler.UpdateSetting)
 			admin.GET("/redemptions", userHandler.GetAllRedemptions)

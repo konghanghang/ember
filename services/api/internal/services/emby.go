@@ -561,6 +561,11 @@ func (s *EmbyService) getUserPolicyRaw(embyUserID string) (map[string]any, error
 	return policy, nil
 }
 
+// GetUserPolicyRaw 获取 Emby 用户完整策略。
+func (s *EmbyService) GetUserPolicyRaw(embyUserID string) (map[string]any, error) {
+	return s.getUserPolicyRaw(embyUserID)
+}
+
 func (s *EmbyService) setUserPolicyRaw(embyUserID string, policy map[string]any) error {
 	if s.baseURL == "" || s.apiKey == "" {
 		return errors.New("Emby 配置未设置")
@@ -590,6 +595,22 @@ func (s *EmbyService) setUserPolicyRaw(embyUserID string, policy map[string]any)
 		return fmt.Errorf("更新用户策略失败：状态码 %d，响应 %s", resp.StatusCode, string(body))
 	}
 	return nil
+}
+
+// PatchUserPolicyFields 仅按白名单字段覆盖目标用户策略，其他字段保持不变。
+func (s *EmbyService) PatchUserPolicyFields(targetUserID string, sourcePolicy map[string]any, fields []string) error {
+	targetPolicy, err := s.getUserPolicyRaw(targetUserID)
+	if err != nil {
+		return err
+	}
+
+	for _, field := range fields {
+		if value, ok := sourcePolicy[field]; ok {
+			targetPolicy[field] = value
+		}
+	}
+
+	return s.setUserPolicyRaw(targetUserID, targetPolicy)
 }
 
 // ApplyEmberDefaultUserPolicy 尝试在不破坏其他策略字段的前提下，应用 Ember 默认用户权限。
