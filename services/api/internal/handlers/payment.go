@@ -163,7 +163,7 @@ func (h *PaymentHandler) DeletePlan(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
+	c.JSON(http.StatusOK, gin.H{"message": "下架成功"})
 }
 
 func (h *PaymentHandler) GetAllPayments(c *gin.Context) {

@@ -110,7 +110,7 @@ func (p *Payment) BeforeCreate(tx *gorm.DB) error {
 ```
 
 **关键设计**：
-- `StripeSessionID` 加 uniqueIndex，保证幂等（同一 session 不会重复处理）
+- `StripeSessionID` 加 uniqueIndex，用于唯一定位同一 Stripe Session（幂等仍需事务内状态迁移保证）
 - `Status` 三态：`pending`（创建 session 时）→ `completed`（webhook 确认后）/ `failed`
 - 记录 `Amount`、`Days` 快照，即使后续方案价格变动，历史记录不受影响
 
@@ -150,7 +150,7 @@ Plan (1) ──→ (N) Payment
 | GET | `/api/v1/admin/plans` | Admin | 所有方案（含已下架） |
 | POST | `/api/v1/admin/plans` | Admin | 创建方案 |
 | PUT | `/api/v1/admin/plans/:id` | Admin | 更新方案 |
-| DELETE | `/api/v1/admin/plans/:id` | Admin | 删除方案 |
+| DELETE | `/api/v1/admin/plans/:id` | Admin | 下架方案（软删除，`isActive=false`） |
 | GET | `/api/v1/admin/payments` | Admin | 所有支付记录（审计） |
 
 ---
@@ -193,7 +193,7 @@ type UpdatePlanRequest struct {
 
 - `CreatePlan(req)` — 创建方案
 - `UpdatePlan(id, req)` — 更新方案（指针字段实现 partial update）
-- `DeletePlan(id)` — 删除方案
+- `DeletePlan(id)` — 下架方案（软删除，更新 `isActive=false`）
 - `GetPlans(req)` — 分页列表（admin，支持 showAll 含已下架）
 - `GetActivePlans()` — 所有启用方案（无分页，用于用户页面）
 
@@ -250,27 +250,32 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 func (s *PaymentService) HandleWebhook(r *http.Request) error {
 	// 1. 读取原始请求体（Stripe 签名验证需要）
 	// 2. 验证 Stripe 签名
-	// 3. 仅处理 "checkout.session.completed" 事件
-	// 4. 调用 fulfillPayment 完成履约
+	// 3. 处理事件：
+	//    - checkout.session.completed: 仅 payment_status == "paid" 才履约
+	//    - checkout.session.async_payment_succeeded: 履约
+	//    - checkout.session.async_payment_failed: 标记 failed
+	// 4. fulfilled/failed 都必须幂等（重复 webhook 不重复修改用户权益）
 }
 
 func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metadata map[string]string) error {
-	// 1. 通过 stripeSessionId 查找 Payment 记录
-	// 2. 幂等检查：如果 status 已经是 completed，直接返回（防重复处理）
-	// 3. 开启事务：
-	//    a. 更新 Payment.Status = completed
-	//    b. 延长用户 ExpiresAt（复用 RedeemCode 的逻辑）：
+	// 1. 开启事务，通过 stripeSessionId + FOR UPDATE 锁定 Payment 行
+	// 2. 幂等状态迁移：
+	//    - pending -> completed：继续履约
+	//    - completed：直接返回成功（重复 webhook）
+	//    - failed：拒绝回滚为 completed（防状态穿越）
+	// 3. 在同一事务中锁定 User 行并履约：
+	//    a. 延长用户 ExpiresAt（复用 RedeemCode 的逻辑）：
 	//       - 如果 ExpiresAt 为 nil 或已过期 → newExpiry = NOW + days
 	//       - 否则 → newExpiry = ExpiresAt + days
-	//    c. 自动解封（复用 RedeemCode 的逻辑）：
+	//    b. 自动解封（复用 RedeemCode 的逻辑）：
 	//       - 如果 EmbyDisabled && IsActive → 解除 Emby 禁用
-	//    d. 保存用户
+	//    c. 更新 Payment.Status = completed + paymentIntentId
 	// 4. 提交事务
 }
 ```
 
 **关键设计**：
-- **幂等**：通过 `StripeSessionID` uniqueIndex + status 检查，同一 webhook 多次触发不会重复延期
+- **幂等**：通过 `FOR UPDATE` 锁 + 原子状态迁移（`pending -> completed`）保证并发安全，同一 webhook 多次触发不会重复延期
 - **数据信任**：fulfillPayment 从我们自己的 Payment 记录读取 userID 和 days，不信任 Stripe metadata（metadata 仅作为创建 Payment 时的关联桥梁）
 - **事务**：Payment 状态更新 + 用户延期 + Emby 解封在同一个事务中
 - **复用逻辑**：expiry 延长和 auto-unban 的算法与 `services/redemption.go:60-131` 中的 `RedeemCode` 完全一致
@@ -308,7 +313,7 @@ func NewPaymentHandler() *PaymentHandler {
 - `GetPlans(c)` — Admin，分页 + showAll
 - `CreatePlan(c)` — Admin
 - `UpdatePlan(c)` — Admin
-- `DeletePlan(c)` — Admin
+- `DeletePlan(c)` — Admin（软删除/下架）
 - `GetAllPayments(c)` — Admin，分页
 
 **Webhook body 读取**：Stripe webhook 需要原始 body 做签名验证。由于该路由没有 JWT 中间件，也没有 `ShouldBindJSON` 调用，`c.Request.Body` 是未消费的，直接 `io.ReadAll` 即可。
@@ -632,10 +637,10 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
  │ 输入信用卡信息并支付                             │
  │ ←─── 跳转 success_url ─────────────────────────│
  │                         │                      │
- │                         │ webhook: session.completed
+ │                         │ webhook: session.completed/async_*
  │                         │ ←────────────────────│
  │                         │ 验证签名              │
- │                         │ 幂等检查              │
+ │                         │ paid 校验 + 幂等状态迁移│
  │                         │ Payment → completed   │
  │                         │ User.ExpiresAt += days│
  │                         │ Emby 解封（如需）      │
@@ -704,12 +709,13 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
    - `psql "$DATABASE_URL" -f infrastructure/database/20260222_02_add_stripe_payment_tables.sql`
 
 3. **功能验证**（手动）：
-   - 管理员创建/编辑/删除方案
+   - 管理员创建/编辑/下架方案
    - 用户页面展示启用的方案
    - 用户点击购买 → 跳转 Stripe Checkout
    - Stripe 测试卡 `4242424242424242` 完成支付
    - 本地 webhook 测试：`stripe listen --forward-to localhost:8080/api/v1/webhooks/stripe`
    - 支付成功后 User.ExpiresAt 延长
    - 过期用户支付后自动解封 Emby
-   - 同一 webhook 重复触发不会重复延期（幂等）
+   - 同一 webhook 重复触发不会重复延期（并发幂等）
+   - 异步支付方式：仅在 `payment_status=paid` 或 `async_payment_succeeded` 后延期
    - 管理员可查看所有支付记录

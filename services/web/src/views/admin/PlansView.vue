@@ -152,15 +152,15 @@ const handleUpdate = async () => {
 
 const handleDelete = async (id: string) => {
   try {
-    await ElMessageBox.confirm('确定删除该方案吗？历史支付记录不会被删除。', '删除确认', {
-      confirmButtonText: '删除',
+    await ElMessageBox.confirm('确定下架该方案吗？下架后用户无法新购，历史支付记录保留。', '下架确认', {
+      confirmButtonText: '下架',
       cancelButtonText: '取消',
       type: 'warning',
       confirmButtonClass: 'el-button--danger'
     })
 
     await deletePlan(id)
-    ElMessage.success('删除成功')
+    ElMessage.success('已下架')
     await fetchData()
   } catch {
     // cancelled
@@ -262,7 +262,7 @@ onMounted(fetchData)
             <button
               @click="handleDelete(row.id)"
               class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              title="删除"
+              title="下架"
             >
               <el-icon :size="18"><Delete /></el-icon>
             </button>

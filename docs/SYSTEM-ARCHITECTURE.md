@@ -265,7 +265,7 @@ services/
 | Days | int | days | 天数 |
 | Price | int64 | price | 价格（分）|
 | Currency | string(3) | currency | 币种（默认 `"usd"`）|
-| IsActive | bool | isActive | 是否启用（默认 true）|
+| IsActive | bool | isActive | 是否启用（默认 true，DELETE 接口仅置为 false 作为软删除）|
 | SortOrder | int | sortOrder | 排序（默认 0）|
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
@@ -464,7 +464,7 @@ Stripe 一次性支付流程管理。
 
 - `CreateCheckoutSession(userID, planID)` — 创建 Stripe Checkout Session → 存储 Payment 记录（pending）
 - `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
-- Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`
+- Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
 - `GetPayments(page, pageSize)` — 支付记录查询
 
 ### 5.15 错误定义 (`services/errors.go`)
@@ -567,7 +567,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/plans` | 方案列表 |
 | POST | `/api/v1/admin/plans` | 创建方案 |
 | PUT | `/api/v1/admin/plans/:id` | 更新方案 |
-| DELETE | `/api/v1/admin/plans/:id` | 删除方案 |
+| DELETE | `/api/v1/admin/plans/:id` | 下架方案（软删除） |
 | GET | `/api/v1/admin/payments` | 全部支付记录 |
 | GET | `/api/v1/admin/system/info` | 系统统计 |
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |

@@ -186,13 +186,24 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*models.
 }
 
 func (s *PaymentService) DeletePlan(id string) error {
-	result := db.DB.Delete(&models.Plan{}, "id = ?", id)
+	result := db.DB.Model(&models.Plan{}).
+		Where("id = ? AND \"isActive\" = ?", id, true).
+		Update("isActive", false)
 	if result.Error != nil {
-		return errors.New("删除方案失败")
+		return errors.New("下架方案失败")
 	}
-	if result.RowsAffected == 0 {
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
+	var count int64
+	if err := db.DB.Model(&models.Plan{}).Where("id = ?", id).Count(&count).Error; err != nil {
+		return errors.New("下架方案失败")
+	}
+	if count == 0 {
 		return ErrPlanNotFound
 	}
+
 	return nil
 }
 
@@ -449,6 +460,11 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 	}
 
 	if payment.Status == models.PaymentCompleted {
+		tx.Rollback()
+		return nil
+	}
+	// 失败态是终态，禁止后续成功事件回写为 completed，避免状态穿越。
+	if payment.Status == models.PaymentFailed {
 		tx.Rollback()
 		return nil
 	}
