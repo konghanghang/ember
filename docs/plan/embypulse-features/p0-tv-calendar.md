@@ -2,68 +2,79 @@
 
 ## 功能描述
 
-自动同步 TMDB 剧集排期，与 Emby 媒体库实时比对，显示剧集入库状态（红绿灯）。支持三层缓存架构（内存 → PostgreSQL → TMDB API），严格物理文件校验（过滤虚拟占位符），Webhook 联动（新剧集入库自动更新状态）。
+自动同步 TMDB 剧集排期，并与 Emby 媒体库比对，展示剧集入库状态（已入库/缺失/待播）。
 
-**核心价值**：
-- 用户可提前知道追剧进度，避免频繁检查媒体库
-- 管理员可快速识别缺失剧集，优化资源采购
-- 自动化程度高，减少人工维护成本
+本方案采用三层缓存：
+- 内存缓存（短 TTL）
+- PostgreSQL 持久化缓存
+- TMDB 远程查询
 
-**优先级**：P0（强烈推荐）⭐⭐⭐⭐⭐
+并支持 Emby Webhook 入库联动，减少“红灯已补货但页面未更新”的延迟。
+
+**优先级**：P0
+
+---
+
+## Ember 对齐要点
+
+1. 所有主键使用 `string`（CUID），不使用 `uint`
+2. 列名使用 camelCase（如 `tmdbId`、`airDate`）
+3. API 统一前缀 `/api/v1`
+4. 前端路由挂载到 `/console/*`
+5. Webhook 统一挂载 `/api/v1/webhooks/*`
 
 ---
 
 ## 数据模型设计
 
-### 1. TV Calendar 表（tv_calendar）
+### 1. 日历条目表 `tv_calendar_items`
 
 ```go
-// TVCalendar 追剧日历条目
-type TVCalendar struct {
-    ID          uint      `gorm:"primaryKey;column:id" json:"id"`
-    TMDBId      int       `gorm:"column:tmdb_id;not null;index" json:"tmdbId"`
-    Season      int       `gorm:"column:season;not null" json:"season"`
-    Episode     int       `gorm:"column:episode;not null" json:"episode"`
-    AirDate     time.Time `gorm:"column:air_date;not null;index" json:"airDate"`
-    EpisodeName string    `gorm:"column:episode_name;size:255" json:"episodeName"`
-    Status      string    `gorm:"column:status;size:20;default:'pending'" json:"status"` // pending/available/missing
-    EmbyItemId  string    `gorm:"column:emby_item_id;size:50" json:"embyItemId"`
-    LastChecked time.Time `gorm:"column:last_checked" json:"lastChecked"`
-    CreatedAt   time.Time `gorm:"column:created_at" json:"createdAt"`
-    UpdatedAt   time.Time `gorm:"column:updated_at" json:"updatedAt"`
+type TVCalendarItem struct {
+    ID          string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+    TmdbID      string    `json:"tmdbId" gorm:"column:tmdbId;size:50;not null;index;uniqueIndex:uk_tv_calendar_episode,priority:1"`
+    SeriesID    string    `json:"seriesId" gorm:"column:seriesId;size:50;index"` // Emby SeriesId
+    Season      int       `json:"season" gorm:"column:season;not null;uniqueIndex:uk_tv_calendar_episode,priority:2"`
+    Episode     int       `json:"episode" gorm:"column:episode;not null;uniqueIndex:uk_tv_calendar_episode,priority:3"`
+    AirDate     time.Time `json:"airDate" gorm:"column:airDate;not null;index"`
+    EpisodeName string    `json:"episodeName" gorm:"column:episodeName;size:255"`
+    Status      string    `json:"status" gorm:"column:status;size:20;not null;default:'upcoming'"` // ready/missing/upcoming/today
+    EmbyItemID  string    `json:"embyItemId,omitempty" gorm:"column:embyItemId;size:50"`
+    LastChecked time.Time `json:"lastChecked" gorm:"column:lastChecked"`
+    CreatedAt   time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+    UpdatedAt   time.Time `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
-
-// 联合唯一索引
-// CREATE UNIQUE INDEX idx_tv_calendar_unique ON tv_calendar(tmdb_id, season, episode);
 ```
 
-### 2. TV Show Subscription 表（tv_show_subscriptions）
+约束：
+- 唯一索引：`(tmdbId, season, episode)`
+- `airDate` 按“日期语义”落库，统一归一化为 UTC `00:00:00`，避免时区偏移导致跨天
+
+### 2. 用户追剧订阅表 `tv_calendar_subscriptions`
 
 ```go
-// TVShowSubscription 用户订阅的剧集
-type TVShowSubscription struct {
-    ID        uint      `gorm:"primaryKey;column:id" json:"id"`
-    UserID    uint      `gorm:"column:user_id;not null;index" json:"userId"`
-    TMDBId    int       `gorm:"column:tmdb_id;not null;index" json:"tmdbId"`
-    ShowName  string    `gorm:"column:show_name;size:255" json:"showName"`
-    PosterURL string    `gorm:"column:poster_url;size:500" json:"posterUrl"`
-    CreatedAt time.Time `gorm:"column:created_at" json:"createdAt"`
+type TVCalendarSubscription struct {
+    ID        string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+    UserID    string    `json:"userId" gorm:"column:userId;type:varchar(25);not null;index;uniqueIndex:uk_tv_calendar_subscription,priority:1"`
+    TmdbID    string    `json:"tmdbId" gorm:"column:tmdbId;size:50;not null;index;uniqueIndex:uk_tv_calendar_subscription,priority:2"`
+    ShowName  string    `json:"showName" gorm:"column:showName;size:255;not null"`
+    PosterURL string    `json:"posterUrl" gorm:"column:posterUrl;size:500"`
+    CreatedAt time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 }
-
-// 联合唯一索引
-// CREATE UNIQUE INDEX idx_tv_subscription_unique ON tv_show_subscriptions(user_id, tmdb_id);
 ```
 
-### 3. TMDB Cache 表（tmdb_cache）
+约束：
+- 唯一索引：`(userId, tmdbId)`
+
+### 3. TMDB 缓存表 `tmdb_cache`
 
 ```go
-// TMDBCache TMDB API 响应缓存
 type TMDBCache struct {
-    ID         uint      `gorm:"primaryKey;column:id" json:"id"`
-    CacheKey   string    `gorm:"column:cache_key;size:255;uniqueIndex" json:"cacheKey"`
-    CacheValue string    `gorm:"column:cache_value;type:text" json:"cacheValue"`
-    ExpiresAt  time.Time `gorm:"column:expires_at;index" json:"expiresAt"`
-    CreatedAt  time.Time `gorm:"column:created_at" json:"createdAt"`
+    ID         string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+    CacheKey   string    `json:"cacheKey" gorm:"column:cacheKey;size:255;uniqueIndex;not null"`
+    CacheValue string    `json:"cacheValue" gorm:"column:cacheValue;type:text;not null"`
+    ExpiresAt  time.Time `json:"expiresAt" gorm:"column:expiresAt;index"`
+    CreatedAt  time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 }
 ```
 
@@ -71,326 +82,131 @@ type TMDBCache struct {
 
 ## API 端点设计
 
-### 1. 获取追剧日历
+### 1. 获取日历（用户）
 
-```
-GET /api/tv-calendar
-Query Parameters:
-  - startDate: string (YYYY-MM-DD, 默认今天)
-  - endDate: string (YYYY-MM-DD, 默认 startDate + 7 天)
-  - status: string (pending/available/missing, 可选)
-  - userId: int (可选，仅返回该用户订阅的剧集)
+`GET /api/v1/tv-calendar`
+
+Query:
+- `startDate` (`YYYY-MM-DD`)
+- `endDate` (`YYYY-MM-DD`)
+- `status`（可选）
 
 Response:
+
+```json
 {
   "data": [
     {
-      "id": 1,
-      "tmdbId": 12345,
+      "id": "cuid_xxx",
+      "tmdbId": "1399",
       "season": 3,
       "episode": 5,
       "airDate": "2026-03-10T00:00:00Z",
-      "episodeName": "The Rains of Castamere",
-      "status": "available",
+      "episodeName": "...",
+      "status": "ready",
       "embyItemId": "abc123",
       "showName": "Game of Thrones",
-      "posterUrl": "https://image.tmdb.org/t/p/w500/xxx.jpg"
+      "posterUrl": "https://..."
     }
   ]
 }
 ```
 
-### 2. 订阅剧集
+### 2. 订阅剧集（用户）
 
-```
-POST /api/tv-calendar/subscribe
-Body:
+`POST /api/v1/tv-calendar/subscriptions`
+
+```json
 {
-  "tmdbId": 12345,
+  "tmdbId": "1399",
   "showName": "Game of Thrones",
   "posterUrl": "https://..."
 }
+```
 
-Response:
+### 3. 取消订阅（用户）
+
+`DELETE /api/v1/tv-calendar/subscriptions/:tmdbId`
+
+### 4. 手动刷新（管理员）
+
+`POST /api/v1/admin/tv-calendar/refresh`
+
+```json
 {
-  "message": "订阅成功"
+  "tmdbId": "1399",
+  "force": false
 }
 ```
 
-### 3. 取消订阅
+### 5. Emby Webhook 联动
 
-```
-DELETE /api/tv-calendar/subscribe/:tmdbId
+`POST /api/v1/webhooks/emby?token=<WEBHOOK_TOKEN>`
 
-Response:
-{
-  "message": "取消订阅成功"
-}
-```
+说明：
+- 复用统一 webhook 安全策略（token 校验）
+- 仅处理 `library.new / item.added` 中 `Episode` 事件
 
-### 4. 手动刷新日历
+---
 
-```
-POST /api/tv-calendar/refresh
-Body:
-{
-  "tmdbId": 12345,  // 可选，不传则刷新所有订阅
-  "force": false    // 是否强制刷新（跳过缓存）
-}
+## 核心实现建议
 
-Response:
-{
-  "message": "刷新成功",
-  "updated": 15
-}
+### 服务层方法建议
+
+```go
+// FetchCalendar 获取时间范围内日历（按当前用户订阅过滤）
+func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, startDate, endDate time.Time, status string) ([]TVCalendarDTO, error)
+
+// RefreshCalendar 管理员触发刷新
+func (s *TVCalendarService) RefreshCalendar(ctx context.Context, tmdbID *string, force bool) (int, error)
+
+// MarkEpisodeReadyByWebhook Webhook 点亮剧集状态
+func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, seriesID string, season, episode int) error
 ```
 
-### 5. Webhook 回调（Emby 新剧集入库）
+### 与 Emby 对齐的关键点
 
-```
-POST /api/webhooks/emby/library-update
-Headers:
-  X-Webhook-Secret: <配置的密钥>
-Body:
-{
-  "event": "library.new",
-  "item": {
-    "id": "abc123",
-    "type": "Episode",
-    "seriesId": "series_456",
-    "seasonNumber": 3,
-    "episodeNumber": 5,
-    "providerIds": {
-      "Tmdb": "12345"
-    }
-  }
-}
+1. 物理文件校验必须过滤虚拟占位符：
+- `LocationType == Virtual` 视为未入库
+- `IsMissing == true` 视为未入库
+- 必须有 `Path` 或 `MediaSources`
 
-Response:
-{
-  "message": "处理成功"
-}
-```
+2. 避免全量重复拉取：
+- 先查持久化缓存
+- 仅对过期订阅刷新
+
+3. Webhook 只做“状态变更”，不做重型拉取。
 
 ---
 
 ## 前端页面设计
 
-### 路由配置
+### 路由
 
-```typescript
-// services/web/src/router/index.ts
+```ts
 {
-  path: '/tv-calendar',
-  name: 'TVCalendar',
-  component: () => import('@/views/tv-calendar/index.vue'),
-  meta: { title: '追剧日历', requiresAuth: true }
+  path: '/console/tv-calendar',
+  name: 'console-tv-calendar',
+  meta: { requiresAuth: true },
+  component: () => import('@/views/console/TVCalendarView.vue')
 }
 ```
 
-### 页面结构
+### 页面能力
 
-```vue
-<!-- services/web/src/views/tv-calendar/index.vue -->
-<template>
-  <div class="tv-calendar">
-    <!-- 顶部工具栏 -->
-    <el-row :gutter="20" class="toolbar">
-      <el-col :span="12">
-        <el-date-picker
-          v-model="dateRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          @change="fetchCalendar"
-        />
-      </el-col>
-      <el-col :span="6">
-        <el-select v-model="statusFilter" placeholder="状态筛选" @change="fetchCalendar">
-          <el-option label="全部" value="" />
-          <el-option label="待播出" value="pending" />
-          <el-option label="已入库" value="available" />
-          <el-option label="缺失" value="missing" />
-        </el-select>
-      </el-col>
-      <el-col :span="6">
-        <el-button type="primary" @click="refreshCalendar">刷新日历</el-button>
-        <el-button @click="manageSubscriptions">管理订阅</el-button>
-      </el-col>
-    </el-row>
-
-    <!-- 日历视图 -->
-    <el-calendar v-model="currentDate">
-      <template #date-cell="{ data }">
-        <div class="calendar-day">
-          <div class="date">{{ data.day.split('-').slice(2).join('') }}</div>
-          <div class="episodes">
-            <div
-              v-for="episode in getEpisodesForDate(data.day)"
-              :key="episode.id"
-              :class="['episode-badge', `status-${episode.status}`]"
-              @click="showEpisodeDetail(episode)"
-            >
-              {{ episode.showName }} S{{ episode.season }}E{{ episode.episode }}
-            </div>
-          </div>
-        </div>
-      </template>
-    </el-calendar>
-
-    <!-- 订阅管理对话框 -->
-    <el-dialog v-model="subscriptionDialogVisible" title="管理订阅">
-      <el-input
-        v-model="searchKeyword"
-        placeholder="搜索剧集（TMDB）"
-        @input="searchTMDB"
-      />
-      <el-table :data="subscriptions" style="margin-top: 20px">
-        <el-table-column prop="showName" label="剧集名称" />
-        <el-table-column prop="tmdbId" label="TMDB ID" width="100" />
-        <el-table-column label="操作" width="100">
-          <template #default="{ row }">
-            <el-button type="danger" size="small" @click="unsubscribe(row.tmdbId)">
-              取消订阅
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
-  </div>
-</template>
-
-<style scoped>
-.episode-badge {
-  font-size: 12px;
-  padding: 2px 4px;
-  margin: 2px 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.status-pending { background: #e6a23c; color: white; }
-.status-available { background: #67c23a; color: white; }
-.status-missing { background: #f56c6c; color: white; }
-</style>
-```
+- 日期范围筛选
+- 状态筛选
+- 订阅管理弹窗
+- 管理员可见“手动刷新”按钮
 
 ---
 
-## 核心逻辑实现
+## 验证清单
 
-### 服务层关键方法
+- [ ] 模型可迁移且字段命名符合 camelCase
+- [ ] 用户只能看到自己订阅剧集
+- [ ] Webhook 到达后状态可被即时点亮
+- [ ] 关闭 TMDB Key 时返回明确错误信息
+- [ ] 大量订阅情况下接口延迟可控
 
-```go
-// services/api/internal/services/tv_calendar_service.go
-
-// FetchCalendar 获取追剧日历
-func (s *TVCalendarService) FetchCalendar(ctx context.Context, startDate, endDate time.Time, status string, userID *uint) ([]models.TVCalendar, error)
-
-// RefreshCalendar 刷新日历（从 TMDB 同步）
-func (s *TVCalendarService) RefreshCalendar(ctx context.Context, tmdbID *int, force bool) (int, error)
-
-// syncShowFromTMDB 从 TMDB 同步单个剧集
-func (s *TVCalendarService) syncShowFromTMDB(ctx context.Context, tmdbID int, force bool) (int, error)
-
-// updateCalendarStatus 更新日历状态（与 Emby 比对）
-func (s *TVCalendarService) updateCalendarStatus(ctx context.Context) error
-
-// HandleWebhook 处理 Emby Webhook（新剧集入库）
-func (s *TVCalendarService) HandleWebhook(ctx context.Context, event string, item map[string]interface{}) error
-```
-
-### TMDB 客户端
-
-```go
-// services/api/pkg/tmdb/client.go
-
-type Client struct {
-    apiKey     string
-    httpClient *http.Client
-}
-
-func (c *Client) GetTVShowDetails(ctx context.Context, tmdbID int) (*TVShow, error)
-func (c *Client) GetSeasonDetails(ctx context.Context, tmdbID, seasonNumber int) (*SeasonDetails, error)
-```
-
----
-
-## 验证方式
-
-### 1. 数据库迁移
-
-```bash
-cd services/api
-go run cmd/migrate/main.go create add_tv_calendar_tables
-```
-
-### 2. API 测试
-
-```bash
-# 订阅剧集
-curl -X POST http://localhost:8080/api/tv-calendar/subscribe \
-  -H "Authorization: Bearer <token>" \
-  -d '{"tmdbId": 1399, "showName": "Game of Thrones"}'
-
-# 获取日历
-curl "http://localhost:8080/api/tv-calendar?startDate=2026-03-01&endDate=2026-03-31" \
-  -H "Authorization: Bearer <token>"
-
-# 刷新日历
-curl -X POST http://localhost:8080/api/tv-calendar/refresh \
-  -H "Authorization: Bearer <token>"
-```
-
-### 3. 前端测试
-
-- 访问 `/tv-calendar` 页面
-- 测试日期范围筛选
-- 测试状态筛选（待播出/已入库/缺失）
-- 测试订阅管理（添加/删除订阅）
-- 测试日历刷新
-
-### 4. Webhook 测试
-
-```bash
-curl -X POST http://localhost:8080/api/webhooks/emby/library-update \
-  -H "X-Webhook-Secret: <secret>" \
-  -d '{
-    "event": "library.new",
-    "item": {
-      "id": "abc123",
-      "type": "Episode",
-      "seasonNumber": 3,
-      "episodeNumber": 5,
-      "providerIds": {"Tmdb": "1399"}
-    }
-  }'
-```
-
----
-
-## 环境变量配置
-
-```env
-# .env
-TMDB_API_KEY=your_tmdb_api_key_here
-TMDB_LANGUAGE=zh-CN
-WEBHOOK_SECRET=your_webhook_secret_here
-```
-
----
-
-## 实施清单
-
-- [ ] 创建数据模型（3 个表）
-- [ ] 编写数据库迁移脚本
-- [ ] 实现 TMDB 客户端
-- [ ] 实现服务层逻辑
-- [ ] 实现 API 端点（5 个）
-- [ ] 实现前端页面
-- [ ] 配置 Webhook
-- [ ] 编写单元测试
-- [ ] 编写集成测试
-- [ ] 更新系统架构文档
-
-**预计工作量**：5-7 天
+**预计工作量**：7-10 天

@@ -2,28 +2,31 @@
 
 ## 功能描述
 
-深度扫描媒体库（电影/剧集），统计分辨率、编码格式、HDR 类型，自动列出低画质资源供洗版参考。24 小时缓存机制。
+扫描指定媒体库，统计分辨率、编码、HDR 分布，并给出低画质资源清单供洗版参考。
 
-**核心价值**：
-- 快速识别低画质资源
-- 优化媒体库质量
-- 数据驱动的洗版决策
+**优先级**：P1
 
-**优先级**：P1（高价值功能）⭐⭐⭐⭐
+---
+
+## Ember 对齐要点
+
+1. 管理员接口：`/api/v1/admin/media-quality/*`
+2. 缓存持久化使用 PostgreSQL，不使用进程内全局变量作为唯一缓存
+3. 字段命名 camelCase，ID 类型 `string`
+4. 扫描按媒体库维度执行，支持强制刷新
 
 ---
 
 ## 数据模型设计
 
-### Media Quality Cache 表（media_quality_cache）
-
 ```go
 type MediaQualityCache struct {
-    ID         uint      `gorm:"primaryKey;column:id" json:"id"`
-    LibraryID  string    `gorm:"column:library_id;size:50;uniqueIndex" json:"libraryId"`
-    Statistics string    `gorm:"column:statistics;type:text" json:"statistics"` // JSON
-    ExpiresAt  time.Time `gorm:"column:expires_at;index" json:"expiresAt"`
-    CreatedAt  time.Time `gorm:"column:created_at" json:"createdAt"`
+    ID         string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+    LibraryID  string    `json:"libraryId" gorm:"column:libraryId;size:50;uniqueIndex;not null"`
+    Statistics string    `json:"statistics" gorm:"column:statistics;type:text;not null"`
+    ExpiresAt  time.Time `json:"expiresAt" gorm:"column:expiresAt;index"`
+    CreatedAt  time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+    UpdatedAt  time.Time `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
 ```
 
@@ -31,154 +34,92 @@ type MediaQualityCache struct {
 
 ## API 端点设计
 
-```
-GET /api/media-quality/scan/:libraryId
-Query Parameters:
-  - force: bool (强制刷新缓存)
+### 1. 查询媒体库质量报告（管理员）
+
+`GET /api/v1/admin/media-quality/libraries/:libraryId`
+
+Query：
+- `force`（可选，默认 `false`）
+
+说明：`force=false` 时优先返回缓存。
+
+### 2. 触发媒体库质量扫描（管理员）
+
+`POST /api/v1/admin/media-quality/libraries/:libraryId/scan`
+
+说明：用于显式触发重扫，避免“GET 带副作用”。
 
 Response:
+
+```json
 {
   "data": {
     "resolutionDistribution": [
-      { "resolution": "4K", "count": 150 },
-      { "resolution": "1080p", "count": 500 },
-      { "resolution": "720p", "count": 50 }
+      { "resolution": "4K", "count": 120 }
     ],
     "codecDistribution": [
-      { "codec": "HEVC", "count": 400 },
-      { "codec": "H.264", "count": 300 }
+      { "codec": "HEVC", "count": 80 }
     ],
     "hdrDistribution": [
-      { "type": "HDR10", "count": 100 },
-      { "type": "Dolby Vision", "count": 50 },
-      { "type": "SDR", "count": 550 }
+      { "type": "HDR10", "count": 30 }
     ],
     "lowQualityItems": [
       {
-        "id": "item123",
+        "id": "item_xxx",
         "name": "Movie Name",
         "resolution": "720p",
         "codec": "H.264",
         "bitrate": 2000
       }
-    ]
+    ],
+    "scanAt": "2026-03-05T10:00:00Z"
   }
 }
 ```
 
 ---
 
-## 核心逻辑
+## 核心实现建议
 
 ```go
-// ScanLibraryQuality 扫描媒体库质量
-func (s *MediaQualityService) ScanLibraryQuality(ctx context.Context, libraryID string, force bool) (*QualityReport, error) {
-    // 1. 检查缓存
-    if !force {
-        var cache models.MediaQualityCache
-        if err := s.db.WithContext(ctx).
-            Where("library_id = ? AND expires_at > ?", libraryID, time.Now()).
-            First(&cache).Error; err == nil {
-            var report QualityReport
-            json.Unmarshal([]byte(cache.Statistics), &report)
-            return &report, nil
-        }
-    }
+func (s *MediaQualityService) ScanLibraryQuality(ctx context.Context, libraryID string, force bool) (*QualityReport, error)
+```
 
-    // 2. 从 Emby 获取媒体库所有条目
-    items, err := s.embyService.GetLibraryItems(ctx, libraryID)
-    if err != nil {
-        return nil, err
-    }
+实现要点：
 
-    // 3. 分析每个条目的 MediaInfo
-    report := &QualityReport{}
-    for _, item := range items {
-        mediaInfo, err := s.embyService.GetMediaInfo(ctx, item.ID)
-        if err != nil {
-            continue
-        }
+1. 先读缓存：`expiresAt > now` 且 `force=false` 直接返回
+2. 再查 Emby 媒体条目，逐条提取 `MediaStreams`
+3. 统计逻辑统一在服务层，不在 handler 拼装
+4. 回写缓存时使用 upsert，避免重复行
 
-        // 统计分辨率
-        resolution := s.getResolution(mediaInfo)
-        report.ResolutionDistribution[resolution]++
+---
 
-        // 统计编码格式
-        codec := mediaInfo.MediaStreams[0].Codec
-        report.CodecDistribution[codec]++
+## 前端页面设计
 
-        // 统计 HDR
-        hdrType := s.getHDRType(mediaInfo)
-        report.HDRDistribution[hdrType]++
+### 路由
 
-        // 识别低画质资源
-        if s.isLowQuality(mediaInfo) {
-            report.LowQualityItems = append(report.LowQualityItems, item)
-        }
-    }
-
-    // 4. 保存缓存
-    cacheData, _ := json.Marshal(report)
-    s.db.WithContext(ctx).Create(&models.MediaQualityCache{
-        LibraryID:  libraryID,
-        Statistics: string(cacheData),
-        ExpiresAt:  time.Now().Add(24 * time.Hour),
-    })
-
-    return report, nil
+```ts
+{
+  path: '/console/media-quality',
+  name: 'console-media-quality',
+  meta: { requiresAuth: true, role: 'admin' },
+  component: () => import('@/views/admin/MediaQualityView.vue')
 }
 ```
 
----
+### 交互
 
-## 前端页面
-
-```vue
-<template>
-  <div class="media-quality">
-    <el-select v-model="selectedLibrary" @change="scanLibrary">
-      <el-option v-for="lib in libraries" :key="lib.id" :label="lib.name" :value="lib.id" />
-    </el-select>
-
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="8">
-        <el-card title="分辨率分布">
-          <div ref="resolutionChart" style="height: 300px"></div>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card title="编码格式分布">
-          <div ref="codecChart" style="height: 300px"></div>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card title="HDR 分布">
-          <div ref="hdrChart" style="height: 300px"></div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-card title="低画质资源" style="margin-top: 20px">
-      <el-table :data="lowQualityItems">
-        <el-table-column prop="name" label="名称" />
-        <el-table-column prop="resolution" label="分辨率" width="100" />
-        <el-table-column prop="codec" label="编码" width="100" />
-        <el-table-column prop="bitrate" label="码率" width="100" />
-      </el-table>
-    </el-card>
-  </div>
-</template>
-```
+- 选择媒体库
+- 扫描/强制刷新
+- 三组分布图 + 低画质表格
 
 ---
 
-## 实施清单
+## 验证清单
 
-- [ ] 创建数据模型
-- [ ] 实现扫描服务
-- [ ] 实现 API 端点
-- [ ] 实现前端页面
-- [ ] 集成 ECharts 图表
-- [ ] 编写测试
+- [ ] 同一库重复扫描可命中缓存
+- [ ] `force=true` 可绕过缓存
+- [ ] 无 `MediaStreams` 的条目不会导致接口失败
+- [ ] 低画质清单字段完整可展示
 
 **预计工作量**：3-4 天

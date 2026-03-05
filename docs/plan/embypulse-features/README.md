@@ -1,195 +1,91 @@
-# EmbyPulse 功能借鉴规划
+# EmbyPulse 功能借鉴规划（Ember 对齐版）
 
 ## 📋 概述
 
-本目录包含从 EmbyPulse 项目中借鉴的优秀功能的详细实现规划。所有功能按优先级（P0/P1/P2）分类，每个功能独立成文档，便于按需实施。
+本目录用于规划从 EmbyPulse 借鉴到 Ember 的功能。本文档已按 Ember 当前架构完成第一轮对齐修订，重点保证：
 
-### 背景
-
-EmbyPulse 是一个成熟的 Emby 管理系统，包含多个创新功能。经过分析，我们识别出 10 个值得 Ember 借鉴的功能，这些功能可以显著提升用户体验和管理能力。
-
-### 实施原则
-
-1. **增量添加**：不破坏现有功能，所有新功能独立实现
-2. **数据库迁移**：新增表和字段需创建迁移脚本
-3. **API 兼容性**：新增端点，不修改现有端点
-4. **前端路由**：新页面需注册路由并配置权限
-5. **环境变量**：新配置项需更新 `.env.example`
+1. **不破坏现有行为**（Never break userspace）
+2. **与现有数据模型一致**（`string` 主键 + camelCase 列名）
+3. **与现有路由体系一致**（统一 ` /api/v1 ` + 前端 ` /console/* `）
+4. **优先复用已有能力**（`EmbyService`、`QueryPlaybackStats`、`/admin/sessions` 等）
 
 ---
 
-## 🎯 P0 功能（强烈推荐，核心功能）
+## ✅ 对齐基线（必须遵守）
 
-### 1. [追剧日历（TV Calendar）](./p0-tv-calendar.md) ⭐⭐⭐⭐⭐
+### 数据与模型
 
-TMDB API 自动同步剧集排期，与 Emby 媒体库实时比对，显示剧集入库状态（红绿灯）。
+- Ember 主键统一为 `string`（CUID），**不使用 `uint` 自增主键**
+- GORM 字段必须显式 `gorm:"column:xxx"`，列名使用 camelCase
+- 新增字段优先“向后兼容默认值”，避免影响旧数据读写
 
-**核心价值**：
-- 用户可提前知道追剧进度，避免频繁检查媒体库
-- 管理员可快速识别缺失剧集，优化资源采购
-- 自动化程度高，减少人工维护成本
+### API 与路由
 
-**技术要点**：
-- 三层缓存架构（内存 → PostgreSQL → TMDB API）
-- 严格物理文件校验（过滤虚拟占位符）
-- Webhook 联动（新剧集入库自动更新状态）
+- 后端统一前缀：`/api/v1`
+- 管理员接口统一挂载：`/api/v1/admin/*`
+- 用户鉴权接口统一挂载：`/api/v1/*`（`JWTAuth`）
+- 前端页面统一挂载：`/console/*`
 
-### 2. [客户端设备管理（Client Device Management）](./p0-device-management.md) ⭐⭐⭐⭐⭐
+### 外部依赖
 
-设备黑名单管理、一键强制注销、实时设备监控、设备活动统计图表。
-
-**核心价值**：
-- 防止账号共享和滥用
-- 识别并禁止盗版客户端
-- 实时监控设备活动，快速响应异常
-- 数据可视化，直观了解用户设备分布
-
-**技术要点**：
-- 设备黑名单机制
-- 强制注销 API 集成
-- 定时同步 Emby 会话
-- ECharts 数据可视化
-
-### 3. [权限模板机制（Permission Template）](./p0-permission-template.md) ⭐⭐⭐⭐⭐
-
-创建兑换码时绑定模板用户 ID，新用户注册时自动复制模板用户权限。
-
-**核心价值**：
-- 简化权限配置流程
-- 确保权限一致性
-- 支持多种用户类型（VIP、普通、试用等）
-
-**技术要点**：
-- 兑换码关联模板用户
-- 权限自动复制逻辑
-- 支持媒体库访问、下载权限、家长控制等全部权限
+- 与播放记录相关功能（播放历史、用户画像）依赖 Emby Playback Reporting 插件
+- 与追剧日历相关功能依赖 TMDB API Key
+- 新 Webhook 需复用现有安全模式（token/secret 校验）
 
 ---
 
-## 🔥 P1 功能（高价值功能）
+## 🎯 功能优先级（修订后）
 
-### 4. [媒体库质量盘点（Media Quality Insight）](./p1-media-quality.md) ⭐⭐⭐⭐
+### P0（建议先做）
 
-深度扫描媒体库，统计分辨率、编码格式、HDR 类型，自动列出低画质资源供洗版参考。
+1. [追剧日历（TV Calendar）](./p0-tv-calendar.md)
+2. [客户端设备管理（Client Device Management）](./p0-device-management.md)
+3. [权限模板机制（Permission Template）](./p0-permission-template.md)
 
-**核心价值**：
-- 快速识别低画质资源
-- 优化媒体库质量
-- 数据驱动的洗版决策
+### P1（高价值）
 
-**技术要点**：
-- 深度扫描 Emby MediaInfo
-- 24 小时缓存机制
-- 多维度统计（分辨率、编码、HDR）
+4. [媒体库质量盘点（Media Quality Insight）](./p1-media-quality.md)
+5. [播放历史查询（Playback History）](./p1-playback-history.md)
+6. [用户画像（User Profile Analytics）](./p1-user-profile.md)
 
-### 5. [播放历史查询（Playback History）](./p1-playback-history.md) ⭐⭐⭐⭐
+### P2（可选）
 
-分页查询播放历史，支持按用户筛选、关键词搜索，显示详细信息。
-
-**核心价值**：
-- 追踪用户观影行为
-- 问题排查和审计
-- 数据分析基础
-
-**技术要点**：
-- 从 Emby PlaybackActivity 表查询
-- 分页 + 筛选 + 搜索
-- 自动格式化时长显示
-
-### 6. [用户画像（User Profile Analytics）](./p1-user-profile.md) ⭐⭐⭐
-
-24 小时观影时间分布热力图、设备分布统计、趣味勋章系统。
-
-**核心价值**：
-- 了解用户观影习惯
-- 趣味化用户体验
-- 社区氛围营造
-
-**技术要点**：
-- 播放数据聚合分析
-- ECharts 热力图
-- 勋章规则引擎
+7. [求片分季支持（Subscription Season Support）](./p2-subscription-season.md)
+8. [用户头像管理（User Avatar Management）](./p2-user-avatar.md)
+9. [媒体库列表查询（Library List）](./p2-library-list.md)
+10. [兑换码备注字段（Redemption Code Notes）](./p2-code-notes.md)
 
 ---
 
-## 💡 P2 功能（可选功能）
+## 📅 实施建议（修订后）
 
-### 7. [求片分季支持（Subscription Season Support）](./p2-subscription-season.md) ⭐⭐⭐
+### 阶段 1：P0（2-3 周）
 
-支持按季度求片，主键设计：(userId, tmdbId, season) 联合唯一约束。
+1. 追剧日历（7-10 天）
+2. 设备管理（4-6 天）
+3. 权限模板（3-5 天）
 
-**核心价值**：
-- 更精细的求片管理
-- 减少重复求片
-- 自动检测库存（按季度）
+### 阶段 2：P1（1-2 周）
 
-### 8. [用户头像管理（User Avatar Management）](./p2-user-avatar.md) ⭐⭐
-
-管理员可为用户上传头像，自动转换为 Base64 并推送到 Emby。
-
-**核心价值**：
-- 统一头像管理
-- 简化用户操作
-- 自动同步到 Emby
-
-### 9. [媒体库列表查询（Library List）](./p2-library-list.md) ⭐⭐
-
-获取 Emby 所有媒体库（Views），显示媒体库 ID、名称、类型。
-
-**核心价值**：
-- 权限配置辅助
-- 媒体库管理便利
-- API 集成基础
-
-### 10. [兑换码备注字段（Redemption Code Notes）](./p2-code-notes.md) ⭐⭐
-
-为兑换码添加备注字段，方便追踪兑换码用途。
-
-**核心价值**：
-- 兑换码管理便利
-- 追踪兑换码来源
-- 审计和统计
-
----
-
-## 📅 实施建议
-
-### 阶段 1：P0 功能（核心功能）
-
-**预计工作量**：2-3 周
-
-1. **追剧日历**（5-7 天）
-   - 数据模型 + 迁移脚本
-   - TMDB API 集成
-   - 后端服务 + API 端点
-   - 前端页面 + 日历组件
-   - Webhook 集成
-
-2. **客户端设备管理**（3-4 天）
-   - 数据模型 + 迁移脚本
-   - 设备同步服务
-   - 黑名单 + 强制注销逻辑
-   - 前端页面 + 统计图表
-
-3. **权限模板机制**（2-3 天）
-   - 兑换码表扩展
-   - 权限复制逻辑
-   - 前端界面调整
-
-### 阶段 2：P1 功能（高价值功能）
-
-**预计工作量**：1-2 周
-
-按需选择实施，建议优先级：
-1. 播放历史查询（最简单，2 天）
-2. 媒体库质量盘点（3-4 天）
+1. 播放历史（2-3 天）
+2. 媒体质量（3-4 天）
 3. 用户画像（3-4 天）
 
-### 阶段 3：P2 功能（可选功能）
+### 阶段 3：P2（3-5 天）
 
-**预计工作量**：3-5 天
+按需实施。
 
-按需选择实施，可以作为后续优化项。
+---
+
+## ⚠️ 已知关键风险
+
+1. **权限模板越权风险**：禁止整包复制模板用户权限，必须白名单复制
+2. **播放历史注入风险**：禁止直接 `fmt.Sprintf` 拼接用户输入 SQL
+3. **路由不一致风险**：禁止新增 ` /api/... ` 无版本前缀接口
+4. **迁移方式偏差**：当前项目无 `cmd/migrate`，需按现有迁移机制扩展
+5. **路由冲突风险**：Gin 中静态路由与参数路由同层注册顺序不当会冲突（如 `/users/:id` 与 `/users/templates`）
+6. **索引迁移风险**：求片分季需显式迁移旧唯一索引，否则新去重语义不会生效
+7. **上游能力边界**：分季推送第一版采用“降级整剧订阅”策略，并记录 `mpError`
 
 ---
 
@@ -197,17 +93,17 @@ TMDB API 自动同步剧集排期，与 Emby 媒体库实时比对，显示剧�
 
 ```
 docs/plan/embypulse-features/
-├── README.md                      # 本文件（总览）
-├── p0-tv-calendar.md              # P0-1: 追剧日历
-├── p0-device-management.md        # P0-2: 客户端设备管理
-├── p0-permission-template.md      # P0-3: 权限模板机制
-├── p1-media-quality.md            # P1-1: 媒体库质量盘点
-├── p1-playback-history.md         # P1-2: 播放历史查询
-├── p1-user-profile.md             # P1-3: 用户画像
-├── p2-subscription-season.md      # P2-1: 求片分季支持
-├── p2-user-avatar.md              # P2-2: 用户头像管理
-├── p2-library-list.md             # P2-3: 媒体库列表查询
-└── p2-code-notes.md               # P2-4: 兑换码备注字段
+├── README.md
+├── p0-tv-calendar.md
+├── p0-device-management.md
+├── p0-permission-template.md
+├── p1-media-quality.md
+├── p1-playback-history.md
+├── p1-user-profile.md
+├── p2-subscription-season.md
+├── p2-user-avatar.md
+├── p2-library-list.md
+└── p2-code-notes.md
 ```
 
 ---
@@ -217,13 +113,3 @@ docs/plan/embypulse-features/
 - [系统架构文档](../../SYSTEM-ARCHITECTURE.md)
 - [API 响应标准](../../API-RESPONSE-STANDARD.md)
 - [开发指南](../../development-guide.md)
-
----
-
-## ⚠️ 注意事项
-
-1. **环境变量**：追剧日历需要配置 TMDB API Key
-2. **数据库备份**：实施前务必备份数据库
-3. **测试环境**：建议先在测试环境验证
-4. **性能监控**：追剧日历和设备同步涉及定时任务，需监控性能
-5. **API 限流**：TMDB API 有请求限制，需实现缓存和限流
