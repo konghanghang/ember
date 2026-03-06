@@ -51,6 +51,7 @@ func main() {
 	paymentHandler := handlers.NewPaymentHandler()
 	telegramHandler := handlers.NewTelegramHandler()
 	tvCalendarHandler := handlers.NewTVCalendarHandler()
+	playbackHistoryHandler := handlers.NewPlaybackHistoryHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -111,6 +112,7 @@ func main() {
 
 			// 活跃会话监控
 			admin.GET("/sessions", sessionHandler.GetActiveSessions)
+			admin.GET("/playback-history", playbackHistoryHandler.GetPlaybackHistory)
 
 			// 设备管理
 			admin.GET("/devices", deviceHandler.GetDevices)

@@ -96,6 +96,12 @@ const menuItems = computed(() => [
         role: 'admin'
       },
       {
+        title: '播放历史',
+        path: '/console/playback-history',
+        icon: DataLine,
+        role: 'admin'
+      },
+      {
         title: '设备管理',
         path: '/console/devices',
         icon: Iphone,

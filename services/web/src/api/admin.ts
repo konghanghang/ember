@@ -10,6 +10,8 @@ import type {
   DeviceListResponse,
   DeviceStats,
   PaymentListResponse,
+  PlaybackHistoryQuery,
+  PlaybackHistoryResponse,
   Plan,
   PlanListResponse,
   UpdateAdminUserRequest,
@@ -141,6 +143,14 @@ export function getAllRedemptions(params?: { page?: number; pageSize?: number; u
 		method: 'get',
 		params
 	})
+}
+
+export function getPlaybackHistory(params?: PlaybackHistoryQuery): Promise<PlaybackHistoryResponse> {
+  return request({
+    url: '/admin/playback-history',
+    method: 'get',
+    params
+  })
 }
 
 // ==================== 付费方案 ====================

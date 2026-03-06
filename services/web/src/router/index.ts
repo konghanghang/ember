@@ -101,6 +101,12 @@ const router = createRouter({
           component: () => import('../views/admin/SessionsView.vue'),
         },
         {
+          path: 'playback-history',
+          name: 'console-playback-history',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/PlaybackHistoryView.vue'),
+        },
+        {
           path: 'devices',
           name: 'console-devices',
           meta: { role: 'admin' },

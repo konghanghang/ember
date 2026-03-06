@@ -122,6 +122,32 @@ export interface RedemptionListResponse {
   totalPages: number
 }
 
+export interface PlaybackHistoryQuery extends PaginationQuery {
+  userId?: string
+  keyword?: string
+  startDate?: string
+  endDate?: string
+}
+
+export interface PlaybackHistoryItem {
+  userId: string
+  username: string
+  itemName: string
+  itemType: string
+  playedAt: string
+  deviceName: string
+  clientName: string
+  playDuration: number
+  playDurationFormatted: string
+}
+
+export interface PlaybackHistoryResponse {
+  data: PlaybackHistoryItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface RedeemCodeRequest {
   code: string
 }

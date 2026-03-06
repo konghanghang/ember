@@ -67,6 +67,7 @@ services/
 │     │  ├─ telegram.go          # TelegramService（绑定/查询/续期）
 │     │  ├─ notifier.go          # BotNotifier（火忘式推送通知给 Bot）
 │     │  ├─ playback_ranking.go  # PlaybackRankingService（播放排行生成）
+│     │  ├─ playback_history.go  # PlaybackHistoryService（播放历史查询）
 │     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
 │     │  ├─ device.go            # DeviceService（设备管理）
 │     │  ├─ tv_calendar.go       # TVCalendarService（追剧日历）
@@ -82,6 +83,7 @@ services/
 │     │  ├─ tmdb.go              # TMDB 搜索
 │     │  ├─ ranking.go           # 播放排行
 │     │  ├─ session.go           # 活跃会话
+│     │  ├─ playback_history.go  # 播放历史
 │     │  ├─ device.go            # 设备管理
 │     │  ├─ telegram.go          # Telegram 绑定与 Bot Internal API
 │     │  ├─ payment.go           # 支付与方案
@@ -130,6 +132,7 @@ services/
 │  │        ├─ SettingsView.vue  # 系统设置
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ SessionsView.vue  # 活跃会话
+│  │        ├─ PlaybackHistoryView.vue # 播放历史
 │  │        └─ DevicesView.vue   # 设备管理
 │  ├─ vite.config.ts             # dev:3000, proxy /api→:8080
 │  └─ tailwind.config.js         # 自定义色：ember(橙红), cinema
@@ -590,6 +593,15 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `RefreshCalendar(tmdbId, force)` — 管理员手动刷新（单剧 / 全部）
 - `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
 
+### 5.19 PlaybackHistoryService (`services/playback_history.go`)
+
+管理员播放历史查询服务，复用 Emby Playback Reporting 插件能力，支持分页和条件筛选。
+
+- `GetPlaybackHistory(req)` — 支持 `userId` / `keyword` / `startDate` / `endDate` / `page` / `pageSize`
+- 对 `keyword` 做白名单校验并转义，避免 SQL 注入
+- 统一输出播放时长格式（`Xm` / `Xh Ym`）
+- 插件不可用时返回统一错误：`Playback Reporting 查询失败`
+
 ---
 
 ## 6. API 端点完整列表
@@ -677,6 +689,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝 |
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
+| GET | `/api/v1/admin/playback-history` | 播放历史查询 |
 | GET | `/api/v1/admin/devices` | 设备列表 |
 | GET | `/api/v1/admin/devices/stats` | 设备统计 |
 | GET | `/api/v1/admin/devices/actions` | 设备操作日志 |
@@ -693,9 +706,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/system/info` | 系统统计 |
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
 | POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |
-| POST | `/api/v1/cron/check-expired` | 手动执行过期检查 |
-| POST | `/api/v1/cron/generate-ranking` | 手动生成排行 |
-| POST | `/api/v1/rankings/preview` | 排行预览 |
+| POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |
+| POST | `/api/v1/admin/cron/generate-ranking` | 手动生成排行 |
+| POST | `/api/v1/admin/rankings/preview` | 排行预览 |
 
 追剧日历刷新接口说明：`POST /api/v1/admin/tv-calendar/refresh` 请求体可选；空 body 表示刷新全部订阅剧集。
 
@@ -788,6 +801,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - `GET /api/v1/admin/devices/stats`
   - `GET /api/v1/admin/devices/blacklist`
   - `POST /api/v1/admin/devices/logout/:deviceId`
+
+### 管理端播放历史
+
+- 新增路由：`/console/playback-history`（admin）
+- 新增视图：`views/admin/PlaybackHistoryView.vue`
+- 数据源：`GET /api/v1/admin/playback-history`（支持 userId / keyword / 日期范围 / 分页筛选）
 
 ---
 
