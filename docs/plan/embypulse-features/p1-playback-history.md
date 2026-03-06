@@ -110,9 +110,9 @@ func (s *PlaybackHistoryService) GetPlaybackHistory(ctx context.Context, req Pla
 
 ## 验证清单
 
-- [ ] 条件筛选结果正确
-- [ ] 总数与分页数据一致
-- [ ] SQL 注入输入不会导致异常查询
-- [ ] 插件不可用时返回可读错误
+- [x] 条件筛选结果正确
+- [x] 总数与分页数据一致
+- [x] SQL 注入输入不会导致异常查询
+- [x] 插件不可用时返回可读错误
 
 **预计工作量**：2-3 天

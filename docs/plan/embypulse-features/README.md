@@ -17,7 +17,7 @@
 - [x] P0-2 客户端设备管理（Client Device Management）
 - [x] P0-3 权限模板机制（Permission Template）
 - [ ] P1-1 媒体库质量盘点（Media Quality Insight）
-- [ ] P1-2 播放历史查询（Playback History）
+- [x] P1-2 播放历史查询（Playback History）
 - [ ] P1-3 用户画像（User Profile Analytics）
 - [ ] P2-1 求片分季支持（Subscription Season Support）
 - [ ] P2-2 用户头像管理（User Avatar Management）
