@@ -256,8 +256,8 @@ onMounted(refreshAll)
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <el-input v-model="blacklistForm.clientName" placeholder="客户端名称，例如 Infuse" />
-          <el-input v-model="blacklistForm.reason" placeholder="原因（可选）" />
+          <el-input v-model="blacklistForm.clientName" placeholder="客户端名称，例如 Infuse" class="form-input" />
+          <el-input v-model="blacklistForm.reason" placeholder="原因（可选）" class="form-input" />
           <button
             type="button"
             @click="handleAddBlacklist"
@@ -308,9 +308,21 @@ onMounted(refreshAll)
     <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 space-y-4">
       <div class="flex flex-wrap items-center gap-3">
         <h2 class="text-lg font-bold text-gray-900 mr-2">设备列表</h2>
-        <el-input v-model="query.userId" placeholder="按用户ID筛选" clearable class="!w-52" @keyup.enter="fetchDevices" />
-        <el-input v-model="query.clientName" placeholder="按客户端筛选" clearable class="!w-52" @keyup.enter="fetchDevices" />
-        <el-select v-model="query.isBlacklisted" class="!w-40">
+        <el-input
+          v-model="query.userId"
+          placeholder="按用户ID筛选"
+          clearable
+          class="!w-52 form-input"
+          @keyup.enter="fetchDevices"
+        />
+        <el-input
+          v-model="query.clientName"
+          placeholder="按客户端筛选"
+          clearable
+          class="!w-52 form-input"
+          @keyup.enter="fetchDevices"
+        />
+        <el-select v-model="query.isBlacklisted" class="!w-40 form-select">
           <el-option label="全部状态" value="" />
           <el-option label="仅黑名单" value="true" />
           <el-option label="仅非黑名单" value="false" />
@@ -396,3 +408,59 @@ onMounted(refreshAll)
     </div>
   </div>
 </template>
+
+<style scoped>
+:deep(.form-input .el-input__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-input:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-input .el-input__wrapper.is-focus) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.form-input .el-input__inner) {
+  font-size: 0.875rem;
+  color: #111827;
+}
+
+:deep(.form-input .el-input__inner::placeholder) {
+  color: #9ca3af;
+}
+
+:deep(.form-select .el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-select:hover .el-select__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-select .el-select__wrapper.is-focused),
+:deep(.form-select .el-select__wrapper.is-focus),
+:deep(.form-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.form-select .el-select__placeholder),
+:deep(.form-select .el-select__selected-item) {
+  font-size: 0.875rem;
+}
+</style>
