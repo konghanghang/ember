@@ -102,6 +102,12 @@ const menuItems = computed(() => [
         role: 'admin'
       },
       {
+        title: '媒体质量',
+        path: '/console/media-quality',
+        icon: Film,
+        role: 'admin'
+      },
+      {
         title: '设备管理',
         path: '/console/devices',
         icon: Iphone,

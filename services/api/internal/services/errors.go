@@ -38,4 +38,7 @@ var (
 	ErrPlaybackHistoryInvalidUserID  = errors.New("userId 格式无效")
 	ErrPlaybackHistoryUserNotFound   = errors.New("用户不存在")
 	ErrPlaybackHistoryQueryFailed    = errors.New("Playback Reporting 查询失败")
+	ErrMediaQualityLibraryIDRequired = errors.New("libraryId 不能为空")
+	ErrMediaQualityGroupIDRequired   = errors.New("groupId 不能为空")
+	ErrMediaQualityScanFailed        = errors.New("媒体库质量扫描失败")
 )

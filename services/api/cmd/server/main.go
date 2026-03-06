@@ -52,6 +52,7 @@ func main() {
 	telegramHandler := handlers.NewTelegramHandler()
 	tvCalendarHandler := handlers.NewTVCalendarHandler()
 	playbackHistoryHandler := handlers.NewPlaybackHistoryHandler()
+	mediaQualityHandler := handlers.NewMediaQualityHandler()
 
 	// API 路由组
 	api := r.Group("/api/v1")
@@ -113,6 +114,11 @@ func main() {
 			// 活跃会话监控
 			admin.GET("/sessions", sessionHandler.GetActiveSessions)
 			admin.GET("/playback-history", playbackHistoryHandler.GetPlaybackHistory)
+			admin.GET("/media-quality/libraries", mediaQualityHandler.GetLibraries)
+			admin.GET("/media-quality/libraries/:libraryId", mediaQualityHandler.GetLibraryQuality)
+			admin.GET("/media-quality/libraries/:libraryId/groups/:groupId/details", mediaQualityHandler.GetLibraryQualityGroupDetails)
+			admin.POST("/media-quality/libraries/:libraryId/scan", mediaQualityHandler.ScanLibraryQuality)
+			admin.GET("/media-quality/posters/:itemId", mediaQualityHandler.GetPoster)
 
 			// 设备管理
 			admin.GET("/devices", deviceHandler.GetDevices)

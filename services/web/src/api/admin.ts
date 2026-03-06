@@ -9,6 +9,9 @@ import type {
   DeviceListQuery,
   DeviceListResponse,
   DeviceStats,
+  MediaQualityLowDetailItem,
+  MediaQualityLibrary,
+  MediaQualityReport,
   PaymentListResponse,
   PlaybackHistoryQuery,
   PlaybackHistoryResponse,
@@ -148,6 +151,56 @@ export function getAllRedemptions(params?: { page?: number; pageSize?: number; u
 export function getPlaybackHistory(params?: PlaybackHistoryQuery): Promise<PlaybackHistoryResponse> {
   return request({
     url: '/admin/playback-history',
+    method: 'get',
+    params
+  })
+}
+
+export function getMediaQualityLibraries(): Promise<{ data: MediaQualityLibrary[] }> {
+  return request({
+    url: '/admin/media-quality/libraries',
+    method: 'get'
+  })
+}
+
+export function getMediaQualityReport(
+  libraryId: string,
+  opts?: { force?: boolean; page?: number; pageSize?: number }
+): Promise<{ data: MediaQualityReport }> {
+  return request({
+    url: `/admin/media-quality/libraries/${encodeURIComponent(libraryId)}`,
+    method: 'get',
+    params: {
+      force: opts?.force === true,
+      page: opts?.page,
+      pageSize: opts?.pageSize
+    }
+  })
+}
+
+export function scanMediaQualityLibrary(libraryId: string): Promise<{ data: MediaQualityReport }> {
+  return request({
+    url: `/admin/media-quality/libraries/${encodeURIComponent(libraryId)}/scan`,
+    method: 'post'
+  })
+}
+
+export function getMediaQualityPoster(itemId: string): Promise<Blob> {
+  return request({
+    url: `/admin/media-quality/posters/${encodeURIComponent(itemId)}`,
+    method: 'get',
+    responseType: 'blob',
+    silent: true
+  }) as unknown as Promise<Blob>
+}
+
+export function getMediaQualityGroupDetails(
+  libraryId: string,
+  groupId: string,
+  params?: { page?: number; pageSize?: number; force?: boolean }
+): Promise<{ data: MediaQualityLowDetailItem[]; total: number; page: number; pageSize: number }> {
+  return request({
+    url: `/admin/media-quality/libraries/${encodeURIComponent(libraryId)}/groups/${encodeURIComponent(groupId)}/details`,
     method: 'get',
     params
   })

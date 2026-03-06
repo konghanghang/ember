@@ -48,6 +48,7 @@ services/
 │     │  ├─ plan.go              # Plan（付费方案）
 │     │  ├─ payment.go           # Payment（支付记录）
 │     │  ├─ playback_ranking.go  # PlaybackRanking（播放排行快照）
+│     │  ├─ media_quality_cache.go # MediaQualityCache（媒体质量缓存）
 │     │  ├─ client_blacklist.go  # ClientBlacklist（客户端黑名单）
 │     │  ├─ device_action.go     # DeviceAction（设备操作日志）
 │     │  ├─ tv_calendar.go       # TVCalendar（追剧日历 + 订阅 + TMDB 缓存）
@@ -60,7 +61,9 @@ services/
 │     │  ├─ setting.go           # 系统配置
 │     │  ├─ system.go            # 系统信息 + 过期检查
 │     │  ├─ emby.go              # Emby HTTP 客户端
+│     │  ├─ emby_library.go      # Emby 媒体库列表/条目查询
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
+│     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
 │     │  ├─ subscription.go      # 订阅工作流
 │     │  ├─ moviepilot.go        # MoviePilot HTTP 客户端
 │     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
@@ -79,6 +82,7 @@ services/
 │     │  ├─ setting.go           # 系统配置
 │     │  ├─ system.go            # 系统信息
 │     │  ├─ media.go             # 媒体信息
+│     │  ├─ media_quality.go     # 媒体质量盘点
 │     │  ├─ subscription.go      # 订阅管理
 │     │  ├─ tmdb.go              # TMDB 搜索
 │     │  ├─ ranking.go           # 播放排行
@@ -133,6 +137,7 @@ services/
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ SessionsView.vue  # 活跃会话
 │  │        ├─ PlaybackHistoryView.vue # 播放历史
+│  │        ├─ MediaQualityView.vue # 媒体质量盘点
 │  │        └─ DevicesView.vue   # 设备管理
 │  ├─ vite.config.ts             # dev:3000, proxy /api→:8080
 │  └─ tailwind.config.js         # 自定义色：ember(橙红), cinema
@@ -602,6 +607,18 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 统一输出播放时长格式（`Xm` / `Xh Ym`）
 - 插件不可用时返回统一错误：`Playback Reporting 查询失败`
 
+### 5.20 MediaQualityService (`services/media_quality.go`)
+
+管理员媒体库质量盘点服务，按媒体库维度（支持 `libraryId=all`）聚合分辨率、编码、HDR 分布，并输出低画质汇总清单。
+
+- `GetLibraryQuality(ctx, libraryID, force)` — 缓存命中优先（`force=false`），否则触发扫描
+- `ScanLibraryQuality(ctx, libraryID)` — 拉取媒体库条目并生成质量报告
+- `GetGroupLowQualityDetails(ctx, libraryID, groupID, force)` — 按汇总分组下钻低画质明细
+- 缓存模型：`media_quality_caches`（PostgreSQL 持久化，按 `libraryId` 唯一）
+- 低画质清单按“影片/剧集”汇总，避免电视剧按单集展开造成噪音
+- 低画质汇总项包含 `groupId`，前端使用 `groupId` 请求下钻接口
+- 报告字段：`resolutionDistribution` / `codecDistribution` / `hdrDistribution` / `lowQualityItems` / `lowQualityTotal` / `page` / `pageSize` / `scanAt`
+
 ---
 
 ## 6. API 端点完整列表
@@ -690,6 +707,11 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
 | GET | `/api/v1/admin/playback-history` | 播放历史查询 |
+| GET | `/api/v1/admin/media-quality/libraries` | 媒体库列表（质量盘点） |
+| GET | `/api/v1/admin/media-quality/libraries/:libraryId` | 媒体库质量报告（支持 `force/page/pageSize`） |
+| POST | `/api/v1/admin/media-quality/libraries/:libraryId/scan` | 触发媒体库质量扫描 |
+| GET | `/api/v1/admin/media-quality/libraries/:libraryId/groups/:groupId/details` | 低画质汇总项下钻明细（支持 `force/page/pageSize`） |
+| GET | `/api/v1/admin/media-quality/posters/:itemId` | 媒体质量封面代理 |
 | GET | `/api/v1/admin/devices` | 设备列表 |
 | GET | `/api/v1/admin/devices/stats` | 设备统计 |
 | GET | `/api/v1/admin/devices/actions` | 设备操作日志 |
@@ -807,6 +829,18 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 新增路由：`/console/playback-history`（admin）
 - 新增视图：`views/admin/PlaybackHistoryView.vue`
 - 数据源：`GET /api/v1/admin/playback-history`（支持 userId / keyword / 日期范围 / 分页筛选）
+
+### 管理端媒体质量盘点
+
+- 新增路由：`/console/media-quality`（admin）
+- 新增视图：`views/admin/MediaQualityView.vue`
+- 数据源：
+  - `GET /api/v1/admin/media-quality/libraries`
+  - `GET /api/v1/admin/media-quality/libraries/:libraryId?force=true|false&page=1&pageSize=20`
+  - `POST /api/v1/admin/media-quality/libraries/:libraryId/scan`
+  - `GET /api/v1/admin/media-quality/posters/:itemId`
+- 支持 `libraryId=all` 进行全媒体库汇总分析
+- 低画质结果按“影片/剧集”汇总后分页展示
 
 ---
 

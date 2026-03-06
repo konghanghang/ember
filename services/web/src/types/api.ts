@@ -148,6 +148,65 @@ export interface PlaybackHistoryResponse {
   pageSize: number
 }
 
+export interface MediaQualityLibrary {
+  id: string
+  name: string
+  type: string
+  itemCount: number
+}
+
+export interface MediaQualityResolutionItem {
+  resolution: string
+  count: number
+}
+
+export interface MediaQualityCodecItem {
+  codec: string
+  count: number
+}
+
+export interface MediaQualityHDRItem {
+  type: string
+  count: number
+}
+
+export interface MediaQualityLowItem {
+  id: string
+  groupId?: string
+  name: string
+  itemType: 'Movie' | 'Series'
+  itemCount: number
+  posterItemId: string
+  resolution: string
+  codec: string
+  bitrate: number
+}
+
+export interface MediaQualityLowDetailItem {
+  id: string
+  groupId: string
+  groupName: string
+  itemType: string
+  name: string
+  posterItemId: string
+  resolution: string
+  codec: string
+  bitrate: number
+  season?: number
+  episode?: number
+}
+
+export interface MediaQualityReport {
+  resolutionDistribution: MediaQualityResolutionItem[]
+  codecDistribution: MediaQualityCodecItem[]
+  hdrDistribution: MediaQualityHDRItem[]
+  lowQualityItems: MediaQualityLowItem[]
+  lowQualityTotal: number
+  page: number
+  pageSize: number
+  scanAt: string
+}
+
 export interface RedeemCodeRequest {
   code: string
 }

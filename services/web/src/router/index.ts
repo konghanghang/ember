@@ -107,6 +107,12 @@ const router = createRouter({
           component: () => import('../views/admin/PlaybackHistoryView.vue'),
         },
         {
+          path: 'media-quality',
+          name: 'console-media-quality',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/MediaQualityView.vue'),
+        },
+        {
           path: 'devices',
           name: 'console-devices',
           meta: { role: 'admin' },
