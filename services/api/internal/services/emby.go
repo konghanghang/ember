@@ -684,6 +684,7 @@ func (s *EmbyService) SetUserPolicy(embyUserID string, policy EmbyUserPolicy) er
 // 注意：插件返回的字段名是 "colums"（非 "columns"），这是插件本身的拼写
 type CustomQueryResponse struct {
 	Colums  []string        `json:"colums"`
+	Columns []string        `json:"columns"`
 	Results [][]interface{} `json:"results"`
 	Message string          `json:"message"`
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -115,23 +116,18 @@ func (s *PlaybackHistoryService) GetPlaybackHistory(ctx context.Context, req Pla
 	}
 
 	offset := (query.Page - 1) * query.PageSize
-	detailSQL := fmt.Sprintf(`
-SELECT UserId, UserName, ItemName, ItemType, DateCreated, DeviceName, ClientName,
-       COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0) AS PlayDuration
-FROM PlaybackActivity
-WHERE %s
-ORDER BY DateCreated DESC
-LIMIT %d OFFSET %d
-`, whereClause, query.PageSize, offset)
-
-	detailResp, err := s.embyService.QueryPlaybackStats(detailSQL)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
+	if int64(offset) >= total {
+		return &PlaybackHistoryResponse{
+			Data:     []PlaybackHistoryItem{},
+			Total:    total,
+			Page:     query.Page,
+			PageSize: query.PageSize,
+		}, nil
 	}
 
-	rows, err := parsePlaybackRows(detailResp)
+	rows, err := s.loadPlaybackRowsWithFallback(whereClause, query.PageSize, offset)
 	if err != nil {
-		return nil, fmt.Errorf("解析播放历史明细失败: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
 	}
 
 	localUsers, err := s.loadUsersByEmbyIDs(ctx, rows)
@@ -176,6 +172,163 @@ LIMIT %d OFFSET %d
 		Page:     query.Page,
 		PageSize: query.PageSize,
 	}, nil
+}
+
+func (s *PlaybackHistoryService) queryPlaybackDetails(whereClause string, pageSize int, offset int, includePauseDuration bool) (*CustomQueryResponse, error) {
+	durationExpr := "COALESCE(PlayDuration, 0) AS PlayDuration"
+	if includePauseDuration {
+		durationExpr = "COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0) AS PlayDuration"
+	}
+
+	detailSQL := fmt.Sprintf(`
+SELECT UserId, UserName, ItemName, ItemType, DateCreated, DeviceName, ClientName,
+       %s
+FROM PlaybackActivity
+WHERE %s
+ORDER BY DateCreated DESC
+LIMIT %d OFFSET %d
+`, durationExpr, whereClause, pageSize, offset)
+
+	return s.embyService.QueryPlaybackStats(detailSQL)
+}
+
+func (s *PlaybackHistoryService) queryPlaybackDetailsWildcard(whereClause string, pageSize int, offset int) (*CustomQueryResponse, error) {
+	sqlWithOrder := fmt.Sprintf(`
+SELECT *
+FROM PlaybackActivity
+WHERE %s
+ORDER BY DateCreated DESC
+LIMIT %d OFFSET %d
+`, whereClause, pageSize, offset)
+
+	resp, err := s.embyService.QueryPlaybackStats(sqlWithOrder)
+	if err == nil {
+		return resp, nil
+	}
+
+	sqlNoOrder := fmt.Sprintf(`
+SELECT *
+FROM PlaybackActivity
+WHERE %s
+LIMIT %d OFFSET %d
+`, whereClause, pageSize, offset)
+	return s.embyService.QueryPlaybackStats(sqlNoOrder)
+}
+
+func (s *PlaybackHistoryService) queryPlaybackDetailsAll(whereClause string) (*CustomQueryResponse, error) {
+	sqlWithOrder := fmt.Sprintf(`
+SELECT *
+FROM PlaybackActivity
+WHERE %s
+ORDER BY DateCreated DESC
+`, whereClause)
+
+	resp, err := s.embyService.QueryPlaybackStats(sqlWithOrder)
+	if err == nil {
+		return resp, nil
+	}
+
+	sqlNoOrder := fmt.Sprintf(`
+SELECT *
+FROM PlaybackActivity
+WHERE %s
+`, whereClause)
+	return s.embyService.QueryPlaybackStats(sqlNoOrder)
+}
+
+func (s *PlaybackHistoryService) loadPlaybackRowsWithFallback(whereClause string, pageSize int, offset int) ([]playbackActivityRow, error) {
+	detailResp, err := s.queryPlaybackDetails(whereClause, pageSize, offset, true)
+	if err != nil {
+		if shouldFallbackPlaybackDetailError(err) {
+			detailResp, err = s.queryPlaybackDetails(whereClause, pageSize, offset, false)
+		}
+		if err != nil {
+			detailResp, err = s.queryPlaybackDetailsWildcard(whereClause, pageSize, offset)
+		}
+		if err != nil {
+			return s.loadPlaybackRowsByLocalPagination(whereClause, pageSize, offset)
+		}
+	}
+
+	if shouldFallbackPlaybackDetailQuery(detailResp) {
+		detailResp, err = s.queryPlaybackDetails(whereClause, pageSize, offset, false)
+		if err != nil || shouldFallbackPlaybackDetailQuery(detailResp) {
+			detailResp, err = s.queryPlaybackDetailsWildcard(whereClause, pageSize, offset)
+		}
+		if err != nil || shouldFallbackPlaybackDetailQuery(detailResp) {
+			return s.loadPlaybackRowsByLocalPagination(whereClause, pageSize, offset)
+		}
+	}
+
+	rows, err := parsePlaybackRows(detailResp)
+	if err != nil {
+		return nil, fmt.Errorf("解析播放历史明细失败: %w", err)
+	}
+	if len(rows) > 0 {
+		return rows, nil
+	}
+
+	return s.loadPlaybackRowsByLocalPagination(whereClause, pageSize, offset)
+}
+
+func (s *PlaybackHistoryService) loadPlaybackRowsByLocalPagination(whereClause string, pageSize int, offset int) ([]playbackActivityRow, error) {
+	allResp, err := s.queryPlaybackDetailsAll(whereClause)
+	if err != nil {
+		return nil, err
+	}
+	allRows, err := parsePlaybackRows(allResp)
+	if err != nil {
+		return nil, fmt.Errorf("解析全量播放历史失败: %w", err)
+	}
+	if len(allRows) == 0 {
+		return []playbackActivityRow{}, nil
+	}
+
+	sort.Slice(allRows, func(i, j int) bool {
+		ti := parsePlaybackTime(allRows[i].playedAtRaw)
+		tj := parsePlaybackTime(allRows[j].playedAtRaw)
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return allRows[i].itemName < allRows[j].itemName
+	})
+
+	if offset >= len(allRows) {
+		return []playbackActivityRow{}, nil
+	}
+	end := offset + pageSize
+	if end > len(allRows) {
+		end = len(allRows)
+	}
+	return allRows[offset:end], nil
+}
+
+func shouldFallbackPlaybackDetailQuery(resp *CustomQueryResponse) bool {
+	if resp == nil {
+		return true
+	}
+	if len(resp.Results) > 0 {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(resp.Message))
+	if msg == "" {
+		return false
+	}
+	if strings.Contains(msg, "pause") || strings.Contains(msg, "column") || strings.Contains(msg, "sql") {
+		return true
+	}
+	return false
+}
+
+func shouldFallbackPlaybackDetailError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "pause") || strings.Contains(msg, "column") || strings.Contains(msg, "sql") {
+		return true
+	}
+	return false
 }
 
 func (s *PlaybackHistoryService) normalizeRequest(req PlaybackHistoryRequest) (*playbackHistoryQuery, string, error) {
@@ -294,33 +447,61 @@ func parsePlaybackRows(resp *CustomQueryResponse) ([]playbackActivityRow, error)
 	}
 
 	indexes := map[string]int{}
-	for idx, col := range resp.Colums {
+	columns := resp.Colums
+	if len(columns) == 0 {
+		columns = resp.Columns
+	}
+	for idx, col := range columns {
 		indexes[strings.ToLower(strings.TrimSpace(col))] = idx
 	}
+	fallbackIndexes := map[string]int{
+		"userid":       0,
+		"username":     1,
+		"itemname":     2,
+		"itemtype":     3,
+		"datecreated":  4,
+		"devicename":   5,
+		"clientname":   6,
+		"playduration": 7,
+	}
 
-	get := func(row []interface{}, key string) interface{} {
-		idx, ok := indexes[key]
-		if !ok || idx < 0 || idx >= len(row) {
-			return nil
+	get := func(row []interface{}, keys ...string) interface{} {
+		for _, key := range keys {
+			key = strings.ToLower(strings.TrimSpace(key))
+			idx, ok := indexes[key]
+			if !ok {
+				idx, ok = fallbackIndexes[key]
+			}
+			if ok && idx >= 0 && idx < len(row) {
+				return row[idx]
+			}
 		}
-		return row[idx]
+		return nil
 	}
 
 	result := make([]playbackActivityRow, 0, len(resp.Results))
 	for _, row := range resp.Results {
-		duration, err := asInt64(get(row, "playduration"))
+		playDuration, err := asInt64(get(row, "playduration", "duration"))
 		if err != nil {
 			return nil, err
 		}
+		pauseDuration, err := asInt64(get(row, "pauseduration"))
+		if err != nil {
+			return nil, err
+		}
+		duration := playDuration - pauseDuration
+		if duration < 0 {
+			duration = 0
+		}
 
 		result = append(result, playbackActivityRow{
-			embyUserID:   safeString(get(row, "userid")),
-			username:     safeString(get(row, "username")),
-			itemName:     safeString(get(row, "itemname")),
-			itemType:     safeString(get(row, "itemtype")),
-			playedAtRaw:  safeString(get(row, "datecreated")),
-			deviceName:   safeString(get(row, "devicename")),
-			clientName:   safeString(get(row, "clientname")),
+			embyUserID:   safeString(get(row, "userid", "user_id")),
+			username:     safeString(get(row, "username", "user_name")),
+			itemName:     safeString(get(row, "itemname", "name")),
+			itemType:     safeString(get(row, "itemtype", "type")),
+			playedAtRaw:  safeString(get(row, "datecreated", "playedat", "date")),
+			deviceName:   safeString(get(row, "devicename", "device")),
+			clientName:   safeString(get(row, "clientname", "client")),
 			playDuration: duration,
 		})
 	}

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -41,6 +42,26 @@ func TestParsePlaybackRowsKeepNilAsEmptyString(t *testing.T) {
 	}
 }
 
+func TestParsePlaybackRowsSupportsColumnsField(t *testing.T) {
+	resp := &CustomQueryResponse{
+		Columns: []string{"UserId", "UserName", "ItemName", "ItemType", "DateCreated", "DeviceName", "ClientName", "PlayDuration"},
+		Results: [][]interface{}{
+			{"emby_u_1", "alice", "movie", "Movie", "2026-03-06 10:00:00", "TV", "Web", float64(120)},
+		},
+	}
+
+	rows, err := parsePlaybackRows(resp)
+	if err != nil {
+		t.Fatalf("parse rows failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("unexpected row count: %d", len(rows))
+	}
+	if rows[0].itemName != "movie" || rows[0].deviceName != "TV" || rows[0].clientName != "Web" {
+		t.Fatalf("unexpected parsed row: %+v", rows[0])
+	}
+}
+
 func TestParsePlaybackTimeWithoutTimezoneUsesLocalTime(t *testing.T) {
 	originalLocal := time.Local
 	defer func() { time.Local = originalLocal }()
@@ -66,5 +87,63 @@ func TestGetPlaybackHistoryReturnsReadablePluginError(t *testing.T) {
 	}
 	if !errors.Is(err, ErrPlaybackHistoryQueryFailed) {
 		t.Fatalf("expected wrapped ErrPlaybackHistoryQueryFailed, got: %v", err)
+	}
+}
+
+func TestShouldFallbackPlaybackDetailQuery(t *testing.T) {
+	cases := []struct {
+		name string
+		resp *CustomQueryResponse
+		want bool
+	}{
+		{
+			name: "nil response",
+			resp: nil,
+			want: true,
+		},
+		{
+			name: "has rows",
+			resp: &CustomQueryResponse{
+				Results: [][]interface{}{{"row"}},
+			},
+			want: false,
+		},
+		{
+			name: "empty rows with pause column error",
+			resp: &CustomQueryResponse{
+				Results: [][]interface{}{},
+				Message: "SQL error: no such column: PauseDuration",
+			},
+			want: true,
+		},
+		{
+			name: "empty rows without error message",
+			resp: &CustomQueryResponse{
+				Results: [][]interface{}{},
+				Message: "",
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldFallbackPlaybackDetailQuery(tc.resp)
+			if got != tc.want {
+				t.Fatalf("want %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestShouldFallbackPlaybackDetailError(t *testing.T) {
+	if !shouldFallbackPlaybackDetailError(fmt.Errorf("SQL error: no such column: PauseDuration")) {
+		t.Fatal("pause/column sql error should trigger fallback")
+	}
+	if shouldFallbackPlaybackDetailError(fmt.Errorf("request timeout")) {
+		t.Fatal("non-sql compatibility error should not trigger fallback")
+	}
+	if shouldFallbackPlaybackDetailError(nil) {
+		t.Fatal("nil error should not trigger fallback")
 	}
 }

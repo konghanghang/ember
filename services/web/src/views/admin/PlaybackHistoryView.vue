@@ -122,7 +122,7 @@ onMounted(() => {
               start-placeholder="开始日期"
               end-placeholder="结束日期"
               value-format="YYYY-MM-DD"
-              class="w-full"
+              class="w-full filter-date"
               unlink-panels
             />
           </div>
@@ -213,5 +213,30 @@ onMounted(() => {
   background-color: #ffffff;
   border-color: var(--ember-red);
   box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
+}
+
+:deep(.filter-date .el-input__wrapper) {
+  height: 42px;
+  min-height: 42px;
+  background-color: #f9fafb !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.filter-date:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-date .el-input__wrapper.is-focus) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.filter-date .el-input__inner) {
+  height: 100%;
+  font-size: 0.875rem;
 }
 </style>
