@@ -11,6 +11,7 @@
 - **动态 `price_data`** — 价格从我们的数据库读取，传入 Checkout Session，不需要在 Stripe Dashboard 预创建 Price 对象。管理员改价即生效
 - **一次性付费** — 与现有兑换码模型一致（买 N 天），不是 Stripe Subscription 周期订阅
 - **USD 美元** — 固定币种
+- **多支付方式** — 支持支付宝（Alipay）、微信支付（WeChat Pay）、信用卡（Card）。通过 `PaymentMethodTypes` 显式指定，Stripe 自动处理 USD→CNY 汇率转换
 
 ---
 
@@ -135,6 +136,8 @@ Plan (1) ──→ (N) Payment
 
 未配置时支付功能不可用，但不影响系统其他功能。
 
+**Stripe Dashboard 前置配置**：需在 Settings → Payment methods 中启用 Alipay 和 WeChat Pay。
+
 **Go 依赖**：`github.com/stripe/stripe-go/v81`
 
 ---
@@ -215,6 +218,11 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	// 4. 返回 session.URL（前端跳转到 Stripe 页面）
 
 	params := &stripe.CheckoutSessionParams{
+		PaymentMethodTypes: stripe.StringSlice([]string{
+			"alipay",
+			"wechat_pay",
+			"card",
+		}),
 		Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
@@ -279,6 +287,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 - **数据信任**：fulfillPayment 从我们自己的 Payment 记录读取 userID 和 days，不信任 Stripe metadata（metadata 仅作为创建 Payment 时的关联桥梁）
 - **事务**：Payment 状态更新 + 用户延期 + Emby 解封在同一个事务中
 - **复用逻辑**：expiry 延长和 auto-unban 的算法与 `services/redemption.go:60-131` 中的 `RedeemCode` 完全一致
+- **异步支付方式**：支付宝和微信支付属于异步确认类型，`checkout.session.completed` 时 `payment_status` 可能不是 `paid`，需要等待 `async_payment_succeeded` 事件才履约。这已在 Webhook 处理的三事件模型中覆盖
 
 #### 4.4 支付记录查询
 
@@ -634,7 +643,7 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
  │ window.location = url   │                      │
  │ ─────────────────────────────────────────────→│
  │                    Stripe Checkout 页面         │
- │ 输入信用卡信息并支付                             │
+ │ 选择支付方式（支付宝/微信/信用卡）并支付           │
  │ ←─── 跳转 success_url ─────────────────────────│
  │                         │                      │
  │                         │ webhook: session.completed/async_*
@@ -712,7 +721,8 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
    - 管理员创建/编辑/下架方案
    - 用户页面展示启用的方案
    - 用户点击购买 → 跳转 Stripe Checkout
-   - Stripe 测试卡 `4242424242424242` 完成支付
+   - 信用卡：Stripe 测试卡 `4242424242424242` 完成支付
+   - 支付宝/微信：Stripe 测试模式下会自动模拟成功支付流程
    - 本地 webhook 测试：`stripe listen --forward-to localhost:8080/api/v1/webhooks/stripe`
    - 支付成功后 User.ExpiresAt 延长
    - 过期用户支付后自动解封 Emby
