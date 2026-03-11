@@ -368,10 +368,12 @@ export function logoutBlacklistedDevices() {
 }
 
 // ==================== 追剧日历 ====================
-export function refreshTVCalendar(data?: { tmdbId?: string; force?: boolean }): Promise<{ success: boolean; count: number }> {
+export function syncTVCalendar(data?: { tmdbId?: string; force?: boolean; weekOffsets?: number[] }): Promise<{ success: boolean; count: number }> {
   return request({
-    url: '/admin/tv-calendar/refresh',
+    url: '/admin/tv-calendar/sync',
     method: 'post',
     data: data ?? {}
   })
 }
+
+export const refreshTVCalendar = syncTVCalendar

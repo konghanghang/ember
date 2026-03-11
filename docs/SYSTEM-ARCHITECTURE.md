@@ -364,6 +364,21 @@ services/
 
 ### 4.13 TVCalendar（追剧日历）
 
+**表名**: `tv_calendar_sources` | **文件**: `models/tv_calendar.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| TmdbID | string(50) | tmdbId | TMDB 剧集 ID（唯一） |
+| SeriesID | string(50) | seriesId | Emby SeriesId |
+| ShowName | string(255) | showName | 剧名 |
+| PosterURL | string(500) | posterUrl | 海报地址 |
+| Overview | text | overview | 剧集简介 |
+| EmbyStatus | string(20) | embyStatus | Emby 识别状态，当前主要使用 `continuing` |
+| LastSyncedAt | *time.Time | lastSyncedAt | 最近周历同步时间 |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
 **表名**: `tv_calendar_items` | **文件**: `models/tv_calendar.go`
 
 | 字段 | 类型 | 列名 | 说明 |
@@ -375,6 +390,7 @@ services/
 | Episode | int | episode | 集号（联合唯一索引） |
 | AirDate | time.Time | airDate | 播出日期（UTC 00:00:00） |
 | EpisodeName | string(255) | episodeName | 集标题 |
+| Overview | text | overview | 单集简介 |
 | Status | string(20) | status | `ready/missing/upcoming/today` |
 | EmbyItemID | string(50) | embyItemId | Emby 集条目 ID（可空） |
 | LastChecked | time.Time | lastChecked | 最近同步时间 |
@@ -419,7 +435,8 @@ EmailVerification               （独立验证码，无外键）
 PlaybackRanking                 （独立排行快照，无外键）
 ClientBlacklist ──→ DeviceAction（按 clientName 审计）
 User (1) ──→ (N) TVCalendarSubscription（用户追剧订阅）
-TVCalendarSubscription (N) ──→ (N) TVCalendarItem（按 tmdbId 关联）
+TVCalendarSource (1) ──→ (N) TVCalendarItem（按 tmdbId 关联）
+TVCalendarSubscription (N) ──→ (1) TVCalendarSource（按 tmdbId 关联）
 TMDBCache（独立缓存表）
 ```
 
@@ -589,13 +606,17 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.18 TVCalendarService (`services/tv_calendar.go`)
 
-追剧日历聚合服务，使用三层缓存（内存 + PostgreSQL + TMDB）。
+追剧日历聚合服务，主链路改为“Emby 全库发现 + 周历同步 + Webhook 点亮”，TMDB 仍使用三层缓存（内存 + PostgreSQL + TMDB）。
 
-- `FetchCalendar(userID, startDate, endDate, status)` — 按用户订阅查询日历，按需触发增量刷新
-- `Subscribe(userID, tmdbId, showName, posterUrl)` — 创建或更新用户追剧订阅
-- `GetSubscriptions(userID)` — 获取用户订阅剧集列表
-- `Unsubscribe(userID, tmdbId)` — 取消订阅
-- `RefreshCalendar(tmdbId, force)` — 管理员手动刷新（单剧 / 全部）
+- `DiscoverContinuingSeries(ctx)` — 从 Emby 自动发现所有 `Continuing` 且带 `Tmdb` Provider ID 的剧集
+- `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 同步上周 / 本周 / 下周的全局周历缓存
+- `GetGlobalWeeklyCalendar(ctx, weekOffset, status)` — 查询全局周历视图
+- `GetFollowingWeeklyCalendar(ctx, userID, weekOffset, status)` — 查询当前用户的关注周历视图
+- `FetchCalendar(userID, startDate, endDate, status)` — 兼容旧平铺接口，底层仍复用新的全局缓存数据
+- `Subscribe(userID, tmdbId, showName, posterUrl)` — 创建或更新用户关注
+- `GetSubscriptions(userID)` — 获取用户关注列表
+- `Unsubscribe(userID, tmdbId)` — 取消关注
+- `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）
 - `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
 
 ### 5.19 PlaybackHistoryService (`services/playback_history.go`)
@@ -659,10 +680,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/rankings/history` | 排行历史 |
 | POST | `/api/v1/payments/checkout` | Stripe 结账 |
 | GET | `/api/v1/payments` | 我的支付记录 |
+| GET | `/api/v1/tv-calendar/global` | 全局追剧周历 |
+| GET | `/api/v1/tv-calendar/following` | 我的关注周历 |
 | GET | `/api/v1/tv-calendar` | 追剧日历 |
-| GET | `/api/v1/tv-calendar/subscriptions` | 我的追剧订阅 |
-| POST | `/api/v1/tv-calendar/subscriptions` | 订阅剧集 |
-| DELETE | `/api/v1/tv-calendar/subscriptions/:tmdbId` | 取消订阅剧集 |
+| GET | `/api/v1/tv-calendar/subscriptions` | 我的关注列表 |
+| POST | `/api/v1/tv-calendar/subscriptions` | 关注剧集 |
+| DELETE | `/api/v1/tv-calendar/subscriptions/:tmdbId` | 取消关注剧集 |
 
 ### 用户路由（需认证 + role=user）
 
@@ -727,12 +750,18 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/payments` | 全部支付记录 |
 | GET | `/api/v1/admin/system/info` | 系统统计 |
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
+| POST | `/api/v1/admin/tv-calendar/sync` | 手动同步追剧日历 |
 | POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |
 | POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |
 | POST | `/api/v1/admin/cron/generate-ranking` | 手动生成排行 |
 | POST | `/api/v1/admin/rankings/preview` | 排行预览 |
 
-追剧日历刷新接口说明：`POST /api/v1/admin/tv-calendar/refresh` 请求体可选；空 body 表示刷新全部订阅剧集。
+追剧日历同步接口说明：
+
+- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[-1, 0, 1]`
+- `tmdbId` 可选，传入时只同步单剧
+- `weekOffsets` 可选，仅支持 `-1/0/1`
+- `POST /api/v1/admin/tv-calendar/refresh` 仍保留，内部复用同步逻辑，作为兼容入口
 
 ### 内部服务路由（InternalAuth 中间件，Bot 调用）
 

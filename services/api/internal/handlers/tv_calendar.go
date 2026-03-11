@@ -23,6 +23,60 @@ func NewTVCalendarHandler() *TVCalendarHandler {
 	return &TVCalendarHandler{service: services.NewTVCalendarService()}
 }
 
+func (h *TVCalendarHandler) GetGlobalWeeklyCalendar(c *gin.Context) {
+	status := strings.TrimSpace(c.Query("status"))
+	weekOffset, err := services.ParseTVCalendarWeekOffset(c.Query("weekOffset"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	data, err := h.service.GetGlobalWeeklyCalendar(c.Request.Context(), weekOffset, status)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrTVCalendarInvalidStatus), errors.Is(err, services.ErrTVCalendarInvalidWeekOffset):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrTVCalendarNotConfigured):
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": data})
+}
+
+func (h *TVCalendarHandler) GetFollowingWeeklyCalendar(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+
+	status := strings.TrimSpace(c.Query("status"))
+	weekOffset, err := services.ParseTVCalendarWeekOffset(c.Query("weekOffset"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	data, err := h.service.GetFollowingWeeklyCalendar(c.Request.Context(), userID.(string), weekOffset, status)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrTVCalendarInvalidStatus), errors.Is(err, services.ErrTVCalendarInvalidWeekOffset):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrTVCalendarNotConfigured):
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": data})
+}
+
 func (h *TVCalendarHandler) GetCalendar(c *gin.Context) {
 	userID, exists := c.Get("userID")
 	if !exists {
@@ -132,31 +186,41 @@ func (h *TVCalendarHandler) Unsubscribe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func (h *TVCalendarHandler) Refresh(c *gin.Context) {
+func (h *TVCalendarHandler) Sync(c *gin.Context) {
 	var req struct {
-		TmdbID *string `json:"tmdbId"`
-		Force  bool    `json:"force"`
+		TmdbID      *string `json:"tmdbId"`
+		Force       bool    `json:"force"`
+		WeekOffsets []int   `json:"weekOffsets"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// 空 body 视为“刷新全部订阅”，保持请求兼容性。
+		// 空 body 视为“同步全部默认周视图”，保持请求兼容性。
 		if !errors.Is(err, io.EOF) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 			return
 		}
 	}
 
-	count, err := h.service.RefreshCalendar(c.Request.Context(), req.TmdbID, req.Force)
+	count, err := h.service.SyncCalendar(c.Request.Context(), req.WeekOffsets, req.TmdbID, req.Force)
 	if err != nil {
-		if errors.Is(err, services.ErrTVCalendarNotConfigured) {
+		switch {
+		case errors.Is(err, services.ErrTVCalendarInvalidWeekOffset):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		case errors.Is(err, services.ErrTVCalendarNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "count": count})
+}
+
+func (h *TVCalendarHandler) Refresh(c *gin.Context) {
+	h.Sync(c)
 }
 
 func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {

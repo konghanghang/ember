@@ -268,6 +268,7 @@ export interface CreateSubscriptionRequest {
 }
 
 export type TVCalendarStatus = 'ready' | 'missing' | 'upcoming' | 'today'
+export type TVCalendarWeekOffset = -1 | 0 | 1
 
 export interface TVCalendarItem {
   id: string
@@ -289,6 +290,31 @@ export interface TVCalendarSubscription {
   showName: string
   posterUrl?: string
   createdAt: string
+}
+
+export interface TVCalendarWeeklyItem {
+  tmdbId: string
+  seriesId?: string
+  showName: string
+  posterUrl?: string
+  season: number
+  episode: string
+  airDate: string
+  status: TVCalendarStatus
+  episodeName?: string
+  overview?: string
+}
+
+export interface TVCalendarWeeklyDay {
+  date: string
+  weekdayCn: string
+  isToday: boolean
+  items: TVCalendarWeeklyItem[]
+}
+
+export interface TVCalendarWeeklyData {
+  dateRange: string
+  days: TVCalendarWeeklyDay[]
 }
 
 // ==================== 付费方案 ====================

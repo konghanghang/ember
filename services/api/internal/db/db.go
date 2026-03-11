@@ -203,6 +203,7 @@ func AutoMigrate() error {
 		&models.Redemption{},
 		&models.Setting{},
 		&models.User{},
+		&models.TVCalendarSource{},
 		&models.TVCalendarItem{},
 		&models.TVCalendarSubscription{},
 		&models.TMDBCache{},

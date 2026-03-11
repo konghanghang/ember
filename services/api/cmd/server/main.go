@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"time"
@@ -131,6 +132,7 @@ func main() {
 			admin.POST("/devices/logout/:deviceId", deviceHandler.LogoutDevice)
 
 			// 追剧日历
+			admin.POST("/tv-calendar/sync", tvCalendarHandler.Sync)
 			admin.POST("/tv-calendar/refresh", tvCalendarHandler.Refresh)
 
 			// 付费方案
@@ -195,6 +197,8 @@ func main() {
 			authenticated.GET("/payments", paymentHandler.GetMyPayments)
 
 			// 追剧日历
+			authenticated.GET("/tv-calendar/global", tvCalendarHandler.GetGlobalWeeklyCalendar)
+			authenticated.GET("/tv-calendar/following", tvCalendarHandler.GetFollowingWeeklyCalendar)
 			authenticated.GET("/tv-calendar", tvCalendarHandler.GetCalendar)
 			authenticated.GET("/tv-calendar/subscriptions", tvCalendarHandler.GetSubscriptions)
 			authenticated.POST("/tv-calendar/subscriptions", tvCalendarHandler.Subscribe)
@@ -268,6 +272,7 @@ func main() {
 		systemService := services.NewSystemService()
 		emailService := services.NewEmailService()
 		telegramService := services.NewTelegramService()
+		tvCalendarService := services.NewTVCalendarService()
 		var rankingService *services.PlaybackRankingService
 		if rankingCronEnabled == "true" {
 			rankingService = services.NewPlaybackRankingService()
@@ -337,19 +342,52 @@ func main() {
 			}
 		}
 
+		tvCalendarSyncSchedule := os.Getenv("TV_CALENDAR_SYNC_SCHEDULE")
+		if tvCalendarSyncSchedule == "" {
+			tvCalendarSyncSchedule = "0 */12 * * *"
+		}
+
+		if tvCalendarService.SyncAvailable() {
+			time.AfterFunc(15*time.Second, func() {
+				count, err := tvCalendarService.SyncCalendar(context.Background(), services.DefaultTVCalendarWeekOffsets(), nil, false)
+				if err != nil {
+					log.Printf("[TV Calendar] 启动补偿同步失败：%v", err)
+					return
+				}
+				log.Printf("[TV Calendar] 启动补偿同步完成，处理 %d 条记录", count)
+			})
+
+			if _, err := c.AddFunc(tvCalendarSyncSchedule, func() {
+				log.Println("[Cron] 开始同步追剧日历...")
+				count, err := tvCalendarService.SyncCalendar(context.Background(), services.DefaultTVCalendarWeekOffsets(), nil, false)
+				if err != nil {
+					log.Printf("[Cron] 追剧日历同步失败：%v", err)
+					return
+				}
+				log.Printf("[Cron] 追剧日历同步完成，处理 %d 条记录", count)
+			}); err != nil {
+				log.Printf("定时任务注册失败（追剧日历同步）：%v", err)
+			} else {
+				taskRegistered = true
+			}
+		} else {
+			log.Printf("追剧日历自动同步未启用：缺少 Emby 或 TMDB 配置")
+		}
+
 		if taskRegistered {
 			c.Start()
 			defer c.Stop()
 			if rankingCronEnabled == "true" {
 				log.Printf(
-					"定时任务已启用：过期检查(%s), 日榜(%s), 周榜(%s) (%s)",
+					"定时任务已启用：过期检查(%s), 日榜(%s), 周榜(%s), 追剧日历(%s) (%s)",
 					expiredSchedule,
 					rankingDailySchedule,
 					rankingWeeklySchedule,
+					tvCalendarSyncSchedule,
 					tzName,
 				)
 			} else {
-				log.Printf("定时任务已启用：过期检查(%s) (%s)", expiredSchedule, tzName)
+				log.Printf("定时任务已启用：过期检查(%s), 追剧日历(%s) (%s)", expiredSchedule, tvCalendarSyncSchedule, tzName)
 			}
 		}
 	}

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,13 +22,77 @@ import (
 )
 
 const (
-	tmdbBaseURL              = "https://api.themoviedb.org/3"
-	tmdbDetailCacheTTL       = 24 * time.Hour
-	tmdbSeasonCacheTTL       = 24 * time.Hour
-	tvCalendarRefreshMinTTL  = 6 * time.Hour
-	tvCalendarFetchTimeout   = 15 * time.Second
-	tvCalendarMaxSeasonCount = 200
+	tmdbBaseURL             = "https://api.themoviedb.org/3"
+	tmdbImageBaseURL        = "https://image.tmdb.org/t/p/w500"
+	tmdbDetailCacheTTL      = 24 * time.Hour
+	tmdbSeasonCacheTTL      = 24 * time.Hour
+	tvCalendarSyncTTL       = 12 * time.Hour
+	tvCalendarFetchTimeout  = 15 * time.Second
+	tvCalendarSyncPageSize  = 200
+	tvCalendarDefaultOffset = 0
 )
+
+var defaultTVCalendarWeekOffsets = []int{-1, 0, 1}
+
+type tvCalendarSyncCall struct {
+	done  chan struct{}
+	count int
+	err   error
+}
+
+var tvCalendarSyncCoordinator = struct {
+	mu    sync.Mutex
+	calls map[string]*tvCalendarSyncCall
+}{
+	calls: make(map[string]*tvCalendarSyncCall),
+}
+
+func tvCalendarWeekSyncMarkerKey(weekOffset int) string {
+	return fmt.Sprintf("tv-calendar:week-sync:%d", weekOffset)
+}
+
+func tvCalendarWeekSyncLockKey(weekOffset int, tmdbID *string, force bool) string {
+	scope := "all"
+	if tmdbID != nil && strings.TrimSpace(*tmdbID) != "" {
+		scope = "tmdb:" + strings.TrimSpace(*tmdbID)
+	}
+	mode := "cached"
+	if force {
+		mode = "force"
+	}
+	return fmt.Sprintf("tv-calendar:sync:%d:%s:%s", weekOffset, scope, mode)
+}
+
+func tvCalendarDiscoverLockKey(force bool) string {
+	if force {
+		return "tv-calendar:discover:force"
+	}
+	return "tv-calendar:discover"
+}
+
+func runTVCalendarSyncOnce(key string, fn func() (int, error)) (int, error) {
+	tvCalendarSyncCoordinator.mu.Lock()
+	if existing, ok := tvCalendarSyncCoordinator.calls[key]; ok {
+		tvCalendarSyncCoordinator.mu.Unlock()
+		<-existing.done
+		return existing.count, existing.err
+	}
+
+	call := &tvCalendarSyncCall{
+		done: make(chan struct{}),
+	}
+	tvCalendarSyncCoordinator.calls[key] = call
+	tvCalendarSyncCoordinator.mu.Unlock()
+
+	call.count, call.err = fn()
+	close(call.done)
+
+	tvCalendarSyncCoordinator.mu.Lock()
+	delete(tvCalendarSyncCoordinator.calls, key)
+	tvCalendarSyncCoordinator.mu.Unlock()
+
+	return call.count, call.err
+}
 
 type tmdbMemoryCacheEntry struct {
 	Payload   []byte
@@ -54,6 +120,18 @@ func NewTVCalendarService() *TVCalendarService {
 	}
 }
 
+func (s *TVCalendarService) SyncAvailable() bool {
+	return strings.TrimSpace(s.tmdbAPIKey) != "" &&
+		strings.TrimSpace(s.embyService.baseURL) != "" &&
+		strings.TrimSpace(s.embyService.apiKey) != ""
+}
+
+func DefaultTVCalendarWeekOffsets() []int {
+	offsets := make([]int, len(defaultTVCalendarWeekOffsets))
+	copy(offsets, defaultTVCalendarWeekOffsets)
+	return offsets
+}
+
 type TVCalendarDTO struct {
 	ID          string    `json:"id"`
 	TmdbID      string    `json:"tmdbId"`
@@ -67,20 +145,52 @@ type TVCalendarDTO struct {
 	PosterURL   string    `json:"posterUrl,omitempty"`
 }
 
+type TVCalendarWeeklyDTO struct {
+	DateRange string             `json:"dateRange"`
+	Days      []TVCalendarDayDTO `json:"days"`
+}
+
+type TVCalendarDayDTO struct {
+	Date      string                 `json:"date"`
+	WeekdayCn string                 `json:"weekdayCn"`
+	IsToday   bool                   `json:"isToday"`
+	Items     []TVCalendarWeeklyItem `json:"items"`
+}
+
+type TVCalendarWeeklyItem struct {
+	TmdbID      string `json:"tmdbId"`
+	SeriesID    string `json:"seriesId,omitempty"`
+	ShowName    string `json:"showName"`
+	PosterURL   string `json:"posterUrl,omitempty"`
+	Season      int    `json:"season"`
+	Episode     string `json:"episode"`
+	AirDate     string `json:"airDate"`
+	Status      string `json:"status"`
+	EpisodeName string `json:"episodeName,omitempty"`
+	Overview    string `json:"overview,omitempty"`
+}
+
 type CreateTVCalendarSubscriptionRequest struct {
 	TmdbID    string `json:"tmdbId" binding:"required"`
 	ShowName  string `json:"showName" binding:"required"`
 	PosterURL string `json:"posterUrl"`
 }
 
+type tmdbEpisodeReference struct {
+	SeasonNumber int `json:"season_number"`
+}
+
 type tmdbTVDetailResponse struct {
 	ID              int    `json:"id"`
 	Name            string `json:"name"`
+	Overview        string `json:"overview"`
 	PosterPath      string `json:"poster_path"`
 	NumberOfSeasons int    `json:"number_of_seasons"`
 	Seasons         []struct {
 		SeasonNumber int `json:"season_number"`
 	} `json:"seasons"`
+	LastEpisodeToAir *tmdbEpisodeReference `json:"last_episode_to_air"`
+	NextEpisodeToAir *tmdbEpisodeReference `json:"next_episode_to_air"`
 }
 
 type tmdbSeasonResponse struct {
@@ -88,7 +198,59 @@ type tmdbSeasonResponse struct {
 		EpisodeNumber int    `json:"episode_number"`
 		Name          string `json:"name"`
 		AirDate       string `json:"air_date"`
+		Overview      string `json:"overview"`
 	} `json:"episodes"`
+}
+
+type embyPagedItemsResponse struct {
+	Items            []embySeriesItem `json:"Items"`
+	TotalRecordCount int              `json:"TotalRecordCount"`
+}
+
+type embySeriesItem struct {
+	ID           string            `json:"Id"`
+	Name         string            `json:"Name"`
+	Overview     string            `json:"Overview"`
+	Status       string            `json:"Status"`
+	SeriesStatus string            `json:"SeriesStatus"`
+	LocationType string            `json:"LocationType"`
+	Path         string            `json:"Path"`
+	ProviderIDs  map[string]string `json:"ProviderIds"`
+}
+
+type embyEpisodeItemsResponse struct {
+	Items            []embyEpisodeItem `json:"Items"`
+	TotalRecordCount int               `json:"TotalRecordCount"`
+}
+
+type embyEpisodeItem struct {
+	ID                string            `json:"Id"`
+	SeriesID          string            `json:"SeriesId"`
+	ParentIndexNumber int               `json:"ParentIndexNumber"`
+	IndexNumber       int               `json:"IndexNumber"`
+	Path              string            `json:"Path"`
+	LocationType      string            `json:"LocationType"`
+	IsMissing         bool              `json:"IsMissing"`
+	MediaSources      []EmbyMediaSource `json:"MediaSources"`
+}
+
+type weeklyAggregate struct {
+	TmdbID       string
+	SeriesID     string
+	ShowName     string
+	PosterURL    string
+	Season       int
+	StartEpisode int
+	EndEpisode   int
+	AirDate      string
+	Status       string
+	EpisodeName  string
+	Overview     string
+}
+
+type weeklySourceMeta struct {
+	ShowName  string
+	PosterURL string
 }
 
 func isValidTVCalendarStatus(status string) bool {
@@ -98,6 +260,10 @@ func isValidTVCalendarStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func isValidTVCalendarWeekOffset(offset int) bool {
+	return offset >= -1 && offset <= 1
 }
 
 func normalizeDateUTC(t time.Time) time.Time {
@@ -125,270 +291,433 @@ func parseDateOnly(date string) (time.Time, error) {
 	return normalizeDateUTC(t), nil
 }
 
-// FetchCalendar 获取用户追剧日历
-func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, startDate, endDate time.Time, status string) ([]TVCalendarDTO, error) {
-	if !isValidTVCalendarStatus(status) {
-		return nil, ErrTVCalendarInvalidStatus
+func ParseTVCalendarWeekOffset(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return tvCalendarDefaultOffset, nil
+	}
+	offset, err := strconv.Atoi(value)
+	if err != nil || !isValidTVCalendarWeekOffset(offset) {
+		return 0, ErrTVCalendarInvalidWeekOffset
+	}
+	return offset, nil
+}
+
+func ParseTVCalendarDate(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, ErrTVCalendarInvalidDate
+	}
+	t, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}, ErrTVCalendarInvalidDate
+	}
+	return normalizeDateUTC(t), nil
+}
+
+func DefaultTVCalendarDateRange() (time.Time, time.Time) {
+	now := normalizeDateUTC(time.Now().UTC())
+	return now.AddDate(0, 0, -7), now.AddDate(0, 0, 30)
+}
+
+func tvCalendarWeekRange(offset int, now time.Time) (time.Time, time.Time) {
+	current := normalizeDateUTC(now)
+	weekday := int(current.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	start := current.AddDate(0, 0, -(weekday-1)+offset*7)
+	end := start.AddDate(0, 0, 6)
+	return start, end
+}
+
+func formatTVCalendarDateRange(start, end time.Time) string {
+	return fmt.Sprintf("%02d/%02d - %02d/%02d", start.Month(), start.Day(), end.Month(), end.Day())
+}
+
+func tvCalendarWeekdayCn(t time.Time) string {
+	switch t.Weekday() {
+	case time.Monday:
+		return "周一"
+	case time.Tuesday:
+		return "周二"
+	case time.Wednesday:
+		return "周三"
+	case time.Thursday:
+		return "周四"
+	case time.Friday:
+		return "周五"
+	case time.Saturday:
+		return "周六"
+	default:
+		return "周日"
+	}
+}
+
+func buildTMDBPosterURL(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return tmdbImageBaseURL + path
+}
+
+func buildEpisodeKey(season, episode int) string {
+	return fmt.Sprintf("%d:%d", season, episode)
+}
+
+func extractProviderID(providerIDs map[string]string, key string) string {
+	if len(providerIDs) == 0 {
+		return ""
+	}
+	for providerKey, providerValue := range providerIDs {
+		if strings.EqualFold(strings.TrimSpace(providerKey), key) {
+			return strings.TrimSpace(providerValue)
+		}
+	}
+	return ""
+}
+
+func hasPhysicalEpisodeMedia(item embyEpisodeItem) bool {
+	if strings.EqualFold(strings.TrimSpace(item.LocationType), "Virtual") {
+		return false
+	}
+	if item.IsMissing {
+		return false
+	}
+	if strings.TrimSpace(item.Path) != "" {
+		return true
+	}
+	return len(item.MediaSources) > 0
+}
+
+func pickTargetSeasonNumbers(detail *tmdbTVDetailResponse) []int {
+	if detail == nil {
+		return nil
 	}
 
-	var subscriptions []models.TVCalendarSubscription
-	if err := db.DB.Where("\"userId\" = ?", userID).Find(&subscriptions).Error; err != nil {
-		return nil, fmt.Errorf("查询追剧订阅失败: %w", err)
-	}
-	if len(subscriptions) == 0 {
-		return []TVCalendarDTO{}, nil
-	}
-
-	tmdbIDs := make([]string, 0, len(subscriptions))
-	subByTmdbID := make(map[string]models.TVCalendarSubscription, len(subscriptions))
-	for _, sub := range subscriptions {
-		tmdbIDs = append(tmdbIDs, sub.TmdbID)
-		subByTmdbID[sub.TmdbID] = sub
+	seen := make(map[int]struct{})
+	seasonNumbers := make([]int, 0, 3)
+	appendSeason := func(number int) {
+		if number <= 0 {
+			return
+		}
+		if _, exists := seen[number]; exists {
+			return
+		}
+		seen[number] = struct{}{}
+		seasonNumbers = append(seasonNumbers, number)
 	}
 
-	if _, err := s.refreshByTMDBIDs(ctx, tmdbIDs, false); err != nil {
-		return nil, err
+	if detail.LastEpisodeToAir != nil {
+		appendSeason(detail.LastEpisodeToAir.SeasonNumber)
+	}
+	if detail.NextEpisodeToAir != nil {
+		appendSeason(detail.NextEpisodeToAir.SeasonNumber)
+	}
+	if len(seasonNumbers) == 0 {
+		for i := len(detail.Seasons) - 1; i >= 0; i-- {
+			appendSeason(detail.Seasons[i].SeasonNumber)
+			if len(seasonNumbers) > 0 {
+				break
+			}
+		}
+	}
+	if len(seasonNumbers) == 0 {
+		appendSeason(detail.NumberOfSeasons)
 	}
 
-	start := normalizeDateUTC(startDate)
-	end := normalizeDateUTC(endDate)
+	sort.Ints(seasonNumbers)
+	return seasonNumbers
+}
 
+func normalizeWeekOffsets(offsets []int) ([]int, error) {
+	if len(offsets) == 0 {
+		return DefaultTVCalendarWeekOffsets(), nil
+	}
+
+	seen := make(map[int]struct{}, len(offsets))
+	result := make([]int, 0, len(offsets))
+	for _, offset := range offsets {
+		if !isValidTVCalendarWeekOffset(offset) {
+			return nil, ErrTVCalendarInvalidWeekOffset
+		}
+		if _, exists := seen[offset]; exists {
+			continue
+		}
+		seen[offset] = struct{}{}
+		result = append(result, offset)
+	}
+
+	sort.Ints(result)
+	return result, nil
+}
+
+func (s *TVCalendarService) buildEmptyWeeklyDTO(start, end time.Time) *TVCalendarWeeklyDTO {
+	today := normalizeDateUTC(time.Now().UTC())
+	days := make([]TVCalendarDayDTO, 0, 7)
+	for cursor := start; !cursor.After(end); cursor = cursor.AddDate(0, 0, 1) {
+		days = append(days, TVCalendarDayDTO{
+			Date:      cursor.Format("2006-01-02"),
+			WeekdayCn: tvCalendarWeekdayCn(cursor),
+			IsToday:   cursor.Equal(today),
+			Items:     []TVCalendarWeeklyItem{},
+		})
+	}
+	return &TVCalendarWeeklyDTO{
+		DateRange: formatTVCalendarDateRange(start, end),
+		Days:      days,
+	}
+}
+
+func (s *TVCalendarService) queryCalendarItems(tmdbIDs []string, start, end time.Time, status string) ([]models.TVCalendarItem, error) {
 	query := db.DB.Model(&models.TVCalendarItem{}).
-		Where("\"tmdbId\" IN ?", tmdbIDs).
 		Where("\"airDate\" >= ? AND \"airDate\" <= ?", start, end)
+	if len(tmdbIDs) > 0 {
+		query = query.Where("\"tmdbId\" IN ?", tmdbIDs)
+	}
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
 
 	var items []models.TVCalendarItem
-	if err := query.Order("\"airDate\" ASC").Order("season ASC").Order("episode ASC").Find(&items).Error; err != nil {
+	if err := query.Order("\"airDate\" ASC").Order("\"tmdbId\" ASC").Order("season ASC").Order("episode ASC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧日历失败: %w", err)
 	}
+	return items, nil
+}
 
-	result := make([]TVCalendarDTO, 0, len(items))
-	for _, item := range items {
-		sub := subByTmdbID[item.TmdbID]
-		result = append(result, TVCalendarDTO{
-			ID:          item.ID,
-			TmdbID:      item.TmdbID,
-			Season:      item.Season,
-			Episode:     item.Episode,
-			AirDate:     item.AirDate,
-			EpisodeName: item.EpisodeName,
-			Status:      item.Status,
-			EmbyItemID:  item.EmbyItemID,
-			ShowName:    sub.ShowName,
-			PosterURL:   sub.PosterURL,
-		})
+func (s *TVCalendarService) loadSourceMap(tmdbIDs []string) (map[string]models.TVCalendarSource, error) {
+	result := make(map[string]models.TVCalendarSource, len(tmdbIDs))
+	if len(tmdbIDs) == 0 {
+		return result, nil
 	}
 
+	var sources []models.TVCalendarSource
+	if err := db.DB.Where("\"tmdbId\" IN ?", tmdbIDs).Find(&sources).Error; err != nil {
+		return nil, fmt.Errorf("查询追剧源失败: %w", err)
+	}
+	for _, source := range sources {
+		result[source.TmdbID] = source
+	}
 	return result, nil
 }
 
-// Subscribe 创建/更新用户追剧订阅
-func (s *TVCalendarService) Subscribe(userID string, req CreateTVCalendarSubscriptionRequest) error {
-	tmdbID := strings.TrimSpace(req.TmdbID)
-	if tmdbID == "" {
-		return ErrTVCalendarTMDBIDRequired
-	}
-
-	showName := strings.TrimSpace(req.ShowName)
-	if showName == "" {
-		return ErrTVCalendarShowNameNeeded
-	}
-
-	posterURL := strings.TrimSpace(req.PosterURL)
-
-	var existing models.TVCalendarSubscription
-	err := db.DB.Where("\"userId\" = ? AND \"tmdbId\" = ?", userID, tmdbID).First(&existing).Error
-	if err == nil {
-		existing.ShowName = showName
-		existing.PosterURL = posterURL
-		if saveErr := db.DB.Save(&existing).Error; saveErr != nil {
-			return fmt.Errorf("更新追剧订阅失败: %w", saveErr)
-		}
-		return nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("创建追剧订阅失败: %w", err)
-	}
-
-	subscription := models.TVCalendarSubscription{
-		UserID:    userID,
-		TmdbID:    tmdbID,
-		ShowName:  showName,
-		PosterURL: posterURL,
-	}
-
-	if err := db.DB.Create(&subscription).Error; err != nil {
-		return fmt.Errorf("创建追剧订阅失败: %w", err)
-	}
-
-	return nil
-}
-
-// GetSubscriptions 获取用户追剧订阅
-func (s *TVCalendarService) GetSubscriptions(userID string) ([]models.TVCalendarSubscription, error) {
-	var subscriptions []models.TVCalendarSubscription
-	if err := db.DB.Where("\"userId\" = ?", userID).Order("\"createdAt\" DESC").Find(&subscriptions).Error; err != nil {
-		return nil, fmt.Errorf("查询追剧订阅失败: %w", err)
-	}
-	return subscriptions, nil
-}
-
-// Unsubscribe 取消订阅
-func (s *TVCalendarService) Unsubscribe(userID, tmdbID string) error {
-	tmdbID = strings.TrimSpace(tmdbID)
-	if tmdbID == "" {
-		return ErrTVCalendarTMDBIDRequired
-	}
-
-	result := db.DB.Where("\"userId\" = ? AND \"tmdbId\" = ?", userID, tmdbID).Delete(&models.TVCalendarSubscription{})
-	if result.Error != nil {
-		return fmt.Errorf("取消订阅失败: %w", result.Error)
-	}
-
-	return nil
-}
-
-// RefreshCalendar 管理员触发刷新
-func (s *TVCalendarService) RefreshCalendar(ctx context.Context, tmdbID *string, force bool) (int, error) {
-	if s.tmdbAPIKey == "" {
-		return 0, ErrTVCalendarNotConfigured
-	}
-
+func (s *TVCalendarService) loadSourcesForSync(tmdbID *string) ([]models.TVCalendarSource, error) {
 	if tmdbID != nil && strings.TrimSpace(*tmdbID) != "" {
-		count, err := s.refreshByTMDBIDs(ctx, []string{strings.TrimSpace(*tmdbID)}, force)
-		return count, err
+		trimmed := strings.TrimSpace(*tmdbID)
+		var source models.TVCalendarSource
+		err := db.DB.Where("\"tmdbId\" = ?", trimmed).First(&source).Error
+		if err == nil {
+			return []models.TVCalendarSource{source}, nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("查询追剧源失败: %w", err)
+		}
+		return []models.TVCalendarSource{{TmdbID: trimmed, EmbyStatus: "continuing"}}, nil
 	}
 
-	var tmdbIDs []string
-	if err := db.DB.Model(&models.TVCalendarSubscription{}).Distinct("\"tmdbId\"").Pluck("\"tmdbId\"", &tmdbIDs).Error; err != nil {
-		return 0, fmt.Errorf("查询订阅剧集失败: %w", err)
+	var sources []models.TVCalendarSource
+	if err := db.DB.Where("\"embyStatus\" = ? OR \"embyStatus\" = ''", "continuing").Order("\"showName\" ASC").Find(&sources).Error; err != nil {
+		return nil, fmt.Errorf("查询追剧源失败: %w", err)
 	}
-	if len(tmdbIDs) == 0 {
-		return 0, nil
-	}
-
-	return s.refreshByTMDBIDs(ctx, tmdbIDs, force)
+	return sources, nil
 }
 
-func (s *TVCalendarService) refreshByTMDBIDs(ctx context.Context, tmdbIDs []string, force bool) (int, error) {
-	if s.tmdbAPIKey == "" {
-		return 0, ErrTVCalendarNotConfigured
+func (s *TVCalendarService) upsertSource(source models.TVCalendarSource, touchSynced bool) error {
+	assignments := map[string]interface{}{
+		"seriesId": gorm.Expr(
+			`CASE WHEN EXCLUDED."seriesId" <> '' THEN EXCLUDED."seriesId" ELSE tv_calendar_sources."seriesId" END`,
+		),
+		"showName": gorm.Expr(
+			`CASE WHEN EXCLUDED."showName" <> '' THEN EXCLUDED."showName" ELSE tv_calendar_sources."showName" END`,
+		),
+		"posterUrl": gorm.Expr(
+			`CASE WHEN EXCLUDED."posterUrl" <> '' THEN EXCLUDED."posterUrl" ELSE tv_calendar_sources."posterUrl" END`,
+		),
+		"overview": gorm.Expr(
+			`CASE WHEN EXCLUDED.overview <> '' THEN EXCLUDED.overview ELSE tv_calendar_sources.overview END`,
+		),
+		"embyStatus": gorm.Expr(
+			`CASE WHEN EXCLUDED."embyStatus" <> '' THEN EXCLUDED."embyStatus" ELSE tv_calendar_sources."embyStatus" END`,
+		),
+		"updatedAt": time.Now().UTC(),
+	}
+	if touchSynced {
+		assignments["lastSyncedAt"] = source.LastSyncedAt
 	}
 
-	total := 0
-	for _, raw := range tmdbIDs {
-		tmdbID := strings.TrimSpace(raw)
-		if tmdbID == "" {
-			continue
-		}
-		count, err := s.refreshSingleTMDB(ctx, tmdbID, force)
-		if err != nil {
-			return total, err
-		}
-		total += count
+	if err := db.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "tmdbId"}},
+		DoUpdates: clause.Assignments(assignments),
+	}).Create(&source).Error; err != nil {
+		return fmt.Errorf("写入追剧源失败: %w", err)
 	}
+	return nil
+}
+
+func (s *TVCalendarService) upsertCalendarItem(item models.TVCalendarItem, force bool, readyValidated bool) error {
+	statusAssignment := interface{}(item.Status)
+	embyItemAssignment := interface{}(item.EmbyItemID)
+	if item.Status != models.TVCalendarStatusReady && !(force || readyValidated) {
+		statusAssignment = gorm.Expr(
+			`CASE WHEN tv_calendar_items.status = ? THEN tv_calendar_items.status ELSE EXCLUDED.status END`,
+			models.TVCalendarStatusReady,
+		)
+		embyItemAssignment = gorm.Expr(
+			`CASE WHEN tv_calendar_items.status = ? AND COALESCE(tv_calendar_items."embyItemId", '') <> '' THEN tv_calendar_items."embyItemId" ELSE EXCLUDED."embyItemId" END`,
+			models.TVCalendarStatusReady,
+		)
+	}
+
+	if err := db.DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "tmdbId"}, {Name: "season"}, {Name: "episode"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"seriesId": gorm.Expr(
+				`CASE WHEN EXCLUDED."seriesId" <> '' THEN EXCLUDED."seriesId" ELSE tv_calendar_items."seriesId" END`,
+			),
+			"airDate": item.AirDate,
+			"episodeName": gorm.Expr(
+				`CASE WHEN EXCLUDED."episodeName" <> '' THEN EXCLUDED."episodeName" ELSE tv_calendar_items."episodeName" END`,
+			),
+			"overview": gorm.Expr(
+				`CASE WHEN EXCLUDED.overview <> '' THEN EXCLUDED.overview ELSE tv_calendar_items.overview END`,
+			),
+			"status":      statusAssignment,
+			"embyItemId":  embyItemAssignment,
+			"lastChecked": item.LastChecked,
+			"updatedAt":   item.UpdatedAt,
+		}),
+	}).Create(&item).Error; err != nil {
+		return fmt.Errorf("写入追剧日历失败: %w", err)
+	}
+	return nil
+}
+
+func (s *TVCalendarService) DiscoverContinuingSeries(ctx context.Context) (int, error) {
+	if strings.TrimSpace(s.embyService.baseURL) == "" || strings.TrimSpace(s.embyService.apiKey) == "" {
+		return 0, fmt.Errorf("Emby 配置未设置")
+	}
+
+	startIndex := 0
+	total := 0
+	for {
+		params := map[string]string{
+			"Recursive":        "true",
+			"IncludeItemTypes": "Series",
+			"Fields":           "ProviderIds,Overview,Path,Status,SeriesStatus,LocationType",
+			"Status":           "Continuing",
+			"StartIndex":       strconv.Itoa(startIndex),
+			"Limit":            strconv.Itoa(tvCalendarSyncPageSize),
+		}
+
+		body, err := s.embyService.getWithAPIKey("/emby/Items", params)
+		if err != nil {
+			return total, fmt.Errorf("拉取 Emby 连载剧失败: %w", err)
+		}
+
+		var resp embyPagedItemsResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return total, fmt.Errorf("解析 Emby 连载剧失败: %w", err)
+		}
+		if len(resp.Items) == 0 {
+			break
+		}
+
+		for _, item := range resp.Items {
+			if strings.EqualFold(strings.TrimSpace(item.LocationType), "Virtual") {
+				continue
+			}
+			status := strings.TrimSpace(item.Status)
+			if status == "" {
+				status = strings.TrimSpace(item.SeriesStatus)
+			}
+			if status != "" && !strings.EqualFold(status, "Continuing") {
+				continue
+			}
+
+			tmdbID := extractProviderID(item.ProviderIDs, "Tmdb")
+			if tmdbID == "" {
+				continue
+			}
+
+			source := models.TVCalendarSource{
+				TmdbID:     tmdbID,
+				SeriesID:   strings.TrimSpace(item.ID),
+				ShowName:   strings.TrimSpace(item.Name),
+				Overview:   strings.TrimSpace(item.Overview),
+				EmbyStatus: "continuing",
+			}
+			if err := s.upsertSource(source, false); err != nil {
+				return total, err
+			}
+			total++
+		}
+
+		startIndex += len(resp.Items)
+		if resp.TotalRecordCount > 0 && startIndex >= resp.TotalRecordCount {
+			break
+		}
+		if len(resp.Items) < tvCalendarSyncPageSize {
+			break
+		}
+	}
+
 	return total, nil
 }
 
-func (s *TVCalendarService) refreshSingleTMDB(ctx context.Context, tmdbID string, force bool) (int, error) {
-	now := time.Now().UTC()
-	if !force {
-		checkedAt, err := s.lastCheckedAt(tmdbID)
+func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, seriesID string) (map[string]embyEpisodeItem, bool, error) {
+	seriesID = strings.TrimSpace(seriesID)
+	if seriesID == "" {
+		return map[string]embyEpisodeItem{}, false, nil
+	}
+	if strings.TrimSpace(s.embyService.baseURL) == "" || strings.TrimSpace(s.embyService.apiKey) == "" {
+		return map[string]embyEpisodeItem{}, false, nil
+	}
+
+	episodes := make(map[string]embyEpisodeItem)
+	startIndex := 0
+	for {
+		body, err := s.embyService.getWithAPIKey("/emby/Items", map[string]string{
+			"ParentId":         seriesID,
+			"Recursive":        "true",
+			"IncludeItemTypes": "Episode",
+			"Fields":           "SeriesId,ParentIndexNumber,IndexNumber,LocationType,Path,MediaSources,IsMissing",
+			"StartIndex":       strconv.Itoa(startIndex),
+			"Limit":            strconv.Itoa(tvCalendarSyncPageSize),
+		})
 		if err != nil {
-			return 0, err
+			return nil, false, fmt.Errorf("拉取 Emby 剧集失败: %w", err)
 		}
-		if checkedAt != nil && now.Sub(*checkedAt) < tvCalendarRefreshMinTTL {
-			return 0, nil
-		}
-	}
 
-	detail, err := s.fetchTVDetail(ctx, tmdbID, force)
-	if err != nil {
-		return 0, err
-	}
+		var resp embyEpisodeItemsResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, false, fmt.Errorf("解析 Emby 剧集失败: %w", err)
+		}
+		if len(resp.Items) == 0 {
+			break
+		}
 
-	seasonNumbers := make([]int, 0, len(detail.Seasons))
-	for _, season := range detail.Seasons {
-		if season.SeasonNumber > 0 {
-			seasonNumbers = append(seasonNumbers, season.SeasonNumber)
-		}
-	}
-	if len(seasonNumbers) == 0 {
-		maxSeason := detail.NumberOfSeasons
-		if maxSeason > tvCalendarMaxSeasonCount {
-			maxSeason = tvCalendarMaxSeasonCount
-		}
-		for i := 1; i <= maxSeason; i++ {
-			seasonNumbers = append(seasonNumbers, i)
-		}
-	}
-
-	if len(seasonNumbers) == 0 {
-		return 0, nil
-	}
-
-	affected := 0
-	for _, seasonNumber := range seasonNumbers {
-		season, err := s.fetchSeasonDetail(ctx, tmdbID, seasonNumber, force)
-		if err != nil {
-			return affected, err
-		}
-		for _, ep := range season.Episodes {
-			if ep.EpisodeNumber <= 0 || strings.TrimSpace(ep.AirDate) == "" {
+		for _, item := range resp.Items {
+			if item.ParentIndexNumber <= 0 || item.IndexNumber <= 0 {
 				continue
 			}
-
-			airDate, err := parseDateOnly(ep.AirDate)
-			if err != nil {
+			if !hasPhysicalEpisodeMedia(item) {
 				continue
 			}
+			episodes[buildEpisodeKey(item.ParentIndexNumber, item.IndexNumber)] = item
+		}
 
-			item := models.TVCalendarItem{
-				TmdbID:      tmdbID,
-				Season:      seasonNumber,
-				Episode:     ep.EpisodeNumber,
-				AirDate:     airDate,
-				EpisodeName: strings.TrimSpace(ep.Name),
-				Status:      deriveStatusByAirDate(airDate, now),
-				LastChecked: now,
-			}
-
-			result := db.DB.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "tmdbId"}, {Name: "season"}, {Name: "episode"}},
-				DoUpdates: clause.Assignments(map[string]interface{}{
-					"airDate":     item.AirDate,
-					"episodeName": item.EpisodeName,
-					"lastChecked": item.LastChecked,
-					"status": gorm.Expr(
-						`CASE WHEN status = ? THEN status ELSE EXCLUDED."status" END`,
-						models.TVCalendarStatusReady,
-					),
-				}),
-			}).Create(&item)
-			if result.Error != nil {
-				return affected, fmt.Errorf("写入追剧日历失败: %w", result.Error)
-			}
-			affected += int(result.RowsAffected)
+		startIndex += len(resp.Items)
+		if resp.TotalRecordCount > 0 && startIndex >= resp.TotalRecordCount {
+			break
+		}
+		if len(resp.Items) < tvCalendarSyncPageSize {
+			break
 		}
 	}
 
-	return affected, nil
-}
-
-func (s *TVCalendarService) lastCheckedAt(tmdbID string) (*time.Time, error) {
-	var row struct {
-		LastChecked *time.Time `gorm:"column:lastChecked"`
-	}
-	if err := db.DB.Model(&models.TVCalendarItem{}).
-		Select("MAX(\"lastChecked\") AS \"lastChecked\"").
-		Where("\"tmdbId\" = ?", tmdbID).
-		Scan(&row).Error; err != nil {
-		return nil, fmt.Errorf("查询日历缓存状态失败: %w", err)
-	}
-	return row.LastChecked, nil
+	return episodes, true, nil
 }
 
 func (s *TVCalendarService) fetchTVDetail(ctx context.Context, tmdbID string, force bool) (*tmdbTVDetailResponse, error) {
@@ -502,6 +831,489 @@ func (s *TVCalendarService) setTMDBMemoryCache(cacheKey string, payload []byte, 
 	s.cacheMu.Unlock()
 }
 
+func (s *TVCalendarService) SyncWeeklyCalendar(ctx context.Context, weekOffset int, tmdbID *string, force bool) (int, error) {
+	return runTVCalendarSyncOnce(tvCalendarWeekSyncLockKey(weekOffset, tmdbID, force), func() (int, error) {
+		if !isValidTVCalendarWeekOffset(weekOffset) {
+			return 0, ErrTVCalendarInvalidWeekOffset
+		}
+		if strings.TrimSpace(s.tmdbAPIKey) == "" {
+			return 0, ErrTVCalendarNotConfigured
+		}
+		isFullWeekSync := tmdbID == nil || strings.TrimSpace(*tmdbID) == ""
+
+		sources, err := s.loadSourcesForSync(tmdbID)
+		if err != nil {
+			return 0, err
+		}
+		if len(sources) == 0 {
+			return 0, nil
+		}
+
+		now := time.Now().UTC()
+		total := 0
+
+		for _, source := range sources {
+			tmdbIDValue := strings.TrimSpace(source.TmdbID)
+			if tmdbIDValue == "" {
+				continue
+			}
+
+			detail, err := s.fetchTVDetail(ctx, tmdbIDValue, force)
+			if err != nil {
+				return total, err
+			}
+
+			if strings.TrimSpace(source.ShowName) == "" {
+				source.ShowName = strings.TrimSpace(detail.Name)
+			}
+			if strings.TrimSpace(source.Overview) == "" {
+				source.Overview = strings.TrimSpace(detail.Overview)
+			}
+			if strings.TrimSpace(source.PosterURL) == "" {
+				source.PosterURL = buildTMDBPosterURL(detail.PosterPath)
+			}
+			syncTime := now
+			source.LastSyncedAt = &syncTime
+			if err := s.upsertSource(source, true); err != nil {
+				return total, err
+			}
+
+			readyEpisodes, readyValidated, err := s.fetchReadyEpisodesForSeries(ctx, source.SeriesID)
+			if err != nil {
+				return total, err
+			}
+
+			seasonNumbers := pickTargetSeasonNumbers(detail)
+			for _, seasonNumber := range seasonNumbers {
+				season, err := s.fetchSeasonDetail(ctx, tmdbIDValue, seasonNumber, force)
+				if err != nil {
+					return total, err
+				}
+
+				for _, ep := range season.Episodes {
+					if ep.EpisodeNumber <= 0 || strings.TrimSpace(ep.AirDate) == "" {
+						continue
+					}
+
+					airDate, err := parseDateOnly(ep.AirDate)
+					if err != nil {
+						continue
+					}
+
+					item := models.TVCalendarItem{
+						TmdbID:      tmdbIDValue,
+						SeriesID:    strings.TrimSpace(source.SeriesID),
+						Season:      seasonNumber,
+						Episode:     ep.EpisodeNumber,
+						AirDate:     airDate,
+						EpisodeName: strings.TrimSpace(ep.Name),
+						Overview:    strings.TrimSpace(ep.Overview),
+						Status:      deriveStatusByAirDate(airDate, now),
+						LastChecked: now,
+						UpdatedAt:   now,
+					}
+
+					if ready, exists := readyEpisodes[buildEpisodeKey(seasonNumber, ep.EpisodeNumber)]; exists {
+						item.Status = models.TVCalendarStatusReady
+						item.EmbyItemID = strings.TrimSpace(ready.ID)
+						if strings.TrimSpace(item.SeriesID) == "" {
+							item.SeriesID = strings.TrimSpace(ready.SeriesID)
+						}
+					}
+
+					if err := s.upsertCalendarItem(item, force, readyValidated); err != nil {
+						return total, err
+					}
+					total++
+				}
+			}
+		}
+
+		if isFullWeekSync {
+			if err := s.markWeeklyCalendarSynced(weekOffset, now); err != nil {
+				return total, err
+			}
+		}
+
+		return total, nil
+	})
+}
+
+func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int, tmdbID *string, force bool) (int, error) {
+	offsets, err := normalizeWeekOffsets(weekOffsets)
+	if err != nil {
+		return 0, err
+	}
+
+	if tmdbID == nil || strings.TrimSpace(*tmdbID) == "" {
+		if _, err := runTVCalendarSyncOnce(tvCalendarDiscoverLockKey(force), func() (int, error) {
+			return s.DiscoverContinuingSeries(ctx)
+		}); err != nil {
+			return 0, err
+		}
+	}
+
+	total := 0
+	for _, offset := range offsets {
+		count, err := s.SyncWeeklyCalendar(ctx, offset, tmdbID, force)
+		total += count
+		if err != nil {
+			return total, err
+		}
+	}
+	return total, nil
+}
+
+func (s *TVCalendarService) markWeeklyCalendarSynced(weekOffset int, syncedAt time.Time) error {
+	marker := models.TMDBCache{
+		CacheKey:   tvCalendarWeekSyncMarkerKey(weekOffset),
+		CacheValue: syncedAt.Format(time.RFC3339),
+		ExpiresAt:  syncedAt.Add(tvCalendarSyncTTL),
+	}
+
+	if err := db.DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "cacheKey"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"cacheValue": marker.CacheValue,
+			"expiresAt":  marker.ExpiresAt,
+		}),
+	}).Create(&marker).Error; err != nil {
+		return fmt.Errorf("写入追剧日历同步标记失败: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TVCalendarService) isWeeklyCalendarStale(weekOffset int, now time.Time) (bool, error) {
+	var marker models.TMDBCache
+	err := db.DB.Where("\"cacheKey\" = ?", tvCalendarWeekSyncMarkerKey(weekOffset)).First(&marker).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("查询追剧日历同步标记失败: %w", err)
+	}
+
+	return !marker.ExpiresAt.After(now), nil
+}
+
+func (s *TVCalendarService) maybeRefreshWeeklyCalendar(ctx context.Context, weekOffset int) error {
+	stale, err := s.isWeeklyCalendarStale(weekOffset, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !stale {
+		return nil
+	}
+	_, err = s.SyncCalendar(ctx, []int{weekOffset}, nil, false)
+	return err
+}
+
+func (s *TVCalendarService) buildWeeklyCalendar(items []models.TVCalendarItem, sourceMap map[string]models.TVCalendarSource, start, end time.Time) *TVCalendarWeeklyDTO {
+	dto := s.buildEmptyWeeklyDTO(start, end)
+	if len(items) == 0 {
+		return dto
+	}
+
+	dayIndex := make(map[string]int, len(dto.Days))
+	for idx, day := range dto.Days {
+		dayIndex[day.Date] = idx
+	}
+
+	grouped := make(map[string][]models.TVCalendarItem)
+	for _, item := range items {
+		dateKey := item.AirDate.Format("2006-01-02")
+		grouped[dateKey] = append(grouped[dateKey], item)
+	}
+
+	for dateKey, dayItems := range grouped {
+		idx, ok := dayIndex[dateKey]
+		if !ok {
+			continue
+		}
+
+		sort.Slice(dayItems, func(i, j int) bool {
+			left := dayItems[i]
+			right := dayItems[j]
+			leftSource := sourceMap[left.TmdbID]
+			rightSource := sourceMap[right.TmdbID]
+			if leftSource.ShowName != rightSource.ShowName {
+				return leftSource.ShowName < rightSource.ShowName
+			}
+			if left.Season != right.Season {
+				return left.Season < right.Season
+			}
+			return left.Episode < right.Episode
+		})
+
+		aggregates := make([]weeklyAggregate, 0, len(dayItems))
+		for _, item := range dayItems {
+			source := sourceMap[item.TmdbID]
+			meta := weeklySourceMeta{
+				ShowName:  strings.TrimSpace(source.ShowName),
+				PosterURL: strings.TrimSpace(source.PosterURL),
+			}
+			if meta.ShowName == "" {
+				meta.ShowName = item.TmdbID
+			}
+
+			if len(aggregates) > 0 {
+				lastIdx := len(aggregates) - 1
+				last := &aggregates[lastIdx]
+				if last.TmdbID == item.TmdbID &&
+					last.Season == item.Season &&
+					last.Status == item.Status &&
+					last.EndEpisode+1 == item.Episode {
+					last.EndEpisode = item.Episode
+					if strings.TrimSpace(last.EpisodeName) != strings.TrimSpace(item.EpisodeName) {
+						last.EpisodeName = ""
+					}
+					if strings.TrimSpace(last.Overview) != strings.TrimSpace(item.Overview) {
+						last.Overview = ""
+					}
+					continue
+				}
+			}
+
+			aggregates = append(aggregates, weeklyAggregate{
+				TmdbID:       item.TmdbID,
+				SeriesID:     strings.TrimSpace(item.SeriesID),
+				ShowName:     meta.ShowName,
+				PosterURL:    meta.PosterURL,
+				Season:       item.Season,
+				StartEpisode: item.Episode,
+				EndEpisode:   item.Episode,
+				AirDate:      dateKey,
+				Status:       item.Status,
+				EpisodeName:  strings.TrimSpace(item.EpisodeName),
+				Overview:     strings.TrimSpace(item.Overview),
+			})
+		}
+
+		dayDTO := &dto.Days[idx]
+		for _, aggregate := range aggregates {
+			episodeText := strconv.Itoa(aggregate.StartEpisode)
+			if aggregate.EndEpisode > aggregate.StartEpisode {
+				episodeText = fmt.Sprintf("%d-%d", aggregate.StartEpisode, aggregate.EndEpisode)
+			}
+			dayDTO.Items = append(dayDTO.Items, TVCalendarWeeklyItem{
+				TmdbID:      aggregate.TmdbID,
+				SeriesID:    aggregate.SeriesID,
+				ShowName:    aggregate.ShowName,
+				PosterURL:   aggregate.PosterURL,
+				Season:      aggregate.Season,
+				Episode:     episodeText,
+				AirDate:     aggregate.AirDate,
+				Status:      aggregate.Status,
+				EpisodeName: aggregate.EpisodeName,
+				Overview:    aggregate.Overview,
+			})
+		}
+	}
+
+	return dto
+}
+
+func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekOffset int, status string) (*TVCalendarWeeklyDTO, error) {
+	if !isValidTVCalendarStatus(status) {
+		return nil, ErrTVCalendarInvalidStatus
+	}
+	if !isValidTVCalendarWeekOffset(weekOffset) {
+		return nil, ErrTVCalendarInvalidWeekOffset
+	}
+
+	start, end := tvCalendarWeekRange(weekOffset, time.Now().UTC())
+	items, err := s.queryCalendarItems(nil, start, end, status)
+	if err != nil {
+		return nil, err
+	}
+
+	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, weekOffset); refreshErr != nil {
+		if len(items) == 0 {
+			return nil, refreshErr
+		}
+	} else {
+		items, err = s.queryCalendarItems(nil, start, end, status)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tmdbIDs := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if _, exists := seen[item.TmdbID]; exists {
+			continue
+		}
+		seen[item.TmdbID] = struct{}{}
+		tmdbIDs = append(tmdbIDs, item.TmdbID)
+	}
+	sourceMap, err := s.loadSourceMap(tmdbIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.buildWeeklyCalendar(items, sourceMap, start, end), nil
+}
+
+func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, userID string, weekOffset int, status string) (*TVCalendarWeeklyDTO, error) {
+	if !isValidTVCalendarStatus(status) {
+		return nil, ErrTVCalendarInvalidStatus
+	}
+	if !isValidTVCalendarWeekOffset(weekOffset) {
+		return nil, ErrTVCalendarInvalidWeekOffset
+	}
+
+	start, end := tvCalendarWeekRange(weekOffset, time.Now().UTC())
+	subscriptions, err := s.GetSubscriptions(userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(subscriptions) == 0 {
+		return s.buildEmptyWeeklyDTO(start, end), nil
+	}
+
+	tmdbIDs := make([]string, 0, len(subscriptions))
+	for _, subscription := range subscriptions {
+		tmdbIDs = append(tmdbIDs, subscription.TmdbID)
+	}
+
+	items, err := s.queryCalendarItems(tmdbIDs, start, end, status)
+	if err != nil {
+		return nil, err
+	}
+	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, weekOffset); refreshErr == nil {
+		items, err = s.queryCalendarItems(tmdbIDs, start, end, status)
+		if err != nil {
+			return nil, err
+		}
+	} else if len(items) == 0 {
+		return nil, refreshErr
+	}
+
+	sourceMap, err := s.loadSourceMap(tmdbIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, subscription := range subscriptions {
+		source := sourceMap[subscription.TmdbID]
+		if strings.TrimSpace(source.ShowName) == "" {
+			source.ShowName = strings.TrimSpace(subscription.ShowName)
+		}
+		if strings.TrimSpace(source.PosterURL) == "" {
+			source.PosterURL = strings.TrimSpace(subscription.PosterURL)
+		}
+		sourceMap[subscription.TmdbID] = source
+	}
+
+	return s.buildWeeklyCalendar(items, sourceMap, start, end), nil
+}
+
+func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, startDate, endDate time.Time, status string) ([]TVCalendarDTO, error) {
+	if !isValidTVCalendarStatus(status) {
+		return nil, ErrTVCalendarInvalidStatus
+	}
+
+	subscriptions, err := s.GetSubscriptions(userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(subscriptions) == 0 {
+		return []TVCalendarDTO{}, nil
+	}
+
+	tmdbIDs := make([]string, 0, len(subscriptions))
+	subByTmdbID := make(map[string]models.TVCalendarSubscription, len(subscriptions))
+	for _, sub := range subscriptions {
+		tmdbIDs = append(tmdbIDs, sub.TmdbID)
+		subByTmdbID[sub.TmdbID] = sub
+	}
+
+	items, err := s.queryCalendarItems(tmdbIDs, normalizeDateUTC(startDate), normalizeDateUTC(endDate), status)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]TVCalendarDTO, 0, len(items))
+	for _, item := range items {
+		subscription := subByTmdbID[item.TmdbID]
+		result = append(result, TVCalendarDTO{
+			ID:          item.ID,
+			TmdbID:      item.TmdbID,
+			Season:      item.Season,
+			Episode:     item.Episode,
+			AirDate:     item.AirDate,
+			EpisodeName: item.EpisodeName,
+			Status:      item.Status,
+			EmbyItemID:  item.EmbyItemID,
+			ShowName:    subscription.ShowName,
+			PosterURL:   subscription.PosterURL,
+		})
+	}
+	return result, nil
+}
+
+func (s *TVCalendarService) Subscribe(userID string, req CreateTVCalendarSubscriptionRequest) error {
+	tmdbID := strings.TrimSpace(req.TmdbID)
+	if tmdbID == "" {
+		return ErrTVCalendarTMDBIDRequired
+	}
+
+	showName := strings.TrimSpace(req.ShowName)
+	if showName == "" {
+		return ErrTVCalendarShowNameNeeded
+	}
+
+	posterURL := strings.TrimSpace(req.PosterURL)
+
+	var existing models.TVCalendarSubscription
+	err := db.DB.Where("\"userId\" = ? AND \"tmdbId\" = ?", userID, tmdbID).First(&existing).Error
+	if err == nil {
+		existing.ShowName = showName
+		existing.PosterURL = posterURL
+		if saveErr := db.DB.Save(&existing).Error; saveErr != nil {
+			return fmt.Errorf("更新追剧订阅失败: %w", saveErr)
+		}
+		return nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("创建追剧订阅失败: %w", err)
+	}
+
+	subscription := models.TVCalendarSubscription{
+		UserID:    userID,
+		TmdbID:    tmdbID,
+		ShowName:  showName,
+		PosterURL: posterURL,
+	}
+	if err := db.DB.Create(&subscription).Error; err != nil {
+		return fmt.Errorf("创建追剧订阅失败: %w", err)
+	}
+
+	return nil
+}
+
+func (s *TVCalendarService) GetSubscriptions(userID string) ([]models.TVCalendarSubscription, error) {
+	var subscriptions []models.TVCalendarSubscription
+	if err := db.DB.Where("\"userId\" = ?", userID).Order("\"createdAt\" DESC").Find(&subscriptions).Error; err != nil {
+		return nil, fmt.Errorf("查询追剧订阅失败: %w", err)
+	}
+	return subscriptions, nil
+}
+
+func (s *TVCalendarService) Unsubscribe(userID, tmdbID string) error {
+	tmdbID = strings.TrimSpace(tmdbID)
+	if tmdbID == "" {
+		return ErrTVCalendarTMDBIDRequired
+	}
+
+	result := db.DB.Where("\"userId\" = ? AND \"tmdbId\" = ?", userID, tmdbID).Delete(&models.TVCalendarSubscription{})
+	if result.Error != nil {
+		return fmt.Errorf("取消订阅失败: %w", result.Error)
+	}
+	return nil
+}
+
 // MarkEpisodeReadyByWebhook Webhook 点亮剧集状态
 func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbID, seriesID string, season, episode int, embyItemID string) (int64, error) {
 	if season <= 0 || episode <= 0 {
@@ -546,21 +1358,4 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 	}
 
 	return result.RowsAffected, nil
-}
-
-func ParseTVCalendarDate(value string) (time.Time, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return time.Time{}, ErrTVCalendarInvalidDate
-	}
-	t, err := time.Parse("2006-01-02", value)
-	if err != nil {
-		return time.Time{}, ErrTVCalendarInvalidDate
-	}
-	return normalizeDateUTC(t), nil
-}
-
-func DefaultTVCalendarDateRange() (time.Time, time.Time) {
-	now := normalizeDateUTC(time.Now().UTC())
-	return now.AddDate(0, 0, -7), now.AddDate(0, 0, 30)
 }

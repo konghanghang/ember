@@ -14,6 +14,8 @@ import type {
   TVCalendarItem,
   TVCalendarSubscription,
   TVCalendarStatus,
+  TVCalendarWeeklyData,
+  TVCalendarWeekOffset,
   TelegramBindCodeResponse,
   UserInfo
 } from '@/types/api'
@@ -164,6 +166,28 @@ export function getTVCalendar(params?: {
 }): Promise<{ data: TVCalendarItem[] }> {
   return request({
     url: '/tv-calendar',
+    method: 'get',
+    params
+  })
+}
+
+export function getGlobalTVCalendar(params?: {
+  weekOffset?: TVCalendarWeekOffset
+  status?: TVCalendarStatus | ''
+}): Promise<{ data: TVCalendarWeeklyData }> {
+  return request({
+    url: '/tv-calendar/global',
+    method: 'get',
+    params
+  })
+}
+
+export function getFollowingTVCalendar(params?: {
+  weekOffset?: TVCalendarWeekOffset
+  status?: TVCalendarStatus | ''
+}): Promise<{ data: TVCalendarWeeklyData }> {
+  return request({
+    url: '/tv-calendar/following',
     method: 'get',
     params
   })
