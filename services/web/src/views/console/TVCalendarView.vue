@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Star } from '@element-plus/icons-vue'
+import {
+  Calendar,
+  CircleCheckFilled,
+  Clock,
+  Refresh,
+  VideoPlay,
+  WarningFilled
+} from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import {
-  getFollowingTVCalendar,
   getGlobalTVCalendar,
   getTVCalendarSubscriptions,
   subscribeTVCalendar,
@@ -15,40 +21,23 @@ import type {
   TVCalendarStatus,
   TVCalendarSubscription,
   TVCalendarWeeklyData,
-  TVCalendarWeeklyItem,
-  TVCalendarWeekOffset
+  TVCalendarWeeklyItem
 } from '@/types/api'
-
-type CalendarMode = 'global' | 'following'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 
 const loading = ref(false)
 const refreshing = ref(false)
-const subscriptionsLoading = ref(false)
 const calendarError = ref('')
-const subscriptionsError = ref('')
 
 const subscriptions = ref<TVCalendarSubscription[]>([])
 const calendarData = ref<TVCalendarWeeklyData>({ dateRange: '', days: [] })
 
 const filters = reactive({
-  mode: 'global' as CalendarMode,
-  weekOffset: 0 as TVCalendarWeekOffset,
+  weekDate: formatDateLocal(new Date()),
   status: '' as TVCalendarStatus | ''
 })
-
-const weekOptions: Array<{ label: string; value: TVCalendarWeekOffset }> = [
-  { label: '上周', value: -1 },
-  { label: '本周', value: 0 },
-  { label: '下周', value: 1 }
-]
-
-const viewOptions: Array<{ label: string; value: CalendarMode }> = [
-  { label: '全部在更', value: 'global' },
-  { label: '我的关注', value: 'following' }
-]
 
 const statusOptions: Array<{ label: string; value: TVCalendarStatus | '' }> = [
   { label: '全部状态', value: '' },
@@ -60,29 +49,66 @@ const statusOptions: Array<{ label: string; value: TVCalendarStatus | '' }> = [
 
 const subscriptionSet = computed(() => new Set(subscriptions.value.map((item) => item.tmdbId)))
 const dayColumns = computed(() => calendarData.value.days || [])
-const hasCalendarItems = computed(() => dayColumns.value.some((day) => day.items.length > 0))
-const currentRange = computed(() => calendarData.value.dateRange || '--')
-const currentViewDescription = computed(() => {
-  if (filters.mode === 'global') {
-    return '默认展示 Emby 中识别到的连载剧周历，不再要求先手动关注。'
+const totalItems = computed(() => dayColumns.value.reduce((sum, day) => sum + day.items.length, 0))
+const activeDayCount = computed(() => dayColumns.value.filter((day) => day.items.length > 0).length)
+const readyCount = computed(() => countItemsByStatus('ready'))
+const todayCount = computed(() => countItemsByStatus('today'))
+const missingCount = computed(() => countItemsByStatus('missing'))
+const hasCalendarItems = computed(() => totalItems.value > 0)
+const emptyStateTitle = computed(() => '当前周历还没有可展示条目')
+const emptyStateDescription = computed(() => '检查 Emby 连载剧识别、TMDB 配置，或者让管理员手动同步一次。')
+const summaryCards = computed(() => [
+  {
+    title: '本周条目',
+    value: totalItems.value,
+    detail: `${activeDayCount.value} 个活跃日期`,
+    icon: VideoPlay,
+    tone: 'ink'
+  },
+  {
+    title: '已入库',
+    value: readyCount.value,
+    detail: '可以直接观看',
+    icon: CircleCheckFilled,
+    tone: 'ready'
+  },
+  {
+    title: '今日播出',
+    value: todayCount.value,
+    detail: '当天重点',
+    icon: Clock,
+    tone: 'today'
+  },
+  {
+    title: '缺失集数',
+    value: missingCount.value,
+    detail: '已播但还未入库',
+    icon: WarningFilled,
+    tone: 'warning'
   }
-  return '只看你已经关注的剧集，适合收窄视图，不适合作为默认入口。'
-})
-const emptyStateTitle = computed(() => {
-  if (filters.mode === 'following') {
-    return subscriptions.value.length === 0 ? '你还没有关注任何剧集' : '本周关注列表里没有匹配条目'
-  }
-  return '当前服务器中没有识别到正在连载的剧集'
-})
-const emptyStateDescription = computed(() => {
-  if (filters.mode === 'following') {
-    if (subscriptions.value.length === 0) {
-      return '先从“全部在更”里挑你关心的剧，再切回来过滤。'
-    }
-    return '这个周区间或当前状态筛选下没有命中结果。'
-  }
-  return '检查 Emby 连载剧识别、TMDB 配置，或者让管理员手动同步一次。'
-})
+])
+
+function countItemsByStatus(status: TVCalendarStatus): number {
+  return dayColumns.value.reduce(
+    (sum, day) => sum + day.items.filter((item) => item.status === status).length,
+    0
+  )
+}
+
+function formatDateLocal(date: Date): string {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function startOfWeekLocal(date: Date): Date {
+  const result = new Date(date)
+  const weekday = result.getDay() === 0 ? 7 : result.getDay()
+  result.setHours(0, 0, 0, 0)
+  result.setDate(result.getDate() - weekday + 1)
+  return result
+}
 
 function extractErrorMessage(error: unknown, fallback: string): string {
   const message = (error as { response?: { data?: { error?: string } } })?.response?.data?.error
@@ -90,19 +116,6 @@ function extractErrorMessage(error: unknown, fallback: string): string {
     return message.trim()
   }
   return fallback
-}
-
-function statusTagType(status: TVCalendarStatus): 'success' | 'warning' | 'danger' | 'info' {
-  switch (status) {
-    case 'ready':
-      return 'success'
-    case 'today':
-      return 'warning'
-    case 'missing':
-      return 'danger'
-    default:
-      return 'info'
-  }
 }
 
 function statusText(status: TVCalendarStatus): string {
@@ -132,17 +145,61 @@ function isFollowing(tmdbId: string): boolean {
   return subscriptionSet.value.has(tmdbId)
 }
 
+function summaryCardClass(tone: string): string {
+  switch (tone) {
+    case 'ready':
+      return 'tv-summary-card tv-summary-card-ready'
+    case 'today':
+      return 'tv-summary-card tv-summary-card-today'
+    case 'warning':
+      return 'tv-summary-card tv-summary-card-warning'
+    default:
+      return 'tv-summary-card tv-summary-card-ink'
+  }
+}
+
+function statusChipClass(value: TVCalendarStatus | ''): string {
+  return value === filters.status
+    ? 'tv-status-chip tv-status-chip-active'
+    : 'tv-status-chip'
+}
+
+function statusBadgeClass(status: TVCalendarStatus): string {
+  switch (status) {
+    case 'ready':
+      return 'tv-status-badge tv-status-badge-ready'
+    case 'today':
+      return 'tv-status-badge tv-status-badge-today'
+    case 'missing':
+      return 'tv-status-badge tv-status-badge-missing'
+    default:
+      return 'tv-status-badge tv-status-badge-upcoming'
+  }
+}
+
+function dayDateNumber(date: string): string {
+  const [year, month, day] = date.split('-')
+  if (!year || !month || !day) {
+    return date
+  }
+  return day
+}
+
+function dayDateMonth(date: string): string {
+  const [year, month] = date.split('-')
+  if (!year || !month) {
+    return ''
+  }
+  return `${Number(month)}月`
+}
+
 async function fetchSubscriptions(): Promise<void> {
-  subscriptionsLoading.value = true
-  subscriptionsError.value = ''
   try {
     const res = await getTVCalendarSubscriptions()
     subscriptions.value = res.data || []
   } catch (error) {
     subscriptions.value = []
-    subscriptionsError.value = extractErrorMessage(error, '读取关注列表失败')
-  } finally {
-    subscriptionsLoading.value = false
+    ElMessage.error(extractErrorMessage(error, '读取关注列表失败'))
   }
 }
 
@@ -151,13 +208,10 @@ async function fetchCalendar(): Promise<void> {
   calendarError.value = ''
   try {
     const params = {
-      weekOffset: filters.weekOffset,
+      weekDate: filters.weekDate,
       status: filters.status || undefined
     }
-    const res =
-      filters.mode === 'following'
-        ? await getFollowingTVCalendar(params)
-        : await getGlobalTVCalendar(params)
+    const res = await getGlobalTVCalendar(params)
     calendarData.value = res.data || { dateRange: '', days: [] }
   } catch (error) {
     calendarData.value = { dateRange: '', days: [] }
@@ -215,18 +269,16 @@ async function handleSync(): Promise<void> {
   }
 }
 
-async function changeMode(mode: CalendarMode): Promise<void> {
-  filters.mode = mode
-  await fetchCalendar()
-}
-
-async function changeWeek(weekOffset: TVCalendarWeekOffset): Promise<void> {
-  filters.weekOffset = weekOffset
-  await fetchCalendar()
-}
-
 async function changeStatus(status: TVCalendarStatus | ''): Promise<void> {
   filters.status = status
+  await fetchCalendar()
+}
+
+async function changeWeekDate(value: string): Promise<void> {
+  if (!value || filters.weekDate === value) {
+    return
+  }
+  filters.weekDate = value
   await fetchCalendar()
 }
 
@@ -236,213 +288,696 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <section class="overflow-hidden rounded-[28px] border border-amber-100 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.28),_transparent_38%),linear-gradient(135deg,#fff7ed_0%,#ffffff_60%,#fef3c7_100%)] p-6 shadow-sm">
-      <div class="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-        <div class="max-w-3xl">
-          <p class="text-xs font-semibold uppercase tracking-[0.35em] text-amber-600">TV Calendar</p>
-          <h1 class="mt-3 text-3xl font-semibold text-slate-900">追剧日历</h1>
-          <p class="mt-3 text-sm leading-6 text-slate-600">{{ currentViewDescription }}</p>
-          <div class="mt-5 flex flex-wrap gap-2">
-            <el-radio-group :model-value="filters.mode" @change="changeMode">
-              <el-radio-button
-                v-for="option in viewOptions"
-                :key="option.value"
-                :label="option.value"
-              >
-                {{ option.label }}
-              </el-radio-button>
-            </el-radio-group>
-            <el-radio-group :model-value="filters.weekOffset" @change="changeWeek">
-              <el-radio-button
-                v-for="option in weekOptions"
-                :key="option.value"
-                :label="option.value"
-              >
-                {{ option.label }}
-              </el-radio-button>
-            </el-radio-group>
+  <div class="tv-calendar-shell">
+    <section class="tv-panel overflow-hidden rounded-[32px]">
+      <div class="tv-stage p-6 sm:p-8">
+        <div class="space-y-6">
+          <div class="max-w-3xl">
+            <p class="tv-kicker">Ember Weekly Watchboard</p>
+            <h1 class="tv-display mt-4 text-4xl leading-none text-slate-950 sm:text-5xl">追剧日历</h1>
           </div>
-        </div>
 
-        <div class="flex flex-wrap items-center gap-3">
-          <div class="rounded-2xl border border-white/70 bg-white/75 px-4 py-3 shadow-sm backdrop-blur">
-            <p class="text-xs uppercase tracking-[0.25em] text-slate-400">周区间</p>
-            <p class="mt-1 text-lg font-semibold text-slate-900">{{ currentRange }}</p>
-          </div>
-          <el-select
-            :model-value="filters.status"
-            class="!w-[160px]"
-            placeholder="状态筛选"
-            @change="changeStatus"
-          >
-            <el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" />
-          </el-select>
-          <el-button v-if="isAdmin" :icon="Refresh" :loading="refreshing" @click="handleSync">手动同步</el-button>
-        </div>
-      </div>
-
-      <el-alert
-        v-if="calendarError"
-        class="mt-5"
-        type="warning"
-        :closable="false"
-        show-icon
-        title="追剧日历暂时不可用"
-        :description="calendarError"
-      />
-    </section>
-
-    <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-slate-900">我的关注</h2>
-        </div>
-        <div class="flex items-center gap-2 text-sm text-slate-500">
-          <el-icon><Star /></el-icon>
-          <span>{{ subscriptions.length }} 部剧</span>
-        </div>
-      </div>
-
-      <el-alert
-        v-if="subscriptionsError"
-        class="mt-4"
-        type="warning"
-        :closable="false"
-        show-icon
-        title="关注列表读取失败"
-        :description="subscriptionsError"
-      />
-
-      <div v-else-if="subscriptionsLoading" class="mt-4 text-sm text-slate-400">正在读取关注列表...</div>
-
-      <div
-        v-else-if="subscriptions.length === 0"
-        class="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500"
-      >
-        当前没有任何关注剧集。先从“全部在更”里挑剧，再切到“我的关注”。
-      </div>
-
-      <div v-else class="mt-4 flex flex-wrap gap-2">
-        <el-tag
-          v-for="subscription in subscriptions"
-          :key="subscription.id"
-          effect="plain"
-          type="warning"
-          class="!px-3 !py-2"
-        >
-          <button class="text-sm text-slate-700" @click="handleUnfollow(subscription.tmdbId, subscription.showName)">
-            {{ subscription.showName }}
-          </button>
-        </el-tag>
-      </div>
-    </section>
-
-    <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div v-if="loading" class="py-20 text-center text-sm text-slate-400">正在读取周历...</div>
-
-      <div
-        v-else-if="!hasCalendarItems"
-        class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-14 text-center"
-      >
-        <p class="text-base font-semibold text-slate-800">{{ emptyStateTitle }}</p>
-        <p class="mt-2 text-sm text-slate-500">{{ emptyStateDescription }}</p>
-        <div class="mt-5 flex justify-center gap-3">
-          <el-button
-            v-if="filters.mode === 'following'"
-            type="primary"
-            plain
-            @click="changeMode('global')"
-          >
-            去看全部在更
-          </el-button>
-          <el-button v-if="isAdmin" :icon="Refresh" @click="handleSync">立即同步</el-button>
-        </div>
-      </div>
-
-      <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
-        <article
-          v-for="day in dayColumns"
-          :key="day.date"
-          class="min-h-[320px] rounded-2xl border border-slate-200 bg-slate-50/80 p-4"
-        >
-          <div class="flex items-start justify-between border-b border-slate-200 pb-3">
-            <div>
-              <p class="text-sm font-semibold text-slate-900">{{ day.weekdayCn }}</p>
-              <p class="mt-1 text-xs text-slate-500">{{ day.date }}</p>
-            </div>
-            <span
-              class="rounded-full px-2.5 py-1 text-xs font-medium"
-              :class="day.isToday ? 'bg-amber-500 text-white' : 'bg-white text-slate-500'"
+          <div class="flex flex-wrap items-center gap-3">
+            <el-button
+              v-if="isAdmin"
+              class="!rounded-full !border-slate-300 !bg-white/80 !px-5 !text-slate-700 hover:!border-slate-950 hover:!text-slate-950"
+              :icon="Refresh"
+              :loading="refreshing"
+              @click="handleSync"
             >
-              {{ day.isToday ? '今天' : `${day.items.length} 集` }}
-            </span>
+              手动同步
+            </el-button>
           </div>
 
-          <div v-if="day.items.length === 0" class="flex min-h-[220px] items-center justify-center text-center text-sm text-slate-400">
-            当天没有匹配条目
-          </div>
-
-          <div v-else class="mt-4 space-y-3">
-            <div
-              v-for="item in day.items"
-              :key="`${day.date}-${item.tmdbId}-${item.season}-${item.episode}`"
-              class="rounded-2xl border border-white bg-white p-3 shadow-sm"
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <article
+              v-for="card in summaryCards"
+              :key="card.title"
+              :class="summaryCardClass(card.tone)"
             >
-              <div class="flex gap-3">
-                <div class="h-20 w-14 shrink-0 overflow-hidden rounded-xl bg-gradient-to-br from-amber-300 via-orange-200 to-yellow-100">
-                  <img
-                    v-if="item.posterUrl"
-                    :src="item.posterUrl"
-                    :alt="item.showName"
-                    class="h-full w-full object-cover"
-                  />
-                  <div v-else class="flex h-full w-full items-center justify-center text-lg font-semibold text-amber-800">
-                    {{ getPosterFallback(item.showName) }}
-                  </div>
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs uppercase tracking-[0.24em] text-slate-400">{{ card.title }}</p>
+                  <p class="mt-4 text-4xl font-semibold leading-none text-slate-950">{{ card.value }}</p>
+                  <p class="mt-3 text-sm text-slate-500">{{ card.detail }}</p>
                 </div>
+                <div class="tv-summary-icon">
+                  <el-icon :size="18">
+                    <component :is="card.icon" />
+                  </el-icon>
+                </div>
+              </div>
+            </article>
+          </div>
 
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="min-w-0">
-                      <p class="truncate text-sm font-semibold text-slate-900">{{ item.showName }}</p>
-                      <p class="mt-1 text-xs text-slate-500">S{{ String(item.season).padStart(2, '0') }} · E{{ item.episode }}</p>
-                    </div>
-                    <el-tag :type="statusTagType(item.status)" size="small">{{ statusText(item.status) }}</el-tag>
+          <el-alert
+            v-if="calendarError"
+            class="tv-floating-alert"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="追剧日历暂时不可用"
+            :description="calendarError"
+          />
+        </div>
+      </div>
+
+      <div class="tv-board p-4 sm:p-6">
+        <div class="flex flex-col gap-4 border-b border-slate-200/80 pb-5 xl:flex-row xl:items-end xl:justify-between">
+          <div class="tv-toolbar">
+            <div class="tv-picker-inline">
+              <span class="tv-toolbar-label">日期</span>
+              <div class="tv-picker-copy">
+                <div class="tv-picker-field group">
+                  <div class="tv-picker-icon">
+                    <el-icon><Calendar /></el-icon>
                   </div>
+                  <el-date-picker
+                    :model-value="filters.weekDate"
+                    class="tv-week-picker filter-date"
+                    type="date"
+                    value-format="YYYY-MM-DD"
+                    format="YYYY-MM-DD"
+                    placeholder="选择任意日期"
+                    clearable
+                    @change="changeWeekDate"
+                  />
+                </div>
+                <p class="tv-picker-hint">选择任意日期后，会自动定位到该日期所在周。</p>
+              </div>
+            </div>
+            <div class="tv-status-group">
+              <button
+                v-for="option in statusOptions"
+                :key="option.value"
+                type="button"
+                :class="statusChipClass(option.value)"
+                :aria-pressed="filters.status === option.value"
+                @click="changeStatus(option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
+        </div>
 
-                  <p v-if="item.episodeName" class="mt-2 text-sm text-slate-700">{{ item.episodeName }}</p>
-                  <p v-if="item.overview" class="mt-2 max-h-16 overflow-hidden text-xs leading-5 text-slate-500">
-                    {{ item.overview }}
-                  </p>
-
-                  <div class="mt-3 flex items-center justify-between gap-2">
-                    <span class="text-xs text-slate-400">{{ item.airDate }}</span>
-                    <el-button
-                      v-if="filters.mode === 'global'"
-                      size="small"
-                      :type="isFollowing(item.tmdbId) ? 'info' : 'primary'"
-                      plain
-                      @click="handleFollow(item)"
-                    >
-                      {{ isFollowing(item.tmdbId) ? '取消关注' : '加入关注' }}
-                    </el-button>
-                    <el-button
-                      v-else
-                      size="small"
-                      type="info"
-                      plain
-                      @click="handleUnfollow(item.tmdbId, item.showName)"
-                    >
-                      取消关注
-                    </el-button>
-                  </div>
+        <div v-if="loading" class="mt-6 space-y-4">
+          <div v-for="index in 7" :key="index" class="tv-day-row animate-pulse">
+            <div class="tv-day-row-head">
+              <div class="h-4 w-12 rounded-full bg-slate-200/70"></div>
+              <div class="mt-3 h-10 w-16 rounded-2xl bg-slate-200/70"></div>
+              <div class="mt-3 h-4 w-20 rounded-full bg-slate-200/60"></div>
+            </div>
+            <div class="tv-day-row-track">
+              <div class="tv-day-row-strip">
+                <div v-for="inner in 7" :key="inner" class="tv-mini-card rounded-[18px] bg-white/90">
+                  <div class="h-24 rounded-[14px] bg-slate-200/70"></div>
+                  <div class="mt-3 h-4 w-4/5 rounded-full bg-slate-200/70"></div>
+                  <div class="mt-2 h-3 w-3/5 rounded-full bg-slate-200/60"></div>
+                  <div class="mt-4 h-7 w-full rounded-full bg-slate-200/70"></div>
                 </div>
               </div>
             </div>
           </div>
-        </article>
+        </div>
+
+        <div
+          v-else-if="!hasCalendarItems"
+          class="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-[linear-gradient(180deg,#fffaf2_0%,#ffffff_100%)] px-6 py-16 text-center"
+        >
+          <p class="text-lg font-semibold text-slate-900">{{ emptyStateTitle }}</p>
+          <p class="mx-auto mt-3 max-w-xl text-sm leading-7 text-slate-500">{{ emptyStateDescription }}</p>
+          <div class="mt-6 flex justify-center gap-3">
+            <el-button
+              v-if="isAdmin"
+              class="!rounded-full !border-slate-300 !bg-white/80 !px-6 !text-slate-700"
+              :icon="Refresh"
+              @click="handleSync"
+            >
+              立即同步
+            </el-button>
+          </div>
+        </div>
+
+        <div v-else class="mt-6 space-y-4">
+          <article
+            v-for="day in dayColumns"
+            :key="day.date"
+            class="tv-day-row"
+            :class="{
+              'tv-day-row-today': day.isToday,
+              'tv-day-row-active': day.items.length > 0
+            }"
+          >
+            <div class="tv-day-row-head">
+              <div>
+                <p class="text-xs font-medium uppercase tracking-[0.22em] text-slate-400">{{ dayDateMonth(day.date) }}</p>
+                <div class="mt-2 flex items-end gap-1.5">
+                  <span class="text-[2rem] font-semibold leading-none text-slate-950">{{ dayDateNumber(day.date) }}</span>
+                  <span class="pb-1 text-sm text-slate-500">{{ day.weekdayCn }}</span>
+                </div>
+              </div>
+              <span class="mt-3 inline-flex rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                {{ day.isToday ? '今天' : `${day.items.length} 集` }}
+              </span>
+            </div>
+
+            <div v-if="day.items.length === 0" class="tv-day-row-empty">
+              <p class="max-w-[220px] text-sm leading-6 text-slate-400">当天没有命中当前视图和状态筛选</p>
+            </div>
+
+            <div v-else class="tv-day-row-track">
+              <div class="tv-day-row-strip">
+                <div
+                  v-for="item in day.items"
+                  :key="`${day.date}-${item.tmdbId}-${item.season}-${item.episode}`"
+                  class="tv-mini-card"
+                >
+                  <div class="tv-mini-poster-shell">
+                    <div class="tv-mini-poster">
+                      <img
+                        v-if="item.posterUrl"
+                        :src="item.posterUrl"
+                        :alt="item.showName"
+                        class="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                      <div v-else class="flex h-full w-full items-center justify-center text-lg font-semibold text-slate-800">
+                        {{ getPosterFallback(item.showName) }}
+                      </div>
+                    </div>
+                    <div class="tv-mini-overlay">
+                      <span :class="statusBadgeClass(item.status)">{{ statusText(item.status) }}</span>
+                      <span class="tv-mini-code">
+                        S{{ String(item.season).padStart(2, '0') }} · E{{ item.episode }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="mt-3">
+                    <p class="truncate text-sm font-semibold text-slate-950">{{ item.showName }}</p>
+                    <p
+                      v-if="item.episodeName"
+                      class="mt-1 line-clamp-1 text-[11px] leading-5 text-slate-500"
+                    >
+                      {{ item.episodeName }}
+                    </p>
+                    <div class="mt-3 flex items-center justify-between gap-2">
+                      <span class="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">{{ item.airDate }}</span>
+                    <button
+                      type="button"
+                      class="tv-card-action"
+                      :class="{ 'tv-card-action-active': isFollowing(item.tmdbId) }"
+                      @click="handleFollow(item)"
+                    >
+                      {{ isFollowing(item.tmdbId) ? '已收' : '关注' }}
+                    </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
       </div>
     </section>
   </div>
 </template>
+
+<style scoped>
+.tv-calendar-shell {
+  --tv-paper: #ffffff;
+  --tv-ink: #111827;
+  --tv-muted: #6b7280;
+  --tv-line: rgba(148, 163, 184, 0.18);
+  --tv-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+  --tv-shadow-soft: 0 8px 18px rgba(15, 23, 42, 0.035);
+}
+
+.tv-panel {
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  background: #ffffff;
+  box-shadow: var(--tv-shadow);
+}
+
+.tv-stage {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(251, 191, 36, 0.08), transparent 26%),
+    linear-gradient(180deg, #fffdf8 0%, #ffffff 68%);
+}
+
+.tv-stage::after {
+  content: '';
+  position: absolute;
+  inset: auto -80px -110px auto;
+  width: 280px;
+  height: 280px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(15, 23, 42, 0.08), transparent 68%);
+  pointer-events: none;
+}
+
+.tv-board {
+  border-top: 1px solid rgba(226, 232, 240, 0.88);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 251, 0.8));
+}
+
+.tv-display {
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.tv-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #ea580c;
+}
+
+.tv-summary-card,
+.tv-day-row,
+.tv-mini-card {
+  backdrop-filter: blur(14px);
+}
+
+.tv-card-action:hover {
+  transform: translateY(-1px);
+}
+
+.tv-summary-card {
+  border-radius: 18px;
+  padding: 1.15rem 1.25rem;
+  box-shadow: var(--tv-shadow-soft);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.tv-summary-card-ink {
+  background: #ffffff;
+}
+
+.tv-summary-card-ready {
+  background: rgba(240, 253, 244, 0.68);
+}
+
+.tv-summary-card-today {
+  background: rgba(255, 247, 237, 0.78);
+}
+
+.tv-summary-card-warning {
+  background: rgba(255, 241, 242, 0.78);
+}
+
+.tv-summary-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.95);
+  color: #0f172a;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.85);
+}
+
+.tv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.tv-picker-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.tv-picker-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tv-picker-field {
+  position: relative;
+  width: 100%;
+}
+
+.tv-picker-icon {
+  position: absolute;
+  inset: 0 auto 0 0.75rem;
+  display: flex;
+  align-items: center;
+  color: #9ca3af;
+  pointer-events: none;
+  z-index: 1;
+  transition: color 0.2s ease;
+}
+
+.tv-picker-field:focus-within .tv-picker-icon {
+  color: #e50914;
+}
+
+.tv-toolbar-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.tv-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: #ffffff;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, color 180ms ease;
+  cursor: pointer;
+}
+
+.tv-status-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 163, 184, 0.95);
+  color: #0f172a;
+}
+
+.tv-status-chip-active {
+  border-color: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.94);
+  color: #ffffff;
+}
+
+.tv-picker-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tv-week-picker {
+  width: 200px;
+}
+
+.tv-week-picker :deep(.el-input__wrapper) {
+  height: 42px;
+  min-height: 42px;
+  background-color: #f9fafb !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+.tv-week-picker :deep(.el-input__wrapper:hover) {
+  background-color: #ffffff !important;
+}
+
+.tv-week-picker :deep(.el-input__wrapper.is-focus) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px #e50914 inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+.tv-week-picker :deep(.el-input__inner) {
+  height: 100%;
+  padding-left: 2.5rem;
+  font-size: 0.875rem;
+  color: #111827;
+}
+
+.tv-week-picker :deep(.el-input__inner::placeholder) {
+  color: #9ca3af;
+}
+
+.tv-week-picker :deep(.el-input__prefix),
+.tv-week-picker :deep(.el-input__suffix) {
+  display: none;
+}
+
+.tv-picker-hint {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.tv-status-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.tv-mini-poster {
+  overflow: hidden;
+  background: linear-gradient(145deg, #f8d7a3 0%, #fff3db 100%);
+}
+
+.tv-day-row {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  background: #ffffff;
+  padding: 0.9rem;
+  box-shadow: var(--tv-shadow-soft);
+}
+
+.tv-day-row-active {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(255, 252, 247, 0.96));
+}
+
+.tv-day-row-today {
+  border-color: rgba(251, 146, 60, 0.45);
+  background:
+    radial-gradient(circle at top right, rgba(251, 146, 60, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(255, 250, 242, 0.98), rgba(255, 255, 255, 0.98));
+}
+
+.tv-day-row-head {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100%;
+  padding-right: 0.25rem;
+  border-right: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.tv-day-row-track {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.25rem;
+}
+
+.tv-day-row-track::-webkit-scrollbar {
+  height: 6px;
+}
+
+.tv-day-row-track::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(203, 213, 225, 0.9);
+}
+
+.tv-day-row-track::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tv-day-row-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 136px;
+  gap: 0.75rem;
+}
+
+.tv-day-row-empty {
+  display: flex;
+  align-items: center;
+  min-height: 140px;
+  padding-left: 0.5rem;
+}
+
+.tv-mini-card {
+  border-radius: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  background: rgba(255, 255, 255, 0.98);
+  padding: 0.55rem;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.tv-mini-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(148, 163, 184, 0.5);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+.tv-mini-poster-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.32));
+}
+
+.tv-mini-poster {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 14px;
+  flex-shrink: 0;
+}
+
+.tv-mini-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  background: linear-gradient(180deg, transparent 0%, rgba(15, 23, 42, 0.78) 100%);
+}
+
+.tv-mini-code {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 0.22rem 0.5rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.tv-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0.24rem 0.62rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tv-status-badge-ready {
+  background: rgba(220, 252, 231, 0.95);
+  color: #166534;
+}
+
+.tv-status-badge-today {
+  background: rgba(255, 237, 213, 0.95);
+  color: #c2410c;
+}
+
+.tv-status-badge-missing {
+  background: rgba(254, 226, 226, 0.95);
+  color: #b91c1c;
+}
+
+.tv-status-badge-upcoming {
+  background: rgba(226, 232, 240, 0.95);
+  color: #475569;
+}
+
+.tv-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: rgba(248, 250, 252, 0.95);
+  min-width: 46px;
+  padding: 0.32rem 0.6rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+  cursor: pointer;
+}
+
+.tv-card-action-active {
+  border-color: rgba(251, 191, 36, 0.42);
+  background: rgba(255, 251, 235, 0.95);
+  color: #92400e;
+}
+
+.tv-floating-alert :deep(.el-alert) {
+  border-radius: 24px;
+}
+
+.tv-card-action:focus-visible,
+.tv-status-chip:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.85);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1279px) {
+  .tv-day-row {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+
+  .tv-day-row-strip {
+    grid-auto-columns: 128px;
+  }
+}
+
+@media (max-width: 767px) {
+  .tv-stage,
+  .tv-panel,
+  .tv-day-row {
+    border-radius: 18px;
+  }
+
+  .tv-day-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tv-toolbar,
+  .tv-picker-card,
+  .tv-picker-inline {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tv-picker-copy {
+    width: 100%;
+  }
+
+  .tv-week-picker {
+    width: 100%;
+  }
+
+  .tv-day-row-head {
+    border-right: 0;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    padding-right: 0;
+    padding-bottom: 0.75rem;
+  }
+
+  .tv-day-row-strip {
+    grid-auto-columns: 132px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-status-chip,
+  .tv-card-action {
+    transition: none;
+  }
+}
+</style>

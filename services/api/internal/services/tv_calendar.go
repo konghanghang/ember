@@ -47,11 +47,11 @@ var tvCalendarSyncCoordinator = struct {
 	calls: make(map[string]*tvCalendarSyncCall),
 }
 
-func tvCalendarWeekSyncMarkerKey(weekOffset int) string {
-	return fmt.Sprintf("tv-calendar:week-sync:%d", weekOffset)
+func tvCalendarWeekSyncMarkerKey(weekStart time.Time) string {
+	return fmt.Sprintf("tv-calendar:week-sync:%s", normalizeTVCalendarWeekStart(weekStart).Format("2006-01-02"))
 }
 
-func tvCalendarWeekSyncLockKey(weekOffset int, tmdbID *string, force bool) string {
+func tvCalendarWeekSyncLockKey(weekStart time.Time, tmdbID *string, force bool) string {
 	scope := "all"
 	if tmdbID != nil && strings.TrimSpace(*tmdbID) != "" {
 		scope = "tmdb:" + strings.TrimSpace(*tmdbID)
@@ -60,7 +60,12 @@ func tvCalendarWeekSyncLockKey(weekOffset int, tmdbID *string, force bool) strin
 	if force {
 		mode = "force"
 	}
-	return fmt.Sprintf("tv-calendar:sync:%d:%s:%s", weekOffset, scope, mode)
+	return fmt.Sprintf(
+		"tv-calendar:sync:%s:%s:%s",
+		normalizeTVCalendarWeekStart(weekStart).Format("2006-01-02"),
+		scope,
+		mode,
+	)
 }
 
 func tvCalendarDiscoverLockKey(force bool) string {
@@ -271,6 +276,15 @@ func normalizeDateUTC(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
+func normalizeTVCalendarWeekStart(t time.Time) time.Time {
+	current := normalizeDateUTC(t)
+	weekday := int(current.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	return current.AddDate(0, 0, -(weekday - 1))
+}
+
 func deriveStatusByAirDate(airDate time.Time, now time.Time) string {
 	today := normalizeDateUTC(now)
 	date := normalizeDateUTC(airDate)
@@ -303,6 +317,22 @@ func ParseTVCalendarWeekOffset(value string) (int, error) {
 	return offset, nil
 }
 
+func ParseTVCalendarWeekDate(weekDateValue, weekOffsetValue string) (time.Time, error) {
+	if raw := strings.TrimSpace(weekDateValue); raw != "" {
+		date, err := ParseTVCalendarDate(raw)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return normalizeTVCalendarWeekStart(date), nil
+	}
+
+	offset, err := ParseTVCalendarWeekOffset(weekOffsetValue)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return tvCalendarWeekStartFromOffset(offset, time.Now().UTC()), nil
+}
+
 func ParseTVCalendarDate(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -320,13 +350,12 @@ func DefaultTVCalendarDateRange() (time.Time, time.Time) {
 	return now.AddDate(0, 0, -7), now.AddDate(0, 0, 30)
 }
 
-func tvCalendarWeekRange(offset int, now time.Time) (time.Time, time.Time) {
-	current := normalizeDateUTC(now)
-	weekday := int(current.Weekday())
-	if weekday == 0 {
-		weekday = 7
-	}
-	start := current.AddDate(0, 0, -(weekday-1)+offset*7)
+func tvCalendarWeekStartFromOffset(offset int, now time.Time) time.Time {
+	return normalizeTVCalendarWeekStart(now).AddDate(0, 0, offset*7)
+}
+
+func tvCalendarWeekRange(weekStart time.Time) (time.Time, time.Time) {
+	start := normalizeTVCalendarWeekStart(weekStart)
 	end := start.AddDate(0, 0, 6)
 	return start, end
 }
@@ -451,6 +480,14 @@ func normalizeWeekOffsets(offsets []int) ([]int, error) {
 
 	sort.Ints(result)
 	return result, nil
+}
+
+func weekStartsFromOffsets(offsets []int, now time.Time) []time.Time {
+	result := make([]time.Time, 0, len(offsets))
+	for _, offset := range offsets {
+		result = append(result, tvCalendarWeekStartFromOffset(offset, now))
+	}
+	return result
 }
 
 func (s *TVCalendarService) buildEmptyWeeklyDTO(start, end time.Time) *TVCalendarWeeklyDTO {
@@ -831,11 +868,9 @@ func (s *TVCalendarService) setTMDBMemoryCache(cacheKey string, payload []byte, 
 	s.cacheMu.Unlock()
 }
 
-func (s *TVCalendarService) SyncWeeklyCalendar(ctx context.Context, weekOffset int, tmdbID *string, force bool) (int, error) {
-	return runTVCalendarSyncOnce(tvCalendarWeekSyncLockKey(weekOffset, tmdbID, force), func() (int, error) {
-		if !isValidTVCalendarWeekOffset(weekOffset) {
-			return 0, ErrTVCalendarInvalidWeekOffset
-		}
+func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, tmdbID *string, force bool) (int, error) {
+	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
+	return runTVCalendarSyncOnce(tvCalendarWeekSyncLockKey(normalizedWeekStart, tmdbID, force), func() (int, error) {
 		if strings.TrimSpace(s.tmdbAPIKey) == "" {
 			return 0, ErrTVCalendarNotConfigured
 		}
@@ -930,13 +965,20 @@ func (s *TVCalendarService) SyncWeeklyCalendar(ctx context.Context, weekOffset i
 		}
 
 		if isFullWeekSync {
-			if err := s.markWeeklyCalendarSynced(weekOffset, now); err != nil {
+			if err := s.markWeeklyCalendarSynced(normalizedWeekStart, now); err != nil {
 				return total, err
 			}
 		}
 
 		return total, nil
 	})
+}
+
+func (s *TVCalendarService) SyncWeeklyCalendar(ctx context.Context, weekOffset int, tmdbID *string, force bool) (int, error) {
+	if !isValidTVCalendarWeekOffset(weekOffset) {
+		return 0, ErrTVCalendarInvalidWeekOffset
+	}
+	return s.SyncWeek(ctx, tvCalendarWeekStartFromOffset(weekOffset, time.Now().UTC()), tmdbID, force)
 }
 
 func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int, tmdbID *string, force bool) (int, error) {
@@ -954,8 +996,8 @@ func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int,
 	}
 
 	total := 0
-	for _, offset := range offsets {
-		count, err := s.SyncWeeklyCalendar(ctx, offset, tmdbID, force)
+	for _, weekStart := range weekStartsFromOffsets(offsets, time.Now().UTC()) {
+		count, err := s.SyncWeek(ctx, weekStart, tmdbID, force)
 		total += count
 		if err != nil {
 			return total, err
@@ -964,9 +1006,9 @@ func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int,
 	return total, nil
 }
 
-func (s *TVCalendarService) markWeeklyCalendarSynced(weekOffset int, syncedAt time.Time) error {
+func (s *TVCalendarService) markWeeklyCalendarSynced(weekStart, syncedAt time.Time) error {
 	marker := models.TMDBCache{
-		CacheKey:   tvCalendarWeekSyncMarkerKey(weekOffset),
+		CacheKey:   tvCalendarWeekSyncMarkerKey(weekStart),
 		CacheValue: syncedAt.Format(time.RFC3339),
 		ExpiresAt:  syncedAt.Add(tvCalendarSyncTTL),
 	}
@@ -984,9 +1026,9 @@ func (s *TVCalendarService) markWeeklyCalendarSynced(weekOffset int, syncedAt ti
 	return nil
 }
 
-func (s *TVCalendarService) isWeeklyCalendarStale(weekOffset int, now time.Time) (bool, error) {
+func (s *TVCalendarService) isWeeklyCalendarStale(weekStart, now time.Time) (bool, error) {
 	var marker models.TMDBCache
-	err := db.DB.Where("\"cacheKey\" = ?", tvCalendarWeekSyncMarkerKey(weekOffset)).First(&marker).Error
+	err := db.DB.Where("\"cacheKey\" = ?", tvCalendarWeekSyncMarkerKey(weekStart)).First(&marker).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return true, nil
 	}
@@ -997,15 +1039,16 @@ func (s *TVCalendarService) isWeeklyCalendarStale(weekOffset int, now time.Time)
 	return !marker.ExpiresAt.After(now), nil
 }
 
-func (s *TVCalendarService) maybeRefreshWeeklyCalendar(ctx context.Context, weekOffset int) error {
-	stale, err := s.isWeeklyCalendarStale(weekOffset, time.Now().UTC())
+func (s *TVCalendarService) maybeRefreshWeeklyCalendar(ctx context.Context, weekStart time.Time) error {
+	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
+	stale, err := s.isWeeklyCalendarStale(normalizedWeekStart, time.Now().UTC())
 	if err != nil {
 		return err
 	}
 	if !stale {
 		return nil
 	}
-	_, err = s.SyncCalendar(ctx, []int{weekOffset}, nil, false)
+	_, err = s.SyncWeek(ctx, normalizedWeekStart, nil, false)
 	return err
 }
 
@@ -1114,21 +1157,17 @@ func (s *TVCalendarService) buildWeeklyCalendar(items []models.TVCalendarItem, s
 	return dto
 }
 
-func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekOffset int, status string) (*TVCalendarWeeklyDTO, error) {
+func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekStart time.Time, status string) (*TVCalendarWeeklyDTO, error) {
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
-	if !isValidTVCalendarWeekOffset(weekOffset) {
-		return nil, ErrTVCalendarInvalidWeekOffset
-	}
-
-	start, end := tvCalendarWeekRange(weekOffset, time.Now().UTC())
+	start, end := tvCalendarWeekRange(weekStart)
 	items, err := s.queryCalendarItems(nil, start, end, status)
 	if err != nil {
 		return nil, err
 	}
 
-	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, weekOffset); refreshErr != nil {
+	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, start); refreshErr != nil {
 		if len(items) == 0 {
 			return nil, refreshErr
 		}
@@ -1156,15 +1195,11 @@ func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekOff
 	return s.buildWeeklyCalendar(items, sourceMap, start, end), nil
 }
 
-func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, userID string, weekOffset int, status string) (*TVCalendarWeeklyDTO, error) {
+func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, userID string, weekStart time.Time, status string) (*TVCalendarWeeklyDTO, error) {
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
-	if !isValidTVCalendarWeekOffset(weekOffset) {
-		return nil, ErrTVCalendarInvalidWeekOffset
-	}
-
-	start, end := tvCalendarWeekRange(weekOffset, time.Now().UTC())
+	start, end := tvCalendarWeekRange(weekStart)
 	subscriptions, err := s.GetSubscriptions(userID)
 	if err != nil {
 		return nil, err
@@ -1182,7 +1217,7 @@ func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, user
 	if err != nil {
 		return nil, err
 	}
-	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, weekOffset); refreshErr == nil {
+	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, start); refreshErr == nil {
 		items, err = s.queryCalendarItems(tmdbIDs, start, end, status)
 		if err != nil {
 			return nil, err

@@ -25,16 +25,16 @@ func NewTVCalendarHandler() *TVCalendarHandler {
 
 func (h *TVCalendarHandler) GetGlobalWeeklyCalendar(c *gin.Context) {
 	status := strings.TrimSpace(c.Query("status"))
-	weekOffset, err := services.ParseTVCalendarWeekOffset(c.Query("weekOffset"))
+	weekStart, err := services.ParseTVCalendarWeekDate(c.Query("weekDate"), c.Query("weekOffset"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	data, err := h.service.GetGlobalWeeklyCalendar(c.Request.Context(), weekOffset, status)
+	data, err := h.service.GetGlobalWeeklyCalendar(c.Request.Context(), weekStart, status)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrTVCalendarInvalidStatus), errors.Is(err, services.ErrTVCalendarInvalidWeekOffset):
+		case errors.Is(err, services.ErrTVCalendarInvalidStatus), errors.Is(err, services.ErrTVCalendarInvalidWeekOffset), errors.Is(err, services.ErrTVCalendarInvalidDate):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrTVCalendarNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
@@ -55,16 +55,16 @@ func (h *TVCalendarHandler) GetFollowingWeeklyCalendar(c *gin.Context) {
 	}
 
 	status := strings.TrimSpace(c.Query("status"))
-	weekOffset, err := services.ParseTVCalendarWeekOffset(c.Query("weekOffset"))
+	weekStart, err := services.ParseTVCalendarWeekDate(c.Query("weekDate"), c.Query("weekOffset"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	data, err := h.service.GetFollowingWeeklyCalendar(c.Request.Context(), userID.(string), weekOffset, status)
+	data, err := h.service.GetFollowingWeeklyCalendar(c.Request.Context(), userID.(string), weekStart, status)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrTVCalendarInvalidStatus), errors.Is(err, services.ErrTVCalendarInvalidWeekOffset):
+		case errors.Is(err, services.ErrTVCalendarInvalidStatus), errors.Is(err, services.ErrTVCalendarInvalidWeekOffset), errors.Is(err, services.ErrTVCalendarInvalidDate):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrTVCalendarNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})

@@ -172,6 +172,7 @@ export function getTVCalendar(params?: {
 }
 
 export function getGlobalTVCalendar(params?: {
+  weekDate?: string
   weekOffset?: TVCalendarWeekOffset
   status?: TVCalendarStatus | ''
 }): Promise<{ data: TVCalendarWeeklyData }> {
@@ -183,6 +184,7 @@ export function getGlobalTVCalendar(params?: {
 }
 
 export function getFollowingTVCalendar(params?: {
+  weekDate?: string
   weekOffset?: TVCalendarWeekOffset
   status?: TVCalendarStatus | ''
 }): Promise<{ data: TVCalendarWeeklyData }> {

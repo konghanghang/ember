@@ -82,6 +82,18 @@ func TestBuildWeeklyCalendarAggregatesConsecutiveEpisodes(t *testing.T) {
 	}
 }
 
+func TestParseTVCalendarWeekDateUsesWeekStart(t *testing.T) {
+	got, err := ParseTVCalendarWeekDate("2026-03-12", "")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	expected := time.Date(2026, 3, 9, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(expected) {
+		t.Fatalf("expected week start %s, got %s", expected, got)
+	}
+}
+
 func TestRunTVCalendarSyncOnceDeduplicatesConcurrentCalls(t *testing.T) {
 	var executed int32
 	start := make(chan struct{})
