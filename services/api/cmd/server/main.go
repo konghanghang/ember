@@ -234,34 +234,36 @@ func main() {
 		}
 	}
 
-	cronEnabled := os.Getenv("CRON_ENABLED")
+	configService := services.NewConfigService()
+
+	cronEnabled := configService.GetString("CRON_ENABLED")
 	if cronEnabled == "" {
 		cronEnabled = "true"
 	}
 
 	if cronEnabled == "true" {
-		expiredSchedule := os.Getenv("CRON_SCHEDULE")
+		expiredSchedule := configService.GetString("CRON_SCHEDULE")
 		if expiredSchedule == "" {
 			expiredSchedule = "0 2 * * *"
 		}
 
-		rankingCronEnabled := os.Getenv("RANKING_CRON_ENABLED")
+		rankingCronEnabled := configService.GetString("RANKING_CRON_ENABLED")
 		if rankingCronEnabled == "" {
 			// 默认关闭，避免升级后在未配置 Playback Reporting 插件/Emby 环境变量时产生隐式行为变化
 			rankingCronEnabled = "false"
 		}
 
-		rankingDailySchedule := os.Getenv("RANKING_DAILY_SCHEDULE")
+		rankingDailySchedule := configService.GetString("RANKING_DAILY_SCHEDULE")
 		if rankingDailySchedule == "" {
 			rankingDailySchedule = "0 20 * * *"
 		}
-		rankingWeeklySchedule := os.Getenv("RANKING_WEEKLY_SCHEDULE")
+		rankingWeeklySchedule := configService.GetString("RANKING_WEEKLY_SCHEDULE")
 		if rankingWeeklySchedule == "" {
 			// 默认：周日 20:30
 			rankingWeeklySchedule = "30 20 * * 0"
 		}
 
-		tzName := os.Getenv("CRON_TIMEZONE")
+		tzName := configService.GetString("CRON_TIMEZONE")
 		if tzName == "" {
 			tzName = "Asia/Shanghai"
 		}
@@ -347,7 +349,7 @@ func main() {
 			}
 		}
 
-		tvCalendarSyncSchedule := os.Getenv("TV_CALENDAR_SYNC_SCHEDULE")
+		tvCalendarSyncSchedule := configService.GetString("TV_CALENDAR_SYNC_SCHEDULE")
 		if tvCalendarSyncSchedule == "" {
 			tvCalendarSyncSchedule = "0 */12 * * *"
 		}

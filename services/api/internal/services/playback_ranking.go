@@ -3,7 +3,6 @@ package services
 import (
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
@@ -96,16 +95,7 @@ LIMIT %d
 }
 
 func loadCronTimezone() *time.Location {
-	tzName := os.Getenv("CRON_TIMEZONE")
-	if tzName == "" {
-		tzName = "Asia/Shanghai"
-	}
-
-	tz, err := time.LoadLocation(tzName)
-	if err != nil {
-		return time.UTC
-	}
-	return tz
+	return LoadConfiguredTimezone()
 }
 
 func dayRange(t time.Time) (time.Time, time.Time) {

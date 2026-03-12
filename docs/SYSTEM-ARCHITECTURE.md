@@ -961,16 +961,20 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | 验证码清理 | `0 3 * * *` | `CRON_ENABLED` | 删除过期 EmailVerification + TelegramBindCode |
 | 日榜生成 | `RANKING_DAILY_SCHEDULE`（默认 `0 20 * * *`）| `RANKING_CRON_ENABLED` | 从 Emby 生成日播放排行 |
 | 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
+| 追剧日历同步 | `TV_CALENDAR_SYNC_SCHEDULE`（默认 `0 */12 * * *`） | `CRON_ENABLED` | 同步 TMDB/Emby 追剧日历缓存 |
 
 **通用配置**：
-| 环境变量 | 默认值 | 说明 |
+这些项由 `ConfigService` 统一解析，优先级为“数据库覆盖值 > 环境变量 > 默认值”；管理员可在设置中心修改，但属于启动期配置，保存后需重启 API 才会生效。
+
+| 配置项 | 默认值 | 说明 |
 |----------|--------|------|
-| `CRON_ENABLED` | `"true"` | 是否启用（过期检查 + 验证码清理）|
+| `CRON_ENABLED` | `"true"` | 是否启用（过期检查 + 验证码清理 + 追剧日历同步）|
 | `CRON_SCHEDULE` | `"0 2 * * *"` | 过期检查 cron 表达式 |
-| `CRON_TIMEZONE` | `"Asia/Shanghai"` | 时区 |
+| `CRON_TIMEZONE` | `"Asia/Shanghai"` | cron 与排行榜计算使用的时区 |
 | `RANKING_CRON_ENABLED` | `"false"` | 是否启用排行榜生成 |
 | `RANKING_DAILY_SCHEDULE` | `"0 20 * * *"` | 日榜 cron 表达式 |
 | `RANKING_WEEKLY_SCHEDULE` | `"30 20 * * 0"` | 周榜 cron 表达式 |
+| `TV_CALENDAR_SYNC_SCHEDULE` | `"0 */12 * * *"` | 追剧日历自动同步表达式 |
 
 **过期检查逻辑**：查询 `expiresAt < NOW() AND embyDisabled = false` → Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`。不修改 IsActive，不阻止用户登录。
 
@@ -1043,12 +1047,13 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
-| `CRON_ENABLED` | — | `"true"` | 启用定时任务 |
-| `CRON_SCHEDULE` | — | `"0 2 * * *"` | 过期检查表达式 |
-| `CRON_TIMEZONE` | — | `"Asia/Shanghai"` | 时区 |
-| `RANKING_CRON_ENABLED` | — | `"false"` | 启用排行榜生成 |
-| `RANKING_DAILY_SCHEDULE` | — | `"0 20 * * *"` | 日榜表达式 |
-| `RANKING_WEEKLY_SCHEDULE` | — | `"30 20 * * 0"` | 周榜表达式 |
+| `CRON_ENABLED` | — | `"true"` | 启用定时任务；支持被设置中心数据库值覆盖 |
+| `CRON_SCHEDULE` | — | `"0 2 * * *"` | 过期检查表达式；支持被设置中心数据库值覆盖 |
+| `CRON_TIMEZONE` | — | `"Asia/Shanghai"` | 时区；支持被设置中心数据库值覆盖 |
+| `RANKING_CRON_ENABLED` | — | `"false"` | 启用排行榜生成；支持被设置中心数据库值覆盖 |
+| `RANKING_DAILY_SCHEDULE` | — | `"0 20 * * *"` | 日榜表达式；支持被设置中心数据库值覆盖 |
+| `RANKING_WEEKLY_SCHEDULE` | — | `"30 20 * * 0"` | 周榜表达式；支持被设置中心数据库值覆盖 |
+| `TV_CALENDAR_SYNC_SCHEDULE` | — | `"0 */12 * * *"` | 追剧日历同步表达式；支持被设置中心数据库值覆盖 |
 
 ---
 

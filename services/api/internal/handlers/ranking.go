@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -55,16 +54,7 @@ func (h *RankingHandler) GetLatestRanking(c *gin.Context) {
 }
 
 func loadTimezone() *time.Location {
-	tzName := os.Getenv("CRON_TIMEZONE")
-	if tzName == "" {
-		tzName = "Asia/Shanghai"
-	}
-
-	tz, err := time.LoadLocation(tzName)
-	if err != nil {
-		return time.UTC
-	}
-	return tz
+	return services.LoadConfiguredTimezone()
 }
 
 // GenerateRanking 手动触发排行榜生成

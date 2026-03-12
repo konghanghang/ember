@@ -22,6 +22,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -54,6 +55,8 @@ const (
 	ConfigSourceDefault  = "default"
 	ConfigSourceUnset    = "unset"
 )
+
+const defaultCronTimezone = "Asia/Shanghai"
 
 type ConfigOption struct {
 	Label string `json:"label"`
@@ -878,9 +881,11 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "Cron 总开关",
 			Description:     "控制 API 内置 cron 是否启用",
 			Type:            ConfigValueBoolean,
-			Editable:        false,
+			Editable:        true,
 			RestartRequired: true,
 			DefaultValue:    "true",
+			Validate:        validateBoolean,
+			Normalize:       normalizeBoolean,
 		},
 		{
 			Key:             "CRON_SCHEDULE",
@@ -890,9 +895,11 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "过期检查计划",
 			Description:     "用户过期检查的 cron 表达式",
 			Type:            ConfigValueString,
-			Editable:        false,
+			Editable:        true,
 			RestartRequired: true,
 			DefaultValue:    "0 2 * * *",
+			Validate:        validateCronExpression,
+			Normalize:       normalizeTrimmedString,
 		},
 		{
 			Key:             "CRON_TIMEZONE",
@@ -902,9 +909,11 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "Cron 时区",
 			Description:     "cron 执行使用的时区名称",
 			Type:            ConfigValueString,
-			Editable:        false,
+			Editable:        true,
 			RestartRequired: true,
-			DefaultValue:    "Asia/Shanghai",
+			DefaultValue:    defaultCronTimezone,
+			Validate:        validateTimezone,
+			Normalize:       normalizeTrimmedString,
 		},
 		{
 			Key:             "RANKING_CRON_ENABLED",
@@ -914,9 +923,11 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "排行榜 cron 开关",
 			Description:     "控制播放排行榜定时生成是否启用",
 			Type:            ConfigValueBoolean,
-			Editable:        false,
+			Editable:        true,
 			RestartRequired: true,
 			DefaultValue:    "false",
+			Validate:        validateBoolean,
+			Normalize:       normalizeBoolean,
 		},
 		{
 			Key:             "RANKING_DAILY_SCHEDULE",
@@ -926,9 +937,11 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "日榜计划",
 			Description:     "播放日榜定时生成的 cron 表达式",
 			Type:            ConfigValueString,
-			Editable:        false,
+			Editable:        true,
 			RestartRequired: true,
 			DefaultValue:    "0 20 * * *",
+			Validate:        validateCronExpression,
+			Normalize:       normalizeTrimmedString,
 		},
 		{
 			Key:             "RANKING_WEEKLY_SCHEDULE",
@@ -938,9 +951,11 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "周榜计划",
 			Description:     "播放周榜定时生成的 cron 表达式",
 			Type:            ConfigValueString,
-			Editable:        false,
+			Editable:        true,
 			RestartRequired: true,
 			DefaultValue:    "30 20 * * 0",
+			Validate:        validateCronExpression,
+			Normalize:       normalizeTrimmedString,
 		},
 		{
 			Key:             "TV_CALENDAR_SYNC_SCHEDULE",
@@ -950,9 +965,11 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "追剧日历同步计划",
 			Description:     "追剧日历自动同步的 cron 表达式",
 			Type:            ConfigValueString,
-			Editable:        false,
+			Editable:        true,
 			RestartRequired: true,
 			DefaultValue:    "0 */12 * * *",
+			Validate:        validateCronExpression,
+			Normalize:       normalizeTrimmedString,
 		},
 		{
 			Key:         "STRIPE_SECRET_KEY",
@@ -1233,6 +1250,41 @@ func normalizeTrimmedURLAllowEmpty(value string) (string, error) {
 
 func normalizeTrimmedString(value string) (string, error) {
 	return strings.TrimSpace(value), nil
+}
+
+func validateCronExpression(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return errors.New("cron 表达式不能为空")
+	}
+	if _, err := cron.ParseStandard(trimmed); err != nil {
+		return errors.New("cron 表达式无效")
+	}
+	return nil
+}
+
+func validateTimezone(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return errors.New("时区不能为空")
+	}
+	if _, err := time.LoadLocation(trimmed); err != nil {
+		return errors.New("时区无效")
+	}
+	return nil
+}
+
+func LoadConfiguredTimezone() *time.Location {
+	tzName := NewConfigService().GetString("CRON_TIMEZONE")
+	if strings.TrimSpace(tzName) == "" {
+		tzName = defaultCronTimezone
+	}
+
+	tz, err := time.LoadLocation(tzName)
+	if err != nil {
+		return time.UTC
+	}
+	return tz
 }
 
 func validateMailAddressAllowEmpty(value string) error {
