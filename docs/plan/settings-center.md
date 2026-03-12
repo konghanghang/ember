@@ -222,25 +222,25 @@ EMBY_URL:
 | `EMAIL_CODE_DAILY_LIMIT` | env | 每邮箱发送上限 | `settings/env` | 否 | 是 | 否 |
 | `EMAIL_CODE_IP_DAILY_LIMIT` | env | 每 IP 发送上限 | `settings/env` | 否 | 是 | 否 |
 | `BOT_NOTIFY_URL` | env | API 推送到 Bot 的地址 | `settings/env` | 否 | 是 | 否 |
-| `CRON_ENABLED` | env | cron 总开关 | 后续 `settings/env` | 否 | 后续支持 | 是 |
-| `CRON_SCHEDULE` | env | 过期检查 cron 表达式 | 后续 `settings/env` | 否 | 后续支持 | 是 |
-| `CRON_TIMEZONE` | env | cron 时区 | 后续 `settings/env` | 否 | 后续支持 | 是 |
-| `RANKING_CRON_ENABLED` | env | 排行榜 cron 开关 | 后续 `settings/env` | 否 | 后续支持 | 是 |
-| `RANKING_DAILY_SCHEDULE` | env | 日榜 cron 表达式 | 后续 `settings/env` | 否 | 后续支持 | 是 |
-| `RANKING_WEEKLY_SCHEDULE` | env | 周榜 cron 表达式 | 后续 `settings/env` | 否 | 后续支持 | 是 |
-| `TV_CALENDAR_SYNC_SCHEDULE` | env | 追剧日历同步 cron 表达式 | 后续 `settings/env` | 否 | 后续支持 | 是 |
-| `STRIPE_SECRET_KEY` | env | Stripe Secret Key | 后续 `settings/env` | 是 | 后续支持 | 否 |
+| `CRON_ENABLED` | env | cron 总开关 | `settings/env` | 否 | 是 | 是 |
+| `CRON_SCHEDULE` | env | 过期检查 cron 表达式 | `settings/env` | 否 | 是 | 是 |
+| `CRON_TIMEZONE` | env | cron 时区 | `settings/env` | 否 | 是 | 是 |
+| `RANKING_CRON_ENABLED` | env | 排行榜 cron 开关 | `settings/env` | 否 | 是 | 是 |
+| `RANKING_DAILY_SCHEDULE` | env | 日榜 cron 表达式 | `settings/env` | 否 | 是 | 是 |
+| `RANKING_WEEKLY_SCHEDULE` | env | 周榜 cron 表达式 | `settings/env` | 否 | 是 | 是 |
+| `TV_CALENDAR_SYNC_SCHEDULE` | env | 追剧日历同步 cron 表达式 | `settings/env` | 否 | 是 | 是 |
+| `STRIPE_SECRET_KEY` | env | Stripe Secret Key | `settings/env` | 是 | 是 | 否 |
 | `STRIPE_WEBHOOK_SECRET` | env | Stripe Webhook Secret | 只读 env | 是 | 否 | 是 |
-| `STRIPE_SUCCESS_URL` | env | 支付成功跳转 URL | 重构收敛 | 否 | 后续支持 | 否 |
-| `STRIPE_CANCEL_URL` | env | 支付取消跳转 URL | 重构收敛 | 否 | 后续支持 | 否 |
+| `STRIPE_SUCCESS_URL` | env | 支付成功跳转 URL | `settings/env` | 否 | 是 | 否 |
+| `STRIPE_CANCEL_URL` | env | 支付取消跳转 URL | `settings/env` | 否 | 是 | 否 |
 | `DATABASE_URL` | env | 数据库连接串 | env | 是 | 否 | 是 |
 | `JWT_SECRET` | env | JWT 签名密钥 | env | 是 | 否 | 是 |
 | `INTERNAL_API_SECRET` | env | API/Bot 内部鉴权 | env | 是 | 否 | 是 |
 | `ADMIN_USERNAME` | env | 首次管理员初始化 | env | 否 | 否 | 是 |
 | `ADMIN_PASSWORD` | env | 首次管理员初始化密码 | env | 是 | 否 | 是 |
 | `TELEGRAM_BOT_TOKEN` | env | Bot Token | env | 是 | 否 | 是 |
-| `TELEGRAM_ADMIN_CHAT_ID` | env | Telegram 管理员通知对象 | 后续评估 | 否 | 后续支持 | 是 |
-| `TELEGRAM_GROUP_CHAT_ID` | env | 排行榜群推送对象 | 后续 `settings/env` | 否 | 后续支持 | 是 |
+| `TELEGRAM_ADMIN_CHAT_ID` | env | Telegram 管理员通知对象 | `settings/env` | 否 | 是 | 否 |
+| `TELEGRAM_GROUP_CHAT_ID` | env | 排行榜群推送对象 | `settings/env` | 否 | 是 | 否 |
 | `TELEGRAM_WEBHOOK_SECRET` | env | Telegram Webhook 校验密钥 | env | 是 | 否 | 是 |
 | `WEBHOOK_URL` | env | Telegram Webhook URL | env | 是 | 否 | 是 |
 | `PORT` | env | API 监听端口 | env | 否 | 否 | 是 |
@@ -287,6 +287,27 @@ v1 只解决最真实、最常改、最适合在线管理的配置，不追求�
 
 - `BOT_NOTIFY_URL`
 
+#### 支付
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_SUCCESS_URL`
+- `STRIPE_CANCEL_URL`
+
+#### 任务调度
+
+- `CRON_ENABLED`
+- `CRON_SCHEDULE`
+- `CRON_TIMEZONE`
+- `RANKING_CRON_ENABLED`
+- `RANKING_DAILY_SCHEDULE`
+- `RANKING_WEEKLY_SCHEDULE`
+- `TV_CALENDAR_SYNC_SCHEDULE`
+
+#### Telegram 运行期通知
+
+- `TELEGRAM_ADMIN_CHAT_ID`
+- `TELEGRAM_GROUP_CHAT_ID`
+
 ### v1 保持只读展示的配置
 
 - `DATABASE_URL`
@@ -302,25 +323,16 @@ v1 只解决最真实、最常改、最适合在线管理的配置，不追求�
 
 ### v1 暂不改造的配置
 
-- `CRON_ENABLED`
-- `CRON_SCHEDULE`
-- `CRON_TIMEZONE`
-- `RANKING_CRON_ENABLED`
-- `RANKING_DAILY_SCHEDULE`
-- `RANKING_WEEKLY_SCHEDULE`
-- `TV_CALENDAR_SYNC_SCHEDULE`
-- `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_SUCCESS_URL`
-- `STRIPE_CANCEL_URL`
-- `TELEGRAM_GROUP_CHAT_ID`
-- `TELEGRAM_ADMIN_CHAT_ID`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET`
+- `WEBHOOK_URL`
 
 原因：
 
-1. 这些项与服务启动行为、Webhook、安全边界、回调 URL、cron 注册关系更紧
-2. 改造需要额外处理“是否热重载”和“是否需重启”的行为定义
-3. 它们不该阻塞 v1 先把最常用配置收进设置中心
+1. 这些项直接决定 Webhook 校验和 Bot/API 启动边界
+2. 它们属于更明确的部署期安全边界，而不是普通运行期配置
+3. 把它们继续留在 env 更符合“先收运行期，再守住边界”的原则
 
 ---
 
@@ -639,22 +651,23 @@ v1 需要支持的测试组：
 
 ### 支付
 
-v1 仅展示：
-
 - `stripe_allowed_payment_methods`
-- Stripe 状态概览（只读）
-
-不在 v1 暴露 `STRIPE_SECRET_KEY` 在线编辑。
+- `STRIPE_SECRET_KEY`
+- `STRIPE_SUCCESS_URL`
+- `STRIPE_CANCEL_URL`
+- `STRIPE_WEBHOOK_SECRET`（只读）
 
 ### 通知与 Bot
 
 - `BOT_NOTIFY_URL`
 - `notify_group_link`
-- 其他 Telegram 配置暂时只读
+- `TELEGRAM_ADMIN_CHAT_ID`
+- `TELEGRAM_GROUP_CHAT_ID`
+- 其他 Telegram 启动边界配置暂时只读
 
 ### 任务调度
 
-v1 只读展示 cron 相关 env 状态，不提供编辑。
+支持在线编辑，但明确标记为“保存后需重启 API 才生效”。
 
 ### 部署与密钥
 
@@ -1002,6 +1015,9 @@ v1 必须克制：
    - MoviePilot：`MOVIEPILOT_URL`、`MOVIEPILOT_USERNAME`、`MOVIEPILOT_PASSWORD`
    - SMTP：`SMTP_*`、`EMAIL_CODE_*`
    - Bot 通知：`BOT_NOTIFY_URL`
+   - 任务调度：`CRON_*`、`RANKING_*`、`TV_CALENDAR_SYNC_SCHEDULE`
+   - 支付：`STRIPE_SECRET_KEY`、`STRIPE_SUCCESS_URL`、`STRIPE_CANCEL_URL`
+   - Telegram 运行期通知：`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`
 
 4. 后台设置页已重写为设置中心：
    - 分组导航
@@ -1014,6 +1030,7 @@ v1 必须克制：
 
 5. 兼容性与验证：
    - 旧 `/admin/settings` 接口仍保留
+   - Internal API `/api/v1/internal/settings/:key` 已优先读取统一配置层的非敏感值
    - `default_trial_days` 已统一为允许 `0`，表示无试用
    - `services/api` 下 `go build ./...` 已通过
    - `services/web` 下 `npm run build` 已通过
@@ -1021,10 +1038,8 @@ v1 必须克制：
 ### 未完成
 
 1. 计划中的后续迁移批次尚未实现：
-   - cron 配置在线编辑
-   - Stripe Secret / URL 迁移
-   - Telegram 群组 / 管理员 Chat ID 迁移
    - 更多部署边界配置的只读状态增强
+   - 剩余 Webhook / 启动期密钥的边界治理与展示优化
 
 2. 前端尚未提供敏感值“清空当前数据库覆盖值”的独立交互入口
 
@@ -1042,7 +1057,7 @@ v1 必须克制：
 1. 先确认生产库已执行 `20260312_01_expand_settings_for_config_center.sql`
 2. 补配置服务与设置中心的自动化测试
 3. 给敏感项增加“清空数据库覆盖值，回退到 env/default”的前端操作
-4. 进入下一批迁移：优先处理 cron 配置，其次 Stripe/Telegram
+4. 补剩余边界项治理：优先梳理 `STRIPE_WEBHOOK_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`
 
 ---
 
@@ -1163,7 +1178,7 @@ v1 必须克制：
 1. 新环境能按文档从 0 启用
 2. 老环境能按文档安全迁移
 
-### P1：收敛剩余运行期配置
+### P1：收敛剩余边界项与展示能力
 
 #### 任务 4：迁移 cron 配置
 
@@ -1183,7 +1198,7 @@ v1 必须克制：
 2. 明确哪些修改需要重建 cron 实例
 3. UI 必须清楚提示“保存后需重启”还是“保存后可重载”
 
-不满足这三个前提，就别急着加编辑按钮。
+状态：已完成。当前实现为“可编辑，但需重启 API 才生效”。
 
 #### 任务 5：收敛支付与 Telegram 剩余配置
 
@@ -1192,11 +1207,11 @@ v1 必须克制：
 1. Stripe Secret / 跳转 URL
 2. Telegram 群组和管理员通知目标
 
-要求：
+状态：已部分完成。
 
-1. 先做数据分层
-2. 再决定是否在线编辑
-3. 安全边界项默认仍然只读
+1. `STRIPE_SECRET_KEY`、`STRIPE_SUCCESS_URL`、`STRIPE_CANCEL_URL` 已接入统一配置层
+2. `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已接入统一配置层，Bot 运行期通过 Internal API 读取
+3. `STRIPE_WEBHOOK_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL` 仍保持只读 env
 
 ### P2：治理层能力
 
