@@ -1,12 +1,25 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 )
+
+const (
+	settingRegistrationMode           = "registration_mode"
+	settingDefaultTrialDays           = "default_trial_days"
+	settingNotifyGroupLink            = "notify_group_link"
+	settingEmailVerification          = "email_verification"
+	settingStripeAllowedPaymentMethod = "stripe_allowed_payment_methods"
+)
+
+var allowedStripePaymentMethods = []string{"card", "alipay", "wechat_pay"}
 
 // SettingService 系统配置服务
 type SettingService struct{}
@@ -31,23 +44,29 @@ func (s *SettingService) GetSettingModel(key string) (*models.Setting, error) {
 
 // SetSetting 设置配置值（带校验）
 func (s *SettingService) SetSetting(key, value string) error {
-	if key != "registration_mode" && key != "default_trial_days" && key != "notify_group_link" && key != "email_verification" {
+	switch key {
+	case settingRegistrationMode, settingDefaultTrialDays, settingNotifyGroupLink, settingEmailVerification, settingStripeAllowedPaymentMethod:
+	default:
 		return ErrSettingNotFound
 	}
 
 	switch key {
-	case "registration_mode":
+	case settingRegistrationMode:
 		if value != "open" && value != "invite" {
 			return errors.New("无效的注册模式，必须为 open 或 invite")
 		}
-	case "default_trial_days":
+	case settingDefaultTrialDays:
 		days, err := strconv.Atoi(value)
 		if err != nil || days <= 0 {
 			return errors.New("无效的试用天数")
 		}
-	case "email_verification":
+	case settingEmailVerification:
 		if value != "true" && value != "false" {
 			return errors.New("无效的值，必须为 true 或 false")
+		}
+	case settingStripeAllowedPaymentMethod:
+		if _, err := normalizeStripeAllowedPaymentMethods(value); err != nil {
+			return err
 		}
 	}
 
@@ -72,7 +91,7 @@ func (s *SettingService) GetAllSettings() ([]models.Setting, error) {
 
 // GetDefaultTrialDays 获取默认试用天数
 func (s *SettingService) GetDefaultTrialDays() int {
-	value := s.GetSetting("default_trial_days")
+	value := s.GetSetting(settingDefaultTrialDays)
 	if value == "" {
 		return 7 // 默认 7 天
 	}
@@ -85,7 +104,7 @@ func (s *SettingService) GetDefaultTrialDays() int {
 
 // GetRegistrationMode 获取注册模式
 func (s *SettingService) GetRegistrationMode() string {
-	value := s.GetSetting("registration_mode")
+	value := s.GetSetting(settingRegistrationMode)
 	if value == "" {
 		return "open" // 默认开放注册
 	}
@@ -94,5 +113,45 @@ func (s *SettingService) GetRegistrationMode() string {
 
 // IsEmailVerificationEnabled 检查邮箱验证是否启用
 func (s *SettingService) IsEmailVerificationEnabled() bool {
-	return s.GetSetting("email_verification") == "true"
+	return s.GetSetting(settingEmailVerification) == "true"
+}
+
+func (s *SettingService) GetStripeAllowedPaymentMethods() ([]string, error) {
+	methods, err := normalizeStripeAllowedPaymentMethods(s.GetSetting(settingStripeAllowedPaymentMethod))
+	if err != nil {
+		return nil, err
+	}
+	return methods, nil
+}
+
+func normalizeStripeAllowedPaymentMethods(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	var methods []string
+	if err := json.Unmarshal([]byte(raw), &methods); err != nil {
+		return nil, ErrPaymentMethodSettingInvalid
+	}
+
+	normalized := make([]string, 0, len(methods))
+	seen := make(map[string]struct{}, len(methods))
+	for _, method := range methods {
+		method = strings.TrimSpace(method)
+		if !slices.Contains(allowedStripePaymentMethods, method) {
+			return nil, ErrPaymentMethodSettingInvalid
+		}
+		if _, exists := seen[method]; exists {
+			continue
+		}
+		seen[method] = struct{}{}
+		normalized = append(normalized, method)
+	}
+
+	if len(normalized) == 0 {
+		return nil, ErrPaymentMethodSettingInvalid
+	}
+
+	return normalized, nil
 }

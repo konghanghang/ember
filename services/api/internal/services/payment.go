@@ -266,7 +266,12 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return nil, errors.New("获取方案失败")
 	}
 
-	sess, err := s.createStripeCheckoutSession(stripeSecret, successURL, cancelURL, userID, &plan)
+	paymentMethods, err := (&SettingService{}).GetStripeAllowedPaymentMethods()
+	if err != nil {
+		return nil, err
+	}
+
+	sess, err := s.createStripeCheckoutSession(stripeSecret, successURL, cancelURL, userID, &plan, paymentMethods)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +292,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	return &CreateCheckoutResponse{URL: sess.URL}, nil
 }
 
-func (s *PaymentService) createStripeCheckoutSession(secret, successURL, cancelURL, userID string, plan *models.Plan) (*stripeCheckoutSessionResponse, error) {
+func (s *PaymentService) createStripeCheckoutSession(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string) (*stripeCheckoutSessionResponse, error) {
 	form := url.Values{}
 	form.Set("mode", "payment")
 	form.Set("success_url", successURL)
@@ -300,6 +305,9 @@ func (s *PaymentService) createStripeCheckoutSession(secret, successURL, cancelU
 	form.Set("metadata[user_id]", userID)
 	form.Set("metadata[plan_id]", plan.ID)
 	form.Set("metadata[days]", strconv.Itoa(plan.Days))
+	for _, method := range paymentMethods {
+		form.Add("payment_method_types[]", method)
+	}
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/checkout/sessions", strings.NewReader(form.Encode()))
 	if err != nil {

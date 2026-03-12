@@ -239,6 +239,9 @@ services/
 - `notify_group_link` — Telegram 通知群链接（默认空）
 - `email_verification` — 是否开启邮箱验证（默认 `"false"`）
 
+**已确认的支付配置扩展**：
+- `stripe_allowed_payment_methods` — 允许的支付方式白名单。默认空字符串，表示不向 Stripe 显式传 `payment_method_types`，跟随 Stripe Dashboard 动态支付方式；非空时存 JSON 数组，如 `["card","alipay"]`。允许值仅 `card`、`alipay`、`wechat_pay`，且系统配置只做收缩，不替代 Stripe Dashboard 开关
+
 ### 4.5 Subscription（订阅求片）
 
 **表名**: `subscriptions` | **文件**: `models/subscription.go`
@@ -583,7 +586,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 Stripe 一次性支付流程管理。
 
-- `CreateCheckoutSession(userID, planID)` — 创建 Stripe Checkout Session → 存储 Payment 记录（pending）
+- `CreateCheckoutSession(userID, planID)` — 创建 Stripe Checkout Session → 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）
 - `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
 - Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
 - `GetPayments(page, pageSize)` — 支付记录查询
@@ -1003,6 +1006,8 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `STRIPE_WEBHOOK_SECRET` | — | — | Stripe Webhook 签名密钥 |
 | `STRIPE_SUCCESS_URL` | — | — | 支付成功跳转 URL |
 | `STRIPE_CANCEL_URL` | — | — | 支付取消跳转 URL |
+
+说明：Stripe Dashboard 仍是支付方式能力的真实来源；系统设置中的 `stripe_allowed_payment_methods` 仅用于进一步限制 Checkout 可展示的支付方式。
 
 ### 定时任务
 

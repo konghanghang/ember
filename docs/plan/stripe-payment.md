@@ -11,7 +11,7 @@
 - **动态 `price_data`** — 价格从我们的数据库读取，传入 Checkout Session，不需要在 Stripe Dashboard 预创建 Price 对象。管理员改价即生效
 - **一次性付费** — 与现有兑换码模型一致（买 N 天），不是 Stripe Subscription 周期订阅
 - **USD 美元** — 固定币种
-- **多支付方式** — 支持支付宝（Alipay）、微信支付（WeChat Pay）、信用卡（Card）。通过 `PaymentMethodTypes` 显式指定，Stripe 自动处理 USD→CNY 汇率转换
+- **多支付方式** — 支持支付宝（Alipay）、微信支付（WeChat Pay）、信用卡（Card）。默认跟随 Stripe Dashboard 的动态支付方式；系统可通过 `stripe_allowed_payment_methods` 显式限制允许列表，Stripe 继续处理 USD→CNY 汇率转换
 
 ---
 
@@ -136,7 +136,13 @@ Plan (1) ──→ (N) Payment
 
 未配置时支付功能不可用，但不影响系统其他功能。
 
-**Stripe Dashboard 前置配置**：需在 Settings → Payment methods 中启用 Alipay 和 WeChat Pay。
+**Stripe Dashboard 前置配置**：需在 Settings → Payment methods 中启用 Alipay 和 WeChat Pay。系统侧配置只做进一步限制，不能替代 Stripe Dashboard 的支付方式开关。
+
+**系统配置项**（`settings` 表）：
+
+| Key | 默认值 | 说明 |
+|-----|--------|------|
+| `stripe_allowed_payment_methods` | `""` | 允许的支付方式白名单。空字符串表示不向 Stripe 显式传 `payment_method_types`，完全跟随 Stripe Dashboard 动态支付方式；非空时存 JSON 数组，如 `["card","alipay"]`。允许值仅 `card`、`alipay`、`wechat_pay` |
 
 **Go 依赖**：`github.com/stripe/stripe-go/v81`
 
@@ -209,20 +215,20 @@ type CreateCheckoutRequest struct {
 
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
 	// 1. 从 DB 查询方案（必须 isActive）
-	// 2. 创建 Stripe Checkout Session：
+	// 2. 读取系统配置 stripe_allowed_payment_methods：
+	//    - 空值：不传 payment_method_types，跟随 Stripe Dashboard
+	//    - 非空：解析 JSON 数组并校验，只允许 card/alipay/wechat_pay
+	// 3. 创建 Stripe Checkout Session：
 	//    - mode: "payment"（一次性）
 	//    - line_items 使用 price_data（动态价格，从 DB 读取）
 	//    - metadata 存入 user_id、plan_id、days（用于 webhook 关联）
 	//    - success_url / cancel_url 从环境变量读取
-	// 3. 创建 Payment 记录（status = pending）
-	// 4. 返回 session.URL（前端跳转到 Stripe 页面）
+	//    - 仅在系统配置非空时显式传 payment_method_types
+	// 4. 创建 Payment 记录（status = pending）
+	// 5. 返回 session.URL（前端跳转到 Stripe 页面）
 
+	paymentMethods := loadAllowedPaymentMethodsFromSetting()
 	params := &stripe.CheckoutSessionParams{
-		PaymentMethodTypes: stripe.StringSlice([]string{
-			"alipay",
-			"wechat_pay",
-			"card",
-		}),
 		Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
@@ -244,6 +250,9 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 			"plan_id": plan.ID,
 			"days":    fmt.Sprintf("%d", plan.Days),
 		},
+	}
+	if len(paymentMethods) > 0 {
+		params.PaymentMethodTypes = stripe.StringSlice(paymentMethods)
 	}
 
 	sess, err := session.New(params)
@@ -287,7 +296,9 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 - **数据信任**：fulfillPayment 从我们自己的 Payment 记录读取 userID 和 days，不信任 Stripe metadata（metadata 仅作为创建 Payment 时的关联桥梁）
 - **事务**：Payment 状态更新 + 用户延期 + Emby 解封在同一个事务中
 - **复用逻辑**：expiry 延长和 auto-unban 的算法与 `services/redemption.go:60-131` 中的 `RedeemCode` 完全一致
-- **异步支付方式**：支付宝和微信支付属于异步确认类型，`checkout.session.completed` 时 `payment_status` 可能不是 `paid`，需要等待 `async_payment_succeeded` 事件才履约。这已在 Webhook 处理的三事件模型中覆盖
+- **支付方式来源**：默认不传 `payment_method_types`，跟随 Stripe Dashboard 动态支付方式；仅当 `stripe_allowed_payment_methods` 非空时才显式限制允许列表
+- **系统配置职责**：`stripe_allowed_payment_methods` 只做收缩，不替代 Stripe Dashboard 能力开关，也不落到 `Plan` 模型里制造方案级特殊情况
+- **异步支付方式**：当允许列表中包含支付宝或微信支付时，这两类属于异步确认支付方式，`checkout.session.completed` 时 `payment_status` 可能不是 `paid`，需要等待 `async_payment_succeeded` 事件才履约。这已在 Webhook 处理的三事件模型中覆盖
 
 #### 4.4 支付记录查询
 
@@ -642,8 +653,8 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
  │                         │                      │
  │ window.location = url   │                      │
  │ ─────────────────────────────────────────────→│
- │                    Stripe Checkout 页面         │
- │ 选择支付方式（支付宝/微信/信用卡）并支付           │
+ │      Stripe Checkout 页面（展示 Stripe Dashboard  │
+ │    或系统设置允许的支付方式）并完成支付           │
  │ ←─── 跳转 success_url ─────────────────────────│
  │                         │                      │
  │                         │ webhook: session.completed/async_*
@@ -672,18 +683,20 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 | 6 | `services/web/src/views/console/PricingView.vue` | 用户购买页 |
 | 7 | `infrastructure/database/20260222_02_add_stripe_payment_tables.sql` | 手动迁移 SQL（Plan + Payment） |
 
-### 修改文件（8 个）
+### 修改文件（10 个）
 
 | # | 文件 | 说明 |
 |---|------|------|
 | 8 | `services/api/internal/services/errors.go` | 新增 2 个 error 常量 |
-| 9 | `services/api/internal/db/db.go` | AutoMigrate 新增 Plan、Payment |
-| 10 | `services/api/cmd/server/main.go` | 创建 handler + 注册所有新路由 |
-| 11 | `services/web/src/types/api.ts` | 新增 Plan、Payment、Checkout 相关类型 |
-| 12 | `services/web/src/api/console.ts` | 新增 getActivePlans、createCheckout、getMyPayments |
-| 13 | `services/web/src/api/admin.ts` | 新增 getPlans、createPlan、updatePlan、deletePlan、getAllPayments |
-| 14 | `services/web/src/router/index.ts` | 新增 pricing 和 plans 路由 |
-| 15 | `services/web/src/components/console/Sidebar.vue` | 新增"购买订阅"和"付费方案"导航项 |
+| 9 | `services/api/internal/services/setting.go` | 新增 `stripe_allowed_payment_methods` 校验与读取 |
+| 10 | `services/api/internal/db/db.go` | AutoMigrate 新增 Plan、Payment，并 seed `stripe_allowed_payment_methods` 默认值 |
+| 11 | `services/api/cmd/server/main.go` | 创建 handler + 注册所有新路由 |
+| 12 | `services/web/src/types/api.ts` | 新增 Plan、Payment、Checkout 相关类型 |
+| 13 | `services/web/src/api/console.ts` | 新增 getActivePlans、createCheckout、getMyPayments |
+| 14 | `services/web/src/api/admin.ts` | 新增 getPlans、createPlan、updatePlan、deletePlan、getAllPayments |
+| 15 | `services/web/src/router/index.ts` | 新增 pricing 和 plans 路由 |
+| 16 | `services/web/src/components/console/Sidebar.vue` | 新增"购买订阅"和"付费方案"导航项 |
+| 17 | `services/web/src/views/admin/SettingsView.vue` | 新增支付方式配置（跟随 Stripe / 手动限制） |
 
 ---
 
@@ -698,11 +711,13 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 - 创建 PaymentHandler
 - 新增 error 常量
 - 数据库迁移
+- 接入系统设置 `stripe_allowed_payment_methods`
 - 路由注册
 
-**Phase 3 — 前端**（步骤 11-15）
+**Phase 3 — 前端**（步骤 11-17）
 - 类型定义 + API 函数
 - 管理员方案管理页
+- 系统设置页增加支付方式配置
 - 用户购买页
 - 路由 + 侧边栏
 
@@ -719,10 +734,13 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 
 3. **功能验证**（手动）：
    - 管理员创建/编辑/下架方案
+   - 管理员可在系统设置中选择“跟随 Stripe Dashboard”或手动限制支付方式
    - 用户页面展示启用的方案
    - 用户点击购买 → 跳转 Stripe Checkout
+   - 跟随 Stripe Dashboard 时，Checkout 展示 Stripe 当前启用的动态支付方式
+   - 手动限制为 `["card"]` 时，仅展示信用卡
+   - 手动限制包含支付宝/微信时，Stripe 测试模式下会模拟成功支付流程
    - 信用卡：Stripe 测试卡 `4242424242424242` 完成支付
-   - 支付宝/微信：Stripe 测试模式下会自动模拟成功支付流程
    - 本地 webhook 测试：`stripe listen --forward-to localhost:8080/api/v1/webhooks/stripe`
    - 支付成功后 User.ExpiresAt 延长
    - 过期用户支付后自动解封 Emby

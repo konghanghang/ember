@@ -17,11 +17,19 @@ const info = ref({
   redemptionCodeCount: 0
 })
 
+const paymentMethodOptions = [
+  { value: 'card', label: '信用卡' },
+  { value: 'alipay', label: '支付宝' },
+  { value: 'wechat_pay', label: '微信支付' }
+]
+
 const form = ref({
   registration_mode: 'open',
   default_trial_days: 7,
   notify_group_link: '',
-  email_verification: false
+  email_verification: false,
+  payment_method_mode: 'dynamic',
+  stripe_allowed_payment_methods: [] as string[]
 })
 
 const loading = ref(false)
@@ -42,19 +50,57 @@ const fetchSettings = async () => {
   const trial = list.find(item => item.key === 'default_trial_days')
   const notifyLink = list.find(item => item.key === 'notify_group_link')
   const emailVerify = list.find(item => item.key === 'email_verification')
+  const paymentMethods = list.find(item => item.key === 'stripe_allowed_payment_methods')
   if (mode?.value) form.value.registration_mode = mode.value
   if (trial?.value) form.value.default_trial_days = Number(trial.value) || 7
   if (notifyLink?.value !== undefined) form.value.notify_group_link = notifyLink.value
   if (emailVerify?.value !== undefined) form.value.email_verification = emailVerify.value === 'true'
+  if (paymentMethods?.value) {
+    try {
+      const parsed = JSON.parse(paymentMethods.value)
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.filter((item): item is string =>
+          paymentMethodOptions.some(option => option.value === item)
+        )
+        if (normalized.length > 0) {
+          form.value.payment_method_mode = 'restricted'
+          form.value.stripe_allowed_payment_methods = normalized
+          return
+        }
+      }
+      form.value.payment_method_mode = 'dynamic'
+      form.value.stripe_allowed_payment_methods = []
+    } catch {
+      form.value.payment_method_mode = 'dynamic'
+      form.value.stripe_allowed_payment_methods = []
+    }
+  } else {
+    form.value.payment_method_mode = 'dynamic'
+    form.value.stripe_allowed_payment_methods = []
+  }
 }
 
 const handleSaveSettings = async () => {
+  if (
+    form.value.payment_method_mode === 'restricted' &&
+    form.value.stripe_allowed_payment_methods.length === 0
+  ) {
+    ElMessage.warning('至少选择一种支付方式')
+    return
+  }
+
   saving.value = true
   try {
     await updateSetting('registration_mode', { value: form.value.registration_mode })
     await updateSetting('default_trial_days', { value: String(form.value.default_trial_days) })
     await updateSetting('notify_group_link', { value: form.value.notify_group_link })
     await updateSetting('email_verification', { value: String(form.value.email_verification) })
+    await updateSetting('stripe_allowed_payment_methods', {
+      value:
+        form.value.payment_method_mode === 'dynamic'
+          ? ''
+          : JSON.stringify(form.value.stripe_allowed_payment_methods)
+    })
     ElMessage.success('配置保存成功')
   } finally {
     saving.value = false
@@ -225,6 +271,52 @@ onMounted(async () => {
                   </div>
                   <p class="text-xs text-gray-400 mt-2">
                     {{ form.email_verification ? '注册时需要邮箱验证码（需配置 SMTP）。' : '注册时不需要邮箱验证。' }}
+                  </p>
+                </el-form-item>
+
+                <el-form-item label="支付方式" class="md:col-span-2">
+                  <div class="space-y-4">
+                    <div class="bg-gray-50 p-1 rounded-xl inline-flex w-full">
+                      <button
+                        type="button"
+                        @click="form.payment_method_mode = 'dynamic'"
+                        class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all"
+                        :class="form.payment_method_mode === 'dynamic' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
+                      >
+                        跟随 Stripe
+                      </button>
+                      <button
+                        type="button"
+                        @click="form.payment_method_mode = 'restricted'"
+                        class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all"
+                        :class="form.payment_method_mode === 'restricted' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
+                      >
+                        手动限制
+                      </button>
+                    </div>
+
+                    <div
+                      v-if="form.payment_method_mode === 'restricted'"
+                      class="rounded-2xl border border-gray-100 bg-gray-50/70 p-4"
+                    >
+                      <el-checkbox-group v-model="form.stripe_allowed_payment_methods" class="flex flex-wrap gap-3">
+                        <el-checkbox
+                          v-for="item in paymentMethodOptions"
+                          :key="item.value"
+                          :label="item.value"
+                          class="!mr-0 rounded-xl border border-gray-200 bg-white px-4 py-2"
+                        >
+                          {{ item.label }}
+                        </el-checkbox>
+                      </el-checkbox-group>
+                    </div>
+                  </div>
+                  <p class="text-xs text-gray-400 mt-2">
+                    {{
+                      form.payment_method_mode === 'dynamic'
+                        ? '不向 Stripe 显式传 payment_method_types，直接跟随 Stripe Dashboard 当前启用的动态支付方式。'
+                        : '仅允许选中的支付方式出现在 Checkout 页面。Stripe Dashboard 仍需先启用对应能力。'
+                    }}
                   </p>
                 </el-form-item>
               </div>

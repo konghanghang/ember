@@ -21,6 +21,7 @@ var (
 	ErrEmailSendFailed               = errors.New("验证码发送失败，请稍后重试")
 	ErrPlanNotFound                  = errors.New("方案不存在")
 	ErrPaymentFailed                 = errors.New("支付处理失败")
+	ErrPaymentMethodSettingInvalid   = errors.New("支付方式配置无效")
 	ErrTelegramAlreadyBound          = errors.New("该 Telegram 账号已绑定其他用户")
 	ErrTelegramBindCodeInvalid       = errors.New("绑定验证码无效或已过期")
 	ErrTelegramNotBound              = errors.New("尚未绑定 Telegram 账号")

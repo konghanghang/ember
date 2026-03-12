@@ -177,6 +177,7 @@ func seedDefaultSettings() {
 		{Key: "registration_mode", Value: "open"},
 		{Key: "notify_group_link", Value: ""},
 		{Key: "email_verification", Value: "false"},
+		{Key: "stripe_allowed_payment_methods", Value: ""},
 	}
 
 	for _, s := range defaultSettings {
