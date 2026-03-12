@@ -9,7 +9,8 @@ import (
 )
 
 type SettingHandler struct {
-	service *services.SettingService
+	service       *services.SettingService
+	configService *services.ConfigService
 }
 
 type updateSettingRequest struct {
@@ -17,7 +18,10 @@ type updateSettingRequest struct {
 }
 
 func NewSettingHandler() *SettingHandler {
-	return &SettingHandler{service: &services.SettingService{}}
+	return &SettingHandler{
+		service:       &services.SettingService{},
+		configService: services.NewConfigService(),
+	}
 }
 
 func (h *SettingHandler) GetSettings(c *gin.Context) {
@@ -71,6 +75,26 @@ func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
 // GET /api/v1/internal/settings/:key
 func (h *SettingHandler) GetSettingByKey(c *gin.Context) {
 	key := c.Param("key")
+
+	item, err := h.configService.Get(key)
+	if err == nil {
+		if item.Sensitive {
+			c.JSON(http.StatusForbidden, gin.H{"error": services.ErrConfigSensitiveReadForbidden.Error()})
+			return
+		}
+
+		value := ""
+		if item.Value != nil {
+			value = *item.Value
+		}
+		c.JSON(http.StatusOK, gin.H{"key": key, "value": value, "source": item.Source, "hasValue": item.HasValue})
+		return
+	}
+	if !errors.Is(err, services.ErrConfigNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+
 	value := h.service.GetSetting(key)
 	c.JSON(http.StatusOK, gin.H{"key": key, "value": value})
 }

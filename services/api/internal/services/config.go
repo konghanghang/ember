@@ -979,8 +979,9 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:       "Stripe Secret Key",
 			Description: "Stripe 服务端密钥",
 			Type:        ConfigValueSecret,
-			Editable:    false,
+			Editable:    true,
 			Sensitive:   true,
+			Validate:    validateNonEmpty("Stripe Secret Key 不能为空"),
 		},
 		{
 			Key:             "STRIPE_WEBHOOK_SECRET",
@@ -1002,7 +1003,7 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:       "支付成功跳转地址",
 			Description: "Stripe Checkout 支付成功后的跳转地址",
 			Type:        ConfigValueURL,
-			Editable:    false,
+			Editable:    true,
 			Validate:    validateURL,
 			Normalize:   normalizeTrimmedURL,
 		},
@@ -1014,7 +1015,7 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:       "支付取消跳转地址",
 			Description: "Stripe Checkout 支付取消后的跳转地址",
 			Type:        ConfigValueURL,
-			Editable:    false,
+			Editable:    true,
 			Validate:    validateURL,
 			Normalize:   normalizeTrimmedURL,
 		},
@@ -1097,8 +1098,10 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "Telegram 管理员 Chat ID",
 			Description:     "Bot 发送管理员通知时使用的对象",
 			Type:            ConfigValueString,
-			Editable:        false,
-			RestartRequired: true,
+			Editable:        true,
+			RestartRequired: false,
+			Validate:        validateTelegramPositiveChatID,
+			Normalize:       normalizeTrimmedString,
 		},
 		{
 			Key:             "TELEGRAM_GROUP_CHAT_ID",
@@ -1108,8 +1111,12 @@ func getConfigDefinitions() []ConfigDefinition {
 			Label:           "Telegram 群组 Chat ID",
 			Description:     "排行榜等群推送使用的目标群组",
 			Type:            ConfigValueString,
-			Editable:        false,
-			RestartRequired: true,
+			Editable:        true,
+			RestartRequired: false,
+			AllowEmpty:      true,
+			Placeholder:     "-1001234567890",
+			Validate:        validateTelegramSignedChatIDAllowEmpty,
+			Normalize:       normalizeTrimmedString,
 		},
 		{
 			Key:             "TELEGRAM_WEBHOOK_SECRET",
@@ -1250,6 +1257,30 @@ func normalizeTrimmedURLAllowEmpty(value string) (string, error) {
 
 func normalizeTrimmedString(value string) (string, error) {
 	return strings.TrimSpace(value), nil
+}
+
+func validateTelegramPositiveChatID(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return errors.New("Telegram 管理员 Chat ID 不能为空")
+	}
+	chatID, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || chatID <= 0 {
+		return errors.New("Telegram 管理员 Chat ID 无效")
+	}
+	return nil
+}
+
+func validateTelegramSignedChatIDAllowEmpty(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	chatID, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || chatID == 0 {
+		return errors.New("Telegram 群组 Chat ID 无效")
+	}
+	return nil
 }
 
 func validateCronExpression(value string) error {

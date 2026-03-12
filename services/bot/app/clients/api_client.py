@@ -121,6 +121,13 @@ async def get_setting(key: str) -> str:
     return ""
 
 
+async def get_settings(keys: list[str]) -> dict[str, str]:
+    results: dict[str, str] = {}
+    for key in keys:
+        results[key] = await get_setting(key)
+    return results
+
+
 async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:
     """调用公开 TMDB 搜索 API（无需鉴权，直接 GET）"""
     url = f"{API_URL}/api/v1/tmdb/search"

@@ -251,9 +251,10 @@ func (s *PaymentService) GetActivePlans() ([]models.Plan, error) {
 }
 
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
-	stripeSecret := strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY"))
-	successURL := strings.TrimSpace(os.Getenv("STRIPE_SUCCESS_URL"))
-	cancelURL := strings.TrimSpace(os.Getenv("STRIPE_CANCEL_URL"))
+	configService := NewConfigService()
+	stripeSecret := strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY"))
+	successURL := strings.TrimSpace(configService.GetString("STRIPE_SUCCESS_URL"))
+	cancelURL := strings.TrimSpace(configService.GetString("STRIPE_CANCEL_URL"))
 	if stripeSecret == "" || successURL == "" || cancelURL == "" {
 		return nil, ErrStripeNotConfigured
 	}

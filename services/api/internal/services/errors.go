@@ -13,6 +13,7 @@ var (
 	ErrConfigValueRequired           = errors.New("缺少配置值")
 	ErrConfigEncryptionKeyMissing    = errors.New("未配置 CONFIG_ENCRYPTION_KEY，无法保存敏感配置")
 	ErrConfigGroupUnsupported        = errors.New("不支持的配置分组测试")
+	ErrConfigSensitiveReadForbidden  = errors.New("敏感配置项不支持明文读取")
 	ErrRedeemFailed                  = errors.New("兑换失败，请稍后重试")
 	ErrEmbyUnbanFailed               = errors.New("Emby 解封失败，请稍后重试")
 	ErrSubscriptionDuplicated        = errors.New("该影片已提交订阅，请勿重复提交")

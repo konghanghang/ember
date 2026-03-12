@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from html import escape
+from typing import Optional
 
 from telegram import InputMediaPhoto, Update
 from telegram.ext import ContextTypes
@@ -35,7 +36,33 @@ from app.handlers.search_cache import (
 logger = logging.getLogger(__name__)
 
 
+def _parse_chat_id(raw: str, fallback: Optional[int]) -> Optional[int]:
+    value = raw.strip()
+    if not value:
+        return fallback
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning("Telegram Chat ID 配置无效，回退到环境变量: %s", value)
+        return fallback
+
+
+async def _get_runtime_chat_ids() -> tuple[Optional[int], Optional[int]]:
+    settings = await api_client.get_settings([
+        "TELEGRAM_ADMIN_CHAT_ID",
+        "TELEGRAM_GROUP_CHAT_ID",
+    ])
+    admin_chat_id = _parse_chat_id(settings.get("TELEGRAM_ADMIN_CHAT_ID", ""), TELEGRAM_ADMIN_CHAT_ID)
+    group_chat_id = _parse_chat_id(settings.get("TELEGRAM_GROUP_CHAT_ID", ""), TELEGRAM_GROUP_CHAT_ID)
+    return admin_chat_id, group_chat_id
+
+
 async def send_subscription_notification(bot, data: dict) -> None:
+    admin_chat_id, _ = await _get_runtime_chat_ids()
+    if admin_chat_id is None:
+        logger.warning("TELEGRAM_ADMIN_CHAT_ID 未配置，跳过订阅通知")
+        return
+
     text, keyboard = format_subscription_message(data)
     poster_path = data.get("posterPath")
 
@@ -43,7 +70,7 @@ async def send_subscription_notification(bot, data: dict) -> None:
         poster_url = f"{TMDB_IMAGE_BASE}{poster_path}"
         try:
             await bot.send_photo(
-                chat_id=TELEGRAM_ADMIN_CHAT_ID,
+                chat_id=admin_chat_id,
                 photo=poster_url,
                 caption=text,
                 parse_mode="HTML",
@@ -54,7 +81,7 @@ async def send_subscription_notification(bot, data: dict) -> None:
             logger.exception("发送海报消息失败，降级为文本消息")
 
     await bot.send_message(
-        chat_id=TELEGRAM_ADMIN_CHAT_ID,
+        chat_id=admin_chat_id,
         text=text,
         parse_mode="HTML",
         reply_markup=keyboard,
@@ -62,9 +89,14 @@ async def send_subscription_notification(bot, data: dict) -> None:
 
 
 async def send_registration_notification(bot, data: dict) -> None:
+    admin_chat_id, _ = await _get_runtime_chat_ids()
+    if admin_chat_id is None:
+        logger.warning("TELEGRAM_ADMIN_CHAT_ID 未配置，跳过注册通知")
+        return
+
     text = format_registration_message(data)
     await bot.send_message(
-        chat_id=TELEGRAM_ADMIN_CHAT_ID,
+        chat_id=admin_chat_id,
         text=text,
         parse_mode="HTML",
     )
@@ -76,9 +108,14 @@ async def send_ranking_notification(bot, data: dict) -> None:
     为了不破坏既有部署：
     - 未配置 TELEGRAM_GROUP_CHAT_ID 时，回退到管理员 chat 推送
     """
+    admin_chat_id, group_chat_id = await _get_runtime_chat_ids()
+    if admin_chat_id is None and group_chat_id is None:
+        logger.warning("TELEGRAM_ADMIN_CHAT_ID 和 TELEGRAM_GROUP_CHAT_ID 均未配置，跳过排行榜通知")
+        return
+
     text = format_ranking_message(data)
-    chat_id = TELEGRAM_GROUP_CHAT_ID or TELEGRAM_ADMIN_CHAT_ID
-    if TELEGRAM_GROUP_CHAT_ID is None:
+    chat_id = group_chat_id or admin_chat_id
+    if group_chat_id is None:
         logger.warning("TELEGRAM_GROUP_CHAT_ID 未配置，排行榜消息将回退推送到管理员")
     await bot.send_message(
         chat_id=chat_id,
@@ -92,7 +129,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if query is None or query.data is None:
         return
 
-    if query.from_user is None or query.from_user.id != TELEGRAM_ADMIN_CHAT_ID:
+    admin_chat_id, _ = await _get_runtime_chat_ids()
+    if query.from_user is None or admin_chat_id is None or query.from_user.id != admin_chat_id:
         await query.answer("你没有权限操作", show_alert=True)
         return
 

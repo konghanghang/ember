@@ -802,7 +802,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 |------|------|------|
 | PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝 |
-| GET | `/api/v1/internal/settings/:key` | 读取配置 |
+| GET | `/api/v1/internal/settings/:key` | 读取内部配置（优先返回统一配置层的非敏感值，未纳入配置中心时回退到 legacy settings） |
 | POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
 | POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
@@ -943,13 +943,15 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
 | `TELEGRAM_BOT_TOKEN` | ✅ | — | Bot Token（@BotFather 获取）|
-| `TELEGRAM_ADMIN_CHAT_ID` | ✅ | — | 管理员 Chat ID |
-| `TELEGRAM_GROUP_CHAT_ID` | — | — | 群组 Chat ID（排行榜推送）|
+| `TELEGRAM_ADMIN_CHAT_ID` | — | — | 管理员 Chat ID；可被设置中心数据库值覆盖，env 仅作兜底 |
+| `TELEGRAM_GROUP_CHAT_ID` | — | — | 群组 Chat ID（排行榜推送）；可被设置中心数据库值覆盖，env 仅作兜底 |
 | `TELEGRAM_WEBHOOK_SECRET` | ✅ | — | Webhook 签名校验 |
 | `INTERNAL_API_SECRET` | ✅ | — | 与 Go API 共享密钥 |
 | `WEBHOOK_URL` | ✅ | — | 公开 HTTPS Webhook URL |
 | `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
 | `BOT_PORT` | — | `8000` | Bot 服务端口 |
+
+说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 和 `notify_group_link`；当 API 未返回值时，回退到本地 env。
 
 ---
 
@@ -1036,10 +1038,10 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
-| `STRIPE_SECRET_KEY` | — | — | Stripe API 密钥 |
+| `STRIPE_SECRET_KEY` | — | — | Stripe API 密钥；支持被设置中心数据库值覆盖 |
 | `STRIPE_WEBHOOK_SECRET` | — | — | Stripe Webhook 签名密钥 |
-| `STRIPE_SUCCESS_URL` | — | — | 支付成功跳转 URL |
-| `STRIPE_CANCEL_URL` | — | — | 支付取消跳转 URL |
+| `STRIPE_SUCCESS_URL` | — | — | 支付成功跳转 URL；支持被设置中心数据库值覆盖 |
+| `STRIPE_CANCEL_URL` | — | — | 支付取消跳转 URL；支持被设置中心数据库值覆盖 |
 
 说明：Stripe Dashboard 仍是支付方式能力的真实来源；系统设置中的 `stripe_allowed_payment_methods` 仅用于进一步限制 Checkout 可展示的支付方式。
 

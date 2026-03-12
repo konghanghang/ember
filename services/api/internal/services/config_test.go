@@ -68,3 +68,48 @@ func TestValidateTimezone(t *testing.T) {
 		t.Fatalf("expected invalid timezone to fail")
 	}
 }
+
+func TestPaymentAndTelegramConfigDefinitionsAreEditable(t *testing.T) {
+	testCases := []struct {
+		key             string
+		restartRequired bool
+	}{
+		{key: "STRIPE_SECRET_KEY", restartRequired: false},
+		{key: "STRIPE_SUCCESS_URL", restartRequired: false},
+		{key: "STRIPE_CANCEL_URL", restartRequired: false},
+		{key: "TELEGRAM_ADMIN_CHAT_ID", restartRequired: false},
+		{key: "TELEGRAM_GROUP_CHAT_ID", restartRequired: false},
+	}
+
+	definitions := getConfigDefinitionMap()
+	for _, tc := range testCases {
+		def, ok := definitions[tc.key]
+		if !ok {
+			t.Fatalf("expected config definition %s to exist", tc.key)
+		}
+		if !def.Editable {
+			t.Fatalf("expected %s to be editable", tc.key)
+		}
+		if def.RestartRequired != tc.restartRequired {
+			t.Fatalf("expected %s restartRequired=%v, got %v", tc.key, tc.restartRequired, def.RestartRequired)
+		}
+	}
+}
+
+func TestValidateTelegramChatID(t *testing.T) {
+	if err := validateTelegramPositiveChatID("123456"); err != nil {
+		t.Fatalf("expected valid admin chat id, got %v", err)
+	}
+	if err := validateTelegramPositiveChatID("-100123"); err == nil {
+		t.Fatalf("expected negative admin chat id to fail")
+	}
+	if err := validateTelegramSignedChatIDAllowEmpty(""); err != nil {
+		t.Fatalf("expected empty group chat id to be allowed, got %v", err)
+	}
+	if err := validateTelegramSignedChatIDAllowEmpty("-1001234567890"); err != nil {
+		t.Fatalf("expected valid group chat id, got %v", err)
+	}
+	if err := validateTelegramSignedChatIDAllowEmpty("0"); err == nil {
+		t.Fatalf("expected zero group chat id to fail")
+	}
+}
