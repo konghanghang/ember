@@ -6,20 +6,20 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/services"
 )
 
 // TMDBHandler TMDB 处理器
 type TMDBHandler struct {
-	apiKey string
+	configService *services.ConfigService
 }
 
 // NewTMDBHandler 创建 TMDB 处理器
 func NewTMDBHandler() *TMDBHandler {
 	return &TMDBHandler{
-		apiKey: os.Getenv("TMDB_API_KEY"),
+		configService: services.NewConfigService(),
 	}
 }
 
@@ -68,7 +68,8 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 		return
 	}
 
-	if h.apiKey == "" {
+	apiKey := h.configService.GetString("TMDB_API_KEY")
+	if apiKey == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "TMDB API 未配置",
 		})
@@ -92,7 +93,7 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 	tmdbURL := fmt.Sprintf(
 		"https://api.themoviedb.org/3/%s?api_key=%s&query=%s&language=zh-CN&page=1",
 		endpoint,
-		h.apiKey,
+		apiKey,
 		url.QueryEscape(query),
 	)
 

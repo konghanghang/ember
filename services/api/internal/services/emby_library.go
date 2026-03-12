@@ -60,8 +60,8 @@ type embyLibraryItemsResponse struct {
 
 // GetLibraries 获取媒体库列表（兼容不同 Emby 版本响应结构）
 func (s *EmbyService) GetLibraries() ([]EmbyLibrary, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	endpoints := []string{
@@ -93,8 +93,8 @@ func (s *EmbyService) GetLibraries() ([]EmbyLibrary, error) {
 
 // GetLibraryItems 获取媒体库中的条目（分页抓取；maxItems<=0 表示全量）
 func (s *EmbyService) GetLibraryItems(libraryID string, maxItems int) ([]EmbyLibraryItem, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	libraryID = strings.TrimSpace(libraryID)
@@ -170,6 +170,10 @@ func (s *EmbyService) getLibraryItemsPage(libraryID string, startIndex, limit in
 }
 
 func (s *EmbyService) getWithAPIKey(path string, params map[string]string) ([]byte, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
+	}
+
 	base, err := url.Parse(s.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("Emby URL 无效：%w", err)
@@ -208,8 +212,8 @@ func (s *EmbyService) getWithAPIKey(path string, params map[string]string) ([]by
 
 // GetItemPrimaryImage 获取条目主图（二进制）
 func (s *EmbyService) GetItemPrimaryImage(itemID string, maxHeight int, quality int) ([]byte, string, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, "", errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, "", err
 	}
 
 	itemID = strings.TrimSpace(itemID)

@@ -238,6 +238,59 @@ export interface UpdateSettingRequest {
   value: string
 }
 
+export type ConfigValueType = 'string' | 'secret' | 'boolean' | 'integer' | 'url' | 'enum' | 'json_list'
+export type ConfigSource = 'database' | 'env' | 'default' | 'unset'
+
+export interface ConfigOption {
+  label: string
+  value: string
+}
+
+export interface AdminConfigItem {
+  key: string
+  group: string
+  groupLabel: string
+  label: string
+  description: string
+  type: ConfigValueType
+  placeholder?: string
+  editable: boolean
+  sensitive: boolean
+  restartRequired: boolean
+  options?: ConfigOption[]
+  source: ConfigSource
+  hasValue: boolean
+  value?: string
+  error?: string
+}
+
+export interface AdminConfigListResponse {
+  data: AdminConfigItem[]
+}
+
+export interface UpdateAdminConfigRequest {
+  value?: string
+  clear?: boolean
+}
+
+export interface ConfigGroupTestDetail {
+  target: string
+  success: boolean
+  message: string
+}
+
+export interface ConfigGroupTestResult {
+  success: boolean
+  message: string
+  details: ConfigGroupTestDetail[]
+}
+
+export interface ImportEnvResult {
+  imported: string[]
+  skipped: Record<string, string>
+  failed: Record<string, string>
+}
+
 export interface Subscription {
   id: string
   userId?: string

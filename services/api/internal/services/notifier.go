@@ -40,17 +40,24 @@ type BotNotifier struct {
 
 // NewBotNotifier 创建 BotNotifier
 func NewBotNotifier() *BotNotifier {
-	return &BotNotifier{
-		botURL: strings.TrimRight(os.Getenv("BOT_NOTIFY_URL"), "/"),
+	notifier := &BotNotifier{
 		secret: os.Getenv("INTERNAL_API_SECRET"),
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
 	}
+	notifier.refreshConfig()
+	return notifier
+}
+
+func (n *BotNotifier) refreshConfig() {
+	configService := NewConfigService()
+	n.botURL = strings.TrimRight(configService.GetString("BOT_NOTIFY_URL"), "/")
 }
 
 // IsConfigured 检查 Bot 通知配置
 func (n *BotNotifier) IsConfigured() bool {
+	n.refreshConfig()
 	return n.botURL != ""
 }
 

@@ -59,6 +59,7 @@ services/
 │     │  ├─ redemption_code.go   # 兑换码 CRUD
 │     │  ├─ redemption.go        # 兑换核心逻辑 + 历史
 │     │  ├─ setting.go           # 系统配置
+│     │  ├─ config.go            # ConfigService（配置定义/解析/测试/导入）
 │     │  ├─ system.go            # 系统信息 + 过期检查
 │     │  ├─ emby.go              # Emby HTTP 客户端
 │     │  ├─ emby_library.go      # Emby 媒体库列表/条目查询
@@ -79,6 +80,7 @@ services/
 │     │  ├─ auth.go              # 登录 / 注册
 │     │  ├─ user.go              # 用户管理
 │     │  ├─ redemption_code.go   # 兑换码管理
+│     │  ├─ config.go            # 设置中心配置接口
 │     │  ├─ setting.go           # 系统配置
 │     │  ├─ system.go            # 系统信息
 │     │  ├─ media.go             # 媒体信息
@@ -133,7 +135,7 @@ services/
 │  │        ├─ UsersView.vue     # 用户管理
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
-│  │        ├─ SettingsView.vue  # 系统设置
+│  │        ├─ SettingsView.vue  # 设置中心
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ SessionsView.vue  # 活跃会话
 │  │        ├─ PlaybackHistoryView.vue # 播放历史
@@ -229,18 +231,23 @@ services/
 
 | 字段 | 类型 | 列名 | 说明 |
 |------|------|------|------|
-| Key | string(50) | key | 主键 |
-| Value | string(500) | value | 值 |
+| Key | string(100) | key | 主键 |
+| Value | text | value | 值或密文 |
+| IsEncrypted | bool | isEncrypted | 是否为加密存储 |
+| UpdatedByUserID | *string(25) | updatedByUserId | 最后修改人（可空） |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
-**当前配置项**：
-- `registration_mode` — `"open"` 或 `"invite"`（默认 `"open"`）
-- `default_trial_days` — 开放注册时的试用天数（默认 `"7"`）
-- `notify_group_link` — Telegram 通知群链接（默认空）
-- `email_verification` — 是否开启邮箱验证（默认 `"false"`）
+**设计要点**：
+- `settings` 已扩展为设置中心的运行期存储层
+- 配置解析优先级固定为：数据库覆盖值 > 环境变量 > 代码默认值
+- 敏感配置可加密落库，不通过 API 明文回显
 
-**已确认的支付配置扩展**：
-- `stripe_allowed_payment_methods` — 允许的支付方式白名单。默认空字符串，表示不向 Stripe 显式传 `payment_method_types`，跟随 Stripe Dashboard 动态支付方式；非空时存 JSON 数组，如 `["card","alipay"]`。允许值仅 `card`、`alipay`、`wechat_pay`，且系统配置只做收缩，不替代 Stripe Dashboard 开关
+**当前已托管或接入统一解析的配置项**：
+- 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`email_verification`、`stripe_allowed_payment_methods`
+- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_USERNAME`、`MOVIEPILOT_PASSWORD`
+- 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
+- 通知：`BOT_NOTIFY_URL`
+- 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT`、`AUTO_MIGRATE` 等
 
 ### 4.5 Subscription（订阅求片）
 
@@ -495,13 +502,28 @@ TMDBCache（独立缓存表）
 - `GetSetting(key)` / `SetSetting(key, value)` — 带值校验
 - `GetRegistrationMode()` — 默认 `"open"`
 - `GetDefaultTrialDays()` — 默认 `7`
+- 仍负责兼容旧 `/admin/settings` 接口和少量业务开关
 
-### 5.6 SystemService (`services/system.go`)
+### 5.6 ConfigService (`services/config.go`)
+
+- `List()` — 返回配置定义 + 当前解析结果（来源、是否有值、是否敏感、是否需重启）
+- `Update(key, req, userID)` — 更新单项配置，支持敏感值加密存储
+- `ResolveString(key)` / `GetString(key)` — 统一配置读取入口
+- `TestGroup(group)` — 分组配置连通性测试（v1: `media`、`email`）
+- `ImportEnv(userID)` — 把允许托管的环境变量导入数据库
+
+**关键职责**：
+- 配置定义注册表（标签、分组、类型、校验、默认值）
+- 读取优先级：数据库覆盖值 > 环境变量 > 默认值
+- 敏感值加密：`CONFIG_ENCRYPTION_KEY`
+- 运行期配置中心 API 的后端基础设施
+
+### 5.7 SystemService (`services/system.go`)
 
 - `GetSystemInfo()` — 统计：用户数、活跃数、兑换码数
 - `CheckExpiredUsers()` — **cron 核心**：查询 `expiresAt < NOW() AND embyDisabled = false` → 调用 Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`
 
-### 5.7 EmbyService (`services/emby.go`)
+### 5.8 EmbyService (`services/emby.go`)
 
 Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
@@ -519,7 +541,11 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **认证方式**：`X-Emby-Token` 头
 
-### 5.8 MediaService (`services/media.go`)
+**配置读取**：
+- `refreshConfig()` 在调用前通过 `ConfigService` 重新解析 `EMBY_URL` / `EMBY_API_KEY`
+- 设置中心改完 Emby 配置后，无需重启 API 即可对新请求生效
+
+### 5.9 MediaService (`services/media.go`)
 
 - `GetEmbyConfig()` — 返回公开的 Emby URL（`NEXT_PUBLIC_EMBY_URL` 优先，回退 `EMBY_URL`）
 - `GetMediaStats()` — 5 分钟 RWMutex 缓存层
@@ -726,6 +752,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/user-templates` | 模板用户列表 |
 | GET | `/api/v1/admin/settings` | 获取所有配置 |
 | PUT | `/api/v1/admin/settings/:key` | 更新配置 |
+| GET | `/api/v1/admin/configs` | 获取设置中心全部配置（定义 + 当前值 + 来源） |
+| PATCH | `/api/v1/admin/configs/:key` | 更新单项配置 |
+| POST | `/api/v1/admin/configs/:group/test` | 测试指定配置组 |
+| POST | `/api/v1/admin/configs/import-env` | 导入当前环境变量为数据库覆盖值 |
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史 |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |

@@ -8,8 +8,8 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
-	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
@@ -34,15 +34,25 @@ type EmailService struct {
 
 // NewEmailService 从环境变量初始化
 func NewEmailService() *EmailService {
-	port := os.Getenv("SMTP_PORT")
+	service := &EmailService{}
+	service.refreshConfig()
+	return service
+}
+
+func (s *EmailService) refreshConfig() {
+	configService := NewConfigService()
+
+	port := configService.GetString("SMTP_PORT")
 	if port == "" {
 		port = "587"
 	}
 
-	from := os.Getenv("SMTP_FROM")
+	username := configService.GetString("SMTP_USERNAME")
+	from := configService.GetString("SMTP_FROM")
 	if from == "" {
-		from = os.Getenv("SMTP_USERNAME")
+		from = username
 	}
+
 	fromAddress := ""
 	if from != "" {
 		if addr, err := mail.ParseAddress(from); err == nil {
@@ -51,46 +61,46 @@ func NewEmailService() *EmailService {
 	}
 
 	expiryMinutes := 10
-	if v := os.Getenv("EMAIL_CODE_EXPIRY_MINUTES"); v != "" {
+	if v := configService.GetString("EMAIL_CODE_EXPIRY_MINUTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			expiryMinutes = n
 		}
 	}
 
 	dailyLimit := 5
-	if v := os.Getenv("EMAIL_CODE_DAILY_LIMIT"); v != "" {
+	if v := configService.GetString("EMAIL_CODE_DAILY_LIMIT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			dailyLimit = n
 		}
 	}
 
 	ipDailyLimit := 15
-	if v := os.Getenv("EMAIL_CODE_IP_DAILY_LIMIT"); v != "" {
+	if v := configService.GetString("EMAIL_CODE_IP_DAILY_LIMIT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			ipDailyLimit = n
 		}
 	}
 
-	return &EmailService{
-		host:          os.Getenv("SMTP_HOST"),
-		port:          port,
-		username:      os.Getenv("SMTP_USERNAME"),
-		password:      os.Getenv("SMTP_PASSWORD"),
-		from:          from,
-		fromAddress:   fromAddress,
-		expiryMinutes: expiryMinutes,
-		dailyLimit:    dailyLimit,
-		ipDailyLimit:  ipDailyLimit,
-	}
+	s.host = strings.TrimSpace(configService.GetString("SMTP_HOST"))
+	s.port = strings.TrimSpace(port)
+	s.username = strings.TrimSpace(username)
+	s.password = configService.GetString("SMTP_PASSWORD")
+	s.from = strings.TrimSpace(from)
+	s.fromAddress = fromAddress
+	s.expiryMinutes = expiryMinutes
+	s.dailyLimit = dailyLimit
+	s.ipDailyLimit = ipDailyLimit
 }
 
 // IsConfigured 检查 SMTP 是否配置
 func (s *EmailService) IsConfigured() bool {
+	s.refreshConfig()
 	return s.host != "" && s.username != "" && s.password != "" && s.fromAddress != ""
 }
 
 // IsEnabled 综合判断：SMTP 已配置 + 业务开关开启
 func (s *EmailService) IsEnabled() bool {
+	s.refreshConfig()
 	if !s.IsConfigured() {
 		return false
 	}
@@ -102,6 +112,7 @@ func (s *EmailService) IsEnabled() bool {
 // ip 参数由 handler 层通过 c.ClientIP() 传入
 // codeType 取值：models.VerificationTypeRegister 或 models.VerificationTypeReset
 func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
+	s.refreshConfig()
 	if !s.IsConfigured() {
 		return ErrEmailNotConfigured
 	}
@@ -208,6 +219,7 @@ func (s *EmailService) CleanupExpired() (int64, error) {
 
 // sendEmail 通过 SMTP 发送邮件（使用 gomail 生成 MIME，并设置全链路超时）
 func (s *EmailService) sendEmail(to, subject, body string) error {
+	s.refreshConfig()
 	m := gomail.NewMessage()
 	m.SetHeader("From", s.from)
 	m.SetHeader("To", to)
@@ -268,6 +280,14 @@ func (s *EmailService) sendEmail(to, subject, body string) error {
 	}
 
 	return nil
+}
+
+func (s *EmailService) TestConnection() error {
+	s.refreshConfig()
+	if !s.IsConfigured() {
+		return ErrEmailNotConfigured
+	}
+	return TestSMTPDial(s.host, s.port)
 }
 
 // generateVerificationCode 生成 6 位随机数字验证码

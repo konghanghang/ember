@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,20 +114,27 @@ type TVCalendarService struct {
 }
 
 func NewTVCalendarService() *TVCalendarService {
-	return &TVCalendarService{
+	service := &TVCalendarService{
 		embyService: NewEmbyService(),
-		tmdbAPIKey:  strings.TrimSpace(os.Getenv("TMDB_API_KEY")),
 		httpClient: &http.Client{
 			Timeout: tvCalendarFetchTimeout,
 		},
 		memoryCache: make(map[string]tmdbMemoryCacheEntry),
 	}
+	service.refreshConfig()
+	return service
+}
+
+func (s *TVCalendarService) refreshConfig() {
+	configService := NewConfigService()
+	s.tmdbAPIKey = strings.TrimSpace(configService.GetString("TMDB_API_KEY"))
+	s.embyService.refreshConfig()
 }
 
 func (s *TVCalendarService) SyncAvailable() bool {
+	s.refreshConfig()
 	return strings.TrimSpace(s.tmdbAPIKey) != "" &&
-		strings.TrimSpace(s.embyService.baseURL) != "" &&
-		strings.TrimSpace(s.embyService.apiKey) != ""
+		s.embyService.IsConfigured()
 }
 
 func DefaultTVCalendarWeekOffsets() []int {
@@ -632,6 +638,7 @@ func (s *TVCalendarService) upsertCalendarItem(item models.TVCalendarItem, force
 }
 
 func (s *TVCalendarService) DiscoverContinuingSeries(ctx context.Context) (int, error) {
+	s.refreshConfig()
 	if strings.TrimSpace(s.embyService.baseURL) == "" || strings.TrimSpace(s.embyService.apiKey) == "" {
 		return 0, fmt.Errorf("Emby 配置未设置")
 	}
@@ -869,6 +876,7 @@ func (s *TVCalendarService) setTMDBMemoryCache(cacheKey string, payload []byte, 
 }
 
 func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, tmdbID *string, force bool) (int, error) {
+	s.refreshConfig()
 	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
 	return runTVCalendarSyncOnce(tvCalendarWeekSyncLockKey(normalizedWeekStart, tmdbID, force), func() (int, error) {
 		if strings.TrimSpace(s.tmdbAPIKey) == "" {
@@ -982,6 +990,7 @@ func (s *TVCalendarService) SyncWeeklyCalendar(ctx context.Context, weekOffset i
 }
 
 func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int, tmdbID *string, force bool) (int, error) {
+	s.refreshConfig()
 	offsets, err := normalizeWeekOffsets(weekOffsets)
 	if err != nil {
 		return 0, err
@@ -1158,6 +1167,7 @@ func (s *TVCalendarService) buildWeeklyCalendar(items []models.TVCalendarItem, s
 }
 
 func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekStart time.Time, status string) (*TVCalendarWeeklyDTO, error) {
+	s.refreshConfig()
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
@@ -1196,6 +1206,7 @@ func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekSta
 }
 
 func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, userID string, weekStart time.Time, status string) (*TVCalendarWeeklyDTO, error) {
+	s.refreshConfig()
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
@@ -1245,6 +1256,7 @@ func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, user
 }
 
 func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, startDate, endDate time.Time, status string) ([]TVCalendarDTO, error) {
+	s.refreshConfig()
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
@@ -1289,6 +1301,7 @@ func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, st
 }
 
 func (s *TVCalendarService) Subscribe(userID string, req CreateTVCalendarSubscriptionRequest) error {
+	s.refreshConfig()
 	tmdbID := strings.TrimSpace(req.TmdbID)
 	if tmdbID == "" {
 		return ErrTVCalendarTMDBIDRequired
@@ -1329,6 +1342,7 @@ func (s *TVCalendarService) Subscribe(userID string, req CreateTVCalendarSubscri
 }
 
 func (s *TVCalendarService) GetSubscriptions(userID string) ([]models.TVCalendarSubscription, error) {
+	s.refreshConfig()
 	var subscriptions []models.TVCalendarSubscription
 	if err := db.DB.Where("\"userId\" = ?", userID).Order("\"createdAt\" DESC").Find(&subscriptions).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧订阅失败: %w", err)
@@ -1337,6 +1351,7 @@ func (s *TVCalendarService) GetSubscriptions(userID string) ([]models.TVCalendar
 }
 
 func (s *TVCalendarService) Unsubscribe(userID, tmdbID string) error {
+	s.refreshConfig()
 	tmdbID = strings.TrimSpace(tmdbID)
 	if tmdbID == "" {
 		return ErrTVCalendarTMDBIDRequired
@@ -1351,6 +1366,7 @@ func (s *TVCalendarService) Unsubscribe(userID, tmdbID string) error {
 
 // MarkEpisodeReadyByWebhook Webhook 点亮剧集状态
 func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbID, seriesID string, season, episode int, embyItemID string) (int64, error) {
+	s.refreshConfig()
 	if season <= 0 || episode <= 0 {
 		return 0, nil
 	}

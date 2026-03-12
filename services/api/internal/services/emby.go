@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -38,13 +37,31 @@ const (
 
 // NewEmbyService 创建 Emby 服务
 func NewEmbyService() *EmbyService {
-	return &EmbyService{
-		baseURL: os.Getenv("EMBY_URL"),
-		apiKey:  os.Getenv("EMBY_API_KEY"),
+	service := &EmbyService{
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+	service.refreshConfig()
+	return service
+}
+
+func (s *EmbyService) refreshConfig() {
+	configService := NewConfigService()
+	s.baseURL = strings.TrimRight(configService.GetString("EMBY_URL"), "/")
+	s.apiKey = strings.TrimSpace(configService.GetString("EMBY_API_KEY"))
+}
+
+func (s *EmbyService) ensureConfigured() error {
+	s.refreshConfig()
+	if s.baseURL == "" || s.apiKey == "" {
+		return errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	}
+	return nil
+}
+
+func (s *EmbyService) IsConfigured() bool {
+	return s.ensureConfigured() == nil
 }
 
 // EmbyUser Emby 用户信息
@@ -70,8 +87,8 @@ type AuthenticateUserResponse struct {
 
 // AuthenticateUser 验证 Emby 用户
 func (s *EmbyService) AuthenticateUser(username, password string) (*EmbyUser, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	// 构建请求
@@ -122,8 +139,8 @@ func (s *EmbyService) AuthenticateUser(username, password string) (*EmbyUser, er
 
 // GetUserByID 通过 Emby ID 获取用户信息
 func (s *EmbyService) GetUserByID(embyUserID string) (*EmbyUser, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	url := fmt.Sprintf("%s/emby/Users/%s?api_key=%s", s.baseURL, embyUserID, s.apiKey)
@@ -157,8 +174,8 @@ func (s *EmbyService) GetUserByID(embyUserID string) (*EmbyUser, error) {
 
 // UpdateUserPassword 更新 Emby 用户密码
 func (s *EmbyService) UpdateUserPassword(embyUserID, newPassword string) error {
-	if s.baseURL == "" || s.apiKey == "" {
-		return errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 
 	url := fmt.Sprintf("%s/emby/Users/%s/Password", s.baseURL, embyUserID)
@@ -197,8 +214,8 @@ func (s *EmbyService) UpdateUserPassword(embyUserID, newPassword string) error {
 
 // TestConnection 测试 Emby 连接
 func (s *EmbyService) TestConnection() error {
-	if s.baseURL == "" || s.apiKey == "" {
-		return errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 
 	url := fmt.Sprintf("%s/emby/System/Info?api_key=%s", s.baseURL, s.apiKey)
@@ -222,8 +239,8 @@ func (s *EmbyService) TestConnection() error {
 
 // CreateEmbyUser 创建 Emby 用户
 func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	createURL := fmt.Sprintf("%s/emby/Users/New?api_key=%s", s.baseURL, s.apiKey)
@@ -281,8 +298,8 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 
 // DeleteUser 删除 Emby 用户
 func (s *EmbyService) DeleteUser(embyUserID string) error {
-	if s.baseURL == "" || s.apiKey == "" {
-		return errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 
 	url := fmt.Sprintf("%s/emby/Users/%s", s.baseURL, embyUserID)
@@ -314,8 +331,8 @@ func (s *EmbyService) DeleteUser(embyUserID string) error {
 
 // GetUsers 获取所有 Emby 用户
 func (s *EmbyService) GetUsers() ([]EmbyUser, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	url := fmt.Sprintf("%s/emby/Users?api_key=%s", s.baseURL, s.apiKey)
@@ -382,8 +399,8 @@ func sanitizeEmbyErrorBody(b []byte) string {
 
 // GetMediaStats 获取媒体库统计信息
 func (s *EmbyService) GetMediaStats() (*MediaStats, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	url := fmt.Sprintf("%s/emby/Items/Counts?api_key=%s", s.baseURL, s.apiKey)
@@ -419,8 +436,8 @@ func (s *EmbyService) GetMediaStats() (*MediaStats, error) {
 // GetLatestItems 获取用户视角的最近入库媒体
 // 使用 /emby/Users/{userId}/Items/Latest 端点（返回裸数组 []EmbyItem）
 func (s *EmbyService) GetLatestItems(embyUserID string, itemType string, limit int) ([]EmbyItem, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(embyUserID) == "" {
 		return nil, errors.New("Emby 用户 ID 不能为空")
@@ -527,8 +544,8 @@ func NewDefaultUserPolicy(isDisabled bool) EmbyUserPolicy {
 }
 
 func (s *EmbyService) getUserPolicyRaw(embyUserID string) (map[string]any, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	url := fmt.Sprintf("%s/emby/Users/%s/Policy", s.baseURL, embyUserID)
@@ -567,8 +584,8 @@ func (s *EmbyService) GetUserPolicyRaw(embyUserID string) (map[string]any, error
 }
 
 func (s *EmbyService) setUserPolicyRaw(embyUserID string, policy map[string]any) error {
-	if s.baseURL == "" || s.apiKey == "" {
-		return errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 
 	url := fmt.Sprintf("%s/emby/Users/%s/Policy", s.baseURL, embyUserID)
@@ -648,8 +665,8 @@ func (s *EmbyService) ApplyEmberDefaultUserPolicy(embyUserID string, isDisabled 
 
 // SetUserPolicy 更新用户权限策略
 func (s *EmbyService) SetUserPolicy(embyUserID string, policy EmbyUserPolicy) error {
-	if s.baseURL == "" || s.apiKey == "" {
-		return errors.New("Emby 配置未设置")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 
 	url := fmt.Sprintf("%s/emby/Users/%s/Policy", s.baseURL, embyUserID)
@@ -693,8 +710,8 @@ type CustomQueryResponse struct {
 // 插件 API：POST /emby/user_usage_stats/submit_custom_query
 // 请求体：{"CustomQueryString": "SQL"}
 func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	reqBody := map[string]string{
@@ -777,8 +794,8 @@ type EmbySession struct {
 }
 
 func (s *EmbyService) fetchSessions(playingOnly bool) ([]EmbySession, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	endpoint := fmt.Sprintf("%s/emby/Sessions", s.baseURL)
@@ -854,8 +871,8 @@ type embyDeviceListResponse struct {
 
 // GetDevices 获取 Emby 设备列表
 func (s *EmbyService) GetDevices() ([]EmbyDevice, error) {
-	if s.baseURL == "" || s.apiKey == "" {
-		return nil, errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 
 	endpoint := fmt.Sprintf("%s/emby/Devices?api_key=%s", s.baseURL, s.apiKey)
@@ -901,8 +918,8 @@ func (s *EmbyService) GetDevices() ([]EmbyDevice, error) {
 
 // LogoutDevice 强制设备下线
 func (s *EmbyService) LogoutDevice(deviceID string) error {
-	if s.baseURL == "" || s.apiKey == "" {
-		return errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {

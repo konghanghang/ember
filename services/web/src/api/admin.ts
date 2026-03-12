@@ -1,13 +1,17 @@
 import request from './request'
 import type {
   ActiveSession,
+  AdminConfigItem,
+  AdminConfigListResponse,
   ClientBlacklist,
+  ConfigGroupTestResult,
   CreatePlanRequest,
   CreateRedemptionCodeRequest,
   CronCheckResponse,
   DeviceAction,
   DeviceListQuery,
   DeviceListResponse,
+  ImportEnvResult,
   DeviceStats,
   MediaQualityLowDetailItem,
   MediaQualityLibrary,
@@ -30,7 +34,8 @@ import type {
   UserTemplate,
   UserInfo,
   UserListQuery,
-  UserListResponse
+  UserListResponse,
+  UpdateAdminConfigRequest
 } from '@/types/api'
 
 // User Management
@@ -138,6 +143,35 @@ export function updateSetting(key: string, data: UpdateSettingRequest): Promise<
 		method: 'put',
 		data
 	})
+}
+
+export function getConfigs(): Promise<AdminConfigListResponse> {
+  return request({
+    url: '/admin/configs',
+    method: 'get'
+  })
+}
+
+export function updateConfig(key: string, data: UpdateAdminConfigRequest): Promise<AdminConfigItem> {
+  return request({
+    url: `/admin/configs/${key}`,
+    method: 'patch',
+    data
+  })
+}
+
+export function testConfigGroup(group: string): Promise<ConfigGroupTestResult> {
+  return request({
+    url: `/admin/configs/${group}/test`,
+    method: 'post'
+  })
+}
+
+export function importConfigEnv(): Promise<ImportEnvResult> {
+  return request({
+    url: '/admin/configs/import-env',
+    method: 'post'
+  })
 }
 
 export function getAllRedemptions(params?: { page?: number; pageSize?: number; userId?: string }): Promise<RedemptionListResponse> {

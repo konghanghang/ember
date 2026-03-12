@@ -42,6 +42,7 @@ func main() {
 	userHandler := handlers.NewUserHandler()
 	redemptionCodeHandler := handlers.NewRedemptionCodeHandler()
 	settingHandler := handlers.NewSettingHandler()
+	configHandler := handlers.NewConfigHandler()
 	subscriptionHandler := handlers.NewSubscriptionHandler()
 	mediaHandler := handlers.NewMediaHandler()
 	systemHandler := handlers.NewSystemHandler()
@@ -100,6 +101,10 @@ func main() {
 			admin.GET("/user-templates", redemptionCodeHandler.GetUserTemplates)
 			admin.GET("/settings", settingHandler.GetSettings)
 			admin.PUT("/settings/:key", settingHandler.UpdateSetting)
+			admin.GET("/configs", configHandler.GetConfigs)
+			admin.PATCH("/configs/:key", configHandler.UpdateConfig)
+			admin.POST("/configs/:group/test", configHandler.TestConfigGroup)
+			admin.POST("/configs/import-env", configHandler.ImportEnv)
 			admin.GET("/redemptions", userHandler.GetAllRedemptions)
 
 			// 订阅管理

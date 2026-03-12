@@ -7,8 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,27 +22,25 @@ type MoviePilotClient struct {
 
 // NewMoviePilotClient 创建 MoviePilot 客户端
 func NewMoviePilotClient() *MoviePilotClient {
-	baseURL := os.Getenv("MOVIEPILOT_URL")
-	username := os.Getenv("MOVIEPILOT_USERNAME")
-	password := os.Getenv("MOVIEPILOT_PASSWORD")
-
-	// 去除尾部斜杠
-	if len(baseURL) > 0 && baseURL[len(baseURL)-1] == '/' {
-		baseURL = baseURL[:len(baseURL)-1]
-	}
-
-	return &MoviePilotClient{
-		baseURL:  baseURL,
-		username: username,
-		password: password,
+	client := &MoviePilotClient{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+	client.refreshConfig()
+	return client
+}
+
+func (c *MoviePilotClient) refreshConfig() {
+	configService := NewConfigService()
+	c.baseURL = strings.TrimRight(configService.GetString("MOVIEPILOT_URL"), "/")
+	c.username = configService.GetString("MOVIEPILOT_USERNAME")
+	c.password = configService.GetString("MOVIEPILOT_PASSWORD")
 }
 
 // IsConfigured 检查配置是否完整
 func (c *MoviePilotClient) IsConfigured() bool {
+	c.refreshConfig()
 	return c.baseURL != "" && c.username != "" && c.password != ""
 }
 
@@ -57,6 +55,10 @@ type loginResponse struct {
 // - 简化实现，无需处理 token 过期、刷新逻辑
 // - 调用频率低（仅在审核通过时），性能影响可忽略
 func (c *MoviePilotClient) login() (string, error) {
+	c.refreshConfig()
+	if !c.IsConfigured() {
+		return "", fmt.Errorf("MoviePilot 未配置")
+	}
 	// 构建表单数据
 	formData := url.Values{}
 	formData.Set("username", c.username)
@@ -88,6 +90,18 @@ func (c *MoviePilotClient) login() (string, error) {
 	}
 
 	return loginResp.AccessToken, nil
+}
+
+func (c *MoviePilotClient) TestConnection() error {
+	if !c.IsConfigured() {
+		return fmt.Errorf("MoviePilot 未配置")
+	}
+
+	_, err := c.login()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // SubscribeRequest 订阅请求

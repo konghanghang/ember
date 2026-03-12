@@ -9,6 +9,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -57,7 +58,7 @@ func (s *SettingService) SetSetting(key, value string) error {
 		}
 	case settingDefaultTrialDays:
 		days, err := strconv.Atoi(value)
-		if err != nil || days <= 0 {
+		if err != nil || days < 0 {
 			return errors.New("无效的试用天数")
 		}
 	case settingEmailVerification:
@@ -65,18 +66,25 @@ func (s *SettingService) SetSetting(key, value string) error {
 			return errors.New("无效的值，必须为 true 或 false")
 		}
 	case settingStripeAllowedPaymentMethod:
-		if _, err := normalizeStripeAllowedPaymentMethods(value); err != nil {
+		if _, err := NormalizeStripeAllowedPaymentMethods(value); err != nil {
 			return err
 		}
 	}
 
-	var setting models.Setting
-	if err := db.DB.Where("key = ?", key).First(&setting).Error; err != nil {
-		return ErrSettingNotFound
+	setting := models.Setting{
+		Key:         key,
+		Value:       value,
+		IsEncrypted: false,
 	}
 
-	setting.Value = value
-	return db.DB.Save(&setting).Error
+	return db.DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "key"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"value":       value,
+			"isEncrypted": false,
+			"updatedAt":   clause.Expr{SQL: "CURRENT_TIMESTAMP"},
+		}),
+	}).Create(&setting).Error
 }
 
 // GetAllSettings 获取所有配置
@@ -96,7 +104,7 @@ func (s *SettingService) GetDefaultTrialDays() int {
 		return 7 // 默认 7 天
 	}
 	days, err := strconv.Atoi(value)
-	if err != nil || days <= 0 {
+	if err != nil || days < 0 {
 		return 7
 	}
 	return days
@@ -117,14 +125,14 @@ func (s *SettingService) IsEmailVerificationEnabled() bool {
 }
 
 func (s *SettingService) GetStripeAllowedPaymentMethods() ([]string, error) {
-	methods, err := normalizeStripeAllowedPaymentMethods(s.GetSetting(settingStripeAllowedPaymentMethod))
+	methods, err := NormalizeStripeAllowedPaymentMethods(s.GetSetting(settingStripeAllowedPaymentMethod))
 	if err != nil {
 		return nil, err
 	}
 	return methods, nil
 }
 
-func normalizeStripeAllowedPaymentMethods(raw string) ([]string, error) {
+func NormalizeStripeAllowedPaymentMethods(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil

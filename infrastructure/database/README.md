@@ -11,6 +11,9 @@ psql "$DATABASE_URL" -f infrastructure/database/20260215_01_create_playback_rank
 
 # 追剧日历功能迁移（2026-03-05）
 psql "$DATABASE_URL" -f infrastructure/database/20260305_03_add_tv_calendar_tables.sql
+
+# 设置中心配置表扩展（2026-03-12）
+psql "$DATABASE_URL" -f infrastructure/database/20260312_01_expand_settings_for_config_center.sql
 ```
 
 2. **Docker 首次初始化（仅首次）**
