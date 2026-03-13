@@ -548,7 +548,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 MediaService (`services/media.go`)
 
-- `GetEmbyConfig()` — 返回公开的 Emby URL（`NEXT_PUBLIC_EMBY_URL` 优先，回退 `EMBY_URL`）
+- `GetEmbyConfig()` — 返回公开的 Emby URL（`NEXT_PUBLIC_EMBY_URL` 优先；该项允许显式置空以强制回退 `EMBY_URL`）
 - `GetMediaStats()` — 5 分钟 RWMutex 缓存层
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
@@ -1003,7 +1003,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 |------|------|--------|------|
 | `EMBY_URL` | — | — | Emby 服务器内部 URL |
 | `EMBY_API_KEY` | — | — | Emby API 密钥 |
-| `NEXT_PUBLIC_EMBY_URL` | — | — | Emby 公开 URL（给前端用）|
+| `NEXT_PUBLIC_EMBY_URL` | — | — | Emby 公开 URL（给前端用）；允许显式置空后回退 `EMBY_URL` |
 | `WEBHOOK_TOKEN` | — | — | Emby Webhook token（`/api/v1/webhooks/emby?token=`）|
 | `EMBY_WEBHOOK_TOKEN` | — | — | `WEBHOOK_TOKEN` 兼容别名 |
 
@@ -1024,7 +1024,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `SMTP_PORT` | — | `587` | SMTP 端口 |
 | `SMTP_USERNAME` | — | — | SMTP 用户名 |
 | `SMTP_PASSWORD` | — | — | SMTP 密码 |
-| `SMTP_FROM` | — | — | 发件人（回退 `SMTP_USERNAME`）|
+| `SMTP_FROM` | — | — | 发件人；允许显式置空后回退 `SMTP_USERNAME` |
 | `EMAIL_CODE_EXPIRY_MINUTES` | — | `10` | 验证码有效期（分钟）|
 | `EMAIL_CODE_DAILY_LIMIT` | — | `5` | 每邮箱每日发送上限 |
 | `EMAIL_CODE_IP_DAILY_LIMIT` | — | `15` | 每 IP 每日发送上限 |
@@ -1033,7 +1033,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
-| `BOT_NOTIFY_URL` | — | — | Bot 通知 Webhook 地址 |
+| `BOT_NOTIFY_URL` | — | — | Bot 通知 Webhook 地址；允许显式置空后关闭推送 |
 | `INTERNAL_API_SECRET` | — | — | 内部通信共享密钥 |
 
 ### Stripe 支付

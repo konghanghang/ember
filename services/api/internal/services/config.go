@@ -737,9 +737,14 @@ func getConfigDefinitions() []ConfigDefinition {
 			Type:        ConfigValueURL,
 			Editable:    true,
 			Placeholder: "https://your-public-emby.com",
-			AllowEmpty:  false,
-			Validate:    validateURL,
-			Normalize:   normalizeTrimmedURL,
+			AllowEmpty:  true,
+			Validate: func(value string) error {
+				if strings.TrimSpace(value) == "" {
+					return nil
+				}
+				return validateURL(value)
+			},
+			Normalize: normalizeTrimmedURLAllowEmpty,
 		},
 		{
 			Key:         "TMDB_API_KEY",
@@ -851,7 +856,7 @@ func getConfigDefinitions() []ConfigDefinition {
 			Type:        ConfigValueString,
 			Editable:    true,
 			Placeholder: "Ember <no-reply@example.com>",
-			AllowEmpty:  false,
+			AllowEmpty:  true,
 			Validate:    validateMailAddressAllowEmpty,
 			Normalize:   normalizeTrimmedString,
 		},
@@ -900,10 +905,15 @@ func getConfigDefinitions() []ConfigDefinition {
 			Description: "API fire-and-forget 推送到 Bot 的地址，留空表示关闭",
 			Type:        ConfigValueURL,
 			Editable:    true,
-			AllowEmpty:  false,
+			AllowEmpty:  true,
 			Placeholder: "http://localhost:8000",
-			Validate:    validateURL,
-			Normalize:   normalizeTrimmedURL,
+			Validate: func(value string) error {
+				if strings.TrimSpace(value) == "" {
+					return nil
+				}
+				return validateURL(value)
+			},
+			Normalize: normalizeTrimmedURLAllowEmpty,
 		},
 		{
 			Key:             "CRON_ENABLED",

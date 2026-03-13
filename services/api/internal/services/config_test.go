@@ -113,3 +113,38 @@ func TestValidateTelegramChatID(t *testing.T) {
 		t.Fatalf("expected zero group chat id to fail")
 	}
 }
+
+func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
+	keys := []string{
+		"NEXT_PUBLIC_EMBY_URL",
+		"SMTP_FROM",
+		"BOT_NOTIFY_URL",
+	}
+
+	definitions := getConfigDefinitionMap()
+	for _, key := range keys {
+		def, ok := definitions[key]
+		if !ok {
+			t.Fatalf("expected config definition %s to exist", key)
+		}
+		if !def.AllowEmpty {
+			t.Fatalf("expected %s to allow explicit empty value", key)
+		}
+		if def.Validate == nil {
+			t.Fatalf("expected %s to have validation", key)
+		}
+		if err := def.Validate(""); err != nil {
+			t.Fatalf("expected %s to accept empty value, got %v", key, err)
+		}
+		if def.Normalize == nil {
+			t.Fatalf("expected %s to have normalization", key)
+		}
+		value, err := def.Normalize("   ")
+		if err != nil {
+			t.Fatalf("expected %s to normalize empty value, got %v", key, err)
+		}
+		if value != "" {
+			t.Fatalf("expected %s normalized empty value to be blank, got %q", key, value)
+		}
+	}
+}
