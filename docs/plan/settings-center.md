@@ -454,12 +454,7 @@ CONFIG_ENCRYPTION_KEY=
 
 ## 5. API 设计
 
-当前后台接口是：
-
-- `GET /api/v1/admin/settings`
-- `PUT /api/v1/admin/settings/:key`
-
-v1 新增配置中心接口，旧接口在迁移期间保留：
+当前后台以配置中心接口为主，旧 `/api/v1/admin/settings` 已下线：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -851,8 +846,7 @@ JWT_SECRET
 目标：
 
 1. 新增 `/admin/configs` 系列接口
-2. 保留旧 `/admin/settings`，作为兼容层
-3. 只让新页面消费新接口
+2. 只让设置中心消费新接口
 
 ## 阶段 4：前端设置中心改造
 
@@ -1029,8 +1023,8 @@ v1 必须克制：
    - 环境变量导入入口
 
 5. 兼容性与验证：
-   - 旧 `/admin/settings` 接口仍保留
    - Internal API `/api/v1/internal/settings/:key` 已优先读取统一配置层的非敏感值
+   - 旧 `/api/v1/admin/settings` 路由已下线
    - `default_trial_days` 已统一为允许 `0`，表示无试用
    - `services/api` 下 `go build ./...` 已通过
    - `services/web` 下 `npm run build` 已通过
@@ -1104,15 +1098,14 @@ v1 必须克制：
 
 不把这件事写死，后面 UI 文案还会继续骗人。
 
-#### C. 旧 `/admin/settings` 还活着，但已经是兼容层
+#### C. 旧 `/admin/settings` 已下线，兼容职责只保留在更小的内部兜底层
 
-这是现实需要，不是问题本身；问题在于如果长期不收口，就会变成第二套事实来源。
+这是正确方向。既然前后端都已经切到 `/admin/configs`，就不该再把旧管理接口继续挂着制造第二套入口。
 
-后续必须明确：
+当前剩余兼容点主要是：
 
-1. 新功能只允许走 `/admin/configs`
-2. 旧 `/admin/settings` 不再承载新增配置
-3. 等历史调用点清理完，再决定是否下线
+1. `SettingService.GetSetting()` 仍保留，供 Internal API 对未注册到 `ConfigService` 的非敏感 key 做原始兜底读取
+2. 新功能只允许走 `/admin/configs`
 
 ### 3. 当前实现的正确边界
 

@@ -9,55 +9,13 @@ import (
 )
 
 type SettingHandler struct {
-	service       *services.SettingService
 	configService *services.ConfigService
-}
-
-type updateSettingRequest struct {
-	Value string `json:"value" binding:"required"`
 }
 
 func NewSettingHandler() *SettingHandler {
 	return &SettingHandler{
-		service:       &services.SettingService{},
 		configService: services.NewConfigService(),
 	}
-}
-
-func (h *SettingHandler) GetSettings(c *gin.Context) {
-	settings, err := h.service.GetAllSettings()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
-		return
-	}
-
-	c.JSON(http.StatusOK, settings)
-}
-
-func (h *SettingHandler) UpdateSetting(c *gin.Context) {
-	key := c.Param("key")
-	var req updateSettingRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
-		return
-	}
-
-	if err := h.service.SetSetting(key, req.Value); err != nil {
-		if errors.Is(err, services.ErrSettingNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	setting, err := h.service.GetSettingModel(key)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
-		return
-	}
-
-	c.JSON(http.StatusOK, setting)
 }
 
 func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
@@ -95,6 +53,6 @@ func (h *SettingHandler) GetSettingByKey(c *gin.Context) {
 		return
 	}
 
-	value := h.service.GetSetting(key)
+	value := (&services.SettingService{}).GetSetting(key)
 	c.JSON(http.StatusOK, gin.H{"key": key, "value": value})
 }

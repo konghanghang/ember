@@ -7,7 +7,6 @@ var (
 	ErrRedemptionCodeInvalid         = errors.New("兑换码已失效")
 	ErrRedemptionDuplicate           = errors.New("你已经使用过此兑换码")
 	ErrRedemptionCodeUsedOver        = errors.New("最大使用次数不能小于已使用次数")
-	ErrSettingNotFound               = errors.New("配置项不存在")
 	ErrConfigNotFound                = errors.New("配置项不存在")
 	ErrConfigNotEditable             = errors.New("该配置项不允许在线编辑")
 	ErrConfigValueRequired           = errors.New("缺少配置值")

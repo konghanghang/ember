@@ -499,10 +499,8 @@ TMDBCache（独立缓存表）
 
 ### 5.5 SettingService (`services/setting.go`)
 
-- `GetSetting(key)` — 读取数据库原始值（仅兼容兜底）
-- `GetSettingModel(key)` / `GetAllSettings()` — 仅返回历史 `settings` 接口兼容的 5 个业务配置
-- `SetSetting(key, value)` — 旧 `/admin/settings` 写入兼容层，内部转发到 `ConfigService.Update`
-- 当前主要负责兼容旧 `/admin/settings` 接口；新的运行时读取与校验统一走 `ConfigService`
+- `GetSetting(key)` — 读取数据库原始值（仅供内部兜底读取）
+- 旧 `/api/v1/admin/settings` 路由已下线；新的运行时读取与校验统一走 `ConfigService`
 
 ### 5.6 ConfigService (`services/config.go`)
 
@@ -752,8 +750,6 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码 |
 | DELETE | `/api/v1/admin/redemption-codes/:id` | 删除兑换码 |
 | GET | `/api/v1/admin/user-templates` | 模板用户列表 |
-| GET | `/api/v1/admin/settings` | 获取所有配置 |
-| PUT | `/api/v1/admin/settings/:key` | 更新配置 |
 | GET | `/api/v1/admin/configs` | 获取设置中心全部配置（定义 + 当前值 + 来源） |
 | PATCH | `/api/v1/admin/configs/:key` | 更新单项配置 |
 | POST | `/api/v1/admin/configs/:group/test` | 测试指定配置组 |
