@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Monitor, RefreshRight, Setting } from '@element-plus/icons-vue'
 import {
   getConfigs,
@@ -10,6 +10,15 @@ import {
   updateConfig
 } from '@/api/admin'
 import type { AdminConfigItem } from '@/types/api'
+import {
+  buildConfigUpdatePayload,
+  buildDraftValues,
+  canClearConfigOverride,
+  getClearConfigDescription,
+  getClearConfigLabel,
+  isConfigItemDirty,
+  parseDraftValue
+} from './settings-center.utils'
 
 type ConfigGroupKey =
   | 'business'
@@ -44,6 +53,7 @@ const configs = ref<AdminConfigItem[]>([])
 const draftValues = ref<Record<string, any>>({})
 const savingGroups = ref<Record<string, boolean>>({})
 const testingGroups = ref<Record<string, boolean>>({})
+const clearingItems = ref<Record<string, boolean>>({})
 
 const groupSections = computed<ConfigGroupSection[]>(() => {
   const grouped = new Map<string, ConfigGroupSection>()
@@ -69,39 +79,16 @@ const sensitiveCount = computed(() => configs.value.filter(item => item.sensitiv
 const restartCount = computed(() => configs.value.filter(item => item.restartRequired).length)
 
 const resetDraftValues = (items: AdminConfigItem[]) => {
-  const next: Record<string, any> = {}
+  draftValues.value = buildDraftValues(items)
+}
 
-  for (const item of items) {
-    if (item.sensitive) {
-      next[item.key] = ''
-      continue
-    }
+const resetDraftValue = (item: AdminConfigItem) => {
+  draftValues.value[item.key] = parseDraftValue(item)
+}
 
-    switch (item.type) {
-      case 'boolean':
-        next[item.key] = item.value === 'true'
-        break
-      case 'integer':
-        next[item.key] = Number(item.value ?? 0)
-        break
-      case 'json_list':
-        if (!item.value) {
-          next[item.key] = []
-          break
-        }
-        try {
-          const parsed = JSON.parse(item.value)
-          next[item.key] = Array.isArray(parsed) ? parsed : []
-        } catch {
-          next[item.key] = []
-        }
-        break
-      default:
-        next[item.key] = item.value ?? ''
-    }
-  }
-
-  draftValues.value = next
+const applyUpdatedConfigItem = (updatedItem: AdminConfigItem) => {
+  configs.value = configs.value.map(item => (item.key === updatedItem.key ? updatedItem : item))
+  resetDraftValue(updatedItem)
 }
 
 const fetchConfigs = async () => {
@@ -139,79 +126,13 @@ const restartClass = (restartRequired: boolean) =>
 
 const canTestGroup = (group: ConfigGroupKey) => group === 'media' || group === 'email'
 
-const normalizeComparableValue = (item: AdminConfigItem, value: any) => {
-  switch (item.type) {
-    case 'boolean':
-      return value === true
-    case 'integer':
-      return Number(value ?? 0)
-    case 'json_list':
-      return JSON.stringify([...(Array.isArray(value) ? value : [])].sort())
-    default:
-      return String(value ?? '')
-  }
-}
-
-const currentComparableValue = (item: AdminConfigItem) => {
-  if (item.sensitive) {
-    return ''
-  }
-
-  switch (item.type) {
-    case 'boolean':
-      return item.value === 'true'
-    case 'integer':
-      return Number(item.value ?? 0)
-    case 'json_list':
-      if (!item.value) {
-        return JSON.stringify([])
-      }
-      try {
-        const parsed = JSON.parse(item.value)
-        return JSON.stringify([...(Array.isArray(parsed) ? parsed : [])].sort())
-      } catch {
-        return JSON.stringify([])
-      }
-    default:
-      return item.value ?? ''
-  }
-}
-
-const isItemDirty = (item: AdminConfigItem) => {
-  const draftValue = draftValues.value[item.key]
-  if (item.sensitive) {
-    return String(draftValue ?? '').trim() !== ''
-  }
-  return normalizeComparableValue(item, draftValue) !== currentComparableValue(item)
-}
+const isItemDirty = (item: AdminConfigItem) => isConfigItemDirty(item, draftValues.value[item.key])
 
 const groupHasChanges = (group: ConfigGroupSection) =>
   group.items.some(item => item.editable && isItemDirty(item))
 
-const buildUpdatePayload = (item: AdminConfigItem) => {
-  const draftValue = draftValues.value[item.key]
-
-  if (item.sensitive) {
-    const raw = String(draftValue ?? '')
-    if (raw.trim() === '') {
-      return null
-    }
-    return { value: raw }
-  }
-
-  switch (item.type) {
-    case 'boolean':
-      return { value: String(Boolean(draftValue)) }
-    case 'integer':
-      return { value: String(Number(draftValue ?? 0)) }
-    case 'json_list': {
-      const values = Array.isArray(draftValue) ? draftValue : []
-      return { value: values.length === 0 ? '' : JSON.stringify(values) }
-    }
-    default:
-      return { value: String(draftValue ?? '') }
-  }
-}
+const buildUpdatePayload = (item: AdminConfigItem) =>
+  buildConfigUpdatePayload(item, draftValues.value[item.key])
 
 const handleSaveGroup = async (group: ConfigGroupSection) => {
   const changedItems = group.items.filter(item => item.editable && isItemDirty(item))
@@ -237,35 +158,37 @@ const handleSaveGroup = async (group: ConfigGroupSection) => {
 
 const handleResetGroup = (group: ConfigGroupSection) => {
   for (const item of group.items) {
-    if (item.sensitive) {
-      draftValues.value[item.key] = ''
-      continue
-    }
-    switch (item.type) {
-      case 'boolean':
-        draftValues.value[item.key] = item.value === 'true'
-        break
-      case 'integer':
-        draftValues.value[item.key] = Number(item.value ?? 0)
-        break
-      case 'json_list':
-        if (!item.value) {
-          draftValues.value[item.key] = []
-          break
-        }
-        try {
-          const parsed = JSON.parse(item.value)
-          draftValues.value[item.key] = Array.isArray(parsed) ? parsed : []
-        } catch {
-          draftValues.value[item.key] = []
-        }
-        break
-      default:
-        draftValues.value[item.key] = item.value ?? ''
-    }
+    draftValues.value[item.key] = parseDraftValue(item)
   }
 
   ElMessage.success(`${group.label}已恢复到当前生效值`)
+}
+
+const handleClearConfigOverride = async (item: AdminConfigItem) => {
+  const label = getClearConfigLabel(item)
+
+  try {
+    await ElMessageBox.confirm(
+      `${getClearConfigDescription(item)}\n\n配置项：${item.label}`,
+      label,
+      {
+        confirmButtonText: '确认清空',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+
+  clearingItems.value[item.key] = true
+  try {
+    const updatedItem = await updateConfig(item.key, { clear: true })
+    applyUpdatedConfigItem(updatedItem)
+    ElMessage.success(`${item.label}已移除数据库覆盖值`)
+  } finally {
+    clearingItems.value[item.key] = false
+  }
 }
 
 const handleTestGroup = async (group: ConfigGroupSection) => {
@@ -472,6 +395,13 @@ onMounted(async () => {
               </button>
 
               <button
+                v-if="group.items.some(item => canClearConfigOverride(item))"
+                type="button"
+                @click="void 0"
+                class="hidden"
+              />
+
+              <button
                 v-if="group.items.some(item => item.editable)"
                 type="button"
                 @click="handleResetGroup(group)"
@@ -530,6 +460,15 @@ onMounted(async () => {
                   <p class="mt-2 break-all">
                     {{ visibleValue(item) }}
                   </p>
+                  <button
+                    v-if="canClearConfigOverride(item)"
+                    type="button"
+                    @click="handleClearConfigOverride(item)"
+                    :disabled="clearingItems[item.key]"
+                    class="mt-3 inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {{ clearingItems[item.key] ? '处理中...' : getClearConfigLabel(item) }}
+                  </button>
                 </div>
               </div>
 
@@ -602,6 +541,9 @@ onMounted(async () => {
                 <p class="mt-2 text-xs text-gray-400">
                   <template v-if="item.sensitive">
                     敏感值不会回显。只有输入新值时才会覆盖当前值。
+                  </template>
+                  <template v-else-if="canClearConfigOverride(item)">
+                    当前值来自数据库覆盖。可使用“{{ getClearConfigLabel(item) }}”回退到 env/default。
                   </template>
                   <template v-else-if="item.source === 'env'">
                     当前正在跟随环境变量。保存后将切换为数据库托管。

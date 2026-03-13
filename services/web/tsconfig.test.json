@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./node_modules/.tmp/settings-center-tests",
+    "rootDir": "./src",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": false,
+    "types": ["node"]
+  },
+  "include": [
+    "src/types/api.ts",
+    "src/views/admin/settings-center.utils.ts",
+    "src/views/admin/settings-center.utils.test.ts"
+  ]
+}
