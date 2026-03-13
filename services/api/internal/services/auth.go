@@ -129,8 +129,8 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		}
 	}
 
-	settingService := &SettingService{}
-	mode := settingService.GetRegistrationMode()
+	configService := NewConfigService()
+	mode := configService.GetRegistrationMode()
 
 	var defaultDays int
 	var redemptionCode *models.RedemptionCode
@@ -147,7 +147,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		}
 		defaultDays = redemptionCode.DefaultDays
 	} else {
-		defaultDays = settingService.GetDefaultTrialDays()
+		defaultDays = configService.GetDefaultTrialDays()
 	}
 
 	var existingUser models.User

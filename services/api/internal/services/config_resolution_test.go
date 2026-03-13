@@ -187,3 +187,25 @@ func TestResolveDefinitionAllowsExplicitEmptyDatabaseOverride(t *testing.T) {
 		t.Fatalf("expected explicit empty string, got %+v", item.Value)
 	}
 }
+
+func TestConfigServiceBusinessConfigHelpers(t *testing.T) {
+	service := &ConfigService{}
+
+	if mode := service.GetRegistrationMode(); mode != "open" {
+		t.Fatalf("expected default registration mode open, got %s", mode)
+	}
+	if days := service.GetDefaultTrialDays(); days != 7 {
+		t.Fatalf("expected default trial days 7, got %d", days)
+	}
+	if service.IsEmailVerificationEnabled() {
+		t.Fatal("expected email verification to be disabled by default")
+	}
+
+	methods, err := service.GetStripeAllowedPaymentMethods()
+	if err != nil {
+		t.Fatalf("expected empty payment methods to be valid, got %v", err)
+	}
+	if len(methods) != 0 {
+		t.Fatalf("unexpected payment methods: %+v", methods)
+	}
+}

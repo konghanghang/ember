@@ -267,7 +267,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return nil, errors.New("获取方案失败")
 	}
 
-	paymentMethods, err := (&SettingService{}).GetStripeAllowedPaymentMethods()
+	paymentMethods, err := configService.GetStripeAllowedPaymentMethods()
 	if err != nil {
 		return nil, err
 	}

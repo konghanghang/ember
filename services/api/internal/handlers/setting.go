@@ -61,10 +61,10 @@ func (h *SettingHandler) UpdateSetting(c *gin.Context) {
 }
 
 func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
-	mode := h.service.GetRegistrationMode()
+	mode := h.configService.GetRegistrationMode()
 	resp := gin.H{"mode": mode}
 	if mode == "open" {
-		resp["defaultTrialDays"] = h.service.GetDefaultTrialDays()
+		resp["defaultTrialDays"] = h.configService.GetDefaultTrialDays()
 	}
 	emailService := services.NewEmailService()
 	resp["emailVerification"] = emailService.IsEnabled()

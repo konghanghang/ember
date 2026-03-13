@@ -141,6 +141,34 @@ func (s *ConfigService) GetString(key string) string {
 	return value
 }
 
+func (s *ConfigService) GetRegistrationMode() string {
+	value := s.GetString("registration_mode")
+	if value == "" {
+		return "open"
+	}
+	return value
+}
+
+func (s *ConfigService) GetDefaultTrialDays() int {
+	value := s.GetString("default_trial_days")
+	if value == "" {
+		return 7
+	}
+	days, err := strconv.Atoi(value)
+	if err != nil || days < 0 {
+		return 7
+	}
+	return days
+}
+
+func (s *ConfigService) IsEmailVerificationEnabled() bool {
+	return s.GetString("email_verification") == "true"
+}
+
+func (s *ConfigService) GetStripeAllowedPaymentMethods() ([]string, error) {
+	return NormalizeStripeAllowedPaymentMethods(s.GetString("stripe_allowed_payment_methods"))
+}
+
 func (s *ConfigService) ResolveString(key string) (string, string, error) {
 	def, ok := getConfigDefinitionMap()[key]
 	if !ok {
@@ -517,6 +545,10 @@ func (s *ConfigService) resolveEnvValue(def ConfigDefinition) (string, bool) {
 }
 
 func (s *ConfigService) loadSettings(definitions []ConfigDefinition) (map[string]models.Setting, error) {
+	if db.DB == nil {
+		return map[string]models.Setting{}, nil
+	}
+
 	keys := make([]string, 0, len(definitions))
 	for _, def := range definitions {
 		keys = append(keys, def.Key)

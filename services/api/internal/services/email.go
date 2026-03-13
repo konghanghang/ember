@@ -104,8 +104,7 @@ func (s *EmailService) IsEnabled() bool {
 	if !s.IsConfigured() {
 		return false
 	}
-	settingService := &SettingService{}
-	return settingService.IsEmailVerificationEnabled()
+	return NewConfigService().IsEmailVerificationEnabled()
 }
 
 // SendVerificationCode 发送验证码

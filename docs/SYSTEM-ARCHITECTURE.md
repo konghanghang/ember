@@ -461,8 +461,8 @@ TMDBCache（独立缓存表）
 2. 过期用户**可以登录**（前端显示过期提示 + 兑换入口）
 
 **注册流程**：
-1. 读取 `registration_mode` → `"invite"`: 验证兑换码 → `"open"`: 读取 `default_trial_days`
-2. 如果开启 `email_verification`：校验邮箱验证码
+1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 验证兑换码 → `"open"`: 读取 `default_trial_days`
+2. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码
 3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）
 4. invite 模式且兑换码绑定 `templateUserId` 时：按白名单字段复制模板用户 Emby Policy
 5. 签发 JWT
@@ -502,13 +502,14 @@ TMDBCache（独立缓存表）
 - `GetSetting(key)` / `SetSetting(key, value)` — 带值校验
 - `GetRegistrationMode()` — 默认 `"open"`
 - `GetDefaultTrialDays()` — 默认 `7`
-- 仍负责兼容旧 `/admin/settings` 接口和少量业务开关
+- 当前主要负责兼容旧 `/admin/settings` 接口和历史调用；新的运行时读取应优先走 `ConfigService`
 
 ### 5.6 ConfigService (`services/config.go`)
 
 - `List()` — 返回配置定义 + 当前解析结果（来源、是否有值、是否敏感、是否需重启）
 - `Update(key, req, userID)` — 更新单项配置，支持敏感值加密存储
 - `ResolveString(key)` / `GetString(key)` — 统一配置读取入口
+- `GetRegistrationMode()` / `GetDefaultTrialDays()` / `IsEmailVerificationEnabled()` / `GetStripeAllowedPaymentMethods()` — 业务配置便捷读取
 - `TestGroup(group)` — 分组配置连通性测试（v1: `media`、`email`）
 - `ImportEnv(userID)` — 把允许托管的环境变量导入数据库
 
@@ -578,6 +579,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `SendVerificationCode(email, ip, codeType)` — 生成 6 位随机验证码 → 按类型频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
 - `VerifyCode(email, code, codeType)` — 按类型校验验证码是否有效且未过期
 - `CleanupExpired()` — 删除过期验证码（cron 调用）
+- `IsEnabled()` — 通过 `ConfigService` 解析 `email_verification`，并叠加 SMTP 完整性判断
 
 **频率限制**：
 - 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5，按 `codeType` 隔离计数）
@@ -612,7 +614,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 Stripe 一次性支付流程管理。
 
-- `CreateCheckoutSession(userID, planID)` — 创建 Stripe Checkout Session → 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）
+- `CreateCheckoutSession(userID, planID)` — 创建 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）
 - `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
 - Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
 - `GetPayments(page, pageSize)` — 支付记录查询
