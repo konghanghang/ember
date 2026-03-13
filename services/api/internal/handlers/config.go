@@ -8,8 +8,15 @@ import (
 	"github.com/konghang/ember/backend/internal/services"
 )
 
+type configService interface {
+	List() ([]services.ConfigItem, error)
+	Update(key string, req services.UpdateConfigRequest, updatedByUserID string) (*services.ConfigItem, error)
+	TestGroup(group string) (*services.ConfigGroupTestResult, error)
+	ImportEnv(updatedByUserID string) (*services.ImportEnvResult, error)
+}
+
 type ConfigHandler struct {
-	service *services.ConfigService
+	service configService
 }
 
 func NewConfigHandler() *ConfigHandler {
