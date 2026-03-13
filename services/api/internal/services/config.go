@@ -327,6 +327,16 @@ func (s *ConfigService) ImportEnv(updatedByUserID string) (*ImportEnvResult, err
 		return nil, err
 	}
 
+	return s.importEnvDefinitions(definitions, settingsMap, updatedByUserID, os.Getenv, s.Update), nil
+}
+
+func (s *ConfigService) importEnvDefinitions(
+	definitions []ConfigDefinition,
+	settingsMap map[string]models.Setting,
+	updatedByUserID string,
+	getenv func(string) string,
+	updateFn func(string, UpdateConfigRequest, string) (*ConfigItem, error),
+) *ImportEnvResult {
 	result := &ImportEnvResult{
 		Imported: make([]string, 0),
 		Skipped:  make(map[string]string),
@@ -342,7 +352,7 @@ func (s *ConfigService) ImportEnv(updatedByUserID string) (*ImportEnvResult, err
 			continue
 		}
 
-		envValue := strings.TrimSpace(os.Getenv(def.EnvKey))
+		envValue := strings.TrimSpace(getenv(def.EnvKey))
 		if envValue == "" {
 			result.Skipped[def.Key] = "环境变量未设置"
 			continue
@@ -364,7 +374,7 @@ func (s *ConfigService) ImportEnv(updatedByUserID string) (*ImportEnvResult, err
 			}
 		}
 
-		if _, updateErr := s.Update(def.Key, UpdateConfigRequest{Value: &value}, updatedByUserID); updateErr != nil {
+		if _, updateErr := updateFn(def.Key, UpdateConfigRequest{Value: &value}, updatedByUserID); updateErr != nil {
 			result.Failed[def.Key] = updateErr.Error()
 			continue
 		}
@@ -372,7 +382,7 @@ func (s *ConfigService) ImportEnv(updatedByUserID string) (*ImportEnvResult, err
 		result.Imported = append(result.Imported, def.Key)
 	}
 
-	return result, nil
+	return result
 }
 
 func (s *ConfigService) TestGroup(group string) (*ConfigGroupTestResult, error) {
