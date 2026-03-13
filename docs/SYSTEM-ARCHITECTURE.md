@@ -499,10 +499,10 @@ TMDBCache（独立缓存表）
 
 ### 5.5 SettingService (`services/setting.go`)
 
-- `GetSetting(key)` / `SetSetting(key, value)` — 带值校验
-- `GetRegistrationMode()` — 默认 `"open"`
-- `GetDefaultTrialDays()` — 默认 `7`
-- 当前主要负责兼容旧 `/admin/settings` 接口和历史调用；新的运行时读取应优先走 `ConfigService`
+- `GetSetting(key)` — 读取数据库原始值（仅兼容兜底）
+- `GetSettingModel(key)` / `GetAllSettings()` — 仅返回历史 `settings` 接口兼容的 5 个业务配置
+- `SetSetting(key, value)` — 旧 `/admin/settings` 写入兼容层，内部转发到 `ConfigService.Update`
+- 当前主要负责兼容旧 `/admin/settings` 接口；新的运行时读取与校验统一走 `ConfigService`
 
 ### 5.6 ConfigService (`services/config.go`)
 

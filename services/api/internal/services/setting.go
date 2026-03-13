@@ -2,14 +2,11 @@ package services
 
 import (
 	"encoding/json"
-	"errors"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
-	"gorm.io/gorm/clause"
 )
 
 const (
@@ -22,11 +19,26 @@ const (
 
 var allowedStripePaymentMethods = []string{"card", "alipay", "wechat_pay"}
 
+var legacySettingKeys = []string{
+	settingRegistrationMode,
+	settingDefaultTrialDays,
+	settingNotifyGroupLink,
+	settingEmailVerification,
+	settingStripeAllowedPaymentMethod,
+}
+
+func isLegacySettingKey(key string) bool {
+	return slices.Contains(legacySettingKeys, key)
+}
+
 // SettingService 系统配置服务
 type SettingService struct{}
 
 // GetSetting 获取配置值
 func (s *SettingService) GetSetting(key string) string {
+	if db.DB == nil {
+		return ""
+	}
 	var setting models.Setting
 	result := db.DB.Where("key = ?", key).First(&setting)
 	if result.Error != nil {
@@ -36,100 +48,65 @@ func (s *SettingService) GetSetting(key string) string {
 }
 
 func (s *SettingService) GetSettingModel(key string) (*models.Setting, error) {
-	var setting models.Setting
-	if err := db.DB.Where("key = ?", key).First(&setting).Error; err != nil {
+	if !isLegacySettingKey(key) {
+		return nil, ErrSettingNotFound
+	}
+
+	configItem, err := NewConfigService().Get(key)
+	if err != nil {
 		return nil, err
 	}
-	return &setting, nil
-}
 
-// SetSetting 设置配置值（带校验）
-func (s *SettingService) SetSetting(key, value string) error {
-	switch key {
-	case settingRegistrationMode, settingDefaultTrialDays, settingNotifyGroupLink, settingEmailVerification, settingStripeAllowedPaymentMethod:
-	default:
-		return ErrSettingNotFound
+	value := ""
+	if configItem.Value != nil {
+		value = *configItem.Value
 	}
 
-	switch key {
-	case settingRegistrationMode:
-		if value != "open" && value != "invite" {
-			return errors.New("无效的注册模式，必须为 open 或 invite")
-		}
-	case settingDefaultTrialDays:
-		days, err := strconv.Atoi(value)
-		if err != nil || days < 0 {
-			return errors.New("无效的试用天数")
-		}
-	case settingEmailVerification:
-		if value != "true" && value != "false" {
-			return errors.New("无效的值，必须为 true 或 false")
-		}
-	case settingStripeAllowedPaymentMethod:
-		if _, err := NormalizeStripeAllowedPaymentMethods(value); err != nil {
-			return err
-		}
-	}
-
-	setting := models.Setting{
+	setting := &models.Setting{
 		Key:         key,
 		Value:       value,
 		IsEncrypted: false,
 	}
 
-	return db.DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "key"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{
-			"value":       value,
-			"isEncrypted": false,
-			"updatedAt":   clause.Expr{SQL: "CURRENT_TIMESTAMP"},
-		}),
-	}).Create(&setting).Error
+	if db.DB == nil {
+		return setting, nil
+	}
+
+	var stored models.Setting
+	if err := db.DB.Where("key = ?", key).First(&stored).Error; err == nil {
+		setting.UpdatedAt = stored.UpdatedAt
+		setting.UpdatedByUserID = stored.UpdatedByUserID
+	}
+
+	return setting, nil
+}
+
+// SetSetting 设置配置值（带校验）
+func (s *SettingService) SetSetting(key, value string) error {
+	if !isLegacySettingKey(key) {
+		return ErrSettingNotFound
+	}
+
+	_, err := NewConfigService().Update(key, UpdateConfigRequest{Value: &value}, "")
+	return err
 }
 
 // GetAllSettings 获取所有配置
 func (s *SettingService) GetAllSettings() ([]models.Setting, error) {
-	var settings []models.Setting
-	result := db.DB.Find(&settings)
-	if result.Error != nil {
-		return nil, result.Error
+	settings := make([]models.Setting, 0, len(legacySettingKeys))
+
+	for _, key := range legacySettingKeys {
+		setting, err := s.GetSettingModel(key)
+		if err != nil {
+			return nil, err
+		}
+		if setting == nil {
+			continue
+		}
+		settings = append(settings, *setting)
 	}
+
 	return settings, nil
-}
-
-// GetDefaultTrialDays 获取默认试用天数
-func (s *SettingService) GetDefaultTrialDays() int {
-	value := s.GetSetting(settingDefaultTrialDays)
-	if value == "" {
-		return 7 // 默认 7 天
-	}
-	days, err := strconv.Atoi(value)
-	if err != nil || days < 0 {
-		return 7
-	}
-	return days
-}
-
-// GetRegistrationMode 获取注册模式
-func (s *SettingService) GetRegistrationMode() string {
-	value := s.GetSetting(settingRegistrationMode)
-	if value == "" {
-		return "open" // 默认开放注册
-	}
-	return value
-}
-
-// IsEmailVerificationEnabled 检查邮箱验证是否启用
-func (s *SettingService) IsEmailVerificationEnabled() bool {
-	return s.GetSetting(settingEmailVerification) == "true"
-}
-
-func (s *SettingService) GetStripeAllowedPaymentMethods() ([]string, error) {
-	methods, err := NormalizeStripeAllowedPaymentMethods(s.GetSetting(settingStripeAllowedPaymentMethod))
-	if err != nil {
-		return nil, err
-	}
-	return methods, nil
 }
 
 func NormalizeStripeAllowedPaymentMethods(raw string) ([]string, error) {
