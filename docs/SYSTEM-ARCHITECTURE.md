@@ -241,6 +241,8 @@ services/
 - `settings` 已扩展为设置中心的运行期存储层
 - 配置解析优先级固定为：数据库覆盖值 > 环境变量 > 代码默认值
 - 敏感配置可加密落库，不通过 API 明文回显
+- 配置定义显式声明“空值语义”：关闭功能 / 回退到上游配置 / 跟随外部服务默认行为，不再靠模糊文案猜
+- 只读部署边界项同时声明“只读原因”和“缺失影响”，前端直接展示，不再让管理员自己猜为什么不能改
 
 **当前已托管或接入统一解析的配置项**：
 - 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`email_verification`、`stripe_allowed_payment_methods`
@@ -800,7 +802,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 |------|------|------|
 | PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝 |
-| GET | `/api/v1/internal/settings/:key` | 读取内部配置（优先返回统一配置层的非敏感值，未纳入配置中心时回退到 legacy settings） |
+| GET | `/api/v1/internal/settings/:key` | 读取内部配置（仅允许访问统一配置层中已注册的非敏感 key；未知 key 返回 404） |
 | POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
 | POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |

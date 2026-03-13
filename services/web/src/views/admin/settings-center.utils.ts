@@ -91,6 +91,10 @@ export function canClearConfigOverride(item: AdminConfigItem): boolean {
   return item.editable && item.source === 'database'
 }
 
+export function hasExplicitEmptyDatabaseValue(item: AdminConfigItem): boolean {
+  return item.allowEmpty && item.source === 'database' && !item.hasValue
+}
+
 export function getClearConfigLabel(item: AdminConfigItem): string {
   return item.sensitive ? '清空数据库覆盖值' : '移除数据库覆盖值'
 }

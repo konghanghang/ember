@@ -688,6 +688,7 @@ v1 需要支持的测试组：
 3. 输入控件
 4. 来源标签：`数据库` / `环境变量` / `默认值` / `未设置`
 5. 生效方式标签：`立即生效` / `需重启`
+6. 对只读边界项明确显示“为什么只读”和“缺失会造成什么影响”
 6. 敏感状态：`已设置` / `未设置`
 
 示意：
@@ -983,7 +984,7 @@ v1 必须克制：
 
 ---
 
-## 当前实施进度（2026-03-12）
+## 当前实施进度（2026-03-13）
 
 ### 已完成
 
@@ -1021,28 +1022,35 @@ v1 必须克制：
    - 分组保存
    - 媒体/邮件分组测试
    - 环境变量导入入口
+   - “移除数据库覆盖值” 与“保存为空值”语义已区分
+   - 只读边界项已展示只读原因、缺失影响和高风险缺失提示
 
 5. 兼容性与验证：
-   - Internal API `/api/v1/internal/settings/:key` 已优先读取统一配置层的非敏感值
+   - Internal API `/api/v1/internal/settings/:key` 现只允许读取统一配置层中已注册的非敏感 key，未知 key 直接返回 404
    - 旧 `/api/v1/admin/settings` 路由已下线
    - `default_trial_days` 已统一为允许 `0`，表示无试用
    - `services/api` 下 `go build ./...` 已通过
-   - `services/web` 下 `npm run build` 已通过
+   - `services/api` 下设置中心相关定向测试已通过
+   - `services/web` 下 `npm run test:unit` 已通过
 
 ### 未完成
 
-1. 计划中的后续迁移批次尚未实现：
-   - 更多部署边界配置的只读状态增强
-   - 剩余 Webhook / 启动期密钥的边界治理与展示优化
-
-2. 尚未在真实数据库执行迁移；生产环境需要手工执行：
+1. 尚未在真实数据库执行迁移；生产环境需要手工执行：
    - `psql "$DATABASE_URL" -f infrastructure/database/20260312_01_expand_settings_for_config_center.sql`
+
+2. 自动化测试仍有缺口：
+   - `import-env` 仍以 handler 级验证为主，尚未补更细的 service 边界测试
+   - 前端组件测试文件已存在，但当前本地环境未完成 `vitest` 组件级实际跑测验证
+
+3. 治理层能力尚未开始：
+   - 配置变更审计
+   - 配置导出与巡检
 
 ### 下次继续时优先做什么
 
 1. 先确认生产库已执行 `20260312_01_expand_settings_for_config_center.sql`
-2. 补剩余边界项治理：优先梳理 `STRIPE_WEBHOOK_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`
-3. 视需要再决定是否继续压缩 Internal API 对 `SettingService.GetSetting()` 的原始兜底依赖
+2. 补 `import-env` 的 service 级边界测试，并在可用环境里跑通前端组件测试
+3. 开始 P2：最小配置审计日志
 
 ---
 
@@ -1080,30 +1088,36 @@ v1 必须克制：
 2. 已补设置中心真实组件挂载测试
 3. 已补配置中心 handler 测试
 
-#### B. 部分“留空表示关闭”语义还不够硬
+#### B. “空值语义”与只读边界展示已完成一轮收口
 
-当前文档里多处使用了“留空表示关闭”这种描述，但实际行为要分情况：
+当前实现已经不再只靠 `AllowEmpty=true` 这个布尔值硬猜，而是给配置定义补了显式空值语义：
 
-1. 如果该项允许空值落库，才能真正做到“数据库显式关闭”
-2. 如果该项不允许空值落库，那么清空数据库覆盖值只会回退到 env
-3. 一旦 env 里仍有值，功能就不会关闭
+1. `disable`：保存为空值后表示关闭能力
+2. `fallback`：保存为空值后回退到另一层运行期配置
+3. `inherit`：保存为空值后跟随外部服务或上游默认行为
 
-因此后续处理每个配置项时，必须明确它属于哪一种：
+页面也要同步区分两件事：
 
-1. `AllowEmpty=true`，允许数据库显式覆盖为空
-2. 只能“清空数据库覆盖值”，然后回退到 env/default
-3. 根本不允许关闭，必须保持非空
+1. “保存为空值”是一个显式数据库状态
+2. “移除数据库覆盖值”是回退到 env/default
 
-不把这件事写死，后面 UI 文案还会继续骗人。
+只读边界项当前也已经补到位：
 
-#### C. 旧 `/admin/settings` 已下线，兼容职责只保留在更小的内部兜底层
+1. 显示“为什么只读”
+2. 显示“缺失会造成什么影响”
+3. 对关键部署边界缺失给出高风险提示
+
+后续工作不再是重新发明语义，而是继续扩展测试和治理层能力。
+
+#### C. 旧 `/admin/settings` 已下线，Internal API 也不再保留 legacy fallback
 
 这是正确方向。既然前后端都已经切到 `/admin/configs`，就不该再把旧管理接口继续挂着制造第二套入口。
 
-当前剩余兼容点主要是：
+当前边界已经进一步收紧：
 
-1. `SettingService.GetSetting()` 仍保留，供 Internal API 对未注册到 `ConfigService` 的非敏感 key 做原始兜底读取
-2. 新功能只允许走 `/admin/configs`
+1. Internal API 只允许读取统一配置层中已注册的非敏感 key
+2. 未注册 key 直接返回 404，不再偷偷回退到旧 `settings` 原始读取
+3. 新功能只允许走 `/admin/configs`
 
 ### 3. 当前实现的正确边界
 
@@ -1143,7 +1157,7 @@ v1 必须克制：
 当前剩余测试缺口：
 
 1. `import-env` 仍以 handler 级验证为主，尚未做更细的 service 边界场景覆盖
-2. 组件测试目前覆盖关键交互，但还不是全页面穷举
+2. 组件测试文件已覆盖关键交互，但当前本地环境未完成 `vitest` 组件级实际跑测验证
 
 #### 任务 2：继续打磨前端“清空当前覆盖值”
 
@@ -1159,6 +1173,8 @@ v1 必须克制：
 2. 执行后页面来源标签和状态立即刷新
 3. 不再依赖“把输入框留空”这种含糊语义
 4. 已补组件级测试覆盖这条交互链路
+
+状态：已完成。当前页面已明确区分“保存为空值”和“移除数据库覆盖值”。
 
 #### 任务 3：补运维上线说明
 
@@ -1203,11 +1219,11 @@ v1 必须克制：
 1. Stripe Secret / 跳转 URL
 2. Telegram 群组和管理员通知目标
 
-状态：已部分完成。
+状态：已完成（按当前边界）。
 
 1. `STRIPE_SECRET_KEY`、`STRIPE_SUCCESS_URL`、`STRIPE_CANCEL_URL` 已接入统一配置层
 2. `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已接入统一配置层，Bot 运行期通过 Internal API 读取
-3. `STRIPE_WEBHOOK_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL` 仍保持只读 env
+3. `STRIPE_WEBHOOK_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL` 仍保持只读 env，但已补只读原因、缺失影响和高风险缺失展示
 
 ### P2：治理层能力
 

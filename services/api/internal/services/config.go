@@ -28,6 +28,8 @@ import (
 )
 
 type ConfigValueType string
+type ConfigEmptyValueMode string
+type ConfigRiskLevel string
 
 const (
 	ConfigValueString   ConfigValueType = "string"
@@ -37,6 +39,20 @@ const (
 	ConfigValueURL      ConfigValueType = "url"
 	ConfigValueEnum     ConfigValueType = "enum"
 	ConfigValueJSONList ConfigValueType = "json_list"
+)
+
+const (
+	ConfigEmptyValueNotAllowed ConfigEmptyValueMode = "not_allowed"
+	ConfigEmptyValueDisable    ConfigEmptyValueMode = "disable"
+	ConfigEmptyValueFallback   ConfigEmptyValueMode = "fallback"
+	ConfigEmptyValueInherit    ConfigEmptyValueMode = "inherit"
+)
+
+const (
+	ConfigRiskNone     ConfigRiskLevel = "none"
+	ConfigRiskInfo     ConfigRiskLevel = "info"
+	ConfigRiskWarning  ConfigRiskLevel = "warning"
+	ConfigRiskCritical ConfigRiskLevel = "critical"
 )
 
 const (
@@ -64,40 +80,51 @@ type ConfigOption struct {
 }
 
 type ConfigDefinition struct {
-	Key             string
-	Group           string
-	GroupLabel      string
-	Label           string
-	Description     string
-	Type            ConfigValueType
-	DefaultValue    string
-	Placeholder     string
-	Editable        bool
-	Sensitive       bool
-	RestartRequired bool
-	AllowEmpty      bool
-	EnvKey          string
-	Options         []ConfigOption
-	Validate        func(string) error
-	Normalize       func(string) (string, error)
+	Key               string
+	Group             string
+	GroupLabel        string
+	Label             string
+	Description       string
+	Type              ConfigValueType
+	DefaultValue      string
+	Placeholder       string
+	Editable          bool
+	Sensitive         bool
+	RestartRequired   bool
+	AllowEmpty        bool
+	EmptyValueMode    ConfigEmptyValueMode
+	EmptyValueHint    string
+	ReadOnlyHint      string
+	MissingValueHint  string
+	MissingValueLevel ConfigRiskLevel
+	EnvKey            string
+	Options           []ConfigOption
+	Validate          func(string) error
+	Normalize         func(string) (string, error)
 }
 
 type ConfigItem struct {
-	Key             string          `json:"key"`
-	Group           string          `json:"group"`
-	GroupLabel      string          `json:"groupLabel"`
-	Label           string          `json:"label"`
-	Description     string          `json:"description"`
-	Type            ConfigValueType `json:"type"`
-	Placeholder     string          `json:"placeholder,omitempty"`
-	Editable        bool            `json:"editable"`
-	Sensitive       bool            `json:"sensitive"`
-	RestartRequired bool            `json:"restartRequired"`
-	Options         []ConfigOption  `json:"options,omitempty"`
-	Source          string          `json:"source"`
-	HasValue        bool            `json:"hasValue"`
-	Value           *string         `json:"value,omitempty"`
-	Error           string          `json:"error,omitempty"`
+	Key               string               `json:"key"`
+	Group             string               `json:"group"`
+	GroupLabel        string               `json:"groupLabel"`
+	Label             string               `json:"label"`
+	Description       string               `json:"description"`
+	Type              ConfigValueType      `json:"type"`
+	Placeholder       string               `json:"placeholder,omitempty"`
+	Editable          bool                 `json:"editable"`
+	Sensitive         bool                 `json:"sensitive"`
+	RestartRequired   bool                 `json:"restartRequired"`
+	AllowEmpty        bool                 `json:"allowEmpty"`
+	EmptyValueMode    ConfigEmptyValueMode `json:"emptyValueMode"`
+	EmptyValueHint    string               `json:"emptyValueHint,omitempty"`
+	ReadOnlyHint      string               `json:"readOnlyHint,omitempty"`
+	MissingValueHint  string               `json:"missingValueHint,omitempty"`
+	MissingValueLevel ConfigRiskLevel      `json:"missingValueLevel"`
+	Options           []ConfigOption       `json:"options,omitempty"`
+	Source            string               `json:"source"`
+	HasValue          bool                 `json:"hasValue"`
+	Value             *string              `json:"value,omitempty"`
+	Error             string               `json:"error,omitempty"`
 }
 
 type UpdateConfigRequest struct {
@@ -445,18 +472,24 @@ func (s *ConfigService) testEmailGroup() *ConfigGroupTestResult {
 
 func (s *ConfigService) resolveDefinition(def ConfigDefinition, settingsMap map[string]models.Setting) (ConfigItem, error) {
 	item := ConfigItem{
-		Key:             def.Key,
-		Group:           def.Group,
-		GroupLabel:      def.GroupLabel,
-		Label:           def.Label,
-		Description:     def.Description,
-		Type:            def.Type,
-		Placeholder:     def.Placeholder,
-		Editable:        def.Editable,
-		Sensitive:       def.Sensitive,
-		RestartRequired: def.RestartRequired,
-		Options:         def.Options,
-		Source:          ConfigSourceUnset,
+		Key:               def.Key,
+		Group:             def.Group,
+		GroupLabel:        def.GroupLabel,
+		Label:             def.Label,
+		Description:       def.Description,
+		Type:              def.Type,
+		Placeholder:       def.Placeholder,
+		Editable:          def.Editable,
+		Sensitive:         def.Sensitive,
+		RestartRequired:   def.RestartRequired,
+		AllowEmpty:        def.AllowEmpty,
+		EmptyValueMode:    normalizeEmptyValueMode(def),
+		EmptyValueHint:    def.EmptyValueHint,
+		ReadOnlyHint:      def.ReadOnlyHint,
+		MissingValueHint:  def.MissingValueHint,
+		MissingValueLevel: normalizeRiskLevel(def.MissingValueLevel),
+		Options:           def.Options,
+		Source:            ConfigSourceUnset,
 	}
 
 	if settingsMap == nil {
@@ -542,6 +575,23 @@ func (s *ConfigService) resolveEnvValue(def ConfigDefinition) (string, bool) {
 		return raw, true
 	}
 	return normalized, true
+}
+
+func normalizeEmptyValueMode(def ConfigDefinition) ConfigEmptyValueMode {
+	if !def.AllowEmpty {
+		return ConfigEmptyValueNotAllowed
+	}
+	if def.EmptyValueMode == "" {
+		return ConfigEmptyValueFallback
+	}
+	return def.EmptyValueMode
+}
+
+func normalizeRiskLevel(level ConfigRiskLevel) ConfigRiskLevel {
+	if level == "" {
+		return ConfigRiskNone
+	}
+	return level
 }
 
 func (s *ConfigService) loadSettings(definitions []ConfigDefinition) (map[string]models.Setting, error) {
@@ -651,16 +701,18 @@ func getConfigDefinitions() []ConfigDefinition {
 			Validate:     validateIntRange(0, 3650),
 		},
 		{
-			Key:          "notify_group_link",
-			Group:        ConfigGroupBusiness,
-			GroupLabel:   "基础业务",
-			Label:        "通知群组链接",
-			Description:  "Telegram 欢迎消息中展示的群组链接，留空表示关闭",
-			Type:         ConfigValueURL,
-			DefaultValue: "",
-			Placeholder:  "https://t.me/your_notify_group",
-			Editable:     true,
-			AllowEmpty:   true,
+			Key:            "notify_group_link",
+			Group:          ConfigGroupBusiness,
+			GroupLabel:     "基础业务",
+			Label:          "通知群组链接",
+			Description:    "Telegram 欢迎消息中展示的群组链接",
+			Type:           ConfigValueURL,
+			DefaultValue:   "",
+			Placeholder:    "https://t.me/your_notify_group",
+			Editable:       true,
+			AllowEmpty:     true,
+			EmptyValueMode: ConfigEmptyValueDisable,
+			EmptyValueHint: "保存为空值后将关闭欢迎消息中的群组链接展示。",
 			Validate: func(value string) error {
 				if strings.TrimSpace(value) == "" {
 					return nil
@@ -682,15 +734,17 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:    normalizeBoolean,
 		},
 		{
-			Key:          "stripe_allowed_payment_methods",
-			Group:        ConfigGroupBusiness,
-			GroupLabel:   "基础业务",
-			Label:        "Stripe 支付方式",
-			Description:  "空值表示跟随 Stripe Dashboard，非空时仅允许选中的方式",
-			Type:         ConfigValueJSONList,
-			DefaultValue: "",
-			Editable:     true,
-			AllowEmpty:   true,
+			Key:            "stripe_allowed_payment_methods",
+			Group:          ConfigGroupBusiness,
+			GroupLabel:     "基础业务",
+			Label:          "Stripe 支付方式",
+			Description:    "非空时仅允许选中的支付方式",
+			Type:           ConfigValueJSONList,
+			DefaultValue:   "",
+			Editable:       true,
+			AllowEmpty:     true,
+			EmptyValueMode: ConfigEmptyValueInherit,
+			EmptyValueHint: "保存为空值后将跟随 Stripe Dashboard 中启用的支付方式。",
 			Options: []ConfigOption{
 				{Label: "信用卡", Value: "card"},
 				{Label: "支付宝", Value: "alipay"},
@@ -728,16 +782,18 @@ func getConfigDefinitions() []ConfigDefinition {
 			Validate:    validateNonEmpty("Emby API Key 不能为空"),
 		},
 		{
-			Key:         "NEXT_PUBLIC_EMBY_URL",
-			EnvKey:      "NEXT_PUBLIC_EMBY_URL",
-			Group:       ConfigGroupMedia,
-			GroupLabel:  "媒体集成",
-			Label:       "前端 Emby 地址",
-			Description: "前端跳转到 Emby 播放页时使用的公网地址，不设置时回退到 Emby 服务地址",
-			Type:        ConfigValueURL,
-			Editable:    true,
-			Placeholder: "https://your-public-emby.com",
-			AllowEmpty:  true,
+			Key:            "NEXT_PUBLIC_EMBY_URL",
+			EnvKey:         "NEXT_PUBLIC_EMBY_URL",
+			Group:          ConfigGroupMedia,
+			GroupLabel:     "媒体集成",
+			Label:          "前端 Emby 地址",
+			Description:    "前端跳转到 Emby 播放页时使用的公网地址",
+			Type:           ConfigValueURL,
+			Editable:       true,
+			Placeholder:    "https://your-public-emby.com",
+			AllowEmpty:     true,
+			EmptyValueMode: ConfigEmptyValueFallback,
+			EmptyValueHint: "保存为空值后将回退到 Emby 服务地址。",
 			Validate: func(value string) error {
 				if strings.TrimSpace(value) == "" {
 					return nil
@@ -847,18 +903,20 @@ func getConfigDefinitions() []ConfigDefinition {
 			Validate:    validateNonEmpty("SMTP 密码不能为空"),
 		},
 		{
-			Key:         "SMTP_FROM",
-			EnvKey:      "SMTP_FROM",
-			Group:       ConfigGroupEmail,
-			GroupLabel:  "邮件服务",
-			Label:       "发件人",
-			Description: "支持显示名，未设置时回退为 SMTP 用户名",
-			Type:        ConfigValueString,
-			Editable:    true,
-			Placeholder: "Ember <no-reply@example.com>",
-			AllowEmpty:  true,
-			Validate:    validateMailAddressAllowEmpty,
-			Normalize:   normalizeTrimmedString,
+			Key:            "SMTP_FROM",
+			EnvKey:         "SMTP_FROM",
+			Group:          ConfigGroupEmail,
+			GroupLabel:     "邮件服务",
+			Label:          "发件人",
+			Description:    "支持显示名的发件人地址",
+			Type:           ConfigValueString,
+			Editable:       true,
+			Placeholder:    "Ember <no-reply@example.com>",
+			AllowEmpty:     true,
+			EmptyValueMode: ConfigEmptyValueFallback,
+			EmptyValueHint: "保存为空值后将回退到 SMTP 用户名。",
+			Validate:       validateMailAddressAllowEmpty,
+			Normalize:      normalizeTrimmedString,
 		},
 		{
 			Key:          "EMAIL_CODE_EXPIRY_MINUTES",
@@ -897,16 +955,18 @@ func getConfigDefinitions() []ConfigDefinition {
 			Validate:     validateIntRange(1, 5000),
 		},
 		{
-			Key:         "BOT_NOTIFY_URL",
-			EnvKey:      "BOT_NOTIFY_URL",
-			Group:       ConfigGroupNotification,
-			GroupLabel:  "通知与 Bot",
-			Label:       "Bot 通知地址",
-			Description: "API fire-and-forget 推送到 Bot 的地址，留空表示关闭",
-			Type:        ConfigValueURL,
-			Editable:    true,
-			AllowEmpty:  true,
-			Placeholder: "http://localhost:8000",
+			Key:            "BOT_NOTIFY_URL",
+			EnvKey:         "BOT_NOTIFY_URL",
+			Group:          ConfigGroupNotification,
+			GroupLabel:     "通知与 Bot",
+			Label:          "Bot 通知地址",
+			Description:    "API fire-and-forget 推送到 Bot 的地址",
+			Type:           ConfigValueURL,
+			Editable:       true,
+			AllowEmpty:     true,
+			EmptyValueMode: ConfigEmptyValueDisable,
+			EmptyValueHint: "保存为空值后将关闭 API 到 Bot 的 fire-and-forget 推送。",
+			Placeholder:    "http://localhost:8000",
 			Validate: func(value string) error {
 				if strings.TrimSpace(value) == "" {
 					return nil
@@ -1026,16 +1086,19 @@ func getConfigDefinitions() []ConfigDefinition {
 			Validate:    validateNonEmpty("Stripe Secret Key 不能为空"),
 		},
 		{
-			Key:             "STRIPE_WEBHOOK_SECRET",
-			EnvKey:          "STRIPE_WEBHOOK_SECRET",
-			Group:           ConfigGroupPayment,
-			GroupLabel:      "支付",
-			Label:           "Stripe Webhook Secret",
-			Description:     "Stripe Webhook 签名密钥",
-			Type:            ConfigValueSecret,
-			Editable:        false,
-			Sensitive:       true,
-			RestartRequired: true,
+			Key:               "STRIPE_WEBHOOK_SECRET",
+			EnvKey:            "STRIPE_WEBHOOK_SECRET",
+			Group:             ConfigGroupPayment,
+			GroupLabel:        "支付",
+			Label:             "Stripe Webhook Secret",
+			Description:       "Stripe Webhook 签名密钥",
+			Type:              ConfigValueSecret,
+			Editable:          false,
+			Sensitive:         true,
+			RestartRequired:   true,
+			ReadOnlyHint:      "该密钥用于校验 Stripe 回调签名，只能通过部署环境注入，避免后台误改后导致回调验签失效。",
+			MissingValueHint:  "未设置时 Stripe Webhook 回调无法完成签名校验，支付状态同步会失败。",
+			MissingValueLevel: ConfigRiskCritical,
 		},
 		{
 			Key:         "STRIPE_SUCCESS_URL",
@@ -1121,16 +1184,19 @@ func getConfigDefinitions() []ConfigDefinition {
 			RestartRequired: true,
 		},
 		{
-			Key:             "TELEGRAM_BOT_TOKEN",
-			EnvKey:          "TELEGRAM_BOT_TOKEN",
-			Group:           ConfigGroupDeployment,
-			GroupLabel:      "部署与密钥",
-			Label:           "Telegram Bot Token",
-			Description:     "Telegram Bot 令牌",
-			Type:            ConfigValueSecret,
-			Editable:        false,
-			Sensitive:       true,
-			RestartRequired: true,
+			Key:               "TELEGRAM_BOT_TOKEN",
+			EnvKey:            "TELEGRAM_BOT_TOKEN",
+			Group:             ConfigGroupDeployment,
+			GroupLabel:        "部署与密钥",
+			Label:             "Telegram Bot Token",
+			Description:       "Telegram Bot 令牌",
+			Type:              ConfigValueSecret,
+			Editable:          false,
+			Sensitive:         true,
+			RestartRequired:   true,
+			ReadOnlyHint:      "Bot 启动时必须从部署环境读取该令牌；修改后需要重启 Bot，不应在后台在线编辑。",
+			MissingValueHint:  "未设置时 Telegram Bot 无法启动，也无法接收或发送通知。",
+			MissingValueLevel: ConfigRiskCritical,
 		},
 		{
 			Key:             "TELEGRAM_ADMIN_CHAT_ID",
@@ -1156,33 +1222,41 @@ func getConfigDefinitions() []ConfigDefinition {
 			Editable:        true,
 			RestartRequired: false,
 			AllowEmpty:      true,
+			EmptyValueMode:  ConfigEmptyValueFallback,
+			EmptyValueHint:  "保存为空值后排行榜通知将回退到管理员 Chat ID。",
 			Placeholder:     "-1001234567890",
 			Validate:        validateTelegramSignedChatIDAllowEmpty,
 			Normalize:       normalizeTrimmedString,
 		},
 		{
-			Key:             "TELEGRAM_WEBHOOK_SECRET",
-			EnvKey:          "TELEGRAM_WEBHOOK_SECRET",
-			Group:           ConfigGroupDeployment,
-			GroupLabel:      "部署与密钥",
-			Label:           "Telegram Webhook Secret",
-			Description:     "Telegram Webhook 校验密钥",
-			Type:            ConfigValueSecret,
-			Editable:        false,
-			Sensitive:       true,
-			RestartRequired: true,
+			Key:               "TELEGRAM_WEBHOOK_SECRET",
+			EnvKey:            "TELEGRAM_WEBHOOK_SECRET",
+			Group:             ConfigGroupDeployment,
+			GroupLabel:        "部署与密钥",
+			Label:             "Telegram Webhook Secret",
+			Description:       "Telegram Webhook 校验密钥",
+			Type:              ConfigValueSecret,
+			Editable:          false,
+			Sensitive:         true,
+			RestartRequired:   true,
+			ReadOnlyHint:      "该密钥必须与 Telegram 注册的 Webhook 配置保持一致，只能通过部署环境管理。",
+			MissingValueHint:  "未设置时 Telegram Webhook 请求无法做额外校验，Bot Webhook 安全边界不完整。",
+			MissingValueLevel: ConfigRiskCritical,
 		},
 		{
-			Key:             "WEBHOOK_URL",
-			EnvKey:          "WEBHOOK_URL",
-			Group:           ConfigGroupDeployment,
-			GroupLabel:      "部署与密钥",
-			Label:           "Webhook URL",
-			Description:     "Telegram Webhook 公网地址",
-			Type:            ConfigValueSecret,
-			Editable:        false,
-			Sensitive:       true,
-			RestartRequired: true,
+			Key:               "WEBHOOK_URL",
+			EnvKey:            "WEBHOOK_URL",
+			Group:             ConfigGroupDeployment,
+			GroupLabel:        "部署与密钥",
+			Label:             "Webhook URL",
+			Description:       "Telegram Webhook 公网地址",
+			Type:              ConfigValueSecret,
+			Editable:          false,
+			Sensitive:         true,
+			RestartRequired:   true,
+			ReadOnlyHint:      "Webhook 公网地址取决于部署拓扑和反向代理，只能在部署环境维护，修改后需要重新注册 Telegram Webhook。",
+			MissingValueHint:  "未设置时 Telegram Webhook 模式无法正常接入公网请求。",
+			MissingValueLevel: ConfigRiskCritical,
 		},
 		{
 			Key:             "PORT",

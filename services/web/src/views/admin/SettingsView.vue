@@ -16,6 +16,7 @@ import {
   canClearConfigOverride,
   getClearConfigDescription,
   getClearConfigLabel,
+  hasExplicitEmptyDatabaseValue,
   isConfigItemDirty,
   parseDraftValue
 } from './settings-center.utils'
@@ -32,6 +33,11 @@ type ConfigGroupKey =
 interface ConfigGroupSection {
   key: ConfigGroupKey
   label: string
+  items: AdminConfigItem[]
+}
+
+interface ConfigRiskSummary {
+  count: number
   items: AdminConfigItem[]
 }
 
@@ -73,10 +79,23 @@ const groupSections = computed<ConfigGroupSection[]>(() => {
     .filter((group): group is ConfigGroupSection => Boolean(group))
 })
 
+const activeGroupSection = computed(() => groupSections.value.find(group => group.key === activeGroup.value) ?? null)
+
 const configuredCount = computed(() => configs.value.filter(item => item.hasValue).length)
 const missingCount = computed(() => configs.value.filter(item => !item.hasValue && item.editable).length)
 const sensitiveCount = computed(() => configs.value.filter(item => item.sensitive && item.hasValue).length)
 const restartCount = computed(() => configs.value.filter(item => item.restartRequired).length)
+
+const getCriticalMissingItems = (items: AdminConfigItem[]) =>
+  items.filter(item => !item.hasValue && item.missingValueLevel === 'critical')
+
+const activeGroupRiskSummary = computed<ConfigRiskSummary>(() => {
+  const items = activeGroupSection.value ? getCriticalMissingItems(activeGroupSection.value.items) : []
+  return {
+    count: items.length,
+    items
+  }
+})
 
 const resetDraftValues = (items: AdminConfigItem[]) => {
   draftValues.value = buildDraftValues(items)
@@ -234,10 +253,112 @@ const visibleValue = (item: AdminConfigItem) => {
   if (item.sensitive) {
     return item.hasValue ? '已设置' : '未设置'
   }
+  if (hasExplicitEmptyDatabaseValue(item)) {
+    return '已显式设为空值'
+  }
   if (!item.hasValue || item.value === undefined || item.value === '') {
     return '未设置'
   }
   return item.value
+}
+
+const configStateHint = (item: AdminConfigItem) => {
+  if (hasExplicitEmptyDatabaseValue(item) && item.emptyValueHint) {
+    return item.emptyValueHint
+  }
+  if (!item.hasValue && item.missingValueHint) {
+    return item.missingValueHint
+  }
+  return ''
+}
+
+const editableHint = (item: AdminConfigItem) => {
+  if (item.sensitive) {
+    return '敏感值不会回显。只有输入新值时才会覆盖当前值。'
+  }
+
+  if (hasExplicitEmptyDatabaseValue(item)) {
+    return item.emptyValueHint
+      ? `${item.emptyValueHint} 也可使用“${getClearConfigLabel(item)}”回退到 env/default。`
+      : `当前值来自数据库显式空值。可使用“${getClearConfigLabel(item)}”回退到 env/default。`
+  }
+
+  if (item.allowEmpty && item.emptyValueHint && canClearConfigOverride(item)) {
+    return `可保存为空值。${item.emptyValueHint} 也可使用“${getClearConfigLabel(item)}”回退到 env/default。`
+  }
+
+  if (canClearConfigOverride(item)) {
+    return `当前值来自数据库覆盖。可使用“${getClearConfigLabel(item)}”回退到 env/default。`
+  }
+
+  if (item.allowEmpty && item.emptyValueHint) {
+    return `可保存为空值。${item.emptyValueHint}`
+  }
+
+  if (item.source === 'env') {
+    return '当前正在跟随环境变量。保存后将切换为数据库托管。'
+  }
+
+  if (item.restartRequired) {
+    return '该项属于启动期配置，当前页面仅展示状态，不会在线热生效。'
+  }
+
+  return '保存后将立即按当前分组生效。'
+}
+
+const readOnlyHint = (item: AdminConfigItem) => {
+  if (item.editable) {
+    return ''
+  }
+
+  if (item.readOnlyHint) {
+    return item.readOnlyHint
+  }
+
+  if (item.restartRequired) {
+    return '该项属于部署期或启动期边界配置，只做状态展示，修改需要通过部署环境完成并重启对应服务。'
+  }
+
+  return '该项当前只做状态展示，不支持在后台在线编辑。'
+}
+
+const riskBadgeText = (item: AdminConfigItem) => {
+  if (item.hasValue || item.missingValueLevel === 'none') {
+    return ''
+  }
+  switch (item.missingValueLevel) {
+    case 'critical':
+      return '高风险缺失'
+    case 'warning':
+      return '风险提示'
+    case 'info':
+      return '配置提示'
+    default:
+      return ''
+  }
+}
+
+const riskBadgeClass = (item: AdminConfigItem) => {
+  switch (item.missingValueLevel) {
+    case 'critical':
+      return 'bg-red-100 text-red-700'
+    case 'warning':
+      return 'bg-amber-100 text-amber-700'
+    case 'info':
+      return 'bg-sky-100 text-sky-700'
+    default:
+      return 'bg-gray-100 text-gray-600'
+  }
+}
+
+const statePanelClass = (item: AdminConfigItem) => {
+  if (!item.hasValue && item.missingValueLevel === 'critical') {
+    return 'border-red-200 bg-red-50/80 text-red-700'
+  }
+  if (!item.hasValue && item.missingValueLevel === 'warning') {
+    return 'border-amber-200 bg-amber-50/80 text-amber-700'
+  }
+  return 'border-dashed border-gray-200 bg-white text-gray-500'
 }
 
 onMounted(async () => {
@@ -331,12 +452,21 @@ onMounted(async () => {
               "
             >
               <span>{{ group.label }}</span>
-              <span
-                class="rounded-full px-2 py-0.5 text-xs"
-                :class="activeGroup === group.key ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-500'"
-              >
-                {{ group.items.length }}
-              </span>
+              <div class="flex items-center gap-2">
+                <span
+                  v-if="getCriticalMissingItems(group.items).length > 0"
+                  class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                  :class="activeGroup === group.key ? 'bg-red-500/90 text-white' : 'bg-red-100 text-red-700'"
+                >
+                  {{ getCriticalMissingItems(group.items).length }} 风险
+                </span>
+                <span
+                  class="rounded-full px-2 py-0.5 text-xs"
+                  :class="activeGroup === group.key ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-500'"
+                >
+                  {{ group.items.length }}
+                </span>
+              </div>
             </button>
           </div>
         </div>
@@ -422,6 +552,18 @@ onMounted(async () => {
             </div>
           </div>
 
+          <div
+            v-if="activeGroupRiskSummary.count > 0"
+            class="mt-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700"
+          >
+            <p class="font-semibold text-red-800">高风险缺失</p>
+            <p class="mt-2 leading-6">
+              当前分组有 {{ activeGroupRiskSummary.count }} 项关键边界配置缺失：
+              {{ activeGroupRiskSummary.items.map(item => item.label).join('、') }}。
+              这些项通常需要通过部署环境补齐，否则对应能力无法正常工作。
+            </p>
+          </div>
+
           <div class="mt-6 space-y-4">
             <div
               v-for="item in group.items"
@@ -450,15 +592,35 @@ onMounted(async () => {
                     >
                       {{ item.hasValue ? '敏感项已设置' : '敏感项未设置' }}
                     </span>
+                    <span
+                      v-if="!item.editable"
+                      class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      只读边界项
+                    </span>
+                    <span
+                      v-if="riskBadgeText(item)"
+                      class="rounded-full px-3 py-1 text-xs font-medium"
+                      :class="riskBadgeClass(item)"
+                    >
+                      {{ riskBadgeText(item) }}
+                    </span>
                   </div>
 
                   <p class="mt-2 text-sm leading-6 text-gray-500">{{ item.description }}</p>
                 </div>
 
-                <div class="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500 lg:w-72">
-                  <p class="font-medium text-gray-700">当前状态</p>
+                <div class="rounded-xl border px-4 py-3 text-sm lg:w-72" :class="statePanelClass(item)">
+                  <p class="font-medium" :class="!item.hasValue && item.missingValueLevel === 'critical' ? 'text-red-800' : 'text-gray-700'">当前状态</p>
                   <p class="mt-2 break-all">
                     {{ visibleValue(item) }}
+                  </p>
+                  <p
+                    v-if="configStateHint(item)"
+                    class="mt-2 text-xs leading-5"
+                    :class="!item.hasValue && item.missingValueLevel === 'critical' ? 'text-red-600' : 'text-gray-400'"
+                  >
+                    {{ configStateHint(item) }}
                   </p>
                   <button
                     v-if="canClearConfigOverride(item)"
@@ -539,21 +701,17 @@ onMounted(async () => {
                 />
 
                 <p class="mt-2 text-xs text-gray-400">
-                  <template v-if="item.sensitive">
-                    敏感值不会回显。只有输入新值时才会覆盖当前值。
-                  </template>
-                  <template v-else-if="canClearConfigOverride(item)">
-                    当前值来自数据库覆盖。可使用“{{ getClearConfigLabel(item) }}”回退到 env/default。
-                  </template>
-                  <template v-else-if="item.source === 'env'">
-                    当前正在跟随环境变量。保存后将切换为数据库托管。
-                  </template>
-                  <template v-else-if="item.restartRequired">
-                    该项属于启动期配置，当前页面仅展示状态，不会在线热生效。
-                  </template>
-                  <template v-else>
-                    保存后将立即按当前分组生效。
-                  </template>
+                  {{ editableHint(item) }}
+                </p>
+              </div>
+
+              <div v-else class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p class="font-medium text-slate-800">只读原因</p>
+                <p class="mt-2 leading-6">
+                  {{ readOnlyHint(item) }}
+                </p>
+                <p v-if="item.restartRequired" class="mt-2 text-xs text-slate-500">
+                  如需修改，请更新部署环境并重启对应服务后再回到此页确认状态。
                 </p>
               </div>
             </div>

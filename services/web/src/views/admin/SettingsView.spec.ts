@@ -104,12 +104,16 @@ function createConfigItem(overrides: Partial<AdminConfigItem> = {}): AdminConfig
     group: 'business',
     groupLabel: '基础业务',
     label: '通知群组链接',
-    description: 'Telegram 欢迎消息中展示的群组链接，留空表示关闭',
+    description: 'Telegram 欢迎消息中展示的群组链接',
     type: 'url',
     placeholder: 'https://t.me/ember',
     editable: true,
     sensitive: false,
     restartRequired: false,
+    allowEmpty: true,
+    emptyValueMode: 'disable',
+    emptyValueHint: '保存为空值后将关闭欢迎消息中的群组链接展示。',
+    missingValueLevel: 'none',
     source: 'env',
     hasValue: true,
     value: 'https://t.me/original',
@@ -222,6 +226,25 @@ describe('SettingsView', () => {
     expect(wrapper.text()).toContain('未设置')
   })
 
+  it('会把数据库显式空值与普通未设置区分展示', async () => {
+    vi.mocked(getConfigs).mockResolvedValue({
+      data: [
+        createConfigItem({
+          source: 'database',
+          hasValue: false,
+          value: '',
+        }),
+      ],
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已显式设为空值')
+    expect(wrapper.text()).toContain('保存为空值后将关闭欢迎消息中的群组链接展示。')
+    expect(wrapper.text()).toContain('也可使用“移除数据库覆盖值”回退到 env/default。')
+  })
+
   it('切换到邮件服务分组后可触发测试连接并展示聚合失败信息', async () => {
     const emailItem = createConfigItem({
       key: 'SMTP_HOST',
@@ -259,5 +282,44 @@ describe('SettingsView', () => {
 
     expect(testConfigGroup).toHaveBeenCalledWith('email')
     expect(ElMessage.warning).toHaveBeenCalledWith('smtp: 连接失败')
+  })
+
+  it('只读边界项会展示只读原因和缺失影响', async () => {
+    vi.mocked(getConfigs).mockResolvedValue({
+      data: [
+        createConfigItem({
+          key: 'TELEGRAM_BOT_TOKEN',
+          group: 'deployment',
+          groupLabel: '部署与密钥',
+          label: 'Telegram Bot Token',
+          description: 'Telegram Bot 令牌',
+          type: 'secret',
+          editable: false,
+          sensitive: true,
+          restartRequired: true,
+          source: 'unset',
+          hasValue: false,
+          value: undefined,
+          allowEmpty: false,
+          emptyValueMode: 'not_allowed',
+          readOnlyHint: 'Bot 启动时必须从部署环境读取该令牌；修改后需要重启 Bot，不应在后台在线编辑。',
+          missingValueHint: '未设置时 Telegram Bot 无法启动，也无法接收或发送通知。',
+          missingValueLevel: 'critical',
+        }),
+      ],
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, '部署与密钥').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('只读边界项')
+    expect(wrapper.text()).toContain('高风险缺失')
+    expect(wrapper.text()).toContain('只读原因')
+    expect(wrapper.text()).toContain('Bot 启动时必须从部署环境读取该令牌')
+    expect(wrapper.text()).toContain('未设置时 Telegram Bot 无法启动，也无法接收或发送通知。')
+    expect(wrapper.text()).toContain('当前分组有 1 项关键边界配置缺失：Telegram Bot Token。')
   })
 })

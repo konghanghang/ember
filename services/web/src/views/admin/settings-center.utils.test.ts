@@ -7,6 +7,7 @@ import {
   buildDraftValues,
   canClearConfigOverride,
   getClearConfigLabel,
+  hasExplicitEmptyDatabaseValue,
   isConfigItemDirty,
 } from './settings-center.utils.js'
 
@@ -21,6 +22,9 @@ function createItem(overrides: Partial<AdminConfigItem> = {}): AdminConfigItem {
     editable: true,
     sensitive: false,
     restartRequired: false,
+    allowEmpty: false,
+    emptyValueMode: 'not_allowed',
+    missingValueLevel: 'none',
     source: 'default',
     hasValue: true,
     value: 'value',
@@ -78,5 +82,20 @@ test('clear override action only appears for editable database-backed items', ()
   assert.equal(
     getClearConfigLabel(createItem({ source: 'database', sensitive: true, type: 'secret' })),
     '清空数据库覆盖值'
+  )
+})
+
+test('hasExplicitEmptyDatabaseValue only matches explicit empty database overrides', () => {
+  assert.equal(
+    hasExplicitEmptyDatabaseValue(
+      createItem({ source: 'database', allowEmpty: true, emptyValueMode: 'disable', hasValue: false, value: '' })
+    ),
+    true
+  )
+  assert.equal(
+    hasExplicitEmptyDatabaseValue(
+      createItem({ source: 'default', allowEmpty: true, emptyValueMode: 'disable', hasValue: false, value: '' })
+    ),
+    false
   )
 })

@@ -4,28 +4,9 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
-
-	"github.com/konghang/ember/backend/internal/db"
-	"github.com/konghang/ember/backend/internal/models"
 )
 
 var allowedStripePaymentMethods = []string{"card", "alipay", "wechat_pay"}
-
-// SettingService 系统配置服务
-type SettingService struct{}
-
-// GetSetting 获取配置值
-func (s *SettingService) GetSetting(key string) string {
-	if db.DB == nil {
-		return ""
-	}
-	var setting models.Setting
-	result := db.DB.Where("key = ?", key).First(&setting)
-	if result.Error != nil {
-		return ""
-	}
-	return setting.Value
-}
 
 func NormalizeStripeAllowedPaymentMethods(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)

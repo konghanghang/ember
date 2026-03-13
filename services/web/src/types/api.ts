@@ -230,6 +230,8 @@ export interface RegistrationModeResponse {
 
 export type ConfigValueType = 'string' | 'secret' | 'boolean' | 'integer' | 'url' | 'enum' | 'json_list'
 export type ConfigSource = 'database' | 'env' | 'default' | 'unset'
+export type ConfigEmptyValueMode = 'not_allowed' | 'disable' | 'fallback' | 'inherit'
+export type ConfigRiskLevel = 'none' | 'info' | 'warning' | 'critical'
 
 export interface ConfigOption {
   label: string
@@ -247,6 +249,12 @@ export interface AdminConfigItem {
   editable: boolean
   sensitive: boolean
   restartRequired: boolean
+  allowEmpty: boolean
+  emptyValueMode: ConfigEmptyValueMode
+  emptyValueHint?: string
+  readOnlyHint?: string
+  missingValueHint?: string
+  missingValueLevel: ConfigRiskLevel
   options?: ConfigOption[]
   source: ConfigSource
   hasValue: boolean
