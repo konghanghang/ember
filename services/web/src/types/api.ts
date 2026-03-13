@@ -228,16 +228,6 @@ export interface RegistrationModeResponse {
   emailVerification?: boolean
 }
 
-export interface Setting {
-  key: string
-  value: string
-  updatedAt: string
-}
-
-export interface UpdateSettingRequest {
-  value: string
-}
-
 export type ConfigValueType = 'string' | 'secret' | 'boolean' | 'integer' | 'url' | 'enum' | 'json_list'
 export type ConfigSource = 'database' | 'env' | 'default' | 'unset'
 

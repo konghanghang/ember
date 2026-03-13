@@ -28,8 +28,6 @@ import type {
   RedemptionCodeListResponse,
   RedemptionListResponse,
   RankingPreviewResponse,
-  Setting,
-  UpdateSettingRequest,
   SystemInfoResponse,
   UserTemplate,
   UserInfo,
@@ -128,21 +126,6 @@ export function getUserTemplates(): Promise<{ data: UserTemplate[] }> {
     url: '/admin/user-templates',
     method: 'get'
   })
-}
-
-export function getSettings(): Promise<Setting[]> {
-	return request({
-		url: '/admin/settings',
-		method: 'get'
-	})
-}
-
-export function updateSetting(key: string, data: UpdateSettingRequest): Promise<Setting> {
-	return request({
-		url: `/admin/settings/${key}`,
-		method: 'put',
-		data
-	})
 }
 
 export function getConfigs(): Promise<AdminConfigListResponse> {
