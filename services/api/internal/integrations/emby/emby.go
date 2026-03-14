@@ -1,4 +1,4 @@
-package services
+package emby
 
 import (
 	"bytes"
@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
 // EmbyService Emby API 服务
@@ -47,7 +49,7 @@ func NewEmbyService() *EmbyService {
 }
 
 func (s *EmbyService) refreshConfig() {
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 	s.baseURL = strings.TrimRight(configService.GetString("EMBY_URL"), "/")
 	s.apiKey = strings.TrimSpace(configService.GetString("EMBY_API_KEY"))
 }

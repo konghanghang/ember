@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -33,8 +34,8 @@ func (s *UserService) syncEmbyPolicy(user *models.User) error {
 		return nil
 	}
 
-	embyService := NewEmbyService()
-	if err := embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{IsDisabled: shouldDisable}); err != nil {
+	embyService := embyint.NewEmbyService()
+	if err := embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{IsDisabled: shouldDisable}); err != nil {
 		return errors.New("同步 Emby 用户状态失败：" + err.Error())
 	}
 
@@ -289,7 +290,7 @@ func (s *UserService) DeleteUser(userID string) error {
 
 	// 先删除 Emby 用户，避免本地删除成功但 Emby 残留
 	if user.EmbyID != "" {
-		embyService := NewEmbyService()
+		embyService := embyint.NewEmbyService()
 		if err := embyService.DeleteUser(user.EmbyID); err != nil {
 			return errors.New("删除用户失败：" + err.Error())
 		}
@@ -323,7 +324,7 @@ func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error
 	}
 
 	if user.EmbyID != "" {
-		embyService := NewEmbyService()
+		embyService := embyint.NewEmbyService()
 		if err := embyService.UpdateUserPassword(user.EmbyID, req.NewPassword); err != nil {
 			return errors.New("密码重置失败：" + err.Error())
 		}
@@ -373,7 +374,7 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 	}
 
 	// 调用 Emby API 重置密码
-	embyService := NewEmbyService()
+	embyService := embyint.NewEmbyService()
 	err := embyService.UpdateUserPassword(user.EmbyID, newPassword)
 	if err != nil {
 		return errors.New("重置密码失败：" + err.Error())
@@ -454,7 +455,7 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 	}
 
 	// 1. 验证旧密码（通过 Emby）
-	embyService := NewEmbyService()
+	embyService := embyint.NewEmbyService()
 	oldPasswordVerified := false
 	if _, err := embyService.AuthenticateUser(user.Username, req.OldPassword); err == nil {
 		oldPasswordVerified = true

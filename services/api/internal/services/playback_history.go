@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
@@ -24,7 +25,7 @@ var playbackKeywordPattern = regexp.MustCompile(`^[\p{Han}\p{L}\p{N}._'\- ]+$`)
 var playbackUserIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,50}$`)
 
 type PlaybackHistoryService struct {
-	embyService *EmbyService
+	embyService *embyint.EmbyService
 }
 
 type PlaybackHistoryRequest struct {
@@ -74,7 +75,7 @@ type playbackActivityRow struct {
 
 func NewPlaybackHistoryService() *PlaybackHistoryService {
 	return &PlaybackHistoryService{
-		embyService: NewEmbyService(),
+		embyService: embyint.NewEmbyService(),
 	}
 }
 
@@ -174,7 +175,7 @@ func (s *PlaybackHistoryService) GetPlaybackHistory(ctx context.Context, req Pla
 	}, nil
 }
 
-func (s *PlaybackHistoryService) queryPlaybackDetails(whereClause string, pageSize int, offset int, includePauseDuration bool) (*CustomQueryResponse, error) {
+func (s *PlaybackHistoryService) queryPlaybackDetails(whereClause string, pageSize int, offset int, includePauseDuration bool) (*embyint.CustomQueryResponse, error) {
 	durationExpr := "COALESCE(PlayDuration, 0) AS PlayDuration"
 	if includePauseDuration {
 		durationExpr = "COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0) AS PlayDuration"
@@ -192,7 +193,7 @@ LIMIT %d OFFSET %d
 	return s.embyService.QueryPlaybackStats(detailSQL)
 }
 
-func (s *PlaybackHistoryService) queryPlaybackDetailsWildcard(whereClause string, pageSize int, offset int) (*CustomQueryResponse, error) {
+func (s *PlaybackHistoryService) queryPlaybackDetailsWildcard(whereClause string, pageSize int, offset int) (*embyint.CustomQueryResponse, error) {
 	sqlWithOrder := fmt.Sprintf(`
 SELECT *
 FROM PlaybackActivity
@@ -215,7 +216,7 @@ LIMIT %d OFFSET %d
 	return s.embyService.QueryPlaybackStats(sqlNoOrder)
 }
 
-func (s *PlaybackHistoryService) queryPlaybackDetailsAll(whereClause string) (*CustomQueryResponse, error) {
+func (s *PlaybackHistoryService) queryPlaybackDetailsAll(whereClause string) (*embyint.CustomQueryResponse, error) {
 	sqlWithOrder := fmt.Sprintf(`
 SELECT *
 FROM PlaybackActivity
@@ -303,7 +304,7 @@ func (s *PlaybackHistoryService) loadPlaybackRowsByLocalPagination(whereClause s
 	return allRows[offset:end], nil
 }
 
-func shouldFallbackPlaybackDetailQuery(resp *CustomQueryResponse) bool {
+func shouldFallbackPlaybackDetailQuery(resp *embyint.CustomQueryResponse) bool {
 	if resp == nil {
 		return true
 	}
@@ -434,14 +435,14 @@ func buildPlaybackWhereClause(query *playbackHistoryQuery, embyUserID string) st
 	return strings.Join(conditions, " AND ")
 }
 
-func parsePlaybackCount(resp *CustomQueryResponse) (int64, error) {
+func parsePlaybackCount(resp *embyint.CustomQueryResponse) (int64, error) {
 	if resp == nil || len(resp.Results) == 0 || len(resp.Results[0]) == 0 {
 		return 0, nil
 	}
 	return asInt64(resp.Results[0][0])
 }
 
-func parsePlaybackRows(resp *CustomQueryResponse) ([]playbackActivityRow, error) {
+func parsePlaybackRows(resp *embyint.CustomQueryResponse) ([]playbackActivityRow, error) {
 	if resp == nil || len(resp.Results) == 0 {
 		return []playbackActivityRow{}, nil
 	}

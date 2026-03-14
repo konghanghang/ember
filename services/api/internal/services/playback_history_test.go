@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 )
 
 func TestBuildPlaybackWhereClauseEscapesLikeKeyword(t *testing.T) {
@@ -23,7 +25,7 @@ func TestBuildPlaybackWhereClauseEscapesLikeKeyword(t *testing.T) {
 }
 
 func TestParsePlaybackRowsKeepNilAsEmptyString(t *testing.T) {
-	resp := &CustomQueryResponse{
+	resp := &embyint.CustomQueryResponse{
 		Colums: []string{"UserId", "UserName", "ItemName", "ItemType", "DateCreated", "DeviceName", "ClientName", "PlayDuration"},
 		Results: [][]interface{}{
 			{"emby_u_1", "alice", "movie", "Movie", "2026-03-06 10:00:00", nil, nil, float64(120)},
@@ -43,7 +45,7 @@ func TestParsePlaybackRowsKeepNilAsEmptyString(t *testing.T) {
 }
 
 func TestParsePlaybackRowsSupportsColumnsField(t *testing.T) {
-	resp := &CustomQueryResponse{
+	resp := &embyint.CustomQueryResponse{
 		Columns: []string{"UserId", "UserName", "ItemName", "ItemType", "DateCreated", "DeviceName", "ClientName", "PlayDuration"},
 		Results: [][]interface{}{
 			{"emby_u_1", "alice", "movie", "Movie", "2026-03-06 10:00:00", "TV", "Web", float64(120)},
@@ -93,7 +95,7 @@ func TestGetPlaybackHistoryReturnsReadablePluginError(t *testing.T) {
 func TestShouldFallbackPlaybackDetailQuery(t *testing.T) {
 	cases := []struct {
 		name string
-		resp *CustomQueryResponse
+		resp *embyint.CustomQueryResponse
 		want bool
 	}{
 		{
@@ -103,14 +105,14 @@ func TestShouldFallbackPlaybackDetailQuery(t *testing.T) {
 		},
 		{
 			name: "has rows",
-			resp: &CustomQueryResponse{
+			resp: &embyint.CustomQueryResponse{
 				Results: [][]interface{}{{"row"}},
 			},
 			want: false,
 		},
 		{
 			name: "empty rows with pause column error",
-			resp: &CustomQueryResponse{
+			resp: &embyint.CustomQueryResponse{
 				Results: [][]interface{}{},
 				Message: "SQL error: no such column: PauseDuration",
 			},
@@ -118,7 +120,7 @@ func TestShouldFallbackPlaybackDetailQuery(t *testing.T) {
 		},
 		{
 			name: "empty rows without error message",
-			resp: &CustomQueryResponse{
+			resp: &embyint.CustomQueryResponse{
 				Results: [][]interface{}{},
 				Message: "",
 			},

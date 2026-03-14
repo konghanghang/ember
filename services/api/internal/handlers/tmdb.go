@@ -8,18 +8,18 @@ import (
 	"net/url"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
 // TMDBHandler TMDB 处理器
 type TMDBHandler struct {
-	configService *services.ConfigService
+	configService *configpkg.ConfigService
 }
 
 // NewTMDBHandler 创建 TMDB 处理器
 func NewTMDBHandler() *TMDBHandler {
 	return &TMDBHandler{
-		configService: services.NewConfigService(),
+		configService: configpkg.NewConfigService(),
 	}
 }
 

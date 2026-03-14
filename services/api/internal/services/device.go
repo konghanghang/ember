@@ -9,17 +9,18 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
 
 type DeviceService struct {
-	embyService *EmbyService
+	embyService *embyint.EmbyService
 }
 
 func NewDeviceService() *DeviceService {
 	return &DeviceService{
-		embyService: NewEmbyService(),
+		embyService: embyint.NewEmbyService(),
 	}
 }
 

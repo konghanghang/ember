@@ -5,21 +5,23 @@ import (
 	"fmt"
 
 	"github.com/konghang/ember/backend/internal/db"
+	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
+	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
 
 // SubscriptionService 订阅服务
 type SubscriptionService struct {
-	moviepilot *MoviePilotClient
-	notifier   *BotNotifier
+	moviepilot *moviepilotint.MoviePilotClient
+	notifier   *notifierint.BotNotifier
 }
 
 // NewSubscriptionService 创建订阅服务
 func NewSubscriptionService() *SubscriptionService {
 	return &SubscriptionService{
-		moviepilot: NewMoviePilotClient(),
-		notifier:   NewBotNotifier(),
+		moviepilot: moviepilotint.NewMoviePilotClient(),
+		notifier:   notifierint.NewBotNotifier(),
 	}
 }
 
@@ -80,7 +82,7 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 			username = user.Username
 		}
 
-		s.notifier.NotifyNewSubscription(SubscriptionNotification{
+		s.notifier.NotifyNewSubscription(notifierint.SubscriptionNotification{
 			ID:         subscriptionID,
 			UserName:   username,
 			Type:       string(req.Type),
@@ -286,7 +288,7 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 			mpType = "tv"
 		}
 
-		err := s.moviepilot.CreateSubscription(SubscribeRequest{
+		err := s.moviepilot.CreateSubscription(moviepilotint.SubscribeRequest{
 			Type:   mpType,
 			Name:   subscription.Name,
 			TmdbID: subscription.TmdbID,

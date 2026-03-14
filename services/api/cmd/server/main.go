@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/handlers"
 	"github.com/konghang/ember/backend/internal/middleware"
@@ -232,7 +233,7 @@ func main() {
 		}
 	}
 
-	configService := services.NewConfigService()
+	configService := configpkg.NewConfigService()
 
 	cronEnabled := configService.GetString("CRON_ENABLED")
 	if cronEnabled == "" {

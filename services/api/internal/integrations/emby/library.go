@@ -1,4 +1,4 @@
-package services
+package emby
 
 import (
 	"encoding/json"
@@ -208,6 +208,10 @@ func (s *EmbyService) getWithAPIKey(path string, params map[string]string) ([]by
 	}
 
 	return body, nil
+}
+
+func (s *EmbyService) GetWithAPIKey(path string, params map[string]string) ([]byte, error) {
+	return s.getWithAPIKey(path, params)
 }
 
 // GetItemPrimaryImage 获取条目主图（二进制）

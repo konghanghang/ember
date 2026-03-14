@@ -5,16 +5,17 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/services"
 )
 
 type SettingHandler struct {
-	configService *services.ConfigService
+	configService *configpkg.ConfigService
 }
 
 func NewSettingHandler() *SettingHandler {
 	return &SettingHandler{
-		configService: services.NewConfigService(),
+		configService: configpkg.NewConfigService(),
 	}
 }
 
@@ -36,7 +37,7 @@ func (h *SettingHandler) GetSettingByKey(c *gin.Context) {
 
 	item, err := h.configService.Get(key)
 	if err != nil {
-		if errors.Is(err, services.ErrConfigNotFound) {
+		if errors.Is(err, configpkg.ErrConfigNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
@@ -45,7 +46,7 @@ func (h *SettingHandler) GetSettingByKey(c *gin.Context) {
 	}
 
 	if item.Sensitive {
-		c.JSON(http.StatusForbidden, gin.H{"error": services.ErrConfigSensitiveReadForbidden.Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": configpkg.ErrConfigSensitiveReadForbidden.Error()})
 		return
 	}
 

@@ -1,4 +1,4 @@
-package services
+package emby
 
 import (
 	"encoding/json"

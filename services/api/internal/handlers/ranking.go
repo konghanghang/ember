@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
@@ -54,7 +55,7 @@ func (h *RankingHandler) GetLatestRanking(c *gin.Context) {
 }
 
 func loadTimezone() *time.Location {
-	return services.LoadConfiguredTimezone()
+	return configpkg.LoadConfiguredTimezone()
 }
 
 // GenerateRanking 手动触发排行榜生成

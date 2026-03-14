@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -240,7 +241,7 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 	}
 
 	if user.EmbyID != "" {
-		embyService := NewEmbyService()
+		embyService := embyint.NewEmbyService()
 		if err := embyService.UpdateUserPassword(user.EmbyID, newPassword); err != nil {
 			return errors.New("密码重置失败：" + err.Error())
 		}

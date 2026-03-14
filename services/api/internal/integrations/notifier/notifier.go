@@ -1,4 +1,4 @@
-package services
+package notifier
 
 import (
 	"bytes"
@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
 // SubscriptionNotification 新订阅通知数据
@@ -51,7 +53,7 @@ func NewBotNotifier() *BotNotifier {
 }
 
 func (n *BotNotifier) refreshConfig() {
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 	n.botURL = strings.TrimRight(configService.GetString("BOT_NOTIFY_URL"), "/")
 }
 

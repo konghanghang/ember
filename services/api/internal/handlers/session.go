@@ -4,12 +4,12 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 )
 
 // SessionHandler 活跃会话处理器
 type SessionHandler struct {
-	embyService *services.EmbyService
+	embyService *embyint.EmbyService
 }
 
 type ActiveNowPlayingItem struct {
@@ -48,7 +48,7 @@ type ActiveSession struct {
 // NewSessionHandler 创建活跃会话处理器
 func NewSessionHandler() *SessionHandler {
 	return &SessionHandler{
-		embyService: services.NewEmbyService(),
+		embyService: embyint.NewEmbyService(),
 	}
 }
 

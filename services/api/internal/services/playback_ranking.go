@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
 type PlaybackRankingService struct {
-	embyService *EmbyService
-	notifier    *BotNotifier
+	embyService *embyint.EmbyService
+	notifier    *notifierint.BotNotifier
 }
 
 // RankingComputeResult 排行榜计算结果（可用于预览，不涉及入库/推送）
@@ -26,8 +29,8 @@ type RankingComputeResult struct {
 
 func NewPlaybackRankingService() *PlaybackRankingService {
 	return &PlaybackRankingService{
-		embyService: NewEmbyService(),
-		notifier:    NewBotNotifier(),
+		embyService: embyint.NewEmbyService(),
+		notifier:    notifierint.NewBotNotifier(),
 	}
 }
 
@@ -95,7 +98,7 @@ LIMIT %d
 }
 
 func loadCronTimezone() *time.Location {
-	return LoadConfiguredTimezone()
+	return configpkg.LoadConfiguredTimezone()
 }
 
 func dayRange(t time.Time) (time.Time, time.Time) {
@@ -185,7 +188,7 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 	}
 
 	// 推送是辅助功能，不应该让“生成排行”失败（防止 bot 挂了导致 cron 链路整体掉线）
-	go s.notifier.NotifyRanking(RankingNotification{
+	go s.notifier.NotifyRanking(notifierint.RankingNotification{
 		Period:      string(period),
 		PeriodStart: res.Start.Format("2006-01-02"),
 		PeriodEnd:   res.End.Format("2006-01-02"),
@@ -202,10 +205,10 @@ func (s *PlaybackRankingService) PreviewRanking(period models.RankingPeriod) (*R
 	return s.computeRanking(period, nil, nil)
 }
 
-func toNotifyItems(rankings []models.PlaybackRanking) []RankingItemNotify {
-	items := make([]RankingItemNotify, 0, len(rankings))
+func toNotifyItems(rankings []models.PlaybackRanking) []notifierint.RankingItemNotify {
+	items := make([]notifierint.RankingItemNotify, 0, len(rankings))
 	for _, r := range rankings {
-		items = append(items, RankingItemNotify{
+		items = append(items, notifierint.RankingItemNotify{
 			Rank:     r.Rank,
 			Name:     r.ItemName,
 			Duration: r.Duration,

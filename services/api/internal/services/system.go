@@ -6,18 +6,19 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
 // SystemService 系统服务
 type SystemService struct {
-	embyService *EmbyService
+	embyService *embyint.EmbyService
 }
 
 // NewSystemService 创建系统服务
 func NewSystemService() *SystemService {
 	return &SystemService{
-		embyService: NewEmbyService(),
+		embyService: embyint.NewEmbyService(),
 	}
 }
 
@@ -107,7 +108,7 @@ func (s *SystemService) CheckExpiredUsers() (*CheckExpiredUsersResult, error) {
 		processedCount++
 
 		// 1. 调用 Emby API 禁用用户
-		err := s.embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{
+		err := s.embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{
 			IsDisabled: true,
 		})
 

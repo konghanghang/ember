@@ -7,21 +7,24 @@ import (
 	"strings"
 
 	"github.com/konghang/ember/backend/internal/common"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
 
 // AuthService 认证服务
 type AuthService struct {
-	notifier     *BotNotifier
+	notifier     *notifierint.BotNotifier
 	emailService *EmailService
 }
 
 // NewAuthService 创建认证服务
 func NewAuthService() *AuthService {
 	return &AuthService{
-		notifier:     NewBotNotifier(),
+		notifier:     notifierint.NewBotNotifier(),
 		emailService: NewEmailService(),
 	}
 }
@@ -53,7 +56,7 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	if user.IsAdmin() {
 		authenticated = user.CheckPassword(req.Password)
 	} else {
-		embyService := NewEmbyService()
+		embyService := embyint.NewEmbyService()
 		embyUser, err := embyService.AuthenticateUser(user.Username, req.Password)
 		if err == nil && embyUser.ID == user.EmbyID {
 			authenticated = true
@@ -129,7 +132,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		}
 	}
 
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 	mode := configService.GetRegistrationMode()
 
 	var defaultDays int
@@ -162,7 +165,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		return nil, errors.New("邮箱已被注册")
 	}
 
-	embyService := NewEmbyService()
+	embyService := embyint.NewEmbyService()
 	embyUser, err := embyService.CreateEmbyUser(req.Username, req.Password)
 	if err != nil {
 		return nil, errors.New("创建 Emby 用户失败：" + err.Error())
@@ -242,7 +245,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 			expiresAt = &formatted
 		}
 
-		s.notifier.NotifyNewRegistration(RegistrationNotification{
+		s.notifier.NotifyNewRegistration(notifierint.RegistrationNotification{
 			ID:               user.ID,
 			UserName:         user.Username,
 			Email:            user.Email,
@@ -276,7 +279,7 @@ func (s *AuthService) applyTemplatePolicyIfNeeded(newEmbyID string, templateUser
 		return errors.New("模板用户未关联 Emby 账号")
 	}
 
-	embyService := NewEmbyService()
+	embyService := embyint.NewEmbyService()
 	sourcePolicy, err := embyService.GetUserPolicyRaw(templateUser.EmbyID)
 	if err != nil {
 		return errors.New("读取模板用户权限失败")

@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -105,7 +107,7 @@ type tmdbMemoryCacheEntry struct {
 
 // TVCalendarService 追剧日历服务
 type TVCalendarService struct {
-	embyService *EmbyService
+	embyService *embyint.EmbyService
 	tmdbAPIKey  string
 	httpClient  *http.Client
 
@@ -115,7 +117,7 @@ type TVCalendarService struct {
 
 func NewTVCalendarService() *TVCalendarService {
 	service := &TVCalendarService{
-		embyService: NewEmbyService(),
+		embyService: embyint.NewEmbyService(),
 		httpClient: &http.Client{
 			Timeout: tvCalendarFetchTimeout,
 		},
@@ -126,9 +128,8 @@ func NewTVCalendarService() *TVCalendarService {
 }
 
 func (s *TVCalendarService) refreshConfig() {
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 	s.tmdbAPIKey = strings.TrimSpace(configService.GetString("TMDB_API_KEY"))
-	s.embyService.refreshConfig()
 }
 
 func (s *TVCalendarService) SyncAvailable() bool {
@@ -235,14 +236,14 @@ type embyEpisodeItemsResponse struct {
 }
 
 type embyEpisodeItem struct {
-	ID                string            `json:"Id"`
-	SeriesID          string            `json:"SeriesId"`
-	ParentIndexNumber int               `json:"ParentIndexNumber"`
-	IndexNumber       int               `json:"IndexNumber"`
-	Path              string            `json:"Path"`
-	LocationType      string            `json:"LocationType"`
-	IsMissing         bool              `json:"IsMissing"`
-	MediaSources      []EmbyMediaSource `json:"MediaSources"`
+	ID                string                    `json:"Id"`
+	SeriesID          string                    `json:"SeriesId"`
+	ParentIndexNumber int                       `json:"ParentIndexNumber"`
+	IndexNumber       int                       `json:"IndexNumber"`
+	Path              string                    `json:"Path"`
+	LocationType      string                    `json:"LocationType"`
+	IsMissing         bool                      `json:"IsMissing"`
+	MediaSources      []embyint.EmbyMediaSource `json:"MediaSources"`
 }
 
 type weeklyAggregate struct {
@@ -639,7 +640,7 @@ func (s *TVCalendarService) upsertCalendarItem(item models.TVCalendarItem, force
 
 func (s *TVCalendarService) DiscoverContinuingSeries(ctx context.Context) (int, error) {
 	s.refreshConfig()
-	if strings.TrimSpace(s.embyService.baseURL) == "" || strings.TrimSpace(s.embyService.apiKey) == "" {
+	if !s.embyService.IsConfigured() {
 		return 0, fmt.Errorf("Emby 配置未设置")
 	}
 
@@ -655,7 +656,7 @@ func (s *TVCalendarService) DiscoverContinuingSeries(ctx context.Context) (int, 
 			"Limit":            strconv.Itoa(tvCalendarSyncPageSize),
 		}
 
-		body, err := s.embyService.getWithAPIKey("/emby/Items", params)
+		body, err := s.embyService.GetWithAPIKey("/emby/Items", params)
 		if err != nil {
 			return total, fmt.Errorf("拉取 Emby 连载剧失败: %w", err)
 		}
@@ -715,14 +716,14 @@ func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, ser
 	if seriesID == "" {
 		return map[string]embyEpisodeItem{}, false, nil
 	}
-	if strings.TrimSpace(s.embyService.baseURL) == "" || strings.TrimSpace(s.embyService.apiKey) == "" {
+	if !s.embyService.IsConfigured() {
 		return map[string]embyEpisodeItem{}, false, nil
 	}
 
 	episodes := make(map[string]embyEpisodeItem)
 	startIndex := 0
 	for {
-		body, err := s.embyService.getWithAPIKey("/emby/Items", map[string]string{
+		body, err := s.embyService.GetWithAPIKey("/emby/Items", map[string]string{
 			"ParentId":         seriesID,
 			"Recursive":        "true",
 			"IncludeItemTypes": "Episode",

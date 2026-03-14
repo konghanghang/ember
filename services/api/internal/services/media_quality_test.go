@@ -1,9 +1,13 @@
 package services
 
-import "testing"
+import (
+	"testing"
+
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+)
 
 func TestBuildQualityReportSkipItemWithoutVideoStream(t *testing.T) {
-	items := []EmbyLibraryItem{
+	items := []embyint.EmbyLibraryItem{
 		{
 			ID:           "item_1",
 			Name:         "No Stream",
@@ -25,11 +29,11 @@ func TestBuildQualityReportSkipItemWithoutVideoStream(t *testing.T) {
 }
 
 func TestBuildQualityReportLowQualityFieldsComplete(t *testing.T) {
-	items := []EmbyLibraryItem{
+	items := []embyint.EmbyLibraryItem{
 		{
 			ID:   "item_low_1",
 			Name: "Old Movie",
-			MediaStreams: []EmbyMediaStream{
+			MediaStreams: []embyint.EmbyMediaStream{
 				{
 					Type:    "Video",
 					Codec:   "h264",
@@ -68,14 +72,14 @@ func TestBuildQualityReportLowQualityFieldsComplete(t *testing.T) {
 }
 
 func TestBuildQualityReportAggregateEpisodesBySeries(t *testing.T) {
-	items := []EmbyLibraryItem{
+	items := []embyint.EmbyLibraryItem{
 		{
 			ID:         "ep_1",
 			Name:       "Ep1",
 			Type:       "Episode",
 			SeriesID:   "series_1",
 			SeriesName: "Great Show",
-			MediaStreams: []EmbyMediaStream{
+			MediaStreams: []embyint.EmbyMediaStream{
 				{Type: "Video", Codec: "h264", Width: 1280, Height: 720, BitRate: 1800000},
 			},
 		},
@@ -85,7 +89,7 @@ func TestBuildQualityReportAggregateEpisodesBySeries(t *testing.T) {
 			Type:       "Episode",
 			SeriesID:   "series_1",
 			SeriesName: "Great Show",
-			MediaStreams: []EmbyMediaStream{
+			MediaStreams: []embyint.EmbyMediaStream{
 				{Type: "Video", Codec: "h264", Width: 1280, Height: 720, BitRate: 2000000},
 			},
 		},
@@ -111,14 +115,14 @@ func TestBuildQualityReportAggregateEpisodesBySeries(t *testing.T) {
 }
 
 func TestBuildQualityReportAggregateEpisodesBySeriesNameWhenSeriesIDMissing(t *testing.T) {
-	items := []EmbyLibraryItem{
+	items := []embyint.EmbyLibraryItem{
 		{
 			ID:         "ep_1",
 			Name:       "S1E1",
 			Type:       "Episode",
 			ParentID:   "season_1",
 			SeriesName: "No ID Show",
-			MediaStreams: []EmbyMediaStream{
+			MediaStreams: []embyint.EmbyMediaStream{
 				{Type: "Video", Codec: "h264", Width: 1280, Height: 720, BitRate: 1800000},
 			},
 		},
@@ -128,7 +132,7 @@ func TestBuildQualityReportAggregateEpisodesBySeriesNameWhenSeriesIDMissing(t *t
 			Type:       "Episode",
 			ParentID:   "season_2",
 			SeriesName: "No ID Show",
-			MediaStreams: []EmbyMediaStream{
+			MediaStreams: []embyint.EmbyMediaStream{
 				{Type: "Video", Codec: "h264", Width: 1280, Height: 720, BitRate: 1900000},
 			},
 		},

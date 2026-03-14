@@ -37,6 +37,10 @@ services/
 ├─ api/                          # Go 后端
 │  ├─ cmd/server/main.go         # 入口：路由注册 + cron 初始化
 │  └─ internal/
+│     ├─ config/                 # 运行期配置定义 / 解析 / 校验
+│     │  ├─ config.go            # ConfigService（配置定义/解析/测试/导入）
+│     │  ├─ setting.go           # Stripe 支付方式规范化
+│     │  └─ errors.go            # 配置层错误定义
 │     ├─ models/                 # 数据模型（GORM）
 │     │  ├─ user.go              # User（核心用户模型）
 │     │  ├─ redemption_code.go   # RedemptionCode（统一兑换码）
@@ -53,23 +57,25 @@ services/
 │     │  ├─ device_action.go     # DeviceAction（设备操作日志）
 │     │  ├─ tv_calendar.go       # TVCalendar（追剧日历 + 订阅 + TMDB 缓存）
 │     │  └─ utils.go             # generateCUID()
+│     ├─ integrations/           # 外部系统集成
+│     │  ├─ emby/
+│     │  │  ├─ emby.go           # Emby HTTP 客户端
+│     │  │  └─ library.go        # Emby 媒体库列表/条目查询
+│     │  ├─ moviepilot/
+│     │  │  └─ client.go         # MoviePilot HTTP 客户端
+│     │  └─ notifier/
+│     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ services/               # 业务逻辑
 │     │  ├─ auth.go              # 登录 / 注册
 │     │  ├─ user.go              # 用户 CRUD + 密码管理
 │     │  ├─ redemption_code.go   # 兑换码 CRUD
 │     │  ├─ redemption.go        # 兑换核心逻辑 + 历史
-│     │  ├─ setting.go           # 系统配置
-│     │  ├─ config.go            # ConfigService（配置定义/解析/测试/导入）
 │     │  ├─ system.go            # 系统信息 + 过期检查
-│     │  ├─ emby.go              # Emby HTTP 客户端
-│     │  ├─ emby_library.go      # Emby 媒体库列表/条目查询
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
 │     │  ├─ subscription.go      # 订阅工作流
-│     │  ├─ moviepilot.go        # MoviePilot HTTP 客户端
 │     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
 │     │  ├─ telegram.go          # TelegramService（绑定/查询/续期）
-│     │  ├─ notifier.go          # BotNotifier（火忘式推送通知给 Bot）
 │     │  ├─ playback_ranking.go  # PlaybackRankingService（播放排行生成）
 │     │  ├─ playback_history.go  # PlaybackHistoryService（播放历史查询）
 │     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
@@ -500,12 +506,7 @@ TMDBCache（独立缓存表）
 4. 先插入 Redemption 记录（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
 5. 原子递增 usedCount（`WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）→ 提交
 
-### 5.5 SettingService (`services/setting.go`)
-
-- `GetSetting(key)` — 读取数据库原始值（仅供内部兜底读取）
-- 旧 `/api/v1/admin/settings` 路由已下线；新的运行时读取与校验统一走 `ConfigService`
-
-### 5.6 ConfigService (`services/config.go`)
+### 5.5 ConfigService (`config/config.go`)
 
 - `List()` — 返回配置定义 + 当前解析结果（来源、是否有值、是否敏感、是否需重启）
 - `Update(key, req, userID)` — 更新单项配置，支持敏感值加密存储
@@ -520,12 +521,12 @@ TMDBCache（独立缓存表）
 - 敏感值加密：`CONFIG_ENCRYPTION_KEY`
 - 运行期配置中心 API 的后端基础设施
 
-### 5.7 SystemService (`services/system.go`)
+### 5.6 SystemService (`services/system.go`)
 
 - `GetSystemInfo()` — 统计：用户数、活跃数、兑换码数
 - `CheckExpiredUsers()` — **cron 核心**：查询 `expiresAt < NOW() AND embyDisabled = false` → 调用 Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`
 
-### 5.8 EmbyService (`services/emby.go`)
+### 5.7 EmbyService (`integrations/emby/emby.go`)
 
 Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
@@ -548,7 +549,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - Emby 相关配置已切换为设置中心托管，运行期不再隐式回退到 Docker env
 - 设置中心改完 Emby 配置后，无需重启 API 即可对新请求生效
 
-### 5.9 MediaService (`services/media.go`)
+### 5.8 MediaService (`services/media.go`)
 
 - `GetEmbyConfig()` — 返回公开的 Emby URL（`NEXT_PUBLIC_EMBY_URL` 优先；该项允许显式置空以强制回退 `EMBY_URL`）
 - `GetMediaStats()` — 5 分钟 RWMutex 缓存层
@@ -568,7 +569,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `GetStats()` — 客户端分布、设备分布、黑名单数量、活跃会话数
 - `GetDeviceActions(limit)` — 最近设备操作日志
 
-### 5.11 MoviePilotClient (`services/moviepilot.go`)
+### 5.11 MoviePilotClient (`integrations/moviepilot/client.go`)
 
 - `IsConfigured()` — 检查三个环境变量是否都设置
 - `login()` — `POST /api/v1/login/access-token`（form-urlencoded）
@@ -588,7 +589,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15）
 - 验证码有效期：`EMAIL_CODE_EXPIRY_MINUTES`（默认 10 分钟）
 
-### 5.13 BotNotifier (`services/notifier.go`)
+### 5.13 BotNotifier (`integrations/notifier/notifier.go`)
 
 火忘式 HTTP 推送通知服务，将事件推送给 Telegram Bot。
 

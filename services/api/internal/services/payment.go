@@ -17,7 +17,9 @@ import (
 	"strings"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -26,13 +28,13 @@ import (
 var ErrStripeNotConfigured = errors.New("Stripe 支付未配置")
 
 type PaymentService struct {
-	embyService *EmbyService
+	embyService *embyint.EmbyService
 	httpClient  *http.Client
 }
 
 func NewPaymentService() *PaymentService {
 	return &PaymentService{
-		embyService: NewEmbyService(),
+		embyService: embyint.NewEmbyService(),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -251,7 +253,7 @@ func (s *PaymentService) GetActivePlans() ([]models.Plan, error) {
 }
 
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 	stripeSecret := strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY"))
 	successURL := strings.TrimSpace(configService.GetString("STRIPE_SUCCESS_URL"))
 	cancelURL := strings.TrimSpace(configService.GetString("STRIPE_CANCEL_URL"))
@@ -494,7 +496,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 
 	user.ExpiresAt = &newExpiry
 	if user.EmbyDisabled && user.IsActive {
-		if err := s.embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{IsDisabled: false}); err != nil {
+		if err := s.embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{IsDisabled: false}); err != nil {
 			tx.Rollback()
 			return ErrEmbyUnbanFailed
 		}

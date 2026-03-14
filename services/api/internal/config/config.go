@@ -1,4 +1,4 @@
-package services
+package config
 
 import (
 	"crypto/aes"
@@ -26,6 +26,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+const smtpTimeout = 10 * time.Second
 
 type ConfigValueType string
 type ConfigEmptyValueMode string
@@ -404,8 +406,7 @@ func (s *ConfigService) testMediaGroup() *ConfigGroupTestResult {
 		Details: make([]ConfigGroupTestDetail, 0, 2),
 	}
 
-	embyService := NewEmbyService()
-	if err := embyService.TestConnection(); err != nil {
+	if err := s.testEmbyConnection(); err != nil {
 		result.Details = append(result.Details, ConfigGroupTestDetail{
 			Target:  "emby",
 			Success: false,
@@ -419,9 +420,8 @@ func (s *ConfigService) testMediaGroup() *ConfigGroupTestResult {
 		})
 	}
 
-	moviePilot := NewMoviePilotClient()
-	if moviePilot.IsConfigured() {
-		if err := moviePilot.TestConnection(); err != nil {
+	if strings.TrimSpace(s.GetString("MOVIEPILOT_URL")) != "" {
+		if err := s.testMoviePilotConnection(); err != nil {
 			result.Details = append(result.Details, ConfigGroupTestDetail{
 				Target:  "moviepilot",
 				Success: false,
@@ -455,13 +455,77 @@ func (s *ConfigService) testMediaGroup() *ConfigGroupTestResult {
 	return result
 }
 
+func (s *ConfigService) testEmbyConnection() error {
+	baseURL := strings.TrimRight(strings.TrimSpace(s.GetString("EMBY_URL")), "/")
+	apiKey := strings.TrimSpace(s.GetString("EMBY_API_KEY"))
+	if baseURL == "" || apiKey == "" {
+		return errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/emby/Users?api_key="+neturl.QueryEscape(apiKey), nil)
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Emby API 返回异常状态码 %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (s *ConfigService) testMoviePilotConnection() error {
+	baseURL := strings.TrimRight(strings.TrimSpace(s.GetString("MOVIEPILOT_URL")), "/")
+	username := strings.TrimSpace(s.GetString("MOVIEPILOT_USERNAME"))
+	password := s.GetString("MOVIEPILOT_PASSWORD")
+	if baseURL == "" || username == "" || password == "" {
+		return errors.New("MoviePilot 未配置")
+	}
+
+	formData := neturl.Values{}
+	formData.Set("username", username)
+	formData.Set("password", password)
+
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/v1/login/access-token", strings.NewReader(formData.Encode()))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("登录请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("MoviePilot 登录失败: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	return nil
+}
+
 func (s *ConfigService) testEmailGroup() *ConfigGroupTestResult {
 	result := &ConfigGroupTestResult{
 		Details: make([]ConfigGroupTestDetail, 0, 1),
 	}
 
-	emailService := NewEmailService()
-	if err := emailService.TestConnection(); err != nil {
+	host := strings.TrimSpace(s.GetString("SMTP_HOST"))
+	port := strings.TrimSpace(s.GetString("SMTP_PORT"))
+	if port == "" {
+		port = "587"
+	}
+
+	if err := TestSMTPDial(host, port); err != nil {
 		result.Success = false
 		result.Message = "邮件配置检查失败"
 		result.Details = append(result.Details, ConfigGroupTestDetail{
@@ -1575,7 +1639,7 @@ func normalizeStripePaymentMethods(value string) (string, error) {
 
 func TestSMTPDial(host string, port string) error {
 	if strings.TrimSpace(host) == "" || strings.TrimSpace(port) == "" {
-		return ErrEmailNotConfigured
+		return errors.New("邮件服务未配置")
 	}
 
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), smtpTimeout)

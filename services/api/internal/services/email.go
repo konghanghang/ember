@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"gopkg.in/gomail.v2"
@@ -40,7 +41,7 @@ func NewEmailService() *EmailService {
 }
 
 func (s *EmailService) refreshConfig() {
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 
 	port := configService.GetString("SMTP_PORT")
 	if port == "" {
@@ -104,7 +105,7 @@ func (s *EmailService) IsEnabled() bool {
 	if !s.IsConfigured() {
 		return false
 	}
-	return NewConfigService().IsEmailVerificationEnabled()
+	return configpkg.NewConfigService().IsEmailVerificationEnabled()
 }
 
 // SendVerificationCode 发送验证码
@@ -286,7 +287,7 @@ func (s *EmailService) TestConnection() error {
 	if !s.IsConfigured() {
 		return ErrEmailNotConfigured
 	}
-	return TestSMTPDial(s.host, s.port)
+	return configpkg.TestSMTPDial(s.host, s.port)
 }
 
 // generateVerificationCode 生成 6 位随机数字验证码

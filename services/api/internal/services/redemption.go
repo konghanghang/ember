@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
@@ -105,8 +106,8 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 	}
 
 	if user.EmbyDisabled && user.IsActive {
-		embyService := NewEmbyService()
-		if err := embyService.SetUserPolicy(user.EmbyID, EmbyUserPolicy{IsDisabled: false}); err != nil {
+		embyService := embyint.NewEmbyService()
+		if err := embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{IsDisabled: false}); err != nil {
 			return nil, ErrEmbyUnbanFailed
 		}
 		updates["embyDisabled"] = false

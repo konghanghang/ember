@@ -1,4 +1,4 @@
-package services
+package moviepilot
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
 // MoviePilotClient MoviePilot API 客户端
@@ -32,7 +34,7 @@ func NewMoviePilotClient() *MoviePilotClient {
 }
 
 func (c *MoviePilotClient) refreshConfig() {
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 	c.baseURL = strings.TrimRight(configService.GetString("MOVIEPILOT_URL"), "/")
 	c.username = configService.GetString("MOVIEPILOT_USERNAME")
 	c.password = configService.GetString("MOVIEPILOT_PASSWORD")

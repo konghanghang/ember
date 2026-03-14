@@ -5,14 +5,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
 type configService interface {
-	List() ([]services.ConfigItem, error)
-	Update(key string, req services.UpdateConfigRequest, updatedByUserID string) (*services.ConfigItem, error)
-	TestGroup(group string) (*services.ConfigGroupTestResult, error)
-	ImportEnv(updatedByUserID string) (*services.ImportEnvResult, error)
+	List() ([]configpkg.ConfigItem, error)
+	Update(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error)
+	TestGroup(group string) (*configpkg.ConfigGroupTestResult, error)
+	ImportEnv(updatedByUserID string) (*configpkg.ImportEnvResult, error)
 }
 
 type ConfigHandler struct {
@@ -21,7 +21,7 @@ type ConfigHandler struct {
 
 func NewConfigHandler() *ConfigHandler {
 	return &ConfigHandler{
-		service: services.NewConfigService(),
+		service: configpkg.NewConfigService(),
 	}
 }
 
@@ -38,7 +38,7 @@ func (h *ConfigHandler) GetConfigs(c *gin.Context) {
 func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 	key := c.Param("key")
 
-	var req services.UpdateConfigRequest
+	var req configpkg.UpdateConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -50,9 +50,9 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 	item, err := h.service.Update(key, req, updatedByUserID)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrConfigNotFound):
+		case errors.Is(err, configpkg.ErrConfigNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrConfigNotEditable), errors.Is(err, services.ErrConfigValueRequired), errors.Is(err, services.ErrConfigEncryptionKeyMissing):
+		case errors.Is(err, configpkg.ErrConfigNotEditable), errors.Is(err, configpkg.ErrConfigValueRequired), errors.Is(err, configpkg.ErrConfigEncryptionKeyMissing):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -69,7 +69,7 @@ func (h *ConfigHandler) TestConfigGroup(c *gin.Context) {
 	result, err := h.service.TestGroup(group)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrConfigGroupUnsupported):
+		case errors.Is(err, configpkg.ErrConfigGroupUnsupported):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

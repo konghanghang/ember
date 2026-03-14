@@ -9,38 +9,38 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
 type stubConfigService struct {
-	listFn      func() ([]services.ConfigItem, error)
-	updateFn    func(key string, req services.UpdateConfigRequest, updatedByUserID string) (*services.ConfigItem, error)
-	testGroupFn func(group string) (*services.ConfigGroupTestResult, error)
-	importEnvFn func(updatedByUserID string) (*services.ImportEnvResult, error)
+	listFn      func() ([]configpkg.ConfigItem, error)
+	updateFn    func(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error)
+	testGroupFn func(group string) (*configpkg.ConfigGroupTestResult, error)
+	importEnvFn func(updatedByUserID string) (*configpkg.ImportEnvResult, error)
 }
 
-func (s *stubConfigService) List() ([]services.ConfigItem, error) {
+func (s *stubConfigService) List() ([]configpkg.ConfigItem, error) {
 	if s.listFn == nil {
 		return nil, nil
 	}
 	return s.listFn()
 }
 
-func (s *stubConfigService) Update(key string, req services.UpdateConfigRequest, updatedByUserID string) (*services.ConfigItem, error) {
+func (s *stubConfigService) Update(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error) {
 	if s.updateFn == nil {
 		return nil, nil
 	}
 	return s.updateFn(key, req, updatedByUserID)
 }
 
-func (s *stubConfigService) TestGroup(group string) (*services.ConfigGroupTestResult, error) {
+func (s *stubConfigService) TestGroup(group string) (*configpkg.ConfigGroupTestResult, error) {
 	if s.testGroupFn == nil {
 		return nil, nil
 	}
 	return s.testGroupFn(group)
 }
 
-func (s *stubConfigService) ImportEnv(updatedByUserID string) (*services.ImportEnvResult, error) {
+func (s *stubConfigService) ImportEnv(updatedByUserID string) (*configpkg.ImportEnvResult, error) {
 	if s.importEnvFn == nil {
 		return nil, nil
 	}
@@ -62,14 +62,14 @@ func TestConfigHandlerGetConfigs(t *testing.T) {
 
 	handler := &ConfigHandler{
 		service: &stubConfigService{
-			listFn: func() ([]services.ConfigItem, error) {
+			listFn: func() ([]configpkg.ConfigItem, error) {
 				value := "open"
-				return []services.ConfigItem{
+				return []configpkg.ConfigItem{
 					{
 						Key:      "registration_mode",
 						Group:    "business",
 						Label:    "注册模式",
-						Source:   services.ConfigSourceDefault,
+						Source:   configpkg.ConfigSourceDefault,
 						HasValue: true,
 						Value:    &value,
 					},
@@ -86,7 +86,7 @@ func TestConfigHandlerGetConfigs(t *testing.T) {
 	}
 
 	var resp struct {
-		Data []services.ConfigItem `json:"data"`
+		Data []configpkg.ConfigItem `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
@@ -101,7 +101,7 @@ func TestConfigHandlerGetConfigsInternalError(t *testing.T) {
 
 	handler := &ConfigHandler{
 		service: &stubConfigService{
-			listFn: func() ([]services.ConfigItem, error) {
+			listFn: func() ([]configpkg.ConfigItem, error) {
 				return nil, errors.New("boom")
 			},
 		},
@@ -120,7 +120,7 @@ func TestConfigHandlerUpdateConfig(t *testing.T) {
 
 	handler := &ConfigHandler{
 		service: &stubConfigService{
-			updateFn: func(key string, req services.UpdateConfigRequest, updatedByUserID string) (*services.ConfigItem, error) {
+			updateFn: func(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error) {
 				if key != "EMBY_URL" {
 					t.Fatalf("unexpected key: %s", key)
 				}
@@ -131,11 +131,11 @@ func TestConfigHandlerUpdateConfig(t *testing.T) {
 					t.Fatalf("unexpected request payload: %+v", req)
 				}
 				value := "https://emby.example.com"
-				return &services.ConfigItem{
+				return &configpkg.ConfigItem{
 					Key:      key,
 					Group:    "media",
 					Label:    "Emby 服务地址",
-					Source:   services.ConfigSourceDatabase,
+					Source:   configpkg.ConfigSourceDatabase,
 					HasValue: true,
 					Value:    &value,
 				}, nil
@@ -177,17 +177,17 @@ func TestConfigHandlerUpdateConfigMapsErrors(t *testing.T) {
 		err        error
 		statusCode int
 	}{
-		{name: "not found", err: services.ErrConfigNotFound, statusCode: http.StatusNotFound},
-		{name: "not editable", err: services.ErrConfigNotEditable, statusCode: http.StatusBadRequest},
-		{name: "value required", err: services.ErrConfigValueRequired, statusCode: http.StatusBadRequest},
-		{name: "encryption key missing", err: services.ErrConfigEncryptionKeyMissing, statusCode: http.StatusBadRequest},
+		{name: "not found", err: configpkg.ErrConfigNotFound, statusCode: http.StatusNotFound},
+		{name: "not editable", err: configpkg.ErrConfigNotEditable, statusCode: http.StatusBadRequest},
+		{name: "value required", err: configpkg.ErrConfigValueRequired, statusCode: http.StatusBadRequest},
+		{name: "encryption key missing", err: configpkg.ErrConfigEncryptionKeyMissing, statusCode: http.StatusBadRequest},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := &ConfigHandler{
 				service: &stubConfigService{
-					updateFn: func(key string, req services.UpdateConfigRequest, updatedByUserID string) (*services.ConfigItem, error) {
+					updateFn: func(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error) {
 						return nil, tc.err
 					},
 				},
@@ -211,14 +211,14 @@ func TestConfigHandlerTestConfigGroup(t *testing.T) {
 
 	handler := &ConfigHandler{
 		service: &stubConfigService{
-			testGroupFn: func(group string) (*services.ConfigGroupTestResult, error) {
-				if group != services.ConfigGroupEmail {
+			testGroupFn: func(group string) (*configpkg.ConfigGroupTestResult, error) {
+				if group != configpkg.ConfigGroupEmail {
 					t.Fatalf("unexpected group: %s", group)
 				}
-				return &services.ConfigGroupTestResult{
+				return &configpkg.ConfigGroupTestResult{
 					Success: true,
 					Message: "邮件配置检查通过",
-					Details: []services.ConfigGroupTestDetail{
+					Details: []configpkg.ConfigGroupTestDetail{
 						{Target: "smtp", Success: true, Message: "连接成功"},
 					},
 				}, nil
@@ -227,7 +227,7 @@ func TestConfigHandlerTestConfigGroup(t *testing.T) {
 	}
 
 	ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/configs/email/test", nil)
-	ctx.Params = gin.Params{{Key: "group", Value: services.ConfigGroupEmail}}
+	ctx.Params = gin.Params{{Key: "group", Value: configpkg.ConfigGroupEmail}}
 
 	handler.TestConfigGroup(ctx)
 
@@ -241,8 +241,8 @@ func TestConfigHandlerTestConfigGroupUnsupported(t *testing.T) {
 
 	handler := &ConfigHandler{
 		service: &stubConfigService{
-			testGroupFn: func(group string) (*services.ConfigGroupTestResult, error) {
-				return nil, services.ErrConfigGroupUnsupported
+			testGroupFn: func(group string) (*configpkg.ConfigGroupTestResult, error) {
+				return nil, configpkg.ErrConfigGroupUnsupported
 			},
 		},
 	}
@@ -262,11 +262,11 @@ func TestConfigHandlerImportEnv(t *testing.T) {
 
 	handler := &ConfigHandler{
 		service: &stubConfigService{
-			importEnvFn: func(updatedByUserID string) (*services.ImportEnvResult, error) {
+			importEnvFn: func(updatedByUserID string) (*configpkg.ImportEnvResult, error) {
 				if updatedByUserID != "admin-user" {
 					t.Fatalf("unexpected updatedByUserID: %s", updatedByUserID)
 				}
-				return &services.ImportEnvResult{
+				return &configpkg.ImportEnvResult{
 					Imported: []string{"EMBY_URL"},
 					Skipped:  map[string]string{"SMTP_HOST": "环境变量未设置"},
 					Failed:   map[string]string{},
@@ -290,7 +290,7 @@ func TestConfigHandlerImportEnvInternalError(t *testing.T) {
 
 	handler := &ConfigHandler{
 		service: &stubConfigService{
-			importEnvFn: func(updatedByUserID string) (*services.ImportEnvResult, error) {
+			importEnvFn: func(updatedByUserID string) (*configpkg.ImportEnvResult, error) {
 				return nil, errors.New("boom")
 			},
 		},

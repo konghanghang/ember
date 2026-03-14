@@ -3,19 +3,22 @@ package services
 import (
 	"sync"
 	"time"
+
+	configpkg "github.com/konghang/ember/backend/internal/config"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 )
 
 type latestCacheEntry struct {
-	items     []EmbyItem
+	items     []embyint.EmbyItem
 	timestamp time.Time
 	ownerID   string // 首次请求该 itemType 时的 EmbyUserID；后续刷新沿用
 }
 
 // MediaService 媒体服务
 type MediaService struct {
-	embyService    *EmbyService
+	embyService    *embyint.EmbyService
 	cacheMutex     sync.RWMutex
-	cachedStats    *MediaStats
+	cachedStats    *embyint.MediaStats
 	cacheTimestamp time.Time
 	cacheDuration  time.Duration
 
@@ -38,7 +41,7 @@ type MediaService struct {
 // NewMediaService 创建媒体服务
 func NewMediaService() *MediaService {
 	return &MediaService{
-		embyService:         NewEmbyService(),
+		embyService:         embyint.NewEmbyService(),
 		cacheDuration:       5 * time.Minute,  // stats 缓存 5 分钟
 		latestCacheDuration: 10 * time.Minute, // 最近入库缓存 10 分钟
 		latestCacheLimit:    50,               // 缓存刷新时拉取的最大条数
@@ -48,7 +51,7 @@ func NewMediaService() *MediaService {
 
 // GetEmbyConfig 获取 Emby 服务器配置
 func (s *MediaService) GetEmbyConfig() (string, error) {
-	configService := NewConfigService()
+	configService := configpkg.NewConfigService()
 	// 优先返回公网地址，回退到内部地址
 	url := configService.GetString("NEXT_PUBLIC_EMBY_URL")
 	if url == "" {
@@ -63,7 +66,7 @@ func (s *MediaService) GetEmbyConfig() (string, error) {
 }
 
 // GetMediaStats 获取媒体库统计信息（带缓存）
-func (s *MediaService) GetMediaStats() (*MediaStats, error) {
+func (s *MediaService) GetMediaStats() (*embyint.MediaStats, error) {
 	// 检查缓存
 	s.cacheMutex.RLock()
 	now := time.Now()
@@ -90,7 +93,7 @@ func (s *MediaService) GetMediaStats() (*MediaStats, error) {
 }
 
 // GetLatestItems 获取最近入库项（带缓存）
-func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit int) ([]EmbyItem, error) {
+func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit int) ([]embyint.EmbyItem, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -108,7 +111,7 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 		if n > len(cached) {
 			n = len(cached)
 		}
-		out := make([]EmbyItem, n)
+		out := make([]embyint.EmbyItem, n)
 		copy(out, cached[:n])
 		return out, nil
 	}
@@ -141,7 +144,7 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 	if n > len(items) {
 		n = len(items)
 	}
-	out := make([]EmbyItem, n)
+	out := make([]embyint.EmbyItem, n)
 	copy(out, items[:n])
 	return out, nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -22,7 +23,7 @@ const (
 )
 
 type MediaQualityService struct {
-	embyService *EmbyService
+	embyService *embyint.EmbyService
 }
 
 type ResolutionDistributionItem struct {
@@ -80,11 +81,11 @@ type QualityReport struct {
 
 func NewMediaQualityService() *MediaQualityService {
 	return &MediaQualityService{
-		embyService: NewEmbyService(),
+		embyService: embyint.NewEmbyService(),
 	}
 }
 
-func (s *MediaQualityService) GetLibraries() ([]EmbyLibrary, error) {
+func (s *MediaQualityService) GetLibraries() ([]embyint.EmbyLibrary, error) {
 	return s.embyService.GetLibraries()
 }
 
@@ -179,7 +180,7 @@ func (s *MediaQualityService) GetGroupLowQualityDetails(
 	return details, nil
 }
 
-func (s *MediaQualityService) loadQualityItems(libraryID string) ([]EmbyLibraryItem, error) {
+func (s *MediaQualityService) loadQualityItems(libraryID string) ([]embyint.EmbyLibraryItem, error) {
 	if !isAllLibrariesID(libraryID) {
 		return s.embyService.GetLibraryItems(libraryID, 0)
 	}
@@ -189,7 +190,7 @@ func (s *MediaQualityService) loadQualityItems(libraryID string) ([]EmbyLibraryI
 		return nil, err
 	}
 
-	allItems := make([]EmbyLibraryItem, 0)
+	allItems := make([]embyint.EmbyLibraryItem, 0)
 	for _, library := range libraries {
 		id := strings.TrimSpace(library.ID)
 		if id == "" {
@@ -252,7 +253,7 @@ func (s *MediaQualityService) saveReportCache(ctx context.Context, cacheKey stri
 	return nil
 }
 
-func buildQualityReport(items []EmbyLibraryItem) *QualityReport {
+func buildQualityReport(items []embyint.EmbyLibraryItem) *QualityReport {
 	resolutionCount := map[string]int{}
 	codecCount := map[string]int{}
 	hdrCount := map[string]int{}
@@ -358,7 +359,7 @@ func isAllLibrariesID(libraryID string) bool {
 	return strings.EqualFold(strings.TrimSpace(libraryID), mediaQualityAllLibraries)
 }
 
-func buildLowQualityGroup(item EmbyLibraryItem) (string, LowQualityItem) {
+func buildLowQualityGroup(item embyint.EmbyLibraryItem) (string, LowQualityItem) {
 	name := strings.TrimSpace(item.Name)
 	id := strings.TrimSpace(item.ID)
 
@@ -417,7 +418,7 @@ func buildLowQualityGroup(item EmbyLibraryItem) (string, LowQualityItem) {
 }
 
 func buildLowQualityDetail(
-	item EmbyLibraryItem,
+	item embyint.EmbyLibraryItem,
 	groupID string,
 	groupName string,
 	posterItemID string,
@@ -446,7 +447,7 @@ func buildLowQualityDetail(
 	}
 }
 
-func formatEpisodeDisplayName(item EmbyLibraryItem) string {
+func formatEpisodeDisplayName(item embyint.EmbyLibraryItem) string {
 	seriesName := strings.TrimSpace(item.SeriesName)
 	if seriesName == "" {
 		seriesName = "未知剧集"
@@ -510,7 +511,7 @@ func pickFirstNonEmpty(values ...string) string {
 	return ""
 }
 
-func isEpisodeLikeItem(item EmbyLibraryItem) bool {
+func isEpisodeLikeItem(item embyint.EmbyLibraryItem) bool {
 	if strings.EqualFold(strings.TrimSpace(item.Type), "Episode") {
 		return true
 	}
@@ -560,7 +561,7 @@ func shouldRefreshLegacyMediaQualityCache(report *QualityReport) bool {
 	return false
 }
 
-func pickVideoStream(item EmbyLibraryItem) (EmbyMediaStream, bool) {
+func pickVideoStream(item embyint.EmbyLibraryItem) (embyint.EmbyMediaStream, bool) {
 	for _, stream := range item.MediaStreams {
 		if strings.EqualFold(strings.TrimSpace(stream.Type), "Video") {
 			return stream, true
@@ -573,7 +574,7 @@ func pickVideoStream(item EmbyLibraryItem) (EmbyMediaStream, bool) {
 			}
 		}
 	}
-	return EmbyMediaStream{}, false
+	return embyint.EmbyMediaStream{}, false
 }
 
 func detectResolution(width, height int) string {
@@ -607,7 +608,7 @@ func normalizeCodec(codec string) string {
 	}
 }
 
-func normalizeHDR(stream EmbyMediaStream) string {
+func normalizeHDR(stream embyint.EmbyMediaStream) string {
 	v := strings.ToUpper(strings.TrimSpace(stream.VideoRangeType))
 	if v == "" {
 		v = strings.ToUpper(strings.TrimSpace(stream.VideoRange))

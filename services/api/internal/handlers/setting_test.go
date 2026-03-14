@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
 func TestSettingHandlerGetSettingByKeyReturnsRuntimeConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("PORT", "18080")
 
-	handler := &SettingHandler{configService: services.NewConfigService()}
+	handler := &SettingHandler{configService: configpkg.NewConfigService()}
 	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/internal/settings/PORT", nil)
 	ctx.Params = gin.Params{{Key: "key", Value: "PORT"}}
 
@@ -39,7 +39,7 @@ func TestSettingHandlerGetSettingByKeyReturnsRuntimeConfig(t *testing.T) {
 	if resp.Value != "18080" {
 		t.Fatalf("unexpected value: %s", resp.Value)
 	}
-	if resp.Source != services.ConfigSourceEnv {
+	if resp.Source != configpkg.ConfigSourceEnv {
 		t.Fatalf("expected env source, got %s", resp.Source)
 	}
 	if !resp.HasValue {
@@ -51,7 +51,7 @@ func TestSettingHandlerGetSettingByKeyRejectsSensitiveConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("TMDB_API_KEY", "super-secret")
 
-	handler := &SettingHandler{configService: services.NewConfigService()}
+	handler := &SettingHandler{configService: configpkg.NewConfigService()}
 	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/internal/settings/TMDB_API_KEY", nil)
 	ctx.Params = gin.Params{{Key: "key", Value: "TMDB_API_KEY"}}
 
@@ -65,7 +65,7 @@ func TestSettingHandlerGetSettingByKeyRejectsSensitiveConfig(t *testing.T) {
 func TestSettingHandlerGetSettingByKeyReturnsNotFoundForUnknownKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	handler := &SettingHandler{configService: services.NewConfigService()}
+	handler := &SettingHandler{configService: configpkg.NewConfigService()}
 	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/internal/settings/legacy_only", nil)
 	ctx.Params = gin.Params{{Key: "key", Value: "legacy_only"}}
 
