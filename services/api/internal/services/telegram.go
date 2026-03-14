@@ -1,7 +1,9 @@
 package services
 
 import (
+	"crypto/rand"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,11 +15,11 @@ import (
 )
 
 type telegramRedeemer interface {
-	RedeemCode(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error)
+	Redeem(userID, code string) (*TelegramRedeemResponse, error)
 }
 
 type telegramSubscriber interface {
-	CreateSubscription(userID string, req CreateSubscriptionRequest) error
+	Create(userID string, req telegramSubscriptionCommand) error
 }
 
 // TelegramService Telegram 绑定与 Bot 能力
@@ -29,8 +31,8 @@ type TelegramService struct {
 
 func NewTelegramService() *TelegramService {
 	return &TelegramService{
-		redemptionService:   &RedemptionService{},
-		subscriptionService: NewSubscriptionService(),
+		redemptionService:   telegramRedeemerAdapter{},
+		subscriptionService: telegramSubscriberAdapter{},
 		newEmbyService:      embyint.NewEmbyService,
 	}
 }
@@ -63,6 +65,12 @@ type TelegramRedeemRequest struct {
 	Code       string `json:"code" binding:"required"`
 }
 
+type TelegramRedeemResponse struct {
+	Message   string     `json:"message"`
+	Days      int        `json:"days"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+}
+
 // TelegramResetPasswordRequest Bot 调 Internal API 重置密码
 type TelegramResetPasswordRequest struct {
 	TelegramID  int64  `json:"telegramId" binding:"required"`
@@ -84,6 +92,14 @@ type TelegramSubscribeRequest struct {
 	Note       string `json:"note"`
 }
 
+type telegramSubscriptionCommand struct {
+	Type       models.MediaType
+	Name       string
+	TmdbID     string
+	PosterPath *string
+	Note       *string
+}
+
 // GenerateBindCode 生成绑定验证码
 func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, error) {
 	var user models.User
@@ -98,7 +114,7 @@ func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, er
 
 	const maxAttempts = 8
 	for i := 0; i < maxAttempts; i++ {
-		code := generateVerificationCode()
+		code := generateTelegramBindCode()
 
 		err := db.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Where("\"userId\" = ?", userID).Delete(&models.TelegramBindCode{}).Error; err != nil {
@@ -233,7 +249,7 @@ func (s *TelegramService) GetAccountInfo(telegramID int64) (*AccountInfoResponse
 }
 
 // RedeemByTelegram 通过 Telegram 兑换续期码
-func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*RedeemCodeResponse, error) {
+func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*TelegramRedeemResponse, error) {
 	var user models.User
 	if err := db.DB.Where("\"telegramId\" = ?", telegramID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -310,8 +326,8 @@ func isTelegramCodeDuplicateErr(err error) bool {
 		strings.Contains(msg, "code")
 }
 
-func (s *TelegramService) redeemForUser(userID, code string) (*RedeemCodeResponse, error) {
-	return s.redemptionService.RedeemCode(userID, &RedeemCodeRequest{Code: code})
+func (s *TelegramService) redeemForUser(userID, code string) (*TelegramRedeemResponse, error) {
+	return s.redemptionService.Redeem(userID, code)
 }
 
 func (s *TelegramService) subscribeForUser(
@@ -320,11 +336,49 @@ func (s *TelegramService) subscribeForUser(
 	posterPath *string,
 	note *string,
 ) error {
-	return s.subscriptionService.CreateSubscription(userID, CreateSubscriptionRequest{
+	return s.subscriptionService.Create(userID, telegramSubscriptionCommand{
 		Type:       models.MediaType(req.Type),
 		Name:       req.Name,
 		TmdbID:     req.TmdbID,
 		PosterPath: posterPath,
 		Note:       note,
 	})
+}
+
+type telegramRedeemerAdapter struct{}
+
+func (telegramRedeemerAdapter) Redeem(userID, code string) (*TelegramRedeemResponse, error) {
+	resp, err := (&RedemptionService{}).RedeemCode(userID, &RedeemCodeRequest{Code: code})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, nil
+	}
+	return &TelegramRedeemResponse{
+		Message:   resp.Message,
+		Days:      resp.Days,
+		ExpiresAt: resp.ExpiresAt,
+	}, nil
+}
+
+type telegramSubscriberAdapter struct{}
+
+func (telegramSubscriberAdapter) Create(userID string, req telegramSubscriptionCommand) error {
+	return NewSubscriptionService().CreateSubscription(userID, CreateSubscriptionRequest{
+		Type:       req.Type,
+		Name:       req.Name,
+		TmdbID:     req.TmdbID,
+		PosterPath: req.PosterPath,
+		Note:       req.Note,
+	})
+}
+
+func generateTelegramBindCode() string {
+	b := make([]byte, 3)
+	if _, err := rand.Read(b); err != nil {
+		return "000000"
+	}
+	num := (int(b[0])<<16 | int(b[1])<<8 | int(b[2])) % 1000000
+	return fmt.Sprintf("%06d", num)
 }

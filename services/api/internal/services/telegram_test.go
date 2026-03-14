@@ -10,32 +10,30 @@ import (
 type stubTelegramRedeemer struct {
 	lastUserID string
 	lastCode   string
-	resp       *RedeemCodeResponse
+	resp       *TelegramRedeemResponse
 	err        error
 }
 
-func (s *stubTelegramRedeemer) RedeemCode(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
+func (s *stubTelegramRedeemer) Redeem(userID, code string) (*TelegramRedeemResponse, error) {
 	s.lastUserID = userID
-	if req != nil {
-		s.lastCode = req.Code
-	}
+	s.lastCode = code
 	return s.resp, s.err
 }
 
 type stubTelegramSubscriber struct {
 	lastUserID string
-	lastReq    CreateSubscriptionRequest
+	lastReq    telegramSubscriptionCommand
 	err        error
 }
 
-func (s *stubTelegramSubscriber) CreateSubscription(userID string, req CreateSubscriptionRequest) error {
+func (s *stubTelegramSubscriber) Create(userID string, req telegramSubscriptionCommand) error {
 	s.lastUserID = userID
 	s.lastReq = req
 	return s.err
 }
 
 func TestTelegramServiceRedeemForUserDelegatesToRedeemer(t *testing.T) {
-	expected := &RedeemCodeResponse{Message: "ok"}
+	expected := &TelegramRedeemResponse{Message: "ok"}
 	redeemer := &stubTelegramRedeemer{resp: expected}
 	service := &TelegramService{redemptionService: redeemer}
 
