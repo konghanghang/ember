@@ -266,7 +266,7 @@ type TMDBCache struct {
 
 ### 4. Webhook 联动
 
-`POST /api/v1/webhooks/emby?token=<WEBHOOK_TOKEN>`
+`POST /api/v1/webhooks/emby?token=<EMBY_WEBHOOK_TOKEN>`
 
 处理：
 

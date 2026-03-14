@@ -296,9 +296,6 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 }
 
 func resolveEmbyWebhookToken() string {
-	if token := strings.TrimSpace(os.Getenv("WEBHOOK_TOKEN")); token != "" {
-		return token
-	}
 	return strings.TrimSpace(os.Getenv("EMBY_WEBHOOK_TOKEN"))
 }
 

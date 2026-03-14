@@ -1003,8 +1003,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `EMBY_URL` | — | — | Emby 服务器内部 URL |
 | `EMBY_API_KEY` | — | — | Emby API 密钥 |
 | `NEXT_PUBLIC_EMBY_URL` | — | — | Emby 公开 URL（给前端用）；允许显式置空后回退 `EMBY_URL` |
-| `WEBHOOK_TOKEN` | — | — | Emby Webhook token（`/api/v1/webhooks/emby?token=`）|
-| `EMBY_WEBHOOK_TOKEN` | — | — | `WEBHOOK_TOKEN` 兼容别名 |
+| `EMBY_WEBHOOK_TOKEN` | — | — | Emby Webhook token（`/api/v1/webhooks/emby?token=`）|
 
 ### TMDB / MoviePilot
 
