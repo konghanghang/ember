@@ -76,12 +76,16 @@ services/
 │     │  ├─ subscription.go      # 订阅工作流
 │     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
 │     │  ├─ telegram.go          # TelegramService（绑定/查询/续期）
-│     │  ├─ playback_ranking.go  # PlaybackRankingService（播放排行生成）
-│     │  ├─ playback_history.go  # PlaybackHistoryService（播放历史查询）
+│     │  ├─ playback/
+│     │  │  ├─ history.go        # PlaybackHistoryService（播放历史查询）
+│     │  │  └─ ranking.go        # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
 │     │  ├─ device.go            # DeviceService（设备管理）
-│     │  ├─ tv_calendar.go       # TVCalendarService（追剧日历）
-│     │  └─ errors.go            # 统一错误定义
+│     │  ├─ tvcalendar/
+│     │  │  └─ service.go        # TVCalendarService（追剧日历）
+│     │  ├─ *_errors.go          # 领域错误定义（按业务拆分）
+│     │  ├─ playback_compat.go   # playback 子目录兼容导出
+│     │  └─ tvcalendar_compat.go # tvcalendar 子目录兼容导出
 │     ├─ handlers/               # HTTP 处理层（Gin）
 │     │  ├─ auth.go              # 登录 / 注册
 │     │  ├─ user.go              # 用户管理
@@ -602,7 +606,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **认证方式**：`X-Internal-Secret` 头（值 = `INTERNAL_API_SECRET`）
 
-### 5.14 PlaybackRankingService (`services/playback_ranking.go`)
+### 5.14 PlaybackRankingService (`services/playback/ranking.go`)
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 
@@ -622,9 +626,19 @@ Stripe 一次性支付流程管理。
 - Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
 - `GetPayments(page, pageSize)` — 支付记录查询
 
-### 5.16 错误定义 (`services/errors.go`)
+### 5.16 错误定义（按业务拆分）
 
-统一的业务错误定义，用于 Service → Handler 的错误传递。
+统一的业务错误定义已按领域拆分，例如：
+
+- `services/redemption_errors.go`
+- `services/subscription_errors.go`
+- `services/email_errors.go`
+- `services/payment_errors.go`
+- `services/telegram_errors.go`
+- `services/device_errors.go`
+- `services/media_quality_errors.go`
+
+handler 继续通过 `errors.Is()` 做错误映射。
 
 ### 5.17 TelegramService (`services/telegram.go`)
 
@@ -638,7 +652,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `ResetPassword(telegramID, newPassword)` — 通过 Telegram 身份重置 Ember/Emby 密码
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 
-### 5.18 TVCalendarService (`services/tv_calendar.go`)
+### 5.18 TVCalendarService (`services/tvcalendar/service.go`)
 
 追剧日历聚合服务，主链路改为“Emby 全库发现 + 周历同步 + Webhook 点亮”，TMDB 仍使用三层缓存（内存 + PostgreSQL + TMDB）。
 
@@ -653,7 +667,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）
 - `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
 
-### 5.19 PlaybackHistoryService (`services/playback_history.go`)
+### 5.19 PlaybackHistoryService (`services/playback/history.go`)
 
 管理员播放历史查询服务，复用 Emby Playback Reporting 插件能力，支持分页和条件筛选。
 
