@@ -79,7 +79,8 @@ services/
 │     │  ├─ playback/
 │     │  │  ├─ history.go        # PlaybackHistoryService（播放历史查询）
 │     │  │  └─ ranking.go        # PlaybackRankingService（播放排行生成）
-│     │  ├─ payment.go           # PaymentService（Stripe 支付流程）
+│     │  ├─ payment/
+│     │  │  └─ service.go        # PaymentService（Stripe 支付流程）
 │     │  ├─ device.go            # DeviceService（设备管理）
 │     │  ├─ tvcalendar/
 │     │  │  └─ service.go        # TVCalendarService（追剧日历）
@@ -617,7 +618,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **支持周期**：`daily`（日榜）、`weekly`（周榜）
 
-### 5.15 PaymentService (`services/payment.go`)
+### 5.15 PaymentService (`services/payment/service.go`)
 
 Stripe 一次性支付流程管理。
 

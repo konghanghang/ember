@@ -1,4 +1,4 @@
-package services
+package payment
 
 import (
 	"crypto/hmac"
@@ -24,8 +24,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-var ErrStripeNotConfigured = errors.New("Stripe 支付未配置")
 
 type PaymentService struct {
 	embyService *embyint.EmbyService
