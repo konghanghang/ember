@@ -488,19 +488,17 @@ onMounted(async () => {
         </div>
       </aside>
 
-      <main class="space-y-6">
+      <main>
         <section
-          v-for="group in groupSections"
-          v-show="activeGroup === group.key"
-          :key="group.key"
+          v-if="activeGroupSection"
           class="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm"
         >
           <div class="flex flex-col gap-4 border-b border-gray-100 pb-5 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h2 class="text-xl font-bold text-gray-900">{{ group.label }}</h2>
+              <h2 class="text-xl font-bold text-gray-900">{{ activeGroupSection.label }}</h2>
               <p class="mt-1 text-sm text-gray-500">
                 {{
-                  group.key === 'deployment'
+                  activeGroupSection.key === 'deployment'
                     ? '部署期与安全边界配置仅展示状态和来源，不支持在线编辑。'
                     : '按组保存和测试，避免把不同能力混成一个大表单。'
                 }}
@@ -509,32 +507,32 @@ onMounted(async () => {
 
             <div class="flex flex-wrap gap-3">
               <button
-                v-if="canTestGroup(group.key)"
+                v-if="canTestGroup(activeGroupSection.key)"
                 type="button"
-                @click="handleTestGroup(group)"
-                :disabled="testingGroups[group.key]"
+                @click="handleTestGroup(activeGroupSection)"
+                :disabled="testingGroups[activeGroupSection.key]"
                 class="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-300 hover:bg-gray-50 disabled:opacity-70"
               >
-                {{ testingGroups[group.key] ? '测试中...' : '测试连接' }}
+                {{ testingGroups[activeGroupSection.key] ? '测试中...' : '测试连接' }}
               </button>
 
               <button
-                v-if="group.items.some(item => item.editable)"
+                v-if="activeGroupSection.items.some(item => item.editable)"
                 type="button"
-                @click="handleResetGroup(group)"
+                @click="handleResetGroup(activeGroupSection)"
                 class="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
               >
                 重置未保存修改
               </button>
 
               <button
-                v-if="group.items.some(item => item.editable)"
+                v-if="activeGroupSection.items.some(item => item.editable)"
                 type="button"
-                @click="handleSaveGroup(group)"
-                :disabled="savingGroups[group.key] || !groupHasChanges(group)"
+                @click="handleSaveGroup(activeGroupSection)"
+                :disabled="savingGroups[activeGroupSection.key] || !groupHasChanges(activeGroupSection)"
                 class="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {{ savingGroups[group.key] ? '保存中...' : '保存本组配置' }}
+                {{ savingGroups[activeGroupSection.key] ? '保存中...' : '保存本组配置' }}
               </button>
             </div>
           </div>
@@ -553,7 +551,7 @@ onMounted(async () => {
 
           <div class="mt-6 space-y-3">
             <div
-              v-for="item in group.items"
+              v-for="item in activeGroupSection.items"
               :key="item.key"
               class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
             >
