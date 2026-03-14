@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -965,7 +966,8 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 
 			detail, err := s.fetchTVDetail(ctx, tmdbIDValue, force)
 			if err != nil {
-				return total, err
+				log.Printf("[TV Calendar] 跳过剧集同步：show=%q tmdbId=%s err=%v", strings.TrimSpace(source.ShowName), tmdbIDValue, err)
+				continue
 			}
 
 			if strings.TrimSpace(source.ShowName) == "" {
@@ -985,7 +987,8 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 
 			readyEpisodes, lastEpisodeIngestedAt, readyValidated, err := s.fetchReadyEpisodesForSeries(ctx, source.SeriesID)
 			if err != nil {
-				return total, err
+				log.Printf("[TV Calendar] 跳过剧集同步：show=%q tmdbId=%s seriesId=%s err=%v", strings.TrimSpace(source.ShowName), tmdbIDValue, strings.TrimSpace(source.SeriesID), err)
+				continue
 			}
 			if lastEpisodeIngestedAt != nil {
 				source.LastEpisodeIngestedAt = lastEpisodeIngestedAt
@@ -995,7 +998,8 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 			for _, seasonNumber := range seasonNumbers {
 				season, err := s.fetchSeasonDetail(ctx, tmdbIDValue, seasonNumber, force)
 				if err != nil {
-					return total, err
+					log.Printf("[TV Calendar] 跳过剧集季同步：show=%q tmdbId=%s season=%d err=%v", strings.TrimSpace(source.ShowName), tmdbIDValue, seasonNumber, err)
+					continue
 				}
 
 				for _, ep := range season.Episodes {
