@@ -15,16 +15,17 @@ const (
 
 // TVCalendarSource 全局追剧源
 type TVCalendarSource struct {
-	ID           string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	TmdbID       string     `json:"tmdbId" gorm:"column:tmdbId;size:50;not null;uniqueIndex"`
-	SeriesID     string     `json:"seriesId,omitempty" gorm:"column:seriesId;size:50;not null;default:'';index"`
-	ShowName     string     `json:"showName" gorm:"column:showName;size:255;not null;default:''"`
-	PosterURL    string     `json:"posterUrl,omitempty" gorm:"column:posterUrl;size:500;not null;default:''"`
-	Overview     string     `json:"overview,omitempty" gorm:"column:overview;type:text;not null;default:''"`
-	EmbyStatus   string     `json:"embyStatus" gorm:"column:embyStatus;size:20;not null;default:'continuing'"`
-	LastSyncedAt *time.Time `json:"lastSyncedAt,omitempty" gorm:"column:lastSyncedAt"`
-	CreatedAt    time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
-	UpdatedAt    time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
+	ID                    string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+	TmdbID                string     `json:"tmdbId" gorm:"column:tmdbId;size:50;not null;uniqueIndex"`
+	SeriesID              string     `json:"seriesId,omitempty" gorm:"column:seriesId;size:50;not null;default:'';index"`
+	ShowName              string     `json:"showName" gorm:"column:showName;size:255;not null;default:''"`
+	PosterURL             string     `json:"posterUrl,omitempty" gorm:"column:posterUrl;size:500;not null;default:''"`
+	Overview              string     `json:"overview,omitempty" gorm:"column:overview;type:text;not null;default:''"`
+	EmbyStatus            string     `json:"embyStatus" gorm:"column:embyStatus;size:20;not null;default:'continuing'"`
+	LastEpisodeIngestedAt *time.Time `json:"lastEpisodeIngestedAt,omitempty" gorm:"column:lastEpisodeIngestedAt;index"`
+	LastSyncedAt          *time.Time `json:"lastSyncedAt,omitempty" gorm:"column:lastSyncedAt"`
+	CreatedAt             time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	UpdatedAt             time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
 
 func (TVCalendarSource) TableName() string {

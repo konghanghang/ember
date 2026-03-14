@@ -399,6 +399,7 @@ services/
 | PosterURL | string(500) | posterUrl | 海报地址 |
 | Overview | text | overview | 剧集简介 |
 | EmbyStatus | string(20) | embyStatus | Emby 识别状态，当前主要使用 `continuing` |
+| LastEpisodeIngestedAt | *time.Time | lastEpisodeIngestedAt | 最近一次新剧集入库时间（用于轻量同步活跃剧） |
 | LastSyncedAt | *time.Time | lastSyncedAt | 最近周历同步时间 |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
@@ -658,14 +659,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 追剧日历聚合服务，主链路改为“Emby 全库发现 + 周历同步 + Webhook 点亮”，TMDB 仍使用三层缓存（内存 + PostgreSQL + TMDB）。
 
 - `DiscoverContinuingSeries(ctx)` — 从 Emby 自动发现所有 `Continuing` 且带 `Tmdb` Provider ID 的剧集
-- `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 按指定周偏移同步周历缓存
+- `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 按指定周偏移同步周历缓存；默认优先同步最近 30 天活跃剧
 - `GetGlobalWeeklyCalendar(ctx, weekOffset, status)` — 查询全局周历视图（只读当前缓存/数据库，不触发即时同步）
 - `GetFollowingWeeklyCalendar(ctx, userID, weekOffset, status)` — 查询当前用户的关注周历视图（只读当前缓存/数据库，不触发即时同步）
 - `FetchCalendar(userID, startDate, endDate, status)` — 兼容旧平铺接口，底层仍复用新的全局缓存数据
 - `Subscribe(userID, tmdbId, showName, posterUrl)` — 创建或更新用户关注
 - `GetSubscriptions(userID)` — 获取用户关注列表
 - `Unsubscribe(userID, tmdbId)` — 取消关注
-- `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）；定时任务与管理员入口是周历数据的唯一同步入口
+- `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）；默认优先同步最近 30 天活跃剧，`force=true` 时回退全量
 - `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
 
 ### 5.19 PlaybackHistoryService (`services/playback/history.go`)
@@ -812,6 +813,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0, 1]`
 - `tmdbId` 可选，传入时只同步单剧
 - `weekOffsets` 可选，仅支持 `-1/0/1`
+- `force=true` 时跳过轻量活跃剧筛选，并强制刷新 TMDB 缓存
 - `POST /api/v1/admin/tv-calendar/refresh` 仍保留，内部复用同步逻辑，作为兼容入口
 
 ### 内部服务路由（InternalAuth 中间件，Bot 调用）

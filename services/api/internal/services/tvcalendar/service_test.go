@@ -94,6 +94,41 @@ func TestParseTVCalendarWeekDateUsesWeekStart(t *testing.T) {
 	}
 }
 
+func TestParseEmbyDateTimeSupportsRFC3339Nano(t *testing.T) {
+	got, ok := parseEmbyDateTime("2026-03-14T09:30:00.0000000Z")
+	if !ok {
+		t.Fatalf("expected timestamp to parse")
+	}
+
+	want := time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("unexpected parsed time, want=%s got=%s", want.Format(time.RFC3339), got.Format(time.RFC3339))
+	}
+}
+
+func TestShouldSyncSourceIncrementally(t *testing.T) {
+	cutoff := time.Date(2026, 2, 12, 0, 0, 0, 0, time.UTC)
+	recent := cutoff.Add(24 * time.Hour)
+	old := cutoff.Add(-24 * time.Hour)
+	synced := cutoff.Add(-7 * 24 * time.Hour)
+
+	if !shouldSyncSourceIncrementally(models.TVCalendarSource{LastEpisodeIngestedAt: &recent}, cutoff) {
+		t.Fatalf("expected recent active source to be selected")
+	}
+
+	if shouldSyncSourceIncrementally(models.TVCalendarSource{LastEpisodeIngestedAt: &old}, cutoff) {
+		t.Fatalf("expected stale source to be skipped")
+	}
+
+	if !shouldSyncSourceIncrementally(models.TVCalendarSource{}, cutoff) {
+		t.Fatalf("expected never-synced source to be selected")
+	}
+
+	if shouldSyncSourceIncrementally(models.TVCalendarSource{LastSyncedAt: &synced}, cutoff) {
+		t.Fatalf("expected synced source without recent ingest to be skipped")
+	}
+}
+
 func TestRunTVCalendarSyncOnceDeduplicatesConcurrentCalls(t *testing.T) {
 	var executed int32
 	start := make(chan struct{})

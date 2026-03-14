@@ -23,13 +23,14 @@ import (
 )
 
 const (
-	tmdbBaseURL             = "https://api.themoviedb.org/3"
-	tmdbImageBaseURL        = "https://image.tmdb.org/t/p/w500"
-	tmdbDetailCacheTTL      = 24 * time.Hour
-	tmdbSeasonCacheTTL      = 24 * time.Hour
-	tvCalendarFetchTimeout  = 15 * time.Second
-	tvCalendarSyncPageSize  = 200
-	tvCalendarDefaultOffset = 0
+	tmdbBaseURL                      = "https://api.themoviedb.org/3"
+	tmdbImageBaseURL                 = "https://image.tmdb.org/t/p/w500"
+	tmdbDetailCacheTTL               = 24 * time.Hour
+	tmdbSeasonCacheTTL               = 24 * time.Hour
+	tvCalendarFetchTimeout           = 15 * time.Second
+	tvCalendarSyncPageSize           = 200
+	tvCalendarActiveSourceWindowDays = 30
+	tvCalendarDefaultOffset          = 0
 )
 
 var defaultTVCalendarWeekOffsets = []int{0, 1}
@@ -235,6 +236,7 @@ type embyEpisodeItem struct {
 	SeriesID          string                    `json:"SeriesId"`
 	ParentIndexNumber int                       `json:"ParentIndexNumber"`
 	IndexNumber       int                       `json:"IndexNumber"`
+	DateCreated       string                    `json:"DateCreated"`
 	Path              string                    `json:"Path"`
 	LocationType      string                    `json:"LocationType"`
 	IsMissing         bool                      `json:"IsMissing"`
@@ -305,6 +307,32 @@ func parseDateOnly(date string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return normalizeDateUTC(t), nil
+}
+
+func parseEmbyDateTime(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.UTC(), true
+		}
+	}
+
+	return time.Time{}, false
+}
+
+func activeSourceCutoff(now time.Time) time.Time {
+	return now.UTC().AddDate(0, 0, -tvCalendarActiveSourceWindowDays)
+}
+
+func shouldSyncSourceIncrementally(source models.TVCalendarSource, cutoff time.Time) bool {
+	if source.LastEpisodeIngestedAt != nil {
+		return !source.LastEpisodeIngestedAt.Before(cutoff)
+	}
+	return source.LastSyncedAt == nil
 }
 
 func ParseTVCalendarWeekOffset(value string) (int, error) {
@@ -542,7 +570,7 @@ func (s *TVCalendarService) loadSourceMap(tmdbIDs []string) (map[string]models.T
 	return result, nil
 }
 
-func (s *TVCalendarService) loadSourcesForSync(tmdbID *string) ([]models.TVCalendarSource, error) {
+func (s *TVCalendarService) loadSourcesForSync(tmdbID *string, force bool) ([]models.TVCalendarSource, error) {
 	if tmdbID != nil && strings.TrimSpace(*tmdbID) != "" {
 		trimmed := strings.TrimSpace(*tmdbID)
 		var source models.TVCalendarSource
@@ -560,6 +588,28 @@ func (s *TVCalendarService) loadSourcesForSync(tmdbID *string) ([]models.TVCalen
 	if err := db.DB.Where("\"embyStatus\" = ? OR \"embyStatus\" = ''", "continuing").Order("\"showName\" ASC").Find(&sources).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧源失败: %w", err)
 	}
+	if force {
+		return sources, nil
+	}
+
+	cutoff := activeSourceCutoff(time.Now().UTC())
+	prioritized := make([]models.TVCalendarSource, 0, len(sources))
+	hasActivityMarker := false
+	for _, source := range sources {
+		if source.LastEpisodeIngestedAt != nil {
+			hasActivityMarker = true
+		}
+		if shouldSyncSourceIncrementally(source, cutoff) {
+			prioritized = append(prioritized, source)
+		}
+	}
+	if len(prioritized) > 0 {
+		return prioritized, nil
+	}
+	if hasActivityMarker {
+		return []models.TVCalendarSource{}, nil
+	}
+
 	return sources, nil
 }
 
@@ -581,6 +631,16 @@ func (s *TVCalendarService) upsertSource(source models.TVCalendarSource, touchSy
 			`CASE WHEN EXCLUDED."embyStatus" <> '' THEN EXCLUDED."embyStatus" ELSE tv_calendar_sources."embyStatus" END`,
 		),
 		"updatedAt": time.Now().UTC(),
+	}
+	if source.LastEpisodeIngestedAt != nil {
+		assignments["lastEpisodeIngestedAt"] = gorm.Expr(
+			`CASE
+				WHEN EXCLUDED."lastEpisodeIngestedAt" IS NULL THEN tv_calendar_sources."lastEpisodeIngestedAt"
+				WHEN tv_calendar_sources."lastEpisodeIngestedAt" IS NULL THEN EXCLUDED."lastEpisodeIngestedAt"
+				WHEN EXCLUDED."lastEpisodeIngestedAt" > tv_calendar_sources."lastEpisodeIngestedAt" THEN EXCLUDED."lastEpisodeIngestedAt"
+				ELSE tv_calendar_sources."lastEpisodeIngestedAt"
+			END`,
+		)
 	}
 	if touchSynced {
 		assignments["lastSyncedAt"] = source.LastSyncedAt
@@ -706,33 +766,34 @@ func (s *TVCalendarService) DiscoverContinuingSeries(ctx context.Context) (int, 
 	return total, nil
 }
 
-func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, seriesID string) (map[string]embyEpisodeItem, bool, error) {
+func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, seriesID string) (map[string]embyEpisodeItem, *time.Time, bool, error) {
 	seriesID = strings.TrimSpace(seriesID)
 	if seriesID == "" {
-		return map[string]embyEpisodeItem{}, false, nil
+		return map[string]embyEpisodeItem{}, nil, false, nil
 	}
 	if !s.embyService.IsConfigured() {
-		return map[string]embyEpisodeItem{}, false, nil
+		return map[string]embyEpisodeItem{}, nil, false, nil
 	}
 
 	episodes := make(map[string]embyEpisodeItem)
+	var latestCreatedAt *time.Time
 	startIndex := 0
 	for {
 		body, err := s.embyService.GetWithAPIKey("/emby/Items", map[string]string{
 			"ParentId":         seriesID,
 			"Recursive":        "true",
 			"IncludeItemTypes": "Episode",
-			"Fields":           "SeriesId,ParentIndexNumber,IndexNumber,LocationType,Path,MediaSources,IsMissing",
+			"Fields":           "SeriesId,ParentIndexNumber,IndexNumber,DateCreated,LocationType,Path,MediaSources,IsMissing",
 			"StartIndex":       strconv.Itoa(startIndex),
 			"Limit":            strconv.Itoa(tvCalendarSyncPageSize),
 		})
 		if err != nil {
-			return nil, false, fmt.Errorf("拉取 Emby 剧集失败: %w", err)
+			return nil, nil, false, fmt.Errorf("拉取 Emby 剧集失败: %w", err)
 		}
 
 		var resp embyEpisodeItemsResponse
 		if err := json.Unmarshal(body, &resp); err != nil {
-			return nil, false, fmt.Errorf("解析 Emby 剧集失败: %w", err)
+			return nil, nil, false, fmt.Errorf("解析 Emby 剧集失败: %w", err)
 		}
 		if len(resp.Items) == 0 {
 			break
@@ -746,6 +807,12 @@ func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, ser
 				continue
 			}
 			episodes[buildEpisodeKey(item.ParentIndexNumber, item.IndexNumber)] = item
+			if createdAt, ok := parseEmbyDateTime(item.DateCreated); ok {
+				if latestCreatedAt == nil || createdAt.After(*latestCreatedAt) {
+					createdAtCopy := createdAt
+					latestCreatedAt = &createdAtCopy
+				}
+			}
 		}
 
 		startIndex += len(resp.Items)
@@ -757,7 +824,7 @@ func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, ser
 		}
 	}
 
-	return episodes, true, nil
+	return episodes, latestCreatedAt, true, nil
 }
 
 func (s *TVCalendarService) fetchTVDetail(ctx context.Context, tmdbID string, force bool) (*tmdbTVDetailResponse, error) {
@@ -879,7 +946,7 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 			return 0, ErrTVCalendarNotConfigured
 		}
 
-		sources, err := s.loadSourcesForSync(tmdbID)
+		sources, err := s.loadSourcesForSync(tmdbID, force)
 		if err != nil {
 			return 0, err
 		}
@@ -916,9 +983,12 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 				return total, err
 			}
 
-			readyEpisodes, readyValidated, err := s.fetchReadyEpisodesForSeries(ctx, source.SeriesID)
+			readyEpisodes, lastEpisodeIngestedAt, readyValidated, err := s.fetchReadyEpisodesForSeries(ctx, source.SeriesID)
 			if err != nil {
 				return total, err
+			}
+			if lastEpisodeIngestedAt != nil {
+				source.LastEpisodeIngestedAt = lastEpisodeIngestedAt
 			}
 
 			seasonNumbers := pickTargetSeasonNumbers(detail)
@@ -1288,6 +1358,46 @@ func (s *TVCalendarService) Unsubscribe(userID, tmdbID string) error {
 	return nil
 }
 
+func (s *TVCalendarService) touchSourceLastEpisodeIngestedAt(ctx context.Context, tmdbID, seriesID string, ingestedAt time.Time) error {
+	trimmedTmdbID := strings.TrimSpace(tmdbID)
+	trimmedSeriesID := strings.TrimSpace(seriesID)
+	ingestedAt = ingestedAt.UTC()
+
+	updates := map[string]interface{}{
+		"lastEpisodeIngestedAt": ingestedAt,
+	}
+	if trimmedSeriesID != "" {
+		updates["seriesId"] = trimmedSeriesID
+	}
+
+	if trimmedTmdbID != "" {
+		result := db.DB.WithContext(ctx).Model(&models.TVCalendarSource{}).
+			Where("\"tmdbId\" = ?", trimmedTmdbID).
+			Updates(updates)
+		if result.Error != nil {
+			return fmt.Errorf("更新追剧源活跃时间失败: %w", result.Error)
+		}
+		if result.RowsAffected > 0 || trimmedSeriesID == "" {
+			return nil
+		}
+	}
+
+	if trimmedSeriesID == "" {
+		return nil
+	}
+
+	result := db.DB.WithContext(ctx).Model(&models.TVCalendarSource{}).
+		Where("\"seriesId\" = ?", trimmedSeriesID).
+		Updates(map[string]interface{}{
+			"lastEpisodeIngestedAt": ingestedAt,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("更新追剧源活跃时间失败: %w", result.Error)
+	}
+
+	return nil
+}
+
 // MarkEpisodeReadyByWebhook Webhook 点亮剧集状态
 func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbID, seriesID string, season, episode int, embyItemID string) (int64, error) {
 	s.refreshConfig()
@@ -1330,6 +1440,10 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 		Updates(updates)
 	if result.Error != nil {
 		return 0, fmt.Errorf("更新剧集状态失败: %w", result.Error)
+	}
+
+	if err := s.touchSourceLastEpisodeIngestedAt(ctx, trimmedTmdbID, trimmedSeriesID, time.Now().UTC()); err != nil {
+		return result.RowsAffected, err
 	}
 
 	return result.RowsAffected, nil
