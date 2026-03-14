@@ -1050,13 +1050,13 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
-| `CRON_ENABLED` | — | `"true"` | 启用定时任务；支持被设置中心数据库值覆盖 |
-| `CRON_SCHEDULE` | — | `"0 2 * * *"` | 过期检查表达式；支持被设置中心数据库值覆盖 |
-| `CRON_TIMEZONE` | — | `"Asia/Shanghai"` | 时区；支持被设置中心数据库值覆盖 |
-| `RANKING_CRON_ENABLED` | — | `"false"` | 启用排行榜生成；支持被设置中心数据库值覆盖 |
-| `RANKING_DAILY_SCHEDULE` | — | `"0 20 * * *"` | 日榜表达式；支持被设置中心数据库值覆盖 |
-| `RANKING_WEEKLY_SCHEDULE` | — | `"30 20 * * 0"` | 周榜表达式；支持被设置中心数据库值覆盖 |
-| `TV_CALENDAR_SYNC_SCHEDULE` | — | `"0 */12 * * *"` | 追剧日历同步表达式；支持被设置中心数据库值覆盖 |
+| `CRON_ENABLED` | — | `"true"` | 启用定时任务；由设置中心数据库托管，修改后需重启 API |
+| `CRON_SCHEDULE` | — | `"0 2 * * *"` | 过期检查表达式；由设置中心数据库托管，修改后需重启 API |
+| `CRON_TIMEZONE` | — | `"Asia/Shanghai"` | 时区；由设置中心数据库托管，修改后需重启 API |
+| `RANKING_CRON_ENABLED` | — | `"false"` | 启用排行榜生成；由设置中心数据库托管，修改后需重启 API |
+| `RANKING_DAILY_SCHEDULE` | — | `"0 20 * * *"` | 日榜表达式；由设置中心数据库托管，修改后需重启 API |
+| `RANKING_WEEKLY_SCHEDULE` | — | `"30 20 * * 0"` | 周榜表达式；由设置中心数据库托管，修改后需重启 API |
+| `TV_CALENDAR_SYNC_SCHEDULE` | — | `"0 */12 * * *"` | 追剧日历同步表达式；由设置中心数据库托管，修改后需重启 API |
 
 ---
 

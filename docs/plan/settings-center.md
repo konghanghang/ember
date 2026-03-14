@@ -225,13 +225,13 @@
 | `EMAIL_CODE_DAILY_LIMIT` | env | 每邮箱发送上限 | `settings/env` | 否 | 是 | 否 |
 | `EMAIL_CODE_IP_DAILY_LIMIT` | env | 每 IP 发送上限 | `settings/env` | 否 | 是 | 否 |
 | `BOT_NOTIFY_URL` | env | API 推送到 Bot 的地址 | `settings/env` | 否 | 是 | 否 |
-| `CRON_ENABLED` | env | cron 总开关 | `settings/env` | 否 | 是 | 是 |
-| `CRON_SCHEDULE` | env | 过期检查 cron 表达式 | `settings/env` | 否 | 是 | 是 |
-| `CRON_TIMEZONE` | env | cron 时区 | `settings/env` | 否 | 是 | 是 |
-| `RANKING_CRON_ENABLED` | env | 排行榜 cron 开关 | `settings/env` | 否 | 是 | 是 |
-| `RANKING_DAILY_SCHEDULE` | env | 日榜 cron 表达式 | `settings/env` | 否 | 是 | 是 |
-| `RANKING_WEEKLY_SCHEDULE` | env | 周榜 cron 表达式 | `settings/env` | 否 | 是 | 是 |
-| `TV_CALENDAR_SYNC_SCHEDULE` | env | 追剧日历同步 cron 表达式 | `settings/env` | 否 | 是 | 是 |
+| `CRON_ENABLED` | env | cron 总开关 | `settings` | 否 | 是 | 是 |
+| `CRON_SCHEDULE` | env | 过期检查 cron 表达式 | `settings` | 否 | 是 | 是 |
+| `CRON_TIMEZONE` | env | cron 时区 | `settings` | 否 | 是 | 是 |
+| `RANKING_CRON_ENABLED` | env | 排行榜 cron 开关 | `settings` | 否 | 是 | 是 |
+| `RANKING_DAILY_SCHEDULE` | env | 日榜 cron 表达式 | `settings` | 否 | 是 | 是 |
+| `RANKING_WEEKLY_SCHEDULE` | env | 周榜 cron 表达式 | `settings` | 否 | 是 | 是 |
+| `TV_CALENDAR_SYNC_SCHEDULE` | env | 追剧日历同步 cron 表达式 | `settings` | 否 | 是 | 是 |
 | `STRIPE_SECRET_KEY` | env | Stripe Secret Key | `settings/env` | 是 | 是 | 否 |
 | `STRIPE_WEBHOOK_SECRET` | env | Stripe Webhook Secret | 只读 env | 是 | 否 | 是 |
 | `STRIPE_SUCCESS_URL` | env | 支付成功跳转 URL | `settings/env` | 否 | 是 | 否 |
