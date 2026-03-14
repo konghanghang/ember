@@ -148,7 +148,8 @@ services/
    ├─ requirements.txt           # Python 依赖
    ├─ Dockerfile                 # 容器构建
    └─ app/
-      ├─ config.py               # 环境变量加载
+      ├─ config.py               # 启动期环境变量加载
+      ├─ runtime_settings.py     # Bot 运行期设置读取（API + TTL 缓存）
       ├─ server.py               # FastAPI + Telegram Application（Webhook 模式）
       ├─ handlers/
       │  ├─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息）
@@ -952,7 +953,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
 | `BOT_PORT` | — | `8000` | Bot 服务端口 |
 
-说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 和 `notify_group_link`；当 API 未返回值时，回退到本地 env。
+说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 和 `notify_group_link`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。
 
 ---
 

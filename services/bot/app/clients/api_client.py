@@ -1,4 +1,5 @@
 import httpx
+import asyncio
 from typing import Optional
 
 from app.config import API_URL, INTERNAL_API_SECRET
@@ -122,10 +123,8 @@ async def get_setting(key: str) -> str:
 
 
 async def get_settings(keys: list[str]) -> dict[str, str]:
-    results: dict[str, str] = {}
-    for key in keys:
-        results[key] = await get_setting(key)
-    return results
+    values = await asyncio.gather(*(get_setting(key) for key in keys))
+    return {key: value for key, value in zip(keys, values)}
 
 
 async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:

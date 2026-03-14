@@ -20,7 +20,8 @@
 
 3. **Bot 启动环境变量**
    - Bot 进程启动时直接读取
-   - 其中 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 在运行期会优先向 API 读取设置中心值，env 仅作为回退
+   - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 在运行期通过 API 设置中心读取，并带短 TTL 缓存
+   - 当 API 未返回值时，`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 回退到本地 env
 
 ---
 
@@ -127,8 +128,8 @@ Bot 进程当前仍主要依赖环境变量启动。
 | 配置项 | 敏感 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `TELEGRAM_BOT_TOKEN` | 是 | — | Telegram Bot Token |
-| `TELEGRAM_ADMIN_CHAT_ID` | 否 | — | 管理员 Chat ID |
-| `TELEGRAM_GROUP_CHAT_ID` | 否 | — | 群组 Chat ID |
+| `TELEGRAM_ADMIN_CHAT_ID` | 否 | — | 管理员 Chat ID（运行期设置回退） |
+| `TELEGRAM_GROUP_CHAT_ID` | 否 | — | 群组 Chat ID（运行期设置回退） |
 | `TELEGRAM_WEBHOOK_SECRET` | 是 | — | Telegram Webhook 校验密钥 |
 | `INTERNAL_API_SECRET` | 是 | — | 与 API 共享的内部调用密钥 |
 | `WEBHOOK_URL` | 是 | — | Bot 对外 Webhook 地址 |
@@ -137,8 +138,8 @@ Bot 进程当前仍主要依赖环境变量启动。
 
 说明：
 
-- Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 和 `notify_group_link`。
-- 当 API 未返回值时，Bot 会回退到本地环境变量。
+- Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 和 `notify_group_link`，并做短 TTL 缓存。
+- 当 API 未返回值时，Bot 会回退到本地环境变量中的 Chat ID。
 - 因此：
   - `TELEGRAM_ADMIN_CHAT_ID`
   - `TELEGRAM_GROUP_CHAT_ID`

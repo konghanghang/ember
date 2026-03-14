@@ -32,16 +32,35 @@ services/bot/
 必填：
 
 - `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_ADMIN_CHAT_ID`
 - `TELEGRAM_WEBHOOK_SECRET`
 - `INTERNAL_API_SECRET`
 - `WEBHOOK_URL`
 
 可选：
 
+- `TELEGRAM_ADMIN_CHAT_ID`（管理员通知目标；运行期优先读取 API 设置中心，env 仅作回退）
 - `TELEGRAM_GROUP_CHAT_ID`（用于播放排行榜等群推送；未配置时会回退推送到管理员）
 - `API_URL`（默认 `http://localhost:8080`）
 - `BOT_PORT`（默认 `8000`）
+
+## 配置分层
+
+Bot 当前配置分成两层：
+
+1. 启动期配置（必须来自 env）
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_WEBHOOK_SECRET`
+   - `INTERNAL_API_SECRET`
+   - `WEBHOOK_URL`
+   - `API_URL`
+   - `BOT_PORT`
+
+2. 运行期设置（优先从 API 设置中心读取）
+   - `TELEGRAM_ADMIN_CHAT_ID`
+   - `TELEGRAM_GROUP_CHAT_ID`
+   - `notify_group_link`
+
+运行期设置会通过 Go API 的 Internal API 获取，并带短 TTL 缓存；当 API 未返回值时，回退到本地 env。
 
 ## 本地运行
 
