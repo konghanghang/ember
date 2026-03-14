@@ -1,7 +1,10 @@
 import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager, suppress
 from hmac import compare_digest
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
@@ -43,10 +46,33 @@ from app.handlers.telegram_handler import (
     send_subscription_notification,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+LOG_DIR = Path("logs")
+LOG_FILE = LOG_DIR / "bot.log"
+
+
+def configure_logging() -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+
+    file_handler = TimedRotatingFileHandler(
+        LOG_FILE,
+        when="midnight",
+        backupCount=14,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[stream_handler, file_handler],
+        force=True,
+    )
+
+
+configure_logging()
 logger = logging.getLogger(__name__)
 
 tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -183,7 +209,7 @@ async def notify_ranking(request: Request):
 
 
 def run() -> None:
-    uvicorn.run(app, host="0.0.0.0", port=BOT_PORT)
+    uvicorn.run(app, host="0.0.0.0", port=BOT_PORT, log_config=None)
 
 
 if __name__ == "__main__":

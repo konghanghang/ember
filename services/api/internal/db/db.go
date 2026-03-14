@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -50,7 +51,7 @@ func InitDB() {
 
 	// 创建自定义 logger，显示详细的 SQL 日志
 	newLogger := logger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		log.New(logpkg.Writer(), "\r\n", log.LstdFlags), // io writer
 		logger.Config{
 			SlowThreshold:             time.Second, // 慢查询阈值
 			LogLevel:                  logger.Info, // 日志级别：Info 显示所有 SQL

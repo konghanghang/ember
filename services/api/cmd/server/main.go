@@ -6,9 +6,14 @@ import (
 	apppkg "github.com/konghang/ember/backend/internal/app"
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 )
 
 func main() {
+	if err := logpkg.Init(); err != nil {
+		log.Fatalf("❌ 日志初始化失败：%v", err)
+	}
+
 	// 初始化数据库
 	db.InitDB()
 	defer db.Close()

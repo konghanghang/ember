@@ -46,8 +46,9 @@ next-env.d.ts
 /services/web/node_modules/
 /services/web/.env
 /services/bot/.env
-/services/bot/__pycache__/
 /services/bot/logs/
+**/__pycache__/
+*.pyc
 
 # infrastructure
 /infrastructure/nginx/logs/

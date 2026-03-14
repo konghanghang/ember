@@ -32,8 +32,8 @@ ENV PATH=/home/ember/.local/bin:$PATH \
     TZ=Asia/Shanghai \
     PYTHONUNBUFFERED=1
 
-# 修改所有权
-RUN chown -R ember:ember /app
+# 创建日志目录并修改所有权
+RUN mkdir -p /app/logs && chown -R ember:ember /app
 
 # 切换到非 root 用户
 USER ember

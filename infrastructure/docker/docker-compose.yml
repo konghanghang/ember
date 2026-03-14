@@ -125,6 +125,8 @@ services:
     networks:
       - ember-network
     restart: unless-stopped
+    volumes:
+      - bot_logs:/app/logs
     logging:
       options:
         max-size: "10m"
@@ -153,3 +155,4 @@ networks:
 volumes:
   postgres_data:
   api_logs:
+  bot_logs:
