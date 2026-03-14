@@ -393,7 +393,7 @@ export interface UpdatePlanRequest {
   sortOrder?: number
 }
 
-export type PaymentStatus = 'pending' | 'completed' | 'failed'
+export type PaymentStatus = 'pending' | 'completed' | 'expired' | 'failed'
 
 export interface Payment {
   id: string
@@ -405,6 +405,7 @@ export interface Payment {
   currency: string
   days: number
   status: PaymentStatus
+  expiresAt?: string
   createdAt: string
   updatedAt: string
   username?: string

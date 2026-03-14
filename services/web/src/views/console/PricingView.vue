@@ -39,6 +39,8 @@ const statusMeta = (status: PaymentStatus) => {
   switch (status) {
     case 'completed':
       return { text: '支付成功', type: 'success' as const }
+    case 'expired':
+      return { text: '已过期', type: 'info' as const }
     case 'failed':
       return { text: '支付失败', type: 'danger' as const }
     default:

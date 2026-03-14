@@ -13,22 +13,28 @@ func TestShouldReusePendingPayment(t *testing.T) {
 	reusable := models.Payment{
 		Status:      models.PaymentPending,
 		CheckoutURL: "https://checkout.stripe.com/c/pay/test",
-		CreatedAt:   now.Add(-2 * time.Hour),
+		ExpiresAt:   timePtr(now.Add(10 * time.Minute)),
 	}
 	if !shouldReusePendingPayment(reusable, now) {
-		t.Fatalf("expected recent pending payment to be reusable")
+		t.Fatalf("expected unexpired pending payment to be reusable")
 	}
 
 	expired := reusable
-	expired.CreatedAt = now.Add(-25 * time.Hour)
+	expired.ExpiresAt = timePtr(now.Add(-time.Minute))
 	if shouldReusePendingPayment(expired, now) {
-		t.Fatalf("expected stale pending payment to be skipped")
+		t.Fatalf("expected expired pending payment to be skipped")
 	}
 
 	missingURL := reusable
 	missingURL.CheckoutURL = ""
 	if shouldReusePendingPayment(missingURL, now) {
 		t.Fatalf("expected pending payment without checkout url to be skipped")
+	}
+
+	missingExpiry := reusable
+	missingExpiry.ExpiresAt = nil
+	if shouldReusePendingPayment(missingExpiry, now) {
+		t.Fatalf("expected pending payment without expiresAt to be skipped")
 	}
 
 	completed := reusable

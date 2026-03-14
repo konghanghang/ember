@@ -11,6 +11,7 @@ type PaymentStatus string
 const (
 	PaymentPending   PaymentStatus = "pending"
 	PaymentCompleted PaymentStatus = "completed"
+	PaymentExpired   PaymentStatus = "expired"
 	PaymentFailed    PaymentStatus = "failed"
 )
 
@@ -26,6 +27,7 @@ type Payment struct {
 	Currency              string        `json:"currency" gorm:"column:currency;size:3;not null;default:usd"`
 	Days                  int           `json:"days" gorm:"column:days;not null"`
 	Status                PaymentStatus `json:"status" gorm:"column:status;size:20;not null;default:pending"`
+	ExpiresAt             *time.Time    `json:"expiresAt,omitempty" gorm:"column:expiresAt;index"`
 	CreatedAt             time.Time     `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 	UpdatedAt             time.Time     `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }

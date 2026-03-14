@@ -122,7 +122,7 @@ type stripeCheckoutSessionObject struct {
 	Metadata      map[string]string `json:"metadata"`
 }
 
-const pendingCheckoutReuseWindow = 24 * time.Hour
+const pendingCheckoutTTL = 30 * time.Minute
 
 func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error) {
 	name := strings.TrimSpace(req.Name)
@@ -252,6 +252,10 @@ func (s *PaymentService) GetActivePlans() ([]models.Plan, error) {
 	return plans, nil
 }
 
+func timePtr(value time.Time) *time.Time {
+	return &value
+}
+
 func shouldReusePendingPayment(payment models.Payment, now time.Time) bool {
 	if payment.Status != models.PaymentPending {
 		return false
@@ -259,8 +263,26 @@ func shouldReusePendingPayment(payment models.Payment, now time.Time) bool {
 	if strings.TrimSpace(payment.CheckoutURL) == "" {
 		return false
 	}
-	cutoff := now.UTC().Add(-pendingCheckoutReuseWindow)
-	return !payment.CreatedAt.Before(cutoff)
+	if payment.ExpiresAt == nil {
+		return false
+	}
+	return payment.ExpiresAt.After(now.UTC())
+}
+
+func (s *PaymentService) expirePendingPayments(userID, planID string, now time.Time) error {
+	query := db.DB.Model(&models.Payment{}).
+		Where("status = ?", models.PaymentPending).
+		Where("\"expiresAt\" IS NOT NULL AND \"expiresAt\" <= ?", now.UTC())
+	if strings.TrimSpace(userID) != "" {
+		query = query.Where("\"userId\" = ?", userID)
+	}
+	if strings.TrimSpace(planID) != "" {
+		query = query.Where("\"planId\" = ?", planID)
+	}
+	if err := query.Update("status", models.PaymentExpired).Error; err != nil {
+		return errors.New("更新支付记录失败")
+	}
+	return nil
 }
 
 func (s *PaymentService) findReusablePendingPayment(userID, planID string, now time.Time) (*models.Payment, error) {
@@ -303,6 +325,10 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return nil, err
 	}
 
+	if err := s.expirePendingPayments(userID, plan.ID, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
 	if existing, err := s.findReusablePendingPayment(userID, plan.ID, time.Now().UTC()); err != nil {
 		return nil, err
 	} else if existing != nil {
@@ -323,6 +349,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		Currency:        plan.Currency,
 		Days:            plan.Days,
 		Status:          models.PaymentPending,
+		ExpiresAt:       timePtr(time.Now().UTC().Add(pendingCheckoutTTL)),
 	}
 	if err := db.DB.Create(&payment).Error; err != nil {
 		return nil, errors.New("创建支付记录失败")
@@ -584,6 +611,10 @@ func (s *PaymentService) markPaymentFailed(sessionID string) error {
 		tx.Rollback()
 		return nil
 	}
+	if payment.Status == models.PaymentExpired {
+		tx.Rollback()
+		return nil
+	}
 	if payment.Status == models.PaymentFailed {
 		tx.Rollback()
 		return nil
@@ -610,6 +641,16 @@ func (s *PaymentService) GetAllPayments(req *GetPaymentsRequest) (*GetPaymentsRe
 }
 
 func (s *PaymentService) getPayments(userID string, req *GetPaymentsRequest, isAdmin bool) (*GetPaymentsResponse, error) {
+	if !isAdmin {
+		if err := s.expirePendingPayments(userID, "", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.expirePendingPayments(strings.TrimSpace(req.UserID), "", time.Now().UTC()); err != nil {
+			return nil, err
+		}
+	}
+
 	page := req.Page
 	if page < 1 {
 		page = 1

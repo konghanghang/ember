@@ -327,7 +327,8 @@ services/
 | Amount | int64 | amount | 金额（分）|
 | Currency | string | currency | 币种（默认 `"usd"`）|
 | Days | int | days | 购买天数 |
-| Status | PaymentStatus | status | `pending`/`completed`/`failed` |
+| Status | PaymentStatus | status | `pending`/`completed`/`expired`/`failed` |
+| ExpiresAt | *time.Time | expiresAt | 本地待支付订单过期时间（默认 30 分钟） |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
@@ -624,7 +625,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 Stripe 一次性支付流程管理。
 
-- `CreateCheckoutSession(userID, planID)` — 优先复用同方案最近 24 小时内未支付订单的 Checkout 链接；否则创建新的 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）
+- `CreateCheckoutSession(userID, planID)` — 优先复用同方案 30 分钟内未过期的待支付订单；否则创建新的 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）
 - `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
 - Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
 - `GetPayments(page, pageSize)` — 支付记录查询
