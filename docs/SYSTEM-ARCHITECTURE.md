@@ -306,7 +306,7 @@ services/
 | Description | string(500) | description | 描述 |
 | Days | int | days | 天数 |
 | Price | int64 | price | 价格（分）|
-| Currency | string(3) | currency | 币种（默认 `"usd"`）|
+| Currency | string(3) | currency | 币种（当前支持 `"usd"` / `"hkd"` / `"cny"`）|
 | IsActive | bool | isActive | 是否启用（默认 true，DELETE 接口仅置为 false 作为软删除）|
 | SortOrder | int | sortOrder | 排序（默认 0）|
 | CreatedAt | time.Time | createdAt | 自动 |
@@ -325,7 +325,7 @@ services/
 | StripePaymentIntentID | string | stripePaymentIntentId | Stripe 支付意向 |
 | CheckoutURL | string | checkoutUrl | 待支付订单复用的 Stripe Checkout 链接 |
 | Amount | int64 | amount | 金额（分）|
-| Currency | string | currency | 币种（默认 `"usd"`）|
+| Currency | string | currency | 支付币种快照 |
 | Days | int | days | 购买天数 |
 | Status | PaymentStatus | status | `pending`/`completed`/`expired`/`failed` |
 | ExpiresAt | *time.Time | expiresAt | 本地待支付订单过期时间（默认 30 分钟） |

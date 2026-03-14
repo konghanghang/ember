@@ -25,6 +25,7 @@ const form = ref({
   description: '',
   days: 30,
   priceDisplay: 9.99,
+  currency: 'usd',
   sortOrder: 0
 })
 
@@ -34,9 +35,16 @@ const editForm = ref({
   description: '',
   days: 30,
   priceDisplay: 9.99,
+  currency: 'usd',
   isActive: true,
   sortOrder: 0
 })
+
+const currencyOptions = [
+  { label: 'USD', value: 'usd' },
+  { label: 'HKD', value: 'hkd' },
+  { label: 'CNY', value: 'cny' }
+]
 
 const activeCount = computed(() => tableData.value.filter(item => item.isActive).length)
 
@@ -51,8 +59,13 @@ const fetchData = async () => {
   }
 }
 
-const formatPrice = (price: number) => {
-  return `$${(price / 100).toFixed(2)}`
+const formatPrice = (price: number, currency: string = 'usd') => {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(price / 100)
 }
 
 const resetCreateForm = () => {
@@ -61,6 +74,7 @@ const resetCreateForm = () => {
     description: '',
     days: 30,
     priceDisplay: 9.99,
+    currency: 'usd',
     sortOrder: 0
   }
 }
@@ -88,6 +102,7 @@ const handleCreate = async () => {
     description: form.value.description.trim(),
     days: form.value.days,
     price: Math.round(form.value.priceDisplay * 100),
+    currency: form.value.currency,
     sortOrder: form.value.sortOrder
   }
 
@@ -110,6 +125,7 @@ const openEditDialog = (row: Plan) => {
     description: row.description || '',
     days: row.days,
     priceDisplay: row.price / 100,
+    currency: row.currency || 'usd',
     isActive: row.isActive,
     sortOrder: row.sortOrder
   }
@@ -135,6 +151,7 @@ const handleUpdate = async () => {
     description: editForm.value.description.trim(),
     days: editForm.value.days,
     price: Math.round(editForm.value.priceDisplay * 100),
+    currency: editForm.value.currency,
     isActive: editForm.value.isActive,
     sortOrder: editForm.value.sortOrder
   }
@@ -178,7 +195,7 @@ onMounted(fetchData)
           付费方案管理
           <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ activeCount }}/{{ total }} 启用</span>
         </h1>
-        <p class="text-gray-500 text-sm mt-1">管理订阅购买套餐，价格单位为 USD</p>
+        <p class="text-gray-500 text-sm mt-1">管理订阅购买套餐，支持 USD、HKD、CNY</p>
       </div>
 
       <div class="flex items-center gap-3">
@@ -232,7 +249,13 @@ onMounted(fetchData)
 
         <el-table-column label="价格" width="120">
           <template #default="{ row }">
-            <span class="font-semibold text-gray-900">{{ formatPrice(row.price) }}</span>
+            <span class="font-semibold text-gray-900">{{ formatPrice(row.price, row.currency) }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="币种" width="100">
+          <template #default="{ row }">
+            <span class="text-gray-600 uppercase">{{ row.currency }}</span>
           </template>
         </el-table-column>
 
@@ -298,10 +321,21 @@ onMounted(fetchData)
               <el-input-number v-model="form.days" :min="1" class="w-full !w-full" />
             </el-form-item>
 
-            <el-form-item label="价格（USD）">
+            <el-form-item label="价格">
               <el-input-number v-model="form.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full" />
             </el-form-item>
           </div>
+
+          <el-form-item label="币种">
+            <el-select v-model="form.currency" class="w-full" placeholder="选择币种">
+              <el-option
+                v-for="option in currencyOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
 
           <el-form-item label="排序">
             <el-input-number v-model="form.sortOrder" :min="0" class="w-full !w-full" />
@@ -343,10 +377,21 @@ onMounted(fetchData)
               <el-input-number v-model="editForm.days" :min="1" class="w-full !w-full" />
             </el-form-item>
 
-            <el-form-item label="价格（USD）">
+            <el-form-item label="价格">
               <el-input-number v-model="editForm.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full" />
             </el-form-item>
           </div>
+
+          <el-form-item label="币种">
+            <el-select v-model="editForm.currency" class="w-full" placeholder="选择币种">
+              <el-option
+                v-for="option in currencyOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
 
           <div class="grid grid-cols-2 gap-6">
             <el-form-item label="排序">

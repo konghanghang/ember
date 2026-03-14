@@ -29,10 +29,12 @@ const pendingPlanIDs = computed(() => new Set(
 ))
 
 const formatPrice = (price: number, currency: string = 'usd') => {
-  if (currency.toLowerCase() === 'usd') {
-    return `$${(price / 100).toFixed(2)}`
-  }
-  return `${(price / 100).toFixed(2)} ${currency.toUpperCase()}`
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(price / 100)
 }
 
 const statusMeta = (status: PaymentStatus) => {

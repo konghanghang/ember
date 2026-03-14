@@ -7,6 +7,36 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 )
 
+func TestNormalizePlanCurrency(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "default usd", input: "", want: "usd"},
+		{name: "upper hkd", input: "HKD", want: "hkd"},
+		{name: "trim cny", input: " cny ", want: "cny"},
+		{name: "invalid", input: "eur", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		got, err := normalizePlanCurrency(tc.input)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("%s: expected error, got nil", tc.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: want %s, got %s", tc.name, tc.want, got)
+		}
+	}
+}
+
 func TestShouldReusePendingPayment(t *testing.T) {
 	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 

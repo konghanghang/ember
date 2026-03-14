@@ -45,6 +45,7 @@ type CreatePlanRequest struct {
 	Description string `json:"description"`
 	Days        int    `json:"days" binding:"required,min=1"`
 	Price       int64  `json:"price" binding:"required,min=1"`
+	Currency    string `json:"currency"`
 	SortOrder   int    `json:"sortOrder"`
 }
 
@@ -53,6 +54,7 @@ type UpdatePlanRequest struct {
 	Description *string `json:"description"`
 	Days        *int    `json:"days" binding:"omitempty,min=1"`
 	Price       *int64  `json:"price" binding:"omitempty,min=1"`
+	Currency    *string `json:"currency"`
 	IsActive    *bool   `json:"isActive"`
 	SortOrder   *int    `json:"sortOrder"`
 }
@@ -125,10 +127,27 @@ type stripeCheckoutSessionObject struct {
 
 const pendingCheckoutTTL = 30 * time.Minute
 
+func normalizePlanCurrency(raw string) (string, error) {
+	currency := strings.ToLower(strings.TrimSpace(raw))
+	if currency == "" {
+		return "usd", nil
+	}
+	switch currency {
+	case "usd", "hkd", "cny":
+		return currency, nil
+	default:
+		return "", ErrPlanCurrencyInvalid
+	}
+}
+
 func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, errors.New("方案名称不能为空")
+	}
+	currency, err := normalizePlanCurrency(req.Currency)
+	if err != nil {
+		return nil, err
 	}
 
 	plan := models.Plan{
@@ -136,7 +155,7 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error
 		Description: strings.TrimSpace(req.Description),
 		Days:        req.Days,
 		Price:       req.Price,
-		Currency:    "usd",
+		Currency:    currency,
 		IsActive:    true,
 		SortOrder:   req.SortOrder,
 	}
@@ -171,6 +190,13 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*models.
 	}
 	if req.Price != nil {
 		plan.Price = *req.Price
+	}
+	if req.Currency != nil {
+		currency, err := normalizePlanCurrency(*req.Currency)
+		if err != nil {
+			return nil, err
+		}
+		plan.Currency = currency
 	}
 	if req.IsActive != nil {
 		plan.IsActive = *req.IsActive

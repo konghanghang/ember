@@ -381,6 +381,7 @@ export interface CreatePlanRequest {
   description?: string
   days: number
   price: number
+  currency?: string
   sortOrder?: number
 }
 
@@ -389,6 +390,7 @@ export interface UpdatePlanRequest {
   description?: string
   days?: number
   price?: number
+  currency?: string
   isActive?: boolean
   sortOrder?: number
 }
