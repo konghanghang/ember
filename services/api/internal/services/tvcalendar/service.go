@@ -27,7 +27,6 @@ const (
 	tmdbImageBaseURL        = "https://image.tmdb.org/t/p/w500"
 	tmdbDetailCacheTTL      = 24 * time.Hour
 	tmdbSeasonCacheTTL      = 24 * time.Hour
-	tvCalendarSyncTTL       = 12 * time.Hour
 	tvCalendarFetchTimeout  = 15 * time.Second
 	tvCalendarSyncPageSize  = 200
 	tvCalendarDefaultOffset = 0
@@ -46,10 +45,6 @@ var tvCalendarSyncCoordinator = struct {
 	calls map[string]*tvCalendarSyncCall
 }{
 	calls: make(map[string]*tvCalendarSyncCall),
-}
-
-func tvCalendarWeekSyncMarkerKey(weekStart time.Time) string {
-	return fmt.Sprintf("tv-calendar:week-sync:%s", normalizeTVCalendarWeekStart(weekStart).Format("2006-01-02"))
 }
 
 func tvCalendarWeekSyncLockKey(weekStart time.Time, tmdbID *string, force bool) string {
@@ -883,7 +878,6 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 		if strings.TrimSpace(s.tmdbAPIKey) == "" {
 			return 0, ErrTVCalendarNotConfigured
 		}
-		isFullWeekSync := tmdbID == nil || strings.TrimSpace(*tmdbID) == ""
 
 		sources, err := s.loadSourcesForSync(tmdbID)
 		if err != nil {
@@ -973,12 +967,6 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 			}
 		}
 
-		if isFullWeekSync {
-			if err := s.markWeeklyCalendarSynced(normalizedWeekStart, now); err != nil {
-				return total, err
-			}
-		}
-
 		return total, nil
 	})
 }
@@ -1014,52 +1002,6 @@ func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int,
 		}
 	}
 	return total, nil
-}
-
-func (s *TVCalendarService) markWeeklyCalendarSynced(weekStart, syncedAt time.Time) error {
-	marker := models.TMDBCache{
-		CacheKey:   tvCalendarWeekSyncMarkerKey(weekStart),
-		CacheValue: syncedAt.Format(time.RFC3339),
-		ExpiresAt:  syncedAt.Add(tvCalendarSyncTTL),
-	}
-
-	if err := db.DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "cacheKey"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{
-			"cacheValue": marker.CacheValue,
-			"expiresAt":  marker.ExpiresAt,
-		}),
-	}).Create(&marker).Error; err != nil {
-		return fmt.Errorf("写入追剧日历同步标记失败: %w", err)
-	}
-
-	return nil
-}
-
-func (s *TVCalendarService) isWeeklyCalendarStale(weekStart, now time.Time) (bool, error) {
-	var marker models.TMDBCache
-	err := db.DB.Where("\"cacheKey\" = ?", tvCalendarWeekSyncMarkerKey(weekStart)).First(&marker).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return true, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("查询追剧日历同步标记失败: %w", err)
-	}
-
-	return !marker.ExpiresAt.After(now), nil
-}
-
-func (s *TVCalendarService) maybeRefreshWeeklyCalendar(ctx context.Context, weekStart time.Time) error {
-	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
-	stale, err := s.isWeeklyCalendarStale(normalizedWeekStart, time.Now().UTC())
-	if err != nil {
-		return err
-	}
-	if !stale {
-		return nil
-	}
-	_, err = s.SyncWeek(ctx, normalizedWeekStart, nil, false)
-	return err
 }
 
 func (s *TVCalendarService) buildWeeklyCalendar(items []models.TVCalendarItem, sourceMap map[string]models.TVCalendarSource, start, end time.Time) *TVCalendarWeeklyDTO {
@@ -1178,17 +1120,6 @@ func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekSta
 		return nil, err
 	}
 
-	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, start); refreshErr != nil {
-		if len(items) == 0 {
-			return nil, refreshErr
-		}
-	} else {
-		items, err = s.queryCalendarItems(nil, start, end, status)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	tmdbIDs := make([]string, 0, len(items))
 	seen := make(map[string]struct{}, len(items))
 	for _, item := range items {
@@ -1228,14 +1159,6 @@ func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, user
 	items, err := s.queryCalendarItems(tmdbIDs, start, end, status)
 	if err != nil {
 		return nil, err
-	}
-	if refreshErr := s.maybeRefreshWeeklyCalendar(ctx, start); refreshErr == nil {
-		items, err = s.queryCalendarItems(tmdbIDs, start, end, status)
-		if err != nil {
-			return nil, err
-		}
-	} else if len(items) == 0 {
-		return nil, refreshErr
 	}
 
 	sourceMap, err := s.loadSourceMap(tmdbIDs)

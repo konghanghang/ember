@@ -337,15 +337,6 @@ export interface TVCalendarItem {
   posterUrl?: string
 }
 
-export interface TVCalendarSubscription {
-  id: string
-  userId: string
-  tmdbId: string
-  showName: string
-  posterUrl?: string
-  createdAt: string
-}
-
 export interface TVCalendarWeeklyItem {
   tmdbId: string
   seriesId?: string

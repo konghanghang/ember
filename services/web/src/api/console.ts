@@ -12,7 +12,6 @@ import type {
   Subscription,
   SubscriptionListQuery,
   TVCalendarItem,
-  TVCalendarSubscription,
   TVCalendarStatus,
   TVCalendarWeeklyData,
   TVCalendarWeekOffset,
@@ -180,43 +179,5 @@ export function getGlobalTVCalendar(params?: {
     url: '/tv-calendar/global',
     method: 'get',
     params
-  })
-}
-
-export function getFollowingTVCalendar(params?: {
-  weekDate?: string
-  weekOffset?: TVCalendarWeekOffset
-  status?: TVCalendarStatus | ''
-}): Promise<{ data: TVCalendarWeeklyData }> {
-  return request({
-    url: '/tv-calendar/following',
-    method: 'get',
-    params
-  })
-}
-
-export function getTVCalendarSubscriptions(): Promise<{ data: TVCalendarSubscription[] }> {
-  return request({
-    url: '/tv-calendar/subscriptions',
-    method: 'get'
-  })
-}
-
-export function subscribeTVCalendar(data: {
-  tmdbId: string
-  showName: string
-  posterUrl?: string
-}): Promise<{ success: boolean }> {
-  return request({
-    url: '/tv-calendar/subscriptions',
-    method: 'post',
-    data
-  })
-}
-
-export function unsubscribeTVCalendar(tmdbId: string): Promise<{ success: boolean }> {
-  return request({
-    url: `/tv-calendar/subscriptions/${encodeURIComponent(tmdbId)}`,
-    method: 'delete'
   })
 }

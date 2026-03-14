@@ -659,13 +659,13 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - `DiscoverContinuingSeries(ctx)` — 从 Emby 自动发现所有 `Continuing` 且带 `Tmdb` Provider ID 的剧集
 - `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 同步上周 / 本周 / 下周的全局周历缓存
-- `GetGlobalWeeklyCalendar(ctx, weekOffset, status)` — 查询全局周历视图
-- `GetFollowingWeeklyCalendar(ctx, userID, weekOffset, status)` — 查询当前用户的关注周历视图
+- `GetGlobalWeeklyCalendar(ctx, weekOffset, status)` — 查询全局周历视图（只读当前缓存/数据库，不触发即时同步）
+- `GetFollowingWeeklyCalendar(ctx, userID, weekOffset, status)` — 查询当前用户的关注周历视图（只读当前缓存/数据库，不触发即时同步）
 - `FetchCalendar(userID, startDate, endDate, status)` — 兼容旧平铺接口，底层仍复用新的全局缓存数据
 - `Subscribe(userID, tmdbId, showName, posterUrl)` — 创建或更新用户关注
 - `GetSubscriptions(userID)` — 获取用户关注列表
 - `Unsubscribe(userID, tmdbId)` — 取消关注
-- `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）
+- `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）；定时任务与管理员入口是周历数据的唯一同步入口
 - `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
 
 ### 5.19 PlaybackHistoryService (`services/playback/history.go`)

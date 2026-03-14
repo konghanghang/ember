@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   Calendar,
   CircleCheckFilled,
@@ -10,19 +10,9 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
-import {
-  getGlobalTVCalendar,
-  getTVCalendarSubscriptions,
-  subscribeTVCalendar,
-  unsubscribeTVCalendar
-} from '@/api/console'
+import { getGlobalTVCalendar } from '@/api/console'
 import { syncTVCalendar } from '@/api/admin'
-import type {
-  TVCalendarStatus,
-  TVCalendarSubscription,
-  TVCalendarWeeklyData,
-  TVCalendarWeeklyItem
-} from '@/types/api'
+import type { TVCalendarStatus, TVCalendarWeeklyData } from '@/types/api'
 
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
@@ -31,8 +21,8 @@ const loading = ref(false)
 const refreshing = ref(false)
 const calendarError = ref('')
 
-const subscriptions = ref<TVCalendarSubscription[]>([])
 const calendarData = ref<TVCalendarWeeklyData>({ dateRange: '', days: [] })
+const dayRowRefs = ref<Record<string, HTMLElement | null>>({})
 
 const filters = reactive({
   weekDate: formatDateLocal(new Date()),
@@ -47,7 +37,16 @@ const statusOptions: Array<{ label: string; value: TVCalendarStatus | '' }> = [
   { label: '待播', value: 'upcoming' }
 ]
 
-const subscriptionSet = computed(() => new Set(subscriptions.value.map((item) => item.tmdbId)))
+const selectableRange = computed(() => {
+  const now = new Date()
+  const currentMonthStart = startOfMonthLocal(now)
+  const previousMonthLastDay = addDays(currentMonthStart, -1)
+  const min = startOfWeekLocal(previousMonthLastDay)
+  const max = endOfMonthLocal(now)
+  max.setHours(23, 59, 59, 999)
+  return { min, max }
+})
+
 const dayColumns = computed(() => calendarData.value.days || [])
 const totalItems = computed(() => dayColumns.value.reduce((sum, day) => sum + day.items.length, 0))
 const activeDayCount = computed(() => dayColumns.value.filter((day) => day.items.length > 0).length)
@@ -110,6 +109,20 @@ function startOfWeekLocal(date: Date): Date {
   return result
 }
 
+function startOfMonthLocal(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function endOfMonthLocal(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0)
+}
+
+function addDays(date: Date, days: number): Date {
+  const result = new Date(date)
+  result.setDate(result.getDate() + days)
+  return result
+}
+
 function extractErrorMessage(error: unknown, fallback: string): string {
   const message = (error as { response?: { data?: { error?: string } } })?.response?.data?.error
   if (typeof message === 'string' && message.trim()) {
@@ -139,10 +152,6 @@ function getPosterFallback(name: string): string {
     return 'TV'
   }
   return value.slice(0, 1).toUpperCase()
-}
-
-function isFollowing(tmdbId: string): boolean {
-  return subscriptionSet.value.has(tmdbId)
 }
 
 function summaryCardClass(tone: string): string {
@@ -193,19 +202,34 @@ function dayDateMonth(date: string): string {
   return `${Number(month)}月`
 }
 
-async function fetchSubscriptions(): Promise<void> {
-  try {
-    const res = await getTVCalendarSubscriptions()
-    subscriptions.value = res.data || []
-  } catch (error) {
-    subscriptions.value = []
-    ElMessage.error(extractErrorMessage(error, '读取关注列表失败'))
-  }
+function isWeekDateDisabled(date: Date): boolean {
+  const value = new Date(date)
+  value.setHours(0, 0, 0, 0)
+  return value < selectableRange.value.min || value > selectableRange.value.max
 }
 
-async function fetchCalendar(): Promise<void> {
+function setDayRowRef(date: string, element: HTMLElement | null): void {
+  if (element) {
+    dayRowRefs.value[date] = element
+    return
+  }
+  delete dayRowRefs.value[date]
+}
+
+async function scrollToWeekDate(date: string): Promise<void> {
+  await nextTick()
+  requestAnimationFrame(() => {
+    dayRowRefs.value[date]?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    })
+  })
+}
+
+async function fetchCalendar(targetDate?: string): Promise<void> {
   loading.value = true
   calendarError.value = ''
+  let shouldScroll = false
   try {
     const params = {
       weekDate: filters.weekDate,
@@ -213,47 +237,20 @@ async function fetchCalendar(): Promise<void> {
     }
     const res = await getGlobalTVCalendar(params)
     calendarData.value = res.data || { dateRange: '', days: [] }
+    shouldScroll = Boolean(targetDate)
   } catch (error) {
     calendarData.value = { dateRange: '', days: [] }
     calendarError.value = extractErrorMessage(error, '读取追剧日历失败')
   } finally {
     loading.value = false
+    if (shouldScroll && targetDate) {
+      await scrollToWeekDate(targetDate)
+    }
   }
 }
 
 async function loadAll(): Promise<void> {
-  await Promise.allSettled([fetchSubscriptions(), fetchCalendar()])
-}
-
-async function handleFollow(item: TVCalendarWeeklyItem): Promise<void> {
-  if (isFollowing(item.tmdbId)) {
-    await handleUnfollow(item.tmdbId, item.showName)
-    return
-  }
-
-  await subscribeTVCalendar({
-    tmdbId: item.tmdbId,
-    showName: item.showName,
-    posterUrl: item.posterUrl || undefined
-  })
-  ElMessage.success(`已关注《${item.showName}》`)
-  await Promise.allSettled([fetchSubscriptions(), fetchCalendar()])
-}
-
-async function handleUnfollow(tmdbId: string, showName: string): Promise<void> {
-  try {
-    await ElMessageBox.confirm(`确认取消关注《${showName}》吗？`, '取消关注', {
-      type: 'warning',
-      confirmButtonText: '确认',
-      cancelButtonText: '取消'
-    })
-  } catch {
-    return
-  }
-
-  await unsubscribeTVCalendar(tmdbId)
-  ElMessage.success(`已取消关注《${showName}》`)
-  await Promise.allSettled([fetchSubscriptions(), fetchCalendar()])
+  await fetchCalendar()
 }
 
 async function handleSync(): Promise<void> {
@@ -275,7 +272,7 @@ async function changeStatus(status: TVCalendarStatus | ''): Promise<void> {
 }
 
 async function changeWeekDate(): Promise<void> {
-  await fetchCalendar()
+  await fetchCalendar(filters.weekDate)
 }
 
 onMounted(() => {
@@ -342,7 +339,6 @@ onMounted(() => {
         <div class="flex flex-col gap-4 border-b border-slate-200/80 pb-5 xl:flex-row xl:items-end xl:justify-between">
           <div class="tv-toolbar">
             <div class="tv-picker-inline">
-              <span class="tv-toolbar-label">日期</span>
               <div class="tv-picker-copy">
                 <div class="tv-picker-field group">
                   <div class="tv-picker-icon">
@@ -356,10 +352,11 @@ onMounted(() => {
                     format="YYYY-MM-DD"
                     placeholder="选择任意日期"
                     :clearable="false"
+                    :disabled-date="isWeekDateDisabled"
                     @change="changeWeekDate"
                   />
                 </div>
-                <p class="tv-picker-hint">选择任意日期后，会自动定位到该日期所在周。</p>
+                <p class="tv-picker-hint">选择日期后会自动定位到所在周。</p>
               </div>
             </div>
             <div class="tv-status-group">
@@ -419,6 +416,7 @@ onMounted(() => {
           <article
             v-for="day in dayColumns"
             :key="day.date"
+            :ref="element => setDayRowRef(day.date, element as HTMLElement | null)"
             class="tv-day-row"
             :class="{
               'tv-day-row-today': day.isToday,
@@ -478,16 +476,8 @@ onMounted(() => {
                     >
                       {{ item.episodeName }}
                     </p>
-                    <div class="mt-3 flex items-center justify-between gap-2">
+                    <div class="mt-3">
                       <span class="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">{{ item.airDate }}</span>
-                    <button
-                      type="button"
-                      class="tv-card-action"
-                      :class="{ 'tv-card-action-active': isFollowing(item.tmdbId) }"
-                      @click="handleFollow(item)"
-                    >
-                      {{ isFollowing(item.tmdbId) ? '已收' : '关注' }}
-                    </button>
                     </div>
                   </div>
                 </div>
@@ -558,10 +548,6 @@ onMounted(() => {
 .tv-day-row,
 .tv-mini-card {
   backdrop-filter: blur(14px);
-}
-
-.tv-card-action:hover {
-  transform: translateY(-1px);
 }
 
 .tv-summary-card {
@@ -637,14 +623,6 @@ onMounted(() => {
 
 .tv-picker-field:focus-within .tv-picker-icon {
   color: #e50914;
-}
-
-.tv-toolbar-label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #64748b;
 }
 
 .tv-status-chip {
@@ -887,35 +865,10 @@ onMounted(() => {
   color: #475569;
 }
 
-.tv-card-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(203, 213, 225, 0.9);
-  background: rgba(248, 250, 252, 0.95);
-  min-width: 46px;
-  padding: 0.32rem 0.6rem;
-  font-size: 0.66rem;
-  font-weight: 700;
-  color: #0f172a;
-  line-height: 1;
-  white-space: nowrap;
-  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
-  cursor: pointer;
-}
-
-.tv-card-action-active {
-  border-color: rgba(251, 191, 36, 0.42);
-  background: rgba(255, 251, 235, 0.95);
-  color: #92400e;
-}
-
 .tv-floating-alert :deep(.el-alert) {
   border-radius: 24px;
 }
 
-.tv-card-action:focus-visible,
 .tv-status-chip:focus-visible {
   outline: 2px solid rgba(15, 23, 42, 0.85);
   outline-offset: 2px;
@@ -971,8 +924,7 @@ onMounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tv-status-chip,
-  .tv-card-action {
+  .tv-status-chip {
     transition: none;
   }
 }
