@@ -99,6 +99,8 @@ type ConfigDefinition struct {
 	MissingValueLevel  ConfigRiskLevel
 	EnvKey             string
 	DisableEnvFallback bool
+	MinValue           *int
+	MaxValue           *int
 	Options            []ConfigOption
 	Validate           func(string) error
 	Normalize          func(string) (string, error)
@@ -121,6 +123,9 @@ type ConfigItem struct {
 	ReadOnlyHint      string               `json:"readOnlyHint,omitempty"`
 	MissingValueHint  string               `json:"missingValueHint,omitempty"`
 	MissingValueLevel ConfigRiskLevel      `json:"missingValueLevel"`
+	FallbackHint      string               `json:"fallbackHint,omitempty"`
+	MinValue          *int                 `json:"minValue,omitempty"`
+	MaxValue          *int                 `json:"maxValue,omitempty"`
 	Options           []ConfigOption       `json:"options,omitempty"`
 	Source            string               `json:"source"`
 	HasValue          bool                 `json:"hasValue"`
@@ -496,6 +501,9 @@ func (s *ConfigService) resolveDefinition(def ConfigDefinition, settingsMap map[
 		ReadOnlyHint:      def.ReadOnlyHint,
 		MissingValueHint:  def.MissingValueHint,
 		MissingValueLevel: normalizeRiskLevel(def.MissingValueLevel),
+		FallbackHint:      buildFallbackHint(def),
+		MinValue:          def.MinValue,
+		MaxValue:          def.MaxValue,
 		Options:           def.Options,
 		Source:            ConfigSourceUnset,
 	}
@@ -616,6 +624,35 @@ func normalizeRiskLevel(level ConfigRiskLevel) ConfigRiskLevel {
 	return level
 }
 
+func buildFallbackHint(def ConfigDefinition) string {
+	sources := make([]string, 0, 2)
+	if def.EnvKey != "" && !def.DisableEnvFallback {
+		sources = append(sources, "环境变量")
+	}
+	if def.DefaultValue != "" {
+		sources = append(sources, "默认值")
+	} else if def.AllowEmpty {
+		sources = append(sources, "系统默认空值")
+	}
+
+	if len(sources) == 0 {
+		return "移除数据库覆盖值后将回到未设置状态。"
+	}
+
+	if len(sources) == 1 {
+		switch sources[0] {
+		case "环境变量":
+			return "移除数据库覆盖值后将回退到环境变量；若环境变量缺失则回到未设置状态。"
+		case "默认值":
+			return "移除数据库覆盖值后将回退到默认值。"
+		case "系统默认空值":
+			return "移除数据库覆盖值后将回退到系统默认空值。"
+		}
+	}
+
+	return fmt.Sprintf("移除数据库覆盖值后将按顺序回退到%s。", strings.Join(sources, "、"))
+}
+
 func (s *ConfigService) loadSettings(definitions []ConfigDefinition) (map[string]models.Setting, error) {
 	if db.DB == nil {
 		return map[string]models.Setting{}, nil
@@ -694,6 +731,10 @@ func hashEncryptionKey(raw string) []byte {
 	return sum[:]
 }
 
+func intPtr(v int) *int {
+	return &v
+}
+
 func getConfigDefinitions() []ConfigDefinition {
 	return []ConfigDefinition{
 		{
@@ -720,6 +761,8 @@ func getConfigDefinitions() []ConfigDefinition {
 			Type:         ConfigValueInteger,
 			DefaultValue: "7",
 			Editable:     true,
+			MinValue:     intPtr(0),
+			MaxValue:     intPtr(3650),
 			Validate:     validateIntRange(0, 3650),
 		},
 		{
@@ -906,6 +949,8 @@ func getConfigDefinitions() []ConfigDefinition {
 			Type:               ConfigValueInteger,
 			DefaultValue:       "587",
 			Editable:           true,
+			MinValue:           intPtr(1),
+			MaxValue:           intPtr(65535),
 			Validate:           validateIntRange(1, 65535),
 		},
 		{
@@ -963,6 +1008,8 @@ func getConfigDefinitions() []ConfigDefinition {
 			Type:               ConfigValueInteger,
 			DefaultValue:       "10",
 			Editable:           true,
+			MinValue:           intPtr(1),
+			MaxValue:           intPtr(1440),
 			Validate:           validateIntRange(1, 1440),
 		},
 		{
@@ -976,6 +1023,8 @@ func getConfigDefinitions() []ConfigDefinition {
 			Type:               ConfigValueInteger,
 			DefaultValue:       "5",
 			Editable:           true,
+			MinValue:           intPtr(1),
+			MaxValue:           intPtr(1000),
 			Validate:           validateIntRange(1, 1000),
 		},
 		{
@@ -989,6 +1038,8 @@ func getConfigDefinitions() []ConfigDefinition {
 			Type:               ConfigValueInteger,
 			DefaultValue:       "15",
 			Editable:           true,
+			MinValue:           intPtr(1),
+			MaxValue:           intPtr(5000),
 			Validate:           validateIntRange(1, 5000),
 		},
 		{
@@ -1319,6 +1370,8 @@ func getConfigDefinitions() []ConfigDefinition {
 			Editable:        false,
 			RestartRequired: true,
 			DefaultValue:    "8080",
+			MinValue:        intPtr(1),
+			MaxValue:        intPtr(65535),
 		},
 		{
 			Key:             "AUTO_MIGRATE",

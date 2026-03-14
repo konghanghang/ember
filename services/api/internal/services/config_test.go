@@ -101,6 +101,34 @@ func TestPaymentAndTelegramConfigDefinitionsAreEditable(t *testing.T) {
 	}
 }
 
+func TestIntegerConfigDefinitionsExposeBounds(t *testing.T) {
+	testCases := []struct {
+		key string
+		min int
+		max int
+	}{
+		{key: "default_trial_days", min: 0, max: 3650},
+		{key: "SMTP_PORT", min: 1, max: 65535},
+		{key: "EMAIL_CODE_EXPIRY_MINUTES", min: 1, max: 1440},
+		{key: "EMAIL_CODE_DAILY_LIMIT", min: 1, max: 1000},
+		{key: "EMAIL_CODE_IP_DAILY_LIMIT", min: 1, max: 5000},
+	}
+
+	definitions := getConfigDefinitionMap()
+	for _, tc := range testCases {
+		def, ok := definitions[tc.key]
+		if !ok {
+			t.Fatalf("expected config definition %s to exist", tc.key)
+		}
+		if def.MinValue == nil || *def.MinValue != tc.min {
+			t.Fatalf("expected %s minValue=%d, got %+v", tc.key, tc.min, def.MinValue)
+		}
+		if def.MaxValue == nil || *def.MaxValue != tc.max {
+			t.Fatalf("expected %s maxValue=%d, got %+v", tc.key, tc.max, def.MaxValue)
+		}
+	}
+}
+
 func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 	keys := []string{
 		"EMBY_URL",
@@ -141,6 +169,48 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 		}
 		if !def.DisableEnvFallback {
 			t.Fatalf("expected %s to disable env fallback", key)
+		}
+	}
+}
+
+func TestBuildFallbackHintMatchesDefinitionBehavior(t *testing.T) {
+	testCases := []struct {
+		name     string
+		def      ConfigDefinition
+		expected string
+	}{
+		{
+			name: "env then default",
+			def: ConfigDefinition{
+				EnvKey:       "TEST_ENV",
+				DefaultValue: "fallback",
+			},
+			expected: "移除数据库覆盖值后将按顺序回退到环境变量、默认值。",
+		},
+		{
+			name: "default only",
+			def: ConfigDefinition{
+				DefaultValue: "fallback",
+			},
+			expected: "移除数据库覆盖值后将回退到默认值。",
+		},
+		{
+			name: "default empty only",
+			def: ConfigDefinition{
+				AllowEmpty: true,
+			},
+			expected: "移除数据库覆盖值后将回退到系统默认空值。",
+		},
+		{
+			name:     "unset",
+			def:      ConfigDefinition{},
+			expected: "移除数据库覆盖值后将回到未设置状态。",
+		},
+	}
+
+	for _, tc := range testCases {
+		if got := buildFallbackHint(tc.def); got != tc.expected {
+			t.Fatalf("%s: expected %q, got %q", tc.name, tc.expected, got)
 		}
 	}
 }

@@ -255,6 +255,9 @@ export interface AdminConfigItem {
   readOnlyHint?: string
   missingValueHint?: string
   missingValueLevel: ConfigRiskLevel
+  fallbackHint?: string
+  minValue?: number
+  maxValue?: number
   options?: ConfigOption[]
   source: ConfigSource
   hasValue: boolean

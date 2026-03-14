@@ -100,8 +100,9 @@ export function getClearConfigLabel(item: AdminConfigItem): string {
 }
 
 export function getClearConfigDescription(item: AdminConfigItem): string {
+  const fallbackHint = item.fallbackHint || '移除后将按系统规则回退。'
   if (item.sensitive) {
-    return '删除当前数据库中的敏感覆盖值，并回退到环境变量、默认值或未设置状态。'
+    return `删除当前数据库中的敏感覆盖值。${fallbackHint}`
   }
-  return '删除当前数据库覆盖值，并回退到环境变量、默认值或未设置状态。'
+  return `删除当前数据库覆盖值。${fallbackHint}`
 }

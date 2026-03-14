@@ -97,6 +97,10 @@ const activeGroupRiskSummary = computed<ConfigRiskSummary>(() => {
   }
 })
 
+const migrationSourceCount = computed(() =>
+  configs.value.filter(item => item.editable && item.source === 'env').length
+)
+
 const resetDraftValues = (items: AdminConfigItem[]) => {
   draftValues.value = buildDraftValues(items)
 }
@@ -232,7 +236,7 @@ const handleImportEnv = async () => {
     const failed = Object.keys(result.failed).length
     const skipped = Object.keys(result.skipped).length
 
-    ElMessage.success(`环境变量导入完成：导入 ${imported} 项，跳过 ${skipped} 项，失败 ${failed} 项`)
+    ElMessage.success(`环境变量迁移完成：导入 ${imported} 项，跳过 ${skipped} 项，失败 ${failed} 项`)
     await fetchConfigs()
   } finally {
     importingEnv.value = false
@@ -249,19 +253,6 @@ const handleRunCron = async () => {
   }
 }
 
-const visibleValue = (item: AdminConfigItem) => {
-  if (item.sensitive) {
-    return item.hasValue ? '已设置' : '未设置'
-  }
-  if (hasExplicitEmptyDatabaseValue(item)) {
-    return '已显式设为空值'
-  }
-  if (!item.hasValue || item.value === undefined || item.value === '') {
-    return '未设置'
-  }
-  return item.value
-}
-
 const configStateHint = (item: AdminConfigItem) => {
   if (hasExplicitEmptyDatabaseValue(item) && item.emptyValueHint) {
     return item.emptyValueHint
@@ -273,22 +264,24 @@ const configStateHint = (item: AdminConfigItem) => {
 }
 
 const editableHint = (item: AdminConfigItem) => {
+  const fallbackHint = item.fallbackHint || '移除数据库覆盖值后将按系统规则回退。'
+
   if (item.sensitive) {
     return '敏感值不会回显。只有输入新值时才会覆盖当前值。'
   }
 
   if (hasExplicitEmptyDatabaseValue(item)) {
     return item.emptyValueHint
-      ? `${item.emptyValueHint} 也可使用“${getClearConfigLabel(item)}”回退到 env/default。`
-      : `当前值来自数据库显式空值。可使用“${getClearConfigLabel(item)}”回退到 env/default。`
+      ? `${item.emptyValueHint} 也可使用“${getClearConfigLabel(item)}”。${fallbackHint}`
+      : `当前值来自数据库显式空值。可使用“${getClearConfigLabel(item)}”。${fallbackHint}`
   }
 
   if (item.allowEmpty && item.emptyValueHint && canClearConfigOverride(item)) {
-    return `可保存为空值。${item.emptyValueHint} 也可使用“${getClearConfigLabel(item)}”回退到 env/default。`
+    return `可保存为空值。${item.emptyValueHint} 也可使用“${getClearConfigLabel(item)}”。${fallbackHint}`
   }
 
   if (canClearConfigOverride(item)) {
-    return `当前值来自数据库覆盖。可使用“${getClearConfigLabel(item)}”回退到 env/default。`
+    return `当前值来自数据库覆盖。可使用“${getClearConfigLabel(item)}”。${fallbackHint}`
   }
 
   if (item.allowEmpty && item.emptyValueHint) {
@@ -296,7 +289,7 @@ const editableHint = (item: AdminConfigItem) => {
   }
 
   if (item.source === 'env') {
-    return '当前正在跟随环境变量。保存后将切换为数据库托管。'
+    return '当前正在跟随环境变量。保存后将切换为数据库托管；后续以设置中心为准。'
   }
 
   if (item.restartRequired) {
@@ -351,14 +344,17 @@ const riskBadgeClass = (item: AdminConfigItem) => {
   }
 }
 
-const statePanelClass = (item: AdminConfigItem) => {
-  if (!item.hasValue && item.missingValueLevel === 'critical') {
-    return 'border-red-200 bg-red-50/80 text-red-700'
+const itemStatusSummary = (item: AdminConfigItem) => {
+  if (item.sensitive) {
+    return item.hasValue ? '已设置敏感值' : '敏感值未设置'
   }
-  if (!item.hasValue && item.missingValueLevel === 'warning') {
-    return 'border-amber-200 bg-amber-50/80 text-amber-700'
+  if (hasExplicitEmptyDatabaseValue(item)) {
+    return '数据库显式空值'
   }
-  return 'border-dashed border-gray-200 bg-white text-gray-500'
+  if (!item.hasValue || item.value === undefined || item.value === '') {
+    return '未设置'
+  }
+  return item.value
 }
 
 onMounted(async () => {
@@ -393,40 +389,35 @@ onMounted(async () => {
           type="button"
           @click="handleImportEnv"
           :disabled="importingEnv"
-          class="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-black disabled:opacity-70"
+          class="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:opacity-70"
         >
           <span
             v-if="importingEnv"
-            class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"
+            class="h-4 w-4 animate-spin rounded-full border-2 border-amber-800/20 border-t-amber-800"
           />
-          导入当前环境变量
+          迁移环境变量
         </button>
       </div>
     </div>
 
-    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm font-medium text-gray-500">已配置项</p>
-        <p class="mt-3 text-3xl font-bold text-gray-900">{{ configuredCount }}</p>
-        <p class="mt-2 text-xs text-gray-400">当前具有有效值的配置数量</p>
+    <div class="flex flex-wrap gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+      <div class="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700">
+        已配置 <span class="ml-1 font-semibold text-gray-900">{{ configuredCount }}</span>
       </div>
-
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm font-medium text-gray-500">缺失项</p>
-        <p class="mt-3 text-3xl font-bold text-gray-900">{{ missingCount }}</p>
-        <p class="mt-2 text-xs text-gray-400">仍需管理员补齐的可编辑配置</p>
+      <div class="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700">
+        缺失 <span class="ml-1 font-semibold text-gray-900">{{ missingCount }}</span>
       </div>
-
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm font-medium text-gray-500">敏感项已设置</p>
-        <p class="mt-3 text-3xl font-bold text-gray-900">{{ sensitiveCount }}</p>
-        <p class="mt-2 text-xs text-gray-400">密码、密钥等敏感配置状态</p>
+      <div class="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700">
+        敏感项已设置 <span class="ml-1 font-semibold text-gray-900">{{ sensitiveCount }}</span>
       </div>
-
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm font-medium text-gray-500">需重启项</p>
-        <p class="mt-3 text-3xl font-bold text-gray-900">{{ restartCount }}</p>
-        <p class="mt-2 text-xs text-gray-400">部署边界与计划任务相关配置</p>
+      <div class="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700">
+        需重启 <span class="ml-1 font-semibold text-gray-900">{{ restartCount }}</span>
+      </div>
+      <div
+        v-if="migrationSourceCount > 0"
+        class="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800"
+      >
+        跟随环境变量 <span class="ml-1 font-semibold">{{ migrationSourceCount }}</span>
       </div>
     </div>
 
@@ -488,7 +479,10 @@ onMounted(async () => {
             </button>
 
             <p class="text-xs leading-5 text-gray-400">
-              “导入当前环境变量” 只会把允许托管的运行期配置写入数据库，不会改动部署期密钥。
+              “迁移环境变量” 是一次性迁移工具，只会把允许托管的运行期配置写入数据库，不会改动部署期密钥。
+              <template v-if="migrationSourceCount > 0">
+                当前仍有 {{ migrationSourceCount }} 项配置正在跟随环境变量。
+              </template>
             </p>
           </div>
         </div>
@@ -525,13 +519,6 @@ onMounted(async () => {
               </button>
 
               <button
-                v-if="group.items.some(item => canClearConfigOverride(item))"
-                type="button"
-                @click="void 0"
-                class="hidden"
-              />
-
-              <button
                 v-if="group.items.some(item => item.editable)"
                 type="button"
                 @click="handleResetGroup(group)"
@@ -564,155 +551,157 @@ onMounted(async () => {
             </p>
           </div>
 
-          <div class="mt-6 space-y-4">
+          <div class="mt-6 space-y-3">
             <div
               v-for="item in group.items"
               :key="item.key"
-              class="rounded-2xl border border-gray-100 bg-gray-50/60 p-5"
+              class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
             >
-              <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div class="min-w-0 flex-1">
+              <div class="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1.2fr)_220px] xl:items-start">
+                <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="text-base font-semibold text-gray-900">{{ item.label }}</h3>
-                    <span
-                      class="rounded-full px-3 py-1 text-xs font-medium"
-                      :class="sourceClass(item.source)"
-                    >
-                      来源：{{ sourceLabelMap[item.source] }}
-                    </span>
-                    <span
-                      class="rounded-full px-3 py-1 text-xs font-medium"
-                      :class="restartClass(item.restartRequired)"
-                    >
-                      {{ item.restartRequired ? '需重启' : '立即生效' }}
-                    </span>
-                    <span
-                      v-if="item.sensitive"
-                      class="rounded-full bg-gray-900/5 px-3 py-1 text-xs font-medium text-gray-700"
-                    >
-                      {{ item.hasValue ? '敏感项已设置' : '敏感项未设置' }}
-                    </span>
+                    <h3 class="text-sm font-semibold text-gray-900">{{ item.label }}</h3>
                     <span
                       v-if="!item.editable"
-                      class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                      class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700"
                     >
-                      只读边界项
+                      只读
                     </span>
                     <span
                       v-if="riskBadgeText(item)"
-                      class="rounded-full px-3 py-1 text-xs font-medium"
+                      class="rounded-full px-2.5 py-1 text-[11px] font-medium"
                       :class="riskBadgeClass(item)"
                     >
                       {{ riskBadgeText(item) }}
                     </span>
                   </div>
 
-                  <p class="mt-2 text-sm leading-6 text-gray-500">{{ item.description }}</p>
-                </div>
-
-                <div class="rounded-xl border px-4 py-3 text-sm lg:w-72" :class="statePanelClass(item)">
-                  <p class="font-medium" :class="!item.hasValue && item.missingValueLevel === 'critical' ? 'text-red-800' : 'text-gray-700'">当前状态</p>
-                  <p class="mt-2 break-all">
-                    {{ visibleValue(item) }}
+                  <p class="mt-2 text-sm font-medium text-gray-900 break-all">
+                    {{ itemStatusSummary(item) }}
+                  </p>
+                  <p class="mt-1 text-xs leading-5 text-gray-500">
+                    {{ item.description }}
                   </p>
                   <p
                     v-if="configStateHint(item)"
-                    class="mt-2 text-xs leading-5"
+                    class="mt-1 text-xs leading-5"
                     :class="!item.hasValue && item.missingValueLevel === 'critical' ? 'text-red-600' : 'text-gray-400'"
                   >
                     {{ configStateHint(item) }}
                   </p>
+                </div>
+
+                <div v-if="item.error" class="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {{ item.error }}
+                </div>
+
+                <div v-else-if="item.editable">
+                  <el-radio-group
+                    v-if="item.type === 'enum'"
+                    v-model="draftValues[item.key]"
+                    class="flex flex-wrap gap-3"
+                  >
+                    <el-radio-button
+                      v-for="option in item.options || []"
+                      :key="option.value"
+                      :label="option.value"
+                    >
+                      {{ option.label }}
+                    </el-radio-button>
+                  </el-radio-group>
+
+                  <div v-else-if="item.type === 'boolean'" class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <el-switch
+                      v-model="draftValues[item.key]"
+                      inline-prompt
+                      active-text="开"
+                      inactive-text="关"
+                    />
+                  </div>
+
+                  <el-input-number
+                    v-else-if="item.type === 'integer'"
+                    v-model="draftValues[item.key]"
+                    :min="item.minValue"
+                    :max="item.maxValue"
+                    class="!w-full"
+                    controls-position="right"
+                  />
+
+                  <el-checkbox-group
+                    v-else-if="item.type === 'json_list'"
+                    v-model="draftValues[item.key]"
+                    class="flex flex-wrap gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4"
+                  >
+                    <el-checkbox
+                      v-for="option in item.options || []"
+                      :key="option.value"
+                      :label="option.value"
+                      class="!mr-0 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2"
+                    >
+                      {{ option.label }}
+                    </el-checkbox>
+                  </el-checkbox-group>
+
+                  <el-input
+                    v-else-if="item.sensitive"
+                    v-model="draftValues[item.key]"
+                    show-password
+                    :placeholder="item.hasValue ? '已设置，输入新值以覆盖' : '请输入配置值'"
+                    clearable
+                  />
+
+                  <el-input
+                    v-else
+                    v-model="draftValues[item.key]"
+                    :placeholder="item.placeholder || '请输入配置值'"
+                    clearable
+                  />
+
+                  <p class="mt-2 text-xs leading-5 text-gray-400">
+                    {{ editableHint(item) }}
+                  </p>
+                </div>
+
+                <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <p class="font-medium text-slate-800">只读原因</p>
+                  <p class="mt-2 leading-6">
+                    {{ readOnlyHint(item) }}
+                  </p>
+                  <p v-if="item.restartRequired" class="mt-2 text-xs text-slate-500">
+                    如需修改，请更新部署环境并重启对应服务后再回到此页确认状态。
+                  </p>
+                </div>
+
+                <div class="flex flex-col items-start gap-2 xl:items-end">
+                  <span
+                    class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                    :class="sourceClass(item.source)"
+                  >
+                    来源：{{ sourceLabelMap[item.source] }}
+                  </span>
+                  <span
+                    class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                    :class="restartClass(item.restartRequired)"
+                  >
+                    {{ item.restartRequired ? '需重启' : '立即生效' }}
+                  </span>
+                  <span
+                    v-if="item.sensitive"
+                    class="rounded-full bg-gray-900/5 px-2.5 py-1 text-[11px] font-medium text-gray-700"
+                  >
+                    {{ item.hasValue ? '敏感项已设置' : '敏感项未设置' }}
+                  </span>
                   <button
                     v-if="canClearConfigOverride(item)"
                     type="button"
                     @click="handleClearConfigOverride(item)"
                     :disabled="clearingItems[item.key]"
-                    class="mt-3 inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    class="mt-1 text-xs font-medium text-amber-700 transition hover:text-amber-800 disabled:opacity-60"
                   >
-                    {{ clearingItems[item.key] ? '处理中...' : getClearConfigLabel(item) }}
+                    {{ clearingItems[item.key] ? '处理中...' : '恢复回退' }}
                   </button>
                 </div>
-              </div>
-
-              <div v-if="item.error" class="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
-                {{ item.error }}
-              </div>
-
-              <div v-else-if="item.editable" class="mt-4">
-                <el-radio-group
-                  v-if="item.type === 'enum'"
-                  v-model="draftValues[item.key]"
-                  class="flex flex-wrap gap-3"
-                >
-                  <el-radio-button
-                    v-for="option in item.options || []"
-                    :key="option.value"
-                    :label="option.value"
-                  >
-                    {{ option.label }}
-                  </el-radio-button>
-                </el-radio-group>
-
-                <div v-else-if="item.type === 'boolean'" class="rounded-2xl border border-gray-200 bg-white p-4">
-                  <el-switch
-                    v-model="draftValues[item.key]"
-                    inline-prompt
-                    active-text="开"
-                    inactive-text="关"
-                  />
-                </div>
-
-                <el-input-number
-                  v-else-if="item.type === 'integer'"
-                  v-model="draftValues[item.key]"
-                  :min="0"
-                  class="!w-full"
-                  controls-position="right"
-                />
-
-                <el-checkbox-group
-                  v-else-if="item.type === 'json_list'"
-                  v-model="draftValues[item.key]"
-                  class="flex flex-wrap gap-3 rounded-2xl border border-gray-200 bg-white p-4"
-                >
-                  <el-checkbox
-                    v-for="option in item.options || []"
-                    :key="option.value"
-                    :label="option.value"
-                    class="!mr-0 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2"
-                  >
-                    {{ option.label }}
-                  </el-checkbox>
-                </el-checkbox-group>
-
-                <el-input
-                  v-else-if="item.sensitive"
-                  v-model="draftValues[item.key]"
-                  show-password
-                  :placeholder="item.hasValue ? '已设置，输入新值以覆盖' : '请输入配置值'"
-                  clearable
-                />
-
-                <el-input
-                  v-else
-                  v-model="draftValues[item.key]"
-                  :placeholder="item.placeholder || '请输入配置值'"
-                  clearable
-                />
-
-                <p class="mt-2 text-xs text-gray-400">
-                  {{ editableHint(item) }}
-                </p>
-              </div>
-
-              <div v-else class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <p class="font-medium text-slate-800">只读原因</p>
-                <p class="mt-2 leading-6">
-                  {{ readOnlyHint(item) }}
-                </p>
-                <p v-if="item.restartRequired" class="mt-2 text-xs text-slate-500">
-                  如需修改，请更新部署环境并重启对应服务后再回到此页确认状态。
-                </p>
               </div>
             </div>
           </div>
