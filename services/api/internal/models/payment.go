@@ -21,6 +21,7 @@ type Payment struct {
 	PlanID                string        `json:"planId" gorm:"column:planId;size:25;index;not null"`
 	StripeSessionID       string        `json:"stripeSessionId" gorm:"column:stripeSessionId;size:255;uniqueIndex;not null"`
 	StripePaymentIntentID string        `json:"stripePaymentIntentId,omitempty" gorm:"column:stripePaymentIntentId;size:255"`
+	CheckoutURL           string        `json:"checkoutUrl,omitempty" gorm:"column:checkoutUrl;size:2048;not null;default:''"`
 	Amount                int64         `json:"amount" gorm:"column:amount;not null"`
 	Currency              string        `json:"currency" gorm:"column:currency;size:3;not null;default:usd"`
 	Days                  int           `json:"days" gorm:"column:days;not null"`

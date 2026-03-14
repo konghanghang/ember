@@ -22,6 +22,11 @@ const paymentQuery = ref({
 })
 
 const emptyPlans = computed(() => !plansLoading.value && plans.value.length === 0)
+const pendingPlanIDs = computed(() => new Set(
+  payments.value
+    .filter((item) => item.status === 'pending')
+    .map((item) => item.planId)
+))
 
 const formatPrice = (price: number, currency: string = 'usd') => {
   if (currency.toLowerCase() === 'usd') {
@@ -37,7 +42,7 @@ const statusMeta = (status: PaymentStatus) => {
     case 'failed':
       return { text: '支付失败', type: 'danger' as const }
     default:
-      return { text: '处理中', type: 'warning' as const }
+      return { text: '待支付', type: 'warning' as const }
   }
 }
 
@@ -66,10 +71,10 @@ const refreshAll = async () => {
   await Promise.all([fetchPlans(), fetchPayments()])
 }
 
-const handleCheckout = async (plan: Plan) => {
-  buyingPlanID.value = plan.id
+const redirectToCheckout = async (planID: string) => {
+  buyingPlanID.value = planID
   try {
-    const res = await createCheckout(plan.id)
+    const res = await createCheckout(planID)
     if (!res.url) {
       ElMessage.error('支付链接为空，请稍后重试')
       return
@@ -78,6 +83,14 @@ const handleCheckout = async (plan: Plan) => {
   } finally {
     buyingPlanID.value = ''
   }
+}
+
+const handleCheckout = async (plan: Plan) => {
+  await redirectToCheckout(plan.id)
+}
+
+const handleContinuePayment = async (payment: Payment) => {
+  await redirectToCheckout(payment.planId)
 }
 
 const consumeQueryState = async () => {
@@ -167,7 +180,9 @@ onMounted(async () => {
             class="mt-5 w-full py-2.5 rounded-lg bg-ember text-white font-bold hover:bg-red-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <el-icon><CreditCard /></el-icon>
-            <span>{{ buyingPlanID === plan.id ? '跳转中...' : '立即购买' }}</span>
+            <span>
+              {{ buyingPlanID === plan.id ? '跳转中...' : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买') }}
+            </span>
           </button>
         </div>
       </div>
@@ -210,6 +225,20 @@ onMounted(async () => {
             <el-tag :type="statusMeta(row.status).type" effect="light" round size="small">
               {{ statusMeta(row.status).text }}
             </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <button
+              v-if="row.status === 'pending'"
+              @click="handleContinuePayment(row)"
+              :disabled="buyingPlanID === row.planId"
+              class="inline-flex items-center justify-center rounded-lg border border-ember/20 bg-ember/5 px-3 py-1.5 text-xs font-semibold text-ember transition-colors hover:bg-ember/10 disabled:opacity-60"
+            >
+              {{ buyingPlanID === row.planId ? '跳转中...' : '继续支付' }}
+            </button>
+            <span v-else class="text-xs text-gray-400">-</span>
           </template>
         </el-table-column>
 

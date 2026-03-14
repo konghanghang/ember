@@ -122,6 +122,8 @@ type stripeCheckoutSessionObject struct {
 	Metadata      map[string]string `json:"metadata"`
 }
 
+const pendingCheckoutReuseWindow = 24 * time.Hour
+
 func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -250,6 +252,35 @@ func (s *PaymentService) GetActivePlans() ([]models.Plan, error) {
 	return plans, nil
 }
 
+func shouldReusePendingPayment(payment models.Payment, now time.Time) bool {
+	if payment.Status != models.PaymentPending {
+		return false
+	}
+	if strings.TrimSpace(payment.CheckoutURL) == "" {
+		return false
+	}
+	cutoff := now.UTC().Add(-pendingCheckoutReuseWindow)
+	return !payment.CreatedAt.Before(cutoff)
+}
+
+func (s *PaymentService) findReusablePendingPayment(userID, planID string, now time.Time) (*models.Payment, error) {
+	var payment models.Payment
+	err := db.DB.
+		Where("\"userId\" = ? AND \"planId\" = ? AND status = ?", userID, planID, models.PaymentPending).
+		Order("\"createdAt\" DESC").
+		First(&payment).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, errors.New("获取支付记录失败")
+	}
+	if !shouldReusePendingPayment(payment, now) {
+		return nil, nil
+	}
+	return &payment, nil
+}
+
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
 	configService := configpkg.NewConfigService()
 	stripeSecret := strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY"))
@@ -272,6 +303,12 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return nil, err
 	}
 
+	if existing, err := s.findReusablePendingPayment(userID, plan.ID, time.Now().UTC()); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return &CreateCheckoutResponse{URL: existing.CheckoutURL}, nil
+	}
+
 	sess, err := s.createStripeCheckoutSession(stripeSecret, successURL, cancelURL, userID, &plan, paymentMethods)
 	if err != nil {
 		return nil, err
@@ -281,6 +318,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		UserID:          userID,
 		PlanID:          plan.ID,
 		StripeSessionID: sess.ID,
+		CheckoutURL:     strings.TrimSpace(sess.URL),
 		Amount:          plan.Price,
 		Currency:        plan.Currency,
 		Days:            plan.Days,
@@ -301,7 +339,9 @@ func (s *PaymentService) createStripeCheckoutSession(secret, successURL, cancelU
 	form.Set("line_items[0][price_data][currency]", plan.Currency)
 	form.Set("line_items[0][price_data][unit_amount]", strconv.FormatInt(plan.Price, 10))
 	form.Set("line_items[0][price_data][product_data][name]", plan.Name)
-	form.Set("line_items[0][price_data][product_data][description]", plan.Description)
+	if description := strings.TrimSpace(plan.Description); description != "" {
+		form.Set("line_items[0][price_data][product_data][description]", description)
+	}
 	form.Set("line_items[0][quantity]", "1")
 	form.Set("metadata[user_id]", userID)
 	form.Set("metadata[plan_id]", plan.ID)
