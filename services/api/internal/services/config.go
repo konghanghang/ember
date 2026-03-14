@@ -80,27 +80,28 @@ type ConfigOption struct {
 }
 
 type ConfigDefinition struct {
-	Key               string
-	Group             string
-	GroupLabel        string
-	Label             string
-	Description       string
-	Type              ConfigValueType
-	DefaultValue      string
-	Placeholder       string
-	Editable          bool
-	Sensitive         bool
-	RestartRequired   bool
-	AllowEmpty        bool
-	EmptyValueMode    ConfigEmptyValueMode
-	EmptyValueHint    string
-	ReadOnlyHint      string
-	MissingValueHint  string
-	MissingValueLevel ConfigRiskLevel
-	EnvKey            string
-	Options           []ConfigOption
-	Validate          func(string) error
-	Normalize         func(string) (string, error)
+	Key                string
+	Group              string
+	GroupLabel         string
+	Label              string
+	Description        string
+	Type               ConfigValueType
+	DefaultValue       string
+	Placeholder        string
+	Editable           bool
+	Sensitive          bool
+	RestartRequired    bool
+	AllowEmpty         bool
+	EmptyValueMode     ConfigEmptyValueMode
+	EmptyValueHint     string
+	ReadOnlyHint       string
+	MissingValueHint   string
+	MissingValueLevel  ConfigRiskLevel
+	EnvKey             string
+	DisableEnvFallback bool
+	Options            []ConfigOption
+	Validate           func(string) error
+	Normalize          func(string) (string, error)
 }
 
 type ConfigItem struct {
@@ -202,17 +203,14 @@ func (s *ConfigService) ResolveString(key string) (string, string, error) {
 		return "", ConfigSourceUnset, ErrConfigNotFound
 	}
 
-	item, err := s.resolveDefinition(def, nil)
+	value, source, hasValue, err := s.resolveRawValue(def, nil)
 	if err != nil {
-		return "", ConfigSourceUnset, err
+		return "", source, err
 	}
-	if item.Error != "" {
-		return "", item.Source, errors.New(item.Error)
+	if !hasValue {
+		return "", source, nil
 	}
-	if item.Value == nil {
-		return "", item.Source, nil
-	}
-	return *item.Value, item.Source, nil
+	return value, source, nil
 }
 
 func (s *ConfigService) List() ([]ConfigItem, error) {
@@ -502,37 +500,19 @@ func (s *ConfigService) resolveDefinition(def ConfigDefinition, settingsMap map[
 		Source:            ConfigSourceUnset,
 	}
 
-	if settingsMap == nil {
-		loadedSettings, err := s.loadSettings([]ConfigDefinition{def})
-		if err != nil {
-			return item, err
-		}
-		settingsMap = loadedSettings
+	value, source, hasValue, err := s.resolveRawValue(def, settingsMap)
+	if err != nil {
+		item.Source = source
+		item.Error = err.Error()
+		return item, nil
 	}
-
-	if stored, ok := settingsMap[def.Key]; ok && s.shouldUseDatabaseValue(def, stored) {
-		resolved, err := s.decodeStoredValue(def, stored)
-		item.Source = ConfigSourceDatabase
-		if err != nil {
-			item.Error = err.Error()
-			return item, nil
-		}
-		return s.applyResolvedValue(item, def, resolved, ConfigSourceDatabase), nil
+	if source == ConfigSourceUnset {
+		item.Source = source
+		item.HasValue = false
+		return item, nil
 	}
-
-	if def.EnvKey != "" {
-		if envValue, ok := s.resolveEnvValue(def); ok {
-			return s.applyResolvedValue(item, def, envValue, ConfigSourceEnv), nil
-		}
-	}
-
-	if def.DefaultValue != "" || def.AllowEmpty {
-		return s.applyResolvedValue(item, def, def.DefaultValue, ConfigSourceDefault), nil
-	}
-
-	item.Source = ConfigSourceUnset
-	item.HasValue = false
-	return item, nil
+	item.HasValue = hasValue
+	return s.applyResolvedValue(item, def, value, source), nil
 }
 
 func (s *ConfigService) applyResolvedValue(item ConfigItem, def ConfigDefinition, raw string, source string) ConfigItem {
@@ -544,6 +524,38 @@ func (s *ConfigService) applyResolvedValue(item ConfigItem, def ConfigDefinition
 	value := raw
 	item.Value = &value
 	return item
+}
+
+func (s *ConfigService) resolveRawValue(def ConfigDefinition, settingsMap map[string]models.Setting) (string, string, bool, error) {
+	providedSettingsMap := settingsMap != nil
+	if settingsMap == nil {
+		loadedSettings, err := s.loadSettings([]ConfigDefinition{def})
+		if err != nil {
+			return "", ConfigSourceUnset, false, err
+		}
+		settingsMap = loadedSettings
+	}
+
+	if stored, ok := settingsMap[def.Key]; ok && s.shouldUseDatabaseValue(def, stored) {
+		resolved, err := s.decodeStoredValue(def, stored)
+		if err != nil {
+			return "", ConfigSourceDatabase, false, err
+		}
+		return resolved, ConfigSourceDatabase, resolved != "", nil
+	}
+
+	allowEnvFallback := !def.DisableEnvFallback || (!providedSettingsMap && db.DB == nil)
+	if def.EnvKey != "" && allowEnvFallback {
+		if envValue, ok := s.resolveEnvValue(def); ok {
+			return envValue, ConfigSourceEnv, envValue != "", nil
+		}
+	}
+
+	if def.DefaultValue != "" || def.AllowEmpty {
+		return def.DefaultValue, ConfigSourceDefault, def.DefaultValue != "", nil
+	}
+
+	return "", ConfigSourceUnset, false, nil
 }
 
 func (s *ConfigService) decodeStoredValue(def ConfigDefinition, setting models.Setting) (string, error) {
@@ -767,43 +779,46 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize: normalizeStripePaymentMethods,
 		},
 		{
-			Key:         "EMBY_URL",
-			EnvKey:      "EMBY_URL",
-			Group:       ConfigGroupMedia,
-			GroupLabel:  "媒体集成",
-			Label:       "Emby 服务地址",
-			Description: "后端访问 Emby API 的基础地址",
-			Type:        ConfigValueURL,
-			Editable:    true,
-			Placeholder: "https://your-emby-server.com",
-			Validate:    validateURL,
-			Normalize:   normalizeTrimmedURL,
+			Key:                "EMBY_URL",
+			EnvKey:             "EMBY_URL",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "Emby 服务地址",
+			Description:        "后端访问 Emby API 的基础地址",
+			Type:               ConfigValueURL,
+			Editable:           true,
+			Placeholder:        "https://your-emby-server.com",
+			Validate:           validateURL,
+			Normalize:          normalizeTrimmedURL,
 		},
 		{
-			Key:         "EMBY_API_KEY",
-			EnvKey:      "EMBY_API_KEY",
-			Group:       ConfigGroupMedia,
-			GroupLabel:  "媒体集成",
-			Label:       "Emby API Key",
-			Description: "用于访问 Emby API 的鉴权密钥",
-			Type:        ConfigValueSecret,
-			Editable:    true,
-			Sensitive:   true,
-			Validate:    validateNonEmpty("Emby API Key 不能为空"),
+			Key:                "EMBY_API_KEY",
+			EnvKey:             "EMBY_API_KEY",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "Emby API Key",
+			Description:        "用于访问 Emby API 的鉴权密钥",
+			Type:               ConfigValueSecret,
+			Editable:           true,
+			Sensitive:          true,
+			Validate:           validateNonEmpty("Emby API Key 不能为空"),
 		},
 		{
-			Key:            "NEXT_PUBLIC_EMBY_URL",
-			EnvKey:         "NEXT_PUBLIC_EMBY_URL",
-			Group:          ConfigGroupMedia,
-			GroupLabel:     "媒体集成",
-			Label:          "前端 Emby 地址",
-			Description:    "前端跳转到 Emby 播放页时使用的公网地址",
-			Type:           ConfigValueURL,
-			Editable:       true,
-			Placeholder:    "https://your-public-emby.com",
-			AllowEmpty:     true,
-			EmptyValueMode: ConfigEmptyValueFallback,
-			EmptyValueHint: "保存为空值后将回退到 Emby 服务地址。",
+			Key:                "NEXT_PUBLIC_EMBY_URL",
+			EnvKey:             "NEXT_PUBLIC_EMBY_URL",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "前端 Emby 地址",
+			Description:        "前端跳转到 Emby 播放页时使用的公网地址",
+			Type:               ConfigValueURL,
+			Editable:           true,
+			Placeholder:        "https://your-public-emby.com",
+			AllowEmpty:         true,
+			EmptyValueMode:     ConfigEmptyValueFallback,
+			EmptyValueHint:     "保存为空值后将回退到 Emby 服务地址。",
 			Validate: func(value string) error {
 				if strings.TrimSpace(value) == "" {
 					return nil
@@ -813,170 +828,183 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize: normalizeTrimmedURLAllowEmpty,
 		},
 		{
-			Key:         "TMDB_API_KEY",
-			EnvKey:      "TMDB_API_KEY",
-			Group:       ConfigGroupMedia,
-			GroupLabel:  "媒体集成",
-			Label:       "TMDB API Key",
-			Description: "用于 TMDB 搜索和追剧日历的接口密钥",
-			Type:        ConfigValueSecret,
-			Editable:    true,
-			Sensitive:   true,
-			Validate:    validateNonEmpty("TMDB API Key 不能为空"),
+			Key:                "TMDB_API_KEY",
+			EnvKey:             "TMDB_API_KEY",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "TMDB API Key",
+			Description:        "用于 TMDB 搜索和追剧日历的接口密钥",
+			Type:               ConfigValueSecret,
+			Editable:           true,
+			Sensitive:          true,
+			Validate:           validateNonEmpty("TMDB API Key 不能为空"),
 		},
 		{
-			Key:         "MOVIEPILOT_URL",
-			EnvKey:      "MOVIEPILOT_URL",
-			Group:       ConfigGroupMedia,
-			GroupLabel:  "媒体集成",
-			Label:       "MoviePilot 地址",
-			Description: "管理员审批订阅后调用的 MoviePilot API 地址",
-			Type:        ConfigValueURL,
-			Editable:    true,
-			Placeholder: "http://your-moviepilot-server:3001",
-			Validate:    validateURL,
-			Normalize:   normalizeTrimmedURL,
+			Key:                "MOVIEPILOT_URL",
+			EnvKey:             "MOVIEPILOT_URL",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "MoviePilot 地址",
+			Description:        "管理员审批订阅后调用的 MoviePilot API 地址",
+			Type:               ConfigValueURL,
+			Editable:           true,
+			Placeholder:        "http://your-moviepilot-server:3001",
+			Validate:           validateURL,
+			Normalize:          normalizeTrimmedURL,
 		},
 		{
-			Key:         "MOVIEPILOT_USERNAME",
-			EnvKey:      "MOVIEPILOT_USERNAME",
-			Group:       ConfigGroupMedia,
-			GroupLabel:  "媒体集成",
-			Label:       "MoviePilot 用户名",
-			Description: "用于调用 MoviePilot API 的登录用户名",
-			Type:        ConfigValueString,
-			Editable:    true,
-			Sensitive:   true,
-			Validate:    validateNonEmpty("MoviePilot 用户名不能为空"),
-			Normalize:   normalizeTrimmedString,
+			Key:                "MOVIEPILOT_USERNAME",
+			EnvKey:             "MOVIEPILOT_USERNAME",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "MoviePilot 用户名",
+			Description:        "用于调用 MoviePilot API 的登录用户名",
+			Type:               ConfigValueString,
+			Editable:           true,
+			Sensitive:          true,
+			Validate:           validateNonEmpty("MoviePilot 用户名不能为空"),
+			Normalize:          normalizeTrimmedString,
 		},
 		{
-			Key:         "MOVIEPILOT_PASSWORD",
-			EnvKey:      "MOVIEPILOT_PASSWORD",
-			Group:       ConfigGroupMedia,
-			GroupLabel:  "媒体集成",
-			Label:       "MoviePilot 密码",
-			Description: "用于调用 MoviePilot API 的登录密码",
-			Type:        ConfigValueSecret,
-			Editable:    true,
-			Sensitive:   true,
-			Validate:    validateNonEmpty("MoviePilot 密码不能为空"),
+			Key:                "MOVIEPILOT_PASSWORD",
+			EnvKey:             "MOVIEPILOT_PASSWORD",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "MoviePilot 密码",
+			Description:        "用于调用 MoviePilot API 的登录密码",
+			Type:               ConfigValueSecret,
+			Editable:           true,
+			Sensitive:          true,
+			Validate:           validateNonEmpty("MoviePilot 密码不能为空"),
 		},
 		{
-			Key:         "SMTP_HOST",
-			EnvKey:      "SMTP_HOST",
-			Group:       ConfigGroupEmail,
-			GroupLabel:  "邮件服务",
-			Label:       "SMTP 主机",
-			Description: "邮件服务器主机地址",
-			Type:        ConfigValueString,
-			Editable:    true,
-			Placeholder: "smtp.example.com",
-			Validate:    validateNonEmpty("SMTP 主机不能为空"),
-			Normalize:   normalizeTrimmedString,
+			Key:                "SMTP_HOST",
+			EnvKey:             "SMTP_HOST",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "SMTP 主机",
+			Description:        "邮件服务器主机地址",
+			Type:               ConfigValueString,
+			Editable:           true,
+			Placeholder:        "smtp.example.com",
+			Validate:           validateNonEmpty("SMTP 主机不能为空"),
+			Normalize:          normalizeTrimmedString,
 		},
 		{
-			Key:          "SMTP_PORT",
-			EnvKey:       "SMTP_PORT",
-			Group:        ConfigGroupEmail,
-			GroupLabel:   "邮件服务",
-			Label:        "SMTP 端口",
-			Description:  "邮件服务器端口，默认 587",
-			Type:         ConfigValueInteger,
-			DefaultValue: "587",
-			Editable:     true,
-			Validate:     validateIntRange(1, 65535),
+			Key:                "SMTP_PORT",
+			EnvKey:             "SMTP_PORT",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "SMTP 端口",
+			Description:        "邮件服务器端口，默认 587",
+			Type:               ConfigValueInteger,
+			DefaultValue:       "587",
+			Editable:           true,
+			Validate:           validateIntRange(1, 65535),
 		},
 		{
-			Key:         "SMTP_USERNAME",
-			EnvKey:      "SMTP_USERNAME",
-			Group:       ConfigGroupEmail,
-			GroupLabel:  "邮件服务",
-			Label:       "SMTP 用户名",
-			Description: "邮件服务器登录用户名",
-			Type:        ConfigValueString,
-			Editable:    true,
-			Sensitive:   true,
-			Validate:    validateNonEmpty("SMTP 用户名不能为空"),
-			Normalize:   normalizeTrimmedString,
+			Key:                "SMTP_USERNAME",
+			EnvKey:             "SMTP_USERNAME",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "SMTP 用户名",
+			Description:        "邮件服务器登录用户名",
+			Type:               ConfigValueString,
+			Editable:           true,
+			Sensitive:          true,
+			Validate:           validateNonEmpty("SMTP 用户名不能为空"),
+			Normalize:          normalizeTrimmedString,
 		},
 		{
-			Key:         "SMTP_PASSWORD",
-			EnvKey:      "SMTP_PASSWORD",
-			Group:       ConfigGroupEmail,
-			GroupLabel:  "邮件服务",
-			Label:       "SMTP 密码",
-			Description: "邮件服务器登录密码",
-			Type:        ConfigValueSecret,
-			Editable:    true,
-			Sensitive:   true,
-			Validate:    validateNonEmpty("SMTP 密码不能为空"),
+			Key:                "SMTP_PASSWORD",
+			EnvKey:             "SMTP_PASSWORD",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "SMTP 密码",
+			Description:        "邮件服务器登录密码",
+			Type:               ConfigValueSecret,
+			Editable:           true,
+			Sensitive:          true,
+			Validate:           validateNonEmpty("SMTP 密码不能为空"),
 		},
 		{
-			Key:            "SMTP_FROM",
-			EnvKey:         "SMTP_FROM",
-			Group:          ConfigGroupEmail,
-			GroupLabel:     "邮件服务",
-			Label:          "发件人",
-			Description:    "支持显示名的发件人地址",
-			Type:           ConfigValueString,
-			Editable:       true,
-			Placeholder:    "Ember <no-reply@example.com>",
-			AllowEmpty:     true,
-			EmptyValueMode: ConfigEmptyValueFallback,
-			EmptyValueHint: "保存为空值后将回退到 SMTP 用户名。",
-			Validate:       validateMailAddressAllowEmpty,
-			Normalize:      normalizeTrimmedString,
+			Key:                "SMTP_FROM",
+			EnvKey:             "SMTP_FROM",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "发件人",
+			Description:        "支持显示名的发件人地址",
+			Type:               ConfigValueString,
+			Editable:           true,
+			Placeholder:        "Ember <no-reply@example.com>",
+			AllowEmpty:         true,
+			EmptyValueMode:     ConfigEmptyValueFallback,
+			EmptyValueHint:     "保存为空值后将回退到 SMTP 用户名。",
+			Validate:           validateMailAddressAllowEmpty,
+			Normalize:          normalizeTrimmedString,
 		},
 		{
-			Key:          "EMAIL_CODE_EXPIRY_MINUTES",
-			EnvKey:       "EMAIL_CODE_EXPIRY_MINUTES",
-			Group:        ConfigGroupEmail,
-			GroupLabel:   "邮件服务",
-			Label:        "验证码有效期",
-			Description:  "邮箱验证码有效时间，单位分钟",
-			Type:         ConfigValueInteger,
-			DefaultValue: "10",
-			Editable:     true,
-			Validate:     validateIntRange(1, 1440),
+			Key:                "EMAIL_CODE_EXPIRY_MINUTES",
+			EnvKey:             "EMAIL_CODE_EXPIRY_MINUTES",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "验证码有效期",
+			Description:        "邮箱验证码有效时间，单位分钟",
+			Type:               ConfigValueInteger,
+			DefaultValue:       "10",
+			Editable:           true,
+			Validate:           validateIntRange(1, 1440),
 		},
 		{
-			Key:          "EMAIL_CODE_DAILY_LIMIT",
-			EnvKey:       "EMAIL_CODE_DAILY_LIMIT",
-			Group:        ConfigGroupEmail,
-			GroupLabel:   "邮件服务",
-			Label:        "单邮箱日发送上限",
-			Description:  "同一邮箱 24 小时内最多发送验证码次数",
-			Type:         ConfigValueInteger,
-			DefaultValue: "5",
-			Editable:     true,
-			Validate:     validateIntRange(1, 1000),
+			Key:                "EMAIL_CODE_DAILY_LIMIT",
+			EnvKey:             "EMAIL_CODE_DAILY_LIMIT",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "单邮箱日发送上限",
+			Description:        "同一邮箱 24 小时内最多发送验证码次数",
+			Type:               ConfigValueInteger,
+			DefaultValue:       "5",
+			Editable:           true,
+			Validate:           validateIntRange(1, 1000),
 		},
 		{
-			Key:          "EMAIL_CODE_IP_DAILY_LIMIT",
-			EnvKey:       "EMAIL_CODE_IP_DAILY_LIMIT",
-			Group:        ConfigGroupEmail,
-			GroupLabel:   "邮件服务",
-			Label:        "单 IP 日发送上限",
-			Description:  "同一 IP 24 小时内最多发送验证码次数",
-			Type:         ConfigValueInteger,
-			DefaultValue: "15",
-			Editable:     true,
-			Validate:     validateIntRange(1, 5000),
+			Key:                "EMAIL_CODE_IP_DAILY_LIMIT",
+			EnvKey:             "EMAIL_CODE_IP_DAILY_LIMIT",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupEmail,
+			GroupLabel:         "邮件服务",
+			Label:              "单 IP 日发送上限",
+			Description:        "同一 IP 24 小时内最多发送验证码次数",
+			Type:               ConfigValueInteger,
+			DefaultValue:       "15",
+			Editable:           true,
+			Validate:           validateIntRange(1, 5000),
 		},
 		{
-			Key:            "BOT_NOTIFY_URL",
-			EnvKey:         "BOT_NOTIFY_URL",
-			Group:          ConfigGroupNotification,
-			GroupLabel:     "通知与 Bot",
-			Label:          "Bot 通知地址",
-			Description:    "API fire-and-forget 推送到 Bot 的地址",
-			Type:           ConfigValueURL,
-			Editable:       true,
-			AllowEmpty:     true,
-			EmptyValueMode: ConfigEmptyValueDisable,
-			EmptyValueHint: "保存为空值后将关闭 API 到 Bot 的 fire-and-forget 推送。",
-			Placeholder:    "http://localhost:8000",
+			Key:                "BOT_NOTIFY_URL",
+			EnvKey:             "BOT_NOTIFY_URL",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupNotification,
+			GroupLabel:         "通知与 Bot",
+			Label:              "Bot 通知地址",
+			Description:        "API fire-and-forget 推送到 Bot 的地址",
+			Type:               ConfigValueURL,
+			Editable:           true,
+			AllowEmpty:         true,
+			EmptyValueMode:     ConfigEmptyValueDisable,
+			EmptyValueHint:     "保存为空值后将关闭 API 到 Bot 的 fire-and-forget 推送。",
+			Placeholder:        "http://localhost:8000",
 			Validate: func(value string) error {
 				if strings.TrimSpace(value) == "" {
 					return nil
@@ -1084,16 +1112,17 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:       normalizeTrimmedString,
 		},
 		{
-			Key:         "STRIPE_SECRET_KEY",
-			EnvKey:      "STRIPE_SECRET_KEY",
-			Group:       ConfigGroupPayment,
-			GroupLabel:  "支付",
-			Label:       "Stripe Secret Key",
-			Description: "Stripe 服务端密钥",
-			Type:        ConfigValueSecret,
-			Editable:    true,
-			Sensitive:   true,
-			Validate:    validateNonEmpty("Stripe Secret Key 不能为空"),
+			Key:                "STRIPE_SECRET_KEY",
+			EnvKey:             "STRIPE_SECRET_KEY",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupPayment,
+			GroupLabel:         "支付",
+			Label:              "Stripe Secret Key",
+			Description:        "Stripe 服务端密钥",
+			Type:               ConfigValueSecret,
+			Editable:           true,
+			Sensitive:          true,
+			Validate:           validateNonEmpty("Stripe Secret Key 不能为空"),
 		},
 		{
 			Key:               "STRIPE_WEBHOOK_SECRET",
@@ -1111,28 +1140,30 @@ func getConfigDefinitions() []ConfigDefinition {
 			MissingValueLevel: ConfigRiskCritical,
 		},
 		{
-			Key:         "STRIPE_SUCCESS_URL",
-			EnvKey:      "STRIPE_SUCCESS_URL",
-			Group:       ConfigGroupPayment,
-			GroupLabel:  "支付",
-			Label:       "支付成功跳转地址",
-			Description: "Stripe Checkout 支付成功后的跳转地址",
-			Type:        ConfigValueURL,
-			Editable:    true,
-			Validate:    validateURL,
-			Normalize:   normalizeTrimmedURL,
+			Key:                "STRIPE_SUCCESS_URL",
+			EnvKey:             "STRIPE_SUCCESS_URL",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupPayment,
+			GroupLabel:         "支付",
+			Label:              "支付成功跳转地址",
+			Description:        "Stripe Checkout 支付成功后的跳转地址",
+			Type:               ConfigValueURL,
+			Editable:           true,
+			Validate:           validateURL,
+			Normalize:          normalizeTrimmedURL,
 		},
 		{
-			Key:         "STRIPE_CANCEL_URL",
-			EnvKey:      "STRIPE_CANCEL_URL",
-			Group:       ConfigGroupPayment,
-			GroupLabel:  "支付",
-			Label:       "支付取消跳转地址",
-			Description: "Stripe Checkout 支付取消后的跳转地址",
-			Type:        ConfigValueURL,
-			Editable:    true,
-			Validate:    validateURL,
-			Normalize:   normalizeTrimmedURL,
+			Key:                "STRIPE_CANCEL_URL",
+			EnvKey:             "STRIPE_CANCEL_URL",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupPayment,
+			GroupLabel:         "支付",
+			Label:              "支付取消跳转地址",
+			Description:        "Stripe Checkout 支付取消后的跳转地址",
+			Type:               ConfigValueURL,
+			Editable:           true,
+			Validate:           validateURL,
+			Normalize:          normalizeTrimmedURL,
 		},
 		{
 			Key:             "DATABASE_URL",
@@ -1209,34 +1240,36 @@ func getConfigDefinitions() []ConfigDefinition {
 			MissingValueLevel: ConfigRiskCritical,
 		},
 		{
-			Key:             "TELEGRAM_ADMIN_CHAT_ID",
-			EnvKey:          "TELEGRAM_ADMIN_CHAT_ID",
-			Group:           ConfigGroupNotification,
-			GroupLabel:      "通知与 Bot",
-			Label:           "Telegram 管理员 Chat ID",
-			Description:     "Bot 发送管理员通知时使用的对象",
-			Type:            ConfigValueString,
-			Editable:        true,
-			RestartRequired: false,
-			Validate:        validateTelegramPositiveChatID,
-			Normalize:       normalizeTrimmedString,
+			Key:                "TELEGRAM_ADMIN_CHAT_ID",
+			EnvKey:             "TELEGRAM_ADMIN_CHAT_ID",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupNotification,
+			GroupLabel:         "通知与 Bot",
+			Label:              "Telegram 管理员 Chat ID",
+			Description:        "Bot 发送管理员通知时使用的对象",
+			Type:               ConfigValueString,
+			Editable:           true,
+			RestartRequired:    false,
+			Validate:           validateTelegramPositiveChatID,
+			Normalize:          normalizeTrimmedString,
 		},
 		{
-			Key:             "TELEGRAM_GROUP_CHAT_ID",
-			EnvKey:          "TELEGRAM_GROUP_CHAT_ID",
-			Group:           ConfigGroupNotification,
-			GroupLabel:      "通知与 Bot",
-			Label:           "Telegram 群组 Chat ID",
-			Description:     "排行榜等群推送使用的目标群组",
-			Type:            ConfigValueString,
-			Editable:        true,
-			RestartRequired: false,
-			AllowEmpty:      true,
-			EmptyValueMode:  ConfigEmptyValueFallback,
-			EmptyValueHint:  "保存为空值后排行榜通知将回退到管理员 Chat ID。",
-			Placeholder:     "-1001234567890",
-			Validate:        validateTelegramSignedChatIDAllowEmpty,
-			Normalize:       normalizeTrimmedString,
+			Key:                "TELEGRAM_GROUP_CHAT_ID",
+			EnvKey:             "TELEGRAM_GROUP_CHAT_ID",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupNotification,
+			GroupLabel:         "通知与 Bot",
+			Label:              "Telegram 群组 Chat ID",
+			Description:        "排行榜等群推送使用的目标群组",
+			Type:               ConfigValueString,
+			Editable:           true,
+			RestartRequired:    false,
+			AllowEmpty:         true,
+			EmptyValueMode:     ConfigEmptyValueFallback,
+			EmptyValueHint:     "保存为空值后排行榜通知将回退到管理员 Chat ID。",
+			Placeholder:        "-1001234567890",
+			Validate:           validateTelegramSignedChatIDAllowEmpty,
+			Normalize:          normalizeTrimmedString,
 		},
 		{
 			Key:               "TELEGRAM_WEBHOOK_SECRET",

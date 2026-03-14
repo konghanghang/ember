@@ -61,10 +61,11 @@ func TestGetLibraryItemsFetchAllWhenMaxItemsIsNonPositive(t *testing.T) {
 	}))
 	defer server.Close()
 
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+
 	s := &EmbyService{
-		baseURL: server.URL,
-		apiKey:  "test-key",
-		client:  server.Client(),
+		client: server.Client(),
 	}
 
 	items, err := s.GetLibraryItems("library_1", 0)
@@ -117,10 +118,11 @@ func TestGetLibraryItemsRespectsMaxItemsLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+
 	s := &EmbyService{
-		baseURL: server.URL,
-		apiKey:  "test-key",
-		client:  server.Client(),
+		client: server.Client(),
 	}
 
 	items, err := s.GetLibraryItems("library_1", 250)

@@ -515,7 +515,7 @@ TMDBCache（独立缓存表）
 
 **关键职责**：
 - 配置定义注册表（标签、分组、类型、校验、默认值）
-- 读取优先级：数据库覆盖值 > 环境变量 > 默认值
+- 读取策略由配置定义控制：已托管的运行期集成配置优先数据库并可禁用 env 回退；部署边界配置仍保留 env / default 解析
 - 敏感值加密：`CONFIG_ENCRYPTION_KEY`
 - 运行期配置中心 API 的后端基础设施
 
@@ -544,6 +544,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **配置读取**：
 - `refreshConfig()` 在调用前通过 `ConfigService` 重新解析 `EMBY_URL` / `EMBY_API_KEY`
+- Emby 相关配置已切换为设置中心托管，运行期不再隐式回退到 Docker env
 - 设置中心改完 Emby 配置后，无需重启 API 即可对新请求生效
 
 ### 5.9 MediaService (`services/media.go`)

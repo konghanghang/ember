@@ -97,6 +97,30 @@ func TestResolveDefinitionFallsBackToEnvThenDefaultThenUnset(t *testing.T) {
 	}
 }
 
+func TestResolveDefinitionCanDisableEnvFallback(t *testing.T) {
+	t.Setenv("TEST_DB_ONLY_KEY", "env-value")
+
+	service := &ConfigService{}
+	def := ConfigDefinition{
+		Key:                "TEST_DB_ONLY_KEY",
+		EnvKey:             "TEST_DB_ONLY_KEY",
+		DisableEnvFallback: true,
+		DefaultValue:       "default-value",
+		Type:               ConfigValueString,
+	}
+
+	item, err := service.resolveDefinition(def, map[string]models.Setting{})
+	if err != nil {
+		t.Fatalf("expected database-only resolution to succeed: %v", err)
+	}
+	if item.Source != ConfigSourceDefault {
+		t.Fatalf("expected default source, got %s", item.Source)
+	}
+	if item.Value == nil || *item.Value != "default-value" {
+		t.Fatalf("expected default value, got %+v", item.Value)
+	}
+}
+
 func TestResolveDefinitionHidesSensitiveValues(t *testing.T) {
 	t.Setenv("TEST_SECRET_KEY", "env-secret")
 
@@ -120,6 +144,38 @@ func TestResolveDefinitionHidesSensitiveValues(t *testing.T) {
 	}
 	if item.Value != nil {
 		t.Fatalf("sensitive item should not expose value, got %+v", item.Value)
+	}
+}
+
+func TestResolveStringReturnsSensitiveValueForRuntimeUse(t *testing.T) {
+	t.Setenv("TEST_RUNTIME_SECRET", "env-secret")
+
+	definitions := getConfigDefinitionMap()
+	original, existed := definitions["TEST_RUNTIME_SECRET"]
+	definitions["TEST_RUNTIME_SECRET"] = ConfigDefinition{
+		Key:       "TEST_RUNTIME_SECRET",
+		EnvKey:    "TEST_RUNTIME_SECRET",
+		Type:      ConfigValueSecret,
+		Sensitive: true,
+	}
+	defer func() {
+		if existed {
+			definitions["TEST_RUNTIME_SECRET"] = original
+			return
+		}
+		delete(definitions, "TEST_RUNTIME_SECRET")
+	}()
+
+	service := &ConfigService{}
+	value, source, err := service.ResolveString("TEST_RUNTIME_SECRET")
+	if err != nil {
+		t.Fatalf("expected ResolveString to succeed, got %v", err)
+	}
+	if source != ConfigSourceEnv {
+		t.Fatalf("expected env source, got %s", source)
+	}
+	if value != "env-secret" {
+		t.Fatalf("expected secret value, got %q", value)
 	}
 }
 

@@ -101,6 +101,43 @@ func TestPaymentAndTelegramConfigDefinitionsAreEditable(t *testing.T) {
 	}
 }
 
+func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
+	keys := []string{
+		"EMBY_URL",
+		"EMBY_API_KEY",
+		"NEXT_PUBLIC_EMBY_URL",
+		"TMDB_API_KEY",
+		"MOVIEPILOT_URL",
+		"MOVIEPILOT_USERNAME",
+		"MOVIEPILOT_PASSWORD",
+		"SMTP_HOST",
+		"SMTP_PORT",
+		"SMTP_USERNAME",
+		"SMTP_PASSWORD",
+		"SMTP_FROM",
+		"EMAIL_CODE_EXPIRY_MINUTES",
+		"EMAIL_CODE_DAILY_LIMIT",
+		"EMAIL_CODE_IP_DAILY_LIMIT",
+		"BOT_NOTIFY_URL",
+		"STRIPE_SECRET_KEY",
+		"STRIPE_SUCCESS_URL",
+		"STRIPE_CANCEL_URL",
+		"TELEGRAM_ADMIN_CHAT_ID",
+		"TELEGRAM_GROUP_CHAT_ID",
+	}
+
+	definitions := getConfigDefinitionMap()
+	for _, key := range keys {
+		def, ok := definitions[key]
+		if !ok {
+			t.Fatalf("expected config definition %s to exist", key)
+		}
+		if !def.DisableEnvFallback {
+			t.Fatalf("expected %s to disable env fallback", key)
+		}
+	}
+}
+
 func TestValidateTelegramChatID(t *testing.T) {
 	if err := validateTelegramPositiveChatID("123456"); err != nil {
 		t.Fatalf("expected valid admin chat id, got %v", err)

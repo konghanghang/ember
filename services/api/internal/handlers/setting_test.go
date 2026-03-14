@@ -11,11 +11,11 @@ import (
 
 func TestSettingHandlerGetSettingByKeyReturnsRuntimeConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	t.Setenv("NEXT_PUBLIC_EMBY_URL", "https://emby.example.com")
+	t.Setenv("PORT", "18080")
 
 	handler := &SettingHandler{configService: services.NewConfigService()}
-	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/internal/settings/NEXT_PUBLIC_EMBY_URL", nil)
-	ctx.Params = gin.Params{{Key: "key", Value: "NEXT_PUBLIC_EMBY_URL"}}
+	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/internal/settings/PORT", nil)
+	ctx.Params = gin.Params{{Key: "key", Value: "PORT"}}
 
 	handler.GetSettingByKey(ctx)
 
@@ -33,10 +33,10 @@ func TestSettingHandlerGetSettingByKeyReturnsRuntimeConfig(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if resp.Key != "NEXT_PUBLIC_EMBY_URL" {
+	if resp.Key != "PORT" {
 		t.Fatalf("unexpected key: %s", resp.Key)
 	}
-	if resp.Value != "https://emby.example.com" {
+	if resp.Value != "18080" {
 		t.Fatalf("unexpected value: %s", resp.Value)
 	}
 	if resp.Source != services.ConfigSourceEnv {
