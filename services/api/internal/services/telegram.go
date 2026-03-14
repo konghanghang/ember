@@ -12,11 +12,27 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+type telegramRedeemer interface {
+	RedeemCode(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error)
+}
+
+type telegramSubscriber interface {
+	CreateSubscription(userID string, req CreateSubscriptionRequest) error
+}
+
 // TelegramService Telegram 绑定与 Bot 能力
-type TelegramService struct{}
+type TelegramService struct {
+	redemptionService   telegramRedeemer
+	subscriptionService telegramSubscriber
+	newEmbyService      func() *embyint.EmbyService
+}
 
 func NewTelegramService() *TelegramService {
-	return &TelegramService{}
+	return &TelegramService{
+		redemptionService:   &RedemptionService{},
+		subscriptionService: NewSubscriptionService(),
+		newEmbyService:      embyint.NewEmbyService,
+	}
 }
 
 // BindResult 绑定成功返回
@@ -226,8 +242,7 @@ func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*Rede
 		return nil, errors.New("兑换失败，请稍后重试")
 	}
 
-	redemptionService := &RedemptionService{}
-	return redemptionService.RedeemCode(user.ID, &RedeemCodeRequest{Code: code})
+	return s.redeemForUser(user.ID, code)
 }
 
 // ResetPassword 通过 Telegram 身份重置密码
@@ -241,7 +256,7 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 	}
 
 	if user.EmbyID != "" {
-		embyService := embyint.NewEmbyService()
+		embyService := s.newEmbyService()
 		if err := embyService.UpdateUserPassword(user.EmbyID, newPassword); err != nil {
 			return errors.New("密码重置失败：" + err.Error())
 		}
@@ -276,14 +291,7 @@ func (s *TelegramService) SubscribeByTelegram(req TelegramSubscribeRequest) erro
 		note = &req.Note
 	}
 
-	subService := NewSubscriptionService()
-	return subService.CreateSubscription(user.ID, CreateSubscriptionRequest{
-		Type:       models.MediaType(req.Type),
-		Name:       req.Name,
-		TmdbID:     req.TmdbID,
-		PosterPath: posterPath,
-		Note:       note,
-	})
+	return s.subscribeForUser(user.ID, req, posterPath, note)
 }
 
 // CleanupExpiredBindCodes 清理过期绑定码
@@ -300,4 +308,23 @@ func isTelegramCodeDuplicateErr(err error) bool {
 	return strings.Contains(msg, "duplicate key value") &&
 		strings.Contains(msg, "telegram_bind_codes") &&
 		strings.Contains(msg, "code")
+}
+
+func (s *TelegramService) redeemForUser(userID, code string) (*RedeemCodeResponse, error) {
+	return s.redemptionService.RedeemCode(userID, &RedeemCodeRequest{Code: code})
+}
+
+func (s *TelegramService) subscribeForUser(
+	userID string,
+	req TelegramSubscribeRequest,
+	posterPath *string,
+	note *string,
+) error {
+	return s.subscriptionService.CreateSubscription(userID, CreateSubscriptionRequest{
+		Type:       models.MediaType(req.Type),
+		Name:       req.Name,
+		TmdbID:     req.TmdbID,
+		PosterPath: posterPath,
+		Note:       note,
+	})
 }
