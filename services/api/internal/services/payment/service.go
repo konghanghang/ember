@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -279,8 +280,12 @@ func (s *PaymentService) expirePendingPayments(userID, planID string, now time.T
 	if strings.TrimSpace(planID) != "" {
 		query = query.Where("\"planId\" = ?", planID)
 	}
-	if err := query.Update("status", models.PaymentExpired).Error; err != nil {
+	result := query.Update("status", models.PaymentExpired)
+	if result.Error != nil {
 		return errors.New("更新支付记录失败")
+	}
+	if result.RowsAffected > 0 {
+		log.Printf("[Payment] 已标记过期订单: userID=%s planID=%s count=%d", strings.TrimSpace(userID), strings.TrimSpace(planID), result.RowsAffected)
 	}
 	return nil
 }
@@ -304,24 +309,31 @@ func (s *PaymentService) findReusablePendingPayment(userID, planID string, now t
 }
 
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
+	log.Printf("[Payment] 开始创建支付会话: userID=%s planID=%s", userID, strings.TrimSpace(req.PlanID))
+
 	configService := configpkg.NewConfigService()
 	stripeSecret := strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY"))
 	successURL := strings.TrimSpace(configService.GetString("STRIPE_SUCCESS_URL"))
 	cancelURL := strings.TrimSpace(configService.GetString("STRIPE_CANCEL_URL"))
 	if stripeSecret == "" || successURL == "" || cancelURL == "" {
+		log.Printf("[Payment] Stripe 配置缺失，无法创建支付会话: userID=%s planID=%s hasSecret=%t hasSuccessURL=%t hasCancelURL=%t",
+			userID, strings.TrimSpace(req.PlanID), stripeSecret != "", successURL != "", cancelURL != "")
 		return nil, ErrStripeNotConfigured
 	}
 
 	var plan models.Plan
 	if err := db.DB.Where("id = ? AND \"isActive\" = ?", req.PlanID, true).First(&plan).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[Payment] 方案不存在或未启用: userID=%s planID=%s", userID, strings.TrimSpace(req.PlanID))
 			return nil, ErrPlanNotFound
 		}
+		log.Printf("[Payment] 查询方案失败: userID=%s planID=%s err=%v", userID, strings.TrimSpace(req.PlanID), err)
 		return nil, errors.New("获取方案失败")
 	}
 
 	paymentMethods, err := configService.GetStripeAllowedPaymentMethods()
 	if err != nil {
+		log.Printf("[Payment] 读取支付方式限制失败: userID=%s planID=%s err=%v", userID, plan.ID, err)
 		return nil, err
 	}
 
@@ -330,13 +342,17 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	}
 
 	if existing, err := s.findReusablePendingPayment(userID, plan.ID, time.Now().UTC()); err != nil {
+		log.Printf("[Payment] 查询可复用待支付订单失败: userID=%s planID=%s err=%v", userID, plan.ID, err)
 		return nil, err
 	} else if existing != nil {
+		log.Printf("[Payment] 复用待支付订单: userID=%s planID=%s paymentID=%s sessionID=%s expiresAt=%s",
+			userID, plan.ID, existing.ID, existing.StripeSessionID, existing.ExpiresAt.UTC().Format(time.RFC3339))
 		return &CreateCheckoutResponse{URL: existing.CheckoutURL}, nil
 	}
 
 	sess, err := s.createStripeCheckoutSession(stripeSecret, successURL, cancelURL, userID, &plan, paymentMethods)
 	if err != nil {
+		log.Printf("[Payment] Stripe 会话创建失败: userID=%s planID=%s err=%v", userID, plan.ID, err)
 		return nil, err
 	}
 
@@ -352,8 +368,12 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		ExpiresAt:       timePtr(time.Now().UTC().Add(pendingCheckoutTTL)),
 	}
 	if err := db.DB.Create(&payment).Error; err != nil {
+		log.Printf("[Payment] 创建支付记录失败: userID=%s planID=%s sessionID=%s err=%v", userID, plan.ID, sess.ID, err)
 		return nil, errors.New("创建支付记录失败")
 	}
+
+	log.Printf("[Payment] 创建支付会话成功: userID=%s planID=%s paymentID=%s sessionID=%s amount=%d currency=%s days=%d expiresAt=%s methods=%v",
+		userID, plan.ID, payment.ID, sess.ID, plan.Price, plan.Currency, plan.Days, payment.ExpiresAt.UTC().Format(time.RFC3339), paymentMethods)
 
 	return &CreateCheckoutResponse{URL: sess.URL}, nil
 }
@@ -411,6 +431,8 @@ func (s *PaymentService) createStripeCheckoutSession(secret, successURL, cancelU
 		return nil, errors.New("创建支付会话失败")
 	}
 
+	log.Printf("[Payment] Stripe 返回 checkout session: userID=%s planID=%s sessionID=%s", userID, plan.ID, result.ID)
+
 	return &result, nil
 }
 
@@ -426,6 +448,7 @@ func (s *PaymentService) HandleWebhook(r *http.Request) error {
 	}
 
 	if err := verifyStripeSignature(r.Header.Get("Stripe-Signature"), payload, webhookSecret); err != nil {
+		log.Printf("[Payment] Webhook 签名验证失败: err=%v", err)
 		return fmt.Errorf("webhook 签名验证失败: %w", err)
 	}
 
@@ -434,10 +457,19 @@ func (s *PaymentService) HandleWebhook(r *http.Request) error {
 		return errors.New("解析 webhook 数据失败")
 	}
 
+	log.Printf("[Payment] 收到 Stripe webhook: type=%s sessionID=%s paymentStatus=%s paymentIntent=%s",
+		event.Type,
+		strings.TrimSpace(event.Data.Object.ID),
+		strings.TrimSpace(event.Data.Object.PaymentStatus),
+		strings.TrimSpace(event.Data.Object.PaymentIntent),
+	)
+
 	switch event.Type {
 	case "checkout.session.completed":
 		// 异步支付方式下 completed 可能先于真实到账，必须确认 paid 才履约。
 		if event.Data.Object.PaymentStatus != "paid" {
+			log.Printf("[Payment] 忽略未支付完成事件: type=%s sessionID=%s paymentStatus=%s",
+				event.Type, strings.TrimSpace(event.Data.Object.ID), strings.TrimSpace(event.Data.Object.PaymentStatus))
 			return nil
 		}
 		return s.fulfillPayment(event.Data.Object.ID, event.Data.Object.PaymentIntent, event.Data.Object.Metadata)
@@ -518,12 +550,14 @@ func absInt64(v int64) int64 {
 
 func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metadata map[string]string) error {
 	if strings.TrimSpace(sessionID) == "" {
+		log.Printf("[Payment] 支付履约失败：缺少 sessionID")
 		return ErrPaymentFailed
 	}
-	_ = metadata
+	log.Printf("[Payment] 开始履约支付: sessionID=%s paymentIntent=%s metadata=%v", strings.TrimSpace(sessionID), strings.TrimSpace(paymentIntentID), metadata)
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
+		log.Printf("[Payment] 开启支付履约事务失败: sessionID=%s err=%v", strings.TrimSpace(sessionID), tx.Error)
 		return ErrPaymentFailed
 	}
 
@@ -532,26 +566,40 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 		Where("\"stripeSessionId\" = ?", sessionID).
 		First(&payment).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[Payment] 支付履约查询订单失败: sessionID=%s err=%v", strings.TrimSpace(sessionID), err)
 		return ErrPaymentFailed
 	}
 
 	if payment.Status == models.PaymentCompleted {
 		tx.Rollback()
+		log.Printf("[Payment] 支付已履约，忽略重复 webhook: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
 	}
 	// 失败态是终态，禁止后续成功事件回写为 completed，避免状态穿越。
 	if payment.Status == models.PaymentFailed {
 		tx.Rollback()
+		log.Printf("[Payment] 支付已标记失败，忽略成功回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
+		return nil
+	}
+	if payment.Status == models.PaymentExpired {
+		tx.Rollback()
+		log.Printf("[Payment] 支付订单已过期，忽略成功回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
 	}
 
 	var user models.User
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", payment.UserID).First(&user).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[Payment] 支付履约查询用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
 		return ErrPaymentFailed
 	}
 
 	now := time.Now().UTC()
+	var oldExpiry *time.Time
+	if user.ExpiresAt != nil {
+		copied := *user.ExpiresAt
+		oldExpiry = &copied
+	}
 	var newExpiry time.Time
 	if user.ExpiresAt == nil || user.ExpiresAt.Before(now) {
 		newExpiry = now.AddDate(0, 0, payment.Days)
@@ -563,6 +611,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 	if user.EmbyDisabled && user.IsActive {
 		if err := s.embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{IsDisabled: false}); err != nil {
 			tx.Rollback()
+			log.Printf("[Payment] 支付履约解封 Emby 失败: paymentID=%s userID=%s embyID=%s err=%v", payment.ID, payment.UserID, user.EmbyID, err)
 			return ErrEmbyUnbanFailed
 		}
 		user.EmbyDisabled = false
@@ -570,6 +619,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 
 	if err := tx.Save(&user).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[Payment] 支付履约保存用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
 		return ErrPaymentFailed
 	}
 
@@ -579,17 +629,22 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 	}
 	if err := tx.Save(&payment).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[Payment] 支付履约保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 		return ErrPaymentFailed
 	}
 
 	if err := tx.Commit().Error; err != nil {
+		log.Printf("[Payment] 支付履约提交事务失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 		return ErrPaymentFailed
 	}
+	log.Printf("[Payment] 支付履约成功: paymentID=%s userID=%s planID=%s sessionID=%s oldExpiresAt=%v newExpiresAt=%s days=%d",
+		payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, oldExpiry, newExpiry.Format(time.RFC3339), payment.Days)
 	return nil
 }
 
 func (s *PaymentService) markPaymentFailed(sessionID string) error {
 	if strings.TrimSpace(sessionID) == "" {
+		log.Printf("[Payment] 标记支付失败时缺少 sessionID")
 		return ErrPaymentFailed
 	}
 
@@ -603,32 +658,39 @@ func (s *PaymentService) markPaymentFailed(sessionID string) error {
 		Where("\"stripeSessionId\" = ?", sessionID).
 		First(&payment).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[Payment] 标记支付失败查询订单失败: sessionID=%s err=%v", strings.TrimSpace(sessionID), err)
 		return ErrPaymentFailed
 	}
 
 	// 已履约记录不可被失败事件回滚，避免重复 webhook 破坏状态。
 	if payment.Status == models.PaymentCompleted {
 		tx.Rollback()
+		log.Printf("[Payment] 支付已完成，忽略失败回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
 	}
 	if payment.Status == models.PaymentExpired {
 		tx.Rollback()
+		log.Printf("[Payment] 支付已过期，忽略失败回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
 	}
 	if payment.Status == models.PaymentFailed {
 		tx.Rollback()
+		log.Printf("[Payment] 支付已失败，忽略重复失败回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
 	}
 
 	payment.Status = models.PaymentFailed
 	if err := tx.Save(&payment).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[Payment] 标记支付失败保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 		return ErrPaymentFailed
 	}
 
 	if err := tx.Commit().Error; err != nil {
+		log.Printf("[Payment] 标记支付失败提交事务失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 		return ErrPaymentFailed
 	}
+	log.Printf("[Payment] 已标记支付失败: paymentID=%s userID=%s planID=%s sessionID=%s", payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID)
 	return nil
 }
 
