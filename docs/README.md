@@ -10,6 +10,8 @@
 |------|------|------|
 | **[系统架构](SYSTEM-ARCHITECTURE.md)** | 数据模型、服务逻辑、API 端点、前端结构 | 所有开发者 |
 | **[配置参考](CONFIGURATION-REFERENCE.md)** | 配置来源、密钥用途、数据库/环境变量边界 | 开发/运维 |
+| **[API 目录重构计划](API-DIRECTORY-REFACTOR.md)** | API 目录重构现状、剩余范围、compat 清理计划 | 开发 |
+| **[API 开发与目录规范](API-DEVELOPMENT-CONVENTIONS.md)** | API 分层经验、依赖规则、compat 约束、后续开发要求 | 后端开发 |
 | **[API 响应规范](API-RESPONSE-STANDARD.md)** | JSON 格式、字段命名、GORM 映射约定 | 后端开发 |
 | **[部署指南](DEPLOYMENT.md)** | Docker 部署、环境变量、CI/CD | 运维 |
 | **[测试指南](TESTING.md)** | 测试步骤、环境准备、故障排查 | 测试 |
@@ -46,6 +48,8 @@ docs/
 ├── README.md                    # 本文档（导航入口）
 ├── SYSTEM-ARCHITECTURE.md       # 系统架构（核心参考）
 ├── CONFIGURATION-REFERENCE.md   # 配置参考
+├── API-DIRECTORY-REFACTOR.md    # API 目录重构计划
+├── API-DEVELOPMENT-CONVENTIONS.md # API 开发与目录规范
 ├── API-RESPONSE-STANDARD.md     # API 响应规范
 ├── DEPLOYMENT.md                # 部署指南
 ├── TESTING.md                   # 测试指南

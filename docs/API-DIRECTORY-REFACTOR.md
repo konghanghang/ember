@@ -1,0 +1,269 @@
+# API 目录重构后续计划
+
+> 本文档用于记录 `services/api` 目录重构的当前状态、剩余范围和后续推进顺序，避免后续重构失控或重复判断。
+
+---
+
+## 1. 当前目标
+
+目录重构的目标不是“为了好看搬文件”，而是解决三个真实问题：
+
+1. `internal/services` 过去是一个大杂烩，业务服务、配置系统、第三方集成、错误定义都混在一起
+2. 文件体积过大，尤其是 `config`、`tv_calendar`、`emby`、`payment`、`user`
+3. 边界不清，导致后续继续拆分时很容易出现循环依赖
+
+当前已经完成第一阶段与第二阶段的大部分工作，但还没有彻底收口。
+
+---
+
+## 2. 已完成部分
+
+### 2.1 已拆出的顶层职责目录
+
+当前 `services/api/internal` 已拆出：
+
+- `app/`：服务启动装配（路由、handler、cron）
+- `config/`：运行期配置定义、解析、校验、导入
+- `integrations/`：第三方系统集成
+
+其中：
+
+- `integrations/emby/`
+- `integrations/moviepilot/`
+- `integrations/notifier/`
+
+已经完成拆分并稳定工作。
+
+### 2.2 已按业务子目录拆分的服务
+
+当前已经完成子目录分组并通过测试的服务：
+
+- `services/device/`
+- `services/media/`
+- `services/payment/`
+- `services/playback/`
+- `services/subscription/`
+- `services/telegram/`
+- `services/tvcalendar/`
+
+### 2.3 已按领域拆分的错误定义
+
+原有统一的 `services/errors.go` 已拆掉，当前改为按业务分布在：
+
+- `services/redemption_errors.go`
+- `services/email_errors.go`
+- `services/media_quality_errors.go`
+- `services/payment/errors.go`
+- `services/subscription/errors.go`
+- `services/telegram/errors.go`
+- `services/device/errors.go`
+- `services/tvcalendar/errors.go`
+- `services/playback/errors.go`
+
+---
+
+## 3. 当前残留结构
+
+截至目前，`internal/services` 中仍未继续分组或未进一步细化的主要文件有：
+
+- `auth.go`
+- `email.go`
+- `redemption.go`
+- `redemption_code.go`
+- `system.go`
+- `user.go`
+
+这些文件之所以还没拆，不是遗漏，而是它们的边界没有前面那几组干净。
+
+---
+
+## 4. 剩余模块的判断
+
+### 4.1 `telegram`
+
+状态：
+
+- 已完成目录拆分
+- 已补服务边界收口
+
+结论：
+
+- 当前可视为已进入稳定状态
+- 后续不优先继续动
+
+### 4.2 `user`
+
+状态：
+
+- 仍为单文件
+- 体积大、职责杂
+
+问题：
+
+- 同时承担管理员用户管理、个人资料、自助密码修改、邮箱修改、验证码重置密码、Emby 状态同步
+- 和 `email`、`emby` 仍有明显耦合
+
+结论：
+
+- **值得继续拆**
+- 但不能直接“搬目录”
+- 必须先做职责切分
+
+建议最终形态：
+
+```text
+internal/services/user/
+  admin.go
+  profile.go
+  password.go
+  password_reset.go
+  emby_sync.go
+  errors.go
+  types.go
+```
+
+### 4.3 `auth`
+
+状态：
+
+- 仍为单文件
+- 但职责仍然是“编排层”
+
+结论：
+
+- **暂时不建议拆目录**
+- 它天然依赖多个服务，当前拆目录收益不高
+
+只有当 `user`、`email` 的职责进一步拆清之后，`auth` 才值得再拆成多个文件。
+
+### 4.4 `email`
+
+状态：
+
+- 仍为单文件
+- 既有 SMTP 能力，也有验证码业务逻辑
+
+结论：
+
+- **中期值得拆**
+- 但优先级低于 `user`
+
+建议方向：
+
+- 保持 `EmailService` 对外入口不变
+- 内部再拆为：
+  - SMTP 发送
+  - 验证码发送/校验
+  - 配置读取
+
+### 4.5 `redemption` / `redemption_code`
+
+状态：
+
+- 仍然平铺
+- 边界比 `user` 清楚
+
+结论：
+
+- **适合继续拆目录**
+- 优先级高于 `user/auth`
+
+建议形态：
+
+```text
+internal/services/redemption/
+  service.go
+  code.go
+  errors.go
+```
+
+### 4.6 `system`
+
+状态：
+
+- 文件不算最大
+- 主要是系统统计 + 过期检查
+
+结论：
+
+- 不急
+- 可以最后处理
+
+---
+
+## 5. compat 文件清理计划
+
+当前为了平稳过渡，保留了若干兼容导出文件：
+
+- `device_compat.go`
+- `media_compat.go`
+- `payment_compat.go`
+- `playback_compat.go`
+- `subscription_compat.go`
+- `telegram_compat.go`
+- `tvcalendar_compat.go`
+
+这些文件的职责只有一个：
+
+- 让旧调用方继续通过 `services.*` 访问新子目录实现
+
+### 5.1 最终目标
+
+**所有 compat 文件最终都应删除。**
+
+这件事必须明确写进计划里，否则目录永远只是“看起来重构过”，实际上调用面还是旧的。
+
+### 5.2 删除 compat 的前提
+
+删除某个 `*_compat.go` 前，必须先完成：
+
+1. 全部调用方改为直接依赖新子包
+2. handler 中的错误判断改为引用新子包错误
+3. `app/` 中的构造逻辑改为直接引用新子包
+4. `go test ./...` 通过
+
+### 5.3 推荐删除顺序
+
+按风险从低到高：
+
+1. `payment_compat.go`
+2. `device_compat.go`
+3. `media_compat.go`
+4. `subscription_compat.go`
+5. `playback_compat.go`
+6. `tvcalendar_compat.go`
+7. `telegram_compat.go`
+
+说明：
+
+- `telegram_compat.go` 放最后，因为它刚做完边界收口，最好先稳定一轮
+- `payment/device/media` 的调用面更集中，优先清掉兼容层收益更高
+
+---
+
+## 6. 推荐的后续顺序
+
+如果继续推进，建议按这个顺序：
+
+1. `redemption/` 目录分组
+2. `redemption_code/` 目录分组
+3. 开始逐个去掉 compat 文件
+   - 先从 `payment_compat.go` 开始
+4. 处理 `user` 职责切分
+5. 视情况决定是否拆 `email`
+6. 最后再判断 `auth`
+
+---
+
+## 7. 当前建议
+
+最稳的下一步不是继续大搬家，而是：
+
+1. 先完成 `redemption` 相关分组
+2. 然后正式开始“去 compat”
+
+原因很简单：
+
+- 目录结构现在已经足够清楚
+- 真正还没完成的，是调用面仍然通过 `services` 根层中转
+- compat 不清掉，目录重构就永远只做了一半
