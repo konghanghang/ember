@@ -658,7 +658,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 追剧日历聚合服务，主链路改为“Emby 全库发现 + 周历同步 + Webhook 点亮”，TMDB 仍使用三层缓存（内存 + PostgreSQL + TMDB）。
 
 - `DiscoverContinuingSeries(ctx)` — 从 Emby 自动发现所有 `Continuing` 且带 `Tmdb` Provider ID 的剧集
-- `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 同步上周 / 本周 / 下周的全局周历缓存
+- `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 按指定周偏移同步周历缓存
 - `GetGlobalWeeklyCalendar(ctx, weekOffset, status)` — 查询全局周历视图（只读当前缓存/数据库，不触发即时同步）
 - `GetFollowingWeeklyCalendar(ctx, userID, weekOffset, status)` — 查询当前用户的关注周历视图（只读当前缓存/数据库，不触发即时同步）
 - `FetchCalendar(userID, startDate, endDate, status)` — 兼容旧平铺接口，底层仍复用新的全局缓存数据
@@ -809,7 +809,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 追剧日历同步接口说明：
 
-- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[-1, 0, 1]`
+- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0, 1]`
 - `tmdbId` 可选，传入时只同步单剧
 - `weekOffsets` 可选，仅支持 `-1/0/1`
 - `POST /api/v1/admin/tv-calendar/refresh` 仍保留，内部复用同步逻辑，作为兼容入口

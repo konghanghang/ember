@@ -256,7 +256,7 @@ async function loadAll(): Promise<void> {
 async function handleSync(): Promise<void> {
   refreshing.value = true
   try {
-    const res = await syncTVCalendar({ force: false, weekOffsets: [-1, 0, 1] })
+    const res = await syncTVCalendar({ force: false, weekOffsets: [0, 1] })
     ElMessage.success(`同步完成，处理 ${res.count} 条`)
     await fetchCalendar()
   } catch (error) {

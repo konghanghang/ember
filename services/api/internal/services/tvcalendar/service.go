@@ -32,7 +32,7 @@ const (
 	tvCalendarDefaultOffset = 0
 )
 
-var defaultTVCalendarWeekOffsets = []int{-1, 0, 1}
+var defaultTVCalendarWeekOffsets = []int{0, 1}
 
 type tvCalendarSyncCall struct {
 	done  chan struct{}
