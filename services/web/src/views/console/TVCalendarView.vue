@@ -274,11 +274,7 @@ async function changeStatus(status: TVCalendarStatus | ''): Promise<void> {
   await fetchCalendar()
 }
 
-async function changeWeekDate(value: string): Promise<void> {
-  if (!value || filters.weekDate === value) {
-    return
-  }
-  filters.weekDate = value
+async function changeWeekDate(): Promise<void> {
   await fetchCalendar()
 }
 
@@ -353,13 +349,13 @@ onMounted(() => {
                     <el-icon><Calendar /></el-icon>
                   </div>
                   <el-date-picker
-                    :model-value="filters.weekDate"
+                    v-model="filters.weekDate"
                     class="tv-week-picker filter-date"
                     type="date"
                     value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD"
                     placeholder="选择任意日期"
-                    clearable
+                    :clearable="false"
                     @change="changeWeekDate"
                   />
                 </div>
