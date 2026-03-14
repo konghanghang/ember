@@ -1,4 +1,4 @@
-package services
+package telegram
 
 import (
 	"crypto/rand"
@@ -19,7 +19,7 @@ type telegramRedeemer interface {
 }
 
 type telegramSubscriber interface {
-	Create(userID string, req telegramSubscriptionCommand) error
+	Create(userID string, req TelegramSubscriptionCommand) error
 }
 
 // TelegramService Telegram 绑定与 Bot 能力
@@ -29,11 +29,18 @@ type TelegramService struct {
 	newEmbyService      func() *embyint.EmbyService
 }
 
-func NewTelegramService() *TelegramService {
+func NewTelegramService(
+	redeemer telegramRedeemer,
+	subscriber telegramSubscriber,
+	newEmbyService func() *embyint.EmbyService,
+) *TelegramService {
+	if newEmbyService == nil {
+		newEmbyService = embyint.NewEmbyService
+	}
 	return &TelegramService{
-		redemptionService:   telegramRedeemerAdapter{},
-		subscriptionService: telegramSubscriberAdapter{},
-		newEmbyService:      embyint.NewEmbyService,
+		redemptionService:   redeemer,
+		subscriptionService: subscriber,
+		newEmbyService:      newEmbyService,
 	}
 }
 
@@ -92,7 +99,7 @@ type TelegramSubscribeRequest struct {
 	Note       string `json:"note"`
 }
 
-type telegramSubscriptionCommand struct {
+type TelegramSubscriptionCommand struct {
 	Type       models.MediaType
 	Name       string
 	TmdbID     string
@@ -336,41 +343,12 @@ func (s *TelegramService) subscribeForUser(
 	posterPath *string,
 	note *string,
 ) error {
-	return s.subscriptionService.Create(userID, telegramSubscriptionCommand{
+	return s.subscriptionService.Create(userID, TelegramSubscriptionCommand{
 		Type:       models.MediaType(req.Type),
 		Name:       req.Name,
 		TmdbID:     req.TmdbID,
 		PosterPath: posterPath,
 		Note:       note,
-	})
-}
-
-type telegramRedeemerAdapter struct{}
-
-func (telegramRedeemerAdapter) Redeem(userID, code string) (*TelegramRedeemResponse, error) {
-	resp, err := (&RedemptionService{}).RedeemCode(userID, &RedeemCodeRequest{Code: code})
-	if err != nil {
-		return nil, err
-	}
-	if resp == nil {
-		return nil, nil
-	}
-	return &TelegramRedeemResponse{
-		Message:   resp.Message,
-		Days:      resp.Days,
-		ExpiresAt: resp.ExpiresAt,
-	}, nil
-}
-
-type telegramSubscriberAdapter struct{}
-
-func (telegramSubscriberAdapter) Create(userID string, req telegramSubscriptionCommand) error {
-	return NewSubscriptionService().CreateSubscription(userID, CreateSubscriptionRequest{
-		Type:       req.Type,
-		Name:       req.Name,
-		TmdbID:     req.TmdbID,
-		PosterPath: req.PosterPath,
-		Note:       req.Note,
 	})
 }
 

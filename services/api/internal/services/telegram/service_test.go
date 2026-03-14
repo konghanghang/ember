@@ -1,4 +1,4 @@
-package services
+package telegram
 
 import (
 	"errors"
@@ -22,11 +22,11 @@ func (s *stubTelegramRedeemer) Redeem(userID, code string) (*TelegramRedeemRespo
 
 type stubTelegramSubscriber struct {
 	lastUserID string
-	lastReq    telegramSubscriptionCommand
+	lastReq    TelegramSubscriptionCommand
 	err        error
 }
 
-func (s *stubTelegramSubscriber) Create(userID string, req telegramSubscriptionCommand) error {
+func (s *stubTelegramSubscriber) Create(userID string, req TelegramSubscriptionCommand) error {
 	s.lastUserID = userID
 	s.lastReq = req
 	return s.err
@@ -35,7 +35,7 @@ func (s *stubTelegramSubscriber) Create(userID string, req telegramSubscriptionC
 func TestTelegramServiceRedeemForUserDelegatesToRedeemer(t *testing.T) {
 	expected := &TelegramRedeemResponse{Message: "ok"}
 	redeemer := &stubTelegramRedeemer{resp: expected}
-	service := &TelegramService{redemptionService: redeemer}
+	service := NewTelegramService(redeemer, &stubTelegramSubscriber{}, nil)
 
 	resp, err := service.redeemForUser("user_1", "CODE123")
 	if err != nil {
@@ -51,7 +51,7 @@ func TestTelegramServiceRedeemForUserDelegatesToRedeemer(t *testing.T) {
 
 func TestTelegramServiceSubscribeForUserDelegatesToSubscriber(t *testing.T) {
 	subscriber := &stubTelegramSubscriber{}
-	service := &TelegramService{subscriptionService: subscriber}
+	service := NewTelegramService(&stubTelegramRedeemer{}, subscriber, nil)
 	poster := "/poster.jpg"
 	note := "hello"
 
@@ -81,9 +81,7 @@ func TestTelegramServiceSubscribeForUserDelegatesToSubscriber(t *testing.T) {
 
 func TestTelegramServiceSubscribeForUserReturnsSubscriberError(t *testing.T) {
 	expectedErr := errors.New("boom")
-	service := &TelegramService{
-		subscriptionService: &stubTelegramSubscriber{err: expectedErr},
-	}
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{err: expectedErr}, nil)
 
 	err := service.subscribeForUser("user_3", TelegramSubscribeRequest{
 		Type:   "MOVIE",
