@@ -5,10 +5,19 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 )
 
 func Start() error {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		Output: logpkg.Writer(),
+		SkipPaths: []string{
+			"/",
+			"/health",
+		},
+	}))
+	r.Use(gin.Recovery())
 
 	registerRoutes(r, newAppHandlers())
 	defer initCronJobs()()

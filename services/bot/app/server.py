@@ -50,6 +50,12 @@ LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "bot.log"
 
 
+class SkipHealthAccessFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return "GET /health" not in message
+
+
 def configure_logging() -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +76,7 @@ def configure_logging() -> None:
         handlers=[stream_handler, file_handler],
         force=True,
     )
+    logging.getLogger("uvicorn.access").addFilter(SkipHealthAccessFilter())
 
 
 configure_logging()
