@@ -387,6 +387,14 @@ type EmbyItem struct {
 	ChildCount      int               `json:"ChildCount"` // GroupItems=true 时的新增子项数
 }
 
+func latestIncludeItemTypes(itemType string) string {
+	if itemType == "Series" {
+		// Emby 官方示例：最近更新的剧集应按 Episode 查询，再通过 GroupItems=true 聚合为剧集容器。
+		return "Episode"
+	}
+	return itemType
+}
+
 func sanitizeEmbyErrorBody(b []byte) string {
 	// Emby 有时会返回 HTML 编码的异常信息（例如 &#39;），这里做反转义以便阅读。
 	// 同时截断，避免把大段 HTML/堆栈塞进日志/响应里。
@@ -463,7 +471,7 @@ func (s *EmbyService) GetLatestItems(embyUserID string, itemType string, limit i
 	base.Path = strings.TrimRight(base.Path, "/") + "/emby/Users/" + escapedUserID + "/Items/Latest"
 
 	q := base.Query()
-	q.Set("IncludeItemTypes", itemType)
+	q.Set("IncludeItemTypes", latestIncludeItemTypes(itemType))
 	q.Set("Limit", strconv.Itoa(limit))
 	q.Set("GroupItems", "true")
 	q.Set("Fields", "Overview,DateCreated,ProductionYear,CommunityRating,OfficialRating")

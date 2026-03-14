@@ -1,6 +1,8 @@
 package media
 
 import (
+	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -127,6 +129,7 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 	if err != nil {
 		return nil, err
 	}
+	items = dedupeLatestItems(items, itemType)
 
 	s.latestMutex.Lock()
 	ownerID := refreshOwnerID
@@ -147,4 +150,27 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 	out := make([]embyint.EmbyItem, n)
 	copy(out, items[:n])
 	return out, nil
+}
+
+func dedupeLatestItems(items []embyint.EmbyItem, itemType string) []embyint.EmbyItem {
+	if len(items) <= 1 {
+		return items
+	}
+
+	seen := make(map[string]struct{}, len(items))
+	result := make([]embyint.EmbyItem, 0, len(items))
+	for _, item := range items {
+		key := item.ID
+		if key == "" {
+			key = item.Type + "|" + item.Name + "|" + strconv.Itoa(item.ProductionYear)
+		}
+		if _, exists := seen[key]; exists {
+			log.Printf("[Media] 去重最近入库重复项: type=%s key=%s name=%q id=%s", itemType, key, item.Name, item.ID)
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, item)
+	}
+
+	return result
 }
