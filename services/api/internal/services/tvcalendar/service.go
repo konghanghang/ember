@@ -414,6 +414,19 @@ func tvCalendarWeekdayCn(t time.Time) string {
 	}
 }
 
+func tvCalendarStatusSortWeight(status string) int {
+	switch status {
+	case models.TVCalendarStatusReady:
+		return 0
+	case models.TVCalendarStatusToday:
+		return 1
+	case models.TVCalendarStatusMissing:
+		return 2
+	default:
+		return 3
+	}
+}
+
 func buildTMDBPosterURL(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -1106,6 +1119,11 @@ func (s *TVCalendarService) buildWeeklyCalendar(items []models.TVCalendarItem, s
 			right := dayItems[j]
 			leftSource := sourceMap[left.TmdbID]
 			rightSource := sourceMap[right.TmdbID]
+			leftWeight := tvCalendarStatusSortWeight(left.Status)
+			rightWeight := tvCalendarStatusSortWeight(right.Status)
+			if leftWeight != rightWeight {
+				return leftWeight < rightWeight
+			}
 			if leftSource.ShowName != rightSource.ShowName {
 				return leftSource.ShowName < rightSource.ShowName
 			}

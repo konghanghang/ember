@@ -23,6 +23,7 @@ const calendarError = ref('')
 
 const calendarData = ref<TVCalendarWeeklyData>({ dateRange: '', days: [] })
 const dayRowRefs = ref<Record<string, HTMLElement | null>>({})
+const failedPosterKeys = ref<Record<string, boolean>>({})
 
 const filters = reactive({
   weekDate: formatDateLocal(new Date()),
@@ -152,6 +153,24 @@ function getPosterFallback(name: string): string {
     return 'TV'
   }
   return value.slice(0, 1).toUpperCase()
+}
+
+function posterKey(tmdbId: string, posterUrl?: string): string {
+  return `${tmdbId}::${posterUrl || ''}`
+}
+
+function canRenderPoster(tmdbId: string, posterUrl?: string): boolean {
+  if (!posterUrl) {
+    return false
+  }
+  return !failedPosterKeys.value[posterKey(tmdbId, posterUrl)]
+}
+
+function handlePosterError(tmdbId: string, posterUrl?: string): void {
+  if (!posterUrl) {
+    return
+  }
+  failedPosterKeys.value[posterKey(tmdbId, posterUrl)] = true
 }
 
 function summaryCardClass(tone: string): string {
@@ -450,11 +469,12 @@ onMounted(() => {
                   <div class="tv-mini-poster-shell">
                     <div class="tv-mini-poster">
                       <img
-                        v-if="item.posterUrl"
+                        v-if="canRenderPoster(item.tmdbId, item.posterUrl)"
                         :src="item.posterUrl"
                         :alt="item.showName"
                         class="h-full w-full object-cover"
                         loading="lazy"
+                        @error="handlePosterError(item.tmdbId, item.posterUrl)"
                       />
                       <div v-else class="flex h-full w-full items-center justify-center text-lg font-semibold text-slate-800">
                         {{ getPosterFallback(item.showName) }}
