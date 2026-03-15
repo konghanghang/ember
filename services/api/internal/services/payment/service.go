@@ -21,6 +21,7 @@ import (
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -29,6 +30,7 @@ import (
 type PaymentService struct {
 	embyService *embyint.EmbyService
 	httpClient  *http.Client
+	notifier    *notifierint.BotNotifier
 }
 
 func NewPaymentService() *PaymentService {
@@ -37,6 +39,7 @@ func NewPaymentService() *PaymentService {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		notifier: notifierint.NewBotNotifier(),
 	}
 }
 
@@ -574,6 +577,14 @@ func absInt64(v int64) int64 {
 	return v
 }
 
+func formatNotifyTime(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	formatted := t.UTC().Format(time.RFC3339)
+	return &formatted
+}
+
 func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metadata map[string]string) error {
 	if strings.TrimSpace(sessionID) == "" {
 		log.Printf("[Payment] 支付履约失败：缺少 sessionID")
@@ -618,6 +629,12 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 		tx.Rollback()
 		log.Printf("[Payment] 支付履约查询用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
 		return ErrPaymentFailed
+	}
+
+	planName := ""
+	var plan models.Plan
+	if err := tx.Select("name").Where("id = ?", payment.PlanID).First(&plan).Error; err == nil {
+		planName = plan.Name
 	}
 
 	now := time.Now().UTC()
@@ -665,6 +682,28 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 	}
 	log.Printf("[Payment] 支付履约成功: paymentID=%s userID=%s planID=%s sessionID=%s oldExpiresAt=%v newExpiresAt=%s days=%d",
 		payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, oldExpiry, newExpiry.Format(time.RFC3339), payment.Days)
+
+	go func(data notifierint.PaymentSuccessNotification) {
+		if s.notifier == nil || !s.notifier.IsConfigured() {
+			return
+		}
+		s.notifier.NotifyPaymentSuccess(data)
+	}(notifierint.PaymentSuccessNotification{
+		PaymentID:             payment.ID,
+		UserID:                user.ID,
+		UserName:              user.Username,
+		Email:                 user.Email,
+		PlanID:                payment.PlanID,
+		PlanName:              planName,
+		Amount:                payment.Amount,
+		Currency:              payment.Currency,
+		Days:                  payment.Days,
+		OldExpiresAt:          formatNotifyTime(oldExpiry),
+		NewExpiresAt:          newExpiry.Format(time.RFC3339),
+		StripeSessionID:       payment.StripeSessionID,
+		StripePaymentIntentID: payment.StripePaymentIntentID,
+	})
+
 	return nil
 }
 

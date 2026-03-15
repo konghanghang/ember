@@ -607,6 +607,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 |------|----------|----------|
 | `NotifyNewSubscription` | `POST /notify/subscription` | 用户创建求片订阅 |
 | `NotifyNewRegistration` | `POST /notify/registration` | 新用户注册 |
+| `NotifyPaymentSuccess` | `POST /notify/payment` | Stripe 支付履约成功 |
 | `NotifyRanking` | `POST /notify/ranking` | 排行榜生成完成 |
 
 **认证方式**：`X-Internal-Secret` 头（值 = `INTERNAL_API_SECRET`）
@@ -628,6 +629,7 @@ Stripe 一次性支付流程管理。
 
 - `CreateCheckoutSession(userID, planID)` — 优先复用同方案 30 分钟内未过期的待支付订单；否则创建新的 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）
 - `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
+- `fulfillPayment(sessionID, paymentIntentID, metadata)` — 事务更新 Payment/User；提交成功后火忘式通知 Bot 推送管理员支付成功消息
 - Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
 - `GetPayments(page, pageSize)` — 支付记录查询
 
@@ -952,6 +954,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `POST /telegram/webhook` | Telegram Webhook 入口 |
 | `POST /notify/subscription` | 接收新订阅通知 |
 | `POST /notify/registration` | 接收新注册通知 |
+| `POST /notify/payment` | 接收支付成功通知 |
 | `POST /notify/ranking` | 接收排行榜通知 |
 
 ### 命令与处理器

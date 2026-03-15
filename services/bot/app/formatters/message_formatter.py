@@ -73,6 +73,54 @@ def format_registration_message(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_currency(amount: int, currency: str) -> str:
+    normalized = (currency or "USD").upper()
+    symbol_map = {
+        "USD": "$",
+        "CNY": "¥",
+        "HKD": "HK$",
+    }
+    symbol = symbol_map.get(normalized, f"{normalized} ")
+    major = amount / 100
+    return f"{symbol}{major:.2f}"
+
+
+def _format_expiry(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if raw == "":
+        return "永不过期"
+    return escape(raw.replace("T", " ")[:19])
+
+
+def format_payment_message(data: dict) -> str:
+    user_name = escape(str(data.get("userName", "") or "-"))
+    email = escape(str(data.get("email", "") or "-"))
+    plan_name = escape(str(data.get("planName", "") or "-"))
+    amount = int(data.get("amount", 0) or 0)
+    currency = str(data.get("currency", "") or "USD")
+    days = int(data.get("days", 0) or 0)
+    payment_id = escape(str(data.get("paymentId", "") or "-"))
+    session_id = escape(str(data.get("stripeSessionId", "") or "-"))
+    old_expires_at = _format_expiry(data.get("oldExpiresAt"))
+    new_expires_at = _format_expiry(data.get("newExpiresAt"))
+
+    lines = [
+        "💰 <b>支付成功</b>",
+        "",
+        f"👤 用户：{user_name}",
+        f"📧 邮箱：{email}",
+        f"📦 方案：{plan_name}",
+        f"💵 金额：{escape(_format_currency(amount, currency))}",
+        f"📅 延长：<b>{days}</b> 天",
+        f"⏳ 原到期：{old_expires_at}",
+        f"✅ 新到期：{new_expires_at}",
+        f"🧾 支付记录：<code>{payment_id}</code>",
+        f"🔗 Session：<code>{session_id}</code>",
+    ]
+
+    return "\n".join(lines)
+
+
 def format_result_message(original_text: str, action: str) -> str:
     result = "✅ 已通过" if action == "approve" else "❌ 已拒绝"
     text = original_text.strip()

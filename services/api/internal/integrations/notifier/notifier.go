@@ -33,6 +33,23 @@ type RegistrationNotification struct {
 	ExpiresAt        *string `json:"expiresAt"`
 }
 
+// PaymentSuccessNotification 支付成功通知数据
+type PaymentSuccessNotification struct {
+	PaymentID             string  `json:"paymentId"`
+	UserID                string  `json:"userId"`
+	UserName              string  `json:"userName"`
+	Email                 string  `json:"email"`
+	PlanID                string  `json:"planId"`
+	PlanName              string  `json:"planName"`
+	Amount                int64   `json:"amount"`
+	Currency              string  `json:"currency"`
+	Days                  int     `json:"days"`
+	OldExpiresAt          *string `json:"oldExpiresAt"`
+	NewExpiresAt          string  `json:"newExpiresAt"`
+	StripeSessionID       string  `json:"stripeSessionId"`
+	StripePaymentIntentID string  `json:"stripePaymentIntentId"`
+}
+
 // BotNotifier Bot 通知客户端
 type BotNotifier struct {
 	botURL string
@@ -109,6 +126,39 @@ func (n *BotNotifier) NotifyNewRegistration(data RegistrationNotification) {
 	}
 
 	req, err := http.NewRequest("POST", n.botURL+"/notify/registration", bytes.NewBuffer(body))
+	if err != nil {
+		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", n.secret)
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		fmt.Printf("Bot 通知失败：请求发送失败: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
+	}
+}
+
+// NotifyPaymentSuccess 通知 Bot 有新的支付成功记录（fire-and-forget）
+func (n *BotNotifier) NotifyPaymentSuccess(data PaymentSuccessNotification) {
+	if !n.IsConfigured() {
+		return
+	}
+
+	body, err := json.Marshal(data)
+	if err != nil {
+		fmt.Printf("Bot 通知失败：序列化请求失败: %v\n", err)
+		return
+	}
+
+	req, err := http.NewRequest("POST", n.botURL+"/notify/payment", bytes.NewBuffer(body))
 	if err != nil {
 		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
 		return

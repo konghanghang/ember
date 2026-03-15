@@ -41,6 +41,7 @@ from app.handlers.telegram_handler import (
     handle_search,
     handle_search_callback,
     handle_text_message,
+    send_payment_notification,
     send_registration_notification,
     send_ranking_notification,
     send_subscription_notification,
@@ -201,6 +202,17 @@ async def notify_registration(request: Request):
 
     data = await request.json()
     await send_registration_notification(tg_app.bot, data)
+    return {"ok": True}
+
+
+@app.post("/notify/payment")
+async def notify_payment(request: Request):
+    secret = request.headers.get("X-Internal-Secret")
+    if secret != INTERNAL_API_SECRET:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    data = await request.json()
+    await send_payment_notification(tg_app.bot, data)
     return {"ok": True}
 
 

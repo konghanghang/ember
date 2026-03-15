@@ -14,6 +14,7 @@ from app.config import (
 from app.formatters.message_formatter import (
     format_account_info,
     format_bind_success,
+    format_payment_message,
     format_ranking_message,
     format_registration_message,
     format_redeem_success,
@@ -72,6 +73,20 @@ async def send_registration_notification(bot, data: dict) -> None:
         return
 
     text = format_registration_message(data)
+    await bot.send_message(
+        chat_id=admin_chat_id,
+        text=text,
+        parse_mode="HTML",
+    )
+
+
+async def send_payment_notification(bot, data: dict) -> None:
+    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
+    if admin_chat_id is None:
+        logger.warning("TELEGRAM_ADMIN_CHAT_ID 未配置，跳过支付通知")
+        return
+
+    text = format_payment_message(data)
     await bot.send_message(
         chat_id=admin_chat_id,
         text=text,
