@@ -124,6 +124,12 @@ const router = createRouter({
           meta: { role: 'admin' },
           component: () => import('../views/admin/PlansView.vue'),
         },
+        {
+          path: 'payments',
+          name: 'console-payments',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/PaymentsView.vue'),
+        },
       ],
     },
 

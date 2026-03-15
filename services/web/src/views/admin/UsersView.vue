@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Calendar,
@@ -11,10 +12,13 @@ import {
   MoreFilled,
   UserFilled,
   Lock,
-  Unlock
+  Unlock,
+  CreditCard
 } from '@element-plus/icons-vue'
 import { getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
 import type { UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
+
+const router = useRouter()
 
 const tableData = ref<UserInfo[]>([])
 const total = ref(0)
@@ -188,6 +192,13 @@ const handleResetPassword = async (row: UserInfo) => {
       // handled
     }
   }
+}
+
+const handleViewPayments = (row: UserInfo) => {
+  router.push({
+    name: 'console-payments',
+    query: { userId: row.id }
+  })
 }
 
 const formatDate = (dateStr?: string | null) => {
@@ -474,6 +485,7 @@ onMounted(() => {
                 </button>
                 <template #dropdown>
                   <el-dropdown-menu class="w-36">
+                    <el-dropdown-item :icon="CreditCard" @click="handleViewPayments(row)">支付记录</el-dropdown-item>
                     <el-dropdown-item :icon="Key" @click="handleResetPassword(row)">重置密码</el-dropdown-item>
                     <el-dropdown-item 
                       :icon="row.isActive ? Lock : Unlock" 

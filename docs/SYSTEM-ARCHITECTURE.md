@@ -148,6 +148,7 @@ services/
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
 │  │        ├─ SettingsView.vue  # 设置中心
 │  │        ├─ PlansView.vue     # 方案管理
+│  │        ├─ PaymentsView.vue  # 支付记录审计
 │  │        ├─ SessionsView.vue  # 活跃会话
 │  │        ├─ PlaybackHistoryView.vue # 播放历史
 │  │        ├─ MediaQualityView.vue # 媒体质量盘点

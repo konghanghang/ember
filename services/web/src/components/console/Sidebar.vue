@@ -11,6 +11,7 @@ import {
   Ticket,
   Document,
   Goods,
+  CreditCard,
   ShoppingCart,
   Setting,
   Monitor,
@@ -87,6 +88,12 @@ const menuItems = computed(() => [
         title: '付费方案',
         path: '/console/plans',
         icon: Goods,
+        role: 'admin'
+      },
+      {
+        title: '支付记录',
+        path: '/console/payments',
+        icon: CreditCard,
         role: 'admin'
       },
       {
