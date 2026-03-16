@@ -24,6 +24,12 @@ import {
 const route = useRoute()
 const authStore = useAuthStore()
 
+const canAccessItem = (role?: string) => {
+  if (!role) return true
+  if (authStore.isAdmin) return true
+  return authStore.role === role
+}
+
 const menuItems = computed(() => [
   {
     title: '我的账号',
@@ -56,10 +62,9 @@ const menuItems = computed(() => [
     role: 'user'
   },
   {
-    title: '购买订阅',
-    path: '/console/pricing',
-    icon: ShoppingCart,
-    role: 'user'
+    title: '续费中心',
+    path: '/console/renewal',
+    icon: ShoppingCart
   },
   {
     title: '管理控制台',
@@ -179,7 +184,7 @@ const isActive = (path: string) => route.path === path
 
         <!-- Regular Item -->
         <router-link
-          v-else-if="!item.type"
+          v-else-if="!item.type && canAccessItem(item.role)"
           :to="item.path"
           class="flex items-center px-3 py-2.5 rounded-lg transition-colors group relative overflow-hidden"
           :class="[

@@ -66,9 +66,13 @@ const router = createRouter({
           component: () => import('../views/console/NewSubscriptionView.vue'),
         },
         {
+          path: 'renewal',
+          name: 'console-renewal',
+          component: () => import('../views/console/RenewalCenterView.vue'),
+        },
+        {
           path: 'pricing',
-          name: 'console-pricing',
-          component: () => import('../views/console/PricingView.vue'),
+          redirect: '/console/renewal',
         },
         {
           path: 'users',

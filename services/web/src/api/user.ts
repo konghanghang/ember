@@ -9,7 +9,7 @@ import type {
 
 export function redeemCode(data: RedeemCodeRequest): Promise<RedeemCodeResponse> {
 	return request({
-		url: '/user/redeem',
+		url: '/redeem',
 		method: 'post',
 		data
 	})
@@ -17,14 +17,14 @@ export function redeemCode(data: RedeemCodeRequest): Promise<RedeemCodeResponse>
 
 export function validateRedeemCode(code: string): Promise<RedemptionCode> {
 	return request({
-		url: `/user/redeem/${code}/validate`,
+		url: `/redeem/${code}/validate`,
 		method: 'get'
 	})
 }
 
 export function getRedemptions(params?: { page?: number; pageSize?: number }): Promise<RedemptionListResponse> {
 	return request({
-		url: '/user/redemptions',
+		url: '/redemptions',
 		method: 'get',
 		params
 	})

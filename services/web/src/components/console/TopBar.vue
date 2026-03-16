@@ -34,6 +34,7 @@ const currentRouteName = computed(() => {
   switch (route.name) {
     case 'console-dashboard': return '概览'
     case 'console-subscriptions': return '我的订阅'
+    case 'console-renewal': return '续费中心'
     case 'console-users': return '用户管理'
     case 'console-redemption-codes': return '兑换码'
     case 'console-settings': return '系统设置'

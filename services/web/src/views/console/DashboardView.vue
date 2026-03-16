@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { 
   Key, 
   Message, 
-  Ticket, 
   Lock, 
   CircleCloseFilled, 
   VideoPlay, 
   Monitor, 
   Film,
   CopyDocument,
-  ArrowRight,
-  Refresh
+  ArrowRight
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import {
@@ -24,11 +23,10 @@ import {
   updateEmail,
   updatePassword
 } from '@/api/console'
-import { getRedemptions, redeemCode } from '@/api/user'
-import { formatDate } from '@/utils/date'
-import type { MediaStats, Redemption, TelegramBindCodeResponse, UserInfo } from '@/types/api'
+import type { MediaStats, TelegramBindCodeResponse, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
+const router = useRouter()
 
 const user = ref<UserInfo>({
   id: '',
@@ -45,14 +43,6 @@ const user = ref<UserInfo>({
 const embyUrl = ref('')
 const stats = ref<MediaStats>({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 })
 const loading = ref(false)
-const redeeming = ref(false)
-const redeemForm = ref({ code: '' })
-const showRenewDialog = ref(false)
-const redemptions = ref<Redemption[]>([])
-const redemptionsLoading = ref(false)
-const redemptionPage = ref(1)
-const redemptionPageSize = ref(10)
-const redemptionTotal = ref(0)
 const telegramBindCode = ref<TelegramBindCodeResponse | null>(null)
 const generatingBindCode = ref(false)
 const unbinding = ref(false)
@@ -98,52 +88,6 @@ const fetchMediaInfo = async () => {
 const refreshAll = async () => {
   await fetchProfile()
   await fetchMediaInfo()
-}
-
-const fetchRedemptions = async () => {
-  redemptionsLoading.value = true
-  try {
-    const res = await getRedemptions({
-      page: redemptionPage.value,
-      pageSize: redemptionPageSize.value
-    })
-    redemptions.value = res.data
-    redemptionTotal.value = res.total
-  } catch {
-    // handled
-  } finally {
-    redemptionsLoading.value = false
-  }
-}
-
-const handleRedemptionPageSizeChange = (size: number) => {
-  redemptionPageSize.value = size
-  redemptionPage.value = 1
-  fetchRedemptions()
-}
-
-const handleRedeem = async () => {
-  if (!redeemForm.value.code) {
-    ElMessage.warning('请输入兑换码')
-    return
-  }
-
-  redeeming.value = true
-  try {
-    const res = await redeemCode({ code: redeemForm.value.code })
-    ElMessage.success(res.message)
-    redeemForm.value.code = ''
-    showRenewDialog.value = false
-    const tasks: Promise<void>[] = [refreshAll()]
-    if (!authStore.isAdmin) {
-      tasks.push(fetchRedemptions())
-    }
-    await Promise.all(tasks)
-  } catch {
-    // handled
-  } finally {
-    redeeming.value = false
-  }
 }
 
 const handleUpdateEmail = async () => {
@@ -207,12 +151,12 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
+const goToRenewalCenter = () => {
+  router.push('/console/renewal')
+}
+
 onMounted(async () => {
-  const tasks: Promise<void>[] = [refreshAll()]
-  if (!authStore.isAdmin) {
-    tasks.push(fetchRedemptions())
-  }
-  await Promise.all(tasks)
+  await refreshAll()
 })
 </script>
 
@@ -271,11 +215,10 @@ onMounted(async () => {
             
             <button 
               v-if="!authStore.isAdmin"
-              @click="showRenewDialog = true"
+              @click="goToRenewalCenter"
               class="group flex items-center gap-2 px-6 py-2.5 bg-white text-gray-900 rounded-xl font-bold hover:bg-gray-100 transition-all shadow-lg active:scale-95 cursor-pointer"
             >
-              <el-icon><Ticket /></el-icon>
-              <span>{{ isExpired ? '立即续期' : '延长订阅' }}</span>
+              <span>{{ isExpired ? '立即续费' : '去续费中心' }}</span>
               <el-icon class="group-hover:translate-x-1 transition-transform"><ArrowRight /></el-icon>
             </button>
           </div>
@@ -309,7 +252,7 @@ onMounted(async () => {
         <h3 class="font-bold text-sm">服务已暂停</h3>
         <p class="text-xs mt-1 text-red-600">您的订阅已过期。请续期以恢复 Emby 服务器访问权限。</p>
       </div>
-      <button @click="showRenewDialog = true" class="text-sm font-bold underline hover:text-red-900 cursor-pointer">立即续期</button>
+      <button @click="goToRenewalCenter" class="text-sm font-bold underline hover:text-red-900 cursor-pointer">立即续费</button>
     </div>
 
     <!-- Stats Row -->
@@ -516,76 +459,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Redemption History -->
-    <div v-if="!authStore.isAdmin" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h2 class="text-xl font-semibold text-gray-900">兑换历史</h2>
-          <p class="text-sm text-gray-500 mt-1">查看你的兑换码使用记录</p>
-        </div>
-        <el-button :icon="Refresh" @click="fetchRedemptions" :loading="redemptionsLoading">
-          刷新
-        </el-button>
-      </div>
-
-      <el-table
-        :data="redemptions"
-        v-loading="redemptionsLoading"
-        style="width: 100%"
-        :header-cell-style="{ backgroundColor: '#f9fafb' }"
-      >
-        <el-table-column prop="code" label="兑换码" width="180" />
-        <el-table-column prop="days" label="延长天数" width="120">
-          <template #default="{ row }">
-            <el-tag type="success">{{ row.days }} 天</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createdAt" label="兑换时间" width="200">
-          <template #default="{ row }">
-            {{ formatDate(row.createdAt) }}
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="mt-4 flex justify-end bg-gray-50/50 p-4 rounded-lg">
-        <el-pagination
-          v-model:current-page="redemptionPage"
-          v-model:page-size="redemptionPageSize"
-          :total="redemptionTotal"
-          :page-sizes="[5, 10, 20]"
-          layout="total, sizes, prev, pager, next"
-          @current-change="fetchRedemptions"
-          @size-change="handleRedemptionPageSizeChange"
-        />
-      </div>
-    </div>
-
-    <!-- Renew Dialog -->
-    <el-dialog v-model="showRenewDialog" title="续期会员" width="400px" align-center class="rounded-2xl">
-      <div class="p-6 pt-2 text-center">
-        <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-ember">
-          <el-icon :size="32"><Ticket /></el-icon>
-        </div>
-        <h3 class="text-lg font-bold text-gray-900 mb-2">输入兑换码</h3>
-        <p class="text-gray-500 text-sm mb-6">在下方输入您的兑换码以立即延长订阅。</p>
-        
-        <el-input 
-          v-model="redeemForm.code" 
-          placeholder="在此输入兑换码..." 
-          class="input-ember text-center text-lg mb-6"
-          size="large"
-        />
-        
-        <button 
-          @click="handleRedeem" 
-          :disabled="redeeming"
-          class="btn-ember w-full py-3 rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-70 flex items-center justify-center gap-2 cursor-pointer"
-        >
-          <span v-if="redeeming" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
-          {{ redeeming ? '验证中...' : '确认兑换' }}
-        </button>
-      </div>
-    </el-dialog>
   </div>
 </template>
 

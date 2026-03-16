@@ -128,6 +128,9 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.PUT("/profile", h.user.UpdateProfile)
 	authenticated.PUT("/password", h.user.UpdatePassword)
 	authenticated.PUT("/email", h.user.UpdateEmail)
+	authenticated.POST("/redeem", h.user.RedeemCode)
+	authenticated.GET("/redeem/:code/validate", h.user.ValidateRedeemCode)
+	authenticated.GET("/redemptions", h.user.GetRedemptions)
 	authenticated.POST("/telegram/bindcode", h.telegram.GenerateBindCode)
 	authenticated.DELETE("/telegram/unbind", h.telegram.Unbind)
 

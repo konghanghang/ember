@@ -141,7 +141,7 @@ services/
 │  │     │  ├─ TVCalendarView.vue # 追剧日历
 │  │     │  ├─ LibraryView.vue   # 媒体库
 │  │     │  ├─ RankingsView.vue  # 播放排行
-│  │     │  └─ PricingView.vue   # 付费方案
+│  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台
 │  │        ├─ UsersView.vue     # 用户管理
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
@@ -727,6 +727,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/profile` | 更新资料 |
 | PUT | `/api/v1/password` | 修改密码 |
 | PUT | `/api/v1/email` | 修改邮箱 |
+| POST | `/api/v1/redeem` | 通用兑换续期 |
+| GET | `/api/v1/redeem/:code/validate` | 通用兑换码预验证 |
+| GET | `/api/v1/redemptions` | 当前登录账号的兑换历史 |
 | POST | `/api/v1/telegram/bindcode` | 生成 Telegram 绑定验证码 |
 | DELETE | `/api/v1/telegram/unbind` | 解除 Telegram 绑定 |
 | GET | `/api/v1/emby/config` | Emby 配置 |
@@ -893,9 +896,21 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ### Dashboard 双态设计
 
 用户面板根据 `isExpired` computed 做渐进式降级：
-- **活跃态**：绿色 banner + 媒体统计 + 兑换折叠面板
-- **过期态**：橙色警告 banner + 兑换码输入醒目展示 + 媒体统计灰化
-- **兑换历史**：普通用户在 Dashboard 查看个人兑换记录（分页 + 手动刷新）
+- **活跃态**：绿色 banner + 媒体统计 + 续费中心入口
+- **过期态**：橙色警告 banner + 明显的“立即续费”入口 + 媒体统计灰化
+- **定位**：Dashboard 只负责账户概览，不再承载兑换码输入和续费历史
+
+### 续费中心
+
+- 路由：`/console/renewal`（user）
+- 兼容路由：`/console/pricing` → 重定向到 `/console/renewal`
+- 视图：`views/console/RenewalCenterView.vue`
+- 页面结构：
+  - 当前会员状态
+  - 在线购买（Stripe Checkout）
+  - 兑换码续期
+  - 支付记录 + 兑换记录
+- 目标：把“在线支付”和“兑换码续期”统一到同一续费心智下，而不是分散在 Dashboard 和独立价格页中
 
 ### 管理端兑换历史
 

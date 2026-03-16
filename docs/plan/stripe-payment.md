@@ -131,8 +131,8 @@ Plan (1) ──→ (N) Payment
 |------|------|------|
 | `STRIPE_SECRET_KEY` | 是 | Stripe 密钥（`sk_test_...` 或 `sk_live_...`） |
 | `STRIPE_WEBHOOK_SECRET` | 是 | Webhook 签名密钥（`whsec_...`） |
-| `STRIPE_SUCCESS_URL` | 是 | 支付成功后跳转 URL（如 `https://your-domain.com/console/pricing?success=true`） |
-| `STRIPE_CANCEL_URL` | 是 | 支付取消后跳转 URL（如 `https://your-domain.com/console/pricing?canceled=true`） |
+| `STRIPE_SUCCESS_URL` | 是 | 支付成功后跳转 URL（如 `https://your-domain.com/console/renewal?success=true`） |
+| `STRIPE_CANCEL_URL` | 是 | 支付取消后跳转 URL（如 `https://your-domain.com/console/renewal?canceled=true`） |
 
 未配置时支付功能不可用，但不影响系统其他功能。
 
@@ -567,16 +567,15 @@ export function getAllPayments(params?: { page?: number; pageSize?: number; user
 - 编辑对话框：同上 + isActive 开关
 - 顶部：统计 badge、showAll 切换、刷新、创建按钮
 
-### 9.4 用户购买页
+### 9.4 用户续费中心
 
-**新文件**：`services/web/src/views/console/PricingView.vue`
+**当前文件**：`services/web/src/views/console/RenewalCenterView.vue`
 
-- 调用 `getActivePlans()` 获取方案列表
-- 响应式卡片网格（mobile 1列，desktop 2-3列）
-- 每个卡片：方案名称、描述、价格 `$X.XX`、天数、"购买" 按钮
-- 点击"购买"→ `createCheckout(planId)` → `window.location.href = resp.url`（跳转 Stripe）
+- 调用 `getProfile()`、`getActivePlans()`、`getMyPayments()`、`getRedemptions()` 聚合展示会员状态、在线购买、兑换码续期和历史记录
+- 保留 Stripe 跳转支付：点击"立即购买"→ `createCheckout(planId)` → `window.location.href = resp.url`
 - URL query 参数检测：`?success=true` 显示成功提示，`?canceled=true` 显示取消提示
-- 下方展示用户支付历史（`getMyPayments()`），状态列用 tag 着色
+- 页面内直接提供兑换码输入框，不再把兑换续期藏在 Dashboard 弹窗里
+- 下方并列展示用户支付历史和兑换历史
 
 ### 9.5 路由注册
 
@@ -586,9 +585,14 @@ export function getAllPayments(params?: { page?: number; pageSize?: number; user
 
 ```typescript
 {
+  path: 'renewal',
+  name: 'console-renewal',
+  meta: { role: 'user' },
+  component: () => import('../views/console/RenewalCenterView.vue'),
+},
+{
   path: 'pricing',
-  name: 'console-pricing',
-  component: () => import('../views/console/PricingView.vue'),
+  redirect: '/console/renewal',
 },
 ```
 
@@ -615,8 +619,8 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 用户菜单区新增（在"媒体库"后，约第 45 行后）：
 ```typescript
 {
-  title: '购买订阅',
-  path: '/console/pricing',
+  title: '续费中心',
+  path: '/console/renewal',
   icon: ShoppingCart,
   role: 'user'
 },
@@ -680,7 +684,7 @@ import { ShoppingCart, Goods } from '@element-plus/icons-vue'
 | 3 | `services/api/internal/services/payment.go` | PaymentService（方案 CRUD + Checkout + Webhook + 记录查询） |
 | 4 | `services/api/internal/handlers/payment.go` | PaymentHandler |
 | 5 | `services/web/src/views/admin/PlansView.vue` | 管理员方案管理页 |
-| 6 | `services/web/src/views/console/PricingView.vue` | 用户购买页 |
+| 6 | `services/web/src/views/console/RenewalCenterView.vue` | 用户续费中心 |
 | 7 | `infrastructure/database/20260222_02_add_stripe_payment_tables.sql` | 手动迁移 SQL（Plan + Payment） |
 
 ### 修改文件（10 个）
