@@ -11,8 +11,11 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from telegram import (
     BotCommand,
+    BotCommandScopeChat,
+    BotCommandScopeChatAdministrators,
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllPrivateChats,
+    BotCommandScopeDefault,
     Update,
 )
 from telegram.ext import (
@@ -26,7 +29,9 @@ from telegram.ext import (
 from app.config import (
     BOT_PORT,
     INTERNAL_API_SECRET,
+    TELEGRAM_ADMIN_CHAT_ID,
     TELEGRAM_BOT_TOKEN,
+    TELEGRAM_GROUP_CHAT_ID,
     TELEGRAM_WEBHOOK_SECRET,
     WEBHOOK_URL,
 )
@@ -46,6 +51,7 @@ from app.handlers.telegram_handler import (
     send_ranking_notification,
     send_subscription_notification,
 )
+from app.runtime_settings import runtime_settings_service
 
 LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "bot.log"
@@ -123,11 +129,16 @@ async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
                 retry_delay = min(retry_delay * 2, 60)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    del app
-    await tg_app.initialize()
-    await tg_app.start()
+async def resolve_command_scope_chat_ids() -> tuple[int | None, int | None]:
+    try:
+        settings = await runtime_settings_service.get(force_refresh=True)
+        return settings.admin_chat_id, settings.group_chat_id
+    except Exception as err:
+        logger.warning("读取运行期 Telegram Chat ID 失败，回退到环境变量: %s", err)
+        return TELEGRAM_ADMIN_CHAT_ID, TELEGRAM_GROUP_CHAT_ID
+
+
+async def sync_bot_commands() -> None:
     commands = [
         BotCommand("search", "搜索影视"),
         BotCommand("bind", "绑定 Ember 账号"),
@@ -136,17 +147,53 @@ async def lifespan(app: FastAPI):
         BotCommand("resetpw", "重置密码"),
         BotCommand("cancel", "取消备注输入"),
     ]
+    admin_chat_id, group_chat_id = await resolve_command_scope_chat_ids()
+
+    scopes_to_clear = [
+        BotCommandScopeDefault(),
+        BotCommandScopeAllPrivateChats(),
+        BotCommandScopeAllGroupChats(),
+    ]
+    if admin_chat_id is not None:
+        scopes_to_clear.append(BotCommandScopeChat(chat_id=admin_chat_id))
+    if group_chat_id is not None:
+        scopes_to_clear.append(BotCommandScopeChat(chat_id=group_chat_id))
+        scopes_to_clear.append(BotCommandScopeChatAdministrators(chat_id=group_chat_id))
+
+    cleared_scopes: list[str] = []
+    for scope in scopes_to_clear:
+        try:
+            await tg_app.bot.delete_my_commands(scope=scope)
+            cleared_scopes.append(type(scope).__name__)
+        except Exception as err:
+            logger.warning("清理旧命令作用域失败 scope=%s: %s", type(scope).__name__, err)
+
+    await tg_app.bot.set_my_commands(commands)
+    await tg_app.bot.set_my_commands(
+        commands,
+        scope=BotCommandScopeAllPrivateChats(),
+    )
+    with suppress(Exception):
+        await tg_app.bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
+
+    logger.info(
+        "Bot 命令菜单已同步: cleared=%s private_count=%d admin_chat_id=%s group_chat_id=%s",
+        cleared_scopes,
+        len(commands),
+        admin_chat_id,
+        group_chat_id,
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    del app
+    await tg_app.initialize()
+    await tg_app.start()
     try:
-        await tg_app.bot.set_my_commands(commands)
-        await tg_app.bot.set_my_commands(
-            commands,
-            scope=BotCommandScopeAllPrivateChats(),
-        )
-        with suppress(Exception):
-            await tg_app.bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
-        logger.info("Bot 命令菜单已注册")
+        await sync_bot_commands()
     except Exception as err:
-        logger.warning("Bot 命令菜单注册失败，不影响服务运行: %s", err)
+        logger.warning("Bot 命令菜单同步失败，不影响服务运行: %s", err)
     logger.info("Telegram Bot 服务已启动，开始异步注册 webhook")
 
     stop_event = asyncio.Event()
