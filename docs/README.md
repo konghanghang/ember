@@ -50,6 +50,10 @@
 - [`docs/plan/`](./plan/README.md)：进行中的功能规划，当前主要保留未落地或持续治理项
 - [`docs/specs/`](./specs/)：`specs-workflow` 产物；其中 `design.md` 为历史设计资料
 
+### 公开发布
+
+- [`docs/public/`](./public/)：面向用户和部署者的公开文档发布目录
+
 ### 归档
 
 - [归档总览](./archive/README.md)
