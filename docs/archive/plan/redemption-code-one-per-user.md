@@ -2,7 +2,7 @@
 
 > 说明：本文档只覆盖“一人一码一次”与兑换历史相关改动。
 > 兑换码批量生成请看 [redemption-code-batch-create.md](./redemption-code-batch-create.md)。
-> 当前系统事实以 [docs/system-architecture.md](../system-architecture.md) 为准。
+> 当前系统事实以 [docs/system-architecture.md](../../system-architecture.md) 为准。
 
 ## Context
 

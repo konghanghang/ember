@@ -11,13 +11,13 @@
 
 ---
 
-## 📊 进度状态（更新于 2026-03-06）
+## 📊 进度状态（更新于 2026-03-16）
 
 - [ ] P0-1 追剧日历（TV Calendar）
-- [x] P0-2 客户端设备管理（Client Device Management）
-- [x] P0-3 权限模板机制（Permission Template）
-- [x] P1-1 媒体库质量盘点（Media Quality Insight）
-- [x] P1-2 播放历史查询（Playback History）
+- [x] P0-2 客户端设备管理（Client Device Management，已归档）
+- [x] P0-3 权限模板机制（Permission Template，已归档）
+- [x] P1-1 媒体库质量盘点（Media Quality Insight，已归档）
+- [x] P1-2 播放历史查询（Playback History，已归档）
 - [ ] P1-3 用户画像（User Profile Analytics）
 - [ ] P2-1 求片分季支持（Subscription Season Support）
 - [ ] P2-2 用户头像管理（User Avatar Management）
@@ -54,14 +54,20 @@
 ### P0（建议先做）
 
 1. [追剧日历（TV Calendar）](./p0-tv-calendar.md)
-2. [客户端设备管理（Client Device Management）](./p0-device-management.md)
-3. [权限模板机制（Permission Template）](./p0-permission-template.md)
+
+已归档：
+
+- [客户端设备管理（Client Device Management）](../../archive/plan/embypulse-features/p0-device-management.md)
+- [权限模板机制（Permission Template）](../../archive/plan/embypulse-features/p0-permission-template.md)
 
 ### P1（高价值）
 
-4. [媒体库质量盘点（Media Quality Insight）](./p1-media-quality.md)
-5. [播放历史查询（Playback History）](./p1-playback-history.md)
-6. [用户画像（User Profile Analytics）](./p1-user-profile.md)
+2. [用户画像（User Profile Analytics）](./p1-user-profile.md)
+
+已归档：
+
+- [媒体库质量盘点（Media Quality Insight）](../../archive/plan/embypulse-features/p1-media-quality.md)
+- [播放历史查询（Playback History）](../../archive/plan/embypulse-features/p1-playback-history.md)
 
 ### P2（可选）
 
@@ -110,15 +116,17 @@
 docs/plan/embypulse-features/
 ├── README.md
 ├── p0-tv-calendar.md
-├── p0-device-management.md
-├── p0-permission-template.md
-├── p1-media-quality.md
-├── p1-playback-history.md
 ├── p1-user-profile.md
 ├── p2-subscription-season.md
 ├── p2-user-avatar.md
 ├── p2-library-list.md
 └── p2-code-notes.md
+
+docs/archive/plan/embypulse-features/
+├── p0-device-management.md
+├── p0-permission-template.md
+├── p1-media-quality.md
+└── p1-playback-history.md
 ```
 
 ---
