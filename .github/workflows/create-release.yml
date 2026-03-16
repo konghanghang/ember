@@ -113,14 +113,14 @@ jobs:
           # 修改镜像 tag 为 ${VERSION}
 
           # 3. 重启服务
-          docker-compose -f infrastructure/docker/docker-compose.yml down
-          docker-compose -f infrastructure/docker/docker-compose.yml up -d
+          docker compose -f infrastructure/docker/docker-compose.yml down
+          docker compose -f infrastructure/docker/docker-compose.yml up -d
           \`\`\`
 
           ## 📝 文档
 
           - [项目 README](https://github.com/${{ github.repository }}/blob/${VERSION}/README.md)
-          - [系统架构文档](https://github.com/${{ github.repository }}/blob/${VERSION}/docs/SYSTEM-ARCHITECTURE.md)
+          - [系统架构文档](https://github.com/${{ github.repository }}/blob/${VERSION}/docs/system-architecture.md)
 
           ---
 

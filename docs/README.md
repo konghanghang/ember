@@ -36,9 +36,14 @@
 ### 操作手册
 
 - [部署指南](./runbooks/deployment.md)
+- [部署环境与配置](./runbooks/deployment-environment.md)
+- [部署排障](./runbooks/deployment-troubleshooting.md)
 - [测试指南](./runbooks/testing.md)
+- [手工测试清单](./runbooks/manual-testing-checklist.md)
+- [测试排障](./runbooks/testing-troubleshooting.md)
 - [Cloudflared 本地联调](./runbooks/cloudflared-local-testing.md)
 - [Docker 构建指南](./runbooks/docker-build-guide.md)
+- [发布流程](./runbooks/release-process.md)
 
 ### 方案与设计
 
