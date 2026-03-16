@@ -12,9 +12,9 @@
    - API、Bot、支付、邮件、Emby、TMDB、MoviePilot、cron 等核心能力仍通过 `os.Getenv()` 或 `os.environ[]` 读取
    - 典型位置：
      - [services/api/cmd/server/main.go](../../services/api/cmd/server/main.go)
-     - [services/api/internal/services/emby.go](../../services/api/internal/services/emby.go)
+     - [services/api/internal/integrations/emby/emby.go](../../services/api/internal/integrations/emby/emby.go)
      - [services/api/internal/services/email.go](../../services/api/internal/services/email.go)
-     - [services/api/internal/services/payment.go](../../services/api/internal/services/payment.go)
+     - [services/api/internal/services/payment/service.go](../../services/api/internal/services/payment/service.go)
      - [services/bot/app/config.py](../../services/bot/app/config.py)
 
 这已经带来了三个实际问题：
@@ -28,7 +28,7 @@
 当前设置页文案写着“默认试用天数设为 0 则无试用”，但后端 `SettingService` 实际拒绝 `0`：
 
 - 前端：[services/web/src/views/admin/SettingsView.vue#L232](../../services/web/src/views/admin/SettingsView.vue#L232)
-- 后端：[services/api/internal/services/setting.go#L58](../../services/api/internal/services/setting.go#L58)
+- 后端：[services/api/internal/handlers/setting.go](../../services/api/internal/handlers/setting.go)
 
 这说明前后端没有共享同一份配置定义，继续在现有 `key/value` 白名单上堆逻辑，只会让这种漂移越来越多。
 

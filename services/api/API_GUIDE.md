@@ -346,7 +346,7 @@ air
 ## 📚 相关文档
 
 - [项目 README](../../README.md)
-- [迁移指南](../../docs/MIGRATION-GUIDE.md)
+- [文档中心](../../docs/README.md)
 - [Makefile 命令](../../Makefile)
 
 ---

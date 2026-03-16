@@ -1,61 +1,60 @@
-# Ember 项目文档
+# Ember 文档中心
 
-> Ember — Emby 用户管理系统文档中心
+这里是 Ember 的唯一文档导航入口。规则很简单：先判断文档属于“稳定事实”还是“阶段性方案”，再决定放哪。
 
----
+## 阅读顺序
 
-## 文档索引
+1. [系统架构](./SYSTEM-ARCHITECTURE.md)：先建立系统全局认知。
+2. [开发指南](./reference/development-guide.md)：再看开发时真正要遵守的入口规则。
+3. 按用途进入对应分区：`reference`、`runbooks`、`proposals`、`archive`。
 
-| 文档 | 用途 | 受众 |
-|------|------|------|
-| **[系统架构](SYSTEM-ARCHITECTURE.md)** | 数据模型、服务逻辑、API 端点、前端结构 | 所有开发者 |
-| **[配置参考](CONFIGURATION-REFERENCE.md)** | 配置来源、密钥用途、数据库/环境变量边界 | 开发/运维 |
-| **[API 目录重构计划](API-DIRECTORY-REFACTOR.md)** | API 目录重构现状、剩余范围、compat 清理计划 | 开发 |
-| **[API 开发与目录规范](API-DEVELOPMENT-CONVENTIONS.md)** | API 分层经验、依赖规则、compat 约束、后续开发要求 | 后端开发 |
-| **[API 响应规范](API-RESPONSE-STANDARD.md)** | JSON 格式、字段命名、GORM 映射约定 | 后端开发 |
-| **[部署指南](DEPLOYMENT.md)** | Docker 部署、环境变量、CI/CD | 运维 |
-| **[测试指南](TESTING.md)** | 测试步骤、环境准备、故障排查 | 测试 |
-| **[Cloudflared 本地联调](CLOUDFLARED-LOCAL-TESTING.md)** | Telegram webhook 本地联调与 Surge 排障 | 开发/测试 |
-| **[Emby API 参考](emby-api-guide.md)** | Emby 集成接口、调试技巧 | 后端开发 |
+## 文档分层
 
----
+| 分区 | 作用 | 放什么 |
+|------|------|--------|
+| [SYSTEM-ARCHITECTURE.md](./SYSTEM-ARCHITECTURE.md) | 核心真相来源 | 当前系统结构、数据模型、服务边界、API 端点 |
+| [reference/](./reference/README.md) | 稳定参考文档 | 规范、配置、外部接口、长期有效约束 |
+| [runbooks/](./runbooks/README.md) | 操作手册 | 部署、测试、构建、联调、排障 |
+| [proposals/](./proposals/README.md) | 方案与设计 | 重构提案、功能规划、需求设计 |
+| [archive/](./archive/README.md) | 历史归档 | 已完成、已废弃或仅供追溯的旧文档 |
 
-## 快速开始
+## 当前入口
 
-1. 阅读 **[系统架构](SYSTEM-ARCHITECTURE.md)** 了解整体设计
-2. 参考 **[部署指南](DEPLOYMENT.md)** 搭建环境
-3. 按照 **[测试指南](TESTING.md)** 验证功能
+### 核心
 
----
+- [系统架构](./SYSTEM-ARCHITECTURE.md)
+- [开发指南](./reference/development-guide.md)
 
-## 归档文档
+### 稳定参考
 
-历史文档存放在 `specs/archive/`，仅供参考：
+- [配置参考](./reference/CONFIGURATION-REFERENCE.md)
+- [API 开发与目录规范](./reference/API-DEVELOPMENT-CONVENTIONS.md)
+- [API 响应规范](./reference/API-RESPONSE-STANDARD.md)
+- [Emby API 参考](./reference/emby-api-guide.md)
+- [Web 设计规范](./reference/WEB_DESIGN_GUIDE.md)
 
-- `specs/archive/plan/` — 已完成的功能实施计划
-- `specs/archive/API-REFERENCE.md` — 旧版 API 详细文档（Next.js 时期）
-- `specs/archive/BUGFIX-SUMMARY.md` — 重大 Bug 修复记录
-- `specs/archive/tasks.md` — 开发任务列表（已完成）
-- `specs/archive/test-reports/` — 历史测试报告
-- `specs/design.md` — MVP 初始需求文档
+### 操作手册
 
----
+- [部署指南](./runbooks/DEPLOYMENT.md)
+- [测试指南](./runbooks/TESTING.md)
+- [Cloudflared 本地联调](./runbooks/CLOUDFLARED-LOCAL-TESTING.md)
+- [Docker 构建指南](./runbooks/DOCKER-BUILD-GUIDE.md)
 
-## 目录结构
+### 方案与设计
 
-```
-docs/
-├── README.md                    # 本文档（导航入口）
-├── SYSTEM-ARCHITECTURE.md       # 系统架构（核心参考）
-├── CONFIGURATION-REFERENCE.md   # 配置参考
-├── API-DIRECTORY-REFACTOR.md    # API 目录重构计划
-├── API-DEVELOPMENT-CONVENTIONS.md # API 开发与目录规范
-├── API-RESPONSE-STANDARD.md     # API 响应规范
-├── DEPLOYMENT.md                # 部署指南
-├── TESTING.md                   # 测试指南
-├── CLOUDFLARED-LOCAL-TESTING.md # Cloudflared 本地联调
-├── emby-api-guide.md            # Emby API 参考
-└── specs/
-    ├── design.md                # MVP 需求文档
-    └── archive/                 # 历史归档
-```
+- [提案总览](./proposals/README.md)
+- [API 目录重构提案](./proposals/API-DIRECTORY-REFACTOR.md)
+- [`docs/plan/`](./plan/)：进行中的功能规划，保持原路径以兼容协作流程
+- [`docs/specs/`](./specs/)：`specs-workflow` 产物，当前仍保留在原路径
+
+### 归档
+
+- [归档总览](./archive/README.md)
+- [MVP 初始设计](./specs/design.md)
+
+## 维护规则
+
+- 新增稳定规则：放进 `reference/`。
+- 新增操作流程：放进 `runbooks/`。
+- 新增需求或设计讨论：先放 `plan/` 或 `specs/`，落地后提炼，再归档。
+- 已经失效但需要保留追溯：放进 `archive/`。

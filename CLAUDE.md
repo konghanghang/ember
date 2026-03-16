@@ -2,7 +2,7 @@
 
 本文件用于指导 Claude AI 在本项目中的协作方式和工作规范。
 
-> ⚠️ **注意**：本文件仅用于 AI 协作指导，技术开发规范请参考 [docs/development-guide.md](docs/development-guide.md)
+> ⚠️ **注意**：本文件仅用于 AI 协作指导，技术开发规范请参考 [docs/reference/development-guide.md](docs/reference/development-guide.md)
 
 ## 角色定义
 
@@ -202,7 +202,7 @@ services/
 - 列表接口统一使用 `data` 字段
 - 字段命名使用 camelCase（驼峰）
 - GORM 模型必须显式指定 `gorm:"column:xxx"`
-- 详见：[docs/API-RESPONSE-STANDARD.md](docs/API-RESPONSE-STANDARD.md)
+- 详见：[docs/reference/API-RESPONSE-STANDARD.md](docs/reference/API-RESPONSE-STANDARD.md)
 
 ---
 
@@ -281,4 +281,4 @@ services/
 - ❌ 不启动服务、不主动提交代码、不主动开始开发
 - ✅ 只做编译验证，询问后再提交
 - ✅ 计划完成后等待用户指示
-- 📚 详细规范参考：[docs/API-RESPONSE-STANDARD.md](docs/API-RESPONSE-STANDARD.md)
+- 📚 详细规范参考：[docs/reference/API-RESPONSE-STANDARD.md](docs/reference/API-RESPONSE-STANDARD.md)

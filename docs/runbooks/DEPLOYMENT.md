@@ -829,12 +829,12 @@ curl http://localhost:3000/api/health
 
 ## 📚 相关文档
 
-- [README.md](../README.md) - 项目概览
-- [需求文档](./specs/requirements.md) - MVP 功能需求
-- [设计文档](./specs/design.md) - 详细设计
-- [测试清单](./testing-checklist.md) - 测试验收标准
-- [开发指南](./development-guide.md) - 开发环境搭建和规范
-- [CI/CD 指南](./cicd-guide.md) - 自动化部署流程
+- [项目 README](../../README.md) - 项目概览
+- [文档中心](../README.md) - 文档总入口
+- [系统架构](../SYSTEM-ARCHITECTURE.md) - 当前系统结构与边界
+- [开发指南](../reference/development-guide.md) - 开发入口与维护规则
+- [测试指南](./TESTING.md) - 部署后的验证步骤
+- [Docker 构建指南](./DOCKER-BUILD-GUIDE.md) - 镜像构建与发布
 
 ---
 

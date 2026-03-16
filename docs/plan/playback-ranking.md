@@ -622,7 +622,7 @@ curl -X POST "http://localhost:8080/api/v1/admin/cron/generate-ranking?type=dail
 curl -X POST "http://localhost:8080/api/v1/admin/cron/generate-ranking?type=weekly&start=2026-02-10&end=2026-02-16"
 ```
 
-**API 响应格式**（遵循现有 `docs/API-RESPONSE-STANDARD.md` 规范）：
+**API 响应格式**（遵循现有 `docs/reference/API-RESPONSE-STANDARD.md` 规范）：
 
 ```json
 // GET /api/v1/rankings/latest?period=daily&category=media_movie

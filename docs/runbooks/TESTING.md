@@ -4,7 +4,7 @@
 > **最后更新**: 2025-12-06
 > **适用范围**: MVP 阶段手动测试
 
-本文档提供详细的测试步骤和配置说明，配合 [testing-checklist.md](./testing-checklist.md) 使用。
+本文档提供详细的测试步骤和配置说明，建议在执行时自行准备一份测试记录表。
 
 ---
 
@@ -329,7 +329,7 @@ curl -X GET "${EMBY_URL}/System/Info?api_key=${EMBY_API_KEY}"
 
 ### 测试准备
 
-1. **打开测试清单**: 准备一份 [testing-checklist.md](./testing-checklist.md) 的副本用于记录
+1. **准备测试记录表**: 建议复制一份本节清单或使用你自己的记录模板逐项打勾
 2. **准备工具**:
    - 浏览器（推荐 Chrome/Edge，便于使用 DevTools）
    - Prisma Studio: `npm run db:studio`（http://localhost:5555）

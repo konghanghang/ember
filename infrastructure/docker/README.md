@@ -209,6 +209,6 @@ docker network inspect ember_ember-network
 
 ## 📚 相关文档
 
-- [Docker 构建指南](../../docs/DOCKER-BUILD-GUIDE.md)
+- [Docker 构建指南](../../docs/runbooks/DOCKER-BUILD-GUIDE.md)
 - [系统架构文档](../../docs/SYSTEM-ARCHITECTURE.md)
 - [项目 README](../../README.md)

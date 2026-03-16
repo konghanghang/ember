@@ -473,8 +473,8 @@ curl -s http://localhost:8080/api/v1/admin/users \
 - [Microsoft REST API Guidelines](https://github.com/microsoft/api-guidelines)
 
 ### 内部文档
-- [API-REFERENCE.md](./API-REFERENCE.md) - 完整 API 文档
-- [DEVELOPMENT.md](./DEVELOPMENT.md) - 开发指南
+- [旧版 API 参考](../archive/API-REFERENCE.md) - 历史接口文档，仅供追溯
+- [开发指南](./development-guide.md) - 当前开发入口
 
 ---
 

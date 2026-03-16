@@ -2,7 +2,7 @@
 
 ## 背景与目标
 
-Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规范文档 `docs/WEB_DESIGN_GUIDE.md`，定义了色彩、排版、组件、布局、动效等核心规范。
+Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规范文档 `docs/reference/WEB_DESIGN_GUIDE.md`，定义了色彩、排版、组件、布局、动效等核心规范。
 
 **经过全面审查发现**，代码实现与设计文档的整体对齐度约 95%，基础设计质量优秀，但存在三类问题：
 
@@ -22,7 +22,7 @@ Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规�
 - 不做组件抽象重构（问题是一致性，不是架构）
 
 **范围与约定**：
-- 本计划仅覆盖前端 `services/web/` 与设计规范文档 `docs/WEB_DESIGN_GUIDE.md`
+- 本计划仅覆盖前端 `services/web/` 与设计规范文档 `docs/reference/WEB_DESIGN_GUIDE.md`
 - 文中所有路径均为“仓库根目录相对路径”，避免 `src/...` 这种不带上下文的歧义写法
 
 ---
@@ -90,9 +90,9 @@ Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规�
 
 ### 第一步：更新设计规范文档
 
-**目标**：使 `docs/WEB_DESIGN_GUIDE.md` 成为完整的设计系统参考，覆盖所有已实现的模式。
+**目标**：使 `docs/reference/WEB_DESIGN_GUIDE.md` 成为完整的设计系统参考，覆盖所有已实现的模式。
 
-**修改文件**：`docs/WEB_DESIGN_GUIDE.md`
+**修改文件**：`docs/reference/WEB_DESIGN_GUIDE.md`
 
 #### 2.1.1 新增 §8「侧边栏与导航」
 
@@ -574,7 +574,7 @@ if (start !== '' && end !== '') return `📅 ${start} ~ ${end}`
 
 | 文件路径 | 改动类型 |
 |---------|---------|
-| `docs/WEB_DESIGN_GUIDE.md` | 新增 6 个章节 + 更新 2 个现有章节 |
+| `docs/reference/WEB_DESIGN_GUIDE.md` | 新增 6 个章节 + 更新 2 个现有章节 |
 | `services/web/src/assets/base.css` | 添加 `prefers-reduced-motion` 媒体查询 |
 | `services/web/src/views/console/RankingsView.vue` | 替换 emoji 图标、补齐可点击指针与图标语义 |
 | `services/web/src/views/console/DashboardView.vue` | 统一按钮样式、补齐可点击指针、图标容器大小对齐 |
