@@ -1,3 +1,27 @@
+---
+layout: home
+
+hero:
+  name: Ember
+  text: Emby 用户管理系统公开文档
+  tagline: 面向用户和部署者的使用、部署与集成说明
+  actions:
+    - theme: brand
+      text: 快速开始
+      link: /getting-started
+    - theme: alt
+      text: 功能总览
+      link: /features/overview
+
+features:
+  - title: 快速部署
+    details: 基于 Docker Compose 的标准部署路径，适合快速拉起 API、Web、Bot 和 PostgreSQL。
+  - title: 用户与运营
+    details: 覆盖注册、续期、兑换码、支付、求片订阅、播放排行和追剧日历。
+  - title: 外部集成
+    details: 提供 Emby、Telegram、Stripe、MoviePilot 的公开配置与接入说明。
+---
+
 # Ember 文档
 
 Ember 是一个面向 Emby 的用户管理系统，提供注册登录、账号生命周期管理、兑换码、支付、求片订阅、Telegram Bot 和追剧日历等能力。
@@ -34,8 +58,4 @@ Ember 是一个面向 Emby 的用户管理系统，提供注册登录、账号�
 
 ## 说明
 
-如果你是项目开发者，当前系统实现和内部规则请优先看：
-
-- [文档中心](../README.md)
-- [系统架构](../system-architecture.md)
-- [开发指南](../reference/development-guide.md)
+这套目录只用于公开发布，不包含内部架构、方案设计、归档和 AI 协作规则。
