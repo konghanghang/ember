@@ -41,6 +41,7 @@ from app.handlers.telegram_handler import (
     handle_callback,
     handle_info,
     handle_new_member,
+    handle_refresh_menu,
     handle_redeem,
     handle_resetpw,
     handle_search,
@@ -51,6 +52,7 @@ from app.handlers.telegram_handler import (
     send_ranking_notification,
     send_subscription_notification,
 )
+from app.menu_sync import schedule_group_menu_sync
 from app.runtime_settings import runtime_settings_service
 
 LOG_DIR = Path("logs")
@@ -99,6 +101,7 @@ tg_app.add_handler(CommandHandler("redeem", handle_redeem))
 tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
 tg_app.add_handler(CommandHandler("search", handle_search))
 tg_app.add_handler(CommandHandler("cancel", handle_cancel_note))
+tg_app.add_handler(CommandHandler("refresh_menu", handle_refresh_menu))
 tg_app.add_handler(MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
     handle_text_message,
@@ -149,9 +152,14 @@ async def sync_bot_commands() -> None:
     ]
     admin_chat_id, group_chat_id = await resolve_command_scope_chat_ids()
 
+    with suppress(Exception):
+        await tg_app.bot.delete_my_commands(scope=BotCommandScopeDefault())
+    await tg_app.bot.set_my_commands(
+        commands,
+        scope=BotCommandScopeAllPrivateChats(),
+    )
+
     scopes_to_clear = [
-        BotCommandScopeDefault(),
-        BotCommandScopeAllPrivateChats(),
         BotCommandScopeAllGroupChats(),
     ]
     if admin_chat_id is not None:
@@ -167,14 +175,6 @@ async def sync_bot_commands() -> None:
             cleared_scopes.append(type(scope).__name__)
         except Exception as err:
             logger.warning("清理旧命令作用域失败 scope=%s: %s", type(scope).__name__, err)
-
-    await tg_app.bot.set_my_commands(commands)
-    await tg_app.bot.set_my_commands(
-        commands,
-        scope=BotCommandScopeAllPrivateChats(),
-    )
-    with suppress(Exception):
-        await tg_app.bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
 
     logger.info(
         "Bot 命令菜单已同步: cleared=%s private_count=%d admin_chat_id=%s group_chat_id=%s",
@@ -226,6 +226,7 @@ async def telegram_webhook(request: Request):
 
     data = await request.json()
     update = Update.de_json(data, tg_app.bot)
+    await schedule_group_menu_sync(tg_app.bot, update)
     await tg_app.process_update(update)
     return Response(status_code=200)
 

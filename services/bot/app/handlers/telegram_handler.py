@@ -30,9 +30,40 @@ from app.handlers.search_cache import (
     get_session,
     set_session,
 )
+from app.menu_sync import force_group_menu_sync, is_menu_refresh_allowed
 from app.runtime_settings import runtime_settings_service
 
 logger = logging.getLogger(__name__)
+
+
+def _private_only_tip() -> str:
+    return "⚠️ 请在私聊中使用此命令"
+
+
+def _group_only_tip() -> str:
+    return "⚠️ 请在群聊中使用此命令"
+
+
+def _format_command_help(title: str, command: str, example: str, steps: list[str] | None = None, note: str | None = None) -> str:
+    lines = [
+        f"❌ <b>{escape(title)}</b>",
+        "",
+        "正确用法：",
+        f"<code>{escape(command)}</code>",
+        "",
+        "示例：",
+        f"<code>{escape(example)}</code>",
+    ]
+
+    if steps:
+        lines.extend(["", "操作步骤："])
+        for index, step in enumerate(steps, start=1):
+            lines.append(f"{index}. {escape(step)}")
+
+    if note:
+        lines.extend(["", escape(note)])
+
+    return "\n".join(lines)
 
 
 async def send_subscription_notification(bot, data: dict) -> None:
@@ -191,15 +222,23 @@ async def handle_bind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if message.chat.type != "private":
-        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        await message.reply_text(_private_only_tip())
         return
 
     args = context.args or []
-    if len(args) != 1 or len(args[0]) != 6:
+    if len(args) != 1 or len(args[0]) != 6 or not args[0].isdigit():
         await message.reply_text(
-            "📝 <b>使用方式</b>\n\n"
-            "/bind <code>验证码</code>\n\n"
-            "请先在 Ember 网站生成绑定验证码。",
+            _format_command_help(
+                title="缺少绑定验证码或格式不正确",
+                command="/bind 123456",
+                example="/bind 123456",
+                steps=[
+                    "打开 Ember 控制台",
+                    "生成 Telegram 绑定验证码",
+                    "把 6 位数字填在 /bind 后面发送",
+                ],
+                note="验证码必须是 6 位数字。",
+            ),
             parse_mode="HTML",
         )
         return
@@ -222,7 +261,7 @@ async def handle_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if message.chat.type != "private":
-        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        await message.reply_text(_private_only_tip())
         return
 
     result = await api_client.get_account_info(message.from_user.id)
@@ -242,14 +281,18 @@ async def handle_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if message.chat.type != "private":
-        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        await message.reply_text(_private_only_tip())
         return
 
     args = context.args or []
     if len(args) != 1:
         await message.reply_text(
-            "📝 <b>使用方式</b>\n\n"
-            "/redeem <code>兑换码</code>",
+            _format_command_help(
+                title="缺少兑换码",
+                command="/redeem ABCD1234",
+                example="/redeem ABCD1234",
+                note="请把兑换码直接写在 /redeem 后面发送。",
+            ),
             parse_mode="HTML",
         )
         return
@@ -271,15 +314,18 @@ async def handle_resetpw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if message.chat.type != "private":
-        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        await message.reply_text(_private_only_tip())
         return
 
     args = context.args or []
     if len(args) != 1 or len(args[0]) < 6:
         await message.reply_text(
-            "📝 <b>使用方式</b>\n\n"
-            "/resetpw <code>新密码</code>\n\n"
-            "密码至少 6 位，将同时更新 Ember 和 Emby 登录密码。",
+            _format_command_help(
+                title="缺少新密码或密码太短",
+                command="/resetpw mynewpass123",
+                example="/resetpw mynewpass123",
+                note="密码至少 6 位，会同时更新 Ember 和 Emby 登录密码。",
+            ),
             parse_mode="HTML",
         )
         return
@@ -299,6 +345,28 @@ async def handle_resetpw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+async def handle_refresh_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type not in ("group", "supergroup"):
+        await message.reply_text(_group_only_tip())
+        return
+
+    allowed, reason = await is_menu_refresh_allowed(context.bot, message.chat.id, message.from_user.id)
+    if not allowed:
+        await message.reply_text(f"❌ {escape(reason or '只有群管理员或配置的管理员账号可以刷新菜单')}", parse_mode="HTML")
+        return
+
+    ok, result = await force_group_menu_sync(context.bot, message.chat.id, message.chat.type)
+    if not ok:
+        await message.reply_text(f"❌ {escape(result)}", parse_mode="HTML")
+        return
+
+    await message.reply_text("✅ 当前群菜单作用域已刷新，旧命令应已清理")
+
+
 # ==================== 搜索与订阅 ====================
 
 
@@ -309,15 +377,18 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if message.chat.type != "private":
-        await message.reply_text("⚠️ 请在私聊中使用此命令")
+        await message.reply_text(_private_only_tip())
         return
 
     args = context.args or []
     if not args:
         await message.reply_text(
-            "📝 <b>使用方式</b>\n\n"
-            "/search <code>关键词</code>\n\n"
-            "例如：/search 搏击俱乐部",
+            _format_command_help(
+                title="缺少搜索关键词",
+                command="/search 搏击俱乐部",
+                example="/search 搏击俱乐部",
+                note="可以输入电影名、剧名或中英文关键词。",
+            ),
             parse_mode="HTML",
         )
         return
@@ -335,7 +406,9 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if status_code == 400:
             await message.reply_text(
                 "❌ 请先绑定 Telegram 账号后再使用搜索功能\n\n"
-                "使用 /bind <code>验证码</code> 绑定",
+                "正确用法：\n"
+                "<code>/bind 123456</code>\n\n"
+                "请先去 Ember 控制台生成 6 位绑定验证码，再回来绑定。",
                 parse_mode="HTML",
             )
         else:

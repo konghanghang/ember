@@ -986,7 +986,8 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 
 - **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
 - **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 配置）
-- **Commands**：`/search`（搜索影视并订阅）、`/cancel`（取消备注输入并回到详情页）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）
+- **Commands**：`/search`（搜索影视并订阅）、`/cancel`（取消备注输入并回到详情页）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）、`/refresh_menu`（管理员强制刷新当前群菜单）
+- **群菜单策略**：仅私聊作用域写入命令菜单；default/group scope 保持为空，群聊默认不展示命令菜单，首次收到群消息时按群清理旧作用域菜单，并在当前 Bot 进程内缓存已同步群；`/refresh_menu` 强刷会额外重试清理 default / all-group 作用域
 - **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）
 
 ### 环境变量
