@@ -1,237 +1,73 @@
-# Ember Go Backend
+# Ember API
 
-> Emby 用户管理系统的 Go 语言后端实现
+Go API 服务，负责认证、用户生命周期、兑换码、订阅、支付、媒体能力、设置中心和 Bot 内部接口。
 
-## 🎯 设计原则
+## 入口与验证
 
-### 与 Next.js 版本的兼容性
+- 入口：`cmd/server/main.go`
+- 默认端口：`8080`
+- 健康检查：`GET /health`
 
-本 Go 后端遵循以下核心原则：
-
-1. **数据兼容性** - 与 Prisma 创建的数据库表 100% 兼容
-2. **业务语义保留** - 保留原有设计中的业务逻辑（如字符串外键）
-3. **零停机迁移** - 可以与 Next.js API 并行运行
-4. **渐进式替换** - 一次迁移一个 API 端点
-
-### 关键设计决策
-
-#### 1. 保留 `InviteCode string` 外键
-
-```go
-// ✅ 保留原设计
-type User struct {
-    InviteCode string `json:"inviteCode"` // 历史快照
-    ...
-}
-
-// ❌ 不采用文档建议
-// InviteID uuid.UUID // 错误：丢失业务语义
-```
-
-**理由：**
-- 注册是"历史事件"（我用哪个码注册的），不是"持续关系"（我属于哪个邀请码）
-- 类似电商订单保存商品名称，而不是仅保存商品ID
-- 即使邀请码被删除，用户记录仍保留完整历史
-- 详见：`prisma/schema.prisma` 第24-35行注释
-
-#### 2. 使用 `cuid` 而非 `UUID`
-
-```go
-// ✅ 与 Prisma 保持一致
-ID string `gorm:"type:varchar(25);primaryKey"` // cuid
-```
-
-**理由：**
-- Prisma 使用 `@default(cuid())`
-- 兼容现有数据库数据
-- 对 < 100 用户规模，cuid vs UUID 性能差异可忽略
-
-#### 3. 不执行 `AutoMigrate`
-
-```go
-// ⚠️ 重要：不执行 AutoMigrate
-// 因为表已经由 Prisma 创建，我们只是连接现有数据库
-```
-
-**理由：**
-- 避免破坏现有表结构
-- 迁移由 Prisma 管理
-- Go 后端只负责读写数据
-
-## 🏗️ 项目结构
-
-```
-backend/
-├── cmd/
-│   └── server/
-│       └── main.go           # 应用入口
-├── internal/
-│   ├── api/
-│   │   ├── handlers/         # HTTP 处理器
-│   │   └── middleware/       # 中间件
-│   ├── models/               # GORM 数据模型
-│   │   ├── admin.go
-│   │   ├── invite.go
-│   │   ├── user.go
-│   │   └── subscription.go
-│   ├── services/             # 业务逻辑层
-│   └── db/
-│       └── db.go             # 数据库初始化
-├── migrations/               # 数据库迁移脚本（可选）
-├── scripts/                  # 工具脚本
-├── go.mod
-└── README.md                 # 本文档
-```
-
-## 🚀 快速开始
-
-### 1. 安装依赖
+最小验证：
 
 ```bash
-cd backend
-go mod download
+cd services/api
+go vet ./...
+go test ./...
+go build ./...
 ```
 
-### 2. 配置环境变量
+## 环境变量
+
+本地开发可从 [`.env.example`](./.env.example) 起步：
 
 ```bash
 cp .env.example .env
-# 编辑 .env，配置数据库连接
 ```
 
-### 3. 运行服务
+必填的核心项通常是：
 
-```bash
-# 开发模式
-go run cmd/server/main.go
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `CONFIG_ENCRYPTION_KEY`
+- `EMBY_URL`
+- `EMBY_API_KEY`
+- `TMDB_API_KEY`
+- `INTERNAL_API_SECRET`
 
-# 或者构建后运行
-go build -o bin/ember cmd/server/main.go
-./bin/ember
+更完整的部署边界见 [配置参考](/Users/konghang/data/me/github/ember/docs/reference/configuration-reference.md)。
+
+## 目录骨架
+
+```text
+services/api/
+├── cmd/server/                # 进程入口
+├── internal/app/              # 启动装配、路由、cron
+├── internal/config/           # 配置定义与解析
+├── internal/db/               # 数据库初始化与迁移入口
+├── internal/models/           # GORM 模型
+├── internal/integrations/     # Emby / MoviePilot / BotNotifier
+├── internal/services/         # 业务服务
+├── internal/handlers/         # HTTP 处理层
+├── internal/middleware/       # JWT / InternalAuth
+└── Dockerfile
 ```
 
-### 4. 验证服务
+目录约束与拆分规则见 [API 开发与目录规范](/Users/konghang/data/me/github/ember/docs/reference/api-development-conventions.md)。
 
-```bash
-# 健康检查
-curl http://localhost:3001/health
+## 当前职责
 
-# 预期响应
-{
-  "status": "ok",
-  "message": "Ember Go Backend is running"
-}
-```
+- 公开接口：登录、注册、忘记密码、Stripe Webhook、Emby Webhook、TMDB 搜索
+- 统一认证接口：个人信息、兑换、媒体统计、最近入库、排行、支付、Telegram 绑定码、追剧日历
+- 管理员接口：用户、兑换码、配置中心、订阅、会话、播放历史、媒体质量、设备、方案、支付、cron
+- 内部接口：Bot 绑定/查询/兑换/重置密码/订阅，订阅审批
 
-## 📊 当前状态
+完整接口面以 [系统架构文档](/Users/konghang/data/me/github/ember/docs/system-architecture.md) 为准。
 
-### ✅ 已完成
+## 相关文档
 
-- [x] 项目结构搭建
-- [x] GORM 数据模型（Admin, Invite, User, Subscription）
-- [x] 数据库连接层
-- [x] 健康检查 API
-- [x] 设计决策文档
-
-### 🚧 进行中
-
-- [ ] 管理员认证 API
-- [ ] 用户管理 CRUD
-- [ ] 邀请码管理
-- [ ] 订阅管理
-
-### ⏳ 待开始
-
-- [ ] JWT 中间件
-- [ ] CORS 中间件
-- [ ] 错误处理
-- [ ] 日志记录
-- [ ] 单元测试
-
-## 🔄 与 Next.js 并行运行
-
-### 架构图
-
-```
-浏览器
-    │
-    ├─→ Next.js Frontend (React)
-    │       │
-    │       ├─→ /api/admin/login  (Next.js API) ← 旧端点
-    │       └─→ /api/v1/admin/login (Go Backend) ← 新端点
-    │
-    └─→ PostgreSQL 数据库 (共享)
-```
-
-### 迁移策略
-
-1. **阶段1：并行运行**
-   - Next.js API: `http://localhost:3000/api/*`
-   - Go Backend: `http://localhost:3001/api/v1/*`
-
-2. **阶段2：逐步替换**
-   - 每迁移一个端点，前端切换到 Go 后端
-   - 保留 Next.js 端点 1 周（以防回滚）
-
-3. **阶段3：完全切换**
-   - 所有 API 迁移完成后，停止 Next.js API
-
-## 🎓 学习资源
-
-### Go 语言基础
-
-- [Go 官方教程](https://go.dev/tour/)
-- [Effective Go](https://go.dev/doc/effective_go)
-
-### Gin 框架
-
-- [Gin 官方文档](https://gin-gonic.com/docs/)
-
-### GORM
-
-- [GORM 指南](https://gorm.io/docs/)
-- [GORM 关联关系](https://gorm.io/docs/belongs_to.html)
-
-## 📝 开发规范
-
-### 代码风格
-
-- 遵循 `gofmt` 格式
-- 使用有意义的变量名
-- 函数注释说明用途
-
-### 错误处理
-
-```go
-// ✅ 正确
-if err != nil {
-    log.Printf("错误：%v", err)
-    c.JSON(500, gin.H{"error": "内部错误"})
-    return
-}
-
-// ❌ 错误
-if err != nil {
-    panic(err) // 永远不要 panic
-}
-```
-
-## 🤝 贡献
-
-欢迎提交 PR！请确保：
-
-1. 代码通过 `go fmt` 格式化
-2. 添加必要的注释
-3. 测试通过
-
----
-
-`★ Insight ─────────────────────────────────────`
-**为什么保留 InviteCode string？**
-- "Good taste" 是让数据结构反映业务现实
-- 用户注册时记录的是"用了哪个码"（历史），不是"属于哪个码"（关系）
-- UUID 外键虽然"理论正确"，但丢失了业务语义
-- Linus: "Theory loses. Every single time."
-`─────────────────────────────────────────────────`
-
-Made with ❤️ by Kong Hang
+- [系统架构](/Users/konghang/data/me/github/ember/docs/system-architecture.md)
+- [API 响应规范](/Users/konghang/data/me/github/ember/docs/reference/api-response-standard.md)
+- [开发指南](/Users/konghang/data/me/github/ember/docs/reference/development-guide.md)
+- [部署指南](/Users/konghang/data/me/github/ember/docs/runbooks/deployment.md)
+- [API_GUIDE.md](./API_GUIDE.md)
