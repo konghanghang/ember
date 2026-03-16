@@ -52,7 +52,7 @@ ember/
 
 - 代码改动前先看 [系统架构](./docs/system-architecture.md) 和 [开发指南](./docs/reference/development-guide.md)。
 - 稳定规则写进 `docs/reference/`；部署、测试、联调流程写进 `docs/runbooks/`。
-- 方案设计先放 `docs/plan/` 或 `docs/specs/`，落地后再提炼到稳定文档；完成后归档到 `docs/archive/`。
+- 新方案优先放 `docs/plan/`；`docs/specs/` 主要保留 workflow 产物和历史设计资料。落地后再提炼到稳定文档；完成后归档到 `docs/archive/`。
 
 ## 验证方式
 

@@ -27,6 +27,8 @@
 - 欢迎消息
 - 部分 `embypulse-features` 已完成条目
 
+`docs/specs/design.md` 也属于历史设计资料，只是当前仍保留在 `docs/specs/` 路径以兼容 workflow。
+
 ## 使用规则
 
 - 需要追溯历史时再看。

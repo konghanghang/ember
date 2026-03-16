@@ -50,12 +50,12 @@
 - [提案总览](./proposals/README.md)
 - [API 目录重构提案](./proposals/api-directory-refactor.md)
 - [`docs/plan/`](./plan/)：进行中的功能规划，保持原路径以兼容协作流程
-- [`docs/specs/`](./specs/)：`specs-workflow` 产物，当前仍保留在原路径
+- [`docs/specs/`](./specs/)：`specs-workflow` 产物，当前仍保留在原路径；其中 `design.md` 为历史设计资料
 
 ### 归档
 
 - [归档总览](./archive/README.md)
-- [MVP 初始设计](./specs/design.md)
+- [MVP 初始设计（历史资料）](./specs/design.md)
 
 ## 维护规则
 

@@ -7,7 +7,7 @@
 - [API 目录重构提案](./api-directory-refactor.md)
 - [计划文档盘点](./plan-inventory.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
-- [`docs/specs/design.md`](../specs/design.md) - MVP 初始设计
+- [`docs/specs/design.md`](../specs/design.md) - MVP 初始设计（历史资料，不代表当前实现）
 
 ## 当前剩余重点
 
@@ -21,7 +21,7 @@
 ## 兼容说明
 
 - `docs/plan/` 仍保留原路径，因为现有协作流程和 AI 指令都依赖这个位置。
-- `docs/specs/` 仍保留为 `specs-workflow` 输出目录，不做路径迁移。
+- `docs/specs/` 仍保留为 `specs-workflow` 输出目录，不做路径迁移；其中 `design.md` 已明确降级为历史设计资料。
 
 ## 维护规则
 

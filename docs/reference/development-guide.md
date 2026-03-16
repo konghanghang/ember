@@ -16,7 +16,7 @@
 
 - 当前系统怎么实现：看 [系统架构](../system-architecture.md)。
 - 长期有效的开发约束：看 `docs/reference/`。
-- 某个功能准备怎么做：看 `docs/plan/` 或 `docs/specs/`。
+- 某个功能准备怎么做：优先看 `docs/plan/`；`docs/specs/` 主要保留 workflow 产物和历史设计资料。
 - 历史方案和旧实现：只去 `docs/archive/` 追溯，不拿它当现行依据。
 
 ## 文档维护规则
