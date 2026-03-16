@@ -563,6 +563,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 - `GetEmbyConfig()` — 返回公开的 Emby URL（`NEXT_PUBLIC_EMBY_URL` 优先；该项允许显式置空以强制回退 `EMBY_URL`）
 - `GetMediaStats()` — 5 分钟 RWMutex 缓存层
+- `GetLatestItems(embyUserID, itemType, limit)` — 通过 Emby `/Users/{userId}/Items/Latest` 获取最近入库媒体，并做短 TTL 去重缓存
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
@@ -953,6 +954,13 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - `GET /api/v1/admin/media-quality/posters/:itemId`
 - 支持 `libraryId=all` 进行全媒体库汇总分析
 - 低画质结果按“影片/剧集”汇总后分页展示
+
+### 最近入库
+
+- 路由：`/console/library`（user）
+- 视图：`views/console/LibraryView.vue`
+- 数据源：`GET /api/v1/media/latest?type=Movie|Series&limit=20`
+- 行为：展示当前用户视角的最近入库电影/剧集，按媒体类型切换，不做搜索和分页
 
 ---
 

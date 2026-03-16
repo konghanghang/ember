@@ -13,7 +13,7 @@
 
 ## 📊 进度状态（更新于 2026-03-16）
 
-- [ ] P0-1 追剧日历（TV Calendar）
+- [x] P0-1 追剧日历（TV Calendar，已归档）
 - [x] P0-2 客户端设备管理（Client Device Management，已归档）
 - [x] P0-3 权限模板机制（Permission Template，已归档）
 - [x] P1-1 媒体库质量盘点（Media Quality Insight，已归档）
@@ -53,10 +53,9 @@
 
 ### P0（建议先做）
 
-1. [追剧日历（TV Calendar）](./p0-tv-calendar.md)
-
 已归档：
 
+- [追剧日历（TV Calendar）](../../archive/plan/embypulse-features/p0-tv-calendar.md)
 - [客户端设备管理（Client Device Management）](../../archive/plan/embypulse-features/p0-device-management.md)
 - [权限模板机制（Permission Template）](../../archive/plan/embypulse-features/p0-permission-template.md)
 
@@ -115,7 +114,6 @@
 ```
 docs/plan/embypulse-features/
 ├── README.md
-├── p0-tv-calendar.md
 ├── p1-user-profile.md
 ├── p2-subscription-season.md
 ├── p2-user-avatar.md
@@ -125,6 +123,7 @@ docs/plan/embypulse-features/
 docs/archive/plan/embypulse-features/
 ├── p0-device-management.md
 ├── p0-permission-template.md
+├── p0-tv-calendar.md
 ├── p1-media-quality.md
 └── p1-playback-history.md
 ```

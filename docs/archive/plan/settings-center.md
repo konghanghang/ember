@@ -6,16 +6,16 @@
 
 1. **数据库 `settings` 表**
    - 当前只承载少量业务开关，如 `registration_mode`、`default_trial_days`、`notify_group_link`、`email_verification`、`stripe_allowed_payment_methods`
-   - 管理后台页面 [services/web/src/views/admin/SettingsView.vue](../../services/web/src/views/admin/SettingsView.vue) 只覆盖这部分配置
+   - 管理后台页面 [services/web/src/views/admin/SettingsView.vue](../../../services/web/src/views/admin/SettingsView.vue) 只覆盖这部分配置
 
 2. **Docker / 进程环境变量**
    - API、Bot、支付、邮件、Emby、TMDB、MoviePilot、cron 等核心能力仍通过 `os.Getenv()` 或 `os.environ[]` 读取
    - 典型位置：
-     - [services/api/cmd/server/main.go](../../services/api/cmd/server/main.go)
-     - [services/api/internal/integrations/emby/emby.go](../../services/api/internal/integrations/emby/emby.go)
-     - [services/api/internal/services/email.go](../../services/api/internal/services/email.go)
-     - [services/api/internal/services/payment/service.go](../../services/api/internal/services/payment/service.go)
-     - [services/bot/app/config.py](../../services/bot/app/config.py)
+     - [services/api/cmd/server/main.go](../../../services/api/cmd/server/main.go)
+     - [services/api/internal/integrations/emby/emby.go](../../../services/api/internal/integrations/emby/emby.go)
+     - [services/api/internal/services/email.go](../../../services/api/internal/services/email.go)
+     - [services/api/internal/services/payment/service.go](../../../services/api/internal/services/payment/service.go)
+     - [services/bot/app/config.py](../../../services/bot/app/config.py)
 
 这已经带来了三个实际问题：
 
@@ -27,8 +27,8 @@
 
 当前设置页文案写着“默认试用天数设为 0 则无试用”，但后端 `SettingService` 实际拒绝 `0`：
 
-- 前端：[services/web/src/views/admin/SettingsView.vue#L232](../../services/web/src/views/admin/SettingsView.vue#L232)
-- 后端：[services/api/internal/handlers/setting.go](../../services/api/internal/handlers/setting.go)
+- 前端：[services/web/src/views/admin/SettingsView.vue#L232](../../../services/web/src/views/admin/SettingsView.vue#L232)
+- 后端：[services/api/internal/handlers/setting.go](../../../services/api/internal/handlers/setting.go)
 
 这说明前后端没有共享同一份配置定义，继续在现有 `key/value` 白名单上堆逻辑，只会让这种漂移越来越多。
 
@@ -187,7 +187,7 @@
 
 ## 5. 设置中心必须按配置域分组，不允许继续做单页大表单
 
-当前 [services/web/src/views/admin/SettingsView.vue](../../services/web/src/views/admin/SettingsView.vue) 是“一个页面 + 一个表单 + 一个保存按钮”的形态，随着配置增长必然失控。
+当前 [services/web/src/views/admin/SettingsView.vue](../../../services/web/src/views/admin/SettingsView.vue) 是“一个页面 + 一个表单 + 一个保存按钮”的形态，随着配置增长必然失控。
 
 新设置中心必须：
 
@@ -384,7 +384,7 @@ type ConfigDefinition struct {
 
 当前 `settings` 模型定义很薄：
 
-- [services/api/internal/models/setting.go](../../services/api/internal/models/setting.go)
+- [services/api/internal/models/setting.go](../../../services/api/internal/models/setting.go)
 
 v1 需要把它扩展为：
 
@@ -579,7 +579,7 @@ v1 需要支持的测试组：
 
 ## 1. 页面定位
 
-当前 [services/web/src/views/admin/SettingsView.vue](../../services/web/src/views/admin/SettingsView.vue) 需要从“系统设置单页表单”升级为“设置中心”。
+当前 [services/web/src/views/admin/SettingsView.vue](../../../services/web/src/views/admin/SettingsView.vue) 需要从“系统设置单页表单”升级为“设置中心”。
 
 设计原则参考 `ui-ux-pro-max` 的结论：扁平、直接、状态优先，不做花哨布局。
 

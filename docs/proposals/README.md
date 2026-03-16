@@ -9,15 +9,14 @@
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
 - [`docs/specs/design.md`](../specs/design.md) - MVP 初始设计
 
-## 下一轮文档瘦身候选
+## 当前剩余重点
 
-以下方案文档体积大、重复实现细节多，下一轮应优先盘点是否提炼后归档：
+`docs/plan/` 经过两轮清理后，当前主要剩余两类内容：
 
-- `docs/plan/telegram-search-subscribe.md`
-- `docs/plan/playback-ranking.md`
-- `docs/plan/settings-center.md`
-- `docs/plan/telegram-binding.md`
-- `docs/plan/forgot-password.md`
+- 持续治理类：`docs/plan/design-system-governance.md`
+- 尚未落地的 `embypulse-features` P1/P2 条目
+
+具体状态见 [计划文档盘点](./plan-inventory.md)。
 
 ## 兼容说明
 
