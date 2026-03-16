@@ -1,5 +1,9 @@
 # 兑换码“一人一码一次” + 兑换历史 UI 实现方案（已落地）
 
+> 说明：本文档只覆盖“一人一码一次”与兑换历史相关改动。
+> 兑换码批量生成请看 [redemption-code-batch-create.md](./redemption-code-batch-create.md)。
+> 当前系统事实以 [docs/SYSTEM-ARCHITECTURE.md](../SYSTEM-ARCHITECTURE.md) 为准。
+
 ## Context
 
 当前系统原始逻辑存在漏洞：同一用户可以重复兑换同一个兑换码，导致单个用户可能耗尽该码的全部 `maxUses`。
@@ -61,7 +65,7 @@
 
 ### 1.2 错误定义与 Handler 映射
 
-**文件**：`services/api/internal/services/errors.go`
+**文件**：`services/api/internal/services/redemption_errors.go`
 
 新增错误：
 

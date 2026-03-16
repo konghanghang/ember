@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
@@ -15,12 +16,31 @@ import (
 // RedemptionCodeService 兑换码服务
 type RedemptionCodeService struct{}
 
-// CreateRedemptionCodeRequest 创建兑换码请求
-type CreateRedemptionCodeRequest struct {
+const (
+	maxCreateRedemptionCodesCount = 100
+	maxCodeInsertRetry            = 5
+)
+
+type RedemptionCodeCreateOptions struct {
 	MaxUses        int        `json:"maxUses" binding:"required,min=1"`
 	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
 	ExpiresAt      *time.Time `json:"expiresAt"`
 	TemplateUserID *string    `json:"templateUserId"`
+}
+
+// CreateRedemptionCodeRequest 创建兑换码请求
+type CreateRedemptionCodeRequest struct {
+	RedemptionCodeCreateOptions
+}
+
+type CreateRedemptionCodesBatchRequest struct {
+	Count int `json:"count" binding:"required,min=1,max=100"`
+	RedemptionCodeCreateOptions
+}
+
+type CreateRedemptionCodesBatchResponse struct {
+	Data  []models.RedemptionCode `json:"data"`
+	Count int                     `json:"count"`
 }
 
 // UpdateRedemptionCodeRequest 更新兑换码请求
@@ -60,29 +80,58 @@ type GetUserTemplatesResponse struct {
 
 // CreateRedemptionCode 创建兑换码
 func (s *RedemptionCodeService) CreateRedemptionCode(req *CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
-	templateUserID, err := s.validateTemplateUserID(req.TemplateUserID)
+	codes, err := s.createRedemptionCodes(req.RedemptionCodeCreateOptions, 1)
 	if err != nil {
 		return nil, err
 	}
 
-	code, err := s.generateCode(16)
+	return &codes[0], nil
+}
+
+func (s *RedemptionCodeService) CreateRedemptionCodesBatch(req *CreateRedemptionCodesBatchRequest) (*CreateRedemptionCodesBatchResponse, error) {
+	codes, err := s.createRedemptionCodes(req.RedemptionCodeCreateOptions, req.Count)
 	if err != nil {
-		return nil, errors.New("生成兑换码失败")
+		return nil, err
 	}
 
-	redemptionCode := models.RedemptionCode{
-		Code:           code,
-		MaxUses:        req.MaxUses,
-		DefaultDays:    req.DefaultDays,
-		ExpiresAt:      req.ExpiresAt,
+	return &CreateRedemptionCodesBatchResponse{
+		Data:  codes,
+		Count: len(codes),
+	}, nil
+}
+
+func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCreateOptions, count int) ([]models.RedemptionCode, error) {
+	if count < 1 || count > maxCreateRedemptionCodesCount {
+		return nil, ErrRedemptionCodeBatchCountInvalid
+	}
+
+	templateUserID, err := s.validateTemplateUserID(options.TemplateUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	baseCode := models.RedemptionCode{
+		MaxUses:        options.MaxUses,
+		DefaultDays:    options.DefaultDays,
+		ExpiresAt:      options.ExpiresAt,
 		TemplateUserID: templateUserID,
 	}
 
-	if err := db.DB.Create(&redemptionCode).Error; err != nil {
-		return nil, errors.New("创建兑换码失败")
+	codes := make([]models.RedemptionCode, 0, count)
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < count; i++ {
+			code, err := s.createSingleRedemptionCode(tx, baseCode)
+			if err != nil {
+				return err
+			}
+			codes = append(codes, code)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
-	return &redemptionCode, nil
+	return codes, nil
 }
 
 // GetRedemptionCodes 获取兑换码列表
@@ -253,15 +302,15 @@ func (s *RedemptionCodeService) validateTemplateUserID(templateUserID *string) (
 
 	var user models.User
 	if err := db.DB.Where("id = ?", *templateUserID).First(&user).Error; err != nil {
-		return nil, errors.New("模板用户不存在")
+		return nil, ErrTemplateUserNotFound
 	}
 
 	if user.Role != "user" {
-		return nil, errors.New("模板用户必须是普通用户")
+		return nil, ErrTemplateUserMustBeUser
 	}
 
 	if user.EmbyID == "" {
-		return nil, errors.New("模板用户未关联 Emby 账号")
+		return nil, ErrTemplateUserEmbyRequired
 	}
 
 	validID := user.ID
@@ -307,4 +356,36 @@ func (s *RedemptionCodeService) fillTemplateUserNames(codes []models.RedemptionC
 	}
 
 	return nil
+}
+
+func (s *RedemptionCodeService) createSingleRedemptionCode(tx *gorm.DB, baseCode models.RedemptionCode) (models.RedemptionCode, error) {
+	for attempt := 0; attempt < maxCodeInsertRetry; attempt++ {
+		code, err := s.generateCode(16)
+		if err != nil {
+			return models.RedemptionCode{}, errors.New("生成兑换码失败")
+		}
+
+		redemptionCode := baseCode
+		redemptionCode.Code = code
+
+		if err := tx.Create(&redemptionCode).Error; err != nil {
+			if isRedemptionCodeConflict(err) {
+				continue
+			}
+			return models.RedemptionCode{}, errors.New("创建兑换码失败")
+		}
+
+		return redemptionCode, nil
+	}
+
+	return models.RedemptionCode{}, errors.New("生成兑换码失败")
+}
+
+func isRedemptionCodeConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+
+	return pgErr.Code == "23505"
 }

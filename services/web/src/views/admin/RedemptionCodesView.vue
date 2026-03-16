@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen } from '@element-plus/icons-vue'
-import { getRedemptionCodes, createRedemptionCode, updateRedemptionCode, deleteRedemptionCode, getUserTemplates } from '@/api/admin'
+import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument } from '@element-plus/icons-vue'
+import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getUserTemplates } from '@/api/admin'
 import type { CreateRedemptionCodeRequest, RedemptionCode, UpdateRedemptionCodeRequest, UserTemplate } from '@/types/api'
+
+const maxBatchCreateCount = 100
 
 const tableData = ref<RedemptionCode[]>([])
 const total = ref(0)
@@ -17,14 +19,17 @@ const userTemplates = ref<UserTemplate[]>([])
 
 const dialogVisible = ref(false)
 const generating = ref(false)
+const batchResultDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const editing = ref(false)
-const form = ref<CreateRedemptionCodeRequest>({
+const form = ref<CreateRedemptionCodeRequest & { count: number }>({
+  count: 1,
   maxUses: 1,
   defaultDays: 30,
   templateUserId: null,
   expiresAt: null
 })
+const batchCreatedCodes = ref<RedemptionCode[]>([])
 const editForm = ref({
   id: '',
   usedCount: 0,
@@ -55,17 +60,54 @@ const fetchUserTemplates = async () => {
   }
 }
 
+const resetCreateForm = () => {
+  form.value = {
+    count: 1,
+    maxUses: 1,
+    defaultDays: 30,
+    templateUserId: null,
+    expiresAt: null
+  }
+}
+
+const openCreateDialog = () => {
+  resetCreateForm()
+  dialogVisible.value = true
+}
+
 const handleCreate = async () => {
+  if (form.value.count < 1 || form.value.count > maxBatchCreateCount) {
+    ElMessage.warning(`批量数量必须在 1 到 ${maxBatchCreateCount} 之间`)
+    return
+  }
   if (form.value.maxUses < 1 || form.value.defaultDays < 1) {
     ElMessage.warning('请输入有效的数值')
     return
   }
-  
+
+  const payload: CreateRedemptionCodeRequest = {
+    maxUses: form.value.maxUses,
+    defaultDays: form.value.defaultDays,
+    templateUserId: form.value.templateUserId,
+    expiresAt: form.value.expiresAt
+  }
+
   generating.value = true
   try {
-    await createRedemptionCode(form.value)
-    ElMessage.success('兑换码生成成功')
+    if (form.value.count === 1) {
+      await createRedemptionCode(payload)
+      ElMessage.success('兑换码生成成功')
+    } else {
+      const res = await createRedemptionCodesBatch({
+        count: form.value.count,
+        ...payload
+      })
+      batchCreatedCodes.value = res.data
+      batchResultDialogVisible.value = true
+      ElMessage.success(`已生成 ${res.count} 个兑换码`)
+    }
     dialogVisible.value = false
+    resetCreateForm()
     await fetchData()
   } catch {
     // handled
@@ -137,6 +179,17 @@ const handleUpdate = async () => {
   }
 }
 
+const batchCreatedCodesText = computed(() => batchCreatedCodes.value.map((item) => item.code).join('\n'))
+
+const copyBatchCodes = async () => {
+  if (!batchCreatedCodesText.value) return
+  try {
+    await navigator.clipboard.writeText(batchCreatedCodesText.value)
+    ElMessage.success('复制成功')
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
 
 const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return '永久有效'
@@ -184,7 +237,7 @@ onMounted(async () => {
           <el-icon :size="20"><Refresh /></el-icon>
         </button>
         <button 
-          @click="dialogVisible = true"
+          @click="openCreateDialog"
           class="flex items-center gap-2 px-4 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95"
         >
           <el-icon><Plus /></el-icon>
@@ -292,19 +345,26 @@ onMounted(async () => {
     <el-dialog 
       v-model="dialogVisible" 
       title="生成兑换码" 
-      width="480px"
+      width="560px"
       align-center
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
-          <div class="grid grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <el-form-item label="生成数量">
+              <el-input-number v-model="form.count" :min="1" :max="maxBatchCreateCount" class="w-full !w-full" />
+            </el-form-item>
             <el-form-item label="最大使用次数">
               <el-input-number v-model="form.maxUses" :min="1" class="w-full !w-full" />
             </el-form-item>
             <el-form-item label="有效天数 (激活后)">
               <el-input-number v-model="form.defaultDays" :min="1" class="w-full !w-full" />
             </el-form-item>
+          </div>
+
+          <div class="text-xs text-gray-400 -mt-2">
+            单次最多生成 {{ maxBatchCreateCount }} 个，所有兑换码共用同一组规则。
           </div>
 
           <el-form-item label="兑换码过期时间 (可选)">
@@ -353,6 +413,51 @@ onMounted(async () => {
             class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
           >
             {{ generating ? '生成中...' : '确认生成' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="batchResultDialogVisible"
+      title="批量生成结果"
+      width="560px"
+      align-center
+      class="rounded-2xl"
+    >
+      <div class="p-6 pt-2 space-y-4">
+        <div class="flex items-center justify-between gap-4 rounded-xl border border-orange-100 bg-orange-50 px-4 py-3">
+          <div>
+            <div class="text-sm font-semibold text-gray-900">本次共生成 {{ batchCreatedCodes.length }} 个兑换码</div>
+            <div class="text-xs text-gray-500 mt-1">可直接复制后分发，列表中的兑换码已全部写入系统。</div>
+          </div>
+          <button
+            @click="copyBatchCodes"
+            class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-orange-700 bg-white border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
+          >
+            <el-icon><CopyDocument /></el-icon>
+            <span>复制全部</span>
+          </button>
+        </div>
+
+        <div class="max-h-80 overflow-y-auto rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
+          <div
+            v-for="item in batchCreatedCodes"
+            :key="item.id"
+            class="flex items-center justify-between gap-3 rounded-lg bg-white px-4 py-3 border border-gray-100"
+          >
+            <span class="text-xs text-gray-400">{{ item.id }}</span>
+            <code class="font-mono text-sm font-medium text-gray-900 select-all">{{ item.code }}</code>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
+          <button
+            @click="batchResultDialogVisible = false"
+            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+          >
+            关闭
           </button>
         </div>
       </template>

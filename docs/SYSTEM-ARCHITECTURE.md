@@ -501,6 +501,7 @@ TMDBCache（独立缓存表）
 ### 5.3 RedemptionCodeService (`services/redemption_code.go`)
 
 - `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId)` — 生成 16 字符 hex 码
+- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId)` — 批量生成兑换码，单次最多 100 个，整批事务提交
 - `GetRedemptionCodes(page, pageSize, showAll)` — showAll=false 过滤已失效
 - `GetUserTemplates()` — 获取可选模板用户列表（启用且未过期）
 - `ValidateCode(code)` — 查找 + IsValid()
@@ -773,6 +774,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | DELETE | `/api/v1/admin/users/:id` | 删除用户 |
 | GET | `/api/v1/admin/redemption-codes` | 兑换码列表 |
 | POST | `/api/v1/admin/redemption-codes` | 创建兑换码 |
+| POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码 |
 | PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码 |
 | DELETE | `/api/v1/admin/redemption-codes/:id` | 删除兑换码 |
 | GET | `/api/v1/admin/user-templates` | 模板用户列表 |
@@ -900,6 +902,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 新增路由：`/console/redemption-history`（admin）
 - 新增视图：`views/admin/RedemptionHistoryView.vue`
 - 数据源：`GET /api/v1/admin/redemptions`（支持 userId 分页筛选）
+
+### 管理端兑换码管理
+
+- 入口仍为 `views/admin/RedemptionCodesView.vue`
+- 创建弹窗支持单个生成和批量生成：
+  - `count=1` 调用 `POST /api/v1/admin/redemption-codes`
+  - `count>1` 调用 `POST /api/v1/admin/redemption-codes/batch`
+- 批量生成成功后弹出结果列表，支持一键复制本次生成的全部兑换码
 
 ### 管理端设备管理
 

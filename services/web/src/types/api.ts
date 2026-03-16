@@ -91,6 +91,15 @@ export interface CreateRedemptionCodeRequest {
   expiresAt?: string | null
 }
 
+export interface CreateRedemptionCodesBatchRequest extends CreateRedemptionCodeRequest {
+  count: number
+}
+
+export interface CreateRedemptionCodesBatchResponse {
+  data: RedemptionCode[]
+  count: number
+}
+
 export interface UpdateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number

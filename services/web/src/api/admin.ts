@@ -7,6 +7,8 @@ import type {
   ConfigGroupTestResult,
   CreatePlanRequest,
   CreateRedemptionCodeRequest,
+  CreateRedemptionCodesBatchRequest,
+  CreateRedemptionCodesBatchResponse,
   CronCheckResponse,
   DeviceAction,
   DeviceListQuery,
@@ -101,6 +103,14 @@ export function getRedemptionCodes(params?: { page?: number; pageSize?: number; 
 export function createRedemptionCode(data: CreateRedemptionCodeRequest): Promise<RedemptionCode> {
   return request({
     url: '/admin/redemption-codes',
+    method: 'post',
+    data
+  })
+}
+
+export function createRedemptionCodesBatch(data: CreateRedemptionCodesBatchRequest): Promise<CreateRedemptionCodesBatchResponse> {
+  return request({
+    url: '/admin/redemption-codes/batch',
     method: 'post',
     data
   })
