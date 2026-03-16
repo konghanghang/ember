@@ -48,15 +48,33 @@ const ElInputStub = defineComponent({
       type: String,
       default: '',
     },
+    type: {
+      type: String,
+      default: 'text',
+    },
+    rows: {
+      type: Number,
+      default: 2,
+    },
   },
   emits: ['update:modelValue'],
   setup(props, { emit }) {
-    return () =>
-      h('input', {
+    return () => {
+      if (props.type === 'textarea') {
+        return h('textarea', {
+          value: props.modelValue,
+          placeholder: props.placeholder,
+          rows: props.rows,
+          onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLTextAreaElement).value),
+        })
+      }
+
+      return h('input', {
         value: props.modelValue,
         placeholder: props.placeholder,
         onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
       })
+    }
   },
 })
 
@@ -107,6 +125,7 @@ function createConfigItem(overrides: Partial<AdminConfigItem> = {}): AdminConfig
     description: 'Telegram 欢迎消息中展示的群组链接',
     type: 'url',
     placeholder: 'https://t.me/ember',
+    multiline: false,
     editable: true,
     sensitive: false,
     restartRequired: false,
@@ -196,6 +215,58 @@ describe('SettingsView', () => {
     expect(wrapper.text()).toContain('https://t.me/updated')
   })
 
+  it('多行配置项会渲染为 textarea 并按字符串保存', async () => {
+    vi.mocked(getConfigs)
+      .mockResolvedValueOnce({
+        data: [
+          createConfigItem({
+            key: 'telegram_welcome_message_template',
+            label: 'Telegram 欢迎语模板',
+            description: 'Telegram 入群欢迎语模板，支持 {names} 和 {notifyGroupLink} 占位符',
+            multiline: true,
+            value: '👋 欢迎 <b>{names}</b> 加入！',
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        data: [
+          createConfigItem({
+            key: 'telegram_welcome_message_template',
+            label: 'Telegram 欢迎语模板',
+            description: 'Telegram 入群欢迎语模板，支持 {names} 和 {notifyGroupLink} 占位符',
+            multiline: true,
+            source: 'database',
+            value: '欢迎 {names}\n通知群：{notifyGroupLink}',
+          }),
+        ],
+      })
+    vi.mocked(updateConfig).mockResolvedValue(
+      createConfigItem({
+        key: 'telegram_welcome_message_template',
+        label: 'Telegram 欢迎语模板',
+        description: 'Telegram 入群欢迎语模板，支持 {names} 和 {notifyGroupLink} 占位符',
+        multiline: true,
+        source: 'database',
+        value: '欢迎 {names}\n通知群：{notifyGroupLink}',
+      })
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const textarea = wrapper.find('textarea')
+    expect(textarea.exists()).toBe(true)
+    await textarea.setValue('欢迎 {names}\n通知群：{notifyGroupLink}')
+    await flushPromises()
+
+    await findButton(wrapper, '保存本组配置').trigger('click')
+    await flushPromises()
+
+    expect(updateConfig).toHaveBeenCalledWith('telegram_welcome_message_template', {
+      value: '欢迎 {names}\n通知群：{notifyGroupLink}',
+    })
+  })
+
   it('可清空数据库覆盖值并立即刷新当前项状态', async () => {
     vi.mocked(getConfigs).mockResolvedValue({
       data: [
@@ -217,7 +288,7 @@ describe('SettingsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await findButton(wrapper, '移除数据库覆盖值').trigger('click')
+    await findButton(wrapper, '恢复回退').trigger('click')
     await flushPromises()
 
     expect(ElMessageBox.confirm).toHaveBeenCalled()
@@ -240,9 +311,9 @@ describe('SettingsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已显式设为空值')
+    expect(wrapper.text()).toContain('数据库显式空值')
     expect(wrapper.text()).toContain('保存为空值后将关闭欢迎消息中的群组链接展示。')
-    expect(wrapper.text()).toContain('也可使用“移除数据库覆盖值”回退到 env/default。')
+    expect(wrapper.text()).toContain('也可使用“移除数据库覆盖值”。移除数据库覆盖值后将按系统规则回退。')
   })
 
   it('切换到邮件服务分组后可触发测试连接并展示聚合失败信息', async () => {
@@ -315,11 +386,11 @@ describe('SettingsView', () => {
     await findButton(wrapper, '部署与密钥').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('只读边界项')
+    expect(wrapper.text()).toContain('只读')
     expect(wrapper.text()).toContain('高风险缺失')
     expect(wrapper.text()).toContain('只读原因')
     expect(wrapper.text()).toContain('Bot 启动时必须从部署环境读取该令牌')
     expect(wrapper.text()).toContain('未设置时 Telegram Bot 无法启动，也无法接收或发送通知。')
-    expect(wrapper.text()).toContain('当前分组有 1 项关键边界配置缺失：Telegram Bot Token。')
+    expect(wrapper.text()).toContain('当前分组有 1 项关键边界配置缺失： Telegram Bot Token。')
   })
 })

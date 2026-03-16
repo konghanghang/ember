@@ -240,6 +240,7 @@ func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
 		hintPart string
 	}{
 		{key: "notify_group_link", mode: ConfigEmptyValueDisable, hintPart: "关闭欢迎消息"},
+		{key: "telegram_welcome_message_template", mode: ConfigEmptyValueDisable, hintPart: "关闭入群欢迎消息"},
 		{key: "NEXT_PUBLIC_EMBY_URL", mode: ConfigEmptyValueFallback, hintPart: "回退到 Emby 服务地址"},
 		{key: "SMTP_FROM", mode: ConfigEmptyValueFallback, hintPart: "回退到 SMTP 用户名"},
 		{key: "BOT_NOTIFY_URL", mode: ConfigEmptyValueDisable, hintPart: "关闭 API 到 Bot"},
@@ -278,6 +279,40 @@ func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
 		if value != "" {
 			t.Fatalf("expected %s normalized empty value to be blank, got %q", tc.key, value)
 		}
+	}
+}
+
+func TestTelegramWelcomeMessageTemplateValidation(t *testing.T) {
+	definitions := getConfigDefinitionMap()
+	def, ok := definitions["telegram_welcome_message_template"]
+	if !ok {
+		t.Fatal("expected telegram_welcome_message_template definition to exist")
+	}
+	if !def.Multiline {
+		t.Fatal("expected telegram_welcome_message_template to be multiline")
+	}
+	if def.DefaultValue == "" || !strings.Contains(def.DefaultValue, "{names}") {
+		t.Fatal("expected default welcome template to contain {names}")
+	}
+
+	validValue, err := def.Normalize("  👋 欢迎 <b>{names}</b> 加入！\r\n\r\n📢 入库通知群组：{notifyGroupLink}\r\n  ")
+	if err != nil {
+		t.Fatalf("expected normalize success, got %v", err)
+	}
+	if strings.Contains(validValue, "\r") {
+		t.Fatalf("expected normalized template to remove carriage returns, got %q", validValue)
+	}
+	if err := def.Validate(validValue); err != nil {
+		t.Fatalf("expected valid welcome template, got %v", err)
+	}
+	if err := def.Validate("欢迎加入"); err == nil {
+		t.Fatal("expected template without {names} to fail")
+	}
+	if err := def.Validate("欢迎 {names}\n链接 {groupLink}"); err == nil {
+		t.Fatal("expected template with unsupported placeholder to fail")
+	}
+	if err := def.Validate(""); err != nil {
+		t.Fatalf("expected empty template to be allowed, got %v", err)
 	}
 }
 

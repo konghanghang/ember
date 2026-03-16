@@ -35,6 +35,9 @@ from app.runtime_settings import runtime_settings_service
 
 logger = logging.getLogger(__name__)
 
+WELCOME_MESSAGE_NAMES_PLACEHOLDER = "{names}"
+WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER = "{notifyGroupLink}"
+
 
 def _private_only_tip() -> str:
     return "⚠️ 请在私聊中使用此命令"
@@ -42,6 +45,14 @@ def _private_only_tip() -> str:
 
 def _group_only_tip() -> str:
     return "⚠️ 请在群聊中使用此命令"
+
+
+def _render_welcome_message(template: str, names: str, notify_group_link: str) -> str:
+    return (
+        template.replace(WELCOME_MESSAGE_NAMES_PLACEHOLDER, names)
+        .replace(WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER, notify_group_link)
+        .strip()
+    )
 
 
 def _format_command_help(title: str, command: str, example: str, steps: list[str] | None = None, note: str | None = None) -> str:
@@ -201,16 +212,19 @@ async def handle_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not new_users:
         return
 
-    notify_link = await runtime_settings_service.get_notify_group_link()
-    if not notify_link:
+    settings = await runtime_settings_service.get()
+    template = settings.welcome_message_template.strip()
+    if not template:
         return
 
     names = ", ".join(escape(user.first_name or user.full_name) for user in new_users)
-    text = (
-        f"👋 欢迎 <b>{names}</b> 加入！\n\n"
-        f"📢 入库通知群组：{escape(notify_link)}\n"
-        "⏳ 本消息将在 30 秒后自动删除"
-    )
+    notify_link = escape(settings.notify_group_link)
+    if WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER in template and not notify_link:
+        return
+
+    text = _render_welcome_message(template, names, notify_link)
+    if not text:
+        return
 
     sent = await message.reply_text(text, parse_mode="HTML")
     asyncio.create_task(_delete_later(context.bot, sent.chat_id, sent.message_id, 30))

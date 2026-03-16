@@ -19,6 +19,7 @@ function createItem(overrides: Partial<AdminConfigItem> = {}): AdminConfigItem {
     label: '测试配置',
     description: '测试描述',
     type: 'string',
+    multiline: false,
     editable: true,
     sensitive: false,
     restartRequired: false,

@@ -255,6 +255,7 @@ export interface AdminConfigItem {
   description: string
   type: ConfigValueType
   placeholder?: string
+  multiline: boolean
   editable: boolean
   sensitive: boolean
   restartRequired: boolean

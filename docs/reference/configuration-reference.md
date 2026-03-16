@@ -20,7 +20,7 @@
 
 3. **Bot 启动环境变量**
    - Bot 进程启动时直接读取
-   - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 在运行期通过 API 设置中心读取，并带短 TTL 缓存
+   - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link`、`telegram_welcome_message_template` 在运行期通过 API 设置中心读取，并带短 TTL 缓存
    - 当 API 未返回值时，`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 回退到本地 env
 
 ---
@@ -36,6 +36,7 @@
 | `registration_mode` | 否 | 否 | 注册模式，`open` 或 `invite` |
 | `default_trial_days` | 否 | 否 | 开放注册时默认试用天数 |
 | `notify_group_link` | 否 | 否 | Telegram 欢迎消息中的群组链接 |
+| `telegram_welcome_message_template` | 否 | 否 | Telegram 入群欢迎语模板，支持 `{names}` 和 `{notifyGroupLink}` 占位符 |
 | `email_verification` | 否 | 否 | 是否启用注册邮箱验证码 |
 | `stripe_allowed_payment_methods` | 否 | 否 | Stripe 支付方式限制列表 |
 
@@ -138,7 +139,7 @@ Bot 进程当前仍主要依赖环境变量启动。
 
 说明：
 
-- Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 和 `notify_group_link`，并做短 TTL 缓存。
+- Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存。
 - 当 API 未返回值时，Bot 会回退到本地环境变量中的 Chat ID。
 - 因此：
   - `TELEGRAM_ADMIN_CHAT_ID`

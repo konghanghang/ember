@@ -574,7 +574,7 @@ onMounted(async () => {
                     </span>
                   </div>
 
-                  <p class="mt-2 text-sm font-medium text-gray-900 break-all">
+                  <p class="mt-2 text-sm font-medium text-gray-900 break-all whitespace-pre-line">
                     {{ itemStatusSummary(item) }}
                   </p>
                   <p class="mt-1 text-xs leading-5 text-gray-500">
@@ -647,6 +647,14 @@ onMounted(async () => {
                     show-password
                     :placeholder="item.hasValue ? '已设置，输入新值以覆盖' : '请输入配置值'"
                     clearable
+                  />
+
+                  <el-input
+                    v-else-if="item.multiline"
+                    v-model="draftValues[item.key]"
+                    type="textarea"
+                    :rows="6"
+                    :placeholder="item.placeholder || '请输入配置值'"
                   />
 
                   <el-input

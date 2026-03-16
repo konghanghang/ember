@@ -13,6 +13,7 @@ runtime_settings_keys = [
     "TELEGRAM_ADMIN_CHAT_ID",
     "TELEGRAM_GROUP_CHAT_ID",
     "notify_group_link",
+    "telegram_welcome_message_template",
 ]
 
 
@@ -32,6 +33,7 @@ class RuntimeSettings:
     admin_chat_id: Optional[int]
     group_chat_id: Optional[int]
     notify_group_link: str
+    welcome_message_template: str
 
 
 class RuntimeSettingsService:
@@ -43,6 +45,7 @@ class RuntimeSettingsService:
             admin_chat_id=TELEGRAM_ADMIN_CHAT_ID,
             group_chat_id=TELEGRAM_GROUP_CHAT_ID,
             notify_group_link="",
+            welcome_message_template="",
         )
 
     async def get(self, force_refresh: bool = False) -> RuntimeSettings:
@@ -58,6 +61,7 @@ class RuntimeSettingsService:
                 admin_chat_id=_parse_chat_id(settings.get("TELEGRAM_ADMIN_CHAT_ID", ""), TELEGRAM_ADMIN_CHAT_ID),
                 group_chat_id=_parse_chat_id(settings.get("TELEGRAM_GROUP_CHAT_ID", ""), TELEGRAM_GROUP_CHAT_ID),
                 notify_group_link=settings.get("notify_group_link", "").strip(),
+                welcome_message_template=settings.get("telegram_welcome_message_template", "").strip(),
             )
             self._expires_at = time.monotonic() + self._ttl_seconds
             return self._cached
@@ -69,6 +73,10 @@ class RuntimeSettingsService:
     async def get_notify_group_link(self) -> str:
         settings = await self.get()
         return settings.notify_group_link
+
+    async def get_welcome_message_template(self) -> str:
+        settings = await self.get()
+        return settings.welcome_message_template
 
 
 runtime_settings_service = RuntimeSettingsService()

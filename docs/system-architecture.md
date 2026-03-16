@@ -258,7 +258,7 @@ services/
 - 只读部署边界项同时声明“只读原因”和“缺失影响”，前端直接展示，不再让管理员自己猜为什么不能改
 
 **当前已托管或接入统一解析的配置项**：
-- 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`email_verification`、`stripe_allowed_payment_methods`
+- 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`stripe_allowed_payment_methods`
 - 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_USERNAME`、`MOVIEPILOT_PASSWORD`
 - 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
 - 通知：`BOT_NOTIFY_URL`
@@ -993,7 +993,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 ### 命令与处理器
 
 - **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
-- **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 配置）
+- **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 与 `telegram_welcome_message_template` 配置）
 - **Commands**：`/search`（搜索影视并订阅）、`/cancel`（取消备注输入并回到详情页）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）、`/refresh_menu`（管理员强制刷新当前群菜单）
 - **群菜单策略**：仅私聊作用域写入命令菜单；default/group scope 保持为空，群聊默认不展示命令菜单，首次收到群消息时按群清理旧作用域菜单，并在当前 Bot 进程内缓存已同步群；`/refresh_menu` 强刷会额外重试清理 default / all-group 作用域
 - **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）
@@ -1011,7 +1011,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
 | `BOT_PORT` | — | `8000` | Bot 服务端口 |
 
-说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 和 `notify_group_link`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。
+说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。
 
 ---
 

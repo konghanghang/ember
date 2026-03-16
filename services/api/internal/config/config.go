@@ -15,6 +15,7 @@ import (
 	"net/mail"
 	neturl "net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -76,6 +77,13 @@ const (
 
 const defaultCronTimezone = "Asia/Shanghai"
 
+const defaultTelegramWelcomeMessageTemplate = `👋 欢迎 <b>{names}</b> 加入！
+
+📢 入库通知群组：{notifyGroupLink}
+⏳ 本消息将在 30 秒后自动删除`
+
+var telegramWelcomeMessagePlaceholderPattern = regexp.MustCompile(`\{[a-zA-Z][a-zA-Z0-9]*\}`)
+
 type ConfigOption struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
@@ -90,6 +98,7 @@ type ConfigDefinition struct {
 	Type               ConfigValueType
 	DefaultValue       string
 	Placeholder        string
+	Multiline          bool
 	Editable           bool
 	Sensitive          bool
 	RestartRequired    bool
@@ -116,6 +125,7 @@ type ConfigItem struct {
 	Description       string               `json:"description"`
 	Type              ConfigValueType      `json:"type"`
 	Placeholder       string               `json:"placeholder,omitempty"`
+	Multiline         bool                 `json:"multiline"`
 	Editable          bool                 `json:"editable"`
 	Sensitive         bool                 `json:"sensitive"`
 	RestartRequired   bool                 `json:"restartRequired"`
@@ -556,6 +566,7 @@ func (s *ConfigService) resolveDefinition(def ConfigDefinition, settingsMap map[
 		Description:       def.Description,
 		Type:              def.Type,
 		Placeholder:       def.Placeholder,
+		Multiline:         def.Multiline,
 		Editable:          def.Editable,
 		Sensitive:         def.Sensitive,
 		RestartRequired:   def.RestartRequired,
@@ -849,6 +860,22 @@ func getConfigDefinitions() []ConfigDefinition {
 				return validateURL(value)
 			},
 			Normalize: normalizeTrimmedURLAllowEmpty,
+		},
+		{
+			Key:            "telegram_welcome_message_template",
+			Group:          ConfigGroupBusiness,
+			GroupLabel:     "基础业务",
+			Label:          "Telegram 欢迎语模板",
+			Description:    "Telegram 入群欢迎语模板，支持 {names} 和 {notifyGroupLink} 占位符",
+			Type:           ConfigValueString,
+			DefaultValue:   defaultTelegramWelcomeMessageTemplate,
+			Editable:       true,
+			Multiline:      true,
+			AllowEmpty:     true,
+			EmptyValueMode: ConfigEmptyValueDisable,
+			EmptyValueHint: "保存为空值后将关闭入群欢迎消息发送。",
+			Validate:       validateTelegramWelcomeMessageTemplate,
+			Normalize:      normalizeTelegramWelcomeMessageTemplate,
 		},
 		{
 			Key:          "email_verification",
@@ -1540,6 +1567,36 @@ func normalizeTrimmedURLAllowEmpty(value string) (string, error) {
 
 func normalizeTrimmedString(value string) (string, error) {
 	return strings.TrimSpace(value), nil
+}
+
+func normalizeTrimmedMultilineString(value string) string {
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	return strings.TrimSpace(normalized)
+}
+
+func normalizeTelegramWelcomeMessageTemplate(value string) (string, error) {
+	return normalizeTrimmedMultilineString(value), nil
+}
+
+func validateTelegramWelcomeMessageTemplate(value string) error {
+	trimmed := normalizeTrimmedMultilineString(value)
+	if trimmed == "" {
+		return nil
+	}
+	if !strings.Contains(trimmed, "{names}") {
+		return errors.New("欢迎语模板必须包含 {names} 占位符")
+	}
+
+	placeholders := telegramWelcomeMessagePlaceholderPattern.FindAllString(trimmed, -1)
+	for _, placeholder := range placeholders {
+		if placeholder == "{names}" || placeholder == "{notifyGroupLink}" {
+			continue
+		}
+		return fmt.Errorf("欢迎语模板包含不支持的占位符 %s，仅支持 {names} 和 {notifyGroupLink}", placeholder)
+	}
+
+	return nil
 }
 
 func validateTelegramPositiveChatID(value string) error {
