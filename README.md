@@ -17,30 +17,6 @@ Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 组织 API、
 - [Web 服务文档](./services/web/README.md)
 - [Bot 服务文档](./services/bot/README.md)
 
-## 仓库结构
-
-```text
-ember/
-├── services/
-│   ├── api/                    # Go API 服务
-│   ├── web/                    # Vue 3 前端
-│   └── bot/                    # Python Telegram Bot
-├── infrastructure/
-│   ├── docker/                 # Docker Compose 与镜像说明
-│   ├── nginx/                  # Nginx 配置
-│   └── database/               # 数据库相关资源
-├── docs/
-│   ├── reference/              # 稳定参考文档
-│   ├── runbooks/               # 部署、测试、联调、构建手册
-│   ├── proposals/              # 设计方案与重构提案索引
-│   ├── archive/                # 历史归档
-│   ├── plan/                   # 进行中的功能规划（兼容保留）
-│   ├── specs/                  # specs-workflow 产物（兼容保留）
-│   ├── system-architecture.md  # 核心架构文档
-│   └── README.md               # 文档中心
-└── README.md
-```
-
 ## 技术栈
 
 - 后端：Go 1.23 + Gin + GORM + PostgreSQL
@@ -48,11 +24,11 @@ ember/
 - Bot：Python 3.11 + python-telegram-bot + FastAPI
 - 基础设施：Docker + Docker Compose + Nginx
 
-## 文档维护规则
+## 仓库分区
 
-- 代码改动前先看 [系统架构](./docs/system-architecture.md) 和 [开发指南](./docs/reference/development-guide.md)。
-- 稳定规则写进 `docs/reference/`；部署、测试、联调流程写进 `docs/runbooks/`。
-- 新方案优先放 `docs/plan/`；`docs/specs/` 主要保留 workflow 产物和历史设计资料。落地后再提炼到稳定文档；完成后归档到 `docs/archive/`。
+- `services/`：API、Web、Bot
+- `infrastructure/`：Docker、数据库、Nginx 等部署资源
+- `docs/`：唯一文档中心
 
 ## 验证方式
 

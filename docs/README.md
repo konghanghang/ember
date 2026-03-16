@@ -10,13 +10,11 @@
 
 ## 文档分层
 
-| 分区 | 作用 | 放什么 |
-|------|------|--------|
-| [system-architecture.md](./system-architecture.md) | 核心真相来源 | 当前系统结构、数据模型、服务边界、API 端点 |
-| [reference/](./reference/README.md) | 稳定参考文档 | 规范、配置、外部接口、长期有效约束 |
-| [runbooks/](./runbooks/README.md) | 操作手册 | 部署、测试、构建、联调、排障 |
-| [proposals/](./proposals/README.md) | 方案与设计 | 重构提案、功能规划、需求设计 |
-| [archive/](./archive/README.md) | 历史归档 | 已完成、已废弃或仅供追溯的旧文档 |
+- [system-architecture.md](./system-architecture.md)：当前系统的核心真相来源
+- [reference/](./reference/README.md)：稳定参考文档
+- [runbooks/](./runbooks/README.md)：部署、测试、构建、联调、排障
+- [proposals/](./proposals/README.md)：提案、盘点与仍在推进的设计
+- [archive/](./archive/README.md)：历史归档
 
 ## 当前入口
 
@@ -49,8 +47,8 @@
 
 - [提案总览](./proposals/README.md)
 - [API 目录重构提案](./proposals/api-directory-refactor.md)
-- [`docs/plan/`](./plan/)：进行中的功能规划，保持原路径以兼容协作流程
-- [`docs/specs/`](./specs/)：`specs-workflow` 产物，当前仍保留在原路径；其中 `design.md` 为历史设计资料
+- [`docs/plan/`](./plan/)：进行中的功能规划，当前主要保留未落地或持续治理项
+- [`docs/specs/`](./specs/)：`specs-workflow` 产物；其中 `design.md` 为历史设计资料
 
 ### 归档
 
@@ -61,5 +59,5 @@
 
 - 新增稳定规则：放进 `reference/`。
 - 新增操作流程：放进 `runbooks/`。
-- 新增需求或设计讨论：先放 `plan/` 或 `specs/`，落地后提炼，再归档。
+- 新增需求或设计讨论：优先放 `plan/`；`specs/` 主要用于 workflow 产物和历史保留。
 - 已经失效但需要保留追溯：放进 `archive/`。
