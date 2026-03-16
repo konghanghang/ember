@@ -33,6 +33,7 @@
 
 你通常会落到下面几条路径之一：
 
+- 想先知道装哪个播放器：先看 [播放器推荐](./features/players.md)
 - 想继续看片：先看 [媒体库](./features/library.md)
 - 想找热门内容：先看 [播放排行榜](./features/rankings.md)
 - 想申请想看的片：先看 [订阅管理](./features/subscriptions.md)

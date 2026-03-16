@@ -11,6 +11,7 @@ export default defineConfig({
   lastUpdated: true,
   themeConfig: {
     nav: [
+      { text: '播放器推荐', link: '/features/players' },
       { text: '第一次使用', link: '/getting-started' },
       { text: '用户使用', link: '/features/overview' },
       { text: 'Telegram Bot', link: '/features/telegram-bot' },
@@ -22,6 +23,12 @@ export default defineConfig({
         items: [
           { text: '首页', link: '/' },
           { text: '第一次使用', link: '/getting-started' },
+        ]
+      },
+      {
+        text: '播放器推荐',
+        items: [
+          { text: '播放器推荐', link: '/features/players' },
         ]
       },
       {
@@ -41,13 +48,11 @@ export default defineConfig({
       {
         text: '帮助',
         items: [
+          { text: '社群与通知', link: '/community' },
           { text: '常见问题', link: '/faq' },
           { text: '更新记录', link: '/changelog' }
         ]
       }
-    ],
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/konghanghang/ember' }
     ],
     footer: {
       message: '公开文档只覆盖普通用户使用视角',

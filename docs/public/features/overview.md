@@ -6,6 +6,7 @@
 
 登录后，普通用户最常见的菜单是：
 
+- [播放器推荐](./players.md)
 - [我的账号](./my-account.md)
 - [订阅管理](./subscriptions.md)
 - [播放排行榜](./rankings.md)
@@ -23,6 +24,11 @@
 2. [续费中心](./payments.md)
 3. [Telegram Bot](./telegram-bot.md)
 
+### 我想知道装哪个播放器最省事
+
+1. [播放器推荐](./players.md)
+2. 再按自己的设备去对应小节看接入步骤
+
 ### 我想找内容、提需求
 
 1. [媒体库](./library.md)
@@ -38,5 +44,6 @@
 ## 相关文档
 
 - [控制台总览](./user-console.md)
+- [播放器推荐](./players.md)
 - [Telegram Bot](./telegram-bot.md)
 - [快速开始](../getting-started.md)

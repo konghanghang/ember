@@ -4,58 +4,63 @@ layout: home
 hero:
   name: Ember
   text: Emby 用户管理系统使用手册
-  tagline: 只讲普通用户在网站里会看到什么、能做什么、该怎么做
+  tagline: 先找播放器，再看第一次使用，最后按你的实际问题进入对应手册
   actions:
     - theme: brand
-      text: 用户使用
-      link: /features/overview
+      text: 播放器推荐
+      link: /features/players
     - theme: alt
       text: 第一次使用
       link: /getting-started
 
 features:
-  - title: 用户使用手册
-    details: 按网站真实菜单解释我的账号、订阅管理、媒体库、排行榜、追剧日历和续费中心怎么用。
-  - title: 第一次使用
-    details: 帮你在首次登录后快速判断该先看哪里、先做什么、怎么避免常见误区。
-  - title: Telegram Bot
-    details: 说明 Bot 能做什么、怎么绑定账号、哪些操作适合在聊天窗口里完成。
+  - title: 我先装哪个播放器
+    details: 先按设备看推荐播放器，再照着截图和步骤把服务器加进去。
+  - title: 我第一次登录该做什么
+    details: 从账号状态、续费入口到 Bot 绑定，按最短顺序带你走一遍。
+  - title: 我想看片、找片或续费
+    details: 直接进入媒体库、订阅管理、追剧日历、续费中心这些高频页面。
 ---
 
-# Ember 文档
+# Ember 使用首页
 
-Ember 是一个面向 Emby 的用户管理系统，提供注册登录、账号生命周期管理、兑换码、支付、求片订阅、Telegram Bot 和追剧日历等能力。
+这不是开发文档，也不是部署文档。  
+它只负责一件事：帮你作为普通用户，尽快找到自己下一步该点哪里。
 
-这套公开文档现在只保留普通用户视角：
+## 你可以直接从这里分流
 
-- 普通用户先看菜单怎么用
-- 按真实操作路径组织阅读顺序
-- 不再把后台和部署文档混进来
+- 我先装哪个播放器：看 [播放器推荐](./features/players.md)
+- 我第一次登录：看 [第一次使用](./getting-started.md)
+- 我想了解网站菜单都有什么：看 [用户使用手册](./features/overview.md)
+- 我想用 Telegram Bot：看 [Telegram Bot](./features/telegram-bot.md)
+- 我想进群或看通知：看 [社群与通知](./community.md)
 
-## 从这里开始
+## 最短阅读顺序
 
-- 我是普通用户：看 [用户使用手册](./features/overview.md)
-- 我是第一次登录：看 [第一次使用](./getting-started.md)
-- 我要绑定和使用 Bot：看 [Telegram Bot](./features/telegram-bot.md)
+如果你是第一次接触这个站，建议这样看：
 
-## 你会在这里看到什么
+1. [播放器推荐](./features/players.md)
+2. [第一次使用](./getting-started.md)
+3. [我的账号](./features/my-account.md)
+4. [续费中心](./features/payments.md)
+5. [Telegram Bot](./features/telegram-bot.md)
 
-- 网站菜单级功能说明
-- 常见操作步骤
-- 首次使用路径
-- 与 Bot 相关的用户自助能力
+## 高频操作
 
-## 不会放进这里的内容
+- 想看片：看 [媒体库](./features/library.md)
+- 想找热门内容：看 [播放排行榜](./features/rankings.md)
+- 想申请想看的内容：看 [订阅管理](./features/subscriptions.md)
+- 想追更新：看 [追剧日历](./features/tv-calendar.md)
+- 想续费：看 [续费中心](./features/payments.md)
+- 想查账号状态：看 [我的账号](./features/my-account.md)
 
-- 内部架构细节
-- 重构提案和历史设计稿
-- AI 协作规则
-- 只对开发者有意义的内部排障细节
+## 这套文档适合谁
 
-## 适用对象
-
-- 想知道网站每个菜单怎么用的普通用户
+- 想知道自己该装哪个播放器的用户
+- 想快速学会网站菜单怎么用的用户
+- 想知道 Bot 能做什么的用户
+- 想找官网、聊天频道和入库通知入口的用户
 
 ## 说明
 
-这套目录只用于公开发布，不包含内部架构、方案设计、归档和 AI 协作规则。
+这套目录只保留普通用户视角，不讲内部实现，也不讲部署。
