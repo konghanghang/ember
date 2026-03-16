@@ -3,58 +3,58 @@ layout: home
 
 hero:
   name: Ember
-  text: Emby 用户管理系统公开文档
-  tagline: 面向用户和部署者的使用、部署与集成说明
+  text: Emby 用户管理系统使用手册
+  tagline: 只讲普通用户在网站里会看到什么、能做什么、该怎么做
   actions:
     - theme: brand
-      text: 快速开始
-      link: /getting-started
-    - theme: alt
-      text: 功能总览
+      text: 用户使用
       link: /features/overview
+    - theme: alt
+      text: 第一次使用
+      link: /getting-started
 
 features:
-  - title: 快速部署
-    details: 基于 Docker Compose 的标准部署路径，适合快速拉起 API、Web、Bot 和 PostgreSQL。
-  - title: 用户与运营
-    details: 覆盖注册、续期、兑换码、支付、求片订阅、播放排行和追剧日历。
-  - title: 外部集成
-    details: 提供 Emby、Telegram、Stripe、MoviePilot 的公开配置与接入说明。
+  - title: 用户使用手册
+    details: 按网站真实菜单解释我的账号、订阅管理、媒体库、排行榜、追剧日历和续费中心怎么用。
+  - title: 第一次使用
+    details: 帮你在首次登录后快速判断该先看哪里、先做什么、怎么避免常见误区。
+  - title: Telegram Bot
+    details: 说明 Bot 能做什么、怎么绑定账号、哪些操作适合在聊天窗口里完成。
 ---
 
 # Ember 文档
 
 Ember 是一个面向 Emby 的用户管理系统，提供注册登录、账号生命周期管理、兑换码、支付、求片订阅、Telegram Bot 和追剧日历等能力。
 
-这套文档只面向公开发布：
+这套公开文档现在只保留普通用户视角：
 
-- 介绍 Ember 是什么
-- 说明如何部署和配置
-- 解释用户和管理员能做什么
-- 描述与 Emby、Telegram、Stripe、MoviePilot 的集成方式
-
-不会放进这里的内容：
-
-- 内部架构细节
-- 实施方案与重构提案
-- 历史归档
-- AI 协作规则
+- 普通用户先看菜单怎么用
+- 按真实操作路径组织阅读顺序
+- 不再把后台和部署文档混进来
 
 ## 从这里开始
 
-- [快速开始](./getting-started.md)
-- [部署说明](./deployment.md)
-- [配置说明](./configuration.md)
-- [功能总览](./features/overview.md)
-- [Telegram 集成](./integrations/telegram.md)
-- [管理后台](./admin/overview.md)
-- [常见问题](./faq.md)
+- 我是普通用户：看 [用户使用手册](./features/overview.md)
+- 我是第一次登录：看 [第一次使用](./getting-started.md)
+- 我要绑定和使用 Bot：看 [Telegram Bot](./features/telegram-bot.md)
+
+## 你会在这里看到什么
+
+- 网站菜单级功能说明
+- 常见操作步骤
+- 首次使用路径
+- 与 Bot 相关的用户自助能力
+
+## 不会放进这里的内容
+
+- 内部架构细节
+- 重构提案和历史设计稿
+- AI 协作规则
+- 只对开发者有意义的内部排障细节
 
 ## 适用对象
 
-- 想了解 Ember 能做什么的用户
-- 准备部署 Ember 的管理员
-- 需要接入 Emby、Telegram、Stripe 或 MoviePilot 的维护者
+- 想知道网站每个菜单怎么用的普通用户
 
 ## 说明
 
