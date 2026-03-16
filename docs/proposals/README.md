@@ -5,6 +5,7 @@
 ## 当前内容
 
 - [API 目录重构提案](./api-directory-refactor.md)
+- [计划文档盘点](./plan-inventory.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
 - [`docs/specs/design.md`](../specs/design.md) - MVP 初始设计
 
