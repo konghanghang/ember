@@ -47,7 +47,7 @@
 
 - [提案总览](./proposals/README.md)
 - [API 目录重构提案](./proposals/api-directory-refactor.md)
-- [`docs/plan/`](./plan/)：进行中的功能规划，当前主要保留未落地或持续治理项
+- [`docs/plan/`](./plan/README.md)：进行中的功能规划，当前主要保留未落地或持续治理项
 - [`docs/specs/`](./specs/)：`specs-workflow` 产物；其中 `design.md` 为历史设计资料
 
 ### 归档

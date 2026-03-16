@@ -6,6 +6,7 @@
 
 - [API 目录重构提案](./api-directory-refactor.md)
 - [计划文档盘点](./plan-inventory.md)
+- [提案模板](./proposal-template.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
 - [`docs/specs/design.md`](../specs/design.md) - MVP 初始设计（历史资料，不代表当前实现）
 
@@ -27,3 +28,4 @@
 
 - 提案一旦落地，稳定结论要提炼进 `docs/reference/` 或 `docs/runbooks/`。
 - 提案如果已经完成或废弃，应移动到 `docs/archive/`，不要长期伪装成“现行文档”。
+- 具体功能实现稿不要写在这里，放进 `docs/plan/` 并优先使用 [功能方案模板](../plan/plan-template.md)。
