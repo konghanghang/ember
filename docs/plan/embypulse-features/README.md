@@ -125,6 +125,6 @@ docs/plan/embypulse-features/
 
 ## 🔗 相关文档
 
-- [系统架构文档](../../SYSTEM-ARCHITECTURE.md)
-- [API 响应标准](../../reference/API-RESPONSE-STANDARD.md)
+- [系统架构文档](../../system-architecture.md)
+- [API 响应标准](../../reference/api-response-standard.md)
 - [开发指南](../../reference/development-guide.md)

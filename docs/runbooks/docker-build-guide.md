@@ -290,6 +290,6 @@ platforms: linux/amd64
 ---
 
 **相关文档**：
-- [系统架构](../SYSTEM-ARCHITECTURE.md)
+- [系统架构](../system-architecture.md)
 - [开发指南](../reference/development-guide.md)
-- [部署指南](./DEPLOYMENT.md)
+- [部署指南](./deployment.md)

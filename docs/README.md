@@ -4,7 +4,7 @@
 
 ## 阅读顺序
 
-1. [系统架构](./SYSTEM-ARCHITECTURE.md)：先建立系统全局认知。
+1. [系统架构](./system-architecture.md)：先建立系统全局认知。
 2. [开发指南](./reference/development-guide.md)：再看开发时真正要遵守的入口规则。
 3. 按用途进入对应分区：`reference`、`runbooks`、`proposals`、`archive`。
 
@@ -12,7 +12,7 @@
 
 | 分区 | 作用 | 放什么 |
 |------|------|--------|
-| [SYSTEM-ARCHITECTURE.md](./SYSTEM-ARCHITECTURE.md) | 核心真相来源 | 当前系统结构、数据模型、服务边界、API 端点 |
+| [system-architecture.md](./system-architecture.md) | 核心真相来源 | 当前系统结构、数据模型、服务边界、API 端点 |
 | [reference/](./reference/README.md) | 稳定参考文档 | 规范、配置、外部接口、长期有效约束 |
 | [runbooks/](./runbooks/README.md) | 操作手册 | 部署、测试、构建、联调、排障 |
 | [proposals/](./proposals/README.md) | 方案与设计 | 重构提案、功能规划、需求设计 |
@@ -22,28 +22,28 @@
 
 ### 核心
 
-- [系统架构](./SYSTEM-ARCHITECTURE.md)
+- [系统架构](./system-architecture.md)
 - [开发指南](./reference/development-guide.md)
 
 ### 稳定参考
 
-- [配置参考](./reference/CONFIGURATION-REFERENCE.md)
-- [API 开发与目录规范](./reference/API-DEVELOPMENT-CONVENTIONS.md)
-- [API 响应规范](./reference/API-RESPONSE-STANDARD.md)
+- [配置参考](./reference/configuration-reference.md)
+- [API 开发与目录规范](./reference/api-development-conventions.md)
+- [API 响应规范](./reference/api-response-standard.md)
 - [Emby API 参考](./reference/emby-api-guide.md)
-- [Web 设计规范](./reference/WEB_DESIGN_GUIDE.md)
+- [Web 设计规范](./reference/web-design-guide.md)
 
 ### 操作手册
 
-- [部署指南](./runbooks/DEPLOYMENT.md)
-- [测试指南](./runbooks/TESTING.md)
-- [Cloudflared 本地联调](./runbooks/CLOUDFLARED-LOCAL-TESTING.md)
-- [Docker 构建指南](./runbooks/DOCKER-BUILD-GUIDE.md)
+- [部署指南](./runbooks/deployment.md)
+- [测试指南](./runbooks/testing.md)
+- [Cloudflared 本地联调](./runbooks/cloudflared-local-testing.md)
+- [Docker 构建指南](./runbooks/docker-build-guide.md)
 
 ### 方案与设计
 
 - [提案总览](./proposals/README.md)
-- [API 目录重构提案](./proposals/API-DIRECTORY-REFACTOR.md)
+- [API 目录重构提案](./proposals/api-directory-refactor.md)
 - [`docs/plan/`](./plan/)：进行中的功能规划，保持原路径以兼容协作流程
 - [`docs/specs/`](./specs/)：`specs-workflow` 产物，当前仍保留在原路径
 

@@ -4,23 +4,23 @@
 
 ## 最短阅读路径
 
-1. [系统架构](../SYSTEM-ARCHITECTURE.md)
-2. [API 开发与目录规范](./API-DEVELOPMENT-CONVENTIONS.md)
-3. [API 响应规范](./API-RESPONSE-STANDARD.md)
+1. [系统架构](../system-architecture.md)
+2. [API 开发与目录规范](./api-development-conventions.md)
+3. [API 响应规范](./api-response-standard.md)
 4. 按任务进入对应操作手册：
-   - [部署指南](../runbooks/DEPLOYMENT.md)
-   - [测试指南](../runbooks/TESTING.md)
-   - [Cloudflared 本地联调](../runbooks/CLOUDFLARED-LOCAL-TESTING.md)
+   - [部署指南](../runbooks/deployment.md)
+   - [测试指南](../runbooks/testing.md)
+   - [Cloudflared 本地联调](../runbooks/cloudflared-local-testing.md)
 
 ## 文档判断规则
 
-- 当前系统怎么实现：看 [系统架构](../SYSTEM-ARCHITECTURE.md)。
+- 当前系统怎么实现：看 [系统架构](../system-architecture.md)。
 - 长期有效的开发约束：看 `docs/reference/`。
 - 某个功能准备怎么做：看 `docs/plan/` 或 `docs/specs/`。
 - 历史方案和旧实现：只去 `docs/archive/` 追溯，不拿它当现行依据。
 
 ## 文档维护规则
 
-- 改动涉及模型、服务边界、API 路由、前端结构、配置来源时，同步更新 [系统架构](../SYSTEM-ARCHITECTURE.md)。
+- 改动涉及模型、服务边界、API 路由、前端结构、配置来源时，同步更新 [系统架构](../system-architecture.md)。
 - 新增稳定规范时，不要塞进 `README`，直接落到 `docs/reference/`。
 - 设计稿落地后，把稳定结论提炼到 `docs/reference/` 或 `docs/runbooks/`，不要让方案文档永远挂着。

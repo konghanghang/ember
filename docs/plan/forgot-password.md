@@ -875,7 +875,7 @@ from app.handlers.telegram_handler import (
 | 14 | `services/web/src/views/ForgotPasswordView.vue` | **新建** | 找回密码页面 |
 | 15 | `services/web/src/router/index.ts` | 修改 | 注册路由 |
 | 16 | `services/web/src/views/LoginView.vue` | 修改 | 加"忘记密码？"链接 |
-| 17 | `docs/SYSTEM-ARCHITECTURE.md` | 修改 | 更新架构文档 |
+| 17 | `docs/system-architecture.md` | 修改 | 更新架构文档 |
 
 ---
 
@@ -912,7 +912,7 @@ from app.handlers.telegram_handler import (
 18. `cd services/web && npm run build`
 
 **Phase 7 — 收尾**
-19. 更新 `docs/SYSTEM-ARCHITECTURE.md`
+19. 更新 `docs/system-architecture.md`
 
 ---
 

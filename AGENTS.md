@@ -198,7 +198,7 @@ review 输出必须附加固定结构（使用中文）：
   - Bot：Python 3.11 + python-telegram-bot + FastAPI
   - 数据库：PostgreSQL 15（使用 GORM 管理 Schema）
 - **详细信息**：[README.md](./README.md)
-- **⭐ 系统架构**：[docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md) — 数据模型、服务逻辑、API 端点、前端结构的完整参考，**开始工作前务必先读此文件**
+- **⭐ 系统架构**：[docs/system-architecture.md](docs/system-architecture.md) — 数据模型、服务逻辑、API 端点、前端结构的完整参考，**开始工作前务必先读此文件**
 
 **目录结构**：
 ```
@@ -221,7 +221,7 @@ services/
 - 列表接口统一使用 `data` 字段
 - 字段命名使用 camelCase（驼峰）
 - GORM 模型必须显式指定 `gorm:"column:xxx"`
-- 详见：[docs/reference/API-RESPONSE-STANDARD.md](docs/reference/API-RESPONSE-STANDARD.md)
+- 详见：[docs/reference/api-response-standard.md](docs/reference/api-response-standard.md)
 
 ---
 
@@ -247,7 +247,7 @@ services/
 **流程**：
 1. 修改代码
 2. 编译验证（`go build`、`npm run build`）
-3. 同步更新 `docs/SYSTEM-ARCHITECTURE.md`（如果本次变更涉及模型、服务、API、前端结构、环境变量等架构层面的改动）
+3. 同步更新 `docs/system-architecture.md`（如果本次变更涉及模型、服务、API、前端结构、环境变量等架构层面的改动）
 4. **询问用户**："✅ 代码编译通过，是否需要提交？"
 5. 等待用户明确回复
 6. 用户确认后执行 `git commit`
@@ -271,4 +271,4 @@ services/
 **⚠️ 工作守则**：
 - ❌ 不启动服务、不主动提交代码
 - ✅ 只做编译验证，询问后再提交
-- 📚 详细规范参考：[docs/reference/API-RESPONSE-STANDARD.md](docs/reference/API-RESPONSE-STANDARD.md)
+- 📚 详细规范参考：[docs/reference/api-response-standard.md](docs/reference/api-response-standard.md)

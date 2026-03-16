@@ -176,7 +176,7 @@
   - 前端：Vue 3 + TypeScript + Element Plus
   - 数据库：PostgreSQL 15（使用 GORM 管理 Schema）
 - **详细信息**：[README.md](./README.md)
-- **⭐ 系统架构**：[docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md) — 数据模型、服务逻辑、API 端点、前端结构的完整参考，**开始工作前务必先读此文件**
+- **⭐ 系统架构**：[docs/system-architecture.md](docs/system-architecture.md) — 数据模型、服务逻辑、API 端点、前端结构的完整参考，**开始工作前务必先读此文件**
 
 **目录结构**：
 ```
@@ -199,7 +199,7 @@ services/
 - 列表接口统一使用 `data` 字段
 - 字段命名使用 camelCase（驼峰）
 - GORM 模型必须显式指定 `gorm:"column:xxx"`
-- 详见：[docs/reference/API-RESPONSE-STANDARD.md](docs/reference/API-RESPONSE-STANDARD.md)
+- 详见：[docs/reference/api-response-standard.md](docs/reference/api-response-standard.md)
 
 ---
 
@@ -237,4 +237,4 @@ services/
 **⚠️ 工作守则**：
 - ❌ 不启动服务、不主动提交代码
 - ✅ 只做编译验证，询问后再提交
-- 📚 详细规范参考：[docs/reference/API-RESPONSE-STANDARD.md](docs/reference/API-RESPONSE-STANDARD.md)
+- 📚 详细规范参考：[docs/reference/api-response-standard.md](docs/reference/api-response-standard.md)

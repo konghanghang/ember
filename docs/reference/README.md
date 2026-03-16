@@ -5,11 +5,11 @@
 ## 文档列表
 
 - [开发指南](./development-guide.md) - 开发时的最短阅读路径
-- [配置参考](./CONFIGURATION-REFERENCE.md) - 配置来源、优先级和边界
-- [API 开发与目录规范](./API-DEVELOPMENT-CONVENTIONS.md) - `services/api` 的分层和目录约束
-- [API 响应规范](./API-RESPONSE-STANDARD.md) - 接口返回、字段命名和模型映射约定
+- [配置参考](./configuration-reference.md) - 配置来源、优先级和边界
+- [API 开发与目录规范](./api-development-conventions.md) - `services/api` 的分层和目录约束
+- [API 响应规范](./api-response-standard.md) - 接口返回、字段命名和模型映射约定
 - [Emby API 参考](./emby-api-guide.md) - Emby 集成接口与调试说明
-- [Web 设计规范](./WEB_DESIGN_GUIDE.md) - 前端设计系统与实现约束
+- [Web 设计规范](./web-design-guide.md) - 前端设计系统与实现约束
 
 ## 维护规则
 

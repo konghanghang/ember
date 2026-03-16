@@ -60,7 +60,7 @@
 5. Bot：`message_formatter.py` 新增 3 个格式化函数 + 精简 `format_bind_success`
 6. Bot：`telegram_handler.py` 新增所有 handler
 7. Bot：`server.py` 拆分 CallbackQueryHandler + 注册新 handlers（含 `/cancel`）+ 命令菜单（失败不阻塞启动）
-8. 更新 `docs/SYSTEM-ARCHITECTURE.md`
+8. 更新 `docs/system-architecture.md`
 
 ---
 
@@ -1394,7 +1394,7 @@ async def lifespan(app: FastAPI):
 
 ## 八、更新架构文档
 
-**文件**：`docs/SYSTEM-ARCHITECTURE.md`
+**文件**：`docs/system-architecture.md`
 
 需要更新以下几处：
 
@@ -1467,7 +1467,7 @@ Telegram callback_data 上限 64 bytes，所有格式均安全。
 | `services/bot/app/formatters/message_formatter.py` | 修改 | +90 行（3 个新函数 + 精简 1 个） |
 | `services/bot/app/handlers/telegram_handler.py` | 修改 | +280 行（import + 11 个函数） |
 | `services/bot/app/server.py` | 修改 | +20 行（import + handler 注册 + 菜单） |
-| `docs/SYSTEM-ARCHITECTURE.md` | 修改 | 更新 3 处 |
+| `docs/system-architecture.md` | 修改 | 更新 3 处 |
 
 ---
 

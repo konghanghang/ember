@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 重大修复
 
-详见 [docs/archive/BUGFIX-SUMMARY.md](docs/archive/BUGFIX-SUMMARY.md)
+详见 [docs/archive/bugfix-summary.md](docs/archive/bugfix-summary.md)
 
 1. **[严重] 数据一致性问题** - 修复用户注册时 Emby 创建失败导致的脏数据
 2. **[严重] 并发问题** - 修复邀请码并发使用导致超限的竞态条件
@@ -54,9 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 📚 文档
 
 - ✅ [设计文档](docs/specs/design.md)
-- ✅ [部署指南](docs/runbooks/DEPLOYMENT.md)
+- ✅ [部署指南](docs/runbooks/deployment.md)
 - ✅ [开发指南](docs/reference/development-guide.md)
-- ✅ [测试指南](docs/runbooks/TESTING.md)
+- ✅ [测试指南](docs/runbooks/testing.md)
 
 ### ✅ 测试覆盖
 
@@ -70,7 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **模式一**: 生产部署（本地构建 + 远程数据库）
 - **模式二**: 本地开发（本地构建 + 本地数据库）
 
-详见 [docs/runbooks/DEPLOYMENT.md](docs/runbooks/DEPLOYMENT.md)
+详见 [docs/runbooks/deployment.md](docs/runbooks/deployment.md)
 
 ### 🔐 安全特性
 

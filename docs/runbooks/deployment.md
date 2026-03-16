@@ -831,10 +831,10 @@ curl http://localhost:3000/api/health
 
 - [项目 README](../../README.md) - 项目概览
 - [文档中心](../README.md) - 文档总入口
-- [系统架构](../SYSTEM-ARCHITECTURE.md) - 当前系统结构与边界
+- [系统架构](../system-architecture.md) - 当前系统结构与边界
 - [开发指南](../reference/development-guide.md) - 开发入口与维护规则
-- [测试指南](./TESTING.md) - 部署后的验证步骤
-- [Docker 构建指南](./DOCKER-BUILD-GUIDE.md) - 镜像构建与发布
+- [测试指南](./testing.md) - 部署后的验证步骤
+- [Docker 构建指南](./docker-build-guide.md) - 镜像构建与发布
 
 ---
 

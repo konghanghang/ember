@@ -354,7 +354,7 @@ export interface LatestMediaItem {
 └─────────────────────────────────────────────────┘
 ```
 
-遵循设计规范中的**媒体网格模式**（`docs/reference/WEB_DESIGN_GUIDE.md` §5）：
+遵循设计规范中的**媒体网格模式**（`docs/reference/web-design-guide.md` §5）：
 - 网格：`grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6`
 - 海报：`aspect-[2/3] object-cover`
 - 悬停：`group-hover:scale-110` 放大 + 遮罩

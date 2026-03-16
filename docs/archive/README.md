@@ -4,8 +4,8 @@
 
 ## 归档内容
 
-- [旧版 API 参考](./API-REFERENCE.md)
-- [重大 Bug 修复总结](./BUGFIX-SUMMARY.md)
+- [旧版 API 参考](./api-reference.md)
+- [重大 Bug 修复总结](./bugfix-summary.md)
 - [历史任务清单](./tasks.md)
 - [历史实施计划](./plan/)
 - [历史测试报告](./test-reports/)
@@ -13,4 +13,4 @@
 ## 使用规则
 
 - 需要追溯历史时再看。
-- 归档文档如果与当前实现冲突，以 [系统架构](../SYSTEM-ARCHITECTURE.md) 和 `docs/reference/` 为准。
+- 归档文档如果与当前实现冲突，以 [系统架构](../system-architecture.md) 和 `docs/reference/` 为准。

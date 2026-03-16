@@ -11,7 +11,7 @@ Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 组织 API、
 ## 文档入口
 
 - [文档中心](./docs/README.md) - 统一导航，按参考资料、操作手册、方案草稿、归档分类
-- [系统架构](./docs/SYSTEM-ARCHITECTURE.md) - 当前系统的核心真相来源
+- [系统架构](./docs/system-architecture.md) - 当前系统的核心真相来源
 - [开发指南](./docs/reference/development-guide.md) - 开发时的最短阅读路径
 - [API 服务文档](./services/api/README.md)
 - [Web 服务文档](./services/web/README.md)
@@ -36,7 +36,7 @@ ember/
 │   ├── archive/                # 历史归档
 │   ├── plan/                   # 进行中的功能规划（兼容保留）
 │   ├── specs/                  # specs-workflow 产物（兼容保留）
-│   ├── SYSTEM-ARCHITECTURE.md  # 核心架构文档
+│   ├── system-architecture.md  # 核心架构文档
 │   └── README.md               # 文档中心
 └── README.md
 ```
@@ -50,7 +50,7 @@ ember/
 
 ## 文档维护规则
 
-- 代码改动前先看 [系统架构](./docs/SYSTEM-ARCHITECTURE.md) 和 [开发指南](./docs/reference/development-guide.md)。
+- 代码改动前先看 [系统架构](./docs/system-architecture.md) 和 [开发指南](./docs/reference/development-guide.md)。
 - 稳定规则写进 `docs/reference/`；部署、测试、联调流程写进 `docs/runbooks/`。
 - 方案设计先放 `docs/plan/` 或 `docs/specs/`，落地后再提炼到稳定文档；完成后归档到 `docs/archive/`。
 

@@ -4,10 +4,10 @@
 
 ## 文档列表
 
-- [部署指南](./DEPLOYMENT.md) - Docker 部署、环境变量和排障
-- [测试指南](./TESTING.md) - 手动测试步骤和检查项
-- [Cloudflared 本地联调](./CLOUDFLARED-LOCAL-TESTING.md) - Telegram Webhook 本地联调
-- [Docker 构建指南](./DOCKER-BUILD-GUIDE.md) - 镜像构建与发布流程
+- [部署指南](./deployment.md) - Docker 部署、环境变量和排障
+- [测试指南](./testing.md) - 手动测试步骤和检查项
+- [Cloudflared 本地联调](./cloudflared-local-testing.md) - Telegram Webhook 本地联调
+- [Docker 构建指南](./docker-build-guide.md) - 镜像构建与发布流程
 
 ## 维护规则
 
