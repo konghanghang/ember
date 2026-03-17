@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { CreditCard, Timer, Refresh, Money, Ticket, Clock, ArrowRight } from '@element-plus/icons-vue'
+import { CreditCard, Timer, Refresh, Money, Ticket, Clock } from '@element-plus/icons-vue'
 import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
@@ -233,21 +233,6 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">续费中心</h1>
-        <p class="text-gray-500 text-sm mt-1">统一管理在线购买和兑换码续期</p>
-      </div>
-
-      <button
-        @click="refreshAll"
-        class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-        title="刷新"
-      >
-        <el-icon :size="20"><Refresh /></el-icon>
-      </button>
-    </div>
-
     <div
       class="rounded-3xl border shadow-sm overflow-hidden bg-gradient-to-br"
       :class="statusTone.panel"
@@ -515,18 +500,5 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="bg-gray-900 text-white rounded-3xl p-6 md:p-7 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-      <div>
-        <h2 class="text-xl font-bold">不确定该用哪种方式？</h2>
-        <p class="text-sm text-gray-300 mt-2">在线购买适合直接自助续费，兑换码适合运营发放的补偿、活动或线下分发。</p>
-      </div>
-      <button
-        @click="scrollToSection(isExpired ? 'online-purchase' : 'redeem-section')"
-        class="inline-flex items-center justify-center gap-2 rounded-xl bg-white text-gray-900 px-5 py-3 font-bold hover:bg-gray-100 transition-colors"
-      >
-        <span>{{ isExpired ? '优先去在线购买' : '直接去兑换码续期' }}</span>
-        <el-icon><ArrowRight /></el-icon>
-      </button>
-    </div>
   </div>
 </template>
