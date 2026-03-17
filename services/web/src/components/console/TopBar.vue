@@ -222,7 +222,7 @@ const handleLogout = async () => {
                 <a
                   v-for="item in consoleStore.accountLinks"
                   :key="item.key"
-                  :href="item.href"
+                  :href="item.url"
                   target="_blank"
                   rel="noreferrer"
                   class="flex items-start gap-3 rounded-2xl px-3 py-3 no-underline transition-colors hover:bg-slate-50"

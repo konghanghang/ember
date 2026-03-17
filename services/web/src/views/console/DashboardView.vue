@@ -236,7 +236,7 @@ watch(
         <a
           v-for="item in consoleStore.accountLinks"
           :key="item.key"
-          :href="item.href"
+          :href="item.url"
           target="_blank"
           rel="noreferrer"
           class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 no-underline transition-colors hover:border-slate-300 hover:bg-white"
