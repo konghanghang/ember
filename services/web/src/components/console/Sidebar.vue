@@ -11,9 +11,7 @@ import {
   Setting,
   User,
   Ticket,
-  Document,
   Goods,
-  CreditCard,
   ShoppingCart,
   Monitor,
   DataLine,
@@ -85,27 +83,15 @@ const menuItems = computed(() => [
         role: 'admin'
       },
       {
-        title: '兑换码管理',
-        path: '/console/redemption-codes',
+        title: '兑换中心',
+        path: '/console/redemptions',
         icon: Ticket,
         role: 'admin'
       },
       {
-        title: '兑换历史',
-        path: '/console/redemption-history',
-        icon: Document,
-        role: 'admin'
-      },
-      {
-        title: '付费方案',
-        path: '/console/plans',
+        title: '支付中心',
+        path: '/console/billing',
         icon: Goods,
-        role: 'admin'
-      },
-      {
-        title: '支付记录',
-        path: '/console/payments',
-        icon: CreditCard,
         role: 'admin'
       },
       {

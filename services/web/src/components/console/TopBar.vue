@@ -67,13 +67,9 @@ const routeMeta: Record<string, { title: string; description: string }> = {
     title: '用户管理',
     description: '维护用户账号与状态'
   },
-  'console-redemption-codes': {
-    title: '兑换码管理',
-    description: '创建、查看和维护兑换码'
-  },
-  'console-redemption-history': {
-    title: '兑换历史',
-    description: '查看兑换码使用记录'
+  'console-redemptions': {
+    title: '兑换中心',
+    description: '统一管理兑换码池和兑换记录'
   },
   'console-settings': {
     title: '系统设置',
@@ -95,13 +91,9 @@ const routeMeta: Record<string, { title: string; description: string }> = {
     title: '设备管理',
     description: '查看设备状态与管控记录'
   },
-  'console-plans': {
-    title: '付费方案',
-    description: '管理用户可购买的订阅方案'
-  },
-  'console-payments': {
-    title: '支付记录',
-    description: '审计订单与支付结果'
+  'console-billing': {
+    title: '支付中心',
+    description: '统一管理付费方案和支付记录'
   }
 }
 

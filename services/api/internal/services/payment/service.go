@@ -94,6 +94,8 @@ type GetPaymentsRequest struct {
 	Page     int    `form:"page" binding:"omitempty,min=1"`
 	PageSize int    `form:"pageSize" binding:"omitempty,min=1"`
 	UserID   string `form:"userId"`
+	PlanID   string `form:"planId"`
+	Status   string `form:"status"`
 }
 
 type GetPaymentsResponse struct {
@@ -773,7 +775,7 @@ func (s *PaymentService) getPayments(userID string, req *GetPaymentsRequest, isA
 			return nil, err
 		}
 	} else {
-		if err := s.expirePendingPayments(strings.TrimSpace(req.UserID), "", time.Now().UTC()); err != nil {
+		if err := s.expirePendingPayments(strings.TrimSpace(req.UserID), strings.TrimSpace(req.PlanID), time.Now().UTC()); err != nil {
 			return nil, err
 		}
 	}
@@ -794,6 +796,12 @@ func (s *PaymentService) getPayments(userID string, req *GetPaymentsRequest, isA
 		}
 	} else {
 		query = query.Where("\"userId\" = ?", userID)
+	}
+	if strings.TrimSpace(req.PlanID) != "" {
+		query = query.Where("\"planId\" = ?", strings.TrimSpace(req.PlanID))
+	}
+	if status := normalizePaymentStatusFilter(req.Status); status != "" {
+		query = query.Where("status = ?", status)
 	}
 
 	var total int64
@@ -854,4 +862,19 @@ func (s *PaymentService) getPayments(userID string, req *GetPaymentsRequest, isA
 		PageSize:   pageSize,
 		TotalPages: int(math.Ceil(float64(total) / float64(pageSize))),
 	}, nil
+}
+
+func normalizePaymentStatusFilter(raw string) models.PaymentStatus {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case string(models.PaymentPending):
+		return models.PaymentPending
+	case string(models.PaymentCompleted):
+		return models.PaymentCompleted
+	case string(models.PaymentExpired):
+		return models.PaymentExpired
+	case string(models.PaymentFailed):
+		return models.PaymentFailed
+	default:
+		return ""
+	}
 }

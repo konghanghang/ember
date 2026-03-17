@@ -146,8 +146,10 @@ services/
 │  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台
 │  │        ├─ UsersView.vue     # 用户管理
+│  │        ├─ RedemptionCenterView.vue # 兑换中心（兑换码池 + 兑换记录）
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
+│  │        ├─ PaymentCenterView.vue # 支付中心（付费方案 + 支付记录）
 │  │        ├─ SettingsView.vue  # 设置中心
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ PaymentsView.vue  # 支付记录审计
@@ -915,19 +917,40 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - 支付记录 + 兑换记录
 - 目标：把“在线支付”和“兑换码续期”统一到同一续费心智下，而不是分散在 Dashboard 和独立价格页中
 
-### 管理端兑换历史
+### 管理端兑换中心
 
-- 新增路由：`/console/redemption-history`（admin）
-- 新增视图：`views/admin/RedemptionHistoryView.vue`
-- 数据源：`GET /api/v1/admin/redemptions`（支持 userId 分页筛选）
+- 路由：`/console/redemptions`（admin）
+- 兼容路由：
+  - `/console/redemption-codes` → `?tab=codes`
+  - `/console/redemption-history` → `?tab=history`
+- 视图：`views/admin/RedemptionCenterView.vue`
+- Tab 结构：
+  - `codes`：`views/admin/RedemptionCodesView.vue`
+  - `history`：`views/admin/RedemptionHistoryView.vue`
+- 数据源：
+  - `GET /api/v1/admin/redemption-codes`
+  - `POST /api/v1/admin/redemption-codes`
+  - `POST /api/v1/admin/redemption-codes/batch`
+  - `PUT /api/v1/admin/redemption-codes/:id`
+  - `DELETE /api/v1/admin/redemption-codes/:id`
+  - `GET /api/v1/admin/redemptions`
 
-### 管理端兑换码管理
+### 管理端支付中心
 
-- 入口仍为 `views/admin/RedemptionCodesView.vue`
-- 创建弹窗支持单个生成和批量生成：
-  - `count=1` 调用 `POST /api/v1/admin/redemption-codes`
-  - `count>1` 调用 `POST /api/v1/admin/redemption-codes/batch`
-- 批量生成成功后弹出结果列表，支持一键复制本次生成的全部兑换码
+- 路由：`/console/billing`（admin）
+- 兼容路由：
+  - `/console/plans` → `?tab=plans`
+  - `/console/payments` → `?tab=payments`
+- 视图：`views/admin/PaymentCenterView.vue`
+- Tab 结构：
+  - `plans`：`views/admin/PlansView.vue`
+  - `payments`：`views/admin/PaymentsView.vue`
+- 数据源：
+  - `GET /api/v1/admin/plans`
+  - `POST /api/v1/admin/plans`
+  - `PUT /api/v1/admin/plans/:id`
+  - `DELETE /api/v1/admin/plans/:id`
+  - `GET /api/v1/admin/payments`
 
 ### 管理端设备管理
 

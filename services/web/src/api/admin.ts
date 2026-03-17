@@ -1,6 +1,8 @@
 import request from './request'
 import type {
   ActiveSession,
+  AdminPaymentQuery,
+  AdminRedemptionQuery,
   AdminConfigItem,
   AdminConfigListResponse,
   ClientBlacklist,
@@ -167,7 +169,7 @@ export function importConfigEnv(): Promise<ImportEnvResult> {
   })
 }
 
-export function getAllRedemptions(params?: { page?: number; pageSize?: number; userId?: string }): Promise<RedemptionListResponse> {
+export function getAllRedemptions(params?: AdminRedemptionQuery): Promise<RedemptionListResponse> {
 	return request({
 		url: '/admin/redemptions',
 		method: 'get',
@@ -265,7 +267,7 @@ export function deletePlan(id: string) {
   })
 }
 
-export function getAllPayments(params?: { page?: number; pageSize?: number; userId?: string }): Promise<PaymentListResponse> {
+export function getAllPayments(params?: AdminPaymentQuery): Promise<PaymentListResponse> {
   return request({
     url: '/admin/payments',
     method: 'get',

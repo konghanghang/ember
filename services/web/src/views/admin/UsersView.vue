@@ -196,8 +196,8 @@ const handleResetPassword = async (row: UserInfo) => {
 
 const handleViewPayments = (row: UserInfo) => {
   router.push({
-    name: 'console-payments',
-    query: { userId: row.id }
+    name: 'console-billing',
+    query: { tab: 'payments', userId: row.id }
   })
 }
 

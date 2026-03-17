@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Search, UserFilled } from '@element-plus/icons-vue'
+import { Search, Ticket, UserFilled } from '@element-plus/icons-vue'
 import { getAllRedemptions } from '@/api/admin'
 import { formatDate } from '@/utils/date'
 import type { Redemption } from '@/types/api'
+
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+}>(), {
+  embedded: false
+})
 
 const tableData = ref<Redemption[]>([])
 const loading = ref(false)
@@ -11,18 +17,22 @@ const total = ref(0)
 const queryParams = ref({
   page: 1,
   pageSize: 10,
-  userId: ''
+  userId: '',
+  code: ''
 })
 
 const fetchData = async () => {
   loading.value = true
   try {
-    const params: { page: number; pageSize: number; userId?: string } = {
+    const params: { page: number; pageSize: number; userId?: string; code?: string } = {
       page: queryParams.value.page,
       pageSize: queryParams.value.pageSize
     }
     if (queryParams.value.userId) {
       params.userId = queryParams.value.userId
+    }
+    if (queryParams.value.code) {
+      params.code = queryParams.value.code.trim()
     }
 
     const res = await getAllRedemptions(params)
@@ -42,6 +52,7 @@ const handleSearch = () => {
 
 const handleReset = () => {
   queryParams.value.userId = ''
+  queryParams.value.code = ''
   queryParams.value.page = 1
   fetchData()
 }
@@ -59,7 +70,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+    <div v-if="!props.embedded" class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
       <div>
         <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
           兑换历史
@@ -70,7 +81,7 @@ onMounted(() => {
 
       <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
         <div class="flex flex-col lg:flex-row lg:items-end gap-3">
-          <div class="grid grid-cols-1 gap-3 w-full lg:max-w-md">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
             <div class="space-y-1.5">
               <label class="text-xs font-semibold tracking-wide text-gray-500">用户 ID</label>
               <div class="relative w-full group">
@@ -83,6 +94,24 @@ onMounted(() => {
                   autocomplete="off"
                   aria-label="按用户 ID 筛选"
                   placeholder="输入用户 ID 筛选"
+                  class="filter-input w-full pl-10 pr-4"
+                  @keyup.enter="handleSearch"
+                />
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">兑换码</label>
+              <div class="relative w-full group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Ticket /></el-icon>
+                </div>
+                <input
+                  v-model="queryParams.code"
+                  type="text"
+                  autocomplete="off"
+                  aria-label="按兑换码筛选"
+                  placeholder="输入兑换码筛选"
                   class="filter-input w-full pl-10 pr-4"
                   @keyup.enter="handleSearch"
                 />

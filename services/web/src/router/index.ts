@@ -86,16 +86,30 @@ const router = createRouter({
           component: () => import('../views/admin/UsersView.vue'),
         },
         {
-          path: 'redemption-codes',
-          name: 'console-redemption-codes',
+          path: 'redemptions',
+          name: 'console-redemptions',
           meta: { role: 'admin' },
-          component: () => import('../views/admin/RedemptionCodesView.vue'),
+          component: () => import('../views/admin/RedemptionCenterView.vue'),
+        },
+        {
+          path: 'redemption-codes',
+          redirect: (to) => ({
+            path: '/console/redemptions',
+            query: {
+              ...to.query,
+              tab: 'codes'
+            }
+          })
         },
         {
           path: 'redemption-history',
-          name: 'console-redemption-history',
-          meta: { role: 'admin' },
-          component: () => import('../views/admin/RedemptionHistoryView.vue'),
+          redirect: (to) => ({
+            path: '/console/redemptions',
+            query: {
+              ...to.query,
+              tab: 'history'
+            }
+          })
         },
         {
           path: 'settings',
@@ -128,23 +142,40 @@ const router = createRouter({
           component: () => import('../views/admin/DevicesView.vue'),
         },
         {
-          path: 'plans',
-          name: 'console-plans',
+          path: 'billing',
+          name: 'console-billing',
           meta: { role: 'admin' },
-          component: () => import('../views/admin/PlansView.vue'),
+          component: () => import('../views/admin/PaymentCenterView.vue'),
+        },
+        {
+          path: 'plans',
+          redirect: (to) => ({
+            path: '/console/billing',
+            query: {
+              ...to.query,
+              tab: 'plans'
+            }
+          })
         },
         {
           path: 'payments',
-          name: 'console-payments',
-          meta: { role: 'admin' },
-          component: () => import('../views/admin/PaymentsView.vue'),
+          redirect: (to) => ({
+            path: '/console/billing',
+            query: {
+              ...to.query,
+              tab: 'payments'
+            }
+          })
         },
       ],
     },
 
     // Legacy redirects
     { path: '/admin/users', redirect: '/console/users' },
-    { path: '/admin/redemption-codes', redirect: '/console/redemption-codes' },
+    { path: '/admin/redemption-codes', redirect: '/console/redemptions?tab=codes' },
+    { path: '/admin/redemption-history', redirect: '/console/redemptions?tab=history' },
+    { path: '/admin/plans', redirect: '/console/billing?tab=plans' },
+    { path: '/admin/payments', redirect: '/console/billing?tab=payments' },
     { path: '/admin/subscriptions', redirect: '/console/subscriptions' },
     { path: '/admin/settings', redirect: '/console/settings' },
     { path: '/user/dashboard', redirect: '/console/dashboard' },

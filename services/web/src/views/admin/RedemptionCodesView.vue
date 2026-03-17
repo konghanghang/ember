@@ -5,6 +5,12 @@ import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument }
 import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getUserTemplates } from '@/api/admin'
 import type { CreateRedemptionCodeRequest, RedemptionCode, UpdateRedemptionCodeRequest, UserTemplate } from '@/types/api'
 
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+}>(), {
+  embedded: false
+})
+
 const maxBatchCreateCount = 100
 
 const tableData = ref<RedemptionCode[]>([])
@@ -215,7 +221,7 @@ onMounted(async () => {
 <template>
   <div class="space-y-6">
     <!-- Header -->
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+    <div v-if="!props.embedded" class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
       <div>
         <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
           兑换码管理

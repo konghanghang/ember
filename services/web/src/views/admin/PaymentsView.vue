@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, RefreshRight, UserFilled, CreditCard } from '@element-plus/icons-vue'
-import { getAllPayments } from '@/api/admin'
+import { getAllPayments, getPlans } from '@/api/admin'
 import { formatDate } from '@/utils/date'
-import type { Payment, PaymentStatus } from '@/types/api'
+import type { Payment, PaymentStatus, Plan } from '@/types/api'
+
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+}>(), {
+  embedded: false
+})
 
 const route = useRoute()
 const router = useRouter()
@@ -16,10 +22,21 @@ const total = ref(0)
 const queryParams = ref({
   page: 1,
   pageSize: 20,
-  userId: ''
+  userId: '',
+  planId: '',
+  status: '' as PaymentStatus | ''
 })
 
 const activeUserId = computed(() => queryParams.value.userId.trim())
+const activePlanId = computed(() => queryParams.value.planId.trim())
+const activeStatus = computed(() => queryParams.value.status)
+const planOptions = ref<Plan[]>([])
+const statusOptions: Array<{ label: string; value: PaymentStatus }> = [
+  { label: '待支付', value: 'pending' },
+  { label: '支付成功', value: 'completed' },
+  { label: '已过期', value: 'expired' },
+  { label: '支付失败', value: 'failed' }
+]
 
 const formatPrice = (price: number, currency: string = 'usd') => {
   return new Intl.NumberFormat('zh-CN', {
@@ -49,7 +66,9 @@ const fetchData = async () => {
     const res = await getAllPayments({
       page: queryParams.value.page,
       pageSize: queryParams.value.pageSize,
-      userId: activeUserId.value || undefined
+      userId: activeUserId.value || undefined,
+      planId: activePlanId.value || undefined,
+      status: activeStatus.value || undefined
     })
     tableData.value = res.data || []
     total.value = res.total || 0
@@ -60,9 +79,20 @@ const fetchData = async () => {
   }
 }
 
+const fetchPlans = async () => {
+  try {
+    const res = await getPlans({ page: 1, pageSize: 100, showAll: true })
+    planOptions.value = res.data || []
+  } catch {
+    planOptions.value = []
+  }
+}
+
 const syncRouteUserID = async () => {
   const nextUserID = activeUserId.value
   const currentUserID = typeof route.query.userId === 'string' ? route.query.userId.trim() : ''
+  const currentPlanID = typeof route.query.planId === 'string' ? route.query.planId.trim() : ''
+  const currentStatus = typeof route.query.status === 'string' ? route.query.status.trim() : ''
   const nextQuery = { ...route.query }
 
   if (nextUserID) {
@@ -70,8 +100,22 @@ const syncRouteUserID = async () => {
   } else {
     delete nextQuery.userId
   }
+  if (activePlanId.value) {
+    nextQuery.planId = activePlanId.value
+  } else {
+    delete nextQuery.planId
+  }
+  if (activeStatus.value) {
+    nextQuery.status = activeStatus.value
+  } else {
+    delete nextQuery.status
+  }
 
-  if (nextUserID === currentUserID) {
+  if (
+    nextUserID === currentUserID &&
+    activePlanId.value === currentPlanID &&
+    activeStatus.value === currentStatus
+  ) {
     await fetchData()
     return
   }
@@ -88,6 +132,8 @@ const handleReset = async () => {
   queryParams.value.page = 1
   queryParams.value.pageSize = 20
   queryParams.value.userId = ''
+  queryParams.value.planId = ''
+  queryParams.value.status = ''
   await syncRouteUserID()
 }
 
@@ -98,22 +144,35 @@ const handlePageSizeChange = (size: number) => {
 }
 
 watch(
-  () => route.query.userId,
-  (value) => {
-    const nextUserID = typeof value === 'string' ? value.trim() : ''
+  () => [route.query.userId, route.query.planId, route.query.status],
+  ([userId, planId, status]) => {
+    const nextUserID = typeof userId === 'string' ? userId.trim() : ''
+    const nextPlanID = typeof planId === 'string' ? planId.trim() : ''
+    const nextStatus = typeof status === 'string' ? status.trim() as PaymentStatus | '' : ''
+
     if (queryParams.value.userId !== nextUserID) {
       queryParams.value.userId = nextUserID
+      queryParams.value.page = 1
+    }
+    if (queryParams.value.planId !== nextPlanID) {
+      queryParams.value.planId = nextPlanID
+      queryParams.value.page = 1
+    }
+    if (queryParams.value.status !== nextStatus) {
+      queryParams.value.status = nextStatus
       queryParams.value.page = 1
     }
     fetchData()
   },
   { immediate: true }
 )
+
+onMounted(fetchPlans)
 </script>
 
 <template>
   <div class="space-y-6">
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+    <div v-if="!props.embedded" class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
       <div>
         <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
           支付记录
@@ -124,20 +183,57 @@ watch(
 
       <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
         <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-3">
-          <div class="space-y-1.5">
-            <label class="text-xs font-semibold tracking-wide text-gray-500">用户 ID</label>
-            <div class="relative group">
-              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><UserFilled /></el-icon>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">用户 ID</label>
+              <div class="relative group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><UserFilled /></el-icon>
+                </div>
+                <input
+                  v-model="queryParams.userId"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="输入完整用户 ID"
+                  class="filter-input w-full pl-10 pr-4"
+                  @keyup.enter="handleSearch"
+                />
               </div>
-              <input
-                v-model="queryParams.userId"
-                type="text"
-                autocomplete="off"
-                placeholder="输入完整用户 ID"
-                class="filter-input w-full pl-10 pr-4"
-                @keyup.enter="handleSearch"
-              />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">付费方案</label>
+              <el-select
+                v-model="queryParams.planId"
+                placeholder="全部方案"
+                clearable
+                filterable
+                class="w-full"
+              >
+                <el-option
+                  v-for="plan in planOptions"
+                  :key="plan.id"
+                  :label="plan.name"
+                  :value="plan.id"
+                />
+              </el-select>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">支付状态</label>
+              <el-select
+                v-model="queryParams.status"
+                placeholder="全部状态"
+                clearable
+                class="w-full"
+              >
+                <el-option
+                  v-for="option in statusOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
             </div>
           </div>
 

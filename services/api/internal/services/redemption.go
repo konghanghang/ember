@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -48,6 +49,7 @@ type GetAllRedemptionsRequest struct {
 	Page     int    `form:"page" binding:"omitempty,min=1"`
 	PageSize int    `form:"pageSize" binding:"omitempty,min=1"`
 	UserID   string `form:"userId"`
+	Code     string `form:"code"`
 }
 
 type GetAllRedemptionsResponse struct {
@@ -205,6 +207,9 @@ func (s *RedemptionService) GetAllRedemptions(req *GetAllRedemptionsRequest) (*G
 	base := db.DB.Table("redemptions r").Joins("LEFT JOIN users u ON r.\"userId\" = u.id")
 	if req.UserID != "" {
 		base = base.Where("r.\"userId\" = ?", req.UserID)
+	}
+	if strings.TrimSpace(req.Code) != "" {
+		base = base.Where("r.code = ?", strings.TrimSpace(req.Code))
 	}
 
 	var total int64

@@ -142,6 +142,11 @@ export interface RedemptionListResponse {
   totalPages: number
 }
 
+export interface AdminRedemptionQuery extends PaginationQuery {
+  userId?: string
+  code?: string
+}
+
 export interface PlaybackHistoryQuery extends PaginationQuery {
   userId?: string
   keyword?: string
@@ -441,6 +446,12 @@ export interface PaymentListResponse {
   page: number
   pageSize: number
   totalPages: number
+}
+
+export interface AdminPaymentQuery extends PaginationQuery {
+  userId?: string
+  planId?: string
+  status?: PaymentStatus | ''
 }
 
 export interface PlanListResponse {
