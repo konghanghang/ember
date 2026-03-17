@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { CreditCard, Timer, Refresh, Money, Ticket, Clock, ArrowRight } from '@element-plus/icons-vue'
-import { createCheckout, getActivePlans, getMyPayments, getProfile } from '@/api/console'
+import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
+import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
+import { useUserStore } from '@/store/user'
 import { formatDate } from '@/utils/date'
 import type { Payment, PaymentStatus, Plan, Redemption, UserInfo } from '@/types/api'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
+const refreshProfile = inject<RefreshConsoleProfile>(refreshConsoleProfileKey, async () => {})
 
-const user = ref<UserInfo>({
+const emptyUser: UserInfo = {
   id: '',
   username: '',
   role: 'user',
@@ -21,7 +25,8 @@ const user = ref<UserInfo>({
   embyDisabled: false,
   isActive: false,
   createdAt: ''
-})
+}
+const user = computed(() => userStore.profile ?? emptyUser)
 
 const plans = ref<Plan[]>([])
 const plansLoading = ref(false)
@@ -45,8 +50,6 @@ const redemptionQuery = ref({
 
 const redeemForm = ref({ code: '' })
 const redeeming = ref(false)
-const statusLoading = ref(false)
-
 const emptyPlans = computed(() => !plansLoading.value && plans.value.length === 0)
 const pendingPlanIDs = computed(() => new Set(
   payments.value
@@ -115,15 +118,6 @@ const paymentStatusMeta = (status: PaymentStatus) => {
   }
 }
 
-const fetchProfile = async () => {
-  statusLoading.value = true
-  try {
-    user.value = await getProfile()
-  } finally {
-    statusLoading.value = false
-  }
-}
-
 const fetchPlans = async () => {
   plansLoading.value = true
   try {
@@ -157,7 +151,7 @@ const fetchRedemptions = async () => {
 }
 
 const refreshAll = async () => {
-  const tasks: Promise<void>[] = [fetchProfile(), fetchPlans(), fetchPayments(), fetchRedemptions()]
+  const tasks: Promise<void>[] = [refreshProfile(), fetchPlans(), fetchPayments(), fetchRedemptions()]
   await Promise.all(tasks)
 }
 
@@ -191,10 +185,10 @@ const handleRedeem = async () => {
 
   redeeming.value = true
   try {
-    const res = await redeemCode({ code: redeemForm.value.code.trim() })
-    ElMessage.success(res.message)
+    const result = await redeemCode({ code: redeemForm.value.code.trim() })
+    ElMessage.success(result.message)
     redeemForm.value.code = ''
-    await Promise.all([fetchProfile(), fetchRedemptions()])
+    await Promise.all([refreshProfile(), fetchRedemptions()])
   } catch {
     // handled by interceptor
   } finally {
@@ -257,7 +251,6 @@ onMounted(async () => {
     <div
       class="rounded-3xl border shadow-sm overflow-hidden bg-gradient-to-br"
       :class="statusTone.panel"
-      v-loading="statusLoading"
     >
       <div class="p-6 md:p-8">
         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">

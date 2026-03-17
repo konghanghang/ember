@@ -135,7 +135,8 @@ services/
 │  │     │  └─ RegisterView.vue  # 注册（动态模式：open/invite，支持邮箱验证码）
 │  │     ├─ console/             # 统一控制台（admin + user 共享布局）
 │  │     │  ├─ Layout.vue        # 控制台布局
-│  │     │  ├─ DashboardView.vue # 面板（双态：活跃/过期降级）
+│  │     │  ├─ DashboardView.vue # 概览页（会员状态 / 媒体统计 / 服务器入口 / 快捷资源）
+│  │     │  ├─ AccountCenterView.vue # 账号中心（邮箱 / 密码 / Telegram 绑定 / 帮助资源）
 │  │     │  ├─ SubscriptionsView.vue  # 求片订阅
 │  │     │  ├─ NewSubscriptionView.vue # 新建订阅
 │  │     │  ├─ TVCalendarView.vue # 追剧日历

@@ -14,9 +14,13 @@ export const useUserStore = defineStore('user', () => {
   const mediaStats = ref<MediaStats | null>(null)
   const embyUrl = ref<string>('')
 
+  const setProfile = (user: UserInfo | null) => {
+    profile.value = user
+  }
+
   const fetchProfile = async () => {
     const res = await consoleApi.getProfile()
-    profile.value = res
+    setProfile(res)
     return res
   }
 
@@ -71,6 +75,7 @@ export const useUserStore = defineStore('user', () => {
     subscriptions,
     mediaStats,
     embyUrl,
+    setProfile,
     
     fetchProfile,
     updateEmail,

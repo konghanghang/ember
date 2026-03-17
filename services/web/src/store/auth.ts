@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as authApi from '@/api/auth'
+import { useUserStore } from '@/store/user'
 import type { LoginCredentials, RegisterRequest, LoginResponse, RegisterResponse } from '@/types/api'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -12,14 +13,20 @@ export const useAuthStore = defineStore('auth', () => {
   const isUser = computed(() => role.value === 'user')
 
   const login = async (credentials: LoginCredentials) => {
+    const userStore = useUserStore()
+    userStore.clearUserData()
     const res: LoginResponse = await authApi.login(credentials)
     setAuth(res.token, res.user.role as 'admin' | 'user')
+    userStore.setProfile(res.user)
     return res
   }
 
   const register = async (data: RegisterRequest) => {
+    const userStore = useUserStore()
+    userStore.clearUserData()
     const res: RegisterResponse = await authApi.register(data)
     setAuth(res.token, 'user')
+    userStore.setProfile(res.user)
     return res
   }
 
@@ -27,6 +34,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       await authApi.logout()
     } finally {
+      useUserStore().clearUserData()
       clearAuth()
     }
   }

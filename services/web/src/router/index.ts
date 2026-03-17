@@ -41,6 +41,11 @@ const router = createRouter({
           component: () => import('../views/console/DashboardView.vue'),
         },
         {
+          path: 'account',
+          name: 'console-account',
+          component: () => import('../views/console/AccountCenterView.vue'),
+        },
+        {
           path: 'subscriptions',
           name: 'console-subscriptions',
           component: () => import('../views/console/SubscriptionsView.vue'),

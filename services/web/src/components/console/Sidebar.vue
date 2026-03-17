@@ -2,20 +2,20 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
+import { useUserStore } from '@/store/user'
 import {
   Odometer,
   VideoPlay,
   Trophy,
   Film,
+  Setting,
   User,
   Ticket,
   Document,
   Goods,
   CreditCard,
   ShoppingCart,
-  Setting,
   Monitor,
-  SwitchButton,
   DataLine,
   Iphone,
   Calendar
@@ -23,6 +23,7 @@ import {
 
 const route = useRoute()
 const authStore = useAuthStore()
+const userStore = useUserStore()
 
 const canAccessItem = (role?: string) => {
   if (!role) return true
@@ -32,9 +33,15 @@ const canAccessItem = (role?: string) => {
 
 const menuItems = computed(() => [
   {
-    title: '我的账号',
+    title: '概览',
     path: '/console/dashboard',
     icon: Odometer,
+    role: 'user'
+  },
+  {
+    title: '账号中心',
+    path: '/console/account',
+    icon: Setting,
     role: 'user'
   },
   {
@@ -136,6 +143,7 @@ const menuItems = computed(() => [
 ])
 
 const isActive = (path: string) => route.path === path
+const displayName = computed(() => userStore.profile?.username || '当前用户')
 </script>
 
 <template>
@@ -209,10 +217,10 @@ const isActive = (path: string) => route.path === path
     <div class="p-4 border-t border-gray-50">
       <div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/50">
         <div class="w-8 h-8 rounded-full bg-ember/10 flex items-center justify-center text-ember">
-          <span class="font-bold text-sm">{{ authStore.username?.charAt(0).toUpperCase() }}</span>
+          <span class="font-bold text-sm">{{ displayName.charAt(0).toUpperCase() || 'U' }}</span>
         </div>
         <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-gray-900 truncate">{{ authStore.username }}</p>
+          <p class="text-sm font-medium text-gray-900 truncate">{{ displayName }}</p>
           <p class="text-xs text-gray-500 truncate">{{ authStore.role === 'admin' ? '管理员' : '普通用户' }}</p>
         </div>
       </div>

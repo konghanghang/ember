@@ -1,157 +1,259 @@
 <script setup lang="ts">
+import { computed, type Component } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { computed } from 'vue'
-import { useAuthStore } from '@/store/auth'
 import { ElMessage } from 'element-plus'
 import {
-  Fold,
-  Expand,
   Bell,
-  Search,
-  UserFilled,
+  ChatDotRound,
+  Expand,
+  Fold,
+  Reading,
+  Setting,
   SwitchButton
 } from '@element-plus/icons-vue'
+import { useAuthStore } from '@/store/auth'
+import { useUserStore } from '@/store/user'
+import { accountResourceLinks, type AccountResourceIcon } from '@/constants/accountResources'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const userStore = useUserStore()
 
-const props = defineProps<{
+defineProps<{
   collapsed: boolean
 }>()
 
-const emit = defineEmits<{
+defineEmits<{
   (e: 'toggle-sidebar'): void
 }>()
 
+const routeMeta: Record<string, { title: string; description: string }> = {
+  'console-dashboard': {
+    title: '概览',
+    description: '查看会员状态、服务器入口和媒体统计'
+  },
+  'console-account': {
+    title: '账号中心',
+    description: '集中管理资料、安全设置与常用资源'
+  },
+  'console-subscriptions': {
+    title: '订阅管理',
+    description: '维护求片请求与订阅记录'
+  },
+  'console-subscriptions-new': {
+    title: '新建订阅',
+    description: '提交新的影片或剧集订阅需求'
+  },
+  'console-rankings': {
+    title: '播放排行榜',
+    description: '查看近期热门内容与排行快照'
+  },
+  'console-library': {
+    title: '媒体库',
+    description: '浏览当前片库和基础媒体信息'
+  },
+  'console-tv-calendar': {
+    title: '追剧日历',
+    description: '管理追更节奏与播出提醒'
+  },
+  'console-renewal': {
+    title: '续费中心',
+    description: '购买方案或兑换续期码'
+  },
+  'console-users': {
+    title: '用户管理',
+    description: '维护用户账号与状态'
+  },
+  'console-redemption-codes': {
+    title: '兑换码管理',
+    description: '创建、查看和维护兑换码'
+  },
+  'console-redemption-history': {
+    title: '兑换历史',
+    description: '查看兑换码使用记录'
+  },
+  'console-settings': {
+    title: '系统设置',
+    description: '管理系统配置与运行参数'
+  },
+  'console-sessions': {
+    title: '活跃会话',
+    description: '查看在线设备与登录会话'
+  },
+  'console-playback-history': {
+    title: '播放历史',
+    description: '审计近期播放记录'
+  },
+  'console-media-quality': {
+    title: '媒体质量',
+    description: '盘点片库质量和转码信息'
+  },
+  'console-devices': {
+    title: '设备管理',
+    description: '查看设备状态与管控记录'
+  },
+  'console-plans': {
+    title: '付费方案',
+    description: '管理用户可购买的订阅方案'
+  },
+  'console-payments': {
+    title: '支付记录',
+    description: '审计订单与支付结果'
+  }
+}
+
+const resourceIconMap: Record<AccountResourceIcon, Component> = {
+  notify: Bell,
+  group: ChatDotRound,
+  wiki: Reading
+}
+
+const currentMeta = computed(() => routeMeta[String(route.name)] ?? {
+  title: '控制台',
+  description: '统一查看账号与业务信息'
+})
+
+const profile = computed(() => userStore.profile)
+const displayName = computed(() => profile.value?.username || '当前用户')
+const displayEmail = computed(() => profile.value?.email || '未设置联系邮箱')
+const isTelegramBound = computed(() => !!profile.value?.telegramId)
+const isExpired = computed(() => {
+  if (!profile.value?.expiresAt) return false
+  return new Date(profile.value.expiresAt) < new Date()
+})
+const membershipLabel = computed(() => {
+  if (authStore.isAdmin) return '管理员'
+  return isExpired.value ? '已过期' : '有效会员'
+})
+
 const handleLogout = async () => {
   await authStore.logout()
+  userStore.clearUserData()
   ElMessage.success('已登出')
   router.push('/login')
 }
-
-const currentRouteName = computed(() => {
-  switch (route.name) {
-    case 'console-dashboard': return '概览'
-    case 'console-subscriptions': return '我的订阅'
-    case 'console-renewal': return '续费中心'
-    case 'console-users': return '用户管理'
-    case 'console-redemption-codes': return '兑换码'
-    case 'console-settings': return '系统设置'
-    default: return '控制台'
-  }
-})
-
-const breadcrumbs = computed(() => {
-  const paths = [{ name: '首页', path: '/' }, { name: '控制台', path: '/console' }]
-  if (route.name !== 'console-dashboard') {
-    paths.push({ name: currentRouteName.value, path: route.path })
-  }
-  return paths
-})
 </script>
 
 <template>
-  <header class="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-6 sticky top-0 z-10 backdrop-blur-sm bg-white/90">
-    <!-- Left: Toggle & Breadcrumbs -->
-    <div class="flex items-center gap-4">
-      <button 
-        @click="$emit('toggle-sidebar')"
+  <header class="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6">
+    <div class="flex min-w-0 items-center gap-4">
+      <button
         aria-label="切换侧边栏"
-        class="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors lg:hidden cursor-pointer"
+        class="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 lg:hidden cursor-pointer"
+        @click="$emit('toggle-sidebar')"
       >
         <el-icon :size="20">
           <component :is="collapsed ? Expand : Fold" />
         </el-icon>
       </button>
 
-      <div class="flex items-center gap-2 text-sm text-gray-500">
-        <span class="font-medium text-gray-900">{{ currentRouteName }}</span>
+      <div class="min-w-0">
+        <p class="truncate text-lg font-semibold text-slate-900">{{ currentMeta.title }}</p>
+        <p class="hidden truncate text-sm text-slate-500 md:block">{{ currentMeta.description }}</p>
       </div>
     </div>
 
-    <!-- Right: Actions -->
-    <div class="flex items-center gap-4">
-      <!-- Search (Placeholder) -->
-      <div class="hidden md:flex items-center bg-gray-50 rounded-full px-4 py-1.5 border border-transparent focus-within:border-ember/30 focus-within:bg-white transition-all">
-        <el-icon :size="16" class="text-gray-400"><Search /></el-icon>
-        <input 
-          type="text" 
-          placeholder="搜索..." 
-          class="bg-transparent border-none outline-none text-sm ml-2 w-48 text-gray-600 placeholder-gray-400"
-        />
-      </div>
-
-      <!-- Community Dropdown -->
+    <div class="flex items-center gap-3">
       <el-dropdown trigger="click" placement="bottom-end">
-        <div class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors group">
-          <div class="p-1.5 rounded-full bg-red-50 text-ember group-hover:bg-red-100 transition-colors relative">
-            <svg class="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-            <span class="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-            </span>
+        <button class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer">
+          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-sm font-semibold text-white">
+            {{ displayName.charAt(0).toUpperCase() }}
           </div>
-          <span class="hidden md:block text-sm font-medium text-gray-600 group-hover:text-gray-900">社区</span>
-        </div>
+          <div class="hidden min-w-0 sm:block">
+            <p class="truncate text-sm font-semibold text-slate-900">{{ displayName }}</p>
+            <p class="truncate text-xs text-slate-500">{{ membershipLabel }}</p>
+          </div>
+        </button>
+
         <template #dropdown>
-          <div class="w-64 p-2 bg-white rounded-xl shadow-lg border border-gray-100">
-            <div class="px-2 py-1.5 mb-1">
-              <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Community</p>
-            </div>
-            
-            <a href="https://t.me/NextNewEP" target="_blank" class="block no-underline">
-              <div class="flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors group/item cursor-pointer">
-                <div class="p-2 bg-red-50 text-red-500 rounded-lg group-hover/item:bg-red-100 transition-colors">
-                  <el-icon :size="18"><Bell /></el-icon>
+          <div class="w-[22rem] rounded-3xl border border-slate-200 bg-white p-3 shadow-xl">
+            <div class="rounded-2xl bg-slate-50 px-4 py-4">
+              <div class="flex items-start gap-3">
+                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-base font-semibold text-white">
+                  {{ displayName.charAt(0).toUpperCase() }}
                 </div>
-                <div>
-                  <p class="text-sm font-medium text-gray-900 flex items-center gap-2 m-0">
-                    通知频道
-                    <span class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">New</span>
-                  </p>
-                  <p class="text-xs text-gray-500 mt-0.5 m-0 leading-tight">获取最新入库通知</p>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-semibold text-slate-900">{{ displayName }}</p>
+                  <p class="mt-1 truncate text-xs text-slate-500">{{ displayEmail }}</p>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <span
+                      class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                      :class="isExpired ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'"
+                    >
+                      <span class="h-2 w-2 rounded-full" :class="isExpired ? 'bg-red-500' : 'bg-emerald-500'"></span>
+                      {{ membershipLabel }}
+                    </span>
+                    <span
+                      class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                      :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-slate-200 text-slate-600'"
+                    >
+                      <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-slate-400'"></span>
+                      {{ isTelegramBound ? 'Telegram 已绑定' : 'Telegram 未绑定' }}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </a>
-
-            <a href="https://t.me/NextNewEP_emby_chat" target="_blank" class="block mt-1 no-underline">
-              <div class="flex items-start gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors group/item cursor-pointer">
-                <div class="p-2 bg-red-50 text-ember rounded-lg group-hover/item:bg-red-100 transition-colors">
-                  <svg class="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-                </div>
-                <div>
-                  <p class="text-sm font-medium text-gray-900 m-0">交流群组</p>
-                  <p class="text-xs text-gray-500 mt-0.5 m-0 leading-tight">加入社区讨论与求助</p>
-                </div>
-              </div>
-            </a>
-          </div>
-        </template>
-      </el-dropdown>
-
-      <div class="h-6 w-px bg-gray-200 mx-1"></div>
-
-      <!-- User Dropdown -->
-      <el-dropdown trigger="click">
-        <div class="flex items-center gap-3 cursor-pointer hover:bg-gray-50 p-1.5 rounded-lg transition-colors">
-          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-ember to-orange-500 flex items-center justify-center text-white shadow-sm ring-2 ring-white">
-            <el-icon :size="14"><UserFilled /></el-icon>
-          </div>
-          <div class="hidden md:block text-left">
-            <p class="text-xs font-semibold text-gray-700 leading-tight">{{ authStore.username }}</p>
-            <p class="text-[10px] text-gray-400 uppercase tracking-wider">{{ authStore.role }}</p>
-          </div>
-        </div>
-        <template #dropdown>
-          <el-dropdown-menu class="w-48">
-            <div class="px-4 py-3 border-b border-gray-100 mb-1">
-              <p class="text-sm font-medium text-gray-900">Signed in as</p>
-              <p class="text-xs text-gray-500 truncate">{{ authStore.username }}</p>
             </div>
-            <el-dropdown-item :icon="UserFilled" @click="router.push('/console/dashboard')">个人中心</el-dropdown-item>
-            <el-dropdown-item :icon="SwitchButton" divided @click="handleLogout">退出登录</el-dropdown-item>
-          </el-dropdown-menu>
+
+            <div class="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                class="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                @click="router.push('/console/account')"
+              >
+                <div>
+                  <p class="text-sm font-semibold text-slate-900">账号中心</p>
+                  <p class="mt-1 text-xs text-slate-500">资料、安全、绑定</p>
+                </div>
+                <el-icon class="text-slate-400"><Setting /></el-icon>
+              </button>
+              <button
+                v-if="!authStore.isAdmin"
+                class="flex items-center justify-between rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-left transition-colors hover:border-ember/30 hover:bg-white cursor-pointer"
+                @click="router.push('/console/renewal')"
+              >
+                <div>
+                  <p class="text-sm font-semibold text-slate-900">续费中心</p>
+                  <p class="mt-1 text-xs text-slate-500">方案购买与兑换码</p>
+                </div>
+                <span class="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-ember shadow-sm">
+                  {{ isExpired ? '立即处理' : '快捷入口' }}
+                </span>
+              </button>
+            </div>
+
+            <div class="mt-4 border-t border-slate-100 pt-4">
+              <p class="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">常用资源</p>
+              <div class="mt-2 space-y-1">
+                <a
+                  v-for="item in accountResourceLinks"
+                  :key="item.key"
+                  :href="item.href"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="flex items-start gap-3 rounded-2xl px-3 py-3 no-underline transition-colors hover:bg-slate-50"
+                >
+                  <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
+                    <el-icon :size="18">
+                      <component :is="resourceIconMap[item.icon]" />
+                    </el-icon>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium text-slate-900">{{ item.title }}</p>
+                    <p class="mt-1 text-xs leading-5 text-slate-500">{{ item.description }}</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+
+            <button
+              class="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+              @click="handleLogout"
+            >
+              <el-icon><SwitchButton /></el-icon>
+              退出登录
+            </button>
+          </div>
         </template>
       </el-dropdown>
     </div>
