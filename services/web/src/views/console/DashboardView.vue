@@ -134,13 +134,19 @@ watch(
               <div class="mt-4 flex flex-wrap gap-3 text-sm text-slate-300">
                 <span
                   class="rounded-full px-3 py-1 font-medium"
-                  :class="user.expiresAt ? 'bg-white/10 text-slate-200' : 'bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/20'"
+                  :class="isExpired
+                    ? 'bg-red-400/20 text-red-200 ring-1 ring-red-300/20'
+                    : user.expiresAt
+                      ? 'bg-amber-400/20 text-amber-100 ring-1 ring-amber-300/20'
+                      : 'bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/20'"
                 >
                   到期时间：{{ user.expiresAt ? new Date(user.expiresAt).toLocaleDateString() : '永久有效' }}
                 </span>
                 <span
                   class="rounded-full px-3 py-1 font-medium"
-                  :class="user.telegramId ? 'bg-sky-400/20 text-sky-200 ring-1 ring-sky-300/20' : 'bg-white/10 text-slate-200'"
+                  :class="user.telegramId
+                    ? 'bg-sky-400/25 text-sky-100 ring-1 ring-sky-300/25 shadow-[0_0_0_1px_rgba(125,211,252,0.08)]'
+                    : 'bg-white/10 text-slate-200'"
                 >
                   Telegram：{{ user.telegramId ? '已绑定' : '未绑定' }}
                 </span>
@@ -328,22 +334,6 @@ watch(
                 <p class="text-sm font-semibold text-slate-900">订阅管理</p>
                 <p class="mt-1 text-xs text-slate-500">查看当前求片记录和审核状态</p>
               </div>
-            </button>
-            <button
-              v-if="!authStore.isAdmin"
-              class="group flex w-full items-center gap-4 rounded-2xl border border-ember/20 bg-ember/5 px-4 py-4 text-left transition-colors hover:border-ember/30 hover:bg-white cursor-pointer"
-              @click="router.push('/console/renewal')"
-            >
-              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-ember shadow-sm">
-                <el-icon :size="20"><Monitor /></el-icon>
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold text-slate-900">续费中心</p>
-                <p class="mt-1 text-xs text-slate-500">购买方案或兑换续期码</p>
-              </div>
-              <span class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-ember shadow-sm">
-                {{ isExpired ? '优先处理' : '快捷入口' }}
-              </span>
             </button>
           </div>
         </section>

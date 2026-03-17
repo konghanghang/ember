@@ -213,19 +213,6 @@ watch(
             </div>
             <el-icon class="text-slate-400"><Monitor /></el-icon>
           </button>
-          <button
-            v-if="!authStore.isAdmin"
-            class="flex items-center justify-between rounded-2xl border border-ember/20 bg-ember/5 px-4 py-4 text-left transition-colors hover:border-ember/30 hover:bg-white cursor-pointer"
-            @click="router.push('/console/renewal')"
-          >
-            <div>
-              <p class="text-sm font-semibold text-slate-900">续费中心</p>
-              <p class="mt-1 text-xs text-slate-500">购买方案或兑换续期码</p>
-            </div>
-            <span class="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-ember shadow-sm">
-              {{ isExpired ? '立即处理' : '去看看' }}
-            </span>
-          </button>
         </div>
       </div>
     </section>
