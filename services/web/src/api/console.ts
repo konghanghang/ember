@@ -1,6 +1,7 @@
 import request from './request'
 import type {
   CheckoutResponse,
+  ConsoleAccountLink,
   CreateSubscriptionRequest,
   EmbyConfigResponse,
   LatestMediaResponse,
@@ -72,6 +73,13 @@ export function updateEmail(newEmail: string) {
     url: '/email',
     method: 'put',
     data: { newEmail }
+  })
+}
+
+export function getConsoleAccountLinks(): Promise<{ data: ConsoleAccountLink[] }> {
+  return request({
+    url: '/account-links',
+    method: 'get'
   })
 }
 

@@ -47,6 +47,33 @@ func TestSettingHandlerGetSettingByKeyReturnsRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestSettingHandlerGetConsoleAccountLinksReturnsDefaultLinks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &SettingHandler{configService: configpkg.NewConfigService()}
+	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/account-links", nil)
+
+	handler.GetConsoleAccountLinks(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		Data []configpkg.ConsoleAccountLink `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Data) == 0 {
+		t.Fatal("expected account links to be returned")
+	}
+	if resp.Data[0].Key == "" || resp.Data[0].URL == "" {
+		t.Fatalf("expected first account link to contain key and url, got %+v", resp.Data[0])
+	}
+}
+
 func TestSettingHandlerGetSettingByKeyRejectsSensitiveConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("TMDB_API_KEY", "super-secret")

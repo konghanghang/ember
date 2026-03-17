@@ -28,6 +28,17 @@ export interface UserInfo {
   createdAt: string
 }
 
+export type ConsoleAccountLinkIcon = 'notify' | 'group' | 'wiki'
+
+export interface ConsoleAccountLink {
+  key: string
+  title: string
+  description: string
+  url: string
+  icon: ConsoleAccountLinkIcon
+  sortOrder: number
+}
+
 export interface LoginResponse {
   token: string
   user: UserInfo

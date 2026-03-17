@@ -3,9 +3,11 @@ import { onMounted, provide, ref } from 'vue'
 import Sidebar from '@/components/console/Sidebar.vue'
 import TopBar from '@/components/console/TopBar.vue'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
+import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 
 const sidebarOpen = ref(false)
+const consoleStore = useConsoleStore()
 const userStore = useUserStore()
 
 const toggleSidebar = () => {
@@ -15,6 +17,7 @@ const toggleSidebar = () => {
 const refreshConsoleProfile: RefreshConsoleProfile = async () => {
   try {
     await userStore.fetchProfile()
+    await consoleStore.fetchAccountLinks()
   } catch {
     // handled by request interceptor
   }

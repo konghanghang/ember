@@ -82,7 +82,48 @@ const defaultTelegramWelcomeMessageTemplate = `👋 欢迎 <b>{names}</b> 加入
 📢 入库通知群组：{notifyGroupLink}
 ⏳ 本消息将在 30 秒后自动删除`
 
+const defaultConsoleAccountLinks = `[
+  {
+    "key": "notify-channel",
+    "title": "通知频道",
+    "description": "获取最新入库通知与系统动态",
+    "url": "https://t.me/NextNewEP",
+    "icon": "notify",
+    "sortOrder": 10
+  },
+  {
+    "key": "community-group",
+    "title": "交流群组",
+    "description": "加入社区讨论、反馈问题和求助",
+    "url": "https://t.me/NextNewEP_emby_chat",
+    "icon": "group",
+    "sortOrder": 20
+  },
+  {
+    "key": "wiki",
+    "title": "使用 Wiki",
+    "description": "查看常见问题、设备配置和使用说明",
+    "url": "https://github.com/konghang/ember/wiki",
+    "icon": "wiki",
+    "sortOrder": 30
+  }
+]`
+
 var telegramWelcomeMessagePlaceholderPattern = regexp.MustCompile(`\{[a-zA-Z][a-zA-Z0-9]*\}`)
+var consoleAccountLinkIcons = map[string]struct{}{
+	"notify": {},
+	"group":  {},
+	"wiki":   {},
+}
+
+type ConsoleAccountLink struct {
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	Icon        string `json:"icon"`
+	SortOrder   int    `json:"sortOrder"`
+}
 
 type ConfigOption struct {
 	Label string `json:"label"`
@@ -212,6 +253,16 @@ func (s *ConfigService) IsEmailVerificationEnabled() bool {
 
 func (s *ConfigService) GetStripeAllowedPaymentMethods() ([]string, error) {
 	return NormalizeStripeAllowedPaymentMethods(s.GetString("stripe_allowed_payment_methods"))
+}
+
+func (s *ConfigService) GetConsoleAccountLinks() ([]ConsoleAccountLink, error) {
+	links, err := parseConsoleAccountLinks(s.GetString("console_account_links"))
+	if err == nil {
+		return links, nil
+	}
+
+	// 手工写坏数据库配置时，用户侧回退到内置默认值，避免整个账号面板失效。
+	return parseConsoleAccountLinks(defaultConsoleAccountLinks)
 }
 
 func (s *ConfigService) ResolveString(key string) (string, string, error) {
@@ -860,6 +911,32 @@ func getConfigDefinitions() []ConfigDefinition {
 				return validateURL(value)
 			},
 			Normalize: normalizeTrimmedURLAllowEmpty,
+		},
+		{
+			Key:          "console_account_links",
+			Group:        ConfigGroupBusiness,
+			GroupLabel:   "基础业务",
+			Label:        "控制台账号资源入口",
+			Description:  "账号面板、概览页和账号中心展示的外部资源入口，使用 JSON 数组配置",
+			Type:         ConfigValueString,
+			DefaultValue: defaultConsoleAccountLinks,
+			Placeholder: `[
+  {
+    "key": "notify-channel",
+    "title": "通知频道",
+    "description": "获取最新入库通知与系统动态",
+    "url": "https://t.me/your_channel",
+    "icon": "notify",
+    "sortOrder": 10
+  }
+]`,
+			Editable:       true,
+			Multiline:      true,
+			AllowEmpty:     true,
+			EmptyValueMode: ConfigEmptyValueDisable,
+			EmptyValueHint: "保存为空值后将隐藏账号面板和账号中心中的资源入口。",
+			Validate:       validateConsoleAccountLinks,
+			Normalize:      normalizeConsoleAccountLinks,
 		},
 		{
 			Key:            "telegram_welcome_message_template",
@@ -1666,6 +1743,95 @@ func validateMailAddressAllowEmpty(value string) error {
 		return errors.New("发件人格式无效")
 	}
 	return nil
+}
+
+func validateConsoleAccountLinks(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	_, err := parseConsoleAccountLinks(value)
+	return err
+}
+
+func normalizeConsoleAccountLinks(value string) (string, error) {
+	trimmed := normalizeTrimmedMultilineString(value)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	links, err := parseConsoleAccountLinks(trimmed)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := json.MarshalIndent(links, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func parseConsoleAccountLinks(raw string) ([]ConsoleAccountLink, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return []ConsoleAccountLink{}, nil
+	}
+
+	var links []ConsoleAccountLink
+	if err := json.Unmarshal([]byte(trimmed), &links); err != nil {
+		return nil, errors.New("控制台账号资源入口必须是 JSON 数组")
+	}
+
+	normalized := make([]ConsoleAccountLink, 0, len(links))
+	seenKeys := make(map[string]struct{}, len(links))
+	for idx, link := range links {
+		link.Key = strings.TrimSpace(link.Key)
+		link.Title = strings.TrimSpace(link.Title)
+		link.Description = strings.TrimSpace(link.Description)
+		link.URL = strings.TrimSpace(link.URL)
+		link.Icon = strings.TrimSpace(link.Icon)
+
+		if link.Key == "" {
+			return nil, fmt.Errorf("第 %d 个账号资源入口缺少 key", idx+1)
+		}
+		if _, exists := seenKeys[link.Key]; exists {
+			return nil, fmt.Errorf("账号资源入口 key %s 重复", link.Key)
+		}
+		seenKeys[link.Key] = struct{}{}
+
+		if link.Title == "" {
+			return nil, fmt.Errorf("账号资源入口 %s 缺少 title", link.Key)
+		}
+		if link.Description == "" {
+			return nil, fmt.Errorf("账号资源入口 %s 缺少 description", link.Key)
+		}
+		if link.URL == "" {
+			return nil, fmt.Errorf("账号资源入口 %s 缺少 url", link.Key)
+		}
+		if err := validateURL(link.URL); err != nil {
+			return nil, fmt.Errorf("账号资源入口 %s 的 url 无效", link.Key)
+		}
+		if _, ok := consoleAccountLinkIcons[link.Icon]; !ok {
+			return nil, fmt.Errorf("账号资源入口 %s 的 icon 无效，仅支持 notify/group/wiki", link.Key)
+		}
+		if link.SortOrder <= 0 {
+			link.SortOrder = (idx + 1) * 10
+		}
+
+		normalized = append(normalized, link)
+	}
+
+	slices.SortFunc(normalized, func(a, b ConsoleAccountLink) int {
+		if a.SortOrder != b.SortOrder {
+			if a.SortOrder < b.SortOrder {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Key, b.Key)
+	})
+
+	return normalized, nil
 }
 
 func normalizeStripePaymentMethods(value string) (string, error) {

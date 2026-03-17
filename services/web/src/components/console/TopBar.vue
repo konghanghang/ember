@@ -12,12 +12,14 @@ import {
   SwitchButton
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
+import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
-import { accountResourceLinks, type AccountResourceIcon } from '@/constants/accountResources'
+import type { ConsoleAccountLinkIcon } from '@/types/api'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const consoleStore = useConsoleStore()
 const userStore = useUserStore()
 
 defineProps<{
@@ -103,7 +105,7 @@ const routeMeta: Record<string, { title: string; description: string }> = {
   }
 }
 
-const resourceIconMap: Record<AccountResourceIcon, Component> = {
+const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
   notify: Bell,
   group: ChatDotRound,
   wiki: Reading
@@ -222,11 +224,11 @@ const handleLogout = async () => {
               </button>
             </div>
 
-            <div class="mt-4 border-t border-slate-100 pt-4">
+            <div v-if="consoleStore.accountLinks.length > 0" class="mt-4 border-t border-slate-100 pt-4">
               <p class="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">常用资源</p>
               <div class="mt-2 space-y-1">
                 <a
-                  v-for="item in accountResourceLinks"
+                  v-for="item in consoleStore.accountLinks"
                   :key="item.key"
                   :href="item.href"
                   target="_blank"

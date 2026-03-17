@@ -125,6 +125,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.DELETE("/subscriptions/:id", h.subscription.DeleteSubscription)
 
 	authenticated.GET("/profile", h.user.GetProfile)
+	authenticated.GET("/account-links", h.setting.GetConsoleAccountLinks)
 	authenticated.PUT("/profile", h.user.UpdateProfile)
 	authenticated.PUT("/password", h.user.UpdatePassword)
 	authenticated.PUT("/email", h.user.UpdateEmail)

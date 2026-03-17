@@ -15,16 +15,17 @@ import {
   UserFilled
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
+import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import {
   generateTelegramBindCode,
   unbindTelegram,
   updatePassword
 } from '@/api/console'
-import { accountResourceLinks, type AccountResourceIcon } from '@/constants/accountResources'
-import type { TelegramBindCodeResponse, UserInfo } from '@/types/api'
+import type { ConsoleAccountLinkIcon, TelegramBindCodeResponse, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
+const consoleStore = useConsoleStore()
 const userStore = useUserStore()
 const router = useRouter()
 
@@ -51,7 +52,7 @@ const passwordForm = ref({
   confirmPassword: ''
 })
 
-const resourceIconMap: Record<AccountResourceIcon, Component> = {
+const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
   notify: Bell,
   group: ChatDotRound,
   wiki: Reading
@@ -180,9 +181,6 @@ watch(
                   {{ authStore.isAdmin ? '管理员' : '普通用户' }}
                 </span>
               </div>
-              <p class="mt-2 text-sm text-slate-500">
-                在这里统一管理账号资料、安全设置、Telegram 绑定和常用资源入口。
-              </p>
             </div>
 
             <div class="flex flex-wrap gap-2">
@@ -240,7 +238,6 @@ watch(
           </div>
           <div>
             <h2 class="text-lg font-semibold text-slate-900">基本信息</h2>
-            <p class="text-sm text-slate-500">账号资料放在这里，概览页只看状态，不再塞表单。</p>
           </div>
         </div>
 
@@ -304,7 +301,6 @@ watch(
           </div>
           <div>
             <h2 class="text-lg font-semibold text-slate-900">安全设置</h2>
-            <p class="text-sm text-slate-500">高频动作只放这里，不再混在概览卡片里。</p>
           </div>
         </div>
 
@@ -407,30 +403,5 @@ watch(
       </div>
     </section>
 
-    <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-900">帮助与资源</h2>
-        <p class="mt-1 text-sm text-slate-500">把高频外部入口统一收口在这里，顶部菜单只保留快捷方式。</p>
-      </div>
-
-      <div class="mt-6 grid gap-4 md:grid-cols-3">
-        <a
-          v-for="item in accountResourceLinks"
-          :key="item.key"
-          :href="item.href"
-          target="_blank"
-          rel="noreferrer"
-          class="group block rounded-2xl border border-slate-200 bg-slate-50 p-5 no-underline transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white"
-        >
-          <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm transition-colors group-hover:text-ember">
-            <el-icon :size="20">
-              <component :is="resourceIconMap[item.icon]" />
-            </el-icon>
-          </div>
-          <p class="mt-4 text-sm font-semibold text-slate-900">{{ item.title }}</p>
-          <p class="mt-2 text-xs leading-6 text-slate-500">{{ item.description }}</p>
-        </a>
-      </div>
-    </section>
   </div>
 </template>

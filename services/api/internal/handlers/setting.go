@@ -30,6 +30,16 @@ func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+func (h *SettingHandler) GetConsoleAccountLinks(c *gin.Context) {
+	links, err := h.configService.GetConsoleAccountLinks()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取控制台账号资源入口失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": links})
+}
+
 // GetSettingByKey 获取单个配置值（内部服务调用）
 // GET /api/v1/internal/settings/:key
 func (h *SettingHandler) GetSettingByKey(c *gin.Context) {

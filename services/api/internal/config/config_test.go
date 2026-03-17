@@ -240,6 +240,7 @@ func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
 		hintPart string
 	}{
 		{key: "notify_group_link", mode: ConfigEmptyValueDisable, hintPart: "关闭欢迎消息"},
+		{key: "console_account_links", mode: ConfigEmptyValueDisable, hintPart: "隐藏账号面板"},
 		{key: "telegram_welcome_message_template", mode: ConfigEmptyValueDisable, hintPart: "关闭入群欢迎消息"},
 		{key: "NEXT_PUBLIC_EMBY_URL", mode: ConfigEmptyValueFallback, hintPart: "回退到 Emby 服务地址"},
 		{key: "SMTP_FROM", mode: ConfigEmptyValueFallback, hintPart: "回退到 SMTP 用户名"},
@@ -279,6 +280,48 @@ func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
 		if value != "" {
 			t.Fatalf("expected %s normalized empty value to be blank, got %q", tc.key, value)
 		}
+	}
+}
+
+func TestConsoleAccountLinksValidation(t *testing.T) {
+	definitions := getConfigDefinitionMap()
+	def, ok := definitions["console_account_links"]
+	if !ok {
+		t.Fatal("expected console_account_links definition to exist")
+	}
+	if !def.Multiline {
+		t.Fatal("expected console_account_links to be multiline")
+	}
+	if def.DefaultValue == "" || !strings.Contains(def.DefaultValue, "\"notify-channel\"") {
+		t.Fatal("expected default account links to contain notify-channel")
+	}
+
+	normalized, err := def.Normalize(`[
+  {
+    "key": "wiki",
+    "title": "使用 Wiki",
+    "description": "查看说明",
+    "url": "https://example.com/wiki",
+    "icon": "wiki"
+  }
+]`)
+	if err != nil {
+		t.Fatalf("expected normalize success, got %v", err)
+	}
+	if !strings.Contains(normalized, "\"sortOrder\": 10") {
+		t.Fatalf("expected normalize to fill sortOrder, got %q", normalized)
+	}
+	if err := def.Validate(normalized); err != nil {
+		t.Fatalf("expected valid account links, got %v", err)
+	}
+	if err := def.Validate(`[{"key":"broken","title":"","description":"x","url":"https://example.com","icon":"notify"}]`); err == nil {
+		t.Fatal("expected empty title to fail")
+	}
+	if err := def.Validate(`[{"key":"broken","title":"x","description":"x","url":"https://example.com","icon":"unknown"}]`); err == nil {
+		t.Fatal("expected unsupported icon to fail")
+	}
+	if err := def.Validate(""); err != nil {
+		t.Fatalf("expected empty account links to be allowed, got %v", err)
 	}
 }
 

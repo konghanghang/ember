@@ -14,12 +14,13 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
+import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import { getEmbyConfig, getMediaStats } from '@/api/console'
-import { accountResourceLinks, type AccountResourceIcon } from '@/constants/accountResources'
-import type { MediaStats, UserInfo } from '@/types/api'
+import type { ConsoleAccountLinkIcon, MediaStats, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
+const consoleStore = useConsoleStore()
 const userStore = useUserStore()
 const router = useRouter()
 
@@ -40,7 +41,7 @@ const embyUrl = ref('')
 const stats = ref<MediaStats>({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 })
 const loading = ref(false)
 
-const resourceIconMap: Record<AccountResourceIcon, Component> = {
+const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
   notify: Bell,
   group: ChatDotRound,
   wiki: Reading
@@ -52,12 +53,28 @@ const isExpired = computed(() => {
 })
 
 const daysLeft = computed(() => {
-  if (!user.value.expiresAt) return 0
+  if (!user.value.expiresAt) return null
   const ms = new Date(user.value.expiresAt).getTime() - Date.now()
   return Math.ceil(ms / (24 * 60 * 60 * 1000))
 })
 
 const showLockedServerState = computed(() => !authStore.isAdmin && isExpired.value)
+const isLifetimeMember = computed(() => !user.value.expiresAt)
+const membershipStatusLabel = computed(() => {
+  if (isExpired.value) return '已过期'
+  if (isLifetimeMember.value) return '永久有效'
+  return '有效'
+})
+const membershipStatusTextClass = computed(() => {
+  if (isExpired.value) return 'text-red-300'
+  if (isLifetimeMember.value) return 'text-sky-200'
+  return 'text-emerald-300'
+})
+const membershipStatusDescription = computed(() => {
+  if (isExpired.value) return '服务已暂停，请尽快续费。'
+  if (isLifetimeMember.value) return '无到期限制，可长期使用。'
+  return `剩余 ${daysLeft.value} 天可用。`
+})
 
 const fetchOverview = async () => {
   if (!userStore.profile) return
@@ -114,14 +131,17 @@ watch(
                   {{ authStore.isAdmin ? '管理员账号' : '用户账号' }}
                 </span>
               </div>
-              <p class="mt-3 text-sm text-slate-300">
-                概览页只保留状态、入口和关键数据，资料编辑已经收口到账号中心。
-              </p>
               <div class="mt-4 flex flex-wrap gap-3 text-sm text-slate-300">
-                <span class="rounded-full bg-white/10 px-3 py-1">
+                <span
+                  class="rounded-full px-3 py-1 font-medium"
+                  :class="user.expiresAt ? 'bg-white/10 text-slate-200' : 'bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/20'"
+                >
                   到期时间：{{ user.expiresAt ? new Date(user.expiresAt).toLocaleDateString() : '永久有效' }}
                 </span>
-                <span class="rounded-full bg-white/10 px-3 py-1">
+                <span
+                  class="rounded-full px-3 py-1 font-medium"
+                  :class="user.telegramId ? 'bg-sky-400/20 text-sky-200 ring-1 ring-sky-300/20' : 'bg-white/10 text-slate-200'"
+                >
                   Telegram：{{ user.telegramId ? '已绑定' : '未绑定' }}
                 </span>
               </div>
@@ -132,11 +152,11 @@ watch(
             <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">会员状态</p>
             <div class="mt-3 flex items-end justify-between gap-4">
               <div>
-                <p class="text-2xl font-semibold" :class="isExpired ? 'text-red-300' : 'text-emerald-300'">
-                  {{ isExpired ? '已过期' : '有效' }}
+                <p class="text-2xl font-semibold" :class="membershipStatusTextClass">
+                  {{ membershipStatusLabel }}
                 </p>
                 <p class="mt-1 text-sm text-slate-300">
-                  {{ isExpired ? '服务已暂停，请尽快续费。' : `剩余 ${daysLeft} 天可用。` }}
+                  {{ membershipStatusDescription }}
                 </p>
               </div>
               <button
@@ -209,11 +229,35 @@ watch(
       </div>
     </div>
 
+    <section v-if="consoleStore.accountLinks.length > 0" class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">帮助与资源</h2>
+
+      <div class="mt-5 grid gap-4 md:grid-cols-3">
+        <a
+          v-for="item in consoleStore.accountLinks"
+          :key="item.key"
+          :href="item.href"
+          target="_blank"
+          rel="noreferrer"
+          class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 no-underline transition-colors hover:border-slate-300 hover:bg-white"
+        >
+          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm">
+            <el-icon :size="18">
+              <component :is="resourceIconMap[item.icon]" />
+            </el-icon>
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold text-slate-900">{{ item.title }}</p>
+            <p class="mt-1 text-xs leading-5 text-slate-500">{{ item.description }}</p>
+          </div>
+        </a>
+      </div>
+    </section>
+
     <div class="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
       <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div class="border-b border-slate-100 px-6 py-5">
           <h2 class="text-lg font-semibold text-slate-900">服务器连接</h2>
-          <p class="mt-1 text-sm text-slate-500">保留最核心的使用入口，不再把账号表单混在这里。</p>
         </div>
 
         <div class="p-6">
@@ -256,36 +300,44 @@ watch(
 
       <div class="space-y-8">
         <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 class="text-lg font-semibold text-slate-900">快捷操作</h2>
-          <p class="mt-1 text-sm text-slate-500">把常用路径放在这里，避免在概览页里继续堆表单。</p>
+          <div class="border-b border-slate-100 pb-5">
+            <h2 class="text-lg font-semibold text-slate-900">快捷操作</h2>
+          </div>
 
-          <div class="mt-5 grid gap-3">
+          <div class="mt-5 space-y-3">
             <button
-              class="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-4 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+              class="group flex w-full items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition-colors hover:border-slate-300 hover:bg-white cursor-pointer"
               @click="router.push('/console/account')"
             >
-              <div>
+              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm transition-colors group-hover:text-ember">
+                <el-icon :size="20"><Setting /></el-icon>
+              </div>
+              <div class="min-w-0 flex-1">
                 <p class="text-sm font-semibold text-slate-900">账号中心</p>
                 <p class="mt-1 text-xs text-slate-500">编辑邮箱、密码和 Telegram 绑定</p>
               </div>
-              <el-icon class="text-slate-400"><Setting /></el-icon>
             </button>
             <button
-              class="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-4 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+              class="group flex w-full items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition-colors hover:border-slate-300 hover:bg-white cursor-pointer"
               @click="router.push('/console/subscriptions')"
             >
-              <div>
+              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm transition-colors group-hover:text-ember">
+                <el-icon :size="20"><VideoPlay /></el-icon>
+              </div>
+              <div class="min-w-0 flex-1">
                 <p class="text-sm font-semibold text-slate-900">订阅管理</p>
                 <p class="mt-1 text-xs text-slate-500">查看当前求片记录和审核状态</p>
               </div>
-              <el-icon class="text-slate-400"><VideoPlay /></el-icon>
             </button>
             <button
               v-if="!authStore.isAdmin"
-              class="flex items-center justify-between rounded-2xl border border-ember/20 bg-ember/5 px-4 py-4 text-left transition-colors hover:border-ember/30 hover:bg-white cursor-pointer"
+              class="group flex w-full items-center gap-4 rounded-2xl border border-ember/20 bg-ember/5 px-4 py-4 text-left transition-colors hover:border-ember/30 hover:bg-white cursor-pointer"
               @click="router.push('/console/renewal')"
             >
-              <div>
+              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-ember shadow-sm">
+                <el-icon :size="20"><Monitor /></el-icon>
+              </div>
+              <div class="min-w-0 flex-1">
                 <p class="text-sm font-semibold text-slate-900">续费中心</p>
                 <p class="mt-1 text-xs text-slate-500">购买方案或兑换续期码</p>
               </div>
@@ -293,32 +345,6 @@ watch(
                 {{ isExpired ? '优先处理' : '快捷入口' }}
               </span>
             </button>
-          </div>
-        </section>
-
-        <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 class="text-lg font-semibold text-slate-900">帮助与资源</h2>
-          <p class="mt-1 text-sm text-slate-500">这里收口群组、通知和 Wiki，顶部账号面板保留同样的快捷入口。</p>
-
-          <div class="mt-5 space-y-3">
-            <a
-              v-for="item in accountResourceLinks"
-              :key="item.key"
-              :href="item.href"
-              target="_blank"
-              rel="noreferrer"
-              class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 no-underline transition-colors hover:border-slate-300 hover:bg-white"
-            >
-              <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm">
-                <el-icon :size="18">
-                  <component :is="resourceIconMap[item.icon]" />
-                </el-icon>
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold text-slate-900">{{ item.title }}</p>
-                <p class="mt-1 text-xs leading-5 text-slate-500">{{ item.description }}</p>
-              </div>
-            </a>
           </div>
         </section>
       </div>

@@ -120,10 +120,11 @@ services/
 │  │  │  ├─ auth.ts              # login, register, getRegistrationMode
 │  │  │  ├─ user.ts              # redeem, redemptions, tmdb
 │  │  │  ├─ admin.ts             # 管理后台全部接口
-│  │  │  └─ console.ts           # 统一认证路由接口（profile, subscriptions, payments, rankings 等）
+│  │  │  └─ console.ts           # 统一认证路由接口（profile, account-links, subscriptions, payments, rankings 等）
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义
 │  │  ├─ store/
 │  │  │  ├─ auth.ts              # Pinia: token + role (localStorage 持久化)
+│  │  │  ├─ console.ts           # 控制台共享状态（账号资源入口等）
 │  │  │  ├─ user.ts              # 用户状态
 │  │  │  └─ admin.ts             # 管理员状态
 │  │  ├─ router/index.ts         # 路由 + 导航守卫（角色鉴权）
