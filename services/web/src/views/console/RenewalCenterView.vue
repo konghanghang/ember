@@ -50,6 +50,7 @@ const redemptionQuery = ref({
 
 const redeemForm = ref({ code: '' })
 const redeeming = ref(false)
+const activeHistoryTab = ref<'payments' | 'redemptions'>('payments')
 const emptyPlans = computed(() => !plansLoading.value && plans.value.length === 0)
 const pendingPlanIDs = computed(() => new Set(
   payments.value
@@ -387,15 +388,34 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <h2 class="font-bold text-gray-900">支付记录</h2>
-            <p class="text-xs text-gray-500 mt-1">仅展示当前账户的在线购买记录</p>
-          </div>
+    <section class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 class="font-bold text-gray-900">历史记录</h2>
+          <p class="text-xs text-gray-500 mt-1">查看当前账户的在线购买和兑换码使用记录</p>
         </div>
 
+        <div class="inline-flex rounded-xl bg-gray-100 p-1 self-start">
+          <button
+            class="rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
+            :class="activeHistoryTab === 'payments' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+            @click="activeHistoryTab = 'payments'"
+          >
+            支付记录
+            <span class="ml-1 text-xs text-gray-400">{{ paymentTotal }}</span>
+          </button>
+          <button
+            class="rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
+            :class="activeHistoryTab === 'redemptions' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+            @click="activeHistoryTab = 'redemptions'"
+          >
+            兑换记录
+            <span class="ml-1 text-xs text-gray-400">{{ redemptionTotal }}</span>
+          </button>
+        </div>
+      </div>
+
+      <template v-if="activeHistoryTab === 'payments'">
         <el-table
           :data="payments"
           v-loading="paymentLoading"
@@ -453,16 +473,9 @@ onMounted(async () => {
             background
           />
         </div>
-      </div>
+      </template>
 
-      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <h2 class="font-bold text-gray-900">兑换记录</h2>
-            <p class="text-xs text-gray-500 mt-1">查看当前账户的兑换码使用记录</p>
-          </div>
-        </div>
-
+      <template v-else>
         <el-table
           :data="redemptions"
           v-loading="redemptionsLoading"
@@ -497,8 +510,8 @@ onMounted(async () => {
             background
           />
         </div>
-      </div>
-    </div>
+      </template>
+    </section>
 
   </div>
 </template>
