@@ -530,7 +530,7 @@ onMounted(async () => {
                 type="button"
                 @click="handleSaveGroup(activeGroupSection)"
                 :disabled="savingGroups[activeGroupSection.key] || !groupHasChanges(activeGroupSection)"
-                class="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                class="btn-ember rounded-xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {{ savingGroups[activeGroupSection.key] ? '保存中...' : '保存本组配置' }}
               </button>

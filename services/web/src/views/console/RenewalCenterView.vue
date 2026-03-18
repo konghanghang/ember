@@ -322,22 +322,23 @@ onMounted(async () => {
               <p class="mt-2 text-sm text-gray-500">在线购买和兑换码都会在此基础上叠加。</p>
             </div>
 
-            <div class="rounded-2xl bg-gray-900 text-white p-5 shadow-sm">
-              <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">推荐操作</div>
-              <div class="mt-3 text-lg font-bold">
+            <div class="rounded-2xl border border-ember/10 bg-white p-5 shadow-sm ring-1 ring-ember/5">
+              <div class="inline-flex items-center rounded-full bg-ember/10 px-3 py-1 text-xs font-semibold tracking-wide text-ember">推荐操作</div>
+              <div class="mt-3 text-lg font-bold text-gray-900">
                 {{ isExpired ? '立即恢复访问' : '提前续费避免中断' }}
               </div>
+              <p class="mt-2 text-sm text-gray-500">优先选择一种续费方式，主操作统一使用品牌色，避免视觉分裂。</p>
               <div class="mt-4 flex flex-col gap-2">
                 <button
                   @click="focusRenewalTab('online')"
-                  class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-white text-gray-900 px-4 py-2.5 text-sm font-bold hover:bg-gray-100 transition-colors"
+                  class="btn-ember w-full inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold shadow-sm hover:shadow-md"
                 >
                   <el-icon><CreditCard /></el-icon>
                   <span>在线购买续费</span>
                 </button>
                 <button
                   @click="focusRenewalTab('redeem')"
-                  class="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-bold hover:bg-white/15 transition-colors"
+                  class="w-full inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   <el-icon><Ticket /></el-icon>
                   <span>使用兑换码</span>
@@ -470,7 +471,7 @@ onMounted(async () => {
                 <p class="mt-1 text-sm text-gray-500">提交后立即校验并尝试续期，成功结果会直接写入当前账户。</p>
               </div>
 
-              <div class="rounded-2xl border border-dashed border-ember/20 bg-ember/5 p-5">
+              <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-5">
                 <div class="flex items-start gap-4">
                   <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-ember shadow-sm ring-1 ring-ember/10">
                     <el-icon :size="22"><Ticket /></el-icon>
@@ -491,7 +492,7 @@ onMounted(async () => {
                 <button
                   @click="handleRedeem"
                   :disabled="redeeming"
-                  class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 py-3 font-bold text-white transition-colors hover:bg-black disabled:opacity-70"
+                  class="btn-ember mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl py-3 font-bold disabled:opacity-70"
                 >
                   <span v-if="redeeming" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
                   <span>{{ redeeming ? '验证中...' : '确认兑换' }}</span>

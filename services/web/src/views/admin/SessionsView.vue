@@ -161,7 +161,7 @@ onUnmounted(() => {
           type="button"
           @click="fetchSessions()"
           :disabled="loading || refreshing"
-          class="px-4 py-2 rounded-xl bg-gray-900 text-white hover:bg-black transition-colors font-bold shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+          class="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
           title="刷新"
         >
           <span v-if="refreshing" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>

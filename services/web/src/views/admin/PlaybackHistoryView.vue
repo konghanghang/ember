@@ -90,6 +90,7 @@ onMounted(() => {
                 v-model="queryParams.userId"
                 type="text"
                 autocomplete="off"
+                aria-label="按用户 ID 筛选"
                 placeholder="按用户 ID 筛选"
                 class="filter-input w-full pl-10 pr-4"
                 @keyup.enter="handleSearch"
@@ -107,6 +108,7 @@ onMounted(() => {
                 v-model="queryParams.keyword"
                 type="text"
                 autocomplete="off"
+                aria-label="按关键词筛选"
                 placeholder="片名/设备/客户端"
                 class="filter-input w-full pl-10 pr-4"
                 @keyup.enter="handleSearch"
@@ -116,15 +118,20 @@ onMounted(() => {
 
           <div class="space-y-1.5">
             <label class="text-xs font-semibold tracking-wide text-gray-500">日期范围</label>
-            <el-date-picker
-              v-model="dateRange"
-              type="daterange"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              value-format="YYYY-MM-DD"
-              class="w-full filter-date"
-              unlink-panels
-            />
+            <div class="relative w-full group">
+              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
+                <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Calendar /></el-icon>
+              </div>
+              <el-date-picker
+                v-model="dateRange"
+                type="daterange"
+                start-placeholder="开始日期"
+                end-placeholder="结束日期"
+                value-format="YYYY-MM-DD"
+                class="w-full filter-date filter-date-range"
+                unlink-panels
+              />
+            </div>
           </div>
 
           <div class="flex items-end justify-end gap-2">
@@ -238,5 +245,52 @@ onMounted(() => {
 :deep(.filter-date .el-input__inner) {
   height: 100%;
   font-size: 0.875rem;
+}
+
+:deep(.filter-date-range .el-range__icon) {
+  opacity: 0;
+  width: 0;
+  margin: 0;
+}
+
+:deep(.filter-date-range.el-date-editor),
+:deep(.filter-date-range .el-range-editor.el-input__wrapper),
+:deep(.filter-date-range.el-range-editor.el-input__wrapper) {
+  height: 42px !important;
+  min-height: 42px !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  background-color: #f9fafb !important;
+}
+
+:deep(.filter-date-range .el-input__wrapper),
+:deep(.filter-date-range.el-input__wrapper) {
+  overflow: hidden;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  background-color: #f9fafb !important;
+}
+
+:deep(.filter-date-range:hover),
+:deep(.filter-date-range:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-date-range.is-active),
+:deep(.filter-date-range.is-active .el-input__wrapper) {
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-date-range .el-range-input) {
+  font-size: 0.875rem;
+  background-color: transparent;
+}
+
+:deep(.filter-date-range .el-input__wrapper) {
+  padding-left: 2.5rem;
 }
 </style>

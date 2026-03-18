@@ -46,6 +46,12 @@ const editForm = ref({
   expiresAt: null as Date | null
 })
 
+const handlePageSizeChange = (size: number) => {
+  queryParams.value.pageSize = size
+  queryParams.value.page = 1
+  fetchData()
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
@@ -237,7 +243,8 @@ onMounted(async () => {
         </div>
         <button 
           @click="fetchData" 
-          class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          class="cursor-pointer rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+          aria-label="刷新兑换码列表"
           title="刷新列表"
         >
           <el-icon :size="20"><Refresh /></el-icon>
@@ -318,14 +325,16 @@ onMounted(async () => {
           <template #default="{ row }">
             <button 
               @click="openEditDialog(row)"
-              class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+              aria-label="编辑兑换码"
               title="编辑"
             >
               <el-icon :size="18"><EditPen /></el-icon>
             </button>
             <button 
               @click="handleDelete(row.id)"
-              class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+              aria-label="删除兑换码"
               title="删除"
             >
               <el-icon :size="18"><Delete /></el-icon>
@@ -340,8 +349,10 @@ onMounted(async () => {
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
           :total="total"
-          layout="total, prev, pager, next"
+          :page-sizes="[10, 20, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
           @current-change="fetchData"
+          @size-change="handlePageSizeChange"
           background
         />
       </div>

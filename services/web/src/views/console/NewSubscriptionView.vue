@@ -130,6 +130,7 @@ const getImageUrl = (path?: string) => {
             <input 
               v-model="searchQuery"
               type="text" 
+              aria-label="搜索影视作品"
               class="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-lg outline-none focus:bg-white focus:border-ember focus:ring-4 focus:ring-ember/10 transition-all placeholder-gray-400"
               placeholder="输入名称搜索..."
               autofocus

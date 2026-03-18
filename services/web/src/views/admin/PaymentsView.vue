@@ -194,6 +194,7 @@ onMounted(fetchPlans)
                   v-model="queryParams.userId"
                   type="text"
                   autocomplete="off"
+                  aria-label="按用户 ID 筛选"
                   placeholder="输入完整用户 ID"
                   class="filter-input w-full pl-10 pr-4"
                   @keyup.enter="handleSearch"

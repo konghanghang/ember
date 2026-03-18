@@ -283,7 +283,7 @@ onBeforeUnmount(() => {
           <div class="flex items-end">
             <button
               type="button"
-              class="w-full px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-black transition-colors inline-flex items-center justify-center gap-2"
+              class="w-full px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-100 transition-colors inline-flex items-center justify-center gap-2"
               :disabled="loadingReport"
               @click="loadReport(false)"
             >
@@ -304,7 +304,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="flex-1 px-4 py-2.5 rounded-xl bg-ember text-white text-sm font-semibold hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-2"
+              class="btn-ember flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2"
               :disabled="scanning"
               @click="scanNow"
             >
@@ -452,19 +452,19 @@ onBeforeUnmount(() => {
 <style scoped>
 .quality-select :deep(.el-select__wrapper) {
   background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
   border-radius: 0.75rem;
   min-height: 42px;
-  box-shadow: none;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
 }
 
 .quality-select :deep(.el-select__wrapper:hover) {
-  background-color: #ffffff;
+  background-color: #ffffff !important;
 }
 
 .quality-select :deep(.el-select__wrapper.is-focused) {
-  background-color: #ffffff;
-  border-color: var(--ember-red);
-  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
 }
 </style>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Iphone, Plus, RefreshRight, WarningFilled, SwitchButton } from '@element-plus/icons-vue'
+import { Iphone, Plus, RefreshRight, Search, WarningFilled, SwitchButton } from '@element-plus/icons-vue'
 import {
   addDeviceBlacklist,
   getDeviceActions,
@@ -46,6 +46,28 @@ const blacklistForm = ref({
 })
 
 const blacklistedInCurrentPage = computed(() => deviceList.value.filter((item) => item.isBlacklisted).length)
+
+const handleDeviceSearch = () => {
+  query.value.page = 1
+  fetchDevices()
+}
+
+const handleDeviceReset = () => {
+  query.value = {
+    page: 1,
+    pageSize: 20,
+    userId: '',
+    clientName: '',
+    isBlacklisted: ''
+  }
+  fetchDevices()
+}
+
+const handleDevicePageSizeChange = (size: number) => {
+  query.value.pageSize = size
+  query.value.page = 1
+  fetchDevices()
+}
 
 const fetchDevices = async () => {
   loading.value = true
@@ -213,7 +235,7 @@ onMounted(refreshAll)
         <button
           type="button"
           @click="refreshAll"
-          class="px-4 py-2 rounded-lg bg-gray-900 text-white font-semibold hover:bg-black transition-colors flex items-center gap-2"
+          class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
         >
           <el-icon><RefreshRight /></el-icon>
           刷新
@@ -255,18 +277,36 @@ onMounted(refreshAll)
           </button>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <el-input v-model="blacklistForm.clientName" placeholder="客户端名称，例如 Infuse" class="form-input" />
-          <el-input v-model="blacklistForm.reason" placeholder="原因（可选）" class="form-input" />
-          <button
-            type="button"
-            @click="handleAddBlacklist"
-            :disabled="submitting"
-            class="px-4 py-2 rounded-lg bg-gray-900 text-white font-semibold hover:bg-black transition-colors flex items-center justify-center gap-2"
-          >
-            <el-icon><Plus /></el-icon>
-            添加黑名单
-          </button>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div class="space-y-1.5">
+            <label class="text-xs font-semibold tracking-wide text-gray-500">客户端名称</label>
+            <el-input
+              v-model="blacklistForm.clientName"
+              placeholder="客户端名称，例如 Infuse"
+              aria-label="客户端名称"
+              class="form-input"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-semibold tracking-wide text-gray-500">原因</label>
+            <el-input
+              v-model="blacklistForm.reason"
+              placeholder="原因（可选）"
+              aria-label="黑名单原因"
+              class="form-input"
+            />
+          </div>
+          <div class="flex items-end">
+            <button
+              type="button"
+              @click="handleAddBlacklist"
+              :disabled="submitting"
+              class="btn-ember flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
+            >
+              <el-icon><Plus /></el-icon>
+              添加黑名单
+            </button>
+          </div>
         </div>
 
         <el-table :data="blacklists" v-loading="blacklistsLoading" size="small" style="width: 100%">
@@ -306,34 +346,67 @@ onMounted(refreshAll)
     </div>
 
     <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 space-y-4">
-      <div class="flex flex-wrap items-center gap-3">
-        <h2 class="text-lg font-bold text-gray-900 mr-2">设备列表</h2>
-        <el-input
-          v-model="query.userId"
-          placeholder="按用户ID筛选"
-          clearable
-          class="!w-52 form-input"
-          @keyup.enter="fetchDevices"
-        />
-        <el-input
-          v-model="query.clientName"
-          placeholder="按客户端筛选"
-          clearable
-          class="!w-52 form-input"
-          @keyup.enter="fetchDevices"
-        />
-        <el-select v-model="query.isBlacklisted" class="!w-40 form-select">
-          <el-option label="全部状态" value="" />
-          <el-option label="仅黑名单" value="true" />
-          <el-option label="仅非黑名单" value="false" />
-        </el-select>
-        <button
-          type="button"
-          class="px-3 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-black transition-colors"
-          @click="query.page = 1; fetchDevices()"
-        >
-          查询
-        </button>
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">设备列表</h2>
+        <p class="mt-1 text-sm text-gray-500">按用户、客户端和黑名单状态筛选设备，并保留统一的列表页操作结构。</p>
+      </div>
+
+      <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
+        <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">用户 ID</label>
+              <el-input
+                v-model="query.userId"
+                placeholder="按用户 ID 筛选"
+                clearable
+                aria-label="按用户 ID 筛选"
+                class="form-input"
+                @keyup.enter="handleDeviceSearch"
+              />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">客户端</label>
+              <el-input
+                v-model="query.clientName"
+                placeholder="按客户端筛选"
+                clearable
+                aria-label="按客户端筛选"
+                class="form-input"
+                @keyup.enter="handleDeviceSearch"
+              />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">黑名单状态</label>
+              <el-select v-model="query.isBlacklisted" class="form-select" aria-label="按黑名单状态筛选">
+                <el-option label="全部状态" value="" />
+                <el-option label="仅黑名单" value="true" />
+                <el-option label="仅非黑名单" value="false" />
+              </el-select>
+            </div>
+          </div>
+
+          <div class="flex items-end justify-end gap-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
+              @click="handleDeviceReset"
+            >
+              <el-icon><RefreshRight /></el-icon>
+              重置
+            </button>
+            <button
+              type="button"
+              class="btn-ember inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold cursor-pointer"
+              @click="handleDeviceSearch"
+            >
+              <el-icon><Search /></el-icon>
+              查询
+            </button>
+          </div>
+        </div>
       </div>
 
       <el-table :data="deviceList" v-loading="loading" style="width: 100%">
@@ -381,9 +454,11 @@ onMounted(refreshAll)
           v-model:current-page="query.page"
           v-model:page-size="query.pageSize"
           :total="total"
-          layout="total, prev, pager, next"
+          :page-sizes="[20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
           background
           @current-change="fetchDevices"
+          @size-change="handleDevicePageSizeChange"
         />
       </div>
     </div>

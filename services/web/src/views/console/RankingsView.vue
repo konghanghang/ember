@@ -235,42 +235,75 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="flex items-center gap-3">
-        <el-radio-group v-model="period" @change="handlePeriodChange">
-          <el-radio-button label="daily">日榜</el-radio-button>
-          <el-radio-button label="weekly">周榜</el-radio-button>
-        </el-radio-group>
+      <div class="flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end">
+        <div class="inline-flex rounded-2xl bg-gray-100 p-1">
+          <button
+            type="button"
+            class="rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors cursor-pointer"
+            :class="period === 'daily' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
+            @click="period = 'daily'; handlePeriodChange()"
+          >
+            日榜
+          </button>
+          <button
+            type="button"
+            class="rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors cursor-pointer"
+            :class="period === 'weekly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
+            @click="period = 'weekly'; handlePeriodChange()"
+          >
+            周榜
+          </button>
+        </div>
 
-        <el-date-picker
-          v-model="selectedDate"
-          :type="period === 'daily' ? 'date' : 'week'"
-          value-format="YYYY-MM-DD"
-          placeholder="选择日期"
-          style="width: 170px"
+        <div class="w-[172px]">
+          <el-date-picker
+            v-model="selectedDate"
+            :type="period === 'daily' ? 'date' : 'week'"
+            value-format="YYYY-MM-DD"
+            placeholder="选择日期"
+            class="w-full ranking-date"
+            :disabled="loading"
+          />
+        </div>
+
+        <button
+          type="button"
           :disabled="loading"
-        />
+          class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+          @click="runHistory"
+        >
+          查看历史
+        </button>
 
-        <el-button :disabled="loading" @click="runHistory">查看历史</el-button>
-
-        <el-button
+        <button
           v-if="mode === 'history'"
+          type="button"
           :disabled="loading"
+          class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
           @click="fetchLatestAll"
-        >返回最新</el-button>
+        >
+          返回最新
+        </button>
 
-        <el-button
+        <button
           v-if="authStore.isAdmin"
-          :loading="loading && mode === 'preview'"
-          type="primary"
-          plain
-          @click="runPreview"
-        >预览生成</el-button>
-
-        <el-button
-          v-if="authStore.isAdmin && mode === 'preview'"
+          type="button"
           :disabled="loading"
+          class="btn-ember inline-flex h-[42px] items-center justify-center rounded-xl px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+          @click="runPreview"
+        >
+          {{ loading && mode === 'preview' ? '预览生成中...' : '预览生成' }}
+        </button>
+
+        <button
+          v-if="authStore.isAdmin && mode === 'preview'"
+          type="button"
+          :disabled="loading"
+          class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
           @click="fetchLatestAll"
-        >恢复最新</el-button>
+        >
+          恢复最新
+        </button>
       </div>
     </div>
 
@@ -392,6 +425,44 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.ranking-date {
+  --el-component-size: 42px;
+  --el-date-editor-width: 172px;
+  width: 172px !important;
+  height: 42px;
+}
+
+:deep(.ranking-date.el-date-editor.el-input) {
+  width: 172px !important;
+  height: 42px !important;
+  border-radius: 0.75rem !important;
+}
+
+:deep(.ranking-date.el-date-editor.el-input .el-input__wrapper) {
+  height: 42px !important;
+  min-height: 42px !important;
+  border-radius: 0.75rem !important;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  overflow: hidden;
+}
+
+:deep(.ranking-date.el-date-editor.el-input:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.ranking-date.el-date-editor.el-input.is-focus .el-input__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.ranking-date .el-input__inner) {
+  height: 100%;
+  font-size: 0.875rem;
+}
+
 .animate-fade-in {
   animation: fadeIn 0.4s ease-out;
 }

@@ -258,7 +258,7 @@ watch(
                 class="sm:flex-1"
               />
               <button
-                class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-black cursor-pointer"
+                class="btn-ember rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer"
                 @click="handleUpdateEmail"
               >
                 保存邮箱
