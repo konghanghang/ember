@@ -47,7 +47,7 @@ const redemptionsLoading = ref(false)
 const redemptionTotal = ref(0)
 const redemptionQuery = ref({
   page: 1,
-  pageSize: 5
+  pageSize: 10
 })
 
 const redeemForm = ref({ code: '' })
@@ -243,6 +243,12 @@ const handleRedemptionPageSizeChange = (size: number) => {
   redemptionQuery.value.pageSize = size
   redemptionQuery.value.page = 1
   fetchRedemptions()
+}
+
+const handlePaymentPageSizeChange = (size: number) => {
+  paymentQuery.value.pageSize = size
+  paymentQuery.value.page = 1
+  fetchPayments()
 }
 
 const consumeQueryState = async () => {
@@ -588,8 +594,10 @@ onMounted(async () => {
             v-model:current-page="paymentQuery.page"
             v-model:page-size="paymentQuery.pageSize"
             :total="paymentTotal"
-            layout="total, prev, pager, next"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
             @current-change="fetchPayments"
+            @size-change="handlePaymentPageSizeChange"
             background
           />
         </div>
@@ -623,7 +631,7 @@ onMounted(async () => {
             v-model:current-page="redemptionQuery.page"
             v-model:page-size="redemptionQuery.pageSize"
             :total="redemptionTotal"
-            :page-sizes="[5, 10, 20]"
+            :page-sizes="[10, 20, 50]"
             layout="total, sizes, prev, pager, next"
             @current-change="fetchRedemptions"
             @size-change="handleRedemptionPageSizeChange"
