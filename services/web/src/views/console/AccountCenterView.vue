@@ -255,7 +255,7 @@ watch(
                 v-model="emailInput"
                 placeholder="name@example.com"
                 :prefix-icon="Message"
-                class="sm:flex-1"
+                class="input-ember sm:flex-1"
               />
               <button
                 class="btn-ember rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer"
@@ -292,27 +292,39 @@ watch(
         </div>
 
         <div class="mt-6 space-y-4">
-          <el-input
-            v-model="passwordForm.oldPassword"
-            type="password"
-            show-password
-            placeholder="当前密码"
-            :prefix-icon="Lock"
-          />
-          <el-input
-            v-model="passwordForm.newPassword"
-            type="password"
-            show-password
-            placeholder="新密码"
-            :prefix-icon="Lock"
-          />
-          <el-input
-            v-model="passwordForm.confirmPassword"
-            type="password"
-            show-password
-            placeholder="确认新密码"
-            :prefix-icon="Lock"
-          />
+          <div class="space-y-1">
+            <label class="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-400">当前密码</label>
+            <el-input
+              v-model="passwordForm.oldPassword"
+              type="password"
+              show-password
+              placeholder="请输入当前密码"
+              :prefix-icon="Lock"
+              class="input-ember"
+            />
+          </div>
+          <div class="space-y-1">
+            <label class="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-400">新密码</label>
+            <el-input
+              v-model="passwordForm.newPassword"
+              type="password"
+              show-password
+              placeholder="请输入新密码"
+              :prefix-icon="Lock"
+              class="input-ember"
+            />
+          </div>
+          <div class="space-y-1">
+            <label class="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-400">确认新密码</label>
+            <el-input
+              v-model="passwordForm.confirmPassword"
+              type="password"
+              show-password
+              placeholder="请再次输入新密码"
+              :prefix-icon="Lock"
+              class="input-ember"
+            />
+          </div>
           <button
             class="w-full rounded-2xl bg-ember px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-600 cursor-pointer"
             @click="handleUpdatePassword"

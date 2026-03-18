@@ -38,15 +38,29 @@ body {
 
 /* Vitality Input */
 .input-ember input {
-  background: #FFFFFF;
-  border: 1px solid var(--border-subtle);
+  background: transparent;
+  border: none !important;
+  box-shadow: none !important;
   color: var(--text-primary);
-  transition: all 0.2s ease;
+  transition: color 0.2s ease;
 }
 .input-ember input:focus {
-  border-color: var(--ember-red);
-  box-shadow: 0 0 0 3px var(--ember-dim);
-  background: #FFFFFF;
+  background: transparent;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.input-ember .el-input__wrapper,
+.input-ember.el-date-editor .el-input__wrapper {
+  background-color: #FFFFFF !important;
+  box-shadow: 0 0 0 1px var(--border-subtle) inset !important;
+}
+
+.input-ember .el-input__wrapper.is-focus,
+.input-ember.el-date-editor .el-input__wrapper.is-focus {
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px var(--ember-dim) !important;
 }
 
 /* Vitality Button */
