@@ -10,6 +10,8 @@ import { useUserStore } from '@/store/user'
 import { formatDate } from '@/utils/date'
 import type { Payment, PaymentStatus, Plan, Redemption, UserInfo } from '@/types/api'
 
+type RenewalTab = 'online' | 'redeem'
+
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
@@ -50,6 +52,7 @@ const redemptionQuery = ref({
 
 const redeemForm = ref({ code: '' })
 const redeeming = ref(false)
+const activeRenewalTab = ref<RenewalTab>('online')
 const activeHistoryTab = ref<'payments' | 'redemptions'>('payments')
 const emptyPlans = computed(() => !plansLoading.value && plans.value.length === 0)
 const pendingPlanIDs = computed(() => new Set(
@@ -57,6 +60,45 @@ const pendingPlanIDs = computed(() => new Set(
     .filter((item) => item.status === 'pending')
     .map((item) => item.planId)
 ))
+const renewalTabs: Array<{
+  key: RenewalTab
+  label: string
+  description: string
+  icon: typeof CreditCard
+}> = [
+  {
+    key: 'online',
+    label: '在线购买',
+    description: 'Stripe Checkout 自动延长有效期',
+    icon: CreditCard
+  },
+  {
+    key: 'redeem',
+    label: '兑换码续期',
+    description: '输入管理员发放的兑换码立即生效',
+    icon: Ticket
+  }
+]
+const onlineNotes = [
+  {
+    title: '生效方式',
+    description: '付款成功后自动延长有效期，直接叠加到当前会员时长。'
+  },
+  {
+    title: '订单处理',
+    description: '存在待支付订单时，可直接从当前页面继续支付，无需重新选择方案。'
+  }
+]
+const redeemNotes = [
+  {
+    title: '生效方式',
+    description: '兑换成功后立即延长有效期，不需要额外等待。'
+  },
+  {
+    title: '使用限制',
+    description: '同一码同一用户不能重复使用，输入前请确认兑换码准确无误。'
+  }
+]
 
 const isExpired = computed(() => {
   if (!user.value.expiresAt) return false
@@ -222,8 +264,13 @@ const consumeQueryState = async () => {
   }
 }
 
-const scrollToSection = (id: string) => {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+const setRenewalTab = (tab: RenewalTab) => {
+  activeRenewalTab.value = tab
+}
+
+const focusRenewalTab = (tab: RenewalTab) => {
+  setRenewalTab(tab)
+  document.getElementById('renewal-methods')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 onMounted(async () => {
@@ -276,14 +323,14 @@ onMounted(async () => {
               </div>
               <div class="mt-4 flex flex-col gap-2">
                 <button
-                  @click="scrollToSection('online-purchase')"
+                  @click="focusRenewalTab('online')"
                   class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-white text-gray-900 px-4 py-2.5 text-sm font-bold hover:bg-gray-100 transition-colors"
                 >
                   <el-icon><CreditCard /></el-icon>
                   <span>在线购买续费</span>
                 </button>
                 <button
-                  @click="scrollToSection('redeem-section')"
+                  @click="focusRenewalTab('redeem')"
                   class="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-bold hover:bg-white/15 transition-colors"
                 >
                   <el-icon><Ticket /></el-icon>
@@ -296,97 +343,170 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-[1.45fr_0.95fr] gap-6">
-      <section id="online-purchase" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6" v-loading="plansLoading">
-        <div class="mb-5">
-          <h2 class="text-lg font-bold text-gray-900">在线购买</h2>
-          <p class="text-sm text-gray-500 mt-1">付款成功后自动延长有效期，待支付订单可直接继续支付。</p>
-        </div>
+    <section id="renewal-methods" class="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
+      <div class="border-b border-gray-100 bg-gradient-to-r from-amber-50 via-white to-rose-50 px-6 py-5 md:px-7">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-gray-900">续费方式</h2>
+            <p class="mt-1 text-sm text-gray-500">把在线支付和兑换码续期收口在一个切换区里，减少页面噪音。</p>
+          </div>
 
-        <div v-if="emptyPlans" class="py-14 text-center text-gray-400 border border-dashed border-gray-200 rounded-xl">
-          当前暂无可购买方案
-        </div>
-
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div
-            v-for="plan in plans"
-            :key="plan.id"
-            class="rounded-2xl border border-gray-100 p-5 bg-gradient-to-b from-white to-gray-50 hover:border-ember/40 hover:shadow-md transition-all"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <h3 class="font-bold text-lg text-gray-900">{{ plan.name }}</h3>
-                <p class="text-sm text-gray-500 mt-1 min-h-[36px]">{{ plan.description || '付款成功后自动延长有效期' }}</p>
-              </div>
-              <div class="w-9 h-9 rounded-lg bg-ember/10 text-ember flex items-center justify-center">
-                <el-icon><Money /></el-icon>
-              </div>
-            </div>
-
-            <div class="mt-5 flex items-end gap-2">
-              <span class="text-3xl font-extrabold text-gray-900">{{ formatPrice(plan.price, plan.currency) }}</span>
-              <span class="text-sm text-gray-400 mb-1">一次性</span>
-            </div>
-
-            <div class="mt-3 text-sm text-gray-600 flex items-center gap-1.5">
-              <el-icon><Timer /></el-icon>
-              <span>增加 {{ plan.days }} 天有效期</span>
-            </div>
-
+          <div class="inline-flex w-full flex-col gap-2 rounded-3xl bg-white/90 p-2 shadow-sm ring-1 ring-gray-100 md:w-auto md:flex-row">
             <button
-              @click="handleCheckout(plan)"
-              :disabled="buyingPlanID === plan.id"
-              class="mt-5 w-full py-2.5 rounded-lg bg-ember text-white font-bold hover:bg-red-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              v-for="tab in renewalTabs"
+              :key="tab.key"
+              class="flex flex-1 items-start gap-3 rounded-2xl border px-4 py-3 text-left transition-all md:min-w-[280px]"
+              :class="activeRenewalTab === tab.key ? 'border-ember bg-ember text-white shadow-md shadow-ember/20' : 'border-transparent bg-white/70 text-gray-600 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-900'"
+              @click="setRenewalTab(tab.key)"
             >
-              <el-icon><CreditCard /></el-icon>
-              <span>{{ buyingPlanID === plan.id ? '跳转中...' : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买') }}</span>
+              <div
+                class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                :class="activeRenewalTab === tab.key ? 'bg-white/15 text-white' : 'bg-ember/10 text-ember'"
+              >
+                <el-icon><component :is="tab.icon" /></el-icon>
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <div class="text-sm font-bold">{{ tab.label }}</div>
+                  <span
+                    v-if="activeRenewalTab === tab.key"
+                    class="inline-flex items-center rounded-full bg-white/18 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-white"
+                  >
+                    当前
+                  </span>
+                </div>
+                <div
+                  class="mt-1 text-xs leading-5"
+                  :class="activeRenewalTab === tab.key ? 'text-white/70' : 'text-gray-500'"
+                >
+                  {{ tab.description }}
+                </div>
+              </div>
             </button>
           </div>
         </div>
-      </section>
+      </div>
 
-      <section id="redeem-section" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div class="mb-5">
-          <h2 class="text-lg font-bold text-gray-900">兑换码续期</h2>
-          <p class="text-sm text-gray-500 mt-1">适用于管理员发放的兑换码，兑换成功后立即生效。</p>
-        </div>
+      <div class="p-6 md:p-7">
+        <template v-if="activeRenewalTab === 'online'">
+          <div class="flex flex-col gap-6" v-loading="plansLoading">
+            <div class="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+              <div class="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-base font-bold text-gray-900">可购买方案</h4>
+                  <p class="mt-1 text-sm text-gray-500">选择一个方案即可跳转支付，成功后自动为当前账户续期。</p>
+                </div>
+                <div class="hidden rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-500 md:inline-flex">
+                  {{ plans.length }} 个方案
+                </div>
+              </div>
 
-        <div class="rounded-2xl border border-dashed border-ember/20 bg-ember/5 p-5">
-          <div class="w-12 h-12 rounded-2xl bg-white text-ember flex items-center justify-center shadow-sm">
-            <el-icon :size="22"><Ticket /></el-icon>
-          </div>
-          <h3 class="mt-4 text-lg font-bold text-gray-900">输入兑换码</h3>
-          <p class="mt-2 text-sm text-gray-500">同一用户同一码仅可成功一次，兑换成功后时长将直接叠加。</p>
+              <div v-if="emptyPlans" class="rounded-2xl border border-dashed border-gray-200 py-14 text-center text-gray-400">
+                当前暂无可购买方案
+              </div>
 
-          <el-input
-            v-model="redeemForm.code"
-            placeholder="在此输入兑换码..."
-            class="input-ember mt-5"
-            size="large"
-          />
+              <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div
+                  v-for="plan in plans"
+                  :key="plan.id"
+                  class="rounded-3xl border border-gray-100 bg-gradient-to-b from-white to-gray-50 p-4 transition-all hover:border-ember/40 hover:shadow-md"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 class="text-lg font-bold text-gray-900">{{ plan.name }}</h3>
+                      <p class="mt-1 min-h-[36px] text-sm leading-5 text-gray-500">{{ plan.description || '付款成功后自动延长有效期' }}</p>
+                    </div>
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ember/10 text-ember">
+                      <el-icon><Money /></el-icon>
+                    </div>
+                  </div>
 
-          <button
-            @click="handleRedeem"
-            :disabled="redeeming"
-            class="mt-4 w-full py-3 rounded-xl bg-gray-900 text-white font-bold hover:bg-black transition-colors disabled:opacity-70 flex items-center justify-center gap-2"
-          >
-            <span v-if="redeeming" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
-            <span>{{ redeeming ? '验证中...' : '确认兑换' }}</span>
-          </button>
+                  <div class="mt-5 flex items-end gap-2">
+                    <span class="text-3xl font-extrabold text-gray-900">{{ formatPrice(plan.price, plan.currency) }}</span>
+                    <span class="mb-1 text-sm text-gray-400">一次性</span>
+                  </div>
 
-          <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-500">
-            <div class="rounded-xl bg-white px-4 py-3 border border-gray-100">
-              <div class="font-semibold text-gray-700">生效方式</div>
-              <div class="mt-1">兑换成功后立即延长有效期。</div>
+                  <div class="mt-3 flex items-center gap-1.5 text-sm text-gray-600">
+                    <el-icon><Timer /></el-icon>
+                    <span>增加 {{ plan.days }} 天有效期</span>
+                  </div>
+
+                  <button
+                    @click="handleCheckout(plan)"
+                    :disabled="buyingPlanID === plan.id"
+                    class="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-ember py-2.5 font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    <el-icon><CreditCard /></el-icon>
+                    <span>{{ buyingPlanID === plan.id ? '跳转中...' : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买') }}</span>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="rounded-xl bg-white px-4 py-3 border border-gray-100">
-              <div class="font-semibold text-gray-700">使用限制</div>
-              <div class="mt-1">同一码同一用户不能重复使用。</div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div
+                v-for="note in onlineNotes"
+                :key="note.title"
+                class="rounded-2xl border border-gray-100 bg-gray-50/70 px-4 py-4 text-sm text-gray-500"
+              >
+                <div class="font-semibold text-gray-700">{{ note.title }}</div>
+                <div class="mt-1 leading-6">{{ note.description }}</div>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
-    </div>
+        </template>
+
+        <template v-else>
+          <div class="flex flex-col gap-6">
+            <div class="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+              <div class="mb-4">
+                <h4 class="text-base font-bold text-gray-900">输入兑换码</h4>
+                <p class="mt-1 text-sm text-gray-500">提交后立即校验并尝试续期，成功结果会直接写入当前账户。</p>
+              </div>
+
+              <div class="rounded-2xl border border-dashed border-ember/20 bg-ember/5 p-5">
+                <div class="flex items-start gap-4">
+                  <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-ember shadow-sm ring-1 ring-ember/10">
+                    <el-icon :size="22"><Ticket /></el-icon>
+                  </div>
+                  <div>
+                    <h5 class="text-lg font-bold text-gray-900">输入兑换码</h5>
+                    <p class="mt-1 text-sm text-gray-500">同一用户同一码仅可成功一次，兑换成功后时长将直接叠加。</p>
+                  </div>
+                </div>
+
+                <el-input
+                  v-model="redeemForm.code"
+                  placeholder="在此输入兑换码..."
+                  class="input-ember mt-5"
+                  size="large"
+                />
+
+                <button
+                  @click="handleRedeem"
+                  :disabled="redeeming"
+                  class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 py-3 font-bold text-white transition-colors hover:bg-black disabled:opacity-70"
+                >
+                  <span v-if="redeeming" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
+                  <span>{{ redeeming ? '验证中...' : '确认兑换' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div
+                v-for="note in redeemNotes"
+                :key="note.title"
+                class="rounded-2xl border border-gray-100 bg-gray-50/70 px-4 py-4 text-sm text-gray-500"
+              >
+                <div class="font-semibold text-gray-700">{{ note.title }}</div>
+                <div class="mt-1 leading-6">{{ note.description }}</div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
 
     <section class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div class="px-6 py-4 border-b border-gray-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

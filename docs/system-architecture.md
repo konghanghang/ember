@@ -912,8 +912,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 视图：`views/console/RenewalCenterView.vue`
 - 页面结构：
   - 当前会员状态
-  - 在线购买（Stripe Checkout）
-  - 兑换码续期
+  - 续费方式 Tab
+    - 在线购买（Stripe Checkout）
+    - 兑换码续期
   - 支付记录 + 兑换记录
 - 目标：把“在线支付”和“兑换码续期”统一到同一续费心智下，而不是分散在 Dashboard 和独立价格页中
 
