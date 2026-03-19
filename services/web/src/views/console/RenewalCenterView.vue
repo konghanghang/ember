@@ -6,29 +6,14 @@ import { CreditCard, Timer, Refresh, Money, Ticket, Clock } from '@element-plus/
 import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
-import { useUserStore } from '@/store/user'
 import { formatDate } from '@/utils/date'
-import type { Payment, PaymentStatus, Plan, Redemption, UserInfo } from '@/types/api'
+import type { Payment, PaymentStatus, Plan, Redemption } from '@/types/api'
 
 type RenewalTab = 'online' | 'redeem'
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
 const refreshProfile = inject<RefreshConsoleProfile>(refreshConsoleProfileKey, async () => {})
-
-const emptyUser: UserInfo = {
-  id: '',
-  username: '',
-  role: 'user',
-  email: '',
-  embyId: '',
-  expiresAt: '',
-  embyDisabled: false,
-  isActive: false,
-  createdAt: ''
-}
-const user = computed(() => userStore.profile ?? emptyUser)
 
 const plans = ref<Plan[]>([])
 const plansLoading = ref(false)
@@ -60,24 +45,9 @@ const pendingPlanIDs = computed(() => new Set(
     .filter((item) => item.status === 'pending')
     .map((item) => item.planId)
 ))
-const renewalTabs: Array<{
-  key: RenewalTab
-  label: string
-  description: string
-  icon: typeof CreditCard
-}> = [
-  {
-    key: 'online',
-    label: '在线购买',
-    description: 'Stripe Checkout 自动延长有效期',
-    icon: CreditCard
-  },
-  {
-    key: 'redeem',
-    label: '兑换码续期',
-    description: '输入管理员发放的兑换码立即生效',
-    icon: Ticket
-  }
+const renewalTabs: Array<{ key: RenewalTab; label: string }> = [
+  { key: 'online', label: '在线购买' },
+  { key: 'redeem', label: '兑换码续期' }
 ]
 const onlineNotes = [
   {
@@ -99,45 +69,6 @@ const redeemNotes = [
     description: '同一码同一用户不能重复使用，输入前请确认兑换码准确无误。'
   }
 ]
-
-const isExpired = computed(() => {
-  if (!user.value.expiresAt) return false
-  return new Date(user.value.expiresAt) < new Date()
-})
-
-const daysLeft = computed(() => {
-  if (!user.value.expiresAt) return null
-  const ms = new Date(user.value.expiresAt).getTime() - Date.now()
-  return Math.max(Math.ceil(ms / (24 * 60 * 60 * 1000)), 0)
-})
-
-const statusTone = computed(() => {
-  if (isExpired.value) {
-    return {
-      dot: 'bg-red-500',
-      badge: 'bg-red-100 text-red-700 border-red-200',
-      panel: 'from-red-50 via-white to-orange-50 border-red-100',
-      title: '已过期',
-      message: '服务已暂停，请通过在线购买或兑换码立即恢复访问权限。'
-    }
-  }
-  if (daysLeft.value !== null && daysLeft.value <= 7) {
-    return {
-      dot: 'bg-amber-500',
-      badge: 'bg-amber-100 text-amber-700 border-amber-200',
-      panel: 'from-amber-50 via-white to-orange-50 border-amber-100',
-      title: '即将到期',
-      message: '建议尽快续费，避免访问中断。'
-    }
-  }
-  return {
-    dot: 'bg-emerald-500',
-    badge: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    panel: 'from-emerald-50 via-white to-cyan-50 border-emerald-100',
-    title: '有效',
-    message: '当前账户状态正常，可提前续费叠加时长。'
-  }
-})
 
 const formatPrice = (price: number, currency: string = 'usd') => {
   return new Intl.NumberFormat('zh-CN', {
@@ -274,11 +205,6 @@ const setRenewalTab = (tab: RenewalTab) => {
   activeRenewalTab.value = tab
 }
 
-const focusRenewalTab = (tab: RenewalTab) => {
-  setRenewalTab(tab)
-  document.getElementById('renewal-methods')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 onMounted(async () => {
   await consumeQueryState()
   await refreshAll()
@@ -287,108 +213,23 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <div
-      class="rounded-3xl border shadow-sm overflow-hidden bg-gradient-to-br"
-      :class="statusTone.panel"
-    >
-      <div class="p-6 md:p-8">
-        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-          <div class="space-y-4">
-            <div class="flex items-center gap-3">
-              <div class="w-3 h-3 rounded-full" :class="statusTone.dot"></div>
-              <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold" :class="statusTone.badge">
-                {{ statusTone.title }}
-              </span>
-            </div>
-
-            <div>
-              <h2 class="text-3xl font-bold text-gray-900">
-                {{ user.expiresAt ? formatDate(user.expiresAt) : '永久有效' }}
-              </h2>
-              <p class="text-sm text-gray-500 mt-2">当前到期时间</p>
-            </div>
-
-            <p class="max-w-2xl text-sm text-gray-600 leading-6">
-              {{ statusTone.message }}
-            </p>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-full lg:min-w-[360px]">
-            <div class="rounded-2xl bg-white/90 border border-white p-5 shadow-sm">
-              <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">剩余时长</div>
-              <div class="mt-3 text-3xl font-bold text-gray-900">
-                {{ daysLeft === null ? '无限制' : `${daysLeft} 天` }}
-              </div>
-              <p class="mt-2 text-sm text-gray-500">在线购买和兑换码都会在此基础上叠加。</p>
-            </div>
-
-            <div class="rounded-2xl border border-ember/10 bg-white p-5 shadow-sm ring-1 ring-ember/5">
-              <div class="inline-flex items-center rounded-full bg-ember/10 px-3 py-1 text-xs font-semibold tracking-wide text-ember">推荐操作</div>
-              <div class="mt-3 text-lg font-bold text-gray-900">
-                {{ isExpired ? '立即恢复访问' : '提前续费避免中断' }}
-              </div>
-              <p class="mt-2 text-sm text-gray-500">优先选择一种续费方式，主操作统一使用品牌色，避免视觉分裂。</p>
-              <div class="mt-4 flex flex-col gap-2">
-                <button
-                  @click="focusRenewalTab('online')"
-                  class="btn-ember w-full inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold shadow-sm hover:shadow-md"
-                >
-                  <el-icon><CreditCard /></el-icon>
-                  <span>在线购买续费</span>
-                </button>
-                <button
-                  @click="focusRenewalTab('redeem')"
-                  class="w-full inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50"
-                >
-                  <el-icon><Ticket /></el-icon>
-                  <span>使用兑换码</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <section id="renewal-methods" class="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
-      <div class="border-b border-gray-100 bg-gradient-to-r from-amber-50 via-white to-rose-50 px-6 py-5 md:px-7">
+    <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div class="border-b border-gray-100 bg-gray-50/50 px-6 py-5 md:px-7">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 class="text-xl font-bold text-gray-900">续费方式</h2>
-            <p class="mt-1 text-sm text-gray-500">把在线支付和兑换码续期收口在一个切换区里，减少页面噪音。</p>
+            <p class="mt-1 text-sm text-gray-500">选择在线购买或使用兑换码完成续费</p>
           </div>
 
-          <div class="inline-flex w-full flex-col gap-2 rounded-3xl bg-white/90 p-2 shadow-sm ring-1 ring-gray-100 md:w-auto md:flex-row">
+          <div class="inline-flex rounded-xl bg-gray-100 p-1 self-start">
             <button
               v-for="tab in renewalTabs"
               :key="tab.key"
-              class="flex flex-1 items-start gap-3 rounded-2xl border px-4 py-3 text-left transition-all md:min-w-[280px]"
-              :class="activeRenewalTab === tab.key ? 'border-ember bg-ember text-white shadow-md shadow-ember/20' : 'border-transparent bg-white/70 text-gray-600 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-900'"
+              class="rounded-lg px-5 py-2 text-sm font-semibold transition-colors"
+              :class="activeRenewalTab === tab.key ? 'bg-ember text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
               @click="setRenewalTab(tab.key)"
             >
-              <div
-                class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                :class="activeRenewalTab === tab.key ? 'bg-white/15 text-white' : 'bg-ember/10 text-ember'"
-              >
-                <el-icon><component :is="tab.icon" /></el-icon>
-              </div>
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <div class="text-sm font-bold">{{ tab.label }}</div>
-                  <span
-                    v-if="activeRenewalTab === tab.key"
-                    class="inline-flex items-center rounded-full bg-white/18 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-white"
-                  >
-                    当前
-                  </span>
-                </div>
-                <div
-                  class="mt-1 text-xs leading-5"
-                  :class="activeRenewalTab === tab.key ? 'text-white/70' : 'text-gray-500'"
-                >
-                  {{ tab.description }}
-                </div>
-              </div>
+              {{ tab.label }}
             </button>
           </div>
         </div>
@@ -397,7 +238,7 @@ onMounted(async () => {
       <div class="p-6 md:p-7">
         <template v-if="activeRenewalTab === 'online'">
           <div class="flex flex-col gap-6" v-loading="plansLoading">
-            <div class="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div class="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h4 class="text-base font-bold text-gray-900">可购买方案</h4>
@@ -416,7 +257,7 @@ onMounted(async () => {
                 <div
                   v-for="plan in plans"
                   :key="plan.id"
-                  class="rounded-3xl border border-gray-100 bg-gradient-to-b from-white to-gray-50 p-4 transition-all hover:border-ember/40 hover:shadow-md"
+                  class="rounded-2xl border border-gray-100 bg-white p-6 transition-all hover:border-ember/40 hover:shadow-md"
                 >
                   <div class="flex items-start justify-between gap-3">
                     <div>
@@ -428,7 +269,7 @@ onMounted(async () => {
                     </div>
                   </div>
 
-                  <div class="mt-5 flex items-end gap-2">
+                  <div class="mt-6 flex items-end gap-2">
                     <span class="text-3xl font-extrabold text-gray-900">{{ formatPrice(plan.price, plan.currency) }}</span>
                     <span class="mb-1 text-sm text-gray-400">一次性</span>
                   </div>
@@ -441,7 +282,7 @@ onMounted(async () => {
                   <button
                     @click="handleCheckout(plan)"
                     :disabled="buyingPlanID === plan.id"
-                    class="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-ember py-2.5 font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+                    class="btn-ember mt-6 flex w-full items-center justify-center gap-2 rounded-xl py-3 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     <el-icon><CreditCard /></el-icon>
                     <span>{{ buyingPlanID === plan.id ? '跳转中...' : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买') }}</span>
@@ -465,7 +306,7 @@ onMounted(async () => {
 
         <template v-else>
           <div class="flex flex-col gap-6">
-            <div class="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div class="mb-4">
                 <h4 class="text-base font-bold text-gray-900">输入兑换码</h4>
                 <p class="mt-1 text-sm text-gray-500">提交后立即校验并尝试续期，成功结果会直接写入当前账户。</p>
