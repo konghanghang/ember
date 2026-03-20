@@ -49,6 +49,7 @@ type GetAllRedemptionsRequest struct {
 	Page     int    `form:"page" binding:"omitempty,min=1"`
 	PageSize int    `form:"pageSize" binding:"omitempty,min=1"`
 	UserID   string `form:"userId"`
+	Username string `form:"username"`
 	Code     string `form:"code"`
 }
 
@@ -207,6 +208,9 @@ func (s *RedemptionService) GetAllRedemptions(req *GetAllRedemptionsRequest) (*G
 	base := db.DB.Table("redemptions r").Joins("LEFT JOIN users u ON r.\"userId\" = u.id")
 	if req.UserID != "" {
 		base = base.Where("r.\"userId\" = ?", req.UserID)
+	}
+	if strings.TrimSpace(req.Username) != "" {
+		base = base.Where("u.username ILIKE ?", "%"+strings.TrimSpace(req.Username)+"%")
 	}
 	if strings.TrimSpace(req.Code) != "" {
 		base = base.Where("r.code = ?", strings.TrimSpace(req.Code))

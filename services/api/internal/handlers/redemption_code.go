@@ -76,6 +76,10 @@ func (h *RedemptionCodeHandler) GetRedemptionCodes(c *gin.Context) {
 
 	resp, err := h.service.GetRedemptionCodes(&req)
 	if err != nil {
+		if errors.Is(err, services.ErrRedemptionCodeStatusInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

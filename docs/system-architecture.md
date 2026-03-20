@@ -506,7 +506,7 @@ TMDBCache（独立缓存表）
 
 - `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId)` — 生成 16 字符 hex 码
 - `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId)` — 批量生成兑换码，单次最多 100 个，整批事务提交
-- `GetRedemptionCodes(page, pageSize, showAll)` — showAll=false 过滤已失效
+- `GetRedemptionCodes(page, pageSize, showAll, code, status, templateUserId)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）和模板用户过滤；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
 - `GetUserTemplates()` — 获取可选模板用户列表（启用且未过期）
 - `ValidateCode(code)` — 查找 + IsValid()
 - `UseCode(code)` — 原子递增 usedCount
@@ -780,7 +780,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/admin/users/:id/toggle` | 切换激活状态 |
 | PUT | `/api/v1/admin/users/:id/reset-password` | 重置密码 |
 | DELETE | `/api/v1/admin/users/:id` | 删除用户 |
-| GET | `/api/v1/admin/redemption-codes` | 兑换码列表 |
+| GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `templateUserId` / `showAll` 过滤） |
 | POST | `/api/v1/admin/redemption-codes` | 创建兑换码 |
 | POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码 |
 | PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码 |
@@ -790,7 +790,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PATCH | `/api/v1/admin/configs/:key` | 更新单项配置 |
 | POST | `/api/v1/admin/configs/:group/test` | 测试指定配置组 |
 | POST | `/api/v1/admin/configs/import-env` | 导入当前环境变量为数据库覆盖值 |
-| GET | `/api/v1/admin/redemptions` | 全部兑换历史 |
+| GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝 |
@@ -929,12 +929,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - `codes`：`views/admin/RedemptionCodesView.vue`
   - `history`：`views/admin/RedemptionHistoryView.vue`
 - 数据源：
-  - `GET /api/v1/admin/redemption-codes`
+  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、模板用户筛选）
   - `POST /api/v1/admin/redemption-codes`
   - `POST /api/v1/admin/redemption-codes/batch`
   - `PUT /api/v1/admin/redemption-codes/:id`
   - `DELETE /api/v1/admin/redemption-codes/:id`
-  - `GET /api/v1/admin/redemptions`
+  - `GET /api/v1/admin/redemptions`（支持按用户名、用户 ID、兑换码筛选）
 
 ### 管理端支付中心
 

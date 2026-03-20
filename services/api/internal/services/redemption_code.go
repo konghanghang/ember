@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -19,6 +20,14 @@ type RedemptionCodeService struct{}
 const (
 	maxCreateRedemptionCodesCount = 100
 	maxCodeInsertRetry            = 5
+)
+
+type RedemptionCodeStatus string
+
+const (
+	RedemptionCodeStatusActive    RedemptionCodeStatus = "active"
+	RedemptionCodeStatusExpired   RedemptionCodeStatus = "expired"
+	RedemptionCodeStatusExhausted RedemptionCodeStatus = "exhausted"
 )
 
 type RedemptionCodeCreateOptions struct {
@@ -53,9 +62,12 @@ type UpdateRedemptionCodeRequest struct {
 
 // GetRedemptionCodesRequest 获取兑换码列表请求
 type GetRedemptionCodesRequest struct {
-	Page     int  `form:"page" binding:"omitempty,min=1"`
-	PageSize int  `form:"pageSize" binding:"omitempty,min=1"`
-	ShowAll  bool `form:"showAll"`
+	Page           int    `form:"page" binding:"omitempty,min=1"`
+	PageSize       int    `form:"pageSize" binding:"omitempty,min=1"`
+	ShowAll        bool   `form:"showAll"`
+	Code           string `form:"code"`
+	Status         string `form:"status"`
+	TemplateUserID string `form:"templateUserId"`
 }
 
 // GetRedemptionCodesResponse 获取兑换码列表响应
@@ -149,10 +161,25 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 	var codes []models.RedemptionCode
 
 	query := db.DB.Model(&models.RedemptionCode{})
+	now := time.Now().UTC()
 
-	// ShowAll=false 时过滤已用完/已过期的码
-	if !req.ShowAll {
-		query = query.Where("\"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > NOW())")
+	if code := strings.TrimSpace(req.Code); code != "" {
+		query = query.Where("code ILIKE ?", "%"+code+"%")
+	}
+
+	if templateUserID := strings.TrimSpace(req.TemplateUserID); templateUserID != "" {
+		query = query.Where("\"templateUserId\" = ?", templateUserID)
+	}
+
+	status := RedemptionCodeStatus(strings.TrimSpace(req.Status))
+	if status != "" {
+		var err error
+		query, err = applyRedemptionCodeStatusFilter(query, status, now)
+		if err != nil {
+			return nil, err
+		}
+	} else if !req.ShowAll {
+		query = query.Where("\"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", now)
 	}
 
 	// 获取总数
@@ -388,4 +415,19 @@ func isRedemptionCodeConflict(err error) bool {
 	}
 
 	return pgErr.Code == "23505"
+}
+
+func applyRedemptionCodeStatusFilter(query *gorm.DB, status RedemptionCodeStatus, now time.Time) (*gorm.DB, error) {
+	switch status {
+	case RedemptionCodeStatusActive:
+		return query.Where("\"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", now), nil
+	case RedemptionCodeStatusExpired:
+		return query.Where("\"usedCount\" < \"maxUses\" AND \"expiresAt\" IS NOT NULL AND \"expiresAt\" <= ?", now), nil
+	case RedemptionCodeStatusExhausted:
+		return query.Where("\"usedCount\" >= \"maxUses\""), nil
+	case "":
+		return query, nil
+	default:
+		return nil, ErrRedemptionCodeStatusInvalid
+	}
 }

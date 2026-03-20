@@ -15,6 +15,7 @@ import (
 
 type stubRedemptionCodeService struct {
 	createBatchFn func(req *services.CreateRedemptionCodesBatchRequest) (*services.CreateRedemptionCodesBatchResponse, error)
+	getCodesFn    func(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error)
 }
 
 func (s *stubRedemptionCodeService) CreateRedemptionCode(req *services.CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
@@ -29,7 +30,10 @@ func (s *stubRedemptionCodeService) CreateRedemptionCodesBatch(req *services.Cre
 }
 
 func (s *stubRedemptionCodeService) GetRedemptionCodes(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error) {
-	return nil, nil
+	if s.getCodesFn == nil {
+		return nil, nil
+	}
+	return s.getCodesFn(req)
 }
 
 func (s *stubRedemptionCodeService) DeleteRedemptionCode(id string) error {
@@ -142,5 +146,61 @@ func TestRedemptionCodeHandlerCreateBatchMapsRequestErrors(t *testing.T) {
 				t.Fatalf("expected status 400, got %d", recorder.Code)
 			}
 		})
+	}
+}
+
+func TestRedemptionCodeHandlerGetRedemptionCodesBindsFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RedemptionCodeHandler{
+		service: &stubRedemptionCodeService{
+			getCodesFn: func(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error) {
+				if req.Page != 2 || req.PageSize != 20 {
+					t.Fatalf("unexpected pagination: %+v", req)
+				}
+				if req.Code != "ABCD" || req.Status != "expired" || req.TemplateUserID != "user_123" {
+					t.Fatalf("unexpected filters: %+v", req)
+				}
+				if !req.ShowAll {
+					t.Fatalf("expected showAll to be true")
+				}
+				return &services.GetRedemptionCodesResponse{
+					Data:     []models.RedemptionCode{},
+					Total:    0,
+					Page:     req.Page,
+					PageSize: req.PageSize,
+				}, nil
+			},
+		},
+	}
+
+	ctx, recorder := newTestRedemptionCodeContext(
+		http.MethodGet,
+		"/api/v1/admin/redemption-codes?page=2&pageSize=20&showAll=true&code=ABCD&status=expired&templateUserId=user_123",
+		nil,
+	)
+	handler.GetRedemptionCodes(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+}
+
+func TestRedemptionCodeHandlerGetRedemptionCodesMapsInvalidStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RedemptionCodeHandler{
+		service: &stubRedemptionCodeService{
+			getCodesFn: func(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error) {
+				return nil, services.ErrRedemptionCodeStatusInvalid
+			},
+		},
+	}
+
+	ctx, recorder := newTestRedemptionCodeContext(http.MethodGet, "/api/v1/admin/redemption-codes?status=broken", nil)
+	handler.GetRedemptionCodes(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
 	}
 }

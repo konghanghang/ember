@@ -32,6 +32,7 @@ import type {
   RedemptionCodeListResponse,
   RedemptionListResponse,
   RankingPreviewResponse,
+  RedemptionCodeListQuery,
   SystemInfoResponse,
   UserTemplate,
   UserInfo,
@@ -94,7 +95,7 @@ export function resetUserPassword(id: string, newPassword: string) {
   })
 }
 
-export function getRedemptionCodes(params?: { page?: number; pageSize?: number; showAll?: boolean }): Promise<RedemptionCodeListResponse> {
+export function getRedemptionCodes(params?: RedemptionCodeListQuery): Promise<RedemptionCodeListResponse> {
   return request({
     url: '/admin/redemption-codes',
     method: 'get',

@@ -95,6 +95,15 @@ export interface RedemptionCodeListResponse {
   totalPages: number
 }
 
+export type RedemptionCodeStatusFilter = 'active' | 'expired' | 'exhausted'
+
+export interface RedemptionCodeListQuery extends PaginationQuery {
+  showAll?: boolean
+  code?: string
+  status?: RedemptionCodeStatusFilter | ''
+  templateUserId?: string
+}
+
 export interface CreateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number
@@ -144,6 +153,7 @@ export interface RedemptionListResponse {
 
 export interface AdminRedemptionQuery extends PaginationQuery {
   userId?: string
+  username?: string
   code?: string
 }
 

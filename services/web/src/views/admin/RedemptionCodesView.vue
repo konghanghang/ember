@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument } from '@element-plus/icons-vue'
+import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument, Search, UserFilled } from '@element-plus/icons-vue'
 import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getUserTemplates } from '@/api/admin'
-import type { CreateRedemptionCodeRequest, RedemptionCode, UpdateRedemptionCodeRequest, UserTemplate } from '@/types/api'
+import type {
+  CreateRedemptionCodeRequest,
+  RedemptionCode,
+  RedemptionCodeListQuery,
+  RedemptionCodeStatusFilter,
+  UpdateRedemptionCodeRequest,
+  UserTemplate
+} from '@/types/api'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -16,10 +23,13 @@ const maxBatchCreateCount = 100
 const tableData = ref<RedemptionCode[]>([])
 const total = ref(0)
 const loading = ref(false)
-const queryParams = ref({
+const queryParams = ref<RedemptionCodeListQuery>({
   page: 1,
   pageSize: 10,
-  showAll: false
+  showAll: false,
+  code: '',
+  status: '',
+  templateUserId: ''
 })
 const userTemplates = ref<UserTemplate[]>([])
 
@@ -46,6 +56,12 @@ const editForm = ref({
   expiresAt: null as Date | null
 })
 
+const statusOptions: Array<{ label: string; value: RedemptionCodeStatusFilter }> = [
+  { label: '有效', value: 'active' },
+  { label: '已过期', value: 'expired' },
+  { label: '已耗尽', value: 'exhausted' }
+]
+
 const handlePageSizeChange = (size: number) => {
   queryParams.value.pageSize = size
   queryParams.value.page = 1
@@ -55,7 +71,23 @@ const handlePageSizeChange = (size: number) => {
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await getRedemptionCodes(queryParams.value)
+    const params: RedemptionCodeListQuery = {
+      page: queryParams.value.page,
+      pageSize: queryParams.value.pageSize,
+      showAll: queryParams.value.showAll
+    }
+
+    if (queryParams.value.code?.trim()) {
+      params.code = queryParams.value.code.trim()
+    }
+    if (queryParams.value.status) {
+      params.status = queryParams.value.status
+    }
+    if (queryParams.value.templateUserId?.trim()) {
+      params.templateUserId = queryParams.value.templateUserId.trim()
+    }
+
+    const res = await getRedemptionCodes(params)
     tableData.value = res.data
     total.value = res.total || 0
   } finally {
@@ -85,6 +117,20 @@ const resetCreateForm = () => {
 const openCreateDialog = () => {
   resetCreateForm()
   dialogVisible.value = true
+}
+
+const handleSearch = () => {
+  queryParams.value.page = 1
+  fetchData()
+}
+
+const handleReset = () => {
+  queryParams.value.code = ''
+  queryParams.value.status = ''
+  queryParams.value.templateUserId = ''
+  queryParams.value.showAll = false
+  queryParams.value.page = 1
+  fetchData()
 }
 
 const handleCreate = async () => {
@@ -130,7 +176,7 @@ const handleCreate = async () => {
 
 const handleDelete = async (id: string) => {
   try {
-    await ElMessageBox.confirm('确定删除该兑换码吗？已使用该码的用户不受影响。', '删除确认', { 
+    await ElMessageBox.confirm('确定删除该兑换码吗？已使用该码的用户不受影响。', '删除确认', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
@@ -203,6 +249,15 @@ const copyBatchCodes = async () => {
   }
 }
 
+const activeFilterCount = computed(() => {
+  let count = 0
+  if (queryParams.value.code?.trim()) count += 1
+  if (queryParams.value.status) count += 1
+  if (queryParams.value.templateUserId) count += 1
+  if (queryParams.value.showAll) count += 1
+  return count
+})
+
 const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return '永久有效'
   return new Date(dateStr).toLocaleString()
@@ -226,44 +281,143 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
-    <div v-if="!props.embedded" class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          兑换码管理
-          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ total }} 个兑换码</span>
-        </h1>
-        <p class="text-gray-500 text-sm mt-1">生成和管理注册/续期兑换码</p>
-      </div>
-      
-      <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
-          <span class="text-sm text-gray-600">显示全部</span>
-          <el-switch v-model="queryParams.showAll" @change="fetchData" size="small" />
+    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+      <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <template v-if="!props.embedded">
+            <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              兑换码管理
+              <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ total }} 个兑换码</span>
+            </h1>
+            <p class="mt-1 text-sm text-gray-500">生成和管理注册/续期兑换码</p>
+          </template>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-sm font-semibold text-gray-900">兑换码池</span>
+            <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
+            <span v-if="activeFilterCount > 0" class="rounded-full bg-red-50 px-2.5 py-1 text-xs text-red-600">
+              已启用 {{ activeFilterCount }} 个筛选条件
+            </span>
+          </div>
+          <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">
+            恢复兑换码创建入口，并支持按兑换码、状态和模板用户筛选。
+          </p>
         </div>
-        <button 
-          @click="fetchData" 
-          class="cursor-pointer rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
-          aria-label="刷新兑换码列表"
-          title="刷新列表"
-        >
-          <el-icon :size="20"><Refresh /></el-icon>
-        </button>
-        <button 
-          @click="openCreateDialog"
-          class="flex items-center gap-2 px-4 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95"
-        >
-          <el-icon><Plus /></el-icon>
-          <span>生成兑换码</span>
-        </button>
+
+        <div class="flex flex-col gap-3 xl:items-end">
+          <slot name="tabs" />
+
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-2.5 py-1.5">
+              <span class="text-sm text-gray-600">包含失效/耗尽</span>
+              <el-switch v-model="queryParams.showAll" size="small" @change="handleSearch" />
+            </div>
+            <button
+              @click="fetchData"
+              class="cursor-pointer rounded-xl border border-gray-200 bg-white p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              aria-label="刷新兑换码列表"
+              title="刷新列表"
+            >
+              <el-icon :size="18"><Refresh /></el-icon>
+            </button>
+            <button
+              @click="openCreateDialog"
+              class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+            >
+              <el-icon><Plus /></el-icon>
+              <span>生成兑换码</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-3 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div class="flex flex-1 flex-wrap gap-3">
+            <div class="flex w-full flex-col gap-1.5 xl:w-[252px] xl:shrink-0">
+              <label class="block text-xs font-semibold tracking-wide text-gray-500">兑换码</label>
+              <div class="relative w-full group">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <el-icon class="text-gray-400 transition-colors group-focus-within:text-ember"><Search /></el-icon>
+                </div>
+                <input
+                  v-model="queryParams.code"
+                  type="search"
+                  inputmode="search"
+                  autocomplete="off"
+                  aria-label="按兑换码筛选"
+                  placeholder="输入兑换码关键字"
+                  class="filter-input w-full pl-10 pr-4"
+                  @keyup.enter="handleSearch"
+                />
+              </div>
+            </div>
+
+            <div class="flex w-full flex-col gap-1.5 xl:w-[168px] xl:shrink-0">
+              <label class="block text-xs font-semibold tracking-wide text-gray-500">状态</label>
+              <div class="w-full">
+                <el-select
+                  v-model="queryParams.status"
+                  placeholder="全部状态"
+                  clearable
+                  class="w-full filter-select"
+                >
+                  <el-option
+                    v-for="item in statusOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </div>
+            </div>
+
+            <div class="flex w-full flex-col gap-1.5 xl:w-[300px] xl:shrink-0">
+              <label class="block text-xs font-semibold tracking-wide text-gray-500">权限模板用户</label>
+              <div class="relative w-full">
+                <div class="absolute inset-y-0 left-0 z-10 flex items-center pl-3 pointer-events-none">
+                  <el-icon class="text-gray-400"><UserFilled /></el-icon>
+                </div>
+                <el-select
+                  v-model="queryParams.templateUserId"
+                  placeholder="全部模板用户"
+                  clearable
+                  filterable
+                  class="w-full filter-select filter-select-with-icon"
+                >
+                  <el-option
+                    v-for="item in userTemplates"
+                    :key="item.id"
+                    :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
+                    :value="item.id"
+                  />
+                </el-select>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
+            <button
+              @click="handleReset"
+              class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+            >
+              重置
+            </button>
+            <button
+              @click="handleSearch"
+              class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+            >
+              <el-icon><Search /></el-icon>
+              <span>查询</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Table -->
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <el-table 
-        :data="tableData" 
-        v-loading="loading" 
+      <el-table
+        :data="tableData"
+        v-loading="loading"
         style="width: 100%"
         :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
       >
@@ -289,8 +443,8 @@ onMounted(async () => {
         <el-table-column label="使用情况" min-width="150">
           <template #default="{ row }">
             <div class="flex items-center gap-2">
-              <el-progress 
-                :percentage="Math.min((row.usedCount / row.maxUses) * 100, 100)" 
+              <el-progress
+                :percentage="Math.min((row.usedCount / row.maxUses) * 100, 100)"
                 :show-text="false"
                 :status="row.usedCount >= row.maxUses ? 'success' : ''"
                 class="w-24"
@@ -299,7 +453,7 @@ onMounted(async () => {
             </div>
           </template>
         </el-table-column>
-        
+
         <el-table-column label="有效期" min-width="120">
           <template #default="{ row }">
             <div class="flex items-center gap-1 text-gray-600">
@@ -317,13 +471,13 @@ onMounted(async () => {
 
         <el-table-column label="过期时间" min-width="180">
           <template #default="{ row }">
-            <span :class="{'text-gray-400': !row.expiresAt}">{{ formatDate(row.expiresAt) }}</span>
+            <span :class="{ 'text-gray-400': !row.expiresAt }">{{ formatDate(row.expiresAt) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <button 
+            <button
               @click="openEditDialog(row)"
               class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
               aria-label="编辑兑换码"
@@ -331,7 +485,7 @@ onMounted(async () => {
             >
               <el-icon :size="18"><EditPen /></el-icon>
             </button>
-            <button 
+            <button
               @click="handleDelete(row.id)"
               class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
               aria-label="删除兑换码"
@@ -343,7 +497,6 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
 
-      <!-- Pagination -->
       <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
         <el-pagination
           v-model:current-page="queryParams.page"
@@ -358,10 +511,9 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Create Dialog -->
-    <el-dialog 
-      v-model="dialogVisible" 
-      title="生成兑换码" 
+    <el-dialog
+      v-model="dialogVisible"
+      title="生成兑换码"
       width="560px"
       align-center
       class="rounded-2xl"
@@ -418,14 +570,14 @@ onMounted(async () => {
       </div>
       <template #footer>
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
-          <button 
+          <button
             @click="dialogVisible = false"
             class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
           >
             取消
           </button>
-          <button 
-            @click="handleCreate" 
+          <button
+            @click="handleCreate"
             :disabled="generating"
             class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
           >
@@ -480,10 +632,9 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- Edit Dialog -->
-    <el-dialog 
-      v-model="editDialogVisible" 
-      title="编辑兑换码" 
+    <el-dialog
+      v-model="editDialogVisible"
+      title="编辑兑换码"
       width="480px"
       align-center
       class="rounded-2xl"
@@ -540,14 +691,14 @@ onMounted(async () => {
       </div>
       <template #footer>
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
-          <button 
+          <button
             @click="editDialogVisible = false"
             class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
           >
             取消
           </button>
-          <button 
-            @click="handleUpdate" 
+          <button
+            @click="handleUpdate"
             :disabled="editing"
             class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
           >
@@ -560,6 +711,58 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.filter-input {
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  height: 42px;
+  line-height: 1.2;
+  font-size: 0.875rem;
+  color: #111827;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.filter-input::placeholder {
+  color: #9ca3af;
+}
+
+.filter-input:hover {
+  background-color: #ffffff;
+}
+
+.filter-input:focus {
+  background-color: #ffffff;
+  border-color: var(--ember-red);
+  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
+}
+
+:deep(.filter-select .el-select__wrapper) {
+  height: 42px;
+  min-height: 42px;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-radius: 0.75rem;
+  background-color: #f9fafb;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.filter-select .el-select__wrapper.is-focused) {
+  background-color: #ffffff;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.filter-select-with-icon .el-select__wrapper) {
+  padding-left: 2.5rem;
+}
+
+:deep(.filter-select .el-select__selection) {
+  min-height: 0;
+}
+
 :deep(.el-table) {
   --el-table-header-bg-color: #f9fafb;
 }

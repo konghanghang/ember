@@ -17,19 +17,19 @@ const total = ref(0)
 const queryParams = ref({
   page: 1,
   pageSize: 10,
-  userId: '',
+  username: '',
   code: ''
 })
 
 const fetchData = async () => {
   loading.value = true
   try {
-    const params: { page: number; pageSize: number; userId?: string; code?: string } = {
+    const params: { page: number; pageSize: number; username?: string; code?: string } = {
       page: queryParams.value.page,
       pageSize: queryParams.value.pageSize
     }
-    if (queryParams.value.userId) {
-      params.userId = queryParams.value.userId
+    if (queryParams.value.username) {
+      params.username = queryParams.value.username.trim()
     }
     if (queryParams.value.code) {
       params.code = queryParams.value.code.trim()
@@ -51,7 +51,7 @@ const handleSearch = () => {
 }
 
 const handleReset = () => {
-  queryParams.value.userId = ''
+  queryParams.value.username = ''
   queryParams.value.code = ''
   queryParams.value.page = 1
   fetchData()
@@ -70,30 +70,38 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <div v-if="!props.embedded" class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          兑换历史
-          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
-        </h1>
-        <p class="text-gray-500 text-sm mt-1">查看所有用户的兑换码使用记录</p>
+    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+      <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <h1 v-if="!props.embedded" class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            兑换历史
+            <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
+          </h1>
+          <div class="flex flex-wrap items-center gap-2" :class="props.embedded ? '' : 'mt-2'">
+            <span class="text-sm font-semibold text-gray-900">兑换记录</span>
+            <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
+          </div>
+          <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">查看所有用户的兑换码使用记录。</p>
+        </div>
+
+        <slot name="tabs" />
       </div>
 
       <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
-        <div class="flex flex-col lg:flex-row lg:items-end gap-3">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div class="flex flex-1 flex-wrap gap-3">
             <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">用户 ID</label>
-              <div class="relative w-full group">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">用户名</label>
+              <div class="relative w-full group xl:w-[260px]">
                 <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><UserFilled /></el-icon>
                 </div>
                 <input
-                  v-model="queryParams.userId"
+                  v-model="queryParams.username"
                   type="text"
                   autocomplete="off"
-                  aria-label="按用户 ID 筛选"
-                  placeholder="输入用户 ID 筛选"
+                  aria-label="按用户名筛选"
+                  placeholder="输入登录用户名筛选"
                   class="filter-input w-full pl-10 pr-4"
                   @keyup.enter="handleSearch"
                 />
@@ -102,7 +110,7 @@ onMounted(() => {
 
             <div class="space-y-1.5">
               <label class="text-xs font-semibold tracking-wide text-gray-500">兑换码</label>
-              <div class="relative w-full group">
+              <div class="relative w-full group xl:w-[320px]">
                 <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Ticket /></el-icon>
                 </div>
@@ -119,7 +127,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="flex items-center gap-2 self-end lg:ml-auto lg:shrink-0">
+          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
             <button
               @click="handleReset"
               class="px-4 py-2.5 text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"

@@ -51,13 +51,8 @@ watch(
 
 <template>
   <div class="space-y-6">
-    <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 class="text-2xl font-semibold text-slate-900">兑换中心</h1>
-          <p class="mt-1 text-sm text-slate-500">把兑换码池和兑换记录收口在一个工作台里，少来回切页。</p>
-        </div>
-
+    <component :is="activeComponent" embedded>
+      <template #tabs>
         <div class="inline-flex w-full rounded-2xl bg-slate-100 p-1 lg:w-auto">
           <button
             v-for="tab in tabs"
@@ -70,9 +65,7 @@ watch(
             <span>{{ tab.label }}</span>
           </button>
         </div>
-      </div>
-    </section>
-
-    <component :is="activeComponent" embedded />
+      </template>
+    </component>
   </div>
 </template>
