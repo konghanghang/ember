@@ -257,7 +257,7 @@ onMounted(async () => {
                 <div
                   v-for="plan in plans"
                   :key="plan.id"
-                  class="rounded-2xl border border-gray-100 bg-white p-6 transition-all hover:border-ember/40 hover:shadow-md"
+                  class="flex h-full min-h-[22rem] flex-col rounded-2xl border border-gray-100 bg-white p-6 transition-all hover:border-ember/40 hover:shadow-md"
                 >
                   <div class="flex items-start justify-between gap-3">
                     <div>
@@ -274,15 +274,17 @@ onMounted(async () => {
                     <span class="mb-1 text-sm text-gray-400">一次性</span>
                   </div>
 
-                  <div class="mt-3 flex items-center gap-1.5 text-sm text-gray-600">
+                  <div class="mt-4 inline-flex items-center gap-2 rounded-xl bg-ember/5 px-3 py-2 text-sm text-ember ring-1 ring-ember/10">
                     <el-icon><Timer /></el-icon>
-                    <span>增加 {{ plan.days }} 天有效期</span>
+                    <span class="font-medium">增加</span>
+                    <span class="text-base font-bold leading-none">{{ plan.days }} 天</span>
+                    <span class="font-medium">有效期</span>
                   </div>
 
                   <button
                     @click="handleCheckout(plan)"
                     :disabled="buyingPlanID === plan.id"
-                    class="btn-ember mt-6 flex w-full items-center justify-center gap-2 rounded-xl py-3 disabled:cursor-not-allowed disabled:opacity-70"
+                    class="btn-ember mt-auto flex w-full items-center justify-center gap-2 rounded-xl py-3 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     <el-icon><CreditCard /></el-icon>
                     <span>{{ buyingPlanID === plan.id ? '跳转中...' : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买') }}</span>
