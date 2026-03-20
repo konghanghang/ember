@@ -1,26 +1,21 @@
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Bell,
-  ChatDotRound,
   CircleCloseFilled,
   CopyDocument,
   Film,
   Monitor,
-  Reading,
   Setting,
   VideoPlay
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
-import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import { getEmbyConfig, getMediaStats } from '@/api/console'
-import type { ConsoleAccountLinkIcon, MediaStats, UserInfo } from '@/types/api'
+import type { MediaStats, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
-const consoleStore = useConsoleStore()
 const userStore = useUserStore()
 const router = useRouter()
 
@@ -40,12 +35,6 @@ const user = computed(() => userStore.profile ?? emptyUser)
 const embyUrl = ref('')
 const stats = ref<MediaStats>({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 })
 const loading = ref(false)
-
-const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
-  notify: Bell,
-  group: ChatDotRound,
-  wiki: Reading
-}
 
 const isExpired = computed(() => {
   if (!user.value.expiresAt) return false
@@ -233,31 +222,6 @@ watch(
         </div>
       </div>
     </div>
-
-    <section v-if="consoleStore.accountLinks.length > 0" class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-      <h2 class="text-lg font-semibold text-gray-900">帮助与资源</h2>
-
-      <div class="mt-5 grid gap-4 md:grid-cols-3">
-        <a
-          v-for="item in consoleStore.accountLinks"
-          :key="item.key"
-          :href="item.url"
-          target="_blank"
-          rel="noreferrer"
-          class="flex items-start gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 no-underline transition-colors hover:border-gray-200 hover:bg-white"
-        >
-          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-gray-700 shadow-sm">
-            <el-icon :size="18">
-              <component :is="resourceIconMap[item.icon]" />
-            </el-icon>
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="text-sm font-semibold text-gray-900">{{ item.title }}</p>
-            <p class="mt-1 text-xs leading-5 text-gray-500">{{ item.description }}</p>
-          </div>
-        </a>
-      </div>
-    </section>
 
     <div class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
       <section class="rounded-2xl border border-gray-100 bg-white shadow-sm">

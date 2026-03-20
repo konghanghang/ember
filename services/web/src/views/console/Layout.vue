@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, provide, ref } from 'vue'
+import HelpWidget from '@/components/console/HelpWidget.vue'
 import Sidebar from '@/components/console/Sidebar.vue'
 import TopBar from '@/components/console/TopBar.vue'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
@@ -66,6 +67,8 @@ onMounted(refreshConsoleProfile)
           </router-view>
         </div>
       </main>
+
+      <HelpWidget />
     </div>
   </div>
 </template>

@@ -1,25 +1,19 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue'
+import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Bell,
-  ChatDotRound,
   Expand,
   Fold,
-  Reading,
   Setting,
   SwitchButton
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
-import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
-import type { ConsoleAccountLinkIcon } from '@/types/api'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const consoleStore = useConsoleStore()
 const userStore = useUserStore()
 
 defineProps<{
@@ -37,7 +31,7 @@ const routeMeta: Record<string, { title: string; description: string }> = {
   },
   'console-account': {
     title: '账号中心',
-    description: '集中管理资料、安全设置与常用资源'
+    description: '集中管理资料、安全设置与绑定状态'
   },
   'console-subscriptions': {
     title: '订阅管理',
@@ -95,12 +89,6 @@ const routeMeta: Record<string, { title: string; description: string }> = {
     title: '支付中心',
     description: '统一管理付费方案和支付记录'
   }
-}
-
-const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
-  notify: Bell,
-  group: ChatDotRound,
-  wiki: Reading
 }
 
 const currentMeta = computed(() => routeMeta[String(route.name)] ?? {
@@ -201,30 +189,6 @@ const handleLogout = async () => {
                 </div>
                 <el-icon class="text-slate-400"><Setting /></el-icon>
               </button>
-            </div>
-
-            <div v-if="consoleStore.accountLinks.length > 0" class="mt-4 border-t border-slate-100 pt-4">
-              <p class="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">常用资源</p>
-              <div class="mt-2 space-y-1">
-                <a
-                  v-for="item in consoleStore.accountLinks"
-                  :key="item.key"
-                  :href="item.url"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="flex items-start gap-3 rounded-2xl px-3 py-3 no-underline transition-colors hover:bg-slate-50"
-                >
-                  <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
-                    <el-icon :size="18">
-                      <component :is="resourceIconMap[item.icon]" />
-                    </el-icon>
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium text-slate-900">{{ item.title }}</p>
-                    <p class="mt-1 text-xs leading-5 text-slate-500">{{ item.description }}</p>
-                  </div>
-                </a>
-              </div>
             </div>
 
             <button
