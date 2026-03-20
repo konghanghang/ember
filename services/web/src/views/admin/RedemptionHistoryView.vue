@@ -2,7 +2,6 @@
 import { onMounted, ref } from 'vue'
 import { Search, Ticket, UserFilled } from '@element-plus/icons-vue'
 import { getAllRedemptions } from '@/api/admin'
-import { formatDate } from '@/utils/date'
 import type { Redemption } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -61,6 +60,22 @@ const handleSizeChange = (size: number) => {
   queryParams.value.pageSize = size
   queryParams.value.page = 1
   fetchData()
+}
+
+const formatRedeemedAt = (value: string) => {
+  const date = new Date(value)
+
+  return {
+    date: date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }),
+    time: date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
 }
 
 onMounted(() => {
@@ -153,8 +168,23 @@ onMounted(() => {
         style="width: 100%"
         :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
       >
-        <el-table-column prop="username" label="用户名" width="150" />
-        <el-table-column prop="code" label="兑换码" width="180" />
+        <el-table-column label="用户名" min-width="180">
+          <template #default="{ row }">
+            <div class="flex items-center gap-3">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                <el-icon><UserFilled /></el-icon>
+              </div>
+              <span class="font-medium text-gray-900">{{ row.username || '未知用户' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="兑换码" min-width="200">
+          <template #default="{ row }">
+            <code class="inline-flex rounded-lg border border-amber-100 bg-amber-50 px-3 py-1.5 font-mono text-sm font-medium text-amber-700">
+              {{ row.code }}
+            </code>
+          </template>
+        </el-table-column>
         <el-table-column prop="days" label="延长天数" width="120">
           <template #default="{ row }">
             <el-tag type="success">{{ row.days }} 天</el-tag>
@@ -162,12 +192,15 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="createdAt" label="兑换时间" width="200">
           <template #default="{ row }">
-            {{ formatDate(row.createdAt) }}
+            <div class="flex flex-col leading-tight">
+              <span class="text-sm font-medium text-gray-900">{{ formatRedeemedAt(row.createdAt).date }}</span>
+              <span class="mt-1 text-xs text-gray-500">{{ formatRedeemedAt(row.createdAt).time }}</span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="userId" label="用户 ID" min-width="200">
           <template #default="{ row }">
-            <code class="text-xs text-gray-600">{{ row.userId }}</code>
+            <code class="inline-flex rounded-md bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{{ row.userId }}</code>
           </template>
         </el-table-column>
       </el-table>
