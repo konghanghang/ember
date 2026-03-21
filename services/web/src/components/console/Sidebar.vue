@@ -201,8 +201,8 @@ const displayName = computed(() => userStore.profile?.username || '当前用户'
 
     <!-- Footer / User Profile (simplified) -->
     <div class="p-4 border-t border-gray-50">
-      <div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/50">
-        <div class="w-8 h-8 rounded-full bg-ember/10 flex items-center justify-center text-ember">
+      <div class="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-ember/10 text-ember ring-1 ring-ember/10">
           <span class="font-bold text-sm">{{ displayName.charAt(0).toUpperCase() || 'U' }}</span>
         </div>
         <div class="flex-1 min-w-0">

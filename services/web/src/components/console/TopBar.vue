@@ -118,11 +118,11 @@ const handleLogout = async () => {
 </script>
 
 <template>
-  <header class="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-6">
+  <header class="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-gray-200 bg-white/90 px-4 backdrop-blur sm:px-6">
     <div class="flex min-w-0 items-center gap-4">
       <button
         aria-label="切换侧边栏"
-        class="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 lg:hidden cursor-pointer"
+        class="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 lg:hidden cursor-pointer"
         @click="$emit('toggle-sidebar')"
       >
         <el-icon :size="20">
@@ -131,33 +131,33 @@ const handleLogout = async () => {
       </button>
 
       <div class="min-w-0">
-        <p class="truncate text-lg font-semibold text-slate-900">{{ currentMeta.title }}</p>
-        <p class="hidden truncate text-sm text-slate-500 md:block">{{ currentMeta.description }}</p>
+        <p class="truncate text-lg font-semibold text-gray-900">{{ currentMeta.title }}</p>
+        <p class="hidden truncate text-sm text-gray-500 md:block">{{ currentMeta.description }}</p>
       </div>
     </div>
 
     <div class="flex items-center gap-3">
       <el-dropdown trigger="click" placement="bottom-end">
-        <button class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer">
-          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-sm font-semibold text-white">
+        <button class="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-left shadow-sm transition-colors hover:border-ember/20 hover:bg-gray-50 cursor-pointer">
+          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-ember/10 text-sm font-semibold text-ember ring-1 ring-ember/10">
             {{ displayName.charAt(0).toUpperCase() }}
           </div>
           <div class="hidden min-w-0 sm:block">
-            <p class="truncate text-sm font-semibold text-slate-900">{{ displayName }}</p>
-            <p class="truncate text-xs text-slate-500">{{ membershipLabel }}</p>
+            <p class="truncate text-sm font-semibold text-gray-900">{{ displayName }}</p>
+            <p class="truncate text-xs text-gray-500">{{ membershipLabel }}</p>
           </div>
         </button>
 
         <template #dropdown>
-          <div class="w-[22rem] rounded-3xl border border-slate-200 bg-white p-3 shadow-xl">
-            <div class="rounded-2xl bg-slate-50 px-4 py-4">
+          <div class="w-[22rem] rounded-2xl border border-gray-200 bg-white p-3 shadow-xl">
+            <div class="rounded-2xl bg-gray-50 px-4 py-4">
               <div class="flex items-start gap-3">
-                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-base font-semibold text-white">
+                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-ember/10 text-base font-semibold text-ember ring-1 ring-ember/10">
                   {{ displayName.charAt(0).toUpperCase() }}
                 </div>
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-semibold text-slate-900">{{ displayName }}</p>
-                  <p class="mt-1 truncate text-xs text-slate-500">{{ displayEmail }}</p>
+                  <p class="truncate text-sm font-semibold text-gray-900">{{ displayName }}</p>
+                  <p class="mt-1 truncate text-xs text-gray-500">{{ displayEmail }}</p>
                   <div class="mt-3 flex flex-wrap gap-2">
                     <span
                       class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
@@ -168,9 +168,9 @@ const handleLogout = async () => {
                     </span>
                     <span
                       class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
-                      :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-slate-200 text-slate-600'"
+                      :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-600'"
                     >
-                      <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-slate-400'"></span>
+                      <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-gray-400'"></span>
                       {{ isTelegramBound ? 'Telegram 已绑定' : 'Telegram 未绑定' }}
                     </span>
                   </div>
@@ -180,19 +180,19 @@ const handleLogout = async () => {
 
             <div class="mt-3 grid gap-2 sm:grid-cols-2">
               <button
-                class="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer"
+                class="flex items-center justify-between rounded-2xl border border-gray-200 px-4 py-3 text-left transition-colors hover:border-ember/20 hover:bg-gray-50 cursor-pointer"
                 @click="router.push('/console/account')"
               >
                 <div>
-                  <p class="text-sm font-semibold text-slate-900">账号中心</p>
-                  <p class="mt-1 text-xs text-slate-500">资料、安全、绑定</p>
+                  <p class="text-sm font-semibold text-gray-900">账号中心</p>
+                  <p class="mt-1 text-xs text-gray-500">资料、安全、绑定</p>
                 </div>
-                <el-icon class="text-slate-400"><Setting /></el-icon>
+                <el-icon class="text-gray-400"><Setting /></el-icon>
               </button>
             </div>
 
             <button
-              class="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 cursor-pointer"
+              class="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 cursor-pointer"
               @click="handleLogout"
             >
               <el-icon><SwitchButton /></el-icon>
