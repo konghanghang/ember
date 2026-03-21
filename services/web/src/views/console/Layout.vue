@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, provide, ref } from 'vue'
+import { onMounted, provide, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import HelpWidget from '@/components/console/HelpWidget.vue'
 import Sidebar from '@/components/console/Sidebar.vue'
 import TopBar from '@/components/console/TopBar.vue'
@@ -8,6 +9,7 @@ import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 
 const sidebarOpen = ref(false)
+const route = useRoute()
 const consoleStore = useConsoleStore()
 const userStore = useUserStore()
 
@@ -27,6 +29,13 @@ const refreshConsoleProfile: RefreshConsoleProfile = async () => {
 provide(refreshConsoleProfileKey, refreshConsoleProfile)
 
 onMounted(refreshConsoleProfile)
+
+watch(
+  () => route.fullPath,
+  () => {
+    sidebarOpen.value = false
+  }
+)
 </script>
 
 <template>
