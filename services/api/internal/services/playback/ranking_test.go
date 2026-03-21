@@ -1,0 +1,152 @@
+package playback
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/konghang/ember/backend/internal/models"
+)
+
+func TestPreviewRankingGroupsEpisodesBySeriesID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			handlePlaybackItemsTestRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := NewPlaybackRankingService()
+	result, err := svc.PreviewRanking(models.RankingWeekly)
+	if err != nil {
+		t.Fatalf("preview ranking failed: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Movies) != 1 {
+		t.Fatalf("expected 1 movie ranking, got %d", len(result.Movies))
+	}
+	if len(result.Episodes) != 2 {
+		t.Fatalf("expected 2 episode rankings, got %d", len(result.Episodes))
+	}
+
+	topEpisode := result.Episodes[0]
+	if topEpisode.ItemKey != "series_a" {
+		t.Fatalf("expected merged series_a, got %q", topEpisode.ItemKey)
+	}
+	if topEpisode.ItemName != "斗罗大陆II绝世唐门" {
+		t.Fatalf("expected merged series name, got %q", topEpisode.ItemName)
+	}
+	if topEpisode.PlayCount != 3 {
+		t.Fatalf("expected merged playCount 3, got %d", topEpisode.PlayCount)
+	}
+	if topEpisode.Duration != 2100 {
+		t.Fatalf("expected merged duration 2100, got %d", topEpisode.Duration)
+	}
+
+	secondEpisode := result.Episodes[1]
+	if secondEpisode.ItemKey != "series_b" {
+		t.Fatalf("expected series_b as second ranking, got %q", secondEpisode.ItemKey)
+	}
+	if secondEpisode.Duration != 1200 {
+		t.Fatalf("expected second series duration 1200, got %d", secondEpisode.Duration)
+	}
+}
+
+func handlePlaybackQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+
+	var req map[string]string
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("unmarshal body failed: %v", err)
+	}
+
+	sql := req["CustomQueryString"]
+	switch {
+	case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+			"results": []any{},
+			"message": "",
+		})
+	case strings.Contains(sql, "ItemType = 'Movie'"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"results": [][]any{
+				{"movie_1", "星际穿越", "movie_item", 2, 5400},
+			},
+			"message": "",
+		})
+	case strings.Contains(sql, "ItemType = 'Episode'"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"results": [][]any{
+				{"ep_145", "斗罗大陆II绝世唐门 - s02e145", "episode_item", 2, 1800},
+				{"ep_144", "斗罗大陆II绝世唐门 - s02e144", "episode_item", 1, 300},
+				{"ep_b1", "吞噬星空 - s07e215", "episode_item", 2, 1200},
+				{"ep_zero", "无效剧集 - s01e01", "episode_item", 1, 0},
+			},
+			"message": "",
+		})
+	default:
+		t.Fatalf("unexpected playback sql: %s", sql)
+	}
+}
+
+func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	rawIDs := strings.TrimSpace(r.URL.Query().Get("Ids"))
+	ids := strings.Split(rawIDs, ",")
+	items := make([]map[string]any, 0, len(ids))
+
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		switch id {
+		case "ep_145", "ep_144":
+			items = append(items, map[string]any{
+				"Id":         id,
+				"SeriesId":   "series_a",
+				"SeriesName": "斗罗大陆II绝世唐门",
+			})
+		case "ep_b1":
+			items = append(items, map[string]any{
+				"Id":         id,
+				"SeriesId":   "series_b",
+				"SeriesName": "吞噬星空",
+			})
+		case "ep_zero":
+			items = append(items, map[string]any{
+				"Id":         id,
+				"SeriesId":   "series_zero",
+				"SeriesName": "无效剧集",
+			})
+		default:
+			t.Fatalf("unexpected item id lookup: %s", id)
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Items":            items,
+		"TotalRecordCount": len(items),
+	})
+}

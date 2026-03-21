@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -82,7 +83,9 @@ func (s *PlaybackRankingService) fetchMovieRanking(
 	if err != nil {
 		return nil, err
 	}
-	return convertAggregateRows(models.RankingMediaMovie, rows), nil
+	rankings := convertAggregateRows(models.RankingMediaMovie, rows)
+	log.Printf("[PlaybackRanking] movie aggregates rows=%d rankings=%d range=%s~%s", len(rows), len(rankings), start.Format(time.RFC3339), end.Format(time.RFC3339))
+	return rankings, nil
 }
 
 func (s *PlaybackRankingService) fetchEpisodeRanking(
@@ -94,17 +97,21 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 		return nil, err
 	}
 	if len(rows) == 0 {
+		log.Printf("[PlaybackRanking] episode aggregates rows=0 range=%s~%s", start.Format(time.RFC3339), end.Format(time.RFC3339))
 		return []models.PlaybackRanking{}, nil
 	}
 
 	itemIDs := make([]string, 0, len(rows))
+	zeroDurationCount := 0
 	for _, row := range rows {
 		if row.duration <= 0 {
+			zeroDurationCount++
 			continue
 		}
 		itemIDs = append(itemIDs, row.itemKey)
 	}
 	if len(itemIDs) == 0 {
+		log.Printf("[PlaybackRanking] episode aggregates skipped all rows because duration<=0 count=%d", zeroDurationCount)
 		return []models.PlaybackRanking{}, nil
 	}
 
@@ -130,6 +137,8 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 	}
 
 	seriesRows := make(map[string]*seriesAggregate)
+	missingItemDetailCount := 0
+	missingSeriesInfoCount := 0
 	for _, row := range rows {
 		if row.duration <= 0 {
 			continue
@@ -137,12 +146,14 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 
 		itemDetail, ok := itemDetails[row.itemKey]
 		if !ok {
+			missingItemDetailCount++
 			continue
 		}
 
 		seriesID := strings.TrimSpace(itemDetail.SeriesID)
 		seriesName := strings.TrimSpace(itemDetail.SeriesName)
 		if seriesID == "" || seriesName == "" {
+			missingSeriesInfoCount++
 			continue
 		}
 
@@ -190,6 +201,20 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 	for i := range aggregated {
 		aggregated[i].Rank = i + 1
 	}
+
+	log.Printf(
+		"[PlaybackRanking] episode aggregates rows=%d itemIDs=%d resolvedItems=%d series=%d rankings=%d zeroDuration=%d missingDetail=%d missingSeries=%d range=%s~%s",
+		len(rows),
+		len(itemIDs),
+		len(itemDetails),
+		len(seriesRows),
+		len(aggregated),
+		zeroDurationCount,
+		missingItemDetailCount,
+		missingSeriesInfoCount,
+		start.Format(time.RFC3339),
+		end.Format(time.RFC3339),
+	)
 
 	return aggregated, nil
 }
@@ -333,6 +358,8 @@ func (s *PlaybackRankingService) computeRanking(period models.RankingPeriod, sta
 		rangeEnd = end.In(tz)
 	}
 
+	log.Printf("[PlaybackRanking] compute start period=%s start=%s end=%s", period, rangeStart.Format(time.RFC3339), rangeEnd.Format(time.RFC3339))
+
 	movies, err := s.fetchMovieRanking(columns, rangeStart, rangeEnd, rankingLimit)
 	if err != nil {
 		return nil, err
@@ -382,6 +409,8 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 		}
 	}
 
+	log.Printf("[PlaybackRanking] generate done period=%s batchId=%s movies=%d episodes=%d start=%s end=%s snapshot=%s", period, batchID, len(res.Movies), len(res.Episodes), res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339), res.ComputedAt.Format(time.RFC3339))
+
 	go s.notifier.NotifyRanking(notifierint.RankingNotification{
 		Period:      string(period),
 		PeriodStart: res.Start.Format("2006-01-02"),
@@ -400,6 +429,7 @@ func (s *PlaybackRankingService) PreviewRanking(period models.RankingPeriod) (*R
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("[PlaybackRanking] preview done period=%s movies=%d episodes=%d start=%s end=%s snapshot=%s", period, len(res.Movies), len(res.Episodes), res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339), res.ComputedAt.Format(time.RFC3339))
 	return buildRankingResult(res.Period, "", res.ComputedAt, res.Start, res.End, res.Movies, res.Episodes), nil
 }
 
@@ -424,6 +454,7 @@ func (s *PlaybackRankingService) GetLatestRanking(period models.RankingPeriod) (
 		return nil, err
 	}
 
+	log.Printf("[PlaybackRanking] latest period=%s batchId=%s periodStart=%s periodEnd=%s snapshot=%s", period, latest.BatchID, latest.PeriodStart.Format(time.RFC3339), latest.PeriodEnd.Format(time.RFC3339), latest.SnapshotAt.Format(time.RFC3339))
 	return s.loadRankingByBatchID(period, latest.BatchID)
 }
 
