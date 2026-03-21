@@ -5,16 +5,18 @@ import { Trophy, Film, VideoCamera, Calendar, Timer, VideoPlay } from '@element-
 import { useAuthStore } from '@/store/auth'
 import { getLatestRanking, getRankingHistory } from '@/api/console'
 import { previewRanking } from '@/api/admin'
-import type { PlaybackRanking, RankingCategory, RankingPeriod } from '@/types/api'
+import type { RankingItem, RankingPeriod, RankingResponse } from '@/types/api'
 
 const period = ref<RankingPeriod>('daily')
 const loading = ref(false)
 
-const movies = ref<PlaybackRanking[]>([])
-const episodes = ref<PlaybackRanking[]>([])
+const movies = ref<RankingItem[]>([])
+const episodes = ref<RankingItem[]>([])
 const mode = ref<'latest' | 'preview' | 'history'>('latest')
 const cutoffAt = ref('')
 const selectedDate = ref('')
+const periodStart = ref('')
+const periodEnd = ref('')
 
 const authStore = useAuthStore()
 
@@ -25,11 +27,8 @@ const periodHint = computed(() => {
 })
 
 const rangeText = computed(() => {
-  const sample = movies.value[0] || episodes.value[0]
-  if (!sample) return ''
-
-  const start = sample.periodStart?.slice(0, 10) || ''
-  const end = sample.periodEnd?.slice(0, 10) || ''
+  const start = periodStart.value || ''
+  const end = periodEnd.value || ''
   if (start !== '' && start === end) return `${start}`
   if (start !== '' && end !== '') return `${start} ~ ${end}`
   return ''
@@ -62,36 +61,21 @@ function rankBadgeClass(rank: number): string {
   return ''
 }
 
-async function fetchCategory(category: RankingCategory): Promise<PlaybackRanking[]> {
-  const res = await getLatestRanking(period.value, category)
-  return res.data || []
-}
-
-function fakeISODate(dateStr: string, timeStr: string): string {
-  // Make a parseable-ish timestamp string; UI only slices YYYY-MM-DD anyway.
-  return `${dateStr}T${timeStr}:00`
-}
-
-async function fetchLatestAll() {
-  loading.value = true
-  mode.value = 'latest'
+function clearRankingState() {
+  movies.value = []
+  episodes.value = []
   cutoffAt.value = ''
-  try {
-    const [movieData, episodeData] = await Promise.all([
-      fetchCategory('media_movie'),
-      fetchCategory('media_episode')
-    ])
-    movies.value = movieData
-    episodes.value = episodeData
-  } catch (err) {
-    movies.value = []
-    episodes.value = []
-    ElMessage.error('获取排行榜失败')
-    // eslint-disable-next-line no-console
-    console.error(err)
-  } finally {
-    loading.value = false
-  }
+  periodStart.value = ''
+  periodEnd.value = ''
+}
+
+function applyRanking(source: 'latest' | 'preview' | 'history', res: RankingResponse) {
+  mode.value = source
+  cutoffAt.value = res.cutoffAt || ''
+  periodStart.value = res.periodStart || ''
+  periodEnd.value = res.periodEnd || ''
+  movies.value = res.movies || []
+  episodes.value = res.episodes || []
 }
 
 function toYMD(d: Date): string {
@@ -101,51 +85,20 @@ function toYMD(d: Date): string {
   return `${year}-${month}-${day}`
 }
 
-function applyComputedList(
-  source: 'preview' | 'history',
-  res: {
-    periodStart: string
-    periodEnd: string
-    cutoffAt: string
-    snapshotAt?: string
-    movies: { rank: number; itemName: string; playCount: number; duration: number }[]
-    episodes: { rank: number; itemName: string; playCount: number; duration: number }[]
+async function fetchLatestAll() {
+  loading.value = true
+  mode.value = 'latest'
+  try {
+    const res = await getLatestRanking(period.value)
+    applyRanking('latest', res)
+  } catch (err) {
+    clearRankingState()
+    ElMessage.error('获取排行榜失败')
+    // eslint-disable-next-line no-console
+    console.error(err)
+  } finally {
+    loading.value = false
   }
-) {
-  mode.value = source
-  cutoffAt.value = res.cutoffAt || ''
-
-  const computedAt = res.snapshotAt || new Date().toISOString()
-  const periodStart = fakeISODate(res.periodStart, '00:00')
-  const periodEnd = fakeISODate(res.periodEnd, res.cutoffAt || '00:00')
-
-  movies.value = (res.movies || []).map((item) => ({
-    id: `${source}-${period.value}-media_movie-${item.rank}-${computedAt}`,
-    period: period.value,
-    category: 'media_movie',
-    rank: item.rank,
-    itemName: item.itemName,
-    playCount: item.playCount,
-    duration: item.duration,
-    snapshotAt: computedAt,
-    periodStart,
-    periodEnd,
-    createdAt: computedAt
-  }))
-
-  episodes.value = (res.episodes || []).map((item) => ({
-    id: `${source}-${period.value}-media_episode-${item.rank}-${computedAt}`,
-    period: period.value,
-    category: 'media_episode',
-    rank: item.rank,
-    itemName: item.itemName,
-    playCount: item.playCount,
-    duration: item.duration,
-    snapshotAt: computedAt,
-    periodStart,
-    periodEnd,
-    createdAt: computedAt
-  }))
 }
 
 async function runPreview() {
@@ -154,7 +107,7 @@ async function runPreview() {
   loading.value = true
   try {
     const res = await previewRanking(period.value)
-    applyComputedList('preview', res)
+    applyRanking('preview', res)
 
     ElMessage.success('预览生成完成（不入库、不推送）')
   } catch (err) {
@@ -175,7 +128,7 @@ async function runHistory() {
   loading.value = true
   try {
     const res = await getRankingHistory(period.value, selectedDate.value)
-    applyComputedList('history', res)
+    applyRanking('history', res)
     ElMessage.success('历史数据已加载')
   } catch (err) {
     ElMessage.error('获取历史数据失败')
@@ -335,7 +288,7 @@ onMounted(() => {
           <div v-else class="mt-4 space-y-2">
             <div
               v-for="item in movies"
-              :key="item.id"
+              :key="`${item.itemKey || item.itemName}-${item.rank}`"
               class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors"
             >
               <div class="w-9 flex items-center justify-center">
@@ -387,7 +340,7 @@ onMounted(() => {
           <div v-else class="mt-4 space-y-2">
             <div
               v-for="item in episodes"
-              :key="item.id"
+              :key="`${item.itemKey || item.itemName}-${item.rank}`"
               class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors"
             >
               <div class="w-9 flex items-center justify-center">

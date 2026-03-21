@@ -8,6 +8,8 @@ type PlaybackHistoryItem = playbackpkg.PlaybackHistoryItem
 type PlaybackHistoryResponse = playbackpkg.PlaybackHistoryResponse
 type PlaybackRankingService = playbackpkg.PlaybackRankingService
 type RankingComputeResult = playbackpkg.RankingComputeResult
+type RankingResult = playbackpkg.RankingResult
+type RankingResultItem = playbackpkg.RankingResultItem
 
 var (
 	ErrPlaybackHistoryInvalidDate    = playbackpkg.ErrInvalidDate

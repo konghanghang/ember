@@ -1,14 +1,12 @@
 package handlers
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	configpkg "github.com/konghang/ember/backend/internal/config"
-	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
 )
@@ -17,11 +15,23 @@ type RankingHandler struct {
 	service *services.PlaybackRankingService
 }
 
-type RankingPreviewItem struct {
+type RankingItemResponse struct {
 	Rank      int    `json:"rank"`
+	ItemKey   string `json:"itemKey"`
 	ItemName  string `json:"itemName"`
 	PlayCount int    `json:"playCount"`
 	Duration  int64  `json:"duration"`
+}
+
+type RankingResponse struct {
+	Period      string                `json:"period"`
+	BatchID     string                `json:"batchId,omitempty"`
+	SnapshotAt  string                `json:"snapshotAt"`
+	PeriodStart string                `json:"periodStart"`
+	PeriodEnd   string                `json:"periodEnd"`
+	CutoffAt    string                `json:"cutoffAt"`
+	Movies      []RankingItemResponse `json:"movies"`
+	Episodes    []RankingItemResponse `json:"episodes"`
 }
 
 func NewRankingHandler() *RankingHandler {
@@ -31,27 +41,22 @@ func NewRankingHandler() *RankingHandler {
 }
 
 // GetLatestRanking 获取最新排行
-// GET /api/v1/rankings/latest?period=daily&category=media_movie
+// GET /api/v1/rankings/latest?period=daily
 func (h *RankingHandler) GetLatestRanking(c *gin.Context) {
 	period := models.RankingPeriod(c.DefaultQuery("period", string(models.RankingDaily)))
-	category := models.RankingCategory(c.DefaultQuery("category", string(models.RankingMediaMovie)))
 
 	if period != models.RankingDaily && period != models.RankingWeekly {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 period 参数"})
 		return
 	}
-	if category != models.RankingMediaMovie && category != models.RankingMediaEpisode {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 category 参数"})
-		return
-	}
 
-	rankings, err := h.service.GetLatestRanking(period, category)
+	result, err := h.service.GetLatestRanking(period)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": rankings})
+	c.JSON(http.StatusOK, buildRankingResponse(period, result, loadTimezone()))
 }
 
 func loadTimezone() *time.Location {
@@ -133,40 +138,13 @@ func (h *RankingHandler) PreviewRanking(c *gin.Context) {
 		return
 	}
 
-	res, err := h.service.PreviewRanking(period)
+	result, err := h.service.PreviewRanking(period)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	movies := make([]RankingPreviewItem, 0, len(res.Movies))
-	for _, r := range res.Movies {
-		movies = append(movies, RankingPreviewItem{
-			Rank:      r.Rank,
-			ItemName:  r.ItemName,
-			PlayCount: r.PlayCount,
-			Duration:  r.Duration,
-		})
-	}
-	episodes := make([]RankingPreviewItem, 0, len(res.Episodes))
-	for _, r := range res.Episodes {
-		episodes = append(episodes, RankingPreviewItem{
-			Rank:      r.Rank,
-			ItemName:  r.ItemName,
-			PlayCount: r.PlayCount,
-			Duration:  r.Duration,
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"period":      string(period),
-		"snapshotAt":  res.ComputedAt.Format(time.RFC3339),
-		"periodStart": res.Start.Format("2006-01-02"),
-		"periodEnd":   res.End.Format("2006-01-02"),
-		"cutoffAt":    res.End.Format("15:04"),
-		"movies":      movies,
-		"episodes":    episodes,
-	})
+	c.JSON(http.StatusOK, buildRankingResponse(period, result, loadTimezone()))
 }
 
 func dateRangeByPeriod(tz *time.Location, period models.RankingPeriod, date time.Time) (time.Time, time.Time, error) {
@@ -192,7 +170,7 @@ func dateRangeByPeriod(tz *time.Location, period models.RankingPeriod, date time
 	}
 }
 
-// GetHistoryRanking 按日期查询某一天/某一周的排行快照（取该范围内 snapshot_at 最新的一次）
+// GetHistoryRanking 按日期查询某一天/某一周的排行快照
 // GET /api/v1/rankings/history?period=daily&date=2026-02-15
 func (h *RankingHandler) GetHistoryRanking(c *gin.Context) {
 	period := models.RankingPeriod(c.DefaultQuery("period", string(models.RankingDaily)))
@@ -220,87 +198,77 @@ func (h *RankingHandler) GetHistoryRanking(c *gin.Context) {
 		return
 	}
 
-	var maxSnapshot sql.NullTime
-	if err := db.DB.Model(&models.PlaybackRanking{}).
-		Select("MAX(snapshot_at)").
-		Where("period = ? AND snapshot_at >= ? AND snapshot_at < ?", period, rangeStart, rangeEnd).
-		Scan(&maxSnapshot).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if !maxSnapshot.Valid {
-		// 没有数据：返回空列表，但仍返回用户选中的范围，方便前端展示
-		periodStart := rangeStart.Format("2006-01-02")
-		periodEnd := rangeStart.Format("2006-01-02")
-		if period == models.RankingWeekly {
-			periodEnd = rangeStart.AddDate(0, 0, 6).Format("2006-01-02")
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"period":      string(period),
-			"snapshotAt":  "",
-			"periodStart": periodStart,
-			"periodEnd":   periodEnd,
-			"cutoffAt":    "",
-			"movies":      []RankingPreviewItem{},
-			"episodes":    []RankingPreviewItem{},
-		})
-		return
-	}
-
-	snapshotAt := maxSnapshot.Time
-	movieRows, episodeRows, err := h.service.GetRankingBySnapshot(period, snapshotAt)
+	result, err := h.service.GetHistoryRanking(period, rangeStart, rangeEnd)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	meta := (*models.PlaybackRanking)(nil)
-	if len(movieRows) > 0 {
-		meta = &movieRows[0]
-	} else if len(episodeRows) > 0 {
-		meta = &episodeRows[0]
+	response := buildRankingResponse(period, result, tz)
+	if result == nil {
+		response.PeriodStart = rangeStart.Format("2006-01-02")
+		if period == models.RankingWeekly {
+			response.PeriodEnd = rangeStart.AddDate(0, 0, 6).Format("2006-01-02")
+		} else {
+			response.PeriodEnd = rangeStart.Format("2006-01-02")
+		}
 	}
 
-	periodStart := rangeStart.Format("2006-01-02")
-	periodEnd := rangeStart.Format("2006-01-02")
-	cutoffAt := ""
-	if period == models.RankingWeekly {
-		periodEnd = rangeStart.AddDate(0, 0, 6).Format("2006-01-02")
-	}
-	if meta != nil {
-		periodStart = meta.PeriodStart.In(tz).Format("2006-01-02")
-		periodEnd = meta.PeriodEnd.In(tz).Format("2006-01-02")
-		cutoffAt = meta.PeriodEnd.In(tz).Format("15:04")
+	c.JSON(http.StatusOK, response)
+}
+
+func buildRankingResponse(period models.RankingPeriod, result *services.RankingResult, tz *time.Location) RankingResponse {
+	if result == nil {
+		return RankingResponse{
+			Period:   string(period),
+			Movies:   []RankingItemResponse{},
+			Episodes: []RankingItemResponse{},
+		}
 	}
 
-	movies := make([]RankingPreviewItem, 0, len(movieRows))
-	for _, r := range movieRows {
-		movies = append(movies, RankingPreviewItem{
-			Rank:      r.Rank,
-			ItemName:  r.ItemName,
-			PlayCount: r.PlayCount,
-			Duration:  r.Duration,
+	return RankingResponse{
+		Period:      string(result.Period),
+		BatchID:     result.BatchID,
+		SnapshotAt:  formatRFC3339(result.SnapshotAt),
+		PeriodStart: formatDateInLocation(result.PeriodStart, tz),
+		PeriodEnd:   formatDateInLocation(result.PeriodEnd, tz),
+		CutoffAt:    formatClockInLocation(result.PeriodEnd, tz),
+		Movies:      buildRankingItemsResponse(result.Movies),
+		Episodes:    buildRankingItemsResponse(result.Episodes),
+	}
+}
+
+func buildRankingItemsResponse(items []services.RankingResultItem) []RankingItemResponse {
+	out := make([]RankingItemResponse, 0, len(items))
+	for _, item := range items {
+		out = append(out, RankingItemResponse{
+			Rank:      item.Rank,
+			ItemKey:   item.ItemKey,
+			ItemName:  item.ItemName,
+			PlayCount: item.PlayCount,
+			Duration:  item.Duration,
 		})
 	}
-	episodes := make([]RankingPreviewItem, 0, len(episodeRows))
-	for _, r := range episodeRows {
-		episodes = append(episodes, RankingPreviewItem{
-			Rank:      r.Rank,
-			ItemName:  r.ItemName,
-			PlayCount: r.PlayCount,
-			Duration:  r.Duration,
-		})
-	}
+	return out
+}
 
-	c.JSON(http.StatusOK, gin.H{
-		"period":      string(period),
-		"snapshotAt":  snapshotAt.Format(time.RFC3339),
-		"periodStart": periodStart,
-		"periodEnd":   periodEnd,
-		"cutoffAt":    cutoffAt,
-		"movies":      movies,
-		"episodes":    episodes,
-	})
+func formatRFC3339(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format(time.RFC3339)
+}
+
+func formatDateInLocation(value time.Time, tz *time.Location) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.In(tz).Format("2006-01-02")
+}
+
+func formatClockInLocation(value time.Time, tz *time.Location) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.In(tz).Format("15:04")
 }

@@ -32,6 +32,7 @@ import type {
   RedemptionCodeListResponse,
   RedemptionListResponse,
   RankingPreviewResponse,
+  RankingPeriod,
   RedemptionCodeListQuery,
   SystemInfoResponse,
   UserTemplate,
@@ -320,7 +321,7 @@ export function runCronJob(): Promise<CronCheckResponse> {
 }
 
 // ==================== 播放排行（管理员预览） ====================
-export function previewRanking(type: 'daily' | 'weekly'): Promise<RankingPreviewResponse> {
+export function previewRanking(type: RankingPeriod): Promise<RankingPreviewResponse> {
   return request({
     url: '/admin/rankings/preview',
     method: 'post',

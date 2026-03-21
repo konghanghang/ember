@@ -555,38 +555,27 @@ export type AdminInfo = UserInfo
 export type RankingPeriod = 'daily' | 'weekly'
 export type RankingCategory = 'media_movie' | 'media_episode'
 
-export interface PlaybackRanking {
-  id: string
-  period: RankingPeriod
-  category: RankingCategory
+export interface RankingItem {
   rank: number
+  itemKey: string
   itemName: string
   playCount: number
   duration: number // 秒
-  snapshotAt: string
-  periodStart: string
-  periodEnd: string
-  createdAt: string
 }
 
-export interface RankingPreviewItem {
-  rank: number
-  itemName: string
-  playCount: number
-  duration: number
-}
-
-export interface RankingPreviewResponse {
+export interface RankingResponse {
   period: RankingPeriod
+  batchId?: string
   snapshotAt?: string
   periodStart: string
   periodEnd: string
   cutoffAt: string
-  movies: RankingPreviewItem[]
-  episodes: RankingPreviewItem[]
+  movies: RankingItem[]
+  episodes: RankingItem[]
 }
 
-export type RankingHistoryResponse = RankingPreviewResponse
+export type RankingPreviewResponse = RankingResponse
+export type RankingHistoryResponse = RankingResponse
 
 // ==================== 活跃会话 ====================
 export interface ActiveNowPlayingItem {

@@ -7,9 +7,10 @@ import type {
   LatestMediaResponse,
   MediaStatsResponse,
   PaymentListResponse,
-  PlaybackRanking,
+  RankingResponse,
   Plan,
   RankingHistoryResponse,
+  RankingPeriod,
   Subscription,
   SubscriptionListQuery,
   TVCalendarItem,
@@ -123,17 +124,16 @@ export function getLatestMedia(type: 'Movie' | 'Series', limit: number = 20): Pr
 
 // ==================== 播放排行 ====================
 export function getLatestRanking(
-  period: string,
-  category: string
-): Promise<{ data: PlaybackRanking[] }> {
+  period: RankingPeriod
+): Promise<RankingResponse> {
   return request({
     url: '/rankings/latest',
     method: 'get',
-    params: { period, category }
+    params: { period }
   })
 }
 
-export function getRankingHistory(period: string, date: string): Promise<RankingHistoryResponse> {
+export function getRankingHistory(period: RankingPeriod, date: string): Promise<RankingHistoryResponse> {
   return request({
     url: '/rankings/history',
     method: 'get',

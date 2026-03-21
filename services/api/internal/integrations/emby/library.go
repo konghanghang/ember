@@ -13,6 +13,7 @@ import (
 
 const (
 	defaultLibraryItemPageSize = 200
+	maxItemIDsPerBatch         = 100
 )
 
 // EmbyLibrary 媒体库信息
@@ -56,6 +57,59 @@ type EmbyLibraryItem struct {
 type embyLibraryItemsResponse struct {
 	Items            []EmbyLibraryItem `json:"Items"`
 	TotalRecordCount int               `json:"TotalRecordCount"`
+}
+
+// GetItemsByIDs 按条目 ID 批量读取媒体详情。
+// 目前主要给 PlaybackActivity 二阶段聚合使用：先拿 ItemId，再回查 SeriesId / SeriesName。
+func (s *EmbyService) GetItemsByIDs(itemIDs []string) ([]EmbyLibraryItem, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
+	}
+
+	normalized := make([]string, 0, len(itemIDs))
+	seen := make(map[string]struct{}, len(itemIDs))
+	for _, rawID := range itemIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	if len(normalized) == 0 {
+		return []EmbyLibraryItem{}, nil
+	}
+
+	items := make([]EmbyLibraryItem, 0, len(normalized))
+	for start := 0; start < len(normalized); start += maxItemIDsPerBatch {
+		end := start + maxItemIDsPerBatch
+		if end > len(normalized) {
+			end = len(normalized)
+		}
+
+		params := map[string]string{
+			"Ids":    strings.Join(normalized[start:end], ","),
+			"Fields": "ParentId,SeriesName,SeriesId,ParentIndexNumber,IndexNumber",
+			"Limit":  strconv.Itoa(end - start),
+		}
+
+		body, err := s.getWithAPIKey("/emby/Items", params)
+		if err != nil {
+			return nil, err
+		}
+
+		var out embyLibraryItemsResponse
+		if err := json.Unmarshal(body, &out); err != nil {
+			return nil, fmt.Errorf("解析 Emby 条目详情失败: %w", err)
+		}
+
+		items = append(items, out.Items...)
+	}
+
+	return items, nil
 }
 
 // GetLibraries 获取媒体库列表（兼容不同 Emby 版本响应结构）

@@ -346,9 +346,12 @@ services/
 | 字段 | 类型 | 列名 | 说明 |
 |------|------|------|------|
 | ID | string(25) | id | CUID |
+| BatchID | string(25) | batchId | 同一次生成的排行榜批次 ID |
 | Period | RankingPeriod | period | `"daily"` 或 `"weekly"` |
 | Category | RankingCategory | category | `"media_movie"` 或 `"media_episode"` |
 | Rank | int | rank | 排名 |
+| ItemKey | string(128) | itemKey | 稳定聚合键（电影使用 `ItemId`；剧集使用回查 Emby 条目详情得到的 `SeriesId`） |
+| ItemSourceType | string(32) | itemSourceType | 聚合键来源（如 `movie_item` / `series` / `episode_item`） |
 | ItemName | string(500) | itemName | 媒体名称 |
 | PlayCount | int | playCount | 播放次数 |
 | Duration | int64 | duration | 总时长（秒）|
@@ -624,12 +627,20 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 
-- `GenerateRanking(period)` — 查询 Emby 活动日志 → 按播放次数/时长排名 → 存入数据库 → 通知 Bot
-- `GetLatestRanking()` — 获取最新一期排行
-- `GetRankingHistory(page, pageSize)` — 分页查询历史排行
-- `PreviewRanking(period)` — 预览排行（不持久化）
+- `GenerateRanking(period)` — 校验 PlaybackActivity 基础字段 → 电影榜按 `ItemId` 聚合；剧集榜先按 episode `ItemId` 聚合，再回查 Emby 条目详情按 `SeriesId` 归并 → 存入数据库 → 通知 Bot
+- `GetLatestRanking(period)` — 获取指定周期最近一批正式排行榜（按 `periodEnd` 排序，不按 `snapshotAt` 猜）
+- `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容
+- `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
 
 **支持周期**：`daily`（日榜）、`weekly`（周榜）
+
+**实现约束**：
+
+- 正式榜单按 `batchId` 组织，同一期电影榜和剧集榜共享同一批次
+- 最新榜不再按 `category` 分开读取，统一返回整期榜单
+- 聚合键不再使用 `ItemName`
+- 电影榜直接依赖 PlaybackActivity 的 `ItemId`
+- 当前 PlaybackActivity 不返回 `SeriesId` / `SeriesName`，剧集榜需额外回查 Emby 媒体详情后按 `SeriesId` 归并
 
 ### 5.15 PaymentService (`services/payment/service.go`)
 
@@ -742,8 +753,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/emby/config` | Emby 配置 |
 | GET | `/api/v1/media/stats` | 媒体统计 |
 | GET | `/api/v1/media/latest` | 最新入库 |
-| GET | `/api/v1/rankings/latest` | 最新排行 |
-| GET | `/api/v1/rankings/history` | 排行历史 |
+| GET | `/api/v1/rankings/latest` | 最新整期排行（`period`） |
+| GET | `/api/v1/rankings/history` | 按日期查询整期历史排行（`period` + `date`） |
 | POST | `/api/v1/payments/checkout` | Stripe 结账 |
 | GET | `/api/v1/payments` | 我的支付记录 |
 | GET | `/api/v1/tv-calendar/global` | 全局追剧周历 |
