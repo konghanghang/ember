@@ -10,6 +10,7 @@
 - [API 响应规范](./api-response-standard.md) - 接口返回、字段命名和模型映射约定
 - [Emby API 参考](./emby-api-guide.md) - Emby 集成接口与调试说明
 - [Web 设计规范](./web-design-guide.md) - 前端设计系统与实现约束
+- [前端构建优化规范](./web-build-optimization-guide.md) - Web 体积、依赖注册和 chunk 切分约束
 
 ## 维护规则
 

@@ -121,6 +121,8 @@ services/
 │  │  │  ├─ user.ts              # redeem, redemptions, tmdb
 │  │  │  ├─ admin.ts             # 管理后台全部接口
 │  │  │  └─ console.ts           # 统一认证路由接口（profile, account-links, subscriptions, payments, rankings 等）
+│  │  ├─ plugins/
+│  │  │  └─ element-plus.ts      # Element Plus 按需组件/指令/样式注册入口
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义
 │  │  ├─ store/
 │  │  │  ├─ auth.ts              # Pinia: token + role (localStorage 持久化)
@@ -157,7 +159,7 @@ services/
 │  │        ├─ PlaybackHistoryView.vue # 播放历史
 │  │        ├─ MediaQualityView.vue # 媒体质量盘点
 │  │        └─ DevicesView.vue   # 设备管理
-│  ├─ vite.config.ts             # dev:3000, proxy /api→:8080
+│  ├─ vite.config.ts             # dev:3000, proxy /api→:8080, build manualChunks 分包
 │  └─ tailwind.config.js         # 自定义色：ember(橙红), cinema
 └─ bot/                          # Python Telegram Bot
    ├─ main.py                    # 入口
