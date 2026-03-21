@@ -47,6 +47,11 @@ func initCronJobs() func() {
 		tvCalendarSyncSchedule = "0 */12 * * *"
 	}
 
+	tvCalendarStartupSyncEnabled := configService.GetString("TV_CALENDAR_STARTUP_SYNC_ENABLED")
+	if tvCalendarStartupSyncEnabled == "" {
+		tvCalendarStartupSyncEnabled = "true"
+	}
+
 	tzName := configService.GetString("CRON_TIMEZONE")
 	if tzName == "" {
 		tzName = "Asia/Shanghai"
@@ -134,14 +139,18 @@ func initCronJobs() func() {
 	}
 
 	if tvCalendarService.SyncAvailable() {
-		time.AfterFunc(15*time.Second, func() {
-			count, err := tvCalendarService.SyncCalendar(context.Background(), services.DefaultTVCalendarWeekOffsets(), nil, false)
-			if err != nil {
-				log.Printf("[TV Calendar] 启动补偿同步失败：%v", err)
-				return
-			}
-			log.Printf("[TV Calendar] 启动补偿同步完成，处理 %d 条记录", count)
-		})
+		if tvCalendarStartupSyncEnabled == "true" {
+			time.AfterFunc(15*time.Second, func() {
+				count, err := tvCalendarService.SyncCalendar(context.Background(), services.DefaultTVCalendarWeekOffsets(), nil, false)
+				if err != nil {
+					log.Printf("[TV Calendar] 启动补偿同步失败：%v", err)
+					return
+				}
+				log.Printf("[TV Calendar] 启动补偿同步完成，处理 %d 条记录", count)
+			})
+		} else {
+			log.Printf("[TV Calendar] 启动补偿同步已禁用")
+		}
 
 		if _, err := c.AddFunc(tvCalendarSyncSchedule, func() {
 			log.Println("[Cron] 开始同步追剧日历...")

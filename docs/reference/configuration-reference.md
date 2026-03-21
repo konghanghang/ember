@@ -86,6 +86,7 @@
 | `RANKING_CRON_ENABLED` | 否 | 是 | 播放排行榜 cron 开关 |
 | `RANKING_DAILY_SCHEDULE` | 否 | 是 | 日榜 cron 表达式 |
 | `RANKING_WEEKLY_SCHEDULE` | 否 | 是 | 周榜 cron 表达式 |
+| `TV_CALENDAR_STARTUP_SYNC_ENABLED` | 否 | 是 | API 启动后是否自动执行一次追剧日历补偿同步 |
 | `TV_CALENDAR_SYNC_SCHEDULE` | 否 | 是 | 追剧日历同步 cron 表达式 |
 
 说明：

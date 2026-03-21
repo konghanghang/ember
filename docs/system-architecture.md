@@ -1053,6 +1053,10 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
 | 追剧日历同步 | `TV_CALENDAR_SYNC_SCHEDULE`（默认 `0 */12 * * *`） | `CRON_ENABLED` | 同步 TMDB/Emby 追剧日历缓存 |
 
+补充说明：
+- API 启动后默认会在 `15s` 后额外执行一次追剧日历补偿同步，用于预热周历缓存。
+- 该补偿同步由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
+
 **通用配置**：
 这些项由 `ConfigService` 统一解析，优先级为“数据库覆盖值 > 环境变量 > 默认值”；管理员可在设置中心修改，但属于启动期配置，保存后需重启 API 才会生效。
 
@@ -1064,6 +1068,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `RANKING_CRON_ENABLED` | `"false"` | 是否启用排行榜生成 |
 | `RANKING_DAILY_SCHEDULE` | `"0 20 * * *"` | 日榜 cron 表达式 |
 | `RANKING_WEEKLY_SCHEDULE` | `"30 20 * * 0"` | 周榜 cron 表达式 |
+| `TV_CALENDAR_STARTUP_SYNC_ENABLED` | `"true"` | 是否启用 API 启动后的追剧日历补偿同步 |
 | `TV_CALENDAR_SYNC_SCHEDULE` | `"0 */12 * * *"` | 追剧日历自动同步表达式 |
 
 **过期检查逻辑**：查询 `expiresAt < NOW() AND embyDisabled = false` → Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`。不修改 IsActive，不阻止用户登录。
@@ -1142,6 +1147,7 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | `RANKING_CRON_ENABLED` | — | `"false"` | 启用排行榜生成；由设置中心数据库托管，修改后需重启 API |
 | `RANKING_DAILY_SCHEDULE` | — | `"0 20 * * *"` | 日榜表达式；由设置中心数据库托管，修改后需重启 API |
 | `RANKING_WEEKLY_SCHEDULE` | — | `"30 20 * * 0"` | 周榜表达式；由设置中心数据库托管，修改后需重启 API |
+| `TV_CALENDAR_STARTUP_SYNC_ENABLED` | — | `"true"` | 控制 API 启动后是否执行一次追剧日历补偿同步；由设置中心数据库托管，修改后需重启 API |
 | `TV_CALENDAR_SYNC_SCHEDULE` | — | `"0 */12 * * *"` | 追剧日历同步表达式；由设置中心数据库托管，修改后需重启 API |
 
 ---
