@@ -131,16 +131,41 @@ const handleRangeChange = (range: PlaybackProfileRange) => {
 }
 
 const handleBack = () => {
-  router.push({ name: 'console-users' })
+  if (window.history.length > 1) {
+    router.back()
+    return
+  }
+  router.push({ name: 'console-user-profiles' })
 }
 
 const handleViewHistory = () => {
   const username = profile.value?.username?.trim()
+  const buildDateString = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  const buildRangeQuery = () => {
+    if (selectedRange.value === 'all') return {}
+
+    const end = new Date()
+    const start = new Date()
+    if (selectedRange.value === '7d') start.setDate(start.getDate() - 7)
+    if (selectedRange.value === '30d') start.setDate(start.getDate() - 30)
+    if (selectedRange.value === '90d') start.setDate(start.getDate() - 90)
+
+    return {
+      startDate: buildDateString(start),
+      endDate: buildDateString(end)
+    }
+  }
   router.push({
     name: 'console-playback-history',
     query: {
       username: username || undefined,
-      userId: username ? undefined : userId.value
+      userId: username ? undefined : userId.value,
+      ...buildRangeQuery()
     }
   })
 }

@@ -237,6 +237,45 @@ export interface PlaybackProfileResponse {
   data: UserPlaybackProfile
 }
 
+export type PlaybackProfileListSortBy = 'totalDuration' | 'playCount' | 'activeDays' | 'lastPlayedAt'
+export type PlaybackProfileListSortOrder = 'asc' | 'desc'
+
+export interface PlaybackProfileListQuery extends PaginationQuery {
+  range?: PlaybackProfileRange
+  keyword?: string
+  sortBy?: PlaybackProfileListSortBy
+  sortOrder?: PlaybackProfileListSortOrder
+}
+
+export interface PlaybackProfileListItem {
+  userId: string
+  username: string
+  range: PlaybackProfileRange
+  totalPlayCount: number
+  totalPlayDuration: number
+  totalPlayDurationFormatted: string
+  activeDays: number
+  lastPlayedAt: string | null
+  peakHour: number | null
+  peakHourLabel: string
+  badges: PlaybackProfileBadge[]
+}
+
+export interface PlaybackProfileListSummary {
+  userCount: number
+  totalPlayCount: number
+  totalPlayDuration: number
+  totalPlayDurationFormatted: string
+}
+
+export interface PlaybackProfileListResponse {
+  data: PlaybackProfileListItem[]
+  total: number
+  page: number
+  pageSize: number
+  summary: PlaybackProfileListSummary
+}
+
 export interface MediaQualityLibrary {
   id: string
   name: string

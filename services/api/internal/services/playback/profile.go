@@ -106,6 +106,7 @@ func NewUserPlaybackProfileService() *UserPlaybackProfileService {
 }
 
 func (s *UserPlaybackProfileService) GetUserProfile(ctx context.Context, userID string, query PlaybackProfileQuery) (*UserPlaybackProfileResponse, error) {
+	startedAt := time.Now()
 	normalizedRange, startAt, err := normalizePlaybackProfileRange(query.Range)
 	if err != nil {
 		return nil, err
@@ -126,7 +127,7 @@ func (s *UserPlaybackProfileService) GetUserProfile(ctx context.Context, userID 
 
 	aggregate := buildPlaybackProfileAggregate(target.user, rows)
 	log.Printf(
-		"[PlaybackProfile] done userID=%s embyUserID=%s range=%s rows=%d totalPlayCount=%d totalPlayDuration=%d activeDays=%d badges=%d",
+		"[PlaybackProfile] done userID=%s embyUserID=%s range=%s rows=%d totalPlayCount=%d totalPlayDuration=%d activeDays=%d badges=%d cost=%s",
 		target.user.ID,
 		target.playbackUserID,
 		normalizedRange,
@@ -135,6 +136,7 @@ func (s *UserPlaybackProfileService) GetUserProfile(ctx context.Context, userID 
 		aggregate.totalPlayDuration,
 		aggregate.activeDays,
 		len(aggregate.badges),
+		time.Since(startedAt),
 	)
 
 	return &UserPlaybackProfileResponse{
@@ -205,6 +207,7 @@ func (s *UserPlaybackProfileService) loadPlaybackProfileTarget(ctx context.Conte
 	if playbackUserID == "" {
 		playbackUserID = user.ID
 	}
+	log.Printf("[PlaybackProfile] resolved target userID=%s username=%s playbackUserID=%s hasEmbyID=%t", user.ID, user.Username, playbackUserID, strings.TrimSpace(user.EmbyID) != "")
 
 	return &playbackProfileTarget{
 		user:           user,
@@ -239,6 +242,7 @@ WHERE %s
 	if err != nil {
 		return nil, fmt.Errorf("解析用户画像播放记录失败: %w", err)
 	}
+	log.Printf("[PlaybackProfile] rows loaded playbackUserID=%s rangeStart=%s rows=%d", playbackUserID, formatOptionalTime(startAt), len(rows))
 
 	sort.Slice(rows, func(i, j int) bool {
 		ti := parsePlaybackTime(rows[i].playedAtRaw)
@@ -250,6 +254,13 @@ WHERE %s
 	})
 
 	return rows, nil
+}
+
+func formatOptionalTime(value *time.Time) string {
+	if value == nil {
+		return "all"
+	}
+	return value.Format(time.RFC3339)
 }
 
 func buildPlaybackProfileWhereClause(playbackUserID string, startAt *time.Time) string {

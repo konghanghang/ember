@@ -79,6 +79,7 @@ services/
 │     │  ├─ playback/
 │     │  │  ├─ history.go        # PlaybackHistoryService（播放历史查询）
 │     │  │  ├─ profile.go        # UserPlaybackProfileService（用户播放画像）
+│     │  │  ├─ profile_list.go   # 用户画像总览聚合
 │     │  │  └─ ranking.go        # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment/
 │     │  │  └─ service.go        # PaymentService（Stripe 支付流程）
@@ -150,6 +151,7 @@ services/
 │  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台
 │  │        ├─ UsersView.vue     # 用户管理
+│  │        ├─ UserPlaybackProfilesView.vue # 用户画像总览
 │  │        ├─ UserPlaybackProfileView.vue # 用户画像
 │  │        ├─ RedemptionCenterView.vue # 兑换中心（兑换码池 + 兑换记录）
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
@@ -715,10 +717,20 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 输出指标：`totalPlayCount` / `totalPlayDuration` / `activeDays` / `averagePlayDuration` / `lastPlayedAt`
 - 输出分布：`hourlyDistribution` / `deviceDistribution` / `clientDistribution`
 - 输出最近记录预览：`recentRecords`（最多 10 条）
-- 勋章规则第一版包含：`night_owl` / `weekend_warrior` / `hardcore_viewer`
+- 画像标签包含行为标签和高阈值勋章，例如：`evening_viewer` / `steady_viewer` / `night_owl` / `weekend_warrior` / `hardcore_viewer`
 - 关键日志包含 `userID` / `embyUserID` / `range` / 结果统计，便于排障
 
-### 5.21 MediaQualityService (`services/media_quality.go`)
+### 5.21 UserPlaybackProfileOverview (`services/playback/profile_list.go`)
+
+管理员侧用户画像总览聚合能力，按用户维度汇总指定时间窗口内的播放活跃度，并输出分页列表。
+
+- `GetUserProfilesOverview(ctx, query)` — 支持 `range` / `keyword` / `sortBy` / `sortOrder` / `page` / `pageSize`
+- 聚合结果字段：`totalPlayDuration` / `totalPlayCount` / `activeDays` / `lastPlayedAt` / `peakHourLabel`
+- 总览页标签只返回精简预览（默认前 2 个），避免列表噪音
+- 默认按累计播放时长倒序，可切换按播放次数、活跃天数、最近播放排序
+- 总览摘要包含：`userCount` / `totalPlayCount` / `totalPlayDuration`
+
+### 5.22 MediaQualityService (`services/media_quality.go`)
 
 管理员媒体库质量盘点服务，按媒体库维度（支持 `libraryId=all`）聚合分辨率、编码、HDR 分布，并输出低画质汇总清单。
 
@@ -828,6 +840,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
 | GET | `/api/v1/admin/playback-history` | 播放历史查询 |
+| GET | `/api/v1/admin/playback-profiles` | 用户画像总览（支持 `range/keyword/sortBy/sortOrder/page/pageSize`） |
 | GET | `/api/v1/admin/media-quality/libraries` | 媒体库列表（质量盘点） |
 | GET | `/api/v1/admin/media-quality/libraries/:libraryId` | 媒体库质量报告（支持 `force/page/pageSize`） |
 | POST | `/api/v1/admin/media-quality/libraries/:libraryId/scan` | 触发媒体库质量扫描 |
@@ -1003,10 +1016,23 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 管理端用户画像
 
-- 新增路由：`/console/users/:id/profile`（admin）
+- 新增路由：`/console/user-profiles`（admin）
+- 新增视图：`views/admin/UserPlaybackProfilesView.vue`
+- 数据源：`GET /api/v1/admin/playback-profiles`
+- 支持：
+  - 时间窗口：`7d / 30d / 90d / all`
+  - 用户名搜索
+  - 排序字段切换
+  - 查看单用户画像 / 播放历史
+
+### 管理端单用户画像
+
+- 新增路由：`/console/user-profiles/:id`（admin）
+- 兼容路由：`/console/users/:id/profile` → `/console/user-profiles/:id`
 - 新增视图：`views/admin/UserPlaybackProfileView.vue`
-- 主入口：`views/admin/UsersView.vue`
+- 主入口：`views/admin/UserPlaybackProfilesView.vue`
 - 辅助入口：`views/admin/PlaybackHistoryView.vue`
+- 兼容入口：`views/admin/UsersView.vue`
 - 数据源：`GET /api/v1/admin/users/:id/profile?range=7d|30d|90d|all`
 - 页面模块：
   - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放

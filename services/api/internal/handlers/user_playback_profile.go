@@ -18,6 +18,31 @@ func NewUserPlaybackProfileHandler() *UserPlaybackProfileHandler {
 	}
 }
 
+// GetAdminUserProfiles 获取管理员视角用户画像总览
+// GET /api/v1/admin/playback-profiles
+func (h *UserPlaybackProfileHandler) GetAdminUserProfiles(c *gin.Context) {
+	var query services.PlaybackProfileListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	resp, err := h.service.GetUserProfilesOverview(c.Request.Context(), query)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrPlaybackHistoryInvalidKeyword), errors.Is(err, services.ErrPlaybackProfileInvalidRange):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, services.ErrPlaybackHistoryQueryFailed):
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": services.ErrPlaybackHistoryQueryFailed.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "内部服务错误"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
 // GetAdminUserProfile 获取管理员视角用户画像
 // GET /api/v1/admin/users/:id/profile
 func (h *UserPlaybackProfileHandler) GetAdminUserProfile(c *gin.Context) {

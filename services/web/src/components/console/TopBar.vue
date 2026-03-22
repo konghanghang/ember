@@ -65,6 +65,10 @@ const routeMeta: Record<string, { title: string; description: string }> = {
     title: '用户画像',
     description: '查看指定用户的播放摘要与活跃分布'
   },
+  'console-user-profiles': {
+    title: '用户画像',
+    description: '按用户维度查看播放活跃度与画像摘要'
+  },
   'console-redemptions': {
     title: '兑换中心',
     description: '统一管理兑换码池和兑换记录'

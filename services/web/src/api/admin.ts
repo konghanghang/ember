@@ -21,6 +21,8 @@ import type {
   MediaQualityLibrary,
   MediaQualityReport,
   PaymentListResponse,
+  PlaybackProfileListQuery,
+  PlaybackProfileListResponse,
   PlaybackProfileQuery,
   PlaybackProfileResponse,
   PlaybackHistoryQuery,
@@ -192,6 +194,14 @@ export function getPlaybackHistory(params?: PlaybackHistoryQuery): Promise<Playb
 export function getUserPlaybackProfile(userId: string, params?: PlaybackProfileQuery): Promise<PlaybackProfileResponse> {
   return request({
     url: `/admin/users/${encodeURIComponent(userId)}/profile`,
+    method: 'get',
+    params
+  })
+}
+
+export function getUserPlaybackProfiles(params?: PlaybackProfileListQuery): Promise<PlaybackProfileListResponse> {
+  return request({
+    url: '/admin/playback-profiles',
     method: 'get',
     params
   })

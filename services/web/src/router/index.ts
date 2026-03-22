@@ -86,10 +86,23 @@ const router = createRouter({
           component: () => import('../views/admin/UsersView.vue'),
         },
         {
-          path: 'users/:id/profile',
+          path: 'user-profiles',
+          name: 'console-user-profiles',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/UserPlaybackProfilesView.vue'),
+        },
+        {
+          path: 'user-profiles/:id',
           name: 'console-user-profile',
           meta: { role: 'admin' },
           component: () => import('../views/admin/UserPlaybackProfileView.vue'),
+        },
+        {
+          path: 'users/:id/profile',
+          redirect: (to) => ({
+            path: `/console/user-profiles/${String(to.params.id ?? '')}`,
+            query: to.query
+          })
         },
         {
           path: 'redemptions',

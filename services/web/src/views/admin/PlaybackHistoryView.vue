@@ -73,12 +73,17 @@ const syncQueryFromRoute = () => {
   if (username) {
     queryParams.value.username = username
     queryParams.value.userId = ''
-    return
   }
 
   const userId = String(route.query.userId ?? '').trim()
   if (userId) {
     queryParams.value.userId = userId
+  }
+
+  const startDate = String(route.query.startDate ?? '').trim()
+  const endDate = String(route.query.endDate ?? '').trim()
+  if (startDate && endDate) {
+    dateRange.value = [startDate, endDate]
   }
 }
 

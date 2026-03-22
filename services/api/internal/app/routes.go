@@ -73,6 +73,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 
 	admin.GET("/sessions", h.session.GetActiveSessions)
 	admin.GET("/playback-history", h.playbackHistory.GetPlaybackHistory)
+	admin.GET("/playback-profiles", h.playbackProfile.GetAdminUserProfiles)
 	admin.GET("/media-quality/libraries", h.mediaQuality.GetLibraries)
 	admin.GET("/media-quality/libraries/:libraryId", h.mediaQuality.GetLibraryQuality)
 	admin.GET("/media-quality/libraries/:libraryId/groups/:groupId/details", h.mediaQuality.GetLibraryQualityGroupDetails)
