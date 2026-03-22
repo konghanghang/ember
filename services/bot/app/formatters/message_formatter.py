@@ -206,6 +206,7 @@ def format_ranking_message(data: dict) -> str:
     period_start = str(data.get("periodStart", "") or "")
     period_end = str(data.get("periodEnd", "") or "")
     cutoff_at = str(data.get("cutoffAt", "") or "").strip()
+    total_duration = int(data.get("totalDuration", 0) or 0)
 
     date_line = (
         f"📅 {escape(period_start)}"
@@ -218,6 +219,7 @@ def format_ranking_message(data: dict) -> str:
     lines: list[str] = [
         f"🏆 <b>Ember 播放{title}</b>",
         date_line,
+        f"⏱ <b>总播放时长</b>：{escape(_format_duration(total_duration))}",
         "",
     ]
 

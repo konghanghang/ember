@@ -633,6 +633,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `GenerateRanking(period)` — 校验 PlaybackActivity 基础字段 → 电影榜按 `ItemId` 聚合；剧集榜先按 episode `ItemId` 聚合，再回查 Emby 条目详情按 `SeriesId` 归并 → 存入数据库 → 通知 Bot
 - `GetLatestRanking(period)` — 获取指定周期最近一批正式排行榜（按 `periodEnd` 排序，不按 `snapshotAt` 猜）
 - `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容
+- `NotifyRanking` 推送 payload 额外包含整期 `totalDuration`，用于 Telegram 展示当天/当周总播放时长
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
 
 **支持周期**：`daily`（日榜）、`weekly`（周榜）

@@ -35,13 +35,14 @@ type RankingResultItem struct {
 
 // RankingComputeResult 排行榜计算结果（可用于预览，不涉及入库/推送）
 type RankingComputeResult struct {
-	Period     models.RankingPeriod
-	BatchID    string
-	Start      time.Time
-	End        time.Time
-	ComputedAt time.Time
-	Movies     []models.PlaybackRanking
-	Episodes   []models.PlaybackRanking
+	Period        models.RankingPeriod
+	BatchID       string
+	Start         time.Time
+	End           time.Time
+	ComputedAt    time.Time
+	TotalDuration int64
+	Movies        []models.PlaybackRanking
+	Episodes      []models.PlaybackRanking
 }
 
 type RankingResult struct {
@@ -291,6 +292,27 @@ ORDER BY total_duration DESC, play_count DESC, item_name ASC
 	return rows, nil
 }
 
+func (s *PlaybackRankingService) queryTotalPlaybackDuration(start, end time.Time) (int64, error) {
+	startStr := start.UTC().Format("2006-01-02 15:04:05")
+	endStr := end.UTC().Format("2006-01-02 15:04:05")
+
+	sql := fmt.Sprintf(`
+SELECT COALESCE(SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0)), 0) AS total_duration
+FROM PlaybackActivity
+WHERE DateCreated >= '%s'
+  AND DateCreated <= '%s'
+`, startStr, endStr)
+
+	resp, err := s.embyService.QueryPlaybackStats(sql)
+	if err != nil {
+		return 0, err
+	}
+	if resp == nil || len(resp.Results) == 0 || len(resp.Results[0]) == 0 {
+		return 0, nil
+	}
+	return asInt64(resp.Results[0][0])
+}
+
 func convertAggregateRows(category models.RankingCategory, rows []playbackAggregateRow) []models.PlaybackRanking {
 	rankings := make([]models.PlaybackRanking, 0, len(rows))
 	for _, row := range rows {
@@ -370,14 +392,19 @@ func (s *PlaybackRankingService) computeRanking(period models.RankingPeriod, sta
 	if err != nil {
 		return nil, err
 	}
+	totalDuration, err := s.queryTotalPlaybackDuration(rangeStart, rangeEnd)
+	if err != nil {
+		return nil, err
+	}
 
 	return &RankingComputeResult{
-		Period:     period,
-		Start:      rangeStart,
-		End:        rangeEnd,
-		ComputedAt: now,
-		Movies:     movies,
-		Episodes:   episodes,
+		Period:        period,
+		Start:         rangeStart,
+		End:           rangeEnd,
+		ComputedAt:    now,
+		TotalDuration: totalDuration,
+		Movies:        movies,
+		Episodes:      episodes,
 	}, nil
 }
 
@@ -414,12 +441,13 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 	log.Printf("[PlaybackRanking] generate done period=%s batchId=%s movies=%d episodes=%d start=%s end=%s snapshot=%s", period, batchID, len(res.Movies), len(res.Episodes), res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339), res.ComputedAt.Format(time.RFC3339))
 
 	go s.notifier.NotifyRanking(notifierint.RankingNotification{
-		Period:      string(period),
-		PeriodStart: res.Start.Format("2006-01-02"),
-		PeriodEnd:   res.End.Format("2006-01-02"),
-		CutoffAt:    res.End.Format("15:04"),
-		Movies:      toNotifyItems(res.Movies),
-		Episodes:    toNotifyItems(res.Episodes),
+		Period:        string(period),
+		PeriodStart:   res.Start.Format("2006-01-02"),
+		PeriodEnd:     res.End.Format("2006-01-02"),
+		CutoffAt:      res.End.Format("15:04"),
+		TotalDuration: res.TotalDuration,
+		Movies:        toNotifyItems(res.Movies),
+		Episodes:      toNotifyItems(res.Episodes),
 	})
 
 	return nil

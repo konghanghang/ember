@@ -181,12 +181,13 @@ func (n *BotNotifier) NotifyPaymentSuccess(data PaymentSuccessNotification) {
 
 // RankingNotification 排行榜推送数据
 type RankingNotification struct {
-	Period      string              `json:"period"`      // "daily" 或 "weekly"
-	PeriodStart string              `json:"periodStart"` // "2026-02-14"
-	PeriodEnd   string              `json:"periodEnd"`   // "2026-02-14"
-	CutoffAt    string              `json:"cutoffAt"`    // "20:00" (阶段榜截止时间，可选)
-	Movies      []RankingItemNotify `json:"movies"`
-	Episodes    []RankingItemNotify `json:"episodes"`
+	Period        string              `json:"period"`        // "daily" 或 "weekly"
+	PeriodStart   string              `json:"periodStart"`   // "2026-02-14"
+	PeriodEnd     string              `json:"periodEnd"`     // "2026-02-14"
+	CutoffAt      string              `json:"cutoffAt"`      // "20:00" (阶段榜截止时间，可选)
+	TotalDuration int64               `json:"totalDuration"` // 秒
+	Movies        []RankingItemNotify `json:"movies"`
+	Episodes      []RankingItemNotify `json:"episodes"`
 }
 
 // RankingItemNotify 排行条目

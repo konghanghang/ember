@@ -107,6 +107,14 @@ func handlePlaybackQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http
 			},
 			"message": "",
 		})
+	case strings.Contains(sql, "SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0))"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"total_duration"},
+			"results": [][]any{
+				{6600},
+			},
+			"message": "",
+		})
 	default:
 		t.Fatalf("unexpected playback sql: %s", sql)
 	}
