@@ -55,7 +55,10 @@ func (h *UserPlaybackProfileHandler) GetAdminUserProfile(c *gin.Context) {
 	resp, err := h.service.GetUserProfile(c.Request.Context(), c.Param("id"), query)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrPlaybackHistoryInvalidUserID), errors.Is(err, services.ErrPlaybackProfileInvalidRange):
+		case errors.Is(err, services.ErrPlaybackHistoryInvalidUserID),
+			errors.Is(err, services.ErrPlaybackProfileInvalidDate),
+			errors.Is(err, services.ErrPlaybackProfileInvalidRange),
+			errors.Is(err, services.ErrPlaybackProfileRangeTooLarge):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrPlaybackHistoryUserNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -88,7 +91,10 @@ func (h *UserPlaybackProfileHandler) GetCurrentUserProfile(c *gin.Context) {
 	resp, err := h.service.GetUserProfile(c.Request.Context(), userID.(string), query)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrPlaybackHistoryInvalidUserID), errors.Is(err, services.ErrPlaybackProfileInvalidRange):
+		case errors.Is(err, services.ErrPlaybackHistoryInvalidUserID),
+			errors.Is(err, services.ErrPlaybackProfileInvalidDate),
+			errors.Is(err, services.ErrPlaybackProfileInvalidRange),
+			errors.Is(err, services.ErrPlaybackProfileRangeTooLarge):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrPlaybackHistoryUserNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

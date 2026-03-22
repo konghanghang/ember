@@ -184,10 +184,12 @@ export interface PlaybackHistoryResponse {
   pageSize: number
 }
 
-export type PlaybackProfileRange = '7d' | '30d' | '90d' | 'all'
+export type PlaybackProfileRange = '7d' | '30d' | '90d' | 'all' | 'custom'
 
 export interface PlaybackProfileQuery {
   range?: PlaybackProfileRange
+  startDate?: string
+  endDate?: string
 }
 
 export interface PlaybackProfileHourlyBucket {

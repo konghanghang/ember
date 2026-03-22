@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Calendar } from '@element-plus/icons-vue'
 import { getUserPlaybackProfile } from '@/api/admin'
 import { formatPlaybackDate } from '@/utils/date'
 import type {
@@ -14,33 +15,42 @@ import type {
 
 const route = useRoute()
 const router = useRouter()
+const MAX_CUSTOM_RANGE_DAYS = 92
 
 const loading = ref(false)
 const profile = ref<UserPlaybackProfile | null>(null)
+const customDateRange = ref<[string, string] | null>(null)
+const rangeAnchorDate = ref<Date | null>(null)
 
 const rangeOptions: Array<{ label: string; value: PlaybackProfileRange }> = [
   { label: '近 7 天', value: '7d' },
   { label: '近 30 天', value: '30d' },
-  { label: '近 90 天', value: '90d' },
-  { label: '全部', value: 'all' }
+  { label: '近 90 天', value: '90d' }
 ]
 const rangeLabelMap: Record<PlaybackProfileRange, string> = {
   '7d': '近 7 天',
   '30d': '近 30 天',
   '90d': '近 90 天',
-  all: '全部历史'
+  all: '全部历史',
+  custom: '自定义范围'
 }
 
 const normalizeRange = (value: unknown): PlaybackProfileRange => {
   const raw = String(value ?? '').trim()
-  if (raw === '7d' || raw === '30d' || raw === '90d' || raw === 'all') {
+  if (raw === '7d' || raw === '30d' || raw === '90d' || raw === 'all' || raw === 'custom') {
     return raw
   }
   return '30d'
 }
 
 const selectedRange = computed<PlaybackProfileRange>(() => normalizeRange(route.query.range))
-const selectedRangeLabel = computed(() => rangeLabelMap[selectedRange.value])
+const isCustomRange = computed(() => selectedRange.value === 'custom')
+const selectedRangeLabel = computed(() => {
+  if (isCustomRange.value && customDateRange.value) {
+    return `${customDateRange.value[0]} ~ ${customDateRange.value[1]}`
+  }
+  return rangeLabelMap[selectedRange.value]
+})
 const userId = computed(() => String(route.params.id ?? '').trim())
 const hasData = computed(() => (profile.value?.totalPlayCount ?? 0) > 0)
 const profileTitle = computed(() => profile.value?.username || '用户画像')
@@ -104,12 +114,68 @@ const distributionBarStyle = (
   width: `${Math.max(6, Math.round((item.duration / max) * 100))}%`
 })
 
+const buildDateString = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  const second = String(date.getSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+}
+
+const buildPresetDateRange = (range: PlaybackProfileRange): [string, string] | null => {
+  if (range === 'all' || range === 'custom') return null
+
+  const end = new Date()
+  const start = new Date()
+  if (range === '7d') start.setDate(start.getDate() - 7)
+  if (range === '30d') start.setDate(start.getDate() - 30)
+  if (range === '90d') start.setDate(start.getDate() - 90)
+
+  return [buildDateString(start), buildDateString(end)]
+}
+
+const syncCustomRangeFromRoute = () => {
+  const startDate = String(route.query.startDate ?? '').trim()
+  const endDate = String(route.query.endDate ?? '').trim()
+  if (selectedRange.value === 'custom' && startDate && endDate) {
+    customDateRange.value = [startDate, endDate]
+    return
+  }
+  customDateRange.value = buildPresetDateRange(selectedRange.value)
+}
+
+const isRangeTooLarge = (startDate: string, endDate: string) => {
+  const start = new Date(startDate.replace(' ', 'T'))
+  const end = new Date(endDate.replace(' ', 'T'))
+  return end.getTime() - start.getTime() > MAX_CUSTOM_RANGE_DAYS * 24 * 60 * 60 * 1000
+}
+
+const disabledCustomDate = (date: Date) => {
+  if (date.getTime() > Date.now()) {
+    return true
+  }
+  if (!rangeAnchorDate.value) {
+    return false
+  }
+  return Math.abs(date.getTime() - rangeAnchorDate.value.getTime()) > MAX_CUSTOM_RANGE_DAYS * 24 * 60 * 60 * 1000
+}
+
+const handleCustomCalendarChange = (value: Date[]) => {
+  rangeAnchorDate.value = value?.[0] ?? null
+}
+
 const fetchProfile = async () => {
   if (!userId.value) return
 
   loading.value = true
   try {
-    const res = await getUserPlaybackProfile(userId.value, { range: selectedRange.value })
+    const res = await getUserPlaybackProfile(userId.value, {
+      range: isCustomRange.value ? undefined : selectedRange.value,
+      startDate: isCustomRange.value ? customDateRange.value?.[0] : undefined,
+      endDate: isCustomRange.value ? customDateRange.value?.[1] : undefined
+    })
     profile.value = res.data
   } catch (error) {
     profile.value = null
@@ -122,10 +188,46 @@ const fetchProfile = async () => {
 }
 
 const handleRangeChange = (range: PlaybackProfileRange) => {
+  customDateRange.value = buildPresetDateRange(range)
+  rangeAnchorDate.value = null
   router.replace({
     query: {
       ...route.query,
-      range
+      range,
+      startDate: undefined,
+      endDate: undefined
+    }
+  })
+}
+
+const handleCustomRangeChange = (value: [string, string] | null) => {
+  rangeAnchorDate.value = null
+  if (!value || value.length !== 2) {
+    const fallbackRange: PlaybackProfileRange = '30d'
+    customDateRange.value = buildPresetDateRange(fallbackRange)
+    router.replace({
+      query: {
+        ...route.query,
+        range: fallbackRange,
+        startDate: undefined,
+        endDate: undefined
+      }
+    })
+    return
+  }
+
+  if (isRangeTooLarge(value[0], value[1])) {
+    ElMessage.warning('自定义日期范围最多选择 3 个月')
+    return
+  }
+
+  customDateRange.value = value
+  router.replace({
+    query: {
+      ...route.query,
+      range: 'custom',
+      startDate: value[0],
+      endDate: value[1]
     }
   })
 }
@@ -140,24 +242,19 @@ const handleBack = () => {
 
 const handleViewHistory = () => {
   const username = profile.value?.username?.trim()
-  const buildDateString = (date: Date) => {
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
-  }
+  const toDateOnly = (value: string) => value.slice(0, 10)
   const buildRangeQuery = () => {
-    if (selectedRange.value === 'all') return {}
-
-    const end = new Date()
-    const start = new Date()
-    if (selectedRange.value === '7d') start.setDate(start.getDate() - 7)
-    if (selectedRange.value === '30d') start.setDate(start.getDate() - 30)
-    if (selectedRange.value === '90d') start.setDate(start.getDate() - 90)
-
+    if (isCustomRange.value && customDateRange.value) {
+      return {
+        startDate: toDateOnly(customDateRange.value[0]),
+        endDate: toDateOnly(customDateRange.value[1])
+      }
+    }
+    const presetRange = buildPresetDateRange(selectedRange.value)
+    if (!presetRange) return {}
     return {
-      startDate: buildDateString(start),
-      endDate: buildDateString(end)
+      startDate: toDateOnly(presetRange[0]),
+      endDate: toDateOnly(presetRange[1])
     }
   }
   router.push({
@@ -171,8 +268,9 @@ const handleViewHistory = () => {
 }
 
 watch(
-  () => [userId.value, selectedRange.value],
+  () => [userId.value, route.query.range, route.query.startDate, route.query.endDate],
   () => {
+    syncCustomRangeFromRoute()
     fetchProfile()
   },
   { immediate: true }
@@ -183,7 +281,7 @@ watch(
   <div class="space-y-6" v-loading="loading">
     <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
       <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
+        <div class="min-w-0">
           <div class="flex items-center gap-3">
             <button
               @click="handleBack"
@@ -202,21 +300,41 @@ watch(
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center justify-start gap-2 xl:justify-end">
-          <button
-            v-for="option in rangeOptions"
-            :key="option.value"
-            @click="handleRangeChange(option.value)"
-            class="px-4 py-2 text-sm rounded-xl border transition-colors cursor-pointer"
-            :class="selectedRange === option.value
-              ? 'border-ember bg-ember text-white'
-              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
-          >
-            {{ option.label }}
-          </button>
+        <div class="flex min-w-0 flex-wrap items-center gap-2 xl:flex-nowrap xl:justify-end xl:max-w-[68rem] xl:mr-4">
+          <div class="flex shrink-0 flex-wrap items-center gap-2">
+            <button
+              v-for="option in rangeOptions"
+              :key="option.value"
+              @click="handleRangeChange(option.value)"
+              class="px-4 py-2 text-sm rounded-xl border transition-colors cursor-pointer"
+              :class="selectedRange === option.value
+                ? 'border-ember bg-ember text-white'
+                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
+              >
+                {{ option.label }}
+              </button>
+          </div>
+          <div class="relative min-w-0 flex-1 w-full xl:basis-[46rem] xl:max-w-[46rem] group">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
+              <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Calendar /></el-icon>
+            </div>
+            <el-date-picker
+              v-model="customDateRange"
+              type="datetimerange"
+              start-placeholder="开始日期时间"
+              end-placeholder="结束日期时间"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              class="w-full filter-date-range"
+              unlink-panels
+              clearable
+              :disabled-date="disabledCustomDate"
+              @calendar-change="handleCustomCalendarChange"
+              @change="handleCustomRangeChange"
+            />
+          </div>
           <button
             @click="handleViewHistory"
-            class="px-4 py-2 text-sm rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+            class="shrink-0 px-4 py-2 text-sm rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
           >
             查看播放历史
           </button>
@@ -461,3 +579,61 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+:deep(.filter-date-range .el-date-editor),
+:deep(.filter-date-range .el-range-editor.el-input__wrapper),
+:deep(.filter-date-range.el-range-editor.el-input__wrapper) {
+  height: 42px !important;
+  min-height: 42px !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  background-color: #f9fafb !important;
+}
+
+:deep(.filter-date-range .el-input__wrapper),
+:deep(.filter-date-range.el-input__wrapper) {
+  overflow: hidden;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 2.5rem !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  background-color: #f9fafb !important;
+}
+
+:deep(.filter-date-range:hover),
+:deep(.filter-date-range:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-date-range.is-active),
+:deep(.filter-date-range.is-active .el-input__wrapper) {
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-date-range .el-range-input) {
+  font-size: 0.875rem;
+  background-color: transparent;
+  min-width: 11rem;
+  width: 11rem;
+}
+
+:deep(.filter-date-range .el-time-panel-link) {
+  display: none !important;
+}
+
+:deep(.filter-date-range .el-range-separator) {
+  color: #6b7280;
+  min-width: 1.5rem;
+  justify-content: center;
+}
+
+:deep(.filter-date-range .el-range__icon) {
+  opacity: 0;
+  width: 0;
+  margin: 0;
+}
+</style>

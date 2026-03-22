@@ -713,13 +713,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 管理员/用户播放画像聚合服务，基于单个用户的 `PlaybackActivity` 记录输出摘要、分布和勋章结果。
 
-- `GetUserProfile(ctx, userID, query)` — 支持 `range=7d|30d|90d|all`
+- `GetUserProfile(ctx, userID, query)` — 支持 `range=7d|30d|90d|all`，也支持 `startDate/endDate` 自定义日期时间范围
 - 先读取本地 `users` 表映射 `embyId`，未绑定时回退使用本地 `userId`
 - 输出指标：`totalPlayCount` / `totalPlayDuration` / `activeDays` / `averagePlayDuration` / `lastPlayedAt`
 - 输出分布：`hourlyDistribution` / `deviceDistribution` / `clientDistribution`
 - 输出最近记录预览：`recentRecords`（最多 10 条）
 - 画像标签包含行为标签和高阈值勋章，例如：`evening_viewer` / `steady_viewer` / `night_owl` / `weekend_warrior` / `hardcore_viewer`
-- 关键日志包含 `userID` / `embyUserID` / `range` / 结果统计，便于排障
+- 自定义日期时间范围最大跨度限制为 `92` 天
+- 关键日志包含 `userID` / `embyUserID` / `range` / 结果统计 / 耗时，便于排障
 
 ### 5.21 UserPlaybackProfileOverview (`services/playback/profile_list.go`)
 
@@ -771,7 +772,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/subscriptions` | 创建订阅 |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/profile` | 个人信息 |
-| GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range`） |
+| GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range` 或 `startDate/endDate`） |
 | PUT | `/api/v1/profile` | 更新资料 |
 | PUT | `/api/v1/password` | 修改密码 |
 | PUT | `/api/v1/email` | 修改邮箱 |
@@ -1034,9 +1035,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 主入口：`views/admin/UserPlaybackProfilesView.vue`
 - 辅助入口：`views/admin/PlaybackHistoryView.vue`
 - 兼容入口：`views/admin/UsersView.vue`
-- 数据源：`GET /api/v1/admin/users/:id/profile?range=7d|30d|90d|all`
+- 数据源：`GET /api/v1/admin/users/:id/profile?range=7d|30d|90d|all` 或 `startDate/endDate`
 - 页面模块：
   - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
+  - 时间范围：推荐快捷范围 + 自定义日期时间范围（最大 92 天）
   - 分布：24 小时活跃时段、设备分布、客户端分布
   - 勋章：基于固定阈值的解释型画像标签
   - 最近记录：最近 10 条播放记录预览，并支持跳回播放历史
@@ -1045,9 +1047,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 新增路由：`/console/profile-analytics`（user）
 - 新增视图：`views/console/ProfileAnalyticsView.vue`
-- 数据源：`GET /api/v1/profile/analytics?range=7d|30d|90d|all`
+- 数据源：`GET /api/v1/profile/analytics?range=7d|30d|90d|all` 或 `startDate/endDate`
 - 页面模块：
   - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
+  - 时间范围：推荐快捷范围 + 自定义日期时间范围（最大 92 天）
   - 活跃时段：24 小时分布 + 峰值时段摘要
   - 画像标签：展示当前时间窗口内最有代表性的少量标签
   - 偏好分布：设备偏好 / 客户端偏好

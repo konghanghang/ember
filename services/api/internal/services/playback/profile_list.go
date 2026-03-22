@@ -62,6 +62,7 @@ type PlaybackProfileListResponse struct {
 type normalizedPlaybackProfileListQuery struct {
 	rangeValue      string
 	startAt         *time.Time
+	endAt           *time.Time
 	keyword         string
 	sortBy          string
 	sortOrder       string
@@ -99,7 +100,7 @@ func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context
 		}, nil
 	}
 
-	rows, err := s.loadPlaybackProfileRowsForOverview(query.playbackUserIDs, query.startAt)
+	rows, err := s.loadPlaybackProfileRowsForOverview(query.playbackUserIDs, query.startAt, query.endAt)
 	if err != nil {
 		log.Printf("[PlaybackProfileOverview] playback query failed range=%s keyword=%q err=%v", query.rangeValue, query.keyword, err)
 		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
@@ -165,7 +166,7 @@ func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context
 }
 
 func (s *UserPlaybackProfileService) normalizePlaybackProfileListQuery(ctx context.Context, req PlaybackProfileListQuery) (*normalizedPlaybackProfileListQuery, error) {
-	rangeValue, startAt, err := normalizePlaybackProfileRange(req.Range)
+	rangeValue, startAt, endAt, err := normalizePlaybackProfileRange(PlaybackProfileQuery{Range: req.Range})
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +242,7 @@ func (s *UserPlaybackProfileService) normalizePlaybackProfileListQuery(ctx conte
 	return &normalizedPlaybackProfileListQuery{
 		rangeValue:      rangeValue,
 		startAt:         startAt,
+		endAt:           endAt,
 		keyword:         keyword,
 		sortBy:          sortBy,
 		sortOrder:       sortOrder,
@@ -264,8 +266,8 @@ func (s *UserPlaybackProfileService) findUsersByKeyword(ctx context.Context, key
 	return users, nil
 }
 
-func (s *UserPlaybackProfileService) loadPlaybackProfileRowsForOverview(playbackUserIDs []string, startAt *time.Time) ([]playbackActivityRow, error) {
-	whereClause := buildPlaybackProfileOverviewWhereClause(playbackUserIDs, startAt)
+func (s *UserPlaybackProfileService) loadPlaybackProfileRowsForOverview(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) ([]playbackActivityRow, error) {
+	whereClause := buildPlaybackProfileOverviewWhereClause(playbackUserIDs, startAt, endAt)
 	querySQL := fmt.Sprintf(`
 SELECT *
 FROM PlaybackActivity
@@ -290,7 +292,7 @@ WHERE %s
 	if err != nil {
 		return nil, fmt.Errorf("解析用户画像总览播放记录失败: %w", err)
 	}
-	log.Printf("[PlaybackProfileOverview] rows loaded rangeStart=%s filterUsers=%d rows=%d", formatOptionalTime(startAt), len(playbackUserIDs), len(rows))
+	log.Printf("[PlaybackProfileOverview] rows loaded rangeStart=%s rangeEnd=%s filterUsers=%d rows=%d", formatOptionalTime(startAt), formatOptionalTime(endAt), len(playbackUserIDs), len(rows))
 
 	sort.Slice(rows, func(i, j int) bool {
 		ti := parsePlaybackTime(rows[i].playedAtRaw)
@@ -304,7 +306,7 @@ WHERE %s
 	return rows, nil
 }
 
-func buildPlaybackProfileOverviewWhereClause(playbackUserIDs []string, startAt *time.Time) string {
+func buildPlaybackProfileOverviewWhereClause(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) string {
 	conditions := []string{"1=1"}
 	if len(playbackUserIDs) > 0 {
 		quotedUserIDs := make([]string, 0, len(playbackUserIDs))
@@ -315,6 +317,9 @@ func buildPlaybackProfileOverviewWhereClause(playbackUserIDs []string, startAt *
 	}
 	if startAt != nil {
 		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", startAt.UTC().Format("2006-01-02 15:04:05")))
+	}
+	if endAt != nil {
+		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", endAt.UTC().Format("2006-01-02 15:04:05")))
 	}
 	return strings.Join(conditions, " AND ")
 }

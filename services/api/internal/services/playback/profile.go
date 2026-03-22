@@ -18,6 +18,8 @@ const (
 	defaultPlaybackProfileRange = "30d"
 	playbackProfileRecentLimit  = 10
 	playbackProfileBadgeLimit   = 4
+	playbackProfileMaxRangeDays = 92
+	playbackDateTimeFormat      = "2006-01-02 15:04:05"
 )
 
 type UserPlaybackProfileService struct {
@@ -25,7 +27,9 @@ type UserPlaybackProfileService struct {
 }
 
 type PlaybackProfileQuery struct {
-	Range string `form:"range" json:"range"`
+	Range     string `form:"range" json:"range"`
+	StartDate string `form:"startDate" json:"startDate"`
+	EndDate   string `form:"endDate" json:"endDate"`
 }
 
 type PlaybackProfileHourlyBucket struct {
@@ -107,7 +111,7 @@ func NewUserPlaybackProfileService() *UserPlaybackProfileService {
 
 func (s *UserPlaybackProfileService) GetUserProfile(ctx context.Context, userID string, query PlaybackProfileQuery) (*UserPlaybackProfileResponse, error) {
 	startedAt := time.Now()
-	normalizedRange, startAt, err := normalizePlaybackProfileRange(query.Range)
+	normalizedRange, startAt, endAt, err := normalizePlaybackProfileRange(query)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +123,7 @@ func (s *UserPlaybackProfileService) GetUserProfile(ctx context.Context, userID 
 
 	log.Printf("[PlaybackProfile] start userID=%s embyUserID=%s range=%s", target.user.ID, target.playbackUserID, normalizedRange)
 
-	rows, err := s.loadPlaybackProfileRows(target.playbackUserID, startAt)
+	rows, err := s.loadPlaybackProfileRows(target.playbackUserID, startAt, endAt)
 	if err != nil {
 		log.Printf("[PlaybackProfile] query failed userID=%s embyUserID=%s range=%s err=%v", target.user.ID, target.playbackUserID, normalizedRange, err)
 		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
@@ -160,28 +164,80 @@ func (s *UserPlaybackProfileService) GetUserProfile(ctx context.Context, userID 
 	}, nil
 }
 
-func normalizePlaybackProfileRange(raw string) (string, *time.Time, error) {
-	value := strings.TrimSpace(strings.ToLower(raw))
+func normalizePlaybackProfileRange(query PlaybackProfileQuery) (string, *time.Time, *time.Time, error) {
+	startDateRaw := strings.TrimSpace(query.StartDate)
+	endDateRaw := strings.TrimSpace(query.EndDate)
+	tz := loadPlaybackTimezone()
+
+	if startDateRaw != "" || endDateRaw != "" {
+		if startDateRaw == "" || endDateRaw == "" {
+			return "", nil, nil, ErrPlaybackProfileInvalidDate
+		}
+
+		startDate, hasStartTime, err := parsePlaybackProfileTime(startDateRaw, tz)
+		if err != nil {
+			return "", nil, nil, ErrPlaybackProfileInvalidDate
+		}
+		endDate, hasEndTime, err := parsePlaybackProfileTime(endDateRaw, tz)
+		if err != nil {
+			return "", nil, nil, ErrPlaybackProfileInvalidDate
+		}
+		if endDate.Before(startDate) {
+			return "", nil, nil, ErrPlaybackProfileInvalidDate
+		}
+		if endDate.Sub(startDate) > playbackProfileMaxRangeDays*24*time.Hour {
+			return "", nil, nil, ErrPlaybackProfileRangeTooLarge
+		}
+
+		startAt := startDate
+		if !hasStartTime {
+			startAt = time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, tz)
+		}
+		endAt := endDate
+		if !hasEndTime {
+			endAt = time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, tz)
+		}
+		return "custom", &startAt, &endAt, nil
+	}
+
+	value := strings.TrimSpace(strings.ToLower(query.Range))
 	if value == "" {
 		value = defaultPlaybackProfileRange
 	}
 
-	now := time.Now().In(loadPlaybackTimezone())
+	now := time.Now().In(tz)
 	switch value {
 	case "7d":
 		start := now.AddDate(0, 0, -7)
-		return value, &start, nil
+		return value, &start, &now, nil
 	case "30d":
 		start := now.AddDate(0, 0, -30)
-		return value, &start, nil
+		return value, &start, &now, nil
 	case "90d":
 		start := now.AddDate(0, 0, -90)
-		return value, &start, nil
+		return value, &start, &now, nil
 	case "all":
-		return value, nil, nil
+		return value, nil, nil, nil
 	default:
-		return "", nil, ErrPlaybackProfileInvalidRange
+		return "", nil, nil, ErrPlaybackProfileInvalidRange
 	}
+}
+
+func parsePlaybackProfileTime(raw string, tz *time.Location) (time.Time, bool, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, false, ErrPlaybackProfileInvalidDate
+	}
+
+	if t, err := time.ParseInLocation(playbackDateTimeFormat, trimmed, tz); err == nil {
+		return t, true, nil
+	}
+
+	if t, err := time.ParseInLocation(playbackDateFormat, trimmed, tz); err == nil {
+		return t, false, nil
+	}
+
+	return time.Time{}, false, ErrPlaybackProfileInvalidDate
 }
 
 func (s *UserPlaybackProfileService) loadPlaybackProfileTarget(ctx context.Context, userID string) (*playbackProfileTarget, error) {
@@ -215,8 +271,8 @@ func (s *UserPlaybackProfileService) loadPlaybackProfileTarget(ctx context.Conte
 	}, nil
 }
 
-func (s *UserPlaybackProfileService) loadPlaybackProfileRows(playbackUserID string, startAt *time.Time) ([]playbackActivityRow, error) {
-	whereClause := buildPlaybackProfileWhereClause(playbackUserID, startAt)
+func (s *UserPlaybackProfileService) loadPlaybackProfileRows(playbackUserID string, startAt *time.Time, endAt *time.Time) ([]playbackActivityRow, error) {
+	whereClause := buildPlaybackProfileWhereClause(playbackUserID, startAt, endAt)
 
 	queryWithOrder := fmt.Sprintf(`
 SELECT *
@@ -242,7 +298,7 @@ WHERE %s
 	if err != nil {
 		return nil, fmt.Errorf("解析用户画像播放记录失败: %w", err)
 	}
-	log.Printf("[PlaybackProfile] rows loaded playbackUserID=%s rangeStart=%s rows=%d", playbackUserID, formatOptionalTime(startAt), len(rows))
+	log.Printf("[PlaybackProfile] rows loaded playbackUserID=%s rangeStart=%s rangeEnd=%s rows=%d", playbackUserID, formatOptionalTime(startAt), formatOptionalTime(endAt), len(rows))
 
 	sort.Slice(rows, func(i, j int) bool {
 		ti := parsePlaybackTime(rows[i].playedAtRaw)
@@ -263,12 +319,15 @@ func formatOptionalTime(value *time.Time) string {
 	return value.Format(time.RFC3339)
 }
 
-func buildPlaybackProfileWhereClause(playbackUserID string, startAt *time.Time) string {
+func buildPlaybackProfileWhereClause(playbackUserID string, startAt *time.Time, endAt *time.Time) string {
 	conditions := []string{
 		fmt.Sprintf("UserId = '%s'", escapeSQLLiteral(playbackUserID)),
 	}
 	if startAt != nil {
 		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", startAt.UTC().Format("2006-01-02 15:04:05")))
+	}
+	if endAt != nil {
+		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", endAt.UTC().Format("2006-01-02 15:04:05")))
 	}
 	return strings.Join(conditions, " AND ")
 }

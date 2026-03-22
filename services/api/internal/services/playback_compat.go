@@ -29,7 +29,9 @@ var (
 	ErrPlaybackHistoryInvalidUserID  = playbackpkg.ErrInvalidUserID
 	ErrPlaybackHistoryUserNotFound   = playbackpkg.ErrUserNotFound
 	ErrPlaybackHistoryQueryFailed    = playbackpkg.ErrQueryFailed
+	ErrPlaybackProfileInvalidDate    = playbackpkg.ErrPlaybackProfileInvalidDate
 	ErrPlaybackProfileInvalidRange   = playbackpkg.ErrPlaybackProfileInvalidRange
+	ErrPlaybackProfileRangeTooLarge  = playbackpkg.ErrPlaybackProfileRangeTooLarge
 )
 
 func NewPlaybackHistoryService() *PlaybackHistoryService {
