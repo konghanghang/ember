@@ -143,6 +143,7 @@ services/
 │  │     │  ├─ Layout.vue        # 控制台布局
 │  │     │  ├─ DashboardView.vue # 概览页（会员状态 / 媒体统计 / 服务器入口 / 快捷资源）
 │  │     │  ├─ AccountCenterView.vue # 账号中心（邮箱 / 密码 / Telegram 绑定 / 帮助资源）
+│  │     │  ├─ ProfileAnalyticsView.vue # 我的画像
 │  │     │  ├─ SubscriptionsView.vue  # 求片订阅
 │  │     │  ├─ NewSubscriptionView.vue # 新建订阅
 │  │     │  ├─ TVCalendarView.vue # 追剧日历
@@ -1039,6 +1040,18 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - 分布：24 小时活跃时段、设备分布、客户端分布
   - 勋章：基于固定阈值的解释型画像标签
   - 最近记录：最近 10 条播放记录预览，并支持跳回播放历史
+
+### 用户端我的画像
+
+- 新增路由：`/console/profile-analytics`（user）
+- 新增视图：`views/console/ProfileAnalyticsView.vue`
+- 数据源：`GET /api/v1/profile/analytics?range=7d|30d|90d|all`
+- 页面模块：
+  - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
+  - 活跃时段：24 小时分布 + 峰值时段摘要
+  - 画像标签：展示当前时间窗口内最有代表性的少量标签
+  - 偏好分布：设备偏好 / 客户端偏好
+  - 最近播放记录：最近 10 条个人播放记录预览
 
 ### 管理端媒体质量盘点
 

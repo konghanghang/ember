@@ -7,6 +7,8 @@ import type {
   LatestMediaResponse,
   MediaStatsResponse,
   PaymentListResponse,
+  PlaybackProfileQuery,
+  PlaybackProfileResponse,
   RankingResponse,
   Plan,
   RankingHistoryResponse,
@@ -81,6 +83,14 @@ export function getConsoleAccountLinks(): Promise<{ data: ConsoleAccountLink[] }
   return request({
     url: '/account-links',
     method: 'get'
+  })
+}
+
+export function getProfileAnalytics(params?: PlaybackProfileQuery): Promise<PlaybackProfileResponse> {
+  return request({
+    url: '/profile/analytics',
+    method: 'get',
+    params
   })
 }
 

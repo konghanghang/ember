@@ -33,6 +33,10 @@ const routeMeta: Record<string, { title: string; description: string }> = {
     title: '账号中心',
     description: '集中管理资料、安全设置与绑定状态'
   },
+  'console-profile-analytics': {
+    title: '我的画像',
+    description: '查看自己的活跃时段、设备偏好与画像标签'
+  },
   'console-subscriptions': {
     title: '订阅管理',
     description: '维护求片请求与订阅记录'

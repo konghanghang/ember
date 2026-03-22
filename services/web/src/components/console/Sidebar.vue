@@ -43,6 +43,12 @@ const menuItems = computed(() => [
     role: 'user'
   },
   {
+    title: '我的画像',
+    path: '/console/profile-analytics',
+    icon: DataLine,
+    role: 'user'
+  },
+  {
     title: '订阅管理',
     path: '/console/subscriptions',
     icon: VideoPlay,

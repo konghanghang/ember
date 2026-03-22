@@ -46,6 +46,11 @@ const router = createRouter({
           component: () => import('../views/console/AccountCenterView.vue'),
         },
         {
+          path: 'profile-analytics',
+          name: 'console-profile-analytics',
+          component: () => import('../views/console/ProfileAnalyticsView.vue'),
+        },
+        {
           path: 'subscriptions',
           name: 'console-subscriptions',
           component: () => import('../views/console/SubscriptionsView.vue'),
