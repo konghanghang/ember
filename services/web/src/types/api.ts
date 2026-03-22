@@ -159,6 +159,7 @@ export interface AdminRedemptionQuery extends PaginationQuery {
 
 export interface PlaybackHistoryQuery extends PaginationQuery {
   userId?: string
+  username?: string
   keyword?: string
   startDate?: string
   endDate?: string
@@ -181,6 +182,59 @@ export interface PlaybackHistoryResponse {
   total: number
   page: number
   pageSize: number
+}
+
+export type PlaybackProfileRange = '7d' | '30d' | '90d' | 'all'
+
+export interface PlaybackProfileQuery {
+  range?: PlaybackProfileRange
+}
+
+export interface PlaybackProfileHourlyBucket {
+  hour: number
+  count: number
+}
+
+export interface PlaybackProfileDeviceBucket {
+  deviceName: string
+  count: number
+  duration: number
+  durationFormatted: string
+}
+
+export interface PlaybackProfileClientBucket {
+  clientName: string
+  count: number
+  duration: number
+  durationFormatted: string
+}
+
+export interface PlaybackProfileBadge {
+  id: string
+  name: string
+  description: string
+}
+
+export interface UserPlaybackProfile {
+  userId: string
+  username: string
+  range: PlaybackProfileRange
+  totalPlayCount: number
+  totalPlayDuration: number
+  totalPlayDurationFormatted: string
+  activeDays: number
+  averagePlayDuration: number
+  averagePlayDurationFormatted: string
+  lastPlayedAt: string | null
+  hourlyDistribution: PlaybackProfileHourlyBucket[]
+  deviceDistribution: PlaybackProfileDeviceBucket[]
+  clientDistribution: PlaybackProfileClientBucket[]
+  badges: PlaybackProfileBadge[]
+  recentRecords: PlaybackHistoryItem[]
+}
+
+export interface PlaybackProfileResponse {
+  data: UserPlaybackProfile
 }
 
 export interface MediaQualityLibrary {

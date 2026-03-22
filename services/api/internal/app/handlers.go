@@ -19,6 +19,7 @@ type appHandlers struct {
 	telegram        *handlers.TelegramHandler
 	tvCalendar      *handlers.TVCalendarHandler
 	playbackHistory *handlers.PlaybackHistoryHandler
+	playbackProfile *handlers.UserPlaybackProfileHandler
 	mediaQuality    *handlers.MediaQualityHandler
 }
 
@@ -40,6 +41,7 @@ func newAppHandlers() *appHandlers {
 		telegram:        handlers.NewTelegramHandler(),
 		tvCalendar:      handlers.NewTVCalendarHandler(),
 		playbackHistory: handlers.NewPlaybackHistoryHandler(),
+		playbackProfile: handlers.NewUserPlaybackProfileHandler(),
 		mediaQuality:    handlers.NewMediaQualityHandler(),
 	}
 }

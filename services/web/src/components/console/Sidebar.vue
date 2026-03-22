@@ -128,7 +128,7 @@ const menuItems = computed(() => [
   }
 ])
 
-const isActive = (path: string) => route.path === path
+const isActive = (path: string) => route.path === path || route.path.startsWith(`${path}/`)
 const displayName = computed(() => userStore.profile?.username || '当前用户')
 </script>
 

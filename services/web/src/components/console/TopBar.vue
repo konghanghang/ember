@@ -61,6 +61,10 @@ const routeMeta: Record<string, { title: string; description: string }> = {
     title: '用户管理',
     description: '维护用户账号与状态'
   },
+  'console-user-profile': {
+    title: '用户画像',
+    description: '查看指定用户的播放摘要与活跃分布'
+  },
   'console-redemptions': {
     title: '兑换中心',
     description: '统一管理兑换码池和兑换记录'

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Search, RefreshRight, UserFilled } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Search, RefreshRight, UserFilled, Calendar } from '@element-plus/icons-vue'
 import { getPlaybackHistory } from '@/api/admin'
-import { formatDate } from '@/utils/date'
+import { formatPlaybackDate } from '@/utils/date'
 import type { PlaybackHistoryItem, PlaybackHistoryQuery } from '@/types/api'
 
+const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const tableData = ref<PlaybackHistoryItem[]>([])
 const total = ref(0)
@@ -13,6 +16,7 @@ const dateRange = ref<[string, string] | null>(null)
 const queryParams = ref<PlaybackHistoryQuery>({
   page: 1,
   pageSize: 20,
+  username: '',
   userId: '',
   keyword: ''
 })
@@ -23,7 +27,8 @@ const fetchData = async () => {
     const params: PlaybackHistoryQuery = {
       page: queryParams.value.page,
       pageSize: queryParams.value.pageSize,
-      userId: queryParams.value.userId?.trim() || undefined,
+      username: queryParams.value.username?.trim() || undefined,
+      userId: queryParams.value.username?.trim() ? undefined : queryParams.value.userId?.trim() || undefined,
       keyword: queryParams.value.keyword?.trim() || undefined
     }
 
@@ -50,6 +55,7 @@ const handleSearch = () => {
 const handleReset = () => {
   queryParams.value.page = 1
   queryParams.value.pageSize = 20
+  queryParams.value.username = ''
   queryParams.value.userId = ''
   queryParams.value.keyword = ''
   dateRange.value = null
@@ -62,7 +68,30 @@ const handlePageSizeChange = (size: number) => {
   fetchData()
 }
 
+const syncQueryFromRoute = () => {
+  const username = String(route.query.username ?? '').trim()
+  if (username) {
+    queryParams.value.username = username
+    queryParams.value.userId = ''
+    return
+  }
+
+  const userId = String(route.query.userId ?? '').trim()
+  if (userId) {
+    queryParams.value.userId = userId
+  }
+}
+
+const handleViewProfile = (row: PlaybackHistoryItem) => {
+  router.push({
+    name: 'console-user-profile',
+    params: { id: row.userId },
+    query: { range: '30d' }
+  })
+}
+
 onMounted(() => {
+  syncQueryFromRoute()
   fetchData()
 })
 </script>
@@ -81,17 +110,17 @@ onMounted(() => {
       <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
         <div class="grid grid-cols-1 xl:grid-cols-4 gap-3">
           <div class="space-y-1.5">
-            <label class="text-xs font-semibold tracking-wide text-gray-500">用户 ID</label>
+            <label class="text-xs font-semibold tracking-wide text-gray-500">用户名</label>
             <div class="relative group">
               <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><UserFilled /></el-icon>
               </div>
               <input
-                v-model="queryParams.userId"
+                v-model="queryParams.username"
                 type="text"
                 autocomplete="off"
-                aria-label="按用户 ID 筛选"
-                placeholder="按用户 ID 筛选"
+                aria-label="按用户名筛选"
+                placeholder="输入用户名筛选"
                 class="filter-input w-full pl-10 pr-4"
                 @keyup.enter="handleSearch"
               />
@@ -163,7 +192,7 @@ onMounted(() => {
       >
         <el-table-column prop="playedAt" label="播放时间" width="180">
           <template #default="{ row }">
-            {{ row.playedAt ? formatDate(row.playedAt) : '-' }}
+            {{ row.playedAt ? formatPlaybackDate(row.playedAt) : '-' }}
           </template>
         </el-table-column>
         <el-table-column prop="username" label="用户" width="120" />
@@ -175,6 +204,16 @@ onMounted(() => {
         <el-table-column prop="userId" label="用户 ID" min-width="190">
           <template #default="{ row }">
             <code class="text-xs text-gray-600">{{ row.userId || '-' }}</code>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <button
+              @click="handleViewProfile(row)"
+              class="text-sm font-medium text-ember hover:text-ember/80 transition-colors cursor-pointer"
+            >
+              用户画像
+            </button>
           </template>
         </el-table-column>
       </el-table>

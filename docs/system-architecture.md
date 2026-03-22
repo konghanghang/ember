@@ -78,6 +78,7 @@ services/
 │     │  ├─ telegram.go          # TelegramService（绑定/查询/续期）
 │     │  ├─ playback/
 │     │  │  ├─ history.go        # PlaybackHistoryService（播放历史查询）
+│     │  │  ├─ profile.go        # UserPlaybackProfileService（用户播放画像）
 │     │  │  └─ ranking.go        # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment/
 │     │  │  └─ service.go        # PaymentService（Stripe 支付流程）
@@ -101,6 +102,7 @@ services/
 │     │  ├─ ranking.go           # 播放排行
 │     │  ├─ session.go           # 活跃会话
 │     │  ├─ playback_history.go  # 播放历史
+│     │  ├─ user_playback_profile.go # 用户播放画像
 │     │  ├─ device.go            # 设备管理
 │     │  ├─ telegram.go          # Telegram 绑定与 Bot Internal API
 │     │  ├─ payment.go           # 支付与方案
@@ -148,6 +150,7 @@ services/
 │  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台
 │  │        ├─ UsersView.vue     # 用户管理
+│  │        ├─ UserPlaybackProfileView.vue # 用户画像
 │  │        ├─ RedemptionCenterView.vue # 兑换中心（兑换码池 + 兑换记录）
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
@@ -697,12 +700,24 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 管理员播放历史查询服务，复用 Emby Playback Reporting 插件能力，支持分页和条件筛选。
 
-- `GetPlaybackHistory(req)` — 支持 `userId` / `keyword` / `startDate` / `endDate` / `page` / `pageSize`
+- `GetPlaybackHistory(req)` — 支持 `username` / `keyword` / `startDate` / `endDate` / `page` / `pageSize`，兼容旧 `userId`
 - 对 `keyword` 做白名单校验并转义，避免 SQL 注入
 - 统一输出播放时长格式（`Xm` / `Xh Ym`）
 - 插件不可用时返回统一错误：`Playback Reporting 查询失败`
 
-### 5.20 MediaQualityService (`services/media_quality.go`)
+### 5.20 UserPlaybackProfileService (`services/playback/profile.go`)
+
+管理员/用户播放画像聚合服务，基于单个用户的 `PlaybackActivity` 记录输出摘要、分布和勋章结果。
+
+- `GetUserProfile(ctx, userID, query)` — 支持 `range=7d|30d|90d|all`
+- 先读取本地 `users` 表映射 `embyId`，未绑定时回退使用本地 `userId`
+- 输出指标：`totalPlayCount` / `totalPlayDuration` / `activeDays` / `averagePlayDuration` / `lastPlayedAt`
+- 输出分布：`hourlyDistribution` / `deviceDistribution` / `clientDistribution`
+- 输出最近记录预览：`recentRecords`（最多 10 条）
+- 勋章规则第一版包含：`night_owl` / `weekend_warrior` / `hardcore_viewer`
+- 关键日志包含 `userID` / `embyUserID` / `range` / 结果统计，便于排障
+
+### 5.21 MediaQualityService (`services/media_quality.go`)
 
 管理员媒体库质量盘点服务，按媒体库维度（支持 `libraryId=all`）聚合分辨率、编码、HDR 分布，并输出低画质汇总清单。
 
@@ -742,6 +757,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/subscriptions` | 创建订阅 |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/profile` | 个人信息 |
+| GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range`） |
 | PUT | `/api/v1/profile` | 更新资料 |
 | PUT | `/api/v1/password` | 修改密码 |
 | PUT | `/api/v1/email` | 修改邮箱 |
@@ -788,6 +804,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
 | GET | `/api/v1/admin/users` | 用户列表 |
 | GET | `/api/v1/admin/users/:id` | 用户详情 |
+| GET | `/api/v1/admin/users/:id/profile` | 用户画像（支持 `range`） |
 | PUT | `/api/v1/admin/users/:id` | 更新用户 |
 | PUT | `/api/v1/admin/users/:id/extend` | 延长有效期 |
 | PUT | `/api/v1/admin/users/:id/toggle` | 切换激活状态 |
@@ -980,7 +997,21 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 新增路由：`/console/playback-history`（admin）
 - 新增视图：`views/admin/PlaybackHistoryView.vue`
-- 数据源：`GET /api/v1/admin/playback-history`（支持 userId / keyword / 日期范围 / 分页筛选）
+- 数据源：`GET /api/v1/admin/playback-history`（支持 username / keyword / 日期范围 / 分页筛选，兼容旧 `userId`）
+- 联动：支持跳转到 `/console/users/:id/profile`
+
+### 管理端用户画像
+
+- 新增路由：`/console/users/:id/profile`（admin）
+- 新增视图：`views/admin/UserPlaybackProfileView.vue`
+- 主入口：`views/admin/UsersView.vue`
+- 辅助入口：`views/admin/PlaybackHistoryView.vue`
+- 数据源：`GET /api/v1/admin/users/:id/profile?range=7d|30d|90d|all`
+- 页面模块：
+  - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
+  - 分布：24 小时活跃时段、设备分布、客户端分布
+  - 勋章：基于固定阈值的解释型画像标签
+  - 最近记录：最近 10 条播放记录预览，并支持跳回播放历史
 
 ### 管理端媒体质量盘点
 

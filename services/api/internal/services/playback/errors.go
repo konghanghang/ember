@@ -8,6 +8,7 @@ var (
 	ErrPlaybackHistoryInvalidUserID  = errors.New("userId 格式无效")
 	ErrPlaybackHistoryUserNotFound   = errors.New("用户不存在")
 	ErrPlaybackHistoryQueryFailed    = errors.New("Playback Reporting 查询失败")
+	ErrPlaybackProfileInvalidRange   = errors.New("range 仅支持 7d、30d、90d、all")
 
 	ErrInvalidDate    = ErrPlaybackHistoryInvalidDate
 	ErrInvalidKeyword = ErrPlaybackHistoryInvalidKeyword

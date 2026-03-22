@@ -17,10 +17,20 @@ func TestBuildPlaybackWhereClauseEscapesLikeKeyword(t *testing.T) {
 		},
 	}
 
-	where := buildPlaybackWhereClause(query, "")
+	where := buildPlaybackWhereClause(query, nil)
 	expected := "(ItemName LIKE '%a\\_b\\%%' ESCAPE '\\' OR UserName LIKE '%a\\_b\\%%' ESCAPE '\\' OR DeviceName LIKE '%a\\_b\\%%' ESCAPE '\\' OR ClientName LIKE '%a\\_b\\%%' ESCAPE '\\')"
 	if where != "1=1 AND "+expected {
 		t.Fatalf("where clause mismatch:\nwant: %s\ngot:  %s", "1=1 AND "+expected, where)
+	}
+}
+
+func TestBuildPlaybackWhereClauseSupportsMultiplePlaybackUsers(t *testing.T) {
+	query := &playbackHistoryQuery{}
+
+	where := buildPlaybackWhereClause(query, []string{"emby_1", "emby_2"})
+	expected := "1=1 AND UserId IN ('emby_1', 'emby_2')"
+	if where != expected {
+		t.Fatalf("where clause mismatch:\nwant: %s\ngot:  %s", expected, where)
 	}
 }
 
@@ -65,16 +75,38 @@ func TestParsePlaybackRowsSupportsColumnsField(t *testing.T) {
 }
 
 func TestParsePlaybackTimeWithoutTimezoneUsesLocalTime(t *testing.T) {
-	originalLocal := time.Local
-	defer func() { time.Local = originalLocal }()
-
-	loc := time.FixedZone("UTC+8", 8*3600)
-	time.Local = loc
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
 
 	got := parsePlaybackTime("2026-03-06 10:00:00")
-	want := time.Date(2026, 3, 6, 2, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 3, 6, 18, 0, 0, 0, loadPlaybackTimezone())
 	if !got.Equal(want) {
 		t.Fatalf("unexpected parsed time, want=%s got=%s", want.Format(time.RFC3339), got.Format(time.RFC3339))
+	}
+}
+
+func TestParsePlaybackTimeWithTimezoneConvertsToConfiguredTimezone(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
+
+	got := parsePlaybackTime("2026-03-06T02:00:00Z")
+	want := time.Date(2026, 3, 6, 10, 0, 0, 0, loadPlaybackTimezone())
+	if !got.Equal(want) {
+		t.Fatalf("unexpected parsed time, want=%s got=%s", want.Format(time.RFC3339), got.Format(time.RFC3339))
+	}
+}
+
+func TestBuildPlaybackWhereClauseConvertsLocalDayToUTCRange(t *testing.T) {
+	tz := time.FixedZone("UTC+8", 8*3600)
+	start := time.Date(2026, 3, 21, 0, 0, 0, 0, tz)
+	end := time.Date(2026, 3, 21, 0, 0, 0, 0, tz)
+	query := &playbackHistoryQuery{
+		startDate: &start,
+		endDate:   &end,
+	}
+
+	where := buildPlaybackWhereClause(query, nil)
+	expected := "1=1 AND DateCreated >= '2026-03-20 16:00:00' AND DateCreated <= '2026-03-21 15:59:59'"
+	if where != expected {
+		t.Fatalf("where clause mismatch:\nwant: %s\ngot:  %s", expected, where)
 	}
 }
 

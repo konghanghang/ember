@@ -13,7 +13,8 @@ import {
   UserFilled,
   Lock,
   Unlock,
-  CreditCard
+  CreditCard,
+  DataLine
 } from '@element-plus/icons-vue'
 import { getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
 import type { UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
@@ -198,6 +199,14 @@ const handleViewPayments = (row: UserInfo) => {
   router.push({
     name: 'console-billing',
     query: { tab: 'payments', userId: row.id }
+  })
+}
+
+const handleViewProfile = (row: UserInfo) => {
+  router.push({
+    name: 'console-user-profile',
+    params: { id: row.id },
+    query: { range: '30d' }
   })
 }
 
@@ -484,7 +493,8 @@ onMounted(() => {
                   <el-icon :size="18"><MoreFilled /></el-icon>
                 </button>
                 <template #dropdown>
-                  <el-dropdown-menu class="w-36">
+                  <el-dropdown-menu class="w-40">
+                    <el-dropdown-item :icon="DataLine" @click="handleViewProfile(row)">用户画像</el-dropdown-item>
                     <el-dropdown-item :icon="CreditCard" @click="handleViewPayments(row)">支付记录</el-dropdown-item>
                     <el-dropdown-item :icon="Key" @click="handleResetPassword(row)">重置密码</el-dropdown-item>
                     <el-dropdown-item 

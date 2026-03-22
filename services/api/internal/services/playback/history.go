@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
@@ -30,6 +31,7 @@ type PlaybackHistoryService struct {
 
 type PlaybackHistoryRequest struct {
 	UserID    string `form:"userId" json:"userId"`
+	Username  string `form:"username" json:"username"`
 	Keyword   string `form:"keyword" json:"keyword"`
 	StartDate string `form:"startDate" json:"startDate"`
 	EndDate   string `form:"endDate" json:"endDate"`
@@ -80,12 +82,12 @@ func NewPlaybackHistoryService() *PlaybackHistoryService {
 }
 
 func (s *PlaybackHistoryService) GetPlaybackHistory(ctx context.Context, req PlaybackHistoryRequest) (*PlaybackHistoryResponse, error) {
-	query, embyUserID, err := s.normalizeRequest(req)
+	query, playbackUserIDs, err := s.normalizeRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	if query.UserID != "" && embyUserID == "" {
+	if (query.UserID != "" || query.Username != "") && len(playbackUserIDs) == 0 {
 		return &PlaybackHistoryResponse{
 			Data:     []PlaybackHistoryItem{},
 			Total:    0,
@@ -94,7 +96,7 @@ func (s *PlaybackHistoryService) GetPlaybackHistory(ctx context.Context, req Pla
 		}, nil
 	}
 
-	whereClause := buildPlaybackWhereClause(query, embyUserID)
+	whereClause := buildPlaybackWhereClause(query, playbackUserIDs)
 	countSQL := fmt.Sprintf("SELECT COUNT(1) AS total FROM PlaybackActivity WHERE %s", whereClause)
 
 	countResp, err := s.embyService.QueryPlaybackStats(countSQL)
@@ -332,10 +334,11 @@ func shouldFallbackPlaybackDetailError(err error) bool {
 	return false
 }
 
-func (s *PlaybackHistoryService) normalizeRequest(req PlaybackHistoryRequest) (*playbackHistoryQuery, string, error) {
+func (s *PlaybackHistoryService) normalizeRequest(ctx context.Context, req PlaybackHistoryRequest) (*playbackHistoryQuery, []string, error) {
 	query := &playbackHistoryQuery{
 		PlaybackHistoryRequest: PlaybackHistoryRequest{
 			UserID:    strings.TrimSpace(req.UserID),
+			Username:  strings.TrimSpace(req.Username),
 			Keyword:   strings.TrimSpace(req.Keyword),
 			StartDate: strings.TrimSpace(req.StartDate),
 			EndDate:   strings.TrimSpace(req.EndDate),
@@ -356,62 +359,121 @@ func (s *PlaybackHistoryService) normalizeRequest(req PlaybackHistoryRequest) (*
 
 	if query.Keyword != "" {
 		if len([]rune(query.Keyword)) > 100 || !playbackKeywordPattern.MatchString(query.Keyword) {
-			return nil, "", ErrPlaybackHistoryInvalidKeyword
+			return nil, nil, ErrPlaybackHistoryInvalidKeyword
+		}
+	}
+
+	if query.Username != "" {
+		if len([]rune(query.Username)) > 100 || !playbackKeywordPattern.MatchString(query.Username) {
+			return nil, nil, ErrPlaybackHistoryInvalidKeyword
 		}
 	}
 
 	if query.StartDate != "" {
-		start, err := time.Parse(playbackDateFormat, query.StartDate)
+		start, err := time.ParseInLocation(playbackDateFormat, query.StartDate, loadPlaybackTimezone())
 		if err != nil {
-			return nil, "", ErrPlaybackHistoryInvalidDate
+			return nil, nil, ErrPlaybackHistoryInvalidDate
 		}
-		startUTC := start.UTC()
-		query.startDate = &startUTC
+		query.startDate = &start
 	}
 
 	if query.EndDate != "" {
-		end, err := time.Parse(playbackDateFormat, query.EndDate)
+		end, err := time.ParseInLocation(playbackDateFormat, query.EndDate, loadPlaybackTimezone())
 		if err != nil {
-			return nil, "", ErrPlaybackHistoryInvalidDate
+			return nil, nil, ErrPlaybackHistoryInvalidDate
 		}
-		endUTC := end.UTC()
-		query.endDate = &endUTC
+		query.endDate = &end
 	}
 
 	if query.startDate != nil && query.endDate != nil && query.endDate.Before(*query.startDate) {
-		return nil, "", ErrPlaybackHistoryInvalidDate
+		return nil, nil, ErrPlaybackHistoryInvalidDate
 	}
 
-	if query.UserID == "" {
-		return query, "", nil
-	}
-	if !playbackUserIDPattern.MatchString(query.UserID) {
-		return nil, "", ErrPlaybackHistoryInvalidUserID
+	if query.UserID != "" {
+		if !playbackUserIDPattern.MatchString(query.UserID) {
+			return nil, nil, ErrPlaybackHistoryInvalidUserID
+		}
+
+		playbackUserID, err := s.resolvePlaybackUserIDByUserID(ctx, query.UserID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return query, []string{playbackUserID}, nil
 	}
 
+	if query.Username != "" {
+		playbackUserIDs, err := s.resolvePlaybackUserIDsByUsername(ctx, query.Username)
+		if err != nil {
+			return nil, nil, err
+		}
+		return query, playbackUserIDs, nil
+	}
+
+	return query, nil, nil
+}
+
+func (s *PlaybackHistoryService) resolvePlaybackUserIDByUserID(ctx context.Context, userID string) (string, error) {
 	var user models.User
-	err := db.DB.Select("id", "username", "\"embyId\"").Where("id = ?", query.UserID).First(&user).Error
+	err := db.DB.WithContext(ctx).Select("id", "username", "\"embyId\"").Where("id = ?", userID).First(&user).Error
 	if err == nil {
 		embyID := strings.TrimSpace(user.EmbyID)
 		if embyID != "" {
-			return query, embyID, nil
+			return embyID, nil
 		}
 		// 本地用户未绑定 embyId 时，降级按原始 userId 直查 PlaybackActivity.UserId。
-		return query, query.UserID, nil
+		return userID, nil
 	}
 	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, "", fmt.Errorf("查询用户失败: %w", err)
+		return "", fmt.Errorf("查询用户失败: %w", err)
 	}
 
 	// 兼容无本地映射用户：按 Emby UserId 直接过滤。
-	return query, query.UserID, nil
+	return userID, nil
 }
 
-func buildPlaybackWhereClause(query *playbackHistoryQuery, embyUserID string) string {
+func (s *PlaybackHistoryService) resolvePlaybackUserIDsByUsername(ctx context.Context, username string) ([]string, error) {
+	var users []models.User
+	if err := db.DB.WithContext(ctx).
+		Select("id", "username", "\"embyId\"").
+		Where("username ILIKE ?", "%"+username+"%").
+		Order("username ASC").
+		Find(&users).Error; err != nil {
+		return nil, fmt.Errorf("查询用户失败: %w", err)
+	}
+
+	if len(users) == 0 {
+		return []string{}, nil
+	}
+
+	uniqueIDs := make(map[string]struct{}, len(users))
+	playbackUserIDs := make([]string, 0, len(users))
+	for _, user := range users {
+		playbackUserID := strings.TrimSpace(user.EmbyID)
+		if playbackUserID == "" {
+			playbackUserID = strings.TrimSpace(user.ID)
+		}
+		if playbackUserID == "" {
+			continue
+		}
+		if _, exists := uniqueIDs[playbackUserID]; exists {
+			continue
+		}
+		uniqueIDs[playbackUserID] = struct{}{}
+		playbackUserIDs = append(playbackUserIDs, playbackUserID)
+	}
+
+	return playbackUserIDs, nil
+}
+
+func buildPlaybackWhereClause(query *playbackHistoryQuery, playbackUserIDs []string) string {
 	conditions := []string{"1=1"}
 
-	if embyUserID != "" {
-		conditions = append(conditions, fmt.Sprintf("UserId = '%s'", escapeSQLLiteral(embyUserID)))
+	if len(playbackUserIDs) > 0 {
+		quotedUserIDs := make([]string, 0, len(playbackUserIDs))
+		for _, playbackUserID := range playbackUserIDs {
+			quotedUserIDs = append(quotedUserIDs, fmt.Sprintf("'%s'", escapeSQLLiteral(playbackUserID)))
+		}
+		conditions = append(conditions, fmt.Sprintf("UserId IN (%s)", strings.Join(quotedUserIDs, ", ")))
 	}
 
 	if query.Keyword != "" {
@@ -423,12 +485,24 @@ func buildPlaybackWhereClause(query *playbackHistoryQuery, embyUserID string) st
 	}
 
 	if query.startDate != nil {
-		start := query.startDate.Format("2006-01-02 00:00:00")
+		start := time.Date(
+			query.startDate.Year(),
+			query.startDate.Month(),
+			query.startDate.Day(),
+			0, 0, 0, 0,
+			query.startDate.Location(),
+		).UTC().Format("2006-01-02 15:04:05")
 		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", start))
 	}
 
 	if query.endDate != nil {
-		end := query.endDate.Format("2006-01-02 23:59:59")
+		end := time.Date(
+			query.endDate.Year(),
+			query.endDate.Month(),
+			query.endDate.Day(),
+			23, 59, 59, 0,
+			query.endDate.Location(),
+		).UTC().Format("2006-01-02 15:04:05")
 		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", end))
 	}
 
@@ -566,6 +640,8 @@ func parsePlaybackTime(raw string) time.Time {
 		return time.Time{}
 	}
 
+	playbackTZ := loadPlaybackTimezone()
+
 	layoutsWithTimezone := []string{
 		time.RFC3339Nano,
 		time.RFC3339,
@@ -579,17 +655,21 @@ func parsePlaybackTime(raw string) time.Time {
 
 	for _, layout := range layoutsWithTimezone {
 		if t, err := time.Parse(layout, raw); err == nil {
-			return t.UTC()
+			return t.In(playbackTZ)
 		}
 	}
 
 	for _, layout := range layoutsWithoutTimezone {
-		if t, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
-			return t.UTC()
+		if t, err := time.ParseInLocation(layout, raw, time.UTC); err == nil {
+			return t.In(playbackTZ)
 		}
 	}
 
 	return time.Time{}
+}
+
+func loadPlaybackTimezone() *time.Location {
+	return configpkg.LoadConfiguredTimezone()
 }
 
 func safeString(v interface{}) string {

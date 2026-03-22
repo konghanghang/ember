@@ -44,6 +44,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 
 	admin.GET("/users", h.user.GetUsers)
 	admin.GET("/users/:id", h.user.GetUserByID)
+	admin.GET("/users/:id/profile", h.playbackProfile.GetAdminUserProfile)
 	admin.PUT("/users/:id", h.user.UpdateUserByAdmin)
 	admin.PUT("/users/:id/extend", h.user.ExtendExpiry)
 	admin.PUT("/users/:id/toggle", h.user.ToggleUserStatus)
@@ -125,6 +126,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.DELETE("/subscriptions/:id", h.subscription.DeleteSubscription)
 
 	authenticated.GET("/profile", h.user.GetProfile)
+	authenticated.GET("/profile/analytics", h.playbackProfile.GetCurrentUserProfile)
 	authenticated.GET("/account-links", h.setting.GetConsoleAccountLinks)
 	authenticated.PUT("/profile", h.user.UpdateProfile)
 	authenticated.PUT("/password", h.user.UpdatePassword)

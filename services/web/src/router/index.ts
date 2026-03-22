@@ -86,6 +86,12 @@ const router = createRouter({
           component: () => import('../views/admin/UsersView.vue'),
         },
         {
+          path: 'users/:id/profile',
+          name: 'console-user-profile',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/UserPlaybackProfileView.vue'),
+        },
+        {
           path: 'redemptions',
           name: 'console-redemptions',
           meta: { role: 'admin' },
