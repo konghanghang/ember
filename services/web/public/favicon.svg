@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Ember favicon</title>
+  <desc id="desc">Rounded red square with a bold white letter E</desc>
+  <defs>
+    <linearGradient id="emberBg" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F40612" />
+      <stop offset="1" stop-color="#B20710" />
+    </linearGradient>
+    <linearGradient id="emberGlow" x1="18" y1="14" x2="42" y2="38" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.24" />
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#emberBg)" />
+  <rect x="8" y="8" width="48" height="24" rx="12" fill="url(#emberGlow)" />
+
+  <g fill="#FFFFFF">
+    <rect x="18" y="16" width="8" height="32" rx="4" />
+    <rect x="18" y="16" width="28" height="8" rx="4" />
+    <rect x="18" y="28" width="22" height="7" rx="3.5" />
+    <rect x="18" y="40" width="28" height="8" rx="4" />
+  </g>
+</svg>

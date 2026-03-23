@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Ember Telegram Channel</title>
+  <desc id="desc">Ember Telegram channel avatar with a unified ember red background, a white E mark, and a role-specific badge.</desc>
+  <defs>
+    <linearGradient id="bg" x1="140" y1="120" x2="888" y2="912" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F40612" />
+      <stop offset="0.54" stop-color="#C20B18" />
+      <stop offset="1" stop-color="#610A14" />
+    </linearGradient>
+    <radialGradient id="glow" cx="280" cy="250" r="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="shade" cx="820" cy="870" r="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#111827" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#111827" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)" />
+  <circle cx="280" cy="250" r="250" fill="url(#glow)" />
+  <circle cx="820" cy="870" r="360" fill="url(#shade)" />
+
+  <rect x="212" y="188" width="600" height="600" rx="184" fill="#FFFFFF" fill-opacity="0.09" />
+  <rect x="242" y="218" width="540" height="540" rx="154" fill="#FFFFFF" fill-opacity="0.05" />
+
+  <g fill="#FFFFFF">
+    <rect x="328" y="250" width="96" height="428" rx="48" />
+    <rect x="328" y="250" width="392" height="96" rx="48" />
+    <rect x="328" y="430" width="290" height="84" rx="42" />
+    <rect x="328" y="582" width="392" height="96" rx="48" />
+  </g>
+
+  <circle cx="760" cy="760" r="162" fill="#FFFFFF" fill-opacity="0.14" />
+  <circle cx="760" cy="760" r="150" fill="#FFFFFF" />
+  <circle cx="760" cy="760" r="126" fill="#E50914" fill-opacity="0.08" />
+  
+      <circle cx="760" cy="700" r="24" fill="#E50914" />
+      <rect x="742" y="734" width="36" height="112" rx="18" fill="#E50914" />
+      <path d="M722 694 A78 78 0 0 0 722 826" fill="none" stroke="#E50914" stroke-width="18" stroke-linecap="round" />
+      <path d="M798 694 A78 78 0 0 1 798 826" fill="none" stroke="#E50914" stroke-width="18" stroke-linecap="round" />
+      <path d="M682 654 A118 118 0 0 0 682 866" fill="none" stroke="#E50914" stroke-width="18" stroke-linecap="round" />
+      <path d="M838 654 A118 118 0 0 1 838 866" fill="none" stroke="#E50914" stroke-width="18" stroke-linecap="round" />
+    
+</svg>
