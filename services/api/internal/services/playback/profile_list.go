@@ -23,6 +23,8 @@ const (
 
 type PlaybackProfileListQuery struct {
 	Range     string `form:"range" json:"range"`
+	StartDate string `form:"startDate" json:"startDate"`
+	EndDate   string `form:"endDate" json:"endDate"`
 	Keyword   string `form:"keyword" json:"keyword"`
 	SortBy    string `form:"sortBy" json:"sortBy"`
 	SortOrder string `form:"sortOrder" json:"sortOrder"`
@@ -166,7 +168,11 @@ func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context
 }
 
 func (s *UserPlaybackProfileService) normalizePlaybackProfileListQuery(ctx context.Context, req PlaybackProfileListQuery) (*normalizedPlaybackProfileListQuery, error) {
-	rangeValue, startAt, endAt, err := normalizePlaybackProfileRange(PlaybackProfileQuery{Range: req.Range})
+	rangeValue, startAt, endAt, err := normalizePlaybackProfileRange(PlaybackProfileQuery{
+		Range:     req.Range,
+		StartDate: req.StartDate,
+		EndDate:   req.EndDate,
+	})
 	if err != nil {
 		return nil, err
 	}

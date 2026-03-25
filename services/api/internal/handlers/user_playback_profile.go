@@ -30,7 +30,10 @@ func (h *UserPlaybackProfileHandler) GetAdminUserProfiles(c *gin.Context) {
 	resp, err := h.service.GetUserProfilesOverview(c.Request.Context(), query)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrPlaybackHistoryInvalidKeyword), errors.Is(err, services.ErrPlaybackProfileInvalidRange):
+		case errors.Is(err, services.ErrPlaybackHistoryInvalidKeyword),
+			errors.Is(err, services.ErrPlaybackProfileInvalidDate),
+			errors.Is(err, services.ErrPlaybackProfileInvalidRange),
+			errors.Is(err, services.ErrPlaybackProfileRangeTooLarge):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, services.ErrPlaybackHistoryQueryFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": services.ErrPlaybackHistoryQueryFailed.Error()})

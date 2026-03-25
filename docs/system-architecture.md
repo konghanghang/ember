@@ -126,6 +126,10 @@ services/
 │  │  │  └─ console.ts           # 统一认证路由接口（profile, account-links, subscriptions, payments, rankings 等）
 │  │  ├─ plugins/
 │  │  │  └─ element-plus.ts      # Element Plus 按需组件/指令/样式注册入口
+│  │  ├─ components/
+│  │  │  ├─ console/             # 控制台导航 / 顶栏等布局组件
+│  │  │  └─ profile/
+│  │  │     └─ PlaybackProfileContent.vue # 用户画像共享主体（user/admin 共用）
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义
 │  │  ├─ store/
 │  │  │  ├─ auth.ts              # Pinia: token + role (localStorage 持久化)
@@ -726,11 +730,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 管理员侧用户画像总览聚合能力，按用户维度汇总指定时间窗口内的播放活跃度，并输出分页列表。
 
-- `GetUserProfilesOverview(ctx, query)` — 支持 `range` / `keyword` / `sortBy` / `sortOrder` / `page` / `pageSize`
+- `GetUserProfilesOverview(ctx, query)` — 支持 `range`，也支持 `startDate/endDate` 自定义日期时间范围，并支持 `keyword` / `sortBy` / `sortOrder` / `page` / `pageSize`
 - 聚合结果字段：`totalPlayDuration` / `totalPlayCount` / `activeDays` / `lastPlayedAt` / `peakHourLabel`
 - 总览页标签只返回精简预览（默认前 2 个），避免列表噪音
 - 默认按累计播放时长倒序，可切换按播放次数、活跃天数、最近播放排序
 - 总览摘要包含：`userCount` / `totalPlayCount` / `totalPlayDuration`
+- 自定义日期时间范围最大跨度限制为 `92` 天，和单用户画像保持一致
 
 ### 5.22 MediaQualityService (`services/media_quality.go`)
 
@@ -819,7 +824,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
 | GET | `/api/v1/admin/users` | 用户列表 |
 | GET | `/api/v1/admin/users/:id` | 用户详情 |
-| GET | `/api/v1/admin/users/:id/profile` | 用户画像（支持 `range`） |
+| GET | `/api/v1/admin/users/:id/profile` | 用户画像（支持 `range` 或 `startDate/endDate`） |
 | PUT | `/api/v1/admin/users/:id` | 更新用户 |
 | PUT | `/api/v1/admin/users/:id/extend` | 延长有效期 |
 | PUT | `/api/v1/admin/users/:id/toggle` | 切换激活状态 |
@@ -842,7 +847,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
 | GET | `/api/v1/admin/playback-history` | 播放历史查询 |
-| GET | `/api/v1/admin/playback-profiles` | 用户画像总览（支持 `range/keyword/sortBy/sortOrder/page/pageSize`） |
+| GET | `/api/v1/admin/playback-profiles` | 用户画像总览（支持 `range` 或 `startDate/endDate`，以及 `keyword/sortBy/sortOrder/page/pageSize`） |
 | GET | `/api/v1/admin/media-quality/libraries` | 媒体库列表（质量盘点） |
 | GET | `/api/v1/admin/media-quality/libraries/:libraryId` | 媒体库质量报告（支持 `force/page/pageSize`） |
 | POST | `/api/v1/admin/media-quality/libraries/:libraryId/scan` | 触发媒体库质量扫描 |
@@ -1023,6 +1028,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 数据源：`GET /api/v1/admin/playback-profiles`
 - 支持：
   - 时间窗口：`7d / 30d / 90d / all`
+  - 自定义日期时间范围（最大 92 天）
   - 用户名搜索
   - 排序字段切换
   - 查看单用户画像 / 播放历史
@@ -1035,6 +1041,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 主入口：`views/admin/UserPlaybackProfilesView.vue`
 - 辅助入口：`views/admin/PlaybackHistoryView.vue`
 - 兼容入口：`views/admin/UsersView.vue`
+- 页面主体：复用 `components/profile/PlaybackProfileContent.vue`，仅在外层补管理员操作
 - 数据源：`GET /api/v1/admin/users/:id/profile?range=7d|30d|90d|all` 或 `startDate/endDate`
 - 页面模块：
   - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
@@ -1047,6 +1054,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 新增路由：`/console/profile-analytics`（user）
 - 新增视图：`views/console/ProfileAnalyticsView.vue`
+- 页面主体：复用 `components/profile/PlaybackProfileContent.vue`
 - 数据源：`GET /api/v1/profile/analytics?range=7d|30d|90d|all` 或 `startDate/endDate`
 - 页面模块：
   - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放

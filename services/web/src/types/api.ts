@@ -244,6 +244,8 @@ export type PlaybackProfileListSortOrder = 'asc' | 'desc'
 
 export interface PlaybackProfileListQuery extends PaginationQuery {
   range?: PlaybackProfileRange
+  startDate?: string
+  endDate?: string
   keyword?: string
   sortBy?: PlaybackProfileListSortBy
   sortOrder?: PlaybackProfileListSortOrder
