@@ -74,7 +74,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	user, err := h.authService.GetCurrentUser(userID.(string))
+	user, err := h.userService.GetProfile(userID.(string))
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": err.Error(),

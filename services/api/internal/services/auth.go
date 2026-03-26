@@ -77,13 +77,3 @@ func (s *AuthService) applyTemplatePolicyIfNeeded(newEmbyID string, templateUser
 
 	return nil
 }
-
-// GetCurrentUser 获取当前用户信息
-func (s *AuthService) GetCurrentUser(userID string) (*models.User, error) {
-	var user models.User
-	result := db.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
-		return nil, errors.New("用户不存在")
-	}
-	return &user, nil
-}

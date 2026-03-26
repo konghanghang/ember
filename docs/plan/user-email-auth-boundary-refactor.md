@@ -52,7 +52,7 @@
   - `services/api/internal/handlers/user.go`
   - `services/api/internal/handlers/auth.go`
 - 当前行为：
-  - `AuthService` 负责登录、注册、当前用户查询。
+  - `AuthService` 负责登录、注册编排。
   - `UserService` 负责管理员用户管理、个人资料、密码与邮箱修改、通过邮箱验证码重置密码、Emby 状态同步。
   - `EmailService` 已收口到 `services/email/`，负责验证码发送/校验/清理和 SMTP 连接测试。
 - 现有限制：
