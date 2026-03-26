@@ -703,6 +703,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `Unsubscribe(userID, tmdbId)` — 取消关注
 - `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）；默认优先同步最近 30 天活跃剧，`force=true` 时回退全量
 - `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
+- 周历查询阶段会按 `airDate` 实时归一非 `ready` 状态，避免 `upcoming/today/missing` 因缓存未刷新而长期滞后
+- 同步和 Webhook 都会刷新 `lastEpisodeIngestedAt`，保证仍在更新的剧源不会被增量同步窗口错误跳过
+- Webhook 只信任显式 `SeriesId` 字段，`ParentId` 不参与 `seriesId` 持久化，避免季节点误写污染追剧源
 
 ### 5.19 PlaybackHistoryService (`services/playback/history.go`)
 

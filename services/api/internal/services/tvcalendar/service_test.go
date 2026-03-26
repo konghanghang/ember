@@ -106,6 +106,58 @@ func TestParseEmbyDateTimeSupportsRFC3339Nano(t *testing.T) {
 	}
 }
 
+func TestResolveCalendarItemStatus(t *testing.T) {
+	now := time.Date(2026, 3, 26, 9, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		item models.TVCalendarItem
+		want string
+	}{
+		{
+			name: "ready stays ready even when air date is in the future",
+			item: models.TVCalendarItem{
+				AirDate: now.AddDate(0, 0, 2),
+				Status:  models.TVCalendarStatusReady,
+			},
+			want: models.TVCalendarStatusReady,
+		},
+		{
+			name: "future non-ready becomes upcoming",
+			item: models.TVCalendarItem{
+				AirDate: now.AddDate(0, 0, 2),
+				Status:  models.TVCalendarStatusMissing,
+			},
+			want: models.TVCalendarStatusUpcoming,
+		},
+		{
+			name: "same day non-ready becomes today",
+			item: models.TVCalendarItem{
+				AirDate: now,
+				Status:  models.TVCalendarStatusUpcoming,
+			},
+			want: models.TVCalendarStatusToday,
+		},
+		{
+			name: "past non-ready becomes missing",
+			item: models.TVCalendarItem{
+				AirDate: now.AddDate(0, 0, -1),
+				Status:  models.TVCalendarStatusUpcoming,
+			},
+			want: models.TVCalendarStatusMissing,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveCalendarItemStatus(tt.item, now)
+			if got != tt.want {
+				t.Fatalf("expected %s, got %s", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestShouldSyncSourceIncrementally(t *testing.T) {
 	cutoff := time.Date(2026, 2, 12, 0, 0, 0, 0, time.UTC)
 	recent := cutoff.Add(24 * time.Hour)

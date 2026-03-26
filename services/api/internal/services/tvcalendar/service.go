@@ -302,6 +302,13 @@ func deriveStatusByAirDate(airDate time.Time, now time.Time) string {
 	return models.TVCalendarStatusMissing
 }
 
+func resolveCalendarItemStatus(item models.TVCalendarItem, now time.Time) string {
+	if item.Status == models.TVCalendarStatusReady {
+		return models.TVCalendarStatusReady
+	}
+	return deriveStatusByAirDate(item.AirDate, now)
+}
+
 func parseDateOnly(date string) (time.Time, error) {
 	t, err := time.Parse("2006-01-02", date)
 	if err != nil {
@@ -557,15 +564,22 @@ func (s *TVCalendarService) queryCalendarItems(tmdbIDs []string, start, end time
 	if len(tmdbIDs) > 0 {
 		query = query.Where("\"tmdbId\" IN ?", tmdbIDs)
 	}
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
 
 	var items []models.TVCalendarItem
 	if err := query.Order("\"airDate\" ASC").Order("\"tmdbId\" ASC").Order("season ASC").Order("episode ASC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧日历失败: %w", err)
 	}
-	return items, nil
+
+	now := time.Now().UTC()
+	filtered := make([]models.TVCalendarItem, 0, len(items))
+	for _, item := range items {
+		item.Status = resolveCalendarItemStatus(item, now)
+		if status != "" && item.Status != status {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, nil
 }
 
 func (s *TVCalendarService) loadSourceMap(tmdbIDs []string) (map[string]models.TVCalendarSource, error) {
@@ -1005,6 +1019,9 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 			}
 			if lastEpisodeIngestedAt != nil {
 				source.LastEpisodeIngestedAt = lastEpisodeIngestedAt
+				if err := s.upsertSource(source, true); err != nil {
+					return total, err
+				}
 			}
 
 			seasonNumbers := pickTargetSeasonNumbers(detail)
@@ -1427,9 +1444,10 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 		return 0, nil
 	}
 
+	now := time.Now().UTC()
 	updates := map[string]interface{}{
 		"status":      models.TVCalendarStatusReady,
-		"lastChecked": time.Now().UTC(),
+		"lastChecked": now,
 	}
 	if strings.TrimSpace(embyItemID) != "" {
 		updates["embyItemId"] = strings.TrimSpace(embyItemID)
@@ -1448,7 +1466,14 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 		if result.Error != nil {
 			return 0, fmt.Errorf("更新剧集状态失败: %w", result.Error)
 		}
-		if result.RowsAffected > 0 || trimmedSeriesID == "" {
+		if result.RowsAffected > 0 {
+			if err := s.touchSourceLastEpisodeIngestedAt(ctx, trimmedTmdbID, trimmedSeriesID, now); err != nil {
+				return result.RowsAffected, err
+			}
+			log.Printf("[TV Calendar] Webhook 标记剧集入库: tmdbId=%s seriesId=%s season=%d episode=%d updated=%d", trimmedTmdbID, trimmedSeriesID, season, episode, result.RowsAffected)
+			return result.RowsAffected, nil
+		}
+		if trimmedSeriesID == "" {
 			return result.RowsAffected, nil
 		}
 	}
@@ -1464,8 +1489,11 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 		return 0, fmt.Errorf("更新剧集状态失败: %w", result.Error)
 	}
 
-	if err := s.touchSourceLastEpisodeIngestedAt(ctx, trimmedTmdbID, trimmedSeriesID, time.Now().UTC()); err != nil {
+	if err := s.touchSourceLastEpisodeIngestedAt(ctx, trimmedTmdbID, trimmedSeriesID, now); err != nil {
 		return result.RowsAffected, err
+	}
+	if result.RowsAffected > 0 {
+		log.Printf("[TV Calendar] Webhook 标记剧集入库: tmdbId=%s seriesId=%s season=%d episode=%d updated=%d", trimmedTmdbID, trimmedSeriesID, season, episode, result.RowsAffected)
 	}
 
 	return result.RowsAffected, nil

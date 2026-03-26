@@ -279,7 +279,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 	}
 
 	tmdbID := extractTMDBID(item)
-	seriesID := extractString(item, "SeriesId", "seriesId", "SeriesID", "ParentId", "parentId")
+	seriesID := extractSeriesID(item)
 	embyItemID := extractString(item, "Id", "id")
 
 	updatedCount, err := h.service.MarkEpisodeReadyByWebhook(c.Request.Context(), tmdbID, seriesID, season, episode, embyItemID)
@@ -386,6 +386,10 @@ func extractTMDBID(item map[string]interface{}) string {
 		return ""
 	}
 	return extractString(providerIDs, "Tmdb", "TMDB", "tmdb")
+}
+
+func extractSeriesID(item map[string]interface{}) string {
+	return extractString(item, "SeriesId", "seriesId", "SeriesID")
 }
 
 func hasPhysicalMedia(item map[string]interface{}) bool {
