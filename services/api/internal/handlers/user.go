@@ -6,21 +6,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/services"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
 
 // UserHandler 用户处理器
 type UserHandler struct {
 	userService           *services.UserService
-	redemptionService     *services.RedemptionService
-	redemptionCodeService *services.RedemptionCodeService
+	redemptionService     *redemptionpkg.RedemptionService
+	redemptionCodeService *redemptionpkg.RedemptionCodeService
 }
 
 // NewUserHandler 创建用户处理器
 func NewUserHandler() *UserHandler {
 	return &UserHandler{
 		userService:           &services.UserService{},
-		redemptionService:     &services.RedemptionService{},
-		redemptionCodeService: &services.RedemptionCodeService{},
+		redemptionService:     &redemptionpkg.RedemptionService{},
+		redemptionCodeService: &redemptionpkg.RedemptionCodeService{},
 	}
 }
 
@@ -358,7 +359,7 @@ func (h *UserHandler) UpdateEmail(c *gin.Context) {
 func (h *UserHandler) RedeemCode(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	var req services.RedeemCodeRequest
+	var req redemptionpkg.RedeemCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -367,9 +368,9 @@ func (h *UserHandler) RedeemCode(c *gin.Context) {
 	resp, err := h.redemptionService.RedeemCode(userID.(string), &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrRedemptionCodeNotFound),
-			errors.Is(err, services.ErrRedemptionCodeInvalid),
-			errors.Is(err, services.ErrRedemptionDuplicate):
+		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
+			errors.Is(err, redemptionpkg.ErrRedemptionDuplicate):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -395,7 +396,7 @@ func (h *UserHandler) ValidateRedeemCode(c *gin.Context) {
 func (h *UserHandler) GetRedemptions(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	var req services.GetRedemptionsRequest
+	var req redemptionpkg.GetRedemptionsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -411,7 +412,7 @@ func (h *UserHandler) GetRedemptions(c *gin.Context) {
 }
 
 func (h *UserHandler) GetAllRedemptions(c *gin.Context) {
-	var req services.GetAllRedemptionsRequest
+	var req redemptionpkg.GetAllRedemptionsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return

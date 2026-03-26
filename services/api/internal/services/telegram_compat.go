@@ -2,6 +2,7 @@ package services
 
 import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 )
 
@@ -26,7 +27,7 @@ var (
 type telegramRedeemerAdapter struct{}
 
 func (telegramRedeemerAdapter) Redeem(userID, code string) (*telegrampkg.TelegramRedeemResponse, error) {
-	resp, err := (&RedemptionService{}).RedeemCode(userID, &RedeemCodeRequest{Code: code})
+	resp, err := (&redemptionpkg.RedemptionService{}).RedeemCode(userID, &redemptionpkg.RedeemCodeRequest{Code: code})
 	if err != nil {
 		return nil, err
 	}

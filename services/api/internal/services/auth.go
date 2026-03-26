@@ -12,6 +12,7 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	"gorm.io/gorm"
 )
 
@@ -142,7 +143,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		if req.Code == "" {
 			return nil, errors.New("当前为邀请注册模式，请提供兑换码")
 		}
-		codeService := &RedemptionCodeService{}
+		codeService := &redemptionpkg.RedemptionCodeService{}
 		var err error
 		redemptionCode, err = codeService.ValidateCode(req.Code)
 		if err != nil {
@@ -208,7 +209,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		if result.RowsAffected == 0 {
 			tx.Rollback()
 			_ = embyService.DeleteUser(embyUser.ID)
-			return nil, ErrRedemptionCodeInvalid
+			return nil, redemptionpkg.ErrRedemptionCodeInvalid
 		}
 
 		redemption := models.Redemption{

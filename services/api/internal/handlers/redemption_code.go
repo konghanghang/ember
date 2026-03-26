@@ -6,17 +6,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/models"
-	"github.com/konghang/ember/backend/internal/services"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
 
 type redemptionCodeService interface {
-	CreateRedemptionCode(req *services.CreateRedemptionCodeRequest) (*models.RedemptionCode, error)
-	CreateRedemptionCodesBatch(req *services.CreateRedemptionCodesBatchRequest) (*services.CreateRedemptionCodesBatchResponse, error)
-	GetRedemptionCodes(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error)
+	CreateRedemptionCode(req *redemptionpkg.CreateRedemptionCodeRequest) (*models.RedemptionCode, error)
+	CreateRedemptionCodesBatch(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error)
+	GetRedemptionCodes(req *redemptionpkg.GetRedemptionCodesRequest) (*redemptionpkg.GetRedemptionCodesResponse, error)
 	DeleteRedemptionCode(id string) error
-	UpdateRedemptionCode(id string, req *services.UpdateRedemptionCodeRequest) (*models.RedemptionCode, error)
+	UpdateRedemptionCode(id string, req *redemptionpkg.UpdateRedemptionCodeRequest) (*models.RedemptionCode, error)
 	ValidateCode(code string) (*models.RedemptionCode, error)
-	GetUserTemplates() (*services.GetUserTemplatesResponse, error)
+	GetUserTemplates() (*redemptionpkg.GetUserTemplatesResponse, error)
 }
 
 type RedemptionCodeHandler struct {
@@ -24,11 +24,11 @@ type RedemptionCodeHandler struct {
 }
 
 func NewRedemptionCodeHandler() *RedemptionCodeHandler {
-	return &RedemptionCodeHandler{service: &services.RedemptionCodeService{}}
+	return &RedemptionCodeHandler{service: &redemptionpkg.RedemptionCodeService{}}
 }
 
 func (h *RedemptionCodeHandler) CreateRedemptionCode(c *gin.Context) {
-	var req services.CreateRedemptionCodeRequest
+	var req redemptionpkg.CreateRedemptionCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -48,7 +48,7 @@ func (h *RedemptionCodeHandler) CreateRedemptionCode(c *gin.Context) {
 }
 
 func (h *RedemptionCodeHandler) CreateRedemptionCodesBatch(c *gin.Context) {
-	var req services.CreateRedemptionCodesBatchRequest
+	var req redemptionpkg.CreateRedemptionCodesBatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -68,7 +68,7 @@ func (h *RedemptionCodeHandler) CreateRedemptionCodesBatch(c *gin.Context) {
 }
 
 func (h *RedemptionCodeHandler) GetRedemptionCodes(c *gin.Context) {
-	var req services.GetRedemptionCodesRequest
+	var req redemptionpkg.GetRedemptionCodesRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -76,7 +76,7 @@ func (h *RedemptionCodeHandler) GetRedemptionCodes(c *gin.Context) {
 
 	resp, err := h.service.GetRedemptionCodes(&req)
 	if err != nil {
-		if errors.Is(err, services.ErrRedemptionCodeStatusInvalid) {
+		if errors.Is(err, redemptionpkg.ErrRedemptionCodeStatusInvalid) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -90,7 +90,7 @@ func (h *RedemptionCodeHandler) GetRedemptionCodes(c *gin.Context) {
 func (h *RedemptionCodeHandler) DeleteRedemptionCode(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.service.DeleteRedemptionCode(id); err != nil {
-		if errors.Is(err, services.ErrRedemptionCodeNotFound) {
+		if errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
@@ -104,7 +104,7 @@ func (h *RedemptionCodeHandler) DeleteRedemptionCode(c *gin.Context) {
 func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
 	id := c.Param("id")
 
-	var req services.UpdateRedemptionCodeRequest
+	var req redemptionpkg.UpdateRedemptionCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -113,9 +113,9 @@ func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
 	code, err := h.service.UpdateRedemptionCode(id, &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrRedemptionCodeNotFound):
+		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrRedemptionCodeUsedOver):
+		case errors.Is(err, redemptionpkg.ErrRedemptionCodeUsedOver):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -147,8 +147,8 @@ func (h *RedemptionCodeHandler) GetUserTemplates(c *gin.Context) {
 }
 
 func isRedemptionCodeRequestError(err error) bool {
-	return errors.Is(err, services.ErrRedemptionCodeBatchCountInvalid) ||
-		errors.Is(err, services.ErrTemplateUserNotFound) ||
-		errors.Is(err, services.ErrTemplateUserMustBeUser) ||
-		errors.Is(err, services.ErrTemplateUserEmbyRequired)
+	return errors.Is(err, redemptionpkg.ErrRedemptionCodeBatchCountInvalid) ||
+		errors.Is(err, redemptionpkg.ErrTemplateUserNotFound) ||
+		errors.Is(err, redemptionpkg.ErrTemplateUserMustBeUser) ||
+		errors.Is(err, redemptionpkg.ErrTemplateUserEmbyRequired)
 }

@@ -68,14 +68,17 @@ services/
 │     ├─ services/               # 业务逻辑
 │     │  ├─ auth.go              # 登录 / 注册
 │     │  ├─ user.go              # 用户 CRUD + 密码管理
-│     │  ├─ redemption_code.go   # 兑换码 CRUD
-│     │  ├─ redemption.go        # 兑换核心逻辑 + 历史
 │     │  ├─ system.go            # 系统信息 + 过期检查
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
 │     │  ├─ subscription.go      # 订阅工作流
 │     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
 │     │  ├─ telegram.go          # TelegramService（绑定/查询/续期）
+│     │  ├─ redemption/
+│     │  │  ├─ service.go        # RedemptionService（兑换核心逻辑 + 历史）
+│     │  │  ├─ code_service.go   # RedemptionCodeService（兑换码 CRUD）
+│     │  │  ├─ errors.go         # 兑换领域错误
+│     │  │  └─ types.go          # 兑换领域请求/响应结构
 │     │  ├─ playback/
 │     │  │  ├─ history.go        # PlaybackHistoryService（播放历史查询）
 │     │  │  ├─ profile.go        # UserPlaybackProfileService（用户播放画像）
@@ -517,7 +520,7 @@ TMDBCache（独立缓存表）
 - `ResetPassword(userID, new)` — 管理员重置，Emby + 本地 hash 同步
 - `ToggleUserStatus(userID)` — 翻转 IsActive
 
-### 5.3 RedemptionCodeService (`services/redemption_code.go`)
+### 5.3 RedemptionCodeService (`services/redemption/code_service.go`)
 
 - `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId)` — 生成 16 字符 hex 码
 - `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId)` — 批量生成兑换码，单次最多 100 个，整批事务提交
@@ -526,7 +529,7 @@ TMDBCache（独立缓存表）
 - `ValidateCode(code)` — 查找 + IsValid()
 - `UseCode(code)` — 原子递增 usedCount
 
-### 5.4 RedemptionService (`services/redemption.go`)
+### 5.4 RedemptionService (`services/redemption/service.go`)
 
 **核心方法 `RedeemCode(userID, code)`**：
 1. 开启事务后查询兑换码并校验 `IsValid()`
@@ -667,12 +670,14 @@ Stripe 一次性支付流程管理。
 
 统一的业务错误定义已按领域拆分，例如：
 
-- `services/redemption_errors.go`
-- `services/subscription_errors.go`
+- `services/redemption/errors.go`
 - `services/email_errors.go`
-- `services/payment_errors.go`
-- `services/telegram_errors.go`
-- `services/device_errors.go`
+- `services/payment/errors.go`
+- `services/subscription/errors.go`
+- `services/telegram/errors.go`
+- `services/device/errors.go`
+- `services/tvcalendar/errors.go`
+- `services/playback/errors.go`
 - `services/media_quality_errors.go`
 
 handler 继续通过 `errors.Is()` 做错误映射。

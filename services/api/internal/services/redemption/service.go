@@ -1,4 +1,4 @@
-package services
+package redemption
 
 import (
 	"errors"
@@ -14,54 +14,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// RedemptionService 兑换服务
 type RedemptionService struct{}
 
-type RedeemCodeRequest struct {
-	Code string `json:"code" binding:"required"`
-}
-
-type RedeemCodeResponse struct {
-	Message   string     `json:"message"`
-	Days      int        `json:"days"`
-	ExpiresAt *time.Time `json:"expiresAt"`
-}
-
-type GetRedemptionsRequest struct {
-	Page     int `form:"page" binding:"omitempty,min=1"`
-	PageSize int `form:"pageSize" binding:"omitempty,min=1"`
-}
-
-type GetRedemptionsResponse struct {
-	Data       []models.Redemption `json:"data"`
-	Total      int64               `json:"total"`
-	Page       int                 `json:"page"`
-	PageSize   int                 `json:"pageSize"`
-	TotalPages int                 `json:"totalPages"`
-}
-
-type RedemptionWithUser struct {
-	models.Redemption
-	Username string `json:"username"`
-}
-
-type GetAllRedemptionsRequest struct {
-	Page     int    `form:"page" binding:"omitempty,min=1"`
-	PageSize int    `form:"pageSize" binding:"omitempty,min=1"`
-	UserID   string `form:"userId"`
-	Username string `form:"username"`
-	Code     string `form:"code"`
-}
-
-type GetAllRedemptionsResponse struct {
-	Data       []RedemptionWithUser `json:"data"`
-	Total      int64                `json:"total"`
-	Page       int                  `json:"page"`
-	PageSize   int                  `json:"pageSize"`
-	TotalPages int                  `json:"totalPages"`
-}
-
-// RedeemCode 兑换续期
 func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
 	tx := db.DB.Begin()
 	if tx.Error != nil {
@@ -120,7 +74,6 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		return nil, ErrRedeemFailed
 	}
 
-	// 依赖唯一约束 (userId, code) 保证“一人一码一次”并发安全。
 	if err := tx.Create(&models.Redemption{
 		UserID: userID,
 		Code:   req.Code,
@@ -159,7 +112,6 @@ func isRedemptionDuplicateInsert(err error) bool {
 		return false
 	}
 
-	// 23505: unique_violation
 	return pgErr.Code == "23505"
 }
 

@@ -10,26 +10,26 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/models"
-	"github.com/konghang/ember/backend/internal/services"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
 
 type stubRedemptionCodeService struct {
-	createBatchFn func(req *services.CreateRedemptionCodesBatchRequest) (*services.CreateRedemptionCodesBatchResponse, error)
-	getCodesFn    func(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error)
+	createBatchFn func(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error)
+	getCodesFn    func(req *redemptionpkg.GetRedemptionCodesRequest) (*redemptionpkg.GetRedemptionCodesResponse, error)
 }
 
-func (s *stubRedemptionCodeService) CreateRedemptionCode(req *services.CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
+func (s *stubRedemptionCodeService) CreateRedemptionCode(req *redemptionpkg.CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
 	return nil, nil
 }
 
-func (s *stubRedemptionCodeService) CreateRedemptionCodesBatch(req *services.CreateRedemptionCodesBatchRequest) (*services.CreateRedemptionCodesBatchResponse, error) {
+func (s *stubRedemptionCodeService) CreateRedemptionCodesBatch(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error) {
 	if s.createBatchFn == nil {
 		return nil, nil
 	}
 	return s.createBatchFn(req)
 }
 
-func (s *stubRedemptionCodeService) GetRedemptionCodes(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error) {
+func (s *stubRedemptionCodeService) GetRedemptionCodes(req *redemptionpkg.GetRedemptionCodesRequest) (*redemptionpkg.GetRedemptionCodesResponse, error) {
 	if s.getCodesFn == nil {
 		return nil, nil
 	}
@@ -40,7 +40,7 @@ func (s *stubRedemptionCodeService) DeleteRedemptionCode(id string) error {
 	return nil
 }
 
-func (s *stubRedemptionCodeService) UpdateRedemptionCode(id string, req *services.UpdateRedemptionCodeRequest) (*models.RedemptionCode, error) {
+func (s *stubRedemptionCodeService) UpdateRedemptionCode(id string, req *redemptionpkg.UpdateRedemptionCodeRequest) (*models.RedemptionCode, error) {
 	return nil, nil
 }
 
@@ -48,7 +48,7 @@ func (s *stubRedemptionCodeService) ValidateCode(code string) (*models.Redemptio
 	return nil, nil
 }
 
-func (s *stubRedemptionCodeService) GetUserTemplates() (*services.GetUserTemplatesResponse, error) {
+func (s *stubRedemptionCodeService) GetUserTemplates() (*redemptionpkg.GetUserTemplatesResponse, error) {
 	return nil, nil
 }
 
@@ -67,7 +67,7 @@ func TestRedemptionCodeHandlerCreateBatch(t *testing.T) {
 
 	handler := &RedemptionCodeHandler{
 		service: &stubRedemptionCodeService{
-			createBatchFn: func(req *services.CreateRedemptionCodesBatchRequest) (*services.CreateRedemptionCodesBatchResponse, error) {
+			createBatchFn: func(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error) {
 				if req.Count != 2 {
 					t.Fatalf("unexpected count: %d", req.Count)
 				}
@@ -75,7 +75,7 @@ func TestRedemptionCodeHandlerCreateBatch(t *testing.T) {
 					t.Fatalf("unexpected request payload: %+v", req)
 				}
 				expiresAt := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
-				return &services.CreateRedemptionCodesBatchResponse{
+				return &redemptionpkg.CreateRedemptionCodesBatchResponse{
 					Data: []models.RedemptionCode{
 						{ID: "code-1", Code: "abcd1234abcd1234", MaxUses: 3, DefaultDays: 30, ExpiresAt: &expiresAt},
 						{ID: "code-2", Code: "dcba4321dcba4321", MaxUses: 3, DefaultDays: 30, ExpiresAt: &expiresAt},
@@ -94,7 +94,7 @@ func TestRedemptionCodeHandlerCreateBatch(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", recorder.Code)
 	}
 
-	var resp services.CreateRedemptionCodesBatchResponse
+	var resp redemptionpkg.CreateRedemptionCodesBatchResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -122,17 +122,17 @@ func TestRedemptionCodeHandlerCreateBatchMapsRequestErrors(t *testing.T) {
 		name string
 		err  error
 	}{
-		{name: "batch count invalid", err: services.ErrRedemptionCodeBatchCountInvalid},
-		{name: "template user missing", err: services.ErrTemplateUserNotFound},
-		{name: "template user role invalid", err: services.ErrTemplateUserMustBeUser},
-		{name: "template user emby missing", err: services.ErrTemplateUserEmbyRequired},
+		{name: "batch count invalid", err: redemptionpkg.ErrRedemptionCodeBatchCountInvalid},
+		{name: "template user missing", err: redemptionpkg.ErrTemplateUserNotFound},
+		{name: "template user role invalid", err: redemptionpkg.ErrTemplateUserMustBeUser},
+		{name: "template user emby missing", err: redemptionpkg.ErrTemplateUserEmbyRequired},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := &RedemptionCodeHandler{
 				service: &stubRedemptionCodeService{
-					createBatchFn: func(req *services.CreateRedemptionCodesBatchRequest) (*services.CreateRedemptionCodesBatchResponse, error) {
+					createBatchFn: func(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error) {
 						return nil, tc.err
 					},
 				},
@@ -154,7 +154,7 @@ func TestRedemptionCodeHandlerGetRedemptionCodesBindsFilters(t *testing.T) {
 
 	handler := &RedemptionCodeHandler{
 		service: &stubRedemptionCodeService{
-			getCodesFn: func(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error) {
+			getCodesFn: func(req *redemptionpkg.GetRedemptionCodesRequest) (*redemptionpkg.GetRedemptionCodesResponse, error) {
 				if req.Page != 2 || req.PageSize != 20 {
 					t.Fatalf("unexpected pagination: %+v", req)
 				}
@@ -164,7 +164,7 @@ func TestRedemptionCodeHandlerGetRedemptionCodesBindsFilters(t *testing.T) {
 				if !req.ShowAll {
 					t.Fatalf("expected showAll to be true")
 				}
-				return &services.GetRedemptionCodesResponse{
+				return &redemptionpkg.GetRedemptionCodesResponse{
 					Data:     []models.RedemptionCode{},
 					Total:    0,
 					Page:     req.Page,
@@ -191,8 +191,8 @@ func TestRedemptionCodeHandlerGetRedemptionCodesMapsInvalidStatus(t *testing.T) 
 
 	handler := &RedemptionCodeHandler{
 		service: &stubRedemptionCodeService{
-			getCodesFn: func(req *services.GetRedemptionCodesRequest) (*services.GetRedemptionCodesResponse, error) {
-				return nil, services.ErrRedemptionCodeStatusInvalid
+			getCodesFn: func(req *redemptionpkg.GetRedemptionCodesRequest) (*redemptionpkg.GetRedemptionCodesResponse, error) {
+				return nil, redemptionpkg.ErrRedemptionCodeStatusInvalid
 			},
 		},
 	}

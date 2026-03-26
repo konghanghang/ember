@@ -42,6 +42,7 @@
 - `services/media/`
 - `services/payment/`
 - `services/playback/`
+- `services/redemption/`
 - `services/subscription/`
 - `services/telegram/`
 - `services/tvcalendar/`
@@ -50,10 +51,10 @@
 
 原有统一的 `services/errors.go` 已拆掉，当前改为按业务分布在：
 
-- `services/redemption_errors.go`
 - `services/email_errors.go`
 - `services/media_quality_errors.go`
 - `services/payment/errors.go`
+- `services/redemption/errors.go`
 - `services/subscription/errors.go`
 - `services/telegram/errors.go`
 - `services/device/errors.go`
@@ -68,8 +69,6 @@
 
 - `auth.go`
 - `email.go`
-- `redemption.go`
-- `redemption_code.go`
 - `system.go`
 - `user.go`
 
@@ -160,22 +159,27 @@ internal/services/user/
 
 状态：
 
-- 仍然平铺
-- 边界比 `user` 清楚
+- 已收口到 `services/redemption/`
+- 错误、类型、实现已一起迁入子目录
 
 结论：
 
-- **适合继续拆目录**
-- 优先级高于 `user/auth`
+- 当前目录化已完成
+- 后续只需在去 `compat` 阶段继续清理调用面
 
-建议形态：
+最终形态：
 
 ```text
 internal/services/redemption/
   service.go
-  code.go
+  code_service.go
   errors.go
+  types.go
 ```
+
+详细落地方案见：
+
+- `docs/plan/redemption-directory-refactor.md`
 
 ### 4.6 `system`
 
@@ -245,13 +249,11 @@ internal/services/redemption/
 
 如果继续推进，建议按这个顺序：
 
-1. `redemption/` 目录分组
-2. `redemption_code/` 目录分组
-3. 开始逐个去掉 compat 文件
+1. 开始逐个去掉 compat 文件
    - 先从 `payment_compat.go` 开始
-4. 处理 `user` 职责切分
-5. 视情况决定是否拆 `email`
-6. 最后再判断 `auth`
+2. 处理 `user` 职责切分
+3. 视情况决定是否拆 `email`
+4. 最后再判断 `auth`
 
 ---
 
@@ -259,8 +261,8 @@ internal/services/redemption/
 
 最稳的下一步不是继续大搬家，而是：
 
-1. 先完成 `redemption` 相关分组
-2. 然后正式开始“去 compat”
+1. 正式开始“去 compat”
+2. 然后处理 `user` 的职责切分
 
 原因很简单：
 

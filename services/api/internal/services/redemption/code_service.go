@@ -1,4 +1,4 @@
-package services
+package redemption
 
 import (
 	"crypto/rand"
@@ -14,7 +14,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// RedemptionCodeService 兑换码服务
 type RedemptionCodeService struct{}
 
 const (
@@ -22,75 +21,6 @@ const (
 	maxCodeInsertRetry            = 5
 )
 
-type RedemptionCodeStatus string
-
-const (
-	RedemptionCodeStatusActive    RedemptionCodeStatus = "active"
-	RedemptionCodeStatusExpired   RedemptionCodeStatus = "expired"
-	RedemptionCodeStatusExhausted RedemptionCodeStatus = "exhausted"
-)
-
-type RedemptionCodeCreateOptions struct {
-	MaxUses        int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
-	ExpiresAt      *time.Time `json:"expiresAt"`
-	TemplateUserID *string    `json:"templateUserId"`
-}
-
-// CreateRedemptionCodeRequest 创建兑换码请求
-type CreateRedemptionCodeRequest struct {
-	RedemptionCodeCreateOptions
-}
-
-type CreateRedemptionCodesBatchRequest struct {
-	Count int `json:"count" binding:"required,min=1,max=100"`
-	RedemptionCodeCreateOptions
-}
-
-type CreateRedemptionCodesBatchResponse struct {
-	Data  []models.RedemptionCode `json:"data"`
-	Count int                     `json:"count"`
-}
-
-// UpdateRedemptionCodeRequest 更新兑换码请求
-type UpdateRedemptionCodeRequest struct {
-	MaxUses        int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
-	ExpiresAt      *time.Time `json:"expiresAt"`
-	TemplateUserID *string    `json:"templateUserId"`
-}
-
-// GetRedemptionCodesRequest 获取兑换码列表请求
-type GetRedemptionCodesRequest struct {
-	Page           int    `form:"page" binding:"omitempty,min=1"`
-	PageSize       int    `form:"pageSize" binding:"omitempty,min=1"`
-	ShowAll        bool   `form:"showAll"`
-	Code           string `form:"code"`
-	Status         string `form:"status"`
-	TemplateUserID string `form:"templateUserId"`
-}
-
-// GetRedemptionCodesResponse 获取兑换码列表响应
-type GetRedemptionCodesResponse struct {
-	Data       []models.RedemptionCode `json:"data"`
-	Total      int64                   `json:"total"`
-	Page       int                     `json:"page"`
-	PageSize   int                     `json:"pageSize"`
-	TotalPages int                     `json:"totalPages"`
-}
-
-type UserTemplate struct {
-	ID        string     `json:"id"`
-	Username  string     `json:"username"`
-	Email     string     `json:"email,omitempty"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-}
-
-type GetUserTemplatesResponse struct {
-	Data []UserTemplate `json:"data"`
-}
-
-// CreateRedemptionCode 创建兑换码
 func (s *RedemptionCodeService) CreateRedemptionCode(req *CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
 	codes, err := s.createRedemptionCodes(req.RedemptionCodeCreateOptions, 1)
 	if err != nil {
@@ -146,7 +76,6 @@ func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCrea
 	return codes, nil
 }
 
-// GetRedemptionCodes 获取兑换码列表
 func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesRequest) (*GetRedemptionCodesResponse, error) {
 	page := req.Page
 	if page < 1 {
@@ -182,12 +111,10 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 		query = query.Where("\"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", now)
 	}
 
-	// 获取总数
 	if err := query.Count(&total).Error; err != nil {
 		return nil, errors.New("获取兑换码数量失败")
 	}
 
-	// 分页查询
 	offset := (page - 1) * pageSize
 	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&codes).Error; err != nil {
 		return nil, errors.New("获取兑换码列表失败")
@@ -206,7 +133,6 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 	}, nil
 }
 
-// DeleteRedemptionCode 删除兑换码
 func (s *RedemptionCodeService) DeleteRedemptionCode(id string) error {
 	result := db.DB.Delete(&models.RedemptionCode{}, "id = ?", id)
 	if result.Error != nil {
@@ -218,7 +144,6 @@ func (s *RedemptionCodeService) DeleteRedemptionCode(id string) error {
 	return nil
 }
 
-// UpdateRedemptionCode 更新兑换码
 func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedemptionCodeRequest) (*models.RedemptionCode, error) {
 	var redemptionCode models.RedemptionCode
 	if err := db.DB.Where("id = ?", id).First(&redemptionCode).Error; err != nil {
@@ -279,7 +204,6 @@ func (s *RedemptionCodeService) GetUserTemplates() (*GetUserTemplatesResponse, e
 	}, nil
 }
 
-// ValidateCode 验证兑换码（用于注册和兑换）
 func (s *RedemptionCodeService) ValidateCode(code string) (*models.RedemptionCode, error) {
 	var redemptionCode models.RedemptionCode
 	result := db.DB.Where("code = ?", code).First(&redemptionCode)
@@ -294,7 +218,6 @@ func (s *RedemptionCodeService) ValidateCode(code string) (*models.RedemptionCod
 	return &redemptionCode, nil
 }
 
-// UseCode 使用兑换码（原子递增）
 func (s *RedemptionCodeService) UseCode(code string) error {
 	result := db.DB.Model(&models.RedemptionCode{}).
 		Where("code = ? AND \"usedCount\" < \"maxUses\"", code).
@@ -309,7 +232,6 @@ func (s *RedemptionCodeService) UseCode(code string) error {
 	return nil
 }
 
-// generateCode 生成随机兑换码
 func (s *RedemptionCodeService) generateCode(length int) (string, error) {
 	bytes := make([]byte, length/2+1)
 	if _, err := rand.Read(bytes); err != nil {
@@ -319,11 +241,7 @@ func (s *RedemptionCodeService) generateCode(length int) (string, error) {
 }
 
 func (s *RedemptionCodeService) validateTemplateUserID(templateUserID *string) (*string, error) {
-	if templateUserID == nil {
-		return nil, nil
-	}
-
-	if *templateUserID == "" {
+	if templateUserID == nil || *templateUserID == "" {
 		return nil, nil
 	}
 

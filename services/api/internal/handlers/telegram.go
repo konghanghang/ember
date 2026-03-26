@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/services"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
 
 type TelegramHandler struct {
@@ -126,12 +127,12 @@ func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
 		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, services.ErrTelegramNotBound),
-			errors.Is(err, services.ErrRedemptionCodeNotFound),
-			errors.Is(err, services.ErrRedemptionCodeInvalid),
-			errors.Is(err, services.ErrRedemptionDuplicate):
+			errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
+			errors.Is(err, redemptionpkg.ErrRedemptionDuplicate):
 			statusCode = http.StatusBadRequest
-		case errors.Is(err, services.ErrRedeemFailed),
-			errors.Is(err, services.ErrEmbyUnbanFailed):
+		case errors.Is(err, redemptionpkg.ErrRedeemFailed),
+			errors.Is(err, redemptionpkg.ErrEmbyUnbanFailed):
 			statusCode = http.StatusInternalServerError
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})
