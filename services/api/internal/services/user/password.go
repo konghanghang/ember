@@ -1,4 +1,4 @@
-package services
+package user
 
 import (
 	"errors"
@@ -13,7 +13,12 @@ type ResetPasswordRequest struct {
 	NewPassword string `json:"newPassword" binding:"required,min=6"`
 }
 
-// ResetPassword 重置用户密码（管理员操作）
+// UpdatePasswordRequest 修改密码请求
+type UpdatePasswordRequest struct {
+	OldPassword string `json:"oldPassword" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required,min=6"`
+}
+
 func (s *UserService) ResetPassword(userID string, newPassword string) error {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
@@ -37,13 +42,6 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 	return nil
 }
 
-// UpdatePasswordRequest 修改密码请求
-type UpdatePasswordRequest struct {
-	OldPassword string `json:"oldPassword" binding:"required"`
-	NewPassword string `json:"newPassword" binding:"required,min=6"`
-}
-
-// UpdatePassword 修改用户密码
 func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) error {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)

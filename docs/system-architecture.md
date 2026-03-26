@@ -69,10 +69,12 @@ services/
 │     │  ├─ auth.go              # 登录 / 注册
 │     │  ├─ auth_login.go        # AuthService（登录链路编排）
 │     │  ├─ auth_register.go     # AuthService（注册链路编排）
-│     │  ├─ user.go              # 用户 CRUD + 密码管理
-│     │  ├─ user_profile.go      # 用户资料 / 邮箱更新
-│     │  ├─ user_password.go     # 用户密码修改 / 管理员重置密码
-│     │  ├─ user_password_reset.go # 用户邮箱验证码重置密码
+│     │  ├─ user/
+│     │  │  ├─ service.go        # UserService（共享依赖 / Emby 同步）
+│     │  │  ├─ admin.go          # 用户管理 / 续期 / 启停 / 删除
+│     │  │  ├─ profile.go        # 用户资料 / 邮箱更新
+│     │  │  ├─ password.go       # 用户密码修改 / 管理员重置密码
+│     │  │  └─ password_reset.go # 用户邮箱验证码重置密码
 │     │  ├─ system.go            # 系统信息 + 过期检查
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
@@ -521,7 +523,7 @@ TMDBCache（独立缓存表）
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
 - `LoginResponse{Token, User}`
 
-### 5.2 UserService (`services/user.go`, `services/user_profile.go`, `services/user_password.go`, `services/user_password_reset.go`)
+### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
 
 - `GetUsers(page, pageSize, search, isActive, expiresAfter, embyStatus)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`；`embyStatus` 支持 `available/disabled/unlinked`）
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加

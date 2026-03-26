@@ -94,31 +94,28 @@
 
 状态：
 
-- 仍为单文件
-- 体积大、职责杂
+- 已收口到 `services/user/`
+- 管理、资料、密码、密码重置、Emby 同步已拆成独立文件
 
 问题：
 
-- 同时承担管理员用户管理、个人资料、自助密码修改、邮箱修改、验证码重置密码、Emby 状态同步
-- 和 `email`、`emby` 仍有明显耦合
+- 仍然直接依赖 `email` 与 `emby`，但边界已经比原先清楚
+- 还缺少是否继续抽 `errors.go` / `types.go` 的最终收口判断
 
 结论：
 
-- **值得继续拆**
-- 但不能直接“搬目录”
-- 必须先做职责切分
+- 当前目录化已完成
+- 后续重点转到是否继续收口 `types/errors`，以及评估 `auth` 是否继续保持根层编排
 
 建议最终形态：
 
 ```text
 internal/services/user/
+  service.go
   admin.go
   profile.go
   password.go
   password_reset.go
-  emby_sync.go
-  errors.go
-  types.go
 ```
 
 详细落地方案见：

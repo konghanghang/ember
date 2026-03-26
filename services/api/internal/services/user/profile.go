@@ -1,4 +1,4 @@
-package services
+package user
 
 import (
 	"errors"
@@ -7,7 +7,16 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 )
 
-// GetProfile 获取用户个人信息
+// UpdateProfileRequest 更新个人信息请求
+type UpdateProfileRequest struct {
+	Email string `json:"email" binding:"omitempty,email"`
+}
+
+// UpdateEmailRequest 修改邮箱请求
+type UpdateEmailRequest struct {
+	NewEmail string `json:"newEmail" binding:"required,email"`
+}
+
 func (s *UserService) GetProfile(userID string) (*models.User, error) {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
@@ -17,12 +26,6 @@ func (s *UserService) GetProfile(userID string) (*models.User, error) {
 	return &user, nil
 }
 
-// UpdateProfileRequest 更新个人信息请求
-type UpdateProfileRequest struct {
-	Email string `json:"email" binding:"omitempty,email"`
-}
-
-// UpdateProfile 更新用户个人信息
 func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*models.User, error) {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
@@ -41,12 +44,6 @@ func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*
 	return &user, nil
 }
 
-// UpdateEmailRequest 修改邮箱请求
-type UpdateEmailRequest struct {
-	NewEmail string `json:"newEmail" binding:"required,email"`
-}
-
-// UpdateEmail 修改用户邮箱
 func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*models.User, error) {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)

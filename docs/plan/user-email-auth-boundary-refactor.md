@@ -8,7 +8,7 @@
 
 这个问题为什么现在要解决：
 
-- `services/api/internal/services/user.go` 同时承担管理员用户管理、用户资料、自助改密、管理员重置密码、邮箱验证码重置密码、Emby 状态同步，职责已经明显失控。
+- `UserService` 原先把管理员用户管理、用户资料、自助改密、管理员重置密码、邮箱验证码重置密码、Emby 状态同步全部堆在 `services/api/internal/services/user.go`，职责已经明显失控；虽然现在已拆到 `services/user/`，但边界收口仍需继续。
 - `EmailService` 原先把 SMTP 配置读取、验证码生成与频控、邮件发送、验证码校验、连接探活混在一起；虽然现在已拆到 `services/email/`，但 `auth/user` 的调用边界仍需要继续收薄。
 - `services/api/internal/services/auth.go` 作为编排层，本应保持薄，但当前仍直接依赖 `EmailService`、Emby、Notifier、兑换码校验和模板用户策略，边界过于粗糙。
 - 兼容层已经清理完成，后续再不处理这三块，目录重构就会卡在“结构看起来清楚，但核心领域仍是大文件”的阶段。
@@ -38,7 +38,11 @@
   - `docs/proposals/api-directory-refactor.md`
   - `docs/system-architecture.md`
 - 相关服务/文件：
-  - `services/api/internal/services/user.go`
+  - `services/api/internal/services/user/service.go`
+  - `services/api/internal/services/user/admin.go`
+  - `services/api/internal/services/user/profile.go`
+  - `services/api/internal/services/user/password.go`
+  - `services/api/internal/services/user/password_reset.go`
   - `services/api/internal/services/email/service.go`
   - `services/api/internal/services/email/verification.go`
   - `services/api/internal/services/email/sender.go`

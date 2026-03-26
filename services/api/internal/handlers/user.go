@@ -5,13 +5,13 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
+	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
 
 // UserHandler 用户处理器
 type UserHandler struct {
-	userService           *services.UserService
+	userService           *userpkg.UserService
 	redemptionService     *redemptionpkg.RedemptionService
 	redemptionCodeService *redemptionpkg.RedemptionCodeService
 }
@@ -19,7 +19,7 @@ type UserHandler struct {
 // NewUserHandler 创建用户处理器
 func NewUserHandler() *UserHandler {
 	return &UserHandler{
-		userService:           services.NewUserService(),
+		userService:           userpkg.NewUserService(),
 		redemptionService:     &redemptionpkg.RedemptionService{},
 		redemptionCodeService: &redemptionpkg.RedemptionCodeService{},
 	}
@@ -35,11 +35,11 @@ func NewUserHandler() *UserHandler {
 // @Param isActive query bool false "是否启用"
 // @Param expiresAfter query string false "到期时间晚于该日期（YYYY-MM-DD）"
 // @Param embyStatus query string false "Emby 状态（available/disabled/unlinked）"
-// @Success 200 {object} services.GetUsersResponse
+// @Success 200 {object} user.GetUsersResponse
 // @Router /api/v1/admin/users [get]
 // @Security BearerAuth
 func (h *UserHandler) GetUsers(c *gin.Context) {
-	var req services.GetUsersRequest
+	var req userpkg.GetUsersRequest
 
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -51,7 +51,7 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 	resp, err := h.userService.GetUsers(&req)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, services.ErrInvalidExpiresAfter) || errors.Is(err, services.ErrInvalidEmbyStatus) {
+		if errors.Is(err, userpkg.ErrInvalidExpiresAfter) || errors.Is(err, userpkg.ErrInvalidEmbyStatus) {
 			statusCode = http.StatusBadRequest
 		}
 
@@ -92,14 +92,14 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path string true "用户ID"
-// @Param body body services.AdminUpdateUserRequest true "可更新字段"
+// @Param body body user.AdminUpdateUserRequest true "可更新字段"
 // @Success 200 {object} models.User
 // @Router /api/v1/admin/users/{id} [put]
 // @Security BearerAuth
 func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 	userID := c.Param("id")
 
-	var req services.AdminUpdateUserRequest
+	var req userpkg.AdminUpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",
@@ -132,14 +132,14 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path string true "用户ID"
-// @Param body body services.ExtendExpiryRequest true "延长天数"
+// @Param body body user.ExtendExpiryRequest true "延长天数"
 // @Success 200 {object} models.User
 // @Router /api/v1/admin/users/{id}/extend [put]
 // @Security BearerAuth
 func (h *UserHandler) ExtendExpiry(c *gin.Context) {
 	userID := c.Param("id")
 
-	var req services.ExtendExpiryRequest
+	var req userpkg.ExtendExpiryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",
@@ -210,14 +210,14 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path string true "用户ID"
-// @Param body body services.ResetPasswordRequest true "新密码"
+// @Param body body user.ResetPasswordRequest true "新密码"
 // @Success 200 {object} SuccessResponse
 // @Router /api/v1/admin/users/{id}/reset-password [put]
 // @Security BearerAuth
 func (h *UserHandler) ResetPassword(c *gin.Context) {
 	userID := c.Param("id")
 
-	var req services.ResetPasswordRequest
+	var req userpkg.ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",
@@ -266,14 +266,14 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 // @Tags 用户面板
 // @Accept json
 // @Produce json
-// @Param body body services.UpdateProfileRequest true "个人信息"
+// @Param body body user.UpdateProfileRequest true "个人信息"
 // @Success 200 {object} models.User
 // @Router /api/v1/user/profile [put]
 // @Security BearerAuth
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	var req services.UpdateProfileRequest
+	var req userpkg.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",
@@ -297,14 +297,14 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 // @Tags 用户面板
 // @Accept json
 // @Produce json
-// @Param body body services.UpdatePasswordRequest true "密码信息"
+// @Param body body user.UpdatePasswordRequest true "密码信息"
 // @Success 200 {object} SuccessResponse
 // @Router /api/v1/user/password [put]
 // @Security BearerAuth
 func (h *UserHandler) UpdatePassword(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	var req services.UpdatePasswordRequest
+	var req userpkg.UpdatePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",
@@ -330,14 +330,14 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
 // @Tags 用户面板
 // @Accept json
 // @Produce json
-// @Param body body services.UpdateEmailRequest true "邮箱信息"
+// @Param body body user.UpdateEmailRequest true "邮箱信息"
 // @Success 200 {object} models.User
 // @Router /api/v1/user/email [put]
 // @Security BearerAuth
 func (h *UserHandler) UpdateEmail(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	var req services.UpdateEmailRequest
+	var req userpkg.UpdateEmailRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",

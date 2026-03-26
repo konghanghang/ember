@@ -159,12 +159,12 @@
 - `subscription/`
 - `telegram/`
 - `tvcalendar/`
+- `user/`
 
 未完全分组的包括：
 
 - `auth.go`
 - `system.go`
-- `user.go`
 
 ### 2.5 `handlers/`
 

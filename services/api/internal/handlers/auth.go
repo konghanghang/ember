@@ -8,13 +8,14 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
 	authService  *services.AuthService
 	emailService *emailpkg.EmailService
-	userService  *services.UserService
+	userService  *userpkg.UserService
 }
 
 // NewAuthHandler 创建认证处理器
@@ -23,7 +24,7 @@ func NewAuthHandler() *AuthHandler {
 	return &AuthHandler{
 		authService:  services.NewAuthService(),
 		emailService: emailService,
-		userService:  services.NewUserServiceWithEmailVerifier(emailService),
+		userService:  userpkg.NewUserServiceWithEmailVerifier(emailService),
 	}
 }
 
@@ -179,7 +180,7 @@ func (h *AuthHandler) SendResetCode(c *gin.Context) {
 
 // ResetPasswordByCode 通过验证码重置密码
 func (h *AuthHandler) ResetPasswordByCode(c *gin.Context) {
-	var req services.ResetPasswordByCodeRequest
+	var req userpkg.ResetPasswordByCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return

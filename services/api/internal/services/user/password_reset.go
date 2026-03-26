@@ -1,4 +1,4 @@
-package services
+package user
 
 import (
 	"errors"
@@ -16,7 +16,6 @@ type ResetPasswordByCodeRequest struct {
 	NewPassword string `json:"newPassword" binding:"required,min=6"`
 }
 
-// ResetPasswordByCode 通过邮箱验证码重置密码
 func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error {
 	if err := s.getEmailVerifier().VerifyCode(req.Email, req.Code, models.VerificationTypeReset); err != nil {
 		return err
