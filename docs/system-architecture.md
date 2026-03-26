@@ -67,6 +67,8 @@ services/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ services/               # 业务逻辑
 │     │  ├─ auth.go              # 登录 / 注册
+│     │  ├─ auth_login.go        # AuthService（登录链路编排）
+│     │  ├─ auth_register.go     # AuthService（注册链路编排）
 │     │  ├─ user.go              # 用户 CRUD + 密码管理
 │     │  ├─ user_profile.go      # 用户资料 / 邮箱更新
 │     │  ├─ user_password.go     # 用户密码修改 / 管理员重置密码
@@ -75,7 +77,9 @@ services/
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
 │     │  ├─ subscription.go      # 订阅工作流
-│     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
+│     │  ├─ email.go             # EmailService（配置读取 / 开关判断）
+│     │  ├─ email_verification.go # EmailService（邮箱验证码发送 / 校验 / 清理）
+│     │  ├─ email_sender.go      # EmailService（SMTP 发送 / 连接测试）
 │     │  ├─ telegram/
 │     │  │  ├─ service.go        # TelegramService（绑定/查询/续期）
 │     │  │  ├─ wiring.go         # Telegram 默认依赖装配（redemption/subscription/emby）
@@ -498,7 +502,7 @@ TMDBCache（独立缓存表）
 
 ## 5. 后端服务层
 
-### 5.1 AuthService (`services/auth.go`)
+### 5.1 AuthService (`services/auth.go`, `services/auth_login.go`, `services/auth_register.go`)
 
 **登录流程**：
 1. 查找用户 → Admin: bcrypt 校验 → 普通用户: 本地密码优先 → 无本地密码时降级 Emby 认证 + 自动补存 hash
@@ -616,7 +620,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `login()` — `POST /api/v1/login/access-token`（form-urlencoded）
 - `CreateSubscription(type, name, tmdbId)` — `POST /api/v1/subscribe/`（type 转中文：movie→电影, tv→电视剧）
 
-### 5.12 EmailService (`services/email.go`)
+### 5.12 EmailService (`services/email.go`, `services/email_verification.go`, `services/email_sender.go`)
 
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
@@ -624,6 +628,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `VerifyCode(email, code, codeType)` — 按类型校验验证码是否有效且未过期
 - `CleanupExpired()` — 删除过期验证码（cron 调用）
 - `IsEnabled()` — 通过 `ConfigService` 解析 `email_verification`，并叠加 SMTP 完整性判断
+- `TestConnection()` — 基于当前 SMTP 配置做连通性探活
 
 **频率限制**：
 - 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5，按 `codeType` 隔离计数）
