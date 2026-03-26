@@ -8,6 +8,7 @@ import (
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
@@ -69,7 +70,7 @@ func initCronJobs() func() {
 	c := cron.New(cron.WithLocation(tz))
 
 	systemService := services.NewSystemService()
-	emailService := services.NewEmailService()
+	emailService := emailpkg.NewEmailService()
 	telegramService := telegrampkg.NewDefaultService()
 	tvCalendarService := tvcalendarpkg.NewTVCalendarService()
 	var rankingService *playbackpkg.PlaybackRankingService

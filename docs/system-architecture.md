@@ -77,9 +77,10 @@ services/
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
 │     │  ├─ subscription.go      # 订阅工作流
-│     │  ├─ email.go             # EmailService（配置读取 / 开关判断）
-│     │  ├─ email_verification.go # EmailService（邮箱验证码发送 / 校验 / 清理）
-│     │  ├─ email_sender.go      # EmailService（SMTP 发送 / 连接测试）
+│     │  ├─ email/
+│     │  │  ├─ service.go        # EmailService（配置读取 / 开关判断）
+│     │  │  ├─ verification.go   # EmailService（邮箱验证码发送 / 校验 / 清理）
+│     │  │  └─ sender.go         # EmailService（SMTP 发送 / 连接测试）
 │     │  ├─ telegram/
 │     │  │  ├─ service.go        # TelegramService（绑定/查询/续期）
 │     │  │  ├─ wiring.go         # Telegram 默认依赖装配（redemption/subscription/emby）
@@ -620,7 +621,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `login()` — `POST /api/v1/login/access-token`（form-urlencoded）
 - `CreateSubscription(type, name, tmdbId)` — `POST /api/v1/subscribe/`（type 转中文：movie→电影, tv→电视剧）
 
-### 5.12 EmailService (`services/email.go`, `services/email_verification.go`, `services/email_sender.go`)
+### 5.12 EmailService (`services/email/service.go`, `services/email/verification.go`, `services/email/sender.go`)
 
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
@@ -684,7 +685,7 @@ Stripe 一次性支付流程管理。
 统一的业务错误定义已按领域拆分，例如：
 
 - `services/redemption/errors.go`
-- `services/email_errors.go`
+- `services/email/errors.go`
 - `services/payment/errors.go`
 - `services/subscription/errors.go`
 - `services/telegram/errors.go`

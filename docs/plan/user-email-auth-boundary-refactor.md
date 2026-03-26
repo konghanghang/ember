@@ -1,7 +1,7 @@
 # user-email-auth 职责切分方案
 
 > 状态：草稿
-> 负责人：Codex
+> 负责人：Ember
 > 更新时间：2026-03-26
 
 ## 背景
@@ -9,7 +9,7 @@
 这个问题为什么现在要解决：
 
 - `services/api/internal/services/user.go` 同时承担管理员用户管理、用户资料、自助改密、管理员重置密码、邮箱验证码重置密码、Emby 状态同步，职责已经明显失控。
-- `services/api/internal/services/email.go` 同时承担 SMTP 配置读取、验证码生成与频控、邮件发送、验证码校验、连接探活，业务语义和基础设施语义混在一起。
+- `EmailService` 原先把 SMTP 配置读取、验证码生成与频控、邮件发送、验证码校验、连接探活混在一起；虽然现在已拆到 `services/email/`，但 `auth/user` 的调用边界仍需要继续收薄。
 - `services/api/internal/services/auth.go` 作为编排层，本应保持薄，但当前仍直接依赖 `EmailService`、Emby、Notifier、兑换码校验和模板用户策略，边界过于粗糙。
 - 兼容层已经清理完成，后续再不处理这三块，目录重构就会卡在“结构看起来清楚，但核心领域仍是大文件”的阶段。
 
@@ -39,19 +39,23 @@
   - `docs/system-architecture.md`
 - 相关服务/文件：
   - `services/api/internal/services/user.go`
-  - `services/api/internal/services/email.go`
+  - `services/api/internal/services/email/service.go`
+  - `services/api/internal/services/email/verification.go`
+  - `services/api/internal/services/email/sender.go`
   - `services/api/internal/services/auth.go`
+  - `services/api/internal/services/auth_login.go`
+  - `services/api/internal/services/auth_register.go`
   - `services/api/internal/handlers/user.go`
   - `services/api/internal/handlers/auth.go`
 - 当前行为：
   - `AuthService` 负责登录、注册、当前用户查询。
   - `UserService` 负责管理员用户管理、个人资料、密码与邮箱修改、通过邮箱验证码重置密码、Emby 状态同步。
-  - `EmailService` 负责验证码发送/校验/清理和 SMTP 连接测试。
+  - `EmailService` 已收口到 `services/email/`，负责验证码发送/校验/清理和 SMTP 连接测试。
 - 现有限制：
-  - `UserService.ResetPasswordByCode()` 直接内部实例化 `EmailService`，形成跨领域硬耦合。
+  - `UserService.ResetPasswordByCode()` 虽然已经改成显式依赖验证码校验能力，但 `UserService` 仍未正式目录化。
   - `AuthHandler` 同时持有 `AuthService` 和 `EmailService`，而 `AuthService` 自己又持有 `EmailService`。
-  - `AuthService.RegisterUser()` 既做编排，又直接落注册逻辑、验证码校验、邀请码注册策略、Emby 创建与 Bot 通知。
-  - `EmailService` 没有区分“基础 SMTP 发送能力”和“验证码业务能力”。
+  - `AuthService.RegisterUser()` 虽然已拆到独立文件，但注册链路仍直接持有较多基础设施依赖。
+  - `AuthService.Login()` 虽然已拆到独立文件，但 `auth` 仍停留在根 `services`，尚未决定是否保持编排层形态。
 
 ## 方案设计
 
@@ -77,10 +81,11 @@
 
 ```text
 services/api/internal/services/
-  auth.go                    # 暂时保留编排入口，负责 login/register/current-user
+  auth.go                    # 暂时保留编排入口，负责 current-user 与共享装配
+  auth_login.go              # 登录链路编排
+  auth_register.go           # 注册链路编排
   email/
     service.go               # 对外 facade
-    config.go                # SMTP / 验证码配置读取
     sender.go                # 纯邮件发送能力
     verification.go          # 验证码生成/发送/校验/清理
   user/
@@ -107,14 +112,14 @@ services/api/internal/services/
 1. 先在方案层面冻结职责边界，明确哪些逻辑属于 `auth`、`user`、`email`。
 2. 优先切 `user` 内部职责，把管理员用户管理、资料修改、密码能力、Emby 同步拆成独立文件或子包职责。
 3. 把 `ResetPasswordByCode` 从“用户服务 + 内部 new EmailService”改为“用户密码重置服务 + 显式依赖验证码校验能力”。
-4. 再切 `email` 内部职责，把 SMTP 发送、配置读取、验证码业务分层。
-5. 最后收薄 `AuthService`，让注册只保留编排，不直接持有过多基础设施细节。
+4. 再切 `email` 内部职责，把 SMTP 发送、配置读取、验证码业务分层，并正式目录化到 `services/email/`。
+5. 最后收薄 `AuthService`，让登录和注册只保留编排，不直接持有过多基础设施细节。
 
 ### 5. 失败路径与边界条件
 
-- 若直接把 `user.go`、`email.go`、`auth.go` 机械搬目录，不先拆职责：会把现有耦合原样复制到新目录，问题只会换路径，不会消失。
+- 若直接把 `user.go`、`email/`、`auth.go` 机械搬目录，不先拆职责：会把现有耦合原样复制到新目录，问题只会换路径，不会消失。
 - 若 `AuthService` 继续直接操作验证码持久化和 SMTP 细节：编排层会继续变胖，目录再漂亮也没有意义。
-- 若 `UserService` 继续在方法内部直接实例化 `EmailService`：后续很难测试，也很难抽离密码重置能力。
+- 若 `UserService` 再次回到方法内部直接实例化 `EmailService`：后续很难测试，也很难抽离密码重置能力。
 - 兼容性约束：登录校验顺序、注册邀请码逻辑、邮箱验证码频控、密码重置语义都不能改变。
 
 ## 影响范围

@@ -7,18 +7,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
 	authService  *services.AuthService
-	emailService *services.EmailService
+	emailService *emailpkg.EmailService
 	userService  *services.UserService
 }
 
 // NewAuthHandler 创建认证处理器
 func NewAuthHandler() *AuthHandler {
-	emailService := services.NewEmailService()
+	emailService := emailpkg.NewEmailService()
 	return &AuthHandler{
 		authService:  services.NewAuthService(),
 		emailService: emailService,
@@ -146,7 +147,7 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 
 	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeRegister); err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, services.ErrEmailCodeRateLimit) || errors.Is(err, services.ErrEmailCodeIPRateLimit) {
+		if errors.Is(err, emailpkg.ErrEmailCodeRateLimit) || errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit) {
 			status = http.StatusTooManyRequests
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
@@ -166,7 +167,7 @@ func (h *AuthHandler) SendResetCode(c *gin.Context) {
 
 	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeReset); err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, services.ErrEmailCodeRateLimit) || errors.Is(err, services.ErrEmailCodeIPRateLimit) {
+		if errors.Is(err, emailpkg.ErrEmailCodeRateLimit) || errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit) {
 			status = http.StatusTooManyRequests
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
@@ -185,7 +186,7 @@ func (h *AuthHandler) ResetPasswordByCode(c *gin.Context) {
 	}
 
 	if err := h.userService.ResetPasswordByCode(&req); err != nil {
-		if errors.Is(err, services.ErrEmailCodeInvalid) {
+		if errors.Is(err, emailpkg.ErrEmailCodeInvalid) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

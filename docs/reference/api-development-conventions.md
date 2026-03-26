@@ -151,6 +151,7 @@
 当前已分组的包括：
 
 - `device/`
+- `email/`
 - `media/`
 - `payment/`
 - `playback/`
@@ -162,7 +163,6 @@
 未完全分组的包括：
 
 - `auth.go`
-- `email.go`
 - `system.go`
 - `user.go`
 

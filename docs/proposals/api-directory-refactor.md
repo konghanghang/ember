@@ -51,7 +51,7 @@
 
 原有统一的 `services/errors.go` 已拆掉，当前改为按业务分布在：
 
-- `services/email_errors.go`
+- `services/email/errors.go`
 - `services/media_quality_errors.go`
 - `services/payment/errors.go`
 - `services/redemption/errors.go`
@@ -143,21 +143,13 @@ internal/services/user/
 
 状态：
 
-- 仍为单文件
-- 既有 SMTP 能力，也有验证码业务逻辑
+- 已收口到 `services/email/`
+- 配置读取、验证码业务、SMTP 发送已分层，但对外仍保持 `EmailService` 入口
 
 结论：
 
-- **中期值得拆**
-- 但优先级低于 `user`
-
-建议方向：
-
-- 保持 `EmailService` 对外入口不变
-- 内部再拆为：
-  - SMTP 发送
-  - 验证码发送/校验
-  - 配置读取
+- 当前目录化已完成
+- 后续重点转到继续收薄 `auth` 和 `user`
 
 详细落地方案见：
 

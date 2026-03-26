@@ -9,6 +9,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
 
 type userEmailVerifier interface {
@@ -21,7 +22,7 @@ type UserService struct {
 }
 
 func NewUserService() *UserService {
-	return NewUserServiceWithEmailVerifier(NewEmailService())
+	return NewUserServiceWithEmailVerifier(emailpkg.NewEmailService())
 }
 
 func NewUserServiceWithEmailVerifier(verifier userEmailVerifier) *UserService {
@@ -32,14 +33,14 @@ func NewUserServiceWithEmailVerifier(verifier userEmailVerifier) *UserService {
 
 func (s *UserService) setEmailVerifier(verifier userEmailVerifier) {
 	if verifier == nil {
-		verifier = NewEmailService()
+		verifier = emailpkg.NewEmailService()
 	}
 	s.emailVerifier = verifier
 }
 
 func (s *UserService) getEmailVerifier() userEmailVerifier {
 	if s.emailVerifier == nil {
-		s.emailVerifier = NewEmailService()
+		s.emailVerifier = emailpkg.NewEmailService()
 	}
 	return s.emailVerifier
 }

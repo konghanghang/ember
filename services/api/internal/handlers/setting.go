@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	configpkg "github.com/konghang/ember/backend/internal/config"
-	"github.com/konghang/ember/backend/internal/services"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
 
 type SettingHandler struct {
@@ -25,7 +25,7 @@ func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
 	if mode == "open" {
 		resp["defaultTrialDays"] = h.configService.GetDefaultTrialDays()
 	}
-	emailService := services.NewEmailService()
+	emailService := emailpkg.NewEmailService()
 	resp["emailVerification"] = emailService.IsEnabled()
 	c.JSON(http.StatusOK, resp)
 }

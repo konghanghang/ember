@@ -6,20 +6,21 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	"regexp"
 )
 
 // AuthService 认证服务
 type AuthService struct {
 	notifier     *notifierint.BotNotifier
-	emailService *EmailService
+	emailService *emailpkg.EmailService
 }
 
 // NewAuthService 创建认证服务
 func NewAuthService() *AuthService {
 	return &AuthService{
 		notifier:     notifierint.NewBotNotifier(),
-		emailService: NewEmailService(),
+		emailService: emailpkg.NewEmailService(),
 	}
 }
 

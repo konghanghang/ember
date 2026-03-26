@@ -6,6 +6,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
 
 // ResetPasswordByCodeRequest 通过邮箱验证码重置密码
@@ -54,7 +55,7 @@ func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error
 	}
 	if deleteResult.RowsAffected == 0 {
 		tx.Rollback()
-		return ErrEmailCodeInvalid
+		return emailpkg.ErrEmailCodeInvalid
 	}
 	if err := tx.Commit().Error; err != nil {
 		return errors.New("密码重置失败：验证码清理失败")
