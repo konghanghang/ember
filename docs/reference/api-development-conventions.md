@@ -154,6 +154,7 @@
 - `media/`
 - `payment/`
 - `playback/`
+- `redemption/`
 - `subscription/`
 - `telegram/`
 - `tvcalendar/`
@@ -162,8 +163,6 @@
 
 - `auth.go`
 - `email.go`
-- `redemption.go`
-- `redemption_code.go`
 - `system.go`
 - `user.go`
 
@@ -282,9 +281,7 @@ internal/config/
 
 ## 5. compat 文件规范
 
-当前存在的 compat 文件包括：
-
-- `telegram_compat.go`
+当前 compat 已清理完成。
 
 ### 5.1 compat 使用规则
 
@@ -382,9 +379,7 @@ compat 不允许用于：
 
 如果继续推进，最建议的顺序是：
 
-1. 开始逐个删除 compat 文件
-   - 从 `telegram_compat.go` 开始
-2. 最后再处理 `user/email/auth`
+1. 处理 `user/email/auth`
 
 原因：
 

@@ -5,18 +5,18 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
+	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 )
 
 type TelegramHandler struct {
-	telegramService *services.TelegramService
+	telegramService *telegrampkg.TelegramService
 }
 
 func NewTelegramHandler() *TelegramHandler {
 	return &TelegramHandler{
-		telegramService: services.NewTelegramService(),
+		telegramService: telegrampkg.NewDefaultService(),
 	}
 }
 
@@ -32,7 +32,7 @@ func (h *TelegramHandler) GenerateBindCode(c *gin.Context) {
 	if err != nil {
 		statusCode := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, services.ErrUserAlreadyBoundTelegram):
+		case errors.Is(err, telegrampkg.ErrUserAlreadyBoundTelegram):
 			statusCode = http.StatusBadRequest
 		case err.Error() == "用户不存在":
 			statusCode = http.StatusNotFound
@@ -58,7 +58,7 @@ func (h *TelegramHandler) Unbind(c *gin.Context) {
 	if err := h.telegramService.Unbind(userID.(string)); err != nil {
 		statusCode := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, services.ErrTelegramNotBound):
+		case errors.Is(err, telegrampkg.ErrTelegramNotBound):
 			statusCode = http.StatusBadRequest
 		case err.Error() == "用户不存在":
 			statusCode = http.StatusNotFound
@@ -72,7 +72,7 @@ func (h *TelegramHandler) Unbind(c *gin.Context) {
 
 // VerifyBind Bot 验证绑定码
 func (h *TelegramHandler) VerifyBind(c *gin.Context) {
-	var req services.TelegramBindRequest
+	var req telegrampkg.TelegramBindRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -82,9 +82,9 @@ func (h *TelegramHandler) VerifyBind(c *gin.Context) {
 	if err != nil {
 		statusCode := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, services.ErrTelegramBindCodeInvalid),
-			errors.Is(err, services.ErrTelegramAlreadyBound),
-			errors.Is(err, services.ErrUserAlreadyBoundTelegram):
+		case errors.Is(err, telegrampkg.ErrTelegramBindCodeInvalid),
+			errors.Is(err, telegrampkg.ErrTelegramAlreadyBound),
+			errors.Is(err, telegrampkg.ErrUserAlreadyBoundTelegram):
 			statusCode = http.StatusBadRequest
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})
@@ -96,7 +96,7 @@ func (h *TelegramHandler) VerifyBind(c *gin.Context) {
 
 // GetAccountInfo Bot 查询账号信息
 func (h *TelegramHandler) GetAccountInfo(c *gin.Context) {
-	var req services.TelegramIDRequest
+	var req telegrampkg.TelegramIDRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -105,7 +105,7 @@ func (h *TelegramHandler) GetAccountInfo(c *gin.Context) {
 	result, err := h.telegramService.GetAccountInfo(req.TelegramID)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, services.ErrTelegramNotBound) {
+		if errors.Is(err, telegrampkg.ErrTelegramNotBound) {
 			statusCode = http.StatusBadRequest
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})
@@ -117,7 +117,7 @@ func (h *TelegramHandler) GetAccountInfo(c *gin.Context) {
 
 // RedeemByTelegram Bot 通过 Telegram 兑换续期码
 func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
-	var req services.TelegramRedeemRequest
+	var req telegrampkg.TelegramRedeemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -127,7 +127,7 @@ func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
 	if err != nil {
 		statusCode := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, services.ErrTelegramNotBound),
+		case errors.Is(err, telegrampkg.ErrTelegramNotBound),
 			errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
 			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
 			errors.Is(err, redemptionpkg.ErrRedemptionDuplicate):
@@ -145,7 +145,7 @@ func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
 
 // ResetPassword Bot 通过 Telegram 重置密码
 func (h *TelegramHandler) ResetPassword(c *gin.Context) {
-	var req services.TelegramResetPasswordRequest
+	var req telegrampkg.TelegramResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -153,7 +153,7 @@ func (h *TelegramHandler) ResetPassword(c *gin.Context) {
 
 	if err := h.telegramService.ResetPassword(req.TelegramID, req.NewPassword); err != nil {
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, services.ErrTelegramNotBound) {
+		if errors.Is(err, telegrampkg.ErrTelegramNotBound) {
 			statusCode = http.StatusBadRequest
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})
@@ -165,7 +165,7 @@ func (h *TelegramHandler) ResetPassword(c *gin.Context) {
 
 // SubscribeByTelegram Bot 通过 Telegram 创建求片订阅
 func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
-	var req services.TelegramSubscribeRequest
+	var req telegrampkg.TelegramSubscribeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -174,7 +174,7 @@ func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 	if err := h.telegramService.SubscribeByTelegram(req); err != nil {
 		statusCode := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, services.ErrTelegramNotBound):
+		case errors.Is(err, telegrampkg.ErrTelegramNotBound):
 			statusCode = http.StatusBadRequest
 		case errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated):
 			statusCode = http.StatusConflict

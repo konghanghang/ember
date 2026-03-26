@@ -73,7 +73,10 @@ services/
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
 │     │  ├─ subscription.go      # 订阅工作流
 │     │  ├─ email.go             # EmailService（邮箱验证码发送/校验/清理）
-│     │  ├─ telegram.go          # TelegramService（绑定/查询/续期）
+│     │  ├─ telegram/
+│     │  │  ├─ service.go        # TelegramService（绑定/查询/续期）
+│     │  │  ├─ wiring.go         # Telegram 默认依赖装配（redemption/subscription/emby）
+│     │  │  └─ errors.go         # Telegram 领域错误
 │     │  ├─ redemption/
 │     │  │  ├─ service.go        # RedemptionService（兑换核心逻辑 + 历史）
 │     │  │  ├─ code_service.go   # RedemptionCodeService（兑换码 CRUD）
@@ -680,7 +683,7 @@ Stripe 一次性支付流程管理。
 
 handler 继续通过 `errors.Is()` 做错误映射。
 
-### 5.17 TelegramService (`services/telegram.go`)
+### 5.17 TelegramService (`services/telegram/service.go`)
 
 Telegram 账号绑定与 Bot 自助能力服务。
 

@@ -9,6 +9,7 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
+	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
 	"github.com/robfig/cron/v3"
 )
@@ -69,7 +70,7 @@ func initCronJobs() func() {
 
 	systemService := services.NewSystemService()
 	emailService := services.NewEmailService()
-	telegramService := services.NewTelegramService()
+	telegramService := telegrampkg.NewDefaultService()
 	tvCalendarService := tvcalendarpkg.NewTVCalendarService()
 	var rankingService *playbackpkg.PlaybackRankingService
 	if rankingCronEnabled == "true" {

@@ -197,9 +197,7 @@ internal/services/redemption/
 
 ## 5. compat 文件清理计划
 
-当前为了平稳过渡，保留了若干兼容导出文件：
-
-- `telegram_compat.go`
+当前 compat 已清理完成。
 
 这些文件的职责只有一个：
 
@@ -224,12 +222,7 @@ internal/services/redemption/
 
 按风险从低到高：
 
-1. `telegram_compat.go`
-
-说明：
-
-- `telegram_compat.go` 放最后，因为它刚做完边界收口，最好先稳定一轮
-- `telegram` 放最后，是因为它仍保留跨域适配层，清理时要一起收尾
+> 当前 compat 已全部清理完成。
 
 ---
 
@@ -237,11 +230,9 @@ internal/services/redemption/
 
 如果继续推进，建议按这个顺序：
 
-1. 开始逐个去掉 compat 文件
-   - 先从 `telegram_compat.go` 开始
-2. 处理 `user` 职责切分
-3. 视情况决定是否拆 `email`
-4. 最后再判断 `auth`
+1. 处理 `user` 职责切分
+2. 视情况决定是否拆 `email`
+3. 最后再判断 `auth`
 
 ---
 
@@ -249,11 +240,11 @@ internal/services/redemption/
 
 最稳的下一步不是继续大搬家，而是：
 
-1. 正式开始“去 compat”
-2. 然后处理 `user` 的职责切分
+1. 处理 `user` 的职责切分
+2. 然后决定是否继续拆 `email`
 
 原因很简单：
 
 - 目录结构现在已经足够清楚
-- 真正还没完成的，是调用面仍然通过 `services` 根层中转
+- compat 已清理完，剩下的是职责切分问题，不是目录搬运问题
 - compat 不清掉，目录重构就永远只做了一半
