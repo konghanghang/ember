@@ -126,15 +126,16 @@ internal/services/user/
 
 状态：
 
-- 仍为单文件
-- 但职责仍然是“编排层”
+- 保留在根 `services`
+- 已拆成 `auth.go`、`auth_login.go`、`auth_register.go`
+- 当前职责仍然是“编排层”
 
 结论：
 
 - **暂时不建议拆目录**
 - 它天然依赖多个服务，当前拆目录收益不高
 
-只有当 `user`、`email` 的职责进一步拆清之后，`auth` 才值得再拆成多个文件。
+当前更合理的方向是继续收薄编排步骤，而不是为目录整齐单独建 `services/auth/`。
 
 ### 4.4 `email`
 

@@ -8,10 +8,8 @@ import (
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
-	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
-	"gorm.io/gorm"
 )
 
 type registerPreparation struct {
@@ -44,7 +42,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		return nil, errors.New("创建 Emby 用户失败：" + err.Error())
 	}
 
-	user, err := s.persistRegisteredUser(req, prepared, embyService, embyUser)
+	user, err := s.persistRegisteredUser(req, prepared, embyUser)
 	if err != nil {
 		_ = embyService.DeleteUser(embyUser.ID)
 		return nil, err
@@ -124,93 +122,4 @@ func (s *AuthService) ensureRegisterUserUnique(req *RegisterUserRequest) error {
 	}
 
 	return nil
-}
-
-func (s *AuthService) persistRegisteredUser(
-	req *RegisterUserRequest,
-	prepared *registerPreparation,
-	embyService *embyint.EmbyService,
-	embyUser *embyint.EmbyUser,
-) (*models.User, error) {
-	expiresAt := common.CalculateExpiryDate(prepared.defaultDays)
-
-	user := models.User{
-		Username:  req.Username,
-		Role:      "user",
-		Email:     req.Email,
-		EmbyID:    embyUser.ID,
-		ExpiresAt: &expiresAt,
-		IsActive:  true,
-	}
-	if err := user.SetPassword(req.Password); err != nil {
-		return nil, errors.New("创建用户失败")
-	}
-
-	tx := db.DB.Begin()
-	if tx.Error != nil {
-		return nil, errors.New("创建用户失败")
-	}
-
-	if err := tx.Create(&user).Error; err != nil {
-		tx.Rollback()
-		return nil, errors.New("创建用户失败")
-	}
-
-	if prepared.mode == "invite" && prepared.redemptionCode != nil {
-		result := tx.Model(&models.RedemptionCode{}).
-			Where("code = ? AND \"usedCount\" < \"maxUses\"", req.Code).
-			Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
-		if result.Error != nil {
-			tx.Rollback()
-			return nil, errors.New("创建用户失败")
-		}
-		if result.RowsAffected == 0 {
-			tx.Rollback()
-			return nil, redemptionpkg.ErrRedemptionCodeInvalid
-		}
-
-		redemption := models.Redemption{
-			UserID: user.ID,
-			Code:   req.Code,
-			Days:   prepared.defaultDays,
-		}
-		if err := tx.Create(&redemption).Error; err != nil {
-			tx.Rollback()
-			return nil, errors.New("创建用户失败")
-		}
-
-		if err := s.applyTemplatePolicyIfNeeded(embyUser.ID, prepared.redemptionCode.TemplateUserID); err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		return nil, errors.New("创建用户失败")
-	}
-
-	return &user, nil
-}
-
-func (s *AuthService) notifyNewRegistration(user models.User, mode string) {
-	go func(user models.User, mode string) {
-		if s.notifier == nil || !s.notifier.IsConfigured() {
-			return
-		}
-
-		var expiresAt *string
-		if user.ExpiresAt != nil {
-			formatted := user.ExpiresAt.UTC().Format("2006-01-02 15:04:05 MST")
-			expiresAt = &formatted
-		}
-
-		s.notifier.NotifyNewRegistration(notifierint.RegistrationNotification{
-			ID:               user.ID,
-			UserName:         user.Username,
-			Email:            user.Email,
-			EmbyID:           user.EmbyID,
-			RegistrationMode: mode,
-			ExpiresAt:        expiresAt,
-		})
-	}(user, mode)
 }

@@ -10,7 +10,7 @@
 
 - `UserService` 原先把管理员用户管理、用户资料、自助改密、管理员重置密码、邮箱验证码重置密码、Emby 状态同步全部堆在 `services/api/internal/services/user.go`，职责已经明显失控；虽然现在已拆到 `services/user/`，但边界收口仍需继续。
 - `EmailService` 原先把 SMTP 配置读取、验证码生成与频控、邮件发送、验证码校验、连接探活混在一起；虽然现在已拆到 `services/email/`，但 `auth/user` 的调用边界仍需要继续收薄。
-- `services/api/internal/services/auth.go` 作为编排层，本应保持薄，但当前仍直接依赖 `EmailService`、Emby、Notifier、兑换码校验和模板用户策略，边界过于粗糙。
+- `AuthService` 作为编排层，本应保持薄；虽然现在已拆成 `auth.go`、`auth_login.go`、`auth_register.go`，但仍直接依赖 `EmailService`、Emby、Notifier、兑换码校验和模板用户策略，边界仍有继续收薄空间。
 - 兼容层已经清理完成，后续再不处理这三块，目录重构就会卡在“结构看起来清楚，但核心领域仍是大文件”的阶段。
 
 ## 目标
@@ -59,7 +59,7 @@
   - `UserService.ResetPasswordByCode()` 虽然已经改成显式依赖验证码校验能力，但 `UserService` 仍未正式目录化。
   - `AuthHandler` 同时持有 `AuthService` 和 `EmailService`，而 `AuthService` 自己又持有 `EmailService`。
   - `AuthService.RegisterUser()` 虽然已拆到独立文件，但注册链路仍直接持有较多基础设施依赖。
-  - `AuthService.Login()` 虽然已拆到独立文件，但 `auth` 仍停留在根 `services`，尚未决定是否保持编排层形态。
+  - `AuthService.Login()` 虽然已拆到独立文件，但 `auth` 继续保留根层是否足够稳定，仍需结合后续收薄结果判断。
 
 ## 方案设计
 
