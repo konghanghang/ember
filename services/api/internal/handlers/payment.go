@@ -6,16 +6,16 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 )
 
 type PaymentHandler struct {
-	service *services.PaymentService
+	service *paymentpkg.PaymentService
 }
 
 func NewPaymentHandler() *PaymentHandler {
 	return &PaymentHandler{
-		service: services.NewPaymentService(),
+		service: paymentpkg.NewPaymentService(),
 	}
 }
 
@@ -35,7 +35,7 @@ func (h *PaymentHandler) CreateCheckout(c *gin.Context) {
 		return
 	}
 
-	var req services.CreateCheckoutRequest
+	var req paymentpkg.CreateCheckoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -44,9 +44,9 @@ func (h *PaymentHandler) CreateCheckout(c *gin.Context) {
 	resp, err := h.service.CreateCheckoutSession(userID.(string), &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrPlanNotFound):
+		case errors.Is(err, paymentpkg.ErrPlanNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrStripeNotConfigured):
+		case errors.Is(err, paymentpkg.ErrStripeNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -64,7 +64,7 @@ func (h *PaymentHandler) GetMyPayments(c *gin.Context) {
 		return
 	}
 
-	var req services.GetPaymentsRequest
+	var req paymentpkg.GetPaymentsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -82,11 +82,11 @@ func (h *PaymentHandler) GetMyPayments(c *gin.Context) {
 func (h *PaymentHandler) HandleStripeWebhook(c *gin.Context) {
 	if err := h.service.HandleWebhook(c.Request); err != nil {
 		switch {
-		case errors.Is(err, services.ErrStripeNotConfigured):
+		case errors.Is(err, paymentpkg.ErrStripeNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		case strings.Contains(err.Error(), "签名"), strings.Contains(err.Error(), "解析"):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrPaymentFailed):
+		case errors.Is(err, paymentpkg.ErrPaymentFailed):
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -98,7 +98,7 @@ func (h *PaymentHandler) HandleStripeWebhook(c *gin.Context) {
 }
 
 func (h *PaymentHandler) GetPlans(c *gin.Context) {
-	var req services.GetPlansRequest
+	var req paymentpkg.GetPlansRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -114,7 +114,7 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 }
 
 func (h *PaymentHandler) CreatePlan(c *gin.Context) {
-	var req services.CreatePlanRequest
+	var req paymentpkg.CreatePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -132,7 +132,7 @@ func (h *PaymentHandler) CreatePlan(c *gin.Context) {
 func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 	id := c.Param("id")
 
-	var req services.UpdatePlanRequest
+	var req paymentpkg.UpdatePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -141,7 +141,7 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 	plan, err := h.service.UpdatePlan(id, &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrPlanNotFound):
+		case errors.Is(err, paymentpkg.ErrPlanNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -155,7 +155,7 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 func (h *PaymentHandler) DeletePlan(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.service.DeletePlan(id); err != nil {
-		if errors.Is(err, services.ErrPlanNotFound) {
+		if errors.Is(err, paymentpkg.ErrPlanNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
@@ -167,7 +167,7 @@ func (h *PaymentHandler) DeletePlan(c *gin.Context) {
 }
 
 func (h *PaymentHandler) GetAllPayments(c *gin.Context) {
-	var req services.GetPaymentsRequest
+	var req paymentpkg.GetPaymentsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return

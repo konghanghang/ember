@@ -199,9 +199,6 @@ internal/services/redemption/
 
 当前为了平稳过渡，保留了若干兼容导出文件：
 
-- `device_compat.go`
-- `media_compat.go`
-- `payment_compat.go`
 - `playback_compat.go`
 - `subscription_compat.go`
 - `telegram_compat.go`
@@ -230,18 +227,15 @@ internal/services/redemption/
 
 按风险从低到高：
 
-1. `payment_compat.go`
-2. `device_compat.go`
-3. `media_compat.go`
-4. `subscription_compat.go`
-5. `playback_compat.go`
-6. `tvcalendar_compat.go`
-7. `telegram_compat.go`
+1. `subscription_compat.go`
+2. `playback_compat.go`
+3. `tvcalendar_compat.go`
+4. `telegram_compat.go`
 
 说明：
 
 - `telegram_compat.go` 放最后，因为它刚做完边界收口，最好先稳定一轮
-- `payment/device/media` 的调用面更集中，优先清掉兼容层收益更高
+- `subscription` 的调用面更集中，优先清掉兼容层收益更高
 
 ---
 
@@ -250,7 +244,7 @@ internal/services/redemption/
 如果继续推进，建议按这个顺序：
 
 1. 开始逐个去掉 compat 文件
-   - 先从 `payment_compat.go` 开始
+   - 先从 `subscription_compat.go` 开始
 2. 处理 `user` 职责切分
 3. 视情况决定是否拆 `email`
 4. 最后再判断 `auth`

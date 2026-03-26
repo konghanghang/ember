@@ -9,18 +9,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
-	"github.com/konghang/ember/backend/internal/services"
+	mediapkg "github.com/konghang/ember/backend/internal/services/media"
 )
 
 // MediaHandler 媒体处理器
 type MediaHandler struct {
-	service *services.MediaService
+	service *mediapkg.MediaService
 }
 
 // NewMediaHandler 创建媒体处理器
 func NewMediaHandler() *MediaHandler {
 	return &MediaHandler{
-		service: services.NewMediaService(),
+		service: mediapkg.NewMediaService(),
 	}
 }
 

@@ -284,9 +284,6 @@ internal/config/
 
 当前存在的 compat 文件包括：
 
-- `device_compat.go`
-- `media_compat.go`
-- `payment_compat.go`
 - `playback_compat.go`
 - `subscription_compat.go`
 - `telegram_compat.go`
@@ -360,11 +357,12 @@ compat 不允许用于：
 
 问题：
 
-- 边界相对清楚，但还未分组
+- 已完成目录分组，但还需要继续清理调用面与兼容层
 
 要求：
 
-- 这是后续最适合继续推进的目录拆分对象
+- 视为已完成的领域目录化案例
+- 后续重点转到 compat 清理，不再回退到根 `services`
 
 ---
 
@@ -387,14 +385,11 @@ compat 不允许用于：
 
 如果继续推进，最建议的顺序是：
 
-1. 拆 `redemption/`
-2. 拆 `redemption_code/`
-3. 开始逐个删除 compat 文件
-   - 从 `payment_compat.go` 开始
-4. 最后再处理 `user/email/auth`
+1. 开始逐个删除 compat 文件
+   - 从 `subscription_compat.go` 开始
+2. 最后再处理 `user/email/auth`
 
 原因：
 
-- `redemption` 边界清楚，适合继续目录化
 - compat 不清理，重构永远没完成
 - `user/auth/email` 已经进入“边界设计问题”，不是简单的目录问题了

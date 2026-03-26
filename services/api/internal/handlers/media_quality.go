@@ -7,16 +7,16 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	mediapkg "github.com/konghang/ember/backend/internal/services/media"
 )
 
 type MediaQualityHandler struct {
-	service *services.MediaQualityService
+	service *mediapkg.MediaQualityService
 }
 
 func NewMediaQualityHandler() *MediaQualityHandler {
 	return &MediaQualityHandler{
-		service: services.NewMediaQualityService(),
+		service: mediapkg.NewMediaQualityService(),
 	}
 }
 
@@ -46,9 +46,9 @@ func (h *MediaQualityHandler) GetLibraryQuality(c *gin.Context) {
 	report, err := h.service.GetLibraryQuality(c.Request.Context(), libraryID, force)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrMediaQualityLibraryIDRequired):
+		case errors.Is(err, mediapkg.ErrMediaQualityLibraryIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrMediaQualityScanFailed):
+		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -67,9 +67,9 @@ func (h *MediaQualityHandler) ScanLibraryQuality(c *gin.Context) {
 	report, err := h.service.ScanLibraryQuality(c.Request.Context(), libraryID)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrMediaQualityLibraryIDRequired):
+		case errors.Is(err, mediapkg.ErrMediaQualityLibraryIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrMediaQualityScanFailed):
+		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -95,10 +95,10 @@ func (h *MediaQualityHandler) GetLibraryQualityGroupDetails(c *gin.Context) {
 	details, err := h.service.GetGroupLowQualityDetails(c.Request.Context(), libraryID, groupID, force)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrMediaQualityLibraryIDRequired),
-			errors.Is(err, services.ErrMediaQualityGroupIDRequired):
+		case errors.Is(err, mediapkg.ErrMediaQualityLibraryIDRequired),
+			errors.Is(err, mediapkg.ErrMediaQualityGroupIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrMediaQualityScanFailed):
+		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -153,7 +153,7 @@ func parsePositiveInt(raw string, fallback int) int {
 	return v
 }
 
-func paginateMediaQualityReport(report *services.QualityReport, page, pageSize int) *services.QualityReport {
+func paginateMediaQualityReport(report *mediapkg.QualityReport, page, pageSize int) *mediapkg.QualityReport {
 	if report == nil {
 		return nil
 	}

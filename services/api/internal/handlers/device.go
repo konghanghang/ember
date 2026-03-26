@@ -5,16 +5,16 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	devicepkg "github.com/konghang/ember/backend/internal/services/device"
 )
 
 type DeviceHandler struct {
-	service *services.DeviceService
+	service *devicepkg.DeviceService
 }
 
 func NewDeviceHandler() *DeviceHandler {
 	return &DeviceHandler{
-		service: services.NewDeviceService(),
+		service: devicepkg.NewDeviceService(),
 	}
 }
 
@@ -24,7 +24,7 @@ type AddClientBlacklistRequest struct {
 }
 
 func (h *DeviceHandler) GetDevices(c *gin.Context) {
-	var req services.GetDevicesRequest
+	var req devicepkg.GetDevicesRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -57,7 +57,7 @@ func (h *DeviceHandler) AddToBlacklist(c *gin.Context) {
 	}
 
 	if err := h.service.AddClientToBlacklist(req.ClientName, req.Reason); err != nil {
-		if errors.Is(err, services.ErrDeviceClientNameRequired) {
+		if errors.Is(err, devicepkg.ErrDeviceClientNameRequired) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -72,9 +72,9 @@ func (h *DeviceHandler) RemoveFromBlacklist(c *gin.Context) {
 	clientName := c.Param("clientName")
 	if err := h.service.RemoveClientFromBlacklist(clientName); err != nil {
 		switch {
-		case errors.Is(err, services.ErrDeviceClientNameRequired):
+		case errors.Is(err, devicepkg.ErrDeviceClientNameRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, services.ErrClientBlacklistNotFound):
+		case errors.Is(err, devicepkg.ErrClientBlacklistNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -89,7 +89,7 @@ func (h *DeviceHandler) LogoutDevice(c *gin.Context) {
 	deviceID := c.Param("deviceId")
 	if err := h.service.LogoutDevice(deviceID); err != nil {
 		switch {
-		case errors.Is(err, services.ErrDeviceIDRequired):
+		case errors.Is(err, devicepkg.ErrDeviceIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
