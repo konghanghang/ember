@@ -177,7 +177,7 @@ internal/services/redemption/
 
 详细落地方案见：
 
-- `docs/plan/redemption-directory-refactor.md`
+- `docs/archive/plan/redemption-directory-refactor.md`
 
 ### 4.6 `system`
 

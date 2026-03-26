@@ -1,6 +1,6 @@
 # user-email-auth 职责切分方案
 
-> 状态：草稿
+> 状态：收尾中
 > 负责人：Ember
 > 更新时间：2026-03-26
 
@@ -12,6 +12,11 @@
 - `EmailService` 原先把 SMTP 配置读取、验证码生成与频控、邮件发送、验证码校验、连接探活混在一起；虽然现在已拆到 `services/email/`，但 `auth/user` 的调用边界仍需要继续收薄。
 - `AuthService` 作为编排层，本应保持薄；虽然现在已拆成 `auth.go`、`auth_login.go`、`auth_register.go`，但仍直接依赖 `EmailService`、Emby、Notifier、兑换码校验和模板用户策略，边界仍有继续收薄空间。
 - 兼容层已经清理完成，后续再不处理这三块，目录重构就会卡在“结构看起来清楚，但核心领域仍是大文件”的阶段。
+
+当前进度判断：
+
+- 主体结构调整已经完成。
+- 当前要做的是把方案文档从“实施计划”收口成“已完成主体 + 剩余收尾项”。
 
 ## 目标
 
@@ -52,14 +57,28 @@
   - `services/api/internal/handlers/user.go`
   - `services/api/internal/handlers/auth.go`
 - 当前行为：
-  - `AuthService` 负责登录、注册编排。
-  - `UserService` 负责管理员用户管理、个人资料、密码与邮箱修改、通过邮箱验证码重置密码、Emby 状态同步。
+  - `AuthService` 负责登录、注册编排；`GetCurrentUser` 已回收到 `UserService`。
+  - `UserService` 已收口到 `services/user/`，负责管理员用户管理、个人资料、密码与邮箱修改、通过邮箱验证码重置密码、Emby 状态同步。
   - `EmailService` 已收口到 `services/email/`，负责验证码发送/校验/清理和 SMTP 连接测试。
 - 现有限制：
-  - `UserService.ResetPasswordByCode()` 虽然已经改成显式依赖验证码校验能力，但 `UserService` 仍未正式目录化。
-  - `AuthHandler` 同时持有 `AuthService` 和 `EmailService`，而 `AuthService` 自己又持有 `EmailService`。
-  - `AuthService.RegisterUser()` 虽然已拆到独立文件，但注册链路仍直接持有较多基础设施依赖。
-  - `AuthService.Login()` 虽然已拆到独立文件，但 `auth` 继续保留根层是否足够稳定，仍需结合后续收薄结果判断。
+  - `AuthHandler` 仍同时持有 `AuthService`、`EmailService`、`UserService`，这是当前 handler 装配的现实状态，但已不再阻塞目录边界。
+  - `AuthService.RegisterUser()` 虽然已继续拆成注册编排、注册持久化、注册通知多个文件，但仍属于编排层，不适合再为了目录整齐做单独目录化。
+  - 目前缺少一轮针对 `auth/user/email` 核心路径的服务级测试补强，方案还不能归档为“彻底收尾”。
+
+### 已完成项
+
+- `email` 已正式目录化到 `services/email/`
+- `user` 已正式目录化到 `services/user/`
+- `auth` 已拆成登录、注册、注册持久化、注册通知等多文件
+- `ResetPasswordByCode` 已切开对 `EmailService` 的内部实例化依赖
+- `GetCurrentUser` 已从 `AuthService` 回收到 `UserService`
+- 相关架构和目录文档已同步到当前代码现状
+
+### 剩余收尾项
+
+- 补 `auth/user/email` 关键服务路径测试
+- 根据测试补强结果决定是否需要继续收口 `user` 的 `types/errors`
+- 完成后将本方案移入 `docs/archive/`
 
 ## 方案设计
 
@@ -109,6 +128,12 @@ services/api/internal/services/
 - `EmailService` 对外暴露稳定 facade，但内部拆基础 SMTP 与验证码逻辑。
 - `auth` 暂时不做目录化，仍作为编排层保留在根 `services`，直到 `user/email` 边界稳定。
 
+当前判断更新：
+
+- `email` 目录化：已完成
+- `user` 目录化：已完成
+- `auth` 目录化：当前不建议继续推进，保持根层编排入口即可
+
 ### 4. 关键流程
 
 按顺序写清主链路，不需要贴代码：
@@ -118,6 +143,8 @@ services/api/internal/services/
 3. 把 `ResetPasswordByCode` 从“用户服务 + 内部 new EmailService”改为“用户密码重置服务 + 显式依赖验证码校验能力”。
 4. 再切 `email` 内部职责，把 SMTP 发送、配置读取、验证码业务分层，并正式目录化到 `services/email/`。
 5. 最后收薄 `AuthService`，让登录和注册只保留编排，不直接持有过多基础设施细节。
+
+截至当前，步骤 1 到 5 的主体结构改造均已完成。
 
 ### 5. 失败路径与边界条件
 
@@ -136,6 +163,12 @@ services/api/internal/services/
 - 配置/部署：无新增配置项。
 - 文档：需同步更新 `docs/system-architecture.md` 和 `docs/reference/api-development-conventions.md`。
 
+当前已完成影响同步：
+
+- `docs/system-architecture.md`
+- `docs/reference/api-development-conventions.md`
+- `docs/proposals/api-directory-refactor.md`
+
 ## 验证方式
 
 ### 编译/测试
@@ -150,10 +183,16 @@ services/api/internal/services/
 - 通过邮箱验证码重置密码，确认验证码校验、Emby 密码同步、本地密码保存和验证码删除都正常。
 - 用户中心修改密码、修改邮箱，管理员后台修改用户状态/到期时间/重置密码都正常。
 
+当前状态：
+
+- 编译验证已完成
+- 自动化测试已完成
+- 手工验证尚未系统回归，这也是本方案暂不归档的主要原因
+
 ## 落地后文档处理
 
 落地后应同步处理：
 
 - 将稳定后的 `user`、`email`、`auth` 边界更新到 `docs/system-architecture.md`。
 - 将“编排层不得直接吞基础设施细节”和“先切职责再目录化”的经验补到 `docs/reference/api-development-conventions.md`。
-- 稳定后将本方案移入 `docs/archive/`。
+- 待补完关键手工回归或测试补强后，将本方案移入 `docs/archive/`。
