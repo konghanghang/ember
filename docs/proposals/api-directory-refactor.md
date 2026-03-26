@@ -121,6 +121,10 @@ internal/services/user/
   types.go
 ```
 
+详细落地方案见：
+
+- `docs/plan/user-email-auth-boundary-refactor.md`
+
 ### 4.3 `auth`
 
 状态：
@@ -154,6 +158,10 @@ internal/services/user/
   - SMTP 发送
   - 验证码发送/校验
   - 配置读取
+
+详细落地方案见：
+
+- `docs/plan/user-email-auth-boundary-refactor.md`
 
 ### 4.5 `redemption` / `redemption_code`
 

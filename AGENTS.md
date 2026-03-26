@@ -178,6 +178,7 @@
 
 - 新计划文档默认放在 `docs/plan/`
 - 文件名使用英文小写 `kebab-case`
+- AI 新建或更新计划/提案类文档时，`负责人` 统一写 `Ember`
 - 文档治理、盘点、重构策略、流程提案放 `docs/proposals/`
 
 `docs/plan/` 至少包含：

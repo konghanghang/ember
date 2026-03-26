@@ -68,6 +68,9 @@ services/
 │     ├─ services/               # 业务逻辑
 │     │  ├─ auth.go              # 登录 / 注册
 │     │  ├─ user.go              # 用户 CRUD + 密码管理
+│     │  ├─ user_profile.go      # 用户资料 / 邮箱更新
+│     │  ├─ user_password.go     # 用户密码修改 / 管理员重置密码
+│     │  ├─ user_password_reset.go # 用户邮箱验证码重置密码
 │     │  ├─ system.go            # 系统信息 + 过期检查
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
@@ -513,12 +516,16 @@ TMDBCache（独立缓存表）
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
 - `LoginResponse{Token, User}`
 
-### 5.2 UserService (`services/user.go`)
+### 5.2 UserService (`services/user.go`, `services/user_profile.go`, `services/user_password.go`, `services/user_password_reset.go`)
 
 - `GetUsers(page, pageSize, search, isActive, expiresAfter, embyStatus)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`；`embyStatus` 支持 `available/disabled/unlinked`）
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
+- `GetProfile(userID)` — 获取用户个人资料
+- `UpdateProfile(userID, email)` — 更新用户个人资料
+- `UpdateEmail(userID, newEmail)` — 更新用户邮箱
 - `UpdatePassword(userID, old, new)` — Emby + 本地 hash 同步
 - `ResetPassword(userID, new)` — 管理员重置，Emby + 本地 hash 同步
+- `ResetPasswordByCode(email, code, newPassword)` — 通过注入的验证码校验能力完成邮箱验证码重置，不再在方法内部自行构造 EmailService
 - `ToggleUserStatus(userID)` — 翻转 IsActive
 
 ### 5.3 RedemptionCodeService (`services/redemption/code_service.go`)

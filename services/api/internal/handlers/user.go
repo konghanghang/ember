@@ -19,7 +19,7 @@ type UserHandler struct {
 // NewUserHandler 创建用户处理器
 func NewUserHandler() *UserHandler {
 	return &UserHandler{
-		userService:           &services.UserService{},
+		userService:           services.NewUserService(),
 		redemptionService:     &redemptionpkg.RedemptionService{},
 		redemptionCodeService: &redemptionpkg.RedemptionCodeService{},
 	}

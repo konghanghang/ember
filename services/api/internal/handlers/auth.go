@@ -13,13 +13,16 @@ import (
 type AuthHandler struct {
 	authService  *services.AuthService
 	emailService *services.EmailService
+	userService  *services.UserService
 }
 
 // NewAuthHandler 创建认证处理器
 func NewAuthHandler() *AuthHandler {
+	emailService := services.NewEmailService()
 	return &AuthHandler{
 		authService:  services.NewAuthService(),
-		emailService: services.NewEmailService(),
+		emailService: emailService,
+		userService:  services.NewUserServiceWithEmailVerifier(emailService),
 	}
 }
 
@@ -181,8 +184,7 @@ func (h *AuthHandler) ResetPasswordByCode(c *gin.Context) {
 		return
 	}
 
-	userService := &services.UserService{}
-	if err := userService.ResetPasswordByCode(&req); err != nil {
+	if err := h.userService.ResetPasswordByCode(&req); err != nil {
 		if errors.Is(err, services.ErrEmailCodeInvalid) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
