@@ -8,11 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
-	"github.com/konghang/ember/backend/internal/services"
+	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
 )
 
 type RankingHandler struct {
-	service *services.PlaybackRankingService
+	service *playbackpkg.PlaybackRankingService
 }
 
 type RankingItemResponse struct {
@@ -36,7 +36,7 @@ type RankingResponse struct {
 
 func NewRankingHandler() *RankingHandler {
 	return &RankingHandler{
-		service: services.NewPlaybackRankingService(),
+		service: playbackpkg.NewPlaybackRankingService(),
 	}
 }
 
@@ -217,7 +217,7 @@ func (h *RankingHandler) GetHistoryRanking(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-func buildRankingResponse(period models.RankingPeriod, result *services.RankingResult, tz *time.Location) RankingResponse {
+func buildRankingResponse(period models.RankingPeriod, result *playbackpkg.RankingResult, tz *time.Location) RankingResponse {
 	if result == nil {
 		return RankingResponse{
 			Period:   string(period),
@@ -238,7 +238,7 @@ func buildRankingResponse(period models.RankingPeriod, result *services.RankingR
 	}
 }
 
-func buildRankingItemsResponse(items []services.RankingResultItem) []RankingItemResponse {
+func buildRankingItemsResponse(items []playbackpkg.RankingResultItem) []RankingItemResponse {
 	out := make([]RankingItemResponse, 0, len(items))
 	for _, item := range items {
 		out = append(out, RankingItemResponse{

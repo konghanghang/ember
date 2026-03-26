@@ -7,18 +7,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/models"
-	"github.com/konghang/ember/backend/internal/services"
+	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 )
 
 // SubscriptionHandler 订阅处理器
 type SubscriptionHandler struct {
-	service *services.SubscriptionService
+	service *subscriptionpkg.SubscriptionService
 }
 
 // NewSubscriptionHandler 创建订阅处理器
 func NewSubscriptionHandler() *SubscriptionHandler {
 	return &SubscriptionHandler{
-		service: services.NewSubscriptionService(),
+		service: subscriptionpkg.NewSubscriptionService(),
 	}
 }
 
@@ -44,7 +44,7 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 	}
 
 	// 解析请求
-	var req services.CreateSubscriptionRequest
+	var req subscriptionpkg.CreateSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
@@ -52,7 +52,7 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 
 	// 创建订阅
 	if err := h.service.CreateSubscription(userID.(string), req); err != nil {
-		if errors.Is(err, services.ErrSubscriptionDuplicated) {
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
@@ -232,7 +232,7 @@ func (h *SubscriptionHandler) AdminDeleteSubscription(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteSubscriptionAsAdmin(subscriptionID); err != nil {
-		if errors.Is(err, services.ErrSubscriptionNotFound) {
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}

@@ -199,10 +199,7 @@ internal/services/redemption/
 
 当前为了平稳过渡，保留了若干兼容导出文件：
 
-- `playback_compat.go`
-- `subscription_compat.go`
 - `telegram_compat.go`
-- `tvcalendar_compat.go`
 
 这些文件的职责只有一个：
 
@@ -227,15 +224,12 @@ internal/services/redemption/
 
 按风险从低到高：
 
-1. `subscription_compat.go`
-2. `playback_compat.go`
-3. `tvcalendar_compat.go`
-4. `telegram_compat.go`
+1. `telegram_compat.go`
 
 说明：
 
 - `telegram_compat.go` 放最后，因为它刚做完边界收口，最好先稳定一轮
-- `subscription` 的调用面更集中，优先清掉兼容层收益更高
+- `telegram` 放最后，是因为它仍保留跨域适配层，清理时要一起收尾
 
 ---
 
@@ -244,7 +238,7 @@ internal/services/redemption/
 如果继续推进，建议按这个顺序：
 
 1. 开始逐个去掉 compat 文件
-   - 先从 `subscription_compat.go` 开始
+   - 先从 `telegram_compat.go` 开始
 2. 处理 `user` 职责切分
 3. 视情况决定是否拆 `email`
 4. 最后再判断 `auth`

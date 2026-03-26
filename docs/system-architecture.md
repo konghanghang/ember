@@ -89,9 +89,7 @@ services/
 │     │  ├─ device.go            # DeviceService（设备管理）
 │     │  ├─ tvcalendar/
 │     │  │  └─ service.go        # TVCalendarService（追剧日历）
-│     │  ├─ *_errors.go          # 领域错误定义（按业务拆分）
-│     │  ├─ playback_compat.go   # playback 子目录兼容导出
-│     │  └─ tvcalendar_compat.go # tvcalendar 子目录兼容导出
+│     │  └─ *_errors.go          # 领域错误定义（按业务拆分）
 │     ├─ handlers/               # HTTP 处理层（Gin）
 │     │  ├─ auth.go              # 登录 / 注册
 │     │  ├─ user.go              # 用户管理

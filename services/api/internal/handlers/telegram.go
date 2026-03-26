@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/services"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
+	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 )
 
 type TelegramHandler struct {
@@ -175,7 +176,7 @@ func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 		switch {
 		case errors.Is(err, services.ErrTelegramNotBound):
 			statusCode = http.StatusBadRequest
-		case errors.Is(err, services.ErrSubscriptionDuplicated):
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated):
 			statusCode = http.StatusConflict
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})

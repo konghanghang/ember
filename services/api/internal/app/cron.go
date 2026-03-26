@@ -8,6 +8,8 @@ import (
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services"
+	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
+	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
 	"github.com/robfig/cron/v3"
 )
 
@@ -68,10 +70,10 @@ func initCronJobs() func() {
 	systemService := services.NewSystemService()
 	emailService := services.NewEmailService()
 	telegramService := services.NewTelegramService()
-	tvCalendarService := services.NewTVCalendarService()
-	var rankingService *services.PlaybackRankingService
+	tvCalendarService := tvcalendarpkg.NewTVCalendarService()
+	var rankingService *playbackpkg.PlaybackRankingService
 	if rankingCronEnabled == "true" {
-		rankingService = services.NewPlaybackRankingService()
+		rankingService = playbackpkg.NewPlaybackRankingService()
 	}
 
 	taskRegistered := false
@@ -141,7 +143,7 @@ func initCronJobs() func() {
 	if tvCalendarService.SyncAvailable() {
 		if tvCalendarStartupSyncEnabled == "true" {
 			time.AfterFunc(15*time.Second, func() {
-				count, err := tvCalendarService.SyncCalendar(context.Background(), services.DefaultTVCalendarWeekOffsets(), nil, false)
+				count, err := tvCalendarService.SyncCalendar(context.Background(), tvcalendarpkg.DefaultTVCalendarWeekOffsets(), nil, false)
 				if err != nil {
 					log.Printf("[TV Calendar] 启动补偿同步失败：%v", err)
 					return
@@ -154,7 +156,7 @@ func initCronJobs() func() {
 
 		if _, err := c.AddFunc(tvCalendarSyncSchedule, func() {
 			log.Println("[Cron] 开始同步追剧日历...")
-			count, err := tvCalendarService.SyncCalendar(context.Background(), services.DefaultTVCalendarWeekOffsets(), nil, false)
+			count, err := tvCalendarService.SyncCalendar(context.Background(), tvcalendarpkg.DefaultTVCalendarWeekOffsets(), nil, false)
 			if err != nil {
 				log.Printf("[Cron] 追剧日历同步失败：%v", err)
 				return

@@ -3,6 +3,7 @@ package services
 import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
+	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 )
 
@@ -44,7 +45,7 @@ func (telegramRedeemerAdapter) Redeem(userID, code string) (*telegrampkg.Telegra
 type telegramSubscriberAdapter struct{}
 
 func (telegramSubscriberAdapter) Create(userID string, req telegrampkg.TelegramSubscriptionCommand) error {
-	return NewSubscriptionService().CreateSubscription(userID, CreateSubscriptionRequest{
+	return subscriptionpkg.NewSubscriptionService().CreateSubscription(userID, subscriptionpkg.CreateSubscriptionRequest{
 		Type:       req.Type,
 		Name:       req.Name,
 		TmdbID:     req.TmdbID,
