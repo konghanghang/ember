@@ -1,7 +1,7 @@
 # Ember MVP - 核心用户管理系统 - Design Document
 
 > 历史文档：本文档描述的是 Ember 早期基于 Next.js 15 单体架构的 MVP 设计，不代表当前系统实现。
-> 当前系统事实请以 [system-architecture.md](../system-architecture.md) 和 `docs/reference/`、`docs/runbooks/` 为准。
+> 当前系统事实请以 [system-architecture.md](../../system-architecture.md) 和 `docs/reference/`、`docs/runbooks/` 为准。
 
 ## Overview
 

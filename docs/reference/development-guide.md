@@ -20,7 +20,7 @@
 - 长期有效的开发约束：看 `docs/reference/`。
 - 遇到治理、重构、目录收口、文档归档判断：看 [项目治理经验](./project-governance-guide.md)。
 - 前端打包体积、共享依赖注册和 chunk 切分：看 [前端构建优化规范](./web-build-optimization-guide.md)。
-- 某个功能准备怎么做：优先看 `docs/plan/`；新稿直接从 `docs/plan/plan-template.md` 起步。`docs/specs/` 主要保留 workflow 产物和历史设计资料。
+- 某个功能准备怎么做：优先看 `docs/plan/`；新稿直接从 `docs/plan/plan-template.md` 起步。
 - 历史方案和旧实现：只去 `docs/archive/` 追溯，不拿它当现行依据。
 
 ## 文档维护规则

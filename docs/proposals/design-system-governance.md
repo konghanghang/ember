@@ -1,6 +1,30 @@
-# Ember 前端设计系统治理计划
+# Ember 前端设计系统治理提案
 
-## 背景与目标
+> 状态：进行中
+> 负责人：Ember
+> 更新时间：2026-03-27
+
+## 问题
+
+当前前端设计系统的主要问题不是“没有规范”，而是“规范、代码和治理节奏没有完全收口”：
+
+- 部分设计模式已经在代码中存在，但没有被稳定提炼到 `docs/reference/web-design-guide.md`
+- 一些历史不一致问题已经处理，但仍有残留项没有清干净
+- 这类工作本质上是持续治理，不适合继续伪装成 `docs/plan/` 下的一次性实施稿
+
+## 目标
+
+1. 把前端设计系统治理从“功能方案”收口为“持续治理提案”
+2. 明确已完成项、剩余项和归档条件，避免文档长期悬空
+3. 为后续将稳定结论提炼进 `docs/reference/web-design-guide.md` 提供治理边界
+
+## 不做的事
+
+- 不把这份提案重写成完整源码替代品
+- 不把所有具体页面改动都永久堆在本提案里
+- 不把已经稳定的规范继续留在提案中冒充现行规则
+
+## 当前状态
 
 Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规范文档 `docs/reference/web-design-guide.md`，定义了色彩、排版、组件、布局、动效等核心规范。
 
@@ -24,6 +48,21 @@ Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规�
 **范围与约定**：
 - 本计划仅覆盖前端 `services/web/` 与设计规范文档 `docs/reference/web-design-guide.md`
 - 文中所有路径均为“仓库根目录相对路径”，避免 `src/...` 这种不带上下文的歧义写法
+
+## 当前进度
+
+### 已完成项
+
+- `docs/reference/web-design-guide.md` 已补充按钮、可点击态、ARIA、动效兜底等关键规则
+- `services/web/src/assets/base.css` 已补 `prefers-reduced-motion`
+- `services/web/src/views/console/RankingsView.vue` 已去掉 emoji UI 图标
+- `services/web/src/views/admin/UsersView.vue`、`services/web/src/components/console/TopBar.vue` 等文件已补部分 `cursor-pointer` / `aria-label`
+
+### 剩余项
+
+- `services/web/src/components/console/Sidebar.vue` 仍未按提案完全补齐导航项 `cursor-pointer` 等治理收尾
+- 设计系统治理文档需要继续从“提案”向“现行规范”收口，减少重复描述
+- 达到稳定状态后，需要决定是归档本提案，还是只保留极少量治理记录
 
 ---
 
@@ -570,7 +609,13 @@ if (start !== '' && end !== '') return `📅 ${start} ~ ${end}`
 
 ---
 
-## 四、涉及文件汇总
+## 四、影响范围
+
+- 文档：`docs/reference/web-design-guide.md`、`docs/proposals/README.md`、本提案自身
+- 前端：`services/web/` 下受设计系统治理约束的共享组件与页面
+- 流程：后续前端视觉治理应先更新规范，再做代码收尾，最后决定归档
+
+## 五、涉及文件汇总
 
 | 文件路径 | 改动类型 |
 |---------|---------|
@@ -586,7 +631,13 @@ if (start !== '' && end !== '') return `📅 ${start} ~ ${end}`
 
 ---
 
-## 五、验证方式
+## 六、完成标准
+
+- 关键共享规范已经稳定提炼到 `docs/reference/web-design-guide.md`
+- 当前已知高优先级不一致项已经关闭，或已明确记录为后续单独任务
+- 本提案不再承担“现行规范”职责，只保留治理决策和阶段记录
+
+## 七、验证方式
 
 1. **编译验证**：
    ```bash
@@ -609,3 +660,15 @@ if (start !== '' && end !== '') return `📅 ${start} ~ ${end}`
 
 4. **跨平台一致性**：
    - 确认排名页不再有 emoji 渲染差异（尤其 Windows vs macOS）
+
+## 八、归档条件
+
+- `docs/reference/web-design-guide.md` 已能独立承担现行规范职责
+- 当前已知治理尾项已完成，或已经拆成独立、仍在推进的提案/任务
+- 本提案中不再保留需要持续更新的现行事实
+
+## 九、落地后文档处理
+
+- 稳定规则继续提炼进 `docs/reference/web-design-guide.md`
+- 如果后续还有大规模治理动作，另开新提案，不在本文件里无限追加
+- 本提案完成历史使命后移入 `docs/archive/`

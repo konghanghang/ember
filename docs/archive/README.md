@@ -7,9 +7,9 @@
 - [API 目录重构提案](./api-directory-refactor.md)
 - [旧版 API 参考](./api-reference.md)
 - [重大 Bug 修复总结](./bugfix-summary.md)
-- [历史任务清单](./tasks.md)
 - [历史实施计划](./plan/)
 - [历史测试报告](./test-reports/)
+- [MVP 历史资料](./mvp/README.md)
 
 当前 `plan/` 目录下既有旧实现计划，也开始承接已落地方案的退场归档，例如：
 
@@ -28,7 +28,10 @@
 - 欢迎消息
 - 部分 `embypulse-features` 已完成条目
 
-`docs/specs/design.md` 也属于历史设计资料，只是当前仍保留在 `docs/specs/` 路径以兼容 workflow。
+`docs/archive/mvp/` 当前用于收口 MVP 阶段的历史资料，例如：
+
+- [MVP 初始设计](./mvp/design.md)
+- [MVP 历史任务清单](./mvp/tasks.md)
 
 ## 使用规则
 

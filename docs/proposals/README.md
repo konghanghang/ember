@@ -4,24 +4,43 @@
 
 ## 当前内容
 
+- [前端设计系统治理提案](./design-system-governance.md)
 - [计划文档盘点](./plan-inventory.md)
 - [提案模板](./proposal-template.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
-- [`docs/specs/design.md`](../specs/design.md) - MVP 初始设计（历史资料，不代表当前实现）
+- [`docs/archive/mvp/design.md`](../archive/mvp/design.md) - MVP 初始设计（历史资料，不代表当前实现）
 
 ## 当前剩余重点
 
-`docs/plan/` 经过两轮清理后，当前主要剩余两类内容：
+`docs/plan/` 经过整理后，当前主要剩余内容为：
 
-- 持续治理类：`docs/plan/design-system-governance.md`
-- 尚未落地的 `embypulse-features` P1/P2 条目
+- 尚未落地的 `embypulse-features` P2 条目
+
+持续治理类文档已开始收口到 `docs/proposals/`，例如 [前端设计系统治理提案](./design-system-governance.md)。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
+
+## 目录边界
+
+放在 `docs/proposals/`：
+
+- 文档治理、目录治理、流程治理提案
+- 盘点清单、重构策略、收口方案
+- 跨阶段决策文档，还没下沉到具体接口/页面/模型实施稿
+
+放在 `docs/plan/`：
+
+- 已明确到接口、模型、页面、路由、验收方式的实施稿
+- 准备直接进入开发的功能方案
+
+不该继续留在这两个目录：
+
+- 已完成且只剩历史追溯价值：移入 `docs/archive/`
+- 已稳定为现行规则或系统事实：提炼进 `docs/reference/`、`docs/runbooks/` 或 `docs/system-architecture.md`
 
 ## 兼容说明
 
 - `docs/plan/` 仍保留原路径，因为现有协作流程和 AI 指令都依赖这个位置。
-- `docs/specs/` 仍保留为 `specs-workflow` 输出目录，不做路径迁移；其中 `design.md` 已明确降级为历史设计资料。
 - 已完成的治理类提案会移入 `docs/archive/`，例如 [API 目录重构提案](../archive/api-directory-refactor.md)。
 
 ## 维护规则
@@ -29,3 +48,4 @@
 - 提案一旦落地，稳定结论要提炼进 `docs/reference/` 或 `docs/runbooks/`。
 - 提案如果已经完成或废弃，应移动到 `docs/archive/`，不要长期伪装成“现行文档”。
 - 具体功能实现稿不要写在这里，放进 `docs/plan/` 并优先使用 [功能方案模板](../plan/plan-template.md)。
+- 持续治理类文档如果已经不再指导决策，只剩历史记录，也要退出当前目录，不要长期占位。

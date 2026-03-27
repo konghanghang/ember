@@ -48,7 +48,6 @@
 
 - [提案总览](./proposals/README.md)
 - [`docs/plan/`](./plan/README.md)：进行中的功能规划，当前主要保留未落地或持续治理项
-- [`docs/specs/`](./specs/)：`specs-workflow` 产物；其中 `design.md` 为历史设计资料
 
 ### 公开发布
 
@@ -58,11 +57,11 @@
 
 - [归档总览](./archive/README.md)
 - [API 目录重构提案（已完成）](./archive/api-directory-refactor.md)
-- [MVP 初始设计（历史资料）](./specs/design.md)
+- [MVP 初始设计（历史资料）](./archive/mvp/design.md)
 
 ## 维护规则
 
 - 新增稳定规则：放进 `reference/`。
 - 新增操作流程：放进 `runbooks/`。
-- 新增需求或设计讨论：优先放 `plan/`；`specs/` 主要用于 workflow 产物和历史保留。
+- 新增需求或设计讨论：优先放 `plan/` 或 `proposals/`。
 - 已经失效但需要保留追溯：放进 `archive/`。

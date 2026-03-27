@@ -1,5 +1,7 @@
 # `docs/plan` 盘点清单
 
+> 更新时间：2026-03-27
+
 本清单只回答三件事：
 
 1. 这份方案文档在代码里有没有落地证据
@@ -10,11 +12,11 @@
 
 - 以当前代码结构和 [系统架构文档](../system-architecture.md) 为准
 - “文档里写了已完成”不算证据，必须能在代码或架构文档里找到落点
-- 本轮只盘点，不迁移文件
+- 本清单反映 2026-03-27 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
 
-## A. 已落地，建议进入归档队列
+## A. 已落地，已完成归档
 
-这些文档已经有明确代码落点，继续长期挂在 `docs/plan/` 的价值不高。
+这些文档已经有明确代码落点，并已从 `docs/plan/` 退出。
 
 | 文档 | 盘点结论 | 主要证据 | 建议动作 |
 |------|----------|----------|----------|
@@ -44,49 +46,37 @@
 
 | 文档 | 盘点结论 | 原因 | 建议动作 |
 |------|----------|------|----------|
-| `design-system-governance.md` | 持续治理中 | 它对应的是长期的设计系统收口，不是一次性交付功能 | 暂留 `docs/plan/`，等规范真正稳定后转 `reference/` 或归档 |
-| `embypulse-features/README.md` | 索引文档 | 它是该子目录的规划入口，不是单一功能方案 | 保留，等子目录清理完再处理 |
+| `embypulse-features/README.md` | 索引文档 | 它是该子目录的规划入口，不是单一功能方案 | 保留，并随子目录状态及时同步 |
 
-## C. 未见落地证据，继续保留在 `docs/plan/`
+## C. 未见完整落地证据，继续保留在 `docs/plan/`
 
 这些文档的目标在当前代码里还没有形成完整落点，继续保留为计划文档是合理的。
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
-| `embypulse-features/p1-user-profile.md` | 未落地 | 未见对应 `UserProfileService`、路由或页面 | 继续保留 |
 | `embypulse-features/p2-code-notes.md` | 未落地 | `redemption_codes` 当前无 `notes` 字段与配套 UI | 继续保留 |
 | `embypulse-features/p2-library-list.md` | 未完整落地 | 当前只有媒体质量场景复用的媒体库列表，没有独立通用 `libraries` 能力入口 | 继续保留 |
 | `embypulse-features/p2-subscription-season.md` | 未落地 | `Subscription` 模型当前没有 `season` 字段 | 继续保留 |
 | `embypulse-features/p2-user-avatar.md` | 未落地 | 未见头像上传/同步接口与页面 | 继续保留 |
 
-## D. 下一轮归档建议顺序
+## D. 本轮新增归档记录
 
-### 第一批：已执行归档
+本轮已补充归档：
 
-- `redemption-code-batch-create.md`
-- `redemption-code-one-per-user.md`
-- `telegram-bot-menu.md`
-- `unified-console.md`
-- `welcome-message.md`
-- `embypulse-features/p0-device-management.md`
-- `embypulse-features/p0-permission-template.md`
-- `embypulse-features/p1-media-quality.md`
-- `embypulse-features/p1-playback-history.md`
+- `user-profile-analytics.md`
+- `user-profile-overview.md`
+- `dashboard-renewal-redesign.md`
+- `playback-ranking-rework.md`
+- `embypulse-features/p1-user-profile.md`
 
-### 第二批：已执行“提炼后归档”
+本轮已迁移为治理提案：
 
-- `active-sessions.md`
-- `email-verification.md`
-- `forgot-password.md`
-- `latest-media.md`
-- `playback-ranking.md`
-- `settings-center.md`
-- `stripe-payment.md`
-- `telegram-binding.md`
-- `telegram-search-subscribe.md`
-- `telegram-search-multi-type.md`
-- `telegram-subscription-notification.md`
-- `embypulse-features/p0-tv-calendar.md`
+- `design-system-governance.md` → `docs/proposals/design-system-governance.md`
+
+归档后，`docs/plan/` 当前剩余重点为：
+
+- 规划索引：`embypulse-features/README.md`
+- 尚未落地的 P2 条目：`p2-subscription-season.md`、`p2-user-avatar.md`、`p2-library-list.md`、`p2-code-notes.md`
 
 ## E. 归档前提炼原则
 
@@ -106,5 +96,8 @@
 
 ## 当前结论
 
-`docs/plan/` 现在的主要问题不是“文档太多”，而是“已落地方案没有退场”。  
-下一步最合理的动作，不是继续写新计划，而是按上面的第一批、第二批顺序分两轮归档。
+`docs/plan/` 已经基本完成一轮收口，当前主要问题不再是“已落地方案没有退场”，而是：
+
+1. 持续治理类文档的边界还不够清楚，后续应决定转入 `docs/proposals/`、`docs/reference/` 还是归档
+2. `embypulse-features/README.md` 这类索引文档必须跟随子项状态同步，不能再次过时
+3. 剩余 P2 计划应继续保留为未落地方案，不要过早归档
