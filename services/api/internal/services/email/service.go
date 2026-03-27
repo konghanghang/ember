@@ -24,6 +24,10 @@ type EmailService struct {
 	ipDailyLimit  int
 }
 
+func (s *EmailService) hasSMTPConfig() bool {
+	return s.host != "" && s.username != "" && s.password != "" && s.fromAddress != ""
+}
+
 // NewEmailService 从环境变量初始化
 func NewEmailService() *EmailService {
 	service := &EmailService{}
@@ -87,7 +91,7 @@ func (s *EmailService) refreshConfig() {
 // IsConfigured 检查 SMTP 是否配置
 func (s *EmailService) IsConfigured() bool {
 	s.refreshConfig()
-	return s.host != "" && s.username != "" && s.password != "" && s.fromAddress != ""
+	return s.hasSMTPConfig()
 }
 
 // IsEnabled 综合判断：SMTP 已配置 + 业务开关开启

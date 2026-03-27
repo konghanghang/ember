@@ -2,10 +2,6 @@ package user
 
 import (
 	"errors"
-
-	"github.com/konghang/ember/backend/internal/db"
-	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
-	"github.com/konghang/ember/backend/internal/models"
 )
 
 // ResetPasswordRequest 重置密码请求
@@ -20,14 +16,15 @@ type UpdatePasswordRequest struct {
 }
 
 func (s *UserService) ResetPassword(userID string, newPassword string) error {
-	var user models.User
-	result := db.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
+	s.setDefaults()
+
+	user, err := s.findUserByID(userID)
+	if err != nil {
 		return errors.New("用户不存在")
 	}
 
-	embyService := embyint.NewEmbyService()
-	err := embyService.UpdateUserPassword(user.EmbyID, newPassword)
+	embyService := s.newEmbyClient()
+	err = embyService.UpdateUserPassword(user.EmbyID, newPassword)
 	if err != nil {
 		return errors.New("重置密码失败：" + err.Error())
 	}
@@ -35,7 +32,7 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 	if err := user.SetPassword(newPassword); err != nil {
 		return errors.New("重置密码失败：本地密码更新失败")
 	}
-	if err := db.DB.Save(&user).Error; err != nil {
+	if err := s.saveUser(user); err != nil {
 		return errors.New("重置密码失败：本地密码保存失败")
 	}
 
@@ -43,9 +40,10 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 }
 
 func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) error {
-	var user models.User
-	result := db.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
+	s.setDefaults()
+
+	user, err := s.findUserByID(userID)
+	if err != nil {
 		return errors.New("用户不存在")
 	}
 
@@ -56,13 +54,13 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 		if err := user.SetPassword(req.NewPassword); err != nil {
 			return errors.New("密码更新失败：本地密码更新失败")
 		}
-		if err := db.DB.Save(&user).Error; err != nil {
+		if err := s.saveUser(user); err != nil {
 			return errors.New("密码更新失败：本地密码保存失败")
 		}
 		return nil
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := s.newEmbyClient()
 	oldPasswordVerified := false
 	if _, err := embyService.AuthenticateUser(user.Username, req.OldPassword); err == nil {
 		oldPasswordVerified = true
@@ -84,7 +82,7 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 	if err := user.SetPassword(req.NewPassword); err != nil {
 		return errors.New("密码更新失败：本地密码更新失败")
 	}
-	if err := db.DB.Save(&user).Error; err != nil {
+	if err := s.saveUser(user); err != nil {
 		return errors.New("密码更新失败：本地密码保存失败")
 	}
 

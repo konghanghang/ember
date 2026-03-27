@@ -3,8 +3,6 @@ package user
 import (
 	"errors"
 
-	"github.com/konghang/ember/backend/internal/db"
-	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
@@ -17,17 +15,19 @@ type ResetPasswordByCodeRequest struct {
 }
 
 func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error {
+	s.setDefaults()
+
 	if err := s.getEmailVerifier().VerifyCode(req.Email, req.Code, models.VerificationTypeReset); err != nil {
 		return err
 	}
 
-	var user models.User
-	if err := db.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
+	user, err := s.findUserByEmail(req.Email)
+	if err != nil {
 		return errors.New("用户不存在")
 	}
 
 	if user.EmbyID != "" {
-		embyService := embyint.NewEmbyService()
+		embyService := s.newEmbyClient()
 		if err := embyService.UpdateUserPassword(user.EmbyID, req.NewPassword); err != nil {
 			return errors.New("密码重置失败：" + err.Error())
 		}
@@ -36,28 +36,16 @@ func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error
 	if err := user.SetPassword(req.NewPassword); err != nil {
 		return errors.New("密码重置失败：本地密码更新失败")
 	}
-	tx := db.DB.Begin()
-	if tx.Error != nil {
-		return errors.New("密码重置失败：系统繁忙，请稍后重试")
-	}
-
-	if err := tx.Save(&user).Error; err != nil {
-		tx.Rollback()
+	if err := s.saveUser(user); err != nil {
 		return errors.New("密码重置失败：本地密码保存失败")
 	}
 
-	deleteResult := tx.Where("email = ? AND \"type\" = ?", req.Email, models.VerificationTypeReset).
-		Delete(&models.EmailVerification{})
-	if deleteResult.Error != nil {
-		tx.Rollback()
+	rowsAffected, err := s.deleteResetCodes(req.Email)
+	if err != nil {
 		return errors.New("密码重置失败：验证码清理失败")
 	}
-	if deleteResult.RowsAffected == 0 {
-		tx.Rollback()
+	if rowsAffected == 0 {
 		return emailpkg.ErrEmailCodeInvalid
-	}
-	if err := tx.Commit().Error; err != nil {
-		return errors.New("密码重置失败：验证码清理失败")
 	}
 
 	return nil

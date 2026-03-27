@@ -10,17 +10,42 @@ import (
 	"regexp"
 )
 
+type authEmailVerifier interface {
+	IsEnabled() bool
+	VerifyCode(email, code, codeType string) error
+}
+
+type authRegistrationNotifier interface {
+	IsConfigured() bool
+	NotifyNewRegistration(data notifierint.RegistrationNotification)
+}
+
+type authEmbyClient interface {
+	AuthenticateUser(username, password string) (*embyint.EmbyUser, error)
+	UpdateUserPassword(embyUserID, newPassword string) error
+	CreateEmbyUser(username, password string) (*embyint.EmbyUser, error)
+	DeleteUser(embyUserID string) error
+	GetUserPolicyRaw(embyUserID string) (map[string]any, error)
+	PatchUserPolicyFields(targetUserID string, sourcePolicy map[string]any, fields []string) error
+}
+
 // AuthService 认证服务
 type AuthService struct {
-	notifier     *notifierint.BotNotifier
-	emailService *emailpkg.EmailService
+	notifier      authRegistrationNotifier
+	emailService  authEmailVerifier
+	newEmbyClient func() authEmbyClient
+	saveUser      func(user *models.User) error
 }
 
 // NewAuthService 创建认证服务
 func NewAuthService() *AuthService {
 	return &AuthService{
-		notifier:     notifierint.NewBotNotifier(),
-		emailService: emailpkg.NewEmailService(),
+		notifier:      notifierint.NewBotNotifier(),
+		emailService:  emailpkg.NewEmailService(),
+		newEmbyClient: func() authEmbyClient { return embyint.NewEmbyService() },
+		saveUser: func(user *models.User) error {
+			return db.DB.Save(user).Error
+		},
 	}
 }
 
@@ -54,7 +79,7 @@ func (s *AuthService) applyTemplatePolicyIfNeeded(newEmbyID string, templateUser
 		return errors.New("模板用户未关联 Emby 账号")
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := s.newEmbyClient()
 	sourcePolicy, err := embyService.GetUserPolicyRaw(templateUser.EmbyID)
 	if err != nil {
 		return errors.New("读取模板用户权限失败")

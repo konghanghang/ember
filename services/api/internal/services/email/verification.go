@@ -10,6 +10,26 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 )
 
+func validateVerificationRecipient(codeType string, existingUserCount int64) error {
+	if codeType == models.VerificationTypeRegister && existingUserCount > 0 {
+		return ErrEmailAlreadyRegistered
+	}
+	if codeType == models.VerificationTypeReset && existingUserCount == 0 {
+		return ErrEmailNotRegistered
+	}
+	return nil
+}
+
+func validateVerificationRateLimits(emailCount, ipCount int64, dailyLimit, ipDailyLimit int) error {
+	if emailCount >= int64(dailyLimit) {
+		return ErrEmailCodeRateLimit
+	}
+	if ipCount >= int64(ipDailyLimit) {
+		return ErrEmailCodeIPRateLimit
+	}
+	return nil
+}
+
 // SendVerificationCode 发送验证码
 // ip 参数由 handler 层通过 c.ClientIP() 传入
 // codeType 取值：models.VerificationTypeRegister 或 models.VerificationTypeReset
@@ -21,11 +41,8 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 
 	var existingUserCount int64
 	db.DB.Model(&models.User{}).Where("email = ?", email).Count(&existingUserCount)
-	if codeType == models.VerificationTypeRegister && existingUserCount > 0 {
-		return ErrEmailAlreadyRegistered
-	}
-	if codeType == models.VerificationTypeReset && existingUserCount == 0 {
-		return ErrEmailNotRegistered
+	if err := validateVerificationRecipient(codeType, existingUserCount); err != nil {
+		return err
 	}
 
 	since := time.Now().UTC().Add(-24 * time.Hour)
@@ -42,8 +59,8 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 	db.DB.Model(&models.EmailVerification{}).
 		Where("ip = ? AND \"createdAt\" > ?", ip, since).
 		Count(&ipCount)
-	if ipCount >= int64(s.ipDailyLimit) {
-		return ErrEmailCodeIPRateLimit
+	if err := validateVerificationRateLimits(emailCount, ipCount, s.dailyLimit, s.ipDailyLimit); err != nil {
+		return err
 	}
 
 	code := generateVerificationCode()

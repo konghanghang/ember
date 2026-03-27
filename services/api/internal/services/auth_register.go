@@ -7,7 +7,6 @@ import (
 	"github.com/konghang/ember/backend/internal/common"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
-	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
@@ -36,7 +35,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		return nil, err
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := s.newEmbyClient()
 	embyUser, err := embyService.CreateEmbyUser(req.Username, req.Password)
 	if err != nil {
 		return nil, errors.New("创建 Emby 用户失败：" + err.Error())

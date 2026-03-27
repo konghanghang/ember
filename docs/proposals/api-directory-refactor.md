@@ -120,7 +120,7 @@ internal/services/user/
 
 详细落地方案见：
 
-- `docs/plan/user-email-auth-boundary-refactor.md`
+- `docs/archive/plan/user-email-auth-boundary-refactor.md`
 
 ### 4.3 `auth`
 
@@ -151,7 +151,7 @@ internal/services/user/
 
 详细落地方案见：
 
-- `docs/plan/user-email-auth-boundary-refactor.md`
+- `docs/archive/plan/user-email-auth-boundary-refactor.md`
 
 ### 4.5 `redemption` / `redemption_code`
 

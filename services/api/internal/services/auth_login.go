@@ -6,7 +6,6 @@ import (
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
-	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -62,7 +61,7 @@ func (s *AuthService) authenticateLoginUser(user *models.User, password string) 
 		return errors.New("用户名或密码错误")
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := s.newEmbyClient()
 	embyUser, err := embyService.AuthenticateUser(user.Username, password)
 	if err == nil && embyUser.ID == user.EmbyID {
 		s.syncLocalLoginHash(user, password)
@@ -89,7 +88,7 @@ func (s *AuthService) syncLocalLoginHash(user *models.User, password string) {
 		log.Printf("⚠️  登录时更新本地密码哈希失败（不影响登录）：userID=%s, err=%v", user.ID, err)
 		return
 	}
-	if err := db.DB.Save(user).Error; err != nil {
+	if err := s.saveUser(user); err != nil {
 		log.Printf("⚠️  登录时保存本地密码哈希失败（不影响登录）：userID=%s, err=%v", user.ID, err)
 	}
 }
