@@ -94,6 +94,52 @@ func TestParseTVCalendarWeekDateUsesWeekStart(t *testing.T) {
 	}
 }
 
+func TestDefaultTVCalendarWeekOffsetsUsesCurrentWeekOnly(t *testing.T) {
+	got := DefaultTVCalendarWeekOffsets()
+	if len(got) != 1 || got[0] != 0 {
+		t.Fatalf("expected default week offsets [0], got %v", got)
+	}
+}
+
+func TestIsDateWithinTVCalendarWeek(t *testing.T) {
+	weekStart := time.Date(2026, 3, 9, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		date time.Time
+		want bool
+	}{
+		{
+			name: "week start included",
+			date: weekStart,
+			want: true,
+		},
+		{
+			name: "week end included",
+			date: weekStart.AddDate(0, 0, 6),
+			want: true,
+		},
+		{
+			name: "previous day excluded",
+			date: weekStart.AddDate(0, 0, -1),
+			want: false,
+		},
+		{
+			name: "next week excluded",
+			date: weekStart.AddDate(0, 0, 7),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDateWithinTVCalendarWeek(tt.date, weekStart); got != tt.want {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestParseEmbyDateTimeSupportsRFC3339Nano(t *testing.T) {
 	got, ok := parseEmbyDateTime("2026-03-14T09:30:00.0000000Z")
 	if !ok {

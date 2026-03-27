@@ -34,7 +34,7 @@ const (
 	tvCalendarDefaultOffset          = 0
 )
 
-var defaultTVCalendarWeekOffsets = []int{0, 1}
+var defaultTVCalendarWeekOffsets = []int{0}
 
 type tvCalendarSyncCall struct {
 	done  chan struct{}
@@ -288,6 +288,17 @@ func normalizeTVCalendarWeekStart(t time.Time) time.Time {
 		weekday = 7
 	}
 	return current.AddDate(0, 0, -(weekday - 1))
+}
+
+func tvCalendarWeekEnd(weekStart time.Time) time.Time {
+	return normalizeTVCalendarWeekStart(weekStart).AddDate(0, 0, 6)
+}
+
+func isDateWithinTVCalendarWeek(date, weekStart time.Time) bool {
+	normalizedDate := normalizeDateUTC(date)
+	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
+	weekEnd := tvCalendarWeekEnd(normalizedWeekStart)
+	return !normalizedDate.Before(normalizedWeekStart) && !normalizedDate.After(weekEnd)
 }
 
 func deriveStatusByAirDate(airDate time.Time, now time.Time) string {
@@ -969,6 +980,7 @@ func (s *TVCalendarService) setTMDBMemoryCache(cacheKey string, payload []byte, 
 func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, tmdbID *string, force bool) (int, error) {
 	s.refreshConfig()
 	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
+	normalizedWeekEnd := tvCalendarWeekEnd(normalizedWeekStart)
 	return runTVCalendarSyncOnce(tvCalendarWeekSyncLockKey(normalizedWeekStart, tmdbID, force), func() (int, error) {
 		if strings.TrimSpace(s.tmdbAPIKey) == "" {
 			return 0, ErrTVCalendarNotConfigured
@@ -1039,6 +1051,9 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 
 					airDate, err := parseDateOnly(ep.AirDate)
 					if err != nil {
+						continue
+					}
+					if airDate.Before(normalizedWeekStart) || airDate.After(normalizedWeekEnd) {
 						continue
 					}
 

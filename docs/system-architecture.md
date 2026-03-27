@@ -905,7 +905,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 追剧日历同步接口说明：
 
-- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0, 1]`
+- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0]`（当前周）
 - `tmdbId` 可选，传入时只同步单剧
 - `weekOffsets` 可选，仅支持 `-1/0/1`
 - `force=true` 时跳过轻量活跃剧筛选，并强制刷新 TMDB 缓存
