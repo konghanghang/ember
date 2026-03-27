@@ -4,6 +4,7 @@
 
 ## 归档内容
 
+- [API 目录重构提案](./api-directory-refactor.md)
 - [旧版 API 参考](./api-reference.md)
 - [重大 Bug 修复总结](./bugfix-summary.md)
 - [历史任务清单](./tasks.md)

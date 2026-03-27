@@ -4,7 +4,6 @@
 
 ## 当前内容
 
-- [API 目录重构提案](./api-directory-refactor.md)
 - [计划文档盘点](./plan-inventory.md)
 - [提案模板](./proposal-template.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
@@ -23,6 +22,7 @@
 
 - `docs/plan/` 仍保留原路径，因为现有协作流程和 AI 指令都依赖这个位置。
 - `docs/specs/` 仍保留为 `specs-workflow` 输出目录，不做路径迁移；其中 `design.md` 已明确降级为历史设计资料。
+- 已完成的治理类提案会移入 `docs/archive/`，例如 [API 目录重构提案](../archive/api-directory-refactor.md)。
 
 ## 维护规则
 
