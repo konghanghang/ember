@@ -6,14 +6,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/models"
-	"github.com/konghang/ember/backend/internal/services"
+	authpkg "github.com/konghang/ember/backend/internal/services/auth"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
-	authService  *services.AuthService
+	authService  *authpkg.AuthService
 	emailService *emailpkg.EmailService
 	userService  *userpkg.UserService
 }
@@ -22,7 +22,7 @@ type AuthHandler struct {
 func NewAuthHandler() *AuthHandler {
 	emailService := emailpkg.NewEmailService()
 	return &AuthHandler{
-		authService:  services.NewAuthService(),
+		authService:  authpkg.NewAuthService(),
 		emailService: emailService,
 		userService:  userpkg.NewUserServiceWithEmailVerifier(emailService),
 	}
@@ -38,13 +38,13 @@ type SendEmailCodeRequest struct {
 // @Tags 认证
 // @Accept json
 // @Produce json
-// @Param body body services.LoginRequest true "登录信息"
-// @Success 200 {object} services.LoginResponse
+// @Param body body auth.LoginRequest true "登录信息"
+// @Success 200 {object} auth.LoginResponse
 // @Failure 400 {object} ErrorResponse
 // @Failure 401 {object} ErrorResponse
 // @Router /api/v1/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
-	var req services.LoginRequest
+	var req authpkg.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",
@@ -105,12 +105,12 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // @Tags 认证
 // @Accept json
 // @Produce json
-// @Param body body services.RegisterUserRequest true "注册信息"
-// @Success 200 {object} services.RegisterUserResponse
+// @Param body body auth.RegisterUserRequest true "注册信息"
+// @Success 200 {object} auth.RegisterUserResponse
 // @Failure 400 {object} ErrorResponse
 // @Router /api/v1/user/register [post]
 func (h *AuthHandler) RegisterUser(c *gin.Context) {
-	var req services.RegisterUserRequest
+	var req authpkg.RegisterUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误",

@@ -1,4 +1,4 @@
-package services
+package auth
 
 import (
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"

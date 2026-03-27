@@ -66,11 +66,12 @@ services/
 │     │  └─ notifier/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ services/               # 业务逻辑
-│     │  ├─ auth.go              # 登录 / 注册
-│     │  ├─ auth_login.go        # AuthService（登录链路编排）
-│     │  ├─ auth_register.go     # AuthService（注册链路编排）
-│     │  ├─ auth_register_persist.go # AuthService（注册落库事务）
-│     │  ├─ auth_register_notify.go # AuthService（注册通知副作用）
+│     │  ├─ auth/
+│     │  │  ├─ service.go        # AuthService（共享装配 / 模板权限应用）
+│     │  │  ├─ login.go          # AuthService（登录链路编排）
+│     │  │  ├─ register.go       # AuthService（注册链路编排）
+│     │  │  ├─ register_persist.go # AuthService（注册落库事务）
+│     │  │  └─ register_notify.go # AuthService（注册通知副作用）
 │     │  ├─ user/
 │     │  │  ├─ service.go        # UserService（共享依赖 / Emby 同步）
 │     │  │  ├─ admin.go          # 用户管理 / 续期 / 启停 / 删除
@@ -507,7 +508,7 @@ TMDBCache（独立缓存表）
 
 ## 5. 后端服务层
 
-### 5.1 AuthService (`services/auth.go`, `services/auth_login.go`, `services/auth_register.go`, `services/auth_register_persist.go`, `services/auth_register_notify.go`)
+### 5.1 AuthService (`services/auth/service.go`, `services/auth/login.go`, `services/auth/register.go`, `services/auth/register_persist.go`, `services/auth/register_notify.go`)
 
 **登录流程**：
 1. 查找用户 → Admin: bcrypt 校验 → 普通用户: 本地密码优先 → 无本地密码时降级 Emby 认证 + 自动补存 hash

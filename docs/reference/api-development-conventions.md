@@ -150,6 +150,7 @@
 
 当前已分组的包括：
 
+- `auth/`
 - `device/`
 - `email/`
 - `media/`
@@ -163,7 +164,6 @@
 
 未完全分组的包括：
 
-- `auth.go`
 - `system.go`
 
 ### 2.5 `handlers/`

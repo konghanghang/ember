@@ -38,7 +38,9 @@
 
 当前已经完成子目录分组并通过测试的服务：
 
+- `services/auth/`
 - `services/device/`
+- `services/email/`
 - `services/media/`
 - `services/payment/`
 - `services/playback/`
@@ -46,6 +48,7 @@
 - `services/subscription/`
 - `services/telegram/`
 - `services/tvcalendar/`
+- `services/user/`
 
 ### 2.3 已按领域拆分的错误定义
 
@@ -65,14 +68,13 @@
 
 ## 3. 当前残留结构
 
-截至目前，`internal/services` 中仍未继续分组或未进一步细化的主要文件有：
+截至目前，`internal/services` 中仍保留在根层、尚未进一步目录化或不准备继续目录化的主要文件有：
 
-- `auth.go`
-- `email.go`
 - `system.go`
-- `user.go`
 
-这些文件之所以还没拆，不是遗漏，而是它们的边界没有前面那几组干净。
+其中：
+
+- `system.go` 才是当前真正还没处理的根层业务文件。
 
 ---
 
@@ -96,16 +98,17 @@
 
 - 已收口到 `services/user/`
 - 管理、资料、密码、密码重置、Emby 同步已拆成独立文件
+- 关键密码链路测试已补齐
 
 问题：
 
 - 仍然直接依赖 `email` 与 `emby`，但边界已经比原先清楚
-- 还缺少是否继续抽 `errors.go` / `types.go` 的最终收口判断
+- 是否继续抽 `errors.go` / `types.go`，现在属于可选收口，不再阻塞整体目录重构
 
 结论：
 
 - 当前目录化已完成
-- 后续重点转到是否继续收口 `types/errors`，以及评估 `auth` 是否继续保持根层编排
+- 后续如继续处理，只是局部整理，不再属于目录重构主线
 
 建议最终形态：
 
@@ -126,16 +129,15 @@ internal/services/user/
 
 状态：
 
-- 保留在根 `services`
-- 已拆成 `auth.go`、`auth_login.go`、`auth_register.go`
+- 已收口到 `services/auth/`
+- 已拆成 `service.go`、`login.go`、`register.go`、`register_persist.go`、`register_notify.go`
+- `GetCurrentUser` 已回收到 `user`
 - 当前职责仍然是“编排层”
 
 结论：
 
-- **暂时不建议拆目录**
-- 它天然依赖多个服务，当前拆目录收益不高
-
-当前更合理的方向是继续收薄编排步骤，而不是为目录整齐单独建 `services/auth/`。
+- 当前目录化已完成
+- 后续如继续处理，重点只剩是否进一步削减编排步骤，而不是继续调整目录结构
 
 ### 4.4 `email`
 
@@ -143,11 +145,12 @@ internal/services/user/
 
 - 已收口到 `services/email/`
 - 配置读取、验证码业务、SMTP 发送已分层，但对外仍保持 `EmailService` 入口
+- 关键频控与配置判断测试已补齐
 
 结论：
 
 - 当前目录化已完成
-- 后续重点转到继续收薄 `auth` 和 `user`
+- 后续如继续处理，也只是局部能力增强，不再属于目录重构主线
 
 详细落地方案见：
 
@@ -183,13 +186,13 @@ internal/services/redemption/
 
 状态：
 
-- 文件不算最大
-- 主要是系统统计 + 过期检查
+- 仍为根层单文件
+- 主要承载系统统计 + 过期检查
 
 结论：
 
-- 不急
-- 可以最后处理
+- 是当前目录重构主线里最后一个还没被明确处理的根层业务文件
+- 是否要拆，取决于后续是否还值得继续投入目录治理成本
 
 ---
 
@@ -228,9 +231,9 @@ internal/services/redemption/
 
 如果继续推进，建议按这个顺序：
 
-1. 处理 `user` 职责切分
-2. 视情况决定是否拆 `email`
-3. 最后再判断 `auth`
+1. 判断是否处理 `system.go`
+2. 若继续治理，再决定 `user` 是否补 `types/errors`
+3. `auth` 保持根层编排入口，默认不再目录化
 
 ---
 
@@ -238,11 +241,12 @@ internal/services/redemption/
 
 最稳的下一步不是继续大搬家，而是：
 
-1. 处理 `user` 的职责切分
-2. 然后决定是否继续拆 `email`
+1. 接受当前目录重构主体已经完成
+2. 只有在 `system.go` 形成真实维护痛点时再继续动
 
 原因很简单：
 
 - 目录结构现在已经足够清楚
-- compat 已清理完，剩下的是职责切分问题，不是目录搬运问题
-- compat 不清掉，目录重构就永远只做了一半
+- compat 已清理完
+- `email`、`user`、`redemption` 都已完成目录化
+- `auth` 已证明更适合作为根层编排入口，而不是继续追求目录统一
