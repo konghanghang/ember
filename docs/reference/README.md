@@ -5,6 +5,7 @@
 ## 文档列表
 
 - [开发指南](./development-guide.md) - 开发时的最短阅读路径
+- [项目治理经验](./project-governance-guide.md) - 结构治理、重构推进和文档收尾的稳定经验
 - [配置参考](./configuration-reference.md) - 配置来源、优先级和边界
 - [API 开发与目录规范](./api-development-conventions.md) - `services/api` 的分层和目录约束
 - [API 响应规范](./api-response-standard.md) - 接口返回、字段命名和模型映射约定

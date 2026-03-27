@@ -26,6 +26,7 @@
 ### 稳定参考
 
 - [配置参考](./reference/configuration-reference.md)
+- [项目治理经验](./reference/project-governance-guide.md)
 - [API 开发与目录规范](./reference/api-development-conventions.md)
 - [API 响应规范](./reference/api-response-standard.md)
 - [Emby API 参考](./reference/emby-api-guide.md)
