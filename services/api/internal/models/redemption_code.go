@@ -16,6 +16,7 @@ type RedemptionCode struct {
 	DefaultDays      int        `json:"defaultDays" gorm:"column:defaultDays;not null;default:30"`
 	TemplateUserID   *string    `json:"templateUserId,omitempty" gorm:"column:templateUserId;type:varchar(25);index"`
 	TemplateUserName *string    `json:"templateUserName,omitempty" gorm:"-"`
+	Notes            string     `json:"notes,omitempty" gorm:"column:notes;size:500"`
 	CreatedAt        time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 }
 

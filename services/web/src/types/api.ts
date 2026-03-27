@@ -85,6 +85,7 @@ export interface RedemptionCode {
   templateUserName?: string | null
   expiresAt?: string | null
   createdAt: string
+  notes?: string
 }
 
 export interface RedemptionCodeListResponse {
@@ -109,6 +110,7 @@ export interface CreateRedemptionCodeRequest {
   defaultDays: number
   templateUserId?: string | null
   expiresAt?: string | null
+  notes?: string
 }
 
 export interface CreateRedemptionCodesBatchRequest extends CreateRedemptionCodeRequest {
@@ -125,6 +127,7 @@ export interface UpdateRedemptionCodeRequest {
   defaultDays: number
   templateUserId?: string | null
   expiresAt?: string | null
+  notes?: string
 }
 
 export interface UserTemplate {

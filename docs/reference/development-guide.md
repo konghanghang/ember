@@ -19,6 +19,7 @@
 - 当前系统怎么实现：看 [系统架构](../system-architecture.md)。
 - 长期有效的开发约束：看 `docs/reference/`。
 - 遇到治理、重构、目录收口、文档归档判断：看 [项目治理经验](./project-governance-guide.md)。
+- 需要在 Ember 项目里使用多 agent 协作：看 [多 Agent 协作指南](./multi-agent-collaboration-guide.md)。
 - 前端打包体积、共享依赖注册和 chunk 切分：看 [前端构建优化规范](./web-build-optimization-guide.md)。
 - 某个功能准备怎么做：优先看 `docs/plan/`；新稿直接从 `docs/plan/plan-template.md` 起步。
 - 历史方案和旧实现：只去 `docs/archive/` 追溯，不拿它当现行依据。

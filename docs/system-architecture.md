@@ -253,6 +253,7 @@ services/
 | ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
 | DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
 | TemplateUserID | *string(25) | templateUserId | 模板用户 ID（可空，仅邀请码注册时生效）|
+| Notes | string(500) | notes | 备注（可选，用于记录用途或来源） |
 | CreatedAt | time.Time | createdAt | 自动 |
 
 **方法**：`IsValid()` — `UsedCount < MaxUses && (ExpiresAt == nil || ExpiresAt > now)`
@@ -542,9 +543,9 @@ TMDBCache（独立缓存表）
 
 ### 5.3 RedemptionCodeService (`services/redemption/code_service.go`)
 
-- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId)` — 生成 16 字符 hex 码
-- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId)` — 批量生成兑换码，单次最多 100 个，整批事务提交
-- `GetRedemptionCodes(page, pageSize, showAll, code, status, templateUserId)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）和模板用户过滤；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
+- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId, notes)` — 生成 16 字符 hex 码
+- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId, notes)` — 批量生成兑换码，单次最多 100 个，整批事务提交
+- `GetRedemptionCodes(page, pageSize, showAll, code, status, templateUserId)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）和模板用户过滤，并返回 `notes`；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
 - `GetUserTemplates()` — 获取可选模板用户列表（启用且未过期）
 - `ValidateCode(code)` — 查找 + IsValid()
 - `UseCode(code)` — 原子递增 usedCount
@@ -1009,10 +1010,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - `codes`：`views/admin/RedemptionCodesView.vue`
   - `history`：`views/admin/RedemptionHistoryView.vue`
 - 数据源：
-  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、模板用户筛选）
-  - `POST /api/v1/admin/redemption-codes`
-  - `POST /api/v1/admin/redemption-codes/batch`
-  - `PUT /api/v1/admin/redemption-codes/:id`
+  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、模板用户筛选；返回备注字段 `notes`）
+  - `POST /api/v1/admin/redemption-codes`（支持可选备注 `notes`）
+  - `POST /api/v1/admin/redemption-codes/batch`（支持可选备注 `notes`）
+  - `PUT /api/v1/admin/redemption-codes/:id`（支持更新备注 `notes`）
   - `DELETE /api/v1/admin/redemption-codes/:id`
   - `GET /api/v1/admin/redemptions`（支持按用户名、用户 ID、兑换码筛选）
 

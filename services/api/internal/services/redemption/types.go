@@ -63,6 +63,7 @@ type RedemptionCodeCreateOptions struct {
 	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
 	ExpiresAt      *time.Time `json:"expiresAt"`
 	TemplateUserID *string    `json:"templateUserId"`
+	Notes          string     `json:"notes" binding:"omitempty,max=500"`
 }
 
 type CreateRedemptionCodeRequest struct {
@@ -84,6 +85,7 @@ type UpdateRedemptionCodeRequest struct {
 	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
 	ExpiresAt      *time.Time `json:"expiresAt"`
 	TemplateUserID *string    `json:"templateUserId"`
+	Notes          string     `json:"notes" binding:"omitempty,max=500"`
 }
 
 type GetRedemptionCodesRequest struct {

@@ -57,6 +57,7 @@ func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCrea
 		DefaultDays:    options.DefaultDays,
 		ExpiresAt:      options.ExpiresAt,
 		TemplateUserID: templateUserID,
+		Notes:          options.Notes,
 	}
 
 	codes := make([]models.RedemptionCode, 0, count)
@@ -163,6 +164,7 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 	redemptionCode.DefaultDays = req.DefaultDays
 	redemptionCode.ExpiresAt = req.ExpiresAt
 	redemptionCode.TemplateUserID = templateUserID
+	redemptionCode.Notes = req.Notes
 
 	if err := db.DB.Save(&redemptionCode).Error; err != nil {
 		return nil, errors.New("更新兑换码失败")

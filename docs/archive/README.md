@@ -7,6 +7,7 @@
 - [API 目录重构提案](./api-directory-refactor.md)
 - [旧版 API 参考](./api-reference.md)
 - [重大 Bug 修复总结](./bugfix-summary.md)
+- [多 Agent 执行复盘：兑换码备注字段](./multi-agent-redemption-code-notes-case.md)
 - [历史实施计划](./plan/)
 - [历史测试报告](./test-reports/)
 - [MVP 历史资料](./mvp/README.md)

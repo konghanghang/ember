@@ -43,7 +43,8 @@ const form = ref<CreateRedemptionCodeRequest & { count: number }>({
   maxUses: 1,
   defaultDays: 30,
   templateUserId: null,
-  expiresAt: null
+  expiresAt: null,
+  notes: ''
 })
 const batchCreatedCodes = ref<RedemptionCode[]>([])
 const editForm = ref({
@@ -53,7 +54,8 @@ const editForm = ref({
   defaultDays: 30,
   templateUserId: null as string | null,
   neverExpire: false,
-  expiresAt: null as Date | null
+  expiresAt: null as Date | null,
+  notes: ''
 })
 
 const statusOptions: Array<{ label: string; value: RedemptionCodeStatusFilter }> = [
@@ -110,7 +112,8 @@ const resetCreateForm = () => {
     maxUses: 1,
     defaultDays: 30,
     templateUserId: null,
-    expiresAt: null
+    expiresAt: null,
+    notes: ''
   }
 }
 
@@ -142,12 +145,18 @@ const handleCreate = async () => {
     ElMessage.warning('请输入有效的数值')
     return
   }
+  const trimmedNotes = form.value.notes?.trim() ?? ''
+  if (trimmedNotes.length > 500) {
+    ElMessage.warning('备注最多 500 字')
+    return
+  }
 
   const payload: CreateRedemptionCodeRequest = {
     maxUses: form.value.maxUses,
     defaultDays: form.value.defaultDays,
     templateUserId: form.value.templateUserId,
-    expiresAt: form.value.expiresAt
+    expiresAt: form.value.expiresAt,
+    notes: trimmedNotes || undefined
   }
 
   generating.value = true
@@ -198,7 +207,8 @@ const openEditDialog = (row: RedemptionCode) => {
     defaultDays: row.defaultDays,
     templateUserId: row.templateUserId || null,
     neverExpire: !row.expiresAt,
-    expiresAt: row.expiresAt ? new Date(row.expiresAt) : null
+    expiresAt: row.expiresAt ? new Date(row.expiresAt) : null,
+    notes: row.notes || ''
   }
   editDialogVisible.value = true
 }
@@ -216,12 +226,18 @@ const handleUpdate = async () => {
     ElMessage.warning('请设置过期时间或选择永久有效')
     return
   }
+  const trimmedNotes = editForm.value.notes?.trim() ?? ''
+  if (trimmedNotes.length > 500) {
+    ElMessage.warning('备注最多 500 字')
+    return
+  }
 
   const payload: UpdateRedemptionCodeRequest = {
     maxUses: editForm.value.maxUses,
     defaultDays: editForm.value.defaultDays,
     templateUserId: editForm.value.templateUserId,
-    expiresAt: editForm.value.neverExpire ? null : editForm.value.expiresAt?.toISOString() || null
+    expiresAt: editForm.value.neverExpire ? null : editForm.value.expiresAt?.toISOString() || null,
+    notes: trimmedNotes || undefined
   }
 
   editing.value = true
@@ -469,6 +485,12 @@ onMounted(async () => {
           </template>
         </el-table-column>
 
+        <el-table-column label="备注" min-width="200">
+          <template #default="{ row }">
+            <span class="text-gray-700">{{ row.notes || '无备注' }}</span>
+          </template>
+        </el-table-column>
+
         <el-table-column label="过期时间" min-width="180">
           <template #default="{ row }">
             <span :class="{ 'text-gray-400': !row.expiresAt }">{{ formatDate(row.expiresAt) }}</span>
@@ -565,6 +587,19 @@ onMounted(async () => {
               />
             </el-select>
             <div class="text-xs text-gray-400 mt-1">仅在邀请码注册时生效，续期不受影响。</div>
+          </el-form-item>
+
+          <el-form-item label="备注 (可选)">
+            <el-input
+              v-model="form.notes"
+              type="textarea"
+              rows="2"
+              maxlength="500"
+              show-word-limit
+              placeholder="描述兑换码用途，最多 500 字"
+              class="w-full !w-full"
+            />
+            <div class="text-xs text-gray-400 mt-1">不填则保持原有行为。</div>
           </el-form-item>
         </el-form>
       </div>
@@ -686,6 +721,19 @@ onMounted(async () => {
                 :value="item.id"
               />
             </el-select>
+          </el-form-item>
+
+          <el-form-item label="备注">
+            <el-input
+              v-model="editForm.notes"
+              type="textarea"
+              rows="2"
+              maxlength="500"
+              show-word-limit
+              placeholder="更新备注（可选）"
+              class="w-full !w-full"
+            />
+            <div class="text-xs text-gray-400 mt-1">清空后保存会移除原备注。</div>
           </el-form-item>
         </el-form>
       </div>
