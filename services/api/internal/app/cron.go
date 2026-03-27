@@ -7,9 +7,9 @@ import (
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
-	"github.com/konghang/ember/backend/internal/services"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
+	systempkg "github.com/konghang/ember/backend/internal/services/system"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
 	"github.com/robfig/cron/v3"
@@ -69,7 +69,7 @@ func initCronJobs() func() {
 
 	c := cron.New(cron.WithLocation(tz))
 
-	systemService := services.NewSystemService()
+	systemService := systempkg.NewSystemService()
 	emailService := emailpkg.NewEmailService()
 	telegramService := telegrampkg.NewDefaultService()
 	tvCalendarService := tvcalendarpkg.NewTVCalendarService()

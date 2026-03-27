@@ -78,7 +78,9 @@ services/
 │     │  │  ├─ profile.go        # 用户资料 / 邮箱更新
 │     │  │  ├─ password.go       # 用户密码修改 / 管理员重置密码
 │     │  │  └─ password_reset.go # 用户邮箱验证码重置密码
-│     │  ├─ system.go            # 系统信息 + 过期检查
+│     │  ├─ system/
+│     │  │  ├─ service.go        # SystemService（系统信息 / Emby 探活）
+│     │  │  └─ expiry.go         # SystemService（过期用户检查）
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
 │     │  ├─ subscription.go      # 订阅工作流
@@ -571,7 +573,7 @@ TMDBCache（独立缓存表）
 - 敏感值加密：`CONFIG_ENCRYPTION_KEY`
 - 运行期配置中心 API 的后端基础设施
 
-### 5.6 SystemService (`services/system.go`)
+### 5.6 SystemService (`services/system/service.go`, `services/system/expiry.go`)
 
 - `GetSystemInfo()` — 统计：用户数、活跃数、兑换码数
 - `CheckExpiredUsers()` — **cron 核心**：查询 `expiresAt < NOW() AND embyDisabled = false` → 调用 Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`

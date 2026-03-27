@@ -158,13 +158,14 @@
 - `playback/`
 - `redemption/`
 - `subscription/`
+- `system/`
 - `telegram/`
 - `tvcalendar/`
 - `user/`
 
 未完全分组的包括：
 
-- `system.go`
+- 当前无明确需要继续目录化的核心业务文件
 
 ### 2.5 `handlers/`
 

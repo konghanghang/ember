@@ -4,18 +4,18 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/konghang/ember/backend/internal/services"
+	systempkg "github.com/konghang/ember/backend/internal/services/system"
 )
 
 // SystemHandler 系统处理器
 type SystemHandler struct {
-	service *services.SystemService
+	service *systempkg.SystemService
 }
 
 // NewSystemHandler 创建系统处理器
 func NewSystemHandler() *SystemHandler {
 	return &SystemHandler{
-		service: services.NewSystemService(),
+		service: systempkg.NewSystemService(),
 	}
 }
 

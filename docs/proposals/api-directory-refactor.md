@@ -46,6 +46,7 @@
 - `services/playback/`
 - `services/redemption/`
 - `services/subscription/`
+- `services/system/`
 - `services/telegram/`
 - `services/tvcalendar/`
 - `services/user/`
@@ -68,13 +69,7 @@
 
 ## 3. 当前残留结构
 
-截至目前，`internal/services` 中仍保留在根层、尚未进一步目录化或不准备继续目录化的主要文件有：
-
-- `system.go`
-
-其中：
-
-- `system.go` 才是当前真正还没处理的根层业务文件。
+截至目前，`internal/services` 根层只剩少量聚合入口，不再存在明确需要继续目录化的业务大文件。
 
 ---
 
@@ -186,13 +181,13 @@ internal/services/redemption/
 
 状态：
 
-- 仍为根层单文件
-- 主要承载系统统计 + 过期检查
+- 已收口到 `services/system/`
+- 系统统计与过期检查已拆成独立文件
 
 结论：
 
-- 是当前目录重构主线里最后一个还没被明确处理的根层业务文件
-- 是否要拆，取决于后续是否还值得继续投入目录治理成本
+- 当前目录化已完成
+- 后续如继续处理，只是局部逻辑优化，不再属于目录重构主线
 
 ---
 
@@ -231,9 +226,9 @@ internal/services/redemption/
 
 如果继续推进，建议按这个顺序：
 
-1. 判断是否处理 `system.go`
-2. 若继续治理，再决定 `user` 是否补 `types/errors`
-3. `auth` 保持根层编排入口，默认不再目录化
+1. 若继续治理，再决定 `user` 是否补 `types/errors`
+2. 根据需要评估是否补 `system` 相关测试
+3. `auth` 已目录化，后续只做局部边界优化
 
 ---
 
@@ -242,11 +237,10 @@ internal/services/redemption/
 最稳的下一步不是继续大搬家，而是：
 
 1. 接受当前目录重构主体已经完成
-2. 只有在 `system.go` 形成真实维护痛点时再继续动
+2. 只在真实维护痛点出现时再做局部服务优化
 
 原因很简单：
 
 - 目录结构现在已经足够清楚
 - compat 已清理完
-- `email`、`user`、`redemption` 都已完成目录化
-- `auth` 已证明更适合作为根层编排入口，而不是继续追求目录统一
+- `auth`、`email`、`user`、`redemption`、`system` 都已完成当前轮次目录化
