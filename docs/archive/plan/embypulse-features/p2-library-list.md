@@ -1,4 +1,4 @@
-# P2-3: 媒体库列表查询（Library List）
+# P2-3: 媒体库列表查询（Library List，已落地）
 
 ## 功能描述
 

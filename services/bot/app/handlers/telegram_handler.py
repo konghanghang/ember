@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from html import escape
+from typing import Any, Awaitable, Callable
 
 from telegram import InputMediaPhoto, Update
 from telegram.ext import ContextTypes
@@ -75,6 +76,83 @@ def _format_command_help(title: str, command: str, example: str, steps: list[str
         lines.extend(["", escape(note)])
 
     return "\n".join(lines)
+
+
+async def _call_api_and_reply(
+    message,
+    request_coro: Awaitable[dict[str, Any] | None],
+    on_success: Callable[[dict[str, Any]], str],
+) -> None:
+    result = await request_coro
+    if result is None:
+        await message.reply_text("❌ 服务暂不可用，请稍后重试")
+        return
+    if "error" in result:
+        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
+        return
+
+    await message.reply_text(on_success(result), parse_mode="HTML")
+
+
+async def _edit_search_message(
+    *,
+    bot,
+    chat_id: int,
+    message_id: int,
+    prefer_media: bool,
+    poster_url: str | None,
+    caption: str,
+    reply_markup,
+    media_failure_log: str | None = None,
+    final_failure_log: str | None = None,
+    raise_on_failure: bool = False,
+) -> bool:
+    if prefer_media and poster_url:
+        try:
+            await bot.edit_message_media(
+                chat_id=chat_id,
+                message_id=message_id,
+                media=InputMediaPhoto(
+                    media=poster_url,
+                    caption=caption,
+                    parse_mode="HTML",
+                ),
+                reply_markup=reply_markup,
+            )
+            return True
+        except Exception:
+            if media_failure_log:
+                logger.exception(media_failure_log)
+
+    if prefer_media:
+        try:
+            await bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=message_id,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=reply_markup,
+            )
+            return True
+        except Exception:
+            pass
+
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=caption,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
+        return True
+    except Exception:
+        if final_failure_log:
+            logger.exception(final_failure_log)
+        if raise_on_failure:
+            raise
+        return False
 
 
 async def send_subscription_notification(bot, data: dict) -> None:
@@ -257,15 +335,11 @@ async def handle_bind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    result = await api_client.verify_telegram_bind(message.from_user.id, args[0])
-    if result is None:
-        await message.reply_text("❌ 服务暂不可用，请稍后重试")
-        return
-    if "error" in result:
-        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
-        return
-
-    await message.reply_text(format_bind_success(result), parse_mode="HTML")
+    await _call_api_and_reply(
+        message,
+        api_client.verify_telegram_bind(message.from_user.id, args[0]),
+        format_bind_success,
+    )
 
 
 async def handle_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -278,15 +352,11 @@ async def handle_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await message.reply_text(_private_only_tip())
         return
 
-    result = await api_client.get_account_info(message.from_user.id)
-    if result is None:
-        await message.reply_text("❌ 服务暂不可用，请稍后重试")
-        return
-    if "error" in result:
-        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
-        return
-
-    await message.reply_text(format_account_info(result), parse_mode="HTML")
+    await _call_api_and_reply(
+        message,
+        api_client.get_account_info(message.from_user.id),
+        format_account_info,
+    )
 
 
 async def handle_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -311,15 +381,11 @@ async def handle_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    result = await api_client.redeem_by_telegram(message.from_user.id, args[0])
-    if result is None:
-        await message.reply_text("❌ 服务暂不可用，请稍后重试")
-        return
-    if "error" in result:
-        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
-        return
-
-    await message.reply_text(format_redeem_success(result), parse_mode="HTML")
+    await _call_api_and_reply(
+        message,
+        api_client.redeem_by_telegram(message.from_user.id, args[0]),
+        format_redeem_success,
+    )
 
 
 async def handle_resetpw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -344,18 +410,13 @@ async def handle_resetpw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    result = await api_client.reset_password_by_telegram(message.from_user.id, args[0])
-    if result is None:
-        await message.reply_text("❌ 服务暂不可用，请稍后重试")
-        return
-    if "error" in result:
-        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
-        return
-
-    await message.reply_text(
-        "✅ <b>密码重置成功</b>\n\n"
-        "新密码已同步到 Ember 和 Emby，请使用新密码登录。",
-        parse_mode="HTML",
+    await _call_api_and_reply(
+        message,
+        api_client.reset_password_by_telegram(message.from_user.id, args[0]),
+        lambda _result: (
+            "✅ <b>密码重置成功</b>\n\n"
+            "新密码已同步到 Ember 和 Emby，请使用新密码登录。"
+        ),
     )
 
 
@@ -499,7 +560,6 @@ async def handle_search_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """处理所有 sub: 前缀的 callback query"""
-    del context
     query = update.callback_query
     if query is None or query.data is None or query.from_user is None:
         return
@@ -523,18 +583,18 @@ async def handle_search_callback(
         return
 
     if data.startswith("sub:pick:"):
-        await _handle_pick(query, session, user_id, data)
+        await _handle_pick(context.bot, query, session, user_id, data)
     elif data == "sub:ok":
         await _handle_subscribe(query, session, user_id)
     elif data == "sub:note":
         await _handle_request_note(query, session, user_id)
     elif data == "sub:back":
-        await _handle_back(query, session, user_id)
+        await _handle_back(context.bot, query, session, user_id)
     else:
         await query.answer()
 
 
-async def _handle_pick(query, session: SearchSession, user_id: int, data: str) -> None:
+async def _handle_pick(bot, query, session: SearchSession, user_id: int, data: str) -> None:
     """用户点击编号按钮，编辑消息为详情页"""
     try:
         index = int(data.split(":")[-1])
@@ -559,38 +619,21 @@ async def _handle_pick(query, session: SearchSession, user_id: int, data: str) -
     poster_path = item.get("posterPath")
     no_poster_prefix = "（该影片暂无海报）\n\n"
 
-    if query.message and query.message.photo:
-        if poster_path:
-            poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}"
-            final_caption = caption
-        else:
-            poster_url = TMDB_NO_POSTER_URL
-            final_caption = no_poster_prefix + caption
-        try:
-            await query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=poster_url,
-                    caption=final_caption,
-                    parse_mode="HTML",
-                ),
-                reply_markup=keyboard,
-            )
-            return
-        except Exception:
-            logger.exception("编辑海报失败，降级为编辑文本")
-
+    prefer_media = bool(query.message and query.message.photo)
+    poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}" if poster_path else TMDB_NO_POSTER_URL
     final_caption = (no_poster_prefix + caption) if not poster_path else caption
-    if query.message and query.message.photo:
-        await query.edit_message_caption(
-            caption=final_caption, parse_mode="HTML", reply_markup=keyboard
-        )
-    else:
-        await query.edit_message_text(
-            text=final_caption,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
+
+    await _edit_search_message(
+        bot=bot,
+        chat_id=query.message.chat_id,
+        message_id=query.message.message_id,
+        prefer_media=prefer_media,
+        poster_url=poster_url,
+        caption=final_caption,
+        reply_markup=keyboard,
+        media_failure_log="编辑海报失败，降级为编辑文本",
+        raise_on_failure=True,
+    )
 
 
 async def _handle_subscribe(
@@ -683,7 +726,7 @@ async def _handle_request_note(
         await query.edit_message_text(text=text, parse_mode="HTML")
 
 
-async def _handle_back(query, session: SearchSession, user_id: int) -> None:
+async def _handle_back(bot, query, session: SearchSession, user_id: int) -> None:
     """返回搜索结果列表"""
     session.selected_index = -1
     session.waiting_for_note = False
@@ -698,36 +741,21 @@ async def _handle_back(query, session: SearchSession, user_id: int) -> None:
 
     await query.answer()
 
-    if query.message and query.message.photo:
-        if first_poster:
-            poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}"
-        else:
-            poster_url = TMDB_NO_POSTER_URL
-        try:
-            await query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=poster_url,
-                    caption=caption,
-                    parse_mode="HTML",
-                ),
-                reply_markup=keyboard,
-            )
-            return
-        except Exception:
-            logger.exception("返回列表编辑海报失败")
-
+    prefer_media = bool(query.message and query.message.photo)
+    poster_url = f"{TMDB_IMAGE_BASE_W500}{first_poster}" if first_poster else TMDB_NO_POSTER_URL
     final_caption = caption if first_poster else f"（暂无海报）\n\n{caption}"
-    if query.message and query.message.photo:
-        await query.edit_message_caption(
-            caption=final_caption, parse_mode="HTML", reply_markup=keyboard
-        )
-    else:
-        await query.edit_message_text(
-            text=final_caption,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
+
+    await _edit_search_message(
+        bot=bot,
+        chat_id=query.message.chat_id,
+        message_id=query.message.message_id,
+        prefer_media=prefer_media,
+        poster_url=poster_url,
+        caption=final_caption,
+        reply_markup=keyboard,
+        media_failure_log="返回列表编辑海报失败",
+        raise_on_failure=True,
+    )
 
 
 async def handle_cancel_note(
@@ -767,44 +795,21 @@ async def handle_cancel_note(
         poster_url = TMDB_NO_POSTER_URL
         caption = "（该影片暂无海报）\n\n" + raw_caption
 
-    try:
-        await context.bot.edit_message_media(
-            chat_id=session.chat_id,
-            message_id=session.message_id,
-            media=InputMediaPhoto(
-                media=poster_url,
-                caption=caption,
-                parse_mode="HTML",
-            ),
-            reply_markup=keyboard,
-        )
+    restored = await _edit_search_message(
+        bot=context.bot,
+        chat_id=session.chat_id,
+        message_id=session.message_id,
+        prefer_media=True,
+        poster_url=poster_url,
+        caption=caption,
+        reply_markup=keyboard,
+        media_failure_log="取消备注后恢复详情海报失败，降级为编辑文本",
+        final_failure_log="取消备注后恢复详情页完全失败",
+    )
+    if restored:
         return
-    except Exception:
-        logger.exception("取消备注后恢复详情海报失败，降级为编辑文本")
 
-    try:
-        await context.bot.edit_message_caption(
-            chat_id=session.chat_id,
-            message_id=session.message_id,
-            caption=caption,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-        )
-    except Exception:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=session.chat_id,
-                message_id=session.message_id,
-                text=caption,
-                parse_mode="HTML",
-                reply_markup=keyboard,
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            logger.exception("取消备注后恢复详情页完全失败")
-            await message.reply_text(
-                "❌ 恢复详情页失败，请重新使用 /search 搜索。"
-            )
+    await message.reply_text("❌ 恢复详情页失败，请重新使用 /search 搜索。")
 
 
 async def handle_text_message(

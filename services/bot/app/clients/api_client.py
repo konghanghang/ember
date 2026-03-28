@@ -1,20 +1,169 @@
-import httpx
 import asyncio
-from typing import Optional
+import logging
+import time
+from typing import Any, Optional
+
+import httpx
 
 from app.config import API_URL, INTERNAL_API_SECRET
 
+logger = logging.getLogger(__name__)
 
-async def _call_subscription_action(subscription_id: str, action: str) -> bool:
-    url = f"{API_URL}/api/v1/internal/subscriptions/{subscription_id}/{action}"
-    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+_DEFAULT_TIMEOUT = 10.0
+_SETTING_TIMEOUT = 5.0
+_INTERNAL_HEADERS = {"X-Internal-Secret": INTERNAL_API_SECRET}
+_client: httpx.AsyncClient | None = None
+
+
+async def init() -> None:
+    global _client
+
+    if _client is not None:
+        return
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.put(url, headers=headers)
-        return resp.status_code == 200
+        _client = httpx.AsyncClient()
     except Exception:
-        return False
+        logger.exception("初始化 Bot API HTTP client 失败")
+        raise
+
+
+async def close() -> None:
+    global _client
+
+    client = _client
+    _client = None
+    if client is None:
+        return
+
+    try:
+        await client.aclose()
+    except Exception as err:
+        logger.warning("关闭 Bot API HTTP client 失败 errorType=%s", type(err).__name__)
+
+
+def _get_client() -> httpx.AsyncClient:
+    if _client is None:
+        raise RuntimeError("Bot API HTTP client 尚未初始化")
+    return _client
+
+
+def _log_request_issue(
+    endpoint: str,
+    method: str,
+    *,
+    elapsed_ms: int,
+    error: Exception,
+    status_code: int | None = None,
+    **fields: Any,
+) -> None:
+    context = " ".join(
+        f"{key}={value}" for key, value in fields.items() if value is not None and value != ""
+    )
+    logger.warning(
+        "Bot API 请求异常 endpoint=%s method=%s status=%s elapsedMs=%d errorType=%s %s",
+        endpoint,
+        method,
+        status_code if status_code is not None else "-",
+        elapsed_ms,
+        type(error).__name__,
+        context,
+    )
+
+
+async def _request(
+    endpoint: str,
+    method: str,
+    url: str,
+    *,
+    timeout: float,
+    headers: dict[str, str] | None = None,
+    json: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+    log_fields: dict[str, Any] | None = None,
+) -> tuple[httpx.Response | None, int]:
+    start = time.monotonic()
+    context = log_fields or {}
+
+    try:
+        response = await _get_client().request(
+            method,
+            url,
+            headers=headers,
+            json=json,
+            params=params,
+            timeout=timeout,
+        )
+    except Exception as err:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        _log_request_issue(endpoint, method, elapsed_ms=elapsed_ms, error=err, **context)
+        return None, elapsed_ms
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+    if response.status_code >= 500:
+        _log_request_issue(
+            endpoint,
+            method,
+            elapsed_ms=elapsed_ms,
+            error=httpx.HTTPStatusError(
+                "upstream server error",
+                request=response.request,
+                response=response,
+            ),
+            status_code=response.status_code,
+            **context,
+        )
+
+    return response, elapsed_ms
+
+
+def _load_json(
+    response: httpx.Response,
+    endpoint: str,
+    method: str,
+    *,
+    elapsed_ms: int,
+    **fields: Any,
+) -> dict[str, Any] | None:
+    try:
+        payload = response.json()
+    except Exception as err:
+        _log_request_issue(
+            endpoint,
+            method,
+            elapsed_ms=elapsed_ms,
+            error=err,
+            status_code=response.status_code,
+            **fields,
+        )
+        return None
+
+    if not isinstance(payload, dict):
+        _log_request_issue(
+            endpoint,
+            method,
+            elapsed_ms=elapsed_ms,
+            error=TypeError("response payload is not an object"),
+            status_code=response.status_code,
+            **fields,
+        )
+        return None
+
+    return payload
+
+
+async def _call_subscription_action(subscription_id: str, action: str) -> bool:
+    endpoint = f"subscription_{action}"
+    url = f"{API_URL}/api/v1/internal/subscriptions/{subscription_id}/{action}"
+    response, _ = await _request(
+        endpoint,
+        "PUT",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        log_fields={"subscriptionId": subscription_id},
+    )
+    return response is not None and response.status_code == 200
 
 
 async def approve_subscription(subscription_id: str) -> bool:
@@ -26,100 +175,146 @@ async def reject_subscription(subscription_id: str) -> bool:
 
 
 async def verify_telegram_bind(telegram_id: int, code: str) -> Optional[dict]:
+    endpoint = "verify_telegram_bind"
     url = f"{API_URL}/api/v1/internal/telegram/bind"
-    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json={
-                    "telegramId": telegram_id,
-                    "code": code,
-                },
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": resp.json().get("error", "绑定失败")}
-    except Exception:
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"telegramId": telegram_id, "code": code},
+        log_fields={"telegramId": telegram_id},
+    )
+    if response is None:
         return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "绑定失败")}
 
 
 async def get_account_info(telegram_id: int) -> Optional[dict]:
+    endpoint = "get_account_info"
     url = f"{API_URL}/api/v1/internal/telegram/info"
-    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json={"telegramId": telegram_id},
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": resp.json().get("error", "查询失败"), "status": resp.status_code}
-    except Exception:
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"telegramId": telegram_id},
+        log_fields={"telegramId": telegram_id},
+    )
+    if response is None:
         return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "查询失败"), "status": response.status_code}
 
 
 async def redeem_by_telegram(telegram_id: int, code: str) -> Optional[dict]:
+    endpoint = "redeem_by_telegram"
     url = f"{API_URL}/api/v1/internal/telegram/redeem"
-    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json={
-                    "telegramId": telegram_id,
-                    "code": code,
-                },
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": resp.json().get("error", "兑换失败")}
-    except Exception:
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"telegramId": telegram_id, "code": code},
+        log_fields={"telegramId": telegram_id},
+    )
+    if response is None:
         return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "兑换失败")}
 
 
 async def reset_password_by_telegram(telegram_id: int, new_password: str) -> Optional[dict]:
     """通过 Telegram 身份重置密码"""
+    endpoint = "reset_password_by_telegram"
     url = f"{API_URL}/api/v1/internal/telegram/reset-password"
-    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                url,
-                headers=headers,
-                json={
-                    "telegramId": telegram_id,
-                    "newPassword": new_password,
-                },
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": resp.json().get("error", "密码重置失败")}
-    except Exception:
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"telegramId": telegram_id, "newPassword": new_password},
+        log_fields={"telegramId": telegram_id},
+    )
+    if response is None:
         return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "密码重置失败")}
 
 
 async def get_setting(key: str) -> str:
+    endpoint = "get_setting"
     url = f"{API_URL}/api/v1/internal/settings/{key}"
-    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
+    response, elapsed_ms = await _request(
+        endpoint,
+        "GET",
+        url,
+        timeout=_SETTING_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        log_fields={"key": key},
+    )
+    if response is None or response.status_code != 200:
+        return ""
 
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(url, headers=headers)
-        if resp.status_code == 200:
-            return str(resp.json().get("value", ""))
-    except Exception:
-        pass
-
-    return ""
+    payload = _load_json(
+        response,
+        endpoint,
+        "GET",
+        elapsed_ms=elapsed_ms,
+        key=key,
+    )
+    if payload is None:
+        return ""
+    return str(payload.get("value", ""))
 
 
 async def get_settings(keys: list[str]) -> dict[str, str]:
@@ -129,17 +324,31 @@ async def get_settings(keys: list[str]) -> dict[str, str]:
 
 async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:
     """调用公开 TMDB 搜索 API（无需鉴权，直接 GET）"""
+    endpoint = "search_tmdb"
     url = f"{API_URL}/api/v1/tmdb/search"
-    params = {"query": query, "type": media_type}
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, params=params)
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": resp.json().get("error", "搜索失败")}
-    except Exception:
+    response, elapsed_ms = await _request(
+        endpoint,
+        "GET",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        params={"query": query, "type": media_type},
+        log_fields={"mediaType": media_type},
+    )
+    if response is None:
         return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "GET",
+        elapsed_ms=elapsed_ms,
+        mediaType=media_type,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "搜索失败")}
 
 
 async def subscribe_by_telegram(
@@ -151,8 +360,8 @@ async def subscribe_by_telegram(
     note: str = "",
 ) -> Optional[dict]:
     """通过 Telegram 身份创建求片订阅"""
+    endpoint = "subscribe_by_telegram"
     url = f"{API_URL}/api/v1/internal/telegram/subscribe"
-    headers = {"X-Internal-Secret": INTERNAL_API_SECRET}
 
     payload = {
         "telegramId": telegram_id,
@@ -163,11 +372,28 @@ async def subscribe_by_telegram(
         "note": note,
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": resp.json().get("error", "订阅失败"), "status": resp.status_code}
-    except Exception:
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json=payload,
+        log_fields={"telegramId": telegram_id, "tmdbId": str(tmdb_id)},
+    )
+    if response is None:
         return None
+
+    data = _load_json(
+        response,
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+        tmdbId=str(tmdb_id),
+    )
+    if data is None:
+        return None
+    if response.status_code == 200:
+        return data
+    return {"error": data.get("error", "订阅失败"), "status": response.status_code}

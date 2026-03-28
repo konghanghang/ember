@@ -26,6 +26,7 @@ from telegram.ext import (
     filters,
 )
 
+from app.clients import api_client
 from app.config import (
     BOT_PORT,
     INTERNAL_API_SECRET,
@@ -185,29 +186,48 @@ async def sync_bot_commands() -> None:
     )
 
 
+def _verify_internal_secret(request: Request) -> JSONResponse | None:
+    secret = request.headers.get("X-Internal-Secret", "")
+    if compare_digest(secret, INTERNAL_API_SECRET):
+        return None
+    return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     del app
-    await tg_app.initialize()
-    await tg_app.start()
-    try:
-        await sync_bot_commands()
-    except Exception as err:
-        logger.warning("Bot 命令菜单同步失败，不影响服务运行: %s", err)
-    logger.info("Telegram Bot 服务已启动，开始异步注册 webhook")
+    initialized = False
+    started = False
+    stop_event: asyncio.Event | None = None
+    webhook_task: asyncio.Task | None = None
 
-    stop_event = asyncio.Event()
-    webhook_task = asyncio.create_task(register_webhook_with_retry(stop_event))
-
+    await api_client.init()
     try:
+        await tg_app.initialize()
+        initialized = True
+        await tg_app.start()
+        started = True
+        try:
+            await sync_bot_commands()
+        except Exception as err:
+            logger.warning("Bot 命令菜单同步失败，不影响服务运行: %s", err)
+        logger.info("Telegram Bot 服务已启动，开始异步注册 webhook")
+
+        stop_event = asyncio.Event()
+        webhook_task = asyncio.create_task(register_webhook_with_retry(stop_event))
         yield
     finally:
-        stop_event.set()
-        webhook_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await webhook_task
-        await tg_app.stop()
-        await tg_app.shutdown()
+        if stop_event is not None:
+            stop_event.set()
+        if webhook_task is not None:
+            webhook_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await webhook_task
+        if started:
+            await tg_app.stop()
+        if initialized:
+            await tg_app.shutdown()
+        await api_client.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -233,9 +253,9 @@ async def telegram_webhook(request: Request):
 
 @app.post("/notify/subscription")
 async def notify_subscription(request: Request):
-    secret = request.headers.get("X-Internal-Secret")
-    if secret != INTERNAL_API_SECRET:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    unauthorized = _verify_internal_secret(request)
+    if unauthorized is not None:
+        return unauthorized
 
     data = await request.json()
     await send_subscription_notification(tg_app.bot, data)
@@ -244,9 +264,9 @@ async def notify_subscription(request: Request):
 
 @app.post("/notify/registration")
 async def notify_registration(request: Request):
-    secret = request.headers.get("X-Internal-Secret")
-    if secret != INTERNAL_API_SECRET:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    unauthorized = _verify_internal_secret(request)
+    if unauthorized is not None:
+        return unauthorized
 
     data = await request.json()
     await send_registration_notification(tg_app.bot, data)
@@ -255,9 +275,9 @@ async def notify_registration(request: Request):
 
 @app.post("/notify/payment")
 async def notify_payment(request: Request):
-    secret = request.headers.get("X-Internal-Secret")
-    if secret != INTERNAL_API_SECRET:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    unauthorized = _verify_internal_secret(request)
+    if unauthorized is not None:
+        return unauthorized
 
     data = await request.json()
     await send_payment_notification(tg_app.bot, data)
@@ -266,9 +286,9 @@ async def notify_payment(request: Request):
 
 @app.post("/notify/ranking")
 async def notify_ranking(request: Request):
-    secret = request.headers.get("X-Internal-Secret")
-    if secret != INTERNAL_API_SECRET:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    unauthorized = _verify_internal_secret(request)
+    if unauthorized is not None:
+        return unauthorized
 
     data = await request.json()
     await send_ranking_notification(tg_app.bot, data)

@@ -2,7 +2,6 @@
 
 import time
 from dataclasses import dataclass, field
-from threading import Lock
 
 
 @dataclass
@@ -20,34 +19,30 @@ class SearchSession:
 
 
 _cache: dict[int, SearchSession] = {}
-_lock = Lock()
 
 SESSION_TTL = 600
 
 
 def get_session(user_id: int) -> SearchSession | None:
     """获取用户的搜索会话，过期则返回 None"""
-    with _lock:
-        session = _cache.get(user_id)
-        if session is None:
-            return None
-        if time.time() - session.created_at > SESSION_TTL:
-            del _cache[user_id]
-            return None
-        return session
+    session = _cache.get(user_id)
+    if session is None:
+        return None
+    if time.time() - session.created_at > SESSION_TTL:
+        del _cache[user_id]
+        return None
+    return session
 
 
 def set_session(user_id: int, session: SearchSession) -> None:
     """设置用户的搜索会话（覆盖旧会话），同时惰性清理过期条目"""
-    with _lock:
-        _cleanup_expired()
-        _cache[user_id] = session
+    _cleanup_expired()
+    _cache[user_id] = session
 
 
 def delete_session(user_id: int) -> None:
     """删除用户的搜索会话"""
-    with _lock:
-        _cache.pop(user_id, None)
+    _cache.pop(user_id, None)
 
 
 def _cleanup_expired() -> None:

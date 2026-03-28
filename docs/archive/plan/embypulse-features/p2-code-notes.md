@@ -1,4 +1,4 @@
-# P2-4: 兑换码备注字段（Redemption Code Notes）
+# P2-4: 兑换码备注字段（Redemption Code Notes，已落地）
 
 ## 功能描述
 

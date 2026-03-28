@@ -11,7 +11,7 @@
 
 ---
 
-## 📊 进度状态（更新于 2026-03-27）
+## 📊 进度状态（更新于 2026-03-28）
 
 - [x] P0-1 追剧日历（TV Calendar，已归档）
 - [x] P0-2 客户端设备管理（Client Device Management，已归档）
@@ -21,8 +21,8 @@
 - [x] P1-3 用户画像（User Profile Analytics，已归档）
 - [ ] P2-1 求片分季支持（Subscription Season Support）
 - [ ] P2-2 用户头像管理（User Avatar Management）
-- [ ] P2-3 媒体库列表查询（Library List）
-- [ ] P2-4 兑换码备注字段（Redemption Code Notes）
+- [x] P2-3 媒体库列表查询（Library List，已归档）
+- [x] P2-4 兑换码备注字段（Redemption Code Notes，已归档）
 
 ---
 
@@ -69,10 +69,15 @@
 
 ### P2（可选）
 
+待实施：
+
 7. [求片分季支持（Subscription Season Support）](./p2-subscription-season.md)
 8. [用户头像管理（User Avatar Management）](./p2-user-avatar.md)
-9. [媒体库列表查询（Library List）](./p2-library-list.md)
-10. [兑换码备注字段（Redemption Code Notes）](./p2-code-notes.md)
+
+已归档：
+
+9. [媒体库列表查询（Library List）](../../archive/plan/embypulse-features/p2-library-list.md)
+10. [兑换码备注字段（Redemption Code Notes）](../../archive/plan/embypulse-features/p2-code-notes.md)
 
 ---
 
@@ -114,9 +119,7 @@
 docs/plan/embypulse-features/
 ├── README.md
 ├── p2-subscription-season.md
-├── p2-user-avatar.md
-├── p2-library-list.md
-└── p2-code-notes.md
+└── p2-user-avatar.md
 
 docs/archive/plan/embypulse-features/
 ├── p0-device-management.md
@@ -124,7 +127,9 @@ docs/archive/plan/embypulse-features/
 ├── p0-tv-calendar.md
 ├── p1-media-quality.md
 ├── p1-playback-history.md
-└── p1-user-profile.md
+├── p1-user-profile.md
+├── p2-library-list.md
+└── p2-code-notes.md
 ```
 
 ---

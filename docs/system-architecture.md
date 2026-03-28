@@ -197,14 +197,14 @@ services/
    └─ app/
       ├─ config.py               # 启动期环境变量加载
       ├─ runtime_settings.py     # Bot 运行期设置读取（API + TTL 缓存）
-      ├─ server.py               # FastAPI + Telegram Application（Webhook 模式）
+      ├─ server.py               # FastAPI + Telegram Application（Webhook 模式，lifespan 负责 HTTP client 生命周期）
       ├─ handlers/
       │  ├─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息）
       │  └─ search_cache.py      # 搜索会话缓存
       ├─ formatters/
       │  └─ message_formatter.py # Telegram 消息格式化
       └─ clients/
-         └─ api_client.py        # Ember API 内部客户端
+         └─ api_client.py        # Ember API 内部客户端（共享 AsyncClient 连接池）
 ```
 
 ---
