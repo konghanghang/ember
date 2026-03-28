@@ -109,3 +109,35 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+.ember-range-picker-popper .el-picker-panel {
+  border-radius: 1rem !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12) !important;
+}
+
+.ember-range-picker-popper .el-date-range-picker__time-header {
+  padding: 0.75rem 0.875rem 0.375rem !important;
+}
+
+.ember-range-picker-popper .el-date-range-picker__editor-wrap .el-input__wrapper,
+.ember-range-picker-popper .el-date-range-picker__time-picker-wrap .el-input__wrapper {
+  min-height: 34px !important;
+  border-radius: 0.75rem !important;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease !important;
+}
+
+.ember-range-picker-popper .el-date-range-picker__editor-wrap .el-input__wrapper:hover,
+.ember-range-picker-popper .el-date-range-picker__time-picker-wrap .el-input__wrapper:hover {
+  background-color: #ffffff !important;
+}
+
+.ember-range-picker-popper .el-date-range-picker__editor-wrap .el-input__wrapper.is-focus,
+.ember-range-picker-popper .el-date-range-picker__time-picker-wrap .el-input__wrapper.is-focus {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Calendar } from '@element-plus/icons-vue'
+import { emberRangePickerPopperClass, rangePickerDefaultTime } from '@/constants/datePicker'
 import { formatPlaybackDate } from '@/utils/date'
 import type {
   PlaybackProfileClientBucket,
@@ -95,6 +96,7 @@ const distributionBarStyle = (
 ) => ({
   width: `${Math.max(6, Math.round((item.duration / max) * 100))}%`
 })
+
 </script>
 
 <template>
@@ -133,6 +135,8 @@ const distributionBarStyle = (
               start-placeholder="开始日期时间"
               end-placeholder="结束日期时间"
               value-format="YYYY-MM-DD HH:mm:ss"
+              :default-time="rangePickerDefaultTime"
+              :popper-class="emberRangePickerPopperClass"
               class="w-full filter-date-range"
               unlink-panels
               clearable
@@ -444,4 +448,5 @@ const distributionBarStyle = (
 :deep(.filter-date-range .el-range__close-icon) {
   display: none !important;
 }
+
 </style>

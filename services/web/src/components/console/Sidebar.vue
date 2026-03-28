@@ -148,7 +148,7 @@ const displayName = computed(() => userStore.profile?.username || '当前用户'
   <aside class="flex flex-col w-64 h-screen bg-white border-r border-gray-100 shadow-sm transition-all duration-300 z-20">
     <!-- Brand -->
     <div class="flex items-center justify-center h-16 px-6 border-b border-gray-50">
-      <router-link to="/" class="flex items-center gap-2 text-ember font-bold text-xl hover:opacity-80 transition-opacity">
+      <router-link to="/" class="flex items-center gap-2 text-ember font-bold text-xl hover:opacity-80 transition-opacity cursor-pointer">
         <el-icon :size="24"><Monitor /></el-icon>
         <span>Ember Console</span>
       </router-link>
@@ -170,7 +170,7 @@ const displayName = computed(() => userStore.profile?.username || '当前用户'
             v-for="child in item.children"
             :key="child.path"
             :to="child.path"
-            class="flex items-center px-3 py-2.5 rounded-lg transition-colors group relative overflow-hidden"
+            class="flex items-center px-3 py-2.5 rounded-lg transition-colors group relative overflow-hidden cursor-pointer"
             :class="[
               isActive(child.path) 
                 ? 'bg-ember/10 text-ember font-medium' 
@@ -192,7 +192,7 @@ const displayName = computed(() => userStore.profile?.username || '当前用户'
         <router-link
           v-else-if="!item.type && canAccessItem(item.role)"
           :to="item.path"
-          class="flex items-center px-3 py-2.5 rounded-lg transition-colors group relative overflow-hidden"
+          class="flex items-center px-3 py-2.5 rounded-lg transition-colors group relative overflow-hidden cursor-pointer"
           :class="[
             isActive(item.path) 
               ? 'bg-ember/10 text-ember font-medium' 

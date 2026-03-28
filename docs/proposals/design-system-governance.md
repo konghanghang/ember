@@ -1,8 +1,8 @@
 # Ember 前端设计系统治理提案
 
-> 状态：进行中
+> 状态：收尾中（构建已通过，待手工验证）
 > 负责人：Ember
-> 更新时间：2026-03-27
+> 更新时间：2026-03-28
 
 ## 问题
 
@@ -26,49 +26,49 @@
 
 ## 当前状态
 
-Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规范文档 `docs/reference/web-design-guide.md`，定义了色彩、排版、组件、布局、动效等核心规范。
+这轮治理的代码与规范收口已经基本完成，当前重点不再是“继续发现问题”，而是把剩余验证与退场动作做完。
 
-**经过全面审查发现**，代码实现与设计文档的整体对齐度约 95%，基础设计质量优秀，但存在三类问题：
+当前确认已完成：
 
-1. **文档缺失** — 代码中已有 6+ 种设计模式未被文档覆盖（侧边栏、对话框、徽章、空状态、响应式策略、无障碍）
-2. **代码不一致** — 按钮样式三种写法混用、emoji 用作 UI 图标、图标容器大小不统一
-3. **无障碍缺失** — 零 `prefers-reduced-motion` 支持、`cursor-pointer` 仅 2 个文件使用、ARIA 属性极少
+1. `docs/reference/web-design-guide.md` 已补齐按钮策略、搜索框边界、导航/侧边栏、对话框、徽章/空状态、响应式、无障碍等稳定规则
+2. `services/web/src/assets/base.css` 已补全局 `prefers-reduced-motion`
+3. `services/web/src/views/console/RankingsView.vue` 已移除 emoji UI 图标
+4. `services/web/src/views/admin/UsersView.vue`、`services/web/src/components/console/TopBar.vue`、`services/web/src/components/console/Sidebar.vue`、`services/web/src/views/console/Layout.vue` 已补关键 `cursor-pointer` / `aria-label` 收尾
+5. `cd services/web && npm run build` 已通过
 
-**本方案实现**：
-1. 补全设计规范文档，覆盖所有已实现的设计模式
-2. 修复代码中的不一致问题，使代码严格遵循规范
-3. 补充基础无障碍支持
+当前剩余：
 
-**不做的事**：
-- 不做暗黑模式（用户明确暂不考虑，虽然 tailwind.config.js 已配置 `darkMode: 'class'`）
-- 不更换字体或色彩方案（现有 Plus Jakarta Sans + #E50914 品牌色完成度很高）
-- 不引入新的组件库或设计令牌系统（保持现有 Tailwind + CSS 变量架构）
-- 不做组件抽象重构（问题是一致性，不是架构）
+1. 手工视觉回归检查
+2. 减少动画与基础无障碍检查
+3. 完成后决定归档本提案，或仅保留极少量治理记录
 
-**范围与约定**：
-- 本计划仅覆盖前端 `services/web/` 与设计规范文档 `docs/reference/web-design-guide.md`
-- 文中所有路径均为“仓库根目录相对路径”，避免 `src/...` 这种不带上下文的歧义写法
+说明：
+
+- 本提案仅覆盖前端 `services/web/` 与设计规范文档 `docs/reference/web-design-guide.md`
+- 下文“一、审查发现详情”保留的是 2026-03-27 的原始审查快照，用于追溯，不再代表当前代码事实
 
 ## 当前进度
 
 ### 已完成项
 
-- `docs/reference/web-design-guide.md` 已补充按钮、可点击态、ARIA、动效兜底等关键规则
+- `docs/reference/web-design-guide.md` 已扩展到可独立承担现行规范职责，覆盖按钮、搜索筛选、导航、对话框、徽章、空状态、响应式、无障碍
 - `services/web/src/assets/base.css` 已补 `prefers-reduced-motion`
 - `services/web/src/views/console/RankingsView.vue` 已去掉 emoji UI 图标
-- `services/web/src/views/admin/UsersView.vue`、`services/web/src/components/console/TopBar.vue` 等文件已补部分 `cursor-pointer` / `aria-label`
+- `services/web/src/views/admin/UsersView.vue`、`services/web/src/components/console/TopBar.vue` 已补关键 `cursor-pointer` / `aria-label`
+- `services/web/src/components/console/Sidebar.vue`、`services/web/src/views/console/Layout.vue` 已完成导航和移动端抽屉关闭按钮的治理收尾
+- `cd services/web && npm run build` 已通过
 
 ### 剩余项
 
-- `services/web/src/components/console/Sidebar.vue` 仍未按提案完全补齐导航项 `cursor-pointer` 等治理收尾
-- 设计系统治理文档需要继续从“提案”向“现行规范”收口，减少重复描述
-- 达到稳定状态后，需要决定是归档本提案，还是只保留极少量治理记录
+- 对照关键页面做手工视觉回归：`/console/dashboard`、`/console/rankings`、`/console/subscriptions`、`/console/users`
+- 在真实浏览器环境确认 `prefers-reduced-motion` 和基础键盘/ARIA 表现
+- 完成验证后，将本提案移入 `docs/archive/`，不再继续承担现行规范职责
 
 ---
 
-## 一、审查发现详情
+## 一、初始审查快照（2026-03-27，历史记录）
 
-### 1.1 当前对齐度矩阵
+### 1.1 当时对齐度矩阵
 
 | 维度 | 规范要求 | 代码实现 | 对齐度 | 问题 |
 |------|---------|---------|--------|------|
@@ -87,7 +87,7 @@ Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规�
 | **无障碍** | 未提及 | 零 prefers-reduced-motion，2 处 aria | 🔴 缺失 | **需补充** |
 | **cursor-pointer** | 未提及 | 仅 2 文件 5 处使用 | 🟡 不足 | **需补充** |
 
-### 1.2 文档覆盖缺口
+### 1.2 当时文档覆盖缺口
 
 设计规范文档当前包含 7 个章节：
 1. ✅ 核心理念
@@ -110,7 +110,7 @@ Ember 前端基于 Vue 3 + Tailwind CSS + Element Plus 构建，已有设计规�
 
 > **⚠️ 设计决策记录**：搜索框（如 UsersView 页头搜索栏）应保持自定义 Tailwind 写法（`bg-gray-50 rounded-xl focus:ring-4 focus:ring-ember/10` + 图标联动），**不应**统一为 `.input-ember`。搜索框是页面级交互入口，需要比表单输入框更高的视觉精致度和层次感。
 
-### 1.3 各文件问题清单
+### 1.3 当时文件问题清单
 
 | 文件 | 问题 | 严重度 |
 |------|------|--------|
