@@ -67,6 +67,18 @@ Bot 收到 Telegram Webhook 更新时，会先调用 `schedule_group_menu_sync()
 
 同步成功后，会把该 `chat_id` 记到当前进程内存里。
 
+此外，当前还支持一个定向清理 helper：
+
+- `force_chat_member_menu_cleanup(bot, chat_id, user_id)`
+
+它会直接清理：
+
+- `BotCommandScopeChat(chat_id)`
+- `BotCommandScopeChatAdministrators(chat_id)`
+- `BotCommandScopeChatMember(chat_id, user_id)`
+
+这个能力主要用于收口历史上由旧 Bot（如 `embyboss`）写入的特定用户群命令作用域。
+
 ### 3. 群管理员手动兜底
 
 **文件**：`services/bot/app/handlers/telegram_handler.py`
@@ -92,6 +104,30 @@ Bot 收到 Telegram Webhook 更新时，会先调用 `schedule_group_menu_sync()
 - 某个群还没等到“首次消息触发”
 - 或想立刻验证群菜单是否已清掉
 - 或启动期全局 scope 清理失败后，手动补救群继承到的旧菜单
+
+### 3.1 私聊定向清理历史群作用域
+
+**文件**：`services/bot/app/handlers/telegram_handler.py`、`services/bot/app/menu_sync.py`
+
+新增私聊管理员命令：
+
+- `/refresh_menu_chat`
+
+规则：
+
+1. 只能在私聊中使用
+2. 仅配置中的管理员账号可执行
+3. 必填 `chat_id`，可选 `user_id`
+4. 会定向清理：
+   - `BotCommandScopeChat(chat_id)`
+   - `BotCommandScopeChatAdministrators(chat_id)`
+   - `BotCommandScopeChatMember(chat_id, user_id)`
+
+用途：
+
+- 清理历史上由旧 Bot 写入的群成员级命令菜单
+- 不需要在目标群里实际发消息，不打扰群聊
+- 当只有某个管理员账号在某个群里看到旧命令时，可直接按 `chat_id + user_id` 收口
 
 ### 4. 命令帮助文案策略
 

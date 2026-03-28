@@ -31,7 +31,11 @@ from app.handlers.search_cache import (
     get_session,
     set_session,
 )
-from app.menu_sync import force_group_menu_sync, is_menu_refresh_allowed
+from app.menu_sync import (
+    force_chat_member_menu_cleanup,
+    force_group_menu_sync,
+    is_menu_refresh_allowed,
+)
 from app.runtime_settings import runtime_settings_service
 
 logger = logging.getLogger(__name__)
@@ -440,6 +444,65 @@ async def handle_refresh_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     await message.reply_text("✅ 当前群菜单作用域已刷新，旧命令应已清理")
+
+
+async def handle_refresh_menu_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        await message.reply_text(_private_only_tip())
+        return
+
+    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
+    if admin_chat_id is None or message.from_user.id != admin_chat_id:
+        await message.reply_text("❌ 只有配置的管理员账号可以执行此命令", parse_mode="HTML")
+        return
+
+    args = context.args or []
+    if len(args) not in (1, 2):
+        await message.reply_text(
+            _format_command_help(
+                title="缺少群 ID 或格式不正确",
+                command="/refresh_menu_chat -1001234567890",
+                example="/refresh_menu_chat -1001234567890",
+                steps=[
+                    "打开出现旧命令的 Telegram 群",
+                    "复制该群的 chat_id",
+                    "把 chat_id 填在命令后面发送",
+                ],
+                note="可选第二个参数用于指定 user_id：/refresh_menu_chat -1001234567890 123456789",
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    raw_chat_id = args[0].strip()
+    raw_user_id = args[1].strip() if len(args) == 2 else str(message.from_user.id)
+    if not raw_chat_id or not raw_user_id:
+        await message.reply_text("❌ chat_id 或 user_id 不能为空", parse_mode="HTML")
+        return
+
+    try:
+        target_chat_id = int(raw_chat_id)
+        target_user_id = int(raw_user_id)
+    except ValueError:
+        await message.reply_text("❌ chat_id 和 user_id 必须是整数", parse_mode="HTML")
+        return
+
+    ok, result = await force_chat_member_menu_cleanup(context.bot, target_chat_id, target_user_id)
+    if not ok:
+        await message.reply_text(f"❌ {escape(result)}", parse_mode="HTML")
+        return
+
+    await message.reply_text(
+        "✅ 已清理指定群的菜单作用域\n\n"
+        f"<code>chat_id={target_chat_id}</code>\n"
+        f"<code>user_id={target_user_id}</code>\n\n"
+        "请在 Telegram 客户端里重新打开该群确认命令是否已消失。",
+        parse_mode="HTML",
+    )
 
 
 # ==================== 搜索与订阅 ====================

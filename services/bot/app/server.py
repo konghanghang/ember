@@ -43,6 +43,7 @@ from app.handlers.telegram_handler import (
     handle_info,
     handle_new_member,
     handle_refresh_menu,
+    handle_refresh_menu_chat,
     handle_redeem,
     handle_resetpw,
     handle_search,
@@ -103,6 +104,7 @@ tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
 tg_app.add_handler(CommandHandler("search", handle_search))
 tg_app.add_handler(CommandHandler("cancel", handle_cancel_note))
 tg_app.add_handler(CommandHandler("refresh_menu", handle_refresh_menu))
+tg_app.add_handler(CommandHandler("refresh_menu_chat", handle_refresh_menu_chat))
 tg_app.add_handler(MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
     handle_text_message,

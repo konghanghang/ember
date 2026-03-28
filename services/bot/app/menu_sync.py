@@ -5,6 +5,7 @@ from telegram import (
     BotCommandScopeAllGroupChats,
     BotCommandScopeChat,
     BotCommandScopeChatAdministrators,
+    BotCommandScopeChatMember,
     BotCommandScopeDefault,
     Update,
 )
@@ -41,6 +42,39 @@ async def force_group_menu_sync(bot, chat_id: int, chat_type: str) -> tuple[bool
     if chat_type not in _VALID_CHAT_TYPES:
         return False, "仅支持 group / supergroup"
     return await _sync_group_menu(bot, int(chat_id), chat_type, force=True)
+
+
+async def force_chat_member_menu_cleanup(bot, chat_id: int, user_id: int) -> tuple[bool, str]:
+    target_chat_id = int(chat_id)
+    target_user_id = int(user_id)
+    scopes = [
+        BotCommandScopeChat(chat_id=target_chat_id),
+        BotCommandScopeChatAdministrators(chat_id=target_chat_id),
+        BotCommandScopeChatMember(chat_id=target_chat_id, user_id=target_user_id),
+    ]
+
+    errors: list[str] = []
+    for scope in scopes:
+        try:
+            await bot.delete_my_commands(scope=scope)
+        except Exception as err:
+            logger.warning(
+                "定向清理菜单作用域失败: chat_id=%s user_id=%s scope=%s err=%s",
+                target_chat_id,
+                target_user_id,
+                type(scope).__name__,
+                err,
+            )
+            errors.append(f"{type(scope).__name__}: {err}")
+
+    if errors:
+        return False, "定向菜单清理失败，请稍后重试"
+
+    async with _lock:
+        _synced_chat_versions.pop(target_chat_id, None)
+
+    logger.info("定向菜单作用域已清理: chat_id=%s user_id=%s", target_chat_id, target_user_id)
+    return True, "定向菜单作用域已清理"
 
 
 async def is_menu_refresh_allowed(bot, chat_id: int, user_id: int) -> tuple[bool, str | None]:

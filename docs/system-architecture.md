@@ -199,7 +199,7 @@ services/
       ├─ runtime_settings.py     # Bot 运行期设置读取（API + TTL 缓存）
       ├─ server.py               # FastAPI + Telegram Application（Webhook 模式，lifespan 负责 HTTP client 生命周期）
       ├─ handlers/
-      │  ├─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息）
+      │  ├─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息、菜单清理）
       │  └─ search_cache.py      # 搜索会话缓存
       ├─ formatters/
       │  └─ message_formatter.py # Telegram 消息格式化
