@@ -4,7 +4,6 @@
 
 ## 当前内容
 
-- [前端设计系统治理提案](./design-system-governance.md)
 - [计划文档盘点](./plan-inventory.md)
 - [提案模板](./proposal-template.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
@@ -15,8 +14,6 @@
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
 - 尚未落地的 `embypulse-features` P2 条目
-
-持续治理类文档已开始收口到 `docs/proposals/`，例如 [前端设计系统治理提案](./design-system-governance.md)。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
 
@@ -41,7 +38,7 @@
 ## 兼容说明
 
 - `docs/plan/` 仍保留原路径，因为现有协作流程和 AI 指令都依赖这个位置。
-- 已完成的治理类提案会移入 `docs/archive/`，例如 [API 目录重构提案](../archive/api-directory-refactor.md)。
+- 已完成的治理类提案会移入 `docs/archive/`，例如 [API 目录重构提案](../archive/api-directory-refactor.md)、[前端设计系统治理提案](../archive/design-system-governance.md)。
 
 ## 维护规则
 
