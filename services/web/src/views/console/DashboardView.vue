@@ -10,6 +10,7 @@ import {
   Setting,
   VideoPlay
 } from '@element-plus/icons-vue'
+import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
 import { getEmbyConfig, getMediaStats } from '@/api/console'
@@ -109,9 +110,7 @@ watch(
       <div class="p-8 md:p-10">
         <div class="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div class="flex items-start gap-5">
-            <div class="flex h-20 w-20 items-center justify-center rounded-2xl bg-ember/10 text-3xl font-bold text-ember">
-              {{ (user.username || 'U').charAt(0).toUpperCase() }}
-            </div>
+            <DefaultAvatar :name="user.username" size="hero" shape="2xl" />
             <div>
               <div class="flex flex-wrap items-center gap-3">
                 <h1 class="text-2xl font-bold tracking-tight text-gray-900">{{ user.username || '当前用户' }}</h1>

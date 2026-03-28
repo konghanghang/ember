@@ -18,6 +18,7 @@ import {
   Iphone,
   Calendar
 } from '@element-plus/icons-vue'
+import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -214,9 +215,7 @@ const displayName = computed(() => userStore.profile?.username || '当前用户'
     <!-- Footer / User Profile (simplified) -->
     <div class="p-4 border-t border-gray-50">
       <div class="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
-        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-ember/10 text-ember ring-1 ring-ember/10">
-          <span class="font-bold text-sm">{{ displayName.charAt(0).toUpperCase() || 'U' }}</span>
-        </div>
+        <DefaultAvatar :name="displayName" size="sm" shape="full" />
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-gray-900 truncate">{{ displayName }}</p>
           <p class="text-xs text-gray-500 truncate">{{ authStore.role === 'admin' ? '管理员' : '普通用户' }}</p>

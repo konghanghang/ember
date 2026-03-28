@@ -147,6 +147,8 @@ services/
 │  │  │  └─ element-plus.ts      # Element Plus 按需组件/指令/样式注册入口
 │  │  ├─ components/
 │  │  │  ├─ console/             # 控制台导航 / 顶栏等布局组件
+│  │  │  ├─ common/
+│  │  │  │  └─ DefaultAvatar.vue # 默认头像（首字母 + 稳定配色）
 │  │  │  └─ profile/
 │  │  │     └─ PlaybackProfileContent.vue # 用户画像共享主体（user/admin 共用）
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义

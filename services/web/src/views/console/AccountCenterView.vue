@@ -14,6 +14,7 @@ import {
   Reading,
   UserFilled
 } from '@element-plus/icons-vue'
+import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 import { useAuthStore } from '@/store/auth'
 import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
@@ -170,9 +171,7 @@ watch(
       </div>
       <div class="grid gap-6 px-6 py-6 lg:grid-cols-[1.6fr_1fr] lg:px-8">
         <div class="flex items-start gap-4">
-          <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-2xl font-bold text-white shadow-sm">
-            {{ (user.username || 'U').charAt(0).toUpperCase() }}
-          </div>
+          <DefaultAvatar :name="user.username" size="xl" shape="2xl" />
           <div class="space-y-3">
             <div>
               <div class="flex flex-wrap items-center gap-3">

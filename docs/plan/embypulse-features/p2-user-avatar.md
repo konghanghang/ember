@@ -1,8 +1,12 @@
-# P2-2: 用户头像管理（User Avatar Management）
+# P2-2: 默认头像展示（Default Avatar）
 
 ## 功能描述
 
-管理员可为用户上传头像（URL 或文件），并同步到 Emby 用户头像。
+为 Ember 用户提供统一的默认头像展示能力：
+
+1. 所有用户在前端都能稳定显示头像
+2. 头像根据用户名生成稳定表现
+3. 同一用户在多个页面中保持一致
 
 **优先级**：P2
 
@@ -10,82 +14,134 @@
 
 ## Ember 对齐要点
 
-1. 管理员接口：`/api/v1/admin/users/:id/avatar`
-2. `userId` 类型为 `string`
-3. 对齐上游服务实现（参考 emby-pulse）：`DELETE + POST /emby/Users/{id}/Images/Primary`
-4. 上传前做图片大小与 MIME 校验
+1. 默认头像优先作为 Ember 前端显示能力，不依赖 Emby 头像机制
+2. 不改数据库，不新增用户头像字段
+3. 不做用户上传头像，不做管理员代改头像
+4. 不做头像 URL，不做图片托管
 
 ---
 
-## API 端点设计
+## 核心设计
 
-`POST /api/v1/admin/users/:id/avatar`
+### 1. 头像来源
 
-支持两种输入：
+第一阶段统一采用“生成型默认头像”，不引入持久化头像状态。
 
-1. JSON
-```json
-{
-  "avatarUrl": "https://example.com/avatar.jpg"
-}
-```
+策略：
 
-2. `multipart/form-data`
-- `file`: 图片文件
+1. 根据 `username` 取首字母
+2. 根据 `username` 计算稳定 hash
+3. 将 hash 映射到固定的背景色方案
 
-Response:
+也就是说：
 
-```json
-{
-  "message": "头像更新成功"
-}
-```
+- 没有“无头像”状态
+- 没有“用户自定义头像”状态
+- 所有头像都由前端统一组件生成
 
 ---
 
-## 核心逻辑建议
+### 2. 展示规则
 
-```go
-func (s *UserService) UpdateAvatar(ctx context.Context, userID string, avatarData []byte, contentType string) error
+要求：
+
+1. 同一用户在不同页面必须保持一致
+2. 组件统一，不允许每个页面手写一套首字母块
+3. 颜色映射必须稳定，刷新页面不能变化
+
+建议统一组件：
+
+```ts
+<DefaultAvatar :name="user.username" size="md" shape="2xl" />
 ```
 
-关键步骤：
+尺寸建议：
 
-1. 校验用户存在且 `embyId` 非空
-2. 校验图片格式与大小（例如 <= 2MB）
-3. 转 Base64
-4. 调用 Emby：
-- `DELETE /emby/Users/{embyId}/Images/Primary`
-- `POST /emby/Users/{embyId}/Images/Primary`
-
-第一版固定策略：
-- 上传体采用 Base64（二进制先编码后提交）
-- 若后续发现特定 Emby 版本兼容问题，再补 raw bytes 兜底分支
+- `sm`：Sidebar、紧凑列表
+- `md`：TopBar、用户表格
+- `lg/xl/hero`：账号中心、概览页
 
 ---
 
-## EmbyService 扩展建议
+### 3. 风格要求
 
-```go
-func (s *EmbyService) UpdateUserAvatar(embyUserID string, imageBase64 []byte, contentType string) error
-```
+默认头像应符合 Ember 当前设计语言：
+
+- 扁平
+- 简洁
+- 稳定
+- 不花哨
+
+推荐表现：
+
+- 首字母
+- 柔和背景色
+- 中等字重
+- 与卡片、导航、账号中心样式一致
+
+不建议：
+
+- 引入复杂插画
+- 使用外部头像资源包
+- 加过多纹理、阴影或装饰
 
 ---
 
-## 前端改动建议
+## 前端改动范围
 
-在 `/console/users` 的用户管理表中新增：
-- 上传头像按钮
-- URL 填写入口
-- 上传结果提示
+建议接入这些真实头像展示位：
+
+1. `/console/dashboard`
+2. `/console/account`
+3. `TopBar`
+4. `Sidebar`
+5. `/console/users`
+
+目的：
+
+- 把当前分散的首字母占位头像统一成一个组件
+
+---
+
+## 不做的事
+
+本次明确不做：
+
+- 不做数据库字段 `avatarPreset` / `avatarUrl`
+- 不做 SQL migration
+- 不做用户选择头像
+- 不做管理员修改头像
+- 不做 Emby 同步
+- 不做上传、URL、裁剪器
 
 ---
 
 ## 验证清单
 
-- [ ] URL 上传可用
-- [ ] 本地文件上传可用
-- [ ] 非图片文件会被拒绝
-- [ ] Emby 同步失败时错误信息清晰
+- [ ] 未设置头像的用户能稳定显示默认头像
+- [ ] 同一用户默认头像在多个页面中保持一致
+- [ ] 不同用户默认头像具有可区分性
+- [ ] 替换后页面布局没有被头像尺寸破坏
+- [ ] 小尺寸（Sidebar / TopBar / UsersView）下仍可读
 
-**预计工作量**：1 天
+---
+
+## 预计工作量
+
+- 组件实现：0.5 天
+- 接入展示位：0.5 天
+
+总计：约 1 天
+
+---
+
+## 后续扩展说明
+
+如果后续再决定做：
+
+- 用户自选头像
+- 管理员代改头像
+- 预设头像库
+- 上传头像
+
+应另开下一阶段方案，不在本阶段文档中提前混入未实现设计。

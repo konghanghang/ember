@@ -10,12 +10,12 @@ import {
   Key,
   Delete,
   MoreFilled,
-  UserFilled,
   Lock,
   Unlock,
   CreditCard,
   DataLine
 } from '@element-plus/icons-vue'
+import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 import { getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
 import type { UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
 
@@ -398,9 +398,7 @@ onMounted(() => {
         <el-table-column label="用户" min-width="200">
           <template #default="{ row }">
             <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-gray-500 flex-shrink-0 border border-white shadow-sm">
-                <el-icon :size="20"><UserFilled /></el-icon>
-              </div>
+              <DefaultAvatar :name="row.username" size="md" shape="full" />
               <div class="min-w-0">
                 <div class="font-bold text-gray-900 truncate">{{ row.username }}</div>
                 <div class="text-xs text-gray-500 truncate font-mono">{{ row.email || 'No Email' }}</div>
