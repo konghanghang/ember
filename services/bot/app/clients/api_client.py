@@ -232,6 +232,32 @@ async def get_account_info(telegram_id: int) -> Optional[dict]:
     return {"error": payload.get("error", "查询失败"), "status": response.status_code}
 
 
+async def get_media_stats() -> Optional[dict]:
+    endpoint = "get_media_stats"
+    url = f"{API_URL}/api/v1/internal/media/stats"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "GET",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+    )
+    if response is None:
+        return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "GET",
+        elapsed_ms=elapsed_ms,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "查询媒体库统计失败"), "status": response.status_code}
+
+
 async def redeem_by_telegram(telegram_id: int, code: str) -> Optional[dict]:
     endpoint = "redeem_by_telegram"
     url = f"{API_URL}/api/v1/internal/telegram/redeem"

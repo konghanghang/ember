@@ -112,6 +112,7 @@ func registerInternalRoutes(api *gin.RouterGroup, h *appHandlers) {
 	internal.PUT("/subscriptions/:id/approve", h.subscription.ApproveSubscription)
 	internal.PUT("/subscriptions/:id/reject", h.subscription.RejectSubscription)
 	internal.GET("/settings/:key", h.setting.GetSettingByKey)
+	internal.GET("/media/stats", h.media.GetMediaStats)
 	internal.POST("/telegram/bind", h.telegram.VerifyBind)
 	internal.POST("/telegram/info", h.telegram.GetAccountInfo)
 	internal.POST("/telegram/redeem", h.telegram.RedeemByTelegram)

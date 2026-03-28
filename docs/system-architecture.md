@@ -14,7 +14,7 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 - 付费方案与 Stripe 一次性支付
 - 求片订阅（TMDB 搜索 → 管理员审批 → MoviePilot 自动下载）
 - 播放排行榜（日榜 / 周榜，从 Emby PlaybackActivity 生成）
-- Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息、账号绑定/查询/续期）
+- Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息、账号绑定/查询/续期、媒体库统计）
 - 定时任务（过期检查、验证码清理、排行榜生成）
 
 ## 2. 技术栈
@@ -922,6 +922,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝 |
 | GET | `/api/v1/internal/settings/:key` | 读取内部配置（仅允许访问统一配置层中已注册的非敏感 key；未知 key 返回 404） |
+| GET | `/api/v1/internal/media/stats` | 读取内部媒体统计（Bot 复用） |
 | POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
 | POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |

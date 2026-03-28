@@ -40,6 +40,7 @@ from app.handlers.telegram_handler import (
     handle_bind,
     handle_cancel_note,
     handle_callback,
+    handle_count,
     handle_info,
     handle_new_member,
     handle_refresh_menu,
@@ -98,6 +99,7 @@ tg_app.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^(approve|rej
 tg_app.add_handler(CallbackQueryHandler(handle_search_callback, pattern=r"^sub:"))
 tg_app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
 tg_app.add_handler(CommandHandler("bind", handle_bind))
+tg_app.add_handler(CommandHandler("count", handle_count))
 tg_app.add_handler(CommandHandler("info", handle_info))
 tg_app.add_handler(CommandHandler("redeem", handle_redeem))
 tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
@@ -148,6 +150,7 @@ async def sync_bot_commands() -> None:
     commands = [
         BotCommand("search", "搜索影视"),
         BotCommand("bind", "绑定 Ember 账号"),
+        BotCommand("count", "查看媒体库统计"),
         BotCommand("info", "查看账号信息"),
         BotCommand("redeem", "兑换续期码"),
         BotCommand("resetpw", "重置密码"),

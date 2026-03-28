@@ -363,6 +363,39 @@ async def handle_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+async def handle_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        await message.reply_text(_private_only_tip())
+        return
+
+    result = await api_client.get_media_stats()
+    if result is None:
+        await message.reply_text("❌ 媒体库统计暂不可用，请稍后重试")
+        return
+    if not result.get("success") or "data" not in result:
+        error_text = str(result.get("error", "查询媒体库统计失败"))
+        await message.reply_text(f"❌ {escape(error_text)}", parse_mode="HTML")
+        return
+
+    stats = result["data"]
+    movie_count = int(stats.get("MovieCount", 0) or 0)
+    series_count = int(stats.get("SeriesCount", 0) or 0)
+    episode_count = int(stats.get("EpisodeCount", 0) or 0)
+
+    await message.reply_text(
+        "🎬 <b>当前媒体库统计</b>\n\n"
+        f"电影：<b>{movie_count}</b>\n"
+        f"剧集：<b>{series_count}</b>\n"
+        f"总集数：<b>{episode_count}</b>",
+        parse_mode="HTML",
+    )
+
+
 async def handle_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if message is None or message.from_user is None:
