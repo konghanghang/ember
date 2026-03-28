@@ -38,6 +38,9 @@
 | `notify_group_link` | 否 | 否 | Telegram 欢迎消息中的群组链接 |
 | `telegram_welcome_message_template` | 否 | 否 | Telegram 入群欢迎语模板，支持 `{names}` 和 `{notifyGroupLink}` 占位符 |
 | `email_verification` | 否 | 否 | 是否启用注册邮箱验证码 |
+| `turnstile_login_enabled` | 否 | 否 | 是否启用登录 Turnstile 人机校验 |
+| `turnstile_site_key` | 否 | 否 | 登录页渲染 Turnstile 使用的公开 Site Key |
+| `turnstile_expected_hostname` | 否 | 否 | 登录 Turnstile 服务端校验时要求匹配的 hostname，允许置空 |
 | `stripe_allowed_payment_methods` | 否 | 否 | Stripe 支付方式限制列表 |
 
 ### 2.2 媒体集成
@@ -115,6 +118,7 @@
 | `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 第三方 Webhook 验签边界 |
 | `CONFIG_ENCRYPTION_KEY` | 是 | 敏感配置加密主密钥 | 数据库敏感配置加解密根密钥 |
 | `EMBY_WEBHOOK_TOKEN` | 是 | Emby Webhook token | `/api/v1/webhooks/emby?token=` 的访问口令 |
+| `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 第三方安全校验密钥，不应进入设置中心 |
 
 说明：
 

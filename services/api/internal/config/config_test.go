@@ -161,6 +161,9 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 		"TV_CALENDAR_SYNC_SCHEDULE",
 		"TELEGRAM_ADMIN_CHAT_ID",
 		"TELEGRAM_GROUP_CHAT_ID",
+		"turnstile_login_enabled",
+		"turnstile_site_key",
+		"turnstile_expected_hostname",
 	}
 
 	definitions := getConfigDefinitionMap()
@@ -235,6 +238,63 @@ func TestValidateTelegramChatID(t *testing.T) {
 	}
 }
 
+func TestTurnstileConfigDefinitions(t *testing.T) {
+	definitions := getConfigDefinitionMap()
+	testCases := []struct {
+		key string
+	}{
+		{key: "turnstile_login_enabled"},
+		{key: "turnstile_site_key"},
+		{key: "turnstile_expected_hostname"},
+	}
+
+	for _, tc := range testCases {
+		def, ok := definitions[tc.key]
+		if !ok {
+			t.Fatalf("expected config definition %s to exist", tc.key)
+		}
+		if def.Group != ConfigGroupBusiness {
+			t.Fatalf("expected %s group=%s, got %s", tc.key, ConfigGroupBusiness, def.Group)
+		}
+		if !def.Editable {
+			t.Fatalf("expected %s to be editable", tc.key)
+		}
+		if !def.DisableEnvFallback {
+			t.Fatalf("expected %s to disable env fallback", tc.key)
+		}
+		if def.Normalize == nil {
+			t.Fatalf("expected %s to have normalize", tc.key)
+		}
+	}
+
+	if err := definitions["turnstile_login_enabled"].Validate("true"); err != nil {
+		t.Fatalf("expected turnstile_login_enabled true to be valid, got %v", err)
+	}
+	if err := definitions["turnstile_login_enabled"].Validate("invalid"); err == nil {
+		t.Fatal("expected turnstile_login_enabled invalid value to fail")
+	}
+
+	if err := definitions["turnstile_site_key"].Validate(""); err != nil {
+		t.Fatalf("expected empty turnstile_site_key to be allowed, got %v", err)
+	}
+	if err := definitions["turnstile_site_key"].Validate("0x4AAAA-abc123"); err != nil {
+		t.Fatalf("expected valid turnstile_site_key to pass, got %v", err)
+	}
+	if err := definitions["turnstile_site_key"].Validate("bad key"); err == nil {
+		t.Fatal("expected turnstile_site_key with whitespace to fail")
+	}
+
+	if err := definitions["turnstile_expected_hostname"].Validate(""); err != nil {
+		t.Fatalf("expected empty turnstile_expected_hostname to be allowed, got %v", err)
+	}
+	if err := definitions["turnstile_expected_hostname"].Validate("ember.example.com"); err != nil {
+		t.Fatalf("expected valid turnstile_expected_hostname to pass, got %v", err)
+	}
+	if err := definitions["turnstile_expected_hostname"].Validate("https://ember.example.com"); err == nil {
+		t.Fatal("expected turnstile_expected_hostname containing scheme to fail")
+	}
+}
+
 func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
 	testCases := []struct {
 		key      string
@@ -249,6 +309,8 @@ func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
 		{key: "BOT_NOTIFY_URL", mode: ConfigEmptyValueDisable, hintPart: "关闭 API 到 Bot"},
 		{key: "TELEGRAM_GROUP_CHAT_ID", mode: ConfigEmptyValueFallback, hintPart: "回退到管理员 Chat ID"},
 		{key: "stripe_allowed_payment_methods", mode: ConfigEmptyValueInherit, hintPart: "Stripe Dashboard"},
+		{key: "turnstile_site_key", mode: ConfigEmptyValueDisable, hintPart: "无法渲染 Turnstile"},
+		{key: "turnstile_expected_hostname", mode: ConfigEmptyValueDisable, hintPart: "不校验 hostname"},
 	}
 
 	definitions := getConfigDefinitionMap()

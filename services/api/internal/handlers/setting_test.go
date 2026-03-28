@@ -102,3 +102,35 @@ func TestSettingHandlerGetSettingByKeyReturnsNotFoundForUnknownKey(t *testing.T)
 		t.Fatalf("expected status 404, got %d", recorder.Code)
 	}
 }
+
+func TestSettingHandlerGetLoginProtectionConfigReturnsDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &SettingHandler{configService: configpkg.NewConfigService()}
+	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/login/protection-config", nil)
+
+	handler.GetLoginProtectionConfig(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		TurnstileLoginEnabled     bool   `json:"turnstileLoginEnabled"`
+		TurnstileSiteKey          string `json:"turnstileSiteKey"`
+		TurnstileExpectedHostname string `json:"turnstileExpectedHostname"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.TurnstileLoginEnabled {
+		t.Fatal("expected turnstileLoginEnabled=false by default")
+	}
+	if resp.TurnstileSiteKey != "" {
+		t.Fatalf("expected empty turnstileSiteKey, got %q", resp.TurnstileSiteKey)
+	}
+	if resp.TurnstileExpectedHostname != "" {
+		t.Fatalf("expected empty turnstileExpectedHostname, got %q", resp.TurnstileExpectedHostname)
+	}
+}

@@ -256,6 +256,15 @@ func TestConfigServiceBusinessConfigHelpers(t *testing.T) {
 	if service.IsEmailVerificationEnabled() {
 		t.Fatal("expected email verification to be disabled by default")
 	}
+	if service.IsTurnstileLoginEnabled() {
+		t.Fatal("expected turnstile login protection to be disabled by default")
+	}
+	if siteKey := service.GetTurnstileSiteKey(); siteKey != "" {
+		t.Fatalf("expected empty turnstile site key by default, got %q", siteKey)
+	}
+	if hostname := service.GetTurnstileExpectedHostname(); hostname != "" {
+		t.Fatalf("expected empty turnstile expected hostname by default, got %q", hostname)
+	}
 
 	methods, err := service.GetStripeAllowedPaymentMethods()
 	if err != nil {

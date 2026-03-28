@@ -23,6 +23,7 @@ func registerRoutes(r *gin.Engine, h *appHandlers) {
 
 func registerPublicRoutes(api *gin.RouterGroup, h *appHandlers) {
 	api.POST("/login", h.auth.Login)
+	api.GET("/login/protection-config", h.setting.GetLoginProtectionConfig)
 	api.POST("/logout", middleware.JWTAuth(), h.auth.Logout)
 	api.POST("/user/register", h.auth.RegisterUser)
 	api.POST("/register/send-code", h.auth.SendEmailCode)

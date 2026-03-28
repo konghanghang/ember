@@ -514,8 +514,9 @@ TMDBCache（独立缓存表）
 ### 5.1 AuthService (`services/auth/service.go`, `services/auth/login.go`, `services/auth/register.go`, `services/auth/register_persist.go`, `services/auth/register_notify.go`)
 
 **登录流程**：
-1. 查找用户 → Admin: bcrypt 校验 → 普通用户: 本地密码优先 → 无本地密码时降级 Emby 认证 + 自动补存 hash
-2. 过期用户**可以登录**（前端显示过期提示 + 兑换入口）
+1. 通过 `ConfigService` 读取登录保护公开配置；若 `turnstile_login_enabled=true`，则先校验 `turnstileToken`
+2. Turnstile 校验通过后再查找用户 → Admin: bcrypt 校验 → 普通用户: 本地密码优先 → 无本地密码时降级 Emby 认证 + 自动补存 hash
+3. 过期用户**可以登录**（前端显示过期提示 + 兑换入口）
 
 **注册流程**：
 1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 验证兑换码 → `"open"`: 读取 `default_trial_days`
@@ -527,7 +528,8 @@ TMDBCache（独立缓存表）
 
 **关键 struct**：
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
-- `LoginResponse{Token, User}`
+- `LoginRequest{Username, Password, TurnstileToken}`
+- `LoginResponse{Token, User, IsExpired}`
 
 ### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
 
@@ -788,6 +790,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | POST | `/api/v1/login` | 登录 |
+| GET | `/api/v1/login/protection-config` | 登录页公开保护配置（Turnstile 开关 / Site Key / Hostname） |
 | POST | `/api/v1/user/register` | 注册（code/emailCode 可选）|
 | POST | `/api/v1/register/send-code` | 发送邮箱验证码 |
 | POST | `/api/v1/forgot-password/send-code` | 发送密码重置验证码 |
@@ -952,16 +955,16 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ### 状态管理（Pinia）
 
 - `store/auth.ts`：Token + Role（localStorage 持久化）
-  - State: `token`, `role`
+  - State: `token`, `role`, `protectionConfig`
   - Computed: `isAuthenticated`, `isAdmin`, `isUser`
-  - Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`
+  - Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`, `loadProtectionConfig`
 - `store/user.ts`：用户状态管理
 - `store/admin.ts`：管理员状态管理
 
 ### API 层
 
 - `api/request.ts` — 基础配置：baseURL=/api/v1, 401 拦截
-- `api/auth.ts` — login, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
+- `api/auth.ts` — login, getLoginProtectionConfig, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
 - `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings）
 - `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram）

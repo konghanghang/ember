@@ -110,6 +110,7 @@ const defaultConsoleAccountLinks = `[
 ]`
 
 var telegramWelcomeMessagePlaceholderPattern = regexp.MustCompile(`\{[a-zA-Z][a-zA-Z0-9]*\}`)
+var hostnameLabelPattern = regexp.MustCompile(`^[a-zA-Z0-9-]+$`)
 var consoleAccountLinkIcons = map[string]struct{}{
 	"notify": {},
 	"group":  {},
@@ -249,6 +250,18 @@ func (s *ConfigService) GetDefaultTrialDays() int {
 
 func (s *ConfigService) IsEmailVerificationEnabled() bool {
 	return s.GetString("email_verification") == "true"
+}
+
+func (s *ConfigService) IsTurnstileLoginEnabled() bool {
+	return s.GetString("turnstile_login_enabled") == "true"
+}
+
+func (s *ConfigService) GetTurnstileSiteKey() string {
+	return strings.TrimSpace(s.GetString("turnstile_site_key"))
+}
+
+func (s *ConfigService) GetTurnstileExpectedHostname() string {
+	return strings.TrimSpace(s.GetString("turnstile_expected_hostname"))
 }
 
 func (s *ConfigService) GetStripeAllowedPaymentMethods() ([]string, error) {
@@ -967,6 +980,53 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:    normalizeBoolean,
 		},
 		{
+			Key:                "turnstile_login_enabled",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupBusiness,
+			GroupLabel:         "基础业务",
+			Label:              "登录 Turnstile 校验开关",
+			Description:        "控制登录流程是否启用 Turnstile 人机校验（启用前需配置 Site Key 与 TURNSTILE_SECRET_KEY）",
+			Type:               ConfigValueBoolean,
+			DefaultValue:       "false",
+			Editable:           true,
+			Validate:           validateBoolean,
+			Normalize:          normalizeBoolean,
+		},
+		{
+			Key:                "turnstile_site_key",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupBusiness,
+			GroupLabel:         "基础业务",
+			Label:              "Turnstile Site Key",
+			Description:        "登录页渲染 Turnstile 组件使用的公开 Site Key",
+			Type:               ConfigValueString,
+			DefaultValue:       "",
+			Placeholder:        "0x4AAAA...",
+			Editable:           true,
+			AllowEmpty:         true,
+			EmptyValueMode:     ConfigEmptyValueDisable,
+			EmptyValueHint:     "保存为空值后登录页将无法渲染 Turnstile，启用登录校验前请先配置。",
+			Validate:           validateTurnstileSiteKeyAllowEmpty,
+			Normalize:          normalizeTrimmedString,
+		},
+		{
+			Key:                "turnstile_expected_hostname",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupBusiness,
+			GroupLabel:         "基础业务",
+			Label:              "Turnstile 预期主机名",
+			Description:        "可选。设置后会要求 Turnstile 校验结果中的 hostname 与该值一致。",
+			Type:               ConfigValueString,
+			DefaultValue:       "",
+			Placeholder:        "ember.example.com",
+			Editable:           true,
+			AllowEmpty:         true,
+			EmptyValueMode:     ConfigEmptyValueDisable,
+			EmptyValueHint:     "保存为空值后不校验 hostname。",
+			Validate:           validateHostnameAllowEmpty,
+			Normalize:          normalizeTrimmedString,
+		},
+		{
 			Key:            "stripe_allowed_payment_methods",
 			Group:          ConfigGroupBusiness,
 			GroupLabel:     "基础业务",
@@ -1659,6 +1719,47 @@ func normalizeTrimmedURLAllowEmpty(value string) (string, error) {
 
 func normalizeTrimmedString(value string) (string, error) {
 	return strings.TrimSpace(value), nil
+}
+
+func validateTurnstileSiteKeyAllowEmpty(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.ContainsAny(trimmed, " \t\r\n") {
+		return errors.New("Turnstile Site Key 不能包含空白字符")
+	}
+	return nil
+}
+
+func validateHostnameAllowEmpty(value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.Contains(trimmed, "://") || strings.ContainsAny(trimmed, "/?#") {
+		return errors.New("请输入有效的主机名")
+	}
+	if strings.Contains(trimmed, ":") {
+		return errors.New("主机名不支持端口")
+	}
+	if strings.HasPrefix(trimmed, ".") || strings.HasSuffix(trimmed, ".") || strings.Contains(trimmed, "..") {
+		return errors.New("请输入有效的主机名")
+	}
+
+	labels := strings.Split(trimmed, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 {
+			return errors.New("请输入有效的主机名")
+		}
+		if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return errors.New("请输入有效的主机名")
+		}
+		if !hostnameLabelPattern.MatchString(label) {
+			return errors.New("请输入有效的主机名")
+		}
+	}
+	return nil
 }
 
 func normalizeTrimmedMultilineString(value string) string {

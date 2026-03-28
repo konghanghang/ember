@@ -3,6 +3,7 @@ import type {
   AdminInfo,
   LoginCredentials,
   LoginResponse,
+  LoginProtectionConfig,
   RedemptionCode,
   RegistrationModeResponse,
   RegisterRequest,
@@ -15,6 +16,13 @@ export function login(data: LoginCredentials): Promise<LoginResponse> {
     url: '/login',
     method: 'post',
     data
+  })
+}
+
+export function getLoginProtectionConfig(): Promise<LoginProtectionConfig> {
+  return request({
+    url: '/login/protection-config',
+    method: 'get'
   })
 }
 

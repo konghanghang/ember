@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"context"
 	"errors"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
@@ -29,20 +31,32 @@ type authEmbyClient interface {
 	PatchUserPolicyFields(targetUserID string, sourcePolicy map[string]any, fields []string) error
 }
 
+type authConfigReader interface {
+	GetString(key string) string
+}
+
+type authTurnstileVerifier interface {
+	VerifyLogin(ctx context.Context, payload TurnstileVerifyPayload) error
+}
+
 // AuthService 认证服务
 type AuthService struct {
-	notifier      authRegistrationNotifier
-	emailService  authEmailVerifier
-	newEmbyClient func() authEmbyClient
-	saveUser      func(user *models.User) error
+	notifier          authRegistrationNotifier
+	emailService      authEmailVerifier
+	configReader      authConfigReader
+	turnstileVerifier authTurnstileVerifier
+	newEmbyClient     func() authEmbyClient
+	saveUser          func(user *models.User) error
 }
 
 // NewAuthService 创建认证服务
 func NewAuthService() *AuthService {
 	return &AuthService{
-		notifier:      notifierint.NewBotNotifier(),
-		emailService:  emailpkg.NewEmailService(),
-		newEmbyClient: func() authEmbyClient { return embyint.NewEmbyService() },
+		notifier:          notifierint.NewBotNotifier(),
+		emailService:      emailpkg.NewEmailService(),
+		configReader:      configpkg.NewConfigService(),
+		turnstileVerifier: NewCloudflareTurnstileVerifier(),
+		newEmbyClient:     func() authEmbyClient { return embyint.NewEmbyService() },
 		saveUser: func(user *models.User) error {
 			return db.DB.Save(user).Error
 		},

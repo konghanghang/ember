@@ -40,6 +40,16 @@ func (h *SettingHandler) GetConsoleAccountLinks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": links})
 }
 
+// GetLoginProtectionConfig 获取登录页公开配置
+// GET /api/v1/login/protection-config
+func (h *SettingHandler) GetLoginProtectionConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"turnstileLoginEnabled":     h.configService.IsTurnstileLoginEnabled(),
+		"turnstileSiteKey":          h.configService.GetTurnstileSiteKey(),
+		"turnstileExpectedHostname": h.configService.GetTurnstileExpectedHostname(),
+	})
+}
+
 // GetSettingByKey 获取单个配置值（内部服务调用）
 // GET /api/v1/internal/settings/:key
 func (h *SettingHandler) GetSettingByKey(c *gin.Context) {

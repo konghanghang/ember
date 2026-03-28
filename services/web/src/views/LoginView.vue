@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore } from '@/store/auth'
 import { User, Lock, ArrowLeft } from '@element-plus/icons-vue'
 
@@ -14,6 +15,12 @@ const form = ref({
 })
 const loading = ref(false)
 const redirectTarget = ref('/console/dashboard')
+const turnstileToken = ref('')
+const turnstileReady = ref(false)
+const turnstileError = ref('')
+const configLoading = ref(true)
+const configError = ref<string | null>(null)
+const turnstileWidgetRef = ref<{ reset: () => void } | null>(null)
 
 const updateRedirectTarget = () => {
   const redirect = route.query.redirect
@@ -22,8 +29,96 @@ const updateRedirectTarget = () => {
   }
 }
 
+const isTurnstileEnabled = computed(() => {
+  const config = authStore.protectionConfig
+  return Boolean(config?.turnstileLoginEnabled && config.turnstileSiteKey?.trim())
+})
+
+const turnstileSiteKey = computed(() => authStore.protectionConfig?.turnstileSiteKey?.trim() ?? '')
+
+const turnstileHint = computed(() => {
+  if (!isTurnstileEnabled.value) {
+    return ''
+  }
+  if (turnstileError.value) {
+    return turnstileError.value
+  }
+  if (!turnstileReady.value) {
+    return 'Turnstile 验证组件加载中...'
+  }
+  if (!turnstileToken.value) {
+    return '请完成 Turnstile 验证后再登录'
+  }
+  return '验证通过，可继续登录'
+})
+
+const turnstileHintClass = computed(() => (turnstileError.value ? 'text-ember' : 'text-text-secondary'))
+const loginBlockedReason = computed(() => {
+  if (configLoading.value) {
+    return '登录保护配置加载中，请稍后再试'
+  }
+  if (configError.value) {
+    return configError.value
+  }
+  return ''
+})
+
+const resetTurnstileState = () => {
+  turnstileToken.value = ''
+  turnstileReady.value = false
+  turnstileError.value = ''
+}
+
+const handleTurnstileReady = () => {
+  turnstileReady.value = true
+  turnstileError.value = ''
+}
+
+const handleTurnstileResolved = (token: string) => {
+  turnstileToken.value = token
+  turnstileError.value = ''
+}
+
+const handleTurnstileError = (message: string) => {
+  turnstileError.value = message
+  turnstileToken.value = ''
+  turnstileReady.value = false
+}
+
+const loadProtectionConfig = async () => {
+  configLoading.value = true
+  configError.value = null
+  try {
+    const config = await authStore.loadProtectionConfig()
+    if (config.turnstileLoginEnabled && !config.turnstileSiteKey?.trim()) {
+      configError.value = '登录保护未完成配置，暂时关闭验证'
+    }
+  } catch {
+    configError.value = '登录保护配置加载失败，刷新页面重试'
+  } finally {
+    configLoading.value = false
+  }
+}
+
 updateRedirectTarget()
+
+onMounted(() => {
+  void loadProtectionConfig()
+})
+
 watch(() => route.query.redirect, updateRedirectTarget)
+watch(turnstileSiteKey, (current, previous) => {
+  if (current !== previous) {
+    resetTurnstileState()
+    turnstileWidgetRef.value?.reset()
+  }
+})
+watch(isTurnstileEnabled, (enabled) => {
+  if (!enabled) {
+    resetTurnstileState()
+    turnstileWidgetRef.value?.reset()
+  }
+})
 
 const handleLogin = async () => {
   if (!form.value.username || !form.value.password) {
@@ -31,12 +126,30 @@ const handleLogin = async () => {
     return
   }
 
+  if (loginBlockedReason.value) {
+    ElMessage.warning(loginBlockedReason.value)
+    return
+  }
+
+  if (isTurnstileEnabled.value && !turnstileToken.value) {
+    ElMessage.warning('请完成 Turnstile 验证')
+    return
+  }
+
   loading.value = true
   try {
-    await authStore.login(form.value)
+    const payload = {
+      ...form.value,
+      ...(turnstileToken.value ? { turnstileToken: turnstileToken.value } : {})
+    }
+    await authStore.login(payload)
     ElMessage.success('登录成功')
     router.push(redirectTarget.value)
   } catch {
+    if (isTurnstileEnabled.value) {
+      resetTurnstileState()
+      turnstileWidgetRef.value?.reset()
+    }
     // 错误提示由全局请求拦截器统一处理，避免重复弹窗
   } finally {
     loading.value = false
@@ -97,9 +210,34 @@ const handleLogin = async () => {
             </router-link>
           </div>
 
+          <div class="space-y-2">
+            <div v-if="configLoading" class="text-center text-xs text-text-secondary">
+              登录保护配置加载中...
+            </div>
+            <div v-else>
+              <div v-if="configError" class="text-center text-xs font-medium text-ember">
+                {{ configError }}
+              </div>
+              <div v-else-if="isTurnstileEnabled" class="space-y-2">
+                <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  <TurnstileWidget
+                    v-if="turnstileSiteKey"
+                    ref="turnstileWidgetRef"
+                    :siteKey="turnstileSiteKey"
+                    @ready="handleTurnstileReady"
+                    @resolved="handleTurnstileResolved"
+                    @error="handleTurnstileError"
+                  />
+                </div>
+                <p class="text-xs" :class="turnstileHintClass">{{ turnstileHint }}</p>
+              </div>
+            </div>
+          </div>
+
           <el-button
             native-type="submit"
             :loading="loading"
+            :disabled="Boolean(loginBlockedReason)"
             class="btn-ember w-full !h-12 !text-base !rounded-xl !font-semibold mt-2 shadow-lg"
           >
             登 录

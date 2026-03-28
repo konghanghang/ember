@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import * as authApi from '@/api/auth'
 import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
-import type { LoginCredentials, RegisterRequest, LoginResponse, RegisterResponse } from '@/types/api'
+import type { LoginCredentials, RegisterRequest, LoginResponse, RegisterResponse, LoginProtectionConfig } from '@/types/api'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'))
@@ -12,6 +12,17 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => role.value === 'admin')
   const isUser = computed(() => role.value === 'user')
+
+  const protectionConfig = ref<LoginProtectionConfig | null>(null)
+
+  const loadProtectionConfig = async () => {
+    if (protectionConfig.value) {
+      return protectionConfig.value
+    }
+    const config = await authApi.getLoginProtectionConfig()
+    protectionConfig.value = config
+    return config
+  }
 
   const login = async (credentials: LoginCredentials) => {
     useConsoleStore().clearConsoleData()
@@ -77,6 +88,8 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     setAuth,
     clearAuth,
-    restoreAuth
+    restoreAuth,
+    loadProtectionConfig,
+    protectionConfig
   }
 })

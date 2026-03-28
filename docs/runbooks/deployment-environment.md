@@ -54,6 +54,7 @@
 | `TELEGRAM_ADMIN_CHAT_ID` | 管理员通知目标 |
 | `TELEGRAM_GROUP_CHAT_ID` | 群推送目标，未填时回退到管理员 |
 | `TMDB_API_KEY` | TMDB 搜索、追剧日历依赖 |
+| `TURNSTILE_SECRET_KEY` | 登录 Turnstile 服务端校验密钥 |
 | `MOVIEPILOT_URL` / `MOVIEPILOT_USERNAME` / `MOVIEPILOT_PASSWORD` | 求片审批同步到 MoviePilot 时需要 |
 | `CRON_ENABLED` | API 内置 Cron 开关 |
 | `RANKING_CRON_ENABLED` | 播放排行 Cron 开关 |
@@ -114,6 +115,20 @@ API 启动时会检查是否已有 `role=admin` 的用户：
 
 - `TMDB_API_KEY`
 - Emby 可访问
+
+### 登录 Turnstile 保护
+
+- API 环境变量：
+  - `TURNSTILE_SECRET_KEY`
+- API 设置中心运行期配置：
+  - `turnstile_login_enabled`
+  - `turnstile_site_key`
+  - `turnstile_expected_hostname`
+
+说明：
+
+- `turnstile_site_key` 是前端公开值，走设置中心即可。
+- `TURNSTILE_SECRET_KEY` 是服务端校验密钥，必须保留在环境变量，不进入设置中心。
 
 ### Telegram Bot
 

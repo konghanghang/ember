@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"log"
 
@@ -11,8 +12,11 @@ import (
 
 // LoginRequest 统一登录请求
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Username       string          `json:"username" binding:"required"`
+	Password       string          `json:"password" binding:"required"`
+	TurnstileToken string          `json:"turnstileToken"`
+	ClientIP       string          `json:"-" swaggerignore:"true"`
+	RequestContext context.Context `json:"-" swaggerignore:"true"`
 }
 
 // LoginResponse 统一登录响应
@@ -23,6 +27,10 @@ type LoginResponse struct {
 }
 
 func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
+	if err := s.verifyTurnstileForLogin(req); err != nil {
+		return nil, err
+	}
+
 	user, err := s.findLoginUser(req.Username)
 	if err != nil {
 		return nil, err

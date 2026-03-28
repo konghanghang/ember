@@ -52,8 +52,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	req.ClientIP = c.ClientIP()
+	req.RequestContext = c.Request.Context()
+
 	resp, err := h.authService.Login(&req)
 	if err != nil {
+		if errors.Is(err, authpkg.ErrTurnstileValidationFailed) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": err.Error(),
 		})

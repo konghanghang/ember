@@ -5,6 +5,7 @@ export type SubscriptionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
 export interface LoginCredentials {
   username: string
   password: string
+  turnstileToken?: string
 }
 
 export interface RegisterRequest {
@@ -43,6 +44,12 @@ export interface LoginResponse {
   token: string
   user: UserInfo
   isExpired?: boolean
+}
+
+export interface LoginProtectionConfig {
+  turnstileLoginEnabled: boolean
+  turnstileSiteKey: string
+  turnstileExpectedHostname: string
 }
 
 export interface RegisterResponse {
