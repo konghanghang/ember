@@ -87,22 +87,6 @@ export function buildConfigUpdatePayload(
   }
 }
 
-export function canClearConfigOverride(item: AdminConfigItem): boolean {
-  return item.editable && item.source === 'database'
-}
-
 export function hasExplicitEmptyDatabaseValue(item: AdminConfigItem): boolean {
   return item.allowEmpty && item.source === 'database' && !item.hasValue
-}
-
-export function getClearConfigLabel(item: AdminConfigItem): string {
-  return item.sensitive ? '清空数据库覆盖值' : '移除数据库覆盖值'
-}
-
-export function getClearConfigDescription(item: AdminConfigItem): string {
-  const fallbackHint = item.fallbackHint || '移除后将按系统规则回退。'
-  if (item.sensitive) {
-    return `删除当前数据库中的敏感覆盖值。${fallbackHint}`
-  }
-  return `删除当前数据库覆盖值。${fallbackHint}`
 }

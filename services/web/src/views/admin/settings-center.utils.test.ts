@@ -5,8 +5,6 @@ import type { AdminConfigItem } from '../../types/api.js'
 import {
   buildConfigUpdatePayload,
   buildDraftValues,
-  canClearConfigOverride,
-  getClearConfigLabel,
   hasExplicitEmptyDatabaseValue,
   isConfigItemDirty,
 } from './settings-center.utils.js'
@@ -73,16 +71,6 @@ test('buildConfigUpdatePayload serializes structured values', () => {
   assert.deepEqual(
     buildConfigUpdatePayload(createItem({ type: 'json_list', value: '[]' }), ['card', 'alipay']),
     { value: JSON.stringify(['card', 'alipay']) }
-  )
-})
-
-test('clear override action only appears for editable database-backed items', () => {
-  assert.equal(canClearConfigOverride(createItem({ source: 'database' })), true)
-  assert.equal(canClearConfigOverride(createItem({ source: 'env' })), false)
-  assert.equal(canClearConfigOverride(createItem({ source: 'database', editable: false })), false)
-  assert.equal(
-    getClearConfigLabel(createItem({ source: 'database', sensitive: true, type: 'secret' })),
-    '清空数据库覆盖值'
   )
 })
 
