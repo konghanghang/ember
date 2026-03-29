@@ -76,6 +76,7 @@ const (
 )
 
 const defaultCronTimezone = "Asia/Shanghai"
+const defaultTelegramUpdateMode = "webhook"
 
 const defaultTelegramWelcomeMessageTemplate = `👋 欢迎 <b>{names}</b> 加入！
 
@@ -646,6 +647,7 @@ func (s *ConfigService) resolveDefinition(def ConfigDefinition, settingsMap map[
 		Options:           def.Options,
 		Source:            ConfigSourceUnset,
 	}
+	s.applyConditionalMissingState(&item, def, settingsMap)
 
 	value, source, hasValue, err := s.resolveRawValue(def, settingsMap)
 	if err != nil {
@@ -660,6 +662,35 @@ func (s *ConfigService) resolveDefinition(def ConfigDefinition, settingsMap map[
 	}
 	item.HasValue = hasValue
 	return s.applyResolvedValue(item, def, value, source), nil
+}
+
+func (s *ConfigService) applyConditionalMissingState(item *ConfigItem, def ConfigDefinition, settingsMap map[string]models.Setting) {
+	switch def.Key {
+	case "TELEGRAM_WEBHOOK_SECRET", "WEBHOOK_URL":
+		if s.resolveTelegramUpdateMode(settingsMap) == "polling" {
+			item.MissingValueLevel = ConfigRiskNone
+			item.MissingValueHint = "当前 TELEGRAM_UPDATE_MODE=polling，此项可留空；如切回 webhook 模式需补齐。"
+		}
+	}
+}
+
+func (s *ConfigService) resolveTelegramUpdateMode(settingsMap map[string]models.Setting) string {
+	def, ok := getConfigDefinitionMap()["TELEGRAM_UPDATE_MODE"]
+	if !ok {
+		return defaultTelegramUpdateMode
+	}
+
+	value, _, hasValue, err := s.resolveRawValue(def, settingsMap)
+	if err != nil || !hasValue {
+		return defaultTelegramUpdateMode
+	}
+
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "polling":
+		return "polling"
+	default:
+		return defaultTelegramUpdateMode
+	}
 }
 
 func (s *ConfigService) applyResolvedValue(item ConfigItem, def ConfigDefinition, raw string, source string) ConfigItem {
@@ -1539,6 +1570,25 @@ func getConfigDefinitions() []ConfigDefinition {
 			ReadOnlyHint:      "Bot 启动时必须从部署环境读取该令牌；修改后需要重启 Bot，不应在后台在线编辑。",
 			MissingValueHint:  "未设置时 Telegram Bot 无法启动，也无法接收或发送通知。",
 			MissingValueLevel: ConfigRiskCritical,
+		},
+		{
+			Key:               "TELEGRAM_UPDATE_MODE",
+			EnvKey:            "TELEGRAM_UPDATE_MODE",
+			Group:             ConfigGroupDeployment,
+			GroupLabel:        "部署与密钥",
+			Label:             "Telegram 更新模式",
+			Description:       "控制 Bot 通过 webhook 还是 polling 接收 Telegram 更新",
+			Type:              ConfigValueEnum,
+			Editable:          false,
+			RestartRequired:   true,
+			DefaultValue:      defaultTelegramUpdateMode,
+			ReadOnlyHint:      "该项决定 Bot 的 Telegram 接入方式，只能通过部署环境管理；切换后需要重启 Bot。",
+			MissingValueLevel: ConfigRiskNone,
+			Options: []ConfigOption{
+				{Label: "Webhook", Value: "webhook"},
+				{Label: "Polling", Value: "polling"},
+			},
+			Validate: validateEnum("webhook", "polling"),
 		},
 		{
 			Key:                "TELEGRAM_ADMIN_CHAT_ID",

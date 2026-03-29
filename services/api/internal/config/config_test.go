@@ -425,29 +425,39 @@ func TestTelegramWelcomeMessageTemplateValidation(t *testing.T) {
 
 func TestReadOnlyBoundaryConfigDefinitionsExposeHints(t *testing.T) {
 	testCases := []struct {
-		key              string
-		readOnlyHint     string
-		missingValueHint string
+		key               string
+		readOnlyHint      string
+		missingValueHint  string
+		missingValueLevel ConfigRiskLevel
 	}{
 		{
-			key:              "STRIPE_WEBHOOK_SECRET",
-			readOnlyHint:     "部署环境注入",
-			missingValueHint: "支付状态同步会失败",
+			key:               "STRIPE_WEBHOOK_SECRET",
+			readOnlyHint:      "部署环境注入",
+			missingValueHint:  "支付状态同步会失败",
+			missingValueLevel: ConfigRiskCritical,
 		},
 		{
-			key:              "TELEGRAM_BOT_TOKEN",
-			readOnlyHint:     "部署环境读取",
-			missingValueHint: "Telegram Bot 无法启动",
+			key:               "TELEGRAM_BOT_TOKEN",
+			readOnlyHint:      "部署环境读取",
+			missingValueHint:  "Telegram Bot 无法启动",
+			missingValueLevel: ConfigRiskCritical,
 		},
 		{
-			key:              "TELEGRAM_WEBHOOK_SECRET",
-			readOnlyHint:     "Webhook 配置保持一致",
-			missingValueHint: "Webhook 安全边界不完整",
+			key:               "TELEGRAM_UPDATE_MODE",
+			readOnlyHint:      "Telegram 接入方式",
+			missingValueLevel: ConfigRiskNone,
 		},
 		{
-			key:              "WEBHOOK_URL",
-			readOnlyHint:     "部署拓扑",
-			missingValueHint: "Webhook 模式无法正常接入公网请求",
+			key:               "TELEGRAM_WEBHOOK_SECRET",
+			readOnlyHint:      "Webhook 配置保持一致",
+			missingValueHint:  "Webhook 安全边界不完整",
+			missingValueLevel: ConfigRiskCritical,
+		},
+		{
+			key:               "WEBHOOK_URL",
+			readOnlyHint:      "部署拓扑",
+			missingValueHint:  "Webhook 模式无法正常接入公网请求",
+			missingValueLevel: ConfigRiskCritical,
 		},
 	}
 
@@ -463,11 +473,11 @@ func TestReadOnlyBoundaryConfigDefinitionsExposeHints(t *testing.T) {
 		if !strings.Contains(def.ReadOnlyHint, tc.readOnlyHint) {
 			t.Fatalf("expected %s ReadOnlyHint to contain %q, got %q", tc.key, tc.readOnlyHint, def.ReadOnlyHint)
 		}
-		if !strings.Contains(def.MissingValueHint, tc.missingValueHint) {
+		if tc.missingValueHint != "" && !strings.Contains(def.MissingValueHint, tc.missingValueHint) {
 			t.Fatalf("expected %s MissingValueHint to contain %q, got %q", tc.key, tc.missingValueHint, def.MissingValueHint)
 		}
-		if def.MissingValueLevel != ConfigRiskCritical {
-			t.Fatalf("expected %s MissingValueLevel=%s, got %s", tc.key, ConfigRiskCritical, def.MissingValueLevel)
+		if def.MissingValueLevel != tc.missingValueLevel {
+			t.Fatalf("expected %s MissingValueLevel=%s, got %s", tc.key, tc.missingValueLevel, def.MissingValueLevel)
 		}
 	}
 }

@@ -22,7 +22,9 @@ from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -33,6 +35,9 @@ from app.config import (
     TELEGRAM_ADMIN_CHAT_ID,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_GROUP_CHAT_ID,
+    TELEGRAM_UPDATE_MODE,
+    TELEGRAM_UPDATE_MODE_POLLING,
+    TELEGRAM_UPDATE_MODE_WEBHOOK,
     TELEGRAM_WEBHOOK_SECRET,
     WEBHOOK_URL,
 )
@@ -95,6 +100,13 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+
+async def handle_update_lifecycle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await schedule_group_menu_sync(context.bot, update)
+
+
+tg_app.add_handler(TypeHandler(Update, handle_update_lifecycle), group=-1)
 tg_app.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^(approve|reject):"))
 tg_app.add_handler(CallbackQueryHandler(handle_search_callback, pattern=r"^sub:"))
 tg_app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
@@ -135,6 +147,16 @@ async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
                 await asyncio.wait_for(stop_event.wait(), timeout=retry_delay)
             except asyncio.TimeoutError:
                 retry_delay = min(retry_delay * 2, 60)
+
+
+async def start_polling_updates() -> None:
+    if tg_app.updater is None:
+        raise RuntimeError("Telegram updater is not available in polling mode")
+
+    logger.info("Telegram 更新模式为 polling，开始清理旧 webhook")
+    await tg_app.bot.delete_webhook(drop_pending_updates=False)
+    await tg_app.updater.start_polling(drop_pending_updates=False)
+    logger.info("Telegram polling 已启动")
 
 
 async def resolve_command_scope_chat_ids() -> tuple[int | None, int | None]:
@@ -203,6 +225,7 @@ async def lifespan(app: FastAPI):
     del app
     initialized = False
     started = False
+    polling_started = False
     stop_event: asyncio.Event | None = None
     webhook_task: asyncio.Task | None = None
 
@@ -210,16 +233,23 @@ async def lifespan(app: FastAPI):
     try:
         await tg_app.initialize()
         initialized = True
-        await tg_app.start()
-        started = True
         try:
             await sync_bot_commands()
         except Exception as err:
             logger.warning("Bot 命令菜单同步失败，不影响服务运行: %s", err)
-        logger.info("Telegram Bot 服务已启动，开始异步注册 webhook")
+        if TELEGRAM_UPDATE_MODE == TELEGRAM_UPDATE_MODE_POLLING:
+            await start_polling_updates()
+            polling_started = True
 
-        stop_event = asyncio.Event()
-        webhook_task = asyncio.create_task(register_webhook_with_retry(stop_event))
+        await tg_app.start()
+        started = True
+
+        if TELEGRAM_UPDATE_MODE == TELEGRAM_UPDATE_MODE_WEBHOOK:
+            logger.info("Telegram Bot 服务已启动，更新模式=webhook，开始异步注册 webhook")
+            stop_event = asyncio.Event()
+            webhook_task = asyncio.create_task(register_webhook_with_retry(stop_event))
+        else:
+            logger.info("Telegram Bot 服务已启动，更新模式=polling，内部通知入口保持可用")
         yield
     finally:
         if stop_event is not None:
@@ -228,6 +258,8 @@ async def lifespan(app: FastAPI):
             webhook_task.cancel()
             with suppress(asyncio.CancelledError):
                 await webhook_task
+        if polling_started and tg_app.updater is not None:
+            await tg_app.updater.stop()
         if started:
             await tg_app.stop()
         if initialized:
@@ -245,13 +277,19 @@ async def health():
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
+    if TELEGRAM_UPDATE_MODE != TELEGRAM_UPDATE_MODE_WEBHOOK:
+        logger.warning("收到 Telegram webhook 请求，但当前更新模式为 %s", TELEGRAM_UPDATE_MODE)
+        return JSONResponse(
+            status_code=409,
+            content={"error": f"telegram update mode is {TELEGRAM_UPDATE_MODE}"},
+        )
+
     secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
     if not compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     data = await request.json()
     update = Update.de_json(data, tg_app.bot)
-    await schedule_group_menu_sync(tg_app.bot, update)
     await tg_app.process_update(update)
     return Response(status_code=200)
 

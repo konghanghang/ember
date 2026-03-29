@@ -1125,8 +1125,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 技术栈
 
-- Python 3.11 + python-telegram-bot（Webhook 模式，非 Polling）
-- FastAPI 作为 HTTP 服务器（接收 Telegram Webhook + API 通知）
+- Python 3.11 + python-telegram-bot（支持 `webhook` / `polling` 双模式，默认 `webhook`）
+- FastAPI 作为 HTTP 服务器（接收 API 通知；`webhook` 模式下同时接收 Telegram Webhook）
 - 与 Go API 通过 `X-Internal-Secret` 双向通信
 
 ### 通信模式
@@ -1134,6 +1134,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ```
 用户操作 → Go API → BotNotifier（火忘式 POST）→ Bot FastAPI → Telegram Bot → 发送消息
 Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go Internal API → 返回结果
+```
+
+`polling` 模式下第二条链路改为：
+
+```
+Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go Internal API → 返回结果
 ```
 
 ### Bot 端点
@@ -1160,15 +1166,16 @@ Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
 | `TELEGRAM_BOT_TOKEN` | ✅ | — | Bot Token（@BotFather 获取）|
+| `TELEGRAM_UPDATE_MODE` | — | `webhook` | Telegram 更新接入模式：`webhook` 或 `polling` |
 | `TELEGRAM_ADMIN_CHAT_ID` | — | — | 管理员 Chat ID；可被设置中心数据库值覆盖，env 仅作兜底 |
 | `TELEGRAM_GROUP_CHAT_ID` | — | — | 群组 Chat ID（排行榜推送）；可被设置中心数据库值覆盖，env 仅作兜底 |
-| `TELEGRAM_WEBHOOK_SECRET` | ✅ | — | Webhook 签名校验 |
+| `TELEGRAM_WEBHOOK_SECRET` | 条件必需 | — | `webhook` 模式下用于 Webhook 签名校验 |
 | `INTERNAL_API_SECRET` | ✅ | — | 与 Go API 共享密钥 |
-| `WEBHOOK_URL` | ✅ | — | 公开 HTTPS Webhook URL |
+| `WEBHOOK_URL` | 条件必需 | — | `webhook` 模式下的公开 HTTPS Webhook URL |
 | `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
 | `BOT_PORT` | — | `8000` | Bot 服务端口 |
 
-说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。
+说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。`polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`，且只支持单实例部署。
 
 ---
 

@@ -111,8 +111,9 @@
 | `ADMIN_USERNAME` | 否 | 首次初始化管理员用户名 | 仅首次启动使用 |
 | `ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 | 仅首次启动使用 |
 | `TELEGRAM_BOT_TOKEN` | 是 | Telegram Bot 令牌 | Bot 启动边界 |
-| `TELEGRAM_WEBHOOK_SECRET` | 是 | Telegram Webhook 校验密钥 | 第三方 Webhook 验签边界 |
-| `WEBHOOK_URL` | 是 | Telegram Webhook 公网地址 | 部署拓扑相关 |
+| `TELEGRAM_UPDATE_MODE` | 否 | Telegram 更新接入模式，`webhook` 或 `polling` | Bot 启动边界 |
+| `TELEGRAM_WEBHOOK_SECRET` | 条件敏感 | Telegram Webhook 校验密钥 | `webhook` 模式下的第三方 Webhook 验签边界 |
+| `WEBHOOK_URL` | 条件敏感 | Telegram Webhook 公网地址 | `webhook` 模式下的部署拓扑边界 |
 | `PORT` | 否 | API 监听端口 | 进程启动参数 |
 | `AUTO_MIGRATE` | 否 | 是否自动迁移数据库 | 启动期控制项 |
 | `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 第三方 Webhook 验签边界 |
@@ -134,11 +135,12 @@ Bot 进程当前仍主要依赖环境变量启动。
 | 配置项 | 敏感 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `TELEGRAM_BOT_TOKEN` | 是 | — | Telegram Bot Token |
+| `TELEGRAM_UPDATE_MODE` | 否 | `webhook` | Telegram 更新接入模式，`webhook` 或 `polling` |
 | `TELEGRAM_ADMIN_CHAT_ID` | 否 | — | 管理员 Chat ID（运行期设置回退） |
 | `TELEGRAM_GROUP_CHAT_ID` | 否 | — | 群组 Chat ID（运行期设置回退） |
-| `TELEGRAM_WEBHOOK_SECRET` | 是 | — | Telegram Webhook 校验密钥 |
+| `TELEGRAM_WEBHOOK_SECRET` | 条件敏感 | — | `webhook` 模式下的 Telegram Webhook 校验密钥 |
 | `INTERNAL_API_SECRET` | 是 | — | 与 API 共享的内部调用密钥 |
-| `WEBHOOK_URL` | 是 | — | Bot 对外 Webhook 地址 |
+| `WEBHOOK_URL` | 条件敏感 | — | `webhook` 模式下的 Bot 对外 Webhook 地址 |
 | `API_URL` | 否 | `http://localhost:8080` | API 地址 |
 | `BOT_PORT` | 否 | `8000` | Bot 监听端口 |
 
@@ -146,6 +148,7 @@ Bot 进程当前仍主要依赖环境变量启动。
 
 - Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存。
 - 当 API 未返回值时，Bot 会回退到本地环境变量中的 Chat ID。
+- `polling` 模式下不再需要 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 自身仍要保留内网可达地址，供 API 通过 `BOT_NOTIFY_URL` 调用 `/notify/*`。
 - 因此：
   - `TELEGRAM_ADMIN_CHAT_ID`
   - `TELEGRAM_GROUP_CHAT_ID`
@@ -191,5 +194,5 @@ Bot 进程当前仍主要依赖环境变量启动。
 1. 修改数据库配置前，先确认 `CONFIG_ENCRYPTION_KEY` 已正确注入。
 2. 修改调度配置后，记得重启 API。
 3. 不要把 `JWT_SECRET`、`INTERNAL_API_SECRET`、`STRIPE_WEBHOOK_SECRET`、`CONFIG_ENCRYPTION_KEY` 合并成同一个值。
-4. Bot 部署时，仍应显式提供 `INTERNAL_API_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`。
+4. Bot 部署时，应显式提供 `INTERNAL_API_SECRET`、`TELEGRAM_BOT_TOKEN`；若使用 `webhook` 模式，还需额外提供 `TELEGRAM_WEBHOOK_SECRET` 和 `WEBHOOK_URL`。
 5. 如果需要把旧环境变量导入数据库，优先使用设置中心现有的导入能力，而不是手工改表。

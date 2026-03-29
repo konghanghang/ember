@@ -38,9 +38,13 @@ services/bot/
 必填：
 
 - `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET`
 - `INTERNAL_API_SECRET`
-- `WEBHOOK_URL`
+
+按模式必填：
+
+- `TELEGRAM_UPDATE_MODE`，默认 `webhook`
+- `TELEGRAM_WEBHOOK_SECRET`，仅 `webhook` 模式必填
+- `WEBHOOK_URL`，仅 `webhook` 模式必填
 
 常用可选项：
 
@@ -62,7 +66,7 @@ services/bot/
 
 以上入口都要求 `X-Internal-Secret`。
 
-### Telegram Webhook
+### Telegram 更新入口
 
 - `POST /telegram/webhook`
 - `GET /health`
@@ -83,6 +87,13 @@ Bot 启动期配置来自环境变量；运行期设置优先从 Go API Internal
 - `TELEGRAM_ADMIN_CHAT_ID`
 - `TELEGRAM_GROUP_CHAT_ID`
 - `notify_group_link`
+
+## 更新模式
+
+- `webhook`：默认模式，需要公网 HTTPS 地址供 Telegram 回调
+- `polling`：Bot 主动从 Telegram 拉取更新，不再需要 Telegram 使用的公网域名
+- 无论哪种模式，Bot 都会继续保留 `/notify/*` HTTP 入口，供 Ember API 通过服务名或内网地址推送通知
+- `polling` 只适合单实例部署，多副本会竞争消费 Telegram 更新
 
 ## 菜单与群行为
 

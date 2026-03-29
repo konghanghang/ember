@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
@@ -241,6 +242,43 @@ func TestResolveDefinitionAllowsExplicitEmptyDatabaseOverride(t *testing.T) {
 	}
 	if item.Value == nil || *item.Value != "" {
 		t.Fatalf("expected explicit empty string, got %+v", item.Value)
+	}
+}
+
+func TestResolveDefinitionLowersWebhookMissingRiskInPollingMode(t *testing.T) {
+	t.Setenv("TELEGRAM_UPDATE_MODE", "polling")
+
+	service := &ConfigService{}
+	settingsMap := map[string]models.Setting{}
+	definitions := getConfigDefinitionMap()
+
+	for _, key := range []string{"TELEGRAM_WEBHOOK_SECRET", "WEBHOOK_URL"} {
+		item, err := service.resolveDefinition(definitions[key], settingsMap)
+		if err != nil {
+			t.Fatalf("resolveDefinition(%s) returned error: %v", key, err)
+		}
+		if item.MissingValueLevel != ConfigRiskNone {
+			t.Fatalf("expected %s missing risk to be none in polling mode, got %s", key, item.MissingValueLevel)
+		}
+		if !strings.Contains(item.MissingValueHint, "TELEGRAM_UPDATE_MODE=polling") {
+			t.Fatalf("expected %s missing hint to mention polling mode, got %q", key, item.MissingValueHint)
+		}
+	}
+}
+
+func TestResolveDefinitionKeepsWebhookMissingRiskInWebhookMode(t *testing.T) {
+	t.Setenv("TELEGRAM_UPDATE_MODE", "webhook")
+
+	service := &ConfigService{}
+	settingsMap := map[string]models.Setting{}
+	definitions := getConfigDefinitionMap()
+
+	item, err := service.resolveDefinition(definitions["WEBHOOK_URL"], settingsMap)
+	if err != nil {
+		t.Fatalf("resolveDefinition returned error: %v", err)
+	}
+	if item.MissingValueLevel != ConfigRiskCritical {
+		t.Fatalf("expected WEBHOOK_URL missing risk to stay critical in webhook mode, got %s", item.MissingValueLevel)
 	}
 }
 
