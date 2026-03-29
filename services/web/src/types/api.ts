@@ -414,7 +414,6 @@ export interface AdminConfigListResponse {
 
 export interface UpdateAdminConfigRequest {
   value?: string
-  clear?: boolean
 }
 
 export interface ConfigGroupTestDetail {

@@ -267,36 +267,6 @@ describe('SettingsView', () => {
     })
   })
 
-  it('可清空数据库覆盖值并立即刷新当前项状态', async () => {
-    vi.mocked(getConfigs).mockResolvedValue({
-      data: [
-        createConfigItem({
-          source: 'database',
-          value: 'https://t.me/database',
-        }),
-      ],
-    })
-    vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm')
-    vi.mocked(updateConfig).mockResolvedValue(
-      createConfigItem({
-        source: 'default',
-        hasValue: false,
-        value: '',
-      })
-    )
-
-    const wrapper = mountView()
-    await flushPromises()
-
-    await findButton(wrapper, '恢复回退').trigger('click')
-    await flushPromises()
-
-    expect(ElMessageBox.confirm).toHaveBeenCalled()
-    expect(updateConfig).toHaveBeenCalledWith('notify_group_link', { clear: true })
-    expect(ElMessage.success).toHaveBeenCalledWith('通知群组链接已移除数据库覆盖值')
-    expect(wrapper.text()).toContain('未设置')
-  })
-
   it('会把数据库显式空值与普通未设置区分展示', async () => {
     vi.mocked(getConfigs).mockResolvedValue({
       data: [
@@ -313,7 +283,6 @@ describe('SettingsView', () => {
 
     expect(wrapper.text()).toContain('数据库显式空值')
     expect(wrapper.text()).toContain('保存为空值后将关闭欢迎消息中的群组链接展示。')
-    expect(wrapper.text()).toContain('也可使用“移除数据库覆盖值”。移除数据库覆盖值后将按系统规则回退。')
   })
 
   it('切换到邮件服务分组后可触发测试连接并展示聚合失败信息', async () => {

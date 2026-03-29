@@ -190,7 +190,6 @@ type ConfigItem struct {
 
 type UpdateConfigRequest struct {
 	Value *string `json:"value"`
-	Clear bool    `json:"clear"`
 }
 
 type ConfigGroupTestDetail struct {
@@ -334,13 +333,6 @@ func (s *ConfigService) Update(key string, req UpdateConfigRequest, updatedByUse
 	}
 	if !def.Editable {
 		return nil, ErrConfigNotEditable
-	}
-
-	if req.Clear {
-		if err := db.DB.Where("key = ?", key).Delete(&models.Setting{}).Error; err != nil {
-			return nil, err
-		}
-		return s.Get(key)
 	}
 
 	if req.Value == nil {
