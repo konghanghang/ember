@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-03-27
+> 更新时间：2026-03-29
 
 本清单只回答三件事：
 
@@ -12,7 +12,7 @@
 
 - 以当前代码结构和 [系统架构文档](../system-architecture.md) 为准
 - “文档里写了已完成”不算证据，必须能在代码或架构文档里找到落点
-- 本清单反映 2026-03-27 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
+- 本清单反映 2026-03-29 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
 
 ## A. 已落地，已完成归档
 
@@ -31,6 +31,7 @@
 | `stripe-payment.md` | 已落地 | `PaymentService`、`Plan`/`Payment` 模型、`PaymentsView.vue`、`PlansView.vue` | 已提炼后归档到 `docs/archive/plan/` |
 | `telegram-binding.md` | 已落地 | `GenerateBindCode`、`VerifyBind`、Bot `/bind` `/info` `/redeem`、Dashboard 绑定入口 | 已提炼后归档到 `docs/archive/plan/` |
 | `telegram-bot-menu.md` | 已落地 | `menu_sync.py`、`/refresh_menu`、Bot 启动菜单同步 | 已归档到 `docs/archive/plan/` |
+| `bot-polling-mode.md` | 已落地 | `TELEGRAM_UPDATE_MODE`、Bot `webhook/polling` 双模式启动、`docker-compose.yml` 透传、配置中心条件风险提示 | 已提炼后归档到 `docs/archive/plan/` |
 | `telegram-search-subscribe.md` | 已落地 | `SubscribeByTelegram`、Bot `/search`、搜索会话缓存、内部订阅接口 | 已提炼后归档到 `docs/archive/plan/` |
 | `telegram-search-multi-type.md` | 已落地 | TMDB `type=multi`、Bot `_do_search(..., "multi")` | 已归档到 `docs/archive/plan/` |
 | `telegram-subscription-notification.md` | 已落地 | `BotNotifier`、`/notify/subscription`、Bot 审批回调、InternalAuth | 已提炼后归档到 `docs/archive/plan/` |
@@ -54,8 +55,6 @@
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
-| `embypulse-features/p2-code-notes.md` | 未落地 | `redemption_codes` 当前无 `notes` 字段与配套 UI | 继续保留 |
-| `embypulse-features/p2-library-list.md` | 未完整落地 | 当前只有媒体质量场景复用的媒体库列表，没有独立通用 `libraries` 能力入口 | 继续保留 |
 | `embypulse-features/p2-subscription-season.md` | 未落地 | `Subscription` 模型当前没有 `season` 字段 | 继续保留 |
 | `embypulse-features/p2-user-avatar.md` | 未落地 | 未见头像上传/同步接口与页面 | 继续保留 |
 
@@ -63,6 +62,7 @@
 
 本轮已补充归档：
 
+- `bot-polling-mode.md`
 - `user-profile-analytics.md`
 - `user-profile-overview.md`
 - `dashboard-renewal-redesign.md`
@@ -76,7 +76,7 @@
 归档后，`docs/plan/` 当前剩余重点为：
 
 - 规划索引：`embypulse-features/README.md`
-- 尚未落地的 P2 条目：`p2-subscription-season.md`、`p2-user-avatar.md`、`p2-library-list.md`、`p2-code-notes.md`
+- 尚未落地的 P2 条目：`p2-subscription-season.md`、`p2-user-avatar.md`
 
 ## E. 归档前提炼原则
 
