@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Monitor, RefreshRight, Setting } from '@element-plus/icons-vue'
+import { Monitor, Setting } from '@element-plus/icons-vue'
 import {
   getConfigs,
-  importConfigEnv,
   runCronJob,
   testConfigGroup,
   updateConfig
@@ -49,7 +48,6 @@ const groupOrder: ConfigGroupKey[] = [
 ]
 
 const loading = ref(false)
-const importingEnv = ref(false)
 const runningCron = ref(false)
 const activeGroup = ref<ConfigGroupKey>('business')
 const configs = ref<AdminConfigItem[]>([])
@@ -92,10 +90,6 @@ const activeGroupRiskSummary = computed<ConfigRiskSummary>(() => {
     items
   }
 })
-
-const migrationSourceCount = computed(() =>
-  configs.value.filter(item => item.editable && item.source === 'env').length
-)
 
 const resetDraftValues = (items: AdminConfigItem[]) => {
   draftValues.value = buildDraftValues(items)
@@ -185,21 +179,6 @@ const handleTestGroup = async (group: ConfigGroupSection) => {
     ElMessage.warning(result.details.map(detail => `${detail.target}: ${detail.message}`).join('；'))
   } finally {
     testingGroups.value[group.key] = false
-  }
-}
-
-const handleImportEnv = async () => {
-  importingEnv.value = true
-  try {
-    const result = await importConfigEnv()
-    const imported = result.imported.length
-    const failed = Object.keys(result.failed).length
-    const skipped = Object.keys(result.skipped).length
-
-    ElMessage.success(`环境变量迁移完成：导入 ${imported} 项，跳过 ${skipped} 项，失败 ${failed} 项`)
-    await fetchConfigs()
-  } finally {
-    importingEnv.value = false
   }
 }
 
@@ -322,60 +301,26 @@ onMounted(async () => {
             <p class="mt-1 text-sm text-gray-500">统一管理运行期配置、配置来源和部署边界状态，收口迁移期遗留的展示噪音。</p>
           </div>
 
-          <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-            <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
+          <div class="flex flex-wrap gap-2">
+            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
               <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">已配置</p>
-              <p class="mt-1 text-lg font-semibold text-gray-900">{{ configuredCount }}</p>
+              <p class="text-2xl font-semibold text-gray-900">{{ configuredCount }}</p>
             </div>
-            <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
+            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
               <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">缺失</p>
-              <p class="mt-1 text-lg font-semibold text-gray-900">{{ missingCount }}</p>
+              <p class="text-2xl font-semibold text-gray-900">{{ missingCount }}</p>
             </div>
-            <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
+            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
               <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">敏感项</p>
-              <p class="mt-1 text-lg font-semibold text-gray-900">{{ sensitiveCount }}</p>
+              <p class="text-2xl font-semibold text-gray-900">{{ sensitiveCount }}</p>
             </div>
-            <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
+            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
               <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">需重启</p>
-              <p class="mt-1 text-lg font-semibold text-gray-900">{{ restartCount }}</p>
-            </div>
-            <div
-              class="rounded-2xl border px-4 py-3"
-              :class="migrationSourceCount > 0 ? 'border-amber-200 bg-amber-50/80' : 'border-gray-100 bg-gray-50/80'"
-            >
-              <p class="text-[11px] font-semibold uppercase tracking-wide" :class="migrationSourceCount > 0 ? 'text-amber-700' : 'text-gray-400'">
-                环境回退
-              </p>
-              <p class="mt-1 text-lg font-semibold" :class="migrationSourceCount > 0 ? 'text-amber-800' : 'text-gray-900'">
-                {{ migrationSourceCount }}
-              </p>
+              <p class="text-2xl font-semibold text-gray-900">{{ restartCount }}</p>
             </div>
           </div>
         </div>
 
-        <div class="flex flex-wrap gap-3 lg:max-w-xs lg:justify-end">
-          <button
-            type="button"
-            @click="fetchConfigs"
-            class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
-          >
-            <el-icon><RefreshRight /></el-icon>
-            刷新配置
-          </button>
-
-          <button
-            type="button"
-            @click="handleImportEnv"
-            :disabled="importingEnv"
-            class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:opacity-70"
-          >
-            <span
-              v-if="importingEnv"
-              class="h-4 w-4 animate-spin rounded-full border-2 border-amber-800/20 border-t-amber-800"
-            />
-            迁移环境变量
-          </button>
-        </div>
       </div>
     </section>
 
@@ -436,10 +381,7 @@ onMounted(async () => {
           </button>
 
           <p class="mt-3 text-xs leading-5 text-gray-400">
-            “迁移环境变量” 只迁运行期配置，不会改部署期密钥。
-            <template v-if="migrationSourceCount > 0">
-              当前还有 {{ migrationSourceCount }} 项配置仍在跟随环境变量。
-            </template>
+            这里只保留当前系统真正需要的维护动作；配置修改以设置中心保存结果为准。
           </p>
         </div>
       </aside>

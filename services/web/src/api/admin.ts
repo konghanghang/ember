@@ -15,7 +15,6 @@ import type {
   DeviceAction,
   DeviceListQuery,
   DeviceListResponse,
-  ImportEnvResult,
   DeviceStats,
   MediaQualityLowDetailItem,
   MediaQualityLibrary,
@@ -164,13 +163,6 @@ export function updateConfig(key: string, data: UpdateAdminConfigRequest): Promi
 export function testConfigGroup(group: string): Promise<ConfigGroupTestResult> {
   return request({
     url: `/admin/configs/${group}/test`,
-    method: 'post'
-  })
-}
-
-export function importConfigEnv(): Promise<ImportEnvResult> {
-  return request({
-    url: '/admin/configs/import-env',
     method: 'post'
   })
 }

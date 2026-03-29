@@ -570,7 +570,6 @@ TMDBCache（独立缓存表）
 - `ResolveString(key)` / `GetString(key)` — 统一配置读取入口
 - `GetRegistrationMode()` / `GetDefaultTrialDays()` / `IsEmailVerificationEnabled()` / `GetStripeAllowedPaymentMethods()` — 业务配置便捷读取
 - `TestGroup(group)` — 分组配置连通性测试（v1: `media`、`email`）
-- `ImportEnv(userID)` — 把允许托管的环境变量导入数据库
 
 **关键职责**：
 - 配置定义注册表（标签、分组、类型、校验、默认值）
@@ -874,7 +873,6 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/configs` | 获取设置中心全部配置（定义 + 当前值 + 来源） |
 | PATCH | `/api/v1/admin/configs/:key` | 更新单项配置 |
 | POST | `/api/v1/admin/configs/:group/test` | 测试指定配置组 |
-| POST | `/api/v1/admin/configs/import-env` | 导入当前环境变量为数据库覆盖值 |
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |

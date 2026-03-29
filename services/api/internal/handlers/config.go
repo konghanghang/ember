@@ -12,7 +12,6 @@ type configService interface {
 	List() ([]configpkg.ConfigItem, error)
 	Update(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error)
 	TestGroup(group string) (*configpkg.ConfigGroupTestResult, error)
-	ImportEnv(updatedByUserID string) (*configpkg.ImportEnvResult, error)
 }
 
 type ConfigHandler struct {
@@ -74,19 +73,6 @@ func (h *ConfigHandler) TestConfigGroup(c *gin.Context) {
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		}
-		return
-	}
-
-	c.JSON(http.StatusOK, result)
-}
-
-func (h *ConfigHandler) ImportEnv(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	updatedByUserID, _ := userID.(string)
-
-	result, err := h.service.ImportEnv(updatedByUserID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 

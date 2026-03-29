@@ -428,12 +428,6 @@ export interface ConfigGroupTestResult {
   details: ConfigGroupTestDetail[]
 }
 
-export interface ImportEnvResult {
-  imported: string[]
-  skipped: Record<string, string>
-  failed: Record<string, string>
-}
-
 export interface Subscription {
   id: string
   userId?: string

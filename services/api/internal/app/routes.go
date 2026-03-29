@@ -61,7 +61,6 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.GET("/configs", h.config.GetConfigs)
 	admin.PATCH("/configs/:key", h.config.UpdateConfig)
 	admin.POST("/configs/:group/test", h.config.TestConfigGroup)
-	admin.POST("/configs/import-env", h.config.ImportEnv)
 	admin.GET("/redemptions", h.user.GetAllRedemptions)
 
 	admin.GET("/subscriptions", h.subscription.GetAllSubscriptions)

@@ -204,12 +204,6 @@ type ConfigGroupTestResult struct {
 	Details []ConfigGroupTestDetail `json:"details"`
 }
 
-type ImportEnvResult struct {
-	Imported []string          `json:"imported"`
-	Skipped  map[string]string `json:"skipped"`
-	Failed   map[string]string `json:"failed"`
-}
-
 type ConfigService struct {
 	encryptionKey string
 }
@@ -390,71 +384,6 @@ func (s *ConfigService) Update(key string, req UpdateConfigRequest, updatedByUse
 	}
 
 	return s.Get(key)
-}
-
-func (s *ConfigService) ImportEnv(updatedByUserID string) (*ImportEnvResult, error) {
-	definitions := getConfigDefinitions()
-	settingsMap, err := s.loadSettings(definitions)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.importEnvDefinitions(definitions, settingsMap, updatedByUserID, os.Getenv, s.Update), nil
-}
-
-func (s *ConfigService) importEnvDefinitions(
-	definitions []ConfigDefinition,
-	settingsMap map[string]models.Setting,
-	updatedByUserID string,
-	getenv func(string) string,
-	updateFn func(string, UpdateConfigRequest, string) (*ConfigItem, error),
-) *ImportEnvResult {
-	result := &ImportEnvResult{
-		Imported: make([]string, 0),
-		Skipped:  make(map[string]string),
-		Failed:   make(map[string]string),
-	}
-
-	for _, def := range definitions {
-		if !def.Editable || def.EnvKey == "" {
-			continue
-		}
-		if existing, ok := settingsMap[def.Key]; ok && s.shouldUseDatabaseValue(def, existing) {
-			result.Skipped[def.Key] = "数据库已存在覆盖值"
-			continue
-		}
-
-		envValue := strings.TrimSpace(getenv(def.EnvKey))
-		if envValue == "" {
-			result.Skipped[def.Key] = "环境变量未设置"
-			continue
-		}
-
-		value := envValue
-		if def.Normalize != nil {
-			normalized, normalizeErr := def.Normalize(value)
-			if normalizeErr != nil {
-				result.Failed[def.Key] = normalizeErr.Error()
-				continue
-			}
-			value = normalized
-		}
-		if def.Validate != nil {
-			if validateErr := def.Validate(value); validateErr != nil {
-				result.Failed[def.Key] = validateErr.Error()
-				continue
-			}
-		}
-
-		if _, updateErr := updateFn(def.Key, UpdateConfigRequest{Value: &value}, updatedByUserID); updateErr != nil {
-			result.Failed[def.Key] = updateErr.Error()
-			continue
-		}
-
-		result.Imported = append(result.Imported, def.Key)
-	}
-
-	return result
 }
 
 func (s *ConfigService) TestGroup(group string) (*ConfigGroupTestResult, error) {

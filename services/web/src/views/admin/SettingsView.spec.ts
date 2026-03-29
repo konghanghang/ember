@@ -6,16 +6,14 @@ import SettingsView from './SettingsView.vue'
 import type { AdminConfigItem, ConfigGroupTestResult } from '@/types/api'
 import {
   getConfigs,
-  importConfigEnv,
   runCronJob,
   testConfigGroup,
   updateConfig,
 } from '@/api/admin'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 vi.mock('@/api/admin', () => ({
   getConfigs: vi.fn(),
-  importConfigEnv: vi.fn(),
   runCronJob: vi.fn(),
   testConfigGroup: vi.fn(),
   updateConfig: vi.fn(),
@@ -26,9 +24,6 @@ vi.mock('element-plus', () => ({
     info: vi.fn(),
     success: vi.fn(),
     warning: vi.fn(),
-  },
-  ElMessageBox: {
-    confirm: vi.fn(),
   },
 }))
 
@@ -172,7 +167,6 @@ function findButton(wrapper: ReturnType<typeof mountView>, label: string) {
 describe('SettingsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(importConfigEnv).mockResolvedValue({ imported: [], skipped: {}, failed: {} })
     vi.mocked(runCronJob).mockResolvedValue({ message: '任务执行成功' } as never)
   })
 

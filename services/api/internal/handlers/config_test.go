@@ -16,7 +16,6 @@ type stubConfigService struct {
 	listFn      func() ([]configpkg.ConfigItem, error)
 	updateFn    func(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error)
 	testGroupFn func(group string) (*configpkg.ConfigGroupTestResult, error)
-	importEnvFn func(updatedByUserID string) (*configpkg.ImportEnvResult, error)
 }
 
 func (s *stubConfigService) List() ([]configpkg.ConfigItem, error) {
@@ -38,13 +37,6 @@ func (s *stubConfigService) TestGroup(group string) (*configpkg.ConfigGroupTestR
 		return nil, nil
 	}
 	return s.testGroupFn(group)
-}
-
-func (s *stubConfigService) ImportEnv(updatedByUserID string) (*configpkg.ImportEnvResult, error) {
-	if s.importEnvFn == nil {
-		return nil, nil
-	}
-	return s.importEnvFn(updatedByUserID)
 }
 
 func newTestConfigContext(method, target string, body []byte) (*gin.Context, *httptest.ResponseRecorder) {
@@ -254,52 +246,5 @@ func TestConfigHandlerTestConfigGroupUnsupported(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", recorder.Code)
-	}
-}
-
-func TestConfigHandlerImportEnv(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	handler := &ConfigHandler{
-		service: &stubConfigService{
-			importEnvFn: func(updatedByUserID string) (*configpkg.ImportEnvResult, error) {
-				if updatedByUserID != "admin-user" {
-					t.Fatalf("unexpected updatedByUserID: %s", updatedByUserID)
-				}
-				return &configpkg.ImportEnvResult{
-					Imported: []string{"EMBY_URL"},
-					Skipped:  map[string]string{"SMTP_HOST": "环境变量未设置"},
-					Failed:   map[string]string{},
-				}, nil
-			},
-		},
-	}
-
-	ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/configs/import-env", nil)
-	ctx.Set("userID", "admin-user")
-
-	handler.ImportEnv(ctx)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", recorder.Code)
-	}
-}
-
-func TestConfigHandlerImportEnvInternalError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	handler := &ConfigHandler{
-		service: &stubConfigService{
-			importEnvFn: func(updatedByUserID string) (*configpkg.ImportEnvResult, error) {
-				return nil, errors.New("boom")
-			},
-		},
-	}
-
-	ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/configs/import-env", nil)
-	handler.ImportEnv(ctx)
-
-	if recorder.Code != http.StatusInternalServerError {
-		t.Fatalf("expected status 500, got %d", recorder.Code)
 	}
 }
