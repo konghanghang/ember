@@ -42,6 +42,7 @@
 | `embypulse-features/p0-tv-calendar.md` | 已落地 | `TVCalendarService`、全局/关注周历、同步与 webhook 就绪标记、`TVCalendarView.vue` | 已提炼后归档到 `docs/archive/plan/embypulse-features/` |
 | `embypulse-features/p1-media-quality.md` | 已落地 | 媒体库列表、质量报告、明细接口、`MediaQualityView.vue` | 已归档到 `docs/archive/plan/embypulse-features/` |
 | `embypulse-features/p1-playback-history.md` | 已落地 | `PlaybackHistoryService`、管理端播放历史路由与页面 | 已归档到 `docs/archive/plan/embypulse-features/` |
+| `embypulse-features/p2-user-avatar.md` | 已落地 | `DefaultAvatar.vue`、Dashboard / Account Center / TopBar / Sidebar / UsersView 已统一接入默认头像组件 | 已归档到 `docs/archive/plan/embypulse-features/` |
 
 ## B. 已有明显产出，但更像持续治理，不急着归档
 
@@ -56,7 +57,6 @@
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
 | `embypulse-features/p2-subscription-season.md` | 未落地 | `Subscription` 模型当前没有 `season` 字段 | 继续保留 |
-| `embypulse-features/p2-user-avatar.md` | 未落地 | 未见头像上传/同步接口与页面 | 继续保留 |
 
 ## D. 本轮新增归档记录
 
@@ -68,6 +68,7 @@
 - `dashboard-renewal-redesign.md`
 - `playback-ranking-rework.md`
 - `embypulse-features/p1-user-profile.md`
+- `embypulse-features/p2-user-avatar.md`
 
 本轮已迁移为治理提案：
 
@@ -76,7 +77,7 @@
 归档后，`docs/plan/` 当前剩余重点为：
 
 - 规划索引：`embypulse-features/README.md`
-- 尚未落地的 P2 条目：`p2-subscription-season.md`、`p2-user-avatar.md`
+- 尚未落地的 P2 条目：`p2-subscription-season.md`
 
 ## E. 归档前提炼原则
 

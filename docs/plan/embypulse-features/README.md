@@ -20,7 +20,7 @@
 - [x] P1-2 播放历史查询（Playback History，已归档）
 - [x] P1-3 用户画像（User Profile Analytics，已归档）
 - [ ] P2-1 求片分季支持（Subscription Season Support）
-- [ ] P2-2 用户头像管理（User Avatar Management）
+- [x] P2-2 用户头像管理（User Avatar Management，已归档）
 - [x] P2-3 媒体库列表查询（Library List，已归档）
 - [x] P2-4 兑换码备注字段（Redemption Code Notes，已归档）
 
@@ -72,10 +72,10 @@
 待实施：
 
 7. [求片分季支持（Subscription Season Support）](./p2-subscription-season.md)
-8. [用户头像管理（User Avatar Management）](./p2-user-avatar.md)
 
 已归档：
 
+8. [用户头像管理（User Avatar Management）](../../archive/plan/embypulse-features/p2-user-avatar.md)
 9. [媒体库列表查询（Library List）](../../archive/plan/embypulse-features/p2-library-list.md)
 10. [兑换码备注字段（Redemption Code Notes）](../../archive/plan/embypulse-features/p2-code-notes.md)
 
@@ -128,6 +128,7 @@ docs/archive/plan/embypulse-features/
 ├── p1-media-quality.md
 ├── p1-playback-history.md
 ├── p1-user-profile.md
+├── p2-user-avatar.md
 ├── p2-library-list.md
 └── p2-code-notes.md
 ```
