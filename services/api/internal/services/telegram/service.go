@@ -103,6 +103,7 @@ type TelegramSubscriptionCommand struct {
 	Type       models.MediaType
 	Name       string
 	TmdbID     string
+	Season     int
 	PosterPath *string
 	Note       *string
 }

@@ -24,6 +24,7 @@ def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
     name = escape(str(data.get("name", "")))
     user_name = escape(str(data.get("userName", "") or "-"))
     tmdb_id = escape(str(data.get("tmdbId", "")))
+    season = int(data.get("season", 0) or 0)
     note = str(data.get("note", "") or "").strip()
 
     lines = [
@@ -34,6 +35,9 @@ def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
         f"👤 用户：{user_name}",
         f"🔗 TMDB：<a href='https://www.themoviedb.org/{'movie' if data.get('type') == 'MOVIE' else 'tv'}/{tmdb_id}'>#{tmdb_id}</a>",
     ]
+
+    if season > 0:
+        lines.append(f"📺 季：第 {season} 季")
 
     if note != "":
         lines.append(f"💬 备注：{escape(note)}")

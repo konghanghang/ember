@@ -63,10 +63,17 @@ watch(() => queryParams.value.status, () => {
   fetchData()
 })
 
+const formatSubscriptionTitle = (sub: Subscription) => {
+  if (sub.type === 'TV' && sub.season > 0) {
+    return `${sub.name} 第 ${sub.season} 季`
+  }
+  return sub.name
+}
+
 const handleApprove = async (sub: Subscription) => {
   try {
     await approveSubscription(sub.id)
-    ElMessage.success(`已批准: ${sub.name}`)
+    ElMessage.success(`已批准: ${formatSubscriptionTitle(sub)}`)
     fetchData()
   } catch {
     // handled
@@ -75,7 +82,7 @@ const handleApprove = async (sub: Subscription) => {
 
 const handleReject = async (sub: Subscription) => {
   try {
-    await ElMessageBox.confirm(`确定拒绝 "${sub.name}" 的订阅申请吗？`, '拒绝确认', { 
+    await ElMessageBox.confirm(`确定拒绝 "${formatSubscriptionTitle(sub)}" 的订阅申请吗？`, '拒绝确认', { 
       confirmButtonText: '拒绝',
       cancelButtonText: '取消',
       type: 'warning',
@@ -94,7 +101,7 @@ const handleDelete = async (sub: Subscription) => {
 
   try {
     await ElMessageBox.confirm(
-      isAdminDelete ? `确定删除 "${sub.name}" 的订阅记录吗？此操作不可恢复。` : `确定取消 "${sub.name}" 的订阅吗？`,
+      isAdminDelete ? `确定删除 "${formatSubscriptionTitle(sub)}" 的订阅记录吗？此操作不可恢复。` : `确定取消 "${formatSubscriptionTitle(sub)}" 的订阅吗？`,
       isAdminDelete ? '删除确认' : '取消确认',
       {
       confirmButtonText: isAdminDelete ? '确认删除' : '确定取消',
@@ -261,7 +268,7 @@ onMounted(fetchData)
 
           <!-- Info -->
           <div class="p-3">
-            <h3 class="font-bold text-gray-900 text-sm line-clamp-1 mb-1" :title="sub.name">{{ sub.name }}</h3>
+            <h3 class="font-bold text-gray-900 text-sm line-clamp-1 mb-1" :title="formatSubscriptionTitle(sub)">{{ formatSubscriptionTitle(sub) }}</h3>
             <div class="flex items-center justify-between text-xs text-gray-500">
               <span>{{ new Date(sub.createdAt).toLocaleDateString() }}</span>
               <div v-if="isAdmin && sub.user" class="flex items-center gap-1" :title="sub.user.username">

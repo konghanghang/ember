@@ -19,6 +19,7 @@ type SubscriptionNotification struct {
 	Type       string  `json:"type"`
 	Name       string  `json:"name"`
 	TmdbID     string  `json:"tmdbId"`
+	Season     int     `json:"season"`
 	PosterPath *string `json:"posterPath"`
 	Note       *string `json:"note"`
 }

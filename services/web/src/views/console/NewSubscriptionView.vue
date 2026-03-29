@@ -17,6 +17,7 @@ const hasSearched = ref(false)
 // Selection State
 const selectedItem = ref<TmdbSearchItem | null>(null)
 const subscriptionForm = ref({
+  season: 0,
   note: ''
 })
 const submitting = ref(false)
@@ -57,6 +58,7 @@ watch(searchType, () => {
 
 const selectItem = (item: TmdbSearchItem) => {
   selectedItem.value = item
+  subscriptionForm.value.season = 0
   subscriptionForm.value.note = ''
   showConfirmDialog.value = true
 }
@@ -70,6 +72,7 @@ const confirmSubscription = async () => {
       type: searchType.value,
       name: selectedItem.value.title,
       tmdbId: selectedItem.value.id.toString(),
+      season: searchType.value === 'TV' ? subscriptionForm.value.season : 0,
       posterPath: selectedItem.value.posterPath,
       note: subscriptionForm.value.note
     }
@@ -220,6 +223,20 @@ const getImageUrl = (path?: string) => {
           </div>
 
           <div>
+            <div v-if="searchType === 'TV'" class="mb-4">
+              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">季数</label>
+              <div class="flex items-center gap-3">
+                <el-input-number
+                  v-model="subscriptionForm.season"
+                  :min="0"
+                  :step="1"
+                  controls-position="right"
+                  class="input-ember !w-36"
+                />
+                <p class="text-xs text-gray-500">填 `0` 表示整剧，填 `1+` 表示指定季。</p>
+              </div>
+            </div>
+
             <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">备注信息 (可选)</label>
             <el-input
               v-model="subscriptionForm.note"

@@ -27,11 +27,22 @@ func NewSubscriptionService() *SubscriptionService {
 
 // CreateSubscriptionRequest 创建订阅请求
 type CreateSubscriptionRequest struct {
-	Type       models.MediaType `json:"type" binding:"required"`
+	Type       models.MediaType `json:"type" binding:"required,oneof=MOVIE TV"`
 	Name       string           `json:"name" binding:"required"`
 	TmdbID     string           `json:"tmdbId" binding:"required"`
+	Season     int              `json:"season"`
 	PosterPath *string          `json:"posterPath"`
 	Note       *string          `json:"note"`
+}
+
+func normalizeSubscriptionSeason(mediaType models.MediaType, season int) (int, error) {
+	if season < 0 {
+		return 0, ErrSubscriptionInvalidSeason
+	}
+	if mediaType == models.MediaMovie {
+		return 0, nil
+	}
+	return season, nil
 }
 
 // CreateSubscription 用户创建订阅
@@ -40,11 +51,15 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 	if req.Name == "" || req.TmdbID == "" {
 		return errors.New("影视名称和 TMDB ID 为必填项")
 	}
+	season, err := normalizeSubscriptionSeason(req.Type, req.Season)
+	if err != nil {
+		return err
+	}
 
-	// 全局去重：同一 type + tmdbId 只允许提交一次
+	// 按季去重：同一 type + tmdbId + season 只允许提交一次
 	var count int64
 	if err := db.DB.Model(&models.Subscription{}).
-		Where("type = ? AND \"tmdbId\" = ?", req.Type, req.TmdbID).
+		Where("type = ? AND \"tmdbId\" = ? AND season = ?", req.Type, req.TmdbID, season).
 		Count(&count).Error; err != nil {
 		return fmt.Errorf("创建订阅失败: %w", err)
 	}
@@ -58,6 +73,7 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 		Type:       req.Type,
 		Name:       req.Name,
 		TmdbID:     req.TmdbID,
+		Season:     season,
 		PosterPath: req.PosterPath,
 		Note:       req.Note,
 		Status:     models.SubscriptionPending,
@@ -88,6 +104,7 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 			Type:       string(req.Type),
 			Name:       req.Name,
 			TmdbID:     req.TmdbID,
+			Season:     season,
 			PosterPath: req.PosterPath,
 			Note:       req.Note,
 		})
@@ -281,6 +298,10 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 
 	// 调用 MoviePilot API（失败时记录错误但不回滚状态）
 	var mpError *string
+	if subscription.Season > 0 {
+		errMsg := fmt.Sprintf("季参数未透传（已降级整剧），season=%d", subscription.Season)
+		mpError = &errMsg
+	}
 	if s.moviepilot.IsConfigured() {
 		// 转换 MediaType 为 MoviePilot 格式
 		mpType := "movie"

@@ -178,6 +178,8 @@ func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 			statusCode = http.StatusBadRequest
 		case errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated):
 			statusCode = http.StatusConflict
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidSeason):
+			statusCode = http.StatusBadRequest
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})
 		return

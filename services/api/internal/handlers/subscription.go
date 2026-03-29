@@ -56,6 +56,10 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidSeason) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

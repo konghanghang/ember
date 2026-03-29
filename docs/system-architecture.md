@@ -313,6 +313,7 @@ services/
 | Type | MediaType | type | `"MOVIE"` 或 `"TV"` |
 | Name | string(255) | name | 媒体名称 |
 | TmdbID | string | tmdbId | TMDB ID |
+| Season | int | season | 季号，`0` 表示整剧 |
 | PosterPath | *string(500) | posterPath | 海报 URL |
 | Status | SubscriptionStatus | status | `PENDING`/`APPROVED`/`REJECTED` |
 | Note | *string | note | 用户备注 |
@@ -613,8 +614,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
-- `CreateSubscription(userID, type, name, tmdbId)` — 创建 PENDING 状态 + 火忘式通知 Bot
-- `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError）
+- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 火忘式通知 Bot；按 `type + tmdbId + season` 去重
+- `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError；`season>0` 第一版降级为整剧推送并记录说明）
 - `RejectSubscription(id)` — 设为 REJECTED
 
 ### 5.10 DeviceService (`services/device.go`)
@@ -808,7 +809,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/api/v1/subscriptions` | 我的订阅 |
-| POST | `/api/v1/subscriptions` | 创建订阅 |
+| POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧） |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/profile` | 个人信息 |
 | GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range` 或 `startDate/endDate`） |

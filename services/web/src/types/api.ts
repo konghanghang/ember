@@ -434,6 +434,7 @@ export interface Subscription {
   type: MediaType
   name: string
   tmdbId: string
+  season: number
   posterPath?: string
   status: SubscriptionStatus
   note?: string
@@ -453,6 +454,7 @@ export interface CreateSubscriptionRequest {
   type: MediaType
   name: string
   tmdbId: string
+  season?: number
   posterPath?: string
   note?: string
 }

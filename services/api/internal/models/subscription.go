@@ -31,6 +31,7 @@ type Subscription struct {
 	Type       MediaType          `json:"type" gorm:"column:type;type:varchar(10);not null;uniqueIndex:uk_subscription_media,priority:1"`
 	Name       string             `json:"name" gorm:"column:name;size:255;not null"`
 	TmdbID     string             `json:"tmdbId" gorm:"column:tmdbId;size:50;not null;uniqueIndex:uk_subscription_media,priority:2"`
+	Season     int                `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_subscription_media,priority:3"`
 	PosterPath *string            `json:"posterPath,omitempty" gorm:"column:posterPath;size:500"`
 	Status     SubscriptionStatus `json:"status" gorm:"column:status;type:varchar(20);not null;default:'PENDING'"`
 	Note       *string            `json:"note,omitempty" gorm:"column:note;type:text"`
