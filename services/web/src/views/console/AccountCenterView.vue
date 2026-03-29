@@ -325,7 +325,7 @@ watch(
             />
           </div>
           <button
-            class="w-full rounded-2xl bg-ember px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-600 cursor-pointer"
+            class="btn-ember w-full rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer"
             @click="handleUpdatePassword"
           >
             更新密码

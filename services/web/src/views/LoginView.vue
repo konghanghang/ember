@@ -204,12 +204,6 @@ const handleLogin = async () => {
             </div>
           </div>
 
-          <div class="text-right -mt-2 mb-2">
-            <router-link to="/forgot-password" class="text-xs text-text-secondary hover:text-ember transition-colors">
-              忘记密码？
-            </router-link>
-          </div>
-
           <div class="space-y-2">
             <div v-if="configLoading" class="text-center text-xs text-text-secondary">
               登录保护配置加载中...
@@ -219,11 +213,12 @@ const handleLogin = async () => {
                 {{ configError }}
               </div>
               <div v-else-if="isTurnstileEnabled" class="space-y-2">
-                <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <div class="turnstile-shell">
                   <TurnstileWidget
                     v-if="turnstileSiteKey"
                     ref="turnstileWidgetRef"
                     :siteKey="turnstileSiteKey"
+                    size="flexible"
                     @ready="handleTurnstileReady"
                     @resolved="handleTurnstileResolved"
                     @error="handleTurnstileError"
@@ -244,10 +239,16 @@ const handleLogin = async () => {
           </el-button>
         </el-form>
 
-        <div class="mt-8 pt-6 border-t border-gray-100 text-center text-sm">
-          <router-link to="/register" class="text-text-secondary hover:text-ember transition-colors font-medium">
-            注册新账号
-          </router-link>
+        <div class="mt-8 pt-6 border-t border-gray-100">
+          <div class="flex items-center justify-center gap-6 text-sm">
+            <router-link to="/forgot-password" class="text-text-secondary hover:text-ember transition-colors font-medium">
+              忘记密码？
+            </router-link>
+            <span class="text-gray-200">|</span>
+            <router-link to="/register" class="text-text-secondary hover:text-ember transition-colors font-medium">
+              注册新账号
+            </router-link>
+          </div>
         </div>
 
       </div>
@@ -261,6 +262,18 @@ const handleLogin = async () => {
 </template>
 
 <style scoped>
+.turnstile-shell {
+  width: 100%;
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background-color: #f9fafb;
+  box-shadow: 0 0 0 1px #e5e7eb inset;
+}
+
 .animate-fade-in {
   animation: fadeIn 0.6s ease-out forwards;
 }

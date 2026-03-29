@@ -8,6 +8,7 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 const props = defineProps<{
   siteKey: string
   action?: string
+  size?: 'normal' | 'flexible' | 'compact'
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +28,7 @@ type TurnstileOptions = {
   'error-callback'?: () => void
   action?: string
   theme?: 'light' | 'dark'
+  size?: 'normal' | 'flexible' | 'compact'
   tabindex?: number
 }
 
@@ -108,6 +110,7 @@ const renderWidget = async () => {
       'error-callback': () => emit('error', 'Turnstile 校验失败，请重试'),
       action: props.action ?? 'login',
       theme: 'light',
+      size: props.size ?? 'normal',
       tabindex: 0
     })
     emit('ready')
@@ -148,3 +151,14 @@ onBeforeUnmount(() => {
   resetWidget()
 })
 </script>
+
+<style scoped>
+.turnstile-wrapper {
+  width: 100%;
+  overflow: hidden;
+}
+
+.turnstile-wrapper :deep(iframe) {
+  max-width: 100%;
+}
+</style>
