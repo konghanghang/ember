@@ -12,7 +12,8 @@ class SearchSession:
     media_type: str
     query: str
     selected_index: int = -1
-    waiting_for_note: bool = False
+    selected_season: int | None = None
+    season_options: list[int] = field(default_factory=list)
     message_id: int = 0
     chat_id: int = 0
     created_at: float = field(default_factory=time.time)

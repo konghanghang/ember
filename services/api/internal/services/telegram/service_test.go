@@ -53,13 +53,13 @@ func TestTelegramServiceSubscribeForUserDelegatesToSubscriber(t *testing.T) {
 	subscriber := &stubTelegramSubscriber{}
 	service := NewTelegramService(&stubTelegramRedeemer{}, subscriber, nil)
 	poster := "/poster.jpg"
-	note := "hello"
 
 	err := service.subscribeForUser("user_2", TelegramSubscribeRequest{
 		Type:   "TV",
 		Name:   "Show",
 		TmdbID: "123",
-	}, &poster, &note)
+		Season: 3,
+	}, &poster)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -68,14 +68,12 @@ func TestTelegramServiceSubscribeForUserDelegatesToSubscriber(t *testing.T) {
 	}
 	if subscriber.lastReq.Type != models.MediaType("TV") ||
 		subscriber.lastReq.Name != "Show" ||
-		subscriber.lastReq.TmdbID != "123" {
+		subscriber.lastReq.TmdbID != "123" ||
+		subscriber.lastReq.Season != 3 {
 		t.Fatalf("unexpected delegated request: %+v", subscriber.lastReq)
 	}
 	if subscriber.lastReq.PosterPath == nil || *subscriber.lastReq.PosterPath != poster {
 		t.Fatalf("unexpected poster path: %+v", subscriber.lastReq.PosterPath)
-	}
-	if subscriber.lastReq.Note == nil || *subscriber.lastReq.Note != note {
-		t.Fatalf("unexpected note: %+v", subscriber.lastReq.Note)
 	}
 }
 
@@ -87,7 +85,7 @@ func TestTelegramServiceSubscribeForUserReturnsSubscriberError(t *testing.T) {
 		Type:   "MOVIE",
 		Name:   "Movie",
 		TmdbID: "456",
-	}, nil, nil)
+	}, nil)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected delegated error, got %v", err)
 	}

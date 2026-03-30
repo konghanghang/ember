@@ -377,13 +377,40 @@ async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:
     return {"error": payload.get("error", "搜索失败")}
 
 
+async def get_tmdb_tv_seasons(tmdb_id: str | int) -> Optional[dict]:
+    endpoint = "get_tmdb_tv_seasons"
+    url = f"{API_URL}/api/v1/tmdb/tv/{tmdb_id}/seasons"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "GET",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        log_fields={"tmdbId": str(tmdb_id)},
+    )
+    if response is None:
+        return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "GET",
+        elapsed_ms=elapsed_ms,
+        tmdbId=str(tmdb_id),
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "获取季列表失败")}
+
+
 async def subscribe_by_telegram(
     telegram_id: int,
     media_type: str,
     name: str,
     tmdb_id: str,
+    season: int = 0,
     poster_path: str = "",
-    note: str = "",
 ) -> Optional[dict]:
     """通过 Telegram 身份创建求片订阅"""
     endpoint = "subscribe_by_telegram"
@@ -394,8 +421,8 @@ async def subscribe_by_telegram(
         "type": media_type,
         "name": name,
         "tmdbId": str(tmdb_id),
+        "season": season,
         "posterPath": poster_path,
-        "note": note,
     }
 
     response, elapsed_ms = await _request(

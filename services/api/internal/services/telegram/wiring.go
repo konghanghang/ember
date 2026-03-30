@@ -32,7 +32,6 @@ func (defaultTelegramSubscriber) Create(userID string, req TelegramSubscriptionC
 		TmdbID:     req.TmdbID,
 		Season:     req.Season,
 		PosterPath: req.PosterPath,
-		Note:       req.Note,
 	})
 }
 

@@ -77,7 +77,7 @@ services/bot/
 - `/info`
 - `/redeem`
 - `/resetpw`
-- `/search`
+- `/search`（电影直接确认订阅，电视剧先选季再确认）
 - `/refresh_menu`
 
 ## 运行期设置

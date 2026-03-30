@@ -18,7 +18,7 @@
 2. 与现有字段命名保持一致：`type/name/tmdbId/posterPath/note/status/mpError`
 3. 新增 `season` 字段时保持向后兼容（默认 `0` 表示整剧）
 4. 去重语义将从“全局去重(type+tmdbId)”调整为“按季去重(type+tmdbId+season)”（属于可见行为变更，需发布说明）
-5. 第一版只做 `Web + API + SQL migration`，不扩 Telegram/Bot 分季输入，不透传 MoviePilot 季参数
+5. 当前实现覆盖 `Web + API + SQL migration + Telegram Bot`，并透传 MoviePilot 季参数
 
 ---
 
@@ -79,8 +79,8 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 
 说明：
 
-- 第一版不扩 Telegram Bot 分季输入，所以 Telegram internal subscribe 请求保持现状
-- 若后续要支持 Bot 分季，需单独补计划或在第二版明确扩展
+- Telegram Bot 已支持电视剧先选季、再确认订阅
+- Bot 搜索流不再支持备注输入，统一使用纯按钮交互
 
 ---
 
@@ -120,10 +120,10 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 - Ember 审批通过时，`season>0` 透传给 MoviePilot，`season=0` 则省略该字段
 - `mpError` 仅用于记录真实的 MoviePilot 调用失败，不再记录人为降级说明
 
-6. 第一版不扩 Telegram/Bot 分季输入
-- Telegram `SubscribeByTelegram` 维持现状
-- Bot 搜索后订阅仍然只能提交整剧
-- 避免同时改 Web、Bot、Internal API 三条输入链路，扩大回归面
+6. Telegram/Bot 已支持分季输入
+- Telegram `SubscribeByTelegram` 接收并透传 `season`
+- Bot 搜索后：电影直接确认订阅，电视剧先选季再确认
+- Bot 不再支持备注输入，避免按钮流和文本输入混用
 
 ---
 
@@ -139,8 +139,9 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
   - `SubscriptionsView`
   - 如有管理端订阅列表，也需同步展示季号
 - Bot：
-  - 第一版不改输入能力
-  - 仅确认不被现有后端改动误伤
+  - 支持电视剧按季选择
+  - 电影保持直接订阅
+  - 备注输入从 Bot 主流程移除
 - 数据库：
   - 必须新增 migration
 - 文档：
@@ -154,7 +155,6 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 本次明确不做：
 
 - 不新增独立的“按季订阅”表
-- 不扩 Telegram/Bot 分季输入
 - 不做“自动解析第几季”的自然语言识别
 - 不修改现有审批按钮、拒绝按钮与 Bot 通知协议
 

@@ -43,7 +43,6 @@ from app.config import (
 )
 from app.handlers.telegram_handler import (
     handle_bind,
-    handle_cancel_note,
     handle_callback,
     handle_count,
     handle_info,
@@ -54,7 +53,6 @@ from app.handlers.telegram_handler import (
     handle_resetpw,
     handle_search,
     handle_search_callback,
-    handle_text_message,
     send_payment_notification,
     send_registration_notification,
     send_ranking_notification,
@@ -116,13 +114,8 @@ tg_app.add_handler(CommandHandler("info", handle_info))
 tg_app.add_handler(CommandHandler("redeem", handle_redeem))
 tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
 tg_app.add_handler(CommandHandler("search", handle_search))
-tg_app.add_handler(CommandHandler("cancel", handle_cancel_note))
 tg_app.add_handler(CommandHandler("refresh_menu", handle_refresh_menu))
 tg_app.add_handler(CommandHandler("refresh_menu_chat", handle_refresh_menu_chat))
-tg_app.add_handler(MessageHandler(
-    filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-    handle_text_message,
-))
 
 
 async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
@@ -176,7 +169,6 @@ async def sync_bot_commands() -> None:
         BotCommand("info", "查看账号信息"),
         BotCommand("redeem", "兑换续期码"),
         BotCommand("resetpw", "重置密码"),
-        BotCommand("cancel", "取消备注输入"),
     ]
     admin_chat_id, group_chat_id = await resolve_command_scope_chat_ids()
 

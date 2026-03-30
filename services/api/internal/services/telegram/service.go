@@ -95,8 +95,8 @@ type TelegramSubscribeRequest struct {
 	Type       string `json:"type" binding:"required,oneof=MOVIE TV"`
 	Name       string `json:"name" binding:"required"`
 	TmdbID     string `json:"tmdbId" binding:"required"`
+	Season     int    `json:"season"`
 	PosterPath string `json:"posterPath"`
-	Note       string `json:"note"`
 }
 
 type TelegramSubscriptionCommand struct {
@@ -105,7 +105,6 @@ type TelegramSubscriptionCommand struct {
 	TmdbID     string
 	Season     int
 	PosterPath *string
-	Note       *string
 }
 
 // GenerateBindCode 生成绑定验证码
@@ -310,12 +309,7 @@ func (s *TelegramService) SubscribeByTelegram(req TelegramSubscribeRequest) erro
 	if req.PosterPath != "" {
 		posterPath = &req.PosterPath
 	}
-	var note *string
-	if req.Note != "" {
-		note = &req.Note
-	}
-
-	return s.subscribeForUser(user.ID, req, posterPath, note)
+	return s.subscribeForUser(user.ID, req, posterPath)
 }
 
 // CleanupExpiredBindCodes 清理过期绑定码
@@ -342,14 +336,13 @@ func (s *TelegramService) subscribeForUser(
 	userID string,
 	req TelegramSubscribeRequest,
 	posterPath *string,
-	note *string,
 ) error {
 	return s.subscriptionService.Create(userID, TelegramSubscriptionCommand{
 		Type:       models.MediaType(req.Type),
 		Name:       req.Name,
 		TmdbID:     req.TmdbID,
+		Season:     req.Season,
 		PosterPath: posterPath,
-		Note:       note,
 	})
 }
 

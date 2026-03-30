@@ -23,7 +23,9 @@ from app.formatters.message_formatter import (
     format_search_detail,
     format_search_results,
     format_subscription_message,
-    make_detail_keyboard,
+    make_movie_detail_keyboard,
+    make_tv_confirm_keyboard,
+    make_tv_season_keyboard,
 )
 from app.handlers.search_cache import (
     SearchSession,
@@ -680,18 +682,65 @@ async def handle_search_callback(
 
     if data.startswith("sub:pick:"):
         await _handle_pick(context.bot, query, session, user_id, data)
+    elif data.startswith("sub:season:"):
+        await _handle_select_season(context.bot, query, session, user_id, data)
     elif data == "sub:ok":
         await _handle_subscribe(query, session, user_id)
-    elif data == "sub:note":
-        await _handle_request_note(query, session, user_id)
+    elif data == "sub:back:season":
+        await _handle_back_to_seasons(context.bot, query, session, user_id)
     elif data == "sub:back":
         await _handle_back(context.bot, query, session, user_id)
     else:
         await query.answer()
 
 
+async def _render_search_message(
+    *,
+    bot,
+    query,
+    caption: str,
+    reply_markup,
+    poster_path: str | None,
+) -> None:
+    prefer_media = bool(query.message and query.message.photo)
+    poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}" if poster_path else TMDB_NO_POSTER_URL
+    final_caption = caption if poster_path else f"（该影片暂无海报）\n\n{caption}"
+
+    await _edit_search_message(
+        bot=bot,
+        chat_id=query.message.chat_id,
+        message_id=query.message.message_id,
+        prefer_media=prefer_media,
+        poster_url=poster_url,
+        caption=final_caption,
+        reply_markup=reply_markup,
+        media_failure_log="编辑海报失败，降级为编辑文本",
+        raise_on_failure=True,
+    )
+
+
+async def _load_tv_seasons(tmdb_id: int | str) -> tuple[list[int] | None, str | None]:
+    result = await api_client.get_tmdb_tv_seasons(tmdb_id)
+    if result is None:
+        return None, "服务暂不可用，请稍后重试"
+    if "error" in result:
+        return None, str(result["error"])
+
+    data = result.get("data") or {}
+    seasons_raw = data.get("seasons") or []
+    seasons = [
+        int(season)
+        for season in seasons_raw
+        if str(season).isdigit() and int(season) > 0
+    ]
+    if not seasons:
+        return None, "TMDB 未返回可订阅季数"
+
+    return seasons, None
+
+
 async def _handle_pick(bot, query, session: SearchSession, user_id: int, data: str) -> None:
-    """用户点击编号按钮，编辑消息为详情页"""
+    """用户点击编号按钮，进入电影确认页或电视剧选季页"""
     try:
         index = int(data.split(":")[-1])
     except (ValueError, IndexError):
@@ -703,39 +752,77 @@ async def _handle_pick(bot, query, session: SearchSession, user_id: int, data: s
         return
 
     session.selected_index = index
-    session.waiting_for_note = False
-    set_session(user_id, session)
-
     item = session.results[index]
-    caption = format_search_detail(item)
-    keyboard = make_detail_keyboard()
+    session.selected_season = None
+    session.season_options = []
+
+    item_media_type = item.get("mediaType", "movie")
+    if item_media_type == "tv":
+        seasons, err_msg = await _load_tv_seasons(item.get("id", ""))
+        if err_msg:
+            await query.answer(err_msg, show_alert=True)
+            return
+        session.season_options = seasons or []
+        set_session(user_id, session)
+
+        caption = f"{format_search_detail(item)}\n\n📺 请选择要订阅的季数"
+        keyboard = make_tv_season_keyboard(session.season_options)
+    else:
+        set_session(user_id, session)
+        caption = format_search_detail(item)
+        keyboard = make_movie_detail_keyboard()
 
     await query.answer()
-
-    poster_path = item.get("posterPath")
-    no_poster_prefix = "（该影片暂无海报）\n\n"
-
-    prefer_media = bool(query.message and query.message.photo)
-    poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}" if poster_path else TMDB_NO_POSTER_URL
-    final_caption = (no_poster_prefix + caption) if not poster_path else caption
-
-    await _edit_search_message(
+    await _render_search_message(
         bot=bot,
-        chat_id=query.message.chat_id,
-        message_id=query.message.message_id,
-        prefer_media=prefer_media,
-        poster_url=poster_url,
-        caption=final_caption,
+        query=query,
+        caption=caption,
         reply_markup=keyboard,
-        media_failure_log="编辑海报失败，降级为编辑文本",
-        raise_on_failure=True,
+        poster_path=item.get("posterPath"),
+    )
+
+
+async def _handle_select_season(bot, query, session: SearchSession, user_id: int, data: str) -> None:
+    """电视剧选择季数后进入确认页"""
+    if session.selected_index < 0 or session.selected_index >= len(session.results):
+        await query.answer("请先选择一个结果", show_alert=True)
+        return
+
+    try:
+        season = int(data.split(":")[-1])
+    except (ValueError, IndexError):
+        await query.answer("季数无效，请重新选择", show_alert=True)
+        return
+
+    item = session.results[session.selected_index]
+    if item.get("mediaType") != "tv":
+        await query.answer("当前内容不是电视剧", show_alert=True)
+        return
+
+    if season not in session.season_options:
+        await query.answer("该季数不可用，请重新选择", show_alert=True)
+        return
+
+    session.selected_season = season
+    set_session(user_id, session)
+
+    caption = format_search_detail(item, selected_season=season)
+    keyboard = make_tv_confirm_keyboard(season)
+
+    await query.answer()
+    await _render_search_message(
+        bot=bot,
+        query=query,
+        caption=caption,
+        reply_markup=keyboard,
+        poster_path=item.get("posterPath"),
     )
 
 
 async def _handle_subscribe(
     query, session: SearchSession, user_id: int
 ) -> None:
-    """直接订阅（无备注）"""
+    """处理最终订阅确认"""
     if session.selected_index < 0 or session.selected_index >= len(session.results):
         await query.answer("请先选择一个结果", show_alert=True)
         return
@@ -743,12 +830,19 @@ async def _handle_subscribe(
     item = session.results[session.selected_index]
     item_media_type = item.get("mediaType", "movie")
     media_type_upper = "MOVIE" if item_media_type == "movie" else "TV"
+    season = 0
+    if item_media_type == "tv":
+        if session.selected_season is None:
+            await query.answer("请先选择季数", show_alert=True)
+            return
+        season = session.selected_season
 
     result = await api_client.subscribe_by_telegram(
         telegram_id=user_id,
         media_type=media_type_upper,
         name=item.get("title", ""),
         tmdb_id=str(item.get("id", "")),
+        season=season,
         poster_path=item.get("posterPath") or "",
     )
 
@@ -766,7 +860,9 @@ async def _handle_subscribe(
     title = escape(str(item.get("title", "")))
     success_text = (
         f"✅ <b>订阅成功</b>\n\n"
-        f"📌 {title}\n\n"
+        f"📌 {title}\n"
+        + (f"📺 第 {season} 季\n" if item_media_type == "tv" else "")
+        + "\n"
         "已提交求片请求，请等待管理员审核。"
     )
 
@@ -792,40 +888,11 @@ async def _handle_subscribe(
     delete_session(user_id)
 
 
-async def _handle_request_note(
-    query, session: SearchSession, user_id: int
-) -> None:
-    """用户点击「添加备注」，切换到等待文本输入状态"""
-    if session.selected_index < 0:
-        await query.answer("请先选择一个结果", show_alert=True)
-        return
-
-    session.waiting_for_note = True
-    set_session(user_id, session)
-
-    item = session.results[session.selected_index]
-    title = escape(str(item.get("title", "")))
-
-    text = (
-        f"📝 请输入订阅备注（直接发送文字即可）\n\n"
-        f"📌 {title}\n\n"
-        "发送 /cancel 取消"
-    )
-
-    await query.answer()
-
-    if query.message and query.message.photo:
-        await query.edit_message_caption(
-            caption=text, parse_mode="HTML", reply_markup=None
-        )
-    else:
-        await query.edit_message_text(text=text, parse_mode="HTML")
-
-
 async def _handle_back(bot, query, session: SearchSession, user_id: int) -> None:
     """返回搜索结果列表"""
     session.selected_index = -1
-    session.waiting_for_note = False
+    session.selected_season = None
+    session.season_options = []
     set_session(user_id, session)
 
     caption, keyboard = format_search_results(
@@ -854,127 +921,38 @@ async def _handle_back(bot, query, session: SearchSession, user_id: int) -> None
     )
 
 
-async def handle_cancel_note(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """处理 /cancel：取消备注输入并恢复详情页按钮"""
-    message = update.message
-    if message is None or message.from_user is None:
-        return
-
-    if message.chat.type != "private":
-        return
-
-    user_id = message.from_user.id
-    session = get_session(user_id)
-    if session is None or not session.waiting_for_note:
-        await message.reply_text("当前没有待取消的备注输入。")
-        return
-
+async def _handle_back_to_seasons(bot, query, session: SearchSession, user_id: int) -> None:
+    """电视剧从确认页回到选季页"""
     if session.selected_index < 0 or session.selected_index >= len(session.results):
-        delete_session(user_id)
-        await message.reply_text("搜索会话已失效，请重新发起 /search。")
+        await query.answer("请先选择一个结果", show_alert=True)
         return
 
-    session.waiting_for_note = False
+    item = session.results[session.selected_index]
+    if item.get("mediaType") != "tv":
+        await query.answer("当前内容不是电视剧", show_alert=True)
+        return
+
+    if not session.season_options:
+        seasons, err_msg = await _load_tv_seasons(item.get("id", ""))
+        if err_msg:
+            await query.answer(err_msg, show_alert=True)
+            return
+        session.season_options = seasons or []
+
+    session.selected_season = None
     set_session(user_id, session)
 
-    item = session.results[session.selected_index]
-    raw_caption = format_search_detail(item)
-    keyboard = make_detail_keyboard()
-    poster_path = item.get("posterPath")
+    caption = f"{format_search_detail(item)}\n\n📺 请选择要订阅的季数"
+    keyboard = make_tv_season_keyboard(session.season_options)
 
-    if poster_path:
-        poster_url = f"{TMDB_IMAGE_BASE_W500}{poster_path}"
-        caption = raw_caption
-    else:
-        poster_url = TMDB_NO_POSTER_URL
-        caption = "（该影片暂无海报）\n\n" + raw_caption
-
-    restored = await _edit_search_message(
-        bot=context.bot,
-        chat_id=session.chat_id,
-        message_id=session.message_id,
-        prefer_media=True,
-        poster_url=poster_url,
+    await query.answer()
+    await _render_search_message(
+        bot=bot,
+        query=query,
         caption=caption,
         reply_markup=keyboard,
-        media_failure_log="取消备注后恢复详情海报失败，降级为编辑文本",
-        final_failure_log="取消备注后恢复详情页完全失败",
+        poster_path=item.get("posterPath"),
     )
-    if restored:
-        return
-
-    await message.reply_text("❌ 恢复详情页失败，请重新使用 /search 搜索。")
-
-
-async def handle_text_message(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """处理私聊文本消息（仅用于接收备注输入）"""
-    del context
-    message = update.message
-    if message is None or message.from_user is None or message.text is None:
-        return
-
-    user_id = message.from_user.id
-    session = get_session(user_id)
-
-    if session is None or not session.waiting_for_note:
-        return
-
-    if session.selected_index < 0 or session.selected_index >= len(session.results):
-        delete_session(user_id)
-        return
-
-    note = message.text.strip()
-    if not note:
-        await message.reply_text("备注不能为空，请重新输入，或发送 /cancel 取消。")
-        return
-
-    item = session.results[session.selected_index]
-    item_media_type = item.get("mediaType", "movie")
-    media_type_upper = "MOVIE" if item_media_type == "movie" else "TV"
-
-    result = await api_client.subscribe_by_telegram(
-        telegram_id=user_id,
-        media_type=media_type_upper,
-        name=item.get("title", ""),
-        tmdb_id=str(item.get("id", "")),
-        poster_path=item.get("posterPath") or "",
-        note=note,
-    )
-
-    if result is None:
-        await message.reply_text("❌ 服务暂不可用，请稍后重试，或发送 /cancel 返回详情页。")
-        return
-    if "error" in result:
-        error_text = str(result["error"])
-        if result.get("status") == 409:
-            error_text = "该影片已有用户提交订阅，无需重复提交"
-        await message.reply_text(
-            f"❌ {escape(error_text)}\n\n发送 /cancel 返回详情页，或直接修改备注后重试。",
-            parse_mode="HTML",
-        )
-        return
-
-    title = escape(str(item.get("title", "")))
-    try:
-        await message.reply_text(
-            f"✅ <b>订阅成功</b>\n\n"
-            f"📌 {title}\n"
-            f"💬 备注：{escape(note)}\n\n"
-            "已提交求片请求，请等待管理员审核。",
-            parse_mode="HTML",
-        )
-    except Exception:
-        logger.exception("订阅成功但发送成功消息失败")
-        try:
-            await message.reply_text("✅ 订阅成功，请等待管理员审核。")
-        except Exception:
-            pass
-
-    delete_session(user_id)
 
 
 async def _delete_later(bot, chat_id: int, message_id: int, delay: int) -> None:

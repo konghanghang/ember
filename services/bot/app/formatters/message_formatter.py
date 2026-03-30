@@ -306,7 +306,7 @@ def format_search_results(
     return "\n".join(lines), InlineKeyboardMarkup(buttons)
 
 
-def format_search_detail(item: dict) -> str:
+def format_search_detail(item: dict, selected_season: int | None = None) -> str:
     """格式化选中结果的详情"""
     title = escape(str(item.get("title", "")))
     original_title = str(item.get("originalTitle", "") or "")
@@ -337,6 +337,8 @@ def format_search_detail(item: dict) -> str:
     lines.append(
         f"🔗 <a href='https://www.themoviedb.org/{tmdb_path}/{tmdb_id}'>TMDB #{tmdb_id}</a>"
     )
+    if item_media_type == "tv" and selected_season:
+        lines.append(f"📺 已选季：第 {selected_season} 季")
     if overview:
         lines.append("")
         lines.append(escape(overview))
@@ -344,14 +346,49 @@ def format_search_detail(item: dict) -> str:
     return "\n".join(lines)
 
 
-def make_detail_keyboard() -> InlineKeyboardMarkup:
-    """详情页的操作按钮"""
+def make_movie_detail_keyboard() -> InlineKeyboardMarkup:
+    """电影详情页的操作按钮"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("✅ 订阅", callback_data="sub:ok"),
-            InlineKeyboardButton("📝 添加备注", callback_data="sub:note"),
         ],
         [
             InlineKeyboardButton("🔙 返回", callback_data="sub:back"),
+        ],
+    ])
+
+
+def make_tv_season_keyboard(seasons: list[int]) -> InlineKeyboardMarkup:
+    """电视剧选季页按钮"""
+    buttons: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for season in seasons:
+        row.append(
+            InlineKeyboardButton(
+                f"第{season}季",
+                callback_data=f"sub:season:{season}",
+            )
+        )
+        if len(row) == 3:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("🔙 返回", callback_data="sub:back")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def make_tv_confirm_keyboard(selected_season: int) -> InlineKeyboardMarkup:
+    """电视剧确认页按钮"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                f"✅ 订阅第 {selected_season} 季",
+                callback_data="sub:ok",
+            ),
+        ],
+        [
+            InlineKeyboardButton("🔙 重新选季", callback_data="sub:back:season"),
+            InlineKeyboardButton("↩ 返回结果", callback_data="sub:back"),
         ],
     ])
