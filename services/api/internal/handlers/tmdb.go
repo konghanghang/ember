@@ -43,6 +43,17 @@ type TMDBApiResponse struct {
 	TotalResults int                `json:"total_results"`
 }
 
+type TMDBTVSeason struct {
+	SeasonNumber int `json:"season_number"`
+}
+
+type TMDBTVDetailResponse struct {
+	ID              int            `json:"id"`
+	Name            string         `json:"name"`
+	NumberOfSeasons int            `json:"number_of_seasons"`
+	Seasons         []TMDBTVSeason `json:"seasons"`
+}
+
 // UnifiedSearchResult 统一搜索结果格式
 type UnifiedSearchResult struct {
 	ID            int     `json:"id"`
@@ -52,6 +63,99 @@ type UnifiedSearchResult struct {
 	PosterPath    *string `json:"posterPath"`
 	ReleaseDate   *string `json:"releaseDate"`
 	MediaType     string  `json:"mediaType"`
+}
+
+type TMDBTVSeasonOptions struct {
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	NumberOfSeasons int    `json:"numberOfSeasons"`
+	Seasons         []int  `json:"seasons"`
+}
+
+func buildTMDBTVSeasonOptions(detail TMDBTVDetailResponse) TMDBTVSeasonOptions {
+	seasons := make([]int, 0, len(detail.Seasons))
+	seen := make(map[int]struct{}, len(detail.Seasons))
+	for _, item := range detail.Seasons {
+		if item.SeasonNumber <= 0 {
+			continue
+		}
+		if _, exists := seen[item.SeasonNumber]; exists {
+			continue
+		}
+		seen[item.SeasonNumber] = struct{}{}
+		seasons = append(seasons, item.SeasonNumber)
+	}
+
+	if len(seasons) == 0 && detail.NumberOfSeasons > 0 {
+		seasons = make([]int, 0, detail.NumberOfSeasons)
+		for season := 1; season <= detail.NumberOfSeasons; season++ {
+			seasons = append(seasons, season)
+		}
+	}
+
+	return TMDBTVSeasonOptions{
+		ID:              detail.ID,
+		Name:            detail.Name,
+		NumberOfSeasons: detail.NumberOfSeasons,
+		Seasons:         seasons,
+	}
+}
+
+func (h *TMDBHandler) fetchTMDB(c *gin.Context, endpoint string, target interface{}) bool {
+	apiKey := h.configService.GetString("TMDB_API_KEY")
+	if apiKey == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "TMDB API 未配置",
+		})
+		return false
+	}
+
+	tmdbURL := fmt.Sprintf("https://api.themoviedb.org/3/%s", endpoint)
+	req, err := http.NewRequest(http.MethodGet, tmdbURL, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "TMDB API 请求失败",
+		})
+		return false
+	}
+
+	query := req.URL.Query()
+	query.Set("api_key", apiKey)
+	query.Set("language", "zh-CN")
+	req.URL.RawQuery = query.Encode()
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "TMDB API 请求失败",
+		})
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("TMDB API 返回错误: %d", resp.StatusCode),
+		})
+		return false
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "读取响应失败",
+		})
+		return false
+	}
+
+	if err := json.Unmarshal(body, target); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "解析响应失败",
+		})
+		return false
+	}
+
+	return true
 }
 
 // Search TMDB 搜索 API 代理
@@ -64,14 +168,6 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 	if query == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "缺少搜索关键词",
-		})
-		return
-	}
-
-	apiKey := h.configService.GetString("TMDB_API_KEY")
-	if apiKey == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "TMDB API 未配置",
 		})
 		return
 	}
@@ -89,45 +185,9 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 		return
 	}
 
-	// 构建 TMDB API URL
-	tmdbURL := fmt.Sprintf(
-		"https://api.themoviedb.org/3/%s?api_key=%s&query=%s&language=zh-CN&page=1",
-		endpoint,
-		apiKey,
-		url.QueryEscape(query),
-	)
-
-	// 调用 TMDB API
-	resp, err := http.Get(tmdbURL)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "TMDB API 请求失败",
-		})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("TMDB API 返回错误: %d", resp.StatusCode),
-		})
-		return
-	}
-
-	// 解析响应
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "读取响应失败",
-		})
-		return
-	}
-
 	var tmdbResp TMDBApiResponse
-	if err := json.Unmarshal(body, &tmdbResp); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "解析响应失败",
-		})
+	searchEndpoint := fmt.Sprintf("%s?query=%s&page=1", endpoint, url.QueryEscape(query))
+	if !h.fetchTMDB(c, searchEndpoint, &tmdbResp) {
 		return
 	}
 
@@ -176,5 +236,26 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"results": results,
 		"total":   tmdbResp.TotalResults,
+	})
+}
+
+// GetTVSeasons TMDB 剧集季列表 API 代理
+// GET /api/v1/tmdb/tv/:id/seasons
+func (h *TMDBHandler) GetTVSeasons(c *gin.Context) {
+	tvID := c.Param("id")
+	if tvID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "缺少剧集 ID",
+		})
+		return
+	}
+
+	var detail TMDBTVDetailResponse
+	if !h.fetchTMDB(c, fmt.Sprintf("tv/%s", url.PathEscape(tvID)), &detail) {
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": buildTMDBTVSeasonOptions(detail),
 	})
 }

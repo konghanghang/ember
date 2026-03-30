@@ -531,6 +531,7 @@ onMounted(() => {
       title="编辑用户" 
       width="520px"
       align-center
+      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">

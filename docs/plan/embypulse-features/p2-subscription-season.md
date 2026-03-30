@@ -2,7 +2,7 @@
 
 > 状态：草稿
 > 负责人：Ember
-> 更新时间：2026-03-29
+> 更新时间：2026-03-30
 
 ## 功能描述
 
@@ -111,15 +111,14 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 - `MOVIE` 强制置为 `0`
 - `TV` 未传时置为 `0`
 3. 去重逻辑改为 `type + tmdbId + season`
-4. 审批推送 MoviePilot 时（第一版确定策略）：
+4. 审批推送 MoviePilot 时：
 - `season=0` 不传季参数
-- `season>0` 先降级为整剧订阅
+- `season>0` 透传季参数，精确订阅指定季
 
-5. 第一版不扩展 `MoviePilotClient` 请求结构
-- 当前 `SubscribeRequest` 仅支持 `type/name/tmdbid`
-- 第一版仅在 Ember 侧记录 `season`
-- 当 `season>0` 且审批通过时，在 `mpError` 标注“季参数未透传（已降级整剧）”
-- 后续若上游 MoviePilot API 明确支持季参数，再单独升级为透传
+5. 扩展 `MoviePilotClient` 请求结构
+- `SubscribeRequest` 支持 `season`
+- Ember 审批通过时，`season>0` 透传给 MoviePilot，`season=0` 则省略该字段
+- `mpError` 仅用于记录真实的 MoviePilot 调用失败，不再记录人为降级说明
 
 6. 第一版不扩 Telegram/Bot 分季输入
 - Telegram `SubscribeByTelegram` 维持现状
@@ -134,7 +133,7 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
   - `Subscription` 模型
   - `CreateSubscriptionRequest`
   - 去重逻辑
-  - 审批时的 MoviePilot 降级说明
+  - 审批时的 MoviePilot 季参数透传
 - Web：
   - `NewSubscriptionView`
   - `SubscriptionsView`
@@ -155,7 +154,6 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 本次明确不做：
 
 - 不新增独立的“按季订阅”表
-- 不扩 MoviePilot 季参数透传
 - 不扩 Telegram/Bot 分季输入
 - 不做“自动解析第几季”的自然语言识别
 - 不修改现有审批按钮、拒绝按钮与 Bot 通知协议
@@ -171,7 +169,7 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 - [ ] 用户订阅列表能明确展示季号
 - [ ] 管理端订阅列表能明确展示季号（若复用同一数据）
 - [ ] 审批/拒绝流程不受影响
-- [ ] `season>0` 审批后不会阻塞 MoviePilot 调用，但会记录降级说明
+- [ ] `season>0` 审批后会透传 MoviePilot 季参数
 - [ ] SQL migration 可重复执行且不破坏历史数据
 
 **预计工作量**：1-2 天

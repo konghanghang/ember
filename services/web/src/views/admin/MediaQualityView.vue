@@ -409,7 +409,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <el-drawer v-model="detailVisible" size="60%" destroy-on-close>
+    <el-drawer v-model="detailVisible" size="60%" destroy-on-close append-to-body>
       <template #header>
         <div class="text-lg font-bold text-gray-900">
           低画质明细：{{ detailGroup?.name || '-' }}

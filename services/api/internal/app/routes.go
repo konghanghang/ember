@@ -35,6 +35,7 @@ func registerPublicRoutes(api *gin.RouterGroup, h *appHandlers) {
 	api.POST("/webhooks/stripe", h.payment.HandleStripeWebhook)
 	api.POST("/webhooks/emby", h.tvCalendar.HandleEmbyWebhook)
 	api.GET("/tmdb/search", h.tmdb.Search)
+	api.GET("/tmdb/tv/:id/seasons", h.tmdb.GetTVSeasons)
 }
 
 func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {

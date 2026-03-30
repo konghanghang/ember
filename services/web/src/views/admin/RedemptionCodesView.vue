@@ -538,6 +538,7 @@ onMounted(async () => {
       title="生成兑换码"
       width="560px"
       align-center
+      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
@@ -627,6 +628,7 @@ onMounted(async () => {
       title="批量生成结果"
       width="560px"
       align-center
+      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2 space-y-4">
@@ -672,6 +674,7 @@ onMounted(async () => {
       title="编辑兑换码"
       width="480px"
       align-center
+      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">

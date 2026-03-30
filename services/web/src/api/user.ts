@@ -4,7 +4,8 @@ import type {
   RedeemCodeResponse,
   RedemptionCode,
   RedemptionListResponse,
-  TmdbSearchResponse
+  TmdbSearchResponse,
+  TmdbTVSeasonOptionsResponse
 } from '@/types/api'
 
 export function redeemCode(data: RedeemCodeRequest): Promise<RedeemCodeResponse> {
@@ -36,5 +37,12 @@ export function searchTmdb(query: string, type: 'movie' | 'tv'): Promise<TmdbSea
     url: '/tmdb/search',
     method: 'get',
     params: { query, type }
+  })
+}
+
+export function getTmdbTVSeasons(id: number | string): Promise<TmdbTVSeasonOptionsResponse> {
+  return request({
+    url: `/tmdb/tv/${id}/seasons`,
+    method: 'get'
   })
 }

@@ -111,6 +111,30 @@ type SubscribeRequest struct {
 	Type   string `json:"type"`   // "movie" | "tv"
 	Name   string `json:"name"`   // 影视名称
 	TmdbID string `json:"tmdbid"` // TMDB ID（字符串）
+	Season int    `json:"season"` // 季号，0 表示整剧
+}
+
+func buildSubscribeRequestBody(data SubscribeRequest) (map[string]interface{}, error) {
+	tmdbIDInt, err := strconv.Atoi(data.TmdbID)
+	if err != nil {
+		return nil, fmt.Errorf("无效的 TMDB ID: %s", data.TmdbID)
+	}
+
+	typeZh := "电影"
+	if data.Type == "tv" {
+		typeZh = "电视剧"
+	}
+
+	requestBody := map[string]interface{}{
+		"type":   typeZh,
+		"name":   data.Name,
+		"tmdbid": tmdbIDInt,
+	}
+	if data.Season > 0 {
+		requestBody["season"] = data.Season
+	}
+
+	return requestBody, nil
 }
 
 // CreateSubscription 创建订阅
@@ -127,23 +151,10 @@ func (c *MoviePilotClient) CreateSubscription(data SubscribeRequest) error {
 		return err
 	}
 
-	// 2. 转换 TMDB ID 为整数
-	tmdbIDInt, err := strconv.Atoi(data.TmdbID)
+	// 2. 构建请求体
+	requestBody, err := buildSubscribeRequestBody(data)
 	if err != nil {
-		return fmt.Errorf("无效的 TMDB ID: %s", data.TmdbID)
-	}
-
-	// 3. 转换类型为中文（MoviePilot 要求）
-	typeZh := "电影"
-	if data.Type == "tv" {
-		typeZh = "电视剧"
-	}
-
-	// 4. 构建请求体
-	requestBody := map[string]interface{}{
-		"type":   typeZh,
-		"name":   data.Name,
-		"tmdbid": tmdbIDInt,
+		return err
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -151,7 +162,7 @@ func (c *MoviePilotClient) CreateSubscription(data SubscribeRequest) error {
 		return fmt.Errorf("构建请求失败: %w", err)
 	}
 
-	// 5. 发送订阅请求
+	// 3. 发送订阅请求
 	req, err := http.NewRequest("POST", c.baseURL+"/api/v1/subscribe/", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("创建请求失败: %w", err)

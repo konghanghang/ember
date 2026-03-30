@@ -118,7 +118,7 @@ services/
 │     │  ├─ media.go             # 媒体信息
 │     │  ├─ media_quality.go     # 媒体质量盘点
 │     │  ├─ subscription.go      # 订阅管理
-│     │  ├─ tmdb.go              # TMDB 搜索
+│     │  ├─ tmdb.go              # TMDB 搜索 / 剧集季列表
 │     │  ├─ ranking.go           # 播放排行
 │     │  ├─ session.go           # 活跃会话
 │     │  ├─ playback_history.go  # 播放历史
@@ -615,7 +615,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
 - `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 火忘式通知 Bot；按 `type + tmdbId + season` 去重
-- `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError；`season>0` 第一版降级为整剧推送并记录说明）
+- `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError；`season>0` 时透传季号，`season=0` 不传季参数）
 - `RejectSubscription(id)` — 设为 REJECTED
 
 ### 5.10 DeviceService (`services/device.go`)
@@ -803,6 +803,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
 | POST | `/api/v1/webhooks/emby?token=` | Emby 入库 Webhook（追剧日历） |
 | GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索 |
+| GET | `/api/v1/tmdb/tv/:id/seasons` | TMDB 剧集季列表 |
 
 ### 统一认证路由（admin + user 共享，需 JWT）
 

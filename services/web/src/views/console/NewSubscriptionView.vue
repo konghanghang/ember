@@ -2,8 +2,8 @@
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Film, VideoPlay, Plus, Close, Check } from '@element-plus/icons-vue'
-import { searchTmdb } from '@/api/user'
+import { Search, Film, VideoPlay, Plus, Check, RefreshRight } from '@element-plus/icons-vue'
+import { getTmdbTVSeasons, searchTmdb } from '@/api/user'
 import { createSubscription } from '@/api/console'
 import type { CreateSubscriptionRequest, MediaType, TmdbSearchItem } from '@/types/api'
 
@@ -17,11 +17,15 @@ const hasSearched = ref(false)
 // Selection State
 const selectedItem = ref<TmdbSearchItem | null>(null)
 const subscriptionForm = ref({
-  season: 0,
+  season: null as number | null,
   note: ''
 })
+const seasonOptions = ref<Array<{ label: string; value: number }>>([])
+const seasonOptionsLoading = ref(false)
+const seasonOptionsError = ref('')
 const submitting = ref(false)
 const showConfirmDialog = ref(false)
+let seasonRequestToken = 0
 
 // Debounce search
 let timeout: ReturnType<typeof setTimeout>
@@ -56,11 +60,64 @@ watch(searchType, () => {
   if (searchQuery.value) handleSearch()
 })
 
-const selectItem = (item: TmdbSearchItem) => {
+watch(showConfirmDialog, (visible) => {
+  if (visible) return
+
+  seasonRequestToken++
+  selectedItem.value = null
+  resetSeasonOptions()
+})
+
+const resetSeasonOptions = () => {
+  subscriptionForm.value.season = null
+  seasonOptions.value = []
+  seasonOptionsError.value = ''
+  seasonOptionsLoading.value = false
+}
+
+const loadSeasonOptions = async (item: TmdbSearchItem) => {
+  const requestToken = ++seasonRequestToken
+  seasonOptionsLoading.value = true
+  seasonOptionsError.value = ''
+
+  try {
+    const res = await getTmdbTVSeasons(item.id)
+    if (requestToken != seasonRequestToken) return
+
+    const seasons = Array.isArray(res.data?.seasons) ? res.data.seasons : []
+    seasonOptions.value = seasons.map((season) => ({
+      label: `第 ${season} 季`,
+      value: season
+    }))
+    if (seasonOptions.value.length === 0) {
+      seasonOptionsError.value = 'TMDB 没有返回可选季列表，当前无法按季提交。'
+      return
+    }
+    if (subscriptionForm.value.season == null) {
+      subscriptionForm.value.season = seasons.includes(1) ? 1 : seasons[0]
+    }
+  } catch (error) {
+    if (requestToken != seasonRequestToken) return
+    subscriptionForm.value.season = null
+    seasonOptions.value = []
+    seasonOptionsError.value = '季列表加载失败，可重试后选择具体季数。'
+  } finally {
+    if (requestToken == seasonRequestToken) {
+      seasonOptionsLoading.value = false
+    }
+  }
+}
+
+const selectItem = async (item: TmdbSearchItem) => {
   selectedItem.value = item
   subscriptionForm.value.season = 0
   subscriptionForm.value.note = ''
+  resetSeasonOptions()
   showConfirmDialog.value = true
+
+  if (searchType.value === 'TV') {
+    await loadSeasonOptions(item)
+  }
 }
 
 const confirmSubscription = async () => {
@@ -72,7 +129,7 @@ const confirmSubscription = async () => {
       type: searchType.value,
       name: selectedItem.value.title,
       tmdbId: selectedItem.value.id.toString(),
-      season: searchType.value === 'TV' ? subscriptionForm.value.season : 0,
+      season: searchType.value === 'TV' ? (subscriptionForm.value.season ?? undefined) : 0,
       posterPath: selectedItem.value.posterPath,
       note: subscriptionForm.value.note
     }
@@ -90,6 +147,17 @@ const confirmSubscription = async () => {
 
 const getImageUrl = (path?: string) => {
   return path ? `https://image.tmdb.org/t/p/w500${path}` : 'https://via.placeholder.com/500x750?text=No+Poster'
+}
+
+const retryLoadSeasonOptions = async () => {
+  if (!selectedItem.value || searchType.value !== 'TV') return
+  await loadSeasonOptions(selectedItem.value)
+}
+
+const isConfirmDisabled = () => {
+  if (submitting.value) return true
+  if (searchType.value !== 'TV') return false
+  return seasonOptionsLoading.value || subscriptionForm.value.season == null
 }
 </script>
 
@@ -201,39 +269,61 @@ const getImageUrl = (path?: string) => {
     <el-dialog
       v-model="showConfirmDialog"
       title="确认订阅"
-      width="500px"
+      width="min(780px, calc(100vw - 2rem))"
       align-center
+      append-to-body
       class="rounded-2xl overflow-hidden"
       :show-close="false"
     >
-      <div v-if="selectedItem" class="flex gap-6">
-        <div class="w-32 aspect-[2/3] flex-shrink-0 rounded-lg overflow-hidden shadow-md bg-gray-100 relative">
-          <img :src="getImageUrl(selectedItem.posterPath)" class="w-full h-full object-cover absolute inset-0" />
+      <div v-if="selectedItem" class="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+        <div class="mx-auto w-44 flex-shrink-0 sm:mx-0 sm:w-48 md:w-52">
+          <img :src="getImageUrl(selectedItem.posterPath)" class="block w-full rounded-xl bg-gray-100 shadow-md" />
         </div>
-        <div class="flex-1 space-y-4">
+        <div class="min-w-0 flex-1 space-y-4">
           <div>
-            <h3 class="text-xl font-bold text-gray-900">{{ selectedItem.title }}</h3>
+            <h3 class="text-xl font-bold leading-tight text-gray-900 md:text-[1.75rem]">{{ selectedItem.title }}</h3>
             <p class="text-sm text-gray-500 mt-1">
               {{ selectedItem.releaseDate }} · {{ searchType === 'MOVIE' ? '电影' : '剧集' }}
             </p>
           </div>
           
-          <div class="text-sm text-gray-600 line-clamp-3 bg-gray-50 p-3 rounded-lg border border-gray-100">
+          <div class="rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm leading-6 text-gray-600 sm:line-clamp-4">
             {{ selectedItem.overview || '暂无简介' }}
           </div>
 
           <div>
             <div v-if="searchType === 'TV'" class="mb-4">
               <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block">季数</label>
-              <div class="flex items-center gap-3">
-                <el-input-number
-                  v-model="subscriptionForm.season"
-                  :min="0"
-                  :step="1"
-                  controls-position="right"
-                  class="input-ember !w-36"
-                />
-                <p class="text-xs text-gray-500">填 `0` 表示整剧，填 `1+` 表示指定季。</p>
+              <div class="space-y-2">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <el-select
+                    v-model="subscriptionForm.season"
+                    class="season-select !w-full sm:!w-52"
+                    :disabled="seasonOptionsLoading"
+                    :loading="seasonOptionsLoading"
+                    placeholder="选择季数"
+                  >
+                    <el-option
+                      v-for="option in seasonOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                  <button
+                    v-if="seasonOptionsError"
+                    type="button"
+                    class="px-3 py-2 text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+                    @click="retryLoadSeasonOptions"
+                  >
+                    <span class="inline-flex items-center gap-1.5">
+                      <el-icon><RefreshRight /></el-icon>
+                      重试
+                    </span>
+                  </button>
+                </div>
+                <p v-if="seasonOptionsLoading" class="text-xs text-gray-500">正在读取 TMDB 季列表...</p>
+                <p v-else-if="seasonOptionsError" class="text-xs text-amber-600">{{ seasonOptionsError }}</p>
               </div>
             </div>
 
@@ -241,7 +331,7 @@ const getImageUrl = (path?: string) => {
             <el-input
               v-model="subscriptionForm.note"
               type="textarea"
-              :rows="2"
+              :rows="3"
               placeholder="例如：希望能尽快下载，或者指定版本"
               class="input-ember"
             />
@@ -249,7 +339,7 @@ const getImageUrl = (path?: string) => {
         </div>
       </div>
       <template #footer>
-        <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+        <div class="flex flex-col-reverse gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
           <button 
             @click="showConfirmDialog = false" 
             class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
@@ -258,7 +348,7 @@ const getImageUrl = (path?: string) => {
           </button>
           <button 
             @click="confirmSubscription" 
-            :disabled="submitting"
+            :disabled="isConfirmDisabled()"
             class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >
             <span v-if="submitting" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
@@ -304,6 +394,31 @@ const getImageUrl = (path?: string) => {
 
 :deep(.el-dialog__footer) {
   padding: 0 24px 24px;
+}
+
+:deep(.season-select .el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.season-select .el-select__wrapper:hover) {
+  background-color: #ffffff;
+}
+
+:deep(.season-select .el-select__wrapper.is-focused),
+:deep(.season-select .el-select__wrapper.is-focus),
+:deep(.season-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.season-select .el-select__selection) {
+  min-height: 0;
 }
 
 :deep(.el-textarea__inner) {

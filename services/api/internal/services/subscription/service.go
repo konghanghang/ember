@@ -298,10 +298,6 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 
 	// 调用 MoviePilot API（失败时记录错误但不回滚状态）
 	var mpError *string
-	if subscription.Season > 0 {
-		errMsg := fmt.Sprintf("季参数未透传（已降级整剧），season=%d", subscription.Season)
-		mpError = &errMsg
-	}
 	if s.moviepilot.IsConfigured() {
 		// 转换 MediaType 为 MoviePilot 格式
 		mpType := "movie"
@@ -313,6 +309,7 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 			Type:   mpType,
 			Name:   subscription.Name,
 			TmdbID: subscription.TmdbID,
+			Season: subscription.Season,
 		})
 
 		if err != nil {

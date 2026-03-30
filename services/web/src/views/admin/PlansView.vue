@@ -322,7 +322,7 @@ onMounted(fetchData)
       </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" title="新建付费方案" width="520px" align-center>
+    <el-dialog v-model="dialogVisible" title="新建付费方案" width="520px" align-center append-to-body>
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="方案名称">
@@ -378,7 +378,7 @@ onMounted(fetchData)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑付费方案" width="520px" align-center>
+    <el-dialog v-model="editDialogVisible" title="编辑付费方案" width="520px" align-center append-to-body>
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="方案名称">

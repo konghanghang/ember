@@ -459,6 +459,17 @@ export interface CreateSubscriptionRequest {
   note?: string
 }
 
+export interface TmdbTVSeasonOptions {
+  id: number
+  name: string
+  numberOfSeasons: number
+  seasons: number[]
+}
+
+export interface TmdbTVSeasonOptionsResponse {
+  data: TmdbTVSeasonOptions
+}
+
 export type TVCalendarStatus = 'ready' | 'missing' | 'upcoming' | 'today'
 export type TVCalendarWeekOffset = -1 | 0 | 1
 
