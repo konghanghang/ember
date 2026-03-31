@@ -11,7 +11,7 @@
 
 ---
 
-## 📊 进度状态（更新于 2026-03-28）
+## 📊 进度状态（更新于 2026-03-31）
 
 - [x] P0-1 追剧日历（TV Calendar，已归档）
 - [x] P0-2 客户端设备管理（Client Device Management，已归档）
@@ -19,7 +19,7 @@
 - [x] P1-1 媒体库质量盘点（Media Quality Insight，已归档）
 - [x] P1-2 播放历史查询（Playback History，已归档）
 - [x] P1-3 用户画像（User Profile Analytics，已归档）
-- [ ] P2-1 求片分季支持（Subscription Season Support）
+- [x] P2-1 求片分季支持（Subscription Season Support，已归档）
 - [x] P2-2 用户头像管理（User Avatar Management，已归档）
 - [x] P2-3 媒体库列表查询（Library List，已归档）
 - [x] P2-4 兑换码备注字段（Redemption Code Notes，已归档）
@@ -69,12 +69,9 @@
 
 ### P2（可选）
 
-待实施：
-
-7. [求片分季支持（Subscription Season Support）](./p2-subscription-season.md)
-
 已归档：
 
+7. [求片分季支持（Subscription Season Support）](../../archive/plan/embypulse-features/p2-subscription-season.md)
 8. [用户头像管理（User Avatar Management）](../../archive/plan/embypulse-features/p2-user-avatar.md)
 9. [媒体库列表查询（Library List）](../../archive/plan/embypulse-features/p2-library-list.md)
 10. [兑换码备注字段（Redemption Code Notes）](../../archive/plan/embypulse-features/p2-code-notes.md)
@@ -109,7 +106,7 @@
 4. **迁移方式偏差**：当前项目无 `cmd/migrate`，需按现有迁移机制扩展
 5. **路由冲突风险**：Gin 中静态路由与参数路由同层注册顺序不当会冲突（如 `/users/:id` 与 `/users/templates`）
 6. **索引迁移风险**：求片分季需显式迁移旧唯一索引，否则新去重语义不会生效
-7. **上游能力边界**：分季推送第一版采用“降级整剧订阅”策略，并记录 `mpError`
+7. **交互一致性**：Web 与 Telegram Bot 现在都支持按季订阅，后续调整不能再把电视剧退回整剧默认流
 
 ---
 
@@ -118,8 +115,7 @@
 ```
 docs/plan/embypulse-features/
 ├── README.md
-├── p2-subscription-season.md
-└── p2-user-avatar.md
+└── （当前无进行中的 P2 子项）
 
 docs/archive/plan/embypulse-features/
 ├── p0-device-management.md
@@ -128,6 +124,7 @@ docs/archive/plan/embypulse-features/
 ├── p1-media-quality.md
 ├── p1-playback-history.md
 ├── p1-user-profile.md
+├── p2-subscription-season.md
 ├── p2-user-avatar.md
 ├── p2-library-list.md
 └── p2-code-notes.md

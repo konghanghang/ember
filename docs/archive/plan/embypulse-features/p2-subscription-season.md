@@ -1,14 +1,33 @@
 # P2-1: 求片分季支持（Subscription Season Support）
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-03-30
+> 更新时间：2026-03-31
 
 ## 功能描述
 
 支持电视剧按季求片，例如“权力的游戏 第 3 季”。
 
 **优先级**：P2
+
+## 当前状态
+
+已完成项：
+
+- Web 新建订阅页已改为 TMDB 季列表下拉，只允许选择真实存在的季，默认第一季
+- API 已完成 `season` 落库、按季去重、审批透传 MoviePilot 季参数
+- SQL migration 已补齐并入库
+- Telegram Bot 已支持电视剧先选季再确认订阅，电影维持直接确认订阅
+- `docs/system-architecture.md` 与 Bot 公开文档已同步
+
+剩余项：
+
+- 本文档收尾后可移入 `docs/archive/`
+
+归档条件：
+
+- 本文档状态、验证清单与当前实现保持一致
+- 无新增第二阶段改动继续依赖本计划正文
 
 ---
 
@@ -57,7 +76,7 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 ## API 端点设计
 
 沿用现有创建接口：`POST /api/v1/subscriptions`  
-第一版同时扩展内部结构，但不新增独立 endpoint。
+本次扩展请求体，但不新增独立订阅创建 endpoint。
 
 ```json
 {
@@ -86,11 +105,12 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 
 ## 前端改动范围
 
-第一版前端必须改两处：
+本次前端实际改动两处：
 
 1. 新建订阅页 `NewSubscriptionView`
-- 仅当 `type=TV` 时展示“季数”输入
-- 默认值为 `0`（整剧）
+- 仅当 `type=TV` 时展示“季数”选择
+- 调用 TMDB 剧集季列表接口，只展示可选季数
+- 默认选择第 1 季；若 TMDB 未返回第 1 季，则落到第一个有效季数
 - 电影不展示该输入，提交时固定 `season=0`
 
 2. 订阅列表页 `SubscriptionsView`
@@ -104,7 +124,7 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 
 ---
 
-## 核心实现建议
+## 实际实现结论
 
 1. 扩展 `CreateSubscriptionRequest`，新增 `season` 可选字段
 2. 在 service 层统一规范化 `season`
@@ -162,14 +182,27 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 
 ## 验证清单
 
-- [ ] 同剧不同季可分别提交
-- [ ] 同剧同季重复提交被拦截
-- [ ] 未传季数时行为与当前一致
-- [ ] `MOVIE` 提交时始终落为 `season=0`
-- [ ] 用户订阅列表能明确展示季号
-- [ ] 管理端订阅列表能明确展示季号（若复用同一数据）
-- [ ] 审批/拒绝流程不受影响
-- [ ] `season>0` 审批后会透传 MoviePilot 季参数
-- [ ] SQL migration 可重复执行且不破坏历史数据
+- [x] 同剧不同季可分别提交
+- [x] 同剧同季重复提交被拦截
+- [x] 未传季数时行为与当前一致
+- [x] `MOVIE` 提交时始终落为 `season=0`
+- [x] 用户订阅列表能明确展示季号
+- [x] 管理端订阅列表能明确展示季号（若复用同一数据）
+- [x] 审批/拒绝流程不受影响
+- [x] `season>0` 审批后会透传 MoviePilot 季参数
+- [x] SQL migration 可重复执行且不破坏历史数据
+
+已执行验证：
+
+- `cd services/api && env GOCACHE=/tmp/ember-go-build go test ./internal/integrations/moviepilot ./internal/services/subscription ./internal/services/telegram ./internal/handlers`
+- `cd services/api && env GOCACHE=/tmp/ember-go-build go build ./...`
+- `cd services/web && npm run build`
+- `cd /Users/konghang/data/github/ember && env PYTHONPYCACHEPREFIX=/tmp/ember-pycache python3.11 -m py_compile services/bot/main.py services/bot/app/server.py services/bot/app/handlers/telegram_handler.py services/bot/app/handlers/search_cache.py services/bot/app/formatters/message_formatter.py services/bot/app/clients/api_client.py`
+
+## 落地后文档处理
+
+- `docs/system-architecture.md` 已同步当前行为，可作为稳定事实来源
+- `docs/public/features/telegram-bot.md` 已同步 Bot 搜索订阅交互
+- 本文档下一步应移入 `docs/archive/`，避免继续以进行中计划形式误导
 
 **预计工作量**：1-2 天

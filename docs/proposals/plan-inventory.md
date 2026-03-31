@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-03-29
+> 更新时间：2026-03-31
 
 本清单只回答三件事：
 
@@ -42,6 +42,7 @@
 | `embypulse-features/p0-tv-calendar.md` | 已落地 | `TVCalendarService`、全局/关注周历、同步与 webhook 就绪标记、`TVCalendarView.vue` | 已提炼后归档到 `docs/archive/plan/embypulse-features/` |
 | `embypulse-features/p1-media-quality.md` | 已落地 | 媒体库列表、质量报告、明细接口、`MediaQualityView.vue` | 已归档到 `docs/archive/plan/embypulse-features/` |
 | `embypulse-features/p1-playback-history.md` | 已落地 | `PlaybackHistoryService`、管理端播放历史路由与页面 | 已归档到 `docs/archive/plan/embypulse-features/` |
+| `embypulse-features/p2-subscription-season.md` | 已落地 | `Subscription.season` 字段、Web 分季选择、MoviePilot `season` 透传、Bot 先选季再确认 | 已归档到 `docs/archive/plan/embypulse-features/` |
 | `embypulse-features/p2-user-avatar.md` | 已落地 | `DefaultAvatar.vue`、Dashboard / Account Center / TopBar / Sidebar / UsersView 已统一接入默认头像组件 | 已归档到 `docs/archive/plan/embypulse-features/` |
 
 ## B. 已有明显产出，但更像持续治理，不急着归档
@@ -56,7 +57,7 @@
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
-| `embypulse-features/p2-subscription-season.md` | 未落地 | `Subscription` 模型当前没有 `season` 字段 | 继续保留 |
+| 当前无 | - | `embypulse-features` 子目录中的功能型计划已全部收口或归档 | 继续维护索引文档即可 |
 
 ## D. 本轮新增归档记录
 
@@ -77,7 +78,6 @@
 归档后，`docs/plan/` 当前剩余重点为：
 
 - 规划索引：`embypulse-features/README.md`
-- 尚未落地的 P2 条目：`p2-subscription-season.md`
 
 ## E. 归档前提炼原则
 
@@ -101,4 +101,4 @@
 
 1. 持续治理类文档的边界还不够清楚，后续应决定转入 `docs/proposals/`、`docs/reference/` 还是归档
 2. `embypulse-features/README.md` 这类索引文档必须跟随子项状态同步，不能再次过时
-3. 剩余 P2 计划应继续保留为未落地方案，不要过早归档
+3. 盘点清单本身也需要随归档动作同步更新，避免“正文已归档、索引仍显示未落地”的信息漂移
