@@ -14,7 +14,7 @@
 
 对应计划文档：
 
-- `docs/plan/embypulse-features/p2-code-notes.md`
+- `docs/archive/plan/billing-redemption/p2-code-notes.md`
 
 ## 为什么选这个任务做多 Agent 演示
 

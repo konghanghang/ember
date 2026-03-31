@@ -438,7 +438,7 @@ type User struct {
 - [ ] 更新 API 调用代码
 
 ### 文档更新
-- [ ] 更新 `docs/archive/api-reference.md`
+- [ ] 更新 `docs/archive/reference/api-reference.md`
 - [ ] 添加请求/响应示例
 - [ ] 说明必需参数和可选参数
 
@@ -473,7 +473,7 @@ curl -s http://localhost:8080/api/v1/admin/users \
 - [Microsoft REST API Guidelines](https://github.com/microsoft/api-guidelines)
 
 ### 内部文档
-- [旧版 API 参考](../archive/api-reference.md) - 历史接口文档，仅供追溯
+- [旧版 API 参考](../archive/reference/api-reference.md) - 历史接口文档，仅供追溯
 - [开发指南](./development-guide.md) - 当前开发入口
 
 ---

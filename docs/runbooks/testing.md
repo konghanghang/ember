@@ -52,7 +52,7 @@ python -m py_compile main.py
 
 现行指南不再内嵌历史报告。需要追溯旧测试结论时，去看：
 
-- [历史测试报告：2025-12-07](../archive/test-reports/2025-12-07-mvp-core-testing.md)
+- [历史测试报告：2025-12-07](../archive/report/test/2025-12-07-mvp-core-testing.md)
 
 ## 常见误区
 

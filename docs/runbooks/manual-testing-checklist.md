@@ -133,4 +133,4 @@
 
 - [测试指南](./testing.md)
 - [测试排障](./testing-troubleshooting.md)
-- [历史测试报告：2025-12-07](../archive/test-reports/2025-12-07-mvp-core-testing.md)
+- [历史测试报告：2025-12-07](../archive/report/test/2025-12-07-mvp-core-testing.md)
