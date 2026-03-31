@@ -232,9 +232,28 @@
 
 ## 文档规则
 
+### 文档归档与目录调整
+
+凡是涉及以下操作，开始修改前必须先阅读 [docs/reference/archive-governance.md](docs/reference/archive-governance.md)：
+
+- 归档 `docs/plan/`、`docs/proposals/`、`docs/reference/` 下的文档
+- 调整 `docs/archive/` 目录结构
+- 批量移动文档或重命名文档文件
+- 修改文档索引、README、盘点清单、交叉引用路径
+
+执行要求：
+
+1. `docs/archive/` 先按文档类型分类，再按职责边界分类；禁止再创建按历史来源命名的目录。
+2. 归档动作不只移动正文，必须同步更新 README、盘点文档和所有直接引用旧路径的文档。
+3. 计划文档归档前，必须先收口状态、当前事实和验证清单；未收口时不算完成。
+4. 文件名统一使用小写 `kebab-case`；发现历史大写文件名时，归档迁移应一并规范化。
+
 ### 计划文档
 
 - 新计划文档默认放在 `docs/plan/`
+- 新计划文档默认按职责边界放入 `docs/plan/` 子目录，不再默认平铺根目录
+- `docs/plan/` 根目录只保留入口和模板，例如 `README.md`、`plan-template.md`
+- 计划目录归类规则看 [docs/reference/plan-directory-governance.md](docs/reference/plan-directory-governance.md)
 - 文件名使用英文小写 `kebab-case`
 - AI 新建或更新计划/提案类文档时，`负责人` 统一写 `Ember`
 - 文档治理、盘点、重构策略、流程提案放 `docs/proposals/`

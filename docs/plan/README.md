@@ -8,6 +8,26 @@
 - 重要功能重构方案
 - 需要明确接口、数据结构、行为边界的实施稿
 
+## 目录规则
+
+`docs/plan/` 根目录只保留入口和模板：
+
+- `README.md`
+- `plan-template.md`
+
+新增计划文档默认按职责边界落位，不再平铺在根目录。
+
+当前标准目录为：
+
+- `docs/plan/access-auth/`
+- `docs/plan/billing-redemption/`
+- `docs/plan/media-subscription/`
+- `docs/plan/bot-telegram/`
+- `docs/plan/console-admin/`
+- `docs/plan/architecture/`
+
+具体归类规则见 [docs/reference/plan-directory-governance.md](../reference/plan-directory-governance.md)。
+
 ## 不该放这里的内容
 
 - 文档治理、盘点、重构策略：放 `docs/proposals/`
@@ -24,3 +44,4 @@
 - 写清接口、数据结构、用户可见行为
 - 不贴大段实现代码
 - 不写“先这样后面再说”的空话
+- 新文档创建前，先判断主链路属于哪个职责目录；不要默认直接放在 `docs/plan/` 根目录
