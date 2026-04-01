@@ -73,16 +73,28 @@ git push origin v1.0.0
 
 - 三个镜像工作流推送正式镜像
 - `create-release.yml` 创建一个 Draft Release
+- Release Notes 会基于上一个 Tag 到当前 Tag 的改动自动生成摘要
 
 ## 发布后要做什么
 
 1. 打开 GitHub Releases
 2. 找到刚创建的 Draft Release
-3. 补充 Release Notes
+3. 重点核对自动生成的 Release Notes，尤其是升级说明
 4. 检查镜像标签和升级说明
 5. 手动点击发布
 
 如果你不发布 Draft，它就只是个草稿，不是正式对外版本。
+
+## 自动发布日志怎么生成
+
+当前发布日志不再只是生硬地列 commit。工作流会调用 `.github/scripts/generate_release_notes.py`，按下面的规则收口：
+
+- 优先提取 `feat`、`fix`、`refactor` 中真正影响用户或运维的改动
+- 自动过滤 `docs/archive`、计划归档、协作规则这类文档噪音
+- 检测 `infrastructure/database/*.sql`，自动写入 migration 升级提醒
+- 检测 Bot 更新模式和关键配置边界变更，自动补到升级说明
+
+这套规则的目标不是“完全替代人工判断”，而是把 Draft Release 提升到“默认可用，只需要核对”的状态。
 
 ## 推荐节奏
 

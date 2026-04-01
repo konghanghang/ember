@@ -35,6 +35,11 @@ jobs:
             echo "✅ This is a stable release"
           fi
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Get previous tag
         id: previoustag
         run: |
@@ -51,81 +56,24 @@ jobs:
             echo "📌 Previous tag: ${PREV_TAG}"
           fi
 
-      - name: Generate changelog template
+      - name: Generate release notes
         id: changelog
         run: |
           VERSION=${{ steps.version.outputs.version }}
           PREV_TAG=${{ steps.previoustag.outputs.tag }}
-          HAS_PREVIOUS=${{ steps.previoustag.outputs.has_previous }}
 
-          # 生成 changelog 模板
-          echo "## 本次更新" > /tmp/release_notes.md
-          echo "" >> /tmp/release_notes.md
-          echo "<!-- 请根据以下 commits 编写更新内容 -->" >> /tmp/release_notes.md
-          echo "" >> /tmp/release_notes.md
-
-          # 获取 commit 列表供参考
-          echo "### Commits:" >> /tmp/release_notes.md
-          echo "" >> /tmp/release_notes.md
-          if [ "$HAS_PREVIOUS" = "true" ]; then
-            git log "${PREV_TAG}..HEAD" --pretty=format:"- [%h](https://github.com/${{ github.repository }}/commit/%H) %s" --reverse >> /tmp/release_notes.md
-            UPGRADE_TITLE="### 从 ${PREV_TAG} 升级"
-            FULL_CHANGELOG="**Full Changelog**: [${PREV_TAG}...${VERSION}](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${VERSION})"
+          if [ -n "$PREV_TAG" ]; then
+            python3 .github/scripts/generate_release_notes.py \
+              --current-tag "$VERSION" \
+              --previous-tag "$PREV_TAG" \
+              --repo "${{ github.repository }}" \
+              --output /tmp/release_notes.md
           else
-            git log --pretty=format:"- [%h](https://github.com/${{ github.repository }}/commit/%H) %s" --reverse >> /tmp/release_notes.md
-            UPGRADE_TITLE="### 首次发布安装"
-            FULL_CHANGELOG="**Full Changelog**: 首次发布，无历史版本对比。"
+            python3 .github/scripts/generate_release_notes.py \
+              --current-tag "$VERSION" \
+              --repo "${{ github.repository }}" \
+              --output /tmp/release_notes.md
           fi
-
-          echo "" >> /tmp/release_notes.md
-          echo "" >> /tmp/release_notes.md
-
-          # 添加额外信息
-          cat >> /tmp/release_notes.md <<EOF
-          ---
-
-          ## 📦 Docker 镜像
-
-          本版本的 Docker 镜像已自动构建并推送到 GitHub Container Registry：
-
-          \`\`\`bash
-          # API 服务
-          docker pull ghcr.io/${{ github.repository_owner }}/ember-api:${VERSION}
-
-          # Web 服务
-          docker pull ghcr.io/${{ github.repository_owner }}/ember-web:${VERSION}
-
-          # Bot 服务
-          docker pull ghcr.io/${{ github.repository_owner }}/ember-bot:${VERSION}
-          \`\`\`
-
-          ## 🔄 升级说明
-
-          ${UPGRADE_TITLE}
-
-          \`\`\`bash
-          # 1. 拉取新镜像
-          docker pull ghcr.io/${{ github.repository_owner }}/ember-api:${VERSION}
-          docker pull ghcr.io/${{ github.repository_owner }}/ember-web:${VERSION}
-          docker pull ghcr.io/${{ github.repository_owner }}/ember-bot:${VERSION}
-
-          # 2. 更新 docker-compose.yml 中的版本号
-          # 修改镜像 tag 为 ${VERSION}
-
-          # 3. 重启服务
-          docker compose -f infrastructure/docker/docker-compose.yml down
-          docker compose -f infrastructure/docker/docker-compose.yml up -d
-          \`\`\`
-
-          ## 📝 文档
-
-          - [项目 README](https://github.com/${{ github.repository }}/blob/${VERSION}/README.md)
-          - [系统架构文档](https://github.com/${{ github.repository }}/blob/${VERSION}/docs/system-architecture.md)
-
-          ---
-
-          ${FULL_CHANGELOG}
-          EOF
 
       - name: Create Draft Release with GitHub CLI
         env:
@@ -155,11 +103,11 @@ jobs:
           echo "**版本**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "**类型**: $([ "$PRERELEASE" = "true" ] && echo "预发布版本" || echo "稳定版本")" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**⚠️ 注意**: Release 已创建为草稿状态，请手动编辑后发布" >> $GITHUB_STEP_SUMMARY
+          echo "**⚠️ 注意**: Release 已创建为草稿状态，请重点核对自动生成的升级说明后再发布" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Release 链接**: https://github.com/${{ github.repository }}/releases/tag/${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**下一步**:" >> $GITHUB_STEP_SUMMARY
           echo "1. 访问上面的链接" >> $GITHUB_STEP_SUMMARY
-          echo "2. 编辑 Release Notes（参考 Commits 列表）" >> $GITHUB_STEP_SUMMARY
+          echo "2. 核对自动生成的 Release Notes，尤其是升级说明" >> $GITHUB_STEP_SUMMARY
           echo "3. 点击 'Publish release' 发布" >> $GITHUB_STEP_SUMMARY
