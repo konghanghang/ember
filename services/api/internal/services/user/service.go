@@ -8,6 +8,7 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 )
 
 type emailVerifier interface {
@@ -95,6 +96,11 @@ func (s *UserService) getEmailVerifier() emailVerifier {
 
 var ErrInvalidExpiresAfter = errors.New("expiresAfter 必须是 YYYY-MM-DD 格式")
 var ErrInvalidEmbyStatus = errors.New("embyStatus 仅支持 available/disabled/unlinked")
+var ErrInvalidPlanGroup = paymentpkg.ErrPlanGroupInvalid
+
+func normalizePlanGroupStrict(raw string) (string, error) {
+	return paymentpkg.NormalizePlanGroupKey(raw, false)
+}
 
 func isUserExpired(expiresAt *time.Time) bool {
 	if expiresAt == nil {

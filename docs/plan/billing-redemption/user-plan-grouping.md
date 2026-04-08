@@ -1,41 +1,44 @@
 # 用户套餐分组实现方案
 
-> 状态：草稿
+> 状态：进行中
 > 负责人：Ember
-> 更新时间：2026-04-06
+> 更新时间：2026-04-08
 
 ## 背景
 
-当前续费中心对所有登录用户展示同一批套餐，无法实现“部分用户看 A 类套餐，另一部分用户看 B 类套餐”的定向售卖。
+当前代码虽然已经给 `users` / `plans` 增加了 `planGroup`，也补了支付链路上的分组隔离，但本质上还是把套餐分组写死在代码和初始化里，而不是做成正式可管理的实体。
 
-现在已经明确的业务需求是：
+这有三个问题：
 
-- 用户按“直绑”方式归属某个套餐组
-- 套餐分为 A / B 两组
-- A/B 两组完全隔离
-- 两组套餐结构相同，主要是价格不同
-- 支付链路继续复用现有 Stripe Checkout
+- 分组不是实体，后台不能创建、命名、排序或删除分组，后续再加新组就得继续改代码和迁移
+- “默认分组”不存在，用户只能被硬绑到某个值；一旦希望一批用户跟随默认分组切换，就只能批量改用户数据
+- 现有支付隔离是建立在硬编码分组值上的，功能能跑，但边界不稳，后续扩展会继续返工
 
-如果不做这层分组，后台只能维护一套统一价格，无法按用户分层运营；如果只在前端隐藏而不改后端校验，用户仍可能越权购买不属于自己的套餐。
+现在需要把它收口成正式的“套餐分组管理”能力：
+
+- 先创建套餐分组，再把套餐分配到某个分组
+- 用户可以显式关联分组，也可以不关联
+- 用户未显式关联时，系统按“默认分组”决定其可见/可购套餐
+- 支付链路继续沿用现有 Stripe Checkout，但必须改按“有效分组”校验
 
 ## 目标
 
 本方案要实现：
 
-1. 支持用户归属 A / B 套餐组
-2. 支持套餐归属 A / B 套餐组
-3. 用户续费中心只展示自己所属组的套餐
-4. 后端 checkout 阶段拒绝购买其他组套餐
-5. 后台支持维护用户套餐组和套餐套餐组
+1. 新增可管理的 `plan_groups` 实体，后台支持创建、编辑、删除、设置默认分组
+2. 套餐改为绑定已有分组，不再写死固定分组值
+3. 用户支持“显式绑定分组”或“跟随默认分组”两种模式
+4. 续费中心、checkout、webhook 履约统一按用户“有效分组”工作
+5. 默认分组切换时，不需要批量改所有跟随默认的用户数据
 
 ## 非目标
 
 本次明确不做：
 
-- 不重构为多支付 provider 架构
-- 不做套餐模板表、价格版本表、区域价格规则引擎
-- 不改 Stripe webhook 和支付履约主链路
-- 不做自动分组规则，本次只支持管理员按用户直绑
+- 不做自动分组规则（如按渠道、注册来源、标签自动分配）
+- 不做分组级价格模板、区域价格规则引擎
+- 不做多支付 provider 抽象
+- 不做用户分组批量迁移工具；老用户是否改成“跟随默认”由管理员后续按需处理
 
 ## 当前事实
 
@@ -46,152 +49,223 @@
   - `services/api/internal/models/user.go`
   - `services/api/internal/models/plan.go`
   - `services/api/internal/services/payment/service.go`
-  - `services/web/src/views/console/RenewalCenterView.vue`
-  - `services/web/src/views/admin/UsersView.vue`
+  - `services/api/internal/services/user/admin.go`
+  - `services/web/src/views/admin/PaymentCenterView.vue`
   - `services/web/src/views/admin/PlansView.vue`
-- 当前行为：续费中心通过现有套餐接口展示启用套餐，所有用户看到同一批套餐，并通过 Stripe Checkout 下单
-- 现有限制：`User` 和 `Plan` 均没有套餐分组字段，`CreateCheckoutSession(...)` 也没有按用户归属校验套餐可购买范围
+  - `services/web/src/views/admin/UsersView.vue`
+  - `services/web/src/views/console/RenewalCenterView.vue`
+- 当前行为：
+  - 用户和套餐直接存 `planGroup`
+  - 分组值仍依赖固定初始化数据，而不是后台管理实体
+  - 登录态套餐接口和 checkout 已按 `planGroup` 隔离
+  - webhook 履约前也会复核当前用户/套餐分组
+- 现有限制：
+  - 没有“套餐分组管理”实体
+  - 没有默认分组概念
+  - 用户不能表达“未绑定，跟随默认”
+  - 后续新增更多分组需要继续改枚举、校验和前端常量
 
 ## 方案设计
 
 ### 1. 用户可见行为
 
-- 新增能力：不同用户登录后看到不同套餐组
-- 修改行为：续费中心不再显示全量套餐，而是只显示当前用户所属组的套餐
-- 保持不变：支付仍然走现有 Stripe Checkout，支付成功后仍按现有逻辑续期 `users.expiresAt`
+- 新增能力：
+  - 管理员可在支付中心维护套餐分组
+  - 用户支持“显式绑定分组”或“跟随默认分组”
+- 修改行为：
+  - 套餐不再依赖写死分组值，而是依赖后台维护的分组 key
+  - 用户未显式绑定分组时，续费中心展示默认分组的套餐
+- 保持不变：
+  - 续费中心仍走现有 Stripe Checkout
+  - 支付成功后仍按现有逻辑续期 `users.expiresAt`
+  - 支付链路仍要求组隔离，不能通过旧 Checkout Session 越过当前分组
 
 ### 2. 数据与模型
+
+#### 新增 `plan_groups` 表
+
+新增 `plan_groups`：
+
+- `key`：主键，分组稳定标识，后台创建时填写，后续不可修改
+- `name`：分组展示名称
+- `description`：可选说明
+- `isDefault`：是否默认分组，全局唯一
+- `sortOrder`：排序
+- `createdAt` / `updatedAt`
+
+约束：
+
+- `key` 全局唯一
+- 任意时刻必须且只能有一个默认分组
+- 默认分组不能删除
 
 #### 用户模型
 
 修改 `services/api/internal/models/user.go`：
 
-- 新增字段 `planGroup`
-- 类型：字符串
-- 约束：非空，默认值 `A`
-- 语义：表示该用户可见并可购买的套餐组
+- `planGroup` 改为可空字符串
+- 语义变为“显式绑定的分组 key”
+- `NULL` 表示“跟随默认分组”
+
+额外返回的计算字段：
+
+- `effectivePlanGroup`：当前用户实际生效的分组 key
+- `effectivePlanGroupName`：当前用户实际生效的分组名称
+- `isUsingDefaultPlanGroup`：是否正在跟随默认分组
 
 #### 套餐模型
 
 修改 `services/api/internal/models/plan.go`：
 
-- 新增字段 `planGroup`
-- 类型：字符串
-- 约束：非空，默认值 `A`
-- 语义：表示该套餐属于 A 组或 B 组
+- `planGroup` 保持为非空字符串，但语义改为“所属分组 key”
+- 不再限制为固定枚举值
+- 必须指向已存在的分组
 
 #### 数据库迁移
 
-新增 SQL migration 到 `infrastructure/database/`：
+更新 `infrastructure/database/20260408_01_add_plan_grouping.sql`：
 
-- 给 `users` 增加 `planGroup` 列，默认 `A`
-- 给 `plans` 增加 `planGroup` 列，默认 `A`
-- 回填历史空值为 `A`
-- 视需要为两个字段补索引
+- 新增 `plan_groups` 表
+- 初始化一个默认分组 `DEFAULT`
+- `plans.planGroup` 扩展为普通分组 key，并回填到 `DEFAULT`
+- `users.planGroup` 改为可空；历史用户统一保持 `NULL`，让现有用户默认跟随默认分组
+- 给用户/套餐分组字段补索引，不在数据库层增加外键
 
-> 本次不新增新表。
+> 本次不使用 surrogate id，直接以分组 `key` 作为稳定引用，减少迁移和接口噪音。
 
 ### 3. 接口与边界
 
-#### 用户侧套餐接口
+#### 新增后台分组管理接口
 
-当前公开 `GET /plans` 不适合作为购买页主接口，因为它没有用户上下文。
+- `GET /api/v1/admin/plan-groups`
+- `POST /api/v1/admin/plan-groups`
+- `PUT /api/v1/admin/plan-groups/:key`
+- `DELETE /api/v1/admin/plan-groups/:key`
 
-建议新增登录态套餐接口，例如：
+返回字段至少包括：
+
+- `key`
+- `name`
+- `description`
+- `isDefault`
+- `sortOrder`
+- `planCount`
+- `userCount`
+
+说明：
+
+- `key` 创建后不可修改
+- `PUT` 允许把某个分组设为新的默认分组
+- `DELETE` 必须拒绝删除默认分组或仍被用户/套餐引用的分组
+- 分组存在性和引用检查全部放在应用层，不依赖数据库外键
+
+#### 用户接口
+
+- `GET /api/v1/admin/users`
+  - 继续支持按分组筛选
+  - 筛选语义改为“按有效分组筛选”
+- `PUT /api/v1/admin/users/:id`
+  - `planGroup` 支持三种语义：
+    - 不传：不修改
+    - 传有效 key：显式绑定到该分组
+    - 传空字符串：清空显式绑定，改为跟随默认分组
+
+#### 套餐接口
+
+- `GET /api/v1/admin/plans`
+  - 继续支持按分组筛选
+- `POST /api/v1/admin/plans`
+  - `planGroup` 必须是已存在的分组 key
+- `PUT /api/v1/admin/plans/:id`
+  - `planGroup` 改为已存在的分组 key
+
+#### 用户侧套餐与支付接口
 
 - `GET /api/v1/payments/plans`
-
-行为：
-
-- 从当前登录用户读取 `planGroup`
-- 只返回 `isActive = true` 且 `planGroup = 当前用户.planGroup` 的套餐
-
-#### checkout 接口
-
-继续复用：
-
+- `GET /api/v1/plans`（认证兼容别名）
 - `POST /api/v1/payments/checkout`
 
-新增边界约束：
+统一边界：
 
-- 后端在 `CreateCheckoutSession(...)` 中先查询当前用户的 `planGroup`
-- 查询套餐时必须附加 `planGroup = 当前用户.planGroup`
-- 如果套餐不属于当前用户组，则拒绝下单
-
-#### 管理后台接口
-
-用户管理接口需要支持：
-
-- 返回 `planGroup`
-- 更新 `planGroup`
-- 可选按 `planGroup` 筛选列表
-
-套餐管理接口需要支持：
-
-- 创建套餐时填写 `planGroup`
-- 编辑套餐时修改 `planGroup`
-- 列表可按 `planGroup` 筛选
+- 先解析用户有效分组：`用户显式分组 ?? 默认分组`
+- 只返回该有效分组下的启用套餐
+- checkout 只能购买该有效分组下的套餐
+- webhook 履约前再次按当前有效分组校验
 
 ### 4. 关键流程
 
+#### 后台创建分组
+
+1. 管理员创建新的套餐分组，填写 `key/name`
+2. 如果设为默认分组，系统在事务里取消旧默认分组
+3. 新分组立即可用于套餐和用户配置
+
 #### 用户查看套餐
 
-1. 用户登录后进入续费中心
-2. 前端调用登录态套餐接口
-3. 后端读取当前用户 `planGroup`
-4. 后端返回该组启用套餐
-5. 前端只渲染这一组套餐
+1. 用户进入续费中心
+2. 前端请求 `GET /api/v1/payments/plans`
+3. 后端读取用户显式分组
+4. 若用户未显式分组，则回退到默认分组
+5. 返回该有效分组下的启用套餐
 
 #### 用户购买套餐
 
-1. 用户在续费中心选择套餐并提交 `planId`
-2. 后端在 `CreateCheckoutSession(...)` 中读取当前用户 `planGroup`
-3. 后端查询该 `planId` 时同时校验套餐组归属
-4. 校验通过后创建 Stripe Checkout Session
-5. 支付成功后继续复用现有 webhook 与续期流程
+1. 用户提交 `planId`
+2. 后端解析用户当前有效分组
+3. 后端校验套餐是否属于该分组
+4. 校验通过后创建 Checkout Session
+5. webhook 履约前再次复核当前有效分组
 
-#### 后台管理分组
+#### 默认分组切换
 
-1. 管理员在用户管理页编辑用户 `planGroup`
-2. 管理员在套餐管理页创建或编辑 A/B 套餐
-3. 用户下次进入续费中心时按最新分组看到对应套餐
+1. 管理员把默认分组从旧组切到新组
+2. 显式绑定用户不受影响
+3. 跟随默认的用户立即切到新组
+4. 系统同步把“跟随默认”用户关联的 `pending` 支付标记为 `expired`
+5. 即使有漏网之鱼，webhook 履约前也会再复核当前有效分组
 
 ### 5. 失败路径与边界条件
 
-- 用户提交了其他组的 `planId`：后端必须拒绝，不能创建 checkout session
-- 历史用户和历史套餐没有分组：迁移时统一回填到 `A`，避免老数据不可用
-- 用户切换套餐组后，前端展示应以下次拉取的接口结果为准，不依赖本地缓存拼装
-- 兼容性约束：不能破坏现有 Stripe webhook、支付记录查询和续期逻辑
+- 没有默认分组：套餐查询、checkout、webhook 履约都必须报错，不能默默放行
+- 用户传了不存在的分组 key：更新用户/创建套餐/更新套餐都必须拒绝
+- 删除默认分组：必须拒绝
+- 删除仍被引用的分组：必须拒绝，不能把用户或套餐静默改到别的组
+- 默认分组切换后，跟随默认的用户旧 pending 支付仍可继续：系统必须同步收口
+- 显式绑定某分组的用户在默认分组切换后被误切到新默认：不能发生，显式绑定优先级必须高于默认分组
+- 兼容性约束：
+  - 不能破坏现有 Stripe 支付记录、续期逻辑、支付审计
+  - 不能让旧 Checkout Session 越过当前有效分组继续履约
 
 ## 影响范围
 
 涉及的子系统：
 
-- API：有，涉及用户模型、套餐模型、套餐查询、checkout 校验、后台管理接口
-- Web：有，涉及续费中心、用户管理、套餐管理、TS 类型定义
+- API：有，涉及分组实体、用户管理、套餐管理、支付链路
+- Web：有，涉及支付中心新增分组管理、用户编辑、套餐编辑、TS 类型
 - Bot：无
-- 配置/部署：有，需要新增 SQL migration，但不新增运行期环境变量
-- 文档：后续如该方案落地，需要同步 `docs/system-architecture.md`
+- 配置/部署：有，需要更新 SQL migration；不新增环境变量
+- 文档：需要同步 `docs/system-architecture.md`
 
 ## 验证方式
 
 ### 编译/测试
 
-- `cd services/api && go test ./...`
-- `cd services/api && go build ./...`
+- `cd services/api && go test ./internal/services/payment ./internal/services/user ./internal/handlers`
+- `cd services/api && env GOCACHE=/tmp/ember-go-cache go build ./...`
 - `cd services/web && npm run build`
 
 ### 手工验证
 
-- 保持历史用户和历史套餐为 A 组，确认现有 A 组用户仍可正常看到原套餐并下单
-- 新建 B 组套餐，并把部分用户切到 B 组，确认他们只能看到 B 组套餐
-- 手工构造请求，让 A 组用户提交 B 组 `planId` 到 checkout，确认后端拒绝
-- 后台修改用户 `planGroup` 后，重新进入续费中心，确认显示套餐随分组切换
-- 后台创建/编辑套餐时可正确选择 A/B，列表展示和筛选正确
+- 创建新分组，确认套餐管理可选中该分组，列表展示名称正确
+- 把某用户显式绑定到某分组，确认续费中心只看到该组套餐
+- 把某用户分组清空为“跟随默认”，切换默认分组后确认无需改用户数据即可看到新组套餐
+- 手工构造 checkout 请求，让用户购买其他分组套餐，确认后端拒绝
+- 切换默认分组后，确认跟随默认用户的待支付订单被收口，旧 Stripe 页面无法再成功续期
+- 删除被用户或套餐引用的分组，确认后台收到拒绝
 
 ## 落地后文档处理
 
 落地后应同步处理：
 
-- 将用户套餐分组、套餐分组、登录态套餐接口等稳定事实同步到 `docs/system-architecture.md`
-- 当功能上线并完成验证后，将本方案移入 `docs/archive/plan/billing-redemption/`
+- 将 `plan_groups`、默认分组、有效分组解析、后台分组管理接口等稳定事实同步到 `docs/system-architecture.md`
+- 方案完成、验证闭环、文档同步后，移入 `docs/archive/plan/billing-redemption/`

@@ -154,7 +154,7 @@ export function getRankingHistory(period: RankingPeriod, date: string): Promise<
 // ==================== 支付 ====================
 export function getActivePlans(): Promise<{ data: Plan[] }> {
   return request({
-    url: '/plans',
+    url: '/payments/plans',
     method: 'get'
   })
 }

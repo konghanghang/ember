@@ -57,6 +57,10 @@ const onlineNotes = [
   {
     title: '订单处理',
     description: '存在待支付订单时，可直接从当前页面继续支付，无需重新选择方案。'
+  },
+  {
+    title: '套餐范围',
+    description: '这里只展示当前账号所属套餐组的可购方案，后台切组后以下次拉取结果为准。'
   }
 ]
 const redeemNotes = [

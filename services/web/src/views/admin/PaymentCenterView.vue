@@ -1,27 +1,34 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CreditCard, Goods } from '@element-plus/icons-vue'
+import { CreditCard, Goods, CollectionTag } from '@element-plus/icons-vue'
 import PaymentsView from './PaymentsView.vue'
 import PlansView from './PlansView.vue'
+import PlanGroupsView from './PlanGroupsView.vue'
 
-type PaymentTab = 'plans' | 'payments'
+type PaymentTab = 'groups' | 'plans' | 'payments'
 
 const route = useRoute()
 const router = useRouter()
 
 const tabs: Array<{ key: PaymentTab; label: string; icon: typeof Goods }> = [
+  { key: 'groups', label: '套餐分组', icon: CollectionTag },
   { key: 'plans', label: '付费方案', icon: Goods },
   { key: 'payments', label: '支付记录', icon: CreditCard }
 ]
 
 const activeTab = computed<PaymentTab>(() => {
   const tab = route.query.tab
-  return tab === 'payments' ? 'payments' : 'plans'
+  if (tab === 'payments' || tab === 'plans' || tab === 'groups') return tab
+  return 'plans'
 })
 
 const activeComponent = computed(() => (
-  activeTab.value === 'payments' ? PaymentsView : PlansView
+  activeTab.value === 'payments'
+    ? PaymentsView
+    : activeTab.value === 'plans'
+      ? PlansView
+      : PlanGroupsView
 ))
 
 const setTab = async (tab: PaymentTab) => {
@@ -33,7 +40,7 @@ const setTab = async (tab: PaymentTab) => {
 watch(
   () => route.query.tab,
   async (tab) => {
-    if (tab === undefined || tab === 'plans' || tab === 'payments') return
+    if (tab === undefined || tab === 'groups' || tab === 'plans' || tab === 'payments') return
     await router.replace({
       query: {
         ...route.query,

@@ -19,10 +19,21 @@ func NewPaymentHandler() *PaymentHandler {
 	}
 }
 
-func (h *PaymentHandler) GetActivePlans(c *gin.Context) {
-	plans, err := h.service.GetActivePlans()
+func (h *PaymentHandler) GetUserPlans(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+
+	plans, err := h.service.GetPlansForUser(userID.(string))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": plans})
@@ -46,6 +57,8 @@ func (h *PaymentHandler) CreateCheckout(c *gin.Context) {
 		switch {
 		case errors.Is(err, paymentpkg.ErrPlanNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrStripeNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
@@ -106,11 +119,86 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 
 	resp, err := h.service.GetPlans(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+func (h *PaymentHandler) GetPlanGroups(c *gin.Context) {
+	resp, err := h.service.GetPlanGroups()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *PaymentHandler) CreatePlanGroup(c *gin.Context) {
+	var req paymentpkg.CreatePlanGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	group, err := h.service.CreatePlanGroup(&req)
+	if err != nil {
+		switch {
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, group)
+}
+
+func (h *PaymentHandler) UpdatePlanGroup(c *gin.Context) {
+	key := c.Param("key")
+	var req paymentpkg.UpdatePlanGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	group, err := h.service.UpdatePlanGroup(key, &req)
+	if err != nil {
+		switch {
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, group)
+}
+
+func (h *PaymentHandler) DeletePlanGroup(c *gin.Context) {
+	key := c.Param("key")
+	if err := h.service.DeletePlanGroup(key); err != nil {
+		switch {
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, paymentpkg.ErrDefaultPlanGroupDelete), errors.Is(err, paymentpkg.ErrPlanGroupDeleteBlocked):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
 
 func (h *PaymentHandler) CreatePlan(c *gin.Context) {
@@ -122,7 +210,12 @@ func (h *PaymentHandler) CreatePlan(c *gin.Context) {
 
 	plan, err := h.service.CreatePlan(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
 		return
 	}
 

@@ -49,6 +49,7 @@ type CreatePlanRequest struct {
 	Days        int    `json:"days" binding:"required,min=1"`
 	Price       int64  `json:"price" binding:"required,min=1"`
 	Currency    string `json:"currency"`
+	PlanGroup   string `json:"planGroup"`
 	SortOrder   int    `json:"sortOrder"`
 }
 
@@ -58,14 +59,16 @@ type UpdatePlanRequest struct {
 	Days        *int    `json:"days" binding:"omitempty,min=1"`
 	Price       *int64  `json:"price" binding:"omitempty,min=1"`
 	Currency    *string `json:"currency"`
+	PlanGroup   *string `json:"planGroup"`
 	IsActive    *bool   `json:"isActive"`
 	SortOrder   *int    `json:"sortOrder"`
 }
 
 type GetPlansRequest struct {
-	Page     int  `form:"page" binding:"omitempty,min=1"`
-	PageSize int  `form:"pageSize" binding:"omitempty,min=1"`
-	ShowAll  bool `form:"showAll"`
+	Page      int    `form:"page" binding:"omitempty,min=1"`
+	PageSize  int    `form:"pageSize" binding:"omitempty,min=1"`
+	ShowAll   bool   `form:"showAll"`
+	PlanGroup string `form:"planGroup"`
 }
 
 type GetPlansResponse struct {
@@ -154,6 +157,13 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error
 	if err != nil {
 		return nil, err
 	}
+	planGroup, err := NormalizePlanGroupKey(req.PlanGroup, false)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := GetPlanGroupByKey(nil, planGroup); err != nil {
+		return nil, err
+	}
 
 	plan := models.Plan{
 		Name:        name,
@@ -161,6 +171,7 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error
 		Days:        req.Days,
 		Price:       req.Price,
 		Currency:    currency,
+		PlanGroup:   planGroup,
 		IsActive:    true,
 		SortOrder:   req.SortOrder,
 	}
@@ -172,17 +183,25 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error
 }
 
 func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*models.Plan, error) {
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		return nil, errors.New("更新方案失败")
+	}
+
 	var plan models.Plan
-	if err := db.DB.Where("id = ?", id).First(&plan).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&plan).Error; err != nil {
+		tx.Rollback()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPlanNotFound
 		}
 		return nil, errors.New("获取方案失败")
 	}
 
+	planGroupChanged := false
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
+			tx.Rollback()
 			return nil, errors.New("方案名称不能为空")
 		}
 		plan.Name = name
@@ -199,9 +218,23 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*models.
 	if req.Currency != nil {
 		currency, err := normalizePlanCurrency(*req.Currency)
 		if err != nil {
+			tx.Rollback()
 			return nil, err
 		}
 		plan.Currency = currency
+	}
+	if req.PlanGroup != nil {
+		planGroup, err := NormalizePlanGroupKey(*req.PlanGroup, false)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		if _, err := GetPlanGroupByKey(tx, planGroup); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		planGroupChanged = plan.PlanGroup != planGroup
+		plan.PlanGroup = planGroup
 	}
 	if req.IsActive != nil {
 		plan.IsActive = *req.IsActive
@@ -213,7 +246,21 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*models.
 		plan.Currency = "usd"
 	}
 
-	if err := db.DB.Save(&plan).Error; err != nil {
+	if err := tx.Save(&plan).Error; err != nil {
+		tx.Rollback()
+		return nil, errors.New("更新方案失败")
+	}
+
+	if planGroupChanged {
+		expiredCount, err := ExpirePendingPaymentsForPlan(tx, plan.ID)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		log.Printf("[Payment] 套餐分组变更，已收口待支付订单: planID=%s planGroup=%s expiredCount=%d", plan.ID, plan.PlanGroup, expiredCount)
+	}
+
+	if err := tx.Commit().Error; err != nil {
 		return nil, errors.New("更新方案失败")
 	}
 	return &plan, nil
@@ -255,6 +302,13 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 	if !req.ShowAll {
 		query = query.Where("\"isActive\" = ?", true)
 	}
+	if strings.TrimSpace(req.PlanGroup) != "" {
+		planGroup, err := NormalizePlanGroupKey(req.PlanGroup, false)
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where("\"planGroup\" = ?", planGroup)
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -263,7 +317,13 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 
 	var plans []models.Plan
 	offset := (page - 1) * pageSize
-	if err := query.Order("\"sortOrder\" ASC, \"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&plans).Error; err != nil {
+	if err := query.
+		Select(`plans.*, plan_groups.name AS "planGroupName"`).
+		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."planGroup"`).
+		Order(`plans."sortOrder" ASC, plans."createdAt" DESC`).
+		Offset(offset).
+		Limit(pageSize).
+		Find(&plans).Error; err != nil {
 		return nil, errors.New("获取方案列表失败")
 	}
 
@@ -276,9 +336,24 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 	}, nil
 }
 
-func (s *PaymentService) GetActivePlans() ([]models.Plan, error) {
+func (s *PaymentService) GetPlansForUser(userID string) ([]models.Plan, error) {
+	var user models.User
+	if err := db.DB.Select("id", "planGroup").Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, errors.New("获取用户信息失败")
+	}
+
+	planGroup, err := ResolveEffectivePlanGroupKey(nil, user.PlanGroup)
+	if err != nil {
+		return nil, err
+	}
+
 	var plans []models.Plan
-	if err := db.DB.Where("\"isActive\" = ?", true).Order("\"sortOrder\" ASC, \"createdAt\" DESC").Find(&plans).Error; err != nil {
+	if err := db.DB.
+		Select(`plans.*, plan_groups.name AS "planGroupName"`).
+		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."planGroup"`).
+		Where(`plans."isActive" = ? AND plans."planGroup" = ?`, true, planGroup).
+		Order(`plans."sortOrder" ASC, plans."createdAt" DESC`).
+		Find(&plans).Error; err != nil {
 		return nil, errors.New("获取方案列表失败")
 	}
 	return plans, nil
@@ -286,6 +361,39 @@ func (s *PaymentService) GetActivePlans() ([]models.Plan, error) {
 
 func timePtr(value time.Time) *time.Time {
 	return &value
+}
+
+func expirePendingPaymentsByScope(tx *gorm.DB, userID, planID string) (int64, error) {
+	if tx == nil {
+		tx = db.DB
+	}
+	userID = strings.TrimSpace(userID)
+	planID = strings.TrimSpace(planID)
+	if userID == "" && planID == "" {
+		return 0, nil
+	}
+
+	query := tx.Model(&models.Payment{}).Where("status = ?", models.PaymentPending)
+	if userID != "" {
+		query = query.Where("\"userId\" = ?", userID)
+	}
+	if planID != "" {
+		query = query.Where("\"planId\" = ?", planID)
+	}
+
+	result := query.Update("status", models.PaymentExpired)
+	if result.Error != nil {
+		return 0, errors.New("更新支付记录失败")
+	}
+	return result.RowsAffected, nil
+}
+
+func ExpirePendingPaymentsForUser(tx *gorm.DB, userID string) (int64, error) {
+	return expirePendingPaymentsByScope(tx, userID, "")
+}
+
+func ExpirePendingPaymentsForPlan(tx *gorm.DB, planID string) (int64, error) {
+	return expirePendingPaymentsByScope(tx, "", planID)
 }
 
 func shouldReusePendingPayment(payment models.Payment, now time.Time) bool {
@@ -352,13 +460,28 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return nil, ErrStripeNotConfigured
 	}
 
+	var user models.User
+	if err := db.DB.Select("id", "planGroup").Where("id = ?", userID).First(&user).Error; err != nil {
+		log.Printf("[Payment] 查询用户套餐分组失败: userID=%s planID=%s err=%v", userID, strings.TrimSpace(req.PlanID), err)
+		return nil, errors.New("获取用户信息失败")
+	}
+	planGroup, err := ResolveEffectivePlanGroupKey(nil, user.PlanGroup)
+	if err != nil {
+		rawPlanGroup := ""
+		if user.PlanGroup != nil {
+			rawPlanGroup = strings.TrimSpace(*user.PlanGroup)
+		}
+		log.Printf("[Payment] 用户套餐分组无效: userID=%s rawPlanGroup=%s err=%v", userID, rawPlanGroup, err)
+		return nil, err
+	}
+
 	var plan models.Plan
-	if err := db.DB.Where("id = ? AND \"isActive\" = ?", req.PlanID, true).First(&plan).Error; err != nil {
+	if err := db.DB.Where("id = ? AND \"isActive\" = ? AND \"planGroup\" = ?", req.PlanID, true, planGroup).First(&plan).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Printf("[Payment] 方案不存在或未启用: userID=%s planID=%s", userID, strings.TrimSpace(req.PlanID))
+			log.Printf("[Payment] 方案不存在、未启用或不属于用户分组: userID=%s planID=%s planGroup=%s", userID, strings.TrimSpace(req.PlanID), planGroup)
 			return nil, ErrPlanNotFound
 		}
-		log.Printf("[Payment] 查询方案失败: userID=%s planID=%s err=%v", userID, strings.TrimSpace(req.PlanID), err)
+		log.Printf("[Payment] 查询方案失败: userID=%s planID=%s planGroup=%s err=%v", userID, strings.TrimSpace(req.PlanID), planGroup, err)
 		return nil, errors.New("获取方案失败")
 	}
 
@@ -587,6 +710,18 @@ func formatNotifyTime(t *time.Time) *string {
 	return &formatted
 }
 
+func planGroupsMatchForFulfillment(userPlanGroup *string, planPlanGroup string) (bool, error) {
+	normalizedUserPlanGroup, err := ResolveEffectivePlanGroupKey(nil, userPlanGroup)
+	if err != nil {
+		return false, err
+	}
+	normalizedPlanPlanGroup, err := NormalizePlanGroupKey(planPlanGroup, false)
+	if err != nil {
+		return false, err
+	}
+	return normalizedUserPlanGroup == normalizedPlanPlanGroup, nil
+}
+
 func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metadata map[string]string) error {
 	if strings.TrimSpace(sessionID) == "" {
 		log.Printf("[Payment] 支付履约失败：缺少 sessionID")
@@ -633,10 +768,44 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 		return ErrPaymentFailed
 	}
 
-	planName := ""
 	var plan models.Plan
-	if err := tx.Select("name").Where("id = ?", payment.PlanID).First(&plan).Error; err == nil {
-		planName = plan.Name
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id", "name", "planGroup").
+		Where("id = ?", payment.PlanID).
+		First(&plan).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[Payment] 支付履约查询套餐失败: paymentID=%s planID=%s err=%v", payment.ID, payment.PlanID, err)
+		return ErrPaymentFailed
+	}
+	planName := plan.Name
+
+	planGroupMatched, err := planGroupsMatchForFulfillment(user.PlanGroup, plan.PlanGroup)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[Payment] 支付履约校验套餐分组失败: paymentID=%s userID=%s planID=%s err=%v", payment.ID, payment.UserID, payment.PlanID, err)
+		return ErrPaymentFailed
+	}
+	if !planGroupMatched {
+		payment.Status = models.PaymentExpired
+		if strings.TrimSpace(paymentIntentID) != "" {
+			payment.StripePaymentIntentID = paymentIntentID
+		}
+		if err := tx.Save(&payment).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[Payment] 支付履约拒绝后保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
+			return ErrPaymentFailed
+		}
+		if err := tx.Commit().Error; err != nil {
+			log.Printf("[Payment] 支付履约拒绝后提交事务失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
+			return ErrPaymentFailed
+		}
+		rawUserPlanGroup := ""
+		if user.PlanGroup != nil {
+			rawUserPlanGroup = strings.TrimSpace(*user.PlanGroup)
+		}
+		log.Printf("[Payment] 支付履约拒绝：套餐分组已变更: paymentID=%s userID=%s planID=%s sessionID=%s userPlanGroup=%s planPlanGroup=%s",
+			payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, rawUserPlanGroup, strings.TrimSpace(plan.PlanGroup))
+		return nil
 	}
 
 	now := time.Now().UTC()

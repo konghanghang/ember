@@ -8,6 +8,7 @@ import type {
   ClientBlacklist,
   ConfigGroupTestResult,
   CreatePlanRequest,
+  CreatePlanGroupRequest,
   CreateRedemptionCodeRequest,
   CreateRedemptionCodesBatchRequest,
   CreateRedemptionCodesBatchResponse,
@@ -20,6 +21,7 @@ import type {
   MediaQualityLibrary,
   MediaQualityReport,
   PaymentListResponse,
+  ManagedPlanGroup,
   PlaybackProfileListQuery,
   PlaybackProfileListResponse,
   PlaybackProfileQuery,
@@ -30,6 +32,7 @@ import type {
   PlanListResponse,
   UpdateAdminUserRequest,
   UpdateRedemptionCodeRequest,
+  UpdatePlanGroupRequest,
   UpdatePlanRequest,
   RedemptionCode,
   RedemptionCodeListResponse,
@@ -250,7 +253,37 @@ export function getMediaQualityGroupDetails(
 }
 
 // ==================== 付费方案 ====================
-export function getPlans(params?: { page?: number; pageSize?: number; showAll?: boolean }): Promise<PlanListResponse> {
+export function getPlanGroups(): Promise<{ data: ManagedPlanGroup[] }> {
+  return request({
+    url: '/admin/plan-groups',
+    method: 'get'
+  })
+}
+
+export function createPlanGroup(data: CreatePlanGroupRequest): Promise<ManagedPlanGroup> {
+  return request({
+    url: '/admin/plan-groups',
+    method: 'post',
+    data
+  })
+}
+
+export function updatePlanGroup(key: string, data: UpdatePlanGroupRequest): Promise<ManagedPlanGroup> {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}`,
+    method: 'put',
+    data
+  })
+}
+
+export function deletePlanGroup(key: string) {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}`,
+    method: 'delete'
+  })
+}
+
+export function getPlans(params?: { page?: number; pageSize?: number; showAll?: boolean; planGroup?: string }): Promise<PlanListResponse> {
   return request({
     url: '/admin/plans',
     method: 'get',

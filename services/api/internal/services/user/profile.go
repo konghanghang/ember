@@ -18,12 +18,7 @@ type UpdateEmailRequest struct {
 }
 
 func (s *UserService) GetProfile(userID string) (*models.User, error) {
-	var user models.User
-	result := db.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
-		return nil, errors.New("用户不存在")
-	}
-	return &user, nil
+	return s.GetUserByID(userID)
 }
 
 func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*models.User, error) {

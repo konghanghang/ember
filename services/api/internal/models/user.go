@@ -10,18 +10,24 @@ import (
 // User 统一用户模型（admin + user）
 // role 字段区分角色：admin 使用本地密码，user 通过 Emby 认证
 type User struct {
-	ID           string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	Username     string     `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
-	Role         string     `json:"role" gorm:"column:role;size:10;not null;default:user"`
-	Password     string     `json:"-" gorm:"column:password"` // bcrypt hash，所有用户通用
-	Email        string     `json:"email,omitempty" gorm:"column:email;size:255;uniqueIndex"`
-	EmbyID       string     `json:"embyId,omitempty" gorm:"column:embyId;size:50;index"`
-	EmbyDisabled bool       `json:"embyDisabled" gorm:"column:embyDisabled;default:false;not null"`
-	TelegramID   *int64     `json:"telegramId,omitempty" gorm:"column:telegramId;uniqueIndex"`
-	ExpiresAt    *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
-	IsActive     bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
-	CreatedAt    time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
-	UpdatedAt    time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
+	ID                      string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+	Username                string     `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
+	Role                    string     `json:"role" gorm:"column:role;size:10;not null;default:user"`
+	Password                string     `json:"-" gorm:"column:password"` // bcrypt hash，所有用户通用
+	Email                   string     `json:"email,omitempty" gorm:"column:email;size:255;uniqueIndex"`
+	EmbyID                  string     `json:"embyId,omitempty" gorm:"column:embyId;size:50;index"`
+	EmbyDisabled            bool       `json:"embyDisabled" gorm:"column:embyDisabled;default:false;not null"`
+	TelegramID              *int64     `json:"telegramId,omitempty" gorm:"column:telegramId;uniqueIndex"`
+	PlanGroup               *string    `json:"planGroup,omitempty" gorm:"column:planGroup;size:50;index"`
+	PlanGroupName           *string    `json:"planGroupName,omitempty" gorm:"->;column:planGroupName"`
+	EffectivePlanGroup      string     `json:"effectivePlanGroup,omitempty" gorm:"->;column:effectivePlanGroup"`
+	EffectivePlanGroupName  string     `json:"effectivePlanGroupName,omitempty" gorm:"->;column:effectivePlanGroupName"`
+	IsPlanGroupMissing      bool       `json:"isPlanGroupMissing" gorm:"->;column:isPlanGroupMissing"`
+	IsUsingDefaultPlanGroup bool       `json:"isUsingDefaultPlanGroup" gorm:"-"`
+	ExpiresAt               *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
+	IsActive                bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
+	CreatedAt               time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	UpdatedAt               time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
 
 func (User) TableName() string {

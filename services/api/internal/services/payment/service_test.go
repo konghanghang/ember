@@ -37,6 +37,71 @@ func TestNormalizePlanCurrency(t *testing.T) {
 	}
 }
 
+func TestNormalizePlanGroupKey(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		allowEmpty bool
+		want       string
+		wantErr    bool
+	}{
+		{name: "uppercase key", input: "vip-a", want: "VIP-A"},
+		{name: "blank allowed", input: " ", allowEmpty: true, want: ""},
+		{name: "blank rejected", input: " ", wantErr: true},
+		{name: "invalid chars", input: "vip a", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		got, err := NormalizePlanGroupKey(tc.input, tc.allowEmpty)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("%s: expected error, got nil", tc.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: want %s, got %s", tc.name, tc.want, got)
+		}
+	}
+}
+
+func TestPlanGroupsMatchForFulfillment(t *testing.T) {
+	tests := []struct {
+		name          string
+		userPlanGroup *string
+		planPlanGroup string
+		want          bool
+		wantErr       bool
+	}{
+		{name: "same group matches", userPlanGroup: strPtr("VIP-A"), planPlanGroup: "VIP-A", want: true},
+		{name: "different groups rejected", userPlanGroup: strPtr("VIP-A"), planPlanGroup: "VIP-B", want: false},
+		{name: "invalid group errors", userPlanGroup: strPtr("VIP A"), planPlanGroup: "VIP-A", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		got, err := planGroupsMatchForFulfillment(tc.userPlanGroup, tc.planPlanGroup)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("%s: expected error, got nil", tc.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: want %t, got %t", tc.name, tc.want, got)
+		}
+	}
+}
+
+func strPtr(value string) *string {
+	return &value
+}
+
 func TestShouldReusePendingPayment(t *testing.T) {
 	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 

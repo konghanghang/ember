@@ -31,7 +31,6 @@ func registerPublicRoutes(api *gin.RouterGroup, h *appHandlers) {
 	api.POST("/forgot-password/reset", h.auth.ResetPasswordByCode)
 	api.GET("/register/mode", h.setting.GetRegistrationMode)
 	api.GET("/register/code/:code/validate", h.redemptionCode.ValidateCode)
-	api.GET("/plans", h.payment.GetActivePlans)
 	api.POST("/webhooks/stripe", h.payment.HandleStripeWebhook)
 	api.POST("/webhooks/emby", h.tvCalendar.HandleEmbyWebhook)
 	api.GET("/tmdb/search", h.tmdb.Search)
@@ -93,6 +92,11 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.POST("/tv-calendar/sync", h.tvCalendar.Sync)
 	admin.POST("/tv-calendar/refresh", h.tvCalendar.Refresh)
 
+	admin.GET("/plan-groups", h.payment.GetPlanGroups)
+	admin.POST("/plan-groups", h.payment.CreatePlanGroup)
+	admin.PUT("/plan-groups/:key", h.payment.UpdatePlanGroup)
+	admin.DELETE("/plan-groups/:key", h.payment.DeletePlanGroup)
+
 	admin.GET("/plans", h.payment.GetPlans)
 	admin.POST("/plans", h.payment.CreatePlan)
 	admin.PUT("/plans/:id", h.payment.UpdatePlan)
@@ -147,6 +151,8 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.GET("/rankings/latest", h.ranking.GetLatestRanking)
 	authenticated.GET("/rankings/history", h.ranking.GetHistoryRanking)
 
+	authenticated.GET("/plans", h.payment.GetUserPlans)
+	authenticated.GET("/payments/plans", h.payment.GetUserPlans)
 	authenticated.POST("/payments/checkout", h.payment.CreateCheckout)
 	authenticated.GET("/payments", h.payment.GetMyPayments)
 

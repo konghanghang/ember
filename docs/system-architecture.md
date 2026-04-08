@@ -50,6 +50,7 @@ services/
 │     │  ├─ email_verification.go # EmailVerification（邮箱验证码）
 │     │  ├─ telegram_bind_code.go # TelegramBindCode（Telegram 绑定验证码）
 │     │  ├─ plan.go              # Plan（付费方案）
+│     │  ├─ plan_group.go        # PlanGroup（套餐分组）
 │     │  ├─ payment.go           # Payment（支付记录）
 │     │  ├─ playback_ranking.go  # PlaybackRanking（播放排行快照）
 │     │  ├─ media_quality_cache.go # MediaQualityCache（媒体质量缓存）
@@ -183,6 +184,7 @@ services/
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
 │  │        ├─ PaymentCenterView.vue # 支付中心（付费方案 + 支付记录）
+│  │        ├─ PlanGroupsView.vue # 套餐分组管理
 │  │        ├─ SettingsView.vue  # 设置中心
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ PaymentsView.vue  # 支付记录审计
@@ -227,6 +229,7 @@ services/
 | EmbyID | string(50) | embyId | Emby 用户 ID |
 | EmbyDisabled | bool | embyDisabled | cron 封禁标记 |
 | TelegramID | *int64 | telegramId | Telegram 绑定 ID（唯一，可空） |
+| PlanGroup | *string | planGroup | 用户显式绑定的套餐分组 key；为空时按系统默认分组计算可见/可购套餐 |
 | ExpiresAt | *time.Time | expiresAt | 到期时间（nil=永不过期）|
 | IsActive | bool | isActive | 管理员手动开关 |
 | CreatedAt | time.Time | createdAt | 自动 |
@@ -347,8 +350,23 @@ services/
 | Days | int | days | 天数 |
 | Price | int64 | price | 价格（分）|
 | Currency | string(3) | currency | 币种（当前支持 `"usd"` / `"hkd"` / `"cny"`）|
+| PlanGroup | string(50) | planGroup | 套餐所属分组 key（由应用层校验其存在性与删除约束）|
 | IsActive | bool | isActive | 是否启用（默认 true，DELETE 接口仅置为 false 作为软删除）|
 | SortOrder | int | sortOrder | 排序（默认 0）|
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+### 4.7.1 PlanGroup
+
+**表名**: `plan_groups` | **文件**: `models/plan_group.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| Key | string(50) | key | 分组稳定标识，主键 |
+| Name | string(100) | name | 分组展示名称 |
+| Description | string(500) | description | 分组说明 |
+| IsDefault | bool | isDefault | 是否默认分组（全局唯一） |
+| SortOrder | int | sortOrder | 排序 |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
@@ -536,7 +554,8 @@ TMDBCache（独立缓存表）
 
 ### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
 
-- `GetUsers(page, pageSize, search, isActive, expiresAfter, embyStatus)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`；`embyStatus` 支持 `available/disabled/unlinked`）
+- `GetUsers(page, pageSize, search, isActive, expiresAfter, embyStatus, planGroup)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`；`embyStatus` 支持 `available/disabled/unlinked`；`planGroup` 按“有效套餐分组”过滤：用户显式分组优先，否则回退系统默认分组）
+- `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态/套餐组/到期时间；`planGroup` 不传表示不改，传合法 key 表示显式绑定，传空字符串表示清空显式绑定并改为跟随系统默认分组；有效分组变化后会同步把该用户关联的 `pending` 支付标记为 `expired`
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
 - `GetProfile(userID)` — 获取用户个人资料
 - `UpdateProfile(userID, email)` — 更新用户个人资料
@@ -686,10 +705,12 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 Stripe 一次性支付流程管理。
 
-- `CreateCheckoutSession(userID, planID)` — 优先复用同方案 30 分钟内未过期的待支付订单；否则创建新的 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）
+- `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组存在性、引用检查和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
+- `CreateCheckoutSession(userID, planID)` — 优先复用同方案 30 分钟内未过期的待支付订单；否则创建新的 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）；创建前会先解析用户“有效套餐分组”（显式分组优先，否则回退系统默认分组），再按该分组强校验方案归属
+- `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐；`/api/v1/plans` 与 `/api/v1/payments/plans` 都要求认证并复用这条过滤结果
 - `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
-- `fulfillPayment(sessionID, paymentIntentID, metadata)` — 事务更新 Payment/User；提交成功后火忘式通知 Bot 推送管理员支付成功消息
-- Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`）
+- `fulfillPayment(sessionID, paymentIntentID, metadata)` — 事务更新 Payment/User；履约前会复核当前用户有效分组与套餐当前分组，不再允许旧 Checkout Session 跨组续期；提交成功后火忘式通知 Bot 推送管理员支付成功消息
+- Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`；后台支持按 `planGroup` 过滤；套餐必须绑定已存在的分组，分组变更会同步失效该套餐关联的 `pending` 支付）
 - `GetPayments(page, pageSize)` — 支付记录查询
 
 ### 5.16 错误定义（按业务拆分）
@@ -800,7 +821,6 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/forgot-password/reset` | 通过验证码重置密码 |
 | GET | `/api/v1/register/mode` | 获取注册模式 |
 | GET | `/api/v1/register/code/:code/validate` | 验证兑换码（注册前）|
-| GET | `/api/v1/plans` | 公开方案列表（仅 isActive=true）|
 | POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
 | POST | `/api/v1/webhooks/emby?token=` | Emby 入库 Webhook（追剧日历） |
 | GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索 |
@@ -828,6 +848,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/media/latest` | 最新入库 |
 | GET | `/api/v1/rankings/latest` | 最新整期排行（`period`） |
 | GET | `/api/v1/rankings/history` | 按日期查询整期历史排行（`period` + `date`） |
+| GET | `/api/v1/plans` | 当前登录用户可购方案列表（认证兼容别名，按用户有效套餐分组过滤） |
+| GET | `/api/v1/payments/plans` | 当前登录用户可购方案列表（按用户有效套餐分组过滤） |
 | POST | `/api/v1/payments/checkout` | Stripe 结账 |
 | GET | `/api/v1/payments` | 我的支付记录 |
 | GET | `/api/v1/tv-calendar/global` | 全局追剧周历 |
@@ -859,7 +881,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
-| GET | `/api/v1/admin/users` | 用户列表 |
+| GET | `/api/v1/admin/users` | 用户列表（支持按有效 `planGroup` 过滤；显式分组为空时自动归入默认分组） |
 | GET | `/api/v1/admin/users/:id` | 用户详情 |
 | GET | `/api/v1/admin/users/:id/profile` | 用户画像（支持 `range` 或 `startDate/endDate`） |
 | PUT | `/api/v1/admin/users/:id` | 更新用户 |
@@ -897,7 +919,11 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | DELETE | `/api/v1/admin/devices/blacklist/:clientName` | 移除黑名单 |
 | POST | `/api/v1/admin/devices/logout/:deviceId` | 强制注销设备 |
 | POST | `/api/v1/admin/devices/blacklist/logout-all` | 批量注销黑名单设备 |
-| GET | `/api/v1/admin/plans` | 方案列表 |
+| GET | `/api/v1/admin/plan-groups` | 套餐分组列表 |
+| POST | `/api/v1/admin/plan-groups` | 创建套餐分组 |
+| PUT | `/api/v1/admin/plan-groups/:key` | 更新套餐分组 / 切换默认分组 |
+| DELETE | `/api/v1/admin/plan-groups/:key` | 删除套餐分组 |
+| GET | `/api/v1/admin/plans` | 方案列表（支持 `planGroup` 过滤） |
 | POST | `/api/v1/admin/plans` | 创建方案 |
 | PUT | `/api/v1/admin/plans/:id` | 更新方案 |
 | DELETE | `/api/v1/admin/plans/:id` | 下架方案（软删除） |
@@ -1028,13 +1054,19 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 路由：`/console/billing`（admin）
 - 兼容路由：
+  - `/console/billing?tab=groups`
   - `/console/plans` → `?tab=plans`
   - `/console/payments` → `?tab=payments`
 - 视图：`views/admin/PaymentCenterView.vue`
 - Tab 结构：
+  - `groups`：`views/admin/PlanGroupsView.vue`
   - `plans`：`views/admin/PlansView.vue`
   - `payments`：`views/admin/PaymentsView.vue`
 - 数据源：
+  - `GET /api/v1/admin/plan-groups`
+  - `POST /api/v1/admin/plan-groups`
+  - `PUT /api/v1/admin/plan-groups/:key`
+  - `DELETE /api/v1/admin/plan-groups/:key`
   - `GET /api/v1/admin/plans`
   - `POST /api/v1/admin/plans`
   - `PUT /api/v1/admin/plans/:id`

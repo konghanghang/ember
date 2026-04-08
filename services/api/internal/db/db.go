@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -115,6 +116,7 @@ func InitDB() {
 	// 初始化默认管理员
 	seedDefaultAdmin()
 	seedDefaultSettings()
+	seedDefaultPlanGroups()
 
 	fmt.Println("✅ 数据库连接成功")
 }
@@ -188,6 +190,39 @@ func seedDefaultSettings() {
 	}
 }
 
+func seedDefaultPlanGroups() {
+	var defaultCount int64
+	if err := DB.Model(&models.PlanGroup{}).Where(`"isDefault" = ?`, true).Count(&defaultCount).Error; err != nil {
+		log.Printf("⚠️  检查默认套餐分组失败：%v", err)
+		return
+	}
+	if defaultCount > 0 {
+		return
+	}
+
+	var group models.PlanGroup
+	if err := DB.Where("key = ?", "DEFAULT").First(&group).Error; err == nil {
+		if err := DB.Model(&models.PlanGroup{}).Where("key = ?", group.Key).Update(`"isDefault"`, true).Error; err != nil {
+			log.Printf("⚠️  修复默认套餐分组失败：%v", err)
+		}
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Printf("⚠️  查询默认套餐分组失败：%v", err)
+		return
+	}
+
+	group = models.PlanGroup{
+		Key:         "DEFAULT",
+		Name:        "默认分组",
+		Description: "系统默认套餐分组",
+		IsDefault:   true,
+		SortOrder:   10,
+	}
+	if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&group).Error; err != nil {
+		log.Printf("⚠️  初始化套餐分组 %s 失败：%v", group.Key, err)
+	}
+}
+
 // Close 关闭数据库连接
 func Close() error {
 	sqlDB, err := DB.DB()
@@ -204,6 +239,7 @@ func AutoMigrate() error {
 		&models.RedemptionCode{},
 		&models.Redemption{},
 		&models.Setting{},
+		&models.PlanGroup{},
 		&models.User{},
 		&models.TVCalendarSource{},
 		&models.TVCalendarItem{},

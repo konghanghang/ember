@@ -1,6 +1,18 @@
 export type UserRole = 'admin' | 'user'
+export type PlanGroup = string
 export type MediaType = 'MOVIE' | 'TV'
 export type SubscriptionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+
+export interface ManagedPlanGroup {
+  key: string
+  name: string
+  description?: string
+  isDefault: boolean
+  sortOrder: number
+  planCount?: number
+  userCount?: number
+  followingUserCount?: number
+}
 
 export interface LoginCredentials {
   username: string
@@ -24,6 +36,12 @@ export interface UserInfo {
   embyId?: string
   embyDisabled?: boolean
   telegramId?: number
+  planGroup?: PlanGroup | null
+  planGroupName?: string | null
+  effectivePlanGroup?: PlanGroup
+  effectivePlanGroupName?: string
+  isPlanGroupMissing?: boolean
+  isUsingDefaultPlanGroup?: boolean
   expiresAt?: string
   isActive: boolean
   createdAt: string
@@ -66,6 +84,7 @@ export interface UserListQuery extends PaginationQuery {
   search?: string
   expiresAfter?: string
   embyStatus?: 'available' | 'disabled' | 'unlinked' | ''
+  planGroup?: PlanGroup | ''
 }
 
 export interface UserListResponse {
@@ -78,6 +97,7 @@ export interface UserListResponse {
 export interface UpdateAdminUserRequest {
   email?: string
   isActive?: boolean
+  planGroup?: PlanGroup | ''
   expiresAt?: string
   clearExpiresAt?: boolean
 }
@@ -519,6 +539,8 @@ export interface Plan {
   days: number
   price: number
   currency: string
+  planGroup: PlanGroup
+  planGroupName?: string
   isActive: boolean
   sortOrder: number
   createdAt: string
@@ -531,6 +553,7 @@ export interface CreatePlanRequest {
   days: number
   price: number
   currency?: string
+  planGroup?: PlanGroup
   sortOrder?: number
 }
 
@@ -540,7 +563,23 @@ export interface UpdatePlanRequest {
   days?: number
   price?: number
   currency?: string
+  planGroup?: PlanGroup
   isActive?: boolean
+  sortOrder?: number
+}
+
+export interface CreatePlanGroupRequest {
+  key: string
+  name: string
+  description?: string
+  isDefault?: boolean
+  sortOrder?: number
+}
+
+export interface UpdatePlanGroupRequest {
+  name?: string
+  description?: string
+  isDefault?: boolean
   sortOrder?: number
 }
 

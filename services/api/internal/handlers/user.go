@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
@@ -51,7 +52,7 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 	resp, err := h.userService.GetUsers(&req)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, userpkg.ErrInvalidExpiresAfter) || errors.Is(err, userpkg.ErrInvalidEmbyStatus) {
+		if errors.Is(err, userpkg.ErrInvalidExpiresAfter) || errors.Is(err, userpkg.ErrInvalidEmbyStatus) || errors.Is(err, userpkg.ErrInvalidPlanGroup) || errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound) {
 			statusCode = http.StatusBadRequest
 		}
 
@@ -77,7 +78,11 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 
 	user, err := h.userService.GetUserByID(userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
+		statusCode := http.StatusNotFound
+		if errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound) {
+			statusCode = http.StatusBadRequest
+		}
+		c.JSON(statusCode, gin.H{
 			"error": err.Error(),
 		})
 		return
@@ -115,6 +120,10 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 			statusCode = http.StatusNotFound
 		case "至少提供一个可更新字段", "clearExpiresAt 和 expiresAt 不能同时设置", "邮箱不能为空", "邮箱格式错误", "expiresAt 必须是 RFC3339 格式", "邮箱已存在":
 			statusCode = http.StatusBadRequest
+		default:
+			if errors.Is(err, userpkg.ErrInvalidPlanGroup) || errors.Is(err, paymentpkg.ErrPlanGroupNotFound) || errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound) {
+				statusCode = http.StatusBadRequest
+			}
 		}
 
 		c.JSON(statusCode, gin.H{

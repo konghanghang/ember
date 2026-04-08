@@ -2,14 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Refresh, EditPen, Goods } from '@element-plus/icons-vue'
-import { createPlan, deletePlan, getPlans, updatePlan } from '@/api/admin'
-import type { CreatePlanRequest, Plan, UpdatePlanRequest } from '@/types/api'
+import { createPlan, deletePlan, getPlanGroups, getPlans, updatePlan } from '@/api/admin'
+import type { CreatePlanRequest, ManagedPlanGroup, Plan, PlanGroup, UpdatePlanRequest } from '@/types/api'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
 }>(), {
   embedded: false
 })
+
+const planGroups = ref<ManagedPlanGroup[]>([])
 
 const tableData = ref<Plan[]>([])
 const total = ref(0)
@@ -20,7 +22,8 @@ const updating = ref(false)
 const queryParams = ref({
   page: 1,
   pageSize: 10,
-  showAll: true
+  showAll: true,
+  planGroup: '' as PlanGroup | ''
 })
 
 const dialogVisible = ref(false)
@@ -32,6 +35,7 @@ const form = ref({
   days: 30,
   priceDisplay: 9.99,
   currency: 'usd',
+  planGroup: '' as PlanGroup,
   sortOrder: 0
 })
 
@@ -42,6 +46,7 @@ const editForm = ref({
   days: 30,
   priceDisplay: 9.99,
   currency: 'usd',
+  planGroup: '' as PlanGroup,
   isActive: true,
   sortOrder: 0
 })
@@ -52,12 +57,34 @@ const currencyOptions = [
   { label: 'CNY', value: 'cny' }
 ]
 
+const planGroupOptions = computed(() => planGroups.value.map(group => ({
+  label: `${group.name} (${group.key})`,
+  value: group.key
+})))
+
+const defaultPlanGroup = computed(() => planGroups.value.find(group => group.isDefault) ?? null)
 const activeCount = computed(() => tableData.value.filter(item => item.isActive).length)
 
 const handlePageSizeChange = (size: number) => {
   queryParams.value.pageSize = size
   queryParams.value.page = 1
   fetchData()
+}
+
+const applyDefaultPlanGroupToForms = () => {
+  const fallbackGroup = defaultPlanGroup.value?.key || planGroups.value[0]?.key || ''
+  if (!form.value.planGroup) {
+    form.value.planGroup = fallbackGroup
+  }
+  if (!editForm.value.planGroup) {
+    editForm.value.planGroup = fallbackGroup
+  }
+}
+
+const fetchPlanGroups = async () => {
+  const res = await getPlanGroups()
+  planGroups.value = res.data ?? []
+  applyDefaultPlanGroupToForms()
 }
 
 const fetchData = async () => {
@@ -87,6 +114,7 @@ const resetCreateForm = () => {
     days: 30,
     priceDisplay: 9.99,
     currency: 'usd',
+    planGroup: defaultPlanGroup.value?.key || planGroups.value[0]?.key || '',
     sortOrder: 0
   }
 }
@@ -108,6 +136,10 @@ const handleCreate = async () => {
     ElMessage.warning('请输入有效价格')
     return
   }
+  if (!form.value.planGroup) {
+    ElMessage.warning('请选择套餐分组')
+    return
+  }
 
   const payload: CreatePlanRequest = {
     name: form.value.name.trim(),
@@ -115,6 +147,7 @@ const handleCreate = async () => {
     days: form.value.days,
     price: Math.round(form.value.priceDisplay * 100),
     currency: form.value.currency,
+    planGroup: form.value.planGroup,
     sortOrder: form.value.sortOrder
   }
 
@@ -138,6 +171,7 @@ const openEditDialog = (row: Plan) => {
     days: row.days,
     priceDisplay: row.price / 100,
     currency: row.currency || 'usd',
+    planGroup: row.planGroup || defaultPlanGroup.value?.key || '',
     isActive: row.isActive,
     sortOrder: row.sortOrder
   }
@@ -157,6 +191,10 @@ const handleUpdate = async () => {
     ElMessage.warning('请输入有效价格')
     return
   }
+  if (!editForm.value.planGroup) {
+    ElMessage.warning('请选择套餐分组')
+    return
+  }
 
   const payload: UpdatePlanRequest = {
     name: editForm.value.name.trim(),
@@ -164,6 +202,7 @@ const handleUpdate = async () => {
     days: editForm.value.days,
     price: Math.round(editForm.value.priceDisplay * 100),
     currency: editForm.value.currency,
+    planGroup: editForm.value.planGroup,
     isActive: editForm.value.isActive,
     sortOrder: editForm.value.sortOrder
   }
@@ -196,7 +235,15 @@ const handleDelete = async (id: string) => {
   }
 }
 
-onMounted(fetchData)
+const handleFilterChange = () => {
+  queryParams.value.page = 1
+  fetchData()
+}
+
+onMounted(async () => {
+  await fetchPlanGroups()
+  await fetchData()
+})
 </script>
 
 <template>
@@ -213,8 +260,22 @@ onMounted(fetchData)
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
           <span class="text-sm text-gray-600">显示全部</span>
-          <el-switch v-model="queryParams.showAll" @change="fetchData" size="small" />
+          <el-switch v-model="queryParams.showAll" @change="handleFilterChange" size="small" />
         </div>
+        <el-select
+          v-model="queryParams.planGroup"
+          class="!w-[180px]"
+          placeholder="全部分组"
+          @change="handleFilterChange"
+        >
+          <el-option label="全部分组" value="" />
+          <el-option
+            v-for="option in planGroupOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </el-select>
         <button
           @click="fetchData"
           class="cursor-pointer rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
@@ -269,6 +330,14 @@ onMounted(fetchData)
         <el-table-column label="币种" width="100">
           <template #default="{ row }">
             <span class="text-gray-600 uppercase">{{ row.currency }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="分组" min-width="140">
+          <template #default="{ row }">
+            <el-tag effect="light" round size="small" :type="row.planGroup === defaultPlanGroup?.key ? 'warning' : 'success'">
+              {{ row.planGroupName || row.planGroup }}
+            </el-tag>
           </template>
         </el-table-column>
 
@@ -354,6 +423,17 @@ onMounted(fetchData)
             </el-select>
           </el-form-item>
 
+          <el-form-item label="套餐组">
+            <el-select v-model="form.planGroup" class="w-full" placeholder="选择套餐组">
+              <el-option
+                v-for="option in planGroupOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
+
           <el-form-item label="排序">
             <el-input-number v-model="form.sortOrder" :min="0" class="w-full !w-full" />
           </el-form-item>
@@ -403,6 +483,17 @@ onMounted(fetchData)
             <el-select v-model="editForm.currency" class="w-full" placeholder="选择币种">
               <el-option
                 v-for="option in currencyOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="套餐组">
+            <el-select v-model="editForm.planGroup" class="w-full" placeholder="选择套餐组">
+              <el-option
+                v-for="option in planGroupOptions"
                 :key="option.value"
                 :label="option.label"
                 :value="option.value"

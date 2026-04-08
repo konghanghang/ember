@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -16,12 +16,13 @@ import {
   DataLine
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
-import { getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
-import type { UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
+import { getPlanGroups, getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
+import type { ManagedPlanGroup, PlanGroup, UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
 
 const router = useRouter()
 
 const tableData = ref<UserInfo[]>([])
+const planGroups = ref<ManagedPlanGroup[]>([])
 const total = ref(0)
 const loading = ref(false)
 const savingUser = ref(false)
@@ -31,16 +32,25 @@ const queryParams = ref<UserListQuery>({
   pageSize: 10,
   search: '',
   expiresAfter: undefined,
-  embyStatus: ''
+  embyStatus: '',
+  planGroup: ''
 })
 
 const editForm = ref({
   id: '',
   email: '',
   isActive: true,
+  planGroup: '' as PlanGroup | '',
   neverExpire: false,
   expiresAt: null as Date | null
 })
+
+const planGroupOptions = computed(() => planGroups.value.map(group => ({
+  label: `${group.name} (${group.key})`,
+  value: group.key
+})))
+
+const defaultPlanGroup = computed(() => planGroups.value.find(group => group.isDefault) ?? null)
 
 // ... (Keep existing logic methods) ...
 const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
@@ -63,6 +73,11 @@ const fetchData = async () => {
   }
 }
 
+const fetchPlanGroups = async () => {
+  const res = await getPlanGroups()
+  planGroups.value = res.data ?? []
+}
+
 const handleSearch = () => {
   queryParams.value.page = 1
   fetchData()
@@ -77,6 +92,7 @@ const handleResetFilters = () => {
   queryParams.value.search = ''
   queryParams.value.expiresAfter = undefined
   queryParams.value.embyStatus = ''
+  queryParams.value.planGroup = ''
   queryParams.value.page = 1
   fetchData()
 }
@@ -86,6 +102,7 @@ const handleOpenEdit = (row: UserInfo) => {
     id: row.id,
     email: row.email || '',
     isActive: row.isActive,
+    planGroup: row.planGroup || '',
     neverExpire: !row.expiresAt,
     expiresAt: row.expiresAt ? new Date(row.expiresAt) : null
   }
@@ -107,6 +124,7 @@ const handleUpdateUser = async () => {
   const payload: UpdateAdminUserRequest = {
     email,
     isActive: editForm.value.isActive,
+    planGroup: editForm.value.planGroup,
     clearExpiresAt: editForm.value.neverExpire
   }
 
@@ -215,6 +233,13 @@ const formatDate = (dateStr?: string | null) => {
   return new Date(dateStr).toLocaleString()
 }
 
+const getPlanGroupDisplay = (row: UserInfo) => {
+  if (row.isPlanGroupMissing) {
+    return row.effectivePlanGroup ? `分组失效：${row.effectivePlanGroup}` : '分组失效'
+  }
+  return row.effectivePlanGroupName || row.effectivePlanGroup || '未设置'
+}
+
 const isExpired = (dateStr?: string | null) => {
   if (!dateStr) return false
   const timestamp = new Date(dateStr).getTime()
@@ -289,8 +314,9 @@ const getEmbyStatus = (row: UserInfo) => {
   }
 }
 
-onMounted(() => {
-  fetchData()
+onMounted(async () => {
+  await fetchPlanGroups()
+  await fetchData()
 })
 </script>
 
@@ -362,6 +388,29 @@ onMounted(() => {
                   <el-option label="可用" value="available" />
                   <el-option label="禁用" value="disabled" />
                   <el-option label="未关联" value="unlinked" />
+                </el-select>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">套餐组</label>
+              <div class="relative w-full group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
+                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><CreditCard /></el-icon>
+                </div>
+                <el-select
+                  v-model="queryParams.planGroup"
+                  class="w-full filter-select"
+                  placeholder="全部分组"
+                  @change="handleFilterChange"
+                >
+                  <el-option label="全部分组" value="" />
+                  <el-option
+                    v-for="option in planGroupOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
                 </el-select>
               </div>
             </div>
@@ -446,6 +495,21 @@ onMounted(() => {
                 {{ getEmbyStatus(row).reason }}
               </span>
             </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="套餐组" min-width="160">
+          <template #default="{ row }">
+            <el-tag
+              effect="light"
+              round
+              size="small"
+              :type="row.isPlanGroupMissing ? 'danger' : row.isUsingDefaultPlanGroup ? 'warning' : 'success'"
+            >
+              {{ getPlanGroupDisplay(row) }}
+            </el-tag>
+            <div v-if="row.isUsingDefaultPlanGroup" class="mt-1 text-[11px] text-gray-400">跟随默认</div>
+            <div v-else-if="row.isPlanGroupMissing" class="mt-1 text-[11px] text-red-400">请重新绑定有效分组</div>
           </template>
         </el-table-column>
 
@@ -544,14 +608,29 @@ onMounted(() => {
             />
           </el-form-item>
           
-          <div class="grid grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <el-form-item label="账号状态">
               <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
                 <span class="text-sm text-gray-700">{{ editForm.isActive ? '正常启用' : '已禁用' }}</span>
                 <el-switch v-model="editForm.isActive" />
               </div>
             </el-form-item>
-            
+
+            <el-form-item label="套餐组">
+              <el-select v-model="editForm.planGroup" class="w-full" placeholder="选择套餐组">
+                <el-option
+                  :label="defaultPlanGroup ? `跟随默认（${defaultPlanGroup.name}）` : '跟随默认'"
+                  value=""
+                />
+                <el-option
+                  v-for="option in planGroupOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+            </el-form-item>
+
             <el-form-item label="有效期设置">
               <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
                 <span class="text-sm text-gray-700">永不过期</span>
