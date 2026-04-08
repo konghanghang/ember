@@ -13,6 +13,65 @@ import (
 
 var planGroupKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,31}$`)
 
+var (
+	beginPlanGroupTx = func() (*gorm.DB, error) {
+		tx := db.DB.Begin()
+		return tx, tx.Error
+	}
+	commitPlanGroupTx = func(tx *gorm.DB) error {
+		if tx == nil {
+			return nil
+		}
+		return tx.Commit().Error
+	}
+	rollbackPlanGroupTx = func(tx *gorm.DB) {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}
+	paymentGetPlanGroupByKey    = GetPlanGroupByKey
+	paymentCountPlanGroupsByKey = func(tx *gorm.DB, key string) (int64, error) {
+		var count int64
+		err := tx.Model(&models.PlanGroup{}).Where("key = ?", key).Count(&count).Error
+		return count, err
+	}
+	paymentCountDefaultPlanGroups = func(tx *gorm.DB) (int64, error) {
+		var count int64
+		err := tx.Model(&models.PlanGroup{}).Where(`"isDefault" = ?`, true).Count(&count).Error
+		return count, err
+	}
+	paymentCreatePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
+		return tx.Create(group).Error
+	}
+	paymentSavePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
+		return tx.Save(group).Error
+	}
+	paymentUnsetOtherPlanGroupDefaults = func(tx *gorm.DB, key string) error {
+		return tx.Model(&models.PlanGroup{}).
+			Where("key <> ?", key).
+			Update(`"isDefault"`, false).Error
+	}
+	paymentSetPlanGroupDefault = func(tx *gorm.DB, key string, isDefault bool) error {
+		return tx.Model(&models.PlanGroup{}).
+			Where("key = ?", key).
+			Update(`"isDefault"`, isDefault).Error
+	}
+	paymentCountPlansByGroup = func(tx *gorm.DB, key string) (int64, error) {
+		var count int64
+		err := tx.Model(&models.Plan{}).Where(`"planGroup" = ?`, key).Count(&count).Error
+		return count, err
+	}
+	paymentCountUsersByGroup = func(tx *gorm.DB, key string) (int64, error) {
+		var count int64
+		err := tx.Model(&models.User{}).Where(`"planGroup" = ?`, key).Count(&count).Error
+		return count, err
+	}
+	paymentDeletePlanGroup = func(tx *gorm.DB, key string) error {
+		return tx.Delete(&models.PlanGroup{}, "key = ?", key).Error
+	}
+	paymentExpirePendingPaymentsForUsersFollowingDefault = ExpirePendingPaymentsForUsersFollowingDefault
+)
+
 type CreatePlanGroupRequest struct {
 	Key         string `json:"key" binding:"required"`
 	Name        string `json:"name" binding:"required"`
@@ -160,24 +219,24 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*models.P
 		return nil, errors.New("套餐分组名称不能为空")
 	}
 
-	tx := db.DB.Begin()
-	if tx.Error != nil {
+	tx, err := beginPlanGroupTx()
+	if err != nil {
 		return nil, errors.New("创建套餐分组失败")
 	}
 
-	var count int64
-	if err := tx.Model(&models.PlanGroup{}).Where("key = ?", key).Count(&count).Error; err != nil {
-		tx.Rollback()
+	count, err := paymentCountPlanGroupsByKey(tx, key)
+	if err != nil {
+		rollbackPlanGroupTx(tx)
 		return nil, errors.New("创建套餐分组失败")
 	}
 	if count > 0 {
-		tx.Rollback()
+		rollbackPlanGroupTx(tx)
 		return nil, errors.New("套餐分组标识已存在")
 	}
 	shouldBeDefault := req.IsDefault
-	var defaultCount int64
-	if err := tx.Model(&models.PlanGroup{}).Where(`"isDefault" = ?`, true).Count(&defaultCount).Error; err != nil {
-		tx.Rollback()
+	defaultCount, err := paymentCountDefaultPlanGroups(tx)
+	if err != nil {
+		rollbackPlanGroupTx(tx)
 		return nil, errors.New("创建套餐分组失败")
 	}
 	if defaultCount == 0 {
@@ -192,28 +251,24 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*models.P
 		SortOrder:   req.SortOrder,
 	}
 
-	if err := tx.Create(&group).Error; err != nil {
-		tx.Rollback()
+	if err := paymentCreatePlanGroup(tx, &group); err != nil {
+		rollbackPlanGroupTx(tx)
 		return nil, errors.New("创建套餐分组失败")
 	}
 
 	if shouldBeDefault {
-		if err := tx.Model(&models.PlanGroup{}).
-			Where("key <> ?", group.Key).
-			Update(`"isDefault"`, false).Error; err != nil {
-			tx.Rollback()
+		if err := paymentUnsetOtherPlanGroupDefaults(tx, group.Key); err != nil {
+			rollbackPlanGroupTx(tx)
 			return nil, errors.New("创建套餐分组失败")
 		}
-		if err := tx.Model(&models.PlanGroup{}).
-			Where("key = ?", group.Key).
-			Update(`"isDefault"`, true).Error; err != nil {
-			tx.Rollback()
+		if err := paymentSetPlanGroupDefault(tx, group.Key, true); err != nil {
+			rollbackPlanGroupTx(tx)
 			return nil, errors.New("创建套餐分组失败")
 		}
 		group.IsDefault = true
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	if err := commitPlanGroupTx(tx); err != nil {
 		return nil, errors.New("创建套餐分组失败")
 	}
 	return &group, nil
@@ -225,14 +280,14 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 		return nil, err
 	}
 
-	tx := db.DB.Begin()
-	if tx.Error != nil {
+	tx, err := beginPlanGroupTx()
+	if err != nil {
 		return nil, errors.New("更新套餐分组失败")
 	}
 
-	group, err := GetPlanGroupByKey(tx, normalizedKey)
+	group, err := paymentGetPlanGroupByKey(tx, normalizedKey)
 	if err != nil {
-		tx.Rollback()
+		rollbackPlanGroupTx(tx)
 		return nil, err
 	}
 
@@ -241,7 +296,7 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
-			tx.Rollback()
+			rollbackPlanGroupTx(tx)
 			return nil, errors.New("套餐分组名称不能为空")
 		}
 		group.Name = name
@@ -257,30 +312,26 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 			defaultChanged = !group.IsDefault
 			requestDefault = true
 		} else if group.IsDefault {
-			tx.Rollback()
+			rollbackPlanGroupTx(tx)
 			return nil, errors.New("默认套餐分组不能为空，请先设置其他默认分组")
 		} else {
 			requestDefault = false
 		}
 	}
 
-	if err := tx.Save(group).Error; err != nil {
-		tx.Rollback()
+	if err := paymentSavePlanGroup(tx, group); err != nil {
+		rollbackPlanGroupTx(tx)
 		return nil, errors.New("更新套餐分组失败")
 	}
 
 	if requestDefault {
-		if err := tx.Model(&models.PlanGroup{}).
-			Where("key <> ?", group.Key).
-			Update(`"isDefault"`, false).Error; err != nil {
-			tx.Rollback()
+		if err := paymentUnsetOtherPlanGroupDefaults(tx, group.Key); err != nil {
+			rollbackPlanGroupTx(tx)
 			return nil, errors.New("更新套餐分组失败")
 		}
 		if !group.IsDefault {
-			if err := tx.Model(&models.PlanGroup{}).
-				Where("key = ?", group.Key).
-				Update(`"isDefault"`, true).Error; err != nil {
-				tx.Rollback()
+			if err := paymentSetPlanGroupDefault(tx, group.Key, true); err != nil {
+				rollbackPlanGroupTx(tx)
 				return nil, errors.New("更新套餐分组失败")
 			}
 			group.IsDefault = true
@@ -288,15 +339,15 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 	}
 
 	if defaultChanged {
-		expiredCount, err := ExpirePendingPaymentsForUsersFollowingDefault(tx)
+		expiredCount, err := paymentExpirePendingPaymentsForUsersFollowingDefault(tx)
 		if err != nil {
-			tx.Rollback()
+			rollbackPlanGroupTx(tx)
 			return nil, err
 		}
 		log.Printf("[Payment] 默认套餐分组已切换，已收口跟随默认用户的待支付订单: planGroup=%s expiredCount=%d", group.Key, expiredCount)
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	if err := commitPlanGroupTx(tx); err != nil {
 		return nil, errors.New("更新套餐分组失败")
 	}
 	return group, nil
@@ -308,42 +359,42 @@ func (s *PaymentService) DeletePlanGroup(key string) error {
 		return err
 	}
 
-	tx := db.DB.Begin()
-	if tx.Error != nil {
+	tx, err := beginPlanGroupTx()
+	if err != nil {
 		return errors.New("删除套餐分组失败")
 	}
 
-	group, err := GetPlanGroupByKey(tx, normalizedKey)
+	group, err := paymentGetPlanGroupByKey(tx, normalizedKey)
 	if err != nil {
-		tx.Rollback()
+		rollbackPlanGroupTx(tx)
 		return err
 	}
 	if group.IsDefault {
-		tx.Rollback()
+		rollbackPlanGroupTx(tx)
 		return ErrDefaultPlanGroupDelete
 	}
 
-	var planCount int64
-	if err := tx.Model(&models.Plan{}).Where(`"planGroup" = ?`, group.Key).Count(&planCount).Error; err != nil {
-		tx.Rollback()
+	planCount, err := paymentCountPlansByGroup(tx, group.Key)
+	if err != nil {
+		rollbackPlanGroupTx(tx)
 		return errors.New("删除套餐分组失败")
 	}
-	var userCount int64
-	if err := tx.Model(&models.User{}).Where(`"planGroup" = ?`, group.Key).Count(&userCount).Error; err != nil {
-		tx.Rollback()
+	userCount, err := paymentCountUsersByGroup(tx, group.Key)
+	if err != nil {
+		rollbackPlanGroupTx(tx)
 		return errors.New("删除套餐分组失败")
 	}
 	if planCount > 0 || userCount > 0 {
-		tx.Rollback()
+		rollbackPlanGroupTx(tx)
 		return ErrPlanGroupDeleteBlocked
 	}
 
-	if err := tx.Delete(&models.PlanGroup{}, "key = ?", group.Key).Error; err != nil {
-		tx.Rollback()
+	if err := paymentDeletePlanGroup(tx, group.Key); err != nil {
+		rollbackPlanGroupTx(tx)
 		return errors.New("删除套餐分组失败")
 	}
 
-	if err := tx.Commit().Error; err != nil {
+	if err := commitPlanGroupTx(tx); err != nil {
 		return errors.New("删除套餐分组失败")
 	}
 	return nil
