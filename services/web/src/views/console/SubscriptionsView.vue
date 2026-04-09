@@ -177,7 +177,8 @@ onMounted(fetchData)
         
           <button
             @click="fetchData" 
-            class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0 cursor-pointer"
+            class="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
+            aria-label="刷新订阅列表"
             title="刷新列表"
           >
             <el-icon :size="20"><Refresh /></el-icon>

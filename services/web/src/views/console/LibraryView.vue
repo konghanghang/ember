@@ -94,7 +94,7 @@ onMounted(fetchLatest)
         <button
           type="button"
           aria-label="刷新最近入库"
-          class="p-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+          class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer"
           :class="loading ? 'opacity-60 cursor-not-allowed' : ''"
           :disabled="loading"
           @click="fetchLatest"

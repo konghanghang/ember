@@ -49,30 +49,6 @@ const renewalTabs: Array<{ key: RenewalTab; label: string }> = [
   { key: 'online', label: '在线购买' },
   { key: 'redeem', label: '兑换码续期' }
 ]
-const onlineNotes = [
-  {
-    title: '生效方式',
-    description: '付款成功后自动延长有效期，直接叠加到当前会员时长。'
-  },
-  {
-    title: '订单处理',
-    description: '存在待支付订单时，可直接从当前页面继续支付，无需重新选择方案。'
-  },
-  {
-    title: '套餐范围',
-    description: '这里只展示当前账号所属套餐组的可购方案，后台切组后以下次拉取结果为准。'
-  }
-]
-const redeemNotes = [
-  {
-    title: '生效方式',
-    description: '兑换成功后立即延长有效期，不需要额外等待。'
-  },
-  {
-    title: '使用限制',
-    description: '同一码同一用户不能重复使用，输入前请确认兑换码准确无误。'
-  }
-]
 
 const formatPrice = (price: number, currency: string = 'usd') => {
   return new Intl.NumberFormat('zh-CN', {
@@ -297,16 +273,6 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div
-                v-for="note in onlineNotes"
-                :key="note.title"
-                class="rounded-2xl border border-gray-100 bg-gray-50/70 px-4 py-4 text-sm text-gray-500"
-              >
-                <div class="font-semibold text-gray-700">{{ note.title }}</div>
-                <div class="mt-1 leading-6">{{ note.description }}</div>
-              </div>
-            </div>
           </div>
         </template>
 
@@ -344,17 +310,6 @@ onMounted(async () => {
                   <span v-if="redeeming" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
                   <span>{{ redeeming ? '验证中...' : '确认兑换' }}</span>
                 </button>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div
-                v-for="note in redeemNotes"
-                :key="note.title"
-                class="rounded-2xl border border-gray-100 bg-gray-50/70 px-4 py-4 text-sm text-gray-500"
-              >
-                <div class="font-semibold text-gray-700">{{ note.title }}</div>
-                <div class="mt-1 leading-6">{{ note.description }}</div>
               </div>
             </div>
           </div>

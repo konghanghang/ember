@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search, RefreshRight, UserFilled, CreditCard } from '@element-plus/icons-vue'
+import { Search, RefreshRight, UserFilled, CreditCard, Goods, CollectionTag } from '@element-plus/icons-vue'
 import { getAllPayments, getPlans } from '@/api/admin'
 import { formatDate } from '@/utils/date'
 import type { Payment, PaymentStatus, Plan } from '@/types/api'
@@ -204,37 +204,47 @@ onMounted(fetchPlans)
 
             <div class="space-y-1.5">
               <label class="text-xs font-semibold tracking-wide text-gray-500">付费方案</label>
-              <el-select
-                v-model="queryParams.planId"
-                placeholder="全部方案"
-                clearable
-                filterable
-                class="w-full"
-              >
-                <el-option
-                  v-for="plan in planOptions"
-                  :key="plan.id"
-                  :label="plan.name"
-                  :value="plan.id"
-                />
-              </el-select>
+              <div class="relative w-full">
+                <div class="absolute inset-y-0 left-0 z-10 flex items-center pl-3 pointer-events-none">
+                  <el-icon class="text-gray-400"><Goods /></el-icon>
+                </div>
+                <el-select
+                  v-model="queryParams.planId"
+                  placeholder="全部方案"
+                  clearable
+                  filterable
+                  class="w-full filter-select filter-select-with-icon"
+                >
+                  <el-option
+                    v-for="plan in planOptions"
+                    :key="plan.id"
+                    :label="plan.name"
+                    :value="plan.id"
+                  />
+                </el-select>
+              </div>
             </div>
 
             <div class="space-y-1.5">
               <label class="text-xs font-semibold tracking-wide text-gray-500">支付状态</label>
-              <el-select
-                v-model="queryParams.status"
-                placeholder="全部状态"
-                clearable
-                class="w-full"
-              >
-                <el-option
-                  v-for="option in statusOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
+              <div class="relative w-full">
+                <div class="absolute inset-y-0 left-0 z-10 flex items-center pl-3 pointer-events-none">
+                  <el-icon class="text-gray-400"><CollectionTag /></el-icon>
+                </div>
+                <el-select
+                  v-model="queryParams.status"
+                  placeholder="全部状态"
+                  clearable
+                  class="w-full filter-select filter-select-with-icon"
+                >
+                  <el-option
+                    v-for="option in statusOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+              </div>
             </div>
           </div>
 
@@ -365,5 +375,37 @@ onMounted(fetchPlans)
   background-color: #ffffff;
   border-color: var(--ember-red);
   box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
+}
+
+:deep(.filter-select .el-select__wrapper) {
+  height: 42px;
+  min-height: 42px;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.filter-select:hover .el-select__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-select .el-select__wrapper.is-focused),
+:deep(.filter-select .el-select__wrapper.is-focus),
+:deep(.filter-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.filter-select-with-icon .el-select__wrapper) {
+  padding-left: 2.5rem;
+}
+
+:deep(.filter-select .el-select__selection) {
+  min-height: 0;
 }
 </style>

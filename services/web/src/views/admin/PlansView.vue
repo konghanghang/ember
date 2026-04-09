@@ -240,6 +240,13 @@ const handleFilterChange = () => {
   fetchData()
 }
 
+const resetFilters = () => {
+  queryParams.value.page = 1
+  queryParams.value.showAll = true
+  queryParams.value.planGroup = ''
+  fetchData()
+}
+
 onMounted(async () => {
   await fetchPlanGroups()
   await fetchData()
@@ -269,40 +276,61 @@ onMounted(async () => {
           </p>
         </div>
 
-        <div class="flex flex-col gap-3 xl:items-end">
-          <div class="flex flex-wrap items-center gap-3">
-            <div class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-              <span class="text-sm text-gray-600">显示全部</span>
-              <el-switch v-model="queryParams.showAll" @change="handleFilterChange" size="small" />
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            @click="fetchData"
+            class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            aria-label="刷新付费方案列表"
+            title="刷新列表"
+          >
+            <el-icon :size="20"><Refresh /></el-icon>
+          </button>
+          <button
+            @click="dialogVisible = true"
+            class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+          >
+            <el-icon><Plus /></el-icon>
+            <span>新建方案</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">套餐分组</label>
+              <el-select
+                v-model="queryParams.planGroup"
+                class="w-full filter-select"
+                placeholder="全部分组"
+                @change="handleFilterChange"
+              >
+                <el-option label="全部分组" value="" />
+                <el-option
+                  v-for="option in planGroupOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
             </div>
-            <el-select
-              v-model="queryParams.planGroup"
-              class="!w-[180px]"
-              placeholder="全部分组"
-              @change="handleFilterChange"
-            >
-              <el-option label="全部分组" value="" />
-              <el-option
-                v-for="option in planGroupOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-semibold tracking-wide text-gray-500">显示范围</label>
+              <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-white px-3">
+                <span class="text-sm text-gray-600">包含下架方案</span>
+                <el-switch v-model="queryParams.showAll" size="small" @change="handleFilterChange" />
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
             <button
-              @click="fetchData"
-              class="cursor-pointer rounded-xl border border-gray-200 bg-white p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
-              aria-label="刷新付费方案列表"
-              title="刷新列表"
+              @click="resetFilters"
+              class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
             >
-              <el-icon :size="20"><Refresh /></el-icon>
-            </button>
-            <button
-              @click="dialogVisible = true"
-              class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
-            >
-              <el-icon><Plus /></el-icon>
-              <span>新建方案</span>
+              重置
             </button>
           </div>
         </div>
@@ -410,25 +438,25 @@ onMounted(async () => {
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="方案名称">
-            <el-input v-model="form.name" placeholder="例如：月度会员" />
+            <el-input v-model="form.name" placeholder="例如：月度会员" class="input-ember" />
           </el-form-item>
 
           <el-form-item label="描述">
-            <el-input v-model="form.description" type="textarea" :rows="3" placeholder="可选，展示在购买卡片" />
+            <el-input v-model="form.description" type="textarea" :rows="3" placeholder="可选，展示在购买卡片" class="input-ember" />
           </el-form-item>
 
           <div class="grid grid-cols-2 gap-6">
             <el-form-item label="时长（天）">
-              <el-input-number v-model="form.days" :min="1" class="w-full !w-full" />
+              <el-input-number v-model="form.days" :min="1" class="w-full !w-full form-number" />
             </el-form-item>
 
             <el-form-item label="价格">
-              <el-input-number v-model="form.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full" />
+              <el-input-number v-model="form.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full form-number" />
             </el-form-item>
           </div>
 
           <el-form-item label="币种">
-            <el-select v-model="form.currency" class="w-full" placeholder="选择币种">
+            <el-select v-model="form.currency" class="w-full form-select" placeholder="选择币种">
               <el-option
                 v-for="option in currencyOptions"
                 :key="option.value"
@@ -439,7 +467,7 @@ onMounted(async () => {
           </el-form-item>
 
           <el-form-item label="套餐组">
-            <el-select v-model="form.planGroup" class="w-full" placeholder="选择套餐组">
+            <el-select v-model="form.planGroup" class="w-full form-select" placeholder="选择套餐组">
               <el-option
                 v-for="option in planGroupOptions"
                 :key="option.value"
@@ -450,7 +478,7 @@ onMounted(async () => {
           </el-form-item>
 
           <el-form-item label="排序">
-            <el-input-number v-model="form.sortOrder" :min="0" class="w-full !w-full" />
+            <el-input-number v-model="form.sortOrder" :min="0" class="w-full !w-full form-number" />
           </el-form-item>
         </el-form>
       </div>
@@ -458,14 +486,14 @@ onMounted(async () => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button
             @click="dialogVisible = false"
-            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
           <button
             @click="handleCreate"
             :disabled="creating"
-            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
           >
             {{ creating ? '创建中...' : '确认创建' }}
           </button>
@@ -477,25 +505,25 @@ onMounted(async () => {
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="方案名称">
-            <el-input v-model="editForm.name" placeholder="例如：月度会员" />
+            <el-input v-model="editForm.name" placeholder="例如：月度会员" class="input-ember" />
           </el-form-item>
 
           <el-form-item label="描述">
-            <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="可选，展示在购买卡片" />
+            <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="可选，展示在购买卡片" class="input-ember" />
           </el-form-item>
 
           <div class="grid grid-cols-2 gap-6">
             <el-form-item label="时长（天）">
-              <el-input-number v-model="editForm.days" :min="1" class="w-full !w-full" />
+              <el-input-number v-model="editForm.days" :min="1" class="w-full !w-full form-number" />
             </el-form-item>
 
             <el-form-item label="价格">
-              <el-input-number v-model="editForm.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full" />
+              <el-input-number v-model="editForm.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full form-number" />
             </el-form-item>
           </div>
 
           <el-form-item label="币种">
-            <el-select v-model="editForm.currency" class="w-full" placeholder="选择币种">
+            <el-select v-model="editForm.currency" class="w-full form-select" placeholder="选择币种">
               <el-option
                 v-for="option in currencyOptions"
                 :key="option.value"
@@ -506,7 +534,7 @@ onMounted(async () => {
           </el-form-item>
 
           <el-form-item label="套餐组">
-            <el-select v-model="editForm.planGroup" class="w-full" placeholder="选择套餐组">
+            <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
               <el-option
                 v-for="option in planGroupOptions"
                 :key="option.value"
@@ -518,7 +546,7 @@ onMounted(async () => {
 
           <div class="grid grid-cols-2 gap-6">
             <el-form-item label="排序">
-              <el-input-number v-model="editForm.sortOrder" :min="0" class="w-full !w-full" />
+              <el-input-number v-model="editForm.sortOrder" :min="0" class="w-full !w-full form-number" />
             </el-form-item>
 
             <el-form-item label="状态">
@@ -533,14 +561,14 @@ onMounted(async () => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button
             @click="editDialogVisible = false"
-            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
           <button
             @click="handleUpdate"
             :disabled="updating"
-            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
           >
             {{ updating ? '保存中...' : '保存修改' }}
           </button>
@@ -549,3 +577,88 @@ onMounted(async () => {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+:deep(.filter-select .el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.filter-select:hover .el-select__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.filter-select .el-select__wrapper.is-focused),
+:deep(.filter-select .el-select__wrapper.is-focus),
+:deep(.filter-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.filter-select .el-select__placeholder),
+:deep(.filter-select .el-select__selected-item),
+:deep(.form-select .el-select__placeholder),
+:deep(.form-select .el-select__selected-item) {
+  font-size: 0.875rem;
+}
+
+:deep(.form-select .el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-select:hover .el-select__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-select .el-select__wrapper.is-focused),
+:deep(.form-select .el-select__wrapper.is-focus),
+:deep(.form-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.form-number .el-input__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-number:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-number .el-input__wrapper.is-focus),
+:deep(.form-number.is-focus .el-input__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.el-dialog__header) {
+  margin-right: 0;
+  border-bottom: 1px solid #f3f4f6;
+  padding: 20px 24px;
+}
+
+:deep(.el-dialog__body) {
+  padding: 0;
+}
+
+:deep(.el-dialog__footer) {
+  padding: 0;
+}
+</style>

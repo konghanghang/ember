@@ -156,7 +156,7 @@ onMounted(fetchData)
       <div class="flex items-center gap-3">
         <button
           @click="fetchData"
-          class="cursor-pointer rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+          class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
           aria-label="刷新套餐分组列表"
           title="刷新列表"
         >
@@ -164,7 +164,7 @@ onMounted(fetchData)
         </button>
         <button
           @click="dialogVisible = true"
-          class="flex items-center gap-2 rounded-lg bg-ember px-4 py-2 font-bold text-white shadow-md transition-colors hover:bg-red-700 hover:shadow-lg active:scale-95"
+          class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
         >
           <el-icon><Plus /></el-icon>
           <span>新建分组</span>
@@ -284,21 +284,21 @@ onMounted(fetchData)
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="分组标识">
-            <el-input v-model="createForm.key" placeholder="例如：VIP_A" />
+            <el-input v-model="createForm.key" placeholder="例如：VIP_A" class="input-ember" />
             <p class="mt-1 text-xs text-gray-500">分组标识会作为稳定引用保存，创建后不支持修改，建议使用大写字母、数字、下划线或连字符。</p>
           </el-form-item>
 
           <el-form-item label="分组名称">
-            <el-input v-model="createForm.name" placeholder="例如：新客优惠组" />
+            <el-input v-model="createForm.name" placeholder="例如：新客优惠组" class="input-ember" />
           </el-form-item>
 
           <el-form-item label="说明">
-            <el-input v-model="createForm.description" type="textarea" :rows="3" placeholder="可选，说明这个分组给谁用" />
+            <el-input v-model="createForm.description" type="textarea" :rows="3" placeholder="可选，说明这个分组给谁用" class="input-ember" />
           </el-form-item>
 
           <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
             <el-form-item label="排序">
-              <el-input-number v-model="createForm.sortOrder" :min="0" class="w-full !w-full" />
+              <el-input-number v-model="createForm.sortOrder" :min="0" class="w-full !w-full form-number" />
             </el-form-item>
 
             <el-form-item label="默认分组">
@@ -313,14 +313,14 @@ onMounted(fetchData)
         <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
           <button
             @click="dialogVisible = false"
-            class="rounded-lg px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
           <button
             @click="handleCreate"
             :disabled="creating"
-            class="rounded-lg bg-ember px-6 py-2 font-bold text-white shadow-md transition-colors hover:bg-red-700 hover:shadow-lg disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
           >
             {{ creating ? '创建中...' : '确认创建' }}
           </button>
@@ -332,20 +332,20 @@ onMounted(fetchData)
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="分组标识">
-            <el-input :model-value="editForm.key" disabled />
+            <el-input :model-value="editForm.key" disabled class="input-ember" />
           </el-form-item>
 
           <el-form-item label="分组名称">
-            <el-input v-model="editForm.name" placeholder="例如：新客优惠组" />
+            <el-input v-model="editForm.name" placeholder="例如：新客优惠组" class="input-ember" />
           </el-form-item>
 
           <el-form-item label="说明">
-            <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="可选，说明这个分组给谁用" />
+            <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="可选，说明这个分组给谁用" class="input-ember" />
           </el-form-item>
 
           <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
             <el-form-item label="排序">
-              <el-input-number v-model="editForm.sortOrder" :min="0" class="w-full !w-full" />
+              <el-input-number v-model="editForm.sortOrder" :min="0" class="w-full !w-full form-number" />
             </el-form-item>
 
             <el-form-item label="默认分组">
@@ -360,14 +360,14 @@ onMounted(fetchData)
         <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
           <button
             @click="editDialogVisible = false"
-            class="rounded-lg px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
           <button
             @click="handleUpdate"
             :disabled="updating"
-            class="rounded-lg bg-ember px-6 py-2 font-bold text-white shadow-md transition-colors hover:bg-red-700 hover:shadow-lg disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
           >
             {{ updating ? '保存中...' : '保存修改' }}
           </button>
@@ -376,3 +376,39 @@ onMounted(fetchData)
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+:deep(.form-number .el-input__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-number:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-number .el-input__wrapper.is-focus),
+:deep(.form-number.is-focus .el-input__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.el-dialog__header) {
+  margin-right: 0;
+  border-bottom: 1px solid #f3f4f6;
+  padding: 20px 24px;
+}
+
+:deep(.el-dialog__body) {
+  padding: 0;
+}
+
+:deep(.el-dialog__footer) {
+  padding: 0;
+}
+</style>

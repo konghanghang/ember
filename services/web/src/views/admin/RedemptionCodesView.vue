@@ -329,7 +329,7 @@ onMounted(async () => {
             </div>
             <button
               @click="fetchData"
-              class="cursor-pointer rounded-xl border border-gray-200 bg-white p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
               aria-label="刷新兑换码列表"
               title="刷新列表"
             >
