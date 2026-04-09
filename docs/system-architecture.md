@@ -244,6 +244,7 @@ services/
 - `IsActive` 是管理员手动控制的"人工开关"
 - `EmbyDisabled` 是 cron 自动管理的"过期封禁状态"
 - 两者正交，互不干扰
+- `User` 只承载 `users` 表真实列；`planGroupName`、`effectivePlanGroup` 等展示态字段只存在于 `services/user` 查询 DTO，不再混入持久化模型
 
 ### 4.2 RedemptionCode
 
@@ -355,6 +356,9 @@ services/
 | SortOrder | int | sortOrder | 排序（默认 0）|
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
+
+**设计要点**：
+- `Plan` 只承载 `plans` 表真实列；`planGroupName` 这类 join 后的展示字段由 `services/payment` 查询 DTO 承载，避免普通 `First/Find` 误查不存在列
 
 ### 4.7.1 PlanGroup
 

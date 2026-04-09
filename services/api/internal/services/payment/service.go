@@ -72,11 +72,11 @@ type GetPlansRequest struct {
 }
 
 type GetPlansResponse struct {
-	Data       []models.Plan `json:"data"`
-	Total      int64         `json:"total"`
-	Page       int           `json:"page"`
-	PageSize   int           `json:"pageSize"`
-	TotalPages int           `json:"totalPages"`
+	Data       []PlanView `json:"data"`
+	Total      int64      `json:"total"`
+	Page       int        `json:"page"`
+	PageSize   int        `json:"pageSize"`
+	TotalPages int        `json:"totalPages"`
 }
 
 type CreateCheckoutRequest struct {
@@ -148,7 +148,13 @@ func normalizePlanCurrency(raw string) (string, error) {
 	}
 }
 
-func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error) {
+func buildPlansWithGroupNameSelect(query *gorm.DB) *gorm.DB {
+	return query.
+		Select(`plans.*, plan_groups.name AS "planGroupName"`).
+		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."planGroup"`)
+}
+
+func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, errors.New("方案名称不能为空")
@@ -179,10 +185,10 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*models.Plan, error
 	if err := db.DB.Create(&plan).Error; err != nil {
 		return nil, errors.New("创建方案失败")
 	}
-	return &plan, nil
+	return s.getPlanByID(plan.ID)
 }
 
-func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*models.Plan, error) {
+func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanView, error) {
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, errors.New("更新方案失败")
@@ -263,7 +269,7 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*models.
 	if err := tx.Commit().Error; err != nil {
 		return nil, errors.New("更新方案失败")
 	}
-	return &plan, nil
+	return s.getPlanByID(plan.ID)
 }
 
 func (s *PaymentService) DeletePlan(id string) error {
@@ -315,11 +321,9 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 		return nil, errors.New("获取方案列表失败")
 	}
 
-	var plans []models.Plan
+	var plans []PlanView
 	offset := (page - 1) * pageSize
-	if err := query.
-		Select(`plans.*, plan_groups.name AS "planGroupName"`).
-		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."planGroup"`).
+	if err := buildPlansWithGroupNameSelect(query).
 		Order(`plans."sortOrder" ASC, plans."createdAt" DESC`).
 		Offset(offset).
 		Limit(pageSize).
@@ -336,7 +340,7 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 	}, nil
 }
 
-func (s *PaymentService) GetPlansForUser(userID string) ([]models.Plan, error) {
+func (s *PaymentService) GetPlansForUser(userID string) ([]PlanView, error) {
 	var user models.User
 	if err := db.DB.Select("id", "planGroup").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, errors.New("获取用户信息失败")
@@ -347,16 +351,27 @@ func (s *PaymentService) GetPlansForUser(userID string) ([]models.Plan, error) {
 		return nil, err
 	}
 
-	var plans []models.Plan
-	if err := db.DB.
-		Select(`plans.*, plan_groups.name AS "planGroupName"`).
-		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."planGroup"`).
+	var plans []PlanView
+	if err := buildPlansWithGroupNameSelect(db.DB.Model(&models.Plan{})).
 		Where(`plans."isActive" = ? AND plans."planGroup" = ?`, true, planGroup).
 		Order(`plans."sortOrder" ASC, plans."createdAt" DESC`).
 		Find(&plans).Error; err != nil {
 		return nil, errors.New("获取方案列表失败")
 	}
 	return plans, nil
+}
+
+func (s *PaymentService) getPlanByID(id string) (*PlanView, error) {
+	var plan PlanView
+	if err := buildPlansWithGroupNameSelect(db.DB.Model(&models.Plan{})).
+		Where("plans.id = ?", id).
+		First(&plan).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPlanNotFound
+		}
+		return nil, errors.New("获取方案失败")
+	}
+	return &plan, nil
 }
 
 func timePtr(value time.Time) *time.Time {

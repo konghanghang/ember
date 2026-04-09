@@ -98,7 +98,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 // @Produce json
 // @Param id path string true "用户ID"
 // @Param body body user.AdminUpdateUserRequest true "可更新字段"
-// @Success 200 {object} models.User
+// @Success 200 {object} user.UserView
 // @Router /api/v1/admin/users/{id} [put]
 // @Security BearerAuth
 func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
@@ -142,7 +142,7 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 // @Produce json
 // @Param id path string true "用户ID"
 // @Param body body user.ExtendExpiryRequest true "延长天数"
-// @Success 200 {object} models.User
+// @Success 200 {object} user.UserView
 // @Router /api/v1/admin/users/{id}/extend [put]
 // @Security BearerAuth
 func (h *UserHandler) ExtendExpiry(c *gin.Context) {
@@ -172,7 +172,7 @@ func (h *UserHandler) ExtendExpiry(c *gin.Context) {
 // @Tags 用户管理
 // @Produce json
 // @Param id path string true "用户ID"
-// @Success 200 {object} models.User
+// @Success 200 {object} user.UserView
 // @Router /api/v1/admin/users/{id}/toggle [put]
 // @Security BearerAuth
 func (h *UserHandler) ToggleUserStatus(c *gin.Context) {

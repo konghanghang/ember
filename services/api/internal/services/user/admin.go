@@ -37,11 +37,11 @@ type GetUsersRequest struct {
 
 // GetUsersResponse 获取用户列表响应
 type GetUsersResponse struct {
-	Data       []models.User `json:"data"`
-	Total      int64         `json:"total"`
-	Page       int           `json:"page"`
-	PageSize   int           `json:"pageSize"`
-	TotalPages int           `json:"totalPages"`
+	Data       []UserView `json:"data"`
+	Total      int64      `json:"total"`
+	Page       int        `json:"page"`
+	PageSize   int        `json:"pageSize"`
+	TotalPages int        `json:"totalPages"`
 }
 
 // ExtendExpiryRequest 延长到期时间请求
@@ -67,9 +67,9 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 		Joins(`LEFT JOIN plan_groups default_pg ON default_pg."isDefault" = ?`, true)
 }
 
-func markUsersUsingDefaultPlanGroup(users []models.User) {
+func markUsersUsingDefaultPlanGroup(users []UserView) {
 	for i := range users {
-		users[i].IsUsingDefaultPlanGroup = users[i].PlanGroup == nil && !users[i].IsPlanGroupMissing
+		users[i].markUsingDefaultPlanGroup()
 	}
 }
 
@@ -132,7 +132,7 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 		return nil, err
 	}
 
-	var users []models.User
+	var users []UserView
 	offset := (req.Page - 1) * req.PageSize
 	if err := buildUsersWithPlanGroupSelect(query).
 		Offset(offset).
@@ -157,22 +157,22 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 	}, nil
 }
 
-func (s *UserService) GetUserByID(userID string) (*models.User, error) {
+func (s *UserService) GetUserByID(userID string) (*UserView, error) {
 	if _, err := paymentpkg.GetDefaultPlanGroup(nil); err != nil {
 		return nil, err
 	}
-	var user models.User
+	var user UserView
 	result := buildUsersWithPlanGroupSelect(db.DB.Model(&models.User{})).
 		Where("users.id = ?", userID).
 		First(&user)
 	if result.Error != nil {
 		return nil, errors.New("用户不存在")
 	}
-	user.IsUsingDefaultPlanGroup = user.PlanGroup == nil
+	user.markUsingDefaultPlanGroup()
 	return &user, nil
 }
 
-func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserRequest) (*models.User, error) {
+func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserRequest) (*UserView, error) {
 	if req == nil {
 		return nil, errors.New("请求参数错误")
 	}

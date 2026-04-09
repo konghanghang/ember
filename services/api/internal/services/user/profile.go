@@ -17,7 +17,7 @@ type UpdateEmailRequest struct {
 	NewEmail string `json:"newEmail" binding:"required,email"`
 }
 
-func (s *UserService) GetProfile(userID string) (*models.User, error) {
+func (s *UserService) GetProfile(userID string) (*UserView, error) {
 	return s.GetUserByID(userID)
 }
 
