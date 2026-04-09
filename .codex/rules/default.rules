@@ -1,0 +1,271 @@
+# Ember project execpolicy rules.
+# Source of intent:
+# - `.claude/settings.json`
+# - `.claude/settings.local.json`
+# - repository constraints in `AGENTS.md`
+#
+# Notes:
+# - Codex rules only govern commands that would run outside the sandbox.
+# - File-read denies such as `Read(./.env)` are not expressible here.
+# - Keep allow rules narrow; default to prompt or forbidden for risky commands.
+
+# Safe inspection and validation commands that are routine for this repo.
+prefix_rule(
+    pattern = ["git", "status"],
+    decision = "allow",
+    justification = "Allow routine git workspace inspection.",
+    match = [
+        "git status",
+        "git status --short",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "diff"],
+    decision = "allow",
+    justification = "Allow routine git diff inspection.",
+    match = [
+        "git diff",
+        "git diff --stat",
+        "git diff --cached",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "log"],
+    decision = "allow",
+    justification = "Allow routine git history inspection.",
+    match = [
+        "git log",
+        "git log --oneline",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "show"],
+    decision = "allow",
+    justification = "Allow routine git object inspection.",
+    match = [
+        "git show HEAD",
+        "git show --stat HEAD~1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "ls-tree"],
+    decision = "allow",
+    justification = "Allow routine git tree inspection.",
+    match = [
+        "git ls-tree HEAD",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "build", "./..."],
+    decision = "allow",
+    justification = "Allow standard Go build validation for the whole backend.",
+    match = [
+        "go build ./...",
+    ],
+    not_match = [
+        "go build ./cmd/server",
+        "go build",
+    ],
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "build"],
+    decision = "allow",
+    justification = "Allow standard frontend production build validation.",
+    match = [
+        "npm run build",
+    ],
+    not_match = [
+        "npm run dev",
+    ],
+)
+
+# Commands that were broadly allowed in Claude settings but should still
+# require an explicit approval each time in Codex.
+prefix_rule(
+    pattern = ["git", "add"],
+    decision = "prompt",
+    justification = "Staging changes mutates the index and should stay explicit.",
+    match = [
+        "git add AGENTS.md",
+        "git add .",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "commit"],
+    decision = "prompt",
+    justification = "Commits are user-visible history changes and should stay explicit.",
+    match = [
+        "git commit -m docs: update rules",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Pushing changes affects remote history and should stay explicit.",
+    match = [
+        "git push",
+        "git push origin master",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "pull"],
+    decision = "prompt",
+    justification = "Pulling can rewrite the local working state and should stay explicit.",
+    match = [
+        "git pull",
+        "git pull --rebase",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "checkout"],
+    decision = "prompt",
+    justification = "Checkout may switch branches or overwrite files; review each use.",
+    match = [
+        "git checkout master",
+        "git checkout -- AGENTS.md",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "reset"],
+    decision = "prompt",
+    justification = "Reset can discard or rewrite state; require confirmation.",
+    match = [
+        "git reset HEAD~1",
+        "git reset --hard HEAD~1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "rm"],
+    decision = "prompt",
+    justification = "Removing tracked files should stay explicit.",
+    match = [
+        "git rm README.md",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rm"],
+    decision = "prompt",
+    justification = "File deletion outside the sandbox should always be reviewed.",
+    match = [
+        "rm tmp.txt",
+        "rm -rf tmpdir",
+    ],
+)
+
+prefix_rule(
+    pattern = ["mkdir"],
+    decision = "prompt",
+    justification = "Directory creation outside the sandbox should stay explicit.",
+    match = [
+        "mkdir tmp",
+        "mkdir -p .codex/rules",
+    ],
+)
+
+prefix_rule(
+    pattern = ["cp"],
+    decision = "prompt",
+    justification = "Copying files outside the sandbox should stay explicit.",
+    match = [
+        "cp a b",
+    ],
+)
+
+prefix_rule(
+    pattern = ["mv"],
+    decision = "prompt",
+    justification = "Moving files outside the sandbox should stay explicit.",
+    match = [
+        "mv a b",
+    ],
+)
+
+prefix_rule(
+    pattern = ["npm", "install"],
+    decision = "prompt",
+    justification = "Installing packages changes dependencies and may hit the network.",
+    match = [
+        "npm install",
+        "npm install axios",
+    ],
+)
+
+prefix_rule(
+    pattern = ["psql"],
+    decision = "prompt",
+    justification = "Database access can inspect or mutate live data; require confirmation.",
+    match = [
+        "psql postgres://localhost/db",
+    ],
+)
+
+prefix_rule(
+    pattern = ["curl"],
+    decision = "prompt",
+    justification = "Network requests should stay explicit when run outside the sandbox.",
+    match = [
+        "curl -I https://example.com",
+    ],
+)
+
+# Hard blocks for commands that conflict with repository rules or are
+# unnecessarily dangerous for routine Codex use.
+prefix_rule(
+    pattern = ["rm", "-rf"],
+    decision = "prompt",
+    justification = "Recursive force delete is dangerous and must require explicit approval each time.",
+    match = [
+        "rm -rf tmpdir",
+        "rm -rf /tmp/something",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Do not discard worktree state with `git reset --hard`.",
+    match = [
+        "git reset --hard HEAD",
+        "git reset --hard HEAD~1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "checkout", "--"],
+    decision = "forbidden",
+    justification = "Do not overwrite tracked files with `git checkout --`.",
+    match = [
+        "git checkout -- AGENTS.md",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "run"],
+    decision = "forbidden",
+    justification = "Repository rules forbid starting services from the coding agent.",
+    match = [
+        "go run ./cmd/server",
+    ],
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "dev"],
+    decision = "forbidden",
+    justification = "Repository rules forbid starting frontend dev servers from the coding agent.",
+    match = [
+        "npm run dev",
+    ],
+)
