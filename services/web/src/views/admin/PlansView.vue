@@ -248,49 +248,64 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <div v-if="!props.embedded" class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          付费方案管理
-          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ activeCount }}/{{ total }} 启用</span>
-        </h1>
-        <p class="text-gray-500 text-sm mt-1">管理订阅购买套餐，支持 USD、HKD、CNY</p>
-      </div>
+    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+      <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <template v-if="!props.embedded">
+            <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              付费方案管理
+              <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ activeCount }}/{{ total }} 启用</span>
+            </h1>
+            <p class="text-gray-500 text-sm mt-1">管理订阅购买套餐，支持 USD、HKD、CNY</p>
+          </template>
 
-      <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
-          <span class="text-sm text-gray-600">显示全部</span>
-          <el-switch v-model="queryParams.showAll" @change="handleFilterChange" size="small" />
+          <div class="flex flex-wrap items-center gap-2" :class="props.embedded ? '' : 'mt-3'">
+            <span class="text-sm font-semibold text-gray-900">方案池</span>
+            <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
+            <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-600">启用中 {{ activeCount }} 条</span>
+          </div>
+          <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">
+            管理订阅购买套餐，并按套餐分组筛选当前结果。
+          </p>
         </div>
-        <el-select
-          v-model="queryParams.planGroup"
-          class="!w-[180px]"
-          placeholder="全部分组"
-          @change="handleFilterChange"
-        >
-          <el-option label="全部分组" value="" />
-          <el-option
-            v-for="option in planGroupOptions"
-            :key="option.value"
-            :label="option.label"
-            :value="option.value"
-          />
-        </el-select>
-        <button
-          @click="fetchData"
-          class="cursor-pointer rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
-          aria-label="刷新付费方案列表"
-          title="刷新列表"
-        >
-          <el-icon :size="20"><Refresh /></el-icon>
-        </button>
-        <button
-          @click="dialogVisible = true"
-          class="flex items-center gap-2 px-4 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg active:scale-95"
-        >
-          <el-icon><Plus /></el-icon>
-          <span>新建方案</span>
-        </button>
+
+        <div class="flex flex-col gap-3 xl:items-end">
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+              <span class="text-sm text-gray-600">显示全部</span>
+              <el-switch v-model="queryParams.showAll" @change="handleFilterChange" size="small" />
+            </div>
+            <el-select
+              v-model="queryParams.planGroup"
+              class="!w-[180px]"
+              placeholder="全部分组"
+              @change="handleFilterChange"
+            >
+              <el-option label="全部分组" value="" />
+              <el-option
+                v-for="option in planGroupOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+            <button
+              @click="fetchData"
+              class="cursor-pointer rounded-xl border border-gray-200 bg-white p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              aria-label="刷新付费方案列表"
+              title="刷新列表"
+            >
+              <el-icon :size="20"><Refresh /></el-icon>
+            </button>
+            <button
+              @click="dialogVisible = true"
+              class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+            >
+              <el-icon><Plus /></el-icon>
+              <span>新建方案</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
