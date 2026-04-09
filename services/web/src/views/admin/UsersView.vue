@@ -102,7 +102,7 @@ const handleOpenEdit = (row: UserInfo) => {
     id: row.id,
     email: row.email || '',
     isActive: row.isActive,
-    planGroup: row.planGroup || '',
+    planGroup: row.effectivePlanGroup || row.planGroup || defaultPlanGroup.value?.key || '',
     neverExpire: !row.expiresAt,
     expiresAt: row.expiresAt ? new Date(row.expiresAt) : null
   }
@@ -237,7 +237,7 @@ const getPlanGroupDisplay = (row: UserInfo) => {
   if (row.isPlanGroupMissing) {
     return row.effectivePlanGroup ? `分组失效：${row.effectivePlanGroup}` : '分组失效'
   }
-  return row.effectivePlanGroupName || row.effectivePlanGroup || '未设置'
+  return row.effectivePlanGroupName || row.effectivePlanGroup || row.planGroupName || row.planGroup || '未设置'
 }
 
 const isExpired = (dateStr?: string | null) => {
@@ -508,8 +508,7 @@ onMounted(async () => {
             >
               {{ getPlanGroupDisplay(row) }}
             </el-tag>
-            <div v-if="row.isUsingDefaultPlanGroup" class="mt-1 text-[11px] text-gray-400">跟随默认</div>
-            <div v-else-if="row.isPlanGroupMissing" class="mt-1 text-[11px] text-red-400">请重新绑定有效分组</div>
+            <div v-if="row.isPlanGroupMissing" class="mt-1 text-[11px] text-red-400">请重新绑定有效分组</div>
           </template>
         </el-table-column>
 
@@ -617,11 +616,7 @@ onMounted(async () => {
             </el-form-item>
 
             <el-form-item label="套餐组">
-              <el-select v-model="editForm.planGroup" class="w-full" placeholder="选择套餐组">
-                <el-option
-                  :label="defaultPlanGroup ? `跟随默认（${defaultPlanGroup.name}）` : '跟随默认'"
-                  value=""
-                />
+              <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
                 <el-option
                   v-for="option in planGroupOptions"
                   :key="option.value"
@@ -772,6 +767,32 @@ onMounted(async () => {
 :deep(.filter-select .el-select__selected-item),
 :deep(.filter-select .el-select__placeholder) {
   padding-left: 1.8rem;
+  font-size: 0.875rem;
+}
+
+:deep(.form-select .el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-select:hover .el-select__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-select .el-select__wrapper.is-focused),
+:deep(.form-select .el-select__wrapper.is-focus),
+:deep(.form-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.form-select .el-select__placeholder),
+:deep(.form-select .el-select__selected-item) {
   font-size: 0.875rem;
 }
 </style>
