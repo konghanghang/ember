@@ -536,86 +536,99 @@ onMounted(async () => {
     <el-dialog
       v-model="dialogVisible"
       title="生成兑换码"
-      width="560px"
+      width="680px"
       align-center
       append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
-        <el-form label-position="top" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <el-form-item label="生成数量">
-              <el-input-number v-model="form.count" :min="1" :max="maxBatchCreateCount" class="w-full !w-full" />
-            </el-form-item>
-            <el-form-item label="最大使用次数">
-              <el-input-number v-model="form.maxUses" :min="1" class="w-full !w-full" />
-            </el-form-item>
-            <el-form-item label="有效天数 (激活后)">
-              <el-input-number v-model="form.defaultDays" :min="1" class="w-full !w-full" />
-            </el-form-item>
+        <el-form label-position="top" class="space-y-5">
+          <div class="rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
+            <div class="mb-3">
+              <div class="text-sm font-semibold text-gray-900">基础规则</div>
+              <div class="mt-1 text-xs text-gray-500">批量生成时，所有兑换码共用同一组规则。</div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <el-form-item label="生成数量" class="mb-0">
+                <el-input-number v-model="form.count" :min="1" :max="maxBatchCreateCount" class="w-full !w-full form-number" />
+              </el-form-item>
+              <el-form-item label="最大使用次数" class="mb-0">
+                <el-input-number v-model="form.maxUses" :min="1" class="w-full !w-full form-number" />
+              </el-form-item>
+              <el-form-item label="有效天数（激活后）" class="mb-0 md:col-span-2 xl:col-span-1">
+                <el-input-number v-model="form.defaultDays" :min="1" class="w-full !w-full form-number" />
+              </el-form-item>
+            </div>
+
+            <div class="mt-3 text-xs text-gray-500">
+              单次最多生成 {{ maxBatchCreateCount }} 个兑换码。
+            </div>
           </div>
 
-          <div class="text-xs text-gray-400 -mt-2">
-            单次最多生成 {{ maxBatchCreateCount }} 个，所有兑换码共用同一组规则。
-          </div>
-
-          <el-form-item label="兑换码过期时间 (可选)">
-            <el-date-picker
-              v-model="form.expiresAt"
-              type="datetime"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              placeholder="不填则永久有效"
-              :prefix-icon="Calendar"
-              clearable
-              class="w-full !w-full input-ember"
-            />
-            <div class="text-xs text-gray-400 mt-1">设置兑换码本身的有效期，过期后无法兑换。</div>
-          </el-form-item>
-
-          <el-form-item label="权限模板用户 (可选)">
-            <el-select
-              v-model="form.templateUserId"
-              placeholder="不选择则沿用默认权限"
-              clearable
-              filterable
-              class="w-full !w-full"
-            >
-              <el-option
-                v-for="item in userTemplates"
-                :key="item.id"
-                :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
-                :value="item.id"
+          <el-form-item label="兑换码过期时间（可选）">
+            <div class="w-full space-y-2">
+              <el-date-picker
+                v-model="form.expiresAt"
+                type="datetime"
+                value-format="YYYY-MM-DDTHH:mm:ssZ"
+                placeholder="不填则永久有效"
+                :prefix-icon="Calendar"
+                clearable
+                class="w-full !w-full input-ember form-date"
               />
-            </el-select>
-            <div class="text-xs text-gray-400 mt-1">仅在邀请码注册时生效，续期不受影响。</div>
+              <div class="relative z-[1] text-xs text-gray-400">设置兑换码本身的有效期，过期后无法兑换。</div>
+            </div>
           </el-form-item>
 
-          <el-form-item label="备注 (可选)">
-            <el-input
-              v-model="form.notes"
-              type="textarea"
-              rows="2"
-              maxlength="500"
-              show-word-limit
-              placeholder="描述兑换码用途，最多 500 字"
-              class="w-full !w-full"
-            />
-            <div class="text-xs text-gray-400 mt-1">不填则保持原有行为。</div>
+          <el-form-item label="权限模板用户（可选）">
+            <div class="w-full space-y-2">
+              <el-select
+                v-model="form.templateUserId"
+                placeholder="不选择则沿用默认权限"
+                clearable
+                filterable
+                class="w-full !w-full form-select"
+              >
+                <el-option
+                  v-for="item in userTemplates"
+                  :key="item.id"
+                  :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
+                  :value="item.id"
+                />
+              </el-select>
+              <div class="text-xs text-gray-400">仅在邀请码注册时生效，续期不受影响。</div>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="备注（可选）">
+            <div class="w-full space-y-2">
+              <el-input
+                v-model="form.notes"
+                type="textarea"
+                rows="2"
+                maxlength="500"
+                show-word-limit
+                placeholder="描述兑换码用途，最多 500 字"
+                class="w-full !w-full input-ember"
+              />
+              <div class="text-xs text-gray-400">不填则保持原有行为。</div>
+            </div>
           </el-form-item>
         </el-form>
       </div>
       <template #footer>
-        <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
+        <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
           <button
             @click="dialogVisible = false"
-            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+            class="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
           <button
             @click="handleCreate"
             :disabled="generating"
-            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+            class="btn-ember cursor-pointer rounded-xl px-6 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-70"
           >
             {{ generating ? '生成中...' : '确认生成' }}
           </button>
@@ -697,16 +710,18 @@ onMounted(async () => {
           </el-form-item>
 
           <el-form-item label="兑换码过期时间">
-            <el-date-picker
-              v-model="editForm.expiresAt"
-              type="datetime"
-              placeholder="不填则永久有效"
-              :prefix-icon="Calendar"
-              :disabled="editForm.neverExpire"
-              clearable
-              class="w-full !w-full input-ember"
-            />
-            <div class="text-xs text-gray-400 mt-1">修改后状态会按新规则实时生效。</div>
+            <div class="w-full space-y-2">
+              <el-date-picker
+                v-model="editForm.expiresAt"
+                type="datetime"
+                placeholder="不填则永久有效"
+                :prefix-icon="Calendar"
+                :disabled="editForm.neverExpire"
+                clearable
+                class="w-full !w-full input-ember form-date"
+              />
+              <div class="relative z-[1] text-xs text-gray-400">修改后状态会按新规则实时生效。</div>
+            </div>
           </el-form-item>
 
           <el-form-item label="权限模板用户 (可选)">
@@ -715,7 +730,7 @@ onMounted(async () => {
               placeholder="不选择则沿用默认权限"
               clearable
               filterable
-              class="w-full !w-full"
+              class="w-full !w-full form-select"
             >
               <el-option
                 v-for="item in userTemplates"
@@ -727,16 +742,18 @@ onMounted(async () => {
           </el-form-item>
 
           <el-form-item label="备注">
-            <el-input
-              v-model="editForm.notes"
-              type="textarea"
-              rows="2"
-              maxlength="500"
-              show-word-limit
-              placeholder="更新备注（可选）"
-              class="w-full !w-full"
-            />
-            <div class="text-xs text-gray-400 mt-1">清空后保存会移除原备注。</div>
+            <div class="w-full space-y-2">
+              <el-input
+                v-model="editForm.notes"
+                type="textarea"
+                rows="2"
+                maxlength="500"
+                show-word-limit
+                placeholder="更新备注（可选）"
+                class="w-full !w-full input-ember"
+              />
+              <div class="text-xs text-gray-400">清空后保存会移除原备注。</div>
+            </div>
           </el-form-item>
         </el-form>
       </div>
@@ -812,6 +829,97 @@ onMounted(async () => {
 
 :deep(.filter-select .el-select__selection) {
   min-height: 0;
+}
+
+:deep(.form-select .el-select__placeholder),
+:deep(.form-select .el-select__selected-item) {
+  font-size: 0.875rem;
+}
+
+:deep(.form-select .el-select__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-select:hover .el-select__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-select .el-select__wrapper.is-focused),
+:deep(.form-select .el-select__wrapper.is-focus),
+:deep(.form-select.is-focus .el-select__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.form-number) {
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+:deep(.form-number.el-input-number) {
+  width: 100%;
+}
+
+:deep(.form-number .el-input__wrapper) {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #f9fafb !important;
+  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-number .el-input-number__decrease),
+:deep(.form-number .el-input-number__increase) {
+  border-radius: 0;
+  background-color: #f9fafb;
+  box-shadow: none !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-number .el-input-number__decrease) {
+  border-top-left-radius: 0.75rem;
+  border-bottom-left-radius: 0.75rem;
+}
+
+:deep(.form-number .el-input-number__increase) {
+  border-top-right-radius: 0.75rem;
+  border-bottom-right-radius: 0.75rem;
+}
+
+:deep(.form-number:hover .el-input__wrapper),
+:deep(.form-number:hover .el-input-number__decrease),
+:deep(.form-number:hover .el-input-number__increase) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-number .el-input__wrapper.is-focus),
+:deep(.form-number.is-focus .el-input__wrapper) {
+  background-color: #ffffff !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.form-number .el-input-number__decrease:hover),
+:deep(.form-number .el-input-number__increase:hover) {
+  color: var(--ember-red);
+}
+
+:deep(.form-date.el-date-editor) {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+}
+
+:deep(.form-date.el-date-editor.el-input) {
+  height: 42px;
 }
 
 :deep(.el-table) {
