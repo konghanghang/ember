@@ -35,7 +35,15 @@ services/bot/
 
 ## 核心环境变量
 
-必填：
+本地开发可从 [`.env.example`](./.env.example) 起步：
+
+```bash
+cp .env.example .env.local
+```
+
+`.env.example` 只保留 Bot 启动时必须依赖环境变量的项。
+
+默认必填：
 
 - `TELEGRAM_BOT_TOKEN`
 - `INTERNAL_API_SECRET`
@@ -46,12 +54,13 @@ services/bot/
 - `TELEGRAM_WEBHOOK_SECRET`，仅 `webhook` 模式必填
 - `WEBHOOK_URL`，仅 `webhook` 模式必填
 
-常用可选项：
+仍支持环境变量回退，但不再放进 `.env.example` 的项：
 
-- `TELEGRAM_ADMIN_CHAT_ID`
-- `TELEGRAM_GROUP_CHAT_ID`
+- `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`
 - `API_URL`，默认 `http://localhost:8080`
 - `BOT_PORT`，默认 `8000`
+
+其中 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 在运行期优先从 Go API 设置中心读取，env 只作为兜底。
 
 配置边界见 [配置参考](/Users/konghang/data/me/github/ember/docs/reference/configuration-reference.md)。
 

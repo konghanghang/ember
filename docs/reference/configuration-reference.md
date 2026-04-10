@@ -21,7 +21,7 @@
 3. **Bot 启动环境变量**
    - Bot 进程启动时直接读取
    - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link`、`telegram_welcome_message_template` 在运行期通过 API 设置中心读取，并带短 TTL 缓存
-   - 当 API 未返回值时，`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 回退到本地 env
+   - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 仍支持本地 env 回退，但它们属于可选兜底，不再作为 `.env.example` 默认项
 
 ---
 
@@ -103,57 +103,68 @@
 
 以下配置仍然应通过环境变量注入，不放进设置中心。
 
+### 3.1 `.env.example` 默认保留项
+
+这些项要么是 API 启动硬依赖，要么是只能放环境变量里的密钥，因此会保留在 `services/api/.env.example`。
+
 | 配置项 | 敏感 | 说明 | 原因 |
 |--------|------|------|------|
-| `DATABASE_URL` | 是 | PostgreSQL 连接串 | 部署期基础设施边界 |
+| `DATABASE_URL` | 是 | PostgreSQL 连接串 | API 启动硬依赖 |
 | `JWT_SECRET` | 是 | 用户 JWT 签名密钥 | 登录态信任根，不应在线修改 |
-| `INTERNAL_API_SECRET` | 是 | API 与 Bot 内部调用共享密钥 | 服务间鉴权根密钥 |
-| `ADMIN_USERNAME` | 否 | 首次初始化管理员用户名 | 仅首次启动使用 |
-| `ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 | 仅首次启动使用 |
-| `TELEGRAM_BOT_TOKEN` | 是 | Telegram Bot 令牌 | Bot 启动边界 |
-| `TELEGRAM_UPDATE_MODE` | 否 | Telegram 更新接入模式，`webhook` 或 `polling` | Bot 启动边界 |
-| `TELEGRAM_WEBHOOK_SECRET` | 条件敏感 | Telegram Webhook 校验密钥 | `webhook` 模式下的第三方 Webhook 验签边界 |
-| `WEBHOOK_URL` | 条件敏感 | Telegram Webhook 公网地址 | `webhook` 模式下的部署拓扑边界 |
-| `PORT` | 否 | API 监听端口 | 进程启动参数 |
-| `AUTO_MIGRATE` | 否 | 是否自动迁移数据库 | 启动期控制项 |
-| `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 第三方 Webhook 验签边界 |
 | `CONFIG_ENCRYPTION_KEY` | 是 | 敏感配置加密主密钥 | 数据库敏感配置加解密根密钥 |
-| `EMBY_WEBHOOK_TOKEN` | 是 | Emby Webhook token | `/api/v1/webhooks/emby?token=` 的访问口令 |
-| `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 第三方安全校验密钥，不应进入设置中心 |
+| `INTERNAL_API_SECRET` | 是 | API 与 Bot 内部调用共享密钥 | 服务间鉴权根密钥 |
+| `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 仅启用 Stripe Webhook 时需要，且只能走环境变量 |
+| `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 仅启用 Turnstile 登录校验时需要，且不应进入设置中心 |
+| `EMBY_WEBHOOK_TOKEN` | 是 | Emby Webhook token | 仅启用 Emby Webhook 回写追剧日历时需要，且只能走环境变量 |
+
+### 3.2 仍是环境变量来源，但不放进 `.env.example` 的项
+
+这些值仍然可能由部署环境控制，但不是“默认必须写进示例文件”的项。
+
+| 配置项 | 敏感 | 说明 | 原因 |
+|--------|------|------|------|
+| `PORT` | 否 | API 监听端口 | 有默认值 `8080`，属于进程启动参数 |
+| `AUTO_MIGRATE` | 否 | 是否自动迁移数据库 | 有默认值 `false`，属于启动期控制项 |
+| `ADMIN_USERNAME` | 否 | 首次初始化管理员用户名 | 仅首次启动且需要初始化管理员时才有意义 |
+| `ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 | 仅首次启动且需要初始化管理员时才有意义 |
 
 说明：
 
 - `WEBHOOK_TOKEN` 已废弃，当前只保留 `EMBY_WEBHOOK_TOKEN`。
 - `CONFIG_ENCRYPTION_KEY` 不参与认证，它只负责数据库敏感配置的加密和解密。
+- `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_*`、`SMTP_*`、`CRON_*`、`BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已按设置中心模型管理，不再作为 API `.env.example` 的默认项。
 
 ---
 
 ## 4. Bot 环境变量
 
-Bot 进程当前仍主要依赖环境变量启动。
+Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留启动硬依赖。
+
+### 4.1 `.env.example` 默认保留项
 
 | 配置项 | 敏感 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `TELEGRAM_BOT_TOKEN` | 是 | — | Telegram Bot Token |
 | `TELEGRAM_UPDATE_MODE` | 否 | `webhook` | Telegram 更新接入模式，`webhook` 或 `polling` |
-| `TELEGRAM_ADMIN_CHAT_ID` | 否 | — | 管理员 Chat ID（运行期设置回退） |
-| `TELEGRAM_GROUP_CHAT_ID` | 否 | — | 群组 Chat ID（运行期设置回退） |
 | `TELEGRAM_WEBHOOK_SECRET` | 条件敏感 | — | `webhook` 模式下的 Telegram Webhook 校验密钥 |
 | `INTERNAL_API_SECRET` | 是 | — | 与 API 共享的内部调用密钥 |
 | `WEBHOOK_URL` | 条件敏感 | — | `webhook` 模式下的 Bot 对外 Webhook 地址 |
-| `API_URL` | 否 | `http://localhost:8080` | API 地址 |
-| `BOT_PORT` | 否 | `8000` | Bot 监听端口 |
+
+### 4.2 仍支持环境变量回退，但不放进 `.env.example` 的项
+
+| 配置项 | 敏感 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `TELEGRAM_ADMIN_CHAT_ID` | 否 | — | 管理员 Chat ID；运行期优先读 API 设置中心，env 仅作回退 |
+| `TELEGRAM_GROUP_CHAT_ID` | 否 | — | 群组 Chat ID；运行期优先读 API 设置中心，env 仅作回退 |
+| `API_URL` | 否 | `http://localhost:8080` | API 地址；有默认值，不必写进示例 |
+| `BOT_PORT` | 否 | `8000` | Bot 监听端口；有默认值，不必写进示例 |
 
 说明：
 
 - Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存。
 - 当 API 未返回值时，Bot 会回退到本地环境变量中的 Chat ID。
 - `polling` 模式下不再需要 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 自身仍要保留内网可达地址，供 API 通过 `BOT_NOTIFY_URL` 调用 `/notify/*`。
-- 因此：
-  - `TELEGRAM_ADMIN_CHAT_ID`
-  - `TELEGRAM_GROUP_CHAT_ID`
-  
-  这两个值对 API 来说已经是数据库配置，但对 Bot 仍建议保留 env 作为启动期兜底。
+- 因此 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 对 Bot 来说仍可保留 env 兜底，但不再属于推荐写进示例文件的默认项。
 
 ---
 

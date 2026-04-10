@@ -25,15 +25,30 @@ go build ./...
 cp .env.example .env
 ```
 
-必填的核心项通常是：
+`.env.example` 现在只保留“必须通过环境变量提供”的项。
+
+默认保留的核心项是：
 
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `CONFIG_ENCRYPTION_KEY`
-- `EMBY_URL`
-- `EMBY_API_KEY`
-- `TMDB_API_KEY`
 - `INTERNAL_API_SECRET`
+
+按功能启用、且只能走环境变量注入的项：
+
+- `STRIPE_WEBHOOK_SECRET`
+- `TURNSTILE_SECRET_KEY`
+- `EMBY_WEBHOOK_TOKEN`
+
+以下配置虽然代码仍可能支持环境变量来源，但不再建议写进 `.env.example`：
+
+- `PORT`、`AUTO_MIGRATE`
+- `ADMIN_USERNAME`、`ADMIN_PASSWORD`
+- `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`
+- `MOVIEPILOT_*`、`SMTP_*`、`CRON_*`
+- `BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`
+
+因为这些值当前默认应由设置中心数据库托管，或者本身有默认值，只在特定部署场景下才需要额外注入。
 
 更完整的部署边界见 [配置参考](/Users/konghang/data/me/github/ember/docs/reference/configuration-reference.md)。
 
