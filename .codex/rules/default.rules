@@ -85,18 +85,20 @@ prefix_rule(
     ],
 )
 
-# Commands that were broadly allowed in Claude settings but should still
-# require an explicit approval each time in Codex.
+# Commands that mutate local state but do not create user-visible history can
+# be selectively allowed to reduce approval noise.
 prefix_rule(
     pattern = ["git", "add"],
-    decision = "prompt",
-    justification = "Staging changes mutates the index and should stay explicit.",
+    decision = "allow",
+    justification = "Allow staging tracked changes to reduce duplicate approval prompts before commit.",
     match = [
         "git add AGENTS.md",
         "git add .",
     ],
 )
 
+# Commits remain explicit because repository rules require user confirmation
+# before creating visible history.
 prefix_rule(
     pattern = ["git", "commit"],
     decision = "prompt",
