@@ -102,6 +102,15 @@ export interface UpdateAdminUserRequest {
   clearExpiresAt?: boolean
 }
 
+export interface CreateAdminUserRequest {
+  username: string
+  email: string
+  password: string
+  planGroup: PlanGroup
+  neverExpire?: boolean
+  expiresAt?: string
+}
+
 export interface RedemptionCode {
   id: string
   code: string

@@ -11,11 +11,19 @@ import (
 type stubUserEmbyClient struct {
 	authUserResp      *embyint.EmbyUser
 	authUserErr       error
+	createUserResp    *embyint.EmbyUser
+	createUserErr     error
 	updatePasswordErr error
+	setUserPolicyErr  error
+	deleteUserErr     error
 	lastAuthUsername  string
 	lastAuthPassword  string
+	lastCreateName    string
+	lastCreatePwd     string
 	lastUpdateUserID  string
 	lastUpdatePwd     string
+	lastPolicyUserID  string
+	lastDeleteUserID  string
 }
 
 func (s *stubUserEmbyClient) AuthenticateUser(username, password string) (*embyint.EmbyUser, error) {
@@ -30,12 +38,20 @@ func (s *stubUserEmbyClient) UpdateUserPassword(embyUserID, newPassword string) 
 	return s.updatePasswordErr
 }
 
+func (s *stubUserEmbyClient) CreateEmbyUser(username, password string) (*embyint.EmbyUser, error) {
+	s.lastCreateName = username
+	s.lastCreatePwd = password
+	return s.createUserResp, s.createUserErr
+}
+
 func (s *stubUserEmbyClient) SetUserPolicy(embyUserID string, policy embyint.EmbyUserPolicy) error {
-	return errors.New("unexpected SetUserPolicy call")
+	s.lastPolicyUserID = embyUserID
+	return s.setUserPolicyErr
 }
 
 func (s *stubUserEmbyClient) DeleteUser(embyUserID string) error {
-	return errors.New("unexpected DeleteUser call")
+	s.lastDeleteUserID = embyUserID
+	return s.deleteUserErr
 }
 
 func TestResetPassword(t *testing.T) {

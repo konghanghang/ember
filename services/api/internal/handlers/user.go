@@ -26,6 +26,47 @@ func NewUserHandler() *UserHandler {
 	}
 }
 
+// CreateUserByAdmin 管理员创建用户
+// @Summary 管理员创建用户
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Param body body user.AdminCreateUserRequest true "创建用户请求"
+// @Success 200 {object} user.UserView
+// @Router /api/v1/admin/users [post]
+// @Security BearerAuth
+func (h *UserHandler) CreateUserByAdmin(c *gin.Context) {
+	var req userpkg.AdminCreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "请求参数错误",
+		})
+		return
+	}
+
+	user, err := h.userService.CreateUserByAdmin(&req)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		switch err.Error() {
+		case "用户名长度必须为 3-50 位", "用户名只能包含字母和数字", "邮箱不能为空", "邮箱格式错误",
+			"密码长度不能小于 6 位", "neverExpire=true 时不能再传 expiresAt", "neverExpire=false 时必须传 expiresAt",
+			"expiresAt 必须是 RFC3339 格式", "用户名已存在", "邮箱已存在":
+			statusCode = http.StatusBadRequest
+		default:
+			if errors.Is(err, userpkg.ErrInvalidPlanGroup) || errors.Is(err, paymentpkg.ErrPlanGroupNotFound) {
+				statusCode = http.StatusBadRequest
+			}
+		}
+
+		c.JSON(statusCode, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
 // GetUsers 获取用户列表
 // @Summary 获取用户列表
 // @Tags 用户管理

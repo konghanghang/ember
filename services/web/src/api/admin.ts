@@ -7,6 +7,7 @@ import type {
   AdminConfigListResponse,
   ClientBlacklist,
   ConfigGroupTestResult,
+  CreateAdminUserRequest,
   CreatePlanRequest,
   CreatePlanGroupRequest,
   CreateRedemptionCodeRequest,
@@ -61,6 +62,14 @@ export function getUserDetail(id: string): Promise<UserInfo> {
   return request({
     url: `/admin/users/${id}`,
     method: 'get'
+  })
+}
+
+export function createAdminUser(data: CreateAdminUserRequest): Promise<UserInfo> {
+  return request({
+    url: '/admin/users',
+    method: 'post',
+    data
   })
 }
 

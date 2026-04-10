@@ -75,7 +75,7 @@ services/
 │     │  │  └─ register_notify.go # AuthService（注册通知副作用）
 │     │  ├─ user/
 │     │  │  ├─ service.go        # UserService（共享依赖 / Emby 同步）
-│     │  │  ├─ admin.go          # 用户管理 / 续期 / 启停 / 删除
+│     │  │  ├─ admin.go          # 用户管理 / 后台创建 / 续期 / 启停 / 删除
 │     │  │  ├─ profile.go        # 用户资料 / 邮箱更新
 │     │  │  ├─ password.go       # 用户密码修改 / 管理员重置密码
 │     │  │  └─ password_reset.go # 用户邮箱验证码重置密码
@@ -111,7 +111,7 @@ services/
 │     │  └─ *_errors.go          # 领域错误定义（按业务拆分）
 │     ├─ handlers/               # HTTP 处理层（Gin）
 │     │  ├─ auth.go              # 登录 / 注册
-│     │  ├─ user.go              # 用户管理
+│     │  ├─ user.go              # 用户管理（列表 / 后台创建 / 编辑 / 删除）
 │     │  ├─ redemption_code.go   # 兑换码管理
 │     │  ├─ config.go            # 设置中心配置接口
 │     │  ├─ setting.go           # 系统配置
@@ -177,7 +177,7 @@ services/
 │  │     │  ├─ RankingsView.vue  # 播放排行
 │  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台
-│  │        ├─ UsersView.vue     # 用户管理
+│  │        ├─ UsersView.vue     # 用户管理（筛选 / 后台创建 / 编辑）
 │  │        ├─ UserPlaybackProfilesView.vue # 用户画像总览
 │  │        ├─ UserPlaybackProfileView.vue # 用户画像
 │  │        ├─ RedemptionCenterView.vue # 兑换中心（兑换码池 + 兑换记录）
@@ -886,6 +886,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 |------|------|------|
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
 | GET | `/api/v1/admin/users` | 用户列表（支持按有效 `planGroup` 过滤；显式分组为空时自动归入默认分组） |
+| POST | `/api/v1/admin/users` | 后台创建普通用户（显式指定 `planGroup` 与 `expiresAt` / `neverExpire`） |
 | GET | `/api/v1/admin/users/:id` | 用户详情 |
 | GET | `/api/v1/admin/users/:id/profile` | 用户画像（支持 `range` 或 `startDate/endDate`） |
 | PUT | `/api/v1/admin/users/:id` | 更新用户 |

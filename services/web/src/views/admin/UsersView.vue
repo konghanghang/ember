@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -8,6 +8,8 @@ import {
   Edit,
   Timer,
   Key,
+  Plus,
+  RefreshRight,
   Delete,
   MoreFilled,
   Lock,
@@ -16,8 +18,8 @@ import {
   DataLine
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
-import { getPlanGroups, getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
-import type { ManagedPlanGroup, PlanGroup, UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
+import { createAdminUser, getPlanGroups, getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
+import type { CreateAdminUserRequest, ManagedPlanGroup, PlanGroup, UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
 
 const router = useRouter()
 
@@ -25,7 +27,9 @@ const tableData = ref<UserInfo[]>([])
 const planGroups = ref<ManagedPlanGroup[]>([])
 const total = ref(0)
 const loading = ref(false)
+const creatingUser = ref(false)
 const savingUser = ref(false)
+const createDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const queryParams = ref<UserListQuery>({
   page: 1,
@@ -34,6 +38,15 @@ const queryParams = ref<UserListQuery>({
   expiresAfter: undefined,
   embyStatus: '',
   planGroup: ''
+})
+
+const createForm = ref({
+  username: '',
+  email: '',
+  password: '',
+  planGroup: '' as PlanGroup | '',
+  neverExpire: false,
+  expiresAt: null as Date | null
 })
 
 const editForm = ref({
@@ -51,6 +64,7 @@ const planGroupOptions = computed(() => planGroups.value.map(group => ({
 })))
 
 const defaultPlanGroup = computed(() => planGroups.value.find(group => group.isDefault) ?? null)
+const usernamePattern = /^[A-Za-z0-9]+$/
 
 // ... (Keep existing logic methods) ...
 const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
@@ -95,6 +109,122 @@ const handleResetFilters = () => {
   queryParams.value.planGroup = ''
   queryParams.value.page = 1
   fetchData()
+}
+
+const resetCreateForm = () => {
+  createForm.value = {
+    username: '',
+    email: '',
+    password: '',
+    planGroup: '',
+    neverExpire: false,
+    expiresAt: null
+  }
+}
+
+const openCreateDialog = () => {
+  if (planGroups.value.length === 0) {
+    ElMessage.warning('当前没有可用套餐组，暂时无法创建用户')
+    return
+  }
+  resetCreateForm()
+  createDialogVisible.value = true
+}
+
+const handleGenerateCreatePassword = () => {
+  createForm.value.password = generatePassword()
+}
+
+const validateCreateForm = () => {
+  const username = createForm.value.username.trim()
+  const email = createForm.value.email.trim()
+  const password = createForm.value.password
+
+  if (username.length < 3 || username.length > 50) {
+    ElMessage.warning('用户名长度必须为 3-50 位')
+    return false
+  }
+  if (!usernamePattern.test(username)) {
+    ElMessage.warning('用户名只能包含字母和数字')
+    return false
+  }
+  if (!email) {
+    ElMessage.warning('请输入邮箱')
+    return false
+  }
+  if (password.length < 6) {
+    ElMessage.warning('密码长度不能小于 6 位')
+    return false
+  }
+  if (!createForm.value.planGroup) {
+    ElMessage.warning('请选择套餐组')
+    return false
+  }
+  if (!createForm.value.neverExpire && !createForm.value.expiresAt) {
+    ElMessage.warning('请设置到期时间或选择永不过期')
+    return false
+  }
+  return true
+}
+
+const showCreateResult = async (username: string, password: string) => {
+  await ElMessageBox.alert(
+    h('div', { class: 'space-y-3 text-left' }, [
+      h('p', { class: 'text-sm leading-6 text-gray-600' }, '用户已创建成功，请立即复制以下账号信息。'),
+      h('div', { class: 'rounded-2xl border border-gray-200 bg-gray-50/80 p-4 space-y-3' }, [
+        h('div', { class: 'space-y-1' }, [
+          h('div', { class: 'text-xs font-semibold tracking-wide text-gray-500' }, '用户名'),
+          h('code', { class: 'block rounded-lg bg-white px-3 py-2 text-sm text-gray-800 ring-1 ring-gray-200' }, username)
+        ]),
+        h('div', { class: 'space-y-1' }, [
+          h('div', { class: 'text-xs font-semibold tracking-wide text-gray-500' }, '初始密码'),
+          h('code', { class: 'block rounded-lg bg-white px-3 py-2 text-sm text-gray-800 ring-1 ring-gray-200 break-all' }, password)
+        ])
+      ])
+    ]),
+    '创建成功',
+    {
+      confirmButtonText: '我已复制'
+    }
+  )
+}
+
+const handleCreateUser = async () => {
+  if (!validateCreateForm()) {
+    return
+  }
+
+  const payload: CreateAdminUserRequest = {
+    username: createForm.value.username.trim(),
+    email: createForm.value.email.trim(),
+    password: createForm.value.password,
+    planGroup: createForm.value.planGroup
+  }
+
+  if (createForm.value.neverExpire) {
+    payload.neverExpire = true
+  } else if (createForm.value.expiresAt) {
+    payload.expiresAt = createForm.value.expiresAt.toISOString()
+  }
+
+  const createdPassword = payload.password
+  const createdUsername = payload.username
+
+  creatingUser.value = true
+  try {
+    await createAdminUser(payload)
+    createDialogVisible.value = false
+    resetCreateForm()
+    ElMessage.success('用户创建成功')
+    await showCreateResult(createdUsername, createdPassword)
+    try {
+      await fetchData()
+    } catch {
+      ElMessage.warning('用户已创建成功，但列表刷新失败，请手动刷新')
+    }
+  } finally {
+    creatingUser.value = false
+  }
 }
 
 const handleOpenEdit = (row: UserInfo) => {
@@ -324,12 +454,22 @@ onMounted(async () => {
   <div class="space-y-6">
     <!-- Header Area -->
     <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          用户管理
-          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
-        </h1>
-        <p class="text-gray-500 text-sm mt-1">管理系统注册用户及其权限状态</p>
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            用户管理
+            <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
+          </h1>
+          <p class="text-gray-500 text-sm mt-1">管理系统注册用户、人工开通账号及其权限状态</p>
+        </div>
+
+        <button
+          @click="openCreateDialog"
+          class="btn-ember inline-flex items-center justify-center gap-2 self-start rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer"
+        >
+          <el-icon><Plus /></el-icon>
+          <span>新建用户</span>
+        </button>
       </div>
 
       <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
@@ -588,6 +728,107 @@ onMounted(async () => {
       </div>
     </div>
 
+    <el-dialog
+      v-model="createDialogVisible"
+      title="新建用户"
+      width="560px"
+      align-center
+      append-to-body
+      class="rounded-2xl"
+    >
+      <div class="p-6 pt-2">
+        <el-form label-position="top" class="space-y-4">
+          <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <el-form-item label="用户名">
+              <el-input
+                v-model="createForm.username"
+                placeholder="3-50 位字母或数字"
+                class="input-ember"
+                autocomplete="off"
+              />
+            </el-form-item>
+
+            <el-form-item label="电子邮箱">
+              <el-input
+                v-model="createForm.email"
+                placeholder="user@example.com"
+                class="input-ember"
+                autocomplete="off"
+              />
+            </el-form-item>
+          </div>
+
+          <el-form-item label="初始密码">
+            <div class="flex flex-col gap-2 sm:flex-row">
+              <el-input
+                v-model="createForm.password"
+                placeholder="至少 6 位"
+                class="input-ember sm:flex-1"
+                show-password
+                autocomplete="new-password"
+              />
+              <button
+                type="button"
+                @click="handleGenerateCreatePassword"
+                class="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
+              >
+                <el-icon><RefreshRight /></el-icon>
+                <span>随机生成</span>
+              </button>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">创建成功后会展示一次账号和初始密码，请管理员及时复制保存。</p>
+          </el-form-item>
+
+          <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <el-form-item label="套餐组">
+              <el-select v-model="createForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
+                <el-option
+                  v-for="option in planGroupOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="有效期设置">
+              <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
+                <span class="text-sm text-gray-700">永不过期</span>
+                <el-switch v-model="createForm.neverExpire" />
+              </div>
+            </el-form-item>
+          </div>
+
+          <el-form-item v-if="!createForm.neverExpire" label="到期时间">
+            <el-date-picker
+              v-model="createForm.expiresAt"
+              type="datetime"
+              placeholder="选择日期时间"
+              :prefix-icon="Calendar"
+              class="w-full !w-full input-ember"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
+          <button
+            @click="createDialogVisible = false"
+            class="px-4 py-2.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors font-medium cursor-pointer"
+          >
+            取消
+          </button>
+          <button
+            @click="handleCreateUser"
+            :disabled="creatingUser"
+            class="btn-ember px-6 py-2.5 text-sm rounded-xl font-semibold shadow-sm hover:shadow-md disabled:opacity-70 cursor-pointer"
+          >
+            {{ creatingUser ? '创建中...' : '确认创建' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- Edit Dialog -->
     <el-dialog 
       v-model="editDialogVisible" 
@@ -649,14 +890,14 @@ onMounted(async () => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button 
             @click="editDialogVisible = false"
-            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium cursor-pointer"
+            class="px-4 py-2.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors font-medium cursor-pointer"
           >
             取消
           </button>
           <button 
             @click="handleUpdateUser" 
             :disabled="savingUser"
-            class="btn-ember px-6 py-2 rounded-lg font-bold shadow-md hover:shadow-lg disabled:opacity-70 cursor-pointer"
+            class="btn-ember px-6 py-2.5 text-sm rounded-xl font-semibold shadow-sm hover:shadow-md disabled:opacity-70 cursor-pointer"
           >
             {{ savingUser ? '保存中...' : '保存更改' }}
           </button>

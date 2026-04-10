@@ -44,6 +44,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.GET("/current", h.auth.GetCurrentUser)
 
 	admin.GET("/users", h.user.GetUsers)
+	admin.POST("/users", h.user.CreateUserByAdmin)
 	admin.GET("/users/:id", h.user.GetUserByID)
 	admin.GET("/users/:id/profile", h.playbackProfile.GetAdminUserProfile)
 	admin.PUT("/users/:id", h.user.UpdateUserByAdmin)

@@ -18,18 +18,22 @@ type emailVerifier interface {
 type embyClient interface {
 	AuthenticateUser(username, password string) (*embyint.EmbyUser, error)
 	UpdateUserPassword(embyUserID, newPassword string) error
+	CreateEmbyUser(username, password string) (*embyint.EmbyUser, error)
 	SetUserPolicy(embyUserID string, policy embyint.EmbyUserPolicy) error
 	DeleteUser(embyUserID string) error
 }
 
 // UserService 用户服务
 type UserService struct {
-	emailVerifier    emailVerifier
-	newEmbyClient    func() embyClient
-	findUserByID     func(userID string) (*models.User, error)
-	findUserByEmail  func(email string) (*models.User, error)
-	saveUser         func(user *models.User) error
-	deleteResetCodes func(email string) (int64, error)
+	emailVerifier      emailVerifier
+	newEmbyClient      func() embyClient
+	findUserByID       func(userID string) (*models.User, error)
+	findUserByUsername func(username string) (*models.User, error)
+	findUserByEmail    func(email string) (*models.User, error)
+	createUser         func(user *models.User) error
+	getPlanGroupByKey  func(key string) (*models.PlanGroup, error)
+	saveUser           func(user *models.User) error
+	deleteResetCodes   func(email string) (int64, error)
 }
 
 func NewUserService() *UserService {
@@ -63,6 +67,15 @@ func (s *UserService) setDefaults() {
 			return &user, nil
 		}
 	}
+	if s.findUserByUsername == nil {
+		s.findUserByUsername = func(username string) (*models.User, error) {
+			var user models.User
+			if err := db.DB.Where("username = ?", username).First(&user).Error; err != nil {
+				return nil, err
+			}
+			return &user, nil
+		}
+	}
 	if s.findUserByEmail == nil {
 		s.findUserByEmail = func(email string) (*models.User, error) {
 			var user models.User
@@ -70,6 +83,16 @@ func (s *UserService) setDefaults() {
 				return nil, err
 			}
 			return &user, nil
+		}
+	}
+	if s.createUser == nil {
+		s.createUser = func(user *models.User) error {
+			return db.DB.Create(user).Error
+		}
+	}
+	if s.getPlanGroupByKey == nil {
+		s.getPlanGroupByKey = func(key string) (*models.PlanGroup, error) {
+			return paymentpkg.GetPlanGroupByKey(nil, key)
 		}
 	}
 	if s.saveUser == nil {
@@ -110,6 +133,7 @@ func isUserExpired(expiresAt *time.Time) bool {
 }
 
 func (s *UserService) syncEmbyPolicy(user *models.User) error {
+	s.setDefaults()
 	if user.EmbyID == "" {
 		return nil
 	}
@@ -119,7 +143,7 @@ func (s *UserService) syncEmbyPolicy(user *models.User) error {
 		return nil
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := s.newEmbyClient()
 	if err := embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{IsDisabled: shouldDisable}); err != nil {
 		return errors.New("同步 Emby 用户状态失败：" + err.Error())
 	}
