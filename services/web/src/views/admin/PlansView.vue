@@ -628,6 +628,16 @@ onMounted(async () => {
     0 0 0 4px rgba(229, 9, 20, 0.1) !important;
 }
 
+:deep(.form-number) {
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+:deep(.form-number.el-input-number) {
+  width: 100%;
+}
+
 :deep(.form-number .el-input__wrapper) {
   min-height: 42px;
   border-radius: 0.75rem;
@@ -636,7 +646,30 @@ onMounted(async () => {
   transition: all 0.2s ease;
 }
 
+:deep(.form-number .el-input-number__decrease),
+:deep(.form-number .el-input-number__increase) {
+  border-radius: 0;
+  background-color: #f9fafb;
+  box-shadow: none !important;
+  transition: all 0.2s ease;
+}
+
+:deep(.form-number .el-input-number__decrease) {
+  border-top-left-radius: 0.75rem;
+  border-bottom-left-radius: 0.75rem;
+}
+
+:deep(.form-number .el-input-number__increase) {
+  border-top-right-radius: 0.75rem;
+  border-bottom-right-radius: 0.75rem;
+}
+
 :deep(.form-number:hover .el-input__wrapper) {
+  background-color: #ffffff !important;
+}
+
+:deep(.form-number:hover .el-input-number__decrease),
+:deep(.form-number:hover .el-input-number__increase) {
   background-color: #ffffff !important;
 }
 
@@ -646,6 +679,11 @@ onMounted(async () => {
   box-shadow:
     0 0 0 1px var(--ember-red) inset,
     0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+:deep(.form-number .el-input-number__decrease:hover),
+:deep(.form-number .el-input-number__increase:hover) {
+  color: var(--ember-red);
 }
 
 :deep(.el-dialog__header) {
