@@ -1,6 +1,17 @@
 package moviepilot
 
-import "testing"
+import (
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestBuildSubscribeRequestBodyIncludesSeasonForTVSeasonSubscription(t *testing.T) {
 	body, err := buildSubscribeRequestBody(SubscribeRequest{
@@ -51,5 +62,41 @@ func TestBuildSubscribeRequestBodyRejectsInvalidTMDBID(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected invalid tmdb id to return error")
+	}
+}
+
+func TestCreateSubscriptionUsesXAPIKeyHeader(t *testing.T) {
+	t.Setenv("MOVIEPILOT_URL", "http://moviepilot.test")
+	t.Setenv("MOVIEPILOT_API_KEY", "test-key")
+
+	client := NewMoviePilotClient()
+	client.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST method, got %s", req.Method)
+		}
+		if req.URL.String() != "http://moviepilot.test/api/v1/subscribe/" {
+			t.Fatalf("unexpected request url: %s", req.URL.String())
+		}
+		if req.Header.Get("X-API-KEY") != "test-key" {
+			t.Fatalf("expected X-API-KEY header to be set")
+		}
+		if got := req.Header.Get("Authorization"); got != "" {
+			t.Fatalf("expected Authorization header to be empty, got %s", got)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	err := client.CreateSubscription(SubscribeRequest{
+		Type:   "movie",
+		Name:   "Inception",
+		TmdbID: "27205",
+	})
+	if err != nil {
+		t.Fatalf("expected create subscription to succeed, got %v", err)
 	}
 }

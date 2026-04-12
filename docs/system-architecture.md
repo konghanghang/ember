@@ -301,7 +301,7 @@ services/
 
 **当前已托管或接入统一解析的配置项**：
 - 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`stripe_allowed_payment_methods`
-- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_USERNAME`、`MOVIEPILOT_PASSWORD`
+- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
 - 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
 - 通知：`BOT_NOTIFY_URL`
 - 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT`、`AUTO_MIGRATE` 等
@@ -1277,8 +1277,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 |------|------|--------|------|
 | `TMDB_API_KEY` | — | — | TMDB API 密钥 |
 | `MOVIEPILOT_URL` | — | — | MoviePilot 地址 |
-| `MOVIEPILOT_USERNAME` | — | — | MoviePilot 用户名 |
-| `MOVIEPILOT_PASSWORD` | — | — | MoviePilot 密码 |
+| `MOVIEPILOT_API_KEY` | — | — | MoviePilot API Key（X-API-KEY） |
 
 ### 邮件服务
 
@@ -1332,7 +1331,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 |------|------|----------|
 | **Emby API** | 用户创建/认证/封禁/解封、媒体统计、播放活动 | `EMBY_URL`, `EMBY_API_KEY` |
 | **TMDB API** | 电影/电视剧搜索（求片功能）| `TMDB_API_KEY` |
-| **MoviePilot API** | 自动订阅下载（审批后触发）| `MOVIEPILOT_URL/USERNAME/PASSWORD` |
+| **MoviePilot API** | 自动订阅下载（审批后触发）| `MOVIEPILOT_URL`, `MOVIEPILOT_API_KEY` |
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
@@ -1341,8 +1340,9 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 
 ## 13. 部署
 
-**Docker Compose**（`infrastructure/docker/docker-compose.yml`）：
+**Docker Compose（`infrastructure/docker/docker-compose.yml`）**：
 - PostgreSQL 16 + Go API + Vue 前端（可选）+ Telegram Bot + Nginx（可选）
+- API 容器仅保留启动期/边界环境变量（`DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`AUTO_MIGRATE`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`EMBY_WEBHOOK_TOKEN`、`INTERNAL_API_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`）
 - API 以非 root 用户 `ember:ember`(UID 1000) 运行
 - 健康检查：`GET /health`
 

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -135,8 +137,7 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 		"NEXT_PUBLIC_EMBY_URL",
 		"TMDB_API_KEY",
 		"MOVIEPILOT_URL",
-		"MOVIEPILOT_USERNAME",
-		"MOVIEPILOT_PASSWORD",
+		"MOVIEPILOT_API_KEY",
 		"SMTP_HOST",
 		"SMTP_PORT",
 		"SMTP_USERNAME",
@@ -173,6 +174,70 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 		if !def.DisableEnvFallback {
 			t.Fatalf("expected %s to disable env fallback", key)
 		}
+	}
+}
+
+func TestMoviePilotNeedsAPIKeyMigrationWithLegacyEnv(t *testing.T) {
+	t.Setenv("MOVIEPILOT_URL", "http://moviepilot.test")
+	t.Setenv("MOVIEPILOT_USERNAME", "admin")
+	t.Setenv("MOVIEPILOT_PASSWORD", "secret")
+	t.Setenv("MOVIEPILOT_API_KEY", "")
+
+	service := NewConfigService()
+	if !service.MoviePilotNeedsAPIKeyMigration() {
+		t.Fatal("expected legacy username/password config to require API key migration")
+	}
+}
+
+func TestMoviePilotNeedsAPIKeyMigrationDisabledWhenAPIKeyExists(t *testing.T) {
+	t.Setenv("MOVIEPILOT_URL", "http://moviepilot.test")
+	t.Setenv("MOVIEPILOT_USERNAME", "admin")
+	t.Setenv("MOVIEPILOT_PASSWORD", "secret")
+	t.Setenv("MOVIEPILOT_API_KEY", "key")
+
+	service := NewConfigService()
+	if service.MoviePilotNeedsAPIKeyMigration() {
+		t.Fatal("expected migration warning to be disabled when API key already exists")
+	}
+}
+
+func TestMoviePilotConnectionUsesXAPIKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET request, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/site/" {
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-API-KEY"); got != "test-key" {
+			t.Fatalf("expected X-API-KEY header, got %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	t.Setenv("MOVIEPILOT_URL", server.URL)
+	t.Setenv("MOVIEPILOT_API_KEY", "test-key")
+
+	service := NewConfigService()
+	if err := service.testMoviePilotConnection(); err != nil {
+		t.Fatalf("expected moviepilot connection test to succeed, got %v", err)
+	}
+}
+
+func TestMoviePilotConnectionReturnsMigrationErrorForLegacyConfig(t *testing.T) {
+	t.Setenv("MOVIEPILOT_URL", "http://moviepilot.test")
+	t.Setenv("MOVIEPILOT_USERNAME", "admin")
+	t.Setenv("MOVIEPILOT_PASSWORD", "secret")
+	t.Setenv("MOVIEPILOT_API_KEY", "")
+
+	service := NewConfigService()
+	err := service.testMoviePilotConnection()
+	if err == nil {
+		t.Fatal("expected migration error for legacy moviepilot credentials")
+	}
+	if !strings.Contains(err.Error(), "MOVIEPILOT_API_KEY") {
+		t.Fatalf("expected migration error to mention MOVIEPILOT_API_KEY, got %v", err)
 	}
 }
 

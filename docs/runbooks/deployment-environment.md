@@ -19,9 +19,9 @@
 
 ## 必填变量
 
-### 基础设施与 API
+### 基础设施与 API 启动期变量
 
-这些变量不完整，API 基本起不来：
+这些变量不完整，API 基本起不来；它们也是当前 compose 明确注入给 `ember-api` 的启动边界变量：
 
 | 变量 | 作用 |
 |------|------|
@@ -29,9 +29,7 @@
 | `JWT_SECRET` | JWT 签名密钥 |
 | `CONFIG_ENCRYPTION_KEY` | 设置中心敏感值加密主密钥 |
 | `ADMIN_PASSWORD` | 首次启动管理员初始化密码 |
-| `EMBY_URL` | API 访问 Emby 的地址 |
-| `NEXT_PUBLIC_EMBY_URL` | 前端展示给用户的 Emby 地址 |
-| `EMBY_API_KEY` | Emby API 密钥 |
+| `EMBY_WEBHOOK_TOKEN` | Emby Webhook 验签口令 |
 | `INTERNAL_API_SECRET` | API 与 Bot 的内部调用共享密钥 |
 
 ### Bot 与 Webhook
@@ -50,12 +48,11 @@
 |------|---------------|
 | `ADMIN_USERNAME` | 默认 `admin` |
 | `AUTO_MIGRATE` | 默认 `true`，API 启动时自动迁移 |
-| `EMBY_WEBHOOK_TOKEN` | 仅在接 Emby Webhook 时需要 |
 | `TELEGRAM_ADMIN_CHAT_ID` | 管理员通知目标 |
 | `TELEGRAM_GROUP_CHAT_ID` | 群推送目标，未填时回退到管理员 |
 | `TMDB_API_KEY` | TMDB 搜索、追剧日历依赖 |
 | `TURNSTILE_SECRET_KEY` | 登录 Turnstile 服务端校验密钥 |
-| `MOVIEPILOT_URL` / `MOVIEPILOT_USERNAME` / `MOVIEPILOT_PASSWORD` | 求片审批同步到 MoviePilot 时需要 |
+| `MOVIEPILOT_URL` / `MOVIEPILOT_API_KEY` | 求片审批同步到 MoviePilot 时需要 |
 | `CRON_ENABLED` | API 内置 Cron 开关 |
 | `RANKING_CRON_ENABLED` | 播放排行 Cron 开关 |
 | `RANKING_DAILY_SCHEDULE` / `RANKING_WEEKLY_SCHEDULE` | 排行定时表达式 |
@@ -63,9 +60,34 @@
 
 更完整的配置边界见 [配置参考](../reference/configuration-reference.md)。
 
+## 首次启动后必须补齐的运行期配置
+
+下列配置不再依赖 compose 直接注入 `ember-api`，而是由设置中心数据库托管：
+
+- `EMBY_URL`
+- `NEXT_PUBLIC_EMBY_URL`
+- `EMBY_API_KEY`
+- `TMDB_API_KEY`
+- `MOVIEPILOT_URL`
+- `MOVIEPILOT_API_KEY`
+- `BOT_NOTIFY_URL`
+- `CRON_*`
+- `RANKING_*`
+- `TV_CALENDAR_*`
+
+这意味着：
+
+- 新环境启动后，API 可以先起来；
+- 但媒体、MoviePilot、Bot fire-and-forget、追剧日历和调度能力，要在设置中心补齐配置后才会真正可用；
+- 不要再把这些项当成 compose 自动注入的前提变量。
+
 ## `.env.example` 的已知缺口
 
-当前 [`infrastructure/docker/.env.example`](../../infrastructure/docker/.env.example) 还不是完整部署模板，至少缺少：
+当前 [`infrastructure/docker/.env.example`](../../infrastructure/docker/.env.example) 只覆盖启动期环境变量，不是“所有运行期能力都能开箱即用”的完整模板。
+
+如果你希望首次启动后直接使用媒体相关能力，还需要额外准备一份设置中心初始化方案或在后台手动补齐。
+
+另外，模板里至少缺少：
 
 - `DATABASE_URL`
 - `ADMIN_USERNAME`
@@ -142,8 +164,7 @@ API 启动时会检查是否已有 `role=admin` 的用户：
 ### MoviePilot
 
 - `MOVIEPILOT_URL`
-- `MOVIEPILOT_USERNAME`
-- `MOVIEPILOT_PASSWORD`
+- `MOVIEPILOT_API_KEY`
 
 未配置时，相关同步能力应视为关闭，而不是“自动降级成功”。
 

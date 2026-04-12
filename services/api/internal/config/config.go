@@ -416,8 +416,16 @@ func (s *ConfigService) testMediaGroup() *ConfigGroupTestResult {
 		})
 	}
 
-	if strings.TrimSpace(s.GetString("MOVIEPILOT_URL")) != "" {
-		if err := s.testMoviePilotConnection(); err != nil {
+	moviePilotURL := strings.TrimSpace(s.GetString("MOVIEPILOT_URL"))
+	moviePilotAPIKey := strings.TrimSpace(s.GetString("MOVIEPILOT_API_KEY"))
+	if moviePilotURL != "" || moviePilotAPIKey != "" {
+		if s.MoviePilotNeedsAPIKeyMigration() {
+			result.Details = append(result.Details, ConfigGroupTestDetail{
+				Target:  "moviepilot",
+				Success: false,
+				Message: "检测到旧版 MoviePilot 用户名/密码配置，请迁移到 MOVIEPILOT_API_KEY",
+			})
+		} else if err := s.testMoviePilotConnection(); err != nil {
 			result.Details = append(result.Details, ConfigGroupTestDetail{
 				Target:  "moviepilot",
 				Success: false,
@@ -441,7 +449,7 @@ func (s *ConfigService) testMediaGroup() *ConfigGroupTestResult {
 	result.Success = true
 	result.Message = "媒体配置检查通过"
 	for _, detail := range result.Details {
-		if !detail.Success && detail.Target != "moviepilot" {
+		if !detail.Success {
 			result.Success = false
 			result.Message = "媒体配置检查失败"
 			break
@@ -479,35 +487,60 @@ func (s *ConfigService) testEmbyConnection() error {
 
 func (s *ConfigService) testMoviePilotConnection() error {
 	baseURL := strings.TrimRight(strings.TrimSpace(s.GetString("MOVIEPILOT_URL")), "/")
-	username := strings.TrimSpace(s.GetString("MOVIEPILOT_USERNAME"))
-	password := s.GetString("MOVIEPILOT_PASSWORD")
-	if baseURL == "" || username == "" || password == "" {
-		return errors.New("MoviePilot 未配置")
+	apiKey := strings.TrimSpace(s.GetString("MOVIEPILOT_API_KEY"))
+	if baseURL != "" && apiKey == "" && s.MoviePilotNeedsAPIKeyMigration() {
+		return errors.New("检测到旧版 MoviePilot 用户名/密码配置，请迁移到 MOVIEPILOT_API_KEY")
+	}
+	if baseURL == "" || apiKey == "" {
+		return errors.New("MoviePilot 配置未设置（MOVIEPILOT_URL 或 MOVIEPILOT_API_KEY）")
 	}
 
-	formData := neturl.Values{}
-	formData.Set("username", username)
-	formData.Set("password", password)
-
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/v1/login/access-token", strings.NewReader(formData.Encode()))
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/site/", nil)
 	if err != nil {
 		return fmt.Errorf("创建请求失败: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-API-KEY", apiKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("登录请求失败: %w", err)
+		return fmt.Errorf("连接请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("MoviePilot 登录失败: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("MoviePilot API 错误: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	return nil
+}
+
+func (s *ConfigService) MoviePilotNeedsAPIKeyMigration() bool {
+	baseURL := strings.TrimSpace(s.GetString("MOVIEPILOT_URL"))
+	apiKey := strings.TrimSpace(s.GetString("MOVIEPILOT_API_KEY"))
+	if baseURL == "" || apiKey != "" {
+		return false
+	}
+	return s.hasLegacyMoviePilotCredentials()
+}
+
+func (s *ConfigService) hasLegacyMoviePilotCredentials() bool {
+	if strings.TrimSpace(os.Getenv("MOVIEPILOT_USERNAME")) != "" || strings.TrimSpace(os.Getenv("MOVIEPILOT_PASSWORD")) != "" {
+		return true
+	}
+	if db.DB == nil {
+		return false
+	}
+
+	var count int64
+	err := db.DB.Model(&models.Setting{}).
+		Where(`key IN ? AND COALESCE(value, '') <> ''`, []string{"MOVIEPILOT_USERNAME", "MOVIEPILOT_PASSWORD"}).
+		Count(&count).Error
+	if err != nil {
+		return false
+	}
+	return count > 0
 }
 
 func (s *ConfigService) testEmailGroup() *ConfigGroupTestResult {
@@ -1078,31 +1111,18 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:          normalizeTrimmedURL,
 		},
 		{
-			Key:                "MOVIEPILOT_USERNAME",
-			EnvKey:             "MOVIEPILOT_USERNAME",
+			Key:                "MOVIEPILOT_API_KEY",
+			EnvKey:             "MOVIEPILOT_API_KEY",
 			DisableEnvFallback: true,
 			Group:              ConfigGroupMedia,
 			GroupLabel:         "媒体集成",
-			Label:              "MoviePilot 用户名",
-			Description:        "用于调用 MoviePilot API 的登录用户名",
-			Type:               ConfigValueString,
-			Editable:           true,
-			Sensitive:          true,
-			Validate:           validateNonEmpty("MoviePilot 用户名不能为空"),
-			Normalize:          normalizeTrimmedString,
-		},
-		{
-			Key:                "MOVIEPILOT_PASSWORD",
-			EnvKey:             "MOVIEPILOT_PASSWORD",
-			DisableEnvFallback: true,
-			Group:              ConfigGroupMedia,
-			GroupLabel:         "媒体集成",
-			Label:              "MoviePilot 密码",
-			Description:        "用于调用 MoviePilot API 的登录密码",
+			Label:              "MoviePilot API Key",
+			Description:        "用于调用 MoviePilot API 的 X-API-KEY",
 			Type:               ConfigValueSecret,
 			Editable:           true,
 			Sensitive:          true,
-			Validate:           validateNonEmpty("MoviePilot 密码不能为空"),
+			Validate:           validateNonEmpty("MoviePilot API Key 不能为空"),
+			Normalize:          normalizeTrimmedString,
 		},
 		{
 			Key:                "SMTP_HOST",

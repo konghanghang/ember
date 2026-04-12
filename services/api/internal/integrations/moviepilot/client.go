@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -16,10 +15,9 @@ import (
 
 // MoviePilotClient MoviePilot API 客户端
 type MoviePilotClient struct {
-	baseURL  string
-	username string
-	password string
-	client   *http.Client
+	baseURL string
+	apiKey  string
+	client  *http.Client
 }
 
 // NewMoviePilotClient 创建 MoviePilot 客户端
@@ -36,73 +34,42 @@ func NewMoviePilotClient() *MoviePilotClient {
 func (c *MoviePilotClient) refreshConfig() {
 	configService := configpkg.NewConfigService()
 	c.baseURL = strings.TrimRight(configService.GetString("MOVIEPILOT_URL"), "/")
-	c.username = configService.GetString("MOVIEPILOT_USERNAME")
-	c.password = configService.GetString("MOVIEPILOT_PASSWORD")
+	c.apiKey = strings.TrimSpace(configService.GetString("MOVIEPILOT_API_KEY"))
 }
 
 // IsConfigured 检查配置是否完整
 func (c *MoviePilotClient) IsConfigured() bool {
 	c.refreshConfig()
-	return c.baseURL != "" && c.username != "" && c.password != ""
-}
-
-// loginResponse MoviePilot 登录响应
-type loginResponse struct {
-	AccessToken string `json:"access_token"`
-}
-
-// login 登录获取 Access Token（每次都重新登录，不缓存）
-//
-// 不缓存 token 的原因：
-// - 简化实现，无需处理 token 过期、刷新逻辑
-// - 调用频率低（仅在审核通过时），性能影响可忽略
-func (c *MoviePilotClient) login() (string, error) {
-	c.refreshConfig()
-	if !c.IsConfigured() {
-		return "", fmt.Errorf("MoviePilot 未配置")
-	}
-	// 构建表单数据
-	formData := url.Values{}
-	formData.Set("username", c.username)
-	formData.Set("password", c.password)
-
-	// 发送请求
-	req, err := http.NewRequest("POST", c.baseURL+"/api/v1/login/access-token", bytes.NewBufferString(formData.Encode()))
-	if err != nil {
-		return "", fmt.Errorf("创建请求失败: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("登录请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("MoviePilot 登录失败: %d %s", resp.StatusCode, string(body))
-	}
-
-	// 解析响应
-	var loginResp loginResponse
-	if err := json.NewDecoder(resp.Body).Decode(&loginResp); err != nil {
-		return "", fmt.Errorf("解析登录响应失败: %w", err)
-	}
-
-	return loginResp.AccessToken, nil
+	return c.baseURL != "" && c.apiKey != ""
 }
 
 func (c *MoviePilotClient) TestConnection() error {
-	if !c.IsConfigured() {
+	configService := configpkg.NewConfigService()
+	c.refreshConfig()
+	if c.baseURL != "" && c.apiKey == "" && configService.MoviePilotNeedsAPIKeyMigration() {
+		return fmt.Errorf("检测到旧版 MoviePilot 用户名/密码配置，请迁移到 MOVIEPILOT_API_KEY")
+	}
+	if c.baseURL == "" || c.apiKey == "" {
 		return fmt.Errorf("MoviePilot 未配置")
 	}
 
-	_, err := c.login()
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/v1/site/", nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("创建请求失败: %w", err)
 	}
+	req.Header.Set("X-API-KEY", c.apiKey)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("MoviePilot 连接失败: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
 	return nil
 }
 
@@ -143,15 +110,16 @@ func buildSubscribeRequestBody(data SubscribeRequest) (map[string]interface{}, e
 // @param data.Name - 影视名称
 // @param data.TmdbID - TMDB ID（字符串，会转为整数）
 // @returns MoviePilot API 响应
-// @throws 登录失败或 API 调用失败时返回错误
 func (c *MoviePilotClient) CreateSubscription(data SubscribeRequest) error {
-	// 1. 登录获取 token
-	token, err := c.login()
-	if err != nil {
-		return err
+	configService := configpkg.NewConfigService()
+	c.refreshConfig()
+	if c.baseURL != "" && c.apiKey == "" && configService.MoviePilotNeedsAPIKeyMigration() {
+		return fmt.Errorf("检测到旧版 MoviePilot 用户名/密码配置，请迁移到 MOVIEPILOT_API_KEY")
+	}
+	if c.baseURL == "" || c.apiKey == "" {
+		return fmt.Errorf("MoviePilot 未配置")
 	}
 
-	// 2. 构建请求体
 	requestBody, err := buildSubscribeRequestBody(data)
 	if err != nil {
 		return err
@@ -162,13 +130,12 @@ func (c *MoviePilotClient) CreateSubscription(data SubscribeRequest) error {
 		return fmt.Errorf("构建请求失败: %w", err)
 	}
 
-	// 3. 发送订阅请求
-	req, err := http.NewRequest("POST", c.baseURL+"/api/v1/subscribe/", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/v1/subscribe/", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-API-KEY", c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -177,9 +144,9 @@ func (c *MoviePilotClient) CreateSubscription(data SubscribeRequest) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("MoviePilot API 错误: %d %s", resp.StatusCode, string(body))
+		return fmt.Errorf("MoviePilot API 错误: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	return nil

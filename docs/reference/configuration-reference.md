@@ -52,8 +52,12 @@
 | `NEXT_PUBLIC_EMBY_URL` | 否 | 否 | 前端使用的 Emby 公网地址 |
 | `TMDB_API_KEY` | 是 | 否 | TMDB 接口密钥 |
 | `MOVIEPILOT_URL` | 否 | 否 | MoviePilot 地址 |
-| `MOVIEPILOT_USERNAME` | 是 | 否 | MoviePilot 用户名 |
-| `MOVIEPILOT_PASSWORD` | 是 | 否 | MoviePilot 密码 |
+| `MOVIEPILOT_API_KEY` | 是 | 否 | MoviePilot API Key（X-API-KEY） |
+
+说明：
+
+- 旧版 `MOVIEPILOT_USERNAME` / `MOVIEPILOT_PASSWORD` 已废弃。
+- 若历史实例仍保存旧用户名密码配置，而 `MOVIEPILOT_API_KEY` 为空，设置中心测试应视为需要迁移，而不是“未配置成功”。
 
 ### 2.3 邮件服务
 
