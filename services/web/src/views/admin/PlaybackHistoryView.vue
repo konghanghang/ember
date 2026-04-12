@@ -91,7 +91,7 @@ const handleViewProfile = (row: PlaybackHistoryItem) => {
   router.push({
     name: 'console-user-profile',
     params: { id: row.userId },
-    query: { range: '30d' }
+    query: { range: 'today' }
   })
 }
 

@@ -223,7 +223,7 @@ export interface PlaybackHistoryResponse {
   pageSize: number
 }
 
-export type PlaybackProfileRange = '7d' | '30d' | '90d' | 'all' | 'custom'
+export type PlaybackProfileRange = 'today' | '7d' | '30d' | '90d' | 'all' | 'custom'
 
 export interface PlaybackProfileQuery {
   range?: PlaybackProfileRange

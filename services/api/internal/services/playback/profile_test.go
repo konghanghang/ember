@@ -2,6 +2,29 @@ package playback
 
 import "testing"
 
+func TestNormalizePlaybackProfileRangeSupportsToday(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
+
+	rangeValue, startAt, endAt, err := normalizePlaybackProfileRange(PlaybackProfileQuery{
+		Range: "today",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if rangeValue != "today" {
+		t.Fatalf("expected today range, got %s", rangeValue)
+	}
+	if startAt == nil || endAt == nil {
+		t.Fatal("expected non-nil start/end")
+	}
+	if startAt.Hour() != 0 || startAt.Minute() != 0 || startAt.Second() != 0 {
+		t.Fatalf("expected startAt at beginning of day, got %s", startAt.Format(playbackDateTimeFormat))
+	}
+	if endAt.Before(*startAt) {
+		t.Fatalf("expected endAt >= startAt, got start=%s end=%s", startAt.Format(playbackDateTimeFormat), endAt.Format(playbackDateTimeFormat))
+	}
+}
+
 func TestNormalizePlaybackProfileRangeSupportsCustomDates(t *testing.T) {
 	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
 

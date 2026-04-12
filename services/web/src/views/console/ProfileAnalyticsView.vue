@@ -19,12 +19,14 @@ const customDateRange = ref<[string, string] | null>(null)
 const rangeAnchorDate = ref<Date | null>(null)
 
 const rangeOptions: Array<{ label: string; value: PlaybackProfileRange }> = [
+  { label: '当天', value: 'today' },
   { label: '近 7 天', value: '7d' },
   { label: '近 30 天', value: '30d' },
   { label: '近 90 天', value: '90d' }
 ]
 
 const rangeLabelMap: Record<PlaybackProfileRange, string> = {
+  today: '当天',
   '7d': '近 7 天',
   '30d': '近 30 天',
   '90d': '近 90 天',
@@ -34,10 +36,10 @@ const rangeLabelMap: Record<PlaybackProfileRange, string> = {
 
 const normalizeRange = (value: unknown): PlaybackProfileRange => {
   const raw = String(value ?? '').trim()
-  if (raw === '7d' || raw === '30d' || raw === '90d' || raw === 'all' || raw === 'custom') {
+  if (raw === 'today' || raw === '7d' || raw === '30d' || raw === '90d' || raw === 'all' || raw === 'custom') {
     return raw
   }
-  return '30d'
+  return 'today'
 }
 
 const selectedRange = computed<PlaybackProfileRange>(() => normalizeRange(route.query.range))
@@ -65,6 +67,9 @@ const buildPresetDateRange = (range: PlaybackProfileRange): [string, string] | n
 
   const end = new Date()
   const start = new Date()
+  if (range === 'today') {
+    start.setHours(0, 0, 0, 0)
+  }
   if (range === '7d') start.setDate(start.getDate() - 7)
   if (range === '30d') start.setDate(start.getDate() - 30)
   if (range === '90d') start.setDate(start.getDate() - 90)
@@ -137,7 +142,7 @@ const handleRangeChange = (range: PlaybackProfileRange) => {
 const handleCustomRangeChange = (value: [string, string] | null) => {
   rangeAnchorDate.value = null
   if (!value || value.length !== 2) {
-    const fallbackRange: PlaybackProfileRange = '30d'
+    const fallbackRange: PlaybackProfileRange = 'today'
     customDateRange.value = buildPresetDateRange(fallbackRange)
     router.replace({
       query: {

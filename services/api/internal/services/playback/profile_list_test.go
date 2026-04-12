@@ -5,6 +5,28 @@ import (
 	"testing"
 )
 
+func TestNormalizePlaybackProfileListQueryDefaultsToToday(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
+
+	service := &UserPlaybackProfileService{}
+	query, err := service.normalizePlaybackProfileListQuery(context.Background(), PlaybackProfileListQuery{
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if query.rangeValue != "today" {
+		t.Fatalf("expected today range, got %s", query.rangeValue)
+	}
+	if query.startAt == nil || query.endAt == nil {
+		t.Fatal("expected non-nil start/end")
+	}
+	if query.startAt.Hour() != 0 || query.startAt.Minute() != 0 || query.startAt.Second() != 0 {
+		t.Fatalf("expected startAt at beginning of day, got %s", query.startAt.Format(playbackDateTimeFormat))
+	}
+}
+
 func TestNormalizePlaybackProfileListQuerySupportsCustomDates(t *testing.T) {
 	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
 

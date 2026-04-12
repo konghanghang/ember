@@ -354,7 +354,7 @@ const handleViewProfile = (row: UserInfo) => {
   router.push({
     name: 'console-user-profile',
     params: { id: row.id },
-    query: { range: '30d' }
+    query: { range: 'today' }
   })
 }
 

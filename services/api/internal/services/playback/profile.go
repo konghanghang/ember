@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	defaultPlaybackProfileRange = "30d"
+	defaultPlaybackProfileRange = "today"
 	playbackProfileRecentLimit  = 10
 	playbackProfileBadgeLimit   = 4
 	playbackProfileMaxRangeDays = 92
@@ -207,6 +207,9 @@ func normalizePlaybackProfileRange(query PlaybackProfileQuery) (string, *time.Ti
 
 	now := time.Now().In(tz)
 	switch value {
+	case "today":
+		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+		return value, &start, &now, nil
 	case "7d":
 		start := now.AddDate(0, 0, -7)
 		return value, &start, &now, nil

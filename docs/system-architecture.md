@@ -777,7 +777,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 管理员/用户播放画像聚合服务，基于单个用户的 `PlaybackActivity` 记录输出摘要、分布和勋章结果。
 
-- `GetUserProfile(ctx, userID, query)` — 支持 `range=7d|30d|90d|all`，也支持 `startDate/endDate` 自定义日期时间范围
+- `GetUserProfile(ctx, userID, query)` — 支持 `range=today|7d|30d|90d|all`，也支持 `startDate/endDate` 自定义日期时间范围
 - 先读取本地 `users` 表映射 `embyId`，未绑定时回退使用本地 `userId`
 - 输出指标：`totalPlayCount` / `totalPlayDuration` / `activeDays` / `averagePlayDuration` / `lastPlayedAt`
 - 输出分布：`hourlyDistribution` / `deviceDistribution` / `clientDistribution`
@@ -1101,7 +1101,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 新增视图：`views/admin/UserPlaybackProfilesView.vue`
 - 数据源：`GET /api/v1/admin/playback-profiles`
 - 支持：
-  - 时间窗口：`7d / 30d / 90d / all`
+  - 时间窗口：`today / 7d / 30d / 90d / all`
   - 自定义日期时间范围（最大 92 天）
   - 用户名搜索
   - 排序字段切换
@@ -1116,7 +1116,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 辅助入口：`views/admin/PlaybackHistoryView.vue`
 - 兼容入口：`views/admin/UsersView.vue`
 - 页面主体：复用 `components/profile/PlaybackProfileContent.vue`，仅在外层补管理员操作
-- 数据源：`GET /api/v1/admin/users/:id/profile?range=7d|30d|90d|all` 或 `startDate/endDate`
+- 数据源：`GET /api/v1/admin/users/:id/profile?range=today|7d|30d|90d|all` 或 `startDate/endDate`
 - 页面模块：
   - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
   - 时间范围：推荐快捷范围 + 自定义日期时间范围（最大 92 天）
@@ -1129,7 +1129,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 新增路由：`/console/profile-analytics`（user）
 - 新增视图：`views/console/ProfileAnalyticsView.vue`
 - 页面主体：复用 `components/profile/PlaybackProfileContent.vue`
-- 数据源：`GET /api/v1/profile/analytics?range=7d|30d|90d|all` 或 `startDate/endDate`
+- 数据源：`GET /api/v1/profile/analytics?range=today|7d|30d|90d|all` 或 `startDate/endDate`
 - 页面模块：
   - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
   - 时间范围：推荐快捷范围 + 自定义日期时间范围（最大 92 天）

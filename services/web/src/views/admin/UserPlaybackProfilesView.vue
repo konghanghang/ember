@@ -27,6 +27,7 @@ const summary = ref({
 })
 
 const rangeOptions: Array<{ label: string; value: PlaybackProfileRange }> = [
+  { label: '当天', value: 'today' },
   { label: '近 7 天', value: '7d' },
   { label: '近 30 天', value: '30d' },
   { label: '近 90 天', value: '90d' },
@@ -34,7 +35,7 @@ const rangeOptions: Array<{ label: string; value: PlaybackProfileRange }> = [
 ]
 
 const createDefaultQueryParams = (): PlaybackProfileListQuery => ({
-  range: '30d',
+  range: 'today',
   keyword: '',
   sortBy: 'totalDuration',
   sortOrder: 'desc',
@@ -79,6 +80,9 @@ const buildPresetDateRange = (range: PlaybackProfileRange): [string, string] | n
 
   const end = new Date()
   const start = new Date()
+  if (range === 'today') {
+    start.setHours(0, 0, 0, 0)
+  }
   if (range === '7d') start.setDate(start.getDate() - 7)
   if (range === '30d') start.setDate(start.getDate() - 30)
   if (range === '90d') start.setDate(start.getDate() - 90)
@@ -91,7 +95,7 @@ const syncCustomDateRange = () => {
     customDateRange.value = [queryParams.value.startDate, queryParams.value.endDate]
     return
   }
-  customDateRange.value = buildPresetDateRange(queryParams.value.range ?? '30d')
+  customDateRange.value = buildPresetDateRange(queryParams.value.range ?? 'today')
 }
 
 const toDateOnly = (value: string) => value.slice(0, 10)
@@ -117,7 +121,7 @@ const buildHistoryRangeQuery = () => {
     }
   }
 
-  const presetRange = buildPresetDateRange(queryParams.value.range ?? '30d')
+  const presetRange = buildPresetDateRange(queryParams.value.range ?? 'today')
   if (!presetRange) return {}
 
   return {
@@ -168,7 +172,7 @@ const handleCustomRangeChange = (value: [string, string] | null) => {
   rangeAnchorDate.value = null
 
   if (!value || value.length !== 2) {
-    const fallbackRange: PlaybackProfileRange = '30d'
+    const fallbackRange: PlaybackProfileRange = 'today'
     queryParams.value = {
       ...queryParams.value,
       range: fallbackRange,
