@@ -10,6 +10,7 @@
 - [测试指南](./testing.md) - 测试入口与最短验证路径
 - [手工测试清单](./manual-testing-checklist.md) - 按变更范围选跑的手工回归清单
 - [测试排障](./testing-troubleshooting.md) - 编译、联调、集成测试常见阻塞
+- [Stripe 支付测试指南](./stripe-payment-testing.md) - Stripe CLI 与 cloudflared 两种支付联调方式
 - [Cloudflared 本地联调](./cloudflared-local-testing.md) - Telegram Webhook 本地联调
 - [Docker 构建指南](./docker-build-guide.md) - 镜像构建与本地 build 使用方式
 - [发布流程](./release-process.md) - `pre_release`、Tag 与 Draft Release 流程

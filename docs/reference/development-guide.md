@@ -13,6 +13,7 @@
 7. 按任务进入对应操作手册：
    - [部署指南](../runbooks/deployment.md)
    - [测试指南](../runbooks/testing.md)
+   - [Stripe 支付测试指南](../runbooks/stripe-payment-testing.md)
    - [Cloudflared 本地联调](../runbooks/cloudflared-local-testing.md)
    - 前端构建体积、依赖注册和 chunk 问题：看 [前端构建优化规范](./web-build-optimization-guide.md)
 

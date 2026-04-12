@@ -63,6 +63,7 @@ python -m py_compile main.py
 ## 继续阅读
 
 - [手工测试清单](./manual-testing-checklist.md)
+- [Stripe 支付测试指南](./stripe-payment-testing.md)
 - [测试排障](./testing-troubleshooting.md)
 - [部署指南](./deployment.md)
 - [Cloudflared 本地联调](./cloudflared-local-testing.md)

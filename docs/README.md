@@ -41,6 +41,7 @@
 - [测试指南](./runbooks/testing.md)
 - [手工测试清单](./runbooks/manual-testing-checklist.md)
 - [测试排障](./runbooks/testing-troubleshooting.md)
+- [Stripe 支付测试指南](./runbooks/stripe-payment-testing.md)
 - [Cloudflared 本地联调](./runbooks/cloudflared-local-testing.md)
 - [Docker 构建指南](./runbooks/docker-build-guide.md)
 - [发布流程](./runbooks/release-process.md)
