@@ -1,8 +1,25 @@
 # 后台创建用户并设置套餐组与到期时间实现方案
 
-> 状态：已实现（待归档）
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-10
+> 更新时间：2026-04-12
+
+## 归档说明
+
+本方案已完成落地，当前只保留历史追溯价值。
+
+稳定结论已同步到：
+
+- `docs/system-architecture.md`
+
+当前代码已经具备：
+
+- 后台 `用户管理` 页面新建用户入口
+- `POST /api/v1/admin/users`
+- 后台创建用户时显式设置 `planGroup`
+- 后台创建用户时设置 `expiresAt` 或 `neverExpire`
+
+因此这份文档不再承担现行实现说明职责。
 
 ## 背景
 
@@ -66,15 +83,15 @@
   - `services/api/internal/services/payment/plan_groups.go`
   - `services/api/internal/models/user.go`
 - 当前行为：
-  - `UsersView` 只有筛选、编辑、延长、重置密码、启停、删除，没有“新建用户”入口
-  - 后端没有 `POST /api/v1/admin/users`
-  - 公开注册会创建 Emby 用户、本地用户，并根据注册模式决定初始有效期
-  - 已有用户编辑弹窗已经使用 `planGroup + expiresAt` 维护用户状态
-  - 续费中心按用户有效 `planGroup` 返回可购方案
-- 现有限制：
-  - 后台不能直接创建账号
-  - 如果创建表单引入 `planId`、`effectiveDays` 这类字段，会把用户真实状态和输入辅助字段混在一起
-  - `payments` 模型不适合承载后台人工开通的语义
+  - `UsersView` 已支持“新建用户”入口和创建弹窗
+  - 后端已提供 `POST /api/v1/admin/users`
+  - 后台创建会创建 Emby 用户并落本地 `users`
+  - 创建表单和用户状态语义已经按 `planGroup + expiresAt/neverExpire` 收口
+  - 续费中心仍按用户有效 `planGroup` 返回可购方案，未引入 `planId` 长期绑定
+- 已完成收口：
+  - 后台人工开通不再借道公开注册
+  - 后台创建用户不再伪造 Stripe `payments`
+  - 创建链路与当前用户模型边界保持一致
 
 ## 方案设计
 
@@ -215,15 +232,17 @@
 - 配置/部署：无，不新增环境变量，不新增 SQL migration
 - 文档：落地后需要同步 `docs/system-architecture.md`
 
-## 验证方式
+## 落地验证与收口
 
-### 编译/测试
+已完成的关键收口：
 
-- `cd services/api && go test ./internal/services/auth ./internal/services/user ./internal/handlers`
-- `cd services/api && env GOCACHE=/tmp/ember-go-cache go build ./...`
-- `cd services/web && npm run build`
+- `services/api/internal/app/routes.go` 已注册 `POST /api/v1/admin/users`
+- `services/api/internal/services/user/create.go` 已实现 `CreateUserByAdmin`
+- `services/api/internal/services/user/create_test.go` 已覆盖后台创建用户核心场景
+- `services/web/src/views/admin/UsersView.vue` 已接入新建用户弹窗和套餐组选择
+- `docs/system-architecture.md` 已同步后台创建用户接口和用户状态语义
 
-### 手工验证
+保留的历史验证清单：
 
 - 在后台用户管理打开“新建用户”弹窗，创建一个普通用户，确认成功出现在列表中
 - 创建一个绑定到非默认 `planGroup` 的用户，确认用户列表展示为该显式分组，而不是“跟随默认”
@@ -231,10 +250,9 @@
 - 用新账号登录，确认续费中心看到的是该 `planGroup` 下的启用方案集合
 - 人为制造本地落库失败场景时，确认 Emby 没有残留孤儿账号
 
-## 落地后文档处理
+## 文档处理结果
 
-落地后应同步处理：
+已完成：
 
-- 把新增 `POST /api/v1/admin/users`、后台创建流程、用户状态语义补进 `docs/system-architecture.md`
-- 如果后续确认后台还需要“按销售方案快捷填充分组和到期时间”，另起一份交互优化方案，不把 `planId` 重新变成用户绑定字段
-- 功能稳定上线后，这份方案移入 `docs/archive/plan/console-admin/`
+- 新增 `POST /api/v1/admin/users`、后台创建流程、用户状态语义已补进 `docs/system-architecture.md`
+- 本文档已移入 `docs/archive/plan/console-admin/`

@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-03-31
+> 更新时间：2026-04-12
 
 本清单只回答三件事：
 
@@ -29,6 +29,7 @@
 | `redemption-code-one-per-user.md` | 已落地 | 一人一码约束、兑换历史接口、用户端/管理端兑换历史 UI | 已归档到 `docs/archive/plan/billing-redemption/` |
 | `settings-center.md` | 已落地 | 文档自身已写“已完成”，代码中有 `config/`、`handlers/config.go`、`SettingsView.vue` | 已提炼后归档到 `docs/archive/plan/architecture/` |
 | `stripe-payment.md` | 已落地 | `PaymentService`、`Plan`/`Payment` 模型、`PaymentsView.vue`、`PlansView.vue` | 已提炼后归档到 `docs/archive/plan/billing-redemption/` |
+| `billing-redemption/user-plan-grouping.md` | 已落地 | `plan_groups` 模型与 migration、`PaymentService` 分组校验、`PlanGroupsView.vue`、`UsersView.vue`、架构文档已收录有效分组与后台分组管理接口 | 已提炼后归档到 `docs/archive/plan/billing-redemption/` |
 | `telegram-binding.md` | 已落地 | `GenerateBindCode`、`VerifyBind`、Bot `/bind` `/info` `/redeem`、Dashboard 绑定入口 | 已提炼后归档到 `docs/archive/plan/bot-telegram/` |
 | `telegram-bot-menu.md` | 已落地 | `menu_sync.py`、`/refresh_menu`、Bot 启动菜单同步 | 已归档到 `docs/archive/plan/bot-telegram/` |
 | `bot-polling-mode.md` | 已落地 | `TELEGRAM_UPDATE_MODE`、Bot `webhook/polling` 双模式启动、`docker-compose.yml` 透传、配置中心条件风险提示 | 已提炼后归档到 `docs/archive/plan/bot-telegram/` |
@@ -44,6 +45,7 @@
 | `embypulse-features/p1-playback-history.md` | 已落地 | `PlaybackHistoryService`、管理端播放历史路由与页面 | 已归档到 `docs/archive/plan/media-subscription/` |
 | `embypulse-features/p2-subscription-season.md` | 已落地 | `Subscription.season` 字段、Web 分季选择、MoviePilot `season` 透传、Bot 先选季再确认 | 已归档到 `docs/archive/plan/media-subscription/` |
 | `embypulse-features/p2-user-avatar.md` | 已落地 | `DefaultAvatar.vue`、Dashboard / Account Center / TopBar / Sidebar / UsersView 已统一接入默认头像组件 | 已归档到 `docs/archive/plan/console-admin/` |
+| `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 
 ## B. 未见完整落地证据，继续保留在 `docs/plan/`
 
@@ -58,6 +60,8 @@
 本轮已补充归档：
 
 - `bot-polling-mode.md`
+- `billing-redemption/user-plan-grouping.md`
+- `console-admin/admin-create-user-with-plan-group-expiry.md`
 - `user-profile-analytics.md`
 - `user-profile-overview.md`
 - `dashboard-renewal-redesign.md`

@@ -13,10 +13,10 @@
 当前 `plan/` 目录按 Ember 现有职责边界分类，而不是按历史来源分类：
 
 - `access-auth/`：注册、登录保护、邮箱验证、找回密码
-- `billing-redemption/`：Stripe、兑换码、一人一码、兑换目录重构
+- `billing-redemption/`：Stripe、套餐分组、兑换码、一人一码、兑换目录重构
 - `media-subscription/`：追剧日历、媒体质量、播放历史、分季订阅、排行榜、最近入库
 - `bot-telegram/`：Telegram 绑定、Bot 菜单、搜索订阅、通知、Polling
-- `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板
+- `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板、后台创建用户
 - `architecture/`：设置中心、邮箱鉴权边界等结构性方案
 
 `report/` 用于保存总结、复盘和历史测试报告，例如：

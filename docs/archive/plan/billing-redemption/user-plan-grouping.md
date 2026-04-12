@@ -1,8 +1,26 @@
 # 用户套餐分组实现方案
 
-> 状态：进行中
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-08
+> 更新时间：2026-04-12
+
+## 归档说明
+
+本方案已完成落地，当前只保留追溯价值。
+
+稳定结论已同步到：
+
+- `docs/system-architecture.md`
+- `docs/runbooks/stripe-payment-testing.md`
+
+当前代码已经具备：
+
+- `plan_groups` 实体和默认分组
+- 用户显式分组 / 跟随默认分组两种模式
+- 后台套餐分组管理
+- 套餐、续费中心、checkout、webhook 按用户有效分组工作
+
+因此这份文档不再承担现行实现说明职责。
 
 ## 背景
 
@@ -55,15 +73,14 @@
   - `services/web/src/views/admin/UsersView.vue`
   - `services/web/src/views/console/RenewalCenterView.vue`
 - 当前行为：
-  - 用户和套餐直接存 `planGroup`
-  - 分组值仍依赖固定初始化数据，而不是后台管理实体
-  - 登录态套餐接口和 checkout 已按 `planGroup` 隔离
-  - webhook 履约前也会复核当前用户/套餐分组
-- 现有限制：
-  - 没有“套餐分组管理”实体
-  - 没有默认分组概念
-  - 用户不能表达“未绑定，跟随默认”
-  - 后续新增更多分组需要继续改枚举、校验和前端常量
+  - `plan_groups` 已经是正式实体，后台支持创建、编辑、删除和切换默认分组
+  - 用户 `planGroup` 为空时表示“跟随默认分组”，显式分组优先级高于默认分组
+  - 登录态套餐接口、checkout、webhook 履约都按用户有效分组工作
+  - 默认分组切换和用户/套餐分组变更都会同步收口相关 `pending` 支付
+- 已完成收口：
+  - 后台已有套餐分组管理页面
+  - 套餐管理和用户管理都已接入分组选择
+  - 支付记录、续费中心和履约边界已与分组模型保持一致
 
 ## 方案设计
 
@@ -246,15 +263,18 @@
 - 配置/部署：有，需要更新 SQL migration；不新增环境变量
 - 文档：需要同步 `docs/system-architecture.md`
 
-## 验证方式
+## 落地验证与收口
 
-### 编译/测试
+已完成的关键收口：
 
-- `cd services/api && go test ./internal/services/payment ./internal/services/user ./internal/handlers`
-- `cd services/api && env GOCACHE=/tmp/ember-go-cache go build ./...`
-- `cd services/web && npm run build`
+- `infrastructure/database/20260408_01_add_plan_grouping.sql` 已落地
+- `services/api/internal/services/payment/plan_groups.go` 已承载分组实体与默认分组切换逻辑
+- `services/api/internal/services/payment/service.go` 已按有效分组收口套餐查询、checkout 和 webhook 履约
+- `services/api/internal/services/user/admin.go` 已按有效分组支持后台筛选和编辑
+- `services/web/src/views/admin/PlanGroupsView.vue`、`services/web/src/views/admin/PlansView.vue`、`services/web/src/views/admin/UsersView.vue` 已完成页面接入
+- `docs/system-architecture.md` 已同步实体、接口和关键服务边界
 
-### 手工验证
+保留的历史验证清单：
 
 - 创建新分组，确认套餐管理可选中该分组，列表展示名称正确
 - 把某用户显式绑定到某分组，确认续费中心只看到该组套餐
@@ -263,9 +283,9 @@
 - 切换默认分组后，确认跟随默认用户的待支付订单被收口，旧 Stripe 页面无法再成功续期
 - 删除被用户或套餐引用的分组，确认后台收到拒绝
 
-## 落地后文档处理
+## 文档处理结果
 
-落地后应同步处理：
+已完成：
 
-- 将 `plan_groups`、默认分组、有效分组解析、后台分组管理接口等稳定事实同步到 `docs/system-architecture.md`
-- 方案完成、验证闭环、文档同步后，移入 `docs/archive/plan/billing-redemption/`
+- `plan_groups`、默认分组、有效分组解析、后台分组管理接口等稳定事实已同步到 `docs/system-architecture.md`
+- 本文档已移入 `docs/archive/plan/billing-redemption/`
