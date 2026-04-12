@@ -29,6 +29,8 @@ SCOPE_LABELS = {
 }
 
 NOISE_ONLY_PREFIXES = (
+    ".claude/",
+    ".codex/",
     "docs/archive/",
     "docs/plan/",
     "docs/proposals/",
@@ -46,29 +48,14 @@ WEB_FORM_FILES = {
     "services/web/src/views/admin/SettingsView.vue",
 }
 
-BOT_POLLING_FILES = {
+BOT_POLLING_RUNTIME_FILES = {
     "services/bot/app/config.py",
     "services/bot/app/server.py",
-    "services/bot/.env.example",
-    "infrastructure/docker/.env.example",
-    "infrastructure/docker/docker-compose.yml",
 }
 
-SEASON_SUBSCRIPTION_FILES = {
-    "services/web/src/views/console/NewSubscriptionView.vue",
-    "services/web/src/views/console/SubscriptionsView.vue",
-    "services/api/internal/services/subscription/service.go",
-    "services/api/internal/handlers/subscription.go",
-    "services/api/internal/handlers/telegram.go",
-    "services/api/internal/handlers/tmdb.go",
-    "services/bot/app/handlers/telegram_handler.py",
-    "services/bot/app/formatters/message_formatter.py",
-}
-
-SETTINGS_CLEANUP_FILES = {
+SETTINGS_CLEANUP_CORE_FILES = {
     "services/api/internal/config/config.go",
     "services/api/internal/handlers/config.go",
-    "services/web/src/api/admin.ts",
     "services/web/src/views/admin/SettingsView.vue",
 }
 
@@ -156,7 +143,13 @@ def is_noise_only_commit(commit: Commit) -> bool:
 def is_documentation_only_commit(commit: Commit) -> bool:
     if not commit.files:
         return False
-    return all(file_path.startswith("docs/") or file_path in NOISE_ONLY_FILES for file_path in commit.files)
+    return all(
+        file_path.startswith("docs/")
+        or file_path.endswith(".md")
+        or file_path.endswith(".env.example")
+        or file_path in NOISE_ONLY_FILES
+        for file_path in commit.files
+    )
 
 
 def format_commit_label(commit: Commit) -> str:
@@ -187,16 +180,23 @@ def build_topic_matches(commits: list[Commit], changed_files: set[str]) -> dict[
         description_lower = commit.description.lower()
         files = set(commit.files)
 
-        if "polling" in description_lower or files & BOT_POLLING_FILES:
+        # Topic summaries must prefer precision over recall; shared env or docker
+        # files are too noisy to infer a user-visible feature from them.
+        if "polling" in description_lower or files & BOT_POLLING_RUNTIME_FILES:
             matches["polling"].add(commit.sha)
 
-        if "按季" in commit.description or files & SEASON_SUBSCRIPTION_FILES:
+        # "按季订阅" is easy to mention explicitly in conventional commits. Generic
+        # subscription view tweaks should fall back to commit bullets instead of
+        # being misclassified as the full season-subscription feature.
+        if "按季" in commit.description or "season subscription" in description_lower:
             matches["season_subscription"].add(commit.sha)
 
         if files & WEB_FORM_FILES:
             matches["web_forms"].add(commit.sha)
 
-        if commit.scope == "settings" or files & SETTINGS_CLEANUP_FILES:
+        # admin.ts is shared by many admin features and produced false cleanup
+        # warnings in releases that merely touched admin billing/user flows.
+        if commit.scope == "settings" or files & SETTINGS_CLEANUP_CORE_FILES:
             matches["settings_cleanup"].add(commit.sha)
 
         if "services/web/public/favicon.png" in files:
@@ -257,6 +257,9 @@ def build_fallback_lines(commits: list[Commit], used_shas: set[str]) -> tuple[li
         if is_documentation_only_commit(commit):
             continue
 
+        if commit.commit_type == "test":
+            continue
+
         label = format_commit_label(commit)
         if commit.commit_type == "feat":
             features.append(f"- {label}")
@@ -276,6 +279,8 @@ def render_reference_commits(repo: str, commits: list[Commit]) -> list[str]:
     ]
     for commit in commits:
         if is_noise_only_commit(commit) or is_documentation_only_commit(commit):
+            continue
+        if commit.commit_type == "test":
             continue
         lines.append(f"- [{commit.short_sha}]({commit_link(repo, commit)}) {commit.subject}")
     lines.extend(["", "</details>"])
