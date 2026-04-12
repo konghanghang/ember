@@ -2,13 +2,14 @@
 
 > 状态：草稿
 > 负责人：Ember
-> 更新时间：2026-04-01
+> 更新时间：2026-04-12
 
 ## 背景
 
 这个问题为什么现在要解决：
 
 - 用户提交订阅后，只能看到粗粒度状态，无法确认审核是否通过。
+- 有些用户没有先检查库内是否已存在资源，就直接提交订阅，导致管理员收到本不该出现的重复请求。
 - 管理员拒绝订阅时，系统没有面向用户的拒绝原因承载位，用户只能知道“被拒绝”，不知道为什么。
 - 审核通过后，系统只表示“已批准”，没有把“已真正入库”作为独立状态暴露给用户。
 - 已绑定 Telegram 的用户无法收到审核结果或入库结果通知，状态追踪完全依赖手动刷新页面。
@@ -22,7 +23,8 @@
 2. 管理员拒绝订阅时必须填写拒绝原因，用户可以在 Web 和 Telegram 中看到该原因。
 3. 已绑定 Telegram 的用户在“审核通过 / 审核拒绝 / 已入库”三个节点收到私聊通知。
 4. 以真实 Emby webhook 作为“已入库”唯一可信事件源，避免轮询猜测导致误报。
-5. 保持现有管理员审批链路和 TV Calendar webhook 点亮链路可继续工作，不破坏既有行为。
+5. 用户提交订阅前，系统先基于 Emby 库内实际资源做存在性检测；若已存在，则先提示、再允许二次确认后继续提交。
+6. 保持现有管理员审批链路和 TV Calendar webhook 点亮链路可继续工作，不破坏既有行为。
 
 ## 非目标
 
@@ -33,6 +35,7 @@
 - 不做标题模糊匹配、最近入库轮询推断或人工猜测式入库确认。
 - 不修改现有“同一 `type + tmdbId + season` 全局唯一”的订阅去重策略。
 - 不实现“整季全部入库后才算完成”的重型剧集完结判断。
+- 不把“库内已存在”做成强制硬拦截；用户二次确认后仍允许提交。
 
 ## 当前事实
 
@@ -45,17 +48,22 @@
   - `services/api/internal/models/subscription.go`
   - `services/api/internal/services/subscription/service.go`
   - `services/api/internal/handlers/subscription.go`
+  - `services/api/internal/integrations/emby/library.go`
   - `services/api/internal/handlers/tv_calendar.go`
+  - `services/web/src/views/console/NewSubscriptionView.vue`
   - `services/web/src/views/console/SubscriptionsView.vue`
   - `services/bot/app/handlers/telegram_handler.py`
   - `services/bot/app/formatters/message_formatter.py`
 - 当前行为：
+  - Web 用户在 `NewSubscriptionView` 里选中 TMDB 条目后，确认弹窗只收集季数和备注，不检查 Emby 库中是否已存在资源。
   - 订阅状态只有 `PENDING`、`APPROVED`、`REJECTED` 三态。
   - `note` 是用户提交备注，不是管理员拒绝原因。
   - 审核通过后调用 MoviePilot，结果失败仅记录到 `mpError`，状态仍改为 `APPROVED`。
   - Telegram 目前只通知管理员“有新的待审批订阅”，不会通知提交用户。
   - Emby webhook 当前只处理剧集 `episode` 入库，并用于点亮 TV Calendar，不回写订阅状态。
 - 现有限制：
+  - 用户提交前无法知道库中是否已有同一电影、整剧或目标季的资源。
+  - 管理员会收到“库里已有资源但用户仍提交”的无效订阅，增加审批噪音。
   - 用户无法知道拒绝原因。
   - 用户无法知道“审核通过但还未入库”和“已经入库”的区别。
   - 已绑定 Telegram 的用户没有结果通知。
@@ -67,19 +75,28 @@
 ### 1. 用户可见行为
 
 - 新增能力：
+  - 用户在提交订阅前，系统先检测 Emby 库内是否已存在对应资源；若命中，则弹出二次确认提示。
+  - 二次确认弹窗展示库内已存在摘要，例如电影已存在、整剧已存在、目标季已存在、已入库季数/集数概况。
   - 用户在订阅列表中看到四个正式状态：`审核中`、`已通过，等待入库`、`已拒绝`、`已入库`。
   - 用户在 `已拒绝` 的卡片或详情区看到明确拒绝原因。
   - 用户在 `已入库` 状态下看到入库时间。
   - 已绑定 Telegram 的用户在以下节点收到私聊：审核通过、审核拒绝（带原因）、已入库。
 - 修改现有行为：
+  - 用户点击“提交订阅”不再直接落库，而是先走“库内存在性检查 → 若命中则二次确认 → 最终提交”。
   - 管理员拒绝订阅不再允许空拒绝，必须填写原因。
   - `APPROVED` 的语义从“事情结束”改为“审核通过，但还未确认 Emby 已有内容”。
   - 用户侧筛选增加 `已入库` 选项。
 - 哪些现有行为必须保持不变：
+  - 即使系统检测到库内已存在，用户仍可在明确二次确认后继续提交。
   - 用户创建订阅后默认仍进入待审核，不自动通过。
   - MoviePilot 调用失败仍不阻塞审核通过，只记录下游异常。
   - TV Calendar 的 webhook 点亮行为保留。
   - 未绑定 Telegram 的用户仍可完整通过 Web 查看状态，不因为没有 TG 而丢失信息。
+- 前端约束：
+  - 前端实现必须遵守 Ember 风格。
+  - 设计与交互基线以 `docs/reference/web-design-guide.md` 为准。
+  - 提交前存在性提示应复用 `NewSubscriptionView` 的现有确认链路，不新增脱离上下文的独立页面。
+  - 若需要增加“查看媒体库”跳转或补充提示卡片，必须保持现有对话框层级、按钮语义和主次操作样式一致。
 
 ### 2. 数据与模型
 
@@ -102,6 +119,13 @@
 ### 3. 接口与边界
 
 - 新增或修改哪些 API / Internal API / webhook / 命令：
+  - `POST /api/v1/subscriptions/check-existing`
+    - 新增提交前检测接口
+    - 请求体沿用订阅核心字段：`type`、`tmdbId`、`season`
+    - 返回是否命中库内资源，以及命中的摘要信息
+  - `POST /api/v1/subscriptions`
+    - 请求体新增可选字段 `confirmExisting`
+    - 当检测到库内已存在且 `confirmExisting != true` 时，不直接创建订阅，而是返回“需要二次确认”的结构化响应
   - `GET /api/v1/subscriptions`
     - 返回字段新增 `rejectReason`、`reviewedAt`、`ingestedAt`
     - `status` 支持 `INGESTED`
@@ -122,9 +146,16 @@
     - 在现有 TV Calendar 点亮逻辑后，补一段“订阅入库确认”逻辑
     - 仅处理真实入库 webhook，不新增轮询任务
 - 请求参数与响应字段怎么变：
+  - 提交前检测响应新增 `existsInLibrary`、`existingSummary`
+  - `existingSummary` 至少包含：
+    - `matchType`：`movie`、`series`、`season`
+    - `embyItemId` 或可跳转目标
+    - `message`
+    - 对剧集可选返回 `availableSeasons`、`episodeCount`
   - 订阅响应对象新增 `rejectReason`、`reviewedAt`、`ingestedAt`
   - 管理端和 Internal `reject` 都必须接受 `reason`
 - 哪些调用方会受影响：
+  - Web 新建订阅页提交交互
   - Web 用户端订阅页
   - Web 管理员端订阅审核交互
   - Telegram Bot 审批回调
@@ -134,17 +165,22 @@
 
 按顺序写清主链路，不需要贴代码：
 
-1. 用户在 Web 或 Telegram 创建订阅，记录落库为 `PENDING`。
-2. 管理员在 Web 或 Telegram 审批：
+1. 用户在 Web 端选中 TMDB 条目并点击提交时，前端先调用 `check-existing`。
+2. 后端基于 Emby 实际资源做存在性检测：
+   - 电影：按 `tmdbId` 命中同一电影即视为已存在
+   - 剧集整剧（`season=0`）：按 `tmdbId` 命中该剧任意已入库内容即返回“已存在部分或全部内容”的提示
+   - 剧集指定季：按 `tmdbId + season` 检查目标季是否已有已入库剧集，并返回已存在摘要
+3. 若未命中库内资源，或用户在弹窗中明确二次确认，则创建订阅，记录落库为 `PENDING`。
+4. 管理员在 Web 或 Telegram 审批：
    - 通过：调用 `ApproveSubscription`
    - 拒绝：调用 `RejectSubscription(id, reason)`
-3. `ApproveSubscription` 校验当前状态必须是 `PENDING`，调用 MoviePilot，同步写入 `APPROVED`、`reviewedAt`，保留 `mpError`，若用户已绑定 TG，则推送“已通过，等待入库”。
-4. `RejectSubscription` 校验当前状态必须是 `PENDING`，写入 `REJECTED`、`rejectReason`、`reviewedAt`，若用户已绑定 TG，则推送“已拒绝”及原因。
-5. Emby webhook 到达：
+5. `ApproveSubscription` 校验当前状态必须是 `PENDING`，调用 MoviePilot，同步写入 `APPROVED`、`reviewedAt`，保留 `mpError`，若用户已绑定 TG，则推送“已通过，等待入库”。
+6. `RejectSubscription` 校验当前状态必须是 `PENDING`，写入 `REJECTED`、`rejectReason`、`reviewedAt`，若用户已绑定 TG，则推送“已拒绝”及原因。
+7. Emby webhook 到达：
    - 电影事件：若能提取出可靠 TMDB ID，并匹配到 `APPROVED` 的电影订阅，则将其转为 `INGESTED`
    - 剧集事件：若能提取出可靠 TMDB ID 和季号，并匹配到 `APPROVED` 的剧集订阅，则将其转为 `INGESTED`
-6. 订阅首次转为 `INGESTED` 时，写入 `ingestedAt`，并对绑定 TG 的用户推送“已入库”。
-7. Web 订阅列表读取统一分页接口，直接展示最新状态、拒绝原因和时间字段。
+8. 订阅首次转为 `INGESTED` 时，写入 `ingestedAt`，并对绑定 TG 的用户推送“已入库”。
+9. Web 订阅列表读取统一分页接口，直接展示最新状态、拒绝原因和时间字段。
 
 剧集“已入库”判定规则：
 
@@ -153,6 +189,9 @@
 
 ### 5. 失败路径与边界条件
 
+- 提交前检测命中库内已存在，且用户未二次确认：接口返回“需要确认”响应，前端弹窗提示，不直接落库。
+- 检测结果显示“已存在部分内容”，但用户是为了补画质、补版本或补缺季而继续提交：允许携带 `confirmExisting=true` 继续落库。
+- 检测使用的 Emby 查询失败：前端提示“库内检测失败，是否仍继续提交”，用户明确确认后允许继续提交，避免因为探测失败把订阅入口完全堵死。
 - 管理员拒绝时未填写原因：接口返回 `400`，前端阻止提交，Bot 拒绝流程不得落库。
 - 订阅已被处理后再次审批：返回明确错误，不覆盖原状态。
 - MoviePilot 调用失败：状态仍为 `APPROVED`，用户端提示“已通过但下游提交异常”，避免假装一切正常。
@@ -170,9 +209,9 @@
 涉及的子系统：
 
 - API：有
-  - 订阅模型、订阅服务、订阅 handler、webhook 链路、Bot notifier
+  - 订阅模型、订阅服务、订阅 handler、库内存在性检测、webhook 链路、Bot notifier
 - Web：有
-  - 用户订阅列表展示、管理员拒绝交互、类型定义、API 调用
+  - 新建订阅页二次确认交互、用户订阅列表展示、管理员拒绝交互、类型定义、API 调用
 - Bot：有
   - 审批回调、拒绝原因输入流程、用户私聊通知格式化
 - 配置/部署：无新增环境变量
@@ -192,12 +231,15 @@
 
 按改动补充针对性测试：
 
-- API：订阅状态迁移、拒绝原因校验、webhook 幂等
-- Web：订阅状态展示与拒绝原因输入
+- API：订阅状态迁移、拒绝原因校验、库内存在性检测、webhook 幂等
+- Web：新建订阅页二次确认、订阅状态展示与拒绝原因输入
 - Bot：消息格式和拒绝两步交互
 
 ### 手工验证
 
+- 电影在 Emby 库中已存在时，用户首次提交会收到明确提示；点击二次确认后仍可成功创建订阅
+- 剧集目标季在 Emby 库中已存在时，用户首次提交会收到“已存在目标季”的提示
+- 剧集整剧提交但库中仅有部分季时，提示文案能明确表达“已存在部分内容”，不误导成“完整可看”
 - 用户创建订阅后，在 Web 看到 `审核中`
 - 管理员在 Web 批准后，用户页变为 `已通过，等待入库`
 - 管理员在 Web 拒绝并填写原因后，用户页展示拒绝原因
