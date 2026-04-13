@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -224,69 +225,105 @@ func (h *TVCalendarHandler) Refresh(c *gin.Context) {
 }
 
 func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
+	requestID := strings.TrimSpace(c.GetHeader("X-Request-Id"))
+	remoteIP := strings.TrimSpace(c.ClientIP())
 	configuredToken := resolveEmbyWebhookToken()
 	if configuredToken == "" {
+		log.Printf("[TV Calendar] Emby webhook 拒绝：token 未配置 requestId=%s remoteIP=%s", requestID, remoteIP)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Webhook token 未配置"})
 		return
 	}
 
 	reqToken := strings.TrimSpace(c.Query("token"))
 	if subtle.ConstantTimeCompare([]byte(reqToken), []byte(configuredToken)) != 1 {
+		log.Printf("[TV Calendar] Emby webhook 拒绝：token 无效 requestId=%s remoteIP=%s tokenProvided=%t tokenLength=%d", requestID, remoteIP, reqToken != "", len(reqToken))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Webhook token 无效"})
 		return
 	}
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		log.Printf("[TV Calendar] Emby webhook 读取请求体失败 requestId=%s remoteIP=%s err=%v", requestID, remoteIP, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败"})
 		return
 	}
 
 	var payload map[string]interface{}
 	if err := json.Unmarshal(body, &payload); err != nil {
+		log.Printf("[TV Calendar] Emby webhook JSON 解析失败 requestId=%s remoteIP=%s bodyBytes=%d err=%v", requestID, remoteIP, len(body), err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求体格式错误"})
 		return
 	}
 
 	eventName := strings.ToLower(extractString(payload, "Event", "event", "NotificationType", "notificationType"))
+	log.Printf("[TV Calendar] Emby webhook 收到通知 requestId=%s remoteIP=%s event=%q bodyBytes=%d", requestID, remoteIP, eventName, len(body))
 	if eventName != "library.new" && eventName != "item.added" {
+		log.Printf("[TV Calendar] Emby webhook 忽略：非入库事件 requestId=%s remoteIP=%s event=%q", requestID, remoteIP, eventName)
 		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
 		return
 	}
 
 	item := extractMap(payload, "Item", "item")
 	if len(item) == 0 {
+		log.Printf("[TV Calendar] Emby webhook 忽略：缺少 Item 节点 requestId=%s remoteIP=%s event=%q", requestID, remoteIP, eventName)
 		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
 		return
 	}
 
 	itemType := strings.ToLower(extractString(item, "Type", "type"))
-	if itemType != "episode" {
-		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
-		return
-	}
-
-	if !hasPhysicalMedia(item) {
-		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
-		return
-	}
-
-	season := extractInt(item, "ParentIndexNumber", "parentIndexNumber", "SeasonNumber", "seasonNumber")
-	episode := extractInt(item, "IndexNumber", "indexNumber", "EpisodeNumber", "episodeNumber")
-	if season <= 0 || episode <= 0 {
-		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
-		return
-	}
-
+	itemName := extractString(item, "Name", "name")
+	embyItemID := extractString(item, "Id", "id")
 	tmdbID := extractTMDBID(item)
 	seriesID := extractSeriesID(item)
-	embyItemID := extractString(item, "Id", "id")
+	season := extractInt(item, "ParentIndexNumber", "parentIndexNumber", "SeasonNumber", "seasonNumber")
+	episode := extractInt(item, "IndexNumber", "indexNumber", "EpisodeNumber", "episodeNumber")
+	locationType := extractString(item, "LocationType", "locationType")
+	itemPath := extractString(item, "Path", "path")
+	isMissing := extractBool(item, "IsMissing", "isMissing")
+	physical := hasPhysicalMedia(item)
+
+	log.Printf(
+		"[TV Calendar] Emby webhook 条目详情 requestId=%s event=%q itemId=%q itemType=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d locationType=%q isMissing=%t hasPhysical=%t path=%q",
+		requestID,
+		eventName,
+		embyItemID,
+		itemType,
+		itemName,
+		tmdbID,
+		seriesID,
+		season,
+		episode,
+		locationType,
+		isMissing,
+		physical,
+		itemPath,
+	)
+	if itemType != "episode" {
+		log.Printf("[TV Calendar] Emby webhook 忽略：条目不是剧集 requestId=%s itemId=%q itemType=%q itemName=%q", requestID, embyItemID, itemType, itemName)
+		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
+		return
+	}
+
+	if !physical {
+		log.Printf("[TV Calendar] Emby webhook 忽略：条目没有物理媒体 requestId=%s itemId=%q itemName=%q locationType=%q isMissing=%t path=%q", requestID, embyItemID, itemName, locationType, isMissing, itemPath)
+		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
+		return
+	}
+
+	if season <= 0 || episode <= 0 {
+		log.Printf("[TV Calendar] Emby webhook 忽略：季集号无效 requestId=%s itemId=%q itemName=%q season=%d episode=%d", requestID, embyItemID, itemName, season, episode)
+		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
+		return
+	}
 
 	updatedCount, err := h.service.MarkEpisodeReadyByWebhook(c.Request.Context(), tmdbID, seriesID, season, episode, embyItemID)
 	if err != nil {
+		log.Printf("[TV Calendar] Emby webhook 更新失败 requestId=%s event=%q itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d err=%v", requestID, eventName, embyItemID, itemName, tmdbID, seriesID, season, episode, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	log.Printf("[TV Calendar] Emby webhook 更新完成 requestId=%s event=%q itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d updated=%t updatedCount=%d", requestID, eventName, embyItemID, itemName, tmdbID, seriesID, season, episode, updatedCount > 0, updatedCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

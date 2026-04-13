@@ -32,9 +32,10 @@ const (
 	tvCalendarSyncPageSize           = 200
 	tvCalendarActiveSourceWindowDays = 30
 	tvCalendarDefaultOffset          = 0
+	tvCalendarDefaultTimezone        = "Asia/Shanghai"
 )
 
-var defaultTVCalendarWeekOffsets = []int{0}
+var defaultTVCalendarWeekOffsets = []int{0, 1}
 
 type tvCalendarSyncCall struct {
 	done  chan struct{}
@@ -281,28 +282,69 @@ func normalizeDateUTC(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
-func normalizeTVCalendarWeekStart(t time.Time) time.Time {
+func loadTVCalendarLocation() *time.Location {
+	configService := configpkg.NewConfigService()
+	tzName := strings.TrimSpace(configService.GetString("CRON_TIMEZONE"))
+	if tzName == "" {
+		tzName = tvCalendarDefaultTimezone
+	}
+
+	loc, err := time.LoadLocation(tzName)
+	if err == nil {
+		return loc
+	}
+
+	log.Printf("[TV Calendar] 时区 %q 无效，回退到 %s: %v", tzName, tvCalendarDefaultTimezone, err)
+	defaultLocation, defaultErr := time.LoadLocation(tvCalendarDefaultTimezone)
+	if defaultErr == nil {
+		return defaultLocation
+	}
+
+	log.Printf("[TV Calendar] 默认时区 %q 加载失败，回退 UTC: %v", tvCalendarDefaultTimezone, defaultErr)
+	return time.UTC
+}
+
+func currentCalendarDateInLocation(now time.Time, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
+	y, m, d := now.In(loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func normalizeTVCalendarWeekStartInLocation(t time.Time, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
 	current := normalizeDateUTC(t)
-	weekday := int(current.Weekday())
+	y, m, d := current.UTC().Date()
+	currentLocal := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	weekday := int(currentLocal.Weekday())
 	if weekday == 0 {
 		weekday = 7
 	}
-	return current.AddDate(0, 0, -(weekday - 1))
+	weekStartLocal := currentLocal.AddDate(0, 0, -(weekday - 1))
+	startYear, startMonth, startDay := weekStartLocal.Date()
+	return time.Date(startYear, startMonth, startDay, 0, 0, 0, 0, time.UTC)
+}
+
+func normalizeTVCalendarWeekStart(t time.Time) time.Time {
+	return normalizeTVCalendarWeekStartInLocation(t, loadTVCalendarLocation())
 }
 
 func tvCalendarWeekEnd(weekStart time.Time) time.Time {
-	return normalizeTVCalendarWeekStart(weekStart).AddDate(0, 0, 6)
+	return normalizeDateUTC(weekStart).AddDate(0, 0, 6)
 }
 
 func isDateWithinTVCalendarWeek(date, weekStart time.Time) bool {
 	normalizedDate := normalizeDateUTC(date)
-	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
+	normalizedWeekStart := normalizeDateUTC(weekStart)
 	weekEnd := tvCalendarWeekEnd(normalizedWeekStart)
 	return !normalizedDate.Before(normalizedWeekStart) && !normalizedDate.After(weekEnd)
 }
 
-func deriveStatusByAirDate(airDate time.Time, now time.Time) string {
-	today := normalizeDateUTC(now)
+func deriveStatusByAirDate(airDate time.Time, now time.Time, loc *time.Location) string {
+	today := currentCalendarDateInLocation(now, loc)
 	date := normalizeDateUTC(airDate)
 	if date.After(today) {
 		return models.TVCalendarStatusUpcoming
@@ -313,11 +355,11 @@ func deriveStatusByAirDate(airDate time.Time, now time.Time) string {
 	return models.TVCalendarStatusMissing
 }
 
-func resolveCalendarItemStatus(item models.TVCalendarItem, now time.Time) string {
+func resolveCalendarItemStatus(item models.TVCalendarItem, now time.Time, loc *time.Location) string {
 	if item.Status == models.TVCalendarStatusReady {
 		return models.TVCalendarStatusReady
 	}
-	return deriveStatusByAirDate(item.AirDate, now)
+	return deriveStatusByAirDate(item.AirDate, now, loc)
 }
 
 func parseDateOnly(date string) (time.Time, error) {
@@ -367,19 +409,20 @@ func ParseTVCalendarWeekOffset(value string) (int, error) {
 }
 
 func ParseTVCalendarWeekDate(weekDateValue, weekOffsetValue string) (time.Time, error) {
+	loc := loadTVCalendarLocation()
 	if raw := strings.TrimSpace(weekDateValue); raw != "" {
 		date, err := ParseTVCalendarDate(raw)
 		if err != nil {
 			return time.Time{}, err
 		}
-		return normalizeTVCalendarWeekStart(date), nil
+		return normalizeTVCalendarWeekStartInLocation(date, loc), nil
 	}
 
 	offset, err := ParseTVCalendarWeekOffset(weekOffsetValue)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return tvCalendarWeekStartFromOffset(offset, time.Now().UTC()), nil
+	return tvCalendarWeekStartFromOffset(offset, time.Now().UTC(), loc), nil
 }
 
 func ParseTVCalendarDate(value string) (time.Time, error) {
@@ -395,12 +438,12 @@ func ParseTVCalendarDate(value string) (time.Time, error) {
 }
 
 func DefaultTVCalendarDateRange() (time.Time, time.Time) {
-	now := normalizeDateUTC(time.Now().UTC())
+	now := currentCalendarDateInLocation(time.Now().UTC(), loadTVCalendarLocation())
 	return now.AddDate(0, 0, -7), now.AddDate(0, 0, 30)
 }
 
-func tvCalendarWeekStartFromOffset(offset int, now time.Time) time.Time {
-	return normalizeTVCalendarWeekStart(now).AddDate(0, 0, offset*7)
+func tvCalendarWeekStartFromOffset(offset int, now time.Time, loc *time.Location) time.Time {
+	return normalizeTVCalendarWeekStartInLocation(now, loc).AddDate(0, 0, offset*7)
 }
 
 func tvCalendarWeekRange(weekStart time.Time) (time.Time, time.Time) {
@@ -544,16 +587,16 @@ func normalizeWeekOffsets(offsets []int) ([]int, error) {
 	return result, nil
 }
 
-func weekStartsFromOffsets(offsets []int, now time.Time) []time.Time {
+func weekStartsFromOffsets(offsets []int, now time.Time, loc *time.Location) []time.Time {
 	result := make([]time.Time, 0, len(offsets))
 	for _, offset := range offsets {
-		result = append(result, tvCalendarWeekStartFromOffset(offset, now))
+		result = append(result, tvCalendarWeekStartFromOffset(offset, now, loc))
 	}
 	return result
 }
 
-func (s *TVCalendarService) buildEmptyWeeklyDTO(start, end time.Time) *TVCalendarWeeklyDTO {
-	today := normalizeDateUTC(time.Now().UTC())
+func (s *TVCalendarService) buildEmptyWeeklyDTO(start, end time.Time, loc *time.Location) *TVCalendarWeeklyDTO {
+	today := currentCalendarDateInLocation(time.Now().UTC(), loc)
 	days := make([]TVCalendarDayDTO, 0, 7)
 	for cursor := start; !cursor.After(end); cursor = cursor.AddDate(0, 0, 1) {
 		days = append(days, TVCalendarDayDTO{
@@ -569,7 +612,171 @@ func (s *TVCalendarService) buildEmptyWeeklyDTO(start, end time.Time) *TVCalenda
 	}
 }
 
-func (s *TVCalendarService) queryCalendarItems(tmdbIDs []string, start, end time.Time, status string) ([]models.TVCalendarItem, error) {
+type readyCorrection struct {
+	TmdbID     string
+	SeriesID   string
+	Season     int
+	Episode    int
+	EmbyItemID string
+}
+
+func applyReadyEpisodeCorrections(
+	items []models.TVCalendarItem,
+	readyEpisodesBySeries map[string]map[string]embyEpisodeItem,
+	seriesIDByTmdb map[string]string,
+	currentWeekStart time.Time,
+) ([]models.TVCalendarItem, []readyCorrection) {
+	if len(items) == 0 {
+		return items, nil
+	}
+
+	correctedItems := make([]models.TVCalendarItem, len(items))
+	copy(correctedItems, items)
+	corrections := make([]readyCorrection, 0)
+
+	for idx, item := range correctedItems {
+		if item.Status == models.TVCalendarStatusReady || !isDateWithinTVCalendarWeek(item.AirDate, currentWeekStart) {
+			continue
+		}
+
+		seriesID := strings.TrimSpace(item.SeriesID)
+		if seriesID == "" {
+			seriesID = strings.TrimSpace(seriesIDByTmdb[item.TmdbID])
+		}
+		if seriesID == "" {
+			continue
+		}
+
+		readyEpisodes, ok := readyEpisodesBySeries[seriesID]
+		if !ok {
+			continue
+		}
+		readyEpisode, exists := readyEpisodes[buildEpisodeKey(item.Season, item.Episode)]
+		if !exists {
+			continue
+		}
+
+		correctedItems[idx].Status = models.TVCalendarStatusReady
+		correctedItems[idx].EmbyItemID = strings.TrimSpace(readyEpisode.ID)
+		if strings.TrimSpace(correctedItems[idx].SeriesID) == "" {
+			correctedItems[idx].SeriesID = strings.TrimSpace(readyEpisode.SeriesID)
+		}
+		corrections = append(corrections, readyCorrection{
+			TmdbID:     item.TmdbID,
+			SeriesID:   correctedItems[idx].SeriesID,
+			Season:     item.Season,
+			Episode:    item.Episode,
+			EmbyItemID: correctedItems[idx].EmbyItemID,
+		})
+	}
+
+	return correctedItems, corrections
+}
+
+func (s *TVCalendarService) correctCurrentWeekReadyItems(
+	ctx context.Context,
+	items []models.TVCalendarItem,
+	start time.Time,
+	end time.Time,
+	loc *time.Location,
+) []models.TVCalendarItem {
+	if len(items) == 0 {
+		return items
+	}
+
+	currentWeekStart := tvCalendarWeekStartFromOffset(0, time.Now().UTC(), loc)
+	currentWeekEnd := tvCalendarWeekEnd(currentWeekStart)
+	if end.Before(currentWeekStart) || start.After(currentWeekEnd) {
+		return items
+	}
+
+	candidateTmdbIDs := make([]string, 0)
+	seenTmdbIDs := make(map[string]struct{})
+	candidateSeriesIDs := make(map[string]struct{})
+	for _, item := range items {
+		if item.Status == models.TVCalendarStatusReady || !isDateWithinTVCalendarWeek(item.AirDate, currentWeekStart) {
+			continue
+		}
+		if tmdbID := strings.TrimSpace(item.TmdbID); tmdbID != "" {
+			if _, exists := seenTmdbIDs[tmdbID]; !exists {
+				seenTmdbIDs[tmdbID] = struct{}{}
+				candidateTmdbIDs = append(candidateTmdbIDs, tmdbID)
+			}
+		}
+		if seriesID := strings.TrimSpace(item.SeriesID); seriesID != "" {
+			candidateSeriesIDs[seriesID] = struct{}{}
+		}
+	}
+	if len(candidateTmdbIDs) == 0 {
+		return items
+	}
+
+	sourceMap, err := s.loadSourceMap(candidateTmdbIDs)
+	if err != nil {
+		log.Printf("[TV Calendar] 当前周 ready 校正跳过：加载追剧源失败: %v", err)
+		return items
+	}
+
+	seriesIDByTmdb := make(map[string]string, len(sourceMap))
+	for tmdbID, source := range sourceMap {
+		seriesID := strings.TrimSpace(source.SeriesID)
+		if seriesID == "" {
+			continue
+		}
+		seriesIDByTmdb[tmdbID] = seriesID
+		candidateSeriesIDs[seriesID] = struct{}{}
+	}
+	if len(candidateSeriesIDs) == 0 {
+		return items
+	}
+
+	readyEpisodesBySeries := make(map[string]map[string]embyEpisodeItem, len(candidateSeriesIDs))
+	for seriesID := range candidateSeriesIDs {
+		readyEpisodes, _, _, fetchErr := s.fetchReadyEpisodesForSeries(ctx, seriesID)
+		if fetchErr != nil {
+			log.Printf("[TV Calendar] 当前周 ready 校正跳过：seriesId=%s err=%v", seriesID, fetchErr)
+			continue
+		}
+		readyEpisodesBySeries[seriesID] = readyEpisodes
+	}
+	if len(readyEpisodesBySeries) == 0 {
+		return items
+	}
+
+	correctedItems, corrections := applyReadyEpisodeCorrections(items, readyEpisodesBySeries, seriesIDByTmdb, currentWeekStart)
+	if len(corrections) == 0 {
+		return items
+	}
+
+	checkedAt := time.Now().UTC()
+	persisted := 0
+	for _, correction := range corrections {
+		updates := map[string]interface{}{
+			"status":      models.TVCalendarStatusReady,
+			"lastChecked": checkedAt,
+		}
+		if correction.EmbyItemID != "" {
+			updates["embyItemId"] = correction.EmbyItemID
+		}
+		if correction.SeriesID != "" {
+			updates["seriesId"] = correction.SeriesID
+		}
+
+		result := db.DB.WithContext(ctx).Model(&models.TVCalendarItem{}).
+			Where("\"tmdbId\" = ? AND season = ? AND episode = ?", correction.TmdbID, correction.Season, correction.Episode).
+			Updates(updates)
+		if result.Error != nil {
+			log.Printf("[TV Calendar] 当前周 ready 校正写回失败: tmdbId=%s season=%d episode=%d err=%v", correction.TmdbID, correction.Season, correction.Episode, result.Error)
+			continue
+		}
+		persisted++
+	}
+
+	log.Printf("[TV Calendar] 当前周 ready 校正完成: visibleRange=%s~%s corrected=%d persisted=%d", start.Format("2006-01-02"), end.Format("2006-01-02"), len(corrections), persisted)
+	return correctedItems
+}
+
+func (s *TVCalendarService) queryCalendarItems(ctx context.Context, tmdbIDs []string, start, end time.Time, status string, loc *time.Location) ([]models.TVCalendarItem, error) {
 	query := db.DB.Model(&models.TVCalendarItem{}).
 		Where("\"airDate\" >= ? AND \"airDate\" <= ?", start, end)
 	if len(tmdbIDs) > 0 {
@@ -581,10 +788,12 @@ func (s *TVCalendarService) queryCalendarItems(tmdbIDs []string, start, end time
 		return nil, fmt.Errorf("查询追剧日历失败: %w", err)
 	}
 
+	items = s.correctCurrentWeekReadyItems(ctx, items, start, end, loc)
+
 	now := time.Now().UTC()
 	filtered := make([]models.TVCalendarItem, 0, len(items))
 	for _, item := range items {
-		item.Status = resolveCalendarItemStatus(item, now)
+		item.Status = resolveCalendarItemStatus(item, now, loc)
 		if status != "" && item.Status != status {
 			continue
 		}
@@ -979,7 +1188,8 @@ func (s *TVCalendarService) setTMDBMemoryCache(cacheKey string, payload []byte, 
 
 func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, tmdbID *string, force bool) (int, error) {
 	s.refreshConfig()
-	normalizedWeekStart := normalizeTVCalendarWeekStart(weekStart)
+	loc := loadTVCalendarLocation()
+	normalizedWeekStart := normalizeTVCalendarWeekStartInLocation(weekStart, loc)
 	normalizedWeekEnd := tvCalendarWeekEnd(normalizedWeekStart)
 	return runTVCalendarSyncOnce(tvCalendarWeekSyncLockKey(normalizedWeekStart, tmdbID, force), func() (int, error) {
 		if strings.TrimSpace(s.tmdbAPIKey) == "" {
@@ -1065,7 +1275,7 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 						AirDate:     airDate,
 						EpisodeName: strings.TrimSpace(ep.Name),
 						Overview:    strings.TrimSpace(ep.Overview),
-						Status:      deriveStatusByAirDate(airDate, now),
+						Status:      deriveStatusByAirDate(airDate, now, loc),
 						LastChecked: now,
 						UpdatedAt:   now,
 					}
@@ -1094,7 +1304,7 @@ func (s *TVCalendarService) SyncWeeklyCalendar(ctx context.Context, weekOffset i
 	if !isValidTVCalendarWeekOffset(weekOffset) {
 		return 0, ErrTVCalendarInvalidWeekOffset
 	}
-	return s.SyncWeek(ctx, tvCalendarWeekStartFromOffset(weekOffset, time.Now().UTC()), tmdbID, force)
+	return s.SyncWeek(ctx, tvCalendarWeekStartFromOffset(weekOffset, time.Now().UTC(), loadTVCalendarLocation()), tmdbID, force)
 }
 
 func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int, tmdbID *string, force bool) (int, error) {
@@ -1113,7 +1323,8 @@ func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int,
 	}
 
 	total := 0
-	for _, weekStart := range weekStartsFromOffsets(offsets, time.Now().UTC()) {
+	loc := loadTVCalendarLocation()
+	for _, weekStart := range weekStartsFromOffsets(offsets, time.Now().UTC(), loc) {
 		count, err := s.SyncWeek(ctx, weekStart, tmdbID, force)
 		total += count
 		if err != nil {
@@ -1123,8 +1334,8 @@ func (s *TVCalendarService) SyncCalendar(ctx context.Context, weekOffsets []int,
 	return total, nil
 }
 
-func (s *TVCalendarService) buildWeeklyCalendar(items []models.TVCalendarItem, sourceMap map[string]models.TVCalendarSource, start, end time.Time) *TVCalendarWeeklyDTO {
-	dto := s.buildEmptyWeeklyDTO(start, end)
+func (s *TVCalendarService) buildWeeklyCalendar(items []models.TVCalendarItem, sourceMap map[string]models.TVCalendarSource, start, end time.Time, loc *time.Location) *TVCalendarWeeklyDTO {
+	dto := s.buildEmptyWeeklyDTO(start, end, loc)
 	if len(items) == 0 {
 		return dto
 	}
@@ -1238,8 +1449,9 @@ func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekSta
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
+	loc := loadTVCalendarLocation()
 	start, end := tvCalendarWeekRange(weekStart)
-	items, err := s.queryCalendarItems(nil, start, end, status)
+	items, err := s.queryCalendarItems(ctx, nil, start, end, status, loc)
 	if err != nil {
 		return nil, err
 	}
@@ -1258,7 +1470,7 @@ func (s *TVCalendarService) GetGlobalWeeklyCalendar(ctx context.Context, weekSta
 		return nil, err
 	}
 
-	return s.buildWeeklyCalendar(items, sourceMap, start, end), nil
+	return s.buildWeeklyCalendar(items, sourceMap, start, end, loc), nil
 }
 
 func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, userID string, weekStart time.Time, status string) (*TVCalendarWeeklyDTO, error) {
@@ -1266,13 +1478,14 @@ func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, user
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
+	loc := loadTVCalendarLocation()
 	start, end := tvCalendarWeekRange(weekStart)
 	subscriptions, err := s.GetSubscriptions(userID)
 	if err != nil {
 		return nil, err
 	}
 	if len(subscriptions) == 0 {
-		return s.buildEmptyWeeklyDTO(start, end), nil
+		return s.buildEmptyWeeklyDTO(start, end, loc), nil
 	}
 
 	tmdbIDs := make([]string, 0, len(subscriptions))
@@ -1280,7 +1493,7 @@ func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, user
 		tmdbIDs = append(tmdbIDs, subscription.TmdbID)
 	}
 
-	items, err := s.queryCalendarItems(tmdbIDs, start, end, status)
+	items, err := s.queryCalendarItems(ctx, tmdbIDs, start, end, status, loc)
 	if err != nil {
 		return nil, err
 	}
@@ -1300,7 +1513,7 @@ func (s *TVCalendarService) GetFollowingWeeklyCalendar(ctx context.Context, user
 		sourceMap[subscription.TmdbID] = source
 	}
 
-	return s.buildWeeklyCalendar(items, sourceMap, start, end), nil
+	return s.buildWeeklyCalendar(items, sourceMap, start, end, loc), nil
 }
 
 func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, startDate, endDate time.Time, status string) ([]TVCalendarDTO, error) {
@@ -1308,6 +1521,7 @@ func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, st
 	if !isValidTVCalendarStatus(status) {
 		return nil, ErrTVCalendarInvalidStatus
 	}
+	loc := loadTVCalendarLocation()
 
 	subscriptions, err := s.GetSubscriptions(userID)
 	if err != nil {
@@ -1324,7 +1538,7 @@ func (s *TVCalendarService) FetchCalendar(ctx context.Context, userID string, st
 		subByTmdbID[sub.TmdbID] = sub
 	}
 
-	items, err := s.queryCalendarItems(tmdbIDs, normalizeDateUTC(startDate), normalizeDateUTC(endDate), status)
+	items, err := s.queryCalendarItems(ctx, tmdbIDs, normalizeDateUTC(startDate), normalizeDateUTC(endDate), status, loc)
 	if err != nil {
 		return nil, err
 	}
@@ -1456,6 +1670,7 @@ func (s *TVCalendarService) touchSourceLastEpisodeIngestedAt(ctx context.Context
 func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbID, seriesID string, season, episode int, embyItemID string) (int64, error) {
 	s.refreshConfig()
 	if season <= 0 || episode <= 0 {
+		log.Printf("[TV Calendar] Webhook 跳过状态更新：季集号无效 tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s", strings.TrimSpace(tmdbID), strings.TrimSpace(seriesID), season, episode, strings.TrimSpace(embyItemID))
 		return 0, nil
 	}
 
@@ -1474,26 +1689,32 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 	var result *gorm.DB
 	trimmedTmdbID := strings.TrimSpace(tmdbID)
 	trimmedSeriesID := strings.TrimSpace(seriesID)
+	log.Printf("[TV Calendar] Webhook 开始更新剧集状态 tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID))
 	if trimmedTmdbID != "" {
 		result = db.DB.WithContext(ctx).Model(&models.TVCalendarItem{}).
 			Where("\"tmdbId\" = ? AND season = ? AND episode = ?", trimmedTmdbID, season, episode).
 			Updates(updates)
 		if result.Error != nil {
+			log.Printf("[TV Calendar] Webhook 按 tmdbId 更新失败 tmdbId=%s seriesId=%s season=%d episode=%d err=%v", trimmedTmdbID, trimmedSeriesID, season, episode, result.Error)
 			return 0, fmt.Errorf("更新剧集状态失败: %w", result.Error)
 		}
 		if result.RowsAffected > 0 {
 			if err := s.touchSourceLastEpisodeIngestedAt(ctx, trimmedTmdbID, trimmedSeriesID, now); err != nil {
+				log.Printf("[TV Calendar] Webhook 更新剧集状态后刷新追剧源失败 tmdbId=%s seriesId=%s season=%d episode=%d err=%v", trimmedTmdbID, trimmedSeriesID, season, episode, err)
 				return result.RowsAffected, err
 			}
-			log.Printf("[TV Calendar] Webhook 标记剧集入库: tmdbId=%s seriesId=%s season=%d episode=%d updated=%d", trimmedTmdbID, trimmedSeriesID, season, episode, result.RowsAffected)
+			log.Printf("[TV Calendar] Webhook 标记剧集入库成功 matchBy=tmdbId tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s updated=%d", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID), result.RowsAffected)
 			return result.RowsAffected, nil
 		}
+		log.Printf("[TV Calendar] Webhook 按 tmdbId 未命中任何条目 tmdbId=%s seriesId=%s season=%d episode=%d", trimmedTmdbID, trimmedSeriesID, season, episode)
 		if trimmedSeriesID == "" {
+			log.Printf("[TV Calendar] Webhook 无法继续回退到 seriesId：seriesId 为空 tmdbId=%s season=%d episode=%d", trimmedTmdbID, season, episode)
 			return result.RowsAffected, nil
 		}
 	}
 
 	if trimmedSeriesID == "" {
+		log.Printf("[TV Calendar] Webhook 跳过 seriesId 匹配：seriesId 为空 tmdbId=%s season=%d episode=%d", trimmedTmdbID, season, episode)
 		return 0, nil
 	}
 
@@ -1501,15 +1722,19 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 		Where("\"seriesId\" = ? AND season = ? AND episode = ?", trimmedSeriesID, season, episode).
 		Updates(updates)
 	if result.Error != nil {
+		log.Printf("[TV Calendar] Webhook 按 seriesId 更新失败 tmdbId=%s seriesId=%s season=%d episode=%d err=%v", trimmedTmdbID, trimmedSeriesID, season, episode, result.Error)
 		return 0, fmt.Errorf("更新剧集状态失败: %w", result.Error)
 	}
 
 	if err := s.touchSourceLastEpisodeIngestedAt(ctx, trimmedTmdbID, trimmedSeriesID, now); err != nil {
+		log.Printf("[TV Calendar] Webhook 按 seriesId 更新后刷新追剧源失败 tmdbId=%s seriesId=%s season=%d episode=%d err=%v", trimmedTmdbID, trimmedSeriesID, season, episode, err)
 		return result.RowsAffected, err
 	}
 	if result.RowsAffected > 0 {
-		log.Printf("[TV Calendar] Webhook 标记剧集入库: tmdbId=%s seriesId=%s season=%d episode=%d updated=%d", trimmedTmdbID, trimmedSeriesID, season, episode, result.RowsAffected)
+		log.Printf("[TV Calendar] Webhook 标记剧集入库成功 matchBy=seriesId tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s updated=%d", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID), result.RowsAffected)
+		return result.RowsAffected, nil
 	}
 
+	log.Printf("[TV Calendar] Webhook 未命中任何追剧日历条目 tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID))
 	return result.RowsAffected, nil
 }

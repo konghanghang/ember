@@ -89,7 +89,7 @@
 |--------|------|--------|------|
 | `CRON_ENABLED` | 否 | 是 | API 内置 cron 总开关 |
 | `CRON_SCHEDULE` | 否 | 是 | 过期检查 cron 表达式 |
-| `CRON_TIMEZONE` | 否 | 是 | cron 执行时区 |
+| `CRON_TIMEZONE` | 否 | 是 | cron 执行时区，同时作为追剧日历 `today / upcoming / missing` 的状态判定时区 |
 | `RANKING_CRON_ENABLED` | 否 | 是 | 播放排行榜 cron 开关 |
 | `RANKING_DAILY_SCHEDULE` | 否 | 是 | 日榜 cron 表达式 |
 | `RANKING_WEEKLY_SCHEDULE` | 否 | 是 | 周榜 cron 表达式 |
@@ -97,6 +97,8 @@
 | `TV_CALENDAR_SYNC_SCHEDULE` | 否 | 是 | 追剧日历同步 cron 表达式 |
 
 说明：
+
+- `CRON_TIMEZONE` 同时作用于追剧日历用户可见状态和周范围判定，不只是 cron 触发时间本身。
 
 - 上述配置已经由设置中心数据库托管，API 不再依赖 Docker 环境变量回退。
 - 调度相关配置虽然也在数据库中，但当前仍是“启动时装配调度器”的模型，所以修改后需要重启 API。

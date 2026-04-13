@@ -748,10 +748,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.18 TVCalendarService (`services/tvcalendar/service.go`)
 
-追剧日历聚合服务，主链路改为“Emby 全库发现 + 周历同步 + Webhook 点亮”，TMDB 仍使用三层缓存（内存 + PostgreSQL + TMDB）。
+追剧日历聚合服务，主链路改为“Emby 全库发现 + 周历同步 + Webhook 点亮 + 读时纠偏”，TMDB 仍使用三层缓存（内存 + PostgreSQL + TMDB）。
 
 - `DiscoverContinuingSeries(ctx)` — 从 Emby 自动发现所有 `Continuing` 且带 `Tmdb` Provider ID 的剧集
-- `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 按指定周偏移同步周历缓存；默认优先同步最近 30 天活跃剧，单剧源 TMDB/Emby 异常会记录日志并跳过，不再中断整批同步
+- `SyncWeeklyCalendar(ctx, weekOffset, tmdbId, force)` — 按指定周偏移同步周历缓存；默认同步当前周与下周，并优先同步最近 30 天活跃剧，单剧源 TMDB/Emby 异常会记录日志并跳过，不再中断整批同步
 - `GetGlobalWeeklyCalendar(ctx, weekOffset, status)` — 查询全局周历视图（只读当前缓存/数据库，不触发即时同步）
 - `GetFollowingWeeklyCalendar(ctx, userID, weekOffset, status)` — 查询当前用户的关注周历视图（只读当前缓存/数据库，不触发即时同步）
 - `FetchCalendar(userID, startDate, endDate, status)` — 兼容旧平铺接口，底层仍复用新的全局缓存数据
@@ -760,7 +760,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `Unsubscribe(userID, tmdbId)` — 取消关注
 - `SyncCalendar(weekOffsets, tmdbId, force)` — 管理员手动同步（单剧 / 全部 / 指定周）；默认优先同步最近 30 天活跃剧，`force=true` 时回退全量
 - `MarkEpisodeReadyByWebhook(...)` — Emby Webhook 将剧集状态点亮为 `ready`
-- 周历查询阶段会按 `airDate` 实时归一非 `ready` 状态，避免 `upcoming/today/missing` 因缓存未刷新而长期滞后
+- 周历查询阶段会按 `CRON_TIMEZONE` 实时归一非 `ready` 状态，避免 `upcoming/today/missing` 因 UTC 边界或缓存未刷新而长期滞后
+- 当前周可见范围内，读链路会按 `seriesId` 对非 `ready` 条目做轻量物理校验；若 Emby 已存在对应季集，会即时纠正为 `ready` 并回写数据库
 - 同步和 Webhook 都会刷新 `lastEpisodeIngestedAt`，保证仍在更新的剧源不会被增量同步窗口错误跳过
 - Webhook 只信任显式 `SeriesId` 字段，`ParentId` 不参与 `seriesId` 持久化，避免季节点误写污染追剧源
 
@@ -943,7 +944,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 追剧日历同步接口说明：
 
-- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0]`（当前周）
+- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0,1]`（当前周 + 下周）
 - `tmdbId` 可选，传入时只同步单剧
 - `weekOffsets` 可选，仅支持 `-1/0/1`
 - `force=true` 时跳过轻量活跃剧筛选，并强制刷新 TMDB 缓存
@@ -1230,6 +1231,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 补充说明：
 - API 启动后默认会在 `15s` 后额外执行一次追剧日历补偿同步，用于预热周历缓存。
 - 该补偿同步由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
+- `CRON_TIMEZONE` 不只影响 cron 调度本身，也会作为追剧日历 `today / upcoming / missing` 的用户可见状态判定基线。
 
 **通用配置**：
 这些项由 `ConfigService` 统一解析，优先级为“数据库覆盖值 > 环境变量 > 默认值”；管理员可在设置中心修改，但属于启动期配置，保存后需重启 API 才会生效。
@@ -1238,7 +1240,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 |----------|--------|------|
 | `CRON_ENABLED` | `"true"` | 是否启用（过期检查 + 验证码清理 + 追剧日历同步）|
 | `CRON_SCHEDULE` | `"0 2 * * *"` | 过期检查 cron 表达式 |
-| `CRON_TIMEZONE` | `"Asia/Shanghai"` | cron 与排行榜计算使用的时区 |
+| `CRON_TIMEZONE` | `"Asia/Shanghai"` | cron、排行榜计算与追剧日历状态判定使用的时区 |
 | `RANKING_CRON_ENABLED` | `"false"` | 是否启用排行榜生成 |
 | `RANKING_DAILY_SCHEDULE` | `"0 20 * * *"` | 日榜 cron 表达式 |
 | `RANKING_WEEKLY_SCHEDULE` | `"30 20 * * 0"` | 周榜 cron 表达式 |

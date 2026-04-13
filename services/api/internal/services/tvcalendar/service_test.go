@@ -65,7 +65,7 @@ func TestBuildWeeklyCalendarAggregatesConsecutiveEpisodes(t *testing.T) {
 		},
 	}
 
-	got := service.buildWeeklyCalendar(items, sourceMap, start, end)
+	got := service.buildWeeklyCalendar(items, sourceMap, start, end, time.UTC)
 	if len(got.Days) != 7 {
 		t.Fatalf("expected 7 days, got %d", len(got.Days))
 	}
@@ -94,10 +94,10 @@ func TestParseTVCalendarWeekDateUsesWeekStart(t *testing.T) {
 	}
 }
 
-func TestDefaultTVCalendarWeekOffsetsUsesCurrentWeekOnly(t *testing.T) {
+func TestDefaultTVCalendarWeekOffsetsIncludesCurrentAndNextWeek(t *testing.T) {
 	got := DefaultTVCalendarWeekOffsets()
-	if len(got) != 1 || got[0] != 0 {
-		t.Fatalf("expected default week offsets [0], got %v", got)
+	if len(got) != 2 || got[0] != 0 || got[1] != 1 {
+		t.Fatalf("expected default week offsets [0 1], got %v", got)
 	}
 }
 
@@ -154,6 +154,7 @@ func TestParseEmbyDateTimeSupportsRFC3339Nano(t *testing.T) {
 
 func TestResolveCalendarItemStatus(t *testing.T) {
 	now := time.Date(2026, 3, 26, 9, 0, 0, 0, time.UTC)
+	loc := time.UTC
 
 	tests := []struct {
 		name string
@@ -196,11 +197,68 @@ func TestResolveCalendarItemStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveCalendarItemStatus(tt.item, now)
+			got := resolveCalendarItemStatus(tt.item, now, loc)
 			if got != tt.want {
 				t.Fatalf("expected %s, got %s", tt.want, got)
 			}
 		})
+	}
+}
+
+func TestDeriveStatusByAirDateUsesConfiguredTimezone(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+
+	now := time.Date(2026, 3, 26, 16, 30, 0, 0, time.UTC)
+	airDate := time.Date(2026, 3, 27, 0, 0, 0, 0, time.UTC)
+
+	if got := deriveStatusByAirDate(airDate, now, loc); got != models.TVCalendarStatusToday {
+		t.Fatalf("expected air date to be treated as today in Asia/Shanghai, got %s", got)
+	}
+}
+
+func TestApplyReadyEpisodeCorrectionsOnlyTouchesCurrentWeekCandidates(t *testing.T) {
+	currentWeekStart := time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC)
+	items := []models.TVCalendarItem{
+		{
+			TmdbID:   "1399",
+			SeriesID: "series_1",
+			Season:   3,
+			Episode:  1,
+			AirDate:  currentWeekStart.AddDate(0, 0, 2),
+			Status:   models.TVCalendarStatusMissing,
+		},
+		{
+			TmdbID:   "1399",
+			SeriesID: "series_1",
+			Season:   3,
+			Episode:  2,
+			AirDate:  currentWeekStart.AddDate(0, 0, 9),
+			Status:   models.TVCalendarStatusMissing,
+		},
+	}
+
+	readyEpisodesBySeries := map[string]map[string]embyEpisodeItem{
+		"series_1": {
+			buildEpisodeKey(3, 1): {ID: "emby_ep_1", SeriesID: "series_1"},
+			buildEpisodeKey(3, 2): {ID: "emby_ep_2", SeriesID: "series_1"},
+		},
+	}
+
+	corrected, corrections := applyReadyEpisodeCorrections(items, readyEpisodesBySeries, map[string]string{}, currentWeekStart)
+	if len(corrections) != 1 {
+		t.Fatalf("expected 1 correction, got %d", len(corrections))
+	}
+	if corrected[0].Status != models.TVCalendarStatusReady {
+		t.Fatalf("expected current week item to become ready, got %s", corrected[0].Status)
+	}
+	if corrected[0].EmbyItemID != "emby_ep_1" {
+		t.Fatalf("expected corrected item to carry emby item id, got %q", corrected[0].EmbyItemID)
+	}
+	if corrected[1].Status != models.TVCalendarStatusMissing {
+		t.Fatalf("expected next week item to stay missing, got %s", corrected[1].Status)
 	}
 }
 
