@@ -45,6 +45,7 @@
 | `embypulse-features/p1-playback-history.md` | 已落地 | `PlaybackHistoryService`、管理端播放历史路由与页面 | 已归档到 `docs/archive/plan/media-subscription/` |
 | `embypulse-features/p2-subscription-season.md` | 已落地 | `Subscription.season` 字段、Web 分季选择、MoviePilot `season` 透传、Bot 先选季再确认 | 已归档到 `docs/archive/plan/media-subscription/` |
 | `media-subscription/moviepilot-api-key-direct-integration.md` | 已落地 | `MoviePilotClient` 已改为 `X-API-KEY` 直连，配置中心改用 `MOVIEPILOT_API_KEY`，架构/配置/部署文档已同步 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
+| `media-subscription/tv-calendar-status-correction.md` | 已落地 | TV Calendar 状态已切到 `CRON_TIMEZONE`，默认同步窗口扩到本周+下周，当前周读时 `ready` 纠偏与 webhook 关键日志已补齐 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `embypulse-features/p2-user-avatar.md` | 已落地 | `DefaultAvatar.vue`、Dashboard / Account Center / TopBar / Sidebar / UsersView 已统一接入默认头像组件 | 已归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 
@@ -61,7 +62,6 @@
 | `media-subscription/gap-management-and-precision-download.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `media-subscription/subscription-status-and-notification.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
-| `media-subscription/tv-calendar-status-correction.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 
 ## D. 本轮新增归档记录
 
@@ -71,6 +71,7 @@
 - `billing-redemption/user-plan-grouping.md`
 - `console-admin/admin-create-user-with-plan-group-expiry.md`
 - `media-subscription/moviepilot-api-key-direct-integration.md`
+- `media-subscription/tv-calendar-status-correction.md`
 - `user-profile-analytics.md`
 - `user-profile-overview.md`
 - `dashboard-renewal-redesign.md`

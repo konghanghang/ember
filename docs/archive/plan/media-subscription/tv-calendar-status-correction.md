@@ -1,8 +1,26 @@
 # 追剧日历状态纠偏实现方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-12
+> 更新时间：2026-04-13
+
+## 归档说明
+
+本方案已完成落地，当前只保留历史追溯价值。
+
+稳定结论已同步到：
+
+- `docs/system-architecture.md`
+- `docs/reference/configuration-reference.md`
+
+当前代码已经具备：
+
+- 追剧日历 `today / upcoming / missing` 状态按 `CRON_TIMEZONE` 计算，而不是直接按 UTC 边界判断
+- 默认同步窗口从仅本周扩大到 `本周 + 下周`
+- 当前周可见条目增加读时 `ready` 纠偏，已入库但未被 webhook 点亮的条目可回写为 `ready`
+- Emby 入库 webhook 补齐了接收、忽略、更新命中、失败原因等关键排障日志
+
+因此这份文档不再承担现行实现说明职责。
 
 ## 背景
 
@@ -50,14 +68,14 @@
 - 当前行为：
   - `CRON_TIMEZONE` 已定义为运行期配置，默认值是 `Asia/Shanghai`。
   - cron 初始化会读取 `CRON_TIMEZONE`，并用它驱动排行榜、过期检查和追剧日历同步调度。
-  - TV Calendar 的状态判定仍使用 `time.Now().UTC()` 和 `normalizeDateUTC()`。
-  - 默认同步周偏移仅为 `0`，即本周。
+  - TV Calendar 的状态判定已统一走配置时区，不再直接使用 UTC 自然日。
+  - 默认同步周偏移已扩到 `[0, 1]`，即本周和下周。
   - 前端 TV Calendar 页面当前固定调用 `/api/v1/tv-calendar/global`，不是 `following` 视图。
-- 现有限制：
-  - 状态判定基线和系统配置时区脱节。
-  - 可浏览周范围大于默认同步窗口，导致很多周天生数据不准或为空。
-  - 读链路没有对当前可见条目做轻量 ready 校验，状态一旦错就容易长期错。
-  - 页面语义偏“个人追剧”，但当前读的是 global 数据，容易放大用户对状态错误的感知。
+- 已完成收口：
+  - 状态判定基线已经接入 `CRON_TIMEZONE`。
+  - 默认同步窗口已和前端主要可见范围对齐到本周和下周。
+  - 当前周读链路已补充轻量 ready 校验和回写。
+  - webhook 关键路径日志已补齐，便于判断是否真正更新成功。
 
 ## 方案设计
 
@@ -160,9 +178,12 @@
 
 ### 编译/测试
 
-- `cd services/api && go test ./...`
+- `cd services/api && go test ./internal/services/tvcalendar ./internal/handlers`
+  - 2026-04-13 已执行，通过
 - `cd services/api && go build ./...`
+  - 2026-04-13 已执行，通过
 - `cd services/web && npm run build`
+  - 2026-04-13 已执行，通过
 
 按改动补充针对性测试：
 
@@ -173,21 +194,22 @@
 - Web：
   - 不同状态的渲染与筛选在修正后仍正常工作
 
-### 手工验证
+### 运行期观察点
 
-- 在 `CRON_TIMEZONE=Asia/Shanghai` 下，验证本地晚上和凌晨场景的“今日播出”判定不再错位
-- 访问下周周历，确认默认同步后数据不再大面积为空
-- 模拟 webhook 丢失但剧集已实际入库的场景，确认当前周内能通过读时校验纠正为 `已入库`
-- 重复触发同步和查看周历，确认接口响应时间没有因纠偏逻辑明显失控
-- TV Calendar 原有筛选、刷新、手动同步仍可用
+以下观察点保留给后续真实环境排障与回归追踪：
+
+- 在 `CRON_TIMEZONE=Asia/Shanghai` 下关注晚上和凌晨场景的“今日播出”判定
+- 访问下周周历，确认默认同步后不再出现大面积空窗
+- 观察 webhook 丢失但剧集已实际入库时，当前周读时纠偏是否能回写 `ready`
+- 观察 webhook 日志，确认接收、忽略、更新命中和失败原因可直接定位
 
 ## 落地后文档处理
 
-落地后应同步处理：
+本次归档前已同步处理：
 
 - 将稳定结论同步到 `docs/system-architecture.md`
   - TV Calendar 状态判定基线
   - 默认同步窗口
   - webhook 与读时纠偏的职责边界
-- 如最终确认需要对运维明确说明，可在 `docs/reference/configuration-reference.md` 中补充“CRON_TIMEZONE 同时作用于 TV Calendar 用户可见状态”
-- 功能落地、编译验证和手工链路验证完成后，将本方案迁入 `docs/archive/plan/media-subscription/`
+- `docs/reference/configuration-reference.md` 已补充“CRON_TIMEZONE 同时作用于 TV Calendar 用户可见状态”
+- 当前代码、文档与编译验证都已完成，因此本方案迁入 `docs/archive/plan/media-subscription/`
