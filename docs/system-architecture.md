@@ -652,9 +652,9 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.11 MoviePilotClient (`integrations/moviepilot/client.go`)
 
-- `IsConfigured()` — 检查三个环境变量是否都设置
-- `login()` — `POST /api/v1/login/access-token`（form-urlencoded）
-- `CreateSubscription(type, name, tmdbId)` — `POST /api/v1/subscribe/`（type 转中文：movie→电影, tv→电视剧）
+- `IsConfigured()` — 检查 `MOVIEPILOT_URL` 与 `MOVIEPILOT_API_KEY` 是否齐全
+- `TestConnection()` — `GET /api/v1/site/`，请求头使用 `X-API-KEY`
+- `CreateSubscription(type, name, tmdbId, season)` — `POST /api/v1/subscribe/`，请求头使用 `X-API-KEY`（`type` 转中文：movie→电影, tv→电视剧；`season>0` 时透传季号）
 
 ### 5.12 EmailService (`services/email/service.go`, `services/email/verification.go`, `services/email/sender.go`)
 

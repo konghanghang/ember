@@ -1,8 +1,27 @@
 # MoviePilot X-API-KEY 直连改造方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-12
+> 更新时间：2026-04-13
+
+## 归档说明
+
+本方案已完成落地，当前只保留历史追溯价值。
+
+稳定结论已同步到：
+
+- `docs/system-architecture.md`
+- `docs/reference/configuration-reference.md`
+- `docs/runbooks/deployment-environment.md`
+
+当前代码已经具备：
+
+- `MoviePilotClient` 使用 `X-API-KEY` 直接访问 `GET /api/v1/site/` 与 `POST /api/v1/subscribe/`
+- 设置中心只暴露 `MOVIEPILOT_URL` 与 `MOVIEPILOT_API_KEY`
+- 旧版用户名/密码配置只作为迁移提示来源，不再参与实际鉴权
+- 订阅审批保持“下游失败不回滚审批状态，错误写入 mpError”的原有语义
+
+因此这份文档不再承担现行实现说明职责。
 
 ## 背景
 
@@ -44,13 +63,13 @@
   - `infrastructure/docker/docker-compose.yml`
 - 当前行为：
   - `ApproveSubscription()` 触发 `MoviePilotClient.CreateSubscription()`。
-  - `MoviePilotClient` 先调用 `/api/v1/login/access-token`，再带 `Authorization: Bearer <token>` 调 `/api/v1/subscribe/`。
-  - 配置中心当前暴露 `MOVIEPILOT_URL`、`MOVIEPILOT_USERNAME`、`MOVIEPILOT_PASSWORD` 三个运行期配置项。
-  - MoviePilot 联通测试同样依赖登录接口，而不是 `X-API-KEY`。
-- 现有限制：
-  - 多一次登录请求，多一层凭证管理，多一个失败点。
-  - 配置和文档要求保存 MoviePilot 登录账号密码，和上游提供的 API Key 模式不对齐。
-  - 设置中心虽然是动态渲染，但当前配置定义仍会把用户引导到旧的账号密码模式。
+  - `MoviePilotClient` 直接带 `X-API-KEY` 调用 `POST /api/v1/subscribe/`。
+  - 配置中心当前暴露 `MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY` 两个运行期配置项。
+  - MoviePilot 联通测试使用 `GET /api/v1/site/` + `X-API-KEY`。
+- 已完成收口：
+  - 登录换 Bearer 的链路已经移除。
+  - 设置中心、配置参考和部署文档已经统一改到 API Key 模式。
+  - 旧版用户名/密码配置不再作为运行期兼容路径，只用于提示管理员迁移。
 
 ## 方案设计
 
@@ -143,8 +162,10 @@
 
 ### 编译/测试
 
-- `cd services/api && go test ./...`
+- `cd services/api && go test ./internal/integrations/moviepilot ./internal/config`
+  - 2026-04-13 已执行，通过
 - `cd services/api && go build ./...`
+  - 2026-04-13 已执行，通过
 
 按改动补充针对性测试：
 
@@ -161,7 +182,7 @@
 
 ## 落地后文档处理
 
-落地后应同步处理：
+本次归档前已同步处理：
 
 - 将稳定结论同步到 `docs/system-architecture.md`
   - MoviePilotClient 的认证方式
@@ -169,4 +190,4 @@
 - 更新 `docs/reference/configuration-reference.md` 和 `docs/runbooks/deployment-environment.md`
   - 删除用户名密码配置
   - 新增 `MOVIEPILOT_API_KEY`
-- 当代码、部署入口和文档都完成切换，且旧配置项不再被代码引用后，将本方案移入 `docs/archive/plan/media-subscription/`
+- 当前代码、部署入口和文档都已完成切换，因此本方案移入 `docs/archive/plan/media-subscription/`
