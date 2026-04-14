@@ -3,6 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Refresh, EditPen, Goods } from '@element-plus/icons-vue'
 import { createPlan, deletePlan, getPlanGroups, getPlans, updatePlan } from '@/api/admin'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
+import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import type { CreatePlanRequest, ManagedPlanGroup, Plan, PlanGroup, UpdatePlanRequest } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -255,27 +260,20 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <template v-if="!props.embedded">
-            <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              付费方案管理
-              <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ activeCount }}/{{ total }} 启用</span>
-            </h1>
-            <p class="text-gray-500 text-sm mt-1">管理订阅购买套餐，支持 USD、HKD、CNY</p>
-          </template>
+    <EmberPageHeaderCard
+      :title="props.embedded ? '方案池' : '付费方案管理'"
+      :description="props.embedded ? '管理订阅购买套餐，并按套餐分组筛选当前结果。' : '管理订阅购买套餐，支持 USD、HKD、CNY'"
+    >
+      <template #titleSuffix>
+        <span
+          v-if="!props.embedded"
+          class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500"
+        >
+          {{ activeCount }}/{{ total }} 启用
+        </span>
+      </template>
 
-          <div class="flex flex-wrap items-center gap-2" :class="props.embedded ? '' : 'mt-3'">
-            <span class="text-sm font-semibold text-gray-900">方案池</span>
-            <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
-            <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-600">启用中 {{ activeCount }} 条</span>
-          </div>
-          <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">
-            管理订阅购买套餐，并按套餐分组筛选当前结果。
-          </p>
-        </div>
-
+      <template #actions>
         <div class="flex flex-wrap items-center gap-3">
           <button
             @click="fetchData"
@@ -293,57 +291,53 @@ onMounted(async () => {
             <span>新建方案</span>
           </button>
         </div>
+      </template>
+
+      <div v-if="props.embedded" class="mt-4 flex flex-wrap items-center gap-2">
+        <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
+        <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-600">启用中 {{ activeCount }} 条</span>
       </div>
 
-      <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
-        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-          <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">套餐分组</label>
-              <el-select
-                v-model="queryParams.planGroup"
-                class="w-full filter-select"
-                placeholder="全部分组"
-                @change="handleFilterChange"
-              >
-                <el-option label="全部分组" value="" />
-                <el-option
-                  v-for="option in planGroupOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-            </div>
+      <EmberFilterPanel
+        wrapper-class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto]"
+        content-class="grid grid-cols-1 gap-3 md:grid-cols-2"
+        actions-class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0"
+      >
+        <EmberSelectField
+          v-model="queryParams.planGroup"
+          label="套餐分组"
+          placeholder="全部分组"
+          @change="handleFilterChange"
+        >
+          <el-option label="全部分组" value="" />
+          <el-option
+            v-for="option in planGroupOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </EmberSelectField>
 
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">显示范围</label>
-              <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-white px-3">
-                <span class="text-sm text-gray-600">包含下架方案</span>
-                <el-switch v-model="queryParams.showAll" size="small" @change="handleFilterChange" />
-              </div>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
-            <button
-              @click="resetFilters"
-              class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
-            >
-              重置
-            </button>
+        <div class="space-y-1.5">
+          <label class="text-xs font-semibold tracking-wide text-gray-500">显示范围</label>
+          <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-white px-3">
+            <span class="text-sm text-gray-600">包含下架方案</span>
+            <el-switch v-model="queryParams.showAll" size="small" @change="handleFilterChange" />
           </div>
         </div>
-      </div>
-    </div>
 
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <el-table
-        :data="tableData"
-        v-loading="loading"
-        style="width: 100%"
-        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
-      >
+        <template #actions>
+          <button
+            @click="resetFilters"
+            class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+          >
+            重置
+          </button>
+        </template>
+      </EmberFilterPanel>
+    </EmberPageHeaderCard>
+
+    <EmberTableCard :data="tableData" :loading="loading">
         <el-table-column label="方案" min-width="220">
           <template #default="{ row }">
             <div class="flex items-center gap-3">
@@ -418,9 +412,7 @@ onMounted(async () => {
             </button>
           </template>
         </el-table-column>
-      </el-table>
-
-      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+      <template #pagination>
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -431,10 +423,14 @@ onMounted(async () => {
           @size-change="handlePageSizeChange"
           background
         />
-      </div>
-    </div>
+      </template>
+    </EmberTableCard>
 
-    <el-dialog v-model="dialogVisible" title="新建付费方案" width="520px" align-center append-to-body>
+    <EmberFormDialog
+      v-model="dialogVisible"
+      title="新建付费方案"
+      width="520px"
+    >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="方案名称">
@@ -499,9 +495,13 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑付费方案" width="520px" align-center append-to-body>
+    <EmberFormDialog
+      v-model="editDialogVisible"
+      title="编辑付费方案"
+      width="520px"
+    >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="方案名称">
@@ -574,34 +574,11 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
   </div>
 </template>
 
 <style scoped>
-:deep(.filter-select .el-select__wrapper) {
-  min-height: 42px;
-  border-radius: 0.75rem;
-  background-color: #f9fafb !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.filter-select:hover .el-select__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.filter-select .el-select__wrapper.is-focused),
-:deep(.filter-select .el-select__wrapper.is-focus),
-:deep(.filter-select.is-focus .el-select__wrapper) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.filter-select .el-select__placeholder),
-:deep(.filter-select .el-select__selected-item),
 :deep(.form-select .el-select__placeholder),
 :deep(.form-select .el-select__selected-item) {
   font-size: 0.875rem;
@@ -684,19 +661,5 @@ onMounted(async () => {
 :deep(.form-number .el-input-number__decrease:hover),
 :deep(.form-number .el-input-number__increase:hover) {
   color: var(--ember-red);
-}
-
-:deep(.el-dialog__header) {
-  margin-right: 0;
-  border-bottom: 1px solid #f3f4f6;
-  padding: 20px 24px;
-}
-
-:deep(.el-dialog__body) {
-  padding: 0;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 0;
 }
 </style>
