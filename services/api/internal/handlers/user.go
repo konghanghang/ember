@@ -434,7 +434,7 @@ func (h *UserHandler) RedeemCode(c *gin.Context) {
 func (h *UserHandler) ValidateRedeemCode(c *gin.Context) {
 	code := c.Param("code")
 
-	resp, err := h.redemptionCodeService.ValidateCode(code)
+	resp, err := h.redemptionCodeService.ValidateRenewalCode(code)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

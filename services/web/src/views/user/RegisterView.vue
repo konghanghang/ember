@@ -28,7 +28,16 @@ const form = ref({
 const codeRequired = computed(() => mode.value === 'invite')
 const codeValidating = ref(false)
 const codeValidated = ref(false)
+const registrationCodePreview = ref<{
+  registrationPlanGroup?: string | null
+  registrationPlanGroupName?: string | null
+} | null>(null)
 const usernamePattern = /^[A-Za-z0-9]+$/
+
+const resetCodeValidationState = () => {
+  codeValidated.value = false
+  registrationCodePreview.value = null
+}
 
 const fetchRegistrationMode = async () => {
   loadingMode.value = true
@@ -118,12 +127,17 @@ const handleValidateCode = async () => {
   if (!form.value.code) return false
   codeValidating.value = true
   try {
-    await validateRegistrationCode(form.value.code)
+    const result = await validateRegistrationCode(form.value.code)
+    registrationCodePreview.value = {
+      registrationPlanGroup: result.registrationPlanGroup ?? null,
+      registrationPlanGroupName: result.registrationPlanGroupName ?? null
+    }
     codeValidated.value = true
     ElMessage.success('兑换码可用')
     return true
   } catch {
     codeValidated.value = false
+    registrationCodePreview.value = null
     return false
   } finally {
     codeValidating.value = false
@@ -157,11 +171,30 @@ onBeforeUnmount(() => {
                 placeholder="请输入兑换码"
                 class="input-ember"
                 :prefix-icon="Ticket"
-                @input="codeValidated = false"
+                @input="resetCodeValidationState"
               />
               <el-button :loading="codeValidating" @click="handleValidateCode">预验证</el-button>
             </div>
           </el-form-item>
+
+          <div
+            v-if="codeRequired && codeValidated && registrationCodePreview"
+            class="mb-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3"
+          >
+            <div class="text-sm font-semibold text-gray-900">注册后套餐分组</div>
+            <div v-if="registrationCodePreview.registrationPlanGroup" class="mt-1 text-sm text-gray-700">
+              将显式绑定到
+              <span class="font-semibold text-gray-900">
+                {{ registrationCodePreview.registrationPlanGroupName || registrationCodePreview.registrationPlanGroup }}
+              </span>
+              <span class="text-xs text-gray-500">
+                （{{ registrationCodePreview.registrationPlanGroup }}）
+              </span>
+            </div>
+            <div v-else class="mt-1 text-sm text-gray-700">
+              注册后跟随默认分组
+            </div>
+          </div>
 
           <el-form-item label="用户名" required>
             <el-input v-model="form.username" placeholder="3-50位字母或数字" class="input-ember" :prefix-icon="User" />

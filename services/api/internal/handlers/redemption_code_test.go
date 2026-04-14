@@ -44,7 +44,11 @@ func (s *stubRedemptionCodeService) UpdateRedemptionCode(id string, req *redempt
 	return nil, nil
 }
 
-func (s *stubRedemptionCodeService) ValidateCode(code string) (*models.RedemptionCode, error) {
+func (s *stubRedemptionCodeService) ValidateRegistrationCode(code string) (*models.RedemptionCode, error) {
+	return nil, nil
+}
+
+func (s *stubRedemptionCodeService) ValidateRenewalCode(code string) (*models.RedemptionCode, error) {
 	return nil, nil
 }
 
@@ -158,7 +162,7 @@ func TestRedemptionCodeHandlerGetRedemptionCodesBindsFilters(t *testing.T) {
 				if req.Page != 2 || req.PageSize != 20 {
 					t.Fatalf("unexpected pagination: %+v", req)
 				}
-				if req.Code != "ABCD" || req.Status != "expired" || req.TemplateUserID != "user_123" {
+				if req.Code != "ABCD" || req.Status != "expired" || req.TemplateUserID != "user_123" || req.RegistrationPlanGroup != "VIP_A" {
 					t.Fatalf("unexpected filters: %+v", req)
 				}
 				if !req.ShowAll {
@@ -176,7 +180,7 @@ func TestRedemptionCodeHandlerGetRedemptionCodesBindsFilters(t *testing.T) {
 
 	ctx, recorder := newTestRedemptionCodeContext(
 		http.MethodGet,
-		"/api/v1/admin/redemption-codes?page=2&pageSize=20&showAll=true&code=ABCD&status=expired&templateUserId=user_123",
+		"/api/v1/admin/redemption-codes?page=2&pageSize=20&showAll=true&code=ABCD&status=expired&templateUserId=user_123&registrationPlanGroup=VIP_A",
 		nil,
 	)
 	handler.GetRedemptionCodes(ctx)

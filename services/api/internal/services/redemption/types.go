@@ -59,11 +59,12 @@ const (
 )
 
 type RedemptionCodeCreateOptions struct {
-	MaxUses        int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
-	ExpiresAt      *time.Time `json:"expiresAt"`
-	TemplateUserID *string    `json:"templateUserId"`
-	Notes          string     `json:"notes" binding:"omitempty,max=500"`
+	MaxUses               int        `json:"maxUses" binding:"required,min=1"`
+	DefaultDays           int        `json:"defaultDays" binding:"required,min=1"`
+	ExpiresAt             *time.Time `json:"expiresAt"`
+	TemplateUserID        *string    `json:"templateUserId"`
+	RegistrationPlanGroup *string    `json:"registrationPlanGroup"`
+	Notes                 string     `json:"notes" binding:"omitempty,max=500"`
 }
 
 type CreateRedemptionCodeRequest struct {
@@ -81,20 +82,22 @@ type CreateRedemptionCodesBatchResponse struct {
 }
 
 type UpdateRedemptionCodeRequest struct {
-	MaxUses        int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays    int        `json:"defaultDays" binding:"required,min=1"`
-	ExpiresAt      *time.Time `json:"expiresAt"`
-	TemplateUserID *string    `json:"templateUserId"`
-	Notes          string     `json:"notes" binding:"omitempty,max=500"`
+	MaxUses               int        `json:"maxUses" binding:"required,min=1"`
+	DefaultDays           int        `json:"defaultDays" binding:"required,min=1"`
+	ExpiresAt             *time.Time `json:"expiresAt"`
+	TemplateUserID        *string    `json:"templateUserId"`
+	RegistrationPlanGroup *string    `json:"registrationPlanGroup"`
+	Notes                 string     `json:"notes" binding:"omitempty,max=500"`
 }
 
 type GetRedemptionCodesRequest struct {
-	Page           int    `form:"page" binding:"omitempty,min=1"`
-	PageSize       int    `form:"pageSize" binding:"omitempty,min=1"`
-	ShowAll        bool   `form:"showAll"`
-	Code           string `form:"code"`
-	Status         string `form:"status"`
-	TemplateUserID string `form:"templateUserId"`
+	Page                  int    `form:"page" binding:"omitempty,min=1"`
+	PageSize              int    `form:"pageSize" binding:"omitempty,min=1"`
+	ShowAll               bool   `form:"showAll"`
+	Code                  string `form:"code"`
+	Status                string `form:"status"`
+	TemplateUserID        string `form:"templateUserId"`
+	RegistrationPlanGroup string `form:"registrationPlanGroup"`
 }
 
 type GetRedemptionCodesResponse struct {

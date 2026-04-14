@@ -30,7 +30,7 @@ func registerPublicRoutes(api *gin.RouterGroup, h *appHandlers) {
 	api.POST("/forgot-password/send-code", h.auth.SendResetCode)
 	api.POST("/forgot-password/reset", h.auth.ResetPasswordByCode)
 	api.GET("/register/mode", h.setting.GetRegistrationMode)
-	api.GET("/register/code/:code/validate", h.redemptionCode.ValidateCode)
+	api.GET("/register/code/:code/validate", h.redemptionCode.ValidateRegistrationCode)
 	api.POST("/webhooks/stripe", h.payment.HandleStripeWebhook)
 	api.POST("/webhooks/emby", h.tvCalendar.HandleEmbyWebhook)
 	api.GET("/tmdb/search", h.tmdb.Search)

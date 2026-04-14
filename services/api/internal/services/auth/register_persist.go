@@ -16,7 +16,7 @@ func (s *AuthService) persistRegisteredUser(
 	prepared *registerPreparation,
 	embyUser *embyint.EmbyUser,
 ) (*models.User, error) {
-	user, err := s.buildRegisteredUser(req, prepared.defaultDays, embyUser)
+	user, err := s.buildRegisteredUser(req, prepared, embyUser)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +45,10 @@ func (s *AuthService) persistRegisteredUser(
 
 func (s *AuthService) buildRegisteredUser(
 	req *RegisterUserRequest,
-	defaultDays int,
+	prepared *registerPreparation,
 	embyUser *embyint.EmbyUser,
 ) (*models.User, error) {
-	expiresAt := common.CalculateExpiryDate(defaultDays)
+	expiresAt := common.CalculateExpiryDate(prepared.defaultDays)
 
 	user := &models.User{
 		Username:  req.Username,
@@ -57,6 +57,10 @@ func (s *AuthService) buildRegisteredUser(
 		EmbyID:    embyUser.ID,
 		ExpiresAt: &expiresAt,
 		IsActive:  true,
+	}
+	if prepared.registrationPlanGroup != nil {
+		planGroup := *prepared.registrationPlanGroup
+		user.PlanGroup = &planGroup
 	}
 	if err := user.SetPassword(req.Password); err != nil {
 		return nil, errors.New("创建用户失败")

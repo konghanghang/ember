@@ -12,7 +12,7 @@ func TestUpdatePlanGroupSwitchesDefaultAndExpiresPendingPayments(t *testing.T) {
 	origBegin := beginPlanGroupTx
 	origCommit := commitPlanGroupTx
 	origRollback := rollbackPlanGroupTx
-	origGetByKey := paymentGetPlanGroupByKey
+	origGetByKeyForUpdate := paymentGetPlanGroupByKeyForUpdate
 	origSave := paymentSavePlanGroup
 	origUnsetOthers := paymentUnsetOtherPlanGroupDefaults
 	origSetDefault := paymentSetPlanGroupDefault
@@ -21,7 +21,7 @@ func TestUpdatePlanGroupSwitchesDefaultAndExpiresPendingPayments(t *testing.T) {
 		beginPlanGroupTx = origBegin
 		commitPlanGroupTx = origCommit
 		rollbackPlanGroupTx = origRollback
-		paymentGetPlanGroupByKey = origGetByKey
+		paymentGetPlanGroupByKeyForUpdate = origGetByKeyForUpdate
 		paymentSavePlanGroup = origSave
 		paymentUnsetOtherPlanGroupDefaults = origUnsetOthers
 		paymentSetPlanGroupDefault = origSetDefault
@@ -31,7 +31,7 @@ func TestUpdatePlanGroupSwitchesDefaultAndExpiresPendingPayments(t *testing.T) {
 	beginPlanGroupTx = func() (*gorm.DB, error) { return nil, nil }
 	commitPlanGroupTx = func(tx *gorm.DB) error { return nil }
 	rollbackPlanGroupTx = func(tx *gorm.DB) {}
-	paymentGetPlanGroupByKey = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+	paymentGetPlanGroupByKeyForUpdate = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
 		return &models.PlanGroup{Key: "VIP_B", Name: "VIP B", IsDefault: false}, nil
 	}
 
@@ -94,30 +94,35 @@ func TestDeletePlanGroupRejectsReferencedGroup(t *testing.T) {
 	origBegin := beginPlanGroupTx
 	origCommit := commitPlanGroupTx
 	origRollback := rollbackPlanGroupTx
-	origGetByKey := paymentGetPlanGroupByKey
+	origGetByKeyForUpdate := paymentGetPlanGroupByKeyForUpdate
 	origCountPlans := paymentCountPlansByGroup
 	origCountUsers := paymentCountUsersByGroup
+	origCountRedemptionCodes := paymentCountRedemptionCodesByRegistrationPlanGroup
 	origDelete := paymentDeletePlanGroup
 	defer func() {
 		beginPlanGroupTx = origBegin
 		commitPlanGroupTx = origCommit
 		rollbackPlanGroupTx = origRollback
-		paymentGetPlanGroupByKey = origGetByKey
+		paymentGetPlanGroupByKeyForUpdate = origGetByKeyForUpdate
 		paymentCountPlansByGroup = origCountPlans
 		paymentCountUsersByGroup = origCountUsers
+		paymentCountRedemptionCodesByRegistrationPlanGroup = origCountRedemptionCodes
 		paymentDeletePlanGroup = origDelete
 	}()
 
 	beginPlanGroupTx = func() (*gorm.DB, error) { return nil, nil }
 	commitPlanGroupTx = func(tx *gorm.DB) error { return nil }
 	rollbackPlanGroupTx = func(tx *gorm.DB) {}
-	paymentGetPlanGroupByKey = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+	paymentGetPlanGroupByKeyForUpdate = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
 		return &models.PlanGroup{Key: "VIP_B", Name: "VIP B", IsDefault: false}, nil
 	}
 	paymentCountPlansByGroup = func(tx *gorm.DB, key string) (int64, error) {
 		return 1, nil
 	}
 	paymentCountUsersByGroup = func(tx *gorm.DB, key string) (int64, error) {
+		return 0, nil
+	}
+	paymentCountRedemptionCodesByRegistrationPlanGroup = func(tx *gorm.DB, key string) (int64, error) {
 		return 0, nil
 	}
 
@@ -134,5 +139,57 @@ func TestDeletePlanGroupRejectsReferencedGroup(t *testing.T) {
 	}
 	if deleteCalled {
 		t.Fatalf("expected referenced group delete to stop before delete call")
+	}
+}
+
+func TestDeletePlanGroupRejectsRedemptionCodeReference(t *testing.T) {
+	origBegin := beginPlanGroupTx
+	origCommit := commitPlanGroupTx
+	origRollback := rollbackPlanGroupTx
+	origGetByKeyForUpdate := paymentGetPlanGroupByKeyForUpdate
+	origCountPlans := paymentCountPlansByGroup
+	origCountUsers := paymentCountUsersByGroup
+	origCountRedemptionCodes := paymentCountRedemptionCodesByRegistrationPlanGroup
+	origDelete := paymentDeletePlanGroup
+	defer func() {
+		beginPlanGroupTx = origBegin
+		commitPlanGroupTx = origCommit
+		rollbackPlanGroupTx = origRollback
+		paymentGetPlanGroupByKeyForUpdate = origGetByKeyForUpdate
+		paymentCountPlansByGroup = origCountPlans
+		paymentCountUsersByGroup = origCountUsers
+		paymentCountRedemptionCodesByRegistrationPlanGroup = origCountRedemptionCodes
+		paymentDeletePlanGroup = origDelete
+	}()
+
+	beginPlanGroupTx = func() (*gorm.DB, error) { return nil, nil }
+	commitPlanGroupTx = func(tx *gorm.DB) error { return nil }
+	rollbackPlanGroupTx = func(tx *gorm.DB) {}
+	paymentGetPlanGroupByKeyForUpdate = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+		return &models.PlanGroup{Key: "VIP_B", Name: "VIP B", IsDefault: false}, nil
+	}
+	paymentCountPlansByGroup = func(tx *gorm.DB, key string) (int64, error) {
+		return 0, nil
+	}
+	paymentCountUsersByGroup = func(tx *gorm.DB, key string) (int64, error) {
+		return 0, nil
+	}
+	paymentCountRedemptionCodesByRegistrationPlanGroup = func(tx *gorm.DB, key string) (int64, error) {
+		return 1, nil
+	}
+
+	deleteCalled := false
+	paymentDeletePlanGroup = func(tx *gorm.DB, key string) error {
+		deleteCalled = true
+		return nil
+	}
+
+	service := &PaymentService{}
+	err := service.DeletePlanGroup("vip_b")
+	if !errors.Is(err, ErrPlanGroupDeleteBlocked) {
+		t.Fatalf("expected ErrPlanGroupDeleteBlocked, got %v", err)
+	}
+	if deleteCalled {
+		t.Fatalf("expected redemption-code-referenced group delete to stop before delete call")
 	}
 }

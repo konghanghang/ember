@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 )
@@ -201,4 +202,58 @@ func TestNotifyNewRegistration(t *testing.T) {
 			t.Fatal("expected notifier to be called")
 		}
 	})
+}
+
+func TestPrepareRegisterInviteUsesRegistrationValidation(t *testing.T) {
+	planGroup := "VIP_A"
+	validateCalled := false
+	service := &AuthService{
+		getRegistrationMode: func() string { return "invite" },
+		validateRegistrationCode: func(code string) (*models.RedemptionCode, error) {
+			validateCalled = true
+			if code != "invite-code" {
+				t.Fatalf("unexpected code: %s", code)
+			}
+			return &models.RedemptionCode{
+				ID:                    "rcode_1",
+				Code:                  code,
+				DefaultDays:           30,
+				RegistrationPlanGroup: &planGroup,
+			}, nil
+		},
+	}
+
+	prepared, err := service.prepareRegister(&RegisterUserRequest{Code: "invite-code"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if !validateCalled {
+		t.Fatalf("expected registration code validator to be called")
+	}
+	if prepared.defaultDays != 30 {
+		t.Fatalf("expected defaultDays=30, got %d", prepared.defaultDays)
+	}
+	if prepared.registrationPlanGroup == nil || *prepared.registrationPlanGroup != "VIP_A" {
+		t.Fatalf("expected registration plan group to be preserved, got %+v", prepared.registrationPlanGroup)
+	}
+}
+
+func TestBuildRegisteredUserAppliesRegistrationPlanGroup(t *testing.T) {
+	planGroup := "VIP_A"
+	service := &AuthService{}
+
+	user, err := service.buildRegisteredUser(&RegisterUserRequest{
+		Username: "ember",
+		Password: "secret123",
+		Email:    "ember@example.com",
+	}, &registerPreparation{
+		defaultDays:           30,
+		registrationPlanGroup: &planGroup,
+	}, &embyint.EmbyUser{ID: "emby_1"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if user.PlanGroup == nil || *user.PlanGroup != "VIP_A" {
+		t.Fatalf("expected persisted user plan group VIP_A, got %+v", user.PlanGroup)
+	}
 }

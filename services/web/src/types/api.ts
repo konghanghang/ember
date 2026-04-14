@@ -119,6 +119,8 @@ export interface RedemptionCode {
   defaultDays: number
   templateUserId?: string | null
   templateUserName?: string | null
+  registrationPlanGroup?: PlanGroup | null
+  registrationPlanGroupName?: string | null
   expiresAt?: string | null
   createdAt: string
   notes?: string
@@ -139,12 +141,14 @@ export interface RedemptionCodeListQuery extends PaginationQuery {
   code?: string
   status?: RedemptionCodeStatusFilter | ''
   templateUserId?: string
+  registrationPlanGroup?: PlanGroup | ''
 }
 
 export interface CreateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number
   templateUserId?: string | null
+  registrationPlanGroup?: PlanGroup | null
   expiresAt?: string | null
   notes?: string
 }
@@ -162,6 +166,7 @@ export interface UpdateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number
   templateUserId?: string | null
+  registrationPlanGroup?: PlanGroup | null
   expiresAt?: string | null
   notes?: string
 }

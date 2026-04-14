@@ -2,19 +2,19 @@ package auth
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	"github.com/konghang/ember/backend/internal/common"
-	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
-	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
 
 type registerPreparation struct {
-	mode           string
-	defaultDays    int
-	redemptionCode *models.RedemptionCode
+	mode                  string
+	defaultDays           int
+	registrationPlanGroup *string
+	redemptionCode        *models.RedemptionCode
 }
 
 func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserResponse, error) {
@@ -82,14 +82,13 @@ func (s *AuthService) verifyRegisterEmailCode(req *RegisterUserRequest) error {
 }
 
 func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPreparation, error) {
-	configService := configpkg.NewConfigService()
-	mode := configService.GetRegistrationMode()
+	mode := s.currentRegistrationMode()
 
 	prepared := &registerPreparation{
 		mode: mode,
 	}
 	if mode != "invite" {
-		prepared.defaultDays = configService.GetDefaultTrialDays()
+		prepared.defaultDays = s.currentDefaultTrialDays()
 		return prepared, nil
 	}
 
@@ -97,13 +96,16 @@ func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPrepar
 		return nil, errors.New("当前为邀请注册模式，请提供兑换码")
 	}
 
-	codeService := &redemptionpkg.RedemptionCodeService{}
-	redemptionCode, err := codeService.ValidateCode(req.Code)
+	redemptionCode, err := s.validateInviteRegistrationCode(req.Code)
 	if err != nil {
 		return nil, err
 	}
 	prepared.redemptionCode = redemptionCode
 	prepared.defaultDays = redemptionCode.DefaultDays
+	prepared.registrationPlanGroup = redemptionCode.RegistrationPlanGroup
+	if prepared.registrationPlanGroup != nil {
+		log.Printf("[Auth] 邀请注册使用显式套餐分组: codeID=%s planGroup=%s", redemptionCode.ID, *prepared.registrationPlanGroup)
+	}
 	return prepared, nil
 }
 

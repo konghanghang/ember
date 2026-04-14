@@ -259,6 +259,7 @@ services/
 | ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
 | DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
 | TemplateUserID | *string(25) | templateUserId | 模板用户 ID（可空，仅邀请码注册时生效）|
+| RegistrationPlanGroup | *string(50) | registrationPlanGroup | 注册场景专用套餐分组 key（可空；仅注册时生效，续期忽略） |
 | Notes | string(500) | notes | 备注（可选，用于记录用途或来源） |
 | CreatedAt | time.Time | createdAt | 自动 |
 
@@ -544,9 +545,9 @@ TMDBCache（独立缓存表）
 3. 过期用户**可以登录**（前端显示过期提示 + 兑换入口）
 
 **注册流程**：
-1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 验证兑换码 → `"open"`: 读取 `default_trial_days`
+1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 调用注册场景兑换码校验（会额外校验 `registrationPlanGroup` 仍存在）→ `"open"`: 读取 `default_trial_days`
 2. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码
-3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）
+3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式且兑换码绑定 `registrationPlanGroup` 时，把该 key 写入 `users.planGroup`，未绑定时继续跟随系统默认分组
 4. invite 模式且兑换码绑定 `templateUserId` 时：按白名单字段复制模板用户 Emby Policy
 5. 签发 JWT
 6. 火忘式通知 Bot（新用户注册）
@@ -571,11 +572,12 @@ TMDBCache（独立缓存表）
 
 ### 5.3 RedemptionCodeService (`services/redemption/code_service.go`)
 
-- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId, notes)` — 生成 16 字符 hex 码
-- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId, notes)` — 批量生成兑换码，单次最多 100 个，整批事务提交
-- `GetRedemptionCodes(page, pageSize, showAll, code, status, templateUserId)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）和模板用户过滤，并返回 `notes`；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
+- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId, registrationPlanGroup, notes)` — 生成 16 字符 hex 码；若传 `registrationPlanGroup`，创建时校验分组存在
+- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId, registrationPlanGroup, notes)` — 批量生成兑换码，单次最多 100 个，整批事务提交
+- `GetRedemptionCodes(page, pageSize, showAll, code, status, templateUserId, registrationPlanGroup)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）、模板用户和注册套餐分组过滤，并返回 `notes`、`registrationPlanGroupName`；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
 - `GetUserTemplates()` — 获取可选模板用户列表（启用且未过期）
-- `ValidateCode(code)` — 查找 + IsValid()
+- `ValidateRegistrationCode(code)` — 注册场景兑换码校验；查找 + IsValid()，且当 `registrationPlanGroup` 非空时强校验分组仍存在
+- `ValidateRenewalCode(code)` — 续期场景兑换码校验；只查找 + IsValid()，忽略 `registrationPlanGroup`
 - `UseCode(code)` — 原子递增 usedCount
 
 ### 5.4 RedemptionService (`services/redemption/service.go`)
@@ -709,7 +711,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 Stripe 一次性支付流程管理。
 
-- `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组存在性、引用检查和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
+- `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组存在性、引用检查（`plans` / `users` / `redemption_codes.registrationPlanGroup`）和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
 - `CreateCheckoutSession(userID, planID)` — 优先复用同方案 30 分钟内未过期的待支付订单；否则创建新的 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）；创建前会先解析用户“有效套餐分组”（显式分组优先，否则回退系统默认分组），再按该分组强校验方案归属
 - `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐；`/api/v1/plans` 与 `/api/v1/payments/plans` 都要求认证并复用这条过滤结果
 - `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
@@ -825,7 +827,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/forgot-password/send-code` | 发送密码重置验证码 |
 | POST | `/api/v1/forgot-password/reset` | 通过验证码重置密码 |
 | GET | `/api/v1/register/mode` | 获取注册模式 |
-| GET | `/api/v1/register/code/:code/validate` | 验证兑换码（注册前）|
+| GET | `/api/v1/register/code/:code/validate` | 验证注册场景兑换码（会校验绑定的 `registrationPlanGroup` 仍存在） |
 | POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
 | POST | `/api/v1/webhooks/emby?token=` | Emby 入库 Webhook（追剧日历） |
 | GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索 |
@@ -844,7 +846,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/password` | 修改密码 |
 | PUT | `/api/v1/email` | 修改邮箱 |
 | POST | `/api/v1/redeem` | 通用兑换续期 |
-| GET | `/api/v1/redeem/:code/validate` | 通用兑换码预验证 |
+| GET | `/api/v1/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
 | GET | `/api/v1/redemptions` | 当前登录账号的兑换历史 |
 | POST | `/api/v1/telegram/bindcode` | 生成 Telegram 绑定验证码 |
 | DELETE | `/api/v1/telegram/unbind` | 解除 Telegram 绑定 |
@@ -873,7 +875,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/user/password` | 修改密码 |
 | PUT | `/api/v1/user/email` | 修改邮箱 |
 | POST | `/api/v1/user/redeem` | 兑换续期 |
-| GET | `/api/v1/user/redeem/:code/validate` | 兑换码预验证 |
+| GET | `/api/v1/user/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
 | GET | `/api/v1/user/redemptions` | 我的兑换历史 |
 | GET | `/api/v1/user/emby/config` | Emby 服务器地址 |
 | GET | `/api/v1/user/media/stats` | 媒体库统计 |
@@ -895,10 +897,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | PUT | `/api/v1/admin/users/:id/toggle` | 切换激活状态 |
 | PUT | `/api/v1/admin/users/:id/reset-password` | 重置密码 |
 | DELETE | `/api/v1/admin/users/:id` | 删除用户 |
-| GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `templateUserId` / `showAll` 过滤） |
-| POST | `/api/v1/admin/redemption-codes` | 创建兑换码 |
-| POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码 |
-| PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码 |
+| GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `templateUserId` / `registrationPlanGroup` / `showAll` 过滤） |
+| POST | `/api/v1/admin/redemption-codes` | 创建兑换码（支持可选 `registrationPlanGroup`） |
+| POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码（支持可选 `registrationPlanGroup`） |
+| PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码（支持可选 `registrationPlanGroup`） |
 | DELETE | `/api/v1/admin/redemption-codes/:id` | 删除兑换码 |
 | GET | `/api/v1/admin/user-templates` | 模板用户列表 |
 | GET | `/api/v1/admin/configs` | 获取设置中心全部配置（定义 + 当前值 + 来源） |
@@ -1049,10 +1051,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - `codes`：`views/admin/RedemptionCodesView.vue`
   - `history`：`views/admin/RedemptionHistoryView.vue`
 - 数据源：
-  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、模板用户筛选；返回备注字段 `notes`）
-  - `POST /api/v1/admin/redemption-codes`（支持可选备注 `notes`）
-  - `POST /api/v1/admin/redemption-codes/batch`（支持可选备注 `notes`）
-  - `PUT /api/v1/admin/redemption-codes/:id`（支持更新备注 `notes`）
+  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、模板用户、注册套餐分组筛选；返回 `notes`、`registrationPlanGroup`、`registrationPlanGroupName`）
+  - `POST /api/v1/admin/redemption-codes`（支持可选备注 `notes` 与 `registrationPlanGroup`）
+  - `POST /api/v1/admin/redemption-codes/batch`（支持可选备注 `notes` 与 `registrationPlanGroup`）
+  - `PUT /api/v1/admin/redemption-codes/:id`（支持更新备注 `notes` 与 `registrationPlanGroup`）
   - `DELETE /api/v1/admin/redemption-codes/:id`
   - `GET /api/v1/admin/redemptions`（支持按用户名、用户 ID、兑换码筛选）
 

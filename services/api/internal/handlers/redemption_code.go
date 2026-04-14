@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/models"
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
 
@@ -15,7 +16,8 @@ type redemptionCodeService interface {
 	GetRedemptionCodes(req *redemptionpkg.GetRedemptionCodesRequest) (*redemptionpkg.GetRedemptionCodesResponse, error)
 	DeleteRedemptionCode(id string) error
 	UpdateRedemptionCode(id string, req *redemptionpkg.UpdateRedemptionCodeRequest) (*models.RedemptionCode, error)
-	ValidateCode(code string) (*models.RedemptionCode, error)
+	ValidateRegistrationCode(code string) (*models.RedemptionCode, error)
+	ValidateRenewalCode(code string) (*models.RedemptionCode, error)
 	GetUserTemplates() (*redemptionpkg.GetUserTemplatesResponse, error)
 }
 
@@ -76,7 +78,8 @@ func (h *RedemptionCodeHandler) GetRedemptionCodes(c *gin.Context) {
 
 	resp, err := h.service.GetRedemptionCodes(&req)
 	if err != nil {
-		if errors.Is(err, redemptionpkg.ErrRedemptionCodeStatusInvalid) {
+		if errors.Is(err, redemptionpkg.ErrRedemptionCodeStatusInvalid) ||
+			errors.Is(err, paymentpkg.ErrPlanGroupInvalid) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -117,6 +120,8 @@ func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, redemptionpkg.ErrRedemptionCodeUsedOver):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
@@ -126,9 +131,9 @@ func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
 	c.JSON(http.StatusOK, code)
 }
 
-func (h *RedemptionCodeHandler) ValidateCode(c *gin.Context) {
+func (h *RedemptionCodeHandler) ValidateRegistrationCode(c *gin.Context) {
 	code := c.Param("code")
-	resp, err := h.service.ValidateCode(code)
+	resp, err := h.service.ValidateRegistrationCode(code)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -150,5 +155,7 @@ func isRedemptionCodeRequestError(err error) bool {
 	return errors.Is(err, redemptionpkg.ErrRedemptionCodeBatchCountInvalid) ||
 		errors.Is(err, redemptionpkg.ErrTemplateUserNotFound) ||
 		errors.Is(err, redemptionpkg.ErrTemplateUserMustBeUser) ||
-		errors.Is(err, redemptionpkg.ErrTemplateUserEmbyRequired)
+		errors.Is(err, redemptionpkg.ErrTemplateUserEmbyRequired) ||
+		errors.Is(err, paymentpkg.ErrPlanGroupInvalid) ||
+		errors.Is(err, paymentpkg.ErrPlanGroupNotFound)
 }

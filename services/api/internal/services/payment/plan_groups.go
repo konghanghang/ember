@@ -9,6 +9,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var planGroupKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,31}$`)
@@ -29,8 +30,9 @@ var (
 			tx.Rollback()
 		}
 	}
-	paymentGetPlanGroupByKey    = GetPlanGroupByKey
-	paymentCountPlanGroupsByKey = func(tx *gorm.DB, key string) (int64, error) {
+	paymentGetPlanGroupByKey          = GetPlanGroupByKey
+	paymentGetPlanGroupByKeyForUpdate = GetPlanGroupByKeyForUpdate
+	paymentCountPlanGroupsByKey       = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
 		err := tx.Model(&models.PlanGroup{}).Where("key = ?", key).Count(&count).Error
 		return count, err
@@ -64,6 +66,11 @@ var (
 	paymentCountUsersByGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
 		err := tx.Model(&models.User{}).Where(`"planGroup" = ?`, key).Count(&count).Error
+		return count, err
+	}
+	paymentCountRedemptionCodesByRegistrationPlanGroup = func(tx *gorm.DB, key string) (int64, error) {
+		var count int64
+		err := tx.Model(&models.RedemptionCode{}).Where(`"registrationPlanGroup" = ?`, key).Count(&count).Error
 		return count, err
 	}
 	paymentDeletePlanGroup = func(tx *gorm.DB, key string) error {
@@ -106,6 +113,14 @@ func NormalizePlanGroupKey(raw string, allowEmpty bool) (string, error) {
 }
 
 func GetPlanGroupByKey(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+	return getPlanGroupByKey(tx, key, false)
+}
+
+func GetPlanGroupByKeyForUpdate(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+	return getPlanGroupByKey(tx, key, true)
+}
+
+func getPlanGroupByKey(tx *gorm.DB, key string, lockForUpdate bool) (*models.PlanGroup, error) {
 	if tx == nil {
 		tx = db.DB
 	}
@@ -115,7 +130,11 @@ func GetPlanGroupByKey(tx *gorm.DB, key string) (*models.PlanGroup, error) {
 	}
 
 	var group models.PlanGroup
-	if err := tx.Where("key = ?", key).First(&group).Error; err != nil {
+	query := tx
+	if lockForUpdate {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.Where("key = ?", key).First(&group).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPlanGroupNotFound
 		}
@@ -285,7 +304,7 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 		return nil, errors.New("更新套餐分组失败")
 	}
 
-	group, err := paymentGetPlanGroupByKey(tx, normalizedKey)
+	group, err := paymentGetPlanGroupByKeyForUpdate(tx, normalizedKey)
 	if err != nil {
 		rollbackPlanGroupTx(tx)
 		return nil, err
@@ -364,7 +383,7 @@ func (s *PaymentService) DeletePlanGroup(key string) error {
 		return errors.New("删除套餐分组失败")
 	}
 
-	group, err := paymentGetPlanGroupByKey(tx, normalizedKey)
+	group, err := paymentGetPlanGroupByKeyForUpdate(tx, normalizedKey)
 	if err != nil {
 		rollbackPlanGroupTx(tx)
 		return err
@@ -384,7 +403,12 @@ func (s *PaymentService) DeletePlanGroup(key string) error {
 		rollbackPlanGroupTx(tx)
 		return errors.New("删除套餐分组失败")
 	}
-	if planCount > 0 || userCount > 0 {
+	redemptionCodeCount, err := paymentCountRedemptionCodesByRegistrationPlanGroup(tx, group.Key)
+	if err != nil {
+		rollbackPlanGroupTx(tx)
+		return errors.New("删除套餐分组失败")
+	}
+	if planCount > 0 || userCount > 0 || redemptionCodeCount > 0 {
 		rollbackPlanGroupTx(tx)
 		return ErrPlanGroupDeleteBlocked
 	}

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument, Search, UserFilled } from '@element-plus/icons-vue'
-import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getUserTemplates } from '@/api/admin'
+import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument, Search, UserFilled, CollectionTag } from '@element-plus/icons-vue'
+import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getUserTemplates, getPlanGroups } from '@/api/admin'
 import type {
   CreateRedemptionCodeRequest,
+  ManagedPlanGroup,
+  PlanGroup,
   RedemptionCode,
   RedemptionCodeListQuery,
   RedemptionCodeStatusFilter,
@@ -29,9 +31,11 @@ const queryParams = ref<RedemptionCodeListQuery>({
   showAll: false,
   code: '',
   status: '',
-  templateUserId: ''
+  templateUserId: '',
+  registrationPlanGroup: ''
 })
 const userTemplates = ref<UserTemplate[]>([])
+const planGroups = ref<ManagedPlanGroup[]>([])
 
 const dialogVisible = ref(false)
 const generating = ref(false)
@@ -43,6 +47,7 @@ const form = ref<CreateRedemptionCodeRequest & { count: number }>({
   maxUses: 1,
   defaultDays: 30,
   templateUserId: null,
+  registrationPlanGroup: null,
   expiresAt: null,
   notes: ''
 })
@@ -53,6 +58,7 @@ const editForm = ref({
   maxUses: 1,
   defaultDays: 30,
   templateUserId: null as string | null,
+  registrationPlanGroup: null as PlanGroup | null,
   neverExpire: false,
   expiresAt: null as Date | null,
   notes: ''
@@ -63,6 +69,14 @@ const statusOptions: Array<{ label: string; value: RedemptionCodeStatusFilter }>
   { label: '已过期', value: 'expired' },
   { label: '已耗尽', value: 'exhausted' }
 ]
+
+const planGroupOptions = computed(() => planGroups.value.map((group) => ({
+  label: `${group.name}${group.isDefault ? '（默认）' : ''} (${group.key})`,
+  value: group.key
+})))
+
+const defaultPlanGroup = computed(() => planGroups.value.find((group) => group.isDefault) ?? null)
+const planGroupNameMap = computed(() => new Map(planGroups.value.map((group) => [group.key, group.name])))
 
 const handlePageSizeChange = (size: number) => {
   queryParams.value.pageSize = size
@@ -88,6 +102,9 @@ const fetchData = async () => {
     if (queryParams.value.templateUserId?.trim()) {
       params.templateUserId = queryParams.value.templateUserId.trim()
     }
+    if (queryParams.value.registrationPlanGroup?.trim()) {
+      params.registrationPlanGroup = queryParams.value.registrationPlanGroup.trim()
+    }
 
     const res = await getRedemptionCodes(params)
     tableData.value = res.data
@@ -106,12 +123,22 @@ const fetchUserTemplates = async () => {
   }
 }
 
+const fetchPlanGroups = async () => {
+  try {
+    const res = await getPlanGroups()
+    planGroups.value = res.data ?? []
+  } catch {
+    planGroups.value = []
+  }
+}
+
 const resetCreateForm = () => {
   form.value = {
     count: 1,
     maxUses: 1,
     defaultDays: 30,
     templateUserId: null,
+    registrationPlanGroup: null,
     expiresAt: null,
     notes: ''
   }
@@ -131,6 +158,7 @@ const handleReset = () => {
   queryParams.value.code = ''
   queryParams.value.status = ''
   queryParams.value.templateUserId = ''
+  queryParams.value.registrationPlanGroup = ''
   queryParams.value.showAll = false
   queryParams.value.page = 1
   fetchData()
@@ -155,6 +183,7 @@ const handleCreate = async () => {
     maxUses: form.value.maxUses,
     defaultDays: form.value.defaultDays,
     templateUserId: form.value.templateUserId,
+    registrationPlanGroup: form.value.registrationPlanGroup || null,
     expiresAt: form.value.expiresAt,
     notes: trimmedNotes || undefined
   }
@@ -206,6 +235,7 @@ const openEditDialog = (row: RedemptionCode) => {
     maxUses: row.maxUses,
     defaultDays: row.defaultDays,
     templateUserId: row.templateUserId || null,
+    registrationPlanGroup: row.registrationPlanGroup || null,
     neverExpire: !row.expiresAt,
     expiresAt: row.expiresAt ? new Date(row.expiresAt) : null,
     notes: row.notes || ''
@@ -236,6 +266,7 @@ const handleUpdate = async () => {
     maxUses: editForm.value.maxUses,
     defaultDays: editForm.value.defaultDays,
     templateUserId: editForm.value.templateUserId,
+    registrationPlanGroup: editForm.value.registrationPlanGroup || null,
     expiresAt: editForm.value.neverExpire ? null : editForm.value.expiresAt?.toISOString() || null,
     notes: trimmedNotes || undefined
   }
@@ -270,6 +301,7 @@ const activeFilterCount = computed(() => {
   if (queryParams.value.code?.trim()) count += 1
   if (queryParams.value.status) count += 1
   if (queryParams.value.templateUserId) count += 1
+  if (queryParams.value.registrationPlanGroup) count += 1
   if (queryParams.value.showAll) count += 1
   return count
 })
@@ -284,6 +316,19 @@ const formatTemplate = (row: RedemptionCode) => {
   return row.templateUserName || row.templateUserId
 }
 
+const formatRegistrationPlanGroupName = (row: RedemptionCode) => {
+  if (!row.registrationPlanGroup) return defaultPlanGroup.value?.name || '默认分组'
+  return row.registrationPlanGroupName || planGroupNameMap.value.get(row.registrationPlanGroup) || row.registrationPlanGroup
+}
+
+const formatRegistrationPlanGroupHint = (row: RedemptionCode) => {
+  if (!row.registrationPlanGroup) {
+    if (!defaultPlanGroup.value) return '未绑定时注册后跟随系统默认分组'
+    return `当前默认：${defaultPlanGroup.value.name} (${defaultPlanGroup.value.key})`
+  }
+  return row.registrationPlanGroup
+}
+
 const getUsageStatus = (row: RedemptionCode) => {
   if (row.usedCount >= row.maxUses) return { type: 'danger', text: '已耗尽' }
   if (row.expiresAt && new Date(row.expiresAt) < new Date()) return { type: 'info', text: '已过期' }
@@ -291,7 +336,7 @@ const getUsageStatus = (row: RedemptionCode) => {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchData(), fetchUserTemplates()])
+  await Promise.all([fetchData(), fetchUserTemplates(), fetchPlanGroups()])
 })
 </script>
 
@@ -315,7 +360,7 @@ onMounted(async () => {
             </span>
           </div>
           <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">
-            恢复兑换码创建入口，并支持按兑换码、状态和模板用户筛选。
+            支持按兑换码、状态、模板用户和注册套餐分组筛选；未绑定分组的注册码在注册后会跟随默认分组。
           </p>
         </div>
 
@@ -348,8 +393,8 @@ onMounted(async () => {
 
       <div class="mt-3 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
         <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-          <div class="flex flex-1 flex-wrap gap-3">
-            <div class="flex w-full flex-col gap-1.5 xl:w-[252px] xl:shrink-0">
+          <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
+            <div class="flex w-full flex-col gap-1.5">
               <label class="block text-xs font-semibold tracking-wide text-gray-500">兑换码</label>
               <div class="relative w-full group">
                 <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
@@ -368,7 +413,7 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="flex w-full flex-col gap-1.5 xl:w-[168px] xl:shrink-0">
+            <div class="flex w-full flex-col gap-1.5">
               <label class="block text-xs font-semibold tracking-wide text-gray-500">状态</label>
               <div class="w-full">
                 <el-select
@@ -387,7 +432,7 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="flex w-full flex-col gap-1.5 xl:w-[300px] xl:shrink-0">
+            <div class="flex w-full flex-col gap-1.5">
               <label class="block text-xs font-semibold tracking-wide text-gray-500">权限模板用户</label>
               <div class="relative w-full">
                 <div class="absolute inset-y-0 left-0 z-10 flex items-center pl-3 pointer-events-none">
@@ -405,6 +450,29 @@ onMounted(async () => {
                     :key="item.id"
                     :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
                     :value="item.id"
+                  />
+                </el-select>
+              </div>
+            </div>
+
+            <div class="flex w-full flex-col gap-1.5">
+              <label class="block text-xs font-semibold tracking-wide text-gray-500">注册套餐分组</label>
+              <div class="relative w-full">
+                <div class="absolute inset-y-0 left-0 z-10 flex items-center pl-3 pointer-events-none">
+                  <el-icon class="text-gray-400"><CollectionTag /></el-icon>
+                </div>
+                <el-select
+                  v-model="queryParams.registrationPlanGroup"
+                  placeholder="全部分组"
+                  clearable
+                  filterable
+                  class="w-full filter-select filter-select-with-icon"
+                >
+                  <el-option
+                    v-for="option in planGroupOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
                   />
                 </el-select>
               </div>
@@ -482,6 +550,22 @@ onMounted(async () => {
         <el-table-column label="权限模板" min-width="160">
           <template #default="{ row }">
             <span class="text-gray-700">{{ formatTemplate(row) }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="注册套餐分组" min-width="220">
+          <template #default="{ row }">
+            <div v-if="row.registrationPlanGroup" class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-gray-900">{{ formatRegistrationPlanGroupName(row) }}</span>
+                <el-tag type="warning" effect="light" round size="small">显式绑定</el-tag>
+              </div>
+              <div class="text-xs text-gray-500">{{ formatRegistrationPlanGroupHint(row) }}</div>
+            </div>
+            <div v-else class="space-y-1">
+              <div class="text-sm font-medium text-gray-700">跟随默认分组</div>
+              <div class="text-xs text-gray-500">{{ formatRegistrationPlanGroupHint(row) }}</div>
+            </div>
           </template>
         </el-table-column>
 
@@ -601,6 +685,28 @@ onMounted(async () => {
             </div>
           </el-form-item>
 
+          <el-form-item label="注册套餐分组（可选）">
+            <div class="w-full space-y-2">
+              <el-select
+                v-model="form.registrationPlanGroup"
+                placeholder="留空则跟随默认分组"
+                clearable
+                filterable
+                class="w-full !w-full form-select"
+              >
+                <el-option
+                  v-for="option in planGroupOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+              <div class="text-xs text-gray-400">
+                仅在注册场景生效；留空表示注册后跟随默认分组<span v-if="defaultPlanGroup">（当前默认：{{ defaultPlanGroup.name }} / {{ defaultPlanGroup.key }}）</span>。
+              </div>
+            </div>
+          </el-form-item>
+
           <el-form-item label="备注（可选）">
             <div class="w-full space-y-2">
               <el-input
@@ -685,7 +791,7 @@ onMounted(async () => {
     <el-dialog
       v-model="editDialogVisible"
       title="编辑兑换码"
-      width="480px"
+      width="560px"
       align-center
       append-to-body
       class="rounded-2xl"
@@ -739,6 +845,28 @@ onMounted(async () => {
                 :value="item.id"
               />
             </el-select>
+          </el-form-item>
+
+          <el-form-item label="注册套餐分组 (可选)">
+            <div class="w-full space-y-2">
+              <el-select
+                v-model="editForm.registrationPlanGroup"
+                placeholder="留空则跟随默认分组"
+                clearable
+                filterable
+                class="w-full !w-full form-select"
+              >
+                <el-option
+                  v-for="option in planGroupOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+              <div class="text-xs text-gray-400">
+                仅注册时生效；留空表示注册后跟随默认分组<span v-if="defaultPlanGroup">（当前默认：{{ defaultPlanGroup.name }} / {{ defaultPlanGroup.key }}）</span>。
+              </div>
+            </div>
           </el-form-item>
 
           <el-form-item label="备注">
