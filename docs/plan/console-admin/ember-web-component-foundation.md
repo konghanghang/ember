@@ -1,6 +1,6 @@
 # Ember Web 组件基建收口方案
 
-> 状态：草稿
+> 状态：进行中
 > 负责人：Ember
 > 更新时间：2026-04-14
 
@@ -73,6 +73,30 @@
   - 新页面仍要手动复制 header、filter、table、dialog 结构。
   - scoped CSS 总量已偏高，探索期统计约 1500 行样式仍散落在 views 中。
   - 当前组件目录按业务分组较多，但缺少明确的 Ember UI 基建层，导致“结构可复用”和“样式可复用”都没有稳定入口。
+- 已完成项：
+  - 已建立 `services/web/src/components/ember/` 目录，并落下 10 个基础组件：
+    - `layout/EmberPageHeaderCard.vue`
+    - `layout/EmberFilterPanel.vue`
+    - `layout/EmberSegmentTabs.vue`
+    - `filters/EmberSearchInput.vue`
+    - `filters/EmberSelectField.vue`
+    - `filters/EmberDateField.vue`
+    - `filters/EmberDateRangeField.vue`
+    - `data-display/EmberTableCard.vue`
+    - `data-display/EmberMetricCard.vue`
+    - `forms/EmberFormDialog.vue`
+  - 已完成首批和扩展页面迁移：
+    - `services/web/src/views/admin/PaymentsView.vue`
+    - `services/web/src/views/admin/UsersView.vue`
+    - `services/web/src/views/admin/PlaybackHistoryView.vue`
+    - `services/web/src/views/admin/RedemptionCodesView.vue`
+    - `services/web/src/views/admin/UserPlaybackProfilesView.vue`
+  - 上述迁移完成后均已执行 `cd services/web && npm run build` 验证通过。
+- 剩余项：
+  - 将 `PaymentCenterView`、`RedemptionCenterView` 收口到 `EmberSegmentTabs`。
+  - 继续迁移 `RedemptionHistoryView`、`PlansView`、`PlanGroupsView` 等仍保留重复骨架的后台页面。
+  - 评估认证页与控制台页面是否需要接入现有基础组件，而不是继续扩散局部样式。
+  - 文档尚未同步到 `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md`。
 
 ## 方案设计
 
@@ -136,14 +160,14 @@
   - `EmberFormDialog`
     - 负责通用弹窗表单容器、footer 按钮区和统一内边距。
 - 哪些调用方会受影响：
-  - 首批改造页面：
+  - 已完成迁移页面：
     - `services/web/src/views/admin/UsersView.vue`
     - `services/web/src/views/admin/PaymentsView.vue`
     - `services/web/src/views/admin/PlaybackHistoryView.vue`
     - `services/web/src/views/admin/RedemptionCodesView.vue`
-  - 第二批复用页面：
-    - `services/web/src/views/admin/RedemptionHistoryView.vue`
     - `services/web/src/views/admin/UserPlaybackProfilesView.vue`
+  - 后续迁移页面：
+    - `services/web/src/views/admin/RedemptionHistoryView.vue`
     - `services/web/src/views/admin/PlansView.vue`
     - `services/web/src/views/admin/PlanGroupsView.vue`
     - `services/web/src/views/admin/PaymentCenterView.vue`
@@ -166,12 +190,14 @@
    - `PaymentsView`
    - `PlaybackHistoryView`
    - `RedemptionCodesView`
+   - 当前已完成以上 4 个页面，并额外完成 `UserPlaybackProfilesView`
 5. 验证基础组件是否足够覆盖：
    - 单关键词筛选
    - 多字段筛选
    - 单日期/日期范围
    - 表格 + 分页
    - 弹窗表单
+   - 当前已在上述已迁移页面中完成覆盖验证
 6. 再扩展到剩余控制台/后台页面，并收口重复的 tabs、metric cards、empty states。
 7. 最后清理失效的 scoped CSS、重复 class 组合和不再需要的局部样式类。
 
@@ -219,6 +245,7 @@
 - 支付记录页迁移后，带图标的筛选输入、下拉框和表头样式保持一致。
 - 播放历史页迁移后，日期范围筛选与表格容器不出现尺寸漂移或双层边框。
 - 兑换码页迁移后，复杂筛选区和多个弹窗表单仍能复用同一套 Ember 组件骨架。
+- 用户画像总览页迁移后，统计卡、日期范围和列表骨架继续遵守 Ember 风格。
 - 登录、注册、忘记密码页如接入基础表单组件后，视觉保持 Ember 风格，不引入第二套表单语言。
 
 ## 落地后文档处理
@@ -231,6 +258,6 @@
 - 将长期有效的页面骨架、筛选控件、表单容器命名和使用规则补充到 `docs/reference/web-design-guide.md`
 - 这份方案在以下条件满足后移入 `docs/archive/plan/console-admin/`：
   - Ember 基础组件目录已建立
-  - 首批高重复页面已完成迁移
+  - 计划内高重复页面迁移已完成，剩余页面已明确是否接入或保留特例实现
   - 失效 scoped CSS 已完成清理
   - 现行文档已同步更新
