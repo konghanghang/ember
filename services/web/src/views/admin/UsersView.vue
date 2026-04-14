@@ -752,12 +752,12 @@ onMounted(async () => {
           </el-form-item>
 
           <el-form-item label="有效期设置">
-            <div class="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3">
-              <div class="space-y-1">
+            <div class="w-full space-y-2">
+              <div class="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3">
                 <span class="block text-sm font-medium text-gray-700">永不过期</span>
-                <p class="text-xs text-gray-500">关闭后需要手动填写到期时间。</p>
+                <el-switch v-model="createForm.neverExpire" />
               </div>
-              <el-switch v-model="createForm.neverExpire" />
+              <p class="text-xs text-gray-500">关闭后需要手动填写到期时间。</p>
             </div>
           </el-form-item>
 
@@ -807,33 +807,37 @@ onMounted(async () => {
               class="input-ember" 
             />
           </el-form-item>
-          
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <el-form-item label="账号状态">
-              <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
-                <span class="text-sm text-gray-700">{{ editForm.isActive ? '正常启用' : '已禁用' }}</span>
+
+          <el-form-item label="账号状态">
+            <div class="w-full space-y-2">
+              <div class="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <span class="block text-sm font-medium text-gray-700">{{ editForm.isActive ? '正常启用' : '已禁用' }}</span>
                 <el-switch v-model="editForm.isActive" />
               </div>
-            </el-form-item>
+              <p class="text-xs text-gray-500">关闭后该用户将无法继续登录和使用服务。</p>
+            </div>
+          </el-form-item>
 
-            <el-form-item label="套餐组">
-              <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
-                <el-option
-                  v-for="option in planGroupOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-            </el-form-item>
+          <el-form-item label="套餐组">
+            <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
+              <el-option
+                v-for="option in planGroupOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
 
-            <el-form-item label="有效期设置">
-              <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
-                <span class="text-sm text-gray-700">永不过期</span>
+          <el-form-item label="有效期设置">
+            <div class="w-full space-y-2">
+              <div class="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <span class="block text-sm font-medium text-gray-700">永不过期</span>
                 <el-switch v-model="editForm.neverExpire" />
               </div>
-            </el-form-item>
-          </div>
+              <p class="text-xs text-gray-500">关闭后需要手动填写到期时间。</p>
+            </div>
+          </el-form-item>
 
           <el-form-item label="到期时间" v-if="!editForm.neverExpire">
             <el-date-picker

@@ -52,6 +52,15 @@ const handleChange = (value: string | null | undefined) => {
 </template>
 
 <style scoped>
+:deep(.ember-filter-date.el-date-editor),
+:deep(.ember-filter-date.el-input),
+:deep(.ember-filter-date.el-date-editor.el-input) {
+  display: block;
+  width: 100%;
+  height: 42px;
+  min-height: 42px;
+}
+
 :deep(.ember-filter-date .el-input__wrapper) {
   height: 42px;
   min-height: 42px;
@@ -76,5 +85,9 @@ const handleChange = (value: string | null | undefined) => {
   height: 100%;
   padding-left: 2.5rem;
   font-size: 0.875rem;
+}
+
+:deep(.ember-filter-date .el-input__prefix) {
+  display: none;
 }
 </style>
