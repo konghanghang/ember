@@ -699,66 +699,67 @@ onMounted(async () => {
     >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
-          <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <el-form-item label="用户名">
-              <el-input
-                v-model="createForm.username"
-                placeholder="3-50 位字母或数字"
-                class="input-ember"
-                autocomplete="off"
-              />
-            </el-form-item>
-
-            <el-form-item label="电子邮箱">
-              <el-input
-                v-model="createForm.email"
-                placeholder="user@example.com"
-                class="input-ember"
-                autocomplete="off"
-              />
-            </el-form-item>
-          </div>
-
-          <el-form-item label="初始密码">
-            <div class="flex flex-col gap-2 sm:flex-row">
-              <el-input
-                v-model="createForm.password"
-                placeholder="至少 6 位"
-                class="input-ember sm:flex-1"
-                show-password
-                autocomplete="new-password"
-              />
-              <button
-                type="button"
-                @click="handleGenerateCreatePassword"
-                class="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
-              >
-                <el-icon><RefreshRight /></el-icon>
-                <span>随机生成</span>
-              </button>
-            </div>
-            <p class="mt-1 text-xs text-gray-500">创建成功后会展示一次账号和初始密码，请管理员及时复制保存。</p>
+          <el-form-item label="用户名">
+            <el-input
+              v-model="createForm.username"
+              placeholder="3-50 位字母或数字"
+              class="input-ember"
+              autocomplete="off"
+            />
           </el-form-item>
 
-          <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <el-form-item label="套餐组">
-              <el-select v-model="createForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
-                <el-option
-                  v-for="option in planGroupOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-            </el-form-item>
+          <el-form-item label="电子邮箱">
+            <el-input
+              v-model="createForm.email"
+              placeholder="user@example.com"
+              class="input-ember"
+              autocomplete="off"
+            />
+          </el-form-item>
 
-            <el-form-item label="有效期设置">
-              <div class="flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-gray-50 w-full">
-                <span class="text-sm text-gray-700">永不过期</span>
-                <el-switch v-model="createForm.neverExpire" />
+          <el-form-item label="初始密码">
+            <div class="w-full space-y-2">
+              <div class="flex w-full items-center gap-3">
+                <el-input
+                  v-model="createForm.password"
+                  placeholder="至少 6 位"
+                  class="input-ember min-w-0 flex-1"
+                  show-password
+                  autocomplete="new-password"
+                />
+                <button
+                  type="button"
+                  @click="handleGenerateCreatePassword"
+                  class="inline-flex h-[42px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
+                >
+                  <el-icon><RefreshRight /></el-icon>
+                  <span>随机生成</span>
+                </button>
               </div>
-            </el-form-item>
-          </div>
+              <p class="text-xs text-gray-500">创建成功后会展示一次账号和初始密码，请管理员及时复制保存。</p>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="套餐组">
+            <el-select v-model="createForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
+              <el-option
+                v-for="option in planGroupOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="有效期设置">
+            <div class="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3">
+              <div class="space-y-1">
+                <span class="block text-sm font-medium text-gray-700">永不过期</span>
+                <p class="text-xs text-gray-500">关闭后需要手动填写到期时间。</p>
+              </div>
+              <el-switch v-model="createForm.neverExpire" />
+            </div>
+          </el-form-item>
 
           <el-form-item v-if="!createForm.neverExpire" label="到期时间">
             <el-date-picker
