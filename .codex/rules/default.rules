@@ -97,15 +97,14 @@ prefix_rule(
     ],
 )
 
-# Commits remain explicit because repository rules require user confirmation
-# before creating visible history.
+# `AGENTS.md` already governs whether a commit is allowed at all: the agent
+# must ask first and only commit after explicit user approval. Once that
+# approval exists, `git commit` itself should not trigger a second policy
+# conversation for the same action.
 prefix_rule(
     pattern = ["git", "commit"],
-    decision = "prompt",
-    justification = "Commits are user-visible history changes and should stay explicit.",
-    match = [
-        "git commit -m docs: update rules",
-    ],
+    decision = "allow",
+    justification = "Allow commit execution without duplicate policy prompts after the user has explicitly requested a commit per AGENTS.md.",
 )
 
 prefix_rule(
