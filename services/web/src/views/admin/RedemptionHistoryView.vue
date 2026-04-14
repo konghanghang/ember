@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { Search, Ticket, UserFilled } from '@element-plus/icons-vue'
+import { onMounted, ref, useSlots } from 'vue'
+import { Search, Ticket, UserFilled, RefreshRight } from '@element-plus/icons-vue'
 import { getAllRedemptions } from '@/api/admin'
+import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import type { Redemption } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -10,6 +14,7 @@ const props = withDefaults(defineProps<{
   embedded: false
 })
 
+const slots = useSlots()
 const tableData = ref<Redemption[]>([])
 const loading = ref(false)
 const total = ref(0)
@@ -85,89 +90,69 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <h1 v-if="!props.embedded" class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            兑换历史
-            <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
-          </h1>
-          <div class="flex flex-wrap items-center gap-2" :class="props.embedded ? '' : 'mt-2'">
-            <span class="text-sm font-semibold text-gray-900">兑换记录</span>
-            <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
-          </div>
-          <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">查看所有用户的兑换码使用记录。</p>
-        </div>
+    <EmberPageHeaderCard
+      :title="props.embedded ? '兑换记录' : '兑换历史'"
+      description="查看所有用户的兑换码使用记录。"
+    >
+      <template #titleSuffix>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
+          {{ props.embedded ? `当前结果 ${total} 条` : `Total: ${total}` }}
+        </span>
+      </template>
 
+      <template v-if="props.embedded && slots.tabs" #actions>
         <slot name="tabs" />
-      </div>
+      </template>
 
-      <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
-        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-          <div class="flex flex-1 flex-wrap gap-3">
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">用户名</label>
-              <div class="relative w-full group xl:w-[260px]">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><UserFilled /></el-icon>
-                </div>
-                <input
-                  v-model="queryParams.username"
-                  type="text"
-                  autocomplete="off"
-                  aria-label="按用户名筛选"
-                  placeholder="输入登录用户名筛选"
-                  class="filter-input w-full pl-10 pr-4"
-                  @keyup.enter="handleSearch"
-                />
-              </div>
-            </div>
-
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">兑换码</label>
-              <div class="relative w-full group xl:w-[320px]">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Ticket /></el-icon>
-                </div>
-                <input
-                  v-model="queryParams.code"
-                  type="text"
-                  autocomplete="off"
-                  aria-label="按兑换码筛选"
-                  placeholder="输入兑换码筛选"
-                  class="filter-input w-full pl-10 pr-4"
-                  @keyup.enter="handleSearch"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
-            <button
-              @click="handleReset"
-              class="px-4 py-2.5 text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
-            >
-              重置
-            </button>
-            <button
-              @click="handleSearch"
-              class="btn-ember px-4 py-2.5 text-sm rounded-xl font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer inline-flex items-center gap-1.5"
-            >
-              <el-icon><Search /></el-icon>
-              查询
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <el-table
-        :data="tableData"
-        v-loading="loading"
-        style="width: 100%"
-        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
+      <EmberFilterPanel
+        wrapper-class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto]"
+        content-class="grid grid-cols-1 gap-3 lg:grid-cols-[260px_320px]"
+        actions-class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0"
       >
+        <EmberSearchInput
+          v-model="queryParams.username"
+          label="用户名"
+          type="text"
+          inputmode="text"
+          autocomplete="off"
+          aria-label="按用户名筛选"
+          placeholder="输入登录用户名筛选"
+          :icon="UserFilled"
+          @enter="handleSearch"
+        />
+
+        <EmberSearchInput
+          v-model="queryParams.code"
+          label="兑换码"
+          type="text"
+          inputmode="text"
+          autocomplete="off"
+          aria-label="按兑换码筛选"
+          placeholder="输入兑换码筛选"
+          :icon="Ticket"
+          @enter="handleSearch"
+        />
+
+        <template #actions>
+          <button
+            @click="handleReset"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+          >
+            <el-icon><RefreshRight /></el-icon>
+            重置
+          </button>
+          <button
+            @click="handleSearch"
+            class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+          >
+            <el-icon><Search /></el-icon>
+            查询
+          </button>
+        </template>
+      </EmberFilterPanel>
+    </EmberPageHeaderCard>
+
+    <EmberTableCard :data="tableData" :loading="loading">
         <el-table-column label="用户名" min-width="180">
           <template #default="{ row }">
             <div class="flex items-center gap-3">
@@ -203,9 +188,8 @@ onMounted(() => {
             <code class="inline-flex rounded-md bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{{ row.userId }}</code>
           </template>
         </el-table-column>
-      </el-table>
 
-      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+      <template #pagination>
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -216,35 +200,7 @@ onMounted(() => {
           @size-change="handleSizeChange"
           background
         />
-      </div>
-    </div>
+      </template>
+    </EmberTableCard>
   </div>
 </template>
-
-<style scoped>
-.filter-input {
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  height: 42px;
-  line-height: 1.2;
-  font-size: 0.875rem;
-  color: #111827;
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.filter-input::placeholder {
-  color: #9ca3af;
-}
-
-.filter-input:hover {
-  background-color: #ffffff;
-}
-
-.filter-input:focus {
-  background-color: #ffffff;
-  border-color: var(--ember-red);
-  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
-}
-</style>
