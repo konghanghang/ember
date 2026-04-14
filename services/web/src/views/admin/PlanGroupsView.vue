@@ -3,6 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CollectionTag, Delete, EditPen, Plus, Refresh } from '@element-plus/icons-vue'
 import { createPlanGroup, deletePlanGroup, getPlanGroups, updatePlanGroup } from '@/api/admin'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import type { CreatePlanGroupRequest, ManagedPlanGroup, UpdatePlanGroupRequest } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -36,6 +39,7 @@ const editForm = ref({
 })
 
 const defaultGroup = computed(() => groups.value.find(group => group.isDefault) ?? null)
+const referenceCount = computed(() => groups.value.reduce((sum, item) => sum + (item.planCount ?? 0) + (item.userCount ?? 0), 0))
 
 const fetchData = async () => {
   loading.value = true
@@ -144,33 +148,34 @@ onMounted(fetchData)
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm md:flex-row md:items-center md:justify-between">
-      <div>
-        <h1 class="flex items-center gap-2 text-2xl font-bold text-gray-900">
-          套餐分组管理
-          <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">{{ groups.length }} 个分组</span>
-        </h1>
-        <p class="mt-1 text-sm text-gray-500">先维护分组，再把套餐和用户挂到合适的分组；未显式绑定的用户会跟随默认分组。</p>
-      </div>
+    <EmberPageHeaderCard
+      title="套餐分组管理"
+      description="先维护分组，再把套餐和用户挂到合适的分组；未显式绑定的用户会跟随默认分组。"
+    >
+      <template #titleSuffix>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">{{ groups.length }} 个分组</span>
+      </template>
 
-      <div class="flex items-center gap-3">
-        <button
-          @click="fetchData"
-          class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
-          aria-label="刷新套餐分组列表"
-          title="刷新列表"
-        >
-          <el-icon :size="20"><Refresh /></el-icon>
-        </button>
-        <button
-          @click="dialogVisible = true"
-          class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
-        >
-          <el-icon><Plus /></el-icon>
-          <span>新建分组</span>
-        </button>
-      </div>
-    </div>
+      <template #actions>
+        <div class="flex items-center gap-3">
+          <button
+            @click="fetchData"
+            class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            aria-label="刷新套餐分组列表"
+            title="刷新列表"
+          >
+            <el-icon :size="20"><Refresh /></el-icon>
+          </button>
+          <button
+            @click="dialogVisible = true"
+            class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+          >
+            <el-icon><Plus /></el-icon>
+            <span>新建分组</span>
+          </button>
+        </div>
+      </template>
+    </EmberPageHeaderCard>
 
     <div class="grid gap-4 lg:grid-cols-3">
       <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -197,19 +202,13 @@ onMounted(fetchData)
       <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
         <div class="text-sm font-semibold text-gray-500">分组引用总量</div>
         <div class="mt-3 text-3xl font-bold text-gray-900">
-          {{ groups.reduce((sum, item) => sum + (item.planCount ?? 0) + (item.userCount ?? 0), 0) }}
+          {{ referenceCount }}
         </div>
         <div class="mt-1 text-sm text-gray-500">包含套餐绑定数和显式用户绑定数。</div>
       </div>
     </div>
 
-    <div class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-      <el-table
-        :data="groups"
-        v-loading="loading"
-        style="width: 100%"
-        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
-      >
+    <EmberTableCard :data="groups" :loading="loading">
         <el-table-column label="分组" min-width="240">
           <template #default="{ row }">
             <div class="flex items-center gap-3">
@@ -277,10 +276,13 @@ onMounted(fetchData)
             </button>
           </template>
         </el-table-column>
-      </el-table>
-    </div>
+    </EmberTableCard>
 
-    <el-dialog v-model="dialogVisible" title="新建套餐分组" width="520px" align-center append-to-body>
+    <EmberFormDialog
+      v-model="dialogVisible"
+      title="新建套餐分组"
+      width="520px"
+    >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="分组标识">
@@ -326,9 +328,13 @@ onMounted(fetchData)
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑套餐分组" width="520px" align-center append-to-body>
+    <EmberFormDialog
+      v-model="editDialogVisible"
+      title="编辑套餐分组"
+      width="520px"
+    >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <el-form-item label="分组标识">
@@ -373,7 +379,7 @@ onMounted(fetchData)
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
   </div>
 </template>
 
@@ -434,19 +440,5 @@ onMounted(fetchData)
 :deep(.form-number .el-input-number__decrease:hover),
 :deep(.form-number .el-input-number__increase:hover) {
   color: var(--ember-red);
-}
-
-:deep(.el-dialog__header) {
-  margin-right: 0;
-  border-bottom: 1px solid #f3f4f6;
-  padding: 20px 24px;
-}
-
-:deep(.el-dialog__body) {
-  padding: 0;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 0;
 }
 </style>
