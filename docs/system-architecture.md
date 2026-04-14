@@ -150,6 +150,21 @@ services/
 │  │  │  ├─ console/             # 控制台导航 / 顶栏等布局组件
 │  │  │  ├─ common/
 │  │  │  │  └─ DefaultAvatar.vue # 默认头像（首字母 + 稳定配色）
+│  │  │  ├─ ember/               # Ember Web 基础组件层（后台/控制台高频骨架）
+│  │  │  │  ├─ data-display/
+│  │  │  │  │  ├─ EmberMetricCard.vue # 统计卡基线
+│  │  │  │  │  └─ EmberTableCard.vue  # 表格容器 + 分页区基线
+│  │  │  │  ├─ filters/
+│  │  │  │  │  ├─ EmberDateField.vue      # 单日期筛选字段
+│  │  │  │  │  ├─ EmberDateRangeField.vue # 日期范围筛选字段
+│  │  │  │  │  ├─ EmberSearchInput.vue    # 搜索输入框
+│  │  │  │  │  └─ EmberSelectField.vue    # 下拉筛选字段
+│  │  │  │  ├─ forms/
+│  │  │  │  │  └─ EmberFormDialog.vue # 通用弹窗表单容器
+│  │  │  │  └─ layout/
+│  │  │  │     ├─ EmberFilterPanel.vue   # 筛选区容器
+│  │  │  │     ├─ EmberPageHeaderCard.vue # 页头卡片
+│  │  │  │     └─ EmberSegmentTabs.vue   # 页内分段 tabs
 │  │  │  └─ profile/
 │  │  │     └─ PlaybackProfileContent.vue # 用户画像共享主体（user/admin 共用）
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义
@@ -210,6 +225,46 @@ services/
       └─ clients/
          └─ api_client.py        # Ember API 内部客户端（共享 AsyncClient 连接池）
 ```
+
+---
+
+### 3.1 Web 共享组件层
+
+`services/web/src/components/ember/` 是当前 Web 端的 Ember 基础组件层，职责是把后台与控制台高频重复的 UI 骨架收口为稳定契约，而不是把业务逻辑搬进组件。
+
+- `layout/`
+  - `EmberPageHeaderCard`：统一页面标题、说明、统计 badge、右侧 actions/tabs slot
+  - `EmberFilterPanel`：统一筛选区容器、字段区布局、按钮区对齐
+  - `EmberSegmentTabs`：统一支付中心、兑换中心这类页内分段 tabs
+- `filters/`
+  - `EmberSearchInput`、`EmberSelectField`、`EmberDateField`、`EmberDateRangeField`
+  - 负责筛选字段的 Ember 风格外观与交互基线，不承载页面查询逻辑
+- `data-display/`
+  - `EmberTableCard`：统一表格容器、表头样式和分页区
+  - `EmberMetricCard`：统一简单统计卡基线
+- `forms/`
+  - `EmberFormDialog`：统一弹窗表单容器和 footer 区域
+
+当前已接入这套基础组件的后台页面包括：
+
+- 列表/表单类页面：
+  - `services/web/src/views/admin/UsersView.vue`
+  - `services/web/src/views/admin/PaymentsView.vue`
+  - `services/web/src/views/admin/PlaybackHistoryView.vue`
+  - `services/web/src/views/admin/RedemptionCodesView.vue`
+  - `services/web/src/views/admin/RedemptionHistoryView.vue`
+  - `services/web/src/views/admin/UserPlaybackProfilesView.vue`
+  - `services/web/src/views/admin/PlansView.vue`
+  - `services/web/src/views/admin/PlanGroupsView.vue`
+- 容器型中心页：
+  - `services/web/src/views/admin/PaymentCenterView.vue`
+  - `services/web/src/views/admin/RedemptionCenterView.vue`
+
+边界约束：
+
+- 页面 view 继续保留接口调用、路由状态、筛选参数、弹窗状态和数据编排。
+- Ember 基础组件只承载稳定 UI 契约，不侵入 store 和 API 请求。
+- 强业务、强视觉特例页面仍允许保留页面内实现，例如 `services/web/src/views/console/TVCalendarView.vue`。
 
 ---
 

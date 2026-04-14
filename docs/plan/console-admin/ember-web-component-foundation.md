@@ -1,6 +1,6 @@
 # Ember Web 组件基建收口方案
 
-> 状态：进行中
+> 状态：收尾中
 > 负责人：Ember
 > 更新时间：2026-04-14
 
@@ -91,12 +91,18 @@
     - `services/web/src/views/admin/PlaybackHistoryView.vue`
     - `services/web/src/views/admin/RedemptionCodesView.vue`
     - `services/web/src/views/admin/UserPlaybackProfilesView.vue`
+  - 已完成第二批页面迁移与容器收口：
+    - `services/web/src/views/admin/PaymentCenterView.vue`
+    - `services/web/src/views/admin/RedemptionCenterView.vue`
+    - `services/web/src/views/admin/RedemptionHistoryView.vue`
+    - `services/web/src/views/admin/PlansView.vue`
+    - `services/web/src/views/admin/PlanGroupsView.vue`
   - 上述迁移完成后均已执行 `cd services/web && npm run build` 验证通过。
 - 剩余项：
-  - 将 `PaymentCenterView`、`RedemptionCenterView` 收口到 `EmberSegmentTabs`。
-  - 继续迁移 `RedemptionHistoryView`、`PlansView`、`PlanGroupsView` 等仍保留重复骨架的后台页面。
-  - 评估认证页与控制台页面是否需要接入现有基础组件，而不是继续扩散局部样式。
-  - 文档尚未同步到 `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md`。
+  - 将当前计划同步为收尾状态，明确哪些后台页面已经完成迁移、哪些页面保留特例实现。
+  - 评估 `services/web/src/views/LoginView.vue`、`services/web/src/views/ForgotPasswordView.vue`、`services/web/src/views/user/RegisterView.vue` 是否需要接入现有基础组件；若不接入，需写清保留特例的原因和边界。
+  - 将已落地的组件目录、职责边界与页面骨架规则同步到 `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md`。
+  - 盘点仍保留局部样式的页面内控件（如 `form-number` 一类），判断是否继续抽 Ember 基建，还是明确保留为页面级特例。
 
 ## 方案设计
 
@@ -166,15 +172,18 @@
     - `services/web/src/views/admin/PlaybackHistoryView.vue`
     - `services/web/src/views/admin/RedemptionCodesView.vue`
     - `services/web/src/views/admin/UserPlaybackProfilesView.vue`
-  - 后续迁移页面：
+    - `services/web/src/views/admin/PaymentCenterView.vue`
+    - `services/web/src/views/admin/RedemptionCenterView.vue`
     - `services/web/src/views/admin/RedemptionHistoryView.vue`
     - `services/web/src/views/admin/PlansView.vue`
     - `services/web/src/views/admin/PlanGroupsView.vue`
-    - `services/web/src/views/admin/PaymentCenterView.vue`
-    - `services/web/src/views/admin/RedemptionCenterView.vue`
+  - 待评估页面：
     - `services/web/src/views/LoginView.vue`
     - `services/web/src/views/ForgotPasswordView.vue`
     - `services/web/src/views/user/RegisterView.vue`
+  - 当前明确保留特例方向的页面：
+    - `services/web/src/views/console/TVCalendarView.vue`
+  - 如后续继续扩展，可优先复用同一套组件边界到更多控制台页面，而不是新增第二套骨架。
 
 ### 4. 关键流程
 
@@ -198,8 +207,10 @@
    - 表格 + 分页
    - 弹窗表单
    - 当前已在上述已迁移页面中完成覆盖验证
-6. 再扩展到剩余控制台/后台页面，并收口重复的 tabs、metric cards、empty states。
+6. 再扩展到剩余后台页面，并收口重复的 tabs、metric cards、empty states。
+   - 当前已完成 `PaymentCenterView`、`RedemptionCenterView`、`RedemptionHistoryView`、`PlansView`、`PlanGroupsView`
 7. 最后清理失效的 scoped CSS、重复 class 组合和不再需要的局部样式类。
+   - 当前后台高重复页面已基本收口，后续重点转为文档同步与认证页边界判断。
 
 ### 5. 失败路径与边界条件
 
@@ -246,6 +257,8 @@
 - 播放历史页迁移后，日期范围筛选与表格容器不出现尺寸漂移或双层边框。
 - 兑换码页迁移后，复杂筛选区和多个弹窗表单仍能复用同一套 Ember 组件骨架。
 - 用户画像总览页迁移后，统计卡、日期范围和列表骨架继续遵守 Ember 风格。
+- 支付中心、兑换中心迁移后，页内 tabs 切换统一落到 `EmberSegmentTabs`，不再保留第二套手写标签容器。
+- 兑换历史、付费方案、套餐分组迁移后，header / table / dialog 骨架继续保持原行为与原字段语义。
 - 登录、注册、忘记密码页如接入基础表单组件后，视觉保持 Ember 风格，不引入第二套表单语言。
 
 ## 落地后文档处理
@@ -256,8 +269,9 @@
   - `services/web` 组件目录边界
   - Web 共享组件层职责
 - 将长期有效的页面骨架、筛选控件、表单容器命名和使用规则补充到 `docs/reference/web-design-guide.md`
+- 若认证页最终不接入当前 Ember 基建层，需要在本方案中补一段“保留特例”的结论，避免后续重复评估。
 - 这份方案在以下条件满足后移入 `docs/archive/plan/console-admin/`：
   - Ember 基础组件目录已建立
-  - 计划内高重复页面迁移已完成，剩余页面已明确是否接入或保留特例实现
-  - 失效 scoped CSS 已完成清理
-  - 现行文档已同步更新
+  - 计划内高重复后台页面迁移已完成，剩余页面已明确是否接入或保留特例实现
+  - 失效 scoped CSS 已完成清理或已明确保留理由
+  - `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md` 已同步更新

@@ -67,6 +67,48 @@
 - 基于 Element Plus 的输入框，边框、圆角、焦点光圈统一落在 `.el-input__wrapper` 层，不要再给内部 `input` 元素额外添加边框或阴影，避免出现双层输入框。
 - `input-ember` 这类输入样式类，只负责统一外层容器表现；内部 `input` 应保持透明、无边框、无额外阴影。
 
+### 3.4 Ember 基础组件使用规则
+
+当前后台与控制台高频页面，默认优先使用 `services/web/src/components/ember/` 下的基础组件，而不是在 view 内重新拼一套骨架。
+
+- `EmberPageHeaderCard`
+  - 用于页面标题、说明、统计 badge、右侧操作区。
+  - 后台列表页、中心页、带管理动作的摘要页默认优先使用。
+  - 若页面只是局部嵌入块、没有完整页头语义，可以不强行套。
+- `EmberFilterPanel`
+  - 用于后台列表页筛选区容器。
+  - 当页面存在“筛选字段 + 查询/重置按钮”时，默认必须使用，不再在 view 内手写一层灰底卡片。
+  - 纯单按钮工具条、纯 tabs 工具条不使用它。
+- `EmberTableCard`
+  - 用于表格容器、统一表头样式和分页区。
+  - 后台列表页默认必须使用，避免每页重复写 `overflow-hidden + rounded-2xl + header-cell-style`。
+  - 没有表格主体的卡片型页面不应硬套。
+- `EmberSearchInput`
+  - 用于关键词、用户名、ID、兑换码这类搜索输入。
+  - 带左侧 icon 的后台筛选输入默认优先使用，不再复制 `group + absolute icon + filter-input` 写法。
+- `EmberSelectField`
+  - 用于后台筛选下拉字段。
+  - 如果只是表单内部普通 `select`，仍可保留 `form-select` 一类局部样式；不要把筛选字段和表单字段混成同一套职责。
+- `EmberDateField` / `EmberDateRangeField`
+  - 用于后台筛选日期字段。
+  - 自定义左侧图标时必须隐藏组件内置前缀图标，避免双图标。
+  - 单日期与日期范围必须按各自组件使用，不要在页面里再单独复制一套日期框样式。
+- `EmberFormDialog`
+  - 用于通用新建/编辑弹窗。
+  - 需要统一 header / body / footer 节奏的后台表单，默认优先使用。
+  - 若弹窗内部结构高度定制、已明显超出通用表单容器边界，可以保留页面内实现，但必须说明原因。
+- `EmberSegmentTabs`
+  - 用于支付中心、兑换中心这种页内分段切换。
+  - 当 tabs 本质是同页不同子视图切换时，默认优先使用，不再手写第二套圆角按钮组。
+- `EmberMetricCard`
+  - 用于简单统计卡：标题、数值、补充说明三段式。
+  - 若卡片内部有复杂图标区、双列信息区、状态组合，不要为了“统一”硬套，允许保留局部特例。
+
+特例边界：
+
+- `TVCalendarView`、首页重视觉模块、强业务编排页面，允许先保留页面内实现。
+- 允许特例，不允许偷懒；凡是高频后台骨架重复场景，不再接受“直接在 view 里重新写一套”。
+
 ---
 
 ## 4. 列表页标准骨架（必须）
@@ -75,6 +117,13 @@
 
 1. `Header Card`：页面标题 + 统计 + 筛选工具条  
 2. `Table Card`：表格 + 分页条
+
+实现约束：
+
+- `Header Card` 默认使用 `EmberPageHeaderCard`
+- 筛选区默认使用 `EmberFilterPanel`
+- `Table Card` 默认使用 `EmberTableCard`
+- 页内分段中心页若存在 tabs，优先在 `Header Card` 的 actions/tabs 区挂接 `EmberSegmentTabs`
 
 示例骨架：
 
@@ -286,6 +335,8 @@
 - 默认使用 `align-center`，容器圆角保持 `rounded-2xl`。
 - 表单优先 `label-position="top"`，避免左对齐标签压缩横向空间。
 - 开关、状态切换等组合控件优先放进 `border border-gray-200 rounded-xl bg-gray-50` 容器，避免裸露控件漂浮。
+- 通用新建/编辑弹窗默认优先使用 `EmberFormDialog`，不要在每个页面重复覆盖 `el-dialog__header`、`el-dialog__body`、`el-dialog__footer`。
+- 当弹窗只是在做标准后台表单时，应先复用通用容器，再决定是否需要局部补样式；不要反过来先写一套局部 dialog 再讨论是否抽组件。
 
 ### 8.2 徽章与状态标签
 
