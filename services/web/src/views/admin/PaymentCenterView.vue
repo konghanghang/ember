@@ -2,6 +2,7 @@
 import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CreditCard, Goods, CollectionTag } from '@element-plus/icons-vue'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import PaymentsView from './PaymentsView.vue'
 import PlansView from './PlansView.vue'
 import PlanGroupsView from './PlanGroupsView.vue'
@@ -61,18 +62,11 @@ watch(
           <p class="mt-1 text-sm text-slate-500">把方案配置和订单审计放在一起，支付工作流更完整。</p>
         </div>
 
-        <div class="inline-flex w-full rounded-2xl bg-slate-100 p-1 lg:w-auto">
-          <button
-            v-for="tab in tabs"
-            :key="tab.key"
-            class="flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors lg:flex-none"
-            :class="activeTab === tab.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
-            @click="setTab(tab.key)"
-          >
-            <el-icon><component :is="tab.icon" /></el-icon>
-            <span>{{ tab.label }}</span>
-          </button>
-        </div>
+        <EmberSegmentTabs
+          :model-value="activeTab"
+          :tabs="tabs"
+          @change="setTab"
+        />
       </div>
     </section>
 
