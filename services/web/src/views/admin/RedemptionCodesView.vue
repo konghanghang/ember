@@ -2,6 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument, Search, UserFilled, CollectionTag } from '@element-plus/icons-vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
+import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
+import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getUserTemplates, getPlanGroups } from '@/api/admin'
 import type {
   CreateRedemptionCodeRequest,
@@ -342,28 +348,15 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <template v-if="!props.embedded">
-            <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              兑换码管理
-              <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ total }} 个兑换码</span>
-            </h1>
-            <p class="mt-1 text-sm text-gray-500">生成和管理注册/续期兑换码</p>
-          </template>
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-sm font-semibold text-gray-900">兑换码池</span>
-            <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
-            <span v-if="activeFilterCount > 0" class="rounded-full bg-red-50 px-2.5 py-1 text-xs text-red-600">
-              已启用 {{ activeFilterCount }} 个筛选条件
-            </span>
-          </div>
-          <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">
-            支持按兑换码、状态、模板用户和注册套餐分组筛选；未绑定分组的注册码在注册后会跟随默认分组。
-          </p>
-        </div>
+    <EmberPageHeaderCard
+      :title="props.embedded ? '兑换码池' : '兑换码管理'"
+      :description="props.embedded ? '支持按兑换码、状态、模板用户和注册套餐分组筛选。' : '生成和管理注册/续期兑换码'"
+    >
+      <template v-if="!props.embedded" #titleSuffix>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">{{ total }} 个兑换码</span>
+      </template>
 
+      <template #actions>
         <div class="flex flex-col gap-3 xl:items-end">
           <slot name="tabs" />
 
@@ -374,7 +367,7 @@ onMounted(async () => {
             </div>
             <button
               @click="fetchData"
-              class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
               aria-label="刷新兑换码列表"
               title="刷新列表"
             >
@@ -382,129 +375,105 @@ onMounted(async () => {
             </button>
             <button
               @click="openCreateDialog"
-              class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+              class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
             >
               <el-icon><Plus /></el-icon>
               <span>生成兑换码</span>
             </button>
           </div>
         </div>
+      </template>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-sm font-semibold text-gray-900">兑换码池</span>
+        <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
+        <span v-if="activeFilterCount > 0" class="rounded-full bg-red-50 px-2.5 py-1 text-xs text-red-600">
+          已启用 {{ activeFilterCount }} 个筛选条件
+        </span>
       </div>
+      <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">
+        支持按兑换码、状态、模板用户和注册套餐分组筛选；未绑定分组的注册码在注册后会跟随默认分组。
+      </p>
 
-      <div class="mt-3 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
-        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-          <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
-            <div class="flex w-full flex-col gap-1.5">
-              <label class="block text-xs font-semibold tracking-wide text-gray-500">兑换码</label>
-              <div class="relative w-full group">
-                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <el-icon class="text-gray-400 transition-colors group-focus-within:text-ember"><Search /></el-icon>
-                </div>
-                <input
-                  v-model="queryParams.code"
-                  type="search"
-                  inputmode="search"
-                  autocomplete="off"
-                  aria-label="按兑换码筛选"
-                  placeholder="输入兑换码关键字"
-                  class="filter-input w-full pl-10 pr-4"
-                  @keyup.enter="handleSearch"
-                />
-              </div>
-            </div>
-
-            <div class="flex w-full flex-col gap-1.5">
-              <label class="block text-xs font-semibold tracking-wide text-gray-500">状态</label>
-              <div class="w-full">
-                <el-select
-                  v-model="queryParams.status"
-                  placeholder="全部状态"
-                  clearable
-                  class="w-full filter-select"
-                >
-                  <el-option
-                    v-for="item in statusOptions"
-                    :key="item.value"
-                    :label="item.label"
-                    :value="item.value"
-                  />
-                </el-select>
-              </div>
-            </div>
-
-            <div class="flex w-full flex-col gap-1.5">
-              <label class="block text-xs font-semibold tracking-wide text-gray-500">权限模板用户</label>
-              <div class="relative w-full">
-                <div class="absolute inset-y-0 left-0 z-10 flex items-center pl-3 pointer-events-none">
-                  <el-icon class="text-gray-400"><UserFilled /></el-icon>
-                </div>
-                <el-select
-                  v-model="queryParams.templateUserId"
-                  placeholder="全部模板用户"
-                  clearable
-                  filterable
-                  class="w-full filter-select filter-select-with-icon"
-                >
-                  <el-option
-                    v-for="item in userTemplates"
-                    :key="item.id"
-                    :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
-                    :value="item.id"
-                  />
-                </el-select>
-              </div>
-            </div>
-
-            <div class="flex w-full flex-col gap-1.5">
-              <label class="block text-xs font-semibold tracking-wide text-gray-500">注册套餐分组</label>
-              <div class="relative w-full">
-                <div class="absolute inset-y-0 left-0 z-10 flex items-center pl-3 pointer-events-none">
-                  <el-icon class="text-gray-400"><CollectionTag /></el-icon>
-                </div>
-                <el-select
-                  v-model="queryParams.registrationPlanGroup"
-                  placeholder="全部分组"
-                  clearable
-                  filterable
-                  class="w-full filter-select filter-select-with-icon"
-                >
-                  <el-option
-                    v-for="option in planGroupOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
-            <button
-              @click="handleReset"
-              class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
-            >
-              重置
-            </button>
-            <button
-              @click="handleSearch"
-              class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
-            >
-              <el-icon><Search /></el-icon>
-              <span>查询</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <el-table
-        :data="tableData"
-        v-loading="loading"
-        style="width: 100%"
-        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
+      <EmberFilterPanel
+        wrapper-class="flex flex-col gap-3 xl:flex-row xl:items-end"
+        content-class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4"
+        actions-class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0"
       >
+        <EmberSearchInput
+          v-model="queryParams.code"
+          label="兑换码"
+          aria-label="按兑换码筛选"
+          placeholder="输入兑换码关键字"
+          :icon="Search"
+          @enter="handleSearch"
+        />
+
+        <EmberSelectField
+          v-model="queryParams.status"
+          label="状态"
+          placeholder="全部状态"
+          clearable
+        >
+          <el-option
+            v-for="item in statusOptions"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
+        </EmberSelectField>
+
+        <EmberSelectField
+          v-model="queryParams.templateUserId"
+          label="权限模板用户"
+          placeholder="全部模板用户"
+          clearable
+          filterable
+          :icon="UserFilled"
+        >
+          <el-option
+            v-for="item in userTemplates"
+            :key="item.id"
+            :label="`${item.username}${item.email ? ` (${item.email})` : ''}`"
+            :value="item.id"
+          />
+        </EmberSelectField>
+
+        <EmberSelectField
+          v-model="queryParams.registrationPlanGroup"
+          label="注册套餐分组"
+          placeholder="全部分组"
+          clearable
+          filterable
+          :icon="CollectionTag"
+        >
+          <el-option
+            v-for="option in planGroupOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </EmberSelectField>
+
+        <template #actions>
+          <button
+            @click="handleReset"
+            class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+          >
+            重置
+          </button>
+          <button
+            @click="handleSearch"
+            class="btn-ember inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+          >
+            <el-icon><Search /></el-icon>
+            <span>查询</span>
+          </button>
+        </template>
+      </EmberFilterPanel>
+    </EmberPageHeaderCard>
+
+    <EmberTableCard :data="tableData" :loading="loading">
         <el-table-column label="兑换码" min-width="180">
           <template #default="{ row }">
             <div class="flex items-center gap-3">
@@ -601,9 +570,8 @@ onMounted(async () => {
             </button>
           </template>
         </el-table-column>
-      </el-table>
 
-      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+      <template #pagination>
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -614,15 +582,13 @@ onMounted(async () => {
           @size-change="handlePageSizeChange"
           background
         />
-      </div>
-    </div>
+      </template>
+    </EmberTableCard>
 
-    <el-dialog
+    <EmberFormDialog
       v-model="dialogVisible"
       title="生成兑换码"
       width="680px"
-      align-center
-      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
@@ -740,14 +706,12 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
 
-    <el-dialog
+    <EmberFormDialog
       v-model="batchResultDialogVisible"
       title="批量生成结果"
       width="560px"
-      align-center
-      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2 space-y-4">
@@ -786,14 +750,12 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
 
-    <el-dialog
+    <EmberFormDialog
       v-model="editDialogVisible"
       title="编辑兑换码"
       width="560px"
-      align-center
-      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
@@ -896,69 +858,17 @@ onMounted(async () => {
           <button
             @click="handleUpdate"
             :disabled="editing"
-            class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-70"
           >
             {{ editing ? '保存中...' : '保存修改' }}
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
   </div>
 </template>
 
 <style scoped>
-.filter-input {
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  height: 42px;
-  line-height: 1.2;
-  font-size: 0.875rem;
-  color: #111827;
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.filter-input::placeholder {
-  color: #9ca3af;
-}
-
-.filter-input:hover {
-  background-color: #ffffff;
-}
-
-.filter-input:focus {
-  background-color: #ffffff;
-  border-color: var(--ember-red);
-  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
-}
-
-:deep(.filter-select .el-select__wrapper) {
-  height: 42px;
-  min-height: 42px;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-radius: 0.75rem;
-  background-color: #f9fafb;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.filter-select .el-select__wrapper.is-focused) {
-  background-color: #ffffff;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.filter-select-with-icon .el-select__wrapper) {
-  padding-left: 2.5rem;
-}
-
-:deep(.filter-select .el-select__selection) {
-  min-height: 0;
-}
-
 :deep(.form-select .el-select__placeholder),
 :deep(.form-select .el-select__selected-item) {
   font-size: 0.875rem;
@@ -1058,13 +968,5 @@ onMounted(async () => {
   margin-right: 0;
   border-bottom: 1px solid #f3f4f6;
   padding: 20px 24px;
-}
-
-:deep(.el-dialog__body) {
-  padding: 0;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 0;
 }
 </style>
