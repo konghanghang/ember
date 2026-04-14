@@ -4,6 +4,12 @@ import { useRouter } from 'vue-router'
 import { Calendar, RefreshRight, Search, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getUserPlaybackProfiles } from '@/api/admin'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberDateRangeField from '@/components/ember/filters/EmberDateRangeField.vue'
+import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
+import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { emberRangePickerPopperClass, rangePickerDefaultTime } from '@/constants/datePicker'
 import { formatPlaybackDate } from '@/utils/date'
 import type {
@@ -251,121 +257,93 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            用户画像总览
-            <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
-          </h1>
-          <p class="text-gray-500 text-sm mt-1">按用户聚合查看播放活跃度，先发现重点用户，再进入画像和历史明细</p>
-        </div>
+    <EmberPageHeaderCard
+      title="用户画像总览"
+      description="按用户聚合查看播放活跃度，先发现重点用户，再进入画像和历史明细"
+    >
+      <template #titleSuffix>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
+      </template>
 
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 xl:min-w-[30rem]">
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-            <p class="text-xs font-medium text-gray-500">有播放用户</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ summary.userCount }}</p>
-          </div>
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-            <p class="text-xs font-medium text-gray-500">总播放次数</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ summary.totalPlayCount }}</p>
-          </div>
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-            <p class="text-xs font-medium text-gray-500">总播放时长</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ summary.totalPlayDurationFormatted }}</p>
-          </div>
-        </div>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[30rem]">
+        <EmberMetricCard title="有播放用户" :value="summary.userCount" />
+        <EmberMetricCard title="总播放次数" :value="summary.totalPlayCount" />
+        <EmberMetricCard title="总播放时长" :value="summary.totalPlayDurationFormatted" />
       </div>
 
-      <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
-        <div class="flex flex-col gap-3">
-          <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-            <div class="flex flex-wrap gap-2 xl:shrink-0">
-              <button
-                v-for="option in rangeOptions"
-                :key="option.value"
-                @click="handleRangeChange(option.value)"
-                class="px-4 py-2 text-sm rounded-xl border transition-colors cursor-pointer"
-                :class="queryParams.range === option.value
-                  ? 'border-ember bg-ember text-white'
-                  : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-
-            <div class="min-w-0 flex-1 space-y-1.5 xl:max-w-[34rem]">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">日期范围</label>
-              <div class="relative group">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Calendar /></el-icon>
-                </div>
-                <el-date-picker
-                  v-model="customDateRange"
-                  type="datetimerange"
-                  start-placeholder="开始日期时间"
-                  end-placeholder="结束日期时间"
-                  value-format="YYYY-MM-DD HH:mm:ss"
-                  :default-time="rangePickerDefaultTime"
-                  :popper-class="emberRangePickerPopperClass"
-                  class="w-full filter-date-range"
-                  unlink-panels
-                  clearable
-                  :disabled-date="disabledCustomDate"
-                  @calendar-change="handleCustomCalendarChange"
-                  @change="handleCustomRangeChange"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-            <div class="w-full xl:max-w-xs space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">用户名</label>
-              <div class="relative group">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><UserFilled /></el-icon>
-                </div>
-                <input
-                  v-model="queryParams.keyword"
-                  type="search"
-                  autocomplete="off"
-                  aria-label="按用户名筛选"
-                  placeholder="输入用户名筛选"
-                  class="filter-input w-full pl-10 pr-4"
-                  @keyup.enter="handleSearch"
-                />
-              </div>
-            </div>
-
-            <div class="flex items-end justify-end gap-2 xl:ml-auto xl:shrink-0">
-              <button
-                @click="handleReset"
-                class="px-4 py-2.5 text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <el-icon><RefreshRight /></el-icon>
-                重置
-              </button>
-              <button
-                @click="handleSearch"
-                class="btn-ember px-4 py-2.5 text-sm rounded-xl font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <el-icon><Search /></el-icon>
-                查询
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <el-table
-        :data="tableData"
-        v-loading="loading"
-        style="width: 100%"
-        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
+      <EmberFilterPanel
+        wrapper-class="flex flex-col gap-3"
+        content-class="flex flex-col gap-3"
+        actions-class="hidden"
       >
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div class="flex flex-wrap gap-2 xl:shrink-0">
+            <button
+              v-for="option in rangeOptions"
+              :key="option.value"
+              @click="handleRangeChange(option.value)"
+              class="cursor-pointer rounded-xl border px-4 py-2 text-sm transition-colors"
+              :class="queryParams.range === option.value
+                ? 'border-ember bg-ember text-white'
+                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+
+          <div class="min-w-0 flex-1 xl:max-w-[34rem]">
+            <EmberDateRangeField
+              v-model="customDateRange"
+              label="日期范围"
+              type="datetimerange"
+              start-placeholder="开始日期时间"
+              end-placeholder="结束日期时间"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              :default-time="rangePickerDefaultTime"
+              :popper-class="emberRangePickerPopperClass"
+              unlink-panels
+              clearable
+              :disabled-date="disabledCustomDate"
+              :icon="Calendar"
+              @calendar-change="handleCustomCalendarChange"
+              @change="handleCustomRangeChange"
+            />
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <div class="w-full xl:max-w-xs">
+            <EmberSearchInput
+              v-model="queryParams.keyword"
+              label="用户名"
+              aria-label="按用户名筛选"
+              placeholder="输入用户名筛选"
+              :icon="UserFilled"
+              @enter="handleSearch"
+            />
+          </div>
+
+          <div class="flex items-end justify-end gap-2 xl:ml-auto xl:shrink-0">
+            <button
+              @click="handleReset"
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+            >
+              <el-icon><RefreshRight /></el-icon>
+              重置
+            </button>
+            <button
+              @click="handleSearch"
+              class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+            >
+              <el-icon><Search /></el-icon>
+              查询
+            </button>
+          </div>
+        </div>
+      </EmberFilterPanel>
+    </EmberPageHeaderCard>
+
+    <EmberTableCard :data="tableData" :loading="loading">
         <el-table-column prop="username" label="用户" min-width="140" />
         <el-table-column width="130">
           <template #header>
@@ -466,9 +444,8 @@ onMounted(() => {
             </div>
           </template>
         </el-table-column>
-      </el-table>
 
-      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+      <template #pagination>
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -479,96 +456,7 @@ onMounted(() => {
           @size-change="fetchData"
           background
         />
-      </div>
-    </div>
+      </template>
+    </EmberTableCard>
   </div>
 </template>
-
-<style scoped>
-.filter-input {
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  height: 42px;
-  line-height: 1.2;
-  font-size: 0.875rem;
-  color: #111827;
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.filter-input::placeholder {
-  color: #9ca3af;
-}
-
-.filter-input:hover {
-  background-color: #ffffff;
-}
-
-.filter-input:focus {
-  background-color: #ffffff;
-  border-color: var(--ember-red);
-  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
-}
-
-:deep(.filter-date-range .el-date-editor),
-:deep(.filter-date-range .el-range-editor.el-input__wrapper),
-:deep(.filter-date-range.el-range-editor.el-input__wrapper) {
-  height: 42px !important;
-  min-height: 42px !important;
-  border-radius: 0.75rem !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  background-color: #f9fafb !important;
-}
-
-:deep(.filter-date-range .el-input__wrapper),
-:deep(.filter-date-range.el-input__wrapper) {
-  overflow: hidden;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  padding-left: 2.5rem !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  background-color: #f9fafb !important;
-}
-
-:deep(.filter-date-range:hover),
-:deep(.filter-date-range:hover .el-input__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.filter-date-range.is-active),
-:deep(.filter-date-range.is-active .el-input__wrapper) {
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-  background-color: #ffffff !important;
-}
-
-:deep(.filter-date-range .el-range-input) {
-  font-size: 0.875rem;
-  background-color: transparent;
-  min-width: 11rem;
-  width: 11rem;
-}
-
-:deep(.filter-date-range .el-time-panel-link) {
-  display: none !important;
-}
-
-:deep(.filter-date-range .el-range-separator) {
-  color: #6b7280;
-  min-width: 1.5rem;
-  justify-content: center;
-}
-
-:deep(.filter-date-range .el-range__icon) {
-  opacity: 0;
-  width: 0;
-  margin: 0;
-}
-
-:deep(.filter-date-range .el-range__close-icon) {
-  display: none !important;
-}
-
-</style>
