@@ -100,9 +100,9 @@
   - 上述迁移完成后均已执行 `cd services/web && npm run build` 验证通过。
 - 剩余项：
   - 将当前计划同步为收尾状态，明确哪些后台页面已经完成迁移、哪些页面保留特例实现。
-  - 评估 `services/web/src/views/LoginView.vue`、`services/web/src/views/ForgotPasswordView.vue`、`services/web/src/views/user/RegisterView.vue` 是否需要接入现有基础组件；若不接入，需写清保留特例的原因和边界。
   - 将已落地的组件目录、职责边界与页面骨架规则同步到 `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md`。
   - 盘点仍保留局部样式的页面内控件（如 `form-number` 一类），判断是否继续抽 Ember 基建，还是明确保留为页面级特例。
+  - 评估仍未抽象的局部控件（如认证页壳层、`form-number` 一类输入控件）是否值得继续沉淀为新组件；若不值得，需明确保留理由。
 
 ## 方案设计
 
@@ -183,7 +183,24 @@
     - `services/web/src/views/user/RegisterView.vue`
   - 当前明确保留特例方向的页面：
     - `services/web/src/views/console/TVCalendarView.vue`
+    - `services/web/src/views/LoginView.vue`
+    - `services/web/src/views/ForgotPasswordView.vue`
+    - `services/web/src/views/user/RegisterView.vue`
   - 如后续继续扩展，可优先复用同一套组件边界到更多控制台页面，而不是新增第二套骨架。
+
+### 3.1 认证页边界结论
+
+- 当前认证页 **不接入** 现有 Ember 后台基建层：
+  - `services/web/src/views/LoginView.vue`
+  - `services/web/src/views/ForgotPasswordView.vue`
+  - `services/web/src/views/user/RegisterView.vue`
+- 原因：
+  - 现有 `EmberPageHeaderCard`、`EmberFilterPanel`、`EmberTableCard`、`EmberFormDialog`、`EmberSegmentTabs` 是为后台/控制台高频骨架设计，不适合认证页的页面壳层。
+  - 认证页当前承担居中卡片、背景氛围、步骤流、验证码/Turnstile 等独立交互，不属于“后台列表页 + 弹窗表单”这套边界。
+  - 三个认证页已经共享 `btn-ember`、`input-ember` 和统一视觉基线；继续强接后台基建只会制造错边界，而不是提升复用。
+- 收口结论：
+  - 认证页继续遵守 Ember 风格，但保留为页面级特例实现。
+  - 若后续认证页之间重复继续增大，应单独抽 `auth` 领域组件壳层，而不是污染当前后台基建层。
 
 ### 4. 关键流程
 
