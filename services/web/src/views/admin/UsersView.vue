@@ -18,6 +18,13 @@ import {
   DataLine
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberDateField from '@/components/ember/filters/EmberDateField.vue'
+import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
+import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
+import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { createAdminUser, getPlanGroups, getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
 import type { CreateAdminUserRequest, ManagedPlanGroup, PlanGroup, UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
 
@@ -452,17 +459,14 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <!-- Header Area -->
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            用户管理
-            <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Total: {{ total }}</span>
-          </h1>
-          <p class="text-gray-500 text-sm mt-1">管理系统注册用户、人工开通账号及其权限状态</p>
-        </div>
-
+    <EmberPageHeaderCard
+      title="用户管理"
+      description="管理系统注册用户、人工开通账号及其权限状态"
+    >
+      <template #titleSuffix>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
+      </template>
+      <template #actions>
         <button
           @click="openCreateDialog"
           class="btn-ember inline-flex items-center justify-center gap-2 self-start rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer"
@@ -470,93 +474,62 @@ onMounted(async () => {
           <el-icon><Plus /></el-icon>
           <span>新建用户</span>
         </button>
-      </div>
+      </template>
 
-      <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
-        <div class="flex flex-col xl:flex-row xl:items-end gap-3">
-          <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-3 flex-1">
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">关键词</label>
-              <div class="relative w-full group">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Search /></el-icon>
-                </div>
-                <input
-                  v-model="queryParams.search"
-                  type="search"
-                  inputmode="search"
-                  autocomplete="off"
-                  aria-label="搜索用户名或邮箱"
-                  placeholder="输入用户名或邮箱"
-                  class="filter-input w-full pl-10 pr-4"
-                  @keyup.enter="handleSearch"
-                />
-              </div>
-            </div>
+      <EmberFilterPanel
+        wrapper-class="flex flex-col gap-3 xl:flex-row xl:items-end"
+        content-class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4 flex-1"
+        actions-class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0"
+      >
+        <EmberSearchInput
+          v-model="queryParams.search"
+          label="关键词"
+          aria-label="搜索用户名或邮箱"
+          placeholder="输入用户名或邮箱"
+          :icon="Search"
+          @enter="handleSearch"
+        />
 
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">到期晚于</label>
-              <div class="relative w-full group">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Calendar /></el-icon>
-                </div>
-                <el-date-picker
-                  v-model="queryParams.expiresAfter"
-                  type="date"
-                  value-format="YYYY-MM-DD"
-                  placeholder="选择日期"
-                  clearable
-                  class="w-full filter-date"
-                  @change="handleFilterChange"
-                />
-              </div>
-            </div>
+        <EmberDateField
+          v-model="queryParams.expiresAfter"
+          label="到期晚于"
+          type="date"
+          value-format="YYYY-MM-DD"
+          placeholder="选择日期"
+          clearable
+          @change="handleFilterChange"
+        />
 
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">Emby 状态</label>
-              <div class="relative w-full group">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><Lock /></el-icon>
-                </div>
-                <el-select
-                  v-model="queryParams.embyStatus"
-                  class="w-full filter-select"
-                  placeholder="全部状态"
-                  @change="handleFilterChange"
-                >
-                  <el-option label="全部状态" value="" />
-                  <el-option label="可用" value="available" />
-                  <el-option label="禁用" value="disabled" />
-                  <el-option label="未关联" value="unlinked" />
-                </el-select>
-              </div>
-            </div>
+        <EmberSelectField
+          v-model="queryParams.embyStatus"
+          label="Emby 状态"
+          placeholder="全部状态"
+          :icon="Lock"
+          @change="handleFilterChange"
+        >
+          <el-option label="全部状态" value="" />
+          <el-option label="可用" value="available" />
+          <el-option label="禁用" value="disabled" />
+          <el-option label="未关联" value="unlinked" />
+        </EmberSelectField>
 
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">套餐组</label>
-              <div class="relative w-full group">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
-                  <el-icon class="text-gray-400 group-focus-within:text-ember transition-colors"><CreditCard /></el-icon>
-                </div>
-                <el-select
-                  v-model="queryParams.planGroup"
-                  class="w-full filter-select"
-                  placeholder="全部分组"
-                  @change="handleFilterChange"
-                >
-                  <el-option label="全部分组" value="" />
-                  <el-option
-                    v-for="option in planGroupOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </div>
-            </div>
-          </div>
+        <EmberSelectField
+          v-model="queryParams.planGroup"
+          label="套餐组"
+          placeholder="全部分组"
+          :icon="CreditCard"
+          @change="handleFilterChange"
+        >
+          <el-option label="全部分组" value="" />
+          <el-option
+            v-for="option in planGroupOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </EmberSelectField>
 
-          <div class="flex items-center gap-2 self-end xl:ml-auto xl:shrink-0">
+        <template #actions>
             <button
               @click="handleResetFilters"
               class="px-4 py-2.5 text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
@@ -570,19 +543,11 @@ onMounted(async () => {
               <el-icon><Search /></el-icon>
               查询
             </button>
-          </div>
-        </div>
-      </div>
-    </div>
+        </template>
+      </EmberFilterPanel>
+    </EmberPageHeaderCard>
 
-    <!-- Users Table -->
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <el-table 
-        :data="tableData" 
-        v-loading="loading" 
-        style="width: 100%"
-        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
-      >
+    <EmberTableCard :data="tableData" :loading="loading">
         <!-- User Info -->
         <el-table-column label="用户" min-width="200">
           <template #default="{ row }">
@@ -711,10 +676,8 @@ onMounted(async () => {
             </div>
           </template>
         </el-table-column>
-      </el-table>
 
-      <!-- Pagination -->
-      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+      <template #pagination>
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -725,15 +688,13 @@ onMounted(async () => {
           @current-change="fetchData"
           background
         />
-      </div>
-    </div>
+      </template>
+    </EmberTableCard>
 
-    <el-dialog
+    <EmberFormDialog
       v-model="createDialogVisible"
       title="新建用户"
       width="560px"
-      align-center
-      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
@@ -827,15 +788,13 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
 
     <!-- Edit Dialog -->
-    <el-dialog 
+    <EmberFormDialog
       v-model="editDialogVisible" 
       title="编辑用户" 
       width="520px"
-      align-center
-      append-to-body
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
@@ -903,7 +862,7 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
   </div>
 </template>
 
@@ -921,94 +880,6 @@ onMounted(async () => {
   margin-right: 0;
   border-bottom: 1px solid #f3f4f6;
   padding: 20px 24px;
-}
-
-:deep(.el-dialog__body) {
-  padding: 0;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 0;
-}
-
-.filter-input {
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  height: 42px;
-  line-height: 1.2;
-  font-size: 0.875rem;
-  color: #111827;
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-.filter-input::placeholder {
-  color: #9ca3af;
-}
-
-.filter-input:hover {
-  background-color: #ffffff;
-}
-
-.filter-input:focus {
-  background-color: #ffffff;
-  border-color: var(--ember-red);
-  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
-}
-
-:deep(.filter-date .el-input__wrapper) {
-  height: 42px;
-  min-height: 42px;
-  background-color: #f9fafb !important;
-  border-radius: 0.75rem;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.filter-date:hover .el-input__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.filter-date .el-input__wrapper.is-focus) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.filter-date .el-input__inner) {
-  height: 100%;
-  padding-left: 2.5rem;
-  font-size: 0.875rem;
-}
-
-:deep(.filter-select .el-select__wrapper) {
-  height: 42px;
-  min-height: 42px;
-  background-color: #f9fafb !important;
-  border-radius: 0.75rem;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.filter-select:hover .el-select__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.filter-select .el-select__wrapper.is-focused),
-:deep(.filter-select .el-select__wrapper.is-focus),
-:deep(.filter-select.is-focus .el-select__wrapper) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.filter-select .el-select__selected-item),
-:deep(.filter-select .el-select__placeholder) {
-  padding-left: 1.8rem;
-  font-size: 0.875rem;
 }
 
 :deep(.form-select .el-select__wrapper) {
