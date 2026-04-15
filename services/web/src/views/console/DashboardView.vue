@@ -11,6 +11,7 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
 import { getEmbyConfig, getMediaStats } from '@/api/console'
@@ -250,19 +251,20 @@ watch(
             </p>
           </div>
 
-          <div
+          <EmberEmptyStateCard
             v-else-if="showLockedServerState"
-            class="rounded-2xl border border-dashed border-red-200 bg-red-50 px-6 py-10 text-center text-red-700"
-          >
-            <el-icon :size="36" class="text-red-300"><Monitor /></el-icon>
-            <p class="mt-3 text-sm font-semibold">服务器访问已锁定</p>
-            <p class="mt-2 text-xs text-red-600">当前账号已过期，请先续费后再恢复 Emby 访问权限。</p>
-          </div>
+            :icon="Monitor"
+            tone="danger"
+            title="服务器访问已锁定"
+            description="当前账号已过期，请先续费后再恢复 Emby 访问权限。"
+          />
 
-          <div v-else class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-10 text-center text-gray-500">
-            <el-icon :size="36" class="text-gray-300"><Monitor /></el-icon>
-            <p class="mt-3 text-sm">当前未提供服务器入口。</p>
-          </div>
+          <EmberEmptyStateCard
+            v-else
+            :icon="Monitor"
+            title="当前未提供服务器入口"
+            description="请联系管理员检查 Emby 连接配置。"
+          />
         </div>
       </section>
 

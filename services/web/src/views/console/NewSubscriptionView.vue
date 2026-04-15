@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, Film, VideoPlay, Plus, Check, RefreshRight } from '@element-plus/icons-vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { getTmdbTVSeasons, searchTmdb } from '@/api/user'
 import { createSubscription } from '@/api/console'
 import type { CreateSubscriptionRequest, MediaType, TmdbSearchItem } from '@/types/api'
@@ -251,10 +252,12 @@ const isConfirmDisabled = () => {
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="hasSearched && !loading" class="text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
-      <el-icon :size="48" class="mb-4 text-gray-300"><Search /></el-icon>
-      <p>未找到相关结果，请尝试其他关键词</p>
-    </div>
+    <EmberEmptyStateCard
+      v-else-if="hasSearched && !loading"
+      :icon="Search"
+      title="未找到相关结果"
+      description="请尝试其他关键词，或切换电影 / 剧集后重新搜索。"
+    />
 
     <!-- Initial State -->
     <div v-else-if="!hasSearched" class="text-center py-20 text-gray-400">

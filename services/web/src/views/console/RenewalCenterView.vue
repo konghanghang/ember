@@ -3,6 +3,7 @@ import { computed, inject, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { CreditCard, Timer, Money, Ticket, Clock } from '@element-plus/icons-vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
@@ -226,9 +227,11 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <div v-if="emptyPlans" class="rounded-2xl border border-dashed border-gray-200 py-14 text-center text-gray-400">
-                当前暂无可购买方案
-              </div>
+              <EmberEmptyStateCard
+                v-if="emptyPlans"
+                title="当前暂无可购买方案"
+                description="请稍后刷新，或联系管理员检查付费方案配置。"
+              />
 
               <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div

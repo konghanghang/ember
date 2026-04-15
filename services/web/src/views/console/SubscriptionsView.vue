@@ -12,6 +12,7 @@ import {
   Film,
   UserFilled
 } from '@element-plus/icons-vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useAuthStore } from '@/store/auth'
@@ -280,19 +281,21 @@ onMounted(fetchData)
       </div>
 
       <!-- Empty State -->
-      <div v-else class="flex flex-col items-center justify-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
-        <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
-          <el-icon :size="40"><Film /></el-icon>
-        </div>
-        <p class="text-lg font-medium text-gray-500">暂无订阅记录</p>
-        <p class="text-sm mt-1 mb-6">您还没有提交过任何订阅请求</p>
-        <button 
-          @click="router.push('/console/subscriptions/new')"
-          class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors cursor-pointer"
-        >
-          去添加
-        </button>
-      </div>
+      <EmberEmptyStateCard
+        v-else
+        :icon="Film"
+        title="暂无订阅记录"
+        description="您还没有提交过任何订阅请求。"
+      >
+        <template #actions>
+          <button 
+            @click="router.push('/console/subscriptions/new')"
+            class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors cursor-pointer"
+          >
+            去添加
+          </button>
+        </template>
+      </EmberEmptyStateCard>
     </div>
 
     <!-- Pagination -->

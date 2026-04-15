@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Film, VideoPlay, RefreshRight } from '@element-plus/icons-vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useUserStore } from '@/store/user'
@@ -101,9 +102,12 @@ onMounted(fetchLatest)
       </div>
     </div>
 
-    <div v-else-if="items.length === 0" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-10">
-      <el-empty description="暂无最近入库内容" />
-    </div>
+    <EmberEmptyStateCard
+      v-else-if="items.length === 0"
+      :icon="Film"
+      title="暂无最近入库内容"
+      description="稍后刷新，或切换电影/剧集后再试。"
+    />
 
     <div v-else class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
       <div v-for="item in items" :key="item.id" class="group">

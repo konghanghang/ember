@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Calendar } from '@element-plus/icons-vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { emberRangePickerPopperClass, rangePickerDefaultTime } from '@/constants/datePicker'
 import { formatPlaybackDate } from '@/utils/date'
 import type {
@@ -245,9 +246,12 @@ const distributionBarStyle = (
           </div>
         </div>
 
-        <div v-else class="mt-8 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-          当前时间窗口内没有活跃时段数据
-        </div>
+        <EmberEmptyStateCard
+          v-else
+          class="mt-8"
+          compact
+          title="当前时间窗口内没有活跃时段数据"
+        />
       </div>
 
       <div class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -276,9 +280,12 @@ const distributionBarStyle = (
           </div>
         </div>
 
-        <div v-else class="mt-8 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-          当前时间窗口内还没有命中画像标签
-        </div>
+        <EmberEmptyStateCard
+          v-else
+          class="mt-8"
+          compact
+          title="当前时间窗口内还没有命中画像标签"
+        />
       </div>
     </div>
 
@@ -309,9 +316,12 @@ const distributionBarStyle = (
           </div>
         </div>
 
-        <div v-else class="mt-8 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-          当前时间窗口内没有设备偏好数据
-        </div>
+        <EmberEmptyStateCard
+          v-else
+          class="mt-8"
+          compact
+          title="当前时间窗口内没有设备偏好数据"
+        />
       </div>
 
       <div class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
@@ -340,9 +350,12 @@ const distributionBarStyle = (
           </div>
         </div>
 
-        <div v-else class="mt-8 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-          当前时间窗口内没有客户端偏好数据
-        </div>
+        <EmberEmptyStateCard
+          v-else
+          class="mt-8"
+          compact
+          title="当前时间窗口内没有客户端偏好数据"
+        />
       </div>
     </div>
 
@@ -381,9 +394,12 @@ const distributionBarStyle = (
         </div>
       </div>
 
-      <div v-else class="mt-8 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-        当前时间窗口内没有播放记录
-      </div>
+      <EmberEmptyStateCard
+        v-else
+        class="mt-8"
+        compact
+        title="当前时间窗口内没有播放记录"
+      />
     </div>
   </div>
 </template>
