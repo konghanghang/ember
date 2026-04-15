@@ -1,8 +1,8 @@
 # Ember Web 组件基建收口方案
 
-> 状态：收尾中
+> 状态：已收尾，待归档
 > 负责人：Ember
-> 更新时间：2026-04-14
+> 更新时间：2026-04-15
 
 ## 背景
 
@@ -98,18 +98,21 @@
     - `services/web/src/views/admin/PlansView.vue`
     - `services/web/src/views/admin/PlanGroupsView.vue`
   - 上述迁移完成后均已执行 `cd services/web && npm run build` 验证通过。
-- 剩余项：
-  - 将当前计划同步为收尾状态，明确哪些后台页面已经完成迁移、哪些页面保留特例实现。
-  - 将已落地的组件目录、职责边界与页面骨架规则同步到 `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md`。
-  - 盘点仍保留局部样式的页面内控件（如 `form-number` 一类），判断是否继续抽 Ember 基建，还是明确保留为页面级特例。
-  - 评估仍未抽象的局部控件（如认证页壳层、`form-number` 一类输入控件）是否值得继续沉淀为新组件；若不值得，需明确保留理由。
+- 收口结论：
+  - 已落地的组件目录、职责边界与页面骨架规则已同步到 `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md`。
+  - 认证页边界已经明确：`LoginView`、`ForgotPasswordView`、`RegisterView` 不接入当前后台基建层，继续保留页面级特例实现。
+  - `form-number` 已在 `services/web/src/assets/base.css` 内沉淀为全局数字输入基线，本期不再额外抽 Ember 数字输入组件。
+  - 后续扩展页面结论已经明确：
+    - `services/web/src/views/admin/DevicesView.vue`：属于标准后台列表页，后续若继续扩展 Ember 基建，应优先接入 `EmberPageHeaderCard`、`EmberFilterPanel`、`EmberTableCard` 和 `EmberMetricCard`。
+    - `services/web/src/views/admin/MediaQualityView.vue`：属于强业务报告页，保留页面级特例实现；后续仅建议按需统一页头与筛选壳层，不强行并入整套列表基建。
+    - `services/web/src/views/console/RenewalCenterView.vue`：保留购买卡片与兑换码区的业务特例实现；如继续扩展控制台基建，优先局部接入 `EmberSegmentTabs` 与 `EmberTableCard`，收口 tabs 与历史记录表格壳层。
 
 ## 方案设计
 
 ### 1. 用户可见行为
 
 - 新增能力：
-  - 新增 Ember 基础组件层，供后台、控制台和认证页复用。
+  - 新增 Ember 基础组件层，供后台与控制台高频页面复用。
   - 后续新页面优先通过基础组件拼装，而不是从空白模板重新写一套结构和样式。
 - 修改现有行为：
   - 页面内部实现方式从“view 内直接堆 Tailwind + scoped CSS”改为“基础组件 + 必要 slot + 少量局部样式”。
@@ -177,16 +180,19 @@
     - `services/web/src/views/admin/RedemptionHistoryView.vue`
     - `services/web/src/views/admin/PlansView.vue`
     - `services/web/src/views/admin/PlanGroupsView.vue`
-  - 待评估页面：
-    - `services/web/src/views/LoginView.vue`
-    - `services/web/src/views/ForgotPasswordView.vue`
-    - `services/web/src/views/user/RegisterView.vue`
   - 当前明确保留特例方向的页面：
     - `services/web/src/views/console/TVCalendarView.vue`
     - `services/web/src/views/LoginView.vue`
     - `services/web/src/views/ForgotPasswordView.vue`
     - `services/web/src/views/user/RegisterView.vue`
-  - 如后续继续扩展，可优先复用同一套组件边界到更多控制台页面，而不是新增第二套骨架。
+  - 后续扩展边界已明确：
+    - `services/web/src/views/admin/DevicesView.vue`
+      - 属于标准后台列表页，若继续扩展 Ember 基建，应纳入优先迁移范围。
+    - `services/web/src/views/admin/MediaQualityView.vue`
+      - 属于强业务报告页，保留特例实现，只按需统一公共壳层。
+    - `services/web/src/views/console/RenewalCenterView.vue`
+      - 属于控制台业务页，保留购买与兑换核心卡片，按需局部接入 tabs 与历史记录表格基建。
+  - 如后续继续扩展，应复用同一套组件边界到更多控制台页面，而不是新增第二套骨架；超出本方案范围的新迁移，另开后续计划，不再继续拉长本方案。
 
 ### 3.1 认证页边界结论
 
@@ -201,6 +207,32 @@
 - 收口结论：
   - 认证页继续遵守 Ember 风格，但保留为页面级特例实现。
   - 若后续认证页之间重复继续增大，应单独抽 `auth` 领域组件壳层，而不是污染当前后台基建层。
+
+### 3.2 追加探索页面结论
+
+- `services/web/src/views/admin/DevicesView.vue`
+  - 结论：**后续应接入** Ember 基建，不继续保留第二套标准后台列表骨架。
+  - 原因：
+    - 页面同时具备页头、统计卡、筛选区、列表表格和分页，边界与 `UsersView`、`PaymentsView` 这类已迁移后台列表页一致。
+    - 当前仍保留本地 `form-input`、`form-select`、手写筛选壳层和裸 `el-table`，属于典型重复结构。
+  - 收口方向：
+    - 页头、统计卡、筛选区和主表格优先接入 Ember 基建。
+    - 黑名单卡片和操作日志区允许暂时保留页面内实现。
+- `services/web/src/views/admin/MediaQualityView.vue`
+  - 结论：**保留特例实现**，不强行并入整套列表页基建。
+  - 原因：
+    - 页面主体是“媒体库报告 + 分布统计 + 汇总表 + 明细抽屉”的复合报告页，不是标准 CRUD 列表页。
+    - 强行套用通用列表骨架只会把特例页面做僵，不会提升边界质量。
+  - 收口方向：
+    - 如后续继续统一风格，只收页头与媒体库筛选壳层，不动报告主体和抽屉明细结构。
+- `services/web/src/views/console/RenewalCenterView.vue`
+  - 结论：**局部接入** Ember 基建，不做整页重构。
+  - 原因：
+    - 购买方案卡片和兑换码输入区属于控制台业务特例，保留页面内实现更符合边界。
+    - 续费方式 tabs、历史记录 tabs、支付/兑换记录表格壳层已经出现稳定重复，适合局部收口。
+  - 收口方向：
+    - 优先复用 `EmberSegmentTabs` 收口 tabs。
+    - 优先复用 `EmberTableCard` 收口历史记录表格和分页区。
 
 ### 4. 关键流程
 
@@ -227,7 +259,8 @@
 6. 再扩展到剩余后台页面，并收口重复的 tabs、metric cards、empty states。
    - 当前已完成 `PaymentCenterView`、`RedemptionCenterView`、`RedemptionHistoryView`、`PlansView`、`PlanGroupsView`
 7. 最后清理失效的 scoped CSS、重复 class 组合和不再需要的局部样式类。
-   - 当前后台高重复页面已基本收口，后续重点转为文档同步与认证页边界判断。
+   - 当前后台高重复页面已基本收口，文档同步、认证页边界和追加探索页面结论已完成。
+   - 后续若继续推进 `DevicesView` 或 `RenewalCenterView` 的接入，按新增扩展任务处理，不再继续扩展本方案主体。
 
 ### 5. 失败路径与边界条件
 
@@ -251,15 +284,16 @@
   - 收口 `base.css` 与局部页面样式职责
 - Bot：无
 - 配置/部署：无
-- 文档：需要更新
+- 文档：已更新
   - `docs/system-architecture.md`
-  - 如组件命名、目录约定和页面骨架成为长期规则，应补充到 `docs/reference/web-design-guide.md`
+  - `docs/reference/web-design-guide.md`
 
 ## 验证方式
 
 ### 编译/测试
 
 - `cd services/web && npm run build`
+- 已于 2026-04-15 再次执行，当前构建通过。
 
 按改动补充针对性验证：
 
@@ -276,19 +310,19 @@
 - 用户画像总览页迁移后，统计卡、日期范围和列表骨架继续遵守 Ember 风格。
 - 支付中心、兑换中心迁移后，页内 tabs 切换统一落到 `EmberSegmentTabs`，不再保留第二套手写标签容器。
 - 兑换历史、付费方案、套餐分组迁移后，header / table / dialog 骨架继续保持原行为与原字段语义。
-- 登录、注册、忘记密码页如接入基础表单组件后，视觉保持 Ember 风格，不引入第二套表单语言。
+- 认证页继续保留页面级特例实现，但维持 `btn-ember`、`input-ember` 和 Ember 视觉基线，不引入第二套表单语言。
+- `DevicesView`、`MediaQualityView`、`RenewalCenterView` 的边界结论已明确，后续如继续迁移，应按本方案中的页面结论执行。
 
 ## 落地后文档处理
 
 落地后应同步处理：
 
-- 将稳定结论同步到 `docs/system-architecture.md`
+- 已同步 `docs/system-architecture.md`
   - `services/web` 组件目录边界
   - Web 共享组件层职责
-- 将长期有效的页面骨架、筛选控件、表单容器命名和使用规则补充到 `docs/reference/web-design-guide.md`
-- 若认证页最终不接入当前 Ember 基建层，需要在本方案中补一段“保留特例”的结论，避免后续重复评估。
-- 这份方案在以下条件满足后移入 `docs/archive/plan/console-admin/`：
-  - Ember 基础组件目录已建立
-  - 计划内高重复后台页面迁移已完成，剩余页面已明确是否接入或保留特例实现
-  - 失效 scoped CSS 已完成清理或已明确保留理由
-  - `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md` 已同步更新
+- 已同步 `docs/reference/web-design-guide.md`
+  - 页面骨架、筛选控件、表单容器命名和使用规则
+- 本方案内已补齐认证页“保留特例”结论，并补齐 `DevicesView`、`MediaQualityView`、`RenewalCenterView` 的页面边界结论。
+- 归档结论：
+  - 本方案主体已经收尾完成，后续若继续推进 `DevicesView`、`RenewalCenterView` 或其他控制台页面的接入，应新开扩展计划，不再继续堆叠到本方案。
+  - 若当前不再追加同类迁移，可直接移入 `docs/archive/plan/console-admin/`。

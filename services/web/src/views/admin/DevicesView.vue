@@ -2,6 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Iphone, Plus, RefreshRight, Search, WarningFilled, SwitchButton } from '@element-plus/icons-vue'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
+import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
+import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import {
   addDeviceBlacklist,
   getDeviceActions,
@@ -220,47 +226,103 @@ onMounted(refreshAll)
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-ember/10 text-ember flex items-center justify-center">
-          <el-icon :size="20"><Iphone /></el-icon>
-        </div>
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">设备管理</h1>
-          <p class="text-sm text-gray-500 mt-1">黑名单治理、设备下线与行为审计</p>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-3">
+    <EmberPageHeaderCard
+      title="设备管理"
+      description="黑名单治理、设备下线与行为审计"
+    >
+      <template #titleSuffix>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
+      </template>
+      <template #actions>
         <button
           type="button"
           @click="refreshAll"
-          class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer"
         >
           <el-icon><RefreshRight /></el-icon>
           刷新
         </button>
-      </div>
-    </div>
+      </template>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm" v-loading="statsLoading">
-        <div class="text-xs text-gray-500">活跃播放会话</div>
-        <div class="mt-2 text-3xl font-bold text-gray-900">{{ stats.activeSessionCount }}</div>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <EmberMetricCard
+          v-loading="statsLoading"
+          title="活跃播放会话"
+          :value="stats.activeSessionCount"
+          detail="当前在线播放设备数"
+        />
+        <EmberMetricCard
+          v-loading="statsLoading"
+          title="黑名单客户端"
+          :value="stats.blacklistedClientCount"
+          detail="命中后可统一执行下线"
+        />
+        <EmberMetricCard
+          title="当前页命中黑名单"
+          :value="blacklistedInCurrentPage"
+          detail="随当前分页结果变化"
+        />
+        <EmberMetricCard
+          v-loading="statsLoading"
+          title="客户端种类数"
+          :value="stats.clientDistribution.length"
+          detail="按客户端名称聚合"
+        />
       </div>
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm" v-loading="statsLoading">
-        <div class="text-xs text-gray-500">黑名单客户端</div>
-        <div class="mt-2 text-3xl font-bold text-red-600">{{ stats.blacklistedClientCount }}</div>
-      </div>
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div class="text-xs text-gray-500">当前页命中黑名单</div>
-        <div class="mt-2 text-3xl font-bold text-orange-600">{{ blacklistedInCurrentPage }}</div>
-      </div>
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm" v-loading="statsLoading">
-        <div class="text-xs text-gray-500">客户端种类数</div>
-        <div class="mt-2 text-3xl font-bold text-gray-900">{{ stats.clientDistribution.length }}</div>
-      </div>
-    </div>
+
+      <EmberFilterPanel
+        wrapper-class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto]"
+        content-class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3"
+        actions-class="flex items-end justify-end gap-2"
+      >
+        <EmberSearchInput
+          v-model="query.userId"
+          label="用户 ID"
+          aria-label="按用户 ID 筛选"
+          placeholder="按用户 ID 筛选"
+          :icon="Search"
+          @enter="handleDeviceSearch"
+        />
+
+        <EmberSearchInput
+          v-model="query.clientName"
+          label="客户端"
+          aria-label="按客户端筛选"
+          placeholder="按客户端筛选"
+          :icon="Iphone"
+          @enter="handleDeviceSearch"
+        />
+
+        <EmberSelectField
+          v-model="query.isBlacklisted"
+          label="黑名单状态"
+          placeholder="全部状态"
+        >
+          <el-option label="全部状态" value="" />
+          <el-option label="仅黑名单" value="true" />
+          <el-option label="仅非黑名单" value="false" />
+        </EmberSelectField>
+
+        <template #actions>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
+            @click="handleDeviceReset"
+          >
+            <el-icon><RefreshRight /></el-icon>
+            重置
+          </button>
+          <button
+            type="button"
+            class="btn-ember inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold cursor-pointer"
+            @click="handleDeviceSearch"
+          >
+            <el-icon><Search /></el-icon>
+            查询
+          </button>
+        </template>
+      </EmberFilterPanel>
+    </EmberPageHeaderCard>
 
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
       <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 space-y-4">
@@ -284,7 +346,7 @@ onMounted(refreshAll)
               v-model="blacklistForm.clientName"
               placeholder="客户端名称，例如 Infuse"
               aria-label="客户端名称"
-              class="form-input"
+              class="input-ember"
             />
           </div>
           <div class="space-y-1.5">
@@ -293,7 +355,7 @@ onMounted(refreshAll)
               v-model="blacklistForm.reason"
               placeholder="原因（可选）"
               aria-label="黑名单原因"
-              class="form-input"
+              class="input-ember"
             />
           </div>
           <div class="flex items-end">
@@ -345,111 +407,45 @@ onMounted(refreshAll)
       </div>
     </div>
 
-    <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6 space-y-4">
-      <div>
-        <h2 class="text-lg font-bold text-gray-900">设备列表</h2>
-        <p class="mt-1 text-sm text-gray-500">按用户、客户端和黑名单状态筛选设备，并保留统一的列表页操作结构。</p>
-      </div>
-
-      <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-3 md:p-4">
-        <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">用户 ID</label>
-              <el-input
-                v-model="query.userId"
-                placeholder="按用户 ID 筛选"
-                clearable
-                aria-label="按用户 ID 筛选"
-                class="form-input"
-                @keyup.enter="handleDeviceSearch"
-              />
-            </div>
-
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">客户端</label>
-              <el-input
-                v-model="query.clientName"
-                placeholder="按客户端筛选"
-                clearable
-                aria-label="按客户端筛选"
-                class="form-input"
-                @keyup.enter="handleDeviceSearch"
-              />
-            </div>
-
-            <div class="space-y-1.5">
-              <label class="text-xs font-semibold tracking-wide text-gray-500">黑名单状态</label>
-              <el-select v-model="query.isBlacklisted" class="form-select" aria-label="按黑名单状态筛选">
-                <el-option label="全部状态" value="" />
-                <el-option label="仅黑名单" value="true" />
-                <el-option label="仅非黑名单" value="false" />
-              </el-select>
-            </div>
-          </div>
-
-          <div class="flex items-end justify-end gap-2">
-            <button
-              type="button"
-              class="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
-              @click="handleDeviceReset"
-            >
-              <el-icon><RefreshRight /></el-icon>
-              重置
-            </button>
-            <button
-              type="button"
-              class="btn-ember inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold cursor-pointer"
-              @click="handleDeviceSearch"
-            >
-              <el-icon><Search /></el-icon>
-              查询
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <el-table :data="deviceList" v-loading="loading" style="width: 100%">
-        <el-table-column prop="deviceName" label="设备" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="clientName" label="客户端" min-width="140" show-overflow-tooltip />
-        <el-table-column label="状态" width="120">
-          <template #default="{ row }">
-            <el-tag :type="row.isActive ? 'success' : 'info'" effect="light">
-              {{ row.isActive ? '在线' : '离线' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="黑名单" width="120">
-          <template #default="{ row }">
-            <el-tag v-if="row.isBlacklisted" type="danger" effect="light">
-              命中
-            </el-tag>
-            <span v-else class="text-gray-400">否</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="用户" min-width="160">
-          <template #default="{ row }">
-            <span class="text-gray-700">{{ row.userName || '-' }}</span>
-            <div class="text-xs text-gray-400">{{ row.userId || '-' }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column label="最后活动" min-width="170">
-          <template #default="{ row }">{{ formatTime(row.lastActivityDate) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
-          <template #default="{ row }">
-            <button
-              type="button"
-              class="px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 text-sm font-semibold"
-              @click="handleLogoutDevice(row)"
-            >
-              强制注销
-            </button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="flex justify-end pt-2">
+    <EmberTableCard :data="deviceList" :loading="loading">
+      <el-table-column prop="deviceName" label="设备" min-width="150" show-overflow-tooltip />
+      <el-table-column prop="clientName" label="客户端" min-width="140" show-overflow-tooltip />
+      <el-table-column label="状态" width="120">
+        <template #default="{ row }">
+          <el-tag :type="row.isActive ? 'success' : 'info'" effect="light">
+            {{ row.isActive ? '在线' : '离线' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="黑名单" width="120">
+        <template #default="{ row }">
+          <el-tag v-if="row.isBlacklisted" type="danger" effect="light">
+            命中
+          </el-tag>
+          <span v-else class="text-gray-400">否</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="用户" min-width="160">
+        <template #default="{ row }">
+          <span class="text-gray-700">{{ row.userName || '-' }}</span>
+          <div class="text-xs text-gray-400">{{ row.userId || '-' }}</div>
+        </template>
+      </el-table-column>
+      <el-table-column label="最后活动" min-width="170">
+        <template #default="{ row }">{{ formatTime(row.lastActivityDate) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="120" fixed="right">
+        <template #default="{ row }">
+          <button
+            type="button"
+            class="px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 text-sm font-semibold"
+            @click="handleLogoutDevice(row)"
+          >
+            强制注销
+          </button>
+        </template>
+      </el-table-column>
+      <template #pagination>
         <el-pagination
           v-model:current-page="query.page"
           v-model:page-size="query.pageSize"
@@ -460,8 +456,8 @@ onMounted(refreshAll)
           @current-change="fetchDevices"
           @size-change="handleDevicePageSizeChange"
         />
-      </div>
-    </div>
+      </template>
+    </EmberTableCard>
 
     <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
       <div class="flex items-center gap-2 mb-4">
@@ -483,59 +479,3 @@ onMounted(refreshAll)
     </div>
   </div>
 </template>
-
-<style scoped>
-:deep(.form-input .el-input__wrapper) {
-  min-height: 42px;
-  border-radius: 0.75rem;
-  background-color: #f9fafb !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.form-input:hover .el-input__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.form-input .el-input__wrapper.is-focus) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.form-input .el-input__inner) {
-  font-size: 0.875rem;
-  color: #111827;
-}
-
-:deep(.form-input .el-input__inner::placeholder) {
-  color: #9ca3af;
-}
-
-:deep(.form-select .el-select__wrapper) {
-  min-height: 42px;
-  border-radius: 0.75rem;
-  background-color: #f9fafb !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.form-select:hover .el-select__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.form-select .el-select__wrapper.is-focused),
-:deep(.form-select .el-select__wrapper.is-focus),
-:deep(.form-select.is-focus .el-select__wrapper) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.form-select .el-select__placeholder),
-:deep(.form-select .el-select__selected-item) {
-  font-size: 0.875rem;
-}
-</style>
