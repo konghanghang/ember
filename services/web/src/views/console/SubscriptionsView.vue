@@ -7,13 +7,13 @@ import {
   Close, 
   Delete, 
   Plus, 
-  Search, 
   Refresh, 
-  Filter,
   VideoPlay,
   Film,
   UserFilled
 } from '@element-plus/icons-vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useAuthStore } from '@/store/auth'
 import { approveSubscription, rejectSubscription, deleteSubscriptionAsAdmin } from '@/api/admin'
 import { deleteSubscription, getSubscriptions } from '@/api/console'
@@ -39,6 +39,7 @@ const statusOptions = [
   { label: '已批准', value: 'APPROVED' },
   { label: '已拒绝', value: 'REJECTED' },
 ]
+const statusTabs = computed(() => statusOptions.map((opt) => ({ key: String(opt.value), label: opt.label })))
 
 const fetchData = async () => {
   loading.value = true
@@ -152,29 +153,21 @@ onMounted(fetchData)
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          订阅管理
-          <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ total }} 个订阅</span>
-        </h1>
-        <p class="text-gray-500 text-sm mt-1">查看和管理您的影视订阅请求</p>
-      </div>
-      
-      <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
-        <div class="flex bg-gray-100 p-1 rounded-xl flex-shrink-0">
-          <button 
-            v-for="opt in statusOptions"
-            :key="opt.value"
-            @click="queryParams.status = opt.value as any"
-            class="px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap cursor-pointer"
-            :class="queryParams.status === opt.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-        
+    <EmberPageHeaderCard
+      title="订阅管理"
+      description="查看和管理您的影视订阅请求"
+    >
+      <template #titleSuffix>
+        <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ total }} 个订阅</span>
+      </template>
+      <template #actions>
+        <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+          <EmberSegmentTabs
+            v-model="queryParams.status"
+            :tabs="statusTabs"
+            :full-width="false"
+          />
+
           <button
             @click="fetchData" 
             class="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
@@ -192,7 +185,8 @@ onMounted(fetchData)
             <span>新建订阅</span>
           </button>
         </div>
-      </div>
+      </template>
+    </EmberPageHeaderCard>
 
     <!-- Content -->
     <div v-loading="loading" class="min-h-[300px]">

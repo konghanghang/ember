@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Trophy, Film, VideoCamera, Calendar, Timer, VideoPlay } from '@element-plus/icons-vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useAuthStore } from '@/store/auth'
 import { getLatestRanking, getRankingHistory } from '@/api/console'
 import { previewRanking } from '@/api/admin'
@@ -39,6 +41,11 @@ const rangeTextWithCutoff = computed(() => {
   if (!cutoffAt.value) return rangeText.value
   return `${rangeText.value} 截至 ${cutoffAt.value}`
 })
+
+const periodTabs = computed(() => [
+  { key: 'daily', label: '日榜' },
+  { key: 'weekly', label: '周榜' }
+])
 
 function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0m'
@@ -164,101 +171,86 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6 animate-fade-in">
-    <div class="flex items-start md:items-center justify-between gap-4 flex-col md:flex-row">
-      <div class="flex items-center gap-3">
-        <div class="p-2 rounded-xl bg-ember/10 text-ember">
-          <el-icon :size="20"><Trophy /></el-icon>
-        </div>
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">播放排行榜</h1>
-          <div class="flex items-center gap-2 mt-1">
-            <p v-if="rangeTextWithCutoff" class="text-sm text-gray-500 flex items-center gap-1">
-              <el-icon :size="14" class="text-gray-400"><Calendar /></el-icon>
-              <span>{{ rangeTextWithCutoff }}</span>
-            </p>
-            <span
-              v-if="mode === 'preview'"
-              class="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-semibold"
-            >预览中</span>
-            <span
-              v-if="mode === 'history'"
-              class="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100 font-semibold"
-            >历史</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end">
-        <div class="inline-flex rounded-2xl bg-gray-100 p-1">
-          <button
-            type="button"
-            class="rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors cursor-pointer"
-            :class="period === 'daily' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
-            @click="period = 'daily'; handlePeriodChange()"
-          >
-            日榜
-          </button>
-          <button
-            type="button"
-            class="rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors cursor-pointer"
-            :class="period === 'weekly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
-            @click="period = 'weekly'; handlePeriodChange()"
-          >
-            周榜
-          </button>
-        </div>
-
-        <div class="w-[172px]">
-          <el-date-picker
-            v-model="selectedDate"
-            :type="period === 'daily' ? 'date' : 'week'"
-            value-format="YYYY-MM-DD"
-            placeholder="选择日期"
-            class="w-full ranking-date"
-            :disabled="loading"
+    <EmberPageHeaderCard
+      title="播放排行榜"
+      description="查看电影与剧集在当前时间窗口内的播放排行"
+    >
+      <template #actions>
+        <div class="flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end">
+          <EmberSegmentTabs
+            v-model="period"
+            :tabs="periodTabs"
+            :full-width="false"
+            @change="handlePeriodChange"
           />
+
+          <div class="w-[172px]">
+            <el-date-picker
+              v-model="selectedDate"
+              :type="period === 'daily' ? 'date' : 'week'"
+              value-format="YYYY-MM-DD"
+              placeholder="选择日期"
+              class="w-full ranking-date"
+              :disabled="loading"
+            />
+          </div>
+
+          <button
+            type="button"
+            :disabled="loading"
+            class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            @click="runHistory"
+          >
+            查看历史
+          </button>
+
+          <button
+            v-if="mode === 'history'"
+            type="button"
+            :disabled="loading"
+            class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            @click="fetchLatestAll"
+          >
+            返回最新
+          </button>
+
+          <button
+            v-if="authStore.isAdmin"
+            type="button"
+            :disabled="loading"
+            class="btn-ember inline-flex h-[42px] items-center justify-center rounded-xl px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+            @click="runPreview"
+          >
+            {{ loading && mode === 'preview' ? '预览生成中...' : '预览生成' }}
+          </button>
+
+          <button
+            v-if="authStore.isAdmin && mode === 'preview'"
+            type="button"
+            :disabled="loading"
+            class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            @click="fetchLatestAll"
+          >
+            恢复最新
+          </button>
         </div>
+      </template>
 
-        <button
-          type="button"
-          :disabled="loading"
-          class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-          @click="runHistory"
-        >
-          查看历史
-        </button>
-
-        <button
+      <div v-if="rangeTextWithCutoff || mode !== 'latest'" class="mt-4 flex flex-wrap items-center gap-2">
+        <p v-if="rangeTextWithCutoff" class="text-sm text-gray-500 flex items-center gap-1">
+          <el-icon :size="14" class="text-gray-400"><Calendar /></el-icon>
+          <span>{{ rangeTextWithCutoff }}</span>
+        </p>
+        <span
+          v-if="mode === 'preview'"
+          class="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-semibold"
+        >预览中</span>
+        <span
           v-if="mode === 'history'"
-          type="button"
-          :disabled="loading"
-          class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-          @click="fetchLatestAll"
-        >
-          返回最新
-        </button>
-
-        <button
-          v-if="authStore.isAdmin"
-          type="button"
-          :disabled="loading"
-          class="btn-ember inline-flex h-[42px] items-center justify-center rounded-xl px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-          @click="runPreview"
-        >
-          {{ loading && mode === 'preview' ? '预览生成中...' : '预览生成' }}
-        </button>
-
-        <button
-          v-if="authStore.isAdmin && mode === 'preview'"
-          type="button"
-          :disabled="loading"
-          class="inline-flex h-[42px] items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-          @click="fetchLatestAll"
-        >
-          恢复最新
-        </button>
+          class="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100 font-semibold"
+        >历史</span>
       </div>
-    </div>
+    </EmberPageHeaderCard>
 
     <el-skeleton v-if="loading" :rows="6" animated />
 

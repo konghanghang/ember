@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Film, VideoPlay, RefreshRight } from '@element-plus/icons-vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useUserStore } from '@/store/user'
 import { getLatestMedia } from '@/api/console'
 import type { LatestMediaItem } from '@/types/api'
@@ -65,44 +67,31 @@ onMounted(fetchLatest)
 
 <template>
   <div class="space-y-6 animate-fade-in">
-    <div class="flex items-start md:items-center justify-between gap-4 flex-col md:flex-row">
-      <div class="flex items-center gap-3">
-        <div class="p-2 rounded-xl bg-ember/10 text-ember">
-          <el-icon :size="20"><Film /></el-icon>
-        </div>
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">媒体库</h1>
-          <p class="text-sm text-gray-600 mt-1">浏览 Emby 服务器最近入库的影视内容</p>
-        </div>
-      </div>
+    <EmberPageHeaderCard
+      title="媒体库"
+      description="浏览 Emby 服务器最近入库的影视内容"
+    >
+      <template #actions>
+        <div class="flex items-center gap-3">
+          <EmberSegmentTabs
+            v-model="activeType"
+            :tabs="tabItems"
+            :full-width="false"
+          />
 
-      <div class="flex items-center gap-3">
-        <div class="inline-flex rounded-2xl bg-gray-100 p-1">
           <button
-            v-for="t in tabItems"
-            :key="t.key"
             type="button"
-            class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer"
-            :class="activeType === t.key ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'"
-            @click="activeType = t.key"
+            aria-label="刷新最近入库"
+            class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer"
+            :class="loading ? 'opacity-60 cursor-not-allowed' : ''"
+            :disabled="loading"
+            @click="fetchLatest"
           >
-            <el-icon :size="16"><component :is="t.icon" /></el-icon>
-            <span>{{ t.label }}</span>
+            <el-icon :size="18"><RefreshRight /></el-icon>
           </button>
         </div>
-
-        <button
-          type="button"
-          aria-label="刷新最近入库"
-          class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer"
-          :class="loading ? 'opacity-60 cursor-not-allowed' : ''"
-          :disabled="loading"
-          @click="fetchLatest"
-        >
-          <el-icon :size="18"><RefreshRight /></el-icon>
-        </button>
-      </div>
-    </div>
+      </template>
+    </EmberPageHeaderCard>
 
     <div v-if="loading" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
       <div v-for="(_x, idx) in skeletonItems" :key="idx" class="space-y-3">
