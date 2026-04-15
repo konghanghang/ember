@@ -2,7 +2,9 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { CreditCard, Timer, Refresh, Money, Ticket, Clock } from '@element-plus/icons-vue'
+import { CreditCard, Timer, Money, Ticket, Clock } from '@element-plus/icons-vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
@@ -49,6 +51,11 @@ const renewalTabs: Array<{ key: RenewalTab; label: string }> = [
   { key: 'online', label: '在线购买' },
   { key: 'redeem', label: '兑换码续期' }
 ]
+const renewalSegmentTabs = computed(() => renewalTabs.map((tab) => ({ key: tab.key, label: tab.label })))
+const historySegmentTabs = computed(() => [
+  { key: 'payments', label: `支付记录 ${paymentTotal.value}` },
+  { key: 'redemptions', label: `兑换记录 ${redemptionTotal.value}` }
+])
 
 const formatPrice = (price: number, currency: string = 'usd') => {
   return new Intl.NumberFormat('zh-CN', {
@@ -181,10 +188,6 @@ const consumeQueryState = async () => {
   }
 }
 
-const setRenewalTab = (tab: RenewalTab) => {
-  activeRenewalTab.value = tab
-}
-
 onMounted(async () => {
   await consumeQueryState()
   await refreshAll()
@@ -201,17 +204,11 @@ onMounted(async () => {
             <p class="mt-1 text-sm text-gray-500">选择在线购买或使用兑换码完成续费</p>
           </div>
 
-          <div class="inline-flex rounded-xl bg-gray-100 p-1 self-start">
-            <button
-              v-for="tab in renewalTabs"
-              :key="tab.key"
-              class="rounded-lg px-5 py-2 text-sm font-semibold transition-colors"
-              :class="activeRenewalTab === tab.key ? 'bg-ember text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-              @click="setRenewalTab(tab.key)"
-            >
-              {{ tab.label }}
-            </button>
-          </div>
+          <EmberSegmentTabs
+            v-model="activeRenewalTab"
+            :tabs="renewalSegmentTabs"
+            :full-width="false"
+          />
         </div>
       </div>
 
@@ -317,82 +314,68 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div class="px-6 py-4 border-b border-gray-100 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 class="font-bold text-gray-900">历史记录</h2>
-          <p class="text-xs text-gray-500 mt-1">查看当前账户的在线购买和兑换码使用记录</p>
-        </div>
+    <section class="space-y-4">
+      <div class="rounded-2xl border border-gray-100 bg-white px-6 py-4 shadow-sm">
+        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 class="font-bold text-gray-900">历史记录</h2>
+            <p class="text-xs text-gray-500 mt-1">查看当前账户的在线购买和兑换码使用记录</p>
+          </div>
 
-        <div class="inline-flex rounded-xl bg-gray-100 p-1 self-start">
-          <button
-            class="rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
-            :class="activeHistoryTab === 'payments' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-            @click="activeHistoryTab = 'payments'"
-          >
-            支付记录
-            <span class="ml-1 text-xs text-gray-400">{{ paymentTotal }}</span>
-          </button>
-          <button
-            class="rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
-            :class="activeHistoryTab === 'redemptions' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-            @click="activeHistoryTab = 'redemptions'"
-          >
-            兑换记录
-            <span class="ml-1 text-xs text-gray-400">{{ redemptionTotal }}</span>
-          </button>
+          <EmberSegmentTabs
+            v-model="activeHistoryTab"
+            :tabs="historySegmentTabs"
+            :full-width="false"
+          />
         </div>
       </div>
 
-      <template v-if="activeHistoryTab === 'payments'">
-        <el-table
-          :data="payments"
-          v-loading="paymentLoading"
-          style="width: 100%"
-          :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
-        >
-          <el-table-column label="方案" min-width="170">
-            <template #default="{ row }">
-              <span class="font-medium text-gray-900">{{ row.planName || '未知方案' }}</span>
-            </template>
-          </el-table-column>
+      <EmberTableCard
+        v-if="activeHistoryTab === 'payments'"
+        :data="payments"
+        :loading="paymentLoading"
+      >
+        <el-table-column label="方案" min-width="170">
+          <template #default="{ row }">
+            <span class="font-medium text-gray-900">{{ row.planName || '未知方案' }}</span>
+          </template>
+        </el-table-column>
 
-          <el-table-column label="金额" width="120">
-            <template #default="{ row }">
-              <span class="font-semibold text-gray-900">{{ formatPrice(row.amount, row.currency) }}</span>
-            </template>
-          </el-table-column>
+        <el-table-column label="金额" width="120">
+          <template #default="{ row }">
+            <span class="font-semibold text-gray-900">{{ formatPrice(row.amount, row.currency) }}</span>
+          </template>
+        </el-table-column>
 
-          <el-table-column label="状态" width="120">
-            <template #default="{ row }">
-              <el-tag :type="paymentStatusMeta(row.status).type" effect="light" round size="small">
-                {{ paymentStatusMeta(row.status).text }}
-              </el-tag>
-            </template>
-          </el-table-column>
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="paymentStatusMeta(row.status).type" effect="light" round size="small">
+              {{ paymentStatusMeta(row.status).text }}
+            </el-tag>
+          </template>
+        </el-table-column>
 
-          <el-table-column label="操作" width="140">
-            <template #default="{ row }">
-              <button
-                v-if="row.status === 'pending'"
-                @click="handleContinuePayment(row)"
-                :disabled="buyingPlanID === row.planId"
-                class="inline-flex items-center justify-center rounded-lg border border-ember/20 bg-ember/5 px-3 py-1.5 text-xs font-semibold text-ember transition-colors hover:bg-ember/10 disabled:opacity-60"
-              >
-                {{ buyingPlanID === row.planId ? '跳转中...' : '继续支付' }}
-              </button>
-              <span v-else class="text-xs text-gray-400">-</span>
-            </template>
-          </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <button
+              v-if="row.status === 'pending'"
+              @click="handleContinuePayment(row)"
+              :disabled="buyingPlanID === row.planId"
+              class="inline-flex items-center justify-center rounded-lg border border-ember/20 bg-ember/5 px-3 py-1.5 text-xs font-semibold text-ember transition-colors hover:bg-ember/10 disabled:opacity-60"
+            >
+              {{ buyingPlanID === row.planId ? '跳转中...' : '继续支付' }}
+            </button>
+            <span v-else class="text-xs text-gray-400">-</span>
+          </template>
+        </el-table-column>
 
-          <el-table-column label="时间" min-width="170">
-            <template #default="{ row }">
-              <span class="text-gray-600">{{ formatDate(row.createdAt) }}</span>
-            </template>
-          </el-table-column>
-        </el-table>
+        <el-table-column label="时间" min-width="170">
+          <template #default="{ row }">
+            <span class="text-gray-600">{{ formatDate(row.createdAt) }}</span>
+          </template>
+        </el-table-column>
 
-        <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+        <template #pagination>
           <el-pagination
             v-model:current-page="paymentQuery.page"
             v-model:page-size="paymentQuery.pageSize"
@@ -403,33 +386,30 @@ onMounted(async () => {
             @size-change="handlePaymentPageSizeChange"
             background
           />
-        </div>
-      </template>
+        </template>
+      </EmberTableCard>
 
-      <template v-else>
-        <el-table
-          :data="redemptions"
-          v-loading="redemptionsLoading"
-          style="width: 100%"
-          :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
-        >
-          <el-table-column prop="code" label="兑换码" min-width="180" />
-          <el-table-column label="延长时长" width="120">
-            <template #default="{ row }">
-              <div class="inline-flex items-center gap-1 text-gray-700">
-                <el-icon class="text-emerald-600"><Clock /></el-icon>
-                <span>+{{ row.days }} 天</span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="时间" min-width="170">
-            <template #default="{ row }">
-              <span class="text-gray-600">{{ formatDate(row.createdAt) }}</span>
-            </template>
-          </el-table-column>
-        </el-table>
+      <EmberTableCard
+        v-else
+        :data="redemptions"
+        :loading="redemptionsLoading"
+      >
+        <el-table-column prop="code" label="兑换码" min-width="180" />
+        <el-table-column label="延长时长" width="120">
+          <template #default="{ row }">
+            <div class="inline-flex items-center gap-1 text-gray-700">
+              <el-icon class="text-emerald-600"><Clock /></el-icon>
+              <span>+{{ row.days }} 天</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" min-width="170">
+          <template #default="{ row }">
+            <span class="text-gray-600">{{ formatDate(row.createdAt) }}</span>
+          </template>
+        </el-table-column>
 
-        <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+        <template #pagination>
           <el-pagination
             v-model:current-page="redemptionQuery.page"
             v-model:page-size="redemptionQuery.pageSize"
@@ -440,8 +420,8 @@ onMounted(async () => {
             @size-change="handleRedemptionPageSizeChange"
             background
           />
-        </div>
-      </template>
+        </template>
+      </EmberTableCard>
     </section>
 
   </div>
