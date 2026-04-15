@@ -31,8 +31,8 @@ cp .env.example .env
    - `WEBHOOK_URL`
 
 3. 决定数据库迁移策略。
-   - 空数据库首次启动：可直接用当前 compose，PostgreSQL 会执行 `infrastructure/database/` 下初始化 SQL。
-   - 已有数据库升级：先按 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 手动执行增量 SQL，再启动服务。
+   - 空数据库首次启动：可直接用当前 compose，PostgreSQL 会执行 `infrastructure/database/` 顶层 baseline SQL。
+   - 已有数据库升级：先按 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 手动执行顶层增量 SQL，再启动服务；截至 `2026-04-15`，baseline 后暂无新增 SQL。
 
 4. 拉取镜像并启动。
 

@@ -6,6 +6,7 @@
 
 - [部署指南](./deployment.md) - Docker 部署入口与最小启动路径
 - [部署环境与配置](./deployment-environment.md) - 必填变量、迁移策略、管理员初始化
+- [数据库 Migration Baseline](./database-migration-baseline.md) - baseline 生成、验证与旧迁移归档流程
 - [部署排障](./deployment-troubleshooting.md) - 部署失败时的检查动作和恢复动作
 - [测试指南](./testing.md) - 测试入口与最短验证路径
 - [手工测试清单](./manual-testing-checklist.md) - 按变更范围选跑的手工回归清单

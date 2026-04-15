@@ -104,6 +104,7 @@
 
 - 仅当数据库数据卷为空时自动执行一次
 - 适合全新环境初始化
+- 当前顶层入口是 `20260415_00_schema_baseline.sql` + baseline 之后的增量 migration
 
 如果同时保留 `AUTO_MIGRATE=true`，API 启动后还会执行模型自动迁移；这对开发环境和新环境通常没问题。
 
@@ -112,11 +113,13 @@
 生产环境或已有数据库升级时，推荐改成显式迁移：
 
 1. 阅读 [`infrastructure/database/README.md`](../../infrastructure/database/README.md)
-2. 手动执行新增 SQL
+2. 只手动执行 README 指定的顶层可执行 SQL
 3. 评估是否关闭 `AUTO_MIGRATE`
 4. 再启动或重启 API
 
 不要指望“改了 compose 就自动补所有历史迁移”。
+
+截至 `2026-04-15`，baseline 之后暂无新增 migration；已经在当前版本的数据库无需额外执行 SQL。
 
 ## 管理员初始化
 

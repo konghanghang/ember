@@ -170,5 +170,6 @@ cat backup.sql | docker compose exec -T postgres psql -U postgres ember
 
 - [部署指南](./deployment.md)
 - [部署环境与配置](./deployment-environment.md)
+- [数据库 Migration Baseline](./database-migration-baseline.md)
 - [Cloudflared 本地联调](./cloudflared-local-testing.md)
 - [数据库迁移说明](../../infrastructure/database/README.md)

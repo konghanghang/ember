@@ -1408,6 +1408,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 - API 容器仅保留启动期/边界环境变量（`DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`AUTO_MIGRATE`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`EMBY_WEBHOOK_TOKEN`、`INTERNAL_API_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`）
 - API 以非 root 用户 `ember:ember`(UID 1000) 运行
 - 健康检查：`GET /health`
+- 数据库迁移资产当前收口为 `infrastructure/database/20260415_00_schema_baseline.sql` + baseline 之后的顶层增量 migration；`pre-20260415` 历史 SQL 已归档到 `infrastructure/database/archive/pre-20260415/`
 
 **数据库连接池**：MaxIdle=10, MaxOpen=100, MaxLifetime=1h, MaxIdleTime=10min
 
