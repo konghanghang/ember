@@ -97,15 +97,27 @@
     - `services/web/src/views/admin/RedemptionHistoryView.vue`
     - `services/web/src/views/admin/PlansView.vue`
     - `services/web/src/views/admin/PlanGroupsView.vue`
+  - 已完成第三批页面收口：
+    - `services/web/src/views/admin/DevicesView.vue`
+    - `services/web/src/views/console/RenewalCenterView.vue`
+    - `services/web/src/views/admin/MediaQualityView.vue`
   - 上述迁移完成后均已执行 `cd services/web && npm run build` 验证通过。
 - 收口结论：
   - 已落地的组件目录、职责边界与页面骨架规则已同步到 `docs/system-architecture.md` 与 `docs/reference/web-design-guide.md`。
   - 认证页边界已经明确：`LoginView`、`ForgotPasswordView`、`RegisterView` 不接入当前后台基建层，继续保留页面级特例实现。
   - `form-number` 已在 `services/web/src/assets/base.css` 内沉淀为全局数字输入基线，本期不再额外抽 Ember 数字输入组件。
   - 后续扩展页面结论已经明确：
-    - `services/web/src/views/admin/DevicesView.vue`：属于标准后台列表页，后续若继续扩展 Ember 基建，应优先接入 `EmberPageHeaderCard`、`EmberFilterPanel`、`EmberTableCard` 和 `EmberMetricCard`。
-    - `services/web/src/views/admin/MediaQualityView.vue`：属于强业务报告页，保留页面级特例实现；后续仅建议按需统一页头与筛选壳层，不强行并入整套列表基建。
-    - `services/web/src/views/console/RenewalCenterView.vue`：保留购买卡片与兑换码区的业务特例实现；如继续扩展控制台基建，优先局部接入 `EmberSegmentTabs` 与 `EmberTableCard`，收口 tabs 与历史记录表格壳层。
+    - `services/web/src/views/admin/DevicesView.vue`：已完成标准后台列表页收口，页头、统计卡、筛选区与主表格已接入 `EmberPageHeaderCard`、`EmberFilterPanel`、`EmberTableCard` 和 `EmberMetricCard`；黑名单卡片与操作日志保留页面内实现。
+    - `services/web/src/views/admin/MediaQualityView.vue`：已完成公共壳层收口，页头与媒体库筛选区已接入 Ember 基建；报告主体、分布统计、汇总表与抽屉明细继续保留强业务特例实现。
+    - `services/web/src/views/console/RenewalCenterView.vue`：已完成局部收口，续费方式 tabs、历史记录 tabs 与历史记录表格壳层已接入 `EmberSegmentTabs` 与 `EmberTableCard`；购买卡片与兑换码区继续保留业务特例实现。
+  - 额外探索结论已经明确：
+    - 表单基线仍有继续统一空间：`form-select`、`form-date` 和 dialog chrome 仍散落在 `UsersView`、`PlansView`、`RedemptionCodesView`、`NewSubscriptionView` 等页面，后续应优先收口到 `base.css` 与 `EmberFormDialog`。
+    - 控制台页头与 tabs 仍有继续统一空间：`LibraryView`、`RankingsView`、`SubscriptionsView` 等页面仍保留手写页头和手写分段切换，后续优先复用 `EmberPageHeaderCard` 与 `EmberSegmentTabs`。
+    - 空状态块重复已经明显：`PlaybackProfileContent`、`DashboardView`、`NewSubscriptionView`、`SubscriptionsView`、`RenewalCenterView` 等处都存在同类 dashed empty state，后续适合补一个轻量 `EmberEmptyStateCard`。
+    - `PlaybackProfileContent`、`MediaQualityView` 这类已共享或半共享页面内部，仍存在可直接替换成 `EmberMetricCard` 的统计卡重复。
+    - 强业务海报卡片不适合现在抽成通用卡片：`SubscriptionsView`、`LibraryView`、`NewSubscriptionView` 的海报卡片交互和信息密度差异较大，继续硬抽只会制造大量布尔分支。
+    - `DashboardView`、`AccountCenterView`、`SettingsView`、`TVCalendarView` 继续保持页面级特例，不纳入下一轮 Ember 基建通用层。
+    - `services/web/src/components/HelloWorld.vue` 当前无业务引用，后续可作为前端目录清理项处理，但不属于本方案的组件基建主线。
 
 ## 方案设计
 
@@ -187,12 +199,12 @@
     - `services/web/src/views/user/RegisterView.vue`
   - 后续扩展边界已明确：
     - `services/web/src/views/admin/DevicesView.vue`
-      - 属于标准后台列表页，若继续扩展 Ember 基建，应纳入优先迁移范围。
+      - 已完成标准后台列表页收口，不再作为待迁移页面。
     - `services/web/src/views/admin/MediaQualityView.vue`
-      - 属于强业务报告页，保留特例实现，只按需统一公共壳层。
+      - 已完成公共壳层统一，继续保留报告主体特例实现。
     - `services/web/src/views/console/RenewalCenterView.vue`
-      - 属于控制台业务页，保留购买与兑换核心卡片，按需局部接入 tabs 与历史记录表格基建。
-  - 如后续继续扩展，应复用同一套组件边界到更多控制台页面，而不是新增第二套骨架；超出本方案范围的新迁移，另开后续计划，不再继续拉长本方案。
+      - 已完成 tabs 与历史记录表格骨架收口，继续保留购买与兑换核心卡片特例实现。
+  - 如后续继续扩展，应复用同一套组件边界到更多控制台页面，而不是新增第二套骨架；本方案内已盘点的追加页面已完成收口判断与实现。
 
 ### 3.1 认证页边界结论
 
@@ -211,28 +223,76 @@
 ### 3.2 追加探索页面结论
 
 - `services/web/src/views/admin/DevicesView.vue`
-  - 结论：**后续应接入** Ember 基建，不继续保留第二套标准后台列表骨架。
+  - 结论：**已完成接入** Ember 基建，不再保留第二套标准后台列表骨架。
   - 原因：
     - 页面同时具备页头、统计卡、筛选区、列表表格和分页，边界与 `UsersView`、`PaymentsView` 这类已迁移后台列表页一致。
-    - 当前仍保留本地 `form-input`、`form-select`、手写筛选壳层和裸 `el-table`，属于典型重复结构。
+    - 设备列表主链路已完成统一收口，只保留黑名单卡片和操作日志这类局部特例。
   - 收口方向：
-    - 页头、统计卡、筛选区和主表格优先接入 Ember 基建。
-    - 黑名单卡片和操作日志区允许暂时保留页面内实现。
+    - 页头、统计卡、筛选区和主表格已接入 Ember 基建。
+    - 黑名单卡片和操作日志区继续保留页面内实现。
 - `services/web/src/views/admin/MediaQualityView.vue`
-  - 结论：**保留特例实现**，不强行并入整套列表页基建。
+  - 结论：**已完成公共壳层收口**，继续保留报告主体特例实现。
   - 原因：
     - 页面主体是“媒体库报告 + 分布统计 + 汇总表 + 明细抽屉”的复合报告页，不是标准 CRUD 列表页。
     - 强行套用通用列表骨架只会把特例页面做僵，不会提升边界质量。
   - 收口方向：
-    - 如后续继续统一风格，只收页头与媒体库筛选壳层，不动报告主体和抽屉明细结构。
+    - 页头与媒体库筛选壳层已统一到 Ember 基建。
+    - 报告主体和抽屉明细结构继续保留页面内实现。
 - `services/web/src/views/console/RenewalCenterView.vue`
-  - 结论：**局部接入** Ember 基建，不做整页重构。
+  - 结论：**已完成局部接入** Ember 基建，不做整页重构。
   - 原因：
     - 购买方案卡片和兑换码输入区属于控制台业务特例，保留页面内实现更符合边界。
-    - 续费方式 tabs、历史记录 tabs、支付/兑换记录表格壳层已经出现稳定重复，适合局部收口。
+    - 续费方式 tabs、历史记录 tabs、支付/兑换记录表格壳层已完成稳定收口。
   - 收口方向：
-    - 优先复用 `EmberSegmentTabs` 收口 tabs。
-    - 优先复用 `EmberTableCard` 收口历史记录表格和分页区。
+    - `EmberSegmentTabs` 已用于收口 tabs。
+    - `EmberTableCard` 已用于收口历史记录表格和分页区。
+
+### 3.3 后续探索清单
+
+- 高优先级：表单基线继续统一
+  - 目标：
+    - 将 `form-select`、`form-date`、dialog header/body/footer 的重复样式统一沉到稳定基线。
+    - 减少 `UsersView`、`PlansView`、`RedemptionCodesView`、`NewSubscriptionView` 这类页面内重复 scoped CSS。
+  - 建议方向：
+    - 先补全 `base.css` 中的表单字段全局基线。
+    - 再收口 `EmberFormDialog`，把 dialog chrome 做成默认能力，而不是每页自己补一套。
+- 高优先级：控制台页头与 tabs 继续统一
+  - 目标：
+    - 继续扩展 `EmberPageHeaderCard` 与 `EmberSegmentTabs` 的覆盖面，减少控制台内第二套头部和 tabs 写法。
+  - 优先页面：
+    - `services/web/src/views/console/LibraryView.vue`
+    - `services/web/src/views/console/RankingsView.vue`
+    - `services/web/src/views/console/SubscriptionsView.vue`
+  - 补充说明：
+    - `services/web/src/views/admin/SessionsView.vue` 可只收页头，不建议强套列表页骨架。
+- 中优先级：补轻量 empty state 组件
+  - 目标：
+    - 为 dashed empty state 提供统一容器，减少重复 Tailwind 组合。
+  - 适用位置：
+    - `services/web/src/components/profile/PlaybackProfileContent.vue`
+    - `services/web/src/views/console/DashboardView.vue`
+    - `services/web/src/views/console/NewSubscriptionView.vue`
+    - `services/web/src/views/console/SubscriptionsView.vue`
+    - `services/web/src/views/console/RenewalCenterView.vue`
+- 中优先级：统计卡继续复用 `EmberMetricCard`
+  - 目标：
+    - 把已共享页面内部仍手写的简单统计卡继续统一到现有组件。
+  - 优先位置：
+    - `services/web/src/components/profile/PlaybackProfileContent.vue`
+    - `services/web/src/views/admin/MediaQualityView.vue`
+- 低优先级：局部对话框统一
+  - 目标：
+    - 处理 `NewSubscriptionView` 这类还保留裸 `el-dialog` 和局部下拉样式的页面。
+  - 边界：
+    - 允许保留业务内容高度定制，但 dialog chrome 和字段样式不再继续页面私有化。
+- 明确保留特例，不继续抽象：
+  - `services/web/src/views/console/DashboardView.vue`
+  - `services/web/src/views/console/AccountCenterView.vue`
+  - `services/web/src/views/admin/SettingsView.vue`
+  - `services/web/src/views/console/TVCalendarView.vue`
+  - `services/web/src/views/console/SubscriptionsView.vue` / `services/web/src/views/console/LibraryView.vue` / `services/web/src/views/console/NewSubscriptionView.vue` 的海报卡片主体
+  - 原因：
+    - 这些页面要么页面级编排过重，要么视觉和交互边界差异大，不适合收成单一通用组件。
 
 ### 4. 关键流程
 
@@ -260,7 +320,8 @@
    - 当前已完成 `PaymentCenterView`、`RedemptionCenterView`、`RedemptionHistoryView`、`PlansView`、`PlanGroupsView`
 7. 最后清理失效的 scoped CSS、重复 class 组合和不再需要的局部样式类。
    - 当前后台高重复页面已基本收口，文档同步、认证页边界和追加探索页面结论已完成。
-   - 后续若继续推进 `DevicesView` 或 `RenewalCenterView` 的接入，按新增扩展任务处理，不再继续扩展本方案主体。
+   - `DevicesView`、`RenewalCenterView`、`MediaQualityView` 已完成本轮计划内收口；后续若继续扩展到其他页面，按新增扩展任务处理，不再继续扩展本方案主体。
+   - 已补齐后续探索清单；下一轮若继续推进，优先从“表单基线统一”开始，而不是再新增新的页面级大组件。
 
 ### 5. 失败路径与边界条件
 
@@ -311,7 +372,10 @@
 - 支付中心、兑换中心迁移后，页内 tabs 切换统一落到 `EmberSegmentTabs`，不再保留第二套手写标签容器。
 - 兑换历史、付费方案、套餐分组迁移后，header / table / dialog 骨架继续保持原行为与原字段语义。
 - 认证页继续保留页面级特例实现，但维持 `btn-ember`、`input-ember` 和 Ember 视觉基线，不引入第二套表单语言。
-- `DevicesView`、`MediaQualityView`、`RenewalCenterView` 的边界结论已明确，后续如继续迁移，应按本方案中的页面结论执行。
+- `DevicesView` 已完成标准后台列表页收口，且保留黑名单卡片与操作日志特例边界。
+- `RenewalCenterView` 已完成 tabs 与历史记录表格骨架收口，且保留购买卡片与兑换码区特例边界。
+- `MediaQualityView` 已完成页头与媒体库筛选壳层收口，报告主体继续保留页面内特例实现。
+- 后续若继续推进，应优先验证表单基线统一、控制台页头/tabs 收口和 empty state 组件化，不再直接扩张第二套页面骨架。
 
 ## 落地后文档处理
 
@@ -324,5 +388,6 @@
   - 页面骨架、筛选控件、表单容器命名和使用规则
 - 本方案内已补齐认证页“保留特例”结论，并补齐 `DevicesView`、`MediaQualityView`、`RenewalCenterView` 的页面边界结论。
 - 归档结论：
-  - 本方案主体已经收尾完成，后续若继续推进 `DevicesView`、`RenewalCenterView` 或其他控制台页面的接入，应新开扩展计划，不再继续堆叠到本方案。
+  - 本方案主体已经收尾完成，且本轮盘点的 `DevicesView`、`RenewalCenterView`、`MediaQualityView` 已实际完成落地。
+  - 后续若继续推进其他控制台或后台页面的接入，应以本方案中的“后续探索清单”为输入新开扩展计划，不再继续堆叠到本方案。
   - 若当前不再追加同类迁移，可直接移入 `docs/archive/plan/console-admin/`。

@@ -145,6 +145,48 @@ body {
   color: var(--ember-red);
 }
 
+/* Ember Select Baseline */
+.form-select .el-select__placeholder,
+.form-select .el-select__selected-item {
+  font-size: 0.875rem;
+}
+
+.form-select .el-select__wrapper {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #F9FAFB !important;
+  box-shadow: 0 0 0 1px var(--border-subtle) inset !important;
+  transition: all 0.2s ease;
+}
+
+.form-select:hover .el-select__wrapper {
+  background-color: #FFFFFF !important;
+}
+
+.form-select .el-select__wrapper.is-focused,
+.form-select .el-select__wrapper.is-focus,
+.form-select.is-focus .el-select__wrapper {
+  background-color: #FFFFFF !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px var(--ember-dim) !important;
+}
+
+.form-select .el-select__selection {
+  min-height: 0;
+}
+
+/* Ember Date Field Baseline */
+.form-date.el-date-editor {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+}
+
+.form-date.el-date-editor.el-input {
+  height: 42px;
+}
+
 /* Override Element Plus */
 :root {
   --el-color-primary: var(--ember-red);
@@ -225,4 +267,16 @@ body {
   box-shadow:
     0 0 0 1px var(--ember-red) inset,
     0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+}
+
+/* Ember Dialog Baseline */
+.ember-form-dialog .el-dialog {
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.ember-form-dialog .el-dialog__header {
+  margin-right: 0;
+  border-bottom: 1px solid #f3f4f6;
+  padding: 20px 24px;
 }

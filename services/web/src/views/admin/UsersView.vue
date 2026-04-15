@@ -881,35 +881,4 @@ onMounted(async () => {
   display: none; /* Remove bottom border */
 }
 
-:deep(.el-dialog__header) {
-  margin-right: 0;
-  border-bottom: 1px solid #f3f4f6;
-  padding: 20px 24px;
-}
-
-:deep(.form-select .el-select__wrapper) {
-  min-height: 42px;
-  border-radius: 0.75rem;
-  background-color: #f9fafb !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.form-select:hover .el-select__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.form-select .el-select__wrapper.is-focused),
-:deep(.form-select .el-select__wrapper.is-focus),
-:deep(.form-select.is-focus .el-select__wrapper) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.form-select .el-select__placeholder),
-:deep(.form-select .el-select__selected-item) {
-  font-size: 0.875rem;
-}
 </style>

@@ -23,6 +23,7 @@ const emit = defineEmits<{
     :width="props.width"
     align-center
     append-to-body
+    class="ember-form-dialog"
     v-bind="$attrs"
     @update:model-value="emit('update:modelValue', $event)"
   >
@@ -33,13 +34,3 @@ const emit = defineEmits<{
     </template>
   </el-dialog>
 </template>
-
-<style scoped>
-:deep(.el-dialog__body) {
-  padding-top: 1rem;
-}
-
-:deep(.el-dialog__footer) {
-  padding-top: 0;
-}
-</style>

@@ -272,7 +272,7 @@ const isConfirmDisabled = () => {
       width="min(780px, calc(100vw - 2rem))"
       align-center
       append-to-body
-      class="rounded-2xl overflow-hidden"
+      class="ember-form-dialog rounded-2xl overflow-hidden"
       :show-close="false"
     >
       <div v-if="selectedItem" class="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
@@ -298,7 +298,7 @@ const isConfirmDisabled = () => {
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                   <el-select
                     v-model="subscriptionForm.season"
-                    class="season-select !w-full sm:!w-52"
+                    class="form-select !w-full sm:!w-52"
                     :disabled="seasonOptionsLoading"
                     :loading="seasonOptionsLoading"
                     placeholder="选择季数"
@@ -375,50 +375,6 @@ const isConfirmDisabled = () => {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-:deep(.el-dialog) {
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-:deep(.el-dialog__header) {
-  margin-right: 0;
-  border-bottom: 1px solid #f3f4f6;
-  padding: 20px 24px;
-}
-
-:deep(.el-dialog__body) {
-  padding: 24px;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 0 24px 24px;
-}
-
-:deep(.season-select .el-select__wrapper) {
-  min-height: 42px;
-  border-radius: 0.75rem;
-  background-color: #f9fafb;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.season-select .el-select__wrapper:hover) {
-  background-color: #ffffff;
-}
-
-:deep(.season-select .el-select__wrapper.is-focused),
-:deep(.season-select .el-select__wrapper.is-focus),
-:deep(.season-select.is-focus .el-select__wrapper) {
-  background-color: #ffffff;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.season-select .el-select__selection) {
-  min-height: 0;
 }
 
 :deep(.el-textarea__inner) {
