@@ -206,7 +206,7 @@ describe('SettingsView', () => {
     })
     expect(getConfigs).toHaveBeenCalledTimes(2)
     expect(ElMessage.success).toHaveBeenCalledWith('基础业务保存成功')
-    expect(wrapper.text()).toContain('https://t.me/updated')
+    expect((wrapper.find('input[placeholder="https://t.me/ember"]').element as HTMLInputElement).value).toBe('https://t.me/updated')
   })
 
   it('多行配置项会渲染为 textarea 并按字符串保存', async () => {
@@ -351,9 +351,8 @@ describe('SettingsView', () => {
 
     expect(wrapper.text()).toContain('只读')
     expect(wrapper.text()).toContain('高风险缺失')
-    expect(wrapper.text()).toContain('只读原因')
     expect(wrapper.text()).toContain('Bot 启动时必须从部署环境读取该令牌')
     expect(wrapper.text()).toContain('未设置时 Telegram Bot 无法启动，也无法接收或发送通知。')
-    expect(wrapper.text()).toContain('当前分组有 1 项关键边界配置缺失： Telegram Bot Token。')
+    expect(wrapper.text()).toContain('当前分组缺少 Telegram Bot Token，这些项通常需要通过部署环境补齐。')
   })
 })

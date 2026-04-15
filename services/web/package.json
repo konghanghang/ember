@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run test:unit && npm run test:component",
-    "test:unit": "tsc -p tsconfig.test.json && node --test node_modules/.tmp/settings-center-tests/views/admin/*.test.js",
-    "test:component": "vitest run"
+    "test": "vitest run",
+    "test:unit": "vitest run src/views/admin/settings-center.utils.test.ts",
+    "test:component": "vitest run src/views/admin/SettingsView.spec.ts",
+    "test:coverage": "vitest run --coverage.enabled true --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=lcov"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@types/node": "^20.11.19",
     "@vitejs/plugin-vue": "^5.0.4",
+    "@vitest/coverage-v8": "^4.1.4",
     "@vue/test-utils": "^2.4.6",
     "autoprefixer": "^10.4.17",
     "jsdom": "^28.1.0",

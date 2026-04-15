@@ -1,5 +1,4 @@
-import test from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, expect, it } from 'vitest'
 
 import type { AdminConfigItem } from '../../types/api.js'
 import {
@@ -31,60 +30,59 @@ function createItem(overrides: Partial<AdminConfigItem> = {}): AdminConfigItem {
   }
 }
 
-test('buildDraftValues keeps sensitive fields blank', () => {
-  const draftValues = buildDraftValues([
-    createItem({ key: 'SECRET_KEY', sensitive: true, type: 'secret', hasValue: true, value: undefined }),
-  ])
+describe('settings-center utils', () => {
+  it('buildDraftValues keeps sensitive fields blank', () => {
+    const draftValues = buildDraftValues([
+      createItem({ key: 'SECRET_KEY', sensitive: true, type: 'secret', hasValue: true, value: undefined }),
+    ])
 
-  assert.equal(draftValues.SECRET_KEY, '')
-})
-
-test('isConfigItemDirty ignores json list order changes', () => {
-  const item = createItem({
-    type: 'json_list',
-    value: JSON.stringify(['wechat_pay', 'card']),
+    expect(draftValues.SECRET_KEY).toBe('')
   })
 
-  assert.equal(isConfigItemDirty(item, ['card', 'wechat_pay']), false)
-  assert.equal(isConfigItemDirty(item, ['card']), true)
-})
+  it('isConfigItemDirty ignores json list order changes', () => {
+    const item = createItem({
+      type: 'json_list',
+      value: JSON.stringify(['wechat_pay', 'card']),
+    })
 
-test('buildConfigUpdatePayload skips blank sensitive overwrite', () => {
-  const item = createItem({
-    sensitive: true,
-    type: 'secret',
-    hasValue: true,
-    value: undefined,
+    expect(isConfigItemDirty(item, ['card', 'wechat_pay'])).toBe(false)
+    expect(isConfigItemDirty(item, ['card'])).toBe(true)
   })
 
-  assert.equal(buildConfigUpdatePayload(item, ''), null)
-  assert.deepEqual(buildConfigUpdatePayload(item, 'next-secret'), { value: 'next-secret' })
-})
+  it('buildConfigUpdatePayload skips blank sensitive overwrite', () => {
+    const item = createItem({
+      sensitive: true,
+      type: 'secret',
+      hasValue: true,
+      value: undefined,
+    })
 
-test('buildConfigUpdatePayload serializes structured values', () => {
-  assert.deepEqual(buildConfigUpdatePayload(createItem({ type: 'boolean', value: 'false' }), true), {
-    value: 'true',
+    expect(buildConfigUpdatePayload(item, '')).toBeNull()
+    expect(buildConfigUpdatePayload(item, 'next-secret')).toEqual({ value: 'next-secret' })
   })
-  assert.deepEqual(buildConfigUpdatePayload(createItem({ type: 'integer', value: '1' }), 7), {
-    value: '7',
-  })
-  assert.deepEqual(
-    buildConfigUpdatePayload(createItem({ type: 'json_list', value: '[]' }), ['card', 'alipay']),
-    { value: JSON.stringify(['card', 'alipay']) }
-  )
-})
 
-test('hasExplicitEmptyDatabaseValue only matches explicit empty database overrides', () => {
-  assert.equal(
-    hasExplicitEmptyDatabaseValue(
-      createItem({ source: 'database', allowEmpty: true, emptyValueMode: 'disable', hasValue: false, value: '' })
-    ),
-    true
-  )
-  assert.equal(
-    hasExplicitEmptyDatabaseValue(
-      createItem({ source: 'default', allowEmpty: true, emptyValueMode: 'disable', hasValue: false, value: '' })
-    ),
-    false
-  )
+  it('buildConfigUpdatePayload serializes structured values', () => {
+    expect(buildConfigUpdatePayload(createItem({ type: 'boolean', value: 'false' }), true)).toEqual({
+      value: 'true',
+    })
+    expect(buildConfigUpdatePayload(createItem({ type: 'integer', value: '1' }), 7)).toEqual({
+      value: '7',
+    })
+    expect(
+      buildConfigUpdatePayload(createItem({ type: 'json_list', value: '[]' }), ['card', 'alipay'])
+    ).toEqual({ value: JSON.stringify(['card', 'alipay']) })
+  })
+
+  it('hasExplicitEmptyDatabaseValue only matches explicit empty database overrides', () => {
+    expect(
+      hasExplicitEmptyDatabaseValue(
+        createItem({ source: 'database', allowEmpty: true, emptyValueMode: 'disable', hasValue: false, value: '' })
+      )
+    ).toBe(true)
+    expect(
+      hasExplicitEmptyDatabaseValue(
+        createItem({ source: 'default', allowEmpty: true, emptyValueMode: 'disable', hasValue: false, value: '' })
+      )
+    ).toBe(false)
+  })
 })
