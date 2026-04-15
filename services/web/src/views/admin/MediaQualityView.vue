@@ -2,6 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Film, RefreshRight, Search, Cpu } from '@element-plus/icons-vue'
+import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
+import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import {
   getMediaQualityLibraries,
   getMediaQualityGroupDetails,
@@ -46,6 +49,11 @@ const totalScannedItems = computed(() => {
 const libraryOptions = computed(() => {
   return [{ id: 'all', name: '全部媒体库', type: 'all', itemCount: 0 }, ...libraries.value]
 })
+
+const handleLibraryChange = () => {
+  query.value.page = 1
+  loadReport(false)
+}
 
 const fetchLibraries = async () => {
   loadingLibraries.value = true
@@ -246,75 +254,75 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="space-y-6">
-    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div class="flex items-start md:items-center justify-between gap-4 flex-col md:flex-row">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-ember/10 text-ember flex items-center justify-center">
-            <el-icon :size="20"><Film /></el-icon>
-          </div>
-          <div>
-            <h1 class="text-2xl font-bold text-gray-900">媒体库质量盘点</h1>
-            <p class="text-sm text-gray-500 mt-1">按媒体库统计分辨率、编码、HDR 分布并筛出低画质资源</p>
-          </div>
+    <EmberPageHeaderCard
+      title="媒体库质量盘点"
+      description="按媒体库统计分辨率、编码、HDR 分布并筛出低画质资源"
+    >
+      <template #titleSuffix>
+        <span
+          v-if="report"
+          class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500"
+        >
+          低画质 {{ report.lowQualityTotal }}
+        </span>
+      </template>
+
+      <EmberFilterPanel
+        wrapper-class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.2fr)]"
+        content-class="contents"
+        actions-class="hidden"
+      >
+        <EmberSelectField
+          v-model="selectedLibraryId"
+          label="媒体库"
+          placeholder="选择媒体库"
+          :icon="Film"
+          filterable
+          :loading="loadingLibraries"
+          @change="handleLibraryChange"
+        >
+          <el-option
+            v-for="library in libraryOptions"
+            :key="library.id"
+            :label="`${library.name} (${library.type})`"
+            :value="library.id"
+          />
+        </EmberSelectField>
+
+        <div class="flex items-end">
+          <button
+            type="button"
+            class="w-full rounded-xl bg-white border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 inline-flex items-center justify-center gap-2"
+            :disabled="loadingReport"
+            @click="loadReport(false)"
+          >
+            <el-icon><Search /></el-icon>
+            读取报告
+          </button>
         </div>
-      </div>
 
-      <div class="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-3">
-          <div class="lg:col-span-2">
-            <label class="text-xs font-semibold tracking-wide text-gray-500 mb-1.5 block">媒体库</label>
-            <el-select
-              v-model="selectedLibraryId"
-              placeholder="选择媒体库"
-              filterable
-              class="w-full quality-select"
-              :loading="loadingLibraries"
-              @change="() => { query.page = 1; loadReport(false) }"
-            >
-              <el-option
-                v-for="library in libraryOptions"
-                :key="library.id"
-                :label="`${library.name} (${library.type})`"
-                :value="library.id"
-              />
-            </el-select>
-          </div>
-
-          <div class="flex items-end">
-            <button
-              type="button"
-              class="w-full px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-100 transition-colors inline-flex items-center justify-center gap-2"
-              :disabled="loadingReport"
-              @click="loadReport(false)"
-            >
-              <el-icon><Search /></el-icon>
-              读取报告
-            </button>
-          </div>
-
-          <div class="flex items-end gap-2">
-            <button
-              type="button"
-              class="flex-1 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-100 transition-colors inline-flex items-center justify-center gap-2"
-              :disabled="loadingReport"
-              @click="loadReport(true)"
-            >
-              <el-icon><RefreshRight /></el-icon>
-              强制刷新
-            </button>
-            <button
-              type="button"
-              class="btn-ember flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2"
-              :disabled="scanning"
-              @click="scanNow"
-            >
-              <el-icon><Cpu /></el-icon>
-              手动重扫
-            </button>
-          </div>
+        <div class="flex items-end gap-2">
+          <button
+            type="button"
+            class="flex-1 rounded-xl bg-white border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 inline-flex items-center justify-center gap-2"
+            :disabled="loadingReport"
+            @click="loadReport(true)"
+          >
+            <el-icon><RefreshRight /></el-icon>
+            强制刷新
+          </button>
+          <button
+            type="button"
+            class="btn-ember flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2"
+            :disabled="scanning"
+            @click="scanNow"
+          >
+            <el-icon><Cpu /></el-icon>
+            手动重扫
+          </button>
         </div>
-      </div>
-    </div>
+      </EmberFilterPanel>
+    </EmberPageHeaderCard>
 
     <div v-if="report" class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
@@ -448,23 +456,3 @@ onBeforeUnmount(() => {
     </el-drawer>
   </div>
 </template>
-
-<style scoped>
-.quality-select :deep(.el-select__wrapper) {
-  background-color: #f9fafb;
-  border-radius: 0.75rem;
-  min-height: 42px;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-}
-
-.quality-select :deep(.el-select__wrapper:hover) {
-  background-color: #ffffff !important;
-}
-
-.quality-select :deep(.el-select__wrapper.is-focused) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-</style>
