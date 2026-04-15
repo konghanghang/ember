@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-04-13
+> 更新时间：2026-04-15
 
 本清单只回答三件事：
 
@@ -48,6 +48,7 @@
 | `media-subscription/tv-calendar-status-correction.md` | 已落地 | TV Calendar 状态已切到 `CRON_TIMEZONE`，默认同步窗口扩到本周+下周，当前周读时 `ready` 纠偏与 webhook 关键日志已补齐 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `embypulse-features/p2-user-avatar.md` | 已落地 | `DefaultAvatar.vue`、Dashboard / Account Center / TopBar / Sidebar / UsersView 已统一接入默认头像组件 | 已归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
+| `console-admin/ember-web-component-foundation.md` | 已落地 | `services/web/src/components/ember/` 基础组件层、后台/控制台页头与 tabs 收口、表单基线统一、empty state 组件化、前端残留清理均已落地 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 
 ## B. 未见完整落地证据，继续保留在 `docs/plan/`
 
@@ -78,6 +79,7 @@
 - `playback-ranking-rework.md`
 - `embypulse-features/p1-user-profile.md`
 - `embypulse-features/p2-user-avatar.md`
+- `console-admin/ember-web-component-foundation.md`
 - `embypulse-features/README.md`（索引目录退出，归档方案已按职责边界重组）
 
 本轮已迁移为治理提案：

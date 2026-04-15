@@ -34,6 +34,11 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
+当前 `docs/plan/console-admin/` 已完成本轮收口后，仅保留仍在推进中的：
+
+- `device-risk-automation.md`
+- `in-app-notification-center.md`
+
 ## 模板
 
 - [功能方案模板](./plan-template.md)

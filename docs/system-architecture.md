@@ -161,10 +161,12 @@ services/
 │  │  │  │  │  └─ EmberSelectField.vue    # 下拉筛选字段
 │  │  │  │  ├─ forms/
 │  │  │  │  │  └─ EmberFormDialog.vue # 通用弹窗表单容器
+│  │  │  │  ├─ feedback/
+│  │  │  │  │  └─ EmberEmptyStateCard.vue # 空状态容器基线
 │  │  │  │  └─ layout/
-│  │  │  │     ├─ EmberFilterPanel.vue   # 筛选区容器
+│  │  │  │     ├─ EmberFilterPanel.vue    # 筛选区容器
 │  │  │  │     ├─ EmberPageHeaderCard.vue # 页头卡片
-│  │  │  │     └─ EmberSegmentTabs.vue   # 页内分段 tabs
+│  │  │  │     └─ EmberSegmentTabs.vue    # 页内分段 tabs
 │  │  │  └─ profile/
 │  │  │     └─ PlaybackProfileContent.vue # 用户画像共享主体（user/admin 共用）
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义
@@ -244,6 +246,8 @@ services/
   - `EmberMetricCard`：统一简单统计卡基线
 - `forms/`
   - `EmberFormDialog`：统一弹窗表单容器和 footer 区域
+- `feedback/`
+  - `EmberEmptyStateCard`：统一中性 / 风险态空状态容器和可选动作区
 
 当前已接入这套基础组件的后台页面包括：
 
