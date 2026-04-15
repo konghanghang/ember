@@ -51,10 +51,6 @@
 - [提案总览](./proposals/README.md)
 - [`docs/plan/`](./plan/README.md)：进行中的功能规划，当前主要保留未落地或持续治理项
 
-### 公开发布
-
-- [`docs/public/`](./public/)：面向用户和部署者的公开文档发布目录
-
 ### 归档
 
 - [归档总览](./archive/README.md)

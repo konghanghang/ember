@@ -202,7 +202,6 @@ Season int `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_
 ## 落地后文档处理
 
 - `docs/system-architecture.md` 已同步当前行为，可作为稳定事实来源
-- `docs/public/features/telegram-bot.md` 已同步 Bot 搜索订阅交互
 - 本文档下一步应移入 `docs/archive/`，避免继续以进行中计划形式误导
 
 **预计工作量**：1-2 天

@@ -43,7 +43,6 @@
 
 - 相关文档：
   - `docs/system-architecture.md`
-  - `docs/public/features/subscriptions.md`
 - 相关服务/页面/模型：
   - `services/api/internal/models/subscription.go`
   - `services/api/internal/services/subscription/service.go`
@@ -218,7 +217,6 @@
   - 继续依赖现有 `BOT_NOTIFY_URL`、`INTERNAL_API_SECRET`、`EMBY_WEBHOOK_TOKEN`
 - 文档：需要更新
   - `docs/system-architecture.md`
-  - `docs/public/features/subscriptions.md`
 
 ## 验证方式
 
@@ -259,8 +257,4 @@
   - 订阅状态机
   - Emby webhook 与订阅入库确认关系
   - Bot 用户通知能力
-- 将用户可见行为同步到 `docs/public/features/subscriptions.md`
-  - 新状态定义
-  - 拒绝原因可见
-  - 审核通过不等于已入库
 - 功能落地、编译验证和手工链路验证完成后，将本方案迁入 `docs/archive/plan/media-subscription/`

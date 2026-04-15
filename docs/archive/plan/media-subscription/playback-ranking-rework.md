@@ -32,7 +32,6 @@
 
 - 相关文档：
   - `docs/system-architecture.md`
-  - `docs/public/features/rankings.md`
   - `docs/archive/plan/playback-ranking.md`
 - 相关服务/页面/模型：
   - `services/api/internal/models/playback_ranking.go`
@@ -287,7 +286,6 @@
   - 需要确认 Emby Playback Reporting 插件暴露稳定媒体字段
 - 文档：需要更新
   - `docs/system-architecture.md`
-  - `docs/public/features/rankings.md`
   - 如实现中补充了对插件字段的要求，应同步到 `docs/reference/emby-api-guide.md`
 
 ## 验证方式
@@ -317,7 +315,6 @@
 ## 落地后文档处理
 
 - 将新的排行榜快照语义、接口结构和 cron 行为更新到 `docs/system-architecture.md`
-- 将用户可见的“最新榜 / 历史榜 / 预览榜”行为整理进 `docs/public/features/rankings.md`
 - 如实现中补充了对 Playback Reporting 插件字段的硬性要求，同步更新 `docs/reference/emby-api-guide.md`
 - 本方案落地后移入 `docs/archive/`，保留旧的首次实现方案作为历史记录
 - 若本方案顺利落地，将本文移入 `docs/archive/`

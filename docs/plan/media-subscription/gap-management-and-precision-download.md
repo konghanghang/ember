@@ -34,7 +34,6 @@
 
 - 相关文档：
   - `docs/system-architecture.md`
-  - `docs/public/features/subscriptions.md`
 - 相关服务/页面/模型：
   - `services/api/internal/services/tvcalendar/service.go`
   - `services/api/internal/handlers/tv_calendar.go`
