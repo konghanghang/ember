@@ -34,10 +34,14 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/console-admin/` 已完成本轮收口后，仅保留仍在推进中的：
+当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
-- `device-risk-automation.md`
-- `in-app-notification-center.md`
+- `bot-telegram/notification-mute-rules.md`
+- `console-admin/device-risk-automation.md`
+- `console-admin/in-app-notification-center.md`
+- `media-subscription/gap-management-and-precision-download.md`
+- `media-subscription/media-dedupe-and-quality-governance.md`
+- `media-subscription/subscription-status-and-notification.md`
 
 ## 模板
 

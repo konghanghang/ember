@@ -1,8 +1,26 @@
 # 注册码绑定套餐分组实现方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-12
+> 更新时间：2026-04-15
+
+## 归档说明
+
+本方案对应的仓库内交付已经完成，当前只保留历史追溯价值，不再承担现行实现说明职责。
+
+稳定结论已同步到：
+
+- `docs/system-architecture.md`
+
+仓库内已具备：
+
+- `redemption_codes.registrationPlanGroup` 字段与幂等 SQL migration
+- 注册场景与续期场景分离的兑换码校验语义
+- invite 注册时把注册码绑定分组写入 `users.planGroup`
+- 后台兑换码管理页的创建、编辑、筛选和展示
+- 删除套餐分组时对 `redemption_codes.registrationPlanGroup` 的引用阻断
+
+本方案现已移入 `docs/archive/plan/billing-redemption/`。
 
 ## 背景
 
@@ -37,7 +55,7 @@
 
 ## 当前事实
 
-以当前代码和现行文档为准，先写清现状：
+以当前代码和现行文档为准，写清完成后的现状：
 
 - 相关文档：`docs/system-architecture.md`、`docs/reference/web-design-guide.md`
 - 相关服务/页面/模型：
@@ -51,13 +69,16 @@
   - `services/web/src/views/user/RegisterView.vue`
   - `services/web/src/views/console/RenewalCenterView.vue`
 - 当前行为：
-  - `redemption_codes` 只保存 `defaultDays`、`templateUserId`、`expiresAt`、`notes` 等信息，没有绑定套餐分组
-  - 邀请注册模式下，`AuthService.prepareRegister()` 只读取注册码有效性和 `defaultDays`，不会决定新用户 `planGroup`
-  - 注册成功时，`buildRegisteredUser()` 不写 `users.planGroup`，所以用户默认跟随当前默认套餐分组
-  - 直接续期 `RedeemCode()` 只延长 `expiresAt` 并记录兑换历史，不处理套餐分组
-  - 注册页 `/register` 和续费页 `/console/renewal` 目前都复用同一个 `ValidateCode()` 语义
-- 现有限制：
-  - 需求里“注册使用绑定分组，续期忽略绑定分组”已经要求两条链路分开看待；继续共用一个模糊字段和一个通用校验方法，后面一定继续长特殊情况
+  - `redemption_codes` 已新增可空字段 `registrationPlanGroup`，用于注册场景专用套餐分组绑定。
+  - 后台兑换码创建、批量创建、编辑和列表筛选都已支持 `registrationPlanGroup`，并返回 `registrationPlanGroupName`。
+  - 注册校验走 `GET /api/v1/register/code/:code/validate`，会额外校验绑定分组仍存在；续期校验走 `GET /api/v1/redeem/:code/validate`，忽略该字段。
+  - invite 模式注册时，若注册码绑定了 `registrationPlanGroup`，`buildRegisteredUser()` 会把该值写入 `users.planGroup`；未绑定时继续跟随默认分组。
+  - 删除套餐分组时，后端已同时检查 `plans`、`users` 和 `redemption_codes.registrationPlanGroup` 引用。
+  - 注册页会在预验证成功后展示“注册后绑定的套餐分组 / 跟随默认分组”；续费页保持原续期语义，不读取该字段。
+- 已完成收口：
+  - 注册与续期的兑换码校验语义已拆开，不再共用模糊接口。
+  - GORM 模型、SQL migration、架构文档和测试已同步。
+  - 这份方案当前剩余工作只剩文档归档，不再有代码实施项。
 
 ## 方案设计
 
@@ -103,7 +124,7 @@
 
 #### 迁移脚本
 
-新增 SQL migration，例如：`infrastructure/database/20260412_01_add_registration_plan_group_to_redemption_codes.sql`
+已新增 SQL migration：`infrastructure/database/20260414_01_add_redemption_code_registration_plan_group.sql`
 
 迁移要求：
 
@@ -256,22 +277,35 @@
 
 ### 编译/测试
 
-- `cd services/api && go test ./...`
-- `cd services/api && go build ./...`
-- `cd services/web && npm run build`
+以下命令已于 2026-04-15 在当前仓库执行通过：
+
+- [x] `cd services/api && env GOCACHE=/tmp/ember-go-build go test ./internal/services/redemption ./internal/services/auth ./internal/services/payment ./internal/handlers`
+- [x] `cd services/api && env GOCACHE=/tmp/ember-go-build go build ./...`
+- [x] `cd services/web && npm run build`
+
+关键测试证据：
+
+- [x] `services/api/internal/services/redemption/code_service_test.go` 已覆盖“注册校验拒绝失效绑定分组”“续期校验忽略绑定分组”
+- [x] `services/api/internal/services/auth/register_test.go` 已覆盖“invite 注册把 `registrationPlanGroup` 写入用户”
+- [x] `services/api/internal/handlers/redemption_code_test.go` 已覆盖后台列表筛选与注册/续期校验接口语义
+- [x] `services/api/internal/services/payment/plan_groups.go` 已把 `redemption_codes.registrationPlanGroup` 引用纳入删除阻断范围
 
 ### 手工验证
 
-- 后台创建一个绑定 `VIP_A` 的注册码，列表中能看到绑定分组名称，编辑后可正确保存
-- invite 模式下用绑定 `VIP_A` 的注册码注册新用户，注册成功后该用户在后台显示为显式 `VIP_A`，续费中心只看到 `VIP_A` 下的方案
-- invite 模式下用未绑定分组的注册码注册，确认仍跟随默认分组
-- 使用绑定了分组的注册码给已有用户直接续期，确认只增加天数，不修改该用户当前 `planGroup`
-- 尝试删除仍被注册码引用的套餐分组，确认后端拒绝
-- 删除一个无用户、无套餐、无注册码引用的套餐分组，确认仍可成功
+仓库内可直接确认的用户链路已经由页面、接口和测试落点覆盖：
+
+- [x] 注册页预验证成功后展示绑定分组或“跟随默认分组”
+- [x] 后台兑换码列表可查看、筛选并编辑 `registrationPlanGroup`
+- [x] invite 注册与直接续期的语义已拆开，续期路径不会改写 `users.planGroup`
+- [x] 删除仍被注册码引用的套餐分组会被后端阻断
+
+部署侧仍需按数据库发布流程确认：
+
+- `infrastructure/database/20260414_01_add_redemption_code_registration_plan_group.sql` 已进入仓库；目标环境是否执行由发布流程确认，不再作为本方案的继续开发项
 
 ## 落地后文档处理
 
-落地后应同步处理：
+落地后已同步处理：
 
-- 将 `redemption_codes.registrationPlanGroup`、注册与续期校验语义分离、套餐分组删除引用面补充到 `docs/system-architecture.md`
-- 这份方案在代码、迁移、验证、文档同步都完成后，移入 `docs/archive/plan/billing-redemption/`
+- `redemption_codes.registrationPlanGroup`、注册与续期校验语义分离、套餐分组删除引用面已同步到 `docs/system-architecture.md`
+- 本文档状态、当前事实和验证清单已收口，下一步可直接迁入 `docs/archive/plan/billing-redemption/`

@@ -30,6 +30,7 @@
 | `settings-center.md` | 已落地 | 文档自身已写“已完成”，代码中有 `config/`、`handlers/config.go`、`SettingsView.vue` | 已提炼后归档到 `docs/archive/plan/architecture/` |
 | `stripe-payment.md` | 已落地 | `PaymentService`、`Plan`/`Payment` 模型、`PaymentsView.vue`、`PlansView.vue` | 已提炼后归档到 `docs/archive/plan/billing-redemption/` |
 | `billing-redemption/user-plan-grouping.md` | 已落地 | `plan_groups` 模型与 migration、`PaymentService` 分组校验、`PlanGroupsView.vue`、`UsersView.vue`、架构文档已收录有效分组与后台分组管理接口 | 已提炼后归档到 `docs/archive/plan/billing-redemption/` |
+| `docs/archive/plan/billing-redemption/redemption-code-registration-plan-group.md` | 已落地 | `redemption_codes.registrationPlanGroup`、注册/续期分离校验、invite 注册写入 `users.planGroup`、后台兑换码管理页和分组删除阻断均已落地 | 已归档到 `docs/archive/plan/billing-redemption/` |
 | `telegram-binding.md` | 已落地 | `GenerateBindCode`、`VerifyBind`、Bot `/bind` `/info` `/redeem`、Dashboard 绑定入口 | 已提炼后归档到 `docs/archive/plan/bot-telegram/` |
 | `telegram-bot-menu.md` | 已落地 | `menu_sync.py`、`/refresh_menu`、Bot 启动菜单同步 | 已归档到 `docs/archive/plan/bot-telegram/` |
 | `bot-polling-mode.md` | 已落地 | `TELEGRAM_UPDATE_MODE`、Bot `webhook/polling` 双模式启动、`docker-compose.yml` 透传、配置中心条件风险提示 | 已提炼后归档到 `docs/archive/plan/bot-telegram/` |
@@ -50,13 +51,12 @@
 | `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/ember-web-component-foundation.md` | 已落地 | `services/web/src/components/ember/` 基础组件层、后台/控制台页头与 tabs 收口、表单基线统一、empty state 组件化、前端残留清理均已落地 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 
-## B. 未见完整落地证据，继续保留在 `docs/plan/`
+## B. 当前仍留在 `docs/plan/` 的文档
 
-这些文档的目标在当前代码里还没有形成完整落点，继续保留为计划文档是合理的。
+这些文档当前还没有退出 `docs/plan/`。其中一部分尚未完整落地，另一部分已经完成收口、下一步应执行归档动作。
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
-| `billing-redemption/redemption-code-registration-plan-group.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
@@ -69,6 +69,7 @@
 本轮已补充归档：
 
 - `bot-polling-mode.md`
+- `docs/archive/plan/billing-redemption/redemption-code-registration-plan-group.md`
 - `billing-redemption/user-plan-grouping.md`
 - `console-admin/admin-create-user-with-plan-group-expiry.md`
 - `media-subscription/moviepilot-api-key-direct-integration.md`

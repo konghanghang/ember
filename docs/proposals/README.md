@@ -16,7 +16,7 @@
 - 进行中的功能实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将后台组件基建收口方案移入 `docs/archive/plan/console-admin/`；当前 `console-admin` 方向仅保留仍在推进中的实施稿。
+最近一次归档已将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`；当前 `docs/plan/` 继续保留仍在推进中的实施稿。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
 
