@@ -89,6 +89,62 @@ body {
   transform: translateY(0);
 }
 
+/* Ember Number Input Baseline */
+.form-number {
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.form-number.el-input-number {
+  width: 100%;
+}
+
+.form-number .el-input__wrapper {
+  min-height: 42px;
+  border-radius: 0.75rem;
+  background-color: #F9FAFB !important;
+  box-shadow: 0 0 0 1px var(--border-subtle) inset !important;
+  transition: all 0.2s ease;
+}
+
+.form-number .el-input-number__decrease,
+.form-number .el-input-number__increase {
+  border-radius: 0;
+  background-color: #F9FAFB;
+  box-shadow: none !important;
+  transition: all 0.2s ease;
+}
+
+.form-number .el-input-number__decrease {
+  border-top-left-radius: 0.75rem;
+  border-bottom-left-radius: 0.75rem;
+}
+
+.form-number .el-input-number__increase {
+  border-top-right-radius: 0.75rem;
+  border-bottom-right-radius: 0.75rem;
+}
+
+.form-number:hover .el-input__wrapper,
+.form-number:hover .el-input-number__decrease,
+.form-number:hover .el-input-number__increase {
+  background-color: #FFFFFF !important;
+}
+
+.form-number .el-input__wrapper.is-focus,
+.form-number.is-focus .el-input__wrapper {
+  background-color: #FFFFFF !important;
+  box-shadow:
+    0 0 0 1px var(--ember-red) inset,
+    0 0 0 4px var(--ember-dim) !important;
+}
+
+.form-number .el-input-number__decrease:hover,
+.form-number .el-input-number__increase:hover {
+  color: var(--ember-red);
+}
+
 /* Override Element Plus */
 :root {
   --el-color-primary: var(--ember-red);
