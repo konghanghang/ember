@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Calendar } from '@element-plus/icons-vue'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { emberRangePickerPopperClass, rangePickerDefaultTime } from '@/constants/datePicker'
 import { formatPlaybackDate } from '@/utils/date'
@@ -152,29 +153,30 @@ const distributionBarStyle = (
     </div>
 
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm text-gray-500">累计播放时长</p>
-        <p class="mt-3 text-3xl font-bold text-gray-900">{{ profile?.totalPlayDurationFormatted || '0m' }}</p>
-        <p class="mt-2 text-xs text-gray-500">时间窗口 {{ selectedRangeLabel }}</p>
-      </div>
+      <EmberMetricCard
+        title="累计播放时长"
+        :value="profile?.totalPlayDurationFormatted || '0m'"
+        :detail="`时间窗口 ${selectedRangeLabel}`"
+      />
 
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm text-gray-500">播放次数</p>
-        <p class="mt-3 text-3xl font-bold text-gray-900">{{ profile?.totalPlayCount || 0 }}</p>
-        <p class="mt-2 text-xs text-gray-500">平均单次 {{ profile?.averagePlayDurationFormatted || '0m' }}</p>
-      </div>
+      <EmberMetricCard
+        title="播放次数"
+        :value="profile?.totalPlayCount || 0"
+        :detail="`平均单次 ${profile?.averagePlayDurationFormatted || '0m'}`"
+      />
 
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm text-gray-500">活跃天数</p>
-        <p class="mt-3 text-3xl font-bold text-gray-900">{{ profile?.activeDays || 0 }}</p>
-        <p class="mt-2 text-xs text-gray-500">有播放的天数越多，节奏越稳定</p>
-      </div>
+      <EmberMetricCard
+        title="活跃天数"
+        :value="profile?.activeDays || 0"
+        detail="有播放的天数越多，节奏越稳定"
+      />
 
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <p class="text-sm text-gray-500">最近播放</p>
-        <p class="mt-3 text-lg font-bold text-gray-900">{{ profile?.lastPlayedAt ? formatPlaybackDate(profile.lastPlayedAt) : '-' }}</p>
-        <p class="mt-2 text-xs text-gray-500">只展示最近一次播放</p>
-      </div>
+      <EmberMetricCard
+        title="最近播放"
+        :value="profile?.lastPlayedAt ? formatPlaybackDate(profile.lastPlayedAt) : '-'"
+        value-class="mt-3 text-lg font-bold text-gray-900"
+        detail="只展示最近一次播放"
+      />
     </div>
 
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.4fr_1fr]">

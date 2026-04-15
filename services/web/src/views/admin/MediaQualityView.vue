@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Film, RefreshRight, Search, Cpu } from '@element-plus/icons-vue'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
 import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
@@ -325,20 +326,20 @@ onBeforeUnmount(() => {
     </EmberPageHeaderCard>
 
     <div v-if="report" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div class="text-xs text-gray-500">已统计条目</div>
-        <div class="mt-2 text-3xl font-bold text-gray-900">{{ totalScannedItems }}</div>
-      </div>
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div class="text-xs text-gray-500">低画质条目</div>
-        <div class="mt-2 text-3xl font-bold text-orange-600">{{ report.lowQualityTotal }}</div>
-      </div>
-      <div class="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-        <div class="text-xs text-gray-500">扫描时间</div>
-        <div class="mt-2 text-base font-semibold text-gray-900">
-          {{ report.scanAt ? formatDate(report.scanAt) : '-' }}
-        </div>
-      </div>
+      <EmberMetricCard
+        title="已统计条目"
+        :value="totalScannedItems"
+      />
+      <EmberMetricCard
+        title="低画质条目"
+        :value="report.lowQualityTotal"
+        value-class="mt-3 text-3xl font-bold text-orange-600"
+      />
+      <EmberMetricCard
+        title="扫描时间"
+        :value="report.scanAt ? formatDate(report.scanAt) : '-'"
+        value-class="mt-2 text-base font-semibold text-gray-900"
+      />
     </div>
 
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
