@@ -577,6 +577,3 @@ onMounted(async () => {
     </EmberFormDialog>
   </div>
 </template>
-
-<style scoped>
-</style>
