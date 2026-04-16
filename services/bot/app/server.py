@@ -47,6 +47,7 @@ from app.handlers.telegram_handler import (
     handle_count,
     handle_info,
     handle_new_member,
+    handle_pending_reject_reason,
     handle_refresh_menu,
     handle_refresh_menu_chat,
     handle_redeem,
@@ -57,6 +58,7 @@ from app.handlers.telegram_handler import (
     send_registration_notification,
     send_ranking_notification,
     send_subscription_notification,
+    send_subscription_result_notification,
 )
 from app.menu_sync import schedule_group_menu_sync
 from app.runtime_settings import runtime_settings_service
@@ -108,6 +110,7 @@ tg_app.add_handler(TypeHandler(Update, handle_update_lifecycle), group=-1)
 tg_app.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^(approve|reject):"))
 tg_app.add_handler(CallbackQueryHandler(handle_search_callback, pattern=r"^sub:"))
 tg_app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
+tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pending_reject_reason))
 tg_app.add_handler(CommandHandler("bind", handle_bind))
 tg_app.add_handler(CommandHandler("count", handle_count))
 tg_app.add_handler(CommandHandler("info", handle_info))
@@ -294,6 +297,17 @@ async def notify_subscription(request: Request):
 
     data = await request.json()
     await send_subscription_notification(tg_app.bot, data)
+    return {"ok": True}
+
+
+@app.post("/notify/subscription-result")
+async def notify_subscription_result(request: Request):
+    unauthorized = _verify_internal_secret(request)
+    if unauthorized is not None:
+        return unauthorized
+
+    data = await request.json()
+    await send_subscription_result_notification(tg_app.bot, data)
     return {"ok": True}
 
 

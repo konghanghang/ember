@@ -130,6 +130,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.Use(middleware.JWTAuth())
 
 	authenticated.GET("/subscriptions", h.subscription.GetSubscriptions)
+	authenticated.POST("/subscriptions/check-existing", h.subscription.CheckExisting)
 	authenticated.POST("/subscriptions", h.subscription.CreateSubscription)
 	authenticated.DELETE("/subscriptions/:id", h.subscription.DeleteSubscription)
 
@@ -178,6 +179,7 @@ func registerUserRoutes(api *gin.RouterGroup, h *appHandlers) {
 	user.GET("/redemptions", h.user.GetRedemptions)
 
 	user.GET("/subscriptions", h.subscription.GetMySubscriptions)
+	user.POST("/subscriptions/check-existing", h.subscription.CheckExisting)
 	user.POST("/subscriptions", h.subscription.CreateSubscription)
 	user.DELETE("/subscriptions/:id", h.subscription.DeleteSubscription)
 

@@ -37,8 +37,9 @@ const isAdmin = computed(() => authStore.isAdmin)
 const statusOptions = [
   { label: '全部', value: '' },
   { label: '待审核', value: 'PENDING' },
-  { label: '已批准', value: 'APPROVED' },
+  { label: '已通过', value: 'APPROVED' },
   { label: '已拒绝', value: 'REJECTED' },
+  { label: '已入库', value: 'INGESTED' },
 ]
 const statusTabs = computed(() => statusOptions.map((opt) => ({ key: String(opt.value), label: opt.label })))
 
@@ -84,13 +85,15 @@ const handleApprove = async (sub: Subscription) => {
 
 const handleReject = async (sub: Subscription) => {
   try {
-    await ElMessageBox.confirm(`确定拒绝 "${formatSubscriptionTitle(sub)}" 的订阅申请吗？`, '拒绝确认', { 
-      confirmButtonText: '拒绝',
+    const { value } = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
+      confirmButtonText: '提交拒绝',
       cancelButtonText: '取消',
-      type: 'warning',
-      confirmButtonClass: 'el-button--danger'
+      inputPlaceholder: '请填写明确的拒绝原因',
+      inputPattern: /\S+/,
+      inputErrorMessage: '拒绝原因不能为空',
+      type: 'warning'
     })
-    await rejectSubscription(sub.id)
+    await rejectSubscription(sub.id, value)
     ElMessage.success('已拒绝')
     fetchData()
   } catch {
@@ -128,8 +131,9 @@ const handleDelete = async (sub: Subscription) => {
 const getStatusColor = (status: SubscriptionStatus) => {
   switch (status) {
     case 'PENDING': return 'bg-yellow-500'
-    case 'APPROVED': return 'bg-green-500'
+    case 'APPROVED': return 'bg-sky-500'
     case 'REJECTED': return 'bg-red-500'
+    case 'INGESTED': return 'bg-emerald-500'
     case 'EXPIRED': return 'bg-gray-400'
     default: return 'bg-gray-400'
   }
@@ -138,11 +142,19 @@ const getStatusColor = (status: SubscriptionStatus) => {
 const getStatusText = (status: SubscriptionStatus) => {
   switch (status) {
     case 'PENDING': return '审核中'
-    case 'APPROVED': return '已批准'
+    case 'APPROVED': return '已通过，等待入库'
     case 'REJECTED': return '已拒绝'
+    case 'INGESTED': return '已入库'
     case 'EXPIRED': return '已过期'
     default: return status
   }
+}
+
+const formatTime = (value?: string | null) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
 }
 
 const getImageUrl = (path?: string) => {
@@ -275,6 +287,21 @@ onMounted(fetchData)
             
             <div v-if="sub.note" class="mt-2 pt-2 border-t border-gray-100">
               <p class="text-[10px] text-gray-400 line-clamp-2 italic">"{{ sub.note }}"</p>
+            </div>
+
+            <div v-if="sub.rejectReason || sub.reviewedAt || sub.ingestedAt || sub.mpError" class="mt-2 space-y-1 border-t border-gray-100 pt-2 text-[11px] leading-5 text-gray-500">
+              <p v-if="sub.reviewedAt">
+                <span class="font-semibold text-gray-700">审核时间：</span>{{ formatTime(sub.reviewedAt) }}
+              </p>
+              <p v-if="sub.ingestedAt">
+                <span class="font-semibold text-gray-700">入库时间：</span>{{ formatTime(sub.ingestedAt) }}
+              </p>
+              <p v-if="sub.rejectReason" class="text-red-600">
+                <span class="font-semibold">拒绝原因：</span>{{ sub.rejectReason }}
+              </p>
+              <p v-if="sub.mpError" class="text-amber-600">
+                <span class="font-semibold">下游异常：</span>{{ sub.mpError }}
+              </p>
             </div>
           </div>
         </div>

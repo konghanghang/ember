@@ -24,6 +24,22 @@ type SubscriptionNotification struct {
 	Note       *string `json:"note"`
 }
 
+// SubscriptionResultNotification 订阅结果通知数据
+type SubscriptionResultNotification struct {
+	TelegramID     int64   `json:"telegramId"`
+	SubscriptionID string  `json:"subscriptionId"`
+	UserName       string  `json:"userName"`
+	Type           string  `json:"type"`
+	Name           string  `json:"name"`
+	TmdbID         string  `json:"tmdbId"`
+	Season         int     `json:"season"`
+	PosterPath     *string `json:"posterPath"`
+	Status         string  `json:"status"`
+	RejectReason   string  `json:"rejectReason,omitempty"`
+	ReviewedAt     *string `json:"reviewedAt,omitempty"`
+	IngestedAt     *string `json:"ingestedAt,omitempty"`
+}
+
 // RegistrationNotification 新用户注册通知数据
 type RegistrationNotification struct {
 	ID               string  `json:"id"`
@@ -81,8 +97,7 @@ func (n *BotNotifier) IsConfigured() bool {
 	return n.botURL != ""
 }
 
-// NotifyNewSubscription 通知 Bot 有新的订阅请求（fire-and-forget）
-func (n *BotNotifier) NotifyNewSubscription(data SubscriptionNotification) {
+func (n *BotNotifier) post(path string, data interface{}) {
 	if !n.IsConfigured() {
 		return
 	}
@@ -93,7 +108,7 @@ func (n *BotNotifier) NotifyNewSubscription(data SubscriptionNotification) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", n.botURL+"/notify/subscription", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", n.botURL+path, bytes.NewBuffer(body))
 	if err != nil {
 		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
 		return
@@ -112,72 +127,21 @@ func (n *BotNotifier) NotifyNewSubscription(data SubscriptionNotification) {
 	if resp.StatusCode != http.StatusOK {
 		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
 	}
+}
+
+// NotifyNewSubscription 通知 Bot 有新的订阅请求（fire-and-forget）
+func (n *BotNotifier) NotifyNewSubscription(data SubscriptionNotification) {
+	n.post("/notify/subscription", data)
 }
 
 // NotifyNewRegistration 通知 Bot 有新用户注册（fire-and-forget）
 func (n *BotNotifier) NotifyNewRegistration(data RegistrationNotification) {
-	if !n.IsConfigured() {
-		return
-	}
-
-	body, err := json.Marshal(data)
-	if err != nil {
-		fmt.Printf("Bot 通知失败：序列化请求失败: %v\n", err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", n.botURL+"/notify/registration", bytes.NewBuffer(body))
-	if err != nil {
-		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", n.secret)
-
-	resp, err := n.client.Do(req)
-	if err != nil {
-		fmt.Printf("Bot 通知失败：请求发送失败: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
-	}
+	n.post("/notify/registration", data)
 }
 
 // NotifyPaymentSuccess 通知 Bot 有新的支付成功记录（fire-and-forget）
 func (n *BotNotifier) NotifyPaymentSuccess(data PaymentSuccessNotification) {
-	if !n.IsConfigured() {
-		return
-	}
-
-	body, err := json.Marshal(data)
-	if err != nil {
-		fmt.Printf("Bot 通知失败：序列化请求失败: %v\n", err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", n.botURL+"/notify/payment", bytes.NewBuffer(body))
-	if err != nil {
-		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
-		return
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", n.secret)
-
-	resp, err := n.client.Do(req)
-	if err != nil {
-		fmt.Printf("Bot 通知失败：请求发送失败: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
-	}
+	n.post("/notify/payment", data)
 }
 
 // RankingNotification 排行榜推送数据
@@ -201,33 +165,20 @@ type RankingItemNotify struct {
 
 // NotifyRanking 通知 Bot 发送排行榜到 Telegram 群组（fire-and-forget）
 func (n *BotNotifier) NotifyRanking(data RankingNotification) {
-	if !n.IsConfigured() {
-		return
-	}
+	n.post("/notify/ranking", data)
+}
 
-	body, err := json.Marshal(data)
-	if err != nil {
-		fmt.Printf("Bot 通知失败：序列化请求失败: %v\n", err)
-		return
-	}
+// NotifySubscriptionApproved 通知用户订阅已审核通过。
+func (n *BotNotifier) NotifySubscriptionApproved(data SubscriptionResultNotification) {
+	n.post("/notify/subscription-result", data)
+}
 
-	req, err := http.NewRequest("POST", n.botURL+"/notify/ranking", bytes.NewBuffer(body))
-	if err != nil {
-		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
-		return
-	}
+// NotifySubscriptionRejected 通知用户订阅已拒绝。
+func (n *BotNotifier) NotifySubscriptionRejected(data SubscriptionResultNotification) {
+	n.post("/notify/subscription-result", data)
+}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", n.secret)
-
-	resp, err := n.client.Do(req)
-	if err != nil {
-		fmt.Printf("Bot 通知失败：请求发送失败: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
-	}
+// NotifySubscriptionIngested 通知用户订阅已入库。
+func (n *BotNotifier) NotifySubscriptionIngested(data SubscriptionResultNotification) {
+	n.post("/notify/subscription-result", data)
 }

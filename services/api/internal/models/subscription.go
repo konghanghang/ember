@@ -13,6 +13,7 @@ const (
 	SubscriptionPending  SubscriptionStatus = "PENDING"  // 待审核
 	SubscriptionApproved SubscriptionStatus = "APPROVED" // 已批准
 	SubscriptionRejected SubscriptionStatus = "REJECTED" // 已拒绝
+	SubscriptionIngested SubscriptionStatus = "INGESTED" // 已入库
 )
 
 // MediaType 媒体类型枚举
@@ -26,18 +27,21 @@ const (
 // Subscription 订阅模型
 // 对应 Prisma schema 的 Subscription 模型
 type Subscription struct {
-	ID         string             `json:"id" gorm:"column:id;type:varchar(25);primaryKey"` // cuid
-	UserID     string             `json:"userId" gorm:"column:userId;type:varchar(25);not null;index"`
-	Type       MediaType          `json:"type" gorm:"column:type;type:varchar(10);not null;uniqueIndex:uk_subscription_media,priority:1"`
-	Name       string             `json:"name" gorm:"column:name;size:255;not null"`
-	TmdbID     string             `json:"tmdbId" gorm:"column:tmdbId;size:50;not null;uniqueIndex:uk_subscription_media,priority:2"`
-	Season     int                `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_subscription_media,priority:3"`
-	PosterPath *string            `json:"posterPath,omitempty" gorm:"column:posterPath;size:500"`
-	Status     SubscriptionStatus `json:"status" gorm:"column:status;type:varchar(20);not null;default:'PENDING'"`
-	Note       *string            `json:"note,omitempty" gorm:"column:note;type:text"`
-	MpError    *string            `json:"mpError,omitempty" gorm:"column:mpError;size:500"` // MoviePilot 同步错误
-	CreatedAt  time.Time          `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
-	UpdatedAt  time.Time          `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
+	ID           string             `json:"id" gorm:"column:id;type:varchar(25);primaryKey"` // cuid
+	UserID       string             `json:"userId" gorm:"column:userId;type:varchar(25);not null;index"`
+	Type         MediaType          `json:"type" gorm:"column:type;type:varchar(10);not null;uniqueIndex:uk_subscription_media,priority:1"`
+	Name         string             `json:"name" gorm:"column:name;size:255;not null"`
+	TmdbID       string             `json:"tmdbId" gorm:"column:tmdbId;size:50;not null;uniqueIndex:uk_subscription_media,priority:2"`
+	Season       int                `json:"season" gorm:"column:season;not null;default:0;uniqueIndex:uk_subscription_media,priority:3"`
+	PosterPath   *string            `json:"posterPath,omitempty" gorm:"column:posterPath;size:500"`
+	Status       SubscriptionStatus `json:"status" gorm:"column:status;type:varchar(20);not null;default:'PENDING'"`
+	Note         *string            `json:"note,omitempty" gorm:"column:note;type:text"`
+	MpError      *string            `json:"mpError,omitempty" gorm:"column:mpError;size:500"` // MoviePilot 同步错误
+	RejectReason *string            `json:"rejectReason,omitempty" gorm:"column:rejectReason;type:text"`
+	ReviewedAt   *time.Time         `json:"reviewedAt,omitempty" gorm:"column:reviewedAt"`
+	IngestedAt   *time.Time         `json:"ingestedAt,omitempty" gorm:"column:ingestedAt"`
+	CreatedAt    time.Time          `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	UpdatedAt    time.Time          `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
 
 func (Subscription) TableName() string {

@@ -1,8 +1,12 @@
 package subscription
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
 	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
@@ -25,16 +29,6 @@ func NewSubscriptionService() *SubscriptionService {
 	}
 }
 
-// CreateSubscriptionRequest 创建订阅请求
-type CreateSubscriptionRequest struct {
-	Type       models.MediaType `json:"type" binding:"required,oneof=MOVIE TV"`
-	Name       string           `json:"name" binding:"required"`
-	TmdbID     string           `json:"tmdbId" binding:"required"`
-	Season     int              `json:"season"`
-	PosterPath *string          `json:"posterPath"`
-	Note       *string          `json:"note"`
-}
-
 func normalizeSubscriptionSeason(mediaType models.MediaType, season int) (int, error) {
 	if season < 0 {
 		return 0, ErrSubscriptionInvalidSeason
@@ -45,29 +39,61 @@ func normalizeSubscriptionSeason(mediaType models.MediaType, season int) (int, e
 	return season, nil
 }
 
-// CreateSubscription 用户创建订阅
+// CreateSubscription 兼容旧调用方的创建入口。
 func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscriptionRequest) error {
-	// 验证必填字段
-	if req.Name == "" || req.TmdbID == "" {
-		return errors.New("影视名称和 TMDB ID 为必填项")
-	}
-	season, err := normalizeSubscriptionSeason(req.Type, req.Season)
+	result, err := s.CreateSubscriptionWithResult(userID, req)
 	if err != nil {
 		return err
 	}
+	if result != nil && result.ConfirmationRequired {
+		return errors.New("库内已存在相关资源，请确认后继续提交")
+	}
+	return nil
+}
 
-	// 按季去重：同一 type + tmdbId + season 只允许提交一次
+// CreateSubscriptionWithResult 创建订阅并返回结构化结果。
+func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req CreateSubscriptionRequest) (*CreateSubscriptionResult, error) {
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.TmdbID) == "" {
+		return nil, errors.New("影视名称和 TMDB ID 为必填项")
+	}
+
+	season, err := normalizeSubscriptionSeason(req.Type, req.Season)
+	if err != nil {
+		return nil, err
+	}
+	req.TmdbID = strings.TrimSpace(req.TmdbID)
+	req.Name = strings.TrimSpace(req.Name)
+
 	var count int64
 	if err := db.DB.Model(&models.Subscription{}).
 		Where("type = ? AND \"tmdbId\" = ? AND season = ?", req.Type, req.TmdbID, season).
 		Count(&count).Error; err != nil {
-		return fmt.Errorf("创建订阅失败: %w", err)
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
 	}
 	if count > 0 {
-		return ErrSubscriptionDuplicated
+		return nil, ErrSubscriptionDuplicated
 	}
 
-	// 创建订阅记录
+	if !req.ConfirmExisting {
+		checkResult, err := s.CheckExisting(CheckExistingRequest{
+			Type:   req.Type,
+			TmdbID: req.TmdbID,
+			Season: season,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if checkResult.ExistsInLibrary || checkResult.DetectionFailed {
+			log.Printf("[Subscription] 创建前需要二次确认 userId=%s type=%s tmdbId=%s season=%d exists=%t detectionFailed=%t", userID, req.Type, req.TmdbID, season, checkResult.ExistsInLibrary, checkResult.DetectionFailed)
+			return &CreateSubscriptionResult{
+				Success:              false,
+				ConfirmationRequired: true,
+				DetectionFailed:      checkResult.DetectionFailed,
+				ExistingSummary:      checkResult.ExistingSummary,
+			}, nil
+		}
+	}
+
 	subscription := &models.Subscription{
 		UserID:     userID,
 		Type:       req.Type,
@@ -81,58 +107,56 @@ func (s *SubscriptionService) CreateSubscription(userID string, req CreateSubscr
 
 	if err := db.DB.Create(subscription).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return ErrSubscriptionDuplicated
+			return nil, ErrSubscriptionDuplicated
 		}
-		return fmt.Errorf("创建订阅失败: %w", err)
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
 	}
 
-	// 通知 Bot（异步 fire-and-forget，失败不影响订阅创建）
-	go func(subscriptionID, userID string, req CreateSubscriptionRequest) {
-		if s.notifier == nil || !s.notifier.IsConfigured() {
-			return
-		}
+	log.Printf("[Subscription] 创建成功 userId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, subscription.ID, req.Type, req.TmdbID, season)
+	go s.notifyNewSubscription(subscription.ID, userID, req, season)
 
-		var username string
-		var user models.User
-		if err := db.DB.Select("username").Where("id = ?", userID).First(&user).Error; err == nil {
-			username = user.Username
-		}
+	return &CreateSubscriptionResult{Success: true}, nil
+}
 
-		s.notifier.NotifyNewSubscription(notifierint.SubscriptionNotification{
-			ID:         subscriptionID,
-			UserName:   username,
-			Type:       string(req.Type),
-			Name:       req.Name,
-			TmdbID:     req.TmdbID,
-			Season:     season,
-			PosterPath: req.PosterPath,
-			Note:       req.Note,
-		})
-	}(subscription.ID, userID, req)
+func (s *SubscriptionService) notifyNewSubscription(subscriptionID, userID string, req CreateSubscriptionRequest, season int) {
+	if s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
 
-	return nil
+	var username string
+	var user models.User
+	if err := db.DB.Select("username").Where("id = ?", userID).First(&user).Error; err == nil {
+		username = user.Username
+	}
+
+	s.notifier.NotifyNewSubscription(notifierint.SubscriptionNotification{
+		ID:         subscriptionID,
+		UserName:   username,
+		Type:       string(req.Type),
+		Name:       req.Name,
+		TmdbID:     req.TmdbID,
+		Season:     season,
+		PosterPath: req.PosterPath,
+		Note:       req.Note,
+	})
 }
 
 // GetUserSubscriptions 获取用户的订阅列表
 func (s *SubscriptionService) GetUserSubscriptions(userID string) ([]models.Subscription, error) {
 	var subscriptions []models.Subscription
-
 	err := db.DB.
 		Where("\"userId\" = ?", userID).
 		Order("\"createdAt\" DESC").
 		Find(&subscriptions).Error
-
 	if err != nil {
 		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
 	}
-
 	return subscriptions, nil
 }
 
 // GetUserSubscriptionsPaginated 用户订阅分页查询
 func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, status *models.SubscriptionStatus, page, pageSize int) (*GetAllSubscriptionsResponse, error) {
 	offset := (page - 1) * pageSize
-
 	query := db.DB.Model(&models.Subscription{}).Where("\"userId\" = ?", userID)
 	if status != nil {
 		query = query.Where("status = ?", *status)
@@ -144,11 +168,7 @@ func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, statu
 	}
 
 	var subscriptions []models.Subscription
-	if err := query.
-		Order("\"createdAt\" DESC").
-		Offset(offset).
-		Limit(pageSize).
-		Find(&subscriptions).Error; err != nil {
+	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&subscriptions).Error; err != nil {
 		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
 	}
 
@@ -165,27 +185,19 @@ func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, statu
 
 // DeleteSubscription 删除订阅（仅允许删除 PENDING 状态）
 func (s *SubscriptionService) DeleteSubscription(subscriptionID, userID string) error {
-	// 查询订阅
 	var subscription models.Subscription
 	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
 		return ErrSubscriptionNotFound
 	}
-
-	// 验证所有权
 	if subscription.UserID != userID {
 		return errors.New("无权删除此订阅")
 	}
-
-	// 验证状态（只能删除 PENDING）
 	if subscription.Status != models.SubscriptionPending {
 		return errors.New("只能删除待审核的订阅")
 	}
-
-	// 删除订阅
 	if err := db.DB.Delete(&subscription).Error; err != nil {
 		return fmt.Errorf("删除订阅失败: %w", err)
 	}
-
 	return nil
 }
 
@@ -195,65 +207,35 @@ func (s *SubscriptionService) DeleteSubscriptionAsAdmin(subscriptionID string) e
 	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
 		return ErrSubscriptionNotFound
 	}
-
 	if err := db.DB.Delete(&subscription).Error; err != nil {
 		return fmt.Errorf("删除订阅失败: %w", err)
 	}
-
 	return nil
-}
-
-// SubscriptionWithUser 订阅记录（包含用户信息）
-type SubscriptionWithUser struct {
-	models.Subscription
-	User struct {
-		Username string `json:"username"`
-		Email    string `json:"email"`
-	} `json:"user"`
-}
-
-// GetAllSubscriptionsResponse 管理员查询订阅列表响应
-type GetAllSubscriptionsResponse struct {
-	Data  []SubscriptionWithUser `json:"data"`
-	Total int64                  `json:"total"`
 }
 
 // GetAllSubscriptions 管理员获取所有订阅（分页）
 func (s *SubscriptionService) GetAllSubscriptions(status *models.SubscriptionStatus, page, pageSize int) (*GetAllSubscriptionsResponse, error) {
-	// 计算偏移量
 	offset := (page - 1) * pageSize
-
-	// 构建查询
 	query := db.DB.Model(&models.Subscription{})
 	if status != nil {
 		query = query.Where("status = ?", *status)
 	}
 
-	// 查询总数
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("查询订阅总数失败: %w", err)
 	}
 
-	// 查询订阅列表
 	var subscriptions []models.Subscription
-	err := query.
-		Order("\"createdAt\" DESC").
-		Offset(offset).
-		Limit(pageSize).
-		Find(&subscriptions).Error
-
-	if err != nil {
+	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&subscriptions).Error; err != nil {
 		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
 	}
 
-	// 收集所有 UserID
 	userIDs := make([]string, len(subscriptions))
 	for i, sub := range subscriptions {
 		userIDs[i] = sub.UserID
 	}
 
-	// 批量查询用户信息
 	var users []models.User
 	if len(userIDs) > 0 {
 		if err := db.DB.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
@@ -261,13 +243,11 @@ func (s *SubscriptionService) GetAllSubscriptions(status *models.SubscriptionSta
 		}
 	}
 
-	// 构建 UserID → User 映射
-	userMap := make(map[string]*models.User)
+	userMap := make(map[string]*models.User, len(users))
 	for i := range users {
 		userMap[users[i].ID] = &users[i]
 	}
 
-	// 构建响应（包含用户名和邮箱）
 	result := make([]SubscriptionWithUser, len(subscriptions))
 	for i, sub := range subscriptions {
 		result[i].Subscription = sub
@@ -283,23 +263,18 @@ func (s *SubscriptionService) GetAllSubscriptions(status *models.SubscriptionSta
 	}, nil
 }
 
-// ApproveSubscription 批准订阅
+// ApproveSubscription 批准订阅。
 func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
-	// 查询订阅
 	var subscription models.Subscription
 	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
 		return ErrSubscriptionNotFound
 	}
-
-	// 验证状态（只能审核 PENDING）
 	if subscription.Status != models.SubscriptionPending {
-		return errors.New("订阅已被处理")
+		return ErrSubscriptionHandled
 	}
 
-	// 调用 MoviePilot API（失败时记录错误但不回滚状态）
 	var mpError *string
 	if s.moviepilot.IsConfigured() {
-		// 转换 MediaType 为 MoviePilot 格式
 		mpType := "movie"
 		if subscription.Type == models.MediaTV {
 			mpType = "tv"
@@ -311,49 +286,196 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 			TmdbID: subscription.TmdbID,
 			Season: subscription.Season,
 		})
-
 		if err != nil {
-			// MP API 失败时保存错误信息，但仍将订阅状态设为 APPROVED
 			errMsg := err.Error()
 			mpError = &errMsg
-			fmt.Printf("MoviePilot API 调用失败: %v\n", err)
+			log.Printf("[Subscription] MoviePilot 调用失败 subscriptionId=%s type=%s tmdbId=%s season=%d err=%v", subscription.ID, subscription.Type, subscription.TmdbID, subscription.Season, err)
 		}
 	} else {
-		// 未配置 MoviePilot 时跳过 API 调用
 		errMsg := "MoviePilot 未配置"
 		mpError = &errMsg
+		log.Printf("[Subscription] 跳过 MoviePilot：未配置 subscriptionId=%s type=%s tmdbId=%s season=%d", subscription.ID, subscription.Type, subscription.TmdbID, subscription.Season)
 	}
 
-	// 更新订阅状态为 APPROVED（无论 MP API 是否成功）
+	now := time.Now().UTC()
 	subscription.Status = models.SubscriptionApproved
+	subscription.ReviewedAt = &now
+	subscription.RejectReason = nil
 	subscription.MpError = mpError
 
 	if err := db.DB.Save(&subscription).Error; err != nil {
 		return fmt.Errorf("更新订阅状态失败: %w", err)
 	}
 
+	log.Printf("[Subscription] 审批通过 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season)
+	go s.notifyApproved(subscription)
 	return nil
 }
 
-// RejectSubscription 拒绝订阅
-func (s *SubscriptionService) RejectSubscription(subscriptionID string) error {
-	// 查询订阅
+// RejectSubscription 拒绝订阅。
+func (s *SubscriptionService) RejectSubscription(subscriptionID, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ErrSubscriptionRejectReason
+	}
+
 	var subscription models.Subscription
 	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
 		return ErrSubscriptionNotFound
 	}
-
-	// 验证状态（只能审核 PENDING）
 	if subscription.Status != models.SubscriptionPending {
-		return errors.New("订阅已被处理")
+		return ErrSubscriptionHandled
 	}
 
-	// 更新状态为 REJECTED
+	now := time.Now().UTC()
 	subscription.Status = models.SubscriptionRejected
+	subscription.ReviewedAt = &now
+	subscription.RejectReason = &reason
 
 	if err := db.DB.Save(&subscription).Error; err != nil {
 		return fmt.Errorf("更新订阅状态失败: %w", err)
 	}
 
+	log.Printf("[Subscription] 审批拒绝 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d reason=%q", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season, reason)
+	go s.notifyRejected(subscription)
 	return nil
+}
+
+// MarkSubscriptionsIngestedByWebhook 将命中的 APPROVED 订阅回写为 INGESTED。
+func (s *SubscriptionService) MarkSubscriptionsIngestedByWebhook(ctx context.Context, payload SubscriptionIngestWebhookPayload) (int64, error) {
+	itemType := strings.ToLower(strings.TrimSpace(payload.ItemType))
+	tmdbID := strings.TrimSpace(payload.TmdbID)
+	if tmdbID == "" {
+		log.Printf("[Subscription] Webhook 跳过入库回写：tmdbId 为空 itemType=%s itemName=%q", itemType, strings.TrimSpace(payload.ItemName))
+		return 0, nil
+	}
+
+	query := db.DB.WithContext(ctx).Model(&models.Subscription{}).Where("status = ? AND \"tmdbId\" = ?", models.SubscriptionApproved, tmdbID)
+	switch itemType {
+	case "movie":
+		query = query.Where("type = ? AND season = 0", models.MediaMovie)
+	case "episode":
+		if payload.Season <= 0 || payload.Episode <= 0 {
+			log.Printf("[Subscription] Webhook 跳过入库回写：季集号无效 tmdbId=%s season=%d episode=%d", tmdbID, payload.Season, payload.Episode)
+			return 0, nil
+		}
+		query = query.Where("type = ? AND (season = 0 OR season = ?)", models.MediaTV, payload.Season)
+	default:
+		return 0, nil
+	}
+
+	var subscriptions []models.Subscription
+	if err := query.Find(&subscriptions).Error; err != nil {
+		return 0, fmt.Errorf("查询待入库订阅失败: %w", err)
+	}
+	if len(subscriptions) == 0 {
+		return 0, nil
+	}
+
+	now := time.Now().UTC()
+	var updatedCount int64
+	for _, subscription := range subscriptions {
+		updates := map[string]interface{}{
+			"status":     models.SubscriptionIngested,
+			"ingestedAt": now,
+		}
+		result := db.DB.WithContext(ctx).Model(&models.Subscription{}).
+			Where("id = ? AND status = ?", subscription.ID, models.SubscriptionApproved).
+			Updates(updates)
+		if result.Error != nil {
+			return updatedCount, fmt.Errorf("更新订阅入库状态失败: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			continue
+		}
+
+		subscription.Status = models.SubscriptionIngested
+		subscription.IngestedAt = &now
+		updatedCount += result.RowsAffected
+		log.Printf("[Subscription] Webhook 已回写入库 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d embyItemId=%s", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season, strings.TrimSpace(payload.EmbyItemID))
+		go s.notifyIngested(subscription)
+	}
+
+	return updatedCount, nil
+}
+
+func (s *SubscriptionService) notifyApproved(subscription models.Subscription) {
+	user, ok := loadSubscriptionUser(subscription.UserID)
+	if !ok || user.TelegramID == nil || s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
+	s.notifier.NotifySubscriptionApproved(notifierint.SubscriptionResultNotification{
+		TelegramID:     *user.TelegramID,
+		SubscriptionID: subscription.ID,
+		UserName:       user.Username,
+		Type:           string(subscription.Type),
+		Name:           subscription.Name,
+		TmdbID:         subscription.TmdbID,
+		Season:         subscription.Season,
+		PosterPath:     subscription.PosterPath,
+		Status:         string(subscription.Status),
+		ReviewedAt:     formatNotificationTime(subscription.ReviewedAt),
+	})
+}
+
+func (s *SubscriptionService) notifyRejected(subscription models.Subscription) {
+	user, ok := loadSubscriptionUser(subscription.UserID)
+	if !ok || user.TelegramID == nil || s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
+	s.notifier.NotifySubscriptionRejected(notifierint.SubscriptionResultNotification{
+		TelegramID:     *user.TelegramID,
+		SubscriptionID: subscription.ID,
+		UserName:       user.Username,
+		Type:           string(subscription.Type),
+		Name:           subscription.Name,
+		TmdbID:         subscription.TmdbID,
+		Season:         subscription.Season,
+		PosterPath:     subscription.PosterPath,
+		Status:         string(subscription.Status),
+		RejectReason:   stringPointerValue(subscription.RejectReason),
+		ReviewedAt:     formatNotificationTime(subscription.ReviewedAt),
+	})
+}
+
+func (s *SubscriptionService) notifyIngested(subscription models.Subscription) {
+	user, ok := loadSubscriptionUser(subscription.UserID)
+	if !ok || user.TelegramID == nil || s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
+	s.notifier.NotifySubscriptionIngested(notifierint.SubscriptionResultNotification{
+		TelegramID:     *user.TelegramID,
+		SubscriptionID: subscription.ID,
+		UserName:       user.Username,
+		Type:           string(subscription.Type),
+		Name:           subscription.Name,
+		TmdbID:         subscription.TmdbID,
+		Season:         subscription.Season,
+		PosterPath:     subscription.PosterPath,
+		Status:         string(subscription.Status),
+		IngestedAt:     formatNotificationTime(subscription.IngestedAt),
+	})
+}
+
+func loadSubscriptionUser(userID string) (*models.User, bool) {
+	var user models.User
+	if err := db.DB.Select("id", "username", "telegramId").Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, false
+	}
+	return &user, true
+}
+
+func formatNotificationTime(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := value.UTC().Format(time.RFC3339)
+	return &formatted
+}
+
+func stringPointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

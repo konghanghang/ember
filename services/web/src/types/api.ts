@@ -1,7 +1,7 @@
 export type UserRole = 'admin' | 'user'
 export type PlanGroup = string
 export type MediaType = 'MOVIE' | 'TV'
-export type SubscriptionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+export type SubscriptionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INGESTED' | 'EXPIRED'
 
 export interface ManagedPlanGroup {
   key: string
@@ -473,6 +473,9 @@ export interface Subscription {
   status: SubscriptionStatus
   note?: string
   mpError?: string | null
+  rejectReason?: string | null
+  reviewedAt?: string | null
+  ingestedAt?: string | null
   createdAt: string
   user?: {
     username: string
@@ -491,6 +494,37 @@ export interface CreateSubscriptionRequest {
   season?: number
   posterPath?: string
   note?: string
+  confirmExisting?: boolean
+}
+
+export type SubscriptionExistingMatchType = 'movie' | 'series' | 'season' | 'unknown'
+
+export interface SubscriptionExistingSummary {
+  matchType: SubscriptionExistingMatchType
+  embyItemId?: string
+  message: string
+  availableSeasons?: number[]
+  episodeCount?: number
+  detectionFailed?: boolean
+}
+
+export interface CheckExistingSubscriptionRequest {
+  type: MediaType
+  tmdbId: string
+  season?: number
+}
+
+export interface CheckExistingSubscriptionResponse {
+  existsInLibrary: boolean
+  detectionFailed?: boolean
+  existingSummary?: SubscriptionExistingSummary
+}
+
+export interface CreateSubscriptionResponse {
+  success: boolean
+  confirmationRequired?: boolean
+  detectionFailed?: boolean
+  existingSummary?: SubscriptionExistingSummary
 }
 
 export interface TmdbTVSeasonOptions {

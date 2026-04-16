@@ -27,7 +27,7 @@ func parseSubscriptionStatus(statusStr string) *models.SubscriptionStatus {
 		return nil
 	}
 	s := models.SubscriptionStatus(statusStr)
-	if s == models.SubscriptionPending || s == models.SubscriptionApproved || s == models.SubscriptionRejected {
+	if s == models.SubscriptionPending || s == models.SubscriptionApproved || s == models.SubscriptionRejected || s == models.SubscriptionIngested {
 		return &s
 	}
 	return nil
@@ -51,7 +51,8 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 	}
 
 	// 创建订阅
-	if err := h.service.CreateSubscription(userID.(string), req); err != nil {
+	result, err := h.service.CreateSubscriptionWithResult(userID.(string), req)
+	if err != nil {
 		if errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
@@ -63,8 +64,39 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if result != nil && result.ConfirmationRequired {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":                "库内已存在相关资源，请确认后继续提交",
+			"confirmationRequired": true,
+			"detectionFailed":      result.DetectionFailed,
+			"existingSummary":      result.ExistingSummary,
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// CheckExisting 提交前库内检测
+// POST /api/v1/subscriptions/check-existing
+func (h *SubscriptionHandler) CheckExisting(c *gin.Context) {
+	var req subscriptionpkg.CheckExistingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	result, err := h.service.CheckExisting(req)
+	if err != nil {
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidSeason) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // GetMySubscriptions 获取我的订阅列表
@@ -217,8 +249,18 @@ func (h *SubscriptionHandler) RejectSubscription(c *gin.Context) {
 		return
 	}
 
+	var req subscriptionpkg.RejectSubscriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
 	// 拒绝订阅
-	if err := h.service.RejectSubscription(subscriptionID); err != nil {
+	if err := h.service.RejectSubscription(subscriptionID, req.Reason); err != nil {
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionRejectReason) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

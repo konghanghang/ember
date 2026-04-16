@@ -379,11 +379,20 @@ services/
 | TmdbID | string | tmdbId | TMDB ID |
 | Season | int | season | 季号，`0` 表示整剧 |
 | PosterPath | *string(500) | posterPath | 海报 URL |
-| Status | SubscriptionStatus | status | `PENDING`/`APPROVED`/`REJECTED` |
+| Status | SubscriptionStatus | status | `PENDING`/`APPROVED`/`REJECTED`/`INGESTED` |
 | Note | *string | note | 用户备注 |
 | MpError | *string(500) | mpError | MoviePilot 同步错误 |
+| RejectReason | *string | rejectReason | 管理员拒绝原因 |
+| ReviewedAt | *time.Time | reviewedAt | 审核时间（通过/拒绝） |
+| IngestedAt | *time.Time | ingestedAt | 真实入库时间（由 Emby webhook 回写） |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
+
+**状态流转**：
+- 用户创建后进入 `PENDING`
+- 管理员审核通过后转 `APPROVED`，并记录 `reviewedAt`
+- 管理员拒绝后转 `REJECTED`，必须写入 `rejectReason` 与 `reviewedAt`
+- Emby 真实入库事件命中已通过订阅后转 `INGESTED`，并写入 `ingestedAt`
 
 ### 4.6 EmailVerification（邮箱验证码）
 
@@ -740,6 +749,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | 方法 | Bot 端点 | 触发时机 |
 |------|----------|----------|
 | `NotifyNewSubscription` | `POST /notify/subscription` | 用户创建求片订阅 |
+| `NotifySubscriptionApproved` / `NotifySubscriptionRejected` / `NotifySubscriptionIngested` | `POST /notify/subscription-result` | 用户订阅审核结果 / 入库结果 |
 | `NotifyNewRegistration` | `POST /notify/registration` | 新用户注册 |
 | `NotifyPaymentSuccess` | `POST /notify/payment` | Stripe 支付履约成功 |
 | `NotifyRanking` | `POST /notify/ranking` | 排行榜生成完成 |
@@ -804,7 +814,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `GetAccountInfo(telegramID)` — 查询绑定用户账号状态
 - `RedeemByTelegram(telegramID, code)` — 复用 `RedemptionService` 完成续期兑换
 - `ResetPassword(telegramID, newPassword)` — 通过 Telegram 身份重置 Ember/Emby 密码
-- `SubscribeByTelegram(req)` — Bot 求片订阅入口；电影直接确认，电视剧先选季再提交，并透传 `season`
+- `SubscribeByTelegram(req)` — Bot 求片订阅入口；电影直接确认，电视剧先选季再提交，并透传 `season`；为保持既有体验，Bot 提交默认视为已确认库内已存在提示，不走 Web 二次确认弹窗
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 
 ### 5.18 TVCalendarService (`services/tvcalendar/service.go`)
@@ -897,6 +907,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/api/v1/subscriptions` | 我的订阅 |
+| POST | `/api/v1/subscriptions/check-existing` | 创建前检测库内是否已存在资源 |
 | POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧） |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/profile` | 个人信息 |
@@ -968,7 +979,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
-| PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝 |
+| PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
 | GET | `/api/v1/admin/playback-history` | 播放历史查询 |
@@ -1010,13 +1021,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `weekOffsets` 可选，仅支持 `-1/0/1`
 - `force=true` 时跳过轻量活跃剧筛选，并强制刷新 TMDB 缓存
 - `POST /api/v1/admin/tv-calendar/refresh` 仍保留，内部复用同步逻辑，作为兼容入口
+- Emby 入库 webhook 在保留 TV Calendar 点亮逻辑的同时，额外回写 `subscriptions`：电影按 `tmdbId` 命中 `APPROVED` 电影订阅；剧集按 `tmdbId + season` 命中指定季订阅，同时允许 `season=0` 的整剧订阅在任意季首个真实剧集入库时转为 `INGESTED`
 
 ### 内部服务路由（InternalAuth 中间件，Bot 调用）
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
-| PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝 |
+| PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
 | GET | `/api/v1/internal/settings/:key` | 读取内部配置（仅允许访问统一配置层中已注册的非敏感 key；未知 key 返回 404） |
 | GET | `/api/v1/internal/media/stats` | 读取内部媒体统计（Bot 复用） |
 | POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |

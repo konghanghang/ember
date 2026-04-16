@@ -338,10 +338,11 @@ export function approveSubscription(id: string) {
   })
 }
 
-export function rejectSubscription(id: string) {
+export function rejectSubscription(id: string, reason: string) {
   return request({
     url: `/admin/subscriptions/${id}/reject`,
-    method: 'put'
+    method: 'put',
+    data: { reason }
   })
 }
 

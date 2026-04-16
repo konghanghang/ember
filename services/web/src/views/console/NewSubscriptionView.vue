@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Film, VideoPlay, Plus, Check, RefreshRight } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { getTmdbTVSeasons, searchTmdb } from '@/api/user'
-import { createSubscription } from '@/api/console'
-import type { CreateSubscriptionRequest, MediaType, TmdbSearchItem } from '@/types/api'
+import { checkExistingSubscription, createSubscription } from '@/api/console'
+import type {
+  CreateSubscriptionRequest,
+  MediaType,
+  SubscriptionExistingSummary,
+  TmdbSearchItem
+} from '@/types/api'
 
 const router = useRouter()
 const searchQuery = ref('')
@@ -25,6 +30,7 @@ const seasonOptions = ref<Array<{ label: string; value: number }>>([])
 const seasonOptionsLoading = ref(false)
 const seasonOptionsError = ref('')
 const submitting = ref(false)
+const checkingExisting = ref(false)
 const showConfirmDialog = ref(false)
 let seasonRequestToken = 0
 
@@ -121,27 +127,93 @@ const selectItem = async (item: TmdbSearchItem) => {
   }
 }
 
+const buildSubscriptionPayload = (confirmExisting = false): CreateSubscriptionRequest | null => {
+  if (!selectedItem.value) return null
+
+  return {
+    type: searchType.value,
+    name: selectedItem.value.title,
+    tmdbId: selectedItem.value.id.toString(),
+    season: searchType.value === 'TV' ? (subscriptionForm.value.season ?? undefined) : 0,
+    posterPath: selectedItem.value.posterPath,
+    note: subscriptionForm.value.note,
+    confirmExisting
+  }
+}
+
+const formatExistingSummary = (summary?: SubscriptionExistingSummary) => {
+  if (!summary) {
+    return '库内已存在相关资源，确认后仍可继续提交。'
+  }
+
+  const seasonText = summary.availableSeasons?.length
+    ? `已入库季：${summary.availableSeasons.join('、')}`
+    : ''
+  const episodeText = summary.episodeCount ? `已入库 ${summary.episodeCount} 集` : ''
+
+  return [summary.message, seasonText, episodeText].filter(Boolean).join('\n')
+}
+
+const getExistingConfirmationTitle = (summary?: SubscriptionExistingSummary) => {
+  if (summary?.detectionFailed) {
+    return '库内检测失败，是否仍继续提交'
+  }
+  return '检测到库内已存在相关资源'
+}
+
+const submitSubscription = async (confirmExisting = false) => {
+  const payload = buildSubscriptionPayload(confirmExisting)
+  if (!payload) return
+
+  await createSubscription(payload)
+  ElMessage.success('订阅提交成功')
+  showConfirmDialog.value = false
+  router.push('/console/subscriptions')
+}
+
+const requestExistingConfirmation = async (summary?: SubscriptionExistingSummary) => {
+  try {
+    await ElMessageBox.confirm(formatExistingSummary(summary).replace(/\n/g, '<br/>'), getExistingConfirmationTitle(summary), {
+      type: 'warning',
+      confirmButtonText: '仍然提交',
+      cancelButtonText: '取消',
+      dangerouslyUseHTMLString: true
+    })
+  } catch {
+    return
+  }
+
+  await submitSubscription(true)
+}
+
 const confirmSubscription = async () => {
-  if (!selectedItem.value) return
+  const payload = buildSubscriptionPayload()
+  if (!payload) return
 
   submitting.value = true
   try {
-    const payload: CreateSubscriptionRequest = {
-      type: searchType.value,
-      name: selectedItem.value.title,
-      tmdbId: selectedItem.value.id.toString(),
-      season: searchType.value === 'TV' ? (subscriptionForm.value.season ?? undefined) : 0,
-      posterPath: selectedItem.value.posterPath,
-      note: subscriptionForm.value.note
+    checkingExisting.value = true
+    const existing = await checkExistingSubscription({
+      type: payload.type,
+      tmdbId: payload.tmdbId,
+      season: payload.season
+    })
+    checkingExisting.value = false
+
+    if (existing.existsInLibrary || existing.detectionFailed) {
+      await requestExistingConfirmation(existing.existingSummary)
+      return
     }
 
-    await createSubscription(payload)
-    ElMessage.success('订阅提交成功')
-    showConfirmDialog.value = false
-    router.push('/console/subscriptions')
+    await submitSubscription(false)
   } catch (error: any) {
-    // Error handled by interceptor
+    const responseData = error?.response?.data
+    if (responseData?.confirmationRequired) {
+      await requestExistingConfirmation(responseData.existingSummary)
+      return
+    }
   } finally {
+    checkingExisting.value = false
     submitting.value = false
   }
 }
@@ -156,7 +228,7 @@ const retryLoadSeasonOptions = async () => {
 }
 
 const isConfirmDisabled = () => {
-  if (submitting.value) return true
+  if (submitting.value || checkingExisting.value) return true
   if (searchType.value !== 'TV') return false
   return seasonOptionsLoading.value || subscriptionForm.value.season == null
 }
@@ -354,9 +426,9 @@ const isConfirmDisabled = () => {
             :disabled="isConfirmDisabled()"
             class="px-6 py-2 bg-ember text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md hover:shadow-lg flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <span v-if="submitting" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
+            <span v-if="submitting || checkingExisting" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
             <el-icon v-else><Check /></el-icon>
-            {{ submitting ? '提交中...' : '确认订阅' }}
+            {{ submitting ? '提交中...' : checkingExisting ? '检测中...' : '确认订阅' }}
           </button>
         </div>
       </template>

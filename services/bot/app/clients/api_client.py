@@ -152,7 +152,11 @@ def _load_json(
     return payload
 
 
-async def _call_subscription_action(subscription_id: str, action: str) -> bool:
+async def _call_subscription_action(
+    subscription_id: str,
+    action: str,
+    payload: dict[str, Any] | None = None,
+) -> bool:
     endpoint = f"subscription_{action}"
     url = f"{API_URL}/api/v1/internal/subscriptions/{subscription_id}/{action}"
     response, _ = await _request(
@@ -161,6 +165,7 @@ async def _call_subscription_action(subscription_id: str, action: str) -> bool:
         url,
         timeout=_DEFAULT_TIMEOUT,
         headers=_INTERNAL_HEADERS,
+        json=payload,
         log_fields={"subscriptionId": subscription_id},
     )
     return response is not None and response.status_code == 200
@@ -170,8 +175,12 @@ async def approve_subscription(subscription_id: str) -> bool:
     return await _call_subscription_action(subscription_id, "approve")
 
 
-async def reject_subscription(subscription_id: str) -> bool:
-    return await _call_subscription_action(subscription_id, "reject")
+async def reject_subscription(subscription_id: str, reason: str) -> bool:
+    return await _call_subscription_action(
+        subscription_id,
+        "reject",
+        payload={"reason": reason},
+    )
 
 
 async def verify_telegram_bind(telegram_id: int, code: str) -> Optional[dict]:

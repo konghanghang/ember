@@ -12,16 +12,21 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
 )
 
 // TVCalendarHandler 追剧日历处理器
 type TVCalendarHandler struct {
-	service *tvcalendarpkg.TVCalendarService
+	service             *tvcalendarpkg.TVCalendarService
+	subscriptionService *subscriptionpkg.SubscriptionService
 }
 
 func NewTVCalendarHandler() *TVCalendarHandler {
-	return &TVCalendarHandler{service: tvcalendarpkg.NewTVCalendarService()}
+	return &TVCalendarHandler{
+		service:             tvcalendarpkg.NewTVCalendarService(),
+		subscriptionService: subscriptionpkg.NewSubscriptionService(),
+	}
 }
 
 func (h *TVCalendarHandler) GetGlobalWeeklyCalendar(c *gin.Context) {
@@ -298,21 +303,62 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 		physical,
 		itemPath,
 	)
-	if itemType != "episode" {
-		log.Printf("[TV Calendar] Emby webhook 忽略：条目不是剧集 requestId=%s itemId=%q itemType=%q itemName=%q", requestID, embyItemID, itemType, itemName)
-		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
-		return
-	}
-
 	if !physical {
 		log.Printf("[TV Calendar] Emby webhook 忽略：条目没有物理媒体 requestId=%s itemId=%q itemName=%q locationType=%q isMissing=%t path=%q", requestID, embyItemID, itemName, locationType, isMissing, itemPath)
 		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
 		return
 	}
 
+	var subscriptionUpdatedCount int64
+	switch itemType {
+	case "movie":
+		subscriptionCount, err := h.subscriptionService.MarkSubscriptionsIngestedByWebhook(c.Request.Context(), subscriptionpkg.SubscriptionIngestWebhookPayload{
+			ItemType:   itemType,
+			TmdbID:     tmdbID,
+			EmbyItemID: embyItemID,
+			ItemName:   itemName,
+		})
+		if err != nil {
+			log.Printf("[Subscription] Emby webhook 电影入库回写失败 requestId=%s itemId=%q itemName=%q tmdbId=%q err=%v", requestID, embyItemID, itemName, tmdbID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("[Subscription] Emby webhook 电影处理完成 requestId=%s itemId=%q itemName=%q tmdbId=%q updated=%t updatedCount=%d", requestID, embyItemID, itemName, tmdbID, subscriptionCount > 0, subscriptionCount)
+		c.JSON(http.StatusOK, gin.H{
+			"success":             true,
+			"subscriptionUpdated": subscriptionCount > 0,
+			"subscriptionCount":   subscriptionCount,
+		})
+		return
+	case "episode":
+		subscriptionCount, err := h.subscriptionService.MarkSubscriptionsIngestedByWebhook(c.Request.Context(), subscriptionpkg.SubscriptionIngestWebhookPayload{
+			ItemType:   itemType,
+			TmdbID:     tmdbID,
+			Season:     season,
+			Episode:    episode,
+			EmbyItemID: embyItemID,
+			ItemName:   itemName,
+		})
+		if err != nil {
+			log.Printf("[Subscription] Emby webhook 剧集入库回写失败 requestId=%s itemId=%q itemName=%q tmdbId=%q season=%d episode=%d err=%v", requestID, embyItemID, itemName, tmdbID, season, episode, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		subscriptionUpdatedCount = subscriptionCount
+	default:
+		log.Printf("[TV Calendar] Emby webhook 忽略：条目类型不支持 requestId=%s itemId=%q itemType=%q itemName=%q", requestID, embyItemID, itemType, itemName)
+		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
+		return
+	}
+
 	if season <= 0 || episode <= 0 {
 		log.Printf("[TV Calendar] Emby webhook 忽略：季集号无效 requestId=%s itemId=%q itemName=%q season=%d episode=%d", requestID, embyItemID, itemName, season, episode)
-		c.JSON(http.StatusOK, gin.H{"success": true, "ignored": true})
+		c.JSON(http.StatusOK, gin.H{
+			"success":             true,
+			"ignored":             true,
+			"subscriptionUpdated": subscriptionUpdatedCount > 0,
+			"subscriptionCount":   subscriptionUpdatedCount,
+		})
 		return
 	}
 
@@ -323,12 +369,14 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 		return
 	}
 
-	log.Printf("[TV Calendar] Emby webhook 更新完成 requestId=%s event=%q itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d updated=%t updatedCount=%d", requestID, eventName, embyItemID, itemName, tmdbID, seriesID, season, episode, updatedCount > 0, updatedCount)
+	log.Printf("[TV Calendar] Emby webhook 更新完成 requestId=%s event=%q itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d updated=%t updatedCount=%d subscriptionUpdated=%t subscriptionCount=%d", requestID, eventName, embyItemID, itemName, tmdbID, seriesID, season, episode, updatedCount > 0, updatedCount, subscriptionUpdatedCount > 0, subscriptionUpdatedCount)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"updated": updatedCount > 0,
-		"count":   updatedCount,
+		"success":             true,
+		"updated":             updatedCount > 0,
+		"count":               updatedCount,
+		"subscriptionUpdated": subscriptionUpdatedCount > 0,
+		"subscriptionCount":   subscriptionUpdatedCount,
 	})
 }
 

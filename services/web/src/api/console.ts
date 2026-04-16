@@ -1,7 +1,10 @@
 import request from './request'
 import type {
+  CheckExistingSubscriptionRequest,
+  CheckExistingSubscriptionResponse,
   CheckoutResponse,
   ConsoleAccountLink,
+  CreateSubscriptionResponse,
   CreateSubscriptionRequest,
   EmbyConfigResponse,
   LatestMediaResponse,
@@ -32,7 +35,15 @@ export function getSubscriptions(params: SubscriptionListQuery): Promise<{ data:
   })
 }
 
-export function createSubscription(data: CreateSubscriptionRequest): Promise<{ success: boolean }> {
+export function checkExistingSubscription(data: CheckExistingSubscriptionRequest): Promise<CheckExistingSubscriptionResponse> {
+  return request({
+    url: '/subscriptions/check-existing',
+    method: 'post',
+    data
+  })
+}
+
+export function createSubscription(data: CreateSubscriptionRequest): Promise<CreateSubscriptionResponse> {
   return request({
     url: '/subscriptions',
     method: 'post',

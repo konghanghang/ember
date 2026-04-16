@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from html import escape
 from typing import Any, Awaitable, Callable
 
@@ -23,6 +24,7 @@ from app.formatters.message_formatter import (
     format_search_detail,
     format_search_results,
     format_subscription_message,
+    format_subscription_result_message,
     make_movie_detail_keyboard,
     make_tv_confirm_keyboard,
     make_tv_season_keyboard,
@@ -44,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 WELCOME_MESSAGE_NAMES_PLACEHOLDER = "{names}"
 WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER = "{notifyGroupLink}"
+REJECT_REASON_TTL_SECONDS = 300
+pending_reject_requests: dict[int, dict[str, Any]] = {}
 
 
 def _private_only_tip() -> str:
@@ -52,6 +56,23 @@ def _private_only_tip() -> str:
 
 def _group_only_tip() -> str:
     return "⚠️ 请在群聊中使用此命令"
+
+
+def _purge_expired_reject_requests() -> None:
+    now = time.monotonic()
+    expired_chat_ids = [
+        chat_id
+        for chat_id, item in pending_reject_requests.items()
+        if item.get("expires_at", 0) <= now
+    ]
+    for chat_id in expired_chat_ids:
+        pending_reject_requests.pop(chat_id, None)
+
+
+def _clear_pending_reject_request(chat_id: int | None) -> None:
+    if chat_id is None:
+        return
+    pending_reject_requests.pop(chat_id, None)
 
 
 def _render_welcome_message(template: str, names: str, notify_group_link: str) -> str:
@@ -192,6 +213,38 @@ async def send_subscription_notification(bot, data: dict) -> None:
     )
 
 
+async def send_subscription_result_notification(bot, data: dict) -> None:
+    telegram_id = int(data.get("telegramId", 0) or 0)
+    if telegram_id <= 0:
+        logger.info("跳过订阅结果通知：telegramId 缺失 subscriptionId=%s", data.get("subscriptionId"))
+        return
+
+    text = format_subscription_result_message(data)
+    poster_path = data.get("posterPath")
+    if poster_path:
+        poster_url = f"{TMDB_IMAGE_BASE}{poster_path}"
+        try:
+            await bot.send_photo(
+                chat_id=telegram_id,
+                photo=poster_url,
+                caption=text,
+                parse_mode="HTML",
+            )
+            return
+        except Exception:
+            logger.exception("发送订阅结果海报消息失败，降级为文本消息 telegramId=%s", telegram_id)
+
+    try:
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        logger.exception("发送订阅结果消息失败 telegramId=%s subscriptionId=%s", telegram_id, data.get("subscriptionId"))
+
+
 async def send_registration_notification(bot, data: dict) -> None:
     admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
     if admin_chat_id is None:
@@ -247,6 +300,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if query is None or query.data is None:
         return
 
+    _purge_expired_reject_requests()
     admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
     if query.from_user is None or admin_chat_id is None or query.from_user.id != admin_chat_id:
         await query.answer("你没有权限操作", show_alert=True)
@@ -262,22 +316,38 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer("操作无效", show_alert=True)
         return
 
-    success = await (
-        api_client.approve_subscription(subscription_id)
-        if action == "approve"
-        else api_client.reject_subscription(subscription_id)
-    )
+    message = query.message
+    original_text = ""
+    if message is not None:
+        _clear_pending_reject_request(message.chat_id)
+        original_text = message.text or message.caption or ""
+
+    if action == "reject":
+        if message is None:
+            await query.answer("消息上下文缺失，无法拒绝", show_alert=True)
+            return
+
+        prompt = await message.reply_text(
+            "请直接回复这条消息输入拒绝原因，5 分钟内有效。\n发送的下一条普通文本会作为拒绝原因提交。"
+        )
+        pending_reject_requests[message.chat_id] = {
+            "subscription_id": subscription_id,
+            "message_id": message.message_id,
+            "chat_id": message.chat_id,
+            "has_photo": bool(message.photo),
+            "original_text": original_text,
+            "prompt_message_id": prompt.message_id,
+            "expires_at": time.monotonic() + REJECT_REASON_TTL_SECONDS,
+        }
+        await query.answer("请发送拒绝原因")
+        return
+
+    success = await api_client.approve_subscription(subscription_id)
     if not success:
         await query.answer("操作失败，请重试", show_alert=True)
         return
 
-    message = query.message
-    original_text = ""
-    if message is not None:
-        original_text = message.text or message.caption or ""
-
     result_text = format_result_message(original_text, action)
-
     await query.answer()
 
     if message is not None and message.photo:
@@ -285,6 +355,63 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     await query.edit_message_text(text=result_text, parse_mode="HTML")
+
+
+async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    message = update.message
+    if message is None or message.from_user is None or message.text is None:
+        return
+
+    _purge_expired_reject_requests()
+    pending = pending_reject_requests.get(message.chat_id)
+    if pending is None:
+        return
+
+    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
+    if admin_chat_id is None or message.from_user.id != admin_chat_id:
+        return
+
+    reply_to = message.reply_to_message
+    if reply_to is None or reply_to.message_id != pending.get("prompt_message_id"):
+        return
+
+    reason = message.text.strip()
+    if reason == "":
+        await message.reply_text("拒绝原因不能为空，请重新输入。")
+        return
+
+    success = await api_client.reject_subscription(pending["subscription_id"], reason)
+    if not success:
+        await message.reply_text("提交拒绝原因失败，请重试。")
+        return
+
+    pending_reject_requests.pop(message.chat_id, None)
+    await message.reply_text("已提交拒绝原因并完成拒绝。")
+
+    result_text = format_result_message(pending.get("original_text", ""), "reject", reason)
+    try:
+        if pending.get("has_photo"):
+            await message.get_bot().edit_message_caption(
+                chat_id=pending["chat_id"],
+                message_id=pending["message_id"],
+                caption=result_text,
+                parse_mode="HTML",
+            )
+        else:
+            await message.get_bot().edit_message_text(
+                chat_id=pending["chat_id"],
+                message_id=pending["message_id"],
+                text=result_text,
+                parse_mode="HTML",
+            )
+    except Exception:
+        logger.exception(
+            "更新订阅审核消息失败 subscriptionId=%s chatId=%s messageId=%s",
+            pending.get("subscription_id"),
+            pending.get("chat_id"),
+            pending.get("message_id"),
+        )
 
 
 async def handle_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -27,11 +27,12 @@ type defaultTelegramSubscriber struct{}
 
 func (defaultTelegramSubscriber) Create(userID string, req TelegramSubscriptionCommand) error {
 	return subscriptionpkg.NewSubscriptionService().CreateSubscription(userID, subscriptionpkg.CreateSubscriptionRequest{
-		Type:       req.Type,
-		Name:       req.Name,
-		TmdbID:     req.TmdbID,
-		Season:     req.Season,
-		PosterPath: req.PosterPath,
+		Type:            req.Type,
+		Name:            req.Name,
+		TmdbID:          req.TmdbID,
+		Season:          req.Season,
+		PosterPath:      req.PosterPath,
+		ConfirmExisting: true,
 	})
 }
 

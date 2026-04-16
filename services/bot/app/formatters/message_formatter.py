@@ -125,10 +125,58 @@ def format_payment_message(data: dict) -> str:
     return "\n".join(lines)
 
 
-def format_result_message(original_text: str, action: str) -> str:
+def format_result_message(original_text: str, action: str, reason: str | None = None) -> str:
     result = "✅ 已通过" if action == "approve" else "❌ 已拒绝"
     text = original_text.strip()
+    if action == "reject" and reason:
+        result = f"{result}\n📝 原因：{escape(reason.strip())}"
     return f"{text}\n\n────────────────────\n{result}"
+
+
+def format_subscription_result_message(data: dict) -> str:
+    status = str(data.get("status", "") or "").upper()
+    media_type = _format_media_type(str(data.get("type", "") or ""))
+    name = escape(str(data.get("name", "") or "-"))
+    tmdb_id = escape(str(data.get("tmdbId", "") or "-"))
+    season = int(data.get("season", 0) or 0)
+    reject_reason = escape(str(data.get("rejectReason", "") or "").strip())
+    reviewed_at = _format_expiry(data.get("reviewedAt"))
+    ingested_at = _format_expiry(data.get("ingestedAt"))
+
+    if status == "APPROVED":
+        title = "✅ <b>订阅已审核通过</b>"
+        status_line = "当前状态：已通过，等待入库"
+    elif status == "REJECTED":
+        title = "❌ <b>订阅已被拒绝</b>"
+        status_line = "当前状态：已拒绝"
+    elif status == "INGESTED":
+        title = "📦 <b>订阅内容已入库</b>"
+        status_line = "当前状态：已入库"
+    else:
+        title = "ℹ️ <b>订阅状态更新</b>"
+        status_line = f"当前状态：{escape(status or '-')}"
+
+    lines = [
+        title,
+        "",
+        f"📌 <b>{name}</b>",
+        f"🎭 类型：{media_type}",
+        f"🔗 TMDB：<a href='https://www.themoviedb.org/{'movie' if data.get('type') == 'MOVIE' else 'tv'}/{tmdb_id}'>#{tmdb_id}</a>",
+    ]
+
+    if season > 0:
+        lines.append(f"📺 季：第 {season} 季")
+
+    lines.extend(["", status_line])
+
+    if status in ("APPROVED", "REJECTED") and reviewed_at != "永不过期":
+        lines.append(f"🕒 审核时间：{reviewed_at}")
+    if status == "REJECTED" and reject_reason:
+        lines.append(f"📝 拒绝原因：{reject_reason}")
+    if status == "INGESTED" and ingested_at != "永不过期":
+        lines.append(f"📥 入库时间：{ingested_at}")
+
+    return "\n".join(lines)
 
 
 def format_bind_success(data: dict) -> str:
