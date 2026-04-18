@@ -37,6 +37,7 @@
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
 - `bot-telegram/notification-mute-rules.md`
+- `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/gap-management-and-precision-download.md`
