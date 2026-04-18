@@ -7,7 +7,7 @@ import { useUserStore } from '@/store/user'
 
 const service = axios.create({
   baseURL: '/api/v1',
-  timeout: 10000,
+  timeout: 60000,
 })
 
 service.interceptors.request.use(
