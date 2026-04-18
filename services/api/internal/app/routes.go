@@ -80,6 +80,11 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.GET("/media-quality/libraries/:libraryId/groups/:groupId/details", h.mediaQuality.GetLibraryQualityGroupDetails)
 	admin.POST("/media-quality/libraries/:libraryId/scan", h.mediaQuality.ScanLibraryQuality)
 	admin.GET("/media-quality/posters/:itemId", h.mediaQuality.GetPoster)
+	admin.GET("/media-gaps", h.mediaGap.ListMediaGaps)
+	admin.POST("/media-gaps/scan", h.mediaGap.ScanMediaGaps)
+	admin.POST("/media-gaps/:id/search", h.mediaGap.SearchMediaGap)
+	admin.POST("/media-gaps/:id/dispatch", h.mediaGap.DispatchMediaGap)
+	admin.POST("/media-gaps/:id/ignore", h.mediaGap.IgnoreMediaGap)
 
 	admin.GET("/devices", h.device.GetDevices)
 	admin.GET("/devices/stats", h.device.GetStats)

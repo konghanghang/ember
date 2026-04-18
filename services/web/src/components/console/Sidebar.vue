@@ -126,6 +126,12 @@ const menuItems = computed(() => [
         role: 'admin'
       },
       {
+        title: '缺集管理',
+        path: '/console/media-gaps',
+        icon: Film,
+        role: 'admin'
+      },
+      {
         title: '设备管理',
         path: '/console/devices',
         icon: Iphone,

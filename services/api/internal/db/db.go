@@ -252,6 +252,7 @@ func AutoMigrate() error {
 		&models.Payment{},
 		&models.PlaybackRanking{},
 		&models.MediaQualityCache{},
+		&models.MediaGap{},
 		&models.EmailVerification{},
 		&models.TelegramBindCode{},
 	); err != nil {

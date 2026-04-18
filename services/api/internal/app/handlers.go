@@ -21,6 +21,7 @@ type appHandlers struct {
 	playbackHistory *handlers.PlaybackHistoryHandler
 	playbackProfile *handlers.UserPlaybackProfileHandler
 	mediaQuality    *handlers.MediaQualityHandler
+	mediaGap        *handlers.MediaGapHandler
 }
 
 func newAppHandlers() *appHandlers {
@@ -43,5 +44,6 @@ func newAppHandlers() *appHandlers {
 		playbackHistory: handlers.NewPlaybackHistoryHandler(),
 		playbackProfile: handlers.NewUserPlaybackProfileHandler(),
 		mediaQuality:    handlers.NewMediaQualityHandler(),
+		mediaGap:        handlers.NewMediaGapHandler(),
 	}
 }

@@ -18,6 +18,13 @@ import type {
   DeviceListQuery,
   DeviceListResponse,
   DeviceStats,
+  MediaGapActionResponse,
+  MediaGapDispatchRequest,
+  MediaGapListQuery,
+  MediaGapListResponse,
+  MediaGapScanRequest,
+  MediaGapScanResponse,
+  MediaGapSearchResult,
   MediaQualityLowDetailItem,
   MediaQualityLibrary,
   MediaQualityReport,
@@ -258,6 +265,46 @@ export function getMediaQualityGroupDetails(
     url: `/admin/media-quality/libraries/${encodeURIComponent(libraryId)}/groups/${encodeURIComponent(groupId)}/details`,
     method: 'get',
     params
+  })
+}
+
+// ==================== 缺集管理 ====================
+export function getMediaGaps(params?: MediaGapListQuery): Promise<MediaGapListResponse> {
+  return request({
+    url: '/admin/media-gaps',
+    method: 'get',
+    params
+  })
+}
+
+export function scanMediaGaps(data?: MediaGapScanRequest): Promise<{ data: MediaGapScanResponse }> {
+  return request({
+    url: '/admin/media-gaps/scan',
+    method: 'post',
+    data: data ?? {}
+  })
+}
+
+export function searchMediaGap(id: string): Promise<{ data: MediaGapSearchResult }> {
+  return request({
+    url: `/admin/media-gaps/${encodeURIComponent(id)}/search`,
+    method: 'post'
+  })
+}
+
+export function dispatchMediaGap(id: string, data: MediaGapDispatchRequest): Promise<{ data: MediaGapActionResponse }> {
+  return request({
+    url: `/admin/media-gaps/${encodeURIComponent(id)}/dispatch`,
+    method: 'post',
+    data
+  })
+}
+
+export function ignoreMediaGap(id: string, data?: { reason?: string }): Promise<{ data: MediaGapActionResponse }> {
+  return request({
+    url: `/admin/media-gaps/${encodeURIComponent(id)}/ignore`,
+    method: 'post',
+    data: data ?? {}
   })
 }
 

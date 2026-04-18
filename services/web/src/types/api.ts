@@ -383,6 +383,109 @@ export interface MediaQualityReport {
   scanAt: string
 }
 
+export type MediaGapStatus = 'MISSING' | 'SEARCHED' | 'REQUESTED' | 'INGESTED' | 'IGNORED'
+
+export interface MediaGapListQuery extends PaginationQuery {
+  keyword?: string
+  status?: MediaGapStatus | ''
+  airDateFrom?: string
+  airDateTo?: string
+}
+
+export interface MediaGapSearchCandidate {
+  id: string
+  title: string
+  subtitle?: string
+  source?: string
+  site?: string
+  size?: string
+  seeders?: number
+  publishDate?: string
+  language?: string
+  releaseGroup?: string
+  episodeRange?: string
+  matchReason?: string
+  description?: string
+}
+
+export interface MediaGapSearchSnapshot {
+  candidates: MediaGapSearchCandidate[]
+  searchedAt?: string
+  source?: string
+  query?: string
+}
+
+export interface MediaGapDispatchSnapshot {
+  candidateId?: string
+  title?: string
+  source?: string
+  site?: string
+  requestedAt?: string
+  status?: string
+}
+
+export interface MediaGapItem {
+  id: string
+  tmdbId?: string
+  embySeriesId?: string
+  seriesName: string
+  season: number
+  episode: number
+  airDate?: string
+  status: MediaGapStatus
+  searchSnapshot?: MediaGapSearchSnapshot | string | null
+  dispatchSnapshot?: MediaGapDispatchSnapshot | string | null
+  lastScannedAt?: string
+  lastSearchedAt?: string
+  requestedAt?: string
+  ingestedAt?: string
+  ignoredAt?: string
+  ignoreReason?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MediaGapListResponse {
+  data: MediaGapItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export interface MediaGapSearchResult {
+  mediaGap?: MediaGapItem
+  candidates: MediaGapSearchCandidate[]
+  searchedAt?: string
+  source?: string
+}
+
+export interface MediaGapDispatchRequest {
+  candidateId: string
+  candidate?: MediaGapSearchCandidate
+}
+
+export interface MediaGapIgnoreRequest {
+  reason?: string
+}
+
+export interface MediaGapActionResponse {
+  mediaGap?: MediaGapItem
+  message?: string
+}
+
+export interface MediaGapScanRequest {
+  tmdbId?: string
+}
+
+export interface MediaGapScanResponse {
+  started?: boolean
+  async?: boolean
+  scope?: 'all' | 'series'
+  scanId?: string
+  count?: number
+  message?: string
+}
+
 export interface RedeemCodeRequest {
   code: string
 }

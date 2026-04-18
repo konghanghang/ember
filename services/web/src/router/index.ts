@@ -160,6 +160,12 @@ const router = createRouter({
           component: () => import('../views/admin/MediaQualityView.vue'),
         },
         {
+          path: 'media-gaps',
+          name: 'console-media-gaps',
+          meta: { role: 'admin' },
+          component: () => import('../views/admin/MediaGapsView.vue'),
+        },
+        {
           path: 'devices',
           name: 'console-devices',
           meta: { role: 'admin' },

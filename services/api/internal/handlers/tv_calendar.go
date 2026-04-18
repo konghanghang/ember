@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	mediagappkg "github.com/konghang/ember/backend/internal/services/mediagap"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
 )
@@ -20,12 +21,14 @@ import (
 type TVCalendarHandler struct {
 	service             *tvcalendarpkg.TVCalendarService
 	subscriptionService *subscriptionpkg.SubscriptionService
+	mediaGapService     *mediagappkg.MediaGapService
 }
 
 func NewTVCalendarHandler() *TVCalendarHandler {
 	return &TVCalendarHandler{
 		service:             tvcalendarpkg.NewTVCalendarService(),
 		subscriptionService: subscriptionpkg.NewSubscriptionService(),
+		mediaGapService:     mediagappkg.NewMediaGapService(),
 	}
 }
 
@@ -310,6 +313,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 	}
 
 	var subscriptionUpdatedCount int64
+	var mediaGapUpdatedCount int64
 	switch itemType {
 	case "movie":
 		subscriptionCount, err := h.subscriptionService.MarkSubscriptionsIngestedByWebhook(c.Request.Context(), subscriptionpkg.SubscriptionIngestWebhookPayload{
@@ -328,6 +332,8 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 			"success":             true,
 			"subscriptionUpdated": subscriptionCount > 0,
 			"subscriptionCount":   subscriptionCount,
+			"mediaGapUpdated":     false,
+			"mediaGapCount":       0,
 		})
 		return
 	case "episode":
@@ -359,9 +365,27 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 			"ignored":             true,
 			"subscriptionUpdated": subscriptionUpdatedCount > 0,
 			"subscriptionCount":   subscriptionUpdatedCount,
+			"mediaGapUpdated":     false,
+			"mediaGapCount":       0,
 		})
 		return
 	}
+
+	mediaGapCount, err := h.mediaGapService.MarkIngestedByWebhook(c.Request.Context(), subscriptionpkg.SubscriptionIngestWebhookPayload{
+		ItemType:   itemType,
+		TmdbID:     tmdbID,
+		SeriesID:   seriesID,
+		Season:     season,
+		Episode:    episode,
+		EmbyItemID: embyItemID,
+		ItemName:   itemName,
+	})
+	if err != nil {
+		log.Printf("[MediaGap] Emby webhook 缺集核销失败 requestId=%s itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d err=%v", requestID, embyItemID, itemName, tmdbID, seriesID, season, episode, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	mediaGapUpdatedCount = mediaGapCount
 
 	updatedCount, err := h.service.MarkEpisodeReadyByWebhook(c.Request.Context(), tmdbID, seriesID, season, episode, embyItemID)
 	if err != nil {
@@ -370,7 +394,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 		return
 	}
 
-	log.Printf("[TV Calendar] Emby webhook 更新完成 requestId=%s event=%q itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d updated=%t updatedCount=%d subscriptionUpdated=%t subscriptionCount=%d", requestID, eventName, embyItemID, itemName, tmdbID, seriesID, season, episode, updatedCount > 0, updatedCount, subscriptionUpdatedCount > 0, subscriptionUpdatedCount)
+	log.Printf("[TV Calendar] Emby webhook 更新完成 requestId=%s event=%q itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d updated=%t updatedCount=%d subscriptionUpdated=%t subscriptionCount=%d mediaGapUpdated=%t mediaGapCount=%d", requestID, eventName, embyItemID, itemName, tmdbID, seriesID, season, episode, updatedCount > 0, updatedCount, subscriptionUpdatedCount > 0, subscriptionUpdatedCount, mediaGapUpdatedCount > 0, mediaGapUpdatedCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":             true,
@@ -378,6 +402,8 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 		"count":               updatedCount,
 		"subscriptionUpdated": subscriptionUpdatedCount > 0,
 		"subscriptionCount":   subscriptionUpdatedCount,
+		"mediaGapUpdated":     mediaGapUpdatedCount > 0,
+		"mediaGapCount":       mediaGapUpdatedCount,
 	})
 }
 
