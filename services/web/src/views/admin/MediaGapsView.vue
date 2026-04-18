@@ -712,7 +712,10 @@ const handleScan = async () => {
       {
         confirmButtonText: '开始扫描',
         cancelButtonText: '取消',
-        type: 'warning'
+        type: 'warning',
+        customClass: 'media-gap-scan-confirm',
+        confirmButtonClass: 'btn-ember media-gap-scan-confirm__confirm',
+        cancelButtonClass: 'media-gap-scan-confirm__cancel'
       }
     )
   } catch (error) {
@@ -1000,9 +1003,9 @@ watch(viewMode, () => {
       </template>
 
       <EmberFilterPanel
-        wrapper-class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto]"
-        content-class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3"
-        actions-class="flex items-end justify-end gap-2"
+        wrapper-class="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,max-content)_auto] 2xl:items-end"
+        content-class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-[320px_220px_minmax(320px,420px)] 2xl:items-end"
+        actions-class="flex flex-wrap items-center justify-end gap-2"
       >
         <EmberSearchInput
           v-model="queryParams.keyword"
@@ -1991,5 +1994,44 @@ watch(viewMode, () => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   line-height: 1.5;
+}
+
+:deep(.media-gap-scan-confirm) {
+  border-radius: 1.5rem;
+  padding: 0.5rem;
+}
+
+:deep(.media-gap-scan-confirm .el-message-box__btns) {
+  padding-top: 0.5rem;
+}
+
+:deep(.media-gap-scan-confirm__confirm),
+:deep(.media-gap-scan-confirm__cancel) {
+  min-height: 42px !important;
+  border-radius: 0.75rem !important;
+  padding: 0 1rem !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+:deep(.media-gap-scan-confirm__confirm.el-button) {
+  border: none !important;
+}
+
+:deep(.media-gap-scan-confirm__cancel.el-button) {
+  border: 1px solid #e5e7eb !important;
+  background: #ffffff !important;
+  color: #374151 !important;
+}
+
+:deep(.media-gap-scan-confirm__cancel.el-button:hover) {
+  border-color: #d1d5db !important;
+  background: #f9fafb !important;
+  color: #111827 !important;
+}
+
+:deep(.media-gap-scan-confirm .el-message-box__btns .el-button) {
+  border-radius: 0.75rem !important;
 }
 </style>
