@@ -182,18 +182,24 @@ func (h *MediaGapHandler) SearchMediaGapCandidates(c *gin.Context) {
 				candidates = append(candidates, MediaGapSearchCandidate{
 					ID:          buildCandidateID(candidate),
 					Title:       candidate.Title,
-					Description: "",
+					Description: candidate.Description,
 					Site:        candidate.Site,
 					Size:        candidate.Size,
 					Seeders:     candidate.Seeders,
 					IsPack:      candidate.IsPack,
-					MatchMode:   boolToMatchMode(candidate.IsPack),
+					MatchMode:   resolveCandidateMatchMode(candidate),
 					Tags:        candidate.Tags,
 					Payload:     candidate.Payload,
 				})
 			}
 			return candidates
 		}(),
+	}
+	if resp.SearchSnapshot != nil {
+		searchResult["query"] = resp.SearchSnapshot.Query
+		searchResult["fallbackQuery"] = resp.SearchSnapshot.FallbackQuery
+		searchResult["matchMode"] = resp.SearchSnapshot.MatchMode
+		searchResult["source"] = resp.SearchSnapshot.Source
 	}
 	if resp.LastSearchedAt != nil {
 		searchResult["searchedAt"] = resp.LastSearchedAt
@@ -287,6 +293,7 @@ func writeMediaGapError(c *gin.Context, err error) {
 	case errors.Is(err, mediagappkg.ErrMediaGapNotFound):
 		statusCode = http.StatusNotFound
 	case errors.Is(err, mediagappkg.ErrMediaGapInvalidStatus),
+		errors.Is(err, mediagappkg.ErrMediaGapSearchState),
 		errors.Is(err, mediagappkg.ErrMediaGapCandidate):
 		statusCode = http.StatusBadRequest
 	}
@@ -295,14 +302,20 @@ func writeMediaGapError(c *gin.Context, err error) {
 }
 
 func buildCandidateID(candidate mediagappkg.SearchCandidate) string {
+	if trimmed := strings.TrimSpace(candidate.ID); trimmed != "" {
+		return trimmed
+	}
 	if payloadID := extractMapString(candidate.Payload, "id", "guid", "hash"); payloadID != "" {
 		return payloadID
 	}
 	return candidate.Title
 }
 
-func boolToMatchMode(isPack bool) string {
-	if isPack {
+func resolveCandidateMatchMode(candidate mediagappkg.SearchCandidate) string {
+	if trimmed := strings.TrimSpace(candidate.MatchMode); trimmed != "" {
+		return trimmed
+	}
+	if candidate.IsPack {
 		return "season"
 	}
 	return "episode"

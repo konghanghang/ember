@@ -56,6 +56,7 @@ services/
 │     │  ├─ media_quality_cache.go # MediaQualityCache（媒体质量缓存）
 │     │  ├─ client_blacklist.go  # ClientBlacklist（客户端黑名单）
 │     │  ├─ device_action.go     # DeviceAction（设备操作日志）
+│     │  ├─ media_gap.go         # MediaGap（缺集工单）
 │     │  ├─ tv_calendar.go       # TVCalendar（追剧日历 + 订阅 + TMDB 缓存）
 │     │  └─ utils.go             # generateCUID()
 │     ├─ integrations/           # 外部系统集成
@@ -84,6 +85,10 @@ services/
 │     │  │  └─ expiry.go         # SystemService（过期用户检查）
 │     │  ├─ media.go             # 媒体统计（带 5min 缓存）
 │     │  ├─ media_quality.go     # MediaQualityService（媒体质量盘点）
+│     │  ├─ mediagap/
+│     │  │  ├─ service.go        # MediaGapService（缺集扫描 / 搜索候选 / 下发 / webhook 核销）
+│     │  │  ├─ types.go          # 缺集领域请求/响应与快照结构
+│     │  │  └─ errors.go         # 缺集领域错误
 │     │  ├─ subscription.go      # 订阅工作流
 │     │  ├─ email/
 │     │  │  ├─ service.go        # EmailService（配置读取 / 开关判断）
@@ -118,6 +123,7 @@ services/
 │     │  ├─ system.go            # 系统信息
 │     │  ├─ media.go             # 媒体信息
 │     │  ├─ media_quality.go     # 媒体质量盘点
+│     │  ├─ media_gap.go         # 缺集管理
 │     │  ├─ subscription.go      # 订阅管理
 │     │  ├─ tmdb.go              # TMDB 搜索 / 剧集季列表
 │     │  ├─ ranking.go           # 播放排行
@@ -720,13 +726,23 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `GetStats()` — 客户端分布、设备分布、黑名单数量、活跃会话数
 - `GetDeviceActions(limit)` — 最近设备操作日志
 
-### 5.11 MoviePilotClient (`integrations/moviepilot/client.go`)
+### 5.11 MediaGapService (`services/mediagap/service.go`)
+
+- `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单
+- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选，优先按单集查询，未命中时回退整季查询；写入 `searchSnapshot` 与 `lastSearchedAt`
+- `DispatchGap(id, candidate)` — 下发已选候选资源，写入 `dispatchSnapshot` 与 `requestedAt`
+- `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`
+- `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后核销为 `INGESTED`
+
+### 5.12 MoviePilotClient (`integrations/moviepilot/client.go`)
 
 - `IsConfigured()` — 检查 `MOVIEPILOT_URL` 与 `MOVIEPILOT_API_KEY` 是否齐全
 - `TestConnection()` — `GET /api/v1/site/`，请求头使用 `X-API-KEY`
 - `CreateSubscription(type, name, tmdbId, season)` — `POST /api/v1/subscribe/`，请求头使用 `X-API-KEY`（`type` 转中文：movie→电影, tv→电视剧；`season>0` 时透传季号）
+- `SearchGapCandidates(seriesName, season, episode)` — `GET /api/v1/search/title`，优先搜索 `SxxExx` 单集，空结果时回退 `Sxx` 整季包；候选按做种数、体积排序
+- `DispatchGapCandidate(candidatePayload)` — `POST /api/v1/download/add`，将选中的资源快照透传给 MoviePilot 下载入口
 
-### 5.12 EmailService (`services/email/service.go`, `services/email/verification.go`, `services/email/sender.go`)
+### 5.13 EmailService (`services/email/service.go`, `services/email/verification.go`, `services/email/sender.go`)
 
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
@@ -741,7 +757,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15）
 - 验证码有效期：`EMAIL_CODE_EXPIRY_MINUTES`（默认 10 分钟）
 
-### 5.13 BotNotifier (`integrations/notifier/notifier.go`)
+### 5.14 BotNotifier (`integrations/notifier/notifier.go`)
 
 火忘式 HTTP 推送通知服务，将事件推送给 Telegram Bot。
 
@@ -756,7 +772,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **认证方式**：`X-Internal-Secret` 头（值 = `INTERNAL_API_SECRET`）
 
-### 5.14 PlaybackRankingService (`services/playback/ranking.go`)
+### 5.15 PlaybackRankingService (`services/playback/ranking.go`)
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 

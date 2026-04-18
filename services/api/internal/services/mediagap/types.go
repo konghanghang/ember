@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -56,19 +57,26 @@ type WebhookIngestPayload struct {
 }
 
 type SearchCandidate struct {
-	Title   string                 `json:"title"`
-	Site    string                 `json:"site,omitempty"`
-	Size    int64                  `json:"size,omitempty"`
-	Seeders int                    `json:"seeders,omitempty"`
-	IsPack  bool                   `json:"isPack"`
-	Tags    []string               `json:"tags,omitempty"`
-	Payload map[string]interface{} `json:"payload,omitempty"`
+	ID          string                 `json:"id,omitempty"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description,omitempty"`
+	Site        string                 `json:"site,omitempty"`
+	Size        int64                  `json:"size,omitempty"`
+	Seeders     int                    `json:"seeders,omitempty"`
+	IsPack      bool                   `json:"isPack"`
+	MatchMode   string                 `json:"matchMode,omitempty"`
+	Tags        []string               `json:"tags,omitempty"`
+	Payload     map[string]interface{} `json:"payload,omitempty"`
 }
 
 type SearchSnapshot struct {
-	Keyword    string            `json:"keyword"`
-	SearchedAt time.Time         `json:"searchedAt"`
-	Candidates []SearchCandidate `json:"candidates"`
+	Keyword       string            `json:"keyword"`
+	Query         string            `json:"query,omitempty"`
+	FallbackQuery string            `json:"fallbackQuery,omitempty"`
+	MatchMode     string            `json:"matchMode,omitempty"`
+	Source        string            `json:"source,omitempty"`
+	SearchedAt    time.Time         `json:"searchedAt"`
+	Candidates    []SearchCandidate `json:"candidates"`
 }
 
 type DispatchSnapshot struct {
@@ -138,4 +146,55 @@ func toDTO(gap models.MediaGap) *MediaGapDTO {
 
 func buildDefaultSearchKeyword(gap models.MediaGap) string {
 	return fmt.Sprintf("%s S%02dE%02d", gap.SeriesName, gap.Season, gap.Episode)
+}
+
+func isSearchableMediaGapStatus(status models.MediaGapStatus) bool {
+	switch status {
+	case models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested:
+		return true
+	default:
+		return false
+	}
+}
+
+func buildSearchSnapshot(gap models.MediaGap, searchedAt time.Time, resp *moviepilotint.GapSearchResponse) SearchSnapshot {
+	snapshot := SearchSnapshot{
+		Keyword:    buildDefaultSearchKeyword(gap),
+		Source:     "MoviePilot",
+		SearchedAt: searchedAt,
+		Candidates: []SearchCandidate{},
+	}
+	if resp == nil {
+		return snapshot
+	}
+
+	snapshot.Query = resp.Query
+	snapshot.FallbackQuery = resp.FallbackQuery
+	snapshot.MatchMode = resp.MatchMode
+	snapshot.Candidates = normalizeSearchCandidates(resp.Candidates)
+	return snapshot
+}
+
+func normalizeSearchCandidates(candidates []moviepilotint.GapSearchCandidate) []SearchCandidate {
+	if len(candidates) == 0 {
+		return []SearchCandidate{}
+	}
+
+	normalized := make([]SearchCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		normalized = append(normalized, SearchCandidate{
+			ID:          candidate.ID,
+			Title:       candidate.Title,
+			Description: candidate.Description,
+			Site:        candidate.Site,
+			Size:        candidate.Size,
+			Seeders:     candidate.Seeders,
+			IsPack:      candidate.IsPack,
+			MatchMode:   candidate.MatchMode,
+			Tags:        candidate.Tags,
+			Payload:     candidate.Payload,
+		})
+	}
+
+	return normalized
 }

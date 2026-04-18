@@ -16,6 +16,7 @@ import (
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	"github.com/konghang/ember/backend/internal/models"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	"gorm.io/gorm"
@@ -100,8 +101,18 @@ type scanSeriesStats struct {
 type episodeInventory map[int]map[int]struct{}
 type seasonSet map[int]struct{}
 
+type gapMoviePilotClient interface {
+	SearchGapCandidates(moviepilotint.GapSearchRequest) (*moviepilotint.GapSearchResponse, error)
+	DispatchGapCandidate(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error)
+}
+
+var newMediaGapMoviePilotClient = func() gapMoviePilotClient {
+	return moviepilotint.NewMoviePilotClient()
+}
+
 type Service struct {
 	embyService *embyint.EmbyService
+	moviepilot  gapMoviePilotClient
 	httpClient  *http.Client
 	tmdbAPIKey  string
 
@@ -114,6 +125,7 @@ type MediaGapService = Service
 func NewService() *Service {
 	svc := &Service{
 		embyService: embyint.NewEmbyService(),
+		moviepilot:  newMediaGapMoviePilotClient(),
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -305,13 +317,21 @@ func (s *Service) SearchGap(ctx context.Context, id string) (*MediaGapDTO, error
 	if err != nil {
 		return nil, err
 	}
+	if !isSearchableMediaGapStatus(gap.Status) {
+		return nil, ErrMediaGapSearchState
+	}
+
+	searchResp, err := s.moviepilot.SearchGapCandidates(moviepilotint.GapSearchRequest{
+		SeriesName: gap.SeriesName,
+		Season:     gap.Season,
+		Episode:    gap.Episode,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("搜索缺集候选失败: %w", err)
+	}
 
 	now := time.Now().UTC()
-	snapshot := SearchSnapshot{
-		Keyword:    buildDefaultSearchKeyword(gap),
-		SearchedAt: now,
-		Candidates: []SearchCandidate{},
-	}
+	snapshot := buildSearchSnapshot(gap, now, searchResp)
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("序列化搜索快照失败: %w", err)
@@ -328,7 +348,8 @@ func (s *Service) SearchGap(ctx context.Context, id string) (*MediaGapDTO, error
 
 	dto := toDTO(gap)
 	dto.SearchSnapshot = &snapshot
-	log.Printf("[MediaGap] 搜索占位结果已写入 id=%s tmdbId=%s season=%d episode=%d candidates=%d", gap.ID, gap.TmdbID, gap.Season, gap.Episode, len(snapshot.Candidates))
+	log.Printf("[MediaGap] 搜索候选完成 id=%s tmdbId=%s season=%d episode=%d query=%q fallbackQuery=%q matchMode=%q candidates=%d",
+		gap.ID, gap.TmdbID, gap.Season, gap.Episode, snapshot.Query, snapshot.FallbackQuery, snapshot.MatchMode, len(snapshot.Candidates))
 	return dto, nil
 }
 
