@@ -382,22 +382,6 @@ const summaryCardClass = (tone: string) => {
   }
 }
 
-const cardStatusText = (group: GroupedSeriesGaps) => {
-  if (group.missingCount > 0) return `待处理 ${group.missingCount}`
-  if (group.requestedCount > 0) return `已下发 ${group.requestedCount}`
-  if (group.searchedCount > 0) return `已搜索 ${group.searchedCount}`
-  if (group.ingestedCount > 0) return `已入库 ${group.ingestedCount}`
-  return `已忽略 ${group.ignoredCount}`
-}
-
-const cardStatusClass = (group: GroupedSeriesGaps) => {
-  if (group.missingCount > 0) return 'series-status series-status-missing'
-  if (group.requestedCount > 0) return 'series-status series-status-requested'
-  if (group.searchedCount > 0) return 'series-status series-status-searched'
-  if (group.ingestedCount > 0) return 'series-status series-status-ingested'
-  return 'series-status series-status-ignored'
-}
-
 const episodeChipClass = (gap: MediaGapItem) => {
   const classes = ['episode-chip']
   if (selectedGapId.value === gap.id) classes.push('episode-chip-selected')
@@ -426,22 +410,6 @@ const episodeChipClass = (gap: MediaGapItem) => {
 const resolveActiveGap = (group: GroupedSeriesGaps) => {
   const selected = group.gaps.find((gap) => gap.id === selectedGapId.value)
   return selected ?? group.gaps[0] ?? null
-}
-
-const resolvePriorityGap = (gaps: MediaGapItem[]) => {
-  return [...gaps].sort((left, right) => {
-    const leftTerminal = isTerminalStatus(left.status) ? 1 : 0
-    const rightTerminal = isTerminalStatus(right.status) ? 1 : 0
-    if (leftTerminal !== rightTerminal) {
-      return leftTerminal - rightTerminal
-    }
-    const leftWeight = statusOrder(left.status)
-    const rightWeight = statusOrder(right.status)
-    if (leftWeight !== rightWeight) {
-      return leftWeight - rightWeight
-    }
-    return left.episode - right.episode
-  })[0] ?? null
 }
 
 const selectGap = (gap: MediaGapItem) => {
@@ -820,21 +788,6 @@ const openGroupedDispatch = async (group: GroupedSeriesGaps) => {
   await openDispatchDialog(gap)
 }
 
-const handleSeasonQuickWork = async (seasonGroup: GroupedSeasonGaps, mode: CandidateDialogMode) => {
-  const gap = resolvePriorityGap(seasonGroup.gaps)
-  if (!gap || isTerminalStatus(gap.status)) {
-    ElMessage.info('这一季当前没有可处理的缺集')
-    return
-  }
-
-  selectedGapId.value = gap.id
-  if (mode === 'search') {
-    await openSearchDialog(gap)
-    return
-  }
-  await openDispatchDialog(gap)
-}
-
 const handleDialogSearch = async () => {
   if (!currentGap.value) return
   await runSearch(currentGap.value)
@@ -1132,12 +1085,11 @@ watch(viewMode, () => {
             <div class="min-w-0 space-y-2">
               <div class="flex flex-wrap items-center gap-2">
                 <h3 class="truncate text-lg font-semibold text-gray-900">{{ series.seriesName || '未命名剧集' }}</h3>
-                <span :class="cardStatusClass(series)">
-                  {{ cardStatusText(series) }}
-                </span>
               </div>
               <div class="flex flex-wrap gap-2 text-xs text-gray-500">
-                <span>共 {{ series.totalGaps }} 条工单</span>
+                <span>
+                  共 <span class="series-total-highlight">{{ series.totalGaps }}</span> 条工单
+                </span>
                 <span v-if="series.tmdbId">TMDB <code class="inline-code">{{ series.tmdbId }}</code></span>
                 <span v-if="series.embySeriesId">Emby <code class="inline-code">{{ series.embySeriesId }}</code></span>
               </div>
@@ -1164,22 +1116,10 @@ watch(viewMode, () => {
                     已下发 {{ seasonGroup.gaps.filter((gap) => gap.status === 'REQUESTED').length }}
                   </span>
                   <button
-                    @click="handleSeasonQuickWork(seasonGroup, 'search')"
-                    class="season-action-btn"
-                  >
-                    优先搜索
-                  </button>
-                  <button
-                    @click="handleSeasonQuickWork(seasonGroup, 'dispatch')"
-                    class="season-action-btn season-action-btn-primary"
-                  >
-                    优先下发
-                  </button>
-                  <button
                     @click="ignoreSeasonGroup(series, seasonGroup)"
                     class="season-action-btn season-action-btn-muted"
                   >
-                    整季忽略
+                    忽略本季缺集
                   </button>
                 </div>
               </div>
@@ -1236,7 +1176,7 @@ watch(viewMode, () => {
                 @click="toggleSeriesExpanded(series.key)"
                 class="series-expand-btn series-expand-btn-muted"
               >
-                收起到重点季
+                收起到默认视图
               </button>
             </div>
           </div>
@@ -1270,7 +1210,7 @@ watch(viewMode, () => {
                 :class="{ 'series-action-btn-disabled': isTerminalStatus(resolveActiveGap(series)!.status) }"
               >
                 <el-icon><Search /></el-icon>
-                搜索
+                搜索当前集
               </button>
               <button
                 @click="openGroupedDispatch(series)"
@@ -1279,7 +1219,7 @@ watch(viewMode, () => {
                 :class="{ 'series-action-btn-disabled': isTerminalStatus(resolveActiveGap(series)!.status) }"
               >
                 <el-icon><Download /></el-icon>
-                下发
+                下发当前集
               </button>
               <button
                 @click="ignoreGroupedGap(series)"
@@ -1288,7 +1228,7 @@ watch(viewMode, () => {
                 :class="{ 'series-action-btn-disabled': resolveActiveGap(series)!.status === 'INGESTED' || resolveActiveGap(series)!.status === 'IGNORED' }"
               >
                 <el-icon><InfoFilled /></el-icon>
-                忽略
+                忽略当前集
               </button>
             </div>
           </div>
@@ -1706,36 +1646,9 @@ watch(viewMode, () => {
   box-shadow: 0 16px 30px rgba(15, 23, 42, 0.06);
 }
 
-.series-status {
-  border-radius: 9999px;
-  padding: 0.32rem 0.72rem;
-  font-size: 0.75rem;
+.series-total-highlight {
+  color: var(--ember-red);
   font-weight: 700;
-}
-
-.series-status-missing {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-.series-status-searched {
-  background: #fff7ed;
-  color: #d97706;
-}
-
-.series-status-requested {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.series-status-ingested {
-  background: #ecfdf5;
-  color: #059669;
-}
-
-.series-status-ignored {
-  background: #f3f4f6;
-  color: #6b7280;
 }
 
 .season-pill {
