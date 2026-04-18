@@ -46,6 +46,7 @@ func TestBuildSearchSnapshotIncludesMoviePilotResponse(t *testing.T) {
 				ID:          "cand-1",
 				Title:       "斗破苍穹 S05 4K",
 				Description: "首条候选",
+				PublishDate: "2026-04-18 20:00:00",
 				Site:        "MTeam",
 				Size:        1024,
 				Seeders:     12,
@@ -83,6 +84,9 @@ func TestBuildSearchSnapshotIncludesMoviePilotResponse(t *testing.T) {
 	}
 	if snapshot.Candidates[0].Description != "首条候选" {
 		t.Fatalf("unexpected description: %s", snapshot.Candidates[0].Description)
+	}
+	if snapshot.Candidates[0].PublishDate != "2026-04-18 20:00:00" {
+		t.Fatalf("unexpected publish date: %s", snapshot.Candidates[0].PublishDate)
 	}
 }
 

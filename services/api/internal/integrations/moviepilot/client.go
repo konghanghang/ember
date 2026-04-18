@@ -158,6 +158,7 @@ type GapSearchCandidate struct {
 	ID          string                 `json:"id"`
 	Title       string                 `json:"title"`
 	Description string                 `json:"description,omitempty"`
+	PublishDate string                 `json:"publishDate,omitempty"`
 	Site        string                 `json:"site,omitempty"`
 	Size        int64                  `json:"size,omitempty"`
 	Seeders     int                    `json:"seeders,omitempty"`
@@ -383,6 +384,7 @@ func normalizeGapCandidates(results []map[string]interface{}, matchMode string) 
 		}
 
 		description := strings.TrimSpace(extractString(item, "description", "desc", "detail", "subtitle"))
+		publishDate := strings.TrimSpace(extractString(item, "publishDate", "pubDate", "pubdate", "publish_date", "publishedAt", "published_at", "date"))
 		site := strings.TrimSpace(extractString(item, "site_name", "site", "indexer"))
 		size := extractInt64(item, "size", "enclosure_size", "torrent_size")
 		seeders := extractInt(item, "seeders", "seeder")
@@ -391,6 +393,7 @@ func normalizeGapCandidates(results []map[string]interface{}, matchMode string) 
 			ID:          buildCandidateID(payload, title, site),
 			Title:       title,
 			Description: description,
+			PublishDate: publishDate,
 			Site:        site,
 			Size:        size,
 			Seeders:     seeders,

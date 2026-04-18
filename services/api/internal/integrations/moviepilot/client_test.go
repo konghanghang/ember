@@ -100,3 +100,23 @@ func TestCreateSubscriptionUsesXAPIKeyHeader(t *testing.T) {
 		t.Fatalf("expected create subscription to succeed, got %v", err)
 	}
 }
+
+func TestNormalizeGapCandidatesPreservesPublishDate(t *testing.T) {
+	results := []map[string]interface{}{
+		{
+			"title":        "完美世界 S01E10",
+			"publish_date": "2026-04-18 20:30:00",
+			"site":         "MTeam",
+			"size":         2048,
+			"seeders":      8,
+		},
+	}
+
+	candidates := normalizeGapCandidates(results, "episode")
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	}
+	if candidates[0].PublishDate != "2026-04-18 20:30:00" {
+		t.Fatalf("unexpected publish date: %s", candidates[0].PublishDate)
+	}
+}

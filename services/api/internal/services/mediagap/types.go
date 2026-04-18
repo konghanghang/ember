@@ -60,6 +60,7 @@ type SearchCandidate struct {
 	ID          string                 `json:"id,omitempty"`
 	Title       string                 `json:"title"`
 	Description string                 `json:"description,omitempty"`
+	PublishDate string                 `json:"publishDate,omitempty"`
 	Site        string                 `json:"site,omitempty"`
 	Size        int64                  `json:"size,omitempty"`
 	Seeders     int                    `json:"seeders,omitempty"`
@@ -186,6 +187,7 @@ func normalizeSearchCandidates(candidates []moviepilotint.GapSearchCandidate) []
 			ID:          candidate.ID,
 			Title:       candidate.Title,
 			Description: candidate.Description,
+			PublishDate: candidate.PublishDate,
 			Site:        candidate.Site,
 			Size:        candidate.Size,
 			Seeders:     candidate.Seeders,

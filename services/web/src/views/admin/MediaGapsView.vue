@@ -445,6 +445,37 @@ const parseJSONSafely = (value: unknown) => {
   }
 }
 
+const formatCandidateSize = (value: unknown) => {
+  if (value === null || value === undefined) return undefined
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+
+    const numeric = Number(trimmed)
+    if (!Number.isFinite(numeric)) {
+      return trimmed
+    }
+
+    value = numeric
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = value
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+
+  const precision = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2
+  return `${size.toFixed(precision)} ${units[unitIndex]}`
+}
+
 const normalizeCandidate = (value: unknown, index: number): MediaGapSearchCandidate => {
   if (typeof value === 'string') {
     return {
@@ -466,7 +497,7 @@ const normalizeCandidate = (value: unknown, index: number): MediaGapSearchCandid
   const publishDate = String(record.publishDate ?? record.pubDate ?? record.publishedAt ?? '').trim()
   const source = String(record.source ?? record.provider ?? record.channel ?? '').trim()
   const site = String(record.site ?? record.siteName ?? '').trim()
-  const size = String(record.size ?? record.sizeLabel ?? '').trim()
+  const size = formatCandidateSize(record.size ?? record.sizeLabel)
   const language = String(record.language ?? '').trim()
   const releaseGroup = String(record.releaseGroup ?? record.team ?? '').trim()
   const episodeRange = String(record.episodeRange ?? record.episodes ?? '').trim()
@@ -482,7 +513,7 @@ const normalizeCandidate = (value: unknown, index: number): MediaGapSearchCandid
     subtitle: subtitle || undefined,
     source: source || undefined,
     site: site || undefined,
-    size: size || undefined,
+    size,
     seeders: Number.isFinite(seeders) ? seeders : undefined,
     publishDate: publishDate || undefined,
     language: language || undefined,
@@ -1443,7 +1474,7 @@ watch(viewMode, () => {
                   <div class="flex flex-wrap gap-2">
                     <span v-if="candidate.source" class="candidate-chip">{{ candidate.source }}</span>
                     <span v-if="candidate.site" class="candidate-chip">{{ candidate.site }}</span>
-                    <span v-if="candidate.size" class="candidate-chip">{{ candidate.size }}</span>
+                    <span v-if="candidate.size" class="candidate-chip">大小 {{ candidate.size }}</span>
                     <span v-if="candidate.seeders !== undefined" class="candidate-chip">做种 {{ candidate.seeders }}</span>
                     <span v-if="candidate.language" class="candidate-chip">{{ candidate.language }}</span>
                     <span v-if="candidate.releaseGroup" class="candidate-chip">{{ candidate.releaseGroup }}</span>

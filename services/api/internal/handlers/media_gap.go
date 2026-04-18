@@ -19,6 +19,7 @@ type MediaGapSearchCandidate struct {
 	ID          string                 `json:"id"`
 	Title       string                 `json:"title"`
 	Description string                 `json:"description,omitempty"`
+	PublishDate string                 `json:"publishDate,omitempty"`
 	Site        string                 `json:"site,omitempty"`
 	Size        int64                  `json:"size,omitempty"`
 	Seeders     int                    `json:"seeders,omitempty"`
@@ -183,6 +184,7 @@ func (h *MediaGapHandler) SearchMediaGapCandidates(c *gin.Context) {
 					ID:          buildCandidateID(candidate),
 					Title:       candidate.Title,
 					Description: candidate.Description,
+					PublishDate: candidate.PublishDate,
 					Site:        candidate.Site,
 					Size:        candidate.Size,
 					Seeders:     candidate.Seeders,
