@@ -75,6 +75,24 @@ def _clear_pending_reject_request(chat_id: int | None) -> None:
     pending_reject_requests.pop(chat_id, None)
 
 
+def _extract_message_html(message) -> str:
+    if message is None:
+        return ""
+
+    # 编辑审批消息时要保留原有 HTML 实体，否则 TMDB 链接会在改写后退化成纯文本。
+    for attr in ("text_html", "caption_html"):
+        value = getattr(message, attr, None)
+        if isinstance(value, str) and value.strip() != "":
+            return value
+
+    for attr in ("text", "caption"):
+        value = getattr(message, attr, None)
+        if isinstance(value, str) and value.strip() != "":
+            return escape(value)
+
+    return ""
+
+
 def _render_welcome_message(template: str, names: str, notify_group_link: str) -> str:
     return (
         template.replace(WELCOME_MESSAGE_NAMES_PLACEHOLDER, names)
@@ -320,7 +338,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     original_text = ""
     if message is not None:
         _clear_pending_reject_request(message.chat_id)
-        original_text = message.text or message.caption or ""
+        original_text = _extract_message_html(message)
 
     if action == "reject":
         if message is None:
@@ -370,10 +388,6 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
 
     admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
     if admin_chat_id is None or message.from_user.id != admin_chat_id:
-        return
-
-    reply_to = message.reply_to_message
-    if reply_to is None or reply_to.message_id != pending.get("prompt_message_id"):
         return
 
     reason = message.text.strip()
