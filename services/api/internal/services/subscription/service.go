@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
@@ -469,7 +470,8 @@ func formatNotificationTime(value *time.Time) *string {
 	if value == nil {
 		return nil
 	}
-	formatted := value.UTC().Format(time.RFC3339)
+	loc := configpkg.LoadConfiguredTimezone()
+	formatted := value.In(loc).Format(time.RFC3339)
 	return &formatted
 }
 

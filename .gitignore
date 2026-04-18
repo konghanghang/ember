@@ -46,6 +46,7 @@ next-env.d.ts
 /services/web/node_modules/
 /services/web/.env
 /services/bot/.env
+/services/bot/.venv/
 /services/bot/logs/
 **/__pycache__/
 *.pyc
