@@ -334,6 +334,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 		subscriptionCount, err := h.subscriptionService.MarkSubscriptionsIngestedByWebhook(c.Request.Context(), subscriptionpkg.SubscriptionIngestWebhookPayload{
 			ItemType:   itemType,
 			TmdbID:     tmdbID,
+			SeriesID:   seriesID,
 			Season:     season,
 			Episode:    episode,
 			EmbyItemID: embyItemID,

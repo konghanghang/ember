@@ -2,14 +2,17 @@ package subscription
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
@@ -20,6 +23,19 @@ import (
 type SubscriptionService struct {
 	moviepilot *moviepilotint.MoviePilotClient
 	notifier   *notifierint.BotNotifier
+}
+
+type subscriptionEmbyLookup interface {
+	IsConfigured() bool
+	GetWithAPIKey(path string, params map[string]string) ([]byte, error)
+}
+
+type subscriptionSeriesItem struct {
+	ProviderIDs map[string]string `json:"ProviderIds"`
+}
+
+var newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
+	return embyint.NewEmbyService()
 }
 
 // NewSubscriptionService 创建订阅服务
@@ -345,19 +361,19 @@ func (s *SubscriptionService) RejectSubscription(subscriptionID, reason string) 
 // MarkSubscriptionsIngestedByWebhook 将命中的 APPROVED 订阅回写为 INGESTED。
 func (s *SubscriptionService) MarkSubscriptionsIngestedByWebhook(ctx context.Context, payload SubscriptionIngestWebhookPayload) (int64, error) {
 	itemType := strings.ToLower(strings.TrimSpace(payload.ItemType))
-	tmdbID := strings.TrimSpace(payload.TmdbID)
-	if tmdbID == "" {
-		log.Printf("[Subscription] Webhook 跳过入库回写：tmdbId 为空 itemType=%s itemName=%q", itemType, strings.TrimSpace(payload.ItemName))
+	matchTMDBIDs := s.resolveWebhookMatchTMDBIDs(itemType, payload)
+	if len(matchTMDBIDs) == 0 {
+		log.Printf("[Subscription] Webhook 跳过入库回写：缺少可匹配的 tmdbId itemType=%s itemName=%q seriesId=%s", itemType, strings.TrimSpace(payload.ItemName), strings.TrimSpace(payload.SeriesID))
 		return 0, nil
 	}
 
-	query := db.DB.WithContext(ctx).Model(&models.Subscription{}).Where("status = ? AND \"tmdbId\" = ?", models.SubscriptionApproved, tmdbID)
+	query := db.DB.WithContext(ctx).Model(&models.Subscription{}).Where("status = ? AND \"tmdbId\" IN ?", models.SubscriptionApproved, matchTMDBIDs)
 	switch itemType {
 	case "movie":
 		query = query.Where("type = ? AND season = 0", models.MediaMovie)
 	case "episode":
 		if payload.Season <= 0 || payload.Episode <= 0 {
-			log.Printf("[Subscription] Webhook 跳过入库回写：季集号无效 tmdbId=%s season=%d episode=%d", tmdbID, payload.Season, payload.Episode)
+			log.Printf("[Subscription] Webhook 跳过入库回写：季集号无效 tmdbIds=%v season=%d episode=%d", matchTMDBIDs, payload.Season, payload.Episode)
 			return 0, nil
 		}
 		query = query.Where("type = ? AND (season = 0 OR season = ?)", models.MediaTV, payload.Season)
@@ -398,6 +414,71 @@ func (s *SubscriptionService) MarkSubscriptionsIngestedByWebhook(ctx context.Con
 	}
 
 	return updatedCount, nil
+}
+
+func (s *SubscriptionService) resolveWebhookMatchTMDBIDs(itemType string, payload SubscriptionIngestWebhookPayload) []string {
+	matchTMDBIDs := make([]string, 0, 2)
+	appendTMDBID := func(value string) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return
+		}
+		for _, existing := range matchTMDBIDs {
+			if existing == trimmed {
+				return
+			}
+		}
+		matchTMDBIDs = append(matchTMDBIDs, trimmed)
+	}
+
+	appendTMDBID(payload.TmdbID)
+
+	if itemType != "episode" {
+		return matchTMDBIDs
+	}
+
+	seriesID := strings.TrimSpace(payload.SeriesID)
+	if seriesID == "" {
+		return matchTMDBIDs
+	}
+
+	seriesTMDBID, err := resolveSeriesTMDBIDBySeriesID(seriesID)
+	if err != nil {
+		log.Printf("[Subscription] Webhook 解析剧集主 TMDB ID 失败 seriesId=%s tmdbId=%s err=%v", seriesID, strings.TrimSpace(payload.TmdbID), err)
+		return matchTMDBIDs
+	}
+	if seriesTMDBID != "" && strings.TrimSpace(payload.TmdbID) != seriesTMDBID {
+		log.Printf("[Subscription] Webhook 剧集匹配追加主条目 tmdbId=%s seriesTmdbId=%s seriesId=%s", strings.TrimSpace(payload.TmdbID), seriesTMDBID, seriesID)
+	}
+	appendTMDBID(seriesTMDBID)
+
+	return matchTMDBIDs
+}
+
+func resolveSeriesTMDBIDBySeriesID(seriesID string) (string, error) {
+	trimmedSeriesID := strings.TrimSpace(seriesID)
+	if trimmedSeriesID == "" {
+		return "", nil
+	}
+
+	embyLookup := newSubscriptionEmbyLookup()
+	if embyLookup == nil || !embyLookup.IsConfigured() {
+		return "", nil
+	}
+
+	body, err := embyLookup.GetWithAPIKey("/emby/Items/"+url.PathEscape(trimmedSeriesID), map[string]string{
+		"Fields": "ProviderIds",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	var item subscriptionSeriesItem
+	if err := json.Unmarshal(body, &item); err != nil {
+		return "", fmt.Errorf("解析 Emby 剧集主条目失败: %w", err)
+	}
+
+	return extractProviderID(item.ProviderIDs, "Tmdb"), nil
 }
 
 func (s *SubscriptionService) notifyApproved(subscription models.Subscription) {

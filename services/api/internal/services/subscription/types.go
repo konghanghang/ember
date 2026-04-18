@@ -78,6 +78,7 @@ type GetAllSubscriptionsResponse struct {
 type SubscriptionIngestWebhookPayload struct {
 	ItemType   string
 	TmdbID     string
+	SeriesID   string
 	Season     int
 	Episode    int
 	EmbyItemID string
