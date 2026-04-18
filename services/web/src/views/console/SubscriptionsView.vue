@@ -9,8 +9,7 @@ import {
   Plus, 
   Refresh, 
   VideoPlay,
-  Film,
-  UserFilled
+  Film
 } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
@@ -150,6 +149,29 @@ const getStatusText = (status: SubscriptionStatus) => {
   }
 }
 
+const getStatusBadgeText = (status: SubscriptionStatus) => {
+  switch (status) {
+    case 'APPROVED': return '已通过'
+    default: return getStatusText(status)
+  }
+}
+
+const padNumber = (value: number) => value.toString().padStart(2, '0')
+
+const formatCardDate = (value?: string | null) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${date.getFullYear()}.${padNumber(date.getMonth() + 1)}.${padNumber(date.getDate())}`
+}
+
+const formatCompactDateTime = (value?: string | null) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())} ${padNumber(date.getHours())}:${padNumber(date.getMinutes())}`
+}
+
 const formatTime = (value?: string | null) => {
   if (!value) return ''
   const date = new Date(value)
@@ -203,7 +225,7 @@ onMounted(fetchData)
 
     <!-- Content -->
     <div v-loading="loading" class="min-h-[300px]">
-      <div v-if="subscriptions.length > 0" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 animate-fade-in-up">
+      <div v-if="subscriptions.length > 0" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 md:gap-6 animate-fade-in-up">
         <div 
           v-for="sub in subscriptions" 
           :key="sub.id"
@@ -218,7 +240,7 @@ onMounted(fetchData)
             />
             
             <!-- Gradient Overlay -->
-            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60"></div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black via-black/70 via-black/15 to-transparent opacity-90"></div>
 
             <!-- Status Badge -->
             <div class="absolute top-2 right-2">
@@ -226,14 +248,86 @@ onMounted(fetchData)
                 class="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm backdrop-blur-md"
                 :class="getStatusColor(sub.status)"
               >
-                {{ getStatusText(sub.status) }}
+                {{ getStatusBadgeText(sub.status) }}
               </span>
             </div>
 
             <!-- Type Icon -->
-            <div class="absolute bottom-2 left-2 text-white/80">
+            <div class="absolute left-2 top-2 text-white/80">
               <el-icon v-if="sub.type === 'MOVIE'" :size="16"><Film /></el-icon>
               <el-icon v-else :size="16"><VideoPlay /></el-icon>
+            </div>
+
+            <!-- Inline Details -->
+            <div class="absolute inset-x-0 bottom-0 p-3 text-white">
+              <h3 class="line-clamp-2 text-sm font-bold leading-5 drop-shadow-sm" :title="formatSubscriptionTitle(sub)">
+                {{ formatSubscriptionTitle(sub) }}
+              </h3>
+              <div class="mt-1 flex items-center gap-2 text-[11px] text-white/70">
+                <span>{{ formatCardDate(sub.createdAt) }}</span>
+                <span v-if="isAdmin && sub.user" class="max-w-[88px] truncate" :title="sub.user.username">
+                  {{ sub.user.username }}
+                </span>
+              </div>
+
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                <span
+                  v-if="sub.status === 'PENDING'"
+                  class="inline-flex items-center rounded-full bg-amber-500/90 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                >
+                  待审核
+                </span>
+                <span
+                  v-if="sub.reviewedAt"
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur-sm"
+                  :title="formatTime(sub.reviewedAt)"
+                >
+                  审核 {{ formatCompactDateTime(sub.reviewedAt) }}
+                </span>
+                <span
+                  v-if="sub.status === 'APPROVED'"
+                  class="inline-flex items-center rounded-full bg-sky-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                >
+                  待入库
+                </span>
+                <span
+                  v-if="sub.ingestedAt"
+                  class="inline-flex items-center rounded-full bg-emerald-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                  :title="formatTime(sub.ingestedAt)"
+                >
+                  入库 {{ formatCompactDateTime(sub.ingestedAt) }}
+                </span>
+                <el-tooltip
+                  v-if="sub.rejectReason"
+                  :content="sub.rejectReason"
+                  placement="top"
+                  effect="light"
+                >
+                  <span class="inline-flex cursor-help items-center rounded-full bg-red-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm">
+                    原因
+                  </span>
+                </el-tooltip>
+                <el-tooltip
+                  v-if="sub.mpError"
+                  :content="sub.mpError"
+                  placement="top"
+                  effect="light"
+                >
+                  <span class="inline-flex cursor-help items-center rounded-full bg-amber-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm">
+                    异常
+                  </span>
+                </el-tooltip>
+                <el-tooltip
+                  v-if="sub.note"
+                  :content="sub.note"
+                  placement="top"
+                  effect="light"
+                >
+                  <span class="inline-flex cursor-help items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-medium text-white/85 backdrop-blur-sm">
+                    备注
+                  </span>
+                </el-tooltip>
+              </div>
             </div>
 
             <!-- Hover Actions -->
@@ -271,37 +365,6 @@ onMounted(fetchData)
                   <el-icon><Delete /></el-icon> 取消订阅
                 </button>
               </template>
-            </div>
-          </div>
-
-          <!-- Info -->
-          <div class="p-3">
-            <h3 class="font-bold text-gray-900 text-sm line-clamp-1 mb-1" :title="formatSubscriptionTitle(sub)">{{ formatSubscriptionTitle(sub) }}</h3>
-            <div class="flex items-center justify-between text-xs text-gray-500">
-              <span>{{ new Date(sub.createdAt).toLocaleDateString() }}</span>
-              <div v-if="isAdmin && sub.user" class="flex items-center gap-1" :title="sub.user.username">
-                <el-icon><UserFilled /></el-icon>
-                <span class="max-w-[60px] truncate">{{ sub.user.username }}</span>
-              </div>
-            </div>
-            
-            <div v-if="sub.note" class="mt-2 pt-2 border-t border-gray-100">
-              <p class="text-[10px] text-gray-400 line-clamp-2 italic">"{{ sub.note }}"</p>
-            </div>
-
-            <div v-if="sub.rejectReason || sub.reviewedAt || sub.ingestedAt || sub.mpError" class="mt-2 space-y-1 border-t border-gray-100 pt-2 text-[11px] leading-5 text-gray-500">
-              <p v-if="sub.reviewedAt">
-                <span class="font-semibold text-gray-700">审核时间：</span>{{ formatTime(sub.reviewedAt) }}
-              </p>
-              <p v-if="sub.ingestedAt">
-                <span class="font-semibold text-gray-700">入库时间：</span>{{ formatTime(sub.ingestedAt) }}
-              </p>
-              <p v-if="sub.rejectReason" class="text-red-600">
-                <span class="font-semibold">拒绝原因：</span>{{ sub.rejectReason }}
-              </p>
-              <p v-if="sub.mpError" class="text-amber-600">
-                <span class="font-semibold">下游异常：</span>{{ sub.mpError }}
-              </p>
             </div>
           </div>
         </div>
