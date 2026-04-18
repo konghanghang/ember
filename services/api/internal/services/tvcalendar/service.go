@@ -28,11 +28,13 @@ const (
 	tmdbImageBaseURL                 = "https://image.tmdb.org/t/p/w500"
 	tmdbDetailCacheTTL               = 24 * time.Hour
 	tmdbSeasonCacheTTL               = 24 * time.Hour
+	tvCalendarReadyEpisodesCacheTTL  = 2 * time.Minute
 	tvCalendarFetchTimeout           = 15 * time.Second
 	tvCalendarSyncPageSize           = 200
 	tvCalendarActiveSourceWindowDays = 30
 	tvCalendarDefaultOffset          = 0
 	tvCalendarDefaultTimezone        = "Asia/Shanghai"
+	tvCalendarReadyFetchConcurrency  = 4
 )
 
 var defaultTVCalendarWeekOffsets = []int{0, 1}
@@ -103,14 +105,23 @@ type tmdbMemoryCacheEntry struct {
 	ExpiresAt time.Time
 }
 
+type readyEpisodeCacheEntry struct {
+	Episodes        map[string]embyEpisodeItem
+	LatestCreatedAt *time.Time
+	Validated       bool
+	ExpiresAt       time.Time
+}
+
 // TVCalendarService 追剧日历服务
 type TVCalendarService struct {
 	embyService *embyint.EmbyService
 	tmdbAPIKey  string
 	httpClient  *http.Client
 
-	memoryCache map[string]tmdbMemoryCacheEntry
-	cacheMu     sync.RWMutex
+	memoryCache       map[string]tmdbMemoryCacheEntry
+	readyEpisodeCache map[string]readyEpisodeCacheEntry
+	cacheMu           sync.RWMutex
+	readyCacheMu      sync.RWMutex
 }
 
 func NewTVCalendarService() *TVCalendarService {
@@ -119,7 +130,8 @@ func NewTVCalendarService() *TVCalendarService {
 		httpClient: &http.Client{
 			Timeout: tvCalendarFetchTimeout,
 		},
-		memoryCache: make(map[string]tmdbMemoryCacheEntry),
+		memoryCache:       make(map[string]tmdbMemoryCacheEntry),
+		readyEpisodeCache: make(map[string]readyEpisodeCacheEntry),
 	}
 	service.refreshConfig()
 	return service
@@ -730,15 +742,7 @@ func (s *TVCalendarService) correctCurrentWeekReadyItems(
 		return items
 	}
 
-	readyEpisodesBySeries := make(map[string]map[string]embyEpisodeItem, len(candidateSeriesIDs))
-	for seriesID := range candidateSeriesIDs {
-		readyEpisodes, _, _, fetchErr := s.fetchReadyEpisodesForSeries(ctx, seriesID)
-		if fetchErr != nil {
-			log.Printf("[TV Calendar] 当前周 ready 校正跳过：seriesId=%s err=%v", seriesID, fetchErr)
-			continue
-		}
-		readyEpisodesBySeries[seriesID] = readyEpisodes
-	}
+	readyEpisodesBySeries := s.loadReadyEpisodesBySeries(ctx, candidateSeriesIDs)
 	if len(readyEpisodesBySeries) == 0 {
 		return items
 	}
@@ -774,6 +778,50 @@ func (s *TVCalendarService) correctCurrentWeekReadyItems(
 
 	log.Printf("[TV Calendar] 当前周 ready 校正完成: visibleRange=%s~%s corrected=%d persisted=%d", start.Format("2006-01-02"), end.Format("2006-01-02"), len(corrections), persisted)
 	return correctedItems
+}
+
+func (s *TVCalendarService) loadReadyEpisodesBySeries(ctx context.Context, candidateSeriesIDs map[string]struct{}) map[string]map[string]embyEpisodeItem {
+	if len(candidateSeriesIDs) == 0 {
+		return map[string]map[string]embyEpisodeItem{}
+	}
+
+	seriesIDs := make([]string, 0, len(candidateSeriesIDs))
+	for seriesID := range candidateSeriesIDs {
+		trimmed := strings.TrimSpace(seriesID)
+		if trimmed == "" {
+			continue
+		}
+		seriesIDs = append(seriesIDs, trimmed)
+	}
+	sort.Strings(seriesIDs)
+
+	readyEpisodesBySeries := make(map[string]map[string]embyEpisodeItem, len(seriesIDs))
+	var resultMu sync.Mutex
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, tvCalendarReadyFetchConcurrency)
+
+	for _, seriesID := range seriesIDs {
+		seriesID := seriesID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			readyEpisodes, _, _, fetchErr := s.fetchReadyEpisodesForSeries(ctx, seriesID)
+			if fetchErr != nil {
+				log.Printf("[TV Calendar] 当前周 ready 校正跳过：seriesId=%s err=%v", seriesID, fetchErr)
+				return
+			}
+
+			resultMu.Lock()
+			readyEpisodesBySeries[seriesID] = readyEpisodes
+			resultMu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	return readyEpisodesBySeries
 }
 
 func (s *TVCalendarService) queryCalendarItems(ctx context.Context, tmdbIDs []string, start, end time.Time, status string, loc *time.Location) ([]models.TVCalendarItem, error) {
@@ -1022,6 +1070,9 @@ func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, ser
 	if !s.embyService.IsConfigured() {
 		return map[string]embyEpisodeItem{}, nil, false, nil
 	}
+	if episodes, latestCreatedAt, validated, ok := s.getReadyEpisodesCache(seriesID, time.Now()); ok {
+		return episodes, latestCreatedAt, validated, nil
+	}
 
 	episodes := make(map[string]embyEpisodeItem)
 	var latestCreatedAt *time.Time
@@ -1072,7 +1123,56 @@ func (s *TVCalendarService) fetchReadyEpisodesForSeries(ctx context.Context, ser
 		}
 	}
 
+	s.setReadyEpisodesCache(seriesID, episodes, latestCreatedAt, true, time.Now().Add(tvCalendarReadyEpisodesCacheTTL))
 	return episodes, latestCreatedAt, true, nil
+}
+
+func copyReadyEpisodesMap(source map[string]embyEpisodeItem) map[string]embyEpisodeItem {
+	if len(source) == 0 {
+		return map[string]embyEpisodeItem{}
+	}
+	cloned := make(map[string]embyEpisodeItem, len(source))
+	for key, item := range source {
+		cloned[key] = item
+	}
+	return cloned
+}
+
+func cloneOptionalTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func (s *TVCalendarService) getReadyEpisodesCache(seriesID string, now time.Time) (map[string]embyEpisodeItem, *time.Time, bool, bool) {
+	s.readyCacheMu.RLock()
+	entry, ok := s.readyEpisodeCache[seriesID]
+	s.readyCacheMu.RUnlock()
+	if !ok {
+		return nil, nil, false, false
+	}
+	if now.After(entry.ExpiresAt) {
+		s.readyCacheMu.Lock()
+		if current, exists := s.readyEpisodeCache[seriesID]; exists && now.After(current.ExpiresAt) {
+			delete(s.readyEpisodeCache, seriesID)
+		}
+		s.readyCacheMu.Unlock()
+		return nil, nil, false, false
+	}
+	return copyReadyEpisodesMap(entry.Episodes), cloneOptionalTime(entry.LatestCreatedAt), entry.Validated, true
+}
+
+func (s *TVCalendarService) setReadyEpisodesCache(seriesID string, episodes map[string]embyEpisodeItem, latestCreatedAt *time.Time, validated bool, expiresAt time.Time) {
+	s.readyCacheMu.Lock()
+	s.readyEpisodeCache[seriesID] = readyEpisodeCacheEntry{
+		Episodes:        copyReadyEpisodesMap(episodes),
+		LatestCreatedAt: cloneOptionalTime(latestCreatedAt),
+		Validated:       validated,
+		ExpiresAt:       expiresAt,
+	}
+	s.readyCacheMu.Unlock()
 }
 
 func (s *TVCalendarService) fetchTVDetail(ctx context.Context, tmdbID string, force bool) (*tmdbTVDetailResponse, error) {
