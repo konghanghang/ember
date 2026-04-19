@@ -36,6 +36,7 @@
 
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
+- `access-auth/registration-email-domain-allowlist.md`
 - `bot-telegram/notification-mute-rules.md`
 - `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`
