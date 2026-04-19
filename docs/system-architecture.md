@@ -730,7 +730,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 - `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单
 - `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选，优先按单集查询，未命中时回退整季查询；写入 `searchSnapshot` 与 `lastSearchedAt`，候选摘要保留发布时间等展示字段
-- `DispatchGap(id, candidate)` — 下发已选候选资源，写入 `dispatchSnapshot` 与 `requestedAt`
+- `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源；仅在下发成功后写入 `dispatchSnapshot`、`requestedAt` 并推进为 `REQUESTED`
 - `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`
 - `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后核销为 `INGESTED`
 

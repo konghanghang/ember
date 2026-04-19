@@ -9,4 +9,5 @@ var (
 	ErrMediaGapInvalidID     = errors.New("缺集工单 ID 不能为空")
 	ErrMediaGapCandidate     = errors.New("候选资源不能为空")
 	ErrMediaGapSearchState   = errors.New("当前缺集状态不支持搜索")
+	ErrMediaGapDispatchState = errors.New("当前缺集状态不支持下发")
 )

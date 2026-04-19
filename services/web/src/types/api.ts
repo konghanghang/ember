@@ -406,6 +406,7 @@ export interface MediaGapSearchCandidate {
   episodeRange?: string
   matchReason?: string
   description?: string
+  payload?: Record<string, unknown>
 }
 
 export interface MediaGapSearchSnapshot {
@@ -462,6 +463,7 @@ export interface MediaGapSearchResult {
 export interface MediaGapDispatchRequest {
   candidateId: string
   candidate?: MediaGapSearchCandidate
+  candidatePayload?: Record<string, unknown>
 }
 
 export interface MediaGapIgnoreRequest {

@@ -296,6 +296,7 @@ func writeMediaGapError(c *gin.Context, err error) {
 		statusCode = http.StatusNotFound
 	case errors.Is(err, mediagappkg.ErrMediaGapInvalidStatus),
 		errors.Is(err, mediagappkg.ErrMediaGapSearchState),
+		errors.Is(err, mediagappkg.ErrMediaGapDispatchState),
 		errors.Is(err, mediagappkg.ErrMediaGapCandidate):
 		statusCode = http.StatusBadRequest
 	}

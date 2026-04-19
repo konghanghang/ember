@@ -158,6 +158,15 @@ func isSearchableMediaGapStatus(status models.MediaGapStatus) bool {
 	}
 }
 
+func isDispatchableMediaGapStatus(status models.MediaGapStatus) bool {
+	switch status {
+	case models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested:
+		return true
+	default:
+		return false
+	}
+}
+
 func buildSearchSnapshot(gap models.MediaGap, searchedAt time.Time, resp *moviepilotint.GapSearchResponse) SearchSnapshot {
 	snapshot := SearchSnapshot{
 		Keyword:    buildDefaultSearchKeyword(gap),

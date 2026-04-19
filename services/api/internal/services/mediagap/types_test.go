@@ -30,6 +30,28 @@ func TestIsSearchableMediaGapStatus(t *testing.T) {
 	}
 }
 
+func TestIsDispatchableMediaGapStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		status models.MediaGapStatus
+		want   bool
+	}{
+		{name: "missing", status: models.MediaGapStatusMissing, want: true},
+		{name: "searched", status: models.MediaGapStatusSearched, want: true},
+		{name: "requested", status: models.MediaGapStatusRequested, want: true},
+		{name: "ingested", status: models.MediaGapStatusIngested, want: false},
+		{name: "ignored", status: models.MediaGapStatusIgnored, want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isDispatchableMediaGapStatus(tc.status); got != tc.want {
+				t.Fatalf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestBuildSearchSnapshotIncludesMoviePilotResponse(t *testing.T) {
 	searchedAt := time.Date(2026, 4, 18, 12, 30, 0, 0, time.UTC)
 	gap := models.MediaGap{

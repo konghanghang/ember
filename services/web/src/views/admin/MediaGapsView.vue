@@ -503,6 +503,7 @@ const normalizeCandidate = (value: unknown, index: number): MediaGapSearchCandid
   const idSource = record.id ?? record.candidateId ?? record.guid ?? record.hash ?? title
   const seedersValue = record.seeders
   const seeders = typeof seedersValue === 'number' ? seedersValue : Number.parseInt(String(seedersValue ?? ''), 10)
+  const payload = record.payload && typeof record.payload === 'object' ? (record.payload as Record<string, unknown>) : undefined
 
   return {
     id: String(idSource),
@@ -517,7 +518,8 @@ const normalizeCandidate = (value: unknown, index: number): MediaGapSearchCandid
     releaseGroup: releaseGroup || undefined,
     episodeRange: episodeRange || undefined,
     matchReason: matchReason || undefined,
-    description: description || undefined
+    description: description || undefined,
+    payload
   }
 }
 
@@ -804,7 +806,8 @@ const handleDispatch = async () => {
   try {
     const res = await dispatchMediaGap(currentGap.value.id, {
       candidateId: selectedCandidate.value.id,
-      candidate: selectedCandidate.value
+      candidate: selectedCandidate.value,
+      candidatePayload: selectedCandidate.value.payload
     })
     patchGap(res.data?.mediaGap ?? currentGap.value)
     dialogVisible.value = false

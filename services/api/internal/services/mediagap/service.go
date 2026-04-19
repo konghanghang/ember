@@ -358,6 +358,19 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 	if err != nil {
 		return nil, err
 	}
+	if !isDispatchableMediaGapStatus(gap.Status) {
+		return nil, ErrMediaGapDispatchState
+	}
+	if len(req.Candidate.Payload) == 0 {
+		return nil, ErrMediaGapCandidate
+	}
+
+	dispatchResp, err := s.moviepilot.DispatchGapCandidate(moviepilotint.GapDispatchRequest{
+		CandidatePayload: req.Candidate.Payload,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("下发候选资源失败: %w", err)
+	}
 
 	now := time.Now().UTC()
 	snapshot := DispatchSnapshot{
@@ -378,7 +391,8 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 
 	dto := toDTO(gap)
 	dto.DispatchSnapshot = &snapshot
-	log.Printf("[MediaGap] 下发占位结果已写入 id=%s tmdbId=%s season=%d episode=%d payloadKeys=%d", gap.ID, gap.TmdbID, gap.Season, gap.Episode, len(req.Candidate.Payload))
+	log.Printf("[MediaGap] 候选资源下发完成 id=%s tmdbId=%s season=%d episode=%d payloadKeys=%d statusCode=%d message=%q",
+		gap.ID, gap.TmdbID, gap.Season, gap.Episode, len(req.Candidate.Payload), dispatchResp.StatusCode, strings.TrimSpace(dispatchResp.Message))
 	return dto, nil
 }
 
