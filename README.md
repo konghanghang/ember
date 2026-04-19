@@ -3,13 +3,12 @@
 Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 管理 API、Web 和 Telegram Bot，覆盖注册登录、账号生命周期、兑换码、支付、求片订阅、播放排行与 Bot 通知等完整链路。
 
 [![Test](https://github.com/konghanghang/ember/actions/workflows/test.yml/badge.svg)](https://github.com/konghanghang/ember/actions/workflows/test.yml)
-[![API Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/konghanghang/ember/master/.github/badges/api-coverage.json)](https://github.com/konghanghang/ember/actions/workflows/test.yml)
-[![Web Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/konghanghang/ember/master/.github/badges/web-coverage.json)](https://github.com/konghanghang/ember/actions/workflows/test.yml)
-[![Bot Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/konghanghang/ember/master/.github/badges/bot-coverage.json)](https://github.com/konghanghang/ember/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.23-blue.svg)](https://go.dev/)
 [![Vue](https://img.shields.io/badge/vue-3.x-green.svg)](https://vuejs.org/)
 [![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://python.org/)
+
+测试覆盖率请查看 GitHub Actions 中的 [Test workflow](https://github.com/konghanghang/ember/actions/workflows/test.yml) 运行结果。
 
 ## 快速导航
 
