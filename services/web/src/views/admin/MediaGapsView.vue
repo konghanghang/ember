@@ -18,6 +18,7 @@ import {
 import {
   dispatchMediaGap,
   getMediaGaps,
+  getGroupedMediaGaps,
   ignoreMediaGap,
   scanMediaGaps,
   searchMediaGap
@@ -30,6 +31,10 @@ import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { formatDate } from '@/utils/date'
 import type {
+  MediaGapGroupedQuery,
+  MediaGapGroupedResponse,
+  MediaGapGroupedSeries,
+  MediaGapGroupedSortMode,
   MediaGapItem,
   MediaGapListQuery,
   MediaGapSearchCandidate,
@@ -38,34 +43,21 @@ import type {
 } from '@/types/api'
 
 type MediaGapViewMode = 'grouped' | 'table'
-type MediaGapSortMode = 'missing' | 'updated' | 'requested' | 'name'
-
-interface GroupedSeasonGaps {
-  season: number
-  gaps: MediaGapItem[]
-}
-
-interface GroupedSeriesGaps {
-  key: string
-  seriesName: string
-  tmdbId?: string
-  embySeriesId?: string
-  gaps: MediaGapItem[]
-  seasons: GroupedSeasonGaps[]
-  totalGaps: number
-  missingCount: number
-  searchedCount: number
-  requestedCount: number
-  ingestedCount: number
-  ignoredCount: number
-  latestUpdatedAt?: string
-}
+type MediaGapSortMode = MediaGapGroupedSortMode
 
 const loading = ref(false)
 const scanning = ref(false)
 const tableData = ref<MediaGapItem[]>([])
+const groupedData = ref<MediaGapGroupedSeries[]>([])
 const total = ref(0)
 const itemTotal = ref(0)
+const groupedSummary = ref<MediaGapGroupedResponse['summary']>({
+  missingCount: 0,
+  searchedCount: 0,
+  requestedCount: 0,
+  ingestedCount: 0,
+  ignoredCount: 0
+})
 const airDateRange = ref<[string, string] | null>(null)
 const dialogVisible = ref(false)
 const dialogLoading = ref(false)
@@ -121,118 +113,34 @@ const canDispatch = computed(() => {
   return Boolean(currentGap.value && selectedCandidate.value && !dispatching.value)
 })
 
-const groupedSeries = computed<GroupedSeriesGaps[]>(() => {
-  const groupMap = new Map<string, GroupedSeriesGaps>()
-
-  for (const gap of tableData.value) {
-    const key = String(gap.tmdbId || gap.embySeriesId || gap.seriesName || gap.id)
-    const existing = groupMap.get(key)
-
-    if (existing) {
-      existing.gaps.push(gap)
-      existing.totalGaps += 1
-      if (gap.status === 'MISSING') existing.missingCount += 1
-      if (gap.status === 'SEARCHED') existing.searchedCount += 1
-      if (gap.status === 'REQUESTED') existing.requestedCount += 1
-      if (gap.status === 'INGESTED') existing.ingestedCount += 1
-      if (gap.status === 'IGNORED') existing.ignoredCount += 1
-      if (!existing.latestUpdatedAt || String(gap.updatedAt || '') > String(existing.latestUpdatedAt || '')) {
-        existing.latestUpdatedAt = gap.updatedAt
-      }
-      continue
-    }
-
-    groupMap.set(key, {
-      key,
-      seriesName: gap.seriesName,
-      tmdbId: gap.tmdbId,
-      embySeriesId: gap.embySeriesId,
-      gaps: [gap],
-      seasons: [],
-      totalGaps: 1,
-      missingCount: gap.status === 'MISSING' ? 1 : 0,
-      searchedCount: gap.status === 'SEARCHED' ? 1 : 0,
-      requestedCount: gap.status === 'REQUESTED' ? 1 : 0,
-      ingestedCount: gap.status === 'INGESTED' ? 1 : 0,
-      ignoredCount: gap.status === 'IGNORED' ? 1 : 0,
-      latestUpdatedAt: gap.updatedAt
-    })
-  }
-
-  const groups = Array.from(groupMap.values())
-    .map((group) => {
-      const seasons = new Map<number, MediaGapItem[]>()
-      for (const gap of group.gaps) {
-        const seasonGaps = seasons.get(gap.season) ?? []
-        seasonGaps.push(gap)
-        seasons.set(gap.season, seasonGaps)
-      }
-
-      group.seasons = Array.from(seasons.entries())
-        .map(([season, gaps]) => ({
-          season,
-          gaps: [...gaps].sort((left, right) => left.episode - right.episode)
-        }))
-        .sort((left, right) => left.season - right.season)
-
-      group.gaps.sort((left, right) => {
-        const leftStatus = statusOrder(left.status)
-        const rightStatus = statusOrder(right.status)
-        if (leftStatus !== rightStatus) return leftStatus - rightStatus
-        if (left.season !== right.season) return left.season - right.season
-        return left.episode - right.episode
-      })
-
-      return group
-    })
-
-  return groups.sort((left, right) => {
-    switch (sortMode.value) {
-      case 'updated': {
-        const leftTime = String(left.latestUpdatedAt || '')
-        const rightTime = String(right.latestUpdatedAt || '')
-        if (leftTime !== rightTime) {
-          return rightTime.localeCompare(leftTime)
-        }
-        if (left.missingCount !== right.missingCount) {
-          return right.missingCount - left.missingCount
-        }
-        return left.seriesName.localeCompare(right.seriesName, 'zh-Hans-CN')
-      }
-      case 'requested':
-        if (left.requestedCount !== right.requestedCount) {
-          return right.requestedCount - left.requestedCount
-        }
-        if (left.missingCount !== right.missingCount) {
-          return right.missingCount - left.missingCount
-        }
-        return left.seriesName.localeCompare(right.seriesName, 'zh-Hans-CN')
-      case 'name':
-        return left.seriesName.localeCompare(right.seriesName, 'zh-Hans-CN')
-      case 'missing':
-      default:
-        if (left.missingCount !== right.missingCount) {
-          return right.missingCount - left.missingCount
-        }
-        if (left.requestedCount !== right.requestedCount) {
-          return right.requestedCount - left.requestedCount
-        }
-        return left.seriesName.localeCompare(right.seriesName, 'zh-Hans-CN')
-    }
-  })
+const seriesCount = computed(() => {
+  return viewMode.value === 'grouped' ? total.value : tableData.value.length
 })
-
-const paginatedGroupedSeries = computed(() => {
-  const offset = Math.max(0, (queryParams.value.page - 1) * queryParams.value.pageSize)
-  return groupedSeries.value.slice(offset, offset + queryParams.value.pageSize)
+const missingCount = computed(() => {
+  return viewMode.value === 'grouped'
+    ? groupedSummary.value.missingCount
+    : tableData.value.filter((item) => item.status === 'MISSING').length
 })
-
-const seriesCount = computed(() => groupedSeries.value.length)
-const missingCount = computed(() => tableData.value.filter((item) => item.status === 'MISSING').length)
-const searchedCount = computed(() => tableData.value.filter((item) => item.status === 'SEARCHED').length)
-const requestedCount = computed(() => tableData.value.filter((item) => item.status === 'REQUESTED').length)
-const ingestedCount = computed(() => tableData.value.filter((item) => item.status === 'INGESTED').length)
-const ignoredCount = computed(() => tableData.value.filter((item) => item.status === 'IGNORED').length)
+const searchedCount = computed(() => {
+  return viewMode.value === 'grouped'
+    ? groupedSummary.value.searchedCount
+    : tableData.value.filter((item) => item.status === 'SEARCHED').length
+})
+const requestedCount = computed(() => {
+  return viewMode.value === 'grouped'
+    ? groupedSummary.value.requestedCount
+    : tableData.value.filter((item) => item.status === 'REQUESTED').length
+})
+const ingestedCount = computed(() => {
+  return viewMode.value === 'grouped'
+    ? groupedSummary.value.ingestedCount
+    : tableData.value.filter((item) => item.status === 'INGESTED').length
+})
+const ignoredCount = computed(() => {
+  return viewMode.value === 'grouped'
+    ? groupedSummary.value.ignoredCount
+    : tableData.value.filter((item) => item.status === 'IGNORED').length
+})
 
 const summaryCards = computed(() => [
   {
@@ -315,7 +223,7 @@ const toggleSeasonExpanded = (seriesKey: string, season: number) => {
   expandedSeasonKeys.value = [...expandedSeasonKeys.value, key]
 }
 
-const visibleSeasonGaps = (seriesKey: string, seasonGroup: GroupedSeasonGaps) => {
+const visibleSeasonGaps = (seriesKey: string, seasonGroup: { season: number; gaps: MediaGapItem[] }) => {
   const defaultVisible = 12
   if (isSeasonExpanded(seriesKey, seasonGroup.season)) {
     return seasonGroup.gaps
@@ -323,7 +231,7 @@ const visibleSeasonGaps = (seriesKey: string, seasonGroup: GroupedSeasonGaps) =>
   return seasonGroup.gaps.slice(0, defaultVisible)
 }
 
-const hiddenSeasonGapCount = (seriesKey: string, seasonGroup: GroupedSeasonGaps) => {
+const hiddenSeasonGapCount = (seriesKey: string, seasonGroup: { season: number; gaps: MediaGapItem[] }) => {
   return Math.max(0, seasonGroup.gaps.length - visibleSeasonGaps(seriesKey, seasonGroup).length)
 }
 
@@ -337,7 +245,7 @@ const toggleSeriesExpanded = (seriesKey: string) => {
   expandedSeriesKeys.value = [...expandedSeriesKeys.value, seriesKey]
 }
 
-const actionableSeasonGroups = (series: GroupedSeriesGaps) => {
+const actionableSeasonGroups = (series: MediaGapGroupedSeries) => {
   return series.seasons
     .map((seasonGroup) => ({
       season: seasonGroup.season,
@@ -346,7 +254,7 @@ const actionableSeasonGroups = (series: GroupedSeriesGaps) => {
     .filter((seasonGroup) => seasonGroup.gaps.length > 0)
 }
 
-const visibleSeasonGroups = (series: GroupedSeriesGaps) => {
+const visibleSeasonGroups = (series: MediaGapGroupedSeries) => {
   const defaultVisibleSeasons = 1
   const actionableSeasons = actionableSeasonGroups(series)
   if (isSeriesExpanded(series.key)) {
@@ -355,7 +263,7 @@ const visibleSeasonGroups = (series: GroupedSeriesGaps) => {
   return actionableSeasons.slice(0, defaultVisibleSeasons)
 }
 
-const hiddenSeasonGroupCount = (series: GroupedSeriesGaps) => {
+const hiddenSeasonGroupCount = (series: MediaGapGroupedSeries) => {
   return Math.max(0, actionableSeasonGroups(series).length - visibleSeasonGroups(series).length)
 }
 
@@ -414,7 +322,7 @@ const episodeChipClass = (gap: MediaGapItem) => {
   return classes.join(' ')
 }
 
-const resolveActiveGap = (group: GroupedSeriesGaps) => {
+const resolveActiveGap = (group: MediaGapGroupedSeries) => {
   const actionableGaps = group.gaps.filter((gap) => !isTerminalStatus(gap.status))
   const selected = actionableGaps.find((gap) => gap.id === selectedGapId.value)
   return selected ?? actionableGaps[0] ?? null
@@ -597,10 +505,11 @@ const buildParams = (): MediaGapListQuery => {
   return params
 }
 
-const buildGroupedFetchParams = (page: number, pageSize: number): MediaGapListQuery => {
-  const params: MediaGapListQuery = {
-    page,
-    pageSize
+const buildGroupedParams = () => {
+  const params: MediaGapGroupedQuery = {
+    page: queryParams.value.page,
+    pageSize: queryParams.value.pageSize,
+    sort: sortMode.value
   }
 
   if (queryParams.value.keyword?.trim()) {
@@ -617,56 +526,44 @@ const buildGroupedFetchParams = (page: number, pageSize: number): MediaGapListQu
   return params
 }
 
-const fetchGroupedDataset = async () => {
-  const pageSize = 500
-  let page = 1
-  let merged: MediaGapItem[] = []
-  let backendTotal = 0
-
-  while (true) {
-    const res = await getMediaGaps(buildGroupedFetchParams(page, pageSize))
-    const batch = res.data ?? []
-    merged = merged.concat(batch)
-    backendTotal = res.total ?? merged.length
-
-    if (batch.length === 0 || merged.length >= backendTotal) {
-      break
-    }
-    page += 1
-  }
-
-  tableData.value = merged
-  itemTotal.value = backendTotal
-  total.value = countGroupedSeries(merged)
-
-  if (selectedGapId.value && !tableData.value.some((item) => item.id === selectedGapId.value)) {
-    selectedGapId.value = ''
-  }
-  if (!selectedGapId.value && tableData.value.length > 0) {
-    selectedGapId.value = tableData.value[0].id
-  }
-}
-
-const countGroupedSeries = (items: MediaGapItem[]) => {
-  const keys = new Set<string>()
-  for (const item of items) {
-    keys.add(String(item.tmdbId || item.embySeriesId || item.seriesName || item.id))
-  }
-  return keys.size
-}
-
 const fetchData = async () => {
   loading.value = true
   try {
     if (viewMode.value === 'grouped') {
-      await fetchGroupedDataset()
+      const res = await getGroupedMediaGaps(buildGroupedParams())
+      groupedData.value = res.data ?? []
+      tableData.value = groupedData.value.flatMap((series) => series.gaps)
+      total.value = res.total ?? 0
+      itemTotal.value = res.itemTotal ?? tableData.value.length
+      groupedSummary.value = res.summary ?? {
+        missingCount: 0,
+        searchedCount: 0,
+        requestedCount: 0,
+        ingestedCount: 0,
+        ignoredCount: 0
+      }
+
+      if (selectedGapId.value && !tableData.value.some((item) => item.id === selectedGapId.value)) {
+        selectedGapId.value = ''
+      }
+      if (!selectedGapId.value && tableData.value.length > 0) {
+        selectedGapId.value = tableData.value[0].id
+      }
       return
     }
 
     const res = await getMediaGaps(buildParams())
+    groupedData.value = []
     tableData.value = res.data ?? []
     total.value = res.total ?? 0
     itemTotal.value = res.total ?? 0
+    groupedSummary.value = {
+      missingCount: 0,
+      searchedCount: 0,
+      requestedCount: 0,
+      ingestedCount: 0,
+      ignoredCount: 0
+    }
 
     if (selectedGapId.value && !tableData.value.some((item) => item.id === selectedGapId.value)) {
       selectedGapId.value = ''
@@ -700,16 +597,10 @@ const handleReset = () => {
 const handlePageSizeChange = (size: number) => {
   queryParams.value.pageSize = size
   queryParams.value.page = 1
-  if (viewMode.value === 'grouped') {
-    return
-  }
   fetchData()
 }
 
 const handlePageChange = () => {
-  if (viewMode.value === 'grouped') {
-    return
-  }
   fetchData()
 }
 
@@ -795,7 +686,7 @@ const openSearchDialog = async (gap: MediaGapItem) => {
   await fetchData()
 }
 
-const openGroupedSearch = async (group: GroupedSeriesGaps) => {
+const openGroupedSearch = async (group: MediaGapGroupedSeries) => {
   const gap = resolveActiveGap(group)
   if (!gap || isTerminalStatus(gap.status)) return
   await openSearchDialog(gap)
@@ -862,13 +753,13 @@ const handleIgnore = async (gap: MediaGapItem) => {
   }
 }
 
-const ignoreGroupedGap = async (group: GroupedSeriesGaps) => {
+const ignoreGroupedGap = async (group: MediaGapGroupedSeries) => {
   const gap = resolveActiveGap(group)
   if (!gap || gap.status === 'INGESTED' || gap.status === 'IGNORED') return
   await handleIgnore(gap)
 }
 
-const ignoreSeasonGroup = async (series: GroupedSeriesGaps, seasonGroup: GroupedSeasonGaps) => {
+const ignoreSeasonGroup = async (series: MediaGapGroupedSeries, seasonGroup: { season: number; gaps: MediaGapItem[] }) => {
   const targets = seasonGroup.gaps.filter((gap) => gap.status !== 'INGESTED' && gap.status !== 'IGNORED')
   if (targets.length === 0) {
     ElMessage.info('这一季当前没有可忽略的缺集')
@@ -915,6 +806,12 @@ onMounted(() => {
 })
 
 watch(viewMode, () => {
+  queryParams.value.page = 1
+  fetchData()
+})
+
+watch(sortMode, () => {
+  if (viewMode.value !== 'grouped') return
   queryParams.value.page = 1
   fetchData()
 })
@@ -1089,9 +986,9 @@ watch(viewMode, () => {
         ></div>
       </div>
 
-      <div v-else-if="paginatedGroupedSeries.length > 0" class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+      <div v-else-if="groupedData.length > 0" class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
         <article
-          v-for="series in paginatedGroupedSeries"
+          v-for="series in groupedData"
           :key="series.key"
           class="series-card"
         >

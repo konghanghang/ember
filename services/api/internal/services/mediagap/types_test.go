@@ -131,3 +131,74 @@ func TestBuildSearchSnapshotHandlesNilResponse(t *testing.T) {
 		t.Fatalf("expected empty candidates, got %d", len(snapshot.Candidates))
 	}
 }
+
+func TestBuildGroupedSeriesAggregatesAndSortsByMissing(t *testing.T) {
+	now := time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC)
+	items := []models.MediaGap{
+		{
+			ID:         "gap-1",
+			TmdbID:     "100",
+			SeriesName: "B Show",
+			Season:     1,
+			Episode:    2,
+			Status:     models.MediaGapStatusMissing,
+			UpdatedAt:  now.Add(-time.Hour),
+		},
+		{
+			ID:         "gap-2",
+			TmdbID:     "100",
+			SeriesName: "B Show",
+			Season:     1,
+			Episode:    1,
+			Status:     models.MediaGapStatusRequested,
+			UpdatedAt:  now,
+		},
+		{
+			ID:         "gap-3",
+			TmdbID:     "200",
+			SeriesName: "A Show",
+			Season:     2,
+			Episode:    1,
+			Status:     models.MediaGapStatusMissing,
+			UpdatedAt:  now.Add(-2 * time.Hour),
+		},
+		{
+			ID:         "gap-4",
+			TmdbID:     "200",
+			SeriesName: "A Show",
+			Season:     2,
+			Episode:    2,
+			Status:     models.MediaGapStatusMissing,
+			UpdatedAt:  now.Add(-90 * time.Minute),
+		},
+		{
+			ID:         "gap-5",
+			TmdbID:     "200",
+			SeriesName: "A Show",
+			Season:     1,
+			Episode:    3,
+			Status:     models.MediaGapStatusIgnored,
+			UpdatedAt:  now.Add(-30 * time.Minute),
+		},
+	}
+
+	grouped, summary := buildGroupedSeries(items, "missing")
+	if len(grouped) != 2 {
+		t.Fatalf("expected 2 grouped series, got %d", len(grouped))
+	}
+	if grouped[0].SeriesName != "A Show" {
+		t.Fatalf("expected A Show first, got %s", grouped[0].SeriesName)
+	}
+	if grouped[0].MissingCount != 2 {
+		t.Fatalf("expected missing count 2, got %d", grouped[0].MissingCount)
+	}
+	if len(grouped[0].Seasons) != 2 {
+		t.Fatalf("expected 2 seasons, got %d", len(grouped[0].Seasons))
+	}
+	if grouped[1].RequestedCount != 1 {
+		t.Fatalf("expected requested count 1, got %d", grouped[1].RequestedCount)
+	}
+	if summary.MissingCount != 3 || summary.RequestedCount != 1 || summary.IgnoredCount != 1 {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+}

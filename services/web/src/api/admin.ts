@@ -20,6 +20,8 @@ import type {
   DeviceStats,
   MediaGapActionResponse,
   MediaGapDispatchRequest,
+  MediaGapGroupedQuery,
+  MediaGapGroupedResponse,
   MediaGapListQuery,
   MediaGapListResponse,
   MediaGapScanRequest,
@@ -272,6 +274,14 @@ export function getMediaQualityGroupDetails(
 export function getMediaGaps(params?: MediaGapListQuery): Promise<MediaGapListResponse> {
   return request({
     url: '/admin/media-gaps',
+    method: 'get',
+    params
+  })
+}
+
+export function getGroupedMediaGaps(params?: MediaGapGroupedQuery): Promise<MediaGapGroupedResponse> {
+  return request({
+    url: '/admin/media-gaps/grouped',
     method: 'get',
     params
   })

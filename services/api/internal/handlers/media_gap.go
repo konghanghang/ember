@@ -56,6 +56,7 @@ type mediaGapListQuery struct {
 	Status      string `form:"status"`
 	AirDateFrom string `form:"airDateFrom"`
 	AirDateTo   string `form:"airDateTo"`
+	Sort        string `form:"sort"`
 	Page        int    `form:"page"`
 	PageSize    int    `form:"pageSize"`
 }
@@ -81,6 +82,10 @@ func NewMediaGapHandler() *MediaGapHandler {
 
 func (h *MediaGapHandler) ListMediaGaps(c *gin.Context) {
 	h.GetMediaGaps(c)
+}
+
+func (h *MediaGapHandler) ListGroupedMediaGaps(c *gin.Context) {
+	h.GetGroupedMediaGaps(c)
 }
 
 func (h *MediaGapHandler) SearchMediaGap(c *gin.Context) {
@@ -114,6 +119,45 @@ func (h *MediaGapHandler) GetMediaGaps(c *gin.Context) {
 		Status:      strings.TrimSpace(query.Status),
 		AirDateFrom: strings.TrimSpace(query.AirDateFrom),
 		AirDateTo:   strings.TrimSpace(query.AirDateTo),
+		Page:        page,
+		PageSize:    pageSize,
+	})
+	if err != nil {
+		writeMediaGapError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// GetGroupedMediaGaps 获取按剧聚合的缺集列表。
+// GET /api/v1/admin/media-gaps/grouped
+func (h *MediaGapHandler) GetGroupedMediaGaps(c *gin.Context) {
+	var query mediaGapListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	page := query.Page
+	if page <= 0 {
+		page = 1
+	}
+
+	pageSize := query.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	resp, err := h.service.ListGroupedMediaGaps(c.Request.Context(), mediagappkg.GroupedListQuery{
+		Keyword:     strings.TrimSpace(query.Keyword),
+		Status:      strings.TrimSpace(query.Status),
+		AirDateFrom: strings.TrimSpace(query.AirDateFrom),
+		AirDateTo:   strings.TrimSpace(query.AirDateTo),
+		Sort:        strings.TrimSpace(query.Sort),
 		Page:        page,
 		PageSize:    pageSize,
 	})

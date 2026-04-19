@@ -3,6 +3,8 @@ package mediagap
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
@@ -30,6 +32,73 @@ type ListRequest struct {
 type ListResponse struct {
 	Data  []models.MediaGap `json:"data"`
 	Total int64             `json:"total"`
+}
+
+type GroupedSortMode string
+
+const (
+	GroupedSortMissing   GroupedSortMode = "missing"
+	GroupedSortUpdated   GroupedSortMode = "updated"
+	GroupedSortRequested GroupedSortMode = "requested"
+	GroupedSortName      GroupedSortMode = "name"
+)
+
+type GroupedListQuery struct {
+	Keyword     string
+	Status      string
+	AirDateFrom string
+	AirDateTo   string
+	Sort        string
+	Page        int
+	PageSize    int
+}
+
+type GroupedListRequest struct {
+	Keyword     string
+	Status      string
+	AirDateFrom *time.Time
+	AirDateTo   *time.Time
+	Sort        string
+	Page        int
+	PageSize    int
+}
+
+type GroupedSeason struct {
+	Season int               `json:"season"`
+	Gaps   []models.MediaGap `json:"gaps"`
+}
+
+type GroupedSeries struct {
+	Key             string            `json:"key"`
+	SeriesName      string            `json:"seriesName"`
+	TmdbID          string            `json:"tmdbId,omitempty"`
+	EmbySeriesID    string            `json:"embySeriesId,omitempty"`
+	Gaps            []models.MediaGap `json:"gaps"`
+	Seasons         []GroupedSeason   `json:"seasons"`
+	TotalGaps       int               `json:"totalGaps"`
+	MissingCount    int               `json:"missingCount"`
+	SearchedCount   int               `json:"searchedCount"`
+	RequestedCount  int               `json:"requestedCount"`
+	IngestedCount   int               `json:"ingestedCount"`
+	IgnoredCount    int               `json:"ignoredCount"`
+	LatestUpdatedAt *time.Time        `json:"latestUpdatedAt,omitempty"`
+}
+
+type GroupedSummary struct {
+	MissingCount   int `json:"missingCount"`
+	SearchedCount  int `json:"searchedCount"`
+	RequestedCount int `json:"requestedCount"`
+	IngestedCount  int `json:"ingestedCount"`
+	IgnoredCount   int `json:"ignoredCount"`
+}
+
+type GroupedListResponse struct {
+	Data      []GroupedSeries `json:"data"`
+	Total     int64           `json:"total"`
+	ItemTotal int64           `json:"itemTotal"`
+	Page      int             `json:"page"`
+	PageSize  int             `json:"pageSize"`
+	Summary   GroupedSummary  `json:"summary"`
 }
 
 type ScanRequest struct {
@@ -208,4 +277,185 @@ func normalizeSearchCandidates(candidates []moviepilotint.GapSearchCandidate) []
 	}
 
 	return normalized
+}
+
+func normalizeGroupedSortMode(sort string) GroupedSortMode {
+	switch GroupedSortMode(strings.TrimSpace(sort)) {
+	case GroupedSortUpdated:
+		return GroupedSortUpdated
+	case GroupedSortRequested:
+		return GroupedSortRequested
+	case GroupedSortName:
+		return GroupedSortName
+	default:
+		return GroupedSortMissing
+	}
+}
+
+func buildGroupedSeries(items []models.MediaGap, sort string) ([]GroupedSeries, GroupedSummary) {
+	groupMap := make(map[string]*GroupedSeries)
+	summary := GroupedSummary{}
+
+	for _, gap := range items {
+		switch gap.Status {
+		case models.MediaGapStatusMissing:
+			summary.MissingCount++
+		case models.MediaGapStatusSearched:
+			summary.SearchedCount++
+		case models.MediaGapStatusRequested:
+			summary.RequestedCount++
+		case models.MediaGapStatusIngested:
+			summary.IngestedCount++
+		case models.MediaGapStatusIgnored:
+			summary.IgnoredCount++
+		}
+
+		key := buildGroupedSeriesKey(gap)
+		existing := groupMap[key]
+		if existing == nil {
+			existing = &GroupedSeries{
+				Key:          key,
+				SeriesName:   gap.SeriesName,
+				TmdbID:       gap.TmdbID,
+				EmbySeriesID: gap.EmbySeriesID,
+				Gaps:         make([]models.MediaGap, 0, 1),
+				Seasons:      make([]GroupedSeason, 0),
+			}
+			groupMap[key] = existing
+		}
+
+		existing.Gaps = append(existing.Gaps, gap)
+		existing.TotalGaps++
+		switch gap.Status {
+		case models.MediaGapStatusMissing:
+			existing.MissingCount++
+		case models.MediaGapStatusSearched:
+			existing.SearchedCount++
+		case models.MediaGapStatusRequested:
+			existing.RequestedCount++
+		case models.MediaGapStatusIngested:
+			existing.IngestedCount++
+		case models.MediaGapStatusIgnored:
+			existing.IgnoredCount++
+		}
+
+		if existing.LatestUpdatedAt == nil || gap.UpdatedAt.After(*existing.LatestUpdatedAt) {
+			updatedAt := gap.UpdatedAt
+			existing.LatestUpdatedAt = &updatedAt
+		}
+	}
+
+	grouped := make([]GroupedSeries, 0, len(groupMap))
+	for _, group := range groupMap {
+		seasonMap := make(map[int][]models.MediaGap)
+		for _, gap := range group.Gaps {
+			seasonMap[gap.Season] = append(seasonMap[gap.Season], gap)
+		}
+
+		group.Seasons = make([]GroupedSeason, 0, len(seasonMap))
+		for season, gaps := range seasonMap {
+			sortMediaGapItems(gaps)
+			group.Seasons = append(group.Seasons, GroupedSeason{
+				Season: season,
+				Gaps:   gaps,
+			})
+		}
+		sortGroupedSeasons(group.Seasons)
+		sortMediaGapItems(group.Gaps)
+		grouped = append(grouped, *group)
+	}
+
+	sortGroupedSeries(grouped, normalizeGroupedSortMode(sort))
+	return grouped, summary
+}
+
+func buildGroupedSeriesKey(gap models.MediaGap) string {
+	switch {
+	case strings.TrimSpace(gap.TmdbID) != "":
+		return gap.TmdbID
+	case strings.TrimSpace(gap.EmbySeriesID) != "":
+		return gap.EmbySeriesID
+	case strings.TrimSpace(gap.SeriesName) != "":
+		return gap.SeriesName
+	default:
+		return gap.ID
+	}
+}
+
+func mediaGapStatusOrder(status models.MediaGapStatus) int {
+	switch status {
+	case models.MediaGapStatusMissing:
+		return 0
+	case models.MediaGapStatusSearched:
+		return 1
+	case models.MediaGapStatusRequested:
+		return 2
+	case models.MediaGapStatusIngested:
+		return 3
+	case models.MediaGapStatusIgnored:
+		return 4
+	default:
+		return 9
+	}
+}
+
+func sortMediaGapItems(items []models.MediaGap) {
+	slices.SortStableFunc(items, func(left, right models.MediaGap) int {
+		if diff := mediaGapStatusOrder(left.Status) - mediaGapStatusOrder(right.Status); diff != 0 {
+			return diff
+		}
+		if left.Season != right.Season {
+			return left.Season - right.Season
+		}
+		return left.Episode - right.Episode
+	})
+}
+
+func sortGroupedSeasons(seasons []GroupedSeason) {
+	slices.SortStableFunc(seasons, func(left, right GroupedSeason) int {
+		return left.Season - right.Season
+	})
+}
+
+func sortGroupedSeries(groups []GroupedSeries, sortMode GroupedSortMode) {
+	slices.SortStableFunc(groups, func(left, right GroupedSeries) int {
+		switch sortMode {
+		case GroupedSortUpdated:
+			leftTime := ""
+			rightTime := ""
+			if left.LatestUpdatedAt != nil {
+				leftTime = left.LatestUpdatedAt.Format(time.RFC3339Nano)
+			}
+			if right.LatestUpdatedAt != nil {
+				rightTime = right.LatestUpdatedAt.Format(time.RFC3339Nano)
+			}
+			if leftTime != rightTime {
+				return strings.Compare(rightTime, leftTime)
+			}
+			if left.MissingCount != right.MissingCount {
+				return right.MissingCount - left.MissingCount
+			}
+			return strings.Compare(left.SeriesName, right.SeriesName)
+		case GroupedSortRequested:
+			if left.RequestedCount != right.RequestedCount {
+				return right.RequestedCount - left.RequestedCount
+			}
+			if left.MissingCount != right.MissingCount {
+				return right.MissingCount - left.MissingCount
+			}
+			return strings.Compare(left.SeriesName, right.SeriesName)
+		case GroupedSortName:
+			return strings.Compare(left.SeriesName, right.SeriesName)
+		case GroupedSortMissing:
+			fallthrough
+		default:
+			if left.MissingCount != right.MissingCount {
+				return right.MissingCount - left.MissingCount
+			}
+			if left.RequestedCount != right.RequestedCount {
+				return right.RequestedCount - left.RequestedCount
+			}
+			return strings.Compare(left.SeriesName, right.SeriesName)
+		}
+	})
 }

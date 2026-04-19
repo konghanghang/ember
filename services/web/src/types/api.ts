@@ -416,6 +416,16 @@ export interface MediaGapSearchSnapshot {
   query?: string
 }
 
+export type MediaGapGroupedSortMode = 'missing' | 'updated' | 'requested' | 'name'
+
+export interface MediaGapGroupedQuery extends PaginationQuery {
+  keyword?: string
+  status?: MediaGapStatus | ''
+  airDateFrom?: string
+  airDateTo?: string
+  sort?: MediaGapGroupedSortMode
+}
+
 export interface MediaGapDispatchSnapshot {
   candidateId?: string
   title?: string
@@ -451,6 +461,44 @@ export interface MediaGapListResponse {
   total: number
   page: number
   pageSize: number
+}
+
+export interface MediaGapGroupedSeason {
+  season: number
+  gaps: MediaGapItem[]
+}
+
+export interface MediaGapGroupedSeries {
+  key: string
+  seriesName: string
+  tmdbId?: string
+  embySeriesId?: string
+  gaps: MediaGapItem[]
+  seasons: MediaGapGroupedSeason[]
+  totalGaps: number
+  missingCount: number
+  searchedCount: number
+  requestedCount: number
+  ingestedCount: number
+  ignoredCount: number
+  latestUpdatedAt?: string
+}
+
+export interface MediaGapGroupedSummary {
+  missingCount: number
+  searchedCount: number
+  requestedCount: number
+  ingestedCount: number
+  ignoredCount: number
+}
+
+export interface MediaGapGroupedResponse {
+  data: MediaGapGroupedSeries[]
+  total: number
+  itemTotal: number
+  page: number
+  pageSize: number
+  summary: MediaGapGroupedSummary
 }
 
 export interface MediaGapSearchResult {

@@ -149,6 +149,33 @@ func (s *Service) IsConfigured() bool {
 	return s.tmdbAPIKey != "" && s.embyService.IsConfigured()
 }
 
+func (s *Service) buildListBaseQuery(ctx context.Context, req ListRequest) (*gorm.DB, string, string, error) {
+	query := db.DB.WithContext(ctx).Model(&models.MediaGap{})
+
+	keyword := strings.TrimSpace(req.Keyword)
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("\"seriesName\" ILIKE ? OR \"tmdbId\" ILIKE ?", like, like)
+	}
+
+	status := normalizeMediaGapStatus(req.Status)
+	if status != "" {
+		if !isValidMediaGapStatus(status) {
+			return nil, keyword, status, ErrMediaGapInvalidStatus
+		}
+		query = query.Where("status = ?", status)
+	}
+
+	if req.AirDateFrom != nil {
+		query = query.Where("\"airDate\" >= ?", normalizeDateUTC(*req.AirDateFrom))
+	}
+	if req.AirDateTo != nil {
+		query = query.Where("\"airDate\" <= ?", normalizeDateUTC(*req.AirDateTo))
+	}
+
+	return query, keyword, status, nil
+}
+
 func (s *Service) List(ctx context.Context, req ListRequest) (*ListResponse, error) {
 	page := req.Page
 	if page <= 0 {
@@ -162,27 +189,9 @@ func (s *Service) List(ctx context.Context, req ListRequest) (*ListResponse, err
 		pageSize = 200
 	}
 
-	query := db.DB.WithContext(ctx).Model(&models.MediaGap{})
-
-	keyword := strings.TrimSpace(req.Keyword)
-	if keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("\"seriesName\" ILIKE ? OR \"tmdbId\" ILIKE ?", like, like)
-	}
-
-	status := normalizeMediaGapStatus(req.Status)
-	if status != "" {
-		if !isValidMediaGapStatus(status) {
-			return nil, ErrMediaGapInvalidStatus
-		}
-		query = query.Where("status = ?", status)
-	}
-
-	if req.AirDateFrom != nil {
-		query = query.Where("\"airDate\" >= ?", normalizeDateUTC(*req.AirDateFrom))
-	}
-	if req.AirDateTo != nil {
-		query = query.Where("\"airDate\" <= ?", normalizeDateUTC(*req.AirDateTo))
+	query, keyword, status, err := s.buildListBaseQuery(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	var total int64
@@ -229,6 +238,89 @@ func (s *Service) ListMediaGaps(ctx context.Context, query ListQuery) (*ListResp
 	}
 
 	return s.List(ctx, req)
+}
+
+func (s *Service) ListGrouped(ctx context.Context, req GroupedListRequest) (*GroupedListResponse, error) {
+	page := req.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	baseReq := ListRequest{
+		Keyword:     req.Keyword,
+		Status:      req.Status,
+		AirDateFrom: req.AirDateFrom,
+		AirDateTo:   req.AirDateTo,
+	}
+	query, keyword, status, err := s.buildListBaseQuery(ctx, baseReq)
+	if err != nil {
+		return nil, err
+	}
+
+	var itemTotal int64
+	if err := query.Count(&itemTotal).Error; err != nil {
+		return nil, fmt.Errorf("查询缺集总数失败: %w", err)
+	}
+
+	var items []models.MediaGap
+	if err := query.
+		Order("\"seriesName\" ASC").
+		Order("season ASC").
+		Order("episode ASC").
+		Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("查询缺集聚合列表失败: %w", err)
+	}
+
+	grouped, summary := buildGroupedSeries(items, req.Sort)
+	groupTotal := len(grouped)
+	offset := max(0, (page-1)*pageSize)
+	if offset > groupTotal {
+		offset = groupTotal
+	}
+	limit := min(groupTotal, offset+pageSize)
+	pagedData := grouped[offset:limit]
+
+	log.Printf("[MediaGap] 聚合列表查询完成 keyword=%q status=%q sort=%q page=%d pageSize=%d groupTotal=%d itemTotal=%d returned=%d",
+		keyword, status, normalizeGroupedSortMode(req.Sort), page, pageSize, groupTotal, itemTotal, len(pagedData))
+
+	return &GroupedListResponse{
+		Data:      pagedData,
+		Total:     int64(groupTotal),
+		ItemTotal: itemTotal,
+		Page:      page,
+		PageSize:  pageSize,
+		Summary:   summary,
+	}, nil
+}
+
+func (s *Service) ListGroupedMediaGaps(ctx context.Context, query GroupedListQuery) (*GroupedListResponse, error) {
+	req := GroupedListRequest{
+		Keyword:  strings.TrimSpace(query.Keyword),
+		Status:   strings.TrimSpace(query.Status),
+		Sort:     strings.TrimSpace(query.Sort),
+		Page:     query.Page,
+		PageSize: query.PageSize,
+	}
+
+	if trimmed := strings.TrimSpace(query.AirDateFrom); trimmed != "" {
+		if parsed, err := time.Parse("2006-01-02", trimmed); err == nil {
+			req.AirDateFrom = cloneTimePointer(parsed)
+		}
+	}
+	if trimmed := strings.TrimSpace(query.AirDateTo); trimmed != "" {
+		if parsed, err := time.Parse("2006-01-02", trimmed); err == nil {
+			req.AirDateTo = cloneTimePointer(parsed)
+		}
+	}
+
+	return s.ListGrouped(ctx, req)
 }
 
 func (s *Service) Scan(ctx context.Context, req ScanRequest) (*ScanResult, error) {
