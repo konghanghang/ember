@@ -12,7 +12,6 @@ import {
   Loading,
   RefreshRight,
   Search,
-  Tickets,
   Upload
 } from '@element-plus/icons-vue'
 import {
@@ -142,34 +141,36 @@ const ignoredCount = computed(() => {
     : tableData.value.filter((item) => item.status === 'IGNORED').length
 })
 
-const summaryCards = computed(() => [
+const compactStats = computed(() => [
   {
-    title: viewMode.value === 'grouped' ? '筛选后剧集' : '当前页剧集',
+    label: '工单',
+    value: itemTotal.value,
+    tone: 'neutral'
+  },
+  {
+    label: viewMode.value === 'grouped' ? '剧集' : '当前页剧集',
     value: seriesCount.value,
-    detail: `${itemTotal.value} 条工单`,
-    tone: 'series',
-    icon: Collection
+    tone: 'neutral'
   },
   {
-    title: '待处理缺集',
+    label: '待处理',
     value: missingCount.value,
-    detail: `已搜索 ${searchedCount.value}`,
-    tone: 'missing',
-    icon: Tickets
+    tone: 'missing'
   },
   {
-    title: '已下发',
+    label: '已下发',
     value: requestedCount.value,
-    detail: '等待 Emby 入库核销',
-    tone: 'requested',
-    icon: Upload
+    tone: 'requested'
   },
   {
-    title: '已完成 / 已忽略',
-    value: ingestedCount.value + ignoredCount.value,
-    detail: `入库 ${ingestedCount.value} · 忽略 ${ignoredCount.value}`,
-    tone: 'settled',
-    icon: CircleCheckFilled
+    label: '已完成',
+    value: ingestedCount.value,
+    tone: 'settled'
+  },
+  {
+    label: '已忽略',
+    value: ignoredCount.value,
+    tone: 'muted'
   }
 ])
 
@@ -284,16 +285,18 @@ const statusOrder = (status: MediaGapStatus) => {
   }
 }
 
-const summaryCardClass = (tone: string) => {
+const compactStatClass = (tone: string) => {
   switch (tone) {
     case 'missing':
-      return 'summary-card summary-card-missing'
+      return 'compact-stat compact-stat-missing'
     case 'requested':
-      return 'summary-card summary-card-requested'
+      return 'compact-stat compact-stat-requested'
     case 'settled':
-      return 'summary-card summary-card-settled'
+      return 'compact-stat compact-stat-settled'
+    case 'muted':
+      return 'compact-stat compact-stat-muted'
     default:
-      return 'summary-card summary-card-series'
+      return 'compact-stat compact-stat-neutral'
   }
 }
 
@@ -823,10 +826,6 @@ watch(sortMode, () => {
       title="缺集管理"
       description="默认按剧聚合查看缺集断层，先找出哪部剧有问题，再逐集搜索、下发和核销。"
     >
-      <template #titleSuffix>
-        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">工单 {{ itemTotal }} · 剧集 {{ seriesCount }}</span>
-      </template>
-
       <template #actions>
         <div class="flex flex-wrap items-center justify-end gap-2">
           <div class="inline-flex rounded-2xl border border-gray-200 bg-white p-1 shadow-sm">
@@ -925,59 +924,38 @@ watch(sortMode, () => {
           </button>
         </template>
       </EmberFilterPanel>
+
+      <div class="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 xl:flex-row xl:items-center xl:justify-between">
+        <div class="flex flex-wrap gap-2">
+          <span
+            v-for="stat in compactStats"
+            :key="stat.label"
+            :class="compactStatClass(stat.tone)"
+          >
+            <span class="compact-stat-label">{{ stat.label }}</span>
+            <span class="compact-stat-value">{{ stat.value }}</span>
+          </span>
+        </div>
+
+        <div
+          v-if="viewMode === 'grouped'"
+          class="flex flex-wrap items-center gap-2"
+        >
+          <span class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">排序</span>
+          <button
+            v-for="option in sortOptions"
+            :key="option.value"
+            @click="sortMode = option.value"
+            class="sort-chip"
+            :class="{ 'sort-chip-active': sortMode === option.value }"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+      </div>
     </EmberPageHeaderCard>
 
-    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <div
-        v-for="card in summaryCards"
-        :key="card.title"
-        :class="summaryCardClass(card.tone)"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div class="space-y-2">
-            <div class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">{{ card.title }}</div>
-            <div class="text-3xl font-bold text-gray-900">{{ card.value }}</div>
-            <div class="text-sm text-gray-500">{{ card.detail }}</div>
-          </div>
-          <div class="summary-card-icon">
-            <el-icon><component :is="card.icon" /></el-icon>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div v-if="viewMode === 'grouped'" class="space-y-4">
-      <div class="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="space-y-1">
-            <div class="text-lg font-semibold text-gray-900">按剧聚合总览</div>
-            <div class="text-sm text-gray-500">
-              当前筛选结果共有 {{ seriesCount }} 部剧被命中。聚合视图按“剧”分页，不再把单集工单先分页后再硬并成卡片。
-            </div>
-          </div>
-          <div class="space-y-2">
-            <div class="flex flex-wrap justify-end gap-2">
-              <button
-                v-for="option in sortOptions"
-                :key="option.value"
-                @click="sortMode = option.value"
-                class="sort-chip"
-                :class="{ 'sort-chip-active': sortMode === option.value }"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-            <div class="flex flex-wrap justify-end gap-2 text-xs text-gray-500">
-              <span class="legend-chip legend-chip-missing">待处理</span>
-              <span class="legend-chip legend-chip-searched">已搜索</span>
-              <span class="legend-chip legend-chip-requested">已下发</span>
-              <span class="legend-chip legend-chip-ingested">已入库</span>
-              <span class="legend-chip legend-chip-ignored">已忽略</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div v-if="loading" class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
         <div
           v-for="index in 6"
@@ -1472,80 +1450,53 @@ watch(sortMode, () => {
   color: var(--ember-red);
 }
 
-.summary-card {
-  border: 1px solid #f1f5f9;
-  border-radius: 1.5rem;
-  background: #fff;
-  padding: 1.25rem;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-}
-
-.summary-card-series {
-  background:
-    radial-gradient(circle at top right, rgba(14, 165, 233, 0.08), transparent 34%),
-    #fff;
-}
-
-.summary-card-missing {
-  background:
-    radial-gradient(circle at top right, rgba(239, 68, 68, 0.08), transparent 34%),
-    #fff;
-}
-
-.summary-card-requested {
-  background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 34%),
-    #fff;
-}
-
-.summary-card-settled {
-  background:
-    radial-gradient(circle at top right, rgba(16, 185, 129, 0.08), transparent 34%),
-    #fff;
-}
-
-.summary-card-icon {
+.compact-stat {
   display: inline-flex;
-  height: 2.75rem;
-  width: 2.75rem;
   align-items: center;
-  justify-content: center;
+  gap: 0.45rem;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #334155;
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
-}
-
-.legend-chip {
-  border-radius: 9999px;
-  padding: 0.35rem 0.7rem;
+  padding: 0.45rem 0.78rem;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
+  border: 1px solid transparent;
 }
 
-.legend-chip-missing {
+.compact-stat-neutral {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.compact-stat-missing {
   background: #fef2f2;
+  border-color: #fecaca;
   color: #dc2626;
 }
 
-.legend-chip-searched {
-  background: #fff7ed;
-  color: #d97706;
-}
-
-.legend-chip-requested {
+.compact-stat-requested {
   background: #eff6ff;
+  border-color: #bfdbfe;
   color: #2563eb;
 }
 
-.legend-chip-ingested {
+.compact-stat-settled {
   background: #ecfdf5;
+  border-color: #a7f3d0;
   color: #059669;
 }
 
-.legend-chip-ignored {
+.compact-stat-muted {
   background: #f3f4f6;
+  border-color: #d1d5db;
   color: #6b7280;
+}
+
+.compact-stat-label {
+  opacity: 0.86;
+}
+
+.compact-stat-value {
+  color: #111827;
 }
 
 .series-card {
