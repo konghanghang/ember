@@ -40,7 +40,6 @@
 - `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
-- `media-subscription/gap-management-and-precision-download.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 - `media-subscription/subscription-resubmission-after-rejection.md`
 - `media-subscription/subscription-status-and-notification.md`

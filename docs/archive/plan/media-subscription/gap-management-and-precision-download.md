@@ -1,8 +1,8 @@
 # 缺集管理与精准补集实现方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-18
+> 更新时间：2026-04-19
 
 ## 背景
 
@@ -36,24 +36,28 @@
 - 相关文档：
   - `docs/system-architecture.md`
 - 相关服务/页面/模型：
+  - `services/api/internal/services/mediagap/service.go`
+  - `services/api/internal/services/mediagap/types.go`
+  - `services/api/internal/handlers/media_gap.go`
+  - `services/api/internal/models/media_gap.go`
   - `services/api/internal/services/tvcalendar/service.go`
   - `services/api/internal/handlers/tv_calendar.go`
   - `services/api/internal/services/subscription/service.go`
   - `services/api/internal/services/subscription/existing.go`
   - `services/api/internal/integrations/moviepilot/client.go`
-  - `services/api/internal/models/tv_calendar.go`
-  - `services/web/src/views/console/TVCalendarView.vue`
-  - `services/web/src/views/admin/MediaQualityView.vue`
+  - `services/web/src/views/admin/MediaGapsView.vue`
+  - `services/web/src/api/admin.ts`
+  - `services/web/src/types/api.ts`
 - 当前行为：
   - `TVCalendar` 已能发现 Emby 中的连载剧、按周同步 TMDB 季集信息、展示 `ready / missing / today / upcoming` 状态，并在 Emby webhook 到达时点亮已入库剧集。
   - `subscription` 已有独立的用户求片流程，审批通过后会调用 MoviePilot 创建订阅，并在 Emby webhook 到达时回写为 `INGESTED`。
   - Emby webhook 当前是统一入库入口，已经同时服务 TV Calendar 和求片订阅入库回写。
-  - MoviePilot 集成当前仅支持“创建订阅”，不支持“搜索候选”和“下发指定候选资源”。
+  - `mediagap` 已有独立事实表、扫描服务、后台管理页和聚合视图，缺集搜索会真实调用 MoviePilot 搜索候选，下发会真实调用 MoviePilot 下载入口。
+  - 后台聚合视图已改为后端聚合接口，按剧完成分组、排序、分页和摘要统计，不再由前端全量拉取工单后自行聚合。
 - 现有限制：
-  - 现有 `tv_calendar_items` 是围绕日期窗口和追剧展示设计，不适合作为后台缺集工单真相源。
-  - 现有库内剧集库存判断未显式处理 `IndexNumberEnd` 这类多集合并文件，缺集扫描若直接沿用现状，容易出现稳定误报。
-  - 后台还没有独立的缺集管理页，服主无法集中查看缺口、忽略误报或人工推进补货。
-  - 缺集治理的真正目标是“已开始追的季出现断层”，不是“把整部剧历史上没收的所有季都算成缺集”。
+  - 下发后当前仍以 Emby webhook 和后续重扫作为入库核销主路径，未额外接入下载中进度追踪、超时告警或自动重试。
+  - “整季包精准补集”仍停留在二阶段预留边界，当前未接入文件级优先级控制或下载器托管。
+  - 缺集治理继续聚焦“已激活季的断层补集”，不把整部剧历史上未收录的所有季当成缺集主链路。
 
 ## 方案设计
 
@@ -256,14 +260,22 @@
 ## 当前推进状态
 
 - 已完成：
-  - 方案边界收口
-  - 首版与二阶段拆分
-  - 数据模型、状态机、接口草案收口
+  - `mediagap` 模型、SQL migration、扫描服务和状态机落地
+  - MoviePilot 候选搜索与真实下发链路落地
+  - 后台缺集管理页、后端聚合接口和候选处理主路径落地
+  - Emby webhook 缺集核销接入现有入库入口
+  - 关键编译、测试与页面构建验证收口
 - 剩余项：
-  - `mediagap` 模型与 migration
-  - 扫描服务与共享库存对账能力
-  - MoviePilot 搜索 / 下发扩展
-  - 后台缺集管理页
+  - 无；后续若推进“整季包精准补集”，应另开新计划，不再继续复用本方案正文
+
+## 归档说明
+
+- 已提炼的稳定结论：
+  - 当前系统事实、接口与服务边界已同步到 `docs/system-architecture.md`
+- 归档原因：
+  - 本文档所定义的首版缺集管理主链路已经落地，当前正文主要保留历史设计边界、取舍过程和阶段性实现说明，适合转入归档追溯
+- 后续处理原则：
+  - 若继续推进下载器托管、整季包精准补集或下载中进度跟踪，应以新计划文档承接，不在本归档文档上继续增量维护
   - 测试、编译验证和架构文档同步
 - 归档条件：
   - 首版“扫描 -> 搜索 -> 下发 -> webhook 核销”链路完成

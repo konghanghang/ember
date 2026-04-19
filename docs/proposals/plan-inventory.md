@@ -60,7 +60,7 @@
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
-| `media-subscription/gap-management-and-precision-download.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
+| `media-subscription/gap-management-and-precision-download.md` | 已落地 | `media_gaps` 模型与 migration、`MediaGapService`、`/api/v1/admin/media-gaps/grouped`、`MediaGapsView.vue`、MoviePilot 候选搜索与真实下发链路、架构文档已收录 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `media-subscription/subscription-status-and-notification.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 
@@ -78,6 +78,7 @@
 - `user-profile-overview.md`
 - `dashboard-renewal-redesign.md`
 - `playback-ranking-rework.md`
+- `media-subscription/gap-management-and-precision-download.md`
 - `embypulse-features/p1-user-profile.md`
 - `embypulse-features/p2-user-avatar.md`
 - `console-admin/ember-web-component-foundation.md`
