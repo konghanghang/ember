@@ -337,16 +337,26 @@ const toggleSeriesExpanded = (seriesKey: string) => {
   expandedSeriesKeys.value = [...expandedSeriesKeys.value, seriesKey]
 }
 
+const actionableSeasonGroups = (series: GroupedSeriesGaps) => {
+  return series.seasons
+    .map((seasonGroup) => ({
+      season: seasonGroup.season,
+      gaps: seasonGroup.gaps.filter((gap) => !isTerminalStatus(gap.status))
+    }))
+    .filter((seasonGroup) => seasonGroup.gaps.length > 0)
+}
+
 const visibleSeasonGroups = (series: GroupedSeriesGaps) => {
   const defaultVisibleSeasons = 1
+  const actionableSeasons = actionableSeasonGroups(series)
   if (isSeriesExpanded(series.key)) {
-    return series.seasons
+    return actionableSeasons
   }
-  return series.seasons.slice(0, defaultVisibleSeasons)
+  return actionableSeasons.slice(0, defaultVisibleSeasons)
 }
 
 const hiddenSeasonGroupCount = (series: GroupedSeriesGaps) => {
-  return Math.max(0, series.seasons.length - visibleSeasonGroups(series).length)
+  return Math.max(0, actionableSeasonGroups(series).length - visibleSeasonGroups(series).length)
 }
 
 const statusOrder = (status: MediaGapStatus) => {
@@ -405,8 +415,9 @@ const episodeChipClass = (gap: MediaGapItem) => {
 }
 
 const resolveActiveGap = (group: GroupedSeriesGaps) => {
-  const selected = group.gaps.find((gap) => gap.id === selectedGapId.value)
-  return selected ?? group.gaps[0] ?? null
+  const actionableGaps = group.gaps.filter((gap) => !isTerminalStatus(gap.status))
+  const selected = actionableGaps.find((gap) => gap.id === selectedGapId.value)
+  return selected ?? actionableGaps[0] ?? null
 }
 
 const selectGap = (gap: MediaGapItem) => {
@@ -1154,6 +1165,13 @@ watch(viewMode, () => {
             </section>
 
             <div
+              v-if="actionableSeasonGroups(series).length === 0"
+              class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-4 py-5 text-sm text-gray-500"
+            >
+              当前没有待处理缺集，已收口到已忽略或已入库摘要。
+            </div>
+
+            <div
               v-if="hiddenSeasonGroupCount(series) > 0"
               class="series-expand-panel"
             >
@@ -1169,11 +1187,11 @@ watch(viewMode, () => {
             </div>
 
             <div
-              v-else-if="series.seasons.length > 2"
+              v-else-if="actionableSeasonGroups(series).length > 2"
               class="series-expand-panel"
             >
               <div class="text-sm font-medium text-gray-500">
-                当前已展开全部 {{ series.seasons.length }} 个缺集季。
+                当前已展开全部 {{ actionableSeasonGroups(series).length }} 个缺集季。
               </div>
               <button
                 @click="toggleSeriesExpanded(series.key)"
