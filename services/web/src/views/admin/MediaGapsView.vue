@@ -9,6 +9,7 @@ import {
   Download,
   Grid,
   InfoFilled,
+  Loading,
   RefreshRight,
   Search,
   Tickets,
@@ -36,7 +37,6 @@ import type {
   MediaGapStatus
 } from '@/types/api'
 
-type CandidateDialogMode = 'search' | 'dispatch'
 type MediaGapViewMode = 'grouped' | 'table'
 type MediaGapSortMode = 'missing' | 'updated' | 'requested' | 'name'
 
@@ -68,7 +68,6 @@ const total = ref(0)
 const itemTotal = ref(0)
 const airDateRange = ref<[string, string] | null>(null)
 const dialogVisible = ref(false)
-const dialogMode = ref<CandidateDialogMode>('search')
 const dialogLoading = ref(false)
 const dispatching = ref(false)
 const currentGap = ref<MediaGapItem | null>(null)
@@ -112,9 +111,7 @@ const sortOptions: Array<{ label: string; value: MediaGapSortMode; hint: string 
   { label: '剧名字母', value: 'name', hint: '按剧名排序浏览' }
 ]
 
-const dialogTitle = computed(() => {
-  return dialogMode.value === 'dispatch' ? '选择候选并下发补货' : '搜索候选结果'
-})
+const dialogTitle = '搜索候选并下发'
 
 const selectedCandidate = computed(() => {
   return candidateResult.value.candidates.find((candidate) => candidate.id === selectedCandidateId.value) ?? null
@@ -773,31 +770,9 @@ const runSearch = async (gap: MediaGapItem) => {
 }
 
 const openSearchDialog = async (gap: MediaGapItem) => {
-  dialogMode.value = 'search'
   currentGap.value = gap
   selectedGapId.value = gap.id
   dialogVisible.value = true
-  candidateResult.value = {
-    mediaGap: gap,
-    candidates: []
-  }
-  selectedCandidateId.value = ''
-  await runSearch(gap)
-  await fetchData()
-}
-
-const openDispatchDialog = async (gap: MediaGapItem) => {
-  dialogMode.value = 'dispatch'
-  currentGap.value = gap
-  selectedGapId.value = gap.id
-  dialogVisible.value = true
-
-  const snapshot = normalizeSearchResult(gap.searchSnapshot, gap)
-  if (snapshot.candidates.length > 0) {
-    applySearchResult(snapshot, gap)
-    return
-  }
-
   candidateResult.value = {
     mediaGap: gap,
     candidates: []
@@ -811,12 +786,6 @@ const openGroupedSearch = async (group: GroupedSeriesGaps) => {
   const gap = resolveActiveGap(group)
   if (!gap || isTerminalStatus(gap.status)) return
   await openSearchDialog(gap)
-}
-
-const openGroupedDispatch = async (group: GroupedSeriesGaps) => {
-  const gap = resolveActiveGap(group)
-  if (!gap || isTerminalStatus(gap.status)) return
-  await openDispatchDialog(gap)
 }
 
 const handleDialogSearch = async () => {
@@ -1244,15 +1213,6 @@ watch(viewMode, () => {
                 搜索当前集
               </button>
               <button
-                @click="openGroupedDispatch(series)"
-                :disabled="isTerminalStatus(resolveActiveGap(series)!.status)"
-                class="series-action-btn"
-                :class="{ 'series-action-btn-disabled': isTerminalStatus(resolveActiveGap(series)!.status) }"
-              >
-                <el-icon><Download /></el-icon>
-                下发当前集
-              </button>
-              <button
                 @click="ignoreGroupedGap(series)"
                 :disabled="resolveActiveGap(series)!.status === 'INGESTED' || resolveActiveGap(series)!.status === 'IGNORED'"
                 class="series-action-btn series-action-btn-muted"
@@ -1366,14 +1326,6 @@ watch(viewMode, () => {
               搜索
             </button>
             <button
-              @click="openDispatchDialog(row)"
-              :disabled="isTerminalStatus(row.status)"
-              class="action-link"
-              :class="{ 'action-link--disabled': isTerminalStatus(row.status) }"
-            >
-              下发
-            </button>
-            <button
               @click="handleIgnore(row)"
               :disabled="row.status === 'INGESTED' || row.status === 'IGNORED'"
               class="action-link action-link--muted"
@@ -1434,10 +1386,22 @@ watch(viewMode, () => {
           </div>
         </div>
 
-        <div v-if="dialogLoading" class="space-y-3">
-          <div class="h-20 animate-pulse rounded-2xl bg-gray-100"></div>
-          <div class="h-20 animate-pulse rounded-2xl bg-gray-100"></div>
-          <div class="h-20 animate-pulse rounded-2xl bg-gray-100"></div>
+        <div v-if="dialogLoading" class="space-y-4">
+          <div class="rounded-2xl border border-amber-100 bg-amber-50/80 px-4 py-3 text-sm text-amber-700">
+            <div class="flex items-center gap-2 font-semibold">
+              <el-icon class="animate-spin"><Loading /></el-icon>
+              <span>正在搜索候选资源</span>
+            </div>
+            <div class="mt-1 text-xs text-amber-600">
+              正在向资源源拉取当前剧集的候选列表，通常需要几秒，请稍等。
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div class="h-20 animate-pulse rounded-2xl bg-gray-100"></div>
+            <div class="h-20 animate-pulse rounded-2xl bg-gray-100"></div>
+            <div class="h-20 animate-pulse rounded-2xl bg-gray-100"></div>
+          </div>
         </div>
 
         <div v-else-if="candidateResult.candidates.length > 0" class="space-y-3">
@@ -1474,7 +1438,7 @@ watch(viewMode, () => {
                   <div class="flex flex-wrap gap-2">
                     <span v-if="candidate.source" class="candidate-chip">{{ candidate.source }}</span>
                     <span v-if="candidate.site" class="candidate-chip">{{ candidate.site }}</span>
-                    <span v-if="candidate.size" class="candidate-chip">大小 {{ candidate.size }}</span>
+                    <span v-if="candidate.size" class="candidate-chip">{{ candidate.size }}</span>
                     <span v-if="candidate.seeders !== undefined" class="candidate-chip">做种 {{ candidate.seeders }}</span>
                     <span v-if="candidate.language" class="candidate-chip">{{ candidate.language }}</span>
                     <span v-if="candidate.releaseGroup" class="candidate-chip">{{ candidate.releaseGroup }}</span>
@@ -1524,7 +1488,6 @@ watch(viewMode, () => {
             关闭
           </button>
           <button
-            v-if="dialogMode === 'dispatch'"
             @click="handleDispatch"
             :disabled="!canDispatch"
             class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
