@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Monitor, Setting } from '@element-plus/icons-vue'
+import { Monitor, QuestionFilled, Setting } from '@element-plus/icons-vue'
 import {
   getConfigs,
   runCronJob,
@@ -273,12 +273,40 @@ const riskBadgeClass = (item: AdminConfigItem) => {
   }
 }
 
-const editorPanelClass = (item: AdminConfigItem) => {
-  if (item.type === 'enum' || item.type === 'boolean') {
-    return 'border-ember/20 bg-ember/5'
+const shouldShowInlineStateHint = (item: AdminConfigItem) =>
+  Boolean(configStateHint(item) && !item.hasValue && item.missingValueLevel === 'critical')
+
+const itemTooltipSections = (item: AdminConfigItem) => {
+  const sections: Array<{ label: string; text: string }> = []
+
+  if (item.description) {
+    sections.push({
+      label: '字段说明',
+      text: item.description,
+    })
   }
-  return 'border-gray-100 bg-white'
+
+  const stateHint = configStateHint(item)
+  if (stateHint && !shouldShowInlineStateHint(item)) {
+    sections.push({
+      label: '状态提示',
+      text: stateHint,
+    })
+  }
+
+  const modeHint = item.editable ? editableHint(item) : readOnlyHint(item)
+  if (modeHint) {
+    sections.push({
+      label: item.editable ? '编辑提示' : '只读原因',
+      text: modeHint,
+    })
+  }
+
+  return sections
 }
+
+const compactReadOnlySummary = (item: AdminConfigItem) =>
+  item.restartRequired ? '仅展示当前状态' : '后台不可编辑'
 
 onMounted(async () => {
   loading.value = true
@@ -291,41 +319,45 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-6 animate-fade-in" v-loading="loading">
-    <section class="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm md:p-6">
-      <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-        <div class="space-y-3">
+  <div class="space-y-5 animate-fade-in" v-loading="loading">
+    <section class="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm md:p-5">
+      <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div class="max-w-3xl space-y-2">
           <div>
             <p class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Settings Center</p>
-            <h1 class="mt-2 text-2xl font-bold text-gray-900">设置中心</h1>
-            <p class="mt-1 text-sm text-gray-500">统一管理运行期配置、配置来源和部署边界状态，收口迁移期遗留的展示噪音。</p>
-          </div>
-
-          <div class="flex flex-wrap gap-2">
-            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">已配置</p>
-              <p class="text-2xl font-semibold text-gray-900">{{ configuredCount }}</p>
+            <div class="mt-2 flex flex-wrap items-center gap-3">
+              <h1 class="text-2xl font-bold text-gray-900">设置中心</h1>
+              <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600">
+                {{ groupSections.length }} 个分组
+              </span>
             </div>
-            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">缺失</p>
-              <p class="text-2xl font-semibold text-gray-900">{{ missingCount }}</p>
-            </div>
-            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">敏感项</p>
-              <p class="text-2xl font-semibold text-gray-900">{{ sensitiveCount }}</p>
-            </div>
-            <div class="inline-flex min-w-[140px] items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/80 px-4 py-3">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">需重启</p>
-              <p class="text-2xl font-semibold text-gray-900">{{ restartCount }}</p>
-            </div>
+            <p class="mt-1 text-sm leading-6 text-gray-500">统一管理运行期配置、配置来源和部署边界状态，优先突出当前状态和可执行操作。</p>
           </div>
         </div>
 
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[480px]">
+          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">已配置</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ configuredCount }}</p>
+          </div>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">缺失</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ missingCount }}</p>
+          </div>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">敏感项</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ sensitiveCount }}</p>
+          </div>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
+            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">需重启</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900">{{ restartCount }}</p>
+          </div>
+        </div>
       </div>
     </section>
 
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="space-y-4 xl:sticky xl:top-6 xl:self-start">
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[208px_minmax(0,1fr)]">
+      <aside class="space-y-3 xl:sticky xl:top-6 xl:self-start">
         <div class="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
           <div class="mb-2 flex items-center gap-2 px-2 text-sm font-semibold text-gray-900">
             <el-icon><Setting /></el-icon>
@@ -365,8 +397,8 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
+        <div class="rounded-2xl border border-gray-100 bg-white p-3.5 shadow-sm">
+          <div class="mb-2.5 flex items-center gap-2 text-sm font-semibold text-gray-900">
             <el-icon><Monitor /></el-icon>
             系统维护
           </div>
@@ -380,7 +412,7 @@ onMounted(async () => {
             {{ runningCron ? '执行中...' : '立即执行过期检查' }}
           </button>
 
-          <p class="mt-3 text-xs leading-5 text-gray-400">
+          <p class="mt-2.5 text-xs leading-5 text-gray-400">
             这里只保留当前系统真正需要的维护动作；配置修改以设置中心保存结果为准。
           </p>
         </div>
@@ -389,9 +421,9 @@ onMounted(async () => {
       <main>
         <section
           v-if="activeGroupSection"
-          class="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm md:p-6"
+          class="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm md:p-5"
         >
-          <div class="flex flex-col gap-4 border-b border-gray-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+          <div class="flex flex-col gap-3 border-b border-gray-100 pb-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div class="flex flex-wrap items-center gap-2">
                 <h2 class="text-xl font-bold text-gray-900">{{ activeGroupSection.label }}</h2>
@@ -405,12 +437,11 @@ onMounted(async () => {
                   {{ activeGroupRiskSummary.count }} 项高风险缺失
                 </span>
               </div>
-              <p class="mt-1 text-sm text-gray-500">
-                {{
-                  activeGroupSection.key === 'deployment'
-                    ? '部署期与安全边界配置只展示当前状态，不在后台直接编辑。'
-                    : '按组保存，减少迁移期兼容信息造成的视觉负担。'
-                }}
+              <p
+                v-if="activeGroupSection.key === 'deployment'"
+                class="mt-1 text-sm leading-6 text-gray-500"
+              >
+                部署期与安全边界配置只展示当前状态，不在后台直接编辑。
               </p>
             </div>
 
@@ -448,7 +479,7 @@ onMounted(async () => {
 
           <div
             v-if="activeGroupRiskSummary.count > 0"
-            class="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            class="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
           >
             <p class="font-semibold text-red-800">高风险缺失</p>
             <p class="mt-1 leading-6">
@@ -456,120 +487,161 @@ onMounted(async () => {
             </p>
           </div>
 
-          <div class="mt-5 overflow-hidden rounded-2xl border border-gray-100 bg-white">
+          <div class="mt-4 overflow-hidden rounded-2xl border border-gray-100 bg-white">
             <div
               v-for="item in activeGroupSection.items"
               :key="item.key"
-              class="grid gap-4 px-5 py-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6"
+              class="px-4 py-4 lg:px-5"
               :class="[
                 !item.hasValue && item.missingValueLevel === 'critical' ? 'bg-red-50/30' : '',
                 item.error ? 'bg-red-50/20' : '',
                 activeGroupSection.items[activeGroupSection.items.length - 1]?.key !== item.key ? 'border-b border-gray-100' : ''
               ]"
             >
-              <div class="space-y-2">
-                <div class="flex flex-wrap items-center gap-2">
-                  <label class="text-sm font-semibold text-gray-900">{{ item.label }}</label>
-                  <span
-                    v-if="!item.editable"
-                    class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700"
-                  >
-                    只读
-                  </span>
-                  <span
-                    v-if="riskBadgeText(item)"
-                    class="rounded-full px-2.5 py-1 text-[11px] font-medium"
-                    :class="riskBadgeClass(item)"
-                  >
-                    {{ riskBadgeText(item) }}
-                  </span>
-                </div>
-                <p class="text-sm leading-6 text-gray-500">{{ item.description }}</p>
-                <div class="flex flex-wrap gap-2">
-                  <span
-                    class="rounded-full px-2.5 py-1 text-[11px] font-medium"
-                    :class="sourceClass(item.source)"
-                  >
-                    来源：{{ sourceLabelMap[item.source] }}
-                  </span>
-                  <span
-                    class="rounded-full px-2.5 py-1 text-[11px] font-medium"
-                    :class="restartClass(item.restartRequired)"
-                  >
-                    {{ item.restartRequired ? '需重启' : '立即生效' }}
-                  </span>
-                </div>
-                <p
-                  v-if="configStateHint(item)"
-                  class="text-xs leading-5"
-                  :class="!item.hasValue && item.missingValueLevel === 'critical' ? 'text-red-600' : 'text-gray-400'"
-                >
-                  {{ configStateHint(item) }}
-                </p>
-                <p
-                  v-if="!item.editable && !item.error"
-                  class="text-xs leading-5 text-slate-500"
-                >
-                  {{ readOnlyHint(item) }}
-                </p>
-              </div>
-
-              <div class="min-w-0">
-                <div
-                  v-if="item.error"
-                  class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                >
-                  {{ item.error }}
-                </div>
-
-                <div
-                  v-else-if="item.editable && item.type === 'enum'"
-                  class="rounded-xl border border-ember/20 bg-ember/5 p-3"
-                >
-                  <div class="grid gap-2 sm:grid-cols-2">
-                    <button
-                      v-for="option in item.options || []"
-                      :key="option.value"
-                      type="button"
-                      class="rounded-xl border px-4 py-3 text-left text-sm font-semibold transition cursor-pointer"
-                      :class="
-                        draftValues[item.key] === option.value
-                          ? 'border-ember/40 bg-white text-ember shadow-sm ring-2 ring-ember/10'
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
-                      "
-                      @click="draftValues[item.key] = option.value"
+              <div class="flex flex-col gap-3 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-4">
+                <div class="min-w-0 space-y-1.5">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <label class="text-sm font-semibold text-gray-900">{{ item.label }}</label>
+                    <el-tooltip
+                      v-if="itemTooltipSections(item).length > 0"
+                      placement="top-start"
+                      effect="light"
+                      :show-after="150"
                     >
-                      <span class="block">{{ option.label }}</span>
-                      <span
-                        v-if="option.value !== option.label"
-                        class="mt-1 block text-[11px] font-medium uppercase tracking-wide"
-                        :class="draftValues[item.key] === option.value ? 'text-ember/70' : 'text-gray-400'"
+                      <template #content>
+                        <div class="max-w-[280px] space-y-2 text-xs leading-5">
+                          <div
+                            v-for="section in itemTooltipSections(item)"
+                            :key="`${item.key}-${section.label}`"
+                          >
+                            <p class="font-semibold text-gray-700">{{ section.label }}</p>
+                            <p class="mt-0.5 text-gray-600">{{ section.text }}</p>
+                          </div>
+                        </div>
+                      </template>
+                      <button
+                        type="button"
+                        class="inline-flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-gray-200 bg-white text-[11px] text-gray-400 transition hover:border-gray-300 hover:text-gray-600"
+                        :aria-label="`查看${item.label}说明`"
                       >
-                        {{ option.value }}
-                      </span>
-                    </button>
+                        <el-icon><QuestionFilled /></el-icon>
+                      </button>
+                    </el-tooltip>
                   </div>
-                  <p class="mt-2 text-xs leading-5 text-gray-400">
-                    {{ editableHint(item) }}
+
+                  <div class="flex flex-wrap gap-2">
+                    <span
+                      v-if="!item.editable"
+                      class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700"
+                    >
+                      只读
+                    </span>
+                    <span
+                      v-if="riskBadgeText(item)"
+                      class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                      :class="riskBadgeClass(item)"
+                    >
+                      {{ riskBadgeText(item) }}
+                    </span>
+                    <span
+                      class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                      :class="sourceClass(item.source)"
+                    >
+                      来源：{{ sourceLabelMap[item.source] }}
+                    </span>
+                    <span
+                      class="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                      :class="restartClass(item.restartRequired)"
+                    >
+                      {{ item.restartRequired ? '需重启' : '立即生效' }}
+                    </span>
+                  </div>
+
+                  <p
+                    v-if="shouldShowInlineStateHint(item)"
+                    class="text-xs leading-5"
+                    :class="!item.hasValue && item.missingValueLevel === 'critical' ? 'text-red-600' : 'text-gray-400'"
+                  >
+                    {{ configStateHint(item) }}
                   </p>
                 </div>
 
-                <div
-                  v-else-if="item.editable"
-                  class="rounded-xl border p-3"
-                  :class="editorPanelClass(item)"
-                >
-                  <div v-if="item.type === 'boolean'" class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <el-switch
+                <div class="min-w-0 w-full">
+                  <div
+                    v-if="item.error"
+                    class="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700"
+                  >
+                    {{ item.error }}
+                  </div>
+
+                  <div
+                    v-else-if="item.editable && item.type === 'enum'"
+                    class="rounded-xl border border-gray-200 bg-gray-50 p-1.5"
+                  >
+                    <div class="flex flex-wrap gap-1.5">
+                      <button
+                        v-for="option in item.options || []"
+                        :key="option.value"
+                        type="button"
+                        class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium leading-5 transition"
+                        :class="
+                          draftValues[item.key] === option.value
+                            ? 'border-ember/30 bg-white text-ember shadow-sm ring-2 ring-ember/10'
+                            : 'border-transparent bg-transparent text-gray-600 hover:border-gray-200 hover:bg-white hover:text-gray-900'
+                        "
+                        @click="draftValues[item.key] = option.value"
+                      >
+                        <span>{{ option.label }}</span>
+                        <span
+                          v-if="option.value !== option.label"
+                          class="rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                          :class="
+                            draftValues[item.key] === option.value
+                              ? 'bg-ember/10 text-ember/80'
+                              : 'bg-gray-200/80 text-gray-400'
+                          "
+                        >
+                          {{ option.value }}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    v-else-if="item.editable && item.type === 'boolean'"
+                    class="rounded-xl border border-ember/20 bg-ember/5 p-2.5"
+                  >
+                    <div class="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5">
+                      <el-switch
+                        v-model="draftValues[item.key]"
+                        inline-prompt
+                        active-text="开"
+                        inactive-text="关"
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    v-else-if="item.editable && item.type === 'json_list'"
+                    class="rounded-xl border border-gray-100 bg-white p-2.5"
+                  >
+                    <el-checkbox-group
                       v-model="draftValues[item.key]"
-                      inline-prompt
-                      active-text="开"
-                      inactive-text="关"
-                    />
+                      class="flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2.5"
+                    >
+                      <el-checkbox
+                        v-for="option in item.options || []"
+                        :key="option.value"
+                        :label="option.value"
+                        class="!mr-0 rounded-xl border border-gray-200 bg-white px-3 py-2"
+                      >
+                        {{ option.label }}
+                      </el-checkbox>
+                    </el-checkbox-group>
                   </div>
 
                   <el-input-number
-                    v-else-if="item.type === 'integer'"
+                    v-else-if="item.editable && item.type === 'integer'"
                     v-model="draftValues[item.key]"
                     :min="item.minValue"
                     :max="item.maxValue"
@@ -577,23 +649,8 @@ onMounted(async () => {
                     controls-position="right"
                   />
 
-                  <el-checkbox-group
-                    v-else-if="item.type === 'json_list'"
-                    v-model="draftValues[item.key]"
-                    class="flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3"
-                  >
-                    <el-checkbox
-                      v-for="option in item.options || []"
-                      :key="option.value"
-                      :label="option.value"
-                      class="!mr-0 rounded-xl border border-gray-200 bg-white px-3 py-2"
-                    >
-                      {{ option.label }}
-                    </el-checkbox>
-                  </el-checkbox-group>
-
                   <el-input
-                    v-else-if="item.sensitive"
+                    v-else-if="item.editable && item.sensitive"
                     v-model="draftValues[item.key]"
                     show-password
                     :placeholder="item.hasValue ? '已设置，输入新值以覆盖' : '请输入配置值'"
@@ -602,32 +659,29 @@ onMounted(async () => {
                   />
 
                   <el-input
-                    v-else-if="item.multiline"
+                    v-else-if="item.editable && item.multiline"
                     v-model="draftValues[item.key]"
                     type="textarea"
-                    :rows="4"
+                    :rows="3"
                     :placeholder="item.placeholder || '请输入配置值'"
                     class="settings-input"
                   />
 
                   <el-input
-                    v-else
+                    v-else-if="item.editable"
                     v-model="draftValues[item.key]"
                     :placeholder="item.placeholder || '请输入配置值'"
                     clearable
                     class="settings-input"
                   />
 
-                  <p class="mt-2 text-xs leading-5 text-gray-400">
-                    {{ editableHint(item) }}
-                  </p>
-                </div>
-
-                <div
-                  v-else
-                  class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
-                >
-                  {{ readOnlyHint(item) }}
+                  <div
+                    v-else
+                    class="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-600"
+                  >
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">只读边界</p>
+                    <p class="mt-0.5 leading-5">{{ compactReadOnlySummary(item) }}</p>
+                  </div>
                 </div>
               </div>
             </div>

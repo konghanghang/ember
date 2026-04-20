@@ -146,6 +146,7 @@ function mountView() {
       },
       stubs: {
         'el-icon': passthroughStub,
+        'el-tooltip': passthroughStub,
         'el-input': ElInputStub,
         'el-input-number': ElInputNumberStub,
         'el-switch': ElSwitchStub,
@@ -275,8 +276,9 @@ describe('SettingsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('数据库显式空值')
-    expect(wrapper.text()).toContain('保存为空值后将关闭欢迎消息中的群组链接展示。')
+    expect(wrapper.text()).not.toContain('数据库显式空值')
+    expect(wrapper.text()).not.toContain('保存为空值后将关闭欢迎消息中的群组链接展示。')
+    expect(wrapper.find('button[aria-label="查看通知群组链接说明"]').exists()).toBe(true)
   })
 
   it('切换到邮件服务分组后可触发测试连接并展示聚合失败信息', async () => {
@@ -351,7 +353,9 @@ describe('SettingsView', () => {
 
     expect(wrapper.text()).toContain('只读')
     expect(wrapper.text()).toContain('高风险缺失')
-    expect(wrapper.text()).toContain('Bot 启动时必须从部署环境读取该令牌')
+    expect(wrapper.text()).not.toContain('Bot 启动时必须从部署环境读取该令牌')
+    expect(wrapper.find('button[aria-label="查看Telegram Bot Token说明"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('仅展示当前状态')
     expect(wrapper.text()).toContain('未设置时 Telegram Bot 无法启动，也无法接收或发送通知。')
     expect(wrapper.text()).toContain('当前分组缺少 Telegram Bot Token，这些项通常需要通过部署环境补齐。')
   })
