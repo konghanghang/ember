@@ -74,6 +74,18 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = ["go", "vet"],
+    decision = "allow",
+    justification = "Allow standard Go vet validation for the backend.",
+)
+
+prefix_rule(
+    pattern = ["go", "test"],
+    decision = "allow",
+    justification = "Allow standard Go test validation for backend packages.",
+)
+
+prefix_rule(
     pattern = ["npm", "run", "build"],
     decision = "allow",
     justification = "Allow standard frontend production build validation.",
@@ -83,6 +95,72 @@ prefix_rule(
     not_match = [
         "npm run dev",
     ],
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "test"],
+    decision = "allow",
+    justification = "Allow standard Vitest test runs for the frontend.",
+    match = [
+        "npm run test",
+    ],
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "test:unit"],
+    decision = "allow",
+    justification = "Allow focused frontend unit-test runs.",
+    match = [
+        "npm run test:unit",
+    ],
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "test:component"],
+    decision = "allow",
+    justification = "Allow focused frontend component-test runs.",
+    match = [
+        "npm run test:component",
+    ],
+)
+
+prefix_rule(
+    pattern = ["npm", "run", "test:coverage"],
+    decision = "allow",
+    justification = "Allow frontend coverage test runs during validation.",
+    match = [
+        "npm run test:coverage",
+    ],
+)
+
+prefix_rule(
+    pattern = ["python", "-m", "py_compile", "main.py"],
+    decision = "allow",
+    justification = "Allow Bot syntax compilation validation.",
+    match = [
+        "python -m py_compile main.py",
+    ],
+)
+
+prefix_rule(
+    pattern = ["python", "-m", "unittest"],
+    decision = "allow",
+    justification = "Allow Bot unittest runs.",
+)
+
+prefix_rule(
+    pattern = ["python3", "-m", "py_compile", "main.py"],
+    decision = "allow",
+    justification = "Allow Bot syntax compilation validation when Python 3 is invoked explicitly.",
+    match = [
+        "python3 -m py_compile main.py",
+    ],
+)
+
+prefix_rule(
+    pattern = ["python3", "-m", "unittest"],
+    decision = "allow",
+    justification = "Allow Bot unittest runs when Python 3 is invoked explicitly.",
 )
 
 # Commands that mutate local state but do not create user-visible history can
