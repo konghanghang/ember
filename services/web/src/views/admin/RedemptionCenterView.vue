@@ -57,6 +57,7 @@ watch(
         <EmberSegmentTabs
           :model-value="activeTab"
           :tabs="tabs"
+          aria-label="兑换中心分段切换"
           @change="setTab"
         />
       </template>

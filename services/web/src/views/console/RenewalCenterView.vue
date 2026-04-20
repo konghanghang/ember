@@ -209,6 +209,7 @@ onMounted(async () => {
             v-model="activeRenewalTab"
             :tabs="renewalSegmentTabs"
             :full-width="false"
+            aria-label="续费方式切换"
           />
         </div>
       </div>
@@ -329,6 +330,7 @@ onMounted(async () => {
             v-model="activeHistoryTab"
             :tabs="historySegmentTabs"
             :full-width="false"
+            aria-label="续费历史类型切换"
           />
         </div>
       </div>

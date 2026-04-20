@@ -243,12 +243,12 @@ services/
 - `layout/`
   - `EmberPageHeaderCard`：统一页面标题、说明、统计 badge、右侧 actions/tabs slot
   - `EmberFilterPanel`：统一筛选区容器、字段区布局、按钮区对齐
-  - `EmberSegmentTabs`：统一支付中心、兑换中心这类页内分段 tabs
+  - `EmberSegmentTabs`：统一页内单选分段切换，当前以 `radiogroup / radio` 语义提供共享键盘交互约定，但不默认承诺 `tabpanel` 语义
 - `filters/`
   - `EmberSearchInput`、`EmberSelectField`、`EmberDateField`、`EmberDateRangeField`
-  - 负责筛选字段的 Ember 风格外观与交互基线，不承载页面查询逻辑
+  - 负责筛选字段的 Ember 风格外观与交互基线，消费共享 field token，不承载页面查询逻辑
 - `data-display/`
-  - `EmberTableCard`：统一表格容器、表头样式和分页区
+  - `EmberTableCard`：统一表格容器、可选标题头、表头样式和分页区
   - `EmberMetricCard`：统一简单统计卡基线
 - `forms/`
   - `EmberFormDialog`：统一弹窗表单容器和 footer 区域
@@ -269,6 +269,17 @@ services/
 - 容器型中心页：
   - `services/web/src/views/admin/PaymentCenterView.vue`
   - `services/web/src/views/admin/RedemptionCenterView.vue`
+  - `services/web/src/views/admin/SettingsView.vue`
+  - `services/web/src/views/admin/SessionsView.vue`
+  - `services/web/src/views/admin/MediaQualityView.vue`
+
+当前已接入这套基础组件的控制台页面包括：
+
+- `services/web/src/views/console/SubscriptionsView.vue`
+- `services/web/src/views/console/NewSubscriptionView.vue`
+- `services/web/src/views/console/RenewalCenterView.vue`
+- `services/web/src/views/console/LibraryView.vue`
+- `services/web/src/views/console/RankingsView.vue`
 
 边界约束：
 

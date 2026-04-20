@@ -87,25 +87,31 @@
   - 纯单按钮工具条、纯 tabs 工具条不使用它。
 - `EmberTableCard`
   - 用于表格容器、统一表头样式和分页区。
+  - 表格本身若承担独立区块语义，必须通过 header slot 或等价标题语义补回区块标题，不接受无标题主表。
   - 后台列表页默认必须使用，避免每页重复写 `overflow-hidden + rounded-2xl + header-cell-style`。
   - 没有表格主体的卡片型页面不应硬套。
 - `EmberSearchInput`
   - 用于关键词、用户名、ID、兑换码这类搜索输入。
   - 带左侧 icon 的后台筛选输入默认优先使用，不再复制 `group + absolute icon + filter-input` 写法。
+  - 外观应消费全局 field token，不在组件内部再写第二套高度、圆角、focus ring 常量。
 - `EmberSelectField`
   - 用于后台筛选下拉字段。
   - 如果只是表单内部普通 `select`，仍可保留 `form-select` 一类局部样式；不要把筛选字段和表单字段混成同一套职责。
+  - 外观应消费全局 field token，不在组件内部再写第二套高度、圆角、focus ring 常量。
 - `EmberDateField` / `EmberDateRangeField`
   - 用于后台筛选日期字段。
   - 自定义左侧图标时必须隐藏组件内置前缀图标，避免双图标。
   - 单日期与日期范围必须按各自组件使用，不要在页面里再单独复制一套日期框样式。
+  - 外观应消费全局 field token，不在组件内部再写第二套高度、圆角、focus ring 常量。
 - `EmberFormDialog`
   - 用于通用新建/编辑弹窗。
   - 需要统一 header / body / footer 节奏的后台表单，默认优先使用。
   - 若弹窗内部结构高度定制、已明显超出通用表单容器边界，可以保留页面内实现，但必须说明原因。
 - `EmberSegmentTabs`
-  - 用于支付中心、兑换中心这种页内分段切换。
-  - 当 tabs 本质是同页不同子视图切换时，默认优先使用，不再手写第二套圆角按钮组。
+  - 用于支付中心、兑换中心这类页内单选分段切换或模式切换。
+  - 当前实现基于 `radiogroup / radio` 单选语义，不默认承诺 `tabpanel` 关系；需要真实 tabs 时，页面层必须额外补齐 panel 绑定。
+  - 组件内建 roving tabindex、左右方向键和 `Home / End` 快捷键，不再手写第二套按钮组键盘交互。
+  - 每个调用点必须提供有业务语义的 `aria-label`，禁止继续依赖泛化默认文案。
 - `EmberMetricCard`
   - 用于简单统计卡或单值摘要卡：标题、主值、补充说明三段式。
   - 主值既可以是数字，也可以是时间、日期或短文本摘要；只要仍属于单值展示，就应优先复用。
@@ -386,6 +392,7 @@
 - 必须尊重 `prefers-reduced-motion`，并提供全局兜底，而不是只靠单个组件自觉处理。
 - 图标按钮必须提供 `aria-label`。
 - 可点击元素必须有 `cursor-pointer`，避免交互性表达依赖猜测。
+- 使用 `role="tablist" / "tab" / "tabpanel"` 时，必须同时提供匹配的键盘交互，不允许只贴静态 ARIA 属性。
 - 禁止 emoji 作为 UI 图标；统一使用组件图标、SVG、CSS 徽章或文字。
 - 颜色不是唯一状态表达，必须配合文字、图标、标签或位置关系。
 - 不要移除焦点可见性；若自定义样式覆盖默认焦点环，必须提供等价替代。

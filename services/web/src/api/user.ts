@@ -32,11 +32,12 @@ export function getRedemptions(params?: { page?: number; pageSize?: number }): P
 }
 
 // TMDB Search
-export function searchTmdb(query: string, type: 'movie' | 'tv'): Promise<TmdbSearchResponse> {
+export function searchTmdb(query: string, type: 'movie' | 'tv', opts?: { silent?: boolean }): Promise<TmdbSearchResponse> {
   return request({
     url: '/tmdb/search',
     method: 'get',
-    params: { query, type }
+    params: { query, type },
+    silent: opts?.silent === true
   })
 }
 

@@ -3,16 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Film, RefreshRight, Search, Cpu } from '@element-plus/icons-vue'
 import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
+import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
-import {
-  getMediaQualityLibraries,
-  getMediaQualityGroupDetails,
-  getMediaQualityPoster,
-  getMediaQualityReport,
-  scanMediaQualityLibrary
-} from '@/api/admin'
+import { getMediaQualityLibraries, getMediaQualityGroupDetails, getMediaQualityPoster, getMediaQualityReport, scanMediaQualityLibrary } from '@/api/admin'
 import { formatDate } from '@/utils/date'
 import type { MediaQualityLibrary, MediaQualityLowDetailItem, MediaQualityLowItem, MediaQualityReport } from '@/types/api'
 
@@ -255,10 +250,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      title="媒体库质量盘点"
-      description="按媒体库统计分辨率、编码、HDR 分布并筛出低画质资源"
-    >
+    <EmberPageHeaderCard title="媒体库质量盘点" description="按媒体库统计分辨率、编码、HDR 分布并筛出低画质资源。">
       <template #titleSuffix>
         <span
           v-if="report"
@@ -293,7 +285,7 @@ onBeforeUnmount(() => {
         <div class="flex items-end">
           <button
             type="button"
-            class="w-full rounded-xl bg-white border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 inline-flex items-center justify-center gap-2"
+            class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"
             :disabled="loadingReport"
             @click="loadReport(false)"
           >
@@ -305,7 +297,7 @@ onBeforeUnmount(() => {
         <div class="flex items-end gap-2">
           <button
             type="button"
-            class="flex-1 rounded-xl bg-white border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 inline-flex items-center justify-center gap-2"
+            class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"
             :disabled="loadingReport"
             @click="loadReport(true)"
           >
@@ -314,7 +306,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="button"
-            class="btn-ember flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2"
+            class="btn-ember inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
             :disabled="scanning"
             @click="scanNow"
           >
@@ -325,11 +317,8 @@ onBeforeUnmount(() => {
       </EmberFilterPanel>
     </EmberPageHeaderCard>
 
-    <div v-if="report" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <EmberMetricCard
-        title="已统计条目"
-        :value="totalScannedItems"
-      />
+    <div v-if="report" class="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <EmberMetricCard title="已统计条目" :value="totalScannedItems" />
       <EmberMetricCard
         title="低画质条目"
         :value="report.lowQualityTotal"
@@ -342,41 +331,55 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-        <div class="px-5 py-4 border-b border-gray-100 text-sm font-semibold text-gray-900">分辨率分布</div>
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-5 py-4 text-sm font-semibold text-gray-900">分辨率分布</div>
         <el-table :data="report?.resolutionDistribution || []" v-loading="loadingReport" size="small">
           <el-table-column prop="resolution" label="分辨率" />
           <el-table-column prop="count" label="数量" width="100" />
         </el-table>
-      </div>
+      </section>
 
-      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-        <div class="px-5 py-4 border-b border-gray-100 text-sm font-semibold text-gray-900">编码分布</div>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-5 py-4 text-sm font-semibold text-gray-900">编码分布</div>
         <el-table :data="report?.codecDistribution || []" v-loading="loadingReport" size="small">
           <el-table-column prop="codec" label="编码" />
           <el-table-column prop="count" label="数量" width="100" />
         </el-table>
-      </div>
+      </section>
 
-      <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-        <div class="px-5 py-4 border-b border-gray-100 text-sm font-semibold text-gray-900">HDR 分布</div>
+      <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="border-b border-gray-100 px-5 py-4 text-sm font-semibold text-gray-900">HDR 分布</div>
         <el-table :data="report?.hdrDistribution || []" v-loading="loadingReport" size="small">
           <el-table-column prop="type" label="类型" />
           <el-table-column prop="count" label="数量" width="100" />
         </el-table>
-      </div>
+      </section>
     </div>
 
-    <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-      <div class="px-5 py-4 border-b border-gray-100 text-sm font-semibold text-gray-900">低画质清单（汇总）</div>
-      <el-table :data="report?.lowQualityItems || []" v-loading="loadingReport" style="width: 100%">
+    <EmberTableCard :data="report?.lowQualityItems || []" :loading="loadingReport">
+      <template #header>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900">低画质清单（汇总）</h2>
+            <p class="mt-1 text-xs text-gray-500">按当前媒体库筛出命中的低画质分组，并支持查看组内明细。</p>
+          </div>
+          <span
+            v-if="report"
+            class="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-semibold text-orange-700"
+          >
+            共 {{ report.lowQualityTotal }} 条
+          </span>
+        </div>
+      </template>
+
+      <template #default>
         <el-table-column label="封面" width="92">
           <template #default="{ row }">
             <img
               :src="getPosterUrl(row.posterItemId)"
-              alt="cover"
-              class="w-14 h-20 rounded-md object-cover border border-gray-200 bg-gray-50"
+              :alt="`${row.name} 封面`"
+              class="h-20 w-14 rounded-md border border-gray-200 bg-gray-50 object-cover"
               @error="(e: Event) => (((e.target as HTMLImageElement).src = placeholderPoster))"
             />
           </template>
@@ -392,19 +395,21 @@ onBeforeUnmount(() => {
             <code class="text-xs text-gray-600">{{ row.id }}</code>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <button
               type="button"
-              class="text-ember text-sm font-semibold hover:underline cursor-pointer"
+              class="cursor-pointer text-sm font-semibold text-ember transition-colors hover:text-red-700 hover:underline"
+              :aria-label="`查看 ${row.name} 低画质详情`"
               @click="openGroupDetails(row)"
             >
               查看详情
             </button>
           </template>
         </el-table-column>
-      </el-table>
-      <div class="flex justify-end p-6 border-t border-gray-100 bg-gray-50/50">
+      </template>
+
+      <template #pagination>
         <el-pagination
           :current-page="query.page"
           :page-size="query.pageSize"
@@ -415,8 +420,8 @@ onBeforeUnmount(() => {
           @size-change="handlePageSizeChange"
           background
         />
-      </div>
-    </div>
+      </template>
+    </EmberTableCard>
 
     <el-drawer v-model="detailVisible" size="60%" destroy-on-close append-to-body>
       <template #header>
@@ -430,8 +435,8 @@ onBeforeUnmount(() => {
           <template #default="{ row }">
             <img
               :src="getPosterUrl(row.posterItemId)"
-              alt="cover"
-              class="w-14 h-20 rounded-md object-cover border border-gray-200 bg-gray-50"
+              :alt="`${row.name} 封面`"
+              class="h-20 w-14 rounded-md border border-gray-200 bg-gray-50 object-cover"
               @error="(e: Event) => (((e.target as HTMLImageElement).src = placeholderPoster))"
             />
           </template>
@@ -442,7 +447,7 @@ onBeforeUnmount(() => {
         <el-table-column prop="bitrate" label="码率(kbps)" width="120" />
       </el-table>
 
-      <div class="flex justify-end mt-4">
+      <div class="mt-4 flex justify-end">
         <el-pagination
           :current-page="detailQuery.page"
           :page-size="detailQuery.pageSize"

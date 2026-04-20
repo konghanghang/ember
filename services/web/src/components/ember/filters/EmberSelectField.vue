@@ -55,27 +55,25 @@ const handleChange = (value: string | number | boolean | null | undefined) => {
 
 <style scoped>
 :deep(.ember-filter-select .el-select__wrapper) {
-  height: 42px;
-  min-height: 42px;
+  height: var(--ember-field-height);
+  min-height: var(--ember-field-height);
   padding-top: 0;
   padding-bottom: 0;
-  border-radius: 0.75rem;
-  background-color: #f9fafb !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  border-radius: var(--ember-field-radius);
+  background-color: var(--ember-field-bg) !important;
+  box-shadow: var(--ember-field-shadow) !important;
   transition: all 0.2s ease;
 }
 
 :deep(.ember-filter-select:hover .el-select__wrapper) {
-  background-color: #ffffff !important;
+  background-color: var(--ember-field-bg-hover) !important;
 }
 
 :deep(.ember-filter-select .el-select__wrapper.is-focused),
 :deep(.ember-filter-select .el-select__wrapper.is-focus),
 :deep(.ember-filter-select.is-focus .el-select__wrapper) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+  background-color: var(--ember-field-bg-hover) !important;
+  box-shadow: var(--ember-field-shadow-focus) !important;
 }
 
 :deep(.ember-filter-select-with-icon .el-select__wrapper) {

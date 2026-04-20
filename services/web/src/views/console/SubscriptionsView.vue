@@ -2,12 +2,12 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  Check, 
-  Close, 
-  Delete, 
-  Plus, 
-  Refresh, 
+import {
+  Check,
+  Close,
+  Delete,
+  Plus,
+  Refresh,
   VideoPlay,
   Film
 } from '@element-plus/icons-vue'
@@ -38,9 +38,13 @@ const statusOptions = [
   { label: '待审核', value: 'PENDING' },
   { label: '已通过', value: 'APPROVED' },
   { label: '已拒绝', value: 'REJECTED' },
-  { label: '已入库', value: 'INGESTED' },
+  { label: '已入库', value: 'INGESTED' }
 ]
 const statusTabs = computed(() => statusOptions.map((opt) => ({ key: String(opt.value), label: opt.label })))
+const hasStatusFilter = computed(() => Boolean(queryParams.value.status))
+const activeStatusLabel = computed(() => {
+  return statusOptions.find((opt) => opt.value === queryParams.value.status)?.label || '全部'
+})
 
 const fetchData = async () => {
   loading.value = true
@@ -108,10 +112,11 @@ const handleDelete = async (sub: Subscription) => {
       isAdminDelete ? `确定删除 "${formatSubscriptionTitle(sub)}" 的订阅记录吗？此操作不可恢复。` : `确定取消 "${formatSubscriptionTitle(sub)}" 的订阅吗？`,
       isAdminDelete ? '删除确认' : '取消确认',
       {
-      confirmButtonText: isAdminDelete ? '确认删除' : '确定取消',
-      cancelButtonText: isAdminDelete ? '取消' : '保留',
-      type: 'warning'
-    })
+        confirmButtonText: isAdminDelete ? '确认删除' : '确定取消',
+        cancelButtonText: isAdminDelete ? '取消' : '保留',
+        type: 'warning'
+      }
+    )
 
     if (isAdminDelete) {
       await deleteSubscriptionAsAdmin(sub.id)
@@ -183,82 +188,130 @@ const getImageUrl = (path?: string) => {
   return path ? `https://image.tmdb.org/t/p/w300${path}` : 'https://via.placeholder.com/300x450?text=No+Poster'
 }
 
+const cardActionButtons = (sub: Subscription) => {
+  const buttons: Array<{
+    key: string
+    label: string
+    icon: typeof Check
+    tone: 'success' | 'danger' | 'neutral'
+    action: () => Promise<void> | void
+  }> = []
+
+  if (isAdmin.value && sub.status === 'PENDING') {
+    buttons.push(
+      {
+        key: 'approve',
+        label: '批准',
+        icon: Check,
+        tone: 'success',
+        action: () => handleApprove(sub)
+      },
+      {
+        key: 'reject',
+        label: '拒绝',
+        icon: Close,
+        tone: 'neutral',
+        action: () => handleReject(sub)
+      }
+    )
+  }
+
+  if (isAdmin.value || sub.status === 'PENDING') {
+    buttons.push({
+      key: 'delete',
+      label: isAdmin.value ? '删除记录' : '取消订阅',
+      icon: Delete,
+      tone: 'danger',
+      action: () => handleDelete(sub)
+    })
+  }
+
+  return buttons
+}
+
+const actionButtonClass = (tone: 'success' | 'danger' | 'neutral') => {
+  if (tone === 'success') {
+    return 'border-green-200 bg-green-50 text-green-700 hover:border-green-300 hover:bg-green-100'
+  }
+  if (tone === 'danger') {
+    return 'border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100'
+  }
+  return 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+}
+
 onMounted(fetchData)
 </script>
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      title="订阅管理"
-      description="查看和管理您的影视订阅请求"
-    >
+    <EmberPageHeaderCard title="订阅管理" description="查看和管理你的影视订阅请求。">
       <template #titleSuffix>
-        <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{{ total }} 个订阅</span>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">{{ total }} 个订阅</span>
       </template>
       <template #actions>
-        <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+        <div class="flex w-full flex-col gap-3 md:w-auto md:items-end">
           <EmberSegmentTabs
             v-model="queryParams.status"
             :tabs="statusTabs"
             :full-width="false"
+            aria-label="订阅状态筛选"
           />
 
-          <button
-            @click="fetchData" 
-            class="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
-            aria-label="刷新订阅列表"
-            title="刷新列表"
-          >
-            <el-icon :size="20"><Refresh /></el-icon>
-          </button>
+          <div class="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              @click="fetchData"
+              class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              aria-label="刷新订阅列表"
+              title="刷新列表"
+            >
+              <el-icon :size="20"><Refresh /></el-icon>
+            </button>
 
-          <button 
-            @click="router.push('/console/subscriptions/new')"
-            class="btn-ember flex items-center gap-2 px-4 py-2 rounded-lg font-bold shadow-md hover:shadow-lg active:scale-95 flex-shrink-0 whitespace-nowrap cursor-pointer"
-          >
-            <el-icon><Plus /></el-icon>
-            <span>新建订阅</span>
-          </button>
+            <button
+              type="button"
+              @click="router.push('/console/subscriptions/new')"
+              class="btn-ember inline-flex flex-shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+            >
+              <el-icon><Plus /></el-icon>
+              <span>新建订阅</span>
+            </button>
+          </div>
         </div>
       </template>
     </EmberPageHeaderCard>
 
-    <!-- Content -->
-    <div v-loading="loading" class="min-h-[300px]">
-      <div v-if="subscriptions.length > 0" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 md:gap-6 animate-fade-in-up">
-        <div 
-          v-for="sub in subscriptions" 
+    <div v-loading="loading" class="min-h-[300px] space-y-4">
+      <div v-if="subscriptions.length > 0" class="grid animate-fade-in-up grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <article
+          v-for="sub in subscriptions"
           :key="sub.id"
-          class="group relative bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl hover:border-ember/30 transition-all duration-300"
+          class="group overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all hover:border-ember/20 hover:shadow-md"
         >
-          <!-- Poster -->
-          <div class="aspect-[2/3] relative bg-gray-100 overflow-hidden">
-            <img 
-              :src="getImageUrl(sub.posterPath)" 
-              class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          <div class="aspect-[2/3] relative overflow-hidden bg-gray-100">
+            <img
+              :src="getImageUrl(sub.posterPath)"
+              :alt="`${formatSubscriptionTitle(sub)} 海报`"
+              class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
               loading="lazy"
             />
-            
-            <!-- Gradient Overlay -->
+
             <div class="absolute inset-0 bg-gradient-to-t from-black via-black/70 via-black/15 to-transparent opacity-90"></div>
 
-            <!-- Status Badge -->
-            <div class="absolute top-2 right-2">
-              <span 
-                class="px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm backdrop-blur-md"
+            <div class="absolute right-2 top-2">
+              <span
+                class="rounded px-2 py-0.5 text-[10px] font-bold text-white shadow-sm backdrop-blur-md"
                 :class="getStatusColor(sub.status)"
               >
                 {{ getStatusBadgeText(sub.status) }}
               </span>
             </div>
 
-            <!-- Type Icon -->
             <div class="absolute left-2 top-2 text-white/80">
               <el-icon v-if="sub.type === 'MOVIE'" :size="16"><Film /></el-icon>
               <el-icon v-else :size="16"><VideoPlay /></el-icon>
             </div>
 
-            <!-- Inline Details -->
             <div class="absolute inset-x-0 bottom-0 p-3 text-white">
               <h3 class="line-clamp-2 text-sm font-bold leading-5 drop-shadow-sm" :title="formatSubscriptionTitle(sub)">
                 {{ formatSubscriptionTitle(sub) }}
@@ -329,67 +382,46 @@ onMounted(fetchData)
                 </el-tooltip>
               </div>
             </div>
+          </div>
 
-            <!-- Hover Actions -->
-            <div 
-              v-if="isAdmin || sub.status === 'PENDING'"
-              class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center gap-3 backdrop-blur-sm p-4"
-            >
-              <template v-if="isAdmin">
-                <template v-if="sub.status === 'PENDING'">
-                  <button 
-                    @click="handleApprove(sub)"
-                    class="w-full py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center gap-1"
-                  >
-                    <el-icon><Check /></el-icon> 批准
-                  </button>
-                  <button 
-                    @click="handleReject(sub)"
-                    class="w-full py-2 bg-white/20 hover:bg-red-500 text-white rounded-lg font-bold text-xs backdrop-blur-md transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 delay-75 flex items-center justify-center gap-1"
-                  >
-                    <el-icon><Close /></el-icon> 拒绝
-                  </button>
-                </template>
-                <button 
-                  @click="handleDelete(sub)"
-                  class="w-full py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 delay-100 flex items-center justify-center gap-1"
-                >
-                  <el-icon><Delete /></el-icon> 删除记录
-                </button>
-              </template>
-              <template v-else>
-                <button 
-                  @click="handleDelete(sub)"
-                  class="w-full py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold text-xs shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center gap-1"
-                >
-                  <el-icon><Delete /></el-icon> 取消订阅
-                </button>
-              </template>
+          <div v-if="cardActionButtons(sub).length > 0" class="border-t border-gray-100 bg-gray-50/70 p-3">
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="action in cardActionButtons(sub)"
+                :key="action.key"
+                type="button"
+                class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors sm:flex-none"
+                :class="actionButtonClass(action.tone)"
+                :aria-label="`${action.label}${formatSubscriptionTitle(sub)}`"
+                @click="action.action()"
+              >
+                <el-icon><component :is="action.icon" /></el-icon>
+                <span>{{ action.label }}</span>
+              </button>
             </div>
           </div>
-        </div>
+        </article>
       </div>
 
-      <!-- Empty State -->
       <EmberEmptyStateCard
         v-else
         :icon="Film"
-        title="暂无订阅记录"
-        description="您还没有提交过任何订阅请求。"
+        :title="hasStatusFilter ? `暂无${activeStatusLabel}记录` : '暂无订阅记录'"
+        :description="hasStatusFilter ? '当前筛选条件下没有匹配记录，请切换其他状态或返回全部查看。' : '你还没有提交过任何订阅请求。'"
       >
         <template #actions>
-          <button 
-            @click="router.push('/console/subscriptions/new')"
-            class="px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-bold transition-colors cursor-pointer"
+          <button
+            type="button"
+            @click="hasStatusFilter ? (queryParams.status = '') : router.push('/console/subscriptions/new')"
+            class="rounded-xl border border-gray-300 bg-white px-6 py-2 font-bold text-gray-700 transition-colors hover:bg-gray-50"
           >
-            去添加
+            {{ hasStatusFilter ? '查看全部' : '去添加' }}
           </button>
         </template>
       </EmberEmptyStateCard>
     </div>
 
-    <!-- Pagination -->
-    <div v-if="total > 0" class="flex justify-end pt-4">
+    <div v-if="total > 0" class="flex justify-end border-t border-gray-100 bg-gray-50/50 p-6">
       <el-pagination
         v-model:current-page="queryParams.page"
         v-model:page-size="queryParams.pageSize"

@@ -181,6 +181,7 @@ onMounted(() => {
             v-model="period"
             :tabs="periodTabs"
             :full-width="false"
+            aria-label="排行周期切换"
             @change="handlePeriodChange"
           />
 

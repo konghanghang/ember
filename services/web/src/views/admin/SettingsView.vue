@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Monitor, QuestionFilled, Setting } from '@element-plus/icons-vue'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import {
   getConfigs,
   runCronJob,
@@ -54,6 +56,7 @@ const configs = ref<AdminConfigItem[]>([])
 const draftValues = ref<Record<string, any>>({})
 const savingGroups = ref<Record<string, boolean>>({})
 const testingGroups = ref<Record<string, boolean>>({})
+const groupTabRefs = ref<Partial<Record<ConfigGroupKey, HTMLButtonElement | null>>>({})
 
 const groupSections = computed<ConfigGroupSection[]>(() => {
   const grouped = new Map<string, ConfigGroupSection>()
@@ -74,6 +77,7 @@ const groupSections = computed<ConfigGroupSection[]>(() => {
 })
 
 const activeGroupSection = computed(() => groupSections.value.find(group => group.key === activeGroup.value) ?? null)
+const groupKeys = computed(() => groupSections.value.map(group => group.key))
 
 const configuredCount = computed(() => configs.value.filter(item => item.hasValue).length)
 const missingCount = computed(() => configs.value.filter(item => !item.hasValue && item.editable).length)
@@ -308,6 +312,62 @@ const itemTooltipSections = (item: AdminConfigItem) => {
 const compactReadOnlySummary = (item: AdminConfigItem) =>
   item.restartRequired ? '仅展示当前状态' : '后台不可编辑'
 
+const setGroupTabRef = (groupKey: ConfigGroupKey, element: Element | null) => {
+  groupTabRefs.value[groupKey] = element instanceof HTMLButtonElement ? element : null
+}
+
+const focusGroupTab = (groupKey: ConfigGroupKey) => {
+  nextTick(() => {
+    groupTabRefs.value[groupKey]?.focus()
+  })
+}
+
+const activateGroup = (groupKey: ConfigGroupKey, options?: { focus?: boolean }) => {
+  activeGroup.value = groupKey
+  if (options?.focus) {
+    focusGroupTab(groupKey)
+  }
+}
+
+const moveGroupFocus = (currentKey: ConfigGroupKey, offset: number) => {
+  const keys = groupKeys.value
+  const currentIndex = keys.indexOf(currentKey)
+  if (currentIndex === -1 || keys.length === 0) return
+  const nextIndex = (currentIndex + offset + keys.length) % keys.length
+  activateGroup(keys[nextIndex], { focus: true })
+}
+
+const jumpGroupFocus = (target: 'first' | 'last') => {
+  const keys = groupKeys.value
+  if (keys.length === 0) return
+  activateGroup(target === 'first' ? keys[0] : keys[keys.length - 1], { focus: true })
+}
+
+const handleGroupTabKeydown = (event: KeyboardEvent, groupKey: ConfigGroupKey) => {
+  switch (event.key) {
+    case 'ArrowDown':
+    case 'ArrowRight':
+      event.preventDefault()
+      moveGroupFocus(groupKey, 1)
+      break
+    case 'ArrowUp':
+    case 'ArrowLeft':
+      event.preventDefault()
+      moveGroupFocus(groupKey, -1)
+      break
+    case 'Home':
+      event.preventDefault()
+      jumpGroupFocus('first')
+      break
+    case 'End':
+      event.preventDefault()
+      jumpGroupFocus('last')
+      break
+    default:
+      break
+  }
+}
+
 onMounted(async () => {
   loading.value = true
   try {
@@ -320,41 +380,24 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-5 animate-fade-in" v-loading="loading">
-    <section class="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm md:p-5">
-      <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div class="max-w-3xl space-y-2">
-          <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Settings Center</p>
-            <div class="mt-2 flex flex-wrap items-center gap-3">
-              <h1 class="text-2xl font-bold text-gray-900">设置中心</h1>
-              <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600">
-                {{ groupSections.length }} 个分组
-              </span>
-            </div>
-            <p class="mt-1 text-sm leading-6 text-gray-500">统一管理运行期配置、配置来源和部署边界状态，优先突出当前状态和可执行操作。</p>
-          </div>
-        </div>
+    <EmberPageHeaderCard title="设置中心" description="统一管理运行期配置、配置来源和部署边界状态，优先突出当前状态和可执行操作。">
+      <template #titleSuffix>
+        <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600">
+          {{ groupSections.length }} 个分组
+        </span>
+      </template>
 
-        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[480px]">
-          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
-            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">已配置</p>
-            <p class="mt-1 text-lg font-semibold text-gray-900">{{ configuredCount }}</p>
-          </div>
-          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
-            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">缺失</p>
-            <p class="mt-1 text-lg font-semibold text-gray-900">{{ missingCount }}</p>
-          </div>
-          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
-            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">敏感项</p>
-            <p class="mt-1 text-lg font-semibold text-gray-900">{{ sensitiveCount }}</p>
-          </div>
-          <div class="rounded-2xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
-            <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">需重启</p>
-            <p class="mt-1 text-lg font-semibold text-gray-900">{{ restartCount }}</p>
-          </div>
-        </div>
+      <div class="mt-2">
+        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Settings Center</p>
       </div>
-    </section>
+
+      <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <EmberMetricCard title="已配置" :value="configuredCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
+        <EmberMetricCard title="缺失" :value="missingCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
+        <EmberMetricCard title="敏感项" :value="sensitiveCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
+        <EmberMetricCard title="需重启" :value="restartCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
+      </div>
+    </EmberPageHeaderCard>
 
     <div class="grid grid-cols-1 gap-5 xl:grid-cols-[208px_minmax(0,1fr)]">
       <aside class="space-y-3 xl:sticky xl:top-6 xl:self-start">
@@ -364,12 +407,19 @@ onMounted(async () => {
             配置分组
           </div>
 
-          <div class="space-y-1.5">
+          <div class="space-y-1.5" role="tablist" aria-label="设置分组" aria-orientation="vertical">
             <button
               v-for="group in groupSections"
               :key="group.key"
+              :ref="(element) => setGroupTabRef(group.key, element)"
               type="button"
-              @click="activeGroup = group.key"
+              :id="`settings-tab-${group.key}`"
+              :aria-selected="activeGroup === group.key"
+              :aria-controls="`settings-panel-${group.key}`"
+              :tabindex="activeGroup === group.key ? 0 : -1"
+              role="tab"
+              @click="activateGroup(group.key)"
+              @keydown="handleGroupTabKeydown($event, group.key)"
               class="flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-medium transition"
               :class="
                 activeGroup === group.key
@@ -421,6 +471,9 @@ onMounted(async () => {
       <main>
         <section
           v-if="activeGroupSection"
+          :id="`settings-panel-${activeGroupSection.key}`"
+          :aria-labelledby="`settings-tab-${activeGroupSection.key}`"
+          role="tabpanel"
           class="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm md:p-5"
         >
           <div class="flex flex-col gap-3 border-b border-gray-100 pb-3 lg:flex-row lg:items-start lg:justify-between">

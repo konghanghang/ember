@@ -54,11 +54,11 @@ const handleChange = (value: [string, string] | [] | null | undefined) => {
 :deep(.ember-filter-date-range.el-date-editor),
 :deep(.ember-filter-date-range .el-range-editor.el-input__wrapper),
 :deep(.ember-filter-date-range.el-range-editor.el-input__wrapper) {
-  height: 42px !important;
-  min-height: 42px !important;
-  border-radius: 0.75rem !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  background-color: #f9fafb !important;
+  height: var(--ember-field-height) !important;
+  min-height: var(--ember-field-height) !important;
+  border-radius: var(--ember-field-radius) !important;
+  box-shadow: var(--ember-field-shadow) !important;
+  background-color: var(--ember-field-bg) !important;
 }
 
 :deep(.ember-filter-date-range .el-input__wrapper),
@@ -67,21 +67,19 @@ const handleChange = (value: [string, string] | [] | null | undefined) => {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
   padding-left: 2.5rem !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  background-color: #f9fafb !important;
+  box-shadow: var(--ember-field-shadow) !important;
+  background-color: var(--ember-field-bg) !important;
 }
 
 :deep(.ember-filter-date-range:hover),
 :deep(.ember-filter-date-range:hover .el-input__wrapper) {
-  background-color: #ffffff !important;
+  background-color: var(--ember-field-bg-hover) !important;
 }
 
 :deep(.ember-filter-date-range.is-active),
 :deep(.ember-filter-date-range.is-active .el-input__wrapper) {
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-  background-color: #ffffff !important;
+  box-shadow: var(--ember-field-shadow-focus) !important;
+  background-color: var(--ember-field-bg-hover) !important;
 }
 
 :deep(.ember-filter-date-range .el-range-input) {

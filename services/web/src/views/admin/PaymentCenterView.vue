@@ -65,6 +65,7 @@ watch(
         <EmberSegmentTabs
           :model-value="activeTab"
           :tabs="tabs"
+          aria-label="支付中心分段切换"
           @change="setTab"
         />
       </div>

@@ -78,6 +78,7 @@ onMounted(fetchLatest)
             v-model="activeType"
             :tabs="tabItems"
             :full-width="false"
+            aria-label="媒体类型切换"
           />
 
           <button

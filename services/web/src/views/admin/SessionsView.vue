@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
 import { DataLine, RefreshRight, VideoPlay, Monitor } from '@element-plus/icons-vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { getActiveSessions } from '@/api/admin'
 import type { ActiveNowPlayingItem, ActiveSession } from '@/types/api'
 
@@ -10,8 +11,9 @@ const loading = ref(true)
 const refreshing = ref(false)
 const autoRefresh = ref(true)
 const lastRefreshedAt = ref('')
+const loadError = ref('')
 
-const REFRESH_INTERVAL = 10000 // 10 秒
+const REFRESH_INTERVAL = 10000
 let timer: ReturnType<typeof setInterval> | null = null
 
 const sessionCount = computed(() => sessions.value.length)
@@ -33,13 +35,11 @@ function formatDuration(totalSeconds: number): string {
 }
 
 function formatMediaName(item: ActiveNowPlayingItem): string {
-  // 剧集：seriesName S01E02
   if (item.seriesName && item.parentIndexNumber != null && item.indexNumber != null) {
     const season = String(item.parentIndexNumber).padStart(2, '0')
     const episode = String(item.indexNumber).padStart(2, '0')
     return `${item.seriesName} S${season}E${episode}`
   }
-  // 电影：Name (Year)
   const year = item.productionYear ? ` (${item.productionYear})` : ''
   return `${item.name}${year}`
 }
@@ -65,7 +65,27 @@ function playMethodLabel(method: string | undefined): string {
   if (method === 'DirectPlay') return 'DirectPlay'
   if (method === 'DirectStream') return 'DirectStream'
   if (method === 'Transcode') return 'Transcode'
-  return method || 'Unknown'
+  return method || '未知方式'
+}
+
+function userDisplayName(session: ActiveSession): string {
+  return session.userName || '未知用户'
+}
+
+function mediaDisplayName(session: ActiveSession): string {
+  return session.nowPlayingItem ? formatMediaName(session.nowPlayingItem) : '未知媒体'
+}
+
+function clientDisplayName(session: ActiveSession): string {
+  return session.client || '未知客户端'
+}
+
+function deviceDisplayName(session: ActiveSession): string {
+  return session.deviceName || '未知设备'
+}
+
+function progressAriaLabel(session: ActiveSession): string {
+  return `${mediaDisplayName(session)} 播放进度 ${Math.round(progressPercent(session))}%`
 }
 
 function updateLastRefreshedAt() {
@@ -86,15 +106,12 @@ async function fetchSessions(opts?: { silent?: boolean }) {
   }
 
   try {
-    const res = await getActiveSessions({ silent })
+    const res = await getActiveSessions({ silent: true })
     sessions.value = res.data || []
+    loadError.value = ''
     updateLastRefreshedAt()
   } catch (err) {
-    sessions.value = []
-    if (!silent) {
-      ElMessage.error('获取活跃会话失败')
-    }
-    // eslint-disable-next-line no-console
+    loadError.value = silent ? '自动刷新失败，当前展示的是上一次成功获取的数据。' : '获取活跃会话失败，请稍后重试。'
     console.error(err)
   } finally {
     loading.value = false
@@ -135,125 +152,152 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-6 animate-fade-in" v-loading="loading">
-    <!-- Header -->
-    <div class="flex items-start md:items-center justify-between gap-4 flex-col md:flex-row">
-      <div class="flex items-center gap-3">
-        <div class="p-2 rounded-xl bg-ember/10 text-ember">
-          <el-icon :size="20"><DataLine /></el-icon>
+    <EmberPageHeaderCard title="活跃会话" description="查看当前 Emby 播放会话与刷新状态。">
+      <template #titleSuffix>
+        <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-normal text-gray-500">
+          {{ sessionCount }} 个会话
+        </span>
+      </template>
+
+      <template #actions>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 shadow-sm">
+            <span class="text-xs font-semibold text-gray-500">自动刷新</span>
+            <el-switch v-model="autoRefresh" aria-label="切换活跃会话自动刷新" />
+            <span class="text-xs text-gray-400">10s</span>
+          </div>
+
+          <button
+            type="button"
+            @click="fetchSessions()"
+            :disabled="loading || refreshing"
+            class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="刷新活跃会话列表"
+          >
+            <span v-if="refreshing" class="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-ember"></span>
+            <el-icon v-else :size="18"><RefreshRight /></el-icon>
+            刷新
+          </button>
         </div>
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">活跃会话</h1>
-          <p class="text-sm text-gray-500 mt-1">
-            <span>当前有 {{ sessionCount }} 个会话正在播放</span>
-            <span v-if="lastRefreshedAt" class="ml-2 text-gray-400">刷新于 {{ lastRefreshedAt }}</span>
-          </p>
-        </div>
+      </template>
+
+      <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+        <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-gray-600">
+          <el-icon><DataLine /></el-icon>
+          当前播放 {{ sessionCount }} 个会话
+        </span>
+        <span v-if="lastRefreshedAt" class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-gray-500">
+          最近刷新 {{ lastRefreshedAt }}
+        </span>
+        <span
+          v-if="loadError"
+          class="inline-flex items-center rounded-full bg-red-50 px-2.5 py-1 text-red-600"
+        >
+          {{ loadError }}
+        </span>
       </div>
+    </EmberPageHeaderCard>
 
-      <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm">
-          <span class="text-xs text-gray-500 font-semibold">自动刷新</span>
-          <el-switch v-model="autoRefresh" />
-          <span class="text-xs text-gray-400">10s</span>
-        </div>
-
+    <EmberEmptyStateCard
+      v-if="!loading && loadError && sessions.length === 0"
+      :icon="RefreshRight"
+      tone="danger"
+      title="活跃会话加载失败"
+      description="当前无法获取 Emby 活跃会话，请稍后重试。"
+    >
+      <template #actions>
         <button
           type="button"
           @click="fetchSessions()"
-          :disabled="loading || refreshing"
-          class="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-          title="刷新"
+          class="rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50"
         >
-          <span v-if="refreshing" class="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span>
-          <el-icon v-else :size="18"><RefreshRight /></el-icon>
-          刷新
+          重新获取
         </button>
-      </div>
-    </div>
+      </template>
+    </EmberEmptyStateCard>
 
-    <!-- Empty State -->
-    <div
-      v-if="!loading && sessions.length === 0"
-      class="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center"
-    >
-      <div class="mx-auto w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400">
-        <el-icon :size="22"><VideoPlay /></el-icon>
-      </div>
-      <h3 class="mt-4 text-lg font-bold text-gray-900">当前没有活跃的播放会话</h3>
-      <p class="mt-2 text-sm text-gray-500">当有人在 Emby 上开始播放时，这里会在 10 秒内自动更新。</p>
-    </div>
+    <EmberEmptyStateCard
+      v-else-if="!loading && sessions.length === 0"
+      :icon="VideoPlay"
+      title="当前没有活跃的播放会话"
+      description="当有人在 Emby 上开始播放时，这里会在 10 秒内自动更新。"
+    />
 
-    <!-- Session Cards -->
-    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div
-        v-for="s in sessions"
-        :key="s.id"
-        class="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 transition-all p-6"
+    <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <article
+        v-for="session in sessions"
+        :key="session.id"
+        class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-all hover:border-gray-200 hover:shadow-md"
       >
         <div class="flex items-start justify-between gap-4">
           <div>
             <div class="flex items-center gap-2">
               <span class="text-sm text-gray-500">用户</span>
-              <span class="font-bold text-gray-900">{{ s.userName || 'Unknown' }}</span>
+              <span class="font-bold text-gray-900">{{ userDisplayName(session) }}</span>
             </div>
           </div>
 
           <span
-            class="text-[11px] px-2.5 py-1 rounded-full font-bold tracking-wide"
-            :class="playMethodClass(s.playState?.playMethod)"
+            class="rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide"
+            :class="playMethodClass(session.playState?.playMethod)"
           >
-            {{ playMethodLabel(s.playState?.playMethod) }}
+            {{ playMethodLabel(session.playState?.playMethod) }}
           </span>
         </div>
 
         <div class="mt-4">
           <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2 min-w-0">
-              <div class="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-500 shrink-0">
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-50 text-gray-500">
                 <el-icon :size="18"><Monitor /></el-icon>
               </div>
               <div class="min-w-0">
-                <p class="font-bold text-gray-900 truncate">
-                  {{ s.nowPlayingItem ? formatMediaName(s.nowPlayingItem) : 'Unknown Media' }}
+                <p class="truncate font-bold text-gray-900">
+                  {{ mediaDisplayName(session) }}
                 </p>
-                <p class="text-xs text-gray-500 mt-0.5 truncate">
-                  {{ s.client || 'Unknown Client' }} · {{ s.deviceName || 'Unknown Device' }}
+                <p class="mt-0.5 truncate text-xs text-gray-500">
+                  {{ clientDisplayName(session) }} · {{ deviceDisplayName(session) }}
                 </p>
               </div>
             </div>
 
             <span
-              v-if="s.playState?.isPaused"
-              class="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 font-semibold shrink-0"
-            >⏸ 已暂停</span>
+              v-if="session.playState?.isPaused"
+              class="shrink-0 rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600"
+            >
+              已暂停
+            </span>
           </div>
 
           <div class="mt-5">
-            <div class="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              class="h-2.5 overflow-hidden rounded-full bg-gray-100"
+              role="progressbar"
+              :aria-label="progressAriaLabel(session)"
+              :aria-valuenow="Math.round(progressPercent(session))"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
               <div
-                class="h-full bg-gradient-to-r from-ember to-orange-500 rounded-full transition-all duration-700 ease-out"
-                :style="{ width: `${progressPercent(s)}%` }"
+                class="h-full rounded-full bg-gradient-to-r from-ember to-orange-500 transition-all duration-700 ease-out"
+                :style="{ width: `${progressPercent(session)}%` }"
               ></div>
             </div>
-            <div class="mt-2 flex items-center justify-between text-xs text-gray-500 font-mono">
-              <span>
-                {{ formatDuration(ticksToSeconds(s.playState?.positionTicks || 0)) }}
-              </span>
-              <span>
-                {{ formatDuration(ticksToSeconds(s.nowPlayingItem?.runTimeTicks || 0)) }}
-              </span>
+            <div class="mt-2 flex items-center justify-between font-mono text-xs text-gray-500">
+              <span>{{ formatDuration(ticksToSeconds(session.playState?.positionTicks || 0)) }}</span>
+              <span>{{ formatDuration(ticksToSeconds(session.nowPlayingItem?.runTimeTicks || 0)) }}</span>
             </div>
           </div>
 
           <div class="mt-4 text-xs text-gray-500">
             <span class="font-semibold text-gray-600">IP</span>
-            <span class="ml-1 font-mono">{{ s.remoteEndpoint || '-' }}</span>
+            <span class="ml-1 font-mono">{{ session.remoteEndpoint || '-' }}</span>
             <span class="mx-2 text-gray-300">|</span>
             <span class="font-semibold text-gray-600">版本</span>
-            <span class="ml-1 font-mono">{{ s.applicationVersion || '-' }}</span>
+            <span class="ml-1 font-mono">{{ session.applicationVersion || '-' }}</span>
           </div>
         </div>
-      </div>
+      </article>
     </div>
   </div>
 </template>

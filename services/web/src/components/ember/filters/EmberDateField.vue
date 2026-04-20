@@ -57,28 +57,26 @@ const handleChange = (value: string | null | undefined) => {
 :deep(.ember-filter-date.el-date-editor.el-input) {
   display: block;
   width: 100%;
-  height: 42px;
-  min-height: 42px;
+  height: var(--ember-field-height);
+  min-height: var(--ember-field-height);
 }
 
 :deep(.ember-filter-date .el-input__wrapper) {
-  height: 42px;
-  min-height: 42px;
-  background-color: #f9fafb !important;
-  border-radius: 0.75rem;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
+  height: var(--ember-field-height);
+  min-height: var(--ember-field-height);
+  background-color: var(--ember-field-bg) !important;
+  border-radius: var(--ember-field-radius);
+  box-shadow: var(--ember-field-shadow) !important;
   transition: all 0.2s ease;
 }
 
 :deep(.ember-filter-date:hover .el-input__wrapper) {
-  background-color: #ffffff !important;
+  background-color: var(--ember-field-bg-hover) !important;
 }
 
 :deep(.ember-filter-date .el-input__wrapper.is-focus) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
+  background-color: var(--ember-field-bg-hover) !important;
+  box-shadow: var(--ember-field-shadow-focus) !important;
 }
 
 :deep(.ember-filter-date .el-input__inner) {

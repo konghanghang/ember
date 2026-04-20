@@ -52,13 +52,13 @@ const emit = defineEmits<{
 
 <style scoped>
 .ember-filter-input {
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  height: 42px;
+  background-color: var(--ember-field-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--ember-field-radius);
+  height: var(--ember-field-height);
   line-height: 1.2;
   font-size: 0.875rem;
-  color: #111827;
+  color: var(--text-primary);
   outline: none;
   transition: all 0.2s ease;
 }
@@ -68,12 +68,12 @@ const emit = defineEmits<{
 }
 
 .ember-filter-input:hover {
-  background-color: #ffffff;
+  background-color: var(--ember-field-bg-hover);
 }
 
 .ember-filter-input:focus {
-  background-color: #ffffff;
-  border-color: var(--ember-red);
-  box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.1);
+  background-color: var(--ember-field-bg-hover);
+  border-color: var(--border-focus);
+  box-shadow: var(--ember-field-shadow-focus);
 }
 </style>
