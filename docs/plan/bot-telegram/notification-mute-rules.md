@@ -34,7 +34,7 @@
 
 - 相关文档：
   - `docs/system-architecture.md`
-  - `docs/plan/media-subscription/subscription-status-and-notification.md`
+  - `docs/archive/plan/media-subscription/subscription-status-and-notification.md`
 - 相关服务/页面/模型：
   - `services/api/internal/integrations/notifier/notifier.go`
   - `services/bot/app/handlers/telegram_handler.py`

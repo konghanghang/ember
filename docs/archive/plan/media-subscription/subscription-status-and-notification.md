@@ -1,8 +1,37 @@
 # 订阅状态可见性与结果通知实现方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-12
+> 更新时间：2026-04-20
+
+## 归档说明
+
+本方案已完成落地，当前只保留历史追溯价值。
+
+稳定结论已同步到：
+
+- `docs/system-architecture.md`
+- `services/api/internal/models/subscription.go`
+- `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql`
+- `services/web/src/views/console/SubscriptionsView.vue`
+- `services/bot/app/formatters/message_formatter.py`
+
+当前代码已经具备：
+
+- `subscriptions` 状态扩展为 `PENDING / APPROVED / REJECTED / INGESTED`
+- 管理员拒绝必须携带 `rejectReason`，并写入 `reviewedAt`
+- Emby webhook 命中已审核订阅后回写 `INGESTED`，并写入 `ingestedAt`
+- 用户端订阅列表展示拒绝原因、入库时间和“已通过，等待入库”状态
+- 已绑定 Telegram 的用户可收到审核通过、审核拒绝、已入库三类结果通知
+- 提交前库内存在性检测和二次确认链路已经接入创建订阅流程
+
+当前仍未纳入本方案主体、并已拆分到后续独立边界的内容：
+
+- 拒绝后重新提交：见 `docs/plan/media-subscription/subscription-resubmission-after-rejection.md`
+- 多管理员 Telegram 审批消息同步：见 `docs/plan/bot-telegram/subscription-admin-message-sync.md`
+- 站内通知中心：见 `docs/plan/console-admin/in-app-notification-center.md`
+
+因此这份文档不再承担现行实现说明职责。
 
 ## 背景
 
@@ -54,20 +83,19 @@
   - `services/bot/app/handlers/telegram_handler.py`
   - `services/bot/app/formatters/message_formatter.py`
 - 当前行为：
-  - Web 用户在 `NewSubscriptionView` 里选中 TMDB 条目后，确认弹窗只收集季数和备注，不检查 Emby 库中是否已存在资源。
-  - 订阅状态只有 `PENDING`、`APPROVED`、`REJECTED` 三态。
-  - `note` 是用户提交备注，不是管理员拒绝原因。
-  - 审核通过后调用 MoviePilot，结果失败仅记录到 `mpError`，状态仍改为 `APPROVED`。
-  - Telegram 目前只通知管理员“有新的待审批订阅”，不会通知提交用户。
-  - Emby webhook 当前只处理剧集 `episode` 入库，并用于点亮 TV Calendar，不回写订阅状态。
-- 现有限制：
-  - 用户提交前无法知道库中是否已有同一电影、整剧或目标季的资源。
-  - 管理员会收到“库里已有资源但用户仍提交”的无效订阅，增加审批噪音。
-  - 用户无法知道拒绝原因。
-  - 用户无法知道“审核通过但还未入库”和“已经入库”的区别。
-  - 已绑定 Telegram 的用户没有结果通知。
-  - 电影入库目前没有现成的订阅状态回写逻辑。
-  - Bot 的拒绝操作仍是一键拒绝，不支持输入拒绝原因。
+  - Web 用户在 `NewSubscriptionView` 中提交订阅时，已接入库内存在性检测与二次确认链路。
+  - 订阅状态已扩展为 `PENDING`、`APPROVED`、`REJECTED`、`INGESTED` 四态，并向用户侧暴露拒绝原因、审核时间、入库时间。
+  - `note` 继续表示用户提交备注；管理员拒绝原因单独落到 `rejectReason`。
+  - 审核通过后仍调用 MoviePilot；若下游失败，错误继续写入 `mpError`，不回滚审批状态。
+  - Telegram 已同时覆盖管理员待审批通知和用户结果通知。
+  - Emby webhook 在保留 TV Calendar 点亮逻辑的同时，已回写订阅入库状态。
+- 已完成收口：
+  - `Subscription` 模型、状态流转和 webhook 入库回写已同步到 `docs/system-architecture.md`
+  - SQL migration 已补到 `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql`
+  - 用户端列表、管理员拒绝交互、Bot 结果通知格式已落地
+- 当前边界：
+  - 本方案没有改变 `type + tmdbId + season` 的全局唯一约束；拒绝后重提已拆分为后续独立方案
+  - 本方案不包含多管理员 Telegram 消息同步与站内通知中心，这两项已拆到独立实施稿
 
 ## 方案设计
 
@@ -227,34 +255,32 @@
 - `cd services/web && npm run build`
 - `cd services/bot && python -m py_compile main.py`
 
-按改动补充针对性测试：
+归档前确认的落地证据：
 
-- API：订阅状态迁移、拒绝原因校验、库内存在性检测、webhook 幂等
-- Web：新建订阅页二次确认、订阅状态展示与拒绝原因输入
-- Bot：消息格式和拒绝两步交互
+- API：`subscriptions` 已包含 `rejectReason / reviewedAt / ingestedAt`，并有 `MarkSubscriptionsIngestedByWebhook` 入库回写逻辑
+- Web：订阅列表已展示 `INGESTED`、拒绝原因和审批后状态文案
+- Bot：结果通知格式已覆盖拒绝原因和入库时间
 
 ### 手工验证
 
-- 电影在 Emby 库中已存在时，用户首次提交会收到明确提示；点击二次确认后仍可成功创建订阅
-- 剧集目标季在 Emby 库中已存在时，用户首次提交会收到“已存在目标季”的提示
-- 剧集整剧提交但库中仅有部分季时，提示文案能明确表达“已存在部分内容”，不误导成“完整可看”
-- 用户创建订阅后，在 Web 看到 `审核中`
-- 管理员在 Web 批准后，用户页变为 `已通过，等待入库`
-- 管理员在 Web 拒绝并填写原因后，用户页展示拒绝原因
-- 用户已绑定 Telegram 时，审核通过会收到私聊
-- 用户已绑定 Telegram 时，审核拒绝会收到带原因的私聊
-- 模拟 Emby 电影入库 webhook，命中电影订阅后状态变为 `已入库`
-- 模拟 Emby 剧集入库 webhook，命中整剧或指定季订阅后状态变为 `已入库`
-- 重复发送同一 webhook，不会重复发送“已入库”通知
-- TV Calendar 原有 webhook 点亮链路仍然可用
+本次归档未重复执行全量功能回归；已确认仓库内存在以下稳定落点：
+
+- `docs/system-architecture.md` 已收录 `Subscription` 字段、状态机和 webhook 入库逻辑
+- `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql` 已提供字段迁移
+- `services/web/src/views/console/SubscriptionsView.vue` 已展示 `INGESTED`、拒绝原因和审核状态
+- `services/api/internal/services/subscription/service.go` 已实现审批通知、拒绝通知和入库回写
+- `services/bot/app/formatters/message_formatter.py` 已支持结果通知格式化
 
 ## 落地后文档处理
 
-落地后应同步处理：
+本次归档前已同步处理：
 
 - 将稳定结论同步到 `docs/system-architecture.md`
   - `Subscription` 模型字段
   - 订阅状态机
   - Emby webhook 与订阅入库确认关系
   - Bot 用户通知能力
-- 功能落地、编译验证和手工链路验证完成后，将本方案迁入 `docs/archive/plan/media-subscription/`
+- 将 SQL migration 收口到 `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql`
+- 将用户可见状态与拒绝原因展示收口到 Web 订阅页
+
+当前代码、架构文档和迁移文件已经完成收口，因此本方案移入 `docs/archive/plan/media-subscription/`
