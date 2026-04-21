@@ -64,7 +64,6 @@ curl http://localhost:8080/health
 检查：
 
 - `ember-api` 是否真的已启动
-- `NEXT_PUBLIC_EMBY_URL` 是否误填成 API 地址
 - 前端容器日志是否有静态资源或代理配置异常
 
 辅助命令：

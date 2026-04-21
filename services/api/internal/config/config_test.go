@@ -134,7 +134,6 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 	keys := []string{
 		"EMBY_URL",
 		"EMBY_API_KEY",
-		"NEXT_PUBLIC_EMBY_URL",
 		"TMDB_API_KEY",
 		"MOVIEPILOT_URL",
 		"MOVIEPILOT_API_KEY",
@@ -367,7 +366,6 @@ func TestFallbackAndDisableConfigDefinitionsAllowExplicitEmpty(t *testing.T) {
 		{key: "notify_group_link", mode: ConfigEmptyValueDisable, hintPart: "关闭欢迎消息"},
 		{key: "console_account_links", mode: ConfigEmptyValueDisable, hintPart: "隐藏账号面板"},
 		{key: "telegram_welcome_message_template", mode: ConfigEmptyValueDisable, hintPart: "关闭入群欢迎消息"},
-		{key: "NEXT_PUBLIC_EMBY_URL", mode: ConfigEmptyValueFallback, hintPart: "回退到 Emby 服务地址"},
 		{key: "SMTP_FROM", mode: ConfigEmptyValueFallback, hintPart: "回退到 SMTP 用户名"},
 		{key: "BOT_NOTIFY_URL", mode: ConfigEmptyValueDisable, hintPart: "关闭 API 到 Bot"},
 		{key: "TELEGRAM_GROUP_CHAT_ID", mode: ConfigEmptyValueFallback, hintPart: "回退到管理员 Chat ID"},

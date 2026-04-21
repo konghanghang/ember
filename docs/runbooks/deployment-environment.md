@@ -65,7 +65,6 @@
 下列配置不再依赖 compose 直接注入 `ember-api`，而是由设置中心数据库托管：
 
 - `EMBY_URL`
-- `NEXT_PUBLIC_EMBY_URL`
 - `EMBY_API_KEY`
 - `TMDB_API_KEY`
 - `MOVIEPILOT_URL`
@@ -92,7 +91,6 @@
 - `DATABASE_URL`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
-- `NEXT_PUBLIC_EMBY_URL`
 
 部署前必须手动补齐，别把模板当真相来源。
 
@@ -175,7 +173,6 @@ API 启动时会检查是否已有 `role=admin` 的用户：
 
 - `DATABASE_URL` 已指向可访问的 PostgreSQL
 - 所有密钥都不是示例值
-- `NEXT_PUBLIC_EMBY_URL` 指向用户真实可访问的 Emby 地址
 - 如果保留 `ember-bot` 服务，Telegram 相关变量已补齐
 - 如果是升级环境，手动 SQL 已执行完毕
 

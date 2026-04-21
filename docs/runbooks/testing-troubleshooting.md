@@ -81,7 +81,6 @@ docker compose logs --tail=200 ember-bot
 优先检查：
 
 - `EMBY_URL`
-- `NEXT_PUBLIC_EMBY_URL`
 - `EMBY_API_KEY`
 
 如果是用户可见行为异常，不要只看前端，直接看 API 日志。

@@ -23,7 +23,6 @@ cp .env.example .env
    - `CONFIG_ENCRYPTION_KEY`
    - `ADMIN_PASSWORD`
    - `EMBY_URL`
-   - `NEXT_PUBLIC_EMBY_URL`
    - `EMBY_API_KEY`
    - `INTERNAL_API_SECRET`
    - `TELEGRAM_BOT_TOKEN`

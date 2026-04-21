@@ -378,7 +378,7 @@ services/
 
 **当前已托管或接入统一解析的配置项**：
 - 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`stripe_allowed_payment_methods`
-- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
+- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
 - 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
 - 通知：`BOT_NOTIFY_URL`
 - 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT`、`AUTO_MIGRATE` 等
@@ -1371,7 +1371,6 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 |------|------|--------|------|
 | `EMBY_URL` | — | — | Emby 服务器内部 URL |
 | `EMBY_API_KEY` | — | — | Emby API 密钥 |
-| `NEXT_PUBLIC_EMBY_URL` | — | — | 预留前端公开 URL；当前控制台 `GetEmbyConfig()` 不使用 |
 | `EMBY_WEBHOOK_TOKEN` | — | — | Emby Webhook token（`/api/v1/webhooks/emby?token=`）|
 
 ### TMDB / MoviePilot

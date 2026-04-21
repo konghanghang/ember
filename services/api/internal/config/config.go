@@ -1062,28 +1062,6 @@ func getConfigDefinitions() []ConfigDefinition {
 			Validate:           validateNonEmpty("Emby API Key 不能为空"),
 		},
 		{
-			Key:                "NEXT_PUBLIC_EMBY_URL",
-			EnvKey:             "NEXT_PUBLIC_EMBY_URL",
-			DisableEnvFallback: true,
-			Group:              ConfigGroupMedia,
-			GroupLabel:         "媒体集成",
-			Label:              "前端 Emby 地址",
-			Description:        "前端跳转到 Emby 播放页时使用的公网地址",
-			Type:               ConfigValueURL,
-			Editable:           true,
-			Placeholder:        "https://your-public-emby.com",
-			AllowEmpty:         true,
-			EmptyValueMode:     ConfigEmptyValueFallback,
-			EmptyValueHint:     "保存为空值后将回退到 Emby 服务地址。",
-			Validate: func(value string) error {
-				if strings.TrimSpace(value) == "" {
-					return nil
-				}
-				return validateURL(value)
-			},
-			Normalize: normalizeTrimmedURLAllowEmpty,
-		},
-		{
 			Key:                "TMDB_API_KEY",
 			EnvKey:             "TMDB_API_KEY",
 			DisableEnvFallback: true,
