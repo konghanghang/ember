@@ -1,0 +1,176 @@
+# 用户侧媒体库入口收口方案
+
+> 状态：草稿
+> 负责人：Ember
+> 更新时间：2026-04-21
+
+## 背景
+
+这个问题为什么现在要解决：
+
+- 当前用户侧 `媒体库` 页面只有“最近入库 + 电影/剧集切换”，功能过薄，不足以支撑一级导航入口。
+- Ember 的主职责是账号、续费、订阅、状态流转和外围桥接，不是替代 Emby 承担内容搜索与消费前台。
+- 如果继续围绕 `媒体库` 页面追加“探索”或“搜索”能力，实际是在重复 Emby 已经具备的能力，并持续拉歪系统边界。
+
+## 目标
+
+本方案要实现：
+
+1. 收口用户侧独立 `媒体库` 导航与页面职责，避免保留低价值入口。
+2. 将现有“最近入库”能力并入 `概览` 页，保留必要的内容感知能力。
+3. 明确把内容搜索与消费入口交还给 Emby，在控制台内提供清晰的跳转桥接。
+
+## 非目标
+
+本次明确不做：
+
+- 不新增独立 `媒体探索` 页面。
+- 不新增站内媒体搜索、媒体详情页或推荐系统。
+- 不替代 Emby 做完整片库浏览、筛选和搜索体验。
+- 不调整订阅、续费、账号中心等现有页面职责。
+
+## 当前事实
+
+以当前代码和现行文档为准，先写清现状：
+
+- 相关文档：
+  - `docs/system-architecture.md`
+  - `docs/reference/web-design-guide.md`
+- 相关服务/页面/模型：
+  - `services/web/src/router/index.ts`
+  - `services/web/src/components/console/Sidebar.vue`
+  - `services/web/src/components/console/TopBar.vue`
+  - `services/web/src/views/console/DashboardView.vue`
+  - `services/web/src/views/console/LibraryView.vue`
+  - `services/web/src/api/console.ts`
+  - `services/api/internal/handlers/media.go`
+  - `services/api/internal/services/media/service.go`
+- 当前行为：
+  - `/console/library` 作为独立用户侧路由存在，并在侧边栏与顶栏中作为一级入口展示。
+  - `DashboardView` 已承担会员状态、服务器入口、媒体统计和快捷操作等控制台首页职责。
+  - `LibraryView` 仅消费 `GET /api/v1/media/latest`，展示最近入库条目，不具备搜索、库列表或详情跳转能力。
+  - 当前用户侧媒体相关接口主要只有 `GET /api/v1/emby/config`、`GET /api/v1/media/stats`、`GET /api/v1/media/latest`。
+- 已完成项：
+  - 已完成产品方向确认：不继续推进“媒体探索”，收口弱 `媒体库` 页面。
+  - 已完成现状评估：当前独立 `媒体库` 页面不具备独立存在的功能价值。
+- 剩余项：
+  - 导航、路由和顶栏语义仍保留 `媒体库` 入口。
+  - `最近入库` 仍停留在独立页面，尚未回收至 `概览` 页。
+  - 控制台内尚无明确的 `打开 Emby` 主入口。
+- 现有限制：
+  - 现有后端接口足够支持“概览 + 最近入库摘要”，但不足以支撑一个完整的探索页。
+  - 当前 `LibraryView` 仅提供内容展示，不解决“找片”和“开始播放”的主任务。
+
+## 方案设计
+
+### 1. 用户可见行为
+
+- 新增能力：
+  - `概览` 页新增轻量 `最近入库` 模块，展示少量最新电影/剧集。
+  - `概览` 页增加清晰的 `打开 Emby` 入口，引导用户进入原生内容消费场景。
+- 修改现有行为：
+  - 用户侧不再展示独立 `媒体库` 一级导航。
+  - 旧 `/console/library` 链接不再进入独立页面，而是兼容重定向回 `/console/dashboard`。
+  - 最近入库内容从独立页面收口为首页摘要区块，不再承担独立浏览页职责。
+- 哪些现有行为必须保持不变：
+  - `概览` 页原有会员状态、到期提示、服务器连接和快捷操作行为保持不变。
+  - 现有 `GET /api/v1/media/latest`、`GET /api/v1/media/stats`、`GET /api/v1/emby/config` 接口契约保持不变。
+  - 用户仍可通过 Emby 原生入口完成搜索、浏览和播放，不在 Ember 内引入新的内容消费分支。
+- 前端约束：
+  - 前端实现必须遵守 Ember 风格。
+  - 设计与交互基线以 `docs/reference/web-design-guide.md` 为准。
+  - `最近入库` 模块应作为 `概览` 页的摘要区块存在，不得扩张为新的整页海报墙。
+  - 如果补充按钮与卡片动作，主次操作语义仍需保持清晰，避免首页堆砌次级入口。
+
+### 2. 数据与模型
+
+> 本次不涉及数据模型变更。
+
+### 3. 接口与边界
+
+- 新增或修改哪些 API / Internal API / webhook / 命令：
+  - 首版不新增 API，不修改现有接口结构。
+  - 前端继续复用：
+    - `GET /api/v1/emby/config`
+    - `GET /api/v1/media/stats`
+    - `GET /api/v1/media/latest`
+- 请求参数与响应字段怎么变：
+  - 不变。
+- 哪些调用方会受影响：
+  - `DashboardView`
+  - `LibraryView` 或其替代兼容壳
+  - 控制台侧边栏和顶栏路由元信息
+- 边界约束：
+  - Ember 控制台只保留内容摘要与桥接入口，不再承担通用媒体探索职责。
+  - Emby 继续作为内容搜索、条目浏览和播放的主入口。
+  - 如后续确需补“库内已存在”提示，应放在订阅或缺集等桥接链路，而不是重启独立探索页。
+
+### 4. 关键流程
+
+按顺序写清主链路，不需要贴代码：
+
+1. 用户登录进入控制台，默认仍落在 `概览` 页。
+2. `概览` 页在现有会员状态、服务器入口和快捷操作之外，额外加载少量最近入库摘要。
+3. 用户若只需感知站内更新，可直接在首页完成浏览。
+4. 用户若需要进一步搜索或消费内容，点击 `打开 Emby`，进入 Emby 原生界面继续操作。
+5. 旧 `/console/library` 访问请求被兼容重定向到 `/console/dashboard`，不产生死链。
+
+### 5. 失败路径与边界条件
+
+- `GET /api/v1/media/latest` 请求失败：`概览` 页只降级 `最近入库` 区块，不影响会员状态与服务器入口主信息。
+- 用户账号过期：继续遵守现有 `概览` 页过期态与服务器锁定逻辑，不能因增加最近入库摘要而破坏既有约束。
+- Emby 地址未配置：`打开 Emby` 入口应明确禁用或提供清晰提示，不能出现空跳转。
+- 旧书签命中 `/console/library`：必须通过前端路由兼容回首页，避免 404 或空白页。
+- 兼容性约束：
+  - 不得改变现有 `概览` 页路由归属与默认落点。
+  - 不得把 `最近入库` 模块重新膨胀为新的伪探索页。
+  - 不得引入新的用户侧媒体接口依赖作为本次收口的阻塞项。
+
+## 影响范围
+
+涉及的子系统：
+
+- API：无
+  - 继续复用现有媒体接口
+- Web：有
+  - `services/web/src/router/index.ts`
+  - `services/web/src/components/console/Sidebar.vue`
+  - `services/web/src/components/console/TopBar.vue`
+  - `services/web/src/views/console/DashboardView.vue`
+  - `services/web/src/views/console/LibraryView.vue`
+- Bot：无
+- 配置/部署：无
+- 文档：需要更新
+  - `docs/system-architecture.md`
+
+## 验证方式
+
+### 编译/测试
+
+- `cd services/web && npm run build`
+
+如实现过程中触达后端或类型定义，再补充：
+
+- `cd services/api && go build ./...`
+
+### 手工验证
+
+- 登录后侧边栏不再出现独立 `媒体库` 入口。
+- 访问 `/console/library` 会被正确重定向到 `/console/dashboard`。
+- `概览` 页仍正常展示会员状态、服务器连接和快捷操作。
+- `概览` 页能正常加载最近入库摘要，并支持电影/剧集切换与刷新。
+- `打开 Emby` 入口在已配置 Emby 地址时可用，在未配置时展示清晰提示。
+- 用户过期场景下，原有锁定逻辑继续成立，未被最近入库模块破坏。
+
+## 落地后文档处理
+
+落地后应同步处理：
+
+- 将稳定结论同步到 `docs/system-architecture.md`
+  - 删除用户侧独立 `LibraryView` 页面职责描述，或改写为兼容重定向说明。
+  - 更新 `DashboardView` 页面职责，明确其包含最近入库摘要与 Emby 桥接入口。
+- 归档条件：
+  - 用户侧独立 `媒体库` 导航与路由收口完成。
+  - `最近入库` 模块已稳定并入 `概览` 页。
+  - 相关路由兼容、构建验证和手工验证全部完成。
+- 满足上述条件后移入 `docs/archive/plan/media-subscription/`。
