@@ -2,13 +2,13 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  Calendar,
   CircleCheckFilled,
   Clock,
   Refresh,
   VideoPlay,
   WarningFilled
 } from '@element-plus/icons-vue'
+import EmberDateField from '@/components/ember/filters/EmberDateField.vue'
 import { useAuthStore } from '@/store/auth'
 import { getGlobalTVCalendar } from '@/api/console'
 import { syncTVCalendar } from '@/api/admin'
@@ -359,13 +359,11 @@ onMounted(() => {
           <div class="tv-toolbar">
             <div class="tv-picker-inline">
               <div class="tv-picker-copy">
-                <div class="tv-picker-field group">
-                  <div class="tv-picker-icon">
-                    <el-icon><Calendar /></el-icon>
-                  </div>
-                  <el-date-picker
+                <div class="w-full sm:w-[200px]">
+                  <EmberDateField
                     v-model="filters.weekDate"
-                    class="tv-week-picker filter-date"
+                    label="定位日期"
+                    class="tv-week-picker"
                     type="date"
                     value-format="YYYY-MM-DD"
                     format="YYYY-MM-DD"
@@ -625,26 +623,6 @@ onMounted(() => {
   gap: 0.35rem;
 }
 
-.tv-picker-field {
-  position: relative;
-  width: 100%;
-}
-
-.tv-picker-icon {
-  position: absolute;
-  inset: 0 auto 0 0.75rem;
-  display: flex;
-  align-items: center;
-  color: #9ca3af;
-  pointer-events: none;
-  z-index: 1;
-  transition: color 0.2s ease;
-}
-
-.tv-picker-field:focus-within .tv-picker-icon {
-  color: #e50914;
-}
-
 .tv-status-chip {
   display: inline-flex;
   align-items: center;
@@ -676,46 +654,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-
-.tv-week-picker {
-  width: 200px;
-}
-
-.tv-week-picker :deep(.el-input__wrapper) {
-  height: 42px;
-  min-height: 42px;
-  background-color: #f9fafb !important;
-  border-radius: 0.75rem;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-.tv-week-picker :deep(.el-input__wrapper:hover) {
-  background-color: #ffffff !important;
-}
-
-.tv-week-picker :deep(.el-input__wrapper.is-focus) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px #e50914 inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-.tv-week-picker :deep(.el-input__inner) {
-  height: 100%;
-  padding-left: 2.5rem;
-  font-size: 0.875rem;
-  color: #111827;
-}
-
-.tv-week-picker :deep(.el-input__inner::placeholder) {
-  color: #9ca3af;
-}
-
-.tv-week-picker :deep(.el-input__prefix),
-.tv-week-picker :deep(.el-input__suffix) {
-  display: none;
 }
 
 .tv-picker-hint {
@@ -924,10 +862,6 @@ onMounted(() => {
   }
 
   .tv-picker-copy {
-    width: 100%;
-  }
-
-  .tv-week-picker {
     width: 100%;
   }
 
