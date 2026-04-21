@@ -10,6 +10,7 @@ import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.v
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { getTmdbTVSeasons, searchTmdb } from '@/api/user'
 import { checkExistingSubscription, createSubscription } from '@/api/console'
+import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
 import type {
   CreateSubscriptionRequest,
   MediaType,
@@ -248,7 +249,7 @@ const confirmSubscription = async () => {
 }
 
 const getImageUrl = (path?: string) => {
-  return path ? `https://image.tmdb.org/t/p/w500${path}` : 'https://via.placeholder.com/500x750?text=No+Poster'
+  return path ? `https://image.tmdb.org/t/p/w500${path}` : emberPosterPlaceholder
 }
 
 const retryLoadSeasonOptions = async () => {

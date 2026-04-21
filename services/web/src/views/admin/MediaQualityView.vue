@@ -9,6 +9,7 @@ import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { getMediaQualityLibraries, getMediaQualityGroupDetails, getMediaQualityPoster, getMediaQualityReport, scanMediaQualityLibrary } from '@/api/admin'
 import { formatDate } from '@/utils/date'
+import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
 import type { MediaQualityLibrary, MediaQualityLowDetailItem, MediaQualityLowItem, MediaQualityReport } from '@/types/api'
 
 const loadingLibraries = ref(false)
@@ -17,7 +18,7 @@ const scanning = ref(false)
 const libraries = ref<MediaQualityLibrary[]>([])
 const selectedLibraryId = ref('')
 const report = ref<MediaQualityReport | null>(null)
-const placeholderPoster = 'https://via.placeholder.com/120x180?text=No+Poster'
+const placeholderPoster = emberPosterPlaceholder
 const posterURLMap = ref<Record<string, string>>({})
 const loadingPosterIDs = new Set<string>()
 const objectURLs = new Set<string>()

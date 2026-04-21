@@ -17,6 +17,7 @@ import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useAuthStore } from '@/store/auth'
 import { approveSubscription, rejectSubscription, deleteSubscriptionAsAdmin } from '@/api/admin'
 import { deleteSubscription, getSubscriptions } from '@/api/console'
+import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
 import type { Subscription, SubscriptionStatus } from '@/types/api'
 
 const router = useRouter()
@@ -185,7 +186,7 @@ const formatTime = (value?: string | null) => {
 }
 
 const getImageUrl = (path?: string) => {
-  return path ? `https://image.tmdb.org/t/p/w300${path}` : 'https://via.placeholder.com/300x450?text=No+Poster'
+  return path ? `https://image.tmdb.org/t/p/w300${path}` : emberPosterPlaceholder
 }
 
 const cardActionButtons = (sub: Subscription) => {

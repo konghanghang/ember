@@ -7,6 +7,7 @@ import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.v
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useUserStore } from '@/store/user'
 import { getLatestMedia } from '@/api/console'
+import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
 import type { LatestMediaItem } from '@/types/api'
 
 const userStore = useUserStore()
@@ -16,7 +17,7 @@ const items = ref<LatestMediaItem[]>([])
 const loading = ref(false)
 
 const limit = 20
-const placeholderPoster = 'https://via.placeholder.com/300x450?text=No+Poster'
+const placeholderPoster = emberPosterPlaceholder
 
 const embyUrl = computed(() => userStore.embyUrl)
 
