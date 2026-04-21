@@ -216,10 +216,20 @@ const cardActionButtons = (sub: Subscription) => {
     )
   }
 
-  if (isAdmin.value || sub.status === 'PENDING') {
+  if (isAdmin.value && sub.status !== 'PENDING') {
     buttons.push({
       key: 'delete',
-      label: isAdmin.value ? '删除记录' : '取消订阅',
+      label: '删除记录',
+      icon: Delete,
+      tone: 'danger',
+      action: () => handleDelete(sub)
+    })
+  }
+
+  if (!isAdmin.value && sub.status === 'PENDING') {
+    buttons.push({
+      key: 'delete',
+      label: '取消订阅',
       icon: Delete,
       tone: 'danger',
       action: () => handleDelete(sub)
@@ -237,6 +247,20 @@ const actionButtonClass = (tone: 'success' | 'danger' | 'neutral') => {
     return 'border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100'
   }
   return 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+}
+
+const actionPanelClass = (count: number) => {
+  if (count === 1) {
+    return 'grid-cols-1'
+  }
+  return 'grid-cols-2'
+}
+
+const actionButtonSpanClass = (count: number, index: number) => {
+  if (count % 2 === 1 && index === count - 1 && count > 1) {
+    return 'col-span-2'
+  }
+  return ''
 }
 
 onMounted(fetchData)
@@ -282,7 +306,10 @@ onMounted(fetchData)
     </EmberPageHeaderCard>
 
     <div v-loading="loading" class="min-h-[300px] space-y-4">
-      <div v-if="subscriptions.length > 0" class="grid animate-fade-in-up grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div
+        v-if="subscriptions.length > 0"
+        class="grid animate-fade-in-up grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+      >
         <article
           v-for="sub in subscriptions"
           :key="sub.id"
@@ -382,16 +409,17 @@ onMounted(fetchData)
                 </el-tooltip>
               </div>
             </div>
+
           </div>
 
           <div v-if="cardActionButtons(sub).length > 0" class="border-t border-gray-100 bg-gray-50/70 p-3">
-            <div class="flex flex-wrap gap-2">
+            <div class="grid gap-2" :class="actionPanelClass(cardActionButtons(sub).length)">
               <button
-                v-for="action in cardActionButtons(sub)"
+                v-for="(action, index) in cardActionButtons(sub)"
                 :key="action.key"
                 type="button"
-                class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors sm:flex-none"
-                :class="actionButtonClass(action.tone)"
+                class="inline-flex min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors"
+                :class="[actionButtonClass(action.tone), actionButtonSpanClass(cardActionButtons(sub).length, index)]"
                 :aria-label="`${action.label}${formatSubscriptionTitle(sub)}`"
                 @click="action.action()"
               >
