@@ -718,7 +718,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.8 MediaService (`services/media.go`)
 
-- `GetEmbyConfig()` — 返回公开的 Emby URL（`NEXT_PUBLIC_EMBY_URL` 优先；该项允许显式置空以强制回退 `EMBY_URL`）
+- `GetEmbyConfig()` — 直接返回 `EMBY_URL`，供控制台拼接 Emby 图片与地址展示
 - `GetMediaStats()` — 5 分钟 RWMutex 缓存层
 - `GetLatestItems(embyUserID, itemType, limit)` — 通过 Emby `/Users/{userId}/Items/Latest` 获取最近入库媒体，并做短 TTL 去重缓存
 
@@ -1371,7 +1371,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 |------|------|--------|------|
 | `EMBY_URL` | — | — | Emby 服务器内部 URL |
 | `EMBY_API_KEY` | — | — | Emby API 密钥 |
-| `NEXT_PUBLIC_EMBY_URL` | — | — | Emby 公开 URL（给前端用）；允许显式置空后回退 `EMBY_URL` |
+| `NEXT_PUBLIC_EMBY_URL` | — | — | 预留前端公开 URL；当前控制台 `GetEmbyConfig()` 不使用 |
 | `EMBY_WEBHOOK_TOKEN` | — | — | Emby Webhook token（`/api/v1/webhooks/emby?token=`）|
 
 ### TMDB / MoviePilot
