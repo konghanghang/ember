@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Film, VideoPlay, Plus, Check, RefreshRight } from '@element-plus/icons-vue'
+import { Search, Film, VideoPlay, Check, RefreshRight } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
@@ -26,6 +26,7 @@ const hasSearched = ref(false)
 const searchFailed = ref(false)
 
 const selectedItem = ref<TmdbSearchItem | null>(null)
+const overviewExpanded = ref(false)
 const subscriptionForm = ref({
   season: null as number | null,
   note: ''
@@ -44,6 +45,11 @@ const typeTabs = computed(() => [
   { key: 'MOVIE', label: '电影', icon: Film },
   { key: 'TV', label: '剧集', icon: VideoPlay }
 ])
+const overviewText = computed(() => selectedItem.value?.overview?.trim() || '暂无简介')
+const hasExpandableOverview = computed(() => {
+  const overview = selectedItem.value?.overview?.trim()
+  return Boolean(overview && overview.length > 120)
+})
 
 const handleSearch = async () => {
   const requestToken = ++searchRequestToken
@@ -92,6 +98,7 @@ watch(showConfirmDialog, (visible) => {
   if (visible) return
 
   seasonRequestToken++
+  overviewExpanded.value = false
   selectedItem.value = null
   resetSeasonOptions()
 })
@@ -138,6 +145,7 @@ const loadSeasonOptions = async (item: TmdbSearchItem) => {
 
 const selectItem = async (item: TmdbSearchItem) => {
   selectedItem.value = item
+  overviewExpanded.value = false
   subscriptionForm.value.season = 0
   subscriptionForm.value.note = ''
   resetSeasonOptions()
@@ -298,8 +306,9 @@ const isConfirmDisabled = () => {
             loading="lazy"
           />
           <div class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100">
-            <div class="translate-y-4 rounded-full bg-ember p-3 text-white shadow-lg transition-transform duration-300 group-hover:translate-y-0 group-focus-visible:translate-y-0">
-              <el-icon :size="24"><Plus /></el-icon>
+            <div class="relative flex h-14 w-14 translate-y-4 items-center justify-center rounded-full bg-ember shadow-lg transition-transform duration-300 group-hover:translate-y-0 group-focus-visible:translate-y-0">
+              <span aria-hidden="true" class="absolute h-0.5 w-5 rounded-full bg-white"></span>
+              <span aria-hidden="true" class="absolute h-5 w-0.5 rounded-full bg-white"></span>
             </div>
           </div>
         </div>
@@ -366,8 +375,22 @@ const isConfirmDisabled = () => {
             </p>
           </div>
 
-          <div class="rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm leading-6 text-gray-600 sm:line-clamp-4">
-            {{ selectedItem.overview || '暂无简介' }}
+          <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <div
+              class="text-sm leading-7 text-gray-600"
+              :class="!overviewExpanded && hasExpandableOverview ? 'line-clamp-5' : ''"
+            >
+              {{ overviewText }}
+            </div>
+            <div v-if="hasExpandableOverview" class="mt-3 flex justify-end">
+              <button
+                type="button"
+                class="cursor-pointer text-sm font-semibold text-ember transition-colors hover:text-ember/80"
+                @click="overviewExpanded = !overviewExpanded"
+              >
+                {{ overviewExpanded ? '收起简介' : '展开简介' }}
+              </button>
+            </div>
           </div>
 
           <div>
