@@ -1013,7 +1013,7 @@ watch(sortMode, () => {
                 </div>
               </div>
 
-              <div class="flex flex-wrap gap-2">
+              <div class="mt-3.5 flex flex-wrap gap-2 md:mt-4">
                 <button
                   v-for="gap in visibleSeasonGaps(series.key, seasonGroup)"
                   :key="gap.id"
