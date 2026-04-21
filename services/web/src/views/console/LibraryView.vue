@@ -95,7 +95,7 @@ onMounted(fetchLatest)
       </template>
     </EmberPageHeaderCard>
 
-    <div v-if="loading" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+    <div v-if="loading" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-6">
       <div v-for="(_x, idx) in skeletonItems" :key="idx" class="space-y-3">
         <div class="rounded-2xl bg-gray-100 aspect-[2/3] animate-pulse"></div>
         <div class="h-4 bg-gray-100 rounded-lg animate-pulse"></div>
@@ -110,9 +110,9 @@ onMounted(fetchLatest)
       description="稍后刷新，或切换电影/剧集后再试。"
     />
 
-    <div v-else class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+    <div v-else class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-6">
       <div v-for="item in items" :key="item.id" class="group">
-        <div class="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden hover:shadow-md hover:border-ember/30 transition-all">
+        <article class="overflow-hidden rounded-2xl bg-white border border-gray-100 shadow-sm transition-all hover:shadow-md hover:border-ember/30">
           <div class="relative aspect-[2/3] bg-gray-100 overflow-hidden">
             <img
               :src="getImageUrl(item.id)"
@@ -121,39 +121,57 @@ onMounted(fetchLatest)
               class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
               @error="(e: Event) => (((e.target as HTMLImageElement).src = placeholderPoster))"
             />
-            <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          </div>
+            <div class="absolute inset-0 bg-gradient-to-t from-black via-black/70 via-black/15 to-transparent opacity-90"></div>
 
-          <div class="p-3 space-y-2">
-            <div class="text-sm font-bold text-gray-900 line-clamp-2 min-h-[2.5rem]">
-              {{ item.name }}
+            <div class="absolute left-2 top-2 text-white/80">
+              <el-icon v-if="item.type === 'Movie'" :size="16"><Film /></el-icon>
+              <el-icon v-else :size="16"><VideoPlay /></el-icon>
             </div>
 
-            <div class="flex items-center justify-between gap-2 text-xs text-gray-500">
-              <div class="flex items-center gap-2 min-w-0">
-                <span v-if="item.productionYear" class="font-medium text-gray-600">
-                  {{ item.productionYear }}
-                </span>
-                <span v-if="item.communityRating" class="text-amber-600 font-semibold">
-                  ★ {{ item.communityRating.toFixed(1) }}
-                </span>
-              </div>
-
-              <span
-                v-if="item.type === 'Series' && item.childCount > 0"
-                class="whitespace-nowrap text-[11px] px-2 py-0.5 rounded-full font-semibold bg-gray-900/5 text-gray-700 border border-gray-200"
-              >
+            <div
+              v-if="item.type === 'Series' && item.childCount > 0"
+              class="absolute right-2 top-2"
+            >
+              <span class="rounded px-2 py-0.5 text-[10px] font-bold text-white shadow-sm backdrop-blur-md bg-white/15">
                 +{{ item.childCount }}集
               </span>
             </div>
 
-            <!-- 保持卡片高度一致：无分级时也预留一行 -->
-            <div class="text-[11px] text-gray-500 min-h-[1rem]">
-              <span v-if="item.officialRating">分级：{{ item.officialRating }}</span>
-              <span v-else class="opacity-0" aria-hidden="true">分级：-</span>
+            <div class="absolute inset-x-0 bottom-0 p-3 text-white">
+              <h3 class="line-clamp-2 text-sm font-bold leading-5 drop-shadow-sm" :title="item.name">
+                {{ item.name }}
+              </h3>
+
+              <div class="mt-1 flex items-center gap-2 text-[11px] text-white/70">
+                <span v-if="item.productionYear">{{ item.productionYear }}</span>
+                <span v-if="item.communityRating" class="font-semibold text-amber-200">
+                  ★ {{ item.communityRating.toFixed(1) }}
+                </span>
+              </div>
+
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                <span
+                  v-if="item.officialRating"
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur-sm"
+                >
+                  分级 {{ item.officialRating }}
+                </span>
+                <span
+                  v-if="item.type === 'Movie'"
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur-sm"
+                >
+                  电影
+                </span>
+                <span
+                  v-else
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur-sm"
+                >
+                  剧集
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        </article>
       </div>
     </div>
   </div>
