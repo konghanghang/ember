@@ -17,6 +17,12 @@ import { useUserStore } from '@/store/user'
 import { getMediaStats } from '@/api/console'
 import type { MediaStats, UserInfo } from '@/types/api'
 
+interface EmbyAccessEntry {
+  key: string
+  label: string
+  url: string
+}
+
 const authStore = useAuthStore()
 const userStore = useUserStore()
 const router = useRouter()
@@ -61,12 +67,29 @@ const membershipStatusTextClass = computed(() => {
   if (isLifetimeMember.value) return 'text-sky-600'
   return 'text-emerald-600'
 })
-const membershipStatusDescription = computed(() => {
-  if (isExpired.value) return '服务已暂停，请尽快续费。'
-  if (isLifetimeMember.value) return '无到期限制，可长期使用。'
-  return `剩余 ${daysLeft.value} 天可用。`
+const membershipStatusMeta = computed(() => {
+  if (isLifetimeMember.value) return '无到期限制'
+  if (!user.value.expiresAt) return '未设置到期时间'
+  return `到期于 ${new Date(user.value.expiresAt).toLocaleDateString()}`
+})
+
+const membershipStatusHint = computed(() => {
+  if (isExpired.value) return '服务已暂停，请前往续费中心恢复访问。'
+  if (isLifetimeMember.value) return ''
+  if (daysLeft.value === null) return ''
+  return `剩余 ${daysLeft.value} 天`
 })
 const canOpenEmby = computed(() => Boolean(embyUrl.value) && !showLockedServerState.value)
+const embyAccessEntries = computed<EmbyAccessEntry[]>(() => {
+  if (!embyUrl.value) return []
+  return [
+    {
+      key: 'primary',
+      label: '主线路',
+      url: embyUrl.value
+    }
+  ]
+})
 
 const fetchOverview = async () => {
   if (!userStore.profile) return
@@ -106,9 +129,10 @@ const copyToClipboard = async (text: string) => {
   }
 }
 
-const openEmby = () => {
-  if (!canOpenEmby.value) return
-  window.open(embyUrl.value, '_blank', 'noopener,noreferrer')
+const openEmby = (url?: string) => {
+  const target = url || embyAccessEntries.value[0]?.url || ''
+  if (!target || showLockedServerState.value) return
+  window.open(target, '_blank', 'noopener,noreferrer')
 }
 
 watch(
@@ -123,29 +147,20 @@ watch(
 
 <template>
   <div class="space-y-6 animate-fade-in" v-loading="loading">
-    <div class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-      <div class="p-8 md:p-10">
-        <div class="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+    <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div class="grid gap-6 p-6 md:p-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div class="space-y-6">
           <div class="flex items-start gap-5">
             <DefaultAvatar :name="user.username" size="hero" shape="2xl" />
-            <div>
+            <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-3">
-                <h1 class="text-2xl font-bold tracking-tight text-gray-900">{{ user.username || '当前用户' }}</h1>
+                <h1 class="truncate text-2xl font-bold tracking-tight text-gray-900">{{ user.username || '当前用户' }}</h1>
                 <span class="rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
                   {{ authStore.isAdmin ? '管理员账号' : '用户账号' }}
                 </span>
               </div>
+
               <div class="mt-4 flex flex-wrap gap-3 text-sm text-gray-500">
-                <span
-                  class="rounded-full px-3 py-1 font-medium"
-                  :class="isExpired
-                    ? 'bg-red-50 text-red-700 ring-1 ring-red-200'
-                    : user.expiresAt
-                      ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                      : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'"
-                >
-                  到期时间：{{ user.expiresAt ? new Date(user.expiresAt).toLocaleDateString() : '永久有效' }}
-                </span>
                 <span
                   class="rounded-full px-3 py-1 font-medium"
                   :class="user.telegramId
@@ -158,20 +173,27 @@ watch(
             </div>
           </div>
 
-          <div class="min-w-[16rem] rounded-2xl border border-gray-100 bg-gray-50 p-5">
-            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">会员状态</p>
-            <div class="mt-3 flex items-end justify-between gap-4">
+          <div class="rounded-2xl border border-gray-100 bg-gray-50 p-5">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p class="text-2xl font-semibold" :class="membershipStatusTextClass">
+                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">会员状态</p>
+                <p class="mt-3 text-2xl font-semibold" :class="membershipStatusTextClass">
                   {{ membershipStatusLabel }}
                 </p>
                 <p class="mt-1 text-sm text-gray-500">
-                  {{ membershipStatusDescription }}
+                  {{ membershipStatusMeta }}
+                </p>
+                <p
+                  v-if="membershipStatusHint"
+                  class="mt-2 text-xs font-medium"
+                  :class="isExpired ? 'text-red-600' : 'text-gray-500'"
+                >
+                  {{ membershipStatusHint }}
                 </p>
               </div>
               <button
                 v-if="!authStore.isAdmin"
-                class="btn-ember rounded-xl px-4 py-2 text-sm cursor-pointer"
+                class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer lg:shrink-0"
                 @click="router.push('/console/renewal')"
               >
                 {{ isExpired ? '立即续费' : '去续费' }}
@@ -179,8 +201,76 @@ watch(
             </div>
           </div>
         </div>
+
+        <div class="rounded-3xl border border-gray-100 bg-gradient-to-br from-gray-50 via-white to-white p-5 shadow-sm">
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 class="text-lg font-semibold text-gray-900">Emby 入口</h2>
+                <p class="mt-1 text-sm text-gray-500">控制台与 Emby 客户端共用同一套账号密码。</p>
+              </div>
+              <span
+                v-if="embyAccessEntries.length > 0 && !showLockedServerState"
+                class="inline-flex w-fit items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700"
+              >
+                当前可用
+              </span>
+            </div>
+
+            <div v-if="embyAccessEntries.length > 0 && !showLockedServerState" class="space-y-3">
+              <article
+                v-for="entry in embyAccessEntries"
+                :key="entry.key"
+                class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
+              >
+                <div class="flex flex-col gap-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="inline-flex w-fit items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                      {{ entry.label }}
+                    </span>
+                    <button
+                      type="button"
+                      class="btn-ember inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm cursor-pointer"
+                      @click="openEmby(entry.url)"
+                    >
+                      打开
+                    </button>
+                  </div>
+
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                      {{ entry.url }}
+                    </code>
+                    <button
+                      :aria-label="`复制${entry.label}地址`"
+                      class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer sm:shrink-0"
+                      @click="copyToClipboard(entry.url)"
+                    >
+                      <el-icon><CopyDocument /></el-icon>
+                    </button>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <EmberEmptyStateCard
+              v-else-if="showLockedServerState"
+              :icon="Monitor"
+              tone="danger"
+              title="服务器访问已锁定"
+              description="当前账号已过期，请先续费后再恢复 Emby 访问权限。"
+            />
+
+            <EmberEmptyStateCard
+              v-else
+              :icon="Monitor"
+              title="当前未提供服务器入口"
+              description="请联系管理员检查 Emby 连接配置。"
+            />
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
 
     <div
       v-if="isExpired && !authStore.isAdmin"
@@ -247,73 +337,6 @@ watch(
             </div>
           </div>
         </article>
-      </div>
-    </section>
-
-    <section class="rounded-2xl border border-gray-100 bg-white shadow-sm">
-      <div class="border-b border-gray-100 px-6 py-5">
-        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <h2 class="text-lg font-semibold text-gray-900">打开 Emby</h2>
-          <span
-            v-if="embyUrl && (!isExpired || authStore.isAdmin)"
-            class="inline-flex w-fit items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700"
-          >
-            当前可用
-          </span>
-        </div>
-      </div>
-
-      <div class="p-6">
-        <div v-if="embyUrl && (!isExpired || authStore.isAdmin)" class="space-y-4">
-          <div class="rounded-3xl border border-gray-100 bg-gradient-to-br from-gray-50 via-white to-white p-4 shadow-sm md:p-5">
-            <div class="space-y-3">
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">服务器地址</p>
-
-              <div class="flex flex-col gap-3 xl:flex-row xl:items-center">
-                <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm">
-                  {{ embyUrl }}
-                </code>
-
-                <div class="flex items-center gap-2 xl:shrink-0">
-                  <button
-                    aria-label="复制服务器地址"
-                    class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
-                    @click="copyToClipboard(embyUrl)"
-                  >
-                    <el-icon><CopyDocument /></el-icon>
-                  </button>
-
-                  <button
-                    type="button"
-                    class="btn-ember inline-flex h-11 min-w-[9.5rem] items-center justify-center rounded-xl px-5 text-sm cursor-pointer"
-                    @click="openEmby"
-                  >
-                    打开 Emby
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <p class="text-sm text-gray-500">
-            控制台与 Emby 客户端共用同一套账号密码。
-          </p>
-        </div>
-
-        <EmberEmptyStateCard
-          v-else-if="showLockedServerState"
-          :icon="Monitor"
-          tone="danger"
-          title="服务器访问已锁定"
-          description="当前账号已过期，请先续费后再恢复 Emby 访问权限。"
-        />
-
-        <EmberEmptyStateCard
-          v-else
-          :icon="Monitor"
-          title="当前未提供服务器入口"
-          description="请联系管理员检查 Emby 连接配置。"
-        />
       </div>
     </section>
 
