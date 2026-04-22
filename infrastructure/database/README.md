@@ -42,7 +42,12 @@ psql "$DATABASE_URL" -f infrastructure/database/20260415_00_schema_baseline.sql
 
 只执行 baseline 之后新增的顶层 SQL。
 
-截至 `2026-04-15`，baseline 之后暂无新的增量 migration；已经处于当前版本的数据库不需要额外执行 SQL。
+当前顶层 baseline 之后的增量 migration 为：
+
+- `20260416_01_subscription_status_and_review_fields.sql`
+- `20260418_01_media_gaps.sql`
+
+如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上两份 SQL；已经执行过它们的环境不需要重复执行。
 
 ### 3. Docker 首次初始化（仅首次）
 

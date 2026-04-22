@@ -117,7 +117,12 @@
 
 不要指望“改了 compose 就自动补所有历史迁移”。
 
-截至 `2026-04-15`，baseline 之后暂无新增 migration；已经在当前版本的数据库无需额外执行 SQL。
+当前顶层 baseline 之后还有两份增量 migration：
+
+- `20260416_01_subscription_status_and_review_fields.sql`
+- `20260418_01_media_gaps.sql`
+
+如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行这两份 SQL；已经执行过它们的环境无需重复处理。
 
 ## 管理员初始化
 
