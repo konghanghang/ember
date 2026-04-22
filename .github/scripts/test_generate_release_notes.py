@@ -141,6 +141,22 @@ class BuildFallbackLinesTest(unittest.TestCase):
         self.assertEqual(fixes, [])
         self.assertEqual(improvements, [])
 
+    def test_internal_scope_commit_is_filtered_from_fallback_lines(self) -> None:
+        commit = make_commit(
+            sha="3" * 40,
+            subject="refactor(ci): 停止自动提交覆盖率徽章",
+            commit_type="refactor",
+            scope="ci",
+            description="停止自动提交覆盖率徽章",
+            files=(".github/workflows/test.yml",),
+        )
+
+        features, fixes, improvements = grn.build_fallback_lines([commit], set())
+
+        self.assertEqual(features, [])
+        self.assertEqual(fixes, [])
+        self.assertEqual(improvements, [])
+
     def test_test_commit_is_not_rendered_in_reference_section(self) -> None:
         commit = make_commit(
             sha="2" * 40,
@@ -170,6 +186,49 @@ class BuildFallbackLinesTest(unittest.TestCase):
         self.assertEqual(features, [])
         self.assertEqual(fixes, [])
         self.assertEqual(improvements, [])
+
+
+class BuildUpgradeLinesTest(unittest.TestCase):
+    def test_only_top_level_incremental_migrations_are_rendered(self) -> None:
+        changed_files = {
+            "infrastructure/database/20260415_00_schema_baseline.sql",
+            "infrastructure/database/20260416_01_subscription_status_and_review_fields.sql",
+            "infrastructure/database/20260418_01_media_gaps.sql",
+            "infrastructure/database/archive/pre-20260415/20260305_03_add_tv_calendar_tables.sql",
+            "infrastructure/database/archive/pre-20260415/20260321_01_add_playback_ranking_batch_fields.sql",
+        }
+
+        lines = grn.build_upgrade_lines(
+            changed_files,
+            {
+                "polling": set(),
+                "season_subscription": set(),
+                "web_forms": set(),
+                "settings_cleanup": set(),
+                "favicon": set(),
+            },
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "- 本版本包含数据库 migration。升级前请先执行 `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql`、`infrastructure/database/20260418_01_media_gaps.sql`，否则新链路无法完整生效。"
+            ],
+        )
+
+    def test_internal_scope_commit_is_filtered_from_reference_commits(self) -> None:
+        commit = make_commit(
+            sha="4" * 40,
+            subject="fix(release): 收口迁移说明与覆盖率忽略",
+            commit_type="fix",
+            scope="release",
+            description="收口迁移说明与覆盖率忽略",
+            files=("docs/runbooks/deployment.md", ".gitignore"),
+        )
+
+        lines = grn.render_reference_commits("konghanghang/ember", [commit])
+
+        self.assertNotIn(commit.subject, "\n".join(lines))
 
 
 if __name__ == "__main__":

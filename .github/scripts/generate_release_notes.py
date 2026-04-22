@@ -42,6 +42,13 @@ NOISE_ONLY_FILES = {
     "GEMINI.md",
 }
 
+INTERNAL_ONLY_SCOPES = {
+    "build",
+    "ci",
+    "codex",
+    "release",
+}
+
 WEB_FORM_FILES = {
     "services/web/src/views/LoginView.vue",
     "services/web/src/views/console/AccountCenterView.vue",
@@ -152,6 +159,10 @@ def is_documentation_only_commit(commit: Commit) -> bool:
     )
 
 
+def is_internal_only_commit(commit: Commit) -> bool:
+    return commit.scope in INTERNAL_ONLY_SCOPES
+
+
 def format_commit_label(commit: Commit) -> str:
     description = commit.description or commit.subject
     scope_label = SCOPE_LABELS.get(commit.scope, commit.scope)
@@ -233,7 +244,12 @@ def build_improvement_lines(matches: dict[str, set[str]]) -> list[str]:
 def build_upgrade_lines(changed_files: set[str], matches: dict[str, set[str]]) -> list[str]:
     lines: list[str] = []
     migration_files = sorted(
-        file_path for file_path in changed_files if file_path.startswith("infrastructure/database/") and file_path.endswith(".sql")
+        file_path
+        for file_path in changed_files
+        if file_path.startswith("infrastructure/database/")
+        and file_path.endswith(".sql")
+        and Path(file_path).parent == Path("infrastructure/database")
+        and not Path(file_path).name.endswith("_schema_baseline.sql")
     )
     if migration_files:
         joined = "、".join(f"`{file_path}`" for file_path in migration_files)
@@ -251,7 +267,7 @@ def build_fallback_lines(commits: list[Commit], used_shas: set[str]) -> tuple[li
     improvements: list[str] = []
 
     for commit in commits:
-        if commit.sha in used_shas or is_noise_only_commit(commit):
+        if commit.sha in used_shas or is_noise_only_commit(commit) or is_internal_only_commit(commit):
             continue
 
         if is_documentation_only_commit(commit):
@@ -278,7 +294,7 @@ def render_reference_commits(repo: str, commits: list[Commit]) -> list[str]:
         "",
     ]
     for commit in commits:
-        if is_noise_only_commit(commit) or is_documentation_only_commit(commit):
+        if is_noise_only_commit(commit) or is_documentation_only_commit(commit) or is_internal_only_commit(commit):
             continue
         if commit.commit_type == "test":
             continue
