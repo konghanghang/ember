@@ -26,6 +26,7 @@ import type {
   MediaGapListResponse,
   MediaGapScanRequest,
   MediaGapScanResponse,
+  MediaGapScanStatus,
   MediaGapSearchResult,
   MediaQualityLowDetailItem,
   MediaQualityLibrary,
@@ -292,6 +293,14 @@ export function scanMediaGaps(data?: MediaGapScanRequest): Promise<{ data: Media
     url: '/admin/media-gaps/scan',
     method: 'post',
     data: data ?? {}
+  })
+}
+
+export function getMediaGapScanStatus(): Promise<{ data: MediaGapScanStatus }> {
+  return request({
+    url: '/admin/media-gaps/scan-status',
+    method: 'get',
+    silent: true
   })
 }
 

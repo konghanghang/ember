@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,8 @@ import (
 )
 
 type MediaGapHandler struct {
-	service *mediagappkg.MediaGapService
+	service     *mediagappkg.MediaGapService
+	scanManager *mediaGapScanManager
 }
 
 type MediaGapSearchCandidate struct {
@@ -77,7 +79,13 @@ type mediaGapIgnoreRequest struct {
 }
 
 func NewMediaGapHandler() *MediaGapHandler {
-	return &MediaGapHandler{service: mediagappkg.NewMediaGapService()}
+	service := mediagappkg.NewMediaGapService()
+	return &MediaGapHandler{
+		service: service,
+		scanManager: newMediaGapScanManager(func(ctx context.Context, req mediagappkg.ScanRequest) (*mediagappkg.ScanResult, error) {
+			return service.Scan(ctx, req)
+		}),
+	}
 }
 
 func (h *MediaGapHandler) ListMediaGaps(c *gin.Context) {
@@ -178,27 +186,39 @@ func (h *MediaGapHandler) ScanMediaGaps(c *gin.Context) {
 		return
 	}
 
-	var tmdbID *string
-	if trimmed := strings.TrimSpace(req.TmdbID); trimmed != "" {
-		tmdbID = &trimmed
+	scanReq := mediagappkg.ScanRequest{
+		TMDBID: strings.TrimSpace(req.TmdbID),
+		Force:  req.Force,
 	}
 
-	resp, err := h.service.ScanMediaGaps(c.Request.Context(), tmdbID)
-	if err != nil {
-		writeMediaGapError(c, err)
+	if !h.service.IsConfigured() {
+		writeMediaGapError(c, mediagappkg.ErrMediaGapNotConfigured)
 		return
 	}
 
-	count := 0
-	if resp != nil {
-		count = resp.Created + resp.Updated + resp.Ingested
+	status, started := h.scanManager.Start(scanReq)
+	httpStatus := http.StatusAccepted
+	if !started {
+		httpStatus = http.StatusOK
 	}
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{
+
+	c.JSON(httpStatus, gin.H{"data": gin.H{
 		"accepted": true,
-		"mode":     "sync",
-		"message":  "缺集扫描完成",
-		"count":    count,
+		"async":    true,
+		"mode":     "async",
+		"started":  started,
+		"scanId":   status.ScanID,
+		"scope":    status.Scope,
+		"status":   status.Status,
+		"running":  status.Running,
+		"message":  status.Message,
 	}})
+}
+
+// GetMediaGapScanStatus 获取当前缺集扫描状态。
+// GET /api/v1/admin/media-gaps/scan-status
+func (h *MediaGapHandler) GetMediaGapScanStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"data": h.scanManager.Status()})
 }
 
 // SearchMediaGapCandidates 搜索缺集候选。

@@ -739,7 +739,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.11 MediaGapService (`services/mediagap/service.go`)
 
-- `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单
+- `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台管理入口已改为异步触发，扫描本体在后台独立上下文中执行
 - `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计，供聚合视图直接消费
 - `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选，优先按单集查询，未命中时回退整季查询；写入 `searchSnapshot` 与 `lastSearchedAt`，候选摘要保留发布时间等展示字段
 - `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源；仅在下发成功后写入 `dispatchSnapshot`、`requestedAt` 并推进为 `REQUESTED`
@@ -1036,6 +1036,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/payments` | 全部支付记录 |
 | GET | `/api/v1/admin/system/info` | 系统统计 |
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
+| GET | `/api/v1/admin/media-gaps/scan-status` | 查询缺集扫描后台任务状态 |
+| POST | `/api/v1/admin/media-gaps/scan` | 异步触发缺集扫描 |
 | POST | `/api/v1/admin/tv-calendar/sync` | 手动同步追剧日历 |
 | POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |
 | POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |

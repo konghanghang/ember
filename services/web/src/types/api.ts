@@ -525,6 +525,27 @@ export interface MediaGapActionResponse {
 
 export interface MediaGapScanRequest {
   tmdbId?: string
+  force?: boolean
+}
+
+export type MediaGapScanState = 'idle' | 'running' | 'succeeded' | 'failed'
+
+export interface MediaGapScanStatus {
+  scanId?: string
+  scope?: 'all' | 'series'
+  status: MediaGapScanState
+  running: boolean
+  startedAt?: string
+  finishedAt?: string
+  count?: number
+  scannedSeries?: number
+  skippedSeries?: number
+  examinedEpisodes?: number
+  created?: number
+  updated?: number
+  ingested?: number
+  error?: string
+  message?: string
 }
 
 export interface MediaGapScanResponse {
@@ -532,6 +553,8 @@ export interface MediaGapScanResponse {
   async?: boolean
   scope?: 'all' | 'series'
   scanId?: string
+  status?: MediaGapScanState
+  running?: boolean
   count?: number
   message?: string
 }

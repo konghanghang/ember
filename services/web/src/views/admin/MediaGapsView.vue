@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Calendar,
@@ -16,6 +16,7 @@ import {
 } from '@element-plus/icons-vue'
 import {
   dispatchMediaGap,
+  getMediaGapScanStatus,
   getMediaGaps,
   getGroupedMediaGaps,
   ignoreMediaGap,
@@ -36,6 +37,7 @@ import type {
   MediaGapGroupedSortMode,
   MediaGapItem,
   MediaGapListQuery,
+  MediaGapScanStatus,
   MediaGapSearchCandidate,
   MediaGapSearchResult,
   MediaGapStatus
@@ -46,6 +48,11 @@ type MediaGapSortMode = MediaGapGroupedSortMode
 
 const loading = ref(false)
 const scanning = ref(false)
+const scanStatus = ref<MediaGapScanStatus>({
+  status: 'idle',
+  running: false,
+  message: '暂无扫描任务'
+})
 const tableData = ref<MediaGapItem[]>([])
 const groupedData = ref<MediaGapGroupedSeries[]>([])
 const total = ref(0)
@@ -71,6 +78,7 @@ const viewMode = ref<MediaGapViewMode>('grouped')
 const sortMode = ref<MediaGapSortMode>('missing')
 const expandedSeasonKeys = ref<string[]>([])
 const expandedSeriesKeys = ref<string[]>([])
+let scanStatusPollTimer: ReturnType<typeof setTimeout> | null = null
 
 const queryParams = ref<MediaGapListQuery>({
   page: 1,
@@ -176,6 +184,64 @@ const compactStats = computed(() => [
 
 const isTerminalStatus = (status: MediaGapStatus) => status === 'INGESTED' || status === 'IGNORED'
 const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
+
+const clearScanStatusPoll = () => {
+  if (scanStatusPollTimer) {
+    clearTimeout(scanStatusPollTimer)
+    scanStatusPollTimer = null
+  }
+}
+
+const applyScanStatus = (status: MediaGapScanStatus) => {
+  scanStatus.value = status
+  scanning.value = status.running
+}
+
+const scheduleScanStatusPoll = () => {
+  clearScanStatusPoll()
+  if (!scanStatus.value.running) {
+    return
+  }
+  scanStatusPollTimer = setTimeout(() => {
+    void refreshScanStatus(true)
+  }, 3000)
+}
+
+const refreshScanStatus = async (notifyCompletion = false) => {
+  const previous = scanStatus.value
+
+  try {
+    const res = await getMediaGapScanStatus()
+    const nextStatus = res.data ?? {
+      status: 'idle',
+      running: false,
+      message: '暂无扫描任务'
+    }
+
+    applyScanStatus(nextStatus)
+
+    if (
+      notifyCompletion &&
+      previous.running &&
+      previous.scanId &&
+      previous.scanId === nextStatus.scanId &&
+      !nextStatus.running
+    ) {
+      if (nextStatus.status === 'succeeded') {
+        ElMessage.success(nextStatus.message || '缺集扫描完成')
+        await fetchData()
+      } else if (nextStatus.status === 'failed') {
+        ElMessage.error(nextStatus.error || nextStatus.message || '缺集扫描失败')
+      }
+    }
+  } catch {
+    if (!scanStatus.value.running) {
+      scanning.value = false
+    }
+  } finally {
+    scheduleScanStatusPoll()
+  }
+}
 
 const formatDateOnly = (value?: string) => {
   const raw = String(value ?? '').trim()
@@ -610,7 +676,7 @@ const handlePageChange = () => {
 const handleScan = async () => {
   try {
     await ElMessageBox.confirm(
-      '将按当前后端规则触发一次全库缺集扫描。扫描后会重新刷新当前列表。',
+      '将按当前后端规则触发一次全库缺集扫描。任务会在后台执行，完成后自动刷新当前列表。',
       '启动扫描',
       {
         confirmButtonText: '开始扫描',
@@ -631,15 +697,18 @@ const handleScan = async () => {
   scanning.value = true
   try {
     const res = await scanMediaGaps()
-    const message =
-      res.data?.message ||
-      (res.data?.async ? '全库扫描已启动，请稍后刷新列表查看结果' : '扫描完成，列表已刷新')
-    ElMessage.success(message)
-    await fetchData()
+    applyScanStatus({
+      scanId: res.data?.scanId,
+      scope: res.data?.scope,
+      status: res.data?.status ?? 'running',
+      running: res.data?.running ?? true,
+      message: res.data?.message,
+      count: res.data?.count
+    })
+    ElMessage.success(res.data?.message || '缺集扫描已启动，后台处理中')
+    scheduleScanStatusPoll()
   } catch {
     // handled
-  } finally {
-    scanning.value = false
   }
 }
 
@@ -806,6 +875,11 @@ const ignoreSeasonGroup = async (series: MediaGapGroupedSeries, seasonGroup: { s
 
 onMounted(() => {
   fetchData()
+  void refreshScanStatus(false)
+})
+
+onBeforeUnmount(() => {
+  clearScanStatusPoll()
 })
 
 watch(viewMode, () => {
