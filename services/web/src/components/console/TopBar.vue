@@ -28,7 +28,7 @@ defineEmits<{
 const routeMeta: Record<string, { title: string; description: string }> = {
   'console-dashboard': {
     title: '概览',
-    description: '查看会员状态、服务器入口和媒体统计'
+    description: '查看会员状态、最近入库摘要、Emby 入口和媒体统计'
   },
   'console-account': {
     title: '账号中心',
@@ -49,10 +49,6 @@ const routeMeta: Record<string, { title: string; description: string }> = {
   'console-rankings': {
     title: '播放排行榜',
     description: '查看近期热门内容与排行快照'
-  },
-  'console-library': {
-    title: '媒体库',
-    description: '浏览当前片库和基础媒体信息'
   },
   'console-tv-calendar': {
     title: '追剧日历',

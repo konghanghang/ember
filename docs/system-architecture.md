@@ -190,13 +190,13 @@ services/
 │  │     │  └─ RegisterView.vue  # 注册（动态模式：open/invite，支持邮箱验证码）
 │  │     ├─ console/             # 统一控制台（admin + user 共享布局）
 │  │     │  ├─ Layout.vue        # 控制台布局
-│  │     │  ├─ DashboardView.vue # 概览页（会员状态 / 媒体统计 / 服务器入口 / 快捷资源）
+│  │     │  ├─ DashboardView.vue # 概览页（会员状态 / 媒体统计 / 服务器入口 / 最近入库摘要 / Emby 桥接）
 │  │     │  ├─ AccountCenterView.vue # 账号中心（邮箱 / 密码 / Telegram 绑定 / 帮助资源）
 │  │     │  ├─ ProfileAnalyticsView.vue # 我的画像
 │  │     │  ├─ SubscriptionsView.vue  # 求片订阅
 │  │     │  ├─ NewSubscriptionView.vue # 新建订阅
 │  │     │  ├─ TVCalendarView.vue # 追剧日历
-│  │     │  ├─ LibraryView.vue   # 媒体库
+│  │     │  ├─ LibraryView.vue   # 兼容壳（`/console/library` 路由已重定向到概览页）
 │  │     │  ├─ RankingsView.vue  # 播放排行
 │  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台
@@ -278,7 +278,7 @@ services/
 - `services/web/src/views/console/SubscriptionsView.vue`
 - `services/web/src/views/console/NewSubscriptionView.vue`
 - `services/web/src/views/console/RenewalCenterView.vue`
-- `services/web/src/views/console/LibraryView.vue`
+- `services/web/src/views/console/DashboardView.vue`
 - `services/web/src/views/console/RankingsView.vue`
 
 边界约束：
@@ -378,7 +378,7 @@ services/
 
 **当前已托管或接入统一解析的配置项**：
 - 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`stripe_allowed_payment_methods`
-- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
+- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`（历史键名，数据库配置项）、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
 - 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
 - 通知：`BOT_NOTIFY_URL`
 - 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT`、`AUTO_MIGRATE` 等
@@ -718,7 +718,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.8 MediaService (`services/media.go`)
 
-- `GetEmbyConfig()` — 直接返回 `EMBY_URL`，供控制台拼接 Emby 图片与地址展示
+- `GetEmbyConfig()` — 优先返回设置中心里的前端 Emby 地址（配置键沿用 `NEXT_PUBLIC_EMBY_URL`），为空时回退 `EMBY_URL`，供控制台拼接 Emby 图片与地址展示
 - `GetMediaStats()` — 5 分钟 RWMutex 缓存层
 - `GetLatestItems(embyUserID, itemType, limit)` — 通过 Emby `/Users/{userId}/Items/Latest` 获取最近入库媒体，并做短 TTL 去重缓存
 
@@ -1254,10 +1254,11 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 最近入库
 
-- 路由：`/console/library`（user）
-- 视图：`views/console/LibraryView.vue`
+- 主入口：`/console/dashboard`（user）
+- 展示位置：`views/console/DashboardView.vue` + `components/console/RecentLibrarySection.vue`
+- 兼容路径：`/console/library` 路由级重定向到 `/console/dashboard`
 - 数据源：`GET /api/v1/media/latest?type=Movie|Series&limit=20`
-- 行为：展示当前用户视角的最近入库电影/剧集，按媒体类型切换，不做搜索和分页
+- 行为：在概览页展示当前用户视角的最近入库摘要，支持电影/剧集切换、横向滑动与手动刷新，不做搜索和分页
 
 ---
 

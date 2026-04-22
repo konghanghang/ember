@@ -62,8 +62,7 @@ const router = createRouter({
         },
         {
           path: 'library',
-          name: 'console-library',
-          component: () => import('../views/console/LibraryView.vue'),
+          redirect: '/console/dashboard',
         },
         {
           path: 'tv-calendar',

@@ -49,6 +49,7 @@
 |--------|------|--------|------|
 | `EMBY_URL` | 否 | 否 | API 访问 Emby 的基础地址 |
 | `EMBY_API_KEY` | 是 | 否 | Emby API 鉴权密钥 |
+| `NEXT_PUBLIC_EMBY_URL` | 否 | 否 | 控制台展示与用户跳转使用的前端 Emby 地址；沿用历史键名，作为数据库配置项保留，为空时回退 `EMBY_URL` |
 | `TMDB_API_KEY` | 是 | 否 | TMDB 接口密钥 |
 | `MOVIEPILOT_URL` | 否 | 否 | MoviePilot 地址 |
 | `MOVIEPILOT_API_KEY` | 是 | 否 | MoviePilot API Key（X-API-KEY） |

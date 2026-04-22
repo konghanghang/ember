@@ -37,10 +37,11 @@ services/web/src/
 - 控制台：`/console/*`
   - `DashboardView`
   - `SubscriptionsView`
-  - `LibraryView`
   - `TVCalendarView`
   - `RankingsView`
   - `RenewalCenterView`
+  - `RecentLibrarySection`（概览页内最近入库摘要）
+  - 旧 `/console/library` 已重定向到 `/console/dashboard`
 - 管理端功能页面：
   - `UsersView`
   - `RedemptionCodesView`

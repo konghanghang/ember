@@ -57,6 +57,7 @@
   - 导航、路由和顶栏语义仍保留 `媒体库` 入口。
   - `最近入库` 仍停留在独立页面，尚未回收至 `概览` 页。
   - 控制台内尚无明确的 `打开 Emby` 主入口。
+  - `DashboardView` 与 `LibraryView` 分别维护一套 Emby 地址读取逻辑，前端状态源重复。
 - 现有限制：
   - 现有后端接口足够支持“概览 + 最近入库摘要”，但不足以支撑一个完整的探索页。
   - 当前 `LibraryView` 仅提供内容展示，不解决“找片”和“开始播放”的主任务。
@@ -80,6 +81,7 @@
   - 前端实现必须遵守 Ember 风格。
   - 设计与交互基线以 `docs/reference/web-design-guide.md` 为准。
   - `最近入库` 模块应作为 `概览` 页的摘要区块存在，不得扩张为新的整页海报墙。
+  - `最近入库` 首版保留最近 `20` 条内容，但通过横向滑动查看，避免重新回到整页探索布局。
   - 如果补充按钮与卡片动作，主次操作语义仍需保持清晰，避免首页堆砌次级入口。
 
 ### 2. 数据与模型
@@ -98,12 +100,29 @@
   - 不变。
 - 哪些调用方会受影响：
   - `DashboardView`
-  - `LibraryView` 或其替代兼容壳
+  - 新增控制台业务组件（建议命名为 `RecentLibrarySection`）
   - 控制台侧边栏和顶栏路由元信息
 - 边界约束：
   - Ember 控制台只保留内容摘要与桥接入口，不再承担通用媒体探索职责。
   - Emby 继续作为内容搜索、条目浏览和播放的主入口。
   - 如后续确需补“库内已存在”提示，应放在订阅或缺集等桥接链路，而不是重启独立探索页。
+  - `EMBY_URL` 在控制台内必须收口为单一状态源，首页与最近入库摘要都复用同一份用户态配置，不再各自维护本地副本。
+
+### 3.1 前端落地拆分
+
+首版按下面的切片实施，避免把整页逻辑直接堆进 `DashboardView`：
+
+1. 新增控制台业务组件 `RecentLibrarySection`
+   - 负责 `GET /api/v1/media/latest` 的加载、电影/剧集切换、刷新、横向滑动卡片展示。
+   - 组件内部复用当前海报占位逻辑，但失败时只做区块内空态降级，不弹全局错误消息。
+2. `DashboardView` 只负责页面编排
+   - 接入 `RecentLibrarySection` 摘要区块。
+   - 在 `服务器连接` 卡片内补 `打开 Emby` 主入口。
+   - 复用用户态已有的 Emby 地址状态，不再新增第二套本地 `embyUrl` 状态。
+3. 路由与导航兼容收口
+   - `/console/library` 直接路由级重定向到 `/console/dashboard`。
+   - 删除侧边栏和顶栏中的 `媒体库` 独立入口与文案。
+   - 不保留带实际业务内容的兼容页壳。
 
 ### 4. 关键流程
 
@@ -121,6 +140,7 @@
 - 用户账号过期：继续遵守现有 `概览` 页过期态与服务器锁定逻辑，不能因增加最近入库摘要而破坏既有约束。
 - Emby 地址未配置：`打开 Emby` 入口应明确禁用或提供清晰提示，不能出现空跳转。
 - 旧书签命中 `/console/library`：必须通过前端路由兼容回首页，避免 404 或空白页。
+- 最近入库摘要请求失败：不允许在首页首次加载时弹全局错误 toast，避免把摘要失败放大成整页错误体验。
 - 兼容性约束：
   - 不得改变现有 `概览` 页路由归属与默认落点。
   - 不得把 `最近入库` 模块重新膨胀为新的伪探索页。
@@ -136,8 +156,9 @@
   - `services/web/src/router/index.ts`
   - `services/web/src/components/console/Sidebar.vue`
   - `services/web/src/components/console/TopBar.vue`
+  - `services/web/src/components/console/RecentLibrarySection.vue`
   - `services/web/src/views/console/DashboardView.vue`
-  - `services/web/src/views/console/LibraryView.vue`
+  - `services/web/src/views/console/LibraryView.vue`（仅兼容退场，如仍保留）
 - Bot：无
 - 配置/部署：无
 - 文档：需要更新

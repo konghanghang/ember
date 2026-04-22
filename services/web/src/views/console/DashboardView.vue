@@ -11,10 +11,11 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
+import RecentLibrarySection from '@/components/console/RecentLibrarySection.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
-import { getEmbyConfig, getMediaStats } from '@/api/console'
+import { getMediaStats } from '@/api/console'
 import type { MediaStats, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
@@ -34,7 +35,7 @@ const emptyUser: UserInfo = {
 }
 
 const user = computed(() => userStore.profile ?? emptyUser)
-const embyUrl = ref('')
+const embyUrl = computed(() => userStore.embyUrl)
 const stats = ref<MediaStats>({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 })
 const loading = ref(false)
 
@@ -66,6 +67,7 @@ const membershipStatusDescription = computed(() => {
   if (isLifetimeMember.value) return '无到期限制，可长期使用。'
   return `剩余 ${daysLeft.value} 天可用。`
 })
+const canOpenEmby = computed(() => Boolean(embyUrl.value) && !showLockedServerState.value)
 
 const fetchOverview = async () => {
   if (!userStore.profile) return
@@ -73,14 +75,24 @@ const fetchOverview = async () => {
   loading.value = true
   try {
     if (showLockedServerState.value) {
-      embyUrl.value = ''
       stats.value = { MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 }
       return
     }
 
-    const [configRes, statsRes] = await Promise.all([getEmbyConfig(), getMediaStats()])
-    if (configRes.success) embyUrl.value = configRes.url
-    if (statsRes.success) stats.value = statsRes.data
+    const [configResult, statsResult] = await Promise.allSettled([
+      userStore.fetchEmbyConfig(),
+      getMediaStats()
+    ])
+
+    if (configResult.status === 'rejected') {
+      userStore.embyUrl = ''
+    }
+
+    if (statsResult.status === 'fulfilled' && statsResult.value.success) {
+      stats.value = statsResult.value.data
+    } else {
+      stats.value = { MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 }
+    }
   } finally {
     loading.value = false
   }
@@ -93,6 +105,11 @@ const copyToClipboard = async (text: string) => {
   } catch {
     ElMessage.error('复制失败')
   }
+}
+
+const openEmby = () => {
+  if (!canOpenEmby.value) return
+  window.open(embyUrl.value, '_blank', 'noopener,noreferrer')
 }
 
 watch(
@@ -226,26 +243,41 @@ watch(
     <div class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
       <section class="rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="border-b border-gray-100 px-6 py-5">
-          <h2 class="text-lg font-semibold text-gray-900">服务器连接</h2>
+          <h2 class="text-lg font-semibold text-gray-900">Emby 入口</h2>
         </div>
 
         <div class="p-6">
           <div v-if="embyUrl && (!isExpired || authStore.isAdmin)" class="space-y-4">
             <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">服务器地址</p>
-              <div class="mt-3 flex items-center gap-2">
-                <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm text-gray-700">
-                  {{ embyUrl }}
-                </code>
-                <button
-                  aria-label="复制服务器地址"
-                  class="rounded-2xl p-3 text-gray-400 transition-colors hover:bg-white hover:text-ember cursor-pointer"
-                  @click="copyToClipboard(embyUrl)"
-                >
-                  <el-icon><CopyDocument /></el-icon>
-                </button>
+              <div class="space-y-3">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">服务器地址</p>
+
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+                  <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm text-gray-700">
+                    {{ embyUrl }}
+                  </code>
+
+                  <div class="flex items-center gap-2 lg:shrink-0">
+                    <button
+                      aria-label="复制服务器地址"
+                      class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
+                      @click="copyToClipboard(embyUrl)"
+                    >
+                      <el-icon><CopyDocument /></el-icon>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer lg:shrink-0"
+                      @click="openEmby"
+                    >
+                      打开 Emby
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
+
             <p class="text-sm leading-6 text-gray-500">
               使用此地址在 Emby 客户端登录，控制台与 Emby 客户端共用同一套账号密码。
             </p>
@@ -303,6 +335,8 @@ watch(
         </section>
       </div>
     </div>
+
+    <RecentLibrarySection :limit="20" />
   </div>
 </template>
 

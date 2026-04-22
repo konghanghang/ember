@@ -54,7 +54,10 @@ func NewMediaService() *MediaService {
 // GetEmbyConfig 获取 Emby 服务器配置
 func (s *MediaService) GetEmbyConfig() (string, error) {
 	configService := configpkg.NewConfigService()
-	url := configService.GetString("EMBY_URL")
+	url := configService.GetString("NEXT_PUBLIC_EMBY_URL")
+	if url == "" {
+		url = configService.GetString("EMBY_URL")
+	}
 
 	if url == "" {
 		return "", nil

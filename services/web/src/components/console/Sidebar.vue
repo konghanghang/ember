@@ -62,12 +62,6 @@ const menuItems = computed(() => [
     role: 'user'
   },
   {
-    title: '媒体库',
-    path: '/console/library',
-    icon: Film,
-    role: 'user'
-  },
-  {
     title: '追剧日历',
     path: '/console/tv-calendar',
     icon: Calendar,
