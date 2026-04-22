@@ -7,7 +7,6 @@ import {
   CopyDocument,
   Film,
   Monitor,
-  Setting,
   VideoPlay
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
@@ -202,139 +201,121 @@ watch(
       </button>
     </div>
 
-    <div class="grid gap-6 md:grid-cols-3">
-      <div class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-colors hover:border-purple-200">
-        <div class="flex items-center gap-4">
-          <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-50 text-purple-600">
-            <el-icon :size="24"><Film /></el-icon>
-          </div>
-          <div>
-            <p class="text-3xl font-semibold text-gray-900">{{ stats.MovieCount }}</p>
-            <p class="text-sm text-gray-500">电影收藏</p>
-          </div>
+    <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div class="border-b border-gray-100 px-6 py-5">
+        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <h2 class="text-lg font-semibold text-gray-900">片库概览</h2>
+          <span class="inline-flex w-fit items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+            实时摘要
+          </span>
         </div>
       </div>
 
-      <div class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-colors hover:border-emerald-200">
-        <div class="flex items-center gap-4">
-          <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-            <el-icon :size="24"><VideoPlay /></el-icon>
+      <div class="grid gap-4 p-4 md:grid-cols-3 md:p-6">
+        <article class="rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white p-5 shadow-sm">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-sm font-medium text-gray-500">电影收藏</p>
+              <p class="mt-3 text-3xl font-semibold text-gray-900">{{ stats.MovieCount }}</p>
+            </div>
+            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-purple-600 shadow-sm">
+              <el-icon :size="24"><Film /></el-icon>
+            </div>
           </div>
-          <div>
-            <p class="text-3xl font-semibold text-gray-900">{{ stats.SeriesCount }}</p>
-            <p class="text-sm text-gray-500">剧集收藏</p>
+        </article>
+
+        <article class="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-white p-5 shadow-sm">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-sm font-medium text-gray-500">剧集收藏</p>
+              <p class="mt-3 text-3xl font-semibold text-gray-900">{{ stats.SeriesCount }}</p>
+            </div>
+            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 shadow-sm">
+              <el-icon :size="24"><VideoPlay /></el-icon>
+            </div>
           </div>
+        </article>
+
+        <article class="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-white p-5 shadow-sm">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-sm font-medium text-gray-500">总集数</p>
+              <p class="mt-3 text-3xl font-semibold text-gray-900">{{ stats.EpisodeCount }}</p>
+            </div>
+            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-600 shadow-sm">
+              <el-icon :size="24"><Monitor /></el-icon>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div class="border-b border-gray-100 px-6 py-5">
+        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <h2 class="text-lg font-semibold text-gray-900">打开 Emby</h2>
+          <span
+            v-if="embyUrl && (!isExpired || authStore.isAdmin)"
+            class="inline-flex w-fit items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700"
+          >
+            当前可用
+          </span>
         </div>
       </div>
 
-      <div class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-colors hover:border-sky-200">
-        <div class="flex items-center gap-4">
-          <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
-            <el-icon :size="24"><Monitor /></el-icon>
-          </div>
-          <div>
-            <p class="text-3xl font-semibold text-gray-900">{{ stats.EpisodeCount }}</p>
-            <p class="text-sm text-gray-500">总集数</p>
-          </div>
-        </div>
-      </div>
-    </div>
+      <div class="p-6">
+        <div v-if="embyUrl && (!isExpired || authStore.isAdmin)" class="space-y-4">
+          <div class="rounded-3xl border border-gray-100 bg-gradient-to-br from-gray-50 via-white to-white p-4 shadow-sm md:p-5">
+            <div class="space-y-3">
+              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">服务器地址</p>
 
-    <div class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-      <section class="rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div class="border-b border-gray-100 px-6 py-5">
-          <h2 class="text-lg font-semibold text-gray-900">Emby 入口</h2>
-        </div>
+              <div class="flex flex-col gap-3 xl:flex-row xl:items-center">
+                <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm">
+                  {{ embyUrl }}
+                </code>
 
-        <div class="p-6">
-          <div v-if="embyUrl && (!isExpired || authStore.isAdmin)" class="space-y-4">
-            <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-              <div class="space-y-3">
-                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">服务器地址</p>
+                <div class="flex items-center gap-2 xl:shrink-0">
+                  <button
+                    aria-label="复制服务器地址"
+                    class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
+                    @click="copyToClipboard(embyUrl)"
+                  >
+                    <el-icon><CopyDocument /></el-icon>
+                  </button>
 
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
-                  <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm text-gray-700">
-                    {{ embyUrl }}
-                  </code>
-
-                  <div class="flex items-center gap-2 lg:shrink-0">
-                    <button
-                      aria-label="复制服务器地址"
-                      class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
-                      @click="copyToClipboard(embyUrl)"
-                    >
-                      <el-icon><CopyDocument /></el-icon>
-                    </button>
-
-                    <button
-                      type="button"
-                      class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer lg:shrink-0"
-                      @click="openEmby"
-                    >
-                      打开 Emby
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    class="btn-ember inline-flex h-11 min-w-[9.5rem] items-center justify-center rounded-xl px-5 text-sm cursor-pointer"
+                    @click="openEmby"
+                  >
+                    打开 Emby
+                  </button>
                 </div>
               </div>
             </div>
-
-            <p class="text-sm leading-6 text-gray-500">
-              使用此地址在 Emby 客户端登录，控制台与 Emby 客户端共用同一套账号密码。
-            </p>
           </div>
 
-          <EmberEmptyStateCard
-            v-else-if="showLockedServerState"
-            :icon="Monitor"
-            tone="danger"
-            title="服务器访问已锁定"
-            description="当前账号已过期，请先续费后再恢复 Emby 访问权限。"
-          />
-
-          <EmberEmptyStateCard
-            v-else
-            :icon="Monitor"
-            title="当前未提供服务器入口"
-            description="请联系管理员检查 Emby 连接配置。"
-          />
+          <p class="text-sm text-gray-500">
+            控制台与 Emby 客户端共用同一套账号密码。
+          </p>
         </div>
-      </section>
 
-      <div class="space-y-6">
-        <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-          <div class="border-b border-gray-100 pb-5">
-            <h2 class="text-lg font-semibold text-gray-900">快捷操作</h2>
-          </div>
+        <EmberEmptyStateCard
+          v-else-if="showLockedServerState"
+          :icon="Monitor"
+          tone="danger"
+          title="服务器访问已锁定"
+          description="当前账号已过期，请先续费后再恢复 Emby 访问权限。"
+        />
 
-          <div class="mt-5 space-y-3">
-            <button
-              class="group flex w-full items-center gap-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 text-left transition-colors hover:border-gray-200 hover:bg-white cursor-pointer"
-              @click="router.push('/console/account')"
-            >
-              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-gray-700 shadow-sm transition-colors group-hover:text-ember">
-                <el-icon :size="20"><Setting /></el-icon>
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold text-gray-900">账号中心</p>
-                <p class="mt-1 text-xs text-gray-500">编辑邮箱、密码和 Telegram 绑定</p>
-              </div>
-            </button>
-            <button
-              class="group flex w-full items-center gap-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4 text-left transition-colors hover:border-gray-200 hover:bg-white cursor-pointer"
-              @click="router.push('/console/subscriptions')"
-            >
-              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-gray-700 shadow-sm transition-colors group-hover:text-ember">
-                <el-icon :size="20"><VideoPlay /></el-icon>
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold text-gray-900">订阅管理</p>
-                <p class="mt-1 text-xs text-gray-500">查看当前求片记录和审核状态</p>
-              </div>
-            </button>
-          </div>
-        </section>
+        <EmberEmptyStateCard
+          v-else
+          :icon="Monitor"
+          title="当前未提供服务器入口"
+          description="请联系管理员检查 Emby 连接配置。"
+        />
       </div>
-    </div>
+    </section>
 
     <RecentLibrarySection :limit="20" />
   </div>
