@@ -21,6 +21,8 @@ interface EmbyAccessEntry {
   key: string
   label: string
   url: string
+  tag?: string
+  primary?: boolean
 }
 
 const authStore = useAuthStore()
@@ -86,7 +88,21 @@ const embyAccessEntries = computed<EmbyAccessEntry[]>(() => {
     {
       key: 'primary',
       label: '主线路',
-      url: embyUrl.value
+      url: embyUrl.value,
+      tag: '推荐',
+      primary: true
+    },
+    {
+      key: 'backup-a',
+      label: '备用线路 A',
+      url: embyUrl.value,
+      tag: '备用'
+    },
+    {
+      key: 'backup-b',
+      label: '备用线路 B',
+      url: embyUrl.value,
+      tag: '备用'
     }
   ]
 })
@@ -219,38 +235,70 @@ watch(
 
             <div v-if="embyAccessEntries.length > 0 && !showLockedServerState" class="space-y-3">
               <article
-                v-for="entry in embyAccessEntries"
-                :key="entry.key"
-                class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
+                v-if="embyAccessEntries[0]"
+                class="rounded-2xl border border-ember/15 bg-white p-4 shadow-sm"
               >
-                <div class="flex flex-col gap-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="inline-flex w-fit items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-                      {{ entry.label }}
-                    </span>
+                <div class="flex flex-col gap-3 xl:flex-row xl:items-center">
+                  <span class="inline-flex h-11 w-fit items-center rounded-full bg-ember/10 px-4 text-sm font-medium text-ember xl:shrink-0">
+                    {{ embyAccessEntries[0].label }}
+                  </span>
+
+                  <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                    {{ embyAccessEntries[0].url }}
+                  </code>
+
+                  <div class="flex items-center gap-2 xl:shrink-0">
+                    <button
+                      :aria-label="`复制${embyAccessEntries[0].label}地址`"
+                      class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
+                      @click="copyToClipboard(embyAccessEntries[0].url)"
+                    >
+                      <el-icon><CopyDocument /></el-icon>
+                    </button>
+
                     <button
                       type="button"
-                      class="btn-ember inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm cursor-pointer"
+                      class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer"
+                      @click="openEmby(embyAccessEntries[0].url)"
+                    >
+                      打开
+                    </button>
+                  </div>
+                </div>
+              </article>
+
+              <div v-if="embyAccessEntries.length > 1" class="rounded-2xl border border-gray-100 bg-white shadow-sm divide-y divide-gray-100">
+                <div
+                  v-for="entry in embyAccessEntries.slice(1)"
+                  :key="entry.key"
+                  class="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center"
+                >
+                  <span class="inline-flex h-9 w-fit items-center rounded-full bg-gray-100 px-3 text-sm font-medium text-gray-700 lg:shrink-0">
+                    {{ entry.label }}
+                  </span>
+
+                  <code class="min-w-0 flex-1 truncate text-sm text-gray-500 lg:px-2">
+                    {{ entry.url }}
+                  </code>
+
+                  <div class="flex items-center gap-2 lg:shrink-0">
+                    <button
+                      :aria-label="`复制${entry.label}地址`"
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
+                      @click="copyToClipboard(entry.url)"
+                    >
+                      <el-icon><CopyDocument /></el-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex h-9 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer"
                       @click="openEmby(entry.url)"
                     >
                       打开
                     </button>
                   </div>
-
-                  <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-                      {{ entry.url }}
-                    </code>
-                    <button
-                      :aria-label="`复制${entry.label}地址`"
-                      class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer sm:shrink-0"
-                      @click="copyToClipboard(entry.url)"
-                    >
-                      <el-icon><CopyDocument /></el-icon>
-                    </button>
-                  </div>
                 </div>
-              </article>
+              </div>
             </div>
 
             <EmberEmptyStateCard
