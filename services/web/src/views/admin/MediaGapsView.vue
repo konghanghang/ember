@@ -82,10 +82,13 @@ let scanStatusPollTimer: ReturnType<typeof setTimeout> | null = null
 
 const queryParams = ref<MediaGapListQuery>({
   page: 1,
-  pageSize: 20,
+  pageSize: 9,
   keyword: '',
   status: ''
 })
+
+const groupedPageSizes = [9, 18, 36]
+const tablePageSizes = [20, 50, 100]
 
 const statusOptions: Array<{ label: string; value: MediaGapStatus }> = [
   { label: '待处理', value: 'MISSING' },
@@ -181,6 +184,14 @@ const compactStats = computed(() => [
     tone: 'muted'
   }
 ])
+
+const currentPageSizes = computed(() => {
+  return viewMode.value === 'grouped' ? groupedPageSizes : tablePageSizes
+})
+
+const defaultPageSize = computed(() => {
+  return viewMode.value === 'grouped' ? groupedPageSizes[0] : tablePageSizes[0]
+})
 
 const isTerminalStatus = (status: MediaGapStatus) => status === 'INGESTED' || status === 'IGNORED'
 const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
@@ -655,7 +666,7 @@ const handleSearch = () => {
 const handleReset = () => {
   queryParams.value = {
     page: 1,
-    pageSize: 20,
+    pageSize: defaultPageSize.value,
     keyword: '',
     status: ''
   }
@@ -884,6 +895,9 @@ onBeforeUnmount(() => {
 
 watch(viewMode, () => {
   queryParams.value.page = 1
+  if (!currentPageSizes.value.includes(queryParams.value.pageSize ?? 0)) {
+    queryParams.value.pageSize = defaultPageSize.value
+  }
   fetchData()
 })
 
@@ -1212,7 +1226,7 @@ watch(sortMode, () => {
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
           :total="total"
-          :page-sizes="[20, 50, 100]"
+          :page-sizes="currentPageSizes"
           layout="total, sizes, prev, pager, next, jumper"
           background
           @current-change="handlePageChange"
@@ -1312,7 +1326,7 @@ watch(sortMode, () => {
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
           :total="total"
-          :page-sizes="[20, 50, 100]"
+          :page-sizes="currentPageSizes"
           layout="total, sizes, prev, pager, next, jumper"
           background
           @current-change="handlePageChange"
