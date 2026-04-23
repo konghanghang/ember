@@ -18,7 +18,7 @@
   - 例如：[缺集管理与精准补集实现方案](./plan/media-subscription/gap-management-and-precision-download.md)
   - 例如：[订阅状态可见性与结果通知实现方案](./plan/media-subscription/subscription-status-and-notification.md)
 - `bot-telegram/`：Telegram 绑定、Bot 菜单、搜索订阅、通知、Polling
-- `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板、后台创建用户、后台组件基建收口
+- `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板、后台创建用户、后台组件基建收口、后台 UI 一致性收口
 - `architecture/`：设置中心、邮箱鉴权边界等结构性方案
 
 `report/` 用于保存总结、复盘和历史测试报告，例如：
