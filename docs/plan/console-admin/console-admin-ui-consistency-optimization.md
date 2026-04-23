@@ -2,7 +2,7 @@
 
 > 状态：进行中
 > 负责人：Ember
-> 更新时间：2026-04-20
+> 更新时间：2026-04-23
 
 ## 背景
 
@@ -70,10 +70,11 @@
   - `NewSubscriptionView` 搜索链路已补 latest-only 保护，旧请求不再覆盖新查询结果或错误态。
   - `SubscriptionsView` 已区分“全量为空”和“筛选后为空”的空态文案与动作。
   - `EmberSearchInput`、`EmberSelectField`、`EmberDateField`、`EmberDateRangeField` 已改为消费共享 field token，降低组件 scoped CSS 与 `base.css` 的样式漂移风险。
+  - `SettingsView` 内部字段区已切回全局 `input-ember` / `form-number` 基线，不再保留页面私有 `settings-input` 字段样式。
+  - 筛选基础组件的通用外观样式已进一步下沉到 `src/assets/base.css`，组件内只保留图标占位、range separator 等结构性细节。
   - `docs/reference/web-design-guide.md` 与 `docs/system-architecture.md` 已同步本轮稳定结论。
 - 剩余项：
-  - `SettingsView` 内部字段区仍保留局部输入样式，尚未进一步和全局表单基线完全收口。
-  - 组件样式已改为消费共享 token，但筛选基础组件仍保留 scoped CSS 承载结构性细节，后续要继续评估是否还能进一步下沉到统一基线。
+  - 继续补浏览器级手工走查，覆盖桌面端、移动端、键盘路径和真实图片失败场景，确认本轮样式收口没有引入交互回归。
 - 现有限制：
   - 同类页面的视觉节奏和交互反馈已有明显收口，但基础组件和全局样式仍未完成单一来源治理。
   - 某些复杂页面内部字段布局仍然保留历史实现，后续继续收口时要避免误伤业务表单逻辑。
@@ -185,7 +186,7 @@
 - `P2`
   - 本轮修复后，`MediaQualityView` 主表无标题、`SettingsView` 键盘交互不完整、`EmberSegmentTabs` 共享语义模型、`SessionsView` / `NewSubscriptionView` 假空态、重复报错、搜索竞态，以及 `SubscriptionsView` 筛选空态误导都已收口。
 - `P3`
-  - 基础筛选组件虽已切到共享 token，但 scoped CSS 仍保留结构性样式，后续还可继续压缩样式来源。
+  - 基础筛选组件已经把通用外观收口到 `base.css`，但仍需继续观察结构性 scoped CSS 是否足够稳定，避免后续页面再长出新分支。
   - 本轮缺少浏览器级手工走查，移动端与真实键盘路径仍需补验证。
 
 ## 落地后文档处理
@@ -198,7 +199,5 @@
   - 表单与筛选控件样式来源的唯一基线
 - 若 `docs/system-architecture.md` 中的前端结构描述发生稳定变化，同步更新基础组件层职责说明。
 - 归档条件：
-  - `SettingsView` 内部字段区样式与基础表单基线完成收口。
-  - 基础筛选组件与 `base.css` 的样式来源继续收敛到更稳定的单一来源。
   - 关键页面完成手工走查并确认无明显交互回归。
 - 满足上述条件后移入 `docs/archive/plan/console-admin/`。

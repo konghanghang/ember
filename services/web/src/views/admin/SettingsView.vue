@@ -698,7 +698,7 @@ onMounted(async () => {
                     v-model="draftValues[item.key]"
                     :min="item.minValue"
                     :max="item.maxValue"
-                    class="!w-full"
+                    class="w-full !w-full form-number"
                     controls-position="right"
                   />
 
@@ -708,7 +708,7 @@ onMounted(async () => {
                     show-password
                     :placeholder="item.hasValue ? '已设置，输入新值以覆盖' : '请输入配置值'"
                     clearable
-                    class="settings-input"
+                    class="input-ember"
                   />
 
                   <el-input
@@ -717,7 +717,7 @@ onMounted(async () => {
                     type="textarea"
                     :rows="3"
                     :placeholder="item.placeholder || '请输入配置值'"
-                    class="settings-input"
+                    class="input-ember"
                   />
 
                   <el-input
@@ -725,7 +725,7 @@ onMounted(async () => {
                     v-model="draftValues[item.key]"
                     :placeholder="item.placeholder || '请输入配置值'"
                     clearable
-                    class="settings-input"
+                    class="input-ember"
                   />
 
                   <div
@@ -746,48 +746,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-:deep(.settings-input .el-input__wrapper),
-:deep(.el-input-number .el-input__wrapper) {
-  min-height: 42px;
-  border-radius: 0.75rem;
-  background-color: #f9fafb !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.settings-input:hover .el-input__wrapper),
-:deep(.el-input-number:hover .el-input__wrapper) {
-  background-color: #ffffff !important;
-}
-
-:deep(.settings-input .el-input__wrapper.is-focus),
-:deep(.el-input-number .el-input__wrapper.is-focus),
-:deep(.el-input-number.is-focus .el-input__wrapper) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
-:deep(.settings-input .el-textarea__inner) {
-  border-radius: 0.75rem;
-  background-color: #f9fafb !important;
-  box-shadow: 0 0 0 1px #e5e7eb inset !important;
-  border: none !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.settings-input:hover .el-textarea__inner) {
-  background-color: #ffffff !important;
-}
-
-:deep(.settings-input .el-textarea__inner:focus) {
-  background-color: #ffffff !important;
-  box-shadow:
-    0 0 0 1px var(--ember-red) inset,
-    0 0 0 4px rgba(229, 9, 20, 0.1) !important;
-}
-
 .animate-fade-in {
   animation: fadeIn 0.35s ease-out forwards;
 }

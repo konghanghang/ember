@@ -51,37 +51,6 @@ const handleChange = (value: [string, string] | [] | null | undefined) => {
 </template>
 
 <style scoped>
-:deep(.ember-filter-date-range.el-date-editor),
-:deep(.ember-filter-date-range .el-range-editor.el-input__wrapper),
-:deep(.ember-filter-date-range.el-range-editor.el-input__wrapper) {
-  height: var(--ember-field-height) !important;
-  min-height: var(--ember-field-height) !important;
-  border-radius: var(--ember-field-radius) !important;
-  box-shadow: var(--ember-field-shadow) !important;
-  background-color: var(--ember-field-bg) !important;
-}
-
-:deep(.ember-filter-date-range .el-input__wrapper),
-:deep(.ember-filter-date-range.el-input__wrapper) {
-  overflow: hidden;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  padding-left: 2.5rem !important;
-  box-shadow: var(--ember-field-shadow) !important;
-  background-color: var(--ember-field-bg) !important;
-}
-
-:deep(.ember-filter-date-range:hover),
-:deep(.ember-filter-date-range:hover .el-input__wrapper) {
-  background-color: var(--ember-field-bg-hover) !important;
-}
-
-:deep(.ember-filter-date-range.is-active),
-:deep(.ember-filter-date-range.is-active .el-input__wrapper) {
-  box-shadow: var(--ember-field-shadow-focus) !important;
-  background-color: var(--ember-field-bg-hover) !important;
-}
-
 :deep(.ember-filter-date-range .el-range-input) {
   width: 11rem;
   min-width: 11rem;

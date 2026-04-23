@@ -52,35 +52,3 @@ const handleChange = (value: string | number | boolean | null | undefined) => {
     </div>
   </div>
 </template>
-
-<style scoped>
-:deep(.ember-filter-select .el-select__wrapper) {
-  height: var(--ember-field-height);
-  min-height: var(--ember-field-height);
-  padding-top: 0;
-  padding-bottom: 0;
-  border-radius: var(--ember-field-radius);
-  background-color: var(--ember-field-bg) !important;
-  box-shadow: var(--ember-field-shadow) !important;
-  transition: all 0.2s ease;
-}
-
-:deep(.ember-filter-select:hover .el-select__wrapper) {
-  background-color: var(--ember-field-bg-hover) !important;
-}
-
-:deep(.ember-filter-select .el-select__wrapper.is-focused),
-:deep(.ember-filter-select .el-select__wrapper.is-focus),
-:deep(.ember-filter-select.is-focus .el-select__wrapper) {
-  background-color: var(--ember-field-bg-hover) !important;
-  box-shadow: var(--ember-field-shadow-focus) !important;
-}
-
-:deep(.ember-filter-select-with-icon .el-select__wrapper) {
-  padding-left: 2.5rem;
-}
-
-:deep(.ember-filter-select .el-select__selection) {
-  min-height: 0;
-}
-</style>

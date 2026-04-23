@@ -131,6 +131,19 @@ body {
   border-bottom-right-radius: var(--ember-field-radius);
 }
 
+.form-number.is-controls-right .el-input-number__increase {
+  border-top-right-radius: var(--ember-field-radius);
+  border-bottom-right-radius: 0;
+  border-top-left-radius: 0;
+}
+
+.form-number.is-controls-right .el-input-number__decrease {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: var(--ember-field-radius);
+}
+
 .form-number:hover .el-input__wrapper,
 .form-number:hover .el-input-number__decrease,
 .form-number:hover .el-input-number__increase {
@@ -184,6 +197,130 @@ body {
 
 .form-date.el-date-editor.el-input {
   height: var(--ember-field-height);
+}
+
+.ember-filter-input {
+  background-color: var(--ember-field-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--ember-field-radius);
+  height: var(--ember-field-height);
+  line-height: 1.2;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.ember-filter-input::placeholder {
+  color: #9ca3af;
+}
+
+.ember-filter-input:hover {
+  background-color: var(--ember-field-bg-hover);
+}
+
+.ember-filter-input:focus {
+  background-color: var(--ember-field-bg-hover);
+  border-color: var(--border-focus);
+  box-shadow: var(--ember-field-shadow-focus);
+}
+
+.ember-filter-select .el-select__wrapper {
+  height: var(--ember-field-height);
+  min-height: var(--ember-field-height);
+  padding-top: 0;
+  padding-bottom: 0;
+  border-radius: var(--ember-field-radius);
+  background-color: var(--ember-field-bg) !important;
+  box-shadow: var(--ember-field-shadow) !important;
+  transition: all 0.2s ease;
+}
+
+.ember-filter-select:hover .el-select__wrapper {
+  background-color: var(--ember-field-bg-hover) !important;
+}
+
+.ember-filter-select .el-select__wrapper.is-focused,
+.ember-filter-select .el-select__wrapper.is-focus,
+.ember-filter-select.is-focus .el-select__wrapper {
+  background-color: var(--ember-field-bg-hover) !important;
+  box-shadow: var(--ember-field-shadow-focus) !important;
+}
+
+.ember-filter-select-with-icon .el-select__wrapper {
+  padding-left: 2.5rem;
+}
+
+.ember-filter-select .el-select__selection {
+  min-height: 0;
+}
+
+.ember-filter-date.el-date-editor,
+.ember-filter-date.el-input,
+.ember-filter-date.el-date-editor.el-input {
+  display: block;
+  width: 100%;
+  height: var(--ember-field-height);
+  min-height: var(--ember-field-height);
+}
+
+.ember-filter-date .el-input__wrapper {
+  height: var(--ember-field-height);
+  min-height: var(--ember-field-height);
+  background-color: var(--ember-field-bg) !important;
+  border-radius: var(--ember-field-radius);
+  box-shadow: var(--ember-field-shadow) !important;
+  transition: all 0.2s ease;
+}
+
+.ember-filter-date:hover .el-input__wrapper {
+  background-color: var(--ember-field-bg-hover) !important;
+}
+
+.ember-filter-date .el-input__wrapper.is-focus {
+  background-color: var(--ember-field-bg-hover) !important;
+  box-shadow: var(--ember-field-shadow-focus) !important;
+}
+
+.ember-filter-date .el-input__inner {
+  height: 100%;
+  padding-left: 2.5rem;
+  font-size: 0.875rem;
+}
+
+.ember-filter-date .el-input__prefix {
+  display: none;
+}
+
+.ember-filter-date-range.el-date-editor,
+.ember-filter-date-range .el-range-editor.el-input__wrapper,
+.ember-filter-date-range.el-range-editor.el-input__wrapper {
+  height: var(--ember-field-height) !important;
+  min-height: var(--ember-field-height) !important;
+  border-radius: var(--ember-field-radius) !important;
+  box-shadow: var(--ember-field-shadow) !important;
+  background-color: var(--ember-field-bg) !important;
+}
+
+.ember-filter-date-range .el-input__wrapper,
+.ember-filter-date-range.el-input__wrapper {
+  overflow: hidden;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 2.5rem !important;
+  box-shadow: var(--ember-field-shadow) !important;
+  background-color: var(--ember-field-bg) !important;
+}
+
+.ember-filter-date-range:hover,
+.ember-filter-date-range:hover .el-input__wrapper {
+  background-color: var(--ember-field-bg-hover) !important;
+}
+
+.ember-filter-date-range.is-active,
+.ember-filter-date-range.is-active .el-input__wrapper {
+  box-shadow: var(--ember-field-shadow-focus) !important;
+  background-color: var(--ember-field-bg-hover) !important;
 }
 
 :root {
