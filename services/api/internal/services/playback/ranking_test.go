@@ -44,6 +44,13 @@ func TestPreviewRankingGroupsEpisodesBySeriesID(t *testing.T) {
 		t.Fatalf("expected 2 episode rankings, got %d", len(result.Episodes))
 	}
 
+	if result.Movies[0].ItemKey != "movie_1" {
+		t.Fatalf("expected movie_1 to remain after filtering, got %q", result.Movies[0].ItemKey)
+	}
+	if result.Movies[0].Duration != 5400 {
+		t.Fatalf("expected movie_1 duration 5400, got %d", result.Movies[0].Duration)
+	}
+
 	topEpisode := result.Episodes[0]
 	if topEpisode.ItemKey != "series_a" {
 		t.Fatalf("expected merged series_a, got %q", topEpisode.ItemKey)
@@ -93,6 +100,7 @@ func handlePlaybackQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http
 			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 			"results": [][]any{
 				{"movie_1", "星际穿越", "movie_item", 2, 5400},
+				{"movie_short", "短片预告", "movie_item", 1, 59},
 			},
 			"message": "",
 		})

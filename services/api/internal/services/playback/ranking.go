@@ -17,7 +17,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const rankingLimit = 10
+const (
+	rankingLimit                    = 10
+	minRankingDurationSeconds int64 = 60
+)
 
 type PlaybackRankingService struct {
 	embyService *embyint.EmbyService
@@ -172,8 +175,10 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 	}
 
 	aggregated := make([]models.PlaybackRanking, 0, len(seriesRows))
+	shortSeriesCount := 0
 	for _, row := range seriesRows {
-		if row.duration <= 0 {
+		if row.duration < minRankingDurationSeconds {
+			shortSeriesCount++
 			continue
 		}
 		aggregated = append(aggregated, models.PlaybackRanking{
@@ -204,13 +209,14 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 	}
 
 	log.Printf(
-		"[PlaybackRanking] episode aggregates rows=%d itemIDs=%d resolvedItems=%d series=%d rankings=%d zeroDuration=%d missingDetail=%d missingSeries=%d range=%s~%s",
+		"[PlaybackRanking] episode aggregates rows=%d itemIDs=%d resolvedItems=%d series=%d rankings=%d zeroDuration=%d shortSeries=%d missingDetail=%d missingSeries=%d range=%s~%s",
 		len(rows),
 		len(itemIDs),
 		len(itemDetails),
 		len(seriesRows),
 		len(aggregated),
 		zeroDurationCount,
+		shortSeriesCount,
 		missingItemDetailCount,
 		missingSeriesInfoCount,
 		start.Format(time.RFC3339),
@@ -315,8 +321,10 @@ WHERE DateCreated >= '%s'
 
 func convertAggregateRows(category models.RankingCategory, rows []playbackAggregateRow) []models.PlaybackRanking {
 	rankings := make([]models.PlaybackRanking, 0, len(rows))
+	shortDurationCount := 0
 	for _, row := range rows {
-		if row.duration <= 0 {
+		if row.duration < minRankingDurationSeconds {
+			shortDurationCount++
 			continue
 		}
 		rankings = append(rankings, models.PlaybackRanking{
@@ -328,6 +336,9 @@ func convertAggregateRows(category models.RankingCategory, rows []playbackAggreg
 			PlayCount:      row.playCount,
 			Duration:       row.duration,
 		})
+	}
+	if shortDurationCount > 0 {
+		log.Printf("[PlaybackRanking] skip short %s rows count=%d minDuration=%ds", category, shortDurationCount, minRankingDurationSeconds)
 	}
 	return rankings
 }

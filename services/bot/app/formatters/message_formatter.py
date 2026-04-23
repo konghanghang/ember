@@ -240,8 +240,9 @@ def _format_duration(seconds: int) -> str:
     if seconds <= 0:
         return "0m"
 
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
+    minutes = (seconds + 59) // 60
+    hours = minutes // 60
+    minutes = minutes % 60
     if hours > 24:
         days = hours // 24
         hours = hours % 24
