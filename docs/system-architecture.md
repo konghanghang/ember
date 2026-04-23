@@ -401,7 +401,7 @@ services/
 | MpError | *string(500) | mpError | MoviePilot 同步错误 |
 | RejectReason | *string | rejectReason | 管理员拒绝原因 |
 | ReviewedAt | *time.Time | reviewedAt | 审核时间（通过/拒绝） |
-| IngestedAt | *time.Time | ingestedAt | 真实入库时间（由 Emby webhook 回写） |
+| IngestedAt | *time.Time | ingestedAt | 真实入库时间（由 Emby webhook 或管理员校验命中后收口写入） |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
@@ -410,6 +410,7 @@ services/
 - 管理员审核通过后转 `APPROVED`，并记录 `reviewedAt`
 - 管理员拒绝后转 `REJECTED`，必须写入 `rejectReason` 与 `reviewedAt`
 - Emby 真实入库事件命中已通过订阅后转 `INGESTED`，并写入 `ingestedAt`
+- 对历史漏回写记录，管理员可主动触发 Emby 校验；只有命中真实资源时，`APPROVED` 才能收口为 `INGESTED`
 
 ### 4.6 EmailVerification（邮箱验证码）
 
@@ -1008,6 +1009,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
+| PUT | `/api/v1/admin/subscriptions/:id/ingest` | 校验 Emby 已入库后收口（仅 `APPROVED` 可用） |
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
 | GET | `/api/v1/admin/playback-history` | 播放历史查询 |

@@ -8,4 +8,6 @@ var (
 	ErrSubscriptionInvalidSeason = errors.New("season 不能小于 0")
 	ErrSubscriptionHandled       = errors.New("订阅已被处理")
 	ErrSubscriptionRejectReason  = errors.New("拒绝原因不能为空")
+	ErrSubscriptionNotApproved   = errors.New("只能手动处理已通过且待入库的订阅")
+	ErrSubscriptionNotInLibrary  = errors.New("Emby 库中未找到对应已入库资源")
 )

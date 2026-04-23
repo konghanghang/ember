@@ -412,6 +412,13 @@ export function rejectSubscription(id: string, reason: string) {
   })
 }
 
+export function markSubscriptionIngested(id: string) {
+  return request({
+    url: `/admin/subscriptions/${id}/ingest`,
+    method: 'put'
+  })
+}
+
 export function deleteSubscriptionAsAdmin(id: string) {
   return request({
     url: `/admin/subscriptions/${id}`,

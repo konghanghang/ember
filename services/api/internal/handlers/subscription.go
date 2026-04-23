@@ -268,6 +268,35 @@ func (h *SubscriptionHandler) RejectSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// MarkSubscriptionIngested 校验库内存在后标记订阅已入库
+// PUT /api/v1/admin/subscriptions/:id/ingest
+func (h *SubscriptionHandler) MarkSubscriptionIngested(c *gin.Context) {
+	subscriptionID := c.Param("id")
+	if subscriptionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "订阅 ID 不能为空"})
+		return
+	}
+
+	if err := h.service.MarkSubscriptionIngestedAsAdmin(subscriptionID); err != nil {
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionNotApproved) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionNotInLibrary) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // AdminDeleteSubscription 管理员删除订阅
 // DELETE /api/v1/admin/subscriptions/:id
 func (h *SubscriptionHandler) AdminDeleteSubscription(c *gin.Context) {

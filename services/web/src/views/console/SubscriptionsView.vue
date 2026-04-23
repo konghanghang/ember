@@ -15,7 +15,7 @@ import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useAuthStore } from '@/store/auth'
-import { approveSubscription, rejectSubscription, deleteSubscriptionAsAdmin } from '@/api/admin'
+import { approveSubscription, rejectSubscription, markSubscriptionIngested, deleteSubscriptionAsAdmin } from '@/api/admin'
 import { deleteSubscription, getSubscriptions } from '@/api/console'
 import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
 import type { Subscription, SubscriptionStatus } from '@/types/api'
@@ -133,6 +133,26 @@ const handleDelete = async (sub: Subscription) => {
   }
 }
 
+const handleMarkIngested = async (sub: Subscription) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定校验 "${formatSubscriptionTitle(sub)}" 是否已在 Emby 入库吗？只有校验命中真实资源后，状态才会改成“已入库”。`,
+      '校验入库确认',
+      {
+        confirmButtonText: '开始校验',
+        cancelButtonText: '取消',
+        type: 'info'
+      }
+    )
+
+    await markSubscriptionIngested(sub.id)
+    ElMessage.success(`校验通过，已收口: ${formatSubscriptionTitle(sub)}`)
+    fetchData()
+  } catch {
+    // cancelled
+  }
+}
+
 const getStatusColor = (status: SubscriptionStatus) => {
   switch (status) {
     case 'PENDING': return 'bg-yellow-500'
@@ -218,6 +238,16 @@ const cardActionButtons = (sub: Subscription) => {
   }
 
   if (isAdmin.value && sub.status !== 'PENDING') {
+    if (sub.status === 'APPROVED') {
+      buttons.push({
+        key: 'ingest',
+        label: '校验入库',
+        icon: Check,
+        tone: 'success',
+        action: () => handleMarkIngested(sub)
+      })
+    }
+
     buttons.push({
       key: 'delete',
       label: '删除记录',

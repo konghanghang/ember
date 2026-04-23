@@ -38,24 +38,36 @@ func (s *SubscriptionService) CheckExisting(req CheckExistingRequest) (*CheckExi
 		return nil, err
 	}
 
-	resp := &CheckExistingResponse{}
 	embyService := embyint.NewEmbyService()
 	if !embyService.IsConfigured() {
 		log.Printf("[Subscription] 跳过库内检测：Emby 未配置 type=%s tmdbId=%s season=%d", req.Type, strings.TrimSpace(req.TmdbID), season)
-		resp.DetectionFailed = true
-		resp.ExistingSummary = &ExistingSummary{
-			MatchType:       ExistingMatchUnknown,
-			Message:         "库内检测暂时不可用，确认后仍可继续提交。",
-			DetectionFailed: true,
-		}
-		return resp, nil
+		return detectionFailedResponse("库内检测暂时不可用，确认后仍可继续提交。"), nil
 	}
+
+	resp, err := checkExistingInLibrary(embyService, CheckExistingRequest{
+		Type:   req.Type,
+		TmdbID: req.TmdbID,
+		Season: season,
+	})
+	if err != nil {
+		if req.Type == models.MediaMovie {
+			log.Printf("[Subscription] 电影库内检测失败 tmdbId=%s err=%v", strings.TrimSpace(req.TmdbID), err)
+		} else {
+			log.Printf("[Subscription] 剧集库内检测失败 tmdbId=%s season=%d err=%v", strings.TrimSpace(req.TmdbID), season, err)
+		}
+		return detectionFailedResponse("库内检测失败，确认后仍可继续提交。"), nil
+	}
+
+	return resp, nil
+}
+
+func checkExistingInLibrary(embyService *embyint.EmbyService, req CheckExistingRequest) (*CheckExistingResponse, error) {
+	resp := &CheckExistingResponse{}
 
 	if req.Type == models.MediaMovie {
 		item, err := findProviderMatchedItem(embyService, req.TmdbID, "Movie")
 		if err != nil {
-			log.Printf("[Subscription] 电影库内检测失败 tmdbId=%s err=%v", strings.TrimSpace(req.TmdbID), err)
-			return detectionFailedResponse(), nil
+			return nil, err
 		}
 		if item == nil {
 			return resp, nil
@@ -71,8 +83,7 @@ func (s *SubscriptionService) CheckExisting(req CheckExistingRequest) (*CheckExi
 
 	seriesItem, err := findProviderMatchedItem(embyService, req.TmdbID, "Series")
 	if err != nil {
-		log.Printf("[Subscription] 剧集库内检测失败 tmdbId=%s season=%d err=%v", strings.TrimSpace(req.TmdbID), season, err)
-		return detectionFailedResponse(), nil
+		return nil, err
 	}
 	if seriesItem == nil {
 		return resp, nil
@@ -80,12 +91,11 @@ func (s *SubscriptionService) CheckExisting(req CheckExistingRequest) (*CheckExi
 
 	episodes, err := getSeriesEpisodes(embyService, seriesItem.ID)
 	if err != nil {
-		log.Printf("[Subscription] 剧集库内检测拉取剧集失败 tmdbId=%s seriesId=%s season=%d err=%v", strings.TrimSpace(req.TmdbID), strings.TrimSpace(seriesItem.ID), season, err)
-		return detectionFailedResponse(), nil
+		return nil, fmt.Errorf("拉取 Emby 剧集失败: %w", err)
 	}
 
 	availableSeasons, episodeCountBySeason := summarizeEpisodeInventory(episodes)
-	if season <= 0 {
+	if req.Season <= 0 {
 		totalEpisodes := totalEpisodeCount(episodeCountBySeason)
 		if totalEpisodes == 0 {
 			return resp, nil
@@ -101,7 +111,7 @@ func (s *SubscriptionService) CheckExisting(req CheckExistingRequest) (*CheckExi
 		return resp, nil
 	}
 
-	if episodeCountBySeason[season] == 0 {
+	if episodeCountBySeason[req.Season] == 0 {
 		return resp, nil
 	}
 
@@ -109,19 +119,19 @@ func (s *SubscriptionService) CheckExisting(req CheckExistingRequest) (*CheckExi
 	resp.ExistingSummary = &ExistingSummary{
 		MatchType:        ExistingMatchSeason,
 		EmbyItemID:       strings.TrimSpace(seriesItem.ID),
-		Message:          fmt.Sprintf("Emby 库中已存在第 %d 季内容（已入库 %d 集），确认后仍可继续提交。", season, episodeCountBySeason[season]),
+		Message:          fmt.Sprintf("Emby 库中已存在第 %d 季内容（已入库 %d 集），确认后仍可继续提交。", req.Season, episodeCountBySeason[req.Season]),
 		AvailableSeasons: availableSeasons,
-		EpisodeCount:     episodeCountBySeason[season],
+		EpisodeCount:     episodeCountBySeason[req.Season],
 	}
 	return resp, nil
 }
 
-func detectionFailedResponse() *CheckExistingResponse {
+func detectionFailedResponse(message string) *CheckExistingResponse {
 	return &CheckExistingResponse{
 		DetectionFailed: true,
 		ExistingSummary: &ExistingSummary{
 			MatchType:       ExistingMatchUnknown,
-			Message:         "库内检测失败，确认后仍可继续提交。",
+			Message:         message,
 			DetectionFailed: true,
 		},
 	}

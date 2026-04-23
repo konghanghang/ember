@@ -362,6 +362,52 @@ func (s *SubscriptionService) RejectSubscription(subscriptionID, reason string) 
 	return nil
 }
 
+// MarkSubscriptionIngestedAsAdmin 允许管理员在校验 Emby 已存在资源后手动收口为已入库。
+func (s *SubscriptionService) MarkSubscriptionIngestedAsAdmin(subscriptionID string) error {
+	var subscription models.Subscription
+	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
+		return ErrSubscriptionNotFound
+	}
+	if subscription.Status != models.SubscriptionApproved {
+		return ErrSubscriptionNotApproved
+	}
+
+	embyService := embyint.NewEmbyService()
+	if !embyService.IsConfigured() {
+		return errors.New("Emby 未配置，无法校验入库状态")
+	}
+
+	existing, err := checkExistingInLibrary(embyService, CheckExistingRequest{
+		Type:   subscription.Type,
+		TmdbID: subscription.TmdbID,
+		Season: subscription.Season,
+	})
+	if err != nil {
+		return fmt.Errorf("校验 Emby 入库状态失败: %w", err)
+	}
+	if existing == nil || !existing.ExistsInLibrary {
+		log.Printf("[Subscription] 管理员校验入库未命中 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season)
+		return ErrSubscriptionNotInLibrary
+	}
+
+	now := time.Now().UTC()
+	result := db.DB.Model(&models.Subscription{}).
+		Where("id = ? AND status = ?", subscription.ID, models.SubscriptionApproved).
+		Updates(map[string]interface{}{
+			"status":     models.SubscriptionIngested,
+			"ingestedAt": now,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("更新订阅入库状态失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrSubscriptionNotApproved
+	}
+
+	log.Printf("[Subscription] 管理员校验后标记已入库 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season)
+	return nil
+}
+
 // MarkSubscriptionsIngestedByWebhook 将命中的 APPROVED 订阅回写为 INGESTED。
 func (s *SubscriptionService) MarkSubscriptionsIngestedByWebhook(ctx context.Context, payload SubscriptionIngestWebhookPayload) (int64, error) {
 	itemType := strings.ToLower(strings.TrimSpace(payload.ItemType))
