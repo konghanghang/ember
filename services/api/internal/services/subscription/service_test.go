@@ -23,8 +23,13 @@ func TestFormatNotificationTimeUsesConfiguredTimezone(t *testing.T) {
 
 type stubSubscriptionEmbyLookup struct {
 	configured bool
-	body       []byte
-	err        error
+	responses  map[string]stubSubscriptionEmbyLookupResponse
+}
+
+type stubSubscriptionEmbyLookupResponse struct {
+	expectedParams map[string]string
+	body           []byte
+	err            error
 }
 
 func (s *stubSubscriptionEmbyLookup) IsConfigured() bool {
@@ -32,13 +37,16 @@ func (s *stubSubscriptionEmbyLookup) IsConfigured() bool {
 }
 
 func (s *stubSubscriptionEmbyLookup) GetWithAPIKey(path string, params map[string]string) ([]byte, error) {
-	if path != "/emby/Items/series_81812" {
+	resp, ok := s.responses[path]
+	if !ok {
 		return nil, fmt.Errorf("unexpected path: %s", path)
 	}
-	if params["Fields"] != "ProviderIds" {
-		return nil, fmt.Errorf("unexpected fields: %s", params["Fields"])
+	for key, expectedValue := range resp.expectedParams {
+		if params[key] != expectedValue {
+			return nil, fmt.Errorf("unexpected param %s: %s", key, params[key])
+		}
 	}
-	return s.body, s.err
+	return resp.body, resp.err
 }
 
 func TestResolveSeriesTMDBIDBySeriesID(t *testing.T) {
@@ -50,7 +58,15 @@ func TestResolveSeriesTMDBIDBySeriesID(t *testing.T) {
 	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
 		return &stubSubscriptionEmbyLookup{
 			configured: true,
-			body:       []byte(`{"ProviderIds":{"Tmdb":"123456"}}`),
+			responses: map[string]stubSubscriptionEmbyLookupResponse{
+				"/emby/Items": {
+					expectedParams: map[string]string{
+						"Ids":    "series_81812",
+						"Fields": "ProviderIds",
+					},
+					body: []byte(`{"Items":[{"ProviderIds":{"Tmdb":"123456"}}]}`),
+				},
+			},
 		}
 	}
 
@@ -60,5 +76,41 @@ func TestResolveSeriesTMDBIDBySeriesID(t *testing.T) {
 	}
 	if got != "123456" {
 		t.Fatalf("expected 123456, got %s", got)
+	}
+}
+
+func TestResolveSeriesTMDBIDBySeriesIDReturnsEmptyWhenSeriesNotFound(t *testing.T) {
+	originalFactory := newSubscriptionEmbyLookup
+	t.Cleanup(func() {
+		newSubscriptionEmbyLookup = originalFactory
+	})
+
+	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
+		return &stubSubscriptionEmbyLookup{
+			configured: true,
+			responses: map[string]stubSubscriptionEmbyLookupResponse{
+				"/emby/Items": {
+					expectedParams: map[string]string{
+						"Ids":    "series_81812",
+						"Fields": "ProviderIds",
+					},
+					body: []byte(`{"Items":[]}`),
+				},
+				"/emby/Items/series_81812": {
+					expectedParams: map[string]string{
+						"Fields": "ProviderIds",
+					},
+					body: []byte(`{"ProviderIds":{"Tmdb":"654321"}}`),
+				},
+			},
+		}
+	}
+
+	got, err := resolveSeriesTMDBIDBySeriesID("series_81812")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got != "654321" {
+		t.Fatalf("expected 654321, got %s", got)
 	}
 }

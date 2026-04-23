@@ -34,6 +34,10 @@ type subscriptionSeriesItem struct {
 	ProviderIDs map[string]string `json:"ProviderIds"`
 }
 
+type subscriptionSeriesItemsResponse struct {
+	Items []subscriptionSeriesItem `json:"Items"`
+}
+
 var newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
 	return embyint.NewEmbyService()
 }
@@ -466,19 +470,55 @@ func resolveSeriesTMDBIDBySeriesID(seriesID string) (string, error) {
 		return "", nil
 	}
 
-	body, err := embyLookup.GetWithAPIKey("/emby/Items/"+url.PathEscape(trimmedSeriesID), map[string]string{
-		"Fields": "ProviderIds",
-	})
-	if err != nil {
-		return "", err
+	paths := []struct {
+		path   string
+		params map[string]string
+	}{
+		{
+			path: "/emby/Items",
+			params: map[string]string{
+				"Ids":    trimmedSeriesID,
+				"Fields": "ProviderIds",
+			},
+		},
+		{
+			path: "/emby/Items/" + url.PathEscape(trimmedSeriesID),
+			params: map[string]string{
+				"Fields": "ProviderIds",
+			},
+		},
 	}
 
-	var item subscriptionSeriesItem
-	if err := json.Unmarshal(body, &item); err != nil {
-		return "", fmt.Errorf("解析 Emby 剧集主条目失败: %w", err)
+	var lastErr error
+	for _, lookup := range paths {
+		body, err := embyLookup.GetWithAPIKey(lookup.path, lookup.params)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		var resp subscriptionSeriesItemsResponse
+		if lookup.path == "/emby/Items" {
+			if err := json.Unmarshal(body, &resp); err != nil {
+				return "", fmt.Errorf("解析 Emby 剧集主条目失败: %w", err)
+			}
+			if len(resp.Items) == 0 {
+				continue
+			}
+			return extractProviderID(resp.Items[0].ProviderIDs, "Tmdb"), nil
+		}
+
+		var item subscriptionSeriesItem
+		if err := json.Unmarshal(body, &item); err != nil {
+			return "", fmt.Errorf("解析 Emby 剧集主条目失败: %w", err)
+		}
+		return extractProviderID(item.ProviderIDs, "Tmdb"), nil
 	}
 
-	return extractProviderID(item.ProviderIDs, "Tmdb"), nil
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", nil
 }
 
 func (s *SubscriptionService) notifyApproved(subscription models.Subscription) {

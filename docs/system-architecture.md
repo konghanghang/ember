@@ -1051,7 +1051,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `weekOffsets` 可选，仅支持 `-1/0/1`
 - `force=true` 时跳过轻量活跃剧筛选，并强制刷新 TMDB 缓存
 - `POST /api/v1/admin/tv-calendar/refresh` 仍保留，内部复用同步逻辑，作为兼容入口
-- Emby 入库 webhook 在保留 TV Calendar 点亮逻辑的同时，额外回写 `subscriptions`：电影按 `tmdbId` 命中 `APPROVED` 电影订阅；剧集按 `tmdbId + season` 命中指定季订阅，同时允许 `season=0` 的整剧订阅在任意季首个真实剧集入库时转为 `INGESTED`
+- Emby 入库 webhook 在保留 TV Calendar 点亮逻辑的同时，额外回写 `subscriptions`：电影按 `tmdbId` 命中 `APPROVED` 电影订阅；剧集优先按 webhook 自带 `tmdbId + season` 命中指定季订阅，若 webhook 未携带剧集主 TMDB ID，则回退用 `seriesId` 向 Emby 查询主剧 `ProviderIds`，优先走 `Items?Ids=`，未命中时再尝试 `/Items/{id}`，同时允许 `season=0` 的整剧订阅在任意季首个真实剧集入库时转为 `INGESTED`
 
 ### 内部服务路由（InternalAuth 中间件，Bot 调用）
 
