@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-04-23
+> 更新时间：2026-04-24
 
 本清单只回答三件事：
 
@@ -49,6 +49,7 @@
 | `media-subscription/tv-calendar-status-correction.md` | 已落地 | TV Calendar 状态已切到 `CRON_TIMEZONE`，默认同步窗口扩到本周+下周，当前周读时 `ready` 纠偏与 webhook 关键日志已补齐 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `media-subscription/gap-management-and-precision-download.md` | 已落地 | `media_gaps` 模型与 migration、`MediaGapService`、`/api/v1/admin/media-gaps/grouped`、`MediaGapsView.vue`、MoviePilot 候选搜索与真实下发链路、架构文档已收录 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `media-subscription/subscription-status-and-notification.md` | 已落地 | `Subscription` 已支持 `INGESTED / rejectReason / reviewedAt / ingestedAt`，订阅服务已实现结果通知与 webhook 入库回写，用户端订阅页已展示状态与拒绝原因 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
+| `media-subscription/library-entry-consolidation.md` | 已落地 | `DashboardView` 已接入 `RecentLibrarySection`，`/console/library` 已路由级重定向到 `/console/dashboard`，`LibraryView.vue` 已退化为兼容壳，架构文档已改写为当前职责说明 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `embypulse-features/p2-user-avatar.md` | 已落地 | `DefaultAvatar.vue`、Dashboard / Account Center / TopBar / Sidebar / UsersView 已统一接入默认头像组件 | 已归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/ember-web-component-foundation.md` | 已落地 | `services/web/src/components/ember/` 基础组件层、后台/控制台页头与 tabs 收口、表单基线统一、empty state 组件化、前端残留清理均已落地 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
@@ -56,14 +57,18 @@
 
 ## B. 当前仍留在 `docs/plan/` 的文档
 
-这些文档当前还没有退出 `docs/plan/`。其中一部分尚未完整落地，另一部分已经完成收口、下一步应执行归档动作。
+这些文档当前还没有退出 `docs/plan/`，并且按现有代码与稳定文档判断，仍未满足归档条件。
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
+| `access-auth/registration-email-domain-allowlist.md` | 继续保留 | 代码中仍未见 `registration_allowed_email_domains` 配置、`GET /register/mode` 返回 `allowedEmailDomains` 或注册验证码前置域名门控 | 继续按实施方案维护 |
+| `bot-telegram/subscription-admin-message-sync.md` | 继续保留 | 当前仍未见管理员订阅消息投递持久化模型，Web 审批后也没有可追踪的 Telegram 消息批量同步链路 | 继续按实施方案维护 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
+| `media-subscription/subscription-resubmission-after-rejection.md` | 继续保留 | 当前 `subscriptions` 仍对 `type + tmdbId + season` 使用全局唯一约束，未见 `retryFromId` 字段与重提接口 | 继续按实施方案维护 |
+
 ## D. 本轮新增归档记录
 
 本轮已补充归档：
@@ -80,6 +85,7 @@
 - `dashboard-renewal-redesign.md`
 - `playback-ranking-rework.md`
 - `media-subscription/gap-management-and-precision-download.md`
+- `media-subscription/library-entry-consolidation.md`
 - `media-subscription/subscription-status-and-notification.md`
 - `embypulse-features/p1-user-profile.md`
 - `embypulse-features/p2-user-avatar.md`

@@ -16,7 +16,7 @@
 - 进行中的功能实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`；更早前已将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，并将缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。当前 `docs/plan/` 继续保留仍在推进中的实施稿。
+最近一次归档已将用户侧媒体库入口收口方案移入 `docs/archive/plan/media-subscription/`；此前已将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`，并将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，以及缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。当前 `docs/plan/` 继续保留仍在推进中的实施稿。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
 

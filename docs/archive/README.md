@@ -14,9 +14,10 @@
 
 - `access-auth/`：注册、登录保护、邮箱验证、找回密码
 - `billing-redemption/`：Stripe、套餐分组、兑换码、一人一码、兑换目录重构、注册码绑定套餐分组
-- `media-subscription/`：追剧日历、媒体质量、播放历史、分季订阅、排行榜、最近入库
+- `media-subscription/`：追剧日历、媒体质量、播放历史、分季订阅、排行榜、最近入库、用户侧媒体库入口收口
   - 例如：[缺集管理与精准补集实现方案](./plan/media-subscription/gap-management-and-precision-download.md)
   - 例如：[订阅状态可见性与结果通知实现方案](./plan/media-subscription/subscription-status-and-notification.md)
+  - 例如：[用户侧媒体库入口收口方案](./plan/media-subscription/library-entry-consolidation.md)
 - `bot-telegram/`：Telegram 绑定、Bot 菜单、搜索订阅、通知、Polling
 - `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板、后台创建用户、后台组件基建收口、后台 UI 一致性收口
 - `architecture/`：设置中心、邮箱鉴权边界等结构性方案

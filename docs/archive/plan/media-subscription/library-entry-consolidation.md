@@ -1,8 +1,9 @@
 # 用户侧媒体库入口收口方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-04-21
+> 更新时间：2026-04-24
+> 归档说明：稳定结论已提炼到 `docs/system-architecture.md`，本方案仅保留实现收口过程的追溯价值。
 
 ## 背景
 
@@ -46,18 +47,20 @@
   - `services/api/internal/handlers/media.go`
   - `services/api/internal/services/media/service.go`
 - 当前行为：
-  - `/console/library` 作为独立用户侧路由存在，并在侧边栏与顶栏中作为一级入口展示。
-  - `DashboardView` 已承担会员状态、服务器入口、媒体统计和快捷操作等控制台首页职责。
-  - `LibraryView` 仅消费 `GET /api/v1/media/latest`，展示最近入库条目，不具备搜索、库列表或详情跳转能力。
+  - `/console/library` 已在前端路由层兼容重定向到 `/console/dashboard`，不再作为用户侧独立一级入口。
+  - `DashboardView` 继续承担会员状态、服务器入口、媒体统计和快捷操作等控制台首页职责，并已接入最近入库摘要与 Emby 桥接入口。
+  - `LibraryView` 已退化为兼容壳页面，不再承载独立业务内容。
   - 当前用户侧媒体相关接口主要只有 `GET /api/v1/emby/config`、`GET /api/v1/media/stats`、`GET /api/v1/media/latest`。
 - 已完成项：
   - 已完成产品方向确认：不继续推进“媒体探索”，收口弱 `媒体库` 页面。
-  - 已完成现状评估：当前独立 `媒体库` 页面不具备独立存在的功能价值。
-- 剩余项：
-  - 导航、路由和顶栏语义仍保留 `媒体库` 入口。
-  - `最近入库` 仍停留在独立页面，尚未回收至 `概览` 页。
-  - 控制台内尚无明确的 `打开 Emby` 主入口。
-  - `DashboardView` 与 `LibraryView` 分别维护一套 Emby 地址读取逻辑，前端状态源重复。
+  - 已完成现状评估：原独立 `媒体库` 页面不具备独立存在的功能价值。
+  - 已完成导航与路由收口：用户侧不再展示独立 `媒体库` 一级入口，旧路径走兼容重定向。
+  - 已完成首页摘要并入：最近入库能力已通过 `RecentLibrarySection` 收口到 `DashboardView`。
+  - 已完成 Emby 桥接入口补齐：用户在概览页即可直接打开 Emby。
+  - 已完成前端状态源收口：最近入库摘要与首页桥接统一复用用户态 `embyUrl`。
+- 归档原因：
+  - 方案目标已达成，相关现行事实已同步到 `docs/system-architecture.md`。
+  - 当前正文只剩“为什么这样收口”和“当时的边界约束”这类追溯价值，不再指导现行实现。
 - 现有限制：
   - 现有后端接口足够支持“概览 + 最近入库摘要”，但不足以支撑一个完整的探索页。
   - 当前 `LibraryView` 仅提供内容展示，不解决“找片”和“开始播放”的主任务。
@@ -185,13 +188,13 @@
 
 ## 落地后文档处理
 
-落地后应同步处理：
+本次归档前已完成同步：
 
-- 将稳定结论同步到 `docs/system-architecture.md`
-  - 删除用户侧独立 `LibraryView` 页面职责描述，或改写为兼容重定向说明。
-  - 更新 `DashboardView` 页面职责，明确其包含最近入库摘要与 Emby 桥接入口。
-- 归档条件：
-  - 用户侧独立 `媒体库` 导航与路由收口完成。
-  - `最近入库` 模块已稳定并入 `概览` 页。
-  - 相关路由兼容、构建验证和手工验证全部完成。
-- 满足上述条件后移入 `docs/archive/plan/media-subscription/`。
+- 稳定结论已同步到 `docs/system-architecture.md`
+  - `LibraryView` 已改写为兼容壳说明
+  - `DashboardView` 已明确包含最近入库摘要与 Emby 桥接入口
+- 归档条件已满足：
+  - 用户侧独立 `媒体库` 导航与路由收口完成
+  - `最近入库` 模块已稳定并入 `概览` 页
+  - 相关兼容路径、构建验证和手工验收已完成
+- 正文已移入 `docs/archive/plan/media-subscription/`
