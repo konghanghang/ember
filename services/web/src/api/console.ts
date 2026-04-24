@@ -16,6 +16,8 @@ import type {
   Plan,
   RankingHistoryResponse,
   RankingPeriod,
+  ResubmitSubscriptionRequest,
+  ResubmitSubscriptionResponse,
   Subscription,
   SubscriptionListQuery,
   TVCalendarItem,
@@ -55,6 +57,14 @@ export function deleteSubscription(id: string): Promise<{ success: boolean }> {
   return request({
     url: `/subscriptions/${id}`,
     method: 'delete'
+  })
+}
+
+export function resubmitSubscription(id: string, data: ResubmitSubscriptionRequest): Promise<ResubmitSubscriptionResponse> {
+  return request({
+    url: `/subscriptions/${id}/resubmit`,
+    method: 'post',
+    data
   })
 }
 

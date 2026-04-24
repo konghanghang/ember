@@ -54,6 +54,12 @@ type CreateSubscriptionResult struct {
 	ExistingSummary      *ExistingSummary `json:"existingSummary,omitempty"`
 }
 
+// ResubmitSubscriptionRequest 拒绝后重新提交请求
+type ResubmitSubscriptionRequest struct {
+	Note            string `json:"note" binding:"required"`
+	ConfirmExisting bool   `json:"confirmExisting"`
+}
+
 // RejectSubscriptionRequest 审核拒绝请求
 type RejectSubscriptionRequest struct {
 	Reason string `json:"reason" binding:"required"`

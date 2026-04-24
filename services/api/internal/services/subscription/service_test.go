@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestFormatNotificationTimeUsesConfiguredTimezone(t *testing.T) {
@@ -112,5 +114,12 @@ func TestResolveSeriesTMDBIDBySeriesIDReturnsEmptyWhenSeriesNotFound(t *testing.
 	}
 	if got != "654321" {
 		t.Fatalf("expected 654321, got %s", got)
+	}
+}
+
+func TestIsSubscriptionUniqueConflictDetectsPostgresDuplicateKey(t *testing.T) {
+	err := &pgconn.PgError{Code: "23505"}
+	if !isSubscriptionUniqueConflict(err) {
+		t.Fatal("expected postgres duplicate key to be treated as subscription duplicate")
 	}
 }

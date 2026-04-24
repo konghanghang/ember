@@ -77,6 +77,63 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// ResubmitSubscription 用户从已拒绝订阅重新提交
+// POST /api/v1/subscriptions/:id/resubmit
+func (h *SubscriptionHandler) ResubmitSubscription(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+
+	subscriptionID := c.Param("id")
+	if subscriptionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "订阅 ID 不能为空"})
+		return
+	}
+
+	var req subscriptionpkg.ResubmitSubscriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	result, err := h.service.ResubmitSubscriptionWithResult(userID.(string), subscriptionID, req)
+	if err != nil {
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidSeason) ||
+			errors.Is(err, subscriptionpkg.ErrSubscriptionNotRejected) ||
+			errors.Is(err, subscriptionpkg.ErrSubscriptionResubmitNote) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if result != nil && result.ConfirmationRequired {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":                "库内已存在相关资源，请确认后继续提交",
+			"confirmationRequired": true,
+			"detectionFailed":      result.DetectionFailed,
+			"existingSummary":      result.ExistingSummary,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // CheckExisting 提交前库内检测
 // POST /api/v1/subscriptions/check-existing
 func (h *SubscriptionHandler) CheckExisting(c *gin.Context) {

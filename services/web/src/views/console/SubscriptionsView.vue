@@ -8,17 +8,19 @@ import {
   Delete,
   Plus,
   Refresh,
+  RefreshRight,
   VideoPlay,
   Film
 } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useAuthStore } from '@/store/auth'
 import { approveSubscription, rejectSubscription, markSubscriptionIngested, deleteSubscriptionAsAdmin } from '@/api/admin'
-import { deleteSubscription, getSubscriptions } from '@/api/console'
+import { deleteSubscription, getSubscriptions, resubmitSubscription } from '@/api/console'
 import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
-import type { Subscription, SubscriptionStatus } from '@/types/api'
+import type { Subscription, SubscriptionExistingSummary, SubscriptionStatus } from '@/types/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -26,6 +28,10 @@ const authStore = useAuthStore()
 const subscriptions = ref<Subscription[]>([])
 const loading = ref(false)
 const total = ref(0)
+const showResubmitDialog = ref(false)
+const resubmitTarget = ref<Subscription | null>(null)
+const resubmitNote = ref('')
+const resubmitting = ref(false)
 const queryParams = ref({
   page: 1,
   pageSize: 20,
@@ -153,6 +159,94 @@ const handleMarkIngested = async (sub: Subscription) => {
   }
 }
 
+const formatExistingSummary = (summary?: SubscriptionExistingSummary) => {
+  if (!summary) {
+    return '库内已存在相关资源，确认后仍可继续提交。'
+  }
+
+  const seasonText = summary.availableSeasons?.length
+    ? `已入库季：${summary.availableSeasons.join('、')}`
+    : ''
+  const episodeText = summary.episodeCount ? `已入库 ${summary.episodeCount} 集` : ''
+
+  return [summary.message, seasonText, episodeText].filter(Boolean).join('\n')
+}
+
+const getExistingConfirmationTitle = (summary?: SubscriptionExistingSummary) => {
+  if (summary?.detectionFailed) {
+    return '库内检测失败，是否仍继续提交'
+  }
+  return '检测到库内已存在相关资源'
+}
+
+const openResubmitDialog = (sub: Subscription) => {
+  resubmitTarget.value = sub
+  resubmitNote.value = ''
+  showResubmitDialog.value = true
+}
+
+const closeResubmitDialog = () => {
+  if (resubmitting.value) return
+  showResubmitDialog.value = false
+  resubmitTarget.value = null
+  resubmitNote.value = ''
+}
+
+const submitResubmission = async (confirmExisting = false) => {
+  const target = resubmitTarget.value
+  const note = resubmitNote.value.trim()
+  if (!target) return
+  if (!note) {
+    ElMessage.warning('请填写本次提交说明')
+    return
+  }
+
+  const response = await resubmitSubscription(target.id, {
+    note,
+    confirmExisting
+  })
+
+  if (response.confirmationRequired) {
+    await requestResubmitExistingConfirmation(response.existingSummary)
+    return
+  }
+
+  ElMessage.success('已再次提交，等待审核')
+  showResubmitDialog.value = false
+  resubmitTarget.value = null
+  resubmitNote.value = ''
+  fetchData()
+}
+
+const requestResubmitExistingConfirmation = async (summary?: SubscriptionExistingSummary) => {
+  try {
+    await ElMessageBox.confirm(formatExistingSummary(summary).replace(/\n/g, '<br/>'), getExistingConfirmationTitle(summary), {
+      type: 'warning',
+      confirmButtonText: '仍然提交',
+      cancelButtonText: '取消',
+      dangerouslyUseHTMLString: true
+    })
+  } catch {
+    return
+  }
+
+  await submitResubmission(true)
+}
+
+const handleResubmit = async () => {
+  resubmitting.value = true
+  try {
+    await submitResubmission(false)
+  } catch (error: any) {
+    const responseData = error?.response?.data
+    if (responseData?.confirmationRequired) {
+      await requestResubmitExistingConfirmation(responseData.existingSummary)
+    }
+  } finally {
+    resubmitting.value = false
+  }
+}
+
 const getStatusColor = (status: SubscriptionStatus) => {
   switch (status) {
     case 'PENDING': return 'bg-yellow-500'
@@ -264,6 +358,16 @@ const cardActionButtons = (sub: Subscription) => {
       icon: Delete,
       tone: 'danger',
       action: () => handleDelete(sub)
+    })
+  }
+
+  if (!isAdmin.value && sub.status === 'REJECTED') {
+    buttons.push({
+      key: 'resubmit',
+      label: '再次提交',
+      icon: RefreshRight,
+      tone: 'success',
+      action: () => openResubmitDialog(sub)
     })
   }
 
@@ -492,6 +596,77 @@ onMounted(fetchData)
         background
       />
     </div>
+
+    <EmberFormDialog
+      v-model="showResubmitDialog"
+      title="再次提交"
+      width="min(720px, calc(100vw - 2rem))"
+      :show-close="false"
+      :close-on-click-modal="!resubmitting"
+      :close-on-press-escape="!resubmitting"
+    >
+      <div v-if="resubmitTarget" class="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+        <div class="mx-auto w-36 flex-shrink-0 sm:mx-0 sm:w-40">
+          <img
+            :src="getImageUrl(resubmitTarget.posterPath)"
+            :alt="`${formatSubscriptionTitle(resubmitTarget)} 海报`"
+            class="block w-full rounded-xl bg-gray-100 shadow-md"
+          />
+        </div>
+
+        <div class="min-w-0 flex-1 space-y-4">
+          <div>
+            <h3 class="text-xl font-bold leading-tight text-gray-900">{{ formatSubscriptionTitle(resubmitTarget) }}</h3>
+            <p class="mt-1 text-sm text-gray-500">
+              {{ resubmitTarget.type === 'MOVIE' ? '电影' : '剧集' }} · {{ formatCardDate(resubmitTarget.createdAt) }} 提交
+            </p>
+          </div>
+
+          <div class="rounded-xl border border-red-100 bg-red-50 p-4">
+            <div class="mb-1.5 text-xs font-bold uppercase tracking-wider text-red-500">上次拒绝原因</div>
+            <div class="whitespace-pre-wrap text-sm leading-6 text-red-800">
+              {{ resubmitTarget.rejectReason || '管理员未填写拒绝原因' }}
+            </div>
+          </div>
+
+          <div>
+            <label class="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gray-500">本次提交说明</label>
+            <el-input
+              v-model="resubmitNote"
+              type="textarea"
+              :rows="4"
+              maxlength="500"
+              show-word-limit
+              placeholder="请补充本次重新提交的原因"
+              class="input-ember"
+            />
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col-reverse gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            @click="closeResubmitDialog"
+            :disabled="resubmitting"
+            class="rounded-lg px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            @click="handleResubmit"
+            :disabled="resubmitting || !resubmitNote.trim()"
+            class="btn-ember inline-flex items-center gap-2 rounded-lg px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span v-if="resubmitting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
+            <el-icon v-else><RefreshRight /></el-icon>
+            {{ resubmitting ? '提交中...' : '确认提交' }}
+          </button>
+        </div>
+      </template>
+    </EmberFormDialog>
   </div>
 </template>
 

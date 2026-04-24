@@ -140,6 +140,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.GET("/subscriptions", h.subscription.GetSubscriptions)
 	authenticated.POST("/subscriptions/check-existing", h.subscription.CheckExisting)
 	authenticated.POST("/subscriptions", h.subscription.CreateSubscription)
+	authenticated.POST("/subscriptions/:id/resubmit", h.subscription.ResubmitSubscription)
 	authenticated.DELETE("/subscriptions/:id", h.subscription.DeleteSubscription)
 
 	authenticated.GET("/profile", h.user.GetProfile)
@@ -189,6 +190,7 @@ func registerUserRoutes(api *gin.RouterGroup, h *appHandlers) {
 	user.GET("/subscriptions", h.subscription.GetMySubscriptions)
 	user.POST("/subscriptions/check-existing", h.subscription.CheckExisting)
 	user.POST("/subscriptions", h.subscription.CreateSubscription)
+	user.POST("/subscriptions/:id/resubmit", h.subscription.ResubmitSubscription)
 	user.DELETE("/subscriptions/:id", h.subscription.DeleteSubscription)
 
 	user.GET("/emby/config", h.media.GetEmbyConfig)

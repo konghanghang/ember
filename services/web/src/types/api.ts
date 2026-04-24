@@ -641,6 +641,7 @@ export interface ConfigGroupTestResult {
 export interface Subscription {
   id: string
   userId?: string
+  retryFromId?: string | null
   type: MediaType
   name: string
   tmdbId: string
@@ -701,6 +702,19 @@ export interface CreateSubscriptionResponse {
   confirmationRequired?: boolean
   detectionFailed?: boolean
   existingSummary?: SubscriptionExistingSummary
+}
+
+export interface ResubmitSubscriptionRequest {
+  note: string
+  confirmExisting?: boolean
+}
+
+export interface ResubmitSubscriptionResponse {
+  success: boolean
+  confirmationRequired?: boolean
+  detectionFailed?: boolean
+  existingSummary?: SubscriptionExistingSummary
+  subscription?: Subscription
 }
 
 export interface TmdbTVSeasonOptions {

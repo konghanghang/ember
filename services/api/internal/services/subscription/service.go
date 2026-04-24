@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
@@ -42,6 +43,12 @@ var newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
 	return embyint.NewEmbyService()
 }
 
+var activeSubscriptionStatuses = []models.SubscriptionStatus{
+	models.SubscriptionPending,
+	models.SubscriptionApproved,
+	models.SubscriptionIngested,
+}
+
 // NewSubscriptionService 创建订阅服务
 func NewSubscriptionService() *SubscriptionService {
 	return &SubscriptionService{
@@ -58,6 +65,53 @@ func normalizeSubscriptionSeason(mediaType models.MediaType, season int) (int, e
 		return 0, nil
 	}
 	return season, nil
+}
+
+func hasActiveSubscription(mediaType models.MediaType, tmdbID string, season int) (bool, error) {
+	var count int64
+	if err := db.DB.Model(&models.Subscription{}).
+		Where("type = ? AND \"tmdbId\" = ? AND season = ? AND status IN ?", mediaType, strings.TrimSpace(tmdbID), season, activeSubscriptionStatuses).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func isSubscriptionUniqueConflict(err error) bool {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == "23505"
+}
+
+func buildConfirmationRequiredResult(checkResult *CheckExistingResponse) *CreateSubscriptionResult {
+	return &CreateSubscriptionResult{
+		Success:              false,
+		ConfirmationRequired: true,
+		DetectionFailed:      checkResult.DetectionFailed,
+		ExistingSummary:      checkResult.ExistingSummary,
+	}
+}
+
+func (s *SubscriptionService) requireExistingConfirmation(userID string, mediaType models.MediaType, tmdbID string, season int, action string) (*CreateSubscriptionResult, error) {
+	checkResult, err := s.CheckExisting(CheckExistingRequest{
+		Type:   mediaType,
+		TmdbID: tmdbID,
+		Season: season,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if checkResult.ExistsInLibrary || checkResult.DetectionFailed {
+		log.Printf("[Subscription] %s 前需要二次确认 userId=%s type=%s tmdbId=%s season=%d exists=%t detectionFailed=%t", action, userID, mediaType, tmdbID, season, checkResult.ExistsInLibrary, checkResult.DetectionFailed)
+		return buildConfirmationRequiredResult(checkResult), nil
+	}
+	return nil, nil
 }
 
 // CreateSubscription 兼容旧调用方的创建入口。
@@ -85,33 +139,21 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 	req.TmdbID = strings.TrimSpace(req.TmdbID)
 	req.Name = strings.TrimSpace(req.Name)
 
-	var count int64
-	if err := db.DB.Model(&models.Subscription{}).
-		Where("type = ? AND \"tmdbId\" = ? AND season = ?", req.Type, req.TmdbID, season).
-		Count(&count).Error; err != nil {
+	duplicated, err := hasActiveSubscription(req.Type, req.TmdbID, season)
+	if err != nil {
 		return nil, fmt.Errorf("创建订阅失败: %w", err)
 	}
-	if count > 0 {
+	if duplicated {
 		return nil, ErrSubscriptionDuplicated
 	}
 
 	if !req.ConfirmExisting {
-		checkResult, err := s.CheckExisting(CheckExistingRequest{
-			Type:   req.Type,
-			TmdbID: req.TmdbID,
-			Season: season,
-		})
+		confirmation, err := s.requireExistingConfirmation(userID, req.Type, req.TmdbID, season, "创建")
 		if err != nil {
 			return nil, err
 		}
-		if checkResult.ExistsInLibrary || checkResult.DetectionFailed {
-			log.Printf("[Subscription] 创建前需要二次确认 userId=%s type=%s tmdbId=%s season=%d exists=%t detectionFailed=%t", userID, req.Type, req.TmdbID, season, checkResult.ExistsInLibrary, checkResult.DetectionFailed)
-			return &CreateSubscriptionResult{
-				Success:              false,
-				ConfirmationRequired: true,
-				DetectionFailed:      checkResult.DetectionFailed,
-				ExistingSummary:      checkResult.ExistingSummary,
-			}, nil
+		if confirmation != nil {
+			return confirmation, nil
 		}
 	}
 
@@ -127,7 +169,7 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 	}
 
 	if err := db.DB.Create(subscription).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
+		if isSubscriptionUniqueConflict(err) {
 			return nil, ErrSubscriptionDuplicated
 		}
 		return nil, fmt.Errorf("创建订阅失败: %w", err)
@@ -135,6 +177,75 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 
 	log.Printf("[Subscription] 创建成功 userId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, subscription.ID, req.Type, req.TmdbID, season)
 	go s.notifyNewSubscription(subscription.ID, userID, req, season)
+
+	return &CreateSubscriptionResult{Success: true}, nil
+}
+
+// ResubmitSubscriptionWithResult 从已拒绝记录重新提交一条新的待审核订阅。
+func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptionID string, req ResubmitSubscriptionRequest) (*CreateSubscriptionResult, error) {
+	note := strings.TrimSpace(req.Note)
+	if note == "" {
+		return nil, ErrSubscriptionResubmitNote
+	}
+
+	var original models.Subscription
+	if err := db.DB.Where("id = ?", subscriptionID).First(&original).Error; err != nil {
+		return nil, ErrSubscriptionNotFound
+	}
+	if original.UserID != userID {
+		return nil, ErrSubscriptionForbidden
+	}
+	if original.Status != models.SubscriptionRejected {
+		return nil, ErrSubscriptionNotRejected
+	}
+
+	duplicated, err := hasActiveSubscription(original.Type, original.TmdbID, original.Season)
+	if err != nil {
+		return nil, fmt.Errorf("重新提交订阅失败: %w", err)
+	}
+	if duplicated {
+		return nil, ErrSubscriptionDuplicated
+	}
+
+	if !req.ConfirmExisting {
+		confirmation, err := s.requireExistingConfirmation(userID, original.Type, original.TmdbID, original.Season, "重新提交")
+		if err != nil {
+			return nil, err
+		}
+		if confirmation != nil {
+			return confirmation, nil
+		}
+	}
+
+	retryFromID := original.ID
+	subscription := &models.Subscription{
+		UserID:      userID,
+		Type:        original.Type,
+		Name:        original.Name,
+		TmdbID:      original.TmdbID,
+		Season:      original.Season,
+		PosterPath:  original.PosterPath,
+		Note:        &note,
+		Status:      models.SubscriptionPending,
+		RetryFromID: &retryFromID,
+	}
+
+	if err := db.DB.Create(subscription).Error; err != nil {
+		if isSubscriptionUniqueConflict(err) {
+			return nil, ErrSubscriptionDuplicated
+		}
+		return nil, fmt.Errorf("重新提交订阅失败: %w", err)
+	}
+
+	log.Printf("[Subscription] 重新提交成功 userId=%s originalSubscriptionId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, original.ID, subscription.ID, original.Type, original.TmdbID, original.Season)
+	go s.notifyNewSubscription(subscription.ID, userID, CreateSubscriptionRequest{
+		Type:       original.Type,
+		Name:       original.Name,
+		TmdbID:     original.TmdbID,
+		Season:     original.Season,
+		PosterPath: original.PosterPath,
+		Note:       &note,
+	}, original.Season)
 
 	return &CreateSubscriptionResult{Success: true}, nil
 }

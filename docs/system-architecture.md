@@ -398,6 +398,7 @@ services/
 | PosterPath | *string(500) | posterPath | 海报 URL |
 | Status | SubscriptionStatus | status | `PENDING`/`APPROVED`/`REJECTED`/`INGESTED` |
 | Note | *string | note | 用户备注 |
+| RetryFromID | *string(25) | retryFromId | 拒绝后重新发起时指向上一条 `REJECTED` 订阅，可空 |
 | MpError | *string(500) | mpError | MoviePilot 同步错误 |
 | RejectReason | *string | rejectReason | 管理员拒绝原因 |
 | ReviewedAt | *time.Time | reviewedAt | 审核时间（通过/拒绝） |
@@ -409,8 +410,14 @@ services/
 - 用户创建后进入 `PENDING`
 - 管理员审核通过后转 `APPROVED`，并记录 `reviewedAt`
 - 管理员拒绝后转 `REJECTED`，必须写入 `rejectReason` 与 `reviewedAt`
+- 用户可基于自己的 `REJECTED` 记录重新发起一条新的 `PENDING` 订阅，新记录写入 `retryFromId`，原拒绝记录保持历史不改写
 - Emby 真实入库事件命中已通过订阅后转 `INGESTED`，并写入 `ingestedAt`
 - 对历史漏回写记录，管理员可主动触发 Emby 校验；只有命中真实资源时，`APPROVED` 才能收口为 `INGESTED`
+
+**唯一约束**：
+- `subscriptions` 不再使用全局唯一索引 `uk_subscription_media`
+- 活跃状态唯一索引 `uq_subscriptions_active_media` 只约束 `status IN ('PENDING','APPROVED','INGESTED')` 的 `(type, tmdbId, season)`
+- `REJECTED` 历史记录不占用唯一位，允许同一作品在被拒绝后重新提交，但任意时刻同一作品仍只能存在一条活跃订阅
 
 ### 4.6 EmailVerification（邮箱验证码）
 
@@ -725,7 +732,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
-- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 火忘式通知 Bot；按 `type + tmdbId + season` 去重
+- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 火忘式通知 Bot；按活跃状态的 `type + tmdbId + season` 去重，历史 `REJECTED` 不阻止新建
+- `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 基于当前用户自己的 `REJECTED` 记录重新发起一条新的 `PENDING` 记录，复用原媒体信息并写入 `retryFromId`；原记录保持 `REJECTED`
 - `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError；`season>0` 时透传季号，`season=0` 不传季参数）
 - `RejectSubscription(id)` — 设为 REJECTED
 
@@ -938,6 +946,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/subscriptions` | 我的订阅 |
 | POST | `/api/v1/subscriptions/check-existing` | 创建前检测库内是否已存在资源 |
 | POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧） |
+| POST | `/api/v1/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note` |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/profile` | 个人信息 |
 | GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range` 或 `startDate/endDate`） |
@@ -980,6 +989,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/user/media/stats` | 媒体库统计 |
 | GET | `/api/v1/user/subscriptions` | 我的订阅 |
 | POST | `/api/v1/user/subscriptions` | 创建订阅 |
+| POST | `/api/v1/user/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note` |
 | DELETE | `/api/v1/user/subscriptions/:id` | 删除订阅 |
 
 ### 管理员路由（需认证 + role=admin）
