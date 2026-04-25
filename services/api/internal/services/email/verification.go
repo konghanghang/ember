@@ -2,12 +2,15 @@ package email
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func validateVerificationRecipient(codeType string, existingUserCount int64) error {
@@ -26,6 +29,20 @@ func validateVerificationRateLimits(emailCount, ipCount int64, dailyLimit, ipDai
 	}
 	if ipCount >= int64(ipDailyLimit) {
 		return ErrEmailCodeIPRateLimit
+	}
+	return nil
+}
+
+// evaluateVerificationCode 纯函数：判断已锁定的 verification 记录是否能与提交的 code 匹配
+func evaluateVerificationCode(verification *models.EmailVerification, code string) error {
+	if verification == nil {
+		return ErrEmailCodeInvalid
+	}
+	if verification.IsExpired() {
+		return ErrEmailCodeInvalid
+	}
+	if verification.Code != code {
+		return ErrEmailCodeInvalid
 	}
 	return nil
 }
@@ -51,13 +68,10 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 	db.DB.Model(&models.EmailVerification{}).
 		Where("email = ? AND \"type\" = ? AND \"createdAt\" > ?", email, codeType, since).
 		Count(&emailCount)
-	if emailCount >= int64(s.dailyLimit) {
-		return ErrEmailCodeRateLimit
-	}
 
 	var ipCount int64
 	db.DB.Model(&models.EmailVerification{}).
-		Where("ip = ? AND \"createdAt\" > ?", ip, since).
+		Where("ip = ? AND \"type\" = ? AND \"createdAt\" > ?", ip, codeType, since).
 		Count(&ipCount)
 	if err := validateVerificationRateLimits(emailCount, ipCount, s.dailyLimit, s.ipDailyLimit); err != nil {
 		return err
@@ -107,24 +121,41 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 	return nil
 }
 
-// VerifyCode 校验验证码
+// VerifyCode 校验验证码：在事务中 SELECT ... FOR UPDATE 锁行 → 校验有效性 → 立即 DELETE。
+// 校验通过即消费，同一码不可重放用于注册或密码重置。
 func (s *EmailService) VerifyCode(email, code, codeType string) error {
-	var verification models.EmailVerification
-	result := db.DB.Where("email = ? AND \"type\" = ?", email, codeType).
-		Order("\"createdAt\" DESC").
-		First(&verification)
-	if result.Error != nil {
+	err := db.DB.Transaction(func(tx *gorm.DB) error {
+		var verification models.EmailVerification
+		if err := tx.
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("email = ? AND \"type\" = ?", email, codeType).
+			Order("\"createdAt\" DESC").
+			First(&verification).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrEmailCodeInvalid
+			}
+			log.Printf("[Email] 校验验证码查询失败 [%s]: %v", email, err)
+			return ErrEmailCodeInvalid
+		}
+
+		if err := evaluateVerificationCode(&verification, code); err != nil {
+			return err
+		}
+
+		if err := tx.Where("id = ?", verification.ID).Delete(&models.EmailVerification{}).Error; err != nil {
+			log.Printf("[Email] 校验验证码消费失败 [%s id=%s]: %v", email, verification.ID, err)
+			return ErrEmailCodeInvalid
+		}
+
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrEmailCodeInvalid) {
+			return ErrEmailCodeInvalid
+		}
+		log.Printf("[Email] 校验验证码事务失败 [%s]: %v", email, err)
 		return ErrEmailCodeInvalid
 	}
-
-	if verification.IsExpired() {
-		return ErrEmailCodeInvalid
-	}
-
-	if verification.Code != code {
-		return ErrEmailCodeInvalid
-	}
-
 	return nil
 }
 

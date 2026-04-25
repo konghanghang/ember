@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/konghang/ember/backend/internal/models"
-	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
 
 // ResetPasswordByCodeRequest 通过邮箱验证码重置密码
@@ -38,14 +37,6 @@ func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error
 	}
 	if err := s.saveUser(user); err != nil {
 		return errors.New("密码重置失败：本地密码保存失败")
-	}
-
-	rowsAffected, err := s.deleteResetCodes(req.Email)
-	if err != nil {
-		return errors.New("密码重置失败：验证码清理失败")
-	}
-	if rowsAffected == 0 {
-		return emailpkg.ErrEmailCodeInvalid
 	}
 
 	return nil

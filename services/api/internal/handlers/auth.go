@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -168,6 +171,9 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 }
 
 // SendResetCode 发送密码重置验证码
+//
+// 出于反账号枚举考虑，未注册邮箱也返回 200 + 与已注册一致的文案，避免攻击者
+// 通过响应差异枚举站内邮箱。内部仍记录 email 哈希前缀 + IP 用于排障。
 func (h *AuthHandler) SendResetCode(c *gin.Context) {
 	var req SendEmailCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -175,7 +181,15 @@ func (h *AuthHandler) SendResetCode(c *gin.Context) {
 		return
 	}
 
-	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeReset); err != nil {
+	clientIP := c.ClientIP()
+	const uniformMessage = "如果该邮箱已注册，验证码已发送"
+
+	if err := h.emailService.SendVerificationCode(req.Email, clientIP, models.VerificationTypeReset); err != nil {
+		if errors.Is(err, emailpkg.ErrEmailNotRegistered) {
+			log.Printf("[Auth] 重置码请求命中未注册邮箱 emailHash=%s ip=%s", hashEmailForLog(req.Email), clientIP)
+			c.JSON(http.StatusOK, gin.H{"message": uniformMessage})
+			return
+		}
 		status := http.StatusBadRequest
 		if errors.Is(err, emailpkg.ErrEmailCodeRateLimit) || errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit) {
 			status = http.StatusTooManyRequests
@@ -184,7 +198,13 @@ func (h *AuthHandler) SendResetCode(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "验证码已发送"})
+	c.JSON(http.StatusOK, gin.H{"message": uniformMessage})
+}
+
+// hashEmailForLog 对 email 做不可逆哈希，仅取前 8 位 hex 用于日志关联，避免明文落盘
+func hashEmailForLog(email string) string {
+	sum := sha256.Sum256([]byte(email))
+	return hex.EncodeToString(sum[:])[:8]
 }
 
 // ResetPasswordByCode 通过验证码重置密码

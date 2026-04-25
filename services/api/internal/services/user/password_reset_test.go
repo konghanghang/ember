@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
-	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
 
 type stubUserEmailVerifier struct {
@@ -58,11 +57,10 @@ func TestResetPasswordByCode(t *testing.T) {
 		}
 	})
 
-	t.Run("success updates emby, saves user, and clears reset codes", func(t *testing.T) {
+	t.Run("success updates emby and saves user", func(t *testing.T) {
 		verifier := &stubUserEmailVerifier{}
 		client := &stubUserEmbyClient{}
 		saved := false
-		clearedEmail := ""
 		service := NewUserServiceWithEmailVerifier(verifier)
 		service.findUserByEmail = func(email string) (*models.User, error) {
 			return &models.User{ID: "user_1", Username: "ember", EmbyID: "emby_1"}, nil
@@ -71,10 +69,6 @@ func TestResetPasswordByCode(t *testing.T) {
 		service.saveUser = func(user *models.User) error {
 			saved = true
 			return nil
-		}
-		service.deleteResetCodes = func(email string) (int64, error) {
-			clearedEmail = email
-			return 1, nil
 		}
 
 		err := service.ResetPasswordByCode(&ResetPasswordByCodeRequest{
@@ -90,30 +84,6 @@ func TestResetPasswordByCode(t *testing.T) {
 		}
 		if !saved {
 			t.Fatalf("expected saveUser to be called")
-		}
-		if clearedEmail != "ember@example.com" {
-			t.Fatalf("expected reset codes to be cleared for email, got %q", clearedEmail)
-		}
-	})
-
-	t.Run("zero cleared reset codes returns email code invalid", func(t *testing.T) {
-		verifier := &stubUserEmailVerifier{}
-		service := NewUserServiceWithEmailVerifier(verifier)
-		service.findUserByEmail = func(email string) (*models.User, error) {
-			return &models.User{ID: "user_1", Username: "ember"}, nil
-		}
-		service.saveUser = func(user *models.User) error { return nil }
-		service.deleteResetCodes = func(email string) (int64, error) {
-			return 0, nil
-		}
-
-		err := service.ResetPasswordByCode(&ResetPasswordByCodeRequest{
-			Email:       "ember@example.com",
-			Code:        "123456",
-			NewPassword: "newpass123",
-		})
-		if !errors.Is(err, emailpkg.ErrEmailCodeInvalid) {
-			t.Fatalf("expected ErrEmailCodeInvalid, got %v", err)
 		}
 	})
 }

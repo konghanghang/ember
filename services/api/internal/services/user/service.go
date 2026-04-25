@@ -33,7 +33,6 @@ type UserService struct {
 	createUser         func(user *models.User) error
 	getPlanGroupByKey  func(key string) (*models.PlanGroup, error)
 	saveUser           func(user *models.User) error
-	deleteResetCodes   func(email string) (int64, error)
 }
 
 func NewUserService() *UserService {
@@ -98,13 +97,6 @@ func (s *UserService) setDefaults() {
 	if s.saveUser == nil {
 		s.saveUser = func(user *models.User) error {
 			return db.DB.Save(user).Error
-		}
-	}
-	if s.deleteResetCodes == nil {
-		s.deleteResetCodes = func(email string) (int64, error) {
-			result := db.DB.Where("email = ? AND \"type\" = ?", email, models.VerificationTypeReset).
-				Delete(&models.EmailVerification{})
-			return result.RowsAffected, result.Error
 		}
 	}
 }
