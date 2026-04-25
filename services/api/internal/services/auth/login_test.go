@@ -125,11 +125,42 @@ func TestAuthenticateLoginUserFallsBackToLocalPassword(t *testing.T) {
 	if err := service.authenticateLoginUser(user, "pass1234"); err != nil {
 		t.Fatalf("expected local fallback login to succeed, got %v", err)
 	}
-	if embyClient.lastUpdateUserID != "emby_2" || embyClient.lastUpdatePwd != "pass1234" {
-		t.Fatalf("expected emby password sync on fallback path, got user=%q pwd=%q", embyClient.lastUpdateUserID, embyClient.lastUpdatePwd)
+	if embyClient.lastUpdateUserID != "" || embyClient.lastUpdatePwd != "" {
+		t.Fatalf("expected no UpdateUserPassword call on fallback path, got user=%q pwd=%q", embyClient.lastUpdateUserID, embyClient.lastUpdatePwd)
 	}
 
 	if err := service.authenticateLoginUser(user, "wrong"); err == nil || err.Error() != "用户名或密码错误" {
 		t.Fatalf("expected invalid credential error on wrong fallback password, got %v", err)
+	}
+}
+
+func TestAuthenticateLoginUserRejectsEmbyIDMismatch(t *testing.T) {
+	embyClient := &stubAuthEmbyClient{
+		authUserResp: &embyint.EmbyUser{ID: "emby_remote_drift"},
+	}
+	service := &AuthService{
+		newEmbyClient: func() authEmbyClient { return embyClient },
+		saveUser: func(user *models.User) error {
+			t.Fatalf("saveUser should not be called when EmbyID mismatches")
+			return nil
+		},
+	}
+
+	user := &models.User{
+		ID:       "user_3",
+		Username: "ember",
+		Role:     "user",
+		EmbyID:   "emby_local_original",
+	}
+	if err := user.SetPassword("pass1234"); err != nil {
+		t.Fatalf("failed to set password: %v", err)
+	}
+
+	err := service.authenticateLoginUser(user, "pass1234")
+	if err == nil || err.Error() != "用户名或密码错误" {
+		t.Fatalf("expected EmbyID mismatch to be rejected, got %v", err)
+	}
+	if embyClient.lastUpdateUserID != "" || embyClient.lastUpdatePwd != "" {
+		t.Fatalf("expected no UpdateUserPassword call on mismatch, got user=%q pwd=%q", embyClient.lastUpdateUserID, embyClient.lastUpdatePwd)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
@@ -54,7 +55,9 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 
 func (s *AuthService) findLoginUser(username string) (*models.User, error) {
 	var user models.User
-	result := db.DB.Where("username = ?", username).First(&user)
+	result := db.DB.Where("lower(username) = ?", strings.ToLower(username)).
+		Order("\"createdAt\" ASC").
+		First(&user)
 	if result.Error != nil {
 		return nil, errors.New("用户名或密码错误")
 	}
@@ -71,17 +74,16 @@ func (s *AuthService) authenticateLoginUser(user *models.User, password string) 
 
 	embyService := s.newEmbyClient()
 	embyUser, err := embyService.AuthenticateUser(user.Username, password)
-	if err == nil && embyUser.ID == user.EmbyID {
+	if err == nil {
+		if embyUser.ID != user.EmbyID {
+			log.Printf("[Login] EmbyID 错配 username=%s localEmbyID=%s remoteEmbyID=%s", user.Username, user.EmbyID, embyUser.ID)
+			return errors.New("用户名或密码错误")
+		}
 		s.syncLocalLoginHash(user, password)
 		return nil
 	}
 
 	if user.Password != "" && user.CheckPassword(password) {
-		if user.EmbyID != "" {
-			if syncErr := embyService.UpdateUserPassword(user.EmbyID, password); syncErr != nil {
-				log.Printf("⚠️  登录时同步 Emby 密码失败：userID=%s, err=%v", user.ID, syncErr)
-			}
-		}
 		return nil
 	}
 

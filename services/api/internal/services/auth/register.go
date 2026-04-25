@@ -111,13 +111,13 @@ func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPrepar
 
 func (s *AuthService) ensureRegisterUserUnique(req *RegisterUserRequest) error {
 	var existingUser models.User
-	result := db.DB.Where("username = ?", req.Username).First(&existingUser)
+	result := db.DB.Where("lower(username) = ?", strings.ToLower(req.Username)).First(&existingUser)
 	if result.Error == nil {
 		return errors.New("用户名已存在")
 	}
 
 	var existingEmail models.User
-	result = db.DB.Where("email = ?", req.Email).First(&existingEmail)
+	result = db.DB.Where("lower(email) = ?", strings.ToLower(req.Email)).First(&existingEmail)
 	if result.Error == nil {
 		return errors.New("邮箱已被注册")
 	}
