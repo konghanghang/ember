@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konghang/ember/backend/internal/common/upstream"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
@@ -70,17 +71,17 @@ func (c *MoviePilotClient) newRequest(method, path string, query url.Values, bod
 func (c *MoviePilotClient) doRequest(req *http.Request) ([]byte, error) {
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	defer resp.Body.Close()
 
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", readErr)
+		return nil, upstream.SafeUpstreamError(readErr, "moviepilot")
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("MoviePilot API 错误: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, upstream.SafeUpstreamHTTPError("moviepilot", resp.StatusCode)
 	}
 
 	return body, nil
@@ -98,18 +99,17 @@ func (c *MoviePilotClient) TestConnection() error {
 
 	req, err := c.newRequest(http.MethodGet, "/api/v1/site/", nil, nil)
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return upstream.SafeUpstreamError(err, "moviepilot")
 	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("请求失败: %w", err)
+		return upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("MoviePilot 连接失败: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return upstream.SafeUpstreamHTTPError("moviepilot", resp.StatusCode)
 	}
 
 	return nil
@@ -238,13 +238,13 @@ func (c *MoviePilotClient) searchTitle(keyword string) ([]map[string]interface{}
 		"keyword": []string{keyword},
 	}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	req.Header.Set("Accept", "application/json")
 
 	body, err := c.doRequest(req)
 	if err != nil {
-		return nil, fmt.Errorf("搜索候选失败: %w", err)
+		return nil, err
 	}
 
 	return parseSearchResults(body)
@@ -274,22 +274,22 @@ func (c *MoviePilotClient) DispatchGapCandidate(data GapDispatchRequest) (*GapDi
 
 	req, err := c.newRequest(http.MethodPost, "/api/v1/download/add", nil, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("下发请求失败: %w", err)
+		return nil, upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
+		return nil, upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("MoviePilot API 错误: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, upstream.SafeUpstreamHTTPError("moviepilot", resp.StatusCode)
 	}
 
 	result := &GapDispatchResponse{
@@ -330,12 +330,12 @@ func (c *MoviePilotClient) CreateSubscription(data SubscribeRequest) error {
 
 	req, err := c.newRequest(http.MethodPost, "/api/v1/subscribe/", nil, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	if _, err := c.doRequest(req); err != nil {
-		return fmt.Errorf("订阅请求失败: %w", err)
+		return err
 	}
 
 	return nil

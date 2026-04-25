@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	mediagappkg "github.com/konghang/ember/backend/internal/services/mediagap"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
@@ -48,7 +49,7 @@ func (h *TVCalendarHandler) GetGlobalWeeklyCalendar(c *gin.Context) {
 		case errors.Is(err, tvcalendarpkg.ErrTVCalendarNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -78,7 +79,7 @@ func (h *TVCalendarHandler) GetFollowingWeeklyCalendar(c *gin.Context) {
 		case errors.Is(err, tvcalendarpkg.ErrTVCalendarNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -125,7 +126,7 @@ func (h *TVCalendarHandler) GetCalendar(c *gin.Context) {
 		case errors.Is(err, tvcalendarpkg.ErrTVCalendarNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -151,7 +152,7 @@ func (h *TVCalendarHandler) Subscribe(c *gin.Context) {
 		case errors.Is(err, tvcalendarpkg.ErrTVCalendarTMDBIDRequired), errors.Is(err, tvcalendarpkg.ErrTVCalendarShowNameNeeded):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -168,7 +169,7 @@ func (h *TVCalendarHandler) GetSubscriptions(c *gin.Context) {
 
 	subscriptions, err := h.service.GetSubscriptions(userID.(string))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -188,7 +189,7 @@ func (h *TVCalendarHandler) Unsubscribe(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -220,7 +221,7 @@ func (h *TVCalendarHandler) Sync(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 			return
 		}
 	}
@@ -324,7 +325,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 		})
 		if err != nil {
 			log.Printf("[Subscription] Emby webhook 电影入库回写失败 requestId=%s itemId=%q itemName=%q tmdbId=%q err=%v", requestID, embyItemID, itemName, tmdbID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 			return
 		}
 		log.Printf("[Subscription] Emby webhook 电影处理完成 requestId=%s itemId=%q itemName=%q tmdbId=%q updated=%t updatedCount=%d", requestID, embyItemID, itemName, tmdbID, subscriptionCount > 0, subscriptionCount)
@@ -348,7 +349,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 		})
 		if err != nil {
 			log.Printf("[Subscription] Emby webhook 剧集入库回写失败 requestId=%s itemId=%q itemName=%q tmdbId=%q season=%d episode=%d err=%v", requestID, embyItemID, itemName, tmdbID, season, episode, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 			return
 		}
 		subscriptionUpdatedCount = subscriptionCount
@@ -382,7 +383,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 	})
 	if err != nil {
 		log.Printf("[MediaGap] Emby webhook 缺集核销失败 requestId=%s itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d err=%v", requestID, embyItemID, itemName, tmdbID, seriesID, season, episode, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 	mediaGapUpdatedCount = mediaGapCount
@@ -390,7 +391,7 @@ func (h *TVCalendarHandler) HandleEmbyWebhook(c *gin.Context) {
 	updatedCount, err := h.service.MarkEpisodeReadyByWebhook(c.Request.Context(), tmdbID, seriesID, season, episode, embyItemID)
 	if err != nil {
 		log.Printf("[TV Calendar] Emby webhook 更新失败 requestId=%s event=%q itemId=%q itemName=%q tmdbId=%q seriesId=%q season=%d episode=%d err=%v", requestID, eventName, embyItemID, itemName, tmdbID, seriesID, season, episode, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

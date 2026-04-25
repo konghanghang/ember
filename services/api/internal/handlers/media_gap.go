@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	mediagappkg "github.com/konghang/ember/backend/internal/services/mediagap"
 )
 
@@ -354,18 +355,22 @@ func normalizeDispatchPayload(req mediaGapDispatchRequest) map[string]interface{
 }
 
 func writeMediaGapError(c *gin.Context, err error) {
-	statusCode := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, mediagappkg.ErrMediaGapNotFound):
-		statusCode = http.StatusNotFound
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
 	case errors.Is(err, mediagappkg.ErrMediaGapInvalidStatus),
 		errors.Is(err, mediagappkg.ErrMediaGapSearchState),
 		errors.Is(err, mediagappkg.ErrMediaGapDispatchState),
 		errors.Is(err, mediagappkg.ErrMediaGapCandidate):
-		statusCode = http.StatusBadRequest
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	case errors.Is(err, mediagappkg.ErrMediaGapNotConfigured):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
 	}
 
-	c.JSON(statusCode, gin.H{"error": err.Error()})
+	httpx.InternalError(c, err)
 }
 
 func buildCandidateID(candidate mediagappkg.SearchCandidate) string {

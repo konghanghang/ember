@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
+	"github.com/konghang/ember/backend/internal/common/upstream"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
@@ -113,9 +116,7 @@ func (h *TMDBHandler) fetchTMDB(c *gin.Context, endpoint string, target interfac
 	tmdbURL := fmt.Sprintf("https://api.themoviedb.org/3/%s", endpoint)
 	req, err := http.NewRequest(http.MethodGet, tmdbURL, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "TMDB API 请求失败",
-		})
+		httpx.InternalError(c, upstream.SafeUpstreamError(err, "tmdb"))
 		return false
 	}
 
@@ -126,32 +127,24 @@ func (h *TMDBHandler) fetchTMDB(c *gin.Context, endpoint string, target interfac
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "TMDB API 请求失败",
-		})
+		httpx.InternalError(c, upstream.SafeUpstreamError(err, "tmdb"))
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("TMDB API 返回错误: %d", resp.StatusCode),
-		})
+		httpx.InternalError(c, upstream.SafeUpstreamHTTPError("tmdb", resp.StatusCode))
 		return false
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "读取响应失败",
-		})
+		httpx.InternalError(c, upstream.SafeUpstreamError(err, "tmdb"))
 		return false
 	}
 
 	if err := json.Unmarshal(body, target); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "解析响应失败",
-		})
+		httpx.InternalError(c, errors.New("tmdb response decode failed"))
 		return false
 	}
 

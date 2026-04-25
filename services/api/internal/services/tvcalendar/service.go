@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/konghang/ember/backend/internal/common/upstream"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
@@ -1217,22 +1218,22 @@ func (s *TVCalendarService) fetchTMDBJSON(ctx context.Context, cacheKey, request
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
-		return fmt.Errorf("构建 TMDB 请求失败: %w", err)
+		return upstream.SafeUpstreamError(err, "tmdb")
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("请求 TMDB 失败: %w", err)
+		return upstream.SafeUpstreamError(err, "tmdb")
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("读取 TMDB 响应失败: %w", err)
+		return upstream.SafeUpstreamError(err, "tmdb")
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("TMDB API 返回错误：HTTP %d", resp.StatusCode)
+		return upstream.SafeUpstreamHTTPError("tmdb", resp.StatusCode)
 	}
 
 	if err := json.Unmarshal(body, out); err != nil {
