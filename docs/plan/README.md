@@ -36,13 +36,21 @@
 
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
+- `access-auth/auth-and-account-integrity-hardening.md`
 - `access-auth/registration-email-domain-allowlist.md`
+- `architecture/schema-deployment-and-baseline-cleanup.md`
+- `billing-redemption/payment-redemption-integrity-hardening.md`
+- `bot-telegram/bot-notification-and-info-leak-hardening.md`
 - `bot-telegram/notification-mute-rules.md`
 - `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
+- `console-admin/playback-and-device-observation-hardening.md`
+- `console-admin/web-frontend-auth-and-design-baseline-fix.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 - `media-subscription/subscription-resubmission-after-rejection.md`
+- `media-subscription/subscription-state-machine-hardening.md`
+- `media-subscription/tv-calendar-and-tmdb-key-protection.md`
 
 ## 模板
 
