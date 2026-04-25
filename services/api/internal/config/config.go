@@ -1599,18 +1599,6 @@ func getConfigDefinitions() []ConfigDefinition {
 			MinValue:        intPtr(1),
 			MaxValue:        intPtr(65535),
 		},
-		{
-			Key:             "AUTO_MIGRATE",
-			EnvKey:          "AUTO_MIGRATE",
-			Group:           ConfigGroupDeployment,
-			GroupLabel:      "部署与密钥",
-			Label:           "自动迁移",
-			Description:     "控制启动时是否自动执行数据库迁移",
-			Type:            ConfigValueBoolean,
-			Editable:        false,
-			RestartRequired: true,
-			DefaultValue:    "false",
-		},
 	}
 }
 

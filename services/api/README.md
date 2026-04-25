@@ -42,7 +42,7 @@ cp .env.example .env
 
 以下配置虽然代码仍可能支持环境变量来源，但不再建议写进 `.env.example`：
 
-- `PORT`、`AUTO_MIGRATE`
+- `PORT`
 - `ADMIN_USERNAME`、`ADMIN_PASSWORD`
 - `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`
 - `MOVIEPILOT_*`、`SMTP_*`、`CRON_*`

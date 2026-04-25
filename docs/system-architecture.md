@@ -141,7 +141,7 @@ services/
 │     │  ├─ jwt.go               # Token 生成/解析（HS256, 7天有效）
 │     │  └─ utils.go             # CalculateExpiryDate
 │     └─ db/
-│        └─ db.go                # DB 初始化 + AutoMigrate + Seed
+│        └─ db.go                # DB 初始化 + VerifySchema + Bootstrap（启动期不再调用 AutoMigrate）
 ├─ web/                          # Vue 3 前端
 │  ├─ src/
 │  │  ├─ api/                    # Axios 请求层
@@ -381,7 +381,7 @@ services/
 - 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`（历史键名，数据库配置项）、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
 - 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
 - 通知：`BOT_NOTIFY_URL`
-- 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT`、`AUTO_MIGRATE` 等
+- 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT` 等
 
 ### 4.5 Subscription（订阅求片）
 
@@ -1375,10 +1375,11 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 |------|------|--------|------|
 | `DATABASE_URL` | ✅ | — | PostgreSQL DSN |
 | `JWT_SECRET` | ✅ | — | ≥32 字符 |
+| `CONFIG_ENCRYPTION_KEY` | ✅ | — | 设置中心敏感配置加密主密钥（≥32 字符） |
+| `INTERNAL_API_SECRET` | ✅ | — | API ↔ Bot 共享密钥 |
 | `PORT` | — | `8080` | 服务端口 |
-| `AUTO_MIGRATE` | — | `"false"` | `"true"` 启用 GORM 自动迁移 |
 | `ADMIN_USERNAME` | — | — | 默认管理员用户名（首次启动 seed）|
-| `ADMIN_PASSWORD` | — | — | 默认管理员密码 |
+| `ADMIN_PASSWORD` | — | — | 默认管理员密码（首次启动 seed，落地后请立即在控制台改密）|
 
 ### Emby 集成
 
@@ -1459,10 +1460,14 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 
 **Docker Compose（`infrastructure/docker/docker-compose.yml`）**：
 - PostgreSQL 16 + Go API + Vue 前端（可选）+ Telegram Bot + Nginx（可选）
-- API 容器仅保留启动期/边界环境变量（`DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`AUTO_MIGRATE`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`EMBY_WEBHOOK_TOKEN`、`INTERNAL_API_SECRET`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`）
+- 强制 env：`POSTGRES_USER` / `POSTGRES_PASSWORD` / `DATABASE_URL` / `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET`（`docker compose up` 缺失任一立即拒绝启动）；Bot 启用时还要求 `TELEGRAM_BOT_TOKEN`
+- API 容器仅保留启动期/边界环境变量（`DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`EMBY_WEBHOOK_TOKEN`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`）
 - API 以非 root 用户 `ember:ember`(UID 1000) 运行
-- 健康检查：`GET /health`
+- 健康检查：`GET /health`；Bot 通过 `depends_on.condition: service_healthy` 等 API 健康后再启动
+- PostgreSQL 端口默认仅监听 `127.0.0.1:5432`；远程访问请走 SSH tunnel 或反代授权
+- 首次初始化目录：`infrastructure/docker/initdb/`（compose 仅挂载该子目录到 `/docker-entrypoint-initdb.d/`，README/archive 不参与首启）；新增顶层 SQL 必须同步复制到 `initdb/`
 - 数据库迁移资产当前收口为 `infrastructure/database/20260415_00_schema_baseline.sql` + baseline 之后的顶层增量 migration；`pre-20260415` 历史 SQL 已归档到 `infrastructure/database/archive/pre-20260415/`
+- 启动期不再调用 `AutoMigrate`：本地空库可执行 `cd services/api && go run ./cmd/migrate`，工具会按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL，再跑 `VerifySchema` 自检；生产 schema 必须通过 `infrastructure/database/` 下的 SQL migration 升级
 
 **数据库连接池**：MaxIdle=10, MaxOpen=100, MaxLifetime=1h, MaxIdleTime=10min
 

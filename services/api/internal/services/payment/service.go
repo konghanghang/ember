@@ -19,6 +19,7 @@ import (
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
+	"github.com/konghang/ember/backend/internal/async"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
@@ -869,12 +870,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 	log.Printf("[Payment] 支付履约成功: paymentID=%s userID=%s planID=%s sessionID=%s oldExpiresAt=%v newExpiresAt=%s days=%d",
 		payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, oldExpiry, newExpiry.Format(time.RFC3339), payment.Days)
 
-	go func(data notifierint.PaymentSuccessNotification) {
-		if s.notifier == nil || !s.notifier.IsConfigured() {
-			return
-		}
-		s.notifier.NotifyPaymentSuccess(data)
-	}(notifierint.PaymentSuccessNotification{
+	paymentPayload := notifierint.PaymentSuccessNotification{
 		PaymentID:             payment.ID,
 		UserID:                user.ID,
 		UserName:              user.Username,
@@ -888,6 +884,12 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 		NewExpiresAt:          newExpiry.Format(time.RFC3339),
 		StripeSessionID:       payment.StripeSessionID,
 		StripePaymentIntentID: payment.StripePaymentIntentID,
+	}
+	async.SafeGo("payment.notifySuccess", func() {
+		if s.notifier == nil || !s.notifier.IsConfigured() {
+			return
+		}
+		s.notifier.NotifyPaymentSuccess(paymentPayload)
 	})
 
 	return nil

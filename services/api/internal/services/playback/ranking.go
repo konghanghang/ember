@@ -10,6 +10,7 @@ import (
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
+	"github.com/konghang/ember/backend/internal/async"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
@@ -451,7 +452,7 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 
 	log.Printf("[PlaybackRanking] generate done period=%s batchId=%s movies=%d episodes=%d start=%s end=%s snapshot=%s", period, batchID, len(res.Movies), len(res.Episodes), res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339), res.ComputedAt.Format(time.RFC3339))
 
-	go s.notifier.NotifyRanking(notifierint.RankingNotification{
+	rankingPayload := notifierint.RankingNotification{
 		Period:        string(period),
 		PeriodStart:   res.Start.Format("2006-01-02"),
 		PeriodEnd:     res.End.Format("2006-01-02"),
@@ -459,7 +460,8 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 		TotalDuration: res.TotalDuration,
 		Movies:        toNotifyItems(res.Movies),
 		Episodes:      toNotifyItems(res.Episodes),
-	})
+	}
+	async.SafeGo("playback.notifyRanking", func() { s.notifier.NotifyRanking(rankingPayload) })
 
 	return nil
 }

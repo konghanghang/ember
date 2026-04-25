@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/konghang/ember/backend/internal/async"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
@@ -176,7 +177,9 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 	}
 
 	log.Printf("[Subscription] 创建成功 userId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, subscription.ID, req.Type, req.TmdbID, season)
-	go s.notifyNewSubscription(subscription.ID, userID, req, season)
+	async.SafeGo("subscription.notifyNew", func() {
+		s.notifyNewSubscription(subscription.ID, userID, req, season)
+	})
 
 	return &CreateSubscriptionResult{Success: true}, nil
 }
@@ -238,14 +241,17 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 	}
 
 	log.Printf("[Subscription] 重新提交成功 userId=%s originalSubscriptionId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, original.ID, subscription.ID, original.Type, original.TmdbID, original.Season)
-	go s.notifyNewSubscription(subscription.ID, userID, CreateSubscriptionRequest{
+	resubmitReq := CreateSubscriptionRequest{
 		Type:       original.Type,
 		Name:       original.Name,
 		TmdbID:     original.TmdbID,
 		Season:     original.Season,
 		PosterPath: original.PosterPath,
 		Note:       &note,
-	}, original.Season)
+	}
+	async.SafeGo("subscription.notifyResubmit", func() {
+		s.notifyNewSubscription(subscription.ID, userID, resubmitReq, original.Season)
+	})
 
 	return &CreateSubscriptionResult{Success: true}, nil
 }
@@ -440,7 +446,7 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 	}
 
 	log.Printf("[Subscription] 审批通过 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season)
-	go s.notifyApproved(subscription)
+	async.SafeGo("subscription.notifyApproved", func() { s.notifyApproved(subscription) })
 	return nil
 }
 
@@ -469,7 +475,7 @@ func (s *SubscriptionService) RejectSubscription(subscriptionID, reason string) 
 	}
 
 	log.Printf("[Subscription] 审批拒绝 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d reason=%q", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season, reason)
-	go s.notifyRejected(subscription)
+	async.SafeGo("subscription.notifyRejected", func() { s.notifyRejected(subscription) })
 	return nil
 }
 
@@ -571,7 +577,7 @@ func (s *SubscriptionService) MarkSubscriptionsIngestedByWebhook(ctx context.Con
 		subscription.IngestedAt = &now
 		updatedCount += result.RowsAffected
 		log.Printf("[Subscription] Webhook 已回写入库 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d embyItemId=%s", subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season, strings.TrimSpace(payload.EmbyItemID))
-		go s.notifyIngested(subscription)
+		async.SafeGo("subscription.notifyIngested", func() { s.notifyIngested(subscription) })
 	}
 
 	return updatedCount, nil

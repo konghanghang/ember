@@ -47,17 +47,31 @@ psql "$DATABASE_URL" -f infrastructure/database/20260415_00_schema_baseline.sql
 - `20260416_01_subscription_status_and_review_fields.sql`
 - `20260418_01_media_gaps.sql`
 - `20260424_01_subscription_resubmission_after_rejection.sql`
+- `20260425_01_baseline_normalization_indexes.sql`
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
 
 ### 3. Docker 首次初始化（仅首次）
 
-`infrastructure/docker/docker-compose.yml` 会把本目录挂载到 Postgres 的 `/docker-entrypoint-initdb.d`。
+`infrastructure/docker/docker-compose.yml` 把 `infrastructure/docker/initdb/` 子目录挂载到 Postgres 的 `/docker-entrypoint-initdb.d`，**不再直接挂本目录**。原因：
+
+- PG initdb.d 会按字典序执行其下所有 `.sql` / `.sh` / `.sql.gz`，本目录里的 README、archive、未来临时 SQL 都可能被误执行
+- 改用专用子目录后，本目录仍是 SQL 真相，但首启执行链路收口在 `docker/initdb/`
+
+执行行为：
 
 - 只在数据库数据卷为空时执行一次
-- 当前会执行顶层 baseline 和后续增量 migration
+- 当前 `docker/initdb/` 包含顶层 baseline 和后续增量 migration
 - `archive/` 不参与初始化
 - 如果数据库已存在，只手工执行 baseline 之后新增的顶层 migration
+
+**新增 / 同步迁移**：每次在本目录新增顶层 SQL，必须同步复制一份到 `infrastructure/docker/initdb/`：
+
+```bash
+cp infrastructure/database/<NEW_SQL>.sql infrastructure/docker/initdb/
+```
+
+被 baseline 吸收并归档到 `archive/` 的旧文件，也要从 `docker/initdb/` 删除。
 
 ### 4. 历史追溯
 
@@ -76,6 +90,16 @@ infrastructure/database/archive/pre-20260415/
 - 单次迁移脚本必须保持幂等
 - 归档历史迁移时，原文件名不允许改写
 - baseline 文件继续使用同一命名规则，不额外引入特殊前缀
+
+## 新增 migration 必做事项
+
+每次在本目录新增顶层 SQL，必须同步完成以下三件事：
+
+1. 复制到 `infrastructure/docker/initdb/`，保持文件名一致
+2. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（用于 API 启动期 `VerifySchema` fail-fast）
+3. 在隔离临时库回灌验证幂等
+
+漏做第 2 步：API 启动期不会拦住缺该 migration 的环境，要等运行到第一次查询才报错。
 
 ## Baseline 收口规则
 

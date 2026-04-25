@@ -18,6 +18,14 @@ func main() {
 	db.InitDB()
 	defer db.Close()
 
+	// 启动期 schema 校验：缺表立即 fail-fast，避免运行到第一次查询才报错
+	if err := db.VerifySchema(); err != nil {
+		log.Fatalf("❌ 数据库 schema 校验失败：%v", err)
+	}
+
+	// 默认管理员 / 默认设置 / 默认套餐分组
+	db.Bootstrap()
+
 	// 初始化 JWT
 	if err := common.InitJWT(); err != nil {
 		log.Fatalf("❌ JWT 初始化失败：%v", err)

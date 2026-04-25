@@ -1,12 +1,13 @@
 package auth
 
 import (
+	"github.com/konghang/ember/backend/internal/async"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
 func (s *AuthService) notifyNewRegistration(user models.User, mode string) {
-	go func(user models.User, mode string) {
+	async.SafeGo("auth.notifyNewRegistration", func() {
 		if s.notifier == nil || !s.notifier.IsConfigured() {
 			return
 		}
@@ -25,5 +26,5 @@ func (s *AuthService) notifyNewRegistration(user models.User, mode string) {
 			RegistrationMode: mode,
 			ExpiresAt:        expiresAt,
 		})
-	}(user, mode)
+	})
 }

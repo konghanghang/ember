@@ -1,23 +1,23 @@
-version: '3.8'
-
 services:
   # PostgreSQL 数据库
   postgres:
     image: postgres:16-alpine
     container_name: ember-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: ember
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER 必须显式提供（本地可在 .env 中配置）}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必须显式提供，禁止使用默认值}
+      POSTGRES_DB: ${POSTGRES_DB:-ember}
     ports:
-      - "5432:5432"
+      # 仅本机回环可达；远程访问请走 SSH tunnel 或在反代层授权
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../database:/docker-entrypoint-initdb.d
+      # 仅挂载首启执行的 SQL 子目录，禁止把整个 ../database 目录暴露给 PG initdb.d
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     networks:
       - ember-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,17 +36,16 @@ services:
     container_name: ember-api
     environment:
       - PORT=8080
-      - DATABASE_URL=${DATABASE_URL}
-      - JWT_SECRET=${JWT_SECRET}
-      - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY}
-      - AUTO_MIGRATE=${AUTO_MIGRATE:-true}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL 必须显式提供}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET 必须显式提供（≥32 字符）}
+      - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY 必须显式提供}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET 必须显式提供（API ↔ Bot 共享密钥）}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - EMBY_WEBHOOK_TOKEN=${EMBY_WEBHOOK_TOKEN}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
       - WEBHOOK_URL=${WEBHOOK_URL}
-      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
     ports:
       - "8080:8080"
     depends_on:
@@ -57,6 +56,14 @@ services:
     restart: unless-stopped
     volumes:
       - api_logs:/app/logs
+    healthcheck:
+      # 与 Dockerfile HEALTHCHECK 行为对齐，但显式声明便于 review；
+      # 镜像层若调整 HEALTHCHECK 时本字段是单一来源
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
     logging:
       options:
         max-size: "10m"
@@ -95,6 +102,8 @@ services:
 
     container_name: ember-bot
     environment:
+      # Bot 相关 secret 由 Bot 进程内自验，compose 解析期不强制
+      # （强制会让仅启动 postgres + ember-api 的部署也被拒绝）
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_UPDATE_MODE=${TELEGRAM_UPDATE_MODE:-webhook}
       - TELEGRAM_ADMIN_CHAT_ID=${TELEGRAM_ADMIN_CHAT_ID}
@@ -107,7 +116,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - ember-api
+      ember-api:
+        condition: service_healthy
     networks:
       - ember-network
     restart: unless-stopped

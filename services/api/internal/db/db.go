@@ -103,22 +103,142 @@ func InitDB() {
 	DB.Raw("SHOW server_version").Scan(&pgVersion)
 	fmt.Printf("✅ PostgreSQL 版本：%s\n", pgVersion)
 
-	// 按需自动迁移表结构
-	if os.Getenv("AUTO_MIGRATE") == "true" {
-		if err := AutoMigrate(); err != nil {
-			log.Fatalf("❌ 数据库迁移失败：%v", err)
-		}
-		log.Println("✅ 数据库迁移完成")
-	} else {
-		log.Println("ℹ️  AUTO_MIGRATE 未启用，跳过数据库迁移")
+	fmt.Println("✅ 数据库连接成功")
+}
+
+// VerifySchema 在启动期检查所有业务表、关键列与关键索引是否存在。
+//
+// schema 由 infrastructure/database/ 下的 SQL migration 维护，启动期不再调用
+// AutoMigrate；如果运维漏跑某条 SQL，本函数会在第一时间 fail-fast，避免 API
+// 跑到第一次查询时才报错。
+//
+// 校验分三层：
+//  1. 表存在：覆盖 baseline 与"新建表"型增量 migration
+//  2. 关键列：覆盖"在已有表上加列"型增量 migration（仅检查每条 migration 引入的有代表性列）
+//  3. 关键索引：覆盖"加约束 / 加 partial unique"型增量 migration
+//
+// 列与索引指纹按 migration 文件维护；新增顶层 SQL 时必须在 schemaFingerprints
+// 中追加对应条目，否则该 migration 漏跑不会被本函数发现。
+func VerifySchema() error {
+	tableChecks := []struct {
+		name  string
+		model interface{}
+	}{
+		{"users", &models.User{}},
+		{"redemption_codes", &models.RedemptionCode{}},
+		{"redemptions", &models.Redemption{}},
+		{"settings", &models.Setting{}},
+		{"plan_groups", &models.PlanGroup{}},
+		{"plans", &models.Plan{}},
+		{"payments", &models.Payment{}},
+		{"subscriptions", &models.Subscription{}},
+		{"media_gaps", &models.MediaGap{}},
+		{"playback_rankings", &models.PlaybackRanking{}},
+		{"media_quality_caches", &models.MediaQualityCache{}},
+		{"client_blacklists", &models.ClientBlacklist{}},
+		{"device_actions", &models.DeviceAction{}},
+		{"email_verifications", &models.EmailVerification{}},
+		{"telegram_bind_codes", &models.TelegramBindCode{}},
+		{"tv_calendar_sources", &models.TVCalendarSource{}},
+		{"tv_calendar_items", &models.TVCalendarItem{}},
+		{"tv_calendar_subscriptions", &models.TVCalendarSubscription{}},
+		{"tmdb_cache", &models.TMDBCache{}},
 	}
 
-	// 初始化默认管理员
+	modelByTable := make(map[string]interface{}, len(tableChecks))
+	var missingTables []string
+	for _, c := range tableChecks {
+		modelByTable[c.name] = c.model
+		if !DB.Migrator().HasTable(c.model) {
+			missingTables = append(missingTables, c.name)
+		}
+	}
+	if len(missingTables) > 0 {
+		return fmt.Errorf("数据库缺少必要的表：%s；请按 infrastructure/database/README.md 执行 SQL migration（本地空库可用 `go run ./cmd/migrate`）", strings.Join(missingTables, ", "))
+	}
+
+	var missingColumns []string
+	for _, c := range schemaFingerprintColumns {
+		model, ok := modelByTable[c.table]
+		if !ok {
+			return fmt.Errorf("schemaFingerprintColumns 引用未注册的表 %q", c.table)
+		}
+		if !DB.Migrator().HasColumn(model, c.column) {
+			missingColumns = append(missingColumns, fmt.Sprintf("%s.%s（来自 %s）", c.table, c.column, c.migration))
+		}
+	}
+	if len(missingColumns) > 0 {
+		return fmt.Errorf("数据库缺少必要的列：%s；请按 infrastructure/database/README.md 执行 SQL migration", strings.Join(missingColumns, ", "))
+	}
+
+	var missingIndexes []string
+	for _, c := range schemaFingerprintIndexes {
+		model, ok := modelByTable[c.table]
+		if !ok {
+			return fmt.Errorf("schemaFingerprintIndexes 引用未注册的表 %q", c.table)
+		}
+		if !DB.Migrator().HasIndex(model, c.index) {
+			missingIndexes = append(missingIndexes, fmt.Sprintf("%s.%s（来自 %s）", c.table, c.index, c.migration))
+		}
+	}
+	if len(missingIndexes) > 0 {
+		return fmt.Errorf("数据库缺少必要的索引：%s；请按 infrastructure/database/README.md 执行 SQL migration", strings.Join(missingIndexes, ", "))
+	}
+
+	log.Println("✅ 数据库 schema 校验通过")
+	return nil
+}
+
+// schemaFingerprintColumn 描述某条 SQL migration 引入的代表性列，
+// 用于在启动期 VerifySchema 中 fail-fast 漏跑情况。
+type schemaFingerprintColumn struct {
+	table     string
+	column    string
+	migration string
+}
+
+// schemaFingerprintIndex 描述某条 SQL migration 引入的代表性索引，
+// 同样用于启动期 fail-fast。
+type schemaFingerprintIndex struct {
+	table     string
+	index     string
+	migration string
+}
+
+// schemaFingerprintColumns 列出当前 build 时间所有顶层增量 migration 引入的代表性列。
+//
+// 维护规则：每次在 infrastructure/database/ 新增顶层 migration 后，把其中"在已有表上 ADD COLUMN"
+// 的代表性列追加到这里；漏维护会导致 VerifySchema 放过缺该 migration 的环境。
+var schemaFingerprintColumns = []schemaFingerprintColumn{
+	{"subscriptions", "rejectReason", "20260416_01_subscription_status_and_review_fields"},
+	{"subscriptions", "reviewedAt", "20260416_01_subscription_status_and_review_fields"},
+	{"subscriptions", "ingestedAt", "20260416_01_subscription_status_and_review_fields"},
+	{"subscriptions", "retryFromId", "20260424_01_subscription_resubmission_after_rejection"},
+}
+
+// schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
+//
+// 维护规则：每次在 infrastructure/database/ 新增顶层 migration 后，把其中"CREATE [UNIQUE] INDEX"
+// 的代表性索引追加到这里；尤其是带业务约束（partial unique / 复合唯一）的索引必须列入。
+var schemaFingerprintIndexes = []schemaFingerprintIndex{
+	{"media_gaps", "uk_media_gap_episode", "20260418_01_media_gaps"},
+	{"subscriptions", "uq_subscriptions_active_media", "20260424_01_subscription_resubmission_after_rejection"},
+	{"subscriptions", "idx_subscriptions_retry_from_id", "20260424_01_subscription_resubmission_after_rejection"},
+	// baseline 内置 + 由 20260425_01 在已有库补齐：新装环境从 baseline 已建，
+	// 老线上库通过 20260425_01_baseline_normalization_indexes 补齐
+	{"playback_rankings", "idx_ranking_lookup", "20260425_01_baseline_normalization_indexes"},
+	{"redemptions", "uq_redemptions_user_code", "20260425_01_baseline_normalization_indexes"},
+}
+
+// Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。
+//
+// 与 InitDB 拆分的原因：cmd/migrate 工具在空库场景下需要先建表再 seed，
+// 否则 seed 会因表不存在而失败。生产 API 启动顺序为
+// `InitDB → VerifySchema → Bootstrap`。
+func Bootstrap() {
 	seedDefaultAdmin()
 	seedDefaultSettings()
 	seedDefaultPlanGroups()
-
-	fmt.Println("✅ 数据库连接成功")
 }
 
 // withConnectTimeout 为 URL 形式的 PostgreSQL DSN 注入 connect_timeout（秒）
@@ -230,40 +350,4 @@ func Close() error {
 		return err
 	}
 	return sqlDB.Close()
-}
-
-// AutoMigrate 手动执行数据库迁移（可选）
-// 仅在确认需要时调用
-func AutoMigrate() error {
-	if err := DB.AutoMigrate(
-		&models.RedemptionCode{},
-		&models.Redemption{},
-		&models.Setting{},
-		&models.PlanGroup{},
-		&models.User{},
-		&models.TVCalendarSource{},
-		&models.TVCalendarItem{},
-		&models.TVCalendarSubscription{},
-		&models.TMDBCache{},
-		&models.ClientBlacklist{},
-		&models.DeviceAction{},
-		&models.Subscription{},
-		&models.Plan{},
-		&models.Payment{},
-		&models.PlaybackRanking{},
-		&models.MediaQualityCache{},
-		&models.MediaGap{},
-		&models.EmailVerification{},
-		&models.TelegramBindCode{},
-	); err != nil {
-		return err
-	}
-
-	if DB.Migrator().HasTable("invites") {
-		if err := DB.Migrator().DropTable("invites"); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
