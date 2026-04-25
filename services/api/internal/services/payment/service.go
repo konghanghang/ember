@@ -871,19 +871,16 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, metad
 		payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, oldExpiry, newExpiry.Format(time.RFC3339), payment.Days)
 
 	paymentPayload := notifierint.PaymentSuccessNotification{
-		PaymentID:             payment.ID,
-		UserID:                user.ID,
-		UserName:              user.Username,
-		Email:                 user.Email,
-		PlanID:                payment.PlanID,
-		PlanName:              planName,
-		Amount:                payment.Amount,
-		Currency:              payment.Currency,
-		Days:                  payment.Days,
-		OldExpiresAt:          formatNotifyTime(oldExpiry),
-		NewExpiresAt:          newExpiry.Format(time.RFC3339),
-		StripeSessionID:       payment.StripeSessionID,
-		StripePaymentIntentID: payment.StripePaymentIntentID,
+		PaymentID:    payment.ID,
+		UserID:       user.ID,
+		UserName:     user.Username,
+		PlanID:       payment.PlanID,
+		PlanName:     planName,
+		Amount:       payment.Amount,
+		Currency:     payment.Currency,
+		Days:         payment.Days,
+		OldExpiresAt: formatNotifyTime(oldExpiry),
+		NewExpiresAt: newExpiry.Format(time.RFC3339),
 	}
 	async.SafeGo("payment.notifySuccess", func() {
 		if s.notifier == nil || !s.notifier.IsConfigured() {

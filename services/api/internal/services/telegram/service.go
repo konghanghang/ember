@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -108,6 +109,9 @@ type TelegramSubscriptionCommand struct {
 }
 
 // GenerateBindCode 生成绑定验证码
+//
+// 与 telegram_bind_codes(userId) 上的唯一索引配合：同一用户调用即"原地刷新"，
+// 不再依赖事务里的 DELETE + INSERT，避免老路径在并发下的竞态。
 func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, error) {
 	var user models.User
 	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
@@ -123,16 +127,19 @@ func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, er
 	for i := 0; i < maxAttempts; i++ {
 		code := generateTelegramBindCode()
 
-		err := db.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Where("\"userId\" = ?", userID).Delete(&models.TelegramBindCode{}).Error; err != nil {
-				return err
-			}
-			return tx.Create(&models.TelegramBindCode{
-				UserID:    userID,
-				Code:      code,
-				ExpiresAt: expiresAt,
-			}).Error
-		})
+		bindCode := models.TelegramBindCode{
+			UserID:    userID,
+			Code:      code,
+			ExpiresAt: expiresAt,
+		}
+		err := db.DB.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "userId"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"code":      code,
+				"expiresAt": expiresAt,
+				"createdAt": time.Now().UTC(),
+			}),
+		}).Create(&bindCode).Error
 		if err == nil {
 			return code, expiresAt, nil
 		}
@@ -159,7 +166,10 @@ func (s *TelegramService) VerifyBind(telegramID int64, code string) (*BindResult
 		return nil, ErrTelegramBindCodeInvalid
 	}
 	if len(bindCodes) > 1 {
-		return nil, errors.New("绑定失败，请稍后重试")
+		// 同 code 命中多条只可能来自历史脏数据或人为构造，不应让所有用户绑不上。
+		// 记 ERROR 供运维排障，对调用方仍按"码无效"返回。
+		log.Printf("[Telegram] VerifyBind 异常：同 code 命中多条记录 code=%s count=%d", code, len(bindCodes))
+		return nil, ErrTelegramBindCodeInvalid
 	}
 	bindCode := bindCodes[0]
 

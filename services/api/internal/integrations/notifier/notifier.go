@@ -51,20 +51,21 @@ type RegistrationNotification struct {
 }
 
 // PaymentSuccessNotification 支付成功通知数据
+//
+// 出于"通知内容长期落 Telegram 服务器"的考虑，admin 通知载荷不再包含
+// Email / StripeSessionID / StripePaymentIntentID 等可定位单笔支付的强标识；
+// 运维需要追溯单笔支付，请走后台审计页通过 paymentId / userId 查询。
 type PaymentSuccessNotification struct {
-	PaymentID             string  `json:"paymentId"`
-	UserID                string  `json:"userId"`
-	UserName              string  `json:"userName"`
-	Email                 string  `json:"email"`
-	PlanID                string  `json:"planId"`
-	PlanName              string  `json:"planName"`
-	Amount                int64   `json:"amount"`
-	Currency              string  `json:"currency"`
-	Days                  int     `json:"days"`
-	OldExpiresAt          *string `json:"oldExpiresAt"`
-	NewExpiresAt          string  `json:"newExpiresAt"`
-	StripeSessionID       string  `json:"stripeSessionId"`
-	StripePaymentIntentID string  `json:"stripePaymentIntentId"`
+	PaymentID    string  `json:"paymentId"`
+	UserID       string  `json:"userId"`
+	UserName     string  `json:"userName"`
+	PlanID       string  `json:"planId"`
+	PlanName     string  `json:"planName"`
+	Amount       int64   `json:"amount"`
+	Currency     string  `json:"currency"`
+	Days         int     `json:"days"`
+	OldExpiresAt *string `json:"oldExpiresAt"`
+	NewExpiresAt string  `json:"newExpiresAt"`
 }
 
 // BotNotifier Bot 通知客户端

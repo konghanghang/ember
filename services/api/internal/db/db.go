@@ -228,6 +228,7 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	// 老线上库通过 20260425_01_baseline_normalization_indexes 补齐
 	{"playback_rankings", "idx_ranking_lookup", "20260425_01_baseline_normalization_indexes"},
 	{"redemptions", "uq_redemptions_user_code", "20260425_01_baseline_normalization_indexes"},
+	{"telegram_bind_codes", "uq_telegram_bind_codes_user", "20260426_01_telegram_bind_codes_user_unique"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。

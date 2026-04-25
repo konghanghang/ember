@@ -49,13 +49,11 @@ class MessageFormatterTestCase(unittest.TestCase):
         text = format_payment_message(
             {
                 "userName": "ember-user",
-                "email": "user@example.com",
                 "planName": "季度套餐",
                 "amount": 1299,
                 "currency": "cny",
                 "days": 90,
                 "paymentId": "pay_123",
-                "stripeSessionId": "sess_456",
                 "oldExpiresAt": "2026-04-15T08:00:00Z",
                 "newExpiresAt": "2026-07-14T08:00:00Z",
             }
@@ -65,6 +63,8 @@ class MessageFormatterTestCase(unittest.TestCase):
         self.assertIn("2026-04-15 08:00:00", text)
         self.assertIn("2026-07-14 08:00:00", text)
         self.assertIn("季度套餐", text)
+        self.assertNotIn("📧", text)
+        self.assertNotIn("Session", text)
 
     def test_format_account_info_marks_expired_users(self) -> None:
         text = format_account_info(

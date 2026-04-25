@@ -95,6 +95,9 @@ func (h *TelegramHandler) VerifyBind(c *gin.Context) {
 }
 
 // GetAccountInfo Bot 查询账号信息
+//
+// 反账号枚举：未绑定 Telegram 的请求统一返回与"参数错误"一致的 400 响应，
+// 不再向调用方透传 ErrTelegramNotBound 字面值。
 func (h *TelegramHandler) GetAccountInfo(c *gin.Context) {
 	var req telegrampkg.TelegramIDRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -104,11 +107,11 @@ func (h *TelegramHandler) GetAccountInfo(c *gin.Context) {
 
 	result, err := h.telegramService.GetAccountInfo(req.TelegramID)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
 		if errors.Is(err, telegrampkg.ErrTelegramNotBound) {
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -125,10 +128,13 @@ func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
 
 	result, err := h.telegramService.RedeemByTelegram(req.TelegramID, req.Code)
 	if err != nil {
+		if errors.Is(err, telegrampkg.ErrTelegramNotBound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
 		statusCode := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, telegrampkg.ErrTelegramNotBound),
-			errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
 			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
 			errors.Is(err, redemptionpkg.ErrRedemptionDuplicate):
 			statusCode = http.StatusBadRequest
@@ -152,11 +158,11 @@ func (h *TelegramHandler) ResetPassword(c *gin.Context) {
 	}
 
 	if err := h.telegramService.ResetPassword(req.TelegramID, req.NewPassword); err != nil {
-		statusCode := http.StatusInternalServerError
 		if errors.Is(err, telegrampkg.ErrTelegramNotBound) {
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -172,10 +178,12 @@ func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 	}
 
 	if err := h.telegramService.SubscribeByTelegram(req); err != nil {
+		if errors.Is(err, telegrampkg.ErrTelegramNotBound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
 		statusCode := http.StatusInternalServerError
 		switch {
-		case errors.Is(err, telegrampkg.ErrTelegramNotBound):
-			statusCode = http.StatusBadRequest
 		case errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated):
 			statusCode = http.StatusConflict
 		case errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidSeason):
