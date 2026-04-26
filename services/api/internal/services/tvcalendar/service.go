@@ -127,7 +127,7 @@ type TVCalendarService struct {
 
 func NewTVCalendarService() *TVCalendarService {
 	service := &TVCalendarService{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 		httpClient: &http.Client{
 			Timeout: tvCalendarFetchTimeout,
 		},
@@ -753,31 +753,18 @@ func (s *TVCalendarService) correctCurrentWeekReadyItems(
 		return items
 	}
 
-	checkedAt := time.Now().UTC()
-	persisted := 0
+	// GET 路径只做内存内纠偏，持久化写入由 debouncer 异步批量完成（30s 窗口去重）
+	pushedSeriesIDs := make(map[string]struct{})
 	for _, correction := range corrections {
-		updates := map[string]interface{}{
-			"status":      models.TVCalendarStatusReady,
-			"lastChecked": checkedAt,
-		}
-		if correction.EmbyItemID != "" {
-			updates["embyItemId"] = correction.EmbyItemID
-		}
 		if correction.SeriesID != "" {
-			updates["seriesId"] = correction.SeriesID
+			if _, already := pushedSeriesIDs[correction.SeriesID]; !already {
+				pushedSeriesIDs[correction.SeriesID] = struct{}{}
+				defaultDebouncer.Push(correction.SeriesID)
+			}
 		}
-
-		result := db.DB.WithContext(ctx).Model(&models.TVCalendarItem{}).
-			Where("\"tmdbId\" = ? AND season = ? AND episode = ?", correction.TmdbID, correction.Season, correction.Episode).
-			Updates(updates)
-		if result.Error != nil {
-			log.Printf("[TV Calendar] 当前周 ready 校正写回失败: tmdbId=%s season=%d episode=%d err=%v", correction.TmdbID, correction.Season, correction.Episode, result.Error)
-			continue
-		}
-		persisted++
 	}
 
-	log.Printf("[TV Calendar] 当前周 ready 校正完成: visibleRange=%s~%s corrected=%d persisted=%d", start.Format("2006-01-02"), end.Format("2006-01-02"), len(corrections), persisted)
+	log.Printf("[TV Calendar] 当前周 ready 校正完成: visibleRange=%s~%s corrected=%d debouncePushed=%d", start.Format("2006-01-02"), end.Format("2006-01-02"), len(corrections), len(pushedSeriesIDs))
 	return correctedItems
 }
 
@@ -889,7 +876,33 @@ func (s *TVCalendarService) loadSourcesForSync(tmdbID *string, force bool) ([]mo
 		return sources, nil
 	}
 
-	cutoff := activeSourceCutoff(time.Now().UTC())
+	now := time.Now().UTC()
+	fullSyncCutoff := now.Add(-24 * time.Hour)
+	cutoff := activeSourceCutoff(now)
+
+	// force=false 且本次为 24h 内已全量同步过的批次：仅同步活跃剧（30d 内有剧集入库记录）
+	// 若所有 source 均在 24h 内完成了全量同步，则走增量路径
+	allFullSyncedRecently := len(sources) > 0
+	for _, source := range sources {
+		if source.LastFullSyncAt == nil || source.LastFullSyncAt.Before(fullSyncCutoff) {
+			allFullSyncedRecently = false
+			break
+		}
+	}
+
+	if allFullSyncedRecently {
+		// 增量路径：只同步 30d 内活跃的剧集
+		prioritized := make([]models.TVCalendarSource, 0, len(sources))
+		for _, source := range sources {
+			if shouldSyncSourceIncrementally(source, cutoff) {
+				prioritized = append(prioritized, source)
+			}
+		}
+		log.Printf("[TV Calendar] loadSourcesForSync 24h 增量路径：活跃剧=%d 总剧数=%d", len(prioritized), len(sources))
+		return prioritized, nil
+	}
+
+	// 全量路径（fallback）：走原有活跃源筛选逻辑
 	prioritized := make([]models.TVCalendarSource, 0, len(sources))
 	hasActivityMarker := false
 	for _, source := range sources {
@@ -1348,10 +1361,12 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 			}
 
 			seasonNumbers := pickTargetSeasonNumbers(detail)
+			seasonSyncOK := true
 			for _, seasonNumber := range seasonNumbers {
 				season, err := s.fetchSeasonDetail(ctx, tmdbIDValue, seasonNumber, force)
 				if err != nil {
 					log.Printf("[TV Calendar] 跳过剧集季同步：show=%q tmdbId=%s season=%d err=%v", strings.TrimSpace(source.ShowName), tmdbIDValue, seasonNumber, err)
+					seasonSyncOK = false
 					continue
 				}
 
@@ -1393,6 +1408,15 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 						return total, err
 					}
 					total++
+				}
+			}
+
+			// 单剧全量同步完成（季全部处理完毕），写 lastFullSyncAt 供 24h 增量判断
+			if seasonSyncOK && tmdbID == nil {
+				if result := db.DB.WithContext(ctx).Model(&models.TVCalendarSource{}).
+					Where(`"tmdbId" = ?`, tmdbIDValue).
+					Update("lastFullSyncAt", now); result.Error != nil {
+					log.Printf("[TV Calendar] 写入 lastFullSyncAt 失败：show=%q tmdbId=%s err=%v", strings.TrimSpace(source.ShowName), tmdbIDValue, result.Error)
 				}
 			}
 		}
