@@ -1,8 +1,19 @@
 # Bot 通知与信息泄露加固方案
 
-> 状态：草稿
+> 状态：P0 部分已落地（批次 0 + 批次 1 + review 修复）；剩余 P1+/P2/P3 待后续批次
 > 负责人：Ember
-> 更新时间：2026-04-25
+> 更新时间：2026-04-26
+
+## 落地进度
+
+批次 0（commit `71a61f3`）已完成 `SafeGo` 收口；批次 1（commit `61cd9b2`）+ review 修复（待提交）已完成本方案的 P0 红线项：
+
+- ✅ `VerifyBind` 命中 `len > 1` 时记 ERROR 日志（`code / count`）+ 改返回 `ErrTelegramBindCodeInvalid`，反 DoS：避免攻击者借"绑定码碰撞"造成全量用户绑不上
+- ✅ `GenerateBindCode` 改用 `Clauses(clause.OnConflict{Columns: userId, DoUpdates: code/expiresAt/createdAt}).Create` 原地刷新；新增 `infrastructure/database/20260426_01_telegram_bind_codes_user_unique.sql` 创建 `uq_telegram_bind_codes_user` 唯一索引；migration 内置 CTE 在建索引前去重旧绑定码（每个 userId 仅保留最新一条），避免 CREATE UNIQUE INDEX 因历史脏数据失败连带 API 启动期 VerifySchema 停摆；schemaFingerprintIndexes 已追加
+- ✅ Handler 层 `GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 在 `ErrTelegramNotBound` 命中时统一返回 400 + `请求参数错误`，反 Telegram→Ember 绑定枚举
+- ✅ `PaymentSuccessNotification` 删除 `Email` / `StripeSessionID` / `StripePaymentIntentID` 三个字段；`payment service` 同步去赋值；Bot Python `format_payment_message` 去渲染 + 单测同步
+
+剩余项（Bot HTTP 调用脱敏 / Internal API 一致鉴权 / 通知载荷长度限制 / Bot 端 message_id 缓存策略等）按 P1+/P2/P3 待后续批次。
 
 ## 背景
 

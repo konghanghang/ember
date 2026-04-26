@@ -1,8 +1,19 @@
 # 追剧日历同步与 TMDB 密钥保护方案
 
-> 状态：草稿
+> 状态：P0 + P2 部分已落地（批次 1 + review 修复）；剩余 P1+/P2/P3 待后续批次
 > 负责人：Ember
-> 更新时间：2026-04-25
+> 更新时间：2026-04-26
+
+## 落地进度
+
+批次 1（commit `564ea20`）+ review 修复（待提交）已完成本方案的 P0 / 部分 P2 红线项：
+
+- ✅ 新增 `internal/common/upstream.SafeUpstreamError` / `SafeUpstreamHTTPError`，剥离 `*url.Error` 中含 `api_key` 的请求 URL 与上游响应体；同时新增 `internal/common/httpx.InternalError` 收口 handler 内部错误
+- ✅ TMDB / MoviePilot 调用链路（`tvcalendar/service.go` `fetchTMDBJSON`、`mediagap/service.go` `fetchTMDBJSON`、`integrations/moviepilot/client.go` `doRequest` / `TestConnection` / `searchTitle` / `DispatchGapCandidate` / `CreateSubscription`）全部替换为脱敏 helper
+- ✅ `tv_calendar.go` / `tmdb.go` / `media_gap.go` handler 中所有裸透 `err.Error()` 的 500 响应改走 `httpx.InternalError`；客户端只看到 `上游服务暂不可用` 统一文案，完整 err 落服务端日志
+- ✅ 配置中心媒体测试链路（`config.go` `testEmbyConnection` / `testMoviePilotConnection`）也统一走 `SafeUpstreamError` / `SafeUpstreamHTTPError`；Emby 测试改用 `X-Emby-Token` 头携带密钥，避免 `*url.Error` 把含 `api_key` 的 URL 写进错误文本
+
+剩余项（webhook tmdbId 维度污染 / 三层缓存收口 / Stripe / SMTP 错误脱敏 sweep）按 P1+/P2/P3 待后续批次（Stripe / SMTP 留批次 5 治理）。
 
 ## 背景
 

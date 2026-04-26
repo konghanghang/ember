@@ -634,16 +634,20 @@ TMDBCache（独立缓存表）
 
 **登录流程**：
 1. 通过 `ConfigService` 读取登录保护公开配置；若 `turnstile_login_enabled=true`，则先校验 `turnstileToken`
-2. Turnstile 校验通过后再查找用户 → Admin: bcrypt 校验 → 普通用户: 本地密码优先 → 无本地密码时降级 Emby 认证 + 自动补存 hash
-3. 过期用户**可以登录**（前端显示过期提示 + 兑换入口）
+2. Turnstile 校验通过后再查找用户（`lower(username) = ?` 大小写不敏感比较，按 `createdAt ASC` 取最早记录）→ Admin: bcrypt 校验 → 普通用户: 优先以 Emby 为权威认证，Emby 通过且 `embyUser.ID == user.EmbyID` 时同步本地 hash；Emby 失败时降级本地 bcrypt 校验
+3. **不再反向覆盖 Emby 密码**：本地通过 + Emby 失败的路径不再调用 `UpdateUserPassword`，登录链路不修改 Emby 端密码
+4. **EmbyID 错配显式拒登**：Emby 返回 `embyUser.ID != user.EmbyID` 时记 ERROR 日志（`username / localEmbyID / remoteEmbyID`）+ 返回与"用户名或密码错误"统一文案，不再静默走兜底
+5. 过期用户**可以登录**（前端显示过期提示 + 兑换入口）
 
 **注册流程**：
 1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 调用注册场景兑换码校验（会额外校验 `registrationPlanGroup` 仍存在）→ `"open"`: 读取 `default_trial_days`
-2. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码
+2. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码（VerifyCode 在事务中"校验即消费"，详见 §5.13）
 3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式且兑换码绑定 `registrationPlanGroup` 时，把该 key 写入 `users.planGroup`，未绑定时继续跟随系统默认分组
 4. invite 模式且兑换码绑定 `templateUserId` 时：按白名单字段复制模板用户 Emby Policy
 5. 签发 JWT
 6. 火忘式通知 Bot（新用户注册）
+
+**唯一性校验**：`ensureRegisterUserUnique` 用 `lower(username) = ?` / `lower(email) = ?` 比较，与登录链路保持一致；schema 层由 `20260426_02_users_lower_unique_indexes.sql` 创建的函数唯一索引（`uq_users_username_lower` / `uq_users_email_lower`）兜底，避免并发或多入口写入造成大小写逻辑重复账号。
 
 **关键 struct**：
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
@@ -767,16 +771,18 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
-- `SendVerificationCode(email, ip, codeType)` — 生成 6 位随机验证码 → 按类型频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
-- `VerifyCode(email, code, codeType)` — 按类型校验验证码是否有效且未过期
+- `SendVerificationCode(email, ip, codeType)` — 先对 email 做 `strings.ToLower(strings.TrimSpace(...))` 规范化 → 生成 6 位随机验证码 → 按类型频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
+- `VerifyCode(email, code, codeType)` — **"校验即消费"契约**：先按同一 email 规范化规则查询；在事务中 `Clauses(clause.Locking{Strength: "UPDATE"})` 锁行 → 校验有效期与 code 匹配 → 立即 DELETE 该行；同一码不可重放用于注册或重置，并发拿到同一码的第二个请求统一返回 `ErrEmailCodeInvalid`
 - `CleanupExpired()` — 删除过期验证码（cron 调用）
 - `IsEnabled()` — 通过 `ConfigService` 解析 `email_verification`，并叠加 SMTP 完整性判断
 - `TestConnection()` — 基于当前 SMTP 配置做连通性探活
 
 **频率限制**：
-- 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5，按 `codeType` 隔离计数）
-- 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15）
+- 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5，按规范化后的 email + `codeType` 隔离计数）
+- 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15，**按 `codeType` 隔离计数**：register 与 reset 配额互不串号）
 - 验证码有效期：`EMAIL_CODE_EXPIRY_MINUTES`（默认 10 分钟）
+
+**忘记密码反枚举**：`SendResetCode` handler 除请求格式错误（400）和 SMTP 未配置（503）外，所有内部错误（未注册邮箱 / 限流 / 发送失败 / 其他）一律折叠为 200 + 与已注册一致的统一文案；service 层在 reset 路径上无论邮箱是否注册都先消耗 IP / email 限流配额（未注册邮箱仍写入限流计数行但不发送邮件），攻击者无法借响应状态、文案或限流差异（200 vs 429）枚举站内邮箱。内部记录 emailHash 前 8 位 + clientIP + 错误细节用于排障。
 
 ### 5.14 BotNotifier (`integrations/notifier/notifier.go`)
 
@@ -792,6 +798,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | `NotifyRanking` | `POST /notify/ranking` | 排行榜生成完成 |
 
 **认证方式**：`X-Internal-Secret` 头（值 = `INTERNAL_API_SECRET`）
+
+**通知载荷脱敏（PaymentSuccessNotification）**：admin 通知不再包含 `Email` / `StripeSessionID` / `StripePaymentIntentID`，避免长期落 Telegram 服务器。运维侧追溯单笔支付走后台审计页，通过 `paymentId` / `userId` 查询。
 
 ### 5.15 PlaybackRankingService (`services/playback/ranking.go`)
 
@@ -845,14 +853,16 @@ handler 继续通过 `errors.Is()` 做错误映射。
 
 Telegram 账号绑定与 Bot 自助能力服务。
 
-- `GenerateBindCode(userID)` — 生成 6 位绑定验证码（5 分钟有效），并清理该用户旧验证码
-- `VerifyBind(telegramID, code)` — 校验验证码并绑定 Telegram ID（事务 + 行锁）
+- `GenerateBindCode(userID)` — 生成 6 位绑定验证码（5 分钟有效）；改用 `Clauses(clause.OnConflict{Columns: userId, DoUpdates: code/expiresAt/createdAt}).Create` **原地刷新**，与 `telegram_bind_codes(userId)` 上的唯一索引（`uq_telegram_bind_codes_user`，由 `20260426_01` migration 引入）配合实现真正的原子互斥，不再依赖事务里的 DELETE+INSERT
+- `VerifyBind(telegramID, code)` — 校验验证码并绑定 Telegram ID（事务 + 行锁）；命中同 code 多条记录时记 ERROR 日志（`code / count`）+ 改返回 `ErrTelegramBindCodeInvalid`，**反 DoS**：避免攻击者借"绑定码碰撞"造成全量用户绑不上
 - `Unbind(userID)` — 解绑 Telegram ID
 - `GetAccountInfo(telegramID)` — 查询绑定用户账号状态
 - `RedeemByTelegram(telegramID, code)` — 复用 `RedemptionService` 完成续期兑换
 - `ResetPassword(telegramID, newPassword)` — 通过 Telegram 身份重置 Ember/Emby 密码
 - `SubscribeByTelegram(req)` — Bot 求片订阅入口；电影直接确认，电视剧先选季再提交，并透传 `season`；为保持既有体验，Bot 提交默认视为已确认库内已存在提示，不走 Web 二次确认弹窗
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
+
+**反账号枚举（handler 层）**：`GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 命中 `ErrTelegramNotBound` 时统一返回 400 + `请求参数错误`，不再透传 sentinel 字面值；攻击者无法借 `/redeem`、`/resetpw` 等命令枚举 Telegram→Ember 的绑定关系。具体业务错误（码无效、密码长度不够等）继续按各自 sentinel 返回。
 
 ### 5.18 TVCalendarService (`services/tvcalendar/service.go`)
 
@@ -1314,7 +1324,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 - **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 与 `telegram_welcome_message_template` 配置）
 - **Commands**：`/search`（搜索影视并订阅；电影直接确认，电视剧先选季再确认）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）、`/refresh_menu`（管理员强制刷新当前群菜单）
 - **群菜单策略**：仅私聊作用域写入命令菜单；default/group scope 保持为空，群聊默认不展示命令菜单，首次收到群消息时按群清理旧作用域菜单，并在当前 Bot 进程内缓存已同步群；`/refresh_menu` 强刷会额外重试清理 default / all-group 作用域
-- **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）
+- **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）；`format_payment_message` 不再渲染 `email` / `stripeSessionId`，admin 通知载荷已在 API 侧脱敏（详见 §5.14）
 
 ### 环境变量
 
@@ -1490,3 +1500,5 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 | 内部通信 | `X-Internal-Secret: {secret}` 头（Bot ↔ API）|
 | 前端请求 | Axios 拦截器自动加 Bearer token，401 自动清除登录态 |
 | 火忘通知 | `go func() { http.Post(...) }()` 不阻塞主流程 |
+| 上游错误脱敏 | `internal/common/upstream.SafeUpstreamError(err, system)` 剥离 `*url.Error` 中的请求 URL（含 `api_key`）；`SafeUpstreamHTTPError(system, statusCode)` 仅保留 system + 状态码，不回显响应体。当前已收口 TMDB / MoviePilot 调用链路与配置中心媒体测试接口（Emby / MoviePilot test）；Stripe / SMTP 留后续批次 sweep |
+| 内部错误响应 | `internal/common/httpx.InternalError(c, err)` 客户端只看到 `上游服务暂不可用` 统一文案，完整 err（含 requestId）落服务端日志；handler 不再裸透 `err.Error()` |

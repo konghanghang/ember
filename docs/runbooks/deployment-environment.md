@@ -120,6 +120,17 @@ API 启动期已不再调用 `AutoMigrate`（任何 `AUTO_MIGRATE` env 都会被
 3. 同步把新增 SQL 复制到 `infrastructure/docker/initdb/`，并在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 追加该 migration 的列/索引指纹
 4. 启动或重启 API；如启动日志报"数据库缺少必要的表/列/索引"，回到第 2 步检查漏跑哪条 SQL
 
+### 上线前脏数据自查
+
+部分 migration 会引入新唯一约束 / 大小写不敏感比较，老库可能不满足，需要在执行 SQL 前自查：
+
+| 来源 migration | 自查 SQL | 期望结果 |
+|---|---|---|
+| `20260426_01_telegram_bind_codes_user_unique` | （migration 内置 CTE 自动去重，每个 userId 只保留 createdAt 最新一条；绑定码本就是 5 分钟短期凭据，无业务影响） | — |
+| `20260426_02_users_lower_unique_indexes` | `SELECT lower(username), count(*) FROM users GROUP BY 1 HAVING count(*) > 1; SELECT lower(email), count(*) FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY 1 HAVING count(*) > 1;` | 0 行；非 0 行需人工判定合并 / 重命名后再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检，存在重复时会停止并附排查 SQL） |
+
+升级期建议：先停 API → 跑 migration → 启动新 API，避免老路径与新路径并存的竞态（特别是 `telegram_bind_codes` 在 GenerateBindCode 路径上的事务+DELETE 与 ON CONFLICT 切换）。
+
 ### 本地空库快速搭建
 
 仅本地开发可用：
