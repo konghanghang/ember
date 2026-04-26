@@ -1,13 +1,16 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"log"
 	"strings"
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 )
 
 type registerPreparation struct {
@@ -43,7 +46,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 
 	user, err := s.persistRegisteredUser(req, prepared, embyUser)
 	if err != nil {
-		_ = embyService.DeleteUser(embyUser.ID)
+		s.rollbackEmbyRegistration(embyService, embyUser.ID)
 		return nil, err
 	}
 
@@ -123,4 +126,42 @@ func (s *AuthService) ensureRegisterUserUnique(req *RegisterUserRequest) error {
 	}
 
 	return nil
+}
+
+// rollbackEmbyRegistration 在本地落库失败时清理 Emby 端账号；DeleteUser 失败时
+// 入补偿队列，由 cron @every 10m 重试，避免 Emby 端孤儿账号永久阻塞同名注册。
+//
+// embyClient 接口要求带 DeleteUser 方法（Emby 端 404 已视作幂等成功，无需特殊处理）。
+func (s *AuthService) rollbackEmbyRegistration(embyService authEmbyClient, embyUserID string) {
+	embyUserID = strings.TrimSpace(embyUserID)
+	if embyUserID == "" {
+		return
+	}
+	if err := embyService.DeleteUser(embyUserID); err == nil {
+		return
+	} else {
+		log.Printf("[Auth] Emby 注册回滚失败 embyUserId=%s err=%v；尝试入补偿队列", embyUserID, err)
+	}
+
+	compensation := s.compensationQueue()
+	if compensation == nil {
+		log.Printf("[Auth] 补偿队列未配置，Emby 账号残留 embyUserId=%s", embyUserID)
+		return
+	}
+	if err := compensation.Enqueue(context.Background(), models.FailedEmbyAsyncOp{
+		Origin:      models.FailedEmbyOriginRegisterCleanup,
+		OriginRefID: embyUserID,
+		EmbyUserID:  embyUserID,
+		Action:      models.FailedEmbyActionDelete,
+	}); err != nil {
+		log.Printf("[Auth] 补偿队列入队失败 embyUserId=%s err=%v", embyUserID, err)
+	}
+}
+
+func (s *AuthService) compensationQueue() *accountpkg.EmbyCompensation {
+	if s.compensation != nil {
+		return s.compensation
+	}
+	s.compensation = accountpkg.NewEmbyCompensation(embyint.NewEmbyService())
+	return s.compensation
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 )
@@ -34,6 +35,7 @@ type UserService struct {
 	createUser         func(user *models.User) error
 	getPlanGroupByKey  func(key string) (*models.PlanGroup, error)
 	saveUser           func(user *models.User) error
+	compensation       *accountpkg.EmbyCompensation
 }
 
 func NewUserService() *UserService {

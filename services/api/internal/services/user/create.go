@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/mail"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
+	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	"gorm.io/gorm"
 )
@@ -172,11 +174,34 @@ func (s *UserService) cleanupAdminCreatedEmbyUser(client embyClient, embyUserID,
 	if client == nil || embyUserID == "" {
 		return
 	}
-	if err := client.DeleteUser(embyUserID); err != nil {
-		log.Printf("[User] 后台创建用户回滚失败，Emby 账号残留: username=%s embyId=%s error=%v", username, embyUserID, err)
+	if err := client.DeleteUser(embyUserID); err == nil {
+		log.Printf("[User] 后台创建用户回滚完成: username=%s embyId=%s", username, embyUserID)
+		return
+	} else {
+		log.Printf("[User] 后台创建用户回滚失败: username=%s embyId=%s error=%v；尝试入补偿队列", username, embyUserID, err)
+	}
+
+	compensation := s.compensationQueue()
+	if compensation == nil {
+		log.Printf("[User] 补偿队列未配置，Emby 账号残留: username=%s embyId=%s", username, embyUserID)
 		return
 	}
-	log.Printf("[User] 后台创建用户回滚完成: username=%s embyId=%s", username, embyUserID)
+	if err := compensation.Enqueue(context.Background(), models.FailedEmbyAsyncOp{
+		Origin:      models.FailedEmbyOriginRegisterCleanup,
+		OriginRefID: embyUserID,
+		EmbyUserID:  embyUserID,
+		Action:      models.FailedEmbyActionDelete,
+	}); err != nil {
+		log.Printf("[User] 补偿队列入队失败 username=%s embyId=%s err=%v", username, embyUserID, err)
+	}
+}
+
+func (s *UserService) compensationQueue() *accountpkg.EmbyCompensation {
+	if s.compensation != nil {
+		return s.compensation
+	}
+	s.compensation = accountpkg.NewEmbyCompensation(nil)
+	return s.compensation
 }
 
 func mapAdminCreatePersistenceError(err error) error {

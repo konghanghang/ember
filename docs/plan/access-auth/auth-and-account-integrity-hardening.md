@@ -314,3 +314,17 @@
 | P3-3 | `SystemHandler` 响应不一致 | 二次暴露清单 |
 | P3-4 | 邮箱写日志 | §4 + 二次暴露清单 |
 | P3-5 | 服务装配缺 DI | 二次暴露清单（后续独立计划） |
+
+## 批次 2 已落地（2026-04-27）
+
+按"批次 2 收口实施计划"完成（仅注册回滚补偿部分）：
+
+- ✅ `services/auth/register.go` 失败回滚改为 `rollbackEmbyRegistration`：先尝试 `DeleteUser`，失败时入 `failed_emby_async_ops`（origin=`register_cleanup`, action=`delete`），由 cron `emby-async-compensation` 重试
+- ✅ `services/user/create.go` `cleanupAdminCreatedEmbyUser` 同样改造，后台创建用户失败回滚走同一补偿队列
+- ✅ `services/account/emby_compensation.go` 提供 `EnsureDeleted` 入口，集中收口 DeleteUser 调用 + 失败入队语义
+
+不在本批（推到批次 5）：
+
+- ConfigService 敏感回显
+- InternalAuth 常数时间比较
+- `CheckExpiredUsers` cancel
