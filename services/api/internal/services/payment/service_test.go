@@ -102,6 +102,25 @@ func strPtr(value string) *string {
 	return &value
 }
 
+func TestShouldRedispatchWebhook(t *testing.T) {
+	cases := []struct {
+		status models.StripeWebhookEventStatus
+		want   bool
+	}{
+		{status: models.StripeWebhookEventReceived, want: true},   // 进程崩溃后 Stripe 重试必须能驱动履约
+		{status: models.StripeWebhookEventFailed, want: true},     // 上次业务返回 5xx，下次重试要重新分发
+		{status: models.StripeWebhookEventProcessed, want: false}, // 真正幂等结束，无需重复履约
+		{status: models.StripeWebhookEventSkipped, want: false},   // 非业务事件已忽略，重复事件无需再分发
+	}
+
+	for _, tc := range cases {
+		got := shouldRedispatchWebhook(tc.status)
+		if got != tc.want {
+			t.Fatalf("status=%s want=%t got=%t", tc.status, tc.want, got)
+		}
+	}
+}
+
 func TestShouldReusePendingPayment(t *testing.T) {
 	now := time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC)
 

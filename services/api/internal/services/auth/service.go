@@ -10,6 +10,7 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
+	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 )
@@ -52,6 +53,7 @@ type AuthService struct {
 	getRegistrationMode      func() string
 	getDefaultTrialDays      func() int
 	validateRegistrationCode func(code string) (*models.RedemptionCode, error)
+	compensation             *accountpkg.EmbyCompensation
 }
 
 // NewAuthService 创建认证服务
@@ -136,16 +138,26 @@ func (s *AuthService) applyTemplatePolicyIfNeeded(newEmbyID string, templateUser
 		return errors.New("读取模板用户权限失败")
 	}
 
+	// 模板用户 Policy 复制白名单（同时也是禁止复制清单的反义）。
+	//
+	// 显式禁止复制（即使模板用户上有也不带给新用户）：
+	//   IsAdministrator / EnableUserPreferenceAccess / EnableContentDeletion /
+	//   EnableContentDownloading / EnableLiveTvManagement / EnableLiveTvAccess /
+	//   EnableMediaConversion / EnableSubtitleManagement / MaxParentalRating /
+	//   BlockedTags / AllowedTags
+	//
+	// 这些字段如果允许复制：
+	//   - IsAdministrator / 各类 Management：会让新用户拿到本不应该具有的管理面板能力
+	//   - EnableContentDownloading：放开后用户可整剧打包下载，绕过 Ember 默认禁下载策略
+	//   - MaxParentalRating / BlockedTags / AllowedTags：会按管理员预设把新用户限制 / 解锁到非预期评级范围
 	whitelistFields := []string{
 		"EnableAllFolders",
 		"EnabledFolders",
 		"ExcludedSubFolders",
-		"EnableContentDownloading",
 		"EnableSyncTranscoding",
 		"EnableVideoPlaybackTranscoding",
 		"EnablePlaybackRemuxing",
 		"EnableAudioPlaybackTranscoding",
-		"MaxParentalRating",
 	}
 	if err := embyService.PatchUserPolicyFields(newEmbyID, sourcePolicy, whitelistFields); err != nil {
 		return errors.New("应用模板用户权限失败")

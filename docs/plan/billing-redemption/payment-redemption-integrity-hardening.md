@@ -331,3 +331,31 @@
 | P2-7 | 多币种口径 | §5 + 文档 |
 | P3-4 | baseline 重复索引 | §2 |
 | P3-2 | `applyRedemptionCodeStatusFilter` vs `IsValid` 双份语义 | 二次暴露清单 |
+
+## 批次 2 已落地（2026-04-27）
+
+按"批次 2 收口实施计划"完成：
+
+- ✅ `failed_emby_async_ops` 表 + `services/account/emby_compensation.go` + cron `emby-async-compensation @every 10m`
+- ✅ `stripe_webhook_events` 表 + HandleWebhook event.id 级别去重
+- ✅ `payments` 同 (userId, planId) status='pending' partial unique（`uq_payments_pending_user_plan`）+ 历史脏数据预检（migration 内置 `RAISE EXCEPTION`）
+- ✅ `payments.stripeSessionId` 改为 partial unique 排除空串，并清理 baseline 重复索引
+- ✅ `CreateCheckoutSession` 改为"事务内 ON CONFLICT 占位 → 事务外调 Stripe（带 Idempotency-Key=checkout:paymentId）→ 单事务回填"模式
+- ✅ `fulfillPayment` / `RedeemCode`：Emby 调权移到 commit 后异步执行（`async.SafeGo` + `EmbyCompensation.EnsureUnbanned`），失败入补偿队列
+- ✅ 新增 `checkout.session.expired` webhook 处理（`MarkPaymentExpired`）
+- ✅ `markPaymentFailed` / `fulfillPayment` 引入 `event.created < payment.updatedAt` 的乱序保护
+- ✅ 模板用户 Policy 复制白名单收紧：移除 `EnableContentDownloading` / `MaxParentalRating`
+- ✅ `expirePendingPaymentsByScope` 入口在双空时 panic（防止全表收口误用）
+- ✅ `ExpirePendingPaymentsForUsersFollowingDefault` → `ExpireAllPendingPaymentsForFollowingDefaultUsers` 重命名
+- ✅ `handlers/payment.go` + `handlers/redemption_code.go` 全部 `c.JSON(StatusInternalServerError, gin.H{"error": err.Error()})` 改为 `httpx.InternalError`
+
+不在本批：
+
+- ConfigService 敏感回显推到批次 5
+- PlanGroup DTO 拆分（已确认 `gorm:"-"` 标记到位，不重做）
+- `Plan.Select` 列名修复（GORM 自动加引号、未实证报错，仅在验证清单跑 SQL 日志确认）
+- 多币种结算文档独立成稿
+
+### 批次 2 review 修复（2026-04-27）
+
+- ✅ **Stripe webhook 失败重试状态机**：`HandleWebhook` 命中冲突时回查 status；只有 `processed / skipped` 直接 200，`received / failed` 必须允许 Stripe 重试重新分发，避免首次失败 / 进程崩溃后资金链路永远不再履约。新增 `shouldRedispatchWebhook` 纯函数 + 状态机单测覆盖。

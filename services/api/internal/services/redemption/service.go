@@ -1,20 +1,51 @@
 package redemption
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/konghang/ember/backend/internal/async"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	"gorm.io/gorm"
 )
 
-type RedemptionService struct{}
+type RedemptionService struct {
+	embyService  *embyint.EmbyService
+	compensation *accountpkg.EmbyCompensation
+}
+
+// NewRedemptionService 装配兑换码服务，复用注入的 Emby client + 补偿队列。
+func NewRedemptionService() *RedemptionService {
+	embyService := embyint.NewEmbyService()
+	return &RedemptionService{
+		embyService:  embyService,
+		compensation: accountpkg.NewEmbyCompensation(embyService),
+	}
+}
+
+func (s *RedemptionService) embyClient() *embyint.EmbyService {
+	if s.embyService != nil {
+		return s.embyService
+	}
+	return embyint.NewEmbyService()
+}
+
+func (s *RedemptionService) compensationQueue() *accountpkg.EmbyCompensation {
+	if s.compensation != nil {
+		return s.compensation
+	}
+	s.compensation = accountpkg.NewEmbyCompensation(s.embyClient())
+	return s.compensation
+}
 
 func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
 	tx := db.DB.Begin()
@@ -62,11 +93,10 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		"expiresAt": newExpiry,
 	}
 
-	if user.EmbyDisabled && user.IsActive {
-		embyService := embyint.NewEmbyService()
-		if err := embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{IsDisabled: false}); err != nil {
-			return nil, ErrEmbyUnbanFailed
-		}
+	// Emby 解封移到事务外（commit 后异步执行）：避免事务持有 Emby 网络 I/O，并在
+	// Emby 暂时不可达时进入补偿队列，由 cron 重试。本地 expiresAt 立刻生效，用户感知正常。
+	needsEmbyUnban := user.EmbyDisabled && user.IsActive
+	if needsEmbyUnban {
 		updates["embyDisabled"] = false
 	}
 
@@ -74,11 +104,12 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		return nil, ErrRedeemFailed
 	}
 
-	if err := tx.Create(&models.Redemption{
+	redemption := models.Redemption{
 		UserID: userID,
 		Code:   req.Code,
 		Days:   code.DefaultDays,
-	}).Error; err != nil {
+	}
+	if err := tx.Create(&redemption).Error; err != nil {
 		if isRedemptionDuplicateInsert(err) {
 			return nil, ErrRedemptionDuplicate
 		}
@@ -97,6 +128,25 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 
 	if err := tx.Commit().Error; err != nil {
 		return nil, ErrRedeemFailed
+	}
+
+	if needsEmbyUnban {
+		redemptionID := redemption.ID
+		userIDCopy := user.ID
+		embyID := strings.TrimSpace(user.EmbyID)
+		async.SafeGo("redemption.unban", func() {
+			if embyID == "" {
+				return
+			}
+			if err := s.compensationQueue().EnsureUnbanned(context.Background(), models.FailedEmbyAsyncOp{
+				Origin:      models.FailedEmbyOriginRedemptionUnban,
+				OriginRefID: redemptionID,
+				EmbyUserID:  embyID,
+			}); err != nil {
+				log.Printf("[Redemption] 解封 + 入队全部失败: redemptionID=%s userID=%s embyID=%s err=%v",
+					redemptionID, userIDCopy, embyID, err)
+			}
+		})
 	}
 
 	return &RedeemCodeResponse{

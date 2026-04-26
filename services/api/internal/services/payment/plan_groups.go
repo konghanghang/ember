@@ -76,7 +76,7 @@ var (
 	paymentDeletePlanGroup = func(tx *gorm.DB, key string) error {
 		return tx.Delete(&models.PlanGroup{}, "key = ?", key).Error
 	}
-	paymentExpirePendingPaymentsForUsersFollowingDefault = ExpirePendingPaymentsForUsersFollowingDefault
+	paymentExpirePendingPaymentsForUsersFollowingDefault = ExpireAllPendingPaymentsForFollowingDefaultUsers
 )
 
 type CreatePlanGroupRequest struct {
@@ -184,7 +184,13 @@ func ResolveEffectivePlanGroupKey(tx *gorm.DB, explicitPlanGroup *string) (strin
 	return defaultGroup.Key, nil
 }
 
-func ExpirePendingPaymentsForUsersFollowingDefault(tx *gorm.DB) (int64, error) {
+// ExpireAllPendingPaymentsForFollowingDefaultUsers 把所有"用户 planGroup 为 NULL（跟随默认分组）"
+// 的 pending 订单一次性收口为 expired。
+//
+// 名称里 "All" + "FollowingDefaultUsers" 强调本函数会跨用户全表执行 EXISTS 子查询，
+// 不限定单个 user / plan，因此被默认分组路由变更等场景调用时影响面极广；
+// 调用方需明白这是全表收口动作，不能与按用户 / 按方案的局部收口混用。
+func ExpireAllPendingPaymentsForFollowingDefaultUsers(tx *gorm.DB) (int64, error) {
 	if tx == nil {
 		tx = db.DB
 	}

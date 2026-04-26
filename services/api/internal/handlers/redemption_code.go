@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	"github.com/konghang/ember/backend/internal/models"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
@@ -83,7 +84,7 @@ func (h *RedemptionCodeHandler) GetRedemptionCodes(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -97,7 +98,7 @@ func (h *RedemptionCodeHandler) DeleteRedemptionCode(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -123,7 +124,7 @@ func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
 		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -144,7 +145,7 @@ func (h *RedemptionCodeHandler) ValidateRegistrationCode(c *gin.Context) {
 func (h *RedemptionCodeHandler) GetUserTemplates(c *gin.Context) {
 	resp, err := h.service.GetUserTemplates()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

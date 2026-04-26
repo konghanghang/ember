@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 )
 
@@ -32,7 +33,7 @@ func (h *PaymentHandler) GetUserPlans(c *gin.Context) {
 		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -62,7 +63,7 @@ func (h *PaymentHandler) CreateCheckout(c *gin.Context) {
 		case errors.Is(err, paymentpkg.ErrStripeNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -85,7 +86,7 @@ func (h *PaymentHandler) GetMyPayments(c *gin.Context) {
 
 	resp, err := h.service.GetUserPayments(userID.(string), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -99,10 +100,8 @@ func (h *PaymentHandler) HandleStripeWebhook(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		case strings.Contains(err.Error(), "签名"), strings.Contains(err.Error(), "解析"):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, paymentpkg.ErrPaymentFailed):
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -123,7 +122,7 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -134,7 +133,7 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 func (h *PaymentHandler) GetPlanGroups(c *gin.Context) {
 	resp, err := h.service.GetPlanGroups()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
@@ -194,7 +193,7 @@ func (h *PaymentHandler) DeletePlanGroup(c *gin.Context) {
 		case errors.Is(err, paymentpkg.ErrDefaultPlanGroupDelete), errors.Is(err, paymentpkg.ErrPlanGroupDeleteBlocked):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -252,7 +251,7 @@ func (h *PaymentHandler) DeletePlan(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -268,7 +267,7 @@ func (h *PaymentHandler) GetAllPayments(c *gin.Context) {
 
 	resp, err := h.service.GetAllPayments(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
