@@ -57,6 +57,15 @@ psql "$DATABASE_URL" -f infrastructure/database/20260415_00_schema_baseline.sql
 - `20260427_05_subscriptions_ingest_progress.sql`
 - `20260427_06_media_gaps_dispatch_failed.sql`
 - `20260427_07_media_gap_scans.sql`
+- `20260428_01_playback_rankings_idempotency.sql`
+- `20260428_02_media_quality_caches_inflight.sql`
+- `20260428_03_device_actions_operator_id.sql`
+- `20260428_05_tv_calendar_sources_sync_markers.sql`
+- `20260428_06_bot_pending_reject_requests.sql`
+- `20260428_07_schema_alignment.sql`
+- `20260428_08_airdate_to_date.sql`
+- `20260428_09_users_password_reset_required.sql`
+- `20260428_10_subscriptions_note_not_null.sql`
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
 

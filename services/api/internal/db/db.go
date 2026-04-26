@@ -240,6 +240,11 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"stripe_webhook_events", "stripe_webhook_events_pkey", "20260427_02_stripe_webhook_events"},
 	{"payments", "uq_payments_pending_user_plan", "20260427_03_payments_pending_unique"},
 	{"media_gap_scans", "idx_media_gap_scans_started", "20260427_07_media_gap_scans"},
+	{"users", "uq_users_telegram_id", "20260428_07_schema_alignment"},
+	{"playback_rankings", "uq_playback_rankings_period", "20260428_01_playback_rankings_idempotency"},
+	{"device_actions", "idx_device_actions_operator", "20260428_03_device_actions_operator_id"},
+	{"media_quality_caches", "idx_media_quality_caches_inflight", "20260428_02_media_quality_caches_inflight"},
+	{"bot_pending_reject_requests", "idx_bot_pending_reject_requests_chat", "20260428_06_bot_pending_reject_requests"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。

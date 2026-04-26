@@ -17,10 +17,11 @@ type User struct {
 	Email        string     `json:"email,omitempty" gorm:"column:email;size:255;uniqueIndex"`
 	EmbyID       string     `json:"embyId,omitempty" gorm:"column:embyId;size:50;index"`
 	EmbyDisabled bool       `json:"embyDisabled" gorm:"column:embyDisabled;default:false;not null"`
-	TelegramID   *int64     `json:"telegramId,omitempty" gorm:"column:telegramId;uniqueIndex"`
+	TelegramID   *int64     `json:"telegramId,omitempty" gorm:"column:telegramId"` // partial unique 由 uq_users_telegram_id 维护
 	PlanGroup    *string    `json:"planGroup,omitempty" gorm:"column:planGroup;size:50;index"`
 	ExpiresAt    *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
-	IsActive     bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
+	IsActive                bool       `json:"isActive" gorm:"column:isActive;default:true;not null"`
+	PasswordResetRequired   bool       `json:"passwordResetRequired,omitempty" gorm:"column:passwordResetRequired;default:false"`
 	CreatedAt    time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 	UpdatedAt    time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
