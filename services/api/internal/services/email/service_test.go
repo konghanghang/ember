@@ -66,50 +66,6 @@ func TestEmailServiceHasSMTPConfig(t *testing.T) {
 	}
 }
 
-func TestValidateVerificationRecipient(t *testing.T) {
-	tests := []struct {
-		name              string
-		codeType          string
-		existingUserCount int64
-		wantErr           error
-	}{
-		{
-			name:              "register rejects existing email",
-			codeType:          "register",
-			existingUserCount: 1,
-			wantErr:           ErrEmailAlreadyRegistered,
-		},
-		{
-			name:              "reset rejects missing email",
-			codeType:          "reset",
-			existingUserCount: 0,
-			wantErr:           ErrEmailNotRegistered,
-		},
-		{
-			name:              "register allows new email",
-			codeType:          "register",
-			existingUserCount: 0,
-		},
-		{
-			name:              "reset allows existing email",
-			codeType:          "reset",
-			existingUserCount: 1,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validateVerificationRecipient(tc.codeType, tc.existingUserCount)
-			if tc.wantErr == nil && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if tc.wantErr != nil && err != tc.wantErr {
-				t.Fatalf("expected %v, got %v", tc.wantErr, err)
-			}
-		})
-	}
-}
-
 func TestValidateVerificationRateLimits(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -152,6 +108,33 @@ func TestValidateVerificationRateLimits(t *testing.T) {
 			}
 			if tc.wantErr != nil && err != tc.wantErr {
 				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestNormalizeVerificationEmail(t *testing.T) {
+	tests := []struct {
+		name  string
+		email string
+		want  string
+	}{
+		{
+			name:  "lowercases and trims",
+			email: "  Ember.User@Example.COM  ",
+			want:  "ember.user@example.com",
+		},
+		{
+			name:  "empty remains empty",
+			email: "   ",
+			want:  "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeVerificationEmail(tc.email); got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
 			}
 		})
 	}

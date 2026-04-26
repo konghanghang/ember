@@ -2,6 +2,7 @@ package user
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
@@ -69,7 +70,7 @@ func (s *UserService) setDefaults() {
 	if s.findUserByUsername == nil {
 		s.findUserByUsername = func(username string) (*models.User, error) {
 			var user models.User
-			if err := db.DB.Where("username = ?", username).First(&user).Error; err != nil {
+			if err := db.DB.Where("lower(username) = ?", strings.ToLower(username)).First(&user).Error; err != nil {
 				return nil, err
 			}
 			return &user, nil
@@ -78,7 +79,7 @@ func (s *UserService) setDefaults() {
 	if s.findUserByEmail == nil {
 		s.findUserByEmail = func(email string) (*models.User, error) {
 			var user models.User
-			if err := db.DB.Where("email = ?", email).First(&user).Error; err != nil {
+			if err := db.DB.Where("lower(email) = ?", strings.ToLower(email)).First(&user).Error; err != nil {
 				return nil, err
 			}
 			return &user, nil

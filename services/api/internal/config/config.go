@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konghang/ember/backend/internal/common/upstream"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/robfig/cron/v3"
@@ -466,20 +467,22 @@ func (s *ConfigService) testEmbyConnection() error {
 		return errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
 	}
 
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/emby/Users?api_key="+neturl.QueryEscape(apiKey), nil)
+	// 用 X-Emby-Token 头携带 api_key，避免 *url.Error 在网络失败时把含密钥的 URL 写进 err
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/emby/Users", nil)
 	if err != nil {
-		return err
+		return upstream.SafeUpstreamError(err, "emby")
 	}
+	req.Header.Set("X-Emby-Token", apiKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+		return upstream.SafeUpstreamError(err, "emby")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Emby API 返回异常状态码 %d", resp.StatusCode)
+		return upstream.SafeUpstreamHTTPError("emby", resp.StatusCode)
 	}
 
 	return nil
@@ -497,20 +500,19 @@ func (s *ConfigService) testMoviePilotConnection() error {
 
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/site/", nil)
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	req.Header.Set("X-API-KEY", apiKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("连接请求失败: %w", err)
+		return upstream.SafeUpstreamError(err, "moviepilot")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("MoviePilot API 错误: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return upstream.SafeUpstreamHTTPError("moviepilot", resp.StatusCode)
 	}
 
 	return nil

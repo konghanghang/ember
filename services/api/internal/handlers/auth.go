@@ -172,8 +172,10 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 
 // SendResetCode 发送密码重置验证码
 //
-// 出于反账号枚举考虑，未注册邮箱也返回 200 + 与已注册一致的文案，避免攻击者
-// 通过响应差异枚举站内邮箱。内部仍记录 email 哈希前缀 + IP 用于排障。
+// 反账号枚举：除请求格式错误（400）和 SMTP 未配置（503，运维侧问题）外，所有内部错误
+// （未注册邮箱 / 限流 / 发送失败）一律折叠为 200 + 与已注册一致的统一文案。
+// 攻击者无法通过状态码、文案或限流差异（200 vs 429）枚举站内邮箱。
+// 内部仍记录 emailHash 前 8 位 + IP + 错误细节用于排障。
 func (h *AuthHandler) SendResetCode(c *gin.Context) {
 	var req SendEmailCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -184,18 +186,17 @@ func (h *AuthHandler) SendResetCode(c *gin.Context) {
 	clientIP := c.ClientIP()
 	const uniformMessage = "如果该邮箱已注册，验证码已发送"
 
-	if err := h.emailService.SendVerificationCode(req.Email, clientIP, models.VerificationTypeReset); err != nil {
-		if errors.Is(err, emailpkg.ErrEmailNotRegistered) {
-			log.Printf("[Auth] 重置码请求命中未注册邮箱 emailHash=%s ip=%s", hashEmailForLog(req.Email), clientIP)
-			c.JSON(http.StatusOK, gin.H{"message": uniformMessage})
-			return
-		}
-		status := http.StatusBadRequest
-		if errors.Is(err, emailpkg.ErrEmailCodeRateLimit) || errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit) {
-			status = http.StatusTooManyRequests
-		}
-		c.JSON(status, gin.H{"error": err.Error()})
+	err := h.emailService.SendVerificationCode(req.Email, clientIP, models.VerificationTypeReset)
+
+	if shouldExposeResetCodeSendError(err) {
+		// SMTP 未配置是运维侧问题，向调用方明确返回，便于配置中心 / 测试链路定位
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
+	}
+
+	if err != nil {
+		log.Printf("[Auth] 重置码请求内部异常 emailHash=%s ip=%s err=%v",
+			hashEmailForLog(req.Email), clientIP, err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": uniformMessage})
@@ -205,6 +206,10 @@ func (h *AuthHandler) SendResetCode(c *gin.Context) {
 func hashEmailForLog(email string) string {
 	sum := sha256.Sum256([]byte(email))
 	return hex.EncodeToString(sum[:])[:8]
+}
+
+func shouldExposeResetCodeSendError(err error) bool {
+	return errors.Is(err, emailpkg.ErrEmailNotConfigured)
 }
 
 // ResetPasswordByCode 通过验证码重置密码

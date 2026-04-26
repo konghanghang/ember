@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
@@ -12,16 +13,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-func validateVerificationRecipient(codeType string, existingUserCount int64) error {
-	if codeType == models.VerificationTypeRegister && existingUserCount > 0 {
-		return ErrEmailAlreadyRegistered
-	}
-	if codeType == models.VerificationTypeReset && existingUserCount == 0 {
-		return ErrEmailNotRegistered
-	}
-	return nil
-}
 
 func validateVerificationRateLimits(emailCount, ipCount int64, dailyLimit, ipDailyLimit int) error {
 	if emailCount >= int64(dailyLimit) {
@@ -31,6 +22,10 @@ func validateVerificationRateLimits(emailCount, ipCount int64, dailyLimit, ipDai
 		return ErrEmailCodeIPRateLimit
 	}
 	return nil
+}
+
+func normalizeVerificationEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // evaluateVerificationCode 纯函数：判断已锁定的 verification 记录是否能与提交的 code 匹配
@@ -50,23 +45,30 @@ func evaluateVerificationCode(verification *models.EmailVerification, code strin
 // SendVerificationCode 发送验证码
 // ip 参数由 handler 层通过 c.ClientIP() 传入
 // codeType 取值：models.VerificationTypeRegister 或 models.VerificationTypeReset
+//
+// 反账号枚举约束：reset 路径无论邮箱是否已注册都先消耗同一套 IP / email 限流配额，
+// 未注册邮箱仍写入限流计数行（不发送邮件）并返回 ErrEmailNotRegistered，由 handler 收口
+// 为统一 200 响应；攻击者无法借限流差异（200 vs 429）或响应体差异枚举注册状态。
 func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 	s.refreshConfig()
 	if !s.IsConfigured() {
 		return ErrEmailNotConfigured
 	}
+	normalizedEmail := normalizeVerificationEmail(email)
 
 	var existingUserCount int64
-	db.DB.Model(&models.User{}).Where("email = ?", email).Count(&existingUserCount)
-	if err := validateVerificationRecipient(codeType, existingUserCount); err != nil {
-		return err
+	db.DB.Model(&models.User{}).Where("lower(email) = ?", normalizedEmail).Count(&existingUserCount)
+
+	// 注册场景：邮箱已存在直接拒绝（业务约束，前端注册页可见）。reset 不在此处提前返回。
+	if codeType == models.VerificationTypeRegister && existingUserCount > 0 {
+		return ErrEmailAlreadyRegistered
 	}
 
 	since := time.Now().UTC().Add(-24 * time.Hour)
 
 	var emailCount int64
 	db.DB.Model(&models.EmailVerification{}).
-		Where("email = ? AND \"type\" = ? AND \"createdAt\" > ?", email, codeType, since).
+		Where("lower(email) = ? AND \"type\" = ? AND \"createdAt\" > ?", normalizedEmail, codeType, since).
 		Count(&emailCount)
 
 	var ipCount int64
@@ -80,11 +82,20 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 	code := generateVerificationCode()
 
 	verification := models.EmailVerification{
-		Email:     email,
+		Email:     normalizedEmail,
 		Code:      code,
 		Type:      codeType,
 		IP:        ip,
 		ExpiresAt: time.Now().UTC().Add(time.Duration(s.expiryMinutes) * time.Minute),
+	}
+
+	// 重置 + 邮箱未注册：写入限流计数行（与已注册路径计数一致），不发送邮件，
+	// 返回 ErrEmailNotRegistered；handler 层将其与限流 / 发送失败一起折叠为 200 + 统一文案。
+	if codeType == models.VerificationTypeReset && existingUserCount == 0 {
+		if err := db.DB.Create(&verification).Error; err != nil {
+			log.Printf("[Email] 记录未注册重置请求失败 ip=%s err=%v", ip, err)
+		}
+		return ErrEmailNotRegistered
 	}
 
 	subject := "Ember 注册验证码"
@@ -97,24 +108,24 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
-		log.Printf("发送验证码开启事务失败 [%s]: %v", email, tx.Error)
+		log.Printf("发送验证码开启事务失败 [%s]: %v", normalizedEmail, tx.Error)
 		return ErrEmailSendFailed
 	}
 
 	if err := tx.Create(&verification).Error; err != nil {
 		tx.Rollback()
-		log.Printf("发送验证码保存记录失败 [%s]: %v", email, err)
+		log.Printf("发送验证码保存记录失败 [%s]: %v", normalizedEmail, err)
 		return ErrEmailSendFailed
 	}
 
-	if err := s.sendEmail(email, subject, body); err != nil {
+	if err := s.sendEmail(normalizedEmail, subject, body); err != nil {
 		tx.Rollback()
-		log.Printf("发送验证码邮件失败 [%s]: %v", email, err)
+		log.Printf("发送验证码邮件失败 [%s]: %v", normalizedEmail, err)
 		return ErrEmailSendFailed
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		log.Printf("发送验证码提交事务失败 [%s]: %v", email, err)
+		log.Printf("发送验证码提交事务失败 [%s]: %v", normalizedEmail, err)
 		return ErrEmailSendFailed
 	}
 
@@ -124,17 +135,18 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 // VerifyCode 校验验证码：在事务中 SELECT ... FOR UPDATE 锁行 → 校验有效性 → 立即 DELETE。
 // 校验通过即消费，同一码不可重放用于注册或密码重置。
 func (s *EmailService) VerifyCode(email, code, codeType string) error {
+	normalizedEmail := normalizeVerificationEmail(email)
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		var verification models.EmailVerification
 		if err := tx.
 			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("email = ? AND \"type\" = ?", email, codeType).
+			Where("lower(email) = ? AND \"type\" = ?", normalizedEmail, codeType).
 			Order("\"createdAt\" DESC").
 			First(&verification).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrEmailCodeInvalid
 			}
-			log.Printf("[Email] 校验验证码查询失败 [%s]: %v", email, err)
+			log.Printf("[Email] 校验验证码查询失败 [%s]: %v", normalizedEmail, err)
 			return ErrEmailCodeInvalid
 		}
 
@@ -143,7 +155,7 @@ func (s *EmailService) VerifyCode(email, code, codeType string) error {
 		}
 
 		if err := tx.Where("id = ?", verification.ID).Delete(&models.EmailVerification{}).Error; err != nil {
-			log.Printf("[Email] 校验验证码消费失败 [%s id=%s]: %v", email, verification.ID, err)
+			log.Printf("[Email] 校验验证码消费失败 [%s id=%s]: %v", normalizedEmail, verification.ID, err)
 			return ErrEmailCodeInvalid
 		}
 
@@ -153,7 +165,7 @@ func (s *EmailService) VerifyCode(email, code, codeType string) error {
 		if errors.Is(err, ErrEmailCodeInvalid) {
 			return ErrEmailCodeInvalid
 		}
-		log.Printf("[Email] 校验验证码事务失败 [%s]: %v", email, err)
+		log.Printf("[Email] 校验验证码事务失败 [%s]: %v", normalizedEmail, err)
 		return ErrEmailCodeInvalid
 	}
 	return nil

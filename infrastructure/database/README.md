@@ -49,6 +49,7 @@ psql "$DATABASE_URL" -f infrastructure/database/20260415_00_schema_baseline.sql
 - `20260424_01_subscription_resubmission_after_rejection.sql`
 - `20260425_01_baseline_normalization_indexes.sql`
 - `20260426_01_telegram_bind_codes_user_unique.sql`
+- `20260426_02_users_lower_unique_indexes.sql`
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
 
