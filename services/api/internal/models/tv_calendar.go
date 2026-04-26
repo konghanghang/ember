@@ -24,6 +24,8 @@ type TVCalendarSource struct {
 	EmbyStatus            string     `json:"embyStatus" gorm:"column:embyStatus;size:20;not null;default:'continuing'"`
 	LastEpisodeIngestedAt *time.Time `json:"lastEpisodeIngestedAt,omitempty" gorm:"column:lastEpisodeIngestedAt;index"`
 	LastSyncedAt          *time.Time `json:"lastSyncedAt,omitempty" gorm:"column:lastSyncedAt"`
+	LastFullSyncAt        *time.Time `json:"lastFullSyncAt,omitempty" gorm:"column:lastFullSyncAt"`
+	LastCorrectionAt      *time.Time `json:"lastCorrectionAt,omitempty" gorm:"column:lastCorrectionAt"`
 	CreatedAt             time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 	UpdatedAt             time.Time  `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
 }
@@ -46,7 +48,7 @@ type TVCalendarItem struct {
 	SeriesID    string    `json:"seriesId,omitempty" gorm:"column:seriesId;size:50;index"`
 	Season      int       `json:"season" gorm:"column:season;not null;uniqueIndex:uk_tv_calendar_episode,priority:2"`
 	Episode     int       `json:"episode" gorm:"column:episode;not null;uniqueIndex:uk_tv_calendar_episode,priority:3"`
-	AirDate     time.Time `json:"airDate" gorm:"column:airDate;not null;index"`
+	AirDate     time.Time `json:"airDate" gorm:"column:airDate;not null;index"` // date 列，不含时区
 	EpisodeName string    `json:"episodeName" gorm:"column:episodeName;size:255"`
 	Overview    string    `json:"overview,omitempty" gorm:"column:overview;type:text;not null;default:''"`
 	Status      string    `json:"status" gorm:"column:status;size:20;not null;default:'upcoming'"`

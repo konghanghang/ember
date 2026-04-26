@@ -167,7 +167,7 @@ type MediaGapDTO struct {
 	SeriesName        string                `json:"seriesName"`
 	Season            int                   `json:"season"`
 	Episode           int                   `json:"episode"`
-	AirDate           time.Time             `json:"airDate"`
+	AirDate           string                `json:"airDate"` // date 列，格式 YYYY-MM-DD
 	Status            models.MediaGapStatus `json:"status"`
 	LastScannedAt     *time.Time            `json:"lastScannedAt,omitempty"`
 	LastSearchedAt    *time.Time            `json:"lastSearchedAt,omitempty"`
@@ -190,7 +190,7 @@ func toDTO(gap models.MediaGap) *MediaGapDTO {
 		SeriesName:        gap.SeriesName,
 		Season:            gap.Season,
 		Episode:           gap.Episode,
-		AirDate:           gap.AirDate,
+		AirDate:           gap.AirDate.UTC().Format("2006-01-02"),
 		Status:            gap.Status,
 		LastScannedAt:     gap.LastScannedAt,
 		LastSearchedAt:    gap.LastSearchedAt,
