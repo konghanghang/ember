@@ -81,7 +81,7 @@ type QualityReport struct {
 
 func NewMediaQualityService() *MediaQualityService {
 	return &MediaQualityService{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 	}
 }
 
@@ -105,7 +105,7 @@ func (s *MediaQualityService) GetLibraryQuality(ctx context.Context, libraryID s
 		if err != nil {
 			return nil, err
 		}
-		if cached != nil && !shouldRefreshLegacyMediaQualityCache(cached) {
+		if cached != nil {
 			return cached, nil
 		}
 	}
@@ -547,18 +547,6 @@ func matchesGroupID(requested, actual string) bool {
 		actRaw = actRaw[idx+1:]
 	}
 	return reqRaw == actRaw
-}
-
-func shouldRefreshLegacyMediaQualityCache(report *QualityReport) bool {
-	if report == nil {
-		return false
-	}
-	for _, item := range report.LowQualityItems {
-		if strings.TrimSpace(item.GroupID) == "" {
-			return true
-		}
-	}
-	return false
 }
 
 func pickVideoStream(item embyint.EmbyLibraryItem) (embyint.EmbyMediaStream, bool) {

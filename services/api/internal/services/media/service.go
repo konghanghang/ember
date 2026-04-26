@@ -2,7 +2,9 @@ package media
 
 import (
 	"log"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,10 +12,18 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 )
 
+// latestCacheEntry 最近入库缓存条目
 type latestCacheEntry struct {
 	items     []embyint.EmbyItem
 	timestamp time.Time
-	ownerID   string // 首次请求该 itemType 时的 EmbyUserID；后续刷新沿用
+	ownerID   string // 首次请求该 key 时的 EmbyUserID；后续刷新沿用
+}
+
+// mediaLatestSFCall 用于合并并发的同 key 缓存刷新请求（singleflight 语义）
+type mediaLatestSFCall struct {
+	done chan struct{}
+	val  []embyint.EmbyItem
+	err  error
 }
 
 // MediaService 媒体服务
@@ -23,32 +33,62 @@ type MediaService struct {
 	cachedStats    *embyint.MediaStats
 	cacheTimestamp time.Time
 	cacheDuration  time.Duration
+	statsSFMu      sync.Mutex
+	statsInflight  *mediaStatsSFCall
 
-	// 最近入库缓存（IMPORTANT）
+	// 最近入库缓存
 	//
-	// 这里故意按 itemType（Movie/Series）做“跨用户共享缓存”，并且刷新时沿用第一次请求的 ownerID。
-	// 这个实现依赖一个前提：所有普通用户在 Emby 侧看到的媒体库内容一致（没有用户级可见性差异）。
+	// LATEST_CACHE_PER_USER=true（默认）：key = embyUserID + ":" + itemType
+	//   适用于将来开启 Emby 用户级可见性差异的场景，按用户隔离缓存，防止越权内容串联。
+	// LATEST_CACHE_PER_USER=false：key = itemType（跨用户共享）
+	//   适用于所有用户可见媒体库内容一致的简单场景，节省 Emby 请求次数。
 	//
-	// 如果未来开启了 Emby 的用户级权限差异（家长控制、库权限、标签过滤等），必须把缓存隔离到用户维度：
-	// 方案 A：key = embyUserID + itemType
-	// 方案 B：完全不缓存 Latest（或仅做 very short TTL）
-	//
-	// 否则会出现内容串联，严重时属于越权信息暴露。
-	latestMutex         sync.RWMutex
-	cachedLatest        map[string]*latestCacheEntry // key: Movie / Series
+	// 配置变更须重启服务。
+	latestMu            sync.RWMutex
+	latestSFMu          sync.Mutex
+	latestInflight      map[string]*mediaLatestSFCall
+	cachedLatest        map[string]*latestCacheEntry
 	latestCacheDuration time.Duration
 	latestCacheLimit    int
+}
+
+type mediaStatsSFCall struct {
+	done chan struct{}
+	val  *embyint.MediaStats
+	err  error
 }
 
 // NewMediaService 创建媒体服务
 func NewMediaService() *MediaService {
 	return &MediaService{
-		embyService:         embyint.NewEmbyService(),
+		embyService:         embyint.GetSharedService(),
 		cacheDuration:       5 * time.Minute,  // stats 缓存 5 分钟
 		latestCacheDuration: 10 * time.Minute, // 最近入库缓存 10 分钟
 		latestCacheLimit:    50,               // 缓存刷新时拉取的最大条数
 		cachedLatest:        make(map[string]*latestCacheEntry),
+		latestInflight:      make(map[string]*mediaLatestSFCall),
 	}
+}
+
+// latestCachePerUser 是否按用户分桶缓存最近入库（默认 true）
+func latestCachePerUser() bool {
+	configService := configpkg.NewConfigService()
+	raw := strings.TrimSpace(configService.GetString("LATEST_CACHE_PER_USER"))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("LATEST_CACHE_PER_USER"))
+	}
+	if raw == "" {
+		return true // 默认按用户分桶
+	}
+	return strings.EqualFold(raw, "true") || raw == "1"
+}
+
+// latestCacheKey 根据 LATEST_CACHE_PER_USER 决定缓存 key
+func latestCacheKey(embyUserID, itemType string) string {
+	if latestCachePerUser() {
+		return embyUserID + ":" + itemType
+	}
+	return itemType
 }
 
 // GetEmbyConfig 获取 Emby 服务器配置
@@ -66,11 +106,10 @@ func (s *MediaService) GetEmbyConfig() (string, error) {
 	return url, nil
 }
 
-// GetMediaStats 获取媒体库统计信息（带缓存）
+// GetMediaStats 获取媒体库统计信息（带 singleflight 缓存）
 func (s *MediaService) GetMediaStats() (*embyint.MediaStats, error) {
-	// 检查缓存
-	s.cacheMutex.RLock()
 	now := time.Now()
+	s.cacheMutex.RLock()
 	if s.cachedStats != nil && now.Sub(s.cacheTimestamp) < s.cacheDuration {
 		stats := *s.cachedStats
 		s.cacheMutex.RUnlock()
@@ -78,22 +117,37 @@ func (s *MediaService) GetMediaStats() (*embyint.MediaStats, error) {
 	}
 	s.cacheMutex.RUnlock()
 
-	// 缓存过期，重新获取
-	stats, err := s.embyService.GetMediaStats()
-	if err != nil {
-		return nil, err
+	// singleflight：并发请求合并为一次 Emby 调用
+	s.statsSFMu.Lock()
+	if s.statsInflight != nil {
+		c := s.statsInflight
+		s.statsSFMu.Unlock()
+		<-c.done
+		return c.val, c.err
 	}
+	c := &mediaStatsSFCall{done: make(chan struct{})}
+	s.statsInflight = c
+	s.statsSFMu.Unlock()
 
-	// 更新缓存
-	s.cacheMutex.Lock()
-	s.cachedStats = stats
-	s.cacheTimestamp = now
-	s.cacheMutex.Unlock()
+	stats, err := s.embyService.GetMediaStats()
+	if err == nil {
+		s.cacheMutex.Lock()
+		s.cachedStats = stats
+		s.cacheTimestamp = now
+		s.cacheMutex.Unlock()
+	}
+	c.val = stats
+	c.err = err
+	close(c.done)
 
-	return stats, nil
+	s.statsSFMu.Lock()
+	s.statsInflight = nil
+	s.statsSFMu.Unlock()
+
+	return stats, err
 }
 
-// GetLatestItems 获取最近入库项（带缓存）
+// GetLatestItems 获取最近入库项（带 singleflight + 分桶缓存）
 func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit int) ([]embyint.EmbyItem, error) {
 	if limit <= 0 {
 		limit = 20
@@ -102,12 +156,14 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 		limit = 50
 	}
 
+	cacheKey := latestCacheKey(embyUserID, itemType)
 	now := time.Now()
-	s.latestMutex.RLock()
-	entry, ok := s.cachedLatest[itemType]
+
+	s.latestMu.RLock()
+	entry, ok := s.cachedLatest[cacheKey]
 	if ok && entry != nil && now.Sub(entry.timestamp) < s.latestCacheDuration && len(entry.items) > 0 {
 		cached := entry.items
-		s.latestMutex.RUnlock()
+		s.latestMu.RUnlock()
 		n := limit
 		if n > len(cached) {
 			n = len(cached)
@@ -116,31 +172,62 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 		copy(out, cached[:n])
 		return out, nil
 	}
-	s.latestMutex.RUnlock()
+	s.latestMu.RUnlock()
 
+	// singleflight：同 key 并发请求合并为一次 Emby 调用
+	s.latestSFMu.Lock()
+	if inflight, found := s.latestInflight[cacheKey]; found {
+		s.latestSFMu.Unlock()
+		<-inflight.done
+		items := inflight.val
+		n := limit
+		if n > len(items) {
+			n = len(items)
+		}
+		out := make([]embyint.EmbyItem, n)
+		copy(out, items[:n])
+		return out, inflight.err
+	}
+	call := &mediaLatestSFCall{done: make(chan struct{})}
+	s.latestInflight[cacheKey] = call
+	s.latestSFMu.Unlock()
+
+	// 决定刷新时用哪个 ownerID（LATEST_CACHE_PER_USER=false 时沿用首次请求的 ownerID）
 	refreshOwnerID := embyUserID
+	s.latestMu.RLock()
 	if ok && entry != nil && entry.ownerID != "" {
 		refreshOwnerID = entry.ownerID
 	}
+	s.latestMu.RUnlock()
 
-	// 缓存过期，刷新：固定拉取 50 条，再按需截断返回，避免“按 limit 缓存”带来的特殊情况。
+	// 固定拉取 latestCacheLimit 条，再按需截断，避免"按 limit 缓存"导致的特殊情况
 	items, err := s.embyService.GetLatestItems(refreshOwnerID, itemType, s.latestCacheLimit)
+	if err == nil {
+		items = dedupeLatestItems(items)
+		ownerID := refreshOwnerID
+		s.latestMu.Lock()
+		if ok && entry != nil && entry.ownerID != "" {
+			ownerID = entry.ownerID
+		}
+		s.cachedLatest[cacheKey] = &latestCacheEntry{
+			items:     items,
+			timestamp: now,
+			ownerID:   ownerID,
+		}
+		s.latestMu.Unlock()
+	}
+
+	call.val = items
+	call.err = err
+	close(call.done)
+
+	s.latestSFMu.Lock()
+	delete(s.latestInflight, cacheKey)
+	s.latestSFMu.Unlock()
+
 	if err != nil {
 		return nil, err
 	}
-	items = dedupeLatestItems(items, itemType)
-
-	s.latestMutex.Lock()
-	ownerID := refreshOwnerID
-	if ok && entry != nil && entry.ownerID != "" {
-		ownerID = entry.ownerID
-	}
-	s.cachedLatest[itemType] = &latestCacheEntry{
-		items:     items,
-		timestamp: now,
-		ownerID:   ownerID,
-	}
-	s.latestMutex.Unlock()
 
 	n := limit
 	if n > len(items) {
@@ -151,7 +238,10 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 	return out, nil
 }
 
-func dedupeLatestItems(items []embyint.EmbyItem, itemType string) []embyint.EmbyItem {
+// dedupeLatestItems 按 ID 或 (Type+Name+Year) 去重。
+// ID 非空时优先使用 ID；否则按 Type+Name+Year 合并，减少同名不同版本资源被错误去重的概率
+// （EmbyItem 结构暂无 ParentID，如将来增加可纳入 key 进一步精确）。
+func dedupeLatestItems(items []embyint.EmbyItem) []embyint.EmbyItem {
 	if len(items) <= 1 {
 		return items
 	}
@@ -159,12 +249,14 @@ func dedupeLatestItems(items []embyint.EmbyItem, itemType string) []embyint.Emby
 	seen := make(map[string]struct{}, len(items))
 	result := make([]embyint.EmbyItem, 0, len(items))
 	for _, item := range items {
-		key := item.ID
-		if key == "" {
+		var key string
+		if item.ID != "" {
+			key = item.ID
+		} else {
 			key = item.Type + "|" + item.Name + "|" + strconv.Itoa(item.ProductionYear)
 		}
 		if _, exists := seen[key]; exists {
-			log.Printf("[Media] 去重最近入库重复项: type=%s key=%s name=%q id=%s", itemType, key, item.Name, item.ID)
+			log.Printf("[Media] 去重最近入库重复项: type=%s key=%s name=%q id=%s", item.Type, key, item.Name, item.ID)
 			continue
 		}
 		seen[key] = struct{}{}
