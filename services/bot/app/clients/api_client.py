@@ -14,6 +14,8 @@ _SETTING_TIMEOUT = 5.0
 _INTERNAL_HEADERS = {"X-Internal-Secret": INTERNAL_API_SECRET}
 _client: httpx.AsyncClient | None = None
 
+_GET_RETRY_DELAYS = (0.5, 1.5)  # 最多重试 2 次，指数退避
+
 
 async def init() -> None:
     global _client
@@ -88,36 +90,56 @@ async def _request(
     start = time.monotonic()
     context = log_fields or {}
 
-    try:
-        response = await _get_client().request(
-            method,
-            url,
-            headers=headers,
-            json=json,
-            params=params,
-            timeout=timeout,
-        )
-    except Exception as err:
+    # 幂等 GET 操作支持最多 2 次重试（指数退避 0.5s / 1.5s）；写操作不重试
+    is_get = method.upper() == "GET"
+    delays = _GET_RETRY_DELAYS if is_get else ()
+    last_err: Exception | None = None
+
+    for attempt, _delay in enumerate((*delays, None)):
+        if attempt > 0 and last_err is not None:
+            await asyncio.sleep(delays[attempt - 1])
+
+        try:
+            response = await _get_client().request(
+                method,
+                url,
+                headers=headers,
+                json=json,
+                params=params,
+                timeout=timeout,
+            )
+        except Exception as err:
+            last_err = err
+            if _delay is None or not is_get:
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                _log_request_issue(endpoint, method, elapsed_ms=elapsed_ms, error=err, **context)
+                return None, elapsed_ms
+            logger.warning(
+                "Bot API GET 请求失败，%.1fs 后重试 endpoint=%s attempt=%d errorType=%s",
+                _delay, endpoint, attempt + 1, type(err).__name__,
+            )
+            continue
+
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        _log_request_issue(endpoint, method, elapsed_ms=elapsed_ms, error=err, **context)
-        return None, elapsed_ms
+        if response.status_code >= 500:
+            _log_request_issue(
+                endpoint,
+                method,
+                elapsed_ms=elapsed_ms,
+                error=httpx.HTTPStatusError(
+                    "upstream server error",
+                    request=response.request,
+                    response=response,
+                ),
+                status_code=response.status_code,
+                **context,
+            )
 
+        return response, elapsed_ms
+
+    # 不会到达这里，但让类型检查满意
     elapsed_ms = int((time.monotonic() - start) * 1000)
-    if response.status_code >= 500:
-        _log_request_issue(
-            endpoint,
-            method,
-            elapsed_ms=elapsed_ms,
-            error=httpx.HTTPStatusError(
-                "upstream server error",
-                request=response.request,
-                response=response,
-            ),
-            status_code=response.status_code,
-            **context,
-        )
-
-    return response, elapsed_ms
+    return None, elapsed_ms
 
 
 def _load_json(

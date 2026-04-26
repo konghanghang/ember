@@ -407,7 +407,20 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
         await message.reply_text("拒绝原因不能为空，请重新输入。")
         return
 
-    result = await api_client.reject_subscription(pending["subscription_id"], reason)
+    # 从 API 弹出待确认记录，取 subscriptionId（副本隔离：subscriptionId 由服务端持久化）
+    popped = await api_client.pop_pending_reject(message.chat_id)
+    if popped is None:
+        await message.reply_text("待确认记录已过期或不存在，操作取消。")
+        pending_reject_requests.pop(message.chat_id, None)
+        return
+
+    subscription_id = popped.get("subscriptionId") or pending.get("subscription_id", "")
+    if not subscription_id:
+        await message.reply_text("提交拒绝原因失败：无法获取订阅 ID，请重试。")
+        pending_reject_requests.pop(message.chat_id, None)
+        return
+
+    result = await api_client.reject_subscription(subscription_id, reason)
     if result is None:
         await message.reply_text("提交拒绝原因失败，请重试。")
         return
@@ -442,7 +455,7 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
     except Exception:
         logger.exception(
             "更新订阅审核消息失败 subscriptionId=%s chatId=%s messageId=%s",
-            pending.get("subscription_id"),
+            subscription_id,
             pending.get("chat_id"),
             pending.get("message_id"),
         )
