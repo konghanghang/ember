@@ -36,7 +36,7 @@ func NewTelegramService(
 	newEmbyService func() *embyint.EmbyService,
 ) *TelegramService {
 	if newEmbyService == nil {
-		newEmbyService = embyint.NewEmbyService
+		newEmbyService = embyint.GetSharedService
 	}
 	return &TelegramService{
 		redemptionService:   redeemer,

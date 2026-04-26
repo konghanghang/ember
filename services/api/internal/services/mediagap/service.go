@@ -125,7 +125,7 @@ type MediaGapService = Service
 
 func NewService() *Service {
 	svc := &Service{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 		moviepilot:  newMediaGapMoviePilotClient(),
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,

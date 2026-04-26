@@ -105,7 +105,7 @@ type playbackDistributionAggregate struct {
 
 func NewUserPlaybackProfileService() *UserPlaybackProfileService {
 	return &UserPlaybackProfileService{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 	}
 }
 

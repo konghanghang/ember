@@ -48,7 +48,7 @@ type ActiveSession struct {
 // NewSessionHandler 创建活跃会话处理器
 func NewSessionHandler() *SessionHandler {
 	return &SessionHandler{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 	}
 }
 

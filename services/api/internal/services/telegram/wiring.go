@@ -40,6 +40,6 @@ func NewDefaultService() *TelegramService {
 	return NewTelegramService(
 		defaultTelegramRedeemer{},
 		defaultTelegramSubscriber{},
-		embyint.NewEmbyService,
+		embyint.GetSharedService,
 	)
 }

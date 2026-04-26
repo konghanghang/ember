@@ -61,11 +61,11 @@ func NewAuthService() *AuthService {
 	configService := configpkg.NewConfigService()
 	redemptionCodeService := &redemptionpkg.RedemptionCodeService{}
 	return &AuthService{
-		notifier:          notifierint.NewBotNotifier(),
+		notifier:          notifierint.GetSharedBotNotifier(),
 		emailService:      emailpkg.NewEmailService(),
 		configReader:      configService,
 		turnstileVerifier: NewCloudflareTurnstileVerifier(),
-		newEmbyClient:     func() authEmbyClient { return embyint.NewEmbyService() },
+		newEmbyClient:     func() authEmbyClient { return embyint.GetSharedService() },
 		saveUser: func(user *models.User) error {
 			return db.DB.Save(user).Error
 		},

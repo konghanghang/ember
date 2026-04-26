@@ -47,7 +47,7 @@ type EmbyCompensation struct {
 // NewEmbyCompensation 装配补偿器；embyService 不能为空，便于测试时替换为 mock。
 func NewEmbyCompensation(embyService *embyint.EmbyService) *EmbyCompensation {
 	if embyService == nil {
-		embyService = embyint.NewEmbyService()
+		embyService = embyint.GetSharedService()
 	}
 	return &EmbyCompensation{
 		embyService: embyService,

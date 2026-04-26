@@ -68,7 +68,7 @@ type wholeShowEpisodeRef struct {
 }
 
 var newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
-	return embyint.NewEmbyService()
+	return embyint.GetSharedService()
 }
 
 var activeSubscriptionStatuses = []models.SubscriptionStatus{
@@ -81,7 +81,7 @@ var activeSubscriptionStatuses = []models.SubscriptionStatus{
 func NewSubscriptionService() *SubscriptionService {
 	return &SubscriptionService{
 		moviepilot: moviepilotint.NewMoviePilotClient(),
-		notifier:   notifierint.NewBotNotifier(),
+		notifier:   notifierint.GetSharedBotNotifier(),
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 }
@@ -667,7 +667,7 @@ func (s *SubscriptionService) MarkSubscriptionIngestedAsAdmin(subscriptionID str
 		return ErrSubscriptionNotApproved
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := embyint.GetSharedService()
 	if !embyService.IsConfigured() {
 		return errors.New("Emby 未配置，无法校验入库状态")
 	}
@@ -940,7 +940,7 @@ func resolveWholeShowSeriesID(tmdbID, seriesID string) (string, error) {
 		return trimmedSeriesID, nil
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := embyint.GetSharedService()
 	if !embyService.IsConfigured() {
 		return "", nil
 	}
@@ -956,7 +956,7 @@ func resolveWholeShowSeriesID(tmdbID, seriesID string) (string, error) {
 }
 
 func loadWholeShowEpisodeInventory(seriesID string) (subscriptionEpisodeInventory, error) {
-	embyService := embyint.NewEmbyService()
+	embyService := embyint.GetSharedService()
 	if !embyService.IsConfigured() {
 		return nil, nil
 	}

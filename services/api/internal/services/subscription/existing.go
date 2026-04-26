@@ -38,7 +38,7 @@ func (s *SubscriptionService) CheckExisting(req CheckExistingRequest) (*CheckExi
 		return nil, err
 	}
 
-	embyService := embyint.NewEmbyService()
+	embyService := embyint.GetSharedService()
 	if !embyService.IsConfigured() {
 		log.Printf("[Subscription] 跳过库内检测：Emby 未配置 type=%s tmdbId=%s season=%d", req.Type, strings.TrimSpace(req.TmdbID), season)
 		return detectionFailedResponse("库内检测暂时不可用，确认后仍可继续提交。"), nil

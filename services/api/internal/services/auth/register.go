@@ -162,6 +162,6 @@ func (s *AuthService) compensationQueue() *accountpkg.EmbyCompensation {
 	if s.compensation != nil {
 		return s.compensation
 	}
-	s.compensation = accountpkg.NewEmbyCompensation(embyint.NewEmbyService())
+	s.compensation = accountpkg.NewEmbyCompensation(embyint.GetSharedService())
 	return s.compensation
 }

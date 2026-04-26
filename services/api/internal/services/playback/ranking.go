@@ -76,8 +76,8 @@ type playbackAggregateRow struct {
 
 func NewPlaybackRankingService() *PlaybackRankingService {
 	return &PlaybackRankingService{
-		embyService: embyint.NewEmbyService(),
-		notifier:    notifierint.NewBotNotifier(),
+		embyService: embyint.GetSharedService(),
+		notifier:    notifierint.GetSharedBotNotifier(),
 	}
 }
 

@@ -25,7 +25,7 @@ type RedemptionService struct {
 
 // NewRedemptionService 装配兑换码服务，复用注入的 Emby client + 补偿队列。
 func NewRedemptionService() *RedemptionService {
-	embyService := embyint.NewEmbyService()
+	embyService := embyint.GetSharedService()
 	return &RedemptionService{
 		embyService:  embyService,
 		compensation: accountpkg.NewEmbyCompensation(embyService),
@@ -36,7 +36,7 @@ func (s *RedemptionService) embyClient() *embyint.EmbyService {
 	if s.embyService != nil {
 		return s.embyService
 	}
-	return embyint.NewEmbyService()
+	return embyint.GetSharedService()
 }
 
 func (s *RedemptionService) compensationQueue() *accountpkg.EmbyCompensation {

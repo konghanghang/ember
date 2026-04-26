@@ -77,7 +77,7 @@ type playbackActivityRow struct {
 
 func NewPlaybackHistoryService() *PlaybackHistoryService {
 	return &PlaybackHistoryService{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 	}
 }
 

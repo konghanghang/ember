@@ -16,7 +16,7 @@ type SystemService struct {
 // NewSystemService 创建系统服务
 func NewSystemService() *SystemService {
 	return &SystemService{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 	}
 }
 

@@ -38,13 +38,13 @@ type PaymentService struct {
 }
 
 func NewPaymentService() *PaymentService {
-	embyService := embyint.NewEmbyService()
+	embyService := embyint.GetSharedService()
 	return &PaymentService{
 		embyService: embyService,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		notifier:     notifierint.NewBotNotifier(),
+		notifier:     notifierint.GetSharedBotNotifier(),
 		compensation: accountpkg.NewEmbyCompensation(embyService),
 	}
 }

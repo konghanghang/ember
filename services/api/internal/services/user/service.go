@@ -58,7 +58,7 @@ func (s *UserService) setEmailVerifier(verifier emailVerifier) {
 
 func (s *UserService) setDefaults() {
 	if s.newEmbyClient == nil {
-		s.newEmbyClient = func() embyClient { return embyint.NewEmbyService() }
+		s.newEmbyClient = func() embyClient { return embyint.GetSharedService() }
 	}
 	if s.findUserByID == nil {
 		s.findUserByID = func(userID string) (*models.User, error) {

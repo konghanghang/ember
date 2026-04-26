@@ -22,7 +22,7 @@ type DeviceService struct {
 
 func NewDeviceService() *DeviceService {
 	return &DeviceService{
-		embyService: embyint.NewEmbyService(),
+		embyService: embyint.GetSharedService(),
 	}
 }
 

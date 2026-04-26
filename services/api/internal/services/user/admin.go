@@ -340,7 +340,7 @@ func (s *UserService) DeleteUser(userID string) error {
 	}
 
 	if user.EmbyID != "" {
-		embyService := embyint.NewEmbyService()
+		embyService := embyint.GetSharedService()
 		if err := embyService.DeleteUser(user.EmbyID); err != nil {
 			return errors.New("删除用户失败：" + err.Error())
 		}
