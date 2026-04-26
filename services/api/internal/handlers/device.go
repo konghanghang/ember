@@ -101,18 +101,25 @@ func (h *DeviceHandler) LogoutDevice(c *gin.Context) {
 }
 
 func (h *DeviceHandler) LogoutBlacklistedDevices(c *gin.Context) {
-	count, err := h.service.LogoutBlacklistedDevices()
+	result, err := h.service.LogoutBlacklistedDevices()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
-			"count": count,
+		})
+		return
+	}
+
+	if len(result.SuccessDeviceIDs) == 0 && len(result.FailedDeviceIDs) > 0 {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"successDeviceIds": result.SuccessDeviceIDs,
+			"failedDeviceIds":  result.FailedDeviceIDs,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "黑名单设备已批量注销",
-		"count":   count,
+		"successDeviceIds": result.SuccessDeviceIDs,
+		"failedDeviceIds":  result.FailedDeviceIDs,
 	})
 }
 

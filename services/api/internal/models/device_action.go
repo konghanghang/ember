@@ -14,6 +14,7 @@ type DeviceAction struct {
 	ClientName string    `json:"clientName,omitempty" gorm:"column:clientName;size:100"`
 	Action     string    `json:"action" gorm:"column:action;size:50;not null"`
 	Note       string    `json:"note,omitempty" gorm:"column:note;size:255"`
+	OperatorID *string   `json:"operatorId,omitempty" gorm:"column:operatorId"`
 	CreatedAt  time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 }
 

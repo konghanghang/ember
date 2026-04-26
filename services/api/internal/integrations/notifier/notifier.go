@@ -3,10 +3,11 @@ package notifier
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
@@ -77,14 +78,28 @@ type BotNotifier struct {
 
 // NewBotNotifier 创建 BotNotifier
 func NewBotNotifier() *BotNotifier {
+	configService := configpkg.NewConfigService()
 	notifier := &BotNotifier{
 		secret: os.Getenv("INTERNAL_API_SECRET"),
+		botURL: strings.TrimRight(configService.GetString("BOT_NOTIFY_URL"), "/"),
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
 	}
-	notifier.refreshConfig()
 	return notifier
+}
+
+var (
+	sharedBotNotifierOnce    sync.Once
+	sharedBotNotifier        *BotNotifier
+)
+
+// GetSharedBotNotifier 返回进程内共享的 BotNotifier 单例。
+func GetSharedBotNotifier() *BotNotifier {
+	sharedBotNotifierOnce.Do(func() {
+		sharedBotNotifier = NewBotNotifier()
+	})
+	return sharedBotNotifier
 }
 
 func (n *BotNotifier) refreshConfig() {
@@ -94,7 +109,6 @@ func (n *BotNotifier) refreshConfig() {
 
 // IsConfigured 检查 Bot 通知配置
 func (n *BotNotifier) IsConfigured() bool {
-	n.refreshConfig()
 	return n.botURL != ""
 }
 
@@ -105,13 +119,13 @@ func (n *BotNotifier) post(path string, data interface{}) {
 
 	body, err := json.Marshal(data)
 	if err != nil {
-		fmt.Printf("Bot 通知失败：序列化请求失败: %v\n", err)
+		log.Printf("[BotNotifier] 序列化请求失败 endpoint=%s err=%v", path, err)
 		return
 	}
 
 	req, err := http.NewRequest("POST", n.botURL+path, bytes.NewBuffer(body))
 	if err != nil {
-		fmt.Printf("Bot 通知失败：创建请求失败: %v\n", err)
+		log.Printf("[BotNotifier] 创建请求失败 endpoint=%s err=%v", path, err)
 		return
 	}
 
@@ -120,13 +134,13 @@ func (n *BotNotifier) post(path string, data interface{}) {
 
 	resp, err := n.client.Do(req)
 	if err != nil {
-		fmt.Printf("Bot 通知失败：请求发送失败: %v\n", err)
+		log.Printf("[BotNotifier] 请求发送失败 endpoint=%s err=%v", path, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Bot 通知失败：状态码 %d\n", resp.StatusCode)
+		log.Printf("[BotNotifier] 请求失败 endpoint=%s status=%d", path, resp.StatusCode)
 	}
 }
 

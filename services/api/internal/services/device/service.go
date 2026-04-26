@@ -2,8 +2,9 @@ package device
 
 import (
 	"errors"
-	"fmt"
+	"log"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	"golang.org/x/text/unicode/norm"
 	"gorm.io/gorm"
 )
 
@@ -171,7 +173,7 @@ func (s *DeviceService) AddClientToBlacklist(clientName, reason string) error {
 		return errors.New("添加黑名单失败")
 	}
 
-	s.recordDeviceAction("", "", clientName, "blacklist", reason)
+	s.recordDeviceAction("", "", clientName, "blacklist", reason, "")
 	return nil
 }
 
@@ -194,7 +196,7 @@ func (s *DeviceService) RemoveClientFromBlacklist(clientName string) error {
 		return errors.New("移除黑名单失败")
 	}
 
-	s.recordDeviceAction("", "", blacklist.ClientName, "unblacklist", "")
+	s.recordDeviceAction("", "", blacklist.ClientName, "unblacklist", "", "")
 	return nil
 }
 
@@ -221,14 +223,26 @@ func (s *DeviceService) LogoutDevice(deviceID string) error {
 		return err
 	}
 
-	s.recordDeviceAction(deviceID, actionUserID, actionClientName, "logout", "manual")
+	s.recordDeviceAction(deviceID, actionUserID, actionClientName, "logout", "manual", "")
 	return nil
 }
 
-func (s *DeviceService) LogoutBlacklistedDevices() (int, error) {
+// LogoutBlacklistedResult 批量注销黑名单设备的结构化结果
+type LogoutBlacklistedResult struct {
+	SuccessDeviceIDs []string              `json:"successDeviceIds"`
+	FailedDeviceIDs  []LogoutFailedDevice  `json:"failedDeviceIds"`
+}
+
+// LogoutFailedDevice 注销失败的设备
+type LogoutFailedDevice struct {
+	DeviceID string `json:"deviceId"`
+	Error    string `json:"error"`
+}
+
+func (s *DeviceService) LogoutBlacklistedDevices() (*LogoutBlacklistedResult, error) {
 	items, err := s.buildDeviceItems()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	targets := make(map[string]DeviceItem)
@@ -238,22 +252,24 @@ func (s *DeviceService) LogoutBlacklistedDevices() (int, error) {
 		}
 	}
 
-	successCount := 0
-	failedIDs := make([]string, 0)
+	result := &LogoutBlacklistedResult{
+		SuccessDeviceIDs: make([]string, 0),
+		FailedDeviceIDs:  make([]LogoutFailedDevice, 0),
+	}
 	for deviceID, item := range targets {
 		if err := s.embyService.LogoutDevice(deviceID); err != nil {
-			failedIDs = append(failedIDs, deviceID)
+			log.Printf("[Device] 黑名单设备注销失败 deviceId=%s err=%v", deviceID, err)
+			result.FailedDeviceIDs = append(result.FailedDeviceIDs, LogoutFailedDevice{
+				DeviceID: deviceID,
+				Error:    err.Error(),
+			})
 			continue
 		}
-		successCount++
-		s.recordDeviceAction(deviceID, item.UserID, item.ClientName, "logout", "blacklist")
+		result.SuccessDeviceIDs = append(result.SuccessDeviceIDs, deviceID)
+		s.recordDeviceAction(deviceID, item.UserID, item.ClientName, "logout", "blacklist", "")
 	}
 
-	if len(failedIDs) > 0 {
-		return successCount, fmt.Errorf("部分设备注销失败：%s", strings.Join(failedIDs, ", "))
-	}
-
-	return successCount, nil
+	return result, nil
 }
 
 func (s *DeviceService) GetStats() (*DeviceStats, error) {
@@ -493,7 +509,7 @@ func (s *DeviceService) buildDeviceItems() ([]DeviceItem, error) {
 	return items, nil
 }
 
-func (s *DeviceService) recordDeviceAction(deviceID, userID, clientName, action, note string) {
+func (s *DeviceService) recordDeviceAction(deviceID, userID, clientName, action, note, operatorID string) {
 	deviceAction := models.DeviceAction{
 		DeviceID:   strings.TrimSpace(deviceID),
 		UserID:     strings.TrimSpace(userID),
@@ -504,7 +520,12 @@ func (s *DeviceService) recordDeviceAction(deviceID, userID, clientName, action,
 	if deviceAction.Action == "" {
 		return
 	}
-	_ = db.DB.Create(&deviceAction).Error
+	if operatorID != "" {
+		deviceAction.OperatorID = &operatorID
+	}
+	if err := db.DB.Create(&deviceAction).Error; err != nil {
+		log.Printf("[Device] 记录操作日志失败 action=%s deviceId=%s err=%v", action, deviceID, err)
+	}
 }
 
 func ensureDeviceEntry(entryMap map[string]*DeviceItem, deviceID string) *DeviceItem {
@@ -518,8 +539,15 @@ func ensureDeviceEntry(entryMap map[string]*DeviceItem, deviceID string) *Device
 	return entry
 }
 
+var clientNameVersionSuffix = regexp.MustCompile(`\s+v?\d+(\.\d+)*$`)
+
 func normalizeClientName(clientName string) string {
-	return strings.ToLower(strings.TrimSpace(clientName))
+	s := strings.ToLower(strings.TrimSpace(clientName))
+	s = clientNameVersionSuffix.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "\u3000", " ")
+	s = norm.NFC.String(s)
+	s = strings.Join(strings.Fields(s), " ")
+	return s
 }
 
 func firstNonEmpty(values ...string) string {

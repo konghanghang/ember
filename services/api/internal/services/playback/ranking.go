@@ -2,6 +2,7 @@ package playback
 
 import (
 	"crypto/rand"
+	"encoding/base32"
 	"errors"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -349,21 +351,26 @@ func loadCronTimezone() *time.Location {
 }
 
 func dayRange(t time.Time) (time.Time, time.Time) {
-	start := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
-	end := t
+	loc := loadCronTimezone()
+	now := t.In(loc)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	end := start.Add(24 * time.Hour)
 	return start, end
 }
 
 func weekRange(t time.Time) (time.Time, time.Time) {
-	weekday := int(t.Weekday()) // Sunday=0
+	loc := loadCronTimezone()
+	now := t.In(loc)
+	weekday := int(now.Weekday()) // Sunday=0
 	daysSinceMonday := weekday - 1
 	if weekday == 0 {
 		daysSinceMonday = 6
 	}
 
-	monday := t.AddDate(0, 0, -daysSinceMonday)
-	start := time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, t.Location())
-	return start, t
+	monday := now.AddDate(0, 0, -daysSinceMonday)
+	start := time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, loc)
+	end := start.AddDate(0, 0, 7) // 下周一 00:00
+	return start, end
 }
 
 func (s *PlaybackRankingService) computeRanking(period models.RankingPeriod, start, end *time.Time) (*RankingComputeResult, error) {
@@ -445,8 +452,13 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 	}
 
 	if len(rankings) > 0 {
-		if err := db.DB.Create(&rankings).Error; err != nil {
-			return err
+		result := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&rankings)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			log.Printf("[Ranking] %s 榜 %s~%s 已存在，跳过", period, res.Start.Format("2006-01-02"), res.End.Format("2006-01-02"))
+			return nil
 		}
 	}
 
@@ -648,9 +660,9 @@ func nullableTrimExpr(column string) string {
 }
 
 func generateRankingBatchID() string {
-	randomBytes := make([]byte, 8)
-	_, _ = rand.Read(randomBytes)
-	return fmt.Sprintf("rb%x%x", time.Now().UnixNano(), randomBytes)[:25]
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)[:26]
 }
 
 func buildRankingResultFromRows(rows []models.PlaybackRanking) *RankingResult {

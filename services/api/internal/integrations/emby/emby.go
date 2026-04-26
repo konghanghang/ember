@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
@@ -48,6 +49,20 @@ func NewEmbyService() *EmbyService {
 	return service
 }
 
+var (
+	sharedEmbyOnce    sync.Once
+	sharedEmbyService *EmbyService
+)
+
+// GetSharedService 返回进程内共享的 EmbyService 单例。
+// 配置在首次调用时从数据库读取一次；后续调用直接返回已初始化实例。
+func GetSharedService() *EmbyService {
+	sharedEmbyOnce.Do(func() {
+		sharedEmbyService = NewEmbyService()
+	})
+	return sharedEmbyService
+}
+
 func (s *EmbyService) refreshConfig() {
 	configService := configpkg.NewConfigService()
 	s.baseURL = strings.TrimRight(configService.GetString("EMBY_URL"), "/")
@@ -55,7 +70,6 @@ func (s *EmbyService) refreshConfig() {
 }
 
 func (s *EmbyService) ensureConfigured() error {
-	s.refreshConfig()
 	if s.baseURL == "" || s.apiKey == "" {
 		return errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
 	}

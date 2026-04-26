@@ -3,13 +3,17 @@ package app
 import (
 	"context"
 	"log"
+	"strconv"
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
+	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
+	devicepkg "github.com/konghang/ember/backend/internal/services/device"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	mediagappkg "github.com/konghang/ember/backend/internal/services/mediagap"
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
 	systempkg "github.com/konghang/ember/backend/internal/services/system"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
@@ -20,11 +24,16 @@ import (
 func initCronJobs() func() {
 	configService := configpkg.NewConfigService()
 
-	cronEnabled := configService.GetString("CRON_ENABLED")
-	if cronEnabled == "" {
-		cronEnabled = "true"
+	cronEnabledStr := configService.GetString("CRON_ENABLED")
+	if cronEnabledStr == "" {
+		cronEnabledStr = "true"
 	}
-	if cronEnabled != "true" {
+	cronEnabled, err := strconv.ParseBool(cronEnabledStr)
+	if err != nil {
+		log.Printf("[Cron] CRON_ENABLED 配置无效（%q），回退为 true：%v", cronEnabledStr, err)
+		cronEnabled = true
+	}
+	if !cronEnabled {
 		return func() {}
 	}
 
@@ -33,9 +42,14 @@ func initCronJobs() func() {
 		expiredSchedule = "0 2 * * *"
 	}
 
-	rankingCronEnabled := configService.GetString("RANKING_CRON_ENABLED")
-	if rankingCronEnabled == "" {
-		rankingCronEnabled = "false"
+	rankingCronEnabledStr := configService.GetString("RANKING_CRON_ENABLED")
+	if rankingCronEnabledStr == "" {
+		rankingCronEnabledStr = "false"
+	}
+	rankingCronEnabled, err := strconv.ParseBool(rankingCronEnabledStr)
+	if err != nil {
+		log.Printf("[Cron] RANKING_CRON_ENABLED 配置无效（%q），回退为 false：%v", rankingCronEnabledStr, err)
+		rankingCronEnabled = false
 	}
 
 	rankingDailySchedule := configService.GetString("RANKING_DAILY_SCHEDULE")
@@ -53,9 +67,14 @@ func initCronJobs() func() {
 		tvCalendarSyncSchedule = "0 */12 * * *"
 	}
 
-	tvCalendarStartupSyncEnabled := configService.GetString("TV_CALENDAR_STARTUP_SYNC_ENABLED")
-	if tvCalendarStartupSyncEnabled == "" {
-		tvCalendarStartupSyncEnabled = "true"
+	tvCalendarStartupSyncEnabledStr := configService.GetString("TV_CALENDAR_STARTUP_SYNC_ENABLED")
+	if tvCalendarStartupSyncEnabledStr == "" {
+		tvCalendarStartupSyncEnabledStr = "true"
+	}
+	tvCalendarStartupSyncEnabled, err := strconv.ParseBool(tvCalendarStartupSyncEnabledStr)
+	if err != nil {
+		log.Printf("[Cron] TV_CALENDAR_STARTUP_SYNC_ENABLED 配置无效（%q），回退为 true：%v", tvCalendarStartupSyncEnabledStr, err)
+		tvCalendarStartupSyncEnabled = true
 	}
 
 	tzName := configService.GetString("CRON_TIMEZONE")
@@ -78,7 +97,7 @@ func initCronJobs() func() {
 	embyCompensation := accountpkg.NewEmbyCompensation(nil)
 	mediaGapScanRecorder := mediagappkg.NewMediaGapScanRecorder()
 	var rankingService *playbackpkg.PlaybackRankingService
-	if rankingCronEnabled == "true" {
+	if rankingCronEnabled {
 		rankingService = playbackpkg.NewPlaybackRankingService()
 	}
 
@@ -148,7 +167,7 @@ func initCronJobs() func() {
 		taskRegistered = true
 	}
 
-	if rankingCronEnabled == "true" {
+	if rankingCronEnabled {
 		if _, err := c.AddFunc(rankingDailySchedule, func() {
 			log.Println("[Cron] 开始生成播放日榜...")
 			if err := rankingService.GenerateRanking(models.RankingDaily, nil, nil); err != nil {
@@ -177,7 +196,7 @@ func initCronJobs() func() {
 	}
 
 	if tvCalendarService.SyncAvailable() {
-		if tvCalendarStartupSyncEnabled == "true" {
+		if tvCalendarStartupSyncEnabled {
 			time.AfterFunc(15*time.Second, func() {
 				count, err := tvCalendarService.SyncCalendar(context.Background(), tvcalendarpkg.DefaultTVCalendarWeekOffsets(), nil, false)
 				if err != nil {
@@ -211,8 +230,87 @@ func initCronJobs() func() {
 		return func() {}
 	}
 
+	// device-actions-cleanup（每日凌晨 5 点，保留 90 天）
+	if _, err := c.AddFunc("0 5 * * *", func() {
+		removed, err := devicepkg.CleanupOldDeviceActions(context.Background(), 90)
+		if err != nil {
+			log.Printf("[Cron] device-actions-cleanup 失败：%v", err)
+		} else if removed > 0 {
+			log.Printf("[Cron] device-actions-cleanup：清理 %d 条", removed)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（device-actions-cleanup）：%v", err)
+	} else {
+		taskRegistered = true
+	}
+
+	// playback-rankings-cleanup（每周日凌晨 5 点，保留 90 天）
+	if _, err := c.AddFunc("0 5 * * 0", func() {
+		removed, err := playbackpkg.CleanupOldRankings(context.Background(), 90)
+		if err != nil {
+			log.Printf("[Cron] playback-rankings-cleanup 失败：%v", err)
+		} else if removed > 0 {
+			log.Printf("[Cron] playback-rankings-cleanup：清理 %d 条", removed)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（playback-rankings-cleanup）：%v", err)
+	} else {
+		taskRegistered = true
+	}
+
+	// payments-expire-pending（每 5 分钟推进 pending → expired）
+	if _, err := c.AddFunc("@every 5m", func() {
+		expired, err := paymentpkg.ExpirePendingPayments(context.Background())
+		if err != nil {
+			log.Printf("[Cron] payments-expire-pending 失败：%v", err)
+		} else if expired > 0 {
+			log.Printf("[Cron] payments-expire-pending：推进 %d 条 pending → expired", expired)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（payments-expire-pending）：%v", err)
+	} else {
+		taskRegistered = true
+	}
+
+	// media-quality-inflight-sweep（每 30 分钟清理残留的 inflight 标记）
+	if _, err := c.AddFunc("@every 30m", func() {
+		result := db.DB.Exec(`UPDATE media_quality_caches SET "inflightUntil" = NULL WHERE "inflightUntil" < now() - interval '1 hour'`)
+		if result.Error != nil {
+			log.Printf("[Cron] media-quality-inflight-sweep 失败：%v", result.Error)
+		} else if result.RowsAffected > 0 {
+			log.Printf("[Cron] media-quality-inflight-sweep：清理 %d 条残留 inflight", result.RowsAffected)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（media-quality-inflight-sweep）：%v", err)
+	}
+
+	// tmdb-cache-gc（每日凌晨 4 点，删除超期 7 天的过期缓存）
+	// tmdb-cache-gc（每日凌晨 4 点，删除超期 7 天的过期缓存）
+	if _, err := c.AddFunc("0 4 * * *", func() {
+		removed, err := tvcalendarpkg.RunTMDBCacheGC(context.Background())
+		if err != nil {
+			log.Printf("[Cron] tmdb-cache-gc 失败：%v", err)
+		} else if removed > 0 {
+			log.Printf("[Cron] tmdb-cache-gc：删除 %d 条过期缓存", removed)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（tmdb-cache-gc）：%v", err)
+	}
+
+	// bot-pending-reject-cleanup（每 30 分钟清理过期的拒绝待确认记录）
+	if _, err := c.AddFunc("@every 30m", func() {
+		removed, err := telegrampkg.CleanupExpiredPendingRejects(context.Background())
+		if err != nil {
+			log.Printf("[Cron] bot-pending-reject-cleanup 失败：%v", err)
+		} else if removed > 0 {
+			log.Printf("[Cron] bot-pending-reject-cleanup：清理 %d 条过期记录", removed)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（bot-pending-reject-cleanup）：%v", err)
+	}
+
 	c.Start()
-	if rankingCronEnabled == "true" {
+	if rankingCronEnabled {
 		log.Printf(
 			"定时任务已启用：过期检查(%s), 日榜(%s), 周榜(%s), 追剧日历(%s) (%s)",
 			expiredSchedule,

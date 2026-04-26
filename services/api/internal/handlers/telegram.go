@@ -3,6 +3,8 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
@@ -169,11 +171,30 @@ func (h *TelegramHandler) ResetPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "密码重置成功"})
 }
 
+var (
+	tmdbIDPattern   = regexp.MustCompile(`^\d{1,10}$`)
+	posterPathPattern = regexp.MustCompile(`^/[\w./-]+$`)
+)
+
 // SubscribeByTelegram Bot 通过 Telegram 创建求片订阅
 func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 	var req telegrampkg.TelegramSubscribeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	// 输入校验
+	if !tmdbIDPattern.MatchString(req.TmdbID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tmdbId 格式无效"})
+		return
+	}
+	if pp := strings.TrimSpace(req.PosterPath); pp != "" && !posterPathPattern.MatchString(pp) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "posterPath 格式无效"})
+		return
+	}
+	if len(req.Name) > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name 过长（最多 200 字符）"})
 		return
 	}
 
@@ -194,4 +215,57 @@ func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "订阅创建成功"})
+}
+
+type pendingRejectEnqueueRequest struct {
+	ChatID         int64  `json:"chatId" binding:"required"`
+	AdminUserID    string `json:"adminUserId" binding:"required"`
+	SubscriptionID string `json:"subscriptionId" binding:"required"`
+}
+
+type pendingRejectPopRequest struct {
+	ChatID int64 `json:"chatId" binding:"required"`
+}
+
+// EnqueuePendingReject Internal API: 入队一条拒绝待确认记录
+func (h *TelegramHandler) EnqueuePendingReject(c *gin.Context) {
+	var req pendingRejectEnqueueRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := telegrampkg.EnqueuePendingReject(c.Request.Context(), req.ChatID, req.AdminUserID, req.SubscriptionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "入队成功"})
+}
+
+// PopPendingReject Internal API: 弹出并删除最新未过期的拒绝待确认记录
+func (h *TelegramHandler) PopPendingReject(c *gin.Context) {
+	var req pendingRejectPopRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	record, err := telegrampkg.PopPendingReject(c.Request.Context(), req.ChatID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if record == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "无待处理的拒绝请求"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":             record.ID,
+		"chatId":         record.ChatID,
+		"adminUserId":    record.AdminUserID,
+		"subscriptionId": record.SubscriptionID,
+		"expiresAt":      record.ExpiresAt,
+	})
 }

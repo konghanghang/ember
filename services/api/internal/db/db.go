@@ -23,25 +23,14 @@ var DB *gorm.DB
 
 // InitDB 初始化数据库连接
 func InitDB() {
-	// 尝试加载 .env 文件（多个可能的位置）
-	envPaths := []string{
-		".env",              // 当前目录
-		"../../.env",        // 项目根目录
-		"../../../.env",     // 以防万一
-		"services/api/.env", // 从根目录运行时
-	}
-
-	envLoaded := false
-	for _, path := range envPaths {
-		if err := godotenv.Load(path); err == nil {
-			log.Printf("✅ 成功加载环境变量：%s", path)
-			envLoaded = true
-			break
+	// 仅在 EMBER_DOTENV 环境变量显式指定时加载对应 .env 文件，
+	// 避免多路径探测引入不可预期的环境变量来源。
+	if envPath := os.Getenv("EMBER_DOTENV"); envPath != "" {
+		if err := godotenv.Load(envPath); err != nil {
+			log.Printf("[Env] godotenv.Load(%s) 失败：%v", envPath, err)
+		} else {
+			log.Printf("✅ 成功加载环境变量：%s", envPath)
 		}
-	}
-
-	if !envLoaded {
-		log.Println("⚠️  警告：无法从文件加载 .env，将使用系统环境变量")
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -86,8 +75,8 @@ func InitDB() {
 	}
 
 	// 连接池配置
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetMaxIdleConns(15)
+	sqlDB.SetMaxOpenConns(30)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 
@@ -146,6 +135,7 @@ func VerifySchema() error {
 		{"failed_emby_async_ops", &models.FailedEmbyAsyncOp{}},
 		{"stripe_webhook_events", &models.StripeWebhookEvent{}},
 		{"media_gap_scans", &models.MediaGapScan{}},
+		{"bot_pending_reject_requests", &models.BotPendingRejectRequest{}},
 	}
 
 	modelByTable := make(map[string]interface{}, len(tableChecks))
@@ -219,6 +209,8 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"subscriptions", "retryFromId", "20260424_01_subscription_resubmission_after_rejection"},
 	{"subscriptions", "ingestProgress", "20260427_05_subscriptions_ingest_progress"},
 	{"media_gaps", "lastDispatchError", "20260427_06_media_gaps_dispatch_failed"},
+	{"media_quality_caches", "inflightUntil", "20260428_02_media_quality_caches_inflight"},
+	{"tv_calendar_sources", "lastFullSyncAt", "20260428_05_tv_calendar_sources_sync_markers"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
