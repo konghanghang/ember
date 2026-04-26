@@ -1,7 +1,7 @@
 # 多阶段构建 Dockerfile for Ember Go API
 
 # ==================== 构建阶段 ====================
-FROM golang:1.24.13-alpine AS builder
+FROM golang:1.24.13-alpine3.20 AS builder
 
 # 安装构建依赖
 RUN apk add --no-cache git make
@@ -22,7 +22,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ember cmd/server/main.go
 
 # ==================== 运行阶段 ====================
-FROM alpine:latest
+FROM alpine:3.20
 
 # 安装运行时依赖
 RUN apk --no-cache add ca-certificates tzdata wget

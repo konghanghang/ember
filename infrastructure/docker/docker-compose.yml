@@ -23,6 +23,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
 
   # Go API 服务
   ember-api:
@@ -69,6 +71,8 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    init: true
+    stop_grace_period: 30s
 
   # Vue 前端服务
   ember-web:
@@ -86,6 +90,8 @@ services:
     networks:
       - ember-network
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
     logging:
       options:
         max-size: "10m"
@@ -122,6 +128,8 @@ services:
     networks:
       - ember-network
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
     volumes:
       - bot_logs:/app/logs
     logging:

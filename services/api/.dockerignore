@@ -1,0 +1,9 @@
+.git
+.github
+docs
+*.md
+*.log
+*.env*
+Dockerfile.local
+test/
+*_test.go
