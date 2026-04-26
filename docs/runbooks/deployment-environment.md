@@ -128,6 +128,26 @@ API 启动期已不再调用 `AutoMigrate`（任何 `AUTO_MIGRATE` env 都会被
 |---|---|---|
 | `20260426_01_telegram_bind_codes_user_unique` | （migration 内置 CTE 自动去重，每个 userId 只保留 createdAt 最新一条；绑定码本就是 5 分钟短期凭据，无业务影响） | — |
 | `20260426_02_users_lower_unique_indexes` | `SELECT lower(username), count(*) FROM users GROUP BY 1 HAVING count(*) > 1; SELECT lower(email), count(*) FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY 1 HAVING count(*) > 1;` | 0 行；非 0 行需人工判定合并 / 重命名后再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检，存在重复时会停止并附排查 SQL） |
+| `20260427_03_payments_pending_unique` | `SELECT "userId", "planId", count(*) FROM payments WHERE status='pending' GROUP BY 1,2 HAVING count(*) > 1;` | 0 行；非 0 行需先把多余 pending 收口为 expired 再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检并附收口 SQL） |
+
+### 批次 2 新增运行期表（无脏数据预检）
+
+下面三张表均为本批新建，老库执行 baseline 之后的增量 migration 后即出现，运行时由业务/cron 按需写入：
+
+| 表 | 来源 migration | 用途 |
+|---|---|---|
+| `failed_emby_async_ops` | `20260427_01_failed_emby_async_ops` | 支付履约 / 兑换码 / 注册回滚等链路在事务外调 Emby 失败时的补偿队列 |
+| `stripe_webhook_events` | `20260427_02_stripe_webhook_events` | Stripe webhook event.id 级别去重表 |
+| `media_gap_scans` | `20260427_07_media_gap_scans` | 缺集扫描的持久化执行记录（配合 PG advisory lock 做跨副本互斥） |
+
+### 批次 2 新增 cron 任务
+
+API 启动期注册的常驻 cron（`CRON_ENABLED=true` 时启用）新增两项：
+
+| Cron 名 | 调度 | 行为 | 失败处理 |
+|---|---|---|---|
+| `emby-async-compensation` | `@every 10m` | 拉取 `failed_emby_async_ops` 中 `nextAttemptAt <= now()` 的待补偿操作（每轮上限 50 条），按 origin/action 路由到 emby service；成功删除该行，失败指数退避（30s/2m/10m/1h/6h/24h），retries > 6 写 ERROR 日志告警 | 进程内 panic 由 cron runner 捕获；DB 异常仅记录错误日志，不影响其他 cron |
+| `media-gap-scans-cleanup` | `@weekly` | 删除 `media_gap_scans` 表中 7 天之前的 `success / failed` 记录（`running` 不清理，便于排查孤儿） | 同上 |
 
 升级期建议：先停 API → 跑 migration → 启动新 API，避免老路径与新路径并存的竞态（特别是 `telegram_bind_codes` 在 GenerateBindCode 路径上的事务+DELETE 与 ON CONFLICT 切换）。
 

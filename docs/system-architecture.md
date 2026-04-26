@@ -624,7 +624,64 @@ User (1) ──→ (N) TVCalendarSubscription（用户追剧订阅）
 TVCalendarSource (1) ──→ (N) TVCalendarItem（按 tmdbId 关联）
 TVCalendarSubscription (N) ──→ (1) TVCalendarSource（按 tmdbId 关联）
 TMDBCache（独立缓存表）
+
+FailedEmbyAsyncOp               （Emby 写操作补偿队列，cron 重试，无外键）
+StripeWebhookEvent              （Stripe webhook event.id 去重表，无外键）
+MediaGapScan                    （缺集扫描持久化记录，advisory lock 配套，无外键）
 ```
+
+### 4.15 FailedEmbyAsyncOp（Emby 写操作补偿队列）
+
+| 字段 | 类型 | 列名 | 备注 |
+|---|---|---|---|
+| ID | string | id | cuid |
+| Origin | enum | origin | `payment_unban` / `redemption_unban` / `register_cleanup` |
+| OriginRefID | string | originRefId | 业务侧引用 ID（paymentId / redemptionId / embyUserId） |
+| EmbyUserID | string | embyUserId | 待操作的 Emby 账号 |
+| Action | enum | action | `unban` / `delete` |
+| Payload | *string | payload | 可选 JSON 文本（保留扩展字段，本批未使用） |
+| Retries | int | retries | 已重试次数 |
+| NextAttemptAt | time.Time | nextAttemptAt | 下次重试时间，cron 按 `<= now()` 拉取 |
+| LastError | *string | lastError | 最近一次失败的脱敏错误（最多 500 字符） |
+
+**契约**：
+- 业务侧（`payment.fulfillPayment` / `redemption.RedeemCode` / `auth.register`）在事务外异步调 Emby 失败时，通过 `services/account/EmbyCompensation.EnsureUnbanned` / `EnsureDeleted` 入队
+- cron `emby-async-compensation @every 10m` 每轮拉取上限 50 条，按 `(origin, action)` 路由到 emby service；成功删除该行
+- 失败按指数退避 30s/2m/10m/1h/6h/24h，retries > 6 时仍保留行并写 ERROR 日志告警，需运维介入
+
+### 4.16 StripeWebhookEvent（Stripe webhook 去重表）
+
+| 字段 | 类型 | 列名 | 备注 |
+|---|---|---|---|
+| EventID | string | eventId | Stripe `event.id`（`evt_xxx`），主键 |
+| EventType | string | eventType | Stripe `event.type` |
+| Livemode | bool | livemode | Stripe `event.livemode` |
+| ReceivedAt | time.Time | receivedAt | 首次收到时间 |
+| ProcessedAt | *time.Time | processedAt | 业务分发完成时间 |
+| Status | enum | status | `received` / `processed` / `skipped` / `failed` |
+| Error | *string | errorMessage | 业务分发失败时的脱敏错误 |
+
+**契约**：
+- `HandleWebhook` 在签名验证后、业务分发前 `INSERT ... ON CONFLICT (eventId) DO NOTHING`；`RowsAffected=0` 表示重复事件，直接 200 不再分发
+- 业务分发完成后单事务回写 `processedAt / status / errorMessage`
+- 处理 `checkout.session.completed` / `async_payment_succeeded` / `async_payment_failed` / `checkout.session.expired` 标记为 `processed`，其余事件类型标记 `skipped`
+
+### 4.17 MediaGapScan（缺集扫描持久化记录）
+
+| 字段 | 类型 | 列名 | 备注 |
+|---|---|---|---|
+| ID | string | id | cuid |
+| Status | enum | status | `running` / `success` / `failed` |
+| NodeID | string | nodeId | 承担本次扫描的节点（`hostname/pid`） |
+| StartedAt | time.Time | startedAt | 扫描开始时间 |
+| FinishedAt | *time.Time | finishedAt | 扫描结束时间 |
+| ErrorMessage | *string | errorMessage | 失败时的脱敏错误（最多 500 字符） |
+
+**契约**：
+- 扫描入口 `mediaGapScanManager.Start` 先尝试 `pg_try_advisory_lock(scanLockKey)`；锁被占返回 `ErrMediaGapScanInProgress` → handler 映射 409
+- 拿到锁后写一条 `running` 记录，扫描结束在 `defer` 中写终态并释放 advisory lock
+- advisory lock 绑定在持有连接的 PG session 上：进程 crash 时 PG 端会回收锁；`running` 记录留到 cron 清理时仍保留以便排查孤儿
+- cron `media-gap-scans-cleanup @weekly` 删除 7 天之前的 `success / failed` 记录
 
 ---
 
@@ -682,9 +739,10 @@ TMDBCache（独立缓存表）
 **核心方法 `RedeemCode(userID, code)`**：
 1. 开启事务后查询兑换码并校验 `IsValid()`
 2. 在事务中检查 `redemptions(userId, code)` 是否已存在，存在则返回 `ErrRedemptionDuplicate`
-3. 查询用户并计算新 ExpiresAt，按需调用 Emby 解封，仅更新 `expiresAt/embyDisabled`
+3. 查询用户并计算新 ExpiresAt，仅更新 `expiresAt/embyDisabled`（**Emby 调权移到 commit 后异步执行**）
 4. 先插入 Redemption 记录（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
 5. 原子递增 usedCount（`WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）→ 提交
+6. commit 后 `async.SafeGo("redemption.unban", ...)` 调 `EmbyCompensation.EnsureUnbanned`：成功结束；失败入 `failed_emby_async_ops` 队列，由 cron `emby-async-compensation` 重试
 
 ### 5.5 ConfigService (`config/config.go`)
 
@@ -736,10 +794,15 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
-- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 火忘式通知 Bot；按活跃状态的 `type + tmdbId + season` 去重，历史 `REJECTED` 不阻止新建
-- `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 基于当前用户自己的 `REJECTED` 记录重新发起一条新的 `PENDING` 记录，复用原媒体信息并写入 `retryFromId`；原记录保持 `REJECTED`
-- `ApproveSubscription(id)` — 调用 MoviePilot → 设为 APPROVED（MP 失败不阻塞审批，错误存入 mpError；`season>0` 时透传季号，`season=0` 不传季参数）
-- `RejectSubscription(id)` — 设为 REJECTED
+- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 火忘式通知 Bot；**批次 2 改造**：包入事务 + `pg_advisory_xact_lock` 序列化同 `(type, tmdbId, season)` 的并发；命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功（不再 409）
+- `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 同上幂等保护；新记录写入 `retryFromId`，原记录保持 `REJECTED`
+- `ApproveSubscription(id)` — **批次 2 改原子状态转移**：`UPDATE WHERE status='PENDING'`，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict` → handler 映射 409。MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED
+- `RejectSubscription(id, reason)` — 同样原子状态转移，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict`
+- `RedispatchSubscription(id)` — **批次 2 新增**：管理员手动重试 MoviePilot 调用，仅在 `status='APPROVED'` 且 `mpError != nil` 时允许；状态保持 APPROVED；mpError 由本次结果覆盖。路由 `PUT /api/v1/admin/subscriptions/:id/redispatch`
+- `MarkSubscriptionIngestedAsAdmin(id)` — 管理员校验 Emby 后手动收口为 INGESTED；批次 2 起触发与 webhook 一致的 `notifyIngested` 通知
+- `MarkSubscriptionsIngestedByWebhook(payload)` — **批次 2 拆分整剧 / 单季命中策略**：
+  - 单季订阅 (`season=N`)：webhook 命中即 INGEST
+  - 整剧订阅 (`season=0`)：用 TMDB 已播出剧集清单计算总量 `X`，再结合 Emby 当前实际库存与 `IGNORED` 集排除项计算已完成集数 `Y`，写 `ingestProgress="Y/X"`；`Y >= X` 时自动收口为 INGESTED 并触发用户通知。TMDB / Emby 任一侧缺失时不做错误自动收口，fallback 记最近一集 `S01E10`，由管理员通过 `MarkSubscriptionIngestedAsAdmin` 显式确认
 
 ### 5.10 DeviceService (`services/device.go`)
 
@@ -752,12 +815,15 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.11 MediaGapService (`services/mediagap/service.go`)
 
-- `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台管理入口已改为异步触发，扫描本体在后台独立上下文中执行
-- `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计，供聚合视图直接消费
-- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选，优先按单集查询，未命中时回退整季查询；写入 `searchSnapshot` 与 `lastSearchedAt`，候选摘要保留发布时间等展示字段
-- `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源；仅在下发成功后写入 `dispatchSnapshot`、`requestedAt` 并推进为 `REQUESTED`
+- `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台管理入口已改为异步触发。**批次 2 新增跨副本互斥**：`mediaGapScanManager.Start` 通过 `pg_try_advisory_lock` 拿到独占锁后再写 `media_gap_scans (status='running')` 并启动 goroutine（`async.SafeGo` 包裹），结束时在 `defer` 内释放锁并写终态；锁被其他副本占有时返回 409
+- `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计
+- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；写入 `searchSnapshot` 与 `lastSearchedAt`
+- `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源；成功推进为 `REQUESTED` 并清空 `lastDispatchError`；**失败时写入 `lastDispatchError`（经 `upstream.SafeUpstreamError` 脱敏）并切换为 `DISPATCH_FAILED`**，前端可通过同一接口重试
 - `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`
-- `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后核销为 `INGESTED`
+- `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后按状态分支处理：
+  - `MISSING` / `SEARCHED` / `REQUESTED` / `DISPATCH_FAILED` → 收口为 `INGESTED`
+  - `INGESTED` → noop
+  - `IGNORED` → **仅 INFO 日志，不再清空 `ignoredAt / ignoreReason`**（管理员的忽略决定不能被自动撤销）
 
 ### 5.12 MoviePilotClient (`integrations/moviepilot/client.go`)
 
@@ -826,12 +892,16 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 Stripe 一次性支付流程管理。
 
 - `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组存在性、引用检查（`plans` / `users` / `redemption_codes.registrationPlanGroup`）和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
-- `CreateCheckoutSession(userID, planID)` — 优先复用同方案 30 分钟内未过期的待支付订单；否则创建新的 Stripe Checkout Session → 通过 `ConfigService` 读取 `stripe_allowed_payment_methods` 决定是否显式限制支付方式 → 存储 Payment 记录（pending）；创建前会先解析用户“有效套餐分组”（显式分组优先，否则回退系统默认分组），再按该分组强校验方案归属
-- `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐；`/api/v1/plans` 与 `/api/v1/payments/plans` 都要求认证并复用这条过滤结果
-- `HandleWebhook(payload, signature)` — 处理 Stripe Webhook → 更新 Payment 状态 → 成功时自动延长用户有效期
-- `fulfillPayment(sessionID, paymentIntentID, metadata)` — 事务更新 Payment/User；履约前会复核当前用户有效分组与套餐当前分组，不再允许旧 Checkout Session 跨组续期；提交成功后火忘式通知 Bot 推送管理员支付成功消息
-- Plan CRUD — `GetPlans`, `CreatePlan`, `UpdatePlan`, `DeletePlan`（软删除：仅下架 `isActive=false`；后台支持按 `planGroup` 过滤；套餐必须绑定已存在的分组，分组变更会同步失效该套餐关联的 `pending` 支付）
-- `GetPayments(page, pageSize)` — 支付记录查询
+- `CreateCheckoutSession(userID, planID)` — **批次 2 改造为占位幂等模式**：先在事务里 `INSERT payments (status='pending', stripeSessionId='') ON CONFLICT (uq_payments_pending_user_plan) DO NOTHING`，命中冲突回查现有 pending 复用；事务外调 Stripe 时携带 `Idempotency-Key=checkout:<paymentId>`，并发的两个请求拿到同一 paymentId → Stripe 返回同一 Session；最后 `UPDATE payments SET stripeSessionId, checkoutUrl WHERE id=?` 回填
+- `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐
+- `HandleWebhook(payload, signature)` — 签名验证后按 `event.id` 在 `stripe_webhook_events` 做去重 + 失败重试状态机：
+  - 首次 `INSERT ON CONFLICT DO NOTHING` 成功 → 进入业务分发
+  - 命中冲突时回查 status：`processed / skipped` → 真正幂等 200 不再分发；`received / failed` → 视为上次未完成（崩溃中断 / 业务返回 5xx），允许 Stripe 自动重试驱动履约，同时把 `receivedAt` 刷新为本次重投时间
+  - 分发完成后 UPDATE 写终态；`checkout.session.expired` → `MarkPaymentExpired(sessionID)` 把本地 pending 收口为 expired
+- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 事务内只做 Payment / User 状态更新和 `expiresAt` 延长（**Emby 调权移到 commit 后异步执行**）；引入 `event.created < payment.updatedAt` 乱序保护；commit 后 `async.SafeGo("payment.unban", ...)` 调 `EmbyCompensation.EnsureUnbanned` → 失败入 `failed_emby_async_ops` 队列，cron 重试
+- `markPaymentFailed(sessionID, eventCreated)` — 同样接受 `eventCreated`，做乱序保护
+- `MarkPaymentExpired(sessionID)` — `UPDATE payments SET status='expired' WHERE stripeSessionId=? AND status='pending'`，`RowsAffected=0` 视为已收口（noop）
+- 模板用户 Policy 复制白名单（`auth.applyTemplatePolicyIfNeeded`）：移除 `EnableContentDownloading` / `MaxParentalRating`，仅复制 `EnableAllFolders / EnabledFolders / ExcludedSubFolders / EnableSyncTranscoding / EnableVideoPlaybackTranscoding / EnablePlaybackRemuxing / EnableAudioPlaybackTranscoding`
 
 ### 5.16 错误定义（按业务拆分）
 

@@ -7,7 +7,9 @@ import (
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
+	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	mediagappkg "github.com/konghang/ember/backend/internal/services/mediagap"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
 	systempkg "github.com/konghang/ember/backend/internal/services/system"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
@@ -73,6 +75,8 @@ func initCronJobs() func() {
 	emailService := emailpkg.NewEmailService()
 	telegramService := telegrampkg.NewDefaultService()
 	tvCalendarService := tvcalendarpkg.NewTVCalendarService()
+	embyCompensation := accountpkg.NewEmbyCompensation(nil)
+	mediaGapScanRecorder := mediagappkg.NewMediaGapScanRecorder()
 	var rankingService *playbackpkg.PlaybackRankingService
 	if rankingCronEnabled == "true" {
 		rankingService = playbackpkg.NewPlaybackRankingService()
@@ -110,6 +114,36 @@ func initCronJobs() func() {
 		log.Printf("[Cron] 完成，封禁 %d/%d 个用户", result.DisabledCount, result.TotalExpired)
 	}); err != nil {
 		log.Printf("定时任务注册失败（过期检查）：%v", err)
+	} else {
+		taskRegistered = true
+	}
+
+	if _, err := c.AddFunc("@every 10m", func() {
+		result, err := embyCompensation.Process(context.Background())
+		if err != nil {
+			log.Printf("[Cron] Emby 补偿队列处理失败：%v", err)
+			return
+		}
+		if result.Processed > 0 || result.Failed > 0 {
+			log.Printf("[Cron] Emby 补偿队列：成功 %d 条，失败 %d 条", result.Processed, result.Failed)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（Emby 补偿队列）：%v", err)
+	} else {
+		taskRegistered = true
+	}
+
+	if _, err := c.AddFunc("@weekly", func() {
+		removed, err := mediaGapScanRecorder.CleanupOldScans(context.Background())
+		if err != nil {
+			log.Printf("[Cron] 清理 media_gap_scans 历史记录失败：%v", err)
+			return
+		}
+		if removed > 0 {
+			log.Printf("[Cron] 清理 media_gap_scans 历史记录 %d 条", removed)
+		}
+	}); err != nil {
+		log.Printf("定时任务注册失败（media_gap_scans 清理）：%v", err)
 	} else {
 		taskRegistered = true
 	}

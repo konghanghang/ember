@@ -50,6 +50,13 @@ psql "$DATABASE_URL" -f infrastructure/database/20260415_00_schema_baseline.sql
 - `20260425_01_baseline_normalization_indexes.sql`
 - `20260426_01_telegram_bind_codes_user_unique.sql`
 - `20260426_02_users_lower_unique_indexes.sql`
+- `20260427_01_failed_emby_async_ops.sql`
+- `20260427_02_stripe_webhook_events.sql`
+- `20260427_03_payments_pending_unique.sql`
+- `20260427_04_payments_dedupe_indexes.sql`
+- `20260427_05_subscriptions_ingest_progress.sql`
+- `20260427_06_media_gaps_dispatch_failed.sql`
+- `20260427_07_media_gap_scans.sql`
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
 

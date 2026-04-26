@@ -143,6 +143,9 @@ func VerifySchema() error {
 		{"tv_calendar_items", &models.TVCalendarItem{}},
 		{"tv_calendar_subscriptions", &models.TVCalendarSubscription{}},
 		{"tmdb_cache", &models.TMDBCache{}},
+		{"failed_emby_async_ops", &models.FailedEmbyAsyncOp{}},
+		{"stripe_webhook_events", &models.StripeWebhookEvent{}},
+		{"media_gap_scans", &models.MediaGapScan{}},
 	}
 
 	modelByTable := make(map[string]interface{}, len(tableChecks))
@@ -214,6 +217,8 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"subscriptions", "reviewedAt", "20260416_01_subscription_status_and_review_fields"},
 	{"subscriptions", "ingestedAt", "20260416_01_subscription_status_and_review_fields"},
 	{"subscriptions", "retryFromId", "20260424_01_subscription_resubmission_after_rejection"},
+	{"subscriptions", "ingestProgress", "20260427_05_subscriptions_ingest_progress"},
+	{"media_gaps", "lastDispatchError", "20260427_06_media_gaps_dispatch_failed"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -231,6 +236,10 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"telegram_bind_codes", "uq_telegram_bind_codes_user", "20260426_01_telegram_bind_codes_user_unique"},
 	{"users", "uq_users_username_lower", "20260426_02_users_lower_unique_indexes"},
 	{"users", "uq_users_email_lower", "20260426_02_users_lower_unique_indexes"},
+	{"failed_emby_async_ops", "idx_failed_emby_async_ops_next", "20260427_01_failed_emby_async_ops"},
+	{"stripe_webhook_events", "stripe_webhook_events_pkey", "20260427_02_stripe_webhook_events"},
+	{"payments", "uq_payments_pending_user_plan", "20260427_03_payments_pending_unique"},
+	{"media_gap_scans", "idx_media_gap_scans_started", "20260427_07_media_gap_scans"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。
