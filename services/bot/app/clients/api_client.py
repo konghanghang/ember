@@ -22,7 +22,10 @@ async def init() -> None:
         return
 
     try:
-        _client = httpx.AsyncClient()
+        _client = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        )
     except Exception:
         logger.exception("初始化 Bot API HTTP client 失败")
         raise
@@ -156,10 +159,10 @@ async def _call_subscription_action(
     subscription_id: str,
     action: str,
     payload: dict[str, Any] | None = None,
-) -> bool:
+) -> dict[str, Any] | None:
     endpoint = f"subscription_{action}"
     url = f"{API_URL}/api/v1/internal/subscriptions/{subscription_id}/{action}"
-    response, _ = await _request(
+    response, elapsed_ms = await _request(
         endpoint,
         "PUT",
         url,
@@ -168,14 +171,24 @@ async def _call_subscription_action(
         json=payload,
         log_fields={"subscriptionId": subscription_id},
     )
-    return response is not None and response.status_code == 200
+    if response is None:
+        return None
+    if response.status_code == 200:
+        return {"ok": True}
+    # 4xx 透传业务错误字段给调用方
+    if 400 <= response.status_code < 500:
+        data = _load_json(response, endpoint, "PUT", elapsed_ms=elapsed_ms, subscriptionId=subscription_id)
+        error_msg = (data.get("error", "操作失败") if data else "操作失败")
+        return {"error": error_msg, "status": response.status_code}
+    # 5xx fallback
+    return {"error": "操作失败，请重试", "status": response.status_code}
 
 
-async def approve_subscription(subscription_id: str) -> bool:
+async def approve_subscription(subscription_id: str) -> dict[str, Any] | None:
     return await _call_subscription_action(subscription_id, "approve")
 
 
-async def reject_subscription(subscription_id: str, reason: str) -> bool:
+async def reject_subscription(subscription_id: str, reason: str) -> dict[str, Any] | None:
     return await _call_subscription_action(
         subscription_id,
         "reject",
@@ -459,3 +472,45 @@ async def subscribe_by_telegram(
     if response.status_code == 200:
         return data
     return {"error": data.get("error", "订阅失败"), "status": response.status_code}
+
+
+async def enqueue_pending_reject(chat_id: int, admin_user_id: str, subscription_id: str) -> bool:
+    """入队拒绝待确认记录"""
+    endpoint = "enqueue_pending_reject"
+    url = f"{API_URL}/api/v1/internal/telegram/reject-request/enqueue"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"chatId": chat_id, "adminUserId": admin_user_id, "subscriptionId": subscription_id},
+        log_fields={"chatId": chat_id, "subscriptionId": subscription_id},
+    )
+    return response is not None and response.status_code == 200
+
+
+async def pop_pending_reject(chat_id: int) -> Optional[dict]:
+    """弹出最新未过期的拒绝待确认记录"""
+    endpoint = "pop_pending_reject"
+    url = f"{API_URL}/api/v1/internal/telegram/reject-request/pop"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"chatId": chat_id},
+        log_fields={"chatId": chat_id},
+    )
+    if response is None:
+        return None
+
+    payload = _load_json(response, endpoint, "POST", elapsed_ms=elapsed_ms, chatId=chat_id)
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    if response.status_code == 404:
+        return None
+    return None

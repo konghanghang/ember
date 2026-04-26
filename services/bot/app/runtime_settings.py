@@ -56,14 +56,18 @@ class RuntimeSettingsService:
             if not force_refresh and time.monotonic() < self._expires_at:
                 return self._cached
 
-            settings = await api_client.get_settings(runtime_settings_keys)
-            self._cached = RuntimeSettings(
-                admin_chat_id=_parse_chat_id(settings.get("TELEGRAM_ADMIN_CHAT_ID", ""), TELEGRAM_ADMIN_CHAT_ID),
-                group_chat_id=_parse_chat_id(settings.get("TELEGRAM_GROUP_CHAT_ID", ""), TELEGRAM_GROUP_CHAT_ID),
-                notify_group_link=settings.get("notify_group_link", "").strip(),
-                welcome_message_template=settings.get("telegram_welcome_message_template", "").strip(),
-            )
-            self._expires_at = time.monotonic() + self._ttl_seconds
+            try:
+                settings = await api_client.get_settings(runtime_settings_keys)
+                self._cached = RuntimeSettings(
+                    admin_chat_id=_parse_chat_id(settings.get("TELEGRAM_ADMIN_CHAT_ID", ""), TELEGRAM_ADMIN_CHAT_ID),
+                    group_chat_id=_parse_chat_id(settings.get("TELEGRAM_GROUP_CHAT_ID", ""), TELEGRAM_GROUP_CHAT_ID),
+                    notify_group_link=settings.get("notify_group_link", "").strip(),
+                    welcome_message_template=settings.get("telegram_welcome_message_template", "").strip(),
+                )
+                self._expires_at = time.monotonic() + self._ttl_seconds
+            except Exception as err:
+                logger.warning("运行期配置刷新失败，保留旧值：%s", err)
+
             return self._cached
 
     async def get_chat_ids(self) -> tuple[Optional[int], Optional[int]]:

@@ -22,9 +22,10 @@ type LoginRequest struct {
 
 // LoginResponse 统一登录响应
 type LoginResponse struct {
-	Token     string       `json:"token"`
-	User      *models.User `json:"user"`
-	IsExpired bool         `json:"isExpired"`
+	Token                 string       `json:"token"`
+	User                  *models.User `json:"user"`
+	IsExpired             bool         `json:"isExpired"`
+	PasswordResetRequired bool         `json:"passwordResetRequired,omitempty"`
 }
 
 func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
@@ -47,9 +48,10 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	}
 
 	return &LoginResponse{
-		Token:     token,
-		User:      user,
-		IsExpired: user.IsExpired(),
+		Token:                 token,
+		User:                  user,
+		IsExpired:             user.IsExpired(),
+		PasswordResetRequired: user.PasswordResetRequired,
 	}, nil
 }
 

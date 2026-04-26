@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -211,6 +213,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"media_gaps", "lastDispatchError", "20260427_06_media_gaps_dispatch_failed"},
 	{"media_quality_caches", "inflightUntil", "20260428_02_media_quality_caches_inflight"},
 	{"tv_calendar_sources", "lastFullSyncAt", "20260428_05_tv_calendar_sources_sync_markers"},
+	{"users", "passwordResetRequired", "20260428_09_users_password_reset_required"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -278,16 +281,27 @@ func seedDefaultAdmin() {
 	}
 
 	username := os.Getenv("ADMIN_USERNAME")
-	password := os.Getenv("ADMIN_PASSWORD")
-	if username == "" || password == "" {
-		log.Println("⚠️  跳过 admin 初始化：ADMIN_USERNAME 或 ADMIN_PASSWORD 未设置")
+	if username == "" {
+		log.Println("⚠️  跳过 admin 初始化：ADMIN_USERNAME 未设置")
 		return
 	}
 
+	password := os.Getenv("ADMIN_PASSWORD")
+	passwordResetRequired := false
+	if password == "" {
+		// 生成随机临时口令，要求首次登录立即修改
+		b := make([]byte, 12)
+		_, _ = rand.Read(b)
+		password = base64.StdEncoding.EncodeToString(b)
+		passwordResetRequired = true
+		log.Printf("⚠️  [Admin Seed] ADMIN_PASSWORD 未设置，已生成临时口令，请立即登录并修改密码：%s", password)
+	}
+
 	admin := models.User{
-		Username: username,
-		Role:     "admin",
-		IsActive: true,
+		Username:              username,
+		Role:                  "admin",
+		IsActive:              true,
+		PasswordResetRequired: passwordResetRequired,
 	}
 	if err := admin.SetPassword(password); err != nil {
 		log.Printf("❌ 创建默认管理员失败：%v", err)

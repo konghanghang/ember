@@ -345,24 +345,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.answer("消息上下文缺失，无法拒绝", show_alert=True)
             return
 
-        prompt = await message.reply_text(
-            "请直接回复这条消息输入拒绝原因，5 分钟内有效。\n发送的下一条普通文本会作为拒绝原因提交。"
-        )
+        # 获取 admin 的 Ember 用户 ID 来记录 operatorId（使用 telegram_id 作为标识）
+        admin_user_id = str(query.from_user.id)
+        enqueued = await api_client.enqueue_pending_reject(message.chat_id, admin_user_id, subscription_id)
+        if not enqueued:
+            await query.answer("系统错误，无法创建待确认记录", show_alert=True)
+            return
+
+        # 进程内 dict 保留以便存储消息上下文（message_id、has_photo、original_text）
         pending_reject_requests[message.chat_id] = {
             "subscription_id": subscription_id,
             "message_id": message.message_id,
             "chat_id": message.chat_id,
             "has_photo": bool(message.photo),
             "original_text": original_text,
-            "prompt_message_id": prompt.message_id,
             "expires_at": time.monotonic() + REJECT_REASON_TTL_SECONDS,
         }
+
+        prompt = await message.reply_text(
+            "请直接回复这条消息输入拒绝原因，5 分钟内有效。\n发送的下一条普通文本会作为拒绝原因提交。"
+        )
         await query.answer("请发送拒绝原因")
         return
 
-    success = await api_client.approve_subscription(subscription_id)
-    if not success:
+    result = await api_client.approve_subscription(subscription_id)
+    if result is None:
         await query.answer("操作失败，请重试", show_alert=True)
+        return
+    if "error" in result:
+        error_msg = str(result.get("error", "操作失败"))
+        await query.answer(f"操作失败：{error_msg}", show_alert=True)
         return
 
     result_text = format_result_message(original_text, action)
@@ -395,9 +407,17 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
         await message.reply_text("拒绝原因不能为空，请重新输入。")
         return
 
-    success = await api_client.reject_subscription(pending["subscription_id"], reason)
-    if not success:
+    result = await api_client.reject_subscription(pending["subscription_id"], reason)
+    if result is None:
         await message.reply_text("提交拒绝原因失败，请重试。")
+        return
+    if "error" in result:
+        status = result.get("status", 0)
+        if isinstance(status, int) and 400 <= status < 500:
+            # 4xx 透传业务错误
+            await message.reply_text(f"操作失败：{result.get('error', '请求无效')}")
+        else:
+            await message.reply_text("提交拒绝原因失败，请重试。")
         return
 
     pending_reject_requests.pop(message.chat_id, None)

@@ -186,7 +186,7 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 		TmdbID:     req.TmdbID,
 		Season:     season,
 		PosterPath: req.PosterPath,
-		Note:       req.Note,
+		Note:       ptrToString(req.Note),
 		Status:     models.SubscriptionPending,
 	}
 
@@ -244,7 +244,7 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 		TmdbID:      original.TmdbID,
 		Season:      original.Season,
 		PosterPath:  original.PosterPath,
-		Note:        &note,
+		Note:        note,
 		Status:      models.SubscriptionPending,
 		RetryFromID: &retryFromID,
 	}
@@ -1115,6 +1115,14 @@ func parseSubscriptionTMDBAirDate(value string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return normalizeSubscriptionDateUTC(parsed), true
+}
+
+// ptrToString 将 *string 安全转为 string；nil 返回空字符串。
+func ptrToString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func normalizeSubscriptionDateUTC(t time.Time) time.Time {

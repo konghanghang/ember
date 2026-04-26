@@ -35,7 +35,7 @@ type Subscription struct {
 	Season         int                `json:"season" gorm:"column:season;not null;default:0"`
 	PosterPath     *string            `json:"posterPath,omitempty" gorm:"column:posterPath;size:500"`
 	Status         SubscriptionStatus `json:"status" gorm:"column:status;type:varchar(20);not null;default:'PENDING'"`
-	Note           *string            `json:"note,omitempty" gorm:"column:note;type:text"`
+	Note           string             `json:"note,omitempty" gorm:"column:note;type:text;not null;default:''"`
 	MpError        *string            `json:"mpError,omitempty" gorm:"column:mpError;size:500"` // MoviePilot 同步错误
 	RejectReason   *string            `json:"rejectReason,omitempty" gorm:"column:rejectReason;type:text"`
 	RetryFromID    *string            `json:"retryFromId,omitempty" gorm:"column:retryFromId;type:varchar(25);index"`

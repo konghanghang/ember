@@ -149,6 +149,7 @@ async def start_polling_updates() -> None:
     if tg_app.updater is None:
         raise RuntimeError("Telegram updater is not available in polling mode")
 
+    logger.warning("Polling 模式仅允许单实例部署，多副本会重复消费 update")
     logger.info("Telegram 更新模式为 polling，开始清理旧 webhook")
     await tg_app.bot.delete_webhook(drop_pending_updates=False)
     await tg_app.updater.start_polling(drop_pending_updates=False)
