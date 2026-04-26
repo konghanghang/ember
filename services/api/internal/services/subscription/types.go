@@ -49,6 +49,8 @@ type CheckExistingResponse struct {
 // CreateSubscriptionResult 创建订阅结果
 type CreateSubscriptionResult struct {
 	Success              bool             `json:"success"`
+	SubscriptionID       string           `json:"subscriptionId,omitempty"`
+	AlreadyExists        bool             `json:"alreadyExists,omitempty"`
 	ConfirmationRequired bool             `json:"confirmationRequired,omitempty"`
 	DetectionFailed      bool             `json:"detectionFailed,omitempty"`
 	ExistingSummary      *ExistingSummary `json:"existingSummary,omitempty"`

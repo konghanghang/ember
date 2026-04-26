@@ -94,6 +94,7 @@ const statusOptions: Array<{ label: string; value: MediaGapStatus }> = [
   { label: '待处理', value: 'MISSING' },
   { label: '已搜索', value: 'SEARCHED' },
   { label: '已下发', value: 'REQUESTED' },
+  { label: '下发失败', value: 'DISPATCH_FAILED' },
   { label: '已入库', value: 'INGESTED' },
   { label: '已忽略', value: 'IGNORED' }
 ]
@@ -102,6 +103,7 @@ const statusMeta: Record<MediaGapStatus, { label: string; type: '' | 'success' |
   MISSING: { label: '待处理', type: 'danger' },
   SEARCHED: { label: '已搜索', type: 'warning' },
   REQUESTED: { label: '已下发', type: 'primary' },
+  DISPATCH_FAILED: { label: '下发失败', type: 'danger' },
   INGESTED: { label: '已入库', type: 'success' },
   IGNORED: { label: '已忽略', type: 'info' }
 }
@@ -151,6 +153,11 @@ const ignoredCount = computed(() => {
     ? groupedSummary.value.ignoredCount
     : tableData.value.filter((item) => item.status === 'IGNORED').length
 })
+const dispatchFailedCount = computed(() => {
+  return viewMode.value === 'grouped'
+    ? (groupedSummary.value.dispatchFailedCount ?? 0)
+    : tableData.value.filter((item) => item.status === 'DISPATCH_FAILED').length
+})
 
 const compactStats = computed(() => [
   {
@@ -172,6 +179,11 @@ const compactStats = computed(() => [
     label: '已下发',
     value: requestedCount.value,
     tone: 'requested'
+  },
+  {
+    label: '下发失败',
+    value: dispatchFailedCount.value,
+    tone: 'missing'
   },
   {
     label: '已完成',
@@ -353,10 +365,12 @@ const statusOrder = (status: MediaGapStatus) => {
       return 1
     case 'REQUESTED':
       return 2
-    case 'INGESTED':
+    case 'DISPATCH_FAILED':
       return 3
-    case 'IGNORED':
+    case 'INGESTED':
       return 4
+    case 'IGNORED':
+      return 5
     default:
       return 9
   }
@@ -390,6 +404,9 @@ const episodeChipClass = (gap: MediaGapItem) => {
       break
     case 'REQUESTED':
       classes.push('episode-chip-requested')
+      break
+    case 'DISPATCH_FAILED':
+      classes.push('episode-chip-dispatch-failed')
       break
     case 'INGESTED':
       classes.push('episode-chip-ingested')
@@ -1184,6 +1201,13 @@ watch(sortMode, () => {
               >
                 {{ resolveActiveGap(series)!.ignoreReason }}
               </div>
+              <div
+                v-if="resolveActiveGap(series)!.status === 'DISPATCH_FAILED' && resolveActiveGap(series)!.lastDispatchError"
+                class="text-xs text-red-600"
+                :title="resolveActiveGap(series)!.lastDispatchError ?? ''"
+              >
+                MoviePilot 下发失败：{{ resolveActiveGap(series)!.lastDispatchError }}
+              </div>
             </div>
 
             <div class="flex flex-wrap items-center justify-end gap-2">
@@ -1688,6 +1712,12 @@ watch(sortMode, () => {
   background: #eff6ff;
   border-color: #bfdbfe;
   color: #2563eb;
+}
+
+.episode-chip-dispatch-failed {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #b91c1c;
 }
 
 .episode-chip-ingested {

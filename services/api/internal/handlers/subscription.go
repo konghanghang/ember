@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	"github.com/konghang/ember/backend/internal/models"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 )
@@ -61,7 +62,7 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 	if result != nil && result.ConfirmationRequired {
@@ -118,7 +119,7 @@ func (h *SubscriptionHandler) ResubmitSubscription(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 	if result != nil && result.ConfirmationRequired {
@@ -149,7 +150,7 @@ func (h *SubscriptionHandler) CheckExisting(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -169,7 +170,7 @@ func (h *SubscriptionHandler) GetMySubscriptions(c *gin.Context) {
 	// 查询订阅列表
 	subscriptions, err := h.service.GetUserSubscriptions(userID.(string))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -204,7 +205,7 @@ func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
 	if role.(string) == "admin" {
 		result, err := h.service.GetAllSubscriptions(status, page, pageSize)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, result)
@@ -213,7 +214,7 @@ func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
 
 	result, err := h.service.GetUserSubscriptionsPaginated(userID.(string), status, page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -270,7 +271,7 @@ func (h *SubscriptionHandler) GetAllSubscriptions(c *gin.Context) {
 	// 查询订阅列表
 	result, err := h.service.GetAllSubscriptions(status, page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -289,7 +290,16 @@ func (h *SubscriptionHandler) ApproveSubscription(c *gin.Context) {
 
 	// 批准订阅
 	if err := h.service.ApproveSubscription(subscriptionID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionStateConflict):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionHandled):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 
@@ -314,11 +324,17 @@ func (h *SubscriptionHandler) RejectSubscription(c *gin.Context) {
 
 	// 拒绝订阅
 	if err := h.service.RejectSubscription(subscriptionID, req.Reason); err != nil {
-		if errors.Is(err, subscriptionpkg.ErrSubscriptionRejectReason) {
+		switch {
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionStateConflict):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionHandled),
+			errors.Is(err, subscriptionpkg.ErrSubscriptionRejectReason):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -347,7 +363,31 @@ func (h *SubscriptionHandler) MarkSubscriptionIngested(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// RedispatchSubscription 管理员重试 MoviePilot 调用
+// PUT /api/v1/admin/subscriptions/:id/redispatch
+func (h *SubscriptionHandler) RedispatchSubscription(c *gin.Context) {
+	subscriptionID := c.Param("id")
+	if subscriptionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "订阅 ID 不能为空"})
+		return
+	}
+
+	if err := h.service.RedispatchSubscription(subscriptionID); err != nil {
+		switch {
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionRedispatchSafe):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 
@@ -368,7 +408,7 @@ func (h *SubscriptionHandler) AdminDeleteSubscription(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

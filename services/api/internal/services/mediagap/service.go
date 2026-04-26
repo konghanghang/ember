@@ -462,7 +462,23 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 		CandidatePayload: req.Candidate.Payload,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("下发候选资源失败: %w", err)
+		// 失败时落入 DISPATCH_FAILED：管理员可在前端看到失败入口并手动触发本函数重试。
+		// 错误信息经 upstream.SafeUpstreamError 脱敏，避免回写 MoviePilot 凭证或 URL。
+		safeErr := upstream.SafeUpstreamError(err, "moviepilot")
+		safeMsg := safeErr.Error()
+		if len(safeMsg) > 500 {
+			safeMsg = safeMsg[:500]
+		}
+		updateErr := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+			Where("id = ?", gap.ID).
+			Updates(map[string]interface{}{
+				"status":            models.MediaGapStatusDispatchFailed,
+				"lastDispatchError": safeMsg,
+			}).Error
+		if updateErr != nil {
+			log.Printf("[MediaGap] 写回 DISPATCH_FAILED 失败 id=%s err=%v", gap.ID, updateErr)
+		}
+		return nil, fmt.Errorf("下发候选资源失败: %w", safeErr)
 	}
 
 	now := time.Now().UTC()
@@ -478,6 +494,7 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 	gap.Status = models.MediaGapStatusRequested
 	gap.DispatchSnapshot = string(payload)
 	gap.RequestedAt = &now
+	gap.LastDispatchError = nil
 	if err := db.DB.WithContext(ctx).Save(&gap).Error; err != nil {
 		return nil, fmt.Errorf("更新下发状态失败: %w", err)
 	}
@@ -535,6 +552,14 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 	now := time.Now().UTC()
 	var updatedCount int64
 	for _, gap := range matches {
+		// 命中 IGNORED 的工单是管理员显式做出的"忽略"决定（例如确认该集不会发布、片源不存在等），
+		// webhook 自动回写绝对不能静默撤销该决定。这里仅 INFO 日志记录，让运维可见即可。
+		if gap.Status == models.MediaGapStatusIgnored {
+			log.Printf("[MediaGap] Webhook 命中 IGNORED 工单，按管理员决定保留 gapId=%s tmdbId=%s season=%d episode=%d ignoreReason=%q",
+				gap.ID, gap.TmdbID, gap.Season, gap.Episode, gap.IgnoreReason)
+			continue
+		}
+
 		changed := false
 		if gap.Status != models.MediaGapStatusIngested {
 			gap.Status = models.MediaGapStatusIngested
@@ -548,14 +573,8 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 			gap.EmbySeriesID = trimmedSeriesID
 			changed = true
 		}
-		if gap.IgnoredAt != nil {
-			gap.IgnoredAt = nil
-			changed = true
-		}
-		if gap.IgnoreReason != "" {
-			gap.IgnoreReason = ""
-			changed = true
-		}
+		// 注意：不再清空 IgnoredAt / IgnoreReason；这两列只属于 IGNORED 状态语义，
+		// 当前分支已排除 IGNORED 命中，没有可清空的合法情形。
 		if !changed {
 			continue
 		}

@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -121,5 +122,75 @@ func TestIsSubscriptionUniqueConflictDetectsPostgresDuplicateKey(t *testing.T) {
 	err := &pgconn.PgError{Code: "23505"}
 	if !isSubscriptionUniqueConflict(err) {
 		t.Fatal("expected postgres duplicate key to be treated as subscription duplicate")
+	}
+}
+
+func TestBuildWholeShowProgressStatsCountsFullAiredInventory(t *testing.T) {
+	required := make([]wholeShowEpisodeRef, 0, 10)
+	inventory := make(subscriptionEpisodeInventory)
+	inventory[1] = make(map[int]struct{})
+	for episode := 1; episode <= 10; episode++ {
+		required = append(required, wholeShowEpisodeRef{Season: 1, Episode: episode})
+		if episode != 9 {
+			inventory[1][episode] = struct{}{}
+		}
+	}
+
+	stats := buildWholeShowProgressStats(required, inventory, nil)
+	if stats.Total != 10 {
+		t.Fatalf("expected total aired episodes=10, got %d", stats.Total)
+	}
+	if stats.Done != 9 {
+		t.Fatalf("expected done episodes=9, got %d", stats.Done)
+	}
+}
+
+func TestBuildWholeShowProgressStatsExcludesIgnoredEpisodes(t *testing.T) {
+	required := []wholeShowEpisodeRef{
+		{Season: 1, Episode: 1},
+		{Season: 1, Episode: 2},
+		{Season: 1, Episode: 3},
+		{Season: 1, Episode: 4},
+	}
+	inventory := subscriptionEpisodeInventory{
+		1: {
+			1: {},
+			2: {},
+			4: {},
+		},
+	}
+	ignored := wholeShowIgnoredEpisodeSet{
+		buildWholeShowEpisodeKey(1, 4): {},
+	}
+
+	stats := buildWholeShowProgressStats(required, inventory, ignored)
+	if stats.Total != 3 {
+		t.Fatalf("expected ignored episode to be excluded from total, got %d", stats.Total)
+	}
+	if stats.Done != 2 {
+		t.Fatalf("expected done episodes without ignored item=2, got %d", stats.Done)
+	}
+}
+
+func TestBuildSubscriptionEpisodeInventoryKeepsPhysicalEpisodesOnly(t *testing.T) {
+	items := []embyExistingItem{
+		{ParentIndexNumber: 1, IndexNumber: 1, Path: "/library/ep1.mkv"},
+		{ParentIndexNumber: 1, IndexNumber: 2, LocationType: "Virtual"},
+		{ParentIndexNumber: 1, IndexNumber: 3, IsMissing: true},
+		{ParentIndexNumber: 2, IndexNumber: 1, MediaSources: []interface{}{"source"}},
+	}
+
+	inventory := buildSubscriptionEpisodeInventory(items)
+	var got []string
+	for season, episodes := range inventory {
+		for episode := range episodes {
+			got = append(got, fmt.Sprintf("%d:%d", season, episode))
+		}
+	}
+	slices.Sort(got)
+
+	want := []string{"1:1", "2:1"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("expected inventory=%v, got %v", want, got)
 	}
 }

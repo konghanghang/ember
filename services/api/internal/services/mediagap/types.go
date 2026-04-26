@@ -72,24 +72,26 @@ type GroupedSeries struct {
 	Key             string            `json:"key"`
 	SeriesName      string            `json:"seriesName"`
 	TmdbID          string            `json:"tmdbId,omitempty"`
-	EmbySeriesID    string            `json:"embySeriesId,omitempty"`
-	Gaps            []models.MediaGap `json:"gaps"`
-	Seasons         []GroupedSeason   `json:"seasons"`
-	TotalGaps       int               `json:"totalGaps"`
-	MissingCount    int               `json:"missingCount"`
-	SearchedCount   int               `json:"searchedCount"`
-	RequestedCount  int               `json:"requestedCount"`
-	IngestedCount   int               `json:"ingestedCount"`
-	IgnoredCount    int               `json:"ignoredCount"`
-	LatestUpdatedAt *time.Time        `json:"latestUpdatedAt,omitempty"`
+	EmbySeriesID        string            `json:"embySeriesId,omitempty"`
+	Gaps                []models.MediaGap `json:"gaps"`
+	Seasons             []GroupedSeason   `json:"seasons"`
+	TotalGaps           int               `json:"totalGaps"`
+	MissingCount        int               `json:"missingCount"`
+	SearchedCount       int               `json:"searchedCount"`
+	RequestedCount      int               `json:"requestedCount"`
+	DispatchFailedCount int               `json:"dispatchFailedCount"`
+	IngestedCount       int               `json:"ingestedCount"`
+	IgnoredCount        int               `json:"ignoredCount"`
+	LatestUpdatedAt     *time.Time        `json:"latestUpdatedAt,omitempty"`
 }
 
 type GroupedSummary struct {
-	MissingCount   int `json:"missingCount"`
-	SearchedCount  int `json:"searchedCount"`
-	RequestedCount int `json:"requestedCount"`
-	IngestedCount  int `json:"ingestedCount"`
-	IgnoredCount   int `json:"ignoredCount"`
+	MissingCount        int `json:"missingCount"`
+	SearchedCount       int `json:"searchedCount"`
+	RequestedCount      int `json:"requestedCount"`
+	DispatchFailedCount int `json:"dispatchFailedCount"`
+	IngestedCount       int `json:"ingestedCount"`
+	IgnoredCount        int `json:"ignoredCount"`
 }
 
 type GroupedListResponse struct {
@@ -159,40 +161,42 @@ type DispatchRequest struct {
 }
 
 type MediaGapDTO struct {
-	ID               string                `json:"id"`
-	TmdbID           string                `json:"tmdbId"`
-	EmbySeriesID     string                `json:"embySeriesId,omitempty"`
-	SeriesName       string                `json:"seriesName"`
-	Season           int                   `json:"season"`
-	Episode          int                   `json:"episode"`
-	AirDate          time.Time             `json:"airDate"`
-	Status           models.MediaGapStatus `json:"status"`
-	LastScannedAt    *time.Time            `json:"lastScannedAt,omitempty"`
-	LastSearchedAt   *time.Time            `json:"lastSearchedAt,omitempty"`
-	RequestedAt      *time.Time            `json:"requestedAt,omitempty"`
-	IngestedAt       *time.Time            `json:"ingestedAt,omitempty"`
-	IgnoredAt        *time.Time            `json:"ignoredAt,omitempty"`
-	IgnoreReason     string                `json:"ignoreReason,omitempty"`
-	SearchSnapshot   *SearchSnapshot       `json:"searchSnapshot,omitempty"`
-	DispatchSnapshot *DispatchSnapshot     `json:"dispatchSnapshot,omitempty"`
-	CreatedAt        time.Time             `json:"createdAt"`
-	UpdatedAt        time.Time             `json:"updatedAt"`
+	ID                string                `json:"id"`
+	TmdbID            string                `json:"tmdbId"`
+	EmbySeriesID      string                `json:"embySeriesId,omitempty"`
+	SeriesName        string                `json:"seriesName"`
+	Season            int                   `json:"season"`
+	Episode           int                   `json:"episode"`
+	AirDate           time.Time             `json:"airDate"`
+	Status            models.MediaGapStatus `json:"status"`
+	LastScannedAt     *time.Time            `json:"lastScannedAt,omitempty"`
+	LastSearchedAt    *time.Time            `json:"lastSearchedAt,omitempty"`
+	RequestedAt       *time.Time            `json:"requestedAt,omitempty"`
+	IngestedAt        *time.Time            `json:"ingestedAt,omitempty"`
+	IgnoredAt         *time.Time            `json:"ignoredAt,omitempty"`
+	IgnoreReason      string                `json:"ignoreReason,omitempty"`
+	LastDispatchError *string               `json:"lastDispatchError,omitempty"`
+	SearchSnapshot    *SearchSnapshot       `json:"searchSnapshot,omitempty"`
+	DispatchSnapshot  *DispatchSnapshot     `json:"dispatchSnapshot,omitempty"`
+	CreatedAt         time.Time             `json:"createdAt"`
+	UpdatedAt         time.Time             `json:"updatedAt"`
 }
 
 func toDTO(gap models.MediaGap) *MediaGapDTO {
 	dto := &MediaGapDTO{
-		ID:             gap.ID,
-		TmdbID:         gap.TmdbID,
-		EmbySeriesID:   gap.EmbySeriesID,
-		SeriesName:     gap.SeriesName,
-		Season:         gap.Season,
-		Episode:        gap.Episode,
-		AirDate:        gap.AirDate,
-		Status:         gap.Status,
-		LastScannedAt:  gap.LastScannedAt,
-		LastSearchedAt: gap.LastSearchedAt,
-		RequestedAt:    gap.RequestedAt,
-		IngestedAt:     gap.IngestedAt,
+		ID:                gap.ID,
+		TmdbID:            gap.TmdbID,
+		EmbySeriesID:      gap.EmbySeriesID,
+		SeriesName:        gap.SeriesName,
+		Season:            gap.Season,
+		Episode:           gap.Episode,
+		AirDate:           gap.AirDate,
+		Status:            gap.Status,
+		LastScannedAt:     gap.LastScannedAt,
+		LastSearchedAt:    gap.LastSearchedAt,
+		RequestedAt:       gap.RequestedAt,
+		IngestedAt:        gap.IngestedAt,
+		LastDispatchError: gap.LastDispatchError,
 		IgnoredAt:      gap.IgnoredAt,
 		IgnoreReason:   gap.IgnoreReason,
 		CreatedAt:      gap.CreatedAt,
@@ -220,7 +224,7 @@ func buildDefaultSearchKeyword(gap models.MediaGap) string {
 
 func isSearchableMediaGapStatus(status models.MediaGapStatus) bool {
 	switch status {
-	case models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested:
+	case models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested, models.MediaGapStatusDispatchFailed:
 		return true
 	default:
 		return false
@@ -229,7 +233,7 @@ func isSearchableMediaGapStatus(status models.MediaGapStatus) bool {
 
 func isDispatchableMediaGapStatus(status models.MediaGapStatus) bool {
 	switch status {
-	case models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested:
+	case models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested, models.MediaGapStatusDispatchFailed:
 		return true
 	default:
 		return false
@@ -304,6 +308,8 @@ func buildGroupedSeries(items []models.MediaGap, sort string) ([]GroupedSeries, 
 			summary.SearchedCount++
 		case models.MediaGapStatusRequested:
 			summary.RequestedCount++
+		case models.MediaGapStatusDispatchFailed:
+			summary.DispatchFailedCount++
 		case models.MediaGapStatusIngested:
 			summary.IngestedCount++
 		case models.MediaGapStatusIgnored:
@@ -333,6 +339,8 @@ func buildGroupedSeries(items []models.MediaGap, sort string) ([]GroupedSeries, 
 			existing.SearchedCount++
 		case models.MediaGapStatusRequested:
 			existing.RequestedCount++
+		case models.MediaGapStatusDispatchFailed:
+			existing.DispatchFailedCount++
 		case models.MediaGapStatusIngested:
 			existing.IngestedCount++
 		case models.MediaGapStatusIgnored:
@@ -390,10 +398,12 @@ func mediaGapStatusOrder(status models.MediaGapStatus) int {
 		return 1
 	case models.MediaGapStatusRequested:
 		return 2
-	case models.MediaGapStatusIngested:
+	case models.MediaGapStatusDispatchFailed:
 		return 3
-	case models.MediaGapStatusIgnored:
+	case models.MediaGapStatusIngested:
 		return 4
+	case models.MediaGapStatusIgnored:
+		return 5
 	default:
 		return 9
 	}

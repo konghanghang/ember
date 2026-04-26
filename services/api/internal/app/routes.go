@@ -68,6 +68,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.PUT("/subscriptions/:id/approve", h.subscription.ApproveSubscription)
 	admin.PUT("/subscriptions/:id/reject", h.subscription.RejectSubscription)
 	admin.PUT("/subscriptions/:id/ingest", h.subscription.MarkSubscriptionIngested)
+	admin.PUT("/subscriptions/:id/redispatch", h.subscription.RedispatchSubscription)
 	admin.DELETE("/subscriptions/:id", h.subscription.AdminDeleteSubscription)
 
 	admin.GET("/system/info", h.system.GetSystemInfo)

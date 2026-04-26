@@ -383,7 +383,7 @@ export interface MediaQualityReport {
   scanAt: string
 }
 
-export type MediaGapStatus = 'MISSING' | 'SEARCHED' | 'REQUESTED' | 'INGESTED' | 'IGNORED'
+export type MediaGapStatus = 'MISSING' | 'SEARCHED' | 'REQUESTED' | 'INGESTED' | 'IGNORED' | 'DISPATCH_FAILED'
 
 export interface MediaGapListQuery extends PaginationQuery {
   keyword?: string
@@ -446,6 +446,7 @@ export interface MediaGapItem {
   status: MediaGapStatus
   searchSnapshot?: MediaGapSearchSnapshot | string | null
   dispatchSnapshot?: MediaGapDispatchSnapshot | string | null
+  lastDispatchError?: string | null
   lastScannedAt?: string
   lastSearchedAt?: string
   requestedAt?: string
@@ -479,6 +480,7 @@ export interface MediaGapGroupedSeries {
   missingCount: number
   searchedCount: number
   requestedCount: number
+  dispatchFailedCount?: number
   ingestedCount: number
   ignoredCount: number
   latestUpdatedAt?: string
@@ -488,6 +490,7 @@ export interface MediaGapGroupedSummary {
   missingCount: number
   searchedCount: number
   requestedCount: number
+  dispatchFailedCount?: number
   ingestedCount: number
   ignoredCount: number
 }
@@ -651,6 +654,7 @@ export interface Subscription {
   note?: string
   mpError?: string | null
   rejectReason?: string | null
+  ingestProgress?: string | null
   reviewedAt?: string | null
   ingestedAt?: string | null
   createdAt: string

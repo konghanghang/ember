@@ -419,6 +419,13 @@ export function markSubscriptionIngested(id: string) {
   })
 }
 
+export function redispatchSubscription(id: string) {
+  return request({
+    url: `/admin/subscriptions/${id}/redispatch`,
+    method: 'put'
+  })
+}
+
 export function deleteSubscriptionAsAdmin(id: string) {
   return request({
     url: `/admin/subscriptions/${id}`,

@@ -17,7 +17,7 @@ import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { useAuthStore } from '@/store/auth'
-import { approveSubscription, rejectSubscription, markSubscriptionIngested, deleteSubscriptionAsAdmin } from '@/api/admin'
+import { approveSubscription, rejectSubscription, markSubscriptionIngested, redispatchSubscription, deleteSubscriptionAsAdmin } from '@/api/admin'
 import { deleteSubscription, getSubscriptions, resubmitSubscription } from '@/api/console'
 import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
 import type { Subscription, SubscriptionExistingSummary, SubscriptionStatus } from '@/types/api'
@@ -142,7 +142,7 @@ const handleDelete = async (sub: Subscription) => {
 const handleMarkIngested = async (sub: Subscription) => {
   try {
     await ElMessageBox.confirm(
-      `确定校验 "${formatSubscriptionTitle(sub)}" 是否已在 Emby 入库吗？只有校验命中真实资源后，状态才会改成“已入库”。`,
+      `确定校验 "${formatSubscriptionTitle(sub)}" 是否已在 Emby 入库吗？只有校验命中真实资源后，状态才会改成"已入库"。`,
       '校验入库确认',
       {
         confirmButtonText: '开始校验',
@@ -156,6 +156,26 @@ const handleMarkIngested = async (sub: Subscription) => {
     fetchData()
   } catch {
     // cancelled
+  }
+}
+
+const handleRedispatch = async (sub: Subscription) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定重试将 "${formatSubscriptionTitle(sub)}" 下发到 MoviePilot 吗？只有当前订阅处于"已通过 + MoviePilot 调用失败"时才允许重试。`,
+      'MoviePilot 重试确认',
+      {
+        confirmButtonText: '重新下发',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    await redispatchSubscription(sub.id)
+    ElMessage.success(`已重新下发: ${formatSubscriptionTitle(sub)}`)
+    fetchData()
+  } catch {
+    // cancelled or failed; service 已写日志，UI 不再重复弹错
   }
 }
 
@@ -333,6 +353,15 @@ const cardActionButtons = (sub: Subscription) => {
 
   if (isAdmin.value && sub.status !== 'PENDING') {
     if (sub.status === 'APPROVED') {
+      if (sub.mpError) {
+        buttons.push({
+          key: 'redispatch',
+          label: '重试 MoviePilot',
+          icon: RefreshRight,
+          tone: 'success',
+          action: () => handleRedispatch(sub)
+        })
+      }
       buttons.push({
         key: 'ingest',
         label: '校验入库',
@@ -532,6 +561,13 @@ onMounted(fetchData)
                     异常
                   </span>
                 </el-tooltip>
+                <span
+                  v-if="sub.season === 0 && sub.status === 'APPROVED' && sub.ingestProgress"
+                  class="inline-flex items-center rounded-full bg-blue-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                  :title="`整剧入库进度 ${sub.ingestProgress}`"
+                >
+                  入库 {{ sub.ingestProgress }}
+                </span>
                 <el-tooltip
                   v-if="sub.note"
                   :content="sub.note"

@@ -349,3 +349,35 @@
 | P3-23 | 单剧 Emby 抖动静默跳过 | 二次暴露清单（独立 metric） |
 | P3-24 | webhook `extractInt` 失败默默 0 | 二次暴露清单 |
 | P3-25 | `MarkSubscriptionIngestedAsAdmin` 不发通知 | §3 + §4 |
+
+## 批次 2 已落地（2026-04-27）
+
+按"批次 2 收口实施计划"完成：
+
+- ✅ `Approve / Reject` 改原子状态转移（`UPDATE ... WHERE status='PENDING'` + `RowsAffected=0` → `ErrSubscriptionStateConflict` → 409）
+- ✅ MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED
+- ✅ `subscriptions.ingestProgress` 列 + 整剧 webhook 命中策略拆分：
+  - 单季订阅 (season=N)：webhook 命中即 INGEST
+  - 整剧订阅 (season=0)：按 TMDB 已播出剧集总量 `X` 与 Emby 实际库存 `Y` 写 `ingestProgress=Y/X`
+  - 当 `Y >= X` 时自动收口为 INGESTED；TMDB / Emby 任一侧缺失时 fallback 记最近一集，由管理员显式确认
+- ✅ mediagap webhook 命中 IGNORED 仅 INFO 日志，不再清空 `ignoredAt / ignoreReason`
+- ✅ `media_gaps.lastDispatchError` 列 + `MediaGapStatusDispatchFailed` 枚举：`DispatchGap` 失败时写入该列并切换状态，错误经 `upstream.SafeUpstreamError` 脱敏
+- ✅ `RedispatchSubscription` service + `PUT /api/v1/admin/subscriptions/:id/redispatch` 路由：仅在 APPROVED 且 `mpError != nil` 时允许，状态保持 APPROVED
+- ✅ `Create / Resubmit` 包入事务并使用 `pg_advisory_xact_lock(hashtextextended('subscription:type:tmdbId:season', 0))` 序列化；命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功
+- ✅ `MarkSubscriptionIngestedAsAdmin` 触发与 webhook 一致的 `notifyIngested` 通知
+- ✅ `handlers/media_gap_async.go` 裸 `go m.run` 改为 `async.SafeGo`
+- ✅ `handlers/subscription.go` 全部 500 路径改为 `httpx.InternalError`
+
+不在本批：
+
+- subscription `pickTargetSeasonNumbers` / `cleanupInactiveSeasonGaps` ignoreReasonCode 推到下一轮
+
+### 批次 2 review 修复（2026-04-27）
+
+- ✅ **整剧 ingestProgress 完整收口**：`computeWholeShowProgress` 改为用 TMDB 已播出剧集清单计算 `X`，再结合 Emby 当前实际库存与 `IGNORED` 集排除项计算 `Y`，写 `Y/X` 进度；`Y >= X` 时自动收口为 INGESTED 并触发用户通知。TMDB / Emby 任一侧缺失时 fallback 记最近一集，等管理员显式确认。
+- ✅ **redispatch + DISPATCH_FAILED 前端闭环**：
+  - `services/web/src/api/admin.ts` 补 `redispatchSubscription`
+  - `services/web/src/types/api.ts` 补 `DISPATCH_FAILED` 状态枚举、`lastDispatchError` 字段、`ingestProgress` 字段、`dispatchFailedCount` 摘要
+  - `SubscriptionsView.vue` APPROVED + `mpError != null` 时显示"重试 MoviePilot"按钮；整剧 APPROVED 显示 `ingestProgress` 进度
+  - `MediaGapsView.vue` 状态筛选 / 状态色（`statusMeta`、`episode-chip-dispatch-failed` 红色）/ 排序 / 统计卡 / 分组摘要均覆盖 `DISPATCH_FAILED`；选中工单为 DISPATCH_FAILED 时展示 `lastDispatchError`
+- ✅ **缺集扫描终态用独立 ctx**：`mediaGapScanManager.run` 在调 `FinishAndReleaseHolder` 前新建 `context.WithTimeout(context.Background(), 30s)`，避免扫描业务 ctx 因超时 / cancel 失效后写不进 `media_gap_scans` 终态、留下假 running 行误导排障。新增 sentinel 比对的回归测试。
