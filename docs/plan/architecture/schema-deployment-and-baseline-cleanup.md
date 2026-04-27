@@ -2,7 +2,22 @@
 
 > 状态：草稿
 > 负责人：Ember
-> 更新时间：2026-04-25
+> 更新时间：2026-04-26
+
+## 修订记录
+
+- 2026-04-26：项目级规则确认 **不引入数据库 FK / 级联策略**。下列条目作废，一致性由 services 层显式 sweep 负责，发现孤儿数据走"应用层删除路径补全 + cron 兜底清理"：
+  - 目标段第 7 项 "出 `20260425_02_foreign_keys.sql`"
+  - §2 数据与模型 表中 `20260425_02_foreign_keys.sql` 一行
+  - §1 用户可见行为 中"按 FK 策略级联清理或显式 SET NULL"描述
+  - §4.6 foreign_keys.sql 整节
+  - §5 失败路径与边界条件 中 "FK 补充时存在孤儿数据" 一项
+  - 影响范围 中 "20260425_02_foreign_keys.sql" 一份
+  - 验证方式 §手工验证 → foreign_keys 整节
+  - 修复后验证清单中 "FK 补充前的孤儿数据清理报告归档" 一项
+  - 落地后文档处理中 "FK 与级联策略"
+  - 附录 P1-7 (DB) "缺 FK + 级联" → §4.6
+- 后续修订：上述条目仅保留于本文档作为决策溯源，不再纳入实施。
 
 ## 背景
 
@@ -21,7 +36,7 @@
 - `playback_rankings` snake_case 列名与项目硬规则 camelCase 冲突（事实保留，但需文档豁免）。
 - `tv_calendar_items.airDate` / `media_gaps.airDate` 用 `timestamptz` 但语义是"00:00:00 UTC date"，无 CHECK 约束跨 DST 漂移。
 - `tmdb_cache` / `email_verifications` / `telegram_bind_codes` / `device_actions` 等大表无清理调度或调度未配齐。
-- 缺 FK + 级联策略：删用户 / 兑换码 / plan group 后留孤儿，应用层零碎兜底。
+- 缺 FK + 级联策略：删用户 / 兑换码 / plan group 后留孤儿，应用层零碎兜底。【作废 2026-04-26】项目级规则不引入 FK；该问题由 services 层显式 sweep + 必要时新增 cron 兜底解决，不在本方案范围内。
 - 连接池 MaxIdle=10 + MaxOpen=100 失衡，单 API 节点可能直接打满 PG 默认 max_connections=100。
 - `db.go` 在 Docker 启动期仍尝试 `godotenv.Load(".env")` 多条相对路径，每次启动打 warn。
 - API/Web/Bot Dockerfile 全用 floating tag（`golang:1.24.13-alpine` / `nginx:alpine` / `alpine:latest`），构建结果不可复现；`.dockerignore` 缺位。
@@ -42,7 +57,7 @@
 4. 默认管理员 seed 改为"env 注入仅首启 + 一次性临时口令 + 强制改密"；compose 移除 `ADMIN_PASSWORD` 默认值
 5. compose Postgres 改为 `${POSTGRES_USER:?}` / `${POSTGRES_PASSWORD:?}` 强制 env 入参；端口改 `127.0.0.1:5432:5432` 或不发布
 6. 出 `20260425_01_schema_alignment.sql`：清重复索引、删 `users.inviteCode` 死字段、`users.telegramId` partial 与模型对齐、subscriptions partial 唯一收口、media_gaps 模型 tag 对齐
-7. 出 `20260425_02_foreign_keys.sql`：补 FK + 级联策略（CASCADE / SET NULL）
+7. ~~出 `20260425_02_foreign_keys.sql`：补 FK + 级联策略（CASCADE / SET NULL）~~【作废 2026-04-26】项目级规则不引入 FK
 8. baseline 同步精简（清重复索引、删死字段、收口 partial 唯一）
 9. compose `bot` 加 `condition: service_healthy`；同时 compose 显式声明 `ember-api` healthcheck
 10. `tmdb_cache` / `email_verifications` / `telegram_bind_codes` / `device_actions` 全部补"按 expiresAt / createdAt 清理"调度，统一在 cron 中收口
@@ -60,7 +75,7 @@
 本次明确不做：
 
 - 不引入第三方 migration 执行器（仍是手写 SQL + 顺序执行）
-- 不重构业务表结构（仅清理冗余 + 补齐 FK + 改 airDate 类型）
+- 不重构业务表结构（仅清理冗余 + 改 airDate 类型；FK 补齐已被项目级规则否决，参见修订记录）
 - 不替换 PostgreSQL 大版本（保留 16.x）
 - 不引入新的备份方案（仅写 runbook 引导）
 - 不改 Dockerfile 的运行时基础镜像（仅锁版本 + 切非 root）
@@ -102,7 +117,7 @@
 - 首次启动：默认管理员临时口令打到日志，要求首次登录强制改密
 - API：启动路径不再调用 GORM `AutoMigrate`；空库初始化必须先执行顶层 SQL
 - 用户：第二个空邮箱注册不再 500
-- 删除用户 / 兑换码 / plan group：相关数据按 FK 策略级联清理或显式 SET NULL
+- 删除用户 / 兑换码 / plan group：~~相关数据按 FK 策略级联清理或显式 SET NULL~~【作废 2026-04-26】不引入 FK；级联清理由 services 层显式 sweep 负责
 - DB 备份：运维参考 runbook 完成定期备份
 
 ### 2. 数据与模型
@@ -112,7 +127,7 @@
 | 文件 | 用途 |
 |---|---|
 | `20260425_01_schema_alignment.sql` | 清重复索引、删死字段、收口 partial 唯一、对齐模型 tag |
-| `20260425_02_foreign_keys.sql` | 补 FK + 级联策略 |
+| ~~`20260425_02_foreign_keys.sql`~~ | ~~补 FK + 级联策略~~【作废 2026-04-26】项目级规则不引入 FK |
 | `20260425_03_users_email_username_partial_unique.sql` | `lower(email)` / `lower(username)` partial unique |
 | `20260425_04_airdate_to_date.sql` | `tv_calendar_items.airDate` / `media_gaps.airDate` 改 `date` |
 | `20260425_05_bigtable_cleanup_indexes.sql` | `tmdb_cache`、`email_verifications`、`telegram_bind_codes`、`device_actions` 上 `expiresAt / createdAt` 索引 |
@@ -179,19 +194,22 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 4. ALTER `users.telegramId` 唯一索引为 partial（`WHERE telegramId IS NOT NULL`）
 5. 模型层 `User.TelegramID` 加 `gorm:"-"` 阻止 AutoMigrate 干扰
 
-#### 4.6 foreign_keys.sql
+#### 4.6 foreign_keys.sql【作废 2026-04-26】
 
-1. 补 FK：
-   - `redemptions.userId` → `users.id` ON DELETE CASCADE
-   - `redemption_codes.templateUserId` → `users.id` ON DELETE SET NULL
-   - `subscriptions.userId` → `users.id` ON DELETE CASCADE
-   - `payments.userId` → `users.id` ON DELETE CASCADE
-   - `payments.planId` → `plans.id` ON DELETE RESTRICT
-   - `device_actions.userId` → `users.id` ON DELETE SET NULL
-   - `tv_calendar_subscriptions.userId` → `users.id` ON DELETE CASCADE
-   - `users.planGroup` → `plan_groups.key` ON DELETE SET NULL
-   - 其余按需补
-2. 在补 FK 前先 `SELECT ... NOT IN (...)` 检测孤儿数据 → 输出报告；运维需先清理才能加 FK
+> 项目级规则不引入数据库 FK / 级联策略。本节内容保留作为决策溯源，**不再纳入实施**。
+> 相关一致性问题（删用户后从表留孤儿）由 services 层显式 sweep 解决；如发现新场景需要补救，方向是"补全应用层 DELETE 路径 + 必要时新增 cron 兜底清理"，**不要补 FK**。
+
+~~1. 补 FK：~~
+   - ~~`redemptions.userId` → `users.id` ON DELETE CASCADE~~
+   - ~~`redemption_codes.templateUserId` → `users.id` ON DELETE SET NULL~~
+   - ~~`subscriptions.userId` → `users.id` ON DELETE CASCADE~~
+   - ~~`payments.userId` → `users.id` ON DELETE CASCADE~~
+   - ~~`payments.planId` → `plans.id` ON DELETE RESTRICT~~
+   - ~~`device_actions.userId` → `users.id` ON DELETE SET NULL~~
+   - ~~`tv_calendar_subscriptions.userId` → `users.id` ON DELETE CASCADE~~
+   - ~~`users.planGroup` → `plan_groups.key` ON DELETE SET NULL~~
+   - ~~其余按需补~~
+~~2. 在补 FK 前先 `SELECT ... NOT IN (...)` 检测孤儿数据 → 输出报告；运维需先清理才能加 FK~~
 
 #### 4.7 partial unique on lower(email/username)
 
@@ -260,7 +278,7 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 - **运维忘记设 env 强制变量**：compose 启动失败 + 提示具体 env 名
 - **首启 admin 临时口令落到日志**：明确文档说明"用完即改密"；不在 settings 表持久化明文（仅记录 hash 化版本？或落到 settings 后强制改密时清空）
 - **partial unique on lower(email) 时存在冲突**：migration 主动失败并输出冲突报告
-- **FK 补充时存在孤儿数据**：migration 主动失败并输出孤儿清单
+- ~~**FK 补充时存在孤儿数据**：migration 主动失败并输出孤儿清单~~【作废 2026-04-26】项目级规则不引入 FK
 - **airDate 改 date 时存在非 UTC 00:00:00 数据**：USING 表达式自动归一
 - **大表清理 cron 误删**：保留窗口足够长；metric 监控异常删除量
 - **连接池 MaxOpen 调小后高并发短时不可用**：metric 监控连接等待
@@ -280,7 +298,7 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 - 配置 / 部署：
   - `infrastructure/docker/docker-compose.yml`：默认值 / 端口 / depends_on / healthcheck / init
   - `infrastructure/docker/initdb/`：新目录
-  - `infrastructure/database/20260425_01..05_*.sql`：5 份增量 migration
+  - `infrastructure/database/20260425_01..05_*.sql`：5 份增量 migration（其中 `_02_foreign_keys.sql` 已于 2026-04-26 作废，实际落地为 4 份；编号占位保留）
   - baseline `20260415_00_schema_baseline.sql`：精简同步
   - `infrastructure/database/archive/pre-20260425/`：旧 baseline 归档
 - 文档：
@@ -322,9 +340,9 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 - baseline 重灌 + 顶层增量：无重复索引；`\d+ users` 无 `inviteCode`
 - AutoMigrate（如启用）不重建 partial 索引
 
-#### foreign_keys
-- 删除 admin 用户：相关 redemptions/subscriptions/payments 按策略级联清理
-- 删除 plan_group：跟随 user 的 planGroup 置空
+#### foreign_keys【作废 2026-04-26】
+- ~~删除 admin 用户：相关 redemptions/subscriptions/payments 按策略级联清理~~
+- ~~删除 plan_group：跟随 user 的 planGroup 置空~~
 
 #### partial unique on lower(email)
 - 注册 `Alice@example.com` 后再注册 `alice@example.com`：第二次失败
@@ -361,7 +379,7 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 - [ ] `go build ./...` 与 `go test ./internal/db/...` 全绿
 - [ ] 5 份 SQL migration 在临时库重灌通过
 - [ ] baseline 精简后空库初始化路径通过
-- [ ] FK 补充前的孤儿数据清理报告归档
+- [ ] ~~FK 补充前的孤儿数据清理报告归档~~【作废 2026-04-26】项目级规则不引入 FK
 - [ ] partial unique 冲突清单归档
 - [ ] compose `config` 无 warning
 - [ ] PG 不对外暴露 5432
@@ -383,7 +401,7 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 
 ## 落地后文档处理
 
-- 落地后把"AUTO_MIGRATE 默认 false 与独立子命令"、"initdb.d 隔离"、"FK 与级联策略"、"用户 email/username partial unique on lower"、"大表清理 cron 列表"、"备份 runbook"提炼到 `docs/system-architecture.md` §13、`docs/runbooks/`
+- 落地后把"AUTO_MIGRATE 默认 false 与独立子命令"、"initdb.d 隔离"、"用户 email/username partial unique on lower"、"大表清理 cron 列表"、"备份 runbook"提炼到 `docs/system-architecture.md` §13、`docs/runbooks/`（"FK 与级联策略"项已于 2026-04-26 作废）
 - baseline 精简同步到 `infrastructure/database/README.md`
 - `playback_rankings` snake_case 在 `docs/reference/development-guide.md` 中显式豁免
 - 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/architecture/`
@@ -404,7 +422,7 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 | P1-4 (DB) | telegramId uniqueIndex 与 SQL partial 不一致 | §4.5 |
 | P1-5 (DB) | README/archive 与 PG init 行为脱钩 | §4.2 |
 | P1-6 (DB) | db.go 启动期 godotenv | §4.12 |
-| P1-7 (DB) | 缺 FK + 级联 | §4.6 |
+| P1-7 (DB) | 缺 FK + 级联 | ~~§4.6~~【作废 2026-04-26】项目级规则不引入 FK，由 services 层显式 sweep 解决 |
 | P1-8 (DB) | media_gaps 模型 tag 冗余 | §4.5 |
 | P1-9 (DB) | bot depends_on 无 healthy | §4.14 |
 | P2-1 (DB) | playback_rankings snake_case | 文档豁免 |
