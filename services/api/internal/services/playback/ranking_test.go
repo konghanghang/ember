@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -28,7 +29,9 @@ func TestPreviewRankingGroupsEpisodesBySeriesID(t *testing.T) {
 	t.Setenv("EMBY_API_KEY", "test-key")
 	t.Setenv("CRON_TIMEZONE", "UTC")
 
-	svc := NewPlaybackRankingService()
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+	}
 	result, err := svc.PreviewRanking(models.RankingWeekly)
 	if err != nil {
 		t.Fatalf("preview ranking failed: %v", err)

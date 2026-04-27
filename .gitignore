@@ -41,11 +41,13 @@ next-env.d.ts
 
 # services
 /services/api/bin/
+/services/api/coverage.out
 /services/api/.env
 /services/api/logs/
 /services/web/dist/
 /services/web/node_modules/
 /services/web/.env
+/services/bot/.coverage
 /services/bot/.env
 /services/bot/.venv/
 /services/bot/logs/

@@ -53,6 +53,8 @@ func TestGetItemsByIDsBatchesAndDeduplicates(t *testing.T) {
 	}
 
 	s := &EmbyService{
+		baseURL: server.URL,
+		apiKey:  "test-key",
 		client: server.Client(),
 	}
 
