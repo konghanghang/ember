@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import os
 import sys
+import socket
 from contextlib import asynccontextmanager, suppress
 from hmac import compare_digest
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
@@ -99,6 +102,9 @@ def configure_logging() -> None:
 configure_logging()
 logger = logging.getLogger(__name__)
 
+POLLING_LOCK_LEASE_SECONDS = 90
+POLLING_LOCK_RENEW_INTERVAL_SECONDS = 30
+
 tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 
@@ -145,15 +151,44 @@ async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
                 retry_delay = min(retry_delay * 2, 60)
 
 
-async def start_polling_updates() -> None:
+def build_polling_owner_id() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:12]}"
+
+
+async def renew_polling_lock_loop(owner_id: str, stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=POLLING_LOCK_RENEW_INTERVAL_SECONDS)
+            return
+        except asyncio.TimeoutError:
+            pass
+
+        renewed = await api_client.renew_polling_lock(owner_id, POLLING_LOCK_LEASE_SECONDS)
+        if renewed:
+            continue
+
+        logger.critical("Bot polling 锁续租失败，当前实例将停止 polling ownerId=%s", owner_id)
+        if tg_app.updater is not None:
+            await tg_app.updater.stop()
+        stop_event.set()
+        return
+
+
+async def start_polling_updates(stop_event: asyncio.Event) -> tuple[str, asyncio.Task[None]]:
     if tg_app.updater is None:
         raise RuntimeError("Telegram updater is not available in polling mode")
 
-    logger.warning("Polling 模式仅允许单实例部署，多副本会重复消费 update")
+    owner_id = build_polling_owner_id()
+    acquired = await api_client.acquire_polling_lock(owner_id, POLLING_LOCK_LEASE_SECONDS)
+    if not acquired:
+        raise RuntimeError("Polling 模式已有其他 Bot 实例持锁，当前实例拒绝启动")
+
     logger.info("Telegram 更新模式为 polling，开始清理旧 webhook")
     await tg_app.bot.delete_webhook(drop_pending_updates=False)
     await tg_app.updater.start_polling(drop_pending_updates=False)
-    logger.info("Telegram polling 已启动")
+    renew_task = asyncio.create_task(renew_polling_lock_loop(owner_id, stop_event))
+    logger.info("Telegram polling 已启动 ownerId=%s", owner_id)
+    return owner_id, renew_task
 
 
 async def resolve_command_scope_chat_ids() -> tuple[int | None, int | None]:
@@ -222,6 +257,9 @@ async def lifespan(app: FastAPI):
     initialized = False
     started = False
     polling_started = False
+    polling_lock_owner_id: str | None = None
+    polling_lock_stop_event: asyncio.Event | None = None
+    polling_lock_task: asyncio.Task | None = None
     stop_event: asyncio.Event | None = None
     webhook_task: asyncio.Task | None = None
 
@@ -234,7 +272,8 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.warning("Bot 命令菜单同步失败，不影响服务运行: %s", err)
         if TELEGRAM_UPDATE_MODE == TELEGRAM_UPDATE_MODE_POLLING:
-            await start_polling_updates()
+            polling_lock_stop_event = asyncio.Event()
+            polling_lock_owner_id, polling_lock_task = await start_polling_updates(polling_lock_stop_event)
             polling_started = True
 
         await tg_app.start()
@@ -248,6 +287,12 @@ async def lifespan(app: FastAPI):
             logger.info("Telegram Bot 服务已启动，更新模式=polling，内部通知入口保持可用")
         yield
     finally:
+        if polling_lock_stop_event is not None:
+            polling_lock_stop_event.set()
+        if polling_lock_task is not None:
+            polling_lock_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await polling_lock_task
         if stop_event is not None:
             stop_event.set()
         if webhook_task is not None:
@@ -256,6 +301,8 @@ async def lifespan(app: FastAPI):
                 await webhook_task
         if polling_started and tg_app.updater is not None:
             await tg_app.updater.stop()
+        if polling_lock_owner_id is not None:
+            await api_client.release_polling_lock(polling_lock_owner_id)
         if started:
             await tg_app.stop()
         if initialized:

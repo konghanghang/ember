@@ -76,6 +76,7 @@ cd services/api && go run ./cmd/migrate
 - `20260428_08_airdate_to_date.sql`
 - `20260428_09_users_password_reset_required.sql`
 - `20260428_10_subscriptions_note_not_null.sql`
+- `20260428_11_bot_runtime_locks.sql`
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
 

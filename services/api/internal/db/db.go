@@ -138,6 +138,7 @@ func VerifySchema() error {
 		{"stripe_webhook_events", &models.StripeWebhookEvent{}},
 		{"media_gap_scans", &models.MediaGapScan{}},
 		{"bot_pending_reject_requests", &models.BotPendingRejectRequest{}},
+		{"bot_runtime_locks", &models.BotRuntimeLock{}},
 	}
 
 	modelByTable := make(map[string]interface{}, len(tableChecks))
@@ -214,6 +215,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"media_quality_caches", "inflightUntil", "20260428_02_media_quality_caches_inflight"},
 	{"tv_calendar_sources", "lastFullSyncAt", "20260428_05_tv_calendar_sources_sync_markers"},
 	{"users", "passwordResetRequired", "20260428_09_users_password_reset_required"},
+	{"bot_runtime_locks", "expiresAt", "20260428_11_bot_runtime_locks"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -241,6 +243,7 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"device_actions", "idx_device_actions_operator", "20260428_03_device_actions_operator_id"},
 	{"media_quality_caches", "idx_media_quality_caches_inflight", "20260428_02_media_quality_caches_inflight"},
 	{"bot_pending_reject_requests", "idx_bot_pending_reject_requests_chat", "20260428_06_bot_pending_reject_requests"},
+	{"bot_runtime_locks", "idx_bot_runtime_locks_expires", "20260428_11_bot_runtime_locks"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。

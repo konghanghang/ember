@@ -1422,7 +1422,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 | `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
 | `BOT_PORT` | — | `8000` | Bot 服务端口 |
 
-说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。`polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`，且只支持单实例部署。
+说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。`polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`。批次 4 起，Bot 在 `polling` 模式启动前会通过 Internal API 申请 `bot_runtime_locks(name='telegram_polling')` 租约锁，并每 30 秒续租一次；拿不到锁的实例直接拒绝启动，续租失败的实例会主动停止 polling，避免多副本重复消费更新。
 
 ---
 
@@ -1585,3 +1585,14 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 | 火忘通知 | `go func() { http.Post(...) }()` 不阻塞主流程 |
 | 上游错误脱敏 | `internal/common/upstream.SafeUpstreamError(err, system)` 剥离 `*url.Error` 中的请求 URL（含 `api_key`）；`SafeUpstreamHTTPError(system, statusCode)` 仅保留 system + 状态码，不回显响应体。当前已收口 TMDB / MoviePilot 调用链路与配置中心媒体测试接口（Emby / MoviePilot test）；Stripe / SMTP 留后续批次 sweep |
 | 内部错误响应 | `internal/common/httpx.InternalError(c, err)` 客户端只看到 `上游服务暂不可用` 统一文案，完整 err（含 requestId）落服务端日志；handler 不再裸透 `err.Error()` |
+### 4.17 BotRuntimeLock（Bot polling 单实例租约锁）
+
+**表名**: `bot_runtime_locks` | **文件**: `models/bot_runtime_lock.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|---|---|---|---|
+| Name | string | name | 锁名主键，当前固定为 `telegram_polling` |
+| OwnerID | string | ownerId | 持锁 Bot 实例标识（hostname + pid + uuid） |
+| ExpiresAt | time.Time | expiresAt | 租约到期时间；续租失败或实例 crash 后允许其他实例接管 |
+| CreatedAt | time.Time | createdAt | 创建时间 |
+| UpdatedAt | time.Time | updatedAt | 最近续租时间 |

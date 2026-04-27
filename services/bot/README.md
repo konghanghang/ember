@@ -102,7 +102,7 @@ Bot 启动期配置来自环境变量；运行期设置优先从 Go API Internal
 - `webhook`：默认模式，需要公网 HTTPS 地址供 Telegram 回调
 - `polling`：Bot 主动从 Telegram 拉取更新，不再需要 Telegram 使用的公网域名
 - 无论哪种模式，Bot 都会继续保留 `/notify/*` HTTP 入口，供 Ember API 通过服务名或内网地址推送通知
-- `polling` 只适合单实例部署，多副本会竞争消费 Telegram 更新
+- `polling` 只适合单实例部署。当前实现会在启动前通过 API Internal 路由申请数据库租约锁；拿不到锁的实例直接拒绝启动，续租失败的实例会主动停止 polling
 
 ## 菜单与群行为
 

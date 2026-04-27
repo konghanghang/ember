@@ -392,6 +392,88 @@ async def get_settings(keys: list[str]) -> dict[str, str]:
     return {key: value for key, value in zip(keys, values) if value is not None}
 
 
+async def acquire_polling_lock(owner_id: str, lease_seconds: int) -> bool:
+    endpoint = "acquire_polling_lock"
+    url = f"{API_URL}/api/v1/internal/telegram/polling-lock/acquire"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"ownerId": owner_id, "leaseSeconds": lease_seconds},
+        log_fields={"ownerId": owner_id},
+    )
+    if response is None:
+        return False
+    if response.status_code == 200:
+        return True
+    if response.status_code == 409:
+        return False
+    _log_request_issue(
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        error=httpx.HTTPStatusError("unexpected status", request=response.request, response=response),
+        status_code=response.status_code,
+        ownerId=owner_id,
+    )
+    return False
+
+
+async def renew_polling_lock(owner_id: str, lease_seconds: int) -> bool:
+    endpoint = "renew_polling_lock"
+    url = f"{API_URL}/api/v1/internal/telegram/polling-lock/renew"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"ownerId": owner_id, "leaseSeconds": lease_seconds},
+        log_fields={"ownerId": owner_id},
+    )
+    if response is None:
+        return False
+    if response.status_code == 200:
+        return True
+    if response.status_code == 409:
+        return False
+    _log_request_issue(
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        error=httpx.HTTPStatusError("unexpected status", request=response.request, response=response),
+        status_code=response.status_code,
+        ownerId=owner_id,
+    )
+    return False
+
+
+async def release_polling_lock(owner_id: str) -> None:
+    endpoint = "release_polling_lock"
+    url = f"{API_URL}/api/v1/internal/telegram/polling-lock/release"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"ownerId": owner_id},
+        log_fields={"ownerId": owner_id},
+    )
+    if response is None or response.status_code == 200:
+        return
+    _log_request_issue(
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        error=httpx.HTTPStatusError("unexpected status", request=response.request, response=response),
+        status_code=response.status_code,
+        ownerId=owner_id,
+    )
+
+
 async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:
     """调用公开 TMDB 搜索 API（无需鉴权，直接 GET）"""
     endpoint = "search_tmdb"

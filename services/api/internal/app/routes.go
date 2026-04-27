@@ -134,6 +134,9 @@ func registerInternalRoutes(api *gin.RouterGroup, h *appHandlers) {
 	internal.POST("/telegram/subscribe", h.telegram.SubscribeByTelegram)
 	internal.POST("/telegram/reject-request/enqueue", h.telegram.EnqueuePendingReject)
 	internal.POST("/telegram/reject-request/pop", h.telegram.PopPendingReject)
+	internal.POST("/telegram/polling-lock/acquire", h.telegram.AcquirePollingLock)
+	internal.POST("/telegram/polling-lock/renew", h.telegram.RenewPollingLock)
+	internal.POST("/telegram/polling-lock/release", h.telegram.ReleasePollingLock)
 }
 
 func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {

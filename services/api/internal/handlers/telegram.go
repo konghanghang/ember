@@ -228,6 +228,11 @@ type pendingRejectPopRequest struct {
 	ChatID int64 `json:"chatId" binding:"required"`
 }
 
+type botPollingLockRequest struct {
+	OwnerID      string `json:"ownerId" binding:"required"`
+	LeaseSeconds int    `json:"leaseSeconds"`
+}
+
 // EnqueuePendingReject Internal API: 入队一条拒绝待确认记录
 func (h *TelegramHandler) EnqueuePendingReject(c *gin.Context) {
 	var req pendingRejectEnqueueRequest
@@ -269,4 +274,60 @@ func (h *TelegramHandler) PopPendingReject(c *gin.Context) {
 		"subscriptionId": record.SubscriptionID,
 		"expiresAt":      record.ExpiresAt,
 	})
+}
+
+// AcquirePollingLock Internal API: 申请 polling 单实例租约锁
+func (h *TelegramHandler) AcquirePollingLock(c *gin.Context) {
+	var req botPollingLockRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := telegrampkg.AcquireBotPollingLock(c.Request.Context(), req.OwnerID, req.LeaseSeconds); err != nil {
+		if errors.Is(err, telegrampkg.ErrBotPollingLockHeld) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "锁申请成功"})
+}
+
+// RenewPollingLock Internal API: 续租 polling 单实例锁
+func (h *TelegramHandler) RenewPollingLock(c *gin.Context) {
+	var req botPollingLockRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := telegrampkg.RenewBotPollingLock(c.Request.Context(), req.OwnerID, req.LeaseSeconds); err != nil {
+		if errors.Is(err, telegrampkg.ErrBotPollingLockLost) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "锁续租成功"})
+}
+
+// ReleasePollingLock Internal API: 释放 polling 单实例锁
+func (h *TelegramHandler) ReleasePollingLock(c *gin.Context) {
+	var req botPollingLockRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := telegrampkg.ReleaseBotPollingLock(c.Request.Context(), req.OwnerID); err != nil {
+		httpx.InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "锁释放成功"})
 }
