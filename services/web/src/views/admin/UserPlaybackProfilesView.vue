@@ -104,8 +104,6 @@ const syncCustomDateRange = () => {
   customDateRange.value = buildPresetDateRange(queryParams.value.range ?? 'today')
 }
 
-const toDateOnly = (value: string) => value.slice(0, 10)
-
 const buildRangeQuery = () => {
   if (isCustomRange.value && queryParams.value.startDate && queryParams.value.endDate) {
     return {
@@ -122,8 +120,8 @@ const buildRangeQuery = () => {
 const buildHistoryRangeQuery = () => {
   if (isCustomRange.value && queryParams.value.startDate && queryParams.value.endDate) {
     return {
-      startDate: toDateOnly(queryParams.value.startDate),
-      endDate: toDateOnly(queryParams.value.endDate)
+      startDate: queryParams.value.startDate,
+      endDate: queryParams.value.endDate
     }
   }
 
@@ -131,8 +129,8 @@ const buildHistoryRangeQuery = () => {
   if (!presetRange) return {}
 
   return {
-    startDate: toDateOnly(presetRange[0]),
-    endDate: toDateOnly(presetRange[1])
+    startDate: presetRange[0],
+    endDate: presetRange[1]
   }
 }
 

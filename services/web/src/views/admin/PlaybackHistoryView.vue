@@ -8,6 +8,7 @@ import EmberDateRangeField from '@/components/ember/filters/EmberDateRangeField.
 import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import { emberRangePickerPopperClass, rangePickerDefaultTime } from '@/constants/datePicker'
 import { formatPlaybackDate } from '@/utils/date'
 import type { PlaybackHistoryItem, PlaybackHistoryQuery } from '@/types/api'
 
@@ -146,10 +147,12 @@ onMounted(() => {
         <EmberDateRangeField
           v-model="dateRange"
           label="日期范围"
-          type="daterange"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          value-format="YYYY-MM-DD"
+          type="datetimerange"
+          start-placeholder="开始日期时间"
+          end-placeholder="结束日期时间"
+          value-format="YYYY-MM-DD HH:mm:ss"
+          :default-time="rangePickerDefaultTime"
+          :popper-class="emberRangePickerPopperClass"
           unlink-panels
           :icon="Calendar"
         />

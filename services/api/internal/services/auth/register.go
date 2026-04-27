@@ -65,6 +65,9 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 
 func (s *AuthService) validateRegisterRequest(req *RegisterUserRequest) error {
 	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(req.Email)
+	req.EmailCode = strings.TrimSpace(req.EmailCode)
+	req.Code = strings.TrimSpace(req.Code)
 	if len(req.Username) < 3 || len(req.Username) > 50 {
 		return errors.New("用户名长度必须为 3-50 位")
 	}
@@ -81,7 +84,7 @@ func (s *AuthService) verifyRegisterEmailCode(req *RegisterUserRequest) error {
 	if req.EmailCode == "" {
 		return errors.New("请先获取邮箱验证码")
 	}
-	return s.emailService.VerifyCode(req.Email, req.EmailCode, models.VerificationTypeRegister)
+	return s.emailService.CheckCode(req.Email, req.EmailCode, models.VerificationTypeRegister)
 }
 
 func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPreparation, error) {

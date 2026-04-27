@@ -11,10 +11,13 @@ import (
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
+	"gorm.io/gorm"
 )
 
 type emailVerifier interface {
 	VerifyCode(email, code, codeType string) error
+	CheckCode(email, code, codeType string) error
+	ConsumeCodeTx(tx *gorm.DB, email, code, codeType string) error
 }
 
 type embyClient interface {

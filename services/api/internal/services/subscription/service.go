@@ -569,7 +569,7 @@ func (s *SubscriptionService) dispatchMoviePilotAsync(subscriptionID string, med
 
 func (s *SubscriptionService) persistMpError(subscriptionID string, mpError *string) {
 	if err := db.DB.Model(&models.Subscription{}).
-		Where("id = ?", subscriptionID).
+		Where("id = ? AND status = ?", subscriptionID, models.SubscriptionApproved).
 		Update("mpError", mpError).Error; err != nil {
 		log.Printf("[Subscription] 写回 mpError 失败 subscriptionId=%s mpError=%v err=%v", subscriptionID, mpError, err)
 	}

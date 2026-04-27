@@ -8,6 +8,7 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 type stubAuthEmailVerifier struct {
@@ -15,7 +16,7 @@ type stubAuthEmailVerifier struct {
 	lastEmail     string
 	lastCode      string
 	lastCodeType  string
-	verifyCalled  bool
+	checkCalled   bool
 	verifyCodeErr error
 }
 
@@ -23,8 +24,15 @@ func (s *stubAuthEmailVerifier) IsEnabled() bool {
 	return s.enabled
 }
 
-func (s *stubAuthEmailVerifier) VerifyCode(email, code, codeType string) error {
-	s.verifyCalled = true
+func (s *stubAuthEmailVerifier) CheckCode(email, code, codeType string) error {
+	s.checkCalled = true
+	s.lastEmail = email
+	s.lastCode = code
+	s.lastCodeType = codeType
+	return s.verifyCodeErr
+}
+
+func (s *stubAuthEmailVerifier) ConsumeCodeTx(_ *gorm.DB, email, code, codeType string) error {
 	s.lastEmail = email
 	s.lastCode = code
 	s.lastCodeType = codeType
@@ -104,7 +112,7 @@ func TestVerifyRegisterEmailCode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if emailVerifier.verifyCalled {
+		if emailVerifier.checkCalled {
 			t.Fatalf("expected verify not to be called when email verification is disabled")
 		}
 	})
@@ -119,7 +127,7 @@ func TestVerifyRegisterEmailCode(t *testing.T) {
 		if err == nil || err.Error() != "请先获取邮箱验证码" {
 			t.Fatalf("expected missing code error, got %v", err)
 		}
-		if emailVerifier.verifyCalled {
+		if emailVerifier.checkCalled {
 			t.Fatalf("expected verify not to be called when email code is missing")
 		}
 	})
@@ -135,7 +143,7 @@ func TestVerifyRegisterEmailCode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !emailVerifier.verifyCalled {
+		if !emailVerifier.checkCalled {
 			t.Fatalf("expected verify to be called")
 		}
 		if emailVerifier.lastEmail != "ember@example.com" || emailVerifier.lastCode != "123456" || emailVerifier.lastCodeType != models.VerificationTypeRegister {

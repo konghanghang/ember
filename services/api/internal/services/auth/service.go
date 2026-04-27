@@ -13,11 +13,13 @@ import (
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
+	"gorm.io/gorm"
 )
 
 type authEmailVerifier interface {
 	IsEnabled() bool
-	VerifyCode(email, code, codeType string) error
+	CheckCode(email, code, codeType string) error
+	ConsumeCodeTx(tx *gorm.DB, email, code, codeType string) error
 }
 
 type authRegistrationNotifier interface {

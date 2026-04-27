@@ -23,13 +23,23 @@
 
 ### 1. 空数据库首次初始化
 
-当前顶层基线文件：
+标准入口：
 
 ```bash
-psql "$DATABASE_URL" -f infrastructure/database/20260415_00_schema_baseline.sql
+cd services/api && go run ./cmd/migrate
 ```
 
-`20260415_00_schema_baseline.sql` 已包含：
+`cmd/migrate` 会按字典序执行 `infrastructure/database/` 顶层 baseline + 全部后续增量 migration，
+然后跑 `VerifySchema` 自检。这是当前唯一和 API 启动期 schema 约束完全一致的空库初始化方式。
+
+如果必须手工执行 SQL，也必须执行：
+
+1. `20260415_00_schema_baseline.sql`
+2. baseline 之后的全部顶层增量 migration（见下节完整列表）
+
+只执行 baseline 本身已经不够，API 启动时会因为缺少后续表 / 列 / 索引被 `VerifySchema` 拒绝。
+
+`20260415_00_schema_baseline.sql` 当前包含：
 
 - 当前完整 schema
 - 5 条 deterministic 默认设置

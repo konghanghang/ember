@@ -46,6 +46,24 @@ func evaluateVerificationCode(verification *models.EmailVerification, code strin
 	return nil
 }
 
+func (s *EmailService) findLatestVerification(tx *gorm.DB, email, codeType string, lock bool) (*models.EmailVerification, error) {
+	normalizedEmail := normalizeVerificationEmail(email)
+	query := tx.Where("lower(email) = ? AND \"type\" = ?", normalizedEmail, codeType).
+		Order("\"createdAt\" DESC")
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+
+	var verification models.EmailVerification
+	if err := query.First(&verification).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrEmailCodeInvalid
+		}
+		return nil, err
+	}
+	return &verification, nil
+}
+
 // SendVerificationCode 发送验证码
 // ip 参数由 handler 层通过 c.ClientIP() 传入
 // codeType 取值：models.VerificationTypeRegister 或 models.VerificationTypeReset
@@ -165,37 +183,41 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 // VerifyCode 校验验证码：在事务中 SELECT ... FOR UPDATE 锁行 → 校验有效性 → 立即 DELETE。
 // 校验通过即消费，同一码不可重放用于注册或密码重置。
 func (s *EmailService) VerifyCode(email, code, codeType string) error {
-	normalizedEmail := normalizeVerificationEmail(email)
-	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		var verification models.EmailVerification
-		if err := tx.
-			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("lower(email) = ? AND \"type\" = ?", normalizedEmail, codeType).
-			Order("\"createdAt\" DESC").
-			First(&verification).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrEmailCodeInvalid
-			}
-			log.Printf("[Email] 校验验证码查询失败 [%s]: %v", normalizedEmail, err)
-			return ErrEmailCodeInvalid
-		}
-
-		if err := evaluateVerificationCode(&verification, code); err != nil {
-			return err
-		}
-
-		if err := tx.Where("id = ?", verification.ID).Delete(&models.EmailVerification{}).Error; err != nil {
-			log.Printf("[Email] 校验验证码消费失败 [%s id=%s]: %v", normalizedEmail, verification.ID, err)
-			return ErrEmailCodeInvalid
-		}
-
-		return nil
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		return s.ConsumeCodeTx(tx, email, code, codeType)
 	})
+}
+
+// CheckCode 只校验验证码，不消费，供需要把“消费”并入业务事务的链路使用。
+func (s *EmailService) CheckCode(email, code, codeType string) error {
+	normalizedEmail := normalizeVerificationEmail(email)
+	verification, err := s.findLatestVerification(db.DB, normalizedEmail, codeType, false)
 	if err != nil {
 		if errors.Is(err, ErrEmailCodeInvalid) {
 			return ErrEmailCodeInvalid
 		}
 		log.Printf("[Email] 校验验证码事务失败 [%s]: %v", normalizedEmail, err)
+		return ErrEmailCodeInvalid
+	}
+	return evaluateVerificationCode(verification, code)
+}
+
+// ConsumeCodeTx 在调用方事务内校验并消费验证码。
+func (s *EmailService) ConsumeCodeTx(tx *gorm.DB, email, code, codeType string) error {
+	normalizedEmail := normalizeVerificationEmail(email)
+	verification, err := s.findLatestVerification(tx, normalizedEmail, codeType, true)
+	if err != nil {
+		if errors.Is(err, ErrEmailCodeInvalid) {
+			return ErrEmailCodeInvalid
+		}
+		log.Printf("[Email] 校验验证码查询失败 [%s]: %v", normalizedEmail, err)
+		return ErrEmailCodeInvalid
+	}
+	if err := evaluateVerificationCode(verification, code); err != nil {
+		return err
+	}
+	if err := tx.Where("id = ?", verification.ID).Delete(&models.EmailVerification{}).Error; err != nil {
+		log.Printf("[Email] 校验验证码消费失败 [%s id=%s]: %v", normalizedEmail, verification.ID, err)
 		return ErrEmailCodeInvalid
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 type stubUserEmailVerifier struct {
@@ -19,6 +20,14 @@ func (s *stubUserEmailVerifier) VerifyCode(email, code, codeType string) error {
 	s.lastCode = code
 	s.lastCodeType = codeType
 	return s.err
+}
+
+func (s *stubUserEmailVerifier) CheckCode(email, code, codeType string) error {
+	return s.VerifyCode(email, code, codeType)
+}
+
+func (s *stubUserEmailVerifier) ConsumeCodeTx(_ *gorm.DB, email, code, codeType string) error {
+	return s.VerifyCode(email, code, codeType)
 }
 
 func TestResetPasswordByCode(t *testing.T) {

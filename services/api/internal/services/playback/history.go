@@ -22,7 +22,7 @@ const (
 	playbackDateFormat             = "2006-01-02"
 )
 
-var playbackKeywordPattern = regexp.MustCompile(`^[\p{Han}\p{L}\p{N}._'\- ]+$`)
+var playbackKeywordPattern = regexp.MustCompile(`^[\p{Han}\p{L}\p{N}._'&+\-!():,/ ]+$`)
 var playbackUserIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,50}$`)
 
 type PlaybackHistoryService struct {
@@ -60,8 +60,10 @@ type PlaybackHistoryResponse struct {
 
 type playbackHistoryQuery struct {
 	PlaybackHistoryRequest
-	startDate *time.Time
-	endDate   *time.Time
+	startDate    *time.Time
+	endDate      *time.Time
+	hasStartTime bool
+	hasEndTime   bool
 }
 
 type playbackActivityRow struct {
@@ -370,19 +372,21 @@ func (s *PlaybackHistoryService) normalizeRequest(ctx context.Context, req Playb
 	}
 
 	if query.StartDate != "" {
-		start, err := time.ParseInLocation(playbackDateFormat, query.StartDate, loadPlaybackTimezone())
+		start, hasTime, err := parsePlaybackProfileTime(query.StartDate, loadPlaybackTimezone())
 		if err != nil {
 			return nil, nil, ErrPlaybackHistoryInvalidDate
 		}
 		query.startDate = &start
+		query.hasStartTime = hasTime
 	}
 
 	if query.EndDate != "" {
-		end, err := time.ParseInLocation(playbackDateFormat, query.EndDate, loadPlaybackTimezone())
+		end, hasTime, err := parsePlaybackProfileTime(query.EndDate, loadPlaybackTimezone())
 		if err != nil {
 			return nil, nil, ErrPlaybackHistoryInvalidDate
 		}
 		query.endDate = &end
+		query.hasEndTime = hasTime
 	}
 
 	if query.startDate != nil && query.endDate != nil && query.endDate.Before(*query.startDate) {
@@ -485,24 +489,32 @@ func buildPlaybackWhereClause(query *playbackHistoryQuery, playbackUserIDs []str
 	}
 
 	if query.startDate != nil {
-		start := time.Date(
-			query.startDate.Year(),
-			query.startDate.Month(),
-			query.startDate.Day(),
-			0, 0, 0, 0,
-			query.startDate.Location(),
-		).UTC().Format("2006-01-02 15:04:05")
+		startAt := *query.startDate
+		if !query.hasStartTime {
+			startAt = time.Date(
+				query.startDate.Year(),
+				query.startDate.Month(),
+				query.startDate.Day(),
+				0, 0, 0, 0,
+				query.startDate.Location(),
+			)
+		}
+		start := startAt.UTC().Format("2006-01-02 15:04:05")
 		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", start))
 	}
 
 	if query.endDate != nil {
-		end := time.Date(
-			query.endDate.Year(),
-			query.endDate.Month(),
-			query.endDate.Day(),
-			23, 59, 59, 0,
-			query.endDate.Location(),
-		).UTC().Format("2006-01-02 15:04:05")
+		endAt := *query.endDate
+		if !query.hasEndTime {
+			endAt = time.Date(
+				query.endDate.Year(),
+				query.endDate.Month(),
+				query.endDate.Day(),
+				23, 59, 59, 0,
+				query.endDate.Location(),
+			)
+		}
+		end := endAt.UTC().Format("2006-01-02 15:04:05")
 		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", end))
 	}
 

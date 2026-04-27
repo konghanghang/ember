@@ -200,11 +200,15 @@ func (h *MediaGapHandler) ScanMediaGaps(c *gin.Context) {
 	status, started := h.scanManager.Start(scanReq)
 	httpStatus := http.StatusAccepted
 	if !started {
-		httpStatus = http.StatusOK
+		if status.Running {
+			httpStatus = http.StatusConflict
+		} else {
+			httpStatus = http.StatusInternalServerError
+		}
 	}
 
 	c.JSON(httpStatus, gin.H{"data": gin.H{
-		"accepted": true,
+		"accepted": started,
 		"async":    true,
 		"mode":     "async",
 		"started":  started,

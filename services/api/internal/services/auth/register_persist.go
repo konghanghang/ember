@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
@@ -24,6 +25,13 @@ func (s *AuthService) persistRegisteredUser(
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, errors.New("创建用户失败")
+	}
+
+	if s.emailService.IsEnabled() {
+		if err := s.emailService.ConsumeCodeTx(tx, req.Email, req.EmailCode, models.VerificationTypeRegister); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -81,7 +89,7 @@ func (s *AuthService) applyInviteRegistration(
 	}
 
 	result := tx.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"usedCount\" < \"maxUses\"", req.Code).
+		Where("code = ? AND \"usedCount\" < \"maxUses\"", strings.TrimSpace(req.Code)).
 		Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
 	if result.Error != nil {
 		return errors.New("创建用户失败")
@@ -92,7 +100,7 @@ func (s *AuthService) applyInviteRegistration(
 
 	redemption := models.Redemption{
 		UserID: user.ID,
-		Code:   req.Code,
+		Code:   strings.TrimSpace(req.Code),
 		Days:   prepared.defaultDays,
 	}
 	if err := tx.Create(&redemption).Error; err != nil {
