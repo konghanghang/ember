@@ -1,8 +1,28 @@
 # 播放观察与设备链路加固方案
 
-> 状态：主干大部分已落地；批次 5 第一阶段继续收口治理尾项
+> 状态：继续进行中（主干大部分已落地）
 > 负责人：Ember
 > 更新时间：2026-04-28
+
+## 落地进度
+
+批次 3-A + 后续 review 修复已完成本方案多数 P0 / P1 主干项：
+
+- ✅ `playback_rankings.batch_id` 扩位 + 幂等唯一索引、自然日 / 自然周取数已落地
+- ✅ `media_quality_caches` 的 `schemaVersion` / `inflightUntil`、force inflight 拒绝和残留清理 cron 已落地
+- ✅ 5min stats / 最近入库缓存 single-flight、`LATEST_CACHE_PER_USER` 分桶和 EmbyService 共享单例已落地
+- ✅ 黑名单批量注销结构化返回、`normalizeClientName` 强化、`device_actions.operatorId` 审计已落地
+- ✅ 92 天范围限制、overview 行数硬上限、keyword escaping 与 `pauseDuration` 解析已落地
+
+当前剩余项主要是性能与精细化治理尾项：
+
+- `libraryId=all` 失败库元数据、排行榜 episode 回查超时 / 退避、`dedupeLatestItems` 更精确 key 等仍待继续收口
+- `generateRankingBatchID` 已不再截断到 25 字符，但实现仍是随机 base32 ID，不是计划正文写的标准 ULID
+
+## 归档判断
+
+- 当前明确不适合归档。
+- 原因：这份计划还不是“只剩文档尾项”，而是仍有多条真实的性能与实现治理项在继续推进。
 
 ## 背景
 

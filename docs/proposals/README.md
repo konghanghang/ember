@@ -14,9 +14,10 @@
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
 - 进行中的功能实施稿
+- 已进入归档准备、等待入口文档与稳定结论收尾的实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将用户侧媒体库入口收口方案移入 `docs/archive/plan/media-subscription/`；此前已将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`，并将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，以及缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。当前 `docs/plan/` 继续保留仍在推进中的实施稿。
+最近一次归档已将用户侧媒体库入口收口方案移入 `docs/archive/plan/media-subscription/`；此前已将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`，并将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，以及缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。当前 `docs/plan/` 除仍在推进中的实施稿外，还保留 2 份已进入归档准备的主计划：计划 6（前端鉴权与设计基线）与计划 8（schema 与部署基线）。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
 

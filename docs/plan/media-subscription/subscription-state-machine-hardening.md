@@ -1,6 +1,6 @@
 # 订阅状态机与 webhook 命中精度加固方案
 
-> 状态：P0 + P1 主干已落地；剩余 P2/P3 尾项待后续治理
+> 状态：主干完成，保留尾项（P0 + P1 已落地）
 > 负责人：Ember
 > 更新时间：2026-04-28
 
@@ -16,10 +16,15 @@
 - ✅ 缺集扫描跨副本互斥已通过 PostgreSQL advisory lock + `media_gap_scans` 表落地
 - ✅ review 补丁已收口：缺集扫描不再整行 `Save` 回滚并发状态；命中 `IGNORED` 时不再自动复活；系统忽略不再计入整剧人工排除分母
 
-当前剩余项主要是文档/模型治理尾项：
+当前剩余项主要是模型 / 季选择治理尾项：
 
 - `ignoreReasonCode` 尚未单独落库，当前仍以 `ignoreReason` 文本区分系统忽略与人工忽略
 - `pickTargetSeasonNumbers` / 文档事实 / 观察性说明仍需继续收口
+
+## 归档判断
+
+- 当前不适合归档。
+- 原因：`ignoreReasonCode` 和季选择治理仍未收口，继续保留在 `docs/plan/` 更符合当前职责边界。
 
 ## 背景
 

@@ -46,11 +46,15 @@
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `console-admin/playback-and-device-observation-hardening.md`
-- `console-admin/web-frontend-auth-and-design-baseline-fix.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 - `media-subscription/subscription-resubmission-after-rejection.md`
 - `media-subscription/subscription-state-machine-hardening.md`
 - `media-subscription/tv-calendar-and-tmdb-key-protection.md`
+
+当前已进入“归档准备”但尚未迁出的实施稿：
+
+- `architecture/schema-deployment-and-baseline-cleanup.md`
+- `console-admin/web-frontend-auth-and-design-baseline-fix.md`
 
 ## 模板
 

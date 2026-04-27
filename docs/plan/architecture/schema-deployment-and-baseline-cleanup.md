@@ -1,6 +1,6 @@
 # Schema 与部署基线收口方案
 
-> 状态：主干大部分已落地；剩余 runbook / 归档 / 基线治理尾项待后续收口
+> 状态：可进入归档准备（主干已落地）
 > 负责人：Ember
 > 更新时间：2026-04-29
 
@@ -12,12 +12,49 @@
 - ✅ `users` lower unique、`payments` partial unique、`schema_alignment`、`airDate -> date`、`payments.expiresAt` 推进已落地
 - ✅ API / Web / Bot 容器非 root、`init: true`、`stop_grace_period`、Bot 健康依赖已落地
 - ✅ compose 已收口为显式固定 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`，不再接受 floating `latest`
+- ✅ API / Web / Bot 的 `.dockerignore` 已补齐，空库初始化与镜像构建边界已和文档对齐
 - ✅ 空库初始化标准入口已收口为 `go run ./cmd/migrate`，数据库 README 已同步当前事实
 
 当前剩余项以部署治理和文档归档为主：
 
-- `.dockerignore` 与更细颗粒度的镜像/发布 runbook 仍可继续补齐
-- `baseline` 精简归档、冲突清单归档和 runbook 盘点仍属后续治理尾项
+- 部署环境盘点、baseline 精简归档和交叉引用收口仍待后续整理
+- 备份恢复与镜像发布 runbook 已有落点，但仍可继续做更细颗粒度的运营补充
+
+## 归档判断
+
+- 当前可以进入归档准备，但暂不直接归档。
+- 原因：代码与部署基线已经稳定，剩余事项主要是 runbook 与归档整理；更适合先提炼稳定结论，再退出 `docs/plan/`。
+
+## 稳定结论
+
+以下结论已经稳定，可视为当前基线，而不是临时整改步骤：
+
+- 启动期不再调用 `AutoMigrate`；空库初始化统一走 `go run ./cmd/migrate` + `VerifySchema`。
+- PostgreSQL 首启执行链路固定为 `infrastructure/docker/initdb/`，`infrastructure/database/` 顶层是 SQL 真相源，`archive/` 不参与初始化。
+- compose 部署必须显式提供固定镜像、强制注入核心凭证，并以 `service_healthy` / `init: true` / `stop_grace_period` 作为容器基线。
+- Docker 镜像默认采用非 root 运行；数据库 schema 校验、迁移复制和 archive 边界已经成为持续维护规则。
+
+## 交叉引用
+
+- 当前系统事实：
+  - [docs/system-architecture.md](</Users/konghang/data/github/ember/docs/system-architecture.md>) §13 已收录部署基线、固定镜像、`initdb/`、`cmd/migrate`、`VerifySchema`
+- 当前数据库入口：
+  - [infrastructure/database/README.md](</Users/konghang/data/github/ember/infrastructure/database/README.md>) 已收录顶层 migration、`initdb/` 同步规则、archive 边界
+- 当前部署 / 发布 / 备份 runbook：
+  - [docs/runbooks/deployment.md](</Users/konghang/data/github/ember/docs/runbooks/deployment.md>)
+  - [docs/runbooks/deployment-environment.md](</Users/konghang/data/github/ember/docs/runbooks/deployment-environment.md>)
+  - [docs/runbooks/release-process.md](</Users/konghang/data/github/ember/docs/runbooks/release-process.md>)
+  - [docs/runbooks/database-backup.md](</Users/konghang/data/github/ember/docs/runbooks/database-backup.md>)
+- 当前盘点入口：
+  - [docs/proposals/plan-inventory.md](</Users/konghang/data/github/ember/docs/proposals/plan-inventory.md>) 已把本方案标为“可进入归档准备”
+
+## 退场说明
+
+- 本文档后续不再承担“现行部署规则”说明职责；现行基线以 `docs/system-architecture.md`、`infrastructure/database/README.md` 与 `docs/runbooks/` 为准。
+- 在以下条件同时满足后，可移入 `docs/archive/plan/architecture/`：
+  - `baseline` 精简归档、冲突清单归档和 archive 交叉引用已完成
+  - `docs/plan/README`、`docs/proposals/README`、`docs/proposals/plan-inventory.md` 已同步把本方案从现行实施稿入口移除
+  - 文中已完成条目不再承担新的决策说明，只剩历史追溯价值
 
 ## 修订记录
 
@@ -416,11 +453,17 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 
 ## 落地后文档处理
 
-- 落地后把"AUTO_MIGRATE 默认 false 与独立子命令"、"initdb.d 隔离"、"用户 email/username partial unique on lower"、"大表清理 cron 列表"、"备份 runbook"提炼到 `docs/system-architecture.md` §13、`docs/runbooks/`（"FK 与级联策略"项已于 2026-04-26 作废）
-- baseline 精简同步到 `infrastructure/database/README.md`
-- `playback_rankings` snake_case 在 `docs/reference/development-guide.md` 中显式豁免
-- 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/architecture/`
-- P2 / P3 中未顺手收口的项纳入下一轮治理
+- 已提炼：
+  - `docs/system-architecture.md` §13：`AUTO_MIGRATE=false`、`initdb/`、固定镜像、`cmd/migrate`、`VerifySchema`
+  - `infrastructure/database/README.md`：顶层 migration 入口、`initdb/` 同步规则、archive 边界
+  - `docs/runbooks/deployment-environment.md`：启动期不再调用 `AutoMigrate`、`VerifySchema` 校验与 `cmd/migrate` 用法
+  - `docs/runbooks/database-backup.md` / `docs/runbooks/release-process.md`：备份恢复与镜像发布入口
+- 归档前仍需补的收尾：
+  - `baseline` 精简归档、冲突清单归档、archive 目录边界复核
+  - `playback_rankings` snake_case 豁免与其余交叉引用继续核对
+  - `docs/plan/README` / `docs/proposals/README` / `docs/proposals/plan-inventory.md` 状态保持一致
+- 本方案完成归档准备后，移入 `docs/archive/plan/architecture/`
+- 剩余更细颗粒度的部署治理转交后续 runbook / proposal，不再继续堆在本实施稿
 
 ## 附录：问题清单与本方案条目映射
 

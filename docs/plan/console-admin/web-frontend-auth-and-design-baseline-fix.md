@@ -1,6 +1,6 @@
 # 前端鉴权与设计基线收口方案
 
-> 状态：P0 + P1 主干已落地；剩余 P2/P3 为全站 sweep 尾项
+> 状态：可进入归档准备（P0 + P1 已落地）
 > 负责人：Ember
 > 更新时间：2026-04-29
 
@@ -30,10 +30,41 @@
 
 当前剩余项：
 
-- `useUserStore.subscriptions` 历史双轨状态已清除；控制台订阅页现以页面状态为单一来源
-- 高价值请求竞态已收口：续费页、订阅页、最近入库、设备页、播放画像总览、播放历史
-- `vite proxy / prod baseURL` 相关部署说明已提炼到架构文档事实层，若后续需要更细的部署步骤，应补到 runbook 而不是继续留在实施稿
-- `P3` 风格 / icon / chunks 等 sweep 仍属于下一轮“前端一致性治理”，不阻塞本批功能闭环
+- 更广范围的请求竞态 / 交互一致性 sweep 仍可继续做，但当前高价值链路已基本收口
+- 构建产物 chunk 体积告警、icon/样式统一化仍属于下一轮“前端一致性治理”，不阻塞本批功能闭环
+- `vite proxy / prod baseURL` 若后续需要更细的部署步骤，应补到 runbook，不再继续堆在本计划实施稿
+
+## 归档判断
+
+- 当前可以进入归档准备，但暂不直接归档。
+- 原因：主链路事实已经稳定，剩余项主要是全站 sweep 与提炼工作；下一步更适合补稳定结论与交叉引用，而不是继续把它当核心实施稿使用。
+
+## 稳定结论
+
+以下结论已经稳定，可视为当前事实，而不是临时实施策略：
+
+- 前端统一认证入口固定为 `/api/v1`，401 收口为“清本地登录态 + 跳 `/login?redirect=`”，且 `/login`、`/logout` 不混入“登录过期”逻辑。
+- 路由守卫必须遍历 `to.matched`，`redirect` 仅允许站内已解析路径，普通用户命中 admin 路由必须给出提示而不是静默吞掉。
+- 最近入库封面必须走 `GET /api/v1/media/posters/:itemId` 代理，不再直拼 Emby 图床。
+- tone token 与时间格式已经收口为基础组件契约，不再允许页面各自造词或直接在 view 中拼 `toLocaleString()`。
+
+## 交叉引用
+
+- 当前系统事实：
+  - [docs/system-architecture.md](</Users/konghang/data/github/ember/docs/system-architecture.md>) §8 已收录前端鉴权链路、401 单例化、跨标签同步、redirect 白名单
+  - [docs/system-architecture.md](</Users/konghang/data/github/ember/docs/system-architecture.md>) “最近入库”段已收录用户侧海报代理边界
+- 当前设计规范：
+  - [docs/reference/web-design-guide.md](</Users/konghang/data/github/ember/docs/reference/web-design-guide.md>) §3.5 已收录 tone token 与时间格式基线
+- 当前盘点入口：
+  - [docs/proposals/plan-inventory.md](</Users/konghang/data/github/ember/docs/proposals/plan-inventory.md>) 已把本方案标为“可进入归档准备”
+
+## 退场说明
+
+- 本文档后续不再承担“当前事实说明”的职责；现行事实应以 `docs/system-architecture.md` 和 `docs/reference/web-design-guide.md` 为准。
+- 在以下条件同时满足后，可移入 `docs/archive/plan/console-admin/`：
+  - 本文顶部“当前剩余项”只剩历史追溯价值，不再指导新的实现决策
+  - `docs/plan/README`、`docs/proposals/README`、`docs/proposals/plan-inventory.md` 已同步把本方案从现行实施稿入口移除
+  - 文中仍指向旧实施过程的表述已清理，不再与稳定文档重复承担规则说明
 
 ## 批次定位
 
@@ -447,10 +478,14 @@
 
 ## 落地后文档处理
 
-- 落地后把"401 单例化与 logout 解耦"、"跨标签登录态同步"、"redirect 白名单契约"、"tone token"、"时间格式收口"提炼到 `docs/reference/web-design-guide.md`
-- `docs/system-architecture.md` §8 重写"前端鉴权链路"
-- 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/console-admin/`
-- P2 / P3 中未顺手收口的项纳入下一轮"前端一致性收口"
+- 已提炼：
+  - `docs/system-architecture.md` §8：前端鉴权链路、401 单例化、跨标签登录态同步、redirect 白名单
+  - `docs/reference/web-design-guide.md` §3.5：tone token 与时间格式基线
+- 归档前仍需补的收尾：
+  - `docs/plan/README` / `docs/proposals/README` / `docs/proposals/plan-inventory.md` 入口状态保持一致
+  - 若后续补更细的 `vite proxy / prod baseURL` 运维步骤，落到 `docs/runbooks/`，不再回流到本实施稿
+- 本方案完成归档准备后，移入 `docs/archive/plan/console-admin/`
+- P2 / P3 中未顺手收口的项转交下一轮“前端一致性治理”，不阻塞本文退场
 
 ## 附录：问题清单与本方案条目映射
 

@@ -1,8 +1,28 @@
 # 支付与兑换码完整性加固方案
 
-> 状态：主干已落地；批次 5 第一阶段继续收口治理尾项
+> 状态：主干完成，保留尾项（P0 + P1 已落地）
 > 负责人：Ember
 > 更新时间：2026-04-28
+
+## 落地进度
+
+批次 2 + 后续 review 修复已完成本方案绝大部分 P0 / P1 主干项：
+
+- ✅ pending payment partial unique、事务内占位 + Stripe `Idempotency-Key` 已落地
+- ✅ Stripe webhook `event.id` 去重、`checkout.session.expired` 收口和 pending 过期 cron 已落地
+- ✅ 支付 / 兑换的 Emby 调权已移出事务；失败统一落到 `failed_emby_async_ops` 补偿队列，而不是原计划里的独立 `failed_emby_unbans` 表
+- ✅ 模板用户 Policy 白名单收口、`expirePendingPayments*` 命名区分、兑换码状态语义复用已落地
+- ✅ 多币种口径、支付索引去重与架构文档同步已落地
+
+当前剩余项主要是模型 / 文档治理尾项：
+
+- `PlanGroup` 展示态字段仍挂在 `models.PlanGroup` 的 `gorm:"-"` 字段上，尚未彻底拆成独立 DTO
+- 计划正文里 `failed_emby_unbans` 的设计已被统一补偿队列替代，后文仍需继续清理旧表述
+
+## 归档判断
+
+- 当前不适合归档。
+- 原因：`PlanGroup` DTO 还没拆干净，且方案正文仍有旧补偿表设计，先继续保留在 `docs/plan/` 更安全。
 
 ## 背景
 

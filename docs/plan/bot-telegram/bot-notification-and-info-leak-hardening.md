@@ -1,6 +1,6 @@
 # Bot 通知与信息泄露加固方案
 
-> 状态：P0 + P1 主干已落地；剩余 P2/P3 为治理尾项
+> 状态：主干完成，保留尾项（P0 + P1 已基本落地）
 > 负责人：Ember
 > 更新时间：2026-04-29
 
@@ -13,11 +13,16 @@
 - ✅ Handler 层 `GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 在 `ErrTelegramNotBound` 命中时统一返回 400 + `请求参数错误`，反 Telegram→Ember 绑定枚举
 - ✅ `PaymentSuccessNotification` 删除 `Email` / `StripeSessionID` / `StripePaymentIntentID` 三个字段；`payment service` 同步去赋值；Bot Python `format_payment_message` 去渲染 + 单测同步
 - ✅ `runtime_settings_service` 失败保留旧值，不再把有效配置覆盖为空值
-- ✅ `pending_reject_requests` 已补持久化主链路，Bot 重启/分流时不再直接丢拒绝原因
+- ✅ `pending_reject_requests` 已补服务端持久化主链路，Bot 重启/分流后 `subscriptionId` 不再直接丢失
 - ✅ `polling` 模式已补数据库租约锁：启动前申请、运行中续租、失败时主动停止 polling
 - ✅ Bot API `httpx` 客户端已补 `limits`、重试和更完整的失败日志
 
-剩余项（BotNotifier 配置缓存 / 通知载荷长度限制 / Bot 端 message_id 缓存策略等）按 P2/P3 待后续批次。
+剩余项（BotNotifier 配置缓存 / 通知载荷长度限制 / Bot 端 `message_id` 缓存策略；拒绝订阅的消息上下文 `message_id` / `has_photo` / `original_text` 仍保留在进程内 dict，仅服务端待确认记录已持久化）按 P2/P3 待后续批次。
+
+## 归档判断
+
+- 当前不适合归档。
+- 原因：拒绝订阅的上下文状态仍部分驻留在进程内，`BotNotifier` 配置缓存也未收口，这不是单纯文档整理尾项。
 
 ## 背景
 

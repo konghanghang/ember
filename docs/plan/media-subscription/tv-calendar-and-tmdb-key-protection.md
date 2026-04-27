@@ -1,6 +1,6 @@
 # 追剧日历同步与 TMDB 密钥保护方案
 
-> 状态：P0 + P1 主干已落地；剩余 P2/P3 为缓存与同步治理尾项
+> 状态：主干完成，保留尾项（P0 + P1 已落地）
 > 负责人：Ember
 > 更新时间：2026-04-29
 
@@ -14,8 +14,14 @@
 - ✅ 配置中心媒体测试链路（`config.go` `testEmbyConnection` / `testMoviePilotConnection`）也统一走 `SafeUpstreamError` / `SafeUpstreamHTTPError`；Emby 测试改用 `X-Emby-Token` 头携带密钥，避免 `*url.Error` 把含 `api_key` 的 URL 写进错误文本
 - ✅ `MarkEpisodeReadyByWebhook` 缺主剧 `tmdbId` 时不再直接按 `seriesId` 宽匹配改库；必须先解析唯一追剧源 `tmdbId`
 - ✅ 当前周 `ready` 纠偏已通过 debouncer 批量回写 `tv_calendar_items`，不再只改返回值
+- ✅ `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` sync marker、cron 字符串布尔解析容错已落地
 
-剩余项（三层缓存收口 / `pickTargetSeasonNumbers` / `tmdb_cache` GC / Stripe / SMTP 错误脱敏 sweep）按 P2/P3 待后续批次。
+剩余项（三层缓存收口 / `pickTargetSeasonNumbers` / `resolveSeriesTMDBIDBySeriesID` 缓存 / Stripe / SMTP 错误脱敏 sweep）按 P2/P3 待后续批次。
+
+## 归档判断
+
+- 当前不适合归档。
+- 原因：`pickTargetSeasonNumbers` 与缓存治理仍在本方案边界内，不能只因为 P0/P1 完成就提前退场。
 
 ## 背景
 
