@@ -198,7 +198,8 @@ export function createCheckout(planId: string): Promise<CheckoutResponse> {
   return request({
     url: '/payments/checkout',
     method: 'post',
-    data: { planId }
+    data: { planId },
+    silent: true
   })
 }
 

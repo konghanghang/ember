@@ -37,6 +37,8 @@ const redemptionQuery = ref({
   page: 1,
   pageSize: 10
 })
+let paymentRequestToken = 0
+let redemptionRequestToken = 0
 
 const redeemForm = ref({ code: '' })
 const redeeming = ref(false)
@@ -91,24 +93,32 @@ const fetchPlans = async () => {
 }
 
 const fetchPayments = async () => {
+  const requestToken = ++paymentRequestToken
   paymentLoading.value = true
   try {
     const res = await getMyPayments(paymentQuery.value)
+    if (requestToken !== paymentRequestToken) return
     payments.value = res.data || []
     paymentTotal.value = res.total || 0
   } finally {
-    paymentLoading.value = false
+    if (requestToken === paymentRequestToken) {
+      paymentLoading.value = false
+    }
   }
 }
 
 const fetchRedemptions = async () => {
+  const requestToken = ++redemptionRequestToken
   redemptionsLoading.value = true
   try {
     const res = await getRedemptions(redemptionQuery.value)
+    if (requestToken !== redemptionRequestToken) return
     redemptions.value = res.data || []
     redemptionTotal.value = res.total || 0
   } finally {
-    redemptionsLoading.value = false
+    if (requestToken === redemptionRequestToken) {
+      redemptionsLoading.value = false
+    }
   }
 }
 
@@ -119,15 +129,21 @@ const refreshAll = async () => {
 
 const redirectToCheckout = async (planID: string) => {
   buyingPlanID.value = planID
+  let redirectStarted = false
   try {
     const res = await createCheckout(planID)
     if (!res.url) {
       ElMessage.error('支付链接为空，请稍后重试')
       return
     }
-    window.location.href = res.url
+    redirectStarted = true
+    window.location.assign(res.url)
+  } catch {
+    ElMessage.error('创建支付链接失败，请稍后重试')
   } finally {
-    buyingPlanID.value = ''
+    if (!redirectStarted) {
+      buyingPlanID.value = ''
+    }
   }
 }
 

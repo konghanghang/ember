@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -240,11 +240,11 @@ const submitResubmission = async (confirmExisting = false) => {
 
 const requestResubmitExistingConfirmation = async (summary?: SubscriptionExistingSummary) => {
   try {
-    await ElMessageBox.confirm(formatExistingSummary(summary).replace(/\n/g, '<br/>'), getExistingConfirmationTitle(summary), {
+    await ElMessageBox.confirm('', getExistingConfirmationTitle(summary), {
       type: 'warning',
       confirmButtonText: '仍然提交',
       cancelButtonText: '取消',
-      dangerouslyUseHTMLString: true
+      message: () => h('div', { class: 'whitespace-pre-line' }, formatExistingSummary(summary))
     })
   } catch {
     return

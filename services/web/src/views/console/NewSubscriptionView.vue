@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Film, VideoPlay, Check, RefreshRight } from '@element-plus/icons-vue'
@@ -203,11 +203,11 @@ const submitSubscription = async (confirmExisting = false) => {
 
 const requestExistingConfirmation = async (summary?: SubscriptionExistingSummary) => {
   try {
-    await ElMessageBox.confirm(formatExistingSummary(summary).replace(/\n/g, '<br/>'), getExistingConfirmationTitle(summary), {
+    await ElMessageBox.confirm('', getExistingConfirmationTitle(summary), {
       type: 'warning',
       confirmButtonText: '仍然提交',
       cancelButtonText: '取消',
-      dangerouslyUseHTMLString: true
+      message: () => h('div', { class: 'whitespace-pre-line' }, formatExistingSummary(summary))
     })
   } catch {
     return
