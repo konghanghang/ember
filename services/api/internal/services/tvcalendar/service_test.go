@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/konghang/ember/backend/internal/common/tmdbcache"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -103,9 +104,8 @@ func TestFetchTMDBJSONDeduplicatesInflightRequests(t *testing.T) {
 
 	service := &TVCalendarService{
 		httpClient:        server.Client(),
-		memoryCache:       make(map[string]tmdbMemoryCacheEntry),
+		tmdbCache:         tmdbcache.NewStore(),
 		readyEpisodeCache: make(map[string]readyEpisodeCacheEntry),
-		fetchInflight:     make(map[string]*tmdbFetchCall),
 	}
 
 	var wg sync.WaitGroup

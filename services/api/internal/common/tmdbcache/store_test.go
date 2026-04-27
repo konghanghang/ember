@@ -1,4 +1,4 @@
-package mediagap
+package tmdbcache
 
 import (
 	"context"
@@ -8,24 +8,19 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/konghang/ember/backend/internal/common/tmdbcache"
 )
 
-func TestFetchTMDBJSONDeduplicatesInflightRequests(t *testing.T) {
+func TestFetchJSONDeduplicatesInflightRequests(t *testing.T) {
 	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount.Add(1)
 		time.Sleep(50 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":100}`))
+		_, _ = w.Write([]byte(`{"id":123}`))
 	}))
 	defer server.Close()
 
-	service := &Service{
-		httpClient: server.Client(),
-		tmdbCache:  tmdbcache.NewStore(),
-	}
+	store := NewStore()
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -33,12 +28,12 @@ func TestFetchTMDBJSONDeduplicatesInflightRequests(t *testing.T) {
 		defer wg.Done()
 		<-start
 		var out map[string]any
-		if err := service.fetchTMDBJSON(context.Background(), "detail:100", server.URL, time.Minute, true, &out); err != nil {
-			t.Errorf("fetchTMDBJSON returned error: %v", err)
+		if err := store.FetchJSON(context.Background(), nil, server.Client(), "detail:123", server.URL, time.Minute, true, &out); err != nil {
+			t.Errorf("FetchJSON returned error: %v", err)
 			return
 		}
-		if got := int(out["id"].(float64)); got != 100 {
-			t.Errorf("expected id 100, got %d", got)
+		if got := int(out["id"].(float64)); got != 123 {
+			t.Errorf("expected id 123, got %d", got)
 		}
 	}
 

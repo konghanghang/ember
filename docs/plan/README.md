@@ -50,11 +50,11 @@
 - `access-auth/auth-and-account-integrity-hardening.md`
 - `billing-redemption/payment-redemption-integrity-hardening.md`
 - `bot-telegram/bot-notification-and-info-leak-hardening.md`
-- `media-subscription/tv-calendar-and-tmdb-key-protection.md`
 
 当前已进入“归档准备”但尚未迁出的实施稿：
 
 - `media-subscription/subscription-state-machine-hardening.md`
+- `media-subscription/tv-calendar-and-tmdb-key-protection.md`
 - `architecture/schema-deployment-and-baseline-cleanup.md`
 - `console-admin/web-frontend-auth-and-design-baseline-fix.md`
 
