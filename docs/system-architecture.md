@@ -761,7 +761,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 ### 5.6 SystemService (`services/system/service.go`, `services/system/expiry.go`)
 
 - `GetSystemInfo()` — 统计：用户数、活跃数、兑换码数
-- `CheckExpiredUsers()` — **cron 核心**：查询 `expiresAt < NOW() AND embyDisabled = false` → 调用 Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`
+- `CheckExpiredUsersWithContext(ctx)` — **cron 核心**：查询 `expiresAt < NOW() AND embyDisabled = false` → 调用 Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`；支持 `context cancel`，并对错误样本 / 失败用户返回做上限保护，避免长时间任务在中断或大量失败时继续无界膨胀
 
 ### 5.7 EmbyService (`integrations/emby/emby.go`)
 

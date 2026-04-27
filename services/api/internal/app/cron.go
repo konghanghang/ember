@@ -125,9 +125,16 @@ func initCronJobs() func() {
 
 	if _, err := c.AddFunc(expiredSchedule, func() {
 		log.Println("[Cron] 开始检查过期用户...")
-		result, err := systemService.CheckExpiredUsers()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		result, err := systemService.CheckExpiredUsersWithContext(ctx)
 		if err != nil {
 			log.Printf("[Cron] 检查失败：%v", err)
+			return
+		}
+		if result.Canceled {
+			log.Printf("[Cron] 过期检查被中断，已处理 %d/%d 个用户，本轮新封禁 %d 个", result.Processed, result.TotalExpired, result.DisabledCount)
 			return
 		}
 		log.Printf("[Cron] 完成，封禁 %d/%d 个用户", result.DisabledCount, result.TotalExpired)
