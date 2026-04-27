@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/async"
+	"github.com/konghang/ember/backend/internal/common/upstream"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
@@ -563,13 +564,13 @@ func (s *PaymentService) expireStripeCheckoutSession(secret, sessionID string) e
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return errors.New("失效支付会话失败")
+		return upstream.SafeUpstreamError(err, "stripe")
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return errors.New("失效支付会话失败")
+		return upstream.SafeUpstreamError(err, "stripe")
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -583,9 +584,9 @@ func (s *PaymentService) expireStripeCheckoutSession(secret, sessionID string) e
 			strings.Contains(strings.ToLower(apiErr.Error.Message), "completed") {
 			return nil
 		}
-		return fmt.Errorf("失效支付会话失败: %s", apiErr.Error.Message)
+		return upstream.SafeUpstreamHTTPError("stripe", resp.StatusCode)
 	}
-	return errors.New("失效支付会话失败")
+	return upstream.SafeUpstreamHTTPError("stripe", resp.StatusCode)
 }
 
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
@@ -782,25 +783,22 @@ func (s *PaymentService) createStripeCheckoutSession(secret, successURL, cancelU
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.New("创建支付会话失败")
+		return nil, upstream.SafeUpstreamError(err, "stripe")
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.New("创建支付会话失败")
+		return nil, upstream.SafeUpstreamError(err, "stripe")
 	}
 
 	var result stripeCheckoutSessionResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, errors.New("创建支付会话失败")
+		return nil, upstream.SafeUpstreamError(err, "stripe")
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if result.Error != nil && strings.TrimSpace(result.Error.Message) != "" {
-			return nil, fmt.Errorf("创建支付会话失败: %s", result.Error.Message)
-		}
-		return nil, errors.New("创建支付会话失败")
+		return nil, upstream.SafeUpstreamHTTPError("stripe", resp.StatusCode)
 	}
 
 	if strings.TrimSpace(result.ID) == "" || strings.TrimSpace(result.URL) == "" {

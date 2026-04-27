@@ -1957,7 +1957,7 @@ func TestSMTPDial(host string, port string) error {
 
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), smtpTimeout)
 	if err != nil {
-		return fmt.Errorf("SMTP 连接失败: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 	defer conn.Close()
 

@@ -17,12 +17,12 @@
 - ✅ `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` sync marker、cron 字符串布尔解析容错已落地
 - ✅ `pickTargetSeasonNumbers` 已改为覆盖最近 2 季 + last/next episode 相关季，老剧补集不再只盯最近一季
 
-剩余项（三层缓存收口 / Stripe / SMTP 错误脱敏 sweep）按 P2/P3 待后续批次。
+剩余项（三层缓存收口）按 P2/P3 待后续批次。
 
 ## 归档判断
 
 - 当前不适合归档。
-- 原因：三层缓存治理和上游错误脱敏 sweep 仍在本方案边界内，继续保留在 `docs/plan/` 更符合当前职责边界。
+- 原因：TMDB 三层缓存治理仍在本方案边界内，继续保留在 `docs/plan/` 更符合当前职责边界。
 
 ## 稳定结论
 
@@ -34,6 +34,7 @@
 - `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` marker、cron 布尔解析容错已经成为当前同步基线。
 - 默认季选择策略已经固定为“最近 2 季 + last/next episode 相关季”，避免老剧补集漏季。
 - `resolveSeriesTMDBIDBySeriesID` 已增加 5 分钟进程内 TTL 缓存，重复 webhook / 同批匹配不再每次都打 Emby。
+- Stripe / SMTP 的上游网络与 HTTP 错误已经纳入 `SafeUpstreamError` / `SafeUpstreamHTTPError` 脱敏范围，不再把原始错误细节直接透传给日志回写或配置测试结果。
 
 ## 交叉引用
 
@@ -330,9 +331,8 @@
 
 - 已提炼：
   - `docs/system-architecture.md` §5.18：TMDB / MoviePilot 错误统一收敛、webhook 四元组命中、读时纠偏节流、`tmdb_cache` GC、同步 marker
-  - `docs/system-architecture.md` §4.16：上游错误脱敏与统一内部错误响应
+  - `docs/system-architecture.md` §4.16：上游错误脱敏与统一内部错误响应（当前已覆盖 TMDB / MoviePilot / Emby / Stripe / SMTP）
 - 归档前仍需补的收尾：
-  - Stripe / SMTP 错误脱敏是否继续并入本方案，还是拆到独立治理文档
   - `docs/plan/README` / `docs/proposals/README` / `docs/proposals/plan-inventory.md` 状态保持一致
 - 本方案完成尾项收口后，移入 `docs/archive/plan/media-subscription/`
 - 其余 P2 / P3 中未顺手收口的项转交下一轮追剧日历治理，不阻塞已稳定结论继续留在现行文档

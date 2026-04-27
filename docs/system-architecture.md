@@ -1584,7 +1584,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 | 内部通信 | `X-Internal-Secret: {secret}` 头（Bot ↔ API）|
 | 前端请求 | Axios 拦截器自动加 Bearer token，401 自动清除登录态 |
 | 火忘通知 | `go func() { http.Post(...) }()` 不阻塞主流程 |
-| 上游错误脱敏 | `internal/common/upstream.SafeUpstreamError(err, system)` 剥离 `*url.Error` 中的请求 URL（含 `api_key`）；`SafeUpstreamHTTPError(system, statusCode)` 仅保留 system + 状态码，不回显响应体。当前已收口 TMDB / MoviePilot 调用链路与配置中心媒体测试接口（Emby / MoviePilot test）；Stripe / SMTP 留后续批次 sweep |
+| 上游错误脱敏 | `internal/common/upstream.SafeUpstreamError(err, system)` 剥离 `*url.Error` 中的请求 URL（含 `api_key`）；`SafeUpstreamHTTPError(system, statusCode)` 仅保留 system + 状态码，不回显响应体。当前已收口 TMDB / MoviePilot 调用链路、配置中心媒体测试接口（Emby / MoviePilot / SMTP）以及 Stripe / SMTP 上游网络与 HTTP 错误路径 |
 | 内部错误响应 | `internal/common/httpx.InternalError(c, err)` 客户端只看到 `上游服务暂不可用` 统一文案，完整 err（含 requestId）落服务端日志；handler 不再裸透 `err.Error()` |
 ### 4.17 BotRuntimeLock（Bot polling 单实例租约锁）
 

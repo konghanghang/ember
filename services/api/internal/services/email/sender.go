@@ -2,12 +2,12 @@ package email
 
 import (
 	"crypto/tls"
-	"fmt"
 	"log"
 	"net"
 	"net/smtp"
 	"time"
 
+	"github.com/konghang/ember/backend/internal/common/upstream"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"gopkg.in/gomail.v2"
 )
@@ -24,7 +24,7 @@ func (s *EmailService) sendEmail(to, subject, body string) error {
 	addr := net.JoinHostPort(s.host, s.port)
 	conn, err := net.DialTimeout("tcp", addr, smtpTimeout)
 	if err != nil {
-		return fmt.Errorf("connect SMTP %s: %w", addr, err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 	defer conn.Close()
 
@@ -32,41 +32,41 @@ func (s *EmailService) sendEmail(to, subject, body string) error {
 
 	client, err := smtp.NewClient(conn, s.host)
 	if err != nil {
-		return fmt.Errorf("create SMTP client: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 	defer client.Close()
 
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		if err := client.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
-			return fmt.Errorf("SMTP STARTTLS: %w", err)
+			return upstream.SafeUpstreamError(err, "smtp")
 		}
 	}
 
 	auth := smtp.PlainAuth("", s.username, s.password, s.host)
 	if err := client.Auth(auth); err != nil {
-		return fmt.Errorf("SMTP auth: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 
 	if err := client.Mail(s.fromAddress); err != nil {
-		return fmt.Errorf("SMTP MAIL FROM: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 
 	if err := client.Rcpt(to); err != nil {
-		return fmt.Errorf("SMTP RCPT TO: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("SMTP DATA: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 
 	if _, err := m.WriteTo(w); err != nil {
 		w.Close()
-		return fmt.Errorf("SMTP write body: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("SMTP close data: %w", err)
+		return upstream.SafeUpstreamError(err, "smtp")
 	}
 
 	if err := client.Quit(); err != nil {
