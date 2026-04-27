@@ -704,7 +704,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 5. 签发 JWT
 6. 火忘式通知 Bot（新用户注册）
 
-**唯一性校验**：`ensureRegisterUserUnique` 用 `lower(username) = ?` / `lower(email) = ?` 比较，与登录链路保持一致；schema 层由 `20260426_02_users_lower_unique_indexes.sql` 创建的函数唯一索引（`uq_users_username_lower` / `uq_users_email_lower`）兜底，避免并发或多入口写入造成大小写逻辑重复账号。
+**唯一性校验**：`ensureRegisterUserUnique` 用 `lower(username) = ?` / `lower(email) = ?` 比较，与登录链路保持一致；schema 层由 `20260426_01_users_lower_unique_indexes.sql` 创建的函数唯一索引（`uq_users_username_lower` / `uq_users_email_lower`）兜底，避免并发或多入口写入造成大小写逻辑重复账号。
 
 **关键 struct**：
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
@@ -819,11 +819,11 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计
 - `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；写入 `searchSnapshot` 与 `lastSearchedAt`
 - `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源；成功推进为 `REQUESTED` 并清空 `lastDispatchError`；**失败时写入 `lastDispatchError`（经 `upstream.SafeUpstreamError` 脱敏）并切换为 `DISPATCH_FAILED`**，前端可通过同一接口重试
-- `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`
+- `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`；显式忽略写 `ignoreReasonCode='manual'`
 - `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后按状态分支处理：
   - `MISSING` / `SEARCHED` / `REQUESTED` / `DISPATCH_FAILED` → 收口为 `INGESTED`
   - `INGESTED` → noop
-  - `IGNORED` → **仅 INFO 日志，不再清空 `ignoredAt / ignoreReason`**（管理员的忽略决定不能被自动撤销）
+  - `IGNORED` → **仅 INFO 日志，不再清空 `ignoredAt / ignoreReason / ignoreReasonCode`**（管理员的忽略决定不能被自动撤销）
 
 ### 5.12 MoviePilotClient (`integrations/moviepilot/client.go`)
 

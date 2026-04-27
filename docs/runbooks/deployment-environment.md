@@ -126,9 +126,9 @@ API 启动期已不再调用 `AutoMigrate`（任何 `AUTO_MIGRATE` env 都会被
 
 | 来源 migration | 自查 SQL | 期望结果 |
 |---|---|---|
-| `20260426_01_telegram_bind_codes_user_unique` | （migration 内置 CTE 自动去重，每个 userId 只保留 createdAt 最新一条；绑定码本就是 5 分钟短期凭据，无业务影响） | — |
-| `20260426_02_users_lower_unique_indexes` | `SELECT lower(username), count(*) FROM users GROUP BY 1 HAVING count(*) > 1; SELECT lower(email), count(*) FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY 1 HAVING count(*) > 1;` | 0 行；非 0 行需人工判定合并 / 重命名后再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检，存在重复时会停止并附排查 SQL） |
-| `20260427_03_payments_pending_unique` | `SELECT "userId", "planId", count(*) FROM payments WHERE status='pending' GROUP BY 1,2 HAVING count(*) > 1;` | 0 行；非 0 行需先把多余 pending 收口为 expired 再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检并附收口 SQL） |
+| `20260425_02_telegram_bind_codes_user_unique` | （migration 内置 CTE 自动去重，每个 userId 只保留 createdAt 最新一条；绑定码本就是 5 分钟短期凭据，无业务影响） | — |
+| `20260426_01_users_lower_unique_indexes` | `SELECT lower(username), count(*) FROM users GROUP BY 1 HAVING count(*) > 1; SELECT lower(email), count(*) FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY 1 HAVING count(*) > 1;` | 0 行；非 0 行需人工判定合并 / 重命名后再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检，存在重复时会停止并附排查 SQL） |
+| `20260426_04_payments_checkout_constraints` | `SELECT "userId", "planId", count(*) FROM payments WHERE status='pending' GROUP BY 1,2 HAVING count(*) > 1;` | 0 行；非 0 行需先把多余 pending 收口为 expired 再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检并附收口 SQL） |
 
 ### 批次 2 新增运行期表（无脏数据预检）
 
@@ -136,9 +136,9 @@ API 启动期已不再调用 `AutoMigrate`（任何 `AUTO_MIGRATE` env 都会被
 
 | 表 | 来源 migration | 用途 |
 |---|---|---|
-| `failed_emby_async_ops` | `20260427_01_failed_emby_async_ops` | 支付履约 / 兑换码 / 注册回滚等链路在事务外调 Emby 失败时的补偿队列 |
-| `stripe_webhook_events` | `20260427_02_stripe_webhook_events` | Stripe webhook event.id 级别去重表 |
-| `media_gap_scans` | `20260427_07_media_gap_scans` | 缺集扫描的持久化执行记录（配合 PG advisory lock 做跨副本互斥） |
+| `failed_emby_async_ops` | `20260426_02_failed_emby_async_ops` | 支付履约 / 兑换码 / 注册回滚等链路在事务外调 Emby 失败时的补偿队列 |
+| `stripe_webhook_events` | `20260426_03_stripe_webhook_events` | Stripe webhook event.id 级别去重表 |
+| `media_gap_scans` | `20260426_07_media_gap_scans` | 缺集扫描的持久化执行记录（配合 PG advisory lock 做跨副本互斥） |
 
 ### 批次 2 新增 cron 任务
 

@@ -12,6 +12,15 @@ import (
 func TestPickTargetSeasonNumbers(t *testing.T) {
 	detail := &tmdbTVDetailResponse{
 		NumberOfSeasons: 5,
+		Seasons: []struct {
+			SeasonNumber int `json:"season_number"`
+		}{
+			{SeasonNumber: 1},
+			{SeasonNumber: 2},
+			{SeasonNumber: 3},
+			{SeasonNumber: 4},
+			{SeasonNumber: 5},
+		},
 		LastEpisodeToAir: &tmdbEpisodeReference{
 			SeasonNumber: 4,
 		},
@@ -26,6 +35,56 @@ func TestPickTargetSeasonNumbers(t *testing.T) {
 	}
 	if got[0] != 4 || got[1] != 5 {
 		t.Fatalf("expected seasons [4 5], got %v", got)
+	}
+}
+
+func TestPickTargetSeasonNumbersIncludesRecentAndCurrentRelatedSeasons(t *testing.T) {
+	detail := &tmdbTVDetailResponse{
+		NumberOfSeasons: 6,
+		Seasons: []struct {
+			SeasonNumber int `json:"season_number"`
+		}{
+			{SeasonNumber: 1},
+			{SeasonNumber: 2},
+			{SeasonNumber: 3},
+			{SeasonNumber: 4},
+			{SeasonNumber: 5},
+			{SeasonNumber: 6},
+		},
+		LastEpisodeToAir: &tmdbEpisodeReference{
+			SeasonNumber: 2,
+		},
+		NextEpisodeToAir: &tmdbEpisodeReference{
+			SeasonNumber: 3,
+		},
+	}
+
+	got := pickTargetSeasonNumbers(detail)
+	want := []int{2, 3, 5, 6}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d seasons, got %d (%v)", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected seasons %v, got %v", want, got)
+		}
+	}
+}
+
+func TestPickTargetSeasonNumbersFallsBackToLastTwoByCount(t *testing.T) {
+	detail := &tmdbTVDetailResponse{
+		NumberOfSeasons: 5,
+	}
+
+	got := pickTargetSeasonNumbers(detail)
+	want := []int{4, 5}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d seasons, got %d (%v)", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected seasons %v, got %v", want, got)
+		}
 	}
 }
 

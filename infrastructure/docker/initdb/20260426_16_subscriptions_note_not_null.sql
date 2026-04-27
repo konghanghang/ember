@@ -1,4 +1,4 @@
--- 20260428_10_subscriptions_note_not_null
+-- 20260426_16_subscriptions_note_not_null
 -- 用途：将 subscriptions.note 列从可空改为 NOT NULL DEFAULT ''，
 --       统一空备注语义，消灭 NULL 判断路径。
 --

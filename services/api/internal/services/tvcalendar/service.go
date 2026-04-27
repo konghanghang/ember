@@ -544,7 +544,7 @@ func pickTargetSeasonNumbers(detail *tmdbTVDetailResponse) []int {
 	}
 
 	seen := make(map[int]struct{})
-	seasonNumbers := make([]int, 0, 3)
+	seasonNumbers := make([]int, 0, 4)
 	appendSeason := func(number int) {
 		if number <= 0 {
 			return
@@ -556,22 +556,34 @@ func pickTargetSeasonNumbers(detail *tmdbTVDetailResponse) []int {
 		seasonNumbers = append(seasonNumbers, number)
 	}
 
+	// 历史问题：只取最近一季会让“已完结老剧补集 / 当周回补历史季”直接漏掉。
+	// 当前策略：
+	// 1. 先收口当前最相关的季：last / next episode 所在季
+	// 2. 再补最近两季，覆盖 TMDB 已完结但近期有回补的老剧
+	// 这样最多同步 4 个季，避免无上限放大 TMDB 请求量。
 	if detail.LastEpisodeToAir != nil {
 		appendSeason(detail.LastEpisodeToAir.SeasonNumber)
 	}
 	if detail.NextEpisodeToAir != nil {
 		appendSeason(detail.NextEpisodeToAir.SeasonNumber)
 	}
-	if len(seasonNumbers) == 0 {
-		for i := len(detail.Seasons) - 1; i >= 0; i-- {
-			appendSeason(detail.Seasons[i].SeasonNumber)
-			if len(seasonNumbers) > 0 {
-				break
-			}
+
+	recentSeasons := make([]int, 0, len(detail.Seasons))
+	for _, season := range detail.Seasons {
+		if season.SeasonNumber > 0 {
+			recentSeasons = append(recentSeasons, season.SeasonNumber)
 		}
 	}
-	if len(seasonNumbers) == 0 {
+	sort.Ints(recentSeasons)
+	for i := len(recentSeasons) - 1; i >= 0 && i >= len(recentSeasons)-2; i-- {
+		appendSeason(recentSeasons[i])
+	}
+
+	if len(recentSeasons) == 0 && detail.NumberOfSeasons > 0 {
 		appendSeason(detail.NumberOfSeasons)
+		if detail.NumberOfSeasons > 1 {
+			appendSeason(detail.NumberOfSeasons - 1)
+		}
 	}
 
 	sort.Ints(seasonNumbers)

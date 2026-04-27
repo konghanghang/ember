@@ -1,4 +1,4 @@
--- 20260428_07_schema_alignment
+-- 20260426_13_schema_alignment
 -- 用途：清理重复 / 冗余索引，将 users.telegramId 改为 partial unique 索引，
 --       清理 media_gaps 冗余 tmdbId 单列索引。
 --

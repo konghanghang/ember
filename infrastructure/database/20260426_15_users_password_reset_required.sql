@@ -1,4 +1,4 @@
--- 20260428_09_users_password_reset_required
+-- 20260426_15_users_password_reset_required
 -- 用途：为 users 表新增 passwordResetRequired 列，用于标记首次登录必须修改密码。
 --
 -- 改了哪些表、字段、索引、约束：

@@ -18,6 +18,13 @@ const (
 	MediaGapStatusDispatchFailed MediaGapStatus = "DISPATCH_FAILED"
 )
 
+type MediaGapIgnoreReasonCode string
+
+const (
+	MediaGapIgnoreReasonManual             MediaGapIgnoreReasonCode = "manual"
+	MediaGapIgnoreReasonSeasonNotActivated MediaGapIgnoreReasonCode = "season_not_activated"
+)
+
 // MediaGap 缺集工单模型。
 type MediaGap struct {
 	ID                string         `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
@@ -36,6 +43,7 @@ type MediaGap struct {
 	RequestedAt       *time.Time     `json:"requestedAt,omitempty" gorm:"column:requestedAt"`
 	IngestedAt        *time.Time     `json:"ingestedAt,omitempty" gorm:"column:ingestedAt"`
 	IgnoredAt         *time.Time     `json:"ignoredAt,omitempty" gorm:"column:ignoredAt"`
+	IgnoreReasonCode  *string        `json:"ignoreReasonCode,omitempty" gorm:"column:ignoreReasonCode;size:50"`
 	IgnoreReason      string         `json:"ignoreReason,omitempty" gorm:"column:ignoreReason;type:text;not null;default:''"`
 	CreatedAt         time.Time      `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
 	UpdatedAt         time.Time      `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`

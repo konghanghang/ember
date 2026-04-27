@@ -15,13 +15,39 @@
 - ✅ `MarkEpisodeReadyByWebhook` 缺主剧 `tmdbId` 时不再直接按 `seriesId` 宽匹配改库；必须先解析唯一追剧源 `tmdbId`
 - ✅ 当前周 `ready` 纠偏已通过 debouncer 批量回写 `tv_calendar_items`，不再只改返回值
 - ✅ `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` sync marker、cron 字符串布尔解析容错已落地
+- ✅ `pickTargetSeasonNumbers` 已改为覆盖最近 2 季 + last/next episode 相关季，老剧补集不再只盯最近一季
 
-剩余项（三层缓存收口 / `pickTargetSeasonNumbers` / `resolveSeriesTMDBIDBySeriesID` 缓存 / Stripe / SMTP 错误脱敏 sweep）按 P2/P3 待后续批次。
+剩余项（三层缓存收口 / `resolveSeriesTMDBIDBySeriesID` 缓存 / Stripe / SMTP 错误脱敏 sweep）按 P2/P3 待后续批次。
 
 ## 归档判断
 
 - 当前不适合归档。
-- 原因：`pickTargetSeasonNumbers` 与缓存治理仍在本方案边界内，不能只因为 P0/P1 完成就提前退场。
+- 原因：缓存治理、`resolveSeriesTMDBIDBySeriesID` 缓存策略和上游错误脱敏 sweep 仍在本方案边界内，继续保留在 `docs/plan/` 更符合当前职责边界。
+
+## 稳定结论
+
+以下结论已经稳定，可视为当前事实，而不是临时整改步骤：
+
+- TMDB / MoviePilot 的上游错误必须先经 `SafeUpstreamError` / `SafeUpstreamHTTPError` 脱敏，再由 `httpx.InternalError` 统一响应；客户端不再直接看到含 `api_key` 的 URL 或上游响应体。
+- 追剧日历 webhook 命中精度已经固定为 `tmdbId + season + episode` 四元组；缺 `tmdbId` 时必须先解析唯一主条目，不能再用 `seriesId` 宽匹配改库。
+- 当前周 `ready` 纠偏与回写节流已经固定为 `correctionDebouncer` 模式，读路径不再直接同步写库。
+- `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` marker、cron 布尔解析容错已经成为当前同步基线。
+- 默认季选择策略已经固定为“最近 2 季 + last/next episode 相关季”，避免老剧补集漏季。
+
+## 交叉引用
+
+- 当前系统事实：
+  - [docs/system-architecture.md](</Users/konghang/data/github/ember/docs/system-architecture.md>) §5.18 已收录追剧日历同步链路、纠偏节流、`tmdb_cache` GC 与同步 marker
+  - [docs/system-architecture.md](</Users/konghang/data/github/ember/docs/system-architecture.md>) §4.16 已收录上游错误脱敏与 `httpx.InternalError` 的统一约束
+- 当前盘点入口：
+  - [docs/proposals/plan-inventory.md](</Users/konghang/data/github/ember/docs/proposals/plan-inventory.md>) 已把本方案标为“主干完成，保留尾项”
+## 退场说明
+
+- 本文档后续不再承担“当前追剧日历 / TMDB 集成事实说明”的职责；现行事实应以 `docs/system-architecture.md` 为准。
+- 在以下条件同时满足后，可移入 `docs/archive/plan/media-subscription/`：
+  - `resolveSeriesTMDBIDBySeriesID` 的缓存策略已明确落地，或明确放弃并同步修正文档目标
+  - Stripe / SMTP 错误脱敏 sweep 的边界已经明确，不再挂在本方案的剩余项里
+  - `docs/plan/README`、`docs/proposals/README`、`docs/proposals/plan-inventory.md` 已同步把本方案从现行实施稿入口移除
 
 ## 背景
 
@@ -33,7 +59,6 @@
 - `correctCurrentWeekReadyItems` 在 GET 接口里同步 `Updates` 写库 + 顺带刷新 `lastEpisodeIngestedAt`，是只读路径写放大热点。
 - `loadReadyEpisodesBySeries` 为每个 series 触发完整 Emby 分页扫描，单次读请求可能放大成几十次 Emby 调用。
 - `loadSourcesForSync`"无 activity marker 时回退全量源"叠加启动补偿同步，等价于服务每次重启都全库 force 同步一次。
-- `pickTargetSeasonNumbers` 仅取最近季，不覆盖历史已激活但 TMDB 标记 ended 的季；老剧补集时会漏季。
 - `resolveSeriesTMDBIDBySeriesID` 在每次剧集 webhook 都触发 2 次 Emby 调用查找主 TMDB ID，结果未缓存。
 - `cron.go` 把 `tvCalendarStartupSyncEnabled == "true"` 与字符串字面量比较，`True` / `TRUE` / 空格变体直接走 false 分支。
 - 同步链路单剧 Emby 抖动只 log 跳过、`continue`，没有 metric / 告警可观察。
@@ -53,7 +78,7 @@
 4. 当前周读时纠偏改为：纠正只在内存返回结构里完成；持久化纠偏改为后台合并节流（30s 内不重复）
 5. `loadReadyEpisodesBySeries` 引入按 `MinDateLastSaved` 或日期窗口的过滤，并设候选剧上限 N
 6. `loadSourcesForSync` 增加 `lastFullSyncAt` 字段，避免每次重启都全库 force 同步
-7. `pickTargetSeasonNumbers` 至少覆盖最近 2 季 + Next 季；force=true 时回退全季
+7. 季选择策略至少覆盖最近 2 季 + next / last episode 相关季，避免老剧补集漏季
 8. `resolveSeriesTMDBIDBySeriesID` 加 LRU 缓存（按 seriesId, 5 min TTL）
 9. cron 字符串布尔解析改用 `strconv.ParseBool`，统一容错
 10. 同步链路单剧失败落 metric counter + 关键日志补 `tmdbId / seriesId`
@@ -200,8 +225,8 @@
    - ≥ 24h 或 force：全量同步
 2. 启动补偿同步：默认仅触发活跃剧同步，不再退化为全库 force
 3. 单剧失败：metric counter + 日志带 `tmdbId / seriesId`，继续下一剧
-4. `pickTargetSeasonNumbers`：
-   - 默认覆盖最近 2 季 + Next 季 + 当前周相关季
+4. 季选择策略：
+   - 默认覆盖最近 2 季 + next / last episode 相关季
    - force=true：全季
 
 #### 4.5 cron 布尔解析统一
@@ -304,10 +329,15 @@
 
 ## 落地后文档处理
 
-- 落地后把"TMDB / MoviePilot 错误统一收敛"、"webhook 命中精度（四元组）"、"读时纠偏 30s 节流"、"TMDB cache GC"提炼到 `docs/system-architecture.md` §5.18
-- 新增 ConfigDefinition 提炼到设置中心说明
-- 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/media-subscription/`
-- P2 / P3 中未顺手收口的项纳入下一轮治理
+- 已提炼：
+  - `docs/system-architecture.md` §5.18：TMDB / MoviePilot 错误统一收敛、webhook 四元组命中、读时纠偏节流、`tmdb_cache` GC、同步 marker
+  - `docs/system-architecture.md` §4.16：上游错误脱敏与统一内部错误响应
+- 归档前仍需补的收尾：
+  - `resolveSeriesTMDBIDBySeriesID` 缓存策略的最终收口
+  - Stripe / SMTP 错误脱敏是否继续并入本方案，还是拆到独立治理文档
+  - `docs/plan/README` / `docs/proposals/README` / `docs/proposals/plan-inventory.md` 状态保持一致
+- 本方案完成尾项收口后，移入 `docs/archive/plan/media-subscription/`
+- 其余 P2 / P3 中未顺手收口的项转交下一轮追剧日历治理，不阻塞已稳定结论继续留在现行文档
 
 ## 附录：问题清单与本方案条目映射
 
@@ -321,7 +351,7 @@
 | P2-13 | webhook 串行三链路 | §4.2 |
 | P2-14 | `resolveSeriesTMDBIDBySeriesID` 未缓存 | §2 LRU + §4.2 |
 | P2-15 | `loadSourcesForSync` 无 marker 全量回退 | §2 + §4.4 |
-| P2-16 | `pickTargetSeasonNumbers` 漏季 | §4.4 |
+| P2-16 | `pickTargetSeasonNumbers` 漏季 | 已收口；默认季选择策略已更新 |
 | P2-20 | handler 透传 SQL 错误 | §3 + §5 |
 | P3-21 | cron 字符串布尔比较 | §4.5 |
 | P3-23 | 单剧 Emby 抖动静默跳过 | §4.4 + metric |

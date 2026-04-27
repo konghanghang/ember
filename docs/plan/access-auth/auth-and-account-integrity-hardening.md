@@ -15,7 +15,7 @@
 - ✅ 删除登录链路反向覆盖 Emby 密码的副作用
 - ✅ EmbyID 错配显式拒登 + ERROR 日志
 - ✅ `findLoginUser` / `ensureRegisterUserUnique` / `findUserByUsername` / `findUserByEmail` / SendVerificationCode 用户存在判断统一改 `lower(...)` 比较
-- ✅ Schema 层补 `lower(username)` / `lower(email)` 函数唯一索引（`20260426_02_users_lower_unique_indexes.sql`，含预检 fail-fast 与排查 SQL），DB 兜底逻辑重复账号
+- ✅ Schema 层补 `lower(username)` / `lower(email)` 函数唯一索引（`20260426_01_users_lower_unique_indexes.sql`，含预检 fail-fast 与排查 SQL），DB 兜底逻辑重复账号
 - ✅ IP 限流 SQL 增加 `"type" = ?` 过滤；清理 `validateVerificationRateLimits` 之前的死分支与已无调用点的 `validateVerificationRecipient`
 
 剩余项（ConfigService 目前已补 `source` / `hasValue`，但敏感项 `maskedValue` 语义仍未落地；`CheckExpiredUsers` cancel + 失败上限 / 更深一层 DI 治理）按 P2/P3 待后续批次。

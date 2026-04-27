@@ -9,7 +9,7 @@
 批次 0（commit `71a61f3`）已完成 `SafeGo` 收口；批次 1（commit `61cd9b2`）+ 后续 review 修复已完成本方案的 P0 / P1 主干项：
 
 - ✅ `VerifyBind` 命中 `len > 1` 时记 ERROR 日志（`code / count`）+ 改返回 `ErrTelegramBindCodeInvalid`，反 DoS：避免攻击者借"绑定码碰撞"造成全量用户绑不上
-- ✅ `GenerateBindCode` 改用 `Clauses(clause.OnConflict{Columns: userId, DoUpdates: code/expiresAt/createdAt}).Create` 原地刷新；新增 `infrastructure/database/20260426_01_telegram_bind_codes_user_unique.sql` 创建 `uq_telegram_bind_codes_user` 唯一索引；migration 内置 CTE 在建索引前去重旧绑定码（每个 userId 仅保留最新一条），避免 CREATE UNIQUE INDEX 因历史脏数据失败连带 API 启动期 VerifySchema 停摆；schemaFingerprintIndexes 已追加
+- ✅ `GenerateBindCode` 改用 `Clauses(clause.OnConflict{Columns: userId, DoUpdates: code/expiresAt/createdAt}).Create` 原地刷新；新增 `infrastructure/database/20260425_02_telegram_bind_codes_user_unique.sql` 创建 `uq_telegram_bind_codes_user` 唯一索引；migration 内置 CTE 在建索引前去重旧绑定码（每个 userId 仅保留最新一条），避免 CREATE UNIQUE INDEX 因历史脏数据失败连带 API 启动期 VerifySchema 停摆；schemaFingerprintIndexes 已追加
 - ✅ Handler 层 `GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 在 `ErrTelegramNotBound` 命中时统一返回 400 + `请求参数错误`，反 Telegram→Ember 绑定枚举
 - ✅ `PaymentSuccessNotification` 删除 `Email` / `StripeSessionID` / `StripePaymentIntentID` 三个字段；`payment service` 同步去赋值；Bot Python `format_payment_message` 去渲染 + 单测同步
 - ✅ `runtime_settings_service` 失败保留旧值，不再把有效配置覆盖为空值

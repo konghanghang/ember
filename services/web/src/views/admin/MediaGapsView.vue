@@ -33,6 +33,7 @@ import { formatDate } from '@/utils/date'
 import type {
   MediaGapGroupedQuery,
   MediaGapGroupedResponse,
+  MediaGapIgnoreReasonCode,
   MediaGapGroupedSeries,
   MediaGapGroupedSortMode,
   MediaGapItem,
@@ -296,6 +297,17 @@ const formatEpisodeCode = (row: Pick<MediaGapItem, 'season' | 'episode'>) => {
 
 const formatSeasonCode = (season: number) => {
   return `S${String(season).padStart(2, '0')}`
+}
+
+const ignoreReasonCodeLabel: Record<MediaGapIgnoreReasonCode, string> = {
+  manual: '人工忽略',
+  season_not_activated: '系统忽略'
+}
+
+const resolveIgnoreReasonLabel = (gap?: Pick<MediaGapItem, 'ignoreReasonCode'> | null) => {
+  const code = gap?.ignoreReasonCode
+  if (!code) return ''
+  return ignoreReasonCodeLabel[code] || ''
 }
 
 const seasonExpandKey = (seriesKey: string, season: number) => `${seriesKey}:${season}`
@@ -1196,10 +1208,14 @@ watch(sortMode, () => {
                 <span class="text-xs text-gray-500">播出 {{ formatDateOnly(resolveActiveGap(series)!.airDate) }}</span>
               </div>
               <div
-                v-if="resolveActiveGap(series)!.status === 'IGNORED' && resolveActiveGap(series)!.ignoreReason"
+                v-if="resolveActiveGap(series)!.status === 'IGNORED' && (resolveIgnoreReasonLabel(resolveActiveGap(series)!) || resolveActiveGap(series)!.ignoreReason)"
                 class="text-xs text-gray-500"
               >
-                {{ resolveActiveGap(series)!.ignoreReason }}
+                <span v-if="resolveIgnoreReasonLabel(resolveActiveGap(series)!)" class="font-medium text-gray-700">
+                  {{ resolveIgnoreReasonLabel(resolveActiveGap(series)!) }}
+                </span>
+                <span v-if="resolveIgnoreReasonLabel(resolveActiveGap(series)!) && resolveActiveGap(series)!.ignoreReason"> · </span>
+                <span>{{ resolveActiveGap(series)!.ignoreReason }}</span>
               </div>
               <div
                 v-if="resolveActiveGap(series)!.status === 'DISPATCH_FAILED' && resolveActiveGap(series)!.lastDispatchError"
@@ -1291,8 +1307,10 @@ watch(sortMode, () => {
             <el-tag :type="statusMeta[row.status].type" effect="light" round>
               {{ statusMeta[row.status].label }}
             </el-tag>
-            <div v-if="row.status === 'IGNORED' && row.ignoreReason" class="text-xs leading-5 text-gray-500">
-              {{ row.ignoreReason }}
+            <div v-if="row.status === 'IGNORED' && (resolveIgnoreReasonLabel(row) || row.ignoreReason)" class="text-xs leading-5 text-gray-500">
+              <span v-if="resolveIgnoreReasonLabel(row)" class="font-medium text-gray-700">{{ resolveIgnoreReasonLabel(row) }}</span>
+              <span v-if="resolveIgnoreReasonLabel(row) && row.ignoreReason"> · </span>
+              <span>{{ row.ignoreReason }}</span>
             </div>
           </div>
         </template>

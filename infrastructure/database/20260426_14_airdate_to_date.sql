@@ -1,4 +1,4 @@
--- 20260428_08_airdate_to_date
+-- 20260426_14_airdate_to_date
 -- 用途：将 tv_calendar_items.airDate 和 media_gaps.airDate 从 timestamptz 改为 date 类型，
 --       避免 DST 漂移导致日期偏移一天的问题。
 --

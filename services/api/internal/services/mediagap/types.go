@@ -69,9 +69,9 @@ type GroupedSeason struct {
 }
 
 type GroupedSeries struct {
-	Key             string            `json:"key"`
-	SeriesName      string            `json:"seriesName"`
-	TmdbID          string            `json:"tmdbId,omitempty"`
+	Key                 string            `json:"key"`
+	SeriesName          string            `json:"seriesName"`
+	TmdbID              string            `json:"tmdbId,omitempty"`
 	EmbySeriesID        string            `json:"embySeriesId,omitempty"`
 	Gaps                []models.MediaGap `json:"gaps"`
 	Seasons             []GroupedSeason   `json:"seasons"`
@@ -174,6 +174,7 @@ type MediaGapDTO struct {
 	RequestedAt       *time.Time            `json:"requestedAt,omitempty"`
 	IngestedAt        *time.Time            `json:"ingestedAt,omitempty"`
 	IgnoredAt         *time.Time            `json:"ignoredAt,omitempty"`
+	IgnoreReasonCode  *string               `json:"ignoreReasonCode,omitempty"`
 	IgnoreReason      string                `json:"ignoreReason,omitempty"`
 	LastDispatchError *string               `json:"lastDispatchError,omitempty"`
 	SearchSnapshot    *SearchSnapshot       `json:"searchSnapshot,omitempty"`
@@ -197,10 +198,11 @@ func toDTO(gap models.MediaGap) *MediaGapDTO {
 		RequestedAt:       gap.RequestedAt,
 		IngestedAt:        gap.IngestedAt,
 		LastDispatchError: gap.LastDispatchError,
-		IgnoredAt:      gap.IgnoredAt,
-		IgnoreReason:   gap.IgnoreReason,
-		CreatedAt:      gap.CreatedAt,
-		UpdatedAt:      gap.UpdatedAt,
+		IgnoredAt:         gap.IgnoredAt,
+		IgnoreReasonCode:  gap.IgnoreReasonCode,
+		IgnoreReason:      gap.IgnoreReason,
+		CreatedAt:         gap.CreatedAt,
+		UpdatedAt:         gap.UpdatedAt,
 	}
 
 	if gap.SearchSnapshot != "" {

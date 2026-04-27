@@ -385,6 +385,7 @@ export interface MediaQualityReport {
 }
 
 export type MediaGapStatus = 'MISSING' | 'SEARCHED' | 'REQUESTED' | 'INGESTED' | 'IGNORED' | 'DISPATCH_FAILED'
+export type MediaGapIgnoreReasonCode = 'manual' | 'season_not_activated'
 
 export interface MediaGapListQuery extends PaginationQuery {
   keyword?: string
@@ -453,6 +454,7 @@ export interface MediaGapItem {
   requestedAt?: string
   ingestedAt?: string
   ignoredAt?: string
+  ignoreReasonCode?: MediaGapIgnoreReasonCode
   ignoreReason?: string
   createdAt: string
   updatedAt: string

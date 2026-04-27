@@ -1,6 +1,6 @@
 # 订阅状态机与 webhook 命中精度加固方案
 
-> 状态：主干完成，保留尾项（P0 + P1 已落地）
+> 状态：可进入归档准备（P0 + P1 已落地）
 > 负责人：Ember
 > 更新时间：2026-04-28
 
@@ -11,20 +11,43 @@
 - ✅ 订阅审批 / 拒绝 / 管理员手动收口改为原子状态转移，避免旧快照覆盖新状态
 - ✅ 创建 / 重提交改为 advisory lock + 活跃唯一索引幂等收口
 - ✅ `RedispatchSubscription`、`DISPATCH_FAILED`、`lastDispatchError`、`media_gap_scans` 已落地
+- ✅ `ignoreReasonCode` 已落地：人工忽略写 `manual`，系统收口写 `season_not_activated`
 - ✅ `MarkSubscriptionIngestedAsAdmin` 与 webhook 路径用户通知对齐
 - ✅ handler 内部错误收口到统一错误响应，不再裸透 SQL 错误
 - ✅ 缺集扫描跨副本互斥已通过 PostgreSQL advisory lock + `media_gap_scans` 表落地
 - ✅ review 补丁已收口：缺集扫描不再整行 `Save` 回滚并发状态；命中 `IGNORED` 时不再自动复活；系统忽略不再计入整剧人工排除分母
 
-当前剩余项主要是模型 / 季选择治理尾项：
+当前剩余项主要是文档事实 / 观察性治理尾项：
 
-- `ignoreReasonCode` 尚未单独落库，当前仍以 `ignoreReason` 文本区分系统忽略与人工忽略
-- `pickTargetSeasonNumbers` / 文档事实 / 观察性说明仍需继续收口
+- 文档事实 / 观察性说明仍需继续收口
 
 ## 归档判断
 
-- 当前不适合归档。
-- 原因：`ignoreReasonCode` 和季选择治理仍未收口，继续保留在 `docs/plan/` 更符合当前职责边界。
+- 当前可以进入归档准备，但暂不直接归档。
+- 原因：主链路与剩余实现尾项已收口，当前主要剩文档事实和观察性治理，不再需要继续把它当核心实施稿维护。
+
+## 稳定结论
+
+以下结论已经稳定，可视为当前事实，而不是临时整改策略：
+
+- 订阅审批 / 拒绝 / 管理员手动收口必须走原子状态转移，命中并发冲突返回明确 409，而不是用整行覆盖写回旧快照。
+- 整剧订阅的自动收口语义已经固定：先写 `ingestProgress`，只有 `Y >= X` 时才自动进入 `INGESTED`；否则保留 `APPROVED`，管理员仍可显式确认。
+- 缺集工单的 `IGNORED` 决策不能被 webhook 或扫描自动撤销；`DISPATCH_FAILED` 是可观察、可重试的稳定状态，而不是临时 toast。
+- 缺集扫描跨副本互斥已经固定为 PostgreSQL advisory lock + `media_gap_scans` 审计记录，不再依赖进程内单实例心智。
+
+## 交叉引用
+
+- 当前系统事实：
+  - [docs/system-architecture.md](</Users/konghang/data/github/ember/docs/system-architecture.md>) §5.9 已收录订阅状态转移、`RedispatchSubscription`、整剧 `ingestProgress` 与 webhook 收口语义
+  - [docs/system-architecture.md](</Users/konghang/data/github/ember/docs/system-architecture.md>) §5.11 已收录 `media_gap_scans`、`DISPATCH_FAILED`、`IGNORED` 不复活和缺集 webhook 命中规则
+- 当前盘点入口：
+  - [docs/proposals/plan-inventory.md](</Users/konghang/data/github/ember/docs/proposals/plan-inventory.md>) 已把本方案标为“主干完成，保留尾项”
+## 退场说明
+
+- 本文档后续不再承担“当前订阅 / 缺集状态机事实说明”的职责；现行事实应以 `docs/system-architecture.md` 为准。
+- 在以下条件同时满足后，可移入 `docs/archive/plan/media-subscription/`：
+  - `docs/plan/README`、`docs/proposals/README`、`docs/proposals/plan-inventory.md` 已同步把本方案从现行实施稿入口移除
+  - 文中仍指向旧实施过程的表述已清理，不再与稳定文档重复承担规则说明
 
 ## 背景
 
@@ -40,7 +63,6 @@
 - `DispatchGapCandidate` 失败后 gap 状态不更新为可重试，前端只能依赖 toast；状态机里没有 `DISPATCH_FAILED`。
 - handler 直接 `c.JSON(StatusInternalServerError, gin.H{"error": err.Error()})`，把内部 SQL 错误透传给客户端。
 - `cleanupInactiveSeasonGaps` 把"季未激活"的工单一律改为 IGNORED 且 `ignoreReason` 是固定英文字符串，前端无法区分系统 IGNORE 与人工 IGNORE。
-- `pickTargetSeasonNumbers` 仅取最近季，老剧补集时会漏季。
 - `MarkSubscriptionIngestedAsAdmin` 路径不发 `notifyIngested`，与 webhook 路径用户体验不一致。
 - 通知协程裸 `go`，无超时、无 panic recover；该问题与 `bot-telegram` 计划共用 `safeFireAndForget` 收口。
 
@@ -60,7 +82,7 @@
 8. handler 错误响应统一过 `internalError(c, err)`，禁止裸透 SQL 错误
 9. `MarkSubscriptionIngestedAsAdmin` 与 webhook 路径用户通知行为对齐
 10. `cleanupInactiveSeasonGaps` 引入 `ignoreReasonCode` 字段区分人工 / 系统忽略
-11. `pickTargetSeasonNumbers` 至少覆盖最近 2 季 + Next 季；force=true 时回退全季
+11. 与追剧日历同步链路共享的季选择策略需保证老剧补集不漏季
 
 ## 非目标
 
@@ -342,14 +364,17 @@
 - [ ] sweep 所有"事务内调外部 IO"位置（订阅审批 → MoviePilot；mediagap dispatch；与 billing-redemption 的 fulfillPayment / RedeemCode 同类问题对齐）
 - [ ] 复核所有 status 转移路径是否都带 `WHERE status=?`，避免并发覆盖
 - [ ] 复核 webhook 解析 `tmdbId / seriesId / season / episode` 的健壮性（`extractInt` 失败默默 0 → 改为显式拒绝并 metric）
-- [ ] 复核 `pickTargetSeasonNumbers` 实际覆盖范围；老剧补集回归测试
+- [x] `pickTargetSeasonNumbers` 已覆盖最近 2 季 + last/next 相关季，老剧补集回归测试通过
 
 ## 落地后文档处理
 
-- 落地后把"订阅状态机原子转移契约"、"整剧订阅入库进度"、"缺集 IGNORED 不复活"、"DISPATCH_FAILED 重试入口"提炼到 `docs/system-architecture.md` §4.5 / §5.9 / §5.11
-- 把"缺集异步扫描跨副本互斥（advisory lock + media_gap_scans）"提炼到运行手册
-- 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/media-subscription/`
-- P2 / P3 中未顺手收口的项纳入下一轮治理
+- 已提炼：
+  - `docs/system-architecture.md` §5.9：订阅状态机原子转移、`RedispatchSubscription`、整剧 `ingestProgress`
+  - `docs/system-architecture.md` §5.11：`IGNORED` 不复活、`DISPATCH_FAILED`、`media_gap_scans` 与跨副本 advisory lock
+- 归档前仍需补的收尾：
+  - `docs/plan/README` / `docs/proposals/README` / `docs/proposals/plan-inventory.md` 状态保持一致
+- 本方案完成尾项收口后，移入 `docs/archive/plan/media-subscription/`
+- 其余 P2 / P3 中未顺手收口的项转交下一轮媒体订阅治理，不阻塞已稳定结论继续留在现行文档
 
 ## 附录：问题清单与本方案条目映射
 
@@ -362,7 +387,7 @@
 | P1-7 | 创建 / 重提交 TOCTOU | §4.4 |
 | P1-9 | 缺集异步扫描进程内单实例锁 | §4.5 + 表 `media_gap_scans` |
 | P2-13 | webhook 串行三链路 | §4.2 / §4.3（拆分批量更新） |
-| P2-16 | `pickTargetSeasonNumbers` 漏季 | 目标 §11 |
+| P2-16 | `pickTargetSeasonNumbers` 漏季 | 已收口；共享季选择策略已更新 |
 | P2-17 | `cleanupInactiveSeasonGaps` 系统 vs 人工 | §4.6 + 字段 `ignoreReasonCode` |
 | P2-18 | `MarkIngestedByWebhook` N 次 round-trip | §4.3 批量写 |
 | P2-19 | dispatch 失败无 `DISPATCH_FAILED` | §2 状态机扩展 |
@@ -392,7 +417,7 @@
 
 不在本批：
 
-- subscription `pickTargetSeasonNumbers` / `cleanupInactiveSeasonGaps` ignoreReasonCode 推到下一轮
+- subscription `cleanupInactiveSeasonGaps` ignoreReasonCode 推到下一轮
 
 ### 批次 2 review 修复（2026-04-27）
 

@@ -32,6 +32,11 @@ const (
 	systemIgnoreReason = "season not activated in library"
 )
 
+func stringPtr[T ~string](value T) *string {
+	v := string(value)
+	return &v
+}
+
 type tmdbMemoryCacheEntry struct {
 	Payload   []byte
 	ExpiresAt time.Time
@@ -392,13 +397,15 @@ func (s *Service) Ignore(ctx context.Context, id, reason string) (*models.MediaG
 	now := time.Now().UTC()
 	gap.Status = models.MediaGapStatusIgnored
 	gap.IgnoredAt = &now
+	gap.IgnoreReasonCode = stringPtr(models.MediaGapIgnoreReasonManual)
 	gap.IgnoreReason = strings.TrimSpace(reason)
 	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
 		Where("id = ?", gap.ID).
 		Updates(map[string]interface{}{
-			"status":       gap.Status,
-			"ignoredAt":    gap.IgnoredAt,
-			"ignoreReason": gap.IgnoreReason,
+			"status":           gap.Status,
+			"ignoredAt":        gap.IgnoredAt,
+			"ignoreReasonCode": gap.IgnoreReasonCode,
+			"ignoreReason":     gap.IgnoreReason,
 		}).Error; err != nil {
 		return nil, fmt.Errorf("忽略缺集工单失败: %w", err)
 	}
@@ -932,6 +939,10 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 			existing.IgnoredAt = cloneTimePointer(scannedAt)
 			changed = true
 		}
+		if existing.IgnoreReasonCode == nil || strings.TrimSpace(*existing.IgnoreReasonCode) != string(models.MediaGapIgnoreReasonSeasonNotActivated) {
+			existing.IgnoreReasonCode = stringPtr(models.MediaGapIgnoreReasonSeasonNotActivated)
+			changed = true
+		}
 
 		reason := systemIgnoreReason
 		if existing.IgnoreReason != reason {
@@ -957,12 +968,13 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 			Model(&models.MediaGap{}).
 			Where("id = ? AND status IN ?", existing.ID, []models.MediaGapStatus{models.MediaGapStatusMissing, models.MediaGapStatusSearched}).
 			Updates(map[string]interface{}{
-				"status":        existing.Status,
-				"ignoredAt":     existing.IgnoredAt,
-				"ignoreReason":  existing.IgnoreReason,
-				"embySeriesId":  existing.EmbySeriesID,
-				"seriesName":    existing.SeriesName,
-				"lastScannedAt": existing.LastScannedAt,
+				"status":           existing.Status,
+				"ignoredAt":        existing.IgnoredAt,
+				"ignoreReasonCode": existing.IgnoreReasonCode,
+				"ignoreReason":     existing.IgnoreReason,
+				"embySeriesId":     existing.EmbySeriesID,
+				"seriesName":       existing.SeriesName,
+				"lastScannedAt":    existing.LastScannedAt,
 			}).Error; err != nil {
 			return cleaned, fmt.Errorf("收口未激活季缺集工单失败: %w", err)
 		}

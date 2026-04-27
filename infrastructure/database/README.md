@@ -58,25 +58,25 @@ cd services/api && go run ./cmd/migrate
 - `20260418_01_media_gaps.sql`
 - `20260424_01_subscription_resubmission_after_rejection.sql`
 - `20260425_01_baseline_normalization_indexes.sql`
-- `20260426_01_telegram_bind_codes_user_unique.sql`
-- `20260426_02_users_lower_unique_indexes.sql`
-- `20260427_01_failed_emby_async_ops.sql`
-- `20260427_02_stripe_webhook_events.sql`
-- `20260427_03_payments_pending_unique.sql`
-- `20260427_04_payments_dedupe_indexes.sql`
-- `20260427_05_subscriptions_ingest_progress.sql`
-- `20260427_06_media_gaps_dispatch_failed.sql`
-- `20260427_07_media_gap_scans.sql`
-- `20260428_01_playback_rankings_idempotency.sql`
-- `20260428_02_media_quality_caches_inflight.sql`
-- `20260428_03_device_actions_operator_id.sql`
-- `20260428_05_tv_calendar_sources_sync_markers.sql`
-- `20260428_06_bot_pending_reject_requests.sql`
-- `20260428_07_schema_alignment.sql`
-- `20260428_08_airdate_to_date.sql`
-- `20260428_09_users_password_reset_required.sql`
-- `20260428_10_subscriptions_note_not_null.sql`
-- `20260428_11_bot_runtime_locks.sql`
+- `20260425_02_telegram_bind_codes_user_unique.sql`
+- `20260426_01_users_lower_unique_indexes.sql`
+- `20260426_02_failed_emby_async_ops.sql`
+- `20260426_03_stripe_webhook_events.sql`
+- `20260426_04_payments_checkout_constraints.sql`
+- `20260426_05_subscriptions_ingest_progress.sql`
+- `20260426_06_media_gaps_dispatch_failed.sql`
+- `20260426_07_media_gap_scans.sql`
+- `20260426_08_playback_rankings_idempotency.sql`
+- `20260426_09_media_quality_caches_inflight.sql`
+- `20260426_10_device_actions_operator_id.sql`
+- `20260426_11_tv_calendar_sources_sync_markers.sql`
+- `20260426_12_bot_pending_reject_requests.sql`
+- `20260426_13_schema_alignment.sql`
+- `20260426_14_airdate_to_date.sql`
+- `20260426_15_users_password_reset_required.sql`
+- `20260426_16_subscriptions_note_not_null.sql`
+- `20260427_01_bot_runtime_locks.sql`
+- `20260427_02_media_gaps_ignore_reason_code.sql`
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
 
