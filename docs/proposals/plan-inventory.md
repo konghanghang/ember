@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-04-27
+> 更新时间：2026-04-28
 
 本清单只回答三件事：
 
@@ -20,9 +20,9 @@
 
 当前总览：
 
-- 8 份主计划里，`7` 份已经有代码落地证据
-- 其中 `1` 份（前端批次 4）目前只有实施计划，尚未开始落地
-- 还没有哪 1 份可以直接判定为“全部收口并可归档”，因为前 7 份都还留有尾项、二次暴露清单，或源文档状态尚未回写
+- 8 份主计划里，`8` 份已经有代码落地证据
+- 其中计划 6（前端批次 4）已完成 P0 / P1 / 部分 P2 收口，但仍保留少量 P2/P3 治理尾项
+- 还没有哪 1 份可以直接判定为“全部收口并可归档”，因为 8 份都还留有尾项、二次暴露清单，或源文档状态尚未完全回写
 
 | 编号 | 文档 | 当前判定 | 已落地证据 | 主要剩余项 | 建议动作 |
 |------|------|----------|------------|------------|----------|
@@ -31,7 +31,7 @@
 | 3 | `media-subscription/subscription-state-machine-hardening.md` | 主干已落地，源文档状态滞后 | 文档正文已有 `批次 2 已落地（2026-04-27）`；原子状态转移、`ingestProgress`、IGNORED 不复活、`redispatch`、`DISPATCH_FAILED`、前端闭环均已完成 | `pickTargetSeasonNumbers`、`ignoreReasonCode` 等下一轮尾项；顶部 `状态：草稿` 未回写 | 补写源文档状态，继续保留直到剩余 P2/P3 收口 |
 | 4 | `media-subscription/tv-calendar-and-tmdb-key-protection.md` | 部分已落地 | 文档顶部已写 `P0 + P2 部分已落地`；TMDB / MoviePilot 错误脱敏、`httpx.InternalError` 收口已完成 | webhook tmdbId 污染、cache GC / 读时纠偏等剩余项；需把批次 3-A 落地情况回写进源文档 | 继续保留在 `docs/plan/`，补写批次 3-A 已落地段落 |
 | 5 | `console-admin/playback-and-device-observation-hardening.md` | 主干大部分已落地，源文档状态滞后 | 批次 3-A 已完成排行榜幂等、single-flight、`LATEST_CACHE_PER_USER`、媒体质量 inflight、设备审计等主干收口 | 源文档顶部仍是 `状态：草稿`；用户侧海报代理留给批次 4；若干 P2/P3 sweep 未做 | 补写源文档状态，剩余前端消费项由批次 4 处理 |
-| 6 | `console-admin/web-frontend-auth-and-design-baseline-fix.md` | 待落地 | 文档已升级为 `批次 4 实施计划（前置批次 0-3 已完成，待落地）`，并已拆成 4 个 PR 顺序 | 整份计划尚未开始落代码；包含唯一一个必要的窄后端协作项 `/api/v1/media/posters/:itemId` | 这是当前最高优先级，直接从 PR-1 前端鉴权红线开始 |
+| 6 | `console-admin/web-frontend-auth-and-design-baseline-fix.md` | P0 / P1 / 部分 P2 已落地 | 批次 4 已完成前端鉴权红线、Dashboard 真相收口、用户侧海报代理、续费页竞态、订阅确认安全渲染、时间格式与 tone token 收口；架构和设计文档已同步当前事实 | `useUserStore.subscriptions` 双轨代码尚未完全清理；P3 风格 / chunks / icon 类 sweep 仍留后续治理 | 继续保留在 `docs/plan/`，待尾项收口后再决定是否归档 |
 | 7 | `bot-telegram/bot-notification-and-info-leak-hardening.md` | 部分已落地 | 文档顶部已写 `P0 部分已落地`；批次 0 已收 `SafeGo`，批次 1 已做 VerifyBind 反 DoS、绑定码 ON CONFLICT、错误模糊化、支付通知脱敏 | BotNotifier 单例、httpx limits、Polling 单实例、持久化 reject 请求等剩余项；需把批次 3-A 落地情况回写进源文档 | 继续保留在 `docs/plan/`，补写批次 3-A 已落地段落 |
 | 8 | `architecture/schema-deployment-and-baseline-cleanup.md` | 主干大部分已落地，源文档状态滞后 | 批次 0 已落 `AUTO_MIGRATE=false`、compose 收口、initdb 隔离；批次 3-B 已完成 schema 对齐、airDate、连接池、Dockerfile、runbook 主体 | 源文档顶部仍是 `状态：草稿`；baseline 精简归档等 P3 治理尾项未做 | 补写源文档状态，并明确 FK 相关条目已作废 |
 

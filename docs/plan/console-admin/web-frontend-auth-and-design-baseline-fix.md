@@ -1,8 +1,38 @@
 # 前端鉴权与设计基线收口方案
 
-> 状态：批次 4 实施计划（前置批次 0-3 已完成，待落地）
+> 状态：P0 + P1 + 部分 P2 已落地（批次 4 已完成）；剩余 P2/P3 待后续治理
 > 负责人：Ember
-> 更新时间：2026-04-27
+> 更新时间：2026-04-28
+
+## 落地进度
+
+批次 4 已按 4 个 PR 落地完成：
+
+- ✅ `5fd236a` `fix(web): 收口前端鉴权红线`
+  - `request.ts` 401 单例化
+  - `/login` 与 `/logout` 的 401 行为分流
+  - `useAuthStore` 跨标签登录态同步
+  - 路由守卫改为遍历 `to.matched`
+  - `LoginView` `redirect` 白名单
+- ✅ `75735d1` `fix(console): 收口概览页入口与海报代理`
+  - Dashboard 删除伪造“备用线路 A/B”
+  - 用户侧 `GET /api/v1/media/posters/:itemId`
+  - 最近入库改为 blob/object URL 海报代理
+- ✅ `fc10a61` `fix(console): 收口续费页竞态与订阅确认渲染`
+  - 续费页支付 / 兑换记录分页请求 token 收口
+  - `redirectToCheckout` 失败提示 + loading 修正
+  - `SubscriptionsView` / `NewSubscriptionView` 去掉 `dangerouslyUseHTMLString`
+- ✅ `5c7b970` `refactor(web): 统一时间格式与 tone token`
+  - 新增 `components/ember/tokens.ts`
+  - `utils/date.ts` 统一时间格式
+  - `EmberEmptyStateCard` / `EmberMetricCard` / `TVCalendarView` 接入统一 tone 语义
+  - `docs/reference/web-design-guide.md` / `docs/system-architecture.md` 同步当前事实
+
+当前剩余项：
+
+- `useUserStore.subscriptions` 仍保留历史状态与 actions，虽已不再作为控制台订阅页主数据源，但双轨代码尚未完全清除
+- `vite proxy / prod baseURL` 相关部署说明已提炼到架构文档事实层，若后续需要更细的部署步骤，应补到 runbook 而不是继续留在实施稿
+- `P3` 风格 / icon / chunks 等 sweep 仍属于下一轮“前端一致性治理”，不阻塞本批功能闭环
 
 ## 批次定位
 
