@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	devicepkg "github.com/konghang/ember/backend/internal/services/device"
 )
 
@@ -32,7 +33,7 @@ func (h *DeviceHandler) GetDevices(c *gin.Context) {
 
 	resp, err := h.service.GetDevices(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -42,7 +43,7 @@ func (h *DeviceHandler) GetDevices(c *gin.Context) {
 func (h *DeviceHandler) GetBlacklist(c *gin.Context) {
 	blacklists, err := h.service.GetBlacklist()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -61,7 +62,7 @@ func (h *DeviceHandler) AddToBlacklist(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -77,7 +78,7 @@ func (h *DeviceHandler) RemoveFromBlacklist(c *gin.Context) {
 		case errors.Is(err, devicepkg.ErrClientBlacklistNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -92,7 +93,7 @@ func (h *DeviceHandler) LogoutDevice(c *gin.Context) {
 		case errors.Is(err, devicepkg.ErrDeviceIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -103,9 +104,7 @@ func (h *DeviceHandler) LogoutDevice(c *gin.Context) {
 func (h *DeviceHandler) LogoutBlacklistedDevices(c *gin.Context) {
 	result, err := h.service.LogoutBlacklistedDevices()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -126,7 +125,7 @@ func (h *DeviceHandler) LogoutBlacklistedDevices(c *gin.Context) {
 func (h *DeviceHandler) GetStats(c *gin.Context) {
 	stats, err := h.service.GetStats()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -144,7 +143,7 @@ func (h *DeviceHandler) GetActions(c *gin.Context) {
 
 	actions, err := h.service.GetDeviceActions(req.Limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

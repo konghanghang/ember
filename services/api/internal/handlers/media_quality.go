@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	mediapkg "github.com/konghang/ember/backend/internal/services/media"
 )
 
@@ -25,7 +26,7 @@ func NewMediaQualityHandler() *MediaQualityHandler {
 func (h *MediaQualityHandler) GetLibraries(c *gin.Context) {
 	libraries, err := h.service.GetLibraries()
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -51,7 +52,7 @@ func (h *MediaQualityHandler) GetLibraryQuality(c *gin.Context) {
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -72,7 +73,7 @@ func (h *MediaQualityHandler) ScanLibraryQuality(c *gin.Context) {
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -101,7 +102,7 @@ func (h *MediaQualityHandler) GetLibraryQualityGroupDetails(c *gin.Context) {
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}

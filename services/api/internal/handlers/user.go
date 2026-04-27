@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	userpkg "github.com/konghang/ember/backend/internal/services/user"
@@ -423,7 +424,7 @@ func (h *UserHandler) RedeemCode(c *gin.Context) {
 			errors.Is(err, redemptionpkg.ErrRedemptionDuplicate):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -454,7 +455,7 @@ func (h *UserHandler) GetRedemptions(c *gin.Context) {
 
 	resp, err := h.redemptionService.GetRedemptions(userID.(string), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -470,7 +471,7 @@ func (h *UserHandler) GetAllRedemptions(c *gin.Context) {
 
 	resp, err := h.redemptionService.GetAllRedemptions(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	mediapkg "github.com/konghang/ember/backend/internal/services/media"
@@ -49,10 +50,7 @@ func (h *MediaHandler) GetEmbyConfig(c *gin.Context) {
 func (h *MediaHandler) GetMediaStats(c *gin.Context) {
 	stats, err := h.service.GetMediaStats()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   err.Error(),
-		})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -105,7 +103,7 @@ func (h *MediaHandler) GetLatestItems(c *gin.Context) {
 
 	items, err := h.service.GetLatestItems(user.EmbyID, itemType, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

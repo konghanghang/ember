@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	"github.com/konghang/ember/backend/internal/models"
 	authpkg "github.com/konghang/ember/backend/internal/services/auth"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
@@ -225,7 +226,7 @@ func (h *AuthHandler) ResetPasswordByCode(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

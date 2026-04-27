@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
@@ -52,7 +53,7 @@ func (h *RankingHandler) GetLatestRanking(c *gin.Context) {
 
 	result, err := h.service.GetLatestRanking(period)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -109,10 +110,7 @@ func (h *RankingHandler) GenerateRanking(c *gin.Context) {
 	}
 
 	if err := h.service.GenerateRanking(period, startPtr, endPtr); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   err.Error(),
-		})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -140,7 +138,7 @@ func (h *RankingHandler) PreviewRanking(c *gin.Context) {
 
 	result, err := h.service.PreviewRanking(period)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -200,7 +198,7 @@ func (h *RankingHandler) GetHistoryRanking(c *gin.Context) {
 
 	result, err := h.service.GetHistoryRanking(period, rangeStart, rangeEnd)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 

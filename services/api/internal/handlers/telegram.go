@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
@@ -113,7 +114,7 @@ func (h *TelegramHandler) GetAccountInfo(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -164,7 +165,7 @@ func (h *TelegramHandler) ResetPassword(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -172,7 +173,7 @@ func (h *TelegramHandler) ResetPassword(c *gin.Context) {
 }
 
 var (
-	tmdbIDPattern   = regexp.MustCompile(`^\d{1,10}$`)
+	tmdbIDPattern     = regexp.MustCompile(`^\d{1,10}$`)
 	posterPathPattern = regexp.MustCompile(`^/[\w./-]+$`)
 )
 
@@ -236,7 +237,7 @@ func (h *TelegramHandler) EnqueuePendingReject(c *gin.Context) {
 	}
 
 	if err := telegrampkg.EnqueuePendingReject(c.Request.Context(), req.ChatID, req.AdminUserID, req.SubscriptionID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -253,7 +254,7 @@ func (h *TelegramHandler) PopPendingReject(c *gin.Context) {
 
 	record, err := telegrampkg.PopPendingReject(c.Request.Context(), req.ChatID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 	if record == nil {

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 )
 
@@ -57,7 +58,7 @@ func NewSessionHandler() *SessionHandler {
 func (h *SessionHandler) GetActiveSessions(c *gin.Context) {
 	sessions, err := h.embyService.GetSessions()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpx.InternalError(c, err)
 		return
 	}
 
