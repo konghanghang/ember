@@ -1,5 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/store/auth'
+
+const adminRouteMeta = { role: 'admin' } as const
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -86,19 +89,19 @@ const router = createRouter({
         {
           path: 'users',
           name: 'console-users',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/UsersView.vue'),
         },
         {
           path: 'user-profiles',
           name: 'console-user-profiles',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/UserPlaybackProfilesView.vue'),
         },
         {
           path: 'user-profiles/:id',
           name: 'console-user-profile',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/UserPlaybackProfileView.vue'),
         },
         {
@@ -111,7 +114,7 @@ const router = createRouter({
         {
           path: 'redemptions',
           name: 'console-redemptions',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/RedemptionCenterView.vue'),
         },
         {
@@ -137,43 +140,43 @@ const router = createRouter({
         {
           path: 'settings',
           name: 'console-settings',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/SettingsView.vue'),
         },
         {
           path: 'sessions',
           name: 'console-sessions',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/SessionsView.vue'),
         },
         {
           path: 'playback-history',
           name: 'console-playback-history',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/PlaybackHistoryView.vue'),
         },
         {
           path: 'media-quality',
           name: 'console-media-quality',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/MediaQualityView.vue'),
         },
         {
           path: 'media-gaps',
           name: 'console-media-gaps',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/MediaGapsView.vue'),
         },
         {
           path: 'devices',
           name: 'console-devices',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/DevicesView.vue'),
         },
         {
           path: 'billing',
           name: 'console-billing',
-          meta: { role: 'admin' },
+          meta: adminRouteMeta,
           component: () => import('../views/admin/PaymentCenterView.vue'),
         },
         {
@@ -224,21 +227,23 @@ const router = createRouter({
 // Navigation Guard
 router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore()
-
   authStore.restoreAuth()
+  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth === true)
+  const requiredRole = to.matched.find((record) => typeof record.meta.role === 'string')?.meta.role
 
   if (to.name === 'login' && authStore.isAuthenticated) {
     next({ name: 'console-dashboard' })
     return
   }
 
-  if (to.meta.requiresAuth) {
+  if (requiresAuth) {
     if (!authStore.isAuthenticated) {
       next({ name: 'login', query: { redirect: to.fullPath } })
       return
     }
 
-    if (to.meta.role && to.meta.role !== authStore.role) {
+    if (requiredRole && requiredRole !== authStore.role) {
+      ElMessage.warning('当前账号无权访问该页面')
       next({ name: 'console-dashboard' })
       return
     }

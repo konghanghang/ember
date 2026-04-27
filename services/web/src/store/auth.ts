@@ -5,9 +5,53 @@ import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import type { LoginCredentials, RegisterRequest, LoginResponse, RegisterResponse, LoginProtectionConfig } from '@/types/api'
 
+const AUTH_TOKEN_KEY = 'token'
+const AUTH_ROLE_KEY = 'role'
+
+type AuthRole = 'admin' | 'user'
+type CrossTabSyncReason = 'signed-out' | 'updated'
+
+function readStorageItem(key: string): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeStorageItem(key: string, value: string) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // localStorage 不可用时退化为当前 tab 内存态。
+  }
+}
+
+function removeStorageItem(key: string) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // localStorage 不可用时退化为当前 tab 内存态。
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem('token'))
-  const role = ref<string | null>(localStorage.getItem('role'))
+  const token = ref<string | null>(readStorageItem(AUTH_TOKEN_KEY))
+  const role = ref<string | null>(readStorageItem(AUTH_ROLE_KEY))
+  const crossTabSyncEnabled = ref(false)
+  let stopStorageSync: (() => void) | null = null
 
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => role.value === 'admin')
@@ -54,32 +98,100 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  const setAuth = (newToken: string, newRole: 'admin' | 'user') => {
+  const setAuth = (newToken: string, newRole: AuthRole) => {
     token.value = newToken
     role.value = newRole
-    localStorage.setItem('token', newToken)
-    localStorage.setItem('role', newRole)
+    writeStorageItem(AUTH_TOKEN_KEY, newToken)
+    writeStorageItem(AUTH_ROLE_KEY, newRole)
   }
 
   const clearAuth = () => {
     token.value = null
     role.value = null
-    localStorage.removeItem('token')
-    localStorage.removeItem('role')
+    removeStorageItem(AUTH_TOKEN_KEY)
+    removeStorageItem(AUTH_ROLE_KEY)
   }
 
   const restoreAuth = () => {
-    const savedToken = localStorage.getItem('token')
-    const savedRole = localStorage.getItem('role')
+    const savedToken = readStorageItem(AUTH_TOKEN_KEY)
+    const savedRole = readStorageItem(AUTH_ROLE_KEY)
     if (savedToken && savedRole) {
       token.value = savedToken
       role.value = savedRole
+      return
+    }
+
+    if (token.value || role.value) {
+      return
+    }
+
+    token.value = null
+    role.value = null
+  }
+
+  const syncAuthFromStorage = (): CrossTabSyncReason | null => {
+    const savedToken = readStorageItem(AUTH_TOKEN_KEY)
+    const savedRole = readStorageItem(AUTH_ROLE_KEY)
+    const previousToken = token.value
+    const previousRole = role.value
+    const nextToken = savedToken && savedRole ? savedToken : null
+    const nextRole = savedToken && savedRole ? savedRole : null
+
+    if (previousToken === nextToken && previousRole === nextRole) {
+      return null
+    }
+
+    token.value = nextToken
+    role.value = nextRole
+    useConsoleStore().clearConsoleData()
+    useUserStore().clearUserData()
+
+    if (!nextToken || !nextRole) {
+      return previousToken || previousRole ? 'signed-out' : null
+    }
+
+    return 'updated'
+  }
+
+  const initCrossTabSync = (onChanged?: (reason: CrossTabSyncReason) => void) => {
+    if (crossTabSyncEnabled.value || typeof window === 'undefined') {
+      return
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.storageArea !== window.localStorage) {
+        return
+      }
+
+      if (event.key !== null && event.key !== AUTH_TOKEN_KEY && event.key !== AUTH_ROLE_KEY) {
+        return
+      }
+
+      const reason = syncAuthFromStorage()
+      if (reason && onChanged) {
+        onChanged(reason)
+      }
+    }
+
+    window.addEventListener('storage', handleStorage)
+    crossTabSyncEnabled.value = true
+    stopStorageSync = () => {
+      window.removeEventListener('storage', handleStorage)
+      crossTabSyncEnabled.value = false
+      stopStorageSync = null
+    }
+  }
+
+  const destroyCrossTabSync = () => {
+    if (stopStorageSync) {
+      stopStorageSync()
     }
   }
 
   return {
     token,
     role,
+    crossTabSyncEnabled,
     isAuthenticated,
     isAdmin,
     isUser,
@@ -89,6 +201,8 @@ export const useAuthStore = defineStore('auth', () => {
     setAuth,
     clearAuth,
     restoreAuth,
+    initCrossTabSync,
+    destroyCrossTabSync,
     loadProtectionConfig,
     protectionConfig
   }

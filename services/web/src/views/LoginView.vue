@@ -22,11 +22,21 @@ const configLoading = ref(true)
 const configError = ref<string | null>(null)
 const turnstileWidgetRef = ref<{ reset: () => void } | null>(null)
 
-const updateRedirectTarget = () => {
-  const redirect = route.query.redirect
-  if (typeof redirect === 'string' && redirect) {
-    redirectTarget.value = redirect
+const resolveSafeRedirect = (value: unknown) => {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) {
+    return '/console/dashboard'
   }
+
+  const resolved = router.resolve(value)
+  if (resolved.matched.length === 0 || resolved.name === 'not-found') {
+    return '/console/dashboard'
+  }
+
+  return value
+}
+
+const updateRedirectTarget = () => {
+  redirectTarget.value = resolveSafeRedirect(route.query.redirect)
 }
 
 const isTurnstileEnabled = computed(() => {
@@ -144,7 +154,7 @@ const handleLogin = async () => {
     }
     await authStore.login(payload)
     ElMessage.success('登录成功')
-    router.push(redirectTarget.value)
+    await router.replace(redirectTarget.value)
   } catch {
     if (isTurnstileEnabled.value) {
       resetTurnstileState()

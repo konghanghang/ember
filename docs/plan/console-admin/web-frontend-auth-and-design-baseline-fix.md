@@ -1,8 +1,27 @@
 # 前端鉴权与设计基线收口方案
 
-> 状态：草稿
+> 状态：批次 4 实施计划（前置批次 0-3 已完成，待落地）
 > 负责人：Ember
-> 更新时间：2026-04-25
+> 更新时间：2026-04-27
+
+## 批次定位
+
+本方案是这轮 8 份主计划里的 **计划 6**，对应总路线图中的 **批次 4｜前端鉴权 + 设计基线**。它不是一份孤立的前端美化文档，而是承接批次 1-3 后端契约后的用户侧收口。
+
+本轮主干 8 份计划如下：
+
+| 编号 | 计划 | 现状 | 与批次 4 的关系 |
+|---|---|---|---|
+| 1 | `docs/plan/access-auth/auth-and-account-integrity-hardening.md` | 批次 1/2 关键项已落地 | 提供登录 / 注册 / 忘记密码的安全边界，前端消费登录态与文案约束 |
+| 2 | `docs/plan/billing-redemption/payment-redemption-integrity-hardening.md` | 批次 2 已落地 | 前端需要消费 `payments.status='expired'`、结账幂等后的交互行为 |
+| 3 | `docs/plan/media-subscription/subscription-state-machine-hardening.md` | 批次 2 已落地 | 前端需要消费 `ingestProgress`、`redispatch`、状态机收口后的展示 |
+| 4 | `docs/plan/media-subscription/tv-calendar-and-tmdb-key-protection.md` | 批次 1 / 3A 关键项已落地 | 前端需要消费追剧日历纠偏后的稳定返回与统一错误语义 |
+| 5 | `docs/plan/console-admin/playback-and-device-observation-hardening.md` | 批次 3-A 已落地大部分 | 前端已可消费 `scan_in_flight`、`LATEST_CACHE_PER_USER` 等契约；但用户侧海报代理仍需本批补齐 |
+| 6 | `docs/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md` | 本计划 | 批次 4 主体 |
+| 7 | `docs/plan/bot-telegram/bot-notification-and-info-leak-hardening.md` | 批次 1 / 3A 已落地 | 本批仅消费其稳定结果，不直接改 Bot |
+| 8 | `docs/plan/architecture/schema-deployment-and-baseline-cleanup.md` | 批次 0 / 3-B 已落地 | 提供部署 / 运行基线，本批只补前端部署文档结论 |
+
+不属于这轮主干的文档，例如 `registration-email-domain-allowlist.md`、`notification-mute-rules.md`、`database-migration-baseline-and-archive.md`、`in-app-notification-center.md` 等，不纳入本批次依赖排序。
 
 ## 背景
 
@@ -36,7 +55,7 @@
 3. `request.ts` 401 拦截改单例化（模块级 flag），并把当前 path 写入 `redirect` 参数
 4. `auth.logout()` 与 401 拦截路径解耦：拦截器跳过 `url === '/logout'` 的 401
 5. 跨标签登录态同步：`useAuthStore` 初始化时挂 `storage` 事件，监听 token / role 变化
-6. 路由守卫遍历 `to.matched`，任何一层有 `meta.role` 强校验；admin 子路由统一套父路由
+6. 路由守卫遍历 `to.matched`，任何一层有 `meta.role` 强校验；admin 页面统一复用共享 `meta.role='admin'` 定义
 7. 普通用户访问 admin 路由：重定向后 `ElMessage.warning` 提示
 8. `RecentLibrarySection` 海报改走后端代理（参考 `media-quality/posters/:itemId` 的代理模式）
 9. Dashboard 不再直接写 store 字段，统一通过 store action
@@ -84,6 +103,13 @@
 - 现有限制：
   - 前端必须遵守 Ember 风格（`docs/reference/web-design-guide.md`）
   - 后端 `/api/v1/emby/config` 仅返回单条 URL
+  - 必须保持现有用户可见路由不变，例如 `/console/users`、`/console/billing`、`/console/subscriptions`；本批禁止为了守卫收口而改路由路径语义
+  - 批次 2 / 3 已提供的后端契约已就位：`redispatchSubscription`、`Subscription.ingestProgress`、`PaymentStatus='expired'`、媒体质量 `scan_in_flight` 等均已可消费
+  - 当前唯一未就位的直接协作项是用户侧海报代理：现有只有 `/api/v1/admin/media-quality/posters/:itemId`，普通用户不能复用
+
+## 方案边界
+
+本批以 `services/web` 为主，但包含 1 个必要的窄后端协作项：新增用户侧海报代理 `GET /api/v1/media/posters/:itemId`。原因很简单：`RecentLibrarySection` 现在仍在直拼 Emby 图床，继续拖着只会把“公开图床依赖”永久固化。
 
 ## 方案设计
 
@@ -126,10 +152,11 @@
 
 #### 后端接口
 
-本计划不要求后端新增接口，但依赖以下后端契约：
+本批默认以前端改动为主，但依赖以下后端契约与 1 个必要协作接口：
 
 - `/api/v1/emby/config` 保持单条 `url`；如未来需要多线路，由后端在响应中返回 `accessUrls: string[]` 并约定语义
-- `/api/v1/admin/media-quality/posters/:itemId` 已存在的代理模式，作为"最近入库"海报代理参考；如确需新增 `/api/v1/media/posters/:itemId`，由 `console-admin/playback-and-device-observation-hardening.md` 协同
+- `/api/v1/admin/media-quality/posters/:itemId` 已存在的代理模式，只作为实现参考，**不能**直接给普通用户复用
+- 本批新增 `GET /api/v1/media/posters/:itemId`：按当前登录用户的 `embyUserID` 鉴权后代理 Emby 图床，供 `RecentLibrarySection` 使用
 - `/api/v1/logout` 后端实现保持 stub 语义不变；前端文档明确"仅清本端"
 
 #### 前端契约
@@ -146,7 +173,7 @@
   - 未登录 → `/login?redirect=<encoded path>`
 - `LoginView`:
   - `redirect = route.query.redirect`
-  - 校验：`typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//') && router.resolve(redirect).matched.length > 0`
+  - 校验：`typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//') && router.resolve(redirect).matched.length > 0 && router.resolve(redirect).name !== 'not-found'`
   - 不通过：回退到 `/console/dashboard`
 - 时间格式（`utils/date.ts`）：
   - `formatDateTime(value, { style: 'short' | 'long' | 'date' | 'relative' })`
@@ -176,8 +203,8 @@
    - 若 `requiresAuth=true` 但无 token → push `/login?redirect=<to.fullPath>`
    - 若 `meta.role` 与当前角色不匹配 → push `/console/dashboard` + ElMessage.warning
    - 否则 next()
-2. admin 子路由统一收到 `/console/admin/*` 父路由下，父路由 meta `{ requiresAuth: true, role: 'admin' }`
-3. 同理 user 子路由 `/console/user/*` 或共享路由 meta.requiresAuth
+2. 保持现有 `/console/users`、`/console/billing`、`/console/settings` 等路径不变；仅收口 `meta` 声明与守卫逻辑，不改用户已知 URL
+3. 对 admin 页面使用共享 `adminRouteMeta` 常量或等价方式，避免新增页面时漏写 `meta.role='admin'`
 
 #### 4.4 LoginView redirect 校验
 
@@ -228,7 +255,7 @@
 
 - **后端 `/emby/config` 返回空字符串**：UI 显示"未配置 Emby 地址"，不显示线路区块
 - **localStorage 被禁用（隐私模式）**：跨标签同步降级为不同步，`useAuthStore` 仅在当前 tab 有效
-- **路由守卫遍历不到 meta.role**：默认拒绝（fail close），跳回登录页
+- **admin 页面漏写 `meta.role`**：不改路径；开发期通过共享 `adminRouteMeta`、路由测试与 sweep 清单兜底，避免漏网
 - **海报代理 5xx**：fallback 占位图，前端不报错
 - **EmberSegmentTabs 在低版本浏览器无键盘事件**：行为退化为仅鼠标点击
 - **`router.resolve(redirect)` 命中通配 NotFound 路由**：视为不通过，回退 dashboard
@@ -238,7 +265,7 @@
 ## 影响范围
 
 - API：
-  - 新增（可选）：`GET /api/v1/media/posters/:itemId` 海报代理（与 `playback-and-device-observation-hardening.md` 协同实施）
+  - 新增（必做）：`GET /api/v1/media/posters/:itemId` 海报代理（实现参考 `admin/media-quality/posters/:itemId`）
 - Web：
   - 修改：`api/request.ts`、`store/auth.ts`、`router/index.ts`、`views/LoginView.vue`、`views/console/DashboardView.vue`、`views/console/RenewalCenterView.vue`、`views/console/SubscriptionsView.vue`、`views/console/NewSubscriptionView.vue`、`views/console/TVCalendarView.vue`、`components/ember/feedback/EmberEmptyStateCard.vue`、`components/ember/data-display/EmberMetricCard.vue`、`components/ember/layout/EmberSegmentTabs.vue`、`components/console/RecentLibrarySection.vue`、`utils/date.ts`、`store/user.ts`
   - 新增：`components/ember/tokens.ts`
@@ -250,6 +277,64 @@
   - `docs/reference/web-design-guide.md` 增补 tone token 与时间格式规范
   - `docs/system-architecture.md` §8 改写"401 单例化 / 跨标签同步 / redirect 白名单"
   - 部署章节增补"前端 baseURL 反代要求"
+
+## 实施顺序
+
+按依赖关系与风险等级，批次 4 建议拆成 4 个 PR，顺序如下：
+
+### PR-1：前端鉴权红线
+
+范围：
+
+- `api/request.ts`：401 单例化、跳过 `/logout`、保留 redirect
+- `store/auth.ts`：跨标签同步、清理 console/user store
+- `router/index.ts`：遍历 `to.matched`、普通用户访问 admin 给 warning
+- `views/LoginView.vue`：`redirect` 白名单
+
+理由：
+
+- 这是本批唯一的纯安全 / 鉴权红线，独立、风险高、最该先收口
+- 不依赖海报代理、时间格式、tone token 等后续工作
+
+### PR-2：Dashboard 真相收口 + 用户侧海报代理
+
+范围：
+
+- `views/console/DashboardView.vue`：删除假“备用线路 A/B”，改 store action
+- `components/console/RecentLibrarySection.vue`：切换到 `/api/v1/media/posters/:itemId`
+- `services/api`：新增用户侧 poster proxy handler / route / service 复用
+
+理由：
+
+- 这是本批唯一仍未补齐的后端协作项
+- “对外撒谎多线路”和“依赖公开图床”都属于用户直接可见问题，优先级高于纯风格 sweep
+
+### PR-3：前端竞态与注入面收口
+
+范围：
+
+- `views/console/RenewalCenterView.vue`：翻页 token 去抖、`redirectToCheckout` 错误反馈与 loading
+- `views/console/SubscriptionsView.vue`、`views/console/NewSubscriptionView.vue`：替换 `dangerouslyUseHTMLString`
+- `store/user.ts` / 页面状态：收口订阅列表双轨
+
+理由：
+
+- 依赖批次 2 的 `expired`、批次 3 的 `redispatch` / `ingestProgress` 契约，当前这些契约已稳定
+- 改动集中在交互一致性与注入面，适合单独回归
+
+### PR-4：时间格式、tone token 与文档提炼
+
+范围：
+
+- `utils/date.ts` 与全站调用点 sweep
+- `components/ember/tokens.ts` 与基础组件 tone 收口
+- `TVCalendarView.vue` tone 映射统一
+- `docs/reference/web-design-guide.md`、`docs/system-architecture.md` 文档同步
+
+理由：
+
+- 这是典型“链路收尾”工作，价值高，但不该阻塞前 3 个更硬的 PR
+- 适合在行为已经稳定后一次性 sweep，避免多轮反复改 view
 
 ## 验证方式
 
@@ -280,7 +365,7 @@
 
 #### 路由守卫
 - 普通用户访问 `/console/users`：跳转 + warning
-- admin 路由没写 `meta.role` 时（开发期 mock）：守卫继承父级 role 仍能拦截
+- 新增 admin 页面若漏写 `meta.role`：路由测试 / sweep 清单能发现，避免无提示暴露
 
 #### RecentLibrarySection 海报
 - 反代 Emby 不允许匿名图床 → 海报通过后端代理稳定显示
@@ -313,6 +398,7 @@
 - [ ] 401 拦截单例化在测试环境 100 并发请求下只弹 1 次
 - [ ] 跨标签同步在 Chrome / Safari 验证通过
 - [ ] 路由守卫遍历 matched 在 admin / user / 公共三类路由验证通过
+- [ ] `/api/v1/media/posters/:itemId` 在普通用户权限下可用，且不能越权拉取其他用户图床
 - [ ] tone token 文档同步到 `docs/reference/web-design-guide.md`
 - [ ] 时间格式收口完成，`grep -r "toLocaleString" services/web/src` 不返回 view 层
 
@@ -326,7 +412,7 @@
 - [ ] sweep 所有 `RowsAffected` / `success+info` 等不符合统一响应规范的接口接入处
 - [ ] 复核 `useUserStore.subscriptions` 与新 `useSubscriptionStore` 的边界
 - [ ] 复核所有"按钮重复点击"风险（结账 / 兑换 / 订阅 / 重置密码）
-- [ ] 复核 admin 路由是否都套在 `/console/admin/*` 父路由下，并写明 `meta.role='admin'`
+- [ ] 复核所有 admin 路由都显式复用统一 `meta.role='admin'`，而不是靠路径猜测权限
 
 ## 落地后文档处理
 
