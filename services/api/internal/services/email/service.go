@@ -11,8 +11,14 @@ import (
 
 const smtpTimeout = 10 * time.Second
 
+type emailConfigReader interface {
+	GetString(key string) string
+	IsEmailVerificationEnabled() bool
+}
+
 // EmailService 邮件验证服务
 type EmailService struct {
+	configReader  emailConfigReader
 	host          string
 	port          string
 	username      string
@@ -30,13 +36,26 @@ func (s *EmailService) hasSMTPConfig() bool {
 
 // NewEmailService 从环境变量初始化
 func NewEmailService() *EmailService {
-	service := &EmailService{}
+	return NewEmailServiceWithConfig(configpkg.NewConfigService())
+}
+
+func NewEmailServiceWithConfig(reader emailConfigReader) *EmailService {
+	if reader == nil {
+		reader = configpkg.NewConfigService()
+	}
+	service := &EmailService{
+		configReader: reader,
+	}
 	service.refreshConfig()
 	return service
 }
 
 func (s *EmailService) refreshConfig() {
-	configService := configpkg.NewConfigService()
+	configService := s.configReader
+	if configService == nil {
+		configService = configpkg.NewConfigService()
+		s.configReader = configService
+	}
 
 	port := configService.GetString("SMTP_PORT")
 	if port == "" {
@@ -100,5 +119,5 @@ func (s *EmailService) IsEnabled() bool {
 	if !s.IsConfigured() {
 		return false
 	}
-	return configpkg.NewConfigService().IsEmailVerificationEnabled()
+	return s.configReader.IsEmailVerificationEnabled()
 }

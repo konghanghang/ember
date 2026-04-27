@@ -44,6 +44,20 @@ type authTurnstileVerifier interface {
 	VerifyLogin(ctx context.Context, payload TurnstileVerifyPayload) error
 }
 
+type AuthServiceDeps struct {
+	Notifier                 authRegistrationNotifier
+	EmailService             authEmailVerifier
+	ConfigReader             authConfigReader
+	TurnstileVerifier        authTurnstileVerifier
+	NewEmbyClient            func() authEmbyClient
+	SaveUser                 func(user *models.User) error
+	GetRegistrationMode      func() string
+	GetDefaultTrialDays      func() int
+	ValidateRegistrationCode func(code string) (*models.RedemptionCode, error)
+	Compensation             *accountpkg.EmbyCompensation
+	NewCompensation          func() *accountpkg.EmbyCompensation
+}
+
 // AuthService 认证服务
 type AuthService struct {
 	notifier                 authRegistrationNotifier
@@ -56,54 +70,87 @@ type AuthService struct {
 	getDefaultTrialDays      func() int
 	validateRegistrationCode func(code string) (*models.RedemptionCode, error)
 	compensation             *accountpkg.EmbyCompensation
+	newCompensation          func() *accountpkg.EmbyCompensation
 }
 
 // NewAuthService 创建认证服务
 func NewAuthService() *AuthService {
-	configService := configpkg.NewConfigService()
+	return NewAuthServiceWithDeps(AuthServiceDeps{})
+}
+
+func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
+	defaultConfigReader := configpkg.NewConfigService()
 	redemptionCodeService := &redemptionpkg.RedemptionCodeService{}
-	return &AuthService{
-		notifier:          notifierint.GetSharedBotNotifier(),
-		emailService:      emailpkg.NewEmailService(),
-		configReader:      configService,
-		turnstileVerifier: NewCloudflareTurnstileVerifier(),
-		newEmbyClient:     func() authEmbyClient { return embyint.GetSharedService() },
-		saveUser: func(user *models.User) error {
-			return db.DB.Save(user).Error
-		},
-		getRegistrationMode: func() string {
-			return configService.GetRegistrationMode()
-		},
-		getDefaultTrialDays: func() int {
-			return configService.GetDefaultTrialDays()
-		},
-		validateRegistrationCode: func(code string) (*models.RedemptionCode, error) {
-			return redemptionCodeService.ValidateRegistrationCode(code)
-		},
+
+	service := &AuthService{
+		notifier:                 deps.Notifier,
+		emailService:             deps.EmailService,
+		configReader:             deps.ConfigReader,
+		turnstileVerifier:        deps.TurnstileVerifier,
+		newEmbyClient:            deps.NewEmbyClient,
+		saveUser:                 deps.SaveUser,
+		getRegistrationMode:      deps.GetRegistrationMode,
+		getDefaultTrialDays:      deps.GetDefaultTrialDays,
+		validateRegistrationCode: deps.ValidateRegistrationCode,
+		compensation:             deps.Compensation,
+		newCompensation:          deps.NewCompensation,
 	}
+
+	if service.notifier == nil {
+		service.notifier = notifierint.GetSharedBotNotifier()
+	}
+	if service.emailService == nil {
+		service.emailService = emailpkg.NewEmailService()
+	}
+	if service.configReader == nil {
+		service.configReader = defaultConfigReader
+	}
+	if service.turnstileVerifier == nil {
+		service.turnstileVerifier = NewCloudflareTurnstileVerifier()
+	}
+	if service.newEmbyClient == nil {
+		service.newEmbyClient = func() authEmbyClient { return embyint.GetSharedService() }
+	}
+	if service.saveUser == nil {
+		service.saveUser = func(user *models.User) error {
+			return db.DB.Save(user).Error
+		}
+	}
+	if service.getRegistrationMode == nil {
+		service.getRegistrationMode = func() string {
+			return defaultConfigReader.GetRegistrationMode()
+		}
+	}
+	if service.getDefaultTrialDays == nil {
+		service.getDefaultTrialDays = func() int {
+			return defaultConfigReader.GetDefaultTrialDays()
+		}
+	}
+	if service.validateRegistrationCode == nil {
+		service.validateRegistrationCode = func(code string) (*models.RedemptionCode, error) {
+			return redemptionCodeService.ValidateRegistrationCode(code)
+		}
+	}
+	if service.newCompensation == nil {
+		service.newCompensation = func() *accountpkg.EmbyCompensation {
+			return accountpkg.NewEmbyCompensation(embyint.GetSharedService())
+		}
+	}
+	return service
 }
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 
 func (s *AuthService) currentRegistrationMode() string {
-	if s.getRegistrationMode != nil {
-		return s.getRegistrationMode()
-	}
-	return configpkg.NewConfigService().GetRegistrationMode()
+	return s.getRegistrationMode()
 }
 
 func (s *AuthService) currentDefaultTrialDays() int {
-	if s.getDefaultTrialDays != nil {
-		return s.getDefaultTrialDays()
-	}
-	return configpkg.NewConfigService().GetDefaultTrialDays()
+	return s.getDefaultTrialDays()
 }
 
 func (s *AuthService) validateInviteRegistrationCode(code string) (*models.RedemptionCode, error) {
-	if s.validateRegistrationCode != nil {
-		return s.validateRegistrationCode(code)
-	}
-	return (&redemptionpkg.RedemptionCodeService{}).ValidateRegistrationCode(code)
+	return s.validateRegistrationCode(code)
 }
 
 // RegisterUserRequest 用户注册请求

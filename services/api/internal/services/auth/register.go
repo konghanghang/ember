@@ -8,7 +8,6 @@ import (
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
-	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 )
@@ -165,6 +164,6 @@ func (s *AuthService) compensationQueue() *accountpkg.EmbyCompensation {
 	if s.compensation != nil {
 		return s.compensation
 	}
-	s.compensation = accountpkg.NewEmbyCompensation(embyint.GetSharedService())
+	s.compensation = s.newCompensation()
 	return s.compensation
 }

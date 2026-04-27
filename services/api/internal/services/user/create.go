@@ -24,8 +24,6 @@ type AdminCreateUserRequest struct {
 }
 
 func (s *UserService) CreateUserByAdmin(req *AdminCreateUserRequest) (*UserView, error) {
-	s.setDefaults()
-
 	if req == nil {
 		return nil, ErrRequestInvalid
 	}
@@ -200,7 +198,7 @@ func (s *UserService) compensationQueue() *accountpkg.EmbyCompensation {
 	if s.compensation != nil {
 		return s.compensation
 	}
-	s.compensation = accountpkg.NewEmbyCompensation(nil)
+	s.compensation = s.newCompensation()
 	return s.compensation
 }
 

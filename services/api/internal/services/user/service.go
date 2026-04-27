@@ -28,6 +28,19 @@ type embyClient interface {
 	DeleteUser(embyUserID string) error
 }
 
+type UserServiceDeps struct {
+	EmailVerifier      emailVerifier
+	NewEmbyClient      func() embyClient
+	FindUserByID       func(userID string) (*models.User, error)
+	FindUserByUsername func(username string) (*models.User, error)
+	FindUserByEmail    func(email string) (*models.User, error)
+	CreateUser         func(user *models.User) error
+	GetPlanGroupByKey  func(key string) (*models.PlanGroup, error)
+	SaveUser           func(user *models.User) error
+	Compensation       *accountpkg.EmbyCompensation
+	NewCompensation    func() *accountpkg.EmbyCompensation
+}
+
 // UserService 用户服务
 type UserService struct {
 	emailVerifier      emailVerifier
@@ -39,32 +52,39 @@ type UserService struct {
 	getPlanGroupByKey  func(key string) (*models.PlanGroup, error)
 	saveUser           func(user *models.User) error
 	compensation       *accountpkg.EmbyCompensation
+	newCompensation    func() *accountpkg.EmbyCompensation
 }
 
 func NewUserService() *UserService {
-	return NewUserServiceWithEmailVerifier(emailpkg.NewEmailService())
+	return NewUserServiceWithDeps(UserServiceDeps{})
 }
 
 func NewUserServiceWithEmailVerifier(verifier emailVerifier) *UserService {
-	service := &UserService{}
-	service.setEmailVerifier(verifier)
-	service.setDefaults()
-	return service
+	return NewUserServiceWithDeps(UserServiceDeps{EmailVerifier: verifier})
 }
 
-func (s *UserService) setEmailVerifier(verifier emailVerifier) {
-	if verifier == nil {
-		verifier = emailpkg.NewEmailService()
+func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
+	service := &UserService{
+		emailVerifier:      deps.EmailVerifier,
+		newEmbyClient:      deps.NewEmbyClient,
+		findUserByID:       deps.FindUserByID,
+		findUserByUsername: deps.FindUserByUsername,
+		findUserByEmail:    deps.FindUserByEmail,
+		createUser:         deps.CreateUser,
+		getPlanGroupByKey:  deps.GetPlanGroupByKey,
+		saveUser:           deps.SaveUser,
+		compensation:       deps.Compensation,
+		newCompensation:    deps.NewCompensation,
 	}
-	s.emailVerifier = verifier
-}
 
-func (s *UserService) setDefaults() {
-	if s.newEmbyClient == nil {
-		s.newEmbyClient = func() embyClient { return embyint.GetSharedService() }
+	if service.emailVerifier == nil {
+		service.emailVerifier = emailpkg.NewEmailService()
 	}
-	if s.findUserByID == nil {
-		s.findUserByID = func(userID string) (*models.User, error) {
+	if service.newEmbyClient == nil {
+		service.newEmbyClient = func() embyClient { return embyint.GetSharedService() }
+	}
+	if service.findUserByID == nil {
+		service.findUserByID = func(userID string) (*models.User, error) {
 			var user models.User
 			if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
 				return nil, err
@@ -72,8 +92,8 @@ func (s *UserService) setDefaults() {
 			return &user, nil
 		}
 	}
-	if s.findUserByUsername == nil {
-		s.findUserByUsername = func(username string) (*models.User, error) {
+	if service.findUserByUsername == nil {
+		service.findUserByUsername = func(username string) (*models.User, error) {
 			var user models.User
 			if err := db.DB.Where("lower(username) = ?", strings.ToLower(username)).First(&user).Error; err != nil {
 				return nil, err
@@ -81,8 +101,8 @@ func (s *UserService) setDefaults() {
 			return &user, nil
 		}
 	}
-	if s.findUserByEmail == nil {
-		s.findUserByEmail = func(email string) (*models.User, error) {
+	if service.findUserByEmail == nil {
+		service.findUserByEmail = func(email string) (*models.User, error) {
 			var user models.User
 			if err := db.DB.Where("lower(email) = ?", strings.ToLower(email)).First(&user).Error; err != nil {
 				return nil, err
@@ -90,28 +110,30 @@ func (s *UserService) setDefaults() {
 			return &user, nil
 		}
 	}
-	if s.createUser == nil {
-		s.createUser = func(user *models.User) error {
+	if service.createUser == nil {
+		service.createUser = func(user *models.User) error {
 			return db.DB.Create(user).Error
 		}
 	}
-	if s.getPlanGroupByKey == nil {
-		s.getPlanGroupByKey = func(key string) (*models.PlanGroup, error) {
+	if service.getPlanGroupByKey == nil {
+		service.getPlanGroupByKey = func(key string) (*models.PlanGroup, error) {
 			return paymentpkg.GetPlanGroupByKey(nil, key)
 		}
 	}
-	if s.saveUser == nil {
-		s.saveUser = func(user *models.User) error {
+	if service.saveUser == nil {
+		service.saveUser = func(user *models.User) error {
 			return db.DB.Save(user).Error
 		}
 	}
+	if service.newCompensation == nil {
+		service.newCompensation = func() *accountpkg.EmbyCompensation {
+			return accountpkg.NewEmbyCompensation(nil)
+		}
+	}
+	return service
 }
 
 func (s *UserService) getEmailVerifier() emailVerifier {
-	if s.emailVerifier == nil {
-		s.emailVerifier = emailpkg.NewEmailService()
-	}
-	s.setDefaults()
 	return s.emailVerifier
 }
 
@@ -131,7 +153,6 @@ func isUserExpired(expiresAt *time.Time) bool {
 }
 
 func (s *UserService) syncEmbyPolicy(user *models.User) error {
-	s.setDefaults()
 	if user.EmbyID == "" {
 		return nil
 	}

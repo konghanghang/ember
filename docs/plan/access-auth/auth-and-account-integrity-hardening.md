@@ -1,6 +1,6 @@
 # 认证与账号完整性加固方案
 
-> 状态：主干完成，保留尾项（P0 + P1 已落地）
+> 状态：可进入归档准备（P0 + P1 已落地）
 > 负责人：Ember
 > 更新时间：2026-04-29
 
@@ -17,13 +17,18 @@
 - ✅ `findLoginUser` / `ensureRegisterUserUnique` / `findUserByUsername` / `findUserByEmail` / SendVerificationCode 用户存在判断统一改 `lower(...)` 比较
 - ✅ Schema 层补 `lower(username)` / `lower(email)` 函数唯一索引（`20260426_01_users_lower_unique_indexes.sql`，含预检 fail-fast 与排查 SQL），DB 兜底逻辑重复账号
 - ✅ IP 限流 SQL 增加 `"type" = ?` 过滤；清理 `validateVerificationRateLimits` 之前的死分支与已无调用点的 `validateVerificationRecipient`
+- ✅ `CheckExpiredUsers` 已补 `context cancel`、失败样本上限和 cron timeout
+- ✅ `AuthService` / `UserService` / `EmailService` 已补显式依赖构造入口，运行期隐式 `setDefaults()` / `NewConfigService()` lazy 行为已收口
+- ✅ ConfigService 敏感项已补 `maskedValue` 语义，设置中心可以稳定展示“已设置但不回显明文”的状态
 
-剩余项（更深一层 DI 治理）按 P2/P3 待后续批次。
+当前剩余项主要是文档事实与退场整理尾项：
+
+- 稳定结论、交叉引用和正式归档迁移仍待最终收尾
 
 ## 归档判断
 
-- 当前不适合归档。
-- 原因：更深层 DI 治理仍有明确尾项，这些尾项仍属于本方案原始边界，不是单纯文档整理问题。
+- 当前可以进入归档准备，但暂不直接归档。
+- 原因：主链路与明确实现尾项已经收口，当前主要剩文档事实和退场整理，不再需要继续把它当核心实施稿维护。
 
 ## 背景
 

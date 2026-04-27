@@ -17,8 +17,6 @@ type ResetPasswordByCodeRequest struct {
 }
 
 func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error {
-	s.setDefaults()
-
 	if db.DB == nil {
 		return s.resetPasswordByCodeCompat(req)
 	}

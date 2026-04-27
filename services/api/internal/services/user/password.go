@@ -16,8 +16,6 @@ type UpdatePasswordRequest struct {
 }
 
 func (s *UserService) ResetPassword(userID string, newPassword string) error {
-	s.setDefaults()
-
 	user, err := s.findUserByID(userID)
 	if err != nil {
 		return ErrUserNotFound
@@ -41,8 +39,6 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 }
 
 func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) error {
-	s.setDefaults()
-
 	user, err := s.findUserByID(userID)
 	if err != nil {
 		return ErrUserNotFound
