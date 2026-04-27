@@ -29,6 +29,7 @@ const (
 	tmdbDetailCacheTTL = 24 * time.Hour
 	tmdbSeasonCacheTTL = 24 * time.Hour
 	scanPageSize       = 200
+	systemIgnoreReason = "season not activated in library"
 )
 
 type tmdbMemoryCacheEntry struct {
@@ -836,7 +837,16 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).Save(existing).Error; err != nil {
+		if err := db.DB.WithContext(ctx).
+			Model(&models.MediaGap{}).
+			Where("id = ?", existing.ID).
+			Updates(map[string]interface{}{
+				"embySeriesId":  existing.EmbySeriesID,
+				"seriesName":    existing.SeriesName,
+				"airDate":       existing.AirDate,
+				"lastScannedAt": existing.LastScannedAt,
+				"status":        existing.Status,
+			}).Error; err != nil {
 			return nil, fmt.Errorf("更新缺集工单失败: %w", err)
 		}
 		stats.Updated++
@@ -850,6 +860,11 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 			continue
 		}
 		if !inventory.has(existing.Season, existing.Episode) {
+			continue
+		}
+		if existing.Status == models.MediaGapStatusIgnored {
+			log.Printf("[MediaGap] 扫描命中人工/系统忽略工单，保持 IGNORED 不自动回写 seriesId=%s tmdbId=%s season=%d episode=%d reason=%q",
+				seriesID, tmdbID, existing.Season, existing.Episode, existing.IgnoreReason)
 			continue
 		}
 
@@ -866,14 +881,6 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 			existing.EmbySeriesID = seriesID
 			changed = true
 		}
-		if existing.IgnoredAt != nil {
-			existing.IgnoredAt = nil
-			changed = true
-		}
-		if existing.IgnoreReason != "" {
-			existing.IgnoreReason = ""
-			changed = true
-		}
 		if !timePointerEqual(existing.LastScannedAt, &scannedAt) {
 			existing.LastScannedAt = cloneTimePointer(scannedAt)
 			changed = true
@@ -881,7 +888,15 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).Save(existing).Error; err != nil {
+		if err := db.DB.WithContext(ctx).
+			Model(&models.MediaGap{}).
+			Where("id = ? AND status <> ?", existing.ID, models.MediaGapStatusIgnored).
+			Updates(map[string]interface{}{
+				"status":        existing.Status,
+				"ingestedAt":    existing.IngestedAt,
+				"embySeriesId":  existing.EmbySeriesID,
+				"lastScannedAt": existing.LastScannedAt,
+			}).Error; err != nil {
 			return nil, fmt.Errorf("回写已入库缺集工单失败: %w", err)
 		}
 		stats.Ingested++
@@ -918,7 +933,7 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 			changed = true
 		}
 
-		reason := "season not activated in library"
+		reason := systemIgnoreReason
 		if existing.IgnoreReason != reason {
 			existing.IgnoreReason = reason
 			changed = true
@@ -938,7 +953,17 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).Save(existing).Error; err != nil {
+		if err := db.DB.WithContext(ctx).
+			Model(&models.MediaGap{}).
+			Where("id = ? AND status IN ?", existing.ID, []models.MediaGapStatus{models.MediaGapStatusMissing, models.MediaGapStatusSearched}).
+			Updates(map[string]interface{}{
+				"status":        existing.Status,
+				"ignoredAt":     existing.IgnoredAt,
+				"ignoreReason":  existing.IgnoreReason,
+				"embySeriesId":  existing.EmbySeriesID,
+				"seriesName":    existing.SeriesName,
+				"lastScannedAt": existing.LastScannedAt,
+			}).Error; err != nil {
 			return cleaned, fmt.Errorf("收口未激活季缺集工单失败: %w", err)
 		}
 		cleaned++

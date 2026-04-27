@@ -921,7 +921,7 @@ func (s *SubscriptionService) loadWholeShowAiredEpisodes(ctx context.Context, tm
 func loadWholeShowIgnoredEpisodes(ctx context.Context, tmdbID string, today time.Time) (wholeShowIgnoredEpisodeSet, error) {
 	var ignored []models.MediaGap
 	if err := db.DB.WithContext(ctx).
-		Select("season", "episode").
+		Select("season", "episode", "\"ignoreReason\"").
 		Where(`"tmdbId" = ? AND "airDate" <= ? AND status = ?`, strings.TrimSpace(tmdbID), today, models.MediaGapStatusIgnored).
 		Find(&ignored).Error; err != nil {
 		return nil, fmt.Errorf("查询整剧已忽略剧集失败: %w", err)
@@ -929,6 +929,9 @@ func loadWholeShowIgnoredEpisodes(ctx context.Context, tmdbID string, today time
 
 	result := make(wholeShowIgnoredEpisodeSet, len(ignored))
 	for _, gap := range ignored {
+		if strings.TrimSpace(gap.IgnoreReason) == "season not activated in library" {
+			continue
+		}
 		result[buildWholeShowEpisodeKey(gap.Season, gap.Episode)] = struct{}{}
 	}
 	return result, nil

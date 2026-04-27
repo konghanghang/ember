@@ -753,18 +753,11 @@ func (s *TVCalendarService) correctCurrentWeekReadyItems(
 		return items
 	}
 
-	// GET 路径只做内存内纠偏，持久化写入由 debouncer 异步批量完成（30s 窗口去重）
-	pushedSeriesIDs := make(map[string]struct{})
 	for _, correction := range corrections {
-		if correction.SeriesID != "" {
-			if _, already := pushedSeriesIDs[correction.SeriesID]; !already {
-				pushedSeriesIDs[correction.SeriesID] = struct{}{}
-				defaultDebouncer.Push(correction.SeriesID)
-			}
-		}
+		defaultDebouncer.Push(correction)
 	}
 
-	log.Printf("[TV Calendar] 当前周 ready 校正完成: visibleRange=%s~%s corrected=%d debouncePushed=%d", start.Format("2006-01-02"), end.Format("2006-01-02"), len(corrections), len(pushedSeriesIDs))
+	log.Printf("[TV Calendar] 当前周 ready 校正完成: visibleRange=%s~%s corrected=%d", start.Format("2006-01-02"), end.Format("2006-01-02"), len(corrections))
 	return correctedItems
 }
 
@@ -1796,6 +1789,26 @@ func (s *TVCalendarService) touchSourceLastEpisodeIngestedAt(ctx context.Context
 	return nil
 }
 
+func (s *TVCalendarService) resolveUniqueSourceTMDBIDBySeriesID(ctx context.Context, seriesID string) (string, error) {
+	trimmedSeriesID := strings.TrimSpace(seriesID)
+	if trimmedSeriesID == "" {
+		return "", nil
+	}
+
+	var sources []models.TVCalendarSource
+	if err := db.DB.WithContext(ctx).
+		Select(`"tmdbId"`, `"seriesId"`).
+		Where(`"seriesId" = ?`, trimmedSeriesID).
+		Limit(2).
+		Find(&sources).Error; err != nil {
+		return "", fmt.Errorf("查询追剧源失败: %w", err)
+	}
+	if len(sources) != 1 {
+		return "", nil
+	}
+	return strings.TrimSpace(sources[0].TmdbID), nil
+}
+
 // MarkEpisodeReadyByWebhook Webhook 点亮剧集状态
 func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbID, seriesID string, season, episode int, embyItemID string) (int64, error) {
 	s.refreshConfig()
@@ -1816,9 +1829,22 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 		updates["seriesId"] = strings.TrimSpace(seriesID)
 	}
 
-	var result *gorm.DB
 	trimmedTmdbID := strings.TrimSpace(tmdbID)
 	trimmedSeriesID := strings.TrimSpace(seriesID)
+	if trimmedTmdbID == "" && trimmedSeriesID != "" {
+		resolvedTmdbID, err := s.resolveUniqueSourceTMDBIDBySeriesID(ctx, trimmedSeriesID)
+		if err != nil {
+			log.Printf("[TV Calendar] Webhook 按 seriesId 解析追剧源失败 seriesId=%s season=%d episode=%d err=%v", trimmedSeriesID, season, episode, err)
+			return 0, err
+		}
+		if resolvedTmdbID == "" {
+			log.Printf("[TV Calendar] Webhook 跳过 seriesId 回退：无法唯一解析主剧 tmdbId seriesId=%s season=%d episode=%d", trimmedSeriesID, season, episode)
+			return 0, nil
+		}
+		trimmedTmdbID = resolvedTmdbID
+	}
+
+	var result *gorm.DB
 	log.Printf("[TV Calendar] Webhook 开始更新剧集状态 tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID))
 	if trimmedTmdbID != "" {
 		result = db.DB.WithContext(ctx).Model(&models.TVCalendarItem{}).
@@ -1837,34 +1863,11 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 			return result.RowsAffected, nil
 		}
 		log.Printf("[TV Calendar] Webhook 按 tmdbId 未命中任何条目 tmdbId=%s seriesId=%s season=%d episode=%d", trimmedTmdbID, trimmedSeriesID, season, episode)
-		if trimmedSeriesID == "" {
-			log.Printf("[TV Calendar] Webhook 无法继续回退到 seriesId：seriesId 为空 tmdbId=%s season=%d episode=%d", trimmedTmdbID, season, episode)
-			return result.RowsAffected, nil
-		}
-	}
-
-	if trimmedSeriesID == "" {
-		log.Printf("[TV Calendar] Webhook 跳过 seriesId 匹配：seriesId 为空 tmdbId=%s season=%d episode=%d", trimmedTmdbID, season, episode)
-		return 0, nil
-	}
-
-	result = db.DB.WithContext(ctx).Model(&models.TVCalendarItem{}).
-		Where("\"seriesId\" = ? AND season = ? AND episode = ?", trimmedSeriesID, season, episode).
-		Updates(updates)
-	if result.Error != nil {
-		log.Printf("[TV Calendar] Webhook 按 seriesId 更新失败 tmdbId=%s seriesId=%s season=%d episode=%d err=%v", trimmedTmdbID, trimmedSeriesID, season, episode, result.Error)
-		return 0, fmt.Errorf("更新剧集状态失败: %w", result.Error)
-	}
-
-	if err := s.touchSourceLastEpisodeIngestedAt(ctx, trimmedTmdbID, trimmedSeriesID, now); err != nil {
-		log.Printf("[TV Calendar] Webhook 按 seriesId 更新后刷新追剧源失败 tmdbId=%s seriesId=%s season=%d episode=%d err=%v", trimmedTmdbID, trimmedSeriesID, season, episode, err)
-		return result.RowsAffected, err
-	}
-	if result.RowsAffected > 0 {
-		log.Printf("[TV Calendar] Webhook 标记剧集入库成功 matchBy=seriesId tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s updated=%d", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID), result.RowsAffected)
-		return result.RowsAffected, nil
 	}
 
 	log.Printf("[TV Calendar] Webhook 未命中任何追剧日历条目 tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID))
+	if result == nil {
+		return 0, nil
+	}
 	return result.RowsAffected, nil
 }

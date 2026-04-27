@@ -11,6 +11,7 @@ var (
 	ErrPlaybackProfileInvalidDate    = errors.New("startDate/endDate 必须是 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss 格式，且需同时传入")
 	ErrPlaybackProfileInvalidRange   = errors.New("range 仅支持 today、7d、30d、90d、all")
 	ErrPlaybackProfileRangeTooLarge  = errors.New("自定义日期范围不能超过 92 天")
+	ErrPlaybackProfileOverviewTooLarge = errors.New("查询结果过大，请缩小时间范围或增加筛选条件")
 
 	ErrInvalidDate    = ErrPlaybackHistoryInvalidDate
 	ErrInvalidKeyword = ErrPlaybackHistoryInvalidKeyword

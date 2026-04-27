@@ -19,6 +19,7 @@ const (
 	defaultPlaybackProfileListSortBy     = "totalDuration"
 	defaultPlaybackProfileListSortOrder  = "desc"
 	playbackProfileListBadgePreviewLimit = 2
+	maxPlaybackProfileOverviewRows       = 20000
 )
 
 type PlaybackProfileListQuery struct {
@@ -274,6 +275,23 @@ func (s *UserPlaybackProfileService) findUsersByKeyword(ctx context.Context, key
 
 func (s *UserPlaybackProfileService) loadPlaybackProfileRowsForOverview(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) ([]playbackActivityRow, error) {
 	whereClause := buildPlaybackProfileOverviewWhereClause(playbackUserIDs, startAt, endAt)
+	countSQL := fmt.Sprintf(`
+SELECT COUNT(1) AS total
+FROM PlaybackActivity
+WHERE %s
+`, whereClause)
+	countResp, err := s.embyService.QueryPlaybackStats(countSQL)
+	if err != nil {
+		return nil, err
+	}
+	totalRows, err := parsePlaybackCount(countResp)
+	if err != nil {
+		return nil, fmt.Errorf("解析用户画像总览记录总数失败: %w", err)
+	}
+	if totalRows > maxPlaybackProfileOverviewRows {
+		return nil, ErrPlaybackProfileOverviewTooLarge
+	}
+
 	querySQL := fmt.Sprintf(`
 SELECT *
 FROM PlaybackActivity
@@ -298,7 +316,7 @@ WHERE %s
 	if err != nil {
 		return nil, fmt.Errorf("解析用户画像总览播放记录失败: %w", err)
 	}
-	log.Printf("[PlaybackProfileOverview] rows loaded rangeStart=%s rangeEnd=%s filterUsers=%d rows=%d", formatOptionalTime(startAt), formatOptionalTime(endAt), len(playbackUserIDs), len(rows))
+	log.Printf("[PlaybackProfileOverview] rows loaded rangeStart=%s rangeEnd=%s filterUsers=%d rows=%d totalRows=%d", formatOptionalTime(startAt), formatOptionalTime(endAt), len(playbackUserIDs), len(rows), totalRows)
 
 	sort.Slice(rows, func(i, j int) bool {
 		ti := parsePlaybackTime(rows[i].playedAtRaw)

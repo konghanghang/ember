@@ -33,7 +33,8 @@ func (h *UserPlaybackProfileHandler) GetAdminUserProfiles(c *gin.Context) {
 		case errors.Is(err, playbackpkg.ErrPlaybackHistoryInvalidKeyword),
 			errors.Is(err, playbackpkg.ErrPlaybackProfileInvalidDate),
 			errors.Is(err, playbackpkg.ErrPlaybackProfileInvalidRange),
-			errors.Is(err, playbackpkg.ErrPlaybackProfileRangeTooLarge):
+			errors.Is(err, playbackpkg.ErrPlaybackProfileRangeTooLarge),
+			errors.Is(err, playbackpkg.ErrPlaybackProfileOverviewTooLarge):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, playbackpkg.ErrPlaybackHistoryQueryFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": playbackpkg.ErrPlaybackHistoryQueryFailed.Error()})

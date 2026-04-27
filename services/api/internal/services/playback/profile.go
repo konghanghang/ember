@@ -185,7 +185,10 @@ func normalizePlaybackProfileRange(query PlaybackProfileQuery) (string, *time.Ti
 		if endDate.Before(startDate) {
 			return "", nil, nil, ErrPlaybackProfileInvalidDate
 		}
-		if endDate.Sub(startDate) > playbackProfileMaxRangeDays*24*time.Hour {
+
+		startDay := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, tz)
+		endDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 0, 0, 0, 0, tz)
+		if endDay.Sub(startDay) > time.Duration(playbackProfileMaxRangeDays-1)*24*time.Hour {
 			return "", nil, nil, ErrPlaybackProfileRangeTooLarge
 		}
 
