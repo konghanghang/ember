@@ -23,6 +23,7 @@ const placeholderPoster = emberPosterPlaceholder
 const posterURLMap = ref<Record<string, string>>({})
 const loadingPosterIDs = new Set<string>()
 const objectURLs = new Set<string>()
+let fetchLatestRequestToken = 0
 
 const tabItems = computed(() => [
   { key: 'Movie' as const, label: '电影', icon: Film },
@@ -49,7 +50,7 @@ function cleanupPosterURLs(activeIDs: string[]) {
   }
 }
 
-async function preloadPosterURLs(nextItems: LatestMediaItem[]) {
+async function preloadPosterURLs(nextItems: LatestMediaItem[], requestToken: number, mediaType: 'Movie' | 'Series') {
   for (const item of nextItems) {
     const id = item.id?.trim()
     if (!id || posterURLMap.value[id] || loadingPosterIDs.has(id)) {
@@ -58,7 +59,10 @@ async function preloadPosterURLs(nextItems: LatestMediaItem[]) {
 
     loadingPosterIDs.add(id)
     try {
-      const blob = await getMediaPoster(id, activeType.value)
+      const blob = await getMediaPoster(id, mediaType)
+      if (requestToken !== fetchLatestRequestToken || mediaType !== activeType.value) {
+        continue
+      }
       if (blob && blob.size > 0) {
         const objectURL = URL.createObjectURL(blob)
         objectURLs.add(objectURL)
@@ -67,6 +71,9 @@ async function preloadPosterURLs(nextItems: LatestMediaItem[]) {
         posterURLMap.value[id] = placeholderPoster
       }
     } catch {
+      if (requestToken !== fetchLatestRequestToken || mediaType !== activeType.value) {
+        continue
+      }
       posterURLMap.value[id] = placeholderPoster
     } finally {
       loadingPosterIDs.delete(id)
@@ -75,11 +82,16 @@ async function preloadPosterURLs(nextItems: LatestMediaItem[]) {
 }
 
 async function fetchLatest() {
+  const requestToken = ++fetchLatestRequestToken
+  const mediaType = activeType.value
   loading.value = true
   hasLoadError.value = false
 
   try {
-    const res = await getLatestMedia(activeType.value, props.limit)
+    const res = await getLatestMedia(mediaType, props.limit)
+    if (requestToken !== fetchLatestRequestToken || mediaType !== activeType.value) {
+      return
+    }
     if (!res?.success) {
       items.value = []
       hasLoadError.value = true
@@ -89,13 +101,18 @@ async function fetchLatest() {
 
     items.value = res.data || []
     cleanupPosterURLs(items.value.map((item) => item.id))
-    void preloadPosterURLs(items.value)
+    void preloadPosterURLs(items.value, requestToken, mediaType)
   } catch {
+    if (requestToken !== fetchLatestRequestToken || mediaType !== activeType.value) {
+      return
+    }
     items.value = []
     hasLoadError.value = true
     cleanupPosterURLs([])
   } finally {
-    loading.value = false
+    if (requestToken === fetchLatestRequestToken) {
+      loading.value = false
+    }
   }
 }
 

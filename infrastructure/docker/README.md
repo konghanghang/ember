@@ -27,6 +27,9 @@
 ```bash
 cd infrastructure/docker
 cp .env.example .env
+export EMBER_API_IMAGE=ghcr.io/konghanghang/ember-api:<tag-or-digest>
+export EMBER_WEB_IMAGE=ghcr.io/konghanghang/ember-web:<tag-or-digest>
+export EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:<tag-or-digest>
 docker compose pull
 docker compose up -d
 ```
@@ -34,6 +37,7 @@ docker compose up -d
 ## 说明
 
 - 当前 compose 默认会启动 `postgres`、`ember-api`、`ember-web`、`ember-bot`
+- `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 必须显式提供固定 tag 或 digest，禁止继续使用 floating `latest`
 - 如果你不想启动某个服务，就直接改 `docker-compose.yml`，不要指望 README 帮你兜策略
 - 这个目录的路径和文件名属于部署入口的一部分，改动前先同步更新 runbooks
 

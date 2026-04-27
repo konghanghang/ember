@@ -38,6 +38,7 @@ const stats = ref<DeviceStats>({
 })
 const blacklists = ref<ClientBlacklist[]>([])
 const actions = ref<DeviceAction[]>([])
+let fetchDevicesRequestToken = 0
 
 const query = ref({
   page: 1,
@@ -77,6 +78,7 @@ const handleDevicePageSizeChange = (size: number) => {
 }
 
 const fetchDevices = async () => {
+  const requestToken = ++fetchDevicesRequestToken
   loading.value = true
   try {
     const params: Record<string, string | number | boolean> = {
@@ -97,10 +99,15 @@ const fetchDevices = async () => {
     }
 
     const res = await getDevices(params)
+    if (requestToken !== fetchDevicesRequestToken) {
+      return
+    }
     deviceList.value = res.data || []
     total.value = res.total || 0
   } finally {
-    loading.value = false
+    if (requestToken === fetchDevicesRequestToken) {
+      loading.value = false
+    }
   }
 }
 

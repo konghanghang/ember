@@ -38,6 +38,7 @@ const queryParams = ref({
   pageSize: 20,
   status: '' as SubscriptionStatus | ''
 })
+let fetchRequestToken = 0
 
 const isAdmin = computed(() => authStore.isAdmin)
 
@@ -55,6 +56,7 @@ const activeStatusLabel = computed(() => {
 })
 
 const fetchData = async () => {
+  const requestToken = ++fetchRequestToken
   loading.value = true
   try {
     const params: any = {
@@ -65,10 +67,15 @@ const fetchData = async () => {
       params.status = queryParams.value.status
     }
     const res = await getSubscriptions(params)
+    if (requestToken !== fetchRequestToken) {
+      return
+    }
     subscriptions.value = res.data || []
     total.value = res.total || 0
   } finally {
-    loading.value = false
+    if (requestToken === fetchRequestToken) {
+      loading.value = false
+    }
   }
 }
 
