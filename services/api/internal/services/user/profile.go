@@ -30,8 +30,12 @@ func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*
 		user.Email = req.Email
 	}
 
-	if err := db.DB.Save(&user).Error; err != nil {
-		return nil, ErrUserUpdateFailed
+	if req.Email != "" {
+		if err := db.DB.Model(&models.User{}).
+			Where("id = ?", user.ID).
+			Update("email", user.Email).Error; err != nil {
+			return nil, ErrUserUpdateFailed
+		}
 	}
 
 	return &user, nil
@@ -46,7 +50,9 @@ func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*mode
 
 	user.Email = req.NewEmail
 
-	if err := db.DB.Save(&user).Error; err != nil {
+	if err := db.DB.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Update("email", user.Email).Error; err != nil {
 		return nil, ErrUserUpdateFailed
 	}
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
@@ -203,9 +204,11 @@ func (s *TelegramService) VerifyBind(telegramID int64, code string) (*BindResult
 	}
 
 	user.TelegramID = &telegramID
-	if err := tx.Save(&user).Error; err != nil {
+	if err := tx.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Update("telegramId", telegramID).Error; err != nil {
 		tx.Rollback()
-		if strings.Contains(err.Error(), "duplicate key value") && strings.Contains(err.Error(), "telegramId") {
+		if isTelegramUniqueViolation(err, "telegramid") {
 			return nil, ErrTelegramAlreadyBound
 		}
 		return nil, errors.New("绑定失败，请稍后重试")
@@ -298,7 +301,9 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 	if err := user.SetPassword(newPassword); err != nil {
 		return errors.New("密码重置失败：本地密码更新失败")
 	}
-	if err := db.DB.Save(&user).Error; err != nil {
+	if err := db.DB.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Update("password", user.Password).Error; err != nil {
 		return errors.New("密码重置失败：本地密码保存失败")
 	}
 
@@ -329,13 +334,26 @@ func (s *TelegramService) CleanupExpiredBindCodes() (int64, error) {
 }
 
 func isTelegramCodeDuplicateErr(err error) bool {
+	return isTelegramUniqueViolation(err, "code")
+}
+
+func isTelegramUniqueViolation(err error, field string) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "duplicate key value") &&
-		strings.Contains(msg, "telegram_bind_codes") &&
-		strings.Contains(msg, "code")
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+
+	field = strings.ToLower(strings.TrimSpace(field))
+	if field == "" {
+		return true
+	}
+
+	return strings.Contains(strings.ToLower(pgErr.ConstraintName), field) ||
+		strings.Contains(strings.ToLower(pgErr.Detail), field)
 }
 
 func (s *TelegramService) redeemForUser(userID, code string) (*TelegramRedeemResponse, error) {

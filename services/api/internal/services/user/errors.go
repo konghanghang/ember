@@ -1,6 +1,11 @@
 package user
 
-import "errors"
+import (
+	"errors"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
+)
 
 var (
 	ErrRequestInvalid              = errors.New("请求参数错误")
@@ -26,3 +31,22 @@ var (
 	ErrUserPasswordLocalUpdateFail = errors.New("本地密码更新失败")
 	ErrUserPasswordLocalSaveFail   = errors.New("本地密码保存失败")
 )
+
+func isUserUniqueViolation(err error, column string) bool {
+	if err == nil {
+		return false
+	}
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+
+	column = strings.ToLower(strings.TrimSpace(column))
+	if column == "" {
+		return true
+	}
+
+	return strings.Contains(strings.ToLower(pgErr.ConstraintName), column) ||
+		strings.Contains(strings.ToLower(pgErr.Detail), column)
+}

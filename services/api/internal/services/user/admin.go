@@ -257,9 +257,19 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		}
 	}
 
-	if err := tx.Save(&user).Error; err != nil {
+	updates := map[string]interface{}{
+		"email":        user.Email,
+		"isActive":     user.IsActive,
+		"planGroup":    user.PlanGroup,
+		"expiresAt":    user.ExpiresAt,
+		"embyDisabled": user.EmbyDisabled,
+	}
+
+	if err := tx.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Updates(updates).Error; err != nil {
 		tx.Rollback()
-		if strings.Contains(err.Error(), "duplicate key value") && strings.Contains(err.Error(), "email") {
+		if isUserUniqueViolation(err, "email") {
 			return nil, ErrEmailAlreadyExists
 		}
 		return nil, ErrUserUpdateFailed
@@ -307,7 +317,12 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 	if err := s.syncEmbyPolicy(&user); err != nil {
 		return nil, err
 	}
-	if err := db.DB.Save(&user).Error; err != nil {
+	if err := db.DB.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Updates(map[string]interface{}{
+			"expiresAt":    user.ExpiresAt,
+			"embyDisabled": user.EmbyDisabled,
+		}).Error; err != nil {
 		return nil, err
 	}
 
@@ -325,7 +340,12 @@ func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
 	if err := s.syncEmbyPolicy(&user); err != nil {
 		return nil, err
 	}
-	if err := db.DB.Save(&user).Error; err != nil {
+	if err := db.DB.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Updates(map[string]interface{}{
+			"isActive":     user.IsActive,
+			"embyDisabled": user.EmbyDisabled,
+		}).Error; err != nil {
 		return nil, err
 	}
 

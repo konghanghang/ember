@@ -1706,7 +1706,12 @@ func (s *TVCalendarService) Subscribe(userID string, req CreateTVCalendarSubscri
 	if err == nil {
 		existing.ShowName = showName
 		existing.PosterURL = posterURL
-		if saveErr := db.DB.Save(&existing).Error; saveErr != nil {
+		if saveErr := db.DB.Model(&models.TVCalendarSubscription{}).
+			Where("id = ?", existing.ID).
+			Updates(map[string]interface{}{
+				"showName":  existing.ShowName,
+				"posterUrl": existing.PosterURL,
+			}).Error; saveErr != nil {
 			return fmt.Errorf("更新追剧订阅失败: %w", saveErr)
 		}
 		return nil

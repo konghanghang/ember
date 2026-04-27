@@ -213,7 +213,16 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 		redemptionCode.RegistrationPlanGroup = registrationPlanGroup
 		redemptionCode.Notes = req.Notes
 
-		if err := tx.Save(&redemptionCode).Error; err != nil {
+		if err := tx.Model(&models.RedemptionCode{}).
+			Where("id = ?", redemptionCode.ID).
+			Updates(map[string]interface{}{
+				"maxUses":               redemptionCode.MaxUses,
+				"defaultDays":           redemptionCode.DefaultDays,
+				"expiresAt":             redemptionCode.ExpiresAt,
+				"templateUserId":        redemptionCode.TemplateUserID,
+				"registrationPlanGroup": redemptionCode.RegistrationPlanGroup,
+				"notes":                 redemptionCode.Notes,
+			}).Error; err != nil {
 			return errors.New("更新兑换码失败")
 		}
 		return nil

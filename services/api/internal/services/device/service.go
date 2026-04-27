@@ -157,7 +157,13 @@ func (s *DeviceService) AddClientToBlacklist(clientName, reason string) error {
 		blacklist.ClientName = clientName
 		blacklist.Reason = reason
 		blacklist.NormalizedClientName = normalized
-		if err := db.DB.Save(&blacklist).Error; err != nil {
+		if err := db.DB.Model(&models.ClientBlacklist{}).
+			Where("id = ?", blacklist.ID).
+			Updates(map[string]interface{}{
+				"clientName":           blacklist.ClientName,
+				"reason":               blacklist.Reason,
+				"normalizedClientName": blacklist.NormalizedClientName,
+			}).Error; err != nil {
 			return errors.New("更新黑名单失败")
 		}
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -229,8 +235,8 @@ func (s *DeviceService) LogoutDevice(deviceID string) error {
 
 // LogoutBlacklistedResult 批量注销黑名单设备的结构化结果
 type LogoutBlacklistedResult struct {
-	SuccessDeviceIDs []string              `json:"successDeviceIds"`
-	FailedDeviceIDs  []LogoutFailedDevice  `json:"failedDeviceIds"`
+	SuccessDeviceIDs []string             `json:"successDeviceIds"`
+	FailedDeviceIDs  []LogoutFailedDevice `json:"failedDeviceIds"`
 }
 
 // LogoutFailedDevice 注销失败的设备

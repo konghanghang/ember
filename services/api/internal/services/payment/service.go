@@ -261,7 +261,18 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 		plan.Currency = "usd"
 	}
 
-	if err := tx.Save(&plan).Error; err != nil {
+	if err := tx.Model(&models.Plan{}).
+		Where("id = ?", plan.ID).
+		Updates(map[string]interface{}{
+			"name":        plan.Name,
+			"description": plan.Description,
+			"days":        plan.Days,
+			"price":       plan.Price,
+			"currency":    plan.Currency,
+			"planGroup":   plan.PlanGroup,
+			"isActive":    plan.IsActive,
+			"sortOrder":   plan.SortOrder,
+		}).Error; err != nil {
 		tx.Rollback()
 		return nil, errors.New("更新方案失败")
 	}
@@ -1000,7 +1011,12 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		if strings.TrimSpace(paymentIntentID) != "" {
 			payment.StripePaymentIntentID = paymentIntentID
 		}
-		if err := tx.Save(&payment).Error; err != nil {
+		if err := tx.Model(&models.Payment{}).
+			Where("id = ?", payment.ID).
+			Updates(map[string]interface{}{
+				"status":                payment.Status,
+				"stripePaymentIntentId": payment.StripePaymentIntentID,
+			}).Error; err != nil {
 			tx.Rollback()
 			log.Printf("[Payment] 支付履约拒绝后保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 			return ErrPaymentFailed
@@ -1038,7 +1054,12 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		user.EmbyDisabled = false
 	}
 
-	if err := tx.Save(&user).Error; err != nil {
+	if err := tx.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Updates(map[string]interface{}{
+			"expiresAt":    user.ExpiresAt,
+			"embyDisabled": user.EmbyDisabled,
+		}).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 支付履约保存用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
 		return ErrPaymentFailed
@@ -1048,7 +1069,12 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	if strings.TrimSpace(paymentIntentID) != "" {
 		payment.StripePaymentIntentID = paymentIntentID
 	}
-	if err := tx.Save(&payment).Error; err != nil {
+	if err := tx.Model(&models.Payment{}).
+		Where("id = ?", payment.ID).
+		Updates(map[string]interface{}{
+			"status":                payment.Status,
+			"stripePaymentIntentId": payment.StripePaymentIntentID,
+		}).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 支付履约保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 		return ErrPaymentFailed
@@ -1143,7 +1169,9 @@ func (s *PaymentService) markPaymentFailed(sessionID string, eventCreated time.T
 	}
 
 	payment.Status = models.PaymentFailed
-	if err := tx.Save(&payment).Error; err != nil {
+	if err := tx.Model(&models.Payment{}).
+		Where("id = ?", payment.ID).
+		Update("status", payment.Status).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 标记支付失败保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 		return ErrPaymentFailed

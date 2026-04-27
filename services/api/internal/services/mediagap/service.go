@@ -392,7 +392,13 @@ func (s *Service) Ignore(ctx context.Context, id, reason string) (*models.MediaG
 	gap.Status = models.MediaGapStatusIgnored
 	gap.IgnoredAt = &now
 	gap.IgnoreReason = strings.TrimSpace(reason)
-	if err := db.DB.WithContext(ctx).Save(&gap).Error; err != nil {
+	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+		Where("id = ?", gap.ID).
+		Updates(map[string]interface{}{
+			"status":       gap.Status,
+			"ignoredAt":    gap.IgnoredAt,
+			"ignoreReason": gap.IgnoreReason,
+		}).Error; err != nil {
 		return nil, fmt.Errorf("忽略缺集工单失败: %w", err)
 	}
 
@@ -435,7 +441,13 @@ func (s *Service) SearchGap(ctx context.Context, id string) (*MediaGapDTO, error
 	}
 	gap.SearchSnapshot = string(payload)
 	gap.LastSearchedAt = &now
-	if err := db.DB.WithContext(ctx).Save(&gap).Error; err != nil {
+	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+		Where("id = ?", gap.ID).
+		Updates(map[string]interface{}{
+			"status":         gap.Status,
+			"searchSnapshot": gap.SearchSnapshot,
+			"lastSearchedAt": gap.LastSearchedAt,
+		}).Error; err != nil {
 		return nil, fmt.Errorf("更新搜索快照失败: %w", err)
 	}
 
@@ -495,7 +507,14 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 	gap.DispatchSnapshot = string(payload)
 	gap.RequestedAt = &now
 	gap.LastDispatchError = nil
-	if err := db.DB.WithContext(ctx).Save(&gap).Error; err != nil {
+	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+		Where("id = ?", gap.ID).
+		Updates(map[string]interface{}{
+			"status":            gap.Status,
+			"dispatchSnapshot":  gap.DispatchSnapshot,
+			"requestedAt":       gap.RequestedAt,
+			"lastDispatchError": gap.LastDispatchError,
+		}).Error; err != nil {
 		return nil, fmt.Errorf("更新下发状态失败: %w", err)
 	}
 
@@ -578,7 +597,13 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).Save(&gap).Error; err != nil {
+		if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+			Where("id = ?", gap.ID).
+			Updates(map[string]interface{}{
+				"status":       gap.Status,
+				"ingestedAt":   gap.IngestedAt,
+				"embySeriesId": gap.EmbySeriesID,
+			}).Error; err != nil {
 			return updatedCount, fmt.Errorf("回写缺集工单入库状态失败: %w", err)
 		}
 		updatedCount++

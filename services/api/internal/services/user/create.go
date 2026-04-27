@@ -208,13 +208,11 @@ func mapAdminCreatePersistenceError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "duplicate key value") {
-		switch {
-		case strings.Contains(err.Error(), "username"):
-			return ErrUsernameAlreadyExists
-		case strings.Contains(err.Error(), "email"):
-			return ErrEmailAlreadyExists
-		}
+	if isUserUniqueViolation(err, "username") {
+		return ErrUsernameAlreadyExists
+	}
+	if isUserUniqueViolation(err, "email") {
+		return ErrEmailAlreadyExists
 	}
 	if errors.Is(err, paymentpkg.ErrPlanGroupNotFound) || errors.Is(err, paymentpkg.ErrPlanGroupInvalid) {
 		return err
