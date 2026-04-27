@@ -13,7 +13,7 @@ func TestDedupeLatestItemsRemovesDuplicateIDs(t *testing.T) {
 		{ID: "movie_2", Name: "Interstellar", Type: "Movie", ProductionYear: 2014},
 	}
 
-	got := dedupeLatestItems(items, "Movie")
+	got := dedupeLatestItems(items)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 unique items, got %d", len(got))
 	}
@@ -29,7 +29,7 @@ func TestDedupeLatestItemsFallsBackToTypeNameYear(t *testing.T) {
 		{ID: "", Name: "Dark", Type: "Series", ProductionYear: 2020},
 	}
 
-	got := dedupeLatestItems(items, "Series")
+	got := dedupeLatestItems(items)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 unique items, got %d", len(got))
 	}

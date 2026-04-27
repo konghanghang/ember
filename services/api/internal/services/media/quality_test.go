@@ -172,26 +172,6 @@ func TestMatchesGroupIDCompatibleWithLegacyRawID(t *testing.T) {
 	}
 }
 
-func TestShouldRefreshLegacyMediaQualityCache(t *testing.T) {
-	legacy := &QualityReport{
-		LowQualityItems: []LowQualityItem{
-			{ID: "series_1", ItemType: "Series"},
-		},
-	}
-	if !shouldRefreshLegacyMediaQualityCache(legacy) {
-		t.Fatal("legacy cache without groupId should be refreshed")
-	}
-
-	latest := &QualityReport{
-		LowQualityItems: []LowQualityItem{
-			{ID: "series_1", GroupID: "series:series_1", ItemType: "Series"},
-		},
-	}
-	if shouldRefreshLegacyMediaQualityCache(latest) {
-		t.Fatal("latest cache with groupId should not be refreshed")
-	}
-}
-
 func TestIsAllLibrariesIDCaseInsensitive(t *testing.T) {
 	if !isAllLibrariesID("all") {
 		t.Fatal("all should be recognized")
