@@ -3,15 +3,12 @@ import { ref } from 'vue'
 import * as consoleApi from '@/api/console'
 import { useAuthStore } from '@/store/auth'
 import type {
-  CreateSubscriptionRequest,
   MediaStats,
-  Subscription,
   UserInfo
 } from '@/types/api'
 
 export const useUserStore = defineStore('user', () => {
   const profile = ref<UserInfo | null>(null)
-  const subscriptions = ref<Subscription[]>([])
   const mediaStats = ref<MediaStats | null>(null)
   const embyUrl = ref<string>('')
 
@@ -48,22 +45,6 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  const fetchSubscriptions = async () => {
-    const res = await consoleApi.getSubscriptions({ page: 1, pageSize: 100 })
-    subscriptions.value = res.data || []
-    return subscriptions.value
-  }
-
-  const createSubscription = async (data: CreateSubscriptionRequest) => {
-    await consoleApi.createSubscription(data)
-    await fetchSubscriptions()
-  }
-
-  const deleteSubscription = async (id: string) => {
-    await consoleApi.deleteSubscription(id)
-    subscriptions.value = subscriptions.value.filter(s => s.id !== id)
-  }
-
   const fetchMediaStats = async () => {
     const res = await consoleApi.getMediaStats()
     mediaStats.value = res.data
@@ -78,14 +59,12 @@ export const useUserStore = defineStore('user', () => {
 
   const clearUserData = () => {
     profile.value = null
-    subscriptions.value = []
     mediaStats.value = null
     clearEmbyUrl()
   }
 
   return {
     profile,
-    subscriptions,
     mediaStats,
     embyUrl,
     setProfile,
@@ -95,9 +74,6 @@ export const useUserStore = defineStore('user', () => {
     fetchProfile,
     updateEmail,
     updatePassword,
-    fetchSubscriptions,
-    createSubscription,
-    deleteSubscription,
     fetchMediaStats,
     fetchEmbyConfig,
     clearUserData

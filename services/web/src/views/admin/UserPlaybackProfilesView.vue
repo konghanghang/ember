@@ -53,8 +53,10 @@ const queryParams = ref<PlaybackProfileListQuery>(createDefaultQueryParams())
 const customDateRange = ref<[string, string] | null>(null)
 const rangeAnchorDate = ref<Date | null>(null)
 const isCustomRange = computed(() => queryParams.value.range === 'custom')
+let fetchRequestToken = 0
 
 const fetchData = async () => {
+  const requestToken = ++fetchRequestToken
   loading.value = true
   try {
     const res = await getUserPlaybackProfiles({
@@ -63,11 +65,16 @@ const fetchData = async () => {
       startDate: isCustomRange.value ? queryParams.value.startDate : undefined,
       endDate: isCustomRange.value ? queryParams.value.endDate : undefined
     })
+    if (requestToken !== fetchRequestToken) {
+      return
+    }
     tableData.value = res.data
     total.value = res.total
     summary.value = res.summary
   } finally {
-    loading.value = false
+    if (requestToken === fetchRequestToken) {
+      loading.value = false
+    }
   }
 }
 

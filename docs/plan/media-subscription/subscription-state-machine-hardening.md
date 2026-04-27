@@ -1,8 +1,25 @@
 # 订阅状态机与 webhook 命中精度加固方案
 
-> 状态：草稿
+> 状态：P0 + P1 主干已落地；剩余 P2/P3 尾项待后续治理
 > 负责人：Ember
-> 更新时间：2026-04-25
+> 更新时间：2026-04-28
+
+## 落地进度
+
+批次 2 + 后续 review 修复已完成本方案的大部分主干项：
+
+- ✅ 订阅审批 / 拒绝 / 管理员手动收口改为原子状态转移，避免旧快照覆盖新状态
+- ✅ 创建 / 重提交改为 advisory lock + 活跃唯一索引幂等收口
+- ✅ `RedispatchSubscription`、`DISPATCH_FAILED`、`lastDispatchError`、`media_gap_scans` 已落地
+- ✅ `MarkSubscriptionIngestedAsAdmin` 与 webhook 路径用户通知对齐
+- ✅ handler 内部错误收口到统一错误响应，不再裸透 SQL 错误
+- ✅ 缺集扫描跨副本互斥已通过 PostgreSQL advisory lock + `media_gap_scans` 表落地
+- ✅ review 补丁已收口：缺集扫描不再整行 `Save` 回滚并发状态；命中 `IGNORED` 时不再自动复活；系统忽略不再计入整剧人工排除分母
+
+当前剩余项主要是文档/模型治理尾项：
+
+- `ignoreReasonCode` 尚未单独落库，当前仍以 `ignoreReason` 文本区分系统忽略与人工忽略
+- `pickTargetSeasonNumbers` / 文档事实 / 观察性说明仍需继续收口
 
 ## 背景
 

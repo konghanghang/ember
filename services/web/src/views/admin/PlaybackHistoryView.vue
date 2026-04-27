@@ -18,6 +18,7 @@ const loading = ref(false)
 const tableData = ref<PlaybackHistoryItem[]>([])
 const total = ref(0)
 const dateRange = ref<[string, string] | null>(null)
+let fetchRequestToken = 0
 
 const queryParams = ref<PlaybackHistoryQuery>({
   page: 1,
@@ -28,6 +29,7 @@ const queryParams = ref<PlaybackHistoryQuery>({
 })
 
 const fetchData = async () => {
+  const requestToken = ++fetchRequestToken
   loading.value = true
   try {
     const params: PlaybackHistoryQuery = {
@@ -44,12 +46,17 @@ const fetchData = async () => {
     }
 
     const res = await getPlaybackHistory(params)
+    if (requestToken !== fetchRequestToken) {
+      return
+    }
     tableData.value = res.data
     total.value = res.total
   } catch {
     // 全局错误拦截已处理
   } finally {
-    loading.value = false
+    if (requestToken === fetchRequestToken) {
+      loading.value = false
+    }
   }
 }
 
