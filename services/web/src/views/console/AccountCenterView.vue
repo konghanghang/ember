@@ -15,6 +15,7 @@ import {
   UserFilled
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
+import { formatDateTime } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
 import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
@@ -268,13 +269,13 @@ watch(
           <div class="space-y-2">
             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">有效期</p>
             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              {{ user.expiresAt ? new Date(user.expiresAt).toLocaleString() : '永久有效' }}
+              {{ user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效' }}
             </div>
           </div>
           <div class="space-y-2">
             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">创建时间</p>
             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              {{ user.createdAt ? new Date(user.createdAt).toLocaleString() : '-' }}
+              {{ formatDateTime(user.createdAt, 'short') }}
             </div>
           </div>
         </div>

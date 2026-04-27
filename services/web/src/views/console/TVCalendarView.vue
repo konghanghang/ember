@@ -9,6 +9,7 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import EmberDateField from '@/components/ember/filters/EmberDateField.vue'
+import type { Tone } from '@/components/ember/tokens'
 import { useAuthStore } from '@/store/auth'
 import { getGlobalTVCalendar } from '@/api/console'
 import { syncTVCalendar } from '@/api/admin'
@@ -63,21 +64,21 @@ const summaryCards = computed(() => [
     value: totalItems.value,
     detail: `${activeDayCount.value} 个活跃日期`,
     icon: VideoPlay,
-    tone: 'ink'
+    tone: 'neutral' as Tone
   },
   {
     title: '已入库',
     value: readyCount.value,
     detail: '可以直接观看',
     icon: CircleCheckFilled,
-    tone: 'ready'
+    tone: 'success' as Tone
   },
   {
     title: '今日播出',
     value: todayCount.value,
     detail: '当天重点',
     icon: Clock,
-    tone: 'today'
+    tone: 'info' as Tone
   },
   {
     title: '缺失集数',
@@ -173,11 +174,11 @@ function handlePosterError(tmdbId: string, posterUrl?: string): void {
   failedPosterKeys.value[posterKey(tmdbId, posterUrl)] = true
 }
 
-function summaryCardClass(tone: string): string {
+function summaryCardClass(tone: Tone): string {
   switch (tone) {
-    case 'ready':
+    case 'success':
       return 'tv-summary-card tv-summary-card-ready'
-    case 'today':
+    case 'info':
       return 'tv-summary-card tv-summary-card-today'
     case 'warning':
       return 'tv-summary-card tv-summary-card-warning'

@@ -12,6 +12,7 @@ import {
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 import RecentLibrarySection from '@/components/console/RecentLibrarySection.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import { formatDateOnly } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
 import { getMediaStats } from '@/api/console'
@@ -64,7 +65,7 @@ const membershipStatusTextClass = computed(() => {
 const membershipStatusMeta = computed(() => {
   if (isLifetimeMember.value) return '无到期限制'
   if (!user.value.expiresAt) return '未设置到期时间'
-  return `到期于 ${new Date(user.value.expiresAt).toLocaleDateString()}`
+  return `到期于 ${formatDateOnly(user.value.expiresAt)}`
 })
 
 const membershipStatusHint = computed(() => {

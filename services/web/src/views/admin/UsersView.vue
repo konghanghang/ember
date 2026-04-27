@@ -25,6 +25,7 @@ import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import { formatDateTime } from '@/utils/date'
 import { createAdminUser, getPlanGroups, getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
 import type { CreateAdminUserRequest, ManagedPlanGroup, PlanGroup, UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
 
@@ -367,7 +368,7 @@ const handleViewProfile = (row: UserInfo) => {
 
 const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return '永不过期'
-  return new Date(dateStr).toLocaleString()
+  return formatDateTime(dateStr, 'short')
 }
 
 const getPlanGroupDisplay = (row: UserInfo) => {

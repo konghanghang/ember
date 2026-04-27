@@ -139,6 +139,18 @@
   - 用于统一空状态容器，支持中性态、风险态和可选动作按钮。
   - 高重复场景默认优先使用，不再在页面里反复手写 dashed empty state 容器。
 
+### 3.5 Tone Token 与时间格式
+
+- `services/web/src/components/ember/tokens.ts` 是当前前端 tone token 单一来源。
+- 当前统一 tone 仅允许：`neutral`、`info`、`success`、`warning`、`danger`。
+- 页面层与基础组件都不再自造第二套 tone 命名；像 `ink`、`ready`、`today` 这类页面内历史命名，必须先映射回这 5 个值再落到组件契约。
+- `EmberEmptyStateCard`、`EmberMetricCard` 等基础组件如果暴露 tone/状态语义，必须复用这套 token。
+- 时间展示统一通过 `services/web/src/utils/date.ts` 输出，不再在 view 内直接写 `Date#toLocaleString()` / `Date#toLocaleDateString()`。
+- 当前日期工具基线：
+  - `formatDateTime(value, 'short' | 'long' | 'date' | 'time' | 'relative')`
+  - `formatDate(value)` 兼容旧调用，等价于 `formatDateTime(value, 'short')`
+  - `formatDateOnly(value)` / `formatTimeOnly(value)` 用于拆分日期与时间展示
+
 特例边界：
 
 - `TVCalendarView`、首页重视觉模块、强业务编排页面，允许先保留页面内实现。

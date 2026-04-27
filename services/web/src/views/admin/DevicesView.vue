@@ -8,6 +8,7 @@ import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
 import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import { formatDateTime } from '@/utils/date'
 import {
   addDeviceBlacklist,
   getDeviceActions,
@@ -209,10 +210,7 @@ const handleLogoutBlacklistedDevices = async () => {
 }
 
 const formatTime = (value?: string) => {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
+  return formatDateTime(value, 'short')
 }
 
 const actionLabelMap: Record<string, string> = {

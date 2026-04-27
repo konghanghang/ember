@@ -16,6 +16,7 @@ import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
+import { formatDateTime } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
 import { approveSubscription, rejectSubscription, markSubscriptionIngested, redispatchSubscription, deleteSubscriptionAsAdmin } from '@/api/admin'
 import { deleteSubscription, getSubscriptions, resubmitSubscription } from '@/api/console'
@@ -313,10 +314,7 @@ const formatCompactDateTime = (value?: string | null) => {
 }
 
 const formatTime = (value?: string | null) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
+  return formatDateTime(value, 'short', '')
 }
 
 const getImageUrl = (path?: string) => {

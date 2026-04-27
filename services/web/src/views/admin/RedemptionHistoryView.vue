@@ -6,6 +6,7 @@ import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import { formatDateOnly, formatTimeOnly } from '@/utils/date'
 import type { Redemption } from '@/types/api'
 
 const props = withDefaults(defineProps<{
@@ -68,18 +69,9 @@ const handleSizeChange = (size: number) => {
 }
 
 const formatRedeemedAt = (value: string) => {
-  const date = new Date(value)
-
   return {
-    date: date.toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }),
-    time: date.toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    date: formatDateOnly(value),
+    time: formatTimeOnly(value)
   }
 }
 

@@ -1187,15 +1187,15 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ### 状态管理（Pinia）
 
 - `store/auth.ts`：Token + Role（localStorage 持久化）
-  - State: `token`, `role`, `protectionConfig`
+  - State: `token`, `role`, `protectionConfig`, `crossTabSyncEnabled`
   - Computed: `isAuthenticated`, `isAdmin`, `isUser`
-  - Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`, `loadProtectionConfig`
+  - Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`, `initCrossTabSync`, `loadProtectionConfig`
 - `store/user.ts`：用户状态管理
 - `store/admin.ts`：管理员状态管理
 
 ### API 层
 
-- `api/request.ts` — 基础配置：baseURL=/api/v1, 401 拦截
+- `api/request.ts` — 基础配置：baseURL=/api/v1, Bearer token 自动注入；普通接口 401 单例化收口为“清本地登录态 + 跳 `/login?redirect=`”；`/login` 和 `/logout` 走专门分支，不混入“登录过期”逻辑
 - `api/auth.ts` — login, getLoginProtectionConfig, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
 - `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings）
@@ -1204,7 +1204,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ### 路由守卫
 
 - 未认证 → 重定向 `/login`（带 redirect 参数）
-- 角色不匹配 → 重定向 `/`
+- `redirect` 仅接受站内已解析路由：必须以 `/` 开头、不能以 `//` 开头、不能落到 `not-found`
+- 角色不匹配 → 重定向 `/console/dashboard` 并提示“当前账号无权访问该页面”
+- 守卫遍历 `to.matched` 收集 `requiresAuth / role`，不再只看最后一层 `meta`
+- 多标签页登录态通过 `storage` 事件同步：其他窗口登出后，当前窗口会清空本地状态并跳回登录页
 - meta: `{requiresAuth: boolean, role: 'admin' | 'user'}`
 
 ### 设计系统

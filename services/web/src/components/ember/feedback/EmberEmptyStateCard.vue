@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
+import type { Tone } from '@/components/ember/tokens'
 
 const props = withDefaults(defineProps<{
   title: string
   description?: string
   icon?: Component
-  tone?: 'neutral' | 'danger'
+  tone?: Tone
   compact?: boolean
 }>(), {
   description: '',
@@ -18,6 +19,18 @@ const toneClassMap = {
   neutral: {
     wrapper: 'border-gray-200 bg-gray-50 text-gray-500',
     icon: 'bg-white text-gray-300'
+  },
+  info: {
+    wrapper: 'border-sky-200 bg-sky-50 text-sky-700',
+    icon: 'bg-sky-100 text-sky-300'
+  },
+  success: {
+    wrapper: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    icon: 'bg-emerald-100 text-emerald-300'
+  },
+  warning: {
+    wrapper: 'border-amber-200 bg-amber-50 text-amber-700',
+    icon: 'bg-amber-100 text-amber-300'
   },
   danger: {
     wrapper: 'border-red-200 bg-red-50 text-red-700',

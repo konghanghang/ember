@@ -8,6 +8,7 @@ import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import { formatDateTime } from '@/utils/date'
 import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getUserTemplates, getPlanGroups } from '@/api/admin'
 import type {
   CreateRedemptionCodeRequest,
@@ -314,7 +315,7 @@ const activeFilterCount = computed(() => {
 
 const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return '永久有效'
-  return new Date(dateStr).toLocaleString()
+  return formatDateTime(dateStr, 'short')
 }
 
 const formatTemplate = (row: RedemptionCode) => {
