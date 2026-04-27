@@ -32,6 +32,7 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 	if err := user.SetPassword(newPassword); err != nil {
 		return errors.New("重置密码失败：本地密码更新失败")
 	}
+	user.PasswordResetRequired = false
 	if err := s.saveUser(user); err != nil {
 		return errors.New("重置密码失败：本地密码保存失败")
 	}
@@ -54,6 +55,7 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 		if err := user.SetPassword(req.NewPassword); err != nil {
 			return errors.New("密码更新失败：本地密码更新失败")
 		}
+		user.PasswordResetRequired = false
 		if err := s.saveUser(user); err != nil {
 			return errors.New("密码更新失败：本地密码保存失败")
 		}
@@ -82,6 +84,7 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 	if err := user.SetPassword(req.NewPassword); err != nil {
 		return errors.New("密码更新失败：本地密码更新失败")
 	}
+	user.PasswordResetRequired = false
 	if err := s.saveUser(user); err != nil {
 		return errors.New("密码更新失败：本地密码保存失败")
 	}

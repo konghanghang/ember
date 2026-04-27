@@ -144,6 +144,44 @@ type stripeCheckoutSessionObject struct {
 
 const pendingCheckoutTTL = 30 * time.Minute
 
+func pendingStripeSessionIDsByScope(tx *gorm.DB, userID, planID string) ([]string, error) {
+	if tx == nil {
+		if db.DB == nil {
+			return nil, nil
+		}
+		tx = db.DB
+	}
+	userID = strings.TrimSpace(userID)
+	planID = strings.TrimSpace(planID)
+	if userID == "" && planID == "" {
+		panic("pendingStripeSessionIDsByScope requires userId or planId; misuse will read all pending payments")
+	}
+
+	query := tx.Model(&models.Payment{}).
+		Where("status = ?", models.PaymentPending).
+		Where(`"stripeSessionId" <> ''`)
+	if userID != "" {
+		query = query.Where(`"userId" = ?`, userID)
+	}
+	if planID != "" {
+		query = query.Where(`"planId" = ?`, planID)
+	}
+
+	sessionIDs := make([]string, 0)
+	if err := query.Pluck(`"stripeSessionId"`, &sessionIDs).Error; err != nil {
+		return nil, errors.New("查询待失效 Stripe 会话失败")
+	}
+	return sessionIDs, nil
+}
+
+func PendingStripeSessionIDsForUser(tx *gorm.DB, userID string) ([]string, error) {
+	return pendingStripeSessionIDsByScope(tx, userID, "")
+}
+
+func PendingStripeSessionIDsForPlan(tx *gorm.DB, planID string) ([]string, error) {
+	return pendingStripeSessionIDsByScope(tx, "", planID)
+}
+
 func normalizePlanCurrency(raw string) (string, error) {
 	currency := strings.ToLower(strings.TrimSpace(raw))
 	if currency == "" {
@@ -277,7 +315,14 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 		return nil, errors.New("更新方案失败")
 	}
 
+	var expiredSessionIDs []string
 	if planGroupChanged {
+		sessionIDs, err := PendingStripeSessionIDsForPlan(tx, plan.ID)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		expiredSessionIDs = sessionIDs
 		expiredCount, err := ExpirePendingPaymentsForPlan(tx, plan.ID)
 		if err != nil {
 			tx.Rollback()
@@ -288,6 +333,9 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 
 	if err := tx.Commit().Error; err != nil {
 		return nil, errors.New("更新方案失败")
+	}
+	if len(expiredSessionIDs) > 0 {
+		s.expireStripeCheckoutSessions(expiredSessionIDs)
 	}
 	return s.getPlanByID(plan.ID)
 }
@@ -456,14 +504,88 @@ func (s *PaymentService) expirePendingPayments(userID, planID string, now time.T
 	if strings.TrimSpace(planID) != "" {
 		query = query.Where("\"planId\" = ?", planID)
 	}
+	sessionIDs := make([]string, 0)
+	if err := query.Session(&gorm.Session{}).Where(`"stripeSessionId" <> ''`).Pluck(`"stripeSessionId"`, &sessionIDs).Error; err != nil {
+		return errors.New("查询待失效 Stripe 会话失败")
+	}
+
 	result := query.Update("status", models.PaymentExpired)
 	if result.Error != nil {
 		return errors.New("更新支付记录失败")
 	}
 	if result.RowsAffected > 0 {
 		log.Printf("[Payment] 已标记过期订单: userID=%s planID=%s count=%d", strings.TrimSpace(userID), strings.TrimSpace(planID), result.RowsAffected)
+		s.expireStripeCheckoutSessions(sessionIDs)
 	}
 	return nil
+}
+
+func (s *PaymentService) expireStripeCheckoutSessions(sessionIDs []string) {
+	if len(sessionIDs) == 0 {
+		return
+	}
+	configService := configpkg.NewConfigService()
+	secret := strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY"))
+	if secret == "" {
+		log.Printf("[Payment] Stripe Secret 未配置，跳过失效旧 checkout sessions: count=%d", len(sessionIDs))
+		return
+	}
+
+	seen := make(map[string]struct{}, len(sessionIDs))
+	for _, rawID := range sessionIDs {
+		sessionID := strings.TrimSpace(rawID)
+		if sessionID == "" {
+			continue
+		}
+		if _, ok := seen[sessionID]; ok {
+			continue
+		}
+		seen[sessionID] = struct{}{}
+		if err := s.expireStripeCheckoutSession(secret, sessionID); err != nil {
+			log.Printf("[Payment] 失效旧 checkout session 失败: sessionID=%s err=%v", sessionID, err)
+			continue
+		}
+		log.Printf("[Payment] 已失效旧 checkout session: sessionID=%s", sessionID)
+	}
+}
+
+func ExpireStripeCheckoutSessions(sessionIDs []string) {
+	NewPaymentService().expireStripeCheckoutSessions(sessionIDs)
+}
+
+func (s *PaymentService) expireStripeCheckoutSession(secret, sessionID string) error {
+	req, err := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/checkout/sessions/"+url.PathEscape(strings.TrimSpace(sessionID))+"/expire", strings.NewReader(""))
+	if err != nil {
+		return errors.New("失效支付会话失败")
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return errors.New("失效支付会话失败")
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return errors.New("失效支付会话失败")
+	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+
+	var apiErr stripeCheckoutSessionResponse
+	if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Error != nil && strings.TrimSpace(apiErr.Error.Message) != "" {
+		// 旧会话已失效 / 已完成时 Stripe 会返回 4xx；这种情况说明旧入口已不可继续付款，可视为收口成功。
+		if strings.Contains(strings.ToLower(apiErr.Error.Message), "already expired") ||
+			strings.Contains(strings.ToLower(apiErr.Error.Message), "completed") {
+			return nil
+		}
+		return fmt.Errorf("失效支付会话失败: %s", apiErr.Error.Message)
+	}
+	return errors.New("失效支付会话失败")
 }
 
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {

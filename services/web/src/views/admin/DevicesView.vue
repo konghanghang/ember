@@ -200,7 +200,13 @@ const handleLogoutBlacklistedDevices = async () => {
     })
     batchProcessing.value = true
     const res = await logoutBlacklistedDevices()
-    ElMessage.success(`批量注销完成，本次处理 ${res.count ?? 0} 台设备`)
+    const successCount = res.successDeviceIds?.length ?? 0
+    const failedCount = res.failedDeviceIds?.length ?? 0
+    if (failedCount > 0) {
+      ElMessage.warning(`批量注销完成，成功 ${successCount} 台，失败 ${failedCount} 台`)
+    } else {
+      ElMessage.success(`批量注销完成，本次处理 ${successCount} 台设备`)
+    }
     await Promise.all([fetchDevices(), fetchStats(), fetchActions()])
   } catch {
     // canceled or error handled

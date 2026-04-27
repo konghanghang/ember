@@ -7,6 +7,7 @@ import type { LoginCredentials, RegisterRequest, LoginResponse, RegisterResponse
 
 const AUTH_TOKEN_KEY = 'token'
 const AUTH_ROLE_KEY = 'role'
+const AUTH_PASSWORD_RESET_REQUIRED_KEY = 'passwordResetRequired'
 
 type AuthRole = 'admin' | 'user'
 type CrossTabSyncReason = 'signed-out' | 'updated'
@@ -50,6 +51,7 @@ function removeStorageItem(key: string) {
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(readStorageItem(AUTH_TOKEN_KEY))
   const role = ref<string | null>(readStorageItem(AUTH_ROLE_KEY))
+  const passwordResetRequired = ref<boolean>(readStorageItem(AUTH_PASSWORD_RESET_REQUIRED_KEY) === 'true')
   const crossTabSyncEnabled = ref(false)
   let stopStorageSync: (() => void) | null = null
 
@@ -73,7 +75,7 @@ export const useAuthStore = defineStore('auth', () => {
     const userStore = useUserStore()
     userStore.clearUserData()
     const res: LoginResponse = await authApi.login(credentials)
-    setAuth(res.token, res.user.role as 'admin' | 'user')
+    setAuth(res.token, res.user.role as 'admin' | 'user', res.user.passwordResetRequired === true)
     userStore.setProfile(res.user)
     return res
   }
@@ -83,7 +85,7 @@ export const useAuthStore = defineStore('auth', () => {
     const userStore = useUserStore()
     userStore.clearUserData()
     const res: RegisterResponse = await authApi.register(data)
-    setAuth(res.token, 'user')
+    setAuth(res.token, 'user', false)
     userStore.setProfile(res.user)
     return res
   }
@@ -98,26 +100,37 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  const setAuth = (newToken: string, newRole: AuthRole) => {
+  const setAuth = (newToken: string, newRole: AuthRole, requirePasswordReset = false) => {
     token.value = newToken
     role.value = newRole
+    passwordResetRequired.value = requirePasswordReset
     writeStorageItem(AUTH_TOKEN_KEY, newToken)
     writeStorageItem(AUTH_ROLE_KEY, newRole)
+    writeStorageItem(AUTH_PASSWORD_RESET_REQUIRED_KEY, requirePasswordReset ? 'true' : 'false')
   }
 
   const clearAuth = () => {
     token.value = null
     role.value = null
+    passwordResetRequired.value = false
     removeStorageItem(AUTH_TOKEN_KEY)
     removeStorageItem(AUTH_ROLE_KEY)
+    removeStorageItem(AUTH_PASSWORD_RESET_REQUIRED_KEY)
+  }
+
+  const setPasswordResetRequired = (required: boolean) => {
+    passwordResetRequired.value = required
+    writeStorageItem(AUTH_PASSWORD_RESET_REQUIRED_KEY, required ? 'true' : 'false')
   }
 
   const restoreAuth = () => {
     const savedToken = readStorageItem(AUTH_TOKEN_KEY)
     const savedRole = readStorageItem(AUTH_ROLE_KEY)
+    const savedPasswordResetRequired = readStorageItem(AUTH_PASSWORD_RESET_REQUIRED_KEY)
     if (savedToken && savedRole) {
       token.value = savedToken
       role.value = savedRole
+      passwordResetRequired.value = savedPasswordResetRequired === 'true'
       return
     }
 
@@ -127,22 +140,27 @@ export const useAuthStore = defineStore('auth', () => {
 
     token.value = null
     role.value = null
+    passwordResetRequired.value = false
   }
 
   const syncAuthFromStorage = (): CrossTabSyncReason | null => {
     const savedToken = readStorageItem(AUTH_TOKEN_KEY)
     const savedRole = readStorageItem(AUTH_ROLE_KEY)
+    const savedPasswordResetRequired = readStorageItem(AUTH_PASSWORD_RESET_REQUIRED_KEY)
     const previousToken = token.value
     const previousRole = role.value
+    const previousPasswordResetRequired = passwordResetRequired.value
     const nextToken = savedToken && savedRole ? savedToken : null
     const nextRole = savedToken && savedRole ? savedRole : null
+    const nextPasswordResetRequired = savedToken && savedRole ? savedPasswordResetRequired === 'true' : false
 
-    if (previousToken === nextToken && previousRole === nextRole) {
+    if (previousToken === nextToken && previousRole === nextRole && previousPasswordResetRequired === nextPasswordResetRequired) {
       return null
     }
 
     token.value = nextToken
     role.value = nextRole
+    passwordResetRequired.value = nextPasswordResetRequired
     useConsoleStore().clearConsoleData()
     useUserStore().clearUserData()
 
@@ -195,11 +213,13 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isAdmin,
     isUser,
+    passwordResetRequired,
     login,
     register,
     logout,
     setAuth,
     clearAuth,
+    setPasswordResetRequired,
     restoreAuth,
     initCrossTabSync,
     destroyCrossTabSync,

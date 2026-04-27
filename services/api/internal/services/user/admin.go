@@ -282,6 +282,11 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 	}
 
 	if oldEffectivePlanGroup != newEffectivePlanGroup {
+		expiredSessionIDs, err := paymentpkg.PendingStripeSessionIDsForUser(tx, user.ID)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 		expiredCount, err := paymentpkg.ExpirePendingPaymentsForUser(tx, user.ID)
 		if err != nil {
 			tx.Rollback()
@@ -289,6 +294,11 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		}
 		log.Printf("[User] 用户有效套餐分组变更，已收口待支付订单: userID=%s oldPlanGroup=%s newPlanGroup=%s expiredCount=%d",
 			user.ID, oldEffectivePlanGroup, newEffectivePlanGroup, expiredCount)
+		if err := tx.Commit().Error; err != nil {
+			return nil, ErrUserUpdateFailed
+		}
+		paymentpkg.ExpireStripeCheckoutSessions(expiredSessionIDs)
+		return s.GetUserByID(userID)
 	}
 
 	if err := tx.Commit().Error; err != nil {

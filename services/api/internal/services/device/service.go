@@ -143,7 +143,7 @@ func (s *DeviceService) GetBlacklist() ([]models.ClientBlacklist, error) {
 	return blacklists, nil
 }
 
-func (s *DeviceService) AddClientToBlacklist(clientName, reason string) error {
+func (s *DeviceService) AddClientToBlacklist(clientName, reason, operatorID string) error {
 	clientName = strings.TrimSpace(clientName)
 	if clientName == "" {
 		return ErrDeviceClientNameRequired
@@ -179,11 +179,11 @@ func (s *DeviceService) AddClientToBlacklist(clientName, reason string) error {
 		return errors.New("添加黑名单失败")
 	}
 
-	s.recordDeviceAction("", "", clientName, "blacklist", reason, "")
+	s.recordDeviceAction("", "", clientName, "blacklist", reason, operatorID)
 	return nil
 }
 
-func (s *DeviceService) RemoveClientFromBlacklist(clientName string) error {
+func (s *DeviceService) RemoveClientFromBlacklist(clientName, operatorID string) error {
 	clientName = strings.TrimSpace(clientName)
 	if clientName == "" {
 		return ErrDeviceClientNameRequired
@@ -202,11 +202,11 @@ func (s *DeviceService) RemoveClientFromBlacklist(clientName string) error {
 		return errors.New("移除黑名单失败")
 	}
 
-	s.recordDeviceAction("", "", blacklist.ClientName, "unblacklist", "", "")
+	s.recordDeviceAction("", "", blacklist.ClientName, "unblacklist", "", operatorID)
 	return nil
 }
 
-func (s *DeviceService) LogoutDevice(deviceID string) error {
+func (s *DeviceService) LogoutDevice(deviceID, operatorID string) error {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
 		return ErrDeviceIDRequired
@@ -229,7 +229,7 @@ func (s *DeviceService) LogoutDevice(deviceID string) error {
 		return err
 	}
 
-	s.recordDeviceAction(deviceID, actionUserID, actionClientName, "logout", "manual", "")
+	s.recordDeviceAction(deviceID, actionUserID, actionClientName, "logout", "manual", operatorID)
 	return nil
 }
 
@@ -245,7 +245,7 @@ type LogoutFailedDevice struct {
 	Error    string `json:"error"`
 }
 
-func (s *DeviceService) LogoutBlacklistedDevices() (*LogoutBlacklistedResult, error) {
+func (s *DeviceService) LogoutBlacklistedDevices(operatorID string) (*LogoutBlacklistedResult, error) {
 	items, err := s.buildDeviceItems()
 	if err != nil {
 		return nil, err
@@ -272,7 +272,7 @@ func (s *DeviceService) LogoutBlacklistedDevices() (*LogoutBlacklistedResult, er
 			continue
 		}
 		result.SuccessDeviceIDs = append(result.SuccessDeviceIDs, deviceID)
-		s.recordDeviceAction(deviceID, item.UserID, item.ClientName, "logout", "blacklist", "")
+		s.recordDeviceAction(deviceID, item.UserID, item.ClientName, "logout", "blacklist", operatorID)
 	}
 
 	return result, nil

@@ -301,9 +301,13 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 	if err := user.SetPassword(newPassword); err != nil {
 		return errors.New("密码重置失败：本地密码更新失败")
 	}
+	user.PasswordResetRequired = false
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", user.ID).
-		Update("password", user.Password).Error; err != nil {
+		Updates(map[string]interface{}{
+			"password":              user.Password,
+			"passwordResetRequired": false,
+		}).Error; err != nil {
 		return errors.New("密码重置失败：本地密码保存失败")
 	}
 

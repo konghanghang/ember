@@ -39,7 +39,7 @@ func registerPublicRoutes(api *gin.RouterGroup, h *appHandlers) {
 
 func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin := api.Group("/admin")
-	admin.Use(middleware.JWTAuth(), middleware.AdminOnly())
+	admin.Use(middleware.JWTAuth(), middleware.PasswordResetRequired(), middleware.AdminOnly())
 
 	admin.GET("/current", h.auth.GetCurrentUser)
 
@@ -138,7 +138,7 @@ func registerInternalRoutes(api *gin.RouterGroup, h *appHandlers) {
 
 func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated := api.Group("")
-	authenticated.Use(middleware.JWTAuth())
+	authenticated.Use(middleware.JWTAuth(), middleware.PasswordResetRequired())
 
 	authenticated.GET("/subscriptions", h.subscription.GetSubscriptions)
 	authenticated.POST("/subscriptions/check-existing", h.subscription.CheckExisting)
@@ -181,7 +181,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 
 func registerUserRoutes(api *gin.RouterGroup, h *appHandlers) {
 	user := api.Group("/user")
-	user.Use(middleware.JWTAuth(), middleware.UserOnly())
+	user.Use(middleware.JWTAuth(), middleware.PasswordResetRequired(), middleware.UserOnly())
 
 	user.GET("/profile", h.user.GetProfile)
 	user.PUT("/profile", h.user.UpdateProfile)

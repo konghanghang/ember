@@ -210,6 +210,30 @@ func ExpireAllPendingPaymentsForFollowingDefaultUsers(tx *gorm.DB) (int64, error
 	return result.RowsAffected, nil
 }
 
+func pendingStripeSessionIDsForDefaultFollowers(tx *gorm.DB) ([]string, error) {
+	if tx == nil {
+		if db.DB == nil {
+			return nil, nil
+		}
+		tx = db.DB
+	}
+
+	sessionIDs := make([]string, 0)
+	if err := tx.Model(&models.Payment{}).
+		Where("status = ?", models.PaymentPending).
+		Where(`"stripeSessionId" <> ''`).
+		Where(`EXISTS (
+			SELECT 1
+			FROM users
+			WHERE users.id = payments."userId"
+			  AND users."planGroup" IS NULL
+		)`).
+		Pluck(`"stripeSessionId"`, &sessionIDs).Error; err != nil {
+		return nil, errors.New("查询待失效 Stripe 会话失败")
+	}
+	return sessionIDs, nil
+}
+
 func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 	var groups []models.PlanGroup
 	if err := db.DB.Order(`"sortOrder" ASC, key ASC`).Find(&groups).Error; err != nil {
@@ -363,7 +387,13 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 		}
 	}
 
+	var expiredSessionIDs []string
 	if defaultChanged {
+		expiredSessionIDs, err = pendingStripeSessionIDsForDefaultFollowers(tx)
+		if err != nil {
+			rollbackPlanGroupTx(tx)
+			return nil, err
+		}
 		expiredCount, err := paymentExpirePendingPaymentsForUsersFollowingDefault(tx)
 		if err != nil {
 			rollbackPlanGroupTx(tx)
@@ -374,6 +404,9 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 
 	if err := commitPlanGroupTx(tx); err != nil {
 		return nil, errors.New("更新套餐分组失败")
+	}
+	if len(expiredSessionIDs) > 0 {
+		NewPaymentService().expireStripeCheckoutSessions(expiredSessionIDs)
 	}
 	return group, nil
 }

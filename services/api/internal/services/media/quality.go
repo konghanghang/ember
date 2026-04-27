@@ -20,6 +20,7 @@ const (
 	mediaQualityCacheTTL      = 6 * time.Hour
 	mediaQualityAllLibraries  = "all"
 	mediaQualityAllLibrariesK = "__all__"
+	mediaQualityInflightTTL   = 10 * time.Minute
 )
 
 type MediaQualityService struct {
@@ -120,6 +121,17 @@ func (s *MediaQualityService) ScanLibraryQuality(ctx context.Context, libraryID 
 	}
 	cacheKey := normalizeMediaQualityCacheKey(libraryID)
 
+	locked, err := s.acquireScanInflight(ctx, cacheKey)
+	if err != nil {
+		return nil, err
+	}
+	if !locked {
+		return nil, ErrMediaQualityScanInProgress
+	}
+	defer func() {
+		_ = s.clearScanInflight(ctx, cacheKey)
+	}()
+
 	items, err := s.loadQualityItems(libraryID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMediaQualityScanFailed, err)
@@ -131,6 +143,70 @@ func (s *MediaQualityService) ScanLibraryQuality(ctx context.Context, libraryID 
 	}
 
 	return report, nil
+}
+
+func (s *MediaQualityService) acquireScanInflight(ctx context.Context, cacheKey string) (bool, error) {
+	now := time.Now().UTC()
+	inflightUntil := now.Add(mediaQualityInflightTTL)
+
+	tx := db.DB.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return false, fmt.Errorf("标记媒体质量扫描状态失败: %w", tx.Error)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			panic(r)
+		}
+	}()
+
+	var cache models.MediaQualityCache
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where(`"libraryId" = ?`, cacheKey).
+		First(&cache).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		placeholder := models.MediaQualityCache{
+			LibraryID:     cacheKey,
+			Statistics:    "{}",
+			SchemaVersion: 1,
+			InflightUntil: &inflightUntil,
+			ExpiresAt:     now,
+		}
+		if createErr := tx.Create(&placeholder).Error; createErr != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("标记媒体质量扫描状态失败: %w", createErr)
+		}
+	case err != nil:
+		tx.Rollback()
+		return false, fmt.Errorf("标记媒体质量扫描状态失败: %w", err)
+	default:
+		if cache.InflightUntil != nil && cache.InflightUntil.After(now) {
+			tx.Rollback()
+			return false, nil
+		}
+		if updateErr := tx.Model(&models.MediaQualityCache{}).
+			Where(`"libraryId" = ?`, cacheKey).
+			Updates(map[string]interface{}{
+				"inflightUntil": inflightUntil,
+				"updatedAt":     now,
+			}).Error; updateErr != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("标记媒体质量扫描状态失败: %w", updateErr)
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return false, fmt.Errorf("标记媒体质量扫描状态失败: %w", err)
+	}
+	return true, nil
+}
+
+func (s *MediaQualityService) clearScanInflight(ctx context.Context, cacheKey string) error {
+	return db.DB.WithContext(ctx).
+		Model(&models.MediaQualityCache{}).
+		Where(`"libraryId" = ?`, cacheKey).
+		Update("inflightUntil", nil).Error
 }
 
 func (s *MediaQualityService) GetGroupLowQualityDetails(
@@ -236,6 +312,7 @@ func (s *MediaQualityService) saveReportCache(ctx context.Context, cacheKey stri
 	cache := models.MediaQualityCache{
 		LibraryID:  cacheKey,
 		Statistics: string(reportJSON),
+		SchemaVersion: 1,
 		ExpiresAt:  now.Add(mediaQualityCacheTTL),
 	}
 
@@ -243,6 +320,8 @@ func (s *MediaQualityService) saveReportCache(ctx context.Context, cacheKey stri
 		Columns: []clause.Column{{Name: "libraryId"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"statistics": cache.Statistics,
+			"schemaVersion": cache.SchemaVersion,
+			"inflightUntil": nil,
 			"expiresAt":  cache.ExpiresAt,
 			"updatedAt":  now,
 		}),

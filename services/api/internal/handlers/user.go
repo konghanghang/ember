@@ -342,9 +342,12 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 
 	user, err := h.userService.UpdateProfile(userID.(string), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		switch {
+		case errors.Is(err, userpkg.ErrEmailAlreadyExists):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 
@@ -373,9 +376,13 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
 
 	err := h.userService.UpdatePassword(userID.(string), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		switch {
+		case errors.Is(err, userpkg.ErrOldPasswordInvalid),
+			errors.Is(err, userpkg.ErrUserEmbyIDRequired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 
@@ -406,9 +413,12 @@ func (h *UserHandler) UpdateEmail(c *gin.Context) {
 
 	user, err := h.userService.UpdateEmail(userID.(string), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		switch {
+		case errors.Is(err, userpkg.ErrEmailAlreadyExists):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 

@@ -44,6 +44,7 @@ export interface UserInfo {
   isUsingDefaultPlanGroup?: boolean
   expiresAt?: string
   isActive: boolean
+  passwordResetRequired?: boolean
   createdAt: string
 }
 

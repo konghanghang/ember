@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/store/auth'
+import { useUserStore } from '@/store/user'
 
 const adminRouteMeta = { role: 'admin' } as const
 
@@ -227,12 +228,13 @@ const router = createRouter({
 // Navigation Guard
 router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore()
+  const userStore = useUserStore()
   authStore.restoreAuth()
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth === true)
   const requiredRole = to.matched.find((record) => typeof record.meta.role === 'string')?.meta.role
 
   if (to.name === 'login' && authStore.isAuthenticated) {
-    next({ name: 'console-dashboard' })
+    next({ name: authStore.passwordResetRequired ? 'console-account' : 'console-dashboard' })
     return
   }
 
@@ -245,6 +247,13 @@ router.beforeEach((to, _from, next) => {
     if (requiredRole && requiredRole !== authStore.role) {
       ElMessage.warning('当前账号无权访问该页面')
       next({ name: 'console-dashboard' })
+      return
+    }
+
+    const resetRequired = authStore.passwordResetRequired || userStore.profile?.passwordResetRequired === true
+    if (resetRequired && to.name !== 'console-account') {
+      ElMessage.warning('当前账号必须先修改密码')
+      next({ name: 'console-account' })
       return
     }
   }

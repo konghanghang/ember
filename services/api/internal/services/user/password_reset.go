@@ -35,6 +35,7 @@ func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error
 	if err := user.SetPassword(req.NewPassword); err != nil {
 		return errors.New("密码重置失败：本地密码更新失败")
 	}
+	user.PasswordResetRequired = false
 	if err := s.saveUser(user); err != nil {
 		return errors.New("密码重置失败：本地密码保存失败")
 	}

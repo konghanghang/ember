@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as consoleApi from '@/api/console'
+import { useAuthStore } from '@/store/auth'
 import type {
   CreateSubscriptionRequest,
   MediaStats,
@@ -41,6 +42,10 @@ export const useUserStore = defineStore('user', () => {
 
   const updatePassword = async (oldPassword: string, newPassword: string) => {
     await consoleApi.updatePassword({ oldPassword, newPassword })
+    useAuthStore().setPasswordResetRequired(false)
+    if (profile.value) {
+      profile.value.passwordResetRequired = false
+    }
   }
 
   const fetchSubscriptions = async () => {

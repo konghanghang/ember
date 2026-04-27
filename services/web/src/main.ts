@@ -18,18 +18,20 @@ registerElementPlus(app)
 const authStore = useAuthStore(pinia)
 authStore.restoreAuth()
 authStore.initCrossTabSync((reason) => {
-  if (reason !== 'signed-out') {
+  const currentPath = router.currentRoute.value.path
+  if (reason === 'signed-out') {
+    if (currentPath !== '/login') {
+      ElMessage.warning('已在其他窗口登出')
+      void router.push({
+        path: '/login',
+        query: { redirect: router.currentRoute.value.fullPath }
+      })
+    }
     return
   }
 
-  const currentPath = router.currentRoute.value.path
-  if (currentPath !== '/login') {
-    ElMessage.warning('已在其他窗口登出')
-    void router.push({
-      path: '/login',
-      query: { redirect: router.currentRoute.value.fullPath }
-    })
-  }
+  ElMessage.info('检测到其他窗口已切换账号，当前页面将同步登录态')
+  void router.replace({ name: 'console-dashboard' })
 })
 
 app.mount('#app')

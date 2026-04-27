@@ -530,7 +530,7 @@ export function logoutBlacklistedDevices() {
   return request({
     url: '/admin/devices/blacklist/logout-all',
     method: 'post'
-  })
+  }) as Promise<{ successDeviceIds: string[]; failedDeviceIds: Array<{ deviceId: string; error: string }> }>
 }
 
 // ==================== 追剧日历 ====================

@@ -1246,9 +1246,10 @@ func getConfigDefinitions() []ConfigDefinition {
 			Description:        "API fire-and-forget 推送到 Bot 的地址",
 			Type:               ConfigValueURL,
 			Editable:           true,
+			RestartRequired:    true,
 			AllowEmpty:         true,
 			EmptyValueMode:     ConfigEmptyValueDisable,
-			EmptyValueHint:     "保存为空值后将关闭 API 到 Bot 的 fire-and-forget 推送。",
+			EmptyValueHint:     "保存为空值并重启 API 后，将关闭 API 到 Bot 的 fire-and-forget 推送。",
 			Placeholder:        "http://localhost:8000",
 			Validate: func(value string) error {
 				if strings.TrimSpace(value) == "" {

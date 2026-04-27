@@ -152,8 +152,13 @@ const handleLogin = async () => {
       ...form.value,
       ...(turnstileToken.value ? { turnstileToken: turnstileToken.value } : {})
     }
-    await authStore.login(payload)
+    const result = await authStore.login(payload)
     ElMessage.success('登录成功')
+    if (result.user.passwordResetRequired) {
+      ElMessage.warning('当前账号必须先修改密码')
+      await router.replace({ name: 'console-account' })
+      return
+    }
     await router.replace(redirectTarget.value)
   } catch {
     if (isTurnstileEnabled.value) {

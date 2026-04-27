@@ -361,7 +361,7 @@ async def reset_password_by_telegram(telegram_id: int, new_password: str) -> Opt
     return {"error": payload.get("error", "密码重置失败")}
 
 
-async def get_setting(key: str) -> str:
+async def get_setting(key: str) -> str | None:
     endpoint = "get_setting"
     url = f"{API_URL}/api/v1/internal/settings/{key}"
     response, elapsed_ms = await _request(
@@ -373,7 +373,7 @@ async def get_setting(key: str) -> str:
         log_fields={"key": key},
     )
     if response is None or response.status_code != 200:
-        return ""
+        return None
 
     payload = _load_json(
         response,
@@ -383,13 +383,13 @@ async def get_setting(key: str) -> str:
         key=key,
     )
     if payload is None:
-        return ""
+        return None
     return str(payload.get("value", ""))
 
 
 async def get_settings(keys: list[str]) -> dict[str, str]:
     values = await asyncio.gather(*(get_setting(key) for key in keys))
-    return {key: value for key, value in zip(keys, values)}
+    return {key: value for key, value in zip(keys, values) if value is not None}
 
 
 async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:

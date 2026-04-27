@@ -395,8 +395,6 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
 
     _purge_expired_reject_requests()
     pending = pending_reject_requests.get(message.chat_id)
-    if pending is None:
-        return
 
     admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
     if admin_chat_id is None or message.from_user.id != admin_chat_id:
@@ -407,14 +405,17 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
         await message.reply_text("拒绝原因不能为空，请重新输入。")
         return
 
-    # 从 API 弹出待确认记录，取 subscriptionId（副本隔离：subscriptionId 由服务端持久化）
+    # 从 API 弹出待确认记录，取 subscriptionId（副本隔离：subscriptionId 由服务端持久化）。
+    # 即使当前实例内存里没有 pending 上下文，也应继续完成拒绝，最多只是无法回写原审批消息。
     popped = await api_client.pop_pending_reject(message.chat_id)
     if popped is None:
+        if pending is None:
+            return
         await message.reply_text("待确认记录已过期或不存在，操作取消。")
         pending_reject_requests.pop(message.chat_id, None)
         return
 
-    subscription_id = popped.get("subscriptionId") or pending.get("subscription_id", "")
+    subscription_id = popped.get("subscriptionId") or (pending or {}).get("subscription_id", "")
     if not subscription_id:
         await message.reply_text("提交拒绝原因失败：无法获取订阅 ID，请重试。")
         pending_reject_requests.pop(message.chat_id, None)
@@ -435,6 +436,9 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
 
     pending_reject_requests.pop(message.chat_id, None)
     await message.reply_text("已提交拒绝原因并完成拒绝。")
+
+    if pending is None:
+        return
 
     result_text = format_result_message(pending.get("original_text", ""), "reject", reason)
     try:

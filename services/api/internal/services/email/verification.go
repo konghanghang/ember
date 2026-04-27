@@ -14,6 +14,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+func lockVerificationRateLimitScope(tx *gorm.DB, scope string) error {
+	return tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", scope).Error
+}
+
 func validateVerificationRateLimits(emailCount, ipCount int64, dailyLimit, ipDailyLimit int) error {
 	if emailCount >= int64(dailyLimit) {
 		return ErrEmailCodeRateLimit
@@ -64,21 +68,6 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 		return ErrEmailAlreadyRegistered
 	}
 
-	since := time.Now().UTC().Add(-24 * time.Hour)
-
-	var emailCount int64
-	db.DB.Model(&models.EmailVerification{}).
-		Where("lower(email) = ? AND \"type\" = ? AND \"createdAt\" > ?", normalizedEmail, codeType, since).
-		Count(&emailCount)
-
-	var ipCount int64
-	db.DB.Model(&models.EmailVerification{}).
-		Where("ip = ? AND \"type\" = ? AND \"createdAt\" > ?", ip, codeType, since).
-		Count(&ipCount)
-	if err := validateVerificationRateLimits(emailCount, ipCount, s.dailyLimit, s.ipDailyLimit); err != nil {
-		return err
-	}
-
 	code := generateVerificationCode()
 
 	verification := models.EmailVerification{
@@ -89,11 +78,58 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 		ExpiresAt: time.Now().UTC().Add(time.Duration(s.expiryMinutes) * time.Minute),
 	}
 
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		log.Printf("发送验证码开启事务失败 [%s]: %v", normalizedEmail, tx.Error)
+		return ErrEmailSendFailed
+	}
+
+	if err := lockVerificationRateLimitScope(tx, fmt.Sprintf("email-verification:%s:%s", normalizedEmail, codeType)); err != nil {
+		tx.Rollback()
+		log.Printf("发送验证码锁定邮箱限流失败 [%s]: %v", normalizedEmail, err)
+		return ErrEmailSendFailed
+	}
+	if err := lockVerificationRateLimitScope(tx, fmt.Sprintf("email-verification-ip:%s:%s", ip, codeType)); err != nil {
+		tx.Rollback()
+		log.Printf("发送验证码锁定 IP 限流失败 [%s]: %v", normalizedEmail, err)
+		return ErrEmailSendFailed
+	}
+
+	since := time.Now().UTC().Add(-24 * time.Hour)
+
+	var emailCount int64
+	if err := tx.Model(&models.EmailVerification{}).
+		Where("lower(email) = ? AND \"type\" = ? AND \"createdAt\" > ?", normalizedEmail, codeType, since).
+		Count(&emailCount).Error; err != nil {
+		tx.Rollback()
+		log.Printf("发送验证码统计邮箱次数失败 [%s]: %v", normalizedEmail, err)
+		return ErrEmailSendFailed
+	}
+
+	var ipCount int64
+	if err := tx.Model(&models.EmailVerification{}).
+		Where("ip = ? AND \"type\" = ? AND \"createdAt\" > ?", ip, codeType, since).
+		Count(&ipCount).Error; err != nil {
+		tx.Rollback()
+		log.Printf("发送验证码统计 IP 次数失败 [%s]: %v", normalizedEmail, err)
+		return ErrEmailSendFailed
+	}
+	if err := validateVerificationRateLimits(emailCount, ipCount, s.dailyLimit, s.ipDailyLimit); err != nil {
+		tx.Rollback()
+		return err
+	}
+
 	// 重置 + 邮箱未注册：写入限流计数行（与已注册路径计数一致），不发送邮件，
 	// 返回 ErrEmailNotRegistered；handler 层将其与限流 / 发送失败一起折叠为 200 + 统一文案。
 	if codeType == models.VerificationTypeReset && existingUserCount == 0 {
-		if err := db.DB.Create(&verification).Error; err != nil {
+		if err := tx.Create(&verification).Error; err != nil {
+			tx.Rollback()
 			log.Printf("[Email] 记录未注册重置请求失败 ip=%s err=%v", ip, err)
+			return ErrEmailSendFailed
+		}
+		if err := tx.Commit().Error; err != nil {
+			log.Printf("发送验证码提交事务失败 [%s]: %v", normalizedEmail, err)
+			return ErrEmailSendFailed
 		}
 		return ErrEmailNotRegistered
 	}
@@ -105,12 +141,6 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 		action = "密码重置"
 	}
 	body := fmt.Sprintf("你的 Ember %s验证码是：%s\n有效期 %d 分钟，请勿泄露给他人。", action, code, s.expiryMinutes)
-
-	tx := db.DB.Begin()
-	if tx.Error != nil {
-		log.Printf("发送验证码开启事务失败 [%s]: %v", normalizedEmail, tx.Error)
-		return ErrEmailSendFailed
-	}
 
 	if err := tx.Create(&verification).Error; err != nil {
 		tx.Rollback()

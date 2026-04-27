@@ -234,6 +234,7 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"failed_emby_async_ops", "idx_failed_emby_async_ops_next", "20260427_01_failed_emby_async_ops"},
 	{"stripe_webhook_events", "stripe_webhook_events_pkey", "20260427_02_stripe_webhook_events"},
 	{"payments", "uq_payments_pending_user_plan", "20260427_03_payments_pending_unique"},
+	{"payments", "idx_payments_stripe_session_id", "20260427_04_payments_dedupe_indexes"},
 	{"media_gap_scans", "idx_media_gap_scans_started", "20260427_07_media_gap_scans"},
 	{"users", "uq_users_telegram_id", "20260428_07_schema_alignment"},
 	{"playback_rankings", "uq_playback_rankings_period", "20260428_01_playback_rankings_idempotency"},

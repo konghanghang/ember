@@ -49,6 +49,8 @@ func (h *MediaQualityHandler) GetLibraryQuality(c *gin.Context) {
 		switch {
 		case errors.Is(err, mediapkg.ErrMediaQualityLibraryIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, mediapkg.ErrMediaQualityScanInProgress):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:
@@ -70,6 +72,8 @@ func (h *MediaQualityHandler) ScanLibraryQuality(c *gin.Context) {
 		switch {
 		case errors.Is(err, mediapkg.ErrMediaQualityLibraryIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, mediapkg.ErrMediaQualityScanInProgress):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		default:

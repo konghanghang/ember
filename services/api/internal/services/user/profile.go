@@ -34,6 +34,9 @@ func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*
 		if err := db.DB.Model(&models.User{}).
 			Where("id = ?", user.ID).
 			Update("email", user.Email).Error; err != nil {
+			if isUserUniqueViolation(err, "email") {
+				return nil, ErrEmailAlreadyExists
+			}
 			return nil, ErrUserUpdateFailed
 		}
 	}
@@ -53,6 +56,9 @@ func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*mode
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Update("email", user.Email).Error; err != nil {
+		if isUserUniqueViolation(err, "email") {
+			return nil, ErrEmailAlreadyExists
+		}
 		return nil, ErrUserUpdateFailed
 	}
 
