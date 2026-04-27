@@ -16,13 +16,14 @@
 - ✅ 当前周 `ready` 纠偏已通过 debouncer 批量回写 `tv_calendar_items`，不再只改返回值
 - ✅ `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` sync marker、cron 字符串布尔解析容错已落地
 - ✅ `pickTargetSeasonNumbers` 已改为覆盖最近 2 季 + last/next episode 相关季，老剧补集不再只盯最近一季
+- ✅ 同一 `cacheKey` 的 TMDB 并发击穿已通过 in-flight 去重收口，`tvcalendar` 与 `mediagap` 不再在同批请求中重复打上游
 
-剩余项（三层缓存收口）按 P2/P3 待后续批次。
+剩余项（TMDB 三层缓存更深层统一 / 观察性尾项）按 P2/P3 待后续批次。
 
 ## 归档判断
 
 - 当前不适合归档。
-- 原因：TMDB 三层缓存治理仍在本方案边界内，继续保留在 `docs/plan/` 更符合当前职责边界。
+- 原因：TMDB 三层缓存的更深层统一与观察性尾项仍在本方案边界内，继续保留在 `docs/plan/` 更符合当前职责边界。
 
 ## 稳定结论
 
@@ -34,6 +35,7 @@
 - `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` marker、cron 布尔解析容错已经成为当前同步基线。
 - 默认季选择策略已经固定为“最近 2 季 + last/next episode 相关季”，避免老剧补集漏季。
 - `resolveSeriesTMDBIDBySeriesID` 已增加 5 分钟进程内 TTL 缓存，重复 webhook / 同批匹配不再每次都打 Emby。
+- 同一 `cacheKey` 的 TMDB 请求已经增加 in-flight 去重，避免 memory cache / DB cache 同时 miss 时的瞬时并发击穿。
 - Stripe / SMTP 的上游网络与 HTTP 错误已经纳入 `SafeUpstreamError` / `SafeUpstreamHTTPError` 脱敏范围，不再把原始错误细节直接透传给日志回写或配置测试结果。
 
 ## 交叉引用

@@ -106,6 +106,12 @@ type tmdbMemoryCacheEntry struct {
 	ExpiresAt time.Time
 }
 
+type tmdbFetchCall struct {
+	done    chan struct{}
+	payload []byte
+	err     error
+}
+
 type readyEpisodeCacheEntry struct {
 	Episodes        map[string]embyEpisodeItem
 	LatestCreatedAt *time.Time
@@ -123,6 +129,8 @@ type TVCalendarService struct {
 	readyEpisodeCache map[string]readyEpisodeCacheEntry
 	cacheMu           sync.RWMutex
 	readyCacheMu      sync.RWMutex
+	fetchMu           sync.Mutex
+	fetchInflight     map[string]*tmdbFetchCall
 }
 
 func NewTVCalendarService() *TVCalendarService {
@@ -133,6 +141,7 @@ func NewTVCalendarService() *TVCalendarService {
 		},
 		memoryCache:       make(map[string]tmdbMemoryCacheEntry),
 		readyEpisodeCache: make(map[string]readyEpisodeCacheEntry),
+		fetchInflight:     make(map[string]*tmdbFetchCall),
 	}
 	service.refreshConfig()
 	return service
@@ -1223,60 +1232,108 @@ func (s *TVCalendarService) fetchTMDBJSON(ctx context.Context, cacheKey, request
 			}
 		}
 
-		var cached models.TMDBCache
-		err := db.DB.Where("\"cacheKey\" = ? AND \"expiresAt\" > ?", cacheKey, now).First(&cached).Error
-		if err == nil {
-			payload := []byte(cached.CacheValue)
-			if decodeErr := json.Unmarshal(payload, out); decodeErr == nil {
-				s.setTMDBMemoryCache(cacheKey, payload, cached.ExpiresAt)
-				return nil
+		if db.DB != nil {
+			var cached models.TMDBCache
+			err := db.DB.Where("\"cacheKey\" = ? AND \"expiresAt\" > ?", cacheKey, now).First(&cached).Error
+			if err == nil {
+				payload := []byte(cached.CacheValue)
+				if decodeErr := json.Unmarshal(payload, out); decodeErr == nil {
+					s.setTMDBMemoryCache(cacheKey, payload, cached.ExpiresAt)
+					return nil
+				}
 			}
 		}
 	}
 
+	call, leader := s.beginTMDBFetch(cacheKey)
+	if !leader {
+		<-call.done
+		if call.err != nil {
+			return call.err
+		}
+		if err := json.Unmarshal(call.payload, out); err != nil {
+			return fmt.Errorf("解析 TMDB 响应失败: %w", err)
+		}
+		return nil
+	}
+	defer s.finishTMDBFetch(cacheKey, call)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
-		return upstream.SafeUpstreamError(err, "tmdb")
+		call.err = upstream.SafeUpstreamError(err, "tmdb")
+		return call.err
 	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return upstream.SafeUpstreamError(err, "tmdb")
+		call.err = upstream.SafeUpstreamError(err, "tmdb")
+		return call.err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return upstream.SafeUpstreamError(err, "tmdb")
+		call.err = upstream.SafeUpstreamError(err, "tmdb")
+		return call.err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return upstream.SafeUpstreamHTTPError("tmdb", resp.StatusCode)
+		call.err = upstream.SafeUpstreamHTTPError("tmdb", resp.StatusCode)
+		return call.err
 	}
 
 	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("解析 TMDB 响应失败: %w", err)
+		call.err = fmt.Errorf("解析 TMDB 响应失败: %w", err)
+		return call.err
 	}
 
 	expiresAt := now.Add(ttl)
 	s.setTMDBMemoryCache(cacheKey, body, expiresAt)
 
-	cacheRow := models.TMDBCache{
-		CacheKey:   cacheKey,
-		CacheValue: string(body),
-		ExpiresAt:  expiresAt,
-	}
-	if err := db.DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "cacheKey"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{
-			"cacheValue": cacheRow.CacheValue,
-			"expiresAt":  cacheRow.ExpiresAt,
-		}),
-	}).Create(&cacheRow).Error; err != nil {
-		return fmt.Errorf("写入 TMDB 缓存失败: %w", err)
+	if db.DB != nil {
+		cacheRow := models.TMDBCache{
+			CacheKey:   cacheKey,
+			CacheValue: string(body),
+			ExpiresAt:  expiresAt,
+		}
+		if err := db.DB.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "cacheKey"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"cacheValue": cacheRow.CacheValue,
+				"expiresAt":  cacheRow.ExpiresAt,
+			}),
+		}).Create(&cacheRow).Error; err != nil {
+			call.err = fmt.Errorf("写入 TMDB 缓存失败: %w", err)
+			return call.err
+		}
 	}
 
+	call.payload = append([]byte(nil), body...)
+
 	return nil
+}
+
+func (s *TVCalendarService) beginTMDBFetch(cacheKey string) (*tmdbFetchCall, bool) {
+	s.fetchMu.Lock()
+	defer s.fetchMu.Unlock()
+
+	if s.fetchInflight == nil {
+		s.fetchInflight = make(map[string]*tmdbFetchCall)
+	}
+	if existing, ok := s.fetchInflight[cacheKey]; ok {
+		return existing, false
+	}
+
+	call := &tmdbFetchCall{done: make(chan struct{})}
+	s.fetchInflight[cacheKey] = call
+	return call, true
+}
+
+func (s *TVCalendarService) finishTMDBFetch(cacheKey string, call *tmdbFetchCall) {
+	s.fetchMu.Lock()
+	delete(s.fetchInflight, cacheKey)
+	s.fetchMu.Unlock()
+	close(call.done)
 }
 
 func (s *TVCalendarService) getTMDBMemoryCache(cacheKey string, now time.Time) ([]byte, bool) {
