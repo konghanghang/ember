@@ -1,8 +1,8 @@
 # 认证与账号完整性加固方案
 
-> 状态：P0 + P1 部分已落地（批次 1 + review 修复）；剩余 P1+/P2/P3 待后续批次
+> 状态：P0 + P1 + 部分 P2/P3 已落地（批次 1/2 + 批次 5 第一阶段）；剩余治理尾项待后续批次
 > 负责人：Ember
-> 更新时间：2026-04-26
+> 更新时间：2026-04-28
 
 ## 落地进度
 
@@ -16,7 +16,7 @@
 - ✅ Schema 层补 `lower(username)` / `lower(email)` 函数唯一索引（`20260426_02_users_lower_unique_indexes.sql`，含预检 fail-fast 与排查 SQL），DB 兜底逻辑重复账号
 - ✅ IP 限流 SQL 增加 `"type" = ?` 过滤；清理 `validateVerificationRateLimits` 之前的死分支与已无调用点的 `validateVerificationRecipient`
 
-剩余项（注册回滚补偿 / ConfigService 敏感配置回显 / InternalAuth 常数时间比较 / handler `err.Error()` 字符串匹配整改 / `CheckExpiredUsers` cancel + 失败上限）按 P1+/P2/P3 待后续批次。
+剩余项（ConfigService 敏感配置回显 / InternalAuth 常数时间比较 / `CheckExpiredUsers` cancel + 失败上限 / 更深一层 DI 治理）按 P1+/P2/P3 待后续批次。
 
 ## 背景
 
@@ -328,3 +328,18 @@
 - ConfigService 敏感回显
 - InternalAuth 常数时间比较
 - `CheckExpiredUsers` cancel
+
+## 批次 5 第一阶段已落地（2026-04-28）
+
+按批次 5 治理第一阶段继续收口：
+
+- ✅ `services/user/errors.go` 新增用户领域 sentinel，后台创建 / 后台更新 / 个人资料 / 密码重置不再靠 `switch err.Error()`
+- ✅ `handlers/user.go` 与 `handlers/auth.go` 对应路径改为 `errors.Is` + `httpx.InternalError`，`500` 不再裸透内部错误
+- ✅ `services/user/create.go` / `admin.go` 改为结构化唯一冲突判断，不再匹配 `"duplicate key value"` 文本
+- ✅ `services/user/profile.go` / `admin.go` 去掉 `Save(&user)` 全字段写入，改按字段 `Updates(map)`；`UpdateProfile` / `UpdateEmail` 的**全字段覆盖风险已收口**，但“是否需要事务”仍留作后续治理
+
+批次 5 本阶段未完成：
+
+- `ConfigService` 敏感项回显
+- `InternalAuth` 常数时间比较与运行期读取
+- `CheckExpiredUsers` cancel / 失败上限

@@ -1,8 +1,8 @@
 # Bot 通知与信息泄露加固方案
 
-> 状态：P0 部分已落地（批次 0 + 批次 1 + review 修复）；剩余 P1+/P2/P3 待后续批次
+> 状态：P0 + 部分 P1/P2 已落地（批次 0/1 + 批次 5 第一阶段）；剩余尾项待后续批次
 > 负责人：Ember
-> 更新时间：2026-04-26
+> 更新时间：2026-04-28
 
 ## 落地进度
 
@@ -13,7 +13,7 @@
 - ✅ Handler 层 `GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 在 `ErrTelegramNotBound` 命中时统一返回 400 + `请求参数错误`，反 Telegram→Ember 绑定枚举
 - ✅ `PaymentSuccessNotification` 删除 `Email` / `StripeSessionID` / `StripePaymentIntentID` 三个字段；`payment service` 同步去赋值；Bot Python `format_payment_message` 去渲染 + 单测同步
 
-剩余项（Bot HTTP 调用脱敏 / Internal API 一致鉴权 / 通知载荷长度限制 / Bot 端 message_id 缓存策略等）按 P1+/P2/P3 待后续批次。
+剩余项（Bot HTTP 调用脱敏 / Polling 单实例 / BotNotifier 单例化 / 通知载荷长度限制 / Bot 端 message_id 缓存策略等）按 P1+/P2/P3 待后续批次。
 
 ## 背景
 
@@ -347,6 +347,19 @@
 - [ ] mock runtime_settings API 5xx：缓存保留旧值
 - [ ] 关键日志含 `endpoint / event / payload size / status / latency / requestId`
 - [ ] 文档同步：SafeFireAndForget 契约 / Polling 单实例约束 / runtime_settings 失败回退
+
+## 批次 5 第一阶段已落地（2026-04-28）
+
+- ✅ `services/telegram/errors.go` / `service.go` 补 `ErrTelegramUserNotFound`，`GenerateBindCode` / `Unbind` 不再靠 `"用户不存在"` 字符串
+- ✅ `handlers/telegram.go` 对应路径改为 `errors.Is` 分支；部分 `500` 裸透改走 `httpx.InternalError`
+- ✅ `services/telegram/service.go` 去掉 `Save(&user)` 全字段写入：绑定 Telegram / Telegram 重置密码改为按字段更新
+
+仍未完成：
+
+- BotNotifier 单例 / logger 收口
+- Polling 单实例约束
+- runtime_settings 失败回退
+- pending_reject_requests 持久化
 
 ### 二次暴露检查清单
 

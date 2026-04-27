@@ -1,8 +1,8 @@
 # 播放观察与设备链路加固方案
 
-> 状态：草稿
+> 状态：主干大部分已落地；批次 5 第一阶段继续收口治理尾项
 > 负责人：Ember
-> 更新时间：2026-04-25
+> 更新时间：2026-04-28
 
 ## 背景
 
@@ -358,6 +358,16 @@
 - 黑名单归一规则写入运行手册
 - 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/console-admin/`
 - P2 / P3 中未顺手收口的项纳入下一轮治理
+
+## 批次 5 第一阶段已落地（2026-04-28）
+
+- ✅ `services/device/service.go` `AddClientToBlacklist` 去掉 `Save(&blacklist)`，改为按字段 `Updates(map)`，避免黑名单整行回写
+- ✅ 与本方案相关的 handler `500` 裸透已在批次 5 第一阶段统一改走 `httpx.InternalError`
+
+仍未完成：
+
+- `_ = db.DB.Create/Save` 静默吞错 sweep
+- 其余播放/设备 P2/P3 治理尾项
 
 ## 附录：问题清单与本方案条目映射
 

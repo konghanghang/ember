@@ -1,8 +1,8 @@
 # 支付与兑换码完整性加固方案
 
-> 状态：草稿
+> 状态：主干已落地；批次 5 第一阶段继续收口治理尾项
 > 负责人：Ember
-> 更新时间：2026-04-25
+> 更新时间：2026-04-28
 
 ## 背景
 
@@ -359,3 +359,14 @@
 ### 批次 2 review 修复（2026-04-27）
 
 - ✅ **Stripe webhook 失败重试状态机**：`HandleWebhook` 命中冲突时回查 status；只有 `processed / skipped` 直接 200，`received / failed` 必须允许 Stripe 重试重新分发，避免首次失败 / 进程崩溃后资金链路永远不再履约。新增 `shouldRedispatchWebhook` 纯函数 + 状态机单测覆盖。
+
+## 批次 5 第一阶段已落地（2026-04-28）
+
+- ✅ `services/payment/errors.go` / `service.go` 为 Stripe webhook 签名与解析失败补 sentinel；`handlers/payment.go` 不再靠 `strings.Contains(err.Error(), "签名"/"解析")` 做分支
+- ✅ `services/payment/service.go` 去掉 `UpdatePlan`、`fulfillPayment`、`markPaymentFailed` 等路径的 `Save(&plan)` / `Save(&payment)` / `Save(&user)` 全字段写入，统一改按字段 `Updates(map)`
+
+仍未完成：
+
+- 多币种结算口径文档
+- PlanGroup DTO 拆分
+- 更大范围的支付/套餐治理尾项
