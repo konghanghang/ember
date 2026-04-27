@@ -161,6 +161,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.GET("/emby/config", h.media.GetEmbyConfig)
 	authenticated.GET("/media/stats", h.media.GetMediaStats)
 	authenticated.GET("/media/latest", h.media.GetLatestItems)
+	authenticated.GET("/media/posters/:itemId", h.media.GetPoster)
 
 	authenticated.GET("/rankings/latest", h.ranking.GetLatestRanking)
 	authenticated.GET("/rankings/history", h.ranking.GetHistoryRanking)

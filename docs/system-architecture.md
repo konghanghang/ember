@@ -1041,6 +1041,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | GET | `/api/v1/emby/config` | Emby 配置 |
 | GET | `/api/v1/media/stats` | 媒体统计 |
 | GET | `/api/v1/media/latest` | 最新入库 |
+| GET | `/api/v1/media/posters/:itemId` | 最近入库封面代理（需登录） |
 | GET | `/api/v1/rankings/latest` | 最新整期排行（`period`） |
 | GET | `/api/v1/rankings/history` | 按日期查询整期历史排行（`period` + `date`） |
 | GET | `/api/v1/plans` | 当前登录用户可购方案列表（认证兼容别名，按用户有效套餐分组过滤） |
@@ -1352,7 +1353,15 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 展示位置：`views/console/DashboardView.vue` + `components/console/RecentLibrarySection.vue`
 - 兼容路径：`/console/library` 路由级重定向到 `/console/dashboard`
 - 数据源：`GET /api/v1/media/latest?type=Movie|Series&limit=20`
+- 封面：前端通过 `GET /api/v1/media/posters/:itemId?type=Movie|Series` 拉取 blob，再转 object URL；不再直接拼 Emby 公网图床
+- 权限边界：封面代理只允许访问“当前用户最近入库列表里已经出现的条目”，避免把管理员 API key 图床直接暴露给浏览器
 - 行为：在概览页展示当前用户视角的最近入库摘要，支持电影/剧集切换、横向滑动与手动刷新，不做搜索和分页
+
+### Dashboard Emby 入口
+
+- 主入口：`/console/dashboard`
+- 数据源：`GET /api/v1/emby/config`
+- 行为：概览页只展示后端返回的单条 Emby 地址，不再由前端伪造“备用线路 A/B”；用户侧操作仅保留复制地址与新窗口打开
 
 ---
 

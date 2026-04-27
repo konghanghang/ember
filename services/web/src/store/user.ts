@@ -18,6 +18,14 @@ export const useUserStore = defineStore('user', () => {
     profile.value = user
   }
 
+  const setEmbyUrl = (url: string) => {
+    embyUrl.value = url
+  }
+
+  const clearEmbyUrl = () => {
+    embyUrl.value = ''
+  }
+
   const fetchProfile = async () => {
     const res = await consoleApi.getProfile()
     setProfile(res)
@@ -59,7 +67,7 @@ export const useUserStore = defineStore('user', () => {
 
   const fetchEmbyConfig = async () => {
     const res = await consoleApi.getEmbyConfig()
-    embyUrl.value = res.url
+    setEmbyUrl(res.url)
     return res.url
   }
 
@@ -67,7 +75,7 @@ export const useUserStore = defineStore('user', () => {
     profile.value = null
     subscriptions.value = []
     mediaStats.value = null
-    embyUrl.value = ''
+    clearEmbyUrl()
   }
 
   return {
@@ -76,6 +84,8 @@ export const useUserStore = defineStore('user', () => {
     mediaStats,
     embyUrl,
     setProfile,
+    setEmbyUrl,
+    clearEmbyUrl,
     
     fetchProfile,
     updateEmail,

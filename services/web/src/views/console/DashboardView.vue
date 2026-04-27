@@ -17,14 +17,6 @@ import { useUserStore } from '@/store/user'
 import { getMediaStats } from '@/api/console'
 import type { MediaStats, UserInfo } from '@/types/api'
 
-interface EmbyAccessEntry {
-  key: string
-  label: string
-  url: string
-  tag?: string
-  primary?: boolean
-}
-
 const authStore = useAuthStore()
 const userStore = useUserStore()
 const router = useRouter()
@@ -81,31 +73,7 @@ const membershipStatusHint = computed(() => {
   if (daysLeft.value === null) return ''
   return `剩余 ${daysLeft.value} 天`
 })
-const canOpenEmby = computed(() => Boolean(embyUrl.value) && !showLockedServerState.value)
-const embyAccessEntries = computed<EmbyAccessEntry[]>(() => {
-  if (!embyUrl.value) return []
-  return [
-    {
-      key: 'primary',
-      label: '主线路',
-      url: embyUrl.value,
-      tag: '推荐',
-      primary: true
-    },
-    {
-      key: 'backup-a',
-      label: '备用线路 A',
-      url: embyUrl.value,
-      tag: '备用'
-    },
-    {
-      key: 'backup-b',
-      label: '备用线路 B',
-      url: embyUrl.value,
-      tag: '备用'
-    }
-  ]
-})
+const hasEmbyAccessUrl = computed(() => Boolean(embyUrl.value))
 
 const fetchOverview = async () => {
   if (!userStore.profile) return
@@ -123,7 +91,7 @@ const fetchOverview = async () => {
     ])
 
     if (configResult.status === 'rejected') {
-      userStore.embyUrl = ''
+      userStore.clearEmbyUrl()
     }
 
     if (statsResult.status === 'fulfilled' && statsResult.value.success) {
@@ -146,7 +114,7 @@ const copyToClipboard = async (text: string) => {
 }
 
 const openEmby = (url?: string) => {
-  const target = url || embyAccessEntries.value[0]?.url || ''
+  const target = url || embyUrl.value || ''
   if (!target || showLockedServerState.value) return
   window.open(target, '_blank', 'noopener,noreferrer')
 }
@@ -226,32 +194,31 @@ watch(
                 <p class="mt-1 text-sm text-gray-500">控制台与 Emby 客户端共用同一套账号密码。</p>
               </div>
               <span
-                v-if="embyAccessEntries.length > 0 && !showLockedServerState"
+                v-if="hasEmbyAccessUrl && !showLockedServerState"
                 class="inline-flex w-fit items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700"
               >
                 当前可用
               </span>
             </div>
 
-            <div v-if="embyAccessEntries.length > 0 && !showLockedServerState" class="space-y-3">
+            <div v-if="hasEmbyAccessUrl && !showLockedServerState" class="space-y-3">
               <article
-                v-if="embyAccessEntries[0]"
                 class="rounded-2xl border border-ember/15 bg-white p-4 shadow-sm"
               >
                 <div class="flex flex-col gap-3 xl:flex-row xl:items-center">
                   <span class="inline-flex h-11 w-fit items-center rounded-full bg-ember/10 px-4 text-sm font-medium text-ember xl:shrink-0">
-                    {{ embyAccessEntries[0].label }}
+                    服务器地址
                   </span>
 
                   <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-                    {{ embyAccessEntries[0].url }}
+                    {{ embyUrl }}
                   </code>
 
                   <div class="flex items-center gap-2 xl:shrink-0">
                     <button
-                      :aria-label="`复制${embyAccessEntries[0].label}地址`"
+                      aria-label="复制 Emby 地址"
                       class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
-                      @click="copyToClipboard(embyAccessEntries[0].url)"
+                      @click="copyToClipboard(embyUrl)"
                     >
                       <el-icon><CopyDocument /></el-icon>
                     </button>
@@ -259,46 +226,13 @@ watch(
                     <button
                       type="button"
                       class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer"
-                      @click="openEmby(embyAccessEntries[0].url)"
+                      @click="openEmby(embyUrl)"
                     >
                       打开
                     </button>
                   </div>
                 </div>
               </article>
-
-              <div v-if="embyAccessEntries.length > 1" class="rounded-2xl border border-gray-100 bg-white shadow-sm divide-y divide-gray-100">
-                <div
-                  v-for="entry in embyAccessEntries.slice(1)"
-                  :key="entry.key"
-                  class="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center"
-                >
-                  <span class="inline-flex h-9 w-fit items-center rounded-full bg-gray-100 px-3 text-sm font-medium text-gray-700 lg:shrink-0">
-                    {{ entry.label }}
-                  </span>
-
-                  <code class="min-w-0 flex-1 truncate text-sm text-gray-500 lg:px-2">
-                    {{ entry.url }}
-                  </code>
-
-                  <div class="flex items-center gap-2 lg:shrink-0">
-                    <button
-                      :aria-label="`复制${entry.label}地址`"
-                      class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
-                      @click="copyToClipboard(entry.url)"
-                    >
-                      <el-icon><CopyDocument /></el-icon>
-                    </button>
-                    <button
-                      type="button"
-                      class="inline-flex h-9 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer"
-                      @click="openEmby(entry.url)"
-                    >
-                      打开
-                    </button>
-                  </div>
-                </div>
-              </div>
             </div>
 
             <EmberEmptyStateCard

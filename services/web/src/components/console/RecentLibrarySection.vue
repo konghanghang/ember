@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, Film, RefreshRight, VideoPlay } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
-import { getLatestMedia } from '@/api/console'
-import { useUserStore } from '@/store/user'
+import { getLatestMedia, getMediaPoster } from '@/api/console'
 import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
 import type { LatestMediaItem } from '@/types/api'
 
@@ -14,8 +13,6 @@ const props = withDefaults(defineProps<{
   limit: 20
 })
 
-const userStore = useUserStore()
-
 const activeType = ref<'Movie' | 'Series'>('Movie')
 const items = ref<LatestMediaItem[]>([])
 const loading = ref(false)
@@ -23,6 +20,9 @@ const hasLoadError = ref(false)
 const scrollerRef = ref<HTMLElement | null>(null)
 
 const placeholderPoster = emberPosterPlaceholder
+const posterURLMap = ref<Record<string, string>>({})
+const loadingPosterIDs = new Set<string>()
+const objectURLs = new Set<string>()
 
 const tabItems = computed(() => [
   { key: 'Movie' as const, label: '电影', icon: Film },
@@ -32,16 +32,45 @@ const tabItems = computed(() => [
 const skeletonItems = computed(() => Array.from({ length: props.limit }))
 
 function getImageUrl(itemId: string) {
-  if (!userStore.embyUrl) return placeholderPoster
-  return `${userStore.embyUrl}/emby/Items/${itemId}/Images/Primary?maxHeight=400&quality=90`
+  return posterURLMap.value[itemId] || placeholderPoster
 }
 
-async function ensureEmbyUrl() {
-  if (userStore.embyUrl) return
-  try {
-    await userStore.fetchEmbyConfig()
-  } catch {
-    // 海报地址缺失时回退占位图，不阻塞摘要渲染。
+function cleanupPosterURLs(activeIDs: string[]) {
+  const keep = new Set(activeIDs)
+
+  for (const [id, url] of Object.entries(posterURLMap.value)) {
+    if (keep.has(id) || url === placeholderPoster) {
+      continue
+    }
+
+    URL.revokeObjectURL(url)
+    objectURLs.delete(url)
+    delete posterURLMap.value[id]
+  }
+}
+
+async function preloadPosterURLs(nextItems: LatestMediaItem[]) {
+  for (const item of nextItems) {
+    const id = item.id?.trim()
+    if (!id || posterURLMap.value[id] || loadingPosterIDs.has(id)) {
+      continue
+    }
+
+    loadingPosterIDs.add(id)
+    try {
+      const blob = await getMediaPoster(id, activeType.value)
+      if (blob && blob.size > 0) {
+        const objectURL = URL.createObjectURL(blob)
+        objectURLs.add(objectURL)
+        posterURLMap.value[id] = objectURL
+      } else {
+        posterURLMap.value[id] = placeholderPoster
+      }
+    } catch {
+      posterURLMap.value[id] = placeholderPoster
+    } finally {
+      loadingPosterIDs.delete(id)
+    }
   }
 }
 
@@ -50,18 +79,21 @@ async function fetchLatest() {
   hasLoadError.value = false
 
   try {
-    await ensureEmbyUrl()
     const res = await getLatestMedia(activeType.value, props.limit)
     if (!res?.success) {
       items.value = []
       hasLoadError.value = true
+      cleanupPosterURLs([])
       return
     }
 
     items.value = res.data || []
+    cleanupPosterURLs(items.value.map((item) => item.id))
+    void preloadPosterURLs(items.value)
   } catch {
     items.value = []
     hasLoadError.value = true
+    cleanupPosterURLs([])
   } finally {
     loading.value = false
   }
@@ -83,6 +115,13 @@ watch(activeType, () => {
 
 onMounted(() => {
   fetchLatest()
+})
+
+onBeforeUnmount(() => {
+  for (const url of objectURLs) {
+    URL.revokeObjectURL(url)
+  }
+  objectURLs.clear()
 })
 </script>
 

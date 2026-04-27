@@ -1,6 +1,8 @@
 package media
 
 import (
+	"context"
+	"errors"
 	"log"
 	"os"
 	"strconv"
@@ -58,6 +60,8 @@ type mediaStatsSFCall struct {
 	err  error
 }
 
+var ErrLatestItemNotVisible = errors.New("item 不在当前用户可见的最近入库列表中")
+
 // NewMediaService 创建媒体服务
 func NewMediaService() *MediaService {
 	return &MediaService{
@@ -104,6 +108,28 @@ func (s *MediaService) GetEmbyConfig() (string, error) {
 	}
 
 	return url, nil
+}
+
+// GetPoster 代理媒体封面拉取，供需要带 JWT 的前端页面使用。
+func (s *MediaService) GetPoster(_ context.Context, itemID string, maxHeight int, quality int) ([]byte, string, error) {
+	return s.embyService.GetItemPrimaryImage(itemID, maxHeight, quality)
+}
+
+// EnsureLatestItemVisible 校验 item 是否出现在当前用户可见的最近入库列表中。
+// 这是用户侧海报代理的最小权限边界：只允许拉取当前页面已经暴露给该用户的最近入库条目。
+func (s *MediaService) EnsureLatestItemVisible(embyUserID string, itemType string, itemID string) error {
+	items, err := s.GetLatestItems(embyUserID, itemType, s.latestCacheLimit)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == itemID {
+			return nil
+		}
+	}
+
+	return ErrLatestItemNotVisible
 }
 
 // GetMediaStats 获取媒体库统计信息（带 singleflight 缓存）

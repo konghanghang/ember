@@ -153,6 +153,20 @@ export function getLatestMedia(type: 'Movie' | 'Series', limit: number = 20): Pr
   })
 }
 
+export function getMediaPoster(itemId: string, type: 'Movie' | 'Series'): Promise<Blob> {
+  return request({
+    url: `/media/posters/${encodeURIComponent(itemId)}`,
+    method: 'get',
+    params: {
+      type,
+      maxHeight: 400,
+      quality: 90
+    },
+    responseType: 'blob',
+    silent: true
+  }) as unknown as Promise<Blob>
+}
+
 // ==================== 播放排行 ====================
 export function getLatestRanking(
   period: RankingPeriod

@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -86,28 +88,8 @@ func normalizeEmbyTime(raw string) string {
 // GetLatestItems 获取最近入库的媒体
 // GET /api/v1/media/latest?type=Movie&limit=20
 func (h *MediaHandler) GetLatestItems(c *gin.Context) {
-	userIDRaw, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "未认证"})
-		return
-	}
-
-	userID, ok := userIDRaw.(string)
-	if !ok || userID == "" {
-		userID = fmt.Sprint(userIDRaw)
-	}
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "未认证"})
-		return
-	}
-
-	var user models.User
-	if err := db.DB.Select("embyId").Where("id = ?", userID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "用户不存在"})
-		return
-	}
-	if user.EmbyID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "用户未绑定 Emby 账号"})
+	user, ok := getCurrentMediaUser(c)
+	if !ok {
 		return
 	}
 
@@ -146,4 +128,73 @@ func (h *MediaHandler) GetLatestItems(c *gin.Context) {
 		"success": true,
 		"data":    res,
 	})
+}
+
+// GetPoster 获取最近入库条目封面（用户代理）
+// GET /api/v1/media/posters/:itemId?type=Movie&maxHeight=400&quality=90
+func (h *MediaHandler) GetPoster(c *gin.Context) {
+	user, ok := getCurrentMediaUser(c)
+	if !ok {
+		return
+	}
+
+	itemID := strings.TrimSpace(c.Param("itemId"))
+	if itemID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "itemId 不能为空"})
+		return
+	}
+
+	itemType := c.DefaultQuery("type", "Movie")
+	if itemType != "Movie" && itemType != "Series" {
+		itemType = "Movie"
+	}
+
+	maxHeight := parsePositiveInt(c.DefaultQuery("maxHeight", "400"), 400)
+	quality := parsePositiveInt(c.DefaultQuery("quality", "90"), 90)
+
+	if err := h.service.EnsureLatestItemVisible(user.EmbyID, itemType, itemID); err != nil {
+		if errors.Is(err, mediapkg.ErrLatestItemNotVisible) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "封面不存在"})
+			return
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "获取封面失败"})
+		return
+	}
+
+	content, contentType, err := h.service.GetPoster(c.Request.Context(), itemID, maxHeight, quality)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "获取封面失败"})
+		return
+	}
+
+	c.Data(http.StatusOK, contentType, content)
+}
+
+func getCurrentMediaUser(c *gin.Context) (*models.User, bool) {
+	userIDRaw, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "未认证"})
+		return nil, false
+	}
+
+	userID, ok := userIDRaw.(string)
+	if !ok || userID == "" {
+		userID = fmt.Sprint(userIDRaw)
+	}
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "未认证"})
+		return nil, false
+	}
+
+	var user models.User
+	if err := db.DB.Select("embyId").Where("id = ?", userID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "用户不存在"})
+		return nil, false
+	}
+	if user.EmbyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "用户未绑定 Emby 账号"})
+		return nil, false
+	}
+
+	return &user, true
 }
