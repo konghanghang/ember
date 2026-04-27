@@ -215,6 +215,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"media_gaps", "ignoreReasonCode", "20260427_02_media_gaps_ignore_reason_code"},
 	{"media_quality_caches", "inflightUntil", "20260426_09_media_quality_caches_inflight"},
 	{"tv_calendar_sources", "lastFullSyncAt", "20260426_11_tv_calendar_sources_sync_markers"},
+	{"bot_pending_reject_requests", "messageId", "20260427_04_bot_pending_reject_message_context"},
 	{"users", "passwordResetRequired", "20260426_15_users_password_reset_required"},
 	{"bot_runtime_locks", "expiresAt", "20260427_01_bot_runtime_locks"},
 }

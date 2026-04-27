@@ -578,7 +578,15 @@ async def subscribe_by_telegram(
     return {"error": data.get("error", "订阅失败"), "status": response.status_code}
 
 
-async def enqueue_pending_reject(chat_id: int, admin_user_id: str, subscription_id: str) -> bool:
+async def enqueue_pending_reject(
+    chat_id: int,
+    admin_user_id: str,
+    subscription_id: str,
+    *,
+    message_id: int | None = None,
+    has_photo: bool = False,
+    original_text: str = "",
+) -> bool:
     """入队拒绝待确认记录"""
     endpoint = "enqueue_pending_reject"
     url = f"{API_URL}/api/v1/internal/telegram/reject-request/enqueue"
@@ -588,7 +596,14 @@ async def enqueue_pending_reject(chat_id: int, admin_user_id: str, subscription_
         url,
         timeout=_DEFAULT_TIMEOUT,
         headers=_INTERNAL_HEADERS,
-        json={"chatId": chat_id, "adminUserId": admin_user_id, "subscriptionId": subscription_id},
+        json={
+            "chatId": chat_id,
+            "adminUserId": admin_user_id,
+            "subscriptionId": subscription_id,
+            "messageId": message_id,
+            "hasPhoto": has_photo,
+            "originalText": original_text,
+        },
         log_fields={"chatId": chat_id, "subscriptionId": subscription_id},
     )
     return response is not None and response.status_code == 200

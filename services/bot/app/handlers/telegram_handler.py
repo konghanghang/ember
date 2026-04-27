@@ -347,7 +347,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # 获取 admin 的 Ember 用户 ID 来记录 operatorId（使用 telegram_id 作为标识）
         admin_user_id = str(query.from_user.id)
-        enqueued = await api_client.enqueue_pending_reject(message.chat_id, admin_user_id, subscription_id)
+        enqueued = await api_client.enqueue_pending_reject(
+            message.chat_id,
+            admin_user_id,
+            subscription_id,
+            message_id=message.message_id,
+            has_photo=bool(message.photo),
+            original_text=original_text,
+        )
         if not enqueued:
             await query.answer("系统错误，无法创建待确认记录", show_alert=True)
             return
@@ -438,7 +445,13 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
     await message.reply_text("已提交拒绝原因并完成拒绝。")
 
     if pending is None:
-        return
+        pending = {
+            "subscription_id": popped.get("subscriptionId"),
+            "message_id": popped.get("messageId"),
+            "chat_id": popped.get("chatId", message.chat_id),
+            "has_photo": bool(popped.get("hasPhoto")),
+            "original_text": str(popped.get("originalText") or ""),
+        }
 
     result_text = format_result_message(pending.get("original_text", ""), "reject", reason)
     try:

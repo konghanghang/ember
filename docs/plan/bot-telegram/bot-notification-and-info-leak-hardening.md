@@ -13,16 +13,17 @@
 - ✅ Handler 层 `GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 在 `ErrTelegramNotBound` 命中时统一返回 400 + `请求参数错误`，反 Telegram→Ember 绑定枚举
 - ✅ `PaymentSuccessNotification` 删除 `Email` / `StripeSessionID` / `StripePaymentIntentID` 三个字段；`payment service` 同步去赋值；Bot Python `format_payment_message` 去渲染 + 单测同步
 - ✅ `runtime_settings_service` 失败保留旧值，不再把有效配置覆盖为空值
-- ✅ `pending_reject_requests` 已补服务端持久化主链路，Bot 重启/分流后 `subscriptionId` 不再直接丢失
+- ✅ `pending_reject_requests` 已补服务端持久化主链路；`subscriptionId / messageId / hasPhoto / originalText` 不再只靠进程内 dict 维持
 - ✅ `polling` 模式已补数据库租约锁：启动前申请、运行中续租、失败时主动停止 polling
 - ✅ Bot API `httpx` 客户端已补 `limits`、重试和更完整的失败日志
+- ✅ `BotNotifier` 已补进程内配置缓存与刷新节流，不再在每次 `IsConfigured` / `post` 时重建 `ConfigService` 查库
 
-剩余项（BotNotifier 配置缓存 / 通知载荷长度限制 / Bot 端 `message_id` 缓存策略；拒绝订阅的消息上下文 `message_id` / `has_photo` / `original_text` 仍保留在进程内 dict，仅服务端待确认记录已持久化）按 P2/P3 待后续批次。
+剩余项（通知载荷长度限制 / Bot 端 `message_id` 缓存策略优化与更细颗粒度观察性）按 P2/P3 待后续批次。
 
 ## 归档判断
 
 - 当前不适合归档。
-- 原因：拒绝订阅的上下文状态仍部分驻留在进程内，`BotNotifier` 配置缓存也未收口，这不是单纯文档整理尾项。
+- 原因：通知载荷长度与 `message_id` 侧的收口策略仍未完全定型，继续保留在 `docs/plan/` 更符合当前职责边界。
 
 ## 背景
 

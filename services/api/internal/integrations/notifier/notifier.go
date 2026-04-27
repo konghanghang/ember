@@ -71,27 +71,30 @@ type PaymentSuccessNotification struct {
 
 // BotNotifier Bot 通知客户端
 type BotNotifier struct {
-	botURL string
-	secret string
-	client *http.Client
+	botURL          string
+	secret          string
+	client          *http.Client
+	mu              sync.RWMutex
+	lastRefreshedAt time.Time
 }
+
+const botNotifierRefreshTTL = 30 * time.Second
 
 // NewBotNotifier 创建 BotNotifier
 func NewBotNotifier() *BotNotifier {
-	configService := configpkg.NewConfigService()
 	notifier := &BotNotifier{
 		secret: os.Getenv("INTERNAL_API_SECRET"),
-		botURL: strings.TrimRight(configService.GetString("BOT_NOTIFY_URL"), "/"),
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
 	}
+	notifier.refreshConfig(true)
 	return notifier
 }
 
 var (
-	sharedBotNotifierOnce    sync.Once
-	sharedBotNotifier        *BotNotifier
+	sharedBotNotifierOnce sync.Once
+	sharedBotNotifier     *BotNotifier
 )
 
 // GetSharedBotNotifier 返回进程内共享的 BotNotifier 单例。
@@ -102,13 +105,32 @@ func GetSharedBotNotifier() *BotNotifier {
 	return sharedBotNotifier
 }
 
-func (n *BotNotifier) refreshConfig() {
+func (n *BotNotifier) refreshConfig(force bool) {
+	n.mu.RLock()
+	shouldSkip := !force && !n.lastRefreshedAt.IsZero() && time.Since(n.lastRefreshedAt) < botNotifierRefreshTTL
+	n.mu.RUnlock()
+	if shouldSkip {
+		return
+	}
+
 	configService := configpkg.NewConfigService()
-	n.botURL = strings.TrimRight(configService.GetString("BOT_NOTIFY_URL"), "/")
+	botURL := strings.TrimRight(configService.GetString("BOT_NOTIFY_URL"), "/")
+
+	n.mu.Lock()
+	n.botURL = botURL
+	n.lastRefreshedAt = time.Now().UTC()
+	n.mu.Unlock()
+}
+
+func (n *BotNotifier) Reload() {
+	n.refreshConfig(true)
 }
 
 // IsConfigured 检查 Bot 通知配置
 func (n *BotNotifier) IsConfigured() bool {
+	n.refreshConfig(false)
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 	return n.botURL != ""
 }
 
@@ -117,13 +139,17 @@ func (n *BotNotifier) post(path string, data interface{}) {
 		return
 	}
 
+	n.mu.RLock()
+	botURL := n.botURL
+	n.mu.RUnlock()
+
 	body, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("[BotNotifier] 序列化请求失败 endpoint=%s err=%v", path, err)
 		return
 	}
 
-	req, err := http.NewRequest("POST", n.botURL+path, bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", botURL+path, bytes.NewBuffer(body))
 	if err != nil {
 		log.Printf("[BotNotifier] 创建请求失败 endpoint=%s err=%v", path, err)
 		return

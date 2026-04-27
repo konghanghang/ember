@@ -14,12 +14,15 @@ import (
 const pendingRejectTTL = 5 * time.Minute
 
 // EnqueuePendingReject 创建一条待确认拒绝记录
-func EnqueuePendingReject(ctx context.Context, chatID int64, adminUserID, subscriptionID string) error {
+func EnqueuePendingReject(ctx context.Context, chatID int64, adminUserID, subscriptionID string, messageID *int64, hasPhoto bool, originalText string) error {
 	now := time.Now().UTC()
 	record := &models.BotPendingRejectRequest{
 		ChatID:         chatID,
 		AdminUserID:    adminUserID,
 		SubscriptionID: subscriptionID,
+		MessageID:      messageID,
+		HasPhoto:       hasPhoto,
+		OriginalText:   originalText,
 		ExpiresAt:      now.Add(pendingRejectTTL),
 	}
 	if err := db.DB.WithContext(ctx).Create(record).Error; err != nil {

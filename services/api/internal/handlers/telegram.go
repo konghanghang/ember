@@ -222,6 +222,9 @@ type pendingRejectEnqueueRequest struct {
 	ChatID         int64  `json:"chatId" binding:"required"`
 	AdminUserID    string `json:"adminUserId" binding:"required"`
 	SubscriptionID string `json:"subscriptionId" binding:"required"`
+	MessageID      *int64 `json:"messageId"`
+	HasPhoto       bool   `json:"hasPhoto"`
+	OriginalText   string `json:"originalText"`
 }
 
 type pendingRejectPopRequest struct {
@@ -241,7 +244,7 @@ func (h *TelegramHandler) EnqueuePendingReject(c *gin.Context) {
 		return
 	}
 
-	if err := telegrampkg.EnqueuePendingReject(c.Request.Context(), req.ChatID, req.AdminUserID, req.SubscriptionID); err != nil {
+	if err := telegrampkg.EnqueuePendingReject(c.Request.Context(), req.ChatID, req.AdminUserID, req.SubscriptionID, req.MessageID, req.HasPhoto, req.OriginalText); err != nil {
 		httpx.InternalError(c, err)
 		return
 	}
@@ -272,6 +275,9 @@ func (h *TelegramHandler) PopPendingReject(c *gin.Context) {
 		"chatId":         record.ChatID,
 		"adminUserId":    record.AdminUserID,
 		"subscriptionId": record.SubscriptionID,
+		"messageId":      record.MessageID,
+		"hasPhoto":       record.HasPhoto,
+		"originalText":   record.OriginalText,
 		"expiresAt":      record.ExpiresAt,
 	})
 }
