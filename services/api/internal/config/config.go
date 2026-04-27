@@ -185,6 +185,7 @@ type ConfigItem struct {
 	Options           []ConfigOption       `json:"options,omitempty"`
 	Source            string               `json:"source"`
 	HasValue          bool                 `json:"hasValue"`
+	MaskedValue       *string              `json:"maskedValue,omitempty"`
 	Value             *string              `json:"value,omitempty"`
 	Error             string               `json:"error,omitempty"`
 }
@@ -653,11 +654,28 @@ func (s *ConfigService) applyResolvedValue(item ConfigItem, def ConfigDefinition
 	item.Source = source
 	item.HasValue = raw != ""
 	if def.Sensitive {
+		if item.HasValue {
+			masked := maskSensitiveValue(raw)
+			item.MaskedValue = &masked
+		}
 		return item
 	}
 	value := raw
 	item.Value = &value
 	return item
+}
+
+func maskSensitiveValue(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "••••"
+	}
+
+	runes := []rune(trimmed)
+	if len(runes) <= 4 {
+		return "••••"
+	}
+	return "••••" + string(runes[len(runes)-4:])
 }
 
 func (s *ConfigService) resolveRawValue(def ConfigDefinition, settingsMap map[string]models.Setting) (string, string, bool, error) {

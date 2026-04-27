@@ -143,8 +143,31 @@ func TestResolveDefinitionHidesSensitiveValues(t *testing.T) {
 	if !item.HasValue {
 		t.Fatal("expected sensitive item to report hasValue=true")
 	}
+	if item.MaskedValue == nil || *item.MaskedValue != "••••cret" {
+		t.Fatalf("expected masked value ••••cret, got %+v", item.MaskedValue)
+	}
 	if item.Value != nil {
 		t.Fatalf("sensitive item should not expose value, got %+v", item.Value)
+	}
+}
+
+func TestResolveDefinitionMasksShortSensitiveValues(t *testing.T) {
+	t.Setenv("TEST_SHORT_SECRET", "1234")
+
+	service := &ConfigService{}
+	def := ConfigDefinition{
+		Key:       "TEST_SHORT_SECRET",
+		EnvKey:    "TEST_SHORT_SECRET",
+		Type:      ConfigValueSecret,
+		Sensitive: true,
+	}
+
+	item, err := service.resolveDefinition(def, map[string]models.Setting{})
+	if err != nil {
+		t.Fatalf("expected sensitive resolution to succeed: %v", err)
+	}
+	if item.MaskedValue == nil || *item.MaskedValue != "••••" {
+		t.Fatalf("expected masked value ••••, got %+v", item.MaskedValue)
 	}
 }
 

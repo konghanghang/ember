@@ -620,6 +620,7 @@ export interface AdminConfigItem {
   options?: ConfigOption[]
   source: ConfigSource
   hasValue: boolean
+  maskedValue?: string
   value?: string
   error?: string
 }

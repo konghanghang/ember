@@ -208,6 +208,9 @@ const configStateHint = (item: AdminConfigItem) => {
 
 const editableHint = (item: AdminConfigItem) => {
   if (item.sensitive) {
+    if (item.maskedValue) {
+      return `当前值以脱敏形式显示为 ${item.maskedValue}。只有输入新值时才会覆盖当前值。`
+    }
     return '敏感值不会回显。只有输入新值时才会覆盖当前值。'
   }
 
@@ -706,7 +709,7 @@ onMounted(async () => {
                     v-else-if="item.editable && item.sensitive"
                     v-model="draftValues[item.key]"
                     show-password
-                    :placeholder="item.hasValue ? '已设置，输入新值以覆盖' : '请输入配置值'"
+                    :placeholder="item.hasValue ? (item.maskedValue ? `${item.maskedValue}（输入新值以覆盖）` : '已设置，输入新值以覆盖') : '请输入配置值'"
                     clearable
                     class="input-ember"
                   />
