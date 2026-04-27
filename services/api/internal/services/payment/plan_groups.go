@@ -95,7 +95,7 @@ type UpdatePlanGroupRequest struct {
 }
 
 type GetPlanGroupsResponse struct {
-	Data []models.PlanGroup `json:"data"`
+	Data []PlanGroupView `json:"data"`
 }
 
 func NormalizePlanGroupKey(raw string, allowEmpty bool) (string, error) {
@@ -240,25 +240,27 @@ func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 		return nil, errors.New("获取套餐分组失败")
 	}
 
+	views := make([]PlanGroupView, 0, len(groups))
 	for i := range groups {
-		group := &groups[i]
-		if err := db.DB.Model(&models.Plan{}).Where(`"planGroup" = ?`, group.Key).Count(&group.PlanCount).Error; err != nil {
+		view := buildPlanGroupView(groups[i])
+		if err := db.DB.Model(&models.Plan{}).Where(`"planGroup" = ?`, view.Key).Count(&view.PlanCount).Error; err != nil {
 			return nil, errors.New("获取套餐分组失败")
 		}
-		if err := db.DB.Model(&models.User{}).Where(`"planGroup" = ?`, group.Key).Count(&group.UserCount).Error; err != nil {
+		if err := db.DB.Model(&models.User{}).Where(`"planGroup" = ?`, view.Key).Count(&view.UserCount).Error; err != nil {
 			return nil, errors.New("获取套餐分组失败")
 		}
-		if group.IsDefault {
-			if err := db.DB.Model(&models.User{}).Where(`"planGroup" IS NULL`).Count(&group.FollowingUserCount).Error; err != nil {
+		if view.IsDefault {
+			if err := db.DB.Model(&models.User{}).Where(`"planGroup" IS NULL`).Count(&view.FollowingUserCount).Error; err != nil {
 				return nil, errors.New("获取套餐分组失败")
 			}
 		}
+		views = append(views, view)
 	}
 
-	return &GetPlanGroupsResponse{Data: groups}, nil
+	return &GetPlanGroupsResponse{Data: views}, nil
 }
 
-func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*models.PlanGroup, error) {
+func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGroupView, error) {
 	key, err := NormalizePlanGroupKey(req.Key, false)
 	if err != nil {
 		return nil, err
@@ -320,10 +322,11 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*models.P
 	if err := commitPlanGroupTx(tx); err != nil {
 		return nil, errors.New("创建套餐分组失败")
 	}
-	return &group, nil
+	view := buildPlanGroupView(group)
+	return &view, nil
 }
 
-func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest) (*models.PlanGroup, error) {
+func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest) (*PlanGroupView, error) {
 	normalizedKey, err := NormalizePlanGroupKey(key, false)
 	if err != nil {
 		return nil, err
@@ -408,7 +411,8 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 	if len(expiredSessionIDs) > 0 {
 		NewPaymentService().expireStripeCheckoutSessions(expiredSessionIDs)
 	}
-	return group, nil
+	view := buildPlanGroupView(*group)
+	return &view, nil
 }
 
 func (s *PaymentService) DeletePlanGroup(key string) error {

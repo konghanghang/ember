@@ -1,6 +1,6 @@
 # 支付与兑换码完整性加固方案
 
-> 状态：主干完成，保留尾项（P0 + P1 已落地）
+> 状态：可进入归档准备（P0 + P1 已落地）
 > 负责人：Ember
 > 更新时间：2026-04-28
 
@@ -13,16 +13,16 @@
 - ✅ 支付 / 兑换的 Emby 调权已移出事务；失败统一落到 `failed_emby_async_ops` 补偿队列，而不是原计划里的独立 `failed_emby_unbans` 表
 - ✅ 模板用户 Policy 白名单收口、`expirePendingPayments*` 命名区分、兑换码状态语义复用已落地
 - ✅ 多币种口径、支付索引去重与架构文档同步已落地
+- ✅ `PlanGroup` 展示态已拆到 `PlanGroupView`，持久化模型不再靠 `gorm:\"-\"` 挂展示字段
 
-当前剩余项主要是模型 / 文档治理尾项：
+当前剩余项主要是文档事实与退场整理尾项：
 
-- `PlanGroup` 展示态字段仍挂在 `models.PlanGroup` 的 `gorm:"-"` 字段上，尚未彻底拆成独立 DTO
 - 计划正文里 `failed_emby_unbans` 的设计已被统一补偿队列替代，后文仍需继续清理旧表述
 
 ## 归档判断
 
-- 当前不适合归档。
-- 原因：`PlanGroup` DTO 还没拆干净，且方案正文仍有旧补偿表设计，先继续保留在 `docs/plan/` 更安全。
+- 当前可以进入归档准备，但暂不直接归档。
+- 原因：主链路与明确实现尾项已经收口，当前主要剩旧方案表述清理和文档退场整理，不再需要继续把它当核心实施稿维护。
 
 ## 背景
 
@@ -130,14 +130,15 @@
 | status | string(20) | `received` / `processed` / `skipped` / `failed` |
 | errorMessage | *string(500) | 失败原因 |
 
-#### 新增表 `failed_emby_unbans`（用于支付 / 兑换 commit 后 Emby 调权失败的补偿）
+#### 统一补偿表 `failed_emby_async_ops`（当前事实）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | string(25) | CUID |
-| userId | string(25) | 待解封的用户 |
-| origin | string(20) | `payment` / `redemption` |
-| originRefId | string(25) | 关联记录 ID |
+| origin | string(32) | `payment_unban` / `redemption_unban` / `register_cleanup` |
+| originRefId | string(64) | 关联记录 ID |
+| embyUserId | string(64) | 待补偿的 Emby 用户 ID |
+| action | string(20) | `unban` / `delete` |
 | retries | int | 重试次数 |
 | nextAttemptAt | time.Time | 下次重试时间 |
 | createdAt | time.Time | 自动 |
@@ -152,7 +153,7 @@
 - `YYYYMMDD_NN_payments_pending_unique.sql`
 - `YYYYMMDD_NN_payments_dedupe_indexes.sql`
 - `YYYYMMDD_NN_stripe_webhook_events.sql`
-- `YYYYMMDD_NN_failed_emby_unbans.sql`
+- `YYYYMMDD_NN_failed_emby_async_ops.sql`
 
 所有 migration 必须幂等。
 
@@ -188,7 +189,7 @@
 4. webhook 入口：
    - 第一步去重写 `stripe_webhook_events`
    - 第二步事务内更新 `payment` 状态（仅修字段、不调 Emby）
-   - commit 后异步触发 Emby 解封；失败写 `failed_emby_unbans`
+   - commit 后异步触发 Emby 解封；失败写 `failed_emby_async_ops`
 5. 火忘式通知 Bot 仍然发，但包 `safeFireAndForget`（见 `bot-telegram` 计划）
 
 #### 4.2 兑换链路
@@ -201,7 +202,7 @@
    - 写 `redemptions` 记录
    - 原子递增 `usedCount`（带 `WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）
 3. 事务 commit
-4. commit 后异步：若用户原 `embyDisabled=true`，调 Emby 解封；失败写 `failed_emby_unbans`，下一次登录或 cron 触发时重试
+4. commit 后异步：若用户原 `embyDisabled=true`，调 Emby 解封；失败写 `failed_emby_async_ops`，由统一补偿 cron 重试
 
 #### 4.3 模板用户 Policy 白名单收口
 
@@ -234,7 +235,7 @@
 - **Stripe webhook 重试不同 event.id 但相同 paymentIntent**：fulfillPayment 在事务里二次校验 `payment.status`，已 completed 直接 noop
 - **Stripe Checkout Session 超 24h 后用户付款**：Stripe 拒收，不会触发 paid webhook；本地 pending 因 30 分钟 TTL 已 expired，业务无需处理
 - **同 userID + planID 并发结账**：partial unique 拒绝第二条 INSERT，回查复用，不会产生第二条 Stripe Session
-- **fulfillPayment commit 后 Emby 解封失败**：写 `failed_emby_unbans`，cron 重试，超 6 次记告警
+- **fulfillPayment commit 后 Emby 解封失败**：写 `failed_emby_async_ops`，cron 重试，超 6 次记告警
 - **RedeemCode 事务 commit 成功但用户处于 `embyDisabled=true`**：Emby 解封异步重试；用户控制台显式标注"Emby 同步中"
 - **模板用户 EmbyPolicy 含 `IsAdministrator=true`**：`validateTemplateUserID` 拒绝
 - **PlanGroup 切换默认且并发支付**：保持现有"切换时收口跟随默认 pending"的语义，但加 advisory lock 防止切换与新建 pending 并发
@@ -257,7 +258,7 @@
   - `docs/system-architecture.md` §5.15 改写支付流程，明确"事务内不调 Emby"约束
   - `docs/system-architecture.md` §5.4 改写兑换流程
   - 新增"多币种结算口径"段落
-  - `docs/runbooks/deployment-environment.md` 新增 `stripe_webhook_events` / `failed_emby_unbans` 表说明
+  - `docs/runbooks/deployment-environment.md` 新增 `stripe_webhook_events` / `failed_emby_async_ops` 表说明
 
 ## 验证方式
 
@@ -276,7 +277,7 @@
 - 模拟 Stripe `checkout.session.expired`：本地 pending 收口为 expired
 
 #### 事务边界
-- 关闭 Emby → 正常完成支付：用户 `expiresAt` 已延长，`failed_emby_unbans` 记录新建；恢复 Emby + cron 触发 → 用户 `embyDisabled=false`
+- 关闭 Emby → 正常完成支付：用户 `expiresAt` 已延长，`failed_emby_async_ops` 记录新建；恢复 Emby + cron 触发 → 用户 `embyDisabled=false`
 - 同样场景对兑换码续期重复一次
 
 #### Plan.Select 列名
@@ -308,7 +309,7 @@
 - [ ] `go build ./...` 与 `go test ./internal/services/payment/...` 全绿
 - [ ] 4 份 SQL migration 在临时库重灌通过
 - [ ] `stripe_webhook_events` 在测试环境记录至少 5 条不同事件（含一次重放）
-- [ ] `failed_emby_unbans` cron 在测试环境跑一轮空表无报错
+- [ ] `failed_emby_async_ops` cron 在测试环境跑一轮空表无报错
 - [ ] 关键日志含 `paymentId / userId / planId / stripeSessionId / eventId`，且 Stripe 错误日志不泄漏 secret
 - [ ] 模板用户白名单写入 `docs/system-architecture.md` §5.4
 - [ ] 多币种结算口径写入文档
@@ -333,7 +334,7 @@
 
 | review 编号 | 问题 | 本方案条目 |
 |---|---|---|
-| P0-1 | fulfillPayment 事务内调 Emby | §4.1 + 表 `failed_emby_unbans` |
+| P0-1 | fulfillPayment 事务内调 Emby | §4.1 + 表 `failed_emby_async_ops` |
 | P0-2 | 待支付订单复用并发窗口 | §2 partial unique + §4.1 |
 | P0-3 | RedeemCode 事务内调 Emby | §4.2 |
 | P0-4 | Stripe webhook 无事件去重 | §2 表 `stripe_webhook_events` + §4.5 |
@@ -372,7 +373,6 @@
 不在本批：
 
 - ConfigService 敏感回显推到批次 5
-- PlanGroup DTO 拆分（已确认 `gorm:"-"` 标记到位，不重做）
 - `Plan.Select` 列名修复（GORM 自动加引号、未实证报错，仅在验证清单跑 SQL 日志确认）
 - 多币种结算文档独立成稿
 
@@ -387,6 +387,5 @@
 
 仍未完成：
 
-- 多币种结算口径文档
-- PlanGroup DTO 拆分
+- 旧方案表述继续收口
 - 更大范围的支付/套餐治理尾项

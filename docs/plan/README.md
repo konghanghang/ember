@@ -47,11 +47,11 @@
 
 当前已完成主干、但仍保留明确尾项的实施稿：
 
-- `billing-redemption/payment-redemption-integrity-hardening.md`
 - `bot-telegram/bot-notification-and-info-leak-hardening.md`
 
 当前已进入“归档准备”但尚未迁出的实施稿：
 
+- `billing-redemption/payment-redemption-integrity-hardening.md`
 - `access-auth/auth-and-account-integrity-hardening.md`
 - `media-subscription/subscription-state-machine-hardening.md`
 - `media-subscription/tv-calendar-and-tmdb-key-protection.md`

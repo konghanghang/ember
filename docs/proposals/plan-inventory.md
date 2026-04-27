@@ -30,7 +30,7 @@
 | 编号 | 文档 | 状态标签 | 已落地证据 | 主要剩余项 | 建议动作 |
 |------|------|----------|------------|------------|----------|
 | 1 | `access-auth/auth-and-account-integrity-hardening.md` | 可进入归档准备 | 验证码发送限流并发收口、注册/重置密码验证码事务路径、注册回滚补偿、统一错误响应、`CheckExpiredUsers` cancel/失败上限、ConfigService `maskedValue` 语义、显式依赖构造入口均已落地 | 文档事实与退场整理尾项 | 进入“归档准备”，暂不直接归档 |
-| 2 | `billing-redemption/payment-redemption-integrity-hardening.md` | 主干完成，保留尾项 | pending 支付幂等、Stripe webhook 去重、事务外 Emby 补偿、多币种口径均已落地 | PlanGroup DTO 拆分、旧方案表述清理、其余治理尾项 | 继续保留在 `docs/plan/` |
+| 2 | `billing-redemption/payment-redemption-integrity-hardening.md` | 可进入归档准备 | pending 支付幂等、Stripe webhook 去重、事务外 Emby 补偿、多币种口径、PlanGroup DTO 拆分均已落地 | 旧方案表述清理与退场整理尾项 | 进入“归档准备”，暂不直接归档 |
 | 3 | `media-subscription/subscription-state-machine-hardening.md` | 可进入归档准备 | 原子状态转移、`ingestProgress`、IGNORED 不复活、`redispatch`、`DISPATCH_FAILED`、`ignoreReasonCode`、前端闭环均已完成；稳定结论与退场条件已补齐 | 文档事实 / 观察性尾项 | 进入“归档准备”，暂不直接归档 |
 | 4 | `media-subscription/tv-calendar-and-tmdb-key-protection.md` | 可进入归档准备 | TMDB / MoviePilot / Stripe / SMTP 上游错误脱敏、`httpx.InternalError`、webhook `tmdbId` 命中精度、`tmdb_cache` GC、`resolveSeriesTMDBIDBySeriesID` 5 分钟缓存、同 key TMDB in-flight 去重、当前周纠偏落库已完成；稳定结论与退场条件已补齐 | 观察性与退场整理尾项 | 进入“归档准备”，暂不直接归档 |
 | 5 | `console-admin/playback-and-device-observation-hardening.md` | 继续进行中 | 排行榜幂等、single-flight、`LATEST_CACHE_PER_USER`、设备审计、结构化注销返回等主干已完成 | 播放/设备性能治理与精细化收口仍在继续 | 继续作为核心实施稿维护 |
