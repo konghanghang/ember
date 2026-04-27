@@ -27,6 +27,7 @@ func TestFormatNotificationTimeUsesConfiguredTimezone(t *testing.T) {
 type stubSubscriptionEmbyLookup struct {
 	configured bool
 	responses  map[string]stubSubscriptionEmbyLookupResponse
+	callCount  int
 }
 
 type stubSubscriptionEmbyLookupResponse struct {
@@ -40,6 +41,7 @@ func (s *stubSubscriptionEmbyLookup) IsConfigured() bool {
 }
 
 func (s *stubSubscriptionEmbyLookup) GetWithAPIKey(path string, params map[string]string) ([]byte, error) {
+	s.callCount++
 	resp, ok := s.responses[path]
 	if !ok {
 		return nil, fmt.Errorf("unexpected path: %s", path)
@@ -54,23 +56,31 @@ func (s *stubSubscriptionEmbyLookup) GetWithAPIKey(path string, params map[strin
 
 func TestResolveSeriesTMDBIDBySeriesID(t *testing.T) {
 	originalFactory := newSubscriptionEmbyLookup
+	originalNow := subscriptionSeriesTMDBLookupNow
 	t.Cleanup(func() {
 		newSubscriptionEmbyLookup = originalFactory
+		subscriptionSeriesTMDBLookupNow = originalNow
+		resetSubscriptionSeriesTMDBLookupCache()
 	})
+	resetSubscriptionSeriesTMDBLookupCache()
+	subscriptionSeriesTMDBLookupNow = func() time.Time {
+		return time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	}
 
-	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
-		return &stubSubscriptionEmbyLookup{
-			configured: true,
-			responses: map[string]stubSubscriptionEmbyLookupResponse{
-				"/emby/Items": {
-					expectedParams: map[string]string{
-						"Ids":    "series_81812",
-						"Fields": "ProviderIds",
-					},
-					body: []byte(`{"Items":[{"ProviderIds":{"Tmdb":"123456"}}]}`),
+	lookup := &stubSubscriptionEmbyLookup{
+		configured: true,
+		responses: map[string]stubSubscriptionEmbyLookupResponse{
+			"/emby/Items": {
+				expectedParams: map[string]string{
+					"Ids":    "series_81812",
+					"Fields": "ProviderIds",
 				},
+				body: []byte(`{"Items":[{"ProviderIds":{"Tmdb":"123456"}}]}`),
 			},
-		}
+		},
+	}
+	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
+		return lookup
 	}
 
 	got, err := resolveSeriesTMDBIDBySeriesID("series_81812")
@@ -80,33 +90,55 @@ func TestResolveSeriesTMDBIDBySeriesID(t *testing.T) {
 	if got != "123456" {
 		t.Fatalf("expected 123456, got %s", got)
 	}
+	if lookup.callCount != 1 {
+		t.Fatalf("expected 1 emby lookup, got %d", lookup.callCount)
+	}
+
+	got, err = resolveSeriesTMDBIDBySeriesID("series_81812")
+	if err != nil {
+		t.Fatalf("expected cached lookup without error, got %v", err)
+	}
+	if got != "123456" {
+		t.Fatalf("expected cached 123456, got %s", got)
+	}
+	if lookup.callCount != 1 {
+		t.Fatalf("expected cached lookup to avoid extra emby call, got %d", lookup.callCount)
+	}
 }
 
 func TestResolveSeriesTMDBIDBySeriesIDReturnsEmptyWhenSeriesNotFound(t *testing.T) {
 	originalFactory := newSubscriptionEmbyLookup
+	originalNow := subscriptionSeriesTMDBLookupNow
 	t.Cleanup(func() {
 		newSubscriptionEmbyLookup = originalFactory
+		subscriptionSeriesTMDBLookupNow = originalNow
+		resetSubscriptionSeriesTMDBLookupCache()
 	})
+	resetSubscriptionSeriesTMDBLookupCache()
+	subscriptionSeriesTMDBLookupNow = func() time.Time {
+		return time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	}
 
-	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
-		return &stubSubscriptionEmbyLookup{
-			configured: true,
-			responses: map[string]stubSubscriptionEmbyLookupResponse{
-				"/emby/Items": {
-					expectedParams: map[string]string{
-						"Ids":    "series_81812",
-						"Fields": "ProviderIds",
-					},
-					body: []byte(`{"Items":[]}`),
+	lookup := &stubSubscriptionEmbyLookup{
+		configured: true,
+		responses: map[string]stubSubscriptionEmbyLookupResponse{
+			"/emby/Items": {
+				expectedParams: map[string]string{
+					"Ids":    "series_81812",
+					"Fields": "ProviderIds",
 				},
-				"/emby/Items/series_81812": {
-					expectedParams: map[string]string{
-						"Fields": "ProviderIds",
-					},
-					body: []byte(`{"ProviderIds":{"Tmdb":"654321"}}`),
-				},
+				body: []byte(`{"Items":[]}`),
 			},
-		}
+			"/emby/Items/series_81812": {
+				expectedParams: map[string]string{
+					"Fields": "ProviderIds",
+				},
+				body: []byte(`{"ProviderIds":{"Tmdb":"654321"}}`),
+			},
+		},
+	}
+	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
+		return lookup
 	}
 
 	got, err := resolveSeriesTMDBIDBySeriesID("series_81812")
@@ -116,6 +148,62 @@ func TestResolveSeriesTMDBIDBySeriesIDReturnsEmptyWhenSeriesNotFound(t *testing.
 	if got != "654321" {
 		t.Fatalf("expected 654321, got %s", got)
 	}
+	if lookup.callCount != 2 {
+		t.Fatalf("expected 2 emby lookups, got %d", lookup.callCount)
+	}
+}
+
+func TestResolveSeriesTMDBIDBySeriesIDCacheExpires(t *testing.T) {
+	originalFactory := newSubscriptionEmbyLookup
+	originalNow := subscriptionSeriesTMDBLookupNow
+	t.Cleanup(func() {
+		newSubscriptionEmbyLookup = originalFactory
+		subscriptionSeriesTMDBLookupNow = originalNow
+		resetSubscriptionSeriesTMDBLookupCache()
+	})
+	resetSubscriptionSeriesTMDBLookupCache()
+
+	currentTime := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	subscriptionSeriesTMDBLookupNow = func() time.Time {
+		return currentTime
+	}
+
+	lookup := &stubSubscriptionEmbyLookup{
+		configured: true,
+		responses: map[string]stubSubscriptionEmbyLookupResponse{
+			"/emby/Items": {
+				expectedParams: map[string]string{
+					"Ids":    "series_81812",
+					"Fields": "ProviderIds",
+				},
+				body: []byte(`{"Items":[{"ProviderIds":{"Tmdb":"123456"}}]}`),
+			},
+		},
+	}
+	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
+		return lookup
+	}
+
+	if _, err := resolveSeriesTMDBIDBySeriesID("series_81812"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if lookup.callCount != 1 {
+		t.Fatalf("expected 1 emby lookup, got %d", lookup.callCount)
+	}
+
+	currentTime = currentTime.Add(subscriptionSeriesTMDBLookupCacheTTL + time.Second)
+	if _, err := resolveSeriesTMDBIDBySeriesID("series_81812"); err != nil {
+		t.Fatalf("expected no error after cache expiry, got %v", err)
+	}
+	if lookup.callCount != 2 {
+		t.Fatalf("expected cache expiry to trigger second emby lookup, got %d", lookup.callCount)
+	}
+}
+
+func resetSubscriptionSeriesTMDBLookupCache() {
+	subscriptionSeriesTMDBLookupCache.mu.Lock()
+	subscriptionSeriesTMDBLookupCache.entries = make(map[string]seriesTMDBLookupCacheEntry)
+	subscriptionSeriesTMDBLookupCache.mu.Unlock()
 }
 
 func TestIsSubscriptionUniqueConflictDetectsPostgresDuplicateKey(t *testing.T) {

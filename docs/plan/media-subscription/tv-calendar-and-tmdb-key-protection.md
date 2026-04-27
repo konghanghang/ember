@@ -17,12 +17,12 @@
 - ✅ `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` sync marker、cron 字符串布尔解析容错已落地
 - ✅ `pickTargetSeasonNumbers` 已改为覆盖最近 2 季 + last/next episode 相关季，老剧补集不再只盯最近一季
 
-剩余项（三层缓存收口 / `resolveSeriesTMDBIDBySeriesID` 缓存 / Stripe / SMTP 错误脱敏 sweep）按 P2/P3 待后续批次。
+剩余项（三层缓存收口 / Stripe / SMTP 错误脱敏 sweep）按 P2/P3 待后续批次。
 
 ## 归档判断
 
 - 当前不适合归档。
-- 原因：缓存治理、`resolveSeriesTMDBIDBySeriesID` 缓存策略和上游错误脱敏 sweep 仍在本方案边界内，继续保留在 `docs/plan/` 更符合当前职责边界。
+- 原因：三层缓存治理和上游错误脱敏 sweep 仍在本方案边界内，继续保留在 `docs/plan/` 更符合当前职责边界。
 
 ## 稳定结论
 
@@ -33,6 +33,7 @@
 - 当前周 `ready` 纠偏与回写节流已经固定为 `correctionDebouncer` 模式，读路径不再直接同步写库。
 - `tmdb_cache` GC、`lastFullSyncAt` / `lastCorrectionAt` marker、cron 布尔解析容错已经成为当前同步基线。
 - 默认季选择策略已经固定为“最近 2 季 + last/next episode 相关季”，避免老剧补集漏季。
+- `resolveSeriesTMDBIDBySeriesID` 已增加 5 分钟进程内 TTL 缓存，重复 webhook / 同批匹配不再每次都打 Emby。
 
 ## 交叉引用
 
@@ -45,7 +46,6 @@
 
 - 本文档后续不再承担“当前追剧日历 / TMDB 集成事实说明”的职责；现行事实应以 `docs/system-architecture.md` 为准。
 - 在以下条件同时满足后，可移入 `docs/archive/plan/media-subscription/`：
-  - `resolveSeriesTMDBIDBySeriesID` 的缓存策略已明确落地，或明确放弃并同步修正文档目标
   - Stripe / SMTP 错误脱敏 sweep 的边界已经明确，不再挂在本方案的剩余项里
   - `docs/plan/README`、`docs/proposals/README`、`docs/proposals/plan-inventory.md` 已同步把本方案从现行实施稿入口移除
 
@@ -59,7 +59,6 @@
 - `correctCurrentWeekReadyItems` 在 GET 接口里同步 `Updates` 写库 + 顺带刷新 `lastEpisodeIngestedAt`，是只读路径写放大热点。
 - `loadReadyEpisodesBySeries` 为每个 series 触发完整 Emby 分页扫描，单次读请求可能放大成几十次 Emby 调用。
 - `loadSourcesForSync`"无 activity marker 时回退全量源"叠加启动补偿同步，等价于服务每次重启都全库 force 同步一次。
-- `resolveSeriesTMDBIDBySeriesID` 在每次剧集 webhook 都触发 2 次 Emby 调用查找主 TMDB ID，结果未缓存。
 - `cron.go` 把 `tvCalendarStartupSyncEnabled == "true"` 与字符串字面量比较，`True` / `TRUE` / 空格变体直接走 false 分支。
 - 同步链路单剧 Emby 抖动只 log 跳过、`continue`，没有 metric / 告警可观察。
 - TMDB 调用错误信息原样透传到 handler 的 `c.JSON(... err.Error() ...)`，存在内部错误外泄。
@@ -79,7 +78,7 @@
 5. `loadReadyEpisodesBySeries` 引入按 `MinDateLastSaved` 或日期窗口的过滤，并设候选剧上限 N
 6. `loadSourcesForSync` 增加 `lastFullSyncAt` 字段，避免每次重启都全库 force 同步
 7. 季选择策略至少覆盖最近 2 季 + next / last episode 相关季，避免老剧补集漏季
-8. `resolveSeriesTMDBIDBySeriesID` 加 LRU 缓存（按 seriesId, 5 min TTL）
+8. `resolveSeriesTMDBIDBySeriesID` 加 5 分钟 TTL 缓存，减少重复 Emby 查询
 9. cron 字符串布尔解析改用 `strconv.ParseBool`，统一容错
 10. 同步链路单剧失败落 metric counter + 关键日志补 `tmdbId / seriesId`
 11. handler 错误响应统一过 `internalError(c, err)`，禁止透传内部 SQL / URL
@@ -242,7 +241,7 @@
 ### 5. 失败路径与边界条件
 
 - **TMDB 全网不可达**：错误统一返回 `upstream_tmdb_unavailable`；同步任务跳过该剧、metric +1，不影响其他剧
-- **`resolveSeriesTMDBIDBySeriesID` 失败**：webhook 返回 422，metric +1；管理员可通过 force sync 兜底
+- **`resolveSeriesTMDBIDBySeriesID` 失败**：缓存不写入失败结果，webhook 返回 422，metric +1；管理员可通过 force sync 兜底
 - **多副本 LRU 缓存不一致**：可接受（5 分钟内一致即可）
 - **30s 节流期间 Emby 又入库一集**：第一次纠偏写后再次写覆盖，状态最终一致
 - **TMDB cache GC 失败**：metric +1，记 ERROR；不阻断业务
@@ -333,7 +332,6 @@
   - `docs/system-architecture.md` §5.18：TMDB / MoviePilot 错误统一收敛、webhook 四元组命中、读时纠偏节流、`tmdb_cache` GC、同步 marker
   - `docs/system-architecture.md` §4.16：上游错误脱敏与统一内部错误响应
 - 归档前仍需补的收尾：
-  - `resolveSeriesTMDBIDBySeriesID` 缓存策略的最终收口
   - Stripe / SMTP 错误脱敏是否继续并入本方案，还是拆到独立治理文档
   - `docs/plan/README` / `docs/proposals/README` / `docs/proposals/plan-inventory.md` 状态保持一致
 - 本方案完成尾项收口后，移入 `docs/archive/plan/media-subscription/`
@@ -349,7 +347,7 @@
 | P1-10 (订阅) | 读时纠偏写放大 | §4.3 + `correctionDebouncer` |
 | P1-11 (订阅) | `loadReadyEpisodesBySeries` 放大 Emby 调用 | §4.3 + 上限 |
 | P2-13 | webhook 串行三链路 | §4.2 |
-| P2-14 | `resolveSeriesTMDBIDBySeriesID` 未缓存 | §2 LRU + §4.2 |
+| P2-14 | `resolveSeriesTMDBIDBySeriesID` 未缓存 | 已收口；5 分钟 TTL 缓存已落地 |
 | P2-15 | `loadSourcesForSync` 无 marker 全量回退 | §2 + §4.4 |
 | P2-16 | `pickTargetSeasonNumbers` 漏季 | 已收口；默认季选择策略已更新 |
 | P2-20 | handler 透传 SQL 错误 | §3 + §5 |

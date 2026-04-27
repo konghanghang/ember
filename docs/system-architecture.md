@@ -803,6 +803,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `MarkSubscriptionsIngestedByWebhook(payload)` — **批次 2 拆分整剧 / 单季命中策略**：
   - 单季订阅 (`season=N`)：webhook 命中即 INGEST
   - 整剧订阅 (`season=0`)：用 TMDB 已播出剧集清单计算总量 `X`，再结合 Emby 当前实际库存与 `IGNORED` 集排除项计算已完成集数 `Y`，写 `ingestProgress="Y/X"`；`Y >= X` 时自动收口为 INGESTED 并触发用户通知。TMDB / Emby 任一侧缺失时不做错误自动收口，fallback 记最近一集 `S01E10`，由管理员通过 `MarkSubscriptionIngestedAsAdmin` 显式确认
+  - 剧集 webhook 缺主条目 `tmdbId` 时，会调用 `resolveSeriesTMDBIDBySeriesID(seriesId)`；该解析结果已加 5 分钟进程内 TTL 缓存，避免同批 webhook 反复查询 Emby
 
 ### 5.10 DeviceService (`services/device.go`)
 

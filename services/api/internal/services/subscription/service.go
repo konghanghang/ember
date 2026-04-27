@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -65,6 +66,24 @@ type wholeShowIgnoredEpisodeSet map[string]struct{}
 type wholeShowEpisodeRef struct {
 	Season  int
 	Episode int
+}
+
+type seriesTMDBLookupCacheEntry struct {
+	value     string
+	expiresAt time.Time
+}
+
+const subscriptionSeriesTMDBLookupCacheTTL = 5 * time.Minute
+
+var subscriptionSeriesTMDBLookupNow = func() time.Time {
+	return time.Now().UTC()
+}
+
+var subscriptionSeriesTMDBLookupCache = struct {
+	mu      sync.RWMutex
+	entries map[string]seriesTMDBLookupCacheEntry
+}{
+	entries: make(map[string]seriesTMDBLookupCacheEntry),
 }
 
 var newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
@@ -1217,6 +1236,10 @@ func resolveSeriesTMDBIDBySeriesID(seriesID string) (string, error) {
 		return "", nil
 	}
 
+	if cached, ok := getCachedSeriesTMDBID(trimmedSeriesID); ok {
+		return cached, nil
+	}
+
 	embyLookup := newSubscriptionEmbyLookup()
 	if embyLookup == nil || !embyLookup.IsConfigured() {
 		return "", nil
@@ -1257,20 +1280,52 @@ func resolveSeriesTMDBIDBySeriesID(seriesID string) (string, error) {
 			if len(resp.Items) == 0 {
 				continue
 			}
-			return extractProviderID(resp.Items[0].ProviderIDs, "Tmdb"), nil
+			resolved := extractProviderID(resp.Items[0].ProviderIDs, "Tmdb")
+			cacheSeriesTMDBID(trimmedSeriesID, resolved)
+			return resolved, nil
 		}
 
 		var item subscriptionSeriesItem
 		if err := json.Unmarshal(body, &item); err != nil {
 			return "", fmt.Errorf("解析 Emby 剧集主条目失败: %w", err)
 		}
-		return extractProviderID(item.ProviderIDs, "Tmdb"), nil
+		resolved := extractProviderID(item.ProviderIDs, "Tmdb")
+		cacheSeriesTMDBID(trimmedSeriesID, resolved)
+		return resolved, nil
 	}
 
 	if lastErr != nil {
 		return "", lastErr
 	}
+	cacheSeriesTMDBID(trimmedSeriesID, "")
 	return "", nil
+}
+
+func getCachedSeriesTMDBID(seriesID string) (string, bool) {
+	now := subscriptionSeriesTMDBLookupNow()
+
+	subscriptionSeriesTMDBLookupCache.mu.RLock()
+	entry, ok := subscriptionSeriesTMDBLookupCache.entries[seriesID]
+	subscriptionSeriesTMDBLookupCache.mu.RUnlock()
+	if !ok {
+		return "", false
+	}
+	if !entry.expiresAt.After(now) {
+		subscriptionSeriesTMDBLookupCache.mu.Lock()
+		delete(subscriptionSeriesTMDBLookupCache.entries, seriesID)
+		subscriptionSeriesTMDBLookupCache.mu.Unlock()
+		return "", false
+	}
+	return entry.value, true
+}
+
+func cacheSeriesTMDBID(seriesID, tmdbID string) {
+	subscriptionSeriesTMDBLookupCache.mu.Lock()
+	subscriptionSeriesTMDBLookupCache.entries[seriesID] = seriesTMDBLookupCacheEntry{
+		value:     tmdbID,
+		expiresAt: subscriptionSeriesTMDBLookupNow().Add(subscriptionSeriesTMDBLookupCacheTTL),
+	}
+	subscriptionSeriesTMDBLookupCache.mu.Unlock()
 }
 
 func (s *SubscriptionService) notifyApproved(subscription models.Subscription) {
