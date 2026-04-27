@@ -166,7 +166,7 @@ func (s *UserService) GetUserByID(userID string) (*UserView, error) {
 		Where("users.id = ?", userID).
 		First(&user)
 	if result.Error != nil {
-		return nil, errors.New("用户不存在")
+		return nil, ErrUserNotFound
 	}
 	user.markUsingDefaultPlanGroup()
 	return &user, nil
@@ -174,25 +174,25 @@ func (s *UserService) GetUserByID(userID string) (*UserView, error) {
 
 func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserRequest) (*UserView, error) {
 	if req == nil {
-		return nil, errors.New("请求参数错误")
+		return nil, ErrRequestInvalid
 	}
 	if req.Email == nil && req.IsActive == nil && req.PlanGroup == nil && req.ExpiresAt == nil && !req.ClearExpiresAt {
-		return nil, errors.New("至少提供一个可更新字段")
+		return nil, ErrUpdateFieldsRequired
 	}
 	if req.ClearExpiresAt && req.ExpiresAt != nil {
-		return nil, errors.New("clearExpiresAt 和 expiresAt 不能同时设置")
+		return nil, ErrClearExpiresAtConflict
 	}
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
-		return nil, errors.New("更新失败")
+		return nil, ErrUserUpdateFailed
 	}
 
 	var user models.User
 	result := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user)
 	if result.Error != nil {
 		tx.Rollback()
-		return nil, errors.New("用户不存在")
+		return nil, ErrUserNotFound
 	}
 
 	needSyncEmbyPolicy := false
@@ -205,11 +205,11 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		email := strings.TrimSpace(*req.Email)
 		if email == "" {
 			tx.Rollback()
-			return nil, errors.New("邮箱不能为空")
+			return nil, ErrEmailRequired
 		}
 		if _, err := mail.ParseAddress(email); err != nil {
 			tx.Rollback()
-			return nil, errors.New("邮箱格式错误")
+			return nil, ErrEmailInvalid
 		}
 		user.Email = email
 	}
@@ -243,7 +243,7 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		expiresAt, err := time.Parse(time.RFC3339, *req.ExpiresAt)
 		if err != nil {
 			tx.Rollback()
-			return nil, errors.New("expiresAt 必须是 RFC3339 格式")
+			return nil, ErrExpiresAtFormatInvalid
 		}
 		expiresAtUTC := expiresAt.UTC()
 		user.ExpiresAt = &expiresAtUTC
@@ -260,9 +260,9 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 	if err := tx.Save(&user).Error; err != nil {
 		tx.Rollback()
 		if strings.Contains(err.Error(), "duplicate key value") && strings.Contains(err.Error(), "email") {
-			return nil, errors.New("邮箱已存在")
+			return nil, ErrEmailAlreadyExists
 		}
-		return nil, errors.New("更新失败")
+		return nil, ErrUserUpdateFailed
 	}
 
 	newEffectivePlanGroup, err := paymentpkg.ResolveEffectivePlanGroupKey(tx, user.PlanGroup)
@@ -282,7 +282,7 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		return nil, errors.New("更新失败")
+		return nil, ErrUserUpdateFailed
 	}
 
 	return s.GetUserByID(userID)
@@ -292,7 +292,7 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
 	if result.Error != nil {
-		return nil, errors.New("用户不存在")
+		return nil, ErrUserNotFound
 	}
 
 	var newExpiry time.Time
@@ -318,7 +318,7 @@ func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
 	if result.Error != nil {
-		return nil, errors.New("用户不存在")
+		return nil, ErrUserNotFound
 	}
 
 	user.IsActive = !user.IsActive
@@ -336,7 +336,7 @@ func (s *UserService) DeleteUser(userID string) error {
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
 	if result.Error != nil {
-		return errors.New("用户不存在")
+		return ErrUserNotFound
 	}
 
 	if user.EmbyID != "" {

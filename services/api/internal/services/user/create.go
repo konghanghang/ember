@@ -27,7 +27,7 @@ func (s *UserService) CreateUserByAdmin(req *AdminCreateUserRequest) (*UserView,
 	s.setDefaults()
 
 	if req == nil {
-		return nil, errors.New("请求参数错误")
+		return nil, ErrRequestInvalid
 	}
 
 	username, err := validateAdminCreateUsername(req.Username)
@@ -39,7 +39,7 @@ func (s *UserService) CreateUserByAdmin(req *AdminCreateUserRequest) (*UserView,
 		return nil, err
 	}
 	if len(req.Password) < 6 {
-		return nil, errors.New("密码长度不能小于 6 位")
+		return nil, ErrPasswordTooShort
 	}
 
 	planGroupKey, err := normalizePlanGroupStrict(req.PlanGroup)
@@ -83,7 +83,7 @@ func (s *UserService) CreateUserByAdmin(req *AdminCreateUserRequest) (*UserView,
 	}
 	if err := user.SetPassword(req.Password); err != nil {
 		s.cleanupAdminCreatedEmbyUser(embyService, embyUser.ID, username)
-		return nil, errors.New("创建用户失败")
+		return nil, ErrUserCreateFailed
 	}
 
 	if err := s.syncEmbyPolicy(user); err != nil {
@@ -112,11 +112,11 @@ func (s *UserService) CreateUserByAdmin(req *AdminCreateUserRequest) (*UserView,
 func validateAdminCreateUsername(raw string) (string, error) {
 	username := strings.TrimSpace(raw)
 	if len(username) < 3 || len(username) > 50 {
-		return "", errors.New("用户名长度必须为 3-50 位")
+		return "", ErrUsernameLengthInvalid
 	}
 	for _, r := range username {
 		if (r < '0' || r > '9') && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
-			return "", errors.New("用户名只能包含字母和数字")
+			return "", ErrUsernameCharsetInvalid
 		}
 	}
 	return username, nil
@@ -125,11 +125,11 @@ func validateAdminCreateUsername(raw string) (string, error) {
 func validateAdminCreateEmail(raw string) (string, error) {
 	email := strings.TrimSpace(raw)
 	if email == "" {
-		return "", errors.New("邮箱不能为空")
+		return "", ErrEmailRequired
 	}
 	parsed, err := mail.ParseAddress(email)
 	if err != nil {
-		return "", errors.New("邮箱格式错误")
+		return "", ErrEmailInvalid
 	}
 	return parsed.Address, nil
 }
@@ -137,18 +137,18 @@ func validateAdminCreateEmail(raw string) (string, error) {
 func parseAdminCreateExpiresAt(req *AdminCreateUserRequest) (*time.Time, error) {
 	if req.NeverExpire {
 		if req.ExpiresAt != nil && strings.TrimSpace(*req.ExpiresAt) != "" {
-			return nil, errors.New("neverExpire=true 时不能再传 expiresAt")
+			return nil, ErrNeverExpireConflict
 		}
 		return nil, nil
 	}
 
 	if req.ExpiresAt == nil || strings.TrimSpace(*req.ExpiresAt) == "" {
-		return nil, errors.New("neverExpire=false 时必须传 expiresAt")
+		return nil, ErrExpiresAtRequired
 	}
 
 	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(*req.ExpiresAt))
 	if err != nil {
-		return nil, errors.New("expiresAt 必须是 RFC3339 格式")
+		return nil, ErrExpiresAtFormatInvalid
 	}
 	expiresAtUTC := expiresAt.UTC()
 	return &expiresAtUTC, nil
@@ -156,15 +156,15 @@ func parseAdminCreateExpiresAt(req *AdminCreateUserRequest) (*time.Time, error) 
 
 func (s *UserService) ensureAdminCreatedUserUnique(username, email string) error {
 	if _, err := s.findUserByUsername(username); err == nil {
-		return errors.New("用户名已存在")
+		return ErrUsernameAlreadyExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return errors.New("创建用户失败")
+		return ErrUserCreateFailed
 	}
 
 	if _, err := s.findUserByEmail(email); err == nil {
-		return errors.New("邮箱已存在")
+		return ErrEmailAlreadyExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return errors.New("创建用户失败")
+		return ErrUserCreateFailed
 	}
 
 	return nil
@@ -211,15 +211,15 @@ func mapAdminCreatePersistenceError(err error) error {
 	if strings.Contains(err.Error(), "duplicate key value") {
 		switch {
 		case strings.Contains(err.Error(), "username"):
-			return errors.New("用户名已存在")
+			return ErrUsernameAlreadyExists
 		case strings.Contains(err.Error(), "email"):
-			return errors.New("邮箱已存在")
+			return ErrEmailAlreadyExists
 		}
 	}
 	if errors.Is(err, paymentpkg.ErrPlanGroupNotFound) || errors.Is(err, paymentpkg.ErrPlanGroupInvalid) {
 		return err
 	}
-	return errors.New("创建用户失败")
+	return ErrUserCreateFailed
 }
 
 func formatAdminCreateExpiryForLog(expiresAt *time.Time) string {

@@ -3,7 +3,6 @@ package handlers
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
@@ -98,7 +97,7 @@ func (h *PaymentHandler) HandleStripeWebhook(c *gin.Context) {
 		switch {
 		case errors.Is(err, paymentpkg.ErrStripeNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-		case strings.Contains(err.Error(), "签名"), strings.Contains(err.Error(), "解析"):
+		case errors.Is(err, paymentpkg.ErrStripeWebhookInvalid), errors.Is(err, paymentpkg.ErrStripeWebhookParseFailed):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)

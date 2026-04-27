@@ -545,7 +545,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	return &CreateCheckoutResponse{URL: sess.URL}, nil
 }
 
-// reservePendingPayment 在事务里 INSERT 一条 pending 占位行（status='pending', stripeSessionId=''）。
+// reservePendingPayment 在事务里 INSERT 一条 pending 占位行（status='pending', stripeSessionId=”）。
 //
 // 同 (userId, planId) 唯一冲突时，回查现有 pending 行返回。partial unique
 // uq_payments_pending_user_plan WHERE status='pending' 保证全表只能存在一条 pending。
@@ -692,12 +692,12 @@ func (s *PaymentService) HandleWebhook(r *http.Request) error {
 
 	if err := verifyStripeSignature(r.Header.Get("Stripe-Signature"), payload, webhookSecret); err != nil {
 		log.Printf("[Payment] Webhook 签名验证失败: err=%v", err)
-		return fmt.Errorf("webhook 签名验证失败: %w", err)
+		return fmt.Errorf("%w: %v", ErrStripeWebhookInvalid, err)
 	}
 
 	var event stripeWebhookEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
-		return errors.New("解析 webhook 数据失败")
+		return fmt.Errorf("%w: %v", ErrStripeWebhookParseFailed, err)
 	}
 
 	eventID := strings.TrimSpace(event.ID)

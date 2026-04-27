@@ -1,8 +1,6 @@
 package user
 
 import (
-	"errors"
-
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 )
@@ -25,7 +23,7 @@ func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
 	if result.Error != nil {
-		return nil, errors.New("用户不存在")
+		return nil, ErrUserNotFound
 	}
 
 	if req.Email != "" {
@@ -33,7 +31,7 @@ func (s *UserService) UpdateProfile(userID string, req *UpdateProfileRequest) (*
 	}
 
 	if err := db.DB.Save(&user).Error; err != nil {
-		return nil, errors.New("更新失败")
+		return nil, ErrUserUpdateFailed
 	}
 
 	return &user, nil
@@ -43,13 +41,13 @@ func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*mode
 	var user models.User
 	result := db.DB.Where("id = ?", userID).First(&user)
 	if result.Error != nil {
-		return nil, errors.New("用户不存在")
+		return nil, ErrUserNotFound
 	}
 
 	user.Email = req.NewEmail
 
 	if err := db.DB.Save(&user).Error; err != nil {
-		return nil, errors.New("更新失败")
+		return nil, ErrUserUpdateFailed
 	}
 
 	return &user, nil

@@ -37,7 +37,7 @@ func (h *TelegramHandler) GenerateBindCode(c *gin.Context) {
 		switch {
 		case errors.Is(err, telegrampkg.ErrUserAlreadyBoundTelegram):
 			statusCode = http.StatusBadRequest
-		case err.Error() == "用户不存在":
+		case errors.Is(err, telegrampkg.ErrTelegramUserNotFound):
 			statusCode = http.StatusNotFound
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})
@@ -63,7 +63,7 @@ func (h *TelegramHandler) Unbind(c *gin.Context) {
 		switch {
 		case errors.Is(err, telegrampkg.ErrTelegramNotBound):
 			statusCode = http.StatusBadRequest
-		case err.Error() == "用户不存在":
+		case errors.Is(err, telegrampkg.ErrTelegramUserNotFound):
 			statusCode = http.StatusNotFound
 		}
 		c.JSON(statusCode, gin.H{"error": err.Error()})

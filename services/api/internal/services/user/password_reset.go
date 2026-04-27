@@ -22,7 +22,7 @@ func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error
 
 	user, err := s.findUserByEmail(req.Email)
 	if err != nil {
-		return errors.New("用户不存在")
+		return ErrUserNotFound
 	}
 
 	if user.EmbyID != "" {

@@ -13,4 +13,6 @@ var (
 	ErrPaymentFailed            = errors.New("支付处理失败")
 	ErrStripeNotConfigured      = errors.New("Stripe 支付未配置")
 	ErrEmbyUnbanFailed          = errors.New("Emby 解封失败，请稍后重试")
+	ErrStripeWebhookInvalid     = errors.New("webhook 签名验证失败")
+	ErrStripeWebhookParseFailed = errors.New("解析 webhook 数据失败")
 )

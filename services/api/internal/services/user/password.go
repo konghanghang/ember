@@ -20,7 +20,7 @@ func (s *UserService) ResetPassword(userID string, newPassword string) error {
 
 	user, err := s.findUserByID(userID)
 	if err != nil {
-		return errors.New("用户不存在")
+		return ErrUserNotFound
 	}
 
 	embyService := s.newEmbyClient()
@@ -44,12 +44,12 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 
 	user, err := s.findUserByID(userID)
 	if err != nil {
-		return errors.New("用户不存在")
+		return ErrUserNotFound
 	}
 
 	if user.IsAdmin() {
 		if !user.CheckPassword(req.OldPassword) {
-			return errors.New("旧密码错误")
+			return ErrOldPasswordInvalid
 		}
 		if err := user.SetPassword(req.NewPassword); err != nil {
 			return errors.New("密码更新失败：本地密码更新失败")
@@ -69,11 +69,11 @@ func (s *UserService) UpdatePassword(userID string, req *UpdatePasswordRequest) 
 		oldPasswordVerified = true
 	}
 	if !oldPasswordVerified {
-		return errors.New("旧密码错误")
+		return ErrOldPasswordInvalid
 	}
 
 	if user.EmbyID == "" {
-		return errors.New("密码更新失败：用户缺少 Emby ID")
+		return ErrUserEmbyIDRequired
 	}
 	if err := embyService.UpdateUserPassword(user.EmbyID, req.NewPassword); err != nil {
 		return errors.New("密码更新失败：" + err.Error())

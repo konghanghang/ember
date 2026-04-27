@@ -48,15 +48,20 @@ func (h *UserHandler) CreateUserByAdmin(c *gin.Context) {
 	user, err := h.userService.CreateUserByAdmin(&req)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		switch err.Error() {
-		case "用户名长度必须为 3-50 位", "用户名只能包含字母和数字", "邮箱不能为空", "邮箱格式错误",
-			"密码长度不能小于 6 位", "neverExpire=true 时不能再传 expiresAt", "neverExpire=false 时必须传 expiresAt",
-			"expiresAt 必须是 RFC3339 格式", "用户名已存在", "邮箱已存在":
+		switch {
+		case errors.Is(err, userpkg.ErrUsernameLengthInvalid),
+			errors.Is(err, userpkg.ErrUsernameCharsetInvalid),
+			errors.Is(err, userpkg.ErrEmailRequired),
+			errors.Is(err, userpkg.ErrEmailInvalid),
+			errors.Is(err, userpkg.ErrPasswordTooShort),
+			errors.Is(err, userpkg.ErrNeverExpireConflict),
+			errors.Is(err, userpkg.ErrExpiresAtRequired),
+			errors.Is(err, userpkg.ErrExpiresAtFormatInvalid),
+			errors.Is(err, userpkg.ErrUsernameAlreadyExists),
+			errors.Is(err, userpkg.ErrEmailAlreadyExists):
 			statusCode = http.StatusBadRequest
-		default:
-			if errors.Is(err, userpkg.ErrInvalidPlanGroup) || errors.Is(err, paymentpkg.ErrPlanGroupNotFound) {
-				statusCode = http.StatusBadRequest
-			}
+		case errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+			statusCode = http.StatusBadRequest
 		}
 
 		c.JSON(statusCode, gin.H{
@@ -157,15 +162,18 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 	user, err := h.userService.UpdateUserByAdmin(userID, &req)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		switch err.Error() {
-		case "用户不存在":
+		switch {
+		case errors.Is(err, userpkg.ErrUserNotFound):
 			statusCode = http.StatusNotFound
-		case "至少提供一个可更新字段", "clearExpiresAt 和 expiresAt 不能同时设置", "邮箱不能为空", "邮箱格式错误", "expiresAt 必须是 RFC3339 格式", "邮箱已存在":
+		case errors.Is(err, userpkg.ErrUpdateFieldsRequired),
+			errors.Is(err, userpkg.ErrClearExpiresAtConflict),
+			errors.Is(err, userpkg.ErrEmailRequired),
+			errors.Is(err, userpkg.ErrEmailInvalid),
+			errors.Is(err, userpkg.ErrExpiresAtFormatInvalid),
+			errors.Is(err, userpkg.ErrEmailAlreadyExists):
 			statusCode = http.StatusBadRequest
-		default:
-			if errors.Is(err, userpkg.ErrInvalidPlanGroup) || errors.Is(err, paymentpkg.ErrPlanGroupNotFound) || errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound) {
-				statusCode = http.StatusBadRequest
-			}
+		case errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
+			statusCode = http.StatusBadRequest
 		}
 
 		c.JSON(statusCode, gin.H{

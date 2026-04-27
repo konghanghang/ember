@@ -115,7 +115,7 @@ type TelegramSubscriptionCommand struct {
 func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, error) {
 	var user models.User
 	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
-		return "", time.Time{}, errors.New("用户不存在")
+		return "", time.Time{}, ErrTelegramUserNotFound
 	}
 	if user.TelegramID != nil {
 		return "", time.Time{}, ErrUserAlreadyBoundTelegram
@@ -230,7 +230,7 @@ func (s *TelegramService) VerifyBind(telegramID int64, code string) (*BindResult
 func (s *TelegramService) Unbind(userID string) error {
 	var user models.User
 	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
-		return errors.New("用户不存在")
+		return ErrTelegramUserNotFound
 	}
 	if user.TelegramID == nil {
 		return ErrTelegramNotBound
