@@ -1,8 +1,23 @@
 # Schema 与部署基线收口方案
 
-> 状态：草稿
+> 状态：主干大部分已落地；剩余 runbook / 归档 / 基线治理尾项待后续收口
 > 负责人：Ember
-> 更新时间：2026-04-26
+> 更新时间：2026-04-29
+
+## 落地进度
+
+截至当前仓库事实，本方案主干已落地：
+
+- ✅ `AUTO_MIGRATE=false` 基线、`VerifySchema` fail-fast、`initdb/` 子目录隔离已落地
+- ✅ `users` lower unique、`payments` partial unique、`schema_alignment`、`airDate -> date`、`payments.expiresAt` 推进已落地
+- ✅ API / Web / Bot 容器非 root、`init: true`、`stop_grace_period`、Bot 健康依赖已落地
+- ✅ compose 已收口为显式固定 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`，不再接受 floating `latest`
+- ✅ 空库初始化标准入口已收口为 `go run ./cmd/migrate`，数据库 README 已同步当前事实
+
+当前剩余项以部署治理和文档归档为主：
+
+- `.dockerignore` 与更细颗粒度的镜像/发布 runbook 仍可继续补齐
+- `baseline` 精简归档、冲突清单归档和 runbook 盘点仍属后续治理尾项
 
 ## 修订记录
 

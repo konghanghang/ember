@@ -25,6 +25,7 @@
 `report/` 用于保存总结、复盘和历史测试报告，例如：
 
 - [重大 Bug 修复总结](./report/bugfix-summary.md)
+- [Review 硬化收尾记录（2026-04-29）](./report/review-hardening-closeout-2026-04-29.md)
 - [多 Agent 执行复盘：兑换码备注字段](./report/multi-agent-redemption-code-notes-case.md)
 - [历史测试报告](./report/test/2025-12-07-mvp-core-testing.md)
 

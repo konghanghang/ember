@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-04-28
+> 更新时间：2026-04-29
 
 本清单只回答三件事：
 
@@ -12,7 +12,7 @@
 
 - 以当前代码结构和 [系统架构文档](../system-architecture.md) 为准
 - “文档里写了已完成”不算证据，必须能在代码或架构文档里找到落点
-- 本清单反映 2026-04-27 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
+- 本清单反映 2026-04-29 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
 
 ## 0. 本轮 8 份主计划进度表
 
@@ -26,14 +26,14 @@
 
 | 编号 | 文档 | 当前判定 | 已落地证据 | 主要剩余项 | 建议动作 |
 |------|------|----------|------------|------------|----------|
-| 1 | `access-auth/auth-and-account-integrity-hardening.md` | P0/P1 + 部分 P2/P3 已落地 | 批次 1/2 已完成验证码消费、注册回滚补偿等主干；批次 5 第一阶段已补 `services/user/errors.go`、handler `errors.Is`、`httpx.InternalError` 与用户路径全字段写入收口 | ConfigService 敏感回显、InternalAuth 常数时间比较、`CheckExpiredUsers` cancel、DI 治理 | 继续保留在 `docs/plan/`，剩余项并入批次 5 后续治理 |
+| 1 | `access-auth/auth-and-account-integrity-hardening.md` | P0/P1 主干已落地 | 验证码发送限流并发收口、注册/重置密码验证码事务路径、注册回滚补偿、统一错误响应均已落地 | ConfigService 敏感回显、`CheckExpiredUsers` cancel、DI 治理 | 继续保留在 `docs/plan/`，剩余项并入后续治理 |
 | 2 | `billing-redemption/payment-redemption-integrity-hardening.md` | 主干已落地，治理尾项持续收口 | 批次 2 已完成支付主干；批次 5 第一阶段已把 webhook 签名/解析错误改为 sentinel，并去掉 payment/service 中多处 `Save(&plan/payment/user)` 全字段写入 | 多币种文档口径、PlanGroup DTO 拆分、其余治理尾项 | 继续保留在 `docs/plan/`，待稳定结论提炼完成后再评估归档 |
-| 3 | `media-subscription/subscription-state-machine-hardening.md` | 主干已落地，源文档状态滞后 | 文档正文已有 `批次 2 已落地（2026-04-27）`；原子状态转移、`ingestProgress`、IGNORED 不复活、`redispatch`、`DISPATCH_FAILED`、前端闭环均已完成 | `pickTargetSeasonNumbers`、`ignoreReasonCode` 等下一轮尾项；顶部 `状态：草稿` 未回写 | 补写源文档状态，继续保留直到剩余 P2/P3 收口 |
-| 4 | `media-subscription/tv-calendar-and-tmdb-key-protection.md` | 部分已落地 | 文档顶部已写 `P0 + P2 部分已落地`；TMDB / MoviePilot 错误脱敏、`httpx.InternalError` 收口已完成 | webhook tmdbId 污染、cache GC / 读时纠偏等剩余项；需把批次 3-A 落地情况回写进源文档 | 继续保留在 `docs/plan/`，补写批次 3-A 已落地段落 |
+| 3 | `media-subscription/subscription-state-machine-hardening.md` | 主干已落地 | 原子状态转移、`ingestProgress`、IGNORED 不复活、`redispatch`、`DISPATCH_FAILED`、前端闭环均已完成，源文档状态已回写 | `pickTargetSeasonNumbers`、`ignoreReasonCode` 等下一轮尾项 | 继续保留直到剩余 P2/P3 收口 |
+| 4 | `media-subscription/tv-calendar-and-tmdb-key-protection.md` | P0/P1 主干已落地 | TMDB / MoviePilot 错误脱敏、`httpx.InternalError`、webhook `tmdbId` 命中精度、当前周纠偏落库已完成 | cache GC / `pickTargetSeasonNumbers` / 三层缓存治理尾项 | 继续保留在 `docs/plan/` |
 | 5 | `console-admin/playback-and-device-observation-hardening.md` | 主干大部分已落地，治理尾项持续收口 | 批次 3-A 已完成排行榜幂等、single-flight、`LATEST_CACHE_PER_USER`、设备审计等主干；批次 5 第一阶段已把设备黑名单更新改为字段级写入，并清掉相关 handler 500 裸透 | `_ = db.DB.Save/Create` 静默吞错 sweep、其余播放/设备 P2/P3 | 继续保留在 `docs/plan/`，等待下一轮治理收尾 |
-| 6 | `console-admin/web-frontend-auth-and-design-baseline-fix.md` | P0 / P1 / 部分 P2 已落地 | 批次 4 已完成前端鉴权红线、Dashboard 真相收口、用户侧海报代理、续费页竞态、订阅确认安全渲染、时间格式与 tone token 收口；架构和设计文档已同步当前事实 | `useUserStore.subscriptions` 双轨代码尚未完全清理；P3 风格 / chunks / icon 类 sweep 仍留后续治理 | 继续保留在 `docs/plan/`，待尾项收口后再决定是否归档 |
-| 7 | `bot-telegram/bot-notification-and-info-leak-hardening.md` | P0 + 部分 P1/P2 已落地 | 批次 0/1 已完成 SafeGo、VerifyBind 反 DoS、错误模糊化、通知脱敏；批次 5 第一阶段已补 Telegram 用户不存在 sentinel、handler `errors.Is`、字段级更新 | BotNotifier 单例、httpx limits、Polling 单实例、pending_reject_requests 持久化等剩余项 | 继续保留在 `docs/plan/`，待批次 5 后续治理继续收口 |
-| 8 | `architecture/schema-deployment-and-baseline-cleanup.md` | 主干大部分已落地，源文档状态滞后 | 批次 0 已落 `AUTO_MIGRATE=false`、compose 收口、initdb 隔离；批次 3-B 已完成 schema 对齐、airDate、连接池、Dockerfile、runbook 主体 | 源文档顶部仍是 `状态：草稿`；baseline 精简归档等 P3 治理尾项未做 | 补写源文档状态，并明确 FK 相关条目已作废 |
+| 6 | `console-admin/web-frontend-auth-and-design-baseline-fix.md` | P0 / P1 主干已落地 | 前端鉴权红线、Dashboard 真相收口、用户侧海报代理、续费页/订阅页/最近入库/设备页/画像页竞态收口均已完成；`useUserStore.subscriptions` 双轨已清理 | P3 风格 / chunks / icon 类 sweep 仍留后续治理 | 继续保留在 `docs/plan/`，待尾项收口后再决定是否归档 |
+| 7 | `bot-telegram/bot-notification-and-info-leak-hardening.md` | P0/P1 主干已落地 | SafeGo、VerifyBind 反 DoS、错误模糊化、通知脱敏、runtime settings 保留旧值、pending reject 主链路持久化、Polling 单实例租约锁均已完成 | BotNotifier 配置缓存、通知载荷长度、message_id 缓存策略等尾项 | 继续保留在 `docs/plan/` |
+| 8 | `architecture/schema-deployment-and-baseline-cleanup.md` | 主干大部分已落地 | `AUTO_MIGRATE=false`、initdb 隔离、schema 对齐、airDate、连接池、容器非 root、固定部署镜像、空库初始化入口收口均已完成；源文档状态已回写 | baseline 精简归档、runbook 细化和盘点尾项未做 | 继续保留在 `docs/plan/` |
 
 ## A. 已落地，已完成归档
 

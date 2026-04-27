@@ -1,14 +1,16 @@
 # 认证与账号完整性加固方案
 
-> 状态：P0 + P1 + 部分 P2/P3 已落地（批次 1/2 + 批次 5 第一阶段）；剩余治理尾项待后续批次
+> 状态：P0 + P1 主干已落地；剩余 P2/P3 为治理尾项
 > 负责人：Ember
-> 更新时间：2026-04-28
+> 更新时间：2026-04-29
 
 ## 落地进度
 
-批次 1（commits `333b926` + `043401a`）+ review 修复（待提交）已完成本方案的 P0 / 部分 P1 红线项：
+批次 1（commits `333b926` + `043401a`）+ 后续 review 修复已完成本方案的 P0 / P1 主干项：
 
-- ✅ 邮箱验证码"校验即消费"（事务 + FOR UPDATE + DELETE）
+- ✅ 邮箱验证码发送限流按 `email+type` / `ip+type` advisory lock 收口，避免并发绕过
+- ✅ 注册链路验证码消费并入注册事务；注册邀请码消费统一使用规范化后的 code
+- ✅ 重置密码链路已补生产事务路径，验证码消费不再与主流程完全脱节
 - ✅ 忘记密码反账号枚举（双重收口）：service 层 reset 路径无论邮箱是否注册都消耗同一套 IP / email 限流配额；handler 除 SMTP 未配置外所有错误一律折叠为 200 + 统一文案，攻击者无法借状态码或限流差异（200 vs 429）枚举注册邮箱
 - ✅ 删除登录链路反向覆盖 Emby 密码的副作用
 - ✅ EmbyID 错配显式拒登 + ERROR 日志
@@ -16,7 +18,7 @@
 - ✅ Schema 层补 `lower(username)` / `lower(email)` 函数唯一索引（`20260426_02_users_lower_unique_indexes.sql`，含预检 fail-fast 与排查 SQL），DB 兜底逻辑重复账号
 - ✅ IP 限流 SQL 增加 `"type" = ?` 过滤；清理 `validateVerificationRateLimits` 之前的死分支与已无调用点的 `validateVerificationRecipient`
 
-剩余项（ConfigService 敏感配置回显 / InternalAuth 常数时间比较 / `CheckExpiredUsers` cancel + 失败上限 / 更深一层 DI 治理）按 P1+/P2/P3 待后续批次。
+剩余项（ConfigService 敏感配置回显 / `CheckExpiredUsers` cancel + 失败上限 / 更深一层 DI 治理）按 P2/P3 待后续批次。
 
 ## 背景
 
