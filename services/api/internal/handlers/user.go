@@ -200,7 +200,7 @@ func (h *UserHandler) ExtendExpiry(c *gin.Context) {
 	user, err := h.userService.ExtendExpiry(userID, req.Days)
 	if err != nil {
 		if errors.Is(err, userpkg.ErrUserNotFound) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 		httpx.InternalError(c, err)
@@ -224,7 +224,7 @@ func (h *UserHandler) ToggleUserStatus(c *gin.Context) {
 	user, err := h.userService.ToggleUserStatus(userID)
 	if err != nil {
 		if errors.Is(err, userpkg.ErrUserNotFound) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 		httpx.InternalError(c, err)
@@ -248,7 +248,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	err := h.userService.DeleteUser(userID)
 	if err != nil {
 		if errors.Is(err, userpkg.ErrUserNotFound) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 		httpx.InternalError(c, err)
@@ -284,7 +284,7 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 	err := h.userService.ResetPassword(userID, req.NewPassword)
 	if err != nil {
 		if errors.Is(err, userpkg.ErrUserNotFound) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 		httpx.InternalError(c, err)

@@ -2,6 +2,8 @@ package user
 
 import (
 	"errors"
+
+	"gorm.io/gorm"
 )
 
 // ResetPasswordRequest 重置密码请求
@@ -18,7 +20,10 @@ type UpdatePasswordRequest struct {
 func (s *UserService) ResetPassword(userID string, newPassword string) error {
 	user, err := s.findUserByID(userID)
 	if err != nil {
-		return ErrUserNotFound
+		if errors.Is(err, ErrUserNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrUserNotFound
+		}
+		return err
 	}
 
 	embyService := s.newEmbyClient()

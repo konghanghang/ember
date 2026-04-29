@@ -58,13 +58,26 @@ func TestResetPassword(t *testing.T) {
 	t.Run("user not found", func(t *testing.T) {
 		service := &UserService{
 			findUserByID: func(userID string) (*models.User, error) {
-				return nil, errors.New("not found")
+				return nil, ErrUserNotFound
 			},
 		}
 
 		err := service.ResetPassword("user_1", "newpass123")
 		if err == nil || err.Error() != "用户不存在" {
 			t.Fatalf("expected user not found error, got %v", err)
+		}
+	})
+
+	t.Run("user lookup internal error is preserved", func(t *testing.T) {
+		service := &UserService{
+			findUserByID: func(userID string) (*models.User, error) {
+				return nil, errors.New("db unavailable")
+			},
+		}
+
+		err := service.ResetPassword("user_1", "newpass123")
+		if err == nil || err.Error() != "db unavailable" {
+			t.Fatalf("expected original lookup error, got %v", err)
 		}
 	})
 

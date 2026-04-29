@@ -309,10 +309,9 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 }
 
 func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error) {
-	var user models.User
-	result := db.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
-		return nil, ErrUserNotFound
+	user, err := s.findUserByID(userID)
+	if err != nil {
+		return nil, normalizeUserLookupError(err)
 	}
 
 	var newExpiry time.Time
@@ -324,7 +323,7 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 	}
 
 	user.ExpiresAt = &newExpiry
-	if err := s.syncEmbyPolicy(&user); err != nil {
+	if err := s.syncEmbyPolicy(user); err != nil {
 		return nil, err
 	}
 	if err := db.DB.Model(&models.User{}).
@@ -336,18 +335,17 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 		return nil, err
 	}
 
-	return &user, nil
+	return user, nil
 }
 
 func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
-	var user models.User
-	result := db.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
-		return nil, ErrUserNotFound
+	user, err := s.findUserByID(userID)
+	if err != nil {
+		return nil, normalizeUserLookupError(err)
 	}
 
 	user.IsActive = !user.IsActive
-	if err := s.syncEmbyPolicy(&user); err != nil {
+	if err := s.syncEmbyPolicy(user); err != nil {
 		return nil, err
 	}
 	if err := db.DB.Model(&models.User{}).
@@ -359,14 +357,13 @@ func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
 		return nil, err
 	}
 
-	return &user, nil
+	return user, nil
 }
 
 func (s *UserService) DeleteUser(userID string) error {
-	var user models.User
-	result := db.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
-		return ErrUserNotFound
+	user, err := s.findUserByID(userID)
+	if err != nil {
+		return normalizeUserLookupError(err)
 	}
 
 	if user.EmbyID != "" {
@@ -381,4 +378,14 @@ func (s *UserService) DeleteUser(userID string) error {
 	}
 
 	return nil
+}
+
+func normalizeUserLookupError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrUserNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrUserNotFound
+	}
+	return err
 }
