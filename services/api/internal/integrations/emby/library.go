@@ -1,19 +1,29 @@
 package emby
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	defaultLibraryItemPageSize = 200
 	maxItemIDsPerBatch         = 100
+	getItemsByIDsMaxAttempts   = 3
+)
+
+var (
+	getItemsByIDsBatchTimeout = 3 * time.Second
+	getItemsByIDsRetryBackoff = 200 * time.Millisecond
 )
 
 // EmbyLibrary 媒体库信息
@@ -59,6 +69,46 @@ type embyLibraryItemsResponse struct {
 	TotalRecordCount int               `json:"TotalRecordCount"`
 }
 
+type embyHTTPStatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *embyHTTPStatusError) Error() string {
+	return fmt.Sprintf("Emby API 返回异常状态码 %d: %s", e.StatusCode, e.Body)
+}
+
+type getItemsByIDsBatchError struct {
+	TotalBatches  int
+	FailedBatches int
+	LastErr       error
+}
+
+func (e *getItemsByIDsBatchError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.FailedBatches >= e.TotalBatches {
+		return fmt.Sprintf("Emby 条目详情批量查询全部失败 batches=%d: %v", e.TotalBatches, e.LastErr)
+	}
+	return fmt.Sprintf("Emby 条目详情批量查询部分失败 failed=%d/%d: %v", e.FailedBatches, e.TotalBatches, e.LastErr)
+}
+
+func (e *getItemsByIDsBatchError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.LastErr
+}
+
+func IsGetItemsByIDsPartialFailure(err error) bool {
+	var batchErr *getItemsByIDsBatchError
+	if !errors.As(err, &batchErr) {
+		return false
+	}
+	return batchErr != nil && batchErr.FailedBatches > 0 && batchErr.FailedBatches < batchErr.TotalBatches
+}
+
 // GetItemsByIDs 按条目 ID 批量读取媒体详情。
 // 目前主要给 PlaybackActivity 二阶段聚合使用：先拿 ItemId，再回查 SeriesId / SeriesName。
 func (s *EmbyService) GetItemsByIDs(itemIDs []string) ([]EmbyLibraryItem, error) {
@@ -84,32 +134,101 @@ func (s *EmbyService) GetItemsByIDs(itemIDs []string) ([]EmbyLibraryItem, error)
 	}
 
 	items := make([]EmbyLibraryItem, 0, len(normalized))
+	totalBatches := 0
+	failedBatches := 0
+	var lastErr error
 	for start := 0; start < len(normalized); start += maxItemIDsPerBatch {
 		end := start + maxItemIDsPerBatch
 		if end > len(normalized) {
 			end = len(normalized)
 		}
+		totalBatches++
 
-		params := map[string]string{
-			"Ids":    strings.Join(normalized[start:end], ","),
-			"Fields": "ParentId,SeriesName,SeriesId,ParentIndexNumber,IndexNumber",
-			"Limit":  strconv.Itoa(end - start),
-		}
-
-		body, err := s.getWithAPIKey("/emby/Items", params)
+		batchItems, err := s.getItemsByIDsBatch(normalized[start:end])
 		if err != nil {
-			return nil, err
+			failedBatches++
+			lastErr = err
+			log.Printf(
+				"[Emby] GetItemsByIDs batch failed batch=%d/%d size=%d err=%v",
+				totalBatches,
+				(len(normalized)+maxItemIDsPerBatch-1)/maxItemIDsPerBatch,
+				end-start,
+				err,
+			)
+			continue
 		}
+		items = append(items, batchItems...)
+	}
 
-		var out embyLibraryItemsResponse
-		if err := json.Unmarshal(body, &out); err != nil {
-			return nil, fmt.Errorf("解析 Emby 条目详情失败: %w", err)
+	if failedBatches > 0 {
+		return items, &getItemsByIDsBatchError{
+			TotalBatches:  totalBatches,
+			FailedBatches: failedBatches,
+			LastErr:       lastErr,
 		}
-
-		items = append(items, out.Items...)
 	}
 
 	return items, nil
+}
+
+func (s *EmbyService) getItemsByIDsBatch(batchIDs []string) ([]EmbyLibraryItem, error) {
+	params := map[string]string{
+		"Ids":    strings.Join(batchIDs, ","),
+		"Fields": "ParentId,SeriesName,SeriesId,ParentIndexNumber,IndexNumber",
+		"Limit":  strconv.Itoa(len(batchIDs)),
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= getItemsByIDsMaxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), getItemsByIDsBatchTimeout)
+		body, err := s.getWithAPIKeyAndContext(ctx, "/emby/Items", params)
+		cancel()
+		if err == nil {
+			var out embyLibraryItemsResponse
+			if err := json.Unmarshal(body, &out); err != nil {
+				return nil, fmt.Errorf("解析 Emby 条目详情失败: %w", err)
+			}
+			return out.Items, nil
+		}
+
+		lastErr = err
+		if attempt == getItemsByIDsMaxAttempts || !shouldRetryGetItemsByIDs(err) {
+			break
+		}
+
+		backoff := time.Duration(attempt) * getItemsByIDsRetryBackoff
+		log.Printf(
+			"[Emby] GetItemsByIDs retry attempt=%d/%d size=%d backoff=%s err=%v",
+			attempt+1,
+			getItemsByIDsMaxAttempts,
+			len(batchIDs),
+			backoff,
+			err,
+		)
+		if backoff > 0 {
+			time.Sleep(backoff)
+		}
+	}
+
+	return nil, fmt.Errorf("查询 Emby 条目详情失败 ids=%d: %w", len(batchIDs), lastErr)
+}
+
+func shouldRetryGetItemsByIDs(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	var statusErr *embyHTTPStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.StatusCode == http.StatusTooManyRequests || statusErr.StatusCode >= http.StatusInternalServerError
+	}
+
+	return false
 }
 
 // GetLibraries 获取媒体库列表（兼容不同 Emby 版本响应结构）
@@ -224,6 +343,10 @@ func (s *EmbyService) getLibraryItemsPage(libraryID string, startIndex, limit in
 }
 
 func (s *EmbyService) getWithAPIKey(path string, params map[string]string) ([]byte, error) {
+	return s.getWithAPIKeyAndContext(context.Background(), path, params)
+}
+
+func (s *EmbyService) getWithAPIKeyAndContext(ctx context.Context, path string, params map[string]string) ([]byte, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
@@ -241,14 +364,14 @@ func (s *EmbyService) getWithAPIKey(path string, params map[string]string) ([]by
 	}
 	base.RawQuery = query.Encode()
 
-	req, err := http.NewRequest("GET", base.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", base.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%w", err)
 	}
 	defer resp.Body.Close()
 
@@ -258,7 +381,10 @@ func (s *EmbyService) getWithAPIKey(path string, params map[string]string) ([]by
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Emby API 返回异常状态码 %d: %s", resp.StatusCode, sanitizeEmbyErrorBody(body))
+		return nil, &embyHTTPStatusError{
+			StatusCode: resp.StatusCode,
+			Body:       sanitizeEmbyErrorBody(body),
+		}
 	}
 
 	return body, nil

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -24,7 +25,9 @@ const (
 )
 
 type MediaQualityService struct {
-	embyService *embyint.EmbyService
+	embyService     *embyint.EmbyService
+	getLibraries    func() ([]embyint.EmbyLibrary, error)
+	getLibraryItems func(libraryID string, maxItems int) ([]embyint.EmbyLibraryItem, error)
 }
 
 type ResolutionDistributionItem struct {
@@ -68,12 +71,19 @@ type LowQualityDetailItem struct {
 	Episode      int    `json:"episode,omitempty"`
 }
 
+type FailedLibrary struct {
+	LibraryID   string `json:"libraryId"`
+	LibraryName string `json:"libraryName"`
+	Error       string `json:"error"`
+}
+
 type QualityReport struct {
 	ResolutionDistribution []ResolutionDistributionItem `json:"resolutionDistribution"`
 	CodecDistribution      []CodecDistributionItem      `json:"codecDistribution"`
 	HDRDistribution        []HDRDistributionItem        `json:"hdrDistribution"`
 	LowQualityItems        []LowQualityItem             `json:"lowQualityItems"`
 	LowQualityDetails      []LowQualityDetailItem       `json:"lowQualityDetails,omitempty"`
+	FailedLibraries        []FailedLibrary              `json:"failedLibraries,omitempty"`
 	LowQualityTotal        int                          `json:"lowQualityTotal"`
 	Page                   int                          `json:"page"`
 	PageSize               int                          `json:"pageSize"`
@@ -81,13 +91,16 @@ type QualityReport struct {
 }
 
 func NewMediaQualityService() *MediaQualityService {
+	embyService := embyint.GetSharedService()
 	return &MediaQualityService{
-		embyService: embyint.GetSharedService(),
+		embyService:     embyService,
+		getLibraries:    embyService.GetLibraries,
+		getLibraryItems: embyService.GetLibraryItems,
 	}
 }
 
 func (s *MediaQualityService) GetLibraries() ([]embyint.EmbyLibrary, error) {
-	return s.embyService.GetLibraries()
+	return s.listLibraries()
 }
 
 func (s *MediaQualityService) GetPoster(_ context.Context, itemID string, maxHeight int, quality int) ([]byte, string, error) {
@@ -132,12 +145,13 @@ func (s *MediaQualityService) ScanLibraryQuality(ctx context.Context, libraryID 
 		_ = s.clearScanInflight(ctx, cacheKey)
 	}()
 
-	items, err := s.loadQualityItems(libraryID)
+	items, failedLibraries, err := s.loadQualityItems(libraryID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMediaQualityScanFailed, err)
 	}
 
 	report := buildQualityReport(items)
+	report.FailedLibraries = failedLibraries
 	if err := s.saveReportCache(ctx, cacheKey, report); err != nil {
 		return nil, err
 	}
@@ -256,30 +270,53 @@ func (s *MediaQualityService) GetGroupLowQualityDetails(
 	return details, nil
 }
 
-func (s *MediaQualityService) loadQualityItems(libraryID string) ([]embyint.EmbyLibraryItem, error) {
+func (s *MediaQualityService) loadQualityItems(libraryID string) ([]embyint.EmbyLibraryItem, []FailedLibrary, error) {
 	if !isAllLibrariesID(libraryID) {
-		return s.embyService.GetLibraryItems(libraryID, 0)
+		items, err := s.listLibraryItems(libraryID, 0)
+		return items, nil, err
 	}
 
-	libraries, err := s.embyService.GetLibraries()
+	libraries, err := s.listLibraries()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	allItems := make([]embyint.EmbyLibraryItem, 0)
+	failedLibraries := make([]FailedLibrary, 0)
 	for _, library := range libraries {
 		id := strings.TrimSpace(library.ID)
 		if id == "" {
 			continue
 		}
-		items, err := s.embyService.GetLibraryItems(id, 0)
+		items, err := s.listLibraryItems(id, 0)
 		if err != nil {
-			return nil, err
+			libraryName := strings.TrimSpace(library.Name)
+			log.Printf("[MediaQuality] aggregate scan skipped libraryId=%s libraryName=%q: %v", id, libraryName, err)
+			failedLibraries = append(failedLibraries, FailedLibrary{
+				LibraryID:   id,
+				LibraryName: libraryName,
+				Error:       err.Error(),
+			})
+			continue
 		}
 		allItems = append(allItems, items...)
 	}
 
-	return allItems, nil
+	return allItems, failedLibraries, nil
+}
+
+func (s *MediaQualityService) listLibraries() ([]embyint.EmbyLibrary, error) {
+	if s.getLibraries != nil {
+		return s.getLibraries()
+	}
+	return s.embyService.GetLibraries()
+}
+
+func (s *MediaQualityService) listLibraryItems(libraryID string, maxItems int) ([]embyint.EmbyLibraryItem, error) {
+	if s.getLibraryItems != nil {
+		return s.getLibraryItems(libraryID, maxItems)
+	}
+	return s.embyService.GetLibraryItems(libraryID, maxItems)
 }
 
 func (s *MediaQualityService) getCachedReport(ctx context.Context, cacheKey string) (*QualityReport, error) {
@@ -310,20 +347,20 @@ func (s *MediaQualityService) saveReportCache(ctx context.Context, cacheKey stri
 
 	now := time.Now().UTC()
 	cache := models.MediaQualityCache{
-		LibraryID:  cacheKey,
-		Statistics: string(reportJSON),
+		LibraryID:     cacheKey,
+		Statistics:    string(reportJSON),
 		SchemaVersion: 1,
-		ExpiresAt:  now.Add(mediaQualityCacheTTL),
+		ExpiresAt:     now.Add(mediaQualityCacheTTL),
 	}
 
 	if err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "libraryId"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"statistics": cache.Statistics,
+			"statistics":    cache.Statistics,
 			"schemaVersion": cache.SchemaVersion,
 			"inflightUntil": nil,
-			"expiresAt":  cache.ExpiresAt,
-			"updatedAt":  now,
+			"expiresAt":     cache.ExpiresAt,
+			"updatedAt":     now,
 		}),
 	}).Create(&cache).Error; err != nil {
 		return fmt.Errorf("保存媒体质量缓存失败: %w", err)

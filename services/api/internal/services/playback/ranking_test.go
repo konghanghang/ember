@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -74,6 +75,67 @@ func TestPreviewRankingGroupsEpisodesBySeriesID(t *testing.T) {
 	}
 	if secondEpisode.Duration != 1200 {
 		t.Fatalf("expected second series duration 1200, got %d", secondEpisode.Duration)
+	}
+}
+
+func TestPreviewRankingKeepsSuccessfulEpisodeBatchesWhenSomeLookupsFail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackPartialBatchQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			handlePlaybackPartialBatchItemsTestRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+	}
+	result, err := svc.PreviewRanking(models.RankingWeekly)
+	if err != nil {
+		t.Fatalf("preview ranking failed: %v", err)
+	}
+
+	if len(result.Episodes) != 1 {
+		t.Fatalf("expected 1 episode ranking after partial batch failure, got %d", len(result.Episodes))
+	}
+	if result.Episodes[0].ItemKey != "series_a" {
+		t.Fatalf("expected surviving series_a ranking, got %q", result.Episodes[0].ItemKey)
+	}
+	if result.Episodes[0].PlayCount != 100 {
+		t.Fatalf("expected aggregated playCount 100, got %d", result.Episodes[0].PlayCount)
+	}
+}
+
+func TestPreviewRankingFailsWhenAllEpisodeLookupBatchesFail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackAllBatchFailQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			http.Error(w, "upstream timeout", http.StatusGatewayTimeout)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+	}
+	if _, err := svc.PreviewRanking(models.RankingWeekly); err == nil {
+		t.Fatal("expected preview ranking to fail when all episode lookup batches fail")
 	}
 }
 
@@ -168,4 +230,135 @@ func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http
 		"Items":            items,
 		"TotalRecordCount": len(items),
 	})
+}
+
+func handlePlaybackPartialBatchQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+
+	var req map[string]string
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("unmarshal body failed: %v", err)
+	}
+
+	sql := req["CustomQueryString"]
+	switch {
+	case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+			"results": []any{},
+			"message": "",
+		})
+	case strings.Contains(sql, "ItemType = 'Movie'"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"results": [][]any{
+				{"movie_1", "Movie", "movie_item", 1, 300},
+			},
+			"message": "",
+		})
+	case strings.Contains(sql, "ItemType = 'Episode'"):
+		results := make([][]any, 0, 101)
+		for i := 1; i <= 100; i++ {
+			results = append(results, []any{"ep_a_" + strconv.Itoa(i), "Series A", "episode_item", 1, 120})
+		}
+		results = append(results, []any{"ep_fail_101", "Series Fail", "episode_item", 1, 120})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"results": results,
+			"message": "",
+		})
+	case strings.Contains(sql, "SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0))"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"total_duration"},
+			"results": [][]any{
+				{12300},
+			},
+			"message": "",
+		})
+	default:
+		t.Fatalf("unexpected playback sql: %s", sql)
+	}
+}
+
+func handlePlaybackPartialBatchItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	rawIDs := strings.TrimSpace(r.URL.Query().Get("Ids"))
+	if strings.Contains(rawIDs, "ep_fail_101") {
+		http.Error(w, "upstream busy", http.StatusBadGateway)
+		return
+	}
+
+	ids := strings.Split(rawIDs, ",")
+	items := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		items = append(items, map[string]any{
+			"Id":         id,
+			"SeriesId":   "series_a",
+			"SeriesName": "Series A",
+		})
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Items":            items,
+		"TotalRecordCount": len(items),
+	})
+}
+
+func handlePlaybackAllBatchFailQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+
+	var req map[string]string
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("unmarshal body failed: %v", err)
+	}
+
+	sql := req["CustomQueryString"]
+	switch {
+	case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+			"results": []any{},
+			"message": "",
+		})
+	case strings.Contains(sql, "ItemType = 'Movie'"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"results": [][]any{},
+			"message": "",
+		})
+	case strings.Contains(sql, "ItemType = 'Episode'"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"results": [][]any{
+				{"ep_fail_1", "Series Fail 1", "episode_item", 1, 300},
+				{"ep_fail_2", "Series Fail 2", "episode_item", 1, 300},
+			},
+			"message": "",
+		})
+	case strings.Contains(sql, "SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0))"):
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"columns": []string{"total_duration"},
+			"results": [][]any{
+				{600},
+			},
+			"message": "",
+		})
+	default:
+		t.Fatalf("unexpected playback sql: %s", sql)
+	}
 }

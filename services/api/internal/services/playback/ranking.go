@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/async"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
@@ -124,7 +124,15 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 
 	items, err := s.embyService.GetItemsByIDs(itemIDs)
 	if err != nil {
-		return nil, err
+		if len(items) == 0 || !embyint.IsGetItemsByIDsPartialFailure(err) {
+			return nil, err
+		}
+		log.Printf(
+			"[PlaybackRanking] episode item lookup partially failed itemIDs=%d resolvedItems=%d err=%v",
+			len(itemIDs),
+			len(items),
+			err,
+		)
 	}
 
 	itemDetails := make(map[string]embyint.EmbyLibraryItem, len(items))

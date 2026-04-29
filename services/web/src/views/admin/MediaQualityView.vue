@@ -10,7 +10,7 @@ import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.v
 import { getMediaQualityLibraries, getMediaQualityGroupDetails, getMediaQualityPoster, getMediaQualityReport, scanMediaQualityLibrary } from '@/api/admin'
 import { formatDate } from '@/utils/date'
 import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
-import type { MediaQualityLibrary, MediaQualityLowDetailItem, MediaQualityLowItem, MediaQualityReport } from '@/types/api'
+import type { MediaQualityFailedLibrary, MediaQualityLibrary, MediaQualityLowDetailItem, MediaQualityLowItem, MediaQualityReport } from '@/types/api'
 
 const loadingLibraries = ref(false)
 const loadingReport = ref(false)
@@ -42,6 +42,12 @@ const totalScannedItems = computed(() => {
   if (!report.value) return 0
   return report.value.resolutionDistribution.reduce((sum, item) => sum + item.count, 0)
 })
+
+const failedLibraries = computed<MediaQualityFailedLibrary[]>(() => {
+  return report.value?.failedLibraries || []
+})
+
+const hasFailedLibraries = computed(() => failedLibraries.value.length > 0)
 
 const libraryOptions = computed(() => {
   return [{ id: 'all', name: '全部媒体库', type: 'all', itemCount: 0 }, ...libraries.value]
@@ -112,7 +118,11 @@ const loadReport = async (force = false) => {
     cleanupPosterURLs()
     void preloadPosterURLs(res.data?.lowQualityItems || [])
     if (force) {
-      ElMessage.success('已强制刷新并更新报告')
+      if (selectedLibraryId.value === 'all' && (res.data?.failedLibraries?.length || 0) > 0) {
+        ElMessage.warning(`已强制刷新，${res.data.failedLibraries.length} 个媒体库读取失败`)
+      } else {
+        ElMessage.success('已强制刷新并更新报告')
+      }
     }
   } finally {
     loadingReport.value = false
@@ -126,9 +136,16 @@ const scanNow = async () => {
   }
   scanning.value = true
   try {
-    await scanMediaQualityLibrary(selectedLibraryId.value)
-    await loadReport(false)
-    ElMessage.success('扫描完成，报告已更新')
+    const res = await scanMediaQualityLibrary(selectedLibraryId.value)
+    report.value = res.data
+    summaryPosterIDs.value = extractPosterIDs(res.data?.lowQualityItems || [])
+    cleanupPosterURLs()
+    void preloadPosterURLs(res.data?.lowQualityItems || [])
+    if (selectedLibraryId.value === 'all' && (res.data?.failedLibraries?.length || 0) > 0) {
+      ElMessage.warning(`扫描完成，${res.data.failedLibraries.length} 个媒体库读取失败`)
+    } else {
+      ElMessage.success('扫描完成，报告已更新')
+    }
   } finally {
     scanning.value = false
   }
@@ -331,6 +348,37 @@ onBeforeUnmount(() => {
         value-class="mt-2 text-base font-semibold text-gray-900"
       />
     </div>
+
+    <section
+      v-if="hasFailedLibraries"
+      class="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-sm"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-semibold text-amber-900">部分媒体库读取失败</h2>
+          <p class="mt-1 text-xs text-amber-800">
+            当前报告已跳过 {{ failedLibraries.length }} 个失败媒体库，其余媒体库结果仍已返回。
+          </p>
+        </div>
+        <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+          {{ failedLibraries.length }} 个失败库
+        </span>
+      </div>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <div
+          v-for="library in failedLibraries"
+          :key="library.libraryId"
+          class="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs text-gray-700"
+        >
+          <div class="font-semibold text-gray-900">
+            {{ library.libraryName || library.libraryId }}
+          </div>
+          <div class="mt-1 break-all text-amber-700">
+            {{ library.error }}
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">

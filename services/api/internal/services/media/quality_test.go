@@ -1,6 +1,7 @@
 package media
 
 import (
+	"errors"
 	"testing"
 
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
@@ -184,5 +185,73 @@ func TestIsAllLibrariesIDCaseInsensitive(t *testing.T) {
 	}
 	if isAllLibrariesID("library_1") {
 		t.Fatal("regular library id should not be treated as all")
+	}
+}
+
+func TestLoadQualityItemsAllLibrariesKeepsPartialSuccess(t *testing.T) {
+	service := &MediaQualityService{
+		getLibraries: func() ([]embyint.EmbyLibrary, error) {
+			return []embyint.EmbyLibrary{
+				{ID: "lib_ok", Name: "Movies"},
+				{ID: "lib_fail", Name: "TV"},
+				{ID: "lib_ok_2", Name: "Anime"},
+			}, nil
+		},
+		getLibraryItems: func(libraryID string, maxItems int) ([]embyint.EmbyLibraryItem, error) {
+			switch libraryID {
+			case "lib_ok":
+				return []embyint.EmbyLibraryItem{{ID: "movie_1", Name: "Movie 1"}}, nil
+			case "lib_ok_2":
+				return []embyint.EmbyLibraryItem{{ID: "movie_2", Name: "Movie 2"}}, nil
+			case "lib_fail":
+				return nil, errors.New("emby timeout")
+			default:
+				t.Fatalf("unexpected library id: %s", libraryID)
+				return nil, nil
+			}
+		},
+	}
+
+	items, failedLibraries, err := service.loadQualityItems("all")
+	if err != nil {
+		t.Fatalf("expected partial success, got error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items from successful libraries, got %d", len(items))
+	}
+	if len(failedLibraries) != 1 {
+		t.Fatalf("expected 1 failed library, got %d", len(failedLibraries))
+	}
+	failed := failedLibraries[0]
+	if failed.LibraryID != "lib_fail" {
+		t.Fatalf("unexpected failed library id: %+v", failed)
+	}
+	if failed.LibraryName != "TV" {
+		t.Fatalf("unexpected failed library name: %+v", failed)
+	}
+	if failed.Error != "emby timeout" {
+		t.Fatalf("unexpected failed library error: %+v", failed)
+	}
+}
+
+func TestLoadQualityItemsSingleLibraryStillFailFast(t *testing.T) {
+	service := &MediaQualityService{
+		getLibraryItems: func(libraryID string, maxItems int) ([]embyint.EmbyLibraryItem, error) {
+			if libraryID != "lib_fail" {
+				t.Fatalf("unexpected library id: %s", libraryID)
+			}
+			return nil, errors.New("emby timeout")
+		},
+	}
+
+	items, failedLibraries, err := service.loadQualityItems("lib_fail")
+	if err == nil {
+		t.Fatal("expected single library path to fail fast")
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no items on failure, got %d", len(items))
+	}
+	if len(failedLibraries) != 0 {
+		t.Fatalf("single library path should not produce failedLibraries, got %+v", failedLibraries)
 	}
 }

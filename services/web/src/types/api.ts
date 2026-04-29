@@ -373,11 +373,18 @@ export interface MediaQualityLowDetailItem {
   episode?: number
 }
 
+export interface MediaQualityFailedLibrary {
+  libraryId: string
+  libraryName: string
+  error: string
+}
+
 export interface MediaQualityReport {
   resolutionDistribution: MediaQualityResolutionItem[]
   codecDistribution: MediaQualityCodecItem[]
   hdrDistribution: MediaQualityHDRItem[]
   lowQualityItems: MediaQualityLowItem[]
+  failedLibraries?: MediaQualityFailedLibrary[]
   lowQualityTotal: number
   page: number
   pageSize: number
