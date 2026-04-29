@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	systempkg "github.com/konghang/ember/backend/internal/services/system"
 )
 
@@ -24,10 +25,7 @@ func NewSystemHandler() *SystemHandler {
 func (h *SystemHandler) GetSystemInfo(c *gin.Context) {
 	info, err := h.service.GetSystemInfo()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   err.Error(),
-		})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -60,10 +58,7 @@ func (h *SystemHandler) TestEmbyConnection(c *gin.Context) {
 func (h *SystemHandler) CheckExpiredUsers(c *gin.Context) {
 	result, err := h.service.CheckExpiredUsers()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   err.Error(),
-		})
+		httpx.InternalError(c, err)
 		return
 	}
 

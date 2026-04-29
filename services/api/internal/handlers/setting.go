@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 )
@@ -33,7 +34,7 @@ func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
 func (h *SettingHandler) GetConsoleAccountLinks(c *gin.Context) {
 	links, err := h.configService.GetConsoleAccountLinks()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取控制台账号资源入口失败"})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -61,7 +62,7 @@ func (h *SettingHandler) GetSettingByKey(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		httpx.InternalError(c, err)
 		return
 	}
 

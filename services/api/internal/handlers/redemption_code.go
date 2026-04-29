@@ -43,7 +43,7 @@ func (h *RedemptionCodeHandler) CreateRedemptionCode(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建兑换码失败"})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -63,7 +63,7 @@ func (h *RedemptionCodeHandler) CreateRedemptionCodesBatch(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量创建兑换码失败"})
+		httpx.InternalError(c, err)
 		return
 	}
 

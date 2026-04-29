@@ -264,9 +264,9 @@ func (s *MediaService) GetLatestItems(embyUserID string, itemType string, limit 
 	return out, nil
 }
 
-// dedupeLatestItems 按 ID 或 (Type+Name+Year) 去重。
-// ID 非空时优先使用 ID；否则按 Type+Name+Year 合并，减少同名不同版本资源被错误去重的概率
-// （EmbyItem 结构暂无 ParentID，如将来增加可纳入 key 进一步精确）。
+// dedupeLatestItems 按 ID 或更精确的兜底特征去重。
+// ID 非空时优先使用 ID；否则组合 Type/Name/Year/DateCreated/ChildCount/PrimaryImageTag，
+// 尽量避免同名同年但实际是不同条目的资源被误去重。
 func dedupeLatestItems(items []embyint.EmbyItem) []embyint.EmbyItem {
 	if len(items) <= 1 {
 		return items
@@ -279,7 +279,12 @@ func dedupeLatestItems(items []embyint.EmbyItem) []embyint.EmbyItem {
 		if item.ID != "" {
 			key = item.ID
 		} else {
-			key = item.Type + "|" + item.Name + "|" + strconv.Itoa(item.ProductionYear)
+			key = item.Type + "|" +
+				item.Name + "|" +
+				strconv.Itoa(item.ProductionYear) + "|" +
+				item.DateCreated + "|" +
+				strconv.Itoa(item.ChildCount) + "|" +
+				primaryImageTag(item.ImageTags)
 		}
 		if _, exists := seen[key]; exists {
 			log.Printf("[Media] 去重最近入库重复项: type=%s key=%s name=%q id=%s", item.Type, key, item.Name, item.ID)
@@ -290,4 +295,11 @@ func dedupeLatestItems(items []embyint.EmbyItem) []embyint.EmbyItem {
 	}
 
 	return result
+}
+
+func primaryImageTag(tags map[string]string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(tags["Primary"])
 }

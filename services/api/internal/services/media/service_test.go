@@ -24,13 +24,37 @@ func TestDedupeLatestItemsRemovesDuplicateIDs(t *testing.T) {
 
 func TestDedupeLatestItemsFallsBackToTypeNameYear(t *testing.T) {
 	items := []embyint.EmbyItem{
-		{ID: "", Name: "Dark", Type: "Series", ProductionYear: 2017},
-		{ID: "", Name: "Dark", Type: "Series", ProductionYear: 2017},
-		{ID: "", Name: "Dark", Type: "Series", ProductionYear: 2020},
+		{ID: "", Name: "Dark", Type: "Series", ProductionYear: 2017, DateCreated: "2026-04-01T00:00:00Z"},
+		{ID: "", Name: "Dark", Type: "Series", ProductionYear: 2017, DateCreated: "2026-04-01T00:00:00Z"},
+		{ID: "", Name: "Dark", Type: "Series", ProductionYear: 2020, DateCreated: "2026-04-02T00:00:00Z"},
 	}
 
 	got := dedupeLatestItems(items)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 unique items, got %d", len(got))
+	}
+}
+
+func TestDedupeLatestItemsKeepsDistinctFallbackItems(t *testing.T) {
+	items := []embyint.EmbyItem{
+		{
+			Name:           "Dark",
+			Type:           "Series",
+			ProductionYear: 2017,
+			DateCreated:    "2026-04-01T00:00:00Z",
+			ImageTags:      map[string]string{"Primary": "poster-a"},
+		},
+		{
+			Name:           "Dark",
+			Type:           "Series",
+			ProductionYear: 2017,
+			DateCreated:    "2026-04-03T00:00:00Z",
+			ImageTags:      map[string]string{"Primary": "poster-b"},
+		},
+	}
+
+	got := dedupeLatestItems(items)
+	if len(got) != 2 {
+		t.Fatalf("expected distinct fallback items to be kept, got %d", len(got))
 	}
 }

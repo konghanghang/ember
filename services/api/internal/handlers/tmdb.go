@@ -107,9 +107,7 @@ func buildTMDBTVSeasonOptions(detail TMDBTVDetailResponse) TMDBTVSeasonOptions {
 func (h *TMDBHandler) fetchTMDB(c *gin.Context, endpoint string, target interface{}) bool {
 	apiKey := h.configService.GetString("TMDB_API_KEY")
 	if apiKey == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "TMDB API 未配置",
-		})
+		httpx.InternalError(c, errors.New("tmdb api key is not configured"))
 		return false
 	}
 

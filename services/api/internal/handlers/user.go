@@ -47,7 +47,6 @@ func (h *UserHandler) CreateUserByAdmin(c *gin.Context) {
 
 	user, err := h.userService.CreateUserByAdmin(&req)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, userpkg.ErrUsernameLengthInvalid),
 			errors.Is(err, userpkg.ErrUsernameCharsetInvalid),
@@ -59,14 +58,12 @@ func (h *UserHandler) CreateUserByAdmin(c *gin.Context) {
 			errors.Is(err, userpkg.ErrExpiresAtFormatInvalid),
 			errors.Is(err, userpkg.ErrUsernameAlreadyExists),
 			errors.Is(err, userpkg.ErrEmailAlreadyExists):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-
-		c.JSON(statusCode, gin.H{
-			"error": err.Error(),
-		})
 		return
 	}
 
@@ -98,14 +95,11 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 
 	resp, err := h.userService.GetUsers(&req)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
 		if errors.Is(err, userpkg.ErrInvalidExpiresAfter) || errors.Is(err, userpkg.ErrInvalidEmbyStatus) || errors.Is(err, userpkg.ErrInvalidPlanGroup) || errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound) {
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
-
-		c.JSON(statusCode, gin.H{
-			"error": err.Error(),
-		})
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -161,24 +155,21 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 
 	user, err := h.userService.UpdateUserByAdmin(userID, &req)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, userpkg.ErrUserNotFound):
-			statusCode = http.StatusNotFound
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, userpkg.ErrUpdateFieldsRequired),
 			errors.Is(err, userpkg.ErrClearExpiresAtConflict),
 			errors.Is(err, userpkg.ErrEmailRequired),
 			errors.Is(err, userpkg.ErrEmailInvalid),
 			errors.Is(err, userpkg.ErrExpiresAtFormatInvalid),
 			errors.Is(err, userpkg.ErrEmailAlreadyExists):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-
-		c.JSON(statusCode, gin.H{
-			"error": err.Error(),
-		})
 		return
 	}
 
@@ -208,9 +199,11 @@ func (h *UserHandler) ExtendExpiry(c *gin.Context) {
 
 	user, err := h.userService.ExtendExpiry(userID, req.Days)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		if errors.Is(err, userpkg.ErrUserNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -230,9 +223,11 @@ func (h *UserHandler) ToggleUserStatus(c *gin.Context) {
 
 	user, err := h.userService.ToggleUserStatus(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		if errors.Is(err, userpkg.ErrUserNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -252,9 +247,11 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 
 	err := h.userService.DeleteUser(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		if errors.Is(err, userpkg.ErrUserNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -286,9 +283,11 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 
 	err := h.userService.ResetPassword(userID, req.NewPassword)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		if errors.Is(err, userpkg.ErrUserNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 

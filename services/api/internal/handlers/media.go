@@ -32,10 +32,10 @@ func NewMediaHandler() *MediaHandler {
 func (h *MediaHandler) GetEmbyConfig(c *gin.Context) {
 	url, err := h.service.GetEmbyConfig()
 	if err != nil || url == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "未配置 Emby 服务器地址",
-		})
+		if err == nil {
+			err = errors.New("emby url is not configured")
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 

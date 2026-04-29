@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 )
 
@@ -27,7 +28,7 @@ func NewConfigHandler() *ConfigHandler {
 func (h *ConfigHandler) GetConfigs(c *gin.Context) {
 	items, err := h.service.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		httpx.InternalError(c, err)
 		return
 	}
 

@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,12 +15,16 @@ import (
 )
 
 type stubRedemptionCodeService struct {
+	createFn      func(req *redemptionpkg.CreateRedemptionCodeRequest) (*models.RedemptionCode, error)
 	createBatchFn func(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error)
 	getCodesFn    func(req *redemptionpkg.GetRedemptionCodesRequest) (*redemptionpkg.GetRedemptionCodesResponse, error)
 }
 
 func (s *stubRedemptionCodeService) CreateRedemptionCode(req *redemptionpkg.CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
-	return nil, nil
+	if s.createFn == nil {
+		return nil, nil
+	}
+	return s.createFn(req)
 }
 
 func (s *stubRedemptionCodeService) CreateRedemptionCodesBatch(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error) {
@@ -150,6 +155,36 @@ func TestRedemptionCodeHandlerCreateBatchMapsRequestErrors(t *testing.T) {
 				t.Fatalf("expected status 400, got %d", recorder.Code)
 			}
 		})
+	}
+}
+
+func TestRedemptionCodeHandlerCreateBatchReturnsGenericInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RedemptionCodeHandler{
+		service: &stubRedemptionCodeService{
+			createBatchFn: func(req *redemptionpkg.CreateRedemptionCodesBatchRequest) (*redemptionpkg.CreateRedemptionCodesBatchResponse, error) {
+				return nil, errors.New("db write failed")
+			},
+		},
+	}
+
+	body := []byte(`{"count":2,"maxUses":3,"defaultDays":30}`)
+	ctx, recorder := newTestRedemptionCodeContext(http.MethodPost, "/api/v1/admin/redemption-codes/batch", body)
+	handler.CreateRedemptionCodesBatch(ctx)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Error != "上游服务暂不可用" {
+		t.Fatalf("expected generic internal error message, got %q", resp.Error)
 	}
 }
 

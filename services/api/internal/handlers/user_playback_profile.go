@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/common/httpx"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
 )
 
@@ -39,7 +40,7 @@ func (h *UserPlaybackProfileHandler) GetAdminUserProfiles(c *gin.Context) {
 		case errors.Is(err, playbackpkg.ErrPlaybackHistoryQueryFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": playbackpkg.ErrPlaybackHistoryQueryFailed.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "内部服务错误"})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -69,7 +70,7 @@ func (h *UserPlaybackProfileHandler) GetAdminUserProfile(c *gin.Context) {
 		case errors.Is(err, playbackpkg.ErrPlaybackHistoryQueryFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": playbackpkg.ErrPlaybackHistoryQueryFailed.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "内部服务错误"})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -105,7 +106,7 @@ func (h *UserPlaybackProfileHandler) GetCurrentUserProfile(c *gin.Context) {
 		case errors.Is(err, playbackpkg.ErrPlaybackHistoryQueryFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": playbackpkg.ErrPlaybackHistoryQueryFailed.Error()})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "内部服务错误"})
+			httpx.InternalError(c, err)
 		}
 		return
 	}

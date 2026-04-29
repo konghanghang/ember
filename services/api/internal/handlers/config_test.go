@@ -105,6 +105,16 @@ func TestConfigHandlerGetConfigsInternalError(t *testing.T) {
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", recorder.Code)
 	}
+
+	var resp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Error != "上游服务暂不可用" {
+		t.Fatalf("expected generic internal error message, got %q", resp.Error)
+	}
 }
 
 func TestConfigHandlerUpdateConfig(t *testing.T) {
