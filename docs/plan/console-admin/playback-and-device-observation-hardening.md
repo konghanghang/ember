@@ -20,7 +20,7 @@
 
 当前剩余项已缩窄为少量真实尾项：
 
-- `generateRankingBatchID` 已不再截断到 25 字符，但实现仍是随机 base32 26 位 ID，不是计划正文写的标准 ULID
+- ✅ `generateRankingBatchID` 已改为标准 ULID，和 `batch_id varchar(32)` 设计口径一致
 - `playback/history.go` 的 wildcard / 本地分页 fallback 仍保留，`loadPlaybackRowsByLocalPagination` 仍可能在极端情况下全量拉回内存后本地排序分页
 - `parsePlaybackRows` 仍保留 `fallbackIndexes`，尚未收口到“无稳定 columns 即拒绝”的更硬边界
 - `_ = db.DB.Create/Save` 这类静默吞错 sweep 还没系统性做完
@@ -118,7 +118,7 @@
   - `services/api/internal/models/device_action.go`
 - 涉及表：`playback_rankings`、`media_quality_caches`、`client_blacklists`、`device_actions`
 - 当前行为：
-  - `playback_rankings.batch_id` 模型与增量 migration 已扩到 `varchar(32)`；当前 `generateRankingBatchID` 生成的是随机 base32 26 位 ID，不是 ULID
+  - `playback_rankings.batch_id` 模型与增量 migration 已扩到 `varchar(32)`；`generateRankingBatchID` 当前生成标准 26 位 ULID
   - `media_quality_caches` 已使用 `schemaVersion` / `inflightUntil` 管理缓存与 force inflight，缓存命中不再因旧启发式逻辑重扫
   - 5min stats / 最近入库已补 single-flight；最近入库默认按 `LATEST_CACHE_PER_USER=true` 按用户分桶缓存
   - `libraryId=all` 路径已在单库失败时返回 `failedLibraries`，不再整批失败
@@ -349,7 +349,8 @@
 - admin A 强制注销：同上
 
 #### 排行榜 batchId
-- 新装环境 `batchId` 长度 26；若继续保留现实现，则验证随机 base32 ID 在同秒并发下不撞 ID；若改 ULID，则同步校验 ULID 形态
+- 新装环境 `batchId` 为标准 ULID，长度 26
+- cron 同秒并发生成时保持唯一
 
 #### keyword 白名单
 - 搜索 "Mission: Impossible" / "Spider-Man (2002)" / "Fast & Furious"：通过
@@ -397,7 +398,7 @@
 
 仍未完成：
 
-- `generateRankingBatchID` 是否改 ULID 尚未定案
+- `generateRankingBatchID` 改 ULID已落地；batchId 策略与计划正文一致
 - playback history wildcard / 本地分页 fallback 尚未彻底收口
 - `_ = db.DB.Create/Save` 静默吞错 sweep 尚未系统化完成
 

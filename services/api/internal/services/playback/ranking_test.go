@@ -11,7 +11,19 @@ import (
 
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	"github.com/oklog/ulid/v2"
 )
+
+func TestGenerateRankingBatchIDUsesULID(t *testing.T) {
+	got := generateRankingBatchID()
+
+	if len(got) != 26 {
+		t.Fatalf("expected ULID length 26, got %d (%q)", len(got), got)
+	}
+	if _, err := ulid.ParseStrict(got); err != nil {
+		t.Fatalf("expected valid ULID, got %q err=%v", got, err)
+	}
+}
 
 func TestPreviewRankingGroupsEpisodesBySeriesID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

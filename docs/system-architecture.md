@@ -495,7 +495,7 @@ services/
 | 字段 | 类型 | 列名 | 说明 |
 |------|------|------|------|
 | ID | string(25) | id | CUID |
-| BatchID | string(25) | batchId | 同一次生成的排行榜批次 ID |
+| BatchID | string(32) | batchId | 同一次生成的排行榜批次 ID（当前使用 26 位 ULID） |
 | Period | RankingPeriod | period | `"daily"` 或 `"weekly"` |
 | Category | RankingCategory | category | `"media_movie"` 或 `"media_episode"` |
 | Rank | int | rank | 排名 |

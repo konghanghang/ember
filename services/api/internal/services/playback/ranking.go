@@ -2,7 +2,6 @@ package playback
 
 import (
 	"crypto/rand"
-	"encoding/base32"
 	"errors"
 	"fmt"
 	"log"
@@ -16,6 +15,7 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
+	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -682,9 +682,7 @@ func nullableTrimExpr(column string) string {
 }
 
 func generateRankingBatchID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)[:26]
+	return ulid.MustNew(ulid.Timestamp(time.Now().UTC()), rand.Reader).String()
 }
 
 func buildRankingResultFromRows(rows []models.PlaybackRanking) *RankingResult {
