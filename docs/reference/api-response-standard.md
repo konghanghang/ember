@@ -136,6 +136,65 @@ interface ListResponse<T> {
 - `POST /user/register` → `{ "token", "user" }`
 - `GET /user/profile` → 直接返回用户对象
 
+### 认证与账号接口补充约定
+
+以下行为已经稳定，后续实现与前端类型应以此为准：
+
+#### 登录成功响应
+
+`POST /api/v1/login`
+
+```json
+{
+  "token": "eyJhbGciOi...",
+  "user": {
+    "id": "clxxxxx",
+    "username": "ember",
+    "role": "user",
+    "passwordResetRequired": false
+  },
+  "isExpired": false,
+  "passwordResetRequired": false
+}
+```
+
+约束：
+
+- `passwordResetRequired=true` 表示该账号必须先完成改密闭环，前端应优先跳转账号中心或改密页，而不是继续放行其他控制台入口。
+- 登录失败统一返回与“用户名或密码错误”一致的错误语义，不得通过文案差异泄漏 EmbyID 错配、大小写碰撞或其他内部判定细节。
+
+#### 忘记密码发送验证码
+
+`POST /api/v1/forgot-password/send-code`
+
+```json
+{
+  "message": "如果该邮箱已注册，验证码已发送"
+}
+```
+
+约束：
+
+- 除请求格式错误（400）和 SMTP 未配置导致服务不可用外，未注册邮箱、限流、发送失败等路径都应折叠为 `200 + 统一文案`。
+- 不要通过状态码、错误文案或限流差异暴露“邮箱是否已注册”。
+
+#### 通过验证码重置密码
+
+`POST /api/v1/forgot-password/reset`
+
+成功响应沿用操作结果或用户侧既有成功文案；失败时保持统一错误格式：
+
+```json
+{
+  "error": "验证码无效或已过期"
+}
+```
+
+约束：
+
+- 验证码必须按 `email + code + type` 消费，成功后立即失效。
+- `register` 和 `reset` 两类验证码不得混用。
+
 ---
 
 ### 类型 3: 操作结果响应

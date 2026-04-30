@@ -58,6 +58,7 @@
 
 - 旧版 `MOVIEPILOT_USERNAME` / `MOVIEPILOT_PASSWORD` 已废弃。
 - 若历史实例仍保存旧用户名密码配置，而 `MOVIEPILOT_API_KEY` 为空，设置中心测试应视为需要迁移，而不是“未配置成功”。
+- `email_verification` 会经过 Normalize（大小写与首尾空格不敏感），不要再假设只有严格字面量 `"true"` 才算开启。
 
 ### 2.3 邮件服务
 
@@ -186,6 +187,12 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 - 用途：API 与 Bot 之间的内部接口鉴权
 - 使用方式：`X-Internal-Secret` 请求头
 - 备注：这是服务间信任根，不应放进设置中心
+
+补充约束：
+
+- 当前只允许通过环境变量提供，不允许通过设置中心热更。
+- 设置中心可以展示该项的只读状态与来源，但不得回显明文。
+- 运维变更该值后，API 与 Bot 必须同步重启并同时切换，否则 Internal API 会整体失效。
 
 ### `STRIPE_WEBHOOK_SECRET`
 
