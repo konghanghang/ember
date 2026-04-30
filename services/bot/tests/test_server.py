@@ -69,49 +69,57 @@ if "fastapi.responses" not in sys.modules:
     fastapi_responses_stub.JSONResponse = JSONResponse
     sys.modules["fastapi.responses"] = fastapi_responses_stub
 
-if "telegram" not in sys.modules:
+telegram_stub = sys.modules.get("telegram")
+if telegram_stub is None:
     telegram_stub = types.ModuleType("telegram")
-
-    class InputMediaPhoto:
-        def __init__(self, media: str, caption: str | None = None, parse_mode: str | None = None) -> None:
-            self.media = media
-            self.caption = caption
-            self.parse_mode = parse_mode
-
-    class Update:
-        @staticmethod
-        def de_json(data, bot):
-            return {"data": data, "bot": bot}
-
-    class BotCommand:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-    class InlineKeyboardButton:
-        def __init__(self, text: str, callback_data: str | None = None) -> None:
-            self.text = text
-            self.callback_data = callback_data
-
-    class InlineKeyboardMarkup:
-        def __init__(self, inline_keyboard) -> None:
-            self.inline_keyboard = inline_keyboard
-
-    class _ScopeBase:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-    telegram_stub.InputMediaPhoto = InputMediaPhoto
-    telegram_stub.Update = Update
-    telegram_stub.BotCommand = BotCommand
-    telegram_stub.InlineKeyboardButton = InlineKeyboardButton
-    telegram_stub.InlineKeyboardMarkup = InlineKeyboardMarkup
-    telegram_stub.BotCommandScopeChat = _ScopeBase
-    telegram_stub.BotCommandScopeChatAdministrators = _ScopeBase
-    telegram_stub.BotCommandScopeAllGroupChats = _ScopeBase
-    telegram_stub.BotCommandScopeAllPrivateChats = _ScopeBase
-    telegram_stub.BotCommandScopeChatMember = _ScopeBase
-    telegram_stub.BotCommandScopeDefault = _ScopeBase
     sys.modules["telegram"] = telegram_stub
+
+
+class InputMediaPhoto:
+    def __init__(self, media: str, caption: str | None = None, parse_mode: str | None = None) -> None:
+        self.media = media
+        self.caption = caption
+        self.parse_mode = parse_mode
+
+
+class Update:
+    @staticmethod
+    def de_json(data, bot):
+        return {"data": data, "bot": bot}
+
+
+class BotCommand:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+
+class InlineKeyboardButton:
+    def __init__(self, text: str, callback_data: str | None = None) -> None:
+        self.text = text
+        self.callback_data = callback_data
+
+
+class InlineKeyboardMarkup:
+    def __init__(self, inline_keyboard) -> None:
+        self.inline_keyboard = inline_keyboard
+
+
+class _ScopeBase:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+
+telegram_stub.InputMediaPhoto = getattr(telegram_stub, "InputMediaPhoto", InputMediaPhoto)
+telegram_stub.Update = getattr(telegram_stub, "Update", Update)
+telegram_stub.BotCommand = getattr(telegram_stub, "BotCommand", BotCommand)
+telegram_stub.InlineKeyboardButton = getattr(telegram_stub, "InlineKeyboardButton", InlineKeyboardButton)
+telegram_stub.InlineKeyboardMarkup = getattr(telegram_stub, "InlineKeyboardMarkup", InlineKeyboardMarkup)
+telegram_stub.BotCommandScopeChat = getattr(telegram_stub, "BotCommandScopeChat", _ScopeBase)
+telegram_stub.BotCommandScopeChatAdministrators = getattr(telegram_stub, "BotCommandScopeChatAdministrators", _ScopeBase)
+telegram_stub.BotCommandScopeAllGroupChats = getattr(telegram_stub, "BotCommandScopeAllGroupChats", _ScopeBase)
+telegram_stub.BotCommandScopeAllPrivateChats = getattr(telegram_stub, "BotCommandScopeAllPrivateChats", _ScopeBase)
+telegram_stub.BotCommandScopeChatMember = getattr(telegram_stub, "BotCommandScopeChatMember", _ScopeBase)
+telegram_stub.BotCommandScopeDefault = getattr(telegram_stub, "BotCommandScopeDefault", _ScopeBase)
 
 if "telegram.ext" not in sys.modules:
     telegram_ext_stub = types.ModuleType("telegram.ext")
