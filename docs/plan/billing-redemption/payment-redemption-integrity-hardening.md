@@ -62,7 +62,7 @@
 
 - 不引入退款 / chargeback 处理流程（后续独立计划）
 - 不调整 Stripe 支付方式（仍是一次性 Checkout，`stripe_allowed_payment_methods` 配置不动）
-- 不重写套餐分组管理 UI（前端改放 `console-admin/web-frontend-auth-and-design-baseline-fix.md`）
+- 不重写套餐分组管理 UI（前端改放 `docs/archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md`）
 - 不变更 `redemptions` 模型字段
 - 不引入第三方汇率服务，仅声明结算币种口径
 
@@ -248,7 +248,7 @@
   - 修改：`payment/service.go`、`payment/plan_groups.go`、`redemption/service.go`、`redemption/code_service.go`、`auth/service.go`（模板 Policy 白名单）、`handlers/payment.go`、`handlers/redemption_code.go`
   - 新增：`services/payment/webhook_dedupe.go`、`services/account/emby_unban_compensation.go`（与 access-auth 计划共用 cron 入口时合并）
 - Web：
-  - 续费中心 / 支付中心展示需要消费 `payment.status='expired'` 与"Emby 同步中"语义（前端改放 `console-admin/web-frontend-auth-and-design-baseline-fix.md`）
+  - 续费中心 / 支付中心展示需要消费 `payment.status='expired'` 与"Emby 同步中"语义（前端改放 `docs/archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md`）
 - Bot：
   - 不变 Bot 端代码；fulfillPayment 通知通道改用 `safeFireAndForget`（在 bot-telegram 计划中实现）
 - 配置 / 部署：

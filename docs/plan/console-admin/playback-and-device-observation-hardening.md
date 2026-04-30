@@ -51,7 +51,7 @@
 
 如果不收口，会出现"媒体质量每次请求都全库扫"、"排行榜历史拿到旧 batch"、"重复扣黑名单注销 Emby 设备"、"普通用户看到管理员可见的最近入库"、"高并发打爆 Emby"等真实可触发的性能 / 安全 / 数据正确性事故。
 
-> 注：前端展示行为（排行榜页面、用户画像页面、设备页面 UI 等）由 `console-admin/web-frontend-auth-and-design-baseline-fix.md` 处理。
+> 注：前端展示行为（排行榜页面、用户画像页面、设备页面 UI 等）由 `docs/archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md` 处理。
 
 ## 目标
 
@@ -83,7 +83,7 @@
 
 - 不重写 Playback Reporting 插件接入方式
 - 不引入新的数据库（如 ClickHouse / OLAP）
-- 不重写设备 UI / 排行榜 UI（前端改放 `console-admin/web-frontend-auth-and-design-baseline-fix.md`）
+- 不重写设备 UI / 排行榜 UI（前端改放 `docs/archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md`）
 - 不调整媒体质量扫描算法本身（仍按分辨率 / 编码 / HDR 分布）
 - 不改 Emby 集成认证方式
 
@@ -280,7 +280,7 @@
   - 修改：`playback/ranking.go`、`playback/history.go`、`playback/profile.go`、`playback/profile_list.go`、`device/service.go`、`media/service.go`、`media/quality.go`、`integrations/emby/*.go`（单例化）、`handlers/*.go`（错误透传 + actor 注入）
   - 新增：`pkg/cache/singleflight.go`、`services/media/inflight.go`
 - Web：
-  - 媒体质量页 inflight 状态 + 黑名单批量注销结构化结果（在 `web-frontend-auth-and-design-baseline-fix.md` 中实施）
+  - 媒体质量页 inflight 状态 + 黑名单批量注销结构化结果（在 `docs/archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md` 中实施）
 - Bot：
   - 不变 Bot 端代码
 - 配置 / 部署：

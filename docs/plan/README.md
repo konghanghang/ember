@@ -53,10 +53,7 @@
 
 - `billing-redemption/payment-redemption-integrity-hardening.md`
 - `access-auth/auth-and-account-integrity-hardening.md`
-- `media-subscription/subscription-state-machine-hardening.md`
-- `media-subscription/tv-calendar-and-tmdb-key-protection.md`
 - `architecture/schema-deployment-and-baseline-cleanup.md`
-- `console-admin/web-frontend-auth-and-design-baseline-fix.md`
 
 ## 模板
 

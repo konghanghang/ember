@@ -21,20 +21,20 @@
 当前总览：
 
 - 8 份主计划里，`8` 份已经有代码落地证据
-- 其中 `6` 份更适合进入“归档准备”而不是继续作为核心实施稿：计划 1、计划 2、计划 3、计划 4、计划 6、计划 8
+- 其中 `3` 份仍处于“归档准备”而不是继续作为核心实施稿：计划 1、计划 2、计划 8
 - 其中 `1` 份属于“主干完成，保留尾项”：计划 7
 - 其中 `1` 份仍应明确视为“继续进行中”：计划 5
-- 计划 3、计划 4、计划 6 已补齐稳定结论、交叉引用与退场说明；计划 2 的主链与契约已经稳定，当前主要剩旧方案表述和退场整理
-- 当前仍没有哪 1 份可以直接判定为“已全部收口并立即归档”，因为 8 份都还缺退场同步、稳定文档补口或尾项清理
+- 其中 `3` 份已在本轮完成归档迁移：计划 3、计划 4、计划 6
+- 当前仍没有哪 1 份可以直接判定为“已全部收口并立即归档”，因为计划 1、计划 2、计划 8 还缺退场同步、稳定文档补口或尾项清理
 
 | 编号 | 文档 | 状态标签 | 已落地证据 | 主要剩余项 | 建议动作 |
 |------|------|----------|------------|------------|----------|
 | 1 | `access-auth/auth-and-account-integrity-hardening.md` | 可进入归档准备 | 验证码发送限流并发收口、注册/重置密码验证码事务路径、注册回滚补偿、统一错误响应、`CheckExpiredUsers` cancel/失败上限、ConfigService `maskedValue` 语义、显式依赖构造入口均已落地 | 文档事实与退场整理尾项 | 进入“归档准备”，暂不直接归档 |
 | 2 | `billing-redemption/payment-redemption-integrity-hardening.md` | 可进入归档准备 | pending 支付幂等、Stripe webhook 去重、事务外 Emby 补偿、多币种口径、PlanGroup DTO 拆分均已落地 | 旧方案表述清理与退场整理尾项 | 进入“归档准备”，暂不直接归档 |
-| 3 | `media-subscription/subscription-state-machine-hardening.md` | 可进入归档准备 | 原子状态转移、`ingestProgress`、IGNORED 不复活、`redispatch`、`DISPATCH_FAILED`、`ignoreReasonCode`、前端闭环均已完成；稳定结论与退场条件已补齐 | 文档事实 / 观察性尾项 | 进入“归档准备”，暂不直接归档 |
-| 4 | `media-subscription/tv-calendar-and-tmdb-key-protection.md` | 可进入归档准备 | TMDB / MoviePilot / Stripe / SMTP 上游错误脱敏、`httpx.InternalError`、webhook `tmdbId` 命中精度、`tmdb_cache` GC、`resolveSeriesTMDBIDBySeriesID` 5 分钟缓存、同 key TMDB in-flight 去重、当前周纠偏落库已完成；稳定结论与退场条件已补齐 | 观察性与退场整理尾项 | 进入“归档准备”，暂不直接归档 |
+| 3 | `archive/plan/media-subscription/subscription-state-machine-hardening.md` | 已归档 | 原子状态转移、`ingestProgress`、IGNORED 不复活、`redispatch`、`DISPATCH_FAILED`、`ignoreReasonCode`、前端闭环均已完成；稳定结论与退场条件已补齐 | 历史追溯 | 已迁入 `docs/archive/plan/media-subscription/` |
+| 4 | `archive/plan/media-subscription/tv-calendar-and-tmdb-key-protection.md` | 已归档 | TMDB / MoviePilot / Stripe / SMTP 上游错误脱敏、`httpx.InternalError`、webhook `tmdbId` 命中精度、`tmdb_cache` GC、`resolveSeriesTMDBIDBySeriesID` 5 分钟缓存、同 key TMDB in-flight 去重、当前周纠偏落库已完成；稳定结论与退场条件已补齐 | 历史追溯 | 已迁入 `docs/archive/plan/media-subscription/` |
 | 5 | `console-admin/playback-and-device-observation-hardening.md` | 继续进行中 | 排行榜幂等、single-flight、`LATEST_CACHE_PER_USER`、设备审计、结构化注销返回等主干已完成 | 播放/设备性能治理与精细化收口仍在继续 | 继续作为核心实施稿维护 |
-| 6 | `console-admin/web-frontend-auth-and-design-baseline-fix.md` | 可进入归档准备 | 前端鉴权红线、Dashboard 真相收口、用户侧海报代理、关键请求竞态与双轨状态清理均已完成 | 少量全站 sweep 与 runbook 细化尾项 | 进入“归档准备”，暂不直接归档 |
+| 6 | `archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md` | 已归档 | 前端鉴权红线、Dashboard 真相收口、用户侧海报代理、关键请求竞态与双轨状态清理均已完成 | 历史追溯 | 已迁入 `docs/archive/plan/console-admin/` |
 | 7 | `bot-telegram/bot-notification-and-info-leak-hardening.md` | 主干完成，保留尾项 | `internal/async.SafeGo` fire-and-forget 收口、VerifyBind 反 DoS、错误模糊化、通知脱敏、runtime settings 保留旧值、pending reject 消息上下文持久化、Polling 单实例租约锁、BotNotifier 配置缓存均已完成 | 通知载荷长度治理、`message_id` 策略优化与观察性尾项 | 继续保留在 `docs/plan/` |
 | 8 | `architecture/schema-deployment-and-baseline-cleanup.md` | 可进入归档准备 | 启动路径移除 `AutoMigrate`、`VerifySchema` fail-fast、initdb 隔离、schema 对齐、airDate、连接池、容器非 root、固定部署镜像、空库初始化入口收口均已完成 | runbook、baseline 精简归档和交叉引用整理未做 | 进入“归档准备”，暂不直接归档 |
 
@@ -100,6 +100,9 @@
 - `bot-polling-mode.md`
 - `docs/archive/plan/billing-redemption/redemption-code-registration-plan-group.md`
 - `billing-redemption/user-plan-grouping.md`
+- `media-subscription/subscription-state-machine-hardening.md`
+- `media-subscription/tv-calendar-and-tmdb-key-protection.md`
+- `console-admin/web-frontend-auth-and-design-baseline-fix.md`
 - `console-admin/admin-create-user-with-plan-group-expiry.md`
 - `console-admin/console-admin-ui-consistency-optimization.md`
 - `media-subscription/moviepilot-api-key-direct-integration.md`

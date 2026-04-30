@@ -68,7 +68,7 @@
 - 不改 Turnstile 的接入位置或适配新的人机验证
 - 不重构 `ConfigService` 的定义注册表，仅补敏感回显与布尔归一
 - 不调整邮件 SMTP 接入方式，仅修计数与限流
-- 不做 `services/web` 端的展示层修改（前端整改放 `console-admin/web-frontend-auth-and-design-baseline-fix.md`）
+- 不做 `services/web` 端的展示层修改（前端整改放 `docs/archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md`）
 
 ## 当前事实
 
@@ -223,7 +223,7 @@
   - 修改：`auth/*.go`、`user/admin.go`、`user/password_reset.go`、`email/service.go`、`email/verification.go`、`config/config.go`、`middleware/internal_auth.go`、`system/expiry.go`、`handlers/auth.go`、`handlers/config.go`
   - 新增：`services/account/provisions.go`（如确认引入补偿队列）
 - Web：
-  - 设置中心需要消费新的 `hasValue / source / maskedValue` 字段（实际改动放 `console-admin/web-frontend-auth-and-design-baseline-fix.md`）
+  - 设置中心需要消费新的 `hasValue / source / maskedValue` 字段（实际改动放 `docs/archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md`）
 - Bot：
   - 不改 Bot 端代码，但 `INTERNAL_API_SECRET` 切到 ConfigService 读取后，Bot 启动配置文档需要同步说明
 - 配置 / 部署：
