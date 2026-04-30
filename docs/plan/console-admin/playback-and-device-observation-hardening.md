@@ -1,28 +1,34 @@
 # 播放观察与设备链路加固方案
 
-> 状态：继续进行中（主干大部分已落地）
+> 状态：继续进行中（主干已落地，剩余项已缩窄）
 > 负责人：Ember
-> 更新时间：2026-04-28
+> 更新时间：2026-04-30
 
 ## 落地进度
 
-批次 3-A + 后续 review 修复已完成本方案多数 P0 / P1 主干项：
+批次 3-A + 后续 review 修复已完成本方案绝大多数 P0 / P1 主干项：
 
 - ✅ `playback_rankings.batch_id` 扩位 + 幂等唯一索引、自然日 / 自然周取数已落地
 - ✅ `media_quality_caches` 的 `schemaVersion` / `inflightUntil`、force inflight 拒绝和残留清理 cron 已落地
 - ✅ 5min stats / 最近入库缓存 single-flight、`LATEST_CACHE_PER_USER` 分桶和 EmbyService 共享单例已落地
 - ✅ 黑名单批量注销结构化返回、`normalizeClientName` 强化、`device_actions.operatorId` 审计已落地
 - ✅ 92 天范围限制、overview 行数硬上限、keyword escaping 与 `pauseDuration` 解析已落地
+- ✅ `libraryId=all` 失败库继续返回其余结果并附 `failedLibraries` 元数据；前端失败库提示已同步落地
+- ✅ 排行榜 episode 回查已补批次超时 / 退避 / partial failure 容错
+- ✅ `dedupeLatestItems` 已不再使用 `Type+Name+Year` 的粗糙兜底 key，当前实现已改为更精确特征组合
+- ✅ 与本方案相关的关键 handler 已统一改走 `httpx.InternalError`，不再裸透 `err.Error()`
 
-当前剩余项主要是性能与精细化治理尾项：
+当前剩余项已缩窄为少量真实尾项：
 
-- `libraryId=all` 失败库元数据、排行榜 episode 回查超时 / 退避、`dedupeLatestItems` 更精确 key 等仍待继续收口
-- `generateRankingBatchID` 已不再截断到 25 字符，但实现仍是随机 base32 ID，不是计划正文写的标准 ULID
+- `generateRankingBatchID` 已不再截断到 25 字符，但实现仍是随机 base32 26 位 ID，不是计划正文写的标准 ULID
+- `playback/history.go` 的 wildcard / 本地分页 fallback 仍保留，`loadPlaybackRowsByLocalPagination` 仍可能在极端情况下全量拉回内存后本地排序分页
+- `parsePlaybackRows` 仍保留 `fallbackIndexes`，尚未收口到“无稳定 columns 即拒绝”的更硬边界
+- `_ = db.DB.Create/Save` 这类静默吞错 sweep 还没系统性做完
 
 ## 归档判断
 
 - 当前明确不适合归档。
-- 原因：这份计划还不是“只剩文档尾项”，而是仍有多条真实的性能与实现治理项在继续推进。
+- 原因：虽然主干已经落地，但 playback fallback 与 batchId 策略仍是实打实的实现尾项，不只是文档收尾。
 
 ## 背景
 
@@ -112,9 +118,13 @@
   - `services/api/internal/models/device_action.go`
 - 涉及表：`playback_rankings`、`media_quality_caches`、`client_blacklists`、`device_actions`
 - 当前行为：
-  - `playback_rankings.batch_id varchar(25)`，`generateRankingBatchID` 截断到 25 字符
-  - `media_quality_caches` 缓存命中时根据数据内容启发式判断是否重扫
-  - 5min stats / 最近入库各持一份 RWMutex 包装
+  - `playback_rankings.batch_id` 模型与增量 migration 已扩到 `varchar(32)`；当前 `generateRankingBatchID` 生成的是随机 base32 26 位 ID，不是 ULID
+  - `media_quality_caches` 已使用 `schemaVersion` / `inflightUntil` 管理缓存与 force inflight，缓存命中不再因旧启发式逻辑重扫
+  - 5min stats / 最近入库已补 single-flight；最近入库默认按 `LATEST_CACHE_PER_USER=true` 按用户分桶缓存
+  - `libraryId=all` 路径已在单库失败时返回 `failedLibraries`，不再整批失败
+  - `GetItemsByIDs` 已补 batch timeout / retry / partial failure 容错
+  - `normalizeClientName` 已补版本尾缀去除、全角空格与 NFC 归一；`recordDeviceAction` 写库失败已记日志
+  - Playback history 仍保留 wildcard / 本地分页 fallback，overview 仍通过 `COUNT + SELECT *` 加 `maxPlaybackProfileOverviewRows` 上限保护，而不是彻底改成 SQL 层分页聚合
 - 现有限制：
   - 线上 `AUTO_MIGRATE=false`
   - PlaybackActivity 通过 Emby 插件 SQL 查询，无参数化能力，仅靠白名单 + escape
@@ -339,8 +349,7 @@
 - admin A 强制注销：同上
 
 #### 排行榜 batchId
-- 新装环境 `batchId` 形如 ULID，长度 26
-- cron 同秒并发不撞 ID
+- 新装环境 `batchId` 长度 26；若继续保留现实现，则验证随机 base32 ID 在同秒并发下不撞 ID；若改 ULID，则同步校验 ULID 形态
 
 #### keyword 白名单
 - 搜索 "Mission: Impossible" / "Spider-Man (2002)" / "Fast & Furious"：通过
@@ -360,6 +369,7 @@
 - [ ] 媒体质量 force inflight cron 清理跑一轮空表无报错
 - [ ] 关键日志含 `userId / requestId / batchId / cacheKey / operatorId`，且不含 SQL 错误细节
 - [ ] 文档同步：客户端归一规则、排行榜幂等键、`LATEST_CACHE_PER_USER` 语义
+- [ ] 若继续推进计划 5 尾项：补针对 playback wildcard / 本地分页 fallback 的测试与收口方案
 
 ### 二次暴露检查清单
 
@@ -379,15 +389,17 @@
 - 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/console-admin/`
 - P2 / P3 中未顺手收口的项纳入下一轮治理
 
-## 批次 5 第一阶段已落地（2026-04-28）
+## 批次 5 当前收口状态（2026-04-30）
 
 - ✅ `services/device/service.go` `AddClientToBlacklist` 去掉 `Save(&blacklist)`，改为按字段 `Updates(map)`，避免黑名单整行回写
 - ✅ 与本方案相关的 handler `500` 裸透已在批次 5 第一阶段统一改走 `httpx.InternalError`
+- ✅ 文档盘点后确认：`failedLibraries`、episode 回查 timeout/retry、`LATEST_CACHE_PER_USER`、`dedupeLatestItems` 精确化、设备审计 actor 等已从“待完成”转为“已落地”
 
 仍未完成：
 
-- `_ = db.DB.Create/Save` 静默吞错 sweep
-- 其余播放/设备 P2/P3 治理尾项
+- `generateRankingBatchID` 是否改 ULID 尚未定案
+- playback history wildcard / 本地分页 fallback 尚未彻底收口
+- `_ = db.DB.Create/Save` 静默吞错 sweep 尚未系统化完成
 
 ## 附录：问题清单与本方案条目映射
 
