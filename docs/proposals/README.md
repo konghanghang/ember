@@ -14,10 +14,9 @@
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
 - 进行中的功能实施稿
-- 已进入归档准备、等待稳定结论与入口文档收尾的实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将用户侧媒体库入口收口方案移入 `docs/archive/plan/media-subscription/`；此前已将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`，并将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，以及缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。本轮继续把订阅状态机、追剧日历与 TMDB 保护、前端鉴权与设计基线三份“归档准备”实施稿移入 `docs/archive/plan/`，随后又把认证与账号完整性、支付与兑换码完整性两份主计划迁入 `docs/archive/plan/`，并已将 schema 与部署基线收口方案移入 `docs/archive/plan/architecture/`，现在又把播放观察与设备链路加固方案移入 `docs/archive/plan/console-admin/`。当前 `docs/plan/` 除仍在推进中的实施稿外，保留 1 份已进入归档准备的主计划：计划 7（Bot 通知与信息泄露加固）。
+最近一次归档已将用户侧媒体库入口收口方案移入 `docs/archive/plan/media-subscription/`；此前已将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`，并将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，以及缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。本轮继续把订阅状态机、追剧日历与 TMDB 保护、前端鉴权与设计基线三份“归档准备”实施稿移入 `docs/archive/plan/`，随后又把认证与账号完整性、支付与兑换码完整性两份主计划迁入 `docs/archive/plan/`，并已将 schema 与部署基线收口方案移入 `docs/archive/plan/architecture/`，随后把播放观察与设备链路加固方案移入 `docs/archive/plan/console-admin/`，现在再把计划 7（Bot 通知与信息泄露加固）移入 `docs/archive/plan/bot-telegram/`。当前 `docs/plan/` 只保留仍在推进中的实施稿与模板入口。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
 

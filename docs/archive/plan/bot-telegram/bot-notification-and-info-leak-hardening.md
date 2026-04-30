@@ -1,6 +1,6 @@
 # Bot 通知与信息泄露加固方案
 
-> 状态：可进入归档准备（主干已落地）
+> 状态：已归档（主干已落地，稳定结论已下沉）
 > 负责人：Ember
 > 更新时间：2026-04-30
 
@@ -20,15 +20,15 @@
 - ✅ Bot 通知 formatter 已补 Telegram 文本 / caption 长度治理；长标题、长备注、长拒绝原因统一截断，避免通知因超长载荷失败
 - ✅ `BotNotifier.post` 已补 `event / payloadSize / requestId / latency` 结构化日志，便于追踪通知失败链路
 
-当前剩余项已缩窄为归档前收口项：
+归档时保留的边界说明：
 
 - 搜索会话 `message_id` 仍是进程内 TTL 缓存；当前已明确这是私聊交互态边界，而不是需要继续持久化的缺陷
 - 外部 metric/告警平台接入仍可继续补，但当前主链路已通过 `/health` 暴露 webhook 未注册状态，这类增强不再阻塞主计划退场
 
 ## 归档判断
 
-- 当前可以进入归档准备，但暂不直接归档。
-- 原因：主干实现已经稳定，剩余事项主要是稳定结论下沉、入口文档同步和归档前验证口径收口；已经不再是继续作为核心实施稿推进的状态。
+- 当前已完成归档迁移。
+- 原因：主干实现已经稳定，稳定结论已下沉到 `docs/system-architecture.md`，入口索引也已同步；本文只保留历史追溯价值，不再承担现行规则说明。
 
 ## 稳定结论
 
@@ -365,16 +365,14 @@
 #### admin 通知脱敏
 - 完成支付：admin chat 不出现 email / stripeSessionId
 
-### 修复后验证清单
+### 历史验证口径
 
-- [ ] `go build ./...` 与 `go test ./internal/integrations/notifier/...` `./internal/services/telegram/...` 全绿
-- [ ] `python -m py_compile services/bot/main.py` 通过
-- [ ] 2 份 SQL migration 在临时库重灌通过
-- [ ] mock `async.SafeGo` 包裹的 panic 不打死 API 进程
-- [ ] mock 双副本 Polling：第二个退出
-- [ ] mock runtime_settings API 5xx：缓存保留旧值
-- [ ] 关键日志含 `endpoint / event / payload size / status / latency / requestId`
-- [ ] 文档同步：`async.SafeGo` 契约 / Polling 单实例约束 / runtime_settings 失败回退
+- API 侧验证口径：`go build ./...` 与 `go test ./internal/integrations/notifier/...`、`./internal/services/telegram/...`
+- Bot 侧验证口径：`python -m py_compile services/bot/main.py`
+- 数据侧验证口径：2 份 SQL migration 可在临时库重灌
+- 行为侧验证口径：`async.SafeGo` panic 不打死 API 进程、双副本 polling 第二个实例拒绝启动、runtime settings API 5xx 时缓存保留旧值
+- 观察性口径：关键日志包含 `endpoint / event / payloadSize / status / latency / requestId`
+- 本次归档不追加代码改动；这里只保留历史验收口径，不再作为当前待办清单
 
 ## 批次 5 第一阶段已落地（2026-04-28）
 
@@ -383,29 +381,28 @@
 - ✅ `services/telegram/service.go` 去掉 `Save(&user)` 全字段写入：绑定 Telegram / Telegram 重置密码改为按字段更新
 - ✅ `handlers/telegram_test.go` 补齐 `GenerateBindCode` / `Unbind` / `VerifyBind` / `SubscribeByTelegram` 的错误映射测试，锁死 `400/404/409/500` 语义，避免后续回归
 
-仍未完成：
+不阻塞归档的后续治理项：
 
-- 通知载荷长度治理
-- Bot 端 `message_id` 缓存策略优化
-- 更细颗粒度观察性补强
+- 搜索会话 `message_id` 若后续要跨实例追踪，可再评估是否值得持久化；当前继续视为私聊交互态边界
+- 外部 metric / 告警平台接入仍可继续补，但当前主链路已通过 `GET /health` 暴露 webhook 未注册状态
+- 更细颗粒度观察性补强可继续追加，但不再作为本主计划的退场阻塞项
 
-### 二次暴露检查清单
+### 后续治理观察点
 
-- [ ] sweep 所有 `go ` 启动 goroutine 位置：是否都过 `async.SafeGo` 或明确说明无需包裹
-- [ ] sweep 所有 `fmt.Printf` / `fmt.Println` 在生产路径上的使用，统一改 logger
-- [ ] sweep 所有"未绑定 / 不存在"错误路径，确认对外文案模糊一致
-- [ ] sweep 所有 `*http.Client` 实例化位置，确认 BotNotifier / EmbyService / TMDBService / MoviePilotClient / Stripe Client 都复用单例
-- [ ] sweep 所有 admin / group 通知文案，确认无敏感字段（email / sessionId / token / hash）
-- [ ] sweep 所有 `os.Getenv` 在中间件 / handler 中的一次性 capture，确认与 ConfigService 边界对齐（与 access-auth 计划协同）
-- [ ] 复核 `runtime_settings_service` 在多实例下的一致性窗口
-- [ ] 复核 `_synced_chat_versions` 缓存在多实例下的影响
+- sweep 所有 `go ` 启动 goroutine 位置：确认都过 `async.SafeGo` 或明确说明无需包裹
+- sweep 所有 `fmt.Printf` / `fmt.Println` 在生产路径上的使用，统一改 logger
+- sweep 所有"未绑定 / 不存在"错误路径，确认对外文案模糊一致
+- sweep 所有 `*http.Client` 实例化位置，确认 BotNotifier / EmbyService / TMDBService / MoviePilotClient / Stripe Client 都复用单例
+- sweep 所有 admin / group 通知文案，确认无敏感字段（email / sessionId / token / hash）
+- sweep 所有 `os.Getenv` 在中间件 / handler 中的一次性 capture，确认与 ConfigService 边界对齐（与 access-auth 计划协同）
+- 复核 `runtime_settings_service` 在多实例下的一致性窗口
+- 复核 `_synced_chat_versions` 缓存在多实例下的影响
 
 ## 落地后文档处理
 
-- 落地后把"`async.SafeGo` 契约"、"Polling 单实例约束"、"runtime_settings 失败回退"、"admin 通知脱敏"提炼到 `docs/system-architecture.md` §5.14 / §9
-- 新增 ConfigDefinition 同步设置中心
-- 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/bot-telegram/`
-- P2 / P3 中未顺手收口的项纳入下一轮治理
+- 已把 `async.SafeGo` 契约、Polling 单实例约束、runtime settings 失败回退、admin 通知脱敏等稳定结论提炼到 `docs/system-architecture.md`
+- 本文已移入 `docs/archive/plan/bot-telegram/`
+- P2 / P3 中未顺手收口的项继续按后续治理项跟踪，不再阻塞本主计划退场
 
 ## 附录：问题清单与本方案条目映射
 

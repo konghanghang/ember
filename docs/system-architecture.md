@@ -856,6 +856,10 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 火忘式 HTTP 推送通知服务，将事件推送给 Telegram Bot。
 
+- 进程内通过 `GetSharedBotNotifier()` 复用单例，避免每次通知都重建客户端与配置解析
+- `BOT_NOTIFY_URL` 读取带 30 秒刷新节流；`Reload()` 可强制刷新配置缓存
+- 发送日志统一包含 `endpoint / event / payloadSize / requestId / latency`，便于串联 API → Bot 通知失败链路
+
 **通知类型**：
 | 方法 | Bot 端点 | 触发时机 |
 |------|----------|----------|
@@ -935,6 +939,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 
 **反账号枚举（handler 层）**：`GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 命中 `ErrTelegramNotBound` 时统一返回 400 + `请求参数错误`，不再透传 sentinel 字面值；攻击者无法借 `/redeem`、`/resetpw` 等命令枚举 Telegram→Ember 的绑定关系。具体业务错误（码无效、密码长度不够等）继续按各自 sentinel 返回。
+
+**审批拒绝上下文持久化**：Bot 管理员拒绝订阅时，待输入的 `subscriptionId / messageId / hasPhoto / originalText / expiresAt` 已落到 `bot_pending_reject_requests`，不再依赖进程内 dict；搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
 
 ### 5.18 TVCalendarService (`services/tvcalendar/service.go`)
 
@@ -1428,7 +1434,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 | `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
 | `BOT_PORT` | — | `8000` | Bot 服务端口 |
 
-说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；当 API 未返回值时，Chat ID 回退到本地 env。`polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`。批次 4 起，Bot 在 `polling` 模式启动前会通过 Internal API 申请 `bot_runtime_locks(name='telegram_polling')` 租约锁，并每 30 秒续租一次；拿不到锁的实例直接拒绝启动，续租失败的实例会主动停止 polling，避免多副本重复消费更新。
+说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；刷新失败时保留旧值，不把有效缓存覆盖为空；当 API 未返回值时，Chat ID 回退到本地 env。`polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`。批次 4 起，Bot 在 `polling` 模式启动前会通过 Internal API 申请 `bot_runtime_locks(name='telegram_polling')` 租约锁，并每 30 秒续租一次；拿不到锁的实例直接拒绝启动，续租失败的实例会主动停止 polling，避免多副本重复消费更新。`webhook` 模式下注册采用有限重试策略；达到最大重试次数仍失败时，Bot 停止继续重试，`GET /health` 返回 `degraded` 并附带最近错误与重试次数，便于部署侧探活与告警。
 
 ---
 
