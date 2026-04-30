@@ -1,33 +1,38 @@
 # 多 Agent 协作指南
 
-本指南说明在 Ember 项目中，什么时候适合使用多 agent，怎么提需求，以及主 agent 和 subagent 应该怎样分工。
+本指南只回答 4 件事：
 
-它不是某次任务的执行稿，而是长期可复用的协作模板。
+1. 什么时候值得用多 agent
+2. 主 agent 和 subagent 各负责什么
+3. Ember 里不同任务默认该怎么拆
+4. 最短怎么提需求
+
+它不是某次任务的执行稿，也不是另一份 `AGENTS.md`。
 
 ## 1. 什么时候适合用多 agent
 
-只有同时满足下面条件时，才值得用多 agent：
+只有同时满足下面条件时，才值得拆：
 
-1. 任务可以拆成边界清楚的子任务
-2. 各子任务可以并行推进
-3. 不需要多个 agent 同时修改同一个核心文件
-4. 主 agent 能明确控制兼容性、验收和收尾
+1. 任务能切成边界清楚的子任务
+2. 子任务能并行推进
+3. 不需要多个 agent 同时改同一个核心文件
+4. 主 agent 能控制兼容性、验收和收尾
 
-典型适用场景：
+适合：
 
 - 新功能跨 `services/api`、`services/web`、`infrastructure/database`
-- 大一点的 code review，需要分模块检查
+- 大一点的 code review
 - 代码盘点、链路梳理、文档一致性检查
 - 治理类任务，需要并行盘点代码与文档
 
-不适用场景：
+不适合：
 
 - 单文件小改
 - 根因未明的阻塞性排查
-- 需求边界尚未收敛
+- 需求边界还没收敛
 - 多个 agent 会同时改同一文件
 
-## 2. 主 agent 和 subagent 的职责
+## 2. 角色边界
 
 ### 主 agent
 
@@ -36,7 +41,7 @@
 - 理解需求
 - 确认边界与兼容性
 - 决定拆分方式
-- 控制共享契约
+- 先定共享契约
 - 最后整合、验证、同步文档
 
 主 agent 不应该把关键决策外包给 subagent。
@@ -50,44 +55,9 @@ subagent 只负责局部施工或定向探索：
 - 不越界拍板主方案
 - 不修改其他 agent 负责的文件
 
-## 3. Ember 项目的推荐拆分方式
+## 3. 拆分硬规则
 
-### 功能开发
-
-推荐拆法：
-
-- 主 agent：方案、兼容性、整合、验收、文档
-- backend worker：`services/api` + `infrastructure/database`
-- web worker：`services/web`
-
-适合：
-
-- 新字段
-- 新接口
-- 表单 + 列表 +管理页联动
-- 涉及 SQL migration 的功能
-
-### Code Review
-
-推荐拆法：
-
-- 主 agent：汇总 review 结论
-- explorer A：API / service / migration 风险
-- explorer B：Web 页面与交互回归
-- explorer C：文档同步、架构文档、README 漏项
-
-### 代码盘点 / 链路梳理
-
-推荐拆法：
-
-- 主 agent：定义问题与汇总结论
-- explorer A：路由入口与 handler
-- explorer B：service 链路
-- explorer C：前端调用链与文档状态
-
-## 4. 拆分时必须遵守的原则
-
-### 4.1 先看写集，不要先看技术名词
+### 3.1 先看写集，不要先看技术名词
 
 拆分不是按“听起来像后端 / 前端”分，而是按“会改哪些文件”分。
 
@@ -103,9 +73,9 @@ subagent 只负责局部施工或定向探索：
 - 多个 agent 同时改 `services/web/src/types/api.ts`
 - 多个 agent 同时改同一个页面或 service
 
-### 4.2 主 agent 先定共享契约
+### 3.2 主 agent 先定共享契约
 
-在 subagent 开工前，主 agent 至少要先定：
+subagent 开工前，主 agent 至少先定：
 
 - 字段名
 - API 行为
@@ -113,118 +83,118 @@ subagent 只负责局部施工或定向探索：
 - migration 策略
 - 验收口径
 
-共享契约没定，subagent 只能各写各的，最后必然返工。
+共享契约没定，最后基本都会返工。
 
-### 4.3 文档和收尾不要外包
+### 3.3 文档和收尾不要外包
 
-文档同步、最终验收、编译验证、归档判断应优先由主 agent 控制。
+这些动作优先由主 agent 控制：
 
-因为这些动作跨模块、跨目录，容易和多个 subagent 结果发生冲突。
+- 文档同步
+- 编译验证
+- 最终验收
+- 归档判断
 
-## 5. Ember 项目标准提问模板
+因为它们跨模块、跨目录，最容易和多个 subagent 结果打架。
+
+## 4. Agent 使用矩阵
+
+这一节只给 Ember 日常开发里默认最省事、最不容易撞文件的组合。
+
+### 4.0 速查表
+
+| 任务类型 | 默认组合 | 常见追加 agent |
+|---|---|---|
+| 单后端功能或修补 | 主 agent + `backend-implementer` | `integration-chain-reviewer` / `docs-sync-auditor` |
+| 单前端功能或修补 | 主 agent + `web-implementer` | `api-web-contract-checker` / `docs-sync-auditor` |
+| 标准前后端联动 | 主 agent + `backend-implementer` + `web-implementer` | `api-web-contract-checker` / `docs-sync-auditor` |
+| schema / migration 联动 | 主 agent + `backend-implementer` + `web-implementer` + `docs-sync-auditor` | `api-web-contract-checker` |
+| 外部集成链路改动 | 主 agent + `backend-implementer` + `integration-chain-reviewer` | `web-implementer` / `docs-sync-auditor` |
+| 正式 Code Review | 主 agent + `system-reviewer` | `api-web-contract-checker` / `integration-chain-reviewer` / `docs-sync-auditor` |
+| 联调前契约检查 | 主 agent + `api-web-contract-checker` | `web-implementer` / `system-reviewer` |
+| 文档收尾 | 主 agent + `docs-sync-auditor` | 通常不再追加 |
+| 根因未明的排查 | 主 agent 单独先查 | 默认不要并行开实现 agent |
+
+### 4.1 单后端功能或修补
+
+- 默认组合：主 agent + `backend-implementer`
+- 追加 agent：触达外部集成链路时加 `integration-chain-reviewer`；触达模型、路由、配置边界时加 `docs-sync-auditor`
+- 适用：`services/api` 修补、`infrastructure/database` migration、cron / webhook / Internal API / 异步通知改动
+
+### 4.2 单前端功能或修补
+
+- 默认组合：主 agent + `web-implementer`
+- 追加 agent：接口契约有变化或可疑时加 `api-web-contract-checker`；涉及通用视觉基线或页面结构时加 `docs-sync-auditor`
+- 适用：`services/web` 页面、组件、store、路由、交互修补
+
+### 4.3 标准前后端联动功能
+
+- 默认组合：主 agent + `backend-implementer` + `web-implementer`
+- 追加 agent：契约复杂或历史包袱重时加 `api-web-contract-checker`；模型、路由、配置或页面职责变了时加 `docs-sync-auditor`
+- 适用：新字段、新接口、表单加列表联动、用户状态流转功能
+
+### 4.4 涉及 schema / migration 的联动功能
+
+- 默认组合：主 agent + `backend-implementer` + `web-implementer` + `docs-sync-auditor`
+- 追加 agent：接口结构同时变化时加 `api-web-contract-checker`
+- 适用：GORM 模型字段、索引、约束、表结构调整，以及依赖新字段的页面联动
+
+### 4.5 外部集成链路改动
+
+- 默认组合：主 agent + `backend-implementer` + `integration-chain-reviewer`
+- 追加 agent：前端也要改入口或状态展示时加 `web-implementer`；文档、部署或测试清单要同步时加 `docs-sync-auditor`
+- 适用：Emby、TMDB、MoviePilot、Stripe、Telegram、webhook、polling、租约锁、notify、fire-and-forget
+
+### 4.6 正式 Code Review
+
+- 默认组合：主 agent + `system-reviewer`
+- 追加 agent：前后端接口对齐可疑时加 `api-web-contract-checker`；外部集成风险高时加 `integration-chain-reviewer`；文档同步风险高时加 `docs-sync-auditor`
+- 适用：跨模块改动、用户可见状态流转、schema / migration / init script、异步 / webhook / 第三方集成 / 配置部署改动
+
+补充：
+
+- 正式 review 默认先用 `system-reviewer`
+- 不要一上来就把 review 拆成一堆实现 agent；review 的目标是找问题，不是抢着修
+
+### 4.7 联调前契约检查
+
+- 默认组合：主 agent + `api-web-contract-checker`
+- 追加 agent：怀疑页面行为回归时加 `web-implementer`；系统级大变更时仍优先加 `system-reviewer`
+- 适用：后端刚改完准备接前端，或前端接线完准备联调
+
+### 4.8 实现完成后的文档收尾
+
+- 默认组合：主 agent + `docs-sync-auditor`
+- 适用：模型、服务逻辑、API 路由、前端结构、配置入口变更后；文档归档、README、runbook、计划文档收口
+
+补充：
+
+- 文档收尾不是让文档 agent 接管实现，只是查漏和指出必须同步项
+
+### 4.9 根因未明的排查
+
+- 默认组合：主 agent 单独先查
+
+不要默认并行开多个实现 agent。根因没收敛时，多个 agent 往往会同时猜同一件事，写集和问题边界都不稳定，极容易冲突。
+
+## 5. 最短提问模板
 
 ### 模板 A：先拆分，再执行
 
-适合还不确定怎么分工的时候。
-
 ```text
-这个需求请用多 agent 来处理。
+这个需求请用多 agent 处理。
 
 需求：
 [把要做的事情写清楚]
 
 要求：
 1. 先不要直接开工
-2. 先结合 Ember 当前代码结构，给我拆分主 agent 和 subagent 的方案
+2. 先结合 Ember 当前代码结构给我拆分方案
 3. 说明每个 agent 的职责、文件边界、拆分依据
 4. 明确哪些任务可以并行，哪些必须由主 agent 控制
 5. 我确认后你再执行
 ```
 
-### 模板 B：前后端并行开发
-
-适合有明确 `api + web` 边界的功能。
-
-```text
-这个需求请用多 agent 处理，按前后端拆。
-
-需求：
-[功能名称 / 目标]
-
-要求：
-1. 主 agent 先确认行为边界、兼容性、文档同步点
-2. 一个 subagent 负责 backend
-3. 一个 subagent 负责 web
-4. 不要让多个 agent 修改同一个核心文件
-5. 主 agent 最后负责整合、验证和文档更新
-6. 先给我拆分方案，我确认后再执行
-```
-
-### 模板 C：后端 + SQL migration + 前端
-
-适合涉及 schema 变更的任务。
-
-```text
-这个需求请用多 agent 处理，并把 SQL migration 单独纳入考虑。
-
-需求：
-[具体功能]
-
-要求：
-1. 主 agent 先确认数据模型变更、兼容性和 migration 策略
-2. backend subagent 负责 services/api 和 infrastructure/database
-3. web subagent 负责 services/web
-4. 改模型必须补 SQL migration
-5. 主 agent 最后检查 API、前端、migration、文档是否一致
-6. 先输出拆分方案和文件边界，再执行
-```
-
-### 模板 D：多 agent 做 code review
-
-适合大改动 review。
-
-```text
-这次请用多 agent 做 review。
-
-review 范围：
-[分支 / 功能 / 文件范围]
-
-要求：
-1. 主 agent 负责最后汇总
-2. 按模块拆多个 subagent 分别 review
-3. review 重点放在：
-   - 行为回归
-   - 兼容性风险
-   - 数据模型 / migration 漏项
-   - 文档同步遗漏
-4. findings 优先，按严重度排序
-5. 先告诉我打算怎么拆 review，再执行
-```
-
-### 模板 E：多 agent 做代码盘点
-
-适合排查前的探索。
-
-```text
-这个问题先用多 agent 做代码盘点，不要直接改代码。
-
-问题：
-[你想搞清楚什么]
-
-要求：
-1. 主 agent 先定义要查的问题
-2. subagent 只做定向代码探索
-3. 分别回答：
-   - 相关入口在哪里
-   - 核心服务链路在哪里
-   - 前端调用链在哪里
-   - 文档是否已经同步
-4. 最后由主 agent 汇总成结论和下一步建议
-```
-
-### 模板 F：你已经想好怎么拆了
-
-适合已经有明确分工的时候。
+### 模板 B：直接按模块执行
 
 ```text
 这个需求请直接用多 agent 执行。
@@ -233,32 +203,35 @@ review 范围：
 [具体功能]
 
 拆分方式：
-- 主 agent：负责 [方案 / 整合 / 验收 / 文档]
+- 主 agent：负责方案、整合、验收、文档
 - subagent A：负责 [文件或模块范围]
 - subagent B：负责 [文件或模块范围]
-- subagent C：负责 [如果有]
 
 要求：
 1. 各 agent 不要改同一文件
 2. 主 agent 不要把关键决策外包
-3. 执行前如果发现拆分不合理，先指出再调整
+3. 如果拆分不合理，先指出再调整
 4. 完成后汇总每个 agent 的产出和最终整合结果
 ```
 
-### 模板 G：最省事版本
-
-适合只想先看看是否值得拆。
+### 模板 C：Review 或盘点
 
 ```text
-这个需求如果适合多 agent，就按 Ember 当前代码结构帮我拆。
-先给我主 agent 和 subagent 的分工方案，我确认后再执行。
-需求是：
-[一句话描述需求]
+这次请用多 agent 做 review / 代码盘点。
+
+范围：
+[分支 / 功能 / 文件范围 / 要查的问题]
+
+要求：
+1. 主 agent 负责最后汇总
+2. subagent 只做指定范围的 review 或探索
+3. findings 优先，按严重度排序
+4. 先告诉我怎么拆，再执行
 ```
 
-## 6. Ember 项目专用补充要求
+## 6. 使用约定
 
-如果任务比较正式，建议在模板后面追加：
+正式任务可在模板后追加：
 
 ```text
 补充要求：
@@ -270,51 +243,15 @@ review 范围：
 - 提交前先完成编译验证，再由主 agent 汇总
 ```
 
-## 7. 模型选择说明
+模型使用说明：
 
-在多 agent 协作里，subagent 不一定总是使用和主 agent 完全相同的模型。
+- subagent 不一定和主 agent 使用同一模型，这是正常现象
+- 边界清楚、局部实现型任务，可以优先用更轻模型
+- 高风险、高耦合、强推理任务，可以优先用更强模型
 
-通常会根据任务特点动态选择：
-
-- 边界清楚、局部实现型任务：可能优先使用更轻、更快的模型
-- 高风险、高耦合、强推理任务：可能优先使用更强的模型
-
-因此，看到某次 subagent 使用的模型和主 agent 不一样，是正常现象，不代表能力降级或流程异常。
-
-如果你有明确偏好，可以在提需求时主动指定，例如：
-
-```text
-这次 subagent 统一使用更强模型。
-```
-
-或者：
-
-```text
-这次局部施工任务优先使用更轻模型，主 agent 保持负责整合和验收。
-```
-
-默认情况下，主 agent 会根据任务复杂度、写集边界和整合成本来建议或选择更合适的模型。
-
-## 8. 推荐使用方式
-
-如果只是想开始用，不用每次自己手写完整任务书。
-
-最实用的做法是：
-
-1. 你明确说“这次请用多 agent”
-2. 你给出目标和大致拆分方向
-3. 由主 agent 先产出拆分方案
-4. 你确认后，再正式执行
-
-最常用的两句就够了：
+最短使用方式：
 
 ```text
 这个需求请用多 agent 处理。
 先结合 Ember 当前代码结构给我拆分方案，我确认后你再执行。
-```
-
-或者：
-
-```text
-这个需求如果适合多 agent，就按 Ember 当前代码结构帮我拆。
 ```
