@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
@@ -13,8 +14,18 @@ import (
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 )
 
+type telegramHandlerService interface {
+	GenerateBindCode(userID string) (string, time.Time, error)
+	Unbind(userID string) error
+	VerifyBind(telegramID int64, code string) (*telegrampkg.BindResult, error)
+	GetAccountInfo(telegramID int64) (*telegrampkg.AccountInfoResponse, error)
+	RedeemByTelegram(telegramID int64, code string) (*telegrampkg.TelegramRedeemResponse, error)
+	ResetPassword(telegramID int64, newPassword string) error
+	SubscribeByTelegram(req telegrampkg.TelegramSubscribeRequest) error
+}
+
 type TelegramHandler struct {
-	telegramService *telegrampkg.TelegramService
+	telegramService telegramHandlerService
 }
 
 func NewTelegramHandler() *TelegramHandler {

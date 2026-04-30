@@ -11,9 +11,24 @@ import (
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 )
 
+type subscriptionHandlerService interface {
+	CreateSubscriptionWithResult(userID string, req subscriptionpkg.CreateSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error)
+	ResubmitSubscriptionWithResult(userID, subscriptionID string, req subscriptionpkg.ResubmitSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error)
+	CheckExisting(req subscriptionpkg.CheckExistingRequest) (*subscriptionpkg.CheckExistingResponse, error)
+	GetUserSubscriptions(userID string) ([]models.Subscription, error)
+	GetUserSubscriptionsPaginated(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
+	DeleteSubscription(subscriptionID, userID string) error
+	GetAllSubscriptions(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
+	ApproveSubscription(subscriptionID string) error
+	RejectSubscription(subscriptionID, reason string) error
+	MarkSubscriptionIngestedAsAdmin(subscriptionID string) error
+	RedispatchSubscription(subscriptionID string) error
+	DeleteSubscriptionAsAdmin(subscriptionID string) error
+}
+
 // SubscriptionHandler 订阅处理器
 type SubscriptionHandler struct {
-	service *subscriptionpkg.SubscriptionService
+	service subscriptionHandlerService
 }
 
 // NewSubscriptionHandler 创建订阅处理器
