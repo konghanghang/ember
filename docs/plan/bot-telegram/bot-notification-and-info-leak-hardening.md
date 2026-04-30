@@ -1,6 +1,6 @@
 # Bot 通知与信息泄露加固方案
 
-> 状态：主干完成，尾项继续收口（P0 + P1 已落地，P2/P3 缩窄）
+> 状态：主干完成，尾项已缩窄为观察性增强
 > 负责人：Ember
 > 更新时间：2026-04-30
 
@@ -22,13 +22,13 @@
 
 剩余项已缩窄为：
 
-- 搜索会话 `message_id` 仍是进程内 TTL 缓存；当前已明确只用于私聊交互态防串改，不承担跨实例持久化语义
-- 更细颗粒度观察性仍可继续补，例如 webhook 注册长期失败的主动告警 / metric
+- 搜索会话 `message_id` 仍是进程内 TTL 缓存；当前已明确这是私聊交互态边界，而不是需要继续持久化的缺陷
+- 更细颗粒度观察性仍可继续补，例如 webhook 注册长期失败的主动告警 / metric，而不只是 ERROR 日志
 
 ## 归档判断
 
 - 当前暂不归档。
-- 原因：虽然主干与本轮尾项已进一步收口，但搜索会话 `message_id` 的长期策略与 webhook 级别主动告警仍保留后续演进空间。
+- 原因：虽然主干已经稳定，但 webhook 注册失败目前只收口到有限重试 + 明确 ERROR 日志，尚未补充更主动的告警/metric。
 
 ## 背景
 
@@ -111,6 +111,7 @@
   - Polling 模式已通过 API Internal 路由申请 / 续租 / 释放数据库租约锁，拿不到锁的实例拒绝启动
   - `pending_reject_requests` 已落到 `bot_pending_reject_requests` 表，不再依赖进程内 dict
   - 审批消息 `messageId` 已服务端持久化到 `bot_pending_reject_requests`，搜索交互 `message_id` 仍只保留在 `SearchSession` 10 分钟 TTL 缓存，用于校验“用户是否在操作最新一条搜索结果消息”
+  - webhook 注册当前采用有限重试策略：最多重试 `6` 次，失败后记 `ERROR` 并停止继续重试，不再无限指数退避悬空
 - 现有限制：
   - 线上 `AUTO_MIGRATE=false`
   - Bot 仅 webhook 模式可多实例（lifespan 持有 PTB Application 单例时不严谨）

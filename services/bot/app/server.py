@@ -104,6 +104,7 @@ logger = logging.getLogger(__name__)
 
 POLLING_LOCK_LEASE_SECONDS = 90
 POLLING_LOCK_RENEW_INTERVAL_SECONDS = 30
+WEBHOOK_REGISTER_MAX_ATTEMPTS = 6
 
 tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -127,9 +128,10 @@ tg_app.add_handler(CommandHandler("refresh_menu", handle_refresh_menu))
 tg_app.add_handler(CommandHandler("refresh_menu_chat", handle_refresh_menu_chat))
 
 
-async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
+async def register_webhook_with_retry(stop_event: asyncio.Event) -> bool:
     webhook_url = f"{WEBHOOK_URL}/telegram/webhook"
     retry_delay = 2
+    attempt = 1
 
     while not stop_event.is_set():
         try:
@@ -138,17 +140,28 @@ async def register_webhook_with_retry(stop_event: asyncio.Event) -> None:
                 secret_token=TELEGRAM_WEBHOOK_SECRET,
             )
             logger.info("Telegram webhook 已注册: %s", webhook_url)
-            return
+            return True
         except Exception as err:
             logger.warning(
-                "Telegram webhook 注册失败，%s 秒后重试: %s",
+                "Telegram webhook 注册失败，%s 秒后重试 attempt=%d/%d error=%s",
                 retry_delay,
+                attempt,
+                WEBHOOK_REGISTER_MAX_ATTEMPTS,
                 err,
             )
+            if attempt >= WEBHOOK_REGISTER_MAX_ATTEMPTS:
+                logger.error(
+                    "Telegram webhook 注册达到最大重试次数，停止继续重试 webhookUrl=%s attempts=%d",
+                    webhook_url,
+                    attempt,
+                )
+                return False
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=retry_delay)
             except asyncio.TimeoutError:
                 retry_delay = min(retry_delay * 2, 60)
+                attempt += 1
+    return False
 
 
 def build_polling_owner_id() -> str:
