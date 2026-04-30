@@ -48,10 +48,6 @@
 
 - `bot-telegram/bot-notification-and-info-leak-hardening.md`
 
-当前已进入“归档准备”但尚未迁出的实施稿：
-
-- `console-admin/playback-and-device-observation-hardening.md`
-
 ## 模板
 
 - [功能方案模板](./plan-template.md)

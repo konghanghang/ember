@@ -1,6 +1,6 @@
 # 播放观察与设备链路加固方案
 
-> 状态：可进入归档准备（主干已落地）
+> 状态：已归档
 > 负责人：Ember
 > 更新时间：2026-04-30
 
@@ -18,18 +18,19 @@
 - ✅ `dedupeLatestItems` 已不再使用 `Type+Name+Year` 的粗糙兜底 key，当前实现已改为更精确特征组合
 - ✅ 与本方案相关的关键 handler 已统一改走 `httpx.InternalError`，不再裸透 `err.Error()`
 
-当前剩余项已缩窄为归档前收口项：
+当前归档前收口项已完成：
 
 - ✅ `generateRankingBatchID` 已改为标准 ULID，和 `batch_id varchar(32)` 设计口径一致
 - ✅ `playback/history.go` 已移除本地全量分页兜底；兼容路径现在在缺列 / schema 不受支持时显式返回错误，不再偷偷退化成全量拉回内存
 - ✅ `parsePlaybackRows` 已移除 `fallbackIndexes` 猜列位置逻辑；无稳定 columns 时直接返回兼容错误
 - ✅ 计划 5 触达范围内显式命中的静默吞错点已收口；仓库级 sweep 仍可继续做，但已不再是本方案的主尾项
-- 待补动作主要转为文档与退场同步：稳定结论下沉、入口文档同步、归档判定
+- ✅ 稳定结论已下沉到 `docs/system-architecture.md`
+- ✅ 入口文档与盘点清单已同步到“已归档”口径
 
 ## 归档判断
 
-- 当前可以进入归档准备，但暂不直接归档。
-- 原因：主干实现已经落地，剩余事项主要是稳定结论下沉、验证口径收口和入口文档同步；现阶段更像退场准备，而不是继续作为核心实施稿。
+- 当前已完成归档。
+- 原因：主干实现、稳定结论下沉、入口文档同步与归档前收口动作均已完成；本文后续只保留历史追溯价值。
 
 ## 稳定结论
 
@@ -41,6 +42,14 @@
 - 黑名单链路以 `normalizeClientName` 归一命中，设备审计写入 `device_actions.operatorId`；关键写库失败已有日志。
 - Playback history 在插件列结构不兼容时显式返回兼容错误，不再猜列位置，也不再退化成全量明细拉回后本地分页。
 - Playback profile overview 已收敛为“全量聚合 + 当前页明细补充”，不再先拉全量明细再分页。
+
+## 退场说明
+
+- 本文档已退出 `docs/plan/`，不再承担现行规则说明职责；当前基线以 `docs/system-architecture.md` 为准。
+- 本文档保留的长期价值仅包括：
+  - 为什么当时要把排行榜幂等、媒体质量缓存、最近入库缓存、设备审计和 Playback Reporting 兼容边界一起收口
+  - 这轮治理具体消灭了哪些高风险特殊情况
+  - 后续若需追溯为何采用 `batchId + failedLibraries + LATEST_CACHE_PER_USER + schema unsupported` 这些边界时，可回看本文
 
 ## 背景
 

@@ -22,8 +22,7 @@
 
 - 8 份主计划里，`8` 份已经有代码落地证据
 - 其中 `1` 份属于“主干完成，保留尾项”：计划 7
-- 其中 `1` 份已进入“归档准备”而不是继续作为核心实施稿：计划 5
-- 其中 `6` 份已在本轮完成归档迁移：计划 1、计划 2、计划 3、计划 4、计划 6、计划 8
+- 其中 `7` 份已在本轮完成归档迁移：计划 1、计划 2、计划 3、计划 4、计划 5、计划 6、计划 8
 - 当前 8 份主计划都已有明确去向：要么已归档，要么继续作为现行实施稿维护
 
 | 编号 | 文档 | 状态标签 | 已落地证据 | 主要剩余项 | 建议动作 |
@@ -32,7 +31,7 @@
 | 2 | `archive/plan/billing-redemption/payment-redemption-integrity-hardening.md` | 已归档 | pending 支付幂等、Stripe webhook 去重、事务外 Emby 补偿、多币种口径、PlanGroup DTO 拆分均已落地 | 历史追溯 | 已迁入 `docs/archive/plan/billing-redemption/` |
 | 3 | `archive/plan/media-subscription/subscription-state-machine-hardening.md` | 已归档 | 原子状态转移、`ingestProgress`、IGNORED 不复活、`redispatch`、`DISPATCH_FAILED`、`ignoreReasonCode`、前端闭环均已完成；稳定结论与退场条件已补齐 | 历史追溯 | 已迁入 `docs/archive/plan/media-subscription/` |
 | 4 | `archive/plan/media-subscription/tv-calendar-and-tmdb-key-protection.md` | 已归档 | TMDB / MoviePilot / Stripe / SMTP 上游错误脱敏、`httpx.InternalError`、webhook `tmdbId` 命中精度、`tmdb_cache` GC、`resolveSeriesTMDBIDBySeriesID` 5 分钟缓存、同 key TMDB in-flight 去重、当前周纠偏落库已完成；稳定结论与退场条件已补齐 | 历史追溯 | 已迁入 `docs/archive/plan/media-subscription/` |
-| 5 | `console-admin/playback-and-device-observation-hardening.md` | 可进入归档准备 | 排行榜幂等、single-flight、`LATEST_CACHE_PER_USER`、设备审计、结构化注销返回、ULID batchId、history / overview 回退链路收口均已完成 | 稳定结论下沉、入口文档同步与归档判定 | 进入“归档准备”，暂不直接归档 |
+| 5 | `archive/plan/console-admin/playback-and-device-observation-hardening.md` | 已归档 | 排行榜幂等、single-flight、`LATEST_CACHE_PER_USER`、设备审计、结构化注销返回、ULID batchId、history / overview 回退链路收口均已完成；稳定结论与入口文档已同步 | 历史追溯 | 已迁入 `docs/archive/plan/console-admin/` |
 | 6 | `archive/plan/console-admin/web-frontend-auth-and-design-baseline-fix.md` | 已归档 | 前端鉴权红线、Dashboard 真相收口、用户侧海报代理、关键请求竞态与双轨状态清理均已完成 | 历史追溯 | 已迁入 `docs/archive/plan/console-admin/` |
 | 7 | `bot-telegram/bot-notification-and-info-leak-hardening.md` | 主干完成，保留尾项 | `internal/async.SafeGo` fire-and-forget 收口、VerifyBind 反 DoS、错误模糊化、通知脱敏、runtime settings 保留旧值、pending reject 消息上下文持久化、Polling 单实例租约锁、BotNotifier 配置缓存均已完成 | 通知载荷长度治理、`message_id` 策略优化与观察性尾项 | 继续保留在 `docs/plan/` |
 | 8 | `archive/plan/architecture/schema-deployment-and-baseline-cleanup.md` | 已归档 | 启动路径移除 `AutoMigrate`、`VerifySchema` fail-fast、initdb 隔离、schema 对齐、airDate、连接池、容器非 root、固定部署镜像、空库初始化入口收口均已完成；归档前入口与交叉引用已同步 | 历史追溯 | 已迁入 `docs/archive/plan/architecture/` |
