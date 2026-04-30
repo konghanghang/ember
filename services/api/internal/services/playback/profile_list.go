@@ -2,6 +2,7 @@ package playback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -75,6 +77,15 @@ type normalizedPlaybackProfileListQuery struct {
 	playbackUserIDs []string
 }
 
+type playbackProfileOverviewAggregateRow struct {
+	playbackUserID     string
+	totalPlayCount     int64
+	totalPlayDuration  int64
+	activeDays         int
+	lastPlayedAt       *time.Time
+	lastPlayedAtRaw    string
+}
+
 func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context, req PlaybackProfileListQuery) (*PlaybackProfileListResponse, error) {
 	startedAt := time.Now()
 	query, err := s.normalizePlaybackProfileListQuery(ctx, req)
@@ -103,18 +114,30 @@ func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context
 		}, nil
 	}
 
-	rows, err := s.loadPlaybackProfileRowsForOverview(query.playbackUserIDs, query.startAt, query.endAt)
+	totalRows, err := s.countPlaybackProfileOverviewRows(query.playbackUserIDs, query.startAt, query.endAt)
 	if err != nil {
 		log.Printf("[PlaybackProfileOverview] playback query failed range=%s keyword=%q err=%v", query.rangeValue, query.keyword, err)
 		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
 	}
+	if totalRows > maxPlaybackProfileOverviewRows {
+		return nil, ErrPlaybackProfileOverviewTooLarge
+	}
 
-	userMap, err := s.loadLocalUsersForOverview(ctx, rows)
+	aggregateRows, err := s.loadPlaybackProfileOverviewAggregateRows(query.playbackUserIDs, query.startAt, query.endAt)
+	if err != nil {
+		log.Printf("[PlaybackProfileOverview] aggregate query failed range=%s keyword=%q err=%v", query.rangeValue, query.keyword, err)
+		if errors.Is(err, ErrPlaybackHistorySchemaUnsupported) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
+	}
+
+	userMap, err := s.loadLocalUsersForOverview(ctx, overviewAggregateIdentifiers(aggregateRows))
 	if err != nil {
 		return nil, err
 	}
 
-	items := s.buildPlaybackProfileListItems(query.rangeValue, rows, userMap)
+	items, localToPlaybackUserID := s.buildPlaybackProfileListItems(query.rangeValue, aggregateRows, userMap)
 	sortPlaybackProfileListItems(items, query.sortBy, query.sortOrder)
 
 	total := int64(len(items))
@@ -126,7 +149,7 @@ func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context
 			"[PlaybackProfileOverview] done range=%s keyword=%q rows=%d mappedUsers=%d overviewUsers=%d page=%d pageSize=%d returned=0 cost=%s",
 			query.rangeValue,
 			query.keyword,
-			len(rows),
+			totalRows,
 			len(userMap),
 			len(items),
 			query.page,
@@ -146,8 +169,28 @@ func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context
 	if end > len(items) {
 		end = len(items)
 	}
+
+	pageItems := append([]PlaybackProfileListItem(nil), items[offset:end]...)
+	pagePlaybackUserIDs := make([]string, 0, len(pageItems))
+	for _, item := range pageItems {
+		if playbackUserID := strings.TrimSpace(localToPlaybackUserID[item.UserID]); playbackUserID != "" {
+			pagePlaybackUserIDs = append(pagePlaybackUserIDs, playbackUserID)
+		}
+	}
+	if len(pagePlaybackUserIDs) > 0 {
+		pageRows, pageRowsErr := s.loadPlaybackProfileRowsForOverviewPage(pagePlaybackUserIDs, query.startAt, query.endAt)
+		if pageRowsErr != nil {
+			log.Printf("[PlaybackProfileOverview] page enrichment failed range=%s keyword=%q page=%d pageSize=%d err=%v", query.rangeValue, query.keyword, query.page, query.pageSize, pageRowsErr)
+			if errors.Is(pageRowsErr, ErrPlaybackHistorySchemaUnsupported) {
+				return nil, pageRowsErr
+			}
+			return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, pageRowsErr)
+		}
+		pageItems = s.enrichPlaybackProfileListItems(pageItems, pageRows, userMap)
+	}
+
 	resp := &PlaybackProfileListResponse{
-		Data:     items[offset:end],
+		Data:     pageItems,
 		Total:    total,
 		Page:     query.page,
 		PageSize: query.pageSize,
@@ -157,7 +200,7 @@ func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context
 		"[PlaybackProfileOverview] done range=%s keyword=%q rows=%d mappedUsers=%d overviewUsers=%d page=%d pageSize=%d returned=%d cost=%s",
 		query.rangeValue,
 		query.keyword,
-		len(rows),
+		totalRows,
 		len(userMap),
 		len(items),
 		query.page,
@@ -273,61 +316,168 @@ func (s *UserPlaybackProfileService) findUsersByKeyword(ctx context.Context, key
 	return users, nil
 }
 
-func (s *UserPlaybackProfileService) loadPlaybackProfileRowsForOverview(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) ([]playbackActivityRow, error) {
+func (s *UserPlaybackProfileService) countPlaybackProfileOverviewRows(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) (int64, error) {
 	whereClause := buildPlaybackProfileOverviewWhereClause(playbackUserIDs, startAt, endAt)
 	countSQL := fmt.Sprintf(`
 SELECT COUNT(1) AS total
 FROM PlaybackActivity
 WHERE %s
 `, whereClause)
-	countResp, err := s.embyService.QueryPlaybackStats(countSQL)
+	countResp, err := s.queryPlaybackStats(countSQL)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	totalRows, err := parsePlaybackCount(countResp)
 	if err != nil {
-		return nil, fmt.Errorf("解析用户画像总览记录总数失败: %w", err)
+		return 0, fmt.Errorf("解析用户画像总览记录总数失败: %w", err)
 	}
-	if totalRows > maxPlaybackProfileOverviewRows {
-		return nil, ErrPlaybackProfileOverviewTooLarge
+	return totalRows, nil
+}
+
+func (s *UserPlaybackProfileService) loadPlaybackProfileOverviewAggregateRows(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) ([]playbackProfileOverviewAggregateRow, error) {
+	whereClause := buildPlaybackProfileOverviewWhereClause(playbackUserIDs, startAt, endAt)
+	localDateExpr := playbackSQLiteLocalDateExpr("DateCreated")
+	querySQL := fmt.Sprintf(`
+SELECT
+  UserId,
+  COUNT(1) AS TotalPlayCount,
+  SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0)) AS TotalPlayDuration,
+  COUNT(DISTINCT %s) AS ActiveDays,
+  MAX(DateCreated) AS LastPlayedAt
+FROM PlaybackActivity
+WHERE %s
+GROUP BY UserId
+`, localDateExpr, whereClause)
+
+	resp, err := s.queryPlaybackStats(querySQL)
+	if err != nil {
+		return nil, err
 	}
 
-	querySQL := fmt.Sprintf(`
+	rows, err := parsePlaybackProfileOverviewAggregateRows(resp)
+	if err != nil {
+		return nil, fmt.Errorf("解析用户画像总览聚合结果失败: %w", err)
+	}
+	log.Printf("[PlaybackProfileOverview] aggregate rows loaded rangeStart=%s rangeEnd=%s filterUsers=%d aggregateUsers=%d", formatOptionalTime(startAt), formatOptionalTime(endAt), len(playbackUserIDs), len(rows))
+	return rows, nil
+}
+
+func (s *UserPlaybackProfileService) loadPlaybackProfileRowsForOverviewPage(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) ([]playbackActivityRow, error) {
+	whereClause := buildPlaybackProfileOverviewWhereClause(playbackUserIDs, startAt, endAt)
+
+	detailResp, err := s.queryPlaybackStats(fmt.Sprintf(`
+SELECT UserId, UserName, ItemName, ItemType, DateCreated, DeviceName, ClientName,
+       COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0) AS PlayDuration
+FROM PlaybackActivity
+WHERE %s
+ORDER BY DateCreated DESC
+`, whereClause))
+	if err != nil && shouldFallbackPlaybackDetailError(err) {
+		detailResp, err = s.queryPlaybackStats(fmt.Sprintf(`
+SELECT UserId, UserName, ItemName, ItemType, DateCreated, DeviceName, ClientName,
+       COALESCE(PlayDuration, 0) AS PlayDuration
+FROM PlaybackActivity
+WHERE %s
+ORDER BY DateCreated DESC
+`, whereClause))
+	}
+	if err != nil || shouldFallbackPlaybackDetailQuery(detailResp) {
+		detailResp, err = s.queryPlaybackStats(fmt.Sprintf(`
 SELECT *
 FROM PlaybackActivity
 WHERE %s
 ORDER BY DateCreated DESC
-`, whereClause)
+`, whereClause))
+	}
+	if err != nil || shouldFallbackPlaybackDetailQuery(detailResp) {
+		return nil, ErrPlaybackHistorySchemaUnsupported
+	}
 
-	resp, err := s.embyService.QueryPlaybackStats(querySQL)
+	rows, err := parsePlaybackRows(detailResp)
 	if err != nil {
-		fallbackSQL := fmt.Sprintf(`
-SELECT *
-FROM PlaybackActivity
-WHERE %s
-`, whereClause)
-		resp, err = s.embyService.QueryPlaybackStats(fallbackSQL)
+		return nil, fmt.Errorf("解析用户画像总览页明细失败: %w", err)
+	}
+	log.Printf("[PlaybackProfileOverview] page rows loaded rangeStart=%s rangeEnd=%s filterUsers=%d rows=%d", formatOptionalTime(startAt), formatOptionalTime(endAt), len(playbackUserIDs), len(rows))
+	return rows, nil
+}
+
+func playbackSQLiteLocalDateExpr(column string) string {
+	loc := loadPlaybackTimezone()
+	_, offsetSeconds := time.Now().In(loc).Zone()
+	sign := "+"
+	if offsetSeconds < 0 {
+		sign = "-"
+		offsetSeconds = -offsetSeconds
+	}
+	hours := offsetSeconds / 3600
+	minutes := (offsetSeconds % 3600) / 60
+	return fmt.Sprintf("strftime('%%Y-%%m-%%d', datetime(%s, '%s%02d:%02d'))", column, sign, hours, minutes)
+}
+
+func parsePlaybackProfileOverviewAggregateRows(resp *embyint.CustomQueryResponse) ([]playbackProfileOverviewAggregateRow, error) {
+	if resp == nil || len(resp.Results) == 0 {
+		return []playbackProfileOverviewAggregateRow{}, nil
+	}
+
+	indexes := map[string]int{}
+	columns := resp.Colums
+	if len(columns) == 0 {
+		columns = resp.Columns
+	}
+	if len(columns) == 0 {
+		return nil, ErrPlaybackHistorySchemaUnsupported
+	}
+	for idx, col := range columns {
+		indexes[strings.ToLower(strings.TrimSpace(col))] = idx
+	}
+	requiredColumns := []string{"userid", "totalplaycount", "totalplayduration", "activedays", "lastplayedat"}
+	for _, column := range requiredColumns {
+		if _, ok := indexes[column]; !ok {
+			return nil, fmt.Errorf("%w: missing column %s", ErrPlaybackHistorySchemaUnsupported, column)
+		}
+	}
+
+	get := func(row []interface{}, key string) interface{} {
+		idx, ok := indexes[key]
+		if !ok || idx < 0 || idx >= len(row) {
+			return nil
+		}
+		return row[idx]
+	}
+
+	result := make([]playbackProfileOverviewAggregateRow, 0, len(resp.Results))
+	for _, row := range resp.Results {
+		totalPlayCount, err := asInt64(get(row, "totalplaycount"))
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	rows, err := parsePlaybackRows(resp)
-	if err != nil {
-		return nil, fmt.Errorf("解析用户画像总览播放记录失败: %w", err)
-	}
-	log.Printf("[PlaybackProfileOverview] rows loaded rangeStart=%s rangeEnd=%s filterUsers=%d rows=%d totalRows=%d", formatOptionalTime(startAt), formatOptionalTime(endAt), len(playbackUserIDs), len(rows), totalRows)
-
-	sort.Slice(rows, func(i, j int) bool {
-		ti := parsePlaybackTime(rows[i].playedAtRaw)
-		tj := parsePlaybackTime(rows[j].playedAtRaw)
-		if !ti.Equal(tj) {
-			return ti.After(tj)
+		totalPlayDuration, err := asInt64(get(row, "totalplayduration"))
+		if err != nil {
+			return nil, err
 		}
-		return rows[i].itemName < rows[j].itemName
-	})
+		activeDays, err := asInt(get(row, "activedays"))
+		if err != nil {
+			return nil, err
+		}
+		lastPlayedAtRaw := safeString(get(row, "lastplayedat"))
+		lastPlayedAt := parsePlaybackTime(lastPlayedAtRaw)
+		var lastPlayedAtPtr *time.Time
+		if !lastPlayedAt.IsZero() {
+			lastPlayedAtCopy := lastPlayedAt
+			lastPlayedAtPtr = &lastPlayedAtCopy
+		}
 
-	return rows, nil
+		result = append(result, playbackProfileOverviewAggregateRow{
+			playbackUserID:    safeString(get(row, "userid")),
+			totalPlayCount:    totalPlayCount,
+			totalPlayDuration: totalPlayDuration,
+			activeDays:        activeDays,
+			lastPlayedAt:      lastPlayedAtPtr,
+			lastPlayedAtRaw:   lastPlayedAtRaw,
+		})
+	}
+
+	return result, nil
 }
 
 func buildPlaybackProfileOverviewWhereClause(playbackUserIDs []string, startAt *time.Time, endAt *time.Time) string {
@@ -348,21 +498,19 @@ func buildPlaybackProfileOverviewWhereClause(playbackUserIDs []string, startAt *
 	return strings.Join(conditions, " AND ")
 }
 
-func (s *UserPlaybackProfileService) loadLocalUsersForOverview(ctx context.Context, rows []playbackActivityRow) (map[string]models.User, error) {
-	playbackUserIDSet := make(map[string]struct{}, len(rows))
+func overviewAggregateIdentifiers(rows []playbackProfileOverviewAggregateRow) []string {
+	identifiers := make([]string, 0, len(rows))
 	for _, row := range rows {
-		if strings.TrimSpace(row.embyUserID) == "" {
-			continue
+		if trimmed := strings.TrimSpace(row.playbackUserID); trimmed != "" {
+			identifiers = append(identifiers, trimmed)
 		}
-		playbackUserIDSet[row.embyUserID] = struct{}{}
 	}
-	if len(playbackUserIDSet) == 0 {
-		return map[string]models.User{}, nil
-	}
+	return identifiers
+}
 
-	identifiers := make([]string, 0, len(playbackUserIDSet))
-	for id := range playbackUserIDSet {
-		identifiers = append(identifiers, id)
+func (s *UserPlaybackProfileService) loadLocalUsersForOverview(ctx context.Context, identifiers []string) (map[string]models.User, error) {
+	if len(identifiers) == 0 {
+		return map[string]models.User{}, nil
 	}
 
 	var users []models.User
@@ -387,37 +535,59 @@ func (s *UserPlaybackProfileService) loadLocalUsersForOverview(ctx context.Conte
 	return userMap, nil
 }
 
-func (s *UserPlaybackProfileService) buildPlaybackProfileListItems(rangeValue string, rows []playbackActivityRow, userMap map[string]models.User) []PlaybackProfileListItem {
-	groupedRows := make(map[string][]playbackActivityRow)
-	groupedUsers := make(map[string]models.User)
+func (s *UserPlaybackProfileService) buildPlaybackProfileListItems(rangeValue string, rows []playbackProfileOverviewAggregateRow, userMap map[string]models.User) ([]PlaybackProfileListItem, map[string]string) {
+	for _, row := range rows {
+		_ = row
+	}
 
+	items := make([]PlaybackProfileListItem, 0, len(rows))
+	localToPlaybackUserID := make(map[string]string, len(rows))
+	for _, row := range rows {
+		localUser, ok := userMap[row.playbackUserID]
+		if !ok {
+			continue
+		}
+		items = append(items, PlaybackProfileListItem{
+			UserID:                     localUser.ID,
+			Username:                   localUser.Username,
+			Range:                      rangeValue,
+			TotalPlayCount:             row.totalPlayCount,
+			TotalPlayDuration:          row.totalPlayDuration,
+			TotalPlayDurationFormatted: formatPlayDuration(row.totalPlayDuration),
+			ActiveDays:                 row.activeDays,
+			LastPlayedAt:               row.lastPlayedAt,
+		})
+		localToPlaybackUserID[localUser.ID] = row.playbackUserID
+	}
+
+	return items, localToPlaybackUserID
+}
+
+func (s *UserPlaybackProfileService) enrichPlaybackProfileListItems(items []PlaybackProfileListItem, rows []playbackActivityRow, userMap map[string]models.User) []PlaybackProfileListItem {
+	if len(items) == 0 || len(rows) == 0 {
+		return items
+	}
+
+	groupedRows := make(map[string][]playbackActivityRow)
 	for _, row := range rows {
 		localUser, ok := userMap[row.embyUserID]
 		if !ok {
 			continue
 		}
 		groupedRows[localUser.ID] = append(groupedRows[localUser.ID], row)
-		groupedUsers[localUser.ID] = localUser
 	}
 
-	items := make([]PlaybackProfileListItem, 0, len(groupedRows))
-	for userID, userRows := range groupedRows {
-		user := groupedUsers[userID]
-		aggregate := buildPlaybackProfileAggregate(user, userRows)
+	for index := range items {
+		userRows := groupedRows[items[index].UserID]
+		if len(userRows) == 0 {
+			continue
+		}
+		localUser := userMap[items[index].UserID]
+		aggregate := buildPlaybackProfileAggregate(localUser, userRows)
 		peakHour, peakHourLabel := resolvePeakHour(aggregate.hourly)
-		items = append(items, PlaybackProfileListItem{
-			UserID:                     user.ID,
-			Username:                   user.Username,
-			Range:                      rangeValue,
-			TotalPlayCount:             aggregate.totalPlayCount,
-			TotalPlayDuration:          aggregate.totalPlayDuration,
-			TotalPlayDurationFormatted: formatPlayDuration(aggregate.totalPlayDuration),
-			ActiveDays:                 aggregate.activeDays,
-			LastPlayedAt:               aggregate.lastPlayedAt,
-			PeakHour:                   peakHour,
-			PeakHourLabel:              peakHourLabel,
-			Badges:                     previewPlaybackProfileBadges(aggregate.badges),
-		})
+		items[index].PeakHour = peakHour
+		items[index].PeakHourLabel = peakHourLabel
+		items[index].Badges = previewPlaybackProfileBadges(aggregate.badges)
 	}
 
 	return items

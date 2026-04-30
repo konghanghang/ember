@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +72,20 @@ func TestParsePlaybackRowsSupportsColumnsField(t *testing.T) {
 	}
 	if rows[0].itemName != "movie" || rows[0].deviceName != "TV" || rows[0].clientName != "Web" {
 		t.Fatalf("unexpected parsed row: %+v", rows[0])
+	}
+}
+
+func TestParsePlaybackRowsRejectsMissingColumns(t *testing.T) {
+	resp := &embyint.CustomQueryResponse{
+		Columns: []string{"UserId", "UserName", "ItemName"},
+		Results: [][]interface{}{
+			{"emby_u_1", "alice", "movie"},
+		},
+	}
+
+	_, err := parsePlaybackRows(resp)
+	if !errors.Is(err, ErrPlaybackHistorySchemaUnsupported) {
+		t.Fatalf("expected ErrPlaybackHistorySchemaUnsupported, got %v", err)
 	}
 }
 
@@ -179,5 +194,36 @@ func TestShouldFallbackPlaybackDetailError(t *testing.T) {
 	}
 	if shouldFallbackPlaybackDetailError(nil) {
 		t.Fatal("nil error should not trigger fallback")
+	}
+}
+
+func TestGetPlaybackHistoryReturnsSchemaUnsupportedWhenColumnsMissing(t *testing.T) {
+	svc := &PlaybackHistoryService{
+		queryPlaybackStats: func(sql string) (*embyint.CustomQueryResponse, error) {
+			switch {
+			case strings.Contains(sql, "SELECT COUNT(1) AS total"):
+				return &embyint.CustomQueryResponse{
+					Columns: []string{"total"},
+					Results: [][]interface{}{{float64(1)}},
+				}, nil
+			case strings.Contains(sql, "COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0) AS PlayDuration"):
+				return nil, fmt.Errorf("SQL error: no such column: PauseDuration")
+			case strings.Contains(sql, "COALESCE(PlayDuration, 0) AS PlayDuration"):
+				return nil, fmt.Errorf("SQL error: no such column: DeviceName")
+			case strings.Contains(sql, "SELECT *"):
+				return &embyint.CustomQueryResponse{
+					Columns: []string{"UserId", "UserName", "ItemName"},
+					Results: [][]interface{}{{"emby_u_1", "alice", "movie"}},
+					Message: "",
+				}, nil
+			default:
+				return nil, fmt.Errorf("unexpected sql: %s", sql)
+			}
+		},
+	}
+
+	_, err := svc.GetPlaybackHistory(context.Background(), PlaybackHistoryRequest{})
+	if !errors.Is(err, ErrPlaybackHistorySchemaUnsupported) {
+		t.Fatalf("expected ErrPlaybackHistorySchemaUnsupported, got %v", err)
 	}
 }

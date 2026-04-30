@@ -2,9 +2,9 @@ package playback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -26,7 +26,8 @@ var playbackKeywordPattern = regexp.MustCompile(`^[\p{Han}\p{L}\p{N}._'&+\-!():,
 var playbackUserIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,50}$`)
 
 type PlaybackHistoryService struct {
-	embyService *embyint.EmbyService
+	embyService         *embyint.EmbyService
+	queryPlaybackStats  func(sql string) (*embyint.CustomQueryResponse, error)
 }
 
 type PlaybackHistoryRequest struct {
@@ -78,8 +79,10 @@ type playbackActivityRow struct {
 }
 
 func NewPlaybackHistoryService() *PlaybackHistoryService {
+	embyService := embyint.GetSharedService()
 	return &PlaybackHistoryService{
-		embyService: embyint.GetSharedService(),
+		embyService:        embyService,
+		queryPlaybackStats: embyService.QueryPlaybackStats,
 	}
 }
 
@@ -101,7 +104,7 @@ func (s *PlaybackHistoryService) GetPlaybackHistory(ctx context.Context, req Pla
 	whereClause := buildPlaybackWhereClause(query, playbackUserIDs)
 	countSQL := fmt.Sprintf("SELECT COUNT(1) AS total FROM PlaybackActivity WHERE %s", whereClause)
 
-	countResp, err := s.embyService.QueryPlaybackStats(countSQL)
+	countResp, err := s.queryPlaybackStats(countSQL)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
 	}
@@ -132,6 +135,9 @@ func (s *PlaybackHistoryService) GetPlaybackHistory(ctx context.Context, req Pla
 
 	rows, err := s.loadPlaybackRowsWithFallback(whereClause, query.PageSize, offset)
 	if err != nil {
+		if errors.Is(err, ErrPlaybackHistorySchemaUnsupported) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %v", ErrPlaybackHistoryQueryFailed, err)
 	}
 
@@ -194,7 +200,7 @@ ORDER BY DateCreated DESC
 LIMIT %d OFFSET %d
 `, durationExpr, whereClause, pageSize, offset)
 
-	return s.embyService.QueryPlaybackStats(detailSQL)
+	return s.queryPlaybackStats(detailSQL)
 }
 
 func (s *PlaybackHistoryService) queryPlaybackDetailsWildcard(whereClause string, pageSize int, offset int) (*embyint.CustomQueryResponse, error) {
@@ -206,7 +212,7 @@ ORDER BY DateCreated DESC
 LIMIT %d OFFSET %d
 `, whereClause, pageSize, offset)
 
-	resp, err := s.embyService.QueryPlaybackStats(sqlWithOrder)
+	resp, err := s.queryPlaybackStats(sqlWithOrder)
 	if err == nil {
 		return resp, nil
 	}
@@ -217,28 +223,7 @@ FROM PlaybackActivity
 WHERE %s
 LIMIT %d OFFSET %d
 `, whereClause, pageSize, offset)
-	return s.embyService.QueryPlaybackStats(sqlNoOrder)
-}
-
-func (s *PlaybackHistoryService) queryPlaybackDetailsAll(whereClause string) (*embyint.CustomQueryResponse, error) {
-	sqlWithOrder := fmt.Sprintf(`
-SELECT *
-FROM PlaybackActivity
-WHERE %s
-ORDER BY DateCreated DESC
-`, whereClause)
-
-	resp, err := s.embyService.QueryPlaybackStats(sqlWithOrder)
-	if err == nil {
-		return resp, nil
-	}
-
-	sqlNoOrder := fmt.Sprintf(`
-SELECT *
-FROM PlaybackActivity
-WHERE %s
-`, whereClause)
-	return s.embyService.QueryPlaybackStats(sqlNoOrder)
+	return s.queryPlaybackStats(sqlNoOrder)
 }
 
 func (s *PlaybackHistoryService) loadPlaybackRowsWithFallback(whereClause string, pageSize int, offset int) ([]playbackActivityRow, error) {
@@ -251,7 +236,7 @@ func (s *PlaybackHistoryService) loadPlaybackRowsWithFallback(whereClause string
 			detailResp, err = s.queryPlaybackDetailsWildcard(whereClause, pageSize, offset)
 		}
 		if err != nil {
-			return s.loadPlaybackRowsByLocalPagination(whereClause, pageSize, offset)
+			return nil, ErrPlaybackHistorySchemaUnsupported
 		}
 	}
 
@@ -261,7 +246,7 @@ func (s *PlaybackHistoryService) loadPlaybackRowsWithFallback(whereClause string
 			detailResp, err = s.queryPlaybackDetailsWildcard(whereClause, pageSize, offset)
 		}
 		if err != nil || shouldFallbackPlaybackDetailQuery(detailResp) {
-			return s.loadPlaybackRowsByLocalPagination(whereClause, pageSize, offset)
+			return nil, ErrPlaybackHistorySchemaUnsupported
 		}
 	}
 
@@ -269,43 +254,7 @@ func (s *PlaybackHistoryService) loadPlaybackRowsWithFallback(whereClause string
 	if err != nil {
 		return nil, fmt.Errorf("解析播放历史明细失败: %w", err)
 	}
-	if len(rows) > 0 {
-		return rows, nil
-	}
-
-	return s.loadPlaybackRowsByLocalPagination(whereClause, pageSize, offset)
-}
-
-func (s *PlaybackHistoryService) loadPlaybackRowsByLocalPagination(whereClause string, pageSize int, offset int) ([]playbackActivityRow, error) {
-	allResp, err := s.queryPlaybackDetailsAll(whereClause)
-	if err != nil {
-		return nil, err
-	}
-	allRows, err := parsePlaybackRows(allResp)
-	if err != nil {
-		return nil, fmt.Errorf("解析全量播放历史失败: %w", err)
-	}
-	if len(allRows) == 0 {
-		return []playbackActivityRow{}, nil
-	}
-
-	sort.Slice(allRows, func(i, j int) bool {
-		ti := parsePlaybackTime(allRows[i].playedAtRaw)
-		tj := parsePlaybackTime(allRows[j].playedAtRaw)
-		if !ti.Equal(tj) {
-			return ti.After(tj)
-		}
-		return allRows[i].itemName < allRows[j].itemName
-	})
-
-	if offset >= len(allRows) {
-		return []playbackActivityRow{}, nil
-	}
-	end := offset + pageSize
-	if end > len(allRows) {
-		end = len(allRows)
-	}
-	return allRows[offset:end], nil
+	return rows, nil
 }
 
 func shouldFallbackPlaybackDetailQuery(resp *embyint.CustomQueryResponse) bool {
@@ -538,27 +487,23 @@ func parsePlaybackRows(resp *embyint.CustomQueryResponse) ([]playbackActivityRow
 	if len(columns) == 0 {
 		columns = resp.Columns
 	}
+	if len(columns) == 0 {
+		return nil, ErrPlaybackHistorySchemaUnsupported
+	}
 	for idx, col := range columns {
 		indexes[strings.ToLower(strings.TrimSpace(col))] = idx
 	}
-	fallbackIndexes := map[string]int{
-		"userid":       0,
-		"username":     1,
-		"itemname":     2,
-		"itemtype":     3,
-		"datecreated":  4,
-		"devicename":   5,
-		"clientname":   6,
-		"playduration": 7,
+	requiredColumns := []string{"userid", "username", "itemname", "itemtype", "datecreated", "devicename", "clientname", "playduration"}
+	for _, column := range requiredColumns {
+		if _, ok := indexes[column]; !ok {
+			return nil, fmt.Errorf("%w: missing column %s", ErrPlaybackHistorySchemaUnsupported, column)
+		}
 	}
 
 	get := func(row []interface{}, keys ...string) interface{} {
 		for _, key := range keys {
 			key = strings.ToLower(strings.TrimSpace(key))
 			idx, ok := indexes[key]
-			if !ok {
-				idx, ok = fallbackIndexes[key]
-			}
 			if ok && idx >= 0 && idx < len(row) {
 				return row[idx]
 			}

@@ -21,8 +21,8 @@
 当前剩余项已缩窄为少量真实尾项：
 
 - ✅ `generateRankingBatchID` 已改为标准 ULID，和 `batch_id varchar(32)` 设计口径一致
-- `playback/history.go` 的 wildcard / 本地分页 fallback 仍保留，`loadPlaybackRowsByLocalPagination` 仍可能在极端情况下全量拉回内存后本地排序分页
-- `parsePlaybackRows` 仍保留 `fallbackIndexes`，尚未收口到“无稳定 columns 即拒绝”的更硬边界
+- ✅ `playback/history.go` 已移除本地全量分页兜底；兼容路径现在在缺列 / schema 不受支持时显式返回错误，不再偷偷退化成全量拉回内存
+- ✅ `parsePlaybackRows` 已移除 `fallbackIndexes` 猜列位置逻辑；无稳定 columns 时直接返回兼容错误
 - `_ = db.DB.Create/Save` 这类静默吞错 sweep 还没系统性做完
 
 ## 归档判断
@@ -124,7 +124,7 @@
   - `libraryId=all` 路径已在单库失败时返回 `failedLibraries`，不再整批失败
   - `GetItemsByIDs` 已补 batch timeout / retry / partial failure 容错
   - `normalizeClientName` 已补版本尾缀去除、全角空格与 NFC 归一；`recordDeviceAction` 写库失败已记日志
-  - Playback history 仍保留 wildcard / 本地分页 fallback，overview 仍通过 `COUNT + SELECT *` 加 `maxPlaybackProfileOverviewRows` 上限保护，而不是彻底改成 SQL 层分页聚合
+  - Playback history 已移除本地全量分页兜底；当插件返回缺列或不受支持 schema 时，接口会显式返回兼容错误；overview 已收敛为“全量聚合 + 当前页明细补充”，不再先拉全量明细再分页
 - 现有限制：
   - 线上 `AUTO_MIGRATE=false`
   - PlaybackActivity 通过 Emby 插件 SQL 查询，无参数化能力，仅靠白名单 + escape
@@ -370,7 +370,7 @@
 - [ ] 媒体质量 force inflight cron 清理跑一轮空表无报错
 - [ ] 关键日志含 `userId / requestId / batchId / cacheKey / operatorId`，且不含 SQL 错误细节
 - [ ] 文档同步：客户端归一规则、排行榜幂等键、`LATEST_CACHE_PER_USER` 语义
-- [ ] 若继续推进计划 5 尾项：补针对 playback wildcard / 本地分页 fallback 的测试与收口方案
+- [x] 针对 playback wildcard / 本地分页 fallback 的测试与收口方案已补；当前策略为“缺列即拒绝，不再猜列或本地全量分页”
 
 ### 二次暴露检查清单
 
@@ -399,7 +399,7 @@
 仍未完成：
 
 - `generateRankingBatchID` 改 ULID已落地；batchId 策略与计划正文一致
-- playback history wildcard / 本地分页 fallback 尚未彻底收口
+- playback overview 已不再依赖“全量明细再分页”，但徽章 / 峰值时段仍需为当前页用户补拉明细，后续可继续评估是否下沉更多 SQL 聚合
 - `_ = db.DB.Create/Save` 静默吞错 sweep 尚未系统化完成
 
 ## 附录：问题清单与本方案条目映射

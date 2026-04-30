@@ -34,6 +34,7 @@ func (h *PlaybackHistoryHandler) GetPlaybackHistory(c *gin.Context) {
 		case errors.Is(err, playbackpkg.ErrPlaybackHistoryInvalidDate),
 			errors.Is(err, playbackpkg.ErrPlaybackHistoryInvalidKeyword),
 			errors.Is(err, playbackpkg.ErrPlaybackHistoryInvalidUserID),
+			errors.Is(err, playbackpkg.ErrPlaybackHistorySchemaUnsupported),
 			errors.Is(err, playbackpkg.ErrPlaybackHistoryUserNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, playbackpkg.ErrPlaybackHistoryQueryFailed):

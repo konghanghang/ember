@@ -23,7 +23,8 @@ const (
 )
 
 type UserPlaybackProfileService struct {
-	embyService *embyint.EmbyService
+	embyService        *embyint.EmbyService
+	queryPlaybackStats func(sql string) (*embyint.CustomQueryResponse, error)
 }
 
 type PlaybackProfileQuery struct {
@@ -104,8 +105,10 @@ type playbackDistributionAggregate struct {
 }
 
 func NewUserPlaybackProfileService() *UserPlaybackProfileService {
+	embyService := embyint.GetSharedService()
 	return &UserPlaybackProfileService{
-		embyService: embyint.GetSharedService(),
+		embyService:        embyService,
+		queryPlaybackStats: embyService.QueryPlaybackStats,
 	}
 }
 
@@ -287,14 +290,14 @@ WHERE %s
 ORDER BY DateCreated DESC
 `, whereClause)
 
-	resp, err := s.embyService.QueryPlaybackStats(queryWithOrder)
+	resp, err := s.queryPlaybackStats(queryWithOrder)
 	if err != nil {
 		queryWithoutOrder := fmt.Sprintf(`
 SELECT *
 FROM PlaybackActivity
 WHERE %s
 `, whereClause)
-		resp, err = s.embyService.QueryPlaybackStats(queryWithoutOrder)
+		resp, err = s.queryPlaybackStats(queryWithoutOrder)
 		if err != nil {
 			return nil, err
 		}
