@@ -371,7 +371,7 @@ func (s *ConfigService) Update(key string, req UpdateConfigRequest, updatedByUse
 	if def.Normalize != nil {
 		normalized, err := def.Normalize(value)
 		if err != nil {
-			return nil, err
+			return nil, wrapConfigValidationError(err)
 		}
 		value = normalized
 	}

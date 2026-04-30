@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -241,6 +242,41 @@ func TestConfigHandlerUpdateConfigUnsupportedPlaceholder(t *testing.T) {
 	}
 	if resp.Error == "" {
 		t.Fatal("expected validation error message to be preserved")
+	}
+}
+
+func TestConfigHandlerUpdateConfigNormalizeFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &ConfigHandler{
+		service: &stubConfigService{
+			updateFn: func(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error) {
+				return nil, errors.Join(
+					configpkg.ErrConfigValidation,
+					errors.New("控制台账号资源入口必须是 JSON 数组"),
+				)
+			},
+		},
+	}
+
+	body := []byte(`{"value":"not-json"}`)
+	ctx, recorder := newTestConfigContext(http.MethodPatch, "/api/v1/admin/configs/console_account_links", body)
+	ctx.Params = gin.Params{{Key: "key", Value: "console_account_links"}}
+
+	handler.UpdateConfig(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !strings.Contains(resp.Error, "控制台账号资源入口必须是 JSON 数组") {
+		t.Fatalf("expected normalize validation message to be preserved, got %q", resp.Error)
 	}
 }
 
