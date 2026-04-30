@@ -124,15 +124,29 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 
 	items, err := s.embyService.GetItemsByIDs(itemIDs)
 	if err != nil {
-		if len(items) == 0 || !embyint.IsGetItemsByIDsPartialFailure(err) {
-			return nil, err
+		if len(items) == 0 {
+			log.Printf(
+				"[PlaybackRanking] episode item lookup failed all batches itemIDs=%d err=%v; degrade to empty episode ranking",
+				len(itemIDs),
+				err,
+			)
+			return []models.PlaybackRanking{}, nil
 		}
-		log.Printf(
-			"[PlaybackRanking] episode item lookup partially failed itemIDs=%d resolvedItems=%d err=%v",
-			len(itemIDs),
-			len(items),
-			err,
-		)
+		if !embyint.IsGetItemsByIDsPartialFailure(err) {
+			log.Printf(
+				"[PlaybackRanking] episode item lookup failed without partial marker itemIDs=%d resolvedItems=%d err=%v; continue with partial results",
+				len(itemIDs),
+				len(items),
+				err,
+			)
+		} else {
+			log.Printf(
+				"[PlaybackRanking] episode item lookup partially failed itemIDs=%d resolvedItems=%d err=%v",
+				len(itemIDs),
+				len(items),
+				err,
+			)
+		}
 	}
 
 	itemDetails := make(map[string]embyint.EmbyLibraryItem, len(items))

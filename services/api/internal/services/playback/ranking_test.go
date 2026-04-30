@@ -114,7 +114,7 @@ func TestPreviewRankingKeepsSuccessfulEpisodeBatchesWhenSomeLookupsFail(t *testi
 	}
 }
 
-func TestPreviewRankingFailsWhenAllEpisodeLookupBatchesFail(t *testing.T) {
+func TestPreviewRankingReturnsMoviesWhenAllEpisodeLookupBatchesFail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/emby/user_usage_stats/submit_custom_query":
@@ -134,8 +134,18 @@ func TestPreviewRankingFailsWhenAllEpisodeLookupBatchesFail(t *testing.T) {
 	svc := &PlaybackRankingService{
 		embyService: embyint.NewEmbyService(),
 	}
-	if _, err := svc.PreviewRanking(models.RankingWeekly); err == nil {
-		t.Fatal("expected preview ranking to fail when all episode lookup batches fail")
+	result, err := svc.PreviewRanking(models.RankingWeekly)
+	if err != nil {
+		t.Fatalf("expected preview ranking to degrade gracefully, got error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Movies) != 0 {
+		t.Fatalf("expected no movie rankings, got %d", len(result.Movies))
+	}
+	if len(result.Episodes) != 0 {
+		t.Fatalf("expected no episode rankings when all lookups fail, got %d", len(result.Episodes))
 	}
 }
 
