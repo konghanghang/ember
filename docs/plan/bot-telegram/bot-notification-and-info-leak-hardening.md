@@ -1,8 +1,8 @@
 # Bot 通知与信息泄露加固方案
 
-> 状态：主干完成，保留尾项（P0 + P1 已基本落地）
+> 状态：主干完成，尾项继续收口（P0 + P1 已落地，P2/P3 缩窄）
 > 负责人：Ember
-> 更新时间：2026-04-29
+> 更新时间：2026-04-30
 
 ## 落地进度
 
@@ -17,13 +17,18 @@
 - ✅ `polling` 模式已补数据库租约锁：启动前申请、运行中续租、失败时主动停止 polling
 - ✅ Bot API `httpx` 客户端已补 `limits`、重试和更完整的失败日志
 - ✅ `BotNotifier` 已补进程内配置缓存与刷新节流，不再在每次 `IsConfigured` / `post` 时重建 `ConfigService` 查库
+- ✅ Bot 通知 formatter 已补 Telegram 文本 / caption 长度治理；长标题、长备注、长拒绝原因统一截断，避免通知因超长载荷失败
+- ✅ `BotNotifier.post` 已补 `event / payloadSize / requestId / latency` 结构化日志，便于追踪通知失败链路
 
-剩余项（通知载荷长度限制 / Bot 端 `message_id` 缓存策略优化与更细颗粒度观察性）按 P2/P3 待后续批次。
+剩余项已缩窄为：
+
+- 搜索会话 `message_id` 仍是进程内 TTL 缓存；当前已明确只用于私聊交互态防串改，不承担跨实例持久化语义
+- 更细颗粒度观察性仍可继续补，例如 webhook 注册长期失败的主动告警 / metric
 
 ## 归档判断
 
-- 当前不适合归档。
-- 原因：通知载荷长度与 `message_id` 侧的收口策略仍未完全定型，继续保留在 `docs/plan/` 更符合当前职责边界。
+- 当前暂不归档。
+- 原因：虽然主干与本轮尾项已进一步收口，但搜索会话 `message_id` 的长期策略与 webhook 级别主动告警仍保留后续演进空间。
 
 ## 背景
 
@@ -102,9 +107,10 @@
 - 涉及表：`telegram_bind_codes`
 - 当前行为：
   - API 侧关键 fire-and-forget 已统一改走 `internal/async.SafeGo(name, fn)`，不再裸 `go s.notifier.notify*(...)`
-  - `BotNotifier.post` 已统一走结构化日志，`BotNotifier` 本身是进程内共享单例并带配置缓存
+  - `BotNotifier.post` 已统一走结构化日志，包含 `endpoint / event / payloadSize / requestId / latency`，`BotNotifier` 本身是进程内共享单例并带配置缓存
   - Polling 模式已通过 API Internal 路由申请 / 续租 / 释放数据库租约锁，拿不到锁的实例拒绝启动
   - `pending_reject_requests` 已落到 `bot_pending_reject_requests` 表，不再依赖进程内 dict
+  - 审批消息 `messageId` 已服务端持久化到 `bot_pending_reject_requests`，搜索交互 `message_id` 仍只保留在 `SearchSession` 10 分钟 TTL 缓存，用于校验“用户是否在操作最新一条搜索结果消息”
 - 现有限制：
   - 线上 `AUTO_MIGRATE=false`
   - Bot 仅 webhook 模式可多实例（lifespan 持有 PTB Application 单例时不严谨）

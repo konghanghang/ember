@@ -2,6 +2,14 @@ from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+TELEGRAM_TEXT_LIMIT = 4096
+TELEGRAM_CAPTION_LIMIT = 1024
+_SUBSCRIPTION_NAME_LIMIT = 160
+_SUBSCRIPTION_NOTE_LIMIT = 500
+_RESULT_REASON_LIMIT = 500
+_SEARCH_OVERVIEW_LIMIT = 300
+_TEXT_TRUNCATION_SUFFIX = "..."
+
 
 def _format_media_type(media_type: str) -> str:
     if media_type == "MOVIE":
@@ -19,13 +27,28 @@ def _format_registration_mode(mode: str) -> str:
     return mode or "-"
 
 
+def _truncate_text(value: str, limit: int) -> str:
+    if limit <= 0:
+        return ""
+    if len(value) <= limit:
+        return value
+    if limit <= len(_TEXT_TRUNCATION_SUFFIX):
+        return value[:limit]
+    return value[: limit - len(_TEXT_TRUNCATION_SUFFIX)] + _TEXT_TRUNCATION_SUFFIX
+
+
+def _clamp_telegram_text(value: str, *, is_caption: bool = False) -> str:
+    limit = TELEGRAM_CAPTION_LIMIT if is_caption else TELEGRAM_TEXT_LIMIT
+    return _truncate_text(value, limit)
+
+
 def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
     media_type = _format_media_type(data.get("type", ""))
-    name = escape(str(data.get("name", "")))
+    name = escape(_truncate_text(str(data.get("name", "")), _SUBSCRIPTION_NAME_LIMIT))
     user_name = escape(str(data.get("userName", "") or "-"))
     tmdb_id = escape(str(data.get("tmdbId", "")))
     season = int(data.get("season", 0) or 0)
-    note = str(data.get("note", "") or "").strip()
+    note = _truncate_text(str(data.get("note", "") or "").strip(), _SUBSCRIPTION_NOTE_LIMIT)
 
     lines = [
         "🎬 <b>新的求片请求</b>",
@@ -55,7 +78,7 @@ def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
         ]
     )
 
-    return "\n".join(lines), keyboard
+    return _clamp_telegram_text("\n".join(lines), is_caption=True), keyboard
 
 
 def format_registration_message(data: dict) -> str:
@@ -74,7 +97,7 @@ def format_registration_message(data: dict) -> str:
         f"🛂 注册方式：{mode}",
         f"⏳ 到期时间：{expires_at}",
     ]
-    return "\n".join(lines)
+    return _clamp_telegram_text("\n".join(lines))
 
 
 def _format_currency(amount: int, currency: str) -> str:
@@ -118,21 +141,21 @@ def format_payment_message(data: dict) -> str:
         f"🧾 支付记录：<code>{payment_id}</code>",
     ]
 
-    return "\n".join(lines)
+    return _clamp_telegram_text("\n".join(lines))
 
 
 def format_result_message(original_text: str, action: str, reason: str | None = None) -> str:
     result = "✅ 已通过" if action == "approve" else "❌ 已拒绝"
     text = original_text.strip()
     if action == "reject" and reason:
-        result = f"{result}\n📝 原因：{escape(reason.strip())}"
-    return f"{text}\n\n────────────────────\n{result}"
+        result = f"{result}\n📝 原因：{escape(_truncate_text(reason.strip(), _RESULT_REASON_LIMIT))}"
+    return _clamp_telegram_text(f"{text}\n\n────────────────────\n{result}", is_caption=True)
 
 
 def format_subscription_result_message(data: dict) -> str:
     status = str(data.get("status", "") or "").upper()
     media_type = _format_media_type(str(data.get("type", "") or ""))
-    name = escape(str(data.get("name", "") or "-"))
+    name = escape(_truncate_text(str(data.get("name", "") or "-"), _SUBSCRIPTION_NAME_LIMIT))
     tmdb_id = escape(str(data.get("tmdbId", "") or "-"))
     season = int(data.get("season", 0) or 0)
     reject_reason = escape(str(data.get("rejectReason", "") or "").strip())
@@ -168,18 +191,20 @@ def format_subscription_result_message(data: dict) -> str:
     if status in ("APPROVED", "REJECTED") and reviewed_at != "永不过期":
         lines.append(f"🕒 审核时间：{reviewed_at}")
     if status == "REJECTED" and reject_reason:
-        lines.append(f"📝 拒绝原因：{reject_reason}")
+        lines.append(f"📝 拒绝原因：{_truncate_text(reject_reason, _RESULT_REASON_LIMIT)}")
     if status == "INGESTED" and ingested_at != "永不过期":
         lines.append(f"📥 入库时间：{ingested_at}")
 
-    return "\n".join(lines)
+    return _clamp_telegram_text("\n".join(lines), is_caption=True)
 
 
 def format_bind_success(data: dict) -> str:
     username = escape(str(data.get("username", "") or ""))
-    return (
+    return _clamp_telegram_text(
+        (
         "✅ <b>绑定成功</b>\n\n"
         f"👤 已绑定账号：<b>{username}</b>"
+        )
     )
 
 
@@ -216,7 +241,7 @@ def format_account_info(data: dict) -> str:
         lines.append("")
         lines.append("💡 使用 /redeem <code>兑换码</code> 续期")
 
-    return "\n".join(lines)
+    return _clamp_telegram_text("\n".join(lines))
 
 
 def format_redeem_success(data: dict) -> str:
@@ -224,10 +249,12 @@ def format_redeem_success(data: dict) -> str:
     expires_at = str(data.get("expiresAt", "") or "")
     expires_display = escape(expires_at[:10]) if expires_at else "-"
 
-    return (
+    return _clamp_telegram_text(
+        (
         "🎉 <b>兑换成功</b>\n\n"
         f"📅 续期天数：<b>{days}</b> 天\n"
         f"⏳ 新到期时间：{expires_display}"
+        )
     )
 
 
@@ -300,7 +327,7 @@ def format_ranking_message(data: dict) -> str:
     if not movies and not episodes:
         lines.append("📭 暂无播放数据")
 
-    return "\n".join(lines)
+    return _clamp_telegram_text("\n".join(lines))
 
 
 def format_search_results(
@@ -370,8 +397,8 @@ def format_search_detail(item: dict, selected_season: int | None = None) -> str:
         type_label = "未知"
         tmdb_path = "movie"
 
-    if len(overview) > 300:
-        overview = overview[:300] + "..."
+    if len(overview) > _SEARCH_OVERVIEW_LIMIT:
+        overview = _truncate_text(overview, _SEARCH_OVERVIEW_LIMIT)
 
     lines = [f"📌 <b>{title}</b>"]
     if original_title and original_title != str(item.get("title", "")):
@@ -388,7 +415,7 @@ def format_search_detail(item: dict, selected_season: int | None = None) -> str:
         lines.append("")
         lines.append(escape(overview))
 
-    return "\n".join(lines)
+    return _clamp_telegram_text("\n".join(lines), is_caption=True)
 
 
 def make_movie_detail_keyboard() -> InlineKeyboardMarkup:

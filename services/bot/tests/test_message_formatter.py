@@ -21,7 +21,9 @@ if "telegram" not in sys.modules:
 from app.formatters.message_formatter import (
     format_account_info,
     format_payment_message,
+    format_result_message,
     format_subscription_message,
+    format_subscription_result_message,
 )
 
 
@@ -79,6 +81,46 @@ class MessageFormatterTestCase(unittest.TestCase):
         self.assertIn("已过期", text)
         self.assertIn("/redeem", text)
         self.assertIn("2026-04-15", text)
+
+    def test_format_subscription_message_truncates_long_note_for_caption_limit(self) -> None:
+        text, _ = format_subscription_message(
+            {
+                "id": "sub_123",
+                "type": "TV",
+                "name": "超长剧名" * 80,
+                "userName": "ember-user",
+                "tmdbId": 42,
+                "season": 2,
+                "note": "x" * 2000,
+            }
+        )
+
+        self.assertLessEqual(len(text), 1024)
+        self.assertIn("...", text)
+
+    def test_format_result_message_truncates_long_reason(self) -> None:
+        text = format_result_message("<b>原始审批消息</b>", "reject", "原因" * 400)
+
+        self.assertLessEqual(len(text), 1024)
+        self.assertIn("📝 原因：", text)
+        self.assertIn("...", text)
+
+    def test_format_subscription_result_message_truncates_long_reject_reason(self) -> None:
+        text = format_subscription_result_message(
+            {
+                "status": "REJECTED",
+                "type": "TV",
+                "name": "Test Show",
+                "tmdbId": 42,
+                "season": 1,
+                "rejectReason": "资源重复" * 300,
+                "reviewedAt": "2026-04-15T08:00:00Z",
+            }
+        )
+
+        self.assertLessEqual(len(text), 1024)
+        self.assertIn("已被拒绝", text)
+        self.assertIn("...", text)
 
 
 if __name__ == "__main__":

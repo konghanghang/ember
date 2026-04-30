@@ -3,11 +3,13 @@ package notifier
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
@@ -76,6 +78,7 @@ type BotNotifier struct {
 	client          *http.Client
 	mu              sync.RWMutex
 	lastRefreshedAt time.Time
+	requestSeq      atomic.Uint64
 }
 
 const botNotifierRefreshTTL = 30 * time.Second
@@ -134,6 +137,14 @@ func (n *BotNotifier) IsConfigured() bool {
 	return n.botURL != ""
 }
 
+func notifierEventName(path string) string {
+	event := strings.Trim(path, "/")
+	if event == "" {
+		return "unknown"
+	}
+	return strings.ReplaceAll(event, "/", ".")
+}
+
 func (n *BotNotifier) post(path string, data interface{}) {
 	if !n.IsConfigured() {
 		return
@@ -145,28 +156,42 @@ func (n *BotNotifier) post(path string, data interface{}) {
 
 	body, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("[BotNotifier] 序列化请求失败 endpoint=%s err=%v", path, err)
+		log.Printf("[BotNotifier] 序列化请求失败 endpoint=%s event=%s err=%v", path, notifierEventName(path), err)
 		return
 	}
 
+	requestID := fmt.Sprintf("bot-notify-%d", n.requestSeq.Add(1))
+	payloadSize := len(body)
+	start := time.Now()
+
 	req, err := http.NewRequest("POST", botURL+path, bytes.NewBuffer(body))
 	if err != nil {
-		log.Printf("[BotNotifier] 创建请求失败 endpoint=%s err=%v", path, err)
+		log.Printf(
+			"[BotNotifier] 创建请求失败 endpoint=%s event=%s payloadSize=%d requestId=%s err=%v",
+			path, notifierEventName(path), payloadSize, requestID, err,
+		)
 		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", n.secret)
+	req.Header.Set("X-Request-Id", requestID)
 
 	resp, err := n.client.Do(req)
 	if err != nil {
-		log.Printf("[BotNotifier] 请求发送失败 endpoint=%s err=%v", path, err)
+		log.Printf(
+			"[BotNotifier] 请求发送失败 endpoint=%s event=%s payloadSize=%d requestId=%s latency=%s err=%v",
+			path, notifierEventName(path), payloadSize, requestID, time.Since(start), err,
+		)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[BotNotifier] 请求失败 endpoint=%s status=%d", path, resp.StatusCode)
+		log.Printf(
+			"[BotNotifier] 请求失败 endpoint=%s event=%s payloadSize=%d requestId=%s status=%d latency=%s",
+			path, notifierEventName(path), payloadSize, requestID, resp.StatusCode, time.Since(start),
+		)
 	}
 }
 
