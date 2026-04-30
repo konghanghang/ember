@@ -363,6 +363,7 @@
 - ✅ `services/telegram/errors.go` / `service.go` 补 `ErrTelegramUserNotFound`，`GenerateBindCode` / `Unbind` 不再靠 `"用户不存在"` 字符串
 - ✅ `handlers/telegram.go` 对应路径改为 `errors.Is` 分支；部分 `500` 裸透改走 `httpx.InternalError`
 - ✅ `services/telegram/service.go` 去掉 `Save(&user)` 全字段写入：绑定 Telegram / Telegram 重置密码改为按字段更新
+- ✅ `handlers/telegram_test.go` 补齐 `GenerateBindCode` / `Unbind` / `VerifyBind` / `SubscribeByTelegram` 的错误映射测试，锁死 `400/404/409/500` 语义，避免后续回归
 
 仍未完成：
 

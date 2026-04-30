@@ -428,3 +428,8 @@
   - `SubscriptionsView.vue` APPROVED + `mpError != null` 时显示"重试 MoviePilot"按钮；整剧 APPROVED 显示 `ingestProgress` 进度
   - `MediaGapsView.vue` 状态筛选 / 状态色（`statusMeta`、`episode-chip-dispatch-failed` 红色）/ 排序 / 统计卡 / 分组摘要均覆盖 `DISPATCH_FAILED`；选中工单为 DISPATCH_FAILED 时展示 `lastDispatchError`
 - ✅ **缺集扫描终态用独立 ctx**：`mediaGapScanManager.run` 在调 `FinishAndReleaseHolder` 前新建 `context.WithTimeout(context.Background(), 30s)`，避免扫描业务 ctx 因超时 / cancel 失效后写不进 `media_gap_scans` 终态、留下假 running 行误导排障。新增 sentinel 比对的回归测试。
+
+### 批次 5 第二阶段补口（2026-04-30）
+
+- ✅ `handlers/subscription.go` 的 `DeleteSubscription` 错误分流补齐最小测试：`ErrSubscriptionNotFound -> 404`、`ErrSubscriptionDeleteForbidden / ErrSubscriptionDeleteState -> 400`、未知内部错误 -> `httpx.InternalError`
+- ✅ `handlers/subscription.go` 的 `service` 依赖收口为局部接口，便于做轻量 handler 单测，不再依赖真实 DB 或整条订阅链路装配

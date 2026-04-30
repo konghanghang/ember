@@ -349,6 +349,8 @@
 - ✅ `handlers/user.go` 与 `handlers/auth.go` 对应路径改为 `errors.Is` + `httpx.InternalError`，`500` 不再裸透内部错误
 - ✅ `services/user/create.go` / `admin.go` 改为结构化唯一冲突判断，不再匹配 `"duplicate key value"` 文本
 - ✅ `services/user/profile.go` / `admin.go` 去掉 `Save(&user)` 全字段写入，改按字段 `Updates(map)`；`UpdateProfile` / `UpdateEmail` 的**全字段覆盖风险已收口**，但“是否需要事务”仍留作后续治理
+- ✅ `services/auth/register.go` 把用户名长度 / 用户名字符集 / 用户名已存在 / 邮箱已注册四类注册业务错误改回稳定 sentinel；`RegisterUser` 不再把这些本应返回 `400` 的输入错误误收成 `500`
+- ✅ `handlers/auth_test.go` 新增 `TestIsAuthRegisterBadRequest`，锁死注册链路关键业务错误仍按 `400` 分流
 
 批次 5 本阶段未完成：
 
