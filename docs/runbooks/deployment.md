@@ -40,9 +40,7 @@ cp .env.example .env
 3. 决定数据库迁移策略。
    - 空数据库首次启动：可直接用当前 compose，PostgreSQL 会执行挂载到 `/docker-entrypoint-initdb.d` 的 `infrastructure/docker/initdb/` 子目录；该目录当前同步收口了 baseline 和 baseline 之后的顶层增量 migration。
    - 已有数据库升级：先按 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 手动执行顶层增量 SQL，再启动服务。
-   - 如果当前数据库版本停留在 `v1.2.13` 对应阶段，升级到当前版本前至少要顺序执行：
-     - `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql`
-     - `infrastructure/database/20260418_01_media_gaps.sql`
+   - 如果当前数据库版本停留在 `v1.3.1` 对应阶段，升级到当前版本前至少要从 `infrastructure/database/20260424_01_subscription_resubmission_after_rejection.sql` 开始顺序执行。
 
 4. 拉取镜像并启动。
 

@@ -125,13 +125,14 @@ CREATE TABLE payments (
 --
 
 CREATE TABLE plan_groups (
+    id character varying(25) NOT NULL,
     key character varying(50) NOT NULL,
     name character varying(100) NOT NULL,
-    description character varying(500) DEFAULT ''::character varying NOT NULL,
+    description character varying(255) DEFAULT ''::character varying,
     "isDefault" boolean DEFAULT false NOT NULL,
     "sortOrder" integer DEFAULT 0 NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now() NOT NULL,
-    "updatedAt" timestamp with time zone DEFAULT now() NOT NULL
+    "createdAt" timestamp with time zone DEFAULT now(),
+    "updatedAt" timestamp with time zone DEFAULT now()
 );
 
 
@@ -142,15 +143,13 @@ CREATE TABLE plan_groups (
 CREATE TABLE plans (
     id character varying(25) NOT NULL,
     name character varying(100) NOT NULL,
-    description character varying(500) DEFAULT ''::character varying,
     days bigint NOT NULL,
     price bigint NOT NULL,
-    currency character varying(3) DEFAULT 'usd'::character varying NOT NULL,
+    description character varying(255),
     "isActive" boolean DEFAULT true NOT NULL,
-    "sortOrder" integer DEFAULT 0 NOT NULL,
     "createdAt" timestamp with time zone DEFAULT now(),
     "updatedAt" timestamp with time zone DEFAULT now(),
-    "planGroup" character varying(50) DEFAULT 'DEFAULT'::character varying NOT NULL
+    "planGroup" character varying(50) DEFAULT ''::character varying NOT NULL
 );
 
 
@@ -161,18 +160,18 @@ CREATE TABLE plans (
 CREATE TABLE playback_rankings (
     id character varying(25) NOT NULL,
     period character varying(10) NOT NULL,
-    category character varying(20) NOT NULL,
+    category character varying(10) NOT NULL,
     rank bigint NOT NULL,
-    item_name character varying(500) NOT NULL,
-    play_count bigint NOT NULL,
+    item_name character varying(255) NOT NULL,
+    item_type character varying(20) DEFAULT ''::character varying NOT NULL,
+    item_key character varying(255) NOT NULL,
+    metric_value bigint NOT NULL,
     duration bigint NOT NULL,
-    snapshot_at timestamp with time zone NOT NULL,
+    user_count bigint NOT NULL,
     period_start timestamp with time zone NOT NULL,
     period_end timestamp with time zone NOT NULL,
-    created_at timestamp with time zone DEFAULT now(),
-    batch_id character varying(25) DEFAULT ''::character varying NOT NULL,
-    item_key character varying(128) DEFAULT ''::character varying NOT NULL,
-    item_source_type character varying(32) DEFAULT ''::character varying NOT NULL
+    batch_id character varying(64) NOT NULL,
+    snapshot_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -182,15 +181,16 @@ CREATE TABLE playback_rankings (
 
 CREATE TABLE redemption_codes (
     id character varying(25) NOT NULL,
-    code character varying(20) NOT NULL,
-    "maxUses" bigint DEFAULT 1 NOT NULL,
-    "usedCount" bigint DEFAULT 0 NOT NULL,
+    code character varying(50) NOT NULL,
+    days integer NOT NULL,
+    max_uses integer DEFAULT 1 NOT NULL,
+    "usedCount" integer DEFAULT 0 NOT NULL,
+    "isActive" boolean DEFAULT true NOT NULL,
     "expiresAt" timestamp with time zone,
-    "defaultDays" bigint DEFAULT 30 NOT NULL,
     "createdAt" timestamp with time zone,
     "templateUserId" character varying(25),
-    notes character varying(500) DEFAULT ''::character varying NOT NULL,
-    "registrationPlanGroup" character varying(50)
+    note text DEFAULT ''::text NOT NULL,
+    "registrationPlanGroup" character varying(50) DEFAULT ''::character varying NOT NULL
 );
 
 
@@ -201,9 +201,11 @@ CREATE TABLE redemption_codes (
 CREATE TABLE redemptions (
     id character varying(25) NOT NULL,
     "userId" character varying(25) NOT NULL,
-    code character varying(20) NOT NULL,
-    days bigint NOT NULL,
-    "createdAt" timestamp with time zone
+    code character varying(50) NOT NULL,
+    days integer NOT NULL,
+    "redeemedAt" timestamp with time zone,
+    "oldExpiryDate" timestamp with time zone,
+    "newExpiryDate" timestamp with time zone
 );
 
 
@@ -328,17 +330,17 @@ CREATE TABLE users (
     id character varying(25) NOT NULL,
     username character varying(50) NOT NULL,
     role character varying(10) DEFAULT 'user'::character varying NOT NULL,
-    password text,
     email character varying(255),
-    "embyId" character varying(50),
-    "inviteCode" character varying(20),
-    "expiresAt" timestamp with time zone,
+    password character varying(255) NOT NULL,
+    "embyId" character varying(255),
+    "embyUsername" character varying(255),
+    "expiryDate" timestamp with time zone,
     "isActive" boolean DEFAULT true NOT NULL,
-    "createdAt" timestamp with time zone,
-    "updatedAt" timestamp with time zone,
-    "embyDisabled" boolean DEFAULT false NOT NULL,
+    "inviteCode" character varying(50),
+    "planGroup" character varying(50),
     "telegramId" bigint,
-    "planGroup" character varying(50)
+    "createdAt" timestamp with time zone,
+    "updatedAt" timestamp with time zone
 );
 
 
@@ -383,11 +385,19 @@ ALTER TABLE ONLY payments
 
 
 --
+-- Name: plan_groups plan_groups_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY plan_groups
+    ADD CONSTRAINT plan_groups_key_key UNIQUE (key);
+
+
+--
 -- Name: plan_groups plan_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY plan_groups
-    ADD CONSTRAINT plan_groups_pkey PRIMARY KEY (key);
+    ADD CONSTRAINT plan_groups_pkey PRIMARY KEY (id);
 
 
 --
@@ -487,24 +497,10 @@ ALTER TABLE ONLY users
 
 
 --
--- Name: idx_client_blacklists_normalized_client_name; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_email_verifications_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_client_blacklists_normalized_client_name ON client_blacklists USING btree ("normalizedClientName");
-
-
---
--- Name: idx_device_actions_device_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_device_actions_device_id ON device_actions USING btree ("deviceId");
-
-
---
--- Name: idx_device_actions_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_device_actions_user_id ON device_actions USING btree ("userId");
+CREATE INDEX idx_email_verifications_created_at ON email_verifications USING btree ("createdAt");
 
 
 --
@@ -515,45 +511,10 @@ CREATE INDEX idx_email_verifications_email ON email_verifications USING btree (e
 
 
 --
--- Name: idx_email_verifications_ip; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_email_verifications_expires_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_email_verifications_ip ON email_verifications USING btree (ip);
-
-
---
--- Name: idx_email_verifications_type; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_email_verifications_type ON email_verifications USING btree (type);
-
-
---
--- Name: idx_media_quality_caches_expires_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_media_quality_caches_expires_at ON media_quality_caches USING btree ("expiresAt");
-
-
---
--- Name: idx_media_quality_caches_library_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_media_quality_caches_library_id ON media_quality_caches USING btree ("libraryId");
-
-
---
--- Name: idx_payments_expires_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_payments_expires_at ON payments USING btree ("expiresAt");
-
-
---
--- Name: idx_payments_plan_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_payments_plan_id ON payments USING btree ("planId");
+CREATE INDEX idx_email_verifications_expires_at ON email_verifications USING btree ("expiresAt");
 
 
 --
@@ -564,38 +525,10 @@ CREATE UNIQUE INDEX idx_payments_stripe_session ON payments USING btree ("stripe
 
 
 --
--- Name: idx_payments_stripe_session_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_plans_is_active; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_payments_stripe_session_id ON payments USING btree ("stripeSessionId");
-
-
---
--- Name: idx_payments_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_payments_user_id ON payments USING btree ("userId");
-
-
---
--- Name: idx_plan_groups_is_default; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_plan_groups_is_default ON plan_groups USING btree ("isDefault");
-
-
---
--- Name: idx_plan_groups_sort_order; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_plan_groups_sort_order ON plan_groups USING btree ("sortOrder");
-
-
---
--- Name: idx_plans_active_sort; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_plans_active_sort ON plans USING btree ("isActive", "sortOrder");
+CREATE INDEX idx_plans_is_active ON plans USING btree ("isActive");
 
 
 --

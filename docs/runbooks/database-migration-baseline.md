@@ -6,12 +6,11 @@
 
 ## 当前状态
 
-首个 baseline 已于 `2026-04-15` 落地：
+当前最近一轮 baseline 已于 `2026-04-22` 落地；首轮 baseline 信息保留在 archive 作为追溯：
 
-- 基线文件：`infrastructure/database/20260415_00_schema_baseline.sql`
-- 历史归档目录：`infrastructure/database/archive/pre-20260415/`
-- 验证方式：在远端临时库 `ember_baseline_verify_20260415` 完整回灌 baseline
-- 与源库 schema 的有意差异：补齐 `idx_ranking_lookup` 与 `uq_redemptions_user_code`
+- 基线文件：`infrastructure/database/20260422_00_schema_baseline.sql`
+- 历史归档目录：`infrastructure/database/archive/pre-20260422/`
+- 吸收范围：旧 baseline `20260415_00_schema_baseline.sql` + `20260416_01_subscription_status_and_review_fields.sql` + `20260418_01_media_gaps.sql`
 - deterministic seed：5 条默认设置 + 默认套餐分组 `DEFAULT`
 
 后续如果再次做 baseline，起点应是“当前顶层 baseline + baseline 之后新增的顶层 migration”，不要再把 `archive/` 当成现行执行链路。
@@ -37,9 +36,9 @@
 
 先明确一份截止文件，例如：
 
-- 截止 migration：`20260414_01_add_redemption_code_registration_plan_group.sql`
-- 目标 baseline：`20260415_00_schema_baseline.sql`
-- 目标归档目录：`infrastructure/database/archive/pre-20260415/`
+- 截止 migration：`20260418_01_media_gaps.sql`
+- 目标 baseline：`20260422_00_schema_baseline.sql`
+- 目标归档目录：`infrastructure/database/archive/pre-20260422/`
 
 截点选择标准：
 
@@ -93,7 +92,7 @@ done < /tmp/ember-migrations-cutoff.txt
 docker compose exec -T postgres \
   pg_dump -U postgres -d ember_baseline_source \
   --schema-only --no-owner --no-privileges \
-  > ../database/20260415_00_schema_baseline.sql
+  > ../database/20260422_00_schema_baseline.sql
 ```
 
 这一步只会导出 schema，不会带业务数据。这样做是对的，因为 baseline 不应该把线上脏数据、业务记录或环境特定配置一起打进去。
@@ -146,7 +145,7 @@ docker compose exec -T postgres dropdb --if-exists -U postgres ember_baseline_ve
 docker compose exec -T postgres createdb -U postgres ember_baseline_verify
 docker compose exec -T postgres \
   psql -v ON_ERROR_STOP=1 -U postgres -d ember_baseline_verify \
-  -f /docker-entrypoint-initdb.d/20260415_00_schema_baseline.sql
+  -f /docker-entrypoint-initdb.d/20260422_00_schema_baseline.sql
 ```
 
 检查表、索引、约束和 deterministic seed 是否完整。
@@ -192,14 +191,18 @@ diff -u /tmp/ember-baseline-source-schema.sql /tmp/ember-baseline-verify-schema.
 
 ```text
 infrastructure/database/
-├─ 20260415_00_schema_baseline.sql
-├─ 20260416_01_xxx.sql
+├─ 20260422_00_schema_baseline.sql
+├─ 20260424_01_xxx.sql
 ├─ 20260420_01_xxx.sql
 └─ archive/
-   └─ pre-20260415/
-      ├─ 20260215_01_create_playback_rankings.sql
-      ├─ 20260222_01_add_email_verification.sql
-      └─ ...
+   ├─ pre-20260415/
+   │  ├─ 20260215_01_create_playback_rankings.sql
+   │  ├─ 20260222_01_add_email_verification.sql
+   │  └─ ...
+   └─ pre-20260422/
+      ├─ 20260415_00_schema_baseline.sql
+      ├─ 20260416_01_subscription_status_and_review_fields.sql
+      └─ 20260418_01_media_gaps.sql
 ```
 
 归档时遵守下面规则：

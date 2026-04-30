@@ -5,8 +5,8 @@
 当前规则很直接：
 
 - `infrastructure/database/` 顶层文件是现行可执行迁移资产
-- 当前顶层已收口为 `20260415_00_schema_baseline.sql` + 后续增量迁移
-- `archive/pre-20260415/` 仅保留已被 baseline 完整覆盖的历史迁移
+- 当前顶层已收口为 `20260422_00_schema_baseline.sql` + 后续增量迁移
+- `archive/pre-20260415/` 与 `archive/pre-20260422/` 仅保留已被 baseline 完整覆盖的历史迁移
 - 已有数据库升级只执行 baseline 之后新增的顶层 SQL
 
 ## 当前目录职责
@@ -34,12 +34,12 @@ cd services/api && go run ./cmd/migrate
 
 如果必须手工执行 SQL，也必须执行：
 
-1. `20260415_00_schema_baseline.sql`
+1. `20260422_00_schema_baseline.sql`
 2. baseline 之后的全部顶层增量 migration（见下节完整列表）
 
 只执行 baseline 本身已经不够，API 启动时会因为缺少后续表 / 列 / 索引被 `VerifySchema` 拒绝。
 
-`20260415_00_schema_baseline.sql` 当前包含：
+当前现行 baseline `20260422_00_schema_baseline.sql` 包含：
 
 - 当前完整 schema
 - 5 条 deterministic 默认设置
@@ -47,6 +47,7 @@ cd services/api && go run ./cmd/migrate
 - 与历史迁移定义对齐但线上源库缺失的两条索引：
   - `idx_ranking_lookup`
   - `uq_redemptions_user_code`
+- `2026-04-22`（`v1.3.1`）前已上线的订阅审核字段与 `media_gaps` 表结构
 
 ### 2. 生产 / 已有数据库升级
 
@@ -54,8 +55,6 @@ cd services/api && go run ./cmd/migrate
 
 当前顶层 baseline 之后的增量 migration 为：
 
-- `20260416_01_subscription_status_and_review_fields.sql`
-- `20260418_01_media_gaps.sql`
 - `20260424_01_subscription_resubmission_after_rejection.sql`
 - `20260425_01_baseline_normalization_indexes.sql`
 - `20260425_02_telegram_bind_codes_user_unique.sql`
@@ -78,7 +77,7 @@ cd services/api && go run ./cmd/migrate
 - `20260427_01_bot_runtime_locks.sql`
 - `20260427_02_media_gaps_ignore_reason_code.sql`
 
-如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
+如果当前数据库还停留在 `v1.3.1` 对应阶段，升级到当前版本前需要从 `20260424_01_subscription_resubmission_after_rejection.sql` 开始顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
 
 ### 3. Docker 首次初始化（仅首次）
 
@@ -108,6 +107,7 @@ cp infrastructure/database/<NEW_SQL>.sql infrastructure/docker/initdb/
 
 ```text
 infrastructure/database/archive/pre-20260415/
+infrastructure/database/archive/pre-20260422/
 ```
 
 这些文件只用于追溯，不再属于现行执行链路。
@@ -132,7 +132,7 @@ infrastructure/database/archive/pre-20260415/
 
 ## Baseline 收口规则
 
-首个 baseline 已于 `2026-04-15` 落地。当前目录契约如下：
+当前目录已经过两轮 baseline 收口，现行执行链路如下：
 
 - 顶层：保留当前 baseline 和 baseline 之后仍需执行的增量迁移
 - `archive/`：只保留已被 baseline 完整覆盖的历史迁移，供追溯使用
@@ -142,14 +142,18 @@ infrastructure/database/archive/pre-20260415/
 ```text
 infrastructure/database/
 ├─ README.md
-├─ 20260415_00_schema_baseline.sql
-├─ 20260416_01_xxx.sql
-├─ 20260420_01_xxx.sql
+├─ 20260422_00_schema_baseline.sql
+├─ 20260424_01_xxx.sql
+├─ 20260426_01_xxx.sql
 └─ archive/
-   └─ pre-20260415/
-      ├─ 20260215_01_create_playback_rankings.sql
-      ├─ 20260222_01_add_email_verification.sql
-      └─ ...
+   ├─ pre-20260415/
+   │  ├─ 20260215_01_create_playback_rankings.sql
+   │  ├─ 20260222_01_add_email_verification.sql
+   │  └─ ...
+   └─ pre-20260422/
+      ├─ 20260415_00_schema_baseline.sql
+      ├─ 20260416_01_subscription_status_and_review_fields.sql
+      └─ 20260418_01_media_gaps.sql
 ```
 
 边界约束：

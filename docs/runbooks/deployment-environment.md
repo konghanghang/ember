@@ -101,7 +101,7 @@
 `infrastructure/docker/docker-compose.yml` 把 `infrastructure/docker/initdb/` 子目录挂到 PostgreSQL 容器的 `/docker-entrypoint-initdb.d`：
 
 - 仅当数据卷为空时由 PG 镜像自动执行一次
-- 当前包含顶层 baseline `20260415_00_schema_baseline.sql` 与之后的增量 migration
+- 当前包含顶层 baseline `20260422_00_schema_baseline.sql` 与之后的增量 migration
 - 不再挂载 `infrastructure/database/` 顶层目录，避免 README / archive / 临时 SQL 被误执行
 - `infrastructure/database/` 仍是 SQL migration 真相目录，新增顶层 SQL 必须同步到 `docker/initdb/`
 

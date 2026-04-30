@@ -1,6 +1,6 @@
 -- Backfill baseline normalization indexes for environments upgraded from pre-baseline migrations.
 --
--- baseline `20260415_00_schema_baseline.sql` declared two indexes that were missing
+-- baseline `20260422_00_schema_baseline.sql` still carries two historical indexes that some upgraded databases may miss
 -- from the legacy production source database (the dump was made before the model
 -- definitions were tightened):
 --
