@@ -20,7 +20,8 @@
   - 例如：[用户侧媒体库入口收口方案](./plan/media-subscription/library-entry-consolidation.md)
 - `bot-telegram/`：Telegram 绑定、Bot 菜单、搜索订阅、通知、Polling
 - `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板、后台创建用户、后台组件基建收口、后台 UI 一致性收口
-- `architecture/`：设置中心、邮箱鉴权边界等结构性方案
+- `architecture/`：设置中心、邮箱鉴权边界、schema 与部署基线等结构性方案
+  - 例如：[Schema 与部署基线收口方案](./plan/architecture/schema-deployment-and-baseline-cleanup.md)
 
 `report/` 用于保存总结、复盘和历史测试报告，例如：
 
