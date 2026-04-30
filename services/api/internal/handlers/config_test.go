@@ -183,6 +183,7 @@ func TestConfigHandlerUpdateConfigMapsErrors(t *testing.T) {
 		{name: "not editable", err: configpkg.ErrConfigNotEditable, statusCode: http.StatusBadRequest},
 		{name: "value required", err: configpkg.ErrConfigValueRequired, statusCode: http.StatusBadRequest},
 		{name: "encryption key missing", err: configpkg.ErrConfigEncryptionKeyMissing, statusCode: http.StatusBadRequest},
+		{name: "validation", err: configpkg.ErrConfigValidation, statusCode: http.StatusBadRequest},
 	}
 
 	for _, tc := range testCases {
@@ -205,6 +206,41 @@ func TestConfigHandlerUpdateConfigMapsErrors(t *testing.T) {
 				t.Fatalf("expected status %d, got %d", tc.statusCode, recorder.Code)
 			}
 		})
+	}
+}
+
+func TestConfigHandlerUpdateConfigUnsupportedPlaceholder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &ConfigHandler{
+		service: &stubConfigService{
+			updateFn: func(key string, req configpkg.UpdateConfigRequest, updatedByUserID string) (*configpkg.ConfigItem, error) {
+				return nil, errors.Join(
+					configpkg.ErrConfigValidation,
+					errors.New("欢迎语模板包含不支持的占位符 {groupLink}，仅支持 {names} 和 {notifyGroupLink}"),
+				)
+			},
+		},
+	}
+
+	body := []byte(`{"value":"欢迎 {names}\n链接 {groupLink}"}`)
+	ctx, recorder := newTestConfigContext(http.MethodPatch, "/api/v1/admin/configs/telegram_welcome_message_template", body)
+	ctx.Params = gin.Params{{Key: "key", Value: "telegram_welcome_message_template"}}
+
+	handler.UpdateConfig(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Error == "" {
+		t.Fatal("expected validation error message to be preserved")
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
 
 type registerPreparation struct {
@@ -68,10 +70,10 @@ func (s *AuthService) validateRegisterRequest(req *RegisterUserRequest) error {
 	req.EmailCode = strings.TrimSpace(req.EmailCode)
 	req.Code = strings.TrimSpace(req.Code)
 	if len(req.Username) < 3 || len(req.Username) > 50 {
-		return errors.New("用户名长度必须为 3-50 位")
+		return userpkg.ErrUsernameLengthInvalid
 	}
 	if !usernamePattern.MatchString(req.Username) {
-		return errors.New("用户名只能包含字母和数字")
+		return userpkg.ErrUsernameCharsetInvalid
 	}
 	return nil
 }
@@ -118,13 +120,13 @@ func (s *AuthService) ensureRegisterUserUnique(req *RegisterUserRequest) error {
 	var existingUser models.User
 	result := db.DB.Where("lower(username) = ?", strings.ToLower(req.Username)).First(&existingUser)
 	if result.Error == nil {
-		return errors.New("用户名已存在")
+		return userpkg.ErrUsernameAlreadyExists
 	}
 
 	var existingEmail models.User
 	result = db.DB.Where("lower(email) = ?", strings.ToLower(req.Email)).First(&existingEmail)
 	if result.Error == nil {
-		return errors.New("邮箱已被注册")
+		return emailpkg.ErrEmailAlreadyRegistered
 	}
 
 	return nil

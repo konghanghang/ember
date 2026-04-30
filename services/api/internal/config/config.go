@@ -79,6 +79,38 @@ const (
 const defaultCronTimezone = "Asia/Shanghai"
 const defaultTelegramUpdateMode = "webhook"
 
+type configValidationError struct {
+	cause error
+}
+
+func (e *configValidationError) Error() string {
+	if e == nil || e.cause == nil {
+		return ErrConfigValidation.Error()
+	}
+	return e.cause.Error()
+}
+
+func (e *configValidationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func (e *configValidationError) Is(target error) bool {
+	return target == ErrConfigValidation
+}
+
+func wrapConfigValidationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrConfigValidation) {
+		return err
+	}
+	return &configValidationError{cause: err}
+}
+
 const defaultTelegramWelcomeMessageTemplate = `👋 欢迎 <b>{names}</b> 加入！
 
 📢 入库通知群组：{notifyGroupLink}
@@ -346,7 +378,7 @@ func (s *ConfigService) Update(key string, req UpdateConfigRequest, updatedByUse
 
 	if def.Validate != nil {
 		if err := def.Validate(value); err != nil {
-			return nil, err
+			return nil, wrapConfigValidationError(err)
 		}
 	}
 

@@ -3,7 +3,6 @@ package handlers
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
@@ -53,7 +52,11 @@ func (h *ConfigHandler) UpdateConfig(c *gin.Context) {
 		switch {
 		case errors.Is(err, configpkg.ErrConfigNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case isConfigUpdateBadRequest(err):
+		case errors.Is(err, configpkg.ErrConfigValidation),
+			errors.Is(err, configpkg.ErrConfigNotEditable),
+			errors.Is(err, configpkg.ErrConfigValueRequired),
+			errors.Is(err, configpkg.ErrConfigEncryptionKeyMissing),
+			errors.Is(err, configpkg.ErrPaymentMethodSettingInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)
@@ -79,51 +82,4 @@ func (h *ConfigHandler) TestConfigGroup(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
-}
-
-func isConfigUpdateBadRequest(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	switch {
-	case errors.Is(err, configpkg.ErrConfigNotEditable),
-		errors.Is(err, configpkg.ErrConfigValueRequired),
-		errors.Is(err, configpkg.ErrConfigEncryptionKeyMissing),
-		errors.Is(err, configpkg.ErrPaymentMethodSettingInvalid):
-		return true
-	}
-
-	message := strings.TrimSpace(err.Error())
-	if message == "" {
-		return false
-	}
-
-	if strings.HasPrefix(message, "无效的值，必须为 ") ||
-		strings.HasPrefix(message, "数值必须在 ") ||
-		strings.HasPrefix(message, "请输入有效的") ||
-		strings.HasPrefix(message, "账号资源入口 ") ||
-		strings.HasPrefix(message, "第 ") {
-		return true
-	}
-
-	switch message {
-	case "无效的布尔值，必须为 true 或 false",
-		"欢迎语模板必须包含 {names} 占位符",
-		"Telegram 管理员 Chat ID 不能为空",
-		"Telegram 管理员 Chat ID 无效",
-		"Telegram 群组 Chat ID 无效",
-		"cron 表达式不能为空",
-		"cron 表达式无效",
-		"时区不能为空",
-		"时区无效",
-		"发件人格式无效",
-		"控制台账号资源入口必须是 JSON 数组",
-		"Turnstile Site Key 不能包含空白字符",
-		"请输入有效的主机名",
-		"主机名不支持端口":
-		return true
-	default:
-		return false
-	}
 }

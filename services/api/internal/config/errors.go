@@ -10,4 +10,5 @@ var (
 	ErrConfigGroupUnsupported       = errors.New("不支持的配置分组测试")
 	ErrConfigSensitiveReadForbidden = errors.New("敏感配置项不支持明文读取")
 	ErrPaymentMethodSettingInvalid  = errors.New("支付方式配置无效")
+	ErrConfigValidation             = errors.New("配置校验失败")
 )
