@@ -162,9 +162,12 @@ type OperationResult struct {
 ```
 
 **适用接口**：
-- `PUT /admin/users/:id/extend` → `{ "success": true }`
-- `DELETE /admin/users/:id` → `{ "success": true }`
-- `POST /admin/cron/check-expired` → `{ "success": true, "disabledCount": 3 }`
+- `POST /api/v1/cron/check-expired` → `{ "success": true, "disabledCount": 3 }`
+- 某些 webhook / 后台批处理接口 → `{ "success": true, "message": "..." }`
+
+说明：
+- 管理员用户接口不应被机械归入这一类。当前 `PUT /api/v1/admin/users/:id/extend` / `toggle` 返回更新后的用户对象，`DELETE /api/v1/admin/users/:id` 返回 `{ "message": "删除成功" }`。
+- 不要因为历史文档样例而默认新增接口必须返回 `success=true`。
 
 ---
 
@@ -185,7 +188,7 @@ type OperationResult struct {
 | 401 | 未认证 | `{"error": "Token 无效或已过期"}` |
 | 403 | 权限不足 | `{"error": "需要管理员权限"}` |
 | 404 | 资源不存在 | `{"error": "用户不存在"}` |
-| 500 | 服务器错误 | `{"error": "数据库连接失败"}` |
+| 500 | 内部错误 / 上游不可用 | `{"error": "上游服务暂不可用"}` |
 
 **Go 错误处理示例**：
 ```go
@@ -194,6 +197,31 @@ c.JSON(http.StatusBadRequest, gin.H{
     "error": "用户名格式错误",
 })
 ```
+
+### 设置中心配置对象补充语义
+
+`GET /api/v1/admin/configs` / `GET /api/v1/internal/settings/:key` 返回的 `ConfigItem` 额外约定如下：
+
+```json
+{
+  "key": "EMBY_API_KEY",
+  "source": "database",
+  "hasValue": true,
+  "maskedValue": "********abcd"
+}
+```
+
+字段语义：
+
+- `source`: 当前值来源，取值如 `database` / `env` / `default` / `unset`
+- `hasValue`: 当前配置是否有有效值；对敏感项即使不回显明文，也必须能看出“是否已设置”
+- `maskedValue`: 仅敏感项返回，用于提示“已有值但不回显明文”；前端只用于展示，不可反解真实值
+
+约束：
+
+- 敏感项默认不回显 `value`
+- 非敏感项可直接返回 `value`
+- handler 不要自己拼“已设置/未设置”文案，前端应基于 `source/hasValue/maskedValue` 渲染
 
 ---
 

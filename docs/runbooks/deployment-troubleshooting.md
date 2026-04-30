@@ -52,11 +52,11 @@ curl http://localhost:8080/health
 优先看 API 日志里是否出现：
 
 - “跳过 admin 初始化”
-- `ADMIN_USERNAME` / `ADMIN_PASSWORD` 缺失
+- “已生成临时口令，请立即登录并修改密码”
 
 结论很直接：
 
-- `ADMIN_PASSWORD` 没配：不会创建管理员
+- `ADMIN_PASSWORD` 没配：仍会创建管理员，但会生成临时口令并要求首次改密
 - 数据库里已有 admin：不会重复创建
 
 ### 4. Web 能打开，但页面请求 API 失败

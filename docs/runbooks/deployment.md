@@ -18,19 +18,27 @@ cp .env.example .env
 ```
 
 2. 按 [部署环境与配置](./deployment-environment.md) 补齐必填项，尤其是：
+   - `POSTGRES_USER`
+   - `POSTGRES_PASSWORD`
    - `DATABASE_URL`
    - `JWT_SECRET`
    - `CONFIG_ENCRYPTION_KEY`
-   - `ADMIN_PASSWORD`
    - `EMBY_URL`
    - `EMBY_API_KEY`
    - `INTERNAL_API_SECRET`
-   - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_WEBHOOK_SECRET`
-   - `WEBHOOK_URL`
+    - `TELEGRAM_BOT_TOKEN`
+    - `TELEGRAM_WEBHOOK_SECRET`
+    - `WEBHOOK_URL`
+   - `EMBER_API_IMAGE`
+   - `EMBER_WEB_IMAGE`
+   - `EMBER_BOT_IMAGE`
+
+   说明：
+   - `ADMIN_PASSWORD` 不再是 compose 解析期必填；不填时 API 会在首启时生成临时管理员口令并要求首次登录改密。
+   - `EMBY_URL` / `EMBY_API_KEY` 等媒体能力配置已托管到设置中心，若不准备启用相关能力，可以在首启后再补。
 
 3. 决定数据库迁移策略。
-   - 空数据库首次启动：可直接用当前 compose，PostgreSQL 会执行 `infrastructure/database/` 顶层 baseline SQL 和 baseline 之后的顶层增量 migration。
+   - 空数据库首次启动：可直接用当前 compose，PostgreSQL 会执行挂载到 `/docker-entrypoint-initdb.d` 的 `infrastructure/docker/initdb/` 子目录；该目录当前同步收口了 baseline 和 baseline 之后的顶层增量 migration。
    - 已有数据库升级：先按 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 手动执行顶层增量 SQL，再启动服务。
    - 如果当前数据库版本停留在 `v1.2.13` 对应阶段，升级到当前版本前至少要顺序执行：
      - `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql`
@@ -57,11 +65,19 @@ curl http://localhost:8000/health
 
 ### 模式 A：预构建镜像
 
-这是默认模式，也是当前推荐路径。`docker-compose.yml` 已经指向：
+这是默认模式，也是当前推荐路径。`docker-compose.yml` 现在要求通过环境变量显式指定固定镜像：
 
-- `ghcr.io/konghanghang/ember-api:latest`
-- `ghcr.io/konghanghang/ember-web:latest`
-- `ghcr.io/konghanghang/ember-bot:latest`
+- `EMBER_API_IMAGE`
+- `EMBER_WEB_IMAGE`
+- `EMBER_BOT_IMAGE`
+
+推荐写法示例：
+
+```env
+EMBER_API_IMAGE=ghcr.io/konghanghang/ember-api:v2026.04.30
+EMBER_WEB_IMAGE=ghcr.io/konghanghang/ember-web:v2026.04.30
+EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:v2026.04.30
+```
 
 适用场景：
 
@@ -91,7 +107,7 @@ docker compose up -d
 - `GET http://localhost:8000/health` 返回 200
 - `http://localhost` 可打开前端页面
 - API 日志中没有持续刷屏的数据库连接错误
-- 若开启管理员初始化，日志中没有“跳过 admin 初始化”的警告
+- 若首次环境没有现成 admin，日志中能看到“默认管理员已创建”或“已生成临时口令并要求首次改密”的提示
 
 ## 不在本文展开的内容
 

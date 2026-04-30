@@ -169,12 +169,14 @@ go run ./cmd/migrate
 API 启动时会检查是否已有 `role=admin` 的用户：
 
 - 已存在：admin 初始化自动跳过
-- 不存在：读取 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建首个管理员
+- 不存在：读取 `ADMIN_USERNAME` 与 `ADMIN_PASSWORD`
+  - `ADMIN_PASSWORD` 已设置：用该密码创建首个管理员
+  - `ADMIN_PASSWORD` 未设置：生成随机临时口令，写日志提示，并将该管理员标记为 `passwordResetRequired=true`
 
 注意：
 
-- `ADMIN_USERNAME` 不填时默认 `admin`
-- `ADMIN_PASSWORD` 不填时会跳过初始化，并在日志中给出警告
+- `ADMIN_USERNAME` 在 compose 默认会回退为 `admin`
+- `ADMIN_PASSWORD` 现在不是“不填就跳过初始化”，而是“不填则生成临时口令并要求首次登录立即改密”
 - 该流程是幂等的，多次重启不会重复创建管理员
 
 ## 启用可选功能前的最低要求
