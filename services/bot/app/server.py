@@ -106,6 +106,13 @@ POLLING_LOCK_LEASE_SECONDS = 90
 POLLING_LOCK_RENEW_INTERVAL_SECONDS = 30
 WEBHOOK_REGISTER_MAX_ATTEMPTS = 6
 
+_webhook_registration_state = {
+    "mode": TELEGRAM_UPDATE_MODE,
+    "registered": TELEGRAM_UPDATE_MODE != TELEGRAM_UPDATE_MODE_WEBHOOK,
+    "attempts": 0,
+    "lastError": "",
+}
+
 tg_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 
@@ -132,16 +139,25 @@ async def register_webhook_with_retry(stop_event: asyncio.Event) -> bool:
     webhook_url = f"{WEBHOOK_URL}/telegram/webhook"
     retry_delay = 2
     attempt = 1
+    _webhook_registration_state["mode"] = TELEGRAM_UPDATE_MODE
+    _webhook_registration_state["registered"] = False
+    _webhook_registration_state["attempts"] = 0
+    _webhook_registration_state["lastError"] = ""
 
     while not stop_event.is_set():
         try:
+            _webhook_registration_state["attempts"] = attempt
             await tg_app.bot.set_webhook(
                 url=webhook_url,
                 secret_token=TELEGRAM_WEBHOOK_SECRET,
             )
+            _webhook_registration_state["registered"] = True
+            _webhook_registration_state["lastError"] = ""
             logger.info("Telegram webhook 已注册: %s", webhook_url)
             return True
         except Exception as err:
+            _webhook_registration_state["registered"] = False
+            _webhook_registration_state["lastError"] = str(err)
             logger.warning(
                 "Telegram webhook 注册失败，%s 秒后重试 attempt=%d/%d error=%s",
                 retry_delay,
@@ -297,6 +313,9 @@ async def lifespan(app: FastAPI):
             stop_event = asyncio.Event()
             webhook_task = asyncio.create_task(register_webhook_with_retry(stop_event))
         else:
+            _webhook_registration_state["registered"] = True
+            _webhook_registration_state["attempts"] = 0
+            _webhook_registration_state["lastError"] = ""
             logger.info("Telegram Bot 服务已启动，更新模式=polling，内部通知入口保持可用")
         yield
     finally:
@@ -328,7 +347,19 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    if TELEGRAM_UPDATE_MODE == TELEGRAM_UPDATE_MODE_WEBHOOK and not _webhook_registration_state["registered"]:
+        return {
+            "status": "degraded",
+            "telegramUpdateMode": TELEGRAM_UPDATE_MODE,
+            "webhookRegistered": False,
+            "webhookRegisterAttempts": _webhook_registration_state["attempts"],
+            "lastWebhookRegisterError": _webhook_registration_state["lastError"],
+        }
+    return {
+        "status": "ok",
+        "telegramUpdateMode": TELEGRAM_UPDATE_MODE,
+        "webhookRegistered": bool(_webhook_registration_state["registered"]),
+    }
 
 
 @app.post("/telegram/webhook")

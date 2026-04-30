@@ -240,3 +240,27 @@ class ServerWebhookRetryTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result)
         self.assertEqual(warning_mock.call_count, server.WEBHOOK_REGISTER_MAX_ATTEMPTS)
         error_mock.assert_called_once()
+
+    async def test_health_returns_degraded_when_webhook_not_registered(self) -> None:
+        server._webhook_registration_state["mode"] = server.TELEGRAM_UPDATE_MODE_WEBHOOK
+        server._webhook_registration_state["registered"] = False
+        server._webhook_registration_state["attempts"] = 6
+        server._webhook_registration_state["lastError"] = "network down"
+
+        payload = await server.health()
+
+        self.assertEqual(payload["status"], "degraded")
+        self.assertFalse(payload["webhookRegistered"])
+        self.assertEqual(payload["webhookRegisterAttempts"], 6)
+        self.assertEqual(payload["lastWebhookRegisterError"], "network down")
+
+    async def test_health_returns_ok_when_webhook_registered(self) -> None:
+        server._webhook_registration_state["mode"] = server.TELEGRAM_UPDATE_MODE_WEBHOOK
+        server._webhook_registration_state["registered"] = True
+        server._webhook_registration_state["attempts"] = 1
+        server._webhook_registration_state["lastError"] = ""
+
+        payload = await server.health()
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["webhookRegistered"])

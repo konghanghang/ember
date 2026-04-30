@@ -23,12 +23,12 @@
 剩余项已缩窄为：
 
 - 搜索会话 `message_id` 仍是进程内 TTL 缓存；当前已明确这是私聊交互态边界，而不是需要继续持久化的缺陷
-- 更细颗粒度观察性仍可继续补，例如 webhook 注册长期失败的主动告警 / metric，而不只是 ERROR 日志
+- 更细颗粒度观察性仍可继续补，例如外部 metric/告警平台接入；当前主链路已通过 `/health` 暴露 webhook 未注册状态
 
 ## 归档判断
 
 - 当前暂不归档。
-- 原因：虽然主干已经稳定，但 webhook 注册失败目前只收口到有限重试 + 明确 ERROR 日志，尚未补充更主动的告警/metric。
+- 原因：虽然主干已经稳定，剩余事项已主要退化为“是否接外部 metric/告警平台”的增强项；在是否把这类增强视作归档阻塞项上，还需要一次明确判断。
 
 ## 背景
 
@@ -112,6 +112,7 @@
   - `pending_reject_requests` 已落到 `bot_pending_reject_requests` 表，不再依赖进程内 dict
   - 审批消息 `messageId` 已服务端持久化到 `bot_pending_reject_requests`，搜索交互 `message_id` 仍只保留在 `SearchSession` 10 分钟 TTL 缓存，用于校验“用户是否在操作最新一条搜索结果消息”
   - webhook 注册当前采用有限重试策略：最多重试 `6` 次，失败后记 `ERROR` 并停止继续重试，不再无限指数退避悬空
+  - `/health` 在 `webhook` 模式下会暴露 webhook 注册状态；若达到最大重试次数仍未注册成功，健康状态返回 `degraded` 并附最后错误与重试次数
 - 现有限制：
   - 线上 `AUTO_MIGRATE=false`
   - Bot 仅 webhook 模式可多实例（lifespan 持有 PTB Application 单例时不严谨）
