@@ -240,7 +240,15 @@ func (h *SubscriptionHandler) DeleteSubscription(c *gin.Context) {
 
 	// 删除订阅
 	if err := h.service.DeleteSubscription(subscriptionID, userID.(string)); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionDeleteForbidden),
+			errors.Is(err, subscriptionpkg.ErrSubscriptionDeleteState):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 

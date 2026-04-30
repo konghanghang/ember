@@ -81,7 +81,7 @@ func (s *AuthService) verifyRegisterEmailCode(req *RegisterUserRequest) error {
 		return nil
 	}
 	if req.EmailCode == "" {
-		return errors.New("请先获取邮箱验证码")
+		return ErrRegisterEmailCodeRequired
 	}
 	return s.emailService.CheckCode(req.Email, req.EmailCode, models.VerificationTypeRegister)
 }
@@ -98,7 +98,7 @@ func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPrepar
 	}
 
 	if req.Code == "" {
-		return nil, errors.New("当前为邀请注册模式，请提供兑换码")
+		return nil, ErrRegisterInviteCodeRequired
 	}
 
 	redemptionCode, err := s.validateInviteRegistrationCode(req.Code)

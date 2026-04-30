@@ -148,10 +148,13 @@ func (h *PaymentHandler) CreatePlanGroup(c *gin.Context) {
 	group, err := h.service.CreatePlanGroup(&req)
 	if err != nil {
 		switch {
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid):
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
+			errors.Is(err, paymentpkg.ErrPlanGroupNameRequired),
+			errors.Is(err, paymentpkg.ErrPlanGroupKeyExists),
+			errors.Is(err, paymentpkg.ErrDefaultPlanGroupRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -169,12 +172,15 @@ func (h *PaymentHandler) UpdatePlanGroup(c *gin.Context) {
 	group, err := h.service.UpdatePlanGroup(key, &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid):
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
+			errors.Is(err, paymentpkg.ErrPlanGroupNameRequired),
+			errors.Is(err, paymentpkg.ErrPlanGroupKeyExists),
+			errors.Is(err, paymentpkg.ErrDefaultPlanGroupRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -209,10 +215,13 @@ func (h *PaymentHandler) CreatePlan(c *gin.Context) {
 	plan, err := h.service.CreatePlan(&req)
 	if err != nil {
 		switch {
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+		case errors.Is(err, paymentpkg.ErrPlanNameRequired),
+			errors.Is(err, paymentpkg.ErrPlanCurrencyInvalid),
+			errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
+			errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpx.InternalError(c, err)
 		}
 		return
 	}
@@ -234,8 +243,13 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 		switch {
 		case errors.Is(err, paymentpkg.ErrPlanNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		default:
+		case errors.Is(err, paymentpkg.ErrPlanNameRequired),
+			errors.Is(err, paymentpkg.ErrPlanCurrencyInvalid),
+			errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
+			errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
 		return
 	}

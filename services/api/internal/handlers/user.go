@@ -119,13 +119,18 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 
 	user, err := h.userService.GetUserByID(userID)
 	if err != nil {
-		statusCode := http.StatusNotFound
-		if errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound) {
-			statusCode = http.StatusBadRequest
+		switch {
+		case errors.Is(err, userpkg.ErrUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": err.Error(),
+			})
+		case errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(statusCode, gin.H{
-			"error": err.Error(),
-		})
 		return
 	}
 
@@ -310,9 +315,13 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 
 	user, err := h.userService.GetProfile(userID.(string))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": err.Error(),
-		})
+		if errors.Is(err, userpkg.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -454,7 +463,13 @@ func (h *UserHandler) ValidateRedeemCode(c *gin.Context) {
 
 	resp, err := h.redemptionCodeService.ValidateRenewalCode(code)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 

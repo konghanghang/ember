@@ -12,6 +12,7 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	authpkg "github.com/konghang/ember/backend/internal/services/auth"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
 
@@ -61,15 +62,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	resp, err := h.authService.Login(&req)
 	if err != nil {
-		if errors.Is(err, authpkg.ErrTurnstileValidationFailed) {
+		switch {
+		case errors.Is(err, authpkg.ErrTurnstileValidationFailed):
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": err.Error(),
 			})
-			return
+		case isAuthLoginUnauthorizedError(err):
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": err.Error(),
+			})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": err.Error(),
-		})
 		return
 	}
 
@@ -89,9 +93,13 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 
 	user, err := h.userService.GetProfile(userID.(string))
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": err.Error(),
-		})
+		if errors.Is(err, userpkg.ErrUserNotFound) {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -133,9 +141,13 @@ func (h *AuthHandler) RegisterUser(c *gin.Context) {
 
 	resp, err := h.authService.RegisterUser(&req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err.Error(),
-		})
+		if isAuthRegisterBadRequest(err) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+		httpx.InternalError(c, err)
 		return
 	}
 
@@ -160,11 +172,14 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 	}
 
 	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeRegister); err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, emailpkg.ErrEmailCodeRateLimit) || errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit) {
-			status = http.StatusTooManyRequests
+		switch {
+		case errors.Is(err, emailpkg.ErrEmailAlreadyRegistered):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, emailpkg.ErrEmailCodeRateLimit), errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit):
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -211,6 +226,31 @@ func hashEmailForLog(email string) string {
 
 func shouldExposeResetCodeSendError(err error) bool {
 	return errors.Is(err, emailpkg.ErrEmailNotConfigured)
+}
+
+func isAuthLoginUnauthorizedError(err error) bool {
+	return errors.Is(err, authpkg.ErrAuthInvalidCredentials)
+}
+
+func isAuthRegisterBadRequest(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	switch {
+	case errors.Is(err, emailpkg.ErrEmailCodeInvalid),
+		errors.Is(err, authpkg.ErrRegisterEmailCodeRequired),
+		errors.Is(err, authpkg.ErrRegisterInviteCodeRequired),
+		errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+		errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
+		errors.Is(err, userpkg.ErrUsernameLengthInvalid),
+		errors.Is(err, userpkg.ErrUsernameCharsetInvalid),
+		errors.Is(err, userpkg.ErrUsernameAlreadyExists),
+		errors.Is(err, emailpkg.ErrEmailAlreadyRegistered),
+		errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupNotFound):
+		return true
+	}
+	return false
 }
 
 // ResetPasswordByCode 通过验证码重置密码

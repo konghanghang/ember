@@ -33,14 +33,14 @@ func (h *TelegramHandler) GenerateBindCode(c *gin.Context) {
 
 	code, expiresAt, err := h.telegramService.GenerateBindCode(userID.(string))
 	if err != nil {
-		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, telegrampkg.ErrUserAlreadyBoundTelegram):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, telegrampkg.ErrTelegramUserNotFound):
-			statusCode = http.StatusNotFound
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -59,14 +59,14 @@ func (h *TelegramHandler) Unbind(c *gin.Context) {
 	}
 
 	if err := h.telegramService.Unbind(userID.(string)); err != nil {
-		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, telegrampkg.ErrTelegramNotBound):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, telegrampkg.ErrTelegramUserNotFound):
-			statusCode = http.StatusNotFound
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -83,14 +83,14 @@ func (h *TelegramHandler) VerifyBind(c *gin.Context) {
 
 	result, err := h.telegramService.VerifyBind(req.TelegramID, req.Code)
 	if err != nil {
-		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, telegrampkg.ErrTelegramBindCodeInvalid),
 			errors.Is(err, telegrampkg.ErrTelegramAlreadyBound),
 			errors.Is(err, telegrampkg.ErrUserAlreadyBoundTelegram):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -135,17 +135,17 @@ func (h *TelegramHandler) RedeemByTelegram(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 			return
 		}
-		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
 			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
 			errors.Is(err, redemptionpkg.ErrRedemptionDuplicate):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, redemptionpkg.ErrRedeemFailed),
 			errors.Is(err, redemptionpkg.ErrEmbyUnbanFailed):
-			statusCode = http.StatusInternalServerError
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -204,14 +204,14 @@ func (h *TelegramHandler) SubscribeByTelegram(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 			return
 		}
-		statusCode := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, subscriptionpkg.ErrSubscriptionDuplicated):
-			statusCode = http.StatusConflict
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidSeason):
-			statusCode = http.StatusBadRequest
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
 		return
 	}
 

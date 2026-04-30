@@ -122,7 +122,14 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 	}
 	if service.saveUser == nil {
 		service.saveUser = func(user *models.User) error {
-			return db.DB.Save(user).Error
+			return db.DB.Model(&models.User{}).
+				Where("id = ?", user.ID).
+				Select("password", "passwordResetRequired", "updatedAt").
+				Updates(map[string]any{
+					"password":              user.Password,
+					"passwordResetRequired": user.PasswordResetRequired,
+					"updatedAt":             time.Now(),
+				}).Error
 		}
 	}
 	if service.newCompensation == nil {

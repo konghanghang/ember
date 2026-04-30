@@ -61,7 +61,7 @@ func (s *AuthService) findLoginUser(username string) (*models.User, error) {
 		Order("\"createdAt\" ASC").
 		First(&user)
 	if result.Error != nil {
-		return nil, errors.New("用户名或密码错误")
+		return nil, ErrAuthInvalidCredentials
 	}
 	return &user, nil
 }
@@ -71,7 +71,7 @@ func (s *AuthService) authenticateLoginUser(user *models.User, password string) 
 		if user.CheckPassword(password) {
 			return nil
 		}
-		return errors.New("用户名或密码错误")
+		return ErrAuthInvalidCredentials
 	}
 
 	embyService := s.newEmbyClient()
@@ -79,7 +79,7 @@ func (s *AuthService) authenticateLoginUser(user *models.User, password string) 
 	if err == nil {
 		if embyUser.ID != user.EmbyID {
 			log.Printf("[Login] EmbyID 错配 username=%s localEmbyID=%s remoteEmbyID=%s", user.Username, user.EmbyID, embyUser.ID)
-			return errors.New("用户名或密码错误")
+			return ErrAuthInvalidCredentials
 		}
 		s.syncLocalLoginHash(user, password)
 		return nil
@@ -89,7 +89,7 @@ func (s *AuthService) authenticateLoginUser(user *models.User, password string) 
 		return nil
 	}
 
-	return errors.New("用户名或密码错误")
+	return ErrAuthInvalidCredentials
 }
 
 func (s *AuthService) syncLocalLoginHash(user *models.User, password string) {

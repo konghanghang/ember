@@ -205,7 +205,7 @@ func buildPlansWithGroupNameSelect(query *gorm.DB) *gorm.DB {
 func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("方案名称不能为空")
+		return nil, ErrPlanNameRequired
 	}
 	currency, err := normalizePlanCurrency(req.Currency)
 	if err != nil {
@@ -256,7 +256,7 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
 			tx.Rollback()
-			return nil, errors.New("方案名称不能为空")
+			return nil, ErrPlanNameRequired
 		}
 		plan.Name = name
 	}

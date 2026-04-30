@@ -431,10 +431,10 @@ func (s *SubscriptionService) DeleteSubscription(subscriptionID, userID string) 
 		return ErrSubscriptionNotFound
 	}
 	if subscription.UserID != userID {
-		return errors.New("无权删除此订阅")
+		return ErrSubscriptionDeleteForbidden
 	}
 	if subscription.Status != models.SubscriptionPending {
-		return errors.New("只能删除待审核的订阅")
+		return ErrSubscriptionDeleteState
 	}
 	if err := db.DB.Delete(&subscription).Error; err != nil {
 		return fmt.Errorf("删除订阅失败: %w", err)

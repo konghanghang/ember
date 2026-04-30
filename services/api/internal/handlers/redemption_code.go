@@ -136,7 +136,14 @@ func (h *RedemptionCodeHandler) ValidateRegistrationCode(c *gin.Context) {
 	code := c.Param("code")
 	resp, err := h.service.ValidateRegistrationCode(code)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
+			errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
 		return
 	}
 	c.JSON(http.StatusOK, resp)

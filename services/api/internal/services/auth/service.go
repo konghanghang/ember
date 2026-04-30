@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
@@ -73,6 +74,12 @@ type AuthService struct {
 	newCompensation          func() *accountpkg.EmbyCompensation
 }
 
+var (
+	ErrAuthInvalidCredentials     = errors.New("用户名或密码错误")
+	ErrRegisterEmailCodeRequired  = errors.New("请先获取邮箱验证码")
+	ErrRegisterInviteCodeRequired = errors.New("当前为邀请注册模式，请提供兑换码")
+)
+
 // NewAuthService 创建认证服务
 func NewAuthService() *AuthService {
 	return NewAuthServiceWithDeps(AuthServiceDeps{})
@@ -113,7 +120,13 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 	}
 	if service.saveUser == nil {
 		service.saveUser = func(user *models.User) error {
-			return db.DB.Save(user).Error
+			return db.DB.Model(&models.User{}).
+				Where("id = ?", user.ID).
+				Select("password", "updatedAt").
+				Updates(map[string]any{
+					"password":  user.Password,
+					"updatedAt": time.Now(),
+				}).Error
 		}
 	}
 	if service.getRegistrationMode == nil {

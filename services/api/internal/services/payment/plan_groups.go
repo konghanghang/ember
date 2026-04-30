@@ -5,6 +5,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
@@ -46,7 +47,15 @@ var (
 		return tx.Create(group).Error
 	}
 	paymentSavePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
-		return tx.Save(group).Error
+		return tx.Model(&models.PlanGroup{}).
+			Where("key = ?", group.Key).
+			Select("name", "description", "sortOrder", "updatedAt").
+			Updates(map[string]any{
+				"name":        group.Name,
+				"description": group.Description,
+				"sortOrder":   group.SortOrder,
+				"updatedAt":   time.Now(),
+			}).Error
 	}
 	paymentUnsetOtherPlanGroupDefaults = func(tx *gorm.DB, key string) error {
 		return tx.Model(&models.PlanGroup{}).
@@ -267,7 +276,7 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("套餐分组名称不能为空")
+		return nil, ErrPlanGroupNameRequired
 	}
 
 	tx, err := beginPlanGroupTx()
@@ -282,7 +291,7 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 	}
 	if count > 0 {
 		rollbackPlanGroupTx(tx)
-		return nil, errors.New("套餐分组标识已存在")
+		return nil, ErrPlanGroupKeyExists
 	}
 	shouldBeDefault := req.IsDefault
 	defaultCount, err := paymentCountDefaultPlanGroups(tx)
@@ -349,7 +358,7 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
 			rollbackPlanGroupTx(tx)
-			return nil, errors.New("套餐分组名称不能为空")
+			return nil, ErrPlanGroupNameRequired
 		}
 		group.Name = name
 	}
@@ -365,7 +374,7 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 			requestDefault = true
 		} else if group.IsDefault {
 			rollbackPlanGroupTx(tx)
-			return nil, errors.New("默认套餐分组不能为空，请先设置其他默认分组")
+			return nil, ErrDefaultPlanGroupRequired
 		} else {
 			requestDefault = false
 		}

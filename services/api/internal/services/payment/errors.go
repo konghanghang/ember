@@ -5,9 +5,13 @@ import "errors"
 var (
 	ErrPlanNotFound             = errors.New("方案不存在")
 	ErrPlanCurrencyInvalid      = errors.New("方案币种无效，仅支持 USD/HKD/CNY")
+	ErrPlanNameRequired         = errors.New("方案名称不能为空")
 	ErrPlanGroupInvalid         = errors.New("套餐分组标识无效")
 	ErrPlanGroupNotFound        = errors.New("套餐分组不存在")
+	ErrPlanGroupNameRequired    = errors.New("套餐分组名称不能为空")
+	ErrPlanGroupKeyExists       = errors.New("套餐分组标识已存在")
 	ErrDefaultPlanGroupNotFound = errors.New("默认套餐分组不存在")
+	ErrDefaultPlanGroupRequired = errors.New("默认套餐分组不能为空，请先设置其他默认分组")
 	ErrPlanGroupDeleteBlocked   = errors.New("套餐分组仍被用户、套餐或注册码引用，不能删除")
 	ErrDefaultPlanGroupDelete   = errors.New("默认套餐分组不能删除")
 	ErrPaymentFailed            = errors.New("支付处理失败")
