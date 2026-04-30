@@ -51,8 +51,6 @@
 
 当前已进入“归档准备”但尚未迁出的实施稿：
 
-- `billing-redemption/payment-redemption-integrity-hardening.md`
-- `access-auth/auth-and-account-integrity-hardening.md`
 - `architecture/schema-deployment-and-baseline-cleanup.md`
 
 ## 模板
