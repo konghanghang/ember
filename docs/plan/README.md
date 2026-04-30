@@ -44,7 +44,7 @@
 - `media-subscription/media-dedupe-and-quality-governance.md`
 - `media-subscription/subscription-resubmission-after-rejection.md`
 
-当前已完成主干、但仍保留明确尾项的实施稿：
+当前已进入“归档准备”但尚未迁出的实施稿：
 
 - `bot-telegram/bot-notification-and-info-leak-hardening.md`
 

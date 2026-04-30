@@ -1,6 +1,6 @@
 # Bot 通知与信息泄露加固方案
 
-> 状态：主干完成，尾项已缩窄为观察性增强
+> 状态：可进入归档准备（主干已落地）
 > 负责人：Ember
 > 更新时间：2026-04-30
 
@@ -20,15 +20,25 @@
 - ✅ Bot 通知 formatter 已补 Telegram 文本 / caption 长度治理；长标题、长备注、长拒绝原因统一截断，避免通知因超长载荷失败
 - ✅ `BotNotifier.post` 已补 `event / payloadSize / requestId / latency` 结构化日志，便于追踪通知失败链路
 
-剩余项已缩窄为：
+当前剩余项已缩窄为归档前收口项：
 
 - 搜索会话 `message_id` 仍是进程内 TTL 缓存；当前已明确这是私聊交互态边界，而不是需要继续持久化的缺陷
-- 更细颗粒度观察性仍可继续补，例如外部 metric/告警平台接入；当前主链路已通过 `/health` 暴露 webhook 未注册状态
+- 外部 metric/告警平台接入仍可继续补，但当前主链路已通过 `/health` 暴露 webhook 未注册状态，这类增强不再阻塞主计划退场
 
 ## 归档判断
 
-- 当前暂不归档。
-- 原因：虽然主干已经稳定，剩余事项已主要退化为“是否接外部 metric/告警平台”的增强项；在是否把这类增强视作归档阻塞项上，还需要一次明确判断。
+- 当前可以进入归档准备，但暂不直接归档。
+- 原因：主干实现已经稳定，剩余事项主要是稳定结论下沉、入口文档同步和归档前验证口径收口；已经不再是继续作为核心实施稿推进的状态。
+
+## 稳定结论
+
+以下结论已经稳定，可视为当前基线，而不是临时整改步骤：
+
+- API 侧所有关键 fire-and-forget 调用都已统一改走 `internal/async.SafeGo(name, fn)`，panic 不再打死主进程。
+- `BotNotifier` 已收口到进程内共享单例，发送日志包含 `endpoint / event / payloadSize / requestId / latency`。
+- `pending_reject_requests` 已服务端持久化到 `bot_pending_reject_requests`，审批消息 `messageId` 也已持久化；搜索交互 `message_id` 则明确保留为 10 分钟 TTL 的私聊会话态边界。
+- Polling 模式已通过数据库租约锁强制单实例；续租失败时实例主动停止 polling。
+- webhook 注册当前采用有限重试策略：最多重试 `6` 次，失败后记 `ERROR` 并停止继续重试；`/health` 在 `webhook` 模式下会暴露 `degraded` 状态和最后错误。
 
 ## 背景
 
