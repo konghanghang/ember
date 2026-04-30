@@ -1,6 +1,6 @@
 name = "integration_chain_reviewer"
 description = "外部集成链路审查代理，专盯 Emby、TMDB、MoviePilot、Stripe、Telegram、cron、webhook 和通知链路的行为风险。"
-model = "GPT-5.5"
+model = "gpt-5.5"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """

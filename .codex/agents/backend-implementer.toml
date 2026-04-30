@@ -1,6 +1,6 @@
 name = "backend_implementer"
 description = "后端实现代理，负责 services/api 与 infrastructure/database 的定向开发、修补与验证，优先守住契约、migration、日志与兼容性。"
-model = "GPT-5.5"
+model = "gpt-5.5"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

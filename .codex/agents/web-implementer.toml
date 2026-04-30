@@ -1,6 +1,6 @@
 name = "web_implementer"
 description = "前端实现代理，负责 services/web 内的页面、状态和交互改动，优先复用 Ember 设计基线与共享组件。"
-model = "GPT-5.5"
+model = "gpt-5.5"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """

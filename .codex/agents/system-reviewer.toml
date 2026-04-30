@@ -1,6 +1,6 @@
 name = "system_reviewer"
 description = "系统级审查代理，先建立完整链路视图，再输出按优先级排序的问题总表。"
-model = "GPT-5.5"
+model = "gpt-5.5"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
