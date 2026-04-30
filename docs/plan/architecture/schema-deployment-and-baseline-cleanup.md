@@ -151,11 +151,11 @@
   - `services/api/cmd/server/main.go`
   - `services/api/internal/models/*.go`
 - 当前行为：
-  - `db.go` 启动期 `db.AutoMigrate(...)`（受 `AUTO_MIGRATE` 控制）
-  - compose 默认 `AUTO_MIGRATE=true` / `POSTGRES_PASSWORD=password` / `5432:5432`
-  - PG initdb.d 挂 `../database`（含 README / archive）
-  - `users.email`、`users.username` 大小写敏感唯一索引
-  - 多对重复索引
+  - `cmd/server/main.go` 启动路径只执行 `InitDB -> VerifySchema -> Bootstrap`，不再调用 `AutoMigrate`
+  - compose 已移除 `AUTO_MIGRATE` 注入，核心 env 改为解析期强制；PostgreSQL 默认仅监听 `127.0.0.1:5432`
+  - PG initdb.d 仅挂载 `infrastructure/docker/initdb/`，README / archive 不参与首启
+  - `users.email`、`users.username` 已收口到 `lower(...)` 唯一索引，schema 对齐与重复索引清理已通过增量 migration 落地
+  - 顶层 SQL + `initdb/` 同步 + `VerifySchema` 指纹校验已成为当前 schema 维护基线
 - 现有限制：
   - 线上 `AUTO_MIGRATE=false`
   - SQL migration 必须放 `infrastructure/database/`
@@ -209,10 +209,10 @@ baseline `20260415_00_schema_baseline.sql` 同步精简为最终状态；旧 bas
 
 #### 4.1 AUTO_MIGRATE 收敛
 
-1. `docker-compose.yml` 改 `AUTO_MIGRATE=${AUTO_MIGRATE:-false}`
-2. README 新增"`AUTO_MIGRATE=true` 仅本地空库可临时打开"说明
-3. `cmd/server/main.go` 把 `AutoMigrate` 调用挪到独立子命令 `cmd/migrate/main.go`，启动路径完全不再调用
-4. CI 添加 lint：禁止在 `cmd/server` 引用 `AutoMigrate`
+1. `docker-compose.yml` 不再注入 `AUTO_MIGRATE`；该 env 即使存在也不再影响启动路径
+2. README / runbook 明确：空库初始化统一走 `go run ./cmd/migrate`
+3. `cmd/server/main.go` 启动路径完全不再调用 `AutoMigrate`，只保留 `VerifySchema` fail-fast
+4. `cmd/migrate/main.go` 成为空库初始化与本地对齐 schema 的唯一显式入口
 
 #### 4.2 PG initdb.d 隔离
 

@@ -101,10 +101,10 @@
   - `services/api/internal/models/telegram_bind_code.go`
 - 涉及表：`telegram_bind_codes`
 - 当前行为：
-  - 所有 `go s.notifier.notify*(...)` 裸 goroutine
-  - `BotNotifier.post` 用 `fmt.Printf` 输错
-  - Polling 模式无单实例检查
-  - `pending_reject_requests` dict 跨实例不一致
+  - API 侧关键 fire-and-forget 已统一改走 `internal/async.SafeGo(name, fn)`，不再裸 `go s.notifier.notify*(...)`
+  - `BotNotifier.post` 已统一走结构化日志，`BotNotifier` 本身是进程内共享单例并带配置缓存
+  - Polling 模式已通过 API Internal 路由申请 / 续租 / 释放数据库租约锁，拿不到锁的实例拒绝启动
+  - `pending_reject_requests` 已落到 `bot_pending_reject_requests` 表，不再依赖进程内 dict
 - 现有限制：
   - 线上 `AUTO_MIGRATE=false`
   - Bot 仅 webhook 模式可多实例（lifespan 持有 PTB Application 单例时不严谨）
@@ -176,10 +176,10 @@
 
 #### BotNotifier 内部契约
 
-- `safeFireAndForget(ctx, name, fn)` 封装：
+- `internal/async.SafeGo(name, fn)` 作为统一 fire-and-forget 契约：
   - 启 goroutine
   - `defer func() { recover(); 记 ERROR + name + panic value + stack }`
-  - `fn(ctx)` 返回 error 时记 ERROR
+  - `fn()` 闭包内部自行记录失败上下文
 - `post(endpoint, payload)` 错误日志含：endpoint / payload 大小 / 状态码 / latency / event 类型
 
 #### Bot httpx
@@ -191,12 +191,12 @@
 
 #### 4.1 fire-and-forget 收口
 
-1. 所有 `go s.notifier.notify*(...)` 调用点改为 `s.notifier.SafeFireAndForget(ctx, "subscription_approved", func(ctx context.Context) error { return s.notifier.NotifySubscriptionApproved(ctx, ...) })`
-2. SafeFireAndForget 实现：
+1. 所有关键 fire-and-forget 调用点改为 `async.SafeGo(name, fn)`，例如注册通知、支付解封、订阅下发、缺集扫描启动
+2. `async.SafeGo` 统一负责：
    - 启 goroutine
    - `defer recover()`：记 panic + name + stack
-   - `fn(ctx)`：错误记 ERROR + name + endpoint
-3. 所有 `notifier.post` 失败统一日志（不再 `fmt.Printf`）
+   - 保证 panic 不再打死 API 进程
+3. 业务闭包内部自行记录 error 上下文；`notifier.post` 失败统一走结构化日志
 
 #### 4.2 GenerateBindCode 行锁化
 
@@ -280,7 +280,7 @@
 
 - API：
   - 修改：`integrations/notifier/notifier.go`、`services/telegram/service.go`、`services/subscription/service.go`、`services/payment/service.go`、`services/playback/ranking.go`、`services/auth/register_notify.go`、`handlers/telegram.go`
-  - 新增：`pkg/async/safe_go.go`（SafeFireAndForget）、`services/telegram/pending_reject.go`
+  - 新增：`internal/async/safe.go`、`services/telegram/pending_reject.go`
 - Web：
   - 不影响（admin 拒绝订阅在 Bot 端进行）
 - Bot：
@@ -291,7 +291,7 @@
   - 文档明确"Polling 仅单实例"
 - 文档：
   - `docs/system-architecture.md` §5.14 / §5.17 / §9 改写
-  - 新增"Bot SafeFireAndForget 契约"
+  - 新增"Bot fire-and-forget 契约（`async.SafeGo`）"
   - 新增"runtime_settings 失败回退策略"
   - 新增"Polling 单实例约束"
 
@@ -352,11 +352,11 @@
 - [ ] `go build ./...` 与 `go test ./internal/integrations/notifier/...` `./internal/services/telegram/...` 全绿
 - [ ] `python -m py_compile services/bot/main.py` 通过
 - [ ] 2 份 SQL migration 在临时库重灌通过
-- [ ] mock fire-and-forget panic 不打死 API 进程
+- [ ] mock `async.SafeGo` 包裹的 panic 不打死 API 进程
 - [ ] mock 双副本 Polling：第二个退出
 - [ ] mock runtime_settings API 5xx：缓存保留旧值
 - [ ] 关键日志含 `endpoint / event / payload size / status / latency / requestId`
-- [ ] 文档同步：SafeFireAndForget 契约 / Polling 单实例约束 / runtime_settings 失败回退
+- [ ] 文档同步：`async.SafeGo` 契约 / Polling 单实例约束 / runtime_settings 失败回退
 
 ## 批次 5 第一阶段已落地（2026-04-28）
 
@@ -366,14 +366,13 @@
 
 仍未完成：
 
-- BotNotifier 单例 / logger 收口
-- Polling 单实例约束
-- runtime_settings 失败回退
-- pending_reject_requests 持久化
+- 通知载荷长度治理
+- Bot 端 `message_id` 缓存策略优化
+- 更细颗粒度观察性补强
 
 ### 二次暴露检查清单
 
-- [ ] sweep 所有 `go ` 启动 goroutine 位置：是否都过 SafeFireAndForget
+- [ ] sweep 所有 `go ` 启动 goroutine 位置：是否都过 `async.SafeGo` 或明确说明无需包裹
 - [ ] sweep 所有 `fmt.Printf` / `fmt.Println` 在生产路径上的使用，统一改 logger
 - [ ] sweep 所有"未绑定 / 不存在"错误路径，确认对外文案模糊一致
 - [ ] sweep 所有 `*http.Client` 实例化位置，确认 BotNotifier / EmbyService / TMDBService / MoviePilotClient / Stripe Client 都复用单例
@@ -384,7 +383,7 @@
 
 ## 落地后文档处理
 
-- 落地后把"SafeFireAndForget 契约"、"Polling 单实例约束"、"runtime_settings 失败回退"、"admin 通知脱敏"提炼到 `docs/system-architecture.md` §5.14 / §9
+- 落地后把"`async.SafeGo` 契约"、"Polling 单实例约束"、"runtime_settings 失败回退"、"admin 通知脱敏"提炼到 `docs/system-architecture.md` §5.14 / §9
 - 新增 ConfigDefinition 同步设置中心
 - 本方案在 P0+P1 全部完成、回归测试通过后移入 `docs/archive/plan/bot-telegram/`
 - P2 / P3 中未顺手收口的项纳入下一轮治理
@@ -393,7 +392,7 @@
 
 | review 编号 | 问题 | 本方案条目 |
 |---|---|---|
-| P0-1 (Bot) | 火忘 panic 打死进程 | §4.1 + SafeFireAndForget |
+| P0-1 (Bot) | 火忘 panic 打死进程 | §4.1 + `async.SafeGo` |
 | P0-2 (Bot) | VerifyBind 自暴 DoS | §4.3 + GenerateBindCode 行锁 |
 | P1-1 (Bot) | BotNotifier 每次查 DB | §4.5 |
 | P1-2 (Bot) | /redeem /resetpw 信息枚举 | §4.4 |
