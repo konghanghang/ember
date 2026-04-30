@@ -9,8 +9,17 @@ Telegram Bot 服务，负责两类能力：
 
 ```bash
 cd services/bot
-pip install -r requirements.txt
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
 python -m py_compile main.py
+python -m pytest tests
+```
+
+也可以从仓库根目录直接跑：
+
+```bash
+services/bot/.venv/bin/python -m pytest services/bot/tests
 ```
 
 本地运行：

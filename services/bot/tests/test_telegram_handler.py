@@ -4,9 +4,9 @@ import types
 import unittest
 from unittest.mock import AsyncMock, patch
 
-os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
-os.environ.setdefault("INTERNAL_API_SECRET", "test-secret")
-os.environ.setdefault("TELEGRAM_UPDATE_MODE", "polling")
+os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
+os.environ["INTERNAL_API_SECRET"] = "test-secret"
+os.environ["TELEGRAM_UPDATE_MODE"] = "polling"
 
 if "httpx" not in sys.modules:
     httpx_stub = types.ModuleType("httpx")
@@ -101,14 +101,87 @@ telegram_stub.BotCommandScopeChatAdministrators = getattr(telegram_stub, "BotCom
 telegram_stub.BotCommandScopeChatMember = getattr(telegram_stub, "BotCommandScopeChatMember", _ScopeBase)
 telegram_stub.BotCommandScopeDefault = getattr(telegram_stub, "BotCommandScopeDefault", _ScopeBase)
 
-if "telegram.ext" not in sys.modules:
+telegram_ext_stub = sys.modules.get("telegram.ext")
+if telegram_ext_stub is None:
     telegram_ext_stub = types.ModuleType("telegram.ext")
-
-    class _ContextTypes:
-        DEFAULT_TYPE = object
-
-    telegram_ext_stub.ContextTypes = _ContextTypes
     sys.modules["telegram.ext"] = telegram_ext_stub
+
+
+class _FakeApplication:
+    def __init__(self) -> None:
+        self.bot = types.SimpleNamespace(
+            set_webhook=AsyncMock(),
+            delete_webhook=AsyncMock(),
+            delete_my_commands=AsyncMock(),
+            set_my_commands=AsyncMock(),
+        )
+        self.updater = None
+
+    async def initialize(self) -> None:
+        return None
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        return None
+
+    def add_handler(self, *args, **kwargs) -> None:
+        return None
+
+    async def process_update(self, update) -> None:
+        return None
+
+
+class _Builder:
+    def token(self, *args, **kwargs):
+        return self
+
+    def build(self):
+        return _FakeApplication()
+
+
+class Application:
+    @staticmethod
+    def builder():
+        return _Builder()
+
+
+class _ContextTypes:
+    DEFAULT_TYPE = object
+
+
+class _Handler:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+
+class _FilterValue:
+    def __and__(self, other):
+        return self
+
+    def __invert__(self):
+        return self
+
+
+class _Filters:
+    TEXT = _FilterValue()
+    COMMAND = _FilterValue()
+
+    class StatusUpdate:
+        NEW_CHAT_MEMBERS = _FilterValue()
+
+
+telegram_ext_stub.Application = getattr(telegram_ext_stub, "Application", Application)
+telegram_ext_stub.CallbackQueryHandler = getattr(telegram_ext_stub, "CallbackQueryHandler", _Handler)
+telegram_ext_stub.CommandHandler = getattr(telegram_ext_stub, "CommandHandler", _Handler)
+telegram_ext_stub.ContextTypes = getattr(telegram_ext_stub, "ContextTypes", _ContextTypes)
+telegram_ext_stub.MessageHandler = getattr(telegram_ext_stub, "MessageHandler", _Handler)
+telegram_ext_stub.TypeHandler = getattr(telegram_ext_stub, "TypeHandler", _Handler)
+telegram_ext_stub.filters = getattr(telegram_ext_stub, "filters", _Filters)
 
 from app.formatters.message_formatter import format_result_message
 from app.handlers import telegram_handler
