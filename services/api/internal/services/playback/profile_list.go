@@ -536,10 +536,6 @@ func (s *UserPlaybackProfileService) loadLocalUsersForOverview(ctx context.Conte
 }
 
 func (s *UserPlaybackProfileService) buildPlaybackProfileListItems(rangeValue string, rows []playbackProfileOverviewAggregateRow, userMap map[string]models.User) ([]PlaybackProfileListItem, map[string]string) {
-	for _, row := range rows {
-		_ = row
-	}
-
 	items := make([]PlaybackProfileListItem, 0, len(rows))
 	localToPlaybackUserID := make(map[string]string, len(rows))
 	for _, row := range rows {

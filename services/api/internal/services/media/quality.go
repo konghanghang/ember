@@ -142,7 +142,9 @@ func (s *MediaQualityService) ScanLibraryQuality(ctx context.Context, libraryID 
 		return nil, ErrMediaQualityScanInProgress
 	}
 	defer func() {
-		_ = s.clearScanInflight(ctx, cacheKey)
+		if clearErr := s.clearScanInflight(ctx, cacheKey); clearErr != nil {
+			log.Printf("[MediaQuality] clear inflight failed cacheKey=%s err=%v", cacheKey, clearErr)
+		}
 	}()
 
 	items, failedLibraries, err := s.loadQualityItems(libraryID)

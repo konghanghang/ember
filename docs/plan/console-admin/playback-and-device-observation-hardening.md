@@ -1,6 +1,6 @@
 # 播放观察与设备链路加固方案
 
-> 状态：继续进行中（主干已落地，剩余项已缩窄）
+> 状态：可进入归档准备（主干已落地）
 > 负责人：Ember
 > 更新时间：2026-04-30
 
@@ -18,17 +18,29 @@
 - ✅ `dedupeLatestItems` 已不再使用 `Type+Name+Year` 的粗糙兜底 key，当前实现已改为更精确特征组合
 - ✅ 与本方案相关的关键 handler 已统一改走 `httpx.InternalError`，不再裸透 `err.Error()`
 
-当前剩余项已缩窄为少量真实尾项：
+当前剩余项已缩窄为归档前收口项：
 
 - ✅ `generateRankingBatchID` 已改为标准 ULID，和 `batch_id varchar(32)` 设计口径一致
 - ✅ `playback/history.go` 已移除本地全量分页兜底；兼容路径现在在缺列 / schema 不受支持时显式返回错误，不再偷偷退化成全量拉回内存
 - ✅ `parsePlaybackRows` 已移除 `fallbackIndexes` 猜列位置逻辑；无稳定 columns 时直接返回兼容错误
-- `_ = db.DB.Create/Save` 这类静默吞错 sweep 还没系统性做完
+- ✅ 计划 5 触达范围内显式命中的静默吞错点已收口；仓库级 sweep 仍可继续做，但已不再是本方案的主尾项
+- 待补动作主要转为文档与退场同步：稳定结论下沉、入口文档同步、归档判定
 
 ## 归档判断
 
-- 当前明确不适合归档。
-- 原因：虽然主干已经落地，但 playback fallback 与 batchId 策略仍是实打实的实现尾项，不只是文档收尾。
+- 当前可以进入归档准备，但暂不直接归档。
+- 原因：主干实现已经落地，剩余事项主要是稳定结论下沉、验证口径收口和入口文档同步；现阶段更像退场准备，而不是继续作为核心实施稿。
+
+## 稳定结论
+
+以下结论已经稳定，可视为当前基线，而不是临时整改步骤：
+
+- 排行榜正式批次使用 `batchId` 组织，同一期电影榜与剧集榜共享同一批次；`batchId` 当前使用 26 位 ULID，`batch_id` 模型与 migration 已扩到 `varchar(32)`。
+- 媒体质量缓存以 `schemaVersion` / `inflightUntil` 管理命中与 force inflight；`libraryId=all` 单库失败时返回 `failedLibraries`，不再整批失败。
+- 最近入库与媒体统计已改为 single-flight；最近入库默认按 `LATEST_CACHE_PER_USER=true` 按用户分桶，避免跨用户越权缓存。
+- 黑名单链路以 `normalizeClientName` 归一命中，设备审计写入 `device_actions.operatorId`；关键写库失败已有日志。
+- Playback history 在插件列结构不兼容时显式返回兼容错误，不再猜列位置，也不再退化成全量明细拉回后本地分页。
+- Playback profile overview 已收敛为“全量聚合 + 当前页明细补充”，不再先拉全量明细再分页。
 
 ## 背景
 
@@ -400,7 +412,7 @@
 
 - `generateRankingBatchID` 改 ULID已落地；batchId 策略与计划正文一致
 - playback overview 已不再依赖“全量明细再分页”，但徽章 / 峰值时段仍需为当前页用户补拉明细，后续可继续评估是否下沉更多 SQL 聚合
-- `_ = db.DB.Create/Save` 静默吞错 sweep 尚未系统化完成
+- 计划 5 范围内显式命中的静默吞错点已收口；如继续扩大 sweep，应作为仓库级治理单独推进
 
 ## 附录：问题清单与本方案条目映射
 

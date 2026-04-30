@@ -41,13 +41,16 @@
 - `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
-- `console-admin/playback-and-device-observation-hardening.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 - `media-subscription/subscription-resubmission-after-rejection.md`
 
 当前已完成主干、但仍保留明确尾项的实施稿：
 
 - `bot-telegram/bot-notification-and-info-leak-hardening.md`
+
+当前已进入“归档准备”但尚未迁出的实施稿：
+
+- `console-admin/playback-and-device-observation-hardening.md`
 
 ## 模板
 

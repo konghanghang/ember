@@ -530,6 +530,7 @@ services/
 | ID | string(25) | id | CUID |
 | DeviceID | string(100) | deviceId | 设备 ID（索引） |
 | UserID | string(25) | userId | 用户 ID（索引） |
+| OperatorID | *string(25) | operatorId | 操作者用户 ID（可空，用于后台审计） |
 | ClientName | string(100) | clientName | 客户端名 |
 | Action | string(50) | action | 操作类型（blacklist/unblacklist/logout） |
 | Note | string(255) | note | 备注 |
@@ -962,6 +963,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 对 `keyword` 做白名单校验并转义，避免 SQL 注入
 - 统一输出播放时长格式（`Xm` / `Xh Ym`）
 - 插件不可用时返回统一错误：`Playback Reporting 查询失败`
+- 与旧兼容逻辑相比，当前不再按列位置猜字段，也不再把查询退化成“全量拉回后本地分页”；当 Playback Reporting 返回缺列或不受支持 schema 时，接口显式返回兼容错误
 
 ### 5.20 UserPlaybackProfileService (`services/playback/profile.go`)
 
@@ -986,6 +988,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 默认按累计播放时长倒序，可切换按播放次数、活跃天数、最近播放排序
 - 总览摘要包含：`userCount` / `totalPlayCount` / `totalPlayDuration`
 - 自定义日期时间范围最大跨度限制为 `92` 天，和单用户画像保持一致
+- 查询策略已收敛为“全量聚合 + 当前页明细补充”：先按 `UserId` 聚合出总览摘要并排序分页，再只为当前页用户补拉明细计算 `peakHourLabel` 与 badge 预览；不再先拉全量明细再分页
 
 ### 5.22 MediaQualityService (`services/media_quality.go`)
 
@@ -995,6 +998,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `ScanLibraryQuality(ctx, libraryID)` — 拉取媒体库条目并生成质量报告
 - `GetGroupLowQualityDetails(ctx, libraryID, groupID, force)` — 按汇总分组下钻低画质明细
 - 缓存模型：`media_quality_caches`（PostgreSQL 持久化，按 `libraryId` 唯一）
+- force 扫描使用 `inflightUntil` 做进程间互斥，残留 inflight 由 cron 清理；清理失败会记日志，避免静默残留
+- `libraryId=all` 路径单库失败时保留已成功媒体库结果，并在报告中返回 `failedLibraries`
 - 低画质清单按“影片/剧集”汇总，避免电视剧按单集展开造成噪音
 - 低画质汇总项包含 `groupId`，前端使用 `groupId` 请求下钻接口
 - 报告字段：`resolutionDistribution` / `codecDistribution` / `hdrDistribution` / `lowQualityItems` / `lowQualityTotal` / `page` / `pageSize` / `scanAt`
