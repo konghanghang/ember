@@ -52,7 +52,7 @@ func (h *MediaQualityHandler) GetLibraryQuality(c *gin.Context) {
 		case errors.Is(err, mediapkg.ErrMediaQualityScanInProgress):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": mediapkg.ErrMediaQualityScanFailed.Error()})
 		default:
 			httpx.InternalError(c, err)
 		}
@@ -75,7 +75,7 @@ func (h *MediaQualityHandler) ScanLibraryQuality(c *gin.Context) {
 		case errors.Is(err, mediapkg.ErrMediaQualityScanInProgress):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": mediapkg.ErrMediaQualityScanFailed.Error()})
 		default:
 			httpx.InternalError(c, err)
 		}
@@ -104,7 +104,7 @@ func (h *MediaQualityHandler) GetLibraryQualityGroupDetails(c *gin.Context) {
 			errors.Is(err, mediapkg.ErrMediaQualityGroupIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, mediapkg.ErrMediaQualityScanFailed):
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": mediapkg.ErrMediaQualityScanFailed.Error()})
 		default:
 			httpx.InternalError(c, err)
 		}
@@ -143,7 +143,7 @@ func (h *MediaQualityHandler) GetPoster(c *gin.Context) {
 
 	content, contentType, err := h.service.GetPoster(c.Request.Context(), itemID, maxHeight, quality)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "获取封面失败"})
+		httpx.InternalError(c, err)
 		return
 	}
 
