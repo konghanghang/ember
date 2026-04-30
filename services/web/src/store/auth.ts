@@ -181,7 +181,12 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
 
-      if (event.key !== null && event.key !== AUTH_TOKEN_KEY && event.key !== AUTH_ROLE_KEY) {
+      if (
+        event.key !== null &&
+        event.key !== AUTH_TOKEN_KEY &&
+        event.key !== AUTH_ROLE_KEY &&
+        event.key !== AUTH_PASSWORD_RESET_REQUIRED_KEY
+      ) {
         return
       }
 

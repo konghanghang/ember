@@ -96,7 +96,7 @@ async def _request(
     last_err: Exception | None = None
 
     for attempt, _delay in enumerate((*delays, None)):
-        if attempt > 0 and last_err is not None:
+        if attempt > 0:
             await asyncio.sleep(delays[attempt - 1])
 
         try:
@@ -122,18 +122,25 @@ async def _request(
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
         if response.status_code >= 500:
+            http_error = httpx.HTTPStatusError(
+                "upstream server error",
+                request=response.request,
+                response=response,
+            )
             _log_request_issue(
                 endpoint,
                 method,
                 elapsed_ms=elapsed_ms,
-                error=httpx.HTTPStatusError(
-                    "upstream server error",
-                    request=response.request,
-                    response=response,
-                ),
+                error=http_error,
                 status_code=response.status_code,
                 **context,
             )
+            if is_get and _delay is not None:
+                logger.warning(
+                    "Bot API GET 收到 5xx，%.1fs 后重试 endpoint=%s attempt=%d status=%d",
+                    _delay, endpoint, attempt + 1, response.status_code,
+                )
+                continue
 
         return response, elapsed_ms
 

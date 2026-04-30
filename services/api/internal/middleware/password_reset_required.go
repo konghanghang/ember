@@ -14,6 +14,8 @@ var passwordResetAllowedPaths = map[string]struct{}{
 	"/api/v1/password":      {},
 	"/api/v1/account-links": {},
 	"/api/v1/admin/current": {},
+	"/api/v1/user/profile":  {},
+	"/api/v1/user/password": {},
 }
 
 // PasswordResetRequired 限制被标记为 passwordResetRequired 的账号只能访问改密闭环相关接口。

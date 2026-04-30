@@ -300,13 +300,12 @@ async def lifespan(app: FastAPI):
             await sync_bot_commands()
         except Exception as err:
             logger.warning("Bot 命令菜单同步失败，不影响服务运行: %s", err)
+        await tg_app.start()
+        started = True
         if TELEGRAM_UPDATE_MODE == TELEGRAM_UPDATE_MODE_POLLING:
             polling_lock_stop_event = asyncio.Event()
             polling_lock_owner_id, polling_lock_task = await start_polling_updates(polling_lock_stop_event)
             polling_started = True
-
-        await tg_app.start()
-        started = True
 
         if TELEGRAM_UPDATE_MODE == TELEGRAM_UPDATE_MODE_WEBHOOK:
             logger.info("Telegram Bot 服务已启动，更新模式=webhook，开始异步注册 webhook")
