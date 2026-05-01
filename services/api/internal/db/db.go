@@ -25,9 +25,13 @@ var DB *gorm.DB
 
 // InitDB 初始化数据库连接
 func InitDB() {
-	// 仅在 EMBER_DOTENV 环境变量显式指定时加载对应 .env 文件，
-	// 避免多路径探测引入不可预期的环境变量来源。
 	if envPath := os.Getenv("EMBER_DOTENV"); envPath != "" {
+		if err := godotenv.Load(envPath); err != nil {
+			log.Printf("[Env] godotenv.Load(%s) 失败：%v", envPath, err)
+		} else {
+			log.Printf("✅ 成功加载环境变量：%s", envPath)
+		}
+	} else if envPath := defaultDotenvPath(); envPath != "" {
 		if err := godotenv.Load(envPath); err != nil {
 			log.Printf("[Env] godotenv.Load(%s) 失败：%v", envPath, err)
 		} else {
@@ -37,7 +41,7 @@ func InitDB() {
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Fatal("❌ DATABASE_URL 环境变量未设置")
+		log.Fatal("❌ DATABASE_URL 环境变量未设置；本地启动请确认 .env 或 services/api/.env 存在，或先 export DATABASE_URL")
 	}
 	dsn = withConnectTimeout(dsn, "8")
 
@@ -95,6 +99,15 @@ func InitDB() {
 	fmt.Printf("✅ PostgreSQL 版本：%s\n", pgVersion)
 
 	fmt.Println("✅ 数据库连接成功")
+}
+
+func defaultDotenvPath() string {
+	for _, path := range []string{".env", "services/api/.env"} {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // VerifySchema 在启动期检查所有业务表、关键列与关键索引是否存在。

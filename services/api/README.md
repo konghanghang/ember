@@ -25,6 +25,12 @@ go build ./...
 cp .env.example .env
 ```
 
+本地启动或执行迁移时会自动读取当前目录下的 `.env`；从仓库根目录启动时，也会读取 `services/api/.env`。例如：
+
+```bash
+go run cmd/server/main.go
+```
+
 `.env.example` 现在只保留“必须通过环境变量提供”的项。
 
 默认保留的核心项是：
