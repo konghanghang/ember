@@ -229,4 +229,4 @@ infrastructure/database/
 - [部署指南](./deployment.md)
 - [部署环境与配置](./deployment-environment.md)
 - [发布流程](./release-process.md)
-- [数据库迁移 Baseline 与归档收口方案](../plan/architecture/database-migration-baseline-and-archive.md)
+- [数据库迁移 Baseline 与归档收口方案](../archive/plan/architecture/database-migration-baseline-and-archive.md)

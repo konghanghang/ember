@@ -2,7 +2,7 @@
 
 > 状态：已完成
 > 负责人：Ember
-> 更新时间：2026-04-15
+> 更新时间：2026-05-01
 
 ## 背景
 
@@ -38,9 +38,10 @@
 - 相关部署入口：`infrastructure/docker/docker-compose.yml`
 - 相关文档：`infrastructure/database/README.md`、`docs/runbooks/deployment.md`、`docs/runbooks/deployment-environment.md`、`docs/runbooks/release-process.md`
 - 当前行为：
-  - `infrastructure/database/20260415_00_schema_baseline.sql` 已进入顶层现行链路
-  - `pre-20260415` 历史 migration 已移动到 `infrastructure/database/archive/pre-20260415/`
-  - 发布说明继续只检测 `infrastructure/database/*.sql`
+  - 现行迁移入口已经演进为 `infrastructure/database/20260422_00_schema_baseline.sql` + baseline 之后的顶层增量 migration。
+  - `pre-20260415` 与 `pre-20260422` 历史 migration 已移动到 `infrastructure/database/archive/` 下对应目录，仅保留追溯价值。
+  - API 启动期不再调用 `AutoMigrate`，启动会执行 `VerifySchema` 校验表、关键列和关键索引。
+  - 本地空库初始化统一走 `cd services/api && go run ./cmd/migrate`，该工具会执行顶层 baseline + 增量 migration，再跑 `VerifySchema` 自检。
 - 现有限制：
   - 线上长期以 `AUTO_MIGRATE=false` 运行，不能依赖 GORM 自动迁移
   - SQL migration 现行规则要求放在 `infrastructure/database/`
@@ -72,6 +73,11 @@
 - 历史归档目录：`infrastructure/database/archive/pre-20260415/`
 - baseline 验证：已在远端临时库 `ember_baseline_verify_20260415` 完整回灌
 - 有意归一化差异：补齐 `idx_ranking_lookup` 与 `uq_redemptions_user_code`
+
+后续演进：
+
+- `schema-deployment-and-baseline-cleanup` 已将现行 baseline 收口到 `20260422_00_schema_baseline.sql`，并同步了 initdb 隔离、`VerifySchema` fail-fast、容器启动边界和部署文档。
+- 因此本文不再承担当前迁移规则说明职责，当前规则以 `infrastructure/database/README.md`、`docs/runbooks/deployment-environment.md` 和 `docs/system-architecture.md` 为准。
 
 ### 3. 接口与边界
 
@@ -114,10 +120,10 @@
 
 ### 手工验证
 
-- 场景 1：远端临时库 `ember_baseline_verify_20260415` 仅执行 baseline，成功创建核心表、索引、约束和 deterministic seed
-- 场景 2：与现网源库做 `schema-only` diff，确认差异仅为有意补齐的 `idx_ranking_lookup` 和 `uq_redemptions_user_code`
-- 场景 3：检查发布说明生成逻辑，确认 baseline 后仍只识别顶层可执行 SQL
-- 场景 4：检查部署文档、README、目录结构和实际执行入口一致
+- 已完成：远端临时库 `ember_baseline_verify_20260415` 仅执行 baseline，成功创建核心表、索引、约束和 deterministic seed。
+- 已完成：与现网源库做 `schema-only` diff，确认差异仅为有意补齐的 `idx_ranking_lookup` 和 `uq_redemptions_user_code`。
+- 已完成：`infrastructure/database/README.md` 已收口当前 baseline + 增量 migration 规则。
+- 已完成：`docs/system-architecture.md` 已同步启动期不再调用 `AutoMigrate`、本地空库初始化入口和 `VerifySchema` 约束。
 
 ## 落地后文档处理
 
@@ -126,4 +132,4 @@
 - 将新的迁移组织规则提炼到 `infrastructure/database/README.md`
 - 将部署入口和升级流程的稳定结论同步到 `docs/runbooks/deployment.md` 与 `docs/runbooks/deployment-environment.md`
 - 如果发布提醒规则变化，更新 `docs/runbooks/release-process.md`
-- 当前方案已完成，后续只需在文档治理阶段移入 `docs/archive/plan/architecture/`
+- 当前方案已完成，稳定事实已被后续 schema 收口方案和现行架构文档接管；后续只需在文档治理阶段移入 `docs/archive/plan/architecture/`。

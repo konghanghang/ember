@@ -27,7 +27,7 @@
 
 当前仍未纳入本方案主体、并已拆分到后续独立边界的内容：
 
-- 拒绝后重新提交：见 `docs/plan/media-subscription/subscription-resubmission-after-rejection.md`
+- 拒绝后重新提交：见 `docs/archive/plan/media-subscription/subscription-resubmission-after-rejection.md`
 - 多管理员 Telegram 审批消息同步：见 `docs/plan/bot-telegram/subscription-admin-message-sync.md`
 - 站内通知中心：见 `docs/plan/console-admin/in-app-notification-center.md`
 

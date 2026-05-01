@@ -1,8 +1,8 @@
 # 订阅拒绝后重新发起实现方案
 
-> 状态：草稿
+> 状态：已完成
 > 负责人：Ember
-> 更新时间：2026-04-18
+> 更新时间：2026-05-01
 
 ## 背景
 
@@ -46,16 +46,17 @@
   - `services/api/internal/handlers/subscription.go`
   - `services/web/src/views/console/SubscriptionsView.vue`
   - `services/web/src/views/console/NewSubscriptionView.vue`
-  - `infrastructure/database/20260415_00_schema_baseline.sql`
+  - `infrastructure/database/20260424_01_subscription_resubmission_after_rejection.sql`
 - 当前行为：
-  - `subscriptions` 通过唯一索引 `uk_subscription_media` 对 `type + tmdbId + season` 做全局唯一约束。
-  - API 创建订阅前，服务层也会按同样条件查询并阻止重复创建。
-  - 普通用户只能删除 `PENDING` 订阅，`REJECTED` 订阅只能查看，不能再次发起。
-  - `rejectReason` 已可见，但只作为结果展示，不参与后续提交流程。
-- 现有限制：
-  - 同一作品一旦被拒绝，当前用户无法再次发起。
-  - 更严重的是，其他用户也会被同一条被拒绝记录挡住。
-  - 历史拒绝记录与活跃去重策略耦合，导致数据边界错误。
+  - `subscriptions.retryFromId` 已落地，用于记录重新提交的新订阅来源。
+  - `uk_subscription_media` 全局唯一索引已由 `uq_subscriptions_active_media` 活跃状态 partial unique 索引替代，只约束 `PENDING / APPROVED / INGESTED`。
+  - API 已提供 `POST /api/v1/subscriptions/:id/resubmit` 和兼容用户路径 `POST /api/v1/user/subscriptions/:id/resubmit`。
+  - 服务层 `ResubmitSubscriptionWithResult` 会校验原记录属于当前用户且状态为 `REJECTED`，要求本次 `note` 非空，并创建新的 `PENDING` 记录。
+  - 用户侧订阅页已在 `REJECTED` 卡片上提供“再次提交”入口，展示上次拒绝原因并要求填写本次说明。
+- 当前边界：
+  - 旧 `REJECTED` 记录保持历史不改写。
+  - 任意时刻同一 `type + tmdbId + season` 仍只能存在一条活跃订阅。
+  - 重新提交仍沿用库内存在性检测和二次确认链路。
 
 ## 方案设计
 
@@ -165,22 +166,22 @@
 
 ### 编译/测试
 
-- `cd services/api && go test ./...`
-- `cd services/api && go build ./...`
-- `cd services/web && npm run build`
+- 已完成：`cd services/api && go test ./...`
+- 已完成：`cd services/api && go build ./...`
+- 已完成：`cd services/web && npm run build`
 
-按改动补充针对性测试：
+已覆盖或已落地的重点：
 
-- API：活跃状态重复检查、`REJECTED` 重提创建、`retryFromId` 写入
-- Web：`再次提交` 入口、拒绝原因展示、本次说明必填
+- API：活跃状态重复检查、`REJECTED` 重提创建、`retryFromId` 写入。
+- Web：`再次提交` 入口、拒绝原因展示、本次说明必填。
 
 ### 手工验证
 
-- 用户有一条 `REJECTED` 订阅时，卡片上可见 `再次提交`
-- 点击后能看到上次拒绝原因
-- 不填写本次说明时不能提交
-- 填写说明后会生成一条新的 `PENDING` 记录，旧 `REJECTED` 记录保留
-- 若同一作品已有 `PENDING / APPROVED / INGESTED` 记录，重新发起会被阻止
+- 已具备：用户有一条 `REJECTED` 订阅时，卡片上可见 `再次提交`。
+- 已具备：点击后能看到上次拒绝原因。
+- 已具备：不填写本次说明时不能提交。
+- 已具备：填写说明后会生成一条新的 `PENDING` 记录，旧 `REJECTED` 记录保留。
+- 已具备：若同一作品已有 `PENDING / APPROVED / INGESTED` 记录，重新发起会被阻止。
 
 ## 落地后文档处理
 
@@ -190,4 +191,4 @@
   - `subscriptions.retryFromId`
   - 活跃状态唯一约束
   - 拒绝后重新发起流程
-- 功能落地、编译验证和手工链路验证完成后，将本方案迁入 `docs/archive/plan/media-subscription/`
+- 功能、迁移、API、前端入口和架构文档同步均已完成；后续只需在文档治理阶段将本方案迁入 `docs/archive/plan/media-subscription/`。

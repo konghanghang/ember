@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-04-30
+> 更新时间：2026-05-01
 
 本清单只回答三件事：
 
@@ -12,7 +12,7 @@
 
 - 以当前代码结构和 [系统架构文档](../system-architecture.md) 为准
 - “文档里写了已完成”不算证据，必须能在代码或架构文档里找到落点
-- 本清单反映 2026-04-30 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
+- 本清单反映 2026-05-01 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
 
 ## 0. 本轮 8 份主计划进度表
 
@@ -76,7 +76,7 @@
 | `console-admin/ember-web-component-foundation.md` | 已落地 | `services/web/src/components/ember/` 基础组件层、后台/控制台页头与 tabs 收口、表单基线统一、empty state 组件化、前端残留清理均已落地 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/console-admin-ui-consistency-optimization.md` | 已落地 | `SettingsView` 字段区已切回统一表单基线，筛选基础组件通用外观已收口到 `src/assets/base.css`，关键页面手工验收已通过 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 
-## B. 当前仍留在 `docs/plan/` 的文档
+## B. 当前仍留在 `docs/plan/` 的未完成文档
 
 这些文档当前还没有退出 `docs/plan/`，并且按现有代码与稳定文档判断，仍未满足归档条件。
 
@@ -88,7 +88,15 @@
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
-| `media-subscription/subscription-resubmission-after-rejection.md` | 继续保留 | 当前 `subscriptions` 仍对 `type + tmdbId + season` 使用全局唯一约束，未见 `retryFromId` 字段与重提接口 | 继续按实施方案维护 |
+
+## C. 本轮从 `docs/plan/` 迁入归档的文档
+
+这些文档已经有明确代码或稳定文档落点，已按职责边界迁入对应 `docs/archive/plan/` 分类目录。
+
+| 文档 | 盘点结论 | 主要证据 | 建议动作 |
+|------|----------|----------|----------|
+| `archive/plan/architecture/database-migration-baseline-and-archive.md` | 已归档 | 文档自身已标 `已完成`；现行迁移规则已由 `20260422_00_schema_baseline.sql`、`infrastructure/database/README.md`、`docs/system-architecture.md` 和 schema 部署基线收口方案接管 | 历史追溯 |
+| `archive/plan/media-subscription/subscription-resubmission-after-rejection.md` | 已归档 | `subscriptions.retryFromId`、`20260424_01_subscription_resubmission_after_rejection.sql`、`uq_subscriptions_active_media`、`POST /subscriptions/:id/resubmit`、`ResubmitSubscriptionWithResult`、用户侧“再次提交”入口和架构文档均已落地 | 历史追溯 |
 
 ## D. 本轮新增归档记录
 
@@ -113,6 +121,8 @@
 - `media-subscription/gap-management-and-precision-download.md`
 - `media-subscription/library-entry-consolidation.md`
 - `media-subscription/subscription-status-and-notification.md`
+- `architecture/database-migration-baseline-and-archive.md`
+- `media-subscription/subscription-resubmission-after-rejection.md`
 - `embypulse-features/p1-user-profile.md`
 - `embypulse-features/p2-user-avatar.md`
 - `console-admin/ember-web-component-foundation.md`
