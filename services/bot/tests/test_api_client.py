@@ -1,8 +1,20 @@
-import types
+import os
+import sys
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
+
+BOT_ROOT = Path(__file__).resolve().parents[1]
+BOT_ROOT_STR = str(BOT_ROOT)
+
+if BOT_ROOT_STR not in sys.path:
+    sys.path.insert(0, BOT_ROOT_STR)
+
+os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
+os.environ.setdefault("INTERNAL_API_SECRET", "test-secret")
+os.environ.setdefault("TELEGRAM_UPDATE_MODE", "polling")
 
 from app.clients import api_client
 
