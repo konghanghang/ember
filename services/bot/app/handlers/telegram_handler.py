@@ -377,8 +377,8 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
         await message.reply_text("拒绝原因不能为空，请重新输入。")
         return
 
-    # 从 API 弹出待确认记录，取 subscriptionId（副本隔离：subscriptionId 由服务端持久化）。
-    # Bot 不再保留进程内副本，多实例下统一依赖服务端持久化返回的上下文。
+    # 从 API 弹出待确认记录，取 subscriptionId；Bot 重启或滚动发布后仍可恢复待输入上下文。
+    # Bot 不再保留进程内副本，拒绝原因的两步交互统一以服务端持久化记录为准。
     popped = await api_client.pop_pending_reject(message.chat_id)
     if popped is None:
         return

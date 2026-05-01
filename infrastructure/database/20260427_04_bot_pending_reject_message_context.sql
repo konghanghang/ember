@@ -1,5 +1,5 @@
 -- 20260427_04_bot_pending_reject_message_context
--- 用途：为 bot_pending_reject_requests 增加拒绝订阅消息上下文，避免 Bot 多实例下仍残留进程内状态依赖。
+-- 用途：为 bot_pending_reject_requests 增加拒绝订阅消息上下文，避免 Bot 重启或滚动发布导致待输入状态丢失。
 -- 变更：
 --   - 新增 messageId / hasPhoto / originalText 三列
 -- 幂等：是，可重复执行。

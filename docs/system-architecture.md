@@ -940,7 +940,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 **反账号枚举（handler 层）**：`GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 命中 `ErrTelegramNotBound` 时统一返回 400 + `请求参数错误`，不再透传 sentinel 字面值；攻击者无法借 `/redeem`、`/resetpw` 等命令枚举 Telegram→Ember 的绑定关系。具体业务错误（码无效、密码长度不够等）继续按各自 sentinel 返回。
 
-**审批拒绝上下文持久化**：Bot 管理员拒绝订阅时，待输入的 `subscriptionId / messageId / hasPhoto / originalText / expiresAt` 已落到 `bot_pending_reject_requests`，不再依赖进程内 dict；搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
+**审批拒绝上下文持久化**：Bot 管理员拒绝订阅时，待输入的 `subscriptionId / messageId / hasPhoto / originalText / expiresAt` 已落到 `bot_pending_reject_requests`，避免 Bot 重启或滚动发布导致 5 分钟内的待输入状态丢失；搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
 
 ### 5.18 TVCalendarService (`services/tvcalendar/service.go`)
 

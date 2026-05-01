@@ -13,7 +13,7 @@
 - ✅ Handler 层 `GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 在 `ErrTelegramNotBound` 命中时统一返回 400 + `请求参数错误`，反 Telegram→Ember 绑定枚举
 - ✅ `PaymentSuccessNotification` 删除 `Email` / `StripeSessionID` / `StripePaymentIntentID` 三个字段；`payment service` 同步去赋值；Bot Python `format_payment_message` 去渲染 + 单测同步
 - ✅ `runtime_settings_service` 失败保留旧值，不再把有效配置覆盖为空值
-- ✅ `pending_reject_requests` 已补服务端持久化主链路；`subscriptionId / messageId / hasPhoto / originalText` 不再只靠进程内 dict 维持
+- ✅ `pending_reject_requests` 已补服务端持久化主链路；`subscriptionId / messageId / hasPhoto / originalText` 可覆盖 Bot 重启或滚动发布后的待输入状态恢复
 - ✅ `polling` 模式已补数据库租约锁：启动前申请、运行中续租、失败时主动停止 polling
 - ✅ Bot API `httpx` 客户端已补 `limits`、重试和更完整的失败日志
 - ✅ `BotNotifier` 已补进程内配置缓存与刷新节流，不再在每次 `IsConfigured` / `post` 时重建 `ConfigService` 查库
@@ -36,7 +36,7 @@
 
 - API 侧所有关键 fire-and-forget 调用都已统一改走 `internal/async.SafeGo(name, fn)`，panic 不再打死主进程。
 - `BotNotifier` 已收口到进程内共享单例，发送日志包含 `endpoint / event / payloadSize / requestId / latency`。
-- `pending_reject_requests` 已服务端持久化到 `bot_pending_reject_requests`，审批消息 `messageId` 也已持久化；搜索交互 `message_id` 则明确保留为 10 分钟 TTL 的私聊会话态边界。
+- `pending_reject_requests` 已服务端持久化到 `bot_pending_reject_requests`，审批消息 `messageId` 也已持久化，用于保护 Bot 重启或滚动发布期间的拒绝原因待输入状态；搜索交互 `message_id` 则明确保留为 10 分钟 TTL 的私聊会话态边界。
 - Polling 模式已通过数据库租约锁强制单实例；续租失败时实例主动停止 polling。
 - webhook 注册当前采用有限重试策略：最多重试 `6` 次，失败后记 `ERROR` 并停止继续重试；`/health` 在 `webhook` 模式下会暴露 `degraded` 状态和最后错误。
 
@@ -52,7 +52,7 @@
 - Polling 模式无单实例约束保护，多副本会重复消费 update；`/resetpw` 不做服务端去重。
 - `BotNotifier.post` 用 `fmt.Printf` 输出错误，无 endpoint / payload 上下文，关键链路失败无可观测性。
 - `runtime_settings_service` 30s TTL 缓存击穿与多实例不一致；缓存失败回退仅用 env，运行期改动会丢。
-- `pending_reject_requests` 进程内 dict 跨实例不一致。
+- `pending_reject_requests` 只放进程内 dict 时，Bot 重启或滚动发布会丢失待输入状态。
 - `generateTelegramBindCode` 取模导致 `0~777215` 命中概率略偏；并发同一 userID 旧码清理不在唯一索引行锁内。
 - `subscribeByTelegram` 输入字段（`tmdbId / posterPath / name`）无白名单。
 - `_call_subscription_action` 把任何非 200 当失败，吞掉 4xx 业务提示。
@@ -73,7 +73,7 @@
 6. Polling 模式启动时 WARN 单实例约束，并在文档明文写死"仅允许单实例部署"
 7. `BotNotifier.post` 错误统一过 `logger`，含 `endpoint / event / payload size / status / latency`
 8. `runtime_settings_service` 缓存失败回退保留旧值，禁止覆盖为空；多实例不一致风险写入文档
-9. `pending_reject_requests` 持久化到 DB（或 Redis）替代进程内 dict
+9. `pending_reject_requests` 持久化到 DB（或 Redis）替代进程内 dict，保护 Bot 重启或滚动发布期间的两步拒绝流程
 10. `generateTelegramBindCode` 改为 `crypto/rand` 拒绝采样保证均匀分布；旧码清理 + 写入在 `userId` 唯一索引行锁内
 11. `subscribeByTelegram` 输入字段加白名单校验（tmdbId 必须正整数 / posterPath 路径白名单 / name 长度上限）
 12. `_call_subscription_action` 把 4xx 业务文案透传给 admin chat
@@ -119,7 +119,7 @@
   - API 侧关键 fire-and-forget 已统一改走 `internal/async.SafeGo(name, fn)`，不再裸 `go s.notifier.notify*(...)`
   - `BotNotifier.post` 已统一走结构化日志，包含 `endpoint / event / payloadSize / requestId / latency`，`BotNotifier` 本身是进程内共享单例并带配置缓存
   - Polling 模式已通过 API Internal 路由申请 / 续租 / 释放数据库租约锁，拿不到锁的实例拒绝启动
-  - `pending_reject_requests` 已落到 `bot_pending_reject_requests` 表，不再依赖进程内 dict
+  - `pending_reject_requests` 已落到 `bot_pending_reject_requests` 表，避免 Bot 重启或滚动发布丢失待输入状态
   - 审批消息 `messageId` 已服务端持久化到 `bot_pending_reject_requests`，搜索交互 `message_id` 仍只保留在 `SearchSession` 10 分钟 TTL 缓存，用于校验“用户是否在操作最新一条搜索结果消息”
   - webhook 注册当前采用有限重试策略：最多重试 `6` 次，失败后记 `ERROR` 并停止继续重试，不再无限指数退避悬空
   - `/health` 在 `webhook` 模式下会暴露 webhook 注册状态；若达到最大重试次数仍未注册成功，健康状态返回 `degraded` 并附最后错误与重试次数
@@ -137,7 +137,7 @@
 - Bot 在 API 短抖动时不立刻失败，自动重试 3 次以内
 - Polling 模式启动时日志 WARN "Polling 模式仅允许单实例部署"
 - admin 接收的支付成功消息不含邮箱 / Stripe ID
-- 拒绝订阅功能：admin 在多实例 Bot 部署下也能正常拒绝（pending_reject 持久化）
+- 拒绝订阅功能：Bot 重启或滚动发布后，admin 仍可在有效期内提交拒绝原因（pending_reject 持久化）
 - `/redeem` 返回业务错误时 admin 能看到具体原因（兑换码无效 / 已用尽等）
 
 ### 2. 数据与模型
@@ -261,7 +261,7 @@
 1. 拒绝流程：
    - admin 点"拒绝"按钮 → Bot 调 API 写 `bot_pending_reject_requests`
    - admin 在 5 分钟内输入 reason → Bot 读 DB 取 pending → 调 reject API
-2. 多实例 Bot 部署：DB 共享，行为一致
+2. Bot 重启或滚动发布：待确认记录仍由 DB 保存，行为一致
 3. cron 每 30 分钟清理过期 pending
 
 #### 4.9 subscribeByTelegram 输入校验
@@ -395,8 +395,8 @@
 - sweep 所有 `*http.Client` 实例化位置，确认 BotNotifier / EmbyService / TMDBService / MoviePilotClient / Stripe Client 都复用单例
 - sweep 所有 admin / group 通知文案，确认无敏感字段（email / sessionId / token / hash）
 - sweep 所有 `os.Getenv` 在中间件 / handler 中的一次性 capture，确认与 ConfigService 边界对齐（与 access-auth 计划协同）
-- 复核 `runtime_settings_service` 在多实例下的一致性窗口
-- 复核 `_synced_chat_versions` 缓存在多实例下的影响
+- 复核 `runtime_settings_service` 在滚动发布与实例切换时的一致性窗口
+- 复核 `_synced_chat_versions` 缓存在 Bot 重启后的影响
 
 ## 落地后文档处理
 
@@ -416,7 +416,7 @@
 | P1-4 (Bot) | Polling 无单实例约束 | §4.6 |
 | P1-5 (Bot) | BotNotifier fmt.Printf 无可观测性 | §4.1 + logger |
 | P2-1 (Bot) | runtime_settings 失败覆盖空 | §4.7 |
-| P2-2 (Bot) | pending_reject_requests 跨进程不一致 | §4.8 + 表 `bot_pending_reject_requests` |
+| P2-2 (Bot) | pending_reject_requests 随 Bot 重启或滚动发布丢失 | §4.8 + 表 `bot_pending_reject_requests` |
 | P2-3 (Bot) | bind code 取模偏置 + 旧码并发 | §4.2 |
 | P2-4 (Bot) | subscribeByTelegram 输入校验 | §4.9 |
 | P2-5 (Bot) | _call_subscription_action 吞 4xx | §4.10 |
