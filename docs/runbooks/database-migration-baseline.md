@@ -31,6 +31,14 @@
 - baseline 不是简单的“把旧 SQL 拼在一起”
 - `archive/` 只用于追溯，不是新的执行入口
 - 基线生成成功前，`infrastructure/database/` 顶层仍然是唯一有效迁移入口
+- 数据库新增设计规则仍然是：表名 / 列名 / 索引名统一使用 `snake_case`
+
+## 命名约束
+
+- baseline 必须忠实反映截点时的真实 schema，不要为了“顺手统一风格”在 baseline 过程中偷偷重命名历史列
+- 历史 schema 中已经存在的 camelCase 列属于遗留兼容范围，只有单独立项的 schema 收口任务才允许改名
+- baseline 之后新增的 migration 仍然必须遵守 `snake_case` 规则，不能继续扩散历史 camelCase 命名
+- Go / GORM 字段与 JSON 字段命名不构成数据库列命名依据；写 migration 或手工 SQL 时只认数据库真实列名
 
 ## 第一步：选定截点
 
@@ -123,6 +131,7 @@ ON CONFLICT (key) DO NOTHING;
 - 这类 seed 必须是稳定、确定、环境无关的数据
 - 不要把 `settings` 整张表导成 data dump，那会把环境配置一并带进去
 - 不要把面向历史脏数据修复的 `UPDATE` / `DELETE` 原样塞进空库 baseline
+- 不要借这个步骤顺手把历史 camelCase 列改成 `snake_case`；命名收口是单独 migration 议题，不是 baseline seed 议题
 
 当前明确不应直接搬进空库 baseline 的逻辑包括：
 

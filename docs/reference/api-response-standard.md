@@ -286,6 +286,15 @@ c.JSON(http.StatusBadRequest, gin.H{
 
 ## 🔤 命名规范
 
+### 字段命名分层规则
+
+**规则**：
+- JSON 字段统一使用 `camelCase`
+- Go / GORM 结构体字段统一使用 `CamelCase`
+- 数据库表名、列名、索引名统一使用 `snake_case`
+
+历史上已经存在的 camelCase 数据库列属于遗留结构；新增表 / 新增列 / 新增索引禁止继续沿用这类命名。
+
 ### JSON 字段命名：camelCase
 
 **规则**：所有 JSON 字段使用驼峰命名法
@@ -306,22 +315,18 @@ c.JSON(http.StatusBadRequest, gin.H{
 - 与前端代码风格一致
 - 无需字段名转换
 
-**数据库列名与 JSON 字段映射**：
+**Go 字段、JSON 字段与数据库列映射**：
 ```go
-// Prisma Schema（驼峰命名）
-model User {
-  embyId    String
-  createdAt DateTime
-}
-
 // Go GORM 模型（必须显式指定 column）
 type User struct {
-    EmbyID    string    `json:"embyId" gorm:"column:embyId"`
-    CreatedAt time.Time `json:"createdAt" gorm:"column:createdAt"`
+    EmbyID    string    `json:"embyId" gorm:"column:emby_id"`
+    CreatedAt time.Time `json:"createdAt" gorm:"column:created_at"`
 }
 ```
 
-⚠️ **重要**：GORM 默认将字段转换为蛇形命名（`EmbyID` → `emby_id`），而 Prisma 使用驼峰命名，因此必须使用 `gorm:"column:xxx"` 显式指定列名。
+⚠️ **重要**：
+- 即使数据库当前已有遗留 camelCase 列，新增设计仍然按 `snake_case` 执行
+- GORM 模型一律显式写 `gorm:"column:xxx"`，不要依赖默认推导，更不要从历史遗留列名反向复制新命名
 
 ---
 
@@ -464,14 +469,14 @@ GET /invites → { "data": [...] }
 
 ### 错误 2：GORM 模型未指定列名
 ```go
-// ❌ 错误（GORM 会转为 emby_id，但数据库列名是 embyId）
+// ❌ 错误（新增数据库列规范是 snake_case，但这里没显式锁定映射）
 type User struct {
     EmbyID string `json:"embyId"`
 }
 
 // ✅ 正确
 type User struct {
-    EmbyID string `json:"embyId" gorm:"column:embyId"`
+    EmbyID string `json:"embyId" gorm:"column:emby_id"`
 }
 ```
 
@@ -567,6 +572,10 @@ curl -s http://localhost:8080/api/v1/admin/users \
 
 ## 📝 版本历史
 
+### v1.1 (2026-05-02)
+- ✅ 明确命名分层：数据库 `snake_case`，Go/GORM `CamelCase`，JSON `camelCase`
+- ✅ 明确历史 camelCase 数据库列属于遗留结构，新增设计禁止继续扩散
+
 ### v1.0 (2026-02-11)
 - ✅ 初始版本
 - ✅ 定义列表、单个实体、操作结果三种响应格式
@@ -577,5 +586,5 @@ curl -s http://localhost:8080/api/v1/admin/users \
 ---
 
 **文档维护者**: 后端团队
-**最后更新**: 2026-02-11
+**最后更新**: 2026-05-02
 **如有疑问，请提交 Issue 或联系团队**

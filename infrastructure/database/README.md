@@ -8,6 +8,7 @@
 - 当前顶层已收口为 `20260422_00_schema_baseline.sql` + 后续增量迁移
 - `archive/pre-20260415/` 与 `archive/pre-20260422/` 仅保留已被 baseline 完整覆盖的历史迁移
 - 已有数据库升级只执行 baseline 之后新增的顶层 SQL
+- 数据库表名、列名、索引名统一使用 `snake_case`；历史 camelCase 列仅作遗留兼容，不得在新 migration 里继续扩散
 
 ## 当前目录职责
 
@@ -120,13 +121,27 @@ infrastructure/database/archive/pre-20260422/
 - 归档历史迁移时，原文件名不允许改写
 - baseline 文件继续使用同一命名规则，不额外引入特殊前缀
 
+## Schema 命名规则
+
+- 新增表名统一使用 `snake_case`
+- 新增列名统一使用 `snake_case`
+- 新增索引名统一使用 `snake_case`
+- Go / GORM 字段与 JSON 字段继续通过显式映射保持 `CamelCase` / `camelCase`
+
+边界说明：
+
+- 历史 migration 与现网 schema 中已经存在的 camelCase 列，属于遗留结构；没有专项 schema 收口任务时，不要在普通需求里顺手改名
+- 但新增 migration 也不能因为“要和旧列保持风格一致”就继续创建 camelCase 表 / 列 / 索引
+- 手写 SQL、排障 SQL、数据修复 SQL 都必须先核对真实列名，不要从 JSON 字段名或 Go 字段名反推数据库列名
+
 ## 新增 migration 必做事项
 
-每次在本目录新增顶层 SQL，必须同步完成以下三件事：
+每次在本目录新增顶层 SQL，必须同步完成以下四件事：
 
 1. 复制到 `infrastructure/docker/initdb/`，保持文件名一致
 2. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（用于 API 启动期 `VerifySchema` fail-fast）
-3. 在隔离临时库回灌验证幂等
+3. 确认新增表 / 列 / 索引命名符合 `snake_case` 规则，不从历史 camelCase 遗留结构复制命名
+4. 在隔离临时库回灌验证幂等
 
 漏做第 2 步：API 启动期不会拦住缺该 migration 的环境，要等运行到第一次查询才报错。
 
