@@ -18,6 +18,7 @@ type emailVerifier interface {
 	VerifyCode(email, code, codeType string) error
 	CheckCode(email, code, codeType string) error
 	ConsumeCodeTx(tx *gorm.DB, email, code, codeType string) error
+	IsRegistrationEmailAllowed(email string) error
 }
 
 type embyClient interface {

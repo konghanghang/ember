@@ -26,6 +26,10 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		return nil, err
 	}
 
+	if err := s.enforceRegisterEmailDomain(req); err != nil {
+		return nil, err
+	}
+
 	if err := s.verifyRegisterEmailCode(req); err != nil {
 		return nil, err
 	}
@@ -86,6 +90,36 @@ func (s *AuthService) verifyRegisterEmailCode(req *RegisterUserRequest) error {
 		return ErrRegisterEmailCodeRequired
 	}
 	return s.emailService.CheckCode(req.Email, req.EmailCode, models.VerificationTypeRegister)
+}
+
+// enforceRegisterEmailDomain 在用户名整理完成后、邮件码校验之前做注册邮箱域名白名单门控。
+//
+// 与 SendVerificationCode 共用同一份 ConfigService.IsRegistrationEmailAllowed 语义，
+// 避免“验证码能发、注册被拦”的裂缝。失败路径不调用 Emby、不消耗邀请码、不写库。
+//
+// 当 isRegistrationEmailAllowed 未注入时（理论上不会发生，构造期已默认填充），
+// 视作白名单关闭，保持当前开放注册行为，不会误把所有人挡在外面。
+func (s *AuthService) enforceRegisterEmailDomain(req *RegisterUserRequest) error {
+	if s.isRegistrationEmailAllowed == nil {
+		return nil
+	}
+	if err := s.isRegistrationEmailAllowed(req.Email); err != nil {
+		log.Printf("[Auth] 注册因邮箱域名白名单拦截 username=%s domain=%s reason=%v",
+			req.Username, registrationEmailDomain(req.Email), err)
+		return err
+	}
+	return nil
+}
+
+// registrationEmailDomain 仅用于注册链路日志，从原始请求邮箱中提取小写域名。
+// 输入异常时返回 "unknown"，不要让日志格式化失败掩盖真实拦截原因。
+func registrationEmailDomain(email string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(email))
+	at := strings.LastIndex(trimmed, "@")
+	if at <= 0 || at >= len(trimmed)-1 {
+		return "unknown"
+	}
+	return trimmed[at+1:]
 }
 
 func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPreparation, error) {

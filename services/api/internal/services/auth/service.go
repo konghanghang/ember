@@ -46,32 +46,34 @@ type authTurnstileVerifier interface {
 }
 
 type AuthServiceDeps struct {
-	Notifier                 authRegistrationNotifier
-	EmailService             authEmailVerifier
-	ConfigReader             authConfigReader
-	TurnstileVerifier        authTurnstileVerifier
-	NewEmbyClient            func() authEmbyClient
-	SaveUser                 func(user *models.User) error
-	GetRegistrationMode      func() string
-	GetDefaultTrialDays      func() int
-	ValidateRegistrationCode func(code string) (*models.RedemptionCode, error)
-	Compensation             *accountpkg.EmbyCompensation
-	NewCompensation          func() *accountpkg.EmbyCompensation
+	Notifier                    authRegistrationNotifier
+	EmailService                authEmailVerifier
+	ConfigReader                authConfigReader
+	TurnstileVerifier           authTurnstileVerifier
+	NewEmbyClient               func() authEmbyClient
+	SaveUser                    func(user *models.User) error
+	GetRegistrationMode         func() string
+	GetDefaultTrialDays         func() int
+	IsRegistrationEmailAllowed  func(email string) error
+	ValidateRegistrationCode    func(code string) (*models.RedemptionCode, error)
+	Compensation                *accountpkg.EmbyCompensation
+	NewCompensation             func() *accountpkg.EmbyCompensation
 }
 
 // AuthService 认证服务
 type AuthService struct {
-	notifier                 authRegistrationNotifier
-	emailService             authEmailVerifier
-	configReader             authConfigReader
-	turnstileVerifier        authTurnstileVerifier
-	newEmbyClient            func() authEmbyClient
-	saveUser                 func(user *models.User) error
-	getRegistrationMode      func() string
-	getDefaultTrialDays      func() int
-	validateRegistrationCode func(code string) (*models.RedemptionCode, error)
-	compensation             *accountpkg.EmbyCompensation
-	newCompensation          func() *accountpkg.EmbyCompensation
+	notifier                   authRegistrationNotifier
+	emailService               authEmailVerifier
+	configReader               authConfigReader
+	turnstileVerifier          authTurnstileVerifier
+	newEmbyClient              func() authEmbyClient
+	saveUser                   func(user *models.User) error
+	getRegistrationMode        func() string
+	getDefaultTrialDays        func() int
+	isRegistrationEmailAllowed func(email string) error
+	validateRegistrationCode   func(code string) (*models.RedemptionCode, error)
+	compensation               *accountpkg.EmbyCompensation
+	newCompensation            func() *accountpkg.EmbyCompensation
 }
 
 var (
@@ -90,17 +92,18 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 	redemptionCodeService := &redemptionpkg.RedemptionCodeService{}
 
 	service := &AuthService{
-		notifier:                 deps.Notifier,
-		emailService:             deps.EmailService,
-		configReader:             deps.ConfigReader,
-		turnstileVerifier:        deps.TurnstileVerifier,
-		newEmbyClient:            deps.NewEmbyClient,
-		saveUser:                 deps.SaveUser,
-		getRegistrationMode:      deps.GetRegistrationMode,
-		getDefaultTrialDays:      deps.GetDefaultTrialDays,
-		validateRegistrationCode: deps.ValidateRegistrationCode,
-		compensation:             deps.Compensation,
-		newCompensation:          deps.NewCompensation,
+		notifier:                   deps.Notifier,
+		emailService:               deps.EmailService,
+		configReader:               deps.ConfigReader,
+		turnstileVerifier:          deps.TurnstileVerifier,
+		newEmbyClient:              deps.NewEmbyClient,
+		saveUser:                   deps.SaveUser,
+		getRegistrationMode:        deps.GetRegistrationMode,
+		getDefaultTrialDays:        deps.GetDefaultTrialDays,
+		isRegistrationEmailAllowed: deps.IsRegistrationEmailAllowed,
+		validateRegistrationCode:   deps.ValidateRegistrationCode,
+		compensation:               deps.Compensation,
+		newCompensation:            deps.NewCompensation,
 	}
 
 	if service.notifier == nil {
@@ -137,6 +140,11 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 	if service.getDefaultTrialDays == nil {
 		service.getDefaultTrialDays = func() int {
 			return defaultConfigReader.GetDefaultTrialDays()
+		}
+	}
+	if service.isRegistrationEmailAllowed == nil {
+		service.isRegistrationEmailAllowed = func(email string) error {
+			return defaultConfigReader.IsRegistrationEmailAllowed(email)
 		}
 	}
 	if service.validateRegistrationCode == nil {

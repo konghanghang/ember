@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
@@ -415,7 +416,8 @@ func (h *UserHandler) SendEmailChangeCode(c *gin.Context) {
 		switch {
 		case errors.Is(err, emailpkg.ErrEmailUnchanged),
 			errors.Is(err, emailpkg.ErrEmailAlreadyBound),
-			errors.Is(err, emailpkg.ErrEmailAlreadyRegistered):
+			errors.Is(err, emailpkg.ErrEmailAlreadyRegistered),
+			errors.Is(err, emailpkg.ErrEmailDomainNotAllowed):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, emailpkg.ErrEmailCodeRateLimit),
 			errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit):
@@ -459,7 +461,9 @@ func (h *UserHandler) UpdateEmail(c *gin.Context) {
 		switch {
 		case errors.Is(err, userpkg.ErrEmailAlreadyExists),
 			errors.Is(err, emailpkg.ErrEmailUnchanged),
-			errors.Is(err, emailpkg.ErrEmailCodeInvalid):
+			errors.Is(err, emailpkg.ErrEmailCodeInvalid),
+			errors.Is(err, configpkg.ErrRegistrationEmailDomainNotAllowed),
+			errors.Is(err, configpkg.ErrRegistrationEmailInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, userpkg.ErrUserNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

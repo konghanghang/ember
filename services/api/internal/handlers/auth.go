@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
 	authpkg "github.com/konghang/ember/backend/internal/services/auth"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
@@ -174,7 +175,8 @@ func (h *AuthHandler) SendEmailCode(c *gin.Context) {
 
 	if err := h.emailService.SendVerificationCode(req.Email, c.ClientIP(), models.VerificationTypeRegister); err != nil {
 		switch {
-		case errors.Is(err, emailpkg.ErrEmailAlreadyRegistered):
+		case errors.Is(err, emailpkg.ErrEmailAlreadyRegistered),
+			errors.Is(err, emailpkg.ErrEmailDomainNotAllowed):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, emailpkg.ErrEmailCodeRateLimit), errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit):
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
@@ -251,6 +253,8 @@ func isAuthRegisterBadRequest(err error) bool {
 		errors.Is(err, userpkg.ErrUsernameCharsetInvalid),
 		errors.Is(err, userpkg.ErrUsernameAlreadyExists),
 		errors.Is(err, emailpkg.ErrEmailAlreadyRegistered),
+		errors.Is(err, configpkg.ErrRegistrationEmailDomainNotAllowed),
+		errors.Is(err, configpkg.ErrRegistrationEmailInvalid),
 		errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupNotFound):
 		return true
 	}

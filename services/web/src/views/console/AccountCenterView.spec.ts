@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AccountCenterView from './AccountCenterView.vue'
 import { sendEmailChangeCode } from '@/api/console'
+import { getRegistrationMode } from '@/api/auth'
 import { ElMessage } from 'element-plus'
 
 vi.mock('@/api/console', () => ({
@@ -11,6 +12,18 @@ vi.mock('@/api/console', () => ({
   generateTelegramBindCode: vi.fn(),
   unbindTelegram: vi.fn(),
   updatePassword: vi.fn(),
+}))
+
+vi.mock('@/api/auth', () => ({
+  // 默认返回空白名单 = 无注册邮箱域名限制；让现有用例完全不感知该 hook。
+  // 需要测白名单生效行为的用例可在 beforeEach / it 内 vi.mocked(getRegistrationMode).mockResolvedValueOnce(...) 覆盖。
+  getRegistrationMode: vi.fn(() =>
+    Promise.resolve({
+      mode: 'open',
+      emailVerification: false,
+      allowedEmailDomains: [],
+    }),
+  ),
 }))
 
 vi.mock('vue-router', () => ({

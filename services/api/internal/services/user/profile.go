@@ -50,6 +50,14 @@ func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*Upda
 		return nil, err
 	}
 
+	// 与 SendEmailChangeCode 共用同一份注册邮箱域名白名单门控；防御 send-code 通过后
+	// 管理员收紧白名单时仍能在 commit 前拦下，避免出现"换邮箱接口尚未对齐当前策略"的窗口。
+	if err := s.getEmailVerifier().IsRegistrationEmailAllowed(newEmail); err != nil {
+		log.Printf("[UserEmailChange] 因域名白名单拦截 userId=%s newHash=%s reason=%v",
+			userID, hashEmail(newEmail), err)
+		return nil, err
+	}
+
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
 		// 校验即消费验证码（同事务内删除，不可重放）。
 		if err := s.getEmailVerifier().ConsumeCodeTx(tx, newEmail, req.Code, models.VerificationTypeChangeEmail); err != nil {

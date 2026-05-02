@@ -166,6 +166,84 @@ func TestVerifyRegisterEmailCode(t *testing.T) {
 	})
 }
 
+func TestEnforceRegisterEmailDomain(t *testing.T) {
+	t.Run("nil hook treats as allowlist disabled", func(t *testing.T) {
+		service := &AuthService{}
+		if err := service.enforceRegisterEmailDomain(&RegisterUserRequest{Email: "user@anywhere.com"}); err != nil {
+			t.Fatalf("expected nil hook to allow registration, got %v", err)
+		}
+	})
+
+	t.Run("hook error transparently returned", func(t *testing.T) {
+		expected := errors.New("domain rejected")
+		service := &AuthService{
+			isRegistrationEmailAllowed: func(email string) error {
+				if email != "user@yahoo.com" {
+					t.Fatalf("expected enforce to forward original email, got %q", email)
+				}
+				return expected
+			},
+		}
+
+		err := service.enforceRegisterEmailDomain(&RegisterUserRequest{
+			Username: "ember",
+			Email:    "user@yahoo.com",
+		})
+		if !errors.Is(err, expected) {
+			t.Fatalf("expected hook error to be returned, got %v", err)
+		}
+	})
+}
+
+func TestRegisterUserStopsWhenEmailDomainRejected(t *testing.T) {
+	expected := errors.New("domain rejected")
+	emailVerifier := &stubAuthEmailVerifier{enabled: true}
+	embyClient := &stubAuthEmbyClient{}
+
+	service := &AuthService{
+		emailService: emailVerifier,
+		isRegistrationEmailAllowed: func(string) error {
+			return expected
+		},
+		newEmbyClient: func() authEmbyClient { return embyClient },
+		// 故意不注入 saveUser / notifier / 兑换码校验等下游依赖；
+		// 一旦域名拦截没生效，链路会立刻 panic 暴露问题。
+	}
+
+	_, err := service.RegisterUser(&RegisterUserRequest{
+		Username:  "ember123",
+		Password:  "secret123",
+		Email:     "user@yahoo.com",
+		EmailCode: "123456",
+	})
+	if !errors.Is(err, expected) {
+		t.Fatalf("expected domain rejection, got %v", err)
+	}
+	if emailVerifier.checkCalled {
+		t.Fatalf("expected email verifier not to be called when domain is rejected")
+	}
+}
+
+func TestRegisterUserSkipsDomainCheckWhenHookNil(t *testing.T) {
+	// 兜底：未注入 hook 时（例如老的 deps 默认值不可用），enforceRegisterEmailDomain
+	// 必须等价于“白名单关闭”，不能默认拒绝所有人。链路在邮件码校验阶段终止以验证流程顺序。
+	emailVerifier := &stubAuthEmailVerifier{enabled: true}
+	service := &AuthService{
+		emailService: emailVerifier,
+		// isRegistrationEmailAllowed 故意留空
+	}
+
+	_, err := service.RegisterUser(&RegisterUserRequest{
+		Username:  "ember123",
+		Password:  "secret123",
+		Email:     "user@anywhere.com",
+		EmailCode: "",
+	})
+	if !errors.Is(err, ErrRegisterEmailCodeRequired) {
+		t.Fatalf("expected to fall through to email code check, got %v", err)
+	}
+}
+
 func TestNotifyNewRegistration(t *testing.T) {
 	t.Run("skips when notifier is not configured", func(t *testing.T) {
 		notifier := &stubAuthRegistrationNotifier{

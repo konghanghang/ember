@@ -32,6 +32,16 @@ func normalizeVerificationEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+// extractEmailDomainForLog 仅用于日志：从已规范化的邮箱中安全提取 @ 后域名。
+// 输入异常时返回 "unknown"，不要让日志格式化失败掩盖真实拦截原因。
+func extractEmailDomainForLog(normalizedEmail string) string {
+	at := strings.LastIndex(normalizedEmail, "@")
+	if at <= 0 || at >= len(normalizedEmail)-1 {
+		return "unknown"
+	}
+	return normalizedEmail[at+1:]
+}
+
 // evaluateVerificationCode 纯函数：判断已锁定的 verification 记录是否能与提交的 code 匹配
 func evaluateVerificationCode(verification *models.EmailVerification, code string) error {
 	if verification == nil {
@@ -71,12 +81,26 @@ func (s *EmailService) findLatestVerification(tx *gorm.DB, email, codeType strin
 // 反账号枚举约束：reset 路径无论邮箱是否已注册都先消耗同一套 IP / email 限流配额，
 // 未注册邮箱仍写入限流计数行（不发送邮件）并返回 ErrEmailNotRegistered，由 handler 收口
 // 为统一 200 响应；攻击者无法借限流差异（200 vs 429）或响应体差异枚举注册状态。
+//
+// 注册邮箱域名白名单：仅在 register 分支生效；若白名单非空且邮箱域名不在白名单内，
+// 在“邮箱已注册”判断、advisory lock、限流统计、SMTP 调用之前直接返回
+// ErrEmailDomainNotAllowed，不消耗任何配额，不写库。reset 路径不做域名门控，
+// 否则会破坏反账号枚举语义。
 func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 	s.refreshConfig()
 	if !s.IsConfigured() {
 		return ErrEmailNotConfigured
 	}
 	normalizedEmail := normalizeVerificationEmail(email)
+
+	if codeType == models.VerificationTypeRegister {
+		if err := s.configReader.IsRegistrationEmailAllowed(email); err != nil {
+			domain := extractEmailDomainForLog(normalizedEmail)
+			log.Printf("[Email] 注册验证码因域名白名单拦截 ip=%s domain=%s scenario=%s reason=%v",
+				ip, domain, codeType, err)
+			return ErrEmailDomainNotAllowed
+		}
+	}
 
 	var existingUserCount int64
 	db.DB.Model(&models.User{}).Where("lower(email) = ?", normalizedEmail).Count(&existingUserCount)
@@ -234,6 +258,7 @@ func (s *EmailService) CleanupExpired() (int64, error) {
 // 与 SendVerificationCode 的差异：
 //   - codeType 固定为 VerificationTypeChangeEmail
 //   - 业务前置：新邮箱与当前邮箱相同直接拒绝（不消耗限流配额）
+//   - 业务前置：新邮箱命中注册邮箱域名白名单门控时直接拒绝（不消耗限流配额）
 //   - 业务前置：新邮箱已被其他用户使用直接拒绝（不消耗限流配额）
 //
 // 限流配额、advisory lock、SMTP 发送结构与 SendVerificationCode 保持一致。
@@ -253,6 +278,14 @@ func (s *EmailService) SendEmailChangeCode(currentEmail, newEmail, ip string) er
 	// 业务前置：与当前邮箱相同 → 拒绝并不消耗配额
 	if normalizedNew == normalizedCurrent {
 		return ErrEmailUnchanged
+	}
+
+	// 业务前置：注册邮箱域名白名单门控；与注册链路共用同一份语义。
+	// 顺序刻意放在 DB 占用查询之前，让非白名单邮箱在内存内被挡住，不浪费 DB query。
+	if err := s.configReader.IsRegistrationEmailAllowed(newEmail); err != nil {
+		log.Printf("[EmailChange] 因域名白名单拦截 ip=%s domain=%s reason=%v",
+			ip, extractEmailDomainForLog(normalizedNew), err)
+		return ErrEmailDomainNotAllowed
 	}
 
 	// 业务前置：新邮箱被其他用户占用 → 拒绝并不消耗配额

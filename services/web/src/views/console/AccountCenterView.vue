@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, type Component } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -20,6 +20,7 @@ import { formatDateTime } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
 import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
+import { getRegistrationMode } from '@/api/auth'
 import {
   generateTelegramBindCode,
   sendEmailChangeCode,
@@ -62,9 +63,73 @@ const verifyCode = ref('')
 const sendingEmailCode = ref(false)
 const confirmingEmailChange = ref(false)
 const emailCodeCountdown = ref(0)
+const allowedEmailDomains = ref<string[]>([])
+const emailDomainError = ref('')
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const hasDomainAllowlist = computed(() => allowedEmailDomains.value.length > 0)
+
+const allowedDomainsHint = computed(() => {
+  const domains = allowedEmailDomains.value
+  if (domains.length === 0) return ''
+  if (domains.length <= 3) {
+    return `仅支持以下邮箱域名：${domains.join('、')}`
+  }
+  const head = domains.slice(0, 2).join('、')
+  return `仅支持以下邮箱域名：${head} 等 ${domains.length} 个域名`
+})
+
+const extractEmailDomain = (email: string): string => {
+  const trimmed = email.trim()
+  const atIndex = trimmed.lastIndexOf('@')
+  if (atIndex <= 0 || atIndex === trimmed.length - 1) return ''
+  return trimmed.slice(atIndex + 1).toLowerCase()
+}
+
+const isEmailDomainAllowed = (email: string): boolean => {
+  if (!hasDomainAllowlist.value) return true
+  const domain = extractEmailDomain(email)
+  if (!domain) return true
+  return allowedEmailDomains.value.includes(domain)
+}
+
+const handleEmailBlur = () => {
+  if (!hasDomainAllowlist.value) {
+    emailDomainError.value = ''
+    return
+  }
+  const email = emailInput.value.trim()
+  if (!email) {
+    emailDomainError.value = ''
+    return
+  }
+  if (!isEmailDomainAllowed(email)) {
+    emailDomainError.value = '该邮箱域名不在允许范围内'
+  } else {
+    emailDomainError.value = ''
+  }
+}
+
+const handleEmailInput = () => {
+  if (emailDomainError.value) {
+    emailDomainError.value = ''
+  }
+}
+
+const fetchAllowedEmailDomains = async () => {
+  try {
+    const res = await getRegistrationMode()
+    allowedEmailDomains.value = (res.allowedEmailDomains ?? [])
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean)
+  } catch {
+    // 拉取失败时退化为"无白名单"语义，让用户体验等同于功能未启用；
+    // 后端仍会作为唯一可信校验点，最终请求会被拦截。
+    allowedEmailDomains.value = []
+  }
+}
 
 const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
   notify: Bell,
@@ -267,6 +332,10 @@ watch(verifyDialogVisible, (visible) => {
 onBeforeUnmount(() => {
   clearCountdown()
 })
+
+onMounted(() => {
+  fetchAllowedEmailDomains()
+})
 </script>
 
 <template>
@@ -358,9 +427,12 @@ onBeforeUnmount(() => {
             <div class="flex flex-col gap-3 sm:flex-row">
               <el-input
                 v-model="emailInput"
+                type="email"
                 placeholder="name@example.com"
                 :prefix-icon="Message"
                 class="input-ember sm:flex-1"
+                @blur="handleEmailBlur"
+                @input="handleEmailInput"
               />
               <button
                 class="btn-ember rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer disabled:opacity-60"
@@ -370,6 +442,12 @@ onBeforeUnmount(() => {
                 {{ sendingEmailCode ? '发送中...' : '保存邮箱' }}
               </button>
             </div>
+            <p v-if="emailDomainError" class="text-xs text-red-600 leading-5">
+              {{ emailDomainError }}
+            </p>
+            <p v-else-if="hasDomainAllowlist" class="text-xs text-slate-500 leading-5">
+              {{ allowedDomainsHint }}
+            </p>
             <p class="text-xs text-slate-500">用于找回密码和接收系统通知。</p>
           </div>
           <div class="space-y-2">

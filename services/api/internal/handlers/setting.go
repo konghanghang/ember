@@ -28,6 +28,15 @@ func (h *SettingHandler) GetRegistrationMode(c *gin.Context) {
 	}
 	emailService := emailpkg.NewEmailService()
 	resp["emailVerification"] = emailService.IsEnabled()
+
+	// 注册邮箱域名白名单：始终返回数组（空白名单 → []），前端按数组消费，
+	// 不要 omitempty 让它在“无限制”时变成 null。
+	domains := h.configService.GetRegistrationAllowedEmailDomains()
+	if domains == nil {
+		domains = []string{}
+	}
+	resp["allowedEmailDomains"] = domains
+
 	c.JSON(http.StatusOK, resp)
 }
 

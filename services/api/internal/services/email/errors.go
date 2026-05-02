@@ -12,4 +12,5 @@ var (
 	ErrEmailCodeIPRateLimit   = errors.New("请求过于频繁，请稍后再试")
 	ErrEmailCodeInvalid       = errors.New("邮箱验证码无效或已过期")
 	ErrEmailSendFailed        = errors.New("验证码发送失败，请稍后重试")
+	ErrEmailDomainNotAllowed  = errors.New("当前注册仅允许特定邮箱域名，请使用允许的邮箱注册")
 )

@@ -591,6 +591,7 @@ export interface RegistrationModeResponse {
   mode: 'open' | 'invite'
   defaultTrialDays?: number
   emailVerification?: boolean
+  allowedEmailDomains?: string[]
 }
 
 export type ConfigValueType = 'string' | 'secret' | 'boolean' | 'integer' | 'url' | 'enum' | 'json_list'

@@ -14,6 +14,7 @@ const smtpTimeout = 10 * time.Second
 type emailConfigReader interface {
 	GetString(key string) string
 	IsEmailVerificationEnabled() bool
+	IsRegistrationEmailAllowed(email string) error
 }
 
 // EmailService 邮件验证服务
@@ -120,4 +121,11 @@ func (s *EmailService) IsEnabled() bool {
 		return false
 	}
 	return s.configReader.IsEmailVerificationEnabled()
+}
+
+// IsRegistrationEmailAllowed 暴露给上层（如 UserService）复用的注册邮箱域名白名单门控。
+// 与 SendVerificationCode(register) / SendEmailChangeCode 共用 ConfigService 同一份语义，
+// 让"邮箱业务策略"在 EmailService 这一层收口，避免上层直接依赖 ConfigService。
+func (s *EmailService) IsRegistrationEmailAllowed(email string) error {
+	return s.configReader.IsRegistrationEmailAllowed(email)
 }

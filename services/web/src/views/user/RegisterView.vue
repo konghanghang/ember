@@ -15,6 +15,8 @@ const loading = ref(false)
 const emailVerification = ref(false)
 const emailCodeCountdown = ref(0)
 const sendingCode = ref(false)
+const allowedEmailDomains = ref<string[]>([])
+const emailDomainError = ref('')
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 const form = ref({
@@ -34,6 +36,55 @@ const registrationCodePreview = ref<{
 } | null>(null)
 const usernamePattern = /^[A-Za-z0-9]+$/
 
+const hasDomainAllowlist = computed(() => allowedEmailDomains.value.length > 0)
+
+const allowedDomainsHint = computed(() => {
+  const domains = allowedEmailDomains.value
+  if (domains.length === 0) return ''
+  if (domains.length <= 3) {
+    return `仅支持以下邮箱注册：${domains.join('、')}`
+  }
+  const head = domains.slice(0, 2).join('、')
+  return `仅支持以下邮箱注册：${head} 等 ${domains.length} 个域名`
+})
+
+const extractEmailDomain = (email: string): string => {
+  const trimmed = email.trim()
+  const atIndex = trimmed.lastIndexOf('@')
+  if (atIndex <= 0 || atIndex === trimmed.length - 1) return ''
+  return trimmed.slice(atIndex + 1).toLowerCase()
+}
+
+const isEmailDomainAllowed = (email: string): boolean => {
+  if (!hasDomainAllowlist.value) return true
+  const domain = extractEmailDomain(email)
+  if (!domain) return true
+  return allowedEmailDomains.value.includes(domain)
+}
+
+const handleEmailBlur = () => {
+  if (!hasDomainAllowlist.value) {
+    emailDomainError.value = ''
+    return
+  }
+  const email = form.value.email.trim()
+  if (!email) {
+    emailDomainError.value = ''
+    return
+  }
+  if (!isEmailDomainAllowed(email)) {
+    emailDomainError.value = '该邮箱域名不允许注册'
+  } else {
+    emailDomainError.value = ''
+  }
+}
+
+const handleEmailInput = () => {
+  if (emailDomainError.value) {
+    emailDomainError.value = ''
+  }
+}
+
 const resetCodeValidationState = () => {
   codeValidated.value = false
   registrationCodePreview.value = null
@@ -45,6 +96,7 @@ const fetchRegistrationMode = async () => {
     const res = await getRegistrationMode()
     mode.value = res.mode
     emailVerification.value = res.emailVerification ?? false
+    allowedEmailDomains.value = (res.allowedEmailDomains ?? []).map(d => d.trim().toLowerCase()).filter(Boolean)
   } finally {
     loadingMode.value = false
   }
@@ -212,18 +264,43 @@ onBeforeUnmount(() => {
           </el-form-item>
 
           <el-form-item label="邮箱" required>
-            <div v-if="emailVerification" class="flex gap-2 w-full">
-              <el-input v-model="form.email" placeholder="请输入邮箱" class="input-ember" :prefix-icon="Message" />
-              <el-button
-                native-type="button"
-                :loading="sendingCode"
-                :disabled="emailCodeCountdown > 0"
-                @click="handleSendCode"
-              >
-                {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '发送验证码' }}
-              </el-button>
+            <div class="w-full flex flex-col gap-1.5">
+              <div v-if="emailVerification" class="flex gap-2 w-full">
+                <el-input
+                  v-model="form.email"
+                  type="email"
+                  placeholder="请输入邮箱"
+                  class="input-ember"
+                  :prefix-icon="Message"
+                  @blur="handleEmailBlur"
+                  @input="handleEmailInput"
+                />
+                <el-button
+                  native-type="button"
+                  :loading="sendingCode"
+                  :disabled="emailCodeCountdown > 0"
+                  @click="handleSendCode"
+                >
+                  {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '发送验证码' }}
+                </el-button>
+              </div>
+              <el-input
+                v-else
+                v-model="form.email"
+                type="email"
+                placeholder="请输入邮箱"
+                class="input-ember"
+                :prefix-icon="Message"
+                @blur="handleEmailBlur"
+                @input="handleEmailInput"
+              />
+              <p v-if="emailDomainError" class="text-xs text-red-600 leading-5">
+                {{ emailDomainError }}
+              </p>
+              <p v-else-if="hasDomainAllowlist" class="text-xs text-gray-500 leading-5">
+                {{ allowedDomainsHint }}
+              </p>
             </div>
-            <el-input v-else v-model="form.email" placeholder="请输入邮箱" class="input-ember" :prefix-icon="Message" />
           </el-form-item>
 
           <el-form-item v-if="emailVerification" label="邮箱验证码" required>

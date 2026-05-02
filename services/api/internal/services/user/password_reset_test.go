@@ -9,10 +9,13 @@ import (
 )
 
 type stubUserEmailVerifier struct {
-	lastEmail    string
-	lastCode     string
-	lastCodeType string
-	err          error
+	lastEmail            string
+	lastCode             string
+	lastCodeType         string
+	err                  error
+	domainCheckCalled    bool
+	domainCheckLastEmail string
+	domainErr            error
 }
 
 func (s *stubUserEmailVerifier) VerifyCode(email, code, codeType string) error {
@@ -28,6 +31,12 @@ func (s *stubUserEmailVerifier) CheckCode(email, code, codeType string) error {
 
 func (s *stubUserEmailVerifier) ConsumeCodeTx(_ *gorm.DB, email, code, codeType string) error {
 	return s.VerifyCode(email, code, codeType)
+}
+
+func (s *stubUserEmailVerifier) IsRegistrationEmailAllowed(email string) error {
+	s.domainCheckCalled = true
+	s.domainCheckLastEmail = email
+	return s.domainErr
 }
 
 func TestResetPasswordByCode(t *testing.T) {
