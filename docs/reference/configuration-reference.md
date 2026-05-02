@@ -38,6 +38,7 @@
 | `notify_group_link` | 否 | 否 | Telegram 欢迎消息中的群组链接 |
 | `telegram_welcome_message_template` | 否 | 否 | Telegram 入群欢迎语模板，支持 `{names}` 和 `{notifyGroupLink}` 占位符 |
 | `email_verification` | 否 | 否 | 是否启用注册邮箱验证码 |
+| `registration_allowed_email_domains` | 否 | 否 | 注册邮箱域名白名单（multiline，每行一个域名，精确匹配，不做后缀匹配）；留空表示不限制 |
 | `turnstile_login_enabled` | 否 | 否 | 是否启用登录 Turnstile 人机校验 |
 | `turnstile_site_key` | 否 | 否 | 登录页渲染 Turnstile 使用的公开 Site Key |
 | `turnstile_expected_hostname` | 否 | 否 | 登录 Turnstile 服务端校验时要求匹配的 hostname，允许置空 |

@@ -382,7 +382,7 @@ services/
 - 只读部署边界项同时声明“只读原因”和“缺失影响”，前端直接展示，不再让管理员自己猜为什么不能改
 
 **当前已托管或接入统一解析的配置项**：
-- 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`stripe_allowed_payment_methods`
+- 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`registration_allowed_email_domains`、`stripe_allowed_payment_methods`
 - 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`（历史键名，数据库配置项）、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
 - 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
 - 通知：`BOT_NOTIFY_URL`
@@ -704,11 +704,12 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 
 **注册流程**：
 1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 调用注册场景兑换码校验（会额外校验 `registrationPlanGroup` 仍存在）→ `"open"`: 读取 `default_trial_days`
-2. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码（VerifyCode 在事务中"校验即消费"，详见 §5.13）
-3. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式且兑换码绑定 `registrationPlanGroup` 时，把该 key 写入 `users.planGroup`，未绑定时继续跟随系统默认分组
-4. invite 模式且兑换码绑定 `templateUserId` 时：按白名单字段复制模板用户 Emby Policy
-5. 签发 JWT
-6. 火忘式通知 Bot（新用户注册）
+2. 调用 `ConfigService.IsRegistrationEmailAllowed(email)` 做注册邮箱域名白名单门控；非空白名单且邮箱域名不在白名单内时直接返回 400，不消耗邀请码、不调用 Emby、不写库；空白名单视为关闭限制（详见 §5.5 与 §5.13；reset / change_email / 后台创建用户不走该门控）
+3. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码（VerifyCode 在事务中"校验即消费"，详见 §5.13）
+4. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式且兑换码绑定 `registrationPlanGroup` 时，把该 key 写入 `users.planGroup`，未绑定时继续跟随系统默认分组
+5. invite 模式且兑换码绑定 `templateUserId` 时：按白名单字段复制模板用户 Emby Policy
+6. 签发 JWT
+7. 火忘式通知 Bot（新用户注册）
 
 **唯一性校验**：`ensureRegisterUserUnique` 用 `lower(username) = ?` / `lower(email) = ?` 比较，与登录链路保持一致；schema 层由 `20260426_01_users_lower_unique_indexes.sql` 创建的函数唯一索引（`uq_users_username_lower` / `uq_users_email_lower`）兜底，避免并发或多入口写入造成大小写逻辑重复账号。
 
@@ -723,7 +724,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态/套餐组/到期时间；`planGroup` 不传表示不改，传合法 key 表示显式绑定，传空字符串表示清空显式绑定并改为跟随系统默认分组；有效分组变化后会同步把该用户关联的 `pending` 支付标记为 `expired`
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
 - `GetProfile(userID)` — 获取用户个人资料
-- `UpdateEmail(userID, req)` — 邮箱变更落库；`UpdateEmailRequest{NewEmail string \`binding:"required,email"\`, Code string \`binding:"required,len=6"\`}`，事务内先做 `unchangedEmailCheck` → `EmailService.ConsumeCodeTx(tx, newEmail, code, change_email)`（校验即消费）→ `UPDATE users.email`；返回 `*UpdateEmailResult{OldEmail, User}` 由 handler 用于 fire-and-forget 通知旧邮箱
+- `UpdateEmail(userID, req)` — 邮箱变更落库；`UpdateEmailRequest{NewEmail string \`binding:"required,email"\`, Code string \`binding:"required,len=6"\`}`，先做 `unchangedEmailCheck` → 调用 `EmailService.IsRegistrationEmailAllowed(newEmail)` 做注册邮箱域名白名单门控（命中拒绝在事务开启前直接返回，不消费验证码、不写库；与 `SendEmailChangeCode` 共用同一份语义防御 send-code 通过后管理员收紧白名单的窗口）→ 事务内 `EmailService.ConsumeCodeTx(tx, newEmail, code, change_email)`（校验即消费）→ `UPDATE users.email`；返回 `*UpdateEmailResult{OldEmail, User}` 由 handler 用于 fire-and-forget 通知旧邮箱
 - `UpdatePassword(userID, old, new)` — Emby + 本地 hash 同步
 - `ResetPassword(userID, new)` — 管理员重置，Emby + 本地 hash 同步
 - `ResetPasswordByCode(email, code, newPassword)` — 通过注入的验证码校验能力完成邮箱验证码重置，不再在方法内部自行构造 EmailService
@@ -754,7 +755,8 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `List()` — 返回配置定义 + 当前解析结果（来源、是否有值、是否敏感、是否需重启）
 - `Update(key, req, userID)` — 更新单项配置，支持敏感值加密存储
 - `ResolveString(key)` / `GetString(key)` — 统一配置读取入口
-- `GetRegistrationMode()` / `GetDefaultTrialDays()` / `IsEmailVerificationEnabled()` / `GetStripeAllowedPaymentMethods()` — 业务配置便捷读取
+- `GetRegistrationMode()` / `GetDefaultTrialDays()` / `IsEmailVerificationEnabled()` / `GetStripeAllowedPaymentMethods()` / `GetRegistrationAllowedEmailDomains()` — 业务配置便捷读取
+- `IsRegistrationEmailAllowed(email)` — 注册邮箱域名白名单门控；空白名单视为关闭，非空时按 `mail.ParseAddress` 解析后的 host 与白名单做精确小写比较（不做后缀匹配），由 `auth.RegisterUser` 与 `email.SendVerificationCode(register)` 共用同一份语义；保存时由 `validateRegistrationEmailDomains` + `normalizeRegistrationEmailDomains` 拒绝非主机名格式（协议 / 端口 / 路径 / 通配符 / `@`），并落库为小写、去重、按字典序排序的稳定形态
 - `TestGroup(group)` — 分组配置连通性测试（v1: `media`、`email`）
 
 **关键职责**：
@@ -843,8 +845,9 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
-- `SendVerificationCode(email, ip, codeType)` — 先对 email 做 `strings.ToLower(strings.TrimSpace(...))` 规范化 → 生成 6 位随机验证码 → 按类型频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
-- `SendEmailChangeCode(currentEmail, newEmail, ip)` — 账号中心邮箱变更专用，`codeType` 固定为 `change_email`，验证码发往新邮箱；业务前置校验"新邮箱与当前邮箱相同"返回 `ErrEmailUnchanged`、"新邮箱被其他用户占用"返回 `ErrEmailAlreadyBound`，二者均不消耗限流配额；其余流程复用 advisory lock + 24h 双维度限流骨架，与 `register` / `reset` 共用同一份限流入口但配额按 `(email, type)` / `(ip, type)` 隔离
+- `SendVerificationCode(email, ip, codeType)` — 先对 email 做 `strings.ToLower(strings.TrimSpace(...))` 规范化 → `codeType=register` 时调用 `ConfigService.IsRegistrationEmailAllowed` 做域名白名单门控（命中拒绝直接返回 `ErrEmailDomainNotAllowed`，handler 映射 400；不消耗限流配额、不调用 SMTP；reset / change_email 不走该门控以保留反账号枚举语义）→ 生成 6 位随机验证码 → 按类型频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
+- `SendEmailChangeCode(currentEmail, newEmail, ip)` — 账号中心邮箱变更专用，`codeType` 固定为 `change_email`，验证码发往新邮箱；业务前置校验"新邮箱与当前邮箱相同"返回 `ErrEmailUnchanged`、命中注册邮箱域名白名单门控返回 `ErrEmailDomainNotAllowed`（与 `register` 路径共用 `ConfigService.IsRegistrationEmailAllowed` 同一份语义；只校验 `newEmail`，不看 `currentEmail`，避免老用户被锁）、"新邮箱被其他用户占用"返回 `ErrEmailAlreadyBound`，三者均不消耗限流配额；其余流程复用 advisory lock + 24h 双维度限流骨架，与 `register` / `reset` 共用同一份限流入口但配额按 `(email, type)` / `(ip, type)` 隔离
+- `IsRegistrationEmailAllowed(email)` — `ConfigService.IsRegistrationEmailAllowed` 的 thin delegate，让 `UserService.UpdateEmail` 等上层不直接依赖 `ConfigService`，把"邮箱业务策略"在 EmailService 层统一收口
 - `SendEmailChangeNotification(oldEmail, newEmail)` — 邮箱变更成功后给旧邮箱发送通知邮件；不写 `email_verifications` 表、不消耗限流配额；SMTP 未配置直接返回 `ErrEmailNotConfigured`，其余失败仅记日志
 - `VerifyCode(email, code, codeType)` — **"校验即消费"契约**：先按同一 email 规范化规则查询；在事务中 `Clauses(clause.Locking{Strength: "UPDATE"})` 锁行 → 校验有效期与 code 匹配 → 立即 DELETE 该行；同一码不可重放用于注册或重置，并发拿到同一码的第二个请求统一返回 `ErrEmailCodeInvalid`
 - `CleanupExpired()` — 删除过期验证码（cron 调用）
@@ -861,13 +864,13 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 **账号中心邮箱变更状态码映射**：
 - `POST /api/v1/email/send-code` / `POST /api/v1/user/email/send-code`
   - 200：`{"message":"验证码已发送至新邮箱"}`
-  - 400：请求体格式错误、`ErrEmailUnchanged`（新邮箱与当前邮箱相同）、`ErrEmailAlreadyBound`（新邮箱被他人占用）、`ErrEmailAlreadyRegistered`
+  - 400：请求体格式错误、`ErrEmailUnchanged`（新邮箱与当前邮箱相同）、`ErrEmailDomainNotAllowed`（新邮箱不在注册邮箱域名白名单内）、`ErrEmailAlreadyBound`（新邮箱被他人占用）、`ErrEmailAlreadyRegistered`
   - 429：`ErrEmailCodeRateLimit` / `ErrEmailCodeIPRateLimit`
   - 503：`ErrEmailNotConfigured`（SMTP 未配置）
   - 500：其余内部错误统一走 `httpx.InternalError`
 - `PUT /api/v1/email` / `PUT /api/v1/user/email`
   - 200：返回更新后的 `User` 对象，handler 紧接着 `go func()` 调 `SendEmailChangeNotification` 通知旧邮箱（带 `recover`，仅当 `oldEmail != ""` 时触发）
-  - 400：请求体格式错误（缺 `newEmail` / `code` 不是 6 位）、`ErrEmailUnchanged`、`ErrEmailCodeInvalid`、`ErrEmailAlreadyExists`
+  - 400：请求体格式错误（缺 `newEmail` / `code` 不是 6 位）、`ErrEmailUnchanged`、`ErrEmailCodeInvalid`、`ErrEmailAlreadyExists`、`config.ErrRegistrationEmailDomainNotAllowed`、`config.ErrRegistrationEmailInvalid`
   - 404：`ErrUserNotFound`
   - 500：其余内部错误统一走 `httpx.InternalError`
 
@@ -1043,7 +1046,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | POST | `/api/v1/register/send-code` | 发送邮箱验证码 |
 | POST | `/api/v1/forgot-password/send-code` | 发送密码重置验证码 |
 | POST | `/api/v1/forgot-password/reset` | 通过验证码重置密码 |
-| GET | `/api/v1/register/mode` | 获取注册模式 |
+| GET | `/api/v1/register/mode` | 获取注册模式（响应字段：`mode`、`defaultTrialDays`、`emailVerification`、`allowedEmailDomains: string[]`；空数组表示不限制注册邮箱域名）|
 | GET | `/api/v1/register/code/:code/validate` | 验证注册场景兑换码（会校验绑定的 `registrationPlanGroup` 仍存在） |
 | POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
 | POST | `/api/v1/webhooks/emby?token=` | Emby 入库 Webhook（追剧日历） |

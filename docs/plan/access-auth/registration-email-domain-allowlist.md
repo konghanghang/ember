@@ -2,7 +2,7 @@
 
 > 状态：草稿
 > 负责人：Ember
-> 更新时间：2026-04-19
+> 更新时间：2026-05-02
 
 ## 背景
 
@@ -25,8 +25,10 @@
 本次明确不做：
 
 - 不回溯清理或封禁已经存在的用户邮箱。
-- 不把限制扩大到后台创建用户、用户修改邮箱、管理员修改邮箱、密码重置验证码发送。
+- 不把限制扩大到后台创建用户、管理员修改邮箱、密码重置验证码发送。
 - 不做通配符、后缀匹配或“邮箱提供商家族”自动推导；本次只做精确域名匹配，例如 `gmail.com`、`outlook.com`。
+
+> 注：用户自助换邮箱（账号中心）受同一份白名单约束。原计划"非目标"曾把"用户修改邮箱"一并排除，落地评审时改为纳入：原因是不纳入会形成"注册被拦但 register → 立即换邮箱"的旁路，破坏白名单的策略意图。详见后文"### 6. 用户自助换邮箱（账号中心）"。
 
 ## 当前事实
 
@@ -62,6 +64,14 @@
   - 发送注册验证码直接失败，不发邮件。
   - 提交注册直接失败，不创建 Emby 用户，不写本地用户，不消耗邀请码。
 - 现有 `registration_mode`、`email_verification`、邀请码注册逻辑保持不变；只是多了一层注册邮箱域名门控。
+
+设计选择：
+
+- 邮箱字段保留单一 `<input type="email">`，不拆成 `local-part + 域名下拉`，也不在旁边新增“域名选择”辅助下拉。
+  - 原因：拆控件会破坏浏览器自动填充与密码管理器对完整邮箱的识别，并把粘贴体验复杂化；白名单为空与非空之间还会形成两套渲染分支。
+- 注册页只把 `allowedEmailDomains` 用于两件事：白名单非空时渲染提示文案；邮箱输入失焦时做本地预校验提前提示。
+- 不为“域名数 = 1”的情况单独切换控件形态，避免配置由 1 变 2 时 UI 形态突变。
+- 后端是唯一可信校验点，前端预校验只作体验优化，不替代 `send-code` 与 `/user/register` 的两道域名门控。
 
 ### 2. 数据与模型
 
@@ -137,14 +147,29 @@
 - 兼容性约束：
   - 不改变邀请码校验、试用天数分配、Emby 用户创建顺序和失败回滚逻辑。
   - 不改变密码重置验证码发送逻辑。
-  - 不改变后台创建用户与用户修改邮箱行为。
+  - 不改变后台创建用户、管理员修改用户邮箱的行为；用户自助换邮箱（账号中心）受同一份白名单约束，详见 §6。
+
+### 6. 用户自助换邮箱（账号中心）
+
+落地评审时把"用户自助换邮箱"从非目标移入本次范围，避免注册门控被"register → 立即换邮箱"旁路。范围如下：
+
+- 接入位置（双重拦截，共用 `ConfigService.IsRegistrationEmailAllowed` 同一份语义）：
+  - `EmailService.SendEmailChangeCode(currentEmail, newEmail, ip)`：在"unchanged 检查"之后、DB 占用查询之前；命中拒绝直接返回 `ErrEmailDomainNotAllowed`，不消耗限流配额、不调 SMTP。
+  - `UserService.UpdateEmail`：在 `unchangedEmailCheck` 之后、事务开启之前；命中拒绝直接返回错误，不消费验证码、不写库。
+- 校验对象只看 `newEmail`，不看 `currentEmail`：让历史已注册的非白名单邮箱仍能登录与使用，只有"新邮箱"必须落在白名单内。
+- 管理员改用户邮箱（`UpdateUserByAdmin`）与密码重置不在本次范围内，作为运营修复通道与反账号枚举语义保留。
+- 服务层接口收口：`UserService.emailVerifier` 接口扩展一个 `IsRegistrationEmailAllowed(email string) error` 方法，由 `EmailService` 暴露的同名 thin delegate 实现；让"邮箱业务策略"在 EmailService 层统一收口，UserService 不直接依赖 ConfigService。
+- handler 错误映射：
+  - `POST /api/v1/user/email/send-code` 增加 `emailpkg.ErrEmailDomainNotAllowed` → 400 映射。
+  - `PUT /api/v1/user/email` 增加 `configpkg.ErrRegistrationEmailDomainNotAllowed` 与 `configpkg.ErrRegistrationEmailInvalid` → 400 映射。
+- 前端：账号中心 `AccountCenterView.vue` 拉取 `GET /api/v1/register/mode` 的 `allowedEmailDomains`，复用注册页同一套提示文案 + 失焦预校验逻辑。文案上把"注册"二字替换为"仅支持以下邮箱域名"和"该邮箱域名不在允许范围内"，避免在换邮箱场景看到与动作不匹配的"注册"。
 
 ## 影响范围
 
 涉及的子系统：
 
-- API：有，涉及 `config`、`setting handler`、`auth/register`、`email/verification` 以及对应测试。
-- Web：有，涉及注册页提示、`RegistrationModeResponse` 类型；设置中心只新增配置项，不需要新增控件。
+- API：有，涉及 `config`、`setting handler`、`auth/register`、`email/verification`（含 `SendVerificationCode` 与 `SendEmailChangeCode`）、`user/profile`（`UpdateEmail`）、`handlers/user`（换邮箱错误映射）、`email/service` 与 `user/service` 的接口扩展，以及对应测试。
+- Web：有，涉及注册页 `RegisterView.vue` 与账号中心 `AccountCenterView.vue` 提示文案与失焦预校验、`RegistrationModeResponse` 类型；设置中心只新增配置项，不需要新增控件。
 - Bot：无。
 - 配置/部署：有，新增运行期数据库配置；不新增环境变量，不需要重启。
 - 文档：落地时需同步 `docs/system-architecture.md` 与 `docs/reference/configuration-reference.md`。
@@ -165,6 +190,9 @@
 - 白名单设置为 `gmail.com` 后，绕过前端直接调用 `POST /api/v1/user/register` 提交 `user@outlook.com`，后端仍然拒绝。
 - 白名单配置为 `Gmail.com` 与 `outlook.com` 混合大小写时，保存后应被规范化为去重、小写后的稳定格式。
 - 已存在用户使用非白名单邮箱时，密码重置验证码功能仍正常，确认本次限制没有误伤非注册链路。
+- 白名单设置为 `gmail.com` 后，账号中心把邮箱从 `user@gmail.com` 修改为 `user@yahoo.com`：失焦时前端预警 + `POST /api/v1/user/email/send-code` 后端返回 400，未发送邮件。
+- 同一场景绕过前端直接调用 `PUT /api/v1/user/email` 提交不在白名单的 `newEmail`，后端仍然返回 400 拦截。
+- 已存在用户当前邮箱为 `user@yahoo.com`（不在白名单内）时，登录、查看资料、密码重置流程均不受影响（白名单只针对"新邮箱"生效）。
 
 ## 落地后文档处理
 
