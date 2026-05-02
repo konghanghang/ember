@@ -1,5 +1,5 @@
 # ==================== 第一阶段：构建 ====================
-FROM node:20.18.1-alpine3.20 AS builder
+FROM node:20.18.1-alpine AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ ENV NODE_ENV=production
 RUN npm run build
 
 # ==================== 第二阶段：运行 ====================
-FROM nginx:1.27.4-alpine3.20
+FROM nginx:1.27.5-alpine
 
 # 安装运行时依赖
 RUN apk --no-cache add ca-certificates tzdata curl
