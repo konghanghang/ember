@@ -106,12 +106,14 @@ subagent 开工前，主 agent 至少先定：
 |---|---|---|
 | 单后端功能或修补 | 主 agent + `backend-implementer` | `integration-chain-reviewer` / `docs-sync-auditor` |
 | 单前端功能或修补 | 主 agent + `web-implementer` | `api-web-contract-checker` / `docs-sync-auditor` |
+| 单 Bot 功能或修补 | 主 agent + `bot-implementer` | `integration-chain-reviewer` / `docs-sync-auditor` |
 | 标准前后端联动 | 主 agent + `backend-implementer` + `web-implementer` | `api-web-contract-checker` / `docs-sync-auditor` |
 | schema / migration 联动 | 主 agent + `backend-implementer` + `web-implementer` + `docs-sync-auditor` | `api-web-contract-checker` |
-| 外部集成链路改动 | 主 agent + `backend-implementer` + `integration-chain-reviewer` | `web-implementer` / `docs-sync-auditor` |
+| 外部集成链路改动 | 主 agent + `backend-implementer` + `integration-chain-reviewer` | `web-implementer` / `bot-implementer` / `docs-sync-auditor` |
 | 正式 Code Review | 主 agent + `system-reviewer` | `api-web-contract-checker` / `integration-chain-reviewer` / `docs-sync-auditor` |
 | 联调前契约检查 | 主 agent + `api-web-contract-checker` | `web-implementer` / `system-reviewer` |
 | 文档收尾 | 主 agent + `docs-sync-auditor` | 通常不再追加 |
+| 非 trivial 改动开工前起草计划 | 主 agent + `plan-drafter` | 由施工 agent 后续承接实现 |
 | 根因未明的排查 | 主 agent 单独先查 | 默认不要并行开实现 agent |
 
 ### 4.1 单后端功能或修补
@@ -126,25 +128,31 @@ subagent 开工前，主 agent 至少先定：
 - 追加 agent：接口契约有变化或可疑时加 `api-web-contract-checker`；涉及通用视觉基线或页面结构时加 `docs-sync-auditor`
 - 适用：`services/web` 页面、组件、store、路由、交互修补
 
-### 4.3 标准前后端联动功能
+### 4.3 单 Bot 功能或修补
+
+- 默认组合：主 agent + `bot-implementer`
+- 追加 agent：触达 Telegram / Internal API / fire-and-forget / 租约锁等链路时加 `integration-chain-reviewer`；改了 Internal API 契约或 `services/bot/README.md` 范围时加 `docs-sync-auditor`
+- 适用：`services/bot` Telegram 命令 handler、`/notify/*` 入口、Internal API 客户端、webhook / polling 模式、菜单同步、运行期设置读取
+
+### 4.4 标准前后端联动功能
 
 - 默认组合：主 agent + `backend-implementer` + `web-implementer`
 - 追加 agent：契约复杂或历史包袱重时加 `api-web-contract-checker`；模型、路由、配置或页面职责变了时加 `docs-sync-auditor`
 - 适用：新字段、新接口、表单加列表联动、用户状态流转功能
 
-### 4.4 涉及 schema / migration 的联动功能
+### 4.5 涉及 schema / migration 的联动功能
 
 - 默认组合：主 agent + `backend-implementer` + `web-implementer` + `docs-sync-auditor`
 - 追加 agent：接口结构同时变化时加 `api-web-contract-checker`
 - 适用：GORM 模型字段、索引、约束、表结构调整，以及依赖新字段的页面联动
 
-### 4.5 外部集成链路改动
+### 4.6 外部集成链路改动
 
 - 默认组合：主 agent + `backend-implementer` + `integration-chain-reviewer`
-- 追加 agent：前端也要改入口或状态展示时加 `web-implementer`；文档、部署或测试清单要同步时加 `docs-sync-auditor`
+- 追加 agent：前端也要改入口或状态展示时加 `web-implementer`；Bot 推送或命令链路也要改时加 `bot-implementer`；文档、部署或测试清单要同步时加 `docs-sync-auditor`
 - 适用：Emby、TMDB、MoviePilot、Stripe、Telegram、webhook、polling、租约锁、notify、fire-and-forget
 
-### 4.6 正式 Code Review
+### 4.7 正式 Code Review
 
 - 默认组合：主 agent + `system-reviewer`
 - 追加 agent：前后端接口对齐可疑时加 `api-web-contract-checker`；外部集成风险高时加 `integration-chain-reviewer`；文档同步风险高时加 `docs-sync-auditor`
@@ -154,14 +162,15 @@ subagent 开工前，主 agent 至少先定：
 
 - 正式 review 默认先用 `system-reviewer`
 - 不要一上来就把 review 拆成一堆实现 agent；review 的目标是找问题，不是抢着修
+- `system-reviewer` 与 `integration-chain-reviewer` 的边界：跨多链路 / 跨子系统的端到端一致性用 `system-reviewer`；单条集成链路的深度审查用 `integration-chain-reviewer`
 
-### 4.7 联调前契约检查
+### 4.8 联调前契约检查
 
 - 默认组合：主 agent + `api-web-contract-checker`
 - 追加 agent：怀疑页面行为回归时加 `web-implementer`；系统级大变更时仍优先加 `system-reviewer`
 - 适用：后端刚改完准备接前端，或前端接线完准备联调
 
-### 4.8 实现完成后的文档收尾
+### 4.9 实现完成后的文档收尾
 
 - 默认组合：主 agent + `docs-sync-auditor`
 - 适用：模型、服务逻辑、API 路由、前端结构、配置入口变更后；文档归档、README、runbook、计划文档收口
@@ -170,7 +179,19 @@ subagent 开工前，主 agent 至少先定：
 
 - 文档收尾不是让文档 agent 接管实现，只是查漏和指出必须同步项
 
-### 4.9 根因未明的排查
+### 4.10 非 trivial 改动开工前起草计划
+
+- 默认组合：主 agent + `plan-drafter`
+- 适用：跨模块改动、schema / migration / init script、用户可见状态流转、外部集成链路重设计、配置 / 部署入口变更、长链路异步处理改造，以及任何"开工前需要书面方案对齐"的场景
+- 不适用：单文件修补、纯样式 / 文案 / 重命名、已经有清晰共识的小功能（直接由对应施工 agent 执行）
+
+补充：
+
+- `plan-drafter` 只负责起草 `docs/plan/` 下的计划文档，不施工；后续实现仍由 `backend-implementer` / `web-implementer` / `bot-implementer` 承接
+- 计划落地后，主 agent 应推动用户 review，形成共识后再启动实施
+- 计划文档治理细则（结构、命名、归档条件）见 `AGENTS.md` / `CLAUDE.md` "计划文档"段落与 `docs/plan/plan-template.md`
+
+### 4.11 根因未明的排查
 
 - 默认组合：主 agent 单独先查
 
