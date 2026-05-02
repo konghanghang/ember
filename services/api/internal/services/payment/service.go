@@ -160,16 +160,16 @@ func pendingStripeSessionIDsByScope(tx *gorm.DB, userID, planID string) ([]strin
 
 	query := tx.Model(&models.Payment{}).
 		Where("status = ?", models.PaymentPending).
-		Where(`"stripeSessionId" <> ''`)
+		Where(`"stripe_session_id" <> ''`)
 	if userID != "" {
-		query = query.Where(`"userId" = ?`, userID)
+		query = query.Where(`"user_id" = ?`, userID)
 	}
 	if planID != "" {
-		query = query.Where(`"planId" = ?`, planID)
+		query = query.Where(`"plan_id" = ?`, planID)
 	}
 
 	sessionIDs := make([]string, 0)
-	if err := query.Pluck(`"stripeSessionId"`, &sessionIDs).Error; err != nil {
+	if err := query.Pluck(`"stripe_session_id"`, &sessionIDs).Error; err != nil {
 		return nil, errors.New("查询待失效 Stripe 会话失败")
 	}
 	return sessionIDs, nil
@@ -199,7 +199,7 @@ func normalizePlanCurrency(raw string) (string, error) {
 func buildPlansWithGroupNameSelect(query *gorm.DB) *gorm.DB {
 	return query.
 		Select(`plans.*, plan_groups.name AS "planGroupName"`).
-		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."planGroup"`)
+		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."plan_group"`)
 }
 
 func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
@@ -308,9 +308,9 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 			"days":        plan.Days,
 			"price":       plan.Price,
 			"currency":    plan.Currency,
-			"planGroup":   plan.PlanGroup,
-			"isActive":    plan.IsActive,
-			"sortOrder":   plan.SortOrder,
+			"plan_group":  plan.PlanGroup,
+			"is_active":   plan.IsActive,
+			"sort_order":  plan.SortOrder,
 		}).Error; err != nil {
 		tx.Rollback()
 		return nil, errors.New("更新方案失败")
@@ -343,8 +343,8 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 
 func (s *PaymentService) DeletePlan(id string) error {
 	result := db.DB.Model(&models.Plan{}).
-		Where("id = ? AND \"isActive\" = ?", id, true).
-		Update("isActive", false)
+		Where("id = ? AND \"is_active\" = ?", id, true).
+		Update("is_active", false)
 	if result.Error != nil {
 		return errors.New("下架方案失败")
 	}
@@ -375,14 +375,14 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 
 	query := db.DB.Model(&models.Plan{})
 	if !req.ShowAll {
-		query = query.Where("\"isActive\" = ?", true)
+		query = query.Where("\"is_active\" = ?", true)
 	}
 	if strings.TrimSpace(req.PlanGroup) != "" {
 		planGroup, err := NormalizePlanGroupKey(req.PlanGroup, false)
 		if err != nil {
 			return nil, err
 		}
-		query = query.Where("\"planGroup\" = ?", planGroup)
+		query = query.Where("\"plan_group\" = ?", planGroup)
 	}
 
 	var total int64
@@ -393,7 +393,7 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 	var plans []PlanView
 	offset := (page - 1) * pageSize
 	if err := buildPlansWithGroupNameSelect(query).
-		Order(`plans."sortOrder" ASC, plans."createdAt" DESC`).
+		Order(`plans."sort_order" ASC, plans."created_at" DESC`).
 		Offset(offset).
 		Limit(pageSize).
 		Find(&plans).Error; err != nil {
@@ -411,7 +411,7 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 
 func (s *PaymentService) GetPlansForUser(userID string) ([]PlanView, error) {
 	var user models.User
-	if err := db.DB.Select("id", "planGroup").Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := db.DB.Select("id", "plan_group").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, errors.New("获取用户信息失败")
 	}
 
@@ -422,8 +422,8 @@ func (s *PaymentService) GetPlansForUser(userID string) ([]PlanView, error) {
 
 	var plans []PlanView
 	if err := buildPlansWithGroupNameSelect(db.DB.Model(&models.Plan{})).
-		Where(`plans."isActive" = ? AND plans."planGroup" = ?`, true, planGroup).
-		Order(`plans."sortOrder" ASC, plans."createdAt" DESC`).
+		Where(`plans."is_active" = ? AND plans."plan_group" = ?`, true, planGroup).
+		Order(`plans."sort_order" ASC, plans."created_at" DESC`).
 		Find(&plans).Error; err != nil {
 		return nil, errors.New("获取方案列表失败")
 	}
@@ -461,10 +461,10 @@ func expirePendingPaymentsByScope(tx *gorm.DB, userID, planID string) (int64, er
 
 	query := tx.Model(&models.Payment{}).Where("status = ?", models.PaymentPending)
 	if userID != "" {
-		query = query.Where("\"userId\" = ?", userID)
+		query = query.Where("\"user_id\" = ?", userID)
 	}
 	if planID != "" {
-		query = query.Where("\"planId\" = ?", planID)
+		query = query.Where("\"plan_id\" = ?", planID)
 	}
 
 	result := query.Update("status", models.PaymentExpired)
@@ -498,15 +498,15 @@ func shouldReusePendingPayment(payment models.Payment, now time.Time) bool {
 func (s *PaymentService) expirePendingPayments(userID, planID string, now time.Time) error {
 	query := db.DB.Model(&models.Payment{}).
 		Where("status = ?", models.PaymentPending).
-		Where("\"expiresAt\" IS NOT NULL AND \"expiresAt\" <= ?", now.UTC())
+		Where("\"expires_at\" IS NOT NULL AND \"expires_at\" <= ?", now.UTC())
 	if strings.TrimSpace(userID) != "" {
-		query = query.Where("\"userId\" = ?", userID)
+		query = query.Where("\"user_id\" = ?", userID)
 	}
 	if strings.TrimSpace(planID) != "" {
-		query = query.Where("\"planId\" = ?", planID)
+		query = query.Where("\"plan_id\" = ?", planID)
 	}
 	sessionIDs := make([]string, 0)
-	if err := query.Session(&gorm.Session{}).Where(`"stripeSessionId" <> ''`).Pluck(`"stripeSessionId"`, &sessionIDs).Error; err != nil {
+	if err := query.Session(&gorm.Session{}).Where(`"stripe_session_id" <> ''`).Pluck(`"stripe_session_id"`, &sessionIDs).Error; err != nil {
 		return errors.New("查询待失效 Stripe 会话失败")
 	}
 
@@ -603,7 +603,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	}
 
 	var user models.User
-	if err := db.DB.Select("id", "planGroup").Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := db.DB.Select("id", "plan_group").Where("id = ?", userID).First(&user).Error; err != nil {
 		log.Printf("[Payment] 查询用户套餐分组失败: userID=%s planID=%s err=%v", userID, strings.TrimSpace(req.PlanID), err)
 		return nil, errors.New("获取用户信息失败")
 	}
@@ -618,7 +618,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	}
 
 	var plan models.Plan
-	if err := db.DB.Where("id = ? AND \"isActive\" = ? AND \"planGroup\" = ?", req.PlanID, true, planGroup).First(&plan).Error; err != nil {
+	if err := db.DB.Where("id = ? AND \"is_active\" = ? AND \"plan_group\" = ?", req.PlanID, true, planGroup).First(&plan).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Printf("[Payment] 方案不存在、未启用或不属于用户分组: userID=%s planID=%s planGroup=%s", userID, strings.TrimSpace(req.PlanID), planGroup)
 			return nil, ErrPlanNotFound
@@ -661,8 +661,8 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	if err := db.DB.Model(&models.Payment{}).
 		Where("id = ?", payment.ID).
 		Updates(map[string]interface{}{
-			"stripeSessionId": sess.ID,
-			"checkoutUrl":     strings.TrimSpace(sess.URL),
+			"stripe_session_id": sess.ID,
+			"checkout_url":      strings.TrimSpace(sess.URL),
 		}).Error; err != nil {
 		log.Printf("[Payment] 回填 Stripe sessionId 失败: userID=%s planID=%s paymentID=%s sessionID=%s err=%v",
 			userID, plan.ID, payment.ID, sess.ID, err)
@@ -720,7 +720,7 @@ func (s *PaymentService) reservePendingPayment(userID string, plan *models.Plan,
 	}
 
 	result := tx.Clauses(clause.OnConflict{
-		Columns:     []clause.Column{{Name: "userId"}, {Name: "planId"}},
+		Columns:     []clause.Column{{Name: "user_id"}, {Name: "plan_id"}},
 		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Eq{Column: "status", Value: string(models.PaymentPending)}}},
 		DoNothing:   true,
 	}).Create(&payment)
@@ -732,8 +732,8 @@ func (s *PaymentService) reservePendingPayment(userID string, plan *models.Plan,
 	if result.RowsAffected == 0 {
 		// 冲突：回查已存在的 pending 行复用。
 		var existing models.Payment
-		if err := tx.Where(`"userId" = ? AND "planId" = ? AND status = ?`, userID, plan.ID, models.PaymentPending).
-			Order(`"createdAt" ASC`).
+		if err := tx.Where(`"user_id" = ? AND "plan_id" = ? AND status = ?`, userID, plan.ID, models.PaymentPending).
+			Order(`"created_at" ASC`).
 			First(&existing).Error; err != nil {
 			tx.Rollback()
 			return nil, errors.New("创建支付记录失败")
@@ -859,7 +859,7 @@ func (s *PaymentService) HandleWebhook(r *http.Request) error {
 		Status:     models.StripeWebhookEventReceived,
 	}
 	insertResult := db.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "eventId"}},
+		Columns:   []clause.Column{{Name: "event_id"}},
 		DoNothing: true,
 	}).Create(&dedup)
 	if insertResult.Error != nil {
@@ -868,7 +868,7 @@ func (s *PaymentService) HandleWebhook(r *http.Request) error {
 	}
 	if insertResult.RowsAffected == 0 {
 		var existing models.StripeWebhookEvent
-		if err := db.DB.Where(`"eventId" = ?`, eventID).First(&existing).Error; err != nil {
+		if err := db.DB.Where(`"event_id" = ?`, eventID).First(&existing).Error; err != nil {
 			log.Printf("[Payment] webhook 回查去重记录失败: eventId=%s err=%v", eventID, err)
 			return ErrPaymentFailed
 		}
@@ -880,10 +880,10 @@ func (s *PaymentService) HandleWebhook(r *http.Request) error {
 		log.Printf("[Payment] webhook 命中未完成事件，允许重新分发: eventId=%s status=%s", eventID, existing.Status)
 		// 把 receivedAt 刷新为本次重投时间，errorMessage 等终态由分发完成后的 UPDATE 覆盖。
 		if err := db.DB.Model(&models.StripeWebhookEvent{}).
-			Where(`"eventId" = ?`, eventID).
+			Where(`"event_id" = ?`, eventID).
 			Updates(map[string]interface{}{
-				"status":     models.StripeWebhookEventReceived,
-				"receivedAt": time.Now().UTC(),
+				"status":      models.StripeWebhookEventReceived,
+				"received_at": time.Now().UTC(),
 			}).Error; err != nil {
 			log.Printf("[Payment] webhook 重置 received 状态失败: eventId=%s err=%v", eventID, err)
 		}
@@ -915,11 +915,11 @@ func (s *PaymentService) HandleWebhook(r *http.Request) error {
 
 	processedAt := time.Now().UTC()
 	if err := db.DB.Model(&models.StripeWebhookEvent{}).
-		Where(`"eventId" = ?`, eventID).
+		Where(`"event_id" = ?`, eventID).
 		Updates(map[string]interface{}{
-			"processedAt":  processedAt,
-			"status":       finalStatus,
-			"errorMessage": errMessage,
+			"processed_at":  processedAt,
+			"status":        finalStatus,
+			"error_message": errMessage,
 		}).Error; err != nil {
 		log.Printf("[Payment] webhook 状态回写失败: eventId=%s status=%s err=%v", eventID, finalStatus, err)
 	}
@@ -1071,7 +1071,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 
 	var payment models.Payment
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("\"stripeSessionId\" = ?", sessionID).
+		Where("\"stripe_session_id\" = ?", sessionID).
 		First(&payment).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 支付履约查询订单失败: sessionID=%s err=%v", strings.TrimSpace(sessionID), err)
@@ -1111,7 +1111,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 
 	var plan models.Plan
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Select("id", "name", "planGroup").
+		Select("id", "name", "plan_group").
 		Where("id = ?", payment.PlanID).
 		First(&plan).Error; err != nil {
 		tx.Rollback()
@@ -1134,8 +1134,8 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		if err := tx.Model(&models.Payment{}).
 			Where("id = ?", payment.ID).
 			Updates(map[string]interface{}{
-				"status":                payment.Status,
-				"stripePaymentIntentId": payment.StripePaymentIntentID,
+				"status":                   payment.Status,
+				"stripe_payment_intent_id": payment.StripePaymentIntentID,
 			}).Error; err != nil {
 			tx.Rollback()
 			log.Printf("[Payment] 支付履约拒绝后保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
@@ -1177,8 +1177,8 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	if err := tx.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"expiresAt":    user.ExpiresAt,
-			"embyDisabled": user.EmbyDisabled,
+			"expires_at":    user.ExpiresAt,
+			"emby_disabled": user.EmbyDisabled,
 		}).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 支付履约保存用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
@@ -1192,8 +1192,8 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	if err := tx.Model(&models.Payment{}).
 		Where("id = ?", payment.ID).
 		Updates(map[string]interface{}{
-			"status":                payment.Status,
-			"stripePaymentIntentId": payment.StripePaymentIntentID,
+			"status":                   payment.Status,
+			"stripe_payment_intent_id": payment.StripePaymentIntentID,
 		}).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 支付履约保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
@@ -1258,7 +1258,7 @@ func (s *PaymentService) markPaymentFailed(sessionID string, eventCreated time.T
 
 	var payment models.Payment
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("\"stripeSessionId\" = ?", sessionID).
+		Where("\"stripe_session_id\" = ?", sessionID).
 		First(&payment).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 标记支付失败查询订单失败: sessionID=%s err=%v", strings.TrimSpace(sessionID), err)
@@ -1315,7 +1315,7 @@ func (s *PaymentService) MarkPaymentExpired(sessionID string) error {
 	}
 
 	result := db.DB.Model(&models.Payment{}).
-		Where(`"stripeSessionId" = ? AND status = ?`, sid, models.PaymentPending).
+		Where(`"stripe_session_id" = ? AND status = ?`, sid, models.PaymentPending).
 		Updates(map[string]interface{}{"status": models.PaymentExpired})
 	if result.Error != nil {
 		log.Printf("[Payment] 标记 checkout 过期失败: sessionID=%s err=%v", sid, result.Error)
@@ -1360,13 +1360,13 @@ func (s *PaymentService) getPayments(userID string, req *GetPaymentsRequest, isA
 	query := db.DB.Model(&models.Payment{})
 	if isAdmin {
 		if strings.TrimSpace(req.UserID) != "" {
-			query = query.Where("\"userId\" = ?", req.UserID)
+			query = query.Where("\"user_id\" = ?", req.UserID)
 		}
 	} else {
-		query = query.Where("\"userId\" = ?", userID)
+		query = query.Where("\"user_id\" = ?", userID)
 	}
 	if strings.TrimSpace(req.PlanID) != "" {
-		query = query.Where("\"planId\" = ?", strings.TrimSpace(req.PlanID))
+		query = query.Where("\"plan_id\" = ?", strings.TrimSpace(req.PlanID))
 	}
 	if status := normalizePaymentStatusFilter(req.Status); status != "" {
 		query = query.Where("status = ?", status)
@@ -1379,7 +1379,7 @@ func (s *PaymentService) getPayments(userID string, req *GetPaymentsRequest, isA
 
 	var rows []models.Payment
 	offset := (page - 1) * pageSize
-	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&rows).Error; err != nil {
+	if err := query.Order("\"created_at\" DESC").Offset(offset).Limit(pageSize).Find(&rows).Error; err != nil {
 		return nil, errors.New("获取支付记录失败")
 	}
 

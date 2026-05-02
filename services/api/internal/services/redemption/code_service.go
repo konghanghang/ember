@@ -125,14 +125,14 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 	}
 
 	if templateUserID := strings.TrimSpace(req.TemplateUserID); templateUserID != "" {
-		query = query.Where("\"templateUserId\" = ?", templateUserID)
+		query = query.Where("\"template_user_id\" = ?", templateUserID)
 	}
 	if registrationPlanGroup := strings.TrimSpace(req.RegistrationPlanGroup); registrationPlanGroup != "" {
 		normalizedRegistrationPlanGroup, err := redemptionNormalizePlanGroupKey(registrationPlanGroup, false)
 		if err != nil {
 			return nil, err
 		}
-		query = query.Where("\"registrationPlanGroup\" = ?", normalizedRegistrationPlanGroup)
+		query = query.Where("\"registration_plan_group\" = ?", normalizedRegistrationPlanGroup)
 	}
 
 	status := RedemptionCodeStatus(strings.TrimSpace(req.Status))
@@ -143,7 +143,7 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 			return nil, err
 		}
 	} else if !req.ShowAll {
-		query = query.Where("\"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", now)
+		query = query.Where("\"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", now)
 	}
 
 	if err := query.Count(&total).Error; err != nil {
@@ -151,7 +151,7 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 	}
 
 	offset := (page - 1) * pageSize
-	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&codes).Error; err != nil {
+	if err := query.Order("\"created_at\" DESC").Offset(offset).Limit(pageSize).Find(&codes).Error; err != nil {
 		return nil, errors.New("获取兑换码列表失败")
 	}
 
@@ -216,12 +216,12 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 		if err := tx.Model(&models.RedemptionCode{}).
 			Where("id = ?", redemptionCode.ID).
 			Updates(map[string]interface{}{
-				"maxUses":               redemptionCode.MaxUses,
-				"defaultDays":           redemptionCode.DefaultDays,
-				"expiresAt":             redemptionCode.ExpiresAt,
-				"templateUserId":        redemptionCode.TemplateUserID,
-				"registrationPlanGroup": redemptionCode.RegistrationPlanGroup,
-				"notes":                 redemptionCode.Notes,
+				"max_uses":                redemptionCode.MaxUses,
+				"default_days":            redemptionCode.DefaultDays,
+				"expires_at":              redemptionCode.ExpiresAt,
+				"template_user_id":        redemptionCode.TemplateUserID,
+				"registration_plan_group": redemptionCode.RegistrationPlanGroup,
+				"notes":                   redemptionCode.Notes,
 			}).Error; err != nil {
 			return errors.New("更新兑换码失败")
 		}
@@ -242,7 +242,7 @@ func (s *RedemptionCodeService) GetUserTemplates() (*GetUserTemplatesResponse, e
 	var users []models.User
 	if err := db.DB.
 		Model(&models.User{}).
-		Where("role = ? AND \"isActive\" = true AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", "user", now).
+		Where("role = ? AND \"is_active\" = true AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", "user", now).
 		Order("username ASC").
 		Find(&users).Error; err != nil {
 		return nil, errors.New("获取模板用户失败")
@@ -290,8 +290,8 @@ func (s *RedemptionCodeService) ValidateRenewalCode(code string) (*models.Redemp
 
 func (s *RedemptionCodeService) UseCode(code string) error {
 	result := db.DB.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"usedCount\" < \"maxUses\"", code).
-		Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
+		Where("code = ? AND \"used_count\" < \"max_uses\"", code).
+		Update("used_count", gorm.Expr("\"used_count\" + 1"))
 
 	if result.Error != nil {
 		return errors.New("使用兑换码失败")
@@ -542,11 +542,11 @@ func isRedemptionCodeConflict(err error) bool {
 func applyRedemptionCodeStatusFilter(query *gorm.DB, status RedemptionCodeStatus, now time.Time) (*gorm.DB, error) {
 	switch status {
 	case RedemptionCodeStatusActive:
-		return query.Where("\"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", now), nil
+		return query.Where("\"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", now), nil
 	case RedemptionCodeStatusExpired:
-		return query.Where("\"usedCount\" < \"maxUses\" AND \"expiresAt\" IS NOT NULL AND \"expiresAt\" <= ?", now), nil
+		return query.Where("\"used_count\" < \"max_uses\" AND \"expires_at\" IS NOT NULL AND \"expires_at\" <= ?", now), nil
 	case RedemptionCodeStatusExhausted:
-		return query.Where("\"usedCount\" >= \"maxUses\""), nil
+		return query.Where("\"used_count\" >= \"max_uses\""), nil
 	case "":
 		return query, nil
 	default:

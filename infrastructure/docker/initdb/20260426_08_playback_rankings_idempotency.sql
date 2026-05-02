@@ -4,7 +4,7 @@ WITH duplicates AS (
   SELECT id,
          ROW_NUMBER() OVER (
            PARTITION BY period, period_start, period_end
-           ORDER BY "createdAt" DESC
+           ORDER BY created_at DESC, id DESC
          ) AS rn
   FROM playback_rankings
 )

@@ -40,7 +40,7 @@ var (
 	}
 	paymentCountDefaultPlanGroups = func(tx *gorm.DB) (int64, error) {
 		var count int64
-		err := tx.Model(&models.PlanGroup{}).Where(`"isDefault" = ?`, true).Count(&count).Error
+		err := tx.Model(&models.PlanGroup{}).Where(`"is_default" = ?`, true).Count(&count).Error
 		return count, err
 	}
 	paymentCreatePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
@@ -49,37 +49,37 @@ var (
 	paymentSavePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
 		return tx.Model(&models.PlanGroup{}).
 			Where("key = ?", group.Key).
-			Select("name", "description", "sortOrder", "updatedAt").
+			Select("name", "description", "sort_order", "updated_at").
 			Updates(map[string]any{
 				"name":        group.Name,
 				"description": group.Description,
-				"sortOrder":   group.SortOrder,
-				"updatedAt":   time.Now(),
+				"sort_order":  group.SortOrder,
+				"updated_at":  time.Now(),
 			}).Error
 	}
 	paymentUnsetOtherPlanGroupDefaults = func(tx *gorm.DB, key string) error {
 		return tx.Model(&models.PlanGroup{}).
 			Where("key <> ?", key).
-			Update(`"isDefault"`, false).Error
+			Update(`"is_default"`, false).Error
 	}
 	paymentSetPlanGroupDefault = func(tx *gorm.DB, key string, isDefault bool) error {
 		return tx.Model(&models.PlanGroup{}).
 			Where("key = ?", key).
-			Update(`"isDefault"`, isDefault).Error
+			Update(`"is_default"`, isDefault).Error
 	}
 	paymentCountPlansByGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
-		err := tx.Model(&models.Plan{}).Where(`"planGroup" = ?`, key).Count(&count).Error
+		err := tx.Model(&models.Plan{}).Where(`"plan_group" = ?`, key).Count(&count).Error
 		return count, err
 	}
 	paymentCountUsersByGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
-		err := tx.Model(&models.User{}).Where(`"planGroup" = ?`, key).Count(&count).Error
+		err := tx.Model(&models.User{}).Where(`"plan_group" = ?`, key).Count(&count).Error
 		return count, err
 	}
 	paymentCountRedemptionCodesByRegistrationPlanGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
-		err := tx.Model(&models.RedemptionCode{}).Where(`"registrationPlanGroup" = ?`, key).Count(&count).Error
+		err := tx.Model(&models.RedemptionCode{}).Where(`"registration_plan_group" = ?`, key).Count(&count).Error
 		return count, err
 	}
 	paymentDeletePlanGroup = func(tx *gorm.DB, key string) error {
@@ -158,7 +158,7 @@ func GetDefaultPlanGroup(tx *gorm.DB) (*models.PlanGroup, error) {
 	}
 
 	var group models.PlanGroup
-	if err := tx.Where("\"isDefault\" = ?", true).First(&group).Error; err != nil {
+	if err := tx.Where("\"is_default\" = ?", true).First(&group).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDefaultPlanGroupNotFound
 		}
@@ -209,8 +209,8 @@ func ExpireAllPendingPaymentsForFollowingDefaultUsers(tx *gorm.DB) (int64, error
 		Where(`EXISTS (
 			SELECT 1
 			FROM users
-			WHERE users.id = payments."userId"
-			  AND users."planGroup" IS NULL
+			WHERE users.id = payments."user_id"
+			  AND users."plan_group" IS NULL
 		)`).
 		Update("status", models.PaymentExpired)
 	if result.Error != nil {
@@ -230,14 +230,14 @@ func pendingStripeSessionIDsForDefaultFollowers(tx *gorm.DB) ([]string, error) {
 	sessionIDs := make([]string, 0)
 	if err := tx.Model(&models.Payment{}).
 		Where("status = ?", models.PaymentPending).
-		Where(`"stripeSessionId" <> ''`).
+		Where(`"stripe_session_id" <> ''`).
 		Where(`EXISTS (
 			SELECT 1
 			FROM users
-			WHERE users.id = payments."userId"
-			  AND users."planGroup" IS NULL
+			WHERE users.id = payments."user_id"
+			  AND users."plan_group" IS NULL
 		)`).
-		Pluck(`"stripeSessionId"`, &sessionIDs).Error; err != nil {
+		Pluck(`"stripe_session_id"`, &sessionIDs).Error; err != nil {
 		return nil, errors.New("查询待失效 Stripe 会话失败")
 	}
 	return sessionIDs, nil
@@ -245,21 +245,21 @@ func pendingStripeSessionIDsForDefaultFollowers(tx *gorm.DB) ([]string, error) {
 
 func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 	var groups []models.PlanGroup
-	if err := db.DB.Order(`"sortOrder" ASC, key ASC`).Find(&groups).Error; err != nil {
+	if err := db.DB.Order(`"sort_order" ASC, key ASC`).Find(&groups).Error; err != nil {
 		return nil, errors.New("获取套餐分组失败")
 	}
 
 	views := make([]PlanGroupView, 0, len(groups))
 	for i := range groups {
 		view := buildPlanGroupView(groups[i])
-		if err := db.DB.Model(&models.Plan{}).Where(`"planGroup" = ?`, view.Key).Count(&view.PlanCount).Error; err != nil {
+		if err := db.DB.Model(&models.Plan{}).Where(`"plan_group" = ?`, view.Key).Count(&view.PlanCount).Error; err != nil {
 			return nil, errors.New("获取套餐分组失败")
 		}
-		if err := db.DB.Model(&models.User{}).Where(`"planGroup" = ?`, view.Key).Count(&view.UserCount).Error; err != nil {
+		if err := db.DB.Model(&models.User{}).Where(`"plan_group" = ?`, view.Key).Count(&view.UserCount).Error; err != nil {
 			return nil, errors.New("获取套餐分组失败")
 		}
 		if view.IsDefault {
-			if err := db.DB.Model(&models.User{}).Where(`"planGroup" IS NULL`).Count(&view.FollowingUserCount).Error; err != nil {
+			if err := db.DB.Model(&models.User{}).Where(`"plan_group" IS NULL`).Count(&view.FollowingUserCount).Error; err != nil {
 				return nil, errors.New("获取套餐分组失败")
 			}
 		}

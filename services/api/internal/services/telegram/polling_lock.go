@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	botPollingLockName      = "telegram_polling"
-	minBotPollingLeaseSec   = 15
-	maxBotPollingLeaseSec   = 600
+	botPollingLockName    = "telegram_polling"
+	minBotPollingLeaseSec = 15
+	maxBotPollingLeaseSec = 600
 )
 
 var ErrBotPollingLockHeld = errors.New("Bot polling 锁已被其他实例持有")
@@ -63,9 +63,9 @@ func AcquireBotPollingLock(ctx context.Context, ownerID string, leaseSeconds int
 		return tx.Model(&models.BotRuntimeLock{}).
 			Where("name = ?", botPollingLockName).
 			Updates(map[string]interface{}{
-				"ownerId":   ownerID,
-				"expiresAt": expiresAt,
-				"updatedAt": now,
+				"owner_id":   ownerID,
+				"expires_at": expiresAt,
+				"updated_at": now,
 			}).Error
 	})
 }
@@ -80,10 +80,10 @@ func RenewBotPollingLock(ctx context.Context, ownerID string, leaseSeconds int) 
 	expiresAt := now.Add(time.Duration(normalizeBotPollingLeaseSeconds(leaseSeconds)) * time.Second)
 
 	result := db.DB.WithContext(ctx).Model(&models.BotRuntimeLock{}).
-		Where("name = ? AND \"ownerId\" = ? AND \"expiresAt\" > ?", botPollingLockName, ownerID, now).
+		Where("name = ? AND \"owner_id\" = ? AND \"expires_at\" > ?", botPollingLockName, ownerID, now).
 		Updates(map[string]interface{}{
-			"expiresAt": expiresAt,
-			"updatedAt": now,
+			"expires_at": expiresAt,
+			"updated_at": now,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -101,7 +101,7 @@ func ReleaseBotPollingLock(ctx context.Context, ownerID string) error {
 	}
 
 	result := db.DB.WithContext(ctx).
-		Where("name = ? AND \"ownerId\" = ?", botPollingLockName, ownerID).
+		Where("name = ? AND \"owner_id\" = ?", botPollingLockName, ownerID).
 		Delete(&models.BotRuntimeLock{})
 	if result.Error != nil {
 		return result.Error

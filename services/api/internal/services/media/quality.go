@@ -178,7 +178,7 @@ func (s *MediaQualityService) acquireScanInflight(ctx context.Context, cacheKey 
 
 	var cache models.MediaQualityCache
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where(`"libraryId" = ?`, cacheKey).
+		Where(`"library_id" = ?`, cacheKey).
 		First(&cache).Error
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
@@ -202,10 +202,10 @@ func (s *MediaQualityService) acquireScanInflight(ctx context.Context, cacheKey 
 			return false, nil
 		}
 		if updateErr := tx.Model(&models.MediaQualityCache{}).
-			Where(`"libraryId" = ?`, cacheKey).
+			Where(`"library_id" = ?`, cacheKey).
 			Updates(map[string]interface{}{
-				"inflightUntil": inflightUntil,
-				"updatedAt":     now,
+				"inflight_until": inflightUntil,
+				"updated_at":     now,
 			}).Error; updateErr != nil {
 			tx.Rollback()
 			return false, fmt.Errorf("标记媒体质量扫描状态失败: %w", updateErr)
@@ -221,8 +221,8 @@ func (s *MediaQualityService) acquireScanInflight(ctx context.Context, cacheKey 
 func (s *MediaQualityService) clearScanInflight(ctx context.Context, cacheKey string) error {
 	return db.DB.WithContext(ctx).
 		Model(&models.MediaQualityCache{}).
-		Where(`"libraryId" = ?`, cacheKey).
-		Update("inflightUntil", nil).Error
+		Where(`"library_id" = ?`, cacheKey).
+		Update("inflight_until", nil).Error
 }
 
 func (s *MediaQualityService) GetGroupLowQualityDetails(
@@ -324,7 +324,7 @@ func (s *MediaQualityService) listLibraryItems(libraryID string, maxItems int) (
 func (s *MediaQualityService) getCachedReport(ctx context.Context, cacheKey string) (*QualityReport, error) {
 	var cache models.MediaQualityCache
 	err := db.DB.WithContext(ctx).
-		Where("\"libraryId\" = ? AND \"expiresAt\" > ?", cacheKey, time.Now().UTC()).
+		Where("\"library_id\" = ? AND \"expires_at\" > ?", cacheKey, time.Now().UTC()).
 		First(&cache).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -356,13 +356,13 @@ func (s *MediaQualityService) saveReportCache(ctx context.Context, cacheKey stri
 	}
 
 	if err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "libraryId"}},
+		Columns: []clause.Column{{Name: "library_id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"statistics":    cache.Statistics,
-			"schemaVersion": cache.SchemaVersion,
-			"inflightUntil": nil,
-			"expiresAt":     cache.ExpiresAt,
-			"updatedAt":     now,
+			"statistics":     cache.Statistics,
+			"schema_version": cache.SchemaVersion,
+			"inflight_until": nil,
+			"expires_at":     cache.ExpiresAt,
+			"updated_at":     now,
 		}),
 	}).Create(&cache).Error; err != nil {
 		return fmt.Errorf("保存媒体质量缓存失败: %w", err)

@@ -22,10 +22,10 @@ const (
 type MediaGapScan struct {
 	ID           string             `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	Status       MediaGapScanStatus `json:"status" gorm:"column:status;size:20;not null"`
-	NodeID       string             `json:"nodeId" gorm:"column:nodeId;size:64;not null"`
-	StartedAt    time.Time          `json:"startedAt" gorm:"column:startedAt;not null;autoCreateTime"`
-	FinishedAt   *time.Time         `json:"finishedAt,omitempty" gorm:"column:finishedAt"`
-	ErrorMessage *string            `json:"errorMessage,omitempty" gorm:"column:errorMessage;size:500"`
+	NodeID       string             `json:"nodeId" gorm:"column:node_id;size:64;not null"`
+	StartedAt    time.Time          `json:"startedAt" gorm:"column:started_at;not null;autoCreateTime"`
+	FinishedAt   *time.Time         `json:"finishedAt,omitempty" gorm:"column:finished_at"`
+	ErrorMessage *string            `json:"errorMessage,omitempty" gorm:"column:error_message;size:500"`
 }
 
 func (MediaGapScan) TableName() string {

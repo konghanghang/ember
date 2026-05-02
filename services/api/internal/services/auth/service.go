@@ -122,10 +122,10 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 		service.saveUser = func(user *models.User) error {
 			return db.DB.Model(&models.User{}).
 				Where("id = ?", user.ID).
-				Select("password", "updatedAt").
+				Select("password", "updated_at").
 				Updates(map[string]any{
-					"password":  user.Password,
-					"updatedAt": time.Now(),
+					"password":   user.Password,
+					"updated_at": time.Now(),
 				}).Error
 		}
 	}

@@ -281,7 +281,7 @@ func initCronJobs() func() {
 
 	// media-quality-inflight-sweep（每 30 分钟清理残留的 inflight 标记）
 	if _, err := c.AddFunc("@every 30m", func() {
-		result := db.DB.Exec(`UPDATE media_quality_caches SET "inflightUntil" = NULL WHERE "inflightUntil" < now() - interval '1 hour'`)
+		result := db.DB.Exec(`UPDATE media_quality_caches SET "inflight_until" = NULL WHERE "inflight_until" < now() - interval '1 hour'`)
 		if result.Error != nil {
 			log.Printf("[Cron] media-quality-inflight-sweep 失败：%v", result.Error)
 		} else if result.RowsAffected > 0 {

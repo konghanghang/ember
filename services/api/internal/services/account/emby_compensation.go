@@ -62,7 +62,8 @@ func NewEmbyCompensation(embyService *embyint.EmbyService) *EmbyCompensation {
 //
 // 成功：返回 nil；调用方记成功日志即可。
 // 失败：尝试入队，若入队成功返回 nil（视为已交给后台重试，调用方主流程不阻塞）。
-//      若入队也失败返回 error，调用方按需告警。
+//
+//	若入队也失败返回 error，调用方按需告警。
 func (c *EmbyCompensation) EnsureUnbanned(ctx context.Context, op models.FailedEmbyAsyncOp) error {
 	op.Action = models.FailedEmbyActionUnban
 	if op.OriginRefID == "" {
@@ -138,8 +139,8 @@ func (c *EmbyCompensation) Process(ctx context.Context) (ProcessResult, error) {
 	now := c.now()
 	var ops []models.FailedEmbyAsyncOp
 	if err := db.DB.WithContext(ctx).
-		Where(`"nextAttemptAt" <= ?`, now).
-		Order(`"nextAttemptAt" ASC`).
+		Where(`"next_attempt_at" <= ?`, now).
+		Order(`"next_attempt_at" ASC`).
 		Limit(defaultBatchLimit).
 		Find(&ops).Error; err != nil {
 		return ProcessResult{}, fmt.Errorf("compensation: 拉取队列失败 err=%w", err)
@@ -192,10 +193,10 @@ func (c *EmbyCompensation) markFailure(ctx context.Context, op models.FailedEmby
 	errMsg := truncate(execErr.Error(), maxLastErrorLength)
 
 	updates := map[string]interface{}{
-		"retries":       retries,
-		"nextAttemptAt": nextAt,
-		"lastError":     errMsg,
-		"updatedAt":     c.now(),
+		"retries":         retries,
+		"next_attempt_at": nextAt,
+		"last_error":      errMsg,
+		"updated_at":      c.now(),
 	}
 	if err := db.DB.WithContext(ctx).
 		Model(&models.FailedEmbyAsyncOp{}).

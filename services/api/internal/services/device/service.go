@@ -137,7 +137,7 @@ func (s *DeviceService) GetDevices(req GetDevicesRequest) (*DeviceListResponse, 
 
 func (s *DeviceService) GetBlacklist() ([]models.ClientBlacklist, error) {
 	var blacklists []models.ClientBlacklist
-	if err := db.DB.Order("\"createdAt\" DESC").Find(&blacklists).Error; err != nil {
+	if err := db.DB.Order("\"created_at\" DESC").Find(&blacklists).Error; err != nil {
 		return nil, errors.New("获取黑名单失败")
 	}
 	return blacklists, nil
@@ -152,7 +152,7 @@ func (s *DeviceService) AddClientToBlacklist(clientName, reason, operatorID stri
 	normalized := normalizeClientName(clientName)
 
 	var blacklist models.ClientBlacklist
-	err := db.DB.Where("\"normalizedClientName\" = ?", normalized).First(&blacklist).Error
+	err := db.DB.Where("\"normalized_client_name\" = ?", normalized).First(&blacklist).Error
 	if err == nil {
 		blacklist.ClientName = clientName
 		blacklist.Reason = reason
@@ -160,9 +160,9 @@ func (s *DeviceService) AddClientToBlacklist(clientName, reason, operatorID stri
 		if err := db.DB.Model(&models.ClientBlacklist{}).
 			Where("id = ?", blacklist.ID).
 			Updates(map[string]interface{}{
-				"clientName":           blacklist.ClientName,
-				"reason":               blacklist.Reason,
-				"normalizedClientName": blacklist.NormalizedClientName,
+				"client_name":            blacklist.ClientName,
+				"reason":                 blacklist.Reason,
+				"normalized_client_name": blacklist.NormalizedClientName,
 			}).Error; err != nil {
 			return errors.New("更新黑名单失败")
 		}
@@ -191,7 +191,7 @@ func (s *DeviceService) RemoveClientFromBlacklist(clientName, operatorID string)
 	normalized := normalizeClientName(clientName)
 
 	var blacklist models.ClientBlacklist
-	if err := db.DB.Where("\"normalizedClientName\" = ?", normalized).First(&blacklist).Error; err != nil {
+	if err := db.DB.Where("\"normalized_client_name\" = ?", normalized).First(&blacklist).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrClientBlacklistNotFound
 		}
@@ -361,7 +361,7 @@ func (s *DeviceService) GetDeviceActions(limit int) (*DeviceActionsResponse, err
 	}
 
 	var actions []models.DeviceAction
-	if err := db.DB.Order("\"createdAt\" DESC").Limit(limit).Find(&actions).Error; err != nil {
+	if err := db.DB.Order("\"created_at\" DESC").Limit(limit).Find(&actions).Error; err != nil {
 		return nil, errors.New("获取设备操作日志失败")
 	}
 
@@ -465,7 +465,7 @@ func (s *DeviceService) buildDeviceItems() ([]DeviceItem, error) {
 	localUserByEmbyID := make(map[string]models.User)
 	if len(embyUserIDs) > 0 {
 		var users []models.User
-		if err := db.DB.Where("\"embyId\" IN ?", embyUserIDs).Find(&users).Error; err != nil {
+		if err := db.DB.Where("\"emby_id\" IN ?", embyUserIDs).Find(&users).Error; err != nil {
 			return nil, errors.New("获取设备列表失败")
 		}
 		for _, user := range users {

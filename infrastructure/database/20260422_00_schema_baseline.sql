@@ -18,20 +18,20 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: MediaType; Type: TYPE; Schema: public; Owner: -
+-- Name: media_type; Type: TYPE; Schema: public; Owner: -
 --
 
-CREATE TYPE "MediaType" AS ENUM (
+CREATE TYPE "media_type" AS ENUM (
     'MOVIE',
     'TV'
 );
 
 
 --
--- Name: SubscriptionStatus; Type: TYPE; Schema: public; Owner: -
+-- Name: subscription_status; Type: TYPE; Schema: public; Owner: -
 --
 
-CREATE TYPE "SubscriptionStatus" AS ENUM (
+CREATE TYPE "subscription_status" AS ENUM (
     'PENDING',
     'APPROVED',
     'REJECTED',
@@ -49,10 +49,10 @@ SET default_table_access_method = heap;
 
 CREATE TABLE client_blacklists (
     id character varying(25) NOT NULL,
-    "clientName" character varying(100) NOT NULL,
-    "normalizedClientName" character varying(100) NOT NULL,
+    "client_name" character varying(100) NOT NULL,
+    "normalized_client_name" character varying(100) NOT NULL,
     reason character varying(255) DEFAULT ''::character varying,
-    "createdAt" timestamp with time zone DEFAULT now()
+    "created_at" timestamp with time zone DEFAULT now()
 );
 
 
@@ -62,12 +62,12 @@ CREATE TABLE client_blacklists (
 
 CREATE TABLE device_actions (
     id character varying(25) NOT NULL,
-    "deviceId" character varying(100) DEFAULT ''::character varying,
-    "userId" character varying(25) DEFAULT ''::character varying,
-    "clientName" character varying(100) DEFAULT ''::character varying,
+    "device_id" character varying(100) DEFAULT ''::character varying,
+    "user_id" character varying(25) DEFAULT ''::character varying,
+    "client_name" character varying(100) DEFAULT ''::character varying,
     action character varying(50) NOT NULL,
     note character varying(255) DEFAULT ''::character varying,
-    "createdAt" timestamp with time zone DEFAULT now()
+    "created_at" timestamp with time zone DEFAULT now()
 );
 
 
@@ -80,8 +80,8 @@ CREATE TABLE email_verifications (
     email character varying(255) NOT NULL,
     code character varying(6) NOT NULL,
     ip character varying(45) NOT NULL,
-    "expiresAt" timestamp with time zone NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now(),
+    "expires_at" timestamp with time zone NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now(),
     type character varying(20) DEFAULT 'register'::character varying NOT NULL
 );
 
@@ -92,23 +92,23 @@ CREATE TABLE email_verifications (
 
 CREATE TABLE media_gaps (
     id character varying(25) NOT NULL,
-    "tmdbId" character varying(50) NOT NULL,
-    "embySeriesId" character varying(50) DEFAULT ''::character varying NOT NULL,
-    "seriesName" character varying(255) DEFAULT ''::character varying NOT NULL,
+    "tmdb_id" character varying(50) NOT NULL,
+    "emby_series_id" character varying(50) DEFAULT ''::character varying NOT NULL,
+    "series_name" character varying(255) DEFAULT ''::character varying NOT NULL,
     season integer NOT NULL,
     episode integer NOT NULL,
-    "airDate" timestamp with time zone NOT NULL,
+    "air_date" timestamp with time zone NOT NULL,
     status character varying(20) DEFAULT 'MISSING'::character varying NOT NULL,
-    "searchSnapshot" text DEFAULT ''::text NOT NULL,
-    "dispatchSnapshot" text DEFAULT ''::text NOT NULL,
-    "lastScannedAt" timestamp with time zone,
-    "lastSearchedAt" timestamp with time zone,
-    "requestedAt" timestamp with time zone,
-    "ingestedAt" timestamp with time zone,
-    "ignoredAt" timestamp with time zone,
-    "ignoreReason" text DEFAULT ''::text NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+    "search_snapshot" text DEFAULT ''::text NOT NULL,
+    "dispatch_snapshot" text DEFAULT ''::text NOT NULL,
+    "last_scanned_at" timestamp with time zone,
+    "last_searched_at" timestamp with time zone,
+    "requested_at" timestamp with time zone,
+    "ingested_at" timestamp with time zone,
+    "ignored_at" timestamp with time zone,
+    "ignore_reason" text DEFAULT ''::text NOT NULL,
+    "created_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 
@@ -118,11 +118,11 @@ CREATE TABLE media_gaps (
 
 CREATE TABLE media_quality_caches (
     id character varying(25) NOT NULL,
-    "libraryId" character varying(100) NOT NULL,
+    "library_id" character varying(100) NOT NULL,
     statistics text NOT NULL,
-    "expiresAt" timestamp with time zone NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now(),
-    "updatedAt" timestamp with time zone DEFAULT now()
+    "expires_at" timestamp with time zone NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now(),
+    "updated_at" timestamp with time zone DEFAULT now()
 );
 
 
@@ -132,18 +132,18 @@ CREATE TABLE media_quality_caches (
 
 CREATE TABLE payments (
     id character varying(25) NOT NULL,
-    "userId" character varying(25) NOT NULL,
-    "planId" character varying(25) NOT NULL,
-    "stripeSessionId" character varying(255) NOT NULL,
-    "stripePaymentIntentId" character varying(255) DEFAULT ''::character varying,
+    "user_id" character varying(25) NOT NULL,
+    "plan_id" character varying(25) NOT NULL,
+    "stripe_session_id" character varying(255) NOT NULL,
+    "stripe_payment_intent_id" character varying(255) DEFAULT ''::character varying,
     amount bigint NOT NULL,
     currency character varying(3) DEFAULT 'usd'::character varying NOT NULL,
     days bigint NOT NULL,
     status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now(),
-    "updatedAt" timestamp with time zone DEFAULT now(),
-    "checkoutUrl" character varying(2048) DEFAULT ''::character varying NOT NULL,
-    "expiresAt" timestamp with time zone
+    "created_at" timestamp with time zone DEFAULT now(),
+    "updated_at" timestamp with time zone DEFAULT now(),
+    "checkout_url" character varying(2048) DEFAULT ''::character varying NOT NULL,
+    "expires_at" timestamp with time zone
 );
 
 
@@ -156,10 +156,10 @@ CREATE TABLE plan_groups (
     key character varying(50) NOT NULL,
     name character varying(100) NOT NULL,
     description character varying(255) DEFAULT ''::character varying,
-    "isDefault" boolean DEFAULT false NOT NULL,
-    "sortOrder" integer DEFAULT 0 NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now(),
-    "updatedAt" timestamp with time zone DEFAULT now()
+    "is_default" boolean DEFAULT false NOT NULL,
+    "sort_order" integer DEFAULT 0 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now(),
+    "updated_at" timestamp with time zone DEFAULT now()
 );
 
 
@@ -173,10 +173,10 @@ CREATE TABLE plans (
     days bigint NOT NULL,
     price bigint NOT NULL,
     description character varying(255),
-    "isActive" boolean DEFAULT true NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now(),
-    "updatedAt" timestamp with time zone DEFAULT now(),
-    "planGroup" character varying(50) DEFAULT ''::character varying NOT NULL
+    "is_active" boolean DEFAULT true NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now(),
+    "updated_at" timestamp with time zone DEFAULT now(),
+    "plan_group" character varying(50) DEFAULT ''::character varying NOT NULL
 );
 
 
@@ -211,13 +211,13 @@ CREATE TABLE redemption_codes (
     code character varying(50) NOT NULL,
     days integer NOT NULL,
     max_uses integer DEFAULT 1 NOT NULL,
-    "usedCount" integer DEFAULT 0 NOT NULL,
-    "isActive" boolean DEFAULT true NOT NULL,
-    "expiresAt" timestamp with time zone,
-    "createdAt" timestamp with time zone,
-    "templateUserId" character varying(25),
+    "used_count" integer DEFAULT 0 NOT NULL,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "expires_at" timestamp with time zone,
+    "created_at" timestamp with time zone,
+    "template_user_id" character varying(25),
     note text DEFAULT ''::text NOT NULL,
-    "registrationPlanGroup" character varying(50) DEFAULT ''::character varying NOT NULL
+    "registration_plan_group" character varying(50) DEFAULT ''::character varying NOT NULL
 );
 
 
@@ -227,12 +227,12 @@ CREATE TABLE redemption_codes (
 
 CREATE TABLE redemptions (
     id character varying(25) NOT NULL,
-    "userId" character varying(25) NOT NULL,
+    "user_id" character varying(25) NOT NULL,
     code character varying(50) NOT NULL,
     days integer NOT NULL,
-    "redeemedAt" timestamp with time zone,
-    "oldExpiryDate" timestamp with time zone,
-    "newExpiryDate" timestamp with time zone
+    "redeemed_at" timestamp with time zone,
+    "old_expiry_date" timestamp with time zone,
+    "new_expiry_date" timestamp with time zone
 );
 
 
@@ -243,9 +243,9 @@ CREATE TABLE redemptions (
 CREATE TABLE settings (
     key character varying(100) NOT NULL,
     value text NOT NULL,
-    "updatedAt" timestamp with time zone,
-    "isEncrypted" boolean DEFAULT false NOT NULL,
-    "updatedByUserId" character varying(25)
+    "updated_at" timestamp with time zone,
+    "is_encrypted" boolean DEFAULT false NOT NULL,
+    "updated_by_user_id" character varying(25)
 );
 
 
@@ -255,20 +255,20 @@ CREATE TABLE settings (
 
 CREATE TABLE subscriptions (
     id character varying(25) NOT NULL,
-    "userId" character varying(25) NOT NULL,
+    "user_id" character varying(25) NOT NULL,
     type character varying(10) NOT NULL,
     name character varying(255) NOT NULL,
-    "tmdbId" character varying(50) NOT NULL,
-    "posterPath" character varying(500),
+    "tmdb_id" character varying(50) NOT NULL,
+    "poster_path" character varying(500),
     status character varying(20) DEFAULT 'PENDING'::character varying NOT NULL,
     note text,
-    "mpError" character varying(500),
-    "createdAt" timestamp with time zone,
-    "updatedAt" timestamp with time zone,
+    "mp_error" character varying(500),
+    "created_at" timestamp with time zone,
+    "updated_at" timestamp with time zone,
     season integer DEFAULT 0 NOT NULL,
-    "rejectReason" text,
-    "reviewedAt" timestamp with time zone,
-    "ingestedAt" timestamp with time zone
+    "reject_reason" text,
+    "reviewed_at" timestamp with time zone,
+    "ingested_at" timestamp with time zone
 );
 
 
@@ -278,10 +278,10 @@ CREATE TABLE subscriptions (
 
 CREATE TABLE telegram_bind_codes (
     id character varying(25) NOT NULL,
-    "userId" character varying(25) NOT NULL,
+    "user_id" character varying(25) NOT NULL,
     code character varying(6) NOT NULL,
-    "expiresAt" timestamp with time zone NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now()
+    "expires_at" timestamp with time zone NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now()
 );
 
 
@@ -291,10 +291,10 @@ CREATE TABLE telegram_bind_codes (
 
 CREATE TABLE tmdb_cache (
     id character varying(25) NOT NULL,
-    "cacheKey" character varying(255) NOT NULL,
-    "cacheValue" text NOT NULL,
-    "expiresAt" timestamp with time zone NOT NULL,
-    "createdAt" timestamp with time zone DEFAULT now()
+    "cache_key" character varying(255) NOT NULL,
+    "cache_value" text NOT NULL,
+    "expires_at" timestamp with time zone NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now()
 );
 
 
@@ -304,17 +304,17 @@ CREATE TABLE tmdb_cache (
 
 CREATE TABLE tv_calendar_items (
     id character varying(25) NOT NULL,
-    "tmdbId" character varying(50) NOT NULL,
-    "seriesId" character varying(50) DEFAULT ''::character varying,
+    "tmdb_id" character varying(50) NOT NULL,
+    "series_id" character varying(50) DEFAULT ''::character varying,
     season bigint NOT NULL,
     episode bigint NOT NULL,
-    "airDate" timestamp with time zone NOT NULL,
-    "episodeName" character varying(255) DEFAULT ''::character varying,
+    "air_date" timestamp with time zone NOT NULL,
+    "episode_name" character varying(255) DEFAULT ''::character varying,
     status character varying(20) DEFAULT 'upcoming'::character varying NOT NULL,
-    "embyItemId" character varying(50) DEFAULT ''::character varying,
-    "lastChecked" timestamp with time zone DEFAULT now(),
-    "createdAt" timestamp with time zone DEFAULT now(),
-    "updatedAt" timestamp with time zone DEFAULT now(),
+    "emby_item_id" character varying(50) DEFAULT ''::character varying,
+    "last_checked" timestamp with time zone DEFAULT now(),
+    "created_at" timestamp with time zone DEFAULT now(),
+    "updated_at" timestamp with time zone DEFAULT now(),
     overview text DEFAULT ''::text NOT NULL
 );
 
@@ -325,16 +325,16 @@ CREATE TABLE tv_calendar_items (
 
 CREATE TABLE tv_calendar_sources (
     id character varying(25) NOT NULL,
-    "tmdbId" character varying(50) NOT NULL,
-    "seriesId" character varying(50) DEFAULT ''::character varying NOT NULL,
-    "showName" character varying(255) DEFAULT ''::character varying NOT NULL,
-    "posterUrl" character varying(500) DEFAULT ''::character varying NOT NULL,
+    "tmdb_id" character varying(50) NOT NULL,
+    "series_id" character varying(50) DEFAULT ''::character varying NOT NULL,
+    "show_name" character varying(255) DEFAULT ''::character varying NOT NULL,
+    "poster_url" character varying(500) DEFAULT ''::character varying NOT NULL,
     overview text DEFAULT ''::text NOT NULL,
-    "embyStatus" character varying(20) DEFAULT 'continuing'::character varying NOT NULL,
-    "lastSyncedAt" timestamp with time zone,
-    "createdAt" timestamp with time zone DEFAULT now(),
-    "updatedAt" timestamp with time zone DEFAULT now(),
-    "lastEpisodeIngestedAt" timestamp with time zone
+    "emby_status" character varying(20) DEFAULT 'continuing'::character varying NOT NULL,
+    "last_synced_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT now(),
+    "updated_at" timestamp with time zone DEFAULT now(),
+    "last_episode_ingested_at" timestamp with time zone
 );
 
 
@@ -344,11 +344,11 @@ CREATE TABLE tv_calendar_sources (
 
 CREATE TABLE tv_calendar_subscriptions (
     id character varying(25) NOT NULL,
-    "userId" character varying(25) NOT NULL,
-    "tmdbId" character varying(50) NOT NULL,
-    "showName" character varying(255) NOT NULL,
-    "posterUrl" character varying(500) DEFAULT ''::character varying,
-    "createdAt" timestamp with time zone DEFAULT now()
+    "user_id" character varying(25) NOT NULL,
+    "tmdb_id" character varying(50) NOT NULL,
+    "show_name" character varying(255) NOT NULL,
+    "poster_url" character varying(500) DEFAULT ''::character varying,
+    "created_at" timestamp with time zone DEFAULT now()
 );
 
 
@@ -362,15 +362,15 @@ CREATE TABLE users (
     role character varying(10) DEFAULT 'user'::character varying NOT NULL,
     email character varying(255),
     password character varying(255) NOT NULL,
-    "embyId" character varying(255),
-    "embyUsername" character varying(255),
-    "expiryDate" timestamp with time zone,
-    "isActive" boolean DEFAULT true NOT NULL,
-    "inviteCode" character varying(50),
-    "planGroup" character varying(50),
-    "telegramId" bigint,
-    "createdAt" timestamp with time zone,
-    "updatedAt" timestamp with time zone
+    "emby_id" character varying(255),
+    "emby_username" character varying(255),
+    "expiry_date" timestamp with time zone,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "invite_code" character varying(50),
+    "plan_group" character varying(50),
+    "telegram_id" bigint,
+    "created_at" timestamp with time zone,
+    "updated_at" timestamp with time zone
 );
 
 
@@ -538,7 +538,7 @@ ALTER TABLE ONLY users
 -- Name: idx_email_verifications_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_email_verifications_created_at ON email_verifications USING btree ("createdAt");
+CREATE INDEX idx_email_verifications_created_at ON email_verifications USING btree ("created_at");
 
 
 --
@@ -552,49 +552,49 @@ CREATE INDEX idx_email_verifications_email ON email_verifications USING btree (e
 -- Name: idx_email_verifications_expires_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_email_verifications_expires_at ON email_verifications USING btree ("expiresAt");
+CREATE INDEX idx_email_verifications_expires_at ON email_verifications USING btree ("expires_at");
 
 
 --
 -- Name: idx_media_gaps_emby_series_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_media_gaps_emby_series_id ON media_gaps USING btree ("embySeriesId");
+CREATE INDEX idx_media_gaps_emby_series_id ON media_gaps USING btree ("emby_series_id");
 
 
 --
 -- Name: idx_media_gaps_status_air_date; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_media_gaps_status_air_date ON media_gaps USING btree (status, "airDate");
+CREATE INDEX idx_media_gaps_status_air_date ON media_gaps USING btree (status, "air_date");
 
 
 --
 -- Name: idx_media_gaps_tmdb_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_media_gaps_tmdb_id ON media_gaps USING btree ("tmdbId");
+CREATE INDEX idx_media_gaps_tmdb_id ON media_gaps USING btree ("tmdb_id");
 
 
 --
 -- Name: idx_payments_stripe_session; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_payments_stripe_session ON payments USING btree ("stripeSessionId");
+CREATE UNIQUE INDEX idx_payments_stripe_session ON payments USING btree ("stripe_session_id");
 
 
 --
 -- Name: idx_plans_is_active; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_plans_is_active ON plans USING btree ("isActive");
+CREATE INDEX idx_plans_is_active ON plans USING btree ("is_active");
 
 
 --
 -- Name: idx_plans_plan_group; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_plans_plan_group ON plans USING btree ("planGroup");
+CREATE INDEX idx_plans_plan_group ON plans USING btree ("plan_group");
 
 
 --
@@ -629,28 +629,28 @@ CREATE UNIQUE INDEX idx_redemption_codes_code ON redemption_codes USING btree (c
 -- Name: idx_redemption_codes_registration_plan_group; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_redemption_codes_registration_plan_group ON redemption_codes USING btree ("registrationPlanGroup");
+CREATE INDEX idx_redemption_codes_registration_plan_group ON redemption_codes USING btree ("registration_plan_group");
 
 
 --
 -- Name: idx_redemption_codes_template_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_redemption_codes_template_user_id ON redemption_codes USING btree ("templateUserId");
+CREATE INDEX idx_redemption_codes_template_user_id ON redemption_codes USING btree ("template_user_id");
 
 
 --
 -- Name: idx_redemptions_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_redemptions_user_id ON redemptions USING btree ("userId");
+CREATE INDEX idx_redemptions_user_id ON redemptions USING btree ("user_id");
 
 
 --
 -- Name: idx_subscriptions_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_subscriptions_user_id ON subscriptions USING btree ("userId");
+CREATE INDEX idx_subscriptions_user_id ON subscriptions USING btree ("user_id");
 
 
 --
@@ -664,77 +664,77 @@ CREATE UNIQUE INDEX idx_telegram_bind_codes_code ON telegram_bind_codes USING bt
 -- Name: idx_telegram_bind_codes_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_telegram_bind_codes_user_id ON telegram_bind_codes USING btree ("userId");
+CREATE INDEX idx_telegram_bind_codes_user_id ON telegram_bind_codes USING btree ("user_id");
 
 
 --
 -- Name: idx_tmdb_cache_cache_key; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_tmdb_cache_cache_key ON tmdb_cache USING btree ("cacheKey");
+CREATE UNIQUE INDEX idx_tmdb_cache_cache_key ON tmdb_cache USING btree ("cache_key");
 
 
 --
 -- Name: idx_tmdb_cache_expires_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tmdb_cache_expires_at ON tmdb_cache USING btree ("expiresAt");
+CREATE INDEX idx_tmdb_cache_expires_at ON tmdb_cache USING btree ("expires_at");
 
 
 --
 -- Name: idx_tv_calendar_items_air_date; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tv_calendar_items_air_date ON tv_calendar_items USING btree ("airDate");
+CREATE INDEX idx_tv_calendar_items_air_date ON tv_calendar_items USING btree ("air_date");
 
 
 --
 -- Name: idx_tv_calendar_items_series_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tv_calendar_items_series_id ON tv_calendar_items USING btree ("seriesId");
+CREATE INDEX idx_tv_calendar_items_series_id ON tv_calendar_items USING btree ("series_id");
 
 
 --
 -- Name: idx_tv_calendar_items_tmdb_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tv_calendar_items_tmdb_id ON tv_calendar_items USING btree ("tmdbId");
+CREATE INDEX idx_tv_calendar_items_tmdb_id ON tv_calendar_items USING btree ("tmdb_id");
 
 
 --
 -- Name: idx_tv_calendar_sources_last_episode_ingested_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tv_calendar_sources_last_episode_ingested_at ON tv_calendar_sources USING btree ("lastEpisodeIngestedAt");
+CREATE INDEX idx_tv_calendar_sources_last_episode_ingested_at ON tv_calendar_sources USING btree ("last_episode_ingested_at");
 
 
 --
 -- Name: idx_tv_calendar_sources_series_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tv_calendar_sources_series_id ON tv_calendar_sources USING btree ("seriesId");
+CREATE INDEX idx_tv_calendar_sources_series_id ON tv_calendar_sources USING btree ("series_id");
 
 
 --
 -- Name: idx_tv_calendar_sources_tmdb_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_tv_calendar_sources_tmdb_id ON tv_calendar_sources USING btree ("tmdbId");
+CREATE UNIQUE INDEX idx_tv_calendar_sources_tmdb_id ON tv_calendar_sources USING btree ("tmdb_id");
 
 
 --
 -- Name: idx_tv_calendar_subscriptions_tmdb_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tv_calendar_subscriptions_tmdb_id ON tv_calendar_subscriptions USING btree ("tmdbId");
+CREATE INDEX idx_tv_calendar_subscriptions_tmdb_id ON tv_calendar_subscriptions USING btree ("tmdb_id");
 
 
 --
 -- Name: idx_tv_calendar_subscriptions_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_tv_calendar_subscriptions_user_id ON tv_calendar_subscriptions USING btree ("userId");
+CREATE INDEX idx_tv_calendar_subscriptions_user_id ON tv_calendar_subscriptions USING btree ("user_id");
 
 
 --
@@ -748,28 +748,28 @@ CREATE UNIQUE INDEX idx_users_email ON users USING btree (email);
 -- Name: idx_users_emby_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_users_emby_id ON users USING btree ("embyId");
+CREATE INDEX idx_users_emby_id ON users USING btree ("emby_id");
 
 
 --
 -- Name: idx_users_invite_code; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_users_invite_code ON users USING btree ("inviteCode");
+CREATE INDEX idx_users_invite_code ON users USING btree ("invite_code");
 
 
 --
 -- Name: idx_users_plan_group; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_users_plan_group ON users USING btree ("planGroup");
+CREATE INDEX idx_users_plan_group ON users USING btree ("plan_group");
 
 
 --
 -- Name: idx_users_telegram_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_users_telegram_id ON users USING btree ("telegramId") WHERE ("telegramId" IS NOT NULL);
+CREATE UNIQUE INDEX idx_users_telegram_id ON users USING btree ("telegram_id") WHERE ("telegram_id" IS NOT NULL);
 
 
 --
@@ -783,77 +783,77 @@ CREATE UNIQUE INDEX idx_users_username ON users USING btree (username);
 -- Name: uk_media_gap_episode; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_media_gap_episode ON media_gaps USING btree ("tmdbId", season, episode);
+CREATE UNIQUE INDEX uk_media_gap_episode ON media_gaps USING btree ("tmdb_id", season, episode);
 
 
 --
 -- Name: uk_subscription_media; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_subscription_media ON subscriptions USING btree (type, "tmdbId", season);
+CREATE UNIQUE INDEX uk_subscription_media ON subscriptions USING btree (type, "tmdb_id", season);
 
 
 --
 -- Name: uk_tv_calendar_episode; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_tv_calendar_episode ON tv_calendar_items USING btree ("tmdbId", season, episode);
+CREATE UNIQUE INDEX uk_tv_calendar_episode ON tv_calendar_items USING btree ("tmdb_id", season, episode);
 
 
 --
 -- Name: uk_tv_calendar_subscription; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_tv_calendar_subscription ON tv_calendar_subscriptions USING btree ("userId", "tmdbId");
+CREATE UNIQUE INDEX uk_tv_calendar_subscription ON tv_calendar_subscriptions USING btree ("user_id", "tmdb_id");
 
 
 --
 -- Name: uq_client_blacklists_normalized_client_name; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_client_blacklists_normalized_client_name ON client_blacklists USING btree ("normalizedClientName");
+CREATE UNIQUE INDEX uq_client_blacklists_normalized_client_name ON client_blacklists USING btree ("normalized_client_name");
 
 
 --
 -- Name: uq_media_quality_caches_library_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_media_quality_caches_library_id ON media_quality_caches USING btree ("libraryId");
+CREATE UNIQUE INDEX uq_media_quality_caches_library_id ON media_quality_caches USING btree ("library_id");
 
 
 --
 -- Name: uq_plan_groups_default_true; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_plan_groups_default_true ON plan_groups USING btree ("isDefault") WHERE ("isDefault" = true);
+CREATE UNIQUE INDEX uq_plan_groups_default_true ON plan_groups USING btree ("is_default") WHERE ("is_default" = true);
 
 
 --
 -- Name: uq_tmdb_cache_cache_key; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_tmdb_cache_cache_key ON tmdb_cache USING btree ("cacheKey");
+CREATE UNIQUE INDEX uq_tmdb_cache_cache_key ON tmdb_cache USING btree ("cache_key");
 
 
 --
 -- Name: uq_tv_calendar_items_tmdb_season_episode; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_tv_calendar_items_tmdb_season_episode ON tv_calendar_items USING btree ("tmdbId", season, episode);
+CREATE UNIQUE INDEX uq_tv_calendar_items_tmdb_season_episode ON tv_calendar_items USING btree ("tmdb_id", season, episode);
 
 
 --
 -- Name: uq_tv_calendar_sources_tmdb_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_tv_calendar_sources_tmdb_id ON tv_calendar_sources USING btree ("tmdbId");
+CREATE UNIQUE INDEX uq_tv_calendar_sources_tmdb_id ON tv_calendar_sources USING btree ("tmdb_id");
 
 
 --
 -- Name: uq_tv_calendar_subscriptions_user_tmdb; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_tv_calendar_subscriptions_user_tmdb ON tv_calendar_subscriptions USING btree ("userId", "tmdbId");
+CREATE UNIQUE INDEX uq_tv_calendar_subscriptions_user_tmdb ON tv_calendar_subscriptions USING btree ("user_id", "tmdb_id");
 
 
 --
@@ -864,7 +864,7 @@ CREATE UNIQUE INDEX uq_tv_calendar_subscriptions_user_tmdb ON tv_calendar_subscr
 
 -- Ember baseline normalization: deterministic bootstrap data and missing migration indexes.
 
-INSERT INTO settings (key, value, "updatedAt", "isEncrypted", "updatedByUserId") VALUES
+INSERT INTO settings (key, value, "updated_at", "is_encrypted", "updated_by_user_id") VALUES
   ('default_trial_days', '7', now(), false, NULL),
   ('registration_mode', 'open', now(), false, NULL),
   ('notify_group_link', '', now(), false, NULL),
@@ -872,7 +872,7 @@ INSERT INTO settings (key, value, "updatedAt", "isEncrypted", "updatedByUserId")
   ('stripe_allowed_payment_methods', '', now(), false, NULL)
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO plan_groups (key, name, description, "isDefault", "sortOrder", "createdAt", "updatedAt")
+INSERT INTO plan_groups (key, name, description, "is_default", "sort_order", "created_at", "updated_at")
 VALUES ('DEFAULT', '默认分组', '系统默认套餐分组', true, 10, now(), now())
 ON CONFLICT (key) DO NOTHING;
 
@@ -880,4 +880,4 @@ CREATE INDEX IF NOT EXISTS idx_ranking_lookup
   ON playback_rankings USING btree (period, category, snapshot_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_redemptions_user_code
-  ON redemptions USING btree ("userId", code);
+  ON redemptions USING btree ("user_id", code);

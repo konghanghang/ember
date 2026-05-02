@@ -56,6 +56,7 @@ cd services/api && go run ./cmd/migrate
 
 当前顶层 baseline 之后的增量 migration 为：
 
+- `20260423_00_legacy_camelcase_to_snake_case.sql`（仅老线上库需要：把 v1.3.1 时期遗留的 camelCase 列改为 snake_case；新装库 no-op）
 - `20260424_01_subscription_resubmission_after_rejection.sql`
 - `20260425_01_baseline_normalization_indexes.sql`
 - `20260425_02_telegram_bind_codes_user_unique.sql`
@@ -77,8 +78,9 @@ cd services/api && go run ./cmd/migrate
 - `20260426_16_subscriptions_note_not_null.sql`
 - `20260427_01_bot_runtime_locks.sql`
 - `20260427_02_media_gaps_ignore_reason_code.sql`
+- `20260427_04_bot_pending_reject_message_context.sql`
 
-如果当前数据库还停留在 `v1.3.1` 对应阶段，升级到当前版本前需要从 `20260424_01_subscription_resubmission_after_rejection.sql` 开始顺序执行以上 SQL；已经执行过它们的环境不需要重复执行。
+如果当前数据库还停留在 `v1.3.1` 对应阶段（线上仍为 camelCase 列），升级到当前版本前必须从 `20260423_00_legacy_camelcase_to_snake_case.sql` 开始顺序执行以上 SQL；该文件先把遗留 camelCase 列收拢为 snake_case，之后的增量才能落库。已经执行过它们的环境不需要重复执行。
 
 ### 3. Docker 首次初始化（仅首次）
 

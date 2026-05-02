@@ -219,18 +219,18 @@ type schemaFingerprintIndex struct {
 // 维护规则：每次在 infrastructure/database/ 新增顶层 migration 后，把其中"在已有表上 ADD COLUMN"
 // 的代表性列追加到这里；漏维护会导致 VerifySchema 放过缺该 migration 的环境。
 var schemaFingerprintColumns = []schemaFingerprintColumn{
-	{"subscriptions", "rejectReason", "20260416_01_subscription_status_and_review_fields"},
-	{"subscriptions", "reviewedAt", "20260416_01_subscription_status_and_review_fields"},
-	{"subscriptions", "ingestedAt", "20260416_01_subscription_status_and_review_fields"},
-	{"subscriptions", "retryFromId", "20260424_01_subscription_resubmission_after_rejection"},
-	{"subscriptions", "ingestProgress", "20260426_05_subscriptions_ingest_progress"},
-	{"media_gaps", "lastDispatchError", "20260426_06_media_gaps_dispatch_failed"},
-	{"media_gaps", "ignoreReasonCode", "20260427_02_media_gaps_ignore_reason_code"},
-	{"media_quality_caches", "inflightUntil", "20260426_09_media_quality_caches_inflight"},
-	{"tv_calendar_sources", "lastFullSyncAt", "20260426_11_tv_calendar_sources_sync_markers"},
-	{"bot_pending_reject_requests", "messageId", "20260427_04_bot_pending_reject_message_context"},
-	{"users", "passwordResetRequired", "20260426_15_users_password_reset_required"},
-	{"bot_runtime_locks", "expiresAt", "20260427_01_bot_runtime_locks"},
+	{"subscriptions", "reject_reason", "20260416_01_subscription_status_and_review_fields"},
+	{"subscriptions", "reviewed_at", "20260416_01_subscription_status_and_review_fields"},
+	{"subscriptions", "ingested_at", "20260416_01_subscription_status_and_review_fields"},
+	{"subscriptions", "retry_from_id", "20260424_01_subscription_resubmission_after_rejection"},
+	{"subscriptions", "ingest_progress", "20260426_05_subscriptions_ingest_progress"},
+	{"media_gaps", "last_dispatch_error", "20260426_06_media_gaps_dispatch_failed"},
+	{"media_gaps", "ignore_reason_code", "20260427_02_media_gaps_ignore_reason_code"},
+	{"media_quality_caches", "inflight_until", "20260426_09_media_quality_caches_inflight"},
+	{"tv_calendar_sources", "last_full_sync_at", "20260426_11_tv_calendar_sources_sync_markers"},
+	{"bot_pending_reject_requests", "message_id", "20260427_04_bot_pending_reject_message_context"},
+	{"users", "password_reset_required", "20260426_15_users_password_reset_required"},
+	{"bot_runtime_locks", "expires_at", "20260427_01_bot_runtime_locks"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -306,13 +306,13 @@ func seedDefaultAdmin() {
 	}
 
 	password := os.Getenv("ADMIN_PASSWORD")
-	passwordResetRequired := false
+	password_reset_required := false
 	if password == "" {
 		// 生成随机临时口令，要求首次登录立即修改
 		b := make([]byte, 12)
 		_, _ = rand.Read(b)
 		password = base64.StdEncoding.EncodeToString(b)
-		passwordResetRequired = true
+		password_reset_required = true
 		log.Printf("⚠️  [Admin Seed] ADMIN_PASSWORD 未设置，已生成临时口令，请立即登录并修改密码：%s", password)
 	}
 
@@ -320,7 +320,7 @@ func seedDefaultAdmin() {
 		Username:              username,
 		Role:                  "admin",
 		IsActive:              true,
-		PasswordResetRequired: passwordResetRequired,
+		PasswordResetRequired: password_reset_required,
 	}
 	if err := admin.SetPassword(password); err != nil {
 		log.Printf("❌ 创建默认管理员失败：%v", err)
@@ -354,7 +354,7 @@ func seedDefaultSettings() {
 
 func seedDefaultPlanGroups() {
 	var defaultCount int64
-	if err := DB.Model(&models.PlanGroup{}).Where(`"isDefault" = ?`, true).Count(&defaultCount).Error; err != nil {
+	if err := DB.Model(&models.PlanGroup{}).Where(`"is_default" = ?`, true).Count(&defaultCount).Error; err != nil {
 		log.Printf("⚠️  检查默认套餐分组失败：%v", err)
 		return
 	}
@@ -364,7 +364,7 @@ func seedDefaultPlanGroups() {
 
 	var group models.PlanGroup
 	if err := DB.Where("key = ?", "DEFAULT").First(&group).Error; err == nil {
-		if err := DB.Model(&models.PlanGroup{}).Where("key = ?", group.Key).Update(`"isDefault"`, true).Error; err != nil {
+		if err := DB.Model(&models.PlanGroup{}).Where("key = ?", group.Key).Update(`"is_default"`, true).Error; err != nil {
 			log.Printf("⚠️  修复默认套餐分组失败：%v", err)
 		}
 		return

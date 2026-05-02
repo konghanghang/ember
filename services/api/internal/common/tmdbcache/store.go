@@ -64,7 +64,7 @@ func (s *Store) FetchJSON(
 
 		if dbConn != nil {
 			var cached models.TMDBCache
-			err := dbConn.Where("\"cacheKey\" = ? AND \"expiresAt\" > ?", cacheKey, now).First(&cached).Error
+			err := dbConn.Where("\"cache_key\" = ? AND \"expires_at\" > ?", cacheKey, now).First(&cached).Error
 			if err == nil {
 				payload := []byte(cached.CacheValue)
 				if decodeErr := json.Unmarshal(payload, out); decodeErr == nil {
@@ -127,10 +127,10 @@ func (s *Store) FetchJSON(
 			ExpiresAt:  expiresAt,
 		}
 		if err := dbConn.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "cacheKey"}},
+			Columns: []clause.Column{{Name: "cache_key"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				"cacheValue": cacheRow.CacheValue,
-				"expiresAt":  cacheRow.ExpiresAt,
+				"cache_value": cacheRow.CacheValue,
+				"expires_at":  cacheRow.ExpiresAt,
 			}),
 		}).Create(&cacheRow).Error; err != nil {
 			call.err = fmt.Errorf("写入 TMDB 缓存失败: %w", err)

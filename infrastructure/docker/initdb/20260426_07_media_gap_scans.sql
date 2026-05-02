@@ -8,10 +8,10 @@
 -- 字段说明：
 --   id            扫描批次 ID（cuid）
 --   status        running / success / failed
---   nodeId        承担本次扫描的节点标识（hostname + pid，便于运维回溯）
---   startedAt     扫描开始时间
---   finishedAt    扫描结束时间（success/failed 时填充）
---   errorMessage  失败时的脱敏错误（最多 500 字符）
+--   node_id        承担本次扫描的节点标识（hostname + pid，便于运维回溯）
+--   started_at     扫描开始时间
+--   finished_at    扫描结束时间（success/failed 时填充）
+--   error_message  失败时的脱敏错误（最多 500 字符）
 --
 -- 配套 cron `media-gap-scans-cleanup` (@weekly) 清理 7 天前的 success/failed 记录，
 -- 避免长期堆积；running 记录不被清理，需运维手工排查（一般来源于进程 crash 未释放）。
@@ -21,11 +21,11 @@
 CREATE TABLE IF NOT EXISTS media_gap_scans (
     id             varchar(25)  PRIMARY KEY,
     status         varchar(20)  NOT NULL,
-    "nodeId"       varchar(64)  NOT NULL,
-    "startedAt"    timestamptz  NOT NULL DEFAULT now(),
-    "finishedAt"   timestamptz,
-    "errorMessage" varchar(500)
+    "node_id"       varchar(64)  NOT NULL,
+    "started_at"    timestamptz  NOT NULL DEFAULT now(),
+    "finished_at"   timestamptz,
+    "error_message" varchar(500)
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_gap_scans_started
-    ON media_gap_scans ("startedAt");
+    ON media_gap_scans ("started_at");

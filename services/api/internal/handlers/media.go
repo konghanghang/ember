@@ -185,7 +185,7 @@ func getCurrentMediaUser(c *gin.Context) (*models.User, bool) {
 	}
 
 	var user models.User
-	if err := db.DB.Select("embyId").Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := db.DB.Select("emby_id").Where("id = ?", userID).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "用户不存在"})
 		return nil, false
 	}

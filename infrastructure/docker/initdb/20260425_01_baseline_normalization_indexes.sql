@@ -1,11 +1,11 @@
 -- Backfill baseline normalization indexes for environments upgraded from pre-baseline migrations.
 --
--- baseline `20260415_00_schema_baseline.sql` declared two indexes that were missing
+-- baseline `20260422_00_schema_baseline.sql` still carries two historical indexes that some upgraded databases may miss
 -- from the legacy production source database (the dump was made before the model
 -- definitions were tightened):
 --
 --   - idx_ranking_lookup        on playback_rankings(period, category, snapshot_at)
---   - uq_redemptions_user_code  unique on redemptions("userId", code)
+--   - uq_redemptions_user_code  unique on redemptions("user_id", code)
 --
 -- Environments that initialised the database from the baseline file already carry
 -- these indexes. But environments upgraded only via the post-baseline incremental
@@ -20,4 +20,4 @@ CREATE INDEX IF NOT EXISTS idx_ranking_lookup
   ON playback_rankings USING btree (period, category, snapshot_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_redemptions_user_code
-  ON redemptions USING btree ("userId", code);
+  ON redemptions USING btree ("user_id", code);

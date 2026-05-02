@@ -9,10 +9,10 @@ import (
 // TelegramBindCode Telegram 绑定验证码
 type TelegramBindCode struct {
 	ID        string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	UserID    string    `json:"userId" gorm:"column:userId;size:25;not null;index"`
+	UserID    string    `json:"userId" gorm:"column:user_id;size:25;not null;index"`
 	Code      string    `json:"-" gorm:"column:code;size:6;not null;uniqueIndex"`
-	ExpiresAt time.Time `json:"expiresAt" gorm:"column:expiresAt;not null"`
-	CreatedAt time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	ExpiresAt time.Time `json:"expiresAt" gorm:"column:expires_at;not null"`
+	CreatedAt time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
 }
 
 func (TelegramBindCode) TableName() string {

@@ -68,7 +68,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 	}
 
 	var existingRedemption models.Redemption
-	err = tx.Where("\"userId\" = ? AND code = ?", userID, req.Code).First(&existingRedemption).Error
+	err = tx.Where("\"user_id\" = ? AND code = ?", userID, req.Code).First(&existingRedemption).Error
 	if err == nil {
 		return nil, ErrRedemptionDuplicate
 	}
@@ -90,14 +90,14 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 	}
 
 	updates := map[string]interface{}{
-		"expiresAt": newExpiry,
+		"expires_at": newExpiry,
 	}
 
 	// Emby 解封移到事务外（commit 后异步执行）：避免事务持有 Emby 网络 I/O，并在
 	// Emby 暂时不可达时进入补偿队列，由 cron 重试。本地 expiresAt 立刻生效，用户感知正常。
 	needsEmbyUnban := user.EmbyDisabled && user.IsActive
 	if needsEmbyUnban {
-		updates["embyDisabled"] = false
+		updates["emby_disabled"] = false
 	}
 
 	if err := tx.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
@@ -117,8 +117,8 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 	}
 
 	result := tx.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"usedCount\" < \"maxUses\" AND (\"expiresAt\" IS NULL OR \"expiresAt\" > ?)", req.Code, now).
-		Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
+		Where("code = ? AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", req.Code, now).
+		Update("used_count", gorm.Expr("\"used_count\" + 1"))
 	if result.Error != nil {
 		return nil, ErrRedeemFailed
 	}
@@ -175,7 +175,7 @@ func (s *RedemptionService) GetRedemptions(userID string, req *GetRedemptionsReq
 		pageSize = 10
 	}
 
-	query := db.DB.Model(&models.Redemption{}).Where("\"userId\" = ?", userID)
+	query := db.DB.Model(&models.Redemption{}).Where("\"user_id\" = ?", userID)
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -184,7 +184,7 @@ func (s *RedemptionService) GetRedemptions(userID string, req *GetRedemptionsReq
 
 	var rows []models.Redemption
 	offset := (page - 1) * pageSize
-	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&rows).Error; err != nil {
+	if err := query.Order("\"created_at\" DESC").Offset(offset).Limit(pageSize).Find(&rows).Error; err != nil {
 		return nil, errors.New("获取兑换记录失败")
 	}
 
@@ -207,9 +207,9 @@ func (s *RedemptionService) GetAllRedemptions(req *GetAllRedemptionsRequest) (*G
 		pageSize = 10
 	}
 
-	base := db.DB.Table("redemptions r").Joins("LEFT JOIN users u ON r.\"userId\" = u.id")
+	base := db.DB.Table("redemptions r").Joins("LEFT JOIN users u ON r.\"user_id\" = u.id")
 	if req.UserID != "" {
-		base = base.Where("r.\"userId\" = ?", req.UserID)
+		base = base.Where("r.\"user_id\" = ?", req.UserID)
 	}
 	if strings.TrimSpace(req.Username) != "" {
 		base = base.Where("u.username ILIKE ?", "%"+strings.TrimSpace(req.Username)+"%")
@@ -226,8 +226,8 @@ func (s *RedemptionService) GetAllRedemptions(req *GetAllRedemptionsRequest) (*G
 	var rows []RedemptionWithUser
 	offset := (page - 1) * pageSize
 	if err := base.
-		Select("r.id, r.\"userId\", r.code, r.days, r.\"createdAt\", COALESCE(u.username, '') AS username").
-		Order("r.\"createdAt\" DESC").
+		Select("r.id, r.\"user_id\", r.code, r.days, r.\"created_at\", COALESCE(u.username, '') AS username").
+		Order("r.\"created_at\" DESC").
 		Offset(offset).
 		Limit(pageSize).
 		Scan(&rows).Error; err != nil {

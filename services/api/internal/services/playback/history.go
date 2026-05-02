@@ -26,8 +26,8 @@ var playbackKeywordPattern = regexp.MustCompile(`^[\p{Han}\p{L}\p{N}._'&+\-!():,
 var playbackUserIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,50}$`)
 
 type PlaybackHistoryService struct {
-	embyService         *embyint.EmbyService
-	queryPlaybackStats  func(sql string) (*embyint.CustomQueryResponse, error)
+	embyService        *embyint.EmbyService
+	queryPlaybackStats func(sql string) (*embyint.CustomQueryResponse, error)
 }
 
 type PlaybackHistoryRequest struct {
@@ -367,7 +367,7 @@ func (s *PlaybackHistoryService) normalizeRequest(ctx context.Context, req Playb
 
 func (s *PlaybackHistoryService) resolvePlaybackUserIDByUserID(ctx context.Context, userID string) (string, error) {
 	var user models.User
-	err := db.DB.WithContext(ctx).Select("id", "username", "\"embyId\"").Where("id = ?", userID).First(&user).Error
+	err := db.DB.WithContext(ctx).Select("id", "username", "\"emby_id\"").Where("id = ?", userID).First(&user).Error
 	if err == nil {
 		embyID := strings.TrimSpace(user.EmbyID)
 		if embyID != "" {
@@ -387,7 +387,7 @@ func (s *PlaybackHistoryService) resolvePlaybackUserIDByUserID(ctx context.Conte
 func (s *PlaybackHistoryService) resolvePlaybackUserIDsByUsername(ctx context.Context, username string) ([]string, error) {
 	var users []models.User
 	if err := db.DB.WithContext(ctx).
-		Select("id", "username", "\"embyId\"").
+		Select("id", "username", "\"emby_id\"").
 		Where("username ILIKE ?", "%"+username+"%").
 		Order("username ASC").
 		Find(&users).Error; err != nil {
@@ -560,7 +560,7 @@ func (s *PlaybackHistoryService) loadUsersByEmbyIDs(ctx context.Context, rows []
 	}
 
 	var users []models.User
-	if err := db.DB.WithContext(ctx).Select("id", "username", "\"embyId\"").Where("\"embyId\" IN ?", embyIDs).Find(&users).Error; err != nil {
+	if err := db.DB.WithContext(ctx).Select("id", "username", "\"emby_id\"").Where("\"emby_id\" IN ?", embyIDs).Find(&users).Error; err != nil {
 		return nil, fmt.Errorf("查询本地用户映射失败: %w", err)
 	}
 

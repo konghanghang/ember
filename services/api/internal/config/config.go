@@ -408,10 +408,10 @@ func (s *ConfigService) Update(key string, req UpdateConfigRequest, updatedByUse
 	if err := db.DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "key"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"value":           setting.Value,
-			"isEncrypted":     setting.IsEncrypted,
-			"updatedByUserId": setting.UpdatedByUserID,
-			"updatedAt":       gorm.Expr("CURRENT_TIMESTAMP"),
+			"value":              setting.Value,
+			"is_encrypted":       setting.IsEncrypted,
+			"updated_by_user_id": setting.UpdatedByUserID,
+			"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
 		}),
 	}).Create(&setting).Error; err != nil {
 		return nil, err

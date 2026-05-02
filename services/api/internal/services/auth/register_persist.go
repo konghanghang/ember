@@ -89,8 +89,8 @@ func (s *AuthService) applyInviteRegistration(
 	}
 
 	result := tx.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"usedCount\" < \"maxUses\"", strings.TrimSpace(req.Code)).
-		Update("usedCount", gorm.Expr("\"usedCount\" + 1"))
+		Where("code = ? AND \"used_count\" < \"max_uses\"", strings.TrimSpace(req.Code)).
+		Update("used_count", gorm.Expr("\"used_count\" + 1"))
 	if result.Error != nil {
 		return errors.New("创建用户失败")
 	}

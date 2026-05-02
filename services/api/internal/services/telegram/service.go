@@ -134,11 +134,11 @@ func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, er
 			ExpiresAt: expiresAt,
 		}
 		err := db.DB.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "userId"}},
+			Columns: []clause.Column{{Name: "user_id"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				"code":      code,
-				"expiresAt": expiresAt,
-				"createdAt": time.Now().UTC(),
+				"code":       code,
+				"expires_at": expiresAt,
+				"created_at": time.Now().UTC(),
 			}),
 		}).Create(&bindCode).Error
 		if err == nil {
@@ -157,8 +157,8 @@ func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, er
 func (s *TelegramService) VerifyBind(telegramID int64, code string) (*BindResult, error) {
 	var bindCodes []models.TelegramBindCode
 	if err := db.DB.
-		Where("code = ? AND \"expiresAt\" > ?", code, time.Now().UTC()).
-		Order("\"createdAt\" DESC").
+		Where("code = ? AND \"expires_at\" > ?", code, time.Now().UTC()).
+		Order("\"created_at\" DESC").
 		Limit(2).
 		Find(&bindCodes).Error; err != nil {
 		return nil, errors.New("绑定失败，请稍后重试")
@@ -175,7 +175,7 @@ func (s *TelegramService) VerifyBind(telegramID int64, code string) (*BindResult
 	bindCode := bindCodes[0]
 
 	var existing models.User
-	if err := db.DB.Where("\"telegramId\" = ?", telegramID).First(&existing).Error; err == nil {
+	if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&existing).Error; err == nil {
 		return nil, ErrTelegramAlreadyBound
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, errors.New("绑定失败，请稍后重试")
@@ -206,7 +206,7 @@ func (s *TelegramService) VerifyBind(telegramID int64, code string) (*BindResult
 	user.TelegramID = &telegramID
 	if err := tx.Model(&models.User{}).
 		Where("id = ?", user.ID).
-		Update("telegramId", telegramID).Error; err != nil {
+		Update("telegram_id", telegramID).Error; err != nil {
 		tx.Rollback()
 		if isTelegramUniqueViolation(err, "telegramid") {
 			return nil, ErrTelegramAlreadyBound
@@ -214,7 +214,7 @@ func (s *TelegramService) VerifyBind(telegramID int64, code string) (*BindResult
 		return nil, errors.New("绑定失败，请稍后重试")
 	}
 
-	if err := tx.Where("\"userId\" = ?", bindCode.UserID).Delete(&models.TelegramBindCode{}).Error; err != nil {
+	if err := tx.Where("\"user_id\" = ?", bindCode.UserID).Delete(&models.TelegramBindCode{}).Error; err != nil {
 		tx.Rollback()
 		return nil, errors.New("绑定失败，请稍后重试")
 	}
@@ -241,7 +241,7 @@ func (s *TelegramService) Unbind(userID string) error {
 
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", userID).
-		Update("telegramId", nil).Error; err != nil {
+		Update("telegram_id", nil).Error; err != nil {
 		return errors.New("解绑失败，请稍后重试")
 	}
 
@@ -251,7 +251,7 @@ func (s *TelegramService) Unbind(userID string) error {
 // GetAccountInfo 按 Telegram ID 查询账号信息
 func (s *TelegramService) GetAccountInfo(telegramID int64) (*AccountInfoResponse, error) {
 	var user models.User
-	if err := db.DB.Where("\"telegramId\" = ?", telegramID).First(&user).Error; err != nil {
+	if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTelegramNotBound
 		}
@@ -271,7 +271,7 @@ func (s *TelegramService) GetAccountInfo(telegramID int64) (*AccountInfoResponse
 // RedeemByTelegram 通过 Telegram 兑换续期码
 func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*TelegramRedeemResponse, error) {
 	var user models.User
-	if err := db.DB.Where("\"telegramId\" = ?", telegramID).First(&user).Error; err != nil {
+	if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTelegramNotBound
 		}
@@ -284,7 +284,7 @@ func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*Tele
 // ResetPassword 通过 Telegram 身份重置密码
 func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) error {
 	var user models.User
-	if err := db.DB.Where("\"telegramId\" = ?", telegramID).First(&user).Error; err != nil {
+	if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrTelegramNotBound
 		}
@@ -305,8 +305,8 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"password":              user.Password,
-			"passwordResetRequired": false,
+			"password":                user.Password,
+			"password_reset_required": false,
 		}).Error; err != nil {
 		return errors.New("密码重置失败：本地密码保存失败")
 	}
@@ -317,7 +317,7 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 // SubscribeByTelegram 通过 Telegram 身份创建求片订阅
 func (s *TelegramService) SubscribeByTelegram(req TelegramSubscribeRequest) error {
 	var user models.User
-	if err := db.DB.Where("\"telegramId\" = ?", req.TelegramID).First(&user).Error; err != nil {
+	if err := db.DB.Where("\"telegram_id\" = ?", req.TelegramID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrTelegramNotBound
 		}
@@ -333,7 +333,7 @@ func (s *TelegramService) SubscribeByTelegram(req TelegramSubscribeRequest) erro
 
 // CleanupExpiredBindCodes 清理过期绑定码
 func (s *TelegramService) CleanupExpiredBindCodes() (int64, error) {
-	result := db.DB.Where("\"expiresAt\" < ?", time.Now().UTC()).Delete(&models.TelegramBindCode{})
+	result := db.DB.Where("\"expires_at\" < ?", time.Now().UTC()).Delete(&models.TelegramBindCode{})
 	return result.RowsAffected, result.Error
 }
 

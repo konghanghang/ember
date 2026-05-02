@@ -10,16 +10,16 @@ import (
 type RedemptionCode struct {
 	ID                        string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	Code                      string     `json:"code" gorm:"column:code;uniqueIndex;size:20;not null"`
-	MaxUses                   int        `json:"maxUses" gorm:"column:maxUses;not null;default:1"`
-	UsedCount                 int        `json:"usedCount" gorm:"column:usedCount;not null;default:0"`
-	ExpiresAt                 *time.Time `json:"expiresAt,omitempty" gorm:"column:expiresAt"`
-	DefaultDays               int        `json:"defaultDays" gorm:"column:defaultDays;not null;default:30"`
-	TemplateUserID            *string    `json:"templateUserId,omitempty" gorm:"column:templateUserId;type:varchar(25);index"`
+	MaxUses                   int        `json:"maxUses" gorm:"column:max_uses;not null;default:1"`
+	UsedCount                 int        `json:"usedCount" gorm:"column:used_count;not null;default:0"`
+	ExpiresAt                 *time.Time `json:"expiresAt,omitempty" gorm:"column:expires_at"`
+	DefaultDays               int        `json:"defaultDays" gorm:"column:default_days;not null;default:30"`
+	TemplateUserID            *string    `json:"templateUserId,omitempty" gorm:"column:template_user_id;type:varchar(25);index"`
 	TemplateUserName          *string    `json:"templateUserName,omitempty" gorm:"-"`
-	RegistrationPlanGroup     *string    `json:"registrationPlanGroup,omitempty" gorm:"column:registrationPlanGroup;size:50;index"`
+	RegistrationPlanGroup     *string    `json:"registrationPlanGroup,omitempty" gorm:"column:registration_plan_group;size:50;index"`
 	RegistrationPlanGroupName *string    `json:"registrationPlanGroupName,omitempty" gorm:"-"`
 	Notes                     string     `json:"notes,omitempty" gorm:"column:notes;size:500"`
-	CreatedAt                 time.Time  `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
+	CreatedAt                 time.Time  `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
 }
 
 func (RedemptionCode) TableName() string {

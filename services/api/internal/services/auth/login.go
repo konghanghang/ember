@@ -58,7 +58,7 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 func (s *AuthService) findLoginUser(username string) (*models.User, error) {
 	var user models.User
 	result := db.DB.Where("lower(username) = ?", strings.ToLower(username)).
-		Order("\"createdAt\" ASC").
+		Order("\"created_at\" ASC").
 		First(&user)
 	if result.Error != nil {
 		return nil, ErrAuthInvalidCredentials

@@ -84,18 +84,18 @@ func (d *correctionDebouncer) flush(ctx context.Context) {
 	updatedItems := int64(0)
 	for _, correction := range corrections {
 		updates := map[string]interface{}{
-			"status":      models.TVCalendarStatusReady,
-			"lastChecked": now,
+			"status":       models.TVCalendarStatusReady,
+			"last_checked": now,
 		}
 		if correction.EmbyItemID != "" {
-			updates["embyItemId"] = correction.EmbyItemID
+			updates["emby_item_id"] = correction.EmbyItemID
 		}
 		if correction.SeriesID != "" {
-			updates["seriesId"] = correction.SeriesID
+			updates["series_id"] = correction.SeriesID
 		}
 		result := db.DB.WithContext(ctx).
 			Model(&models.TVCalendarItem{}).
-			Where(`"tmdbId" = ? AND season = ? AND episode = ?`, correction.TmdbID, correction.Season, correction.Episode).
+			Where(`"tmdb_id" = ? AND season = ? AND episode = ?`, correction.TmdbID, correction.Season, correction.Episode).
 			Updates(updates)
 		if result.Error != nil {
 			log.Printf("[TVCalendar] correctionDebouncer item flush 失败 tmdbId=%s season=%d episode=%d err=%v",
@@ -116,7 +116,7 @@ func (d *correctionDebouncer) flush(ctx context.Context) {
 	}
 
 	result := db.DB.WithContext(ctx).Exec(
-		`UPDATE tv_calendar_sources SET "lastCorrectionAt" = now() WHERE "seriesId" = ANY(?)`, ids)
+		`UPDATE tv_calendar_sources SET "last_correction_at" = now() WHERE "series_id" = ANY(?)`, ids)
 	if result.Error != nil {
 		log.Printf("[TVCalendar] correctionDebouncer source flush 失败（%d 个 seriesId）：%v", len(ids), result.Error)
 	} else {

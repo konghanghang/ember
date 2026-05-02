@@ -124,16 +124,16 @@ func (r *MediaGapScanRecorder) FinishAndReleaseHolder(ctx context.Context, holde
 	}()
 
 	updates := map[string]interface{}{
-		"status":     status,
-		"finishedAt": time.Now().UTC(),
+		"status":      status,
+		"finished_at": time.Now().UTC(),
 	}
 	if errMsg != "" {
 		if len(errMsg) > 500 {
 			errMsg = errMsg[:500]
 		}
-		updates["errorMessage"] = errMsg
+		updates["error_message"] = errMsg
 	} else {
-		updates["errorMessage"] = nil
+		updates["error_message"] = nil
 	}
 	if err := db.DB.WithContext(ctx).Model(&models.MediaGapScan{}).
 		Where("id = ?", scanID).
@@ -148,7 +148,7 @@ func (r *MediaGapScanRecorder) FinishAndReleaseHolder(ctx context.Context, holde
 func (r *MediaGapScanRecorder) CleanupOldScans(ctx context.Context) (int64, error) {
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
 	result := db.DB.WithContext(ctx).
-		Where(`"startedAt" < ? AND status IN ?`, cutoff, []models.MediaGapScanStatus{
+		Where(`"started_at" < ? AND status IN ?`, cutoff, []models.MediaGapScanStatus{
 			models.MediaGapScanStatusSuccess,
 			models.MediaGapScanStatusFailed,
 		}).

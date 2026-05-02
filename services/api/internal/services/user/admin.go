@@ -53,18 +53,18 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 	return query.
 		Select(`users.*,
 			explicit_pg.name AS "planGroupName",
-			COALESCE(users."planGroup", default_pg.key) AS "effectivePlanGroup",
+			COALESCE(users."plan_group", default_pg.key) AS "effectivePlanGroup",
 			CASE
-				WHEN users."planGroup" IS NULL THEN default_pg.name
+				WHEN users."plan_group" IS NULL THEN default_pg.name
 				WHEN explicit_pg.key IS NULL THEN ''
 				ELSE explicit_pg.name
 			END AS "effectivePlanGroupName",
 			CASE
-				WHEN users."planGroup" IS NOT NULL AND explicit_pg.key IS NULL THEN true
+				WHEN users."plan_group" IS NOT NULL AND explicit_pg.key IS NULL THEN true
 				ELSE false
 			END AS "isPlanGroupMissing"`).
-		Joins(`LEFT JOIN plan_groups explicit_pg ON explicit_pg.key = users."planGroup"`).
-		Joins(`LEFT JOIN plan_groups default_pg ON default_pg."isDefault" = ?`, true)
+		Joins(`LEFT JOIN plan_groups explicit_pg ON explicit_pg.key = users."plan_group"`).
+		Joins(`LEFT JOIN plan_groups default_pg ON default_pg."is_default" = ?`, true)
 }
 
 func markUsersUsingDefaultPlanGroup(users []UserView) {
@@ -89,24 +89,24 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 		query = query.Where("username LIKE ? OR email LIKE ?", "%"+req.Search+"%", "%"+req.Search+"%")
 	}
 	if req.IsActive != nil {
-		query = query.Where("\"isActive\" = ?", *req.IsActive)
+		query = query.Where("\"is_active\" = ?", *req.IsActive)
 	}
 	if req.ExpiresAfter != "" {
 		expiresAfter, err := time.Parse("2006-01-02", req.ExpiresAfter)
 		if err != nil {
 			return nil, ErrInvalidExpiresAfter
 		}
-		query = query.Where("\"expiresAt\" IS NOT NULL AND \"expiresAt\" > ?", expiresAfter.UTC())
+		query = query.Where("\"expires_at\" IS NOT NULL AND \"expires_at\" > ?", expiresAfter.UTC())
 	}
 
 	switch strings.TrimSpace(req.EmbyStatus) {
 	case "":
 	case "available":
-		query = query.Where("COALESCE(\"embyId\", '') <> '' AND \"embyDisabled\" = ?", false)
+		query = query.Where("COALESCE(\"emby_id\", '') <> '' AND \"emby_disabled\" = ?", false)
 	case "disabled":
-		query = query.Where("COALESCE(\"embyId\", '') <> '' AND \"embyDisabled\" = ?", true)
+		query = query.Where("COALESCE(\"emby_id\", '') <> '' AND \"emby_disabled\" = ?", true)
 	case "unlinked":
-		query = query.Where("COALESCE(\"embyId\", '') = ''")
+		query = query.Where("COALESCE(\"emby_id\", '') = ''")
 	default:
 		return nil, ErrInvalidEmbyStatus
 	}
@@ -121,9 +121,9 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 			return nil, err
 		}
 		if defaultGroup.Key == planGroup {
-			query = query.Where(`("planGroup" = ? OR "planGroup" IS NULL)`, planGroup)
+			query = query.Where(`("plan_group" = ? OR "plan_group" IS NULL)`, planGroup)
 		} else {
-			query = query.Where(`"planGroup" = ?`, planGroup)
+			query = query.Where(`"plan_group" = ?`, planGroup)
 		}
 	}
 
@@ -137,7 +137,7 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 	if err := buildUsersWithPlanGroupSelect(query).
 		Offset(offset).
 		Limit(req.PageSize).
-		Order(`users."createdAt" DESC`).
+		Order(`users."created_at" DESC`).
 		Find(&users).Error; err != nil {
 		return nil, err
 	}
@@ -258,11 +258,11 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 	}
 
 	updates := map[string]interface{}{
-		"email":        user.Email,
-		"isActive":     user.IsActive,
-		"planGroup":    user.PlanGroup,
-		"expiresAt":    user.ExpiresAt,
-		"embyDisabled": user.EmbyDisabled,
+		"email":         user.Email,
+		"is_active":     user.IsActive,
+		"plan_group":    user.PlanGroup,
+		"expires_at":    user.ExpiresAt,
+		"emby_disabled": user.EmbyDisabled,
 	}
 
 	if err := tx.Model(&models.User{}).
@@ -329,8 +329,8 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"expiresAt":    user.ExpiresAt,
-			"embyDisabled": user.EmbyDisabled,
+			"expires_at":    user.ExpiresAt,
+			"emby_disabled": user.EmbyDisabled,
 		}).Error; err != nil {
 		return nil, err
 	}
@@ -351,8 +351,8 @@ func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"isActive":     user.IsActive,
-			"embyDisabled": user.EmbyDisabled,
+			"is_active":     user.IsActive,
+			"emby_disabled": user.EmbyDisabled,
 		}).Error; err != nil {
 		return nil, err
 	}

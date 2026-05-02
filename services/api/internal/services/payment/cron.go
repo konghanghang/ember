@@ -9,6 +9,6 @@ import (
 // ExpirePendingPayments 将超时的 pending 支付单推进到 expired 状态。
 func ExpirePendingPayments(ctx context.Context) (int64, error) {
 	result := db.DB.WithContext(ctx).Exec(
-		`UPDATE payments SET status='expired', "updatedAt"=now() WHERE status='pending' AND "expiresAt" < now()`)
+		`UPDATE payments SET status='expired', "updated_at"=now() WHERE status='pending' AND "expires_at" < now()`)
 	return result.RowsAffected, result.Error
 }

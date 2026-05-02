@@ -1,9 +1,9 @@
 -- 20260426_13_schema_alignment
--- 用途：清理重复 / 冗余索引，将 users.telegramId 改为 partial unique 索引，
---       清理 media_gaps 冗余 tmdbId 单列索引。
+-- 用途：清理重复 / 冗余索引，将 users.telegram_id 改为 partial unique 索引，
+--       清理 media_gaps 冗余 tmdb_id 单列索引。
 --
 -- 改了哪些表、字段、索引、约束：
---   - users: 删除 inviteCode 列（如存在）及其索引；telegramId 改 partial unique
+--   - users: 删除 invite_code 列（如存在）及其索引；telegram_id 改 partial unique
 --   - media_gaps: 删除冗余的单列 idx_media_gaps_tmdb_id
 --   - payments: 删除重复 idx_payments_stripe_session
 --   - media_quality_caches: 删除重复 idx_media_quality_caches_library_id
@@ -25,17 +25,17 @@ DROP INDEX IF EXISTS idx_tv_calendar_sources_tmdb_id;
 DROP INDEX IF EXISTS uk_tv_calendar_subscription;
 DROP INDEX IF EXISTS idx_client_blacklists_normalized_client_name;
 
--- users.inviteCode 死字段（如果存在）
+-- users.invite_code 死字段（如果存在）
 DROP INDEX IF EXISTS idx_users_invite_code;
-ALTER TABLE users DROP COLUMN IF EXISTS "inviteCode";
+ALTER TABLE users DROP COLUMN IF EXISTS "invite_code";
 
--- users.telegramId 改 partial unique
+-- users.telegram_id 改 partial unique
 -- 先删旧的全量 unique index（如存在），再建 partial unique
 DROP INDEX IF EXISTS uk_users_telegram_id;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_users_telegram_id
-  ON users USING btree ("telegramId")
-  WHERE "telegramId" IS NOT NULL;
+  ON users USING btree ("telegram_id")
+  WHERE "telegram_id" IS NOT NULL;
 
--- media_gaps tmdbId 冗余单列索引清理
--- 复合唯一索引 uk_media_gap_episode 已覆盖 tmdbId 的查询，单列索引冗余
+-- media_gaps tmdb_id 冗余单列索引清理
+-- 复合唯一索引 uk_media_gap_episode 已覆盖 tmdb_id 的查询，单列索引冗余
 DROP INDEX IF EXISTS idx_media_gaps_tmdb_id;

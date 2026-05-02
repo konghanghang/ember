@@ -37,8 +37,8 @@ func PopPendingReject(ctx context.Context, chatID int64) (*models.BotPendingReje
 	var record models.BotPendingRejectRequest
 	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		err := tx.
-			Where(`"chatId" = ? AND "expiresAt" > ?`, chatID, time.Now().UTC()).
-			Order(`"createdAt" DESC`).
+			Where(`"chat_id" = ? AND "expires_at" > ?`, chatID, time.Now().UTC()).
+			Order(`"created_at" DESC`).
 			First(&record).Error
 		if err != nil {
 			return err
@@ -57,7 +57,7 @@ func PopPendingReject(ctx context.Context, chatID int64) (*models.BotPendingReje
 // CleanupExpiredPendingRejects 清理过期的待确认拒绝记录
 func CleanupExpiredPendingRejects(ctx context.Context) (int64, error) {
 	result := db.DB.WithContext(ctx).
-		Where(`"expiresAt" < ?`, time.Now().UTC()).
+		Where(`"expires_at" < ?`, time.Now().UTC()).
 		Delete(&models.BotPendingRejectRequest{})
 	return result.RowsAffected, result.Error
 }

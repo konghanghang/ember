@@ -118,7 +118,7 @@ func normalizeSubscriptionSeason(mediaType models.MediaType, season int) (int, e
 func hasActiveSubscription(mediaType models.MediaType, tmdbID string, season int) (bool, error) {
 	var count int64
 	if err := db.DB.Model(&models.Subscription{}).
-		Where("type = ? AND \"tmdbId\" = ? AND season = ? AND status IN ?", mediaType, strings.TrimSpace(tmdbID), season, activeSubscriptionStatuses).
+		Where("type = ? AND \"tmdb_id\" = ? AND season = ? AND status IN ?", mediaType, strings.TrimSpace(tmdbID), season, activeSubscriptionStatuses).
 		Count(&count).Error; err != nil {
 		return false, err
 	}
@@ -322,9 +322,9 @@ func (s *SubscriptionService) insertSubscriptionWithLock(mediaType models.MediaT
 	}
 
 	var existing models.Subscription
-	err := tx.Where("type = ? AND \"tmdbId\" = ? AND season = ? AND status IN ?",
+	err := tx.Where("type = ? AND \"tmdb_id\" = ? AND season = ? AND status IN ?",
 		mediaType, tmdbID, season, activeSubscriptionStatuses).
-		Order(`"createdAt" ASC`).
+		Order(`"created_at" ASC`).
 		First(&existing).Error
 	if err == nil {
 		if commitErr := tx.Commit().Error; commitErr != nil {
@@ -342,9 +342,9 @@ func (s *SubscriptionService) insertSubscriptionWithLock(mediaType models.MediaT
 		// 理论上 advisory lock 已经序列化，进到这里仍冲突极少见；走幂等回查保险。
 		if isSubscriptionUniqueConflict(err) {
 			var conflict models.Subscription
-			if findErr := db.DB.Where("type = ? AND \"tmdbId\" = ? AND season = ? AND status IN ?",
+			if findErr := db.DB.Where("type = ? AND \"tmdb_id\" = ? AND season = ? AND status IN ?",
 				mediaType, tmdbID, season, activeSubscriptionStatuses).
-				Order(`"createdAt" ASC`).
+				Order(`"created_at" ASC`).
 				First(&conflict).Error; findErr == nil {
 				return false, conflict.ID, nil
 			}
@@ -386,8 +386,8 @@ func (s *SubscriptionService) notifyNewSubscription(subscriptionID, userID strin
 func (s *SubscriptionService) GetUserSubscriptions(userID string) ([]models.Subscription, error) {
 	var subscriptions []models.Subscription
 	err := db.DB.
-		Where("\"userId\" = ?", userID).
-		Order("\"createdAt\" DESC").
+		Where("\"user_id\" = ?", userID).
+		Order("\"created_at\" DESC").
 		Find(&subscriptions).Error
 	if err != nil {
 		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
@@ -398,7 +398,7 @@ func (s *SubscriptionService) GetUserSubscriptions(userID string) ([]models.Subs
 // GetUserSubscriptionsPaginated 用户订阅分页查询
 func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, status *models.SubscriptionStatus, page, pageSize int) (*GetAllSubscriptionsResponse, error) {
 	offset := (page - 1) * pageSize
-	query := db.DB.Model(&models.Subscription{}).Where("\"userId\" = ?", userID)
+	query := db.DB.Model(&models.Subscription{}).Where("\"user_id\" = ?", userID)
 	if status != nil {
 		query = query.Where("status = ?", *status)
 	}
@@ -409,7 +409,7 @@ func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, statu
 	}
 
 	var subscriptions []models.Subscription
-	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&subscriptions).Error; err != nil {
+	if err := query.Order("\"created_at\" DESC").Offset(offset).Limit(pageSize).Find(&subscriptions).Error; err != nil {
 		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
 	}
 
@@ -468,7 +468,7 @@ func (s *SubscriptionService) GetAllSubscriptions(status *models.SubscriptionSta
 	}
 
 	var subscriptions []models.Subscription
-	if err := query.Order("\"createdAt\" DESC").Offset(offset).Limit(pageSize).Find(&subscriptions).Error; err != nil {
+	if err := query.Order("\"created_at\" DESC").Offset(offset).Limit(pageSize).Find(&subscriptions).Error; err != nil {
 		return nil, fmt.Errorf("查询订阅列表失败: %w", err)
 	}
 
@@ -523,10 +523,10 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 	result := db.DB.Model(&models.Subscription{}).
 		Where("id = ? AND status = ?", subscription.ID, models.SubscriptionPending).
 		Updates(map[string]interface{}{
-			"status":       models.SubscriptionApproved,
-			"reviewedAt":   now,
-			"rejectReason": nil,
-			"mpError":      nil,
+			"status":        models.SubscriptionApproved,
+			"reviewed_at":   now,
+			"reject_reason": nil,
+			"mp_error":      nil,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("更新订阅状态失败: %w", result.Error)
@@ -589,7 +589,7 @@ func (s *SubscriptionService) dispatchMoviePilotAsync(subscriptionID string, med
 func (s *SubscriptionService) persistMpError(subscriptionID string, mpError *string) {
 	if err := db.DB.Model(&models.Subscription{}).
 		Where("id = ? AND status = ?", subscriptionID, models.SubscriptionApproved).
-		Update("mpError", mpError).Error; err != nil {
+		Update("mp_error", mpError).Error; err != nil {
 		log.Printf("[Subscription] 写回 mpError 失败 subscriptionId=%s mpError=%v err=%v", subscriptionID, mpError, err)
 	}
 }
@@ -614,9 +614,9 @@ func (s *SubscriptionService) RejectSubscription(subscriptionID, reason string) 
 	result := db.DB.Model(&models.Subscription{}).
 		Where("id = ? AND status = ?", subscription.ID, models.SubscriptionPending).
 		Updates(map[string]interface{}{
-			"status":       models.SubscriptionRejected,
-			"reviewedAt":   now,
-			"rejectReason": reason,
+			"status":        models.SubscriptionRejected,
+			"reviewed_at":   now,
+			"reject_reason": reason,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("更新订阅状态失败: %w", result.Error)
@@ -708,8 +708,8 @@ func (s *SubscriptionService) MarkSubscriptionIngestedAsAdmin(subscriptionID str
 	result := db.DB.Model(&models.Subscription{}).
 		Where("id = ? AND status = ?", subscription.ID, models.SubscriptionApproved).
 		Updates(map[string]interface{}{
-			"status":     models.SubscriptionIngested,
-			"ingestedAt": now,
+			"status":      models.SubscriptionIngested,
+			"ingested_at": now,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("更新订阅入库状态失败: %w", result.Error)
@@ -758,7 +758,7 @@ func (s *SubscriptionService) MarkSubscriptionsIngestedByWebhook(ctx context.Con
 func (s *SubscriptionService) markMovieSubscriptionsIngested(ctx context.Context, matchTMDBIDs []string, payload SubscriptionIngestWebhookPayload) (int64, error) {
 	var subscriptions []models.Subscription
 	if err := db.DB.WithContext(ctx).
-		Where("status = ? AND \"tmdbId\" IN ? AND type = ? AND season = 0",
+		Where("status = ? AND \"tmdb_id\" IN ? AND type = ? AND season = 0",
 			models.SubscriptionApproved, matchTMDBIDs, models.MediaMovie).
 		Find(&subscriptions).Error; err != nil {
 		return 0, fmt.Errorf("查询待入库订阅失败: %w", err)
@@ -770,7 +770,7 @@ func (s *SubscriptionService) markEpisodeSubscriptionsIngested(ctx context.Conte
 	// 单季订阅：season=N 命中即 INGEST。
 	var seasonSubs []models.Subscription
 	if err := db.DB.WithContext(ctx).
-		Where("status = ? AND \"tmdbId\" IN ? AND type = ? AND season = ?",
+		Where("status = ? AND \"tmdb_id\" IN ? AND type = ? AND season = ?",
 			models.SubscriptionApproved, matchTMDBIDs, models.MediaTV, payload.Season).
 		Find(&seasonSubs).Error; err != nil {
 		return 0, fmt.Errorf("查询单季待入库订阅失败: %w", err)
@@ -783,7 +783,7 @@ func (s *SubscriptionService) markEpisodeSubscriptionsIngested(ctx context.Conte
 	// 整剧订阅：season=0，按 "当前在 Emby 库内的已完成集数 Y / 已播出总集数 X" 推进 ingestProgress；Y >= X 时自动 INGEST。
 	var wholeShowSubs []models.Subscription
 	if err := db.DB.WithContext(ctx).
-		Where("status = ? AND \"tmdbId\" IN ? AND type = ? AND season = 0",
+		Where("status = ? AND \"tmdb_id\" IN ? AND type = ? AND season = 0",
 			models.SubscriptionApproved, matchTMDBIDs, models.MediaTV).
 		Find(&wholeShowSubs).Error; err != nil {
 		return updated, fmt.Errorf("查询整剧待入库订阅失败: %w", err)
@@ -800,9 +800,9 @@ func (s *SubscriptionService) markEpisodeSubscriptionsIngested(ctx context.Conte
 			result := db.DB.WithContext(ctx).Model(&models.Subscription{}).
 				Where("id = ? AND status = ?", sub.ID, models.SubscriptionApproved).
 				Updates(map[string]interface{}{
-					"status":         models.SubscriptionIngested,
-					"ingestedAt":     now,
-					"ingestProgress": progress,
+					"status":          models.SubscriptionIngested,
+					"ingested_at":     now,
+					"ingest_progress": progress,
 				})
 			if result.Error != nil {
 				log.Printf("[Subscription] 整剧自动收口失败 subscriptionId=%s tmdbId=%s err=%v", sub.ID, sub.TmdbID, result.Error)
@@ -832,7 +832,7 @@ func (s *SubscriptionService) markEpisodeSubscriptionsIngested(ctx context.Conte
 
 		if err := db.DB.WithContext(ctx).Model(&models.Subscription{}).
 			Where("id = ? AND status = ?", sub.ID, models.SubscriptionApproved).
-			Update("ingestProgress", progress).Error; err != nil {
+			Update("ingest_progress", progress).Error; err != nil {
 			log.Printf("[Subscription] 整剧 ingestProgress 更新失败 subscriptionId=%s tmdbId=%s err=%v", sub.ID, sub.TmdbID, err)
 			continue
 		}
@@ -940,8 +940,8 @@ func (s *SubscriptionService) loadWholeShowAiredEpisodes(ctx context.Context, tm
 func loadWholeShowIgnoredEpisodes(ctx context.Context, tmdbID string, today time.Time) (wholeShowIgnoredEpisodeSet, error) {
 	var ignored []models.MediaGap
 	if err := db.DB.WithContext(ctx).
-		Select("season", "episode", "\"ignoreReason\"").
-		Where(`"tmdbId" = ? AND "airDate" <= ? AND status = ?`, strings.TrimSpace(tmdbID), today, models.MediaGapStatusIgnored).
+		Select("season", "episode", "\"ignore_reason\"").
+		Where(`"tmdb_id" = ? AND "air_date" <= ? AND status = ?`, strings.TrimSpace(tmdbID), today, models.MediaGapStatusIgnored).
 		Find(&ignored).Error; err != nil {
 		return nil, fmt.Errorf("查询整剧已忽略剧集失败: %w", err)
 	}
@@ -1077,7 +1077,7 @@ func (s *SubscriptionService) fetchSubscriptionTMDBJSON(ctx context.Context, cac
 	now := time.Now().UTC()
 
 	var cached models.TMDBCache
-	if err := db.DB.Where(`"cacheKey" = ? AND "expiresAt" > ?`, cacheKey, now).First(&cached).Error; err == nil {
+	if err := db.DB.Where(`"cache_key" = ? AND "expires_at" > ?`, cacheKey, now).First(&cached).Error; err == nil {
 		if decodeErr := json.Unmarshal([]byte(cached.CacheValue), out); decodeErr == nil {
 			return nil
 		}
@@ -1115,10 +1115,10 @@ func (s *SubscriptionService) fetchSubscriptionTMDBJSON(ctx context.Context, cac
 		ExpiresAt:  now.Add(ttl),
 	}
 	if err := db.DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "cacheKey"}},
+		Columns: []clause.Column{{Name: "cache_key"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"cacheValue": cacheRow.CacheValue,
-			"expiresAt":  cacheRow.ExpiresAt,
+			"cache_value": cacheRow.CacheValue,
+			"expires_at":  cacheRow.ExpiresAt,
 		}),
 	}).Create(&cacheRow).Error; err != nil {
 		return fmt.Errorf("写入 TMDB 缓存失败: %w", err)
@@ -1168,8 +1168,8 @@ func (s *SubscriptionService) collectIngestUpdates(ctx context.Context, subscrip
 	var updatedCount int64
 	for _, subscription := range subscriptions {
 		updates := map[string]interface{}{
-			"status":     models.SubscriptionIngested,
-			"ingestedAt": now,
+			"status":      models.SubscriptionIngested,
+			"ingested_at": now,
 		}
 		result := db.DB.WithContext(ctx).Model(&models.Subscription{}).
 			Where("id = ? AND status = ?", subscription.ID, models.SubscriptionApproved).
@@ -1388,7 +1388,7 @@ func (s *SubscriptionService) notifyIngested(subscription models.Subscription) {
 
 func loadSubscriptionUser(userID string) (*models.User, bool) {
 	var user models.User
-	if err := db.DB.Select("id", "username", "telegramId").Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := db.DB.Select("id", "username", "telegram_id").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, false
 	}
 	return &user, true

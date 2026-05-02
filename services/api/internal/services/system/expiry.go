@@ -72,14 +72,14 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 
 	var totalExpired int64
 	if err := db.DB.WithContext(ctx).Model(&models.User{}).
-		Where("\"expiresAt\" < ? AND \"embyId\" <> '' AND \"embyDisabled\" = ?", cutoff, false).
+		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
 		Count(&totalExpired).Error; err != nil {
 		return nil, fmt.Errorf("查询过期用户总数失败: %w", err)
 	}
 
 	var expiredUsers []models.User
 	if err := db.DB.WithContext(ctx).
-		Where("\"expiresAt\" < ? AND \"embyId\" <> '' AND \"embyDisabled\" = ?", cutoff, false).
+		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
 		Find(&expiredUsers).Error; err != nil {
 		return nil, fmt.Errorf("查询过期用户失败: %w", err)
 	}
@@ -121,8 +121,8 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 		}
 
 		updateResult := db.DB.WithContext(ctx).Model(&models.User{}).
-			Where("id = ? AND \"embyDisabled\" = ?", user.ID, false).
-			Update("\"embyDisabled\"", true)
+			Where("id = ? AND \"emby_disabled\" = ?", user.ID, false).
+			Update("\"emby_disabled\"", true)
 		if updateResult.Error != nil {
 			errorMsg := fmt.Sprintf("更新数据库失败 %s: %v", user.Username, updateResult.Error)
 			errMessages = appendLimitedString(errMessages, errorMsg, &failureTruncated, maxCheckExpiredUsersErrors)

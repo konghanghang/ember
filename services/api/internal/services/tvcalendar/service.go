@@ -812,13 +812,13 @@ func (s *TVCalendarService) loadReadyEpisodesBySeries(ctx context.Context, candi
 
 func (s *TVCalendarService) queryCalendarItems(ctx context.Context, tmdbIDs []string, start, end time.Time, status string, loc *time.Location) ([]models.TVCalendarItem, error) {
 	query := db.DB.Model(&models.TVCalendarItem{}).
-		Where("\"airDate\" >= ? AND \"airDate\" <= ?", start, end)
+		Where("\"air_date\" >= ? AND \"air_date\" <= ?", start, end)
 	if len(tmdbIDs) > 0 {
-		query = query.Where("\"tmdbId\" IN ?", tmdbIDs)
+		query = query.Where("\"tmdb_id\" IN ?", tmdbIDs)
 	}
 
 	var items []models.TVCalendarItem
-	if err := query.Order("\"airDate\" ASC").Order("\"tmdbId\" ASC").Order("season ASC").Order("episode ASC").Find(&items).Error; err != nil {
+	if err := query.Order("\"air_date\" ASC").Order("\"tmdb_id\" ASC").Order("season ASC").Order("episode ASC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧日历失败: %w", err)
 	}
 
@@ -843,7 +843,7 @@ func (s *TVCalendarService) loadSourceMap(tmdbIDs []string) (map[string]models.T
 	}
 
 	var sources []models.TVCalendarSource
-	if err := db.DB.Where("\"tmdbId\" IN ?", tmdbIDs).Find(&sources).Error; err != nil {
+	if err := db.DB.Where("\"tmdb_id\" IN ?", tmdbIDs).Find(&sources).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧源失败: %w", err)
 	}
 	for _, source := range sources {
@@ -856,7 +856,7 @@ func (s *TVCalendarService) loadSourcesForSync(tmdbID *string, force bool) ([]mo
 	if tmdbID != nil && strings.TrimSpace(*tmdbID) != "" {
 		trimmed := strings.TrimSpace(*tmdbID)
 		var source models.TVCalendarSource
-		err := db.DB.Where("\"tmdbId\" = ?", trimmed).First(&source).Error
+		err := db.DB.Where("\"tmdb_id\" = ?", trimmed).First(&source).Error
 		if err == nil {
 			return []models.TVCalendarSource{source}, nil
 		}
@@ -867,7 +867,7 @@ func (s *TVCalendarService) loadSourcesForSync(tmdbID *string, force bool) ([]mo
 	}
 
 	var sources []models.TVCalendarSource
-	if err := db.DB.Where("\"embyStatus\" = ? OR \"embyStatus\" = ''", "continuing").Order("\"showName\" ASC").Find(&sources).Error; err != nil {
+	if err := db.DB.Where("\"emby_status\" = ? OR \"emby_status\" = ''", "continuing").Order("\"show_name\" ASC").Find(&sources).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧源失败: %w", err)
 	}
 	if force {
@@ -923,39 +923,39 @@ func (s *TVCalendarService) loadSourcesForSync(tmdbID *string, force bool) ([]mo
 
 func (s *TVCalendarService) upsertSource(source models.TVCalendarSource, touchSynced bool) error {
 	assignments := map[string]interface{}{
-		"seriesId": gorm.Expr(
-			`CASE WHEN EXCLUDED."seriesId" <> '' THEN EXCLUDED."seriesId" ELSE tv_calendar_sources."seriesId" END`,
+		"series_id": gorm.Expr(
+			`CASE WHEN EXCLUDED."series_id" <> '' THEN EXCLUDED."series_id" ELSE tv_calendar_sources."series_id" END`,
 		),
-		"showName": gorm.Expr(
-			`CASE WHEN EXCLUDED."showName" <> '' THEN EXCLUDED."showName" ELSE tv_calendar_sources."showName" END`,
+		"show_name": gorm.Expr(
+			`CASE WHEN EXCLUDED."show_name" <> '' THEN EXCLUDED."show_name" ELSE tv_calendar_sources."show_name" END`,
 		),
-		"posterUrl": gorm.Expr(
-			`CASE WHEN EXCLUDED."posterUrl" <> '' THEN EXCLUDED."posterUrl" ELSE tv_calendar_sources."posterUrl" END`,
+		"poster_url": gorm.Expr(
+			`CASE WHEN EXCLUDED."poster_url" <> '' THEN EXCLUDED."poster_url" ELSE tv_calendar_sources."poster_url" END`,
 		),
 		"overview": gorm.Expr(
 			`CASE WHEN EXCLUDED.overview <> '' THEN EXCLUDED.overview ELSE tv_calendar_sources.overview END`,
 		),
-		"embyStatus": gorm.Expr(
-			`CASE WHEN EXCLUDED."embyStatus" <> '' THEN EXCLUDED."embyStatus" ELSE tv_calendar_sources."embyStatus" END`,
+		"emby_status": gorm.Expr(
+			`CASE WHEN EXCLUDED."emby_status" <> '' THEN EXCLUDED."emby_status" ELSE tv_calendar_sources."emby_status" END`,
 		),
-		"updatedAt": time.Now().UTC(),
+		"updated_at": time.Now().UTC(),
 	}
 	if source.LastEpisodeIngestedAt != nil {
-		assignments["lastEpisodeIngestedAt"] = gorm.Expr(
+		assignments["last_episode_ingested_at"] = gorm.Expr(
 			`CASE
-				WHEN EXCLUDED."lastEpisodeIngestedAt" IS NULL THEN tv_calendar_sources."lastEpisodeIngestedAt"
-				WHEN tv_calendar_sources."lastEpisodeIngestedAt" IS NULL THEN EXCLUDED."lastEpisodeIngestedAt"
-				WHEN EXCLUDED."lastEpisodeIngestedAt" > tv_calendar_sources."lastEpisodeIngestedAt" THEN EXCLUDED."lastEpisodeIngestedAt"
-				ELSE tv_calendar_sources."lastEpisodeIngestedAt"
+				WHEN EXCLUDED."last_episode_ingested_at" IS NULL THEN tv_calendar_sources."last_episode_ingested_at"
+				WHEN tv_calendar_sources."last_episode_ingested_at" IS NULL THEN EXCLUDED."last_episode_ingested_at"
+				WHEN EXCLUDED."last_episode_ingested_at" > tv_calendar_sources."last_episode_ingested_at" THEN EXCLUDED."last_episode_ingested_at"
+				ELSE tv_calendar_sources."last_episode_ingested_at"
 			END`,
 		)
 	}
 	if touchSynced {
-		assignments["lastSyncedAt"] = source.LastSyncedAt
+		assignments["last_synced_at"] = source.LastSyncedAt
 	}
 
 	if err := db.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "tmdbId"}},
+		Columns:   []clause.Column{{Name: "tmdb_id"}},
 		DoUpdates: clause.Assignments(assignments),
 	}).Create(&source).Error; err != nil {
 		return fmt.Errorf("写入追剧源失败: %w", err)
@@ -972,28 +972,28 @@ func (s *TVCalendarService) upsertCalendarItem(item models.TVCalendarItem, force
 			models.TVCalendarStatusReady,
 		)
 		embyItemAssignment = gorm.Expr(
-			`CASE WHEN tv_calendar_items.status = ? AND COALESCE(tv_calendar_items."embyItemId", '') <> '' THEN tv_calendar_items."embyItemId" ELSE EXCLUDED."embyItemId" END`,
+			`CASE WHEN tv_calendar_items.status = ? AND COALESCE(tv_calendar_items."emby_item_id", '') <> '' THEN tv_calendar_items."emby_item_id" ELSE EXCLUDED."emby_item_id" END`,
 			models.TVCalendarStatusReady,
 		)
 	}
 
 	if err := db.DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "tmdbId"}, {Name: "season"}, {Name: "episode"}},
+		Columns: []clause.Column{{Name: "tmdb_id"}, {Name: "season"}, {Name: "episode"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"seriesId": gorm.Expr(
-				`CASE WHEN EXCLUDED."seriesId" <> '' THEN EXCLUDED."seriesId" ELSE tv_calendar_items."seriesId" END`,
+			"series_id": gorm.Expr(
+				`CASE WHEN EXCLUDED."series_id" <> '' THEN EXCLUDED."series_id" ELSE tv_calendar_items."series_id" END`,
 			),
-			"airDate": item.AirDate,
-			"episodeName": gorm.Expr(
-				`CASE WHEN EXCLUDED."episodeName" <> '' THEN EXCLUDED."episodeName" ELSE tv_calendar_items."episodeName" END`,
+			"air_date": item.AirDate,
+			"episode_name": gorm.Expr(
+				`CASE WHEN EXCLUDED."episode_name" <> '' THEN EXCLUDED."episode_name" ELSE tv_calendar_items."episode_name" END`,
 			),
 			"overview": gorm.Expr(
 				`CASE WHEN EXCLUDED.overview <> '' THEN EXCLUDED.overview ELSE tv_calendar_items.overview END`,
 			),
-			"status":      statusAssignment,
-			"embyItemId":  embyItemAssignment,
-			"lastChecked": item.LastChecked,
-			"updatedAt":   item.UpdatedAt,
+			"status":       statusAssignment,
+			"emby_item_id": embyItemAssignment,
+			"last_checked": item.LastChecked,
+			"updated_at":   item.UpdatedAt,
 		}),
 	}).Create(&item).Error; err != nil {
 		return fmt.Errorf("写入追剧日历失败: %w", err)
@@ -1325,8 +1325,8 @@ func (s *TVCalendarService) SyncWeek(ctx context.Context, weekStart time.Time, t
 			// 单剧全量同步完成（季全部处理完毕），写 lastFullSyncAt 供 24h 增量判断
 			if seasonSyncOK && tmdbID == nil {
 				if result := db.DB.WithContext(ctx).Model(&models.TVCalendarSource{}).
-					Where(`"tmdbId" = ?`, tmdbIDValue).
-					Update("lastFullSyncAt", now); result.Error != nil {
+					Where(`"tmdb_id" = ?`, tmdbIDValue).
+					Update("last_full_sync_at", now); result.Error != nil {
 					log.Printf("[TV Calendar] 写入 lastFullSyncAt 失败：show=%q tmdbId=%s err=%v", strings.TrimSpace(source.ShowName), tmdbIDValue, result.Error)
 				}
 			}
@@ -1613,15 +1613,15 @@ func (s *TVCalendarService) Subscribe(userID string, req CreateTVCalendarSubscri
 	posterURL := strings.TrimSpace(req.PosterURL)
 
 	var existing models.TVCalendarSubscription
-	err := db.DB.Where("\"userId\" = ? AND \"tmdbId\" = ?", userID, tmdbID).First(&existing).Error
+	err := db.DB.Where("\"user_id\" = ? AND \"tmdb_id\" = ?", userID, tmdbID).First(&existing).Error
 	if err == nil {
 		existing.ShowName = showName
 		existing.PosterURL = posterURL
 		if saveErr := db.DB.Model(&models.TVCalendarSubscription{}).
 			Where("id = ?", existing.ID).
 			Updates(map[string]interface{}{
-				"showName":  existing.ShowName,
-				"posterUrl": existing.PosterURL,
+				"show_name":  existing.ShowName,
+				"poster_url": existing.PosterURL,
 			}).Error; saveErr != nil {
 			return fmt.Errorf("更新追剧订阅失败: %w", saveErr)
 		}
@@ -1647,7 +1647,7 @@ func (s *TVCalendarService) Subscribe(userID string, req CreateTVCalendarSubscri
 func (s *TVCalendarService) GetSubscriptions(userID string) ([]models.TVCalendarSubscription, error) {
 	s.refreshConfig()
 	var subscriptions []models.TVCalendarSubscription
-	if err := db.DB.Where("\"userId\" = ?", userID).Order("\"createdAt\" DESC").Find(&subscriptions).Error; err != nil {
+	if err := db.DB.Where("\"user_id\" = ?", userID).Order("\"created_at\" DESC").Find(&subscriptions).Error; err != nil {
 		return nil, fmt.Errorf("查询追剧订阅失败: %w", err)
 	}
 	return subscriptions, nil
@@ -1660,7 +1660,7 @@ func (s *TVCalendarService) Unsubscribe(userID, tmdbID string) error {
 		return ErrTVCalendarTMDBIDRequired
 	}
 
-	result := db.DB.Where("\"userId\" = ? AND \"tmdbId\" = ?", userID, tmdbID).Delete(&models.TVCalendarSubscription{})
+	result := db.DB.Where("\"user_id\" = ? AND \"tmdb_id\" = ?", userID, tmdbID).Delete(&models.TVCalendarSubscription{})
 	if result.Error != nil {
 		return fmt.Errorf("取消订阅失败: %w", result.Error)
 	}
@@ -1673,15 +1673,15 @@ func (s *TVCalendarService) touchSourceLastEpisodeIngestedAt(ctx context.Context
 	ingestedAt = ingestedAt.UTC()
 
 	updates := map[string]interface{}{
-		"lastEpisodeIngestedAt": ingestedAt,
+		"last_episode_ingested_at": ingestedAt,
 	}
 	if trimmedSeriesID != "" {
-		updates["seriesId"] = trimmedSeriesID
+		updates["series_id"] = trimmedSeriesID
 	}
 
 	if trimmedTmdbID != "" {
 		result := db.DB.WithContext(ctx).Model(&models.TVCalendarSource{}).
-			Where("\"tmdbId\" = ?", trimmedTmdbID).
+			Where("\"tmdb_id\" = ?", trimmedTmdbID).
 			Updates(updates)
 		if result.Error != nil {
 			return fmt.Errorf("更新追剧源活跃时间失败: %w", result.Error)
@@ -1696,9 +1696,9 @@ func (s *TVCalendarService) touchSourceLastEpisodeIngestedAt(ctx context.Context
 	}
 
 	result := db.DB.WithContext(ctx).Model(&models.TVCalendarSource{}).
-		Where("\"seriesId\" = ?", trimmedSeriesID).
+		Where("\"series_id\" = ?", trimmedSeriesID).
 		Updates(map[string]interface{}{
-			"lastEpisodeIngestedAt": ingestedAt,
+			"last_episode_ingested_at": ingestedAt,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("更新追剧源活跃时间失败: %w", result.Error)
@@ -1715,8 +1715,8 @@ func (s *TVCalendarService) resolveUniqueSourceTMDBIDBySeriesID(ctx context.Cont
 
 	var sources []models.TVCalendarSource
 	if err := db.DB.WithContext(ctx).
-		Select(`"tmdbId"`, `"seriesId"`).
-		Where(`"seriesId" = ?`, trimmedSeriesID).
+		Select(`"tmdb_id"`, `"series_id"`).
+		Where(`"series_id" = ?`, trimmedSeriesID).
 		Limit(2).
 		Find(&sources).Error; err != nil {
 		return "", fmt.Errorf("查询追剧源失败: %w", err)
@@ -1737,14 +1737,14 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 
 	now := time.Now().UTC()
 	updates := map[string]interface{}{
-		"status":      models.TVCalendarStatusReady,
-		"lastChecked": now,
+		"status":       models.TVCalendarStatusReady,
+		"last_checked": now,
 	}
 	if strings.TrimSpace(embyItemID) != "" {
-		updates["embyItemId"] = strings.TrimSpace(embyItemID)
+		updates["emby_item_id"] = strings.TrimSpace(embyItemID)
 	}
 	if strings.TrimSpace(seriesID) != "" {
-		updates["seriesId"] = strings.TrimSpace(seriesID)
+		updates["series_id"] = strings.TrimSpace(seriesID)
 	}
 
 	trimmedTmdbID := strings.TrimSpace(tmdbID)
@@ -1766,7 +1766,7 @@ func (s *TVCalendarService) MarkEpisodeReadyByWebhook(ctx context.Context, tmdbI
 	log.Printf("[TV Calendar] Webhook 开始更新剧集状态 tmdbId=%s seriesId=%s season=%d episode=%d embyItemId=%s", trimmedTmdbID, trimmedSeriesID, season, episode, strings.TrimSpace(embyItemID))
 	if trimmedTmdbID != "" {
 		result = db.DB.WithContext(ctx).Model(&models.TVCalendarItem{}).
-			Where("\"tmdbId\" = ? AND season = ? AND episode = ?", trimmedTmdbID, season, episode).
+			Where("\"tmdb_id\" = ? AND season = ? AND episode = ?", trimmedTmdbID, season, episode).
 			Updates(updates)
 		if result.Error != nil {
 			log.Printf("[TV Calendar] Webhook 按 tmdbId 更新失败 tmdbId=%s seriesId=%s season=%d episode=%d err=%v", trimmedTmdbID, trimmedSeriesID, season, episode, result.Error)

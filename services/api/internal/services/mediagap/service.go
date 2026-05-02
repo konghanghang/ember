@@ -154,7 +154,7 @@ func (s *Service) buildListBaseQuery(ctx context.Context, req ListRequest) (*gor
 	keyword := strings.TrimSpace(req.Keyword)
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("\"seriesName\" ILIKE ? OR \"tmdbId\" ILIKE ?", like, like)
+		query = query.Where("\"series_name\" ILIKE ? OR \"tmdb_id\" ILIKE ?", like, like)
 	}
 
 	status := normalizeMediaGapStatus(req.Status)
@@ -166,10 +166,10 @@ func (s *Service) buildListBaseQuery(ctx context.Context, req ListRequest) (*gor
 	}
 
 	if req.AirDateFrom != nil {
-		query = query.Where("\"airDate\" >= ?", normalizeDateUTC(*req.AirDateFrom))
+		query = query.Where("\"air_date\" >= ?", normalizeDateUTC(*req.AirDateFrom))
 	}
 	if req.AirDateTo != nil {
-		query = query.Where("\"airDate\" <= ?", normalizeDateUTC(*req.AirDateTo))
+		query = query.Where("\"air_date\" <= ?", normalizeDateUTC(*req.AirDateTo))
 	}
 
 	return query, keyword, status, nil
@@ -200,8 +200,8 @@ func (s *Service) List(ctx context.Context, req ListRequest) (*ListResponse, err
 
 	var items []models.MediaGap
 	if err := query.
-		Order("\"airDate\" ASC").
-		Order("\"seriesName\" ASC").
+		Order("\"air_date\" ASC").
+		Order("\"series_name\" ASC").
 		Order("season ASC").
 		Order("episode ASC").
 		Offset((page - 1) * pageSize).
@@ -270,7 +270,7 @@ func (s *Service) ListGrouped(ctx context.Context, req GroupedListRequest) (*Gro
 
 	var items []models.MediaGap
 	if err := query.
-		Order("\"seriesName\" ASC").
+		Order("\"series_name\" ASC").
 		Order("season ASC").
 		Order("episode ASC").
 		Find(&items).Error; err != nil {
@@ -394,10 +394,10 @@ func (s *Service) Ignore(ctx context.Context, id, reason string) (*models.MediaG
 	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
 		Where("id = ?", gap.ID).
 		Updates(map[string]interface{}{
-			"status":           gap.Status,
-			"ignoredAt":        gap.IgnoredAt,
-			"ignoreReasonCode": gap.IgnoreReasonCode,
-			"ignoreReason":     gap.IgnoreReason,
+			"status":             gap.Status,
+			"ignored_at":         gap.IgnoredAt,
+			"ignore_reason_code": gap.IgnoreReasonCode,
+			"ignore_reason":      gap.IgnoreReason,
 		}).Error; err != nil {
 		return nil, fmt.Errorf("忽略缺集工单失败: %w", err)
 	}
@@ -444,9 +444,9 @@ func (s *Service) SearchGap(ctx context.Context, id string) (*MediaGapDTO, error
 	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
 		Where("id = ?", gap.ID).
 		Updates(map[string]interface{}{
-			"status":         gap.Status,
-			"searchSnapshot": gap.SearchSnapshot,
-			"lastSearchedAt": gap.LastSearchedAt,
+			"status":           gap.Status,
+			"search_snapshot":  gap.SearchSnapshot,
+			"last_searched_at": gap.LastSearchedAt,
 		}).Error; err != nil {
 		return nil, fmt.Errorf("更新搜索快照失败: %w", err)
 	}
@@ -484,8 +484,8 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 		updateErr := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
 			Where("id = ?", gap.ID).
 			Updates(map[string]interface{}{
-				"status":            models.MediaGapStatusDispatchFailed,
-				"lastDispatchError": safeMsg,
+				"status":              models.MediaGapStatusDispatchFailed,
+				"last_dispatch_error": safeMsg,
 			}).Error
 		if updateErr != nil {
 			log.Printf("[MediaGap] 写回 DISPATCH_FAILED 失败 id=%s err=%v", gap.ID, updateErr)
@@ -510,10 +510,10 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
 		Where("id = ?", gap.ID).
 		Updates(map[string]interface{}{
-			"status":            gap.Status,
-			"dispatchSnapshot":  gap.DispatchSnapshot,
-			"requestedAt":       gap.RequestedAt,
-			"lastDispatchError": gap.LastDispatchError,
+			"status":              gap.Status,
+			"dispatch_snapshot":   gap.DispatchSnapshot,
+			"requested_at":        gap.RequestedAt,
+			"last_dispatch_error": gap.LastDispatchError,
 		}).Error; err != nil {
 		return nil, fmt.Errorf("更新下发状态失败: %w", err)
 	}
@@ -542,7 +542,7 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 
 	if trimmedTMDBID != "" {
 		if err := db.DB.WithContext(ctx).
-			Where("\"tmdbId\" = ? AND season = ? AND episode = ?", trimmedTMDBID, payload.Season, payload.Episode).
+			Where("\"tmdb_id\" = ? AND season = ? AND episode = ?", trimmedTMDBID, payload.Season, payload.Episode).
 			Find(&matches).Error; err != nil {
 			return 0, fmt.Errorf("按 tmdbId 查询缺集工单失败: %w", err)
 		}
@@ -553,7 +553,7 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 
 	if len(matches) == 0 && trimmedSeriesID != "" {
 		if err := db.DB.WithContext(ctx).
-			Where("\"embySeriesId\" = ? AND season = ? AND episode = ?", trimmedSeriesID, payload.Season, payload.Episode).
+			Where("\"emby_series_id\" = ? AND season = ? AND episode = ?", trimmedSeriesID, payload.Season, payload.Episode).
 			Find(&matches).Error; err != nil {
 			return 0, fmt.Errorf("按 seriesId 查询缺集工单失败: %w", err)
 		}
@@ -600,9 +600,9 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 		if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
 			Where("id = ?", gap.ID).
 			Updates(map[string]interface{}{
-				"status":       gap.Status,
-				"ingestedAt":   gap.IngestedAt,
-				"embySeriesId": gap.EmbySeriesID,
+				"status":         gap.Status,
+				"ingested_at":    gap.IngestedAt,
+				"emby_series_id": gap.EmbySeriesID,
 			}).Error; err != nil {
 			return updatedCount, fmt.Errorf("回写缺集工单入库状态失败: %w", err)
 		}
@@ -840,11 +840,11 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 			Model(&models.MediaGap{}).
 			Where("id = ?", existing.ID).
 			Updates(map[string]interface{}{
-				"embySeriesId":  existing.EmbySeriesID,
-				"seriesName":    existing.SeriesName,
-				"airDate":       existing.AirDate,
-				"lastScannedAt": existing.LastScannedAt,
-				"status":        existing.Status,
+				"emby_series_id":  existing.EmbySeriesID,
+				"series_name":     existing.SeriesName,
+				"air_date":        existing.AirDate,
+				"last_scanned_at": existing.LastScannedAt,
+				"status":          existing.Status,
 			}).Error; err != nil {
 			return nil, fmt.Errorf("更新缺集工单失败: %w", err)
 		}
@@ -891,10 +891,10 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 			Model(&models.MediaGap{}).
 			Where("id = ? AND status <> ?", existing.ID, models.MediaGapStatusIgnored).
 			Updates(map[string]interface{}{
-				"status":        existing.Status,
-				"ingestedAt":    existing.IngestedAt,
-				"embySeriesId":  existing.EmbySeriesID,
-				"lastScannedAt": existing.LastScannedAt,
+				"status":          existing.Status,
+				"ingested_at":     existing.IngestedAt,
+				"emby_series_id":  existing.EmbySeriesID,
+				"last_scanned_at": existing.LastScannedAt,
 			}).Error; err != nil {
 			return nil, fmt.Errorf("回写已入库缺集工单失败: %w", err)
 		}
@@ -960,13 +960,13 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 			Model(&models.MediaGap{}).
 			Where("id = ? AND status IN ?", existing.ID, []models.MediaGapStatus{models.MediaGapStatusMissing, models.MediaGapStatusSearched}).
 			Updates(map[string]interface{}{
-				"status":           existing.Status,
-				"ignoredAt":        existing.IgnoredAt,
-				"ignoreReasonCode": existing.IgnoreReasonCode,
-				"ignoreReason":     existing.IgnoreReason,
-				"embySeriesId":     existing.EmbySeriesID,
-				"seriesName":       existing.SeriesName,
-				"lastScannedAt":    existing.LastScannedAt,
+				"status":             existing.Status,
+				"ignored_at":         existing.IgnoredAt,
+				"ignore_reason_code": existing.IgnoreReasonCode,
+				"ignore_reason":      existing.IgnoreReason,
+				"emby_series_id":     existing.EmbySeriesID,
+				"series_name":        existing.SeriesName,
+				"last_scanned_at":    existing.LastScannedAt,
 			}).Error; err != nil {
 			return cleaned, fmt.Errorf("收口未激活季缺集工单失败: %w", err)
 		}
@@ -980,7 +980,7 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 
 func (s *Service) loadExistingGapMap(ctx context.Context, tmdbID string) (map[string]*models.MediaGap, error) {
 	var items []models.MediaGap
-	if err := db.DB.WithContext(ctx).Where("\"tmdbId\" = ?", tmdbID).Find(&items).Error; err != nil {
+	if err := db.DB.WithContext(ctx).Where("\"tmdb_id\" = ?", tmdbID).Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("查询历史缺集工单失败: %w", err)
 	}
 

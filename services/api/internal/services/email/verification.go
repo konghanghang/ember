@@ -49,7 +49,7 @@ func evaluateVerificationCode(verification *models.EmailVerification, code strin
 func (s *EmailService) findLatestVerification(tx *gorm.DB, email, codeType string, lock bool) (*models.EmailVerification, error) {
 	normalizedEmail := normalizeVerificationEmail(email)
 	query := tx.Where("lower(email) = ? AND \"type\" = ?", normalizedEmail, codeType).
-		Order("\"createdAt\" DESC")
+		Order("\"created_at\" DESC")
 	if lock {
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
@@ -117,7 +117,7 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 
 	var emailCount int64
 	if err := tx.Model(&models.EmailVerification{}).
-		Where("lower(email) = ? AND \"type\" = ? AND \"createdAt\" > ?", normalizedEmail, codeType, since).
+		Where("lower(email) = ? AND \"type\" = ? AND \"created_at\" > ?", normalizedEmail, codeType, since).
 		Count(&emailCount).Error; err != nil {
 		tx.Rollback()
 		log.Printf("发送验证码统计邮箱次数失败 [%s]: %v", normalizedEmail, err)
@@ -126,7 +126,7 @@ func (s *EmailService) SendVerificationCode(email, ip, codeType string) error {
 
 	var ipCount int64
 	if err := tx.Model(&models.EmailVerification{}).
-		Where("ip = ? AND \"type\" = ? AND \"createdAt\" > ?", ip, codeType, since).
+		Where("ip = ? AND \"type\" = ? AND \"created_at\" > ?", ip, codeType, since).
 		Count(&ipCount).Error; err != nil {
 		tx.Rollback()
 		log.Printf("发送验证码统计 IP 次数失败 [%s]: %v", normalizedEmail, err)
@@ -225,7 +225,7 @@ func (s *EmailService) ConsumeCodeTx(tx *gorm.DB, email, code, codeType string) 
 
 // CleanupExpired 清理过期验证码（供 cron 调用）
 func (s *EmailService) CleanupExpired() (int64, error) {
-	result := db.DB.Where("\"expiresAt\" < ?", time.Now().UTC()).
+	result := db.DB.Where("\"expires_at\" < ?", time.Now().UTC()).
 		Delete(&models.EmailVerification{})
 	return result.RowsAffected, result.Error
 }

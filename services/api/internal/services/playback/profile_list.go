@@ -78,12 +78,12 @@ type normalizedPlaybackProfileListQuery struct {
 }
 
 type playbackProfileOverviewAggregateRow struct {
-	playbackUserID     string
-	totalPlayCount     int64
-	totalPlayDuration  int64
-	activeDays         int
-	lastPlayedAt       *time.Time
-	lastPlayedAtRaw    string
+	playbackUserID    string
+	totalPlayCount    int64
+	totalPlayDuration int64
+	activeDays        int
+	lastPlayedAt      *time.Time
+	lastPlayedAtRaw   string
 }
 
 func (s *UserPlaybackProfileService) GetUserProfilesOverview(ctx context.Context, req PlaybackProfileListQuery) (*PlaybackProfileListResponse, error) {
@@ -306,7 +306,7 @@ func (s *UserPlaybackProfileService) normalizePlaybackProfileListQuery(ctx conte
 func (s *UserPlaybackProfileService) findUsersByKeyword(ctx context.Context, keyword string) ([]models.User, error) {
 	var users []models.User
 	if err := db.DB.WithContext(ctx).
-		Select("id", "username", "\"embyId\"").
+		Select("id", "username", "\"emby_id\"").
 		Where("username ILIKE ?", "%"+keyword+"%").
 		Order("username ASC").
 		Find(&users).Error; err != nil {
@@ -515,8 +515,8 @@ func (s *UserPlaybackProfileService) loadLocalUsersForOverview(ctx context.Conte
 
 	var users []models.User
 	if err := db.DB.WithContext(ctx).
-		Select("id", "username", "\"embyId\"").
-		Where("\"embyId\" IN ? OR id IN ?", identifiers, identifiers).
+		Select("id", "username", "\"emby_id\"").
+		Where("\"emby_id\" IN ? OR id IN ?", identifiers, identifiers).
 		Find(&users).Error; err != nil {
 		return nil, fmt.Errorf("查询本地用户映射失败: %w", err)
 	}

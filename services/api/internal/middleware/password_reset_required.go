@@ -36,7 +36,7 @@ func PasswordResetRequired() gin.HandlerFunc {
 		}
 
 		var user models.User
-		if err := db.DB.Select("id", "passwordResetRequired").Where("id = ?", userID).First(&user).Error; err != nil {
+		if err := db.DB.Select("id", "password_reset_required").Where("id = ?", userID).First(&user).Error; err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
 			c.Abort()
 			return

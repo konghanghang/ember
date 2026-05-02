@@ -5,7 +5,7 @@
 -- definitions were tightened):
 --
 --   - idx_ranking_lookup        on playback_rankings(period, category, snapshot_at)
---   - uq_redemptions_user_code  unique on redemptions("userId", code)
+--   - uq_redemptions_user_code  unique on redemptions("user_id", code)
 --
 -- Environments that initialised the database from the baseline file already carry
 -- these indexes. But environments upgraded only via the post-baseline incremental
@@ -20,4 +20,4 @@ CREATE INDEX IF NOT EXISTS idx_ranking_lookup
   ON playback_rankings USING btree (period, category, snapshot_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_redemptions_user_code
-  ON redemptions USING btree ("userId", code);
+  ON redemptions USING btree ("user_id", code);

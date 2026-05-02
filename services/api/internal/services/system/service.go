@@ -35,7 +35,7 @@ func (s *SystemService) GetSystemInfo() (*SystemInfo, error) {
 		return nil, fmt.Errorf("查询用户总数失败: %w", err)
 	}
 
-	if err := db.DB.Model(&models.User{}).Where("\"isActive\" = ?", true).Count(&activeUserCount).Error; err != nil {
+	if err := db.DB.Model(&models.User{}).Where("\"is_active\" = ?", true).Count(&activeUserCount).Error; err != nil {
 		return nil, fmt.Errorf("查询活跃用户数失败: %w", err)
 	}
 

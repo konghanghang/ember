@@ -28,15 +28,15 @@ const (
 type FailedEmbyAsyncOp struct {
 	ID            string                  `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	Origin        FailedEmbyAsyncOpOrigin `json:"origin" gorm:"column:origin;size:32;not null"`
-	OriginRefID   string                  `json:"originRefId" gorm:"column:originRefId;size:64;not null"`
-	EmbyUserID    string                  `json:"embyUserId" gorm:"column:embyUserId;size:64;not null"`
+	OriginRefID   string                  `json:"originRefId" gorm:"column:origin_ref_id;size:64;not null"`
+	EmbyUserID    string                  `json:"embyUserId" gorm:"column:emby_user_id;size:64;not null"`
 	Action        FailedEmbyAsyncOpAction `json:"action" gorm:"column:action;size:20;not null"`
 	Payload       *string                 `json:"payload,omitempty" gorm:"column:payload;type:text"`
 	Retries       int                     `json:"retries" gorm:"column:retries;not null;default:0"`
-	NextAttemptAt time.Time               `json:"nextAttemptAt" gorm:"column:nextAttemptAt;not null"`
-	LastError     *string                 `json:"lastError,omitempty" gorm:"column:lastError;size:500"`
-	CreatedAt     time.Time               `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
-	UpdatedAt     time.Time               `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
+	NextAttemptAt time.Time               `json:"nextAttemptAt" gorm:"column:next_attempt_at;not null"`
+	LastError     *string                 `json:"lastError,omitempty" gorm:"column:last_error;size:500"`
+	CreatedAt     time.Time               `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt     time.Time               `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (FailedEmbyAsyncOp) TableName() string {

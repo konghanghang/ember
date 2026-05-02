@@ -14,11 +14,11 @@ type Plan struct {
 	Days        int       `json:"days" gorm:"column:days;not null"`
 	Price       int64     `json:"price" gorm:"column:price;not null"`
 	Currency    string    `json:"currency" gorm:"column:currency;size:3;not null;default:usd"`
-	PlanGroup   string    `json:"planGroup" gorm:"column:planGroup;size:50;not null;index"`
-	IsActive    bool      `json:"isActive" gorm:"column:isActive;default:true;not null"`
-	SortOrder   int       `json:"sortOrder" gorm:"column:sortOrder;default:0;not null"`
-	CreatedAt   time.Time `json:"createdAt" gorm:"column:createdAt;autoCreateTime"`
-	UpdatedAt   time.Time `json:"updatedAt" gorm:"column:updatedAt;autoUpdateTime"`
+	PlanGroup   string    `json:"planGroup" gorm:"column:plan_group;size:50;not null;index"`
+	IsActive    bool      `json:"isActive" gorm:"column:is_active;default:true;not null"`
+	SortOrder   int       `json:"sortOrder" gorm:"column:sort_order;default:0;not null"`
+	CreatedAt   time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt   time.Time `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (Plan) TableName() string {

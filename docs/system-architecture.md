@@ -30,6 +30,11 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 | 定时任务 | robfig/cron/v3 |
 | 部署 | Docker + Docker Compose |
 
+数据库 schema 约定补充：
+- 表名、列名、索引名统一使用 `snake_case`
+- Go / GORM 字段继续使用 `CamelCase`，通过显式 `gorm:"column:..."` 映射到数据库列
+- API / 前端 JSON 字段继续使用 `camelCase`
+
 ## 3. 目录结构
 
 ```

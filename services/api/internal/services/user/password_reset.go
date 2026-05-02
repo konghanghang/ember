@@ -56,8 +56,8 @@ func (s *UserService) ResetPasswordByCode(req *ResetPasswordByCodeRequest) error
 	if err := tx.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"password":              user.Password,
-			"passwordResetRequired": false,
+			"password":                user.Password,
+			"password_reset_required": false,
 		}).Error; err != nil {
 		tx.Rollback()
 		return errors.New("密码重置失败：本地密码保存失败")

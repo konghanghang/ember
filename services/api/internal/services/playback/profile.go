@@ -257,7 +257,7 @@ func (s *UserPlaybackProfileService) loadPlaybackProfileTarget(ctx context.Conte
 
 	var user models.User
 	err := db.DB.WithContext(ctx).
-		Select("id", "username", "\"embyId\"").
+		Select("id", "username", "\"emby_id\"").
 		Where("id = ?", userID).
 		First(&user).
 		Error
