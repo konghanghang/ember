@@ -3,18 +3,8 @@ import vue from '@vitejs/plugin-vue'
 import path from 'path'
 
 const elementPlusPackages = new Set([
-  'element-plus',
-  '@element-plus/icons-vue',
   '@vueuse/core',
   '@vueuse/shared',
-  '@popperjs/core',
-  '@ctrl/tinycolor',
-  'async-validator',
-  'dayjs',
-  'lodash',
-  'lodash-es',
-  'lodash-unified',
-  'normalize-wheel-es',
 ])
 
 function getNodeModulePackageName(id: string) {
@@ -62,7 +52,7 @@ export default defineConfig({
           }
 
           if (elementPlusPackages.has(packageName)) {
-            return 'element-plus-vendor'
+            return 'vue-vendor'
           }
 
           if (packageName === 'axios') {
