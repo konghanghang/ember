@@ -76,14 +76,6 @@ export function getProfile(): Promise<UserInfo> {
   })
 }
 
-export function updateProfile(data: { email?: string }) {
-  return request({
-    url: '/profile',
-    method: 'put',
-    data
-  })
-}
-
 export function updatePassword(data: { oldPassword: string; newPassword: string }) {
   return request({
     url: '/password',
@@ -92,11 +84,19 @@ export function updatePassword(data: { oldPassword: string; newPassword: string 
   })
 }
 
-export function updateEmail(newEmail: string) {
+export function sendEmailChangeCode(newEmail: string): Promise<{ message: string }> {
+  return request({
+    url: '/email/send-code',
+    method: 'post',
+    data: { newEmail }
+  })
+}
+
+export function updateEmail(newEmail: string, code: string) {
   return request({
     url: '/email',
     method: 'put',
-    data: { newEmail }
+    data: { newEmail, code }
   })
 }
 

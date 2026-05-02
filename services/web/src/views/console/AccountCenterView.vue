@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -15,12 +15,14 @@ import {
   UserFilled
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import { formatDateTime } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
 import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import {
   generateTelegramBindCode,
+  sendEmailChangeCode,
   unbindTelegram,
   updatePassword
 } from '@/api/console'
@@ -54,6 +56,16 @@ const passwordForm = ref({
   confirmPassword: ''
 })
 
+const verifyDialogVisible = ref(false)
+const pendingNewEmail = ref('')
+const verifyCode = ref('')
+const sendingEmailCode = ref(false)
+const confirmingEmailChange = ref(false)
+const emailCodeCountdown = ref(0)
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
   notify: Bell,
   group: ChatDotRound,
@@ -86,16 +98,96 @@ const syncTelegramBindState = () => {
   }
 }
 
-const handleUpdateEmail = async () => {
-  loading.value = true
+const clearCountdown = () => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+const startCountdown = () => {
+  clearCountdown()
+  emailCodeCountdown.value = 60
+  countdownTimer = setInterval(() => {
+    emailCodeCountdown.value -= 1
+    if (emailCodeCountdown.value <= 0) {
+      emailCodeCountdown.value = 0
+      clearCountdown()
+    }
+  }, 1000)
+}
+
+const resetVerifyDialogState = () => {
+  verifyDialogVisible.value = false
+  verifyCode.value = ''
+  pendingNewEmail.value = ''
+  clearCountdown()
+  emailCodeCountdown.value = 0
+}
+
+const handleSaveEmail = async () => {
+  const trimmed = emailInput.value.trim()
+  if (!EMAIL_PATTERN.test(trimmed)) {
+    ElMessage.warning('请输入有效的邮箱地址')
+    return
+  }
+  if (trimmed === (user.value.email || '')) {
+    ElMessage.info('邮箱未变更')
+    return
+  }
+
+  sendingEmailCode.value = true
   try {
-    await userStore.updateEmail(emailInput.value.trim())
-    ElMessage.success('邮箱更新成功')
+    await sendEmailChangeCode(trimmed)
+    pendingNewEmail.value = trimmed
+    verifyCode.value = ''
+    verifyDialogVisible.value = true
+    startCountdown()
   } catch {
     // handled
   } finally {
-    loading.value = false
+    sendingEmailCode.value = false
   }
+}
+
+const handleResendCode = async () => {
+  if (emailCodeCountdown.value > 0 || !pendingNewEmail.value) {
+    return
+  }
+
+  sendingEmailCode.value = true
+  try {
+    await sendEmailChangeCode(pendingNewEmail.value)
+    startCountdown()
+  } catch {
+    // handled
+  } finally {
+    sendingEmailCode.value = false
+  }
+}
+
+const handleConfirmEmailChange = async () => {
+  if (verifyCode.value.length !== 6) {
+    ElMessage.warning('请输入 6 位验证码')
+    return
+  }
+
+  confirmingEmailChange.value = true
+  try {
+    await userStore.updateEmail(pendingNewEmail.value, verifyCode.value)
+    ElMessage.success('邮箱更新成功')
+    const newEmail = pendingNewEmail.value
+    resetVerifyDialogState()
+    emailInput.value = newEmail
+  } catch {
+    // handled，保留弹窗让用户重试 code
+  } finally {
+    confirmingEmailChange.value = false
+  }
+}
+
+const handleCancelEmailChange = () => {
+  resetVerifyDialogState()
 }
 
 const handleUpdatePassword = async () => {
@@ -162,6 +254,19 @@ watch(
   },
   { immediate: true }
 )
+
+watch(verifyDialogVisible, (visible) => {
+  if (!visible) {
+    verifyCode.value = ''
+    pendingNewEmail.value = ''
+    clearCountdown()
+    emailCodeCountdown.value = 0
+  }
+})
+
+onBeforeUnmount(() => {
+  clearCountdown()
+})
 </script>
 
 <template>
@@ -258,10 +363,11 @@ watch(
                 class="input-ember sm:flex-1"
               />
               <button
-                class="btn-ember rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer"
-                @click="handleUpdateEmail"
+                class="btn-ember rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer disabled:opacity-60"
+                :disabled="sendingEmailCode"
+                @click="handleSaveEmail"
               >
-                保存邮箱
+                {{ sendingEmailCode ? '发送中...' : '保存邮箱' }}
               </button>
             </div>
             <p class="text-xs text-slate-500">用于找回密码和接收系统通知。</p>
@@ -401,6 +507,56 @@ watch(
         </div>
       </div>
     </section>
+
+    <EmberFormDialog
+      v-model="verifyDialogVisible"
+      title="验证邮箱变更"
+    >
+      <div class="px-6 pb-2 pt-2 space-y-5">
+        <p class="text-sm text-slate-600">
+          已向 {{ pendingNewEmail }} 发送 6 位验证码，有效期 10 分钟。
+        </p>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">验证码</label>
+            <button
+              type="button"
+              class="text-xs font-semibold text-ember transition-colors hover:text-ember/80 disabled:cursor-not-allowed disabled:text-slate-400 cursor-pointer"
+              :disabled="emailCodeCountdown > 0 || sendingEmailCode"
+              @click="handleResendCode"
+            >
+              {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s 后重发` : '重新发送' }}
+            </button>
+          </div>
+          <el-input
+            v-model="verifyCode"
+            placeholder="请输入 6 位验证码"
+            maxlength="6"
+            inputmode="numeric"
+            class="input-ember"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
+          <button
+            class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
+            @click="handleCancelEmailChange"
+          >
+            取消
+          </button>
+          <button
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70 cursor-pointer"
+            :disabled="confirmingEmailChange"
+            @click="handleConfirmEmailChange"
+          >
+            {{ confirmingEmailChange ? '确认中...' : '确认' }}
+          </button>
+        </div>
+      </template>
+    </EmberFormDialog>
 
   </div>
 </template>

@@ -193,7 +193,59 @@ interface ListResponse<T> {
 约束：
 
 - 验证码必须按 `email + code + type` 消费，成功后立即失效。
-- `register` 和 `reset` 两类验证码不得混用。
+- `register` / `reset` / `change_email` 三类验证码不得混用。
+
+#### 账号中心邮箱变更（两步流）
+
+`POST /api/v1/email/send-code` / `POST /api/v1/user/email/send-code`
+
+请求体：
+
+```json
+{
+  "newEmail": "user@example.com"
+}
+```
+
+成功响应（200）：
+
+```json
+{
+  "message": "验证码已发送至新邮箱"
+}
+```
+
+错误映射：
+
+- 400：请求格式错误、`新邮箱与当前邮箱相同`（`ErrEmailUnchanged`）、`邮箱已被其他用户绑定`（`ErrEmailAlreadyBound`）、`邮箱已被注册`（`ErrEmailAlreadyRegistered`）
+- 429：`该邮箱今日发送次数已达上限`（`ErrEmailCodeRateLimit`）/ `请求过于频繁，请稍后再试`（`ErrEmailCodeIPRateLimit`）
+- 503：`邮件服务未配置`（`ErrEmailNotConfigured`）
+- 500：其余内部错误统一走 `上游服务暂不可用`
+
+`PUT /api/v1/email` / `PUT /api/v1/user/email`
+
+请求体：
+
+```json
+{
+  "newEmail": "user@example.com",
+  "code": "123456"
+}
+```
+
+成功响应（200）：返回更新后的 `User` 对象。后端会异步通知旧邮箱本次变更。
+
+错误映射：
+
+- 400：请求格式错误（`newEmail` 缺失或格式非法、`code` 长度不是 6）、`ErrEmailUnchanged`、`ErrEmailCodeInvalid`（验证码无效或已过期）、`ErrEmailAlreadyExists`
+- 404：`ErrUserNotFound`
+- 500：其余内部错误统一走 `上游服务暂不可用`
+
+约束：
+
+- `send-code` 业务前置失败（`Unchanged` / `AlreadyBound`）不消耗 `change_email` 限流配额，避免合法用户被对手用相同 / 占用邮箱反复打满
+- 验证码必须发往**新邮箱**，并按 `change_email` 类型消费；不允许复用 `register` / `reset` 的码完成邮箱变更
+- 旧邮箱通知是 fire-and-forget，前端不等待该副作用结果
 
 ---
 
@@ -571,6 +623,10 @@ curl -s http://localhost:8080/api/v1/admin/users \
 ---
 
 ## 📝 版本历史
+
+### v1.2 (2026-05-02)
+- ✅ 增补账号中心邮箱变更两步流（`send-code` + `PUT /email`）的请求体、响应与错误码映射
+- ✅ 验证码类型补 `change_email`，明确与 `register` / `reset` 配额隔离
 
 ### v1.1 (2026-05-02)
 - ✅ 明确命名分层：数据库 `snake_case`，Go/GORM `CamelCase`，JSON `camelCase`

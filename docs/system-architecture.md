@@ -433,7 +433,7 @@ services/
 | ID | string(25) | id | CUID |
 | Email | string(255) | email | 索引 |
 | Code | string(6) | code | 6 位验证码（JSON 隐藏）|
-| Type | string(20) | type | 验证码类型：`register`/`reset`（索引）|
+| Type | string(20) | type | 验证码类型：`register`/`reset`/`change_email`（索引）|
 | IP | string(45) | ip | 请求 IP（索引，JSON 隐藏）|
 | ExpiresAt | time.Time | expiresAt | 过期时间 |
 | CreatedAt | time.Time | createdAt | 自动 |
@@ -723,8 +723,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态/套餐组/到期时间；`planGroup` 不传表示不改，传合法 key 表示显式绑定，传空字符串表示清空显式绑定并改为跟随系统默认分组；有效分组变化后会同步把该用户关联的 `pending` 支付标记为 `expired`
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
 - `GetProfile(userID)` — 获取用户个人资料
-- `UpdateProfile(userID, email)` — 更新用户个人资料
-- `UpdateEmail(userID, newEmail)` — 更新用户邮箱
+- `UpdateEmail(userID, req)` — 邮箱变更落库；`UpdateEmailRequest{NewEmail string \`binding:"required,email"\`, Code string \`binding:"required,len=6"\`}`，事务内先做 `unchangedEmailCheck` → `EmailService.ConsumeCodeTx(tx, newEmail, code, change_email)`（校验即消费）→ `UPDATE users.email`；返回 `*UpdateEmailResult{OldEmail, User}` 由 handler 用于 fire-and-forget 通知旧邮箱
 - `UpdatePassword(userID, old, new)` — Emby + 本地 hash 同步
 - `ResetPassword(userID, new)` — 管理员重置，Emby + 本地 hash 同步
 - `ResetPasswordByCode(email, code, newPassword)` — 通过注入的验证码校验能力完成邮箱验证码重置，不再在方法内部自行构造 EmailService
@@ -845,6 +844,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 邮箱验证码发送、校验和清理服务，基于 SMTP。
 
 - `SendVerificationCode(email, ip, codeType)` — 先对 email 做 `strings.ToLower(strings.TrimSpace(...))` 规范化 → 生成 6 位随机验证码 → 按类型频率限制（每邮箱/每 IP 每日上限）→ SMTP 发送
+- `SendEmailChangeCode(currentEmail, newEmail, ip)` — 账号中心邮箱变更专用，`codeType` 固定为 `change_email`，验证码发往新邮箱；业务前置校验"新邮箱与当前邮箱相同"返回 `ErrEmailUnchanged`、"新邮箱被其他用户占用"返回 `ErrEmailAlreadyBound`，二者均不消耗限流配额；其余流程复用 advisory lock + 24h 双维度限流骨架，与 `register` / `reset` 共用同一份限流入口但配额按 `(email, type)` / `(ip, type)` 隔离
+- `SendEmailChangeNotification(oldEmail, newEmail)` — 邮箱变更成功后给旧邮箱发送通知邮件；不写 `email_verifications` 表、不消耗限流配额；SMTP 未配置直接返回 `ErrEmailNotConfigured`，其余失败仅记日志
 - `VerifyCode(email, code, codeType)` — **"校验即消费"契约**：先按同一 email 规范化规则查询；在事务中 `Clauses(clause.Locking{Strength: "UPDATE"})` 锁行 → 校验有效期与 code 匹配 → 立即 DELETE 该行；同一码不可重放用于注册或重置，并发拿到同一码的第二个请求统一返回 `ErrEmailCodeInvalid`
 - `CleanupExpired()` — 删除过期验证码（cron 调用）
 - `IsEnabled()` — 通过 `ConfigService` 解析 `email_verification`，并叠加 SMTP 完整性判断
@@ -852,10 +853,23 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **频率限制**：
 - 每邮箱每日：`EMAIL_CODE_DAILY_LIMIT`（默认 5，按规范化后的 email + `codeType` 隔离计数）
-- 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15，**按 `codeType` 隔离计数**：register 与 reset 配额互不串号）
+- 每 IP 每日：`EMAIL_CODE_IP_DAILY_LIMIT`（默认 15，**按 `codeType` 隔离计数**：`register` / `reset` / `change_email` 三类配额互不串号）
 - 验证码有效期：`EMAIL_CODE_EXPIRY_MINUTES`（默认 10 分钟）
 
 **忘记密码反枚举**：`SendResetCode` handler 除请求格式错误（400）和 SMTP 未配置（503）外，所有内部错误（未注册邮箱 / 限流 / 发送失败 / 其他）一律折叠为 200 + 与已注册一致的统一文案；service 层在 reset 路径上无论邮箱是否注册都先消耗 IP / email 限流配额（未注册邮箱仍写入限流计数行但不发送邮件），攻击者无法借响应状态、文案或限流差异（200 vs 429）枚举站内邮箱。内部记录 emailHash 前 8 位 + clientIP + 错误细节用于排障。
+
+**账号中心邮箱变更状态码映射**：
+- `POST /api/v1/email/send-code` / `POST /api/v1/user/email/send-code`
+  - 200：`{"message":"验证码已发送至新邮箱"}`
+  - 400：请求体格式错误、`ErrEmailUnchanged`（新邮箱与当前邮箱相同）、`ErrEmailAlreadyBound`（新邮箱被他人占用）、`ErrEmailAlreadyRegistered`
+  - 429：`ErrEmailCodeRateLimit` / `ErrEmailCodeIPRateLimit`
+  - 503：`ErrEmailNotConfigured`（SMTP 未配置）
+  - 500：其余内部错误统一走 `httpx.InternalError`
+- `PUT /api/v1/email` / `PUT /api/v1/user/email`
+  - 200：返回更新后的 `User` 对象，handler 紧接着 `go func()` 调 `SendEmailChangeNotification` 通知旧邮箱（带 `recover`，仅当 `oldEmail != ""` 时触发）
+  - 400：请求体格式错误（缺 `newEmail` / `code` 不是 6 位）、`ErrEmailUnchanged`、`ErrEmailCodeInvalid`、`ErrEmailAlreadyExists`
+  - 404：`ErrUserNotFound`
+  - 500：其余内部错误统一走 `httpx.InternalError`
 
 ### 5.14 BotNotifier (`integrations/notifier/notifier.go`)
 
@@ -1047,9 +1061,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/profile` | 个人信息 |
 | GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range` 或 `startDate/endDate`） |
-| PUT | `/api/v1/profile` | 更新资料 |
 | PUT | `/api/v1/password` | 修改密码 |
-| PUT | `/api/v1/email` | 修改邮箱 |
+| POST | `/api/v1/email/send-code` | 发送邮箱变更验证码到新邮箱（请求体 `{newEmail}`，必填合法邮箱；与 `PUT /api/v1/email` 共用 `change_email` 限流） |
+| PUT | `/api/v1/email` | 修改邮箱（请求体 `{newEmail, code}`，`code` 必填 6 位） |
 | POST | `/api/v1/redeem` | 通用兑换续期 |
 | GET | `/api/v1/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
 | GET | `/api/v1/redemptions` | 当前登录账号的兑换历史 |
@@ -1077,9 +1091,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/api/v1/user/profile` | 个人信息 |
-| PUT | `/api/v1/user/profile` | 更新资料 |
 | PUT | `/api/v1/user/password` | 修改密码 |
-| PUT | `/api/v1/user/email` | 修改邮箱 |
+| POST | `/api/v1/user/email/send-code` | 发送邮箱变更验证码到新邮箱（请求体 `{newEmail}`，必填合法邮箱） |
+| PUT | `/api/v1/user/email` | 修改邮箱（请求体 `{newEmail, code}`，`code` 必填 6 位） |
 | POST | `/api/v1/user/redeem` | 兑换续期 |
 | GET | `/api/v1/user/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
 | GET | `/api/v1/user/redemptions` | 我的兑换历史 |
@@ -1216,7 +1230,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `api/auth.ts` — login, getLoginProtectionConfig, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
 - `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings）
-- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram）
+- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram；账号中心邮箱变更走 `sendEmailChangeCode(newEmail)` + `updateEmail(newEmail, code)` 两步流，旧 `updateProfile` 已下线）
 
 ### 路由守卫
 

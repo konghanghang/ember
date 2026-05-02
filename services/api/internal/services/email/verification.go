@@ -230,6 +230,141 @@ func (s *EmailService) CleanupExpired() (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
+// SendEmailChangeCode 发送邮箱变更验证码到新邮箱（codeType=change_email）。
+// 与 SendVerificationCode 的差异：
+//   - codeType 固定为 VerificationTypeChangeEmail
+//   - 业务前置：新邮箱与当前邮箱相同直接拒绝（不消耗限流配额）
+//   - 业务前置：新邮箱已被其他用户使用直接拒绝（不消耗限流配额）
+//
+// 限流配额、advisory lock、SMTP 发送结构与 SendVerificationCode 保持一致。
+func (s *EmailService) SendEmailChangeCode(currentEmail, newEmail, ip string) error {
+	s.refreshConfig()
+	if !s.IsConfigured() {
+		return ErrEmailNotConfigured
+	}
+
+	normalizedNew := normalizeVerificationEmail(newEmail)
+	normalizedCurrent := normalizeVerificationEmail(currentEmail)
+
+	if normalizedNew == "" {
+		return ErrEmailCodeInvalid
+	}
+
+	// 业务前置：与当前邮箱相同 → 拒绝并不消耗配额
+	if normalizedNew == normalizedCurrent {
+		return ErrEmailUnchanged
+	}
+
+	// 业务前置：新邮箱被其他用户占用 → 拒绝并不消耗配额
+	var conflictCount int64
+	if err := db.DB.Model(&models.User{}).
+		Where("lower(email) = ? AND lower(email) <> ?", normalizedNew, normalizedCurrent).
+		Count(&conflictCount).Error; err != nil {
+		log.Printf("[EmailChange] 校验新邮箱占用失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+	if conflictCount > 0 {
+		return ErrEmailAlreadyBound
+	}
+
+	codeType := models.VerificationTypeChangeEmail
+	code := generateVerificationCode()
+
+	verification := models.EmailVerification{
+		Email:     normalizedNew,
+		Code:      code,
+		Type:      codeType,
+		IP:        ip,
+		ExpiresAt: time.Now().UTC().Add(time.Duration(s.expiryMinutes) * time.Minute),
+	}
+
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		log.Printf("[EmailChange] 开启事务失败 ip=%s err=%v", ip, tx.Error)
+		return ErrEmailSendFailed
+	}
+
+	if err := lockVerificationRateLimitScope(tx, fmt.Sprintf("email-verification:%s:%s", normalizedNew, codeType)); err != nil {
+		tx.Rollback()
+		log.Printf("[EmailChange] 锁定邮箱限流失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+	if err := lockVerificationRateLimitScope(tx, fmt.Sprintf("email-verification-ip:%s:%s", ip, codeType)); err != nil {
+		tx.Rollback()
+		log.Printf("[EmailChange] 锁定 IP 限流失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+
+	since := time.Now().UTC().Add(-24 * time.Hour)
+
+	var emailCount int64
+	if err := tx.Model(&models.EmailVerification{}).
+		Where("lower(email) = ? AND \"type\" = ? AND \"created_at\" > ?", normalizedNew, codeType, since).
+		Count(&emailCount).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[EmailChange] 统计邮箱次数失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+
+	var ipCount int64
+	if err := tx.Model(&models.EmailVerification{}).
+		Where("ip = ? AND \"type\" = ? AND \"created_at\" > ?", ip, codeType, since).
+		Count(&ipCount).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[EmailChange] 统计 IP 次数失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+	if err := validateVerificationRateLimits(emailCount, ipCount, s.dailyLimit, s.ipDailyLimit); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	subject := "Ember 邮箱变更验证码"
+	body := fmt.Sprintf("你的 Ember 邮箱变更验证码是：%s\n有效期 %d 分钟，请勿泄露给他人。\n如果不是你本人操作，请立即修改密码。", code, s.expiryMinutes)
+
+	if err := tx.Create(&verification).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[EmailChange] 保存验证码记录失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+
+	if err := s.sendEmail(normalizedNew, subject, body); err != nil {
+		tx.Rollback()
+		log.Printf("[EmailChange] SMTP 发送失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("[EmailChange] 提交事务失败 ip=%s err=%v", ip, err)
+		return ErrEmailSendFailed
+	}
+
+	return nil
+}
+
+// SendEmailChangeNotification 给旧邮箱发送变更通知，不写 email_verifications 表，
+// 不参与限流。失败仅记日志，不抛 panic。
+func (s *EmailService) SendEmailChangeNotification(oldEmail, newEmail string) error {
+	s.refreshConfig()
+	if !s.IsConfigured() {
+		return ErrEmailNotConfigured
+	}
+
+	to := strings.TrimSpace(oldEmail)
+	if to == "" {
+		return nil
+	}
+
+	subject := "Ember 联系邮箱已变更"
+	body := fmt.Sprintf(
+		"你的 Ember 账号联系邮箱已从 %s 变更为 %s。\n\n如果不是你本人操作，请立即登录控制台修改密码并联系管理员。",
+		oldEmail,
+		newEmail,
+	)
+
+	return s.sendEmail(to, subject, body)
+}
+
 // generateVerificationCode 生成 6 位随机数字验证码
 func generateVerificationCode() string {
 	b := make([]byte, 3)

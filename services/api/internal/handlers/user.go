@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
+	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	userpkg "github.com/konghang/ember/backend/internal/services/user"
@@ -14,14 +17,17 @@ import (
 // UserHandler 用户处理器
 type UserHandler struct {
 	userService           *userpkg.UserService
+	emailService          *emailpkg.EmailService
 	redemptionService     *redemptionpkg.RedemptionService
 	redemptionCodeService *redemptionpkg.RedemptionCodeService
 }
 
 // NewUserHandler 创建用户处理器
 func NewUserHandler() *UserHandler {
+	emailService := emailpkg.NewEmailService()
 	return &UserHandler{
-		userService:           userpkg.NewUserService(),
+		userService:           userpkg.NewUserServiceWithEmailVerifier(emailService),
+		emailService:          emailService,
 		redemptionService:     &redemptionpkg.RedemptionService{},
 		redemptionCodeService: &redemptionpkg.RedemptionCodeService{},
 	}
@@ -328,40 +334,6 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
-// UpdateProfile 更新个人信息
-// @Summary 更新个人信息
-// @Tags 用户面板
-// @Accept json
-// @Produce json
-// @Param body body user.UpdateProfileRequest true "个人信息"
-// @Success 200 {object} models.User
-// @Router /api/v1/user/profile [put]
-// @Security BearerAuth
-func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	userID, _ := c.Get("userID")
-
-	var req userpkg.UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "请求参数错误",
-		})
-		return
-	}
-
-	user, err := h.userService.UpdateProfile(userID.(string), &req)
-	if err != nil {
-		switch {
-		case errors.Is(err, userpkg.ErrEmailAlreadyExists):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		default:
-			httpx.InternalError(c, err)
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, user)
-}
-
 // UpdatePassword 修改密码
 // @Summary 修改密码
 // @Tags 用户面板
@@ -399,6 +371,68 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
 	})
 }
 
+// SendEmailChangeCodeRequest 发送邮箱变更验证码请求
+type SendEmailChangeCodeRequest struct {
+	NewEmail string `json:"newEmail" binding:"required,email"`
+}
+
+// SendEmailChangeCode 发送邮箱变更验证码到新邮箱
+// @Summary 发送邮箱变更验证码
+// @Tags 用户面板
+// @Accept json
+// @Produce json
+// @Param body body handlers.SendEmailChangeCodeRequest true "新邮箱"
+// @Success 200 {object} SuccessResponse
+// @Router /api/v1/user/email/send-code [post]
+// @Security BearerAuth
+func (h *UserHandler) SendEmailChangeCode(c *gin.Context) {
+	userIDValue, _ := c.Get("userID")
+	userID, _ := userIDValue.(string)
+
+	var req SendEmailChangeCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供有效的邮箱地址"})
+		return
+	}
+
+	clientIP := c.ClientIP()
+	newEmail := strings.TrimSpace(req.NewEmail)
+
+	currentUser, err := h.userService.GetUserByID(userID)
+	if err != nil {
+		if errors.Is(err, userpkg.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
+		return
+	}
+
+	log.Printf("[UserEmailChange] step=send-code userId=%s newHash=%s ip=%s",
+		userID, hashEmailForLog(newEmail), clientIP)
+
+	if err := h.emailService.SendEmailChangeCode(currentUser.Email, newEmail, clientIP); err != nil {
+		switch {
+		case errors.Is(err, emailpkg.ErrEmailUnchanged),
+			errors.Is(err, emailpkg.ErrEmailAlreadyBound),
+			errors.Is(err, emailpkg.ErrEmailAlreadyRegistered):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, emailpkg.ErrEmailCodeRateLimit),
+			errors.Is(err, emailpkg.ErrEmailCodeIPRateLimit):
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+		case errors.Is(err, emailpkg.ErrEmailNotConfigured):
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		default:
+			log.Printf("[UserEmailChange] send-code failed userId=%s newHash=%s ip=%s err=%v",
+				userID, hashEmailForLog(newEmail), clientIP, err)
+			httpx.InternalError(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "验证码已发送至新邮箱"})
+}
+
 // UpdateEmail 修改邮箱
 // @Summary 修改邮箱
 // @Tags 用户面板
@@ -409,7 +443,8 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
 // @Router /api/v1/user/email [put]
 // @Security BearerAuth
 func (h *UserHandler) UpdateEmail(c *gin.Context) {
-	userID, _ := c.Get("userID")
+	userIDValue, _ := c.Get("userID")
+	userID, _ := userIDValue.(string)
 
 	var req userpkg.UpdateEmailRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -419,18 +454,44 @@ func (h *UserHandler) UpdateEmail(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.UpdateEmail(userID.(string), &req)
+	result, err := h.userService.UpdateEmail(userID, &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, userpkg.ErrEmailAlreadyExists):
+		case errors.Is(err, userpkg.ErrEmailAlreadyExists),
+			errors.Is(err, emailpkg.ErrEmailUnchanged),
+			errors.Is(err, emailpkg.ErrEmailCodeInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, userpkg.ErrUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	if result.OldEmail != "" {
+		newEmail := result.User.Email
+		oldEmail := result.OldEmail
+		go func(oldEmail, newEmail string) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[UserEmailChange] notify-old-email panic oldHash=%s recovered=%v",
+						hashEmailForLog(oldEmail), r)
+				}
+			}()
+			log.Printf("[UserEmailChange] notify-old-email start oldHash=%s newHash=%s",
+				hashEmailForLog(oldEmail), hashEmailForLog(newEmail))
+			if err := h.emailService.SendEmailChangeNotification(oldEmail, newEmail); err != nil {
+				log.Printf("[UserEmailChange] notify-old-email failed oldHash=%s err=%v",
+					hashEmailForLog(oldEmail), err)
+				return
+			}
+			log.Printf("[UserEmailChange] notify-old-email sent oldHash=%s newHash=%s",
+				hashEmailForLog(oldEmail), hashEmailForLog(newEmail))
+		}(oldEmail, newEmail)
+	}
+
+	c.JSON(http.StatusOK, result.User)
 }
 
 func (h *UserHandler) RedeemCode(c *gin.Context) {

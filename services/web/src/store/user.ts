@@ -30,8 +30,8 @@ export const useUserStore = defineStore('user', () => {
     return res
   }
 
-  const updateEmail = async (newEmail: string) => {
-    await consoleApi.updateEmail(newEmail)
+  const updateEmail = async (newEmail: string, code: string) => {
+    await consoleApi.updateEmail(newEmail, code)
     if (profile.value) {
       profile.value.email = newEmail
     }

@@ -34,6 +34,7 @@ func (e *EmailVerification) IsExpired() bool {
 }
 
 const (
-	VerificationTypeRegister = "register"
-	VerificationTypeReset    = "reset"
+	VerificationTypeRegister    = "register"
+	VerificationTypeReset       = "reset"
+	VerificationTypeChangeEmail = "change_email"
 )

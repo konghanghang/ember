@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
@@ -218,9 +219,12 @@ func (h *AuthHandler) SendResetCode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": uniformMessage})
 }
 
-// hashEmailForLog 对 email 做不可逆哈希，仅取前 8 位 hex 用于日志关联，避免明文落盘
+// hashEmailForLog 对 email 做不可逆哈希，仅取前 8 位 hex 用于日志关联，避免明文落盘。
+// 输入先 lower+trim 归一化，与 DB lower(email) 查询及 service 层 hashEmail 口径对齐，
+// 保证同一邮箱在 send-code、UpdateEmail commit、notify-old-email 三处日志中 hash 一致。
 func hashEmailForLog(email string) string {
-	sum := sha256.Sum256([]byte(email))
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	sum := sha256.Sum256([]byte(normalized))
 	return hex.EncodeToString(sum[:])[:8]
 }
 
