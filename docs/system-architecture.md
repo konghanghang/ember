@@ -1576,7 +1576,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 - 健康检查：`GET /health`；Bot 通过 `depends_on.condition: service_healthy` 等 API 健康后再启动
 - PostgreSQL 端口默认仅监听 `127.0.0.1:5432`；远程访问请走 SSH tunnel 或反代授权
 - 首次初始化目录：`infrastructure/docker/initdb/`（compose 仅挂载该子目录到 `/docker-entrypoint-initdb.d/`，README/archive 不参与首启）；新增顶层 SQL 必须同步复制到 `initdb/`
-- 数据库迁移资产当前收口为 `infrastructure/database/20260422_00_schema_baseline.sql` + baseline 之后的顶层增量 migration；`pre-20260415` 与 `pre-20260422` 历史 SQL 已归档到各自的 `infrastructure/database/archive/` 子目录
+- 数据库迁移资产当前收口为 v1.4.0 截点合并 baseline `infrastructure/database/20260502_00_schema_baseline.sql`（顶层无独立增量）；`pre-20260415` / `pre-20260422` / `pre-20260502` 历史 SQL 已归档到各自的 `infrastructure/database/archive/` 子目录，仅供追溯
 - 启动期不再调用 `AutoMigrate`：本地空库可执行 `cd services/api && go run ./cmd/migrate`，工具会自动读取 `.env` 或 `services/api/.env`，按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL，再跑 `VerifySchema` 自检；生产 schema 必须通过 `infrastructure/database/` 下的 SQL migration 升级
 
 **数据库连接池**：MaxIdle=15, MaxOpen=30, MaxLifetime=1h, MaxIdleTime=10min

@@ -1,203 +1,105 @@
 # 数据库迁移（PostgreSQL）
 
-本目录存放 Ember 项目的数据库迁移 SQL。
+本目录存放 Ember 项目的数据库 schema 真相源。
 
-当前规则很直接：
+当前唯一现行入口：
 
-- `infrastructure/database/` 顶层文件是现行可执行迁移资产
-- 当前顶层已收口为 `20260422_00_schema_baseline.sql` + 后续增量迁移
-- `archive/pre-20260415/` 与 `archive/pre-20260422/` 仅保留已被 baseline 完整覆盖的历史迁移
-- 已有数据库升级只执行 baseline 之后新增的顶层 SQL
-- 数据库表名、列名、索引名统一使用 `snake_case`；历史 camelCase 列仅作遗留兼容，不得在新 migration 里继续扩散
+- `20260502_00_schema_baseline.sql`：v1.4.0 截点合并 baseline，新装库初始化的全部内容
+- `archive/`：仅供追溯，不参与任何运行时链路
 
-## 当前目录职责
-
-本目录当前同时承担三种职责：
-
-- 空数据库首次初始化入口
-- 已有数据库手工增量升级入口
-- 历史 schema 变更追溯入口
-
-这也是为什么不能为了“目录整齐”直接把旧 SQL 从顶层挪走。
+数据库表名 / 列名 / 索引名统一使用 `snake_case`；历史 camelCase 列已在 v1.4.0 期间整体收口（脚本归档于 `archive/pre-20260502/20260423_00_legacy_camelcase_to_snake_case.sql`）。
 
 ## 使用方式
 
-### 1. 空数据库首次初始化
+### 1. Docker 一键启动（推荐）
 
-标准入口：
+```bash
+cd infrastructure/docker
+docker compose up -d postgres
+```
+
+`docker-compose.yml` 把 `infrastructure/docker/initdb/` 挂载到 PostgreSQL 的 `/docker-entrypoint-initdb.d`。容器首次启动（数据卷为空）时，PG 自动执行挂载目录下的 SQL，本目录的 baseline 已在该子目录有同名副本，首启即完成 schema 初始化。
+
+`archive/` 不挂载，不参与初始化。
+
+### 2. 本地空库初始化
 
 ```bash
 cd services/api && go run ./cmd/migrate
 ```
 
-`cmd/migrate` 会按字典序执行 `infrastructure/database/` 顶层 baseline + 全部后续增量 migration，
-然后跑 `VerifySchema` 自检。这是当前唯一和 API 启动期 schema 约束完全一致的空库初始化方式。
+`cmd/migrate` 流程：`InitDB` → 按字典序执行 `infrastructure/database/` 顶层 `*.sql` → `VerifySchema` 自检 → `Bootstrap` 写入默认 admin / settings / plan_groups。
 
-如果必须手工执行 SQL，也必须执行：
-
-1. `20260422_00_schema_baseline.sql`
-2. baseline 之后的全部顶层增量 migration（见下节完整列表）
-
-只执行 baseline 本身已经不够，API 启动时会因为缺少后续表 / 列 / 索引被 `VerifySchema` 拒绝。
-
-当前现行 baseline `20260422_00_schema_baseline.sql` 包含：
-
-- 当前完整 schema
-- 5 条 deterministic 默认设置
-- 默认套餐分组 `DEFAULT`
-- 与历史迁移定义对齐但线上源库缺失的两条索引：
-  - `idx_ranking_lookup`
-  - `uq_redemptions_user_code`
-- `2026-04-22`（`v1.3.1`）前已上线的订阅审核字段与 `media_gaps` 表结构
-
-### 2. 生产 / 已有数据库升级
-
-只执行 baseline 之后新增的顶层 SQL。
-
-当前顶层 baseline 之后的增量 migration 为：
-
-- `20260423_00_legacy_camelcase_to_snake_case.sql`（仅老线上库需要：把 v1.3.1 时期遗留的 camelCase 列改为 snake_case；新装库 no-op）
-- `20260424_01_subscription_resubmission_after_rejection.sql`
-- `20260425_01_baseline_normalization_indexes.sql`
-- `20260425_02_telegram_bind_codes_user_unique.sql`
-- `20260426_01_users_lower_unique_indexes.sql`
-- `20260426_02_failed_emby_async_ops.sql`
-- `20260426_03_stripe_webhook_events.sql`
-- `20260426_04_payments_checkout_constraints.sql`
-- `20260426_05_subscriptions_ingest_progress.sql`
-- `20260426_06_media_gaps_dispatch_failed.sql`
-- `20260426_07_media_gap_scans.sql`
-- `20260426_08_playback_rankings_idempotency.sql`
-- `20260426_09_media_quality_caches_inflight.sql`
-- `20260426_10_device_actions_operator_id.sql`
-- `20260426_11_tv_calendar_sources_sync_markers.sql`
-- `20260426_12_bot_pending_reject_requests.sql`
-- `20260426_13_schema_alignment.sql`
-- `20260426_14_airdate_to_date.sql`
-- `20260426_15_users_password_reset_required.sql`
-- `20260426_16_subscriptions_note_not_null.sql`
-- `20260427_01_bot_runtime_locks.sql`
-- `20260427_02_media_gaps_ignore_reason_code.sql`
-- `20260427_04_bot_pending_reject_message_context.sql`
-
-如果当前数据库还停留在 `v1.3.1` 对应阶段（线上仍为 camelCase 列），升级到当前版本前必须从 `20260423_00_legacy_camelcase_to_snake_case.sql` 开始顺序执行以上 SQL；该文件先把遗留 camelCase 列收拢为 snake_case，之后的增量才能落库。已经执行过它们的环境不需要重复执行。
-
-### 3. Docker 首次初始化（仅首次）
-
-`infrastructure/docker/docker-compose.yml` 把 `infrastructure/docker/initdb/` 子目录挂载到 Postgres 的 `/docker-entrypoint-initdb.d`，**不再直接挂本目录**。原因：
-
-- PG initdb.d 会按字典序执行其下所有 `.sql` / `.sh` / `.sql.gz`，本目录里的 README、archive、未来临时 SQL 都可能被误执行
-- 改用专用子目录后，本目录仍是 SQL 真相，但首启执行链路收口在 `docker/initdb/`
-
-执行行为：
-
-- 只在数据库数据卷为空时执行一次
-- 当前 `docker/initdb/` 包含顶层 baseline 和后续增量 migration
-- `archive/` 不参与初始化
-- 如果数据库已存在，只手工执行 baseline 之后新增的顶层 migration
-
-**新增 / 同步迁移**：每次在本目录新增顶层 SQL，必须同步复制一份到 `infrastructure/docker/initdb/`：
+如果必须手工执行：
 
 ```bash
-cp infrastructure/database/<NEW_SQL>.sql infrastructure/docker/initdb/
+psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -f infrastructure/database/20260502_00_schema_baseline.sql
 ```
 
-被 baseline 吸收并归档到 `archive/` 的旧文件，也要从 `docker/initdb/` 删除。
+### 3. 已有数据库升级
+
+线上以 `AUTO_MIGRATE=false` 运行，不依赖 GORM 自动迁移。
+
+- **已升级到 v1.4.0 的环境**：当前 baseline 中的 DDL 全部带 `IF NOT EXISTS`、DML 在已清洗数据上 0 命中，因此对已升级库执行也是 no-op，但通常情况下不需要重复执行。
+- **停留在 v1.3.1 的环境**（仅历史参考）：线上 v1.4.0 已上线，该路径无现实需求；如需还原，可在 `archive/pre-20260502/` 内按字典序执行 24 个原始文件（含 `20260423_00_legacy_camelcase_to_snake_case.sql`）。
 
 ### 4. 历史追溯
 
-历史迁移文件保存在：
-
 ```text
-infrastructure/database/archive/pre-20260415/
-infrastructure/database/archive/pre-20260422/
+archive/
+├─ README.md
+├─ pre-20260415/   早期迁移，被首轮 baseline 覆盖
+├─ pre-20260422/   v1.3.1 截点 baseline + 同期增量，被次轮 baseline 覆盖
+└─ pre-20260502/   v1.4.0 截点旧 baseline + 23 个增量，被本轮合并 baseline 覆盖
 ```
 
-这些文件只用于追溯，不再属于现行执行链路。
+普通使用者无需关注。排错或核对字段历史时，可在此查阅原始迁移 SQL；其余场景优先查 `git log`。
 
-## 文件命名规则
+## 现行 baseline 说明
 
-- 迁移文件名统一使用 `YYYYMMDD_NN_description.sql`
-- 新增 migration 默认继续放在 `infrastructure/database/` 顶层
-- 单次迁移脚本必须保持幂等
-- 归档历史迁移时，原文件名不允许改写
-- baseline 文件继续使用同一命名规则，不额外引入特殊前缀
+`20260502_00_schema_baseline.sql` 是 **合并式 baseline**：
 
-## Schema 命名规则
+- 内容由历史 24 份顶层 SQL（旧 baseline + 23 个增量）按字典序合并
+- 行为等价于在新装空库上逐个执行这 24 个文件
+- 各原始文件以 `-- ┌─ <filename>` / `-- └─ <filename>` 边界注释包裹，便于定位语句来源
+- 包含 4 处来自历史增量的 DML（去重 / NULL 回填）；新装空库上均为 no-op
+- deterministic seed（`settings` 5 条 + `plan_groups.DEFAULT`）继承自旧 baseline 段
 
-- 新增表名统一使用 `snake_case`
-- 新增列名统一使用 `snake_case`
-- 新增索引名统一使用 `snake_case`
-- Go / GORM 字段与 JSON 字段继续通过显式映射保持 `CamelCase` / `camelCase`
+为何选合并式而非严格 schema-only dump：本项目当前由单人维护、为开源做准备，没有 pg_dump 验证链路也能直接维护；合并方案在文本层面恒等于历史执行链路，无额外验证负担。多团队 / 多环境项目应优先考虑严格 dump 方案，详见 [`docs/runbooks/database-migration-baseline.md`](../../docs/runbooks/database-migration-baseline.md)。
 
-边界说明：
+## 添加新 migration（维护者视角）
 
-- 历史 migration 与现网 schema 中已经存在的 camelCase 列，属于遗留结构；没有专项 schema 收口任务时，不要在普通需求里顺手改名
-- 但新增 migration 也不能因为“要和旧列保持风格一致”就继续创建 camelCase 表 / 列 / 索引
-- 手写 SQL、排障 SQL、数据修复 SQL 都必须先核对真实列名，不要从 JSON 字段名或 Go 字段名反推数据库列名
+### 文件命名
 
-## 新增 migration 必做事项
+- 顶层新增：`YYYYMMDD_NN_<description>.sql`
+- 必须幂等：DDL 用 `IF NOT EXISTS`、列用 `ADD COLUMN IF NOT EXISTS`、DML 用 `WHERE` 收敛
 
-每次在本目录新增顶层 SQL，必须同步完成以下四件事：
+### Schema 命名
+
+- 表 / 列 / 索引一律 `snake_case`
+- Go 字段与 JSON 字段通过显式 tag 映射，不构成数据库列命名依据
+- 历史 camelCase 列已收口，新增不允许扩散
+
+### 必做事项
+
+每次新增顶层 SQL，必须同步完成：
 
 1. 复制到 `infrastructure/docker/initdb/`，保持文件名一致
-2. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（用于 API 启动期 `VerifySchema` fail-fast）
-3. 确认新增表 / 列 / 索引命名符合 `snake_case` 规则，不从历史 camelCase 遗留结构复制命名
-4. 在隔离临时库回灌验证幂等
+2. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（启动期 `VerifySchema` 据此 fail-fast）
+3. 命名符合 `snake_case`
+4. 在临时库回灌验证幂等
 
 漏做第 2 步：API 启动期不会拦住缺该 migration 的环境，要等运行到第一次查询才报错。
 
-## Baseline 收口规则
+### 何时再做下一轮 baseline
 
-当前目录已经过两轮 baseline 收口，现行执行链路如下：
+当顶层增量再次堆到不易维护、相关 schema 已稳定时：
 
-- 顶层：保留当前 baseline 和 baseline 之后仍需执行的增量迁移
-- `archive/`：只保留已被 baseline 完整覆盖的历史迁移，供追溯使用
+1. 选定新截点 `YYYYMMDD`
+2. 按字典序合并 `{当前 baseline} + {后续增量}` 生成 `<新截点>_00_schema_baseline.sql`
+3. 旧 baseline + 全部增量整批移到 `archive/pre-<新截点>/`
+4. 同步 `docker/initdb/`、本 README 的 baseline 文件名引用
+5. `db.go` 的 fingerprint 持续有效，不需要清空
 
-示例结构：
-
-```text
-infrastructure/database/
-├─ README.md
-├─ 20260422_00_schema_baseline.sql
-├─ 20260424_01_xxx.sql
-├─ 20260426_01_xxx.sql
-└─ archive/
-   ├─ pre-20260415/
-   │  ├─ 20260215_01_create_playback_rankings.sql
-   │  ├─ 20260222_01_add_email_verification.sql
-   │  └─ ...
-   └─ pre-20260422/
-      ├─ 20260415_00_schema_baseline.sql
-      ├─ 20260416_01_subscription_status_and_review_fields.sql
-      └─ 20260418_01_media_gaps.sql
-```
-
-边界约束：
-
-- 顶层永远只保留现行可执行链路，不把历史文件和平铺增量混在一起
-- 只有被最新 baseline 完整覆盖的旧迁移，才允许整体归档
-- 归档动作必须按截点整批执行，不能零散挪几份文件
-- 部署和运维执行入口始终以顶层可执行 SQL 为准，不能要求去 `archive/` 挑文件
-
-## Baseline 生成方式
-
-生成 baseline 时，不要手工拼接旧 migration，应该按下面的顺序做：
-
-1. 选定稳定的迁移截点
-2. 从当前有效 schema 导出 `schema-only` baseline 初稿
-3. 补齐 deterministic seed 和与迁移契约对齐的缺失结构
-4. 在隔离空库回灌 baseline，验证表、索引、约束和 seed
-5. 将被完整覆盖的旧迁移整批归档到 `archive/<cutoff>/`
-
-具体操作步骤看 [`docs/runbooks/database-migration-baseline.md`](../../docs/runbooks/database-migration-baseline.md)。
-
-## 验证清单
-
-准备归档旧迁移前，至少完成下面的检查：
-
-1. 空数据库仅执行 baseline，可以完整创建核心表、索引、约束和必要初始化数据
-2. 空数据库执行 baseline + baseline 后增量迁移，结果与当前完整迁移链路一致
-3. 已有数据库从 baseline 截点之后的任一版本升级，只需要执行增量迁移
-4. `infrastructure/database/README.md`、部署文档、发布说明中的执行入口一致
-5. 发布提醒仍只面向顶层可执行迁移，不把 `archive/` 误当成上线升级清单
+具体操作可参考 [`docs/runbooks/database-migration-baseline.md`](../../docs/runbooks/database-migration-baseline.md)。

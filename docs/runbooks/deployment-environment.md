@@ -101,7 +101,7 @@
 `infrastructure/docker/docker-compose.yml` 把 `infrastructure/docker/initdb/` 子目录挂到 PostgreSQL 容器的 `/docker-entrypoint-initdb.d`：
 
 - 仅当数据卷为空时由 PG 镜像自动执行一次
-- 当前包含顶层 baseline `20260422_00_schema_baseline.sql` 与之后的增量 migration
+- 当前仅包含 v1.4.0 截点合并 baseline `20260502_00_schema_baseline.sql`（含旧 baseline 与全部历史增量）
 - 不再挂载 `infrastructure/database/` 顶层目录，避免 README / archive / 临时 SQL 被误执行
 - `infrastructure/database/` 仍是 SQL migration 真相目录，新增顶层 SQL 必须同步到 `docker/initdb/`
 
@@ -120,9 +120,9 @@ API 启动期已不再调用 `AutoMigrate`（任何 `AUTO_MIGRATE` env 都会被
 3. 同步把新增 SQL 复制到 `infrastructure/docker/initdb/`，并在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 追加该 migration 的列/索引指纹
 4. 启动或重启 API；如启动日志报"数据库缺少必要的表/列/索引"，回到第 2 步检查漏跑哪条 SQL
 
-### 上线前脏数据自查
+### 上线前脏数据自查（v1.3.1 → v1.4.0 历史升级期）
 
-部分 migration 会引入新唯一约束 / 大小写不敏感比较，老库可能不满足，需要在执行 SQL 前自查：
+> 以下表格记录 v1.3.1 → v1.4.0 升级期间需要预检的脏数据；v1.4.0 已上线、相关 migration 已归档到 `infrastructure/database/archive/pre-20260502/`。新装库与已升级环境无需关注，保留作为历史参考。未来新增增量时按相同结构在表内追加。
 
 | 来源 migration | 自查 SQL | 期望结果 |
 |---|---|---|
@@ -130,9 +130,9 @@ API 启动期已不再调用 `AutoMigrate`（任何 `AUTO_MIGRATE` env 都会被
 | `20260426_01_users_lower_unique_indexes` | `SELECT lower(username), count(*) FROM users GROUP BY 1 HAVING count(*) > 1; SELECT lower(email), count(*) FROM users WHERE email IS NOT NULL AND email <> '' GROUP BY 1 HAVING count(*) > 1;` | 0 行；非 0 行需人工判定合并 / 重命名后再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检，存在重复时会停止并附排查 SQL） |
 | `20260426_04_payments_checkout_constraints` | `SELECT "userId", "planId", count(*) FROM payments WHERE status='pending' GROUP BY 1,2 HAVING count(*) > 1;` | 0 行；非 0 行需先把多余 pending 收口为 expired 再重跑 migration（migration 内置 `RAISE EXCEPTION` 预检并附收口 SQL） |
 
-### 批次 2 新增运行期表（无脏数据预检）
+### 批次 2 新增运行期表（v1.4.0 期间新建）
 
-下面三张表均为本批新建，老库执行 baseline 之后的增量 migration 后即出现，运行时由业务/cron 按需写入：
+下面三张表是 v1.4.0 期间新建的运行期表（来源 migration 已归档），运行时由业务 / cron 按需写入：
 
 | 表 | 来源 migration | 用途 |
 |---|---|---|

@@ -6,16 +6,36 @@
 
 ## 当前状态
 
-当前最近一轮 baseline 已于 `2026-04-22` 落地；首轮 baseline 信息保留在 archive 作为追溯：
+最近一轮 baseline 已于 `2026-05-02` 落地（v1.4.0 截点）：
 
-- 基线文件：`infrastructure/database/20260422_00_schema_baseline.sql`
-- 历史归档目录：`infrastructure/database/archive/pre-20260422/`
-- 吸收范围：旧 baseline `20260415_00_schema_baseline.sql` + `20260416_01_subscription_status_and_review_fields.sql` + `20260418_01_media_gaps.sql`
-- deterministic seed：5 条默认设置 + 默认套餐分组 `DEFAULT`
+- 基线文件：`infrastructure/database/20260502_00_schema_baseline.sql`（合并式 baseline，非 pg_dump schema-only）
+- 历史归档目录：`infrastructure/database/archive/pre-20260502/`
+- 吸收范围：上一轮 baseline `20260422_00_schema_baseline.sql` + 23 个 v1.4.0 期间顶层增量
+- deterministic seed：5 条默认 settings（`default_trial_days` / `registration_mode` / `notify_group_link` / `email_verification` / `stripe_allowed_payment_methods`）+ `plan_groups.DEFAULT`，继承自旧 baseline 段
 
-后续如果再次做 baseline，起点应是“当前顶层 baseline + baseline 之后新增的顶层 migration”，不要再把 `archive/` 当成现行执行链路。
+历史几轮 baseline 截点：
 
-下面的步骤主要记录首个 baseline 的实际生成过程；后续再做下一轮 baseline 时，按同样原则套到“当前顶层现行链路”上，不要回退到 `archive/` 时代的平铺迁移链。
+- v1.3.0 截点：`archive/pre-20260415/`
+- v1.3.1 截点：`archive/pre-20260422/`
+- v1.4.0 截点：`archive/pre-20260502/`
+
+后续如果再次做 baseline，起点应是”当前顶层 baseline + baseline 之后新增的顶层 migration”，不要再把 `archive/` 当成现行执行链路。
+
+## 本轮选择合并式 baseline 的边界
+
+v1.4.0 截点这一轮采用了”按字典序文本拼接”的合并式 baseline，跳过了下文第二、三、四步（隔离库回灌、pg_dump 导出、双库 schema diff）。判断依据：
+
+- 项目当前由单人维护、为开源做准备，无现成 PG 实例时 pg_dump 路径不便维护
+- 23 个增量在新装空库上的执行结果与”按字典序逐个执行 24 个文件”恒等
+- 合并文件保留各原始 SQL 的 DO 块、IF NOT EXISTS、historical DML（去重 / NULL 回填）；新装空库上 DML 均 0 命中，no-op
+- 用 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 做兜底交叉验证，确认所有列 / 索引 fingerprint 都被合并文件引入
+
+适用边界：
+
+- 自用 / 单人维护 / 开源前的 baseline 收口可走合并式
+- 多团队 / 多环境项目，或无法在文本层面证明”合并 == 字典序执行”时，仍应回归严格 dump 路径（下文第二至六步）
+
+下面的步骤主要记录首个 baseline 的实际生成过程，针对严格 dump 路径；后续再做下一轮 baseline 时，按同样原则套到”当前顶层现行链路”上，不要回退到 `archive/` 时代的平铺迁移链。
 
 ## 适用场景
 
