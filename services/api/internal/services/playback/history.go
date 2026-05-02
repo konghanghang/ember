@@ -493,7 +493,9 @@ func parsePlaybackRows(resp *embyint.CustomQueryResponse) ([]playbackActivityRow
 	for idx, col := range columns {
 		indexes[strings.ToLower(strings.TrimSpace(col))] = idx
 	}
-	requiredColumns := []string{"userid", "username", "itemname", "itemtype", "datecreated", "devicename", "clientname", "playduration"}
+	// 只校验聚合与展示真正依赖的列：键(userid) + 时间维(datecreated) + 度量(playduration) + 列表展示最小字段(itemname)。
+	// username / devicename / clientname / itemtype 在老版 Playback Reporting 插件里可能缺失，缺失时 safeString(nil) 回退为空串。
+	requiredColumns := []string{"userid", "itemname", "datecreated", "playduration"}
 	for _, column := range requiredColumns {
 		if _, ok := indexes[column]; !ok {
 			return nil, fmt.Errorf("%w: missing column %s", ErrPlaybackHistorySchemaUnsupported, column)

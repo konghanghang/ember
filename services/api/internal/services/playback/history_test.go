@@ -89,6 +89,30 @@ func TestParsePlaybackRowsRejectsMissingColumns(t *testing.T) {
 	}
 }
 
+func TestParsePlaybackRowsAllowsMissingOptionalColumns(t *testing.T) {
+	resp := &embyint.CustomQueryResponse{
+		Columns: []string{"UserId", "ItemName", "DateCreated", "PlayDuration"},
+		Results: [][]interface{}{
+			{"emby_u_1", "movie", "2026-03-06 10:00:00", float64(180)},
+		},
+	}
+
+	rows, err := parsePlaybackRows(resp)
+	if err != nil {
+		t.Fatalf("parse rows failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("unexpected row count: %d", len(rows))
+	}
+	row := rows[0]
+	if row.embyUserID != "emby_u_1" || row.itemName != "movie" || row.playDuration != 180 {
+		t.Fatalf("required fields not parsed: %+v", row)
+	}
+	if row.username != "" || row.deviceName != "" || row.clientName != "" || row.itemType != "" {
+		t.Fatalf("optional fields should be empty when columns missing, got %+v", row)
+	}
+}
+
 func TestParsePlaybackTimeWithoutTimezoneUsesLocalTime(t *testing.T) {
 	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
 
