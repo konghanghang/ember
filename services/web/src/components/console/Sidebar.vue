@@ -102,14 +102,8 @@ const menuItems = computed(() => [
         role: 'admin'
       },
       {
-        title: '用户画像',
-        path: '/console/user-profiles',
-        icon: DataLine,
-        role: 'admin'
-      },
-      {
-        title: '播放历史',
-        path: '/console/playback-history',
+        title: '播放分析',
+        path: '/console/playback',
         icon: DataLine,
         role: 'admin'
       },

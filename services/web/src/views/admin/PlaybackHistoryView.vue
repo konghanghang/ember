@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, useSlots } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, RefreshRight, UserFilled, Calendar } from '@element-plus/icons-vue'
 import { getPlaybackHistory } from '@/api/admin'
@@ -12,8 +12,15 @@ import { emberRangePickerPopperClass, rangePickerDefaultTime } from '@/constants
 import { formatPlaybackDate } from '@/utils/date'
 import type { PlaybackHistoryItem, PlaybackHistoryQuery } from '@/types/api'
 
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+}>(), {
+  embedded: false
+})
+
 const route = useRoute()
 const router = useRouter()
+const slots = useSlots()
 const loading = ref(false)
 const tableData = ref<PlaybackHistoryItem[]>([])
 const total = ref(0)
@@ -121,7 +128,13 @@ onMounted(() => {
       description="按用户、关键词和日期范围筛选播放记录"
     >
       <template #titleSuffix>
-        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
+          {{ props.embedded ? `当前结果 ${total} 条` : `Total: ${total}` }}
+        </span>
+      </template>
+
+      <template v-if="props.embedded && slots.tabs" #actions>
+        <slot name="tabs" />
       </template>
 
       <EmberFilterPanel

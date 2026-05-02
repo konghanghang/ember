@@ -206,8 +206,9 @@ services/
 │  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台
 │  │        ├─ UsersView.vue     # 用户管理（筛选 / 后台创建 / 编辑）
-│  │        ├─ UserPlaybackProfilesView.vue # 用户画像总览
-│  │        ├─ UserPlaybackProfileView.vue # 用户画像
+│  │        ├─ PlaybackCenterView.vue # 播放分析（用户画像 + 播放历史）
+│  │        ├─ UserPlaybackProfilesView.vue # 用户画像总览（嵌入播放分析容器）
+│  │        ├─ UserPlaybackProfileView.vue # 单用户画像（详情）
 │  │        ├─ RedemptionCenterView.vue # 兑换中心（兑换码池 + 兑换记录）
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
@@ -217,7 +218,7 @@ services/
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ PaymentsView.vue  # 支付记录审计
 │  │        ├─ SessionsView.vue  # 活跃会话
-│  │        ├─ PlaybackHistoryView.vue # 播放历史
+│  │        ├─ PlaybackHistoryView.vue # 播放历史（嵌入播放分析容器）
 │  │        ├─ MediaQualityView.vue # 媒体质量盘点
 │  │        └─ DevicesView.vue   # 设备管理
 │  ├─ vite.config.ts             # dev:3000, proxy /api→:8080, build manualChunks 分包
@@ -273,6 +274,7 @@ services/
   - `services/web/src/views/admin/PlanGroupsView.vue`
 - 容器型中心页：
   - `services/web/src/views/admin/PaymentCenterView.vue`
+  - `services/web/src/views/admin/PlaybackCenterView.vue`
   - `services/web/src/views/admin/RedemptionCenterView.vue`
   - `services/web/src/views/admin/SettingsView.vue`
   - `services/web/src/views/admin/SessionsView.vue`
@@ -1322,32 +1324,36 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - `GET /api/v1/admin/devices/blacklist`
   - `POST /api/v1/admin/devices/logout/:deviceId`
 
-### 管理端播放历史
+### 管理端播放分析
 
-- 新增路由：`/console/playback-history`（admin）
-- 新增视图：`views/admin/PlaybackHistoryView.vue`
-- 数据源：`GET /api/v1/admin/playback-history`（支持 username / keyword / 日期范围 / 分页筛选，兼容旧 `userId`）
-- 联动：支持跳转到 `/console/users/:id/profile`
-
-### 管理端用户画像
-
-- 新增路由：`/console/user-profiles`（admin）
-- 新增视图：`views/admin/UserPlaybackProfilesView.vue`
-- 数据源：`GET /api/v1/admin/playback-profiles`
-- 支持：
-  - 时间窗口：`today / 7d / 30d / 90d / all`
-  - 自定义日期时间范围（最大 92 天）
-  - 用户名搜索
-  - 排序字段切换
-  - 查看单用户画像 / 播放历史
+- 主路由：`/console/playback`（admin），分段 Tab 切换
+  - `?tab=profiles`（默认）：用户画像总览
+  - `?tab=history`：播放历史
+- 容器视图：`views/admin/PlaybackCenterView.vue`
+- 子视图：
+  - `views/admin/UserPlaybackProfilesView.vue`（用户画像总览）
+  - `views/admin/PlaybackHistoryView.vue`（播放历史）
+- 数据源：
+  - `GET /api/v1/admin/playback-profiles`（用户画像总览，支持 `range / startDate / endDate / keyword / sortBy / sortOrder / page / pageSize`）
+  - `GET /api/v1/admin/playback-history`（播放历史，支持 username / keyword / 日期范围 / 分页筛选，兼容旧 `userId`）
+- 跨 Tab 上下文：切 Tab 时透传 `username / userId / startDate / endDate`；`keyword` 与 `range` 各 Tab 内部自治，不跨 Tab 透传
+- 联动：
+  - 用户画像总览支持跳转到「播放历史」Tab 或单用户画像详情
+  - 播放历史支持跳转到单用户画像详情
+- 兼容路由（全部以 redirect 形式保留）：
+  - `/console/user-profiles` → `/console/playback?tab=profiles`
+  - `/console/playback-history` → `/console/playback?tab=history`
+  - `/admin/users` 等历史 admin 路径不涉及
 
 ### 管理端单用户画像
 
-- 新增路由：`/console/user-profiles/:id`（admin）
-- 兼容路由：`/console/users/:id/profile` → `/console/user-profiles/:id`
-- 新增视图：`views/admin/UserPlaybackProfileView.vue`
-- 主入口：`views/admin/UserPlaybackProfilesView.vue`
-- 辅助入口：`views/admin/PlaybackHistoryView.vue`
+- 主路由：`/console/playback/users/:id`（admin）
+- 兼容路由（redirect）：
+  - `/console/user-profiles/:id` → `/console/playback/users/:id`
+  - `/console/users/:id/profile` → `/console/playback/users/:id`
+- 视图：`views/admin/UserPlaybackProfileView.vue`
+- 主入口：`views/admin/UserPlaybackProfilesView.vue`（嵌入「播放分析」容器中）
+- 辅助入口：`views/admin/PlaybackHistoryView.vue`（嵌入「播放分析」容器中）
 - 兼容入口：`views/admin/UsersView.vue`
 - 页面主体：复用 `components/profile/PlaybackProfileContent.vue`，仅在外层补管理员操作
 - 数据源：`GET /api/v1/admin/users/:id/profile?range=today|7d|30d|90d|all` 或 `startDate/endDate`

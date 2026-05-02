@@ -179,7 +179,7 @@ const handleBack = () => {
     router.back()
     return
   }
-  router.push({ name: 'console-user-profiles' })
+  router.push({ name: 'console-playback' })
 }
 
 const handleViewHistory = () => {
@@ -200,8 +200,9 @@ const handleViewHistory = () => {
     }
   }
   router.push({
-    name: 'console-playback-history',
+    name: 'console-playback',
     query: {
+      tab: 'history',
       username: username || undefined,
       userId: username ? undefined : userId.value,
       ...buildRangeQuery()

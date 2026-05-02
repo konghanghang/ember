@@ -40,6 +40,7 @@
 - `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
+- `console-admin/playback-center-merge.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 
 ## 模板

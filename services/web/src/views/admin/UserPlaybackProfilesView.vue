@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, useSlots } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { Calendar, RefreshRight, Search, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getUserPlaybackProfiles } from '@/api/admin'
@@ -20,7 +20,15 @@ import type {
   PlaybackProfileRange
 } from '@/types/api'
 
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+}>(), {
+  embedded: false
+})
+
+const route = useRoute()
 const router = useRouter()
+const slots = useSlots()
 const MAX_CUSTOM_RANGE_DAYS = 92
 const loading = ref(false)
 const tableData = ref<PlaybackProfileListItem[]>([])
@@ -245,10 +253,12 @@ const handleViewProfile = (row: PlaybackProfileListItem) => {
 }
 
 const handleViewHistory = (row: PlaybackProfileListItem) => {
-  router.push({
-    name: 'console-playback-history',
+  router.replace({
     query: {
+      ...route.query,
+      tab: 'history',
       username: row.username,
+      userId: undefined,
       ...buildHistoryRangeQuery()
     }
   })
@@ -263,11 +273,17 @@ onMounted(() => {
 <template>
   <div class="space-y-6">
     <EmberPageHeaderCard
-      title="用户画像总览"
+      :title="props.embedded ? '用户画像' : '用户画像总览'"
       description="按用户聚合查看播放活跃度，先发现重点用户，再进入画像和历史明细"
     >
       <template #titleSuffix>
-        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
+          {{ props.embedded ? `当前结果 ${total} 条` : `Total: ${total}` }}
+        </span>
+      </template>
+
+      <template v-if="props.embedded && slots.tabs" #actions>
+        <slot name="tabs" />
       </template>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[30rem]">

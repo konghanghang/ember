@@ -94,21 +94,38 @@ const router = createRouter({
           component: () => import('../views/admin/UsersView.vue'),
         },
         {
-          path: 'user-profiles',
-          name: 'console-user-profiles',
+          path: 'playback',
+          name: 'console-playback',
           meta: adminRouteMeta,
-          component: () => import('../views/admin/UserPlaybackProfilesView.vue'),
+          component: () => import('../views/admin/PlaybackCenterView.vue'),
         },
         {
-          path: 'user-profiles/:id',
+          path: 'playback/users/:id',
           name: 'console-user-profile',
           meta: adminRouteMeta,
           component: () => import('../views/admin/UserPlaybackProfileView.vue'),
         },
         {
+          path: 'user-profiles',
+          redirect: (to) => ({
+            path: '/console/playback',
+            query: {
+              ...to.query,
+              tab: 'profiles'
+            }
+          })
+        },
+        {
+          path: 'user-profiles/:id',
+          redirect: (to) => ({
+            path: `/console/playback/users/${String(to.params.id ?? '')}`,
+            query: to.query
+          })
+        },
+        {
           path: 'users/:id/profile',
           redirect: (to) => ({
-            path: `/console/user-profiles/${String(to.params.id ?? '')}`,
+            path: `/console/playback/users/${String(to.params.id ?? '')}`,
             query: to.query
           })
         },
@@ -152,9 +169,13 @@ const router = createRouter({
         },
         {
           path: 'playback-history',
-          name: 'console-playback-history',
-          meta: adminRouteMeta,
-          component: () => import('../views/admin/PlaybackHistoryView.vue'),
+          redirect: (to) => ({
+            path: '/console/playback',
+            query: {
+              ...to.query,
+              tab: 'history'
+            }
+          })
         },
         {
           path: 'media-quality',

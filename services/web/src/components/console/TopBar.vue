@@ -66,9 +66,9 @@ const routeMeta: Record<string, { title: string; description: string }> = {
     title: '用户画像',
     description: '查看指定用户的播放摘要与活跃分布'
   },
-  'console-user-profiles': {
-    title: '用户画像',
-    description: '按用户维度查看播放活跃度与画像摘要'
+  'console-playback': {
+    title: '播放分析',
+    description: '在用户画像与播放历史两种视角间切换'
   },
   'console-redemptions': {
     title: '兑换中心',
@@ -81,10 +81,6 @@ const routeMeta: Record<string, { title: string; description: string }> = {
   'console-sessions': {
     title: '活跃会话',
     description: '查看在线设备与登录会话'
-  },
-  'console-playback-history': {
-    title: '播放历史',
-    description: '审计近期播放记录'
   },
   'console-media-quality': {
     title: '媒体质量',
@@ -100,9 +96,25 @@ const routeMeta: Record<string, { title: string; description: string }> = {
   }
 }
 
-const currentMeta = computed(() => routeMeta[String(route.name)] ?? {
-  title: '控制台',
-  description: '统一查看账号与业务信息'
+const currentMeta = computed(() => {
+  const name = String(route.name)
+  if (name === 'console-playback') {
+    const tab = route.query.tab
+    if (tab === 'history') {
+      return {
+        title: '播放分析 · 播放历史',
+        description: '审计近期播放记录'
+      }
+    }
+    return {
+      title: '播放分析 · 用户画像',
+      description: '按用户维度查看播放活跃度与画像摘要'
+    }
+  }
+  return routeMeta[name] ?? {
+    title: '控制台',
+    description: '统一查看账号与业务信息'
+  }
 })
 
 const profile = computed(() => userStore.profile)
