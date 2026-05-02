@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-05-01
+> 更新时间：2026-05-02
 
 本清单只回答三件事：
 
@@ -75,6 +75,7 @@
 | `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/ember-web-component-foundation.md` | 已落地 | `services/web/src/components/ember/` 基础组件层、后台/控制台页头与 tabs 收口、表单基线统一、empty state 组件化、前端残留清理均已落地 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/console-admin-ui-consistency-optimization.md` | 已落地 | `SettingsView` 字段区已切回统一表单基线，筛选基础组件通用外观已收口到 `src/assets/base.css`，关键页面手工验收已通过 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
+| `archive/plan/access-auth/registration-email-domain-allowlist.md` | 已落地 | `registration_allowed_email_domains` 运行期配置已落地；`ConfigService.IsRegistrationEmailAllowed` / `GetRegistrationAllowedEmailDomains` 已暴露；`SendVerificationCode(register)` + `RegisterUser` 注册链路双重门控已生效；`SendEmailChangeCode` + `UpdateEmail` 账号中心换邮箱双重门控已生效；`GET /api/v1/register/mode` 已返回 `allowedEmailDomains`；注册页与账号中心已加提示与失焦预校验 | 已提炼后归档到 `docs/archive/plan/access-auth/` |
 
 ## B. 当前仍留在 `docs/plan/` 的未完成文档
 
@@ -82,7 +83,6 @@
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
-| `access-auth/registration-email-domain-allowlist.md` | 继续保留 | 代码中仍未见 `registration_allowed_email_domains` 配置、`GET /register/mode` 返回 `allowedEmailDomains` 或注册验证码前置域名门控 | 继续按实施方案维护 |
 | `bot-telegram/subscription-admin-message-sync.md` | 继续保留 | 当前仍未见管理员订阅消息投递持久化模型，Web 审批后也没有可追踪的 Telegram 消息批量同步链路 | 继续按实施方案维护 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
@@ -102,6 +102,7 @@
 
 本轮已补充归档：
 
+- `access-auth/registration-email-domain-allowlist.md`
 - `bot-polling-mode.md`
 - `access-auth/auth-and-account-integrity-hardening.md`
 - `billing-redemption/payment-redemption-integrity-hardening.md`

@@ -1,6 +1,6 @@
 # 注册邮箱域名白名单方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
 > 更新时间：2026-05-02
 
@@ -174,29 +174,42 @@
 - 配置/部署：有，新增运行期数据库配置；不新增环境变量，不需要重启。
 - 文档：落地时需同步 `docs/system-architecture.md` 与 `docs/reference/configuration-reference.md`。
 
-## 验证方式
+## 验证记录
 
-### 编译/测试
+### 编译/测试（已完成）
 
-- `cd services/api && go test ./...`
-- `cd services/api && go build ./...`
-- `cd services/web && npm run build`
+- [x] `cd services/api && go test ./...`
+- [x] `cd services/api && go build ./...`
+- [x] `cd services/web && npm run build`
+- [x] `cd services/web && npx vitest run`
 
-### 手工验证
+### 手工验证（已完成）
 
-- 白名单为空时，使用 `user@example.com` 正常发送验证码并注册成功，确认现有行为不变。
-- 白名单设置为 `gmail.com` 后，`user@gmail.com` 可以发送验证码并注册成功。
-- 白名单设置为 `gmail.com` 后，`user@outlook.com` 在发送验证码阶段直接失败，且未发送邮件。
-- 白名单设置为 `gmail.com` 后，绕过前端直接调用 `POST /api/v1/user/register` 提交 `user@outlook.com`，后端仍然拒绝。
-- 白名单配置为 `Gmail.com` 与 `outlook.com` 混合大小写时，保存后应被规范化为去重、小写后的稳定格式。
-- 已存在用户使用非白名单邮箱时，密码重置验证码功能仍正常，确认本次限制没有误伤非注册链路。
-- 白名单设置为 `gmail.com` 后，账号中心把邮箱从 `user@gmail.com` 修改为 `user@yahoo.com`：失焦时前端预警 + `POST /api/v1/user/email/send-code` 后端返回 400，未发送邮件。
-- 同一场景绕过前端直接调用 `PUT /api/v1/user/email` 提交不在白名单的 `newEmail`，后端仍然返回 400 拦截。
-- 已存在用户当前邮箱为 `user@yahoo.com`（不在白名单内）时，登录、查看资料、密码重置流程均不受影响（白名单只针对"新邮箱"生效）。
+- [x] 白名单为空时，使用 `user@example.com` 正常发送验证码并注册成功，确认现有行为不变。
+- [x] 白名单设置为 `gmail.com` 后，`user@gmail.com` 可以发送验证码并注册成功。
+- [x] 白名单设置为 `gmail.com` 后，`user@outlook.com` 在发送验证码阶段直接失败，且未发送邮件。
+- [x] 白名单设置为 `gmail.com` 后，绕过前端直接调用 `POST /api/v1/user/register` 提交 `user@outlook.com`，后端仍然拒绝。
+- [x] 白名单配置为 `Gmail.com` 与 `outlook.com` 混合大小写时，保存后被规范化为去重、小写后的稳定格式。
+- [x] 已存在用户使用非白名单邮箱时，密码重置验证码功能仍正常，确认本次限制没有误伤非注册链路。
+- [x] 白名单设置为 `gmail.com` 后，账号中心把邮箱从 `user@gmail.com` 修改为 `user@yahoo.com`：失焦时前端预警 + `POST /api/v1/user/email/send-code` 后端返回 400，未发送邮件。
+- [x] 同一场景绕过前端直接调用 `PUT /api/v1/user/email` 提交不在白名单的 `newEmail`，后端仍然返回 400 拦截。
+- [x] 已存在用户当前邮箱为 `user@yahoo.com`（不在白名单内）时，登录、查看资料、密码重置流程均不受影响（白名单只针对"新邮箱"生效）。
 
-## 落地后文档处理
+## 落地后文档处理（已完成）
 
-落地后应同步处理：
+- [x] 配置项、公开接口字段、注册与换邮箱链路新门控已同步到 `docs/reference/configuration-reference.md` 与 `docs/system-architecture.md`（commit `52b262f`）。
+- [x] 功能已上线并通过手工验证（见上节），方案于 2026-05-02 移入 `docs/archive/plan/access-auth/`。
 
-- 提炼配置项、公开接口字段和注册链路新门控到 `docs/reference/configuration-reference.md` 与 `docs/system-architecture.md`
-- 功能上线并验证稳定后，将本方案移入 `docs/archive/plan/access-auth/`
+## 归档说明
+
+本文档已退出 `docs/plan/`，仅保留追溯价值。当前规则与实现说明以下列稳定文档为准，本文不再承担解释义务：
+
+- 配置项 `registration_allowed_email_domains` 的语义与默认值：`docs/reference/configuration-reference.md` §2.1
+- 注册流程域名门控：`docs/system-architecture.md` §5.1 AuthService 注册流程
+- 用户自助换邮箱域名门控：`docs/system-architecture.md` §5.2 UserService.UpdateEmail、§5.13 EmailService.SendEmailChangeCode
+- 注册验证码发送域名门控：`docs/system-architecture.md` §5.13 EmailService.SendVerificationCode
+- 配置层接口 `IsRegistrationEmailAllowed` / `GetRegistrationAllowedEmailDomains`：`docs/system-architecture.md` §5.5 ConfigService
+- `GET /api/v1/register/mode` 响应字段 `allowedEmailDomains`：`docs/system-architecture.md` §7 公开接口表
+
+实现 commit：`33d8efe feat(register): 新增注册邮箱域名白名单门控`
+文档同步 commit：`52b262f docs(plan): 同步注册邮箱域名白名单到方案与架构文档`
