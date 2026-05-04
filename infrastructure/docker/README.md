@@ -63,4 +63,4 @@ cp infrastructure/database/<NEW_SQL>.sql infrastructure/docker/initdb/
 
 被 baseline 吸收并归档到 `archive/` 的旧文件，**也要从本目录删除**，避免空库初始化时重复执行。
 
-> 这些文件**仅影响首次空库初始化**。已存在的 `postgres_data` 卷不会再执行本目录下的 SQL；schema 升级请按 `infrastructure/database/README.md` 流程手工执行。
+> 这些文件**仅影响首次空库初始化**。已存在的 `postgres_data` 卷不会再执行本目录下的 SQL；schema 升级由 `ember-api` 启动期 Migrate 阶段自动应用未应用的 SQL，部署者执行 `docker compose pull && up -d` 即可，无需手工 SQL。详见 [`infrastructure/database/README.md`](../database/README.md) 的"自动迁移与 schema_migrations"章节。

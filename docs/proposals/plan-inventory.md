@@ -84,6 +84,8 @@
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
+| `architecture/database-migration-auto-apply.md` | 待归档窗口 | 已落地：API 启动期内嵌迁移上线（v1.4.x），代码 + 测试 + 文档同步均完成 | 归档前置：经过 1 个发版周期生产稳定后迁入 `docs/archive/plan/architecture/` |
+| `architecture/oss-deployment-experience.md` | 继续保留 | Phase 1 已落地；Phase 2 待启动，主要是升级文档收口与 `initdb/` 退役评估 | 继续按实施方案维护 |
 | `bot-telegram/subscription-admin-message-sync.md` | 继续保留 | 当前仍未见管理员订阅消息投递持久化模型，Web 审批后也没有可追踪的 Telegram 消息批量同步链路 | 继续按实施方案维护 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |

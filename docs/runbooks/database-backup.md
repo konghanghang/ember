@@ -128,6 +128,6 @@ psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM payments;"
 ## 注意事项
 
 - 生产恢复前必须先停止 API 服务，避免脏数据写入
-- 恢复完成后按顺序运行 baseline 之后所有增量 migration（如果恢复的是旧备份）
+- 恢复完成后启动 `ember-api`，启动期 Migrate 阶段会自动按 `schema_migrations` 记账状态把缺失的 SQL forward-only 应用齐全；无需手工跑迁移
 - 不要直接把备份文件发送到不受信任的存储；加密后再传输
 - 定期验证备份可恢复性，不要等到真正需要时才发现备份损坏

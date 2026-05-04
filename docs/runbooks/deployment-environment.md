@@ -103,18 +103,24 @@
 
 ### 已有数据库升级
 
-API 启动期已不再调用 `AutoMigrate`（任何 `AUTO_MIGRATE` env 都会被忽略），且启动会执行 `VerifySchema` 三层校验：
+线上以 `AUTO_MIGRATE=false` 运行，不依赖 GORM 自动迁移；自 v1.4.x 起 API 启动期内嵌自动迁移，部署者只需：
 
-1. **表存在**：覆盖 baseline 与"新建表"型 migration
-2. **关键列**：覆盖"在已有表上 ADD COLUMN"型 migration
-3. **关键索引**：覆盖"加 partial unique / 复合唯一"型 migration
+```bash
+docker compose pull
+docker compose up -d
+```
 
-任意一层缺失立即 fail-fast，并在错误信息里标注是哪条 migration 引入的：
+`ember-api` 启动期 Migrate 阶段会自动应用所有未应用的顶层 SQL（forward-only），日志带 `[Migrate]` 前缀。流程详见 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 的「自动迁移与 schema_migrations」章节。
 
-1. 阅读 [`infrastructure/database/README.md`](../../infrastructure/database/README.md)
-2. 按顺序手动执行 baseline 之后新增的顶层 SQL
-3. 同步把新增 SQL 复制到 `infrastructure/docker/initdb/`，并在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 追加该 migration 的列/索引指纹
-4. 启动或重启 API；如启动日志报"数据库缺少必要的表/列/索引"，回到第 2 步检查漏跑哪条 SQL
+启动期序列为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`：
+
+- **Migrate**：按 `schema_migrations` 记账表 + `pg_advisory_lock` 串行执行未应用 SQL
+- **VerifySchema** 作为兜底，三层校验任意一层缺失立即 fail-fast：
+  1. **表存在**：覆盖 baseline 与"新建表"型 migration
+  2. **关键列**：覆盖"在已有表上 ADD COLUMN"型 migration
+  3. **关键索引**：覆盖"加 partial unique / 复合唯一"型 migration
+
+如启动失败：`docker logs ember-api --tail` 第一时间看到失败 SQL 文件名 → 按 forward-only 原则**追加一条新 SQL** 抵消错误效果，重新构建并推送镜像 → `docker compose pull && up -d` 恢复。**镜像是只读的，不允许 `docker exec` 进容器删 SQL 文件、也不允许修改原文件**（修改即破坏 checksum）。
 
 ### 上线前脏数据自查（v1.3.1 → v1.4.0 历史升级期）
 
@@ -145,7 +151,7 @@ API 启动期注册的常驻 cron（`CRON_ENABLED=true` 时启用）新增两项
 | `emby-async-compensation` | `@every 10m` | 拉取 `failed_emby_async_ops` 中 `nextAttemptAt <= now()` 的待补偿操作（每轮上限 50 条），按 origin/action 路由到 emby service；成功删除该行，失败指数退避（30s/2m/10m/1h/6h/24h），retries > 6 写 ERROR 日志告警 | 进程内 panic 由 cron runner 捕获；DB 异常仅记录错误日志，不影响其他 cron |
 | `media-gap-scans-cleanup` | `@weekly` | 删除 `media_gap_scans` 表中 7 天之前的 `success / failed` 记录（`running` 不清理，便于排查孤儿） | 同上 |
 
-升级期建议：先停 API → 跑 migration → 启动新 API，避免老路径与新路径并存的竞态（特别是 `telegram_bind_codes` 在 GenerateBindCode 路径上的事务+DELETE 与 ON CONFLICT 切换）。
+升级期建议：直接 `docker compose pull && up -d`，启动期 Migrate 阶段配合 advisory lock 保证串行；如失败立即 restart loop，不会出现"半成品 schema + 跑起来的 API"。
 
 ### 本地空库快速搭建
 
@@ -153,10 +159,10 @@ API 启动期注册的常驻 cron（`CRON_ENABLED=true` 时启用）新增两项
 
 ```bash
 cd services/api
-go run ./cmd/migrate
+go run ./cmd/server
 ```
 
-会按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL（即 baseline + 后续增量），跑 `VerifySchema` 自检，再写入默认管理员 / 默认设置 / 默认套餐分组。**严禁在生产使用**。
+`cmd/server` 启动期 Migrate 阶段会探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL（即 baseline + 后续增量），跑 `VerifySchema` 自检，再写入默认管理员 / 默认设置 / 默认套餐分组。**严禁在生产使用**——生产路径走 docker compose `pull + up -d`。
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行这两份 SQL；已经执行过它们的环境无需重复处理。
 
@@ -217,7 +223,7 @@ API 启动时会检查是否已有 `role=admin` 的用户：
 - `POSTGRES_USER` / `POSTGRES_PASSWORD` 已设置；显式提供 `DATABASE_URL` 时已指向可访问的 PostgreSQL
 - 所有密钥都不是示例值
 - 启用 `ember-bot` 时（`docker compose --profile bot`），Telegram 相关变量已补齐
-- 如果是升级环境，手动 SQL 已执行完毕
+- 如果是升级环境，无需任何手工 SQL：`docker compose pull && up -d` 后由 ember-api 启动期 Migrate 阶段自动应用未应用 SQL
 
 ## 相关文档
 

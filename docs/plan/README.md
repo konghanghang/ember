@@ -36,6 +36,8 @@
 
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
+- `architecture/database-migration-auto-apply.md`（已落地，待归档窗口）
+- `architecture/oss-deployment-experience.md`（Phase 1 已落地，Phase 2 待启动）
 - `bot-telegram/notification-mute-rules.md`
 - `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`

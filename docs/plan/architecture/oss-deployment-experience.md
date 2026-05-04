@@ -1,6 +1,6 @@
 # OSS 部署体验实现方案
 
-> 状态：Phase 1 落地完成（等待发版与公开验证）；Phase 2 待迁移方案就位
+> 状态：Phase 1 落地完成；Phase 2 待启动（迁移方案已落地，可推进升级文档收口与 initdb/ 退役评估）
 > 负责人：Ember
 > 更新时间：2026-05-04
 
@@ -73,7 +73,7 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
   - `.env.example` 列出所有必填项但密钥为占位字符串，无生成指引。
   - `DATABASE_URL` 在 `.env.example` 内手工拼接，依赖部署者保证三处一致。
   - `ember-bot` 默认启动，关闭需手动注释 yaml。
-  - 升级流程要求部署者按 `infrastructure/database/README.md` 顺序手工执行 SQL（迁移方案上线后会消除）。
+  - 升级流程已由 `database-migration-auto-apply` 方案接管（v1.4.x 起），部署者执行 `docker compose pull && up -d` 即可；本计划 Phase 2 仅需对齐升级文档表述与评估 `initdb/` 退役。
 - 现有限制：
   - GHCR 包当前默认为 private（GitHub 默认行为），核实与翻公开统一收口到 `docs/runbooks/repo-public-checklist.md`，不在本方案 phase 1 范围内。
   - 顶层 `README.md` quickstart 不自洽，依赖跳转 `deployment.md` → `deployment-environment.md` 才能补齐变量。

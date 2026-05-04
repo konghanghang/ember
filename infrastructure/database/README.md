@@ -9,40 +9,76 @@
 
 数据库表名 / 列名 / 索引名统一使用 `snake_case`；历史 camelCase 列已在 v1.4.0 期间整体收口（脚本归档于 `archive/pre-20260502/20260423_00_legacy_camelcase_to_snake_case.sql`）。
 
+## 自动迁移与 schema_migrations
+
+**自 v1.4.x 起 API 启动期内嵌自动迁移**：`docker compose pull && docker compose up -d` 一条命令即完成 schema 升级，部署者无需手工执行任何 SQL。
+
+启动期序列：`InitDB → Migrate → VerifySchema → Bootstrap → Start`，全过程日志带 `[Migrate]` 前缀。Migrate 阶段封装在 `services/api/internal/db/migrate.go`，靠一张内部表 `schema_migrations` 记账：
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| `filename` | TEXT PRIMARY KEY | 顶层 SQL 文件名（如 `20260427_04_bot_pending_reject_message_context.sql`） |
+| `applied_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | 应用时间 |
+| `checksum` | TEXT NOT NULL | SQL 文件内容指纹（SHA-256 hex，按字节计算） |
+
+启动期分支判断：
+
+| 业务核心表存在 | `schema_migrations` 非空 | fingerprint 齐 | 缺失项关联 migration 都在目录顶层 | 分支行为 |
+|:-:|:-:|:-:|:-:|---|
+| 否 | 否 | — | — | **新空库**：forward-only 跑全部目录 SQL |
+| 是 | 否 | 是 | — | **老库 backfill**：仅记账，不执行 SQL |
+| 是 | 否 | 否 | 是 | **混合模式**：缺失项关联的 SQL 跑 forward-only，其余记账 |
+| 是 | 否 | 否 | 否 | **老库不对齐**：fail-fast，需人工对齐 schema |
+| — | 是 | — | — | **正常 forward-only**：未应用即跑、checksum 不一致即拒 |
+
+并发保护：每次 Migrate 阶段用 `pg_try_advisory_lock` 抢独占锁，30s 超时窗口内重试；锁绑定到单条物理连接，避免连接池抢到不同连接导致 unlock 落空。
+
+## SQL 文件硬约束
+
+凡进入 `infrastructure/database/` 顶层的 SQL 文件，必须满足：
+
+1. **不允许写 `BEGIN` / `COMMIT`**：Migrate 在外层包裹事务执行，嵌套事务在 PG 表现为 savepoint 会让回滚行为难以预测。`DO $$ ... $$` 块仍可用（PG 视为单语句）。
+2. **不允许使用不能在事务内执行的 DDL**：`CREATE INDEX CONCURRENTLY` / `REINDEX CONCURRENTLY` / `VACUUM` / `ALTER SYSTEM` / `CREATE DATABASE` 等。如必须用，放进 `archive/` 由人工执行，不进 forward-only 流。
+3. **必须幂等**：DDL 用 `IF NOT EXISTS`、列用 `ADD COLUMN IF NOT EXISTS`、DML 用 `WHERE` 收敛。
+4. **强制 LF 行尾**：仓库根 `.gitattributes` 写明 `*.sql text eol=lf`。这是 checksum 跨平台稳定的前提；Windows 开发者克隆后若行尾被改成 CRLF，本地与镜像内 hash 会不一致。
+5. **一旦被记账，文件内容不得再改写**：含格式调整、注释新增、空白调整。需修正只能新增前向 SQL（forward-only 原则）。
+
 ## 使用方式
 
 ### 1. Docker 一键启动（推荐）
 
 ```bash
 cd infrastructure/docker
-docker compose up -d postgres
+docker compose up -d
 ```
 
-`docker-compose.yml` 把 `infrastructure/docker/initdb/` 挂载到 PostgreSQL 的 `/docker-entrypoint-initdb.d`。容器首次启动（数据卷为空）时，PG 自动执行挂载目录下的 SQL，本目录的 baseline 已在该子目录有同名副本，首启即完成 schema 初始化。
+`docker-compose.yml` 把 `infrastructure/docker/initdb/` 挂载到 PostgreSQL 的 `/docker-entrypoint-initdb.d`。容器首次启动（数据卷为空）时，PG 自动执行挂载目录下的 SQL，本目录的 baseline 已在该子目录有同名副本，首启即完成 schema 初始化。`archive/` 不挂载，不参与初始化。
 
-`archive/` 不挂载，不参与初始化。
+随后 `ember-api` 启动期 Migrate 会探测到业务核心表已存在 + fingerprint 齐 → 进入 backfill 分支把全部 SQL 灌入 `schema_migrations`，后续发版只需 `docker compose pull && up -d`，新增 SQL 自动按 forward-only 应用。
 
-### 2. 本地空库初始化
+### 2. 本地空库一步到位
 
 ```bash
-cd services/api && go run ./cmd/migrate
+cd services/api
+go run ./cmd/server
 ```
 
-`cmd/migrate` 流程：`InitDB` → 按字典序执行 `infrastructure/database/` 顶层 `*.sql` → `VerifySchema` 自检 → `Bootstrap` 写入默认 admin / settings / plan_groups。
+`cmd/server` 启动期 Migrate 阶段会探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支按字典序 forward-only 跑全部 SQL，再走 `VerifySchema` 自检与 `Bootstrap` 写入默认 admin / settings / plan_groups。
 
-如果必须手工执行：
-
-```bash
-psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -f infrastructure/database/20260502_00_schema_baseline.sql
-```
+`EMBER_MIGRATIONS_DIR` 在容器内由镜像 ENV 注入为 `/app/migrations`；本地未设时按 `../../infrastructure/database` / `../infrastructure/database` / `infrastructure/database` 逐个 fallback 到仓库工作树。
 
 ### 3. 已有数据库升级
 
-线上以 `AUTO_MIGRATE=false` 运行，不依赖 GORM 自动迁移。
+线上以 `AUTO_MIGRATE=false` 运行，**不依赖 GORM 自动迁移**。
 
-- **已升级到 v1.4.0 的环境**：当前 baseline 中的 DDL 全部带 `IF NOT EXISTS`、DML 在已清洗数据上 0 命中，因此对已升级库执行也是 no-op，但通常情况下不需要重复执行。
-- **停留在 v1.3.1 的环境**（仅历史参考）：线上 v1.4.0 已上线，该路径无现实需求；如需还原，可在 `archive/pre-20260502/` 内按字典序执行 24 个原始文件（含 `20260423_00_legacy_camelcase_to_snake_case.sql`）。
+升级流程：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+`ember-api` 启动期 Migrate 阶段会自动应用未应用的顶层 SQL；如失败则 `log.Fatal` 退出，容器进入 restart loop，部署者通过 `docker logs ember-api --tail` 第一时间看到失败 SQL 文件名。**镜像是只读的**，恢复时必须修复仓库 SQL → 重新构建并推送镜像 → `docker compose pull && up -d`；如失败 SQL 不可修，按 forward-only 原则**追加一条新 SQL** 抵消错误效果，不允许修改原文件。
 
 ### 4. 历史追溯
 
@@ -73,7 +109,7 @@ archive/
 ### 文件命名
 
 - 顶层新增：`YYYYMMDD_NN_<description>.sql`
-- 必须幂等：DDL 用 `IF NOT EXISTS`、列用 `ADD COLUMN IF NOT EXISTS`、DML 用 `WHERE` 收敛
+- 必须满足上面"SQL 文件硬约束"全部 5 条
 
 ### Schema 命名
 
@@ -85,12 +121,14 @@ archive/
 
 每次新增顶层 SQL，必须同步完成：
 
-1. 复制到 `infrastructure/docker/initdb/`，保持文件名一致
-2. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（启动期 `VerifySchema` 据此 fail-fast）
+1. 复制到 `infrastructure/docker/initdb/`，保持文件名一致（**强烈推荐**：让新空库 PG initdb 路径直接跑全部 SQL，得到最干净的 backfill 分支语义）
+2. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（启动期 Migrate 据此做"老库 backfill" / "混合模式" / "老库不对齐" 分支判断；启动期 `VerifySchema` 也据此 fail-fast）
 3. 命名符合 `snake_case`
 4. 在临时库回灌验证幂等
 
-漏做第 2 步：API 启动期不会拦住缺该 migration 的环境，要等运行到第一次查询才报错。
+漏做第 1 步：新空库部署时 PG initdb 只跑旧 baseline，但 `infrastructure/database/` 顶层 SQL 仍随镜像 COPY 进 `/app/migrations/`，启动期 Migrate 会进入混合模式自动跑补——能成功，但日志多一条混合模式分支提示，语义不干净，仍应避免。
+
+漏做第 2 步：API 启动期 Migrate 在该 SQL 已被记账后不再触发分支判断（直接走正常 forward-only 路径跳过），后续如果 `VerifySchema` 兜底也漏检，运行到第一次查询才会报错——风险更高，**绝不允许**。
 
 ### 何时再做下一轮 baseline
 

@@ -65,7 +65,7 @@ services/api/
 ├── cmd/server/                # 进程入口
 ├── internal/app/              # 启动装配、路由、cron
 ├── internal/config/           # 配置定义与解析
-├── internal/db/               # 数据库初始化与迁移入口
+├── internal/db/               # 数据库初始化、启动期自动迁移（migrate.go）、VerifySchema、Bootstrap
 ├── internal/models/           # GORM 模型
 ├── internal/integrations/     # Emby / MoviePilot / BotNotifier
 ├── internal/services/         # 业务服务

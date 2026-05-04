@@ -146,7 +146,8 @@ services/
 │     │  ├─ jwt.go               # Token 生成/解析（HS256, 7天有效）
 │     │  └─ utils.go             # CalculateExpiryDate
 │     └─ db/
-│        └─ db.go                # DB 初始化 + VerifySchema + Bootstrap（启动期不再调用 AutoMigrate）
+│        ├─ db.go                # DB 初始化 + VerifySchema + Bootstrap（启动期不再调用 AutoMigrate）
+│        └─ migrate.go           # 启动期自动迁移：advisory lock + schema_migrations 记账 + 五分支判断
 ├─ web/                          # Vue 3 前端
 │  ├─ src/
 │  │  ├─ api/                    # Axios 请求层
@@ -1600,7 +1601,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 - PostgreSQL 端口默认仅监听 `127.0.0.1:5432`；远程访问请走 SSH tunnel 或反代授权
 - 首次初始化目录：`infrastructure/docker/initdb/`（compose 仅挂载该子目录到 `/docker-entrypoint-initdb.d/`，README/archive 不参与首启）；新增顶层 SQL 必须同步复制到 `initdb/`
 - 数据库迁移资产当前收口为 v1.4.0 截点合并 baseline `infrastructure/database/20260502_00_schema_baseline.sql`（顶层无独立增量）；`pre-20260415` / `pre-20260422` / `pre-20260502` 历史 SQL 已归档到各自的 `infrastructure/database/archive/` 子目录，仅供追溯
-- 启动期不再调用 `AutoMigrate`：本地空库可执行 `cd services/api && go run ./cmd/migrate`，工具会自动读取 `.env` 或 `services/api/.env`，按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL，再跑 `VerifySchema` 自检；生产 schema 必须通过 `infrastructure/database/` 下的 SQL migration 升级
+- 启动期不再调用 `AutoMigrate`，**改为内嵌自动迁移**：`cmd/server` 启动序列为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`。Migrate 阶段封装在 `services/api/internal/db/migrate.go`，靠内部表 `schema_migrations`（`filename` PK + `applied_at` + `checksum`）记账，按 `pg_advisory_lock` 串行 + checksum 防改写，按五种启动期分支（**新空库** / **老库 backfill** / **混合模式** / **老库不对齐** / **正常 forward-only**）自动选择行为。镜像构建期把 `infrastructure/database/*.sql` 顶层 COPY 至 `/app/migrations/`（由 `EMBER_MIGRATIONS_DIR` 注入），与镜像 tag 强绑定。**部署者升级路径精简为 `docker compose pull && up -d`**，无需任何手工 SQL；本地空库一步到位由 `go run ./cmd/server` 自然接管。详见 [`infrastructure/database/README.md`](../infrastructure/database/README.md)
 
 **数据库连接池**：MaxIdle=15, MaxOpen=30, MaxLifetime=1h, MaxIdleTime=10min
 

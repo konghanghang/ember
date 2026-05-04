@@ -25,8 +25,9 @@ cd services/bot && pip install -r requirements.txt && python -m py_compile main.
 打 Tag 前必须勾完：
 
 - [ ] 更新 `infrastructure/docker/docker-compose.yml` 中 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 的默认 tag 为新版本（compose 默认值是 OSS 用户首次部署的 fallback，必须随发版同步）
-- [ ] 顶层迁移 SQL 已在 `infrastructure/database/` 落地并同步到 `infrastructure/docker/initdb/`
+- [ ] 顶层迁移 SQL 已在 `infrastructure/database/` 落地并同步到 `infrastructure/docker/initdb/`（漏同步会让新空库部署进入混合模式自动跑补，能成功但语义不干净）
 - [ ] 本地预检全部通过
+- [ ] 发版后部署环境检查 `docker logs ember-api --tail` 中 `[Migrate]` 阶段日志：分支符合预期（首次升级到 v1.4.x 走 backfill；后续走 forward-only；未新增 SQL 时本次实际执行 0 份），无 fail-fast 错误
 
 ## CI 触发规则
 

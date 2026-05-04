@@ -17,8 +17,8 @@ Ember 为三个服务分别构建镜像：
 ### API
 
 ```bash
-cd services/api
-docker build -t ember-api:dev .
+# 在仓库根执行，build context 必须是仓库根（Dockerfile 需要 COPY infrastructure/database/）
+docker build -f services/api/Dockerfile -t ember-api:dev .
 ```
 
 ### Web

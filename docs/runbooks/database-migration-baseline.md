@@ -4,6 +4,8 @@
 
 如果你只是给已有数据库补一个新 migration，不需要看这份文档，直接看 [`infrastructure/database/README.md`](../../infrastructure/database/README.md)。
 
+> **本文档不是日常升级流程**：自 v1.4.x 起，日常升级由 `ember-api` 启动期 Migrate 阶段自动应用未应用 SQL（详见 `infrastructure/database/README.md` 的"自动迁移与 schema_migrations"章节）。本文仅在生成下一轮 baseline 时按隔离库验证流程使用。
+
 ## 当前状态
 
 最近一轮 baseline 已于 `2026-05-02` 落地（v1.4.0 截点）：

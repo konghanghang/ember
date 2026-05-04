@@ -29,10 +29,9 @@ cp .env.example .env
    - `EMBY_URL` / `EMBY_API_KEY` 等媒体能力配置已托管到设置中心，可在首启后补
    - 启用 Bot 时再填：`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` / `WEBHOOK_URL`
 
-3. 决定数据库迁移策略。
-   - 空数据库首次启动：可直接用当前 compose，PostgreSQL 会执行挂载到 `/docker-entrypoint-initdb.d` 的 `infrastructure/docker/initdb/` 子目录；该目录当前仅有 v1.4.0 截点合并 baseline。
-   - 已有数据库升级：当前顶层无独立增量；如未来新增增量，按 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 手动执行后再启动服务。
-   - 如果当前数据库版本停留在 `v1.3.1` 对应阶段（理论场景，v1.4.0 已上线），可参考 `infrastructure/database/archive/pre-20260502/` 内的 24 个原始文件按字典序执行。
+3. 数据库迁移由 `ember-api` 启动期内嵌自动应用，部署者不再需要任何手工 SQL。
+   - 空数据库首次启动：当前 compose 把 `infrastructure/docker/initdb/` 挂载到 `/docker-entrypoint-initdb.d`，PostgreSQL 容器首启会先跑 baseline；随后 `ember-api` 启动期 Migrate 阶段会自动把 `schema_migrations` 灌满（backfill 分支）。
+   - 已有数据库升级：直接 `docker compose pull && up -d`，启动期 Migrate 自动按 forward-only 应用未应用 SQL。详见 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 的"自动迁移与 schema_migrations"章节。
 
 4. 拉取镜像并启动。
 
