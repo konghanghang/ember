@@ -144,7 +144,8 @@ func runMigrate(driver migrationDriver, dir string) error {
 
 	switch branch {
 	case migrateBranchEmptyDB:
-		logf("分支：新空库 → 按字典序 forward-only 跑全部 %d 份 SQL", len(files))
+		logf("分支：新空库（未检测到既存业务表）→ 按字典序 forward-only 跑全部 %d 份 SQL，"+
+			"将从空库一次性初始化 schema", len(files))
 		return applyForwardOnly(driver, files, applied)
 	case migrateBranchBackfill:
 		logf("分支：老库 backfill → 把目录中全部 %d 份 SQL 视为已应用灌入 schema_migrations（不执行 SQL）", len(files))
@@ -174,10 +175,10 @@ const (
 	migrateBranchBackfill
 	migrateBranchOldButMisaligned
 	migrateBranchForwardOnly
-	// migrateBranchMixed 用于覆盖未来发版场景：新增顶层 SQL + fingerprint 列表追加，
-	// 但 infrastructure/docker/initdb/ baseline 漏同步。新空库 PG initdb 只跑 baseline，
-	// fingerprint 探测会发现部分项缺失，但缺失项对应的 migration 仍然在目录顶层中，
-	// 这种情况下 forward-only 跑缺失的、backfill 其余的，保证"一条命令完成升级"承诺。
+	// migrateBranchMixed 用于覆盖"业务核心表已存在但 fingerprint 不齐"的边界场景：
+	// 例如手工预建了部分业务表、或老库已被部分人工增量覆盖但未写入 schema_migrations。
+	// 此时业务核心表存在 + 部分 fingerprint 缺失 + 缺失项对应的 migration 仍在目录顶层，
+	// 走 forward-only 跑缺失的、backfill 其余的，保证"一条命令完成升级"承诺。
 	migrateBranchMixed
 )
 

@@ -13,8 +13,8 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # 仅挂载首启执行的 SQL 子目录，禁止把整个 ../database 目录暴露给 PG initdb.d
-      - ./initdb:/docker-entrypoint-initdb.d:ro
+      # 不再挂载 PG initdb.d：schema 初始化与升级统一由 ember-api 启动期 Migrate
+      # 阶段从空库一次性应用 infrastructure/database/ 顶层 SQL（新空库分支）
     networks:
       - ember-network
     healthcheck:

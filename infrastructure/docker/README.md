@@ -6,7 +6,6 @@
 
 - [`docker-compose.yml`](./docker-compose.yml) - 标准 Compose 部署文件
 - [`.env.example`](./.env.example) - Compose 环境变量模板
-- `initdb/` - PostgreSQL 首启 SQL 子目录（compose 挂载到 `/docker-entrypoint-initdb.d/`，仅 `.sql` 文件）
 
 ## 这个目录解决什么问题
 
@@ -45,22 +44,12 @@ docker compose --profile bot up -d
 - `DATABASE_URL` 默认由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时在 `.env` 显式提供完整 DSN 即可覆盖
 - 这个目录的路径和文件名属于部署入口的一部分，改动前先同步更新 runbooks
 
-## `initdb/` 子目录
+## 数据库初始化与升级
 
-PostgreSQL 容器首次启动（`postgres_data` 卷为空）时会按字典序执行 `/docker-entrypoint-initdb.d/` 下的所有 `.sql` / `.sh` / `.sql.gz` 文件。compose 把本目录下的 `initdb/` 挂载到该路径，里面**只允许放需要在空库初始化时执行的 SQL**：
+不再挂载 PG `initdb.d`：schema 初始化与升级**全部由 `ember-api` 启动期 Migrate 阶段**接管。
 
-- 当前包含 `infrastructure/database/` 顶层 baseline + 顶层增量 SQL
-- 不允许放 README、`.md`、`.sh`、子目录等任何非 SQL 文件，否则 PG 启动日志会 warn 或被误执行
-- `infrastructure/database/` 仍是 SQL migration 真相目录，本目录是首启专用副本
+- **新空库首次部署**：业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支，按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL
+- **已有数据库升级**：直接 `docker compose pull && up -d`，启动期 Migrate 自动按 forward-only 应用未应用 SQL
+- 启动失败时容器进入 restart loop，`docker logs ember-api --tail` 第一时间看到失败 SQL 文件名
 
-### 新增 / 同步迁移
-
-每次在 `infrastructure/database/` 新增顶层 SQL，必须**同步复制**一份到 `infrastructure/docker/initdb/`，文件名保持完全一致：
-
-```bash
-cp infrastructure/database/<NEW_SQL>.sql infrastructure/docker/initdb/
-```
-
-被 baseline 吸收并归档到 `archive/` 的旧文件，**也要从本目录删除**，避免空库初始化时重复执行。
-
-> 这些文件**仅影响首次空库初始化**。已存在的 `postgres_data` 卷不会再执行本目录下的 SQL；schema 升级由 `ember-api` 启动期 Migrate 阶段自动应用未应用的 SQL，部署者执行 `docker compose pull && up -d` 即可，无需手工 SQL。详见 [`infrastructure/database/README.md`](../database/README.md) 的"自动迁移与 schema_migrations"章节。
+详见 [`infrastructure/database/README.md`](../database/README.md) 的「自动迁移与 schema_migrations」章节。

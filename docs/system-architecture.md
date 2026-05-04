@@ -1599,9 +1599,9 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 - API 以非 root 用户 `ember:ember`(UID 1000) 运行
 - 健康检查：`GET /health`；Bot 通过 `depends_on.condition: service_healthy` 等 API 健康后再启动
 - PostgreSQL 端口默认仅监听 `127.0.0.1:5432`；远程访问请走 SSH tunnel 或反代授权
-- 首次初始化目录：`infrastructure/docker/initdb/`（compose 仅挂载该子目录到 `/docker-entrypoint-initdb.d/`，README/archive 不参与首启）；新增顶层 SQL 必须同步复制到 `initdb/`
+- 数据库 schema 初始化与升级**全部由 `ember-api` 启动期 Migrate 阶段**接管（不再挂载 PG `initdb.d`）；新空库走"新空库"分支按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL，已升级库走"正常 forward-only"分支按需补齐
 - 数据库迁移资产当前收口为 v1.4.0 截点合并 baseline `infrastructure/database/20260502_00_schema_baseline.sql`（顶层无独立增量）；`pre-20260415` / `pre-20260422` / `pre-20260502` 历史 SQL 已归档到各自的 `infrastructure/database/archive/` 子目录，仅供追溯
-- 启动期不再调用 `AutoMigrate`，**改为内嵌自动迁移**：`cmd/server` 启动序列为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`。Migrate 阶段封装在 `services/api/internal/db/migrate.go`，靠内部表 `schema_migrations`（`filename` PK + `applied_at` + `checksum`）记账，按 `pg_advisory_lock` 串行 + checksum 防改写，按五种启动期分支（**新空库** / **老库 backfill** / **混合模式** / **老库不对齐** / **正常 forward-only**）自动选择行为。镜像构建期把 `infrastructure/database/*.sql` 顶层 COPY 至 `/app/migrations/`（由 `EMBER_MIGRATIONS_DIR` 注入），与镜像 tag 强绑定。**部署者升级路径精简为 `docker compose pull && up -d`**，无需任何手工 SQL；本地空库一步到位由 `go run ./cmd/server` 自然接管。详见 [`infrastructure/database/README.md`](../infrastructure/database/README.md)
+- 启动期不再调用 `AutoMigrate`，**改为内嵌自动迁移**：`cmd/server` 启动序列为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`。Migrate 阶段封装在 `services/api/internal/db/migrate.go`，靠内部表 `schema_migrations`（`filename` PK + `applied_at` + `checksum`）记账，按 `pg_advisory_lock` 串行 + checksum 防改写，按五种启动期分支（**新空库** / **老库 backfill** / **混合模式** / **老库不对齐** / **正常 forward-only**）自动选择行为。镜像构建期把 `infrastructure/database/*.sql` 顶层 COPY 至 `/app/migrations/`（由 `EMBER_MIGRATIONS_DIR` 注入），与镜像 tag 强绑定。**部署者升级路径精简为 `docker compose pull && up -d`**，无需任何手工 SQL；本地空库一步到位由 `go run ./cmd/server` 自然接管，启动期 Migrate 走"新空库"分支从空库一次性应用全部顶层 SQL（PG `initdb.d` 已退役）。详见 [`infrastructure/database/README.md`](../infrastructure/database/README.md)
 
 **数据库连接池**：MaxIdle=15, MaxOpen=30, MaxLifetime=1h, MaxIdleTime=10min
 

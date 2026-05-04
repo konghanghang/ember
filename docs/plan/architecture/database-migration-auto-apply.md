@@ -1,8 +1,10 @@
 # 数据库迁移自动应用方案
 
-> 状态：草稿
+> 状态：代码与文档同步已落地，等首次完整发版后归档
 > 负责人：Ember
 > 更新时间：2026-05-04
+>
+> 演进说明：本方案设计时计划"先保持 initdb/ 与 ember-api 启动期 Migrate 双轨、稳定后再退役"；落地后由 OSS 部署体验方案 phase 2 提前评估并执行 initdb/ 退役（自动化测试已覆盖"新空库"分支、当前尚无活跃 OSS 部署）。下文"背景 / 当前事实"段保留方案设计时的现状快照不重写，"方案设计 / 验证方式"段中已过时的 initdb 表述按当前实现做了最小修订。
 
 ## 背景
 
@@ -74,7 +76,7 @@
 
 修改：
 
-- `infrastructure/docker/initdb/` 不再承担"升级"职责；首启依旧由 PG initdb 跑 baseline，但增量升级路径改由 API 启动期 migrate 接管。本方案先**保持双轨**（initdb/ 仍存在），落地稳定后再瘦身（见"落地后文档处理"）。
+- `infrastructure/docker/initdb/` 不再承担"升级"职责；首启依旧由 PG initdb 跑 baseline，但增量升级路径改由 API 启动期 migrate 接管。本方案先**保持双轨**（initdb/ 仍存在），落地稳定后再瘦身（见"落地后文档处理"）。**[2026-05-04 更新]** 该子目录与 PG `initdb.d` 挂载已由 OSS 部署体验方案 phase 2 提前退役，schema 初始化与升级全部由启动期 Migrate 接管。
 - `services/api/cmd/migrate` 工具被删除。本地空库一步到位由 `go run ./cmd/server` 自然接管：启动期 migrate 阶段在空库分支跑全部 SQL，与原 `cmd/migrate` 行为等价但更连贯。
 
 必须保持不变：
@@ -175,7 +177,9 @@
 
 fingerprint 探测：`schemaFingerprintColumns / schemaFingerprintIndexes` 中全部列/索引在数据库中都存在。`schemaFingerprintColumn / schemaFingerprintIndex` 的 `migration` 字段即"缺失项关联的 migration 文件名前缀"，拼上 `.sql` 后与目录顶层文件集合做交集即可判断是否进混合模式。
 
-混合模式分支的目的：覆盖未来发版场景——新增顶层 SQL + `schemaFingerprint*` 追加新条目，但 `infrastructure/docker/initdb/` 漏同步导致新空库部署时 PG initdb 只跑旧 baseline。这种情况下 fingerprint 检查会发现缺失，但缺失项对应的 migration 仍然在目录顶层中（与 baseline 同 COPY 进镜像），混合模式可以自动跑补，让"一条命令完成升级"承诺仍然有效。
+混合模式分支的目的：覆盖"业务核心表已存在但 fingerprint 不齐"的边界场景——例如手工预建了部分业务表、或老库已被部分人工增量覆盖但未写入 `schema_migrations`。此时业务核心表存在 + 部分 fingerprint 缺失 + 缺失项对应的 migration 仍在目录顶层，混合模式可以自动 forward-only 跑缺失的、backfill 其余的，让"一条命令完成升级"承诺仍然有效。
+
+> 设计动机演进：本分支最初为覆盖"PG initdb baseline 漏同步"场景而设计；initdb/ 退役后该触发路径不再存在，分支保留用于上述边界场景与未来扩展。
 
 老库 schema 不对齐分支保留为最后兜底：fingerprint 缺失 + 缺失项关联的 migration **不在目录顶层**（通常是已被合入 baseline 后归档到 `archive/`）。这种情况下数据库 schema 真的漂了，自动恢复不安全，必须人工对齐。
 
@@ -259,7 +263,7 @@ SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
 
 ### 手工验证
 
-- **空库首次部署（容器路径）**：清空数据卷 → `docker compose up -d` → API 启动期日志显示 `[Migrate]` 进入"老库 backfill"分支（PG initdb 已先跑过 baseline，业务表已存在 + fingerprint 齐）→ API 正常对外提供服务 → `SELECT count(*) FROM schema_migrations` 等于目录文件数。
+- **空库首次部署（容器路径）**：清空数据卷 → `docker compose up -d` → API 启动期日志显示 `[Migrate]` 进入"新空库"分支（业务核心表不存在 + `schema_migrations` 为空，PG `initdb.d` 已退役不再预先跑 baseline）→ 按字典序 forward-only 跑全部目录 SQL → API 正常对外提供服务 → `SELECT count(*) FROM schema_migrations` 等于目录文件数。
 - **空库首次开发（本地路径）**：本地完全空的 PG 库（无业务表）→ `go run ./cmd/server` → API 启动期日志显示 `[Migrate]` 进入"新空库"分支跑全部 SQL → API 正常对外提供服务。
 - **已有数据库升级**：使用既有数据卷 → 拉新镜像（包含一条新增测试 SQL）→ `up -d` → API 启动期日志显示 `[Migrate]` 进入"正常 forward-only"分支仅执行新增 SQL → API 正常对外提供服务。
 - **重复 up -d**：连续执行两次 `docker compose up -d` → API 第二次启动期 `[Migrate]` 阶段跑 0 条 SQL，正常进入 Start。
@@ -276,14 +280,11 @@ SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
   - 新增"自动迁移与 schema_migrations"章节，明确"已应用 SQL 不可改写"、"SQL 文件强制 LF / 不写 BEGIN/COMMIT" 与"禁用 CREATE INDEX CONCURRENTLY 等不能在事务内执行的 DDL" 约束
   - 移除"使用方式 → 2. 本地空库初始化 → cmd/migrate"段落，改为"本地空库一步到位由 `go run ./cmd/server` 自然接管"
   - 移除"已有数据库升级 → 手工执行 SQL"步骤
-  - 保留"添加新 migration → 必做事项"中的 fingerprint 维护要求（仍用于 backfill / 混合模式探测 + VerifySchema 兜底），并保留"复制到 `infrastructure/docker/initdb/`" 作为推荐流程；如未同步，启动期混合模式分支会自动跑补，但语义不干净，仍应避免
+  - 保留"添加新 migration → 必做事项"中的 fingerprint 维护要求（仍用于 VerifySchema 兜底与混合模式探测）
 - `docs/runbooks/deployment-environment.md` 更新升级章节，把流程精简为 `pull + up -d`
 - `docs/system-architecture.md` 在数据库章节补充 `schema_migrations` 表与启动期 Migrate 阶段说明
 - 仓库根落地 `.gitattributes` 与 `.dockerignore`（与方案设计同步，落地时校验 git 工作树确实生效）
-- `infrastructure/docker/initdb/` 退役条件（单独发起独立计划，本方案不强行覆盖该步骤）：
-  1. 至少经过 3 次包含新增 fingerprint 的发版，混合模式分支或 backfill 分支在生产无故障
-  2. 自上线本方案至触发退役至少经过 1 个月稳定期
-  3. 满足以上条件后，发起独立的 initdb/ 退役 plan，把 PG 容器的 `./initdb` 挂载移除，让 baseline 由 ember-api 启动期 Migrate 的"新空库"分支直接跑（双轨简化为单轨）
+- `infrastructure/docker/initdb/` 退役：已由 OSS 部署体验方案 phase 2 提前评估并执行退役（commit 见 OSS plan 的"Phase 2 落地记录"段落）。退役理由：自动化测试已覆盖"新空库"分支、当前尚无活跃 OSS 部署，PG `initdb.d` 双轨简化为单轨，schema 初始化与升级全部由启动期 Migrate 接管
 
 归档条件：
 

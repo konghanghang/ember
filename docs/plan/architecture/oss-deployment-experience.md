@@ -1,6 +1,6 @@
 # OSS 部署体验实现方案
 
-> 状态：Phase 1 落地完成；Phase 2 待启动（迁移方案已落地，可推进升级文档收口与 initdb/ 退役评估）
+> 状态：Phase 1 + Phase 2 代码与文档同步均已落地，等首次完整发版与 OSS 用户首次部署反馈后归档
 > 负责人：Ember
 > 更新时间：2026-05-04
 
@@ -310,7 +310,26 @@ Phase 1 全部 7 个子目标已代码落地，待真实发版与公开验证：
 - 仓库公开当天按 `docs/runbooks/repo-public-checklist.md` 执行 GHCR 翻公开
 - OSS 用户首次部署反馈（按 README quickstart 跑通最小集）
 
-Phase 2 仍依赖 `database-migration-auto-apply` 方案落地，目前未启动。
+## Phase 2 落地记录
+
+Phase 2 全部 2 个子目标已代码落地，等首次完整发版验证：
+
+| Phase 2 目标 | 落地状态 |
+|---|---|
+| 8. README quickstart 升级流程对齐自动迁移 | ✅ README quickstart 末尾追加"升级到新版本"小节（`docker compose pull && up -d`，迁移自动）；`docs/runbooks/deployment.md` / `deployment-environment.md` / `infrastructure/docker/README.md` / `infrastructure/database/README.md` / `docs/system-architecture.md` 同步收口 |
+| 9. `initdb/` 退役评估 | ✅ 直接执行退役：删除 `infrastructure/docker/initdb/` 目录与 compose 中 `./initdb:/docker-entrypoint-initdb.d` 挂载；schema 初始化与升级全部由 `ember-api` 启动期 Migrate 阶段接管，新空库走"新空库"分支按字典序 forward-only 应用全部 SQL |
+
+退役决策依据（与原方案"启动条件"的偏离）：
+
+- 原方案 phase 2 目标 9 启动条件要求"迁移方案稳定运行 ≥ 1 个发版周期"；迁移方案自身的退役条件更严（≥ 3 次含新增 fingerprint 发版 + ≥ 1 个月稳定期 + 单独立计划）
+- 实际取舍：当前 OSS 项目**尚未正式发版给用户**（无活跃 OSS 部署），删除 `initdb/` 挂载对存量数据卷无影响（PG initdb 本来也不会再触发），新空库分支已被 `migrate_test.go` 自动化测试覆盖
+- 收益：双轨简化为单轨，消除"双源同步"维护面，OSS 用户首次部署链路更简单
+
+代码 / 文档配合改动：
+
+- `services/api/internal/db/migrate.go`：新空库分支启动日志增强为"新空库（未检测到既存业务表）→ 将从空库一次性初始化 schema"，便于 OSS 用户首次部署时辨识；`migrateBranchMixed` 注释改写为"业务核心表已存在但 fingerprint 不齐"的边界场景
+- `services/api/internal/db/migrate_test.go`：混合模式测试用例的注释同步改写
+- `docs/plan/architecture/database-migration-auto-apply.md`：顶部追加演进说明 + 用户可见行为段、混合模式分支动机段、验证用例段同步收口
 
 ## 落地后文档处理
 
@@ -325,15 +344,18 @@ Phase 2 仍依赖 `database-migration-auto-apply` 方案落地，目前未启动
 
 ### Phase 2 落地后
 
-- 与迁移方案的 "落地后文档处理" 章节交叉确认：升级流程在所有文档中的描述一致。
-- 如执行 `initdb/` 退役，同步 `docs/system-architecture.md` 数据库章节、`infrastructure/database/README.md`、`infrastructure/docker/README.md`。
+- ✅ 与迁移方案的 "落地后文档处理" 章节交叉确认：升级流程在所有文档中的描述一致。
+- ✅ 已执行 `initdb/` 退役，同步 `docs/system-architecture.md` 数据库章节、`infrastructure/database/README.md`、`infrastructure/docker/README.md`。
+- 首次发版后在 release notes 中说明：
+  - PG `initdb.d` 已退役，新空库由启动期 Migrate 接管
+  - 升级路径仍为 `docker compose pull && up -d`（与现行流程一致）
 
 ### 归档条件
 
 本计划迁入 `docs/archive/plan/architecture/` 的条件：
 
 1. Phase 1 全部子项已上线且至少经过一个 OSS 用户首次部署正反馈周期（可由 issue / discussion 反馈印证）。
-2. Phase 2 已与迁移方案完成对齐（升级文档收口完成）；`initdb/` 退役决策已明确（执行或维持双轨，二选一）。
+2. ✅ Phase 2 已与迁移方案完成对齐（升级文档收口完成）；`initdb/` 退役已执行。
 3. 顶层 `README.md` quickstart 自洽性经过至少一次"clean 环境跟读跑通"验证。
 
 满足以上条件后，本计划迁入 `docs/archive/plan/architecture/`。

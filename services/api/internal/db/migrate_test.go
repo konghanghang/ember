@@ -335,9 +335,10 @@ func TestRunMigrate_ApplyFailure_NoAccountingWritten(t *testing.T) {
 	}
 }
 
-// TestRunMigrate_Mixed_PartialForwardPartialBackfill：模拟未来发版场景——
-// 新增顶层 SQL + fingerprint 列表追加，但 baseline 漏同步导致新空库 PG initdb 后
-// fingerprint 部分缺失。混合模式下：缺失项的 SQL forward-only 跑掉，其余 backfill。
+// TestRunMigrate_Mixed_PartialForwardPartialBackfill：模拟边界场景——
+// 业务核心表已存在 + 新增 fingerprint 部分缺失 + 缺失项关联的 migration 仍在目录顶层
+// （例如手工预建表、或老库被部分人工增量覆盖但未写入 schema_migrations）。
+// 混合模式下：缺失项的 SQL forward-only 跑掉，其余 backfill。
 func TestRunMigrate_Mixed_PartialForwardPartialBackfill(t *testing.T) {
 	dir := writeMigrations(t, map[string]string{
 		"20260101_01_a.sql": "SELECT 1;",

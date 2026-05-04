@@ -83,6 +83,15 @@ Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 管理 API、
 
 5. （可选）启用 Telegram Bot：在 `.env` 补齐 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET`（生成：`openssl rand -hex 32`）/ `WEBHOOK_URL`，然后 `docker compose --profile bot up -d`。
 
+升级到新版本：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+`ember-api` 启动期会内嵌自动迁移已应用之外的 SQL，无需手工操作。日志带 `[Migrate]` 前缀。
+
 更细的配置与排障：[部署指南](./docs/runbooks/deployment.md) / [部署环境与配置](./docs/runbooks/deployment-environment.md) / [部署排障](./docs/runbooks/deployment-troubleshooting.md)。
 
 ## 技术栈

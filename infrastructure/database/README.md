@@ -52,9 +52,12 @@ cd infrastructure/docker
 docker compose up -d
 ```
 
-`docker-compose.yml` 把 `infrastructure/docker/initdb/` 挂载到 PostgreSQL 的 `/docker-entrypoint-initdb.d`。容器首次启动（数据卷为空）时，PG 自动执行挂载目录下的 SQL，本目录的 baseline 已在该子目录有同名副本，首启即完成 schema 初始化。`archive/` 不挂载，不参与初始化。
+`ember-api` 启动期 Migrate 阶段自动接管 schema 初始化与升级：
 
-随后 `ember-api` 启动期 Migrate 会探测到业务核心表已存在 + fingerprint 齐 → 进入 backfill 分支把全部 SQL 灌入 `schema_migrations`，后续发版只需 `docker compose pull && up -d`，新增 SQL 自动按 forward-only 应用。
+- **空数据库（首次部署）**：业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支，按字典序 forward-only 跑全部目录 SQL，从空库一次性初始化 schema
+- **已有数据库（升级）**：`schema_migrations` 已记账 → 走"正常 forward-only"分支，按需补齐未应用 SQL
+
+PG `initdb.d` 不再被挂载，无需手工 SQL，无需任何 SQL 副本目录同步。
 
 ### 2. 本地空库一步到位
 
@@ -121,14 +124,11 @@ archive/
 
 每次新增顶层 SQL，必须同步完成：
 
-1. 复制到 `infrastructure/docker/initdb/`，保持文件名一致（**强烈推荐**：让新空库 PG initdb 路径直接跑全部 SQL，得到最干净的 backfill 分支语义）
-2. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（启动期 Migrate 据此做"老库 backfill" / "混合模式" / "老库不对齐" 分支判断；启动期 `VerifySchema` 也据此 fail-fast）
-3. 命名符合 `snake_case`
-4. 在临时库回灌验证幂等
+1. 在 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 中追加该 migration 引入的代表性列 / 索引指纹（启动期 `VerifySchema` 据此 fail-fast；混合模式分支也据此判断）
+2. 命名符合 `snake_case`
+3. 在临时库回灌验证幂等
 
-漏做第 1 步：新空库部署时 PG initdb 只跑旧 baseline，但 `infrastructure/database/` 顶层 SQL 仍随镜像 COPY 进 `/app/migrations/`，启动期 Migrate 会进入混合模式自动跑补——能成功，但日志多一条混合模式分支提示，语义不干净，仍应避免。
-
-漏做第 2 步：API 启动期 Migrate 在该 SQL 已被记账后不再触发分支判断（直接走正常 forward-only 路径跳过），后续如果 `VerifySchema` 兜底也漏检，运行到第一次查询才会报错——风险更高，**绝不允许**。
+漏做第 1 步：API 启动期 Migrate 在该 SQL 已被记账后不再触发分支判断（直接走正常 forward-only 路径跳过），后续如果 `VerifySchema` 兜底也漏检，运行到第一次查询才会报错——风险更高，**绝不允许**。
 
 ### 何时再做下一轮 baseline
 
@@ -137,7 +137,7 @@ archive/
 1. 选定新截点 `YYYYMMDD`
 2. 按字典序合并 `{当前 baseline} + {后续增量}` 生成 `<新截点>_00_schema_baseline.sql`
 3. 旧 baseline + 全部增量整批移到 `archive/pre-<新截点>/`
-4. 同步 `docker/initdb/`、本 README 的 baseline 文件名引用
+4. 同步本 README 的 baseline 文件名引用
 5. `db.go` 的 fingerprint 持续有效，不需要清空
 
 具体操作可参考 [`docs/runbooks/database-migration-baseline.md`](../../docs/runbooks/database-migration-baseline.md)。

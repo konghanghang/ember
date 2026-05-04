@@ -94,12 +94,11 @@
 
 ### 空数据库首次部署
 
-`infrastructure/docker/docker-compose.yml` 把 `infrastructure/docker/initdb/` 子目录挂到 PostgreSQL 容器的 `/docker-entrypoint-initdb.d`：
+不再依赖 PG `initdb.d`：`ember-api` 启动期 Migrate 阶段直接接管空库初始化：
 
-- 仅当数据卷为空时由 PG 镜像自动执行一次
-- 当前仅包含 v1.4.0 截点合并 baseline `20260502_00_schema_baseline.sql`（含旧 baseline 与全部历史增量）
-- 不再挂载 `infrastructure/database/` 顶层目录，避免 README / archive / 临时 SQL 被误执行
-- `infrastructure/database/` 仍是 SQL migration 真相目录，新增顶层 SQL 必须同步到 `docker/initdb/`
+- 探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支
+- 按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL（当前为 v1.4.0 截点合并 baseline `20260502_00_schema_baseline.sql`）
+- `archive/` 不参与运行时链路
 
 ### 已有数据库升级
 

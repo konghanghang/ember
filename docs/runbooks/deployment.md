@@ -30,7 +30,7 @@ cp .env.example .env
    - 启用 Bot 时再填：`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` / `WEBHOOK_URL`
 
 3. 数据库迁移由 `ember-api` 启动期内嵌自动应用，部署者不再需要任何手工 SQL。
-   - 空数据库首次启动：当前 compose 把 `infrastructure/docker/initdb/` 挂载到 `/docker-entrypoint-initdb.d`，PostgreSQL 容器首启会先跑 baseline；随后 `ember-api` 启动期 Migrate 阶段会自动把 `schema_migrations` 灌满（backfill 分支）。
+   - 空数据库首次启动：进入"新空库"分支，按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL 完成初始化
    - 已有数据库升级：直接 `docker compose pull && up -d`，启动期 Migrate 自动按 forward-only 应用未应用 SQL。详见 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 的"自动迁移与 schema_migrations"章节。
 
 4. 拉取镜像并启动。
