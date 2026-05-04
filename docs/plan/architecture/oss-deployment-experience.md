@@ -2,7 +2,7 @@
 
 > 状态：草稿
 > 负责人：Ember
-> 更新时间：2026-05-02
+> 更新时间：2026-05-04
 
 ## 背景
 
@@ -30,7 +30,7 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
 4. `.env.example` 显式给出**密钥生成指引**（如 `openssl rand -hex 32`），并对每个必填密钥的语义、长度、来源做单行注释，不再保留 `your-secret-...` 占位。
 5. `DATABASE_URL` 不再需要部署者手工拼接：通过 compose 内部从 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` 自动组装，消除三处一致性的踩坑面。
 6. `ember-bot` 默认**不启动**：通过 compose `profiles: ["bot"]` 控制，需要 Bot 时显式 `--profile bot up -d`；用户不开 Bot 时无需注释 yaml 文件。
-7. GHCR 包对外公开拉取经过核实并写入文档（如未公开则切为 public）；首次接触用户不会因为 `denied: not authorized` 而放弃。
+7. 镜像构建链路（多架构、tag 策略）就位；GHCR 包翻公开作为仓库从 private 切 public 时的前置项，统一收口到 [`docs/runbooks/repo-public-checklist.md`](../../runbooks/repo-public-checklist.md)，本方案不直接执行翻公开。
 
 ### Phase 2（升级体验收口，依赖迁移方案落地）
 
@@ -75,7 +75,7 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
   - `ember-bot` 默认启动，关闭需手动注释 yaml。
   - 升级流程要求部署者按 `infrastructure/database/README.md` 顺序手工执行 SQL（迁移方案上线后会消除）。
 - 现有限制：
-  - GHCR 包公开性未在仓库文档中显式声明，需要核实。
+  - GHCR 包当前默认为 private（GitHub 默认行为），核实与翻公开统一收口到 `docs/runbooks/repo-public-checklist.md`，不在本方案 phase 1 范围内。
   - 顶层 `README.md` quickstart 不自洽，依赖跳转 `deployment.md` → `deployment-environment.md` 才能补齐变量。
   - 没有"首次登录路径"指引（用户跑起来后不知道访问哪个 URL、用什么账号登录）。
 
@@ -129,13 +129,12 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
 
 `.env.example` 字段集变化：
 
+> 决策：image tag 默认值放在 `docker-compose.yml`（见下文 compose 变化），`.env.example` 不列出 image 变量；OSS 用户连 image 字段都不用填。
+
 | 变量 | 原状态 | 新状态 | 语义 |
 |---|---|---|---|
-| `EMBER_API_IMAGE` | 缺失 | 必填，给定一个最近稳定 tag 默认值 + 注释指向 release 列表 | API 镜像 tag |
-| `EMBER_WEB_IMAGE` | 缺失 | 同上 | Web 镜像 tag |
-| `EMBER_BOT_IMAGE` | 缺失 | 同上（仅启用 Bot 时生效） | Bot 镜像 tag |
 | `DATABASE_URL` | 必填，手工拼接 | 可选，缺省由 compose 内部按 `POSTGRES_USER/PASSWORD/DB` 拼接；外部覆盖时仍取外部值 | DB 连接串 |
-| `JWT_SECRET` | 占位字符串 | 占位改为生成命令注释，例如 `# 生成: openssl rand -hex 32` | JWT 签名密钥 |
+| `JWT_SECRET` | 占位字符串 | 占位改为生成命令注释，统一推荐 WSL / Git Bash + `openssl rand -hex 32` | JWT 签名密钥 |
 | `CONFIG_ENCRYPTION_KEY` | 占位字符串 | 同上 | 设置中心加密主密钥 |
 | `INTERNAL_API_SECRET` | 占位字符串 | 同上 | API↔Bot 共享密钥 |
 | `TELEGRAM_WEBHOOK_SECRET` | 占位字符串 | 同上 | Bot webhook 验签密钥 |
@@ -144,7 +143,7 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
 
 - `ember-bot` 服务追加 `profiles: ["bot"]`；其他服务无 profile，保持默认启动。
 - `ember-api` 与 `ember-bot` 服务的 `DATABASE_URL` / 内部依赖 DB 连接的环境变量改为 compose 内部插值（如 `DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}`），允许外部覆盖。
-- `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 在 compose 中给出合理默认值（钉到与当前仓库版本对齐的稳定 tag），将 `${X:?}` 改为 `${X:-默认 tag}`；同时在 compose 顶部注释强调"生产环境推荐显式钉版"，保留显式覆盖路径。
+- `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 在 compose 中给出合理默认值（钉到与当前仓库版本对齐的稳定 tag），将 `${X:?}` 改为 `${X:-默认 tag}`；`.env.example` 不再列出这三项。同时在 compose 顶部注释强调"生产环境推荐显式钉版"，保留显式覆盖路径。
 
 `.github/workflows/*` 变化：
 
@@ -171,7 +170,7 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
 #### Phase 1 部署者首次部署流程（目标态）
 
 1. `git clone` 仓库，`cd ember`。
-2. `cp infrastructure/docker/.env.example .env`（或仓库根的 `.env.example`，待落地决定文件位置）。
+2. `cp infrastructure/docker/.env.example .env`。
 3. 按 `.env` 注释生成密钥（命令直接复制即可），填入 4 个密钥变量。
 4. 决定是否启用 Bot：
    - 不启用：直接 `docker compose -f infrastructure/docker/docker-compose.yml up -d`。
@@ -218,8 +217,7 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
 - **image tag 默认值漂移**：compose 给定的默认 image tag 必须随每次发版同步更新，否则新部署用户拉到的是过时镜像。约束：将"更新 compose 默认 image tag"列入 `release-process.md` 的发版 checklist；CI 可加一道校验"compose 默认 tag 与最新 release tag 是否一致"（可选增强，不在 P0）。
 - **Bot profile 默认关闭后老部署回归测试**：现有线上部署若使用旧版 compose（无 profile），升级到新版后需要显式 `--profile bot up -d` 才会启动 Bot。约束：在 `release-process.md` / 升级 release notes 中显式提醒，并给出"如何检查 ember-bot 是否在运行"的命令。
 - **`DATABASE_URL` 自动拼接与现有覆盖逻辑冲突**：现有 `.env.example` 显式提供 `DATABASE_URL`，部分用户可能依赖它指向独立 DB（非 compose 内的 postgres）。约束：compose 内部拼接仅在 `DATABASE_URL` 缺省时生效，外部覆盖路径必须保留并在 `.env.example` 注释里写清。
-- **GHCR 包公开性核实失败**：若包当前为私有，phase 1 必须包含切公开的步骤，否则其他 P0 项白做。约束：将"GHCR 包公开性核实"作为 phase 1 第一步执行，未通过前其他改动不入主线。
-- **密钥生成指引在 Windows 用户场景下不适用**：`openssl rand -hex 32` 在 Windows 原生命令行不可用。约束：注释里同时给出 PowerShell 等价命令（如 `[System.Security.Cryptography.RandomNumberGenerator]::Create()`）或推荐 WSL / Git Bash。
+- **密钥生成指引在 Windows 用户场景下不适用**：`openssl rand -hex 32` 在 Windows 原生命令行不可用。约束：注释统一推荐 WSL / Git Bash + `openssl rand -hex 32`，不再维护 PowerShell 等价命令。
 
 兼容性约束：
 
@@ -251,13 +249,14 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
   - `infrastructure/docker/.env.example`：字段集扩展、占位字符串改为生成指引
   - `infrastructure/docker/docker-compose.yml`：Bot profile、DATABASE_URL 内部拼接、image tag 默认值
   - `.github/workflows/build-api.yml` / `build-web.yml` / `build-bot.yml`：release 触发的多架构构建
-  - 仓库根可能新增 `.env.example`（与 docker 子目录的 `.env.example` 保持单源，待落地决定）
+  - 仅保留 `infrastructure/docker/.env.example` 单源；README quickstart 用 `cp infrastructure/docker/.env.example .env`
 - 文档：
   - `README.md`：顶层 quickstart 自洽化、首次登录指引、ARM 用户说明
   - `infrastructure/docker/README.md`：profile 用法、image tag 默认值说明
   - `docs/runbooks/deployment.md`：phase 2 升级流程同步
   - `docs/runbooks/deployment-environment.md`：phase 2 升级章节同步、DATABASE_URL 自动拼接说明
   - `docs/runbooks/release-process.md`：发版 checklist 追加"更新 compose 默认 image tag"
+  - `docs/runbooks/repo-public-checklist.md`：新增仓库公开前置 checklist，承接 GHCR 翻公开等动作（与本方案解耦，仓库公开当天执行）
   - `docs/system-architecture.md`：如 phase 2 执行 initdb/ 退役，同步数据库章节
 
 前端约束：
@@ -285,7 +284,6 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
 - **DATABASE_URL 覆盖路径**：在 `.env` 显式提供独立 DB 的 `DATABASE_URL` → API 连接到该独立 DB，不走 compose 内部 postgres。
 - **DATABASE_URL 缺省路径**：`.env` 不提供 `DATABASE_URL` → API 连接到 compose 内部 postgres，连接成功。
 - **密钥生成指引可执行**：按 `.env.example` 注释命令执行 `openssl rand -hex 32` 输出可直接填入。
-- **GHCR 公开拉取**：未登录 GitHub 的环境 `docker pull ghcr.io/konghanghang/ember-api:<tag>` 成功。
 
 #### Phase 2
 
