@@ -60,9 +60,8 @@ docker compose up -d
 
 它们的共同规则：
 
-- `pre_release` 分支：生成预览镜像
-- `v*` Tag：生成正式镜像
-- 当前平台统一为 `linux/amd64`
+- `pre_release` 分支：生成预览镜像（`linux/amd64`，构建时间敏感）
+- `v*` Tag：生成正式镜像（`linux/amd64` + `linux/arm64` 双架构 manifest list，由 `docker/setup-qemu-action` 提供 arm64 binfmt）
 
 ## 产出的常见标签
 
