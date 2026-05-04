@@ -1,0 +1,5 @@
+# 强制所有 SQL 文件在工作树里使用 LF 行尾。
+# 这是 services/api/internal/db/migrate.go 中 schema_migrations.checksum
+# （SHA-256，按字节计算，不做行尾规范化）能跨平台稳定的前提：
+# Windows 开发者克隆后若行尾被改成 CRLF，本地与镜像内的 hash 会不一致。
+*.sql text eol=lf

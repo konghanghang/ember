@@ -1,4 +1,13 @@
 # 多阶段构建 Dockerfile for Ember Go API
+#
+# 注意：本 Dockerfile 的 build context 是仓库根（不是 services/api/）。
+# 原因是 runtime 阶段需要 COPY 仓库根的 infrastructure/database/*.sql 进镜像，
+# 这些 SQL 是 schema 真相源，必须随镜像一起分发以便启动期 Migrate 自动应用。
+#
+# 调用方式：
+#   docker build -f services/api/Dockerfile -t ember-api .
+#
+# 仓库根 .dockerignore 会限制实际进入构建上下文的内容范围。
 
 # ==================== 构建阶段 ====================
 FROM golang:1.24.13-alpine AS builder
@@ -9,16 +18,16 @@ RUN apk add --no-cache git make
 # 设置工作目录
 WORKDIR /build
 
-# 复制 go.mod 和 go.sum
-COPY go.mod go.sum ./
+# 先单独拷贝 go.mod / go.sum 以最大化 Docker layer 缓存命中
+COPY services/api/go.mod services/api/go.sum ./
 
 # 下载依赖
 RUN go mod download
 
-# 复制源代码
-COPY . .
+# 复制后端源码
+COPY services/api/. .
 
-# 构建应用
+# 构建应用（单二进制：cmd/server）
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ember cmd/server/main.go
 
 # ==================== 运行阶段 ====================
@@ -40,7 +49,14 @@ WORKDIR /app
 # 从构建阶段复制二进制文件
 COPY --from=builder /build/ember .
 
-# 创建日志目录
+# 拷贝仓库根 infrastructure/database/ 顶层 SQL 至镜像内 /app/migrations。
+# 通配符 *.sql 仅匹配顶层文件，archive/ 子目录不会被拷入。
+COPY infrastructure/database/*.sql /app/migrations/
+
+# 启动期 Migrate 阶段读取此目录；与镜像 tag 强绑定（镜像内 SQL 是 schema 真相）。
+ENV EMBER_MIGRATIONS_DIR=/app/migrations
+
+# 创建日志目录并交还所属
 RUN mkdir -p /app/logs && chown -R ember:ember /app
 
 # 切换到非 root 用户

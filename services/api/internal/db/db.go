@@ -163,7 +163,7 @@ func VerifySchema() error {
 		}
 	}
 	if len(missingTables) > 0 {
-		return fmt.Errorf("数据库缺少必要的表：%s；请按 infrastructure/database/README.md 执行 SQL migration（本地空库可用 `go run ./cmd/migrate`）", strings.Join(missingTables, ", "))
+		return fmt.Errorf("数据库缺少必要的表：%s；请按 infrastructure/database/README.md 执行 SQL migration（本地空库可直接 `go run ./cmd/server`，启动期会自动应用）", strings.Join(missingTables, ", "))
 	}
 
 	var missingColumns []string
@@ -263,9 +263,9 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。
 //
-// 与 InitDB 拆分的原因：cmd/migrate 工具在空库场景下需要先建表再 seed，
-// 否则 seed 会因表不存在而失败。生产 API 启动顺序为
-// `InitDB → VerifySchema → Bootstrap`。
+// 启动序列为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`：先把 schema
+// 应用齐再 seed，否则 seed 会因表不存在而失败；这一拆分同时让本地空库一步到位
+// 由 `go run ./cmd/server` 自然接管。
 func Bootstrap() {
 	seedDefaultAdmin()
 	seedDefaultSettings()

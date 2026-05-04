@@ -1,0 +1,35 @@
+# Docker build context 上提到仓库根后，使用此文件限制实际进入构建上下文的内容。
+#
+# 默认排除一切，再按需放行；这样新增子目录默认不会污染镜像。
+*
+
+# 后端服务源码（编译入口）
+!services/api/
+# 数据库 SQL 真相源；archive/ 里的历史脚本不进镜像
+!infrastructure/database/
+infrastructure/database/archive/
+
+# 显式排除的子模块与无关目录
+services/api/.idea/
+services/api/logs/
+services/api/.env
+services/api/.env.*
+services/api/test/
+services/api/**/*_test.go
+
+# 顶层无关目录与文件
+.git/
+.github/
+.idea/
+.vscode/
+docs/
+infrastructure/docker/
+services/web/
+services/bot/
+
+# 通用噪音
+**/__pycache__/
+**/node_modules/
+**/.DS_Store
+**/*.log
+**/Thumbs.db

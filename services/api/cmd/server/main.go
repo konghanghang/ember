@@ -18,7 +18,13 @@ func main() {
 	db.InitDB()
 	defer db.Close()
 
-	// 启动期 schema 校验：缺表立即 fail-fast，避免运行到第一次查询才报错
+	// 启动期自动迁移：按 forward-only 跑 infrastructure/database/ 下未应用的 SQL，
+	// 失败即 fail-fast，避免"半成品 schema + 跑起来的 API"
+	if err := db.Migrate(); err != nil {
+		log.Fatalf("❌ 数据库迁移失败：%v", err)
+	}
+
+	// 启动期 schema 校验：作为 migration 之外的兜底，缺表/缺列/缺索引立即 fail-fast
 	if err := db.VerifySchema(); err != nil {
 		log.Fatalf("❌ 数据库 schema 校验失败：%v", err)
 	}

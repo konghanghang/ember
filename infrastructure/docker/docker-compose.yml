@@ -32,10 +32,10 @@ services:
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
     image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v1.4.1}
 
-    # 如需本地构建，取消下面两行注释并注释上面的 image 行
+    # 如需本地构建，取消下面三行注释并注释上面的 image 行
     # build:
-    #   context: ../../services/api
-    #   dockerfile: Dockerfile
+    #   context: ../../
+    #   dockerfile: services/api/Dockerfile
 
     container_name: ember-api
     environment:

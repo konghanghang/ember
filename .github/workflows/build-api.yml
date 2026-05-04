@@ -62,7 +62,9 @@ jobs:
       - name: Build and push API image
         uses: docker/build-push-action@v6
         with:
-          context: ./services/api
+          # build context 上提到仓库根：runtime 阶段需要 COPY 仓库根的
+          # infrastructure/database/*.sql 进镜像。
+          context: .
           file: ./services/api/Dockerfile
           platforms: ${{ steps.meta.outputs.platforms }}
           push: true
