@@ -1,8 +1,8 @@
 # 「播放分析」菜单合并方案
 
-> 状态：草稿
+> 状态：已归档（已完成；归档于 2026-05-04）
 > 负责人：Ember
-> 更新时间：2026-05-02
+> 更新时间：2026-05-04
 
 ## 背景
 
@@ -194,11 +194,22 @@
 - 顶栏面包屑：在「播放分析」三个状态（profiles / history / 详情页）下标题与描述均能正确显示。
 - 普通用户登录后无法访问 `/console/playback`（admin 守卫继续生效），跳到 dashboard 并提示无权限。
 
-## 落地后文档处理
+## 落地记录
 
-落地后应同步处理：
+> 实现 commit：`85cc73d feat(playback): 合并用户画像与播放历史为「播放分析」`
+> 归档时间：2026-05-04
 
-- `docs/system-architecture.md`：合并描述段落到「播放分析」，删去"管理端播放历史 / 管理端用户画像"两个独立小节，改为一节「管理端播放分析（Tab：用户画像 / 播放历史）」+ 一节「管理端单用户画像」。
-- 旧路径 redirect 在架构文档里列在"兼容路由"清单。
-- 本计划合并落地、相关功能稳定 30 天后，移入 `docs/archive/plan/console-admin/`，命名保持 `playback-center-merge.md`。
-- `docs/plan/README.md` 的"推进中"列表移除本条目（与归档同步）。
+| 计划目标 | 落地证据 |
+|---|---|
+| 1. 「播放分析」一级菜单替代两条独立条目 | `services/web/src/components/console/Sidebar.vue`、`services/web/src/views/admin/PlaybackCenterView.vue` |
+| 2. 沿用兑换中心 / 支付中心样板 | 容器壳（`?tab=` + `EmberSegmentTabs`）+ 子视图 `embedded` + `#tabs` 插槽 |
+| 3. 跨 Tab 透传 `username` / 日期范围 | `router.replace` 带 query；子视图 `onMounted` 同步 |
+| 4. 旧路径 redirect 兼容 | `services/web/src/router/index.ts` 中 4 条 redirect：`/console/user-profiles`、`/console/user-profiles/:id`、`/console/playback-history`、`/console/users/:id/profile` |
+| 5. 单用户画像迁移到 `/console/playback/users/:id` | `console-user-profile` 路由（`router/index.ts:104`） |
+
+稳定结论已收口到：
+
+- `docs/system-architecture.md` 第 1327 行起「管理端播放分析」段落（含兼容路径清单）
+- `services/web/src/router/index.ts` 中 4 条 redirect 保留为长期兼容入口
+
+原计划要求"稳定 30 天后归档"，因 85cc73d 之后无相关 fix 提交、关键路径已落入架构文档，提前归档；如后续出现需要回滚的回归，从归档目录恢复即可。

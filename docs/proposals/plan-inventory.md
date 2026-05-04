@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-05-02
+> 更新时间：2026-05-04
 
 本清单只回答三件事：
 
@@ -75,6 +75,7 @@
 | `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/ember-web-component-foundation.md` | 已落地 | `services/web/src/components/ember/` 基础组件层、后台/控制台页头与 tabs 收口、表单基线统一、empty state 组件化、前端残留清理均已落地 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/console-admin-ui-consistency-optimization.md` | 已落地 | `SettingsView` 字段区已切回统一表单基线，筛选基础组件通用外观已收口到 `src/assets/base.css`，关键页面手工验收已通过 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
+| `console-admin/playback-center-merge.md` | 已落地 | 「播放分析」容器壳 `PlaybackCenterView.vue`、Sidebar 菜单合并为单条目、`/console/playback?tab=` 路由 + 4 条旧路径 redirect、单用户画像迁至 `/console/playback/users/:id`，架构文档「管理端播放分析」段落已收录 | 已归档到 `docs/archive/plan/console-admin/` |
 | `archive/plan/access-auth/registration-email-domain-allowlist.md` | 已落地 | `registration_allowed_email_domains` 运行期配置已落地；`ConfigService.IsRegistrationEmailAllowed` / `GetRegistrationAllowedEmailDomains` 已暴露；`SendVerificationCode(register)` + `RegisterUser` 注册链路双重门控已生效；`SendEmailChangeCode` + `UpdateEmail` 账号中心换邮箱双重门控已生效；`GET /api/v1/register/mode` 已返回 `allowedEmailDomains`；注册页与账号中心已加提示与失焦预校验 | 已提炼后归档到 `docs/archive/plan/access-auth/` |
 
 ## B. 当前仍留在 `docs/plan/` 的未完成文档
