@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Bell,
   ChatDotRound,
@@ -21,6 +21,7 @@ import { useAuthStore } from '@/store/auth'
 import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import { getRegistrationMode } from '@/api/auth'
+import { bindAdminEmbyAccount, unbindAdminEmbyAccount } from '@/api/admin'
 import {
   generateTelegramBindCode,
   sendEmailChangeCode,
@@ -66,6 +67,14 @@ const emailCodeCountdown = ref(0)
 const allowedEmailDomains = ref<string[]>([])
 const emailDomainError = ref('')
 let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+const embyBindDialogVisible = ref(false)
+const embyBindForm = ref({
+  embyUsername: '',
+  embyPassword: ''
+})
+const bindingEmby = ref(false)
+const unbindingEmby = ref(false)
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -303,6 +312,65 @@ const handleUnbindTelegram = async () => {
   }
 }
 
+const resetEmbyBindForm = () => {
+  embyBindForm.value = { embyUsername: '', embyPassword: '' }
+}
+
+const handleOpenEmbyBindDialog = () => {
+  resetEmbyBindForm()
+  embyBindDialogVisible.value = true
+}
+
+const handleCancelEmbyBind = () => {
+  embyBindDialogVisible.value = false
+  resetEmbyBindForm()
+}
+
+const handleConfirmEmbyBind = async () => {
+  const username = embyBindForm.value.embyUsername.trim()
+  const password = embyBindForm.value.embyPassword
+  if (!username || !password) {
+    ElMessage.warning('请输入 Emby 用户名和密码')
+    return
+  }
+
+  bindingEmby.value = true
+  try {
+    await bindAdminEmbyAccount({ embyUsername: username, embyPassword: password })
+    await userStore.fetchProfile()
+    ElMessage.success('Emby 账号已关联')
+    embyBindDialogVisible.value = false
+    resetEmbyBindForm()
+  } catch {
+    // handled by request interceptor
+  } finally {
+    bindingEmby.value = false
+  }
+}
+
+const handleUnbindEmby = async () => {
+  try {
+    await ElMessageBox.confirm('解除后，媒体相关功能将无法使用，可重新关联', '解除 Emby 关联', {
+      confirmButtonText: '解除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+
+  unbindingEmby.value = true
+  try {
+    await unbindAdminEmbyAccount()
+    await userStore.fetchProfile()
+    ElMessage.success('已解除 Emby 关联')
+  } catch {
+    // handled
+  } finally {
+    unbindingEmby.value = false
+  }
+}
+
 const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
@@ -419,6 +487,24 @@ onMounted(() => {
                 @click="copyToClipboard(user.embyId)"
               >
                 <el-icon><CopyDocument /></el-icon>
+              </button>
+            </div>
+            <div v-if="authStore.isAdmin" class="pt-1">
+              <button
+                v-if="!user.embyId"
+                class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 cursor-pointer disabled:opacity-60"
+                :disabled="bindingEmby"
+                @click="handleOpenEmbyBindDialog"
+              >
+                关联 Emby 账号
+              </button>
+              <button
+                v-else
+                class="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
+                :disabled="unbindingEmby"
+                @click="handleUnbindEmby"
+              >
+                {{ unbindingEmby ? '解除中...' : '解除关联' }}
               </button>
             </div>
           </div>
@@ -631,6 +717,52 @@ onMounted(() => {
             @click="handleConfirmEmailChange"
           >
             {{ confirmingEmailChange ? '确认中...' : '确认' }}
+          </button>
+        </div>
+      </template>
+    </EmberFormDialog>
+
+    <EmberFormDialog
+      v-model="embyBindDialogVisible"
+      title="关联 Emby 账号"
+    >
+      <div class="px-6 pb-2 pt-2 space-y-5">
+        <div class="space-y-2">
+          <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Emby 用户名</label>
+          <el-input
+            v-model="embyBindForm.embyUsername"
+            placeholder="请输入 Emby 用户名"
+            autocomplete="off"
+            class="input-ember"
+          />
+        </div>
+        <div class="space-y-2">
+          <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Emby 密码</label>
+          <el-input
+            v-model="embyBindForm.embyPassword"
+            type="password"
+            show-password
+            placeholder="请输入 Emby 密码"
+            autocomplete="new-password"
+            class="input-ember"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
+          <button
+            class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
+            @click="handleCancelEmbyBind"
+          >
+            取消
+          </button>
+          <button
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70 cursor-pointer"
+            :disabled="bindingEmby"
+            @click="handleConfirmEmbyBind"
+          >
+            {{ bindingEmby ? '关联中...' : '确认关联' }}
           </button>
         </div>
       </template>

@@ -42,6 +42,8 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.Use(middleware.JWTAuth(), middleware.PasswordResetRequired(), middleware.AdminOnly())
 
 	admin.GET("/current", h.auth.GetCurrentUser)
+	admin.PUT("/current/emby-binding", h.auth.BindEmbyAccount)
+	admin.DELETE("/current/emby-binding", h.auth.UnbindEmbyAccount)
 
 	admin.GET("/users", h.user.GetUsers)
 	admin.POST("/users", h.user.CreateUserByAdmin)

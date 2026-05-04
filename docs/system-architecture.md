@@ -78,7 +78,8 @@ services/
 │     │  │  ├─ login.go          # AuthService（登录链路编排）
 │     │  │  ├─ register.go       # AuthService（注册链路编排）
 │     │  │  ├─ register_persist.go # AuthService（注册落库事务）
-│     │  │  └─ register_notify.go # AuthService（注册通知副作用）
+│     │  │  ├─ register_notify.go # AuthService（注册通知副作用）
+│     │  │  └─ emby_binding.go   # 管理员 Emby 账号自助绑定 / 解绑链路
 │     │  ├─ user/
 │     │  │  ├─ service.go        # UserService（共享依赖 / Emby 同步）
 │     │  │  ├─ admin.go          # 用户管理 / 后台创建 / 续期 / 启停 / 删除
@@ -696,7 +697,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 
 ## 5. 后端服务层
 
-### 5.1 AuthService (`services/auth/service.go`, `services/auth/login.go`, `services/auth/register.go`, `services/auth/register_persist.go`, `services/auth/register_notify.go`)
+### 5.1 AuthService (`services/auth/service.go`, `services/auth/login.go`, `services/auth/register.go`, `services/auth/register_persist.go`, `services/auth/register_notify.go`, `services/auth/emby_binding.go`)
 
 **登录流程**：
 1. 通过 `ConfigService` 读取登录保护公开配置；若 `turnstile_login_enabled=true`，则先校验 `turnstileToken`
@@ -720,6 +721,12 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
 - `LoginRequest{Username, Password, TurnstileToken}`
 - `LoginResponse{Token, User, IsExpired}`
+
+**管理员 Emby 账号自助绑定**（`emby_binding.go`）：
+- `BindEmbyAccount(userID, {embyUsername, embyPassword})` — 复用 `EmbyService.AuthenticateUser` 校验 Emby 凭据 → 拿到 `embyUser.ID` → 应用层先查冲突：当前用户已绑同一 ID 走幂等成功；当前用户绑了其他 ID 返回 409 `ErrEmbyAlreadyBound`；目标 ID 已被其他本地账号占用返回 409 `ErrEmbyUserOccupied`（错误消息含冲突方 username）→ UPDATE `users.emby_id`；DB 层由偏唯一索引 `uniq_users_emby_id` 兜底并发，`23505` 唯一约束冲突翻译为 `ErrEmbyUserOccupied`
+- `UnbindEmbyAccount(userID)` — 直接清空 `emby_id`，幂等；不删除 Emby 真实用户、不修改 Emby 任何属性
+- 不影响登录链路：管理员仍走本地密码；该接口仅用于让管理员获得普通用户级别的 Emby 相关读权限（媒体 latest、个人播放档案、自助兑换等）
+- 不影响启动期 `seedDefaultAdmin`：seed 仍纯本地，不调用 Emby
 
 ### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
 
@@ -1115,6 +1122,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
+| PUT | `/api/v1/admin/current/emby-binding` | 管理员自助绑定 Emby 账号（请求体 `embyUsername` + `embyPassword`，401/409/502 错误语义见 §5.1） |
+| DELETE | `/api/v1/admin/current/emby-binding` | 管理员解除 Emby 关联（仅清本地 `emby_id`，不动 Emby 用户） |
 | GET | `/api/v1/admin/users` | 用户列表（支持按有效 `planGroup` 过滤；显式分组为空时自动归入默认分组） |
 | POST | `/api/v1/admin/users` | 后台创建普通用户（显式指定 `planGroup` 与 `expiresAt` / `neverExpire`） |
 | GET | `/api/v1/admin/users/:id` | 用户详情 |

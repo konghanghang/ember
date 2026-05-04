@@ -1,6 +1,8 @@
 import request from './request'
 import type {
   ActiveSession,
+  AdminEmbyBindingRequest,
+  AdminEmbyBindingResponse,
   AdminPaymentQuery,
   AdminRedemptionQuery,
   AdminConfigItem,
@@ -543,3 +545,19 @@ export function syncTVCalendar(data?: { tmdbId?: string; force?: boolean; weekOf
 }
 
 export const refreshTVCalendar = syncTVCalendar
+
+// ==================== 管理员 Emby 绑定 ====================
+export function bindAdminEmbyAccount(data: AdminEmbyBindingRequest): Promise<AdminEmbyBindingResponse> {
+  return request({
+    url: '/admin/current/emby-binding',
+    method: 'put',
+    data
+  })
+}
+
+export function unbindAdminEmbyAccount(): Promise<{ message: string }> {
+  return request({
+    url: '/admin/current/emby-binding',
+    method: 'delete'
+  })
+}

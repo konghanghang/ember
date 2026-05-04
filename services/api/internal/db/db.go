@@ -259,6 +259,7 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"media_quality_caches", "idx_media_quality_caches_inflight", "20260426_09_media_quality_caches_inflight"},
 	{"bot_pending_reject_requests", "idx_bot_pending_reject_requests_chat", "20260426_12_bot_pending_reject_requests"},
 	{"bot_runtime_locks", "idx_bot_runtime_locks_expires", "20260427_01_bot_runtime_locks"},
+	{"users", "uniq_users_emby_id", "20260504_00_users-emby-id-unique"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。

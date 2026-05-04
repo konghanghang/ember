@@ -80,7 +80,7 @@ services/api/
 
 - 公开接口：登录、注册、忘记密码、Stripe Webhook、Emby Webhook、TMDB 搜索
 - 统一认证接口：个人信息、兑换、媒体统计、最近入库、排行、支付、Telegram 绑定码、追剧日历
-- 管理员接口：用户、兑换码、配置中心、订阅、会话、播放历史、媒体质量、设备、方案、支付、cron
+- 管理员接口：用户、兑换码、配置中心、订阅、会话、播放历史、媒体质量、设备、方案、支付、cron、Emby 账号自助绑定
 - 内部接口：Bot 绑定/查询/兑换/重置密码/订阅，订阅审批
 
 完整接口面以 [系统架构文档](/Users/konghang/data/me/github/ember/docs/system-architecture.md) 为准。

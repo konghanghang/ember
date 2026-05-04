@@ -110,6 +110,65 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	})
 }
 
+// BindEmbyAccount 绑定 Emby 账号到当前管理员
+// @Summary 管理员关联 Emby 账号
+// @Tags 认证
+// @Accept json
+// @Produce json
+// @Param body body auth.BindEmbyAccountRequest true "Emby 凭据"
+// @Success 200 {object} auth.BindEmbyAccountResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
+// @Router /api/v1/admin/current/emby-binding [put]
+// @Security BearerAuth
+func (h *AuthHandler) BindEmbyAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	var req authpkg.BindEmbyAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	resp, err := h.authService.BindEmbyAccount(userID.(string), &req)
+	if err != nil {
+		switch {
+		case errors.Is(err, authpkg.ErrEmbyBindingCredentialRequired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, authpkg.ErrEmbyBindingAuthFailed):
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		case errors.Is(err, authpkg.ErrEmbyAlreadyBound):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case authpkg.IsEmbyUserOccupied(err):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// UnbindEmbyAccount 解除当前管理员的 Emby 关联
+// @Summary 管理员解除 Emby 关联
+// @Tags 认证
+// @Produce json
+// @Success 200 {object} SuccessResponse
+// @Router /api/v1/admin/current/emby-binding [delete]
+// @Security BearerAuth
+func (h *AuthHandler) UnbindEmbyAccount(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	if err := h.authService.UnbindEmbyAccount(userID.(string)); err != nil {
+		httpx.InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "解除绑定成功"})
+}
+
 // Logout 统一登出（JWT 无状态，仅返回成功）
 // @Summary 统一登出
 // @Tags 认证

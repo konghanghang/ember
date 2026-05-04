@@ -957,6 +957,17 @@ export interface TmdbSelection {
 // 后端使用统一的 User 模型，通过 role 字段区分 admin 和 user
 export type AdminInfo = UserInfo
 
+// ==================== 管理员 Emby 绑定 ====================
+export interface AdminEmbyBindingRequest {
+  embyUsername: string
+  embyPassword: string
+}
+
+export interface AdminEmbyBindingResponse {
+  embyId: string
+  embyUsername: string
+}
+
 // ==================== 播放排行 ====================
 export type RankingPeriod = 'daily' | 'weekly'
 export type RankingCategory = 'media_movie' | 'media_episode'

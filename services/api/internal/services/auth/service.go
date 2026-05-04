@@ -74,6 +74,11 @@ type AuthService struct {
 	validateRegistrationCode   func(code string) (*models.RedemptionCode, error)
 	compensation               *accountpkg.EmbyCompensation
 	newCompensation            func() *accountpkg.EmbyCompensation
+
+	// Emby 绑定 hook：默认走 db.DB，测试时由 newAuthServiceForBinding 注入。
+	findUserByIDForBindingFn func(userID string) (*models.User, error)
+	findOccupyingUserFn      func(embyID, excludeUserID string) (*models.User, error)
+	updateUserEmbyIDFn       func(userID, embyID string) error
 }
 
 var (
