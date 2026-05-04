@@ -1,6 +1,6 @@
 # OSS 部署体验实现方案
 
-> 状态：草稿
+> 状态：Phase 1 落地完成（等待发版与公开验证）；Phase 2 待迁移方案就位
 > 负责人：Ember
 > 更新时间：2026-05-04
 
@@ -289,6 +289,28 @@ Ember 已经具备 monorepo + GHCR 多镜像 + Docker Compose 的标准部署链
 
 - **升级流程**：使用 phase 1 部署的环境，按迁移方案落地后的镜像执行 `docker compose pull && docker compose up -d`，无需手工 SQL，API 正常启动。
 - **`initdb/` 退役（如执行）**：清空数据卷 → `up -d` → `ember-migrate` 从空库一次性 backfill 全部 SQL → API 正常启动；与未退役场景行为一致。
+
+## Phase 1 落地记录
+
+Phase 1 全部 7 个子目标已代码落地，待真实发版与公开验证：
+
+| Phase 1 目标 | 落地状态 |
+|---|---|
+| 1. `.env.example` 自洽（消除 image 强制变量、单源） | ✅ commit `045c032`：image 默认值放在 compose；`.env.example` 不再列 image 变量 |
+| 2. ARM64 镜像（release tag 触发双架构） | ✅ commit `bc2ce72`：preview 维持 amd64；ARM64 真实可拉性需下次 release tag push 触发 CI 实测 |
+| 3. README quickstart 自洽 | ✅ 顶层 README 改写为 5 步自洽 quickstart（含密钥生成、首次登录指引） |
+| 4. `.env.example` 密钥生成指引 | ✅ 4 个 secret + `POSTGRES_PASSWORD` + `ADMIN_PASSWORD` 改为空值 + 内联 `openssl rand -hex N` 命令；header 推荐 WSL / Git Bash |
+| 5. `DATABASE_URL` 自动拼接 | ✅ commit `045c032`：缺省由 compose 按 `POSTGRES_USER/PASSWORD/DB` 拼接到内置 postgres，外部覆盖路径保留 |
+| 6. Bot profile 默认关闭 | ✅ commit `045c032`：`profiles: ["bot"]`，启用需 `docker compose --profile bot up -d` |
+| 7. GHCR 公开性收口 | ✅ commit `06ef582`：翻公开动作挂到 [`docs/runbooks/repo-public-checklist.md`](../../runbooks/repo-public-checklist.md)，仓库公开当天执行 |
+
+待 real-world 验证：
+
+- 下次 `v*` Tag 触发 release workflow，验证 ARM64 三个镜像构建成功（Bot 的 Python wheel 依赖最易踩）
+- 仓库公开当天按 `docs/runbooks/repo-public-checklist.md` 执行 GHCR 翻公开
+- OSS 用户首次部署反馈（按 README quickstart 跑通最小集）
+
+Phase 2 仍依赖 `database-migration-auto-apply` 方案落地，目前未启动。
 
 ## 落地后文档处理
 

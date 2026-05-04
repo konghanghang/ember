@@ -47,11 +47,43 @@ Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 管理 API、
 
 ### Docker Compose 部署模式
 
-1. 进入 `infrastructure/docker/`。
-2. 复制环境变量模板：`cp .env.example .env`。
-3. 按 [部署指南](./docs/runbooks/deployment.md) 和 [部署环境与配置](./docs/runbooks/deployment-environment.md) 补齐必填项。
-4. 启动完整环境：`docker compose pull && docker compose up -d`。
-5. 访问 `http://localhost`，并按部署文档完成健康检查。
+最小部署：PostgreSQL + API + Web（默认不启动 Bot）。需要 Docker / Docker Compose。
+
+1. 克隆仓库并进入 Docker 目录：
+
+   ```bash
+   git clone https://github.com/konghanghang/ember.git
+   cd ember/infrastructure/docker
+   cp .env.example .env
+   ```
+
+2. 在 Linux / macOS / WSL / Git Bash 下生成必填密钥（输出粘到 `.env` 对应行）：
+
+   ```bash
+   echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+   echo "JWT_SECRET=$(openssl rand -hex 32)"
+   echo "CONFIG_ENCRYPTION_KEY=$(openssl rand -hex 32)"
+   echo "INTERNAL_API_SECRET=$(openssl rand -hex 32)"
+   ```
+
+3. 拉镜像并启动：
+
+   ```bash
+   docker compose pull
+   docker compose up -d
+   ```
+
+4. 首次登录：
+
+   ```bash
+   docker compose logs ember-api | grep "临时口令"
+   ```
+
+   浏览器打开 `http://localhost`，使用 `admin` + 日志中的临时口令登录，按提示完成首次改密。
+
+5. （可选）启用 Telegram Bot：在 `.env` 补齐 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET`（生成：`openssl rand -hex 32`）/ `WEBHOOK_URL`，然后 `docker compose --profile bot up -d`。
+
+更细的配置与排障：[部署指南](./docs/runbooks/deployment.md) / [部署环境与配置](./docs/runbooks/deployment-environment.md) / [部署排障](./docs/runbooks/deployment-troubleshooting.md)。
 
 ## 技术栈
 
