@@ -2,7 +2,7 @@
 
 > 状态：草稿
 > 负责人：Ember
-> 更新时间：2026-05-02
+> 更新时间：2026-05-04
 
 ## 背景
 
@@ -19,11 +19,10 @@
 
 本方案要实现：
 
-1. 部署者只需 `docker compose pull && docker compose up -d`，**所有未应用的顶层 SQL 在 API 启动前自动按字典序应用完毕**，无需任何人工 SQL 操作。
+1. 部署者只需 `docker compose pull && docker compose up -d`，**所有未应用的顶层 SQL 在 API 服务真正对外提供之前自动按字典序应用完毕**，无需任何人工 SQL 操作。
 2. 迁移执行器升级为 forward-only 幂等：重复启动只跑未应用的 SQL，不会重复执行历史 SQL，多次拉起不会互相干扰。
-3. 单条 SQL 执行失败时，迁移整体 exit 非 0，**`ember-api` 容器被 docker compose 的依赖条件阻断启动**，避免出现"半成品 schema + 跑起来的 API"。
+3. 单条 SQL 执行失败时，**API 进程 fail-fast 退出**；docker `restart: unless-stopped` 策略下容器进入 restart loop，但 advisory lock + checksum 保证每次重启都是同一个 fail-fast 退出，不会出现"半成品 schema + 跑起来的 API"。
 4. 镜像版本与 schema 真相绑定：SQL 文件随镜像一起分发，部署者拉到的镜像 tag 就是当时的 schema 状态，消除"代码到了 v2，SQL 还停在 v1"的可能。
-5. 现有空库初始化路径 (`go run ./cmd/migrate`) 继续可用，行为对老用户无感。
 
 ## 非目标
 
@@ -32,6 +31,8 @@
 - **不引入 GORM AutoMigrate**：本方案是"按手写 SQL forward-only 跑"，schema 真相依旧是 `infrastructure/database/*.sql`，不让框架反射猜 DDL。
 - **不实现 down migration**：错误用新增前向 SQL 修复，不维护逆向脚本（与 Flyway 默认行为对齐）。
 - **不重构现有 SQL 文件命名 / 内容**：`YYYYMMDD_NN_description.sql` 命名规则、幂等性要求、archive 归档边界保持不变。
+- **不拆独立的迁移容器**：迁移逻辑内嵌于 `cmd/server` 启动期，不新增 service、不调整 `depends_on`、不要求 `docker compose ≥ v2.17`；权衡见"方案设计 → 5. 失败路径与边界条件"。
+- **不保留 `services/api/cmd/migrate` 工具**：迁移内嵌后该工具失去价值，本次一并删除；本地空库一步到位由 `go run ./cmd/server` 自然接管。
 - **不处理 K8s 多副本部署**：docker compose 单副本场景下不存在竞态；多副本场景仅通过 PG advisory lock 留好挂钩位，不展开调度策略。
 - **不在本方案中做 baseline 收口**：是否再做一轮 baseline、何时归档已应用的增量 SQL，留给独立的 baseline 收口任务。
 - **不重做 `VerifySchema` 的指纹清单结构**：本方案保留 `schemaFingerprintColumns / schemaFingerprintIndexes`，并在 backfill 模式下复用该清单做"已应用"探测（详见"4. 关键流程"backfill 段落）；是否在记账机制稳定后把指纹清单收敛成"只校验 `schema_migrations` 表完整性"，留作后续优化任务。
@@ -45,9 +46,11 @@
   - `docs/runbooks/deployment-environment.md`：部署入口
   - `docs/system-architecture.md`：架构说明
 - 相关服务 / 模块：
-  - `services/api/cmd/migrate/main.go`：当前的"空库一次性应用"工具
-  - `services/api/internal/db/db.go`：`InitDB` / `VerifySchema` / `Bootstrap`
-  - `services/api/Dockerfile`：当前只编译并打包 `ember`（server）单一二进制
+  - `services/api/cmd/migrate/main.go`：当前的"空库一次性应用"工具，本次将删除
+  - `services/api/cmd/server/main.go`：当前启动序列 `InitDB → VerifySchema → Bootstrap → Start`
+  - `services/api/internal/db/db.go`：`InitDB` / `VerifySchema` / `Bootstrap`，含 `schemaFingerprintColumns / schemaFingerprintIndexes`
+  - `services/api/Dockerfile`：当前只编译并打包 `ember`（server）单一二进制；build context 为 `services/api/`，**不包含**仓库根的 `infrastructure/database/`
+  - `.github/workflows/build-api.yml`：CI 构建入口，`context: ./services/api` / `file: ./services/api/Dockerfile`
   - `infrastructure/docker/docker-compose.yml`：`postgres` 挂载 `./initdb` 至 `/docker-entrypoint-initdb.d`，`ember-api` 仅 `depends_on: postgres healthy`
   - `infrastructure/docker/initdb/`：与 `infrastructure/database/` 顶层文件双源同步
 - 当前行为：
@@ -58,29 +61,27 @@
   - `infrastructure/docker/initdb/` 仅服务于"数据卷为空"这一时刻，对升级链路完全无效。
   - `schemaFingerprintColumns / schemaFingerprintIndexes` 必须随每条新增 SQL 手工维护，遗漏后启动期才报错。
   - SQL 真相需要在 `infrastructure/database/` 与 `infrastructure/docker/initdb/` 两处保持同步，靠 `cp` 维系。
+  - Dockerfile build context 为 `services/api/`，无法 COPY 仓库根的 `infrastructure/database/*.sql` 进镜像。
 
 ## 方案设计
 
 ### 1. 用户可见行为
 
-前置环境约束：
-
-- 部署机的 `docker compose` 必须 ≥ v2.17（`service_completed_successfully` 依赖条件最早在该版本引入）。老版本 compose 会**静默忽略**该依赖，导致 API 在迁移失败时仍可能启动，违反本方案核心保证；部署文档需在头部声明该要求。
-
 新增：
 
-- 部署者执行 `docker compose pull && docker compose up -d` 时，新增的 SQL 自动应用到现有数据库，无需任何手工步骤。
-- `ember-migrate` 容器作为一次性 service 出现在 `docker ps -a` 中，跑完即退出，退出码反映迁移结果。
+- 部署者执行 `docker compose pull && docker compose up -d` 时，`ember-api` 容器启动期先完成所有未应用 SQL 的应用，再进入 HTTP 服务循环，部署者无需任何手工步骤。
+- 启动日志中 migration 阶段以 `[Migrate]` 前缀标注，便于与 API 业务日志区分。
 
 修改：
 
-- `infrastructure/docker/initdb/` 不再承担"升级"职责；首启依旧由 PG initdb 跑 baseline，但增量升级路径改由 `ember-migrate` 容器接管。本方案先**保持双轨**（initdb/ 仍存在），落地稳定后再瘦身（见"落地后文档处理"）。
+- `infrastructure/docker/initdb/` 不再承担"升级"职责；首启依旧由 PG initdb 跑 baseline，但增量升级路径改由 API 启动期 migrate 接管。本方案先**保持双轨**（initdb/ 仍存在），落地稳定后再瘦身（见"落地后文档处理"）。
+- `services/api/cmd/migrate` 工具被删除。本地空库一步到位由 `go run ./cmd/server` 自然接管：启动期 migrate 阶段在空库分支跑全部 SQL，与原 `cmd/migrate` 行为等价但更连贯。
 
 必须保持不变：
 
-- `services/api/cmd/server/main.go` 的启动顺序、API 行为、`VerifySchema` 校验语义。
-- `services/api/cmd/migrate` 在本地空库场景下的使用方式 (`go run ./cmd/migrate`) 行为兼容，仅"已应用即跳过"是新增能力。
-- 现有 SQL 文件命名、目录结构、archive 边界。
+- `cmd/server` 对外 HTTP API、Internal API、Bot webhook、Telegram 命令、cron 入口
+- `docker compose` 现有 service 拓扑（不新增 service、不调整 `depends_on`、不要求 `docker compose ≥ v2.17`）
+- 现有 SQL 文件命名、目录结构、archive 边界
 
 ### 2. 数据与模型
 
@@ -94,7 +95,7 @@
 
 约束：
 
-- 表由 `ember-migrate` 在执行前 `CREATE TABLE IF NOT EXISTS` 自建，不污染 baseline 与业务模型。
+- 表由 `internal/db/migrate.go` 在执行前 `CREATE TABLE IF NOT EXISTS` 自建，不污染 baseline 与业务模型。
 - 不通过 GORM 模型管理，不出现在 `services/api/internal/models/` 下。
 - `checksum` 用于检测"已应用 SQL 文件被改写"的反常情况，发现即 fail-fast，不静默重应用。
 - 仓库根 `.gitattributes` 强制 `*.sql text eol=lf`，确保所有 SQL 文件在工作树里都是 LF；这是 checksum 算法跨平台可重复的前提（Windows 开发者克隆后若行尾被改成 CRLF，本地与镜像内 hash 会不一致）。
@@ -103,84 +104,91 @@
 
 ### 3. 接口与边界
 
-新增二进制 `ember-migrate`：
+`cmd/server` 启动序列变更：
 
-- 入口：`services/api/cmd/migrate/main.go`（基于现有同名工具升级，不新建独立目录）
-- 输入：`EMBER_MIGRATIONS_DIR`、`DATABASE_URL`（语义不变）
-- 输出：退出码 0 = 全部已应用或无新增；非 0 = 失败，并在 stderr 给出失败的 SQL 文件名
+- 原：`InitDB → VerifySchema → Bootstrap → Start`
+- 新：`InitDB → Migrate → VerifySchema → Bootstrap → Start`
+
+新增 `services/api/internal/db/migrate.go`（与 `db.go` 同包，可直接复用 `schemaFingerprint*`，无需对外导出）：
+
+- 入口：包级函数 `Migrate() error`，由 `cmd/server` 在 `InitDB` 后立刻调用
+- 输入：环境变量 `EMBER_MIGRATIONS_DIR`（容器内默认 `/app/migrations`，本地未设时按 `cmd/migrate` 原候选路径 fallback 到工作树 `infrastructure/database/`）
+- 输出：返回 `error`；`cmd/server` 拿到非 nil 后 `log.Fatal` 退出
 - 行为契约：见"关键流程"
 
 修改 `services/api/Dockerfile`：
 
-- builder 阶段同时编译 `ember`（server）与 `ember-migrate`
-- runtime 阶段同时 COPY 两个二进制
+- builder 仅编译 `ember`（cmd/server）单一二进制（cmd/migrate 已删除）
 - runtime 阶段 COPY `infrastructure/database/*.sql` 至镜像内 `/app/migrations/`
 - 镜像内置 `ENV EMBER_MIGRATIONS_DIR=/app/migrations`
+- **build context 上提至仓库根**：原因是 `infrastructure/database/*.sql` 位于仓库根，不在原 `services/api/` context 下；上提后 Dockerfile 内全部 COPY 路径加 `services/api/` 前缀
+
+修改 `.github/workflows/build-api.yml`：
+
+- `context: .`
+- `file: ./services/api/Dockerfile`
+
+仓库根新增 `.dockerignore`：限制上提后的 build context 只包含必要内容（`services/api/`、`infrastructure/database/` 顶层 SQL），排除 `services/web/`、`services/bot/`、`docs/`、`infrastructure/database/archive/`、`.git/`、`.github/`、各类 `node_modules` 等。
 
 修改 `infrastructure/docker/docker-compose.yml`：
 
-- 新增一次性 service `ember-migrate`：
-  - 复用 `${EMBER_API_IMAGE}` 镜像
-  - `command: ["/app/ember-migrate"]`
-  - `depends_on: postgres { condition: service_healthy }`
-  - `restart: "no"`
-  - 与 `ember-api` 共用最小必要的环境变量（`DATABASE_URL`）
-- 修改 `ember-api`：在 `depends_on` 中追加 `ember-migrate: { condition: service_completed_successfully }`
+- 仅调整本地 build 注释里的 context：`context: ../../`、`dockerfile: services/api/Dockerfile`
+- service 拓扑、`depends_on`、env 列表、健康检查均不变
 
 不修改的接口：
 
 - HTTP API、Internal API、Bot webhook、Telegram 命令、cron 入口
-- `cmd/server` 的启动期 `InitDB → VerifySchema → Bootstrap` 序列
+- `docker compose` service 拓扑
 
 ### 4. 关键流程
 
 镜像构建期：
 
-1. 编译 `ember`、`ember-migrate` 两个二进制
-2. 拷贝 `infrastructure/database/*.sql` 到镜像内固定路径
+1. 编译 `ember`（cmd/server）
+2. 拷贝仓库根 `infrastructure/database/*.sql` 到镜像内 `/app/migrations/`
 
 部署期 `docker compose up -d`：
 
 1. `postgres` 启动 → 健康检查通过
-2. `ember-migrate` 启动 → 应用所有未应用 SQL → 退出 0
-3. `ember-api` 启动 → `InitDB → VerifySchema → Bootstrap`
+2. `ember-api` 启动 → `InitDB → Migrate → VerifySchema → Bootstrap → Start`
 
-`ember-migrate` 内部流程：
+`cmd/server` 启动期 Migrate 阶段流程（封装在 `internal/db/migrate.go`，全过程日志带 `[Migrate]` 前缀）：
 
-1. 连接数据库；用 `pg_try_advisory_lock(<int8 const>)` 尝试获取 PG advisory lock。常量在 `services/api/cmd/migrate/main.go` 顶部 const `migrateAdvisoryLockKey` 声明，注释"占用，不要复用"。30s 超时窗口内每秒重试；超时仍抢不到则 fail-fast，提示"另一个 migrate 进程在运行；如确认无并发，`docker compose ps -a` 排查孤悬容器并 `docker rm` 后重试"
-2. `CREATE TABLE IF NOT EXISTS schema_migrations (...)`
+1. 用 `pg_try_advisory_lock(<int8 const>)` 尝试获取 PG advisory lock。常量在 `internal/db/migrate.go` 顶部 const `migrateAdvisoryLockKey` 声明，注释"占用，不要复用"。30s 超时窗口内每秒重试；超时仍抢不到则 fail-fast，提示"另一个 migrate 进程在运行；如确认无并发，`docker compose ps -a` 排查孤悬的 ember-api 容器后重启"
+2. `CREATE TABLE IF NOT EXISTS schema_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now(), checksum TEXT NOT NULL)`
 3. 从 `EMBER_MIGRATIONS_DIR` 列出顶层 `.sql` 文件，按字典序排序
 4. `SELECT filename, checksum FROM schema_migrations`，构造已应用集合
-5. 对每个文件：
-   - 已应用且 checksum 一致 → 跳过
-   - 已应用但 checksum 不一致 → fail-fast，报错指明文件，提示先排查 SQL 行尾（`.gitattributes` 强制 LF）
-   - 未应用 → 在外层事务内执行 SQL；成功后在同一事务内写入 `schema_migrations` 一行；提交
-6. 释放 advisory lock，正常退出
+5. 根据数据库状态判断进入哪条分支（详见下方"启动期分支判断"）
+6. 释放 advisory lock，正常返回；`cmd/server` 继续走 `VerifySchema → Bootstrap → Start`
+
+**启动期分支判断**：
+
+| 业务核心表存在 | `schema_migrations` 非空 | fingerprint 列/索引齐 | 缺失项关联 migration 是否都在目录顶层 | 分支 | 行为 |
+|:-:|:-:|:-:|:-:|---|---|
+| 否 | 否 | — | — | 新空库 | forward-only 跑全部目录 SQL，每条成功后写记账 |
+| 是 | 否 | 是 | — | 老库 backfill | 把目录中全部 SQL 视为"已应用"灌入 `schema_migrations`，不实际执行 SQL（`INSERT ... ON CONFLICT DO NOTHING` 保证重入幂等） |
+| 是 | 否 | 否 | 是 | 混合模式 | 缺失项关联的 migration → forward-only 跑（执行 SQL + 写记账）；其余 SQL → backfill 仅记账 |
+| 是 | 否 | 否 | 否 | 老库 schema 不对齐 | fail-fast，提示"业务表存在但部分 fingerprint 列/索引缺失，且部分缺失项关联的 migration 文件不在 `infrastructure/database/` 顶层（通常意味着 schema 真的漂了，不是新增 SQL 漏同步）" |
+| — | 是 | — | — | 正常 forward-only | 对每个文件：已应用且 checksum 一致 → 跳过；已应用但 checksum 不一致 → fail-fast 报告该文件并提示先排查行尾；未应用 → 在外层事务内执行 SQL + 同一事务写入记账行 |
+
+业务核心表探测：检查 `users` / `plans` / `subscriptions` / `settings` 等代表性表是否存在。
+
+fingerprint 探测：`schemaFingerprintColumns / schemaFingerprintIndexes` 中全部列/索引在数据库中都存在。`schemaFingerprintColumn / schemaFingerprintIndex` 的 `migration` 字段即"缺失项关联的 migration 文件名前缀"，拼上 `.sql` 后与目录顶层文件集合做交集即可判断是否进混合模式。
+
+混合模式分支的目的：覆盖未来发版场景——新增顶层 SQL + `schemaFingerprint*` 追加新条目，但 `infrastructure/docker/initdb/` 漏同步导致新空库部署时 PG initdb 只跑旧 baseline。这种情况下 fingerprint 检查会发现缺失，但缺失项对应的 migration 仍然在目录顶层中（与 baseline 同 COPY 进镜像），混合模式可以自动跑补，让"一条命令完成升级"承诺仍然有效。
+
+老库 schema 不对齐分支保留为最后兜底：fingerprint 缺失 + 缺失项关联的 migration **不在目录顶层**（通常是已被合入 baseline 后归档到 `archive/`）。这种情况下数据库 schema 真的漂了，自动恢复不安全，必须人工对齐。
 
 SQL 文件约束（与 README 同步）：
 
 - 顶层 SQL 文件**不要自己写 `BEGIN` / `COMMIT`**，migrate 在外层包裹事务执行；嵌套事务在 PG 中表现为 savepoint，会让错误回滚行为变得难以预测。`DO $$ ... $$` 块仍允许（PG 视为单语句）
+- 顶层 SQL 文件**不允许使用 `CREATE INDEX CONCURRENTLY` / `REINDEX CONCURRENTLY` / `VACUUM` / `ALTER SYSTEM` / `CREATE DATABASE`** 等 PG 不允许在事务内执行的 DDL。如不得不用，需放进 `archive/` 由人工执行，不进 forward-only 流。
 - SQL 一旦被记账，文件内容不得再改写（含格式调整、注释新增、空白调整）；需修正只能新增前向 SQL
-
-空库首启场景：
-
-- PG initdb 已经把 `initdb/` 下的 SQL 执行完毕（与现状一致）
-- `ember-migrate` 第一次启动时，自建 `schema_migrations`，进入 backfill 模式预写入跟踪表（首启不重复执行）
-
-backfill 模式触发条件（必须**同时满足**）：
-
-1. 业务核心表已存在（探测 `users` / `plans` / `subscriptions` 等若干代表性表）
-2. `schema_migrations` 不存在或为空
-3. 目录中**每条 SQL** 引入的代表性列 / 索引（基于 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes`）在数据库中**全部存在**
-
-任意一项不满足 → fail-fast，提示"该库不是干净状态，请先按 `infrastructure/database/README.md` 手工对齐 schema 后再启动 migrate"。这一收紧避免老库手工漏跑某条 SQL 时，backfill 把缺失文件误标记为"已应用"导致永久静默漂移——这是设计上最致命的风险，必须以 fingerprint 兜底。
-
-通过 backfill 触发条件的环境（含空库 + 已通过 initdb 全量应用的环境 + 已手工跑齐全部增量的老线上库）：把当前目录中的全部顶层 SQL 视为"已应用"灌入 `schema_migrations`，之后的增量进入正常 forward-only 路径。这一过程对**重入幂等**——重复启动不重复 backfill。
 
 SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
 
 - 容器内：`/app/migrations/`（镜像构建期 COPY 自仓库 `infrastructure/database/*.sql`，与镜像 tag 强绑定）
-- 本地 `go run ./cmd/migrate`：仓库工作树 `infrastructure/database/`
+- 本地 `go run ./cmd/server`：fallback 到仓库工作树 `infrastructure/database/`（保留若干常见相对路径自适应）
 
 这两份 SQL 在开发期可能不同步（开发者改了 SQL 但没构建新镜像）。生产 schema 真相**只认镜像内**那一份；本地行为只用于开发自查与首次空库初始化。
 
@@ -188,18 +196,26 @@ SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
 
 失败行为：
 
-- **单条 SQL 执行失败**：当前事务回滚，`schema_migrations` 不写入该文件；进程 exit 非 0；后续 SQL 不再执行；`ember-api` 容器因 `service_completed_successfully` 条件不满足而不启动；部署者通过 `docker compose logs ember-migrate` 定位失败 SQL。
+- **单条 SQL 执行失败**：当前事务回滚，`schema_migrations` 不写入该文件；`cmd/server` 直接 `log.Fatal` 退出；docker `restart: unless-stopped` 策略下容器进入 restart loop。advisory lock + forward-only + checksum 保证每次重启都是同一个 fail-fast 退出，不会产生破坏；部署者通过 `docker logs ember-api --tail` 第一时间定位失败 SQL 文件名。
 
   恢复链路（生产）：镜像是只读的，无法 `docker exec` 删 `/app/migrations/` 内文件——必须"修复仓库 SQL → 重新构建并推送镜像 → `docker compose pull` → `up -d`"。如失败 SQL 不可修，按 forward-only 原则**追加一条新 SQL** 抵消错误效果，不允许修改原文件（修改原文件即破坏 checksum）。
 
-  恢复链路（本地 `cmd/migrate`）：直接修仓库 SQL 后重跑；本地若需重置 `schema_migrations` 表，删表后下一轮 migrate 进入 backfill。
+  恢复链路（本地 `go run ./cmd/server`）：直接修仓库 SQL 后重跑；本地若需重置 `schema_migrations` 表，删表后下一轮启动按"启动期分支判断"重新选支。
 - **checksum 不一致**：fail-fast，提示哪个文件、当前 checksum 与历史 checksum；先排查 SQL 行尾（`.gitattributes` 强制 LF）；不自动重应用，须按上一条恢复链路处理。
-- **advisory lock 抢占失败 / 超时**：30s 重试窗口仍抢不到即报错退出。docker compose 单副本场景下通常意味着上一轮 migrate 容器孤悬未退出——`docker compose ps -a` 排查并 `docker rm` 后重试；多副本场景留作未来扩展。
-- **数据库不可达**：与现有 `InitDB` 行为一致，连接失败即 exit 非 0。
+- **advisory lock 抢占失败 / 超时**：30s 重试窗口仍抢不到即报错退出。docker compose 单副本场景下通常意味着上一个 ember-api 容器孤悬未退出——`docker compose ps -a` 排查后重启即可恢复；多副本场景留作未来扩展。
+- **数据库不可达**：与现有 `InitDB` 行为一致，连接失败即 fail-fast 退出。
+
+启动期内嵌 vs 独立容器的权衡（设计选择记录）：
+
+- 内嵌路径下 migration 失败导致 API restart loop（而非独立 ember-migrate 容器中的 `Created` 状态阻断）。restart loop 中 advisory lock + forward-only + checksum 让每次重试都是同一个 fail-fast 退出，不会产生破坏，但会刷日志。
+- 选择内嵌的收益：
+  - 部署模型更简单，不新增一次性 service；
+  - 不依赖 `docker compose ≥ v2.17`；
+  - 失败定位仍然干净（`[Migrate]` 日志前缀 + `docker logs ember-api` 直接看到失败 SQL 文件名）。
+- 这是 Ember"个人 / 小团队 docker compose 单机部署"场景下的取舍，本方案选内嵌。
 
 兼容性约束：
 
-- 不能破坏 `go run ./cmd/migrate` 在本地空库场景下的行为；新增的 backfill / 跟踪表行为对它同样适用，且应保证多次执行不报错。
 - 不能改写已被 PG initdb 应用过的 SQL 文件内容（这是 checksum 机制的隐含约束，应在 `infrastructure/database/README.md` 写明）。
 - 不能让 `infrastructure/docker/initdb/` 与 `infrastructure/database/` 之间的双源同步规则变得更复杂；本方案至少应让"未来"删掉 `initdb/` 这一份成为可能。
 - `VerifySchema` 暂时保留兜底语义，但允许后续重构为基于 `schema_migrations` 表完整性的检查。
@@ -213,18 +229,24 @@ SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
 
 涉及的子系统：
 
-- API：`services/api/cmd/migrate/main.go` 增量化、引入 `schema_migrations` 自建表逻辑；`services/api/internal/db/` 可能新增极小的 lock / checksum 工具（若放在 db 包则需明示职责）。
-- Web：无。
-- Bot：无。
+- API：
+  - 新增 `services/api/internal/db/migrate.go`：advisory lock + `schema_migrations` 自建表 + checksum + 四分支启动期判断（新空库 / 老库 backfill / 老库不对齐 / 正常 forward-only）全流程
+  - `services/api/cmd/server/main.go`：启动序列追加 Migrate 阶段
+  - 删除 `services/api/cmd/migrate/`
+  - 新增对应自动化测试：forward-only / backfill / checksum 三项行为
+- Web：无
+- Bot：无
 - 配置 / 部署：
-  - `services/api/Dockerfile`：双二进制 + SQL 内嵌
-  - `infrastructure/docker/docker-compose.yml`：新增 `ember-migrate` service，调整 `ember-api.depends_on`；要求部署机 `docker compose ≥ v2.17`（`service_completed_successfully` 依赖条件起始版本），低版本会静默忽略该依赖
-  - 仓库根 `.gitattributes`：新增 `*.sql text eol=lf`，确保 SQL 文件跨平台 LF（checksum 跨平台可重复的前提）
+  - `services/api/Dockerfile`：单二进制 + SQL 内嵌 + COPY 路径前缀调整（context 上提的连带改动）
+  - `.github/workflows/build-api.yml`：build context 上提
+  - 仓库根 `.dockerignore`：新增，限制 build context 范围
+  - 仓库根 `.gitattributes`：新增 `*.sql text eol=lf`
+  - `infrastructure/docker/docker-compose.yml`：本地 build 注释 context 调整；service 拓扑不变
   - `.env.example` 不需要新增变量
 - 文档：
-  - `infrastructure/database/README.md`：补充"自动迁移机制 + 不要修改已应用 SQL"约束
-  - `docs/runbooks/deployment-environment.md`：升级流程更新为 "pull + up -d"
-  - `docs/system-architecture.md`：在数据库章节补充 `schema_migrations` 与 `ember-migrate` 容器
+  - `infrastructure/database/README.md`：补充"自动迁移机制 + 不要修改已应用 SQL"约束；删除 `cmd/migrate` 工具相关段落
+  - `docs/runbooks/deployment-environment.md`：升级流程更新为 `pull + up -d`
+  - `docs/system-architecture.md`：在数据库章节补充 `schema_migrations` 与启动期 Migrate 阶段
   - `infrastructure/docker/initdb/` 双轨期间的同步规则可暂保留，待 backfill 在生产稳定后单独发起退役计划
 
 ## 验证方式
@@ -232,35 +254,41 @@ SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
 ### 编译 / 测试
 
 - `cd services/api && go build ./...`
-- `cd services/api && go test ./...`
+- `cd services/api && go test ./...`（含 forward-only / backfill / checksum 三项行为的自动化测试）
 - `cd infrastructure/docker && docker compose config`（compose 文件语法校验）
 
 ### 手工验证
 
-- **空库首次部署**：清空数据卷 → `docker compose up -d` → 观察 `ember-migrate` 进入 backfill 模式 → `ember-api` 正常启动 → `SELECT count(*) FROM schema_migrations` 等于目录文件数。
-- **已有数据库升级**：使用既有数据卷 → 拉新镜像（包含一条新增测试 SQL）→ `up -d` → 观察 `ember-migrate` 仅执行新增 SQL → `ember-api` 正常启动。
-- **重复 up -d**：连续执行两次 `docker compose up -d` → `ember-migrate` 第二次跑 0 条 SQL，正常退出 → `ember-api` 不重启或仅按 compose 默认行为重启。
-- **失败 SQL 阻断 API**：故意构造一条会失败的测试 SQL（在临时分支 / 临时镜像）→ `ember-migrate` 退出非 0 → `ember-api` 因 `service_completed_successfully` 条件不满足保持 `Created` 状态 → 删除该 SQL 后再次 `up -d` 恢复。
-- **checksum 防护**：手工修改一条已记账 SQL 文件内容 → `ember-migrate` fail-fast 并报告该文件 → 还原后恢复。
-- **本地 `go run ./cmd/migrate`**：在本地空库与本地非空库分别执行 → 行为分别为"全部应用并记账" / "仅补未应用"，不报错。
+- **空库首次部署（容器路径）**：清空数据卷 → `docker compose up -d` → API 启动期日志显示 `[Migrate]` 进入"老库 backfill"分支（PG initdb 已先跑过 baseline，业务表已存在 + fingerprint 齐）→ API 正常对外提供服务 → `SELECT count(*) FROM schema_migrations` 等于目录文件数。
+- **空库首次开发（本地路径）**：本地完全空的 PG 库（无业务表）→ `go run ./cmd/server` → API 启动期日志显示 `[Migrate]` 进入"新空库"分支跑全部 SQL → API 正常对外提供服务。
+- **已有数据库升级**：使用既有数据卷 → 拉新镜像（包含一条新增测试 SQL）→ `up -d` → API 启动期日志显示 `[Migrate]` 进入"正常 forward-only"分支仅执行新增 SQL → API 正常对外提供服务。
+- **重复 up -d**：连续执行两次 `docker compose up -d` → API 第二次启动期 `[Migrate]` 阶段跑 0 条 SQL，正常进入 Start。
+- **失败 SQL 触发 restart loop**：故意构造一条会失败的测试 SQL（在临时分支 / 临时镜像）→ API 启动期 `log.Fatal` → 容器进入 restart loop → `docker logs ember-api --tail` 第一时间看到失败 SQL 文件名 → 删除该 SQL 后再次 `up -d` 恢复。
+- **checksum 防护**：手工修改一条已记账 SQL 文件内容 → API 启动期 fail-fast 并报告该文件 → 还原后恢复。
+- **混合模式**：构造一份未应用 SQL 关联到一条新增 fingerprint，但其它 fingerprint 全齐 → API 启动期日志显示 `[Migrate]` 进入"混合模式"分支，缺失项关联的 SQL 走 forward-only，其余 SQL 走 backfill → `SELECT count(*) FROM schema_migrations` 等于目录文件数。
+- **老库 schema 不对齐探测**：手工建一个缺失 fingerprint 且对应 migration 已不在目录顶层（仅在 archive/）的库 → `up -d` → fail-fast，提示"业务表存在但部分 fingerprint 列/索引缺失，且部分缺失项关联的 migration 文件不在目录顶层"。
 
 ## 落地后文档处理
 
 落地后应同步处理：
 
-- `infrastructure/database/README.md` 更新：
-  - 新增"自动迁移与 schema_migrations"章节，明确"已应用 SQL 不可改写"与"SQL 文件强制 LF / 不写 BEGIN/COMMIT"约束
-  - 移除手工执行升级 SQL 的步骤
-- `docs/runbooks/deployment-environment.md` 更新升级章节，把流程精简为 `pull + up -d`，并在头部声明 `docker compose ≥ v2.17` 要求
-- `docs/system-architecture.md` 在数据库章节补充 `ember-migrate` 容器与 `schema_migrations` 表
-- 在 `infrastructure/docker/README.md` 写清 `ember-migrate` service 的语义、`docker compose ≥ v2.17` 要求与 SQL LF / 不写 BEGIN/COMMIT 约束
-- 仓库根落地 `.gitattributes`（与方案设计同步，落地时校验 git 工作树确实生效）
-- 待 `infrastructure/docker/initdb/` 退役时，单独发起一份收口计划，本方案不强行覆盖该步骤
+- `infrastructure/database/README.md`：
+  - 新增"自动迁移与 schema_migrations"章节，明确"已应用 SQL 不可改写"、"SQL 文件强制 LF / 不写 BEGIN/COMMIT" 与"禁用 CREATE INDEX CONCURRENTLY 等不能在事务内执行的 DDL" 约束
+  - 移除"使用方式 → 2. 本地空库初始化 → cmd/migrate"段落，改为"本地空库一步到位由 `go run ./cmd/server` 自然接管"
+  - 移除"已有数据库升级 → 手工执行 SQL"步骤
+  - 保留"添加新 migration → 必做事项"中的 fingerprint 维护要求（仍用于 backfill / 混合模式探测 + VerifySchema 兜底），并保留"复制到 `infrastructure/docker/initdb/`" 作为推荐流程；如未同步，启动期混合模式分支会自动跑补，但语义不干净，仍应避免
+- `docs/runbooks/deployment-environment.md` 更新升级章节，把流程精简为 `pull + up -d`
+- `docs/system-architecture.md` 在数据库章节补充 `schema_migrations` 表与启动期 Migrate 阶段说明
+- 仓库根落地 `.gitattributes` 与 `.dockerignore`（与方案设计同步，落地时校验 git 工作树确实生效）
+- `infrastructure/docker/initdb/` 退役条件（单独发起独立计划，本方案不强行覆盖该步骤）：
+  1. 至少经过 3 次包含新增 fingerprint 的发版，混合模式分支或 backfill 分支在生产无故障
+  2. 自上线本方案至触发退役至少经过 1 个月稳定期
+  3. 满足以上条件后，发起独立的 initdb/ 退役 plan，把 PG 容器的 `./initdb` 挂载移除，让 baseline 由 ember-api 启动期 Migrate 的"新空库"分支直接跑（双轨简化为单轨）
 
 归档条件：
 
-- 上述 4 处文档同步完成
+- 上述文档同步完成
 - 至少一次完整发版按本方案完成自动迁移
-- `cmd/migrate` 的 forward-only / backfill / checksum 三项行为有自动化测试覆盖
+- `internal/db/migrate.go` 的 forward-only / backfill / checksum 三项行为有自动化测试覆盖
 
 满足以上条件后，本计划迁入 `docs/archive/plan/architecture/`。
