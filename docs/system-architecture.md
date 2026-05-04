@@ -1591,9 +1591,9 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 ## 13. 部署
 
 **Docker Compose（`infrastructure/docker/docker-compose.yml`）**：
-- PostgreSQL 16 + Go API + Vue 前端（可选）+ Telegram Bot + Nginx（可选）
-- 强制 env：`POSTGRES_USER` / `POSTGRES_PASSWORD` / `DATABASE_URL` / `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET`（`docker compose up` 缺失任一立即拒绝启动）；Bot 启用时还要求 `TELEGRAM_BOT_TOKEN`
-- 应用镜像必须显式固定：`EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 必须提供明确 tag 或 digest；compose 不再接受 floating `latest`
+- PostgreSQL 16 + Go API + Vue 前端 + Telegram Bot（`profiles: ["bot"]` 控制，默认不启动）+ Nginx（可选）
+- 强制 env：`POSTGRES_USER` / `POSTGRES_PASSWORD` / `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET`（`docker compose up` 缺失任一立即拒绝启动）；`DATABASE_URL` 缺省时由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres，外部覆盖路径保留；启用 Bot 时还要求 `TELEGRAM_BOT_TOKEN`
+- 应用镜像在 compose 中已钉版默认值（`EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`，随每次发版同步更新），生产环境建议在 `.env` 显式覆盖以避免依赖默认值漂移
 - API 容器仅保留启动期/边界环境变量（`DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`EMBY_WEBHOOK_TOKEN`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`）
 - API 以非 root 用户 `ember:ember`(UID 1000) 运行
 - 健康检查：`GET /health`；Bot 通过 `depends_on.condition: service_healthy` 等 API 健康后再启动

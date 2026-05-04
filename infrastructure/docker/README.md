@@ -27,18 +27,22 @@
 ```bash
 cd infrastructure/docker
 cp .env.example .env
-export EMBER_API_IMAGE=ghcr.io/konghanghang/ember-api:<tag-or-digest>
-export EMBER_WEB_IMAGE=ghcr.io/konghanghang/ember-web:<tag-or-digest>
-export EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:<tag-or-digest>
+# 按 .env 注释填入密钥（POSTGRES_PASSWORD / JWT_SECRET / CONFIG_ENCRYPTION_KEY / INTERNAL_API_SECRET）
 docker compose pull
 docker compose up -d
 ```
 
+如需启用 Bot：在 `.env` 填入 Telegram 相关变量，然后：
+
+```bash
+docker compose --profile bot up -d
+```
+
 ## 说明
 
-- 当前 compose 默认会启动 `postgres`、`ember-api`、`ember-web`、`ember-bot`
-- `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 必须显式提供固定 tag 或 digest，禁止继续使用 floating `latest`
-- 如果你不想启动某个服务，就直接改 `docker-compose.yml`，不要指望 README 帮你兜策略
+- compose 默认启动 `postgres`、`ember-api`、`ember-web`；`ember-bot` 通过 `profiles: ["bot"]` 控制，默认不启动
+- `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 在 compose 中已钉版默认值，每次发版会同步更新；生产环境建议在 `.env` 显式覆盖以避免依赖默认值漂移
+- `DATABASE_URL` 默认由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时在 `.env` 显式提供完整 DSN 即可覆盖
 - 这个目录的路径和文件名属于部署入口的一部分，改动前先同步更新 runbooks
 
 ## `initdb/` 子目录

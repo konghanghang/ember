@@ -20,6 +20,14 @@ cd services/bot && pip install -r requirements.txt && python -m py_compile main.
 
 如果这一步都不过，就别急着打 Tag。
 
+## 发版前 checklist
+
+打 Tag 前必须勾完：
+
+- [ ] 更新 `infrastructure/docker/docker-compose.yml` 中 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 的默认 tag 为新版本（compose 默认值是 OSS 用户首次部署的 fallback，必须随发版同步）
+- [ ] 顶层迁移 SQL 已在 `infrastructure/database/` 落地并同步到 `infrastructure/docker/initdb/`
+- [ ] 本地预检全部通过
+
 ## CI 触发规则
 
 ### 编译验证

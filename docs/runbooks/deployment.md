@@ -17,25 +17,17 @@ cd infrastructure/docker
 cp .env.example .env
 ```
 
-2. 按 [部署环境与配置](./deployment-environment.md) 补齐必填项，尤其是：
-   - `POSTGRES_USER`
-   - `POSTGRES_PASSWORD`
-   - `DATABASE_URL`
-   - `JWT_SECRET`
-   - `CONFIG_ENCRYPTION_KEY`
-   - `EMBY_URL`
-   - `EMBY_API_KEY`
-   - `INTERNAL_API_SECRET`
-    - `TELEGRAM_BOT_TOKEN`
-    - `TELEGRAM_WEBHOOK_SECRET`
-    - `WEBHOOK_URL`
-   - `EMBER_API_IMAGE`
-   - `EMBER_WEB_IMAGE`
-   - `EMBER_BOT_IMAGE`
+2. 按 [部署环境与配置](./deployment-environment.md) 补齐必填项：
+   - `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`
+   - `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET`
 
-   说明：
-   - `ADMIN_PASSWORD` 不再是 compose 解析期必填；不填时 API 会在首启时生成临时管理员口令并要求首次登录改密。
-   - `EMBY_URL` / `EMBY_API_KEY` 等媒体能力配置已托管到设置中心，若不准备启用相关能力，可以在首启后再补。
+   不再硬性要求（compose 已就位默认或自动拼接）：
+
+   - `DATABASE_URL`：缺省由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时显式提供
+   - `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`：compose 中已钉版默认值，随每次发版同步更新
+   - `ADMIN_PASSWORD`：未填时 API 首启会生成临时管理员口令并要求首次登录改密
+   - `EMBY_URL` / `EMBY_API_KEY` 等媒体能力配置已托管到设置中心，可在首启后补
+   - 启用 Bot 时再填：`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` / `WEBHOOK_URL`
 
 3. 决定数据库迁移策略。
    - 空数据库首次启动：可直接用当前 compose，PostgreSQL 会执行挂载到 `/docker-entrypoint-initdb.d` 的 `infrastructure/docker/initdb/` 子目录；该目录当前仅有 v1.4.0 截点合并 baseline。
@@ -44,9 +36,18 @@ cp .env.example .env
 
 4. 拉取镜像并启动。
 
+不启用 Bot（默认）：
+
 ```bash
 docker compose pull
 docker compose up -d
+```
+
+启用 Bot：
+
+```bash
+docker compose pull
+docker compose --profile bot up -d
 ```
 
 5. 做最小验证。
@@ -54,7 +55,7 @@ docker compose up -d
 ```bash
 docker compose ps
 curl http://localhost:8080/health
-curl http://localhost:8000/health
+# 启用 Bot 时再加：curl http://localhost:8000/health
 ```
 
 6. 打开浏览器访问 `http://localhost`，确认 Web 首页可用。
@@ -63,18 +64,14 @@ curl http://localhost:8000/health
 
 ### 模式 A：预构建镜像
 
-这是默认模式，也是当前推荐路径。`docker-compose.yml` 现在要求通过环境变量显式指定固定镜像：
+这是默认模式，也是当前推荐路径。`docker-compose.yml` 中 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 已钉版默认值（随每次发版同步更新），开箱可拉起。
 
-- `EMBER_API_IMAGE`
-- `EMBER_WEB_IMAGE`
-- `EMBER_BOT_IMAGE`
-
-推荐写法示例：
+生产环境建议在 `.env` 中显式覆盖避免依赖默认值漂移：
 
 ```env
-EMBER_API_IMAGE=ghcr.io/konghanghang/ember-api:v2026.04.30
-EMBER_WEB_IMAGE=ghcr.io/konghanghang/ember-web:v2026.04.30
-EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:v2026.04.30
+EMBER_API_IMAGE=ghcr.io/konghanghang/ember-api:v1.4.1
+EMBER_WEB_IMAGE=ghcr.io/konghanghang/ember-web:v1.4.1
+EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:v1.4.1
 ```
 
 适用场景：
@@ -100,12 +97,12 @@ docker compose up -d
 
 ## 最小验收清单
 
-- `postgres`、`ember-api`、`ember-web`、`ember-bot` 均为 `Up`
+- `postgres`、`ember-api`、`ember-web` 均为 `Up`
 - `GET http://localhost:8080/health` 返回 200
-- `GET http://localhost:8000/health` 返回 200
 - `http://localhost` 可打开前端页面
 - API 日志中没有持续刷屏的数据库连接错误
 - 若首次环境没有现成 admin，日志中能看到“默认管理员已创建”或“已生成临时口令并要求首次改密”的提示
+- 启用 Bot 时（`docker compose --profile bot up -d`）：`ember-bot` 也为 `Up`，`GET http://localhost:8000/health` 返回 200
 
 ## 不在本文展开的内容
 

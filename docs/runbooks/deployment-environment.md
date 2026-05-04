@@ -4,18 +4,13 @@
 
 ## Compose 事实
 
-当前 [`docker-compose.yml`](../../infrastructure/docker/docker-compose.yml) 默认会启动四个服务：
+当前 [`docker-compose.yml`](../../infrastructure/docker/docker-compose.yml) 默认启动三个服务：
 
 - `postgres`
 - `ember-api`
 - `ember-web`
-- `ember-bot`
 
-这意味着：
-
-- 如果你不准备启用 Telegram Bot，不能假装相关配置不存在
-- 要么补齐 Bot 所需变量
-- 要么在部署前手动注释 `ember-bot` 服务
+`ember-bot` 通过 `profiles: ["bot"]` 控制，默认不启动；启用 Bot 时使用 `docker compose --profile bot up -d`。
 
 ## 必填变量
 
@@ -27,10 +22,11 @@
 |------|------|
 | `POSTGRES_USER` | PostgreSQL 用户 |
 | `POSTGRES_PASSWORD` | PostgreSQL 密码（禁止使用默认值）|
-| `DATABASE_URL` | PostgreSQL 连接串（与 `POSTGRES_USER/PASSWORD` 保持一致）|
 | `JWT_SECRET` | JWT 签名密钥（≥32 字符）|
 | `CONFIG_ENCRYPTION_KEY` | 设置中心敏感值加密主密钥（≥32 字符）|
 | `INTERNAL_API_SECRET` | API 与 Bot 的内部调用共享密钥 |
+
+`DATABASE_URL` 缺省时由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时在 `.env` 显式提供完整 DSN 即可覆盖。
 
 可选但推荐：
 
@@ -43,7 +39,7 @@
 
 ### Bot 与 Webhook
 
-默认 compose 会启动 `ember-bot`。**这组变量在 compose 解析期不再强制**（强制会让仅启动 postgres + ember-api 的部署也被拒绝），但 Bot 进程启动时若 `TELEGRAM_BOT_TOKEN` 缺失会自行退出：
+`ember-bot` 通过 `profiles: ["bot"]` 控制默认不启动。这组变量在 compose 解析期不强制（profile 关闭时不会触发插值校验），Bot 进程启动时若 `TELEGRAM_BOT_TOKEN` 缺失会自行退出：
 
 | 变量 | 作用 |
 |------|------|
@@ -90,7 +86,7 @@
 
 ## `.env.example` 的已知缺口
 
-[`infrastructure/docker/.env.example`](../../infrastructure/docker/.env.example) 已覆盖启动期所有强制 env（含 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `DATABASE_URL` / `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET` / `ADMIN_*`），但仍不是"所有运行期能力都能开箱即用"的完整模板。
+[`infrastructure/docker/.env.example`](../../infrastructure/docker/.env.example) 已覆盖启动期所有强制 env（含 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET` / `ADMIN_*`），但仍不是"所有运行期能力都能开箱即用"的完整模板。
 
 如果你希望首次启动后直接使用媒体相关能力，还需要额外准备一份设置中心初始化方案或在后台手动补齐 `EMBY_URL` / `EMBY_API_KEY` / `TMDB_API_KEY` / `MOVIEPILOT_*` / `BOT_NOTIFY_URL` 等运行期配置。
 
@@ -218,9 +214,9 @@ API 启动时会检查是否已有 `role=admin` 的用户：
 
 ## 启动前自检
 
-- `DATABASE_URL` 已指向可访问的 PostgreSQL
+- `POSTGRES_USER` / `POSTGRES_PASSWORD` 已设置；显式提供 `DATABASE_URL` 时已指向可访问的 PostgreSQL
 - 所有密钥都不是示例值
-- 如果保留 `ember-bot` 服务，Telegram 相关变量已补齐
+- 启用 `ember-bot` 时（`docker compose --profile bot`），Telegram 相关变量已补齐
 - 如果是升级环境，手动 SQL 已执行完毕
 
 ## 相关文档

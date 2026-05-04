@@ -28,8 +28,9 @@ services:
 
   # Go API 服务
   ember-api:
-    # 生产环境必须显式固定镜像 tag 或 digest，禁止 floating latest。
-    image: ${EMBER_API_IMAGE:?EMBER_API_IMAGE 必须显式提供，例如 ghcr.io/konghanghang/ember-api:v2026.04.28}
+    # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
+    # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
+    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v1.4.1}
 
     # 如需本地构建，取消下面两行注释并注释上面的 image 行
     # build:
@@ -39,7 +40,9 @@ services:
     container_name: ember-api
     environment:
       - PORT=8080
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL 必须显式提供}
+      # DATABASE_URL 缺省时由 compose 按 POSTGRES_USER/PASSWORD/DB 自动拼接到内置 postgres；
+      # 外部覆盖（指向独立 DB）时仍取外部值
+      - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET 必须显式提供（≥32 字符）}
       - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY 必须显式提供}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET 必须显式提供（API ↔ Bot 共享密钥）}
@@ -76,8 +79,9 @@ services:
 
   # Vue 前端服务
   ember-web:
-    # 生产环境必须显式固定镜像 tag 或 digest，禁止 floating latest。
-    image: ${EMBER_WEB_IMAGE:?EMBER_WEB_IMAGE 必须显式提供，例如 ghcr.io/konghanghang/ember-web:v2026.04.28}
+    # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
+    # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
+    image: ${EMBER_WEB_IMAGE:-ghcr.io/konghanghang/ember-web:v1.4.1}
 
     # 如需本地构建，取消下面两行注释并注释上面的 image 行
     # build:
@@ -97,10 +101,12 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Python Telegram Bot
+  # Python Telegram Bot（默认不启动；启用时使用 docker compose --profile bot up -d）
   ember-bot:
-    # 生产环境必须显式固定镜像 tag 或 digest，禁止 floating latest。
-    image: ${EMBER_BOT_IMAGE:?EMBER_BOT_IMAGE 必须显式提供，例如 ghcr.io/konghanghang/ember-bot:v2026.04.28}
+    profiles: ["bot"]
+    # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
+    # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
+    image: ${EMBER_BOT_IMAGE:-ghcr.io/konghanghang/ember-bot:v1.4.1}
 
     # 如需本地构建，取消下面两行注释并注释上面的 image 行
     # build:
