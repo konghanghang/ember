@@ -40,6 +40,7 @@
 - `architecture/oss-deployment-experience.md`（Phase 1 已落地，Phase 2 待启动）
 - `bot-telegram/notification-mute-rules.md`
 - `bot-telegram/subscription-admin-message-sync.md`
+- `console-admin/admin-emby-binding.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
