@@ -23,6 +23,20 @@
       "Bash(javac:*)",
       "Bash(jar:*)",
 
+      "Bash(go vet:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python -m compileall:*)",
+
+      "Bash(npm run build:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm test:*)",
+      "Bash(npx vitest:*)",
+
       "Bash(mvn test:*)",
       "Bash(gradle test:*)",
 

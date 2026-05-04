@@ -134,12 +134,30 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["python", "-m", "py_compile", "main.py"],
+    pattern = ["npm", "test"],
     decision = "allow",
-    justification = "Allow Bot syntax compilation validation.",
+    justification = "Allow npm test built-in alias for frontend test runs.",
     match = [
-        "python -m py_compile main.py",
+        "npm test",
     ],
+)
+
+prefix_rule(
+    pattern = ["npx", "vitest"],
+    decision = "allow",
+    justification = "Allow direct Vitest invocation for focused frontend test runs.",
+)
+
+prefix_rule(
+    pattern = ["python", "-m", "py_compile"],
+    decision = "allow",
+    justification = "Allow Bot syntax compilation validation for any module file.",
+)
+
+prefix_rule(
+    pattern = ["python", "-m", "compileall"],
+    decision = "allow",
+    justification = "Allow Bot batch syntax compilation validation.",
 )
 
 prefix_rule(
@@ -149,18 +167,39 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["python3", "-m", "py_compile", "main.py"],
+    pattern = ["python", "-m", "pytest"],
+    decision = "allow",
+    justification = "Allow Bot pytest runs invoked through python -m.",
+)
+
+prefix_rule(
+    pattern = ["pytest"],
+    decision = "allow",
+    justification = "Allow Bot pytest runs (direct invocation).",
+)
+
+prefix_rule(
+    pattern = ["python3", "-m", "py_compile"],
     decision = "allow",
     justification = "Allow Bot syntax compilation validation when Python 3 is invoked explicitly.",
-    match = [
-        "python3 -m py_compile main.py",
-    ],
+)
+
+prefix_rule(
+    pattern = ["python3", "-m", "compileall"],
+    decision = "allow",
+    justification = "Allow Bot batch syntax compilation validation when Python 3 is invoked explicitly.",
 )
 
 prefix_rule(
     pattern = ["python3", "-m", "unittest"],
     decision = "allow",
     justification = "Allow Bot unittest runs when Python 3 is invoked explicitly.",
+)
+
+prefix_rule(
+    pattern = ["python3", "-m", "pytest"],
+    decision = "allow",
+    justification = "Allow Bot pytest runs invoked through python3 -m.",
 )
 
 # Commands that mutate local state but do not create user-visible history can
