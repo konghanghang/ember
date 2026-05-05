@@ -26,9 +26,13 @@ vi.mock('@/api/auth', () => ({
   ),
 }))
 
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}))
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-router')>()
+  return {
+    ...actual,
+    useRouter: () => ({ push: vi.fn() }),
+  }
+})
 
 vi.mock('element-plus', () => ({
   ElMessage: {
