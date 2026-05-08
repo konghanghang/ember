@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -128,6 +129,13 @@ func runMigrate(driver migrationDriver, dir string) error {
 	if len(files) == 0 {
 		logf("目录 %s 下没有顶层 .sql 文件，跳过", dir)
 		return nil
+	}
+
+	// 3.5 baseline 唯一性防御：所有分支共用此约束。
+	// baseline 表达"等价 schema 快照"语义，目录里同一时刻只能有一份；
+	// 多份共存会让升级路径分支判断失去单点真相，必须在启动期 fail-fast。
+	if err := detectBaselineCollision(files); err != nil {
+		return err
 	}
 
 	// 4. 拉出已应用集合
@@ -283,8 +291,15 @@ func fingerprintAligned(driver migrationDriver) (bool, []string, map[string]bool
 //
 // 三种分支：已应用 + checksum 一致 → 跳过；已应用但 checksum 不一致 → fail-fast；
 // 未应用 → 在外层事务内执行 SQL + 同一事务写入记账行。
+//
+// baseline 重命名豁免：当 schema_migrations 已有任意记账（说明这是已经跑过 v1.4.x
+// 的库），目录里出现的"未应用"baseline 文件视为"等价 schema 快照"，仅记账不执行。
+// 否则会在老库上重新跑 baseline 里 CREATE TYPE 等不带 IF NOT EXISTS 的 DDL，
+// 直接 fail-fast 让 API 起不来。新空库分支调用此函数时 applied 必然为空，不会
+// 进入这条分支，baseline 会按字典序被真的执行。
 func applyForwardOnly(driver migrationDriver, files []migrationFile, applied map[string]string) error {
-	var executed int
+	var executed, baselineBackfilled int
+	hasPriorAccounting := len(applied) > 0
 	for _, f := range files {
 		if existing, ok := applied[f.filename]; ok {
 			if existing != f.checksum {
@@ -296,13 +311,27 @@ func applyForwardOnly(driver migrationDriver, files []migrationFile, applied map
 			}
 			continue
 		}
+		// baseline 重命名豁免：老库下出现的"未应用"baseline 是上一次压缩切点之后
+		// 重命名而来的等价快照，不该被执行。
+		if hasPriorAccounting && isBaselineFile(f.filename) {
+			logf("→ baseline %s 视为等价 schema 快照（老库已有记账），仅记账不执行", f.filename)
+			if err := driver.RecordBackfill(f); err != nil {
+				return fmt.Errorf("baseline 记账 %s 失败：%w", f.filename, err)
+			}
+			baselineBackfilled++
+			continue
+		}
 		logf("→ 应用 %s", f.filename)
 		if err := driver.ApplyMigrationInTx(f); err != nil {
 			return fmt.Errorf("执行 %s 失败：%w", f.filename, err)
 		}
 		executed++
 	}
-	logf("forward-only 完成：本次实际执行 %d 份 SQL", executed)
+	if baselineBackfilled > 0 {
+		logf("forward-only 完成：本次实际执行 %d 份 SQL，baseline 仅记账 %d 份", executed, baselineBackfilled)
+	} else {
+		logf("forward-only 完成：本次实际执行 %d 份 SQL", executed)
+	}
 	return nil
 }
 
@@ -400,6 +429,46 @@ func loadMigrationFiles(dir string) ([]migrationFile, error) {
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// baselineFilenamePattern 识别"等价 schema 快照"类型的 baseline 文件。
+//
+// 同时兼容两种命名：
+//   - 当前生产格式：YYYYMMDD_NN_schema_baseline.sql（如 20260502_00_schema_baseline.sql）
+//   - 推荐演进格式：00000000_baseline_YYYYMMDD.sql 或 00000000_baseline.sql
+//     （全 0 前缀让 baseline 永远字典序最先，且文件名一眼可辨"我是 baseline"）
+//
+// 同时保留两种格式：当前 baseline 名不动，机制升级是为下一次压缩做铺垫；
+// 不强制重命名当前 baseline 是为了避免"修机制 + 改文件名"两件事耦合带来的
+// 老库 checksum 重算与升级路径连锁影响。
+var baselineFilenamePattern = regexp.MustCompile(
+	`^(?:[0-9]{8}_[0-9]{2}_schema_baseline|0{8}_baseline(?:_[0-9]{8})?)\.sql$`,
+)
+
+// isBaselineFile 判断文件名是否符合 baseline 命名约定。
+func isBaselineFile(filename string) bool {
+	return baselineFilenamePattern.MatchString(filename)
+}
+
+// detectBaselineCollision 探测目录里是否同时存在多份 baseline 文件。
+//
+// baseline 表达"等价 schema 快照"，目录里同一时刻必须只有一份；多份共存
+// 会让升级路径分支判断失去单点真相（新空库部署时按字典序会先后跑两份 baseline
+// 触发幂等性不足的语句失败），必须在启动期 fail-fast。
+func detectBaselineCollision(files []migrationFile) error {
+	var baselines []string
+	for _, f := range files {
+		if isBaselineFile(f.filename) {
+			baselines = append(baselines, f.filename)
+		}
+	}
+	if len(baselines) > 1 {
+		return fmt.Errorf("目录中同时存在多份 baseline 文件：%s；"+
+			"baseline 表达'等价 schema 快照'语义，目录里只能有一份。"+
+			"做 baseline 压缩时请把老 baseline 移到 archive/pre-<date>/ 后再启动",
+			strings.Join(baselines, ", "))
+	}
+	return nil
 }
 
 // resolveMigrationsDir 决定 SQL migration 文件所在目录。

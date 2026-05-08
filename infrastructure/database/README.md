@@ -25,13 +25,15 @@
 
 | 业务核心表存在 | `schema_migrations` 非空 | fingerprint 齐 | 缺失项关联 migration 都在目录顶层 | 分支行为 |
 |:-:|:-:|:-:|:-:|---|
-| 否 | 否 | — | — | **新空库**：forward-only 跑全部目录 SQL |
+| 否 | 否 | — | — | **新空库**：forward-only 跑全部目录 SQL（含 baseline） |
 | 是 | 否 | 是 | — | **老库 backfill**：仅记账，不执行 SQL |
 | 是 | 否 | 否 | 是 | **混合模式**：缺失项关联的 SQL 跑 forward-only，其余记账 |
 | 是 | 否 | 否 | 否 | **老库不对齐**：fail-fast，需人工对齐 schema |
-| — | 是 | — | — | **正常 forward-only**：未应用即跑、checksum 不一致即拒 |
+| — | 是 | — | — | **正常 forward-only**：未应用即跑、checksum 不一致即拒；**未应用 baseline 仅记账不执行**（重命名豁免） |
 
 并发保护：每次 Migrate 阶段用 `pg_try_advisory_lock` 抢独占锁，30s 超时窗口内重试；锁绑定到单条物理连接，避免连接池抢到不同连接导致 unlock 落空。
+
+baseline 唯一性：所有分支共用一条防御——目录里同时存在多份 baseline 文件时启动期 fail-fast。baseline 表达"等价 schema 快照"，目录里必须只有一份；做新一轮 baseline 压缩时旧 baseline 必须先移到 `archive/pre-<日期>/`。
 
 ## SQL 文件硬约束
 
@@ -135,9 +137,14 @@ archive/
 当顶层增量再次堆到不易维护、相关 schema 已稳定时：
 
 1. 选定新截点 `YYYYMMDD`
-2. 按字典序合并 `{当前 baseline} + {后续增量}` 生成 `<新截点>_00_schema_baseline.sql`
-3. 旧 baseline + 全部增量整批移到 `archive/pre-<新截点>/`
+2. 按字典序合并 `{当前 baseline} + {后续增量}` 生成新 baseline，命名沿用 `00000000_baseline_<新截点>.sql`（全 0 前缀让 baseline 永远字典序最先且文件名一眼可辨）
+3. 旧 baseline + 全部增量整批移到 `archive/pre-<新截点>/`（**目录顶层任何时刻必须只有一份 baseline**，多份共存启动期会 fail-fast）
 4. 同步本 README 的 baseline 文件名引用
 5. `db.go` 的 fingerprint 持续有效，不需要清空
+
+老库重启时的行为（已写入 `migrate_test.go`）：
+- 老 baseline 已记账、新 baseline 在目录中且未记账 → 新 baseline 视为"等价 schema 快照"仅记账不执行（`baselineFilenamePattern` 同时识别两种命名格式）
+- 老库 baseline 重命名豁免对应 commit 的回归测试：`TestRunMigrate_BaselineRenameOnExistingDB_ShouldNotReexecute`
+- 多份 baseline 共存防御：`TestRunMigrate_MultipleBaselinesCoexist_FailFast`
 
 具体操作可参考 [`docs/runbooks/database-migration-baseline.md`](../../docs/runbooks/database-migration-baseline.md)。

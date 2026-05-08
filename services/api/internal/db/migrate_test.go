@@ -377,3 +377,146 @@ func TestRunMigrate_Mixed_PartialForwardPartialBackfill(t *testing.T) {
 		t.Fatalf("结束前应释放 advisory lock")
 	}
 }
+
+// TestIsBaselineFile：识别函数同时兼容当前格式与未来推荐格式，且不误判普通增量。
+func TestIsBaselineFile(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		// 当前生产格式
+		{"20260502_00_schema_baseline.sql", true},
+		{"20260422_00_schema_baseline.sql", true},
+		// 未来推荐格式
+		{"00000000_baseline.sql", true},
+		{"00000000_baseline_20260820.sql", true},
+		// 普通增量不应被误判
+		{"20260427_04_bot_pending_reject_message_context.sql", false},
+		{"20260504_00_users-emby-id-unique.sql", false},
+		{"20260502_00_some_other.sql", false},
+		// 名字片段不算
+		{"schema_baseline.sql", false},
+		{"my_baseline_xxx.sql", false},
+		// 错位的零前缀
+		{"0000000_baseline.sql", false},
+		{"000000000_baseline.sql", false},
+		// 错位的扩展名
+		{"00000000_baseline.txt", false},
+		{"20260502_00_schema_baseline.SQL", false},
+	}
+	for _, c := range cases {
+		if got := isBaselineFile(c.in); got != c.want {
+			t.Errorf("isBaselineFile(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestRunMigrate_BaselineRenameOnExistingDB_ShouldNotReexecute：
+// 关键回归——老库已记账上一代 baseline 文件名 + 一份增量；目录被压缩成
+// 新 baseline + 切点之后的新增量。启动期必须：
+//   - 不重复执行新 baseline（baseline SQL 通常含 CREATE TYPE 等不带 IF NOT EXISTS
+//     的语句，重复执行会让 API fail-fast）
+//   - 把新 baseline 写入 schema_migrations 视为已应用
+//   - 真的执行新增量
+func TestRunMigrate_BaselineRenameOnExistingDB_ShouldNotReexecute(t *testing.T) {
+	dir := writeMigrations(t, map[string]string{
+		"00000000_baseline_20260820.sql": "CREATE TYPE media_type AS ENUM ('MOVIE','TV');",
+		"20260820_01_some_feature.sql":   "ALTER TABLE users ADD COLUMN beta TEXT;",
+	})
+
+	driver := newFakeDriver()
+	// 老库已有记账：上一代 baseline + 一份增量；这两份文件已经移到 archive，目录里已不存在
+	driver.applied["20260502_00_schema_baseline.sql"] = "old-baseline-checksum"
+	driver.applied["20260504_00_users-emby-id-unique.sql"] = "old-increment-checksum"
+
+	if err := runMigrate(driver, dir); err != nil {
+		t.Fatalf("runMigrate 不应失败：%v", err)
+	}
+
+	// 新 baseline 不应被执行（视为等价 schema 快照）
+	for _, fn := range driver.applyCalls {
+		if isBaselineFile(fn) {
+			t.Fatalf("新 baseline %s 不应被执行：apply=%v", fn, driver.applyCalls)
+		}
+	}
+
+	// 新 baseline 应被记账（backfill 路径）
+	foundBaselineBackfill := false
+	for _, fn := range driver.backfillCalls {
+		if fn == "00000000_baseline_20260820.sql" {
+			foundBaselineBackfill = true
+			break
+		}
+	}
+	if !foundBaselineBackfill {
+		t.Fatalf("新 baseline 应被 RecordBackfill：backfill=%v", driver.backfillCalls)
+	}
+
+	// 新增量必须被真的执行
+	wantApply := []string{"20260820_01_some_feature.sql"}
+	if !equalSlices(driver.applyCalls, wantApply) {
+		t.Fatalf("新增量应被执行：want=%v got=%v", wantApply, driver.applyCalls)
+	}
+
+	if !driver.released {
+		t.Fatalf("结束前应释放 advisory lock")
+	}
+}
+
+// TestRunMigrate_MultipleBaselinesCoexist_FailFast：目录里同时存在两份 baseline
+// （例如 baseline 压缩时忘了把老 baseline 移到 archive）必须 fail-fast，
+// 不允许任何写操作。
+func TestRunMigrate_MultipleBaselinesCoexist_FailFast(t *testing.T) {
+	dir := writeMigrations(t, map[string]string{
+		"20260502_00_schema_baseline.sql": "CREATE TYPE foo AS ENUM ('A');",
+		"00000000_baseline_20260820.sql":  "CREATE TYPE foo AS ENUM ('A');",
+		"20260820_01_some_feature.sql":    "SELECT 1;",
+	})
+
+	driver := newFakeDriver()
+	// 用空库视角：tables / applied 都空 → 走 emptyDB 分支
+	// 但 baseline 共存防御应该在分支判断之前就 fail-fast
+
+	err := runMigrate(driver, dir)
+	if err == nil {
+		t.Fatal("多份 baseline 共存时应 fail-fast")
+	}
+	if !strings.Contains(err.Error(), "baseline") {
+		t.Fatalf("error 应明确提示 baseline 多份共存：%v", err)
+	}
+
+	// 不应触发任何写操作
+	if len(driver.applyCalls)+len(driver.backfillCalls) != 0 {
+		t.Fatalf("baseline 共存防御不应触发写操作：apply=%v backfill=%v",
+			driver.applyCalls, driver.backfillCalls)
+	}
+	if !driver.released {
+		t.Fatalf("即便 fail-fast 也应释放 advisory lock")
+	}
+}
+
+// TestRunMigrate_EmptyDBWithBaseline_AppliesBaseline：新空库部署不应被
+// baseline 重命名豁免影响——applied 为空 → baseline 必须被真的执行。
+// 这个测试是为了防止"baseline 跳过执行"逻辑在新空库上误触发。
+func TestRunMigrate_EmptyDBWithBaseline_AppliesBaseline(t *testing.T) {
+	dir := writeMigrations(t, map[string]string{
+		"00000000_baseline_20260820.sql": "CREATE TABLE users (...);",
+		"20260820_01_some_feature.sql":   "ALTER TABLE users ADD COLUMN beta TEXT;",
+	})
+
+	driver := newFakeDriver()
+	// 新空库：tables / columns / indexes / applied 全部留空
+
+	if err := runMigrate(driver, dir); err != nil {
+		t.Fatalf("runMigrate 不应失败：%v", err)
+	}
+
+	// 新空库：必须按字典序应用全部 SQL（含 baseline）
+	want := []string{"00000000_baseline_20260820.sql", "20260820_01_some_feature.sql"}
+	if !equalSlices(driver.applyCalls, want) {
+		t.Fatalf("新空库下 baseline 必须被真的执行：want=%v got=%v", want, driver.applyCalls)
+	}
+	if len(driver.backfillCalls) != 0 {
+		t.Fatalf("新空库不应触发 backfill：%v", driver.backfillCalls)
+	}
+}

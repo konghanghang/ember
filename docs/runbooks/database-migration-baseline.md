@@ -62,6 +62,24 @@ v1.4.0 截点这一轮采用了”按字典序文本拼接”的合并式 baseli
 - baseline 之后新增的 migration 仍然必须遵守 `snake_case` 规则，不能继续扩散历史 camelCase 命名
 - Go / GORM 字段与 JSON 字段命名不构成数据库列命名依据；写 migration 或手工 SQL 时只认数据库真实列名
 
+## baseline 文件命名与老库升级路径
+
+下一轮 baseline 文件名继续沿用 `00000000_baseline_<新截点>.sql`（全 0 前缀让 baseline 永远字典序最先且文件名一眼可辨）。`services/api/internal/db/migrate.go` 的 `baselineFilenamePattern` 同时识别新命名格式与历史命名格式 `YYYYMMDD_NN_schema_baseline.sql`，确保升级路径自动覆盖。
+
+老库重启时启动期 Migrate 自动处理 baseline 重命名：
+
+- 老 baseline 已记账（如历史命名 `20260502_00_schema_baseline.sql`）+ 目录里换成新 baseline（如全 0 命名 `00000000_baseline_<新截点>.sql`）+ 新 baseline 不在 `schema_migrations` 中 → 视为"等价 schema 快照"，**仅写记账行不执行 SQL**，避免重复跑 baseline 中 `CREATE TYPE` / `ADD CONSTRAINT` 等不带 `IF NOT EXISTS` 的 DDL 让 API fail-fast
+- 这个豁免**只在 forward-only 分支生效**（`schema_migrations` 已有记账时）；新空库分支不受影响，baseline 仍然按字典序被真的执行
+- 目录里同时存在两份 baseline → 启动期 fail-fast，要求把老 baseline 移到 `archive/pre-<日期>/`
+
+回归测试：
+
+- `TestRunMigrate_BaselineRenameOnExistingDB_ShouldNotReexecute`：老库 baseline 重命名豁免
+- `TestRunMigrate_MultipleBaselinesCoexist_FailFast`：多份 baseline 共存防御
+- `TestRunMigrate_EmptyDBWithBaseline_AppliesBaseline`：新空库下 baseline 必须真的被执行
+
+下一轮 baseline 切换发版时不需要写过渡 SQL，部署者也不需要手工跑任何记账迁移命令——直接 `docker compose pull && up -d` 即可。
+
 ## 第一步：选定截点
 
 先明确一份截止文件，例如：
