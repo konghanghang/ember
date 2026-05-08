@@ -1,7 +1,22 @@
 # Ember 系统架构文档
 
-> 本文档记录 Ember 系统的完整架构、数据模型、服务逻辑和 API 端点。
+> 本文档记录 Ember 系统的高层架构、服务边界、关键流转和参考文档入口。
 > 供 AI 协作时快速加载系统上下文，避免重复探索代码。
+
+## 文档职责说明
+
+本文件是 Ember 的**系统入口文档**，优先承载以下内容：
+
+- 系统边界、服务职责与核心目录结构
+- 核心数据关系、关键状态流转与外部集成关系
+- 进入更细粒度参考文档的导航入口
+
+为避免继续膨胀，以下内容不再把“完整清单”长期保留在本文件中：
+
+- 全量配置与环境变量字典：看 [docs/reference/configuration-reference.md](./reference/configuration-reference.md)
+- 详细部署与排障步骤：看 [docs/runbooks/deployment.md](./runbooks/deployment.md)、[docs/runbooks/deployment-environment.md](./runbooks/deployment-environment.md)、[docs/runbooks/deployment-troubleshooting.md](./runbooks/deployment-troubleshooting.md)
+
+当前主文档中的大块枚举型内容已迁移到 `docs/reference/`；后续以目录入口收尾、引用校正和归档准备为主。
 
 ---
 
@@ -244,454 +259,45 @@ services/
 
 ---
 
-### 3.1 Web 共享组件层
+### 3.1 Web 信息架构入口
 
-`services/web/src/components/ember/` 是当前 Web 端的 Ember 基础组件层，职责是把后台与控制台高频重复的 UI 骨架收口为稳定契约，而不是把业务逻辑搬进组件。
+Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容路由已迁移到 [docs/reference/web-information-architecture.md](./reference/web-information-architecture.md)。
 
-- `layout/`
-  - `EmberPageHeaderCard`：统一页面标题、说明、统计 badge、右侧 actions/tabs slot
-  - `EmberFilterPanel`：统一筛选区容器、字段区布局、按钮区对齐
-  - `EmberSegmentTabs`：统一页内单选分段切换，当前以 `radiogroup / radio` 语义提供共享键盘交互约定，但不默认承诺 `tabpanel` 语义
-- `filters/`
-  - `EmberSearchInput`、`EmberSelectField`、`EmberDateField`、`EmberDateRangeField`
-  - 负责筛选字段的 Ember 风格外观与交互基线，消费共享 field token，不承载页面查询逻辑
-- `data-display/`
-  - `EmberTableCard`：统一表格容器、可选标题头、表头样式和分页区
-  - `EmberMetricCard`：统一简单统计卡基线
-- `forms/`
-  - `EmberFormDialog`：统一弹窗表单容器和 footer 区域
-- `feedback/`
-  - `EmberEmptyStateCard`：统一中性 / 风险态空状态容器和可选动作区
+主文档只保留高层边界：
 
-当前已接入这套基础组件的后台页面包括：
-
-- 列表/表单类页面：
-  - `services/web/src/views/admin/UsersView.vue`
-  - `services/web/src/views/admin/PaymentsView.vue`
-  - `services/web/src/views/admin/PlaybackHistoryView.vue`
-  - `services/web/src/views/admin/RedemptionCodesView.vue`
-  - `services/web/src/views/admin/RedemptionHistoryView.vue`
-  - `services/web/src/views/admin/UserPlaybackProfilesView.vue`
-  - `services/web/src/views/admin/PlansView.vue`
-  - `services/web/src/views/admin/PlanGroupsView.vue`
-- 容器型中心页：
-  - `services/web/src/views/admin/PaymentCenterView.vue`
-  - `services/web/src/views/admin/PlaybackCenterView.vue`
-  - `services/web/src/views/admin/RedemptionCenterView.vue`
-  - `services/web/src/views/admin/SettingsView.vue`
-  - `services/web/src/views/admin/SessionsView.vue`
-  - `services/web/src/views/admin/MediaQualityView.vue`
-
-当前已接入这套基础组件的控制台页面包括：
-
-- `services/web/src/views/console/SubscriptionsView.vue`
-- `services/web/src/views/console/NewSubscriptionView.vue`
-- `services/web/src/views/console/RenewalCenterView.vue`
-- `services/web/src/views/console/DashboardView.vue`
-- `services/web/src/views/console/RankingsView.vue`
-
-边界约束：
-
-- 页面 view 继续保留接口调用、路由状态、筛选参数、弹窗状态和数据编排。
-- Ember 基础组件只承载稳定 UI 契约，不侵入 store 和 API 请求。
-- 强业务、强视觉特例页面仍允许保留页面内实现，例如 `services/web/src/views/console/TVCalendarView.vue`。
+- Web 端继续采用“共享布局 / 页面 view / API 层 / Store”分层
+- 共享组件层只承载稳定 UI 契约，不侵入业务编排
+- 页面职责、中心页 Tab 结构、兼容路由与页面级数据源统一维护在 [docs/reference/web-information-architecture.md](./reference/web-information-architecture.md)
 
 ---
 
 ## 4. 数据模型
 
-### 4.1 User
+完整字段字典、模型设计要点和关系说明已迁移到 [docs/reference/data-model-reference.md](./reference/data-model-reference.md)。
 
-**表名**: `users` | **文件**: `models/user.go`
+本节只保留系统入口级摘要。
 
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID 主键 |
-| Username | string(50) | username | 唯一索引 |
-| Role | string(10) | role | `"admin"` 或 `"user"` |
-| Password | string | password | bcrypt hash（JSON 隐藏） |
-| Email | string(255) | email | 唯一索引 |
-| EmbyID | string(50) | embyId | Emby 用户 ID |
-| EmbyDisabled | bool | embyDisabled | cron 封禁标记 |
-| TelegramID | *int64 | telegramId | Telegram 绑定 ID（唯一，可空） |
-| PlanGroup | *string | planGroup | 用户显式绑定的套餐分组 key；为空时按系统默认分组计算可见/可购套餐 |
-| ExpiresAt | *time.Time | expiresAt | 到期时间（nil=永不过期）|
-| IsActive | bool | isActive | 管理员手动开关 |
-| CreatedAt | time.Time | createdAt | 自动 |
-| UpdatedAt | time.Time | updatedAt | 自动 |
+### 4.1 核心模型分组
 
-**方法**：
-- `SetPassword(pwd)` / `CheckPassword(pwd)` — bcrypt
-- `IsExpired()` — `ExpiresAt != nil && ExpiresAt < now`
-- `IsAdmin()` — `Role == "admin"`
+- 账号与认证：`users`、`email_verifications`、`telegram_bind_codes`
+- 兑换与支付：`redemption_codes`、`redemptions`、`plans`、`plan_groups`、`payments`、`stripe_webhook_events`
+- 内容与行为：`subscriptions`、`playback_rankings`、`client_blacklists`、`device_actions`
+- 追剧与媒体：`tv_calendar_sources`、`tv_calendar_items`、`tv_calendar_subscriptions`、`tmdb_cache`
+- 系统运行期：`settings`、`failed_emby_async_ops`、`media_gap_scans`、`bot_runtime_locks`
 
-**设计要点**：
-- `IsActive` 是管理员手动控制的"人工开关"
-- `EmbyDisabled` 是 cron 自动管理的"过期封禁状态"
-- 两者正交，互不干扰
-- `User` 只承载 `users` 表真实列；`planGroupName`、`effectivePlanGroup` 等展示态字段只存在于 `services/user` 查询 DTO，不再混入持久化模型
+### 4.2 关键关系
 
-### 4.2 RedemptionCode
+- `User` 是核心主体，向外关联 `Redemption`、`Subscription`、`Payment`、`TelegramBindCode` 和追剧订阅
+- `PlanGroup → Plan → Payment` 构成套餐与支付主链路；`User.planGroup`、`RedemptionCode.registrationPlanGroup` 参与用户可见套餐边界
+- `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动
+- `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
+- `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表
 
-**表名**: `redemption_codes` | **文件**: `models/redemption_code.go`
+### 4.3 维护约束
 
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| Code | string(20) | code | 唯一，16 字符 hex |
-| MaxUses | int | maxUses | 最大使用次数（默认 1）|
-| UsedCount | int | usedCount | 已使用次数（默认 0）|
-| ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
-| DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
-| TemplateUserID | *string(25) | templateUserId | 模板用户 ID（可空，仅邀请码注册时生效）|
-| RegistrationPlanGroup | *string(50) | registrationPlanGroup | 注册场景专用套餐分组 key（可空；仅注册时生效，续期忽略） |
-| Notes | string(500) | notes | 备注（可选，用于记录用途或来源） |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-**方法**：`IsValid()` — `UsedCount < MaxUses && (ExpiresAt == nil || ExpiresAt > now)`
-
-**双重角色**：
-- `registration_mode = "invite"` 时：注册门控（必须提供码才能注册）
-- 已注册用户：续期工具（兑换码延长有效期）
-
-### 4.3 Redemption（兑换历史）
-
-**表名**: `redemptions` | **文件**: `models/redemption.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| UserID | string(25) | userId | 用户 ID（有索引）|
-| Code | string(20) | code | 使用的兑换码 |
-| Days | int | days | 兑换天数 |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-### 4.4 Setting（系统配置）
-
-**表名**: `settings` | **文件**: `models/setting.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| Key | string(100) | key | 主键 |
-| Value | text | value | 值或密文 |
-| IsEncrypted | bool | isEncrypted | 是否为加密存储 |
-| UpdatedByUserID | *string(25) | updatedByUserId | 最后修改人（可空） |
-| UpdatedAt | time.Time | updatedAt | 自动 |
-
-**设计要点**：
-- `settings` 已扩展为设置中心的运行期存储层
-- 配置解析优先级固定为：数据库覆盖值 > 环境变量 > 代码默认值
-- 敏感配置可加密落库，不通过 API 明文回显
-- 配置定义显式声明“空值语义”：关闭功能 / 回退到上游配置 / 跟随外部服务默认行为，不再靠模糊文案猜
-- 只读部署边界项同时声明“只读原因”和“缺失影响”，前端直接展示，不再让管理员自己猜为什么不能改
-
-**当前已托管或接入统一解析的配置项**：
-- 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`registration_allowed_email_domains`、`stripe_allowed_payment_methods`
-- 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`（历史键名，数据库配置项）、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
-- 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
-- 通知：`BOT_NOTIFY_URL`
-- 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT` 等
-
-### 4.5 Subscription（订阅求片）
-
-**表名**: `subscriptions` | **文件**: `models/subscription.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| UserID | string(25) | userId | 用户 ID |
-| Type | MediaType | type | `"MOVIE"` 或 `"TV"` |
-| Name | string(255) | name | 媒体名称 |
-| TmdbID | string | tmdbId | TMDB ID |
-| Season | int | season | 季号，`0` 表示整剧 |
-| PosterPath | *string(500) | posterPath | 海报 URL |
-| Status | SubscriptionStatus | status | `PENDING`/`APPROVED`/`REJECTED`/`INGESTED` |
-| Note | *string | note | 用户备注 |
-| RetryFromID | *string(25) | retryFromId | 拒绝后重新发起时指向上一条 `REJECTED` 订阅，可空 |
-| MpError | *string(500) | mpError | MoviePilot 同步错误 |
-| RejectReason | *string | rejectReason | 管理员拒绝原因 |
-| ReviewedAt | *time.Time | reviewedAt | 审核时间（通过/拒绝） |
-| IngestedAt | *time.Time | ingestedAt | 真实入库时间（由 Emby webhook 或管理员校验命中后收口写入） |
-| CreatedAt | time.Time | createdAt | 自动 |
-| UpdatedAt | time.Time | updatedAt | 自动 |
-
-**状态流转**：
-- 用户创建后进入 `PENDING`
-- 管理员审核通过后转 `APPROVED`，并记录 `reviewedAt`
-- 管理员拒绝后转 `REJECTED`，必须写入 `rejectReason` 与 `reviewedAt`
-- 用户可基于自己的 `REJECTED` 记录重新发起一条新的 `PENDING` 订阅，新记录写入 `retryFromId`，原拒绝记录保持历史不改写
-- Emby 真实入库事件命中已通过订阅后转 `INGESTED`，并写入 `ingestedAt`
-- 对历史漏回写记录，管理员可主动触发 Emby 校验；只有命中真实资源时，`APPROVED` 才能收口为 `INGESTED`
-
-**唯一约束**：
-- `subscriptions` 不再使用全局唯一索引 `uk_subscription_media`
-- 活跃状态唯一索引 `uq_subscriptions_active_media` 只约束 `status IN ('PENDING','APPROVED','INGESTED')` 的 `(type, tmdbId, season)`
-- `REJECTED` 历史记录不占用唯一位，允许同一作品在被拒绝后重新提交，但任意时刻同一作品仍只能存在一条活跃订阅
-
-### 4.6 EmailVerification（邮箱验证码）
-
-**表名**: `email_verifications` | **文件**: `models/email_verification.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| Email | string(255) | email | 索引 |
-| Code | string(6) | code | 6 位验证码（JSON 隐藏）|
-| Type | string(20) | type | 验证码类型：`register`/`reset`/`change_email`（索引）|
-| IP | string(45) | ip | 请求 IP（索引，JSON 隐藏）|
-| ExpiresAt | time.Time | expiresAt | 过期时间 |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-### 4.7 Plan（付费方案）
-
-**表名**: `plans` | **文件**: `models/plan.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| Name | string(100) | name | 方案名称 |
-| Description | string(500) | description | 描述 |
-| Days | int | days | 天数 |
-| Price | int64 | price | 价格（分）|
-| Currency | string(3) | currency | 币种（当前支持 `"usd"` / `"hkd"` / `"cny"`）|
-| PlanGroup | string(50) | planGroup | 套餐所属分组 key（由应用层校验其存在性与删除约束）|
-| IsActive | bool | isActive | 是否启用（默认 true，DELETE 接口仅置为 false 作为软删除）|
-| SortOrder | int | sortOrder | 排序（默认 0）|
-| CreatedAt | time.Time | createdAt | 自动 |
-| UpdatedAt | time.Time | updatedAt | 自动 |
-
-**设计要点**：
-- `Plan` 只承载 `plans` 表真实列；`planGroupName` 这类 join 后的展示字段由 `services/payment` 查询 DTO 承载，避免普通 `First/Find` 误查不存在列
-
-### 4.7.1 PlanGroup
-
-**表名**: `plan_groups` | **文件**: `models/plan_group.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| Key | string(50) | key | 分组稳定标识，主键 |
-| Name | string(100) | name | 分组展示名称 |
-| Description | string(500) | description | 分组说明 |
-| IsDefault | bool | isDefault | 是否默认分组（全局唯一） |
-| SortOrder | int | sortOrder | 排序 |
-| CreatedAt | time.Time | createdAt | 自动 |
-| UpdatedAt | time.Time | updatedAt | 自动 |
-
-### 4.8 Payment（支付记录）
-
-**表名**: `payments` | **文件**: `models/payment.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| UserID | string(25) | userId | 用户 ID（索引）|
-| PlanID | string(25) | planId | 方案 ID（索引）|
-| StripeSessionID | string | stripeSessionId | Stripe 会话（唯一）|
-| StripePaymentIntentID | string | stripePaymentIntentId | Stripe 支付意向 |
-| CheckoutURL | string | checkoutUrl | 待支付订单复用的 Stripe Checkout 链接 |
-| Amount | int64 | amount | 金额（分）|
-| Currency | string | currency | 支付币种快照 |
-| Days | int | days | 购买天数 |
-| Status | PaymentStatus | status | `pending`/`completed`/`expired`/`failed` |
-| ExpiresAt | *time.Time | expiresAt | 本地待支付订单过期时间（默认 30 分钟） |
-| CreatedAt | time.Time | createdAt | 自动 |
-| UpdatedAt | time.Time | updatedAt | 自动 |
-
-### 4.9 PlaybackRanking（播放排行快照）
-
-**表名**: `playback_rankings` | **文件**: `models/playback_ranking.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| BatchID | string(32) | batchId | 同一次生成的排行榜批次 ID（当前使用 26 位 ULID） |
-| Period | RankingPeriod | period | `"daily"` 或 `"weekly"` |
-| Category | RankingCategory | category | `"media_movie"` 或 `"media_episode"` |
-| Rank | int | rank | 排名 |
-| ItemKey | string(128) | itemKey | 稳定聚合键（电影使用 `ItemId`；剧集使用回查 Emby 条目详情得到的 `SeriesId`） |
-| ItemSourceType | string(32) | itemSourceType | 聚合键来源（如 `movie_item` / `series` / `episode_item`） |
-| ItemName | string(500) | itemName | 媒体名称 |
-| PlayCount | int | playCount | 播放次数 |
-| Duration | int64 | duration | 总时长（秒）|
-| SnapshotAt | time.Time | snapshotAt | 快照时间 |
-| PeriodStart | time.Time | periodStart | 周期开始 |
-| PeriodEnd | time.Time | periodEnd | 周期结束 |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-### 4.10 ClientBlacklist（客户端黑名单）
-
-**表名**: `client_blacklists` | **文件**: `models/client_blacklist.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| ClientName | string(100) | clientName | 客户端名称 |
-| NormalizedClientName | string(100) | normalizedClientName | 归一化名称（唯一索引） |
-| Reason | string(255) | reason | 黑名单原因 |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-### 4.11 DeviceAction（设备操作日志）
-
-**表名**: `device_actions` | **文件**: `models/device_action.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| DeviceID | string(100) | deviceId | 设备 ID（索引） |
-| UserID | string(25) | userId | 用户 ID（索引） |
-| OperatorID | *string(25) | operatorId | 操作者用户 ID（可空，用于后台审计） |
-| ClientName | string(100) | clientName | 客户端名 |
-| Action | string(50) | action | 操作类型（blacklist/unblacklist/logout） |
-| Note | string(255) | note | 备注 |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-### 4.12 TelegramBindCode（Telegram 绑定验证码）
-
-**表名**: `telegram_bind_codes` | **文件**: `models/telegram_bind_code.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| UserID | string(25) | userId | 用户 ID（索引） |
-| Code | string(6) | code | 6 位绑定验证码 |
-| ExpiresAt | time.Time | expiresAt | 过期时间（默认 5 分钟） |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-### 4.13 TVCalendar（追剧日历）
-
-**表名**: `tv_calendar_sources` | **文件**: `models/tv_calendar.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| TmdbID | string(50) | tmdbId | TMDB 剧集 ID（唯一） |
-| SeriesID | string(50) | seriesId | Emby SeriesId |
-| ShowName | string(255) | showName | 剧名 |
-| PosterURL | string(500) | posterUrl | 海报地址 |
-| Overview | text | overview | 剧集简介 |
-| EmbyStatus | string(20) | embyStatus | Emby 识别状态，当前主要使用 `continuing` |
-| LastEpisodeIngestedAt | *time.Time | lastEpisodeIngestedAt | 最近一次新剧集入库时间（用于轻量同步活跃剧） |
-| LastSyncedAt | *time.Time | lastSyncedAt | 最近周历同步时间 |
-| CreatedAt | time.Time | createdAt | 自动 |
-| UpdatedAt | time.Time | updatedAt | 自动 |
-
-**表名**: `tv_calendar_items` | **文件**: `models/tv_calendar.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| TmdbID | string(50) | tmdbId | TMDB 剧集 ID（联合唯一索引） |
-| SeriesID | string(50) | seriesId | Emby SeriesId（可空） |
-| Season | int | season | 季号（联合唯一索引） |
-| Episode | int | episode | 集号（联合唯一索引） |
-| AirDate | time.Time | airDate | 播出日期（UTC 00:00:00） |
-| EpisodeName | string(255) | episodeName | 集标题 |
-| Overview | text | overview | 单集简介 |
-| Status | string(20) | status | `ready/missing/upcoming/today` |
-| EmbyItemID | string(50) | embyItemId | Emby 集条目 ID（可空） |
-| LastChecked | time.Time | lastChecked | 最近同步时间 |
-| CreatedAt | time.Time | createdAt | 自动 |
-| UpdatedAt | time.Time | updatedAt | 自动 |
-
-**表名**: `tv_calendar_subscriptions` | **文件**: `models/tv_calendar.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| UserID | string(25) | userId | 用户 ID（联合唯一索引） |
-| TmdbID | string(50) | tmdbId | TMDB 剧集 ID（联合唯一索引） |
-| ShowName | string(255) | showName | 剧名 |
-| PosterURL | string(500) | posterUrl | 海报地址 |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-**表名**: `tmdb_cache` | **文件**: `models/tv_calendar.go`
-
-| 字段 | 类型 | 列名 | 说明 |
-|------|------|------|------|
-| ID | string(25) | id | CUID |
-| CacheKey | string(255) | cacheKey | 缓存键（唯一） |
-| CacheValue | text | cacheValue | TMDB JSON 响应 |
-| ExpiresAt | time.Time | expiresAt | 过期时间 |
-| CreatedAt | time.Time | createdAt | 自动 |
-
-### 4.14 数据关系
-
-```
-User (1) ──→ (N) Redemption     （兑换历史）
-User (1) ──→ (N) Subscription   （求片记录）
-User (1) ──→ (N) Payment        （支付记录）
-User (1) ──→ (N) TelegramBindCode（临时绑定验证码）
-User (1) ──→ (N) RedemptionCode （模板用户引用，可空）
-User (1) ──→ (1) Emby User      （外部 Emby 账号，通过 EmbyID 关联）
-
-Plan (1) ──→ (N) Payment        （方案关联）
-RedemptionCode ──→ Redemption   （码被使用时生成记录）
-Setting                         （全局 KV 配置，无外键）
-EmailVerification               （独立验证码，无外键）
-PlaybackRanking                 （独立排行快照，无外键）
-ClientBlacklist ──→ DeviceAction（按 clientName 审计）
-User (1) ──→ (N) TVCalendarSubscription（用户追剧订阅）
-TVCalendarSource (1) ──→ (N) TVCalendarItem（按 tmdbId 关联）
-TVCalendarSubscription (N) ──→ (1) TVCalendarSource（按 tmdbId 关联）
-TMDBCache（独立缓存表）
-
-FailedEmbyAsyncOp               （Emby 写操作补偿队列，cron 重试，无外键）
-StripeWebhookEvent              （Stripe webhook event.id 去重表，无外键）
-MediaGapScan                    （缺集扫描持久化记录，advisory lock 配套，无外键）
-```
-
-### 4.15 FailedEmbyAsyncOp（Emby 写操作补偿队列）
-
-| 字段 | 类型 | 列名 | 备注 |
-|---|---|---|---|
-| ID | string | id | cuid |
-| Origin | enum | origin | `payment_unban` / `redemption_unban` / `register_cleanup` |
-| OriginRefID | string | originRefId | 业务侧引用 ID（paymentId / redemptionId / embyUserId） |
-| EmbyUserID | string | embyUserId | 待操作的 Emby 账号 |
-| Action | enum | action | `unban` / `delete` |
-| Payload | *string | payload | 可选 JSON 文本（保留扩展字段，本批未使用） |
-| Retries | int | retries | 已重试次数 |
-| NextAttemptAt | time.Time | nextAttemptAt | 下次重试时间，cron 按 `<= now()` 拉取 |
-| LastError | *string | lastError | 最近一次失败的脱敏错误（最多 500 字符） |
-
-**契约**：
-- 业务侧（`payment.fulfillPayment` / `redemption.RedeemCode` / `auth.register`）在事务外异步调 Emby 失败时，通过 `services/account/EmbyCompensation.EnsureUnbanned` / `EnsureDeleted` 入队
-- cron `emby-async-compensation @every 10m` 每轮拉取上限 50 条，按 `(origin, action)` 路由到 emby service；成功删除该行
-- 失败按指数退避 30s/2m/10m/1h/6h/24h，retries > 6 时仍保留行并写 ERROR 日志告警，需运维介入
-
-### 4.16 StripeWebhookEvent（Stripe webhook 去重表）
-
-| 字段 | 类型 | 列名 | 备注 |
-|---|---|---|---|
-| EventID | string | eventId | Stripe `event.id`（`evt_xxx`），主键 |
-| EventType | string | eventType | Stripe `event.type` |
-| Livemode | bool | livemode | Stripe `event.livemode` |
-| ReceivedAt | time.Time | receivedAt | 首次收到时间 |
-| ProcessedAt | *time.Time | processedAt | 业务分发完成时间 |
-| Status | enum | status | `received` / `processed` / `skipped` / `failed` |
-| Error | *string | errorMessage | 业务分发失败时的脱敏错误 |
-
-**契约**：
-- `HandleWebhook` 在签名验证后、业务分发前 `INSERT ... ON CONFLICT (eventId) DO NOTHING`；`RowsAffected=0` 表示重复事件，直接 200 不再分发
-- 业务分发完成后单事务回写 `processedAt / status / errorMessage`
-- 处理 `checkout.session.completed` / `async_payment_succeeded` / `async_payment_failed` / `checkout.session.expired` 标记为 `processed`，其余事件类型标记 `skipped`
-
-### 4.17 MediaGapScan（缺集扫描持久化记录）
-
-| 字段 | 类型 | 列名 | 备注 |
-|---|---|---|---|
-| ID | string | id | cuid |
-| Status | enum | status | `running` / `success` / `failed` |
-| NodeID | string | nodeId | 承担本次扫描的节点（`hostname/pid`） |
-| StartedAt | time.Time | startedAt | 扫描开始时间 |
-| FinishedAt | *time.Time | finishedAt | 扫描结束时间 |
-| ErrorMessage | *string | errorMessage | 失败时的脱敏错误（最多 500 字符） |
-
-**契约**：
-- 扫描入口 `mediaGapScanManager.Start` 先尝试 `pg_try_advisory_lock(scanLockKey)`；锁被占返回 `ErrMediaGapScanInProgress` → handler 映射 409
-- 拿到锁后写一条 `running` 记录，扫描结束在 `defer` 中写终态并释放 advisory lock
-- advisory lock 绑定在持有连接的 PG session 上：进程 crash 时 PG 端会回收锁；`running` 记录留到 cron 清理时仍保留以便排查孤儿
-- cron `media-gap-scans-cleanup @weekly` 删除 7 天之前的 `success / failed` 记录
+- 数据库 schema 真相以 `infrastructure/database/` 顶层 migration 为准
+- 改模型字段、索引、表结构、约束时，必须同时补 SQL migration
+- 完整字段表、枚举和表关系图统一维护在 [docs/reference/data-model-reference.md](./reference/data-model-reference.md)
 
 ---
 
@@ -925,7 +531,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 电影榜直接依赖 PlaybackActivity 的 `ItemId`
 - 当前 PlaybackActivity 不返回 `SeriesId` / `SeriesName`，剧集榜需额外回查 Emby 媒体详情后按 `SeriesId` 归并
 
-### 5.15 PaymentService (`services/payment/service.go`)
+### 5.16 PaymentService (`services/payment/service.go`)
 
 Stripe 一次性支付流程管理。
 
@@ -941,7 +547,7 @@ Stripe 一次性支付流程管理。
 - `MarkPaymentExpired(sessionID)` — `UPDATE payments SET status='expired' WHERE stripeSessionId=? AND status='pending'`，`RowsAffected=0` 视为已收口（noop）
 - 模板用户 Policy 复制白名单（`auth.applyTemplatePolicyIfNeeded`）：移除 `EnableContentDownloading` / `MaxParentalRating`，仅复制 `EnableAllFolders / EnabledFolders / ExcludedSubFolders / EnableSyncTranscoding / EnableVideoPlaybackTranscoding / EnablePlaybackRemuxing / EnableAudioPlaybackTranscoding`
 
-### 5.16 错误定义（按业务拆分）
+### 5.17 错误定义（按业务拆分）
 
 统一的业务错误定义已按领域拆分，例如：
 
@@ -957,7 +563,7 @@ Stripe 一次性支付流程管理。
 
 handler 继续通过 `errors.Is()` 做错误映射。
 
-### 5.17 TelegramService (`services/telegram/service.go`)
+### 5.18 TelegramService (`services/telegram/service.go`)
 
 Telegram 账号绑定与 Bot 自助能力服务。
 
@@ -974,7 +580,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 **审批拒绝上下文持久化**：Bot 管理员拒绝订阅时，待输入的 `subscriptionId / messageId / hasPhoto / originalText / expiresAt` 已落到 `bot_pending_reject_requests`，避免 Bot 重启或滚动发布导致 5 分钟内的待输入状态丢失；搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
 
-### 5.18 TVCalendarService (`services/tvcalendar/service.go`)
+### 5.19 TVCalendarService (`services/tvcalendar/service.go`)
 
 追剧日历聚合服务，主链路改为“Emby 全库发现 + 周历同步 + Webhook 点亮 + 读时纠偏”，TMDB 仍使用三层缓存（内存 + PostgreSQL + TMDB）。
 
@@ -993,7 +599,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 同步和 Webhook 都会刷新 `lastEpisodeIngestedAt`，保证仍在更新的剧源不会被增量同步窗口错误跳过
 - Webhook 只信任显式 `SeriesId` 字段，`ParentId` 不参与 `seriesId` 持久化，避免季节点误写污染追剧源
 
-### 5.19 PlaybackHistoryService (`services/playback/history.go`)
+### 5.20 PlaybackHistoryService (`services/playback/history.go`)
 
 管理员播放历史查询服务，复用 Emby Playback Reporting 插件能力，支持分页和条件筛选。
 
@@ -1003,7 +609,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 插件不可用时返回统一错误：`Playback Reporting 查询失败`
 - 与旧兼容逻辑相比，当前不再按列位置猜字段，也不再把查询退化成“全量拉回后本地分页”；当 Playback Reporting 返回缺列或不受支持 schema 时，接口显式返回兼容错误
 
-### 5.20 UserPlaybackProfileService (`services/playback/profile.go`)
+### 5.21 UserPlaybackProfileService (`services/playback/profile.go`)
 
 管理员/用户播放画像聚合服务，基于单个用户的 `PlaybackActivity` 记录输出摘要、分布和勋章结果。
 
@@ -1016,7 +622,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 自定义日期时间范围最大跨度限制为 `92` 天
 - 关键日志包含 `userID` / `embyUserID` / `range` / 结果统计 / 耗时，便于排障
 
-### 5.21 UserPlaybackProfileOverview (`services/playback/profile_list.go`)
+### 5.22 UserPlaybackProfileOverview (`services/playback/profile_list.go`)
 
 管理员侧用户画像总览聚合能力，按用户维度汇总指定时间窗口内的播放活跃度，并输出分页列表。
 
@@ -1028,7 +634,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 自定义日期时间范围最大跨度限制为 `92` 天，和单用户画像保持一致
 - 查询策略已收敛为“全量聚合 + 当前页明细补充”：先按 `UserId` 聚合出总览摘要并排序分页，再只为当前页用户补拉明细计算 `peakHourLabel` 与 badge 预览；不再先拉全量明细再分页
 
-### 5.22 MediaQualityService (`services/media_quality.go`)
+### 5.23 MediaQualityService (`services/media_quality.go`)
 
 管理员媒体库质量盘点服务，按媒体库维度（支持 `libraryId=all`）聚合分辨率、编码、HDR 分布，并输出低画质汇总清单。
 
@@ -1044,175 +650,26 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ---
 
-## 6. API 端点完整列表
+## 6. API 端点总览
 
-### 公开路由（无需认证）
+完整路由目录、分组和用途已迁移到 [docs/reference/api-endpoint-catalog.md](./reference/api-endpoint-catalog.md)。
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| POST | `/api/v1/login` | 登录 |
-| GET | `/api/v1/login/protection-config` | 登录页公开保护配置（Turnstile 开关 / Site Key / Hostname） |
-| POST | `/api/v1/user/register` | 注册（code/emailCode 可选）|
-| POST | `/api/v1/register/send-code` | 发送邮箱验证码 |
-| POST | `/api/v1/forgot-password/send-code` | 发送密码重置验证码 |
-| POST | `/api/v1/forgot-password/reset` | 通过验证码重置密码 |
-| GET | `/api/v1/register/mode` | 获取注册模式（响应字段：`mode`、`defaultTrialDays`、`emailVerification`、`allowedEmailDomains: string[]`；空数组表示不限制注册邮箱域名）|
-| GET | `/api/v1/register/code/:code/validate` | 验证注册场景兑换码（会校验绑定的 `registrationPlanGroup` 仍存在） |
-| POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
-| POST | `/api/v1/webhooks/emby?token=` | Emby 入库 Webhook（追剧日历） |
-| GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索 |
-| GET | `/api/v1/tmdb/tv/:id/seasons` | TMDB 剧集季列表 |
+本节只保留系统入口级摘要。
 
-### 统一认证路由（admin + user 共享，需 JWT）
+### 6.1 路由分组
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| GET | `/api/v1/subscriptions` | 我的订阅 |
-| POST | `/api/v1/subscriptions/check-existing` | 创建前检测库内是否已存在资源 |
-| POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧） |
-| POST | `/api/v1/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note` |
-| DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
-| GET | `/api/v1/profile` | 个人信息 |
-| GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range` 或 `startDate/endDate`） |
-| PUT | `/api/v1/password` | 修改密码 |
-| POST | `/api/v1/email/send-code` | 发送邮箱变更验证码到新邮箱（请求体 `{newEmail}`，必填合法邮箱；与 `PUT /api/v1/email` 共用 `change_email` 限流） |
-| PUT | `/api/v1/email` | 修改邮箱（请求体 `{newEmail, code}`，`code` 必填 6 位） |
-| POST | `/api/v1/redeem` | 通用兑换续期 |
-| GET | `/api/v1/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
-| GET | `/api/v1/redemptions` | 当前登录账号的兑换历史 |
-| POST | `/api/v1/telegram/bindcode` | 生成 Telegram 绑定验证码 |
-| DELETE | `/api/v1/telegram/unbind` | 解除 Telegram 绑定 |
-| GET | `/api/v1/emby/config` | Emby 配置 |
-| GET | `/api/v1/media/stats` | 媒体统计 |
-| GET | `/api/v1/media/latest` | 最新入库 |
-| GET | `/api/v1/media/posters/:itemId` | 最近入库封面代理（需登录） |
-| GET | `/api/v1/rankings/latest` | 最新整期排行（`period`） |
-| GET | `/api/v1/rankings/history` | 按日期查询整期历史排行（`period` + `date`） |
-| GET | `/api/v1/plans` | 当前登录用户可购方案列表（认证兼容别名，按用户有效套餐分组过滤） |
-| GET | `/api/v1/payments/plans` | 当前登录用户可购方案列表（按用户有效套餐分组过滤） |
-| POST | `/api/v1/payments/checkout` | Stripe 结账 |
-| GET | `/api/v1/payments` | 我的支付记录 |
-| GET | `/api/v1/tv-calendar/global` | 全局追剧周历 |
-| GET | `/api/v1/tv-calendar/following` | 我的关注周历 |
-| GET | `/api/v1/tv-calendar` | 追剧日历 |
-| GET | `/api/v1/tv-calendar/subscriptions` | 我的关注列表 |
-| POST | `/api/v1/tv-calendar/subscriptions` | 关注剧集 |
-| DELETE | `/api/v1/tv-calendar/subscriptions/:tmdbId` | 取消关注剧集 |
+- 公开路由：登录、注册、验证码发送、Webhook、TMDB 搜索
+- 统一认证路由：当前登录用户可访问的个人信息、订阅、兑换、支付、追剧日历、排行等能力
+- 用户路由：保留 `/user/*` 兼容别名
+- 管理员路由：用户管理、配置中心、支付与兑换后台、媒体质量、设备、追剧日历同步、cron 手动触发
+- 内部服务路由：Bot 通过 `InternalAuth` 访问的审批、配置、媒体统计和 Telegram 内部能力
 
-### 用户路由（需认证 + role=user）
+### 6.2 关键约束
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| GET | `/api/v1/user/profile` | 个人信息 |
-| PUT | `/api/v1/user/password` | 修改密码 |
-| POST | `/api/v1/user/email/send-code` | 发送邮箱变更验证码到新邮箱（请求体 `{newEmail}`，必填合法邮箱） |
-| PUT | `/api/v1/user/email` | 修改邮箱（请求体 `{newEmail, code}`，`code` 必填 6 位） |
-| POST | `/api/v1/user/redeem` | 兑换续期 |
-| GET | `/api/v1/user/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
-| GET | `/api/v1/user/redemptions` | 我的兑换历史 |
-| GET | `/api/v1/user/emby/config` | Emby 服务器地址 |
-| GET | `/api/v1/user/media/stats` | 媒体库统计 |
-| GET | `/api/v1/user/subscriptions` | 我的订阅 |
-| POST | `/api/v1/user/subscriptions` | 创建订阅 |
-| POST | `/api/v1/user/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note` |
-| DELETE | `/api/v1/user/subscriptions/:id` | 删除订阅 |
-
-### 管理员路由（需认证 + role=admin）
-
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| GET | `/api/v1/admin/current` | 当前管理员信息 |
-| PUT | `/api/v1/admin/current/emby-binding` | 管理员自助绑定 Emby 账号（请求体 `embyUsername` + `embyPassword`，401/409/502 错误语义见 §5.1） |
-| DELETE | `/api/v1/admin/current/emby-binding` | 管理员解除 Emby 关联（仅清本地 `emby_id`，不动 Emby 用户） |
-| GET | `/api/v1/admin/users` | 用户列表（支持按有效 `planGroup` 过滤；显式分组为空时自动归入默认分组） |
-| POST | `/api/v1/admin/users` | 后台创建普通用户（显式指定 `planGroup` 与 `expiresAt` / `neverExpire`） |
-| GET | `/api/v1/admin/users/:id` | 用户详情 |
-| GET | `/api/v1/admin/users/:id/profile` | 用户画像（支持 `range` 或 `startDate/endDate`） |
-| PUT | `/api/v1/admin/users/:id` | 更新用户 |
-| PUT | `/api/v1/admin/users/:id/extend` | 延长有效期 |
-| PUT | `/api/v1/admin/users/:id/toggle` | 切换激活状态 |
-| PUT | `/api/v1/admin/users/:id/reset-password` | 重置密码 |
-| DELETE | `/api/v1/admin/users/:id` | 删除用户 |
-| GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `templateUserId` / `registrationPlanGroup` / `showAll` 过滤） |
-| POST | `/api/v1/admin/redemption-codes` | 创建兑换码（支持可选 `registrationPlanGroup`） |
-| POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码（支持可选 `registrationPlanGroup`） |
-| PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码（支持可选 `registrationPlanGroup`） |
-| DELETE | `/api/v1/admin/redemption-codes/:id` | 删除兑换码 |
-| GET | `/api/v1/admin/user-templates` | 模板用户列表 |
-| GET | `/api/v1/admin/configs` | 获取设置中心全部配置（定义 + 当前值 + 来源） |
-| PATCH | `/api/v1/admin/configs/:key` | 更新单项配置 |
-| POST | `/api/v1/admin/configs/:group/test` | 测试指定配置组 |
-| GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
-| GET | `/api/v1/admin/subscriptions` | 全部订阅 |
-| PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
-| PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
-| PUT | `/api/v1/admin/subscriptions/:id/ingest` | 校验 Emby 已入库后收口（仅 `APPROVED` 可用） |
-| DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
-| GET | `/api/v1/admin/sessions` | 活跃会话 |
-| GET | `/api/v1/admin/playback-history` | 播放历史查询 |
-| GET | `/api/v1/admin/playback-profiles` | 用户画像总览（支持 `range` 或 `startDate/endDate`，以及 `keyword/sortBy/sortOrder/page/pageSize`） |
-| GET | `/api/v1/admin/media-quality/libraries` | 媒体库列表（质量盘点） |
-| GET | `/api/v1/admin/media-quality/libraries/:libraryId` | 媒体库质量报告（支持 `force/page/pageSize`） |
-| POST | `/api/v1/admin/media-quality/libraries/:libraryId/scan` | 触发媒体库质量扫描 |
-| GET | `/api/v1/admin/media-quality/libraries/:libraryId/groups/:groupId/details` | 低画质汇总项下钻明细（支持 `force/page/pageSize`） |
-| GET | `/api/v1/admin/media-quality/posters/:itemId` | 媒体质量封面代理 |
-| GET | `/api/v1/admin/devices` | 设备列表 |
-| GET | `/api/v1/admin/devices/stats` | 设备统计 |
-| GET | `/api/v1/admin/devices/actions` | 设备操作日志 |
-| GET | `/api/v1/admin/devices/blacklist` | 黑名单列表 |
-| POST | `/api/v1/admin/devices/blacklist` | 添加黑名单 |
-| DELETE | `/api/v1/admin/devices/blacklist/:clientName` | 移除黑名单 |
-| POST | `/api/v1/admin/devices/logout/:deviceId` | 强制注销设备 |
-| POST | `/api/v1/admin/devices/blacklist/logout-all` | 批量注销黑名单设备 |
-| GET | `/api/v1/admin/plan-groups` | 套餐分组列表 |
-| POST | `/api/v1/admin/plan-groups` | 创建套餐分组 |
-| PUT | `/api/v1/admin/plan-groups/:key` | 更新套餐分组 / 切换默认分组 |
-| DELETE | `/api/v1/admin/plan-groups/:key` | 删除套餐分组 |
-| GET | `/api/v1/admin/plans` | 方案列表（支持 `planGroup` 过滤） |
-| POST | `/api/v1/admin/plans` | 创建方案 |
-| PUT | `/api/v1/admin/plans/:id` | 更新方案 |
-| DELETE | `/api/v1/admin/plans/:id` | 下架方案（软删除） |
-| GET | `/api/v1/admin/payments` | 全部支付记录 |
-| GET | `/api/v1/admin/system/info` | 系统统计 |
-| POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
-| GET | `/api/v1/admin/media-gaps/scan-status` | 查询缺集扫描后台任务状态 |
-| POST | `/api/v1/admin/media-gaps/scan` | 异步触发缺集扫描 |
-| POST | `/api/v1/admin/tv-calendar/sync` | 手动同步追剧日历 |
-| POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |
-| POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |
-| POST | `/api/v1/admin/cron/generate-ranking` | 手动生成排行 |
-| POST | `/api/v1/admin/rankings/preview` | 排行预览 |
-
-追剧日历同步接口说明：
-
-- `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0,1]`（当前周 + 下周）
-- `tmdbId` 可选，传入时只同步单剧
-- `weekOffsets` 可选，仅支持 `-1/0/1`
-- `force=true` 时跳过轻量活跃剧筛选，并强制刷新 TMDB 缓存
-- `POST /api/v1/admin/tv-calendar/refresh` 仍保留，内部复用同步逻辑，作为兼容入口
-- Emby 入库 webhook 在保留 TV Calendar 点亮逻辑的同时，额外回写 `subscriptions`：电影按 `tmdbId` 命中 `APPROVED` 电影订阅；剧集优先按 webhook 自带 `tmdbId + season` 命中指定季订阅，若 webhook 未携带剧集主 TMDB ID，则回退用 `seriesId` 向 Emby 查询主剧 `ProviderIds`，优先走 `Items?Ids=`，未命中时再尝试 `/Items/{id}`，同时允许 `season=0` 的整剧订阅在任意季首个真实剧集入库时转为 `INGESTED`
-
-### 内部服务路由（InternalAuth 中间件，Bot 调用）
-
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
-| PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
-| GET | `/api/v1/internal/settings/:key` | 读取内部配置（仅允许访问统一配置层中已注册的非敏感 key；未知 key 返回 404） |
-| GET | `/api/v1/internal/media/stats` | 读取内部媒体统计（Bot 复用） |
-| POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
-| POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
-| POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
-| POST | `/api/v1/internal/telegram/reset-password` | Bot 重置账号密码 |
-| POST | `/api/v1/internal/telegram/subscribe` | Bot 创建求片订阅 |
-
-### API 响应格式约定
-
-- **列表**：`{data: [], total, page, pageSize, totalPages}`
-- **单个对象**：直接返回对象或 `{user: object}`
-- **成功操作**：`{message: "xxx"}`
-- **错误**：`{error: "xxx"}`（400/401/404/500）
-- **字段命名**：camelCase
+- 列表接口统一使用 `data` 字段
+- 字段命名统一使用 camelCase
+- 返回格式约定以 [docs/reference/api-response-standard.md](./reference/api-response-standard.md) 为准
+- 完整路径清单和分组用途统一维护在 [docs/reference/api-endpoint-catalog.md](./reference/api-endpoint-catalog.md)
 
 ---
 
@@ -1228,251 +685,45 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ---
 
-## 8. 前端架构
+## 8. 前端架构总览
 
-### 状态管理（Pinia）
+完整的共享组件层、状态管理、路由守卫、页面职责与兼容路由已迁移到 [docs/reference/web-information-architecture.md](./reference/web-information-architecture.md)。
 
-- `store/auth.ts`：Token + Role（localStorage 持久化）
-  - State: `token`, `role`, `protectionConfig`, `crossTabSyncEnabled`
-  - Computed: `isAuthenticated`, `isAdmin`, `isUser`
-  - Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`, `initCrossTabSync`, `loadProtectionConfig`
-- `store/user.ts`：用户状态管理
-- `store/admin.ts`：管理员状态管理
+本节只保留系统入口级摘要。
 
-### API 层
+### 8.1 前端分层
 
-- `api/request.ts` — 基础配置：baseURL=/api/v1, Bearer token 自动注入；普通接口 401 单例化收口为“清本地登录态 + 跳 `/login?redirect=`”；`/login` 和 `/logout` 走专门分支，不混入“登录过期”逻辑
-- `api/auth.ts` — login, getLoginProtectionConfig, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
-- `api/user.ts` — redeem, redemptions, tmdb
-- `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings）
-- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram；账号中心邮箱变更走 `sendEmailChangeCode(newEmail)` + `updateEmail(newEmail, code)` 两步流，旧 `updateProfile` 已下线）
+- Store：基于 Pinia 维护认证态、用户态、管理员态
+- API：`request.ts` 负责 token 注入和 401 收口，各业务模块按职责拆分
+- Router：通过 `requiresAuth / role` 守卫做鉴权和 redirect 收口
+- View：页面继续保留接口调用、路由状态、筛选参数和弹窗编排
+- Shared Components：`components/ember/` 承载稳定 UI 契约，不侵入业务
 
-### 路由守卫
+### 8.2 高层页面边界
 
-- 未认证 → 重定向 `/login`（带 redirect 参数）
-- `redirect` 仅接受站内已解析路由：必须以 `/` 开头、不能以 `//` 开头、不能落到 `not-found`
-- 角色不匹配 → 重定向 `/console/dashboard` 并提示“当前账号无权访问该页面”
-- 守卫遍历 `to.matched` 收集 `requiresAuth / role`，不再只看最后一层 `meta`
-- 多标签页登录态通过 `storage` 事件同步：其他窗口登出后，当前窗口会清空本地状态并跳回登录页
-- meta: `{requiresAuth: boolean, role: 'admin' | 'user'}`
-
-### 设计系统
-
-- **CSS 类**：`panel-clean`（卡片）, `input-ember`（输入框）, `btn-ember`（按钮）
-- **颜色**：ember 色系（橙红 `#ea580c`）
-- **布局**：Tailwind 响应式 grid + Element Plus 组件
-- **图标**：`@element-plus/icons-vue`
-
-### Dashboard 双态设计
-
-用户面板根据 `isExpired` computed 做渐进式降级：
-- **活跃态**：绿色 banner + 媒体统计 + 续费中心入口
-- **过期态**：橙色警告 banner + 明显的“立即续费”入口 + 媒体统计灰化
-- **定位**：Dashboard 只负责账户概览，不再承载兑换码输入和续费历史
-
-### 续费中心
-
-- 路由：`/console/renewal`（user）
-- 兼容路由：`/console/pricing` → 重定向到 `/console/renewal`
-- 视图：`views/console/RenewalCenterView.vue`
-- 页面结构：
-  - 当前会员状态
-  - 续费方式 Tab
-    - 在线购买（Stripe Checkout）
-    - 兑换码续期
-  - 支付记录 + 兑换记录
-- 目标：把“在线支付”和“兑换码续期”统一到同一续费心智下，而不是分散在 Dashboard 和独立价格页中
-
-### 管理端兑换中心
-
-- 路由：`/console/redemptions`（admin）
-- 兼容路由：
-  - `/console/redemption-codes` → `?tab=codes`
-  - `/console/redemption-history` → `?tab=history`
-- 视图：`views/admin/RedemptionCenterView.vue`
-- Tab 结构：
-  - `codes`：`views/admin/RedemptionCodesView.vue`
-  - `history`：`views/admin/RedemptionHistoryView.vue`
-- 数据源：
-  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、模板用户、注册套餐分组筛选；返回 `notes`、`registrationPlanGroup`、`registrationPlanGroupName`）
-  - `POST /api/v1/admin/redemption-codes`（支持可选备注 `notes` 与 `registrationPlanGroup`）
-  - `POST /api/v1/admin/redemption-codes/batch`（支持可选备注 `notes` 与 `registrationPlanGroup`）
-  - `PUT /api/v1/admin/redemption-codes/:id`（支持更新备注 `notes` 与 `registrationPlanGroup`）
-  - `DELETE /api/v1/admin/redemption-codes/:id`
-  - `GET /api/v1/admin/redemptions`（支持按用户名、用户 ID、兑换码筛选）
-
-### 管理端支付中心
-
-- 路由：`/console/billing`（admin）
-- 兼容路由：
-  - `/console/billing?tab=groups`
-  - `/console/plans` → `?tab=plans`
-  - `/console/payments` → `?tab=payments`
-- 视图：`views/admin/PaymentCenterView.vue`
-- Tab 结构：
-  - `groups`：`views/admin/PlanGroupsView.vue`
-  - `plans`：`views/admin/PlansView.vue`
-  - `payments`：`views/admin/PaymentsView.vue`
-- 数据源：
-  - `GET /api/v1/admin/plan-groups`
-  - `POST /api/v1/admin/plan-groups`
-  - `PUT /api/v1/admin/plan-groups/:key`
-  - `DELETE /api/v1/admin/plan-groups/:key`
-  - `GET /api/v1/admin/plans`
-  - `POST /api/v1/admin/plans`
-  - `PUT /api/v1/admin/plans/:id`
-  - `DELETE /api/v1/admin/plans/:id`
-  - `GET /api/v1/admin/payments`
-
-### 管理端设备管理
-
-- 新增路由：`/console/devices`（admin）
-- 新增视图：`views/admin/DevicesView.vue`
-- 数据源：
-  - `GET /api/v1/admin/devices`
-  - `GET /api/v1/admin/devices/stats`
-  - `GET /api/v1/admin/devices/blacklist`
-  - `POST /api/v1/admin/devices/logout/:deviceId`
-
-### 管理端播放分析
-
-- 主路由：`/console/playback`（admin），分段 Tab 切换
-  - `?tab=profiles`（默认）：用户画像总览
-  - `?tab=history`：播放历史
-- 容器视图：`views/admin/PlaybackCenterView.vue`
-- 子视图：
-  - `views/admin/UserPlaybackProfilesView.vue`（用户画像总览）
-  - `views/admin/PlaybackHistoryView.vue`（播放历史）
-- 数据源：
-  - `GET /api/v1/admin/playback-profiles`（用户画像总览，支持 `range / startDate / endDate / keyword / sortBy / sortOrder / page / pageSize`）
-  - `GET /api/v1/admin/playback-history`（播放历史，支持 username / keyword / 日期范围 / 分页筛选，兼容旧 `userId`）
-- 跨 Tab 上下文：切 Tab 时透传 `username / userId / startDate / endDate`；`keyword` 与 `range` 各 Tab 内部自治，不跨 Tab 透传
-- 联动：
-  - 用户画像总览支持跳转到「播放历史」Tab 或单用户画像详情
-  - 播放历史支持跳转到单用户画像详情
-- 兼容路由（全部以 redirect 形式保留）：
-  - `/console/user-profiles` → `/console/playback?tab=profiles`
-  - `/console/playback-history` → `/console/playback?tab=history`
-  - `/admin/users` 等历史 admin 路径不涉及
-
-### 管理端单用户画像
-
-- 主路由：`/console/playback/users/:id`（admin）
-- 兼容路由（redirect）：
-  - `/console/user-profiles/:id` → `/console/playback/users/:id`
-  - `/console/users/:id/profile` → `/console/playback/users/:id`
-- 视图：`views/admin/UserPlaybackProfileView.vue`
-- 主入口：`views/admin/UserPlaybackProfilesView.vue`（嵌入「播放分析」容器中）
-- 辅助入口：`views/admin/PlaybackHistoryView.vue`（嵌入「播放分析」容器中）
-- 兼容入口：`views/admin/UsersView.vue`
-- 页面主体：复用 `components/profile/PlaybackProfileContent.vue`，仅在外层补管理员操作
-- 数据源：`GET /api/v1/admin/users/:id/profile?range=today|7d|30d|90d|all` 或 `startDate/endDate`
-- 页面模块：
-  - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
-  - 时间范围：推荐快捷范围 + 自定义日期时间范围（最大 92 天）
-  - 分布：24 小时活跃时段、设备分布、客户端分布
-  - 勋章：基于固定阈值的解释型画像标签
-  - 最近记录：最近 10 条播放记录预览，并支持跳回播放历史
-
-### 用户端我的画像
-
-- 新增路由：`/console/profile-analytics`（user）
-- 新增视图：`views/console/ProfileAnalyticsView.vue`
-- 页面主体：复用 `components/profile/PlaybackProfileContent.vue`
-- 数据源：`GET /api/v1/profile/analytics?range=today|7d|30d|90d|all` 或 `startDate/endDate`
-- 页面模块：
-  - 摘要卡：累计播放时长 / 播放次数 / 活跃天数 / 最近播放
-  - 时间范围：推荐快捷范围 + 自定义日期时间范围（最大 92 天）
-  - 活跃时段：24 小时分布 + 峰值时段摘要
-  - 画像标签：展示当前时间窗口内最有代表性的少量标签
-  - 偏好分布：设备偏好 / 客户端偏好
-  - 最近播放记录：最近 10 条个人播放记录预览
-
-### 管理端媒体质量盘点
-
-- 新增路由：`/console/media-quality`（admin）
-- 新增视图：`views/admin/MediaQualityView.vue`
-- 数据源：
-  - `GET /api/v1/admin/media-quality/libraries`
-  - `GET /api/v1/admin/media-quality/libraries/:libraryId?force=true|false&page=1&pageSize=20`
-  - `POST /api/v1/admin/media-quality/libraries/:libraryId/scan`
-  - `GET /api/v1/admin/media-quality/posters/:itemId`
-- 支持 `libraryId=all` 进行全媒体库汇总分析
-- 低画质结果按“影片/剧集”汇总后分页展示
-
-### 最近入库
-
-- 主入口：`/console/dashboard`（user）
-- 展示位置：`views/console/DashboardView.vue` + `components/console/RecentLibrarySection.vue`
-- 兼容路径：`/console/library` 路由级重定向到 `/console/dashboard`
-- 数据源：`GET /api/v1/media/latest?type=Movie|Series&limit=20`
-- 封面：前端通过 `GET /api/v1/media/posters/:itemId?type=Movie|Series` 拉取 blob，再转 object URL；不再直接拼 Emby 公网图床
-- 权限边界：封面代理只允许访问“当前用户最近入库列表里已经出现的条目”，避免把管理员 API key 图床直接暴露给浏览器
-- 行为：在概览页展示当前用户视角的最近入库摘要，支持电影/剧集切换、横向滑动与手动刷新，不做搜索和分页
-
-### Dashboard Emby 入口
-
-- 主入口：`/console/dashboard`
-- 数据源：`GET /api/v1/emby/config`
-- 行为：概览页只展示后端返回的单条 Emby 地址，不再由前端伪造“备用线路 A/B”；用户侧操作仅保留复制地址与新窗口打开
+- 用户侧重点页面：Dashboard、Renewal、Subscriptions、TV Calendar、Rankings、Profile Analytics
+- 管理侧重点页面：Users、Playback Center、Payment Center、Redemption Center、Media Quality、Devices、Settings
+- 页面级职责、Tab 结构、兼容路由和关键数据源统一维护在 [docs/reference/web-information-architecture.md](./reference/web-information-architecture.md)
 
 ---
 
-## 9. Telegram Bot 架构
+## 9. Telegram Bot 架构总览
 
-### 技术栈
+完整的运行模式、端点、命令处理器与环境变量说明已迁移到 [docs/reference/bot-architecture-reference.md](./reference/bot-architecture-reference.md)。
 
-- Python 3.11 + python-telegram-bot（支持 `webhook` / `polling` 双模式，默认 `webhook`）
-- FastAPI 作为 HTTP 服务器（接收 API 通知；`webhook` 模式下同时接收 Telegram Webhook）
-- 与 Go API 通过 `X-Internal-Secret` 双向通信
+本节只保留系统入口级摘要。
 
-### 通信模式
+### 9.1 运行边界
 
-```
-用户操作 → Go API → BotNotifier（火忘式 POST）→ Bot FastAPI → Telegram Bot → 发送消息
-Telegram 用户操作 → Telegram → Bot Webhook → Bot 处理 → 调用 Go Internal API → 返回结果
-```
+- Bot 使用 Python 3.11 + python-telegram-bot + FastAPI，支持 `webhook` / `polling` 双模式
+- 与 Go API 通过 `X-Internal-Secret` 做双向内部通信
+- API → Bot 通过 `BotNotifier` 火忘式推送通知；Telegram 用户交互则通过 Bot 再调用 Go Internal API
 
-`polling` 模式下第二条链路改为：
+### 9.2 关键约束
 
-```
-Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go Internal API → 返回结果
-```
-
-### Bot 端点
-
-| 端点 | 用途 |
-|------|------|
-| `GET /health` | 健康检查 |
-| `POST /telegram/webhook` | Telegram Webhook 入口 |
-| `POST /notify/subscription` | 接收新订阅通知 |
-| `POST /notify/registration` | 接收新注册通知 |
-| `POST /notify/payment` | 接收支付成功通知 |
-| `POST /notify/ranking` | 接收排行榜通知 |
-
-### 命令与处理器
-
-- **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
-- **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 与 `telegram_welcome_message_template` 配置）
-- **Commands**：`/search`（搜索影视并订阅；电影直接确认，电视剧先选季再确认）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）、`/refresh_menu`（管理员强制刷新当前群菜单）
-- **群菜单策略**：仅私聊作用域写入命令菜单；default/group scope 保持为空，群聊默认不展示命令菜单，首次收到群消息时按群清理旧作用域菜单，并在当前 Bot 进程内缓存已同步群；`/refresh_menu` 强刷会额外重试清理 default / all-group 作用域
-- **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）；`format_payment_message` 不再渲染 `email` / `stripeSessionId`，admin 通知载荷已在 API 侧脱敏（详见 §5.14）
-
-### 环境变量
-
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `TELEGRAM_BOT_TOKEN` | ✅ | — | Bot Token（@BotFather 获取）|
-| `TELEGRAM_UPDATE_MODE` | — | `webhook` | Telegram 更新接入模式：`webhook` 或 `polling` |
-| `TELEGRAM_ADMIN_CHAT_ID` | — | — | 管理员 Chat ID；可被设置中心数据库值覆盖，env 仅作兜底 |
-| `TELEGRAM_GROUP_CHAT_ID` | — | — | 群组 Chat ID（排行榜推送）；可被设置中心数据库值覆盖，env 仅作兜底 |
-| `TELEGRAM_WEBHOOK_SECRET` | 条件必需 | — | `webhook` 模式下用于 Webhook 签名校验 |
-| `INTERNAL_API_SECRET` | ✅ | — | 与 Go API 共享密钥 |
-| `WEBHOOK_URL` | 条件必需 | — | `webhook` 模式下的公开 HTTPS Webhook URL |
-| `API_URL` | — | `http://localhost:8080` | Ember API 地址 |
-| `BOT_PORT` | — | `8000` | Bot 服务端口 |
-
-说明：Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；刷新失败时保留旧值，不把有效缓存覆盖为空；当 API 未返回值时，Chat ID 回退到本地 env。`polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`。批次 4 起，Bot 在 `polling` 模式启动前会通过 Internal API 申请 `bot_runtime_locks(name='telegram_polling')` 租约锁，并每 30 秒续租一次；拿不到锁的实例直接拒绝启动，续租失败的实例会主动停止 polling，避免多副本重复消费更新。`webhook` 模式下注册采用有限重试策略；达到最大重试次数仍失败时，Bot 停止继续重试，`GET /health` 返回 `degraded` 并附带最近错误与重试次数，便于部署侧探活与告警。
+- `polling` 模式启动前会通过 Internal API 申请 `bot_runtime_locks(name='telegram_polling')` 租约锁，避免多副本重复消费
+- `webhook` 模式注册失败达到最大重试次数后，`GET /health` 返回 `degraded`
+- 详细端点、命令、群菜单策略和环境变量语义统一维护在 [docs/reference/bot-architecture-reference.md](./reference/bot-architecture-reference.md)
 
 ---
 
@@ -1509,79 +760,24 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 
 ---
 
-## 11. 环境变量完整列表
+## 11. 配置与环境变量边界
 
-### 核心配置
+本节只保留配置分层和系统边界。完整变量字典、敏感性、优先级和生效方式统一以 [docs/reference/configuration-reference.md](./reference/configuration-reference.md) 为准。
 
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `DATABASE_URL` | ✅ | — | PostgreSQL DSN |
-| `JWT_SECRET` | ✅ | — | ≥32 字符 |
-| `CONFIG_ENCRYPTION_KEY` | ✅ | — | 设置中心敏感配置加密主密钥（≥32 字符） |
-| `INTERNAL_API_SECRET` | ✅ | — | API ↔ Bot 共享密钥 |
-| `PORT` | — | `8080` | 服务端口 |
-| `ADMIN_USERNAME` | — | — | 默认管理员用户名（首次启动 seed）|
-| `ADMIN_PASSWORD` | — | — | 默认管理员密码（首次启动 seed，落地后请立即在控制台改密）|
+### 配置分层
 
-### Emby 集成
+| 层级 | 典型项 | 真相源 | 说明 |
+|------|--------|--------|------|
+| API 运行期数据库配置 | `registration_mode`、`EMBY_URL`、`SMTP_*`、`CRON_*` | [configuration-reference](./reference/configuration-reference.md) | 由设置中心统一解析；大多数可运行期生效，调度相关配置改后需重启 API |
+| API 部署期环境变量 | `DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`INTERNAL_API_SECRET`、`EMBY_WEBHOOK_TOKEN` | [configuration-reference](./reference/configuration-reference.md) | 作为启动边界或信任根，不放进设置中心 |
+| Bot 启动环境变量 | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_UPDATE_MODE`、`WEBHOOK_URL` | [configuration-reference](./reference/configuration-reference.md) | Bot 进程启动直接读取；部分 Chat ID 支持通过 API 设置中心回读并以 env 兜底 |
 
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `EMBY_URL` | — | — | Emby 服务器内部 URL |
-| `EMBY_API_KEY` | — | — | Emby API 密钥 |
-| `EMBY_WEBHOOK_TOKEN` | — | — | Emby Webhook token（`/api/v1/webhooks/emby?token=`）|
+### 关键约束
 
-### TMDB / MoviePilot
-
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `TMDB_API_KEY` | — | — | TMDB API 密钥 |
-| `MOVIEPILOT_URL` | — | — | MoviePilot 地址 |
-| `MOVIEPILOT_API_KEY` | — | — | MoviePilot API Key（X-API-KEY） |
-
-### 邮件服务
-
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `SMTP_HOST` | — | — | SMTP 服务器地址 |
-| `SMTP_PORT` | — | `587` | SMTP 端口 |
-| `SMTP_USERNAME` | — | — | SMTP 用户名 |
-| `SMTP_PASSWORD` | — | — | SMTP 密码 |
-| `SMTP_FROM` | — | — | 发件人；允许显式置空后回退 `SMTP_USERNAME` |
-| `EMAIL_CODE_EXPIRY_MINUTES` | — | `10` | 验证码有效期（分钟）|
-| `EMAIL_CODE_DAILY_LIMIT` | — | `5` | 每邮箱每日发送上限 |
-| `EMAIL_CODE_IP_DAILY_LIMIT` | — | `15` | 每 IP 每日发送上限 |
-
-### Bot 通信
-
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `BOT_NOTIFY_URL` | — | — | Bot 通知 Webhook 地址；允许显式置空后关闭推送 |
-| `INTERNAL_API_SECRET` | — | — | 内部通信共享密钥 |
-
-### Stripe 支付
-
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `STRIPE_SECRET_KEY` | — | — | Stripe API 密钥；支持被设置中心数据库值覆盖 |
-| `STRIPE_WEBHOOK_SECRET` | — | — | Stripe Webhook 签名密钥 |
-| `STRIPE_SUCCESS_URL` | — | — | 支付成功跳转 URL；支持被设置中心数据库值覆盖 |
-| `STRIPE_CANCEL_URL` | — | — | 支付取消跳转 URL；支持被设置中心数据库值覆盖 |
-
-说明：Stripe Dashboard 仍是支付方式能力的真实来源；系统设置中的 `stripe_allowed_payment_methods` 仅用于进一步限制 Checkout 可展示的支付方式。
-
-### 定时任务
-
-| 变量 | 必需 | 默认值 | 说明 |
-|------|------|--------|------|
-| `CRON_ENABLED` | — | `"true"` | 启用定时任务；由设置中心数据库托管，修改后需重启 API |
-| `CRON_SCHEDULE` | — | `"0 2 * * *"` | 过期检查表达式；由设置中心数据库托管，修改后需重启 API |
-| `CRON_TIMEZONE` | — | `"Asia/Shanghai"` | 时区；由设置中心数据库托管，修改后需重启 API |
-| `RANKING_CRON_ENABLED` | — | `"false"` | 启用排行榜生成；由设置中心数据库托管，修改后需重启 API |
-| `RANKING_DAILY_SCHEDULE` | — | `"0 20 * * *"` | 日榜表达式；由设置中心数据库托管，修改后需重启 API |
-| `RANKING_WEEKLY_SCHEDULE` | — | `"30 20 * * 0"` | 周榜表达式；由设置中心数据库托管，修改后需重启 API |
-| `TV_CALENDAR_STARTUP_SYNC_ENABLED` | — | `"true"` | 控制 API 启动后是否执行一次追剧日历补偿同步；由设置中心数据库托管，修改后需重启 API |
-| `TV_CALENDAR_SYNC_SCHEDULE` | — | `"0 */12 * * *"` | 追剧日历同步表达式；由设置中心数据库托管，修改后需重启 API |
+- 配置解析优先级固定为：数据库覆盖值 > 环境变量 > 代码默认值
+- `JWT_SECRET`、`INTERNAL_API_SECRET`、`STRIPE_WEBHOOK_SECRET`、`CONFIG_ENCRYPTION_KEY` 属于边界密钥，只允许通过环境变量提供
+- `.env` 默认填写方式与 compose 入口以 `infrastructure/docker/.env.example` 和部署 runbook 为准，不再在本文件重复维护全量变量表
+- Stripe Dashboard 仍是支付方式能力的真实来源；系统设置中的 `stripe_allowed_payment_methods` 仅用于进一步限制 Checkout 可展示的支付方式
 
 ---
 
@@ -1598,51 +794,39 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 
 ---
 
-## 13. 部署
+## 13. 部署拓扑与关键约束
 
-**Docker Compose（`infrastructure/docker/docker-compose.yml`）**：
-- PostgreSQL 16 + Go API + Vue 前端 + Telegram Bot（`profiles: ["bot"]` 控制，默认不启动）+ Nginx（可选）
-- 强制 env：`POSTGRES_USER` / `POSTGRES_PASSWORD` / `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET`（`docker compose up` 缺失任一立即拒绝启动）；`DATABASE_URL` 缺省时由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres，外部覆盖路径保留；启用 Bot 时还要求 `TELEGRAM_BOT_TOKEN`
-- 应用镜像在 compose 中已钉版默认值（`EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`，随每次发版同步更新），生产环境建议在 `.env` 显式覆盖以避免依赖默认值漂移
-- API 容器仅保留启动期/边界环境变量（`DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`EMBY_WEBHOOK_TOKEN`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`）
-- API 以非 root 用户 `ember:ember`(UID 1000) 运行
-- 健康检查：`GET /health`；Bot 通过 `depends_on.condition: service_healthy` 等 API 健康后再启动
-- PostgreSQL 端口默认仅监听 `127.0.0.1:5432`；远程访问请走 SSH tunnel 或反代授权
-- 数据库 schema 初始化与升级**全部由 `ember-api` 启动期 Migrate 阶段**接管（不再挂载 PG `initdb.d`）；新空库走"新空库"分支按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL，已升级库走"正常 forward-only"分支按需补齐
-- 数据库迁移资产当前收口为 v1.4.0 截点合并 baseline `infrastructure/database/20260502_00_schema_baseline.sql`（顶层无独立增量）；`pre-20260415` / `pre-20260422` / `pre-20260502` 历史 SQL 已归档到各自的 `infrastructure/database/archive/` 子目录，仅供追溯
-- 启动期不再调用 `AutoMigrate`，**改为内嵌自动迁移**：`cmd/server` 启动序列为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`。Migrate 阶段封装在 `services/api/internal/db/migrate.go`，靠内部表 `schema_migrations`（`filename` PK + `applied_at` + `checksum`）记账，按 `pg_advisory_lock` 串行 + checksum 防改写，按五种启动期分支（**新空库** / **老库 backfill** / **混合模式** / **老库不对齐** / **正常 forward-only**）自动选择行为。镜像构建期把 `infrastructure/database/*.sql` 顶层 COPY 至 `/app/migrations/`（由 `EMBER_MIGRATIONS_DIR` 注入），与镜像 tag 强绑定。**部署者升级路径精简为 `docker compose pull && up -d`**，无需任何手工 SQL；本地空库一步到位由 `go run ./cmd/server` 自然接管，启动期 Migrate 走"新空库"分支从空库一次性应用全部顶层 SQL（PG `initdb.d` 已退役）。详见 [`infrastructure/database/README.md`](../infrastructure/database/README.md)
+本节只保留部署拓扑和关键边界。具体部署步骤、环境变量填写和排障动作统一以 runbook 为准：
 
-**数据库连接池**：MaxIdle=15, MaxOpen=30, MaxLifetime=1h, MaxIdleTime=10min
+- [docs/runbooks/deployment.md](./runbooks/deployment.md)
+- [docs/runbooks/deployment-environment.md](./runbooks/deployment-environment.md)
+- [docs/runbooks/deployment-troubleshooting.md](./runbooks/deployment-troubleshooting.md)
 
-**时间处理**：所有时间戳 UTC 存储（GORM NowFunc 强制 UTC）
+### 部署拓扑
+
+- 默认部署拓扑为：PostgreSQL 16 + Go API + Vue Web + Telegram Bot（`profiles: ["bot"]` 控制，默认不启动）
+- Compose 主入口为 `infrastructure/docker/docker-compose.yml`
+- API 与 Web 使用独立镜像；Bot 按 profile 显式启用
+- PostgreSQL 默认仅监听 `127.0.0.1:5432`；远程访问应通过 SSH tunnel 或受控反代
+
+### 关键约束
+
+- `POSTGRES_USER`、`POSTGRES_PASSWORD`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`INTERNAL_API_SECRET` 是 compose 启动硬依赖；启用 Bot 时还要求 `TELEGRAM_BOT_TOKEN`
+- `DATABASE_URL` 缺省时由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres，外部覆盖路径保留
+- API 容器以非 root 用户 `ember:ember` 运行，健康检查使用 `GET /health`
+- 数据库 schema 初始化与升级全部由 API 启动期 `Migrate` 阶段接管；启动序列固定为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`
+- 启动期迁移依赖 `schema_migrations` 记账、`pg_advisory_lock` 串行和 checksum 防改写；部署者升级路径已收口为 `docker compose pull && up -d`
+- 数据库迁移资产、baseline 和归档边界以 [`infrastructure/database/README.md`](../infrastructure/database/README.md) 为准
+- 数据库连接池基线：MaxIdle=15、MaxOpen=30、MaxLifetime=1h、MaxIdleTime=10min
+- 时间处理约束：所有时间戳 UTC 存储（GORM `NowFunc` 强制 UTC）
 
 ---
 
 ## 14. 代码模式速查
 
-| 模式 | 说明 |
-|------|------|
-| ID 生成 | CUID 格式：`cl` + timestamp(hex) + random(hex)，25 字符 |
-| 分页响应 | `{data:[], total, page, pageSize, totalPages}` |
-| 错误响应 | `{error: "中文错误消息"}`，400/401/404/500 |
-| Handler 模式 | `ShouldBindJSON/ShouldBindQuery` → 调用 Service → 返回 JSON |
-| Service 模式 | 接收 Request struct → 业务逻辑 → 返回 Response/error |
-| 码生成 | `crypto/rand.Read(bytes)` → `hex.EncodeToString` → 16 字符 |
-| 密码哈希 | `bcrypt.GenerateFromPassword(DefaultCost)` |
-| Emby 认证 | `X-Emby-Token: {apiKey}` 头 |
-| 内部通信 | `X-Internal-Secret: {secret}` 头（Bot ↔ API）|
-| 前端请求 | Axios 拦截器自动加 Bearer token，401 自动清除登录态 |
-| 火忘通知 | `internal/async.SafeGo(name, fn)` 启 goroutine，统一 recover panic 并记结构化日志；业务主流程不阻塞 |
-| 上游错误脱敏 | `internal/common/upstream.SafeUpstreamError(err, system)` 剥离 `*url.Error` 中的请求 URL（含 `api_key`）；`SafeUpstreamHTTPError(system, statusCode)` 仅保留 system + 状态码，不回显响应体。当前已收口 TMDB / MoviePilot 调用链路、配置中心媒体测试接口（Emby / MoviePilot / SMTP）以及 Stripe / SMTP 上游网络与 HTTP 错误路径 |
-| 内部错误响应 | `internal/common/httpx.InternalError(c, err)` 客户端只看到 `上游服务暂不可用` 统一文案，完整 err（含 requestId）落服务端日志；handler 不再裸透 `err.Error()` |
-### 4.17 BotRuntimeLock（Bot polling 单实例租约锁）
+完整的代码模式速查已迁移到 [docs/reference/code-patterns.md](./reference/code-patterns.md)。
 
-**表名**: `bot_runtime_locks` | **文件**: `models/bot_runtime_lock.go`
+本节只保留入口说明：
 
-| 字段 | 类型 | 列名 | 说明 |
-|---|---|---|---|
-| Name | string | name | 锁名主键，当前固定为 `telegram_polling` |
-| OwnerID | string | ownerId | 持锁 Bot 实例标识（hostname + pid + uuid） |
-| ExpiresAt | time.Time | expiresAt | 租约到期时间；续租失败或实例 crash 后允许其他实例接管 |
-| CreatedAt | time.Time | createdAt | 创建时间 |
-| UpdatedAt | time.Time | updatedAt | 最近续租时间 |
+- 常见 handler / service / 错误响应 / 内部通信 / 火忘通知等实现约定统一维护在 [docs/reference/code-patterns.md](./reference/code-patterns.md)
+- 若某类实现模式在主线代码中发生变化，应优先同步 `code-patterns.md`，而不是在主文档重新堆明细

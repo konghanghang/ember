@@ -10,6 +10,11 @@
 - [`docs/plan/` 目录治理规范](./plan-directory-governance.md) - 新计划文档的职责分类与落位规则
 - [多 Agent 协作指南](./multi-agent-collaboration-guide.md) - 多 agent 任务拆分、职责边界与提问模板
 - [配置参考](./configuration-reference.md) - 配置来源、优先级和边界
+- [数据模型参考](./data-model-reference.md) - 系统表结构、字段语义与关系说明
+- [API 端点目录](./api-endpoint-catalog.md) - HTTP / Internal API 路由分组与用途总表
+- [Web 信息架构参考](./web-information-architecture.md) - 共享组件层、页面职责与路由归属
+- [Bot 架构参考](./bot-architecture-reference.md) - Bot 端点、命令处理器、运行模式与环境变量
+- [代码模式速查](./code-patterns.md) - 常见 handler/service/错误/通知等实现约定
 - [API 开发与目录规范](./api-development-conventions.md) - `services/api` 的分层和目录约束
 - [API 响应规范](./api-response-standard.md) - 接口返回、字段命名和模型映射约定
 - [Emby API 参考](./emby-api-guide.md) - Emby 集成接口与调试说明

@@ -7,7 +7,7 @@
 
 ## 快速入口
 
-- 实现 / 修复任务：首次进入仓库、跨模块改动或涉及状态流转 / 外部集成 / 部署入口时，先读 [docs/system-architecture.md](docs/system-architecture.md)
+- 实现 / 修复任务：首次进入仓库、跨模块改动或涉及状态流转 / 外部集成 / 部署入口时，先读 [docs/system-architecture.md](docs/system-architecture.md)；字段、接口、页面、Bot、配置、部署细节再按主文档入口跳转对应 `docs/reference/` 或 `docs/runbooks/`
 - 前端任务：命中页面、组件、交互、视觉改动时，再读 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md)
 - 文档治理任务：命中归档、目录调整、批量迁移时，再读 [docs/reference/archive-governance.md](docs/reference/archive-governance.md)
 - 计划 / 提案任务：先看 [docs/reference/plan-directory-governance.md](docs/reference/plan-directory-governance.md) 与对应模板；涉及系统边界、契约、流转时，同时回读 [docs/system-architecture.md](docs/system-architecture.md)

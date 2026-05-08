@@ -38,6 +38,7 @@
 
 - `architecture/database-migration-auto-apply.md`（已落地，待归档窗口）
 - `architecture/oss-deployment-experience.md`（Phase 1 已落地，Phase 2 待启动）
+- `architecture/system-architecture-document-split.md`
 - `bot-telegram/notification-mute-rules.md`
 - `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/admin-emby-binding.md`

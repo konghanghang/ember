@@ -6,6 +6,7 @@
 
 - [计划文档盘点](./plan-inventory.md)
 - [提案模板](./proposal-template.md)
+- [system-architecture 文档拆分提案](./system-architecture-document-split.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
 - [`docs/archive/mvp/design.md`](../archive/mvp/design.md) - MVP 初始设计（历史资料，不代表当前实现）
 
