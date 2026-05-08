@@ -433,14 +433,12 @@ func sha256Hex(b []byte) string {
 
 // baselineFilenamePattern 识别"等价 schema 快照"类型的 baseline 文件。
 //
-// 同时兼容两种命名：
-//   - 当前生产格式：YYYYMMDD_NN_schema_baseline.sql（如 20260502_00_schema_baseline.sql）
-//   - 推荐演进格式：00000000_baseline_YYYYMMDD.sql 或 00000000_baseline.sql
+// 同时兼容两种命名格式：
+//   - 当前推荐格式：00000000_baseline_YYYYMMDD.sql 或 00000000_baseline.sql
 //     （全 0 前缀让 baseline 永远字典序最先，且文件名一眼可辨"我是 baseline"）
-//
-// 同时保留两种格式：当前 baseline 名不动，机制升级是为下一次压缩做铺垫；
-// 不强制重命名当前 baseline 是为了避免"修机制 + 改文件名"两件事耦合带来的
-// 老库 checksum 重算与升级路径连锁影响。
+//   - 历史命名格式：YYYYMMDD_NN_schema_baseline.sql
+//     （v1.4.0 baseline 起步使用过的格式，现行 baseline 已迁移到全 0 命名；
+//     保留识别是为了让仍记账着旧文件名的老库重启时能干净走重命名豁免路径）
 var baselineFilenamePattern = regexp.MustCompile(
 	`^(?:[0-9]{8}_[0-9]{2}_schema_baseline|0{8}_baseline(?:_[0-9]{8})?)\.sql$`,
 )

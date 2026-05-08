@@ -10,7 +10,7 @@
 
 最近一轮 baseline 已于 `2026-05-02` 落地（v1.4.0 截点）：
 
-- 基线文件：`infrastructure/database/20260502_00_schema_baseline.sql`（合并式 baseline，非 pg_dump schema-only）
+- 基线文件：`infrastructure/database/00000000_baseline_20260502.sql`（合并式 baseline，非 pg_dump schema-only；文件内容生成于 2026-05-02 截点，曾命名为 `20260502_00_schema_baseline.sql`，已按"全 0 前缀让 baseline 永远字典序最先"的命名约定收口）
 - 历史归档目录：`infrastructure/database/archive/pre-20260502/`
 - 吸收范围：上一轮 baseline `20260422_00_schema_baseline.sql` + 23 个 v1.4.0 期间顶层增量
 - deterministic seed：5 条默认 settings（`default_trial_days` / `registration_mode` / `notify_group_link` / `email_verification` / `stripe_allowed_payment_methods`）+ `plan_groups.DEFAULT`，继承自旧 baseline 段

@@ -4,7 +4,7 @@
 
 当前唯一现行入口：
 
-- `20260502_00_schema_baseline.sql`：v1.4.0 截点合并 baseline，新装库初始化的全部内容
+- `00000000_baseline_20260502.sql`：v1.4.0 截点合并 baseline，新装库初始化的全部内容（文件内容生成于 2026-05-02 截点；曾命名为 `20260502_00_schema_baseline.sql`，已按"全 0 前缀让 baseline 永远字典序最先"的命名约定收口）
 - `archive/`：仅供追溯，不参与任何运行时链路
 
 数据库表名 / 列名 / 索引名统一使用 `snake_case`；历史 camelCase 列已在 v1.4.0 期间整体收口（脚本归档于 `archive/pre-20260502/20260423_00_legacy_camelcase_to_snake_case.sql`）。
@@ -99,7 +99,7 @@ archive/
 
 ## 现行 baseline 说明
 
-`20260502_00_schema_baseline.sql` 是 **合并式 baseline**：
+`00000000_baseline_20260502.sql` 是 **合并式 baseline**：
 
 - 内容由历史 24 份顶层 SQL（旧 baseline + 23 个增量）按字典序合并
 - 行为等价于在新装空库上逐个执行这 24 个文件
