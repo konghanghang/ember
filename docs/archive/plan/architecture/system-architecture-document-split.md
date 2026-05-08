@@ -1,6 +1,6 @@
 # system-architecture 文档拆分实现方案
 
-> 状态：四阶段已落地，待收尾归档
+> 状态：已归档（四阶段已落地）
 > 负责人：Ember
 > 更新时间：2026-05-08
 
@@ -13,7 +13,7 @@
 - 文档内部已经出现编号重复和尾部错位，说明维护方式开始退化为“追加式记录”
 - 仓库内已经存在 `docs/reference/` 和 `docs/runbooks/`，但主文档仍在重复持有它们应承接的内容
 
-如果不做拆分，`docs/system-architecture.md` 会继续膨胀，最终既不适合作为系统入口，也不适合作为稳定真相源。当前四阶段拆分已完成，本文保留为实施过程与归档前收尾说明。
+如果不做拆分，`docs/system-architecture.md` 会继续膨胀，最终既不适合作为系统入口，也不适合作为稳定真相源。当前四阶段拆分已完成，本文保留为历史实施过程与收尾记录。
 
 ## 目标
 
@@ -38,7 +38,7 @@
 
 - 相关文档：
   - `docs/system-architecture.md`
-  - `docs/proposals/system-architecture-document-split.md`
+  - `docs/archive/proposal/system-architecture-document-split.md`
   - `docs/reference/configuration-reference.md`
   - `docs/reference/README.md`
   - `docs/runbooks/deployment.md`
@@ -164,10 +164,10 @@
 - 部署查阅：需要看部署细节时，确认主文档只保留摘要，并能跳到对应 runbook
 - 结构检查：确认主文档不存在重复编号、尾部错位和孤立章节
 
-## 落地后文档处理
+## 归档说明
 
-落地后应同步处理：
+归档前已同步处理：
 
-- 将稳定后的文档边界说明提炼回 `docs/system-architecture.md` 开头与 `docs/reference/README.md`
-- 本实施稿在拆分全部完成、引用收口、主文档稳定后移入 `docs/archive/plan/architecture/`
-- 对应的治理提案 [docs/proposals/system-architecture-document-split.md](../../proposals/system-architecture-document-split.md) 在不再指导决策后移入 `docs/archive/`
+- 已将稳定后的文档边界说明提炼回 `docs/system-architecture.md` 开头与 `docs/reference/README.md`
+- 本实施稿已移入 `docs/archive/plan/architecture/`
+- 对应的治理提案已移入 [docs/archive/proposal/system-architecture-document-split.md](../../proposal/system-architecture-document-split.md)

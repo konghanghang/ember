@@ -6,7 +6,6 @@
 
 - [计划文档盘点](./plan-inventory.md)
 - [提案模板](./proposal-template.md)
-- [system-architecture 文档拆分提案](./system-architecture-document-split.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
 - [`docs/archive/mvp/design.md`](../archive/mvp/design.md) - MVP 初始设计（历史资料，不代表当前实现）
 
@@ -42,7 +41,7 @@
 ## 兼容说明
 
 - `docs/plan/` 仍保留原路径，因为现有协作流程和 AI 指令都依赖这个位置。
-- 已完成的治理类提案会移入 `docs/archive/`，例如 [API 目录重构提案](../archive/proposal/api-directory-refactor.md)、[前端设计系统治理提案](../archive/proposal/design-system-governance.md)。
+- 已完成的治理类提案会移入 `docs/archive/`，例如 [API 目录重构提案](../archive/proposal/api-directory-refactor.md)、[前端设计系统治理提案](../archive/proposal/design-system-governance.md)、[system-architecture 文档拆分提案](../archive/proposal/system-architecture-document-split.md)。
 
 ## 维护规则
 

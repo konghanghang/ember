@@ -1,6 +1,6 @@
 # system-architecture 文档拆分提案
 
-> 状态：四阶段已落地，待收尾归档
+> 状态：已归档（四阶段已落地）
 > 负责人：Ember
 > 更新时间：2026-05-08
 
@@ -30,10 +30,10 @@
 
 用事实描述现状，不写空话：
 
-- 当前主文档为 [docs/system-architecture.md](../system-architecture.md)，总长度约 834 行
+- 当前主文档为 [docs/system-architecture.md](../../system-architecture.md)，总长度约 834 行
 - 主文档当前已收口为系统入口，仍包含系统概览、目录结构、后端服务、前端与 Bot 总览、定时任务、配置/部署摘要；完整数据模型、API 端点、Web 信息架构、Bot 细节与代码模式速查均已迁出
-- 主文档中的全量环境变量表与部署细节已压缩为摘要，并指向 [docs/reference/configuration-reference.md](../reference/configuration-reference.md) 与相关 runbook
-- 完整数据模型与 API 端点清单已迁移到 [docs/reference/data-model-reference.md](../reference/data-model-reference.md) 与 [docs/reference/api-endpoint-catalog.md](../reference/api-endpoint-catalog.md)
+- 主文档中的全量环境变量表与部署细节已压缩为摘要，并指向 [docs/reference/configuration-reference.md](../../reference/configuration-reference.md) 与相关 runbook
+- 完整数据模型与 API 端点清单已迁移到 [docs/reference/data-model-reference.md](../../reference/data-model-reference.md) 与 [docs/reference/api-endpoint-catalog.md](../../reference/api-endpoint-catalog.md)
 - 前端信息架构、Bot 细节与代码模式速查也已迁移到对应 `reference` 文档
 - 文档内部的编号重复与尾部错位问题已收口
 - 当前协作入口仍要求“先读 `docs/system-architecture.md`”，因此该文档必须继续保留为仓库入口，而不是被彻底替代
@@ -56,11 +56,11 @@
 - 已新增代码模式承接文档；其后又按边界收口回 `docs/reference/api-development-conventions.md` 与 `docs/reference/api-response-standard.md`
 - 已将主文档中的 `14. 代码模式速查` 压缩为摘要入口
 
-### 剩余项
+### 归档结论
 
-- 评估是否还需要继续压缩主文档体量
-- 完成归档前的最后一轮引用盘点与事实确认
-- 满足条件后将本提案移入 `docs/archive/`
+- 主文档拆分目标已达成，当前剩余工作不再需要本提案继续指导
+- 现行入口、专题文档与交叉引用已收口到当前事实
+- 本文档只保留“为什么要拆”和阶段性决策背景，作为历史追溯材料归档
 
 ## 提案内容
 
@@ -80,10 +80,10 @@
 - `6. API 端点完整列表` 拆到 `docs/reference/api-endpoint-catalog.md`
 - `8. 前端架构` 中页面地图、页面职责和共享组件细节拆到 `docs/reference/web-information-architecture.md`
 - `9. Telegram Bot 架构` 详细内容拆到 `docs/reference/bot-architecture-reference.md`
-- `11. 环境变量完整列表` 从主文档移除，统一并入现有 [docs/reference/configuration-reference.md](../reference/configuration-reference.md)
+- `11. 环境变量完整列表` 从主文档移除，统一并入现有 [docs/reference/configuration-reference.md](../../reference/configuration-reference.md)
 - `13. 部署` 的细节说明下沉到现有 `docs/runbooks/deployment*.md`
 - `14. 代码模式速查` 初始拆到独立文档，后续再按边界并回 `docs/reference/api-development-conventions.md` 与 `docs/reference/api-response-standard.md`
-- 更新 [docs/reference/README.md](../reference/README.md)，将新增专题文档纳入入口
+- 更新 [docs/reference/README.md](../../reference/README.md)，将新增专题文档纳入入口
 
 ### 3. 分阶段推进
 
@@ -126,9 +126,9 @@
 ## 影响范围
 
 - 文档：
-  - [docs/system-architecture.md](../system-architecture.md)
-  - [docs/reference/README.md](../reference/README.md)
-  - [docs/reference/configuration-reference.md](../reference/configuration-reference.md)
+  - [docs/system-architecture.md](../../system-architecture.md)
+  - [docs/reference/README.md](../../reference/README.md)
+  - [docs/reference/configuration-reference.md](../../reference/configuration-reference.md)
   - `docs/reference/data-model-reference.md`
   - `docs/reference/api-endpoint-catalog.md`
   - `docs/reference/web-information-architecture.md`
@@ -161,8 +161,8 @@
 - 协作入口、reference 入口、runbook 入口均已同步到当前事实
 - 后续维护规则已稳定执行，不再依赖本提案指导日常更新
 
-## 落地后文档处理
+## 归档说明
 
-- 若需要具体实施顺序和逐文档迁移清单，可继续补一份 `docs/plan/architecture/` 下的实施稿
-- 拆分完成后，将稳定结论固化到 `docs/system-architecture.md`、`docs/reference/`、`docs/runbooks/`
-- 本提案完成历史使命后，移入 `docs/archive/`
+- 实施过程与逐文档迁移清单已由历史实施稿承接：`docs/archive/plan/architecture/system-architecture-document-split.md`
+- 稳定结论已固化到 `docs/system-architecture.md`、`docs/reference/`、`docs/runbooks/`
+- 本提案已退出 `docs/proposals/`，仅保留历史追溯价值

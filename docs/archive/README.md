@@ -27,6 +27,7 @@
 - `architecture/`：设置中心、邮箱鉴权边界、数据库迁移 baseline、schema 与部署基线等结构性方案
   - 例如：[数据库迁移 Baseline 与归档收口方案](./plan/architecture/database-migration-baseline-and-archive.md)
   - 例如：[Schema 与部署基线收口方案](./plan/architecture/schema-deployment-and-baseline-cleanup.md)
+  - 例如：[system-architecture 文档拆分实现方案](./plan/architecture/system-architecture-document-split.md)
 
 `report/` 用于保存总结、复盘和历史测试报告，例如：
 
@@ -44,6 +45,7 @@
 
 - [API 目录重构提案](./proposal/api-directory-refactor.md)
 - [前端设计系统治理提案](./proposal/design-system-governance.md)
+- [system-architecture 文档拆分提案](./proposal/system-architecture-document-split.md)
 
 `docs/archive/mvp/` 当前用于收口 MVP 阶段的历史资料，例如：
 
