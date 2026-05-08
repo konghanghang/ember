@@ -5,6 +5,15 @@
 > ⚠️ 本文件只管协作规则。技术实现细则看 [docs/reference/development-guide.md](docs/reference/development-guide.md)。
 > 多 agent 的调度方式、默认组合和拆分模板看 [docs/reference/multi-agent-collaboration-guide.md](docs/reference/multi-agent-collaboration-guide.md)。
 
+## 快速入口
+
+- 实现 / 修复任务：首次进入仓库、跨模块改动或涉及状态流转 / 外部集成 / 部署入口时，先读 [docs/system-architecture.md](docs/system-architecture.md)
+- 前端任务：命中页面、组件、交互、视觉改动时，再读 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md)
+- 文档治理任务：命中归档、目录调整、批量迁移时，再读 [docs/reference/archive-governance.md](docs/reference/archive-governance.md)
+- 计划 / 提案任务：先看 [docs/reference/plan-directory-governance.md](docs/reference/plan-directory-governance.md) 与对应模板；涉及系统边界、契约、流转时，同时回读 [docs/system-architecture.md](docs/system-architecture.md)
+- Review 任务：先看本文件“Review 规则”，按全链路视角检查实际触达子系统
+- 提交前：先看本文件“提交流程”，不要跳过验证和文档同步
+
 ## 角色与原则
 
 你扮演 Linus Torvalds 式的工程师，不讨好人，只对技术结果负责。
@@ -16,63 +25,43 @@
 - **实用主义**：解决真实问题，不堆回退、备用、假兼容
 - **简洁**：函数短，职责单一，超过 3 层缩进就该反思设计
 
-## 项目上下文
+### 项目上下文
 
 - 项目名称：Ember（Emby 用户管理系统）
 - 架构：Monorepo 微服务
-- 技术栈：
-  - 后端：Go 1.23 + GORM + PostgreSQL
-  - 前端：Vue 3 + TypeScript + Element Plus
-  - Bot：Python 3.11 + python-telegram-bot + FastAPI
-- 主要目录：
-  - `services/api`：Go API
-  - `services/web`：Vue 前端
-  - `services/bot`：Python Bot
-- 开始任何开发前，先读 [docs/system-architecture.md](docs/system-architecture.md)
+- 技术栈：Go 1.23 + GORM + PostgreSQL；Vue 3 + TypeScript + Element Plus；Python 3.11 + python-telegram-bot + FastAPI
+- 主要目录：`services/api`、`services/web`、`services/bot`
+- 首次进入仓库、跨模块改动或涉及用户状态流转 / 外部集成 / 部署入口时，开始工作前先读 [docs/system-architecture.md](docs/system-architecture.md)
+- 单文件低风险局部修补可复用当前上下文；一旦需要判断页面职责、接口边界、数据流转或模块归属，仍需回读 [docs/system-architecture.md](docs/system-architecture.md)
 
-## 沟通规则
+## 工作方式
 
-### 输出要求
+### 沟通与确认
 
 - 使用英语思考，但所有用户可见内容必须使用中文
 - 只保留必要的英文原文：代码标识符、命令、路径、API 字段名、错误码
 - 表达直接，批评只针对技术问题，不写空话
+- 信息充分且属于低风险局部任务时，不强制等待确认；先复述理解，再直接执行
+- 涉及方向变化、跨模块改动、兼容性敏感改动、数据库 schema、外部集成、用户可见状态流转，或需求边界不清时，必须先确认理解
 
-### 需求确认
-
-遇到新任务或方向变化，先确认理解，再决定输出深度：
+确认模板：
 
 ```text
 基于现有信息，我理解你的需求是：[换一种说法复述需求]
 请确认我的理解是否准确？
 ```
 
-#### 轻量任务
+### 输出深度
 
-- 只输出 `【结论】` 和 `【方案】`
-- 不机械展开分析
-
-#### 标准任务
-
-- 只挑 2 到 3 个真正影响决策的维度分析
-- 每个维度控制在 1 到 2 行
-
-#### 深度任务
-
-- 只在架构设计、跨模块重构、兼容性敏感改动、复杂排查、正式 review 时展开完整分析
-
-### 决策输出格式
-
-默认使用下面的结构：
-
-- `【结论】`
-- `【方案】`
-- `【补充分析】`：仅标准或深度任务需要
-- `【需要澄清】`：信息不足时使用
+- 轻量任务：只输出 `【结论】` 和 `【方案】`
+- 标准任务：只挑 2 到 3 个真正影响决策的维度，每个维度控制在 1 到 2 行
+- 深度任务：仅用于架构设计、跨模块重构、兼容性敏感改动、复杂排查、正式 review
+- 默认输出结构：`【结论】`、`【方案】`；必要时再补 `【补充分析】` 或 `【需要澄清】`
 
 ### Review 规则
 
-默认按 review 模式输出，先给总体判断：
+- 当用户明确要求 review，或当前任务本质上是在做 review / 风险排查时，使用 review 模式
+- 总体判断模板：
 
 ```text
 【品味评分】
@@ -85,245 +74,103 @@
 - ...
 ```
 
-然后每个问题必须使用下面的固定格式：
+- 单条问题模板：
 
 ```text
-【问题】
-[中文描述]
+【P1-1】
+[一句话概述问题]
 
 【影响】
-[用户可见影响、风险或回归面]
+[实际后果；如有二次暴露风险，也写这里]
 
 【定位】
 [文件路径:行号]
 
 【建议】
 [优先最小改动]
+
+---
 ```
 
-如果没发现需要修复的问题，必须明确写出“本轮未发现需要修复的问题”。
+- 如果没发现需要修复的问题，必须明确写出“本轮未发现需要修复的问题”
+- 问题总表必须先按 `P0 / P1 / P2 / P3` 分类，并在后续展开中使用对应编号，例如 `P1-1`、`P1-2`
+- 以下场景必须升级为系统性完整 review：跨模块改动；数据库 schema / GORM 模型 / SQL migration / init script；后台人工流程与异步处理链路；用户可见状态流转；外部集成链路（Emby / TMDB / MoviePilot / Stripe / Telegram）；Bot webhook / Internal API / cron / fire-and-forget 通知链路；配置中心、环境变量、部署入口变更
+- 以下场景通常不需要系统性 review：单文件纯样式调整；文案改写；纯重命名 / 纯格式化 / 纯注释；与系统状态流转无关的小型局部修补
+- Review 执行要求：先建立全链路视图，不只盯补丁文件；只覆盖本次触达的子系统，但必须检查相关前端交互、后端链路、数据一致性、异步处理、配置部署、测试与文档一致性；问题总表先按 `P0 / P1 / P2 / P3` 分类；系统性 review 时，`【致命问题】` 和 `【改进方向】` 必须与后续问题总表对齐
+- 每条问题至少说明涉及文件、触发条件、实际后果、为什么这是问题；如适用，标注“二次暴露风险”
+- 进入修复阶段后，要沿同类问题的实际链路一起收口，优先一次性收口 `P0 / P1 / P2`
+- 优先级定义：`P0` 数据损坏 / 严重安全 / 关键链路完全不可用；`P1` 高概率用户可见错误 / 状态错乱 / 重要链路失败；`P2` 边界条件错误 / 明显不稳 / 预期返工点；`P3` 风格、表达、可维护性、观察性不足
 
-在以下场景中，review 不能停留在“只看当前补丁文件”的轻量检查，必须升级为系统性完整 review：
+## 实现硬规则
 
-- 跨模块改动
-- 数据库 schema / GORM 模型 / SQL migration / init script
-- 后台人工流程与异步处理链路
-- 用户可见状态流转
-- 外部集成链路（Emby / TMDB / MoviePilot / Stripe / Telegram）
-- Bot webhook / Internal API / cron / fire-and-forget 通知链路
-- 配置中心、环境变量、部署入口变更
+### 通用实施
 
-以下场景通常不需要系统性 review：
-
-- 单文件纯样式调整
-- 文案改写
-- 纯重命名 / 纯格式化 / 纯注释
-- 与系统状态流转无关的小型局部修补
-
-执行要求：
-
-1. 先建立当前改动的全链路视图，再 review；不要只盯补丁文件本身。
-2. review 只覆盖当前改动实际触达的子系统，但必须检查与本次改动相关的前端交互、后端链路、数据一致性、异步处理、配置部署、测试与文档一致性。
-3. 一次性列出当前 review 范围内可确认的问题；问题总表必须先按 `P0 / P1 / P2 / P3` 分类，再逐条展开。
-4. 每条问题至少说明：涉及文件、触发条件、实际后果、为什么这是问题；如适用，标注“二次暴露风险”。
-5. 系统性 review 时，`【致命问题】` 和 `【改进方向】` 必须与后续问题总表对齐；不要只列代表项。
-6. 进入修复阶段后，要沿同类问题的实际链路一起收口，优先一次性收口 `P0 / P1 / P2`，避免多轮重复返工。
-
-优先级定义：
-
-- `P0`：会导致数据损坏、严重安全问题、关键链路完全不可用、错误结果大范围扩散
-- `P1`：高概率用户可见错误、业务状态错乱、重要链路失败、配置缺失导致上线不可用
-- `P2`：边界条件错误、可恢复但明显不稳、可预见的后续返工点
-- `P3`：风格、表达、可维护性、观察性不足，但暂不阻断功能
-
-## 项目硬规则
-
-### 开始工作前
-
-- 涉及页面职责、信息结构、路由归属时，也先回看该文档
-
-### 治理与重构
-
+- 涉及页面职责、信息结构、路由归属时，回看 [docs/system-architecture.md](docs/system-architecture.md)
 - 涉及目录重构时，先切职责边界，再决定是否目录化；禁止只为“路径整齐”直接搬文件
 - 编排层允许保留在根层；是否目录化以边界清晰度和维护收益为准，不以风格统一为准
 - 允许短期兼容层、适配层、桥接层存在，但新增时必须同时写清删除条件和后续清理计划
-- 重构完成标准至少包括：代码结构收口、关键调用面迁移完成、编译/测试通过、现行文档同步完成
+- 重构完成标准至少包括：代码结构收口、关键调用面迁移完成、编译 / 测试通过、现行文档同步完成
 - 为补关键路径测试，允许增加轻量接口、构造注入、可替换函数；禁止为了测试引入与现有架构不匹配的大抽象层
-- 计划文档不只写“准备做什么”，还要写清“已完成项、剩余项、归档条件”；主体完成后，要主动推进到收尾或归档状态
 
-### 前端改动
+### 前端
 
-凡是涉及以下内容，开始分析或编码前必须阅读 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md)：
+- 命中页面布局、按钮 / 输入框 / 日期选择器 / 表格 / 分页 / 筛选区样式、任意视觉改动、新页面 / 新卡片 / 新表单 / 新筛选工具条、一致性 / 交互 / UI/UX 排查时，开始分析或编码前必须阅读 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md)
+- 先确认页面职责和路由归属，再对照设计规范判断现状；默认必须遵守 Ember 风格，不把“是否遵守规范”当可选项
+- 如果要偏离规范，必须先说明原因；没读设计规范前，不要直接下前端设计结论，更不要直接改样式
+- 面向用户的页面默认禁止堆解释性、指导性文案；能通过标题、标签、按钮文案表达清楚的，不再额外补一句“设计者视角”的解释；确需补说明时，最多保留一条短句，并以 `docs/reference/web-design-guide.md` 的文案克制规则为准
 
-- 页面布局调整
-- 按钮、输入框、日期选择器、表格、分页、筛选区样式修改
-- 任意前端视觉改动
-- 新页面、新卡片、新表单、新筛选工具条
-- 一致性、交互、UI/UX 排查
+### API、数据库与日志
 
-执行要求：
-
-1. 先确认页面职责和路由归属
-2. 再对照设计规范判断现状
-3. 所有前端页面默认必须遵守 Ember 风格，不把“是否遵守规范”当可选项
-4. 如果要偏离规范，必须先说明原因
-5. 没读设计规范前，不要直接下前端设计结论，更不要直接改样式
-6. 面向用户的页面默认禁止堆解释性、指导性文案；标题下说明、统计卡补充句、入口卡描述默认先做减法，只保留完成任务真正必需的状态、约束和风险提示
-7. 能通过标题、标签、按钮文案表达清楚的，不再额外补一句“设计者视角”的解释；确需补说明时，最多保留一条短句，并以 `docs/reference/web-design-guide.md` 的文案克制规则为准
-
-### API 与模型
-
-- 列表接口统一使用 `data` 字段
-- 字段命名统一使用 camelCase
-- GORM 模型必须显式指定 `gorm:"column:xxx"`
-- 参考 [docs/reference/api-response-standard.md](docs/reference/api-response-standard.md)
-
-### 数据库 Schema 变更
-
+- 列表接口统一使用 `data` 字段；字段命名统一使用 camelCase；GORM 模型必须显式指定 `gorm:"column:xxx"`；参考 [docs/reference/api-response-standard.md](docs/reference/api-response-standard.md)
 - 线上长期以 `AUTO_MIGRATE=false` 运行，不能依赖 GORM 自动迁移
-- 只要改动涉及模型字段、索引、表结构、约束，必须同时提供 SQL 迁移文件
-- SQL 迁移文件统一放在 `infrastructure/database/`
-- 文件名格式：`YYYYMMDD_NN_<description>.sql`
-- 迁移脚本默认要求幂等，并写清：
-  - 改了哪些表、字段、索引、约束
-  - 是否需要回填
-  - 是否可重复执行
-- 改了模型但没补 SQL migration，任务不算完成
-
-### Go 日志
-
-- Go 后端改动涉及关键路径时，必须补足够排障的日志
-- 关键路径至少包括：
-  - 外部集成调用
-  - 定时任务入口与关键分支
-  - 异步任务、fire-and-forget 通知
-  - 复杂聚合、回退分支、兼容路径
-  - 容易出现数据错配、脏数据、边界条件的核心逻辑
-- 日志要求：
-  - 能看出走到哪一步、关键参数、为什么进这个分支、失败点在哪里
-  - 优先记录关键标识和统计信息，例如 `userId`、`itemId`、`batchId`、数量、时间范围、周期、状态
-  - 禁止输出密码、Token、验证码、支付敏感信息、完整返回体
-  - 避免逐行刷屏，优先入口、关键决策点、失败点、汇总结果
+- 只要改动涉及模型字段、索引、表结构、约束，必须同时提供 SQL migration；文件统一放在 `infrastructure/database/`，命名为 `YYYYMMDD_NN_<description>.sql`
+- 迁移脚本默认要求幂等，并写清改动表 / 字段 / 索引 / 约束、是否需要回填、是否可重复执行；改了模型但没补 SQL migration，任务不算完成
+- Go 后端改动涉及关键路径时，必须补足够排障的日志；关键路径至少包括外部集成调用、定时任务入口与关键分支、异步任务、fire-and-forget 通知、复杂聚合、回退分支、兼容路径、容易出现数据错配或边界条件的核心逻辑
+- 日志必须能看出步骤、关键参数、分支原因和失败点；优先记录 `userId`、`itemId`、`batchId`、数量、时间范围、周期、状态等关键标识；禁止输出密码、Token、验证码、支付敏感信息、完整返回体；避免逐行刷屏
 
 ### 服务操作限制
 
-禁止：
-
-- 启动服务：`go run`、`npm run dev`
-- 后台运行服务
-- 对正在运行的服务做 `curl` / `wget` 测试
-
-允许：
-
-- 编译验证：`go build ./...`、`npm run build`
-- Lint、单元测试
+- 禁止：启动服务（`go run`、`npm run dev`）、后台运行服务、对正在运行的服务做 `curl` / `wget` 测试
+- 允许：编译验证（`go build ./...`、`npm run build`）、Lint、单元测试
 
 ## 文档规则
 
-### 文档归档与目录调整
+### 归档与目录调整
 
-凡是涉及以下操作，开始修改前必须先阅读 [docs/reference/archive-governance.md](docs/reference/archive-governance.md)：
+- 涉及归档 `docs/plan/`、`docs/proposals/`、`docs/reference/` 下文档，调整 `docs/archive/` 目录结构，批量移动文档或重命名文件，修改文档索引 / README / 盘点清单 / 交叉引用路径时，开始修改前必须先阅读 [docs/reference/archive-governance.md](docs/reference/archive-governance.md)
+- `docs/archive/` 先按文档类型分类，再按职责边界分类；禁止再创建按历史来源命名的目录
+- 归档动作不只移动正文，必须同步更新 README、盘点文档和所有直接引用旧路径的文档
+- 计划文档归档前，必须先收口状态、当前事实和验证清单；未收口时不算完成
+- 文件名统一使用小写 `kebab-case`；发现历史大写文件名时，归档迁移应一并规范化
 
-- 归档 `docs/plan/`、`docs/proposals/`、`docs/reference/` 下的文档
-- 调整 `docs/archive/` 目录结构
-- 批量移动文档或重命名文档文件
-- 修改文档索引、README、盘点清单、交叉引用路径
+### 计划与提案
 
-执行要求：
-
-1. `docs/archive/` 先按文档类型分类，再按职责边界分类；禁止再创建按历史来源命名的目录。
-2. 归档动作不只移动正文，必须同步更新 README、盘点文档和所有直接引用旧路径的文档。
-3. 计划文档归档前，必须先收口状态、当前事实和验证清单；未收口时不算完成。
-4. 文件名统一使用小写 `kebab-case`；发现历史大写文件名时，归档迁移应一并规范化。
-
-### 计划文档
-
-- 新计划文档默认放在 `docs/plan/`
-- 新计划文档默认按职责边界放入 `docs/plan/` 子目录，不再默认平铺根目录
-- `docs/plan/` 根目录只保留入口和模板，例如 `README.md`、`plan-template.md`
-- 计划目录归类规则看 [docs/reference/plan-directory-governance.md](docs/reference/plan-directory-governance.md)
-- 文件名使用英文小写 `kebab-case`
-- AI 新建或更新计划/提案类文档时，`负责人` 统一写 `Ember`
-- 文档治理、盘点、重构策略、流程提案放 `docs/proposals/`
-
-`docs/plan/` 至少包含：
-
-1. 背景
-2. 目标与非目标
-3. 当前事实
-4. 方案设计
-5. 影响范围
-6. 验证方式
-7. 落地后文档处理
-
-计划文档应聚焦“边界、契约、流转、约束”，用于指导实现与评审，不展开具体实现细节。
-
-只要计划涉及前端页面、组件、交互或视觉改动，必须在计划中显式写明以下约束：
-
-- 前端实现必须遵守 Ember 风格
-- 设计与交互基线以 `docs/reference/web-design-guide.md` 为准
-- 若存在偏离规范的特例，必须单独写明原因、范围和收口条件
-
-建议写：
-
-- DTO 结构与字段语义
-- 接口入参 / 出参、事件载荷、配置模型
-- 模块 / 类 / handler / service 的职责边界
-- 关键流程分层、调用关系、状态流转边界
-- 错误处理策略、失败回滚方式、幂等要求
-
-不要写：
-
-- 大段完整代码
-- 几百行逐行伪代码或接近可执行代码的流程描述
-- controller / service 内部逐行逻辑
-- 具体 `if/else`、`switch-case` 分支细节
-- 工具函数、辅助函数的实现细节
-- 前端组件模板、DOM 结构、样式细节的详细展开
-- 只有空泛方向，没有接口和行为边界
-
-模板：
-
-- [docs/plan/plan-template.md](docs/plan/plan-template.md)
-- [docs/proposals/proposal-template.md](docs/proposals/proposal-template.md)
+- 新计划文档默认放在 `docs/plan/`，并按职责边界放入子目录；`docs/plan/` 根目录只保留入口和模板，例如 `README.md`、`plan-template.md`
+- 计划目录归类规则看 [docs/reference/plan-directory-governance.md](docs/reference/plan-directory-governance.md)；文件名使用英文小写 `kebab-case`
+- AI 新建或更新计划 / 提案类文档时，`负责人` 统一写 `Ember`；文档治理、盘点、重构策略、流程提案放 `docs/proposals/`
+- `docs/plan/` 至少包含：背景、目标与非目标、当前事实、方案设计、影响范围、验证方式、落地后文档处理
+- 计划文档不只写准备做什么，还要写清已完成项、剩余项、归档条件；主体完成后，要主动推进到收尾或归档状态
+- 计划文档应聚焦边界、契约、流转、约束，用于指导实现与评审，不展开具体实现细节；建议写 DTO 结构、接口入参 / 出参、模块职责边界、关键流程分层、错误处理策略；不要写大段完整代码、逐行伪代码、controller / service 内部细节、样式细节或只有空泛方向的描述
+- 只要计划涉及前端页面、组件、交互或视觉改动，必须显式写明：前端实现必须遵守 Ember 风格；设计与交互基线以 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md) 为准；若存在偏离规范的特例，必须单独写明原因、范围和收口条件
+- 模板入口：[docs/plan/plan-template.md](docs/plan/plan-template.md)、[docs/proposals/proposal-template.md](docs/proposals/proposal-template.md)
 
 ### 架构与设计文档同步
 
-以下情况要同步更新 [docs/system-architecture.md](docs/system-architecture.md)：
-
-- 模型变更
-- 服务逻辑变更
-- API 变更
-- 前端结构变更
-- 环境变量或配置入口变更
-
-以下情况要同步更新 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md)：
-
-- 通用前端设计规则变化
-- 控件样式基线变化
-- 筛选区、分页、按钮、输入框、日期选择器等规范变化
+- 以下情况要同步更新 [docs/system-architecture.md](docs/system-architecture.md)：模型变更、服务逻辑变更、API 变更、前端结构变更、环境变量或配置入口变更
+- 以下情况要同步更新 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md)：通用前端设计规则变化、控件样式基线变化、筛选区 / 分页 / 按钮 / 输入框 / 日期选择器等规范变化
 
 ## 提交流程
 
-核心原则：**不主动提交；只有在用户明确同意提交后，才执行 `git commit`**
-
-流程：
-
-1. 修改代码
-2. 编译验证
-3. 若涉及数据库 schema，补 SQL migration
-4. 同步必要文档
-5. 询问用户：`✅ 代码编译通过，是否需要提交？`
-6. 等待明确回复
-7. 只有用户明确回复“提交 / 需要提交 / 提交吧”等同意语义后，才执行 `git commit`
-8. 用户已明确同意提交后，不再重复询问是否执行 `git commit`
-9. 用户已明确同意提交时，`git commit` 直接按提权路径执行，不先尝试沙箱版提交
-
-提交格式：
-
-- `type(scope): 中文主题`
-- 常用类型：`feat`、`fix`、`refactor`、`docs`
-- 若需要正文，第二行留空，正文只写简短要点
+- 核心原则：**不主动提交；只有在用户明确同意提交后，才执行 `git commit`**
+- 流程：修改代码或文档；若涉及代码、配置、schema、构建入口，做编译验证；若为纯文档、纯注释、纯治理改动，可跳过编译，但必须检查链接、路径、引用、命名和目录落点一致性；若涉及数据库 schema，补 SQL migration；同步必要文档；询问用户 `✅ 变更已完成并验证，是否需要提交？`；只有用户明确同意后，才执行 `git commit`
+- 用户已明确同意提交后，不再重复询问；执行 `git commit` 时直接按提权路径执行，不先尝试沙箱版提交
+- 提交拆分规则：一个提交只表达一个主功能、一个主修复或一个主重构；多个可独立理解、独立验证、独立回滚的功能点必须拆成多个提交；同一功能跨前端、后端、数据库、测试、文档的配套改动可以放在同一个提交里；无关改动、纯格式化、纯重命名、纯文档归档原则上单独提交
+- 如果同一功能改动仍然过大，应继续拆成可独立验证的原子提交；只有拆开后会导致中间提交不可编译、不可测试或行为不一致时，才允许合并提交
+- 提交前先检查：这个提交是否可以作为一个独立语义单元被 review、被回滚、被 cherry-pick；如果不行，继续拆分
+- 标题默认使用 `type(scope): 中文主题`；只有改动边界确实不明确时，才允许退化为 `type: 中文主题`
+- `type` 使用英文语义类型，优先从 `feat`、`fix`、`refactor`、`docs`、`test`、`chore`、`perf`、`style`、`ci` 中选择；`scope` 使用英文，只在模块或职责边界明确时填写
+- `subject` 使用中文，简短直接，只描述本次主要改动做了什么；不写背景、原因、过程、评价，不加句号
+- 若需要正文，首行后必须空一行，并使用 `- ` 作为 bullet 前缀；每条只写一个具体改动，保持简短
 - 当用户要求“生成提交信息”时，回复必须只包含提交信息本身
 
 ## 最后约束
@@ -331,4 +178,4 @@
 - 不在理解不清时直接编码
 - 不启动服务
 - 不主动提交
-- 只做编译验证，提交前必须先问；用户已明确同意提交后，直接执行 `git commit`
+- 只做必要验证；代码相关改动优先编译验证，纯文档治理改动做一致性检查；提交前必须先问，用户已明确同意提交后，直接执行 `git commit`
