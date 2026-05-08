@@ -376,7 +376,35 @@ compat 不允许用于：
 
 ---
 
-## 8. 当前推荐下一步
+## 8. 当前稳定实现模式
+
+这些不是“建议风格”，而是当前主线代码已经收口出来的稳定模式。以后如果实现变了，应优先同步这里，而不是再造一个碎片速查页。
+
+### 8.1 Handler / Service 分工
+
+- Handler 模式：`ShouldBindJSON` / `ShouldBindQuery` 解析参数 → 调用 service → 返回 JSON
+- Handler 不承载业务编排；允许做的事只有参数绑定、状态码映射、错误分类和响应拼接
+- Service 模式：接收 request struct → 执行业务逻辑 → 返回 response / error
+
+### 8.2 统一错误与上游脱敏
+
+- 上游网络或 HTTP 错误不要直接把 `err.Error()` 回给客户端
+- 统一使用 `internal/common/upstream.SafeUpstreamError(err, system)` 剥离 URL、Token 等敏感信息
+- 仅需回客户端的上游失败统一走 `internal/common/httpx.InternalError(c, err)`，文案保持为 `上游服务暂不可用`
+
+### 8.3 火忘式异步通知
+
+- 不阻塞主流程的异步通知统一使用 `internal/async.SafeGo(name, fn)`
+- 允许 fire-and-forget，但必须由统一封装接管 panic recover 和结构化日志
+- 不允许在 handler / service 里直接裸起 goroutine
+
+### 8.4 标识与密钥生成
+
+- 主键 ID 当前使用 CUID 风格：`cl` + timestamp(hex) + random(hex)，总长 25 字符
+- 兑换码 / 绑定码等短码统一走 `crypto/rand.Read(bytes)` + `hex.EncodeToString`
+- 密码哈希统一使用 `bcrypt.GenerateFromPassword(DefaultCost)`
+
+## 9. 当前推荐下一步
 
 如果继续推进，最建议的顺序是：
 

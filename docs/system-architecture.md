@@ -822,11 +822,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ---
 
-## 14. 代码模式速查
+## 14. 代码模式入口
 
-完整的代码模式速查已迁移到 [docs/reference/code-patterns.md](./reference/code-patterns.md)。
+常见实现约定不再单独维护碎片速查页，而是按边界收口到现行参考文档：
 
-本节只保留入口说明：
-
-- 常见 handler / service / 错误响应 / 内部通信 / 火忘通知等实现约定统一维护在 [docs/reference/code-patterns.md](./reference/code-patterns.md)
-- 若某类实现模式在主线代码中发生变化，应优先同步 `code-patterns.md`，而不是在主文档重新堆明细
+- handler / service 分工、火忘通知、上游错误脱敏、ID/密码生成约定：看 [docs/reference/api-development-conventions.md](./reference/api-development-conventions.md)
+- 列表响应、错误响应、操作结果格式：看 [docs/reference/api-response-standard.md](./reference/api-response-standard.md)
+- Internal API / Bot / 配置来源边界：看 [docs/reference/configuration-reference.md](./reference/configuration-reference.md) 与 [docs/reference/bot-architecture-reference.md](./reference/bot-architecture-reference.md)

@@ -618,7 +618,7 @@ curl -s http://localhost:8080/api/v1/admin/users \
 
 ### 内部文档
 - [旧版 API 参考](../archive/reference/api-reference.md) - 历史接口文档，仅供追溯
-- [开发指南](./development-guide.md) - 当前开发入口
+- [参考文档入口](./README.md) - 当前开发入口
 
 ---
 

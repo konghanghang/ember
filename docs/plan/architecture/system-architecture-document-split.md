@@ -80,8 +80,10 @@
   - 承接前端页面职责、页面地图、共享组件层边界
 - `docs/reference/bot-architecture-reference.md`
   - 承接 Bot 通信模式、端点、命令处理器、运行边界
-- `docs/reference/code-patterns.md`
-  - 承接代码模式速查表
+- `docs/reference/api-development-conventions.md`
+  - 承接 handler / service 分工、异步通知、上游错误脱敏等后端实现模式
+- `docs/reference/api-response-standard.md`
+  - 承接列表响应、错误响应与操作结果的稳定返回模式
 - `docs/reference/configuration-reference.md`
   - 统一承接主文档中的环境变量与配置分层细节
 - `docs/runbooks/deployment*.md`
@@ -104,7 +106,7 @@
 5. 新增 `docs/reference/api-endpoint-catalog.md`，迁移 `6. API 端点完整列表`
 6. 新增 `docs/reference/web-information-architecture.md`，迁移 `3.1 Web 共享组件层` 与 `8. 前端架构` 中的页面级内容
 7. 新增 `docs/reference/bot-architecture-reference.md`，迁移 `9. Telegram Bot 架构` 的详细内容
-8. 新增 `docs/reference/code-patterns.md`，迁移 `14. 代码模式速查`
+8. 新增代码模式承接文档，迁移 `14. 代码模式速查`；后续再按边界并回 `docs/reference/api-development-conventions.md` 与 `docs/reference/api-response-standard.md`
 9. 更新 `docs/reference/README.md`，把新增专题文档纳入入口
 10. 更新协作入口文档中的文档职责描述，确保入口说明与拆分后的事实一致
 11. 全量检查交叉引用，删除主文档与专题文档之间的重复正文
@@ -138,7 +140,8 @@
     - `docs/reference/api-endpoint-catalog.md`
     - `docs/reference/web-information-architecture.md`
     - `docs/reference/bot-architecture-reference.md`
-    - `docs/reference/code-patterns.md`
+    - `docs/reference/api-development-conventions.md`
+    - `docs/reference/api-response-standard.md`
 
 ## 验证方式
 

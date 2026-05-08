@@ -13,7 +13,7 @@ Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 管理 API、
 ## 快速导航
 
 - 第一次了解项目：先看 [系统架构](./docs/system-architecture.md)
-- 准备开始开发：先看 [开发指南](./docs/reference/development-guide.md)
+- 准备开始开发：先看 [参考文档入口](./docs/reference/README.md)
 - 准备部署或本地拉起完整环境：看 [部署指南](./docs/runbooks/deployment.md)
 - 查完整文档入口：看 [文档中心](./docs/README.md)
 - 只关心某个服务：看 [API 服务文档](./services/api/README.md)、[Web 服务文档](./services/web/README.md)、[Bot 服务文档](./services/bot/README.md)
@@ -41,7 +41,7 @@ Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 管理 API、
 
 ### 开发模式
 
-1. 阅读 [开发指南](./docs/reference/development-guide.md)，按最短阅读路径建立项目认知。
+1. 阅读 [参考文档入口](./docs/reference/README.md)，按最短阅读路径建立项目认知。
 2. 按改动范围进入对应服务文档：`services/api`、`services/web`、`services/bot`。
 3. 按 [测试指南](./docs/runbooks/testing.md) 执行最小验证动作。
 
@@ -111,7 +111,7 @@ docker compose up -d
 
 ## 本地开发与验证
 
-- 环境准备与阅读顺序：见 [开发指南](./docs/reference/development-guide.md)
+- 环境准备与阅读顺序：见 [参考文档入口](./docs/reference/README.md)
 - API 最小验证：`cd services/api && go vet ./... && go test ./... && go build ./...`
 - Web 最小验证：`cd services/web && npm ci && npm run build`
 - Bot 最小验证：`cd services/bot && pip install -r requirements.txt && python -m py_compile main.py`
@@ -119,7 +119,7 @@ docker compose up -d
 
 ## 开发协作
 
-- 开发入口与阅读顺序：见 [开发指南](./docs/reference/development-guide.md)
+- 开发入口与阅读顺序：见 [参考文档入口](./docs/reference/README.md)
 - 项目治理与目录边界：见 [项目治理经验](./docs/reference/project-governance-guide.md)
 - API 约束：见 [API 开发与目录规范](./docs/reference/api-development-conventions.md) 与 [API 响应规范](./docs/reference/api-response-standard.md)
 - 前端页面与视觉规范：见 [Web 设计规范](./docs/reference/web-design-guide.md)
@@ -128,7 +128,7 @@ docker compose up -d
 ## 文档入口
 
 - [系统架构](./docs/system-architecture.md) - 当前系统的核心真相来源
-- [开发指南](./docs/reference/development-guide.md) - 开发时的最短阅读路径
+- [参考文档入口](./docs/reference/README.md) - 开发时的最短阅读路径与文档判断规则
 - [文档中心](./docs/README.md) - 统一导航，按参考资料、操作手册、方案草稿、归档分类
 - [部署指南](./docs/runbooks/deployment.md)
 - [测试指南](./docs/runbooks/testing.md)

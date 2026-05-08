@@ -38,6 +38,7 @@
 `reference/` 用于收口旧版但仍需追溯的参考材料，例如：
 
 - [旧版 API 参考](./reference/api-reference.md)
+- [旧版 Emby API 探索笔记](./reference/emby-api-guide.md)
 
 `proposal/` 用于保存已经退场的治理/重构提案，例如：
 

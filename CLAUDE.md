@@ -2,7 +2,7 @@
 
 本文件用于约束 AI 在 Ember 项目中的协作方式。
 
-> ⚠️ 本文件只管协作规则。技术实现细则看 [docs/reference/development-guide.md](docs/reference/development-guide.md)。
+> ⚠️ 本文件只管协作规则。技术实现细则与阅读入口看 [docs/reference/README.md](docs/reference/README.md)。
 > 多 agent 的调度方式、默认组合和拆分模板看 [docs/reference/multi-agent-collaboration-guide.md](docs/reference/multi-agent-collaboration-guide.md)。
 
 ## 快速入口

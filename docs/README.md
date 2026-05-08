@@ -5,7 +5,7 @@
 ## 阅读顺序
 
 1. [系统架构](./system-architecture.md)：先建立系统全局认知。
-2. [开发指南](./reference/development-guide.md)：再看开发时真正要遵守的入口规则。
+2. [参考文档入口](./reference/README.md)：再看开发时真正要遵守的入口规则。
 3. 按用途进入对应分区：`reference`、`runbooks`、`proposals`、`archive`。
 
 ## 文档分层
@@ -21,7 +21,7 @@
 ### 核心
 
 - [系统架构](./system-architecture.md)
-- [开发指南](./reference/development-guide.md)
+- [参考文档入口](./reference/README.md)
 
 ### 稳定参考
 
@@ -30,7 +30,7 @@
 - [多 Agent 协作指南](./reference/multi-agent-collaboration-guide.md)
 - [API 开发与目录规范](./reference/api-development-conventions.md)
 - [API 响应规范](./reference/api-response-standard.md)
-- [Emby API 参考](./reference/emby-api-guide.md)
+- [旧版 Emby API 探索笔记](./archive/reference/emby-api-guide.md)
 - [Web 设计规范](./reference/web-design-guide.md)
 
 ### 操作手册

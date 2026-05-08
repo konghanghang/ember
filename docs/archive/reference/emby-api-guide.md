@@ -1,4 +1,7 @@
-# Emby API 开发指南
+# Emby API 开发指南（历史归档）
+
+> 本文档是早期接入 Emby 时保留下来的开发笔记，包含手工验证顺序、探索性代码样例和当时的排查思路。
+> 它不再代表 Ember 当前的稳定实现规范，仅保留追溯价值。
 
 > **创建日期**: 2025-12-06
 > **用途**: Day 3 开发 Emby API 客户端时参考
@@ -254,47 +257,3 @@ curl -X POST "https://your-emby.com/Users/New" \
     "Password": "password123"
   }'
 ```
-
-**响应**：
-```json
-{
-  "Id": "abc123...",
-  "Name": "newuser",
-  "ServerId": "...",
-  "HasPassword": true,
-  ...
-}
-```
-
-### 设置用户权限（禁用）
-
-```bash
-curl -X POST "https://your-emby.com/Users/{userId}/Policy" \
-  -H "X-Emby-Token: your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "IsAdministrator": false,
-    "IsDisabled": true,
-    "EnableAllFolders": true,
-    ...
-  }'
-```
-
-### 删除用户
-
-```bash
-curl -X DELETE "https://your-emby.com/Users/{userId}" \
-  -H "X-Emby-Token: your-api-key"
-```
-
----
-
-## 🔗 有用的链接
-
-- Emby Server Swagger: `https://your-emby-server/swagger/index.html`
-- Emby Community: https://emby.media/community/
-- GitHub Topic: https://github.com/topics/emby
-
----
-
-**记住**：Day 3 开发 Emby API 客户端时，先看这个文档！

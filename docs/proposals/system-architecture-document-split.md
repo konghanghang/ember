@@ -53,7 +53,7 @@
 - 已新增 `docs/reference/web-information-architecture.md`，承接前端信息架构与共享组件层细节
 - 已新增 `docs/reference/bot-architecture-reference.md`，承接 Bot 运行模式、端点、命令与环境变量说明
 - 已将主文档中的 `3.1 Web 共享组件层`、`8. 前端架构`、`9. Telegram Bot 架构` 压缩为摘要入口
-- 已新增 `docs/reference/code-patterns.md`，承接稳定代码模式速查
+- 已新增代码模式承接文档；其后又按边界收口回 `docs/reference/api-development-conventions.md` 与 `docs/reference/api-response-standard.md`
 - 已将主文档中的 `14. 代码模式速查` 压缩为摘要入口
 
 ### 剩余项
@@ -82,7 +82,7 @@
 - `9. Telegram Bot 架构` 详细内容拆到 `docs/reference/bot-architecture-reference.md`
 - `11. 环境变量完整列表` 从主文档移除，统一并入现有 [docs/reference/configuration-reference.md](../reference/configuration-reference.md)
 - `13. 部署` 的细节说明下沉到现有 `docs/runbooks/deployment*.md`
-- `14. 代码模式速查` 拆到 `docs/reference/code-patterns.md`
+- `14. 代码模式速查` 初始拆到独立文档，后续再按边界并回 `docs/reference/api-development-conventions.md` 与 `docs/reference/api-response-standard.md`
 - 更新 [docs/reference/README.md](../reference/README.md)，将新增专题文档纳入入口
 
 ### 3. 分阶段推进
@@ -108,7 +108,7 @@
 
 #### 第四阶段
 
-- 新增 `docs/reference/code-patterns.md`
+- 新增代码模式承接文档（当前已并回 `docs/reference/api-development-conventions.md` 与 `docs/reference/api-response-standard.md`）
 - 更新 `docs/reference/README.md`
 - 检查并修正所有直接引用 `docs/system-architecture.md` 旧章节内容的文档
 - 更新协作入口文档中对主文档职责的描述
@@ -133,7 +133,8 @@
   - `docs/reference/api-endpoint-catalog.md`
   - `docs/reference/web-information-architecture.md`
   - `docs/reference/bot-architecture-reference.md`
-  - `docs/reference/code-patterns.md`
+  - `docs/reference/api-development-conventions.md`
+  - `docs/reference/api-response-standard.md`
   - `docs/runbooks/deployment.md` 及相关部署 runbook
   - 协作入口文档 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`
 - 流程：
