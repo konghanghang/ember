@@ -47,6 +47,7 @@
 
 最近已完成归档的实施稿包括：
 
+- `architecture/baseline-fresh-install-rewrite.md` → `docs/archive/plan/architecture/baseline-fresh-install-rewrite.md`
 - `architecture/system-architecture-document-split.md` → `docs/archive/plan/architecture/system-architecture-document-split.md`
 
 ## 模板
