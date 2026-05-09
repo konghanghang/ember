@@ -10,7 +10,7 @@
 
 最近一轮 baseline 已于 `2026-05-02` 落地（v1.4.0 截点）：
 
-- 基线文件：`infrastructure/database/00000000_baseline_20260502.sql`（合并式 baseline，非 pg_dump schema-only；文件内容生成于 2026-05-02 截点，曾命名为 `20260502_00_schema_baseline.sql`，已按"全 0 前缀让 baseline 永远字典序最先"的命名约定收口）
+- 基线文件：`infrastructure/database/00000000_baseline_20260502.sql`（fresh-install 形态 baseline；2026-05-09 由 v1.4.0 截点的运行库 `pg_dump --schema-only` 整理而来。曾以 `20260502_00_schema_baseline.sql` 命名、并经历过"合并式 baseline"中间形态，详见下文"baseline 形态演进"）
 - 历史归档目录：`infrastructure/database/archive/pre-20260502/`
 - 吸收范围：上一轮 baseline `20260422_00_schema_baseline.sql` + 23 个 v1.4.0 期间顶层增量
 - deterministic seed：5 条默认 settings（`default_trial_days` / `registration_mode` / `notify_group_link` / `email_verification` / `stripe_allowed_payment_methods`）+ `plan_groups.DEFAULT`，继承自旧 baseline 段
@@ -23,21 +23,40 @@
 
 后续如果再次做 baseline，起点应是”当前顶层 baseline + baseline 之后新增的顶层 migration”，不要再把 `archive/` 当成现行执行链路。
 
-## 本轮选择合并式 baseline 的边界
+## baseline 形态演进
 
-v1.4.0 截点这一轮采用了”按字典序文本拼接”的合并式 baseline，跳过了下文第二、三、四步（隔离库回灌、pg_dump 导出、双库 schema diff）。判断依据：
+v1.4.0 截点 baseline 经历过两个形态：
 
-- 项目当前由单人维护、为开源做准备，无现成 PG 实例时 pg_dump 路径不便维护
-- 23 个增量在新装空库上的执行结果与”按字典序逐个执行 24 个文件”恒等
-- 合并文件保留各原始 SQL 的 DO 块、IF NOT EXISTS、historical DML（去重 / NULL 回填）；新装空库上 DML 均 0 命中，no-op
-- 用 `services/api/internal/db/db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 做兜底交叉验证，确认所有列 / 索引 fingerprint 都被合并文件引入
+### 形态 1（2026-05-02 落地）：合并式 baseline
 
-适用边界：
+- 内容：24 份历史顶层 SQL（v1.3.1 截点 baseline + 23 个 v1.4.0 期间增量）按字典序文本拼接
+- 跳过了下文第二、三、四步（隔离库回灌、pg_dump 导出、双库 schema diff）
+- 判断依据：项目当时由单人维护、为开源做准备，无现成 PG 实例时 pg_dump 路径不便维护；合并文本在新空库上的执行结果"等价于"按字典序逐个执行历史 SQL；用 `db.go` 的 `schemaFingerprintColumns` / `schemaFingerprintIndexes` 做兜底交叉验证
+
+适用边界（当时声明）：
 
 - 自用 / 单人维护 / 开源前的 baseline 收口可走合并式
-- 多团队 / 多环境项目，或无法在文本层面证明”合并 == 字典序执行”时，仍应回归严格 dump 路径（下文第二至六步）
+- 多团队 / 多环境项目，或无法在文本层面证明"合并 == 字典序执行"时，仍应回归严格 dump 路径
 
-下面的步骤主要记录首个 baseline 的实际生成过程，针对严格 dump 路径；后续再做下一轮 baseline 时，按同样原则套到”当前顶层现行链路”上，不要回退到 `archive/` 时代的平铺迁移链。
+### 形态 2（2026-05-09 落地，**当前形态**）：fresh-install baseline
+
+切换动因：
+
+- 2026-05-09 全新部署排错过程中，发现合并式 baseline 与运行库 schema 已经长期严重脱节，整份合并源带着 v1.3.1 截点的 prod-dump 包袱（`plan_groups.id`、`users.expiry_date`、`playback_rankings.item_type` / `metric_value` 等十多处分歧），无法实际用于 fresh-install 路径
+- 合并式形态的核心论据"文本恒等于历史执行链路"在脱节面前不再成立——历史执行链路本身就跟运行库不一致
+- 项目即将开源，外部贡献者第一波尝试 fresh install 必然踩这条链
+
+切换做法（严格 dump 路径，对应下文第二至六步）：
+
+1. 在运行库做一次 `pg_dump --schema-only --no-owner --no-privileges --no-comments`
+2. 整理为 fresh-install 形态：去 pg_dump 通用 SET preamble、去 `\restrict` / `\unrestrict`、去 `public.` 前缀、表 / 索引按字典序排列、末尾追加 deterministic seed
+3. 在干净 PG 实例做"运行库 dump 双跑 vs 新 baseline 双跑"的字典级 schema diff（`information_schema.columns` / `pg_indexes` / `pg_constraint` 三视图全 diff 零差异）
+4. 启动期 `Migrate → VerifySchema → Bootstrap` 全链路验证
+5. 文件名仍用 `00000000_baseline_20260502.sql`（截点没变），所以老库重启走 baseline rename 豁免分支不会被影响
+
+历史合并源仍归档于 `archive/pre-20260502/`；切换前的合并式 baseline 文本由 git 历史承载，不再单独保留副本。
+
+
 
 ## 适用场景
 

@@ -99,15 +99,19 @@ archive/
 
 ## 现行 baseline 说明
 
-`00000000_baseline_20260502.sql` 是 **合并式 baseline**：
+`00000000_baseline_20260502.sql` 是 **fresh-install 形态的 baseline**：
 
-- 内容由历史 24 份顶层 SQL（旧 baseline + 23 个增量）按字典序合并
-- 行为等价于在新装空库上逐个执行这 24 个文件
-- 各原始文件以 `-- ┌─ <filename>` / `-- └─ <filename>` 边界注释包裹，便于定位语句来源
-- 包含 4 处来自历史增量的 DML（去重 / NULL 回填）；新装空库上均为 no-op
-- deterministic seed（`settings` 5 条 + `plan_groups.DEFAULT`）继承自旧 baseline 段
+- 内容由 v1.4.0 截点的运行库 `pg_dump --schema-only` 整理而来，所有语句在新空库上都是有效语义，不存在 no-op，不携带历史包袱
+- 表 / 主键 / 索引按字典序排列，便于后续做 schema diff 验证
+- 末尾追加 deterministic seed（`settings` 5 条 + `plan_groups.DEFAULT`），跟应用层 `Bootstrap` 一致
 
-为何选合并式而非严格 schema-only dump：本项目当前由单人维护、为开源做准备，没有 pg_dump 验证链路也能直接维护；合并方案在文本层面恒等于历史执行链路，无额外验证负担。多团队 / 多环境项目应优先考虑严格 dump 方案，详见 [`docs/runbooks/database-migration-baseline.md`](../../docs/runbooks/database-migration-baseline.md)。
+形态切换决策记录：[`docs/archive/plan/architecture/baseline-fresh-install-rewrite.md`](../../docs/archive/plan/architecture/baseline-fresh-install-rewrite.md)。
+
+> 历史前身是 **合并式 baseline**（24 份历史顶层 SQL 按字典序拼接），在 2026-05-09 排错过程中暴露与运行库 schema 严重脱节，开源前一次性切换到 fresh-install 形态。合并源整批归档于 [`archive/pre-20260502/`](./archive/pre-20260502/)，仅供追溯。
+
+### baseline ↔ schema 真相对齐约束
+
+baseline 必须与运行库 schema **字段级等价**，且与 `services/api/internal/models/` 下 GORM 模型保持一致。维护任何模型字段、索引、约束变更时，都必须同步在 `infrastructure/database/` 顶层补一条 SQL migration；漏补会让"老库 forward-only 升级"和"新空库 fresh-install"两条路径在某个时间点产生不可见漂移，下一次 baseline 重建时会以 PG diff 不一致的形式暴露出来。
 
 ## 添加新 migration（维护者视角）
 
