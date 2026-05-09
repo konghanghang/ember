@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 配置答疑
+    url: https://github.com/konghanghang/ember/discussions/categories/q-a
+    about: 不确定是 bug 还是配置问题？请到 Discussions Q&A 提问，更容易被快速回应。
+  - name: 功能创意 / 想法讨论
+    url: https://github.com/konghanghang/ember/discussions/categories/ideas
+    about: 还在想法阶段、不确定是否值得做？请到 Discussions Ideas 先讨论。
+  - name: 部署文档与运行手册
+    url: https://github.com/konghanghang/ember/tree/master/docs
+    about: 大多数部署、配置、运维问题在 docs/ 目录中已有说明，建议先翻一遍。

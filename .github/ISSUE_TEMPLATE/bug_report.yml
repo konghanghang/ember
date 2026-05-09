@@ -1,0 +1,118 @@
+name: Bug 报告
+description: 报告一个程序行为异常或与预期不符的问题
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢花时间提交 bug 报告。**在继续之前**：
+        - 请先搜索 [现有 issue](https://github.com/konghanghang/ember/issues?q=is%3Aissue) 避免重复。
+        - 不确定是 bug 还是配置 / 用法问题，请先到 [Discussions Q&A](https://github.com/konghanghang/ember/discussions/categories/q-a) 提问。
+        - **不要贴 Token、密码、验证码、支付凭证等敏感信息**；日志请脱敏后再粘贴。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 issue，没有重复
+          required: true
+        - label: 我已翻阅 docs/ 与 Discussions Q&A，初步排除了用法 / 配置问题
+          required: true
+        - label: 我已脱敏，不会贴 Token / 密码 / 完整请求体
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及的功能场景
+      description: 你在使用哪个功能时遇到的问题？按你看到的页面 / 命令 / 流程选择，不需要猜测代码层面的归属。
+      options:
+        - 注册 / 登录 / 邮箱验证码 / 找回密码
+        - Emby 账号（开通、绑定、续期、过期、封禁）
+        - 兑换码（注册兑换、续期兑换）
+        - 付费 / Stripe 支付 / 套餐
+        - 求片订阅 / 追剧日历
+        - 播放排行榜 / 媒体统计
+        - Telegram Bot（命令交互、通知推送、订阅审批）
+        - 管理后台（用户管理、系统配置、审计日志）
+        - 部署 / 升级 / Docker Compose
+        - 文档错误
+        - 不确定 / 其他
+    validations:
+      required: true
+
+  - type: input
+    id: ember-version
+    attributes:
+      label: Ember 版本
+      description: 镜像 tag、release tag 或 commit SHA
+      placeholder: 例如 v0.3.1 / ghcr.io/konghanghang/ember-api:v0.3.1 / commit abcdef1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 部署方式
+      options:
+        - Docker Compose（推荐方式）
+        - 自建 / 源码运行
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: emby-version
+    attributes:
+      label: Emby 服务器版本
+      description: 仅在涉及 Emby 集成功能（开通账号、播放统计、媒体库等）时填写
+      placeholder: 例如 4.8.10.0
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 详细列出从打开页面到出问题的每一步
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 看到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 你看到的现象（截图可直接拖入）。后端 / Bot 日志请贴到下面的"相关日志"字段。
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: 操作系统 / 浏览器
+      description: 仅当涉及 Web 控制台时填写
+      placeholder: 例如 macOS 14.5 + Chrome 124 / Windows 11 + Edge 125
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 后端 API / Bot / 浏览器开发者工具 Console 的日志片段。**记得脱敏**：不要贴 Token、密码、完整请求体。
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他上下文
+      description: 是否新装、近期是否变更过配置 / 升级过版本、是否能绕过 / workaround 等
