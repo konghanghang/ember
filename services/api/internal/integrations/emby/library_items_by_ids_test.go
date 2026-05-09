@@ -127,6 +127,9 @@ func TestGetItemsByIDsReturnsPartialResultsWhenSomeBatchesFail(t *testing.T) {
 	}))
 	defer server.Close()
 
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+
 	s := &EmbyService{
 		baseURL: server.URL,
 		apiKey:  "test-key",
@@ -170,6 +173,9 @@ func TestGetItemsByIDsFailsWhenAllBatchesFail(t *testing.T) {
 		http.Error(w, "upstream down", http.StatusGatewayTimeout)
 	}))
 	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
 
 	s := &EmbyService{
 		baseURL: server.URL,

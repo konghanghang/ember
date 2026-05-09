@@ -111,7 +111,8 @@ func (s *MediaService) GetEmbyConfig() (string, error) {
 }
 
 // IsEmbyConfigured 检查 Emby 集成是否已配置（URL 与 API Key 齐全）。
-// 直接代理 EmbyService.IsConfigured；该状态由进程启动时一次性读取，运行时调整需重启生效。
+// 直接代理 EmbyService.IsConfigured；该方法内部会先 refreshConfig 拉取设置中心最新值，
+// admin 通过设置中心修改 Emby 配置后立即生效，无需重启进程。
 func (s *MediaService) IsEmbyConfigured() bool {
 	return s.embyService.IsConfigured()
 }

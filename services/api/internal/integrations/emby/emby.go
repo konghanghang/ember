@@ -69,7 +69,11 @@ func (s *EmbyService) refreshConfig() {
 	s.apiKey = strings.TrimSpace(configService.GetString("EMBY_API_KEY"))
 }
 
+// ensureConfigured 在判断配置是否齐全前先从设置中心拉一次最新值，
+// 与 TVCalendarService / MoviePilot 的"每次调用前 refresh"模式对齐，
+// 让 admin 在设置中心改完 Emby 配置后无需重启 API 即可生效。
 func (s *EmbyService) ensureConfigured() error {
+	s.refreshConfig()
 	if s.baseURL == "" || s.apiKey == "" {
 		return errors.New("Emby 配置未设置（EMBY_URL 或 EMBY_API_KEY）")
 	}
