@@ -175,7 +175,6 @@ CREATE TABLE payments (
 --
 
 CREATE TABLE plan_groups (
-    id character varying(25) NOT NULL,
     key character varying(50) NOT NULL,
     name character varying(100) NOT NULL,
     description character varying(255) DEFAULT ''::character varying,
@@ -446,19 +445,11 @@ ALTER TABLE ONLY payments
 
 
 --
--- Name: plan_groups plan_groups_key_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY plan_groups
-    ADD CONSTRAINT plan_groups_key_key UNIQUE (key);
-
-
---
 -- Name: plan_groups plan_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY plan_groups
-    ADD CONSTRAINT plan_groups_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT plan_groups_pkey PRIMARY KEY (key);
 
 
 --
