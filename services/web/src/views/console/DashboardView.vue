@@ -36,6 +36,7 @@ const emptyUser: UserInfo = {
 
 const user = computed(() => userStore.profile ?? emptyUser)
 const embyUrl = computed(() => userStore.embyUrl)
+const embyConfigured = computed(() => userStore.embyConfigured)
 const stats = ref<MediaStats>({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 })
 const loading = ref(false)
 
@@ -92,10 +93,16 @@ const fetchOverview = async () => {
     ])
 
     if (configResult.status === 'rejected') {
+      // 仅在真实网络/异常时兜底；emby 未配置走 200 + configured:false，不再触发 reject。
       userStore.clearEmbyUrl()
+      userStore.setEmbyConfigured(false)
     }
 
-    if (statsResult.status === 'fulfilled' && statsResult.value.success) {
+    if (
+      statsResult.status === 'fulfilled' &&
+      statsResult.value.success &&
+      statsResult.value.data
+    ) {
       stats.value = statsResult.value.data
     } else {
       stats.value = { MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 }
@@ -243,6 +250,26 @@ watch(
               title="服务器访问已锁定"
               description="当前账号已过期，请先续费后再恢复 Emby 访问权限。"
             />
+
+            <EmberEmptyStateCard
+              v-else-if="!embyConfigured"
+              :icon="Monitor"
+              tone="warning"
+              title="系统尚未配置 Emby 服务器"
+              :description="authStore.isAdmin
+                ? '前往设置中心填写 Emby URL 与 API Key 后即可启用此入口。'
+                : '系统正在配置中，请联系管理员完成 Emby 连接配置。'"
+            >
+              <template v-if="authStore.isAdmin" #actions>
+                <button
+                  type="button"
+                  class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer"
+                  @click="router.push('/admin/settings')"
+                >
+                  前往设置中心
+                </button>
+              </template>
+            </EmberEmptyStateCard>
 
             <EmberEmptyStateCard
               v-else

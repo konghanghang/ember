@@ -130,17 +130,22 @@ export function unbindTelegram(): Promise<{ message: string }> {
 }
 
 // ==================== 媒体信息 ====================
+// 协议：emby 未配置 / 用户未绑定 Emby 时后端返回 200 + configured/bound 标志位，
+// 前端按业务标志渲染空态。这些是 dashboard 首屏初始化探测，统一走 silent，
+// 避免初次启动叠加触发 toast 风暴（参见 docs/reference/api-response-standard.md）。
 export function getEmbyConfig(): Promise<EmbyConfigResponse> {
   return request({
     url: '/emby/config',
-    method: 'get'
+    method: 'get',
+    silent: true
   })
 }
 
 export function getMediaStats(): Promise<MediaStatsResponse> {
   return request({
     url: '/media/stats',
-    method: 'get'
+    method: 'get',
+    silent: true
   })
 }
 
@@ -149,7 +154,8 @@ export function getLatestMedia(type: 'Movie' | 'Series', limit: number = 20): Pr
   return request({
     url: '/media/latest',
     method: 'get',
-    params: { type, limit }
+    params: { type, limit },
+    silent: true
   })
 }
 

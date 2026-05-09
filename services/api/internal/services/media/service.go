@@ -110,6 +110,12 @@ func (s *MediaService) GetEmbyConfig() (string, error) {
 	return url, nil
 }
 
+// IsEmbyConfigured 检查 Emby 集成是否已配置（URL 与 API Key 齐全）。
+// 直接代理 EmbyService.IsConfigured；该状态由进程启动时一次性读取，运行时调整需重启生效。
+func (s *MediaService) IsEmbyConfigured() bool {
+	return s.embyService.IsConfigured()
+}
+
 // GetPoster 代理媒体封面拉取，供需要带 JWT 的前端页面使用。
 func (s *MediaService) GetPoster(_ context.Context, itemID string, maxHeight int, quality int) ([]byte, string, error) {
 	return s.embyService.GetItemPrimaryImage(itemID, maxHeight, quality)

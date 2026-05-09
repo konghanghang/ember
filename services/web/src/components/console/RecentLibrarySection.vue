@@ -17,6 +17,10 @@ const activeType = ref<'Movie' | 'Series'>('Movie')
 const items = ref<LatestMediaItem[]>([])
 const loading = ref(false)
 const hasLoadError = ref(false)
+// emptyReason 区分"未配置 / 用户未绑 / 真错 / 单纯空"四种空态，
+// 避免把 fresh-install 的合法初始化态误展示为"接口暂时不可用"。
+type EmptyReason = 'unconfigured' | 'unbound' | null
+const emptyReason = ref<EmptyReason>(null)
 const scrollerRef = ref<HTMLElement | null>(null)
 
 const placeholderPoster = emberPosterPlaceholder
@@ -86,6 +90,7 @@ async function fetchLatest() {
   const mediaType = activeType.value
   loading.value = true
   hasLoadError.value = false
+  emptyReason.value = null
 
   try {
     const res = await getLatestMedia(mediaType, props.limit)
@@ -95,6 +100,20 @@ async function fetchLatest() {
     if (!res?.success) {
       items.value = []
       hasLoadError.value = true
+      cleanupPosterURLs([])
+      return
+    }
+
+    if (res.configured === false) {
+      items.value = []
+      emptyReason.value = 'unconfigured'
+      cleanupPosterURLs([])
+      return
+    }
+
+    if (res.bound === false) {
+      items.value = []
+      emptyReason.value = 'unbound'
       cleanupPosterURLs([])
       return
     }
@@ -197,6 +216,21 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+
+      <EmberEmptyStateCard
+        v-else-if="emptyReason === 'unconfigured'"
+        :icon="Film"
+        tone="warning"
+        title="系统尚未配置 Emby 服务器"
+        description="管理员完成 Emby 连接配置后，最近入库会自动出现在这里。"
+      />
+
+      <EmberEmptyStateCard
+        v-else-if="emptyReason === 'unbound'"
+        :icon="Film"
+        title="等待管理员开通 Emby 账号"
+        description="账号尚未关联到 Emby 媒体库，建库后这里会展示最新入库的影片。"
+      />
 
       <EmberEmptyStateCard
         v-else-if="hasLoadError"

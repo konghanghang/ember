@@ -894,6 +894,7 @@ export interface SystemInfoResponse {
 export interface EmbyConfigResponse {
   success: boolean
   url: string
+  configured?: boolean
 }
 
 export interface MediaStats {
@@ -904,7 +905,8 @@ export interface MediaStats {
 
 export interface MediaStatsResponse {
   success: boolean
-  data: MediaStats
+  data: MediaStats | null
+  configured?: boolean
 }
 
 // ==================== 最近入库 ====================
@@ -923,6 +925,8 @@ export interface LatestMediaItem {
 export interface LatestMediaResponse {
   success: boolean
   data: LatestMediaItem[]
+  configured?: boolean
+  bound?: boolean
 }
 
 export interface CronCheckResponse {

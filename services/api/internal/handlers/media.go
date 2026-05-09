@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,36 +19,80 @@ import (
 // MediaHandler 媒体处理器
 type MediaHandler struct {
 	service *mediapkg.MediaService
+	// isEmbyConfigured 用于轻量测试注入；生产路径默认指向 service.IsEmbyConfigured。
+	isEmbyConfigured func() bool
 }
 
 // NewMediaHandler 创建媒体处理器
 func NewMediaHandler() *MediaHandler {
+	service := mediapkg.NewMediaService()
 	return &MediaHandler{
-		service: mediapkg.NewMediaService(),
+		service:          service,
+		isEmbyConfigured: service.IsEmbyConfigured,
 	}
 }
 
 // GetEmbyConfig 获取 Emby 配置
 // GET /api/v1/emby/config
+//
+// 协议：
+//   - 系统未配置 → 200 {success:true, configured:false, url:""}
+//   - 系统已配置 → 200 {success:true, configured:true, url:"..."}
+//   - 真实异常   → 500 {error:"上游服务暂不可用"}
+//
+// "configured=false" 是合法的初始化空状态而非错误，前端据此渲染引导卡片。
 func (h *MediaHandler) GetEmbyConfig(c *gin.Context) {
+	if !h.isEmbyConfigured() {
+		log.Printf("[Media] GetEmbyConfig: emby 未配置，返回未初始化态")
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"configured": false,
+			"url":        "",
+		})
+		return
+	}
+
 	url, err := h.service.GetEmbyConfig()
-	if err != nil || url == "" {
-		if err == nil {
-			err = errors.New("emby url is not configured")
-		}
+	if err != nil {
 		httpx.InternalError(c, err)
+		return
+	}
+	if url == "" {
+		// 防御：IsConfigured 与 GetEmbyConfig 取值不一致，按未配置态返回。
+		log.Printf("[Media] GetEmbyConfig: IsConfigured=true 但 url 为空，按未初始化态返回")
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"configured": false,
+			"url":        "",
+		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"url":     url,
+		"success":    true,
+		"configured": true,
+		"url":        url,
 	})
 }
 
 // GetMediaStats 获取媒体库统计信息（带缓存）
 // GET /api/v1/media/stats
+//
+// 协议：
+//   - 系统未配置 → 200 {success:true, configured:false, data:null}
+//   - 已配置成功 → 200 {success:true, configured:true, data:{...}}
+//   - 已配置失败 → 500 {error:"上游服务暂不可用"}
 func (h *MediaHandler) GetMediaStats(c *gin.Context) {
+	if !h.isEmbyConfigured() {
+		log.Printf("[Media] GetMediaStats: emby 未配置，返回未初始化态")
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"configured": false,
+			"data":       nil,
+		})
+		return
+	}
+
 	stats, err := h.service.GetMediaStats()
 	if err != nil {
 		httpx.InternalError(c, err)
@@ -55,8 +100,9 @@ func (h *MediaHandler) GetMediaStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    stats,
+		"success":    true,
+		"configured": true,
+		"data":       stats,
 	})
 }
 
@@ -85,9 +131,37 @@ func normalizeEmbyTime(raw string) string {
 
 // GetLatestItems 获取最近入库的媒体
 // GET /api/v1/media/latest?type=Movie&limit=20
+//
+// 协议：
+//   - 系统未配置        → 200 {success:true, configured:false, bound:false, data:[]}
+//   - 已配置但用户未绑   → 200 {success:true, configured:true, bound:false, data:[]}
+//   - 已配置已绑成功     → 200 {success:true, configured:true, bound:true, data:[...]}
+//   - 已配置已绑调用失败 → 500 {error:"上游服务暂不可用"}
 func (h *MediaHandler) GetLatestItems(c *gin.Context) {
-	user, ok := getCurrentMediaUser(c)
+	if !h.isEmbyConfigured() {
+		log.Printf("[Media] GetLatestItems: emby 未配置，返回未初始化态")
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"configured": false,
+			"bound":      false,
+			"data":       []LatestMediaItem{},
+		})
+		return
+	}
+
+	user, ok := getCurrentUserSoft(c)
 	if !ok {
+		return
+	}
+
+	if user.EmbyID == "" {
+		log.Printf("[Media] GetLatestItems: 用户未绑定 Emby 账号，返回未初始化态")
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"configured": true,
+			"bound":      false,
+			"data":       []LatestMediaItem{},
+		})
 		return
 	}
 
@@ -123,8 +197,10 @@ func (h *MediaHandler) GetLatestItems(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    res,
+		"success":    true,
+		"configured": true,
+		"bound":      true,
+		"data":       res,
 	})
 }
 
@@ -168,7 +244,10 @@ func (h *MediaHandler) GetPoster(c *gin.Context) {
 	c.Data(http.StatusOK, contentType, content)
 }
 
-func getCurrentMediaUser(c *gin.Context) (*models.User, bool) {
+// getCurrentUserSoft 校验请求是否带认证并加载用户记录，但不强制要求 EmbyID。
+// 适用于"未绑定 Emby"也属于合法状态的接口（如最近入库列表）。
+// 仅在认证缺失或用户不存在时写入响应；调用方需通过返回值的 ok 判断是否继续。
+func getCurrentUserSoft(c *gin.Context) (*models.User, bool) {
 	userIDRaw, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "未认证"})
@@ -189,10 +268,18 @@ func getCurrentMediaUser(c *gin.Context) (*models.User, bool) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "用户不存在"})
 		return nil, false
 	}
+	return &user, true
+}
+
+func getCurrentMediaUser(c *gin.Context) (*models.User, bool) {
+	user, ok := getCurrentUserSoft(c)
+	if !ok {
+		return nil, false
+	}
 	if user.EmbyID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "用户未绑定 Emby 账号"})
 		return nil, false
 	}
 
-	return &user, true
+	return user, true
 }

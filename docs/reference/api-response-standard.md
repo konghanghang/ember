@@ -309,6 +309,30 @@ c.JSON(http.StatusBadRequest, gin.H{
 })
 ```
 
+### 未初始化态 vs 上游错误
+
+"系统尚未配置外部依赖"和"依赖配置完整但调用失败"是两种本质不同的状态，必须用不同的协议返回，避免前端在 fresh-install 场景下把合法的初始化空态误展示为错误并触发 toast 风暴。
+
+**约定**：
+
+- **系统级未配置**（如管理员尚未填 `EMBY_URL` / `EMBY_API_KEY` / `TMDB_API_KEY` 等关键配置）→ 返回 `200` + 业务标志位 `configured: false`，data 字段视场景返回空数组 / `null`；不要走 5xx
+- **用户级前置条件未满足**（如当前登录用户尚未绑定 Emby 账号、未创建子资源等）→ 返回 `200` + `bound: false` / 类似业务标志位；不要走 4xx
+- **依赖已配置但调用失败**（外部服务真实异常、网络故障等）→ 走 `500 + {"error": "上游服务暂不可用"}`，由前端拦截器/页面层兜底
+
+**响应字段（dashboard 媒体接口示例）**：
+
+| Endpoint | 未配置 | 已配置 + 用户未绑 | 已配置 + 已绑 + 上游成功 | 已配置 + 已绑 + 上游失败 |
+|---|---|---|---|---|
+| `GET /api/v1/emby/config` | 200 `{success:true, configured:false, url:""}` | — | 200 `{success:true, configured:true, url:"..."}` | 不调上游，不会出现 |
+| `GET /api/v1/media/stats` | 200 `{success:true, configured:false, data:null}` | — | 200 `{success:true, configured:true, data:{...}}` | 500 `{error:"上游服务暂不可用"}` |
+| `GET /api/v1/media/latest` | 200 `{success:true, configured:false, bound:false, data:[]}` | 200 `{success:true, configured:true, bound:false, data:[]}` | 200 `{success:true, configured:true, bound:true, data:[...]}` | 500 |
+
+**前端契约**：
+
+- 凡是 dashboard / 概览页等"被动探测"类请求，前端 axios 调用应统一传 `silent: true`，让组件按业务标志位自行渲染空态 / 引导卡片，避免全局拦截器再弹 toast
+- 用户主动操作（保存配置、提交订阅、点击测试连接）应使用默认的非 silent 调用，发生 5xx 时由全局拦截器统一弹错
+- 当扩展接口加入这类协议时，新字段统一以可选（`omitempty` / TypeScript `?`）方式追加，老前端拿到新返回时按"已配置"语义降级，不破坏现有调用
+
 ### 设置中心配置对象补充语义
 
 `GET /api/v1/admin/configs` / `GET /api/v1/internal/settings/:key` 返回的 `ConfigItem` 额外约定如下：
@@ -624,6 +648,11 @@ curl -s http://localhost:8080/api/v1/admin/users \
 
 ## 📝 版本历史
 
+### v1.3 (2026-05-09)
+- ✅ 新增《未初始化态 vs 上游错误》章节，约定"系统未配置 / 用户未绑"必须返回 `200 + configured/bound` 业务标志位而非 5xx / 4xx
+- ✅ 给出 dashboard 三个媒体接口（`/emby/config`、`/media/stats`、`/media/latest`）的响应矩阵作为参考实现
+- ✅ 明确"被动探测"类请求前端应统一走 `silent: true`，避免首启场景下叠加触发 toast 风暴
+
 ### v1.2 (2026-05-02)
 - ✅ 增补账号中心邮箱变更两步流（`send-code` + `PUT /email`）的请求体、响应与错误码映射
 - ✅ 验证码类型补 `change_email`，明确与 `register` / `reset` 配额隔离
@@ -642,5 +671,5 @@ curl -s http://localhost:8080/api/v1/admin/users \
 ---
 
 **文档维护者**: 后端团队
-**最后更新**: 2026-05-02
+**最后更新**: 2026-05-09
 **如有疑问，请提交 Issue 或联系团队**

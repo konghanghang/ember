@@ -412,8 +412,11 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 ### 5.8 MediaService (`services/media.go`)
 
 - `GetEmbyConfig()` — 优先返回设置中心里的前端 Emby 地址（配置键沿用 `NEXT_PUBLIC_EMBY_URL`），为空时回退 `EMBY_URL`，供控制台拼接 Emby 图片与地址展示
+- `IsEmbyConfigured()` — 代理 `EmbyService.IsConfigured()`，供 dashboard 媒体接口在调用上游前判断"系统是否已配置 Emby"，避免把"未配置"当成上游错误返回
 - `GetMediaStats()` — 5 分钟 RWMutex 缓存层
 - `GetLatestItems(embyUserID, itemType, limit)` — 通过 Emby `/Users/{userId}/Items/Latest` 获取最近入库媒体，并做短 TTL 去重缓存
+
+> Dashboard 三个接口（`/emby/config`、`/media/stats`、`/media/latest`）在 emby 未配置 / 用户未绑定 Emby 时返回 `200 + configured/bound` 业务标志位，仅在依赖已配置但调用真实失败时才走 `500 + "上游服务暂不可用"`；详见 [docs/reference/api-response-standard.md](reference/api-response-standard.md) 的《未初始化态 vs 上游错误》章节。前端首屏探测请求统一带 `silent: true`，由组件自行渲染空态，避免 fresh-install 场景下叠加触发全局 toast。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
