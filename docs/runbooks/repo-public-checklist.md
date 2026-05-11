@@ -48,9 +48,9 @@
 
 ## 4. Issue / PR / Discussions 模板
 
-- [ ] `.github/ISSUE_TEMPLATE/` 至少含 `bug_report.yml` 与 `feature_request.yml`。
-- [ ] `.github/PULL_REQUEST_TEMPLATE.md` 存在。
-- [ ] Settings → Features → Discussions：按需启用并配置 Categories（至少 Q&A、Ideas）。
+- [x] `.github/ISSUE_TEMPLATE/` 至少含 `bug_report.yml` 与 `feature_request.yml`。
+- [x] `.github/PULL_REQUEST_TEMPLATE.md` 存在。
+- [x] Settings → Features → Discussions：按需启用并配置 Categories（至少 Q&A、Ideas）。
 
 ## 5. 仓库设置
 
