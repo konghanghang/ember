@@ -12,6 +12,7 @@ from pathlib import Path
 CONVENTIONAL_COMMIT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]+)\))?: (?P<description>.+)$")
 
 SCOPE_LABELS = {
+    "admin": "管理员",
     "api": "API",
     "auth": "认证",
     "billing": "支付",
@@ -31,6 +32,7 @@ SCOPE_LABELS = {
 NOISE_ONLY_PREFIXES = (
     ".claude/",
     ".codex/",
+    ".github/",
     "docs/archive/",
     "docs/plan/",
     "docs/proposals/",
@@ -43,9 +45,12 @@ NOISE_ONLY_FILES = {
 }
 
 INTERNAL_ONLY_SCOPES = {
+    "agents",
     "build",
     "ci",
     "codex",
+    "github",
+    "repo",
     "release",
 }
 
@@ -64,6 +69,13 @@ SETTINGS_CLEANUP_CORE_FILES = {
     "services/api/internal/config/config.go",
     "services/api/internal/handlers/config.go",
     "services/web/src/views/admin/SettingsView.vue",
+}
+
+ADMIN_EMBY_BINDING_FILES = {
+    "services/api/internal/services/auth/emby_binding.go",
+    "services/api/internal/handlers/auth.go",
+    "services/web/src/views/console/AccountCenterView.vue",
+    "services/web/src/api/admin.ts",
 }
 
 
@@ -193,6 +205,7 @@ def is_documentation_only_commit(commit: Commit) -> bool:
         return False
     return all(
         file_path.startswith("docs/")
+        or file_path == "LICENSE"
         or file_path.endswith(".md")
         or file_path.endswith(".env.example")
         or file_path in NOISE_ONLY_FILES
@@ -221,6 +234,7 @@ def commit_link(repo: str, commit: Commit) -> str:
 
 def build_topic_matches(commits: list[Commit], changed_files: set[str]) -> dict[str, set[str]]:
     matches = {
+        "admin_emby_binding": set(),
         "polling": set(),
         "season_subscription": set(),
         "web_forms": set(),
@@ -231,6 +245,9 @@ def build_topic_matches(commits: list[Commit], changed_files: set[str]) -> dict[
     for commit in commits:
         description_lower = commit.description.lower()
         files = set(commit.files)
+
+        if "emby 账号自助绑定" in commit.description or files & ADMIN_EMBY_BINDING_FILES:
+            matches["admin_emby_binding"].add(commit.sha)
 
         # Topic summaries must prefer precision over recall; shared env or docker
         # files are too noisy to infer a user-visible feature from them.
@@ -262,6 +279,10 @@ def build_topic_matches(commits: list[Commit], changed_files: set[str]) -> dict[
 
 def build_feature_lines(matches: dict[str, set[str]]) -> list[str]:
     lines: list[str] = []
+    if matches["admin_emby_binding"]:
+        lines.append(
+            "- 支持管理员在控制台自助绑定 / 解绑 Emby 账号，减少管理账号与 Emby 账号之间的手工处理成本。"
+        )
     if matches["polling"]:
         lines.append(
             "- Telegram Bot 新增 `polling` 模式，可通过 `TELEGRAM_UPDATE_MODE` 在 `webhook` 和 `polling` 之间切换；`polling` 模式不再依赖 Telegram 使用的公网 Webhook 地址。"
@@ -284,6 +305,14 @@ def build_improvement_lines(matches: dict[str, set[str]]) -> list[str]:
 
 def build_upgrade_lines(changed_files: set[str], matches: dict[str, set[str]]) -> list[str]:
     lines: list[str] = []
+    baseline_files = sorted(
+        file_path
+        for file_path in changed_files
+        if file_path.startswith("infrastructure/database/")
+        and file_path.endswith(".sql")
+        and Path(file_path).parent == Path("infrastructure/database")
+        and Path(file_path).name.startswith("00000000_baseline")
+    )
     migration_files = sorted(
         file_path
         for file_path in changed_files
@@ -291,10 +320,19 @@ def build_upgrade_lines(changed_files: set[str], matches: dict[str, set[str]]) -
         and file_path.endswith(".sql")
         and Path(file_path).parent == Path("infrastructure/database")
         and not Path(file_path).name.endswith("_schema_baseline.sql")
+        and not Path(file_path).name.startswith("00000000_baseline")
     )
-    if migration_files:
-        joined = "、".join(f"`{file_path}`" for file_path in migration_files)
-        lines.append(f"- 本版本包含数据库 migration。升级前请先执行 {joined}，否则新链路无法完整生效。")
+    if baseline_files or migration_files:
+        lines.append(
+            "- 本版本包含数据库 schema 变更。升级时执行 `docker compose pull && docker compose up -d` 即可，"
+            "`ember-api` 启动期会自动应用未记账的顶层 SQL；升级后请检查 `docker logs ember-api --tail` "
+            "中的 `[Migrate]` 日志，确认迁移分支符合预期且无 fail-fast 错误。"
+        )
+        if baseline_files:
+            lines.append(
+                "- 新空库会自动应用 baseline 初始化 schema；已有库会根据 `schema_migrations` 记账进入 backfill "
+                "或 forward-only 分支，无需手工执行 baseline SQL。"
+            )
     if matches["polling"]:
         lines.append("- 若要启用 Bot `polling` 模式，请设置 `TELEGRAM_UPDATE_MODE=polling`；如果继续使用 `webhook`，现有部署可保持不变。")
     if matches["settings_cleanup"]:
@@ -350,6 +388,7 @@ def render_markdown(current_tag: str, previous_tag: str | None, repo: str) -> st
     matches = build_topic_matches(commits, changed_files)
 
     used_shas = set().union(
+        matches["admin_emby_binding"],
         matches["polling"],
         matches["season_subscription"],
         matches["web_forms"],

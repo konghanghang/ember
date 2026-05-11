@@ -108,6 +108,20 @@ class BuildTopicMatchesTest(unittest.TestCase):
 
         self.assertEqual(matches["season_subscription"], {commit.sha})
 
+    def test_admin_emby_binding_files_trigger_topic(self) -> None:
+        commit = make_commit(
+            sha="f" * 40,
+            subject="feat(admin): 管理员 Emby 账号自助绑定",
+            commit_type="feat",
+            scope="admin",
+            description="管理员 Emby 账号自助绑定",
+            files=("services/api/internal/services/auth/emby_binding.go",),
+        )
+
+        matches = grn.build_topic_matches([commit], set(commit.files))
+
+        self.assertEqual(matches["admin_emby_binding"], {commit.sha})
+
 
 class ResolvePreviousTagTest(unittest.TestCase):
     def test_keeps_requested_tag_when_it_is_reachable(self) -> None:
@@ -184,6 +198,18 @@ class BuildFallbackLinesTest(unittest.TestCase):
 
         self.assertTrue(grn.is_documentation_only_commit(commit))
 
+    def test_license_change_is_treated_as_documentation_only(self) -> None:
+        commit = make_commit(
+            sha="9" * 40,
+            subject="docs(repo): 切换项目协议为 Apache-2.0",
+            commit_type="docs",
+            scope="repo",
+            description="切换项目协议为 Apache-2.0",
+            files=("LICENSE", "README.md"),
+        )
+
+        self.assertTrue(grn.is_documentation_only_commit(commit))
+
     def test_codex_only_commit_is_filtered_as_noise(self) -> None:
         commit = make_commit(
             sha="f" * 40,
@@ -208,6 +234,22 @@ class BuildFallbackLinesTest(unittest.TestCase):
             scope="ci",
             description="停止自动提交覆盖率徽章",
             files=(".github/workflows/test.yml",),
+        )
+
+        features, fixes, improvements = grn.build_fallback_lines([commit], set())
+
+        self.assertEqual(features, [])
+        self.assertEqual(fixes, [])
+        self.assertEqual(improvements, [])
+
+    def test_github_scope_commit_is_filtered_from_fallback_lines(self) -> None:
+        commit = make_commit(
+            sha="8" * 40,
+            subject="docs(github): 新增 issue 与 PR 模板",
+            commit_type="docs",
+            scope="github",
+            description="新增 issue 与 PR 模板",
+            files=(".github/ISSUE_TEMPLATE/bug_report.yml",),
         )
 
         features, fixes, improvements = grn.build_fallback_lines([commit], set())
@@ -248,7 +290,7 @@ class BuildFallbackLinesTest(unittest.TestCase):
 
 
 class BuildUpgradeLinesTest(unittest.TestCase):
-    def test_only_top_level_incremental_migrations_are_rendered(self) -> None:
+    def test_top_level_migrations_render_auto_migrate_guidance(self) -> None:
         changed_files = {
             "infrastructure/database/20260415_00_schema_baseline.sql",
             "infrastructure/database/20260416_01_subscription_status_and_review_fields.sql",
@@ -260,6 +302,7 @@ class BuildUpgradeLinesTest(unittest.TestCase):
         lines = grn.build_upgrade_lines(
             changed_files,
             {
+                "admin_emby_binding": set(),
                 "polling": set(),
                 "season_subscription": set(),
                 "web_forms": set(),
@@ -271,7 +314,33 @@ class BuildUpgradeLinesTest(unittest.TestCase):
         self.assertEqual(
             lines,
             [
-                "- 本版本包含数据库 migration。升级前请先执行 `infrastructure/database/20260416_01_subscription_status_and_review_fields.sql`、`infrastructure/database/20260418_01_media_gaps.sql`，否则新链路无法完整生效。"
+                "- 本版本包含数据库 schema 变更。升级时执行 `docker compose pull && docker compose up -d` 即可，`ember-api` 启动期会自动应用未记账的顶层 SQL；升级后请检查 `docker logs ember-api --tail` 中的 `[Migrate]` 日志，确认迁移分支符合预期且无 fail-fast 错误。"
+            ],
+        )
+
+    def test_baseline_file_adds_no_manual_execution_guidance(self) -> None:
+        changed_files = {
+            "infrastructure/database/00000000_baseline_20260502.sql",
+            "infrastructure/database/20260504_00_users-emby-id-unique.sql",
+        }
+
+        lines = grn.build_upgrade_lines(
+            changed_files,
+            {
+                "admin_emby_binding": set(),
+                "polling": set(),
+                "season_subscription": set(),
+                "web_forms": set(),
+                "settings_cleanup": set(),
+                "favicon": set(),
+            },
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "- 本版本包含数据库 schema 变更。升级时执行 `docker compose pull && docker compose up -d` 即可，`ember-api` 启动期会自动应用未记账的顶层 SQL；升级后请检查 `docker logs ember-api --tail` 中的 `[Migrate]` 日志，确认迁移分支符合预期且无 fail-fast 错误。",
+                "- 新空库会自动应用 baseline 初始化 schema；已有库会根据 `schema_migrations` 记账进入 backfill 或 forward-only 分支，无需手工执行 baseline SQL。",
             ],
         )
 
