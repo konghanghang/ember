@@ -43,17 +43,18 @@ jobs:
       - name: Get previous tag
         id: previoustag
         run: |
-          # 获取上一个 tag
+          # 只在当前 HEAD 可达的 tag 里找上一个版本，避免历史重写后把旁支 tag
+          # 误当作 release notes 基线。
           CURRENT_TAG=${GITHUB_REF#refs/tags/}
-          PREV_TAG=$(git tag --sort=-v:refname | grep -vx "${CURRENT_TAG}" | head -n 1)
+          PREV_TAG=$(git tag --merged HEAD --sort=-v:refname | grep -vx "${CURRENT_TAG}" | head -n 1)
           if [ -z "$PREV_TAG" ]; then
             echo "tag=" >> $GITHUB_OUTPUT
             echo "has_previous=false" >> $GITHUB_OUTPUT
-            echo "📌 No previous tag found, this is the first release"
+            echo "📌 No previous reachable tag found on current history"
           else
             echo "tag=${PREV_TAG}" >> $GITHUB_OUTPUT
             echo "has_previous=true" >> $GITHUB_OUTPUT
-            echo "📌 Previous tag: ${PREV_TAG}"
+            echo "📌 Previous reachable tag: ${PREV_TAG}"
           fi
 
       - name: Generate release notes

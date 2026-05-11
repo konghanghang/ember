@@ -99,6 +99,47 @@ def parse_commit_subject(subject: str) -> tuple[str, str, str]:
     )
 
 
+def tag_exists(tag: str) -> bool:
+    try:
+        run_git("rev-parse", "-q", "--verify", f"refs/tags/{tag}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+def is_ancestor(tag: str, ref: str = "HEAD") -> bool:
+    try:
+        run_git("merge-base", "--is-ancestor", tag, ref)
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+def find_previous_reachable_tag(current_tag: str) -> str | None:
+    output = run_git("tag", "--merged", "HEAD", "--sort=-v:refname")
+    for line in output.splitlines():
+        tag = line.strip()
+        if not tag or tag == current_tag:
+            continue
+        return tag
+    return None
+
+
+def resolve_previous_tag(current_tag: str, requested_previous_tag: str | None) -> str | None:
+    if requested_previous_tag:
+        if not tag_exists(requested_previous_tag):
+            print(f"[release-notes] previous tag {requested_previous_tag} does not exist, falling back to reachable tags")
+        elif is_ancestor(requested_previous_tag):
+            return requested_previous_tag
+        else:
+            print(
+                f"[release-notes] previous tag {requested_previous_tag} is not reachable from HEAD, "
+                "falling back to nearest reachable tag"
+            )
+
+    return find_previous_reachable_tag(current_tag)
+
+
 def load_commits(previous_tag: str | None) -> list[Commit]:
     revision = "HEAD" if not previous_tag else f"{previous_tag}..HEAD"
     raw = run_git("log", revision, "--reverse", "--pretty=format:%H%x1f%h%x1f%s%x1e")
@@ -389,9 +430,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    previous_tag = resolve_previous_tag(
+        current_tag=args.current_tag,
+        requested_previous_tag=args.previous_tag or None,
+    )
     markdown = render_markdown(
         current_tag=args.current_tag,
-        previous_tag=args.previous_tag or None,
+        previous_tag=previous_tag,
         repo=args.repo,
     )
     Path(args.output).write_text(markdown, encoding="utf-8")

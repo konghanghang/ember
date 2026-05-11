@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -106,6 +107,64 @@ class BuildTopicMatchesTest(unittest.TestCase):
         matches = grn.build_topic_matches([commit], set(commit.files))
 
         self.assertEqual(matches["season_subscription"], {commit.sha})
+
+
+class ResolvePreviousTagTest(unittest.TestCase):
+    def test_keeps_requested_tag_when_it_is_reachable(self) -> None:
+        original_run_git = grn.run_git
+
+        def fake_run_git(*args: str) -> str:
+            if args == ("rev-parse", "-q", "--verify", "refs/tags/v1.4.0"):
+                return "deadbeef"
+            if args == ("merge-base", "--is-ancestor", "v1.4.0", "HEAD"):
+                return ""
+            raise AssertionError(f"unexpected git args: {args}")
+
+        grn.run_git = fake_run_git
+        try:
+            resolved = grn.resolve_previous_tag("v1.4.1", "v1.4.0")
+        finally:
+            grn.run_git = original_run_git
+
+        self.assertEqual(resolved, "v1.4.0")
+
+    def test_falls_back_when_requested_tag_is_not_reachable(self) -> None:
+        original_run_git = grn.run_git
+
+        def fake_run_git(*args: str) -> str:
+            if args == ("rev-parse", "-q", "--verify", "refs/tags/v9.9.9"):
+                return "deadbeef"
+            if args == ("merge-base", "--is-ancestor", "v9.9.9", "HEAD"):
+                raise subprocess.CalledProcessError(1, ["git", *args])
+            if args == ("tag", "--merged", "HEAD", "--sort=-v:refname"):
+                return "v1.4.1\nv1.4.0\nv1.3.1"
+            raise AssertionError(f"unexpected git args: {args}")
+
+        grn.run_git = fake_run_git
+        try:
+            resolved = grn.resolve_previous_tag("v1.4.1", "v9.9.9")
+        finally:
+            grn.run_git = original_run_git
+
+        self.assertEqual(resolved, "v1.4.0")
+
+    def test_falls_back_when_requested_tag_does_not_exist(self) -> None:
+        original_run_git = grn.run_git
+
+        def fake_run_git(*args: str) -> str:
+            if args == ("rev-parse", "-q", "--verify", "refs/tags/v9.9.9"):
+                raise subprocess.CalledProcessError(1, ["git", *args])
+            if args == ("tag", "--merged", "HEAD", "--sort=-v:refname"):
+                return "v1.4.1\nv1.4.0\nv1.3.1"
+            raise AssertionError(f"unexpected git args: {args}")
+
+        grn.run_git = fake_run_git
+        try:
+            resolved = grn.resolve_previous_tag("v1.4.1", "v9.9.9")
+        finally:
+            grn.run_git = original_run_git
+
+        self.assertEqual(resolved, "v1.4.0")
 
 
 class BuildFallbackLinesTest(unittest.TestCase):
