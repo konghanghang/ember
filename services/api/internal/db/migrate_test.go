@@ -1,12 +1,17 @@
 package db
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // fakeDriver 是 migrationDriver 的可控实现，用于覆盖三类分支的关键路径。
@@ -518,5 +523,95 @@ func TestRunMigrate_EmptyDBWithBaseline_AppliesBaseline(t *testing.T) {
 	}
 	if len(driver.backfillCalls) != 0 {
 		t.Fatalf("新空库不应触发 backfill：%v", driver.backfillCalls)
+	}
+}
+
+type fakeSQLResult struct{}
+
+func (fakeSQLResult) LastInsertId() (int64, error) { return 0, nil }
+
+func (fakeSQLResult) RowsAffected() (int64, error) { return 0, nil }
+
+type recordingConnPool struct {
+	prepareCalls int
+	execCalls    int
+	lastSQL      string
+	execErr      error
+}
+
+func (c *recordingConnPool) PrepareContext(_ context.Context, _ string) (*sql.Stmt, error) {
+	c.prepareCalls++
+	return nil, errors.New("PrepareContext should not be called in migration SQL path")
+}
+
+func (c *recordingConnPool) ExecContext(_ context.Context, query string, _ ...interface{}) (sql.Result, error) {
+	c.execCalls++
+	c.lastSQL = query
+	return fakeSQLResult{}, c.execErr
+}
+
+func (c *recordingConnPool) QueryContext(_ context.Context, _ string, _ ...interface{}) (*sql.Rows, error) {
+	return nil, errors.New("QueryContext not implemented in test")
+}
+
+func (c *recordingConnPool) QueryRowContext(_ context.Context, _ string, _ ...interface{}) *sql.Row {
+	return &sql.Row{}
+}
+
+type recordingTx struct {
+	recordingConnPool
+}
+
+func (t *recordingTx) Commit() error   { return nil }
+func (t *recordingTx) Rollback() error { return nil }
+
+func (t *recordingTx) StmtContext(_ context.Context, stmt *sql.Stmt) *sql.Stmt { return stmt }
+
+func TestExecMigrationSQL_UnwrapsPreparedStmtDB(t *testing.T) {
+	raw := &recordingConnPool{}
+	wrapped := &gorm.PreparedStmtDB{
+		ConnPool: raw,
+		Mux:      &sync.RWMutex{},
+		Stmts:    map[string]*gorm.Stmt{},
+	}
+
+	sqlText := "SELECT 1; SELECT 2;"
+	if err := execMigrationSQL(context.Background(), wrapped, sqlText); err != nil {
+		t.Fatalf("execMigrationSQL 不应失败：%v", err)
+	}
+	if raw.prepareCalls != 0 {
+		t.Fatalf("migration SQL 不应走 PrepareContext：got=%d", raw.prepareCalls)
+	}
+	if raw.execCalls != 1 {
+		t.Fatalf("migration SQL 应直接执行一次：got=%d", raw.execCalls)
+	}
+	if raw.lastSQL != sqlText {
+		t.Fatalf("执行的 SQL 不符：want=%q got=%q", sqlText, raw.lastSQL)
+	}
+}
+
+func TestExecMigrationSQL_UnwrapsPreparedStmtTX(t *testing.T) {
+	rawTx := &recordingTx{}
+	wrapped := &gorm.PreparedStmtTX{
+		Tx: rawTx,
+		PreparedStmtDB: &gorm.PreparedStmtDB{
+			ConnPool: rawTx,
+			Mux:      &sync.RWMutex{},
+			Stmts:    map[string]*gorm.Stmt{},
+		},
+	}
+
+	sqlText := "CREATE TABLE demo (id int); ALTER TABLE demo ADD COLUMN name text;"
+	if err := execMigrationSQL(context.Background(), wrapped, sqlText); err != nil {
+		t.Fatalf("execMigrationSQL 不应失败：%v", err)
+	}
+	if rawTx.prepareCalls != 0 {
+		t.Fatalf("事务内 migration SQL 不应走 PrepareContext：got=%d", rawTx.prepareCalls)
+	}
+	if rawTx.execCalls != 1 {
+		t.Fatalf("事务内 migration SQL 应直接执行一次：got=%d", rawTx.execCalls)
+	}
+	if rawTx.lastSQL != sqlText {
+		t.Fatalf("执行的 SQL 不符：want=%q got=%q", sqlText, rawTx.lastSQL)
 	}
 }

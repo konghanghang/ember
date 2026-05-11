@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -582,7 +583,7 @@ func (g *gormMigrationDriver) ApplyMigrationInTx(file migrationFile) error {
 	// 外层包裹事务：SQL 与记账行同生死。SQL 文件本身不允许写 BEGIN/COMMIT
 	// （顶层 SQL 约定，README 已说明）；DO $$ ... $$ 块在 PG 视为单语句，仍可用。
 	return g.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(string(file.content)).Error; err != nil {
+		if err := execMigrationSQL(tx.Statement.Context, tx.Statement.ConnPool, string(file.content)); err != nil {
 			return err
 		}
 		return tx.Exec(
@@ -590,6 +591,37 @@ func (g *gormMigrationDriver) ApplyMigrationInTx(file migrationFile) error {
 			file.filename, file.checksum,
 		).Error
 	})
+}
+
+// execMigrationSQL 直接在真实 ConnPool 上执行迁移 SQL，显式绕开 GORM 的
+// PreparedStmt 包装层。
+//
+// 原因：migration 顶层 SQL（尤其 baseline）天然会包含多条 DDL 语句；而项目全局
+// 开启了 PrepareStmt 后，事务里的 Exec 会先对整份 SQL 做 PrepareContext。PG 对
+// 多语句 prepared statement 支持很差，空库首启时会在 Migrate 阶段直接炸。
+// 业务查询仍保留 prepared statement 缓存，只有 migration 执行点走原始 ConnPool。
+func execMigrationSQL(ctx context.Context, conn gorm.ConnPool, sql string) error {
+	rawConn := unwrapPreparedConnPool(conn)
+	_, err := rawConn.ExecContext(ctx, sql)
+	return err
+}
+
+// unwrapPreparedConnPool 递归剥掉 GORM PrepareStmt 包装，拿到真实的底层 ConnPool。
+//
+// 可能遇到的两层包装：
+//   - *gorm.PreparedStmtDB：非事务路径的全局 prepared statement cache
+//   - *gorm.PreparedStmtTX：事务路径对单条物理连接的 prepared statement 包装
+//
+// migration 执行点必须显式解包，否则多语句 baseline 会先走 PrepareContext。
+func unwrapPreparedConnPool(conn gorm.ConnPool) gorm.ConnPool {
+	switch t := conn.(type) {
+	case *gorm.PreparedStmtTX:
+		return unwrapPreparedConnPool(t.Tx)
+	case *gorm.PreparedStmtDB:
+		return unwrapPreparedConnPool(t.ConnPool)
+	default:
+		return conn
+	}
 }
 
 func (g *gormMigrationDriver) RecordBackfill(file migrationFile) error {
