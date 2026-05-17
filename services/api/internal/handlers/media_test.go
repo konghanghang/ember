@@ -82,9 +82,9 @@ func TestMediaHandlerGetLatestItemsReturnsUnconfiguredStateWhenEmbyMissing(t *te
 	}
 
 	var resp struct {
-		Success    bool             `json:"success"`
-		Configured bool             `json:"configured"`
-		Bound      bool             `json:"bound"`
+		Success    bool              `json:"success"`
+		Configured bool              `json:"configured"`
+		Bound      bool              `json:"bound"`
 		Data       []LatestMediaItem `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
@@ -98,5 +98,31 @@ func TestMediaHandlerGetLatestItemsReturnsUnconfiguredStateWhenEmbyMissing(t *te
 	}
 	if len(resp.Data) != 0 {
 		t.Fatalf("expected empty data, got %d items", len(resp.Data))
+	}
+}
+
+func TestGetCurrentUserSoftRejectsNonStringUserID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/media/latest", nil)
+	ctx.Set("userID", 123)
+
+	user, ok := getCurrentUserSoft(ctx)
+	if ok || user != nil {
+		t.Fatalf("expected non-string userID to be rejected, got ok=%v user=%+v", ok, user)
+	}
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Success || resp.Error != "未认证" {
+		t.Fatalf("expected unauthenticated response, got %+v", resp)
 	}
 }

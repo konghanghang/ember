@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -256,9 +255,6 @@ func getCurrentUserSoft(c *gin.Context) (*models.User, bool) {
 
 	userID, ok := userIDRaw.(string)
 	if !ok || userID == "" {
-		userID = fmt.Sprint(userIDRaw)
-	}
-	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "未认证"})
 		return nil, false
 	}
