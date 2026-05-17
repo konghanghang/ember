@@ -41,7 +41,7 @@
 
 ## 3. README 与项目文件自检
 
-- [ ] 顶层 `README.md` quickstart 不依赖任何外链可独立跑通（参见 `docs/plan/architecture/oss-deployment-experience.md` phase 1 收口结果）。
+- [ ] 顶层 `README.md` quickstart 不依赖任何外链可独立跑通（参见 `docs/archive/plan/architecture/oss-deployment-experience.md` phase 1 收口结果）。
 - [ ] LICENSE 文件存在且明确（默认推荐 MIT 或 Apache-2.0）。
 - [ ] `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` 至少有最小版本（按需）。
 - [ ] 所有相对路径 markdown 链接可点开。

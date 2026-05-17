@@ -25,7 +25,8 @@
   - 例如：[管理员 Emby 账号绑定方案](./plan/console-admin/admin-emby-binding.md)
   - 例如：[播放观察与设备链路加固方案](./plan/console-admin/playback-and-device-observation-hardening.md)
   - 例如：[「播放分析」菜单合并方案](./plan/console-admin/playback-center-merge.md)
-- `architecture/`：设置中心、邮箱鉴权边界、数据库迁移 baseline、数据库迁移自动应用、schema 与部署基线等结构性方案
+- `architecture/`：设置中心、邮箱鉴权边界、数据库迁移 baseline、数据库迁移自动应用、OSS 部署体验、schema 与部署基线等结构性方案
+  - 例如：[OSS 部署体验方案](./plan/architecture/oss-deployment-experience.md)
   - 例如：[数据库迁移自动应用方案](./plan/architecture/database-migration-auto-apply.md)
   - 例如：[数据库迁移 Baseline 与归档收口方案](./plan/architecture/database-migration-baseline-and-archive.md)
   - 例如：[Schema 与部署基线收口方案](./plan/architecture/schema-deployment-and-baseline-cleanup.md)

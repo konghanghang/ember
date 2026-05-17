@@ -4,7 +4,7 @@
 > 负责人：Ember
 > 更新时间：2026-05-17
 >
-> 演进说明：本方案设计时计划"先保持 initdb/ 与 ember-api 启动期 Migrate 双轨、稳定后再退役"；落地后由 OSS 部署体验方案 phase 2 提前评估并执行 initdb/ 退役（自动化测试已覆盖"新空库"分支、当前尚无活跃 OSS 部署）。下文"背景 / 当前事实"段保留方案设计时的现状快照不重写，"方案设计 / 验证方式"段中已过时的 initdb 表述按当前实现做了最小修订。
+> 演进说明：本方案设计时计划"先保持 initdb/ 与 ember-api 启动期 Migrate 双轨、稳定后再退役"；落地后由 [OSS 部署体验方案](./oss-deployment-experience.md) phase 2 提前评估并执行 initdb/ 退役（自动化测试已覆盖"新空库"分支、当前尚无活跃 OSS 部署）。下文"背景 / 当前事实"段保留方案设计时的现状快照不重写，"方案设计 / 验证方式"段中已过时的 initdb 表述按当前实现做了最小修订。
 >
 > 归档说明：启动期自动迁移已进入 `v1.5.0` / `v1.5.1`，`schema_migrations`、forward-only、backfill、checksum 防改写和 PG `initdb.d` 退役均已同步到系统架构、数据库 README 与部署 runbook。本方案只保留历史设计与决策追溯价值。
 
@@ -286,7 +286,7 @@ SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
 - `docs/runbooks/deployment-environment.md` 更新升级章节，把流程精简为 `pull + up -d`
 - `docs/system-architecture.md` 在数据库章节补充 `schema_migrations` 表与启动期 Migrate 阶段说明
 - 仓库根落地 `.gitattributes` 与 `.dockerignore`（与方案设计同步，落地时校验 git 工作树确实生效）
-- `infrastructure/docker/initdb/` 退役：已由 OSS 部署体验方案 phase 2 提前评估并执行退役（commit 见 OSS plan 的"Phase 2 落地记录"段落）。退役理由：自动化测试已覆盖"新空库"分支、当前尚无活跃 OSS 部署，PG `initdb.d` 双轨简化为单轨，schema 初始化与升级全部由启动期 Migrate 接管
+- `infrastructure/docker/initdb/` 退役：已由 [OSS 部署体验方案](./oss-deployment-experience.md) phase 2 提前评估并执行退役（commit 见 OSS plan 的"Phase 2 落地记录"段落）。退役理由：自动化测试已覆盖"新空库"分支、当前尚无活跃 OSS 部署，PG `initdb.d` 双轨简化为单轨，schema 初始化与升级全部由启动期 Migrate 接管
 
 归档条件：
 
