@@ -1,28 +1,46 @@
 package handlers
 
 import (
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
+	"github.com/konghang/ember/backend/internal/common/tmdbcache"
 	"github.com/konghang/ember/backend/internal/common/upstream"
 	configpkg "github.com/konghang/ember/backend/internal/config"
+	"github.com/konghang/ember/backend/internal/db"
+)
+
+const (
+	tmdbBaseURL           = "https://api.themoviedb.org/3"
+	tmdbSearchCacheTTL    = 30 * time.Minute
+	tmdbTVDetailCacheTTL  = 24 * time.Hour
+	tmdbResponseLanguage  = "zh-CN"
+	tmdbProxyCacheVersion = "v1"
 )
 
 // TMDBHandler TMDB 处理器
 type TMDBHandler struct {
 	configService *configpkg.ConfigService
+	cacheStore    *tmdbcache.Store
+	httpClient    *http.Client
+	baseURL       string
 }
 
 // NewTMDBHandler 创建 TMDB 处理器
 func NewTMDBHandler() *TMDBHandler {
 	return &TMDBHandler{
 		configService: configpkg.NewConfigService(),
+		cacheStore:    tmdbcache.NewStore(),
+		httpClient:    http.DefaultClient,
+		baseURL:       tmdbBaseURL,
 	}
 }
 
@@ -104,15 +122,25 @@ func buildTMDBTVSeasonOptions(detail TMDBTVDetailResponse) TMDBTVSeasonOptions {
 	}
 }
 
-func (h *TMDBHandler) fetchTMDB(c *gin.Context, endpoint string, target interface{}) bool {
+func buildTMDBProxyCacheKey(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return fmt.Sprintf("proxy:%s:%s", tmdbProxyCacheVersion, hex.EncodeToString(sum[:]))
+}
+
+func (h *TMDBHandler) fetchTMDB(c *gin.Context, cacheKey, endpoint string, ttl time.Duration, target interface{}) bool {
 	apiKey := h.configService.GetString("TMDB_API_KEY")
 	if apiKey == "" {
 		httpx.InternalError(c, errors.New("tmdb api key is not configured"))
 		return false
 	}
 
-	tmdbURL := fmt.Sprintf("https://api.themoviedb.org/3/%s", endpoint)
-	req, err := http.NewRequest(http.MethodGet, tmdbURL, nil)
+	baseURL := strings.TrimRight(h.baseURL, "/")
+	if baseURL == "" {
+		baseURL = tmdbBaseURL
+	}
+
+	tmdbURL := fmt.Sprintf("%s/%s", baseURL, strings.TrimLeft(endpoint, "/"))
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, tmdbURL, nil)
 	if err != nil {
 		httpx.InternalError(c, upstream.SafeUpstreamError(err, "tmdb"))
 		return false
@@ -120,29 +148,21 @@ func (h *TMDBHandler) fetchTMDB(c *gin.Context, endpoint string, target interfac
 
 	query := req.URL.Query()
 	query.Set("api_key", apiKey)
-	query.Set("language", "zh-CN")
+	query.Set("language", tmdbResponseLanguage)
 	req.URL.RawQuery = query.Encode()
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		httpx.InternalError(c, upstream.SafeUpstreamError(err, "tmdb"))
-		return false
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		httpx.InternalError(c, upstream.SafeUpstreamHTTPError("tmdb", resp.StatusCode))
-		return false
+	cacheStore := h.cacheStore
+	if cacheStore == nil {
+		cacheStore = tmdbcache.NewStore()
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		httpx.InternalError(c, upstream.SafeUpstreamError(err, "tmdb"))
-		return false
+	httpClient := h.httpClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
 	}
 
-	if err := json.Unmarshal(body, target); err != nil {
-		httpx.InternalError(c, errors.New("tmdb response decode failed"))
+	if err := cacheStore.FetchJSON(c.Request.Context(), db.DB, httpClient, cacheKey, req.URL.String(), ttl, false, target); err != nil {
+		httpx.InternalError(c, err)
 		return false
 	}
 
@@ -153,7 +173,7 @@ func (h *TMDBHandler) fetchTMDB(c *gin.Context, endpoint string, target interfac
 // GET /api/v1/tmdb/search?query=xxx&type=multi
 func (h *TMDBHandler) Search(c *gin.Context) {
 	// 获取查询参数
-	query := c.Query("query")
+	query := strings.TrimSpace(c.Query("query"))
 	mediaType := c.DefaultQuery("type", "movie")
 
 	if query == "" {
@@ -178,7 +198,8 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 
 	var tmdbResp TMDBApiResponse
 	searchEndpoint := fmt.Sprintf("%s?query=%s&page=1", endpoint, url.QueryEscape(query))
-	if !h.fetchTMDB(c, searchEndpoint, &tmdbResp) {
+	cacheKey := buildTMDBProxyCacheKey("search", mediaType, tmdbResponseLanguage, query)
+	if !h.fetchTMDB(c, cacheKey, searchEndpoint, tmdbSearchCacheTTL, &tmdbResp) {
 		return
 	}
 
@@ -242,7 +263,8 @@ func (h *TMDBHandler) GetTVSeasons(c *gin.Context) {
 	}
 
 	var detail TMDBTVDetailResponse
-	if !h.fetchTMDB(c, fmt.Sprintf("tv/%s", url.PathEscape(tvID)), &detail) {
+	cacheKey := buildTMDBProxyCacheKey("tv-detail", tmdbResponseLanguage, tvID)
+	if !h.fetchTMDB(c, cacheKey, fmt.Sprintf("tv/%s", url.PathEscape(tvID)), tmdbTVDetailCacheTTL, &detail) {
 		return
 	}
 

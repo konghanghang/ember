@@ -17,8 +17,6 @@
 | GET | `/api/v1/register/code/:code/validate` | 验证注册场景兑换码（会校验绑定的 `registrationPlanGroup` 仍存在） |
 | POST | `/api/v1/webhooks/stripe` | Stripe Webhook 回调 |
 | POST | `/api/v1/webhooks/emby?token=` | Emby 入库 Webhook（追剧日历） |
-| GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索 |
-| GET | `/api/v1/tmdb/tv/:id/seasons` | TMDB 剧集季列表 |
 
 ## 2. 统一认证路由（admin + user 共享，需 JWT）
 
@@ -29,6 +27,8 @@
 | POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧） |
 | POST | `/api/v1/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note` |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
+| GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索（需 JWT，服务端缓存） |
+| GET | `/api/v1/tmdb/tv/:id/seasons` | TMDB 剧集季列表（需 JWT，服务端缓存） |
 | GET | `/api/v1/profile` | 个人信息 |
 | GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range` 或 `startDate/endDate`） |
 | PUT | `/api/v1/password` | 修改密码 |

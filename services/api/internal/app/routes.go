@@ -33,8 +33,6 @@ func registerPublicRoutes(api *gin.RouterGroup, h *appHandlers) {
 	api.GET("/register/code/:code/validate", h.redemptionCode.ValidateRegistrationCode)
 	api.POST("/webhooks/stripe", h.payment.HandleStripeWebhook)
 	api.POST("/webhooks/emby", h.tvCalendar.HandleEmbyWebhook)
-	api.GET("/tmdb/search", h.tmdb.Search)
-	api.GET("/tmdb/tv/:id/seasons", h.tmdb.GetTVSeasons)
 }
 
 func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
@@ -150,6 +148,8 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.POST("/subscriptions", h.subscription.CreateSubscription)
 	authenticated.POST("/subscriptions/:id/resubmit", h.subscription.ResubmitSubscription)
 	authenticated.DELETE("/subscriptions/:id", h.subscription.DeleteSubscription)
+	authenticated.GET("/tmdb/search", h.tmdb.Search)
+	authenticated.GET("/tmdb/tv/:id/seasons", h.tmdb.GetTVSeasons)
 
 	authenticated.GET("/profile", h.user.GetProfile)
 	authenticated.GET("/profile/analytics", h.playbackProfile.GetCurrentUserProfile)
