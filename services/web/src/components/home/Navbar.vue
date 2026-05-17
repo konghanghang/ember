@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
 
 const router = useRouter()
 const mobileMenuOpen = ref(false)
@@ -36,6 +37,7 @@ onUnmounted(() => {
 
         <!-- Desktop Navigation -->
         <div class="hidden md:flex items-center gap-4">
+          <ProjectSourceLink :show-commit="false" />
           <router-link to="/login" class="text-sm font-bold text-gray-900 hover:text-ember transition-colors">
             登录
           </router-link>
@@ -59,6 +61,9 @@ onUnmounted(() => {
         class="absolute top-full left-0 right-0 bg-white border-b border-gray-200 p-6 md:hidden shadow-xl"
       >
         <div class="flex flex-col gap-4">
+          <div class="flex">
+            <ProjectSourceLink :show-commit="false" />
+          </div>
           <router-link to="/login" class="text-lg font-bold text-gray-900" @click="mobileMenuOpen = false">登录</router-link>
           <router-link to="/register" class="text-lg font-bold text-ember" @click="mobileMenuOpen = false">立即体验</router-link>
         </div>

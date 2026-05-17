@@ -28,6 +28,16 @@ cd services/web
 docker build -t ember-web:dev .
 ```
 
+如果要让前端控制台侧边栏展示当前镜像对应的 commit hash，本地 Docker 构建时显式传入 build args：
+
+```bash
+cd services/web
+docker build \
+  --build-arg VITE_GIT_COMMIT_SHA="$(git rev-parse HEAD)" \
+  --build-arg VITE_GITHUB_REPOSITORY="konghanghang/ember" \
+  -t ember-web:dev .
+```
+
 ### Bot
 
 ```bash
@@ -62,6 +72,7 @@ docker compose up -d
 
 - `pre_release` 分支：生成预览镜像（`linux/amd64`，构建时间敏感）
 - `v*` Tag：生成正式镜像（`linux/amd64` + `linux/arm64` 双架构 manifest list，由 `docker/setup-qemu-action` 提供 arm64 binfmt）
+- Web 镜像构建会注入 `VITE_GIT_COMMIT_SHA=${{ github.sha }}` 和 `VITE_GITHUB_REPOSITORY=${{ github.repository }}`，用于前端展示源码入口与控制台构建 hash
 
 ## 产出的常见标签
 

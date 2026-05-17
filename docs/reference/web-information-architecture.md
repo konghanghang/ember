@@ -21,6 +21,8 @@
   - `EmberFormDialog`：统一弹窗表单容器和 footer 区域
 - `feedback/`
   - `EmberEmptyStateCard`：统一中性 / 风险态空状态容器和可选动作区
+- `components/common/`
+  - `ProjectSourceLink`：展示 GitHub 仓库入口与可选当前前端构建短 commit hash；首页 Navbar 只展示源码入口，控制台 Sidebar 展示低干扰 build 信息，不承载业务状态
 
 当前已接入这套基础组件的后台页面包括：
 
@@ -90,6 +92,7 @@
 - **颜色**：ember 色系（橙红 `#ea580c`）
 - **布局**：Tailwind 响应式 grid + Element Plus 组件
 - **图标**：`@element-plus/icons-vue`
+- **构建元信息**：`utils/buildInfo.ts` 统一消费 `VITE_GIT_COMMIT_SHA`、`VITE_GITHUB_REPOSITORY`、`VITE_GITHUB_REPOSITORY_URL`，缺失 hash 时降级展示 `dev`
 
 ## 3. 页面与路由职责
 

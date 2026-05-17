@@ -7,7 +7,7 @@ const currentYear = new Date().getFullYear()
     <div class="max-w-4xl mx-auto">
       <div class="flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-text-secondary font-medium tracking-wide">
         <p>© {{ currentYear }} Ember Media. All rights reserved.</p>
-        <div class="flex gap-8">
+        <div class="flex flex-wrap items-center justify-center gap-4 md:justify-end">
           <a href="#" class="hover:text-ember transition-colors">隐私政策</a>
           <a href="#" class="hover:text-ember transition-colors">服务条款</a>
         </div>

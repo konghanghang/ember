@@ -67,6 +67,9 @@ jobs:
           platforms: ${{ steps.meta.outputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VITE_GIT_COMMIT_SHA=${{ github.sha }}
+            VITE_GITHUB_REPOSITORY=${{ github.repository }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

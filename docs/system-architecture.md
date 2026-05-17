@@ -710,6 +710,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - Router：通过 `requiresAuth / role` 守卫做鉴权和 redirect 收口；刷新后先用 token 拉 `/profile`，再以服务端返回的 `role / passwordResetRequired` 判断 UI 权限
 - View：页面继续保留接口调用、路由状态、筛选参数和弹窗编排
 - Shared Components：`components/ember/` 承载稳定 UI 契约，不侵入业务
+- Build Metadata：`components/common/ProjectSourceLink.vue` 读取 Vite 构建期注入的 GitHub 仓库与 commit SHA，在首页导航和控制台侧边栏展示源码入口；控制台保留低干扰当前构建短 hash
 
 ### 8.2 高层页面边界
 
@@ -783,6 +784,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | API 运行期数据库配置 | `registration_mode`、`EMBY_URL`、`SMTP_*`、`CRON_*` | [configuration-reference](./reference/configuration-reference.md) | 由设置中心统一解析；大多数可运行期生效，调度相关配置改后需重启 API |
 | API 部署期环境变量 | `DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`INTERNAL_API_SECRET`、`EMBY_WEBHOOK_TOKEN` | [configuration-reference](./reference/configuration-reference.md) | 作为启动边界或信任根，不放进设置中心 |
 | Bot 启动环境变量 | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_UPDATE_MODE`、`WEBHOOK_URL` | [configuration-reference](./reference/configuration-reference.md) | Bot 进程启动直接读取；部分 Chat ID 支持通过 API 设置中心回读并以 env 兜底 |
+| Web 构建期变量 | `VITE_GIT_COMMIT_SHA`、`VITE_GITHUB_REPOSITORY`、`VITE_GITHUB_REPOSITORY_URL` | [configuration-reference](./reference/configuration-reference.md) | 仅用于静态前端构建元信息展示，不属于运行期配置 |
 
 ### 关键约束
 

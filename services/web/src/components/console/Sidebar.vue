@@ -19,6 +19,7 @@ import {
   Calendar
 } from '@element-plus/icons-vue'
 import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
+import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -214,6 +215,9 @@ const displayName = computed(() => userStore.profile?.username || '当前用户'
           <p class="text-sm font-medium text-gray-900 truncate">{{ displayName }}</p>
           <p class="text-xs text-gray-500 truncate">{{ authStore.role === 'admin' ? '管理员' : '普通用户' }}</p>
         </div>
+      </div>
+      <div class="mt-3 flex justify-center">
+        <ProjectSourceLink />
       </div>
     </div>
   </aside>

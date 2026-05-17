@@ -23,6 +23,11 @@
    - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link`、`telegram_welcome_message_template` 在运行期通过 API 设置中心读取，并带短 TTL 缓存
    - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 仍支持本地 env 回退，但它们属于可选兜底，不再作为 `.env.example` 默认项
 
+4. **Web 构建期变量**
+   - 只在 `services/web` 静态构建时读取
+   - 用于展示 GitHub 源码入口和当前构建对应的 commit hash
+   - 不属于容器运行期配置，修改后需要重新构建 Web 镜像
+
 ---
 
 ## 2. API 数据库配置
@@ -175,7 +180,25 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 
 ---
 
-## 5. 关键密钥说明
+## 5. Web 构建期变量
+
+这些变量只影响前端静态产物中的构建元信息展示，不进入设置中心，也不应作为运行期配置依赖。
+
+| 配置项 | 敏感 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `VITE_GIT_COMMIT_SHA` | 否 | 本地 `git rev-parse --short=12 HEAD` 或空 | 当前 Web 构建对应的 commit；GitHub Actions 构建镜像时由 `${{ github.sha }}` 注入 |
+| `VITE_GITHUB_REPOSITORY` | 否 | `konghanghang/ember` | GitHub 仓库 slug，用于生成仓库链接 |
+| `VITE_GITHUB_REPOSITORY_URL` | 否 | `https://github.com/<VITE_GITHUB_REPOSITORY>` | 仓库完整 URL；提供后优先于 slug 生成值 |
+
+说明：
+
+- 本地 `npm run build` 会优先使用环境变量，缺失时尝试从当前 Git 仓库读取短 hash。
+- Docker 构建上下文是 `services/web`，镜像构建时看不到仓库 `.git`，需要通过 Docker build args 注入 `VITE_GIT_COMMIT_SHA`。
+- 如果 hash 缺失或不是合法 hex commit，前端会降级展示 `dev`，链接回仓库首页。
+
+---
+
+## 6. 关键密钥说明
 
 ### `JWT_SECRET`
 
@@ -214,7 +237,7 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 
 ---
 
-## 6. 运维建议
+## 7. 运维建议
 
 1. 修改数据库配置前，先确认 `CONFIG_ENCRYPTION_KEY` 已正确注入。
 2. 修改调度配置后，记得重启 API。
