@@ -178,8 +178,9 @@ func TestTelegramHandlerVerifyBindMapsErrors(t *testing.T) {
 		statusCode int
 		wantError  string
 	}{
-		{name: "invalid code", err: telegrampkg.ErrTelegramBindCodeInvalid, statusCode: http.StatusBadRequest, wantError: telegrampkg.ErrTelegramBindCodeInvalid.Error()},
-		{name: "already bound", err: telegrampkg.ErrTelegramAlreadyBound, statusCode: http.StatusBadRequest, wantError: telegrampkg.ErrTelegramAlreadyBound.Error()},
+		{name: "invalid code", err: telegrampkg.ErrTelegramBindCodeInvalid, statusCode: http.StatusBadRequest, wantError: telegramBindGenericError},
+		{name: "telegram already bound", err: telegrampkg.ErrTelegramAlreadyBound, statusCode: http.StatusBadRequest, wantError: telegramBindGenericError},
+		{name: "user already bound", err: telegrampkg.ErrUserAlreadyBoundTelegram, statusCode: http.StatusBadRequest, wantError: telegramBindGenericError},
 		{name: "internal", err: errors.New("boom"), statusCode: http.StatusInternalServerError, wantError: "上游服务暂不可用"},
 	}
 

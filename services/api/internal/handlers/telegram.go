@@ -28,6 +28,8 @@ type TelegramHandler struct {
 	telegramService telegramHandlerService
 }
 
+const telegramBindGenericError = "绑定失败，请重新生成验证码后再试"
+
 func NewTelegramHandler() *TelegramHandler {
 	return &TelegramHandler{
 		telegramService: telegrampkg.NewDefaultService(),
@@ -98,7 +100,7 @@ func (h *TelegramHandler) VerifyBind(c *gin.Context) {
 		case errors.Is(err, telegrampkg.ErrTelegramBindCodeInvalid),
 			errors.Is(err, telegrampkg.ErrTelegramAlreadyBound),
 			errors.Is(err, telegrampkg.ErrUserAlreadyBoundTelegram):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": telegramBindGenericError})
 		default:
 			httpx.InternalError(c, err)
 		}
