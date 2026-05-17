@@ -6,6 +6,7 @@ from typing import Any, Awaitable, Callable
 from telegram import InputMediaPhoto, Update
 from telegram.ext import ContextTypes
 
+from app.bot_admin import is_bot_admin
 from app.clients import api_client
 from app.config import (
     TMDB_IMAGE_BASE,
@@ -298,8 +299,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if query is None or query.data is None:
         return
 
-    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
-    if query.from_user is None or admin_chat_id is None or query.from_user.id != admin_chat_id:
+    if query.from_user is None:
+        await query.answer("你没有权限操作", show_alert=True)
+        return
+
+    chat_id = query.message.chat_id if query.message is not None else query.from_user.id
+    bot = getattr(context, "bot", None)
+    if bot is None and query.message is not None:
+        bot = query.message.get_bot()
+    allowed, _ = await is_bot_admin(
+        bot,
+        chat_id=chat_id,
+        user_id=query.from_user.id,
+    )
+    if not allowed:
         await query.answer("你没有权限操作", show_alert=True)
         return
 
@@ -368,8 +381,12 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
     if message is None or message.from_user is None or message.text is None:
         return
 
-    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
-    if admin_chat_id is None or message.from_user.id != admin_chat_id:
+    allowed, _ = await is_bot_admin(
+        message.get_bot(),
+        chat_id=message.chat_id,
+        user_id=message.from_user.id,
+    )
+    if not allowed:
         return
 
     reason = message.text.strip()
@@ -648,8 +665,12 @@ async def handle_refresh_menu_chat(update: Update, context: ContextTypes.DEFAULT
         await message.reply_text(_private_only_tip())
         return
 
-    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
-    if admin_chat_id is None or message.from_user.id != admin_chat_id:
+    allowed, _ = await is_bot_admin(
+        context.bot,
+        chat_id=message.chat.id,
+        user_id=message.from_user.id,
+    )
+    if not allowed:
         await message.reply_text("❌ 只有配置的管理员账号可以执行此命令", parse_mode="HTML")
         return
 

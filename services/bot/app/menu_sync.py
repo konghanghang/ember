@@ -10,7 +10,7 @@ from telegram import (
     Update,
 )
 
-from app.runtime_settings import runtime_settings_service
+from app.bot_admin import is_bot_admin
 
 logger = logging.getLogger(__name__)
 
@@ -78,28 +78,18 @@ async def force_chat_member_menu_cleanup(bot, chat_id: int, user_id: int) -> tup
 
 
 async def is_menu_refresh_allowed(bot, chat_id: int, user_id: int) -> tuple[bool, str | None]:
-    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
-    if admin_chat_id is not None and user_id == admin_chat_id:
+    allowed, reason = await is_bot_admin(
+        bot,
+        chat_id=chat_id,
+        user_id=user_id,
+        allow_group_admin=True,
+    )
+    if allowed:
         return True, None
-
-    try:
-        bot_member = await bot.get_chat_member(chat_id=chat_id, user_id=bot.id)
-    except Exception:
-        logger.exception("查询 Bot 群权限失败: chat_id=%s", chat_id)
-        return False, "当前无法校验群管理员身份，请使用配置的管理员账号执行 /refresh_menu"
-
-    bot_status = getattr(bot_member, "status", "")
-    if bot_status not in {"administrator", "creator"}:
-        return False, "Bot 当前不是群管理员，无法校验普通群管理员身份；请使用配置的管理员账号执行 /refresh_menu"
-
-    try:
-        member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-    except Exception:
-        logger.exception("查询群管理员身份失败: chat_id=%s user_id=%s", chat_id, user_id)
-        return False, "当前无法校验群管理员身份，请稍后重试"
-
-    if getattr(member, "status", "") in {"administrator", "creator"}:
-        return True, None
+    if reason:
+        if reason == "只有群管理员或配置的管理员账号可以执行此操作":
+            return False, "只有群管理员或配置的管理员账号可以刷新菜单"
+        return False, reason.replace("执行", "执行 /refresh_menu")
     return False, "只有群管理员或配置的管理员账号可以刷新菜单"
 
 

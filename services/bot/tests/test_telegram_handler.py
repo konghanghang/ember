@@ -192,6 +192,8 @@ telegram_ext_stub.TypeHandler = getattr(telegram_ext_stub, "TypeHandler", _Handl
 telegram_ext_stub.filters = getattr(telegram_ext_stub, "filters", _Filters)
 
 from app.formatters.message_formatter import format_result_message
+from app import bot_admin
+from app import menu_sync
 from app.handlers import telegram_handler
 
 
@@ -202,8 +204,10 @@ class _StubUser:
 
 class _StubBot:
     def __init__(self) -> None:
+        self.id = 5001
         self.edit_message_text = AsyncMock()
         self.edit_message_caption = AsyncMock()
+        self.get_chat_member = AsyncMock()
 
 
 class _StubMessage:
@@ -291,6 +295,55 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
             "请直接回复这条消息输入拒绝原因，5 分钟内有效。\n发送的下一条普通文本会作为拒绝原因提交。"
         )
         query.answer.assert_awaited_once_with("请发送拒绝原因")
+
+    async def test_handle_callback_reject_denies_non_configured_group_admin(self) -> None:
+        message = _StubMessage(
+            chat_id=2002,
+            user_id=1001,
+            message_id=77,
+            text="原始审批消息",
+        )
+        query = _StubQuery(data="reject:sub_123", user_id=1001, message=message)
+        update = _StubUpdate(callback_query=query)
+
+        message.get_bot().get_chat_member.side_effect = [
+            types.SimpleNamespace(status="administrator"),
+            types.SimpleNamespace(status="administrator"),
+        ]
+
+        with (
+            patch.object(
+                telegram_handler.runtime_settings_service,
+                "get_chat_ids",
+                AsyncMock(return_value=(9999, None)),
+            ),
+            patch.object(
+                telegram_handler.api_client,
+                "enqueue_pending_reject",
+                AsyncMock(return_value=True),
+            ) as enqueue_mock,
+        ):
+            await telegram_handler.handle_callback(update, types.SimpleNamespace(bot=message.get_bot()))
+
+        query.answer.assert_awaited_once_with("你没有权限操作", show_alert=True)
+        enqueue_mock.assert_not_awaited()
+
+    async def test_menu_refresh_allows_group_admin(self) -> None:
+        bot = _StubBot()
+        bot.get_chat_member.side_effect = [
+            types.SimpleNamespace(status="administrator"),
+            types.SimpleNamespace(status="administrator"),
+        ]
+
+        with patch.object(
+            bot_admin.runtime_settings_service,
+            "get_chat_ids",
+            AsyncMock(return_value=(9999, None)),
+        ):
+            allowed, reason = await menu_sync.is_menu_refresh_allowed(bot, 2002, 1001)
+
+        self.assertTrue(allowed)
+        self.assertIsNone(reason)
 
     async def test_handle_pending_reject_reason_uses_api_payload_to_reject_and_edit_message(self) -> None:
         bot = _StubBot()
