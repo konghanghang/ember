@@ -35,7 +35,7 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 
 ## 4. 命令与处理器
 
-- **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）
+- **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）；reject 两步确认上下文持久化在 API，第二步提交拒绝原因时按 `chatId + adminUserId` 弹出同一操作者的待确认记录
 - **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 与 `telegram_welcome_message_template` 配置）
 - **Commands**：`/search`（搜索影视并订阅；电影直接确认，电视剧先选季再确认）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）、`/refresh_menu`（管理员强制刷新当前群菜单）
 - **群菜单策略**：仅私聊作用域写入命令菜单；default/group scope 保持为空，群聊默认不展示命令菜单，首次收到群消息时按群清理旧作用域菜单，并在当前 Bot 进程内缓存已同步群；`/refresh_menu` 强刷会额外重试清理 default / all-group 作用域

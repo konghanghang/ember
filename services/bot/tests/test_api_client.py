@@ -73,6 +73,30 @@ class ApiClientRetryTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(client.request.await_count, 1)
 
+    async def test_pop_pending_reject_posts_admin_user_id(self) -> None:
+        request = httpx.Request("POST", "https://example.com")
+        response = httpx.Response(
+            200,
+            request=request,
+            json={"subscriptionId": "sub_123", "adminUserId": "1001"},
+        )
+
+        with patch.object(api_client, "_request", AsyncMock(return_value=(response, 12.0))) as request_mock:
+            payload = await api_client.pop_pending_reject(2002, "1001")
+
+        self.assertEqual(payload, {"subscriptionId": "sub_123", "adminUserId": "1001"})
+        request_mock.assert_awaited_once()
+        _, _, url = request_mock.await_args.args
+        self.assertTrue(url.endswith("/api/v1/internal/telegram/reject-request/pop"))
+        self.assertEqual(
+            request_mock.await_args.kwargs["json"],
+            {"chatId": 2002, "adminUserId": "1001"},
+        )
+        self.assertEqual(
+            request_mock.await_args.kwargs["log_fields"],
+            {"chatId": 2002, "adminUserId": "1001"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

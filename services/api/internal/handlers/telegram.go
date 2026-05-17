@@ -30,6 +30,8 @@ type TelegramHandler struct {
 
 const telegramBindGenericError = "绑定失败，请重新生成验证码后再试"
 
+var popPendingReject = telegrampkg.PopPendingReject
+
 func NewTelegramHandler() *TelegramHandler {
 	return &TelegramHandler{
 		telegramService: telegrampkg.NewDefaultService(),
@@ -241,7 +243,8 @@ type pendingRejectEnqueueRequest struct {
 }
 
 type pendingRejectPopRequest struct {
-	ChatID int64 `json:"chatId" binding:"required"`
+	ChatID      int64  `json:"chatId" binding:"required"`
+	AdminUserID string `json:"adminUserId" binding:"required"`
 }
 
 type botPollingLockRequest struct {
@@ -273,7 +276,7 @@ func (h *TelegramHandler) PopPendingReject(c *gin.Context) {
 		return
 	}
 
-	record, err := telegrampkg.PopPendingReject(c.Request.Context(), req.ChatID)
+	record, err := popPendingReject(c.Request.Context(), req.ChatID, req.AdminUserID)
 	if err != nil {
 		httpx.InternalError(c, err)
 		return

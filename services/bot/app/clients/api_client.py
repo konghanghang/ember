@@ -616,7 +616,7 @@ async def enqueue_pending_reject(
     return response is not None and response.status_code == 200
 
 
-async def pop_pending_reject(chat_id: int) -> Optional[dict]:
+async def pop_pending_reject(chat_id: int, admin_user_id: str) -> Optional[dict]:
     """弹出最新未过期的拒绝待确认记录"""
     endpoint = "pop_pending_reject"
     url = f"{API_URL}/api/v1/internal/telegram/reject-request/pop"
@@ -626,8 +626,8 @@ async def pop_pending_reject(chat_id: int) -> Optional[dict]:
         url,
         timeout=_DEFAULT_TIMEOUT,
         headers=_INTERNAL_HEADERS,
-        json={"chatId": chat_id},
-        log_fields={"chatId": chat_id},
+        json={"chatId": chat_id, "adminUserId": admin_user_id},
+        log_fields={"chatId": chat_id, "adminUserId": admin_user_id},
     )
     if response is None:
         return None

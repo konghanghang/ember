@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/models"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 )
@@ -266,5 +268,79 @@ func TestTelegramHandlerSubscribeByTelegramMapsErrors(t *testing.T) {
 				t.Fatalf("expected error %q, got %q", tc.wantError, resp.Error)
 			}
 		})
+	}
+}
+
+func TestTelegramHandlerPopPendingRejectPassesAdminUserID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalPopPendingReject := popPendingReject
+	t.Cleanup(func() {
+		popPendingReject = originalPopPendingReject
+	})
+
+	popPendingReject = func(ctx context.Context, chatID int64, adminUserID string) (*models.BotPendingRejectRequest, error) {
+		_ = ctx
+		if chatID != 2002 || adminUserID != "1001" {
+			t.Fatalf("unexpected pop args: chatID=%d adminUserID=%s", chatID, adminUserID)
+		}
+		messageID := int64(77)
+		return &models.BotPendingRejectRequest{
+			ID:             "pending_1",
+			ChatID:         chatID,
+			AdminUserID:    adminUserID,
+			SubscriptionID: "sub_123",
+			MessageID:      &messageID,
+			HasPhoto:       true,
+			OriginalText:   "<b>原始审批消息</b>",
+			ExpiresAt:      time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC),
+		}, nil
+	}
+
+	body := []byte(`{"chatId":2002,"adminUserId":"1001"}`)
+	ctx, recorder := newTestTelegramContext(http.MethodPost, "/api/v1/internal/telegram/reject-request/pop", body)
+
+	handler := &TelegramHandler{}
+	handler.PopPendingReject(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		AdminUserID    string `json:"adminUserId"`
+		SubscriptionID string `json:"subscriptionId"`
+		MessageID      *int64 `json:"messageId"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.AdminUserID != "1001" || resp.SubscriptionID != "sub_123" || resp.MessageID == nil || *resp.MessageID != 77 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
+func TestTelegramHandlerPopPendingRejectRequiresAdminUserID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalPopPendingReject := popPendingReject
+	t.Cleanup(func() {
+		popPendingReject = originalPopPendingReject
+	})
+
+	popPendingReject = func(ctx context.Context, chatID int64, adminUserID string) (*models.BotPendingRejectRequest, error) {
+		_ = ctx
+		t.Fatalf("pop should not be called when adminUserId is missing: chatID=%d adminUserID=%s", chatID, adminUserID)
+		return nil, nil
+	}
+
+	body := []byte(`{"chatId":2002}`)
+	ctx, recorder := newTestTelegramContext(http.MethodPost, "/api/v1/internal/telegram/reject-request/pop", body)
+
+	handler := &TelegramHandler{}
+	handler.PopPendingReject(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
 	}
 }

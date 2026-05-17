@@ -379,7 +379,8 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
 
     # 从 API 弹出待确认记录，取 subscriptionId；Bot 重启或滚动发布后仍可恢复待输入上下文。
     # Bot 不再保留进程内副本，拒绝原因的两步交互统一以服务端持久化记录为准。
-    popped = await api_client.pop_pending_reject(message.chat_id)
+    admin_user_id = str(message.from_user.id)
+    popped = await api_client.pop_pending_reject(message.chat_id, admin_user_id)
     if popped is None:
         return
 

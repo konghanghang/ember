@@ -162,6 +162,8 @@
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
 | POST | `/api/v1/internal/telegram/reset-password` | Bot 重置账号密码 |
 | POST | `/api/v1/internal/telegram/subscribe` | Bot 创建求片订阅 |
+| POST | `/api/v1/internal/telegram/reject-request/enqueue` | Bot 入队拒绝待确认记录（请求体必须携带 `chatId`、`adminUserId`、`subscriptionId`） |
+| POST | `/api/v1/internal/telegram/reject-request/pop` | Bot 弹出拒绝待确认记录（请求体必须携带 `chatId`、`adminUserId`，且操作者必须与入队记录一致） |
 
 ## 6. API 响应格式约定
 

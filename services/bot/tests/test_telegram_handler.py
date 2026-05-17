@@ -11,12 +11,19 @@ os.environ["TELEGRAM_UPDATE_MODE"] = "polling"
 if "httpx" not in sys.modules:
     httpx_stub = types.ModuleType("httpx")
 
+    class Request:
+        def __init__(self, method: str, url: str) -> None:
+            self.method = method
+            self.url = url
+
     class Response:
-        status_code = 200
-        request = None
+        def __init__(self, status_code: int = 200, *, request=None, json=None) -> None:
+            self.status_code = status_code
+            self.request = request
+            self._json = {} if json is None else json
 
         def json(self):
-            return {}
+            return self._json
 
     class AsyncClient:
         async def request(self, *args, **kwargs):
@@ -41,6 +48,7 @@ if "httpx" not in sys.modules:
             self.request = request
             self.response = response
 
+    httpx_stub.Request = Request
     httpx_stub.Response = Response
     httpx_stub.AsyncClient = AsyncClient
     httpx_stub.Limits = Limits
@@ -316,7 +324,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         ):
             await telegram_handler.handle_pending_reject_reason(update, None)
 
-        pop_mock.assert_awaited_once_with(2002)
+        pop_mock.assert_awaited_once_with(2002, "1001")
         reject_mock.assert_awaited_once_with("sub_123", "资源重复")
         message.reply_text.assert_awaited_once_with("已提交拒绝原因并完成拒绝。")
         bot.edit_message_text.assert_awaited_once_with(
@@ -350,7 +358,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         ):
             await telegram_handler.handle_pending_reject_reason(update, None)
 
-        pop_mock.assert_awaited_once_with(2002)
+        pop_mock.assert_awaited_once_with(2002, "1001")
         reject_mock.assert_not_awaited()
         message.reply_text.assert_not_called()
 

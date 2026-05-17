@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
@@ -32,12 +33,17 @@ func EnqueuePendingReject(ctx context.Context, chatID int64, adminUserID, subscr
 	return nil
 }
 
-// PopPendingReject 原子性地取出并删除最新未过期的拒绝待确认记录
-func PopPendingReject(ctx context.Context, chatID int64) (*models.BotPendingRejectRequest, error) {
+// PopPendingReject 原子性地取出并删除指定操作者最新未过期的拒绝待确认记录
+func PopPendingReject(ctx context.Context, chatID int64, adminUserID string) (*models.BotPendingRejectRequest, error) {
+	adminUserID = strings.TrimSpace(adminUserID)
+	if adminUserID == "" {
+		return nil, nil
+	}
+
 	var record models.BotPendingRejectRequest
 	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		err := tx.
-			Where(`"chat_id" = ? AND "expires_at" > ?`, chatID, time.Now().UTC()).
+			Where(`"chat_id" = ? AND "admin_user_id" = ? AND "expires_at" > ?`, chatID, adminUserID, time.Now().UTC()).
 			Order(`"created_at" DESC`).
 			First(&record).Error
 		if err != nil {
