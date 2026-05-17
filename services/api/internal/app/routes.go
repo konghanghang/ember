@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/apiroutes"
 	"github.com/konghang/ember/backend/internal/middleware"
 )
 
@@ -39,7 +40,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin := api.Group("/admin")
 	admin.Use(middleware.JWTAuth(), middleware.PasswordResetRequired(), middleware.AdminOnly())
 
-	admin.GET("/current", h.auth.GetCurrentUser)
+	admin.GET(apiroutes.CurrentPath, h.auth.GetCurrentUser)
 	admin.PUT("/current/emby-binding", h.auth.BindEmbyAccount)
 	admin.DELETE("/current/emby-binding", h.auth.UnbindEmbyAccount)
 
@@ -151,10 +152,10 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.GET("/tmdb/search", h.tmdb.Search)
 	authenticated.GET("/tmdb/tv/:id/seasons", h.tmdb.GetTVSeasons)
 
-	authenticated.GET("/profile", h.user.GetProfile)
+	authenticated.GET(apiroutes.ProfilePath, h.user.GetProfile)
 	authenticated.GET("/profile/analytics", h.playbackProfile.GetCurrentUserProfile)
-	authenticated.GET("/account-links", h.setting.GetConsoleAccountLinks)
-	authenticated.PUT("/password", h.user.UpdatePassword)
+	authenticated.GET(apiroutes.AccountLinksPath, h.setting.GetConsoleAccountLinks)
+	authenticated.PUT(apiroutes.PasswordPath, h.user.UpdatePassword)
 	authenticated.POST("/email/send-code", h.user.SendEmailChangeCode)
 	authenticated.PUT("/email", h.user.UpdateEmail)
 	authenticated.POST("/redeem", h.user.RedeemCode)
@@ -188,8 +189,8 @@ func registerUserRoutes(api *gin.RouterGroup, h *appHandlers) {
 	user := api.Group("/user")
 	user.Use(middleware.JWTAuth(), middleware.PasswordResetRequired(), middleware.UserOnly())
 
-	user.GET("/profile", h.user.GetProfile)
-	user.PUT("/password", h.user.UpdatePassword)
+	user.GET(apiroutes.ProfilePath, h.user.GetProfile)
+	user.PUT(apiroutes.PasswordPath, h.user.UpdatePassword)
 	user.POST("/email/send-code", h.user.SendEmailChangeCode)
 	user.PUT("/email", h.user.UpdateEmail)
 	user.POST("/redeem", h.user.RedeemCode)

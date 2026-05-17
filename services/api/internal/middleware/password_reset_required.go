@@ -6,18 +6,21 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/apiroutes"
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
-var passwordResetAllowedPaths = map[string]struct{}{
-	"/api/v1/profile":       {},
-	"/api/v1/password":      {},
-	"/api/v1/account-links": {},
-	"/api/v1/admin/current": {},
-	"/api/v1/user/profile":  {},
-	"/api/v1/user/password": {},
+var passwordResetAllowedPaths = newPasswordResetAllowedPathSet()
+
+func newPasswordResetAllowedPathSet() map[string]struct{} {
+	paths := apiroutes.PasswordResetClosedLoopPaths()
+	allowed := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		allowed[path] = struct{}{}
+	}
+	return allowed
 }
 
 var loadPasswordResetUser = func(userID string) (*models.User, error) {

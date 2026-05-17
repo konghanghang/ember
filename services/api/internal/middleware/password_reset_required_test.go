@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/apiroutes"
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/models"
 )
@@ -107,7 +108,7 @@ func TestPasswordResetRequired(t *testing.T) {
 	})
 
 	t.Run("allows password reset whitelist path and sets validated principal", func(t *testing.T) {
-		recorder, body := run("/api/v1/password", models.User{
+		recorder, body := run(apiroutes.FullPasswordPath, models.User{
 			ID:                    "user_1",
 			Role:                  "user",
 			IsActive:              true,
@@ -120,6 +121,24 @@ func TestPasswordResetRequired(t *testing.T) {
 		}
 		if body.Role != "user" {
 			t.Fatalf("expected validated principal payload, got %+v", body)
+		}
+	})
+
+	t.Run("allows all password reset closed loop paths", func(t *testing.T) {
+		for _, path := range apiroutes.PasswordResetClosedLoopPaths() {
+			t.Run(path, func(t *testing.T) {
+				recorder, body := run(path, models.User{
+					ID:                    "user_1",
+					Role:                  "user",
+					IsActive:              true,
+					Password:              passwordHash,
+					PasswordResetRequired: true,
+				}, "user", validPwdSig)
+
+				if recorder.Code != http.StatusOK {
+					t.Fatalf("expected closed loop path to pass, got status=%d body=%+v", recorder.Code, body)
+				}
+			})
 		}
 	})
 
