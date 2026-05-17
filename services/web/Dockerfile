@@ -3,6 +3,10 @@ FROM node:22.12.0-alpine AS builder
 
 WORKDIR /app
 
+ARG VITE_GIT_COMMIT_SHA=""
+ARG VITE_GITHUB_REPOSITORY="konghanghang/ember"
+ARG VITE_GITHUB_REPOSITORY_URL=""
+
 # 复制依赖文件
 COPY package*.json ./
 
@@ -14,6 +18,9 @@ COPY . ./
 
 # 构建 Vue 应用（生成静态文件）
 ENV NODE_ENV=production
+ENV VITE_GIT_COMMIT_SHA=${VITE_GIT_COMMIT_SHA}
+ENV VITE_GITHUB_REPOSITORY=${VITE_GITHUB_REPOSITORY}
+ENV VITE_GITHUB_REPOSITORY_URL=${VITE_GITHUB_REPOSITORY_URL}
 RUN npm run build
 
 # ==================== 第二阶段：运行 ====================
