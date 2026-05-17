@@ -30,7 +30,7 @@ services:
   ember-api:
     # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
-    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v1.5.0}
+    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v1.5.1}
 
     # 如需本地构建，取消下面三行注释并注释上面的 image 行
     # build:
@@ -81,7 +81,7 @@ services:
   ember-web:
     # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
-    image: ${EMBER_WEB_IMAGE:-ghcr.io/konghanghang/ember-web:v1.5.0}
+    image: ${EMBER_WEB_IMAGE:-ghcr.io/konghanghang/ember-web:v1.5.1}
 
     # 如需本地构建，取消下面两行注释并注释上面的 image 行
     # build:
@@ -106,7 +106,7 @@ services:
     profiles: ["bot"]
     # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
-    image: ${EMBER_BOT_IMAGE:-ghcr.io/konghanghang/ember-bot:v1.5.0}
+    image: ${EMBER_BOT_IMAGE:-ghcr.io/konghanghang/ember-bot:v1.5.1}
 
     # 如需本地构建，取消下面两行注释并注释上面的 image 行
     # build:

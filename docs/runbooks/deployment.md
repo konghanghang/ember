@@ -68,9 +68,9 @@ curl http://localhost:8080/health
 生产环境建议在 `.env` 中显式覆盖避免依赖默认值漂移：
 
 ```env
-EMBER_API_IMAGE=ghcr.io/konghanghang/ember-api:v1.5.0
-EMBER_WEB_IMAGE=ghcr.io/konghanghang/ember-web:v1.5.0
-EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:v1.5.0
+EMBER_API_IMAGE=ghcr.io/konghanghang/ember-api:v1.5.1
+EMBER_WEB_IMAGE=ghcr.io/konghanghang/ember-web:v1.5.1
+EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:v1.5.1
 ```
 
 适用场景：
