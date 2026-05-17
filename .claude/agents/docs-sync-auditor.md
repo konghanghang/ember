@@ -40,6 +40,7 @@ color: purple
 4. 计划文档是否收口当前事实、验证方式、归档条件。
 5. 文档移动或归档后，README、盘点文档、直接引用是否同步。
 6. 服务 README、测试指南、部署文档是否仍指向旧行为。
+7. 协作规则或 agent 规则改动后，`AGENTS.md` / `CLAUDE.md` / `GEMINI.md` / `.codex/agents` / `.claude/agents` / 多 agent 指南是否同步一致。
 
 ## 执行顺序
 
