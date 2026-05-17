@@ -61,6 +61,10 @@ type AuthPrincipal struct {
 	IsActive bool
 }
 
+func (p AuthPrincipal) IsAdmin() bool {
+	return p.Role == "admin"
+}
+
 func GetValidatedPrincipal(c *gin.Context) (AuthPrincipal, bool) {
 	value, exists := c.Get("principal")
 	if !exists {

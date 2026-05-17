@@ -196,9 +196,8 @@ func (h *SubscriptionHandler) GetMySubscriptions(c *gin.Context) {
 // GetSubscriptions 统一订阅列表（角色感知）
 // GET /api/v1/subscriptions
 func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
-	userID, hasUserID := c.Get("userID")
 	principal, hasPrincipal := middleware.GetValidatedPrincipal(c)
-	if !hasUserID || !hasPrincipal {
+	if !hasPrincipal {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
 		return
 	}
@@ -217,24 +216,25 @@ func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
 	}
 
 	status := parseSubscriptionStatus(statusStr)
-
-	if principal.Role == "admin" {
-		result, err := h.service.GetAllSubscriptions(status, page, pageSize)
-		if err != nil {
-			httpx.InternalError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, result)
-		return
-	}
-
-	result, err := h.service.GetUserSubscriptionsPaginated(userID.(string), status, page, pageSize)
+	result, err := h.getSubscriptionsForPrincipal(principal, status, page, pageSize)
 	if err != nil {
 		httpx.InternalError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+func (h *SubscriptionHandler) getSubscriptionsForPrincipal(
+	principal middleware.AuthPrincipal,
+	status *models.SubscriptionStatus,
+	page int,
+	pageSize int,
+) (*subscriptionpkg.GetAllSubscriptionsResponse, error) {
+	if principal.IsAdmin() {
+		return h.service.GetAllSubscriptions(status, page, pageSize)
+	}
+	return h.service.GetUserSubscriptionsPaginated(principal.UserID, status, page, pageSize)
 }
 
 // DeleteSubscription 删除订阅（仅 PENDING 状态）

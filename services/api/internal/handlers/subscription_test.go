@@ -211,7 +211,6 @@ func TestSubscriptionHandlerGetSubscriptionsUsesValidatedPrincipal(t *testing.T)
 		}
 
 		ctx, recorder := newTestSubscriptionContext(http.MethodGet, "/api/v1/subscriptions?status=PENDING&page=2&pageSize=20", nil)
-		ctx.Set("userID", "admin_1")
 		ctx.Set("principal", middleware.AuthPrincipal{UserID: "admin_1", Role: "admin", IsActive: true})
 
 		handler.GetSubscriptions(ctx)
@@ -241,7 +240,6 @@ func TestSubscriptionHandlerGetSubscriptionsUsesValidatedPrincipal(t *testing.T)
 		}
 
 		ctx, recorder := newTestSubscriptionContext(http.MethodGet, "/api/v1/subscriptions?status=INVALID", nil)
-		ctx.Set("userID", "user_1")
 		ctx.Set("principal", middleware.AuthPrincipal{UserID: "user_1", Role: "user", IsActive: true})
 
 		handler.GetSubscriptions(ctx)
