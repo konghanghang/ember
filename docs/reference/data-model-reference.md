@@ -19,10 +19,10 @@
 | 字段 | 类型 | 列名 | 说明 |
 |------|------|------|------|
 | ID | string(25) | id | CUID 主键 |
-| Username | string(50) | username | 唯一索引 |
+| Username | string(50) | username | 大小写不敏感唯一；SQL 层由 `uq_users_username_lower` 维护 |
 | Role | string(10) | role | `"admin"` 或 `"user"` |
 | Password | string | password | bcrypt hash（JSON 隐藏） |
-| Email | string(255) | email | 唯一索引 |
+| Email | string(255) | email | 非空邮箱大小写不敏感唯一；SQL 层由 `uq_users_email_lower` 维护 |
 | EmbyID | string(50) | embyId | Emby 用户 ID |
 | EmbyDisabled | bool | embyDisabled | cron 封禁标记 |
 | TelegramID | *int64 | telegramId | Telegram 绑定 ID（唯一，可空） |
@@ -42,6 +42,7 @@
 - `EmbyDisabled` 是 cron 自动管理的"过期封禁状态"
 - 两者正交，互不干扰
 - `User` 只承载 `users` 表真实列；`planGroupName`、`effectivePlanGroup` 等展示态字段只存在于 `services/user` 查询 DTO，不再混入持久化模型
+- `Username` / `Email` 的唯一性以 `infrastructure/database/` SQL 为准；GORM tag 不表达 `lower(...)` 函数唯一索引，避免误导 AutoMigrate 语义
 
 ### 2.2 RedemptionCode
 

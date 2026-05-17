@@ -9,12 +9,13 @@ import (
 
 // User 统一用户模型（admin + user）
 // role 字段区分角色：admin 使用本地密码，user 通过 Emby 认证
+// username/email 的唯一性由 SQL 层 lower(...) 函数唯一索引维护；线上不依赖 GORM AutoMigrate。
 type User struct {
 	ID                    string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	Username              string     `json:"username" gorm:"column:username;uniqueIndex;size:50;not null"`
+	Username              string     `json:"username" gorm:"column:username;size:50;not null"`
 	Role                  string     `json:"role" gorm:"column:role;size:10;not null;default:user"`
 	Password              string     `json:"-" gorm:"column:password"` // bcrypt hash，所有用户通用
-	Email                 string     `json:"email,omitempty" gorm:"column:email;size:255;uniqueIndex"`
+	Email                 string     `json:"email,omitempty" gorm:"column:email;size:255"`
 	EmbyID                string     `json:"embyId,omitempty" gorm:"column:emby_id;size:50;index"`
 	EmbyDisabled          bool       `json:"embyDisabled" gorm:"column:emby_disabled;default:false;not null"`
 	TelegramID            *int64     `json:"telegramId,omitempty" gorm:"column:telegram_id"` // partial unique 由 uq_users_telegram_id 维护
