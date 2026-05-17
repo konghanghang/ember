@@ -678,11 +678,18 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ## 7. 认证与授权
 
-- **JWT**：HS256，7 天有效期，Claims = {userID, username, role}
+- **JWT**：HS256，7 天有效期，Claims = {userID, username, role, pwdSig}
 - **Token 传递**：`Authorization: Bearer {token}`
-- **中间件链**：`JWTAuth()` → `AdminOnly()` / `UserOnly()`
+- **中间件链**：`JWTAuth()` → `PasswordResetRequired()` → `AdminOnly()` / `UserOnly()`
+- **会话状态收口**：`PasswordResetRequired()`（`middleware/password_reset_required.go`）是 `JWTAuth` 之后每请求必经的数据库回查点，承担会话失效语义：
+  - 账号被管理员停用（`is_active=false`）→ 401，旧 token 立即失效
+  - JWT 内 `role` 与数据库实际 `role` 不一致（被升/降级）→ 401，强制重新登录换新 token；因此该中间件之后下游可信任 context `role`
+  - JWT 内 `pwdSig` 与数据库当前密码哈希重新计算出的签名不一致（用户改密 / 管理员重置 / Telegram 重置 / 邮箱找回重置后）→ 401，旧 token 立即失效
+  - 被标记 `password_reset_required` 的账号只能访问改密闭环白名单接口
+  - 仅校验 Ember 账号状态 `is_active`；**不校验 `emby_disabled` / 过期**，过期或 Emby 侧被停用的用户仍可登录控制台续费/兑换
+- **登录态校验**：`AuthService.authenticateLoginUser` 在凭据校验前先拒绝 `is_active=false` 账号（返回与凭据错误一致文案），阻止停用账号重新登录换取新 JWT
 - **InternalAuth**：`middleware/internal_auth.go` — 校验 `X-Internal-Secret` header，用于 Bot ↔ API 内部通信
-- **Context 变量**：`userID`, `username`, `role`, `claims`
+- **Context 变量**：`userID`, `username`, `role`, `pwdSig`, `claims`, `principal`
 - **密码存储**：bcrypt（DefaultCost），所有用户统一存本地 hash
 - **存量迁移**：`Password == ""` 时降级 Emby 认证，成功后自动补存本地 hash
 

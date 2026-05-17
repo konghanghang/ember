@@ -26,9 +26,11 @@ type telegramSubscriber interface {
 
 // TelegramService Telegram 绑定与 Bot 能力
 type TelegramService struct {
-	redemptionService   telegramRedeemer
-	subscriptionService telegramSubscriber
-	newEmbyService      func() *embyint.EmbyService
+	redemptionService    telegramRedeemer
+	subscriptionService  telegramSubscriber
+	newEmbyService       func() *embyint.EmbyService
+	findUserByTelegramID func(telegramID int64) (*models.User, error)
+	saveResetPassword    func(user *models.User) error
 }
 
 func NewTelegramService(
@@ -43,6 +45,21 @@ func NewTelegramService(
 		redemptionService:   redeemer,
 		subscriptionService: subscriber,
 		newEmbyService:      newEmbyService,
+		findUserByTelegramID: func(telegramID int64) (*models.User, error) {
+			var user models.User
+			if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&user).Error; err != nil {
+				return nil, err
+			}
+			return &user, nil
+		},
+		saveResetPassword: func(user *models.User) error {
+			return db.DB.Model(&models.User{}).
+				Where("id = ?", user.ID).
+				Updates(map[string]interface{}{
+					"password":                user.Password,
+					"password_reset_required": false,
+				}).Error
+		},
 	}
 }
 
@@ -283,8 +300,8 @@ func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*Tele
 
 // ResetPassword 通过 Telegram 身份重置密码
 func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) error {
-	var user models.User
-	if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&user).Error; err != nil {
+	user, err := s.findUserByTelegramID(telegramID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrTelegramNotBound
 		}
@@ -302,12 +319,7 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 		return errors.New("密码重置失败：本地密码更新失败")
 	}
 	user.PasswordResetRequired = false
-	if err := db.DB.Model(&models.User{}).
-		Where("id = ?", user.ID).
-		Updates(map[string]interface{}{
-			"password":                user.Password,
-			"password_reset_required": false,
-		}).Error; err != nil {
+	if err := s.saveResetPassword(user); err != nil {
 		return errors.New("密码重置失败：本地密码保存失败")
 	}
 

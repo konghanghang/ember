@@ -42,7 +42,7 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 		return nil, err
 	}
 
-	token, err := common.GenerateToken(user.ID, user.Username, user.Role)
+	token, err := common.GenerateToken(user.ID, user.Username, user.Role, common.ComputePasswordSignature(user.Password))
 	if err != nil {
 		return nil, errors.New("生成 Token 失败")
 	}
@@ -67,6 +67,12 @@ func (s *AuthService) findLoginUser(username string) (*models.User, error) {
 }
 
 func (s *AuthService) authenticateLoginUser(user *models.User, password string) error {
+	// 账号被管理员显式停用（is_active=false）直接拒绝，避免停用账号重新登录换取新 token。
+	// 仅校验 Ember 账号状态；过期 / Emby 侧停用用户不在此拦截，仍可登录续费/兑换。
+	if !user.IsActive {
+		return ErrAuthInvalidCredentials
+	}
+
 	if user.IsAdmin() {
 		if user.CheckPassword(password) {
 			return nil

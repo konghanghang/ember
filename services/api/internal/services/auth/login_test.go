@@ -52,6 +52,7 @@ func TestAuthenticateLoginUserAdmin(t *testing.T) {
 		ID:       "admin_1",
 		Username: "admin",
 		Role:     "admin",
+		IsActive: true,
 	}
 	if err := admin.SetPassword("secret123"); err != nil {
 		t.Fatalf("failed to set password: %v", err)
@@ -84,6 +85,7 @@ func TestAuthenticateLoginUserEmbySuccessSyncsLocalHash(t *testing.T) {
 		Username: "ember",
 		Role:     "user",
 		EmbyID:   "emby_1",
+		IsActive: true,
 	}
 
 	if err := service.authenticateLoginUser(user, "pass1234"); err != nil {
@@ -117,6 +119,7 @@ func TestAuthenticateLoginUserFallsBackToLocalPassword(t *testing.T) {
 		Username: "ember",
 		Role:     "user",
 		EmbyID:   "emby_2",
+		IsActive: true,
 	}
 	if err := user.SetPassword("pass1234"); err != nil {
 		t.Fatalf("failed to set password: %v", err)
@@ -151,6 +154,7 @@ func TestAuthenticateLoginUserRejectsEmbyIDMismatch(t *testing.T) {
 		Username: "ember",
 		Role:     "user",
 		EmbyID:   "emby_local_original",
+		IsActive: true,
 	}
 	if err := user.SetPassword("pass1234"); err != nil {
 		t.Fatalf("failed to set password: %v", err)
@@ -162,5 +166,20 @@ func TestAuthenticateLoginUserRejectsEmbyIDMismatch(t *testing.T) {
 	}
 	if embyClient.lastUpdateUserID != "" || embyClient.lastUpdatePwd != "" {
 		t.Fatalf("expected no UpdateUserPassword call on mismatch, got user=%q pwd=%q", embyClient.lastUpdateUserID, embyClient.lastUpdatePwd)
+	}
+}
+
+func TestAuthenticateLoginUserRejectsInactiveUser(t *testing.T) {
+	service := NewAuthService()
+	user := &models.User{
+		ID:       "user_4",
+		Username: "ember",
+		Role:     "user",
+		IsActive: false,
+	}
+
+	err := service.authenticateLoginUser(user, "pass1234")
+	if err == nil || err.Error() != "用户名或密码错误" {
+		t.Fatalf("expected inactive user to be rejected, got %v", err)
 	}
 }

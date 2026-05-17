@@ -9,12 +9,15 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/konghang/ember/backend/internal/middleware"
 	"github.com/konghang/ember/backend/internal/models"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 )
 
 type stubSubscriptionService struct {
-	deleteFn func(subscriptionID, userID string) error
+	deleteFn           func(subscriptionID, userID string) error
+	getAllFn           func(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
+	getUserPaginatedFn func(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
 }
 
 func (s *stubSubscriptionService) CreateSubscriptionWithResult(userID string, req subscriptionpkg.CreateSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
@@ -34,7 +37,10 @@ func (s *stubSubscriptionService) GetUserSubscriptions(userID string) ([]models.
 }
 
 func (s *stubSubscriptionService) GetUserSubscriptionsPaginated(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error) {
-	return nil, nil
+	if s.getUserPaginatedFn == nil {
+		return nil, nil
+	}
+	return s.getUserPaginatedFn(userID, status, page, pageSize)
 }
 
 func (s *stubSubscriptionService) DeleteSubscription(subscriptionID, userID string) error {
@@ -45,7 +51,10 @@ func (s *stubSubscriptionService) DeleteSubscription(subscriptionID, userID stri
 }
 
 func (s *stubSubscriptionService) GetAllSubscriptions(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error) {
-	return nil, nil
+	if s.getAllFn == nil {
+		return nil, nil
+	}
+	return s.getAllFn(status, page, pageSize)
 }
 
 func (s *stubSubscriptionService) ApproveSubscription(subscriptionID string) error {
@@ -127,4 +136,65 @@ func TestSubscriptionHandlerDeleteSubscriptionMapsErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSubscriptionHandlerGetSubscriptionsUsesValidatedPrincipal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("admin branch reads all subscriptions", func(t *testing.T) {
+		handler := &SubscriptionHandler{
+			service: &stubSubscriptionService{
+				getAllFn: func(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error) {
+					if status == nil || *status != models.SubscriptionPending || page != 2 || pageSize != 20 {
+						t.Fatalf("unexpected admin query args: status=%v page=%d pageSize=%d", status, page, pageSize)
+					}
+					return &subscriptionpkg.GetAllSubscriptionsResponse{}, nil
+				},
+				getUserPaginatedFn: func(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error) {
+					t.Fatalf("user branch should not be called for admin principal")
+					return nil, nil
+				},
+			},
+		}
+
+		ctx, recorder := newTestSubscriptionContext(http.MethodGet, "/api/v1/subscriptions?status=PENDING&page=2&pageSize=20", nil)
+		ctx.Set("userID", "admin_1")
+		ctx.Set("principal", middleware.AuthPrincipal{UserID: "admin_1", Role: "admin", IsActive: true})
+
+		handler.GetSubscriptions(ctx)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+		}
+	})
+
+	t.Run("user branch keeps user scope", func(t *testing.T) {
+		handler := &SubscriptionHandler{
+			service: &stubSubscriptionService{
+				getAllFn: func(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error) {
+					t.Fatalf("admin branch should not be called for user principal")
+					return nil, nil
+				},
+				getUserPaginatedFn: func(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error) {
+					if userID != "user_1" || page != 1 || pageSize != 12 {
+						t.Fatalf("unexpected user query args: userID=%s page=%d pageSize=%d", userID, page, pageSize)
+					}
+					if status != nil {
+						t.Fatalf("expected nil status for invalid filter, got %v", *status)
+					}
+					return &subscriptionpkg.GetAllSubscriptionsResponse{}, nil
+				},
+			},
+		}
+
+		ctx, recorder := newTestSubscriptionContext(http.MethodGet, "/api/v1/subscriptions?status=INVALID", nil)
+		ctx.Set("userID", "user_1")
+		ctx.Set("principal", middleware.AuthPrincipal{UserID: "user_1", Role: "user", IsActive: true})
+
+		handler.GetSubscriptions(ctx)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+		}
+	})
 }

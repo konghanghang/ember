@@ -47,17 +47,53 @@ func JWTAuth() gin.HandlerFunc {
 		c.Set("userID", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
+		c.Set("pwdSig", claims.PwdSig)
 		c.Set("claims", claims)
 
 		c.Next()
 	}
 }
 
+// AuthPrincipal 表示已由 PasswordResetRequired 回查 DB 并校验过的真实会话主体。
+type AuthPrincipal struct {
+	UserID   string
+	Role     string
+	IsActive bool
+}
+
+func GetValidatedPrincipal(c *gin.Context) (AuthPrincipal, bool) {
+	value, exists := c.Get("principal")
+	if !exists {
+		return AuthPrincipal{}, false
+	}
+	principal, ok := value.(AuthPrincipal)
+	if !ok || strings.TrimSpace(principal.UserID) == "" || strings.TrimSpace(principal.Role) == "" {
+		return AuthPrincipal{}, false
+	}
+	return principal, true
+}
+
+func currentRole(c *gin.Context) (string, bool) {
+	if principal, ok := GetValidatedPrincipal(c); ok {
+		return principal.Role, true
+	}
+
+	role, exists := c.Get("role")
+	if !exists {
+		return "", false
+	}
+	roleStr, ok := role.(string)
+	if !ok || strings.TrimSpace(roleStr) == "" {
+		return "", false
+	}
+	return roleStr, true
+}
+
 // AdminOnly 仅管理员可访问的中间件
 // 必须在 JWTAuth 之后使用
 func AdminOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role, exists := c.Get("role")
+		role, exists := currentRole(c)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "未认证",
@@ -82,7 +118,7 @@ func AdminOnly() gin.HandlerFunc {
 // 必须在 JWTAuth 之后使用
 func UserOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role, exists := c.Get("role")
+		role, exists := currentRole(c)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "未认证",

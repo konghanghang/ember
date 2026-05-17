@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 type stubTelegramRedeemer struct {
@@ -88,5 +89,39 @@ func TestTelegramServiceSubscribeForUserReturnsSubscriberError(t *testing.T) {
 	}, nil)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected delegated error, got %v", err)
+	}
+}
+
+func TestTelegramServiceResetPasswordNotBound(t *testing.T) {
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	err := service.ResetPassword(42, "newpass123")
+	if !errors.Is(err, ErrTelegramNotBound) {
+		t.Fatalf("expected not bound error, got %v", err)
+	}
+}
+
+func TestTelegramServiceResetPasswordUpdatesLocalHash(t *testing.T) {
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		return &models.User{ID: "user_1", Username: "ember"}, nil
+	}
+	saved := false
+	service.saveResetPassword = func(user *models.User) error {
+		saved = true
+		if !user.CheckPassword("newpass123") {
+			t.Fatalf("expected local password hash to be updated")
+		}
+		return nil
+	}
+
+	if err := service.ResetPassword(42, "newpass123"); err != nil {
+		t.Fatalf("expected reset password success, got %v", err)
+	}
+	if !saved {
+		t.Fatalf("expected saveResetPassword to be called")
 	}
 }

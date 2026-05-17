@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
+	"github.com/konghang/ember/backend/internal/middleware"
 	"github.com/konghang/ember/backend/internal/models"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 )
@@ -196,8 +197,8 @@ func (h *SubscriptionHandler) GetMySubscriptions(c *gin.Context) {
 // GET /api/v1/subscriptions
 func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
 	userID, hasUserID := c.Get("userID")
-	role, hasRole := c.Get("role")
-	if !hasUserID || !hasRole {
+	principal, hasPrincipal := middleware.GetValidatedPrincipal(c)
+	if !hasUserID || !hasPrincipal {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
 		return
 	}
@@ -217,7 +218,7 @@ func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
 
 	status := parseSubscriptionStatus(statusStr)
 
-	if role.(string) == "admin" {
+	if principal.Role == "admin" {
 		result, err := h.service.GetAllSubscriptions(status, page, pageSize)
 		if err != nil {
 			httpx.InternalError(c, err)

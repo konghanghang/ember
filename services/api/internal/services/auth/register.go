@@ -57,7 +57,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 
 	s.notifyNewRegistration(*user, prepared.mode)
 
-	token, err := common.GenerateToken(user.ID, user.Username, "user")
+	token, err := common.GenerateToken(user.ID, user.Username, "user", common.ComputePasswordSignature(user.Password))
 	if err != nil {
 		return nil, errors.New("生成 Token 失败")
 	}
