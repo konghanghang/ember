@@ -6,13 +6,13 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	configpkg "github.com/konghang/ember/backend/internal/config"
+	"github.com/konghang/ember/backend/internal/common"
 )
 
 // InternalAuth 内部服务认证中间件（Bot/API 服务间调用）
 func InternalAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		secret := strings.TrimSpace(configpkg.NewConfigService().GetString("INTERNAL_API_SECRET"))
+		secret := common.InternalAPISecret()
 		if secret == "" {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error": "内部认证不可用",

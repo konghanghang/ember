@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
-os.environ["INTERNAL_API_SECRET"] = "test-secret"
+os.environ["INTERNAL_API_SECRET"] = "0123456789abcdef0123456789abcdef"
 os.environ["TELEGRAM_UPDATE_MODE"] = "webhook"
 os.environ["TELEGRAM_WEBHOOK_SECRET"] = "test-webhook-secret"
 os.environ["WEBHOOK_URL"] = "https://example.com"

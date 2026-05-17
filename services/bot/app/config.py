@@ -14,6 +14,8 @@ TMDB_IMAGE_BASE_W500 = "https://image.tmdb.org/t/p/w500"
 TMDB_NO_POSTER_URL = "https://image.tmdb.org/t/p/w500/wwemzKWzjKYJFfCeiB57q3r4Bcm.png"
 TELEGRAM_UPDATE_MODE_WEBHOOK = "webhook"
 TELEGRAM_UPDATE_MODE_POLLING = "polling"
+MIN_INTERNAL_API_SECRET_LENGTH = 32
+INTERNAL_API_SECRET_PLACEHOLDERS = {"your-internal-api-secret"}
 
 
 def _parse_optional_int(name: str) -> Optional[int]:
@@ -27,6 +29,17 @@ def _parse_required_str(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
         raise RuntimeError(f"{name} is required")
+    return value
+
+
+def _parse_internal_api_secret() -> str:
+    value = _parse_required_str("INTERNAL_API_SECRET")
+    if value.lower() in INTERNAL_API_SECRET_PLACEHOLDERS:
+        raise RuntimeError("INTERNAL_API_SECRET must not use the .env.example placeholder value")
+    if len(value) < MIN_INTERNAL_API_SECRET_LENGTH:
+        raise RuntimeError(
+            f"INTERNAL_API_SECRET must be at least {MIN_INTERNAL_API_SECRET_LENGTH} characters"
+        )
     return value
 
 
@@ -73,7 +86,7 @@ def load_bootstrap_config() -> BootstrapConfig:
         telegram_admin_chat_id=_parse_optional_int("TELEGRAM_ADMIN_CHAT_ID"),
         telegram_group_chat_id=_parse_optional_int("TELEGRAM_GROUP_CHAT_ID"),
         telegram_webhook_secret=telegram_webhook_secret,
-        internal_api_secret=_parse_required_str("INTERNAL_API_SECRET"),
+        internal_api_secret=_parse_internal_api_secret(),
         webhook_url=webhook_url,
         api_url=os.getenv("API_URL", "http://localhost:8080").rstrip("/"),
         bot_port=int(os.getenv("BOT_PORT", "8000")),

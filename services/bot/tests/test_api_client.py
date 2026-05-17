@@ -13,7 +13,7 @@ if BOT_ROOT_STR not in sys.path:
     sys.path.insert(0, BOT_ROOT_STR)
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
-os.environ.setdefault("INTERNAL_API_SECRET", "test-secret")
+os.environ.setdefault("INTERNAL_API_SECRET", "0123456789abcdef0123456789abcdef")
 os.environ.setdefault("TELEGRAM_UPDATE_MODE", "polling")
 
 from app.clients import api_client

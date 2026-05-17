@@ -688,7 +688,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - 被标记 `password_reset_required` 的账号只能访问改密闭环白名单接口
   - 仅校验 Ember 账号状态 `is_active`；**不校验 `emby_disabled` / 过期**，过期或 Emby 侧被停用的用户仍可登录控制台续费/兑换
 - **登录态校验**：`AuthService.authenticateLoginUser` 在凭据校验前先拒绝 `is_active=false` 账号（返回与凭据错误一致文案），阻止停用账号重新登录换取新 JWT
-- **InternalAuth**：`middleware/internal_auth.go` — 校验 `X-Internal-Secret` header，用于 Bot ↔ API 内部通信
+- **InternalAuth**：`middleware/internal_auth.go` — 校验 `X-Internal-Secret` header，用于 Bot ↔ API 内部通信；`INTERNAL_API_SECRET` 在 API 与 Bot 启动期均要求非空、长度至少 32 字符，并拒绝示例占位值
 - **Context 变量**：`userID`, `username`, `role`, `pwdSig`, `claims`, `principal`
 - **密码存储**：bcrypt（DefaultCost），所有用户统一存本地 hash
 - **存量迁移**：`Password == ""` 时降级 Emby 认证，成功后自动补存本地 hash

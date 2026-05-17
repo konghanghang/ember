@@ -24,7 +24,7 @@
 | `POSTGRES_PASSWORD` | PostgreSQL 密码（禁止使用默认值）|
 | `JWT_SECRET` | JWT 签名密钥（≥32 字符）|
 | `CONFIG_ENCRYPTION_KEY` | 设置中心敏感值加密主密钥（≥32 字符）|
-| `INTERNAL_API_SECRET` | API 与 Bot 的内部调用共享密钥 |
+| `INTERNAL_API_SECRET` | API 与 Bot 的内部调用共享密钥（≥32 字符，禁止使用示例占位值） |
 
 `DATABASE_URL` 缺省时由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时在 `.env` 显式提供完整 DSN 即可覆盖。
 

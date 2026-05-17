@@ -37,6 +37,11 @@ func main() {
 		log.Fatalf("❌ JWT 初始化失败：%v", err)
 	}
 
+	// 初始化 Bot/API 内部通信密钥
+	if err := common.InitInternalAPISecret(); err != nil {
+		log.Fatalf("❌ 内部服务密钥初始化失败：%v", err)
+	}
+
 	if err := apppkg.Start(); err != nil {
 		log.Fatalf("❌ 服务器启动失败：%v", err)
 	}

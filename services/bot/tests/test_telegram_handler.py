@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
-os.environ["INTERNAL_API_SECRET"] = "test-secret"
+os.environ["INTERNAL_API_SECRET"] = "0123456789abcdef0123456789abcdef"
 os.environ["TELEGRAM_UPDATE_MODE"] = "polling"
 
 if "httpx" not in sys.modules:

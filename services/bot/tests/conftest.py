@@ -11,4 +11,4 @@ if BOT_ROOT_STR not in sys.path:
 
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
-os.environ.setdefault("INTERNAL_API_SECRET", "test-secret")
+os.environ.setdefault("INTERNAL_API_SECRET", "0123456789abcdef0123456789abcdef")
