@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -110,16 +111,60 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	})
 }
 
+// ListAdminEmbyUsers 获取管理员可绑定的 Emby 用户候选列表
+// @Summary 获取 Emby 用户候选列表
+// @Tags 认证
+// @Produce json
+// @Success 200 {object} auth.ListAdminEmbyUsersResponse
+// @Failure 502 {object} ErrorResponse
+// @Router /api/v1/admin/emby-users [get]
+// @Security BearerAuth
+func (h *AuthHandler) ListAdminEmbyUsers(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	resp, err := h.authService.ListAdminEmbyUsers(userID.(string), authpkg.ListAdminEmbyUsersRequest{
+		Query: c.Query("query"),
+		Limit: parsePositiveIntQuery(c, "limit"),
+	})
+	if err != nil {
+		if errors.Is(err, authpkg.ErrEmbyUserSearchQueryRequired) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, authpkg.ErrEmbyServiceUnavailable) {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func parsePositiveIntQuery(c *gin.Context, key string) int {
+	value := strings.TrimSpace(c.Query(key))
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0
+	}
+	return parsed
+}
+
 // BindEmbyAccount 绑定 Emby 账号到当前管理员
 // @Summary 管理员关联 Emby 账号
 // @Tags 认证
 // @Accept json
 // @Produce json
-// @Param body body auth.BindEmbyAccountRequest true "Emby 凭据"
+// @Param body body auth.BindEmbyAccountRequest true "Emby 用户 ID"
 // @Success 200 {object} auth.BindEmbyAccountResponse
 // @Failure 400 {object} ErrorResponse
-// @Failure 401 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
 // @Failure 409 {object} ErrorResponse
+// @Failure 502 {object} ErrorResponse
 // @Router /api/v1/admin/current/emby-binding [put]
 // @Security BearerAuth
 func (h *AuthHandler) BindEmbyAccount(c *gin.Context) {
@@ -134,14 +179,16 @@ func (h *AuthHandler) BindEmbyAccount(c *gin.Context) {
 	resp, err := h.authService.BindEmbyAccount(userID.(string), &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, authpkg.ErrEmbyBindingCredentialRequired):
+		case errors.Is(err, authpkg.ErrEmbyBindingTargetRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, authpkg.ErrEmbyBindingAuthFailed):
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		case errors.Is(err, authpkg.ErrEmbyBindingUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, authpkg.ErrEmbyAlreadyBound):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case authpkg.IsEmbyUserOccupied(err):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, authpkg.ErrEmbyServiceUnavailable):
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)
 		}

@@ -11,9 +11,14 @@ import (
 type stubAuthEmbyClient struct {
 	authUserResp      *embyint.EmbyUser
 	authUserErr       error
+	getUsersResp      []embyint.EmbyUser
+	getUsersErr       error
+	getUserByIDResp   *embyint.EmbyUser
+	getUserByIDErr    error
 	updatePasswordErr error
 	lastAuthUsername  string
 	lastAuthPassword  string
+	lastGetUserByID   string
 	lastUpdateUserID  string
 	lastUpdatePwd     string
 }
@@ -36,6 +41,24 @@ func (s *stubAuthEmbyClient) CreateEmbyUser(username, password string) (*embyint
 
 func (s *stubAuthEmbyClient) DeleteUser(embyUserID string) error {
 	return errors.New("unexpected DeleteUser call")
+}
+
+func (s *stubAuthEmbyClient) GetUsers() ([]embyint.EmbyUser, error) {
+	if s.getUsersErr != nil {
+		return nil, s.getUsersErr
+	}
+	if s.getUsersResp == nil {
+		return nil, errors.New("unexpected GetUsers call")
+	}
+	return s.getUsersResp, nil
+}
+
+func (s *stubAuthEmbyClient) GetUserByID(embyUserID string) (*embyint.EmbyUser, error) {
+	s.lastGetUserByID = embyUserID
+	if s.getUserByIDResp == nil && s.getUserByIDErr == nil {
+		return nil, errors.New("unexpected GetUserByID call")
+	}
+	return s.getUserByIDResp, s.getUserByIDErr
 }
 
 func (s *stubAuthEmbyClient) GetUserPolicyRaw(embyUserID string) (map[string]any, error) {

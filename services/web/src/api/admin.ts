@@ -3,6 +3,7 @@ import type {
   ActiveSession,
   AdminEmbyBindingRequest,
   AdminEmbyBindingResponse,
+  AdminEmbyUserListResponse,
   AdminPaymentQuery,
   AdminRedemptionQuery,
   AdminConfigItem,
@@ -547,6 +548,14 @@ export function syncTVCalendar(data?: { tmdbId?: string; force?: boolean; weekOf
 export const refreshTVCalendar = syncTVCalendar
 
 // ==================== 管理员 Emby 绑定 ====================
+export function getAdminEmbyUsers(params?: { query?: string; limit?: number }): Promise<AdminEmbyUserListResponse> {
+  return request({
+    url: '/admin/emby-users',
+    method: 'get',
+    params
+  })
+}
+
 export function bindAdminEmbyAccount(data: AdminEmbyBindingRequest): Promise<AdminEmbyBindingResponse> {
   return request({
     url: '/admin/current/emby-binding',

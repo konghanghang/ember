@@ -79,7 +79,8 @@
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
-| PUT | `/api/v1/admin/current/emby-binding` | 管理员自助绑定 Emby 账号（请求体 `embyUsername` + `embyPassword`，401/409/502 错误语义见 `docs/system-architecture.md` §5.1） |
+| GET | `/api/v1/admin/emby-users` | Emby 用户候选列表（查询参数 `query` 必填且至少 2 个字符，`limit` 可选；返回 `data`） |
+| PUT | `/api/v1/admin/current/emby-binding` | 管理员自助绑定 Emby 账号（请求体 `{embyId}`，404/409/502 错误语义见 `docs/system-architecture.md` §5.1） |
 | DELETE | `/api/v1/admin/current/emby-binding` | 管理员解除 Emby 关联（仅清本地 `emby_id`，不动 Emby 用户） |
 | GET | `/api/v1/admin/users` | 用户列表（支持按有效 `planGroup` 过滤；显式分组为空时自动归入默认分组） |
 | POST | `/api/v1/admin/users` | 后台创建普通用户（显式指定 `planGroup` 与 `expiresAt` / `neverExpire`） |

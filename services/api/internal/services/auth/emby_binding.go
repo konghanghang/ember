@@ -7,25 +7,33 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
 
 // 管理员 Emby 账号绑定 / 解绑相关错误。
 var (
-	// ErrEmbyBindingCredentialRequired 请求体缺少 embyUsername 或 embyPassword。
-	ErrEmbyBindingCredentialRequired = errors.New("请提供 Emby 用户名和密码")
+	// ErrEmbyBindingTargetRequired 请求体缺少目标 Emby 用户 ID。
+	ErrEmbyBindingTargetRequired = errors.New("请选择 Emby 用户")
 
-	// ErrEmbyBindingAuthFailed Emby 凭据校验失败，或 Emby 服务暂不可达且当前
-	// 无法从 embyService.AuthenticateUser 错误体中稳定区分网络错与凭据错。
-	//
-	// TODO(emby-binding): 后续在 EmbyService.AuthenticateUser 区分错误类型
-	// （typed error / sentinel）后，将"无法连接到 Emby 服务器"类错误单独
-	// 翻译成 ErrEmbyServiceUnavailable，再由 handler 映射 502。
-	ErrEmbyBindingAuthFailed = errors.New("Emby 用户名或密码错误")
+	// ErrEmbyBindingUserNotFound 表示前端提交的 Emby 用户已不存在。
+	ErrEmbyBindingUserNotFound = errors.New("Emby 用户不存在")
+
+	// ErrEmbyServiceUnavailable 表示 Emby 配置缺失、服务不可达或 API Key 不可用。
+	ErrEmbyServiceUnavailable = errors.New("Emby 服务暂不可用")
+
+	// ErrEmbyUserSearchQueryRequired 表示 Emby 用户候选查询缺少关键词。
+	ErrEmbyUserSearchQueryRequired = errors.New("请输入至少 2 个字符搜索 Emby 用户")
 
 	// ErrEmbyAlreadyBound 当前账号已绑定其他 Emby 用户，需要先解绑。
 	ErrEmbyAlreadyBound = errors.New("当前账号已绑定其他 Emby 用户，请先解除绑定")
+)
+
+const (
+	defaultAdminEmbyUserSearchLimit = 20
+	maxAdminEmbyUserSearchLimit     = 50
+	minAdminEmbyUserSearchQueryLen  = 2
 )
 
 // ErrEmbyUserOccupied Emby 用户已被其他本地账号占用。错误消息中带冲突方本地用户名，
@@ -47,10 +55,30 @@ func IsEmbyUserOccupied(err error) bool {
 	return errors.As(err, &target)
 }
 
+// AdminEmbyUserOption 表示管理员绑定弹窗中的单个 Emby 用户候选项。
+type AdminEmbyUserOption struct {
+	EmbyID         string `json:"embyId"`
+	Name           string `json:"name"`
+	HasPassword    bool   `json:"hasPassword"`
+	BoundUsername  string `json:"boundUsername,omitempty"`
+	BoundToCurrent bool   `json:"boundToCurrent"`
+	Available      bool   `json:"available"`
+}
+
+// ListAdminEmbyUsersResponse 管理员 Emby 用户候选列表响应。
+type ListAdminEmbyUsersResponse struct {
+	Data []AdminEmbyUserOption `json:"data"`
+}
+
+// ListAdminEmbyUsersRequest 管理员 Emby 用户候选查询请求。
+type ListAdminEmbyUsersRequest struct {
+	Query string
+	Limit int
+}
+
 // BindEmbyAccountRequest 管理员关联 Emby 账号请求。
 type BindEmbyAccountRequest struct {
-	EmbyUsername string `json:"embyUsername"`
-	EmbyPassword string `json:"embyPassword"`
+	EmbyID string `json:"embyId"`
 }
 
 // BindEmbyAccountResponse 管理员关联 Emby 账号成功响应。
@@ -59,12 +87,88 @@ type BindEmbyAccountResponse struct {
 	EmbyUsername string `json:"embyUsername"`
 }
 
+// ListAdminEmbyUsers 返回管理员可选择绑定的 Emby 用户候选列表。
+//
+// 该方法要求调用方提供搜索关键词，并只返回有限候选，避免弹窗打开时把全量
+// Emby 用户列表暴露给浏览器。当前 Emby 封装仍通过 API Key 拉取用户列表后在
+// 服务端过滤；后续若确认 Emby 存在稳定用户查询端点，可把过滤下推到 Emby 侧。
+func (s *AuthService) ListAdminEmbyUsers(userID string, req ListAdminEmbyUsersRequest) (*ListAdminEmbyUsersResponse, error) {
+	query := strings.TrimSpace(req.Query)
+	if len([]rune(query)) < minAdminEmbyUserSearchQueryLen {
+		return nil, ErrEmbyUserSearchQueryRequired
+	}
+	limit := normalizeAdminEmbyUserSearchLimit(req.Limit)
+	normalizedQuery := strings.ToLower(query)
+
+	embyService := s.newEmbyClient()
+	embyUsers, err := embyService.GetUsers()
+	if err != nil {
+		log.Printf("[Admin Emby Binding] op=list userID=%s result=emby_unavailable err=%v", userID, err)
+		return nil, ErrEmbyServiceUnavailable
+	}
+
+	matchedUsers := make([]embyint.EmbyUser, 0, limit)
+	embyIDs := make([]string, 0, limit)
+	for _, embyUser := range embyUsers {
+		embyID := strings.TrimSpace(embyUser.ID)
+		if embyID == "" {
+			continue
+		}
+		if !matchesAdminEmbyUserSearch(embyUser, normalizedQuery) {
+			continue
+		}
+		matchedUsers = append(matchedUsers, embyUser)
+		embyIDs = append(embyIDs, embyID)
+		if len(matchedUsers) >= limit {
+			break
+		}
+	}
+
+	boundUsers, err := s.findUsersByEmbyIDs(embyIDs)
+	if err != nil {
+		log.Printf("[Admin Emby Binding] op=list userID=%s result=local_lookup_failed err=%v", userID, err)
+		return nil, err
+	}
+
+	boundByEmbyID := make(map[string]models.User, len(boundUsers))
+	for _, user := range boundUsers {
+		if embyID := strings.TrimSpace(user.EmbyID); embyID != "" {
+			boundByEmbyID[embyID] = user
+		}
+	}
+
+	options := make([]AdminEmbyUserOption, 0, len(matchedUsers))
+	for _, embyUser := range matchedUsers {
+		embyID := strings.TrimSpace(embyUser.ID)
+		if embyID == "" {
+			continue
+		}
+
+		option := AdminEmbyUserOption{
+			EmbyID:         embyID,
+			Name:           embyUser.Name,
+			HasPassword:    embyUser.HasPassword,
+			BoundToCurrent: false,
+			Available:      true,
+		}
+		if boundUser, ok := boundByEmbyID[embyID]; ok {
+			option.BoundUsername = boundUser.Username
+			option.BoundToCurrent = boundUser.ID == userID
+			option.Available = option.BoundToCurrent
+		}
+		options = append(options, option)
+	}
+
+	log.Printf("[Admin Emby Binding] op=list userID=%s result=success queryLen=%d total=%d limit=%d",
+		userID, len([]rune(query)), len(options), limit)
+	return &ListAdminEmbyUsersResponse{Data: options}, nil
+}
+
 // BindEmbyAccount 把 Emby 用户绑定到当前本地用户（管理员控制台自助接入）。
 //
 // 关键流程：
-//  1. 校验请求体；
-//  2. 调用 embyService.AuthenticateUser 拿到目标 EmbyID；任何失败都翻译为
-//     ErrEmbyBindingAuthFailed（短期内无法区分凭据错与网络错）；
+//  1. 校验请求体中的 embyId；
+//  2. 调用 embyService.GetUserByID 校验目标 Emby 用户仍存在；
 //  3. 应用层先读当前用户：已绑同一目标视为幂等成功，绑定到其他目标返回
 //     ErrEmbyAlreadyBound；
 //  4. 应用层再查冲突方：若另一本地账号已绑定目标 EmbyID，返回带冲突用户名的
@@ -72,28 +176,35 @@ type BindEmbyAccountResponse struct {
 //  5. UPDATE 当前 user 的 emby_id；DB 偏唯一索引兜底并发，捕获唯一约束错误同样
 //     翻译为 ErrEmbyUserOccupied。
 //
-// 日志按 [Admin Emby Binding] 前缀打入口、关键决策、失败点；严禁输出 Emby 密码与
-// AuthenticateUser 完整返回体。
+// 日志按 [Admin Emby Binding] 前缀打入口、关键决策、失败点；严禁输出
+// Emby API Key 或完整返回体。
 func (s *AuthService) BindEmbyAccount(userID string, req *BindEmbyAccountRequest) (*BindEmbyAccountResponse, error) {
-	embyUsername := strings.TrimSpace(req.EmbyUsername)
-	embyPassword := req.EmbyPassword
-	if embyUsername == "" || embyPassword == "" {
-		return nil, ErrEmbyBindingCredentialRequired
+	targetEmbyID := ""
+	if req != nil {
+		targetEmbyID = strings.TrimSpace(req.EmbyID)
+	}
+	if targetEmbyID == "" {
+		return nil, ErrEmbyBindingTargetRequired
 	}
 
 	embyService := s.newEmbyClient()
-	embyUser, err := embyService.AuthenticateUser(embyUsername, embyPassword)
+	embyUser, err := embyService.GetUserByID(targetEmbyID)
 	if err != nil {
-		log.Printf("[Admin Emby Binding] op=bind userID=%s embyUsername=%s result=auth_failed err=%v",
-			userID, embyUsername, err)
-		return nil, ErrEmbyBindingAuthFailed
+		if errors.Is(err, embyint.ErrEmbyUserNotFound) {
+			log.Printf("[Admin Emby Binding] op=bind userID=%s targetEmbyId=%s result=emby_user_not_found",
+				userID, targetEmbyID)
+			return nil, ErrEmbyBindingUserNotFound
+		}
+		log.Printf("[Admin Emby Binding] op=bind userID=%s targetEmbyId=%s result=emby_unavailable err=%v",
+			userID, targetEmbyID, err)
+		return nil, ErrEmbyServiceUnavailable
 	}
 	if embyUser == nil || strings.TrimSpace(embyUser.ID) == "" {
-		log.Printf("[Admin Emby Binding] op=bind userID=%s embyUsername=%s result=auth_failed err=empty_emby_user",
-			userID, embyUsername)
-		return nil, ErrEmbyBindingAuthFailed
+		log.Printf("[Admin Emby Binding] op=bind userID=%s targetEmbyId=%s result=emby_user_not_found err=empty_emby_user",
+			userID, targetEmbyID)
+		return nil, ErrEmbyBindingUserNotFound
 	}
-	targetEmbyID := embyUser.ID
+	targetEmbyID = strings.TrimSpace(embyUser.ID)
 
 	// 当前用户视角校验
 	current, err := s.findUserByIDForBinding(userID)
@@ -178,7 +289,7 @@ func (s *AuthService) UnbindEmbyAccount(userID string) error {
 	return nil
 }
 
-// 下面三个方法对外不暴露，定义为方法以便测试时通过依赖替换 hook 注入 mock。
+// 下面这些方法对外不暴露，定义为方法以便测试时通过依赖替换 hook 注入 mock。
 // 当前实现直接走 db.DB；测试用例通过 newAuthServiceForBinding 注入函数级桩件。
 
 func (s *AuthService) findUserByIDForBinding(userID string) (*models.User, error) {
@@ -205,6 +316,42 @@ func (s *AuthService) findOccupyingUser(embyID, excludeUserID string) (*models.U
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (s *AuthService) findUsersByEmbyIDs(embyIDs []string) ([]models.User, error) {
+	if s.findUsersByEmbyIDsFn != nil {
+		return s.findUsersByEmbyIDsFn(embyIDs)
+	}
+	if len(embyIDs) == 0 {
+		return []models.User{}, nil
+	}
+
+	var users []models.User
+	if err := db.DB.
+		Where("emby_id IN ?", embyIDs).
+		Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func normalizeAdminEmbyUserSearchLimit(limit int) int {
+	if limit <= 0 {
+		return defaultAdminEmbyUserSearchLimit
+	}
+	if limit > maxAdminEmbyUserSearchLimit {
+		return maxAdminEmbyUserSearchLimit
+	}
+	return limit
+}
+
+func matchesAdminEmbyUserSearch(user embyint.EmbyUser, normalizedQuery string) bool {
+	if normalizedQuery == "" {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(user.Name))
+	embyID := strings.ToLower(strings.TrimSpace(user.ID))
+	return strings.Contains(name, normalizedQuery) || strings.Contains(embyID, normalizedQuery)
 }
 
 func (s *AuthService) updateUserEmbyID(userID, embyID string) error {

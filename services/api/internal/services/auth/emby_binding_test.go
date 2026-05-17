@@ -10,10 +10,11 @@ import (
 )
 
 // fakeBindingDB 表示 BindEmbyAccount 测试场景中的本地数据视图。
-// findUserByID / findOccupyingUser / updateUserEmbyID 的行为都来自这里。
+// findUserByID / findOccupyingUser / findUsersByEmbyIDs / updateUserEmbyID 的行为都来自这里。
 type fakeBindingDB struct {
 	currentUser     *models.User
 	occupyingUser   *models.User
+	boundUsers      []models.User
 	updateErr       error
 	updateCalled    bool
 	lastWrittenID   string
@@ -48,6 +49,19 @@ func newAuthServiceForBinding(t *testing.T, embyClient *stubAuthEmbyClient, fake
 			copyUser := *fake.occupyingUser
 			return &copyUser, nil
 		},
+		findUsersByEmbyIDsFn: func(embyIDs []string) ([]models.User, error) {
+			allowed := make(map[string]struct{}, len(embyIDs))
+			for _, embyID := range embyIDs {
+				allowed[embyID] = struct{}{}
+			}
+			users := make([]models.User, 0, len(fake.boundUsers))
+			for _, user := range fake.boundUsers {
+				if _, ok := allowed[user.EmbyID]; ok {
+					users = append(users, user)
+				}
+			}
+			return users, nil
+		},
 		updateUserEmbyIDFn: func(userID, embyID string) error {
 			fake.updateCalled = true
 			fake.lastWrittenID = userID
@@ -58,6 +72,63 @@ func newAuthServiceForBinding(t *testing.T, embyClient *stubAuthEmbyClient, fake
 	return service
 }
 
+func TestListAdminEmbyUsersMergesLocalBindingState(t *testing.T) {
+	embyClient := &stubAuthEmbyClient{
+		getUsersResp: []embyint.EmbyUser{
+			{ID: "emby_1", Name: "admin_remote", HasPassword: true},
+			{ID: "emby_2", Name: "occupied_remote"},
+			{ID: "emby_3", Name: "free_remote"},
+		},
+	}
+	fake := &fakeBindingDB{
+		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin", EmbyID: "emby_1"},
+		boundUsers: []models.User{
+			{ID: "admin_1", Username: "admin", EmbyID: "emby_1"},
+			{ID: "user_2", Username: "member", EmbyID: "emby_2"},
+		},
+	}
+	service := newAuthServiceForBinding(t, embyClient, fake)
+
+	resp, err := service.ListAdminEmbyUsers("admin_1", ListAdminEmbyUsersRequest{Query: "remote"})
+	if err != nil {
+		t.Fatalf("expected list success, got %v", err)
+	}
+	if len(resp.Data) != 3 {
+		t.Fatalf("expected 3 options, got %+v", resp.Data)
+	}
+	if !resp.Data[0].BoundToCurrent || !resp.Data[0].Available || resp.Data[0].BoundUsername != "admin" {
+		t.Fatalf("unexpected current binding option: %+v", resp.Data[0])
+	}
+	if resp.Data[1].Available || resp.Data[1].BoundToCurrent || resp.Data[1].BoundUsername != "member" {
+		t.Fatalf("unexpected occupied option: %+v", resp.Data[1])
+	}
+	if !resp.Data[2].Available || resp.Data[2].BoundUsername != "" {
+		t.Fatalf("unexpected free option: %+v", resp.Data[2])
+	}
+}
+
+func TestListAdminEmbyUsersUnavailable(t *testing.T) {
+	embyClient := &stubAuthEmbyClient{getUsersErr: errors.New("无法连接到 Emby 服务器")}
+	fake := &fakeBindingDB{
+		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin"},
+	}
+	service := newAuthServiceForBinding(t, embyClient, fake)
+
+	_, err := service.ListAdminEmbyUsers("admin_1", ListAdminEmbyUsersRequest{Query: "admin"})
+	if !errors.Is(err, ErrEmbyServiceUnavailable) {
+		t.Fatalf("expected emby unavailable error, got %v", err)
+	}
+}
+
+func TestListAdminEmbyUsersRequiresSearchQuery(t *testing.T) {
+	service := &AuthService{}
+
+	_, err := service.ListAdminEmbyUsers("admin_1", ListAdminEmbyUsersRequest{Query: "a"})
+	if !errors.Is(err, ErrEmbyUserSearchQueryRequired) {
+		t.Fatalf("expected search query required error, got %v", err)
+	}
+}
+
 func TestBindEmbyAccountValidation(t *testing.T) {
 	service := &AuthService{}
 
@@ -65,53 +136,68 @@ func TestBindEmbyAccountValidation(t *testing.T) {
 		name string
 		req  BindEmbyAccountRequest
 	}{
-		{"empty username", BindEmbyAccountRequest{EmbyUsername: "  ", EmbyPassword: "pw"}},
-		{"empty password", BindEmbyAccountRequest{EmbyUsername: "ember", EmbyPassword: ""}},
+		{"empty emby id", BindEmbyAccountRequest{EmbyID: "  "}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			req := c.req
 			_, err := service.BindEmbyAccount("admin_1", &req)
-			if !errors.Is(err, ErrEmbyBindingCredentialRequired) {
-				t.Fatalf("expected credential required error, got %v", err)
+			if !errors.Is(err, ErrEmbyBindingTargetRequired) {
+				t.Fatalf("expected target required error, got %v", err)
 			}
 		})
 	}
 }
 
-func TestBindEmbyAccountAuthFailure(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserErr: errors.New("Emby 认证失败：用户名或密码错误")}
+func TestBindEmbyAccountEmbyUnavailable(t *testing.T) {
+	embyClient := &stubAuthEmbyClient{getUserByIDErr: errors.New("无法连接到 Emby 服务器")}
 	fake := &fakeBindingDB{
 		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin"},
 	}
 	service := newAuthServiceForBinding(t, embyClient, fake)
 
 	_, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_remote",
-		EmbyPassword: "wrong",
+		EmbyID: "emby_1",
 	})
-	if !errors.Is(err, ErrEmbyBindingAuthFailed) {
-		t.Fatalf("expected auth failed error, got %v", err)
+	if !errors.Is(err, ErrEmbyServiceUnavailable) {
+		t.Fatalf("expected emby unavailable error, got %v", err)
 	}
 	if fake.updateCalled {
-		t.Fatalf("expected no DB write on auth failure")
+		t.Fatalf("expected no DB write when Emby is unavailable")
 	}
 }
 
-func TestBindEmbyAccountAuthSuccessButEmptyEmbyID(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserResp: &embyint.EmbyUser{ID: "  "}}
+func TestBindEmbyAccountTargetNotFound(t *testing.T) {
+	embyClient := &stubAuthEmbyClient{getUserByIDErr: embyint.ErrEmbyUserNotFound}
 	fake := &fakeBindingDB{
 		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin"},
 	}
 	service := newAuthServiceForBinding(t, embyClient, fake)
 
 	_, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_remote",
-		EmbyPassword: "pw",
+		EmbyID: "emby_missing",
 	})
-	if !errors.Is(err, ErrEmbyBindingAuthFailed) {
-		t.Fatalf("expected auth failed error on empty emby user, got %v", err)
+	if !errors.Is(err, ErrEmbyBindingUserNotFound) {
+		t.Fatalf("expected user not found error, got %v", err)
+	}
+	if fake.updateCalled {
+		t.Fatalf("expected no DB write when target Emby user is missing")
+	}
+}
+
+func TestBindEmbyAccountGetUserSuccessButEmptyEmbyID(t *testing.T) {
+	embyClient := &stubAuthEmbyClient{getUserByIDResp: &embyint.EmbyUser{ID: "  "}}
+	fake := &fakeBindingDB{
+		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin"},
+	}
+	service := newAuthServiceForBinding(t, embyClient, fake)
+
+	_, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
+		EmbyID: "emby_1",
+	})
+	if !errors.Is(err, ErrEmbyBindingUserNotFound) {
+		t.Fatalf("expected user not found error on empty emby user, got %v", err)
 	}
 	if fake.updateCalled {
 		t.Fatalf("expected no DB write when Emby returns empty user ID")
@@ -119,15 +205,14 @@ func TestBindEmbyAccountAuthSuccessButEmptyEmbyID(t *testing.T) {
 }
 
 func TestBindEmbyAccountIdempotentWhenAlreadyBoundToSameTarget(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
+	embyClient := &stubAuthEmbyClient{getUserByIDResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
 	fake := &fakeBindingDB{
 		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin", EmbyID: "emby_1"},
 	}
 	service := newAuthServiceForBinding(t, embyClient, fake)
 
 	resp, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_remote",
-		EmbyPassword: "pw",
+		EmbyID: "emby_1",
 	})
 	if err != nil {
 		t.Fatalf("expected idempotent success, got %v", err)
@@ -141,15 +226,14 @@ func TestBindEmbyAccountIdempotentWhenAlreadyBoundToSameTarget(t *testing.T) {
 }
 
 func TestBindEmbyAccountAlreadyBoundToOtherTarget(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserResp: &embyint.EmbyUser{ID: "emby_new"}}
+	embyClient := &stubAuthEmbyClient{getUserByIDResp: &embyint.EmbyUser{ID: "emby_new"}}
 	fake := &fakeBindingDB{
 		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin", EmbyID: "emby_old"},
 	}
 	service := newAuthServiceForBinding(t, embyClient, fake)
 
 	_, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_remote",
-		EmbyPassword: "pw",
+		EmbyID: "emby_new",
 	})
 	if !errors.Is(err, ErrEmbyAlreadyBound) {
 		t.Fatalf("expected already bound error, got %v", err)
@@ -160,7 +244,7 @@ func TestBindEmbyAccountAlreadyBoundToOtherTarget(t *testing.T) {
 }
 
 func TestBindEmbyAccountTargetOccupiedByOtherLocalUser(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
+	embyClient := &stubAuthEmbyClient{getUserByIDResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
 	fake := &fakeBindingDB{
 		currentUser:   &models.User{ID: "admin_1", Username: "admin", Role: "admin"},
 		occupyingUser: &models.User{ID: "user_42", Username: "ember_user", EmbyID: "emby_1"},
@@ -168,8 +252,7 @@ func TestBindEmbyAccountTargetOccupiedByOtherLocalUser(t *testing.T) {
 	service := newAuthServiceForBinding(t, embyClient, fake)
 
 	_, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_remote",
-		EmbyPassword: "pw",
+		EmbyID: "emby_1",
 	})
 	if !IsEmbyUserOccupied(err) {
 		t.Fatalf("expected occupied error, got %v", err)
@@ -184,15 +267,14 @@ func TestBindEmbyAccountTargetOccupiedByOtherLocalUser(t *testing.T) {
 }
 
 func TestBindEmbyAccountSuccess(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
+	embyClient := &stubAuthEmbyClient{getUserByIDResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
 	fake := &fakeBindingDB{
 		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin"},
 	}
 	service := newAuthServiceForBinding(t, embyClient, fake)
 
 	resp, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_remote",
-		EmbyPassword: "pw",
+		EmbyID: "emby_1",
 	})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -209,7 +291,7 @@ func TestBindEmbyAccountSuccess(t *testing.T) {
 }
 
 func TestBindEmbyAccountConcurrentUniqueViolationMapsToOccupied(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
+	embyClient := &stubAuthEmbyClient{getUserByIDResp: &embyint.EmbyUser{ID: "emby_1", Name: "ember_remote"}}
 
 	// 模拟"应用层 occupy 检查通过，但写库阶段被 DB 唯一索引兜底"。
 	// 写后 fake 把 occupyingUser 设为冲突方，模拟另一管理员抢先写入。
@@ -235,8 +317,7 @@ func TestBindEmbyAccountConcurrentUniqueViolationMapsToOccupied(t *testing.T) {
 	}
 
 	_, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_remote",
-		EmbyPassword: "pw",
+		EmbyID: "emby_1",
 	})
 	if !IsEmbyUserOccupied(err) {
 		t.Fatalf("expected occupied error from concurrent unique violation, got %v", err)
@@ -296,15 +377,14 @@ func TestUnbindEmbyAccountIdempotentWhenAlreadyEmpty(t *testing.T) {
 }
 
 func TestRebindAfterUnbindSuccess(t *testing.T) {
-	embyClient := &stubAuthEmbyClient{authUserResp: &embyint.EmbyUser{ID: "emby_2", Name: "ember_new"}}
+	embyClient := &stubAuthEmbyClient{getUserByIDResp: &embyint.EmbyUser{ID: "emby_2", Name: "ember_new"}}
 	fake := &fakeBindingDB{
 		currentUser: &models.User{ID: "admin_1", Username: "admin", Role: "admin"},
 	}
 	service := newAuthServiceForBinding(t, embyClient, fake)
 
 	resp, err := service.BindEmbyAccount("admin_1", &BindEmbyAccountRequest{
-		EmbyUsername: "ember_new",
-		EmbyPassword: "pw",
+		EmbyID: "emby_2",
 	})
 	if err != nil {
 		t.Fatalf("expected rebind success, got %v", err)

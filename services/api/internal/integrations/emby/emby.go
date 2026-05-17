@@ -54,6 +54,9 @@ var (
 	sharedEmbyService *EmbyService
 )
 
+// ErrEmbyUserNotFound 表示目标 Emby 用户不存在或已被删除。
+var ErrEmbyUserNotFound = errors.New("Emby 用户不存在")
+
 // GetSharedService 返回进程内共享的 EmbyService 单例。
 // 配置在首次调用时从数据库读取一次；后续调用直接返回已初始化实例。
 func GetSharedService() *EmbyService {
@@ -175,8 +178,13 @@ func (s *EmbyService) GetUserByID(embyUserID string) (*EmbyUser, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrEmbyUserNotFound
+	}
+
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Emby 用户不存在")
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("获取 Emby 用户失败：状态码 %d，响应 %s", resp.StatusCode, string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
