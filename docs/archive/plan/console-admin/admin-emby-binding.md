@@ -1,8 +1,10 @@
 # 管理员 Emby 账号绑定方案
 
-> 状态：实现完成，待回归归档
+> 状态：已归档
 > 负责人：Ember
 > 更新时间：2026-05-17
+>
+> 归档说明：管理员 Emby 账号自助绑定已进入 `v1.5.1`，API、前端、测试、系统架构和 API 端点目录均已同步；真实环境已完成候选查询、绑定和解绑回归。本方案只保留历史设计与决策追溯价值。
 
 ## 背景
 
@@ -220,9 +222,11 @@
 - 前端 API 类型已新增 `AdminEmbyUserOption` / `AdminEmbyUserListResponse`，绑定请求类型已改为 `{ embyId }`。
 - `docs/system-architecture.md` 已同步管理员 Emby 绑定新契约。
 
-## 剩余项
+## 归档说明
 
-- 完成一次真实环境手工回归后，将本计划归档至 `docs/archive/plan/console-admin/`。
+- 代码落点已进入 release tag `v1.5.1`。
+- `docs/system-architecture.md` 与 `docs/reference/api-endpoint-catalog.md` 已收录当前契约。
+- 2026-05-17 真实环境日志已覆盖 `GET /api/v1/admin/emby-users`、`PUT /api/v1/admin/current/emby-binding` 和 `DELETE /api/v1/admin/current/emby-binding` 成功路径。
 
 ## 验证方式
 
@@ -252,5 +256,5 @@
 落地后应同步处理：
 
 - `docs/system-architecture.md` 管理员相关章节沉淀本能力描述。
-- 至少一次回归验证通过后，将本计划移入 `docs/archive/plan/console-admin/`。
+- 已完成回归验证并移入 `docs/archive/plan/console-admin/`。
 - 若未来需要"绑定 / 解绑审计列表"或"管理员强制覆盖绑定"，新建独立计划，不在本方案扩展。

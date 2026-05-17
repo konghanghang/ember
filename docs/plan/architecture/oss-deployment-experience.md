@@ -329,7 +329,7 @@ Phase 2 全部 2 个子目标已代码落地，等首次完整发版验证：
 
 - `services/api/internal/db/migrate.go`：新空库分支启动日志增强为"新空库（未检测到既存业务表）→ 将从空库一次性初始化 schema"，便于 OSS 用户首次部署时辨识；`migrateBranchMixed` 注释改写为"业务核心表已存在但 fingerprint 不齐"的边界场景
 - `services/api/internal/db/migrate_test.go`：混合模式测试用例的注释同步改写
-- `docs/plan/architecture/database-migration-auto-apply.md`：顶部追加演进说明 + 用户可见行为段、混合模式分支动机段、验证用例段同步收口
+- `docs/archive/plan/architecture/database-migration-auto-apply.md`：顶部追加演进说明 + 用户可见行为段、混合模式分支动机段、验证用例段同步收口
 
 ## 落地后文档处理
 

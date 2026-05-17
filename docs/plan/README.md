@@ -36,17 +36,17 @@
 
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
-- `architecture/database-migration-auto-apply.md`（已落地，待归档窗口）
-- `architecture/oss-deployment-experience.md`（Phase 1 已落地，Phase 2 待启动）
+- `architecture/oss-deployment-experience.md`（Phase 1 + Phase 2 已落地，待 OSS 首次部署反馈）
 - `bot-telegram/notification-mute-rules.md`
 - `bot-telegram/subscription-admin-message-sync.md`
-- `console-admin/admin-emby-binding.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 
 最近已完成归档的实施稿包括：
 
+- `architecture/database-migration-auto-apply.md` → `docs/archive/plan/architecture/database-migration-auto-apply.md`
+- `console-admin/admin-emby-binding.md` → `docs/archive/plan/console-admin/admin-emby-binding.md`
 - `architecture/baseline-fresh-install-rewrite.md` → `docs/archive/plan/architecture/baseline-fresh-install-rewrite.md`
 - `architecture/system-architecture-document-split.md` → `docs/archive/plan/architecture/system-architecture-document-split.md`
 

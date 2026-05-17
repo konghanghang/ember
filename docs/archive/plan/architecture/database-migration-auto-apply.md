@@ -1,10 +1,12 @@
 # 数据库迁移自动应用方案
 
-> 状态：代码与文档同步已落地，等首次完整发版后归档
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-05-04
+> 更新时间：2026-05-17
 >
 > 演进说明：本方案设计时计划"先保持 initdb/ 与 ember-api 启动期 Migrate 双轨、稳定后再退役"；落地后由 OSS 部署体验方案 phase 2 提前评估并执行 initdb/ 退役（自动化测试已覆盖"新空库"分支、当前尚无活跃 OSS 部署）。下文"背景 / 当前事实"段保留方案设计时的现状快照不重写，"方案设计 / 验证方式"段中已过时的 initdb 表述按当前实现做了最小修订。
+>
+> 归档说明：启动期自动迁移已进入 `v1.5.0` / `v1.5.1`，`schema_migrations`、forward-only、backfill、checksum 防改写和 PG `initdb.d` 退役均已同步到系统架构、数据库 README 与部署 runbook。本方案只保留历史设计与决策追溯价值。
 
 ## 背景
 
@@ -292,4 +294,4 @@ SQL 来源（运行时由 `EMBER_MIGRATIONS_DIR` 决定）：
 - 至少一次完整发版按本方案完成自动迁移
 - `internal/db/migrate.go` 的 forward-only / backfill / checksum 三项行为有自动化测试覆盖
 
-满足以上条件后，本计划迁入 `docs/archive/plan/architecture/`。
+上述条件已满足，本计划已迁入 `docs/archive/plan/architecture/`。
