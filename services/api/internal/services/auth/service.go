@@ -33,6 +33,8 @@ type authEmbyClient interface {
 	UpdateUserPassword(embyUserID, newPassword string) error
 	CreateEmbyUser(username, password string) (*embyint.EmbyUser, error)
 	DeleteUser(embyUserID string) error
+	GetUsers() ([]embyint.EmbyUser, error)
+	GetUserByID(embyUserID string) (*embyint.EmbyUser, error)
 	GetUserPolicyRaw(embyUserID string) (map[string]any, error)
 	PatchUserPolicyFields(targetUserID string, sourcePolicy map[string]any, fields []string) error
 }
@@ -46,18 +48,18 @@ type authTurnstileVerifier interface {
 }
 
 type AuthServiceDeps struct {
-	Notifier                    authRegistrationNotifier
-	EmailService                authEmailVerifier
-	ConfigReader                authConfigReader
-	TurnstileVerifier           authTurnstileVerifier
-	NewEmbyClient               func() authEmbyClient
-	SaveUser                    func(user *models.User) error
-	GetRegistrationMode         func() string
-	GetDefaultTrialDays         func() int
-	IsRegistrationEmailAllowed  func(email string) error
-	ValidateRegistrationCode    func(code string) (*models.RedemptionCode, error)
-	Compensation                *accountpkg.EmbyCompensation
-	NewCompensation             func() *accountpkg.EmbyCompensation
+	Notifier                   authRegistrationNotifier
+	EmailService               authEmailVerifier
+	ConfigReader               authConfigReader
+	TurnstileVerifier          authTurnstileVerifier
+	NewEmbyClient              func() authEmbyClient
+	SaveUser                   func(user *models.User) error
+	GetRegistrationMode        func() string
+	GetDefaultTrialDays        func() int
+	IsRegistrationEmailAllowed func(email string) error
+	ValidateRegistrationCode   func(code string) (*models.RedemptionCode, error)
+	Compensation               *accountpkg.EmbyCompensation
+	NewCompensation            func() *accountpkg.EmbyCompensation
 }
 
 // AuthService 认证服务
@@ -78,6 +80,7 @@ type AuthService struct {
 	// Emby 绑定 hook：默认走 db.DB，测试时由 newAuthServiceForBinding 注入。
 	findUserByIDForBindingFn func(userID string) (*models.User, error)
 	findOccupyingUserFn      func(embyID, excludeUserID string) (*models.User, error)
+	findUsersByEmbyIDsFn     func(embyIDs []string) ([]models.User, error)
 	updateUserEmbyIDFn       func(userID, embyID string) error
 }
 

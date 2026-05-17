@@ -962,9 +962,21 @@ export interface TmdbSelection {
 export type AdminInfo = UserInfo
 
 // ==================== 管理员 Emby 绑定 ====================
+export interface AdminEmbyUserOption {
+  embyId: string
+  name: string
+  hasPassword: boolean
+  boundUsername?: string
+  boundToCurrent: boolean
+  available: boolean
+}
+
+export interface AdminEmbyUserListResponse {
+  data: AdminEmbyUserOption[]
+}
+
 export interface AdminEmbyBindingRequest {
-  embyUsername: string
-  embyPassword: string
+  embyId: string
 }
 
 export interface AdminEmbyBindingResponse {

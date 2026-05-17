@@ -21,14 +21,14 @@ import { useAuthStore } from '@/store/auth'
 import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import { getRegistrationMode } from '@/api/auth'
-import { bindAdminEmbyAccount, unbindAdminEmbyAccount } from '@/api/admin'
+import { bindAdminEmbyAccount, getAdminEmbyUsers, unbindAdminEmbyAccount } from '@/api/admin'
 import {
   generateTelegramBindCode,
   sendEmailChangeCode,
   unbindTelegram,
   updatePassword
 } from '@/api/console'
-import type { ConsoleAccountLinkIcon, TelegramBindCodeResponse, UserInfo } from '@/types/api'
+import type { AdminEmbyUserOption, ConsoleAccountLinkIcon, TelegramBindCodeResponse, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
 const consoleStore = useConsoleStore()
@@ -69,10 +69,10 @@ const emailDomainError = ref('')
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 const embyBindDialogVisible = ref(false)
-const embyBindForm = ref({
-  embyUsername: '',
-  embyPassword: ''
-})
+const embyUserSearch = ref('')
+const embyUserOptions = ref<AdminEmbyUserOption[]>([])
+const selectedEmbyId = ref('')
+const loadingEmbyUsers = ref(false)
 const bindingEmby = ref(false)
 const unbindingEmby = ref(false)
 
@@ -312,35 +312,65 @@ const handleUnbindTelegram = async () => {
   }
 }
 
-const resetEmbyBindForm = () => {
-  embyBindForm.value = { embyUsername: '', embyPassword: '' }
+const resetEmbyBindState = () => {
+  embyUserSearch.value = ''
+  selectedEmbyId.value = ''
+  embyUserOptions.value = []
+}
+
+const loadAdminEmbyUsers = async () => {
+  const query = embyUserSearch.value.trim()
+  if (query.length < 2) {
+    embyUserOptions.value = []
+    selectedEmbyId.value = ''
+    ElMessage.warning('请输入至少 2 个字符搜索 Emby 用户')
+    return
+  }
+
+  loadingEmbyUsers.value = true
+  try {
+    const res = await getAdminEmbyUsers({ query, limit: 20 })
+    embyUserOptions.value = res.data
+    const current = res.data.find(item => item.boundToCurrent)
+    selectedEmbyId.value = current?.embyId ?? ''
+  } catch {
+    // handled by request interceptor
+  } finally {
+    loadingEmbyUsers.value = false
+  }
 }
 
 const handleOpenEmbyBindDialog = () => {
-  resetEmbyBindForm()
+  resetEmbyBindState()
   embyBindDialogVisible.value = true
 }
 
 const handleCancelEmbyBind = () => {
   embyBindDialogVisible.value = false
-  resetEmbyBindForm()
+  resetEmbyBindState()
+}
+
+const handleSelectEmbyUser = (option: AdminEmbyUserOption) => {
+  if (!option.available) {
+    return
+  }
+  selectedEmbyId.value = option.embyId
 }
 
 const handleConfirmEmbyBind = async () => {
-  const username = embyBindForm.value.embyUsername.trim()
-  const password = embyBindForm.value.embyPassword
-  if (!username || !password) {
-    ElMessage.warning('请输入 Emby 用户名和密码')
+  const embyId = selectedEmbyId.value.trim()
+  if (!embyId) {
+    ElMessage.warning('请选择 Emby 用户')
     return
   }
 
   bindingEmby.value = true
   try {
-    await bindAdminEmbyAccount({ embyUsername: username, embyPassword: password })
+    await bindAdminEmbyAccount({ embyId })
     await userStore.fetchProfile()
     ElMessage.success('Emby 账号已关联')
     embyBindDialogVisible.value = false
-    resetEmbyBindForm()
+    resetEmbyBindState()
   } catch {
     // handled by request interceptor
   } finally {
@@ -479,28 +509,30 @@ onMounted(() => {
           </div>
           <div class="space-y-2">
             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Emby ID</p>
-            <div class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <div class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               <span class="min-w-0 flex-1 truncate font-mono">{{ user.embyId || '待激活' }}</span>
               <button
                 v-if="user.embyId"
+                type="button"
+                aria-label="复制 Emby ID"
                 class="text-slate-400 transition-colors hover:text-ember cursor-pointer"
                 @click="copyToClipboard(user.embyId)"
               >
                 <el-icon><CopyDocument /></el-icon>
               </button>
-            </div>
-            <div v-if="authStore.isAdmin" class="pt-1">
               <button
-                v-if="!user.embyId"
-                class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 cursor-pointer disabled:opacity-60"
+                v-if="authStore.isAdmin && !user.embyId"
+                type="button"
+                class="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 cursor-pointer disabled:opacity-60"
                 :disabled="bindingEmby"
                 @click="handleOpenEmbyBindDialog"
               >
                 关联 Emby 账号
               </button>
               <button
-                v-else
-                class="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
+                v-else-if="authStore.isAdmin"
+                type="button"
+                class="shrink-0 rounded-xl border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
                 :disabled="unbindingEmby"
                 @click="handleUnbindEmby"
               >
@@ -728,24 +760,64 @@ onMounted(() => {
     >
       <div class="px-6 pb-2 pt-2 space-y-5">
         <div class="space-y-2">
-          <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Emby 用户名</label>
-          <el-input
-            v-model="embyBindForm.embyUsername"
-            placeholder="请输入 Emby 用户名"
-            autocomplete="off"
-            class="input-ember"
-          />
+          <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">搜索 Emby 用户</label>
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <el-input
+              v-model="embyUserSearch"
+              placeholder="输入用户名或 ID"
+              autocomplete="off"
+              class="input-ember sm:flex-1"
+              @keyup.enter="loadAdminEmbyUsers"
+            />
+            <button
+              type="button"
+              class="btn-ember rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer disabled:opacity-60"
+              :disabled="loadingEmbyUsers"
+              @click="loadAdminEmbyUsers"
+            >
+              {{ loadingEmbyUsers ? '搜索中...' : '搜索' }}
+            </button>
+          </div>
         </div>
-        <div class="space-y-2">
-          <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Emby 密码</label>
-          <el-input
-            v-model="embyBindForm.embyPassword"
-            type="password"
-            show-password
-            placeholder="请输入 Emby 密码"
-            autocomplete="new-password"
-            class="input-ember"
-          />
+
+        <div
+          v-if="loadingEmbyUsers"
+          class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500"
+        >
+          正在加载 Emby 用户...
+        </div>
+        <div
+          v-else-if="embyUserOptions.length === 0"
+          class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500"
+        >
+          输入关键词后搜索 Emby 用户
+        </div>
+        <div v-else class="max-h-80 space-y-2 overflow-y-auto pr-1">
+          <button
+            v-for="option in embyUserOptions"
+            :key="option.embyId"
+            type="button"
+            class="flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
+            :class="[
+              selectedEmbyId === option.embyId
+                ? 'border-ember bg-ember/5'
+                : 'border-slate-200 bg-white hover:bg-slate-50',
+              !option.available ? 'bg-slate-50' : ''
+            ]"
+            :disabled="!option.available"
+            @click="handleSelectEmbyUser(option)"
+          >
+            <span class="min-w-0">
+              <span class="block truncate text-sm font-semibold text-slate-900">{{ option.name || option.embyId }}</span>
+              <span class="mt-1 block truncate font-mono text-xs text-slate-500">{{ option.embyId }}</span>
+            </span>
+            <span
+              class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
+              :class="option.boundToCurrent ? 'bg-emerald-50 text-emerald-700' : option.available ? 'bg-slate-100 text-slate-600' : 'bg-red-50 text-red-600'"
+            >
+              {{ option.boundToCurrent ? '当前绑定' : option.available ? '可绑定' : `已绑定 ${option.boundUsername || ''}` }}
+            </span>
+          </button>
         </div>
       </div>
 

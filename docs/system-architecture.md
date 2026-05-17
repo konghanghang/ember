@@ -329,9 +329,11 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `LoginResponse{Token, User, IsExpired}`
 
 **管理员 Emby 账号自助绑定**（`emby_binding.go`）：
-- `BindEmbyAccount(userID, {embyUsername, embyPassword})` — 复用 `EmbyService.AuthenticateUser` 校验 Emby 凭据 → 拿到 `embyUser.ID` → 应用层先查冲突：当前用户已绑同一 ID 走幂等成功；当前用户绑了其他 ID 返回 409 `ErrEmbyAlreadyBound`；目标 ID 已被其他本地账号占用返回 409 `ErrEmbyUserOccupied`（错误消息含冲突方 username）→ UPDATE `users.emby_id`；DB 层由偏唯一索引 `uniq_users_emby_id` 兜底并发，`23505` 唯一约束冲突翻译为 `ErrEmbyUserOccupied`
+- `ListAdminEmbyUsers(userID, {query, limit})` — 要求 `query` 至少 2 个字符；通过 `EmbyService.GetUsers` 拉取 Emby 用户列表后在服务端按用户名 / ID 过滤并截断到 `limit`，再合并本地 `users.emby_id` 占用状态；返回 `data[]`，每项包含 `embyId / name / hasPassword / boundUsername / boundToCurrent / available`，供前端选择绑定目标；前端弹窗不自动加载全量 Emby 用户
+- `BindEmbyAccount(userID, {embyId})` — 复用 `EmbyService.GetUserByID` 校验目标 Emby 用户仍存在 → 应用层先查冲突：当前用户已绑同一 ID 走幂等成功；当前用户绑了其他 ID 返回 409 `ErrEmbyAlreadyBound`；目标 ID 已被其他本地账号占用返回 409 `ErrEmbyUserOccupied`（错误消息含冲突方 username）→ UPDATE `users.emby_id`；DB 层由偏唯一索引 `uniq_users_emby_id` 兜底并发，`23505` 唯一约束冲突翻译为 `ErrEmbyUserOccupied`
 - `UnbindEmbyAccount(userID)` — 直接清空 `emby_id`，幂等；不删除 Emby 真实用户、不修改 Emby 任何属性
 - 不影响登录链路：管理员仍走本地密码；该接口仅用于让管理员获得普通用户级别的 Emby 相关读权限（媒体 latest、个人播放档案、自助兑换等）
+- 绑定流不接收 Emby 明文密码；外部 Emby 用户不存在返回 404，Emby 配置缺失或不可达返回 502，401 只保留给 Ember 登录态失效
 - 不影响启动期 `seedDefaultAdmin`：seed 仍纯本地，不调用 Emby
 
 ### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
