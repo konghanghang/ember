@@ -199,7 +199,7 @@ services/
 │  │  │     └─ PlaybackProfileContent.vue # 用户画像共享主体（user/admin 共用）
 │  │  ├─ types/api.ts            # 所有 TypeScript 接口定义
 │  │  ├─ store/
-│  │  │  ├─ auth.ts              # Pinia: token + role (localStorage 持久化)
+│  │  │  ├─ auth.ts              # Pinia: token 持久化；role / passwordResetRequired 仅来自 /profile 内存态
 │  │  │  ├─ console.ts           # 控制台共享状态（账号资源入口等）
 │  │  │  ├─ user.ts              # 用户状态
 │  │  │  └─ admin.ts             # 管理员状态
@@ -705,7 +705,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - Store：基于 Pinia 维护认证态、用户态、管理员态
 - API：`request.ts` 负责 token 注入和 401 收口，各业务模块按职责拆分
-- Router：通过 `requiresAuth / role` 守卫做鉴权和 redirect 收口
+- Router：通过 `requiresAuth / role` 守卫做鉴权和 redirect 收口；刷新后先用 token 拉 `/profile`，再以服务端返回的 `role / passwordResetRequired` 判断 UI 权限
 - View：页面继续保留接口调用、路由状态、筛选参数和弹窗编排
 - Shared Components：`components/ember/` 承载稳定 UI 契约，不侵入业务
 

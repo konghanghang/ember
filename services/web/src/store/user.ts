@@ -34,6 +34,7 @@ export const useUserStore = defineStore('user', () => {
   const fetchProfile = async () => {
     const res = await consoleApi.getProfile()
     setProfile(res)
+    useAuthStore().setSessionFromProfile(res)
     return res
   }
 

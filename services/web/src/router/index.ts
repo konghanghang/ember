@@ -247,7 +247,7 @@ const router = createRouter({
 })
 
 // Navigation Guard
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
   const userStore = useUserStore()
   authStore.restoreAuth()
@@ -263,6 +263,17 @@ router.beforeEach((to, _from, next) => {
     if (!authStore.isAuthenticated) {
       next({ name: 'login', query: { redirect: to.fullPath } })
       return
+    }
+
+    if (!userStore.profile) {
+      try {
+        await userStore.fetchProfile()
+      } catch {
+        next({ name: 'login', query: { redirect: to.fullPath } })
+        return
+      }
+    } else {
+      authStore.setSessionFromProfile(userStore.profile)
     }
 
     if (requiredRole && requiredRole !== authStore.role) {

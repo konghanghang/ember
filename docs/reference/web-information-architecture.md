@@ -59,10 +59,10 @@
 
 ### 2.1 状态管理（Pinia）
 
-- `store/auth.ts`：Token + Role（localStorage 持久化）
-  - State: `token`, `role`, `protectionConfig`, `crossTabSyncEnabled`
+- `store/auth.ts`：Token 持久化；`role / passwordResetRequired` 只接受登录响应或 `/profile` 返回的服务端事实，不再从 localStorage 恢复
+  - State: `token`, `role`, `passwordResetRequired`, `protectionConfig`, `crossTabSyncEnabled`
   - Computed: `isAuthenticated`, `isAdmin`, `isUser`
-  - Actions: `login`, `register`, `logout`, `setAuth`, `clearAuth`, `restoreAuth`, `initCrossTabSync`, `loadProtectionConfig`
+  - Actions: `login`, `register`, `logout`, `setAuth`, `setSessionFromProfile`, `clearAuth`, `restoreAuth`, `initCrossTabSync`, `loadProtectionConfig`
 - `store/user.ts`：用户状态管理
 - `store/admin.ts`：管理员状态管理
 
@@ -78,6 +78,7 @@
 
 - 未认证 → 重定向 `/login`（带 redirect 参数）
 - `redirect` 仅接受站内已解析路由：必须以 `/` 开头、不能以 `//` 开头、不能落到 `not-found`
+- 已认证但本地尚无 profile → 先调用 `/profile` 同步服务端 `role / passwordResetRequired`，再做角色守卫与强制改密跳转
 - 角色不匹配 → 重定向 `/console/dashboard` 并提示“当前账号无权访问该页面”
 - 守卫遍历 `to.matched` 收集 `requiresAuth / role`，不再只看最后一层 `meta`
 - 多标签页登录态通过 `storage` 事件同步：其他窗口登出后，当前窗口会清空本地状态并跳回登录页
