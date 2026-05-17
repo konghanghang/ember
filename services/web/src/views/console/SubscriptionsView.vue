@@ -91,7 +91,11 @@ const formatSubscriptionTitle = (sub: Subscription) => {
   return sub.name
 }
 
+const canRunAdminAction = () => authStore.isAdmin
+
 const handleApprove = async (sub: Subscription) => {
+  if (!canRunAdminAction()) return
+
   try {
     await approveSubscription(sub.id)
     ElMessage.success(`已批准: ${formatSubscriptionTitle(sub)}`)
@@ -102,6 +106,8 @@ const handleApprove = async (sub: Subscription) => {
 }
 
 const handleReject = async (sub: Subscription) => {
+  if (!canRunAdminAction()) return
+
   try {
     const { value } = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
       confirmButtonText: '提交拒绝',
@@ -134,6 +140,8 @@ const handleDelete = async (sub: Subscription) => {
     )
 
     if (isAdminDelete) {
+      if (!canRunAdminAction()) return
+
       await deleteSubscriptionAsAdmin(sub.id)
       ElMessage.success('已删除订阅记录')
     } else {
@@ -148,6 +156,8 @@ const handleDelete = async (sub: Subscription) => {
 }
 
 const handleMarkIngested = async (sub: Subscription) => {
+  if (!canRunAdminAction()) return
+
   try {
     await ElMessageBox.confirm(
       `确定校验 "${formatSubscriptionTitle(sub)}" 是否已在 Emby 入库吗？只有校验命中真实资源后，状态才会改成"已入库"。`,
@@ -168,6 +178,8 @@ const handleMarkIngested = async (sub: Subscription) => {
 }
 
 const handleRedispatch = async (sub: Subscription) => {
+  if (!canRunAdminAction()) return
+
   try {
     await ElMessageBox.confirm(
       `确定重试将 "${formatSubscriptionTitle(sub)}" 下发到 MoviePilot 吗？只有当前订阅处于"已通过 + MoviePilot 调用失败"时才允许重试。`,

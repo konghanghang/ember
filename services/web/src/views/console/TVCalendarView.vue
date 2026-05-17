@@ -274,6 +274,8 @@ async function loadAll(): Promise<void> {
 }
 
 async function handleSync(): Promise<void> {
+  if (!authStore.isAdmin) return
+
   refreshing.value = true
   try {
     const res = await syncTVCalendar({ force: false, weekOffsets: [0, 1] })
