@@ -15,6 +15,7 @@ import (
 )
 
 type stubSubscriptionService struct {
+	resubmitFn         func(userID, subscriptionID string, req subscriptionpkg.ResubmitSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error)
 	deleteFn           func(subscriptionID, userID string) error
 	getAllFn           func(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
 	getUserPaginatedFn func(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
@@ -25,7 +26,10 @@ func (s *stubSubscriptionService) CreateSubscriptionWithResult(userID string, re
 }
 
 func (s *stubSubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptionID string, req subscriptionpkg.ResubmitSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
-	return nil, nil
+	if s.resubmitFn == nil {
+		return nil, nil
+	}
+	return s.resubmitFn(userID, subscriptionID, req)
 }
 
 func (s *stubSubscriptionService) CheckExisting(req subscriptionpkg.CheckExistingRequest) (*subscriptionpkg.CheckExistingResponse, error) {
@@ -97,8 +101,8 @@ func TestSubscriptionHandlerDeleteSubscriptionMapsErrors(t *testing.T) {
 		wantError  string
 	}{
 		{name: "not found", err: subscriptionpkg.ErrSubscriptionNotFound, statusCode: http.StatusNotFound, wantError: subscriptionpkg.ErrSubscriptionNotFound.Error()},
-		{name: "delete forbidden", err: subscriptionpkg.ErrSubscriptionDeleteForbidden, statusCode: http.StatusBadRequest, wantError: subscriptionpkg.ErrSubscriptionDeleteForbidden.Error()},
-		{name: "delete state", err: subscriptionpkg.ErrSubscriptionDeleteState, statusCode: http.StatusBadRequest, wantError: subscriptionpkg.ErrSubscriptionDeleteState.Error()},
+		{name: "delete forbidden", err: subscriptionpkg.ErrSubscriptionDeleteForbidden, statusCode: http.StatusNotFound, wantError: subscriptionpkg.ErrSubscriptionNotFound.Error()},
+		{name: "delete state", err: subscriptionpkg.ErrSubscriptionDeleteState, statusCode: http.StatusNotFound, wantError: subscriptionpkg.ErrSubscriptionNotFound.Error()},
 		{name: "internal", err: errors.New("db failed"), statusCode: http.StatusInternalServerError, wantError: "上游服务暂不可用"},
 	}
 
@@ -133,6 +137,55 @@ func TestSubscriptionHandlerDeleteSubscriptionMapsErrors(t *testing.T) {
 			}
 			if resp.Error != tc.wantError {
 				t.Fatalf("expected error %q, got %q", tc.wantError, resp.Error)
+			}
+		})
+	}
+}
+
+func TestSubscriptionHandlerResubmitSubscriptionMapsEnumerationErrorsToNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{name: "not found", err: subscriptionpkg.ErrSubscriptionNotFound},
+		{name: "forbidden", err: subscriptionpkg.ErrSubscriptionForbidden},
+		{name: "not rejected", err: subscriptionpkg.ErrSubscriptionNotRejected},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := &SubscriptionHandler{
+				service: &stubSubscriptionService{
+					resubmitFn: func(userID, subscriptionID string, req subscriptionpkg.ResubmitSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
+						if subscriptionID != "sub_1" || userID != "user_1" {
+							t.Fatalf("unexpected args: subscriptionID=%s userID=%s", subscriptionID, userID)
+						}
+						return nil, tc.err
+					},
+				},
+			}
+
+			body := []byte(`{"note":"补充说明"}`)
+			ctx, recorder := newTestSubscriptionContext(http.MethodPost, "/api/v1/subscriptions/sub_1/resubmit", body)
+			ctx.Params = gin.Params{{Key: "id", Value: "sub_1"}}
+			ctx.Set("userID", "user_1")
+
+			handler.ResubmitSubscription(ctx)
+
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("expected status 404, got %d", recorder.Code)
+			}
+
+			var resp struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if resp.Error != subscriptionpkg.ErrSubscriptionNotFound.Error() {
+				t.Fatalf("expected error %q, got %q", subscriptionpkg.ErrSubscriptionNotFound.Error(), resp.Error)
 			}
 		})
 	}

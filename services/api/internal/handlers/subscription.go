@@ -125,12 +125,12 @@ func (h *SubscriptionHandler) ResubmitSubscription(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		if errors.Is(err, subscriptionpkg.ErrSubscriptionForbidden) {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionForbidden) ||
+			errors.Is(err, subscriptionpkg.ErrSubscriptionNotRejected) {
+			c.JSON(http.StatusNotFound, gin.H{"error": subscriptionpkg.ErrSubscriptionNotFound.Error()})
 			return
 		}
 		if errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidSeason) ||
-			errors.Is(err, subscriptionpkg.ErrSubscriptionNotRejected) ||
 			errors.Is(err, subscriptionpkg.ErrSubscriptionResubmitNote) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -261,7 +261,7 @@ func (h *SubscriptionHandler) DeleteSubscription(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, subscriptionpkg.ErrSubscriptionDeleteForbidden),
 			errors.Is(err, subscriptionpkg.ErrSubscriptionDeleteState):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": subscriptionpkg.ErrSubscriptionNotFound.Error()})
 		default:
 			httpx.InternalError(c, err)
 		}

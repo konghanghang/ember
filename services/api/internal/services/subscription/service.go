@@ -235,14 +235,11 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 	}
 
 	var original models.Subscription
-	if err := db.DB.Where("id = ?", subscriptionID).First(&original).Error; err != nil {
+	if err := db.DB.Where("id = ? AND \"user_id\" = ?", subscriptionID, userID).First(&original).Error; err != nil {
 		return nil, ErrSubscriptionNotFound
 	}
-	if original.UserID != userID {
-		return nil, ErrSubscriptionForbidden
-	}
 	if original.Status != models.SubscriptionRejected {
-		return nil, ErrSubscriptionNotRejected
+		return nil, ErrSubscriptionNotFound
 	}
 
 	if !req.ConfirmExisting {
@@ -427,14 +424,11 @@ func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, statu
 // DeleteSubscription 删除订阅（仅允许删除 PENDING 状态）
 func (s *SubscriptionService) DeleteSubscription(subscriptionID, userID string) error {
 	var subscription models.Subscription
-	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
+	if err := db.DB.Where("id = ? AND \"user_id\" = ?", subscriptionID, userID).First(&subscription).Error; err != nil {
 		return ErrSubscriptionNotFound
 	}
-	if subscription.UserID != userID {
-		return ErrSubscriptionDeleteForbidden
-	}
 	if subscription.Status != models.SubscriptionPending {
-		return ErrSubscriptionDeleteState
+		return ErrSubscriptionNotFound
 	}
 	if err := db.DB.Delete(&subscription).Error; err != nil {
 		return fmt.Errorf("删除订阅失败: %w", err)
