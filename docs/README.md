@@ -27,6 +27,7 @@
 
 - [配置参考](./reference/configuration-reference.md)
 - [项目治理经验](./reference/project-governance-guide.md)
+- [Git 协作规范](./reference/git-workflow-guide.md)
 - [多 Agent 协作指南](./reference/multi-agent-collaboration-guide.md)
 - [API 开发与目录规范](./reference/api-development-conventions.md)
 - [API 响应规范](./reference/api-response-standard.md)

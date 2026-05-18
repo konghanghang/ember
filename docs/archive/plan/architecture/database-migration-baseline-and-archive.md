@@ -4,7 +4,7 @@
 > 负责人：Ember
 > 更新时间：2026-05-01
 >
-> **后续动态**：`cmd/migrate` 工具已在 v1.4.x 由「启动期内嵌自动迁移方案」收口删除，本地空库初始化改由 `go run ./cmd/server` 接管，生产升级路径精简为 `docker compose pull && up -d`。详见 [`docs/plan/architecture/database-migration-auto-apply.md`](../../../plan/architecture/database-migration-auto-apply.md)。
+> **后续动态**：`cmd/migrate` 工具已在 v1.4.x 由「启动期内嵌自动迁移方案」收口删除，本地空库初始化改由 `go run ./cmd/server` 接管，生产升级路径精简为 `docker compose pull && up -d`。详见 [数据库迁移自动应用方案](./database-migration-auto-apply.md)。
 
 ## 背景
 

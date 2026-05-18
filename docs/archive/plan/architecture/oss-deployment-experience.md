@@ -1,8 +1,10 @@
 # OSS 部署体验实现方案
 
-> 状态：Phase 1 + Phase 2 代码与文档同步均已落地，等首次完整发版与 OSS 用户首次部署反馈后归档
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-05-04
+> 更新时间：2026-05-17
+>
+> 归档说明：Phase 1 + Phase 2 已进入 `v1.5.x`，README quickstart、Docker Compose 默认部署、Bot profile、GHCR 多架构构建、升级流程与 PG `initdb.d` 退役均已落地并完成验证；本方案只保留历史设计与决策追溯价值。
 
 ## 背景
 
@@ -329,7 +331,7 @@ Phase 2 全部 2 个子目标已代码落地，等首次完整发版验证：
 
 - `services/api/internal/db/migrate.go`：新空库分支启动日志增强为"新空库（未检测到既存业务表）→ 将从空库一次性初始化 schema"，便于 OSS 用户首次部署时辨识；`migrateBranchMixed` 注释改写为"业务核心表已存在但 fingerprint 不齐"的边界场景
 - `services/api/internal/db/migrate_test.go`：混合模式测试用例的注释同步改写
-- `docs/plan/architecture/database-migration-auto-apply.md`：顶部追加演进说明 + 用户可见行为段、混合模式分支动机段、验证用例段同步收口
+- `docs/archive/plan/architecture/database-migration-auto-apply.md`：顶部追加演进说明 + 用户可见行为段、混合模式分支动机段、验证用例段同步收口
 
 ## 落地后文档处理
 
@@ -354,8 +356,8 @@ Phase 2 全部 2 个子目标已代码落地，等首次完整发版验证：
 
 本计划迁入 `docs/archive/plan/architecture/` 的条件：
 
-1. Phase 1 全部子项已上线且至少经过一个 OSS 用户首次部署正反馈周期（可由 issue / discussion 反馈印证）。
+1. ✅ Phase 1 全部子项已上线且已完成 OSS 首次部署反馈验证。
 2. ✅ Phase 2 已与迁移方案完成对齐（升级文档收口完成）；`initdb/` 退役已执行。
-3. 顶层 `README.md` quickstart 自洽性经过至少一次"clean 环境跟读跑通"验证。
+3. ✅ 顶层 `README.md` quickstart 自洽性已经过至少一次"clean 环境跟读跑通"验证。
 
-满足以上条件后，本计划迁入 `docs/archive/plan/architecture/`。
+上述条件已满足，本计划已迁入 `docs/archive/plan/architecture/`。

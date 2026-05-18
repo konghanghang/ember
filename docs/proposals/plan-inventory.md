@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-05-04
+> 更新时间：2026-05-17
 
 本清单只回答三件事：
 
@@ -77,6 +77,9 @@
 | `console-admin/console-admin-ui-consistency-optimization.md` | 已落地 | `SettingsView` 字段区已切回统一表单基线，筛选基础组件通用外观已收口到 `src/assets/base.css`，关键页面手工验收已通过 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/playback-center-merge.md` | 已落地 | 「播放分析」容器壳 `PlaybackCenterView.vue`、Sidebar 菜单合并为单条目、`/console/playback?tab=` 路由 + 4 条旧路径 redirect、单用户画像迁至 `/console/playback/users/:id`，架构文档「管理端播放分析」段落已收录 | 已归档到 `docs/archive/plan/console-admin/` |
 | `archive/plan/access-auth/registration-email-domain-allowlist.md` | 已落地 | `registration_allowed_email_domains` 运行期配置已落地；`ConfigService.IsRegistrationEmailAllowed` / `GetRegistrationAllowedEmailDomains` 已暴露；`SendVerificationCode(register)` + `RegisterUser` 注册链路双重门控已生效；`SendEmailChangeCode` + `UpdateEmail` 账号中心换邮箱双重门控已生效；`GET /api/v1/register/mode` 已返回 `allowedEmailDomains`；注册页与账号中心已加提示与失焦预校验 | 已提炼后归档到 `docs/archive/plan/access-auth/` |
+| `archive/plan/architecture/database-migration-auto-apply.md` | 已落地 | `services/api/internal/db/migrate.go` 启动期自动迁移、`schema_migrations` 记账、forward-only / backfill / checksum 测试、部署与数据库文档均已同步；相关提交已进入 `v1.5.0` / `v1.5.1`，日志已有 `[Migrate]` backfill / forward-only 成功记录 | 已提炼后归档到 `docs/archive/plan/architecture/` |
+| `archive/plan/architecture/oss-deployment-experience.md` | 已落地 | Phase 1 + Phase 2 已进入 `v1.5.x`；README quickstart、Docker Compose 默认部署、Bot profile、GHCR 多架构构建、升级流程与 PG `initdb.d` 退役均已落地并完成验证 | 已提炼后归档到 `docs/archive/plan/architecture/` |
+| `archive/plan/console-admin/admin-emby-binding.md` | 已落地 | `GET /api/v1/admin/emby-users`、`PUT/DELETE /api/v1/admin/current/emby-binding`、账号中心 Emby 用户选择器、API 端点目录和系统架构文档均已落地；提交 `362ff23` 已进入 `v1.5.1`，真实环境日志已有 list / bind / unbind 成功记录 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 
 ## B. 当前仍留在 `docs/plan/` 的未完成文档
 
@@ -84,8 +87,6 @@
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
-| `architecture/database-migration-auto-apply.md` | 待归档窗口 | 已落地：API 启动期内嵌迁移上线（v1.4.x），代码 + 测试 + 文档同步均完成 | 归档前置：经过 1 个发版周期生产稳定后迁入 `docs/archive/plan/architecture/` |
-| `architecture/oss-deployment-experience.md` | 继续保留 | Phase 1 已落地；Phase 2 待启动，主要是升级文档收口与 `initdb/` 退役评估 | 继续按实施方案维护 |
 | `bot-telegram/subscription-admin-message-sync.md` | 继续保留 | 当前仍未见管理员订阅消息投递持久化模型，Web 审批后也没有可追踪的 Telegram 消息批量同步链路 | 继续按实施方案维护 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
@@ -98,6 +99,9 @@
 
 | 文档 | 盘点结论 | 主要证据 | 建议动作 |
 |------|----------|----------|----------|
+| `archive/plan/architecture/oss-deployment-experience.md` | 已归档 | README quickstart、Docker Compose 默认部署、Bot profile、GHCR 双架构构建、升级流程、`initdb/` 退役和部署 runbook 均已完成并验证 | 历史追溯 |
+| `archive/plan/architecture/database-migration-auto-apply.md` | 已归档 | API 启动期自动迁移、SQL 镜像内置、五分支判断、checksum 防改写、部署升级文档与系统架构同步均已落地；相关提交已进入 `v1.5.0` / `v1.5.1` | 历史追溯 |
+| `archive/plan/console-admin/admin-emby-binding.md` | 已归档 | 管理员 Emby 用户候选查询、按 `embyId` 绑定 / 解绑、前端选择器、测试、API 目录和系统架构同步均已落地；真实环境回归日志已覆盖成功路径 | 历史追溯 |
 | `archive/plan/architecture/database-migration-baseline-and-archive.md` | 已归档 | 文档自身已标 `已完成`；现行迁移规则已由 `20260422_00_schema_baseline.sql`、`infrastructure/database/README.md`、`docs/system-architecture.md` 和 schema 部署基线收口方案接管 | 历史追溯 |
 | `archive/plan/media-subscription/subscription-resubmission-after-rejection.md` | 已归档 | `subscriptions.retryFromId`、`20260424_01_subscription_resubmission_after_rejection.sql`、`uq_subscriptions_active_media`、`POST /subscriptions/:id/resubmit`、`ResubmitSubscriptionWithResult`、用户侧“再次提交”入口和架构文档均已落地 | 历史追溯 |
 
@@ -105,6 +109,9 @@
 
 本轮已补充归档：
 
+- `architecture/oss-deployment-experience.md`
+- `architecture/database-migration-auto-apply.md`
+- `console-admin/admin-emby-binding.md`
 - `access-auth/registration-email-domain-allowlist.md`
 - `bot-polling-mode.md`
 - `access-auth/auth-and-account-integrity-hardening.md`

@@ -7,10 +7,11 @@
 1. [系统架构](../system-architecture.md)
 2. [API 开发与目录规范](./api-development-conventions.md)
 3. [项目治理经验](./project-governance-guide.md)
-4. [归档治理规范](./archive-governance.md)
-5. [`docs/plan/` 目录治理规范](./plan-directory-governance.md)
-6. [API 响应规范](./api-response-standard.md)
-7. 按任务进入对应参考或操作手册：
+4. [Git 协作规范](./git-workflow-guide.md)
+5. [归档治理规范](./archive-governance.md)
+6. [`docs/plan/` 目录治理规范](./plan-directory-governance.md)
+7. [API 响应规范](./api-response-standard.md)
+8. 按任务进入对应参考或操作手册：
    - [配置参考](./configuration-reference.md)
    - [数据模型参考](./data-model-reference.md)
    - [API 端点目录](./api-endpoint-catalog.md)
@@ -36,6 +37,7 @@
 ## 文档地图
 
 - [项目治理经验](./project-governance-guide.md) - 结构治理、重构推进和文档收尾的稳定经验
+- [Git 协作规范](./git-workflow-guide.md) - 分支命名、PR 合并和发布分支约束
 - [归档治理规范](./archive-governance.md) - `docs/archive/` 的分类、收尾和索引同步规则
 - [`docs/plan/` 目录治理规范](./plan-directory-governance.md) - 新计划文档的职责分类与落位规则
 - [多 Agent 协作指南](./multi-agent-collaboration-guide.md) - 多 agent 任务拆分、职责边界与提问模板
