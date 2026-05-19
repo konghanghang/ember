@@ -102,7 +102,7 @@
 - 业务配置：`registration_mode`、`default_trial_days`、`notify_group_link`、`telegram_welcome_message_template`、`email_verification`、`registration_allowed_email_domains`、`stripe_allowed_payment_methods`
 - 媒体集成：`EMBY_URL`、`EMBY_API_KEY`、`NEXT_PUBLIC_EMBY_URL`（历史键名，数据库配置项）、`TMDB_API_KEY`、`MOVIEPILOT_URL`、`MOVIEPILOT_API_KEY`
 - 邮件服务：`SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`EMAIL_CODE_EXPIRY_MINUTES`、`EMAIL_CODE_DAILY_LIMIT`、`EMAIL_CODE_IP_DAILY_LIMIT`
-- 通知：`BOT_NOTIFY_URL`
+- 通知：`BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`telegram_approval_admin_ids`、`TELEGRAM_GROUP_CHAT_ID`
 - 只读展示：`DATABASE_URL`、`JWT_SECRET`、`INTERNAL_API_SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_WEBHOOK_SECRET`、`WEBHOOK_URL`、`PORT` 等
 
 ### 2.5 Subscription（订阅求片）
@@ -141,7 +141,30 @@
 - 活跃状态唯一索引 `uq_subscriptions_active_media` 只约束 `status IN ('PENDING','APPROVED','INGESTED')` 的 `(type, tmdbId, season)`
 - `REJECTED` 历史记录不占用唯一位，允许同一作品在被拒绝后重新提交，但任意时刻同一作品仍只能存在一条活跃订阅
 
-### 2.6 EmailVerification（邮箱验证码）
+### 2.6 SubscriptionAdminNotification（订阅管理员通知）
+
+**表名**: `subscription_admin_notifications` | **文件**: `models/subscription_admin_notification.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID |
+| SubscriptionID | string(25) | subscriptionId | 关联订阅 ID |
+| AdminTelegramID | int64 | adminTelegramId | 接收审批消息的 Telegram user_id |
+| ChatID | int64 | chatId | Telegram 消息所在 chat ID |
+| MessageID | *int64 | messageId | Telegram 消息 ID；发送失败时可为空 |
+| HasPhoto | bool | hasPhoto | 原消息是否为 photo caption，用于选择编辑 caption 还是 text |
+| DeliveryStatus | string(20) | deliveryStatus | `sent`/`send_failed`/`edit_failed`/`deleted` |
+| FailureReason | *string(500) | failureReason | 最近一次发送或编辑失败摘要 |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+**设计要点**：
+- 一条订阅可对应多条管理员 Telegram 审批消息。
+- Bot 发送订阅审批私聊后把每条消息引用返回 API，API 写入本表。
+- Web 后台或 Telegram 任一端审批成功后，API 按 `subscriptionId` 查询本表并调用 Bot 批量编辑消息为最终状态。
+- 编辑失败只更新 `deliveryStatus`，不回滚 `subscriptions` 的审批状态。
+
+### 2.7 EmailVerification（邮箱验证码）
 
 **表名**: `email_verifications` | **文件**: `models/email_verification.go`
 
@@ -155,7 +178,7 @@
 | ExpiresAt | time.Time | expiresAt | 过期时间 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 2.7 Plan（付费方案）
+### 2.8 Plan（付费方案）
 
 **表名**: `plans` | **文件**: `models/plan.go`
 
@@ -176,7 +199,7 @@
 **设计要点**：
 - `Plan` 只承载 `plans` 表真实列；`planGroupName` 这类 join 后的展示字段由 `services/payment` 查询 DTO 承载，避免普通 `First/Find` 误查不存在列
 
-### 2.7.1 PlanGroup
+### 2.8.1 PlanGroup
 
 **表名**: `plan_groups` | **文件**: `models/plan_group.go`
 
@@ -190,7 +213,7 @@
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
-### 2.8 Payment（支付记录）
+### 2.9 Payment（支付记录）
 
 **表名**: `payments` | **文件**: `models/payment.go`
 
@@ -210,7 +233,7 @@
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
-### 2.9 PlaybackRanking（播放排行快照）
+### 2.10 PlaybackRanking（播放排行快照）
 
 **表名**: `playback_rankings` | **文件**: `models/playback_ranking.go`
 
@@ -231,7 +254,7 @@
 | PeriodEnd | time.Time | periodEnd | 周期结束 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 2.10 ClientBlacklist（客户端黑名单）
+### 2.11 ClientBlacklist（客户端黑名单）
 
 **表名**: `client_blacklists` | **文件**: `models/client_blacklist.go`
 
@@ -243,7 +266,7 @@
 | Reason | string(255) | reason | 黑名单原因 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 2.11 DeviceAction（设备操作日志）
+### 2.12 DeviceAction（设备操作日志）
 
 **表名**: `device_actions` | **文件**: `models/device_action.go`
 
@@ -258,7 +281,7 @@
 | Note | string(255) | note | 备注 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 2.12 TelegramBindCode（Telegram 绑定验证码）
+### 2.13 TelegramBindCode（Telegram 绑定验证码）
 
 **表名**: `telegram_bind_codes` | **文件**: `models/telegram_bind_code.go`
 
@@ -270,7 +293,7 @@
 | ExpiresAt | time.Time | expiresAt | 过期时间（默认 5 分钟） |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 2.13 TVCalendar（追剧日历）
+### 2.14 TVCalendar（追剧日历）
 
 **表名**: `tv_calendar_sources` | **文件**: `models/tv_calendar.go`
 
@@ -327,11 +350,12 @@
 | ExpiresAt | time.Time | expiresAt | 过期时间 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
-### 2.14 数据关系
+### 2.15 数据关系
 
 ```
 User (1) ──→ (N) Redemption     （兑换历史）
 User (1) ──→ (N) Subscription   （求片记录）
+Subscription (1) ──→ (N) SubscriptionAdminNotification（Telegram 管理员审批消息）
 User (1) ──→ (N) Payment        （支付记录）
 User (1) ──→ (N) TelegramBindCode（临时绑定验证码）
 User (1) ──→ (N) RedemptionCode （模板用户引用，可空）
@@ -353,7 +377,7 @@ StripeWebhookEvent              （Stripe webhook event.id 去重表，无外键
 MediaGapScan                    （缺集扫描持久化记录，advisory lock 配套，无外键）
 ```
 
-### 2.15 FailedEmbyAsyncOp（Emby 写操作补偿队列）
+### 2.16 FailedEmbyAsyncOp（Emby 写操作补偿队列）
 
 | 字段 | 类型 | 列名 | 备注 |
 |---|---|---|---|
@@ -372,7 +396,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - cron `emby-async-compensation @every 10m` 每轮拉取上限 50 条，按 `(origin, action)` 路由到 emby service；成功删除该行
 - 失败按指数退避 30s/2m/10m/1h/6h/24h，retries > 6 时仍保留行并写 ERROR 日志告警，需运维介入
 
-### 2.16 StripeWebhookEvent（Stripe webhook 去重表）
+### 2.17 StripeWebhookEvent（Stripe webhook 去重表）
 
 | 字段 | 类型 | 列名 | 备注 |
 |---|---|---|---|
@@ -389,7 +413,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - 业务分发完成后单事务回写 `processedAt / status / errorMessage`
 - 处理 `checkout.session.completed` / `async_payment_succeeded` / `async_payment_failed` / `checkout.session.expired` 标记为 `processed`，其余事件类型标记 `skipped`
 
-### 2.17 MediaGapScan（缺集扫描持久化记录）
+### 2.18 MediaGapScan（缺集扫描持久化记录）
 
 | 字段 | 类型 | 列名 | 备注 |
 |---|---|---|---|
@@ -406,7 +430,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - advisory lock 绑定在持有连接的 PG session 上：进程 crash 时 PG 端会回收锁；`running` 记录留到 cron 清理时仍保留以便排查孤儿
 - cron `media-gap-scans-cleanup @weekly` 删除 7 天之前的 `success / failed` 记录
 
-### 2.18 BotRuntimeLock（Bot polling 单实例租约锁）
+### 2.19 BotRuntimeLock（Bot polling 单实例租约锁）
 
 **表名**: `bot_runtime_locks` | **文件**: `models/bot_runtime_lock.go`
 

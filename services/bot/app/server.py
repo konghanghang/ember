@@ -62,6 +62,7 @@ from app.handlers.telegram_handler import (
     send_ranking_notification,
     send_subscription_notification,
     send_subscription_result_notification,
+    sync_subscription_admin_messages,
 )
 from app.menu_sync import schedule_group_menu_sync
 from app.runtime_settings import runtime_settings_service
@@ -387,8 +388,19 @@ async def notify_subscription(request: Request):
         return unauthorized
 
     data = await request.json()
-    await send_subscription_notification(tg_app.bot, data)
-    return {"ok": True}
+    deliveries = await send_subscription_notification(tg_app.bot, data)
+    return {"ok": True, "deliveries": deliveries}
+
+
+@app.post("/notify/subscription-admin-sync")
+async def notify_subscription_admin_sync(request: Request):
+    unauthorized = _verify_internal_secret(request)
+    if unauthorized is not None:
+        return unauthorized
+
+    data = await request.json()
+    results = await sync_subscription_admin_messages(tg_app.bot, data)
+    return {"ok": True, "results": results}
 
 
 @app.post("/notify/subscription-result")

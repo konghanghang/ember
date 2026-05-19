@@ -20,7 +20,7 @@
 
 3. **Bot 启动环境变量**
    - Bot 进程启动时直接读取
-   - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link`、`telegram_welcome_message_template` 在运行期通过 API 设置中心读取，并带短 TTL 缓存
+   - `TELEGRAM_ADMIN_CHAT_ID`、`telegram_approval_admin_ids`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link`、`telegram_welcome_message_template` 在运行期通过 API 设置中心读取，并带短 TTL 缓存
    - `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 仍支持本地 env 回退，但它们属于可选兜底，不再作为 `.env.example` 默认项
 
 4. **Web 构建期变量**
@@ -85,6 +85,7 @@
 |--------|------|--------|------|
 | `BOT_NOTIFY_URL` | 否 | 否 | API 推送通知到 Bot 的地址 |
 | `TELEGRAM_ADMIN_CHAT_ID` | 否 | 否 | 管理员通知 Chat ID |
+| `telegram_approval_admin_ids` | 否 | 否 | 订阅审批消息接收与操作人员的 Telegram user_id 列表，多个 ID 用英文逗号分隔；为空时回退 `TELEGRAM_ADMIN_CHAT_ID` |
 | `TELEGRAM_GROUP_CHAT_ID` | 否 | 否 | 群推送 Chat ID，允许置空后回退到管理员 Chat ID |
 | `STRIPE_SECRET_KEY` | 是 | 否 | Stripe 服务端密钥 |
 | `STRIPE_SUCCESS_URL` | 否 | 否 | Stripe 支付成功跳转地址 |
@@ -173,8 +174,9 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 
 说明：
 
-- Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存。
+- Bot 在运行期会通过 API 内部接口读取 `TELEGRAM_ADMIN_CHAT_ID`、`telegram_approval_admin_ids`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存。
 - 当 API 未返回值时，Bot 会回退到本地环境变量中的 Chat ID。
+- `telegram_approval_admin_ids` 只表示订阅审批人员，不从 Telegram 群管理员或 Ember 后台管理员自动推导；留空时订阅审批通知回退到 `TELEGRAM_ADMIN_CHAT_ID`。
 - `polling` 模式下不再需要 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 自身仍要保留内网可达地址，供 API 通过 `BOT_NOTIFY_URL` 调用 `/notify/*`。
 - 因此 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 对 Bot 来说仍可保留 env 兜底，但不再属于推荐写进示例文件的默认项。
 

@@ -1608,6 +1608,23 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:          normalizeTrimmedString,
 		},
 		{
+			Key:             "telegram_approval_admin_ids",
+			Group:           ConfigGroupNotification,
+			GroupLabel:      "通知与 Bot",
+			Label:           "Telegram 审批人员 ID",
+			Description:     "接收并操作订阅审批私聊消息的 Telegram user_id 列表，多个 ID 用英文逗号分隔；为空时回退 Telegram 管理员 Chat ID",
+			Type:            ConfigValueString,
+			DefaultValue:    "",
+			Placeholder:     "123456789,987654321",
+			Editable:        true,
+			RestartRequired: false,
+			AllowEmpty:      true,
+			EmptyValueMode:  ConfigEmptyValueFallback,
+			EmptyValueHint:  "保存为空值后订阅审批通知将回退发送给 Telegram 管理员 Chat ID。",
+			Validate:        validateTelegramApprovalAdminIDs,
+			Normalize:       normalizeTelegramApprovalAdminIDs,
+		},
+		{
 			Key:                "TELEGRAM_GROUP_CHAT_ID",
 			EnvKey:             "TELEGRAM_GROUP_CHAT_ID",
 			DisableEnvFallback: true,
@@ -1841,6 +1858,43 @@ func validateTelegramPositiveChatID(value string) error {
 	chatID, err := strconv.ParseInt(trimmed, 10, 64)
 	if err != nil || chatID <= 0 {
 		return errors.New("Telegram 管理员 Chat ID 无效")
+	}
+	return nil
+}
+
+func normalizeTelegramApprovalAdminIDs(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	parts := strings.Split(trimmed, ",")
+	normalized := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return strings.Join(normalized, ","), nil
+}
+
+func validateTelegramApprovalAdminIDs(value string) error {
+	normalized, _ := normalizeTelegramApprovalAdminIDs(value)
+	if normalized == "" {
+		return nil
+	}
+	for _, part := range strings.Split(normalized, ",") {
+		id, err := strconv.ParseInt(part, 10, 64)
+		if err != nil || id <= 0 {
+			return errors.New("Telegram 审批人员 ID 必须是正整数，多个 ID 用英文逗号分隔")
+		}
 	}
 	return nil
 }

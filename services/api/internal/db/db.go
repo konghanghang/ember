@@ -152,6 +152,7 @@ func VerifySchema() error {
 		{"media_gap_scans", &models.MediaGapScan{}},
 		{"bot_pending_reject_requests", &models.BotPendingRejectRequest{}},
 		{"bot_runtime_locks", &models.BotRuntimeLock{}},
+		{"subscription_admin_notifications", &models.SubscriptionAdminNotification{}},
 	}
 
 	modelByTable := make(map[string]interface{}, len(tableChecks))
@@ -231,6 +232,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"bot_pending_reject_requests", "message_id", "20260427_04_bot_pending_reject_message_context"},
 	{"users", "password_reset_required", "20260426_15_users_password_reset_required"},
 	{"bot_runtime_locks", "expires_at", "20260427_01_bot_runtime_locks"},
+	{"subscription_admin_notifications", "delivery_status", "20260519_01_subscription_admin_notifications"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -260,6 +262,8 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"bot_pending_reject_requests", "idx_bot_pending_reject_requests_chat", "20260426_12_bot_pending_reject_requests"},
 	{"bot_runtime_locks", "idx_bot_runtime_locks_expires", "20260427_01_bot_runtime_locks"},
 	{"users", "uniq_users_emby_id", "20260504_00_users-emby-id-unique"},
+	{"subscription_admin_notifications", "idx_subscription_admin_notifications_subscription", "20260519_01_subscription_admin_notifications"},
+	{"subscription_admin_notifications", "uq_subscription_admin_notifications_message", "20260519_01_subscription_admin_notifications"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。
@@ -344,6 +348,7 @@ func seedDefaultSettings() {
 		{Key: "notify_group_link", Value: ""},
 		{Key: "email_verification", Value: "false"},
 		{Key: "stripe_allowed_payment_methods", Value: ""},
+		{Key: "telegram_approval_admin_ids", Value: ""},
 	}
 
 	for _, s := range defaultSettings {

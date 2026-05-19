@@ -61,3 +61,39 @@ func TestBotNotifierPostSetsRequestIDAndSecretHeader(t *testing.T) {
 		t.Fatalf("X-Request-Id = %q, want prefix %q", got, "bot-notify-")
 	}
 }
+
+func TestNotifyNewSubscriptionWithDeliveriesDecodesResponse(t *testing.T) {
+	notifier := &BotNotifier{
+		botURL: "https://bot.example.com",
+		secret: "test-secret",
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != "/notify/subscription" {
+					t.Fatalf("unexpected path: %s", req.URL.Path)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"ok": true,
+						"deliveries": [
+							{"adminTelegramId":1001,"chatId":1001,"messageId":77,"hasPhoto":true,"deliveryStatus":"sent"}
+						]
+					}`)),
+					Header: make(http.Header),
+				}, nil
+			}),
+		},
+		lastRefreshedAt: time.Now().UTC(),
+	}
+
+	deliveries, err := notifier.NotifyNewSubscriptionWithDeliveries(SubscriptionNotification{ID: "sub_123"})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(deliveries) != 1 {
+		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
+	}
+	if deliveries[0].AdminTelegramID != 1001 || deliveries[0].MessageID == nil || *deliveries[0].MessageID != 77 {
+		t.Fatalf("unexpected delivery: %+v", deliveries[0])
+	}
+}

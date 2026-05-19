@@ -74,6 +74,22 @@ def _extract_message_html(message) -> str:
     return ""
 
 
+def _sent_message_chat_id(message, fallback: int) -> int:
+    chat_id = getattr(message, "chat_id", None)
+    if isinstance(chat_id, int):
+        return chat_id
+    chat = getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None)
+    return chat_id if isinstance(chat_id, int) else fallback
+
+
+def _classify_edit_failure(err: Exception) -> str:
+    message = str(err).lower()
+    if "message to edit not found" in message or "message to delete not found" in message:
+        return "deleted"
+    return "edit_failed"
+
+
 def _render_welcome_message(template: str, names: str, notify_group_link: str) -> str:
     return (
         template.replace(WELCOME_MESSAGE_NAMES_PLACEHOLDER, names)
@@ -181,35 +197,136 @@ async def _edit_search_message(
         return False
 
 
-async def send_subscription_notification(bot, data: dict) -> None:
-    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
-    if admin_chat_id is None:
-        logger.warning("TELEGRAM_ADMIN_CHAT_ID 未配置，跳过订阅通知")
-        return
+async def send_subscription_notification(bot, data: dict) -> list[dict[str, Any]]:
+    approval_admin_ids = await runtime_settings_service.get_approval_admin_ids()
+    if not approval_admin_ids:
+        logger.warning("Telegram 审批人员未配置，跳过订阅通知 subscriptionId=%s", data.get("id"))
+        return []
 
     text, keyboard = format_subscription_message(data)
     poster_path = data.get("posterPath")
+    deliveries: list[dict[str, Any]] = []
 
-    if poster_path:
-        poster_url = f"{TMDB_IMAGE_BASE}{poster_path}"
+    for admin_id in approval_admin_ids:
+        has_photo = False
+        sent = None
+        if poster_path:
+            poster_url = f"{TMDB_IMAGE_BASE}{poster_path}"
+            try:
+                sent = await bot.send_photo(
+                    chat_id=admin_id,
+                    photo=poster_url,
+                    caption=text,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+                has_photo = True
+            except Exception:
+                logger.exception(
+                    "发送订阅审批海报消息失败，降级为文本消息 subscriptionId=%s adminTelegramId=%s",
+                    data.get("id"),
+                    admin_id,
+                )
+
+        if sent is None:
+            try:
+                sent = await bot.send_message(
+                    chat_id=admin_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+            except Exception as err:
+                logger.exception(
+                    "发送订阅审批消息失败 subscriptionId=%s adminTelegramId=%s",
+                    data.get("id"),
+                    admin_id,
+                )
+                deliveries.append(
+                    {
+                        "adminTelegramId": admin_id,
+                        "chatId": admin_id,
+                        "hasPhoto": False,
+                        "deliveryStatus": "send_failed",
+                        "failureReason": str(err)[:500],
+                    }
+                )
+                continue
+
+        deliveries.append(
+            {
+                "adminTelegramId": admin_id,
+                "chatId": _sent_message_chat_id(sent, admin_id),
+                "messageId": sent.message_id,
+                "hasPhoto": has_photo,
+                "deliveryStatus": "sent",
+            }
+        )
+
+    return deliveries
+
+
+async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, Any]]:
+    base_data = {
+        "id": data.get("subscriptionId", ""),
+        "userName": data.get("userName", ""),
+        "type": data.get("type", ""),
+        "name": data.get("name", ""),
+        "tmdbId": data.get("tmdbId", ""),
+        "season": data.get("season", 0),
+        "posterPath": data.get("posterPath"),
+        "note": data.get("note", ""),
+    }
+    original_text, _ = format_subscription_message(base_data)
+    status = str(data.get("status") or "").upper()
+    action = "reject" if status == "REJECTED" else "approve"
+    result_text = format_result_message(original_text, action, str(data.get("rejectReason") or ""))
+    results: list[dict[str, Any]] = []
+
+    for notification in data.get("notifications", []):
+        notification_id = str(notification.get("id") or "").strip()
+        chat_id = int(notification.get("chatId", 0) or 0)
+        message_id = int(notification.get("messageId", 0) or 0)
+        has_photo = bool(notification.get("hasPhoto"))
+        if not notification_id or chat_id == 0 or message_id <= 0:
+            continue
         try:
-            await bot.send_photo(
-                chat_id=admin_chat_id,
-                photo=poster_url,
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=keyboard,
+            if has_photo:
+                await bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=result_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=result_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+            results.append({"id": notification_id, "deliveryStatus": "sent"})
+        except Exception as err:
+            status = _classify_edit_failure(err)
+            logger.exception(
+                "同步订阅审批消息失败 subscriptionId=%s notificationId=%s chatId=%s messageId=%s status=%s",
+                data.get("subscriptionId"),
+                notification_id,
+                chat_id,
+                message_id,
+                status,
             )
-            return
-        except Exception:
-            logger.exception("发送海报消息失败，降级为文本消息")
+            results.append(
+                {
+                    "id": notification_id,
+                    "deliveryStatus": status,
+                    "failureReason": str(err)[:500],
+                }
+            )
 
-    await bot.send_message(
-        chat_id=admin_chat_id,
-        text=text,
-        parse_mode="HTML",
-        reply_markup=keyboard,
-    )
+    return results
 
 
 async def send_subscription_result_notification(bot, data: dict) -> None:
@@ -368,11 +485,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     result_text = format_result_message(original_text, action)
     await query.answer()
 
-    if message is not None and message.photo:
-        await query.edit_message_caption(caption=result_text, parse_mode="HTML")
-        return
+    try:
+        if message is not None and message.photo:
+            await query.edit_message_caption(caption=result_text, parse_mode="HTML", reply_markup=None)
+            return
 
-    await query.edit_message_text(text=result_text, parse_mode="HTML")
+        await query.edit_message_text(text=result_text, parse_mode="HTML", reply_markup=None)
+    except Exception:
+        logger.exception("更新当前订阅审核消息失败 subscriptionId=%s action=%s", subscription_id, action)
 
 
 async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

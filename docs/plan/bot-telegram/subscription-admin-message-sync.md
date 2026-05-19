@@ -1,8 +1,24 @@
 # 多管理员订阅通知消息同步实现方案
 
-> 状态：草稿
+> 状态：已实现，待手工验证与归档
 > 负责人：Ember
-> 更新时间：2026-05-17
+> 更新时间：2026-05-19
+
+## 落地状态
+
+截至 2026-05-19，代码实现已完成：
+
+- 已新增 `subscription_admin_notifications` 表、GORM 模型与 schema fingerprint。
+- 已新增设置项 `telegram_approval_admin_ids`，Bot 运行期读取后用于订阅审批通知接收人与回调权限校验，空值回退 `TELEGRAM_ADMIN_CHAT_ID`。
+- 新订阅通知已改为 Bot 返回多管理员消息投递引用，API 异步写入投递记录。
+- Web 后台或 Telegram 任一端审批成功后，API 会调用 Bot 同步所有已落库管理员消息并写回编辑结果。
+- 已同步 `docs/system-architecture.md`、`docs/reference/data-model-reference.md` 和 `docs/reference/configuration-reference.md`。
+- 已完成自动验证：`services/api` 全量 `go test ./...`、`go build ./...`，Bot 相关 Python 3.11 语法检查与 `test_telegram_handler.py` 定向单测。
+
+剩余事项：
+
+- 需要在真实 Telegram 环境按本文“手工验证”章节完成多管理员私聊、Web 审批同步、Telegram 审批同步和消息删除失败分支验证。
+- 手工验证完成后，将本计划归档到 `docs/archive/plan/bot-telegram/`。
 
 ## 背景
 
