@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-05-17
+> 更新时间：2026-05-21
 
 本清单只回答三件事：
 
@@ -87,7 +87,6 @@
 
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
-| `bot-telegram/subscription-admin-message-sync.md` | 继续保留 | 当前仍未见管理员订阅消息投递持久化模型，Web 审批后也没有可追踪的 Telegram 消息批量同步链路 | 继续按实施方案维护 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
@@ -104,6 +103,7 @@
 | `archive/plan/console-admin/admin-emby-binding.md` | 已归档 | 管理员 Emby 用户候选查询、按 `embyId` 绑定 / 解绑、前端选择器、测试、API 目录和系统架构同步均已落地；真实环境回归日志已覆盖成功路径 | 历史追溯 |
 | `archive/plan/architecture/database-migration-baseline-and-archive.md` | 已归档 | 文档自身已标 `已完成`；现行迁移规则已由 `20260422_00_schema_baseline.sql`、`infrastructure/database/README.md`、`docs/system-architecture.md` 和 schema 部署基线收口方案接管 | 历史追溯 |
 | `archive/plan/media-subscription/subscription-resubmission-after-rejection.md` | 已归档 | `subscriptions.retryFromId`、`20260424_01_subscription_resubmission_after_rejection.sql`、`uq_subscriptions_active_media`、`POST /subscriptions/:id/resubmit`、`ResubmitSubscriptionWithResult`、用户侧“再次提交”入口和架构文档均已落地 | 历史追溯 |
+| `archive/plan/bot-telegram/subscription-admin-message-sync.md` | 已归档 | `subscription_admin_notifications` 模型与 migration、`telegram_approval_admin_ids`、Bot 多审批人员投递返回、API 投递记录持久化、Web / Telegram 审批后批量同步管理员消息均已落地，系统架构与配置/数据模型参考文档已同步 | 历史追溯 |
 
 ## D. 本轮新增归档记录
 
@@ -138,6 +138,7 @@
 - `embypulse-features/p2-user-avatar.md`
 - `console-admin/ember-web-component-foundation.md`
 - `archive/plan/architecture/schema-deployment-and-baseline-cleanup.md`
+- `bot-telegram/subscription-admin-message-sync.md`
 - `embypulse-features/README.md`（索引目录退出，归档方案已按职责边界重组）
 
 本轮已迁移为治理提案：

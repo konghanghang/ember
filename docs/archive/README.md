@@ -19,8 +19,9 @@
   - 例如：[订阅状态可见性与结果通知实现方案](./plan/media-subscription/subscription-status-and-notification.md)
   - 例如：[用户侧媒体库入口收口方案](./plan/media-subscription/library-entry-consolidation.md)
   - 例如：[订阅拒绝后重新发起实现方案](./plan/media-subscription/subscription-resubmission-after-rejection.md)
-- `bot-telegram/`：Telegram 绑定、Bot 菜单、搜索订阅、通知、Polling、通知与信息泄露加固
+- `bot-telegram/`：Telegram 绑定、Bot 菜单、搜索订阅、通知、Polling、通知与信息泄露加固、多管理员审批消息同步
   - 例如：[Bot 通知与信息泄露加固方案](./plan/bot-telegram/bot-notification-and-info-leak-hardening.md)
+  - 例如：[多管理员订阅通知消息同步方案](./plan/bot-telegram/subscription-admin-message-sync.md)
 - `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板、后台创建用户、管理员 Emby 账号绑定、后台组件基建收口、后台 UI 一致性收口、播放观察与设备链路加固、播放分析菜单合并
   - 例如：[管理员 Emby 账号绑定方案](./plan/console-admin/admin-emby-binding.md)
   - 例如：[播放观察与设备链路加固方案](./plan/console-admin/playback-and-device-observation-hardening.md)
