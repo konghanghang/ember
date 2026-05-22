@@ -378,7 +378,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
+                bot_admin.runtime_settings_service,
                 "get_approval_admin_ids",
                 AsyncMock(return_value=(1001,)),
             ),
@@ -420,7 +420,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
+                bot_admin.runtime_settings_service,
                 "get_approval_admin_ids",
                 AsyncMock(return_value=(9999,)),
             ),
@@ -444,13 +444,34 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(
             bot_admin.runtime_settings_service,
-            "get_approval_admin_ids",
-            AsyncMock(return_value=(9999,)),
+            "get_chat_ids",
+            AsyncMock(return_value=(9999, None)),
         ):
             allowed, reason = await menu_sync.is_menu_refresh_allowed(bot, 2002, 1001)
 
         self.assertTrue(allowed)
         self.assertIsNone(reason)
+
+    async def test_bot_admin_does_not_treat_approval_admin_as_bot_admin(self) -> None:
+        bot = _StubBot()
+
+        with (
+            patch.object(
+                bot_admin.runtime_settings_service,
+                "get_chat_ids",
+                AsyncMock(return_value=(9999, None)),
+            ),
+            patch.object(
+                bot_admin.runtime_settings_service,
+                "get_approval_admin_ids",
+                AsyncMock(return_value=(1001,)),
+            ) as approval_admins_mock,
+        ):
+            allowed, reason = await bot_admin.is_bot_admin(bot, chat_id=1001, user_id=1001)
+
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "只有配置的管理员账号可以执行此操作")
+        approval_admins_mock.assert_not_awaited()
 
     async def test_handle_pending_reject_reason_uses_api_payload_to_reject_and_edit_message(self) -> None:
         bot = _StubBot()
@@ -467,7 +488,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
+                bot_admin.runtime_settings_service,
                 "get_approval_admin_ids",
                 AsyncMock(return_value=(1001,)),
             ),
@@ -501,7 +522,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
+                bot_admin.runtime_settings_service,
                 "get_approval_admin_ids",
                 AsyncMock(return_value=(1001,)),
             ),

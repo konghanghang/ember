@@ -14,12 +14,13 @@ async def is_bot_admin(
     user_id: int,
     allow_group_admin: bool = False,
 ) -> tuple[bool, str | None]:
-    approval_admin_ids = await runtime_settings_service.get_approval_admin_ids()
-    if user_id in approval_admin_ids:
+    """判断用户是否具备通用 Bot 管理权限。"""
+    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
+    if admin_chat_id is not None and user_id == admin_chat_id:
         return True, None
 
     if not allow_group_admin:
-        return False, "只有配置的 Telegram 审批人员可以执行此操作"
+        return False, "只有配置的管理员账号可以执行此操作"
 
     try:
         bot_member = await bot.get_chat_member(chat_id=chat_id, user_id=bot.id)
@@ -41,3 +42,9 @@ async def is_bot_admin(
         return True, None
 
     return False, "只有群管理员或配置的管理员账号可以执行此操作"
+
+
+async def is_subscription_approval_admin(user_id: int) -> bool:
+    """判断用户是否是订阅审批消息的显式审批人员。"""
+    approval_admin_ids = await runtime_settings_service.get_approval_admin_ids()
+    return user_id in approval_admin_ids

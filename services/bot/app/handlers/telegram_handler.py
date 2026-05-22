@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable
 from telegram import InputMediaPhoto, Update
 from telegram.ext import ContextTypes
 
-from app.bot_admin import is_bot_admin
+from app.bot_admin import is_bot_admin, is_subscription_approval_admin
 from app.clients import api_client
 from app.config import (
     TMDB_IMAGE_BASE,
@@ -424,6 +424,7 @@ async def send_ranking_notification(bot, data: dict) -> None:
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
     query = update.callback_query
     if query is None or query.data is None:
         return
@@ -432,16 +433,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer("你没有权限操作", show_alert=True)
         return
 
-    chat_id = query.message.chat_id if query.message is not None else query.from_user.id
-    bot = getattr(context, "bot", None)
-    if bot is None and query.message is not None:
-        bot = query.message.get_bot()
-    allowed, _ = await is_bot_admin(
-        bot,
-        chat_id=chat_id,
-        user_id=query.from_user.id,
-    )
-    if not allowed:
+    if not await is_subscription_approval_admin(query.from_user.id):
         await query.answer("你没有权限操作", show_alert=True)
         return
 
@@ -513,12 +505,7 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
     if message is None or message.from_user is None or message.text is None:
         return
 
-    allowed, _ = await is_bot_admin(
-        message.get_bot(),
-        chat_id=message.chat_id,
-        user_id=message.from_user.id,
-    )
-    if not allowed:
+    if not await is_subscription_approval_admin(message.from_user.id):
         return
 
     reason = message.text.strip()
