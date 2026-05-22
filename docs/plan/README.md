@@ -37,13 +37,13 @@
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
 - `bot-telegram/notification-mute-rules.md`
-- `bot-telegram/subscription-admin-message-sync.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 
 最近已完成归档的实施稿包括：
 
+- `bot-telegram/subscription-admin-message-sync.md` → `docs/archive/plan/bot-telegram/subscription-admin-message-sync.md`
 - `architecture/oss-deployment-experience.md` → `docs/archive/plan/architecture/oss-deployment-experience.md`
 - `architecture/database-migration-auto-apply.md` → `docs/archive/plan/architecture/database-migration-auto-apply.md`
 - `console-admin/admin-emby-binding.md` → `docs/archive/plan/console-admin/admin-emby-binding.md`

@@ -247,7 +247,7 @@ services/
    └─ app/
       ├─ config.py               # 启动期环境变量加载
       ├─ runtime_settings.py     # Bot 运行期设置读取（API + TTL 缓存）
-      ├─ server.py               # FastAPI + Telegram Application（Webhook 模式，lifespan 负责 HTTP client 生命周期）
+      ├─ server.py               # FastAPI + Telegram Application（Webhook 模式，lifespan 负责 HTTP client 生命周期与 notify 入口）
       ├─ handlers/
       │  ├─ telegram_handler.py  # 消息/回调处理（审批、欢迎消息、菜单清理）
       │  └─ search_cache.py      # 搜索会话缓存
@@ -281,7 +281,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 
 - 账号与认证：`users`、`email_verifications`、`telegram_bind_codes`
 - 兑换与支付：`redemption_codes`、`redemptions`、`plans`、`plan_groups`、`payments`、`stripe_webhook_events`
-- 内容与行为：`subscriptions`、`playback_rankings`、`client_blacklists`、`device_actions`
+- 内容与行为：`subscriptions`、`subscription_admin_notifications`、`playback_rankings`、`client_blacklists`、`device_actions`
 - 追剧与媒体：`tv_calendar_sources`、`tv_calendar_items`、`tv_calendar_subscriptions`、`tmdb_cache`
 - 系统运行期：`settings`、`failed_emby_async_ops`、`media_gap_scans`、`bot_runtime_locks`
 
@@ -289,7 +289,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 
 - `User` 是核心主体，向外关联 `Redemption`、`Subscription`、`Payment`、`TelegramBindCode` 和追剧订阅
 - `PlanGroup → Plan → Payment` 构成套餐与支付主链路；`User.planGroup`、`RedemptionCode.registrationPlanGroup` 参与用户可见套餐边界
-- `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动
+- `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动；`SubscriptionAdminNotification` 记录每条 Telegram 管理员审批消息的 `chatId/messageId`，用于 Web / Telegram 任一端审批后的消息同步
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表
 
@@ -422,10 +422,10 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
-- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 火忘式通知 Bot；**批次 2 改造**：包入事务 + `pg_advisory_xact_lock` 序列化同 `(type, tmdbId, season)` 的并发；命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功（不再 409）
+- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 异步通知 Bot；通知创建主请求仍为 fire-and-forget，但异步任务会同步等待 Bot 返回每条管理员审批消息的投递引用，并写入 `subscription_admin_notifications`。**批次 2 改造**：包入事务 + `pg_advisory_xact_lock` 序列化同 `(type, tmdbId, season)` 的并发；命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功（不再 409）
 - `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 同上幂等保护；新记录写入 `retryFromId`，原记录保持 `REJECTED`
-- `ApproveSubscription(id)` — **批次 2 改原子状态转移**：`UPDATE WHERE status='PENDING'`，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict` → handler 映射 409。MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED
-- `RejectSubscription(id, reason)` — 同样原子状态转移，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict`
+- `ApproveSubscription(id)` — **批次 2 改原子状态转移**：`UPDATE WHERE status='PENDING'`，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict` → handler 映射 409。MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
+- `RejectSubscription(id, reason)` — 同样原子状态转移，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict`；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
 - `RedispatchSubscription(id)` — **批次 2 新增**：管理员手动重试 MoviePilot 调用，仅在 `status='APPROVED'` 且 `mpError != nil` 时允许；状态保持 APPROVED；mpError 由本次结果覆盖。路由 `PUT /api/v1/admin/subscriptions/:id/redispatch`
 - `MarkSubscriptionIngestedAsAdmin(id)` — 管理员校验 Emby 后手动收口为 INGESTED；批次 2 起触发与 webhook 一致的 `notifyIngested` 通知
 - `MarkSubscriptionsIngestedByWebhook(payload)` — **批次 2 拆分整剧 / 单季命中策略**：
@@ -506,7 +506,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 **通知类型**：
 | 方法 | Bot 端点 | 触发时机 |
 |------|----------|----------|
-| `NotifyNewSubscription` | `POST /notify/subscription` | 用户创建求片订阅 |
+| `NotifyNewSubscriptionWithDeliveries` | `POST /notify/subscription` | 用户创建求片订阅；Bot 返回管理员消息投递引用供 API 落库 |
+| `SyncSubscriptionAdminMessages` | `POST /notify/subscription-admin-sync` | 订阅审批成功后批量同步管理员审批消息状态 |
 | `NotifySubscriptionApproved` / `NotifySubscriptionRejected` / `NotifySubscriptionIngested` | `POST /notify/subscription-result` | 用户订阅审核结果 / 入库结果 |
 | `NotifyNewRegistration` | `POST /notify/registration` | 新用户注册 |
 | `NotifyPaymentSuccess` | `POST /notify/payment` | Stripe 支付履约成功 |
@@ -582,6 +583,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 
 **反账号枚举（handler 层）**：`VerifyBind` 命中绑定码无效、Telegram 已绑定或 Ember 用户已绑定时统一返回 400 + 中性绑定失败文案；`GetAccountInfo` / `RedeemByTelegram` / `ResetPassword` / `SubscribeByTelegram` 命中 `ErrTelegramNotBound` 时统一返回 400 + `请求参数错误`，不再透传 sentinel 字面值；攻击者无法借 `/bind`、`/redeem`、`/resetpw` 等命令枚举 Telegram↔Ember 的绑定关系。具体非枚举业务错误（兑换码无效、密码长度不够等）继续按各自 sentinel 返回。
+
+**订阅管理员消息同步**：订阅审批通知接收人来自设置项 `telegram_approval_admin_ids`，语义是显式 Telegram 审批人员 user_id 列表；为空时回退 `TELEGRAM_ADMIN_CHAT_ID`，不会从 Telegram 群管理员或 Ember 后台 `role=admin` 推导。Bot 对每个审批人员私聊发送待审批消息，返回 `adminTelegramId/chatId/messageId/hasPhoto/deliveryStatus`，API 写入 `subscription_admin_notifications`。Web 后台或 Telegram 任一端审批成功后，API 调 `POST /notify/subscription-admin-sync`，Bot 逐条编辑消息为最终结果并移除按钮；编辑失败只写回 `edit_failed/deleted`，不回滚订阅审批状态。
 
 **审批拒绝上下文持久化**：Bot 管理员拒绝订阅时，待输入的 `adminUserId / subscriptionId / messageId / hasPhoto / originalText / expiresAt` 已落到 `bot_pending_reject_requests`，避免 Bot 重启或滚动发布导致 5 分钟内的待输入状态丢失；第二步提交拒绝原因时，Bot 调用 `reject-request/pop` 必须同时提交 `chatId + adminUserId`，API 只弹出同一操作者创建的待确认记录；搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
 

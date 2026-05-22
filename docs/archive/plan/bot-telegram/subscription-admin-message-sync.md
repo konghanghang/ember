@@ -1,8 +1,54 @@
 # 多管理员订阅通知消息同步实现方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-05-17
+> 更新时间：2026-05-21
+
+## 归档说明
+
+本方案已完成落地，当前只保留历史追溯价值。
+
+稳定结论已同步到：
+
+- `docs/system-architecture.md`
+- `docs/reference/data-model-reference.md`
+- `docs/reference/configuration-reference.md`
+- `infrastructure/database/20260519_01_subscription_admin_notifications.sql`
+- `services/api/internal/models/subscription_admin_notification.go`
+- `services/api/internal/services/subscription/service.go`
+- `services/bot/app/handlers/telegram_handler.py`
+
+当前代码已经具备：
+
+- `subscription_admin_notifications` 表、GORM 模型与 schema fingerprint。
+- `telegram_approval_admin_ids` 运行期设置，用于显式配置 Telegram 审批人员 user_id 列表；为空时回退 `TELEGRAM_ADMIN_CHAT_ID`。
+- 新订阅通知会由 Bot 返回多管理员消息投递引用，API 异步写入投递记录。
+- Web 后台或 Telegram 任一端审批成功后，API 会调用 Bot 同步所有已落库管理员消息并写回编辑结果。
+- Bot 审批回调复用同一份审批人员名单做权限校验，不再只校验单个管理员 Chat ID。
+
+已完成验证：
+
+- `cd services/api && go test ./...`
+- `cd services/api && go build ./...`
+- `cd services/bot && .venv/bin/python -m py_compile main.py`
+- `cd services/bot && .venv/bin/python -m pytest tests/test_telegram_handler.py tests/test_server.py tests/test_api_client.py`
+
+仍需真实环境关注的边界：
+
+- 多审批人员私聊、Web 审批同步、Telegram 审批同步、消息删除失败分支依赖真实 Telegram 环境，后续按发布验收执行。
+
+因此这份文档不再承担当前实施计划职责。
+
+## 落地状态
+
+截至 2026-05-21，代码实现已完成：
+
+- 已新增 `subscription_admin_notifications` 表、GORM 模型与 schema fingerprint。
+- 已新增设置项 `telegram_approval_admin_ids`，Bot 运行期读取后用于订阅审批通知接收人与回调权限校验，空值回退 `TELEGRAM_ADMIN_CHAT_ID`。
+- 新订阅通知已改为 Bot 返回多管理员消息投递引用，API 异步写入投递记录。
+- Web 后台或 Telegram 任一端审批成功后，API 会调用 Bot 同步所有已落库管理员消息并写回编辑结果。
+- 已同步 `docs/system-architecture.md`、`docs/reference/data-model-reference.md` 和 `docs/reference/configuration-reference.md`。
+- 已完成自动验证：`services/api` 全量 `go test ./...`、`go build ./...`，Bot Python 3.11 语法检查与相关单测。
 
 ## 背景
 
@@ -209,10 +255,12 @@
 
 ## 落地后文档处理
 
-落地后应同步处理：
+落地后已同步处理：
 
-- 将稳定结论同步到 `docs/system-architecture.md`
+- 已将稳定结论同步到 `docs/system-architecture.md`
   - `subscription_admin_notifications` 模型
   - 多管理员通知投递与同步机制
   - Web / Telegram 共用的审批结果同步链路
-- 功能落地、编译验证和手工链路验证完成后，将本方案迁入 `docs/archive/plan/bot-telegram/`
+- 已同步 `docs/reference/data-model-reference.md`
+- 已同步 `docs/reference/configuration-reference.md`
+- 已将本方案迁入 `docs/archive/plan/bot-telegram/`

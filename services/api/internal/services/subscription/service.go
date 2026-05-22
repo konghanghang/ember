@@ -96,6 +96,23 @@ var activeSubscriptionStatuses = []models.SubscriptionStatus{
 	models.SubscriptionIngested,
 }
 
+var loadSubscriptionForAdminNotificationSync = func(subscriptionID string) (models.Subscription, error) {
+	var subscription models.Subscription
+	err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error
+	return subscription, err
+}
+
+var runAdminNotificationSync = func(s *SubscriptionService, subscription models.Subscription) {
+	s.syncAdminNotifications(subscription)
+}
+
+const (
+	subscriptionAdminNotificationSent       = "sent"
+	subscriptionAdminNotificationSendFailed = "send_failed"
+	subscriptionAdminNotificationEditFailed = "edit_failed"
+	subscriptionAdminNotificationDeleted    = "deleted"
+)
+
 // NewSubscriptionService 创建订阅服务
 func NewSubscriptionService() *SubscriptionService {
 	return &SubscriptionService{
@@ -367,7 +384,7 @@ func (s *SubscriptionService) notifyNewSubscription(subscriptionID, userID strin
 		username = user.Username
 	}
 
-	s.notifier.NotifyNewSubscription(notifierint.SubscriptionNotification{
+	payload := notifierint.SubscriptionNotification{
 		ID:         subscriptionID,
 		UserName:   username,
 		Type:       string(req.Type),
@@ -376,7 +393,76 @@ func (s *SubscriptionService) notifyNewSubscription(subscriptionID, userID strin
 		Season:     season,
 		PosterPath: req.PosterPath,
 		Note:       req.Note,
-	})
+	}
+
+	deliveries, err := s.notifier.NotifyNewSubscriptionWithDeliveries(payload)
+	if err != nil {
+		log.Printf("[Subscription] 管理员审批通知发送失败 subscriptionId=%s err=%v", subscriptionID, err)
+		return
+	}
+	if err := s.persistAdminNotificationDeliveries(subscriptionID, deliveries); err != nil {
+		log.Printf("[Subscription] 管理员审批通知投递记录写入失败 subscriptionId=%s count=%d err=%v", subscriptionID, len(deliveries), err)
+		return
+	}
+	s.syncAdminNotificationsAfterDeliveryIfHandled(subscriptionID)
+}
+
+// persistAdminNotificationDeliveries 持久化 Bot 返回的管理员审批消息投递引用。
+func (s *SubscriptionService) persistAdminNotificationDeliveries(subscriptionID string, deliveries []notifierint.SubscriptionAdminDelivery) error {
+	if len(deliveries) == 0 {
+		log.Printf("[Subscription] 管理员审批通知无投递结果 subscriptionId=%s", subscriptionID)
+		return nil
+	}
+
+	records := make([]models.SubscriptionAdminNotification, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		status := strings.TrimSpace(delivery.DeliveryStatus)
+		if status == "" {
+			status = subscriptionAdminNotificationSent
+		}
+		if delivery.AdminTelegramID <= 0 || delivery.ChatID == 0 {
+			log.Printf("[Subscription] 跳过无效管理员通知投递 subscriptionId=%s adminTelegramId=%d chatId=%d status=%s",
+				subscriptionID, delivery.AdminTelegramID, delivery.ChatID, status)
+			continue
+		}
+		if delivery.MessageID == nil && status == subscriptionAdminNotificationSent {
+			status = subscriptionAdminNotificationSendFailed
+		}
+		records = append(records, models.SubscriptionAdminNotification{
+			SubscriptionID:  subscriptionID,
+			AdminTelegramID: delivery.AdminTelegramID,
+			ChatID:          delivery.ChatID,
+			MessageID:       delivery.MessageID,
+			HasPhoto:        delivery.HasPhoto,
+			DeliveryStatus:  status,
+			FailureReason:   delivery.FailureReason,
+		})
+	}
+	if len(records) == 0 {
+		return nil
+	}
+
+	return db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&records).Error
+}
+
+// shouldSyncAdminNotificationsAfterDelivery 判断晚到的管理员消息投递记录是否需要补偿同步。
+func shouldSyncAdminNotificationsAfterDelivery(status models.SubscriptionStatus) bool {
+	return status != models.SubscriptionPending
+}
+
+// syncAdminNotificationsAfterDeliveryIfHandled 在管理员消息引用晚于审批落库时补做最终状态同步。
+func (s *SubscriptionService) syncAdminNotificationsAfterDeliveryIfHandled(subscriptionID string) {
+	subscription, err := loadSubscriptionForAdminNotificationSync(subscriptionID)
+	if err != nil {
+		log.Printf("[Subscription] 管理员审批通知投递后查询订阅失败 subscriptionId=%s err=%v", subscriptionID, err)
+		return
+	}
+	if !shouldSyncAdminNotificationsAfterDelivery(subscription.Status) {
+		return
+	}
+
+	log.Printf("[Subscription] 管理员审批通知投递晚于审批结果，补偿同步 subscriptionId=%s status=%s", subscription.ID, subscription.Status)
+	runAdminNotificationSync(s, subscription)
 }
 
 // GetUserSubscriptions 获取用户的订阅列表
@@ -547,6 +633,7 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 		s.dispatchMoviePilotAsync(subscriptionID, subscriptionType, subscriptionName, tmdbID, season)
 	})
 	async.SafeGo("subscription.notifyApproved", func() { s.notifyApproved(subscription) })
+	async.SafeGo("subscription.syncAdminApproved", func() { s.syncAdminNotifications(subscription) })
 	return nil
 }
 
@@ -627,6 +714,7 @@ func (s *SubscriptionService) RejectSubscription(subscriptionID, reason string) 
 	log.Printf("[Subscription] 审批拒绝 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d reason=%q",
 		subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season, reason)
 	async.SafeGo("subscription.notifyRejected", func() { s.notifyRejected(subscription) })
+	async.SafeGo("subscription.syncAdminRejected", func() { s.syncAdminNotifications(subscription) })
 	return nil
 }
 
@@ -1359,6 +1447,100 @@ func (s *SubscriptionService) notifyRejected(subscription models.Subscription) {
 		RejectReason:   stringPointerValue(subscription.RejectReason),
 		ReviewedAt:     formatNotificationTime(subscription.ReviewedAt),
 	})
+}
+
+// syncAdminNotifications 将订阅审批最终状态同步到所有已持久化的管理员 Telegram 消息。
+func (s *SubscriptionService) syncAdminNotifications(subscription models.Subscription) {
+	if s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
+
+	var notifications []models.SubscriptionAdminNotification
+	if err := db.DB.
+		Where("subscription_id = ? AND message_id IS NOT NULL AND delivery_status IN ?",
+			subscription.ID,
+			[]string{
+				subscriptionAdminNotificationSent,
+				subscriptionAdminNotificationEditFailed,
+			},
+		).
+		Order("created_at ASC").
+		Find(&notifications).Error; err != nil {
+		log.Printf("[Subscription] 查询管理员审批消息失败 subscriptionId=%s err=%v", subscription.ID, err)
+		return
+	}
+	if len(notifications) == 0 {
+		log.Printf("[Subscription] 无可同步管理员审批消息 subscriptionId=%s status=%s", subscription.ID, subscription.Status)
+		return
+	}
+
+	user, _ := loadSubscriptionUser(subscription.UserID)
+	userName := ""
+	if user != nil {
+		userName = user.Username
+	}
+
+	refs := make([]notifierint.SubscriptionAdminNotificationRef, 0, len(notifications))
+	for _, notification := range notifications {
+		if notification.MessageID == nil || *notification.MessageID <= 0 {
+			continue
+		}
+		refs = append(refs, notifierint.SubscriptionAdminNotificationRef{
+			ID:              notification.ID,
+			AdminTelegramID: notification.AdminTelegramID,
+			ChatID:          notification.ChatID,
+			MessageID:       *notification.MessageID,
+			HasPhoto:        notification.HasPhoto,
+		})
+	}
+	if len(refs) == 0 {
+		return
+	}
+
+	results, err := s.notifier.SyncSubscriptionAdminMessages(notifierint.SubscriptionAdminSyncRequest{
+		SubscriptionID: subscription.ID,
+		UserName:       userName,
+		Type:           string(subscription.Type),
+		Name:           subscription.Name,
+		TmdbID:         subscription.TmdbID,
+		Season:         subscription.Season,
+		PosterPath:     subscription.PosterPath,
+		Note:           subscription.Note,
+		Status:         string(subscription.Status),
+		RejectReason:   stringPointerValue(subscription.RejectReason),
+		ReviewedAt:     formatNotificationTime(subscription.ReviewedAt),
+		Notifications:  refs,
+	})
+	if err != nil {
+		log.Printf("[Subscription] 同步管理员审批消息失败 subscriptionId=%s status=%s count=%d err=%v",
+			subscription.ID, subscription.Status, len(refs), err)
+		return
+	}
+	s.persistAdminNotificationSyncResults(subscription.ID, results)
+}
+
+// persistAdminNotificationSyncResults 写回 Bot 对管理员审批消息的编辑结果。
+func (s *SubscriptionService) persistAdminNotificationSyncResults(subscriptionID string, results []notifierint.SubscriptionAdminSyncResult) {
+	for _, result := range results {
+		id := strings.TrimSpace(result.ID)
+		if id == "" {
+			continue
+		}
+		status := strings.TrimSpace(result.DeliveryStatus)
+		if status == "" {
+			status = subscriptionAdminNotificationSent
+		}
+		updates := map[string]interface{}{
+			"delivery_status": status,
+			"failure_reason":  result.FailureReason,
+		}
+		if err := db.DB.Model(&models.SubscriptionAdminNotification{}).
+			Where("id = ? AND subscription_id = ?", id, subscriptionID).
+			Updates(updates).Error; err != nil {
+			log.Printf("[Subscription] 写回管理员审批消息同步结果失败 subscriptionId=%s notificationId=%s status=%s err=%v",
+				subscriptionID, id, status, err)
+		}
+	}
 }
 
 func (s *SubscriptionService) notifyIngested(subscription models.Subscription) {

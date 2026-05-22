@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import types
@@ -205,6 +206,8 @@ class _StubUser:
 class _StubBot:
     def __init__(self) -> None:
         self.id = 5001
+        self.send_message = AsyncMock()
+        self.send_photo = AsyncMock()
         self.edit_message_text = AsyncMock()
         self.edit_message_caption = AsyncMock()
         self.get_chat_member = AsyncMock()
@@ -258,6 +261,187 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
     def test_pending_reject_requests_removed(self) -> None:
         self.assertFalse(hasattr(telegram_handler, "pending_reject_requests"))
 
+    async def test_send_subscription_notification_returns_delivery_refs_for_all_approval_admins(self) -> None:
+        bot = _StubBot()
+        bot.send_message.side_effect = [
+            types.SimpleNamespace(chat_id=1001, message_id=11),
+            types.SimpleNamespace(chat_id=1002, message_id=12),
+        ]
+
+        with patch.object(
+            telegram_handler.runtime_settings_service,
+            "get_approval_admin_ids",
+            AsyncMock(return_value=(1001, 1002)),
+        ):
+            deliveries = await telegram_handler.send_subscription_notification(
+                bot,
+                {
+                    "id": "sub_123",
+                    "type": "MOVIE",
+                    "name": "Test Movie",
+                    "userName": "ember-user",
+                    "tmdbId": 42,
+                },
+            )
+
+        self.assertEqual(
+            deliveries,
+            [
+                {
+                    "adminTelegramId": 1001,
+                    "chatId": 1001,
+                    "messageId": 11,
+                    "hasPhoto": False,
+                    "deliveryStatus": "sent",
+                },
+                {
+                    "adminTelegramId": 1002,
+                    "chatId": 1002,
+                    "messageId": 12,
+                    "hasPhoto": False,
+                    "deliveryStatus": "sent",
+                },
+            ],
+        )
+        self.assertEqual(bot.send_message.await_count, 2)
+
+    async def test_send_subscription_notification_sends_to_approval_admins_concurrently(self) -> None:
+        bot = _StubBot()
+        in_flight = 0
+        max_in_flight = 0
+
+        async def send_message(**kwargs):
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0)
+            in_flight -= 1
+            chat_id = kwargs["chat_id"]
+            return types.SimpleNamespace(chat_id=chat_id, message_id=chat_id + 100)
+
+        bot.send_message.side_effect = send_message
+
+        with patch.object(
+            telegram_handler.runtime_settings_service,
+            "get_approval_admin_ids",
+            AsyncMock(return_value=(1001, 1002, 1003)),
+        ):
+            deliveries = await telegram_handler.send_subscription_notification(
+                bot,
+                {
+                    "id": "sub_123",
+                    "type": "MOVIE",
+                    "name": "Test Movie",
+                    "userName": "ember-user",
+                    "tmdbId": 42,
+                },
+            )
+
+        self.assertGreaterEqual(max_in_flight, 2)
+        self.assertEqual([delivery["adminTelegramId"] for delivery in deliveries], [1001, 1002, 1003])
+        self.assertEqual(bot.send_message.await_count, 3)
+
+    async def test_sync_subscription_admin_messages_edits_all_delivery_refs(self) -> None:
+        bot = _StubBot()
+        payload = {
+            "subscriptionId": "sub_123",
+            "type": "TV",
+            "name": "Test Show",
+            "userName": "ember-user",
+            "tmdbId": 42,
+            "season": 1,
+            "status": "REJECTED",
+            "rejectReason": "资源重复",
+            "notifications": [
+                {
+                    "id": "notif_1",
+                    "chatId": 1001,
+                    "messageId": 11,
+                    "hasPhoto": False,
+                },
+                {
+                    "id": "notif_2",
+                    "chatId": 1002,
+                    "messageId": 12,
+                    "hasPhoto": True,
+                },
+            ],
+        }
+
+        results = await telegram_handler.sync_subscription_admin_messages(bot, payload)
+
+        self.assertEqual(results, [{"id": "notif_1", "deliveryStatus": "sent"}, {"id": "notif_2", "deliveryStatus": "sent"}])
+        bot.edit_message_text.assert_awaited_once()
+        bot.edit_message_caption.assert_awaited_once()
+        self.assertEqual(bot.edit_message_text.await_args.kwargs["reply_markup"], None)
+        self.assertEqual(bot.edit_message_caption.await_args.kwargs["reply_markup"], None)
+
+    async def test_sync_subscription_admin_messages_edits_refs_concurrently(self) -> None:
+        bot = _StubBot()
+        in_flight = 0
+        max_in_flight = 0
+
+        async def edit_message_text(**_kwargs):
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0)
+            in_flight -= 1
+
+        bot.edit_message_text.side_effect = edit_message_text
+        payload = {
+            "subscriptionId": "sub_123",
+            "type": "MOVIE",
+            "name": "Test Movie",
+            "userName": "ember-user",
+            "tmdbId": 42,
+            "status": "APPROVED",
+            "notifications": [
+                {"id": "notif_1", "chatId": 1001, "messageId": 11, "hasPhoto": False},
+                {"id": "notif_2", "chatId": 1002, "messageId": 12, "hasPhoto": False},
+                {"id": "notif_3", "chatId": 1003, "messageId": 13, "hasPhoto": False},
+            ],
+        }
+
+        results = await telegram_handler.sync_subscription_admin_messages(bot, payload)
+
+        self.assertGreaterEqual(max_in_flight, 2)
+        self.assertEqual(
+            results,
+            [
+                {"id": "notif_1", "deliveryStatus": "sent"},
+                {"id": "notif_2", "deliveryStatus": "sent"},
+                {"id": "notif_3", "deliveryStatus": "sent"},
+            ],
+        )
+        self.assertEqual(bot.edit_message_text.await_count, 3)
+
+    async def test_sync_subscription_admin_messages_treats_not_modified_as_sent(self) -> None:
+        bot = _StubBot()
+        bot.edit_message_text.side_effect = Exception("BadRequest: message is not modified")
+        payload = {
+            "subscriptionId": "sub_123",
+            "type": "MOVIE",
+            "name": "Test Movie",
+            "userName": "ember-user",
+            "tmdbId": 42,
+            "status": "APPROVED",
+            "notifications": [
+                {
+                    "id": "notif_1",
+                    "chatId": 1001,
+                    "messageId": 11,
+                    "hasPhoto": False,
+                },
+            ],
+        }
+
+        with patch.object(telegram_handler.logger, "exception") as exception_log:
+            results = await telegram_handler.sync_subscription_admin_messages(bot, payload)
+
+        self.assertEqual(results, [{"id": "notif_1", "deliveryStatus": "sent"}])
+        exception_log.assert_not_called()
+
     async def test_handle_callback_reject_enqueues_api_record_and_prompts(self) -> None:
         message = _StubMessage(
             chat_id=2002,
@@ -271,9 +455,9 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
-                "get_chat_ids",
-                AsyncMock(return_value=(1001, None)),
+                bot_admin.runtime_settings_service,
+                "get_approval_admin_ids",
+                AsyncMock(return_value=(1001,)),
             ),
             patch.object(
                 telegram_handler.api_client,
@@ -313,9 +497,9 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
-                "get_chat_ids",
-                AsyncMock(return_value=(9999, None)),
+                bot_admin.runtime_settings_service,
+                "get_approval_admin_ids",
+                AsyncMock(return_value=(9999,)),
             ),
             patch.object(
                 telegram_handler.api_client,
@@ -345,6 +529,27 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(allowed)
         self.assertIsNone(reason)
 
+    async def test_bot_admin_does_not_treat_approval_admin_as_bot_admin(self) -> None:
+        bot = _StubBot()
+
+        with (
+            patch.object(
+                bot_admin.runtime_settings_service,
+                "get_chat_ids",
+                AsyncMock(return_value=(9999, None)),
+            ),
+            patch.object(
+                bot_admin.runtime_settings_service,
+                "get_approval_admin_ids",
+                AsyncMock(return_value=(1001,)),
+            ) as approval_admins_mock,
+        ):
+            allowed, reason = await bot_admin.is_bot_admin(bot, chat_id=1001, user_id=1001)
+
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "只有配置的管理员账号可以执行此操作")
+        approval_admins_mock.assert_not_awaited()
+
     async def test_handle_pending_reject_reason_uses_api_payload_to_reject_and_edit_message(self) -> None:
         bot = _StubBot()
         message = _StubMessage(chat_id=2002, user_id=1001, text="  资源重复  ", bot=bot)
@@ -360,9 +565,9 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
-                "get_chat_ids",
-                AsyncMock(return_value=(1001, None)),
+                bot_admin.runtime_settings_service,
+                "get_approval_admin_ids",
+                AsyncMock(return_value=(1001,)),
             ),
             patch.object(
                 telegram_handler.api_client,
@@ -394,9 +599,9 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(
-                telegram_handler.runtime_settings_service,
-                "get_chat_ids",
-                AsyncMock(return_value=(1001, None)),
+                bot_admin.runtime_settings_service,
+                "get_approval_admin_ids",
+                AsyncMock(return_value=(1001,)),
             ),
             patch.object(
                 telegram_handler.api_client,

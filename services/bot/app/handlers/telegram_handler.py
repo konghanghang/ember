@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable
 from telegram import InputMediaPhoto, Update
 from telegram.ext import ContextTypes
 
-from app.bot_admin import is_bot_admin
+from app.bot_admin import is_bot_admin, is_subscription_approval_admin
 from app.clients import api_client
 from app.config import (
     TMDB_IMAGE_BASE,
@@ -46,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 WELCOME_MESSAGE_NAMES_PLACEHOLDER = "{names}"
 WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER = "{notifyGroupLink}"
+SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY = 4
+SUBSCRIPTION_ADMIN_SYNC_CONCURRENCY = 4
 
 
 def _private_only_tip() -> str:
@@ -72,6 +74,24 @@ def _extract_message_html(message) -> str:
             return escape(value)
 
     return ""
+
+
+def _sent_message_chat_id(message, fallback: int) -> int:
+    chat_id = getattr(message, "chat_id", None)
+    if isinstance(chat_id, int):
+        return chat_id
+    chat = getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None)
+    return chat_id if isinstance(chat_id, int) else fallback
+
+
+def _classify_edit_failure(err: Exception) -> str:
+    message = str(err).lower()
+    if "message is not modified" in message:
+        return "sent"
+    if "message to edit not found" in message or "message to delete not found" in message:
+        return "deleted"
+    return "edit_failed"
 
 
 def _render_welcome_message(template: str, names: str, notify_group_link: str) -> str:
@@ -181,35 +201,200 @@ async def _edit_search_message(
         return False
 
 
-async def send_subscription_notification(bot, data: dict) -> None:
-    admin_chat_id, _ = await runtime_settings_service.get_chat_ids()
-    if admin_chat_id is None:
-        logger.warning("TELEGRAM_ADMIN_CHAT_ID 未配置，跳过订阅通知")
-        return
+async def _send_subscription_notification_to_admin(
+    bot,
+    data: dict,
+    *,
+    admin_id: int,
+    text: str,
+    keyboard,
+    poster_path: str | None,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any]:
+    """向单个 Telegram 审批人员发送订阅审批消息并返回投递引用。"""
+    async with semaphore:
+        has_photo = False
+        sent = None
+        if poster_path:
+            poster_url = f"{TMDB_IMAGE_BASE}{poster_path}"
+            try:
+                sent = await bot.send_photo(
+                    chat_id=admin_id,
+                    photo=poster_url,
+                    caption=text,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+                has_photo = True
+            except Exception:
+                logger.exception(
+                    "发送订阅审批海报消息失败，降级为文本消息 subscriptionId=%s adminTelegramId=%s",
+                    data.get("id"),
+                    admin_id,
+                )
+
+        if sent is None:
+            try:
+                sent = await bot.send_message(
+                    chat_id=admin_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+            except Exception as err:
+                logger.exception(
+                    "发送订阅审批消息失败 subscriptionId=%s adminTelegramId=%s",
+                    data.get("id"),
+                    admin_id,
+                )
+                return {
+                    "adminTelegramId": admin_id,
+                    "chatId": admin_id,
+                    "hasPhoto": False,
+                    "deliveryStatus": "send_failed",
+                    "failureReason": str(err)[:500],
+                }
+
+        return {
+            "adminTelegramId": admin_id,
+            "chatId": _sent_message_chat_id(sent, admin_id),
+            "messageId": sent.message_id,
+            "hasPhoto": has_photo,
+            "deliveryStatus": "sent",
+        }
+
+
+async def send_subscription_notification(bot, data: dict) -> list[dict[str, Any]]:
+    """并发发送订阅审批消息，并按审批人员配置顺序返回投递引用。"""
+    approval_admin_ids = await runtime_settings_service.get_approval_admin_ids()
+    if not approval_admin_ids:
+        logger.warning("Telegram 审批人员未配置，跳过订阅通知 subscriptionId=%s", data.get("id"))
+        return []
 
     text, keyboard = format_subscription_message(data)
     poster_path = data.get("posterPath")
-
-    if poster_path:
-        poster_url = f"{TMDB_IMAGE_BASE}{poster_path}"
-        try:
-            await bot.send_photo(
-                chat_id=admin_chat_id,
-                photo=poster_url,
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=keyboard,
+    semaphore = asyncio.Semaphore(SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY)
+    deliveries = await asyncio.gather(
+        *[
+            _send_subscription_notification_to_admin(
+                bot,
+                data,
+                admin_id=admin_id,
+                text=text,
+                keyboard=keyboard,
+                poster_path=poster_path,
+                semaphore=semaphore,
             )
-            return
-        except Exception:
-            logger.exception("发送海报消息失败，降级为文本消息")
-
-    await bot.send_message(
-        chat_id=admin_chat_id,
-        text=text,
-        parse_mode="HTML",
-        reply_markup=keyboard,
+            for admin_id in approval_admin_ids
+        ]
     )
+
+    return list(deliveries)
+
+
+async def _sync_subscription_admin_message(
+    bot,
+    data: dict,
+    *,
+    notification_id: str,
+    chat_id: int,
+    message_id: int,
+    has_photo: bool,
+    result_text: str,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any]:
+    """同步单条管理员审批消息到最终状态，并返回该消息的编辑结果。"""
+    async with semaphore:
+        try:
+            if has_photo:
+                await bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=result_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=result_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+            return {"id": notification_id, "deliveryStatus": "sent"}
+        except Exception as err:
+            delivery_status = _classify_edit_failure(err)
+            if delivery_status == "sent":
+                logger.info(
+                    "订阅审批消息已是目标状态 subscriptionId=%s notificationId=%s chatId=%s messageId=%s",
+                    data.get("subscriptionId"),
+                    notification_id,
+                    chat_id,
+                    message_id,
+                )
+                return {"id": notification_id, "deliveryStatus": "sent"}
+            logger.exception(
+                "同步订阅审批消息失败 subscriptionId=%s notificationId=%s chatId=%s messageId=%s status=%s",
+                data.get("subscriptionId"),
+                notification_id,
+                chat_id,
+                message_id,
+                delivery_status,
+            )
+            return {
+                "id": notification_id,
+                "deliveryStatus": delivery_status,
+                "failureReason": str(err)[:500],
+            }
+
+
+async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, Any]]:
+    """并发同步订阅管理员审批消息，并按输入通知顺序返回编辑结果。"""
+    base_data = {
+        "id": data.get("subscriptionId", ""),
+        "userName": data.get("userName", ""),
+        "type": data.get("type", ""),
+        "name": data.get("name", ""),
+        "tmdbId": data.get("tmdbId", ""),
+        "season": data.get("season", 0),
+        "posterPath": data.get("posterPath"),
+        "note": data.get("note", ""),
+    }
+    original_text, _ = format_subscription_message(base_data)
+    status = str(data.get("status") or "").upper()
+    action = "reject" if status == "REJECTED" else "approve"
+    result_text = format_result_message(original_text, action, str(data.get("rejectReason") or ""))
+    semaphore = asyncio.Semaphore(SUBSCRIPTION_ADMIN_SYNC_CONCURRENCY)
+    tasks = []
+
+    for notification in data.get("notifications", []):
+        notification_id = str(notification.get("id") or "").strip()
+        try:
+            chat_id = int(notification.get("chatId", 0) or 0)
+            message_id = int(notification.get("messageId", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        has_photo = bool(notification.get("hasPhoto"))
+        if not notification_id or chat_id == 0 or message_id <= 0:
+            continue
+        tasks.append(
+            _sync_subscription_admin_message(
+                bot,
+                data,
+                notification_id=notification_id,
+                chat_id=chat_id,
+                message_id=message_id,
+                has_photo=has_photo,
+                result_text=result_text,
+                semaphore=semaphore,
+            )
+        )
+    if not tasks:
+        return []
+
+    results = await asyncio.gather(*tasks)
+    return list(results)
 
 
 async def send_subscription_result_notification(bot, data: dict) -> None:
@@ -295,6 +480,7 @@ async def send_ranking_notification(bot, data: dict) -> None:
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
     query = update.callback_query
     if query is None or query.data is None:
         return
@@ -303,16 +489,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer("你没有权限操作", show_alert=True)
         return
 
-    chat_id = query.message.chat_id if query.message is not None else query.from_user.id
-    bot = getattr(context, "bot", None)
-    if bot is None and query.message is not None:
-        bot = query.message.get_bot()
-    allowed, _ = await is_bot_admin(
-        bot,
-        chat_id=chat_id,
-        user_id=query.from_user.id,
-    )
-    if not allowed:
+    if not await is_subscription_approval_admin(query.from_user.id):
         await query.answer("你没有权限操作", show_alert=True)
         return
 
@@ -368,11 +545,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     result_text = format_result_message(original_text, action)
     await query.answer()
 
-    if message is not None and message.photo:
-        await query.edit_message_caption(caption=result_text, parse_mode="HTML")
-        return
+    try:
+        if message is not None and message.photo:
+            await query.edit_message_caption(caption=result_text, parse_mode="HTML", reply_markup=None)
+            return
 
-    await query.edit_message_text(text=result_text, parse_mode="HTML")
+        await query.edit_message_text(text=result_text, parse_mode="HTML", reply_markup=None)
+    except Exception:
+        logger.exception("更新当前订阅审核消息失败 subscriptionId=%s action=%s", subscription_id, action)
 
 
 async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -381,12 +561,7 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
     if message is None or message.from_user is None or message.text is None:
         return
 
-    allowed, _ = await is_bot_admin(
-        message.get_bot(),
-        chat_id=message.chat_id,
-        user_id=message.from_user.id,
-    )
-    if not allowed:
+    if not await is_subscription_approval_admin(message.from_user.id):
         return
 
     reason = message.text.strip()

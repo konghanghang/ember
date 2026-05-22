@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -25,6 +26,56 @@ type SubscriptionNotification struct {
 	Season     int     `json:"season"`
 	PosterPath *string `json:"posterPath"`
 	Note       *string `json:"note"`
+}
+
+// SubscriptionAdminDelivery 是 Bot 返回的单条管理员审批消息投递结果。
+type SubscriptionAdminDelivery struct {
+	AdminTelegramID int64   `json:"adminTelegramId"`
+	ChatID          int64   `json:"chatId"`
+	MessageID       *int64  `json:"messageId,omitempty"`
+	HasPhoto        bool    `json:"hasPhoto"`
+	DeliveryStatus  string  `json:"deliveryStatus"`
+	FailureReason   *string `json:"failureReason,omitempty"`
+}
+
+// SubscriptionAdminNotificationRef 是 API 请求 Bot 同步管理员消息时传入的消息引用。
+type SubscriptionAdminNotificationRef struct {
+	ID              string `json:"id"`
+	AdminTelegramID int64  `json:"adminTelegramId"`
+	ChatID          int64  `json:"chatId"`
+	MessageID       int64  `json:"messageId"`
+	HasPhoto        bool   `json:"hasPhoto"`
+}
+
+// SubscriptionAdminSyncRequest 描述一次订阅审批结果对管理员消息的批量同步。
+type SubscriptionAdminSyncRequest struct {
+	SubscriptionID string                             `json:"subscriptionId"`
+	UserName       string                             `json:"userName"`
+	Type           string                             `json:"type"`
+	Name           string                             `json:"name"`
+	TmdbID         string                             `json:"tmdbId"`
+	Season         int                                `json:"season"`
+	PosterPath     *string                            `json:"posterPath"`
+	Note           string                             `json:"note,omitempty"`
+	Status         string                             `json:"status"`
+	RejectReason   string                             `json:"rejectReason,omitempty"`
+	ReviewedAt     *string                            `json:"reviewedAt,omitempty"`
+	Notifications  []SubscriptionAdminNotificationRef `json:"notifications"`
+}
+
+// SubscriptionAdminSyncResult 是 Bot 对单条管理员审批消息的编辑结果。
+type SubscriptionAdminSyncResult struct {
+	ID             string  `json:"id"`
+	DeliveryStatus string  `json:"deliveryStatus"`
+	FailureReason  *string `json:"failureReason,omitempty"`
+}
+
+type subscriptionNotifyResponse struct {
+	Deliveries []SubscriptionAdminDelivery `json:"deliveries"`
+}
+
+type subscriptionAdminSyncResponse struct {
+	Results []SubscriptionAdminSyncResult `json:"results"`
 }
 
 // SubscriptionResultNotification 订阅结果通知数据
@@ -195,9 +246,68 @@ func (n *BotNotifier) post(path string, data interface{}) {
 	}
 }
 
+func (n *BotNotifier) postAndDecode(path string, data interface{}, out interface{}) error {
+	if !n.IsConfigured() {
+		return nil
+	}
+
+	n.mu.RLock()
+	botURL := n.botURL
+	n.mu.RUnlock()
+
+	body, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败 endpoint=%s event=%s: %w", path, notifierEventName(path), err)
+	}
+
+	requestID := fmt.Sprintf("bot-notify-%d", n.requestSeq.Add(1))
+	payloadSize := len(body)
+	start := time.Now()
+
+	req, err := http.NewRequest("POST", botURL+path, bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("创建请求失败 endpoint=%s event=%s payloadSize=%d requestId=%s: %w",
+			path, notifierEventName(path), payloadSize, requestID, err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", n.secret)
+	req.Header.Set("X-Request-Id", requestID)
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("请求发送失败 endpoint=%s event=%s payloadSize=%d requestId=%s latency=%s: %w",
+			path, notifierEventName(path), payloadSize, requestID, time.Since(start), err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("请求失败 endpoint=%s event=%s payloadSize=%d requestId=%s status=%d latency=%s body=%s",
+			path, notifierEventName(path), payloadSize, requestID, resp.StatusCode, time.Since(start), strings.TrimSpace(string(respBody)))
+	}
+
+	if out == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("解析响应失败 endpoint=%s event=%s requestId=%s: %w", path, notifierEventName(path), requestID, err)
+	}
+	return nil
+}
+
 // NotifyNewSubscription 通知 Bot 有新的订阅请求（fire-and-forget）
 func (n *BotNotifier) NotifyNewSubscription(data SubscriptionNotification) {
 	n.post("/notify/subscription", data)
+}
+
+// NotifyNewSubscriptionWithDeliveries 通知 Bot 发送订阅审批消息并返回每条管理员消息的投递引用。
+func (n *BotNotifier) NotifyNewSubscriptionWithDeliveries(data SubscriptionNotification) ([]SubscriptionAdminDelivery, error) {
+	var resp subscriptionNotifyResponse
+	if err := n.postAndDecode("/notify/subscription", data, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Deliveries, nil
 }
 
 // NotifyNewRegistration 通知 Bot 有新用户注册（fire-and-forget）
@@ -247,4 +357,13 @@ func (n *BotNotifier) NotifySubscriptionRejected(data SubscriptionResultNotifica
 // NotifySubscriptionIngested 通知用户订阅已入库。
 func (n *BotNotifier) NotifySubscriptionIngested(data SubscriptionResultNotification) {
 	n.post("/notify/subscription-result", data)
+}
+
+// SyncSubscriptionAdminMessages 请求 Bot 批量同步订阅管理员审批消息状态。
+func (n *BotNotifier) SyncSubscriptionAdminMessages(data SubscriptionAdminSyncRequest) ([]SubscriptionAdminSyncResult, error) {
+	var resp subscriptionAdminSyncResponse
+	if err := n.postAndDecode("/notify/subscription-admin-sync", data, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Results, nil
 }
