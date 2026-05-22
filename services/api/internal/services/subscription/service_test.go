@@ -1,12 +1,14 @@
 package subscription
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/konghang/ember/backend/internal/models"
 )
 
 func TestFormatNotificationTimeUsesConfiguredTimezone(t *testing.T) {
@@ -210,6 +212,98 @@ func TestIsSubscriptionUniqueConflictDetectsPostgresDuplicateKey(t *testing.T) {
 	err := &pgconn.PgError{Code: "23505"}
 	if !isSubscriptionUniqueConflict(err) {
 		t.Fatal("expected postgres duplicate key to be treated as subscription duplicate")
+	}
+}
+
+func TestShouldSyncAdminNotificationsAfterDelivery(t *testing.T) {
+	cases := []struct {
+		name   string
+		status models.SubscriptionStatus
+		want   bool
+	}{
+		{name: "pending", status: models.SubscriptionPending, want: false},
+		{name: "approved", status: models.SubscriptionApproved, want: true},
+		{name: "rejected", status: models.SubscriptionRejected, want: true},
+		{name: "ingested", status: models.SubscriptionIngested, want: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldSyncAdminNotificationsAfterDelivery(tc.status); got != tc.want {
+				t.Fatalf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestSyncAdminNotificationsAfterDeliveryIfHandledTriggersForHandledSubscription(t *testing.T) {
+	originalLoad := loadSubscriptionForAdminNotificationSync
+	originalSync := runAdminNotificationSync
+	t.Cleanup(func() {
+		loadSubscriptionForAdminNotificationSync = originalLoad
+		runAdminNotificationSync = originalSync
+	})
+
+	var loadedID string
+	loadSubscriptionForAdminNotificationSync = func(subscriptionID string) (models.Subscription, error) {
+		loadedID = subscriptionID
+		return models.Subscription{
+			ID:     subscriptionID,
+			Status: models.SubscriptionApproved,
+		}, nil
+	}
+
+	var synced []models.Subscription
+	runAdminNotificationSync = func(_ *SubscriptionService, subscription models.Subscription) {
+		synced = append(synced, subscription)
+	}
+
+	service := &SubscriptionService{}
+	service.syncAdminNotificationsAfterDeliveryIfHandled("sub_approved")
+
+	if loadedID != "sub_approved" {
+		t.Fatalf("expected loader to receive subscription id, got %s", loadedID)
+	}
+	if len(synced) != 1 {
+		t.Fatalf("expected one admin notification sync, got %d", len(synced))
+	}
+	if synced[0].ID != "sub_approved" || synced[0].Status != models.SubscriptionApproved {
+		t.Fatalf("unexpected synced subscription: %+v", synced[0])
+	}
+}
+
+func TestSyncAdminNotificationsAfterDeliveryIfHandledSkipsPendingAndLoadError(t *testing.T) {
+	originalLoad := loadSubscriptionForAdminNotificationSync
+	originalSync := runAdminNotificationSync
+	t.Cleanup(func() {
+		loadSubscriptionForAdminNotificationSync = originalLoad
+		runAdminNotificationSync = originalSync
+	})
+
+	syncCount := 0
+	runAdminNotificationSync = func(_ *SubscriptionService, subscription models.Subscription) {
+		syncCount++
+	}
+
+	loadSubscriptionForAdminNotificationSync = func(subscriptionID string) (models.Subscription, error) {
+		return models.Subscription{
+			ID:     subscriptionID,
+			Status: models.SubscriptionPending,
+		}, nil
+	}
+
+	service := &SubscriptionService{}
+	service.syncAdminNotificationsAfterDeliveryIfHandled("sub_pending")
+	if syncCount != 0 {
+		t.Fatalf("expected pending subscription to skip sync, got %d", syncCount)
+	}
+
+	loadSubscriptionForAdminNotificationSync = func(subscriptionID string) (models.Subscription, error) {
+		return models.Subscription{}, errors.New("load failed")
+	}
+	service.syncAdminNotificationsAfterDeliveryIfHandled("sub_missing")
+	if syncCount != 0 {
+		t.Fatalf("expected load error to skip sync, got %d", syncCount)
 	}
 }
 

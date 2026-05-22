@@ -96,6 +96,16 @@ var activeSubscriptionStatuses = []models.SubscriptionStatus{
 	models.SubscriptionIngested,
 }
 
+var loadSubscriptionForAdminNotificationSync = func(subscriptionID string) (models.Subscription, error) {
+	var subscription models.Subscription
+	err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error
+	return subscription, err
+}
+
+var runAdminNotificationSync = func(s *SubscriptionService, subscription models.Subscription) {
+	s.syncAdminNotifications(subscription)
+}
+
 const (
 	subscriptionAdminNotificationSent       = "sent"
 	subscriptionAdminNotificationSendFailed = "send_failed"
@@ -392,7 +402,9 @@ func (s *SubscriptionService) notifyNewSubscription(subscriptionID, userID strin
 	}
 	if err := s.persistAdminNotificationDeliveries(subscriptionID, deliveries); err != nil {
 		log.Printf("[Subscription] 管理员审批通知投递记录写入失败 subscriptionId=%s count=%d err=%v", subscriptionID, len(deliveries), err)
+		return
 	}
+	s.syncAdminNotificationsAfterDeliveryIfHandled(subscriptionID)
 }
 
 // persistAdminNotificationDeliveries 持久化 Bot 返回的管理员审批消息投递引用。
@@ -431,6 +443,26 @@ func (s *SubscriptionService) persistAdminNotificationDeliveries(subscriptionID 
 	}
 
 	return db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&records).Error
+}
+
+// shouldSyncAdminNotificationsAfterDelivery 判断晚到的管理员消息投递记录是否需要补偿同步。
+func shouldSyncAdminNotificationsAfterDelivery(status models.SubscriptionStatus) bool {
+	return status != models.SubscriptionPending
+}
+
+// syncAdminNotificationsAfterDeliveryIfHandled 在管理员消息引用晚于审批落库时补做最终状态同步。
+func (s *SubscriptionService) syncAdminNotificationsAfterDeliveryIfHandled(subscriptionID string) {
+	subscription, err := loadSubscriptionForAdminNotificationSync(subscriptionID)
+	if err != nil {
+		log.Printf("[Subscription] 管理员审批通知投递后查询订阅失败 subscriptionId=%s err=%v", subscriptionID, err)
+		return
+	}
+	if !shouldSyncAdminNotificationsAfterDelivery(subscription.Status) {
+		return
+	}
+
+	log.Printf("[Subscription] 管理员审批通知投递晚于审批结果，补偿同步 subscriptionId=%s status=%s", subscription.ID, subscription.Status)
+	runAdminNotificationSync(s, subscription)
 }
 
 // GetUserSubscriptions 获取用户的订阅列表
