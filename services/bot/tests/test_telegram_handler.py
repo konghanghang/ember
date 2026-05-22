@@ -339,6 +339,32 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.edit_message_text.await_args.kwargs["reply_markup"], None)
         self.assertEqual(bot.edit_message_caption.await_args.kwargs["reply_markup"], None)
 
+    async def test_sync_subscription_admin_messages_treats_not_modified_as_sent(self) -> None:
+        bot = _StubBot()
+        bot.edit_message_text.side_effect = Exception("BadRequest: message is not modified")
+        payload = {
+            "subscriptionId": "sub_123",
+            "type": "MOVIE",
+            "name": "Test Movie",
+            "userName": "ember-user",
+            "tmdbId": 42,
+            "status": "APPROVED",
+            "notifications": [
+                {
+                    "id": "notif_1",
+                    "chatId": 1001,
+                    "messageId": 11,
+                    "hasPhoto": False,
+                },
+            ],
+        }
+
+        with patch.object(telegram_handler.logger, "exception") as exception_log:
+            results = await telegram_handler.sync_subscription_admin_messages(bot, payload)
+
+        self.assertEqual(results, [{"id": "notif_1", "deliveryStatus": "sent"}])
+        exception_log.assert_not_called()
+
     async def test_handle_callback_reject_enqueues_api_record_and_prompts(self) -> None:
         message = _StubMessage(
             chat_id=2002,

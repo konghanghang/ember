@@ -85,6 +85,8 @@ def _sent_message_chat_id(message, fallback: int) -> int:
 
 def _classify_edit_failure(err: Exception) -> str:
     message = str(err).lower()
+    if "message is not modified" in message:
+        return "sent"
     if "message to edit not found" in message or "message to delete not found" in message:
         return "deleted"
     return "edit_failed"
@@ -310,6 +312,16 @@ async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, An
             results.append({"id": notification_id, "deliveryStatus": "sent"})
         except Exception as err:
             status = _classify_edit_failure(err)
+            if status == "sent":
+                logger.info(
+                    "订阅审批消息已是目标状态 subscriptionId=%s notificationId=%s chatId=%s messageId=%s",
+                    data.get("subscriptionId"),
+                    notification_id,
+                    chat_id,
+                    message_id,
+                )
+                results.append({"id": notification_id, "deliveryStatus": "sent"})
+                continue
             logger.exception(
                 "同步订阅审批消息失败 subscriptionId=%s notificationId=%s chatId=%s messageId=%s status=%s",
                 data.get("subscriptionId"),
