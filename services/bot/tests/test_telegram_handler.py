@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import types
@@ -303,6 +304,42 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(bot.send_message.await_count, 2)
+
+    async def test_send_subscription_notification_sends_to_approval_admins_concurrently(self) -> None:
+        bot = _StubBot()
+        in_flight = 0
+        max_in_flight = 0
+
+        async def send_message(**kwargs):
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0)
+            in_flight -= 1
+            chat_id = kwargs["chat_id"]
+            return types.SimpleNamespace(chat_id=chat_id, message_id=chat_id + 100)
+
+        bot.send_message.side_effect = send_message
+
+        with patch.object(
+            telegram_handler.runtime_settings_service,
+            "get_approval_admin_ids",
+            AsyncMock(return_value=(1001, 1002, 1003)),
+        ):
+            deliveries = await telegram_handler.send_subscription_notification(
+                bot,
+                {
+                    "id": "sub_123",
+                    "type": "MOVIE",
+                    "name": "Test Movie",
+                    "userName": "ember-user",
+                    "tmdbId": 42,
+                },
+            )
+
+        self.assertGreaterEqual(max_in_flight, 2)
+        self.assertEqual([delivery["adminTelegramId"] for delivery in deliveries], [1001, 1002, 1003])
+        self.assertEqual(bot.send_message.await_count, 3)
 
     async def test_sync_subscription_admin_messages_edits_all_delivery_refs(self) -> None:
         bot = _StubBot()

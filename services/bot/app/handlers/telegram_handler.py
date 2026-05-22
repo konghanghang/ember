@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 
 WELCOME_MESSAGE_NAMES_PLACEHOLDER = "{names}"
 WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER = "{notifyGroupLink}"
+SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY = 4
 
 
 def _private_only_tip() -> str:
@@ -199,17 +200,18 @@ async def _edit_search_message(
         return False
 
 
-async def send_subscription_notification(bot, data: dict) -> list[dict[str, Any]]:
-    approval_admin_ids = await runtime_settings_service.get_approval_admin_ids()
-    if not approval_admin_ids:
-        logger.warning("Telegram 审批人员未配置，跳过订阅通知 subscriptionId=%s", data.get("id"))
-        return []
-
-    text, keyboard = format_subscription_message(data)
-    poster_path = data.get("posterPath")
-    deliveries: list[dict[str, Any]] = []
-
-    for admin_id in approval_admin_ids:
+async def _send_subscription_notification_to_admin(
+    bot,
+    data: dict,
+    *,
+    admin_id: int,
+    text: str,
+    keyboard,
+    poster_path: str | None,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any]:
+    """向单个 Telegram 审批人员发送订阅审批消息并返回投递引用。"""
+    async with semaphore:
         has_photo = False
         sent = None
         if poster_path:
@@ -244,28 +246,49 @@ async def send_subscription_notification(bot, data: dict) -> list[dict[str, Any]
                     data.get("id"),
                     admin_id,
                 )
-                deliveries.append(
-                    {
-                        "adminTelegramId": admin_id,
-                        "chatId": admin_id,
-                        "hasPhoto": False,
-                        "deliveryStatus": "send_failed",
-                        "failureReason": str(err)[:500],
-                    }
-                )
-                continue
+                return {
+                    "adminTelegramId": admin_id,
+                    "chatId": admin_id,
+                    "hasPhoto": False,
+                    "deliveryStatus": "send_failed",
+                    "failureReason": str(err)[:500],
+                }
 
-        deliveries.append(
-            {
-                "adminTelegramId": admin_id,
-                "chatId": _sent_message_chat_id(sent, admin_id),
-                "messageId": sent.message_id,
-                "hasPhoto": has_photo,
-                "deliveryStatus": "sent",
-            }
-        )
+        return {
+            "adminTelegramId": admin_id,
+            "chatId": _sent_message_chat_id(sent, admin_id),
+            "messageId": sent.message_id,
+            "hasPhoto": has_photo,
+            "deliveryStatus": "sent",
+        }
 
-    return deliveries
+
+async def send_subscription_notification(bot, data: dict) -> list[dict[str, Any]]:
+    """并发发送订阅审批消息，并按审批人员配置顺序返回投递引用。"""
+    approval_admin_ids = await runtime_settings_service.get_approval_admin_ids()
+    if not approval_admin_ids:
+        logger.warning("Telegram 审批人员未配置，跳过订阅通知 subscriptionId=%s", data.get("id"))
+        return []
+
+    text, keyboard = format_subscription_message(data)
+    poster_path = data.get("posterPath")
+    semaphore = asyncio.Semaphore(SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY)
+    deliveries = await asyncio.gather(
+        *[
+            _send_subscription_notification_to_admin(
+                bot,
+                data,
+                admin_id=admin_id,
+                text=text,
+                keyboard=keyboard,
+                poster_path=poster_path,
+                semaphore=semaphore,
+            )
+            for admin_id in approval_admin_ids
+        ]
+    )
+
+    return list(deliveries)
 
 
 async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, Any]]:
