@@ -376,6 +376,46 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.edit_message_text.await_args.kwargs["reply_markup"], None)
         self.assertEqual(bot.edit_message_caption.await_args.kwargs["reply_markup"], None)
 
+    async def test_sync_subscription_admin_messages_edits_refs_concurrently(self) -> None:
+        bot = _StubBot()
+        in_flight = 0
+        max_in_flight = 0
+
+        async def edit_message_text(**_kwargs):
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0)
+            in_flight -= 1
+
+        bot.edit_message_text.side_effect = edit_message_text
+        payload = {
+            "subscriptionId": "sub_123",
+            "type": "MOVIE",
+            "name": "Test Movie",
+            "userName": "ember-user",
+            "tmdbId": 42,
+            "status": "APPROVED",
+            "notifications": [
+                {"id": "notif_1", "chatId": 1001, "messageId": 11, "hasPhoto": False},
+                {"id": "notif_2", "chatId": 1002, "messageId": 12, "hasPhoto": False},
+                {"id": "notif_3", "chatId": 1003, "messageId": 13, "hasPhoto": False},
+            ],
+        }
+
+        results = await telegram_handler.sync_subscription_admin_messages(bot, payload)
+
+        self.assertGreaterEqual(max_in_flight, 2)
+        self.assertEqual(
+            results,
+            [
+                {"id": "notif_1", "deliveryStatus": "sent"},
+                {"id": "notif_2", "deliveryStatus": "sent"},
+                {"id": "notif_3", "deliveryStatus": "sent"},
+            ],
+        )
+        self.assertEqual(bot.edit_message_text.await_count, 3)
+
     async def test_sync_subscription_admin_messages_treats_not_modified_as_sent(self) -> None:
         bot = _StubBot()
         bot.edit_message_text.side_effect = Exception("BadRequest: message is not modified")

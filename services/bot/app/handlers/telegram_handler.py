@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 WELCOME_MESSAGE_NAMES_PLACEHOLDER = "{names}"
 WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER = "{notifyGroupLink}"
 SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY = 4
+SUBSCRIPTION_ADMIN_SYNC_CONCURRENCY = 4
 
 
 def _private_only_tip() -> str:
@@ -291,30 +292,19 @@ async def send_subscription_notification(bot, data: dict) -> list[dict[str, Any]
     return list(deliveries)
 
 
-async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, Any]]:
-    base_data = {
-        "id": data.get("subscriptionId", ""),
-        "userName": data.get("userName", ""),
-        "type": data.get("type", ""),
-        "name": data.get("name", ""),
-        "tmdbId": data.get("tmdbId", ""),
-        "season": data.get("season", 0),
-        "posterPath": data.get("posterPath"),
-        "note": data.get("note", ""),
-    }
-    original_text, _ = format_subscription_message(base_data)
-    status = str(data.get("status") or "").upper()
-    action = "reject" if status == "REJECTED" else "approve"
-    result_text = format_result_message(original_text, action, str(data.get("rejectReason") or ""))
-    results: list[dict[str, Any]] = []
-
-    for notification in data.get("notifications", []):
-        notification_id = str(notification.get("id") or "").strip()
-        chat_id = int(notification.get("chatId", 0) or 0)
-        message_id = int(notification.get("messageId", 0) or 0)
-        has_photo = bool(notification.get("hasPhoto"))
-        if not notification_id or chat_id == 0 or message_id <= 0:
-            continue
+async def _sync_subscription_admin_message(
+    bot,
+    data: dict,
+    *,
+    notification_id: str,
+    chat_id: int,
+    message_id: int,
+    has_photo: bool,
+    result_text: str,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any]:
+    """同步单条管理员审批消息到最终状态，并返回该消息的编辑结果。"""
+    async with semaphore:
         try:
             if has_photo:
                 await bot.edit_message_caption(
@@ -332,10 +322,10 @@ async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, An
                     parse_mode="HTML",
                     reply_markup=None,
                 )
-            results.append({"id": notification_id, "deliveryStatus": "sent"})
+            return {"id": notification_id, "deliveryStatus": "sent"}
         except Exception as err:
-            status = _classify_edit_failure(err)
-            if status == "sent":
+            delivery_status = _classify_edit_failure(err)
+            if delivery_status == "sent":
                 logger.info(
                     "订阅审批消息已是目标状态 subscriptionId=%s notificationId=%s chatId=%s messageId=%s",
                     data.get("subscriptionId"),
@@ -343,25 +333,68 @@ async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, An
                     chat_id,
                     message_id,
                 )
-                results.append({"id": notification_id, "deliveryStatus": "sent"})
-                continue
+                return {"id": notification_id, "deliveryStatus": "sent"}
             logger.exception(
                 "同步订阅审批消息失败 subscriptionId=%s notificationId=%s chatId=%s messageId=%s status=%s",
                 data.get("subscriptionId"),
                 notification_id,
                 chat_id,
                 message_id,
-                status,
+                delivery_status,
             )
-            results.append(
-                {
-                    "id": notification_id,
-                    "deliveryStatus": status,
-                    "failureReason": str(err)[:500],
-                }
-            )
+            return {
+                "id": notification_id,
+                "deliveryStatus": delivery_status,
+                "failureReason": str(err)[:500],
+            }
 
-    return results
+
+async def sync_subscription_admin_messages(bot, data: dict) -> list[dict[str, Any]]:
+    """并发同步订阅管理员审批消息，并按输入通知顺序返回编辑结果。"""
+    base_data = {
+        "id": data.get("subscriptionId", ""),
+        "userName": data.get("userName", ""),
+        "type": data.get("type", ""),
+        "name": data.get("name", ""),
+        "tmdbId": data.get("tmdbId", ""),
+        "season": data.get("season", 0),
+        "posterPath": data.get("posterPath"),
+        "note": data.get("note", ""),
+    }
+    original_text, _ = format_subscription_message(base_data)
+    status = str(data.get("status") or "").upper()
+    action = "reject" if status == "REJECTED" else "approve"
+    result_text = format_result_message(original_text, action, str(data.get("rejectReason") or ""))
+    semaphore = asyncio.Semaphore(SUBSCRIPTION_ADMIN_SYNC_CONCURRENCY)
+    tasks = []
+
+    for notification in data.get("notifications", []):
+        notification_id = str(notification.get("id") or "").strip()
+        try:
+            chat_id = int(notification.get("chatId", 0) or 0)
+            message_id = int(notification.get("messageId", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        has_photo = bool(notification.get("hasPhoto"))
+        if not notification_id or chat_id == 0 or message_id <= 0:
+            continue
+        tasks.append(
+            _sync_subscription_admin_message(
+                bot,
+                data,
+                notification_id=notification_id,
+                chat_id=chat_id,
+                message_id=message_id,
+                has_photo=has_photo,
+                result_text=result_text,
+                semaphore=semaphore,
+            )
+        )
+    if not tasks:
+        return []
+
+    results = await asyncio.gather(*tasks)
+    return list(results)
 
 
 async def send_subscription_result_notification(bot, data: dict) -> None:
