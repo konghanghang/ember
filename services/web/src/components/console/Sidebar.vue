@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { useUserStore } from '@/store/user'
 import {
   Odometer,
   VideoPlay,
@@ -18,12 +17,10 @@ import {
   Iphone,
   Calendar
 } from '@element-plus/icons-vue'
-import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
-const userStore = useUserStore()
 
 const canAccessItem = (role?: string) => {
   if (!role) return true
@@ -137,7 +134,6 @@ const menuItems = computed(() => [
 ])
 
 const isActive = (path: string) => route.path === path || route.path.startsWith(`${path}/`)
-const displayName = computed(() => userStore.profile?.username || '当前用户')
 </script>
 
 <template>
@@ -207,16 +203,9 @@ const displayName = computed(() => userStore.profile?.username || '当前用户'
       </template>
     </nav>
 
-    <!-- Footer / User Profile (simplified) -->
+    <!-- Footer -->
     <div class="p-4 border-t border-gray-50">
-      <div class="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
-        <DefaultAvatar :name="displayName" size="sm" shape="full" />
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-gray-900 truncate">{{ displayName }}</p>
-          <p class="text-xs text-gray-500 truncate">{{ authStore.role === 'admin' ? '管理员' : '普通用户' }}</p>
-        </div>
-      </div>
-      <div class="mt-3 flex justify-center">
+      <div class="flex justify-center">
         <ProjectSourceLink />
       </div>
     </div>

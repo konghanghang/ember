@@ -1,24 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Bell,
   ChatDotRound,
-  Check,
   CopyDocument,
   Key,
   Lock,
   Message,
   Monitor,
-  Reading,
   UserFilled
 } from '@element-plus/icons-vue'
-import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import { formatDateTime } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
-import { useConsoleStore } from '@/store/console'
 import { useUserStore } from '@/store/user'
 import { getRegistrationMode } from '@/api/auth'
 import { bindAdminEmbyAccount, getAdminEmbyUsers, unbindAdminEmbyAccount } from '@/api/admin'
@@ -28,12 +22,10 @@ import {
   unbindTelegram,
   updatePassword
 } from '@/api/console'
-import type { AdminEmbyUserOption, ConsoleAccountLinkIcon, TelegramBindCodeResponse, UserInfo } from '@/types/api'
+import type { AdminEmbyUserOption, TelegramBindCodeResponse, UserInfo } from '@/types/api'
 
 const authStore = useAuthStore()
-const consoleStore = useConsoleStore()
 const userStore = useUserStore()
-const router = useRouter()
 
 const emptyUser: UserInfo = {
   id: '',
@@ -140,22 +132,13 @@ const fetchAllowedEmailDomains = async () => {
   }
 }
 
-const resourceIconMap: Record<ConsoleAccountLinkIcon, Component> = {
-  notify: Bell,
-  group: ChatDotRound,
-  wiki: Reading
-}
-
-const isExpired = computed(() => {
-  if (!user.value.expiresAt) return false
-  return new Date(user.value.expiresAt) < new Date()
-})
-
 const isTelegramBound = computed(() => !!user.value.telegramId)
+const isEmbyLinked = computed(() => !!user.value.embyId)
 
-const membershipSummary = computed(() => {
-  if (authStore.isAdmin) return '管理员账号'
-  return isExpired.value ? '会员已过期' : '会员有效'
+const embySummary = computed(() => {
+  if (isEmbyLinked.value) return '已关联'
+  if (authStore.isAdmin) return '可关联'
+  return '待开通'
 })
 
 watch(
@@ -438,112 +421,35 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6" v-loading="loading">
-    <section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div class="border-b border-slate-100 bg-slate-50/80 px-6 py-4">
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Account Center</p>
-      </div>
-      <div class="grid gap-6 px-6 py-6 lg:grid-cols-[1.6fr_1fr] lg:px-8">
-        <div class="flex items-start gap-4">
-          <DefaultAvatar :name="user.username" size="xl" shape="2xl" />
-          <div class="space-y-3">
-            <div>
-              <div class="flex flex-wrap items-center gap-3">
-                <h1 class="text-2xl font-semibold text-slate-900">{{ user.username || '当前用户' }}</h1>
-                <span class="rounded-full bg-ember/10 px-3 py-1 text-xs font-semibold text-ember">
-                  {{ authStore.isAdmin ? '管理员' : '普通用户' }}
-                </span>
-              </div>
-            </div>
-
-            <div class="flex flex-wrap gap-2">
-              <span
-                class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-                :class="isExpired ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'"
-              >
-                <span class="h-2 w-2 rounded-full" :class="isExpired ? 'bg-red-500' : 'bg-emerald-500'"></span>
-                {{ membershipSummary }}
-              </span>
-              <span
-                class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-                :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'"
-              >
-                <el-icon><Check /></el-icon>
-                {{ isTelegramBound ? 'Telegram 已绑定' : 'Telegram 未绑定' }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-          <button
-            class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition-colors hover:border-slate-300 hover:bg-white cursor-pointer"
-            @click="router.push('/console/dashboard')"
-          >
-            <div>
-              <p class="text-sm font-semibold text-slate-900">回到概览</p>
-              <p class="mt-1 text-xs text-slate-500">查看会员状态、媒体统计和服务器入口</p>
-            </div>
-            <el-icon class="text-slate-400"><Monitor /></el-icon>
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <div class="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
-      <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
+      <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-ember/10 text-ember">
             <el-icon><UserFilled /></el-icon>
           </div>
           <div>
-            <h2 class="text-lg font-semibold text-slate-900">基本信息</h2>
+            <h2 class="text-lg font-semibold text-gray-900">基本资料</h2>
           </div>
         </div>
 
         <div class="mt-6 grid gap-5 md:grid-cols-2">
           <div class="space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">用户名</p>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">用户名</p>
+            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               {{ user.username || '-' }}
             </div>
           </div>
           <div class="space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Emby ID</p>
-            <div class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <span class="min-w-0 flex-1 truncate font-mono">{{ user.embyId || '待激活' }}</span>
-              <button
-                v-if="user.embyId"
-                type="button"
-                aria-label="复制 Emby ID"
-                class="text-slate-400 transition-colors hover:text-ember cursor-pointer"
-                @click="copyToClipboard(user.embyId)"
-              >
-                <el-icon><CopyDocument /></el-icon>
-              </button>
-              <button
-                v-if="authStore.isAdmin && !user.embyId"
-                type="button"
-                class="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 cursor-pointer disabled:opacity-60"
-                :disabled="bindingEmby"
-                @click="handleOpenEmbyBindDialog"
-              >
-                关联 Emby 账号
-              </button>
-              <button
-                v-else-if="authStore.isAdmin"
-                type="button"
-                class="shrink-0 rounded-xl border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
-                :disabled="unbindingEmby"
-                @click="handleUnbindEmby"
-              >
-                {{ unbindingEmby ? '解除中...' : '解除关联' }}
-              </button>
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">有效期</p>
+            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+              {{ user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效' }}
             </div>
           </div>
           <div class="space-y-2 md:col-span-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">联系邮箱</p>
+            <label for="account-email" class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">联系邮箱</label>
             <div class="flex flex-col gap-3 sm:flex-row">
               <el-input
+                id="account-email"
                 v-model="emailInput"
                 type="email"
                 placeholder="name@example.com"
@@ -563,40 +469,35 @@ onMounted(() => {
             <p v-if="emailDomainError" class="text-xs text-red-600 leading-5">
               {{ emailDomainError }}
             </p>
-            <p v-else-if="hasDomainAllowlist" class="text-xs text-slate-500 leading-5">
+            <p v-else-if="hasDomainAllowlist" class="text-xs text-gray-500 leading-5">
               {{ allowedDomainsHint }}
             </p>
-            <p class="text-xs text-slate-500">用于找回密码和接收系统通知。</p>
+            <p class="text-xs text-gray-500">用于找回密码和接收系统通知。</p>
           </div>
           <div class="space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">有效期</p>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              {{ user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效' }}
-            </div>
-          </div>
-          <div class="space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">创建时间</p>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">创建时间</p>
+            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               {{ formatDateTime(user.createdAt, 'short') }}
             </div>
           </div>
         </div>
       </section>
 
-      <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
+          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-700">
             <el-icon><Key /></el-icon>
           </div>
           <div>
-            <h2 class="text-lg font-semibold text-slate-900">安全设置</h2>
+            <h2 class="text-lg font-semibold text-gray-900">安全设置</h2>
           </div>
         </div>
 
         <div class="mt-6 space-y-4">
           <div class="space-y-1">
-            <label class="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-400">当前密码</label>
+            <label for="current-password" class="ml-1 text-xs font-semibold uppercase tracking-wider text-gray-400">当前密码</label>
             <el-input
+              id="current-password"
               v-model="passwordForm.oldPassword"
               type="password"
               show-password
@@ -606,8 +507,9 @@ onMounted(() => {
             />
           </div>
           <div class="space-y-1">
-            <label class="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-400">新密码</label>
+            <label for="new-password" class="ml-1 text-xs font-semibold uppercase tracking-wider text-gray-400">新密码</label>
             <el-input
+              id="new-password"
               v-model="passwordForm.newPassword"
               type="password"
               show-password
@@ -617,8 +519,9 @@ onMounted(() => {
             />
           </div>
           <div class="space-y-1">
-            <label class="ml-1 text-xs font-semibold uppercase tracking-wider text-slate-400">确认新密码</label>
+            <label for="confirm-password" class="ml-1 text-xs font-semibold uppercase tracking-wider text-gray-400">确认新密码</label>
             <el-input
+              id="confirm-password"
               v-model="passwordForm.confirmPassword"
               type="password"
               show-password
@@ -633,74 +536,143 @@ onMounted(() => {
           >
             更新密码
           </button>
-          <p class="text-xs leading-6 text-slate-500">
+          <p class="text-xs leading-6 text-gray-500">
             修改密码后，控制台与 Emby 客户端使用同一套新密码重新登录。
           </p>
         </div>
       </section>
     </div>
 
-    <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
       <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 class="text-lg font-semibold text-slate-900">Telegram 绑定</h2>
-          <p class="text-sm text-slate-500">绑定后可在 Bot 中查询账号信息、续期和处理常用指令。</p>
+          <h2 class="text-lg font-semibold text-gray-900">连接与绑定</h2>
         </div>
-        <span
-          class="inline-flex items-center gap-2 self-start rounded-full px-3 py-1 text-xs font-medium"
-          :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'"
-        >
-          <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-slate-400'"></span>
-          {{ isTelegramBound ? '已绑定' : '未绑定' }}
-        </span>
       </div>
 
-      <div class="mt-6">
-        <div v-if="isTelegramBound" class="rounded-2xl border border-sky-100 bg-sky-50 p-5">
-          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p class="text-sm font-semibold text-sky-900">当前已绑定 Telegram</p>
-              <p class="mt-1 text-xs font-mono text-sky-700">ID: {{ user.telegramId }}</p>
+      <div class="mt-6 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-700">
+                <el-icon><Monitor /></el-icon>
+              </div>
+              <div>
+                <h3 class="text-sm font-semibold text-gray-900">Emby 账号</h3>
+                <p class="mt-1 text-xs text-gray-500">{{ embySummary }}</p>
+              </div>
             </div>
-            <button
-              class="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
-              :disabled="unbinding"
-              @click="handleUnbindTelegram"
+            <span
+              class="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
+              :class="isEmbyLinked ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'"
             >
-              {{ unbinding ? '解绑中...' : '解除绑定' }}
+              <span class="h-2 w-2 rounded-full" :class="isEmbyLinked ? 'bg-emerald-500' : 'bg-gray-400'"></span>
+              {{ embySummary }}
+            </span>
+          </div>
+
+          <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+              {{ user.embyId || '待激活' }}
+            </code>
+            <button
+              v-if="user.embyId"
+              type="button"
+              aria-label="复制 Emby ID"
+              class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
+              @click="copyToClipboard(user.embyId)"
+            >
+              <el-icon><CopyDocument /></el-icon>
             </button>
           </div>
-        </div>
 
-        <div v-else-if="telegramBindCode" class="rounded-2xl border border-sky-100 bg-sky-50 p-5">
-          <p class="text-sm font-semibold text-sky-900">发送以下命令到 Bot 完成绑定</p>
-          <code class="mt-3 block rounded-2xl border border-sky-200 bg-white px-4 py-4 text-center text-2xl font-bold tracking-wider text-sky-900">
-            /bind {{ telegramBindCode.code }}
-          </code>
-          <div class="mt-3 flex flex-col gap-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-            <span>有效至 {{ new Date(telegramBindCode.expiresAt).toLocaleTimeString() }}</span>
+          <div v-if="authStore.isAdmin" class="mt-4 flex flex-wrap gap-2">
             <button
-              class="font-semibold text-sky-700 transition-colors hover:text-sky-900 cursor-pointer disabled:opacity-60"
-              :disabled="generatingBindCode"
-              @click="handleGenerateBindCode"
+              v-if="!user.embyId"
+              type="button"
+              class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer disabled:opacity-60"
+              :disabled="bindingEmby"
+              @click="handleOpenEmbyBindDialog"
             >
-              {{ generatingBindCode ? '生成中...' : '重新生成验证码' }}
+              关联 Emby 账号
+            </button>
+            <button
+              v-else
+              type="button"
+              class="inline-flex h-11 items-center justify-center rounded-xl border border-red-200 bg-white px-5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
+              :disabled="unbindingEmby"
+              @click="handleUnbindEmby"
+            >
+              {{ unbindingEmby ? '解除中...' : '解除关联' }}
             </button>
           </div>
-        </div>
+        </article>
 
-        <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <p class="text-sm text-slate-700">
-            绑定后可在 Telegram Bot 中使用 `/info` 查询账号信息，使用 `/redeem` 兑换续期码。
-          </p>
-          <button
-            class="mt-4 rounded-2xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 cursor-pointer disabled:opacity-60"
-            :disabled="generatingBindCode"
-            @click="handleGenerateBindCode"
-          >
-            {{ generatingBindCode ? '生成中...' : '生成绑定验证码' }}
-          </button>
-        </div>
+        <article class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+                <el-icon><ChatDotRound /></el-icon>
+              </div>
+              <div>
+                <h3 class="text-sm font-semibold text-gray-900">Telegram Bot</h3>
+                <p class="mt-1 text-xs text-gray-500">查询账号、续期和常用指令</p>
+              </div>
+            </div>
+            <span
+              class="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
+              :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-600'"
+            >
+              <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-gray-400'"></span>
+              {{ isTelegramBound ? '已绑定' : '未绑定' }}
+            </span>
+          </div>
+
+          <div class="mt-5">
+            <div v-if="isTelegramBound" class="rounded-2xl border border-sky-100 bg-sky-50 p-4">
+              <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-sky-900">当前已绑定 Telegram</p>
+                  <p class="mt-1 text-xs font-mono text-sky-700">ID: {{ user.telegramId }}</p>
+                </div>
+                <button
+                  class="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
+                  :disabled="unbinding"
+                  @click="handleUnbindTelegram"
+                >
+                  {{ unbinding ? '解绑中...' : '解除绑定' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-else-if="telegramBindCode" class="rounded-2xl border border-sky-100 bg-sky-50 p-4">
+              <p class="text-sm font-semibold text-sky-900">发送以下命令到 Bot 完成绑定</p>
+              <code class="mt-3 block rounded-2xl border border-sky-200 bg-white px-4 py-4 text-center text-2xl font-bold tracking-wider text-sky-900">
+                /bind {{ telegramBindCode.code }}
+              </code>
+              <div class="mt-3 flex flex-col gap-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+                <span>有效至 {{ formatDateTime(telegramBindCode.expiresAt, 'time') }}</span>
+                <button
+                  class="font-semibold text-sky-700 transition-colors hover:text-sky-900 cursor-pointer disabled:opacity-60"
+                  :disabled="generatingBindCode"
+                  @click="handleGenerateBindCode"
+                >
+                  {{ generatingBindCode ? '生成中...' : '重新生成验证码' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-else class="rounded-2xl border border-gray-200 bg-white p-4">
+              <button
+                class="rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 cursor-pointer disabled:opacity-60"
+                :disabled="generatingBindCode"
+                @click="handleGenerateBindCode"
+              >
+                {{ generatingBindCode ? '生成中...' : '生成绑定验证码' }}
+              </button>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -709,16 +681,16 @@ onMounted(() => {
       title="验证邮箱变更"
     >
       <div class="px-6 pb-2 pt-2 space-y-5">
-        <p class="text-sm text-slate-600">
+        <p class="text-sm text-gray-600">
           已向 {{ pendingNewEmail }} 发送 6 位验证码，有效期 10 分钟。
         </p>
 
         <div class="space-y-2">
           <div class="flex items-center justify-between">
-            <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">验证码</label>
+            <label for="email-verify-code" class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">验证码</label>
             <button
               type="button"
-              class="text-xs font-semibold text-ember transition-colors hover:text-ember/80 disabled:cursor-not-allowed disabled:text-slate-400 cursor-pointer"
+              class="text-xs font-semibold text-ember transition-colors hover:text-ember/80 disabled:cursor-not-allowed disabled:text-gray-400 cursor-pointer"
               :disabled="emailCodeCountdown > 0 || sendingEmailCode"
               @click="handleResendCode"
             >
@@ -726,6 +698,7 @@ onMounted(() => {
             </button>
           </div>
           <el-input
+            id="email-verify-code"
             v-model="verifyCode"
             placeholder="请输入 6 位验证码"
             maxlength="6"
@@ -760,9 +733,10 @@ onMounted(() => {
     >
       <div class="px-6 pb-2 pt-2 space-y-5">
         <div class="space-y-2">
-          <label class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">搜索 Emby 用户</label>
+          <label for="emby-user-search" class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">搜索 Emby 用户</label>
           <div class="flex flex-col gap-3 sm:flex-row">
             <el-input
+              id="emby-user-search"
               v-model="embyUserSearch"
               placeholder="输入用户名或 ID"
               autocomplete="off"
@@ -782,13 +756,13 @@ onMounted(() => {
 
         <div
           v-if="loadingEmbyUsers"
-          class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500"
+          class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500"
         >
           正在加载 Emby 用户...
         </div>
         <div
           v-else-if="embyUserOptions.length === 0"
-          class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500"
+          class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500"
         >
           输入关键词后搜索 Emby 用户
         </div>
@@ -801,19 +775,19 @@ onMounted(() => {
             :class="[
               selectedEmbyId === option.embyId
                 ? 'border-ember bg-ember/5'
-                : 'border-slate-200 bg-white hover:bg-slate-50',
-              !option.available ? 'bg-slate-50' : ''
+                : 'border-gray-200 bg-white hover:bg-gray-50',
+              !option.available ? 'bg-gray-50' : ''
             ]"
             :disabled="!option.available"
             @click="handleSelectEmbyUser(option)"
           >
             <span class="min-w-0">
-              <span class="block truncate text-sm font-semibold text-slate-900">{{ option.name || option.embyId }}</span>
-              <span class="mt-1 block truncate font-mono text-xs text-slate-500">{{ option.embyId }}</span>
+              <span class="block truncate text-sm font-semibold text-gray-900">{{ option.name || option.embyId }}</span>
+              <span class="mt-1 block truncate font-mono text-xs text-gray-500">{{ option.embyId }}</span>
             </span>
             <span
               class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
-              :class="option.boundToCurrent ? 'bg-emerald-50 text-emerald-700' : option.available ? 'bg-slate-100 text-slate-600' : 'bg-red-50 text-red-600'"
+              :class="option.boundToCurrent ? 'bg-emerald-50 text-emerald-700' : option.available ? 'bg-gray-100 text-gray-600' : 'bg-red-50 text-red-600'"
             >
               {{ option.boundToCurrent ? '当前绑定' : option.available ? '可绑定' : `已绑定 ${option.boundUsername || ''}` }}
             </span>
