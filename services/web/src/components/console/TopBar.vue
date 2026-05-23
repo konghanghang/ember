@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
+  ArrowDown,
   Expand,
   Fold,
   Setting,
@@ -159,62 +160,72 @@ const handleLogout = async () => {
 
     <div class="flex items-center gap-3">
       <el-dropdown trigger="click" placement="bottom-end">
-        <button class="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-left shadow-sm transition-colors hover:border-ember/20 hover:bg-gray-50 cursor-pointer">
-          <DefaultAvatar :name="displayName" size="md" shape="2xl" />
-          <div class="hidden min-w-0 sm:block">
-            <p class="truncate text-sm font-semibold text-gray-900">{{ displayName }}</p>
-            <p class="truncate text-xs text-gray-500">{{ membershipLabel }}</p>
-          </div>
+        <button
+          aria-label="打开账号菜单"
+          class="group inline-flex h-11 items-center gap-2 rounded-full border border-gray-200 bg-white/90 py-1 pl-1.5 pr-2.5 text-left transition-colors hover:border-ember/30 hover:bg-white focus:outline-none focus:ring-4 focus:ring-ember/10 cursor-pointer"
+        >
+          <DefaultAvatar :name="displayName" size="sm" shape="full" />
+          <span class="hidden min-w-0 max-w-[9rem] items-center gap-2 sm:inline-flex">
+            <span class="truncate text-sm font-semibold text-gray-900">{{ displayName }}</span>
+            <span
+              class="h-2 w-2 shrink-0 rounded-full"
+              :class="isExpired ? 'bg-red-500' : 'bg-emerald-500'"
+            ></span>
+          </span>
+          <el-icon class="text-gray-400 transition-colors group-hover:text-ember" :size="14">
+            <ArrowDown />
+          </el-icon>
         </button>
 
         <template #dropdown>
-          <div class="w-[22rem] rounded-2xl border border-gray-200 bg-white p-3 shadow-xl">
-            <div class="rounded-2xl bg-gray-50 px-4 py-4">
+          <div class="w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/10">
+            <div class="px-4 py-4">
               <div class="flex items-start gap-3">
                 <DefaultAvatar :name="displayName" size="lg" shape="2xl" />
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-sm font-semibold text-gray-900">{{ displayName }}</p>
                   <p class="mt-1 truncate text-xs text-gray-500">{{ displayEmail }}</p>
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    <span
-                      class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
-                      :class="isExpired ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'"
-                    >
-                      <span class="h-2 w-2 rounded-full" :class="isExpired ? 'bg-red-500' : 'bg-emerald-500'"></span>
-                      {{ membershipLabel }}
-                    </span>
-                    <span
-                      class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
-                      :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-600'"
-                    >
-                      <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-gray-400'"></span>
-                      {{ isTelegramBound ? 'Telegram 已绑定' : 'Telegram 未绑定' }}
-                    </span>
-                  </div>
                 </div>
+              </div>
+
+              <div class="mt-4 grid grid-cols-2 gap-2">
+                <span
+                  class="inline-flex items-center justify-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-medium"
+                  :class="isExpired ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'"
+                >
+                  <span class="h-2 w-2 rounded-full" :class="isExpired ? 'bg-red-500' : 'bg-emerald-500'"></span>
+                  {{ membershipLabel }}
+                </span>
+                <span
+                  class="inline-flex items-center justify-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-medium"
+                  :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-600'"
+                >
+                  <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-gray-400'"></span>
+                  {{ isTelegramBound ? 'Telegram 已绑定' : 'Telegram 未绑定' }}
+                </span>
               </div>
             </div>
 
-            <div class="mt-3 grid gap-2 sm:grid-cols-2">
+            <div class="border-t border-gray-100 p-2">
               <button
-                class="flex items-center justify-between rounded-2xl border border-gray-200 px-4 py-3 text-left transition-colors hover:border-ember/20 hover:bg-gray-50 cursor-pointer"
+                class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-50 cursor-pointer"
                 @click="router.push('/console/account')"
               >
                 <div>
                   <p class="text-sm font-semibold text-gray-900">账号中心</p>
-                  <p class="mt-1 text-xs text-gray-500">资料、安全、绑定</p>
+                  <p class="mt-0.5 text-xs text-gray-500">资料、安全、绑定</p>
                 </div>
                 <el-icon class="text-gray-400"><Setting /></el-icon>
               </button>
-            </div>
 
-            <button
-              class="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 cursor-pointer"
-              @click="handleLogout"
-            >
-              <el-icon><SwitchButton /></el-icon>
-              退出登录
-            </button>
+              <button
+                class="mt-1 flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 transition-colors hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                @click="handleLogout"
+              >
+                <span>退出登录</span>
+                <el-icon><SwitchButton /></el-icon>
+              </button>
+            </div>
           </div>
         </template>
       </el-dropdown>

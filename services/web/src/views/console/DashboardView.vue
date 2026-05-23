@@ -9,7 +9,6 @@ import {
   Monitor,
   VideoPlay
 } from '@element-plus/icons-vue'
-import DefaultAvatar from '@/components/common/DefaultAvatar.vue'
 import RecentLibrarySection from '@/components/console/RecentLibrarySection.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { formatDateOnly } from '@/utils/date'
@@ -76,6 +75,17 @@ const membershipStatusHint = computed(() => {
   return `剩余 ${daysLeft.value} 天`
 })
 const hasEmbyAccessUrl = computed(() => Boolean(embyUrl.value))
+const embyAccessLinks = computed(() => {
+  const url = embyUrl.value?.trim()
+  if (!url) return []
+  return [
+    {
+      id: 'primary',
+      label: '默认入口',
+      url
+    }
+  ]
+})
 
 const fetchOverview = async () => {
   if (!userStore.profile) return
@@ -141,50 +151,40 @@ watch(
   <div class="space-y-6 animate-fade-in" v-loading="loading">
     <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
       <div class="grid gap-6 p-6 md:p-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <div class="space-y-6">
-          <div class="flex items-start gap-5">
-            <DefaultAvatar :name="user.username" size="hero" shape="2xl" />
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-3">
-                <h1 class="truncate text-2xl font-bold tracking-tight text-gray-900">{{ user.username || '当前用户' }}</h1>
-                <span class="rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
-                  {{ authStore.isAdmin ? '管理员账号' : '用户账号' }}
-                </span>
-              </div>
-
-              <div class="mt-4 flex flex-wrap gap-3 text-sm text-gray-500">
-                <span
-                  class="rounded-full px-3 py-1 font-medium"
-                  :class="user.telegramId
-                    ? 'bg-sky-50 text-sky-700 ring-1 ring-sky-200'
-                    : 'bg-gray-100 text-gray-500'"
-                >
-                  Telegram：{{ user.telegramId ? '已绑定' : '未绑定' }}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="rounded-2xl border border-gray-100 bg-gray-50 p-5">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 p-5">
+          <div class="flex flex-col gap-5">
+            <div class="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">会员状态</p>
-                <p class="mt-3 text-2xl font-semibold" :class="membershipStatusTextClass">
-                  {{ membershipStatusLabel }}
-                </p>
-                <p class="mt-1 text-sm text-gray-500">
-                  {{ membershipStatusMeta }}
-                </p>
-                <p
-                  v-if="membershipStatusHint"
-                  class="mt-2 text-xs font-medium"
-                  :class="isExpired ? 'text-red-600' : 'text-gray-500'"
-                >
-                  {{ membershipStatusHint }}
-                </p>
+                <h1 class="text-lg font-semibold text-gray-900">服务状态</h1>
+                <p class="mt-1 text-sm text-gray-500">会员有效期与 Emby 访问状态</p>
               </div>
+              <span
+                class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
+                :class="isExpired ? 'bg-red-50 text-red-700' : isLifetimeMember ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'"
+              >
+                <span class="h-2 w-2 rounded-full" :class="isExpired ? 'bg-red-500' : isLifetimeMember ? 'bg-sky-500' : 'bg-emerald-500'"></span>
+                {{ membershipStatusLabel }}
+              </span>
+            </div>
+
+            <div>
+              <p class="text-2xl font-semibold" :class="membershipStatusTextClass">
+                {{ membershipStatusLabel }}
+              </p>
+              <p class="mt-1 text-sm text-gray-500">
+                {{ membershipStatusMeta }}
+              </p>
+              <p
+                v-if="membershipStatusHint"
+                class="mt-2 text-xs font-medium"
+                :class="isExpired ? 'text-red-600' : 'text-gray-500'"
+              >
+                {{ membershipStatusHint }}
+              </p>
+            </div>
+
+            <div v-if="!authStore.isAdmin" class="flex justify-start">
               <button
-                v-if="!authStore.isAdmin"
                 class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer lg:shrink-0"
                 @click="router.push('/console/renewal')"
               >
@@ -211,22 +211,23 @@ watch(
 
             <div v-if="hasEmbyAccessUrl && !showLockedServerState" class="space-y-3">
               <article
-                class="rounded-2xl border border-ember/15 bg-white p-4 shadow-sm"
+                v-for="link in embyAccessLinks"
+                :key="link.id"
+                class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"
               >
                 <div class="flex flex-col gap-3 xl:flex-row xl:items-center">
-                  <span class="inline-flex h-11 w-fit items-center rounded-full bg-ember/10 px-4 text-sm font-medium text-ember xl:shrink-0">
-                    服务器地址
-                  </span>
-
-                  <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-                    {{ embyUrl }}
-                  </code>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">{{ link.label }}</p>
+                    <code class="mt-2 block truncate rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                      {{ link.url }}
+                    </code>
+                  </div>
 
                   <div class="flex items-center gap-2 xl:shrink-0">
                     <button
                       aria-label="复制 Emby 地址"
                       class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
-                      @click="copyToClipboard(embyUrl)"
+                      @click="copyToClipboard(link.url)"
                     >
                       <el-icon><CopyDocument /></el-icon>
                     </button>
@@ -234,7 +235,7 @@ watch(
                     <button
                       type="button"
                       class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer"
-                      @click="openEmby(embyUrl)"
+                      @click="openEmby(link.url)"
                     >
                       打开
                     </button>
@@ -312,19 +313,19 @@ watch(
       </div>
 
       <div class="grid gap-4 p-4 md:grid-cols-3 md:p-6">
-        <article class="rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white p-5 shadow-sm">
+        <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="text-sm font-medium text-gray-500">电影收藏</p>
               <p class="mt-3 text-3xl font-semibold text-gray-900">{{ stats.MovieCount }}</p>
             </div>
-            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-purple-600 shadow-sm">
+            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-100 text-gray-700 shadow-sm">
               <el-icon :size="24"><Film /></el-icon>
             </div>
           </div>
         </article>
 
-        <article class="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-white p-5 shadow-sm">
+        <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="text-sm font-medium text-gray-500">剧集收藏</p>
@@ -336,7 +337,7 @@ watch(
           </div>
         </article>
 
-        <article class="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-white p-5 shadow-sm">
+        <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="text-sm font-medium text-gray-500">总集数</p>
