@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
-	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 )
 
 // CheckExpiredUsersResult 定时任务结果
@@ -106,10 +106,8 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 
 		processedCount++
 
-		err := s.embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{
-			IsDisabled: true,
-		})
-		if err != nil {
+		policyService := policypkg.NewService(s.embyService)
+		if err := policyService.ApplyEffectiveUserPolicy(user.ID, "expired_user_check"); err != nil {
 			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, err)
 			errMessages = appendLimitedString(errMessages, errorMsg, &failureTruncated, maxCheckExpiredUsersErrors)
 			failedUsers = appendLimitedFailedUser(failedUsers, map[string]interface{}{
@@ -117,24 +115,6 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 				"error":    err.Error(),
 			}, &failureTruncated, maxCheckExpiredUsersFailedUsers)
 			log.Printf("[Cron] %s", errorMsg)
-			continue
-		}
-
-		updateResult := db.DB.WithContext(ctx).Model(&models.User{}).
-			Where("id = ? AND \"emby_disabled\" = ?", user.ID, false).
-			Update("\"emby_disabled\"", true)
-		if updateResult.Error != nil {
-			errorMsg := fmt.Sprintf("更新数据库失败 %s: %v", user.Username, updateResult.Error)
-			errMessages = appendLimitedString(errMessages, errorMsg, &failureTruncated, maxCheckExpiredUsersErrors)
-			failedUsers = appendLimitedFailedUser(failedUsers, map[string]interface{}{
-				"username": user.Username,
-				"error":    updateResult.Error.Error(),
-			}, &failureTruncated, maxCheckExpiredUsersFailedUsers)
-			log.Printf("[Cron] %s", errorMsg)
-			continue
-		}
-		if updateResult.RowsAffected == 0 {
-			log.Printf("[Cron] 用户状态已更新，跳过重复写入: %s (%s)", user.Username, user.ID)
 			continue
 		}
 

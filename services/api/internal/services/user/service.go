@@ -2,6 +2,7 @@ package user
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
 )
 
@@ -25,7 +27,8 @@ type embyClient interface {
 	AuthenticateUser(username, password string) (*embyint.EmbyUser, error)
 	UpdateUserPassword(embyUserID, newPassword string) error
 	CreateEmbyUser(username, password string) (*embyint.EmbyUser, error)
-	SetUserPolicy(embyUserID string, policy embyint.EmbyUserPolicy) error
+	GetUserPolicyRaw(embyUserID string) (map[string]any, error)
+	PatchUserPolicyFields(targetUserID string, sourcePolicy map[string]any, fields []string) error
 	DeleteUser(embyUserID string) error
 }
 
@@ -40,6 +43,7 @@ type UserServiceDeps struct {
 	SaveUser           func(user *models.User) error
 	Compensation       *accountpkg.EmbyCompensation
 	NewCompensation    func() *accountpkg.EmbyCompensation
+	ApplyPolicy        func(userID, reason string) error
 }
 
 // UserService 用户服务
@@ -54,6 +58,7 @@ type UserService struct {
 	saveUser           func(user *models.User) error
 	compensation       *accountpkg.EmbyCompensation
 	newCompensation    func() *accountpkg.EmbyCompensation
+	applyPolicy        func(userID, reason string) error
 }
 
 func NewUserService() *UserService {
@@ -76,6 +81,7 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 		saveUser:           deps.SaveUser,
 		compensation:       deps.Compensation,
 		newCompensation:    deps.NewCompensation,
+		applyPolicy:        deps.ApplyPolicy,
 	}
 
 	if service.emailVerifier == nil {
@@ -138,6 +144,11 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 			return accountpkg.NewEmbyCompensation(nil)
 		}
 	}
+	if service.applyPolicy == nil {
+		service.applyPolicy = func(userID, reason string) error {
+			return policypkg.NewService(service.newEmbyClient()).ApplyEffectiveUserPolicy(userID, reason)
+		}
+	}
 	return service
 }
 
@@ -153,28 +164,21 @@ func normalizePlanGroupStrict(raw string) (string, error) {
 	return paymentpkg.NormalizePlanGroupKey(raw, false)
 }
 
-func isUserExpired(expiresAt *time.Time) bool {
-	if expiresAt == nil {
-		return false
-	}
-	return expiresAt.Before(time.Now().UTC())
-}
-
-func (s *UserService) syncEmbyPolicy(user *models.User) error {
+// syncEmbyPolicy 为已持久化用户应用统一计算后的 Emby Policy。
+func (s *UserService) syncEmbyPolicy(user *models.User, reason string) error {
 	if user.EmbyID == "" {
 		return nil
 	}
-
-	shouldDisable := !user.IsActive || isUserExpired(user.ExpiresAt)
-	if shouldDisable == user.EmbyDisabled {
+	if user.ID == "" || s.applyPolicy == nil {
 		return nil
 	}
-
-	embyService := s.newEmbyClient()
-	if err := embyService.SetUserPolicy(user.EmbyID, embyint.EmbyUserPolicy{IsDisabled: shouldDisable}); err != nil {
-		return errors.New("同步 Emby 用户状态失败：" + err.Error())
+	if err := s.applyPolicy(user.ID, reason); err != nil {
+		return fmt.Errorf("同步 Emby 用户策略失败：%w", err)
 	}
-
-	user.EmbyDisabled = shouldDisable
+	refreshed, err := s.findUserByID(user.ID)
+	if err != nil {
+		return nil
+	}
+	user.EmbyDisabled = refreshed.EmbyDisabled
 	return nil
 }

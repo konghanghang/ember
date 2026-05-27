@@ -315,12 +315,6 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 		return nil, fmt.Errorf("设置 Emby 用户密码失败: %w", err)
 	}
 
-	// 收敛默认权限：禁止下载，最多 3 路同时播放
-	if err := s.ApplyEmberDefaultUserPolicy(user.ID, false); err != nil {
-		_ = s.DeleteUser(user.ID)
-		return nil, fmt.Errorf("设置 Emby 用户默认权限失败: %w", err)
-	}
-
 	return &user, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
@@ -84,14 +85,14 @@ func (s *UserService) CreateUserByAdmin(req *AdminCreateUserRequest) (*UserView,
 		return nil, ErrUserCreateFailed
 	}
 
-	if err := s.syncEmbyPolicy(user); err != nil {
-		s.cleanupAdminCreatedEmbyUser(embyService, embyUser.ID, username)
-		return nil, err
-	}
-
 	if err := s.createUser(user); err != nil {
 		s.cleanupAdminCreatedEmbyUser(embyService, embyUser.ID, username)
 		return nil, mapAdminCreatePersistenceError(err)
+	}
+	if err := s.syncEmbyPolicy(user, "admin_user_created"); err != nil {
+		s.cleanupAdminCreatedEmbyUser(embyService, embyUser.ID, username)
+		s.cleanupAdminCreatedLocalUser(user.ID, username)
+		return nil, err
 	}
 
 	log.Printf("[User] 后台创建用户成功: userID=%s username=%s embyId=%s planGroup=%s neverExpire=%t expiresAt=%s",
@@ -191,6 +192,15 @@ func (s *UserService) cleanupAdminCreatedEmbyUser(client embyClient, embyUserID,
 		Action:      models.FailedEmbyActionDelete,
 	}); err != nil {
 		log.Printf("[User] 补偿队列入队失败 username=%s embyId=%s err=%v", username, embyUserID, err)
+	}
+}
+
+func (s *UserService) cleanupAdminCreatedLocalUser(userID, username string) {
+	if userID == "" {
+		return
+	}
+	if err := db.DB.Where("id = ?", userID).Delete(&models.User{}).Error; err != nil {
+		log.Printf("[User] 后台创建用户策略同步失败，本地用户清理失败: userID=%s username=%s err=%v", userID, username, err)
 	}
 }
 

@@ -1,7 +1,6 @@
 package payment
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -27,6 +26,7 @@ import (
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -1168,17 +1168,13 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	}
 
 	user.ExpiresAt = &newExpiry
-	// Emby 解封移到事务外（commit 后异步），避免事务中持有 Emby 网络 I/O，并解耦事务边界。
-	needsEmbyUnban := user.EmbyDisabled && user.IsActive
-	if needsEmbyUnban {
-		user.EmbyDisabled = false
-	}
+	// Emby Policy 同步移到事务外（commit 后异步），避免事务中持有 Emby 网络 I/O。
+	needsPolicySync := strings.TrimSpace(user.EmbyID) != ""
 
 	if err := tx.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"expires_at":    user.ExpiresAt,
-			"emby_disabled": user.EmbyDisabled,
+			"expires_at": user.ExpiresAt,
 		}).Error; err != nil {
 		tx.Rollback()
 		log.Printf("[Payment] 支付履约保存用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
@@ -1207,18 +1203,13 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	log.Printf("[Payment] 支付履约成功: paymentID=%s userID=%s planID=%s sessionID=%s oldExpiresAt=%v newExpiresAt=%s days=%d",
 		payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, oldExpiry, newExpiry.Format(time.RFC3339), payment.Days)
 
-	if needsEmbyUnban {
+	if needsPolicySync {
 		paymentID := payment.ID
 		userIDCopy := user.ID
-		embyID := user.EmbyID
-		async.SafeGo("payment.unban", func() {
-			if err := s.compensation.EnsureUnbanned(context.Background(), models.FailedEmbyAsyncOp{
-				Origin:      models.FailedEmbyOriginPaymentUnban,
-				OriginRefID: paymentID,
-				EmbyUserID:  embyID,
-			}); err != nil {
-				log.Printf("[Payment] 解封 + 入队全部失败: paymentID=%s userID=%s embyID=%s err=%v",
-					paymentID, userIDCopy, embyID, err)
+		async.SafeGo("payment.applyEffectivePolicy", func() {
+			if err := policypkg.NewService(s.embyService).ApplyEffectiveUserPolicy(userIDCopy, "payment_fulfillment"); err != nil {
+				log.Printf("[Payment] 支付履约后同步 Emby Policy 失败: paymentID=%s userID=%s err=%v",
+					paymentID, userIDCopy, err)
 			}
 		})
 	}

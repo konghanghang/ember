@@ -153,6 +153,11 @@ func VerifySchema() error {
 		{"bot_pending_reject_requests", &models.BotPendingRejectRequest{}},
 		{"bot_runtime_locks", &models.BotRuntimeLock{}},
 		{"subscription_admin_notifications", &models.SubscriptionAdminNotification{}},
+		{"plan_group_media_libraries", &models.PlanGroupMediaLibrary{}},
+		{"plan_group_emby_policy_templates", &models.PlanGroupEmbyPolicyTemplate{}},
+		{"user_media_library_preferences", &models.UserMediaLibraryPreference{}},
+		{"emby_policy_sync_batches", &models.EmbyPolicySyncBatch{}},
+		{"emby_policy_sync_tasks", &models.EmbyPolicySyncTask{}},
 	}
 
 	modelByTable := make(map[string]interface{}, len(tableChecks))
@@ -233,6 +238,12 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"users", "password_reset_required", "20260426_15_users_password_reset_required"},
 	{"bot_runtime_locks", "expires_at", "20260427_01_bot_runtime_locks"},
 	{"subscription_admin_notifications", "delivery_status", "20260519_01_subscription_admin_notifications"},
+	{"users", "emby_access_disabled", "20260527_01_user_media_library_policy"},
+	{"plan_group_media_libraries", "library_id", "20260527_01_user_media_library_policy"},
+	{"plan_group_emby_policy_templates", "simultaneous_stream_limit", "20260527_01_user_media_library_policy"},
+	{"user_media_library_preferences", "enabled", "20260527_01_user_media_library_policy"},
+	{"emby_policy_sync_batches", "failed_count", "20260527_01_user_media_library_policy"},
+	{"emby_policy_sync_tasks", "next_retry_at", "20260527_01_user_media_library_policy"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -264,6 +275,9 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"users", "uniq_users_emby_id", "20260504_00_users-emby-id-unique"},
 	{"subscription_admin_notifications", "idx_subscription_admin_notifications_subscription", "20260519_01_subscription_admin_notifications"},
 	{"subscription_admin_notifications", "uq_subscription_admin_notifications_message", "20260519_01_subscription_admin_notifications"},
+	{"plan_group_media_libraries", "uq_plan_group_media_libraries_group_library", "20260527_01_user_media_library_policy"},
+	{"user_media_library_preferences", "uq_user_media_library_preferences_user_library", "20260527_01_user_media_library_policy"},
+	{"emby_policy_sync_tasks", "uq_emby_policy_sync_tasks_user_active", "20260527_01_user_media_library_policy"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。
@@ -275,6 +289,7 @@ func Bootstrap() {
 	seedDefaultAdmin()
 	seedDefaultSettings()
 	seedDefaultPlanGroups()
+	seedDefaultPlanGroupEmbyPolicyTemplates()
 }
 
 // withConnectTimeout 为 URL 形式的 PostgreSQL DSN 注入 connect_timeout（秒）
@@ -388,6 +403,30 @@ func seedDefaultPlanGroups() {
 	}
 	if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&group).Error; err != nil {
 		log.Printf("⚠️  初始化套餐分组 %s 失败：%v", group.Key, err)
+	}
+}
+
+func seedDefaultPlanGroupEmbyPolicyTemplates() {
+	var groups []models.PlanGroup
+	if err := DB.Find(&groups).Error; err != nil {
+		log.Printf("⚠️  查询套餐分组权益模板失败：%v", err)
+		return
+	}
+	for _, group := range groups {
+		template := models.PlanGroupEmbyPolicyTemplate{
+			PlanGroupKey:                   group.Key,
+			SimultaneousStreamLimit:        3,
+			EnableContentDownloading:       false,
+			EnableLiveTvAccess:             false,
+			EnableSyncTranscoding:          false,
+			EnableAudioPlaybackTranscoding: false,
+			EnableVideoPlaybackTranscoding: false,
+			EnablePlaybackRemuxing:         true,
+			EnableRemoteAccess:             true,
+		}
+		if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&template).Error; err != nil {
+			log.Printf("⚠️  初始化套餐分组权益模板失败：planGroup=%s err=%v", group.Key, err)
+		}
 	}
 }
 

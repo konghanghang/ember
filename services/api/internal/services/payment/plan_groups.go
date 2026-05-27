@@ -46,6 +46,19 @@ var (
 	paymentCreatePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
 		return tx.Create(group).Error
 	}
+	paymentCreateDefaultPlanGroupPolicyTemplate = func(tx *gorm.DB, key string) error {
+		return tx.Create(&models.PlanGroupEmbyPolicyTemplate{
+			PlanGroupKey:                   key,
+			SimultaneousStreamLimit:        3,
+			EnableContentDownloading:       false,
+			EnableLiveTvAccess:             false,
+			EnableSyncTranscoding:          false,
+			EnableAudioPlaybackTranscoding: false,
+			EnableVideoPlaybackTranscoding: false,
+			EnablePlaybackRemuxing:         true,
+			EnableRemoteAccess:             true,
+		}).Error
+	}
 	paymentSavePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
 		return tx.Model(&models.PlanGroup{}).
 			Where("key = ?", group.Key).
@@ -84,6 +97,18 @@ var (
 	}
 	paymentDeletePlanGroup = func(tx *gorm.DB, key string) error {
 		return tx.Delete(&models.PlanGroup{}, "key = ?", key).Error
+	}
+	paymentDeletePlanGroupDependents = func(tx *gorm.DB, key string) error {
+		if err := tx.Where("plan_group_key = ?", key).Delete(&models.PlanGroupMediaLibrary{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("plan_group_key = ?", key).Delete(&models.PlanGroupEmbyPolicyTemplate{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("plan_group_key = ?", key).Delete(&models.EmbyPolicySyncTask{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("plan_group_key = ?", key).Delete(&models.EmbyPolicySyncBatch{}).Error
 	}
 	paymentExpirePendingPaymentsForUsersFollowingDefault = ExpireAllPendingPaymentsForFollowingDefaultUsers
 )
@@ -263,10 +288,54 @@ func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 				return nil, errors.New("获取套餐分组失败")
 			}
 		}
+		if err := db.DB.Model(&models.PlanGroupMediaLibrary{}).Where("plan_group_key = ?", view.Key).Count(&view.MediaLibraryCount).Error; err != nil {
+			return nil, errors.New("获取套餐分组失败")
+		}
+		var templateCount int64
+		if err := db.DB.Model(&models.PlanGroupEmbyPolicyTemplate{}).Where("plan_group_key = ?", view.Key).Count(&templateCount).Error; err != nil {
+			return nil, errors.New("获取套餐分组失败")
+		}
+		view.EmbyPolicyTemplateConfigured = templateCount > 0
+		view.PolicySyncStatus = planGroupPolicySyncStatus(view.Key)
 		views = append(views, view)
 	}
 
 	return &GetPlanGroupsResponse{Data: views}, nil
+}
+
+func planGroupPolicySyncStatus(key string) string {
+	var processingCount int64
+	if err := db.DB.Model(&models.EmbyPolicySyncTask{}).
+		Where("plan_group_key = ? AND status = ?", key, "processing").
+		Count(&processingCount).Error; err != nil || processingCount > 0 {
+		if processingCount > 0 {
+			return "processing"
+		}
+		return ""
+	}
+	var pendingCount int64
+	if err := db.DB.Model(&models.EmbyPolicySyncTask{}).
+		Where("plan_group_key = ? AND status = ?", key, "pending").
+		Count(&pendingCount).Error; err != nil || pendingCount > 0 {
+		if pendingCount > 0 {
+			return "pending"
+		}
+		return ""
+	}
+	var failedCount int64
+	if err := db.DB.Model(&models.EmbyPolicySyncTask{}).
+		Where("plan_group_key = ? AND status = ?", key, "failed").
+		Count(&failedCount).Error; err != nil || failedCount == 0 {
+		return "synced"
+	}
+	var syncedCount int64
+	_ = db.DB.Model(&models.EmbyPolicySyncTask{}).
+		Where("plan_group_key = ? AND status = ?", key, "synced").
+		Count(&syncedCount).Error
+	if syncedCount > 0 {
+		return "partial_failed"
+	}
+	return "failed"
 }
 
 func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGroupView, error) {
@@ -312,6 +381,10 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 	}
 
 	if err := paymentCreatePlanGroup(tx, &group); err != nil {
+		rollbackPlanGroupTx(tx)
+		return nil, errors.New("创建套餐分组失败")
+	}
+	if err := paymentCreateDefaultPlanGroupPolicyTemplate(tx, group.Key); err != nil {
 		rollbackPlanGroupTx(tx)
 		return nil, errors.New("创建套餐分组失败")
 	}
@@ -463,6 +536,11 @@ func (s *PaymentService) DeletePlanGroup(key string) error {
 	if planCount > 0 || userCount > 0 || redemptionCodeCount > 0 {
 		rollbackPlanGroupTx(tx)
 		return ErrPlanGroupDeleteBlocked
+	}
+
+	if err := paymentDeletePlanGroupDependents(tx, group.Key); err != nil {
+		rollbackPlanGroupTx(tx)
+		return errors.New("删除套餐分组失败")
 	}
 
 	if err := paymentDeletePlanGroup(tx, group.Key); err != nil {

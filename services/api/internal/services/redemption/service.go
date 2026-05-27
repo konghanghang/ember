@@ -1,7 +1,6 @@
 package redemption
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -15,6 +14,7 @@ import (
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
 )
 
@@ -93,12 +93,8 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		"expires_at": newExpiry,
 	}
 
-	// Emby 解封移到事务外（commit 后异步执行）：避免事务持有 Emby 网络 I/O，并在
-	// Emby 暂时不可达时进入补偿队列，由 cron 重试。本地 expiresAt 立刻生效，用户感知正常。
-	needsEmbyUnban := user.EmbyDisabled && user.IsActive
-	if needsEmbyUnban {
-		updates["emby_disabled"] = false
-	}
+	// Emby Policy 同步移到事务外（commit 后异步执行）：避免事务持有 Emby 网络 I/O。
+	needsPolicySync := strings.TrimSpace(user.EmbyID) != ""
 
 	if err := tx.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
 		return nil, ErrRedeemFailed
@@ -130,21 +126,13 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		return nil, ErrRedeemFailed
 	}
 
-	if needsEmbyUnban {
+	if needsPolicySync {
 		redemptionID := redemption.ID
 		userIDCopy := user.ID
-		embyID := strings.TrimSpace(user.EmbyID)
-		async.SafeGo("redemption.unban", func() {
-			if embyID == "" {
-				return
-			}
-			if err := s.compensationQueue().EnsureUnbanned(context.Background(), models.FailedEmbyAsyncOp{
-				Origin:      models.FailedEmbyOriginRedemptionUnban,
-				OriginRefID: redemptionID,
-				EmbyUserID:  embyID,
-			}); err != nil {
-				log.Printf("[Redemption] 解封 + 入队全部失败: redemptionID=%s userID=%s embyID=%s err=%v",
-					redemptionID, userIDCopy, embyID, err)
+		async.SafeGo("redemption.applyEffectivePolicy", func() {
+			if err := policypkg.NewService(s.embyClient()).ApplyEffectiveUserPolicy(userIDCopy, "redemption_renewal"); err != nil {
+				log.Printf("[Redemption] 兑换续期后同步 Emby Policy 失败: redemptionID=%s userID=%s err=%v",
+					redemptionID, userIDCopy, err)
 			}
 		})
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
 )
 
@@ -55,10 +56,10 @@ func NewEmbyCompensation(embyService *embyint.EmbyService) *EmbyCompensation {
 	}
 }
 
-// EnsureUnbanned 立刻尝试解封 Emby 用户；失败时入补偿队列。
+// EnsureUnbanned 立刻按当前本地用户状态重算 Emby Policy；失败时入补偿队列。
 //
-// 设计：把 SetUserPolicy 调用收口在本包内，让 payment / redemption 调用方不需要
-// 直接持有 embyService.SetUserPolicy 的引用，便于把"调权"动作的关键路径集中维护。
+// 设计：历史调用方传入的是 embyUserId，因此这里先反查本地用户，再走统一
+// ApplyEffectiveUserPolicy，不能直接把 IsDisabled 写成 false。
 //
 // 成功：返回 nil；调用方记成功日志即可。
 // 失败：尝试入队，若入队成功返回 nil（视为已交给后台重试，调用方主流程不阻塞）。
@@ -69,12 +70,12 @@ func (c *EmbyCompensation) EnsureUnbanned(ctx context.Context, op models.FailedE
 	if op.OriginRefID == "" {
 		op.OriginRefID = op.EmbyUserID
 	}
-	if err := c.embyService.SetUserPolicy(op.EmbyUserID, embyint.EmbyUserPolicy{IsDisabled: false}); err == nil {
-		log.Printf("[Compensation] 同步解封 Emby 成功 origin=%s originRefId=%s embyUserId=%s",
+	if err := c.applyEffectivePolicyByEmbyID(op.EmbyUserID, "compensation_unban"); err == nil {
+		log.Printf("[Compensation] 同步重算 Emby Policy 成功 origin=%s originRefId=%s embyUserId=%s",
 			op.Origin, op.OriginRefID, op.EmbyUserID)
 		return nil
 	} else {
-		log.Printf("[Compensation] 同步解封 Emby 失败，入补偿队列 origin=%s originRefId=%s embyUserId=%s err=%v",
+		log.Printf("[Compensation] 同步重算 Emby Policy 失败，入补偿队列 origin=%s originRefId=%s embyUserId=%s err=%v",
 			op.Origin, op.OriginRefID, op.EmbyUserID, err)
 	}
 	return c.Enqueue(ctx, op)
@@ -174,12 +175,23 @@ func (c *EmbyCompensation) Process(ctx context.Context) (ProcessResult, error) {
 func (c *EmbyCompensation) execute(_ context.Context, op models.FailedEmbyAsyncOp) error {
 	switch op.Action {
 	case models.FailedEmbyActionUnban:
-		return c.embyService.SetUserPolicy(op.EmbyUserID, embyint.EmbyUserPolicy{IsDisabled: false})
+		return c.applyEffectivePolicyByEmbyID(op.EmbyUserID, "compensation_retry_unban")
 	case models.FailedEmbyActionDelete:
 		return c.embyService.DeleteUser(op.EmbyUserID)
 	default:
 		return fmt.Errorf("compensation: 未知 action=%s id=%s", op.Action, op.ID)
 	}
+}
+
+func (c *EmbyCompensation) applyEffectivePolicyByEmbyID(embyUserID, reason string) error {
+	var user models.User
+	if err := db.DB.Where("emby_id = ?", strings.TrimSpace(embyUserID)).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("compensation: 找不到 embyUserId 对应用户 embyUserId=%s", embyUserID)
+		}
+		return err
+	}
+	return policypkg.NewService(c.embyService).ApplyEffectiveUserPolicy(user.ID, reason)
 }
 
 // markFailure 把失败记录写回，更新退避时间与错误信息；超过 maxRetries 写 ERROR 日志告警。

@@ -8,6 +8,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	"gorm.io/gorm"
 )
@@ -39,13 +40,16 @@ func (s *AuthService) persistRegisteredUser(
 		return nil, errors.New("创建用户失败")
 	}
 
-	if err := s.applyInviteRegistration(tx, req, prepared, user, embyUser.ID); err != nil {
+	if err := s.applyInviteRegistration(tx, req, prepared, user); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		return nil, errors.New("创建用户失败")
+	}
+	if err := policypkg.NewService(s.newEmbyClient()).ApplyEffectiveUserPolicy(user.ID, "user_registered"); err != nil {
+		return nil, err
 	}
 
 	return user, nil
@@ -82,7 +86,6 @@ func (s *AuthService) applyInviteRegistration(
 	req *RegisterUserRequest,
 	prepared *registerPreparation,
 	user *models.User,
-	embyUserID string,
 ) error {
 	if prepared.mode != "invite" || prepared.redemptionCode == nil {
 		return nil
@@ -105,10 +108,6 @@ func (s *AuthService) applyInviteRegistration(
 	}
 	if err := tx.Create(&redemption).Error; err != nil {
 		return errors.New("创建用户失败")
-	}
-
-	if err := s.applyTemplatePolicyIfNeeded(embyUserID, prepared.redemptionCode.TemplateUserID); err != nil {
-		return err
 	}
 
 	return nil

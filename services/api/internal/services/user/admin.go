@@ -62,7 +62,47 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 			CASE
 				WHEN users."plan_group" IS NOT NULL AND explicit_pg.key IS NULL THEN true
 				ELSE false
-			END AS "isPlanGroupMissing"`).
+			END AS "isPlanGroupMissing",
+			EXISTS (
+				SELECT 1 FROM user_media_library_preferences prefs
+				WHERE prefs.user_id = users.id
+			) AS "mediaLibraryPreferenceCustomized",
+			(
+				SELECT COUNT(*) FROM plan_group_media_libraries libs
+				WHERE libs.plan_group_key = COALESCE(users."plan_group", default_pg.key)
+			) AS "mediaLibraryTemplateCount",
+			CASE
+				WHEN EXISTS (
+					SELECT 1 FROM user_media_library_preferences prefs
+					WHERE prefs.user_id = users.id
+				) THEN (
+					SELECT COUNT(*) FROM user_media_library_preferences prefs
+					JOIN plan_group_media_libraries libs
+					  ON libs.library_id = prefs.library_id
+					 AND libs.plan_group_key = COALESCE(users."plan_group", default_pg.key)
+					WHERE prefs.user_id = users.id
+					  AND prefs.enabled = true
+				)
+				ELSE (
+					SELECT COUNT(*) FROM plan_group_media_libraries libs
+					WHERE libs.plan_group_key = COALESCE(users."plan_group", default_pg.key)
+				)
+			END AS "mediaLibraryEnabledCount",
+			CASE
+				WHEN EXISTS (
+					SELECT 1 FROM emby_policy_sync_tasks tasks
+					WHERE tasks.user_id = users.id AND tasks.status = 'processing'
+				) THEN 'processing'
+				WHEN EXISTS (
+					SELECT 1 FROM emby_policy_sync_tasks tasks
+					WHERE tasks.user_id = users.id AND tasks.status = 'pending'
+				) THEN 'pending'
+				WHEN EXISTS (
+					SELECT 1 FROM emby_policy_sync_tasks tasks
+					WHERE tasks.user_id = users.id AND tasks.status = 'failed'
+				) THEN 'failed'
+				ELSE 'synced'
+			END AS "policySyncStatus"`).
 		Joins(`LEFT JOIN plan_groups explicit_pg ON explicit_pg.key = users."plan_group"`).
 		Joins(`LEFT JOIN plan_groups default_pg ON default_pg."is_default" = ?`, true)
 }
@@ -250,19 +290,11 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		needSyncEmbyPolicy = true
 	}
 
-	if needSyncEmbyPolicy {
-		if err := s.syncEmbyPolicy(&user); err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-	}
-
 	updates := map[string]interface{}{
-		"email":         user.Email,
-		"is_active":     user.IsActive,
-		"plan_group":    user.PlanGroup,
-		"expires_at":    user.ExpiresAt,
-		"emby_disabled": user.EmbyDisabled,
+		"email":      user.Email,
+		"is_active":  user.IsActive,
+		"plan_group": user.PlanGroup,
+		"expires_at": user.ExpiresAt,
 	}
 
 	if err := tx.Model(&models.User{}).
@@ -297,12 +329,20 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		if err := tx.Commit().Error; err != nil {
 			return nil, ErrUserUpdateFailed
 		}
+		if err := s.syncEmbyPolicy(&user, "admin_plan_group_update"); err != nil {
+			return nil, err
+		}
 		paymentpkg.ExpireStripeCheckoutSessions(expiredSessionIDs)
 		return s.GetUserByID(userID)
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		return nil, ErrUserUpdateFailed
+	}
+	if needSyncEmbyPolicy {
+		if err := s.syncEmbyPolicy(&user, "admin_user_update"); err != nil {
+			return nil, err
+		}
 	}
 
 	return s.GetUserByID(userID)
@@ -323,15 +363,14 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 	}
 
 	user.ExpiresAt = &newExpiry
-	if err := s.syncEmbyPolicy(user); err != nil {
-		return nil, err
-	}
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"expires_at":    user.ExpiresAt,
-			"emby_disabled": user.EmbyDisabled,
+			"expires_at": user.ExpiresAt,
 		}).Error; err != nil {
+		return nil, err
+	}
+	if err := s.syncEmbyPolicy(user, "user_expiry_extended"); err != nil {
 		return nil, err
 	}
 
@@ -345,15 +384,14 @@ func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
 	}
 
 	user.IsActive = !user.IsActive
-	if err := s.syncEmbyPolicy(user); err != nil {
-		return nil, err
-	}
 	if err := db.DB.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Updates(map[string]interface{}{
-			"is_active":     user.IsActive,
-			"emby_disabled": user.EmbyDisabled,
+			"is_active": user.IsActive,
 		}).Error; err != nil {
+		return nil, err
+	}
+	if err := s.syncEmbyPolicy(user, "admin_user_status_toggle"); err != nil {
 		return nil, err
 	}
 

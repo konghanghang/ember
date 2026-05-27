@@ -15,6 +15,9 @@ type stubUserEmbyClient struct {
 	createUserErr     error
 	updatePasswordErr error
 	setUserPolicyErr  error
+	getPolicyRawResp  map[string]any
+	getPolicyRawErr   error
+	patchPolicyErr    error
 	deleteUserErr     error
 	lastAuthUsername  string
 	lastAuthPassword  string
@@ -47,6 +50,16 @@ func (s *stubUserEmbyClient) CreateEmbyUser(username, password string) (*embyint
 func (s *stubUserEmbyClient) SetUserPolicy(embyUserID string, policy embyint.EmbyUserPolicy) error {
 	s.lastPolicyUserID = embyUserID
 	return s.setUserPolicyErr
+}
+
+func (s *stubUserEmbyClient) GetUserPolicyRaw(embyUserID string) (map[string]any, error) {
+	s.lastPolicyUserID = embyUserID
+	return s.getPolicyRawResp, s.getPolicyRawErr
+}
+
+func (s *stubUserEmbyClient) PatchUserPolicyFields(targetUserID string, sourcePolicy map[string]any, fields []string) error {
+	s.lastPolicyUserID = targetUserID
+	return s.patchPolicyErr
 }
 
 func (s *stubUserEmbyClient) DeleteUser(embyUserID string) error {

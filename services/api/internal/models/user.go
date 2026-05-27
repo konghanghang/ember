@@ -18,6 +18,7 @@ type User struct {
 	Email                 string     `json:"email,omitempty" gorm:"column:email;size:255"`
 	EmbyID                string     `json:"embyId,omitempty" gorm:"column:emby_id;size:50;index"`
 	EmbyDisabled          bool       `json:"embyDisabled" gorm:"column:emby_disabled;default:false;not null"`
+	EmbyAccessDisabled    bool       `json:"embyAccessDisabled" gorm:"column:emby_access_disabled;default:false;not null"`
 	TelegramID            *int64     `json:"telegramId,omitempty" gorm:"column:telegram_id"` // partial unique 由 uq_users_telegram_id 维护
 	PlanGroup             *string    `json:"planGroup,omitempty" gorm:"column:plan_group;size:50;index"`
 	ExpiresAt             *time.Time `json:"expiresAt,omitempty" gorm:"column:expires_at"`
