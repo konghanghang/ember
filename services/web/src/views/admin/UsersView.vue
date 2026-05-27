@@ -386,6 +386,16 @@ const isExpired = (dateStr?: string | null) => {
 }
 
 const getEmberStatus = (row: UserInfo) => {
+  if (row.embyAccessDisabled) {
+    return {
+      text: '禁用',
+      dotClass: 'bg-orange-500',
+      textClass: 'text-orange-700',
+      pulse: false,
+      reason: '管理员禁用'
+    }
+  }
+
   if (!row.isActive) {
     return {
       text: '禁用',
@@ -433,7 +443,7 @@ const getEmbyStatus = (row: UserInfo) => {
     }
   }
 
-  if (isExpired(row.expiresAt ?? null)) {
+  if (row.isExpired || isExpired(row.expiresAt ?? null)) {
     return {
       text: '禁用',
       dotClass: 'bg-yellow-500',
@@ -449,6 +459,19 @@ const getEmbyStatus = (row: UserInfo) => {
     textClass: 'text-orange-700',
     pulse: false,
     reason: '手动/异常禁用'
+  }
+}
+
+const getMediaLibraryStatus = (row: UserInfo) => {
+  const status = row.policySyncStatus
+  const syncing = status === 'pending' || status === 'processing'
+  return {
+    customized: row.mediaLibraryPreferenceCustomized === true,
+    countText: typeof row.mediaLibraryEnabledCount === 'number' && typeof row.mediaLibraryTemplateCount === 'number'
+      ? `${row.mediaLibraryEnabledCount}/${row.mediaLibraryTemplateCount}`
+      : '-',
+    statusText: syncing ? '同步中' : status === 'failed' ? '同步失败' : status === 'partial_failed' ? '部分失败' : '已同步',
+    tagType: syncing ? 'warning' : status === 'failed' || status === 'partial_failed' ? 'danger' : 'success'
   }
 }
 
@@ -615,6 +638,22 @@ onMounted(async () => {
               {{ getPlanGroupDisplay(row) }}
             </el-tag>
             <div v-if="row.isPlanGroupMissing" class="mt-1 text-[11px] text-red-400">请重新绑定有效分组</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="媒体库偏好" min-width="150">
+          <template #default="{ row }">
+            <div class="space-y-1">
+              <div class="text-sm font-medium text-gray-700">{{ getMediaLibraryStatus(row).countText }}</div>
+              <div class="flex flex-wrap gap-1">
+                <el-tag size="small" effect="light" round :type="getMediaLibraryStatus(row).customized ? 'warning' : 'info'">
+                  {{ getMediaLibraryStatus(row).customized ? '自定义' : '跟随分组' }}
+                </el-tag>
+                <el-tag size="small" effect="light" round :type="getMediaLibraryStatus(row).tagType">
+                  {{ getMediaLibraryStatus(row).statusText }}
+                </el-tag>
+              </div>
+            </div>
           </template>
         </el-table-column>
 

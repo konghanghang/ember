@@ -12,6 +12,146 @@ export interface ManagedPlanGroup {
   planCount?: number
   userCount?: number
   followingUserCount?: number
+  mediaLibraryCount?: number
+  embyPolicyTemplateConfigured?: boolean
+  policySyncStatus?: EmbyPolicySyncStatus
+}
+
+export interface MediaLibraryOption {
+  id: string
+  name: string
+  type: string
+  itemCount?: number
+}
+
+export type EmbyPolicySyncStatus = 'pending' | 'processing' | 'synced' | 'partial_failed' | 'failed'
+
+export interface EmbyPolicySyncBatchCreated {
+  batchId: string
+  affectedUserCount: number
+  status: EmbyPolicySyncStatus
+}
+
+export interface EmbyPolicySyncFailedUser {
+  userId: string
+  username?: string
+  embyId?: string
+  error: string
+}
+
+export interface EmbyPolicySyncBatchDetail {
+  id: string
+  planGroupKey?: string
+  reason: string
+  status: EmbyPolicySyncStatus
+  totalCount: number
+  pendingCount: number
+  processingCount: number
+  syncedCount: number
+  failedCount: number
+  failedUsers?: EmbyPolicySyncFailedUser[]
+  createdAt: string
+  updatedAt: string
+  finishedAt?: string | null
+}
+
+export interface PlanGroupMediaLibrarySettings {
+  planGroupKey: PlanGroup
+  planGroupName: string
+  libraries: MediaLibraryOption[]
+  libraryCount: number
+  affectedUserCount: number
+}
+
+export interface PlanGroupEmbyPolicyTemplate {
+  planGroupKey: PlanGroup
+  planGroupName: string
+  simultaneousStreamLimit: number
+  enableContentDownloading: boolean
+  enableLiveTvAccess: boolean
+  enableSyncTranscoding: boolean
+  enableAudioPlaybackTranscoding: boolean
+  enableVideoPlaybackTranscoding: boolean
+  enablePlaybackRemuxing: boolean
+  enableRemoteAccess: boolean
+  affectedUserCount: number
+}
+
+export interface PlanGroupEmbyPolicyTemplateUpdateRequest {
+  simultaneousStreamLimit: number
+  enableContentDownloading: boolean
+  enableLiveTvAccess: boolean
+  enableSyncTranscoding: boolean
+  enableAudioPlaybackTranscoding: boolean
+  enableVideoPlaybackTranscoding: boolean
+  enablePlaybackRemuxing: boolean
+  enableRemoteAccess: boolean
+}
+
+export interface UserMediaLibraryItem {
+  id: string
+  name: string
+  type: string
+  itemCount?: number
+  inGroupTemplate: boolean
+  enabled: boolean
+}
+
+export interface UserMediaLibrarySettings {
+  userId: string
+  embyId?: string
+  planGroup: PlanGroup
+  planGroupName: string
+  customized: boolean
+  libraries: UserMediaLibraryItem[]
+  templateCount: number
+  enabledCount: number
+  policySyncStatus: EmbyPolicySyncStatus
+  pendingSyncTaskId?: string
+}
+
+export interface MediaLibrarySyncPreviewResult {
+  planGroupKey: PlanGroup
+  totalUsers: number
+  scannedUsers: number
+  consistent: boolean
+  candidates: MediaLibrarySyncCandidate[]
+  differenceUsers: MediaLibrarySyncDifferenceUser[]
+  failedItems: MediaLibrarySyncFailedItem[]
+}
+
+export interface MediaLibrarySyncCandidate {
+  libraryIds: string[]
+  libraries: MediaLibraryOption[]
+  userCount: number
+  sourceUserIds: string[]
+}
+
+export interface MediaLibrarySyncDifferenceUser {
+  userId: string
+  username: string
+  embyId: string
+  libraryIds: string[]
+  libraries: MediaLibraryOption[]
+}
+
+export interface MediaLibrarySyncFailedItem {
+  userId?: string
+  username?: string
+  embyId?: string
+  error: string
+}
+
+export interface MediaLibrarySyncApplyRequest {
+  libraryIds: string[]
+  preferenceUserIds?: string[]
+}
+
+export interface MediaLibrarySyncApplyResult {
+  batchId: string
+  affectedUserCount: number
+  status: EmbyPolicySyncStatus
+  failedItems?: MediaLibrarySyncFailedItem[]
 }
 
 export interface LoginCredentials {
@@ -34,6 +174,7 @@ export interface UserInfo {
   role: UserRole
   email?: string
   embyId?: string
+  embyAccessDisabled?: boolean
   embyDisabled?: boolean
   telegramId?: number
   planGroup?: PlanGroup | null
@@ -42,6 +183,11 @@ export interface UserInfo {
   effectivePlanGroupName?: string
   isPlanGroupMissing?: boolean
   isUsingDefaultPlanGroup?: boolean
+  isExpired?: boolean
+  mediaLibraryPreferenceCustomized?: boolean
+  mediaLibraryTemplateCount?: number
+  mediaLibraryEnabledCount?: number
+  policySyncStatus?: EmbyPolicySyncStatus
   expiresAt?: string
   isActive: boolean
   passwordResetRequired?: boolean

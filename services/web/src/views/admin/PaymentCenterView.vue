@@ -5,7 +5,6 @@ import { CreditCard, Goods, CollectionTag } from '@element-plus/icons-vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import PaymentsView from './PaymentsView.vue'
 import PlansView from './PlansView.vue'
-import PlanGroupsView from './PlanGroupsView.vue'
 
 type PaymentTab = 'groups' | 'plans' | 'payments'
 
@@ -27,12 +26,14 @@ const activeTab = computed<PaymentTab>(() => {
 const activeComponent = computed(() => (
   activeTab.value === 'payments'
     ? PaymentsView
-    : activeTab.value === 'plans'
-      ? PlansView
-      : PlanGroupsView
+    : PlansView
 ))
 
 const setTab = async (tab: PaymentTab) => {
+  if (tab === 'groups') {
+    await router.push({ name: 'console-plan-groups' })
+    return
+  }
   if (tab === activeTab.value) return
   const nextQuery = { ...route.query, tab }
   await router.replace({ query: nextQuery })
@@ -41,7 +42,11 @@ const setTab = async (tab: PaymentTab) => {
 watch(
   () => route.query.tab,
   async (tab) => {
-    if (tab === undefined || tab === 'groups' || tab === 'plans' || tab === 'payments') return
+    if (tab === 'groups') {
+      await router.replace({ name: 'console-plan-groups' })
+      return
+    }
+    if (tab === undefined || tab === 'plans' || tab === 'payments') return
     await router.replace({
       query: {
         ...route.query,

@@ -11,6 +11,7 @@ import {
   User,
   Ticket,
   Goods,
+  CollectionTag,
   ShoppingCart,
   Monitor,
   DataLine,
@@ -79,6 +80,12 @@ const menuItems = computed(() => [
         title: '用户管理',
         path: '/console/users',
         icon: User,
+        role: 'admin'
+      },
+      {
+        title: '用户分组 / 权益模板',
+        path: '/console/plan-groups',
+        icon: CollectionTag,
         role: 'admin'
       },
       {

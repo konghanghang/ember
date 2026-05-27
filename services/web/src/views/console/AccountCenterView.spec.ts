@@ -3,7 +3,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AccountCenterView from './AccountCenterView.vue'
-import { sendEmailChangeCode } from '@/api/console'
+import {
+  getUserMediaLibraries,
+  resetUserMediaLibraryPreferences,
+  sendEmailChangeCode,
+  updateUserMediaLibraries
+} from '@/api/console'
 import { getRegistrationMode } from '@/api/auth'
 import { bindAdminEmbyAccount, getAdminEmbyUsers } from '@/api/admin'
 import { ElMessage } from 'element-plus'
@@ -11,7 +16,10 @@ import { ElMessage } from 'element-plus'
 vi.mock('@/api/console', () => ({
   sendEmailChangeCode: vi.fn(),
   generateTelegramBindCode: vi.fn(),
+  getUserMediaLibraries: vi.fn(),
+  resetUserMediaLibraryPreferences: vi.fn(),
   unbindTelegram: vi.fn(),
+  updateUserMediaLibraries: vi.fn(),
   updatePassword: vi.fn(),
 }))
 
@@ -162,6 +170,7 @@ function mountView() {
         'el-icon': passthroughStub,
         'el-input': ElInputStub,
         EmberFormDialog: EmberFormDialogStub,
+        EmberEmptyStateCard: passthroughStub,
         DefaultAvatar: passthroughStub,
         Bell: passthroughStub,
         ChatDotRound: passthroughStub,
@@ -210,6 +219,79 @@ describe('AccountCenterView 邮箱变更验证码弹窗', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetchProfileMock.mockResolvedValue(undefined)
+    vi.mocked(getUserMediaLibraries).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: false,
+        templateCount: 2,
+        enabledCount: 2,
+        policySyncStatus: 'synced',
+        libraries: [
+          {
+            id: 'lib_movie',
+            name: '电影',
+            type: 'Movie',
+            itemCount: 100,
+            inGroupTemplate: true,
+            enabled: true,
+          },
+          {
+            id: 'lib_series',
+            name: '剧集',
+            type: 'Series',
+            itemCount: 200,
+            inGroupTemplate: true,
+            enabled: true,
+          },
+        ],
+      },
+    })
+    vi.mocked(updateUserMediaLibraries).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: true,
+        templateCount: 2,
+        enabledCount: 2,
+        policySyncStatus: 'synced',
+        libraries: [
+          {
+            id: 'lib_movie',
+            name: '电影',
+            type: 'Movie',
+            itemCount: 100,
+            inGroupTemplate: true,
+            enabled: true,
+          },
+          {
+            id: 'lib_series',
+            name: '剧集',
+            type: 'Series',
+            itemCount: 200,
+            inGroupTemplate: true,
+            enabled: true,
+          },
+        ],
+      },
+    })
+    vi.mocked(resetUserMediaLibraryPreferences).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: false,
+        templateCount: 2,
+        enabledCount: 2,
+        policySyncStatus: 'synced',
+        libraries: [],
+      },
+    })
     vi.mocked(bindAdminEmbyAccount).mockResolvedValue({ embyId: 'emby_1', embyUsername: 'remote_admin' })
     vi.mocked(getAdminEmbyUsers).mockResolvedValue({ data: [] })
     userStoreState.profile = {
@@ -327,10 +409,141 @@ describe('AccountCenterView 邮箱变更验证码弹窗', () => {
   })
 })
 
+describe('AccountCenterView 媒体库偏好', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchProfileMock.mockResolvedValue(undefined)
+    userStoreState.profile = {
+      id: 'u1',
+      username: 'demo',
+      role: 'user',
+      email: 'old@example.com',
+      embyId: 'emby_1',
+      embyDisabled: false,
+      isActive: true,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    authStoreState.isAdmin = false
+    vi.mocked(getUserMediaLibraries).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: true,
+        templateCount: 2,
+        enabledCount: 1,
+        policySyncStatus: 'synced',
+        libraries: [
+          {
+            id: 'lib_movie',
+            name: '电影',
+            type: 'Movie',
+            itemCount: 100,
+            inGroupTemplate: true,
+            enabled: true,
+          },
+          {
+            id: 'lib_series',
+            name: '剧集',
+            type: 'Series',
+            itemCount: 200,
+            inGroupTemplate: true,
+            enabled: false,
+          },
+        ],
+      },
+    })
+    vi.mocked(updateUserMediaLibraries).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: true,
+        templateCount: 2,
+        enabledCount: 1,
+        policySyncStatus: 'synced',
+        libraries: [],
+      },
+    })
+    vi.mocked(resetUserMediaLibraryPreferences).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: false,
+        templateCount: 2,
+        enabledCount: 2,
+        policySyncStatus: 'synced',
+        libraries: [],
+      },
+    })
+  })
+
+  it('加载媒体库偏好并按已启用集合保存', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(getUserMediaLibraries).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('媒体库偏好')
+    expect(wrapper.text()).toContain('电影')
+    expect(wrapper.text()).toContain('剧集')
+
+    const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
+    expect(saveButton, '未找到保存偏好按钮').toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(updateUserMediaLibraries).toHaveBeenCalledWith(['lib_movie'])
+    expect(ElMessage.success).toHaveBeenCalledWith('媒体库偏好已保存')
+  })
+
+  it('恢复默认会调用偏好删除接口', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const resetButton = wrapper.findAll('button').find(item => item.text().includes('恢复默认'))
+    expect(resetButton, '未找到恢复默认按钮').toBeTruthy()
+    await resetButton!.trigger('click')
+    await flushPromises()
+
+    expect(resetUserMediaLibraryPreferences).toHaveBeenCalledTimes(1)
+    expect(ElMessage.success).toHaveBeenCalledWith('已恢复分组默认')
+  })
+
+  it('保存遇到 409 时提示媒体库权限正在同步', async () => {
+    vi.mocked(updateUserMediaLibraries).mockRejectedValueOnce({ response: { status: 409 } })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('媒体库权限正在同步，稍后再保存')
+  })
+})
+
 describe('AccountCenterView 管理员 Emby 绑定', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetchProfileMock.mockResolvedValue(undefined)
+    vi.mocked(getUserMediaLibraries).mockResolvedValue({
+      data: {
+        userId: 'admin_1',
+        embyId: 'emby_admin',
+        planGroup: 'ADMIN',
+        planGroupName: '管理员',
+        customized: false,
+        templateCount: 0,
+        enabledCount: 0,
+        policySyncStatus: 'synced',
+        libraries: [],
+      },
+    })
     vi.mocked(bindAdminEmbyAccount).mockResolvedValue({ embyId: 'emby_free', embyUsername: 'free_remote' })
     vi.mocked(getAdminEmbyUsers).mockResolvedValue({
       data: [

@@ -34,8 +34,14 @@ import type {
   MediaQualityLowDetailItem,
   MediaQualityLibrary,
   MediaQualityReport,
+  MediaLibraryOption,
+  MediaLibrarySyncApplyRequest,
+  MediaLibrarySyncApplyResult,
+  MediaLibrarySyncPreviewResult,
   PaymentListResponse,
   ManagedPlanGroup,
+  EmbyPolicySyncBatchCreated,
+  EmbyPolicySyncBatchDetail,
   PlaybackProfileListQuery,
   PlaybackProfileListResponse,
   PlaybackProfileQuery,
@@ -43,6 +49,9 @@ import type {
   PlaybackHistoryQuery,
   PlaybackHistoryResponse,
   Plan,
+  PlanGroupEmbyPolicyTemplate,
+  PlanGroupEmbyPolicyTemplateUpdateRequest,
+  PlanGroupMediaLibrarySettings,
   PlanListResponse,
   UpdateAdminUserRequest,
   UpdateRedemptionCodeRequest,
@@ -358,6 +367,107 @@ export function deletePlanGroup(key: string) {
   return request({
     url: `/admin/plan-groups/${encodeURIComponent(key)}`,
     method: 'delete'
+  })
+}
+
+export function getAdminMediaLibraries(): Promise<{ data: MediaLibraryOption[] }> {
+  return request({
+    url: '/admin/media-libraries',
+    method: 'get'
+  })
+}
+
+export function getPlanGroupMediaLibraries(key: string): Promise<{ data: PlanGroupMediaLibrarySettings }> {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}/media-libraries`,
+    method: 'get'
+  })
+}
+
+export function updatePlanGroupMediaLibraries(
+  key: string,
+  libraryIds: string[]
+): Promise<{ data: EmbyPolicySyncBatchCreated }> {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}/media-libraries`,
+    method: 'put',
+    data: { libraryIds }
+  })
+}
+
+export function getPlanGroupEmbyPolicyTemplate(key: string): Promise<{ data: PlanGroupEmbyPolicyTemplate }> {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}/emby-policy-template`,
+    method: 'get'
+  })
+}
+
+export function updatePlanGroupEmbyPolicyTemplate(
+  key: string,
+  data: PlanGroupEmbyPolicyTemplateUpdateRequest
+): Promise<{ data: EmbyPolicySyncBatchCreated }> {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}/emby-policy-template`,
+    method: 'put',
+    data
+  })
+}
+
+export function getEmbyPolicySyncBatch(id: string): Promise<{ data: EmbyPolicySyncBatchDetail }> {
+  return request({
+    url: `/admin/emby-policy-sync-batches/${encodeURIComponent(id)}`,
+    method: 'get'
+  })
+}
+
+export function retryFailedEmbyPolicySyncBatch(id: string): Promise<{ data: EmbyPolicySyncBatchCreated }> {
+  return request({
+    url: `/admin/emby-policy-sync-batches/${encodeURIComponent(id)}/retry-failed`,
+    method: 'post'
+  })
+}
+
+export function previewPlanGroupMediaLibrarySync(
+  key: string,
+  data?: { userIds?: string[] }
+): Promise<{ data: MediaLibrarySyncPreviewResult }> {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}/media-libraries/sync-preview`,
+    method: 'post',
+    data: data ?? {}
+  })
+}
+
+export function applyPlanGroupMediaLibrarySync(
+  key: string,
+  data: MediaLibrarySyncApplyRequest
+): Promise<{ data: MediaLibrarySyncApplyResult }> {
+  return request({
+    url: `/admin/plan-groups/${encodeURIComponent(key)}/media-libraries/sync-apply`,
+    method: 'post',
+    data
+  })
+}
+
+export function clearAdminUserMediaLibraryPreferences(id: string) {
+  return request({
+    url: `/admin/users/${encodeURIComponent(id)}/media-libraries/preferences`,
+    method: 'delete'
+  })
+}
+
+export function syncAdminUserMediaLibraryPreferences(id: string) {
+  return request({
+    url: `/admin/users/${encodeURIComponent(id)}/media-libraries/sync`,
+    method: 'post'
+  })
+}
+
+export function updateAdminUserEmbyAccess(id: string, disabled: boolean): Promise<{ data: UserInfo }> {
+  return request({
+    url: `/admin/users/${encodeURIComponent(id)}/emby-access`,
+    method: 'put',
+    data: { disabled }
   })
 }
 

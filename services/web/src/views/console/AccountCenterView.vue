@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
   CopyDocument,
+  FolderOpened,
   Key,
   Lock,
   Message,
@@ -11,6 +12,7 @@ import {
   UserFilled
 } from '@element-plus/icons-vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { formatDateTime } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
@@ -18,11 +20,14 @@ import { getRegistrationMode } from '@/api/auth'
 import { bindAdminEmbyAccount, getAdminEmbyUsers, unbindAdminEmbyAccount } from '@/api/admin'
 import {
   generateTelegramBindCode,
+  getUserMediaLibraries,
+  resetUserMediaLibraryPreferences,
   sendEmailChangeCode,
   unbindTelegram,
+  updateUserMediaLibraries,
   updatePassword
 } from '@/api/console'
-import type { AdminEmbyUserOption, TelegramBindCodeResponse, UserInfo } from '@/types/api'
+import type { AdminEmbyUserOption, TelegramBindCodeResponse, UserInfo, UserMediaLibrarySettings } from '@/types/api'
 
 const authStore = useAuthStore()
 const userStore = useUserStore()
@@ -67,6 +72,11 @@ const selectedEmbyId = ref('')
 const loadingEmbyUsers = ref(false)
 const bindingEmby = ref(false)
 const unbindingEmby = ref(false)
+const mediaLibrarySettings = ref<UserMediaLibrarySettings | null>(null)
+const selectedMediaLibraryIds = ref<string[]>([])
+const loadingMediaLibraries = ref(false)
+const savingMediaLibraries = ref(false)
+const resettingMediaLibraries = ref(false)
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -134,12 +144,48 @@ const fetchAllowedEmailDomains = async () => {
 
 const isTelegramBound = computed(() => !!user.value.telegramId)
 const isEmbyLinked = computed(() => !!user.value.embyId)
+const hasMediaLibraryPreferences = computed(() => mediaLibrarySettings.value?.customized === true)
+const hasMediaLibraryOptions = computed(() => (mediaLibrarySettings.value?.libraries.length ?? 0) > 0)
+const mediaLibrarySyncing = computed(() => {
+  const status = mediaLibrarySettings.value?.policySyncStatus
+  return status === 'pending' || status === 'processing'
+})
 
 const embySummary = computed(() => {
   if (isEmbyLinked.value) return '已关联'
   if (authStore.isAdmin) return '可关联'
   return '待开通'
 })
+
+/** 判断媒体库偏好保存是否撞上后端同步闸门，用于 409 专门提示。 */
+const isConflictError = (error: unknown) => {
+  return typeof error === 'object'
+    && error !== null
+    && 'response' in error
+    && (error as { response?: { status?: number } }).response?.status === 409
+}
+
+/** 用服务端返回的设置重置本地勾选状态，保证保存前后都以 API 契约为准。 */
+const applyMediaLibrarySettings = (settings: UserMediaLibrarySettings) => {
+  mediaLibrarySettings.value = settings
+  selectedMediaLibraryIds.value = settings.libraries
+    .filter(item => item.enabled)
+    .map(item => item.id)
+}
+
+/** 读取当前用户的媒体库偏好；接口不可用时保留空态，不阻塞账号中心其他功能。 */
+const loadMediaLibraries = async () => {
+  loadingMediaLibraries.value = true
+  try {
+    const res = await getUserMediaLibraries()
+    applyMediaLibrarySettings(res.data)
+  } catch {
+    mediaLibrarySettings.value = null
+    selectedMediaLibraryIds.value = []
+  } finally {
+    loadingMediaLibraries.value = false
+  }
+}
 
 watch(
   () => user.value.email,
@@ -240,6 +286,38 @@ const handleConfirmEmailChange = async () => {
     // handled，保留弹窗让用户重试 code
   } finally {
     confirmingEmailChange.value = false
+  }
+}
+
+/** 保存用户在分组模板范围内的媒体库启用集合，提交给后端做完整快照。 */
+const handleSaveMediaLibraries = async () => {
+  savingMediaLibraries.value = true
+  try {
+    const res = await updateUserMediaLibraries(selectedMediaLibraryIds.value)
+    applyMediaLibrarySettings(res.data)
+    ElMessage.success('媒体库偏好已保存')
+  } catch (error) {
+    if (isConflictError(error)) {
+      ElMessage.warning('媒体库权限正在同步，稍后再保存')
+    }
+  } finally {
+    savingMediaLibraries.value = false
+  }
+}
+
+/** 清除自定义偏好，让当前用户重新继承所属分组的媒体库模板。 */
+const handleResetMediaLibraries = async () => {
+  resettingMediaLibraries.value = true
+  try {
+    const res = await resetUserMediaLibraryPreferences()
+    applyMediaLibrarySettings(res.data)
+    ElMessage.success('已恢复分组默认')
+  } catch (error) {
+    if (isConflictError(error)) {
+      ElMessage.warning('媒体库权限正在同步，稍后再恢复默认')
+    }
+  } finally {
+    resettingMediaLibraries.value = false
   }
 }
 
@@ -416,6 +494,7 @@ onBeforeUnmount(() => {
 
 onMounted(() => {
   fetchAllowedEmailDomains()
+  loadMediaLibraries()
 })
 </script>
 
@@ -673,6 +752,118 @@ onMounted(() => {
             </div>
           </div>
         </article>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-50 text-orange-600">
+            <el-icon><FolderOpened /></el-icon>
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold text-gray-900">媒体库偏好</h2>
+            <p class="mt-1 text-xs text-gray-500">
+              {{ mediaLibrarySettings?.planGroupName || '当前分组' }} · {{ hasMediaLibraryPreferences ? '自定义' : '跟随分组模板' }}
+            </p>
+          </div>
+        </div>
+
+        <div v-if="mediaLibrarySettings" class="flex flex-wrap items-center gap-2">
+          <el-tag
+            v-if="mediaLibrarySyncing"
+            type="warning"
+            effect="light"
+            round
+          >
+            同步中
+          </el-tag>
+          <el-tag v-else-if="mediaLibrarySettings.policySyncStatus === 'failed'" type="danger" effect="light" round>
+            同步失败
+          </el-tag>
+          <el-tag v-else type="success" effect="light" round>
+            已同步
+          </el-tag>
+          <el-tag type="info" effect="light" round>
+            {{ mediaLibrarySettings.enabledCount }} / {{ mediaLibrarySettings.templateCount }}
+          </el-tag>
+        </div>
+      </div>
+
+      <div v-loading="loadingMediaLibraries" class="mt-6">
+        <EmberEmptyStateCard
+          v-if="!loadingMediaLibraries && !mediaLibrarySettings"
+          title="媒体库偏好不可用"
+          description="当前账号暂时无法读取媒体库模板。"
+          :icon="FolderOpened"
+          compact
+        >
+          <template #actions>
+            <button
+              type="button"
+              class="btn-ember rounded-xl px-4 py-2 text-sm font-semibold"
+              @click="loadMediaLibraries"
+            >
+              重新加载
+            </button>
+          </template>
+        </EmberEmptyStateCard>
+
+        <EmberEmptyStateCard
+          v-else-if="!hasMediaLibraryOptions"
+          title="暂无可选媒体库"
+          description="当前分组还没有配置媒体库模板。"
+          :icon="FolderOpened"
+          compact
+        />
+
+        <div v-else class="space-y-5">
+          <div
+            v-if="mediaLibrarySyncing"
+            class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+          >
+            当前媒体库权限正在同步，完成后再修改偏好。
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <label
+              v-for="library in mediaLibrarySettings?.libraries"
+              :key="library.id"
+              class="flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 transition-colors hover:border-ember/40 hover:bg-ember/5"
+              :class="!library.inGroupTemplate ? 'opacity-60' : ''"
+            >
+              <el-checkbox
+                v-model="selectedMediaLibraryIds"
+                :label="library.id"
+                :disabled="!library.inGroupTemplate || mediaLibrarySyncing"
+                size="large"
+              />
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
+                <span class="mt-1 block text-xs text-gray-500">{{ library.type || 'Unknown' }} · {{ library.itemCount ?? 0 }} 项</span>
+              </span>
+            </label>
+          </div>
+
+          <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="resettingMediaLibraries || mediaLibrarySyncing || !hasMediaLibraryPreferences"
+              @click="handleResetMediaLibraries"
+            >
+              {{ resettingMediaLibraries ? '恢复中...' : '恢复默认' }}
+            </button>
+            <button
+              type="button"
+              class="btn-ember rounded-xl px-5 py-2.5 text-sm font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="savingMediaLibraries || mediaLibrarySyncing"
+              @click="handleSaveMediaLibraries"
+            >
+              {{ savingMediaLibraries ? '保存中...' : '保存偏好' }}
+            </button>
+          </div>
+        </div>
       </div>
     </section>
 

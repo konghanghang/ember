@@ -25,6 +25,7 @@ import type {
   TVCalendarWeeklyData,
   TVCalendarWeekOffset,
   TelegramBindCodeResponse,
+  UserMediaLibrarySettings,
   UserInfo
 } from '@/types/api'
 
@@ -125,6 +126,29 @@ export function generateTelegramBindCode(): Promise<TelegramBindCodeResponse> {
 export function unbindTelegram(): Promise<{ message: string }> {
   return request({
     url: '/telegram/unbind',
+    method: 'delete'
+  })
+}
+
+export function getUserMediaLibraries(): Promise<{ data: UserMediaLibrarySettings }> {
+  return request({
+    url: '/user/media-libraries',
+    method: 'get',
+    silent: true
+  })
+}
+
+export function updateUserMediaLibraries(enabledLibraryIds: string[]): Promise<{ data: UserMediaLibrarySettings }> {
+  return request({
+    url: '/user/media-libraries',
+    method: 'put',
+    data: { enabledLibraryIds }
+  })
+}
+
+export function resetUserMediaLibraryPreferences(): Promise<{ data: UserMediaLibrarySettings }> {
+  return request({
+    url: '/user/media-libraries/preferences',
     method: 'delete'
   })
 }
