@@ -49,6 +49,8 @@ from app.handlers.telegram_handler import (
     handle_callback,
     handle_count,
     handle_info,
+    handle_libraries,
+    handle_libraries_callback,
     handle_new_member,
     handle_pending_reject_reason,
     handle_refresh_menu,
@@ -124,11 +126,13 @@ async def handle_update_lifecycle(update: Update, context: ContextTypes.DEFAULT_
 tg_app.add_handler(TypeHandler(Update, handle_update_lifecycle), group=-1)
 tg_app.add_handler(CallbackQueryHandler(handle_callback, pattern=r"^(approve|reject):"))
 tg_app.add_handler(CallbackQueryHandler(handle_search_callback, pattern=r"^sub:"))
+tg_app.add_handler(CallbackQueryHandler(handle_libraries_callback, pattern=r"^lib:"))
 tg_app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
 tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pending_reject_reason))
 tg_app.add_handler(CommandHandler("bind", handle_bind))
 tg_app.add_handler(CommandHandler("count", handle_count))
 tg_app.add_handler(CommandHandler("info", handle_info))
+tg_app.add_handler(CommandHandler("libraries", handle_libraries))
 tg_app.add_handler(CommandHandler("redeem", handle_redeem))
 tg_app.add_handler(CommandHandler("resetpw", handle_resetpw))
 tg_app.add_handler(CommandHandler("search", handle_search))
@@ -236,6 +240,7 @@ async def sync_bot_commands() -> None:
         BotCommand("bind", "绑定 Ember 账号"),
         BotCommand("count", "查看媒体库统计"),
         BotCommand("info", "查看账号信息"),
+        BotCommand("libraries", "管理媒体库显示"),
         BotCommand("redeem", "兑换续期码"),
         BotCommand("resetpw", "重置密码"),
     ]

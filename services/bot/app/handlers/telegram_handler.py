@@ -1,9 +1,12 @@
 import asyncio
+import base64
 import logging
+import secrets
+import time
 from html import escape
 from typing import Any, Awaitable, Callable
 
-from telegram import InputMediaPhoto, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, Update
 from telegram.ext import ContextTypes
 
 from app.bot_admin import is_bot_admin, is_subscription_approval_admin
@@ -48,6 +51,11 @@ WELCOME_MESSAGE_NAMES_PLACEHOLDER = "{names}"
 WELCOME_MESSAGE_NOTIFY_LINK_PLACEHOLDER = "{notifyGroupLink}"
 SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY = 4
 SUBSCRIPTION_ADMIN_SYNC_CONCURRENCY = 4
+TELEGRAM_CALLBACK_DATA_LIMIT = 64
+LIBRARY_CALLBACK_PREFIX = "lib:toggle:"
+LIBRARY_RESET_CALLBACK = "lib:reset"
+LIBRARY_TOKEN_TTL_SECONDS = 900
+_library_token_map: dict[str, tuple[str, float]] = {}
 
 
 def _private_only_tip() -> str:
@@ -122,6 +130,112 @@ def _format_command_help(title: str, command: str, example: str, steps: list[str
         lines.extend(["", escape(note)])
 
     return "\n".join(lines)
+
+
+def _unwrap_payload_data(payload: dict[str, Any]) -> dict[str, Any]:
+    """兼容 Internal API 返回裸 DTO 或 {data: DTO} 两种外层格式。"""
+    data = payload.get("data")
+    return data if isinstance(data, dict) else payload
+
+
+def _cleanup_library_tokens(now: float | None = None) -> None:
+    """清理过期 callback 短 token，避免长 libraryId 映射在 Bot 进程内无界增长。"""
+    current = time.monotonic() if now is None else now
+    expired = [token for token, (_library_id, expires_at) in _library_token_map.items() if expires_at <= current]
+    for token in expired:
+        _library_token_map.pop(token, None)
+
+
+def _encode_library_token(library_id: str) -> str:
+    """把 libraryId 编码进 Telegram callbackData，超长时降级为带 TTL 的短 token。"""
+    raw_token = base64.urlsafe_b64encode(library_id.encode("utf-8")).decode("ascii").rstrip("=")
+    callback_data = f"{LIBRARY_CALLBACK_PREFIX}{raw_token}"
+    if len(callback_data.encode("utf-8")) <= TELEGRAM_CALLBACK_DATA_LIMIT:
+        return raw_token
+
+    _cleanup_library_tokens()
+    token = secrets.token_urlsafe(8)
+    _library_token_map[token] = (library_id, time.monotonic() + LIBRARY_TOKEN_TTL_SECONDS)
+    return token
+
+
+def _decode_library_token(token: str) -> str | None:
+    """从 callback token 还原 libraryId，短 token 过期或 base64 非法时返回 None。"""
+    _cleanup_library_tokens()
+    mapped = _library_token_map.get(token)
+    if mapped is not None:
+        return mapped[0]
+
+    padding = "=" * (-len(token) % 4)
+    try:
+        return base64.urlsafe_b64decode(f"{token}{padding}".encode("ascii")).decode("utf-8")
+    except Exception:
+        return None
+
+
+def _library_sync_hint(status: str) -> str:
+    if status == "synced":
+        return "✅ Emby 同步完成"
+    if status == "pending":
+        return "⏳ 本地已保存，等待同步到 Emby"
+    if status == "failed":
+        return "⚠️ Emby 同步失败，已进入重试"
+    return "ℹ️ Emby 同步状态未知"
+
+
+def _format_library_settings(settings: dict[str, Any]) -> tuple[str, InlineKeyboardMarkup]:
+    """渲染用户媒体库设置文本与 inline keyboard，按钮只携带后端可校验的 libraryId。"""
+    libraries = settings.get("libraries", [])
+    if not isinstance(libraries, list):
+        libraries = []
+
+    plan_group_name = escape(str(settings.get("planGroupName") or settings.get("planGroup") or "-"))
+    customized = bool(settings.get("customized", False))
+    enabled_count = int(settings.get("enabledCount", 0) or 0)
+    template_count = int(settings.get("templateCount", len(libraries)) or 0)
+    sync_status = str(settings.get("policySyncStatus") or "").lower()
+
+    lines = [
+        "📚 <b>媒体库显示设置</b>",
+        "",
+        f"分组：<b>{plan_group_name}</b>",
+        f"状态：{'自定义偏好' if customized else '跟随分组默认'}",
+        f"已启用：<b>{enabled_count}</b> / {template_count}",
+        _library_sync_hint(sync_status),
+    ]
+
+    if not libraries:
+        lines.extend(["", "当前分组没有可选媒体库。"])
+
+    keyboard_rows: list[list[InlineKeyboardButton]] = []
+    for item in libraries:
+        if not isinstance(item, dict):
+            continue
+        library_id = str(item.get("id") or "").strip()
+        if not library_id:
+            continue
+        name = str(item.get("name") or library_id).strip()
+        enabled = bool(item.get("enabled", False))
+        marker = "✅" if enabled else "⬜"
+        custom_marker = " *" if customized else ""
+        button_text = f"{marker} {name}{custom_marker}"
+        token = _encode_library_token(library_id)
+        keyboard_rows.append(
+            [InlineKeyboardButton(button_text[:64], callback_data=f"{LIBRARY_CALLBACK_PREFIX}{token}")]
+        )
+
+    keyboard_rows.append([InlineKeyboardButton("↩️ 恢复分组默认", callback_data=LIBRARY_RESET_CALLBACK)])
+    return "\n".join(lines), InlineKeyboardMarkup(keyboard_rows)
+
+
+async def _edit_library_error(query, error_text: str) -> None:
+    """在原媒体库消息上展示错误，并保留旧按钮，避免 Bot 端制造本地状态变化。"""
+    message = query.message
+    old_text = _extract_message_html(message)
+    text = old_text.strip() if old_text else "📚 <b>媒体库显示设置</b>"
+    text = f"{text}\n\n❌ {escape(error_text)}"
+    reply_markup = getattr(message, "reply_markup", None)
+    await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
 
 
 async def _call_api_and_reply(
@@ -746,6 +860,68 @@ async def handle_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         f"总集数：<b>{episode_count}</b>",
         parse_mode="HTML",
     )
+
+
+async def handle_libraries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理 /libraries 私聊命令，展示当前媒体库偏好并生成可切换按钮。"""
+    del context
+    message = update.message
+    if message is None or message.from_user is None:
+        return
+
+    if message.chat.type != "private":
+        await message.reply_text(_private_only_tip())
+        return
+
+    result = await api_client.get_media_library_settings(message.from_user.id)
+    if result is None:
+        await message.reply_text("❌ 媒体库设置暂不可用，请稍后重试")
+        return
+    if "error" in result:
+        await message.reply_text(f"❌ {escape(str(result['error']))}", parse_mode="HTML")
+        return
+
+    text, keyboard = _format_library_settings(_unwrap_payload_data(result))
+    await message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+async def handle_libraries_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理媒体库设置 callback，成功后使用 API 返回的新 DTO 刷新原消息。"""
+    del context
+    query = update.callback_query
+    if query is None or query.data is None or query.from_user is None:
+        return
+
+    if query.message is not None and query.message.chat.type != "private":
+        await query.answer("请在私聊中使用此功能", show_alert=True)
+        return
+
+    if query.data == LIBRARY_RESET_CALLBACK:
+        result = await api_client.reset_media_library_preferences(query.from_user.id)
+    elif query.data.startswith(LIBRARY_CALLBACK_PREFIX):
+        token = query.data[len(LIBRARY_CALLBACK_PREFIX):]
+        library_id = _decode_library_token(token)
+        if library_id is None:
+            await query.answer("操作已过期，请重新打开 /libraries", show_alert=True)
+            return
+        result = await api_client.toggle_media_library(query.from_user.id, library_id)
+    else:
+        await query.answer("操作无效", show_alert=True)
+        return
+
+    if result is None:
+        await _edit_library_error(query, "媒体库设置暂不可用，请稍后重试")
+        await query.answer("操作失败", show_alert=True)
+        return
+    if "error" in result:
+        error_text = str(result.get("error", "操作失败"))
+        await _edit_library_error(query, error_text)
+        await query.answer(f"操作失败：{error_text}", show_alert=True)
+        return
+
+    text, keyboard = _format_library_settings(_unwrap_payload_data(result))
+    await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=keyboard)
+    await query.answer("已更新")
 
 
 async def handle_redeem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

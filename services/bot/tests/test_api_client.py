@@ -97,6 +97,45 @@ class ApiClientRetryTestCase(unittest.IsolatedAsyncioTestCase):
             {"chatId": 2002, "adminUserId": "1001"},
         )
 
+    async def test_get_media_library_settings_posts_telegram_id(self) -> None:
+        request = httpx.Request("POST", "https://example.com")
+        response = httpx.Response(200, request=request, json={"data": {"enabledCount": 1}})
+
+        with patch.object(api_client, "_request", AsyncMock(return_value=(response, 12.0))) as request_mock:
+            payload = await api_client.get_media_library_settings(1001)
+
+        self.assertEqual(payload, {"data": {"enabledCount": 1}})
+        _, method, url = request_mock.await_args.args
+        self.assertEqual(method, "POST")
+        self.assertTrue(url.endswith("/api/v1/internal/telegram/media-libraries"))
+        self.assertEqual(request_mock.await_args.kwargs["json"], {"telegramId": 1001})
+
+    async def test_toggle_media_library_quotes_library_id(self) -> None:
+        request = httpx.Request("PUT", "https://example.com")
+        response = httpx.Response(200, request=request, json={"data": {"enabledCount": 0}})
+
+        with patch.object(api_client, "_request", AsyncMock(return_value=(response, 12.0))) as request_mock:
+            payload = await api_client.toggle_media_library(1001, "folder/a b")
+
+        self.assertEqual(payload, {"data": {"enabledCount": 0}})
+        _, method, url = request_mock.await_args.args
+        self.assertEqual(method, "PUT")
+        self.assertTrue(url.endswith("/api/v1/internal/telegram/media-libraries/folder%2Fa%20b/toggle"))
+        self.assertEqual(request_mock.await_args.kwargs["json"], {"telegramId": 1001})
+
+    async def test_reset_media_library_preferences_deletes_with_telegram_id(self) -> None:
+        request = httpx.Request("DELETE", "https://example.com")
+        response = httpx.Response(200, request=request, json={"data": {"customized": False}})
+
+        with patch.object(api_client, "_request", AsyncMock(return_value=(response, 12.0))) as request_mock:
+            payload = await api_client.reset_media_library_preferences(1001)
+
+        self.assertEqual(payload, {"data": {"customized": False}})
+        _, method, url = request_mock.await_args.args
+        self.assertEqual(method, "DELETE")
+        self.assertTrue(url.endswith("/api/v1/internal/telegram/media-libraries/preferences"))
+        self.assertEqual(request_mock.await_args.kwargs["json"], {"telegramId": 1001})
+
 
 if __name__ == "__main__":
     unittest.main()

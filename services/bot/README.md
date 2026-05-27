@@ -93,6 +93,7 @@ cp .env.example .env.local
 
 - `/bind`
 - `/info`
+- `/libraries`
 - `/redeem`
 - `/resetpw`
 - `/search`（电影直接确认订阅，电视剧先选季再确认）
@@ -126,6 +127,9 @@ Bot 启动期配置来自环境变量；运行期设置优先从 Go API Internal
 
 - `POST /api/v1/internal/telegram/bind`
 - `POST /api/v1/internal/telegram/info`
+- `POST /api/v1/internal/telegram/media-libraries`
+- `PUT /api/v1/internal/telegram/media-libraries/:libraryId/toggle`
+- `DELETE /api/v1/internal/telegram/media-libraries/preferences`
 - `POST /api/v1/internal/telegram/redeem`
 - `POST /api/v1/internal/telegram/reset-password`
 - `POST /api/v1/internal/telegram/subscribe`

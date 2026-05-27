@@ -203,6 +203,12 @@ class _StubUser:
         self.id = user_id
 
 
+class _StubChat:
+    def __init__(self, chat_id: int, chat_type: str = "private") -> None:
+        self.id = chat_id
+        self.type = chat_type
+
+
 class _StubBot:
     def __init__(self) -> None:
         self.id = 5001
@@ -224,8 +230,11 @@ class _StubMessage:
         photo=None,
         text_html: str | None = None,
         bot: _StubBot | None = None,
+        chat_type: str = "private",
+        reply_markup=None,
     ) -> None:
         self.chat_id = chat_id
+        self.chat = _StubChat(chat_id, chat_type)
         self.from_user = _StubUser(user_id)
         self.text = text
         self.message_id = message_id
@@ -234,6 +243,7 @@ class _StubMessage:
         self.caption_html = None
         self.text = text
         self.caption = None
+        self.reply_markup = reply_markup
         self.reply_text = AsyncMock()
         self._bot = bot or _StubBot()
 
@@ -618,6 +628,135 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         pop_mock.assert_awaited_once_with(2002, "1001")
         reject_mock.assert_not_awaited()
+
+    async def test_handle_libraries_renders_private_settings(self) -> None:
+        message = _StubMessage(chat_id=1001, user_id=1001, text="/libraries")
+        update = _StubUpdate(message=message)
+        payload = {
+            "data": {
+                "planGroupName": "默认组",
+                "customized": True,
+                "enabledCount": 1,
+                "templateCount": 2,
+                "policySyncStatus": "pending",
+                "libraries": [
+                    {"id": "lib-a", "name": "电影", "enabled": True},
+                    {"id": "lib-b", "name": "剧集", "enabled": False},
+                ],
+            }
+        }
+
+        with patch.object(
+            telegram_handler.api_client,
+            "get_media_library_settings",
+            AsyncMock(return_value=payload),
+        ) as settings_mock:
+            await telegram_handler.handle_libraries(update, None)
+
+        settings_mock.assert_awaited_once_with(1001)
+        message.reply_text.assert_awaited_once()
+        text = message.reply_text.await_args.args[0]
+        kwargs = message.reply_text.await_args.kwargs
+        self.assertIn("媒体库显示设置", text)
+        self.assertIn("自定义偏好", text)
+        self.assertIn("等待同步到 Emby", text)
+        keyboard = kwargs["reply_markup"]
+        self.assertEqual(len(keyboard.inline_keyboard), 3)
+        self.assertEqual(keyboard.inline_keyboard[-1][0].callback_data, telegram_handler.LIBRARY_RESET_CALLBACK)
+
+    async def test_handle_libraries_rejects_group_chat(self) -> None:
+        message = _StubMessage(chat_id=-1001, user_id=1001, text="/libraries", chat_type="group")
+        update = _StubUpdate(message=message)
+
+        with patch.object(
+            telegram_handler.api_client,
+            "get_media_library_settings",
+            AsyncMock(),
+        ) as settings_mock:
+            await telegram_handler.handle_libraries(update, None)
+
+        message.reply_text.assert_awaited_once_with("⚠️ 请在私聊中使用此命令")
+        settings_mock.assert_not_awaited()
+
+    async def test_library_callback_uses_short_token_for_long_library_id(self) -> None:
+        long_library_id = "library/" + ("x" * 120)
+        settings = {
+            "planGroupName": "默认组",
+            "customized": False,
+            "enabledCount": 1,
+            "templateCount": 1,
+            "policySyncStatus": "synced",
+            "libraries": [{"id": long_library_id, "name": "超长媒体库", "enabled": True}],
+        }
+
+        _text, keyboard = telegram_handler._format_library_settings(settings)
+        callback_data = keyboard.inline_keyboard[0][0].callback_data
+
+        self.assertLessEqual(len(callback_data.encode("utf-8")), 64)
+        token = callback_data[len(telegram_handler.LIBRARY_CALLBACK_PREFIX):]
+        self.assertEqual(telegram_handler._decode_library_token(token), long_library_id)
+
+    async def test_handle_libraries_callback_refreshes_message_after_toggle(self) -> None:
+        message = _StubMessage(chat_id=1001, user_id=1001, message_id=88, text="旧消息")
+        token = telegram_handler._encode_library_token("lib-a")
+        query = _StubQuery(
+            data=f"{telegram_handler.LIBRARY_CALLBACK_PREFIX}{token}",
+            user_id=1001,
+            message=message,
+        )
+        update = _StubUpdate(callback_query=query)
+        payload = {
+            "data": {
+                "planGroupName": "默认组",
+                "customized": True,
+                "enabledCount": 0,
+                "templateCount": 1,
+                "policySyncStatus": "failed",
+                "libraries": [{"id": "lib-a", "name": "电影", "enabled": False}],
+            }
+        }
+
+        with patch.object(
+            telegram_handler.api_client,
+            "toggle_media_library",
+            AsyncMock(return_value=payload),
+        ) as toggle_mock:
+            await telegram_handler.handle_libraries_callback(update, None)
+
+        toggle_mock.assert_awaited_once_with(1001, "lib-a")
+        query.edit_message_text.assert_awaited_once()
+        self.assertIn("Emby 同步失败", query.edit_message_text.await_args.kwargs["text"])
+        query.answer.assert_awaited_once_with("已更新")
+
+    async def test_handle_libraries_callback_preserves_keyboard_on_api_error(self) -> None:
+        old_keyboard = object()
+        message = _StubMessage(
+            chat_id=1001,
+            user_id=1001,
+            message_id=88,
+            text="旧消息",
+            text_html="<b>旧消息</b>",
+            reply_markup=old_keyboard,
+        )
+        token = telegram_handler._encode_library_token("lib-a")
+        query = _StubQuery(
+            data=f"{telegram_handler.LIBRARY_CALLBACK_PREFIX}{token}",
+            user_id=1001,
+            message=message,
+        )
+        update = _StubUpdate(callback_query=query)
+
+        with patch.object(
+            telegram_handler.api_client,
+            "toggle_media_library",
+            AsyncMock(return_value={"error": "同步任务处理中", "status": 409}),
+        ):
+            await telegram_handler.handle_libraries_callback(update, None)
+
+        query.edit_message_text.assert_awaited_once()
+        self.assertIn("同步任务处理中", query.edit_message_text.await_args.kwargs["text"])
+        self.assertIs(query.edit_message_text.await_args.kwargs["reply_markup"], old_keyboard)
+        query.answer.assert_awaited_once_with("操作失败：同步任务处理中", show_alert=True)
         message.reply_text.assert_not_called()
 
 

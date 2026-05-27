@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -366,6 +367,98 @@ async def reset_password_by_telegram(telegram_id: int, new_password: str) -> Opt
     if response.status_code == 200:
         return payload
     return {"error": payload.get("error", "密码重置失败")}
+
+
+async def get_media_library_settings(telegram_id: int) -> Optional[dict]:
+    """查询 Telegram 绑定用户当前媒体库显示设置，返回后端完整 DTO。"""
+    endpoint = "get_media_library_settings"
+    url = f"{API_URL}/api/v1/internal/telegram/media-libraries"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "POST",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"telegramId": telegram_id},
+        log_fields={"telegramId": telegram_id},
+    )
+    if response is None:
+        return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "POST",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "查询媒体库设置失败"), "status": response.status_code}
+
+
+async def toggle_media_library(telegram_id: int, library_id: str) -> Optional[dict]:
+    """切换单个媒体库显示状态，由 Go API 校验绑定关系和分组模板范围。"""
+    endpoint = "toggle_media_library"
+    encoded_library_id = quote(library_id, safe="")
+    url = f"{API_URL}/api/v1/internal/telegram/media-libraries/{encoded_library_id}/toggle"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "PUT",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"telegramId": telegram_id},
+        log_fields={"telegramId": telegram_id, "libraryId": library_id},
+    )
+    if response is None:
+        return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "PUT",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+        libraryId=library_id,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "切换媒体库失败"), "status": response.status_code}
+
+
+async def reset_media_library_preferences(telegram_id: int) -> Optional[dict]:
+    """清除 Telegram 绑定用户的媒体库自定义偏好，恢复所属分组默认模板。"""
+    endpoint = "reset_media_library_preferences"
+    url = f"{API_URL}/api/v1/internal/telegram/media-libraries/preferences"
+    response, elapsed_ms = await _request(
+        endpoint,
+        "DELETE",
+        url,
+        timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
+        json={"telegramId": telegram_id},
+        log_fields={"telegramId": telegram_id},
+    )
+    if response is None:
+        return None
+
+    payload = _load_json(
+        response,
+        endpoint,
+        "DELETE",
+        elapsed_ms=elapsed_ms,
+        telegramId=telegram_id,
+    )
+    if payload is None:
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "恢复分组默认失败"), "status": response.status_code}
 
 
 async def get_setting(key: str) -> str | None:
