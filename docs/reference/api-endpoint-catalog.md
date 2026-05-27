@@ -43,6 +43,9 @@
 | GET | `/api/v1/media/stats` | 媒体统计 |
 | GET | `/api/v1/media/latest` | 最新入库 |
 | GET | `/api/v1/media/posters/:itemId` | 最近入库封面代理（需登录） |
+| GET | `/api/v1/user/media-libraries` | 当前登录用户媒体库偏好与分组模板 |
+| PUT | `/api/v1/user/media-libraries` | 保存当前登录用户媒体库偏好（请求体 `{enabledLibraryIds}`） |
+| DELETE | `/api/v1/user/media-libraries/preferences` | 清除当前登录用户媒体库偏好，恢复分组默认 |
 | GET | `/api/v1/rankings/latest` | 最新整期排行（`period`） |
 | GET | `/api/v1/rankings/history` | 按日期查询整期历史排行（`period` + `date`） |
 | GET | `/api/v1/plans` | 当前登录用户可购方案列表（认证兼容别名，按用户有效套餐分组过滤） |
@@ -91,6 +94,9 @@
 | PUT | `/api/v1/admin/users/:id/toggle` | 切换激活状态 |
 | PUT | `/api/v1/admin/users/:id/reset-password` | 重置密码 |
 | DELETE | `/api/v1/admin/users/:id` | 删除用户 |
+| DELETE | `/api/v1/admin/users/:id/media-libraries/preferences` | 清除单个用户媒体库偏好 |
+| POST | `/api/v1/admin/users/:id/media-libraries/sync` | 从 Emby 当前 Policy 同步为用户偏好（第一阶段返回 501） |
+| PUT | `/api/v1/admin/users/:id/emby-access` | 管理员显式禁用或恢复用户 Emby 访问（请求体 `{disabled}`，不改变 `isActive`） |
 | GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `templateUserId` / `registrationPlanGroup` / `showAll` 过滤） |
 | POST | `/api/v1/admin/redemption-codes` | 创建兑换码（支持可选 `registrationPlanGroup`） |
 | POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码（支持可选 `registrationPlanGroup`） |
@@ -122,10 +128,19 @@
 | DELETE | `/api/v1/admin/devices/blacklist/:clientName` | 移除黑名单 |
 | POST | `/api/v1/admin/devices/logout/:deviceId` | 强制注销设备 |
 | POST | `/api/v1/admin/devices/blacklist/logout-all` | 批量注销黑名单设备 |
-| GET | `/api/v1/admin/plan-groups` | 套餐分组列表 |
-| POST | `/api/v1/admin/plan-groups` | 创建套餐分组 |
-| PUT | `/api/v1/admin/plan-groups/:key` | 更新套餐分组 / 切换默认分组 |
-| DELETE | `/api/v1/admin/plan-groups/:key` | 删除套餐分组 |
+| GET | `/api/v1/admin/media-libraries` | Emby 当前媒体库列表，用于配置分组模板 |
+| GET | `/api/v1/admin/plan-groups` | 用户分组 / 权益模板列表 |
+| POST | `/api/v1/admin/plan-groups` | 创建用户分组，并创建默认 Emby 权益模板 |
+| PUT | `/api/v1/admin/plan-groups/:key` | 更新用户分组 / 切换默认分组 |
+| DELETE | `/api/v1/admin/plan-groups/:key` | 删除用户分组；无业务引用时同步清理从属模板和同步记录 |
+| GET | `/api/v1/admin/plan-groups/:key/media-libraries` | 查询分组媒体库模板 |
+| PUT | `/api/v1/admin/plan-groups/:key/media-libraries` | 保存分组媒体库模板并同步该分组用户 Policy |
+| POST | `/api/v1/admin/plan-groups/:key/media-libraries/sync-preview` | 历史用户媒体库权限预览（第一阶段返回 501） |
+| POST | `/api/v1/admin/plan-groups/:key/media-libraries/sync-apply` | 应用历史用户媒体库权限同步结果（第一阶段返回 501） |
+| GET | `/api/v1/admin/plan-groups/:key/emby-policy-template` | 查询分组 Emby 权益模板 |
+| PUT | `/api/v1/admin/plan-groups/:key/emby-policy-template` | 保存分组 Emby 权益模板并同步该分组用户 Policy |
+| GET | `/api/v1/admin/emby-policy-sync-batches/:id` | 查询 Emby Policy 同步批次进度 |
+| POST | `/api/v1/admin/emby-policy-sync-batches/:id/retry-failed` | 重试某个同步批次中的失败任务 |
 | GET | `/api/v1/admin/plans` | 方案列表（支持 `planGroup` 过滤） |
 | POST | `/api/v1/admin/plans` | 创建方案 |
 | PUT | `/api/v1/admin/plans/:id` | 更新方案 |
@@ -163,6 +178,9 @@
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
 | POST | `/api/v1/internal/telegram/reset-password` | Bot 重置账号密码 |
 | POST | `/api/v1/internal/telegram/subscribe` | Bot 创建求片订阅 |
+| POST | `/api/v1/internal/telegram/media-libraries` | Bot 查询绑定用户媒体库偏好 |
+| PUT | `/api/v1/internal/telegram/media-libraries/:libraryId/toggle` | Bot 切换单个媒体库显示状态 |
+| DELETE | `/api/v1/internal/telegram/media-libraries/preferences` | Bot 恢复分组默认媒体库偏好 |
 | POST | `/api/v1/internal/telegram/reject-request/enqueue` | Bot 入队拒绝待确认记录（请求体必须携带 `chatId`、`adminUserId`、`subscriptionId`） |
 | POST | `/api/v1/internal/telegram/reject-request/pop` | Bot 弹出拒绝待确认记录（请求体必须携带 `chatId`、`adminUserId`，且操作者必须与入队记录一致） |
 

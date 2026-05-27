@@ -29,7 +29,7 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 - 付费方案与 Stripe 一次性支付
 - 求片订阅（TMDB 搜索 → 管理员审批 → MoviePilot 自动下载）
 - 播放排行榜（日榜 / 周榜，从 Emby PlaybackActivity 生成）
-- Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息、账号绑定/查询/续期、媒体库统计）
+- Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息、账号绑定/查询/续期、媒体库统计、媒体库显示偏好）
 - 定时任务（过期检查、验证码清理、排行榜生成）
 
 ## 2. 技术栈
@@ -131,6 +131,9 @@ services/
 │     │  │  └─ ranking.go        # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment/
 │     │  │  └─ service.go        # PaymentService（Stripe 支付流程）
+│     │  ├─ policy/
+│     │  │  ├─ effective_policy.go # 普通用户 Emby Policy 统一重算入口
+│     │  │  └─ media_library_settings.go # 分组媒体库模板、用户偏好和同步批次
 │     │  ├─ device.go            # DeviceService（设备管理）
 │     │  ├─ tvcalendar/
 │     │  │  └─ service.go        # TVCalendarService（追剧日历）
@@ -154,6 +157,7 @@ services/
 │     │  ├─ device.go            # 设备管理
 │     │  ├─ telegram.go          # Telegram 绑定与 Bot Internal API
 │     │  ├─ payment.go           # 支付与方案
+│     │  ├─ media_library_policy.go # 媒体库模板 / 用户偏好 / Emby Policy 同步接口
 │     │  └─ tv_calendar.go       # 追剧日历
 │     ├─ middleware/
 │     │  ├─ jwt.go               # JWTAuth + AdminOnly + UserOnly
@@ -171,7 +175,7 @@ services/
 │  │  │  ├─ auth.ts              # login, register, getRegistrationMode
 │  │  │  ├─ user.ts              # redeem, redemptions, tmdb
 │  │  │  ├─ admin.ts             # 管理后台全部接口
-│  │  │  └─ console.ts           # 统一认证路由接口（profile, account-links, subscriptions, payments, rankings 等）
+│  │  │  └─ console.ts           # 统一认证路由接口（profile, account-links, subscriptions, payments, rankings, media-libraries 等）
 │  │  ├─ plugins/
 │  │  │  └─ element-plus.ts      # Element Plus 按需组件/指令/样式注册入口
 │  │  ├─ components/
@@ -213,7 +217,7 @@ services/
 │  │     ├─ console/             # 统一控制台（admin + user 共享布局）
 │  │     │  ├─ Layout.vue        # 控制台布局
 │  │     │  ├─ DashboardView.vue # 概览页（会员状态 / 媒体统计 / 服务器入口 / 最近入库摘要 / Emby 桥接）
-│  │     │  ├─ AccountCenterView.vue # 账号中心（邮箱 / 密码 / Telegram 绑定 / 帮助资源）
+│  │     │  ├─ AccountCenterView.vue # 账号中心（邮箱 / 密码 / Telegram 绑定 / 媒体库偏好 / 帮助资源）
 │  │     │  ├─ ProfileAnalyticsView.vue # 我的画像
 │  │     │  ├─ SubscriptionsView.vue  # 求片订阅
 │  │     │  ├─ NewSubscriptionView.vue # 新建订阅
@@ -230,7 +234,7 @@ services/
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
 │  │        ├─ PaymentCenterView.vue # 支付中心（付费方案 + 支付记录）
-│  │        ├─ PlanGroupsView.vue # 套餐分组管理
+│  │        ├─ PlanGroupsView.vue # 用户分组 / 权益模板管理
 │  │        ├─ SettingsView.vue  # 设置中心
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ PaymentsView.vue  # 支付记录审计
@@ -579,6 +583,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `GetAccountInfo(telegramID)` — 查询绑定用户账号状态
 - `RedeemByTelegram(telegramID, code)` — 复用 `RedemptionService` 完成续期兑换
 - `ResetPassword(telegramID, newPassword)` — 通过 Telegram 身份重置 Ember/Emby 密码
+- `/libraries` — Bot 私聊媒体库偏好入口；通过 Internal API 查询、切换单个媒体库或恢复分组默认，最终仍由 API 统一重算 Emby Policy
 - `SubscribeByTelegram(req)` — Bot 求片订阅入口；电影直接确认，电视剧先选季再提交，并透传 `season`；为保持既有体验，Bot 提交默认视为已确认库内已存在提示，不走 Web 二次确认弹窗
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 

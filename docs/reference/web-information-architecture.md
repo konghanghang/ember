@@ -34,7 +34,7 @@
   - `services/web/src/views/admin/RedemptionHistoryView.vue`
   - `services/web/src/views/admin/UserPlaybackProfilesView.vue`
   - `services/web/src/views/admin/PlansView.vue`
-  - `services/web/src/views/admin/PlanGroupsView.vue`
+  - `services/web/src/views/admin/PlanGroupsView.vue`（用户分组 / 权益模板主入口）
 - 容器型中心页：
   - `services/web/src/views/admin/PaymentCenterView.vue`
   - `services/web/src/views/admin/PlaybackCenterView.vue`
@@ -74,7 +74,7 @@
 - `api/auth.ts` — login, getLoginProtectionConfig, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
 - `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings）
-- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram；账号中心邮箱变更走 `sendEmailChangeCode(newEmail)` + `updateEmail(newEmail, code)` 两步流，旧 `updateProfile` 已下线）
+- `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram, media-libraries；账号中心邮箱变更走 `sendEmailChangeCode(newEmail)` + `updateEmail(newEmail, code)` 两步流，旧 `updateProfile` 已下线）
 
 ### 2.3 路由守卫
 
@@ -138,24 +138,42 @@
 
 - 路由：`/console/billing`（admin）
 - 兼容路由：
-  - `/console/billing?tab=groups`
+  - `/console/billing?tab=groups` → `/console/plan-groups`
   - `/console/plans` → `?tab=plans`
   - `/console/payments` → `?tab=payments`
 - 视图：`views/admin/PaymentCenterView.vue`
 - Tab 结构：
-  - `groups`：`views/admin/PlanGroupsView.vue`
   - `plans`：`views/admin/PlansView.vue`
   - `payments`：`views/admin/PaymentsView.vue`
+- 分组维护职责已迁移到“用户分组 / 权益模板”，支付中心不再嵌入第二套分组编辑 UI。
 - 数据源：
-  - `GET /api/v1/admin/plan-groups`
-  - `POST /api/v1/admin/plan-groups`
-  - `PUT /api/v1/admin/plan-groups/:key`
-  - `DELETE /api/v1/admin/plan-groups/:key`
   - `GET /api/v1/admin/plans`
   - `POST /api/v1/admin/plans`
   - `PUT /api/v1/admin/plans/:id`
   - `DELETE /api/v1/admin/plans/:id`
   - `GET /api/v1/admin/payments`
+
+### 3.4.1 管理端用户分组 / 权益模板
+
+- 路由：`/console/plan-groups`（admin）
+- 兼容路由：
+  - `/admin/plan-groups` → `/console/plan-groups`
+- 视图：`views/admin/PlanGroupsView.vue`
+- 页面职责：
+  - 用户业务分组 CRUD
+  - 分组媒体库模板配置
+  - 分组 Emby 权益模板配置
+  - 展示模板保存后创建的 Emby Policy 同步批次入口结果
+- 数据源：
+  - `GET /api/v1/admin/plan-groups`
+  - `POST /api/v1/admin/plan-groups`
+  - `PUT /api/v1/admin/plan-groups/:key`
+  - `DELETE /api/v1/admin/plan-groups/:key`
+  - `GET /api/v1/admin/media-libraries`
+  - `GET /api/v1/admin/plan-groups/:key/media-libraries`
+  - `PUT /api/v1/admin/plan-groups/:key/media-libraries`
+  - `GET /api/v1/admin/plan-groups/:key/emby-policy-template`
+  - `PUT /api/v1/admin/plan-groups/:key/emby-policy-template`
 
 ### 3.5 管理端设备管理
 

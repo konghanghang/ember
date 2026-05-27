@@ -24,7 +24,8 @@
 | Password | string | password | bcrypt hash（JSON 隐藏） |
 | Email | string(255) | email | 非空邮箱大小写不敏感唯一；SQL 层由 `uq_users_email_lower` 维护 |
 | EmbyID | string(50) | embyId | Emby 用户 ID |
-| EmbyDisabled | bool | embyDisabled | cron 封禁标记 |
+| EmbyDisabled | bool | embyDisabled | Emby 端 `Policy.IsDisabled` 同步缓存；只在有效 Policy 同步成功后更新 |
+| EmbyAccessDisabled | bool | embyAccessDisabled | 管理员显式禁用 Emby 访问的业务意图；不影响 Ember Web 登录 |
 | TelegramID | *int64 | telegramId | Telegram 绑定 ID（唯一，可空） |
 | PlanGroup | *string | planGroup | 用户显式绑定的套餐分组 key；为空时按系统默认分组计算可见/可购套餐 |
 | ExpiresAt | *time.Time | expiresAt | 到期时间（nil=永不过期）|
@@ -38,9 +39,9 @@
 - `IsAdmin()` — `Role == "admin"`
 
 **设计要点**：
-- `IsActive` 是管理员手动控制的"人工开关"
-- `EmbyDisabled` 是 cron 自动管理的"过期封禁状态"
-- 两者正交，互不干扰
+- `IsActive` 是 Ember Web 登录账号开关，不参与 Emby `Policy.IsDisabled` 计算
+- Emby `Policy.IsDisabled` 由 `User.IsExpired() || EmbyAccessDisabled` 计算
+- `EmbyDisabled` 是同步缓存，不是业务意图字段
 - `User` 只承载 `users` 表真实列；`planGroupName`、`effectivePlanGroup` 等展示态字段只存在于 `services/user` 查询 DTO，不再混入持久化模型
 - `Username` / `Email` 的唯一性以 `infrastructure/database/` SQL 为准；GORM tag 不表达 `lower(...)` 函数唯一索引，避免误导 AutoMigrate 语义
 
@@ -212,6 +213,78 @@
 | SortOrder | int | sortOrder | 排序 |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
+
+### 2.8.2 PlanGroupMediaLibrary
+
+**表名**: `plan_group_media_libraries` | **文件**: `models/media_library_policy.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID 主键 |
+| PlanGroupKey | string(50) | planGroupKey | 对应 `plan_groups.key`，服务层维护逻辑关联 |
+| LibraryID | string(100) | libraryId | Emby 媒体库 ID |
+| LibraryName | string(255) | libraryName | 媒体库名称快照；展示时可被 Emby 最新名称覆盖 |
+| LibraryType | string(50) | libraryType | Emby 媒体库类型快照 |
+| SortOrder | int | sortOrder | 模板内排序 |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+**约束**：
+- `uq_plan_group_media_libraries_group_library` 保证 `(plan_group_key, library_id)` 唯一
+- 不创建数据库外键；删除分组时由服务层在同一事务清理从属记录
+
+### 2.8.3 PlanGroupEmbyPolicyTemplate
+
+**表名**: `plan_group_emby_policy_templates` | **文件**: `models/media_library_policy.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| PlanGroupKey | string(50) | planGroupKey | 主键，对应 `plan_groups.key` |
+| SimultaneousStreamLimit | int | simultaneousStreamLimit | 同时播放限制；写 Emby 时兼容 `SimultaneousStreamLimit` / `MaxActiveSessions` |
+| EnableContentDownloading | bool | enableContentDownloading | 是否允许下载 |
+| EnableLiveTvAccess | bool | enableLiveTvAccess | 是否允许 Live TV |
+| EnableSyncTranscoding | bool | enableSyncTranscoding | 是否允许同步转码 |
+| EnableAudioPlaybackTranscoding | bool | enableAudioPlaybackTranscoding | 是否允许音频转码 |
+| EnableVideoPlaybackTranscoding | bool | enableVideoPlaybackTranscoding | 是否允许视频转码 |
+| EnablePlaybackRemuxing | bool | enablePlaybackRemuxing | 是否允许 remux |
+| EnableRemoteAccess | bool | enableRemoteAccess | 是否允许远程访问 |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+**设计要点**：
+- 每个 `planGroup` 必须有且只有一条模板
+- 系统强制 `IsAdministrator=false`、`EnableContentDeletion=false`，不进入模板配置
+- 新建分组时服务层同步创建默认权益模板
+
+### 2.8.4 UserMediaLibraryPreference
+
+**表名**: `user_media_library_preferences` | **文件**: `models/media_library_policy.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(25) | id | CUID 主键 |
+| UserID | string(25) | userId | 用户 ID |
+| LibraryID | string(100) | libraryId | Emby 媒体库 ID |
+| Enabled | bool | enabled | 用户是否启用该库 |
+| CreatedAt | time.Time | createdAt | 自动 |
+| UpdatedAt | time.Time | updatedAt | 自动 |
+
+**设计要点**：
+- 无记录表示跟随分组模板
+- 一旦保存偏好，记录是当前分组模板内所有库的完整快照；关闭全部库会写入全 false 快照
+- 最终可见库为 `planGroup` 模板与启用偏好的交集
+
+### 2.8.5 EmbyPolicySyncBatch / EmbyPolicySyncTask
+
+**表名**: `emby_policy_sync_batches`、`emby_policy_sync_tasks` | **文件**: `models/media_library_policy.go`
+
+`emby_policy_sync_batches` 记录一次分组模板变更的同步批次，包含 `planGroupKey`、`reason`、`status`、总数 / 待处理 / 处理中 / 成功 / 失败计数、创建人和完成时间。
+
+`emby_policy_sync_tasks` 记录单个用户的同步任务，包含 `batchId`、`userId`、`embyId`、`planGroupKey`、`reason`、`status`、`attempts`、`lastError`、`nextRetryAt`。
+
+**约束**：
+- `uq_emby_policy_sync_tasks_user_active` 是 partial unique index：`UNIQUE (user_id) WHERE status IN ('pending', 'processing')`
+- 当前第一阶段模板保存后会创建批次 / 任务并同步执行；完整后台 worker、历史 preview/apply 接管仍按计划后续收口
 
 ### 2.9 Payment（支付记录）
 
