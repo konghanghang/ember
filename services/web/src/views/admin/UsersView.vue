@@ -26,8 +26,30 @@ import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { formatDateTime } from '@/utils/date'
-import { createAdminUser, getPlanGroups, getUsers, updateAdminUser, extendUserExpiry, toggleUserStatus, deleteUser, resetUserPassword } from '@/api/admin'
-import type { CreateAdminUserRequest, ManagedPlanGroup, PlanGroup, UpdateAdminUserRequest, UserInfo, UserListQuery } from '@/types/api'
+import {
+  applyPlanGroupMediaLibrarySync,
+  clearAdminUserMediaLibraryPreferences,
+  createAdminUser,
+  deleteUser,
+  extendUserExpiry,
+  getPlanGroups,
+  getUsers,
+  previewPlanGroupMediaLibrarySync,
+  resetUserPassword,
+  syncAdminUserMediaLibraryPreferences,
+  toggleUserStatus,
+  updateAdminUser,
+  updateAdminUserEmbyAccess
+} from '@/api/admin'
+import type {
+  CreateAdminUserRequest,
+  ManagedPlanGroup,
+  MediaLibrarySyncPreviewResult,
+  PlanGroup,
+  UpdateAdminUserRequest,
+  UserInfo,
+  UserListQuery
+} from '@/types/api'
 
 const router = useRouter()
 
@@ -37,6 +59,7 @@ const total = ref(0)
 const loading = ref(false)
 const creatingUser = ref(false)
 const savingUser = ref(false)
+const syncingHistoryLibraries = ref(false)
 const createDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const queryParams = ref<UserListQuery>({
@@ -118,6 +141,11 @@ const handleResetFilters = () => {
   queryParams.value.page = 1
   fetchData()
 }
+
+const selectedFilterPlanGroup = computed(() => {
+  const key = queryParams.value.planGroup
+  return key ? planGroups.value.find(group => group.key === key) ?? null : null
+})
 
 const resetCreateForm = () => {
   createForm.value = {
@@ -351,6 +379,113 @@ const handleResetPassword = async (row: UserInfo) => {
   }
 }
 
+const summarizeSyncPreview = (preview: MediaLibrarySyncPreviewResult) => {
+  const failedText = preview.failedItems.length > 0 ? `，读取失败 ${preview.failedItems.length} 个` : ''
+  return `扫描 ${preview.scannedUsers}/${preview.totalUsers} 个用户，候选模板 ${preview.candidates.length} 个${failedText}`
+}
+
+const handleSyncHistoryLibraries = async () => {
+  const group = selectedFilterPlanGroup.value
+  if (!group) {
+    ElMessage.warning('请先在筛选区选择一个套餐组')
+    return
+  }
+
+  syncingHistoryLibraries.value = true
+  try {
+    const previewRes = await previewPlanGroupMediaLibrarySync(group.key)
+    const preview = previewRes.data
+    if (preview.candidates.length === 0) {
+      ElMessage.warning('当前分组没有可同步的 Emby 媒体库权限')
+      return
+    }
+    if (preview.candidates.length > 1) {
+      await ElMessageBox.alert(
+        `${summarizeSyncPreview(preview)}。当前分组内用户媒体库集合不一致，请先处理差异用户后再一键同步。`,
+        '历史同步预览',
+        { confirmButtonText: '知道了' }
+      )
+      return
+    }
+
+    const candidate = preview.candidates[0]
+    await ElMessageBox.confirm(
+      `${summarizeSyncPreview(preview)}。确认将 ${group.name} 的媒体库模板同步为 ${candidate.libraryIds.length} 个媒体库吗？`,
+      '历史用户媒体库同步',
+      {
+        confirmButtonText: '确认同步',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await applyPlanGroupMediaLibrarySync(group.key, { libraryIds: candidate.libraryIds })
+    ElMessage.success('已创建历史用户媒体库同步任务')
+    await fetchData()
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      // request interceptor 已处理错误提示
+    }
+  } finally {
+    syncingHistoryLibraries.value = false
+  }
+}
+
+const handleClearMediaLibraryPreferences = async (row: UserInfo) => {
+  try {
+    await ElMessageBox.confirm(`确认清除 ${row.username} 的媒体库偏好吗？`, '清除媒体库偏好', {
+      confirmButtonText: '清除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await clearAdminUserMediaLibraryPreferences(row.id)
+    ElMessage.success('媒体库偏好已清除')
+    await fetchData()
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      // handled
+    }
+  }
+}
+
+const handleSyncMediaLibraryPreferencesFromEmby = async (row: UserInfo) => {
+  try {
+    await ElMessageBox.confirm(`确认从 Emby 当前 Policy 同步 ${row.username} 的媒体库偏好吗？`, '同步媒体库偏好', {
+      confirmButtonText: '同步',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await syncAdminUserMediaLibraryPreferences(row.id)
+    ElMessage.success('媒体库偏好已从 Emby 同步')
+    await fetchData()
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      // handled
+    }
+  }
+}
+
+const handleToggleEmbyAccess = async (row: UserInfo) => {
+  const nextDisabled = !row.embyAccessDisabled
+  try {
+    await ElMessageBox.confirm(
+      nextDisabled ? `确认禁用 ${row.username} 的 Emby 访问吗？` : `确认恢复 ${row.username} 的 Emby 访问吗？`,
+      nextDisabled ? '禁用 Emby 访问' : '恢复 Emby 访问',
+      {
+        confirmButtonText: nextDisabled ? '禁用' : '恢复',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await updateAdminUserEmbyAccess(row.id, nextDisabled)
+    ElMessage.success(nextDisabled ? 'Emby 访问已禁用' : 'Emby 访问已恢复')
+    await fetchData()
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      // handled
+    }
+  }
+}
+
 const handleViewPayments = (row: UserInfo) => {
   router.push({
     name: 'console-billing',
@@ -386,16 +521,6 @@ const isExpired = (dateStr?: string | null) => {
 }
 
 const getEmberStatus = (row: UserInfo) => {
-  if (row.embyAccessDisabled) {
-    return {
-      text: '禁用',
-      dotClass: 'bg-orange-500',
-      textClass: 'text-orange-700',
-      pulse: false,
-      reason: '管理员禁用'
-    }
-  }
-
   if (!row.isActive) {
     return {
       text: '禁用',
@@ -420,6 +545,16 @@ const getEmbyStatus = (row: UserInfo) => {
       textClass: 'text-gray-600',
       pulse: false,
       reason: '无 Emby 账号'
+    }
+  }
+
+  if (row.embyAccessDisabled) {
+    return {
+      text: '禁用',
+      dotClass: 'bg-orange-500',
+      textClass: 'text-orange-700',
+      pulse: false,
+      reason: '管理员禁用'
     }
   }
 
@@ -491,13 +626,23 @@ onMounted(async () => {
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
       </template>
       <template #actions>
-        <button
-          @click="openCreateDialog"
-          class="btn-ember inline-flex items-center justify-center gap-2 self-start rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer"
-        >
-          <el-icon><Plus /></el-icon>
-          <span>新建用户</span>
-        </button>
+        <div class="flex flex-wrap items-center justify-end gap-3">
+          <button
+            @click="handleSyncHistoryLibraries"
+            :disabled="syncingHistoryLibraries"
+            class="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+          >
+            <el-icon><RefreshRight /></el-icon>
+            <span>{{ syncingHistoryLibraries ? '同步中...' : '历史同步' }}</span>
+          </button>
+          <button
+            @click="openCreateDialog"
+            class="btn-ember inline-flex items-center justify-center gap-2 self-start rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer"
+          >
+            <el-icon><Plus /></el-icon>
+            <span>新建用户</span>
+          </button>
+        </div>
       </template>
 
       <EmberFilterPanel
@@ -703,6 +848,14 @@ onMounted(async () => {
                     <el-dropdown-item :icon="DataLine" @click="handleViewProfile(row)">用户画像</el-dropdown-item>
                     <el-dropdown-item :icon="CreditCard" @click="handleViewPayments(row)">支付记录</el-dropdown-item>
                     <el-dropdown-item :icon="Key" @click="handleResetPassword(row)">重置密码</el-dropdown-item>
+                    <el-dropdown-item :icon="RefreshRight" @click="handleSyncMediaLibraryPreferencesFromEmby(row)">同步媒体库偏好</el-dropdown-item>
+                    <el-dropdown-item :icon="RefreshRight" @click="handleClearMediaLibraryPreferences(row)">清除媒体库偏好</el-dropdown-item>
+                    <el-dropdown-item
+                      :icon="row.embyAccessDisabled ? Unlock : Lock"
+                      @click="handleToggleEmbyAccess(row)"
+                    >
+                      {{ row.embyAccessDisabled ? '恢复 Emby 访问' : '禁用 Emby 访问' }}
+                    </el-dropdown-item>
                     <el-dropdown-item 
                       :icon="row.isActive ? Lock : Unlock" 
                       @click="handleToggle(row)"

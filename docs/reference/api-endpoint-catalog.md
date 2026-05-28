@@ -95,7 +95,7 @@
 | PUT | `/api/v1/admin/users/:id/reset-password` | 重置密码 |
 | DELETE | `/api/v1/admin/users/:id` | 删除用户 |
 | DELETE | `/api/v1/admin/users/:id/media-libraries/preferences` | 清除单个用户媒体库偏好 |
-| POST | `/api/v1/admin/users/:id/media-libraries/sync` | 从 Emby 当前 Policy 同步为用户偏好（第一阶段返回 501） |
+| POST | `/api/v1/admin/users/:id/media-libraries/sync` | 从 Emby 当前 Policy 同步为用户偏好 |
 | PUT | `/api/v1/admin/users/:id/emby-access` | 管理员显式禁用或恢复用户 Emby 访问（请求体 `{disabled}`，不改变 `isActive`） |
 | GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `templateUserId` / `registrationPlanGroup` / `showAll` 过滤） |
 | POST | `/api/v1/admin/redemption-codes` | 创建兑换码（支持可选 `registrationPlanGroup`） |
@@ -135,8 +135,8 @@
 | DELETE | `/api/v1/admin/plan-groups/:key` | 删除用户分组；无业务引用时同步清理从属模板和同步记录 |
 | GET | `/api/v1/admin/plan-groups/:key/media-libraries` | 查询分组媒体库模板 |
 | PUT | `/api/v1/admin/plan-groups/:key/media-libraries` | 保存分组媒体库模板并同步该分组用户 Policy |
-| POST | `/api/v1/admin/plan-groups/:key/media-libraries/sync-preview` | 历史用户媒体库权限预览（第一阶段返回 501） |
-| POST | `/api/v1/admin/plan-groups/:key/media-libraries/sync-apply` | 应用历史用户媒体库权限同步结果（第一阶段返回 501） |
+| POST | `/api/v1/admin/plan-groups/:key/media-libraries/sync-preview` | 历史用户媒体库权限预览 |
+| POST | `/api/v1/admin/plan-groups/:key/media-libraries/sync-apply` | 应用历史用户媒体库权限同步结果 |
 | GET | `/api/v1/admin/plan-groups/:key/emby-policy-template` | 查询分组 Emby 权益模板 |
 | PUT | `/api/v1/admin/plan-groups/:key/emby-policy-template` | 保存分组 Emby 权益模板并同步该分组用户 Policy |
 | GET | `/api/v1/admin/emby-policy-sync-batches/:id` | 查询 Emby Policy 同步批次进度 |

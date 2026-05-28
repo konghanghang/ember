@@ -8,6 +8,19 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 )
 
+type stubPolicyClient struct {
+	raw map[string]any
+	err error
+}
+
+func (s *stubPolicyClient) GetUserPolicyRaw(string) (map[string]any, error) {
+	return s.raw, s.err
+}
+
+func (s *stubPolicyClient) PatchUserPolicyFields(string, map[string]any, []string) error {
+	return nil
+}
+
 func TestResolveBatchStatusKeepsPendingWhenTasksAreWaiting(t *testing.T) {
 	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
 
@@ -113,5 +126,34 @@ func TestBuildUserPolicySyncRetryTaskSkipsUnboundEmbyUser(t *testing.T) {
 	}
 	if task != nil {
 		t.Fatalf("expected no task for unbound Emby user, got %+v", task)
+	}
+}
+
+func TestReadCurrentUserPolicyLibraryIDsUsesAllFolders(t *testing.T) {
+	service := &Service{embyClient: &stubPolicyClient{raw: map[string]any{
+		"EnableAllFolders": true,
+	}}}
+
+	got, err := service.readCurrentUserPolicyLibraryIDs("emby_1", []string{"lib_b", "lib_a"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if len(got) != 2 || got[0] != "lib_a" || got[1] != "lib_b" {
+		t.Fatalf("expected sorted all library ids, got %+v", got)
+	}
+}
+
+func TestReadCurrentUserPolicyLibraryIDsUsesEnabledFolders(t *testing.T) {
+	service := &Service{embyClient: &stubPolicyClient{raw: map[string]any{
+		"EnableAllFolders": false,
+		"EnabledFolders":   []any{"lib_b", "lib_a", "lib_a", ""},
+	}}}
+
+	got, err := service.readCurrentUserPolicyLibraryIDs("emby_1", []string{"ignored"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if len(got) != 2 || got[0] != "lib_a" || got[1] != "lib_b" {
+		t.Fatalf("expected sorted enabled folders, got %+v", got)
 	}
 }

@@ -132,13 +132,47 @@ type UserMediaLibrarySettings struct {
 }
 
 type MediaLibrarySyncPreviewResult struct {
-	PlanGroupKey    string `json:"planGroupKey"`
-	TotalUsers      int    `json:"totalUsers"`
-	ScannedUsers    int    `json:"scannedUsers"`
-	Consistent      bool   `json:"consistent"`
-	Candidates      []any  `json:"candidates"`
-	DifferenceUsers []any  `json:"differenceUsers"`
-	FailedItems     []any  `json:"failedItems"`
+	PlanGroupKey    string                           `json:"planGroupKey"`
+	TotalUsers      int                              `json:"totalUsers"`
+	ScannedUsers    int                              `json:"scannedUsers"`
+	Consistent      bool                             `json:"consistent"`
+	Candidates      []MediaLibrarySyncCandidate      `json:"candidates"`
+	DifferenceUsers []MediaLibrarySyncDifferenceUser `json:"differenceUsers"`
+	FailedItems     []MediaLibrarySyncFailedItem     `json:"failedItems"`
+}
+
+type MediaLibrarySyncCandidate struct {
+	LibraryIDs    []string             `json:"libraryIds"`
+	Libraries     []MediaLibraryOption `json:"libraries"`
+	UserCount     int                  `json:"userCount"`
+	SourceUserIDs []string             `json:"sourceUserIds"`
+}
+
+type MediaLibrarySyncDifferenceUser struct {
+	UserID     string               `json:"userId"`
+	Username   string               `json:"username"`
+	EmbyID     string               `json:"embyId"`
+	LibraryIDs []string             `json:"libraryIds"`
+	Libraries  []MediaLibraryOption `json:"libraries"`
+}
+
+type MediaLibrarySyncFailedItem struct {
+	UserID   string `json:"userId,omitempty"`
+	Username string `json:"username,omitempty"`
+	EmbyID   string `json:"embyId,omitempty"`
+	Error    string `json:"error"`
+}
+
+type MediaLibrarySyncApplyRequest struct {
+	LibraryIDs        []string `json:"libraryIds"`
+	PreferenceUserIDs []string `json:"preferenceUserIds,omitempty"`
+}
+
+type MediaLibrarySyncApplyResult struct {
+	BatchID           string                       `json:"batchId"`
+	AffectedUserCount int                          `json:"affectedUserCount"`
+	Status            string                       `json:"status"`
+	FailedItems       []MediaLibrarySyncFailedItem `json:"failedItems,omitempty"`
 }
 
 func (s *Service) GetAdminMediaLibraries() ([]MediaLibraryOption, error) {
@@ -356,6 +390,32 @@ func (s *Service) ResetUserMediaLibraryPreferences(userID string) (*UserMediaLib
 	return s.GetUserMediaLibrarySettings(user.ID)
 }
 
+// SyncUserMediaLibraryPreferencesFromEmby 将用户当前 Emby Policy 中的媒体库集合保存为个人偏好。
+// 只在用户所属分组模板范围内写入 preferences，不能借由 Emby 当前状态扩大分组权限。
+func (s *Service) SyncUserMediaLibraryPreferencesFromEmby(userID string) (*UserMediaLibrarySettings, error) {
+	user, group, libraries, _, err := s.loadUserLibraryContext(userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.EmbyID == "" {
+		return nil, ErrUserEmbyNotBound
+	}
+	if err := s.ensureNoActiveUserTasks(user.ID); err != nil {
+		return nil, err
+	}
+	libraryIDs, err := s.readCurrentUserPolicyLibraryIDs(user.EmbyID, planGroupLibraryIDs(libraries))
+	if err != nil {
+		return nil, err
+	}
+	if err := s.replaceUserPreferences(user.ID, libraries, idSet(libraryIDs)); err != nil {
+		return nil, err
+	}
+	if err := s.applyPolicyOrRecordFailure(user, group.Key, "admin_user_media_library_preferences_sync_from_emby"); err != nil {
+		log.Printf("[Policy] 已从 Emby 同步用户媒体库偏好但重算 Policy 失败: userID=%s err=%v", user.ID, err)
+	}
+	return s.GetUserMediaLibrarySettings(user.ID)
+}
+
 func (s *Service) GetTelegramMediaLibrarySettings(telegramID int64) (*UserMediaLibrarySettings, error) {
 	user, err := s.findUserByTelegramID(telegramID)
 	if err != nil {
@@ -504,23 +564,329 @@ func (s *Service) RetryFailedEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatc
 	return s.buildBatchCreated(id)
 }
 
-func (s *Service) BuildUnsupportedSyncPreview(key string) (*MediaLibrarySyncPreviewResult, error) {
+// BuildPlanGroupMediaLibrarySyncPreview 读取分组内历史用户当前 Emby Policy，聚合媒体库模板候选。
+func (s *Service) BuildPlanGroupMediaLibrarySyncPreview(key string) (*MediaLibrarySyncPreviewResult, error) {
 	group, err := getPlanGroupByKey(s.db, key)
 	if err != nil {
 		return nil, err
 	}
-	count, err := s.countAffectedUsers(group.Key)
+	users, err := s.loadSyncPreviewUsers(group.Key)
 	if err != nil {
 		return nil, err
 	}
-	return &MediaLibrarySyncPreviewResult{
+	libraryOptions, err := s.GetAdminMediaLibraries()
+	if err != nil {
+		return nil, err
+	}
+	optionByID := mediaLibraryOptionMap(libraryOptions)
+	allLibraryIDs := mediaLibraryOptionIDs(libraryOptions)
+	result := &MediaLibrarySyncPreviewResult{
 		PlanGroupKey: group.Key,
-		TotalUsers:   count,
-		ScannedUsers: 0,
-		Consistent:   false,
-		Candidates:   []any{},
-		FailedItems:  []any{},
+		TotalUsers:   len(users),
+		Candidates:   []MediaLibrarySyncCandidate{},
+		FailedItems:  []MediaLibrarySyncFailedItem{},
+	}
+	candidates := map[string]*MediaLibrarySyncCandidate{}
+	for _, user := range users {
+		libraryIDs, err := s.readCurrentUserPolicyLibraryIDs(user.EmbyID, allLibraryIDs)
+		if err != nil {
+			result.FailedItems = append(result.FailedItems, MediaLibrarySyncFailedItem{
+				UserID:   user.ID,
+				Username: user.Username,
+				EmbyID:   user.EmbyID,
+				Error:    truncateError(err),
+			})
+			continue
+		}
+		result.ScannedUsers++
+		key := strings.Join(libraryIDs, "\x00")
+		candidate, ok := candidates[key]
+		if !ok {
+			candidate = &MediaLibrarySyncCandidate{
+				LibraryIDs: libraryIDs,
+				Libraries:  buildLibraryOptionsFromIDs(libraryIDs, optionByID),
+			}
+			candidates[key] = candidate
+			result.Candidates = append(result.Candidates, *candidate)
+		}
+		candidate.UserCount++
+		candidate.SourceUserIDs = append(candidate.SourceUserIDs, user.ID)
+	}
+	for i := range result.Candidates {
+		if candidate, ok := candidates[strings.Join(result.Candidates[i].LibraryIDs, "\x00")]; ok {
+			result.Candidates[i] = *candidate
+		}
+	}
+	result.Consistent = len(result.Candidates) <= 1 && len(result.FailedItems) == 0
+	if len(result.Candidates) > 1 {
+		for _, candidate := range result.Candidates {
+			for _, userID := range candidate.SourceUserIDs {
+				user := findUserInPreviewUsers(users, userID)
+				if user == nil {
+					continue
+				}
+				result.DifferenceUsers = append(result.DifferenceUsers, MediaLibrarySyncDifferenceUser{
+					UserID:     user.ID,
+					Username:   user.Username,
+					EmbyID:     user.EmbyID,
+					LibraryIDs: candidate.LibraryIDs,
+					Libraries:  candidate.Libraries,
+				})
+			}
+		}
+	}
+	return result, nil
+}
+
+// ApplyPlanGroupMediaLibrarySync 将管理员确认的历史媒体库集合写入分组模板，并创建同步批次。
+func (s *Service) ApplyPlanGroupMediaLibrarySync(key string, req MediaLibrarySyncApplyRequest, createdBy *string) (*MediaLibrarySyncApplyResult, error) {
+	group, err := getPlanGroupByKey(s.db, key)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureNoActiveGroupTasks(group.Key); err != nil {
+		return nil, err
+	}
+	options, err := s.GetAdminMediaLibraries()
+	if err != nil {
+		return nil, err
+	}
+	optionByID := mediaLibraryOptionMap(options)
+	allLibraryIDs := mediaLibraryOptionIDs(options)
+	normalizedIDs, err := normalizeLibraryIDs(req.LibraryIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range normalizedIDs {
+		if _, ok := optionByID[id]; !ok {
+			return nil, ErrLibraryIDInvalid
+		}
+	}
+	preferenceUsers, failedItems, err := s.loadPreferenceSyncUsers(req.PreferenceUserIDs, group.Key, allLibraryIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	tx := s.db.Begin()
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	if err := tx.Where("plan_group_key = ?", group.Key).Delete(&models.PlanGroupMediaLibrary{}).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	libraries := make([]models.PlanGroupMediaLibrary, 0, len(normalizedIDs))
+	for i, id := range normalizedIDs {
+		option := optionByID[id]
+		record := models.PlanGroupMediaLibrary{
+			PlanGroupKey: group.Key,
+			LibraryID:    option.ID,
+			LibraryName:  option.Name,
+			LibraryType:  option.Type,
+			SortOrder:    i,
+		}
+		if err := tx.Create(&record).Error; err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		libraries = append(libraries, record)
+	}
+	for _, item := range preferenceUsers {
+		if err := replaceUserPreferencesTx(tx, item.user.ID, libraries, idSet(item.libraryIDs)); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+	batch, err := s.createBatchWithTasks(tx, group.Key, "plan_group_media_libraries_history_sync", createdBy)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+	created, err := s.buildBatchCreated(batch.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &MediaLibrarySyncApplyResult{
+		BatchID:           created.BatchID,
+		AffectedUserCount: created.AffectedUserCount,
+		Status:            created.Status,
+		FailedItems:       failedItems,
 	}, nil
+}
+
+type policyPreferenceSyncUser struct {
+	user       models.User
+	libraryIDs []string
+}
+
+func (s *Service) loadSyncPreviewUsers(planGroupKey string) ([]models.User, error) {
+	var users []models.User
+	if err := usersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
+		Where("COALESCE(emby_id, '') <> ''").
+		Order("username ASC, id ASC").
+		Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func (s *Service) loadPreferenceSyncUsers(userIDs []string, planGroupKey string, allLibraryIDs []string) ([]policyPreferenceSyncUser, []MediaLibrarySyncFailedItem, error) {
+	normalizedUserIDs := normalizeUserIDs(userIDs)
+	if len(normalizedUserIDs) == 0 {
+		return nil, nil, nil
+	}
+	var users []models.User
+	if err := usersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
+		Where("id IN ? AND COALESCE(emby_id, '') <> ''", normalizedUserIDs).
+		Find(&users).Error; err != nil {
+		return nil, nil, err
+	}
+	userByID := make(map[string]models.User, len(users))
+	for _, user := range users {
+		userByID[user.ID] = user
+	}
+	out := make([]policyPreferenceSyncUser, 0, len(users))
+	failed := []MediaLibrarySyncFailedItem{}
+	for _, userID := range normalizedUserIDs {
+		user, ok := userByID[userID]
+		if !ok {
+			failed = append(failed, MediaLibrarySyncFailedItem{
+				UserID: userID,
+				Error:  "用户不在当前分组或未绑定 Emby",
+			})
+			continue
+		}
+		libraryIDs, err := s.readCurrentUserPolicyLibraryIDs(user.EmbyID, allLibraryIDs)
+		if err != nil {
+			failed = append(failed, MediaLibrarySyncFailedItem{
+				UserID:   user.ID,
+				Username: user.Username,
+				EmbyID:   user.EmbyID,
+				Error:    truncateError(err),
+			})
+			continue
+		}
+		out = append(out, policyPreferenceSyncUser{user: user, libraryIDs: libraryIDs})
+	}
+	return out, failed, nil
+}
+
+func (s *Service) readCurrentUserPolicyLibraryIDs(embyID string, allLibraryIDs []string) ([]string, error) {
+	if s.embyClient == nil {
+		return nil, errors.New("Policy 服务未配置 Emby 客户端")
+	}
+	rawPolicy, err := s.embyClient.GetUserPolicyRaw(embyID)
+	if err != nil {
+		return nil, normalizePolicyError("读取 Emby Policy 失败", err)
+	}
+	if boolPolicyValue(rawPolicy["EnableAllFolders"]) {
+		return normalizePolicyLibraryIDs(allLibraryIDs)
+	}
+	return normalizePolicyLibraryIDs(stringSlicePolicyValue(rawPolicy["EnabledFolders"]))
+}
+
+func normalizePolicyLibraryIDs(libraryIDs []string) ([]string, error) {
+	normalized, err := normalizeLibraryIDs(libraryIDs)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(normalized)
+	return normalized, nil
+}
+
+func boolPolicyValue(value any) bool {
+	got, ok := value.(bool)
+	return ok && got
+}
+
+func stringSlicePolicyValue(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func mediaLibraryOptionMap(options []MediaLibraryOption) map[string]MediaLibraryOption {
+	out := make(map[string]MediaLibraryOption, len(options))
+	for _, option := range options {
+		out[option.ID] = option
+	}
+	return out
+}
+
+func mediaLibraryOptionIDs(options []MediaLibraryOption) []string {
+	out := make([]string, 0, len(options))
+	for _, option := range options {
+		out = append(out, option.ID)
+	}
+	return out
+}
+
+func buildLibraryOptionsFromIDs(ids []string, optionByID map[string]MediaLibraryOption) []MediaLibraryOption {
+	out := make([]MediaLibraryOption, 0, len(ids))
+	for _, id := range ids {
+		if option, ok := optionByID[id]; ok {
+			out = append(out, option)
+			continue
+		}
+		out = append(out, MediaLibraryOption{ID: id, Name: id})
+	}
+	return out
+}
+
+func findUserInPreviewUsers(users []models.User, userID string) *models.User {
+	for i := range users {
+		if users[i].ID == userID {
+			return &users[i]
+		}
+	}
+	return nil
+}
+
+func normalizeUserIDs(userIDs []string) []string {
+	seen := make(map[string]struct{}, len(userIDs))
+	out := make([]string, 0, len(userIDs))
+	for _, raw := range userIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func idSet(ids []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out
+}
+
+func planGroupLibraryIDs(libraries []models.PlanGroupMediaLibrary) []string {
+	out := make([]string, 0, len(libraries))
+	for _, library := range libraries {
+		out = append(out, library.LibraryID)
+	}
+	return out
 }
 
 func (s *Service) loadGroupLibraryOptions(planGroupKey string) ([]MediaLibraryOption, error) {
@@ -768,8 +1134,15 @@ func (s *Service) replaceUserPreferences(userID string, libraries []models.PlanG
 	if tx.Error != nil {
 		return tx.Error
 	}
-	if err := tx.Where("user_id = ?", userID).Delete(&models.UserMediaLibraryPreference{}).Error; err != nil {
+	if err := replaceUserPreferencesTx(tx, userID, libraries, enabledSet); err != nil {
 		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
+}
+
+func replaceUserPreferencesTx(tx *gorm.DB, userID string, libraries []models.PlanGroupMediaLibrary, enabledSet map[string]struct{}) error {
+	if err := tx.Where("user_id = ?", userID).Delete(&models.UserMediaLibraryPreference{}).Error; err != nil {
 		return err
 	}
 	for _, library := range libraries {
@@ -780,11 +1153,10 @@ func (s *Service) replaceUserPreferences(userID string, libraries []models.PlanG
 			Enabled:   enabled,
 		}
 		if err := tx.Create(&preference).Error; err != nil {
-			tx.Rollback()
 			return err
 		}
 	}
-	return tx.Commit().Error
+	return nil
 }
 
 func (s *Service) applyPolicyOrRecordFailure(user *models.User, planGroupKey, reason string) error {

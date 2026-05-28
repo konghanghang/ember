@@ -141,19 +141,26 @@ func (h *PaymentHandler) RetryFailedEmbyPolicySyncBatch(c *gin.Context) {
 }
 
 func (h *PaymentHandler) PreviewPlanGroupMediaLibrarySync(c *gin.Context) {
-	resp, err := newPolicyService().BuildUnsupportedSyncPreview(c.Param("key"))
+	resp, err := newPolicyService().BuildPlanGroupMediaLibrarySyncPreview(c.Param("key"))
 	if err != nil {
 		handlePolicyError(c, err)
 		return
 	}
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "历史用户媒体库权限预览尚未在第一阶段实现",
-		"data":  resp,
-	})
+	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
 func (h *PaymentHandler) ApplyPlanGroupMediaLibrarySync(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "历史用户媒体库权限应用尚未在第一阶段实现"})
+	var req policypkg.MediaLibrarySyncApplyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	resp, err := newPolicyService().ApplyPlanGroupMediaLibrarySync(c.Param("key"), req, currentUserIDPtr(c))
+	if err != nil {
+		handlePolicyError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
 func (h *UserHandler) GetUserMediaLibraries(c *gin.Context) {
@@ -213,7 +220,12 @@ func (h *UserHandler) ClearAdminUserMediaLibraryPreferences(c *gin.Context) {
 }
 
 func (h *UserHandler) SyncAdminUserMediaLibraryPreferences(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "从 Emby 当前 Policy 同步为用户偏好尚未在第一阶段实现"})
+	resp, err := newPolicyService().SyncUserMediaLibraryPreferencesFromEmby(c.Param("id"))
+	if err != nil {
+		handlePolicyError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
 func (h *UserHandler) UpdateAdminUserEmbyAccess(c *gin.Context) {
