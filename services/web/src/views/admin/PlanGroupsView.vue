@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   CollectionTag,
@@ -14,6 +14,7 @@ import {
   createPlanGroup,
   deletePlanGroup,
   getAdminMediaLibraries,
+  getEmbyPolicySyncBatch,
   getPlanGroupEmbyPolicyTemplate,
   getPlanGroupMediaLibraries,
   getPlanGroups,
@@ -28,6 +29,8 @@ import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard
 import type {
   CreatePlanGroupRequest,
   EmbyPolicySyncBatchCreated,
+  EmbyPolicySyncBatchDetail,
+  EmbyPolicySyncStatus,
   ManagedPlanGroup,
   MediaLibraryOption,
   PlanGroupEmbyPolicyTemplateUpdateRequest,
@@ -47,6 +50,9 @@ const savingLibraries = ref(false)
 const savingPolicy = ref(false)
 const loadingTemplate = ref(false)
 const groups = ref<ManagedPlanGroup[]>([])
+const activeSyncBatch = ref<EmbyPolicySyncBatchDetail | null>(null)
+const syncPollingTimer = ref<number | null>(null)
+const syncTerminalNotified = ref(false)
 
 const dialogVisible = ref(false)
 const editDialogVisible = ref(false)
@@ -86,6 +92,14 @@ const policyForm = ref<PlanGroupEmbyPolicyTemplateUpdateRequest>({
 const defaultGroup = computed(() => groups.value.find(group => group.isDefault) ?? null)
 const referenceCount = computed(() => groups.value.reduce((sum, item) => sum + (item.planCount ?? 0) + (item.userCount ?? 0), 0))
 const mediaLibraryTemplateCount = computed(() => groups.value.reduce((sum, item) => sum + (item.mediaLibraryCount ?? 0), 0))
+const activeSyncCompletedCount = computed(() => {
+  if (!activeSyncBatch.value) return 0
+  return activeSyncBatch.value.syncedCount + activeSyncBatch.value.failedCount
+})
+const activeSyncProgress = computed(() => {
+  if (!activeSyncBatch.value || activeSyncBatch.value.totalCount <= 0) return 100
+  return Math.round((activeSyncCompletedCount.value / activeSyncBatch.value.totalCount) * 100)
+})
 
 /** 判断请求是否被后端同步闸门拦截，用于把 409 显式转成同步中提示。 */
 const isConflictError = (error: unknown) => {
@@ -95,6 +109,31 @@ const isConflictError = (error: unknown) => {
     && (error as { response?: { status?: number } }).response?.status === 409
 }
 
+/** 判断同步批次是否已进入终态，决定短轮询何时停止。 */
+const isTerminalSyncStatus = (status: EmbyPolicySyncStatus) => {
+  return status === 'synced' || status === 'partial_failed' || status === 'failed'
+}
+
+/** 把后端同步状态映射为表格标签文案。 */
+const getPolicySyncStatusLabel = (status?: EmbyPolicySyncStatus) => {
+  const labels: Record<EmbyPolicySyncStatus, string> = {
+    pending: '待同步',
+    processing: '同步中',
+    synced: '已同步',
+    partial_failed: '部分失败',
+    failed: '失败'
+  }
+  return status ? labels[status] : '未知'
+}
+
+/** 把后端同步状态映射为 Element Plus 标签语义。 */
+const getPolicySyncStatusType = (status?: EmbyPolicySyncStatus) => {
+  if (status === 'pending' || status === 'processing') return 'warning'
+  if (status === 'partial_failed' || status === 'failed') return 'danger'
+  if (status === 'synced') return 'success'
+  return 'info'
+}
+
 /** 把模板保存后返回的同步批次压缩成管理员可执行的结果反馈。 */
 const showSyncBatchResult = (batch: EmbyPolicySyncBatchCreated) => {
   if (batch.affectedUserCount > 0) {
@@ -102,6 +141,51 @@ const showSyncBatchResult = (batch: EmbyPolicySyncBatchCreated) => {
     return
   }
   ElMessage.success('模板已保存')
+}
+
+const stopSyncBatchPolling = () => {
+  if (syncPollingTimer.value !== null) {
+    window.clearInterval(syncPollingTimer.value)
+    syncPollingTimer.value = null
+  }
+}
+
+/** 根据 batch id 轮询同步进度，终态后刷新分组摘要。 */
+const pollSyncBatch = async (batchId: string) => {
+  try {
+    const res = await getEmbyPolicySyncBatch(batchId)
+    activeSyncBatch.value = res.data
+    if (!isTerminalSyncStatus(res.data.status)) return
+
+    stopSyncBatchPolling()
+    await fetchData()
+    if (syncTerminalNotified.value) return
+
+    syncTerminalNotified.value = true
+    if (res.data.status === 'synced') {
+      ElMessage.success('用户同步已完成')
+    } else if (res.data.status === 'partial_failed') {
+      ElMessage.warning(`用户同步部分失败：${res.data.failedCount} 个失败`)
+    } else {
+      ElMessage.error('用户同步失败')
+    }
+  } catch {
+    stopSyncBatchPolling()
+  }
+}
+
+/** 启动保存模板后的短轮询；真实同步由后端 worker 执行。 */
+const startSyncBatchPolling = (batch: EmbyPolicySyncBatchCreated) => {
+  stopSyncBatchPolling()
+  syncTerminalNotified.value = false
+  if (batch.affectedUserCount <= 0) {
+    activeSyncBatch.value = null
+    return
+  }
+  void pollSyncBatch(batch.batchId)
+  syncPollingTimer.value = window.setInterval(() => {
+    void pollSyncBatch(batch.batchId)
+  }, 2500)
 }
 
 /** 从后端模板详情中抽取已选媒体库 ID，避免依赖列表接口的扩展字段。 */
@@ -268,6 +352,7 @@ const handleSaveMediaLibraries = async () => {
     const res = await updatePlanGroupMediaLibraries(selectedGroup.value.key, selectedLibraryIds.value)
     mediaDialogVisible.value = false
     showSyncBatchResult(res.data)
+    startSyncBatchPolling(res.data)
     await fetchData()
   } catch (error) {
     if (isConflictError(error)) {
@@ -287,6 +372,7 @@ const handleSavePolicyTemplate = async () => {
     const res = await updatePlanGroupEmbyPolicyTemplate(selectedGroup.value.key, policyForm.value)
     policyDialogVisible.value = false
     showSyncBatchResult(res.data)
+    startSyncBatchPolling(res.data)
     await fetchData()
   } catch (error) {
     if (isConflictError(error)) {
@@ -298,6 +384,7 @@ const handleSavePolicyTemplate = async () => {
 }
 
 onMounted(fetchData)
+onBeforeUnmount(stopSyncBatchPolling)
 </script>
 
 <template>
@@ -362,6 +449,28 @@ onMounted(fetchData)
       </div>
     </div>
 
+    <div
+      v-if="activeSyncBatch"
+      class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm"
+    >
+      <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-900">Emby Policy 同步</span>
+            <el-tag :type="getPolicySyncStatusType(activeSyncBatch.status)" effect="light" round size="small">
+              {{ getPolicySyncStatusLabel(activeSyncBatch.status) }}
+            </el-tag>
+          </div>
+          <div class="mt-1 text-xs text-gray-500">
+            {{ activeSyncCompletedCount }}/{{ activeSyncBatch.totalCount }}，失败 {{ activeSyncBatch.failedCount }}
+          </div>
+        </div>
+        <div class="w-full md:w-72">
+          <el-progress :percentage="activeSyncProgress" :status="activeSyncBatch.status === 'failed' ? 'exception' : undefined" />
+        </div>
+      </div>
+    </div>
+
     <EmberTableCard :data="groups" :loading="loading">
       <template #header>
         <div class="flex items-center justify-between">
@@ -408,6 +517,14 @@ onMounted(fetchData)
       <el-table-column label="显式用户" width="110">
         <template #default="{ row }">
           <span class="font-medium text-gray-700">{{ row.userCount ?? 0 }}</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="同步" width="110">
+        <template #default="{ row }">
+          <el-tag :type="getPolicySyncStatusType(row.policySyncStatus)" effect="light" round size="small">
+            {{ getPolicySyncStatusLabel(row.policySyncStatus) }}
+          </el-tag>
         </template>
       </el-table-column>
 

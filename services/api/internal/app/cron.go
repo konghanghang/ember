@@ -8,6 +8,7 @@ import (
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	devicepkg "github.com/konghang/ember/backend/internal/services/device"
@@ -15,6 +16,7 @@ import (
 	mediagappkg "github.com/konghang/ember/backend/internal/services/mediagap"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	systempkg "github.com/konghang/ember/backend/internal/services/system"
 	telegrampkg "github.com/konghang/ember/backend/internal/services/telegram"
 	tvcalendarpkg "github.com/konghang/ember/backend/internal/services/tvcalendar"
@@ -95,6 +97,7 @@ func initCronJobs() func() {
 	telegramService := telegrampkg.NewDefaultService()
 	tvCalendarService := tvcalendarpkg.NewTVCalendarService()
 	embyCompensation := accountpkg.NewEmbyCompensation(nil)
+	policyService := policypkg.NewService(embyint.GetSharedService())
 	mediaGapScanRecorder := mediagappkg.NewMediaGapScanRecorder()
 	var rankingService *playbackpkg.PlaybackRankingService
 	if rankingCronEnabled {
@@ -155,6 +158,33 @@ func initCronJobs() func() {
 		}
 	}); err != nil {
 		log.Printf("定时任务注册失败（Emby 补偿队列）：%v", err)
+	} else {
+		taskRegistered = true
+	}
+
+	runPolicySyncWorker := func(source string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		result, err := policyService.ProcessPendingEmbyPolicySyncTasks(ctx, 20)
+		if err != nil {
+			log.Printf("[Cron] Emby Policy 同步任务处理失败（%s）：%v", source, err)
+			return
+		}
+		if result.Recovered > 0 || result.Claimed > 0 || result.Failed > 0 {
+			log.Printf("[Cron] Emby Policy 同步任务（%s）：回收 %d 条，领取 %d 条，成功 %d 条，失败 %d 条",
+				source, result.Recovered, result.Claimed, result.Succeeded, result.Failed)
+		}
+	}
+
+	time.AfterFunc(15*time.Second, func() {
+		runPolicySyncWorker("启动补偿")
+	})
+
+	if _, err := c.AddFunc("@every 1m", func() {
+		runPolicySyncWorker("定时")
+	}); err != nil {
+		log.Printf("定时任务注册失败（Emby Policy 同步）：%v", err)
 	} else {
 		taskRegistered = true
 	}

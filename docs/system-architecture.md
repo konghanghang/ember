@@ -30,7 +30,7 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 - 求片订阅（TMDB 搜索 → 管理员审批 → MoviePilot 自动下载）
 - 播放排行榜（日榜 / 周榜，从 Emby PlaybackActivity 生成）
 - Telegram Bot（订阅审批、新用户通知、排行榜推送、欢迎消息、账号绑定/查询/续期、媒体库统计、媒体库显示偏好）
-- 定时任务（过期检查、验证码清理、排行榜生成）
+- 定时任务（过期检查、验证码清理、排行榜生成、Emby Policy 同步）
 
 ## 2. 技术栈
 
@@ -757,10 +757,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | 日榜生成 | `RANKING_DAILY_SCHEDULE`（默认 `0 20 * * *`）| `RANKING_CRON_ENABLED` | 从 Emby 生成日播放排行 |
 | 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
 | 追剧日历同步 | `TV_CALENDAR_SYNC_SCHEDULE`（默认 `0 */12 * * *`） | `CRON_ENABLED` | 同步 TMDB/Emby 追剧日历缓存 |
+| Emby Policy 同步 | `@every 1m` | `CRON_ENABLED` | 领取 pending Policy 同步任务，回收超时 processing 任务 |
 
 补充说明：
 - API 启动后默认会在 `15s` 后额外执行一次追剧日历补偿同步，用于预热周历缓存。
-- 该补偿同步由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
+- API 启动后默认会在 `15s` 后额外执行一次 Emby Policy 同步补偿，用于回收上次进程中断遗留的 processing 任务。
+- 追剧日历启动补偿由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
 - `CRON_TIMEZONE` 不只影响 cron 调度本身，也会作为追剧日历 `today / upcoming / missing` 的用户可见状态判定基线。
 
 **通用配置**：
@@ -768,7 +770,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 | 配置项 | 默认值 | 说明 |
 |----------|--------|------|
-| `CRON_ENABLED` | `"true"` | 是否启用（过期检查 + 验证码清理 + 追剧日历同步）|
+| `CRON_ENABLED` | `"true"` | 是否启用（过期检查 + 验证码清理 + 追剧日历同步 + Emby Policy 同步）|
 | `CRON_SCHEDULE` | `"0 2 * * *"` | 过期检查 cron 表达式 |
 | `CRON_TIMEZONE` | `"Asia/Shanghai"` | cron、排行榜计算与追剧日历状态判定使用的时区 |
 | `RANKING_CRON_ENABLED` | `"false"` | 是否启用排行榜生成 |

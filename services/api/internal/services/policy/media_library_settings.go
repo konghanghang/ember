@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -230,7 +231,7 @@ func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string,
 	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
-	return s.processBatchAndBuildCreated(batch.ID)
+	return s.buildBatchCreated(batch.ID)
 }
 
 func (s *Service) GetPlanGroupEmbyPolicyTemplate(key string) (*PlanGroupEmbyPolicyTemplateResponse, error) {
@@ -300,7 +301,7 @@ func (s *Service) UpdatePlanGroupEmbyPolicyTemplate(key string, req PlanGroupEmb
 	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
-	return s.processBatchAndBuildCreated(batch.ID)
+	return s.buildBatchCreated(batch.ID)
 }
 
 func (s *Service) GetUserMediaLibrarySettings(userID string) (*UserMediaLibrarySettings, error) {
@@ -483,7 +484,7 @@ func (s *Service) RetryFailedEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatc
 		return nil, err
 	}
 	if len(tasks) == 0 {
-		return s.processBatchAndBuildCreated(id)
+		return s.buildBatchCreated(id)
 	}
 	for _, task := range tasks {
 		if err := s.ensureNoActiveUserTasks(task.UserID); err != nil {
@@ -500,7 +501,7 @@ func (s *Service) RetryFailedEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatc
 		}).Error; err != nil {
 		return nil, err
 	}
-	return s.processBatchAndBuildCreated(id)
+	return s.buildBatchCreated(id)
 }
 
 func (s *Service) BuildUnsupportedSyncPreview(key string) (*MediaLibrarySyncPreviewResult, error) {
@@ -590,55 +591,16 @@ func (s *Service) createBatchWithTasks(tx *gorm.DB, planGroupKey, reason string,
 	return &batch, nil
 }
 
-func (s *Service) processBatchAndBuildCreated(batchID string) (*EmbyPolicySyncBatchCreated, error) {
+// buildBatchCreated 只刷新并返回批次创建结果，不在 HTTP 请求内执行同步任务。
+func (s *Service) buildBatchCreated(batchID string) (*EmbyPolicySyncBatchCreated, error) {
+	if err := s.refreshBatchStatus(batchID); err != nil {
+		return nil, err
+	}
 	var batch models.EmbyPolicySyncBatch
 	if err := s.db.Where("id = ?", batchID).First(&batch).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrBatchNotFound
 		}
-		return nil, err
-	}
-	var tasks []models.EmbyPolicySyncTask
-	if err := s.db.Where("batch_id = ? AND status = ?", batch.ID, SyncStatusPending).
-		Order("created_at ASC").
-		Find(&tasks).Error; err != nil {
-		return nil, err
-	}
-	for _, task := range tasks {
-		now := time.Now().UTC()
-		if err := s.db.Model(&models.EmbyPolicySyncTask{}).
-			Where("id = ? AND status = ?", task.ID, SyncStatusPending).
-			Updates(map[string]any{
-				"status":     SyncStatusProcessing,
-				"attempts":   gorm.Expr("attempts + 1"),
-				"updated_at": now,
-			}).Error; err != nil {
-			return nil, err
-		}
-		err := s.ApplyEffectiveUserPolicy(task.UserID, task.Reason)
-		status := SyncStatusSynced
-		var lastError *string
-		if err != nil {
-			status = SyncStatusFailed
-			msg := truncateError(err)
-			lastError = &msg
-			log.Printf("[Policy] 批量同步用户 Emby Policy 失败: batchID=%s taskID=%s userID=%s err=%v", batch.ID, task.ID, task.UserID, err)
-		}
-		if err := s.db.Model(&models.EmbyPolicySyncTask{}).
-			Where("id = ?", task.ID).
-			Updates(map[string]any{
-				"status":        status,
-				"last_error":    lastError,
-				"next_retry_at": nil,
-				"updated_at":    time.Now().UTC(),
-			}).Error; err != nil {
-			return nil, err
-		}
-	}
-	if err := s.refreshBatchStatus(batch.ID); err != nil {
-		return nil, err
-	}
-	if err := s.db.Where("id = ?", batch.ID).First(&batch).Error; err != nil {
 		return nil, err
 	}
 	return &EmbyPolicySyncBatchCreated{
@@ -666,26 +628,9 @@ func (s *Service) refreshBatchStatus(batchID string) error {
 	for _, task := range tasks {
 		counts[task.Status]++
 	}
-	status := SyncStatusPending
-	finishedAt := batch.FinishedAt
 	total := len(tasks)
-	if total == 0 {
-		status = SyncStatusSynced
-		now := time.Now().UTC()
-		finishedAt = &now
-	} else if counts[SyncStatusPending] == 0 && counts[SyncStatusProcessing] == 0 {
-		now := time.Now().UTC()
-		finishedAt = &now
-		if counts[SyncStatusFailed] == 0 {
-			status = SyncStatusSynced
-		} else if counts[SyncStatusSynced] == 0 {
-			status = SyncStatusFailed
-		} else {
-			status = SyncStatusPartialFailed
-		}
-	} else if counts[SyncStatusProcessing] > 0 {
-		status = SyncStatusProcessing
-	}
+	now := time.Now().UTC()
+	status, finishedAt := resolveBatchStatus(total, counts[SyncStatusPending], counts[SyncStatusProcessing], counts[SyncStatusSynced], counts[SyncStatusFailed], batch.FinishedAt, now)
 	return s.db.Model(&models.EmbyPolicySyncBatch{}).
 		Where("id = ?", batch.ID).
 		Updates(map[string]any{
@@ -787,6 +732,9 @@ func (s *Service) findUserByTelegramID(telegramID int64) (*models.User, error) {
 }
 
 func (s *Service) ensureNoActiveGroupTasks(planGroupKey string) error {
+	if _, _, err := s.recoverStalePolicySyncTasks(context.Background(), defaultPolicySyncProcessingTTL); err != nil {
+		return err
+	}
 	var count int64
 	if err := s.db.Model(&models.EmbyPolicySyncTask{}).
 		Where("plan_group_key = ? AND status IN ?", planGroupKey, []string{SyncStatusPending, SyncStatusProcessing}).
@@ -800,6 +748,9 @@ func (s *Service) ensureNoActiveGroupTasks(planGroupKey string) error {
 }
 
 func (s *Service) ensureNoActiveUserTasks(userID string) error {
+	if _, _, err := s.recoverStalePolicySyncTasks(context.Background(), defaultPolicySyncProcessingTTL); err != nil {
+		return err
+	}
 	var count int64
 	if err := s.db.Model(&models.EmbyPolicySyncTask{}).
 		Where("user_id = ? AND status IN ?", userID, []string{SyncStatusPending, SyncStatusProcessing}).
