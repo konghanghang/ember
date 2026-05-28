@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	"github.com/konghang/ember/backend/internal/common"
@@ -17,42 +18,55 @@ func (s *AuthService) persistRegisteredUser(
 	req *RegisterUserRequest,
 	prepared *registerPreparation,
 	embyUser *embyint.EmbyUser,
-) (*models.User, error) {
+) (*models.User, string, error) {
 	user, err := s.buildRegisteredUser(req, prepared, embyUser)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
-		return nil, errors.New("创建用户失败")
+		return nil, "", errors.New("创建用户失败")
 	}
 
 	if s.emailService.IsEnabled() {
 		if err := s.emailService.ConsumeCodeTx(tx, req.Email, req.EmailCode, models.VerificationTypeRegister); err != nil {
 			tx.Rollback()
-			return nil, err
+			return nil, "", err
 		}
 	}
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
-		return nil, errors.New("创建用户失败")
+		return nil, "", errors.New("创建用户失败")
 	}
 
 	if err := s.applyInviteRegistration(tx, req, prepared, user); err != nil {
 		tx.Rollback()
-		return nil, err
+		return nil, "", err
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		return nil, errors.New("创建用户失败")
+		return nil, "", errors.New("创建用户失败")
 	}
-	if err := policypkg.NewService(s.newEmbyClient()).ApplyEffectiveUserPolicy(user.ID, "user_registered"); err != nil {
-		return nil, err
-	}
+	policySyncStatus := s.applyRegisteredUserPolicy(user)
 
-	return user, nil
+	return user, policySyncStatus, nil
+}
+
+// applyRegisteredUserPolicy 在注册主事务完成后尝试写入 Emby Policy。
+// 外部 Policy 写入失败不能再改变注册结果；失败只入同步任务，由 worker 后续重试。
+func (s *AuthService) applyRegisteredUserPolicy(user *models.User) string {
+	policyService := policypkg.NewService(s.newEmbyClient())
+	if err := policyService.ApplyEffectiveUserPolicy(user.ID, "user_registered"); err != nil {
+		if queueErr := policyService.EnqueueUserPolicySyncRetry(user, "user_registered", err); queueErr != nil {
+			log.Printf("[Auth] 注册成功但记录 Emby Policy 同步重试任务失败: userID=%s embyID=%s err=%v queueErr=%v", user.ID, user.EmbyID, err, queueErr)
+			return policypkg.SyncStatusFailed
+		}
+		log.Printf("[Auth] 注册成功但 Emby Policy 同步失败，已记录重试任务: userID=%s embyID=%s err=%v", user.ID, user.EmbyID, err)
+		return policypkg.SyncStatusPending
+	}
+	return policypkg.SyncStatusSynced
 }
 
 func (s *AuthService) buildRegisteredUser(

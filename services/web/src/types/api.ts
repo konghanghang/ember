@@ -220,6 +220,7 @@ export interface LoginProtectionConfig {
 export interface RegisterResponse {
   token: string
   user: UserInfo
+  policySyncStatus?: EmbyPolicySyncStatus
 }
 
 export interface PaginationQuery {

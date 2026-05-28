@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
@@ -23,6 +24,57 @@ type EmbyPolicySyncWorkerResult struct {
 	Claimed   int
 	Succeeded int
 	Failed    int
+}
+
+// EnqueueUserPolicySyncRetry 记录单个用户的待重试 Policy 同步任务。
+// 当同一用户已有 pending/processing 任务时直接复用现有任务，避免破坏 active 唯一约束。
+func (s *Service) EnqueueUserPolicySyncRetry(user *models.User, reason string, cause error) error {
+	if s == nil || s.db == nil {
+		return errors.New("Policy 服务未配置数据库")
+	}
+	task, err := buildUserPolicySyncRetryTask(user, reason, cause, time.Now().UTC())
+	if err != nil || task == nil {
+		return err
+	}
+	var activeCount int64
+	if err := s.db.Model(&models.EmbyPolicySyncTask{}).
+		Where("user_id = ? AND status IN ?", task.UserID, []string{SyncStatusPending, SyncStatusProcessing}).
+		Count(&activeCount).Error; err != nil {
+		return err
+	}
+	if activeCount > 0 {
+		return nil
+	}
+	return s.db.Create(task).Error
+}
+
+// buildUserPolicySyncRetryTask 把注册后首次同步失败转换成 worker 可继续消费的 pending 任务。
+func buildUserPolicySyncRetryTask(user *models.User, reason string, cause error, now time.Time) (*models.EmbyPolicySyncTask, error) {
+	if user == nil {
+		return nil, errors.New("用户不能为空")
+	}
+	if strings.TrimSpace(user.EmbyID) == "" {
+		return nil, nil
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "unspecified"
+	}
+	planGroupKey := ""
+	if user.PlanGroup != nil {
+		planGroupKey = *user.PlanGroup
+	}
+	msg := truncateError(cause)
+	return &models.EmbyPolicySyncTask{
+		UserID:       user.ID,
+		EmbyID:       user.EmbyID,
+		PlanGroupKey: planGroupKey,
+		Reason:       reason,
+		Status:       SyncStatusPending,
+		Attempts:     1,
+		LastError:    &msg,
+		NextRetryAt:  &now,
+	}, nil
 }
 
 // ProcessPendingEmbyPolicySyncTasks 回收超时 processing 任务，并领取到期 pending 任务执行 Emby Policy 同步。

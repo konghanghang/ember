@@ -49,7 +49,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		return nil, errors.New("创建 Emby 用户失败：" + err.Error())
 	}
 
-	user, err := s.persistRegisteredUser(req, prepared, embyUser)
+	user, policySyncStatus, err := s.persistRegisteredUser(req, prepared, embyUser)
 	if err != nil {
 		s.rollbackEmbyRegistration(embyService, embyUser.ID)
 		return nil, err
@@ -63,8 +63,9 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 	}
 
 	return &RegisterUserResponse{
-		Token: token,
-		User:  user,
+		Token:            token,
+		User:             user,
+		PolicySyncStatus: policySyncStatus,
 	}, nil
 }
 

@@ -202,6 +202,7 @@ type RegisterUserRequest struct {
 
 // RegisterUserResponse 用户注册响应
 type RegisterUserResponse struct {
-	Token string       `json:"token"`
-	User  *models.User `json:"user"`
+	Token            string       `json:"token"`
+	User             *models.User `json:"user"`
+	PolicySyncStatus string       `json:"policySyncStatus,omitempty"`
 }

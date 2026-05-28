@@ -1,8 +1,11 @@
 package policy
 
 import (
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/konghang/ember/backend/internal/models"
 )
 
 func TestResolveBatchStatusKeepsPendingWhenTasksAreWaiting(t *testing.T) {
@@ -68,5 +71,47 @@ func TestResolveBatchStatusPreservesExistingFinishedAt(t *testing.T) {
 
 	if finishedAt == nil || !finishedAt.Equal(existing) {
 		t.Fatalf("expected existing finishedAt %v, got %v", existing, finishedAt)
+	}
+}
+
+func TestBuildUserPolicySyncRetryTaskUsesPendingRetryState(t *testing.T) {
+	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	planGroup := "VIP_A"
+
+	task, err := buildUserPolicySyncRetryTask(&models.User{
+		ID:        "user_1",
+		EmbyID:    "emby_1",
+		PlanGroup: &planGroup,
+	}, " user_registered ", errors.New("policy write failed"), now)
+	if err != nil {
+		t.Fatalf("expected task build success, got %v", err)
+	}
+	if task == nil {
+		t.Fatalf("expected retry task")
+	}
+	if task.UserID != "user_1" || task.EmbyID != "emby_1" || task.PlanGroupKey != "VIP_A" {
+		t.Fatalf("unexpected task identity: %+v", task)
+	}
+	if task.Reason != "user_registered" {
+		t.Fatalf("expected trimmed reason, got %q", task.Reason)
+	}
+	if task.Status != SyncStatusPending || task.Attempts != 1 {
+		t.Fatalf("expected pending retry with one recorded attempt, got status=%s attempts=%d", task.Status, task.Attempts)
+	}
+	if task.LastError == nil || *task.LastError != "policy write failed" {
+		t.Fatalf("expected last error to be preserved, got %+v", task.LastError)
+	}
+	if task.NextRetryAt == nil || !task.NextRetryAt.Equal(now) {
+		t.Fatalf("expected nextRetryAt %v, got %v", now, task.NextRetryAt)
+	}
+}
+
+func TestBuildUserPolicySyncRetryTaskSkipsUnboundEmbyUser(t *testing.T) {
+	task, err := buildUserPolicySyncRetryTask(&models.User{ID: "user_1"}, "user_registered", errors.New("boom"), time.Now())
+	if err != nil {
+		t.Fatalf("expected unbound Emby user to be skipped without error, got %v", err)
+	}
+	if task != nil {
+		t.Fatalf("expected no task for unbound Emby user, got %+v", task)
 	}
 }
