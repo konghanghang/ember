@@ -260,20 +260,16 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 	}
 
 	if req.PlanGroup != nil {
-		planGroup, err := paymentpkg.NormalizePlanGroupKey(*req.PlanGroup, true)
+		planGroup, err := normalizePlanGroupUpdate(*req.PlanGroup)
 		if err != nil {
 			tx.Rollback()
 			return nil, err
 		}
-		if planGroup == "" {
-			user.PlanGroup = nil
-		} else {
-			if _, err := paymentpkg.GetPlanGroupByKey(tx, planGroup); err != nil {
-				tx.Rollback()
-				return nil, err
-			}
-			user.PlanGroup = &planGroup
+		if _, err := paymentpkg.GetPlanGroupByKey(tx, planGroup); err != nil {
+			tx.Rollback()
+			return nil, err
 		}
+		user.PlanGroup = &planGroup
 	}
 
 	if req.ClearExpiresAt {

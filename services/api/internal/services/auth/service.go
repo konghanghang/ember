@@ -13,6 +13,7 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	"gorm.io/gorm"
 )
@@ -56,6 +57,7 @@ type AuthServiceDeps struct {
 	SaveUser                   func(user *models.User) error
 	GetRegistrationMode        func() string
 	GetDefaultTrialDays        func() int
+	GetDefaultPlanGroup        func() (*models.PlanGroup, error)
 	IsRegistrationEmailAllowed func(email string) error
 	ValidateRegistrationCode   func(code string) (*models.RedemptionCode, error)
 	Compensation               *accountpkg.EmbyCompensation
@@ -72,6 +74,7 @@ type AuthService struct {
 	saveUser                   func(user *models.User) error
 	getRegistrationMode        func() string
 	getDefaultTrialDays        func() int
+	getDefaultPlanGroup        func() (*models.PlanGroup, error)
 	isRegistrationEmailAllowed func(email string) error
 	validateRegistrationCode   func(code string) (*models.RedemptionCode, error)
 	compensation               *accountpkg.EmbyCompensation
@@ -108,6 +111,7 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 		saveUser:                   deps.SaveUser,
 		getRegistrationMode:        deps.GetRegistrationMode,
 		getDefaultTrialDays:        deps.GetDefaultTrialDays,
+		getDefaultPlanGroup:        deps.GetDefaultPlanGroup,
 		isRegistrationEmailAllowed: deps.IsRegistrationEmailAllowed,
 		validateRegistrationCode:   deps.ValidateRegistrationCode,
 		compensation:               deps.Compensation,
@@ -148,6 +152,11 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 	if service.getDefaultTrialDays == nil {
 		service.getDefaultTrialDays = func() int {
 			return defaultConfigReader.GetDefaultTrialDays()
+		}
+	}
+	if service.getDefaultPlanGroup == nil {
+		service.getDefaultPlanGroup = func() (*models.PlanGroup, error) {
+			return paymentpkg.GetDefaultPlanGroup(nil)
 		}
 	}
 	if service.isRegistrationEmailAllowed == nil {

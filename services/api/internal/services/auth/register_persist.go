@@ -70,15 +70,33 @@ func (s *AuthService) buildRegisteredUser(
 		ExpiresAt: &expiresAt,
 		IsActive:  true,
 	}
-	if prepared.registrationPlanGroup != nil {
-		planGroup := *prepared.registrationPlanGroup
-		user.PlanGroup = &planGroup
+	planGroup, err := s.resolveRegistrationPlanGroup(prepared)
+	if err != nil {
+		return nil, err
 	}
+	user.PlanGroup = &planGroup
 	if err := user.SetPassword(req.Password); err != nil {
 		return nil, errors.New("创建用户失败")
 	}
 
 	return user, nil
+}
+
+// resolveRegistrationPlanGroup 为注册用户解析必须持久化的套餐分组。
+// 邀请码显式绑定分组时优先使用该分组；开放注册或旧邀请码未绑定时写入当前默认分组，
+// 避免后续模板同步链路再依赖 users.plan_group IS NULL 的隐式跟随语义。
+func (s *AuthService) resolveRegistrationPlanGroup(prepared *registerPreparation) (string, error) {
+	if prepared != nil && prepared.registrationPlanGroup != nil {
+		return *prepared.registrationPlanGroup, nil
+	}
+	if s.getDefaultPlanGroup == nil {
+		return "", errors.New("默认套餐分组不可用")
+	}
+	group, err := s.getDefaultPlanGroup()
+	if err != nil {
+		return "", err
+	}
+	return group.Key, nil
 }
 
 func (s *AuthService) applyInviteRegistration(

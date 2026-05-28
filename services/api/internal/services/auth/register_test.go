@@ -343,3 +343,25 @@ func TestBuildRegisteredUserAppliesRegistrationPlanGroup(t *testing.T) {
 		t.Fatalf("expected persisted user plan group VIP_A, got %+v", user.PlanGroup)
 	}
 }
+
+func TestBuildRegisteredUserAppliesDefaultPlanGroup(t *testing.T) {
+	service := &AuthService{
+		getDefaultPlanGroup: func() (*models.PlanGroup, error) {
+			return &models.PlanGroup{Key: "DEFAULT", Name: "默认分组"}, nil
+		},
+	}
+
+	user, err := service.buildRegisteredUser(&RegisterUserRequest{
+		Username: "ember",
+		Password: "secret123",
+		Email:    "ember@example.com",
+	}, &registerPreparation{
+		defaultDays: 30,
+	}, &embyint.EmbyUser{ID: "emby_1"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if user.PlanGroup == nil || *user.PlanGroup != "DEFAULT" {
+		t.Fatalf("expected persisted user plan group DEFAULT, got %+v", user.PlanGroup)
+	}
+}

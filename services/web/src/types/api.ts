@@ -244,7 +244,7 @@ export interface UserListResponse {
 export interface UpdateAdminUserRequest {
   email?: string
   isActive?: boolean
-  planGroup?: PlanGroup | ''
+  planGroup?: PlanGroup
   expiresAt?: string
   clearExpiresAt?: boolean
 }

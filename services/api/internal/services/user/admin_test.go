@@ -1,6 +1,11 @@
 package user
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
+)
 
 func TestNormalizePlanGroupStrict(t *testing.T) {
 	tests := []struct {
@@ -28,5 +33,12 @@ func TestNormalizePlanGroupStrict(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("%s: want %s, got %s", tc.name, tc.want, got)
 		}
+	}
+}
+
+func TestNormalizePlanGroupUpdateRejectsBlank(t *testing.T) {
+	_, err := normalizePlanGroupUpdate(" ")
+	if !errors.Is(err, paymentpkg.ErrPlanGroupInvalid) {
+		t.Fatalf("expected ErrPlanGroupInvalid, got %v", err)
 	}
 }

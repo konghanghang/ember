@@ -320,7 +320,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 调用注册场景兑换码校验（会额外校验 `registrationPlanGroup` 仍存在）→ `"open"`: 读取 `default_trial_days`
 2. 调用 `ConfigService.IsRegistrationEmailAllowed(email)` 做注册邮箱域名白名单门控；非空白名单且邮箱域名不在白名单内时直接返回 400，不消耗邀请码、不调用 Emby、不写库；空白名单视为关闭限制（详见 §5.5 与 §5.13；reset / change_email / 后台创建用户不走该门控）
 3. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码（VerifyCode 在事务中"校验即消费"，详见 §5.13）
-4. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式且兑换码绑定 `registrationPlanGroup` 时，把该 key 写入 `users.planGroup`，未绑定时继续跟随系统默认分组
+4. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式且兑换码绑定 `registrationPlanGroup` 时，把该 key 写入 `users.planGroup`，未绑定时显式写入当前默认分组，避免新增用户继续依赖 `users.plan_group IS NULL` 的隐式跟随语义
 5. invite 模式且兑换码绑定 `templateUserId` 时：按白名单字段复制模板用户 Emby Policy
 6. 签发 JWT
 7. 火忘式通知 Bot（新用户注册）
@@ -343,7 +343,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 ### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
 
 - `GetUsers(page, pageSize, search, isActive, expiresAfter, embyStatus, planGroup)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`；`embyStatus` 支持 `available/disabled/unlinked`；`planGroup` 按“有效套餐分组”过滤：用户显式分组优先，否则回退系统默认分组）
-- `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态/套餐组/到期时间；`planGroup` 不传表示不改，传合法 key 表示显式绑定，传空字符串表示清空显式绑定并改为跟随系统默认分组；有效分组变化后会同步把该用户关联的 `pending` 支付标记为 `expired`
+- `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态/套餐组/到期时间；`planGroup` 不传表示不改，传合法 key 表示绑定目标分组，传空字符串会被拒绝；有效分组变化后会同步把该用户关联的 `pending` 支付标记为 `expired`
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
 - `GetProfile(userID)` — 获取用户个人资料
 - `UpdateEmail(userID, req)` — 邮箱变更落库；`UpdateEmailRequest{NewEmail string \`binding:"required,email"\`, Code string \`binding:"required,len=6"\`}`，先做 `unchangedEmailCheck` → 调用 `EmailService.IsRegistrationEmailAllowed(newEmail)` 做注册邮箱域名白名单门控（命中拒绝在事务开启前直接返回，不消费验证码、不写库；与 `SendEmailChangeCode` 共用同一份语义防御 send-code 通过后管理员收紧白名单的窗口）→ 事务内 `EmailService.ConsumeCodeTx(tx, newEmail, code, change_email)`（校验即消费）→ `UPDATE users.email`；返回 `*UpdateEmailResult{OldEmail, User}` 由 handler 用于 fire-and-forget 通知旧邮箱

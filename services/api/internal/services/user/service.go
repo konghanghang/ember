@@ -164,6 +164,12 @@ func normalizePlanGroupStrict(raw string) (string, error) {
 	return paymentpkg.NormalizePlanGroupKey(raw, false)
 }
 
+// normalizePlanGroupUpdate 校验管理员更新用户分组时的显式分组值。
+// 用户分组不再允许清空为 NULL，避免默认分组模板同步遗漏这类隐式跟随用户。
+func normalizePlanGroupUpdate(raw string) (string, error) {
+	return paymentpkg.NormalizePlanGroupKey(raw, false)
+}
+
 // syncEmbyPolicy 为已持久化用户应用统一计算后的 Emby Policy。
 func (s *UserService) syncEmbyPolicy(user *models.User, reason string) error {
 	if user.EmbyID == "" {

@@ -27,7 +27,7 @@
 | EmbyDisabled | bool | embyDisabled | Emby 端 `Policy.IsDisabled` 同步缓存；只在有效 Policy 同步成功后更新 |
 | EmbyAccessDisabled | bool | embyAccessDisabled | 管理员显式禁用 Emby 访问的业务意图；不影响 Ember Web 登录 |
 | TelegramID | *int64 | telegramId | Telegram 绑定 ID（唯一，可空） |
-| PlanGroup | *string | planGroup | 用户显式绑定的套餐分组 key；为空时按系统默认分组计算可见/可购套餐 |
+| PlanGroup | *string | planGroup | 用户绑定的套餐分组 key；新增 / 编辑用户必须显式写入有效分组，历史空值仅作为兼容态按系统默认分组读取 |
 | ExpiresAt | *time.Time | expiresAt | 到期时间（nil=永不过期）|
 | IsActive | bool | isActive | 管理员手动开关 |
 | CreatedAt | time.Time | createdAt | 自动 |
