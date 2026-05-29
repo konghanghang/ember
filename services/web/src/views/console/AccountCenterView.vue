@@ -291,6 +291,23 @@ const handleConfirmEmailChange = async () => {
 
 /** 保存用户在分组模板范围内的媒体库启用集合，提交给后端做完整快照。 */
 const handleSaveMediaLibraries = async () => {
+  if (selectedMediaLibraryIds.value.length === 0) {
+    try {
+      await ElMessageBox.confirm(
+        '保存后将关闭所有媒体库显示，Emby 客户端中不会保留任何已启用媒体库。确定继续吗？',
+        '确认关闭全部媒体库',
+        {
+          confirmButtonText: '确认关闭',
+          cancelButtonText: '取消',
+          type: 'warning',
+          confirmButtonClass: 'el-button--danger'
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
   savingMediaLibraries.value = true
   try {
     const res = await updateUserMediaLibraries(selectedMediaLibraryIds.value)

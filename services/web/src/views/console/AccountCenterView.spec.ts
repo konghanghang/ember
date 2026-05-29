@@ -11,7 +11,7 @@ import {
 } from '@/api/console'
 import { getRegistrationMode } from '@/api/auth'
 import { bindAdminEmbyAccount, getAdminEmbyUsers } from '@/api/admin'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 vi.mock('@/api/console', () => ({
   sendEmailChangeCode: vi.fn(),
@@ -55,6 +55,9 @@ vi.mock('element-plus', () => ({
     success: vi.fn(),
     warning: vi.fn(),
     error: vi.fn(),
+  },
+  ElMessageBox: {
+    confirm: vi.fn(),
   },
 }))
 
@@ -498,6 +501,49 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     expect(updateUserMediaLibraries).toHaveBeenCalledWith(['lib_movie'])
     expect(ElMessage.success).toHaveBeenCalledWith('媒体库偏好已保存')
+  })
+
+  it('保存空媒体库集合前要求二次确认', async () => {
+    vi.mocked(ElMessageBox.confirm).mockResolvedValueOnce('confirm' as never)
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.$.setupState.selectedMediaLibraryIds = []
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
+    expect(saveButton, '未找到保存偏好按钮').toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      '保存后将关闭所有媒体库显示，Emby 客户端中不会保留任何已启用媒体库。确定继续吗？',
+      '确认关闭全部媒体库',
+      expect.objectContaining({
+        confirmButtonText: '确认关闭',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }),
+    )
+    expect(updateUserMediaLibraries).toHaveBeenCalledWith([])
+  })
+
+  it('取消空媒体库集合确认不会提交保存', async () => {
+    vi.mocked(ElMessageBox.confirm).mockRejectedValueOnce(new Error('cancel'))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.$.setupState.selectedMediaLibraryIds = []
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1)
+    expect(updateUserMediaLibraries).not.toHaveBeenCalled()
   })
 
   it('恢复默认会调用偏好删除接口', async () => {

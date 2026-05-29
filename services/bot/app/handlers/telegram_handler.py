@@ -53,6 +53,8 @@ SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY = 4
 SUBSCRIPTION_ADMIN_SYNC_CONCURRENCY = 4
 TELEGRAM_CALLBACK_DATA_LIMIT = 64
 LIBRARY_CALLBACK_PREFIX = "lib:toggle:"
+LIBRARY_DISABLE_CONFIRM_PREFIX = "lib:confirm:"
+LIBRARY_DISABLE_CANCEL_CALLBACK = "lib:cancel"
 LIBRARY_RESET_CALLBACK = "lib:reset"
 LIBRARY_TOKEN_TTL_SECONDS = 900
 _library_token_map: dict[str, tuple[str, float]] = {}
@@ -146,10 +148,10 @@ def _cleanup_library_tokens(now: float | None = None) -> None:
         _library_token_map.pop(token, None)
 
 
-def _encode_library_token(library_id: str) -> str:
+def _encode_library_token(library_id: str, prefix: str = LIBRARY_CALLBACK_PREFIX) -> str:
     """把 libraryId 编码进 Telegram callbackData，超长时降级为带 TTL 的短 token。"""
     raw_token = base64.urlsafe_b64encode(library_id.encode("utf-8")).decode("ascii").rstrip("=")
-    callback_data = f"{LIBRARY_CALLBACK_PREFIX}{raw_token}"
+    callback_data = f"{prefix}{raw_token}"
     if len(callback_data.encode("utf-8")) <= TELEGRAM_CALLBACK_DATA_LIMIT:
         return raw_token
 
@@ -181,6 +183,28 @@ def _library_sync_hint(status: str) -> str:
     if status == "failed":
         return "⚠️ Emby 同步失败，请联系管理员处理"
     return "ℹ️ Emby 同步状态未知"
+
+
+def _find_library_setting(settings: dict[str, Any], library_id: str) -> dict[str, Any] | None:
+    """从媒体库设置 DTO 中按 libraryId 找到当前库配置，DTO 异常时返回 None。"""
+    libraries = settings.get("libraries", [])
+    if not isinstance(libraries, list):
+        return None
+
+    for item in libraries:
+        if isinstance(item, dict) and str(item.get("id") or "").strip() == library_id:
+            return item
+    return None
+
+
+def _is_disabling_last_library(settings: dict[str, Any], library_id: str) -> bool:
+    """判断本次点击是否会关闭最后一个已启用媒体库。"""
+    library = _find_library_setting(settings, library_id)
+    if library is None or not bool(library.get("enabled", False)):
+        return False
+
+    enabled_count = int(settings.get("enabledCount", 0) or 0)
+    return enabled_count == 1
 
 
 def _format_library_settings(settings: dict[str, Any]) -> tuple[str, InlineKeyboardMarkup]:
@@ -226,6 +250,25 @@ def _format_library_settings(settings: dict[str, Any]) -> tuple[str, InlineKeybo
 
     keyboard_rows.append([InlineKeyboardButton("↩️ 恢复分组默认", callback_data=LIBRARY_RESET_CALLBACK)])
     return "\n".join(lines), InlineKeyboardMarkup(keyboard_rows)
+
+
+def _format_library_disable_confirmation(
+    settings: dict[str, Any],
+    library_id: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """渲染关闭最后一个媒体库前的确认消息，确认后才调用后端 toggle。"""
+    text, _keyboard = _format_library_settings(settings)
+    library = _find_library_setting(settings, library_id) or {}
+    library_name = escape(str(library.get("name") or library_id))
+    token = _encode_library_token(library_id, LIBRARY_DISABLE_CONFIRM_PREFIX)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("确认关闭全部媒体库", callback_data=f"{LIBRARY_DISABLE_CONFIRM_PREFIX}{token}")],
+        [InlineKeyboardButton("取消", callback_data=LIBRARY_DISABLE_CANCEL_CALLBACK)],
+    ])
+    return (
+        f"{text}\n\n⚠️ 将关闭最后一个已启用媒体库：<b>{library_name}</b>。请确认是否继续。",
+        keyboard,
+    )
 
 
 async def _edit_library_error(query, error_text: str) -> None:
@@ -898,12 +941,53 @@ async def handle_libraries_callback(update: Update, context: ContextTypes.DEFAUL
 
     if query.data == LIBRARY_RESET_CALLBACK:
         result = await api_client.reset_media_library_preferences(query.from_user.id)
+    elif query.data == LIBRARY_DISABLE_CANCEL_CALLBACK:
+        result = await api_client.get_media_library_settings(query.from_user.id)
+        if result is None:
+            await _edit_library_error(query, "媒体库设置暂不可用，请稍后重试")
+            await query.answer("操作失败", show_alert=True)
+            return
+        if "error" in result:
+            error_text = str(result.get("error", "操作失败"))
+            await _edit_library_error(query, error_text)
+            await query.answer(f"操作失败：{error_text}", show_alert=True)
+            return
+
+        text, keyboard = _format_library_settings(_unwrap_payload_data(result))
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=keyboard)
+        await query.answer("已取消")
+        return
+    elif query.data.startswith(LIBRARY_DISABLE_CONFIRM_PREFIX):
+        token = query.data[len(LIBRARY_DISABLE_CONFIRM_PREFIX):]
+        library_id = _decode_library_token(token)
+        if library_id is None:
+            await query.answer("操作已过期，请重新打开 /libraries", show_alert=True)
+            return
+        result = await api_client.toggle_media_library(query.from_user.id, library_id)
     elif query.data.startswith(LIBRARY_CALLBACK_PREFIX):
         token = query.data[len(LIBRARY_CALLBACK_PREFIX):]
         library_id = _decode_library_token(token)
         if library_id is None:
             await query.answer("操作已过期，请重新打开 /libraries", show_alert=True)
             return
+        settings_result = await api_client.get_media_library_settings(query.from_user.id)
+        if settings_result is None:
+            await _edit_library_error(query, "媒体库设置暂不可用，请稍后重试")
+            await query.answer("操作失败", show_alert=True)
+            return
+        if "error" in settings_result:
+            error_text = str(settings_result.get("error", "操作失败"))
+            await _edit_library_error(query, error_text)
+            await query.answer(f"操作失败：{error_text}", show_alert=True)
+            return
+
+        current_settings = _unwrap_payload_data(settings_result)
+        if _is_disabling_last_library(current_settings, library_id):
+            text, keyboard = _format_library_disable_confirmation(current_settings, library_id)
+            await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=keyboard)
+            await query.answer("请确认是否关闭全部媒体库", show_alert=True)
+            return
+
         result = await api_client.toggle_media_library(query.from_user.id, library_id)
     else:
         await query.answer("操作无效", show_alert=True)
