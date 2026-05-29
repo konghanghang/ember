@@ -18,6 +18,7 @@ import {
   getPlanGroupEmbyPolicyTemplate,
   getPlanGroupMediaLibraries,
   getPlanGroups,
+  retryFailedEmbyPolicySyncBatch,
   updatePlanGroup,
   updatePlanGroupEmbyPolicyTemplate,
   updatePlanGroupMediaLibraries
@@ -49,6 +50,7 @@ const updating = ref(false)
 const savingLibraries = ref(false)
 const savingPolicy = ref(false)
 const loadingTemplate = ref(false)
+const retryingSyncBatch = ref(false)
 const groups = ref<ManagedPlanGroup[]>([])
 const activeSyncBatch = ref<EmbyPolicySyncBatchDetail | null>(null)
 const syncPollingTimer = ref<number | null>(null)
@@ -99,6 +101,17 @@ const activeSyncCompletedCount = computed(() => {
 const activeSyncProgress = computed(() => {
   if (!activeSyncBatch.value || activeSyncBatch.value.totalCount <= 0) return 100
   return Math.round((activeSyncCompletedCount.value / activeSyncBatch.value.totalCount) * 100)
+})
+const canRetryActiveSyncBatch = computed(() => {
+  const batch = activeSyncBatch.value
+  return !!batch
+    && batch.failedCount > 0
+    && (batch.status === 'failed' || batch.status === 'partial_failed')
+})
+const activeSyncFailedUsers = computed(() => (activeSyncBatch.value?.failedUsers ?? []).slice(0, 5))
+const activeSyncHiddenFailedUserCount = computed(() => {
+  const total = activeSyncBatch.value?.failedCount ?? 0
+  return Math.max(total - activeSyncFailedUsers.value.length, 0)
 })
 
 /** 判断请求是否被后端同步闸门拦截，用于把 409 显式转成同步中提示。 */
@@ -186,6 +199,31 @@ const startSyncBatchPolling = (batch: EmbyPolicySyncBatchCreated) => {
   syncPollingTimer.value = window.setInterval(() => {
     void pollSyncBatch(batch.batchId)
   }, 2500)
+}
+
+/** 对失败的 Emby Policy 批次创建补偿重试批次，并继续展示新批次进度。 */
+const handleRetryFailedSyncBatch = async () => {
+  if (!activeSyncBatch.value || !canRetryActiveSyncBatch.value) return
+
+  retryingSyncBatch.value = true
+  try {
+    const res = await retryFailedEmbyPolicySyncBatch(activeSyncBatch.value.id)
+    if (res.data.affectedUserCount <= 0) {
+      ElMessage.info('没有可重试的失败项')
+      await fetchData()
+      return
+    }
+
+    ElMessage.success(`已提交 ${res.data.affectedUserCount} 个失败项重试`)
+    startSyncBatchPolling(res.data)
+    await fetchData()
+  } catch (error) {
+    if (isConflictError(error)) {
+      ElMessage.warning('存在未完成同步任务，稍后再重试')
+    }
+  } finally {
+    retryingSyncBatch.value = false
+  }
 }
 
 /** 从后端模板详情中抽取已选媒体库 ID，避免依赖列表接口的扩展字段。 */
@@ -465,8 +503,41 @@ onBeforeUnmount(stopSyncBatchPolling)
             {{ activeSyncCompletedCount }}/{{ activeSyncBatch.totalCount }}，失败 {{ activeSyncBatch.failedCount }}
           </div>
         </div>
-        <div class="w-full md:w-72">
-          <el-progress :percentage="activeSyncProgress" :status="activeSyncBatch.status === 'failed' ? 'exception' : undefined" />
+        <div class="flex w-full flex-col gap-3 md:w-80 md:items-end">
+          <div class="w-full">
+            <el-progress :percentage="activeSyncProgress" :status="activeSyncBatch.status === 'failed' ? 'exception' : undefined" />
+          </div>
+          <button
+            v-if="canRetryActiveSyncBatch"
+            @click="handleRetryFailedSyncBatch"
+            :disabled="retryingSyncBatch"
+            class="btn-ember inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-70"
+          >
+            <el-icon><Refresh /></el-icon>
+            <span>{{ retryingSyncBatch ? '重试中...' : '重试失败项' }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="activeSyncFailedUsers.length > 0"
+        class="mt-4 rounded-xl border border-red-100 bg-red-50/60 p-3"
+      >
+        <div class="mb-2 text-xs font-semibold text-red-700">失败用户</div>
+        <div class="space-y-1.5">
+          <div
+            v-for="item in activeSyncFailedUsers"
+            :key="item.userId || item.embyId || item.username || item.error"
+            class="grid gap-1 text-xs md:grid-cols-[minmax(8rem,12rem)_1fr] md:gap-3"
+          >
+            <span class="min-w-0 truncate font-medium text-gray-800">
+              {{ item.username || item.userId || item.embyId || '未知用户' }}
+            </span>
+            <span class="text-red-600 md:text-right">{{ item.error }}</span>
+          </div>
+        </div>
+        <div v-if="activeSyncHiddenFailedUserCount > 0" class="mt-2 text-xs text-red-500">
+          另有 {{ activeSyncHiddenFailedUserCount }} 个失败用户
         </div>
       </div>
     </div>
