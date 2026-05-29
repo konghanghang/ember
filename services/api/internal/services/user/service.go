@@ -3,6 +3,7 @@ package user
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -179,6 +180,8 @@ func normalizePlanGroupUpdate(raw string) (string, error) {
 }
 
 // syncEmbyPolicy 为已持久化用户应用统一计算后的 Emby Policy。
+// 同步失败但失败任务记录成功时，已提交的本地变更仍应对前端返回成功；
+// 只有失败任务也记录失败，才需要把错误继续上抛给调用方。
 func (s *UserService) syncEmbyPolicy(user *models.User, reason string) error {
 	if user.EmbyID == "" {
 		return nil
@@ -187,12 +190,14 @@ func (s *UserService) syncEmbyPolicy(user *models.User, reason string) error {
 		return nil
 	}
 	if err := s.applyPolicy(user.ID, reason); err != nil {
-		if s.recordPolicyFailure != nil {
-			if recordErr := s.recordPolicyFailure(user.ID, reason, err); recordErr != nil {
-				return fmt.Errorf("同步 Emby 用户策略失败：%w；记录同步失败任务失败：%v", err, recordErr)
-			}
+		if s.recordPolicyFailure == nil {
+			return fmt.Errorf("同步 Emby 用户策略失败：%w；未配置同步失败任务记录器", err)
 		}
-		return fmt.Errorf("同步 Emby 用户策略失败：%w", err)
+		if recordErr := s.recordPolicyFailure(user.ID, reason, err); recordErr != nil {
+			return fmt.Errorf("同步 Emby 用户策略失败：%w；记录同步失败任务失败：%v", err, recordErr)
+		}
+		log.Printf("[User] Emby Policy 同步失败，已记录单用户失败任务: userID=%s reason=%s", user.ID, reason)
+		return nil
 	}
 	refreshed, err := s.findUserByID(user.ID)
 	if err != nil {

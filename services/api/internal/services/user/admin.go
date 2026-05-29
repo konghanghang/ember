@@ -361,7 +361,7 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 	return s.GetUserByID(userID)
 }
 
-func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error) {
+func (s *UserService) ExtendExpiry(userID string, days int) (*UserView, error) {
 	user, err := s.findUserByID(userID)
 	if err != nil {
 		return nil, normalizeUserLookupError(err)
@@ -387,10 +387,10 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*models.User, error
 		return nil, err
 	}
 
-	return user, nil
+	return s.GetUserByID(userID)
 }
 
-func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
+func (s *UserService) ToggleUserStatus(userID string) (*UserView, error) {
 	user, err := s.findUserByID(userID)
 	if err != nil {
 		return nil, normalizeUserLookupError(err)
@@ -408,7 +408,7 @@ func (s *UserService) ToggleUserStatus(userID string) (*models.User, error) {
 		return nil, err
 	}
 
-	return user, nil
+	return s.GetUserByID(userID)
 }
 
 func (s *UserService) DeleteUser(userID string) error {
