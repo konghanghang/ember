@@ -509,6 +509,10 @@
     - `planGroupName`
     - `effectivePlanGroup`
     - `effectivePlanGroupName`
+    - `policySyncStatus`：`synced` / `pending` / `processing` / `failed`，用于用户管理列表展示单用户 Emby Policy 同步状态。
+    - `policySyncTaskId`：存在单用户 `pending` / `processing` / `failed` 任务时返回对应任务 ID，供重试入口和排障定位使用。
+    - `policySyncLastError`：最近一次单用户同步失败的脱敏错误摘要；无失败时为空。
+    - `policySyncUpdatedAt`：最近一次同步状态更新时间，用于展示失败发生时间和判断状态新旧。
 - `MediaLibrarySyncPreviewResult`
   - `planGroupKey`
   - `totalUsers`
