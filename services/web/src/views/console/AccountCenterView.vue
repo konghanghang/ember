@@ -173,6 +173,18 @@ const applyMediaLibrarySettings = (settings: UserMediaLibrarySettings) => {
     .map(item => item.id)
 }
 
+const showMediaLibrarySaveResult = (settings: UserMediaLibrarySettings, syncedMessage: string) => {
+  if (settings.policySyncStatus === 'failed' || settings.policySyncStatus === 'partial_failed') {
+    ElMessage.warning('本地已保存，Emby 同步失败，请联系管理员处理')
+    return
+  }
+  if (settings.policySyncStatus === 'pending' || settings.policySyncStatus === 'processing') {
+    ElMessage.info('本地已保存，正在等待 Emby 同步')
+    return
+  }
+  ElMessage.success(syncedMessage)
+}
+
 /** 读取当前用户的媒体库偏好；接口不可用时保留空态，不阻塞账号中心其他功能。 */
 const loadMediaLibraries = async () => {
   loadingMediaLibraries.value = true
@@ -312,7 +324,7 @@ const handleSaveMediaLibraries = async () => {
   try {
     const res = await updateUserMediaLibraries(selectedMediaLibraryIds.value)
     applyMediaLibrarySettings(res.data)
-    ElMessage.success('媒体库偏好已保存')
+    showMediaLibrarySaveResult(res.data, '媒体库偏好已保存')
   } catch (error) {
     if (isConflictError(error)) {
       ElMessage.warning('媒体库权限正在同步，稍后再保存')
@@ -328,7 +340,7 @@ const handleResetMediaLibraries = async () => {
   try {
     const res = await resetUserMediaLibraryPreferences()
     applyMediaLibrarySettings(res.data)
-    ElMessage.success('已恢复分组默认')
+    showMediaLibrarySaveResult(res.data, '已恢复分组默认')
   } catch (error) {
     if (isConflictError(error)) {
       ElMessage.warning('媒体库权限正在同步，稍后再恢复默认')

@@ -503,6 +503,61 @@ describe('AccountCenterView 媒体库偏好', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('媒体库偏好已保存')
   })
 
+  it('保存偏好后如果 Emby 同步失败只提示本地已保存', async () => {
+    vi.mocked(updateUserMediaLibraries).mockResolvedValueOnce({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: true,
+        templateCount: 2,
+        enabledCount: 1,
+        policySyncStatus: 'failed',
+        libraries: [],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
+    expect(saveButton, '未找到保存偏好按钮').toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(updateUserMediaLibraries).toHaveBeenCalledWith(['lib_movie'])
+    expect(ElMessage.warning).toHaveBeenCalledWith('本地已保存，Emby 同步失败，请联系管理员处理')
+    expect(ElMessage.success).not.toHaveBeenCalledWith('媒体库偏好已保存')
+  })
+
+  it('保存偏好后如果等待 Emby 同步则提示等待同步', async () => {
+    vi.mocked(updateUserMediaLibraries).mockResolvedValueOnce({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: true,
+        templateCount: 2,
+        enabledCount: 1,
+        policySyncStatus: 'pending',
+        libraries: [],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
+    expect(saveButton, '未找到保存偏好按钮').toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.info).toHaveBeenCalledWith('本地已保存，正在等待 Emby 同步')
+    expect(ElMessage.success).not.toHaveBeenCalledWith('媒体库偏好已保存')
+  })
+
   it('保存空媒体库集合前要求二次确认', async () => {
     vi.mocked(ElMessageBox.confirm).mockResolvedValueOnce('confirm' as never)
 
@@ -557,6 +612,34 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     expect(resetUserMediaLibraryPreferences).toHaveBeenCalledTimes(1)
     expect(ElMessage.success).toHaveBeenCalledWith('已恢复分组默认')
+  })
+
+  it('恢复默认后如果 Emby 同步失败只提示本地已保存', async () => {
+    vi.mocked(resetUserMediaLibraryPreferences).mockResolvedValueOnce({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: false,
+        templateCount: 2,
+        enabledCount: 2,
+        policySyncStatus: 'failed',
+        libraries: [],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const resetButton = wrapper.findAll('button').find(item => item.text().includes('恢复默认'))
+    expect(resetButton, '未找到恢复默认按钮').toBeTruthy()
+    await resetButton!.trigger('click')
+    await flushPromises()
+
+    expect(resetUserMediaLibraryPreferences).toHaveBeenCalledTimes(1)
+    expect(ElMessage.warning).toHaveBeenCalledWith('本地已保存，Emby 同步失败，请联系管理员处理')
+    expect(ElMessage.success).not.toHaveBeenCalledWith('已恢复分组默认')
   })
 
   it('保存遇到 409 时提示媒体库权限正在同步', async () => {
