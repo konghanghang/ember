@@ -100,9 +100,26 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 				WHEN EXISTS (
 					SELECT 1 FROM emby_policy_sync_tasks tasks
 					WHERE tasks.user_id = users.id AND tasks.status = 'failed'
+					  AND tasks.batch_id IS NULL
 				) THEN 'failed'
 				ELSE 'synced'
-			END AS "policySyncStatus"`).
+			END AS "policySyncStatus",
+			CASE
+				WHEN EXISTS (
+					SELECT 1 FROM emby_policy_sync_tasks tasks
+					WHERE tasks.user_id = users.id AND tasks.status = 'failed'
+					  AND tasks.batch_id IS NOT NULL
+				) THEN 'failed'
+				ELSE ''
+			END AS "policySyncBatchStatus",
+			COALESCE((
+				SELECT tasks.batch_id
+				FROM emby_policy_sync_tasks tasks
+				WHERE tasks.user_id = users.id AND tasks.status = 'failed'
+				  AND tasks.batch_id IS NOT NULL
+				ORDER BY tasks.updated_at DESC, tasks.created_at DESC
+				LIMIT 1
+			), '') AS "policySyncBatchId"`).
 		Joins(`LEFT JOIN plan_groups explicit_pg ON explicit_pg.key = users."plan_group"`).
 		Joins(`LEFT JOIN plan_groups default_pg ON default_pg."is_default" = ?`, true)
 }

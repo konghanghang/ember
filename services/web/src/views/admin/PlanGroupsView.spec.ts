@@ -19,6 +19,12 @@ import {
 } from '@/api/admin'
 import { ElMessage } from 'element-plus'
 
+const routeState = vi.hoisted(() => ({
+  route: {
+    query: {} as Record<string, string | string[] | undefined>,
+  },
+}))
+
 vi.mock('@/api/admin', () => ({
   createPlanGroup: vi.fn(),
   deletePlanGroup: vi.fn(),
@@ -42,6 +48,10 @@ vi.mock('element-plus', () => ({
   ElMessageBox: {
     confirm: vi.fn(),
   },
+}))
+
+vi.mock('vue-router', () => ({
+  useRoute: () => routeState.route,
 }))
 
 const passthroughStub = defineComponent({
@@ -139,6 +149,7 @@ function mountView() {
 describe('PlanGroupsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    routeState.route.query = {}
     vi.mocked(getPlanGroups).mockResolvedValue({ data: [] })
     vi.mocked(getAdminMediaLibraries).mockResolvedValue({ data: [] })
     vi.mocked(getPlanGroupMediaLibraries).mockResolvedValue({ data: null } as never)
@@ -188,6 +199,23 @@ describe('PlanGroupsView', () => {
     expect(retryFailedEmbyPolicySyncBatch).toHaveBeenCalledWith('batch_failed')
     expect(getEmbyPolicySyncBatch).toHaveBeenCalledWith('batch_retry')
     expect(ElMessage.success).toHaveBeenCalledWith('已提交 2 个失败项重试')
+
+    wrapper.unmount()
+  })
+
+  it('从同步批次链接进入时直接展示对应批次详情', async () => {
+    routeState.route.query = { syncBatchId: 'batch_failed' }
+    vi.mocked(getEmbyPolicySyncBatch).mockResolvedValue({
+      data: createBatch(),
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(getEmbyPolicySyncBatch).toHaveBeenCalledWith('batch_failed')
+    expect(wrapper.text()).toContain('Emby Policy 同步')
+    expect(wrapper.text()).toContain('失败用户')
+    expect(wrapper.text()).toContain('alice')
 
     wrapper.unmount()
   })

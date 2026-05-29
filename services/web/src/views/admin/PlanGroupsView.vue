@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   CollectionTag,
@@ -44,6 +45,7 @@ const props = withDefaults(defineProps<{
   embedded: false
 })
 
+const route = useRoute()
 const loading = ref(false)
 const creating = ref(false)
 const updating = ref(false)
@@ -160,6 +162,32 @@ const stopSyncBatchPolling = () => {
   if (syncPollingTimer.value !== null) {
     window.clearInterval(syncPollingTimer.value)
     syncPollingTimer.value = null
+  }
+}
+
+const syncBatchIdFromRoute = () => {
+  const value = route.query.syncBatchId
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+/** 从用户列表等入口跳转过来时，直接展示指定同步批次详情。 */
+const loadSyncBatchFromRoute = async () => {
+  const batchId = syncBatchIdFromRoute()
+  if (!batchId) return
+
+  stopSyncBatchPolling()
+  syncTerminalNotified.value = true
+  try {
+    const res = await getEmbyPolicySyncBatch(batchId)
+    activeSyncBatch.value = res.data
+    if (!isTerminalSyncStatus(res.data.status)) {
+      syncTerminalNotified.value = false
+      syncPollingTimer.value = window.setInterval(() => {
+        void pollSyncBatch(batchId)
+      }, 2500)
+    }
+  } catch {
+    // request interceptor 已提示错误，页面保持当前列表可用。
   }
 }
 
@@ -421,7 +449,17 @@ const handleSavePolicyTemplate = async () => {
   }
 }
 
-onMounted(fetchData)
+watch(
+  () => route.query.syncBatchId,
+  () => {
+    void loadSyncBatchFromRoute()
+  }
+)
+
+onMounted(async () => {
+  await fetchData()
+  await loadSyncBatchFromRoute()
+})
 onBeforeUnmount(stopSyncBatchPolling)
 </script>
 

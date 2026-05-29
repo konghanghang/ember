@@ -7,6 +7,8 @@ import (
 
 	"github.com/konghang/ember/backend/internal/models"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func TestNormalizePlanGroupStrict(t *testing.T) {
@@ -69,5 +71,33 @@ func TestSyncEmbyPolicyRecordsFailure(t *testing.T) {
 	}
 	if recordedUserID != "user_1" || recordedReason != "admin_plan_group_update" || recordedCause != cause {
 		t.Fatalf("expected failure to be recorded, got userID=%q reason=%q cause=%v", recordedUserID, recordedReason, recordedCause)
+	}
+}
+
+func TestBuildUsersWithPlanGroupSelectSeparatesBatchFailureStatus(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DryRun:               true,
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	var users []UserView
+	stmt := buildUsersWithPlanGroupSelect(database.Model(&models.User{})).Find(&users).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+
+	assertSQLContains(t, sql, `AND tasks.batch_id IS NULL ) THEN 'failed' ELSE 'synced' END AS "policySyncStatus"`)
+	assertSQLContains(t, sql, `AND tasks.batch_id IS NOT NULL ) THEN 'failed' ELSE '' END AS "policySyncBatchStatus"`)
+	assertSQLContains(t, sql, `AND tasks.batch_id IS NOT NULL ORDER BY tasks.updated_at DESC, tasks.created_at DESC LIMIT 1 ), '') AS "policySyncBatchId"`)
+}
+
+func assertSQLContains(t *testing.T, sql string, fragment string) {
+	t.Helper()
+	if !strings.Contains(sql, fragment) {
+		t.Fatalf("expected SQL to contain %q, got %s", fragment, sql)
 	}
 }

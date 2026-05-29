@@ -482,6 +482,14 @@ const handleRetryPolicySync = async (row: UserInfo) => {
   }
 }
 
+const handleViewPolicySyncBatch = (row: UserInfo) => {
+  if (!row.policySyncBatchId) return
+  router.push({
+    name: 'console-plan-groups',
+    query: { syncBatchId: row.policySyncBatchId }
+  })
+}
+
 const handleToggleEmbyAccess = async (row: UserInfo) => {
   const nextDisabled = !row.embyAccessDisabled
   try {
@@ -617,6 +625,7 @@ const getEmbyStatus = (row: UserInfo) => {
 
 const getMediaLibraryStatus = (row: UserInfo) => {
   const status = row.policySyncStatus
+  const batchStatus = row.policySyncBatchStatus
   const syncing = status === 'pending' || status === 'processing'
   return {
     customized: row.mediaLibraryPreferenceCustomized === true,
@@ -624,7 +633,8 @@ const getMediaLibraryStatus = (row: UserInfo) => {
       ? `${row.mediaLibraryEnabledCount}/${row.mediaLibraryTemplateCount}`
       : '-',
     statusText: syncing ? '同步中' : status === 'failed' ? '同步失败' : status === 'partial_failed' ? '部分失败' : '已同步',
-    tagType: syncing ? 'warning' : status === 'failed' || status === 'partial_failed' ? 'danger' : 'success'
+    tagType: syncing ? 'warning' : status === 'failed' || status === 'partial_failed' ? 'danger' : 'success',
+    batchFailed: batchStatus === 'failed' && !!row.policySyncBatchId
   }
 }
 
@@ -815,6 +825,9 @@ onMounted(async () => {
                 <el-tag size="small" effect="light" round :type="getMediaLibraryStatus(row).tagType">
                   {{ getMediaLibraryStatus(row).statusText }}
                 </el-tag>
+                <el-tag v-if="getMediaLibraryStatus(row).batchFailed" size="small" effect="light" round type="danger">
+                  批次失败
+                </el-tag>
               </div>
             </div>
           </template>
@@ -872,6 +885,13 @@ onMounted(async () => {
                       @click="handleRetryPolicySync(row)"
                     >
                       重试 Emby 同步
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="row.policySyncBatchStatus === 'failed' && row.policySyncBatchId"
+                      :icon="RefreshRight"
+                      @click="handleViewPolicySyncBatch(row)"
+                    >
+                      查看同步批次
                     </el-dropdown-item>
                     <el-dropdown-item :icon="RefreshRight" @click="handleSyncMediaLibraryPreferencesFromEmby(row)">同步媒体库偏好</el-dropdown-item>
                     <el-dropdown-item :icon="RefreshRight" @click="handleClearMediaLibraryPreferences(row)">清除媒体库偏好</el-dropdown-item>

@@ -188,6 +188,8 @@ export interface UserInfo {
   mediaLibraryTemplateCount?: number
   mediaLibraryEnabledCount?: number
   policySyncStatus?: EmbyPolicySyncStatus
+  policySyncBatchStatus?: EmbyPolicySyncStatus
+  policySyncBatchId?: string
   expiresAt?: string
   isActive: boolean
   passwordResetRequired?: boolean

@@ -16,6 +16,8 @@ type UserView struct {
 	MediaLibraryTemplateCount        int    `json:"mediaLibraryTemplateCount" gorm:"column:mediaLibraryTemplateCount"`
 	MediaLibraryEnabledCount         int    `json:"mediaLibraryEnabledCount" gorm:"column:mediaLibraryEnabledCount"`
 	PolicySyncStatus                 string `json:"policySyncStatus" gorm:"column:policySyncStatus"`
+	PolicySyncBatchStatus            string `json:"policySyncBatchStatus,omitempty" gorm:"column:policySyncBatchStatus"`
+	PolicySyncBatchID                string `json:"policySyncBatchId,omitempty" gorm:"column:policySyncBatchId"`
 }
 
 func (u *UserView) markUsingDefaultPlanGroup() {
