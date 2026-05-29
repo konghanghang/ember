@@ -129,6 +129,26 @@ func TestBuildUserPolicySyncRetryTaskSkipsUnboundEmbyUser(t *testing.T) {
 	}
 }
 
+func TestBuildUserPolicySyncFailureTaskUsesManualFailureState(t *testing.T) {
+	task := buildUserPolicySyncFailureTask(&models.User{
+		ID:     "user_1",
+		EmbyID: "emby_1",
+	}, "VIP_A", " admin_retry ", errors.New("policy write failed"))
+
+	if task.UserID != "user_1" || task.EmbyID != "emby_1" || task.PlanGroupKey != "VIP_A" {
+		t.Fatalf("unexpected task identity: %+v", task)
+	}
+	if task.Reason != "admin_retry" {
+		t.Fatalf("expected trimmed reason, got %q", task.Reason)
+	}
+	if task.Status != SyncStatusFailed || task.Attempts != 1 {
+		t.Fatalf("expected manual failed task, got status=%s attempts=%d", task.Status, task.Attempts)
+	}
+	if task.LastError == nil || *task.LastError != "policy write failed" {
+		t.Fatalf("expected last error to be preserved, got %+v", task.LastError)
+	}
+}
+
 func TestReadCurrentUserPolicyLibraryIDsUsesAllFolders(t *testing.T) {
 	service := &Service{embyClient: &stubPolicyClient{raw: map[string]any{
 		"EnableAllFolders": true,

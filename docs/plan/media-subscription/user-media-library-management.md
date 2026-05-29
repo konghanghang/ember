@@ -188,9 +188,9 @@
   - 该字段只控制 Emby `Policy.IsDisabled`，不控制 Ember Web 登录。
   - `users.is_active` 继续保持现有 Ember 本地登录拦截语义；本次不新增、不重定义 Ember 本地登录禁用能力。
   - `users.emby_disabled` 继续作为 Emby 端禁用状态缓存，只在 `ApplyEffectiveUserPolicy` 成功后更新，不作为禁用意图字段。
-- 新增 `emby_policy_sync_tasks` 表，记录分组模板变更后的逐用户 Emby Policy 同步任务，以及单用户本地变更后的补偿同步任务：
+- 新增 `emby_policy_sync_tasks` 表，记录分组模板变更后的逐用户 Emby Policy 同步任务，以及单用户本地变更后的同步失败处理记录：
   - `id`
-  - `batch_id`：分组级批量同步时必填；单用户补偿同步时为空。
+  - `batch_id`：分组级批量同步时必填；单用户失败处理记录为空。
   - `user_id`
   - `emby_id`
   - `plan_group_key`
@@ -198,7 +198,7 @@
   - `status`：`pending` / `processing` / `synced` / `failed`
   - `attempts`
   - `last_error`
-  - `next_retry_at`
+  - `next_retry_at`：`pending` 任务的可领取时间；单用户人工处理型 `failed` 任务可为空。
   - `created_at`
   - `updated_at`
   - 唯一约束：使用 PostgreSQL partial unique index `UNIQUE (user_id) WHERE status IN ('pending', 'processing')`，避免同一用户堆积重复未完成任务；最终 Policy 每次全量重算，不需要同一用户并存多个待同步任务。
@@ -206,6 +206,8 @@
   - 任务只记录同步元数据，不存完整 Emby Policy，避免把外部权限快照长期固化在本地。
   - 提交闸门：创建新的媒体库 / 权益模板同步任务前，若目标用户范围内已存在 `pending` 或 `processing` 任务，后端必须返回 409，不写入新的模板或偏好，提示等待当前同步完成。
   - `failed` / `partial_failed` 属于终态，不阻塞后续新提交；管理员可以重试失败项，也可以提交新模板，由新批次按当前状态全量重算收敛。
+  - 单用户 `batch_id IS NULL` 的 `failed` 任务表示“本地已提交但 Emby 未同步成功，需要管理员人工处理或手动重试”，不会被 worker 自动消费。
+  - 任意一次 `ApplyEffectiveUserPolicy` 成功后，后端必须把同一用户历史单用户失败状态收口为 `synced`，避免旧失败继续污染用户侧状态。
   - 该策略让同一用户不会同时处于多个未完成 Policy 同步中，避免新批次缺任务、旧批次挂进度和最终状态难解释。
 - 新增 `emby_policy_sync_batches` 表，记录一次分组级模板变更对应的同步批次：
   - `id`
@@ -226,7 +228,8 @@
   - 首版使用 API 进程内 cron/worker 处理 `emby_policy_sync_tasks`，不依赖前端轮询触发真实同步。
   - worker 按 `next_retry_at <= now()` 领取 `pending` 任务，并通过 `FOR UPDATE SKIP LOCKED` 避免多副本重复处理。
   - 任务领取后写为 `processing`，记录 `attempts` 和 `updated_at`；处理成功写为 `synced`，失败写为 `failed` 并记录脱敏后的 `last_error`。
-  - `failed` 任务重试时重新置为 `pending`，更新 `next_retry_at`，再次执行时必须调用 `ApplyEffectiveUserPolicy` 全量重算当前有效 Policy，不复用旧快照。
+  - 分组批次 `failed` 任务重试时重新置为 `pending`，更新 `next_retry_at`，再次执行时必须调用 `ApplyEffectiveUserPolicy` 全量重算当前有效 Policy，不复用旧快照。
+  - 单用户 `batch_id IS NULL` 的 `failed` 任务不进入 worker 自动重试；管理员手动重试接口直接按当前用户状态调用 `ApplyEffectiveUserPolicy`。
   - worker 启动时或每轮执行前应回收超时 `processing` 任务：超过处理超时时间仍未更新的任务重新置为 `pending`，并增加 attempts / last_error，避免进程崩溃后任务永久卡死。
   - 批次进度不依赖长期维护计数字段的正确性；查询批次详情时以 `emby_policy_sync_tasks` 当前状态聚合为准，并同步更新 `emby_policy_sync_batches` 摘要字段和最终状态。
   - 当批次下任务全部终态后，批次状态收口为 `synced` 或 `partial_failed`；全部失败时可收口为 `failed`。
@@ -393,6 +396,14 @@
   - 管理员从该用户当前 Emby Policy 同步为用户自定义偏好。
   - 行为：
     - 用户存在未完成 Emby Policy 同步任务时返回 409，不写 preferences。
+- `POST /api/v1/admin/users/:id/emby-policy-sync/retry`
+  - 管理员手动重试单个用户当前有效 Emby Policy 同步。
+  - 响应：`{ data: AdminUserDetail }`
+  - 行为：
+    - 用户存在 `pending` 或 `processing` 同步任务时返回 409，不发起重试。
+    - 后端按当前用户、当前 `planGroup`、当前模板和当前偏好调用 `ApplyEffectiveUserPolicy`，不复用旧失败快照。
+    - 重试成功后将该用户历史单用户 `failed` 同步任务收口为 `synced`，用户列表不再显示旧失败。
+    - 重试失败时保留 / 新增 `failed` 任务并记录脱敏后的 `last_error`，继续由管理员人工处理。
 - `PUT /api/v1/admin/users/:id/emby-access`
   - 管理员显式禁用或恢复单个用户的 Emby 访问。
   - 请求：`{ disabled: boolean }`
@@ -415,7 +426,7 @@
     - 当前用户存在未完成 Emby Policy 同步任务时返回 409，不写 preferences。
     - 只允许提交当前分组模板内的库。
     - 保存 preferences 完整快照。
-    - 本地提交后触发 Emby Policy 同步；同步失败时创建单用户待重试任务，并向前端返回同步中 / 同步失败状态。
+    - 本地提交后触发 Emby Policy 同步；同步失败时创建单用户 `failed` 处理记录，并向前端返回同步失败状态，提示联系管理员处理。
 - `DELETE /api/v1/user/media-libraries/preferences`
   - 用户清除自定义偏好，重新跟随所属分组模板。
   - 行为：
@@ -434,7 +445,7 @@
     - 校验目标 `libraryId` 在当前分组模板范围内。
     - 切换该库 enabled 状态。
     - 若此前用户未自定义，先以分组模板生成完整偏好快照，再执行 toggle。
-    - 本地提交后触发 Emby Policy 同步；同步失败时创建单用户待重试任务，并返回同步中 / 同步失败状态供 Bot 展示。
+    - 本地提交后触发 Emby Policy 同步；同步失败时创建单用户 `failed` 处理记录，并返回同步失败状态供 Bot 展示，Bot 提示联系管理员处理。
     - 返回切换后的完整设置，供 Bot 刷新消息。
 - `DELETE /api/v1/internal/telegram/media-libraries/preferences`
   - 请求：`{ telegramId: number }`
@@ -483,8 +494,8 @@
   - `libraries: UserMediaLibraryItem[]`
   - `templateCount`
   - `enabledCount`
-  - `policySyncStatus`：`synced` / `pending` / `failed`，用于网页端和 Bot 明确提示 Emby Policy 是否已经同步完成。
-  - `pendingSyncTaskId`：存在单用户待重试任务时返回。
+  - `policySyncStatus`：`synced` / `pending` / `processing` / `failed`，用于网页端和 Bot 明确提示 Emby Policy 是否已经同步完成。
+  - `pendingSyncTaskId`：存在单用户 `pending` / `processing` / `failed` 任务时返回对应任务 ID；字段名保留现有 API 兼容语义，`failed` 时表示管理员处理入口。
 - `AdminUserDetail`
   - 基于现有用户详情 / 用户列表 DTO 扩展，供用户管理页使用。
   - 必须包含：
@@ -582,6 +593,8 @@
 4. 管理员可清除该用户偏好，让用户重新跟随新分组模板。
 5. 管理员可从用户当前 Emby Policy 同步为该用户自定义偏好，用于历史接管中的个别修正。
 6. 管理员可禁用或恢复该用户 Emby 访问；后端只更新 `emby_access_disabled` 并重算 Emby Policy，不修改 `is_active`。
+7. 当用户存在单用户 `failed` 同步任务时，用户管理列表展示“同步失败”，并提供“重试 Emby 同步”操作。
+8. 管理员重试成功后，后端收口该用户历史 `failed` 状态；重试失败继续保留失败状态和错误摘要，等待管理员处理。
 
 #### 历史用户一键同步
 
@@ -655,14 +668,14 @@
 3. 只修改本功能托管字段：`IsDisabled`、`IsAdministrator`、`EnableContentDeletion`、`EnableAllFolders`、`EnabledFolders` 和 `plan_group_emby_policy_templates` 明确管理的权益字段。
 4. 通过完整 Policy POST 回 Emby。
 5. 不使用只带少量字段的 `SetUserPolicy` 更新媒体库权限，避免误伤其他策略字段。
-6. 单用户操作沿用当前系统风格，采用“本地事务先提交 + 事务外同步 / 补偿”的策略：
+6. 单用户操作沿用当前系统风格，采用“本地事务先提交 + 事务外同步 + 失败可观察”的策略：
    - 适用范围：用户分组变更、用户网页保存偏好、Telegram toggle、清除单个用户偏好、后台 Emby 启停单个用户、支付 / 兑换 Emby 解封单个用户。
    - 事务内只做本地校验和本地状态写入，不在事务内调用 Emby，避免数据库事务持有外部网络 I/O。
    - 本地事务提交后，事务外调用 `ApplyEffectiveUserPolicy`。
    - Emby 同步成功后更新本地 `users.emby_disabled` 等同步缓存字段。
-   - Emby 同步失败时不回滚已经提交的本地业务状态；创建 `batch_id` 为空的单用户 `emby_policy_sync_tasks` 待重试，并记录 ERROR 日志。
-   - 网页端 / Bot 端需要明确提示“本地已保存，等待同步到 Emby”或“Emby 同步失败，已进入重试”，不能让用户误以为 Emby 已立即生效。
-   - 后台 Emby 访问启停、支付 / 兑换 Emby 解封继续保持现有补偿语义：本地业务状态先提交，Emby 侧失败通过补偿任务收敛；不改变 Ember 本地登录状态。
+   - Emby 同步失败时不回滚已经提交的本地业务状态；创建 `batch_id` 为空、`status=failed` 的单用户 `emby_policy_sync_tasks`，记录 ERROR 日志，并交由管理员人工处理或手动重试。
+   - 网页端 / Bot 端需要按状态明确提示：`pending` / `processing` 时提示等待同步；`failed` 时提示“Emby 同步失败，请联系管理员处理”；不能让用户误以为 Emby 已立即生效或正在自动重试。
+   - 后台 Emby 访问启停、支付 / 兑换 Emby 解封继续保持现有本地业务状态先提交语义；Emby 侧失败必须记录为可观察的失败状态，并提供管理员处理入口；不改变 Ember 本地登录状态。
 7. 分组级批量操作采用“本地模板先提交 + 创建同步任务 + 逐用户重试”的策略：
    - 适用范围：分组媒体库模板保存、分组 Emby 权益模板保存、批量历史同步写入分组模板。
    - 事务内锁定目标分组，写入模板变更。
@@ -708,10 +721,11 @@
 - 历史用户缺少 `plan_group`：migration 必须回填当前唯一默认分组 key；若默认分组不存在或存在多个默认分组，migration 应失败并提示先修复默认分组数据。
 - 旧邀请码存在 `template_user_id`：字段删除后运行时不再可见；上线前必须检查仍可注册的邀请码并确认后续权益只来自 `registration_plan_group`，如需追溯必须先导出。
 - 用户取消全部媒体库：后端允许保存为空集合，Emby 端应看不到任何媒体库；网页端保存时必须二次确认，Telegram 端点击最后一个启用库时必须先出现确认按钮，不能直接关闭。
-- 单用户 Emby Policy 同步失败：本地业务变更已经提交，必须创建单用户待重试任务；网页端 / Bot 提示“本地已保存，等待同步到 Emby”或“Emby 同步失败，已进入重试”，不能返回假成功。
+- 单用户 Emby Policy 同步失败：本地业务变更已经提交，必须创建单用户 `failed` 处理记录；网页端 / Bot 提示“Emby 同步失败，请联系管理员处理”，不能返回假成功，也不能承诺自动重试。
 - 分组级批量同步失败：分组模板变更仍以本地数据库为准；失败用户必须留在同步任务表中，管理端展示失败数量和重试入口。
 - 存在未完成同步任务时提交新模板或偏好：后端返回 409，不写入新模板、不写入 preferences、不创建新批次；前端提示等待当前同步完成。
-- 重试失败任务时目标用户已有未完成同步任务：后端返回 409，不修改旧 failed 任务，避免旧批次重试与新批次 active task 冲突。
+- 重试失败任务时目标用户已有未完成同步任务：后端返回 409，不修改旧 failed 任务，避免旧批次重试或单用户手动重试与 active task 冲突。
+- 单用户 `failed` 重试成功：后端必须将该用户历史单用户失败任务收口为 `synced`，避免旧失败继续让用户列表、网页端或 Bot 显示同步失败。
 - 同步 worker 未运行：批次查询会持续显示 `pending`；部署检查必须确认 API cron/worker 已注册并有日志输出，不能只依赖前端轮询。
 - 同步 worker 处理中崩溃：超时 `processing` 任务必须被后续 worker 回收为 `pending` 并继续重试，不能永久卡在 `processing`。
 - 多副本并发执行 worker：必须通过 `FOR UPDATE SKIP LOCKED` 或等价数据库锁保证同一任务不会被多个副本同时执行。
@@ -812,9 +826,12 @@
   - 同步批次失败项可重试，重试时重新按当前用户和分组状态全量计算 Policy。
   - 同步批次失败项重试前若同一用户已有 `pending` / `processing` 任务，接口返回 409，且旧 failed 任务保持不变。
   - 同步任务逐用户成功 / 失败状态记录。
-  - 同步任务失败后可重试。
+  - 批次同步任务失败后可由管理员重试，重试时重新置为 `pending`。
+  - 单用户 `batch_id IS NULL` 的 `failed` 任务不会被 worker 自动领取，只作为管理员可见的人工处理记录。
+  - 管理员单用户 Emby 同步重试接口按当前用户状态调用 `ApplyEffectiveUserPolicy`，成功后将该用户历史单用户 `failed` 收口为 `synced`。
+  - 管理员单用户 Emby 同步重试失败时继续保留 / 新增 `failed` 记录，并保存脱敏 `lastError`。
   - Emby Policy 同步 worker 能领取 `pending` 任务、置为 `processing`、成功后置为 `synced`。
-  - Emby Policy 同步 worker 失败时记录 `lastError`，按退避规则设置 `nextRetryAt`，并允许后续重试。
+  - Emby Policy 同步 worker 处理批次任务失败时记录 `lastError` 并置为 `failed`，后续由管理员重试接口重新置为 `pending`。
   - Emby Policy 同步 worker 使用 `FOR UPDATE SKIP LOCKED` 或等价机制避免多副本重复处理同一任务。
   - Emby Policy 同步 worker 能回收超时 `processing` 任务，避免进程崩溃后任务永久卡死。
   - 批次查询接口以任务表状态聚合进度，并在全部任务终态后把批次收口为 `synced` / `partial_failed` / `failed`。
@@ -837,7 +854,7 @@
   - 用户提交分组模板外媒体库被拒绝。
   - Emby Policy patch 只改媒体库字段，不误伤其他字段。
   - Emby Policy patch 只改权益模板托管字段，不误伤管理员权限、删除权限、标签和家长控制字段。
-  - 单用户 Emby 同步失败时，本地业务状态已提交，系统创建待重试任务，并在响应中返回 `policySyncStatus`，不产生“Emby 已生效”的假成功。
+  - 单用户 Emby 同步失败时，本地业务状态已提交，系统创建 `failed` 人工处理记录，并在响应中返回 `policySyncStatus=failed`，不产生“Emby 已生效”或“已进入自动重试”的假成功。
 - Telegram 服务：
   - 未绑定 Telegram 返回通用错误。
   - 已绑定用户查询媒体库设置。
@@ -850,6 +867,8 @@
   - 用户分组 Emby 权益模板配置入口渲染、保存、默认值。
   - 分组模板保存后能看到 Emby Policy 同步任务进度、失败数量和重试入口。
   - 用户管理列表能区分展示 Ember 账号状态、Emby 访问禁用意图和 Emby 同步缓存状态，避免把 `isActive`、`embyAccessDisabled`、`embyDisabled` 混成一个状态。
+  - 用户管理列表在单用户 `policySyncStatus=failed` 时展示“同步失败”和“重试 Emby 同步”入口。
+  - 用户管理列表单用户 Emby 同步重试成功后清除旧失败展示，重试失败后继续保留失败状态和错误摘要。
   - 用户管理列表批量同步入口、确认和结果展示。
   - 用户管理列表清除用户偏好入口。
   - 用户偏好入口渲染、保存、恢复默认、无模板状态。
@@ -857,6 +876,7 @@
   - `/libraries` 私聊可用，群聊拒绝。
   - 按钮回调后刷新消息。
   - 恢复分组默认按钮可用。
+  - 媒体库偏好写入本地成功但 Emby 同步失败时提示联系管理员处理，不提示已进入自动重试。
   - API 失败时展示错误，不改变本地 Bot 状态。
 
 ### 手工验证

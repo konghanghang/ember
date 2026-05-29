@@ -488,6 +488,33 @@ func (s *Service) UpdateUserEmbyAccess(userID string, disabled bool) error {
 	return s.ApplyEffectiveUserPolicy(user.ID, "admin_emby_access_update")
 }
 
+// RetryUserPolicySyncFailure 由管理员手动重试用户当前有效 Emby Policy 同步。
+// 失败任务保留为 failed 供后台识别；重试成功后由 ApplyEffectiveUserPolicy 统一收口旧失败任务。
+func (s *Service) RetryUserPolicySyncFailure(userID string) error {
+	var user models.User
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return normalizePolicyError("读取用户失败", err)
+	}
+	if user.EmbyID == "" {
+		return ErrUserEmbyNotBound
+	}
+	if err := s.ensureNoActiveUserTasks(user.ID); err != nil {
+		return err
+	}
+	planGroupKey, err := resolveEffectivePlanGroupKey(s.db, user.PlanGroup)
+	if err != nil {
+		return normalizePolicyError("解析用户有效分组失败", err)
+	}
+	reason := "admin_user_policy_sync_retry"
+	if err := s.ApplyEffectiveUserPolicy(user.ID, reason); err != nil {
+		if recordErr := s.recordUserPolicySyncFailure(&user, planGroupKey, reason, err); recordErr != nil {
+			return recordErr
+		}
+		return err
+	}
+	return nil
+}
+
 func (s *Service) GetEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatchDetail, error) {
 	if err := s.refreshBatchStatus(id); err != nil {
 		return nil, err
@@ -1161,22 +1188,50 @@ func replaceUserPreferencesTx(tx *gorm.DB, userID string, libraries []models.Pla
 
 func (s *Service) applyPolicyOrRecordFailure(user *models.User, planGroupKey, reason string) error {
 	if err := s.ApplyEffectiveUserPolicy(user.ID, reason); err != nil {
-		msg := truncateError(err)
-		task := models.EmbyPolicySyncTask{
-			UserID:       user.ID,
-			EmbyID:       user.EmbyID,
-			PlanGroupKey: planGroupKey,
-			Reason:       reason,
-			Status:       SyncStatusFailed,
-			Attempts:     1,
-			LastError:    &msg,
-		}
-		if createErr := s.db.Create(&task).Error; createErr != nil {
-			return fmt.Errorf("%w；记录同步失败任务失败：%v", err, createErr)
+		if recordErr := s.recordUserPolicySyncFailure(user, planGroupKey, reason, err); recordErr != nil {
+			return recordErr
 		}
 		return err
 	}
 	return nil
+}
+
+// recordUserPolicySyncFailure 记录单用户同步失败终态，供管理员在后台人工重试或处理。
+func (s *Service) recordUserPolicySyncFailure(user *models.User, planGroupKey, reason string, cause error) error {
+	task := buildUserPolicySyncFailureTask(user, planGroupKey, reason, cause)
+	if createErr := s.db.Create(&task).Error; createErr != nil {
+		return fmt.Errorf("%w；记录同步失败任务失败：%v", cause, createErr)
+	}
+	return nil
+}
+
+// buildUserPolicySyncFailureTask 构造人工处理语义的 failed 同步任务。
+func buildUserPolicySyncFailureTask(user *models.User, planGroupKey, reason string, cause error) models.EmbyPolicySyncTask {
+	msg := truncateError(cause)
+	task := models.EmbyPolicySyncTask{
+		UserID:       user.ID,
+		EmbyID:       user.EmbyID,
+		PlanGroupKey: planGroupKey,
+		Reason:       strings.TrimSpace(reason),
+		Status:       SyncStatusFailed,
+		Attempts:     1,
+		LastError:    &msg,
+	}
+	if task.Reason == "" {
+		task.Reason = "unspecified"
+	}
+	return task
+}
+
+// resolveFailedUserPolicySyncTasks 在一次完整 Policy 同步成功后关闭该用户历史失败状态。
+func (s *Service) resolveFailedUserPolicySyncTasks(userID string) error {
+	return s.db.Model(&models.EmbyPolicySyncTask{}).
+		Where("user_id = ? AND status = ?", userID, SyncStatusFailed).
+		Updates(map[string]any{
+			"status":     SyncStatusSynced,
+			"last_error": nil,
+			"updated_at": time.Now().UTC(),
+		}).Error
 }
 
 func (s *Service) userPolicySyncStatus(userID string) (string, string, error) {

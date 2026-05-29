@@ -56,6 +56,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.DELETE("/users/:id", h.user.DeleteUser)
 	admin.DELETE("/users/:id/media-libraries/preferences", h.user.ClearAdminUserMediaLibraryPreferences)
 	admin.POST("/users/:id/media-libraries/sync", h.user.SyncAdminUserMediaLibraryPreferences)
+	admin.POST("/users/:id/emby-policy-sync/retry", h.user.RetryAdminUserPolicySync)
 	admin.PUT("/users/:id/emby-access", h.user.UpdateAdminUserEmbyAccess)
 
 	admin.GET("/redemption-codes", h.redemptionCode.GetRedemptionCodes)

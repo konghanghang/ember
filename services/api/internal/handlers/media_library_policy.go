@@ -228,6 +228,20 @@ func (h *UserHandler) SyncAdminUserMediaLibraryPreferences(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// RetryAdminUserPolicySync 由管理员手动重试单个用户当前有效 Emby Policy 同步。
+func (h *UserHandler) RetryAdminUserPolicySync(c *gin.Context) {
+	if err := newPolicyService().RetryUserPolicySyncFailure(c.Param("id")); err != nil {
+		handlePolicyError(c, err)
+		return
+	}
+	user, err := h.userService.GetUserByID(c.Param("id"))
+	if err != nil {
+		handlePolicyError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": user})
+}
+
 func (h *UserHandler) UpdateAdminUserEmbyAccess(c *gin.Context) {
 	var req updateUserEmbyAccessRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

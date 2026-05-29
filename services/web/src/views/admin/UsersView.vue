@@ -36,6 +36,7 @@ import {
   getUsers,
   previewPlanGroupMediaLibrarySync,
   resetUserPassword,
+  retryAdminUserPolicySync,
   syncAdminUserMediaLibraryPreferences,
   toggleUserStatus,
   updateAdminUser,
@@ -464,6 +465,23 @@ const handleSyncMediaLibraryPreferencesFromEmby = async (row: UserInfo) => {
   }
 }
 
+const handleRetryPolicySync = async (row: UserInfo) => {
+  try {
+    await ElMessageBox.confirm(`确认重新同步 ${row.username} 当前有效的 Emby Policy 吗？`, '重试 Emby Policy 同步', {
+      confirmButtonText: '重试',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await retryAdminUserPolicySync(row.id)
+    ElMessage.success('Emby Policy 已重新同步')
+    await fetchData()
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      // handled
+    }
+  }
+}
+
 const handleToggleEmbyAccess = async (row: UserInfo) => {
   const nextDisabled = !row.embyAccessDisabled
   try {
@@ -848,6 +866,13 @@ onMounted(async () => {
                     <el-dropdown-item :icon="DataLine" @click="handleViewProfile(row)">用户画像</el-dropdown-item>
                     <el-dropdown-item :icon="CreditCard" @click="handleViewPayments(row)">支付记录</el-dropdown-item>
                     <el-dropdown-item :icon="Key" @click="handleResetPassword(row)">重置密码</el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="row.policySyncStatus === 'failed'"
+                      :icon="RefreshRight"
+                      @click="handleRetryPolicySync(row)"
+                    >
+                      重试 Emby 同步
+                    </el-dropdown-item>
                     <el-dropdown-item :icon="RefreshRight" @click="handleSyncMediaLibraryPreferencesFromEmby(row)">同步媒体库偏好</el-dropdown-item>
                     <el-dropdown-item :icon="RefreshRight" @click="handleClearMediaLibraryPreferences(row)">清除媒体库偏好</el-dropdown-item>
                     <el-dropdown-item

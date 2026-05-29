@@ -179,7 +179,7 @@ def _library_sync_hint(status: str) -> str:
     if status == "pending":
         return "⏳ 本地已保存，等待同步到 Emby"
     if status == "failed":
-        return "⚠️ Emby 同步失败，已进入重试"
+        return "⚠️ Emby 同步失败，请联系管理员处理"
     return "ℹ️ Emby 同步状态未知"
 
 

@@ -674,7 +674,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 公开路由：登录、注册、验证码发送、Webhook
 - 统一认证路由：当前登录用户可访问的个人信息、订阅、TMDB 搜索代理、兑换、支付、追剧日历、排行等能力
 - 用户路由：保留 `/user/*` 兼容别名
-- 管理员路由：用户管理、配置中心、支付与兑换后台、媒体质量、设备、追剧日历同步、cron 手动触发
+- 管理员路由：用户管理、单用户 Emby Policy 同步失败重试、配置中心、支付与兑换后台、媒体质量、设备、追剧日历同步、cron 手动触发
 - 内部服务路由：Bot 通过 `InternalAuth` 访问的审批、配置、媒体统计和 Telegram 内部能力
 
 ### 6.2 关键约束
@@ -762,6 +762,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 补充说明：
 - API 启动后默认会在 `15s` 后额外执行一次追剧日历补偿同步，用于预热周历缓存。
 - API 启动后默认会在 `15s` 后额外执行一次 Emby Policy 同步补偿，用于回收上次进程中断遗留的 processing 任务。
+- 单用户 Emby Policy 同步失败以 `failed` 终态保留给管理员处理；管理员可在用户管理中手动重试，成功后旧失败任务会被收口为 `synced`。
 - 追剧日历启动补偿由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
 - `CRON_TIMEZONE` 不只影响 cron 调度本身，也会作为追剧日历 `today / upcoming / missing` 的用户可见状态判定基线。
 

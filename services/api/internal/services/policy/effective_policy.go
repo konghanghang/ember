@@ -86,6 +86,9 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 		Update("emby_disabled", managedPolicy["IsDisabled"]).Error; err != nil {
 		return normalizePolicyError("更新本地 Emby 禁用缓存失败", err)
 	}
+	if err := s.resolveFailedUserPolicySyncTasks(user.ID); err != nil {
+		return normalizePolicyError("收口用户 Emby Policy 失败任务失败", err)
+	}
 
 	return nil
 }

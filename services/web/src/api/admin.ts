@@ -463,6 +463,13 @@ export function syncAdminUserMediaLibraryPreferences(id: string) {
   })
 }
 
+export function retryAdminUserPolicySync(id: string): Promise<{ data: UserInfo }> {
+  return request({
+    url: `/admin/users/${encodeURIComponent(id)}/emby-policy-sync/retry`,
+    method: 'post'
+  })
+}
+
 export function updateAdminUserEmbyAccess(id: string, disabled: boolean): Promise<{ data: UserInfo }> {
   return request({
     url: `/admin/users/${encodeURIComponent(id)}/emby-access`,
