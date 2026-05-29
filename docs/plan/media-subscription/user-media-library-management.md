@@ -390,8 +390,11 @@
     - 单个差异用户 preferences 写入失败不回滚整批，但必须在结果中返回失败项。
 - `DELETE /api/v1/admin/users/:id/media-libraries/preferences`
   - 管理员清除单个用户自定义偏好，使其重新跟随所属分组模板。
+  - 响应：`{ data: AdminUserDetail }`
   - 行为：
     - 用户存在未完成 Emby Policy 同步任务时返回 409，不删除 preferences。
+    - 删除 preferences 后在事务外触发 Emby Policy 同步。
+    - 同步失败时创建单用户 `failed` 处理记录，并在响应中返回同步失败状态，供用户管理列表展示失败和重试入口。
 - `POST /api/v1/admin/users/:id/media-libraries/sync`
   - 管理员从该用户当前 Emby Policy 同步为用户自定义偏好。
   - 行为：
@@ -431,6 +434,8 @@
   - 用户清除自定义偏好，重新跟随所属分组模板。
   - 行为：
     - 当前用户存在未完成 Emby Policy 同步任务时返回 409，不删除 preferences。
+    - 删除 preferences 后在事务外触发 Emby Policy 同步。
+    - 同步失败时创建单用户 `failed` 处理记录，并向前端返回同步失败状态，提示联系管理员处理。
 
 #### Telegram Internal API
 
@@ -452,6 +457,7 @@
   - 行为：
     - 用户存在未完成 Emby Policy 同步任务时返回 409，不删除 preferences。
     - 清除用户偏好，本地提交后触发 Emby Policy 同步。
+    - 同步失败时创建单用户 `failed` 处理记录，并返回同步失败状态供 Bot 展示，Bot 提示联系管理员处理。
 
 #### DTO 建议
 
