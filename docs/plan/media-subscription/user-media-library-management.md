@@ -669,13 +669,13 @@
 4. 通过完整 Policy POST 回 Emby。
 5. 不使用只带少量字段的 `SetUserPolicy` 更新媒体库权限，避免误伤其他策略字段。
 6. 单用户操作沿用当前系统风格，采用“本地事务先提交 + 事务外同步 + 失败可观察”的策略：
-   - 适用范围：用户分组变更、用户网页保存偏好、Telegram toggle、清除单个用户偏好、后台 Emby 启停单个用户、支付 / 兑换 Emby 解封单个用户。
+   - 适用范围：用户分组变更、用户网页保存偏好、Telegram toggle、清除单个用户偏好、后台 Emby 启停单个用户、过期检查封禁用户、支付 / 兑换 Emby 解封单个用户。
    - 事务内只做本地校验和本地状态写入，不在事务内调用 Emby，避免数据库事务持有外部网络 I/O。
-   - 本地事务提交后，事务外调用 `ApplyEffectiveUserPolicy`。
+   - 本地事务提交后，事务外调用 `ApplyEffectiveUserPolicy`；关键账号状态变更入口使用 `ApplyEffectiveUserPolicyOrRecordFailure` 或等价封装，确保 Emby 写入失败会落单用户 `failed` 处理记录。
    - Emby 同步成功后更新本地 `users.emby_disabled` 等同步缓存字段。
    - Emby 同步失败时不回滚已经提交的本地业务状态；创建 `batch_id` 为空、`status=failed` 的单用户 `emby_policy_sync_tasks`，记录 ERROR 日志，并交由管理员人工处理或手动重试。
    - 网页端 / Bot 端需要按状态明确提示：`pending` / `processing` 时提示等待同步；`failed` 时提示“Emby 同步失败，请联系管理员处理”；不能让用户误以为 Emby 已立即生效或正在自动重试。
-   - 后台 Emby 访问启停、支付 / 兑换 Emby 解封继续保持现有本地业务状态先提交语义；Emby 侧失败必须记录为可观察的失败状态，并提供管理员处理入口；不改变 Ember 本地登录状态。
+   - 后台 Emby 访问启停、过期封禁、支付 / 兑换 Emby 解封继续保持现有本地业务状态先提交语义；Emby 侧失败必须记录为可观察的失败状态，并提供管理员处理入口；不改变 Ember 本地登录状态。
 7. 分组级批量操作采用“本地模板先提交 + 创建同步任务 + 逐用户重试”的策略：
    - 适用范围：分组媒体库模板保存、分组 Emby 权益模板保存、批量历史同步写入分组模板。
    - 事务内锁定目标分组，写入模板变更。
@@ -821,6 +821,7 @@
   - 同一分组存在未完成 Emby Policy 同步任务时，再次保存媒体库模板或权益模板返回 409，且不写入新模板。
   - 用户存在未完成 Emby Policy 同步任务时，网页端保存偏好、恢复默认和 Telegram toggle 返回 409，且不写 preferences。
   - 后台 Emby 访问启停接口只修改 `users.emby_access_disabled`，不修改 `users.is_active`。
+  - 后台 Emby 访问启停、用户分组变更、过期检查封禁、支付履约和兑换续期在 Emby Policy 写入失败时都会创建单用户 `failed` 处理记录，管理端可见并可手动重试。
   - `users.is_active=false` 仍保持现有 Ember 登录拦截语义，但不参与 Emby `IsDisabled` 计算。
   - 同步批次查询接口返回总数、待处理数、处理中数、成功数、失败数和失败用户摘要。
   - 同步批次失败项可重试，重试时重新按当前用户和分组状态全量计算 Policy。

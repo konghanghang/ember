@@ -93,6 +93,37 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 	return nil
 }
 
+// ApplyEffectiveUserPolicyOrRecordFailure 应用用户当前有效 Policy；失败时写入单用户 failed 处理记录。
+func (s *Service) ApplyEffectiveUserPolicyOrRecordFailure(userID, reason string) error {
+	if err := s.ApplyEffectiveUserPolicy(userID, reason); err != nil {
+		if recordErr := s.RecordUserPolicySyncFailure(userID, reason, err); recordErr != nil {
+			return fmt.Errorf("%w；记录同步失败任务失败：%v", err, recordErr)
+		}
+		return err
+	}
+	return nil
+}
+
+// RecordUserPolicySyncFailure 记录单用户 Emby Policy 同步失败，供管理员在后台人工重试。
+func (s *Service) RecordUserPolicySyncFailure(userID, reason string, cause error) error {
+	if s == nil || s.db == nil {
+		return errors.New("Policy 服务未配置数据库")
+	}
+	var user models.User
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return normalizePolicyError("读取用户失败", err)
+	}
+	if user.EmbyID == "" {
+		log.Printf("[Policy] 跳过记录 Emby Policy 同步失败：用户未绑定 Emby userID=%s reason=%s", user.ID, strings.TrimSpace(reason))
+		return nil
+	}
+	planGroupKey, err := resolveEffectivePlanGroupKey(s.db, user.PlanGroup)
+	if err != nil {
+		return normalizePolicyError("解析用户有效分组失败", err)
+	}
+	return s.recordUserPolicySyncFailure(&user, planGroupKey, reason, cause)
+}
+
 func (s *Service) loadPolicyTemplate(planGroupKey string) (models.PlanGroupEmbyPolicyTemplate, error) {
 	var template models.PlanGroupEmbyPolicyTemplate
 	if err := s.db.Where("plan_group_key = ?", planGroupKey).First(&template).Error; err != nil {

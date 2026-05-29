@@ -370,7 +370,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 3. 查询用户并计算新 ExpiresAt，仅更新 `expiresAt/embyDisabled`（**Emby 调权移到 commit 后异步执行**）
 4. 先插入 Redemption 记录（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
 5. 原子递增 usedCount（`WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）→ 提交
-6. commit 后 `async.SafeGo("redemption.unban", ...)` 调 `EmbyCompensation.EnsureUnbanned`：成功结束；失败入 `failed_emby_async_ops` 队列，由 cron `emby-async-compensation` 重试
+6. commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "redemption_renewal")`：成功后刷新 Emby 禁用缓存；失败写入 `emby_policy_sync_tasks` 的单用户 `failed` 处理记录，由管理员在用户管理中手动重试
 
 ### 5.5 ConfigService (`config/config.go`)
 
@@ -552,7 +552,7 @@ Stripe 一次性支付流程管理。
   - 首次 `INSERT ON CONFLICT DO NOTHING` 成功 → 进入业务分发
   - 命中冲突时回查 status：`processed / skipped` → 真正幂等 200 不再分发；`received / failed` → 视为上次未完成（崩溃中断 / 业务返回 5xx），允许 Stripe 自动重试驱动履约，同时把 `receivedAt` 刷新为本次重投时间
   - 分发完成后 UPDATE 写终态；`checkout.session.expired` → `MarkPaymentExpired(sessionID)` 把本地 pending 收口为 expired
-- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 事务内只做 Payment / User 状态更新和 `expiresAt` 延长（**Emby 调权移到 commit 后异步执行**）；引入 `event.created < payment.updatedAt` 乱序保护；commit 后 `async.SafeGo("payment.unban", ...)` 调 `EmbyCompensation.EnsureUnbanned` → 失败入 `failed_emby_async_ops` 队列，cron 重试
+- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 事务内只做 Payment / User 状态更新和 `expiresAt` 延长（**Emby 调权移到 commit 后异步执行**）；引入 `event.created < payment.updatedAt` 乱序保护；commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "payment_fulfillment")`，Emby 写入失败不回滚支付履约，但会写入单用户 `failed` 处理记录供管理员手动重试
 - `markPaymentFailed(sessionID, eventCreated)` — 同样接受 `eventCreated`，做乱序保护
 - `MarkPaymentExpired(sessionID)` — `UPDATE payments SET status='expired' WHERE stripeSessionId=? AND status='pending'`，`RowsAffected=0` 视为已收口（noop）
 - 模板用户 Policy 复制白名单（`auth.applyTemplatePolicyIfNeeded`）：移除 `EnableContentDownloading` / `MaxParentalRating`，仅复制 `EnableAllFolders / EnabledFolders / ExcludedSubFolders / EnableSyncTranscoding / EnableVideoPlaybackTranscoding / EnablePlaybackRemuxing / EnableAudioPlaybackTranscoding`
@@ -762,7 +762,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 补充说明：
 - API 启动后默认会在 `15s` 后额外执行一次追剧日历补偿同步，用于预热周历缓存。
 - API 启动后默认会在 `15s` 后额外执行一次 Emby Policy 同步补偿，用于回收上次进程中断遗留的 processing 任务。
-- 单用户 Emby Policy 同步失败以 `failed` 终态保留给管理员处理；管理员可在用户管理中手动重试，成功后旧失败任务会被收口为 `synced`。
+- 单用户 Emby Policy 同步失败以 `failed` 终态保留给管理员处理；覆盖后台 Emby 启停、用户分组变更、过期封禁、支付履约和兑换续期等账号状态变更；管理员可在用户管理中手动重试，成功后旧失败任务会被收口为 `synced`。
 - 追剧日历启动补偿由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
 - `CRON_TIMEZONE` 不只影响 cron 调度本身，也会作为追剧日历 `today / upcoming / missing` 的用户可见状态判定基线。
 

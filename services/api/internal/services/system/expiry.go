@@ -107,7 +107,7 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 		processedCount++
 
 		policyService := policypkg.NewService(s.embyService)
-		if err := policyService.ApplyEffectiveUserPolicy(user.ID, "expired_user_check"); err != nil {
+		if err := policyService.ApplyEffectiveUserPolicyOrRecordFailure(user.ID, "expired_user_check"); err != nil {
 			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, err)
 			errMessages = appendLimitedString(errMessages, errorMsg, &failureTruncated, maxCheckExpiredUsersErrors)
 			failedUsers = appendLimitedFailedUser(failedUsers, map[string]interface{}{

@@ -130,7 +130,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		redemptionID := redemption.ID
 		userIDCopy := user.ID
 		async.SafeGo("redemption.applyEffectivePolicy", func() {
-			if err := policypkg.NewService(s.embyClient()).ApplyEffectiveUserPolicy(userIDCopy, "redemption_renewal"); err != nil {
+			if err := policypkg.NewService(s.embyClient()).ApplyEffectiveUserPolicyOrRecordFailure(userIDCopy, "redemption_renewal"); err != nil {
 				log.Printf("[Redemption] 兑换续期后同步 Emby Policy 失败: redemptionID=%s userID=%s err=%v",
 					redemptionID, userIDCopy, err)
 			}

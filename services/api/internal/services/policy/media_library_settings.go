@@ -485,7 +485,11 @@ func (s *Service) UpdateUserEmbyAccess(userID string, disabled bool) error {
 	if user.EmbyID == "" {
 		return nil
 	}
-	return s.ApplyEffectiveUserPolicy(user.ID, "admin_emby_access_update")
+	planGroupKey, err := resolveEffectivePlanGroupKey(s.db, user.PlanGroup)
+	if err != nil {
+		return normalizePolicyError("解析用户有效分组失败", err)
+	}
+	return s.applyPolicyOrRecordFailure(&user, planGroupKey, "admin_emby_access_update")
 }
 
 // RetryUserPolicySyncFailure 由管理员手动重试用户当前有效 Emby Policy 同步。
@@ -1199,6 +1203,22 @@ func (s *Service) applyPolicyOrRecordFailure(user *models.User, planGroupKey, re
 // recordUserPolicySyncFailure 记录单用户同步失败终态，供管理员在后台人工重试或处理。
 func (s *Service) recordUserPolicySyncFailure(user *models.User, planGroupKey, reason string, cause error) error {
 	task := buildUserPolicySyncFailureTask(user, planGroupKey, reason, cause)
+	update := s.db.Model(&models.EmbyPolicySyncTask{}).
+		Where("user_id = ? AND batch_id IS NULL AND status = ?", task.UserID, SyncStatusFailed).
+		Updates(map[string]any{
+			"emby_id":        task.EmbyID,
+			"plan_group_key": task.PlanGroupKey,
+			"reason":         task.Reason,
+			"attempts":       gorm.Expr("attempts + ?", 1),
+			"last_error":     task.LastError,
+			"updated_at":     time.Now().UTC(),
+		})
+	if update.Error != nil {
+		return fmt.Errorf("%w；更新同步失败任务失败：%v", cause, update.Error)
+	}
+	if update.RowsAffected > 0 {
+		return nil
+	}
 	if createErr := s.db.Create(&task).Error; createErr != nil {
 		return fmt.Errorf("%w；记录同步失败任务失败：%v", cause, createErr)
 	}
@@ -1226,7 +1246,7 @@ func buildUserPolicySyncFailureTask(user *models.User, planGroupKey, reason stri
 // resolveFailedUserPolicySyncTasks 在一次完整 Policy 同步成功后关闭该用户历史失败状态。
 func (s *Service) resolveFailedUserPolicySyncTasks(userID string) error {
 	return s.db.Model(&models.EmbyPolicySyncTask{}).
-		Where("user_id = ? AND status = ?", userID, SyncStatusFailed).
+		Where("user_id = ? AND batch_id IS NULL AND status = ?", userID, SyncStatusFailed).
 		Updates(map[string]any{
 			"status":     SyncStatusSynced,
 			"last_error": nil,
@@ -1243,7 +1263,7 @@ func (s *Service) userPolicySyncStatus(userID string) (string, string, error) {
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", "", err
 	}
-	if err := s.db.Where("user_id = ? AND status = ?", userID, SyncStatusFailed).
+	if err := s.db.Where("user_id = ? AND batch_id IS NULL AND status = ?", userID, SyncStatusFailed).
 		Order("updated_at DESC").
 		First(&task).Error; err == nil {
 		return SyncStatusFailed, task.ID, nil

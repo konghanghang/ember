@@ -33,32 +33,34 @@ type embyClient interface {
 }
 
 type UserServiceDeps struct {
-	EmailVerifier      emailVerifier
-	NewEmbyClient      func() embyClient
-	FindUserByID       func(userID string) (*models.User, error)
-	FindUserByUsername func(username string) (*models.User, error)
-	FindUserByEmail    func(email string) (*models.User, error)
-	CreateUser         func(user *models.User) error
-	GetPlanGroupByKey  func(key string) (*models.PlanGroup, error)
-	SaveUser           func(user *models.User) error
-	Compensation       *accountpkg.EmbyCompensation
-	NewCompensation    func() *accountpkg.EmbyCompensation
-	ApplyPolicy        func(userID, reason string) error
+	EmailVerifier       emailVerifier
+	NewEmbyClient       func() embyClient
+	FindUserByID        func(userID string) (*models.User, error)
+	FindUserByUsername  func(username string) (*models.User, error)
+	FindUserByEmail     func(email string) (*models.User, error)
+	CreateUser          func(user *models.User) error
+	GetPlanGroupByKey   func(key string) (*models.PlanGroup, error)
+	SaveUser            func(user *models.User) error
+	Compensation        *accountpkg.EmbyCompensation
+	NewCompensation     func() *accountpkg.EmbyCompensation
+	ApplyPolicy         func(userID, reason string) error
+	RecordPolicyFailure func(userID, reason string, cause error) error
 }
 
 // UserService 用户服务
 type UserService struct {
-	emailVerifier      emailVerifier
-	newEmbyClient      func() embyClient
-	findUserByID       func(userID string) (*models.User, error)
-	findUserByUsername func(username string) (*models.User, error)
-	findUserByEmail    func(email string) (*models.User, error)
-	createUser         func(user *models.User) error
-	getPlanGroupByKey  func(key string) (*models.PlanGroup, error)
-	saveUser           func(user *models.User) error
-	compensation       *accountpkg.EmbyCompensation
-	newCompensation    func() *accountpkg.EmbyCompensation
-	applyPolicy        func(userID, reason string) error
+	emailVerifier       emailVerifier
+	newEmbyClient       func() embyClient
+	findUserByID        func(userID string) (*models.User, error)
+	findUserByUsername  func(username string) (*models.User, error)
+	findUserByEmail     func(email string) (*models.User, error)
+	createUser          func(user *models.User) error
+	getPlanGroupByKey   func(key string) (*models.PlanGroup, error)
+	saveUser            func(user *models.User) error
+	compensation        *accountpkg.EmbyCompensation
+	newCompensation     func() *accountpkg.EmbyCompensation
+	applyPolicy         func(userID, reason string) error
+	recordPolicyFailure func(userID, reason string, cause error) error
 }
 
 func NewUserService() *UserService {
@@ -71,17 +73,18 @@ func NewUserServiceWithEmailVerifier(verifier emailVerifier) *UserService {
 
 func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 	service := &UserService{
-		emailVerifier:      deps.EmailVerifier,
-		newEmbyClient:      deps.NewEmbyClient,
-		findUserByID:       deps.FindUserByID,
-		findUserByUsername: deps.FindUserByUsername,
-		findUserByEmail:    deps.FindUserByEmail,
-		createUser:         deps.CreateUser,
-		getPlanGroupByKey:  deps.GetPlanGroupByKey,
-		saveUser:           deps.SaveUser,
-		compensation:       deps.Compensation,
-		newCompensation:    deps.NewCompensation,
-		applyPolicy:        deps.ApplyPolicy,
+		emailVerifier:       deps.EmailVerifier,
+		newEmbyClient:       deps.NewEmbyClient,
+		findUserByID:        deps.FindUserByID,
+		findUserByUsername:  deps.FindUserByUsername,
+		findUserByEmail:     deps.FindUserByEmail,
+		createUser:          deps.CreateUser,
+		getPlanGroupByKey:   deps.GetPlanGroupByKey,
+		saveUser:            deps.SaveUser,
+		compensation:        deps.Compensation,
+		newCompensation:     deps.NewCompensation,
+		applyPolicy:         deps.ApplyPolicy,
+		recordPolicyFailure: deps.RecordPolicyFailure,
 	}
 
 	if service.emailVerifier == nil {
@@ -149,6 +152,11 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 			return policypkg.NewService(service.newEmbyClient()).ApplyEffectiveUserPolicy(userID, reason)
 		}
 	}
+	if service.recordPolicyFailure == nil {
+		service.recordPolicyFailure = func(userID, reason string, cause error) error {
+			return policypkg.NewService(service.newEmbyClient()).RecordUserPolicySyncFailure(userID, reason, cause)
+		}
+	}
 	return service
 }
 
@@ -179,6 +187,11 @@ func (s *UserService) syncEmbyPolicy(user *models.User, reason string) error {
 		return nil
 	}
 	if err := s.applyPolicy(user.ID, reason); err != nil {
+		if s.recordPolicyFailure != nil {
+			if recordErr := s.recordPolicyFailure(user.ID, reason, err); recordErr != nil {
+				return fmt.Errorf("同步 Emby 用户策略失败：%w；记录同步失败任务失败：%v", err, recordErr)
+			}
+		}
 		return fmt.Errorf("同步 Emby 用户策略失败：%w", err)
 	}
 	refreshed, err := s.findUserByID(user.ID)

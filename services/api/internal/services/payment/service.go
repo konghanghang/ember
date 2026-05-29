@@ -1207,7 +1207,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		paymentID := payment.ID
 		userIDCopy := user.ID
 		async.SafeGo("payment.applyEffectivePolicy", func() {
-			if err := policypkg.NewService(s.embyService).ApplyEffectiveUserPolicy(userIDCopy, "payment_fulfillment"); err != nil {
+			if err := policypkg.NewService(s.embyService).ApplyEffectiveUserPolicyOrRecordFailure(userIDCopy, "payment_fulfillment"); err != nil {
 				log.Printf("[Payment] 支付履约后同步 Emby Policy 失败: paymentID=%s userID=%s err=%v",
 					paymentID, userIDCopy, err)
 			}
