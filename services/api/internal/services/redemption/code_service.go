@@ -62,10 +62,6 @@ func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCrea
 		return nil, ErrRedemptionCodeBatchCountInvalid
 	}
 
-	templateUserID, err := s.validateTemplateUserID(options.TemplateUserID)
-	if err != nil {
-		return nil, err
-	}
 	registrationPlanGroup, err := s.validateRegistrationPlanGroup(options.RegistrationPlanGroup)
 	if err != nil {
 		return nil, err
@@ -75,7 +71,6 @@ func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCrea
 		MaxUses:               options.MaxUses,
 		DefaultDays:           options.DefaultDays,
 		ExpiresAt:             options.ExpiresAt,
-		TemplateUserID:        templateUserID,
 		RegistrationPlanGroup: registrationPlanGroup,
 		Notes:                 options.Notes,
 	}
@@ -124,9 +119,6 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 		query = query.Where("code ILIKE ?", "%"+code+"%")
 	}
 
-	if templateUserID := strings.TrimSpace(req.TemplateUserID); templateUserID != "" {
-		query = query.Where("\"template_user_id\" = ?", templateUserID)
-	}
 	if registrationPlanGroup := strings.TrimSpace(req.RegistrationPlanGroup); registrationPlanGroup != "" {
 		normalizedRegistrationPlanGroup, err := redemptionNormalizePlanGroupKey(registrationPlanGroup, false)
 		if err != nil {
@@ -180,10 +172,6 @@ func (s *RedemptionCodeService) DeleteRedemptionCode(id string) error {
 }
 
 func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedemptionCodeRequest) (*models.RedemptionCode, error) {
-	templateUserID, err := s.validateTemplateUserID(req.TemplateUserID)
-	if err != nil {
-		return nil, err
-	}
 	registrationPlanGroup, err := s.validateRegistrationPlanGroup(req.RegistrationPlanGroup)
 	if err != nil {
 		return nil, err
@@ -209,7 +197,6 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 		redemptionCode.MaxUses = req.MaxUses
 		redemptionCode.DefaultDays = req.DefaultDays
 		redemptionCode.ExpiresAt = req.ExpiresAt
-		redemptionCode.TemplateUserID = templateUserID
 		redemptionCode.RegistrationPlanGroup = registrationPlanGroup
 		redemptionCode.Notes = req.Notes
 
@@ -219,7 +206,6 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 				"max_uses":                redemptionCode.MaxUses,
 				"default_days":            redemptionCode.DefaultDays,
 				"expires_at":              redemptionCode.ExpiresAt,
-				"template_user_id":        redemptionCode.TemplateUserID,
 				"registration_plan_group": redemptionCode.RegistrationPlanGroup,
 				"notes":                   redemptionCode.Notes,
 			}).Error; err != nil {
@@ -235,32 +221,6 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 	}
 
 	return &redemptionCode, nil
-}
-
-func (s *RedemptionCodeService) GetUserTemplates() (*GetUserTemplatesResponse, error) {
-	now := time.Now().UTC()
-	var users []models.User
-	if err := db.DB.
-		Model(&models.User{}).
-		Where("role = ? AND \"is_active\" = true AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", "user", now).
-		Order("username ASC").
-		Find(&users).Error; err != nil {
-		return nil, errors.New("获取模板用户失败")
-	}
-
-	templates := make([]UserTemplate, 0, len(users))
-	for _, user := range users {
-		templates = append(templates, UserTemplate{
-			ID:        user.ID,
-			Username:  user.Username,
-			Email:     user.Email,
-			ExpiresAt: user.ExpiresAt,
-		})
-	}
-
-	return &GetUserTemplatesResponse{
-		Data: templates,
-	}, nil
 }
 
 func (s *RedemptionCodeService) ValidateRegistrationCode(code string) (*models.RedemptionCode, error) {
@@ -310,112 +270,33 @@ func (s *RedemptionCodeService) generateCode(length int) (string, error) {
 	return hex.EncodeToString(bytes)[:length], nil
 }
 
-func (s *RedemptionCodeService) validateTemplateUserID(templateUserID *string) (*string, error) {
-	if templateUserID == nil || *templateUserID == "" {
-		return nil, nil
-	}
-
-	var user models.User
-	if err := db.DB.Where("id = ?", *templateUserID).First(&user).Error; err != nil {
-		return nil, ErrTemplateUserNotFound
-	}
-
-	if user.Role != "user" {
-		return nil, ErrTemplateUserMustBeUser
-	}
-
-	if user.EmbyID == "" {
-		return nil, ErrTemplateUserEmbyRequired
-	}
-
-	validID := user.ID
-	return &validID, nil
-}
-
-func (s *RedemptionCodeService) validateRegistrationPlanGroup(raw *string) (*string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-
-	normalizedPlanGroup, err := redemptionNormalizePlanGroupKey(*raw, true)
+func (s *RedemptionCodeService) validateRegistrationPlanGroup(raw string) (string, error) {
+	normalizedPlanGroup, err := redemptionNormalizePlanGroupKey(raw, true)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if normalizedPlanGroup == "" {
-		return nil, nil
+		return "", ErrRegistrationPlanGroupRequired
 	}
 
-	validPlanGroup := normalizedPlanGroup
-	return &validPlanGroup, nil
+	return normalizedPlanGroup, nil
 }
 
-func (s *RedemptionCodeService) ensureRegistrationPlanGroupExists(tx *gorm.DB, registrationPlanGroup *string, lockForUpdate bool) error {
-	if registrationPlanGroup == nil || *registrationPlanGroup == "" {
-		return nil
-	}
-
+func (s *RedemptionCodeService) ensureRegistrationPlanGroupExists(tx *gorm.DB, registrationPlanGroup string, lockForUpdate bool) error {
 	lookup := redemptionGetPlanGroupByKey
 	if lockForUpdate {
 		lookup = redemptionGetPlanGroupForUpdate
 	}
-	if _, err := lookup(tx, *registrationPlanGroup); err != nil {
+	if _, err := lookup(tx, registrationPlanGroup); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *RedemptionCodeService) fillDisplayFields(codes []models.RedemptionCode) error {
-	if err := s.fillTemplateUserNames(codes); err != nil {
-		return err
-	}
 	if err := s.fillRegistrationPlanGroupNames(codes); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (s *RedemptionCodeService) fillTemplateUserNames(codes []models.RedemptionCode) error {
-	if db.DB == nil {
-		return nil
-	}
-
-	userIDs := make([]string, 0)
-	seen := make(map[string]struct{})
-	for i := range codes {
-		if codes[i].TemplateUserID == nil || *codes[i].TemplateUserID == "" {
-			continue
-		}
-		id := *codes[i].TemplateUserID
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		userIDs = append(userIDs, id)
-	}
-
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	var users []models.User
-	if err := db.DB.Model(&models.User{}).Select("id", "username").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
-		return err
-	}
-
-	nameMap := make(map[string]string, len(users))
-	for _, user := range users {
-		nameMap[user.ID] = user.Username
-	}
-
-	for i := range codes {
-		if codes[i].TemplateUserID == nil || *codes[i].TemplateUserID == "" {
-			continue
-		}
-		if name, ok := nameMap[*codes[i].TemplateUserID]; ok {
-			codes[i].TemplateUserName = &name
-		}
-	}
-
 	return nil
 }
 
@@ -427,10 +308,10 @@ func (s *RedemptionCodeService) fillRegistrationPlanGroupNames(codes []models.Re
 	planGroups := make([]string, 0)
 	seen := make(map[string]struct{})
 	for i := range codes {
-		if codes[i].RegistrationPlanGroup == nil || *codes[i].RegistrationPlanGroup == "" {
+		if codes[i].RegistrationPlanGroup == "" {
 			continue
 		}
-		key := *codes[i].RegistrationPlanGroup
+		key := codes[i].RegistrationPlanGroup
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -453,10 +334,10 @@ func (s *RedemptionCodeService) fillRegistrationPlanGroupNames(codes []models.Re
 	}
 
 	for i := range codes {
-		if codes[i].RegistrationPlanGroup == nil || *codes[i].RegistrationPlanGroup == "" {
+		if codes[i].RegistrationPlanGroup == "" {
 			continue
 		}
-		if name, ok := nameMap[*codes[i].RegistrationPlanGroup]; ok {
+		if name, ok := nameMap[codes[i].RegistrationPlanGroup]; ok {
 			codes[i].RegistrationPlanGroupName = &name
 		}
 	}
@@ -480,13 +361,13 @@ func (s *RedemptionCodeService) validateUsableCode(code string) (*models.Redempt
 }
 
 func (s *RedemptionCodeService) ensureRegistrationPlanGroupAvailable(redemptionCode *models.RedemptionCode) error {
-	if redemptionCode == nil || redemptionCode.RegistrationPlanGroup == nil || *redemptionCode.RegistrationPlanGroup == "" {
-		return nil
+	if redemptionCode == nil || redemptionCode.RegistrationPlanGroup == "" {
+		return ErrRegistrationPlanGroupRequired
 	}
 
-	if _, err := redemptionGetPlanGroupByKey(nil, *redemptionCode.RegistrationPlanGroup); err != nil {
+	if _, err := redemptionGetPlanGroupByKey(nil, redemptionCode.RegistrationPlanGroup); err != nil {
 		if errors.Is(err, paymentpkg.ErrPlanGroupNotFound) {
-			log.Printf("[RedemptionCode] 注册兑换码绑定的套餐分组已失效: codeID=%s planGroup=%s", redemptionCode.ID, *redemptionCode.RegistrationPlanGroup)
+			log.Printf("[RedemptionCode] 注册兑换码绑定的套餐分组已失效: codeID=%s planGroup=%s", redemptionCode.ID, redemptionCode.RegistrationPlanGroup)
 			return ErrRegistrationPlanGroupNotFound
 		}
 		return err

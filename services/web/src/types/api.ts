@@ -265,9 +265,7 @@ export interface RedemptionCode {
   maxUses: number
   usedCount: number
   defaultDays: number
-  templateUserId?: string | null
-  templateUserName?: string | null
-  registrationPlanGroup?: PlanGroup | null
+  registrationPlanGroup: PlanGroup
   registrationPlanGroupName?: string | null
   expiresAt?: string | null
   createdAt: string
@@ -288,15 +286,13 @@ export interface RedemptionCodeListQuery extends PaginationQuery {
   showAll?: boolean
   code?: string
   status?: RedemptionCodeStatusFilter | ''
-  templateUserId?: string
   registrationPlanGroup?: PlanGroup | ''
 }
 
 export interface CreateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number
-  templateUserId?: string | null
-  registrationPlanGroup?: PlanGroup | null
+  registrationPlanGroup: PlanGroup
   expiresAt?: string | null
   notes?: string
 }
@@ -313,17 +309,9 @@ export interface CreateRedemptionCodesBatchResponse {
 export interface UpdateRedemptionCodeRequest {
   maxUses: number
   defaultDays: number
-  templateUserId?: string | null
-  registrationPlanGroup?: PlanGroup | null
+  registrationPlanGroup: PlanGroup
   expiresAt?: string | null
   notes?: string
-}
-
-export interface UserTemplate {
-  id: string
-  username: string
-  email?: string
-  expiresAt?: string
 }
 
 export interface Redemption {

@@ -361,6 +361,7 @@ func isAuthRegisterBadRequest(err error) bool {
 		errors.Is(err, emailpkg.ErrEmailAlreadyRegistered),
 		errors.Is(err, configpkg.ErrRegistrationEmailDomainNotAllowed),
 		errors.Is(err, configpkg.ErrRegistrationEmailInvalid),
+		errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupRequired),
 		errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupNotFound):
 		return true
 	}

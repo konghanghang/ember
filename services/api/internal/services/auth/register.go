@@ -144,10 +144,9 @@ func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPrepar
 	}
 	prepared.redemptionCode = redemptionCode
 	prepared.defaultDays = redemptionCode.DefaultDays
-	prepared.registrationPlanGroup = redemptionCode.RegistrationPlanGroup
-	if prepared.registrationPlanGroup != nil {
-		log.Printf("[Auth] 邀请注册使用显式套餐分组: codeID=%s planGroup=%s", redemptionCode.ID, *prepared.registrationPlanGroup)
-	}
+	registrationPlanGroup := redemptionCode.RegistrationPlanGroup
+	prepared.registrationPlanGroup = &registrationPlanGroup
+	log.Printf("[Auth] 邀请注册使用显式套餐分组: codeID=%s planGroup=%s", redemptionCode.ID, registrationPlanGroup)
 	return prepared, nil
 }
 

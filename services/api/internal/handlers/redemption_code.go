@@ -19,7 +19,6 @@ type redemptionCodeService interface {
 	UpdateRedemptionCode(id string, req *redemptionpkg.UpdateRedemptionCodeRequest) (*models.RedemptionCode, error)
 	ValidateRegistrationCode(code string) (*models.RedemptionCode, error)
 	ValidateRenewalCode(code string) (*models.RedemptionCode, error)
-	GetUserTemplates() (*redemptionpkg.GetUserTemplatesResponse, error)
 }
 
 type RedemptionCodeHandler struct {
@@ -121,7 +120,9 @@ func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, redemptionpkg.ErrRedemptionCodeUsedOver):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+		case errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupRequired),
+			errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
+			errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)
@@ -139,6 +140,7 @@ func (h *RedemptionCodeHandler) ValidateRegistrationCode(c *gin.Context) {
 		switch {
 		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
 			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
+			errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupRequired),
 			errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
@@ -149,21 +151,9 @@ func (h *RedemptionCodeHandler) ValidateRegistrationCode(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *RedemptionCodeHandler) GetUserTemplates(c *gin.Context) {
-	resp, err := h.service.GetUserTemplates()
-	if err != nil {
-		httpx.InternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
-}
-
 func isRedemptionCodeRequestError(err error) bool {
 	return errors.Is(err, redemptionpkg.ErrRedemptionCodeBatchCountInvalid) ||
-		errors.Is(err, redemptionpkg.ErrTemplateUserNotFound) ||
-		errors.Is(err, redemptionpkg.ErrTemplateUserMustBeUser) ||
-		errors.Is(err, redemptionpkg.ErrTemplateUserEmbyRequired) ||
+		errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupRequired) ||
 		errors.Is(err, paymentpkg.ErrPlanGroupInvalid) ||
 		errors.Is(err, paymentpkg.ErrPlanGroupNotFound)
 }

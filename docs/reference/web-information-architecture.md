@@ -127,10 +127,10 @@
   - `codes`：`views/admin/RedemptionCodesView.vue`
   - `history`：`views/admin/RedemptionHistoryView.vue`
 - 数据源：
-  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、模板用户、注册套餐分组筛选；返回 `notes`、`registrationPlanGroup`、`registrationPlanGroupName`）
-  - `POST /api/v1/admin/redemption-codes`（支持可选备注 `notes` 与 `registrationPlanGroup`）
-  - `POST /api/v1/admin/redemption-codes/batch`（支持可选备注 `notes` 与 `registrationPlanGroup`）
-  - `PUT /api/v1/admin/redemption-codes/:id`（支持更新备注 `notes` 与 `registrationPlanGroup`）
+  - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、注册套餐分组筛选；返回 `notes`、`registrationPlanGroup`、`registrationPlanGroupName`）
+  - `POST /api/v1/admin/redemption-codes`（必须提交 `registrationPlanGroup`，支持可选备注 `notes`）
+  - `POST /api/v1/admin/redemption-codes/batch`（必须提交 `registrationPlanGroup`，支持可选备注 `notes`）
+  - `PUT /api/v1/admin/redemption-codes/:id`（必须提交 `registrationPlanGroup`，支持更新备注 `notes`）
   - `DELETE /api/v1/admin/redemption-codes/:id`
   - `GET /api/v1/admin/redemptions`（支持按用户名、用户 ID、兑换码筛选）
 

@@ -98,12 +98,11 @@
 | POST | `/api/v1/admin/users/:id/media-libraries/sync` | 从 Emby 当前 Policy 同步为用户偏好 |
 | POST | `/api/v1/admin/users/:id/emby-policy-sync/retry` | 管理员重试单个用户当前有效 Emby Policy 同步 |
 | PUT | `/api/v1/admin/users/:id/emby-access` | 管理员显式禁用或恢复用户 Emby 访问（请求体 `{disabled}`，不改变 `isActive`） |
-| GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `templateUserId` / `registrationPlanGroup` / `showAll` 过滤） |
-| POST | `/api/v1/admin/redemption-codes` | 创建兑换码（支持可选 `registrationPlanGroup`） |
-| POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码（支持可选 `registrationPlanGroup`） |
-| PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码（支持可选 `registrationPlanGroup`） |
+| GET | `/api/v1/admin/redemption-codes` | 兑换码列表（支持 `code` / `status` / `registrationPlanGroup` / `showAll` 过滤） |
+| POST | `/api/v1/admin/redemption-codes` | 创建兑换码（必须提交 `registrationPlanGroup`） |
+| POST | `/api/v1/admin/redemption-codes/batch` | 批量创建兑换码（必须提交 `registrationPlanGroup`） |
+| PUT | `/api/v1/admin/redemption-codes/:id` | 更新兑换码（必须提交 `registrationPlanGroup`） |
 | DELETE | `/api/v1/admin/redemption-codes/:id` | 删除兑换码 |
-| GET | `/api/v1/admin/user-templates` | 模板用户列表 |
 | GET | `/api/v1/admin/configs` | 获取设置中心全部配置（定义 + 当前值 + 来源） |
 | PATCH | `/api/v1/admin/configs/:key` | 更新单项配置 |
 | POST | `/api/v1/admin/configs/:group/test` | 测试指定配置组 |

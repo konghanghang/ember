@@ -64,7 +64,6 @@ import type {
   RankingPeriod,
   RedemptionCodeListQuery,
   SystemInfoResponse,
-  UserTemplate,
   UserInfo,
   UserListQuery,
   UserListResponse,
@@ -169,13 +168,6 @@ export function deleteRedemptionCode(id: string) {
   return request({
     url: `/admin/redemption-codes/${id}`,
     method: 'delete'
-  })
-}
-
-export function getUserTemplates(): Promise<{ data: UserTemplate[] }> {
-  return request({
-    url: '/admin/user-templates',
-    method: 'get'
   })
 }
 

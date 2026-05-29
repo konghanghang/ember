@@ -62,8 +62,7 @@ type RedemptionCodeCreateOptions struct {
 	MaxUses               int        `json:"maxUses" binding:"required,min=1"`
 	DefaultDays           int        `json:"defaultDays" binding:"required,min=1"`
 	ExpiresAt             *time.Time `json:"expiresAt"`
-	TemplateUserID        *string    `json:"templateUserId"`
-	RegistrationPlanGroup *string    `json:"registrationPlanGroup"`
+	RegistrationPlanGroup string     `json:"registrationPlanGroup" binding:"required"`
 	Notes                 string     `json:"notes" binding:"omitempty,max=500"`
 }
 
@@ -85,8 +84,7 @@ type UpdateRedemptionCodeRequest struct {
 	MaxUses               int        `json:"maxUses" binding:"required,min=1"`
 	DefaultDays           int        `json:"defaultDays" binding:"required,min=1"`
 	ExpiresAt             *time.Time `json:"expiresAt"`
-	TemplateUserID        *string    `json:"templateUserId"`
-	RegistrationPlanGroup *string    `json:"registrationPlanGroup"`
+	RegistrationPlanGroup string     `json:"registrationPlanGroup" binding:"required"`
 	Notes                 string     `json:"notes" binding:"omitempty,max=500"`
 }
 
@@ -96,7 +94,6 @@ type GetRedemptionCodesRequest struct {
 	ShowAll               bool   `form:"showAll"`
 	Code                  string `form:"code"`
 	Status                string `form:"status"`
-	TemplateUserID        string `form:"templateUserId"`
 	RegistrationPlanGroup string `form:"registrationPlanGroup"`
 }
 
@@ -106,15 +103,4 @@ type GetRedemptionCodesResponse struct {
 	Page       int                     `json:"page"`
 	PageSize   int                     `json:"pageSize"`
 	TotalPages int                     `json:"totalPages"`
-}
-
-type UserTemplate struct {
-	ID        string     `json:"id"`
-	Username  string     `json:"username"`
-	Email     string     `json:"email,omitempty"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-}
-
-type GetUserTemplatesResponse struct {
-	Data []UserTemplate `json:"data"`
 }

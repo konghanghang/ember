@@ -31,7 +31,7 @@ const codeRequired = computed(() => mode.value === 'invite')
 const codeValidating = ref(false)
 const codeValidated = ref(false)
 const registrationCodePreview = ref<{
-  registrationPlanGroup?: string | null
+  registrationPlanGroup: string
   registrationPlanGroupName?: string | null
 } | null>(null)
 const usernamePattern = /^[A-Za-z0-9]+$/
@@ -181,7 +181,7 @@ const handleValidateCode = async () => {
   try {
     const result = await validateRegistrationCode(form.value.code)
     registrationCodePreview.value = {
-      registrationPlanGroup: result.registrationPlanGroup ?? null,
+      registrationPlanGroup: result.registrationPlanGroup,
       registrationPlanGroupName: result.registrationPlanGroupName ?? null
     }
     codeValidated.value = true
@@ -234,7 +234,7 @@ onBeforeUnmount(() => {
             class="mb-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3"
           >
             <div class="text-sm font-semibold text-gray-900">注册后套餐分组</div>
-            <div v-if="registrationCodePreview.registrationPlanGroup" class="mt-1 text-sm text-gray-700">
+            <div class="mt-1 text-sm text-gray-700">
               将显式绑定到
               <span class="font-semibold text-gray-900">
                 {{ registrationCodePreview.registrationPlanGroupName || registrationCodePreview.registrationPlanGroup }}
@@ -242,9 +242,6 @@ onBeforeUnmount(() => {
               <span class="text-xs text-gray-500">
                 （{{ registrationCodePreview.registrationPlanGroup }}）
               </span>
-            </div>
-            <div v-else class="mt-1 text-sm text-gray-700">
-              注册后跟随默认分组
             </div>
           </div>
 

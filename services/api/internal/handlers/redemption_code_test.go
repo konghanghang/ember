@@ -57,10 +57,6 @@ func (s *stubRedemptionCodeService) ValidateRenewalCode(code string) (*models.Re
 	return nil, nil
 }
 
-func (s *stubRedemptionCodeService) GetUserTemplates() (*redemptionpkg.GetUserTemplatesResponse, error) {
-	return nil, nil
-}
-
 func newTestRedemptionCodeContext(method, target string, body []byte) (*gin.Context, *httptest.ResponseRecorder) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -95,7 +91,7 @@ func TestRedemptionCodeHandlerCreateBatch(t *testing.T) {
 		},
 	}
 
-	body := []byte(`{"count":2,"maxUses":3,"defaultDays":30,"expiresAt":"2026-03-20T10:00:00Z"}`)
+	body := []byte(`{"count":2,"maxUses":3,"defaultDays":30,"registrationPlanGroup":"VIP_A","expiresAt":"2026-03-20T10:00:00Z"}`)
 	ctx, recorder := newTestRedemptionCodeContext(http.MethodPost, "/api/v1/admin/redemption-codes/batch", body)
 	handler.CreateRedemptionCodesBatch(ctx)
 
@@ -132,9 +128,7 @@ func TestRedemptionCodeHandlerCreateBatchMapsRequestErrors(t *testing.T) {
 		err  error
 	}{
 		{name: "batch count invalid", err: redemptionpkg.ErrRedemptionCodeBatchCountInvalid},
-		{name: "template user missing", err: redemptionpkg.ErrTemplateUserNotFound},
-		{name: "template user role invalid", err: redemptionpkg.ErrTemplateUserMustBeUser},
-		{name: "template user emby missing", err: redemptionpkg.ErrTemplateUserEmbyRequired},
+		{name: "registration plan group required", err: redemptionpkg.ErrRegistrationPlanGroupRequired},
 	}
 
 	for _, tc := range testCases {
@@ -147,7 +141,7 @@ func TestRedemptionCodeHandlerCreateBatchMapsRequestErrors(t *testing.T) {
 				},
 			}
 
-			body := []byte(`{"count":2,"maxUses":3,"defaultDays":30}`)
+			body := []byte(`{"count":2,"maxUses":3,"defaultDays":30,"registrationPlanGroup":"VIP_A"}`)
 			ctx, recorder := newTestRedemptionCodeContext(http.MethodPost, "/api/v1/admin/redemption-codes/batch", body)
 			handler.CreateRedemptionCodesBatch(ctx)
 
@@ -169,7 +163,7 @@ func TestRedemptionCodeHandlerCreateBatchReturnsGenericInternalError(t *testing.
 		},
 	}
 
-	body := []byte(`{"count":2,"maxUses":3,"defaultDays":30}`)
+	body := []byte(`{"count":2,"maxUses":3,"defaultDays":30,"registrationPlanGroup":"VIP_A"}`)
 	ctx, recorder := newTestRedemptionCodeContext(http.MethodPost, "/api/v1/admin/redemption-codes/batch", body)
 	handler.CreateRedemptionCodesBatch(ctx)
 
@@ -197,7 +191,7 @@ func TestRedemptionCodeHandlerGetRedemptionCodesBindsFilters(t *testing.T) {
 				if req.Page != 2 || req.PageSize != 20 {
 					t.Fatalf("unexpected pagination: %+v", req)
 				}
-				if req.Code != "ABCD" || req.Status != "expired" || req.TemplateUserID != "user_123" || req.RegistrationPlanGroup != "VIP_A" {
+				if req.Code != "ABCD" || req.Status != "expired" || req.RegistrationPlanGroup != "VIP_A" {
 					t.Fatalf("unexpected filters: %+v", req)
 				}
 				if !req.ShowAll {
@@ -215,7 +209,7 @@ func TestRedemptionCodeHandlerGetRedemptionCodesBindsFilters(t *testing.T) {
 
 	ctx, recorder := newTestRedemptionCodeContext(
 		http.MethodGet,
-		"/api/v1/admin/redemption-codes?page=2&pageSize=20&showAll=true&code=ABCD&status=expired&templateUserId=user_123&registrationPlanGroup=VIP_A",
+		"/api/v1/admin/redemption-codes?page=2&pageSize=20&showAll=true&code=ABCD&status=expired&registrationPlanGroup=VIP_A",
 		nil,
 	)
 	handler.GetRedemptionCodes(ctx)

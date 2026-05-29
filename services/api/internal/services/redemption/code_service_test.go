@@ -25,7 +25,7 @@ func TestValidateRegistrationCodeRejectsMissingBoundPlanGroup(t *testing.T) {
 			MaxUses:               3,
 			UsedCount:             0,
 			DefaultDays:           30,
-			RegistrationPlanGroup: &planGroup,
+			RegistrationPlanGroup: planGroup,
 		}, nil
 	}
 	redemptionGetPlanGroupByKey = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
@@ -53,7 +53,7 @@ func TestValidateRenewalCodeIgnoresMissingBoundPlanGroup(t *testing.T) {
 			MaxUses:               3,
 			UsedCount:             0,
 			DefaultDays:           30,
-			RegistrationPlanGroup: &planGroup,
+			RegistrationPlanGroup: planGroup,
 		}, nil
 	}
 
@@ -62,12 +62,12 @@ func TestValidateRenewalCodeIgnoresMissingBoundPlanGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	if code == nil || code.RegistrationPlanGroup == nil || *code.RegistrationPlanGroup != "VIP_A" {
+	if code == nil || code.RegistrationPlanGroup != "VIP_A" {
 		t.Fatalf("expected renewal validation to keep code payload, got %+v", code)
 	}
 }
 
-func TestValidateRegistrationPlanGroupNormalizesAndAllowsEmpty(t *testing.T) {
+func TestValidateRegistrationPlanGroupRequiresExplicitValue(t *testing.T) {
 	origNormalize := redemptionNormalizePlanGroupKey
 	defer func() {
 		redemptionNormalizePlanGroupKey = origNormalize
@@ -81,21 +81,16 @@ func TestValidateRegistrationPlanGroupNormalizesAndAllowsEmpty(t *testing.T) {
 		return "VIP_A", nil
 	}
 
-	blank := "  "
-	planGroup, err := service.validateRegistrationPlanGroup(&blank)
-	if err != nil {
-		t.Fatalf("expected blank plan group to be allowed, got %v", err)
-	}
-	if planGroup != nil {
-		t.Fatalf("expected blank plan group to normalize to nil, got %+v", planGroup)
+	_, err := service.validateRegistrationPlanGroup("  ")
+	if !errors.Is(err, ErrRegistrationPlanGroupRequired) {
+		t.Fatalf("expected ErrRegistrationPlanGroupRequired, got %v", err)
 	}
 
-	raw := "vip_a"
-	planGroup, err = service.validateRegistrationPlanGroup(&raw)
+	planGroup, err := service.validateRegistrationPlanGroup("vip_a")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	if planGroup == nil || *planGroup != "VIP_A" {
+	if planGroup != "VIP_A" {
 		t.Fatalf("expected normalized plan group VIP_A, got %+v", planGroup)
 	}
 }
@@ -118,9 +113,8 @@ func TestEnsureRegistrationPlanGroupExistsUsesLockedLookup(t *testing.T) {
 		return &models.PlanGroup{Key: key, Name: "VIP A"}, nil
 	}
 
-	planGroup := "VIP_A"
 	service := &RedemptionCodeService{}
-	if err := service.ensureRegistrationPlanGroupExists(nil, &planGroup, true); err != nil {
+	if err := service.ensureRegistrationPlanGroupExists(nil, "VIP_A", true); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 	if !lockCalled {

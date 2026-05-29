@@ -14,9 +14,7 @@ type RedemptionCode struct {
 	UsedCount                 int        `json:"usedCount" gorm:"column:used_count;not null;default:0"`
 	ExpiresAt                 *time.Time `json:"expiresAt,omitempty" gorm:"column:expires_at"`
 	DefaultDays               int        `json:"defaultDays" gorm:"column:default_days;not null;default:30"`
-	TemplateUserID            *string    `json:"templateUserId,omitempty" gorm:"column:template_user_id;type:varchar(25);index"`
-	TemplateUserName          *string    `json:"templateUserName,omitempty" gorm:"-"`
-	RegistrationPlanGroup     *string    `json:"registrationPlanGroup,omitempty" gorm:"column:registration_plan_group;size:50;index"`
+	RegistrationPlanGroup     string     `json:"registrationPlanGroup" gorm:"column:registration_plan_group;size:50;not null;index"`
 	RegistrationPlanGroupName *string    `json:"registrationPlanGroupName,omitempty" gorm:"-"`
 	Notes                     string     `json:"notes,omitempty" gorm:"column:notes;size:500"`
 	CreatedAt                 time.Time  `json:"createdAt" gorm:"column:created_at;autoCreateTime"`

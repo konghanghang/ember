@@ -64,7 +64,6 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.POST("/redemption-codes/batch", h.redemptionCode.CreateRedemptionCodesBatch)
 	admin.PUT("/redemption-codes/:id", h.redemptionCode.UpdateRedemptionCode)
 	admin.DELETE("/redemption-codes/:id", h.redemptionCode.DeleteRedemptionCode)
-	admin.GET("/user-templates", h.redemptionCode.GetUserTemplates)
 	admin.GET("/configs", h.config.GetConfigs)
 	admin.PATCH("/configs/:key", h.config.UpdateConfig)
 	admin.POST("/configs/:group/test", h.config.TestConfigGroup)

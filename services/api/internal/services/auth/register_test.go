@@ -304,7 +304,7 @@ func TestPrepareRegisterInviteUsesRegistrationValidation(t *testing.T) {
 				ID:                    "rcode_1",
 				Code:                  code,
 				DefaultDays:           30,
-				RegistrationPlanGroup: &planGroup,
+				RegistrationPlanGroup: planGroup,
 			}, nil
 		},
 	}

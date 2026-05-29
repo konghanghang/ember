@@ -320,7 +320,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 调用注册场景兑换码校验（会额外校验 `registrationPlanGroup` 仍存在）→ `"open"`: 读取 `default_trial_days`
 2. 调用 `ConfigService.IsRegistrationEmailAllowed(email)` 做注册邮箱域名白名单门控；非空白名单且邮箱域名不在白名单内时直接返回 400，不消耗邀请码、不调用 Emby、不写库；空白名单视为关闭限制（详见 §5.5 与 §5.13；reset / change_email / 后台创建用户不走该门控）
 3. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码（VerifyCode 在事务中"校验即消费"，详见 §5.13）
-4. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式且兑换码绑定 `registrationPlanGroup` 时，把该 key 写入 `users.planGroup`，未绑定时显式写入当前默认分组，避免新增用户继续依赖 `users.plan_group IS NULL` 的隐式跟随语义
+4. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式使用兑换码必填的 `registrationPlanGroup` 写入 `users.planGroup`；open 模式显式写入当前默认分组，避免新增用户继续依赖 `users.plan_group IS NULL` 的隐式跟随语义
 5. 本地事务提交后调用 `ApplyEffectiveUserPolicy(user_registered)` 全量写入当前有效 Emby Policy；若外部写入失败，注册仍按成功返回，响应带 `policySyncStatus=pending`，并记录 `emby_policy_sync_tasks(status=pending, reason=user_registered)` 交给 Policy worker 重试
 6. 签发 JWT
 7. 火忘式通知 Bot（新用户注册）
@@ -354,11 +354,10 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 
 ### 5.3 RedemptionCodeService (`services/redemption/code_service.go`)
 
-- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, templateUserId, registrationPlanGroup, notes)` — 生成 16 字符 hex 码；若传 `registrationPlanGroup`，创建时校验分组存在
-- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, templateUserId, registrationPlanGroup, notes)` — 批量生成兑换码，单次最多 100 个，整批事务提交
-- `GetRedemptionCodes(page, pageSize, showAll, code, status, templateUserId, registrationPlanGroup)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）、模板用户和注册套餐分组过滤，并返回 `notes`、`registrationPlanGroupName`；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
-- `GetUserTemplates()` — 获取可选模板用户列表（启用且未过期）
-- `ValidateRegistrationCode(code)` — 注册场景兑换码校验；查找 + IsValid()，且当 `registrationPlanGroup` 非空时强校验分组仍存在
+- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, registrationPlanGroup, notes)` — 生成 16 字符 hex 码；`registrationPlanGroup` 必填，创建时校验分组存在
+- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, registrationPlanGroup, notes)` — 批量生成兑换码，`registrationPlanGroup` 必填，单次最多 100 个，整批事务提交
+- `GetRedemptionCodes(page, pageSize, showAll, code, status, registrationPlanGroup)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）和注册套餐分组过滤，并返回 `notes`、`registrationPlanGroupName`；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
+- `ValidateRegistrationCode(code)` — 注册场景兑换码校验；查找 + IsValid()，并强校验 `registrationPlanGroup` 仍存在
 - `ValidateRenewalCode(code)` — 续期场景兑换码校验；只查找 + IsValid()，忽略 `registrationPlanGroup`
 - `UseCode(code)` — 原子递增 usedCount
 
@@ -555,7 +554,7 @@ Stripe 一次性支付流程管理。
 - `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 事务内只做 Payment / User 状态更新和 `expiresAt` 延长（**Emby 调权移到 commit 后异步执行**）；引入 `event.created < payment.updatedAt` 乱序保护；commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "payment_fulfillment")`，Emby 写入失败不回滚支付履约，但会写入单用户 `failed` 处理记录供管理员手动重试
 - `markPaymentFailed(sessionID, eventCreated)` — 同样接受 `eventCreated`，做乱序保护
 - `MarkPaymentExpired(sessionID)` — `UPDATE payments SET status='expired' WHERE stripeSessionId=? AND status='pending'`，`RowsAffected=0` 视为已收口（noop）
-- 模板用户 Policy 复制白名单（`auth.applyTemplatePolicyIfNeeded`）：移除 `EnableContentDownloading` / `MaxParentalRating`，仅复制 `EnableAllFolders / EnabledFolders / ExcludedSubFolders / EnableSyncTranscoding / EnableVideoPlaybackTranscoding / EnablePlaybackRemuxing / EnableAudioPlaybackTranscoding`
+- 邀请码模板用户 Policy 复制链路已废弃；注册权益只来自 `registrationPlanGroup` 对应的分组媒体库模板和 Emby 权益模板
 
 ### 5.17 错误定义（按业务拆分）
 

@@ -57,8 +57,7 @@
 | UsedCount | int | usedCount | 已使用次数（默认 0）|
 | ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
 | DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
-| TemplateUserID | *string(25) | templateUserId | 模板用户 ID（可空，仅邀请码注册时生效）|
-| RegistrationPlanGroup | *string(50) | registrationPlanGroup | 注册场景专用套餐分组 key（可空；仅注册时生效，续期忽略） |
+| RegistrationPlanGroup | string(50) | registrationPlanGroup | 注册场景专用套餐分组 key（必填；仅注册时生效，续期忽略） |
 | Notes | string(500) | notes | 备注（可选，用于记录用途或来源） |
 | CreatedAt | time.Time | createdAt | 自动 |
 
@@ -431,10 +430,10 @@ User (1) ──→ (N) Subscription   （求片记录）
 Subscription (1) ──→ (N) SubscriptionAdminNotification（Telegram 管理员审批消息）
 User (1) ──→ (N) Payment        （支付记录）
 User (1) ──→ (N) TelegramBindCode（临时绑定验证码）
-User (1) ──→ (N) RedemptionCode （模板用户引用，可空）
 User (1) ──→ (1) Emby User      （外部 Emby 账号，通过 EmbyID 关联）
 
 Plan (1) ──→ (N) Payment        （方案关联）
+PlanGroup (1) ──→ (N) RedemptionCode（注册套餐分组引用）
 RedemptionCode ──→ Redemption   （码被使用时生成记录）
 Setting                         （全局 KV 配置，无外键）
 EmailVerification               （独立验证码，无外键）
