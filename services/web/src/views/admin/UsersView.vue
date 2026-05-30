@@ -32,6 +32,7 @@ import {
   createAdminUser,
   deleteUser,
   extendUserExpiry,
+  getAdminMediaLibraries,
   getPlanGroups,
   getUsers,
   previewPlanGroupMediaLibrarySync,
@@ -45,6 +46,8 @@ import {
 import type {
   CreateAdminUserRequest,
   ManagedPlanGroup,
+  MediaLibraryOption,
+  MediaLibrarySyncCandidate,
   MediaLibrarySyncPreviewResult,
   PlanGroup,
   UpdateAdminUserRequest,
@@ -61,8 +64,16 @@ const loading = ref(false)
 const creatingUser = ref(false)
 const savingUser = ref(false)
 const syncingHistoryLibraries = ref(false)
+const applyingHistoryLibraries = ref(false)
 const createDialogVisible = ref(false)
 const editDialogVisible = ref(false)
+const syncPreviewDialogVisible = ref(false)
+const syncPreviewGroup = ref<ManagedPlanGroup | null>(null)
+const syncPreview = ref<MediaLibrarySyncPreviewResult | null>(null)
+const syncAvailableLibraries = ref<MediaLibraryOption[]>([])
+const selectedSyncCandidateIndex = ref(0)
+const selectedSyncLibraryIds = ref<string[]>([])
+const selectedPreferenceUserIds = ref<string[]>([])
 const queryParams = ref<UserListQuery>({
   page: 1,
   pageSize: 10,
@@ -151,10 +162,36 @@ const handleResetFilters = () => {
   fetchData()
 }
 
+const buildLibraryKey = (libraryIds: string[]) => [...libraryIds].sort().join('\x00')
+
+const sameLibrarySet = (left: string[], right: string[]) => buildLibraryKey(left) === buildLibraryKey(right)
+
 const selectedFilterPlanGroup = computed(() => {
   const key = queryParams.value.planGroup
   return key ? planGroups.value.find(group => group.key === key) ?? null : null
 })
+
+const syncLibraryOptions = computed(() => {
+  const libraries = new Map<string, MediaLibraryOption>()
+  for (const library of syncAvailableLibraries.value) {
+    libraries.set(library.id, library)
+  }
+  for (const candidate of syncPreview.value?.candidates ?? []) {
+    for (const library of candidate.libraries) {
+      libraries.set(library.id, library)
+    }
+  }
+  return Array.from(libraries.values()).sort((a, b) => a.name.localeCompare(b.name))
+})
+
+const selectedSyncLibraryKey = computed(() => buildLibraryKey(selectedSyncLibraryIds.value))
+
+const selectedSyncDifferenceUsers = computed(() => {
+  const selectedKey = selectedSyncLibraryKey.value
+  return (syncPreview.value?.differenceUsers ?? []).filter(user => buildLibraryKey(user.libraryIds) !== selectedKey)
+})
+
+const selectedPreferenceUserCount = computed(() => selectedPreferenceUserIds.value.length)
 
 const resetCreateForm = () => {
   createForm.value = {
@@ -412,9 +449,32 @@ const handleResetPassword = async (row: UserInfo) => {
   }
 }
 
-const summarizeSyncPreview = (preview: MediaLibrarySyncPreviewResult) => {
-  const failedText = preview.failedItems.length > 0 ? `，读取失败 ${preview.failedItems.length} 个` : ''
-  return `扫描 ${preview.scannedUsers}/${preview.totalUsers} 个用户，候选模板 ${preview.candidates.length} 个${failedText}`
+const summarizeCandidateLibraries = (candidate: MediaLibrarySyncCandidate) => {
+  if (candidate.libraries.length === 0) {
+    return '无媒体库'
+  }
+  return candidate.libraries.map(library => library.name).join('、')
+}
+
+const resetPreferenceUsersForTemplate = (libraryIds: string[]) => {
+  selectedPreferenceUserIds.value = (syncPreview.value?.differenceUsers ?? [])
+    .filter(user => !sameLibrarySet(user.libraryIds, libraryIds))
+    .map(user => user.userId)
+}
+
+const handleSelectSyncCandidate = (index: number) => {
+  const candidate = syncPreview.value?.candidates[index]
+  if (!candidate) {
+    return
+  }
+  selectedSyncCandidateIndex.value = index
+  selectedSyncLibraryIds.value = [...candidate.libraryIds]
+  resetPreferenceUsersForTemplate(candidate.libraryIds)
+}
+
+const handleManualSyncLibraryChange = () => {
+  selectedSyncCandidateIndex.value = -1
+  resetPreferenceUsersForTemplate(selectedSyncLibraryIds.value)
 }
 
 const handleSyncHistoryLibraries = async () => {
@@ -426,40 +486,53 @@ const handleSyncHistoryLibraries = async () => {
 
   syncingHistoryLibraries.value = true
   try {
-    const previewRes = await previewPlanGroupMediaLibrarySync(group.key)
+    const [previewRes, librariesRes] = await Promise.all([
+      previewPlanGroupMediaLibrarySync(group.key),
+      getAdminMediaLibraries()
+    ])
     const preview = previewRes.data
     if (preview.candidates.length === 0) {
       ElMessage.warning('当前分组没有可同步的 Emby 媒体库权限')
       return
     }
-    if (preview.candidates.length > 1) {
-      await ElMessageBox.alert(
-        `${summarizeSyncPreview(preview)}。当前分组内用户媒体库集合不一致，请先处理差异用户后再一键同步。`,
-        '历史同步预览',
-        { confirmButtonText: '知道了' }
-      )
-      return
-    }
-
-    const candidate = preview.candidates[0]
-    await ElMessageBox.confirm(
-      `${summarizeSyncPreview(preview)}。确认将 ${group.name} 的媒体库模板同步为 ${candidate.libraryIds.length} 个媒体库吗？`,
-      '历史用户媒体库同步',
-      {
-        confirmButtonText: '确认同步',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-    await applyPlanGroupMediaLibrarySync(group.key, { libraryIds: candidate.libraryIds })
-    ElMessage.success('已创建历史用户媒体库同步任务')
-    await fetchData()
+    syncPreviewGroup.value = group
+    syncPreview.value = preview
+    syncAvailableLibraries.value = librariesRes.data ?? []
+    syncPreviewDialogVisible.value = true
+    handleSelectSyncCandidate(0)
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
       // request interceptor 已处理错误提示
     }
   } finally {
     syncingHistoryLibraries.value = false
+  }
+}
+
+const handleApplyHistoryLibraries = async () => {
+  const group = syncPreviewGroup.value
+  const preview = syncPreview.value
+  if (!group || !preview) {
+    ElMessage.warning('请先生成历史同步预览')
+    return
+  }
+
+  applyingHistoryLibraries.value = true
+  try {
+    const preferenceUserIdSet = new Set(selectedSyncDifferenceUsers.value.map(user => user.userId))
+    await applyPlanGroupMediaLibrarySync(group.key, {
+      libraryIds: selectedSyncLibraryIds.value,
+      preferenceUserIds: selectedPreferenceUserIds.value.filter(userId => preferenceUserIdSet.has(userId))
+    })
+    ElMessage.success('已创建历史用户媒体库同步任务')
+    syncPreviewDialogVisible.value = false
+    await fetchData()
+  } catch (error) {
+    if (!isMessageBoxCancel(error)) {
+      // request interceptor 已处理错误提示
+    }
+  } finally {
+    applyingHistoryLibraries.value = false
   }
 }
 
@@ -950,6 +1023,139 @@ onMounted(async () => {
         />
       </template>
     </EmberTableCard>
+
+    <EmberFormDialog
+      v-model="syncPreviewDialogVisible"
+      title="历史用户媒体库同步"
+      width="920px"
+      class="rounded-2xl"
+    >
+      <div v-if="syncPreview && syncPreviewGroup" class="space-y-5 p-6 pt-2">
+        <div class="grid gap-3 md:grid-cols-4">
+          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <div class="text-xs font-medium text-gray-500">套餐组</div>
+            <div class="mt-1 truncate text-sm font-semibold text-gray-900">{{ syncPreviewGroup.name }}</div>
+          </div>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <div class="text-xs font-medium text-gray-500">扫描用户</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900">{{ syncPreview.scannedUsers }}/{{ syncPreview.totalUsers }}</div>
+          </div>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <div class="text-xs font-medium text-gray-500">候选模板</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900">{{ syncPreview.candidates.length }}</div>
+          </div>
+          <div class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <div class="text-xs font-medium text-gray-500">偏好用户</div>
+            <div class="mt-1 text-sm font-semibold text-gray-900">{{ selectedPreferenceUserCount }}/{{ selectedSyncDifferenceUsers.length }}</div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-900">候选集合</h3>
+            <el-tag :type="syncPreview.consistent ? 'success' : 'warning'" effect="light" round>
+              {{ syncPreview.consistent ? '一致' : '不一致' }}
+            </el-tag>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <button
+              v-for="(candidate, index) in syncPreview.candidates"
+              :key="`${index}-${candidate.libraryIds.join(',')}`"
+              type="button"
+              class="cursor-pointer rounded-2xl border bg-white p-4 text-left transition-colors hover:border-ember/40 hover:bg-ember/5"
+              :class="selectedSyncCandidateIndex === index ? 'border-ember ring-4 ring-ember/10' : 'border-gray-200'"
+              @click="handleSelectSyncCandidate(index)"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-sm font-semibold text-gray-900">候选 {{ index + 1 }}</span>
+                <span class="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+                  {{ candidate.userCount }} 人 · {{ candidate.libraryIds.length }} 库
+                </span>
+              </div>
+              <div class="mt-2 line-clamp-2 text-xs leading-5 text-gray-500">
+                {{ summarizeCandidateLibraries(candidate) }}
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-900">模板媒体库</h3>
+            <span class="text-xs font-medium text-gray-500">{{ selectedSyncLibraryIds.length }} 个</span>
+          </div>
+          <div class="grid max-h-64 gap-3 overflow-y-auto pr-1 md:grid-cols-2">
+            <label
+              v-for="library in syncLibraryOptions"
+              :key="library.id"
+              class="flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 transition-colors hover:border-ember/40 hover:bg-ember/5"
+            >
+              <el-checkbox
+                v-model="selectedSyncLibraryIds"
+                :label="library.id"
+                size="large"
+                @change="handleManualSyncLibraryChange"
+              />
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
+                <span class="mt-1 block text-xs text-gray-500">{{ library.type || 'Unknown' }} · {{ library.itemCount ?? 0 }} 项</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div v-if="selectedSyncDifferenceUsers.length > 0" class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-900">写入个人偏好</h3>
+            <span class="text-xs font-medium text-gray-500">{{ selectedPreferenceUserCount }} 个用户</span>
+          </div>
+          <div class="max-h-64 space-y-2 overflow-y-auto pr-1">
+            <label
+              v-for="user in selectedSyncDifferenceUsers"
+              :key="user.userId"
+              class="flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 transition-colors hover:border-ember/40 hover:bg-ember/5"
+            >
+              <el-checkbox v-model="selectedPreferenceUserIds" :label="user.userId" size="large" />
+              <span class="min-w-0 flex-1">
+                <span class="flex flex-wrap items-center gap-2">
+                  <span class="text-sm font-semibold text-gray-900">{{ user.username }}</span>
+                  <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">{{ user.libraryIds.length }} 库</span>
+                </span>
+                <span class="mt-1 block truncate text-xs text-gray-500">
+                  {{ user.libraries.length > 0 ? user.libraries.map(library => library.name).join('、') : '无媒体库' }}
+                </span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div v-if="syncPreview.failedItems.length > 0" class="rounded-2xl border border-red-100 bg-red-50 p-4">
+          <div class="text-sm font-semibold text-red-700">读取失败 {{ syncPreview.failedItems.length }} 个</div>
+          <div class="mt-2 max-h-28 space-y-1 overflow-y-auto text-xs text-red-600">
+            <div v-for="item in syncPreview.failedItems" :key="`${item.userId || item.embyId}-${item.error}`">
+              {{ item.username || item.userId || item.embyId || '-' }}：{{ item.error }}
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
+          <button
+            @click="syncPreviewDialogVisible = false"
+            class="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+          >
+            取消
+          </button>
+          <button
+            @click="handleApplyHistoryLibraries"
+            :disabled="applyingHistoryLibraries"
+            class="btn-ember cursor-pointer rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+          >
+            {{ applyingHistoryLibraries ? '同步中...' : '确认同步' }}
+          </button>
+        </div>
+      </template>
+    </EmberFormDialog>
 
     <EmberFormDialog
       v-model="createDialogVisible"

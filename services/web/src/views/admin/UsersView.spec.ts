@@ -3,7 +3,14 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UsersView from './UsersView.vue'
-import { getPlanGroups, getUsers, updateAdminUser } from '@/api/admin'
+import {
+  applyPlanGroupMediaLibrarySync,
+  getAdminMediaLibraries,
+  getPlanGroups,
+  getUsers,
+  previewPlanGroupMediaLibrarySync,
+  updateAdminUser
+} from '@/api/admin'
 import type { UserInfo } from '@/types/api'
 
 vi.mock('@/api/admin', () => ({
@@ -12,6 +19,7 @@ vi.mock('@/api/admin', () => ({
   createAdminUser: vi.fn(),
   deleteUser: vi.fn(),
   extendUserExpiry: vi.fn(),
+  getAdminMediaLibraries: vi.fn(),
   getPlanGroups: vi.fn(),
   getUsers: vi.fn(),
   previewPlanGroupMediaLibrarySync: vi.fn(),
@@ -95,6 +103,7 @@ async function mountView() {
         'el-form': passthroughStub,
         'el-form-item': passthroughStub,
         'el-icon': passthroughStub,
+        'el-checkbox': emptyStub,
         'el-input': emptyStub,
         'el-option': emptyStub,
         'el-pagination': emptyStub,
@@ -114,6 +123,7 @@ describe('UsersView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(getPlanGroups).mockResolvedValue({ data: [] })
+    vi.mocked(getAdminMediaLibraries).mockResolvedValue({ data: [] })
     vi.mocked(getUsers).mockResolvedValue({
       data: [],
       total: 0,
@@ -174,6 +184,91 @@ describe('UsersView', () => {
 
     expect(updateAdminUser).toHaveBeenCalledWith('user_1', {
       email: 'alice.new@example.com',
+    })
+  })
+
+  it('历史同步不一致时提交模板集合和偏好用户', async () => {
+    vi.mocked(getPlanGroups).mockResolvedValue({
+      data: [{
+        key: 'VIP',
+        name: 'VIP',
+        isDefault: false,
+        sortOrder: 1,
+      }],
+    })
+    vi.mocked(getAdminMediaLibraries).mockResolvedValue({
+      data: [
+        { id: 'lib_a', name: '电影', type: 'Movie' },
+        { id: 'lib_b', name: '剧集', type: 'Series' },
+      ],
+    })
+    vi.mocked(previewPlanGroupMediaLibrarySync).mockResolvedValue({
+      data: {
+        planGroupKey: 'VIP',
+        totalUsers: 2,
+        scannedUsers: 2,
+        consistent: false,
+        candidates: [
+          {
+            libraryIds: ['lib_a'],
+            libraries: [{ id: 'lib_a', name: '电影', type: 'Movie' }],
+            userCount: 1,
+            sourceUserIds: ['user_1'],
+          },
+          {
+            libraryIds: ['lib_b'],
+            libraries: [{ id: 'lib_b', name: '剧集', type: 'Series' }],
+            userCount: 1,
+            sourceUserIds: ['user_2'],
+          },
+        ],
+        differenceUsers: [
+          {
+            userId: 'user_1',
+            username: 'alice',
+            embyId: 'emby_1',
+            libraryIds: ['lib_a'],
+            libraries: [{ id: 'lib_a', name: '电影', type: 'Movie' }],
+          },
+          {
+            userId: 'user_2',
+            username: 'bob',
+            embyId: 'emby_2',
+            libraryIds: ['lib_b'],
+            libraries: [{ id: 'lib_b', name: '剧集', type: 'Series' }],
+          },
+        ],
+        failedItems: [],
+      },
+    })
+    vi.mocked(applyPlanGroupMediaLibrarySync).mockResolvedValue({
+      data: {
+        batchId: 'batch_1',
+        affectedUserCount: 2,
+        status: 'pending',
+      },
+    })
+
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as {
+      queryParams: { planGroup: string }
+      selectedSyncLibraryIds: string[]
+      selectedPreferenceUserIds: string[]
+      handleSyncHistoryLibraries: () => Promise<void>
+      handleApplyHistoryLibraries: () => Promise<void>
+    }
+
+    vm.queryParams.planGroup = 'VIP'
+    await vm.handleSyncHistoryLibraries()
+
+    expect(vm.selectedSyncLibraryIds).toEqual(['lib_a'])
+    expect(vm.selectedPreferenceUserIds).toEqual(['user_2'])
+
+    await vm.handleApplyHistoryLibraries()
+
+    expect(applyPlanGroupMediaLibrarySync).toHaveBeenCalledWith('VIP', {
+      libraryIds: ['lib_a'],
+      preferenceUserIds: ['user_2'],
     })
   })
 })
