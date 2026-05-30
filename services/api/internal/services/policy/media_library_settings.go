@@ -489,7 +489,13 @@ func (s *Service) UpdateUserEmbyAccess(userID string, disabled bool) error {
 	if err != nil {
 		return normalizePolicyError("解析用户有效分组失败", err)
 	}
-	return s.applyPolicyOrRecordFailure(&user, planGroupKey, "admin_emby_access_update")
+	if err := s.ApplyEffectiveUserPolicy(user.ID, "admin_emby_access_update"); err != nil {
+		if recordErr := s.recordUserPolicySyncFailure(&user, planGroupKey, "admin_emby_access_update", err); recordErr != nil {
+			return recordErr
+		}
+		log.Printf("[Policy] Emby 访问禁用意图已更新但 Policy 同步失败: userID=%s disabled=%t err=%v", user.ID, disabled, err)
+	}
+	return nil
 }
 
 // RetryUserPolicySyncFailure 由管理员手动重试用户当前有效 Emby Policy 同步。
