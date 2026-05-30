@@ -594,16 +594,6 @@ const getEmbyStatus = (row: UserInfo) => {
     }
   }
 
-  if (!row.isActive) {
-    return {
-      text: '禁用',
-      dotClass: 'bg-red-500',
-      textClass: 'text-red-700',
-      pulse: false,
-      reason: '跟随 Ember 禁用'
-    }
-  }
-
   if (row.isExpired || isExpired(row.expiresAt ?? null)) {
     return {
       text: '禁用',
