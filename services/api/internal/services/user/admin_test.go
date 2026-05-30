@@ -47,6 +47,23 @@ func TestNormalizePlanGroupUpdateRejectsBlank(t *testing.T) {
 	}
 }
 
+func TestAdminUpdateChangesEmbyPolicyIgnoresLocalActiveFlag(t *testing.T) {
+	active := false
+	email := "alice@example.com"
+	if adminUpdateChangesEmbyPolicy(&AdminUpdateUserRequest{IsActive: &active, Email: &email}) {
+		t.Fatalf("expected local isActive and email update to skip Emby Policy sync")
+	}
+
+	expiresAt := "2099-01-01T00:00:00Z"
+	if !adminUpdateChangesEmbyPolicy(&AdminUpdateUserRequest{ExpiresAt: &expiresAt}) {
+		t.Fatalf("expected expiry update to require Emby Policy sync")
+	}
+
+	if !adminUpdateChangesEmbyPolicy(&AdminUpdateUserRequest{ClearExpiresAt: true}) {
+		t.Fatalf("expected expiry clearing to require Emby Policy sync")
+	}
+}
+
 func TestSyncEmbyPolicyRecordsFailureWithoutFailingCommittedMutation(t *testing.T) {
 	cause := errors.New("policy write failed")
 	var recordedUserID string

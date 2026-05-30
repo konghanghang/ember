@@ -90,6 +90,14 @@ const editForm = ref({
   expiresAt: null as Date | null
 })
 
+const editOriginal = ref({
+  email: '',
+  isActive: true,
+  planGroup: '' as PlanGroup | '',
+  neverExpire: false,
+  expiresAt: null as string | null
+})
+
 const planGroupOptions = computed(() => planGroups.value.map(group => ({
   label: `${group.name} (${group.key})`,
   value: group.key
@@ -265,13 +273,22 @@ const handleCreateUser = async () => {
 }
 
 const handleOpenEdit = (row: UserInfo) => {
+  const expiresAt = row.expiresAt ? new Date(row.expiresAt).toISOString() : null
+  const planGroup = row.effectivePlanGroup || row.planGroup || defaultPlanGroup.value?.key || ''
   editForm.value = {
     id: row.id,
     email: row.email || '',
     isActive: row.isActive,
-    planGroup: row.effectivePlanGroup || row.planGroup || defaultPlanGroup.value?.key || '',
+    planGroup,
     neverExpire: !row.expiresAt,
-    expiresAt: row.expiresAt ? new Date(row.expiresAt) : null
+    expiresAt: expiresAt ? new Date(expiresAt) : null
+  }
+  editOriginal.value = {
+    email: row.email || '',
+    isActive: row.isActive,
+    planGroup,
+    neverExpire: !row.expiresAt,
+    expiresAt
   }
   editDialogVisible.value = true
 }
@@ -288,15 +305,30 @@ const handleUpdateUser = async () => {
     return
   }
 
-  const payload: UpdateAdminUserRequest = {
-    email,
-    isActive: editForm.value.isActive,
-    planGroup: editForm.value.planGroup,
-    clearExpiresAt: editForm.value.neverExpire
+  const payload: UpdateAdminUserRequest = {}
+  const currentExpiresAt = editForm.value.neverExpire
+    ? null
+    : editForm.value.expiresAt?.toISOString() ?? null
+
+  if (email !== editOriginal.value.email) {
+    payload.email = email
+  }
+  if (editForm.value.isActive !== editOriginal.value.isActive) {
+    payload.isActive = editForm.value.isActive
+  }
+  if (editForm.value.planGroup !== editOriginal.value.planGroup) {
+    payload.planGroup = editForm.value.planGroup
+  }
+  if (editForm.value.neverExpire && editForm.value.neverExpire !== editOriginal.value.neverExpire) {
+    payload.clearExpiresAt = true
+  }
+  if (!editForm.value.neverExpire && currentExpiresAt !== editOriginal.value.expiresAt) {
+    payload.expiresAt = currentExpiresAt ?? undefined
   }
 
-  if (!editForm.value.neverExpire && editForm.value.expiresAt) {
-    payload.expiresAt = editForm.value.expiresAt.toISOString()
+  if (Object.keys(payload).length === 0) {
+    ElMessage.warning('没有需要保存的修改')
+    return
   }
 
   savingUser.value = true

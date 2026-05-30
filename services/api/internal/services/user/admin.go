@@ -252,7 +252,7 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		return nil, ErrUserNotFound
 	}
 
-	needSyncEmbyPolicy := false
+	needSyncEmbyPolicy := adminUpdateChangesEmbyPolicy(req)
 	oldEffectivePlanGroup, err := paymentpkg.ResolveEffectivePlanGroupKey(tx, user.PlanGroup)
 	if err != nil {
 		tx.Rollback()
@@ -273,7 +273,6 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive
-		needSyncEmbyPolicy = true
 	}
 
 	if req.PlanGroup != nil {
@@ -291,7 +290,6 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 
 	if req.ClearExpiresAt {
 		user.ExpiresAt = nil
-		needSyncEmbyPolicy = true
 	} else if req.ExpiresAt != nil {
 		expiresAt, err := time.Parse(time.RFC3339, *req.ExpiresAt)
 		if err != nil {
@@ -300,7 +298,6 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		}
 		expiresAtUTC := expiresAt.UTC()
 		user.ExpiresAt = &expiresAtUTC
-		needSyncEmbyPolicy = true
 	}
 
 	updates := map[string]interface{}{
@@ -404,11 +401,17 @@ func (s *UserService) ToggleUserStatus(userID string) (*UserView, error) {
 		}).Error; err != nil {
 		return nil, err
 	}
-	if err := s.syncEmbyPolicy(user, "admin_user_status_toggle"); err != nil {
-		return nil, err
-	}
 
 	return s.GetUserByID(userID)
+}
+
+// adminUpdateChangesEmbyPolicy 判断管理员编辑请求是否修改了 Emby Policy 直接依赖的本地字段。
+// users.is_active 只控制 Ember 本地登录，不参与 Emby IsDisabled 计算。
+func adminUpdateChangesEmbyPolicy(req *AdminUpdateUserRequest) bool {
+	if req == nil {
+		return false
+	}
+	return req.ClearExpiresAt || req.ExpiresAt != nil
 }
 
 func (s *UserService) DeleteUser(userID string) error {

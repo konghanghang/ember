@@ -3,7 +3,7 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UsersView from './UsersView.vue'
-import { getPlanGroups, getUsers } from '@/api/admin'
+import { getPlanGroups, getUsers, updateAdminUser } from '@/api/admin'
 import type { UserInfo } from '@/types/api'
 
 vi.mock('@/api/admin', () => ({
@@ -149,5 +149,31 @@ describe('UsersView', () => {
       isActive: false,
       isExpired: true,
     })).reason).toBe('过期封禁')
+  })
+
+  it('编辑用户时只提交实际变更字段', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue(createUser())
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as {
+      editForm: { email: string }
+      handleOpenEdit: (row: UserInfo) => void
+      handleUpdateUser: () => Promise<void>
+    }
+
+    vm.handleOpenEdit(createUser({
+      email: 'alice@example.com',
+      planGroup: 'VIP',
+      effectivePlanGroup: 'VIP',
+      expiresAt: '2099-01-01T00:00:00Z',
+      isActive: false,
+    }))
+    vm.editForm.email = 'alice.new@example.com'
+
+    await vm.handleUpdateUser()
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith('user_1', {
+      email: 'alice.new@example.com',
+    })
   })
 })
