@@ -57,6 +57,8 @@ var (
 // ErrEmbyUserNotFound 表示目标 Emby 用户不存在或已被删除。
 var ErrEmbyUserNotFound = errors.New("Emby 用户不存在")
 
+var errEmbyUserPolicyMissing = errors.New("Emby 用户策略缺失")
+
 // GetSharedService 返回进程内共享的 EmbyService 单例。
 // 配置在首次调用时从数据库读取一次；后续调用直接返回已初始化实例。
 func GetSharedService() *EmbyService {
@@ -89,10 +91,11 @@ func (s *EmbyService) IsConfigured() bool {
 
 // EmbyUser Emby 用户信息
 type EmbyUser struct {
-	ID          string `json:"Id"`
-	Name        string `json:"Name"`
-	ServerId    string `json:"ServerId"`
-	HasPassword bool   `json:"HasPassword"`
+	ID          string         `json:"Id"`
+	Name        string         `json:"Name"`
+	ServerId    string         `json:"ServerId"`
+	HasPassword bool           `json:"HasPassword"`
+	Policy      map[string]any `json:"Policy,omitempty"`
 }
 
 // AuthenticateUserRequest Emby 用户认证请求
@@ -577,7 +580,61 @@ func (s *EmbyService) getUserPolicyRaw(embyUserID string) (map[string]any, error
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
+	return s.getUserPolicyRawConfigured(embyUserID)
+}
 
+func (s *EmbyService) getUserPolicyRawConfigured(embyUserID string) (map[string]any, error) {
+	policy, err := s.fetchUserPolicyRawFromUserDetail(embyUserID)
+	if err == nil {
+		return policy, nil
+	}
+	if !errors.Is(err, errEmbyUserPolicyMissing) {
+		return nil, err
+	}
+
+	// 部分旧部署若 UserDto 不带 Policy，保留历史 /Policy 读取路径兜底。
+	return s.fetchUserPolicyRawFromPolicyEndpoint(embyUserID)
+}
+
+func (s *EmbyService) fetchUserPolicyRawFromUserDetail(embyUserID string) (map[string]any, error) {
+	url := fmt.Sprintf("%s/emby/Users/%s?api_key=%s", s.baseURL, embyUserID, s.apiKey)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Emby-Token", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到 Emby 服务器：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrEmbyUserNotFound
+	}
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("获取 Emby 用户失败：状态码 %d，响应 %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var user EmbyUser
+	if err := json.Unmarshal(body, &user); err != nil {
+		return nil, err
+	}
+	if user.Policy == nil {
+		return nil, errEmbyUserPolicyMissing
+	}
+	return user.Policy, nil
+}
+
+func (s *EmbyService) fetchUserPolicyRawFromPolicyEndpoint(embyUserID string) (map[string]any, error) {
 	url := fmt.Sprintf("%s/emby/Users/%s/Policy", s.baseURL, embyUserID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
