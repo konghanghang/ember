@@ -83,7 +83,7 @@ const menuItems = computed(() => [
         role: 'admin'
       },
       {
-        title: '用户分组 / 权益模板',
+        title: '用户分组',
         path: '/console/plan-groups',
         icon: CollectionTag,
         role: 'admin'
