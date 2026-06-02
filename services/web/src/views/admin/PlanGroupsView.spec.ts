@@ -66,6 +66,22 @@ const tagStub = defineComponent({
   },
 })
 
+const checkboxStub = defineComponent({
+  props: {
+    label: {
+      type: String,
+      default: undefined,
+    },
+    value: {
+      type: String,
+      default: undefined,
+    },
+  },
+  setup(props, { slots }) {
+    return () => h('span', { class: 'checkbox' }, slots.default?.() ?? props.label ?? '')
+  },
+})
+
 const progressStub = defineComponent({
   props: {
     percentage: {
@@ -130,7 +146,7 @@ function mountView() {
         EmberFormDialog: passthroughStub,
         EmberPageHeaderCard: passthroughStub,
         EmberTableCard: passthroughStub,
-        'el-checkbox': passthroughStub,
+        'el-checkbox': checkboxStub,
         'el-form': passthroughStub,
         'el-form-item': passthroughStub,
         'el-icon': passthroughStub,
@@ -216,6 +232,45 @@ describe('PlanGroupsView', () => {
     expect(wrapper.text()).toContain('Emby Policy 同步')
     expect(wrapper.text()).toContain('失败用户')
     expect(wrapper.text()).toContain('alice')
+
+    wrapper.unmount()
+  })
+
+  it('媒体库模板只展示媒体库名称，不暴露媒体库 ID', async () => {
+    vi.mocked(getAdminMediaLibraries).mockResolvedValue({
+      data: [
+        { id: 'lib_movie_internal_id', name: '电影', type: 'Movie' },
+        { id: 'lib_series_internal_id', name: '剧集', type: 'Series' },
+      ],
+    })
+    vi.mocked(getPlanGroupMediaLibraries).mockResolvedValue({
+      data: {
+        planGroupKey: 'vip',
+        planGroupName: 'VIP',
+        libraries: [{ id: 'lib_movie_internal_id', name: '电影', type: 'Movie' }],
+        libraryCount: 1,
+        affectedUserCount: 0,
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.vm.$.setupState.openMediaDialog({
+      key: 'vip',
+      name: 'VIP',
+      description: '',
+      isDefault: false,
+      sortOrder: 0,
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('电影')
+    expect(wrapper.text()).toContain('剧集')
+    expect(wrapper.text()).toContain('Movie')
+    expect(wrapper.text()).not.toContain('0 项')
+    expect(wrapper.text()).not.toContain('lib_movie_internal_id')
+    expect(wrapper.text()).not.toContain('lib_series_internal_id')
 
     wrapper.unmount()
   })

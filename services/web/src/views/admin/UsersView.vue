@@ -26,6 +26,7 @@ import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { formatDateTime } from '@/utils/date'
+import { formatMediaLibrarySummary } from '@/utils/media-library'
 import {
   applyPlanGroupMediaLibrarySync,
   clearAdminUserMediaLibraryPreferences,
@@ -1092,13 +1093,13 @@ onMounted(async () => {
             >
               <el-checkbox
                 v-model="selectedSyncLibraryIds"
-                :label="library.id"
+                :value="library.id"
                 size="large"
                 @change="handleManualSyncLibraryChange"
               />
               <span class="min-w-0">
                 <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
-                <span class="mt-1 block text-xs text-gray-500">{{ library.type || 'Unknown' }} · {{ library.itemCount ?? 0 }} 项</span>
+                <span class="mt-1 block text-xs text-gray-500">{{ formatMediaLibrarySummary(library) }}</span>
               </span>
             </label>
           </div>
@@ -1115,7 +1116,7 @@ onMounted(async () => {
               :key="user.userId"
               class="flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 transition-colors hover:border-ember/40 hover:bg-ember/5"
             >
-              <el-checkbox v-model="selectedPreferenceUserIds" :label="user.userId" size="large" />
+              <el-checkbox v-model="selectedPreferenceUserIds" :value="user.userId" size="large" />
               <span class="min-w-0 flex-1">
                 <span class="flex flex-wrap items-center gap-2">
                   <span class="text-sm font-semibold text-gray-900">{{ user.username }}</span>

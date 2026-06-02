@@ -28,6 +28,7 @@ import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import { formatMediaLibrarySummary } from '@/utils/media-library'
 import type {
   CreatePlanGroupRequest,
   EmbyPolicySyncBatchCreated,
@@ -819,10 +820,10 @@ onBeforeUnmount(stopSyncBatchPolling)
               :key="library.id"
               class="flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 transition-colors hover:border-ember/40 hover:bg-ember/5"
             >
-              <el-checkbox v-model="selectedLibraryIds" :label="library.id" size="large" />
+              <el-checkbox v-model="selectedLibraryIds" :value="library.id" size="large" />
               <span class="min-w-0">
                 <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
-                <span class="mt-1 block text-xs text-gray-500">{{ library.type || 'Unknown' }} · {{ library.itemCount ?? 0 }} 项</span>
+                <span class="mt-1 block text-xs text-gray-500">{{ formatMediaLibrarySummary(library) }}</span>
               </span>
             </label>
           </div>

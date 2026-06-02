@@ -14,6 +14,7 @@ import {
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { formatDateTime } from '@/utils/date'
+import { formatMediaLibrarySummary } from '@/utils/media-library'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
 import { getRegistrationMode } from '@/api/auth'
@@ -863,13 +864,13 @@ onMounted(() => {
             >
               <el-checkbox
                 v-model="selectedMediaLibraryIds"
-                :label="library.id"
+                :value="library.id"
                 :disabled="!library.inGroupTemplate || mediaLibrarySyncing"
                 size="large"
               />
               <span class="min-w-0">
                 <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
-                <span class="mt-1 block text-xs text-gray-500">{{ library.type || 'Unknown' }} · {{ library.itemCount ?? 0 }} 项</span>
+                <span class="mt-1 block text-xs text-gray-500">{{ formatMediaLibrarySummary(library) }}</span>
               </span>
             </label>
           </div>
