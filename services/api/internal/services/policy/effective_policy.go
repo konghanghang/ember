@@ -46,7 +46,11 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return normalizePolicyError("读取用户失败", err)
 	}
-	if user.EmbyID == "" {
+	if user.IsAdmin() {
+		log.Printf("[Policy] 跳过 Emby Policy 同步：管理员不接管普通用户权益模板 userID=%s reason=%s", user.ID, reason)
+		return nil
+	}
+	if !shouldApplyEffectivePolicyToUser(&user) {
 		log.Printf("[Policy] 跳过 Emby Policy 同步：用户未绑定 Emby userId=%s reason=%s", user.ID, reason)
 		return nil
 	}
@@ -71,6 +75,10 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 	rawPolicy, err := s.embyClient.GetUserPolicyRaw(user.EmbyID)
 	if err != nil {
 		return normalizePolicyError("读取 Emby Policy 失败", err)
+	}
+	if isEmbyAdministratorPolicy(rawPolicy) {
+		log.Printf("[Policy] 跳过 Emby Policy 同步：绑定的 Emby 账号是管理员 userID=%s embyID=%s reason=%s", user.ID, user.EmbyID, reason)
+		return s.resolveFailedUserPolicySyncTasks(user.ID)
 	}
 
 	managedPolicy, fields := buildManagedPolicyFields(rawPolicy, user.IsExpired() || user.EmbyAccessDisabled, template, libraryIDs)
@@ -180,6 +188,14 @@ func (s *Service) resolveEnabledLibraryIDs(userID, planGroupKey string) ([]strin
 		}
 	}
 	return finalIDs, nil
+}
+
+func shouldApplyEffectivePolicyToUser(user *models.User) bool {
+	return user != nil && !user.IsAdmin() && strings.TrimSpace(user.EmbyID) != ""
+}
+
+func isEmbyAdministratorPolicy(rawPolicy map[string]any) bool {
+	return boolPolicyValue(rawPolicy["IsAdministrator"])
 }
 
 func buildManagedPolicyFields(

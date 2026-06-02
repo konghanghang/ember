@@ -2,10 +2,13 @@ package policy
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type stubPolicyClient struct {
@@ -149,6 +152,86 @@ func TestBuildUserPolicySyncFailureTaskUsesManualFailureState(t *testing.T) {
 	}
 }
 
+func TestManagedPolicyUsersInPlanGroupQueryRequiresOrdinaryBoundUsers(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DryRun:               true,
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	var users []models.User
+	stmt := managedPolicyUsersInPlanGroupQuery(database.Model(&models.User{}), "VIP_A").Find(&users).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+
+	assertSQLContains(t, sql, "plan_group =")
+	assertSQLContains(t, sql, "role =")
+	assertSQLContains(t, sql, "COALESCE(emby_id, '') <> ''")
+	if len(stmt.Vars) != 2 || stmt.Vars[0] != "VIP_A" || stmt.Vars[1] != "user" {
+		t.Fatalf("expected plan group and ordinary role vars, got %+v", stmt.Vars)
+	}
+}
+
+func TestManagedPolicyBatchTasksQueryRequiresOrdinaryUsers(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DryRun:               true,
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	var tasks []models.EmbyPolicySyncTask
+	stmt := managedPolicyBatchTasksQuery(database, "batch_1").
+		Select("tasks.*").
+		Where("tasks.status = ?", SyncStatusFailed).
+		Find(&tasks).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+
+	assertSQLContains(t, sql, "JOIN users ON users.id = tasks.user_id")
+	assertSQLContains(t, sql, "tasks.batch_id =")
+	assertSQLContains(t, sql, "users.role =")
+	assertSQLContains(t, sql, "tasks.status =")
+	if len(stmt.Vars) != 3 || stmt.Vars[0] != "batch_1" || stmt.Vars[1] != "user" || stmt.Vars[2] != SyncStatusFailed {
+		t.Fatalf("expected batch, ordinary role and status vars, got %+v", stmt.Vars)
+	}
+}
+
+func TestCountedPolicyBatchTasksQueryIgnoresEmbyAdminProtectionFailures(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DryRun:               true,
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	var tasks []models.EmbyPolicySyncTask
+	stmt := countedPolicyBatchTasksQuery(database, "batch_1").
+		Select("tasks.*").
+		Find(&tasks).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+
+	assertSQLContains(t, sql, "NOT (tasks.status =")
+	assertSQLContains(t, sql, "COALESCE(tasks.last_error, '') LIKE")
+	if len(stmt.Vars) != 4 || stmt.Vars[0] != "batch_1" || stmt.Vars[1] != "user" || stmt.Vars[2] != SyncStatusFailed {
+		t.Fatalf("expected batch, ordinary role and admin-protection status vars, got %+v", stmt.Vars)
+	}
+	if pattern, ok := stmt.Vars[3].(string); !ok || !strings.Contains(pattern, embyAdminPolicyProtectionText) {
+		t.Fatalf("expected admin protection pattern, got %+v", stmt.Vars[3])
+	}
+}
+
 func TestReadCurrentUserPolicyLibraryIDsUsesAllFolders(t *testing.T) {
 	service := &Service{embyClient: &stubPolicyClient{raw: map[string]any{
 		"EnableAllFolders": true,
@@ -160,6 +243,13 @@ func TestReadCurrentUserPolicyLibraryIDsUsesAllFolders(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != "lib_a" || got[1] != "lib_b" {
 		t.Fatalf("expected sorted all library ids, got %+v", got)
+	}
+}
+
+func assertSQLContains(t *testing.T, sql string, fragment string) {
+	t.Helper()
+	if !strings.Contains(sql, fragment) {
+		t.Fatalf("expected SQL to contain %q, got %s", fragment, sql)
 	}
 }
 

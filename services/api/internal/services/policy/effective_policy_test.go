@@ -57,6 +57,30 @@ func TestBuildManagedPolicyFieldsUsesMaxActiveSessionsCompatibility(t *testing.T
 	}
 }
 
+func TestShouldApplyEffectivePolicyToUserSkipsAdmins(t *testing.T) {
+	if shouldApplyEffectivePolicyToUser(&models.User{ID: "admin_1", Role: "admin", EmbyID: "emby_admin"}) {
+		t.Fatalf("expected admin user to skip managed policy sync")
+	}
+	if shouldApplyEffectivePolicyToUser(&models.User{ID: "user_1", Role: "user"}) {
+		t.Fatalf("expected unbound user to skip managed policy sync")
+	}
+	if !shouldApplyEffectivePolicyToUser(&models.User{ID: "user_2", Role: "user", EmbyID: "emby_user"}) {
+		t.Fatalf("expected ordinary bound user to receive managed policy sync")
+	}
+}
+
+func TestIsEmbyAdministratorPolicy(t *testing.T) {
+	if !isEmbyAdministratorPolicy(map[string]any{"IsAdministrator": true}) {
+		t.Fatalf("expected Emby administrator policy to be detected")
+	}
+	if isEmbyAdministratorPolicy(map[string]any{"IsAdministrator": false}) {
+		t.Fatalf("expected ordinary Emby policy to stay eligible")
+	}
+	if isEmbyAdministratorPolicy(map[string]any{}) {
+		t.Fatalf("expected missing administrator flag to stay eligible")
+	}
+}
+
 func assertFieldPresent(t *testing.T, fields []string, want string) {
 	t.Helper()
 	for _, field := range fields {

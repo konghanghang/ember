@@ -305,8 +305,8 @@ func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 
 func planGroupPolicySyncStatus(key string) string {
 	var processingCount int64
-	if err := db.DB.Model(&models.EmbyPolicySyncTask{}).
-		Where("plan_group_key = ? AND status = ?", key, "processing").
+	if err := planGroupManagedPolicyTaskQuery(db.DB, key).
+		Where("tasks.status = ?", "processing").
 		Count(&processingCount).Error; err != nil || processingCount > 0 {
 		if processingCount > 0 {
 			return "processing"
@@ -314,8 +314,8 @@ func planGroupPolicySyncStatus(key string) string {
 		return ""
 	}
 	var pendingCount int64
-	if err := db.DB.Model(&models.EmbyPolicySyncTask{}).
-		Where("plan_group_key = ? AND status = ?", key, "pending").
+	if err := planGroupManagedPolicyTaskQuery(db.DB, key).
+		Where("tasks.status = ?", "pending").
 		Count(&pendingCount).Error; err != nil || pendingCount > 0 {
 		if pendingCount > 0 {
 			return "pending"
@@ -323,19 +323,26 @@ func planGroupPolicySyncStatus(key string) string {
 		return ""
 	}
 	var failedCount int64
-	if err := db.DB.Model(&models.EmbyPolicySyncTask{}).
-		Where("plan_group_key = ? AND status = ?", key, "failed").
+	if err := planGroupManagedPolicyTaskQuery(db.DB, key).
+		Where("tasks.status = ?", "failed").
 		Count(&failedCount).Error; err != nil || failedCount == 0 {
 		return "synced"
 	}
 	var syncedCount int64
-	_ = db.DB.Model(&models.EmbyPolicySyncTask{}).
-		Where("plan_group_key = ? AND status = ?", key, "synced").
+	_ = planGroupManagedPolicyTaskQuery(db.DB, key).
+		Where("tasks.status = ?", "synced").
 		Count(&syncedCount).Error
 	if syncedCount > 0 {
 		return "partial_failed"
 	}
 	return "failed"
+}
+
+func planGroupManagedPolicyTaskQuery(database *gorm.DB, key string) *gorm.DB {
+	return database.Table("emby_policy_sync_tasks AS tasks").
+		Joins("JOIN users ON users.id = tasks.user_id").
+		Where("tasks.plan_group_key = ? AND users.role = ?", key, "user").
+		Where("NOT (tasks.status = ? AND COALESCE(tasks.last_error, '') LIKE ?)", "failed", "%There must be at least one user in the system with administrative access%")
 }
 
 func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGroupView, error) {

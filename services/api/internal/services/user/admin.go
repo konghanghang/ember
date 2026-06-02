@@ -15,6 +15,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const embyAdminPolicyProtectionText = "There must be at least one user in the system with administrative access"
+
 // AdminUpdateUserRequest 管理员更新用户请求
 type AdminUpdateUserRequest struct {
 	Email          *string `json:"email"`
@@ -50,6 +52,7 @@ type ExtendExpiryRequest struct {
 }
 
 func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
+	adminPolicyProtectionPattern := "%" + embyAdminPolicyProtectionText + "%"
 	return query.
 		Select(`users.*,
 			explicit_pg.name AS "planGroupName",
@@ -89,6 +92,7 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 				)
 			END AS "mediaLibraryEnabledCount",
 			CASE
+				WHEN users.role <> 'user' THEN 'synced'
 				WHEN EXISTS (
 					SELECT 1 FROM emby_policy_sync_tasks tasks
 					WHERE tasks.user_id = users.id AND tasks.status = 'processing'
@@ -101,14 +105,17 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 					SELECT 1 FROM emby_policy_sync_tasks tasks
 					WHERE tasks.user_id = users.id AND tasks.status = 'failed'
 					  AND tasks.batch_id IS NULL
+					  AND COALESCE(tasks.last_error, '') NOT LIKE ?
 				) THEN 'failed'
 				ELSE 'synced'
 			END AS "policySyncStatus",
 			CASE
+				WHEN users.role <> 'user' THEN ''
 				WHEN EXISTS (
 					SELECT 1 FROM emby_policy_sync_tasks tasks
 					WHERE tasks.user_id = users.id AND tasks.status = 'failed'
 					  AND tasks.batch_id IS NOT NULL
+					  AND COALESCE(tasks.last_error, '') NOT LIKE ?
 				) THEN 'failed'
 				ELSE ''
 			END AS "policySyncBatchStatus",
@@ -117,9 +124,10 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 				FROM emby_policy_sync_tasks tasks
 				WHERE tasks.user_id = users.id AND tasks.status = 'failed'
 				  AND tasks.batch_id IS NOT NULL
+				  AND COALESCE(tasks.last_error, '') NOT LIKE ?
 				ORDER BY tasks.updated_at DESC, tasks.created_at DESC
 				LIMIT 1
-			), '') AS "policySyncBatchId"`).
+			), '') AS "policySyncBatchId"`, adminPolicyProtectionPattern, adminPolicyProtectionPattern, adminPolicyProtectionPattern).
 		Joins(`LEFT JOIN plan_groups explicit_pg ON explicit_pg.key = users."plan_group"`).
 		Joins(`LEFT JOIN plan_groups default_pg ON default_pg."is_default" = ?`, true)
 }

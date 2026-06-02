@@ -21,6 +21,8 @@ const (
 	SyncStatusSynced        = "synced"
 	SyncStatusFailed        = "failed"
 	SyncStatusPartialFailed = "partial_failed"
+
+	embyAdminPolicyProtectionText = "There must be at least one user in the system with administrative access"
 )
 
 var (
@@ -558,8 +560,9 @@ func (s *Service) GetEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatchDetail,
 	}
 	if err := s.db.Table("emby_policy_sync_tasks AS tasks").
 		Select(`tasks.user_id, users.username, tasks.emby_id, COALESCE(tasks.last_error, '') AS last_error`).
-		Joins("LEFT JOIN users ON users.id = tasks.user_id").
-		Where("tasks.batch_id = ? AND tasks.status = ?", id, SyncStatusFailed).
+		Joins("JOIN users ON users.id = tasks.user_id").
+		Where("tasks.batch_id = ? AND users.role = ? AND tasks.status = ?", id, "user", SyncStatusFailed).
+		Where("COALESCE(tasks.last_error, '') NOT LIKE ?", "%"+embyAdminPolicyProtectionText+"%").
 		Limit(20).
 		Scan(&failed).Error; err != nil {
 		return nil, err
@@ -577,7 +580,9 @@ func (s *Service) GetEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatchDetail,
 
 func (s *Service) RetryFailedEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatchCreated, error) {
 	var tasks []models.EmbyPolicySyncTask
-	if err := s.db.Where("batch_id = ? AND status = ?", id, SyncStatusFailed).Find(&tasks).Error; err != nil {
+	if err := actionableFailedBatchTasksQuery(s.db, id).
+		Select("tasks.*").
+		Find(&tasks).Error; err != nil {
 		return nil, err
 	}
 	if len(tasks) == 0 {
@@ -588,8 +593,12 @@ func (s *Service) RetryFailedEmbyPolicySyncBatch(id string) (*EmbyPolicySyncBatc
 			return nil, err
 		}
 	}
+	taskIDs := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		taskIDs = append(taskIDs, task.ID)
+	}
 	if err := s.db.Model(&models.EmbyPolicySyncTask{}).
-		Where("batch_id = ? AND status = ?", id, SyncStatusFailed).
+		Where("id IN ?", taskIDs).
 		Updates(map[string]any{
 			"status":        SyncStatusPending,
 			"last_error":    nil,
@@ -761,8 +770,7 @@ type policyPreferenceSyncUser struct {
 
 func (s *Service) loadSyncPreviewUsers(planGroupKey string) ([]models.User, error) {
 	var users []models.User
-	if err := usersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
-		Where("COALESCE(emby_id, '') <> ''").
+	if err := managedPolicyUsersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
 		Order("username ASC, id ASC").
 		Find(&users).Error; err != nil {
 		return nil, err
@@ -776,8 +784,8 @@ func (s *Service) loadPreferenceSyncUsers(userIDs []string, planGroupKey string,
 		return nil, nil, nil
 	}
 	var users []models.User
-	if err := usersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
-		Where("id IN ? AND COALESCE(emby_id, '') <> ''", normalizedUserIDs).
+	if err := managedPolicyUsersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
+		Where("id IN ?", normalizedUserIDs).
 		Find(&users).Error; err != nil {
 		return nil, nil, err
 	}
@@ -792,7 +800,7 @@ func (s *Service) loadPreferenceSyncUsers(userIDs []string, planGroupKey string,
 		if !ok {
 			failed = append(failed, MediaLibrarySyncFailedItem{
 				UserID: userID,
-				Error:  "用户不在当前分组或未绑定 Emby",
+				Error:  "用户不在当前分组、不是普通用户或未绑定 Emby",
 			})
 			continue
 		}
@@ -946,8 +954,7 @@ func (s *Service) loadGroupLibraryOptions(planGroupKey string) ([]MediaLibraryOp
 
 func (s *Service) countAffectedUsers(planGroupKey string) (int, error) {
 	var count int64
-	if err := usersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
-		Where("COALESCE(emby_id, '') <> ''").
+	if err := managedPolicyUsersInPlanGroupQuery(s.db.Model(&models.User{}), planGroupKey).
 		Count(&count).Error; err != nil {
 		return 0, err
 	}
@@ -956,8 +963,7 @@ func (s *Service) countAffectedUsers(planGroupKey string) (int, error) {
 
 func (s *Service) createBatchWithTasks(tx *gorm.DB, planGroupKey, reason string, createdBy *string) (*models.EmbyPolicySyncBatch, error) {
 	var users []models.User
-	if err := usersInPlanGroupQuery(tx.Model(&models.User{}), planGroupKey).
-		Where("COALESCE(emby_id, '') <> ''").
+	if err := managedPolicyUsersInPlanGroupQuery(tx.Model(&models.User{}), planGroupKey).
 		Find(&users).Error; err != nil {
 		return nil, err
 	}
@@ -1024,7 +1030,7 @@ func (s *Service) refreshBatchStatus(batchID string) error {
 		return err
 	}
 	var tasks []models.EmbyPolicySyncTask
-	if err := s.db.Where("batch_id = ?", batch.ID).Find(&tasks).Error; err != nil {
+	if err := countedPolicyBatchTasksQuery(s.db, batch.ID).Select("tasks.*").Find(&tasks).Error; err != nil {
 		return err
 	}
 	counts := map[string]int{}
@@ -1281,6 +1287,28 @@ func (s *Service) userPolicySyncStatus(userID string) (string, string, error) {
 
 func usersInPlanGroupQuery(query *gorm.DB, planGroupKey string) *gorm.DB {
 	return query.Where(`plan_group = ?`, planGroupKey)
+}
+
+func managedPolicyUsersInPlanGroupQuery(query *gorm.DB, planGroupKey string) *gorm.DB {
+	return usersInPlanGroupQuery(query, planGroupKey).
+		Where("role = ?", "user").
+		Where("COALESCE(emby_id, '') <> ''")
+}
+
+func managedPolicyBatchTasksQuery(query *gorm.DB, batchID string) *gorm.DB {
+	return query.Table("emby_policy_sync_tasks AS tasks").
+		Joins("JOIN users ON users.id = tasks.user_id").
+		Where("tasks.batch_id = ? AND users.role = ?", batchID, "user")
+}
+
+func countedPolicyBatchTasksQuery(query *gorm.DB, batchID string) *gorm.DB {
+	return managedPolicyBatchTasksQuery(query, batchID).
+		Where("NOT (tasks.status = ? AND COALESCE(tasks.last_error, '') LIKE ?)", SyncStatusFailed, "%"+embyAdminPolicyProtectionText+"%")
+}
+
+func actionableFailedBatchTasksQuery(query *gorm.DB, batchID string) *gorm.DB {
+	return countedPolicyBatchTasksQuery(query, batchID).
+		Where("tasks.status = ?", SyncStatusFailed)
 }
 
 func buildPolicyTemplateResponse(group *models.PlanGroup, template models.PlanGroupEmbyPolicyTemplate, count int) *PlanGroupEmbyPolicyTemplateResponse {

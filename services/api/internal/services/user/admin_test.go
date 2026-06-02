@@ -129,9 +129,22 @@ func TestBuildUsersWithPlanGroupSelectSeparatesBatchFailureStatus(t *testing.T) 
 	stmt := buildUsersWithPlanGroupSelect(database.Model(&models.User{})).Find(&users).Statement
 	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
 
-	assertSQLContains(t, sql, `AND tasks.batch_id IS NULL ) THEN 'failed' ELSE 'synced' END AS "policySyncStatus"`)
-	assertSQLContains(t, sql, `AND tasks.batch_id IS NOT NULL ) THEN 'failed' ELSE '' END AS "policySyncBatchStatus"`)
-	assertSQLContains(t, sql, `AND tasks.batch_id IS NOT NULL ORDER BY tasks.updated_at DESC, tasks.created_at DESC LIMIT 1 ), '') AS "policySyncBatchId"`)
+	assertSQLContains(t, sql, `WHEN users.role <> 'user' THEN 'synced'`)
+	assertSQLContains(t, sql, `AND tasks.batch_id IS NULL AND COALESCE(tasks.last_error, '') NOT LIKE`)
+	assertSQLContains(t, sql, `) THEN 'failed' ELSE 'synced' END AS "policySyncStatus"`)
+	assertSQLContains(t, sql, `WHEN users.role <> 'user' THEN ''`)
+	assertSQLContains(t, sql, `AND tasks.batch_id IS NOT NULL AND COALESCE(tasks.last_error, '') NOT LIKE`)
+	assertSQLContains(t, sql, `) THEN 'failed' ELSE '' END AS "policySyncBatchStatus"`)
+	assertSQLContains(t, sql, `ORDER BY tasks.updated_at DESC, tasks.created_at DESC LIMIT 1 ), '') AS "policySyncBatchId"`)
+	if len(stmt.Vars) < 3 {
+		t.Fatalf("expected admin protection patterns in select vars, got %+v", stmt.Vars)
+	}
+	for i := 0; i < 3; i++ {
+		pattern, ok := stmt.Vars[i].(string)
+		if !ok || !strings.Contains(pattern, embyAdminPolicyProtectionText) {
+			t.Fatalf("expected admin protection pattern at var %d, got %+v", i, stmt.Vars[i])
+		}
+	}
 }
 
 func assertSQLContains(t *testing.T, sql string, fragment string) {

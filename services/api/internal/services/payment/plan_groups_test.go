@@ -2,9 +2,11 @@ package payment
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -191,5 +193,44 @@ func TestDeletePlanGroupRejectsRedemptionCodeReference(t *testing.T) {
 	}
 	if deleteCalled {
 		t.Fatalf("expected redemption-code-referenced group delete to stop before delete call")
+	}
+}
+
+func TestPlanGroupManagedPolicyTaskQueryExcludesAdminsAndProtectionFailures(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DryRun:               true,
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	var count int64
+	stmt := planGroupManagedPolicyTaskQuery(database, "VIP_A").
+		Where("tasks.status = ?", "failed").
+		Count(&count).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+
+	assertSQLContains(t, sql, "JOIN users ON users.id = tasks.user_id")
+	assertSQLContains(t, sql, "tasks.plan_group_key =")
+	assertSQLContains(t, sql, "users.role =")
+	assertSQLContains(t, sql, "NOT (tasks.status =")
+	assertSQLContains(t, sql, "COALESCE(tasks.last_error, '') LIKE")
+	if len(stmt.Vars) != 5 || stmt.Vars[0] != "VIP_A" || stmt.Vars[1] != "user" || stmt.Vars[2] != "failed" || stmt.Vars[4] != "failed" {
+		t.Fatalf("unexpected query vars: %+v", stmt.Vars)
+	}
+	pattern, ok := stmt.Vars[3].(string)
+	if !ok || !strings.Contains(pattern, "There must be at least one user in the system with administrative access") {
+		t.Fatalf("expected admin protection pattern, got %+v", stmt.Vars[3])
+	}
+}
+
+func assertSQLContains(t *testing.T, sql string, fragment string) {
+	t.Helper()
+	if !strings.Contains(sql, fragment) {
+		t.Fatalf("expected SQL to contain %q, got %s", fragment, sql)
 	}
 }
