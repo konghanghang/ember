@@ -147,6 +147,7 @@ const isTelegramBound = computed(() => !!user.value.telegramId)
 const isEmbyLinked = computed(() => !!user.value.embyId)
 const hasMediaLibraryPreferences = computed(() => mediaLibrarySettings.value?.customized === true)
 const hasMediaLibraryOptions = computed(() => (mediaLibrarySettings.value?.libraries.length ?? 0) > 0)
+const selectedMediaLibraryIdSet = computed(() => new Set(selectedMediaLibraryIds.value))
 const mediaLibrarySyncing = computed(() => {
   const status = mediaLibrarySettings.value?.policySyncStatus
   return status === 'pending' || status === 'processing'
@@ -184,6 +185,20 @@ const showMediaLibrarySaveResult = (settings: UserMediaLibrarySettings, syncedMe
     return
   }
   ElMessage.success(syncedMessage)
+}
+
+/** 显式维护媒体库勾选集合，避免 checkbox 嵌套 label 或 group 隐式行为把取消勾选回写成全量。 */
+const setMediaLibrarySelection = (libraryId: string, selected: string | number | boolean) => {
+  const normalizedID = libraryId.trim()
+  if (!normalizedID) return
+
+  const next = new Set(selectedMediaLibraryIds.value)
+  if (selected === true) {
+    next.add(normalizedID)
+  } else {
+    next.delete(normalizedID)
+  }
+  selectedMediaLibraryIds.value = Array.from(next)
 }
 
 /** 读取当前用户的媒体库偏好；接口不可用时保留空态，不阻塞账号中心其他功能。 */
@@ -856,23 +871,24 @@ onMounted(() => {
           </div>
 
           <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <label
+            <div
               v-for="library in mediaLibrarySettings?.libraries"
               :key="library.id"
+              :data-library-id="library.id"
               class="flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 transition-colors hover:border-ember/40 hover:bg-ember/5"
               :class="!library.inGroupTemplate ? 'opacity-60' : ''"
             >
               <el-checkbox
-                v-model="selectedMediaLibraryIds"
-                :value="library.id"
+                :model-value="selectedMediaLibraryIdSet.has(library.id)"
                 :disabled="!library.inGroupTemplate || mediaLibrarySyncing"
                 size="large"
+                @update:model-value="value => setMediaLibrarySelection(library.id, value)"
               />
               <span class="min-w-0">
                 <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
                 <span class="mt-1 block text-xs text-gray-500">{{ formatMediaLibrarySummary(library) }}</span>
               </span>
-            </label>
+            </div>
           </div>
 
           <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">

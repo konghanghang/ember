@@ -1195,11 +1195,15 @@ func replaceUserPreferencesTx(tx *gorm.DB, userID string, libraries []models.Pla
 			LibraryID: library.LibraryID,
 			Enabled:   enabled,
 		}
-		if err := tx.Create(&preference).Error; err != nil {
+		if err := insertUserMediaLibraryPreferenceTx(tx, &preference).Error; err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func insertUserMediaLibraryPreferenceTx(tx *gorm.DB, preference *models.UserMediaLibraryPreference) *gorm.DB {
+	return tx.Select("id", "user_id", "library_id", "enabled").Create(preference)
 }
 
 func (s *Service) applyPolicyOrRecordFailure(user *models.User, planGroupKey, reason string) error {

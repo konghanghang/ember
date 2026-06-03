@@ -53,7 +53,7 @@ type UserMediaLibraryPreference struct {
 	ID        string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	UserID    string    `json:"userId" gorm:"column:user_id;type:varchar(25);not null;index"`
 	LibraryID string    `json:"libraryId" gorm:"column:library_id;type:varchar(100);not null"`
-	Enabled   bool      `json:"enabled" gorm:"column:enabled;not null;default:true"`
+	Enabled   bool      `json:"enabled" gorm:"column:enabled;not null"`
 	CreatedAt time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt time.Time `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
 }

@@ -112,6 +112,33 @@ const passthroughStub = defineComponent({
   },
 })
 
+const ElCheckboxStub = defineComponent({
+  props: {
+    modelValue: {
+      type: Boolean,
+      default: false,
+    },
+    disabled: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  emits: ['update:modelValue'],
+  setup(props, { emit, slots }) {
+    return () => h('label', [
+      h('input', {
+        type: 'checkbox',
+        checked: props.modelValue,
+        disabled: props.disabled,
+        onChange: (event: Event) => {
+          emit('update:modelValue', (event.target as HTMLInputElement).checked)
+        },
+      }),
+      slots.default?.(),
+    ])
+  },
+})
+
 const ElInputStub = defineComponent({
   props: {
     modelValue: { type: [String, Number], default: '' },
@@ -171,6 +198,7 @@ function mountView() {
       },
       stubs: {
         'el-icon': passthroughStub,
+        'el-checkbox': ElCheckboxStub,
         'el-input': ElInputStub,
         EmberFormDialog: EmberFormDialogStub,
         EmberEmptyStateCard: passthroughStub,
@@ -501,6 +529,55 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     expect(updateUserMediaLibraries).toHaveBeenCalledWith(['lib_movie'])
     expect(ElMessage.success).toHaveBeenCalledWith('媒体库偏好已保存')
+  })
+
+  it('取消勾选媒体库后保存只提交仍启用的媒体库', async () => {
+    vi.mocked(getUserMediaLibraries).mockResolvedValueOnce({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: false,
+        templateCount: 2,
+        enabledCount: 2,
+        policySyncStatus: 'synced',
+        libraries: [
+          {
+            id: 'lib_movie',
+            name: '电影',
+            type: 'Movie',
+            itemCount: 100,
+            inGroupTemplate: true,
+            enabled: true,
+          },
+          {
+            id: 'lib_series',
+            name: '剧集',
+            type: 'Series',
+            itemCount: 200,
+            inGroupTemplate: true,
+            enabled: true,
+          },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const seriesCheckbox = wrapper.find('[data-library-id="lib_series"] input[type="checkbox"]')
+    expect(seriesCheckbox.exists(), '未找到剧集媒体库 checkbox').toBe(true)
+    await seriesCheckbox.setValue(false)
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
+    expect(saveButton, '未找到保存偏好按钮').toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(updateUserMediaLibraries).toHaveBeenCalledWith(['lib_movie'])
+    expect(updateUserMediaLibraries).not.toHaveBeenCalledWith(['lib_movie', 'lib_series'])
   })
 
   it('保存偏好后如果 Emby 同步失败只提示本地已保存', async () => {
