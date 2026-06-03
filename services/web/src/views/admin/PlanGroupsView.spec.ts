@@ -17,7 +17,7 @@ import {
   updatePlanGroupEmbyPolicyTemplate,
   updatePlanGroupMediaLibraries,
 } from '@/api/admin'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const routeState = vi.hoisted(() => ({
   route: {
@@ -271,6 +271,30 @@ describe('PlanGroupsView', () => {
     expect(wrapper.text()).not.toContain('0 项')
     expect(wrapper.text()).not.toContain('lib_movie_internal_id')
     expect(wrapper.text()).not.toContain('lib_series_internal_id')
+
+    wrapper.unmount()
+  })
+
+  it('默认分组不允许触发删除', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const defaultGroup = {
+      key: 'DEFAULT',
+      name: '默认分组',
+      description: '系统默认套餐分组',
+      isDefault: true,
+      sortOrder: 0,
+    }
+
+    expect(wrapper.vm.$.setupState.canDeletePlanGroup(defaultGroup)).toBe(false)
+
+    await wrapper.vm.$.setupState.handleDelete(defaultGroup)
+    await flushPromises()
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('默认分组不能删除')
+    expect(ElMessageBox.confirm).not.toHaveBeenCalled()
+    expect(deletePlanGroup).not.toHaveBeenCalled()
 
     wrapper.unmount()
   })

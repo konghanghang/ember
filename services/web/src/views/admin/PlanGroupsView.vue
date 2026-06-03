@@ -117,6 +117,9 @@ const activeSyncHiddenFailedUserCount = computed(() => {
   return Math.max(total - activeSyncFailedUsers.value.length, 0)
 })
 
+/** 判断分组是否允许删除；默认分组是系统兜底分组，不能暴露删除入口。 */
+const canDeletePlanGroup = (group: ManagedPlanGroup) => !group.isDefault
+
 /** 判断请求是否被后端同步闸门拦截，用于把 409 显式转成同步中提示。 */
 const isConflictError = (error: unknown) => {
   return typeof error === 'object'
@@ -390,6 +393,11 @@ const handleUpdate = async () => {
 }
 
 const handleDelete = async (group: ManagedPlanGroup) => {
+  if (!canDeletePlanGroup(group)) {
+    ElMessage.warning('默认分组不能删除')
+    return
+  }
+
   try {
     await ElMessageBox.confirm(
       `确定删除分组 ${group.name} 吗？若仍有用户或套餐引用，后端会直接拒绝。`,
@@ -676,6 +684,7 @@ onBeforeUnmount(stopSyncBatchPolling)
               <el-icon :size="18"><EditPen /></el-icon>
             </button>
             <button
+              v-if="canDeletePlanGroup(row)"
               @click="handleDelete(row)"
               class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
               aria-label="删除用户分组"
