@@ -482,7 +482,6 @@ onMounted(async () => {
             <div class="space-y-1">
               <div class="flex items-center gap-2">
                 <span class="font-medium text-gray-900">{{ formatRegistrationPlanGroupName(row) }}</span>
-                <el-tag type="warning" effect="light" round size="small">显式绑定</el-tag>
               </div>
               <div class="text-xs text-gray-500">{{ formatRegistrationPlanGroupHint(row) }}</div>
             </div>
