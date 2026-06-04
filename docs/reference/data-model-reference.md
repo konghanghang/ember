@@ -231,6 +231,7 @@
 **约束**：
 - `uq_plan_group_media_libraries_group_library` 保证 `(plan_group_key, library_id)` 唯一
 - 不创建数据库外键；删除分组时由服务层在同一事务清理从属记录
+- Emby 系统生成的 `boxsets` 合集入口不属于管理员主动配置的媒体库；服务层读取和同步时会过滤该类型
 
 ### 2.8.3 PlanGroupEmbyPolicyTemplate
 

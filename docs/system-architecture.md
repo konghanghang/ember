@@ -402,6 +402,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | `UpdateUserPassword` | `POST /emby/Users/{id}/Password` | 修改密码 |
 | `SetUserPolicy` | `POST /emby/Users/{id}/Policy` | 封禁/解封（IsDisabled） |
 | `GetMediaStats` | `GET /emby/Items/Counts` | 媒体库统计 |
+| `GetLibraries` | `GET /emby/Library/VirtualFolders/Query` / `GET /emby/Library/VirtualFolders` | 媒体库列表；过滤 Emby 系统生成的 `boxsets` 合集入口 |
 | `GetUsers` | `GET /emby/Users` | 连接测试 |
 | `GetDevices` | `GET /emby/Devices` | 设备列表 |
 | `GetAllSessions` | `GET /emby/Sessions` | 全量会话（含非播放） |

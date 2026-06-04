@@ -937,6 +937,7 @@ func planGroupLibraryIDs(libraries []models.PlanGroupMediaLibrary) []string {
 func (s *Service) loadGroupLibraryOptions(planGroupKey string) ([]MediaLibraryOption, error) {
 	var records []models.PlanGroupMediaLibrary
 	if err := s.db.Where("plan_group_key = ?", planGroupKey).
+		Where("LOWER(COALESCE(library_type, '')) <> ?", systemCollectionLibraryType).
 		Order("sort_order ASC, library_name ASC, library_id ASC").
 		Find(&records).Error; err != nil {
 		return nil, err
@@ -1069,6 +1070,7 @@ func (s *Service) loadUserLibraryContext(userID string) (*models.User, *models.P
 	}
 	var libraries []models.PlanGroupMediaLibrary
 	if err := s.db.Where("plan_group_key = ?", group.Key).
+		Where("LOWER(COALESCE(library_type, '')) <> ?", systemCollectionLibraryType).
 		Order("sort_order ASC, library_name ASC, library_id ASC").
 		Find(&libraries).Error; err != nil {
 		return nil, nil, nil, nil, err
@@ -1347,6 +1349,9 @@ func buildPolicyTemplateResponse(group *models.PlanGroup, template models.PlanGr
 func toLibraryOptions(libraries []embyint.EmbyLibrary) []MediaLibraryOption {
 	options := make([]MediaLibraryOption, 0, len(libraries))
 	for _, library := range libraries {
+		if isSystemCollectionLibraryType(library.Type) {
+			continue
+		}
 		id := strings.TrimSpace(library.ID)
 		if id == "" {
 			continue
@@ -1379,6 +1384,13 @@ func normalizeLibraryIDs(libraryIDs []string) ([]string, error) {
 		out = append(out, id)
 	}
 	return out, nil
+}
+
+const systemCollectionLibraryType = "boxsets"
+
+// isSystemCollectionLibraryType 识别 Emby 自动生成的合集媒体库类型。
+func isSystemCollectionLibraryType(libraryType string) bool {
+	return strings.EqualFold(strings.TrimSpace(libraryType), systemCollectionLibraryType)
 }
 
 func normalizeEnabledSet(enabledLibraryIDs []string, libraries []models.PlanGroupMediaLibrary) (map[string]struct{}, error) {

@@ -23,6 +23,40 @@ func TestParseLibrariesFromBody_EmptyItemsObject(t *testing.T) {
 	}
 }
 
+func TestParseLibrariesFromBody_FiltersSystemCollections(t *testing.T) {
+	body := []byte(`{"Items":[
+		{"Guid":"lib_movies","Name":"电影","CollectionType":"movies","ItemCount":10},
+		{"Guid":"lib_collections","Name":"合集","CollectionType":"boxsets","ItemCount":3},
+		{"Guid":"lib_series","Name":"剧集","CollectionType":"tvshows","ItemCount":20}
+	]}`)
+
+	libraries, err := parseLibrariesFromBody(body)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(libraries) != 2 {
+		t.Fatalf("expected 2 libraries, got %d: %+v", len(libraries), libraries)
+	}
+	if libraries[0].ID != "lib_movies" || libraries[1].ID != "lib_series" {
+		t.Fatalf("expected system collections to be filtered, got %+v", libraries)
+	}
+}
+
+func TestParseLibrariesFromBody_FiltersSystemCollectionsFromDirectArray(t *testing.T) {
+	body := []byte(`[
+		{"ItemId":"lib_movies","Name":"电影","CollectionType":"movies"},
+		{"ItemId":"lib_collections","Name":"Collections","CollectionType":"BoxSets"}
+	]`)
+
+	libraries, err := parseLibrariesFromBody(body)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(libraries) != 1 || libraries[0].ID != "lib_movies" {
+		t.Fatalf("expected only ordinary library, got %+v", libraries)
+	}
+}
+
 func TestGetLibraryItemsFetchAllWhenMaxItemsIsNonPositive(t *testing.T) {
 	total := 401
 	requestCount := 0
@@ -67,7 +101,7 @@ func TestGetLibraryItemsFetchAllWhenMaxItemsIsNonPositive(t *testing.T) {
 	s := &EmbyService{
 		baseURL: server.URL,
 		apiKey:  "test-key",
-		client: server.Client(),
+		client:  server.Client(),
 	}
 
 	items, err := s.GetLibraryItems("library_1", 0)
@@ -126,7 +160,7 @@ func TestGetLibraryItemsRespectsMaxItemsLimit(t *testing.T) {
 	s := &EmbyService{
 		baseURL: server.URL,
 		apiKey:  "test-key",
-		client: server.Client(),
+		client:  server.Client(),
 	}
 
 	items, err := s.GetLibraryItems("library_1", 250)

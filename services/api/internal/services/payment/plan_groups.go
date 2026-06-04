@@ -288,7 +288,10 @@ func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 				return nil, errors.New("获取套餐分组失败")
 			}
 		}
-		if err := db.DB.Model(&models.PlanGroupMediaLibrary{}).Where("plan_group_key = ?", view.Key).Count(&view.MediaLibraryCount).Error; err != nil {
+		if err := db.DB.Model(&models.PlanGroupMediaLibrary{}).
+			Where("plan_group_key = ?", view.Key).
+			Where("LOWER(COALESCE(library_type, '')) <> ?", "boxsets").
+			Count(&view.MediaLibraryCount).Error; err != nil {
 			return nil, errors.New("获取套餐分组失败")
 		}
 		var templateCount int64

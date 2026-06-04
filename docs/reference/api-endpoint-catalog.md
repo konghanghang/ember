@@ -115,7 +115,7 @@
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
 | GET | `/api/v1/admin/playback-history` | 播放历史查询 |
 | GET | `/api/v1/admin/playback-profiles` | 用户画像总览（支持 `range` 或 `startDate/endDate`，以及 `keyword/sortBy/sortOrder/page/pageSize`） |
-| GET | `/api/v1/admin/media-quality/libraries` | 媒体库列表（质量盘点） |
+| GET | `/api/v1/admin/media-quality/libraries` | 媒体库列表（质量盘点）；过滤系统生成的 `boxsets` 合集入口 |
 | GET | `/api/v1/admin/media-quality/libraries/:libraryId` | 媒体库质量报告（支持 `force/page/pageSize`） |
 | POST | `/api/v1/admin/media-quality/libraries/:libraryId/scan` | 触发媒体库质量扫描 |
 | GET | `/api/v1/admin/media-quality/libraries/:libraryId/groups/:groupId/details` | 低画质汇总项下钻明细（支持 `force/page/pageSize`） |
@@ -128,7 +128,7 @@
 | DELETE | `/api/v1/admin/devices/blacklist/:clientName` | 移除黑名单 |
 | POST | `/api/v1/admin/devices/logout/:deviceId` | 强制注销设备 |
 | POST | `/api/v1/admin/devices/blacklist/logout-all` | 批量注销黑名单设备 |
-| GET | `/api/v1/admin/media-libraries` | Emby 当前媒体库列表，用于配置分组模板 |
+| GET | `/api/v1/admin/media-libraries` | Emby 当前媒体库列表，用于配置分组模板；过滤系统生成的 `boxsets` 合集入口 |
 | GET | `/api/v1/admin/plan-groups` | 用户分组 / 权益模板列表 |
 | POST | `/api/v1/admin/plan-groups` | 创建用户分组，并创建默认 Emby 权益模板 |
 | PUT | `/api/v1/admin/plan-groups/:key` | 更新用户分组 / 切换默认分组 |

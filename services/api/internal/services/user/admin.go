@@ -73,6 +73,7 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 			(
 				SELECT COUNT(*) FROM plan_group_media_libraries libs
 				WHERE libs.plan_group_key = COALESCE(users."plan_group", default_pg.key)
+				  AND LOWER(COALESCE(libs.library_type, '')) <> 'boxsets'
 			) AS "mediaLibraryTemplateCount",
 			CASE
 				WHEN EXISTS (
@@ -83,12 +84,14 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 					JOIN plan_group_media_libraries libs
 					  ON libs.library_id = prefs.library_id
 					 AND libs.plan_group_key = COALESCE(users."plan_group", default_pg.key)
+					 AND LOWER(COALESCE(libs.library_type, '')) <> 'boxsets'
 					WHERE prefs.user_id = users.id
 					  AND prefs.enabled = true
 				)
 				ELSE (
 					SELECT COUNT(*) FROM plan_group_media_libraries libs
 					WHERE libs.plan_group_key = COALESCE(users."plan_group", default_pg.key)
+					  AND LOWER(COALESCE(libs.library_type, '')) <> 'boxsets'
 				)
 			END AS "mediaLibraryEnabledCount",
 			CASE

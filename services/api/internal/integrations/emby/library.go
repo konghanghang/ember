@@ -463,6 +463,10 @@ func parseLibrariesFromBody(body []byte) ([]EmbyLibrary, error) {
 	}
 
 	toLibrary := func(item rawLibrary) (EmbyLibrary, bool) {
+		if isSystemCollectionLibrary(item.CollectionType) {
+			return EmbyLibrary{}, false
+		}
+
 		id := strings.TrimSpace(item.Guid)
 		if id == "" {
 			id = strings.TrimSpace(item.ItemID)
@@ -519,4 +523,9 @@ func parseLibrariesFromBody(body []byte) ([]EmbyLibrary, error) {
 		}
 	}
 	return result, nil
+}
+
+// isSystemCollectionLibrary 识别 Emby 自动生成的合集入口；它不是管理员主动创建的媒体库。
+func isSystemCollectionLibrary(collectionType string) bool {
+	return strings.EqualFold(strings.TrimSpace(collectionType), "boxsets")
 }

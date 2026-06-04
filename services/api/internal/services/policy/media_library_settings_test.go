@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -97,5 +98,22 @@ func TestEnabledSetMatchesTemplate(t *testing.T) {
 				t.Fatalf("expected %t, got %t", tt.want, got)
 			}
 		})
+	}
+}
+
+func TestToLibraryOptionsFiltersSystemCollections(t *testing.T) {
+	options := toLibraryOptions([]embyint.EmbyLibrary{
+		{ID: "lib_movies", Name: "电影", Type: "movies"},
+		{ID: "lib_collections", Name: "合集", Type: "BoxSets"},
+		{ID: "lib_series", Name: "剧集", Type: "tvshows"},
+	})
+
+	if len(options) != 2 {
+		t.Fatalf("expected 2 ordinary libraries, got %d: %+v", len(options), options)
+	}
+	for _, option := range options {
+		if option.ID == "lib_collections" {
+			t.Fatalf("expected system collections to be filtered, got %+v", options)
+		}
 	}
 }

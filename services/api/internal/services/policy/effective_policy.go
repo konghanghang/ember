@@ -147,6 +147,7 @@ func (s *Service) resolveEnabledLibraryIDs(userID, planGroupKey string) ([]strin
 	var groupLibraries []models.PlanGroupMediaLibrary
 	if err := s.db.
 		Where("plan_group_key = ?", planGroupKey).
+		Where("LOWER(COALESCE(library_type, '')) <> ?", systemCollectionLibraryType).
 		Order("sort_order ASC, library_name ASC, library_id ASC").
 		Find(&groupLibraries).Error; err != nil {
 		return nil, normalizePolicyError("读取分组媒体库模板失败", err)
