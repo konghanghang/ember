@@ -34,3 +34,68 @@ func TestInsertUserMediaLibraryPreferenceTxIncludesDisabledFlag(t *testing.T) {
 	assertSQLContains(t, sql, `"enabled"`)
 	assertSQLContains(t, sql, "false")
 }
+
+func TestEnabledSetMatchesTemplate(t *testing.T) {
+	libraries := []models.PlanGroupMediaLibrary{
+		{LibraryID: "lib_a"},
+		{LibraryID: "lib_b"},
+	}
+
+	tests := []struct {
+		name       string
+		libraries  []models.PlanGroupMediaLibrary
+		enabledSet map[string]struct{}
+		want       bool
+	}{
+		{
+			name:      "all template libraries enabled",
+			libraries: libraries,
+			enabledSet: map[string]struct{}{
+				"lib_a": {},
+				"lib_b": {},
+			},
+			want: true,
+		},
+		{
+			name:      "missing template library",
+			libraries: libraries,
+			enabledSet: map[string]struct{}{
+				"lib_a": {},
+			},
+			want: false,
+		},
+		{
+			name:      "outside library does not make missing template library valid",
+			libraries: libraries,
+			enabledSet: map[string]struct{}{
+				"lib_a": {},
+				"lib_x": {},
+			},
+			want: false,
+		},
+		{
+			name:       "empty template matches empty selection",
+			libraries:  nil,
+			enabledSet: map[string]struct{}{},
+			want:       true,
+		},
+		{
+			name:      "outside library is ignored once template is fully enabled",
+			libraries: libraries,
+			enabledSet: map[string]struct{}{
+				"lib_a": {},
+				"lib_b": {},
+				"lib_x": {},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := enabledSetMatchesTemplate(tt.libraries, tt.enabledSet); got != tt.want {
+				t.Fatalf("expected %t, got %t", tt.want, got)
+			}
+		})
+	}
+}

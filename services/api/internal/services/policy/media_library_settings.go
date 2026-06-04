@@ -1188,6 +1188,9 @@ func replaceUserPreferencesTx(tx *gorm.DB, userID string, libraries []models.Pla
 	if err := tx.Where("user_id = ?", userID).Delete(&models.UserMediaLibraryPreference{}).Error; err != nil {
 		return err
 	}
+	if enabledSetMatchesTemplate(libraries, enabledSet) {
+		return nil
+	}
 	for _, library := range libraries {
 		_, enabled := enabledSet[library.LibraryID]
 		preference := models.UserMediaLibraryPreference{
@@ -1200,6 +1203,16 @@ func replaceUserPreferencesTx(tx *gorm.DB, userID string, libraries []models.Pla
 		}
 	}
 	return nil
+}
+
+// enabledSetMatchesTemplate 判断用户选择是否等同于当前分组模板；等同时不需要保留个人偏好快照。
+func enabledSetMatchesTemplate(libraries []models.PlanGroupMediaLibrary, enabledSet map[string]struct{}) bool {
+	for _, library := range libraries {
+		if _, enabled := enabledSet[library.LibraryID]; !enabled {
+			return false
+		}
+	}
+	return true
 }
 
 func insertUserMediaLibraryPreferenceTx(tx *gorm.DB, preference *models.UserMediaLibraryPreference) *gorm.DB {
