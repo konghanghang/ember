@@ -3,7 +3,7 @@ import os
 import sys
 import types
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
 os.environ["INTERNAL_API_SECRET"] = "0123456789abcdef0123456789abcdef"
@@ -92,6 +92,13 @@ class InlineKeyboardButton:
 class InlineKeyboardMarkup:
     def __init__(self, inline_keyboard):
         self.inline_keyboard = inline_keyboard
+
+
+class _AwaitableStub:
+    def __await__(self):
+        if False:
+            yield None
+        return None
 
 
 class _ScopeBase:
@@ -631,7 +638,10 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_handle_libraries_renders_private_settings(self) -> None:
         message = _StubMessage(chat_id=1001, user_id=1001, text="/libraries")
+        sent_message = types.SimpleNamespace(chat_id=1001, message_id=99)
+        message.reply_text.return_value = sent_message
         update = _StubUpdate(message=message)
+        context = types.SimpleNamespace(bot=message.get_bot())
         payload = {
             "data": {
                 "planGroupName": "默认组",
@@ -646,15 +656,27 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
             }
         }
 
-        with patch.object(
-            telegram_handler.api_client,
-            "get_media_library_settings",
-            AsyncMock(return_value=payload),
-        ) as settings_mock:
-            await telegram_handler.handle_libraries(update, None)
+        delete_later_awaitable = _AwaitableStub()
+        with (
+            patch.object(
+                telegram_handler.api_client,
+                "get_media_library_settings",
+                AsyncMock(return_value=payload),
+            ) as settings_mock,
+            patch.object(telegram_handler, "_delete_later", new=Mock(return_value=delete_later_awaitable)) as delete_later_mock,
+            patch.object(telegram_handler.asyncio, "create_task") as create_task_mock,
+        ):
+            await telegram_handler.handle_libraries(update, context)
 
         settings_mock.assert_awaited_once_with(1001)
         message.reply_text.assert_awaited_once()
+        delete_later_mock.assert_called_once_with(
+            context.bot,
+            sent_message.chat_id,
+            sent_message.message_id,
+            telegram_handler.LIBRARY_PANEL_DELETE_DELAY_SECONDS,
+        )
+        create_task_mock.assert_called_once_with(delete_later_awaitable)
         text = message.reply_text.await_args.args[0]
         kwargs = message.reply_text.await_args.kwargs
         self.assertIn("媒体库显示设置", text)

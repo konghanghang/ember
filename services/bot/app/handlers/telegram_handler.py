@@ -57,6 +57,7 @@ LIBRARY_DISABLE_CONFIRM_PREFIX = "lib:confirm:"
 LIBRARY_DISABLE_CANCEL_CALLBACK = "lib:cancel"
 LIBRARY_RESET_CALLBACK = "lib:reset"
 LIBRARY_TOKEN_TTL_SECONDS = 900
+LIBRARY_PANEL_DELETE_DELAY_SECONDS = 300
 _library_token_map: dict[str, tuple[str, float]] = {}
 
 
@@ -907,7 +908,6 @@ async def handle_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def handle_libraries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理 /libraries 私聊命令，展示当前媒体库偏好并生成可切换按钮。"""
-    del context
     message = update.message
     if message is None or message.from_user is None:
         return
@@ -925,7 +925,8 @@ async def handle_libraries(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     text, keyboard = _format_library_settings(_unwrap_payload_data(result))
-    await message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+    sent = await message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+    asyncio.create_task(_delete_later(context.bot, sent.chat_id, sent.message_id, LIBRARY_PANEL_DELETE_DELAY_SECONDS))
 
 
 async def handle_libraries_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
