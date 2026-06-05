@@ -6,6 +6,7 @@ import SettingsView from './SettingsView.vue'
 import type { AdminConfigItem, ConfigGroupTestResult } from '@/types/api'
 import {
   getConfigs,
+  getExternalApiKeyStatus,
   runCronJob,
   testConfigGroup,
   updateConfig,
@@ -14,6 +15,7 @@ import { ElMessage } from 'element-plus'
 
 vi.mock('@/api/admin', () => ({
   getConfigs: vi.fn(),
+  getExternalApiKeyStatus: vi.fn(),
   runCronJob: vi.fn(),
   testConfigGroup: vi.fn(),
   updateConfig: vi.fn(),
@@ -168,6 +170,7 @@ function findButton(wrapper: ReturnType<typeof mountView>, label: string) {
 describe('SettingsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getExternalApiKeyStatus).mockResolvedValue({ data: { configured: false } } as never)
     vi.mocked(runCronJob).mockResolvedValue({ message: '任务执行成功' } as never)
   })
 
