@@ -111,6 +111,18 @@
 - 上述配置已经由设置中心数据库托管，API 不再依赖 Docker 环境变量回退。
 - 调度相关配置虽然也在数据库中，但当前仍是“启动时装配调度器”的模型，所以修改后需要重启 API。
 
+### 2.6 访问凭证
+
+| 配置项 | 敏感 | 需重启 | 说明 |
+|--------|------|--------|------|
+| `external_api_key_hash` | 是 | 否 | 全局 Admin API Key 的 SHA-256 hash；由设置中心专用生成 / 禁用接口维护，空值表示未启用 |
+
+说明：
+
+- Admin API Key 明文格式为 `ember_sk_...`，只在生成或轮换响应中展示一次。
+- 配置表只保存 hash，不保存明文；设置中心不允许手填 hash。
+- 该 key 只用于 `/api/v1/admin/*` 管理员接口，不替代用户 JWT，也不替代 Bot 使用的 `INTERNAL_API_SECRET`。
+
 ---
 
 ## 3. API 环境变量
@@ -221,6 +233,13 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 - 设置中心可以展示该项的只读状态与来源，但不得回显明文。
 - 运维变更该值后，API 与 Bot 必须同步重启并同时切换，否则 Internal API 会整体失效。
 
+### `external_api_key_hash`
+
+- 用途：校验外部自动化脚本调用 `/api/v1/admin/*` 时携带的 Admin API Key
+- 使用方式：`Authorization: Bearer ember_sk_xxx`
+- 存储方式：数据库 `settings.external_api_key_hash` 只保存 SHA-256 hash，明文只在生成时返回一次
+- 备注：禁用时清空该配置项即可立即失效；它不允许访问用户侧接口或 `/api/v1/internal/*`
+
 ### `STRIPE_WEBHOOK_SECRET`
 
 - 用途：校验 Stripe Webhook 签名
@@ -246,3 +265,4 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 3. 不要把 `JWT_SECRET`、`INTERNAL_API_SECRET`、`STRIPE_WEBHOOK_SECRET`、`CONFIG_ENCRYPTION_KEY` 合并成同一个值。
 4. Bot 部署时，应显式提供 `INTERNAL_API_SECRET`、`TELEGRAM_BOT_TOKEN`；若使用 `webhook` 模式，还需额外提供 `TELEGRAM_WEBHOOK_SECRET` 和 `WEBHOOK_URL`。
 5. 如果需要把旧环境变量导入数据库，优先使用设置中心现有的导入能力，而不是手工改表。
+6. 轮换 Admin API Key 前先确认外部脚本可同步更新；重新生成后旧 key 会立即失效。

@@ -41,69 +41,75 @@ var loadPasswordResetUser = func(userID string) (*models.User, error) {
 // 过期或 Emby 侧被停用的用户仍可登录控制台续费/兑换。
 func PasswordResetRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userIDValue, exists := c.Get("userID")
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
-			c.Abort()
+		if !validateJWTSessionState(c, true) {
 			return
 		}
-
-		userID, ok := userIDValue.(string)
-		if !ok || strings.TrimSpace(userID) == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
-			c.Abort()
-			return
-		}
-
-		user, err := loadPasswordResetUser(userID)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
-			c.Abort()
-			return
-		}
-
-		if !user.IsActive {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "账号已被停用"})
-			c.Abort()
-			return
-		}
-
-		// JWT 内角色与数据库实际角色不一致（管理员被降级 / 普通用户被提权），
-		// 旧 token 的 role claim 已不可信，强制重新登录换取新 token。
-		roleClaim, _ := c.Get("role")
-		if roleStr, ok := roleClaim.(string); !ok || roleStr != user.Role {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "登录状态已失效，请重新登录"})
-			c.Abort()
-			return
-		}
-
-		pwdSigValue, _ := c.Get("pwdSig")
-		pwdSig, ok := pwdSigValue.(string)
-		if !ok || pwdSig == "" || !hmac.Equal([]byte(pwdSig), []byte(common.ComputePasswordSignature(user.Password))) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "登录状态已失效，请重新登录"})
-			c.Abort()
-			return
-		}
-
-		principal := AuthPrincipal{
-			UserID:   user.ID,
-			Role:     user.Role,
-			IsActive: user.IsActive,
-		}
-		c.Set("principal", principal)
-		c.Set("role", user.Role)
-
-		if !user.PasswordResetRequired {
-			c.Next()
-			return
-		}
-
-		if _, ok := passwordResetAllowedPaths[c.FullPath()]; ok {
-			c.Next()
-			return
-		}
-
-		c.JSON(http.StatusForbidden, gin.H{"error": "当前账号必须先修改密码"})
-		c.Abort()
+		c.Next()
 	}
+}
+
+func validateJWTSessionState(c *gin.Context, enforcePasswordReset bool) bool {
+	userIDValue, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
+		c.Abort()
+		return false
+	}
+
+	userID, ok := userIDValue.(string)
+	if !ok || strings.TrimSpace(userID) == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
+		c.Abort()
+		return false
+	}
+
+	user, err := loadPasswordResetUser(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未认证"})
+		c.Abort()
+		return false
+	}
+
+	if !user.IsActive {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号已被停用"})
+		c.Abort()
+		return false
+	}
+
+	// JWT 内角色与数据库实际角色不一致（管理员被降级 / 普通用户被提权），
+	// 旧 token 的 role claim 已不可信，强制重新登录换取新 token。
+	roleClaim, _ := c.Get("role")
+	if roleStr, ok := roleClaim.(string); !ok || roleStr != user.Role {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "登录状态已失效，请重新登录"})
+		c.Abort()
+		return false
+	}
+
+	pwdSigValue, _ := c.Get("pwdSig")
+	pwdSig, ok := pwdSigValue.(string)
+	if !ok || pwdSig == "" || !hmac.Equal([]byte(pwdSig), []byte(common.ComputePasswordSignature(user.Password))) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "登录状态已失效，请重新登录"})
+		c.Abort()
+		return false
+	}
+
+	principal := AuthPrincipal{
+		UserID:   user.ID,
+		Role:     user.Role,
+		IsActive: user.IsActive,
+	}
+	c.Set("principal", principal)
+	c.Set("role", user.Role)
+
+	if !enforcePasswordReset || !user.PasswordResetRequired {
+		return true
+	}
+
+	if _, ok := passwordResetAllowedPaths[c.FullPath()]; ok {
+		return true
+	}
+
+	c.JSON(http.StatusForbidden, gin.H{"error": "当前账号必须先修改密码"})
+	c.Abort()
+	return false
 }

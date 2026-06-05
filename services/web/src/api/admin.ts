@@ -3,6 +3,8 @@ import type {
   ActiveSession,
   AdminEmbyBindingRequest,
   AdminEmbyBindingResponse,
+  AdminExternalApiKeyCreatedResponse,
+  AdminExternalApiKeyStatusResponse,
   AdminEmbyUserListResponse,
   AdminPaymentQuery,
   AdminRedemptionQuery,
@@ -190,6 +192,27 @@ export function testConfigGroup(group: string): Promise<ConfigGroupTestResult> {
   return request({
     url: `/admin/configs/${group}/test`,
     method: 'post'
+  })
+}
+
+export function getExternalApiKeyStatus(): Promise<AdminExternalApiKeyStatusResponse> {
+  return request({
+    url: '/admin/external-api-key',
+    method: 'get'
+  })
+}
+
+export function generateExternalApiKey(): Promise<AdminExternalApiKeyCreatedResponse> {
+  return request({
+    url: '/admin/external-api-key',
+    method: 'post'
+  })
+}
+
+export function deleteExternalApiKey(): Promise<AdminExternalApiKeyStatusResponse> {
+  return request({
+    url: '/admin/external-api-key',
+    method: 'delete'
   })
 }
 

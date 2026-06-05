@@ -8,6 +8,7 @@ type appHandlers struct {
 	redemptionCode  *handlers.RedemptionCodeHandler
 	setting         *handlers.SettingHandler
 	config          *handlers.ConfigHandler
+	adminAPIKey     *handlers.AdminAPIKeyHandler
 	subscription    *handlers.SubscriptionHandler
 	media           *handlers.MediaHandler
 	system          *handlers.SystemHandler
@@ -31,6 +32,7 @@ func newAppHandlers() *appHandlers {
 		redemptionCode:  handlers.NewRedemptionCodeHandler(),
 		setting:         handlers.NewSettingHandler(),
 		config:          handlers.NewConfigHandler(),
+		adminAPIKey:     handlers.NewAdminAPIKeyHandler(),
 		subscription:    handlers.NewSubscriptionHandler(),
 		media:           handlers.NewMediaHandler(),
 		system:          handlers.NewSystemHandler(),

@@ -774,6 +774,22 @@ export interface AdminConfigListResponse {
   data: AdminConfigItem[]
 }
 
+export interface AdminExternalApiKeyStatus {
+  configured: boolean
+}
+
+export interface AdminExternalApiKeyCreated extends AdminExternalApiKeyStatus {
+  apiKey: string
+}
+
+export interface AdminExternalApiKeyStatusResponse {
+  data: AdminExternalApiKeyStatus
+}
+
+export interface AdminExternalApiKeyCreatedResponse {
+  data: AdminExternalApiKeyCreated
+}
+
 export interface UpdateAdminConfigRequest {
   value?: string
 }

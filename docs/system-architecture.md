@@ -88,6 +88,8 @@ services/
 │     │  └─ notifier/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ services/               # 业务逻辑
+│     │  ├─ accessauth/
+│     │  │  └─ admin_api_key.go  # 全局 Admin API Key 生成、hash、禁用与校验
 │     │  ├─ auth/
 │     │  │  ├─ service.go        # AuthService（共享装配 / 模板权限应用）
 │     │  │  ├─ login.go          # AuthService（登录链路编排）
@@ -140,6 +142,7 @@ services/
 │     │  └─ *_errors.go          # 领域错误定义（按业务拆分）
 │     ├─ handlers/               # HTTP 处理层（Gin）
 │     │  ├─ auth.go              # 登录 / 注册
+│     │  ├─ admin_api_key.go     # Admin API Key 状态 / 生成 / 禁用接口
 │     │  ├─ user.go              # 用户管理（列表 / 后台创建 / 编辑 / 删除）
 │     │  ├─ redemption_code.go   # 兑换码管理
 │     │  ├─ config.go            # 设置中心配置接口
@@ -160,6 +163,7 @@ services/
 │     │  ├─ media_library_policy.go # 媒体库模板 / 用户偏好 / Emby Policy 同步接口
 │     │  └─ tv_calendar.go       # 追剧日历
 │     ├─ middleware/
+│     │  ├─ admin_credential_auth.go # 管理员 JWT / Admin API Key 组合认证
 │     │  ├─ jwt.go               # JWTAuth + AdminOnly + UserOnly
 │     │  └─ internal_auth.go     # InternalAuth（Bot 内部通信认证）
 │     ├─ common/
@@ -295,7 +299,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `PlanGroup → Plan → Payment` 构成套餐与支付主链路；`User.planGroup`、`RedemptionCode.registrationPlanGroup` 参与用户可见套餐边界
 - `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动；`SubscriptionAdminNotification` 记录每条 Telegram 管理员审批消息的 `chatId/messageId`，用于 Web / Telegram 任一端审批后的消息同步
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
-- `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表
+- `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
 
 ### 4.3 维护约束
 
@@ -331,6 +335,12 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `RegisterUserRequest{Username, Password, Email, Code, EmailCode}` — Code/EmailCode 可选
 - `LoginRequest{Username, Password, TurnstileToken}`
 - `LoginResponse{Token, User, IsExpired}`
+
+**Admin API Key**（`services/accessauth/admin_api_key.go`）：
+- 设置中心提供全局 Admin API Key 的状态、生成 / 轮换和禁用能力；生成的明文以 `ember_sk_` 开头，只在 `POST /api/v1/admin/external-api-key` 响应中返回一次
+- 数据库只保存 `settings.external_api_key_hash`（SHA-256 hex）；空值表示未启用，重新生成会覆盖旧 hash，禁用会清空 hash
+- 校验路径由 `AdminCredentialAuth()` 识别 `Authorization: Bearer ember_sk_xxx`，使用 constant-time compare 对比 hash；成功后注入 `authType=api_key`、`role=admin`、`userID=api_key`
+- API Key 没有真实当前用户语义，不进入 `/api/v1/user/*`、统一认证用户侧接口或 `/api/v1/internal/*`；管理 key 本身的接口禁止 API Key 自管理
 
 **管理员 Emby 账号自助绑定**（`emby_binding.go`）：
 - `ListAdminEmbyUsers(userID, {query, limit})` — 要求 `query` 至少 2 个字符；通过 `EmbyService.GetUsers` 拉取 Emby 用户列表后在服务端按用户名 / ID 过滤并截断到 `limit`，再合并本地 `users.emby_id` 占用状态；返回 `data[]`，每项包含 `embyId / name / hasPassword / boundUsername / boundToCurrent / available`，供前端选择绑定目标；前端弹窗不自动加载全量 Emby 用户
@@ -385,6 +395,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - 读取策略由配置定义控制：已托管的运行期集成配置优先数据库并可禁用 env 回退；部署边界配置仍保留 env / default 解析
 - 敏感值加密：`CONFIG_ENCRYPTION_KEY`
 - 运行期配置中心 API 的后端基础设施
+- `external_api_key_hash` 属于设置中心可见的只读敏感项，由 Admin API Key 专用接口写入或清空，不通过通用 `UpdateConfig` 手填
 
 ### 5.6 SystemService (`services/system/service.go`, `services/system/expiry.go`)
 
@@ -674,7 +685,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 公开路由：登录、注册、验证码发送、Webhook
 - 统一认证路由：当前登录用户可访问的个人信息、订阅、TMDB 搜索代理、兑换、支付、追剧日历、排行等能力
 - 用户路由：保留 `/user/*` 兼容别名
-- 管理员路由：用户管理、单用户 Emby Policy 同步失败重试、配置中心、支付与兑换后台、媒体质量、设备、追剧日历同步、cron 手动触发
+- 管理员路由：用户管理、单用户 Emby Policy 同步失败重试、配置中心、Admin API Key 管理、支付与兑换后台、媒体质量、设备、追剧日历同步、cron 手动触发
 - 内部服务路由：Bot 通过 `InternalAuth` 访问的审批、配置、媒体统计和 Telegram 内部能力
 
 ### 6.2 关键约束
@@ -690,7 +701,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - **JWT**：HS256，7 天有效期，Claims = {userID, username, role, pwdSig}
 - **Token 传递**：`Authorization: Bearer {token}`
-- **中间件链**：`JWTAuth()` → `PasswordResetRequired()` → `AdminOnly()` / `UserOnly()`
+- **用户 / 统一认证路由中间件链**：`JWTAuth()` → `PasswordResetRequired()` → `UserOnly()`（如需用户角色）
+- **管理员路由中间件链**：`AdminCredentialAuth()` → `AdminOnly()`；其中 JWT 分支仍执行用户状态、角色、密码签名和密码重置闭环校验，Admin API Key 分支只校验 `external_api_key_hash`
 - **会话状态收口**：`PasswordResetRequired()`（`middleware/password_reset_required.go`）是 `JWTAuth` 之后每请求必经的数据库回查点，承担会话失效语义：
   - 账号被管理员停用（`is_active=false`）→ 401，旧 token 立即失效
   - JWT 内 `role` 与数据库实际 `role` 不一致（被升/降级）→ 401，强制重新登录换新 token；因此该中间件之后下游可信任 context `role`
@@ -698,8 +710,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
   - 被标记 `password_reset_required` 的账号只能访问改密闭环白名单接口
   - 仅校验 Ember 账号状态 `is_active`；**不校验 `emby_disabled` / 过期**，过期或 Emby 侧被停用的用户仍可登录控制台续费/兑换
 - **登录态校验**：`AuthService.authenticateLoginUser` 在凭据校验前先拒绝 `is_active=false` 账号（返回与凭据错误一致文案），阻止停用账号重新登录换取新 JWT
+- **Admin API Key**：`Authorization: Bearer ember_sk_xxx` 只允许进入 `/api/v1/admin/*`；未配置、格式错误或 hash 不匹配返回 401，配置读取失败返回 500；日志只记录 `authType=api_key`、路径、方法、客户端 IP 和失败原因，不输出明文或 hash
 - **InternalAuth**：`middleware/internal_auth.go` — 校验 `X-Internal-Secret` header，用于 Bot ↔ API 内部通信；`INTERNAL_API_SECRET` 在 API 与 Bot 启动期均要求非空、长度至少 32 字符，并拒绝示例占位值
-- **Context 变量**：`userID`, `username`, `role`, `pwdSig`, `claims`, `principal`
+- **Context 变量**：`userID`, `username`, `role`, `pwdSig`, `claims`, `principal`, `authType`
 - **密码存储**：bcrypt（DefaultCost），所有用户统一存本地 hash
 - **存量迁移**：`Password == ""` 时降级 Emby 认证，成功后自动补存本地 hash
 
@@ -792,7 +805,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 | 层级 | 典型项 | 真相源 | 说明 |
 |------|--------|--------|------|
-| API 运行期数据库配置 | `registration_mode`、`EMBY_URL`、`SMTP_*`、`CRON_*` | [configuration-reference](./reference/configuration-reference.md) | 由设置中心统一解析；大多数可运行期生效，调度相关配置改后需重启 API |
+| API 运行期数据库配置 | `registration_mode`、`EMBY_URL`、`SMTP_*`、`CRON_*`、`external_api_key_hash` | [configuration-reference](./reference/configuration-reference.md) | 由设置中心统一解析；大多数可运行期生效，调度相关配置改后需重启 API |
 | API 部署期环境变量 | `DATABASE_URL`、`JWT_SECRET`、`CONFIG_ENCRYPTION_KEY`、`INTERNAL_API_SECRET`、`EMBY_WEBHOOK_TOKEN` | [configuration-reference](./reference/configuration-reference.md) | 作为启动边界或信任根，不放进设置中心 |
 | Bot 启动环境变量 | `TELEGRAM_BOT_TOKEN`、`TELEGRAM_UPDATE_MODE`、`WEBHOOK_URL` | [configuration-reference](./reference/configuration-reference.md) | Bot 进程启动直接读取；部分 Chat ID 支持通过 API 设置中心回读并以 env 兜底 |
 | Web 构建期变量 | `VITE_GIT_COMMIT_SHA`、`VITE_GITHUB_REPOSITORY`、`VITE_GITHUB_REPOSITORY_URL` | [configuration-reference](./reference/configuration-reference.md) | 仅用于静态前端构建元信息展示，不属于运行期配置 |

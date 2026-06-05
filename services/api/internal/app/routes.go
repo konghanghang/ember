@@ -38,7 +38,7 @@ func registerPublicRoutes(api *gin.RouterGroup, h *appHandlers) {
 
 func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin := api.Group("/admin")
-	admin.Use(middleware.JWTAuth(), middleware.PasswordResetRequired(), middleware.AdminOnly())
+	admin.Use(middleware.AdminCredentialAuth(), middleware.AdminOnly())
 
 	admin.GET(apiroutes.CurrentPath, h.auth.GetCurrentUser)
 	admin.GET("/emby-users", h.auth.ListAdminEmbyUsers)
@@ -67,6 +67,9 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.GET("/configs", h.config.GetConfigs)
 	admin.PATCH("/configs/:key", h.config.UpdateConfig)
 	admin.POST("/configs/:group/test", h.config.TestConfigGroup)
+	admin.GET("/external-api-key", h.adminAPIKey.GetStatus)
+	admin.POST("/external-api-key", h.adminAPIKey.Generate)
+	admin.DELETE("/external-api-key", h.adminAPIKey.Disable)
 	admin.GET("/redemptions", h.user.GetAllRedemptions)
 
 	admin.GET("/subscriptions", h.subscription.GetAllSubscriptions)

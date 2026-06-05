@@ -79,6 +79,8 @@
 
 ## 4. 管理员路由（需认证 + role=admin）
 
+管理员路由支持两类 Bearer 凭证：管理员 JWT，或设置中心生成的全局 Admin API Key。API Key 没有真实用户身份语义，不能访问统一认证路由、用户路由或 Internal API。
+
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/api/v1/admin/current` | 当前管理员信息 |
@@ -106,6 +108,9 @@
 | GET | `/api/v1/admin/configs` | 获取设置中心全部配置（定义 + 当前值 + 来源） |
 | PATCH | `/api/v1/admin/configs/:key` | 更新单项配置 |
 | POST | `/api/v1/admin/configs/:group/test` | 测试指定配置组 |
+| GET | `/api/v1/admin/external-api-key` | 查询全局 Admin API Key 是否已启用（只返回 `configured`） |
+| POST | `/api/v1/admin/external-api-key` | 生成或轮换全局 Admin API Key；响应只在本次返回 `apiKey` 明文 |
+| DELETE | `/api/v1/admin/external-api-key` | 禁用全局 Admin API Key，清空 `external_api_key_hash` |
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |

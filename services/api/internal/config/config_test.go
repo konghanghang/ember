@@ -162,6 +162,7 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 		"turnstile_login_enabled",
 		"turnstile_site_key",
 		"turnstile_expected_hostname",
+		"external_api_key_hash",
 	}
 
 	definitions := getConfigDefinitionMap()
@@ -519,6 +520,11 @@ func TestReadOnlyBoundaryConfigDefinitionsExposeHints(t *testing.T) {
 			readOnlyHint:      "部署拓扑",
 			missingValueHint:  "Webhook 模式无法正常接入公网请求",
 			missingValueLevel: ConfigRiskCritical,
+		},
+		{
+			key:               "external_api_key_hash",
+			readOnlyHint:      "专用生成和禁用接口管理",
+			missingValueLevel: ConfigRiskNone,
 		},
 	}
 

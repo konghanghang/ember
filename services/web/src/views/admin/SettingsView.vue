@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Monitor, QuestionFilled, Setting } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { CopyDocument, Key, Monitor, QuestionFilled, Setting } from '@element-plus/icons-vue'
 import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import {
+  deleteExternalApiKey,
+  generateExternalApiKey,
   getConfigs,
+  getExternalApiKeyStatus,
   runCronJob,
   testConfigGroup,
   updateConfig
@@ -57,6 +60,10 @@ const draftValues = ref<Record<string, any>>({})
 const savingGroups = ref<Record<string, boolean>>({})
 const testingGroups = ref<Record<string, boolean>>({})
 const groupTabRefs = ref<Partial<Record<ConfigGroupKey, HTMLButtonElement | null>>>({})
+const apiKeyConfigured = ref(false)
+const apiKeyMutating = ref(false)
+const generatedApiKey = ref('')
+const apiKeyDialogVisible = ref(false)
 
 const groupSections = computed<ConfigGroupSection[]>(() => {
   const grouped = new Map<string, ConfigGroupSection>()
@@ -107,6 +114,11 @@ const fetchConfigs = async () => {
   if (!groupSections.value.some(group => group.key === activeGroup.value) && groupSections.value.length > 0) {
     activeGroup.value = groupSections.value[0].key
   }
+}
+
+const fetchExternalApiKeyStatus = async () => {
+  const res = await getExternalApiKeyStatus()
+  apiKeyConfigured.value = res.data.configured
 }
 
 const sourceLabelMap: Record<string, string> = {
@@ -194,6 +206,77 @@ const handleRunCron = async () => {
   } finally {
     runningCron.value = false
   }
+}
+
+const copyApiKey = async () => {
+  if (!generatedApiKey.value) return
+
+  try {
+    await navigator.clipboard.writeText(generatedApiKey.value)
+    ElMessage.success('复制成功')
+  } catch {
+    ElMessage.error('复制失败')
+  }
+}
+
+const handleGenerateApiKey = async () => {
+  if (apiKeyConfigured.value) {
+    try {
+      await ElMessageBox.confirm(
+        '重新生成会立即替换旧 Key，旧 Key 将失效。',
+        '重新生成 Admin API Key',
+        {
+          confirmButtonText: '重新生成',
+          cancelButtonText: '取消',
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
+  apiKeyMutating.value = true
+  try {
+    const res = await generateExternalApiKey()
+    apiKeyConfigured.value = res.data.configured
+    generatedApiKey.value = res.data.apiKey
+    apiKeyDialogVisible.value = true
+  } finally {
+    apiKeyMutating.value = false
+  }
+}
+
+const handleDisableApiKey = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '禁用后，所有正在使用该 Key 的外部脚本会立即失效。',
+      '禁用 Admin API Key',
+      {
+        confirmButtonText: '禁用',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger',
+      }
+    )
+  } catch {
+    return
+  }
+
+  apiKeyMutating.value = true
+  try {
+    const res = await deleteExternalApiKey()
+    apiKeyConfigured.value = res.data.configured
+    generatedApiKey.value = ''
+    apiKeyDialogVisible.value = false
+    ElMessage.success('Admin API Key 已禁用')
+  } finally {
+    apiKeyMutating.value = false
+  }
+}
+
+const handleApiKeyDialogClosed = () => {
+  generatedApiKey.value = ''
 }
 
 const configStateHint = (item: AdminConfigItem) => {
@@ -374,7 +457,7 @@ const handleGroupTabKeydown = (event: KeyboardEvent, groupKey: ConfigGroupKey) =
 onMounted(async () => {
   loading.value = true
   try {
-    await fetchConfigs()
+    await Promise.all([fetchConfigs(), fetchExternalApiKeyStatus()])
   } finally {
     loading.value = false
   }
@@ -541,6 +624,51 @@ onMounted(async () => {
             <p class="mt-1 leading-6">
               当前分组缺少 {{ activeGroupRiskSummary.items.map(item => item.label).join('、') }}，这些项通常需要通过部署环境补齐。
             </p>
+          </div>
+
+          <div
+            v-if="activeGroupSection.key === 'deployment'"
+            class="mt-4 border-b border-gray-100 pb-4"
+          >
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gray-900 text-white">
+                    <el-icon><Key /></el-icon>
+                  </span>
+                  <div>
+                    <h3 class="text-base font-bold text-gray-900">Admin API Key</h3>
+                    <p class="mt-0.5 text-sm text-gray-500">生成后只展示一次明文，请立即复制保存。</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <span
+                  class="rounded-full px-2.5 py-1 text-xs font-semibold"
+                  :class="apiKeyConfigured ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'"
+                >
+                  {{ apiKeyConfigured ? '已启用' : '未启用' }}
+                </span>
+                <button
+                  type="button"
+                  @click="handleGenerateApiKey"
+                  :disabled="apiKeyMutating"
+                  class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <el-icon><Key /></el-icon>
+                  {{ apiKeyMutating ? '处理中...' : (apiKeyConfigured ? '重新生成' : '生成') }}
+                </button>
+                <button
+                  type="button"
+                  @click="handleDisableApiKey"
+                  :disabled="apiKeyMutating || !apiKeyConfigured"
+                  class="inline-flex cursor-pointer items-center rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  禁用
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="mt-4 overflow-hidden rounded-2xl border border-gray-100 bg-white">
@@ -745,6 +873,43 @@ onMounted(async () => {
         </section>
       </main>
     </div>
+
+    <el-dialog
+      v-model="apiKeyDialogVisible"
+      title="Admin API Key"
+      width="560px"
+      :destroy-on-close="true"
+      @closed="handleApiKeyDialogClosed"
+    >
+      <div class="space-y-3">
+        <p class="text-sm leading-6 text-gray-600">
+          这是唯一一次明文展示，关闭后无法再次查看。
+        </p>
+        <div class="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+          <code class="block break-all font-mono text-sm leading-6 text-gray-900">{{ generatedApiKey }}</code>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            @click="copyApiKey"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+          >
+            <el-icon><CopyDocument /></el-icon>
+            复制
+          </button>
+          <button
+            type="button"
+            @click="apiKeyDialogVisible = false"
+            class="btn-ember cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold"
+          >
+            我已保存
+          </button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 

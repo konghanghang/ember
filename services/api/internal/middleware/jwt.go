@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -11,27 +12,12 @@ import (
 // JWTAuth JWT 认证中间件
 func JWTAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. 从 Header 提取 Token
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "缺少 Authorization Header",
-			})
+		tokenString, err := bearerTokenFromRequest(c)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			c.Abort()
 			return
 		}
-
-		// Bearer Token 格式
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "Authorization Header 格式错误，应为: Bearer {token}",
-			})
-			c.Abort()
-			return
-		}
-
-		tokenString := parts[1]
 
 		// 2. 解析并验证 Token
 		claims, err := common.ParseToken(tokenString)
@@ -43,15 +29,37 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
-		// 3. 将用户信息存入 Context
-		c.Set("userID", claims.UserID)
-		c.Set("username", claims.Username)
-		c.Set("role", claims.Role)
-		c.Set("pwdSig", claims.PwdSig)
-		c.Set("claims", claims)
+		setJWTClaims(c, claims)
 
 		c.Next()
 	}
+}
+
+func bearerTokenFromRequest(c *gin.Context) (string, error) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return "", errors.New("缺少 Authorization Header")
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return "", errors.New("Authorization Header 格式错误，应为: Bearer {token}")
+	}
+
+	token := strings.TrimSpace(parts[1])
+	if token == "" {
+		return "", errors.New("Authorization Header 格式错误，应为: Bearer {token}")
+	}
+	return token, nil
+}
+
+func setJWTClaims(c *gin.Context, claims *common.Claims) {
+	c.Set("userID", claims.UserID)
+	c.Set("username", claims.Username)
+	c.Set("role", claims.Role)
+	c.Set("pwdSig", claims.PwdSig)
+	c.Set("claims", claims)
+	c.Set("authType", "jwt")
 }
 
 // AuthPrincipal 表示已由 PasswordResetRequired 回查 DB 并校验过的真实会话主体。

@@ -1,8 +1,16 @@
 # 管理员 API Key 实现方案
 
-> 状态：草稿
+> 状态：已实现，待归档
 > 负责人：Ember
 > 更新时间：2026-06-05
+
+## 落地状态
+
+- 已实现后端 `AdminCredentialAuth()`、Admin API Key 生成 / 状态 / 禁用接口，以及 `external_api_key_hash` 配置项。
+- 已实现设置中心 Admin API Key 管理区，生成后只展示一次明文，禁用和重新生成会立即刷新状态。
+- 已补 Go 单元测试覆盖 JWT 管理员、JWT 普通用户、API Key 成功 / 失败 / 配置错误、生成 / 禁用和自管理拦截。
+- 已同步 `docs/system-architecture.md`、`docs/reference/configuration-reference.md`、`docs/reference/api-endpoint-catalog.md`。
+- 归档条件：完成全量验证并确认无需继续调整后，移动到 `docs/archive/plan/access-auth/admin-api-key.md`。
 
 ## 背景
 
@@ -244,11 +252,11 @@ API Key 调用管理员接口：
 
 ## 落地后文档处理
 
-落地后应同步处理：
+已同步处理：
 
 - `docs/system-architecture.md`：补充管理员 API Key 认证边界和与 JWT / InternalAuth 的关系。
 - `docs/reference/configuration-reference.md`：登记 `external_api_key_hash`。
 - `docs/reference/api-endpoint-catalog.md`：登记新增管理员 API Key 管理接口。
-- 如实现过程中调整通用 API 错误语义，再同步 `docs/reference/api-response-standard.md`。
+- 未调整通用 API 错误语义，`docs/reference/api-response-standard.md` 无需变更。
 
 功能上线并完成验证后，本方案移入 `docs/archive/plan/access-auth/admin-api-key.md`。
