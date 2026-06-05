@@ -13,7 +13,7 @@
 - `docs/system-architecture.md`
 - `docs/reference/data-model-reference.md`
 - `docs/reference/configuration-reference.md`
-- `infrastructure/database/20260519_01_subscription_admin_notifications.sql`
+- `infrastructure/database/archive/pre-20260605/20260519_01_subscription_admin_notifications.sql`
 - `services/api/internal/models/subscription_admin_notification.go`
 - `services/api/internal/services/subscription/service.go`
 - `services/bot/app/handlers/telegram_handler.py`

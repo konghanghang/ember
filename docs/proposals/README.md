@@ -16,7 +16,7 @@
 - 进行中的功能实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将多管理员订阅通知消息同步方案移入 `docs/archive/plan/bot-telegram/`；上一轮已将 OSS 部署体验方案移入 `docs/archive/plan/architecture/`；此前已将数据库迁移自动应用方案移入 `docs/archive/plan/architecture/`，并将管理员 Emby 账号绑定方案移入 `docs/archive/plan/console-admin/`；更早已将注册邮箱域名白名单方案移入 `docs/archive/plan/access-auth/`，将数据库迁移 Baseline 与归档收口方案移入 `docs/archive/plan/architecture/`，并将订阅拒绝后重新发起方案移入 `docs/archive/plan/media-subscription/`；更早已将用户侧媒体库入口收口方案移入 `docs/archive/plan/media-subscription/`，将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`，并将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，以及缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。当前 `docs/plan/` 只保留仍在推进中的实施稿与模板入口。
+最近一次归档已将用户媒体库管理方案移入 `docs/archive/plan/media-subscription/`，并将控制台概览与账号中心布局改造方案移入 `docs/archive/plan/console-admin/`；上一轮已将多管理员订阅通知消息同步方案移入 `docs/archive/plan/bot-telegram/`；此前已将 OSS 部署体验方案移入 `docs/archive/plan/architecture/`，将数据库迁移自动应用方案移入 `docs/archive/plan/architecture/`，并将管理员 Emby 账号绑定方案移入 `docs/archive/plan/console-admin/`；更早已将注册邮箱域名白名单方案移入 `docs/archive/plan/access-auth/`，将数据库迁移 Baseline 与归档收口方案移入 `docs/archive/plan/architecture/`，并将订阅拒绝后重新发起方案移入 `docs/archive/plan/media-subscription/`；更早已将用户侧媒体库入口收口方案移入 `docs/archive/plan/media-subscription/`，将控制台与后台 UI 一致性收口优化方案移入 `docs/archive/plan/console-admin/`，并将注册码绑定套餐分组方案移入 `docs/archive/plan/billing-redemption/`，以及缺集管理与精准补集方案、订阅状态可见性与结果通知方案移入 `docs/archive/plan/media-subscription/`。当前 `docs/plan/` 只保留仍在推进中的实施稿与模板入口。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
 

@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-05-21
+> 更新时间：2026-06-05
 
 本清单只回答三件事：
 
@@ -80,6 +80,8 @@
 | `archive/plan/architecture/database-migration-auto-apply.md` | 已落地 | `services/api/internal/db/migrate.go` 启动期自动迁移、`schema_migrations` 记账、forward-only / backfill / checksum 测试、部署与数据库文档均已同步；相关提交已进入 `v1.5.0` / `v1.5.1`，日志已有 `[Migrate]` backfill / forward-only 成功记录 | 已提炼后归档到 `docs/archive/plan/architecture/` |
 | `archive/plan/architecture/oss-deployment-experience.md` | 已落地 | Phase 1 + Phase 2 已进入 `v1.5.x`；README quickstart、Docker Compose 默认部署、Bot profile、GHCR 多架构构建、升级流程与 PG `initdb.d` 退役均已落地并完成验证 | 已提炼后归档到 `docs/archive/plan/architecture/` |
 | `archive/plan/console-admin/admin-emby-binding.md` | 已落地 | `GET /api/v1/admin/emby-users`、`PUT/DELETE /api/v1/admin/current/emby-binding`、账号中心 Emby 用户选择器、API 端点目录和系统架构文档均已落地；提交 `362ff23` 已进入 `v1.5.1`，真实环境日志已有 list / bind / unbind 成功记录 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
+| `archive/plan/media-subscription/user-media-library-management.md` | 已落地 | `plan_group_media_libraries`、`plan_group_emby_policy_templates`、`user_media_library_preferences`、`emby_policy_sync_batches`、`emby_policy_sync_tasks` 与 `users.emby_access_disabled` 已落地；用户 Web / Telegram 媒体库偏好、分组模板、Emby Policy 同步 worker、API 目录、数据模型参考、系统架构和前端信息架构均已同步 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
+| `archive/plan/console-admin/console-overview-account-layout-redesign.md` | 已落地 | `DashboardView.vue` 已按服务状态、Emby 入口、片库数字和最近入库重排；`AccountCenterView.vue` 已收口连接与绑定、媒体库偏好和账号设置布局；本次无 API / schema 变化 | 已归档到 `docs/archive/plan/console-admin/` |
 
 ## B. 当前仍留在 `docs/plan/` 的未完成文档
 
@@ -104,6 +106,8 @@
 | `archive/plan/architecture/database-migration-baseline-and-archive.md` | 已归档 | 文档自身已标 `已完成`；现行迁移规则已由 `20260422_00_schema_baseline.sql`、`infrastructure/database/README.md`、`docs/system-architecture.md` 和 schema 部署基线收口方案接管 | 历史追溯 |
 | `archive/plan/media-subscription/subscription-resubmission-after-rejection.md` | 已归档 | `subscriptions.retryFromId`、`20260424_01_subscription_resubmission_after_rejection.sql`、`uq_subscriptions_active_media`、`POST /subscriptions/:id/resubmit`、`ResubmitSubscriptionWithResult`、用户侧“再次提交”入口和架构文档均已落地 | 历史追溯 |
 | `archive/plan/bot-telegram/subscription-admin-message-sync.md` | 已归档 | `subscription_admin_notifications` 模型与 migration、`telegram_approval_admin_ids`、Bot 多审批人员投递返回、API 投递记录持久化、Web / Telegram 审批后批量同步管理员消息均已落地，系统架构与配置/数据模型参考文档已同步 | 历史追溯 |
+| `archive/plan/media-subscription/user-media-library-management.md` | 已归档 | 用户媒体库模板、用户偏好、Emby Policy 同步、Bot `/libraries` 和后台分组权益入口均已落地；稳定事实已同步到系统架构、API 目录、数据模型和前端信息架构 | 历史追溯 |
+| `archive/plan/console-admin/console-overview-account-layout-redesign.md` | 已归档 | 控制台概览和账号中心布局已落地；本次仅为页面局部布局改造，无需新增稳定架构规则 | 历史追溯 |
 
 ## D. 本轮新增归档记录
 
@@ -139,6 +143,8 @@
 - `console-admin/ember-web-component-foundation.md`
 - `archive/plan/architecture/schema-deployment-and-baseline-cleanup.md`
 - `bot-telegram/subscription-admin-message-sync.md`
+- `media-subscription/user-media-library-management.md`
+- `console-admin/console-overview-account-layout-redesign.md`
 - `embypulse-features/README.md`（索引目录退出，归档方案已按职责边界重组）
 
 本轮已迁移为治理提案：

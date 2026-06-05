@@ -8,18 +8,19 @@
 
 ## 当前状态
 
-最近一轮 baseline 已于 `2026-05-02` 落地（v1.4.0 截点）：
+最近一轮 baseline 已于 `2026-06-05` 落地（v1.6.0 截点）：
 
-- 基线文件：`infrastructure/database/00000000_baseline_20260502.sql`（fresh-install 形态 baseline；2026-05-09 由 v1.4.0 截点的运行库 `pg_dump --schema-only` 整理而来。曾以 `20260502_00_schema_baseline.sql` 命名、并经历过"合并式 baseline"中间形态，详见下文"baseline 形态演进"）
-- 历史归档目录：`infrastructure/database/archive/pre-20260502/`
-- 吸收范围：上一轮 baseline `20260422_00_schema_baseline.sql` + 23 个 v1.4.0 期间顶层增量
-- deterministic seed：5 条默认 settings（`default_trial_days` / `registration_mode` / `notify_group_link` / `email_verification` / `stripe_allowed_payment_methods`）+ `plan_groups.DEFAULT`，继承自旧 baseline 段
+- 基线文件：`infrastructure/database/00000000_baseline_20260605.sql`（fresh-install 形态 baseline；吸收 2026-05-02 baseline 与 2026-05-04 至 2026-05-29 顶层增量）
+- 历史归档目录：`infrastructure/database/archive/pre-20260605/`
+- 吸收范围：上一轮 baseline `00000000_baseline_20260502.sql` + 4 个 v1.6.0 期间顶层增量
+- deterministic seed：6 条默认 settings（`default_trial_days` / `registration_mode` / `notify_group_link` / `email_verification` / `stripe_allowed_payment_methods` / `telegram_approval_admin_ids`）+ `plan_groups.DEFAULT` + 默认 Emby Policy 模板
 
 历史几轮 baseline 截点：
 
 - v1.3.0 截点：`archive/pre-20260415/`
 - v1.3.1 截点：`archive/pre-20260422/`
 - v1.4.0 截点：`archive/pre-20260502/`
+- v1.6.0 截点：`archive/pre-20260605/`
 
 后续如果再次做 baseline，起点应是”当前顶层 baseline + baseline 之后新增的顶层 migration”，不要再把 `archive/` 当成现行执行链路。
 

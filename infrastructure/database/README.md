@@ -4,7 +4,7 @@
 
 当前唯一现行入口：
 
-- `00000000_baseline_20260502.sql`：v1.4.0 截点合并 baseline，新装库初始化的全部内容（文件内容生成于 2026-05-02 截点；曾命名为 `20260502_00_schema_baseline.sql`，已按"全 0 前缀让 baseline 永远字典序最先"的命名约定收口）
+- `00000000_baseline_20260605.sql`：v1.6.0 截点 fresh-install baseline，新装库初始化的全部内容；吸收 2026-05-02 baseline 以及 2026-05-04 至 2026-05-29 顶层增量，已按"全 0 前缀让 baseline 永远字典序最先"的命名约定收口
 - `archive/`：仅供追溯，不参与任何运行时链路
 
 数据库表名 / 列名 / 索引名统一使用 `snake_case`；历史 camelCase 列已在 v1.4.0 期间整体收口（脚本归档于 `archive/pre-20260502/20260423_00_legacy_camelcase_to_snake_case.sql`）。
@@ -92,22 +92,25 @@ archive/
 ├─ README.md
 ├─ pre-20260415/   早期迁移，被首轮 baseline 覆盖
 ├─ pre-20260422/   v1.3.1 截点 baseline + 同期增量，被次轮 baseline 覆盖
-└─ pre-20260502/   v1.4.0 截点旧 baseline + 23 个增量，被本轮合并 baseline 覆盖
+├─ pre-20260502/   v1.4.0 截点旧 baseline + 23 个增量，被 2026-05-02 baseline 覆盖
+└─ pre-20260605/   2026-05-02 baseline + 4 个增量，被当前 baseline 覆盖
 ```
 
 普通使用者无需关注。排错或核对字段历史时，可在此查阅原始迁移 SQL；其余场景优先查 `git log`。
 
 ## 现行 baseline 说明
 
-`00000000_baseline_20260502.sql` 是 **fresh-install 形态的 baseline**：
+`00000000_baseline_20260605.sql` 是 **fresh-install 形态的 baseline**：
 
-- 内容由 v1.4.0 截点的运行库 `pg_dump --schema-only` 整理而来，所有语句在新空库上都是有效语义，不存在 no-op，不携带历史包袱
+- 内容基于 2026-05-02 fresh-install baseline 吸收 2026-05-04 至 2026-05-29 顶层 forward-only migration 整理而来，所有语句在新空库上都是有效语义，不携带历史升级包袱
 - 表 / 主键 / 索引按字典序排列，便于后续做 schema diff 验证
-- 末尾追加 deterministic seed（`settings` 5 条 + `plan_groups.DEFAULT`），跟应用层 `Bootstrap` 一致
+- 末尾追加 deterministic seed（`settings` 6 条 + `plan_groups.DEFAULT` + 默认 Emby Policy 模板），跟应用层 `Bootstrap` 与分组模板默认行为一致
 
 形态切换决策记录：[`docs/archive/plan/architecture/baseline-fresh-install-rewrite.md`](../../docs/archive/plan/architecture/baseline-fresh-install-rewrite.md)。
 
 > 历史前身是 **合并式 baseline**（24 份历史顶层 SQL 按字典序拼接），在 2026-05-09 排错过程中暴露与运行库 schema 严重脱节，开源前一次性切换到 fresh-install 形态。合并源整批归档于 [`archive/pre-20260502/`](./archive/pre-20260502/)，仅供追溯。
+>
+> 2026-06-05 上线后，`00000000_baseline_20260502.sql` 与后续 4 条顶层增量已整批归档于 [`archive/pre-20260605/`](./archive/pre-20260605/)，当前顶层只保留新 baseline。
 
 ### baseline ↔ schema 真相对齐约束
 

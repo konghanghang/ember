@@ -11,6 +11,7 @@
 - `pre-20260415/`：v1.2.x 至 v1.3.0 期间的早期迁移，被首轮 baseline `20260415_00_schema_baseline.sql` 完整覆盖。
 - `pre-20260422/`：v1.3.1 截点的旧 baseline 与同期增量，被次轮 baseline `20260422_00_schema_baseline.sql` 完整覆盖。
 - `pre-20260502/`：v1.4.0 截点的旧 baseline 与 23 个增量，被合并式 baseline `00000000_baseline_20260502.sql`（曾命名为 `20260502_00_schema_baseline.sql`）完整覆盖。
+- `pre-20260605/`：2026-05-02 fresh-install baseline 与 4 个后续增量，被当前 baseline `00000000_baseline_20260605.sql` 完整覆盖。
 
 ## 边界
 

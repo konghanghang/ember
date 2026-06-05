@@ -57,7 +57,7 @@
   - `services/api/internal/services/auth/login.go`（`authenticateLoginUser`，管理员走本地密码）
   - `services/api/internal/integrations/emby/emby.go`（`GetUsers` 已可通过 Emby API Key 获取用户列表；`GetUserByID` 可校验单个 Emby 用户存在）
   - `services/api/internal/models/user.go:18`（`User.EmbyID` 字段，GORM 模型不声明唯一约束）
-  - `infrastructure/database/20260504_00_users-emby-id-unique.sql`（`users.emby_id` 非空偏唯一索引）
+  - `infrastructure/database/archive/pre-20260605/20260504_00_users-emby-id-unique.sql`（`users.emby_id` 非空偏唯一索引）
   - `services/api/internal/handlers/media.go`、`services/api/internal/services/playback/profile.go`、`services/api/internal/services/redemption/code_service.go`（依赖 `EmbyID` 的下游链路）
   - `services/api/internal/app/routes.go`（`registerAdminRoutes`，新接口的归属位置）
   - `services/web/src/views/console/AccountCenterView.vue`（管理员 / 普通用户共用基本信息卡，目前只只读展示 `embyId`）
@@ -96,7 +96,7 @@
 
 - 不新增表，不新增字段。
 - `users.emby_id` 唯一性收口：
-  - 复用现有 SQL migration：`infrastructure/database/20260504_00_users-emby-id-unique.sql`。
+  - 复用现有 SQL migration：`infrastructure/database/archive/pre-20260605/20260504_00_users-emby-id-unique.sql`。
   - 索引语义：`emby_id IS NOT NULL AND emby_id <> ''` 时唯一（PostgreSQL 偏唯一索引）。
   - 文件要求：保持 `CREATE UNIQUE INDEX IF NOT EXISTS ...` 幂等可重复执行；上线前确认现网无重复 `emby_id`，否则迁移会失败。
   - 不依赖 GORM AutoMigrate。

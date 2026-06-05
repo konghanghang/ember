@@ -97,7 +97,7 @@
 不再依赖 PG `initdb.d`：`ember-api` 启动期 Migrate 阶段直接接管空库初始化：
 
 - 探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支
-- 按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL（当前为 v1.4.0 截点合并 baseline `00000000_baseline_20260502.sql`）
+- 按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL（当前为 v1.6.0 截点 fresh-install baseline `00000000_baseline_20260605.sql`）
 - `archive/` 不参与运行时链路
 
 ### 已有数据库升级

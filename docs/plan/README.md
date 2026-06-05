@@ -43,6 +43,8 @@
 
 最近已完成归档的实施稿包括：
 
+- `media-subscription/user-media-library-management.md` → `docs/archive/plan/media-subscription/user-media-library-management.md`
+- `console-admin/console-overview-account-layout-redesign.md` → `docs/archive/plan/console-admin/console-overview-account-layout-redesign.md`
 - `bot-telegram/subscription-admin-message-sync.md` → `docs/archive/plan/bot-telegram/subscription-admin-message-sync.md`
 - `architecture/oss-deployment-experience.md` → `docs/archive/plan/architecture/oss-deployment-experience.md`
 - `architecture/database-migration-auto-apply.md` → `docs/archive/plan/architecture/database-migration-auto-apply.md`

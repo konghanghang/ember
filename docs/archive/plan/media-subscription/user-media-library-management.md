@@ -1,8 +1,8 @@
 # 用户媒体库管理实现方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-05-27
+> 更新时间：2026-06-05
 
 ## 背景
 
@@ -908,10 +908,10 @@
 
 ## 落地后文档处理
 
-落地后应同步处理：
+本方案已随 2026-06-05 上线完成归档：
 
-- 将稳定数据模型和关系同步到 `docs/reference/data-model-reference.md`。
-- 将新增 API / Internal API 同步到 `docs/reference/api-endpoint-catalog.md`。
-- 将 `planGroup` 媒体库模板、用户偏好和 Emby Policy 同步规则同步到 `docs/system-architecture.md`。
-- 如新增前端入口说明，更新 `docs/reference/web-information-architecture.md`。
-- 主体功能完成、测试通过、文档同步后，将本方案移入 `docs/archive/plan/media-subscription/`。
+- 稳定数据模型和关系已同步到 `docs/reference/data-model-reference.md`。
+- 新增 API / Internal API 已同步到 `docs/reference/api-endpoint-catalog.md`。
+- `planGroup` 媒体库模板、用户偏好和 Emby Policy 同步规则已同步到 `docs/system-architecture.md`。
+- 前端入口已同步到 `docs/reference/web-information-architecture.md`。
+- 本文只保留历史方案追溯价值；当前事实以 `docs/system-architecture.md`、`docs/reference/` 和代码为准。

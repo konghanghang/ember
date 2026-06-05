@@ -2,11 +2,13 @@
 
 > 状态：已归档（落地于 2026-05-09）
 > 负责人：Ember
-> 更新时间：2026-05-09
+> 更新时间：2026-06-05
+
+> 历史说明：本文记录 2026-05-09 将 `00000000_baseline_20260502.sql` 从合并式 baseline 重建为 fresh-install baseline 的方案。当时的 `00000000_baseline_20260502.sql` 已在 2026-06-05 新一轮 baseline 压缩中归档到 `infrastructure/database/archive/pre-20260605/`；当前现行入口以 `infrastructure/database/README.md` 为准。
 
 ## 背景
 
-`infrastructure/database/00000000_baseline_20260502.sql` 当前是**合并式 baseline**——按字典序把 24 份历史顶层 SQL（v1.3.1 截点 baseline + 23 个 v1.4.0 期间增量）原样拼接而成。
+`infrastructure/database/00000000_baseline_20260502.sql` 当时是**合并式 baseline**——按字典序把 24 份历史顶层 SQL（v1.3.1 截点 baseline + 23 个 v1.4.0 期间增量）原样拼接而成。
 
 2026-05-09 全新部署排错过程中暴露了两个连锁事实：
 
