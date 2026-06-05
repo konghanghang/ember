@@ -36,6 +36,7 @@
 
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
+- `access-auth/admin-api-key.md`
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
