@@ -66,7 +66,7 @@ const shapeClass = computed(() => {
 
 <template>
   <div
-    class="inline-flex items-center justify-center font-semibold ring-1 select-none"
+    class="inline-flex shrink-0 items-center justify-center font-semibold leading-none ring-1 select-none"
     :class="[paletteClass, sizeClass, shapeClass]"
     :aria-label="`默认头像 ${initial}`"
   >
