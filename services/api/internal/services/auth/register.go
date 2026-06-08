@@ -8,6 +8,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
@@ -44,7 +45,7 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 	}
 
 	embyService := s.newEmbyClient()
-	embyUser, err := embyService.CreateEmbyUser(req.Username, req.Password)
+	embyUser, err := s.createEmbyUserForRegistration(embyService, req, prepared)
 	if err != nil {
 		return nil, errors.New("创建 Emby 用户失败：" + err.Error())
 	}
@@ -67,6 +68,17 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 		User:             user,
 		PolicySyncStatus: policySyncStatus,
 	}, nil
+}
+
+// createEmbyUserForRegistration 创建注册用户对应的 Emby 账号。
+// defaultDays <= 0 时要求 Emby 账号在设置密码前先写入禁用策略，避免 0 天试用用户获得短暂可用窗口。
+func (s *AuthService) createEmbyUserForRegistration(
+	embyService authEmbyClient,
+	req *RegisterUserRequest,
+	prepared *registerPreparation,
+) (*embyint.EmbyUser, error) {
+	initialDisabled := prepared != nil && prepared.defaultDays <= 0
+	return embyService.CreateEmbyUserWithInitialDisabled(req.Username, req.Password, initialDisabled)
 }
 
 func (s *AuthService) validateRegisterRequest(req *RegisterUserRequest) error {

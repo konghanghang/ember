@@ -33,6 +33,7 @@ type authEmbyClient interface {
 	AuthenticateUser(username, password string) (*embyint.EmbyUser, error)
 	UpdateUserPassword(embyUserID, newPassword string) error
 	CreateEmbyUser(username, password string) (*embyint.EmbyUser, error)
+	CreateEmbyUserWithInitialDisabled(username, password string, initialDisabled bool) (*embyint.EmbyUser, error)
 	DeleteUser(embyUserID string) error
 	GetUsers() ([]embyint.EmbyUser, error)
 	GetUserByID(embyUserID string) (*embyint.EmbyUser, error)

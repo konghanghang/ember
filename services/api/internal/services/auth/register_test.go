@@ -324,6 +324,45 @@ func TestPrepareRegisterInviteUsesRegistrationValidation(t *testing.T) {
 	}
 }
 
+func TestCreateEmbyUserForRegistrationInitialDisabled(t *testing.T) {
+	tests := []struct {
+		name                string
+		defaultDays         int
+		wantInitialDisabled bool
+	}{
+		{name: "zero day trial creates initially disabled emby user", defaultDays: 0, wantInitialDisabled: true},
+		{name: "positive trial keeps emby user enabled initially", defaultDays: 7, wantInitialDisabled: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			embyClient := &stubAuthEmbyClient{
+				createUserResp: &embyint.EmbyUser{ID: "emby_1"},
+			}
+			service := &AuthService{}
+
+			user, err := service.createEmbyUserForRegistration(embyClient, &RegisterUserRequest{
+				Username: "ember",
+				Password: "secret123",
+			}, &registerPreparation{
+				defaultDays: tc.defaultDays,
+			})
+			if err != nil {
+				t.Fatalf("expected success, got %v", err)
+			}
+			if user.ID != "emby_1" {
+				t.Fatalf("expected emby user to be returned, got %+v", user)
+			}
+			if embyClient.lastCreateUser != "ember" || embyClient.lastCreatePwd != "secret123" {
+				t.Fatalf("unexpected create payload: username=%q password=%q", embyClient.lastCreateUser, embyClient.lastCreatePwd)
+			}
+			if embyClient.lastInitialDisabled != tc.wantInitialDisabled {
+				t.Fatalf("expected initialDisabled=%t, got %t", tc.wantInitialDisabled, embyClient.lastInitialDisabled)
+			}
+		})
+	}
+}
+
 func TestBuildRegisteredUserAppliesRegistrationPlanGroup(t *testing.T) {
 	planGroup := "VIP_A"
 	service := &AuthService{}

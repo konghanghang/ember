@@ -324,7 +324,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 调用注册场景兑换码校验（会额外校验 `registrationPlanGroup` 仍存在）→ `"open"`: 读取 `default_trial_days`
 2. 调用 `ConfigService.IsRegistrationEmailAllowed(email)` 做注册邮箱域名白名单门控；非空白名单且邮箱域名不在白名单内时直接返回 400，不消耗邀请码、不调用 Emby、不写库；空白名单视为关闭限制（详见 §5.5 与 §5.13；reset / change_email / 后台创建用户不走该门控）
 3. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码（VerifyCode 在事务中"校验即消费"，详见 §5.13）
-4. 创建 Emby 用户 → 创建本地用户（含 bcrypt hash）；invite 模式使用兑换码必填的 `registrationPlanGroup` 写入 `users.planGroup`；open 模式显式写入当前默认分组，避免新增用户继续依赖 `users.plan_group IS NULL` 的隐式跟随语义
+4. 创建 Emby 用户：`default_trial_days <= 0` 时，在设置 Emby 密码前先写入 `IsDisabled=true` 初始策略；随后设置 Emby 密码并创建本地用户（含 bcrypt hash）；invite 模式使用兑换码必填的 `registrationPlanGroup` 写入 `users.planGroup`；open 模式显式写入当前默认分组，避免新增用户继续依赖 `users.plan_group IS NULL` 的隐式跟随语义
 5. 本地事务提交后调用 `ApplyEffectiveUserPolicy(user_registered)` 全量写入当前有效 Emby Policy；若外部写入失败，注册仍按成功返回，响应带 `policySyncStatus=pending`，并记录 `emby_policy_sync_tasks(status=pending, reason=user_registered)` 交给 Policy worker 重试
 6. 签发 JWT
 7. 火忘式通知 Bot（新用户注册）
@@ -409,7 +409,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | 方法 | Emby 端点 | 用途 |
 |------|-----------|------|
 | `AuthenticateUser` | `POST /emby/Users/AuthenticateByName` | 用户认证 |
-| `CreateEmbyUser` | `POST /emby/Users/New` | 创建账号 |
+| `CreateEmbyUser` / `CreateEmbyUserWithInitialDisabled` | `POST /emby/Users/New` | 创建账号；0 天试用注册会在设置密码前追加初始禁用 Policy |
 | `UpdateUserPassword` | `POST /emby/Users/{id}/Password` | 修改密码 |
 | `SetUserPolicy` | `POST /emby/Users/{id}/Policy` | 封禁/解封（IsDisabled） |
 | `GetMediaStats` | `GET /emby/Items/Counts` | 媒体库统计 |

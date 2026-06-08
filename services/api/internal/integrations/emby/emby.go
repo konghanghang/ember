@@ -270,10 +270,23 @@ func (s *EmbyService) TestConnection() error {
 
 // CreateEmbyUser 创建 Emby 用户
 func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, error) {
+	return s.CreateEmbyUserWithInitialDisabled(username, password, false)
+}
+
+// CreateEmbyUserWithInitialDisabled 创建 Emby 用户，并可在设置密码前先写入禁用策略。
+// initialDisabled 用于注册 0 天试用场景：账号创建后立即禁止 Emby 访问，再继续设置密码。
+// 若初始策略或密码写入失败，会删除刚创建的 Emby 用户，避免残留可用账号。
+func (s *EmbyService) CreateEmbyUserWithInitialDisabled(username, password string, initialDisabled bool) (*EmbyUser, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
 
+	return s.createEmbyUserConfigured(username, password, initialDisabled)
+}
+
+// createEmbyUserConfigured 在已完成配置校验的前提下创建 Emby 用户。
+// 调用顺序保持为创建账号、可选初始禁用、设置密码，保证 0 天试用账号不会先获得密码再被禁用。
+func (s *EmbyService) createEmbyUserConfigured(username, password string, initialDisabled bool) (*EmbyUser, error) {
 	createURL := fmt.Sprintf("%s/emby/Users/New?api_key=%s", s.baseURL, s.apiKey)
 
 	reqBody := map[string]interface{}{
@@ -310,6 +323,13 @@ func (s *EmbyService) CreateEmbyUser(username, password string) (*EmbyUser, erro
 	var user EmbyUser
 	if err := json.Unmarshal(body, &user); err != nil {
 		return nil, err
+	}
+
+	if initialDisabled {
+		if err := s.ApplyEmberDefaultUserPolicy(user.ID, true); err != nil {
+			_ = s.DeleteUser(user.ID)
+			return nil, fmt.Errorf("初始化禁用 Emby 用户失败: %w", err)
+		}
 	}
 
 	// /Users/New 不支持在请求体中设置密码，必须通过独立的 Password 端点设置

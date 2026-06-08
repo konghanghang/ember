@@ -9,18 +9,23 @@ import (
 )
 
 type stubAuthEmbyClient struct {
-	authUserResp      *embyint.EmbyUser
-	authUserErr       error
-	getUsersResp      []embyint.EmbyUser
-	getUsersErr       error
-	getUserByIDResp   *embyint.EmbyUser
-	getUserByIDErr    error
-	updatePasswordErr error
-	lastAuthUsername  string
-	lastAuthPassword  string
-	lastGetUserByID   string
-	lastUpdateUserID  string
-	lastUpdatePwd     string
+	authUserResp        *embyint.EmbyUser
+	authUserErr         error
+	getUsersResp        []embyint.EmbyUser
+	getUsersErr         error
+	getUserByIDResp     *embyint.EmbyUser
+	getUserByIDErr      error
+	updatePasswordErr   error
+	createUserResp      *embyint.EmbyUser
+	createUserErr       error
+	lastAuthUsername    string
+	lastAuthPassword    string
+	lastCreateUser      string
+	lastCreatePwd       string
+	lastInitialDisabled bool
+	lastGetUserByID     string
+	lastUpdateUserID    string
+	lastUpdatePwd       string
 }
 
 func (s *stubAuthEmbyClient) AuthenticateUser(username, password string) (*embyint.EmbyUser, error) {
@@ -37,6 +42,16 @@ func (s *stubAuthEmbyClient) UpdateUserPassword(embyUserID, newPassword string) 
 
 func (s *stubAuthEmbyClient) CreateEmbyUser(username, password string) (*embyint.EmbyUser, error) {
 	return nil, errors.New("unexpected CreateEmbyUser call")
+}
+
+func (s *stubAuthEmbyClient) CreateEmbyUserWithInitialDisabled(username, password string, initialDisabled bool) (*embyint.EmbyUser, error) {
+	s.lastCreateUser = username
+	s.lastCreatePwd = password
+	s.lastInitialDisabled = initialDisabled
+	if s.createUserResp == nil && s.createUserErr == nil {
+		return nil, errors.New("unexpected CreateEmbyUserWithInitialDisabled call")
+	}
+	return s.createUserResp, s.createUserErr
 }
 
 func (s *stubAuthEmbyClient) DeleteUser(embyUserID string) error {
