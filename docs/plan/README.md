@@ -41,6 +41,7 @@
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
+- `media-subscription/subscription-manual-moviepilot-dispatch.md`
 
 最近已完成归档的实施稿包括：
 
