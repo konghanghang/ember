@@ -7,11 +7,18 @@
 - `00000000_baseline_20260605.sql`：v1.6.0 截点 fresh-install baseline，新装库初始化的全部内容；吸收 2026-05-02 baseline 以及 2026-05-04 至 2026-05-29 顶层增量，已按"全 0 前缀让 baseline 永远字典序最先"的命名约定收口
 - `archive/`：仅供追溯，不参与任何运行时链路
 
+当前升级支持窗口：
+
+- **支持起点**：`2026-06-05` / v1.6.0 截点，即当前顶层 baseline `00000000_baseline_20260605.sql` 对齐的 schema
+- **新装库**：直接执行当前顶层 baseline，再执行后续顶层增量
+- **已有库升级**：只保证从 `2026-06-05` 截点之后的已支持版本 forward-only 升级；旧于该截点的库如果没有执行过已归档增量，不承诺直接跳升到当前版本
+- **历史 SQL**：`archive/` 中的 SQL 已退出运行链路，不能靠启动期 Migrate 自动补齐；需要追溯或人工修复时再查阅
+
 数据库表名 / 列名 / 索引名统一使用 `snake_case`；历史 camelCase 列已在 v1.4.0 期间整体收口（脚本归档于 `archive/pre-20260502/20260423_00_legacy_camelcase_to_snake_case.sql`）。
 
 ## 自动迁移与 schema_migrations
 
-**自 v1.4.x 起 API 启动期内嵌自动迁移**：`docker compose pull && docker compose up -d` 一条命令即完成 schema 升级，部署者无需手工执行任何 SQL。
+API 启动期内嵌自动迁移：支持窗口内执行 `docker compose pull && docker compose up -d` 即可完成 schema 升级，部署者无需手工执行顶层 SQL。旧于当前支持起点的数据库按上文"当前升级支持窗口"处理。
 
 启动期序列：`InitDB → Migrate → VerifySchema → Bootstrap → Start`，全过程日志带 `[Migrate]` 前缀。Migrate 阶段封装在 `services/api/internal/db/migrate.go`，靠一张内部表 `schema_migrations` 记账：
 
@@ -57,7 +64,7 @@ docker compose up -d
 `ember-api` 启动期 Migrate 阶段自动接管 schema 初始化与升级：
 
 - **空数据库（首次部署）**：业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支，按字典序 forward-only 跑全部目录 SQL，从空库一次性初始化 schema
-- **已有数据库（升级）**：`schema_migrations` 已记账 → 走"正常 forward-only"分支，按需补齐未应用 SQL
+- **已有数据库（升级）**：`schema_migrations` 已记账 → 走"正常 forward-only"分支，按需补齐当前顶层未应用 SQL；直接升级来源必须不早于当前支持起点
 
 PG `initdb.d` 不再被挂载，无需手工 SQL，无需任何 SQL 副本目录同步。
 
@@ -85,6 +92,13 @@ docker compose up -d
 
 `ember-api` 启动期 Migrate 阶段会自动应用未应用的顶层 SQL；如失败则 `log.Fatal` 退出，容器进入 restart loop，部署者通过 `docker logs ember-api --tail` 第一时间看到失败 SQL 文件名。**镜像是只读的**，恢复时必须修复仓库 SQL → 重新构建并推送镜像 → `docker compose pull && up -d`；如失败 SQL 不可修，按 forward-only 原则**追加一条新 SQL** 抵消错误效果，不允许修改原文件。
 
+升级边界：
+
+- 当前直接升级支持起点是 `2026-06-05` / v1.6.0 截点
+- 从该截点之后的版本升级时，Migrate 只需要处理当前顶层 baseline 之后新增的 forward-only SQL
+- 从更旧版本直接跳升时，如果旧库没有执行过 `archive/pre-20260605/` 中已归档的增量，启动期 Migrate 不会自动补齐这些 SQL；此类环境必须先升级到支持起点对应 schema，或人工按归档 SQL 对齐后再升级
+- 不要把 `archive/` 中的 SQL 直接整体搬回顶层：多份 baseline 会触发 fail-fast，历史回填 / seed / 兼容脚本也不一定适合当前运行链路
+
 ### 4. 历史追溯
 
 ```text
@@ -96,7 +110,7 @@ archive/
 └─ pre-20260605/   2026-05-02 baseline + 4 个增量，被当前 baseline 覆盖
 ```
 
-普通使用者无需关注。排错或核对字段历史时，可在此查阅原始迁移 SQL；其余场景优先查 `git log`。
+普通使用者无需关注。排错、人工对齐旧库或核对字段历史时，可在此查阅原始迁移 SQL；其余场景优先查 `git log`。
 
 ## 现行 baseline 说明
 
@@ -110,7 +124,7 @@ archive/
 
 > 历史前身是 **合并式 baseline**（24 份历史顶层 SQL 按字典序拼接），在 2026-05-09 排错过程中暴露与运行库 schema 严重脱节，开源前一次性切换到 fresh-install 形态。合并源整批归档于 [`archive/pre-20260502/`](./archive/pre-20260502/)，仅供追溯。
 >
-> 2026-06-05 上线后，`00000000_baseline_20260502.sql` 与后续 4 条顶层增量已整批归档于 [`archive/pre-20260605/`](./archive/pre-20260605/)，当前顶层只保留新 baseline。
+> 2026-06-05 上线后，`00000000_baseline_20260502.sql` 与后续 4 条顶层增量已整批归档于 [`archive/pre-20260605/`](./archive/pre-20260605/)，当前顶层只保留新 baseline。自该截点起，项目不再承诺更旧数据库直接跳升时由 Migrate 自动回放归档 SQL；如需支持更早版本直升，必须另行恢复对应增量链或提供专门的 upgrade bridge SQL。
 
 ### baseline ↔ schema 真相对齐约束
 
@@ -148,6 +162,12 @@ baseline 必须与运行库 schema **字段级等价**，且与 `services/api/in
 3. 旧 baseline + 全部增量整批移到 `archive/pre-<新截点>/`（**目录顶层任何时刻必须只有一份 baseline**，多份共存启动期会 fail-fast）
 4. 同步本 README 的 baseline 文件名引用
 5. `db.go` 的 fingerprint 持续有效，不需要清空
+
+做 baseline 压缩前必须先确认升级支持窗口：
+
+- 默认策略：新的 baseline 截点就是新的直接升级支持起点
+- 如果仍要支持更旧版本直接升级，就不能把该支持窗口内的增量全部移出顶层；必须保留老库升级需要执行的 forward-only SQL，或新增明确的 upgrade bridge SQL
+- 更新 release notes / 部署文档时必须写清最低支持直升版本，避免使用者误以为 `archive/` 会被自动执行
 
 老库重启时的行为（已写入 `migrate_test.go`）：
 - 老 baseline 已记账、新 baseline 在目录中且未记账 → 新 baseline 视为"等价 schema 快照"仅记账不执行（`baselineFilenamePattern` 同时识别两种命名格式）

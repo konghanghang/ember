@@ -31,7 +31,7 @@ cp .env.example .env
 
 3. 数据库迁移由 `ember-api` 启动期内嵌自动应用，部署者不再需要任何手工 SQL。
    - 空数据库首次启动：进入"新空库"分支，按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL 完成初始化
-   - 已有数据库升级：直接 `docker compose pull && up -d`，启动期 Migrate 自动按 forward-only 应用未应用 SQL。详见 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 的"自动迁移与 schema_migrations"章节。
+   - 已有数据库升级：当前直接升级支持起点是 `2026-06-05` / v1.6.0 截点；支持窗口内直接 `docker compose pull && up -d`，启动期 Migrate 自动按 forward-only 应用未应用的顶层 SQL。旧于该截点且未执行过已归档增量的数据库，需先人工对齐或先升到中间版本。详见 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 的"自动迁移与 schema_migrations"章节。
 
 4. 拉取镜像并启动。
 

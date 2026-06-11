@@ -4,7 +4,7 @@
 
 如果你只是给已有数据库补一个新 migration，不需要看这份文档，直接看 [`infrastructure/database/README.md`](../../infrastructure/database/README.md)。
 
-> **本文档不是日常升级流程**：自 v1.4.x 起，日常升级由 `ember-api` 启动期 Migrate 阶段自动应用未应用 SQL（详见 `infrastructure/database/README.md` 的"自动迁移与 schema_migrations"章节）。本文仅在生成下一轮 baseline 时按隔离库验证流程使用。
+> **本文档不是日常升级流程**：支持窗口内的日常升级由 `ember-api` 启动期 Migrate 阶段自动应用未应用的顶层 SQL（详见 `infrastructure/database/README.md` 的"自动迁移与 schema_migrations"章节）。本文仅在生成下一轮 baseline 时按隔离库验证流程使用。
 
 ## 当前状态
 
@@ -14,6 +14,7 @@
 - 历史归档目录：`infrastructure/database/archive/pre-20260605/`
 - 吸收范围：上一轮 baseline `00000000_baseline_20260502.sql` + 4 个 v1.6.0 期间顶层增量
 - deterministic seed：6 条默认 settings（`default_trial_days` / `registration_mode` / `notify_group_link` / `email_verification` / `stripe_allowed_payment_methods` / `telegram_approval_admin_ids`）+ `plan_groups.DEFAULT` + 默认 Emby Policy 模板
+- 直接升级支持起点：`2026-06-05` / v1.6.0 截点；旧于该截点且未执行过已归档增量的数据库，不承诺直接跳升到当前版本
 
 历史几轮 baseline 截点：
 
@@ -22,7 +23,18 @@
 - v1.4.0 截点：`archive/pre-20260502/`
 - v1.6.0 截点：`archive/pre-20260605/`
 
-后续如果再次做 baseline，起点应是”当前顶层 baseline + baseline 之后新增的顶层 migration”，不要再把 `archive/` 当成现行执行链路。
+后续如果再次做 baseline，起点应是"当前顶层 baseline + baseline 之后新增的顶层 migration"，不要再把 `archive/` 当成现行执行链路。
+
+## 升级支持窗口
+
+Ember 当前不是完整历史迁移链常驻模式；`archive/` 中的 SQL 已退出启动期执行链路。当前规则是：
+
+- 新装库只看当前顶层 baseline 与后续顶层增量
+- 已有库直接升级只支持从当前支持起点之后的版本 forward-only 升级
+- 做新一轮 baseline 压缩时，默认把新 baseline 截点作为新的直接升级支持起点
+- 如果仍要支持更旧版本直接跳升，不能只靠 fresh-install baseline；必须保留该窗口内老库需要执行的增量 SQL，或提供专门的 upgrade bridge SQL
+
+这条边界必须同步写入 `infrastructure/database/README.md`、部署 runbook 和 release notes。否则使用者会误以为已归档 SQL 仍会被 Migrate 自动补齐。
 
 ## baseline 形态演进
 
@@ -92,13 +104,15 @@ v1.4.0 截点 baseline 经历过两个形态：
 - 这个豁免**只在 forward-only 分支生效**（`schema_migrations` 已有记账时）；新空库分支不受影响，baseline 仍然按字典序被真的执行
 - 目录里同时存在两份 baseline → 启动期 fail-fast，要求把老 baseline 移到 `archive/pre-<日期>/`
 
+注意：baseline 重命名豁免不是旧库补齐机制。已有 `schema_migrations` 的老库遇到新 baseline 时只会记账，不会执行 baseline 内容；如果该库缺少已归档增量，Migrate 不会从 `archive/` 自动回放。是否支持这类旧库直升，取决于上文"升级支持窗口"。
+
 回归测试：
 
 - `TestRunMigrate_BaselineRenameOnExistingDB_ShouldNotReexecute`：老库 baseline 重命名豁免
 - `TestRunMigrate_MultipleBaselinesCoexist_FailFast`：多份 baseline 共存防御
 - `TestRunMigrate_EmptyDBWithBaseline_AppliesBaseline`：新空库下 baseline 必须真的被执行
 
-下一轮 baseline 切换发版时不需要写过渡 SQL，部署者也不需要手工跑任何记账迁移命令——直接 `docker compose pull && up -d` 即可。
+下一轮 baseline 切换发版时，如果决定把新截点作为新的直接升级支持起点，则不需要写过渡 SQL，部署者也不需要手工跑任何记账迁移命令——直接 `docker compose pull && up -d` 即可。若仍承诺更旧版本直升，必须先保留对应增量链或提供 upgrade bridge SQL，不能只移动归档文件。
 
 ## 第一步：选定截点
 
@@ -113,6 +127,7 @@ v1.4.0 截点 baseline 经历过两个形态：
 - 截点前的 schema 已经稳定，不会立刻被重做
 - 截点前如果包含持久化初始化数据，这些数据也必须被 baseline 覆盖
 - 截点前如果包含仅对已有数据有意义的回填或清洗逻辑，不要原样搬进空库 baseline
+- 明确该截点是否成为新的直接升级支持起点；如果不是，就要列出哪些增量仍必须留在顶层
 
 ## 第二步：整理截点前 migration 清单
 
@@ -280,6 +295,7 @@ infrastructure/database/
 - 原文件名保持不变
 - 归档后顶层只保留 baseline 和 baseline 之后的增量 migration
 - 归档完成后，立即更新 README 和相关 runbook
+- 如果直接升级支持窗口早于新 baseline 截点，不允许把该窗口内老库仍需执行的增量移出顶层
 
 ## 何时停止，不要继续推进
 

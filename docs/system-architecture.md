@@ -853,7 +853,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `DATABASE_URL` 缺省时由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres，外部覆盖路径保留
 - API 容器以非 root 用户 `ember:ember` 运行，健康检查使用 `GET /health`
 - 数据库 schema 初始化与升级全部由 API 启动期 `Migrate` 阶段接管；启动序列固定为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`
-- 启动期迁移依赖 `schema_migrations` 记账、`pg_advisory_lock` 串行和 checksum 防改写；部署者升级路径已收口为 `docker compose pull && up -d`
+- 启动期迁移依赖 `schema_migrations` 记账、`pg_advisory_lock` 串行和 checksum 防改写；支持窗口内升级路径已收口为 `docker compose pull && up -d`
+- 当前直接升级支持起点是 `2026-06-05` / v1.6.0 截点；`archive/` 不参与运行时链路，旧于该截点且未执行过已归档增量的数据库不承诺直接跳升
 - 数据库迁移资产、baseline 和归档边界以 [`infrastructure/database/README.md`](../infrastructure/database/README.md) 为准
 - 数据库连接池基线：MaxIdle=15、MaxOpen=30、MaxLifetime=1h、MaxIdleTime=10min
 - 时间处理约束：所有时间戳 UTC 存储（GORM `NowFunc` 强制 UTC）

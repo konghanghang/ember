@@ -26,8 +26,9 @@ cd services/bot && pip install -r requirements.txt && python -m py_compile main.
 
 - [ ] 更新 `infrastructure/docker/docker-compose.yml` 中 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 的默认 tag 为新版本（compose 默认值是 OSS 用户首次部署的 fallback，必须随发版同步）
 - [ ] 顶层迁移 SQL 已在 `infrastructure/database/` 落地，并确认会随 `services/api/Dockerfile` 打进 API 镜像（PG `initdb.d` 已退役，schema 初始化与升级统一由 `ember-api` 启动期 Migrate 接管）
+- [ ] 如本次生成新 baseline 或归档 migration，已明确最低直接升级支持版本，并同步 `infrastructure/database/README.md`、部署 runbook 与 Release Notes
 - [ ] 本地预检全部通过
-- [ ] 发版后部署环境检查 `docker logs ember-api --tail` 中 `[Migrate]` 阶段日志：分支符合预期（首次升级到 v1.4.x 走 backfill；后续走 forward-only；未新增 SQL 时本次实际执行 0 份），无 fail-fast 错误
+- [ ] 发版后部署环境检查 `docker logs ember-api --tail` 中 `[Migrate]` 阶段日志：分支符合预期（新空库、支持窗口内 forward-only、或已声明的 backfill / mixed 场景），无 fail-fast 错误
 
 ## CI 触发规则
 
@@ -101,6 +102,7 @@ git push origin v1.0.0
 - 优先提取 `feat`、`fix`、`refactor` 中真正影响用户或运维的改动
 - 自动过滤 `docs/archive`、计划归档、协作规则这类文档噪音
 - 检测 `infrastructure/database/*.sql` 顶层迁移文件，自动写入 migration 升级提醒；`archive/` 仅用于追溯，不应视为本次升级清单
+- 如果本次 baseline 压缩改变直接升级支持起点，必须人工核对发布说明，写清旧于该起点的数据库不承诺直接跳升
 - 检测 Bot 更新模式和关键配置边界变更，自动补到升级说明
 
 这套规则的目标不是“完全替代人工判断”，而是把 Draft Release 提升到“默认可用，只需要核对”的状态。
