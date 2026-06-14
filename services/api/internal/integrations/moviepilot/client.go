@@ -147,6 +147,19 @@ func buildSubscribeRequestBody(data SubscribeRequest) (map[string]interface{}, e
 	return requestBody, nil
 }
 
+// toMoviePilotMediaType converts Ember's internal media type into the Chinese
+// enum value accepted by MoviePilot's /api/v1/search/media endpoint.
+func toMoviePilotMediaType(mediaType string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "movie":
+		return "电影", nil
+	case "tv":
+		return "电视剧", nil
+	default:
+		return "", fmt.Errorf("mediaType 必须为 movie 或 tv")
+	}
+}
+
 // SearchMediaRequest 按 TMDB 精确搜索候选资源。
 type SearchMediaRequest struct {
 	TmdbID    string `json:"tmdbId"`
@@ -238,14 +251,15 @@ func (c *MoviePilotClient) SearchMediaCandidates(data SearchMediaRequest) (*Sear
 	}
 
 	mediaType := strings.ToLower(strings.TrimSpace(data.MediaType))
-	if mediaType != "movie" && mediaType != "tv" {
-		return nil, fmt.Errorf("mediaType 必须为 movie 或 tv")
+	moviePilotMediaType, err := toMoviePilotMediaType(mediaType)
+	if err != nil {
+		return nil, err
 	}
 	if mediaType == "tv" && data.Season <= 0 {
 		return nil, fmt.Errorf("season 必须大于 0")
 	}
 
-	query := url.Values{"mtype": []string{mediaType}}
+	query := url.Values{"mtype": []string{moviePilotMediaType}}
 	if mediaType == "tv" {
 		query.Set("season", strconv.Itoa(data.Season))
 	}

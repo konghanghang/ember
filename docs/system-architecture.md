@@ -476,7 +476,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `IsConfigured()` — 检查 `MOVIEPILOT_URL` 与 `MOVIEPILOT_API_KEY` 是否齐全
 - `TestConnection()` — `GET /api/v1/site/`，请求头使用 `X-API-KEY`
 - `CreateSubscription(type, name, tmdbId, season)` — `POST /api/v1/subscribe/`，请求头使用 `X-API-KEY`（`type` 转中文：movie→电影, tv→电视剧；`season>0` 时透传季号）
-- `SearchMediaCandidates(tmdbId, mediaType, season)` — `GET /api/v1/search/media/tmdb:<tmdbId>`，传 `mtype=movie|tv`，电视剧传 `season=N`，用于订阅手动补偿
+- `SearchMediaCandidates(tmdbId, mediaType, season)` — `GET /api/v1/search/media/tmdb:<tmdbId>`，Ember 内部 `mediaType=movie|tv` 会在 MoviePilot client 适配为 `mtype=电影|电视剧`，电视剧传 `season=N`，用于订阅手动补偿
 - `SearchTitleCandidates(keyword)` — `GET /api/v1/search/title`，通用标题搜索入口；缺集搜索包装会调用它
 - `SearchGapCandidates(seriesName, season, episode)` — `GET /api/v1/search/title`，优先搜索 `SxxExx` 单集，空结果时回退 `Sxx` 整季包；候选按做种数、体积排序
 - `DispatchDownloadCandidate(candidatePayload, tmdbId?, season?)` — `POST /api/v1/download/add`，将选中的资源快照放入 `torrent_in`，有 TMDB ID 时同时传 `tmdbid`，TV 手动下发传 `season`；解析响应顶层 `success` 字段：`success=false` 时返回业务错误（MoviePilot v2 在业务失败时 HTTP 仍返回 200，仅靠 `success` 区分）

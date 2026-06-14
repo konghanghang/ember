@@ -67,6 +67,36 @@ func TestBuildSubscribeRequestBodyRejectsInvalidTMDBID(t *testing.T) {
 	}
 }
 
+func TestToMoviePilotMediaTypeUsesMoviePilotEnumValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		mediaType string
+		want      string
+	}{
+		{name: "movie", mediaType: "movie", want: "电影"},
+		{name: "tv", mediaType: "tv", want: "电视剧"},
+		{name: "trim and normalize", mediaType: " TV ", want: "电视剧"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := toMoviePilotMediaType(tt.mediaType)
+			if err != nil {
+				t.Fatalf("toMoviePilotMediaType returned error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected %s, got %s", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestToMoviePilotMediaTypeRejectsUnknownType(t *testing.T) {
+	if _, err := toMoviePilotMediaType("collection"); err == nil {
+		t.Fatal("expected unknown media type to return error")
+	}
+}
+
 func TestCreateSubscriptionUsesXAPIKeyHeader(t *testing.T) {
 	t.Setenv("MOVIEPILOT_URL", "http://moviepilot.test")
 	t.Setenv("MOVIEPILOT_API_KEY", "test-key")
@@ -115,7 +145,7 @@ func TestSearchMediaCandidatesUsesTMDBMediaEndpoint(t *testing.T) {
 		if req.URL.Path != "/api/v1/search/media/tmdb:1399" {
 			t.Fatalf("unexpected request path: %s", req.URL.Path)
 		}
-		if req.URL.Query().Get("mtype") != "tv" || req.URL.Query().Get("season") != "2" {
+		if req.URL.Query().Get("mtype") != "电视剧" || req.URL.Query().Get("season") != "2" {
 			t.Fatalf("unexpected query: %s", req.URL.RawQuery)
 		}
 		if req.Header.Get("X-API-KEY") != "test-key" {
