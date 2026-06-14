@@ -165,11 +165,11 @@ function mountView() {
 }
 
 async function openManualDialog(wrapper: ReturnType<typeof mountView>, sub: any) {
-  // 卡片操作按钮由 cardActionButtons 生成，整剧 APPROVED 订阅包含"手动补下载"按钮。
+  // 卡片操作按钮由 cardActionButtons 生成，整剧 APPROVED 订阅包含"手动下载"按钮。
   const button = wrapper
     .findAll('button')
-    .find((item) => item.text().includes('手动补下载'))
-  expect(button, '未找到手动补下载按钮').toBeTruthy()
+    .find((item) => item.text().includes('手动下载'))
+  expect(button, '未找到手动下载按钮').toBeTruthy()
   await button!.trigger('click')
   await flushPromises()
   return sub
@@ -207,7 +207,7 @@ function resolveSearchResponse(candidates: Array<Record<string, any>>) {
   }
 }
 
-describe('SubscriptionsView 手动补下载', () => {
+describe('SubscriptionsView 手动下载', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authStoreState.isAdmin = true

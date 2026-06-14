@@ -67,7 +67,7 @@
 ### 1. 用户可见行为
 
 - 新增能力：
-  - 管理员在订阅列表中，对 `APPROVED` 且未 `INGESTED` 的订阅执行“手动补下载”。
+  - 管理员在订阅列表中，对 `APPROVED` 且未 `INGESTED` 的订阅执行“手动下载”。
   - 弹窗内按订阅的 `tmdbId` 搜索 MoviePilot 候选资源。
   - 管理员从候选列表中选择一个资源并确认下发。
   - 下发成功后提示“已下发，等待入库”；订阅状态不立即变更。
@@ -131,7 +131,7 @@
 2. 管理员审核通过订阅。
 3. Ember 创建 MoviePilot 订阅，MoviePilot 按订阅规则执行自动搜索和下载。
 4. 若 MoviePilot 自动订阅链路未找到资源，订阅停留在 `APPROVED`。
-5. 管理员在订阅列表点击“手动补下载”。
+5. 管理员在订阅列表点击“手动下载”。
 6. Ember API 读取订阅并校验管理员权限、订阅状态和季号边界。
 7. Ember API 调 MoviePilot 精确搜索接口 `/api/v1/search/media/tmdb:<tmdbId>`，传入 `mtype` 和必要的 `season`。
 8. 前端展示候选列表，默认按 MoviePilot 返回顺序和 Ember 轻量排序展示。
@@ -166,7 +166,7 @@
   - 新增订阅手动搜索和手动下发 service / handler 方法。
   - 调整缺集下发，让 `/download/add` 携带 `tmdbid`。
 - Web：有
-  - `SubscriptionsView.vue` 增加管理员手动补下载入口和候选弹窗。
+  - `SubscriptionsView.vue` 增加管理员手动下载入口和候选弹窗。
   - `api/admin.ts` 和 `types/api.ts` 增加对应请求与响应类型。
 - Bot：无
   - 首版不在 Bot 管理员审批消息里加手动补偿入口。
@@ -197,9 +197,9 @@
 
 ### 手工验证
 
-- 电影订阅处于 `APPROVED` 后，执行手动补下载，确认请求按 `tmdbId + movie` 搜索并返回候选。
+- 电影订阅处于 `APPROVED` 后，执行手动下载，确认请求按 `tmdbId + movie` 搜索并返回候选。
 - 指定季电视剧订阅处于 `APPROVED` 后，确认请求按 `tmdbId + tv + season` 搜索。
-- 整剧订阅 `season=0` 点击手动补下载，确认要求先选择季，不直接下发。
+- 整剧订阅 `season=0` 点击手动下载，确认要求先选择季，不直接下发。
 - MoviePilot 搜索和下载过滤规则组为空时，确认候选不会被搜索规则组额外过滤。
 - 选择候选下发后，确认 MoviePilot 收到 `/download/add` 请求且带 `tmdbid`。
 - 下载入库后，现有 Emby webhook 能继续把订阅收口为 `INGESTED`。

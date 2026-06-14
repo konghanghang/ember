@@ -339,7 +339,7 @@ const handleManualDispatch = async () => {
   try {
     await ElMessageBox.confirm(
       `确定下发 "${candidate.title}" 吗？订阅状态会继续保持"已通过"，等待入库 webhook 收口。`,
-      '手动补下载确认',
+      '手动下载确认',
       {
         confirmButtonText: '确认下发',
         cancelButtonText: '取消',
@@ -557,7 +557,7 @@ const cardActionButtons = (sub: Subscription) => {
     if (sub.status === 'APPROVED') {
       buttons.push({
         key: 'manual-dispatch',
-        label: '手动补下载',
+        label: '手动下载',
         icon: Download,
         tone: 'success',
         action: () => openManualDialog(sub)
@@ -844,7 +844,7 @@ onMounted(fetchData)
 
     <EmberFormDialog
       v-model="showManualDialog"
-      title="手动补下载"
+      title="手动下载"
       width="min(920px, calc(100vw - 2rem))"
       :show-close="false"
       :close-on-click-modal="!manualSearching && !manualDispatching"
