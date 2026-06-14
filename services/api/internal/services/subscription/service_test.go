@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 func TestFormatNotificationTimeUsesConfiguredTimezone(t *testing.T) {
@@ -374,5 +376,320 @@ func TestBuildSubscriptionEpisodeInventoryKeepsPhysicalEpisodesOnly(t *testing.T
 	want := []string{"1:1", "2:1"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("expected inventory=%v, got %v", want, got)
+	}
+}
+
+// stubFetchSubscriptionByID 替换 fetchSubscriptionByID 包级变量，让 prepareManualSubscription
+// 在单测里不依赖真实 DB。usage 记录调用次数便于断言分支是否命中。
+type stubFetchSubscriptionByID struct {
+	subs  map[string]models.Subscription
+	errs  map[string]error
+	calls []string
+}
+
+func (s *stubFetchSubscriptionByID) install() func() {
+	original := fetchSubscriptionByID
+	fetchSubscriptionByID = func(subscriptionID string) (models.Subscription, error) {
+		s.calls = append(s.calls, subscriptionID)
+		if err, ok := s.errs[subscriptionID]; ok {
+			return models.Subscription{}, err
+		}
+		return s.subs[subscriptionID], nil
+	}
+	return func() { fetchSubscriptionByID = original }
+}
+
+func newPrepareManualTestService() *SubscriptionService {
+	return &SubscriptionService{}
+}
+
+type stubSubscriptionMoviePilotClient struct {
+	dispatchFn func(moviepilotint.DownloadCandidateRequest) (*moviepilotint.DownloadCandidateResponse, error)
+}
+
+func (s *stubSubscriptionMoviePilotClient) IsConfigured() bool {
+	return true
+}
+
+func (s *stubSubscriptionMoviePilotClient) CreateSubscription(moviepilotint.SubscribeRequest) error {
+	return nil
+}
+
+func (s *stubSubscriptionMoviePilotClient) SearchMediaCandidates(moviepilotint.SearchMediaRequest) (*moviepilotint.SearchMediaResponse, error) {
+	return nil, nil
+}
+
+func (s *stubSubscriptionMoviePilotClient) DispatchDownloadCandidate(req moviepilotint.DownloadCandidateRequest) (*moviepilotint.DownloadCandidateResponse, error) {
+	if s.dispatchFn == nil {
+		return &moviepilotint.DownloadCandidateResponse{Accepted: true}, nil
+	}
+	return s.dispatchFn(req)
+}
+
+type stubPersistMpError struct {
+	calls []struct {
+		subscriptionID string
+		mpError        *string
+	}
+}
+
+func (s *stubPersistMpError) install() func() {
+	original := persistSubscriptionMpError
+	persistSubscriptionMpError = func(subscriptionID string, mpError *string) error {
+		s.calls = append(s.calls, struct {
+			subscriptionID string
+			mpError        *string
+		}{subscriptionID: subscriptionID, mpError: mpError})
+		return nil
+	}
+	return func() { persistSubscriptionMpError = original }
+}
+
+func TestPrepareManualSubscriptionReturnsNotFoundForMissing(t *testing.T) {
+	stub := &stubFetchSubscriptionByID{errs: map[string]error{"sub_missing": gorm.ErrRecordNotFound}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	_, _, err := service.prepareManualSubscription("sub_missing", nil, true)
+	if !errors.Is(err, ErrSubscriptionNotFound) {
+		t.Fatalf("expected ErrSubscriptionNotFound, got %v", err)
+	}
+}
+
+func TestPrepareManualSubscriptionWrapsNonNotFoundDBError(t *testing.T) {
+	dbErr := errors.New("connection refused")
+	stub := &stubFetchSubscriptionByID{errs: map[string]error{"sub_db": dbErr}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	_, _, err := service.prepareManualSubscription("sub_db", nil, true)
+	if err == nil {
+		t.Fatal("expected wrapped db error, got nil")
+	}
+	// 不能误判为 NotFound：错误链中不应包含 ErrSubscriptionNotFound。
+	if errors.Is(err, ErrSubscriptionNotFound) {
+		t.Fatalf("db failure must not be mapped to ErrSubscriptionNotFound, got %v", err)
+	}
+	// 原始 db 错误应保留在错误链中，让 handler default 分支走 500。
+	if !errors.Is(err, dbErr) {
+		t.Fatalf("expected wrapped error to preserve original dbErr, got %v", err)
+	}
+}
+
+func TestPrepareManualSubscriptionRejectsNonApprovedStatus(t *testing.T) {
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_pending": {ID: "sub_pending", Status: models.SubscriptionPending, TmdbID: "27205"},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	_, _, err := service.prepareManualSubscription("sub_pending", nil, true)
+	if !errors.Is(err, ErrSubscriptionNotApproved) {
+		t.Fatalf("expected ErrSubscriptionNotApproved, got %v", err)
+	}
+}
+
+func TestPrepareManualSubscriptionRejectsEmptyTMDBID(t *testing.T) {
+	// 空串会被 strconv.Atoi 失败，落入 ErrSubscriptionInvalidTMDBID（与历史空值校验语义一致）。
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_empty": {ID: "sub_empty", Status: models.SubscriptionApproved, Type: models.MediaMovie, TmdbID: "  "},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	_, _, err := service.prepareManualSubscription("sub_empty", nil, false)
+	if !errors.Is(err, ErrSubscriptionInvalidTMDBID) {
+		t.Fatalf("expected ErrSubscriptionInvalidTMDBID for empty tmdbId, got %v", err)
+	}
+}
+
+func TestPrepareManualSubscriptionRejectsNonNumericTMDBID(t *testing.T) {
+	// P2-1：非数字 tmdbId 必须在 service 层拦截为 400，而不是落到 client.go Atoi 失败被包装成 500。
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_bad": {ID: "sub_bad", Status: models.SubscriptionApproved, Type: models.MediaMovie, TmdbID: "tt1234"},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	_, _, err := service.prepareManualSubscription("sub_bad", nil, false)
+	if !errors.Is(err, ErrSubscriptionInvalidTMDBID) {
+		t.Fatalf("expected ErrSubscriptionInvalidTMDBID for non-numeric tmdbId, got %v", err)
+	}
+}
+
+func TestPrepareManualSubscriptionMoviePassesWithSeasonZero(t *testing.T) {
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_movie": {ID: "sub_movie", Status: models.SubscriptionApproved, Type: models.MediaMovie, TmdbID: "27205"},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	sub, season, err := service.prepareManualSubscription("sub_movie", nil, false)
+	if err != nil {
+		t.Fatalf("expected movie to pass, got %v", err)
+	}
+	if season != 0 {
+		t.Fatalf("expected season 0 for movie, got %d", season)
+	}
+	if sub.ID != "sub_movie" {
+		t.Fatalf("unexpected subscription returned: %s", sub.ID)
+	}
+}
+
+func TestPrepareManualSubscriptionSingleSeasonTVPassesWithStoredSeason(t *testing.T) {
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_season3": {ID: "sub_season3", Status: models.SubscriptionApproved, Type: models.MediaTV, TmdbID: "1399", Season: 3},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	_, season, err := service.prepareManualSubscription("sub_season3", nil, true)
+	if err != nil {
+		t.Fatalf("expected single season tv to pass, got %v", err)
+	}
+	if season != 3 {
+		t.Fatalf("expected stored season 3, got %d", season)
+	}
+}
+
+func TestPrepareManualSubscriptionWholeShowRequiresSeasonForSearch(t *testing.T) {
+	// 整剧剧（season=0）+ requireTVSeason=true（搜索路径）且未传 requestedSeason → 必须报季号错误。
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_whole": {ID: "sub_whole", Status: models.SubscriptionApproved, Type: models.MediaTV, TmdbID: "1399", Season: 0},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	service := newPrepareManualTestService()
+	_, _, err := service.prepareManualSubscription("sub_whole", nil, true)
+	if !errors.Is(err, ErrSubscriptionManualSeason) {
+		t.Fatalf("expected ErrSubscriptionManualSeason for whole show without season, got %v", err)
+	}
+}
+
+func TestPrepareManualSubscriptionWholeShowUsesProvidedSeasonForSearch(t *testing.T) {
+	// 整剧剧 + requireTVSeason=true + 显式传入 requestedSeason → 通过，season 用传入值。
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_whole2": {ID: "sub_whole2", Status: models.SubscriptionApproved, Type: models.MediaTV, TmdbID: "1399", Season: 0},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	requested := 2
+	service := newPrepareManualTestService()
+	_, season, err := service.prepareManualSubscription("sub_whole2", &requested, true)
+	if err != nil {
+		t.Fatalf("expected whole show with requested season to pass, got %v", err)
+	}
+	if season != 2 {
+		t.Fatalf("expected season 2 from request, got %d", season)
+	}
+}
+
+func TestPrepareManualSubscriptionRejectsNonPositiveRequestedSeason(t *testing.T) {
+	// requestedSeason <= 0 同样应当触发 ErrSubscriptionManualSeason，避免传入 0 绕过季号约束。
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_whole_zero": {ID: "sub_whole_zero", Status: models.SubscriptionApproved, Type: models.MediaTV, TmdbID: "1399", Season: 0},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	zero := 0
+	service := newPrepareManualTestService()
+	_, _, err := service.prepareManualSubscription("sub_whole_zero", &zero, true)
+	if !errors.Is(err, ErrSubscriptionManualSeason) {
+		t.Fatalf("expected ErrSubscriptionManualSeason for non-positive requested season, got %v", err)
+	}
+}
+
+func TestManualDispatchSubscriptionRequiresSeasonForWholeShow(t *testing.T) {
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_dispatch": {ID: "sub_dispatch", Status: models.SubscriptionApproved, Type: models.MediaTV, TmdbID: "1399", Season: 0},
+	}}
+	restore := stub.install()
+	defer restore()
+
+	service := &SubscriptionService{moviepilot: &stubSubscriptionMoviePilotClient{}}
+	_, err := service.ManualDispatchSubscription("sub_dispatch", ManualDispatchRequest{
+		CandidatePayload: map[string]interface{}{"title": "Show S02"},
+	})
+	if !errors.Is(err, ErrSubscriptionManualSeason) {
+		t.Fatalf("expected ErrSubscriptionManualSeason for whole show dispatch without season, got %v", err)
+	}
+}
+
+func TestManualDispatchSubscriptionPassesSeasonToMoviePilotAndClearsMpError(t *testing.T) {
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_dispatch": {ID: "sub_dispatch", Status: models.SubscriptionApproved, Type: models.MediaTV, TmdbID: "1399", Season: 0},
+	}}
+	restoreFetch := stub.install()
+	defer restoreFetch()
+
+	persistStub := &stubPersistMpError{}
+	restorePersist := persistStub.install()
+	defer restorePersist()
+
+	requestedSeason := 2
+	var captured moviepilotint.DownloadCandidateRequest
+	service := &SubscriptionService{moviepilot: &stubSubscriptionMoviePilotClient{
+		dispatchFn: func(req moviepilotint.DownloadCandidateRequest) (*moviepilotint.DownloadCandidateResponse, error) {
+			captured = req
+			return &moviepilotint.DownloadCandidateResponse{Accepted: true, Message: "ok"}, nil
+		},
+	}}
+
+	result, err := service.ManualDispatchSubscription("sub_dispatch", ManualDispatchRequest{
+		Season:           &requestedSeason,
+		CandidatePayload: map[string]interface{}{"title": "Show S02"},
+	})
+	if err != nil {
+		t.Fatalf("expected manual dispatch to succeed, got %v", err)
+	}
+	if result == nil || !result.Accepted {
+		t.Fatalf("expected accepted result, got %#v", result)
+	}
+	if captured.TmdbID != "1399" || captured.Season != 2 {
+		t.Fatalf("expected tmdbId=1399 season=2 passed to MoviePilot, got %#v", captured)
+	}
+	if len(persistStub.calls) != 1 {
+		t.Fatalf("expected one mpError clear call, got %d", len(persistStub.calls))
+	}
+	if persistStub.calls[0].subscriptionID != "sub_dispatch" || persistStub.calls[0].mpError != nil {
+		t.Fatalf("expected mpError clear for sub_dispatch, got %#v", persistStub.calls[0])
+	}
+}
+
+func TestManualDispatchSubscriptionFailureDoesNotWriteMpError(t *testing.T) {
+	stub := &stubFetchSubscriptionByID{subs: map[string]models.Subscription{
+		"sub_movie": {ID: "sub_movie", Status: models.SubscriptionApproved, Type: models.MediaMovie, TmdbID: "27205"},
+	}}
+	restoreFetch := stub.install()
+	defer restoreFetch()
+
+	persistStub := &stubPersistMpError{}
+	restorePersist := persistStub.install()
+	defer restorePersist()
+
+	service := &SubscriptionService{moviepilot: &stubSubscriptionMoviePilotClient{
+		dispatchFn: func(req moviepilotint.DownloadCandidateRequest) (*moviepilotint.DownloadCandidateResponse, error) {
+			return nil, fmt.Errorf("%w: 重复添加", moviepilotint.ErrMoviePilotBusinessRejected)
+		},
+	}}
+
+	_, err := service.ManualDispatchSubscription("sub_movie", ManualDispatchRequest{
+		CandidatePayload: map[string]interface{}{"title": "Inception"},
+	})
+	if !errors.Is(err, moviepilotint.ErrMoviePilotBusinessRejected) {
+		t.Fatalf("expected ErrMoviePilotBusinessRejected, got %v", err)
+	}
+	if len(persistStub.calls) != 0 {
+		t.Fatalf("manual dispatch failure must not write mpError, got %#v", persistStub.calls)
 	}
 }

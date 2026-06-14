@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -146,15 +147,20 @@ func buildSubscribeRequestBody(data SubscribeRequest) (map[string]interface{}, e
 	return requestBody, nil
 }
 
-// GapSearchRequest 缺集搜索请求
-type GapSearchRequest struct {
-	SeriesName string `json:"seriesName"`
-	Season     int    `json:"season"`
-	Episode    int    `json:"episode"`
+// SearchMediaRequest 按 TMDB 精确搜索候选资源。
+type SearchMediaRequest struct {
+	TmdbID    string `json:"tmdbId"`
+	MediaType string `json:"mediaType"` // "movie" | "tv"
+	Season    int    `json:"season,omitempty"`
 }
 
-// GapSearchCandidate 缺集候选摘要
-type GapSearchCandidate struct {
+// SearchTitleRequest 按关键词搜索候选资源。
+type SearchTitleRequest struct {
+	Keyword string `json:"keyword"`
+}
+
+// SearchCandidate MoviePilot 候选资源摘要。
+type SearchCandidate struct {
 	ID          string                 `json:"id"`
 	Title       string                 `json:"title"`
 	Description string                 `json:"description,omitempty"`
@@ -168,6 +174,38 @@ type GapSearchCandidate struct {
 	Payload     map[string]interface{} `json:"payload,omitempty"`
 }
 
+// SearchMediaResponse MoviePilot 搜索响应。
+type SearchMediaResponse struct {
+	Query      string            `json:"query"`
+	MatchMode  string            `json:"matchMode"`
+	Candidates []SearchCandidate `json:"candidates"`
+}
+
+// DownloadCandidateRequest 下发下载候选。
+type DownloadCandidateRequest struct {
+	CandidatePayload map[string]interface{} `json:"candidatePayload"`
+	TmdbID           string                 `json:"tmdbId,omitempty"`
+	Season           int                    `json:"season,omitempty"`
+}
+
+// DownloadCandidateResponse 下载下发响应。
+type DownloadCandidateResponse struct {
+	Accepted   bool                   `json:"accepted"`
+	StatusCode int                    `json:"statusCode"`
+	Message    string                 `json:"message,omitempty"`
+	Response   map[string]interface{} `json:"response,omitempty"`
+}
+
+// GapSearchRequest 缺集搜索请求
+type GapSearchRequest struct {
+	SeriesName string `json:"seriesName"`
+	Season     int    `json:"season"`
+	Episode    int    `json:"episode"`
+}
+
+// GapSearchCandidate 缺集候选摘要
+type GapSearchCandidate = SearchCandidate
+
 // GapSearchResponse 缺集搜索响应
 type GapSearchResponse struct {
 	Query         string               `json:"query"`
@@ -179,14 +217,64 @@ type GapSearchResponse struct {
 // GapDispatchRequest 缺集下发请求
 type GapDispatchRequest struct {
 	CandidatePayload map[string]interface{} `json:"candidatePayload"`
+	TmdbID           string                 `json:"tmdbId,omitempty"`
 }
 
 // GapDispatchResponse 缺集下发响应
-type GapDispatchResponse struct {
-	Accepted   bool                   `json:"accepted"`
-	StatusCode int                    `json:"statusCode"`
-	Message    string                 `json:"message,omitempty"`
-	Response   map[string]interface{} `json:"response,omitempty"`
+type GapDispatchResponse = DownloadCandidateResponse
+
+// SearchMediaCandidates 使用 MoviePilot TMDB 精确搜索入口搜索候选。
+func (c *MoviePilotClient) SearchMediaCandidates(data SearchMediaRequest) (*SearchMediaResponse, error) {
+	if err := c.ensureConfigured(); err != nil {
+		return nil, err
+	}
+
+	tmdbID := strings.TrimSpace(data.TmdbID)
+	if tmdbID == "" {
+		return nil, fmt.Errorf("tmdbId 不能为空")
+	}
+	if _, err := strconv.Atoi(tmdbID); err != nil {
+		return nil, fmt.Errorf("无效的 TMDB ID: %s", tmdbID)
+	}
+
+	mediaType := strings.ToLower(strings.TrimSpace(data.MediaType))
+	if mediaType != "movie" && mediaType != "tv" {
+		return nil, fmt.Errorf("mediaType 必须为 movie 或 tv")
+	}
+	if mediaType == "tv" && data.Season <= 0 {
+		return nil, fmt.Errorf("season 必须大于 0")
+	}
+
+	query := url.Values{"mtype": []string{mediaType}}
+	if mediaType == "tv" {
+		query.Set("season", strconv.Itoa(data.Season))
+	}
+	path := "/api/v1/search/media/tmdb:" + url.PathEscape(tmdbID)
+	req, err := c.newRequest(http.MethodGet, path, query, nil)
+	if err != nil {
+		return nil, upstream.SafeUpstreamError(err, "moviepilot")
+	}
+	req.Header.Set("Accept", "application/json")
+
+	body, err := c.doRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := parseSearchResults(body)
+	if err != nil {
+		return nil, err
+	}
+
+	matchMode := mediaType
+	if mediaType == "tv" {
+		matchMode = fmt.Sprintf("season-%d", data.Season)
+	}
+	return &SearchMediaResponse{
+		Query:      fmt.Sprintf("tmdb:%s", tmdbID),
+		MatchMode:  matchMode,
+		Candidates: normalizeCandidates(results, matchMode),
+	}, nil
 }
 
 // SearchGapCandidates 搜索缺集候选，优先搜单集，再回退整季包。
@@ -207,7 +295,7 @@ func (c *MoviePilotClient) SearchGapCandidates(data GapSearchRequest) (*GapSearc
 	}
 
 	episodeQuery := fmt.Sprintf("%s S%02dE%02d", seriesName, data.Season, data.Episode)
-	results, err := c.searchTitle(episodeQuery)
+	results, err := c.SearchTitleCandidates(SearchTitleRequest{Keyword: episodeQuery})
 	if err != nil {
 		return nil, err
 	}
@@ -215,25 +303,33 @@ func (c *MoviePilotClient) SearchGapCandidates(data GapSearchRequest) (*GapSearc
 	response := &GapSearchResponse{
 		Query:      episodeQuery,
 		MatchMode:  "episode",
-		Candidates: normalizeGapCandidates(results, "episode"),
+		Candidates: normalizeCandidates(results, "episode"),
 	}
 	if len(response.Candidates) > 0 {
 		return response, nil
 	}
 
 	seasonQuery := fmt.Sprintf("%s S%02d", seriesName, data.Season)
-	results, err = c.searchTitle(seasonQuery)
+	results, err = c.SearchTitleCandidates(SearchTitleRequest{Keyword: seasonQuery})
 	if err != nil {
 		return nil, err
 	}
 
 	response.FallbackQuery = seasonQuery
 	response.MatchMode = "season"
-	response.Candidates = normalizeGapCandidates(results, "season")
+	response.Candidates = normalizeCandidates(results, "season")
 	return response, nil
 }
 
-func (c *MoviePilotClient) searchTitle(keyword string) ([]map[string]interface{}, error) {
+// SearchTitleCandidates 使用 MoviePilot 标题搜索入口搜索候选。
+func (c *MoviePilotClient) SearchTitleCandidates(data SearchTitleRequest) ([]map[string]interface{}, error) {
+	if err := c.ensureConfigured(); err != nil {
+		return nil, err
+	}
+	keyword := strings.TrimSpace(data.Keyword)
+	if keyword == "" {
+		return nil, fmt.Errorf("keyword 不能为空")
+	}
 	req, err := c.newRequest(http.MethodGet, "/api/v1/search/title", url.Values{
 		"keyword": []string{keyword},
 	}, nil)
@@ -250,8 +346,8 @@ func (c *MoviePilotClient) searchTitle(keyword string) ([]map[string]interface{}
 	return parseSearchResults(body)
 }
 
-// DispatchGapCandidate 将缺集候选下发给 MoviePilot。
-func (c *MoviePilotClient) DispatchGapCandidate(data GapDispatchRequest) (*GapDispatchResponse, error) {
+// DispatchDownloadCandidate 将候选资源下发给 MoviePilot 下载入口。
+func (c *MoviePilotClient) DispatchDownloadCandidate(data DownloadCandidateRequest) (*DownloadCandidateResponse, error) {
 	if err := c.ensureConfigured(); err != nil {
 		return nil, err
 	}
@@ -266,6 +362,17 @@ func (c *MoviePilotClient) DispatchGapCandidate(data GapDispatchRequest) (*GapDi
 
 	requestBody := map[string]interface{}{
 		"torrent_in": payload,
+	}
+	tmdbID := strings.TrimSpace(data.TmdbID)
+	if tmdbID != "" {
+		tmdbIDInt, err := strconv.Atoi(tmdbID)
+		if err != nil {
+			return nil, fmt.Errorf("无效的 TMDB ID: %s", tmdbID)
+		}
+		requestBody["tmdbid"] = tmdbIDInt
+	}
+	if data.Season > 0 {
+		requestBody["season"] = data.Season
 	}
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
@@ -292,19 +399,45 @@ func (c *MoviePilotClient) DispatchGapCandidate(data GapDispatchRequest) (*GapDi
 		return nil, upstream.SafeUpstreamHTTPError("moviepilot", resp.StatusCode)
 	}
 
+	parsed := parseJSONMap(body)
 	result := &GapDispatchResponse{
 		Accepted:   true,
 		StatusCode: resp.StatusCode,
 		Message:    extractResponseMessage(body),
 	}
-	if parsed := parseJSONMap(body); len(parsed) > 0 {
+	if len(parsed) > 0 {
 		result.Response = parsed
 		if result.Message == "" {
 			result.Message = extractMapString(parsed, "message", "msg", "detail")
 		}
 	}
 
+	// MoviePilot v2 在业务失败时 HTTP 仍返回 200，仅靠顶层 success=false 区分
+	// （如重复添加 / 校验失败 / 下载器异常）。必须显式判定 success，
+	// 否则这些失败会被误判为已接受，污染 mediagap 与手动补偿两条下发链路。
+	if present, isSuccess := lookupResponseSuccess(parsed); present && !isSuccess {
+		result.Accepted = false
+		// businessMsg 直接取自 MoviePilot 响应体的 message 文本字段，不含请求 URL / api_key。
+		// MoviePilot download/add 在 success=false 时不会回显请求体，message 为业务原因描述。
+		businessMsg := strings.TrimSpace(result.Message)
+		if businessMsg == "" {
+			businessMsg = "MoviePilot 拒绝下载请求"
+		}
+		// 关键路径排障日志：记录 HTTP 200 业务失败命中点，便于区分上游故障与业务拒绝。
+		// 不打印原始响应体，避免回显可能包含的敏感片段。
+		log.Printf("[MoviePilot] 下载下发被上游业务拒绝 path=/api/v1/download/add statusCode=200 success=false message=%q", businessMsg)
+		return result, fmt.Errorf("%w: %s", ErrMoviePilotBusinessRejected, businessMsg)
+	}
+
 	return result, nil
+}
+
+// DispatchGapCandidate 将缺集候选下发给 MoviePilot。
+func (c *MoviePilotClient) DispatchGapCandidate(data GapDispatchRequest) (*GapDispatchResponse, error) {
+	return c.DispatchDownloadCandidate(DownloadCandidateRequest{
+		CandidatePayload: data.CandidatePayload,
+		TmdbID:           data.TmdbID,
+	})
 }
 
 // CreateSubscription 创建订阅
@@ -374,8 +507,8 @@ func normalizeResultList(items []interface{}) []map[string]interface{} {
 	return results
 }
 
-func normalizeGapCandidates(results []map[string]interface{}, matchMode string) []GapSearchCandidate {
-	candidates := make([]GapSearchCandidate, 0, len(results))
+func normalizeCandidates(results []map[string]interface{}, matchMode string) []SearchCandidate {
+	candidates := make([]SearchCandidate, 0, len(results))
 	for _, item := range results {
 		payload := extractCandidatePayload(item)
 		title := strings.TrimSpace(extractString(item, "name", "title", "torrent_name"))
@@ -389,7 +522,7 @@ func normalizeGapCandidates(results []map[string]interface{}, matchMode string) 
 		size := extractInt64(item, "size", "enclosure_size", "torrent_size")
 		seeders := extractInt(item, "seeders", "seeder")
 
-		candidates = append(candidates, GapSearchCandidate{
+		candidates = append(candidates, SearchCandidate{
 			ID:          buildCandidateID(payload, title, site),
 			Title:       title,
 			Description: description,
@@ -412,6 +545,10 @@ func normalizeGapCandidates(results []map[string]interface{}, matchMode string) 
 	})
 
 	return candidates
+}
+
+func normalizeGapCandidates(results []map[string]interface{}, matchMode string) []GapSearchCandidate {
+	return normalizeCandidates(results, matchMode)
 }
 
 func extractCandidatePayload(item map[string]interface{}) map[string]interface{} {
@@ -595,6 +732,36 @@ func parseJSONMap(body []byte) map[string]interface{} {
 		return nil
 	}
 	return parsed
+}
+
+// lookupResponseSuccess 解析 MoviePilot 响应顶层 success 字段。
+//
+// 返回 (present, value)：
+//   - present=false：响应体不是 JSON 对象或不含 success 字段（保守处理缺省：维持原成功行为）
+//   - present=true：success 存在，value 为其布尔语义
+//
+// MoviePilot v2 顶层 schema 为 {success, message, data}，success 一定是 bool；
+// 兼容少数版本返回字符串 "true"/"false" 的情况。
+func lookupResponseSuccess(parsed map[string]interface{}) (bool, bool) {
+	if len(parsed) == 0 {
+		return false, false
+	}
+	raw, ok := parsed["success"]
+	if !ok || raw == nil {
+		return false, false
+	}
+	switch typed := raw.(type) {
+	case bool:
+		return true, typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true":
+			return true, true
+		case "false":
+			return true, false
+		}
+	}
+	return false, false
 }
 
 func extractResponseMessage(body []byte) string {

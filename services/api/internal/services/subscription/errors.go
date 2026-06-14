@@ -17,4 +17,7 @@ var (
 	ErrSubscriptionResubmitNote    = errors.New("本次提交说明不能为空")
 	ErrSubscriptionStateConflict   = errors.New("订阅状态已变更，请刷新后重试")
 	ErrSubscriptionRedispatchSafe  = errors.New("当前订阅没有可重试的 MoviePilot 失败状态")
+	ErrSubscriptionManualSeason    = errors.New("整剧订阅需要先指定季号")
+	ErrSubscriptionManualCandidate = errors.New("请选择要下发的候选资源")
+	ErrSubscriptionInvalidTMDBID   = errors.New("订阅的 TMDB ID 无效或为空")
 )

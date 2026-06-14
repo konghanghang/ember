@@ -66,6 +66,10 @@ import type {
   RankingPeriod,
   RedemptionCodeListQuery,
   SystemInfoResponse,
+  SubscriptionManualDispatchRequest,
+  SubscriptionManualDispatchResult,
+  SubscriptionManualSearchRequest,
+  SubscriptionManualSearchResult,
   UserInfo,
   UserListQuery,
   UserListResponse,
@@ -558,6 +562,22 @@ export function redispatchSubscription(id: string) {
   return request({
     url: `/admin/subscriptions/${id}/redispatch`,
     method: 'put'
+  })
+}
+
+export function manualSearchSubscription(id: string, data?: SubscriptionManualSearchRequest): Promise<{ data: SubscriptionManualSearchResult }> {
+  return request({
+    url: `/admin/subscriptions/${encodeURIComponent(id)}/manual-search`,
+    method: 'post',
+    data: data ?? {}
+  })
+}
+
+export function manualDispatchSubscription(id: string, data: SubscriptionManualDispatchRequest): Promise<{ data: SubscriptionManualDispatchResult }> {
+  return request({
+    url: `/admin/subscriptions/${encodeURIComponent(id)}/manual-dispatch`,
+    method: 'post',
+    data
   })
 }
 

@@ -19,6 +19,8 @@ type stubSubscriptionService struct {
 	deleteFn           func(subscriptionID, userID string) error
 	getAllFn           func(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
 	getUserPaginatedFn func(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
+	manualSearchFn     func(subscriptionID string, req subscriptionpkg.ManualSearchRequest) (*subscriptionpkg.ManualSearchResult, error)
+	manualDispatchFn   func(subscriptionID string, req subscriptionpkg.ManualDispatchRequest) (*subscriptionpkg.ManualDispatchResult, error)
 }
 
 func (s *stubSubscriptionService) CreateSubscriptionWithResult(userID string, req subscriptionpkg.CreateSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
@@ -75,6 +77,20 @@ func (s *stubSubscriptionService) MarkSubscriptionIngestedAsAdmin(subscriptionID
 
 func (s *stubSubscriptionService) RedispatchSubscription(subscriptionID string) error {
 	return nil
+}
+
+func (s *stubSubscriptionService) ManualSearchSubscription(subscriptionID string, req subscriptionpkg.ManualSearchRequest) (*subscriptionpkg.ManualSearchResult, error) {
+	if s.manualSearchFn == nil {
+		return nil, nil
+	}
+	return s.manualSearchFn(subscriptionID, req)
+}
+
+func (s *stubSubscriptionService) ManualDispatchSubscription(subscriptionID string, req subscriptionpkg.ManualDispatchRequest) (*subscriptionpkg.ManualDispatchResult, error) {
+	if s.manualDispatchFn == nil {
+		return nil, nil
+	}
+	return s.manualDispatchFn(subscriptionID, req)
 }
 
 func (s *stubSubscriptionService) DeleteSubscriptionAsAdmin(subscriptionID string) error {
@@ -186,6 +202,83 @@ func TestSubscriptionHandlerResubmitSubscriptionMapsEnumerationErrorsToNotFound(
 			}
 			if resp.Error != subscriptionpkg.ErrSubscriptionNotFound.Error() {
 				t.Fatalf("expected error %q, got %q", subscriptionpkg.ErrSubscriptionNotFound.Error(), resp.Error)
+			}
+		})
+	}
+}
+
+func TestSubscriptionHandlerManualSearchMapsDomainErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name       string
+		err        error
+		statusCode int
+	}{
+		{name: "not found", err: subscriptionpkg.ErrSubscriptionNotFound, statusCode: http.StatusNotFound},
+		{name: "not approved", err: subscriptionpkg.ErrSubscriptionNotApproved, statusCode: http.StatusConflict},
+		{name: "season required", err: subscriptionpkg.ErrSubscriptionManualSeason, statusCode: http.StatusBadRequest},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := &SubscriptionHandler{
+				service: &stubSubscriptionService{
+					manualSearchFn: func(subscriptionID string, req subscriptionpkg.ManualSearchRequest) (*subscriptionpkg.ManualSearchResult, error) {
+						if subscriptionID != "sub_1" {
+							t.Fatalf("unexpected subscriptionID=%s", subscriptionID)
+						}
+						if req.Season == nil || *req.Season != 2 {
+							t.Fatalf("unexpected season=%v", req.Season)
+						}
+						return nil, tc.err
+					},
+				},
+			}
+
+			ctx, recorder := newTestSubscriptionContext(http.MethodPost, "/api/v1/admin/subscriptions/sub_1/manual-search", []byte(`{"season":2}`))
+			ctx.Params = gin.Params{{Key: "id", Value: "sub_1"}}
+
+			handler.ManualSearchSubscription(ctx)
+
+			if recorder.Code != tc.statusCode {
+				t.Fatalf("expected status %d, got %d", tc.statusCode, recorder.Code)
+			}
+		})
+	}
+}
+
+func TestSubscriptionHandlerManualDispatchMapsBadRequestErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{name: "candidate missing", err: subscriptionpkg.ErrSubscriptionManualCandidate},
+		{name: "season missing", err: subscriptionpkg.ErrSubscriptionManualSeason},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := &SubscriptionHandler{
+				service: &stubSubscriptionService{
+					manualDispatchFn: func(subscriptionID string, req subscriptionpkg.ManualDispatchRequest) (*subscriptionpkg.ManualDispatchResult, error) {
+						if subscriptionID != "sub_1" {
+							t.Fatalf("unexpected subscriptionID=%s", subscriptionID)
+						}
+						return nil, tc.err
+					},
+				},
+			}
+
+			ctx, recorder := newTestSubscriptionContext(http.MethodPost, "/api/v1/admin/subscriptions/sub_1/manual-dispatch", []byte(`{"candidateId":"cand_1"}`))
+			ctx.Params = gin.Params{{Key: "id", Value: "sub_1"}}
+
+			handler.ManualDispatchSubscription(ctx)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 			}
 		})
 	}

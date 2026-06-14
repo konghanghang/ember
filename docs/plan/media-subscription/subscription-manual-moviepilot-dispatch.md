@@ -91,10 +91,10 @@
 - 不新增 `subscriptions` 字段。
 - 不新增 SQL migration。
 - 不新增订阅状态。
-- 可复用现有 `mpError` 做极小范围反馈：
+- `mpError` 继续只表示自动 MoviePilot 订阅创建链路的失败：
   - 手动下发成功后可清空 `mpError`，避免 UI 持续显示旧的自动订阅失败。
-  - 手动下发失败后可将脱敏错误写回 `mpError`。
-  - 如果实现阶段判断这会混淆“自动订阅错误”和“手动下发错误”，也可以只做前端即时提示，不写库。
+  - 手动下发失败不写回 `mpError`，只通过 API 同步返回错误。
+  - 原因：`redispatch` 的可见条件依赖 `mpError` 非空，但它重试的是自动订阅创建，不是手动下载下发。
 
 ### 3. 接口与边界
 
@@ -115,8 +115,9 @@
     - 整剧订阅 `season=0` 首版不直接搜索下发；需要请求中显式传入季号，或返回错误提示管理员先选择季。
   - `POST /api/v1/admin/subscriptions/:id/manual-dispatch`
     - 接收管理员选择的候选 `candidatePayload`。
+    - 整剧订阅必须同时提交搜索时使用的 `season`，避免搜索 / 下发两阶段季号脱节。
     - 调用 MoviePilot `POST /api/v1/download/add`。
-    - 请求体带 `torrent_in` 和 `tmdbid`。
+    - 请求体带 `torrent_in`、`tmdbid`，电视剧下发同时带 `season`。
 - 响应约束：
   - Ember API 响应统一使用 `data` 字段。
   - 搜索响应返回候选摘要，不把 MoviePilot 原始大响应直接裸透给前端。
@@ -135,7 +136,7 @@
 7. Ember API 调 MoviePilot 精确搜索接口 `/api/v1/search/media/tmdb:<tmdbId>`，传入 `mtype` 和必要的 `season`。
 8. 前端展示候选列表，默认按 MoviePilot 返回顺序和 Ember 轻量排序展示。
 9. 管理员选择一个候选并确认下发。
-10. Ember API 调 MoviePilot `/api/v1/download/add`，请求体带 `torrent_in` 和 `tmdbid`。
+10. Ember API 调 MoviePilot `/api/v1/download/add`，请求体带 `torrent_in`、`tmdbid`，电视剧下发同时带 `season`。
 11. 下发成功后订阅保持 `APPROVED`，等待 Emby webhook 按现有逻辑收口为 `INGESTED`。
 
 ### 5. 失败路径与边界条件
@@ -150,7 +151,7 @@
   - 手动补偿依赖 MoviePilot “搜索和下载”菜单下的搜索过滤规则组。
   - 若管理员希望放宽候选，应在 MoviePilot 中不勾选搜索过滤规则组。
   - Ember 不在首版绕过 MoviePilot 的搜索过滤配置。
-- 下发失败：返回脱敏错误；可选择写回现有 `mpError`，但不改变订阅状态。
+- 下发失败：返回脱敏错误；不写回 `mpError`，不改变订阅状态。
 - 下发成功但长时间未入库：订阅继续保持 `APPROVED`，不伪装完成。
 - 兼容性约束：
   - 不能破坏现有审批、通知、`redispatch` 和 webhook 入库回写。

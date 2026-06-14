@@ -442,6 +442,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `ApproveSubscription(id)` — **批次 2 改原子状态转移**：`UPDATE WHERE status='PENDING'`，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict` → handler 映射 409。MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
 - `RejectSubscription(id, reason)` — 同样原子状态转移，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict`；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
 - `RedispatchSubscription(id)` — **批次 2 新增**：管理员手动重试 MoviePilot 调用，仅在 `status='APPROVED'` 且 `mpError != nil` 时允许；状态保持 APPROVED；mpError 由本次结果覆盖。路由 `PUT /api/v1/admin/subscriptions/:id/redispatch`
+- `ManualSearchSubscription(id, season?)` — 管理员手动补偿搜索，仅允许 `APPROVED` 订阅；电影按 `tmdbId + movie` 搜索，单季剧按订阅季号搜索，整剧订阅 (`season=0`) 必须显式提交季号。路由 `POST /api/v1/admin/subscriptions/:id/manual-search`
+- `ManualDispatchSubscription(id, candidate, season?)` — 管理员将选定候选直接下发 MoviePilot 下载入口；请求体带 `torrent_in` 与 `tmdbid`，TV 订阅同时带 `season`，整剧订阅 (`season=0`) 必须提交搜索时使用的季号；订阅状态保持 `APPROVED`。成功清空 `mpError`（清除旧的自动订阅失败痕迹）；**失败不写 `mpError`**（避免与 `RedispatchSubscription` 的"重试订阅创建"链路混用，redispatch 可见条件依赖 `mpError` 非空），仅同步返回错误。`POST /api/v1/download/add` 业务失败（HTTP 200 + 顶层 `success=false`）由 `DispatchDownloadCandidate` 显式识别，不再被误判为 `Accepted:true`；该路径返回 sentinel `ErrMoviePilotBusinessRejected`，handler 层 `errors.Is` 命中后映射为 **409 Conflict**（业务拒绝是状态冲突，如重复添加），业务原因（脱敏后的 message）透传给管理员；基础设施错误（网络/HTTP 5xx）仍走 `SafeUpstreamError` 脱敏 + 500
 - `MarkSubscriptionIngestedAsAdmin(id)` — 管理员校验 Emby 后手动收口为 INGESTED；批次 2 起触发与 webhook 一致的 `notifyIngested` 通知
 - `MarkSubscriptionsIngestedByWebhook(payload)` — **批次 2 拆分整剧 / 单季命中策略**：
   - 单季订阅 (`season=N`)：webhook 命中即 INGEST
@@ -462,7 +464,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台管理入口已改为异步触发。**批次 2 新增跨副本互斥**：`mediaGapScanManager.Start` 通过 `pg_try_advisory_lock` 拿到独占锁后再写 `media_gap_scans (status='running')` 并启动 goroutine（`async.SafeGo` 包裹），结束时在 `defer` 内释放锁并写终态；锁被其他副本占有时返回 409
 - `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计
 - `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；写入 `searchSnapshot` 与 `lastSearchedAt`
-- `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源；成功推进为 `REQUESTED` 并清空 `lastDispatchError`；**失败时写入 `lastDispatchError`（经 `upstream.SafeUpstreamError` 脱敏）并切换为 `DISPATCH_FAILED`**，前端可通过同一接口重试
+- `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源，请求体带缺集 `tmdbId`；成功推进为 `REQUESTED` 并清空 `lastDispatchError`；**失败时写入 `lastDispatchError` 并切换为 `DISPATCH_FAILED`**：MoviePilot 业务拒绝保留已脱敏的 message，基础设施错误经 `upstream.SafeUpstreamError` 脱敏；前端可通过同一接口重试
 - `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`；显式忽略写 `ignoreReasonCode='manual'`
 - `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后按状态分支处理：
   - `MISSING` / `SEARCHED` / `REQUESTED` / `DISPATCH_FAILED` → 收口为 `INGESTED`
@@ -474,8 +476,11 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `IsConfigured()` — 检查 `MOVIEPILOT_URL` 与 `MOVIEPILOT_API_KEY` 是否齐全
 - `TestConnection()` — `GET /api/v1/site/`，请求头使用 `X-API-KEY`
 - `CreateSubscription(type, name, tmdbId, season)` — `POST /api/v1/subscribe/`，请求头使用 `X-API-KEY`（`type` 转中文：movie→电影, tv→电视剧；`season>0` 时透传季号）
+- `SearchMediaCandidates(tmdbId, mediaType, season)` — `GET /api/v1/search/media/tmdb:<tmdbId>`，传 `mtype=movie|tv`，电视剧传 `season=N`，用于订阅手动补偿
+- `SearchTitleCandidates(keyword)` — `GET /api/v1/search/title`，通用标题搜索入口；缺集搜索包装会调用它
 - `SearchGapCandidates(seriesName, season, episode)` — `GET /api/v1/search/title`，优先搜索 `SxxExx` 单集，空结果时回退 `Sxx` 整季包；候选按做种数、体积排序
-- `DispatchGapCandidate(candidatePayload)` — `POST /api/v1/download/add`，将选中的资源快照透传给 MoviePilot 下载入口
+- `DispatchDownloadCandidate(candidatePayload, tmdbId?, season?)` — `POST /api/v1/download/add`，将选中的资源快照放入 `torrent_in`，有 TMDB ID 时同时传 `tmdbid`，TV 手动下发传 `season`；解析响应顶层 `success` 字段：`success=false` 时返回业务错误（MoviePilot v2 在业务失败时 HTTP 仍返回 200，仅靠 `success` 区分）
+- `DispatchGapCandidate(candidatePayload, tmdbId)` — 缺集业务包装，内部调用 `DispatchDownloadCandidate`
 
 ### 5.13 EmailService (`services/email/service.go`, `services/email/verification.go`, `services/email/sender.go`)
 

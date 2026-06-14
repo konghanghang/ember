@@ -886,6 +886,44 @@ export interface ResubmitSubscriptionResponse {
   subscription?: Subscription
 }
 
+export interface SubscriptionManualSearchRequest {
+  season?: number
+}
+
+export interface SubscriptionManualCandidate {
+  id: string
+  title: string
+  description?: string
+  publishDate?: string
+  site?: string
+  size?: number
+  seeders?: number
+  isPack?: boolean
+  matchMode?: string
+  tags?: string[]
+  payload?: Record<string, unknown>
+}
+
+export interface SubscriptionManualSearchResult {
+  subscription: Subscription
+  source: string
+  query: string
+  matchMode: string
+  candidates: SubscriptionManualCandidate[]
+}
+
+export interface SubscriptionManualDispatchRequest {
+  candidate?: SubscriptionManualCandidate
+  candidatePayload?: Record<string, unknown>
+  season?: number
+}
+
+export interface SubscriptionManualDispatchResult {
+  subscription: Subscription
+  accepted: boolean
+  message?: string
+}
+
 export interface TmdbTVSeasonOptions {
   id: number
   name: string

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,9 +29,16 @@ import (
 
 // SubscriptionService 订阅服务
 type SubscriptionService struct {
-	moviepilot *moviepilotint.MoviePilotClient
+	moviepilot subscriptionMoviePilotClient
 	notifier   *notifierint.BotNotifier
 	httpClient *http.Client
+}
+
+type subscriptionMoviePilotClient interface {
+	IsConfigured() bool
+	CreateSubscription(moviepilotint.SubscribeRequest) error
+	SearchMediaCandidates(moviepilotint.SearchMediaRequest) (*moviepilotint.SearchMediaResponse, error)
+	DispatchDownloadCandidate(moviepilotint.DownloadCandidateRequest) (*moviepilotint.DownloadCandidateResponse, error)
 }
 
 type subscriptionEmbyLookup interface {
@@ -100,6 +108,23 @@ var loadSubscriptionForAdminNotificationSync = func(subscriptionID string) (mode
 	var subscription models.Subscription
 	err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error
 	return subscription, err
+}
+
+// fetchSubscriptionByID 用于手工补偿 / 管理员入库收口等需要按 id 查询单条订阅的入口。
+// 拆成包级变量既能让 prepareManualSubscription / MarkSubscriptionIngestedAsAdmin 复用，
+// 也方便单元测试替换为纯函数实现，不依赖真实 DB 连接。
+var fetchSubscriptionByID = func(subscriptionID string) (models.Subscription, error) {
+	var subscription models.Subscription
+	err := db.DB.Where("id = ?", strings.TrimSpace(subscriptionID)).First(&subscription).Error
+	return subscription, err
+}
+
+// persistSubscriptionMpError 写回订阅的 MoviePilot 自动订阅错误字段。
+// 拆成包级变量，让手动补偿 service 测试能断言是否触发写库副作用。
+var persistSubscriptionMpError = func(subscriptionID string, mpError *string) error {
+	return db.DB.Model(&models.Subscription{}).
+		Where("id = ? AND status = ?", subscriptionID, models.SubscriptionApproved).
+		Update("mp_error", mpError).Error
 }
 
 var runAdminNotificationSync = func(s *SubscriptionService, subscription models.Subscription) {
@@ -668,9 +693,7 @@ func (s *SubscriptionService) dispatchMoviePilotAsync(subscriptionID string, med
 }
 
 func (s *SubscriptionService) persistMpError(subscriptionID string, mpError *string) {
-	if err := db.DB.Model(&models.Subscription{}).
-		Where("id = ? AND status = ?", subscriptionID, models.SubscriptionApproved).
-		Update("mp_error", mpError).Error; err != nil {
+	if err := persistSubscriptionMpError(subscriptionID, mpError); err != nil {
 		log.Printf("[Subscription] 写回 mpError 失败 subscriptionId=%s mpError=%v err=%v", subscriptionID, mpError, err)
 	}
 }
@@ -758,11 +781,136 @@ func (s *SubscriptionService) RedispatchSubscription(subscriptionID string) erro
 	return nil
 }
 
+// ManualSearchSubscription 按订阅 TMDB ID 搜索 MoviePilot 手动补偿候选。
+func (s *SubscriptionService) ManualSearchSubscription(subscriptionID string, req ManualSearchRequest) (*ManualSearchResult, error) {
+	subscription, season, err := s.prepareManualSubscription(subscriptionID, req.Season, true)
+	if err != nil {
+		return nil, err
+	}
+
+	mediaType := "movie"
+	if subscription.Type == models.MediaTV {
+		mediaType = "tv"
+	}
+
+	searchResp, err := s.moviepilot.SearchMediaCandidates(moviepilotint.SearchMediaRequest{
+		TmdbID:    subscription.TmdbID,
+		MediaType: mediaType,
+		Season:    season,
+	})
+	if err != nil {
+		log.Printf("[Subscription] 手动补下载搜索失败 subscriptionId=%s tmdbId=%s season=%d err=%v", subscription.ID, subscription.TmdbID, season, err)
+		return nil, fmt.Errorf("MoviePilot 手动搜索失败: %w", upstream.SafeUpstreamError(err, "moviepilot"))
+	}
+	if searchResp == nil {
+		searchResp = &moviepilotint.SearchMediaResponse{Candidates: []moviepilotint.SearchCandidate{}}
+	}
+
+	log.Printf("[Subscription] 手动补下载搜索完成 subscriptionId=%s tmdbId=%s season=%d candidates=%d",
+		subscription.ID, subscription.TmdbID, season, len(searchResp.Candidates))
+	return &ManualSearchResult{
+		Subscription: subscription,
+		Source:       "MoviePilot",
+		Query:        searchResp.Query,
+		MatchMode:    searchResp.MatchMode,
+		Candidates:   searchResp.Candidates,
+	}, nil
+}
+
+// ManualDispatchSubscription 将管理员选定的候选资源直接下发给 MoviePilot 下载。
+func (s *SubscriptionService) ManualDispatchSubscription(subscriptionID string, req ManualDispatchRequest) (*ManualDispatchResult, error) {
+	subscription, season, err := s.prepareManualSubscription(subscriptionID, req.Season, true)
+	if err != nil {
+		return nil, err
+	}
+
+	payload := req.CandidatePayload
+	if len(payload) == 0 && req.Candidate != nil {
+		payload = req.Candidate.Payload
+	}
+	if len(payload) == 0 {
+		return nil, ErrSubscriptionManualCandidate
+	}
+
+	dispatchResp, err := s.moviepilot.DispatchDownloadCandidate(moviepilotint.DownloadCandidateRequest{
+		CandidatePayload: payload,
+		TmdbID:           subscription.TmdbID,
+		Season:           season,
+	})
+	if err != nil {
+		// 手动下发失败不写 mpError：mpError 只反映"自动 MoviePilot 订阅创建"链路，
+		// 而 redispatch 按钮可见条件是 mpError 非空、且它干的是"重试订阅创建"（不同链路）。
+		// 混用会让管理员用 redispatch 重试一个本应走手动补偿的失败。失败只靠 API 同步报错回显。
+		//
+		// 业务拒绝（重复添加等）与基础设施错误需要分别处理：
+		//   - ErrMoviePilotBusinessRejected：上游服务正常，仅业务规则不满足。错误已脱敏，
+		//     直接透传业务原因，避免被 SafeUpstreamError 截断成 "upstream moviepilot unavailable"。
+		//   - 其他：基础设施错误，仍用 SafeUpstreamError 脱敏后包装，避免回显 URL/凭证。
+		wrappedErr := upstream.SafeUpstreamError(err, "moviepilot")
+		if errors.Is(err, moviepilotint.ErrMoviePilotBusinessRejected) {
+			wrappedErr = err
+		}
+		log.Printf("[Subscription] 手动补下载下发失败 subscriptionId=%s tmdbId=%s payloadKeys=%d businessRejected=%t err=%v",
+			subscription.ID, subscription.TmdbID, len(payload), errors.Is(err, moviepilotint.ErrMoviePilotBusinessRejected), wrappedErr)
+		return nil, fmt.Errorf("MoviePilot 手动下发失败: %w", wrappedErr)
+	}
+
+	s.persistMpError(subscription.ID, nil)
+	subscription.MpError = nil
+	message := ""
+	if dispatchResp != nil {
+		message = strings.TrimSpace(dispatchResp.Message)
+	}
+	log.Printf("[Subscription] 手动补下载下发完成 subscriptionId=%s tmdbId=%s payloadKeys=%d message=%q",
+		subscription.ID, subscription.TmdbID, len(payload), message)
+	return &ManualDispatchResult{
+		Subscription: subscription,
+		Accepted:     true,
+		Message:      message,
+	}, nil
+}
+
+func (s *SubscriptionService) prepareManualSubscription(subscriptionID string, requestedSeason *int, requireTVSeason bool) (models.Subscription, int, error) {
+	subscription, err := fetchSubscriptionByID(subscriptionID)
+	if err != nil {
+		// 区分"记录不存在（404）"与"DB 故障 / 超时（500）"：前者是合法的用户可见错误，
+		// 后者走 default 分支避免把基础设施故障误判成 NotFound。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return subscription, 0, ErrSubscriptionNotFound
+		}
+		return subscription, 0, fmt.Errorf("查询订阅失败: %w", err)
+	}
+	if subscription.Status != models.SubscriptionApproved {
+		return subscription, 0, ErrSubscriptionNotApproved
+	}
+	// 提前校验 tmdbId 数字格式，避免非数字值一路放行到 MoviePilot 客户端 Atoi 失败，
+	// 再被 upstream.SafeUpstreamError 包装成 500 上游故障。这里返回 400 业务错误。
+	if _, err := strconv.Atoi(strings.TrimSpace(subscription.TmdbID)); err != nil {
+		return subscription, 0, ErrSubscriptionInvalidTMDBID
+	}
+
+	season := 0
+	if subscription.Type == models.MediaTV {
+		season = subscription.Season
+		if season <= 0 && requireTVSeason {
+			if requestedSeason == nil || *requestedSeason <= 0 {
+				return subscription, 0, ErrSubscriptionManualSeason
+			}
+			season = *requestedSeason
+		}
+	}
+	return subscription, season, nil
+}
+
 // MarkSubscriptionIngestedAsAdmin 允许管理员在校验 Emby 已存在资源后手动收口为已入库。
 func (s *SubscriptionService) MarkSubscriptionIngestedAsAdmin(subscriptionID string) error {
-	var subscription models.Subscription
-	if err := db.DB.Where("id = ?", subscriptionID).First(&subscription).Error; err != nil {
-		return ErrSubscriptionNotFound
+	subscription, err := fetchSubscriptionByID(subscriptionID)
+	if err != nil {
+		// 区分"记录不存在（404）"与"DB 故障 / 超时（500）"，避免基础设施故障被误判成 NotFound。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrSubscriptionNotFound
+		}
+		return fmt.Errorf("查询订阅失败: %w", err)
 	}
 	if subscription.Status != models.SubscriptionApproved {
 		return ErrSubscriptionNotApproved

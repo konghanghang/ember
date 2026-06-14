@@ -6,9 +6,11 @@ import {
   Check,
   Close,
   Delete,
+  Download,
   Plus,
   Refresh,
   RefreshRight,
+  Search,
   VideoPlay,
   Film
 } from '@element-plus/icons-vue'
@@ -18,10 +20,18 @@ import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.v
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { formatDateTime } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
-import { approveSubscription, rejectSubscription, markSubscriptionIngested, redispatchSubscription, deleteSubscriptionAsAdmin } from '@/api/admin'
+import {
+  approveSubscription,
+  rejectSubscription,
+  markSubscriptionIngested,
+  redispatchSubscription,
+  deleteSubscriptionAsAdmin,
+  manualDispatchSubscription,
+  manualSearchSubscription
+} from '@/api/admin'
 import { deleteSubscription, getSubscriptions, resubmitSubscription } from '@/api/console'
 import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
-import type { Subscription, SubscriptionExistingSummary, SubscriptionStatus } from '@/types/api'
+import type { Subscription, SubscriptionExistingSummary, SubscriptionManualCandidate, SubscriptionStatus } from '@/types/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -33,6 +43,19 @@ const showResubmitDialog = ref(false)
 const resubmitTarget = ref<Subscription | null>(null)
 const resubmitNote = ref('')
 const resubmitting = ref(false)
+const showManualDialog = ref(false)
+const manualTarget = ref<Subscription | null>(null)
+const manualSeason = ref<number | null>(null)
+// manualSearchedSeason 记录当前候选列表实际对应的季号：
+// - 整剧订阅（type==='TV' && season===0）记录搜索时填入的季号；
+// - 电影订阅不需要季号，记 null。
+// 用于在管理员改季号但没重新搜时，禁止用旧候选下发。
+const manualSearchedSeason = ref<number | null>(null)
+const manualCandidates = ref<SubscriptionManualCandidate[]>([])
+const manualSearching = ref(false)
+const manualDispatching = ref(false)
+const selectedManualCandidateId = ref('')
+const manualResultSource = ref('')
 const queryParams = ref({
   page: 1,
   pageSize: 20,
@@ -41,6 +64,28 @@ const queryParams = ref({
 let fetchRequestToken = 0
 
 const isAdmin = computed(() => authStore.isAdmin)
+
+// needsManualSeason 判断该订阅是否需要管理员手动填季号：
+// 仅整剧订阅（type==='TV' && season===0）需要，因为这类订阅本身没季号，搜候选时得人工指定。
+const needsManualSeason = (sub: Subscription) => sub.type === 'TV' && sub.season === 0
+
+const selectedManualCandidate = computed(() => {
+  return manualCandidates.value.find((candidate) => candidate.id === selectedManualCandidateId.value) || null
+})
+
+// 判断当前是否允许确认下发：已选候选，且整剧订阅下当前输入季号与候选实际对应季号一致。
+// 整剧订阅在管理员改季号但没重新搜索时，候选与季号不一致，必须禁止用旧候选下发。
+const canDispatchManual = computed(() => {
+  const target = manualTarget.value
+  const candidate = selectedManualCandidate.value
+  if (!target || !candidate) {
+    return false
+  }
+  if (needsManualSeason(target) && manualSearchedSeason.value !== manualSeason.value) {
+    return false
+  }
+  return true
+})
 
 const statusOptions = [
   { label: '全部', value: '' },
@@ -199,6 +244,126 @@ const handleRedispatch = async (sub: Subscription) => {
   }
 }
 
+const openManualDialog = async (sub: Subscription) => {
+  if (!canRunAdminAction()) return
+
+  manualTarget.value = sub
+  manualSeason.value = sub.type === 'TV' && sub.season > 0 ? sub.season : null
+  manualSearchedSeason.value = null
+  manualCandidates.value = []
+  selectedManualCandidateId.value = ''
+  manualResultSource.value = ''
+  showManualDialog.value = true
+
+  if (!needsManualSeason(sub)) {
+    await handleManualSearch()
+  }
+}
+
+const resetManualDialog = () => {
+  showManualDialog.value = false
+  manualTarget.value = null
+  manualSeason.value = null
+  manualSearchedSeason.value = null
+  manualCandidates.value = []
+  selectedManualCandidateId.value = ''
+  manualResultSource.value = ''
+}
+
+const closeManualDialog = () => {
+  if (manualSearching.value || manualDispatching.value) return
+  resetManualDialog()
+}
+
+const handleManualSearch = async () => {
+  const target = manualTarget.value
+  if (!target || !canRunAdminAction()) return
+
+  const requestedSeason = Number(manualSeason.value)
+  if (needsManualSeason(target) && (!Number.isInteger(requestedSeason) || requestedSeason <= 0)) {
+    ElMessage.warning('请先指定季号')
+    return
+  }
+
+  manualSearching.value = true
+  // 请求前先清空旧候选/source/选中项：这样请求失败后列表自然为空，不会残留上次搜索结果，
+  // 管理员不会误把旧季的候选当成当前季的可用资源。
+  manualCandidates.value = []
+  selectedManualCandidateId.value = ''
+  manualResultSource.value = ''
+  try {
+    const res = await manualSearchSubscription(target.id, needsManualSeason(target) ? { season: requestedSeason } : {})
+    manualCandidates.value = res.data?.candidates || []
+    manualResultSource.value = res.data?.source || ''
+    selectedManualCandidateId.value = manualCandidates.value[0]?.id || ''
+    // 记录当前候选列表实际对应的季号，供下发前的一致性校验判断。
+    manualSearchedSeason.value = needsManualSeason(target) ? requestedSeason : null
+    if (manualCandidates.value.length === 0) {
+      ElMessage.warning('未找到可下发候选')
+    }
+  } catch {
+    // 请求前已清空候选，失败时保持空态；错误提示由 axios 拦截器统一处理，这里不再重复弹错。
+  } finally {
+    manualSearching.value = false
+  }
+}
+
+// 整剧订阅下，管理员改季号但没重新搜索时，旧候选与新季号不再对应，必须清空避免误下发。
+// watch 增加守卫：仅在已经有候选、且当前订阅需要手填季号、且季号确实与候选对应季号不一致时清空，
+// 避免弹窗初始化设置 manualSeason 时误触发清空（初始化时 manualCandidates 为空，守卫天然挡住）。
+watch(() => manualSeason.value, (next, prev) => {
+  const target = manualTarget.value
+  if (!target || !needsManualSeason(target)) {
+    return
+  }
+  if (manualCandidates.value.length === 0) {
+    return
+  }
+  if (next === prev) {
+    return
+  }
+  if (next !== manualSearchedSeason.value) {
+    manualCandidates.value = []
+    selectedManualCandidateId.value = ''
+    manualResultSource.value = ''
+  }
+})
+
+const handleManualDispatch = async () => {
+  const target = manualTarget.value
+  const candidate = selectedManualCandidate.value
+  if (!target || !candidate || !canDispatchManual.value || !canRunAdminAction()) {
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定下发 "${candidate.title}" 吗？订阅状态会继续保持"已通过"，等待入库 webhook 收口。`,
+      '手动补下载确认',
+      {
+        confirmButtonText: '确认下发',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return
+  }
+
+  manualDispatching.value = true
+  try {
+    await manualDispatchSubscription(target.id, {
+      candidate,
+      ...(needsManualSeason(target) && manualSearchedSeason.value ? { season: manualSearchedSeason.value } : {})
+    })
+    ElMessage.success('已下发，等待入库')
+    resetManualDialog()
+    fetchData()
+  } finally {
+    manualDispatching.value = false
+  }
+}
+
 const formatExistingSummary = (summary?: SubscriptionExistingSummary) => {
   if (!summary) {
     return '库内已存在相关资源，确认后仍可继续提交。'
@@ -336,6 +501,26 @@ const formatTime = (value?: string | null) => {
   return formatDateTime(value, 'short', '')
 }
 
+const formatCandidateSize = (value?: number) => {
+  if (!value || value <= 0) return ''
+  if (value >= 1024 * 1024 * 1024) {
+    return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`
+  }
+  if (value >= 1024 * 1024) {
+    return `${(value / 1024 / 1024).toFixed(1)} MB`
+  }
+  return `${value} B`
+}
+
+const formatCandidateMeta = (candidate: SubscriptionManualCandidate) => {
+  return [
+    candidate.site,
+    formatCandidateSize(candidate.size),
+    candidate.seeders ? `${candidate.seeders} 做种` : '',
+    candidate.publishDate
+  ].filter(Boolean).join(' · ')
+}
+
 const getImageUrl = (path?: string) => {
   return path ? `https://image.tmdb.org/t/p/w300${path}` : emberPosterPlaceholder
 }
@@ -370,6 +555,13 @@ const cardActionButtons = (sub: Subscription) => {
 
   if (isAdmin.value && sub.status !== 'PENDING') {
     if (sub.status === 'APPROVED') {
+      buttons.push({
+        key: 'manual-dispatch',
+        label: '手动补下载',
+        icon: Download,
+        tone: 'success',
+        action: () => openManualDialog(sub)
+      })
       if (sub.mpError) {
         buttons.push({
           key: 'redispatch',
@@ -649,6 +841,128 @@ onMounted(fetchData)
         background
       />
     </div>
+
+    <EmberFormDialog
+      v-model="showManualDialog"
+      title="手动补下载"
+      width="min(920px, calc(100vw - 2rem))"
+      :show-close="false"
+      :close-on-click-modal="!manualSearching && !manualDispatching"
+      :close-on-press-escape="!manualSearching && !manualDispatching"
+    >
+      <div v-if="manualTarget" class="space-y-5">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <img
+            :src="getImageUrl(manualTarget.posterPath)"
+            :alt="`${formatSubscriptionTitle(manualTarget)} 海报`"
+            class="h-36 w-24 flex-shrink-0 rounded-xl bg-gray-100 object-cover shadow-sm"
+          />
+          <div class="min-w-0 flex-1 space-y-3">
+            <div>
+              <h3 class="text-lg font-bold leading-tight text-gray-900">{{ formatSubscriptionTitle(manualTarget) }}</h3>
+              <p class="mt-1 text-sm text-gray-500">
+                TMDB {{ manualTarget.tmdbId }} · {{ manualTarget.type === 'MOVIE' ? '电影' : '剧集' }}
+              </p>
+            </div>
+
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div v-if="needsManualSeason(manualTarget)" class="w-full sm:w-44">
+                <label class="mb-1.5 block text-xs font-bold text-gray-500">季号</label>
+                <el-input-number
+                  v-model="manualSeason"
+                  :min="1"
+                  :step="1"
+                  :precision="0"
+                  :disabled="manualSearching || manualDispatching"
+                  controls-position="right"
+                  class="form-number w-full"
+                />
+              </div>
+              <button
+                type="button"
+                @click="handleManualSearch"
+                :disabled="manualSearching || manualDispatching"
+                class="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span v-if="manualSearching" class="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-ember"></span>
+                <el-icon v-else><Search /></el-icon>
+                {{ manualSearching ? '搜索中...' : '搜索候选' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-100 bg-gray-50/70 p-3">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <div class="text-sm font-bold text-gray-900">候选资源</div>
+            <div v-if="manualResultSource" class="text-xs font-medium text-gray-500">{{ manualResultSource }}</div>
+          </div>
+
+          <div v-if="manualCandidates.length > 0" class="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+            <button
+              v-for="candidate in manualCandidates"
+              :key="candidate.id"
+              type="button"
+              class="w-full rounded-xl border bg-white p-3 text-left transition-colors"
+              :class="selectedManualCandidateId === candidate.id ? 'border-ember ring-4 ring-ember/10' : 'border-gray-200 hover:border-gray-300'"
+              @click="selectedManualCandidateId = candidate.id"
+            >
+              <div class="flex items-start gap-3">
+                <span
+                  class="mt-1 h-4 w-4 flex-shrink-0 rounded-full border"
+                  :class="selectedManualCandidateId === candidate.id ? 'border-ember bg-ember shadow-[inset_0_0_0_3px_white]' : 'border-gray-300 bg-white'"
+                ></span>
+                <div class="min-w-0 flex-1">
+                  <div class="line-clamp-2 text-sm font-semibold leading-5 text-gray-900">{{ candidate.title }}</div>
+                  <div v-if="formatCandidateMeta(candidate)" class="mt-1 text-xs text-gray-500">
+                    {{ formatCandidateMeta(candidate) }}
+                  </div>
+                  <div v-if="candidate.tags?.length" class="mt-2 flex flex-wrap gap-1.5">
+                    <span
+                      v-for="tag in candidate.tags"
+                      :key="tag"
+                      class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600"
+                    >
+                      {{ tag }}
+                    </span>
+                  </div>
+                  <div v-if="candidate.description" class="mt-2 line-clamp-2 text-xs leading-5 text-gray-500">
+                    {{ candidate.description }}
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <div v-else class="rounded-xl border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
+            {{ manualSearching ? '正在搜索候选...' : '暂无候选' }}
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex flex-col-reverse gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            @click="closeManualDialog"
+            :disabled="manualSearching || manualDispatching"
+            class="rounded-lg px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            @click="handleManualDispatch"
+            :disabled="manualSearching || manualDispatching || !canDispatchManual"
+            class="btn-ember inline-flex items-center gap-2 rounded-lg px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <span v-if="manualDispatching" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
+            <el-icon v-else><Download /></el-icon>
+            {{ manualDispatching ? '下发中...' : '确认下发' }}
+          </button>
+        </div>
+      </template>
+    </EmberFormDialog>
 
     <EmberFormDialog
       v-model="showResubmitDialog"

@@ -116,6 +116,9 @@
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
 | PUT | `/api/v1/admin/subscriptions/:id/ingest` | 校验 Emby 已入库后收口（仅 `APPROVED` 可用） |
+| PUT | `/api/v1/admin/subscriptions/:id/redispatch` | 重试 MoviePilot 自动订阅创建（仅 `APPROVED + mpError` 可用） |
+| POST | `/api/v1/admin/subscriptions/:id/manual-search` | 手动补偿下载候选搜索；整剧订阅必须提交 `season` |
+| POST | `/api/v1/admin/subscriptions/:id/manual-dispatch` | 下发管理员选定的 MoviePilot 候选资源；整剧订阅必须提交搜索时使用的 `season`，订阅继续等待入库 webhook 收口 |
 | DELETE | `/api/v1/admin/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/admin/sessions` | 活跃会话 |
 | GET | `/api/v1/admin/playback-history` | 播放历史查询 |
@@ -155,6 +158,9 @@
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
 | GET | `/api/v1/admin/media-gaps/scan-status` | 查询缺集扫描后台任务状态 |
 | POST | `/api/v1/admin/media-gaps/scan` | 异步触发缺集扫描 |
+| POST | `/api/v1/admin/media-gaps/:id/search` | 搜索缺集候选资源 |
+| POST | `/api/v1/admin/media-gaps/:id/dispatch` | 下发缺集候选资源，请求 MoviePilot 下载入口时携带 `tmdbid` |
+| POST | `/api/v1/admin/media-gaps/:id/ignore` | 手动忽略缺集工单 |
 | POST | `/api/v1/admin/tv-calendar/sync` | 手动同步追剧日历 |
 | POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |
 | POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |

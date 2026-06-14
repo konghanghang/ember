@@ -3,6 +3,7 @@ package mediagap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -108,6 +109,20 @@ type gapMoviePilotClient interface {
 
 var newMediaGapMoviePilotClient = func() gapMoviePilotClient {
 	return moviepilotint.NewMoviePilotClient()
+}
+
+// loadGapByIDFunc 按 id 查询单条缺集工单。拆成包级变量既能让 DispatchGap / SearchGap / Ignore
+// 复用同一查询入口，也方便单元测试替换为纯函数实现，不依赖真实 DB 连接（与 subscription 包
+// 的 fetchSubscriptionByID 同一模式）。
+var loadGapByIDFunc = func(ctx context.Context, id string) (models.MediaGap, error) {
+	var gap models.MediaGap
+	if err := db.DB.WithContext(ctx).Where("id = ?", strings.TrimSpace(id)).First(&gap).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return gap, ErrMediaGapNotFound
+		}
+		return gap, fmt.Errorf("查询缺集工单失败: %w", err)
+	}
+	return gap, nil
 }
 
 type Service struct {
@@ -472,12 +487,23 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 
 	dispatchResp, err := s.moviepilot.DispatchGapCandidate(moviepilotint.GapDispatchRequest{
 		CandidatePayload: req.Candidate.Payload,
+		TmdbID:           gap.TmdbID,
 	})
 	if err != nil {
 		// 失败时落入 DISPATCH_FAILED：管理员可在前端看到失败入口并手动触发本函数重试。
-		// 错误信息经 upstream.SafeUpstreamError 脱敏，避免回写 MoviePilot 凭证或 URL。
-		safeErr := upstream.SafeUpstreamError(err, "moviepilot")
-		safeMsg := safeErr.Error()
+		//
+		// 错误脱敏策略：
+		//   - ErrMoviePilotBusinessRejected（重复添加等业务拒绝）：上游服务正常，业务原因已脱敏，
+		//     直接透传，避免 last_dispatch_error 被截断成 "upstream moviepilot unavailable"，
+		//     让管理员能从工单上看到 MoviePilot 给出的拒绝原因。
+		//   - 其他（网络 / HTTP 5xx 等基础设施错误）：仍用 SafeUpstreamError 脱敏，避免回写凭证或 URL。
+		//     写入的 safeMsg 形如 "upstream moviepilot unavailable"，是可公开的安全文本。
+		recordErr := upstream.SafeUpstreamError(err, "moviepilot")
+		businessRejected := errors.Is(err, moviepilotint.ErrMoviePilotBusinessRejected)
+		if businessRejected {
+			recordErr = err
+		}
+		safeMsg := recordErr.Error()
 		if len(safeMsg) > 500 {
 			safeMsg = safeMsg[:500]
 		}
@@ -490,7 +516,9 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 		if updateErr != nil {
 			log.Printf("[MediaGap] 写回 DISPATCH_FAILED 失败 id=%s err=%v", gap.ID, updateErr)
 		}
-		return nil, fmt.Errorf("下发候选资源失败: %w", safeErr)
+		log.Printf("[MediaGap] 候选资源下发被拒 id=%s tmdbId=%s season=%d episode=%d businessRejected=%t err=%v",
+			gap.ID, gap.TmdbID, gap.Season, gap.Episode, businessRejected, recordErr)
+		return nil, fmt.Errorf("下发候选资源失败: %w", recordErr)
 	}
 
 	now := time.Now().UTC()
@@ -615,14 +643,7 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 }
 
 func (s *Service) loadGapByID(ctx context.Context, id string) (models.MediaGap, error) {
-	var gap models.MediaGap
-	if err := db.DB.WithContext(ctx).Where("id = ?", strings.TrimSpace(id)).First(&gap).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return gap, ErrMediaGapNotFound
-		}
-		return gap, fmt.Errorf("查询缺集工单失败: %w", err)
-	}
-	return gap, nil
+	return loadGapByIDFunc(ctx, id)
 }
 
 func (s *Service) loadSeriesForScan(tmdbID string) ([]embySeriesItem, error) {

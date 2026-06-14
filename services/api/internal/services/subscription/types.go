@@ -1,6 +1,9 @@
 package subscription
 
-import "github.com/konghang/ember/backend/internal/models"
+import (
+	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
+	"github.com/konghang/ember/backend/internal/models"
+)
 
 // CreateSubscriptionRequest 创建订阅请求
 type CreateSubscriptionRequest struct {
@@ -80,6 +83,39 @@ type SubscriptionWithUser struct {
 type GetAllSubscriptionsResponse struct {
 	Data  []SubscriptionWithUser `json:"data"`
 	Total int64                  `json:"total"`
+}
+
+// ManualSearchRequest 管理员手动补偿搜索请求。
+type ManualSearchRequest struct {
+	Season *int `json:"season,omitempty"`
+}
+
+// ManualSearchResult 管理员手动补偿搜索结果。
+type ManualSearchResult struct {
+	Subscription models.Subscription             `json:"subscription"`
+	Source       string                          `json:"source"`
+	Query        string                          `json:"query"`
+	MatchMode    string                          `json:"matchMode"`
+	Candidates   []moviepilotint.SearchCandidate `json:"candidates"`
+}
+
+// ManualDispatchRequest 管理员手动补偿下发请求。
+//
+// service 优先使用 CandidatePayload，也兼容读取 Candidate.Payload，
+// 整剧订阅还必须携带搜索时使用的 Season。
+// 不保留 candidateId：MoviePilot 候选 ID 是本地派生的 SHA1 摘要，
+// 无法回查上游，service 层从不读取它。
+type ManualDispatchRequest struct {
+	Candidate        *moviepilotint.SearchCandidate `json:"candidate,omitempty"`
+	CandidatePayload map[string]interface{}         `json:"candidatePayload,omitempty"`
+	Season           *int                           `json:"season,omitempty"`
+}
+
+// ManualDispatchResult 管理员手动补偿下发结果。
+type ManualDispatchResult struct {
+	Subscription models.Subscription `json:"subscription"`
+	Accepted     bool                `json:"accepted"`
+	Message      string              `json:"message,omitempty"`
 }
 
 // SubscriptionIngestWebhookPayload webhook 入库事件

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
+	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	"github.com/konghang/ember/backend/internal/middleware"
 	"github.com/konghang/ember/backend/internal/models"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
@@ -24,6 +25,8 @@ type subscriptionHandlerService interface {
 	RejectSubscription(subscriptionID, reason string) error
 	MarkSubscriptionIngestedAsAdmin(subscriptionID string) error
 	RedispatchSubscription(subscriptionID string) error
+	ManualSearchSubscription(subscriptionID string, req subscriptionpkg.ManualSearchRequest) (*subscriptionpkg.ManualSearchResult, error)
+	ManualDispatchSubscription(subscriptionID string, req subscriptionpkg.ManualDispatchRequest) (*subscriptionpkg.ManualDispatchResult, error)
 	DeleteSubscriptionAsAdmin(subscriptionID string) error
 }
 
@@ -416,6 +419,82 @@ func (h *SubscriptionHandler) RedispatchSubscription(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// ManualSearchSubscription 管理员按 TMDB 精确搜索手动补偿候选
+// POST /api/v1/admin/subscriptions/:id/manual-search
+func (h *SubscriptionHandler) ManualSearchSubscription(c *gin.Context) {
+	subscriptionID := c.Param("id")
+	if subscriptionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "订阅 ID 不能为空"})
+		return
+	}
+
+	var req subscriptionpkg.ManualSearchRequest
+	if c.Request.Body != nil && c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+	}
+
+	result, err := h.service.ManualSearchSubscription(subscriptionID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotApproved):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionManualSeason),
+			errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidTMDBID):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
+}
+
+// ManualDispatchSubscription 管理员下发手动选定的 MoviePilot 候选资源
+// POST /api/v1/admin/subscriptions/:id/manual-dispatch
+func (h *SubscriptionHandler) ManualDispatchSubscription(c *gin.Context) {
+	subscriptionID := c.Param("id")
+	if subscriptionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "订阅 ID 不能为空"})
+		return
+	}
+
+	var req subscriptionpkg.ManualDispatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	result, err := h.service.ManualDispatchSubscription(subscriptionID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionNotApproved):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionManualCandidate),
+			errors.Is(err, subscriptionpkg.ErrSubscriptionManualSeason),
+			errors.Is(err, subscriptionpkg.ErrSubscriptionInvalidTMDBID):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, moviepilotint.ErrMoviePilotBusinessRejected):
+			// MoviePilot 业务拒绝（重复添加 / 种子无效等）属于状态冲突：上游服务正常，
+			// 仅业务规则不满足。映射为 409 Conflict，而非 500 基础设施故障，
+			// 让管理员能看到上游给出的业务原因。
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
 // AdminDeleteSubscription 管理员删除订阅
