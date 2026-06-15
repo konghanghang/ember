@@ -65,7 +65,7 @@
 调整 `docs/plan/` 目录或新增职责目录时，必须同步更新：
 
 - `docs/plan/README.md`
-- 相关协作入口文档（如 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`）
+- 相关协作入口文档（根 `AGENTS.md`；`CLAUDE.md` 通过 `@AGENTS.md` 引用）
 - 与计划目录直接相关的盘点或治理文档
 
 ## 9. 判断顺序

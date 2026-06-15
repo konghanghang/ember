@@ -190,7 +190,7 @@ subagent 开工前，主 agent 至少先定：
 
 - `plan-drafter` 只负责起草 `docs/plan/` 下的计划文档，不施工；后续实现仍由 `backend-implementer` / `web-implementer` / `bot-implementer` 承接
 - 计划落地后，主 agent 应推动用户 review，形成共识后再启动实施
-- 计划文档治理细则（结构、命名、归档条件）见 `AGENTS.md` / `CLAUDE.md` "计划文档"段落与 `docs/plan/plan-template.md`
+- 计划文档治理细则（结构、命名、归档条件）见根 `AGENTS.md` 的"计划文档"段落与 `docs/plan/plan-template.md`；`CLAUDE.md` 通过 `@AGENTS.md` 引用同一规则
 
 ### 4.11 根因未明的排查
 

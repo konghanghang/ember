@@ -5,6 +5,37 @@
 > ⚠️ 本文件只管协作规则。技术实现细则与阅读入口看 [docs/reference/README.md](docs/reference/README.md)。
 > 多 agent 的调度方式、默认组合和拆分模板看 [docs/reference/multi-agent-collaboration-guide.md](docs/reference/multi-agent-collaboration-guide.md)。
 
+## 最高优先级硬约束
+
+以下规则高于本文件其余内容。违反任一条时先停手回到这里对齐。
+
+### 1. 不主动启动服务或触发真实外部链路
+
+默认禁止启动服务、后台运行服务、对正在运行的服务做 `curl` / `wget` 测试，禁止在测试或排查中真实调用 Emby / TMDB / MoviePilot / Stripe / Telegram。只有用户明确要求做真实外部验证，且验证方式不需要启动项目服务或后台进程时，才允许执行相关外部调用。
+
+### 2. API 与数据库合同不可破坏
+
+列表接口必须使用 `data` 字段；对外字段命名必须使用 camelCase；GORM 模型必须显式指定 `gorm:"column:xxx"`。任何模型字段、索引、表结构、约束变更都必须同步 SQL migration，不能依赖 `AUTO_MIGRATE`。
+
+### 3. 用户状态流转必须有测试保护
+
+涉及用户生命周期、过期、封禁、配额、支付结果、Emby 同步、Telegram / Bot 通知、后台人工流程、异步任务和定时任务的改动，必须补覆盖关键路径的测试；没有测试保护时，不允许直接改状态流转。
+
+### 4. 测试必须 mock 外部依赖
+
+- Go 测试不得真实请求 Emby / TMDB / MoviePilot / Stripe / Telegram。
+- Python Bot 测试不得真实访问 Telegram Bot API、Internal API 或任何外网 HTTPS。
+- 前端测试不得依赖真实后端。
+- 测试出现 DNS、SSL、ConnectError、token、真实 webhook、真实支付回调等现象时，按漏 mock 处理，不要通过改代理、改真实配置或放宽测试解决。
+
+### 5. 结论必须来自实证
+
+根因、配置是否生效、状态是否错乱、通知是否发送、外部同步是否成功、支付回调是否幂等、兼容性是否成立等判断，必须来自可复现实证：测试、编译、导入检查、日志、代码路径或 git diff。未验证的判断必须标注“未证实”；先前假设被实测推翻时，立即纠正方向。
+
+### 6. 敏感信息和生成物不能提交
+
+禁止提交 `.env`、密钥、Token、验证码、支付敏感信息、session 文件、构建产物、缓存文件和临时生成物。禁止在日志、测试快照或文档示例里写真实密码、Token、验证码、支付敏感信息或完整外部响应体。
+
 ## 快速入口
 
 - 实现 / 修复任务：首次进入仓库、跨模块改动或涉及状态流转 / 外部集成 / 部署入口时，先读 [docs/system-architecture.md](docs/system-architecture.md)；字段、接口、页面、Bot、配置、部署细节再按主文档入口跳转对应 `docs/reference/` 或 `docs/runbooks/`
@@ -33,6 +64,7 @@
 - 主要目录：`services/api`、`services/web`、`services/bot`
 - 首次进入仓库、跨模块改动或涉及用户状态流转 / 外部集成 / 部署入口时，开始工作前先读 [docs/system-architecture.md](docs/system-architecture.md)
 - 单文件低风险局部修补可复用当前上下文；一旦需要判断页面职责、接口边界、数据流转或模块归属，仍需回读 [docs/system-architecture.md](docs/system-architecture.md)
+- 默认从仓库根目录启动 Codex；关键规则必须保留在根 `AGENTS.md`，不要依赖子目录 `AGENTS.md` 自动生效；子系统细则优先沉淀到 `docs/reference/` 与 `docs/runbooks/`
 
 ## 工作方式
 
@@ -43,6 +75,7 @@
 - 表达直接，批评只针对技术问题，不写空话
 - 信息充分且属于低风险局部任务时，不强制等待确认；先复述理解，再直接执行
 - 涉及方向变化、跨模块改动、兼容性敏感改动、数据库 schema、外部集成、用户可见状态流转，或需求边界不清时，必须先确认理解
+- 涉及 root cause、配置生效、状态流转、通知发送、外部同步、支付回调幂等等结论时，按“最高优先级硬约束”的实证要求处理
 
 确认模板：
 
@@ -120,6 +153,16 @@
 - 新写的方法必须补必要测试；测试应覆盖正常路径、关键边界、错误分支、状态变化和外部依赖适配，确保后续修改能通过测试发现回归
 - 极薄的简单转发、框架生命周期钩子或纯声明方法，可以通过上层行为测试覆盖，但必须在最终说明中交代覆盖方式；不能因为方法简单就完全跳过验证
 - 前端新增组合函数、工具函数、状态处理、接口适配和关键交互逻辑时，优先补 `Vitest` / 组件测试；Go 新增业务方法、Repository / Service 逻辑、DTO 转换和边界判断时，优先补 `go test`；Python Bot 新增命令处理、Internal API 客户端、通知编排和解析逻辑时，优先补 `pytest` / `unittest`
+- 默认采用 TDD：涉及新行为、bug 修复、状态流转、DTO 转换、Repository / Service 逻辑、接口适配、Bot 编排、外部依赖适配时，先补一个会失败的测试，再做最小实现，最后重构
+- 历史功能不要求一次性全量补测试；修改到既有链路时，必须先用特征测试锁住当前行为，再做行为变更或重构
+- 纯文档、纯注释、纯样式、无行为变化的目录调整可不走 TDD，但必须做路径、链接、命令和目录落点一致性检查
+
+### 语言与子系统约定
+
+- Go API：遵守 `docs/reference/api-development-conventions.md` 的分层与依赖方向；handler 只做参数绑定、调用 service、错误映射和响应拼装；业务逻辑放 `internal/services/<domain>`；第三方协议适配放 `internal/integrations/<vendor>`；新增测试优先用 `go test ./...` 覆盖，提交前关键改动同时跑 `go vet ./...` 和 `go build ./...`
+- Go 数据模型：数据库表 / 列 / 索引名使用 `snake_case`；Go 字段使用 `CamelCase`；JSON 字段使用 camelCase；GORM 映射和 SQL migration 要求见“API、数据库与日志”
+- Web：Vue 3 + TypeScript + Element Plus + Pinia；接口类型集中维护在 `services/web/src/types/api.ts` 或既有类型入口；新增接口适配、组合函数、状态处理、复杂组件交互时补 `Vitest` / 组件测试；验证优先使用 `npm run test` 和 `npm run build`，禁止用 `npm run dev` 代替验证
+- Bot：Python 3.11 + FastAPI + python-telegram-bot；命令处理、通知格式化、Internal API 客户端、运行期配置和菜单同步改动优先补 `pytest`；验证路径为 `python -m py_compile main.py` 与 `python -m pytest tests`；测试必须 fake Telegram Bot API、Go Internal API 和外网 HTTP
 
 ### 前端
 
@@ -137,10 +180,10 @@
 - Go 后端改动涉及关键路径时，必须补足够排障的日志；关键路径至少包括外部集成调用、定时任务入口与关键分支、异步任务、fire-and-forget 通知、复杂聚合、回退分支、兼容路径、容易出现数据错配或边界条件的核心逻辑
 - 日志必须能看出步骤、关键参数、分支原因和失败点；优先记录 `userId`、`itemId`、`batchId`、数量、时间范围、周期、状态等关键标识；禁止输出密码、Token、验证码、支付敏感信息、完整返回体；避免逐行刷屏
 
-### 服务操作限制
+### 验证边界
 
-- 禁止：启动服务（`go run`、`npm run dev`）、后台运行服务、对正在运行的服务做 `curl` / `wget` 测试
-- 允许：编译验证（`go build ./...`、`npm run build`）、Lint、单元测试
+- 禁止项见“最高优先级硬约束”：不启动服务、不后台运行服务、不对正在运行的服务做 `curl` / `wget` 测试、不真实触发外部链路
+- 允许：编译验证（`go build ./...`、`npm run build`）、Lint、单元测试；具体命令见 [docs/runbooks/testing.md](docs/runbooks/testing.md)
 
 ## 文档规则
 
@@ -174,6 +217,7 @@
 - 创建开发分支时遵循 [Git 协作规范](docs/reference/git-workflow-guide.md)；分支名默认使用 `<type>/<short-topic>`，例如 `fix/user-expiry-status`
 - 流程：修改代码或文档；若涉及代码、配置、schema、构建入口，做编译验证；若为纯文档、纯注释、纯治理改动，可跳过编译，但必须检查链接、路径、引用、命名和目录落点一致性；若涉及数据库 schema，补 SQL migration；同步必要文档；询问用户 `✅ 变更已完成并验证，是否需要提交？`；只有用户明确同意后，才执行 `git commit`
 - 用户已明确同意提交后，不再重复询问；执行 `git commit` 时直接按提权路径执行，不先尝试沙箱版提交
+- 提交前必须检查工作区和暂存区，避免提交 `.env`、密钥、session、构建产物、缓存文件、临时生成物或无关改动；常用命令：`git status --short`、`git diff --cached --name-status`
 - 提交拆分规则：一个提交只表达一个主功能、一个主修复或一个主重构；多个可独立理解、独立验证、独立回滚的功能点必须拆成多个提交；同一功能跨前端、后端、数据库、测试、文档的配套改动可以放在同一个提交里；无关改动、纯格式化、纯重命名、纯文档归档原则上单独提交
 - 如果同一功能改动仍然过大，应继续拆成可独立验证的原子提交；只有拆开后会导致中间提交不可编译、不可测试或行为不一致时，才允许合并提交
 - 提交前先检查：这个提交是否可以作为一个独立语义单元被 review、被回滚、被 cherry-pick；如果不行，继续拆分
@@ -186,6 +230,6 @@
 ## 最后约束
 
 - 不在理解不清时直接编码
-- 不启动服务
+- 不违反“最高优先级硬约束”
 - 不主动提交
 - 只做必要验证；代码相关改动优先编译验证，纯文档治理改动做一致性检查；提交前必须先问，用户已明确同意提交后，直接执行 `git commit`

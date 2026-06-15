@@ -24,6 +24,7 @@ go build ./...
 ```bash
 cd services/web
 npm ci
+npm run test
 npm run build
 ```
 
@@ -31,8 +32,9 @@ npm run build
 
 ```bash
 cd services/bot
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 python -m py_compile main.py
+python -m pytest tests
 ```
 
 ## 什么时候必须补手工测试
