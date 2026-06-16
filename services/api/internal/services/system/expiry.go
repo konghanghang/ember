@@ -61,6 +61,17 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return &CheckExpiredUsersResult{
+				Errors:        []string{},
+				DisabledUsers: []DisabledUserInfo{},
+				FailedUsers:   []map[string]interface{}{},
+				Canceled:      true,
+			}, nil
+		}
+		return nil, err
+	}
 
 	errMessages := []string{}
 	disabledCount := 0
