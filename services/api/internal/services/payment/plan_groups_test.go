@@ -228,6 +228,27 @@ func TestPlanGroupManagedPolicyTaskQueryExcludesAdminsAndProtectionFailures(t *t
 	}
 }
 
+func TestResolveEffectivePlanGroupKeyReturnsExplicitKeyWhenDBUnavailable(t *testing.T) {
+	explicit := " vip-b "
+
+	got, err := ResolveEffectivePlanGroupKey(nil, &explicit)
+	if err != nil {
+		t.Fatalf("ResolveEffectivePlanGroupKey() error = %v", err)
+	}
+	if got != "VIP-B" {
+		t.Fatalf("ResolveEffectivePlanGroupKey() = %q, want VIP-B", got)
+	}
+}
+
+func TestResolveEffectivePlanGroupKeyRejectsInvalidExplicitKeyBeforeDB(t *testing.T) {
+	explicit := "vip b"
+
+	_, err := ResolveEffectivePlanGroupKey(nil, &explicit)
+	if !errors.Is(err, ErrPlanGroupInvalid) {
+		t.Fatalf("expected ErrPlanGroupInvalid, got %v", err)
+	}
+}
+
 func assertSQLContains(t *testing.T, sql string, fragment string) {
 	t.Helper()
 	if !strings.Contains(sql, fragment) {
