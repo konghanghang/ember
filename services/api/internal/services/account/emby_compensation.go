@@ -43,6 +43,7 @@ var backoffSchedule = []time.Duration{
 type EmbyCompensation struct {
 	embyService *embyint.EmbyService
 	now         func() time.Time
+	createOp    func(context.Context, models.FailedEmbyAsyncOp) error
 }
 
 // NewEmbyCompensation 装配补偿器；embyService 不能为空，便于测试时替换为 mock。
@@ -53,6 +54,7 @@ func NewEmbyCompensation(embyService *embyint.EmbyService) *EmbyCompensation {
 	return &EmbyCompensation{
 		embyService: embyService,
 		now:         func() time.Time { return time.Now().UTC() },
+		createOp:    createFailedEmbyAsyncOp,
 	}
 }
 
@@ -122,12 +124,17 @@ func (c *EmbyCompensation) Enqueue(ctx context.Context, op models.FailedEmbyAsyn
 		op.NextAttemptAt = c.now().Add(backoffSchedule[0])
 	}
 
-	if err := db.DB.WithContext(ctx).Create(&op).Error; err != nil {
+	if err := c.createOp(ctx, op); err != nil {
 		return fmt.Errorf("compensation: 入队失败 origin=%s embyUserId=%s err=%w", op.Origin, op.EmbyUserID, err)
 	}
 	log.Printf("[Compensation] 入队 origin=%s action=%s originRefId=%s embyUserId=%s nextAttemptAt=%s",
 		op.Origin, op.Action, op.OriginRefID, op.EmbyUserID, op.NextAttemptAt.Format(time.RFC3339))
 	return nil
+}
+
+// createFailedEmbyAsyncOp 将补偿操作写入数据库，作为 Enqueue 的默认持久化实现。
+func createFailedEmbyAsyncOp(ctx context.Context, op models.FailedEmbyAsyncOp) error {
+	return db.DB.WithContext(ctx).Create(&op).Error
 }
 
 func isValidFailedEmbyOrigin(origin models.FailedEmbyAsyncOpOrigin) bool {
