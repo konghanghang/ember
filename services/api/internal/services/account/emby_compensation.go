@@ -106,11 +106,17 @@ func (c *EmbyCompensation) Enqueue(ctx context.Context, op models.FailedEmbyAsyn
 	if strings.TrimSpace(string(op.Origin)) == "" {
 		return errors.New("compensation: origin 不能为空")
 	}
+	if !isValidFailedEmbyOrigin(op.Origin) {
+		return fmt.Errorf("compensation: origin 无效: %s", op.Origin)
+	}
 	if strings.TrimSpace(op.EmbyUserID) == "" {
 		return errors.New("compensation: embyUserId 不能为空")
 	}
 	if strings.TrimSpace(string(op.Action)) == "" {
 		return errors.New("compensation: action 不能为空")
+	}
+	if !isValidFailedEmbyAction(op.Action) {
+		return fmt.Errorf("compensation: action 无效: %s", op.Action)
 	}
 	if op.NextAttemptAt.IsZero() {
 		op.NextAttemptAt = c.now().Add(backoffSchedule[0])
@@ -122,6 +128,26 @@ func (c *EmbyCompensation) Enqueue(ctx context.Context, op models.FailedEmbyAsyn
 	log.Printf("[Compensation] 入队 origin=%s action=%s originRefId=%s embyUserId=%s nextAttemptAt=%s",
 		op.Origin, op.Action, op.OriginRefID, op.EmbyUserID, op.NextAttemptAt.Format(time.RFC3339))
 	return nil
+}
+
+func isValidFailedEmbyOrigin(origin models.FailedEmbyAsyncOpOrigin) bool {
+	switch origin {
+	case models.FailedEmbyOriginPaymentUnban,
+		models.FailedEmbyOriginRedemptionUnban,
+		models.FailedEmbyOriginRegisterCleanup:
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidFailedEmbyAction(action models.FailedEmbyAsyncOpAction) bool {
+	switch action {
+	case models.FailedEmbyActionUnban, models.FailedEmbyActionDelete:
+		return true
+	default:
+		return false
+	}
 }
 
 // ProcessResult 描述单轮处理结果，便于 cron 与测试观测。
