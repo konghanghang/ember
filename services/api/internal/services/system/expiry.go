@@ -9,7 +9,6 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
-	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 )
 
 // CheckExpiredUsersResult 定时任务结果
@@ -79,19 +78,15 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 	disabledUsers := []DisabledUserInfo{}
 	failedUsers := []map[string]interface{}{}
 	failureTruncated := false
-	cutoff := time.Now().UTC()
+	cutoff := s.now()
 
-	var totalExpired int64
-	if err := db.DB.WithContext(ctx).Model(&models.User{}).
-		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
-		Count(&totalExpired).Error; err != nil {
+	totalExpired, err := s.countExpiredUsers(ctx, cutoff)
+	if err != nil {
 		return nil, fmt.Errorf("查询过期用户总数失败: %w", err)
 	}
 
-	var expiredUsers []models.User
-	if err := db.DB.WithContext(ctx).
-		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
-		Find(&expiredUsers).Error; err != nil {
+	expiredUsers, err := s.findExpiredUsers(ctx, cutoff)
+	if err != nil {
 		return nil, fmt.Errorf("查询过期用户失败: %w", err)
 	}
 
@@ -117,8 +112,7 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 
 		processedCount++
 
-		policyService := policypkg.NewService(s.embyService)
-		if err := policyService.ApplyEffectiveUserPolicyOrRecordFailure(user.ID, "expired_user_check"); err != nil {
+		if err := s.applyExpiredPolicy(user.ID); err != nil {
 			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, err)
 			errMessages = appendLimitedString(errMessages, errorMsg, &failureTruncated, maxCheckExpiredUsersErrors)
 			failedUsers = appendLimitedFailedUser(failedUsers, map[string]interface{}{
@@ -154,4 +148,22 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 		FailedUsers:      failedUsers,
 		FailureTruncated: failureTruncated,
 	}, nil
+}
+
+// countExpiredUsers 统计需要封禁的过期用户数量。
+func countExpiredUsers(ctx context.Context, cutoff time.Time) (int64, error) {
+	var totalExpired int64
+	err := db.DB.WithContext(ctx).Model(&models.User{}).
+		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
+		Count(&totalExpired).Error
+	return totalExpired, err
+}
+
+// findExpiredUsers 查询需要封禁的过期用户列表。
+func findExpiredUsers(ctx context.Context, cutoff time.Time) ([]models.User, error) {
+	var expiredUsers []models.User
+	err := db.DB.WithContext(ctx).
+		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
+		Find(&expiredUsers).Error
+	return expiredUsers, err
 }

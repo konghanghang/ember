@@ -1,23 +1,37 @@
 package system
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 )
 
 // SystemService 系统服务
 type SystemService struct {
-	embyService *embyint.EmbyService
+	embyService        *embyint.EmbyService
+	now                func() time.Time
+	countExpiredUsers  func(context.Context, time.Time) (int64, error)
+	findExpiredUsers   func(context.Context, time.Time) ([]models.User, error)
+	applyExpiredPolicy func(string) error
 }
 
 // NewSystemService 创建系统服务
 func NewSystemService() *SystemService {
-	return &SystemService{
+	service := &SystemService{
 		embyService: embyint.GetSharedService(),
+		now:         func() time.Time { return time.Now().UTC() },
 	}
+	service.countExpiredUsers = countExpiredUsers
+	service.findExpiredUsers = findExpiredUsers
+	service.applyExpiredPolicy = func(userID string) error {
+		return policypkg.NewService(service.embyService).ApplyEffectiveUserPolicyOrRecordFailure(userID, "expired_user_check")
+	}
+	return service
 }
 
 // SystemInfo 系统统计信息
