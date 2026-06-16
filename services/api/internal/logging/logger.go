@@ -88,7 +88,7 @@ func (w *dailyFileWriter) ensureFile() (*os.File, error) {
 }
 
 var (
-	initOnce  sync.Once
+	initOnce            = &sync.Once{}
 	logWriter io.Writer = os.Stdout
 	initErr   error
 )
