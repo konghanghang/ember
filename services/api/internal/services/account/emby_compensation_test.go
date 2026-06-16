@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -100,5 +101,50 @@ func TestEmbyCompensationEnqueueAppliesDefaultBackoff(t *testing.T) {
 	wantNextAttemptAt := now.Add(30 * time.Second)
 	if !captured.NextAttemptAt.Equal(wantNextAttemptAt) {
 		t.Fatalf("NextAttemptAt mismatch: want %s got %s", wantNextAttemptAt, captured.NextAttemptAt)
+	}
+}
+
+func TestEmbyCompensationMarkFailureAppliesBackoffAndTruncatesError(t *testing.T) {
+	now := time.Date(2026, 6, 16, 13, 0, 0, 0, time.UTC)
+	longErr := strings.Repeat("x", maxLastErrorLength+20)
+	var capturedID string
+	var capturedUpdates map[string]interface{}
+
+	compensation := NewEmbyCompensation(nil)
+	compensation.now = func() time.Time { return now }
+	compensation.updateOpFailure = func(_ context.Context, id string, updates map[string]interface{}) error {
+		capturedID = id
+		capturedUpdates = updates
+		return nil
+	}
+
+	compensation.markFailure(context.Background(), models.FailedEmbyAsyncOp{
+		ID:          "op_1",
+		Origin:      models.FailedEmbyOriginPaymentUnban,
+		OriginRefID: "payment_1",
+		EmbyUserID:  "emby_user_1",
+		Action:      models.FailedEmbyActionUnban,
+		Retries:     1,
+	}, errors.New(longErr))
+
+	if capturedID != "op_1" {
+		t.Fatalf("expected op id op_1, got %q", capturedID)
+	}
+	if capturedUpdates["retries"] != 2 {
+		t.Fatalf("expected retries=2, got %#v", capturedUpdates["retries"])
+	}
+	wantNextAttemptAt := now.Add(2 * time.Minute)
+	if got, ok := capturedUpdates["next_attempt_at"].(time.Time); !ok || !got.Equal(wantNextAttemptAt) {
+		t.Fatalf("next_attempt_at mismatch: want %s got %#v", wantNextAttemptAt, capturedUpdates["next_attempt_at"])
+	}
+	lastError, ok := capturedUpdates["last_error"].(string)
+	if !ok {
+		t.Fatalf("expected last_error string, got %#v", capturedUpdates["last_error"])
+	}
+	if len(lastError) != maxLastErrorLength {
+		t.Fatalf("expected last_error length %d, got %d", maxLastErrorLength, len(lastError))
+	}
+	if got, ok := capturedUpdates["updated_at"].(time.Time); !ok || !got.Equal(now) {
+		t.Fatalf("updated_at mismatch: want %s got %#v", now, capturedUpdates["updated_at"])
 	}
 }

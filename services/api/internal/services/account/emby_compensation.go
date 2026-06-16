@@ -41,9 +41,10 @@ var backoffSchedule = []time.Duration{
 
 // EmbyCompensation 提供入队 + cron 处理两个入口。
 type EmbyCompensation struct {
-	embyService *embyint.EmbyService
-	now         func() time.Time
-	createOp    func(context.Context, models.FailedEmbyAsyncOp) error
+	embyService     *embyint.EmbyService
+	now             func() time.Time
+	createOp        func(context.Context, models.FailedEmbyAsyncOp) error
+	updateOpFailure func(context.Context, string, map[string]interface{}) error
 }
 
 // NewEmbyCompensation 装配补偿器；embyService 不能为空，便于测试时替换为 mock。
@@ -52,9 +53,10 @@ func NewEmbyCompensation(embyService *embyint.EmbyService) *EmbyCompensation {
 		embyService = embyint.GetSharedService()
 	}
 	return &EmbyCompensation{
-		embyService: embyService,
-		now:         func() time.Time { return time.Now().UTC() },
-		createOp:    createFailedEmbyAsyncOp,
+		embyService:     embyService,
+		now:             func() time.Time { return time.Now().UTC() },
+		createOp:        createFailedEmbyAsyncOp,
+		updateOpFailure: updateFailedEmbyAsyncOpFailure,
 	}
 }
 
@@ -243,10 +245,7 @@ func (c *EmbyCompensation) markFailure(ctx context.Context, op models.FailedEmby
 		"last_error":      errMsg,
 		"updated_at":      c.now(),
 	}
-	if err := db.DB.WithContext(ctx).
-		Model(&models.FailedEmbyAsyncOp{}).
-		Where("id = ?", op.ID).
-		Updates(updates).Error; err != nil {
+	if err := c.updateOpFailure(ctx, op.ID, updates); err != nil {
 		log.Printf("[Compensation] 写回失败状态错误 id=%s err=%v", op.ID, err)
 		return
 	}
@@ -265,6 +264,14 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// updateFailedEmbyAsyncOpFailure 写回失败补偿操作的重试状态。
+func updateFailedEmbyAsyncOpFailure(ctx context.Context, id string, updates map[string]interface{}) error {
+	return db.DB.WithContext(ctx).
+		Model(&models.FailedEmbyAsyncOp{}).
+		Where("id = ?", id).
+		Updates(updates).Error
 }
 
 // 兜底：防止 gorm.DB 在某些场景为 nil（例如部分测试构造）。
