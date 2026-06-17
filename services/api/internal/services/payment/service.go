@@ -495,6 +495,46 @@ func shouldReusePendingPayment(payment models.Payment, now time.Time) bool {
 	return payment.ExpiresAt.After(now.UTC())
 }
 
+type paymentWebhookSkipReason string
+
+const (
+	paymentWebhookSkipNone       paymentWebhookSkipReason = ""
+	paymentWebhookSkipCompleted  paymentWebhookSkipReason = "completed"
+	paymentWebhookSkipFailed     paymentWebhookSkipReason = "failed"
+	paymentWebhookSkipExpired    paymentWebhookSkipReason = "expired"
+	paymentWebhookSkipOutOfOrder paymentWebhookSkipReason = "out_of_order"
+)
+
+func successfulPaymentFulfillmentSkipReason(payment models.Payment, eventCreated time.Time) paymentWebhookSkipReason {
+	switch payment.Status {
+	case models.PaymentCompleted:
+		return paymentWebhookSkipCompleted
+	case models.PaymentFailed:
+		return paymentWebhookSkipFailed
+	case models.PaymentExpired:
+		return paymentWebhookSkipExpired
+	}
+	if !eventCreated.IsZero() && eventCreated.Before(payment.UpdatedAt) {
+		return paymentWebhookSkipOutOfOrder
+	}
+	return paymentWebhookSkipNone
+}
+
+func failedPaymentMarkSkipReason(payment models.Payment, eventCreated time.Time) paymentWebhookSkipReason {
+	switch payment.Status {
+	case models.PaymentCompleted:
+		return paymentWebhookSkipCompleted
+	case models.PaymentExpired:
+		return paymentWebhookSkipExpired
+	case models.PaymentFailed:
+		return paymentWebhookSkipFailed
+	}
+	if !eventCreated.IsZero() && eventCreated.Before(payment.UpdatedAt) {
+		return paymentWebhookSkipOutOfOrder
+	}
+	return paymentWebhookSkipNone
+}
+
 func (s *PaymentService) expirePendingPayments(userID, planID string, now time.Time) error {
 	query := db.DB.Model(&models.Payment{}).
 		Where("status = ?", models.PaymentPending).
@@ -1078,24 +1118,21 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		return ErrPaymentFailed
 	}
 
-	if payment.Status == models.PaymentCompleted {
+	switch successfulPaymentFulfillmentSkipReason(payment, eventCreated) {
+	case paymentWebhookSkipNone:
+	case paymentWebhookSkipCompleted:
 		tx.Rollback()
 		log.Printf("[Payment] 支付已履约，忽略重复 webhook: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
-	}
-	// 失败态是终态，禁止后续成功事件回写为 completed，避免状态穿越。
-	if payment.Status == models.PaymentFailed {
+	case paymentWebhookSkipFailed:
 		tx.Rollback()
 		log.Printf("[Payment] 支付已标记失败，忽略成功回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
-	}
-	if payment.Status == models.PaymentExpired {
+	case paymentWebhookSkipExpired:
 		tx.Rollback()
 		log.Printf("[Payment] 支付订单已过期，忽略成功回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
-	}
-	// 乱序保护：若该 webhook 早于 payment.updatedAt，说明本地已被更新事件之后的状态收口，跳过。
-	if !eventCreated.IsZero() && eventCreated.Before(payment.UpdatedAt) {
+	case paymentWebhookSkipOutOfOrder:
 		tx.Rollback()
 		log.Printf("[Payment] 忽略乱序支付成功事件: paymentID=%s sessionID=%s eventCreated=%s paymentUpdatedAt=%s",
 			payment.ID, payment.StripeSessionID, eventCreated.Format(time.RFC3339), payment.UpdatedAt.Format(time.RFC3339))
@@ -1256,23 +1293,21 @@ func (s *PaymentService) markPaymentFailed(sessionID string, eventCreated time.T
 		return ErrPaymentFailed
 	}
 
-	// 已履约记录不可被失败事件回滚，避免重复 webhook 破坏状态。
-	if payment.Status == models.PaymentCompleted {
+	switch failedPaymentMarkSkipReason(payment, eventCreated) {
+	case paymentWebhookSkipNone:
+	case paymentWebhookSkipCompleted:
 		tx.Rollback()
 		log.Printf("[Payment] 支付已完成，忽略失败回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
-	}
-	if payment.Status == models.PaymentExpired {
+	case paymentWebhookSkipExpired:
 		tx.Rollback()
 		log.Printf("[Payment] 支付已过期，忽略失败回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
-	}
-	if payment.Status == models.PaymentFailed {
+	case paymentWebhookSkipFailed:
 		tx.Rollback()
 		log.Printf("[Payment] 支付已失败，忽略重复失败回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
-	}
-	if !eventCreated.IsZero() && eventCreated.Before(payment.UpdatedAt) {
+	case paymentWebhookSkipOutOfOrder:
 		tx.Rollback()
 		log.Printf("[Payment] 忽略乱序支付失败事件: paymentID=%s sessionID=%s eventCreated=%s paymentUpdatedAt=%s",
 			payment.ID, payment.StripeSessionID, eventCreated.Format(time.RFC3339), payment.UpdatedAt.Format(time.RFC3339))

@@ -172,6 +172,109 @@ func TestShouldReusePendingPayment(t *testing.T) {
 	}
 }
 
+func TestSuccessfulPaymentFulfillmentSkipReason(t *testing.T) {
+	updatedAt := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	olderEvent := updatedAt.Add(-time.Minute)
+	newerEvent := updatedAt.Add(time.Minute)
+
+	testCases := []struct {
+		name         string
+		payment      models.Payment
+		eventCreated time.Time
+		want         paymentWebhookSkipReason
+	}{
+		{
+			name:    "completed payment is idempotent",
+			payment: models.Payment{Status: models.PaymentCompleted, UpdatedAt: updatedAt},
+			want:    paymentWebhookSkipCompleted,
+		},
+		{
+			name:    "failed payment blocks success event",
+			payment: models.Payment{Status: models.PaymentFailed, UpdatedAt: updatedAt},
+			want:    paymentWebhookSkipFailed,
+		},
+		{
+			name:    "expired payment blocks success event",
+			payment: models.Payment{Status: models.PaymentExpired, UpdatedAt: updatedAt},
+			want:    paymentWebhookSkipExpired,
+		},
+		{
+			name:         "older success event is ignored",
+			payment:      models.Payment{Status: models.PaymentPending, UpdatedAt: updatedAt},
+			eventCreated: olderEvent,
+			want:         paymentWebhookSkipOutOfOrder,
+		},
+		{
+			name:         "newer pending success event can proceed",
+			payment:      models.Payment{Status: models.PaymentPending, UpdatedAt: updatedAt},
+			eventCreated: newerEvent,
+			want:         paymentWebhookSkipNone,
+		},
+		{
+			name:    "missing event time can proceed for pending payment",
+			payment: models.Payment{Status: models.PaymentPending, UpdatedAt: updatedAt},
+			want:    paymentWebhookSkipNone,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := successfulPaymentFulfillmentSkipReason(tc.payment, tc.eventCreated); got != tc.want {
+				t.Fatalf("expected skip reason %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestFailedPaymentMarkSkipReason(t *testing.T) {
+	updatedAt := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	olderEvent := updatedAt.Add(-time.Minute)
+	newerEvent := updatedAt.Add(time.Minute)
+
+	testCases := []struct {
+		name         string
+		payment      models.Payment
+		eventCreated time.Time
+		want         paymentWebhookSkipReason
+	}{
+		{
+			name:    "completed payment blocks failure event",
+			payment: models.Payment{Status: models.PaymentCompleted, UpdatedAt: updatedAt},
+			want:    paymentWebhookSkipCompleted,
+		},
+		{
+			name:    "expired payment blocks failure event",
+			payment: models.Payment{Status: models.PaymentExpired, UpdatedAt: updatedAt},
+			want:    paymentWebhookSkipExpired,
+		},
+		{
+			name:    "failed payment is idempotent",
+			payment: models.Payment{Status: models.PaymentFailed, UpdatedAt: updatedAt},
+			want:    paymentWebhookSkipFailed,
+		},
+		{
+			name:         "older failure event is ignored",
+			payment:      models.Payment{Status: models.PaymentPending, UpdatedAt: updatedAt},
+			eventCreated: olderEvent,
+			want:         paymentWebhookSkipOutOfOrder,
+		},
+		{
+			name:         "newer pending failure event can proceed",
+			payment:      models.Payment{Status: models.PaymentPending, UpdatedAt: updatedAt},
+			eventCreated: newerEvent,
+			want:         paymentWebhookSkipNone,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := failedPaymentMarkSkipReason(tc.payment, tc.eventCreated); got != tc.want {
+				t.Fatalf("expected skip reason %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestPaymentPureHelpers(t *testing.T) {
 	if got := truncateString("abcdef", 3); got != "abc" {
 		t.Fatalf("truncateString() = %q, want abc", got)
