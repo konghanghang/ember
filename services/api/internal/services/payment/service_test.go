@@ -275,6 +275,42 @@ func TestFailedPaymentMarkSkipReason(t *testing.T) {
 	}
 }
 
+func TestCalculateFulfilledPaymentExpiryStartsFromNowWithoutActiveExpiry(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	expiredAt := now.Add(-time.Second)
+
+	tests := []struct {
+		name          string
+		currentExpiry *time.Time
+	}{
+		{name: "nil expiry", currentExpiry: nil},
+		{name: "expired expiry", currentExpiry: &expiredAt},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := calculateFulfilledPaymentExpiry(now, tc.currentExpiry, 90)
+			want := now.AddDate(0, 0, 90)
+
+			if !got.Equal(want) {
+				t.Fatalf("expected expiry from now %s, got %s", want, got)
+			}
+		})
+	}
+}
+
+func TestCalculateFulfilledPaymentExpiryExtendsActiveExpiry(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	currentExpiry := now.AddDate(0, 0, 21)
+
+	got := calculateFulfilledPaymentExpiry(now, &currentExpiry, 30)
+	want := currentExpiry.AddDate(0, 0, 30)
+
+	if !got.Equal(want) {
+		t.Fatalf("expected extension from current expiry %s, got %s", want, got)
+	}
+}
+
 func TestPaymentPureHelpers(t *testing.T) {
 	if got := truncateString("abcdef", 3); got != "abc" {
 		t.Fatalf("truncateString() = %q, want abc", got)

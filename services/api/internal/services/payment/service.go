@@ -1197,12 +1197,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		copied := *user.ExpiresAt
 		oldExpiry = &copied
 	}
-	var newExpiry time.Time
-	if user.ExpiresAt == nil || user.ExpiresAt.Before(now) {
-		newExpiry = now.AddDate(0, 0, payment.Days)
-	} else {
-		newExpiry = user.ExpiresAt.AddDate(0, 0, payment.Days)
-	}
+	newExpiry := calculateFulfilledPaymentExpiry(now, user.ExpiresAt, payment.Days)
 
 	user.ExpiresAt = &newExpiry
 	// Emby Policy 同步移到事务外（commit 后异步），避免事务中持有 Emby 网络 I/O。
@@ -1271,6 +1266,14 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	})
 
 	return nil
+}
+
+// calculateFulfilledPaymentExpiry 计算支付履约后的用户到期日；有效账号从原到期日累加，空或已过期账号从当前时间起算。
+func calculateFulfilledPaymentExpiry(now time.Time, currentExpiry *time.Time, days int) time.Time {
+	if currentExpiry == nil || currentExpiry.Before(now) {
+		return now.AddDate(0, 0, days)
+	}
+	return currentExpiry.AddDate(0, 0, days)
 }
 
 func (s *PaymentService) markPaymentFailed(sessionID string, eventCreated time.Time) error {
