@@ -2,11 +2,13 @@ package redemption
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	"gorm.io/driver/postgres"
@@ -126,6 +128,51 @@ func TestEnsureRegistrationPlanGroupExistsUsesLockedLookup(t *testing.T) {
 	}
 }
 
+func TestCreateRedemptionCodesRejectsInvalidBatchCountBeforeValidation(t *testing.T) {
+	origNormalize := redemptionNormalizePlanGroupKey
+	defer func() {
+		redemptionNormalizePlanGroupKey = origNormalize
+	}()
+	redemptionNormalizePlanGroupKey = func(raw string, allowEmpty bool) (string, error) {
+		t.Fatalf("plan group validation must not run for invalid batch count")
+		return "", nil
+	}
+
+	service := &RedemptionCodeService{}
+	for _, count := range []int{0, maxCreateRedemptionCodesCount + 1} {
+		t.Run("count", func(t *testing.T) {
+			_, err := service.createRedemptionCodes(RedemptionCodeCreateOptions{
+				MaxUses:               1,
+				DefaultDays:           30,
+				RegistrationPlanGroup: "VIP_A",
+			}, count)
+			if !errors.Is(err, ErrRedemptionCodeBatchCountInvalid) {
+				t.Fatalf("expected ErrRedemptionCodeBatchCountInvalid, got %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerateCodeReturnsRequestedLowerHexLength(t *testing.T) {
+	service := &RedemptionCodeService{}
+	hexPattern := regexp.MustCompile(`^[0-9a-f]+$`)
+
+	for _, length := range []int{1, 7, 16, 20} {
+		t.Run("length", func(t *testing.T) {
+			code, err := service.generateCode(length)
+			if err != nil {
+				t.Fatalf("generate code: %v", err)
+			}
+			if len(code) != length {
+				t.Fatalf("expected length %d, got %d (%q)", length, len(code), code)
+			}
+			if !hexPattern.MatchString(code) {
+				t.Fatalf("expected lower hex code, got %q", code)
+			}
+		})
+	}
+}
+
 func TestValidateUsableCodeTrimsInputAndMapsLookupErrors(t *testing.T) {
 	origFindCode := redemptionFindCodeByValue
 	defer func() {
@@ -183,6 +230,71 @@ func TestValidateUsableCodeTrimsInputAndMapsLookupErrors(t *testing.T) {
 	}
 }
 
+func TestEnsureRegistrationPlanGroupAvailableMapsMissingAndPropagatesLookupErrors(t *testing.T) {
+	origGetPlanGroup := redemptionGetPlanGroupByKey
+	defer func() {
+		redemptionGetPlanGroupByKey = origGetPlanGroup
+	}()
+
+	service := &RedemptionCodeService{}
+	if err := service.ensureRegistrationPlanGroupAvailable(nil); !errors.Is(err, ErrRegistrationPlanGroupRequired) {
+		t.Fatalf("expected ErrRegistrationPlanGroupRequired for nil code, got %v", err)
+	}
+	if err := service.ensureRegistrationPlanGroupAvailable(&models.RedemptionCode{}); !errors.Is(err, ErrRegistrationPlanGroupRequired) {
+		t.Fatalf("expected ErrRegistrationPlanGroupRequired for blank plan group, got %v", err)
+	}
+
+	redemptionGetPlanGroupByKey = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+		if key != "VIP_A" {
+			t.Fatalf("expected lookup key VIP_A, got %q", key)
+		}
+		return &models.PlanGroup{Key: key, Name: "VIP A"}, nil
+	}
+	if err := service.ensureRegistrationPlanGroupAvailable(&models.RedemptionCode{RegistrationPlanGroup: "VIP_A"}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+
+	redemptionGetPlanGroupByKey = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+		return nil, paymentpkg.ErrPlanGroupNotFound
+	}
+	if err := service.ensureRegistrationPlanGroupAvailable(&models.RedemptionCode{ID: "rcode_1", RegistrationPlanGroup: "VIP_A"}); !errors.Is(err, ErrRegistrationPlanGroupNotFound) {
+		t.Fatalf("expected ErrRegistrationPlanGroupNotFound, got %v", err)
+	}
+
+	lookupErr := errors.New("lookup failed")
+	redemptionGetPlanGroupByKey = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+		return nil, lookupErr
+	}
+	if err := service.ensureRegistrationPlanGroupAvailable(&models.RedemptionCode{RegistrationPlanGroup: "VIP_A"}); !errors.Is(err, lookupErr) {
+		t.Fatalf("expected original lookup error, got %v", err)
+	}
+}
+
+func TestEnrichCodeHandlesNilAndSkipsDisplayLookupWithoutDB(t *testing.T) {
+	originalDB := db.DB
+	db.DB = nil
+	defer func() {
+		db.DB = originalDB
+	}()
+
+	service := &RedemptionCodeService{}
+	if err := service.enrichCode(nil); err != nil {
+		t.Fatalf("expected nil code to be ignored, got %v", err)
+	}
+
+	code := &models.RedemptionCode{
+		ID:                    "rcode_1",
+		Code:                  "invite-code",
+		RegistrationPlanGroup: "VIP_A",
+	}
+	if err := service.enrichCode(code); err != nil {
+		t.Fatalf("expected enrich without DB to succeed, got %v", err)
+	}
+	if code.RegistrationPlanGroupName != nil {
+		t.Fatalf("expected no display name without DB, got %+v", code.RegistrationPlanGroupName)
+	}
+}
+
 func TestIsRedemptionCodeConflictDetectsPostgresDuplicateKey(t *testing.T) {
 	if !isRedemptionCodeConflict(&pgconn.PgError{Code: "23505"}) {
 		t.Fatalf("expected duplicate key pg error to be a redemption code conflict")
@@ -191,6 +303,18 @@ func TestIsRedemptionCodeConflictDetectsPostgresDuplicateKey(t *testing.T) {
 		t.Fatalf("expected non-duplicate pg error to be ignored")
 	}
 	if isRedemptionCodeConflict(errors.New("plain error")) {
+		t.Fatalf("expected non-pg error to be ignored")
+	}
+}
+
+func TestIsRedemptionDuplicateInsertDetectsPostgresDuplicateKey(t *testing.T) {
+	if !isRedemptionDuplicateInsert(&pgconn.PgError{Code: "23505"}) {
+		t.Fatalf("expected duplicate key pg error to be a redemption duplicate insert")
+	}
+	if isRedemptionDuplicateInsert(&pgconn.PgError{Code: "23503"}) {
+		t.Fatalf("expected non-duplicate pg error to be ignored")
+	}
+	if isRedemptionDuplicateInsert(errors.New("plain error")) {
 		t.Fatalf("expected non-pg error to be ignored")
 	}
 }
