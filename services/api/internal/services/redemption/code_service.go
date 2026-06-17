@@ -249,8 +249,7 @@ func (s *RedemptionCodeService) ValidateRenewalCode(code string) (*models.Redemp
 }
 
 func (s *RedemptionCodeService) UseCode(code string) error {
-	result := db.DB.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"used_count\" < \"max_uses\"", code).
+	result := buildUsableCodeConsumptionQuery(db.DB, code, time.Now().UTC()).
 		Update("used_count", gorm.Expr("\"used_count\" + 1"))
 
 	if result.Error != nil {
@@ -260,6 +259,12 @@ func (s *RedemptionCodeService) UseCode(code string) error {
 		return ErrRedemptionCodeInvalid
 	}
 	return nil
+}
+
+// buildUsableCodeConsumptionQuery 构造可消费兑换码查询；只有未用尽且未过期的兑换码可被消费。
+func buildUsableCodeConsumptionQuery(database *gorm.DB, code string, now time.Time) *gorm.DB {
+	return database.Model(&models.RedemptionCode{}).
+		Where("code = ? AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", strings.TrimSpace(code), now)
 }
 
 func (s *RedemptionCodeService) generateCode(length int) (string, error) {

@@ -386,6 +386,28 @@ func TestApplyRedemptionCodeStatusFilterBuildsExpectedPredicates(t *testing.T) {
 	}
 }
 
+func TestBuildUsableCodeConsumptionQueryGuardsUsageAndExpiry(t *testing.T) {
+	database := newRedemptionDryRunDB(t)
+	now := time.Date(2026, 6, 17, 8, 30, 0, 0, time.UTC)
+
+	var codes []models.RedemptionCode
+	stmt := buildUsableCodeConsumptionQuery(database, "  renew-code  ", now).Find(&codes).Statement
+	sql := normalizeRedemptionSQL(stmt.SQL.String())
+
+	assertRedemptionSQLContains(t, sql, `code =`)
+	assertRedemptionSQLContains(t, sql, `"used_count" < "max_uses"`)
+	assertRedemptionSQLContains(t, sql, `"expires_at" IS NULL OR "expires_at" >`)
+	if len(stmt.Vars) != 2 {
+		t.Fatalf("expected code and now vars, got %+v", stmt.Vars)
+	}
+	if stmt.Vars[0] != "renew-code" {
+		t.Fatalf("expected trimmed code var, got %+v", stmt.Vars[0])
+	}
+	if !stmt.Vars[1].(time.Time).Equal(now) {
+		t.Fatalf("expected now var %s, got %+v", now, stmt.Vars[1])
+	}
+}
+
 func newRedemptionDryRunDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
