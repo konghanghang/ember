@@ -391,6 +391,89 @@ func TestTelegramServiceGenerateBindCodeRejectsAlreadyBoundUserBeforeSave(t *tes
 	}
 }
 
+func TestTelegramServiceVerifyBindUsesInjectedBindingStore(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.now = func() time.Time { return now }
+	service.findActiveBindCodes = func(code string, lookupAt time.Time) ([]models.TelegramBindCode, error) {
+		if code != "123456" {
+			t.Fatalf("unexpected bind code: %s", code)
+		}
+		if !lookupAt.Equal(now) {
+			t.Fatalf("expected lookup time %s, got %s", now, lookupAt)
+		}
+		return []models.TelegramBindCode{{UserID: "user_1", Code: code}}, nil
+	}
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		if telegramID != 42 {
+			t.Fatalf("unexpected telegram id: %d", telegramID)
+		}
+		return nil, gorm.ErrRecordNotFound
+	}
+	service.bindTelegramID = func(userID string, telegramID int64) (*models.User, error) {
+		if userID != "user_1" || telegramID != 42 {
+			t.Fatalf("unexpected bind payload: userID=%s telegramID=%d", userID, telegramID)
+		}
+		return &models.User{ID: userID, Username: "ember"}, nil
+	}
+
+	result, err := service.VerifyBind(42, "123456")
+	if err != nil {
+		t.Fatalf("expected bind success, got %v", err)
+	}
+	if result == nil || result.UserID != "user_1" || result.Username != "ember" {
+		t.Fatalf("unexpected bind result: %+v", result)
+	}
+}
+
+func TestTelegramServiceVerifyBindRejectsAmbiguousBindCodeBeforeMutating(t *testing.T) {
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findActiveBindCodes = func(code string, lookupAt time.Time) ([]models.TelegramBindCode, error) {
+		return []models.TelegramBindCode{
+			{UserID: "user_1", Code: code},
+			{UserID: "user_2", Code: code},
+		}, nil
+	}
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		t.Fatalf("telegram lookup must not run for ambiguous bind code")
+		return nil, nil
+	}
+	service.bindTelegramID = func(userID string, telegramID int64) (*models.User, error) {
+		t.Fatalf("bind mutation must not run for ambiguous bind code")
+		return nil, nil
+	}
+
+	result, err := service.VerifyBind(42, "123456")
+	if !errors.Is(err, ErrTelegramBindCodeInvalid) {
+		t.Fatalf("expected ErrTelegramBindCodeInvalid, got %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result, got %+v", result)
+	}
+}
+
+func TestTelegramServiceVerifyBindRejectsOccupiedTelegramBeforeMutating(t *testing.T) {
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findActiveBindCodes = func(code string, lookupAt time.Time) ([]models.TelegramBindCode, error) {
+		return []models.TelegramBindCode{{UserID: "user_1", Code: code}}, nil
+	}
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		return &models.User{ID: "other_user", TelegramID: &telegramID}, nil
+	}
+	service.bindTelegramID = func(userID string, telegramID int64) (*models.User, error) {
+		t.Fatalf("bind mutation must not run when telegram id is occupied")
+		return nil, nil
+	}
+
+	result, err := service.VerifyBind(42, "123456")
+	if !errors.Is(err, ErrTelegramAlreadyBound) {
+		t.Fatalf("expected ErrTelegramAlreadyBound, got %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result, got %+v", result)
+	}
+}
+
 func TestTelegramServiceResetPasswordMasksLookupFailure(t *testing.T) {
 	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
 	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
