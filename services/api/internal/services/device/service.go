@@ -17,12 +17,34 @@ import (
 )
 
 type DeviceService struct {
-	embyService *embyint.EmbyService
+	embyService           *embyint.EmbyService
+	findClientBlacklist   func(normalized string) (*models.ClientBlacklist, error)
+	createClientBlacklist func(blacklist *models.ClientBlacklist) error
+	updateClientBlacklist func(blacklist *models.ClientBlacklist) error
+	recordDeviceActionFn  func(action models.DeviceAction) error
 }
 
 func NewDeviceService() *DeviceService {
-	return &DeviceService{
+	service := &DeviceService{
 		embyService: embyint.GetSharedService(),
+	}
+	service.applyDefaults()
+	return service
+}
+
+// applyDefaults fills production dependencies while preserving test fakes injected on DeviceService.
+func (s *DeviceService) applyDefaults() {
+	if s.findClientBlacklist == nil {
+		s.findClientBlacklist = findClientBlacklist
+	}
+	if s.createClientBlacklist == nil {
+		s.createClientBlacklist = createClientBlacklist
+	}
+	if s.updateClientBlacklist == nil {
+		s.updateClientBlacklist = updateClientBlacklist
+	}
+	if s.recordDeviceActionFn == nil {
+		s.recordDeviceActionFn = recordDeviceAction
 	}
 }
 
@@ -151,28 +173,22 @@ func (s *DeviceService) AddClientToBlacklist(clientName, reason, operatorID stri
 	reason = strings.TrimSpace(reason)
 	normalized := normalizeClientName(clientName)
 
-	var blacklist models.ClientBlacklist
-	err := db.DB.Where("\"normalized_client_name\" = ?", normalized).First(&blacklist).Error
+	s.applyDefaults()
+	blacklist, err := s.findClientBlacklist(normalized)
 	if err == nil {
 		blacklist.ClientName = clientName
 		blacklist.Reason = reason
 		blacklist.NormalizedClientName = normalized
-		if err := db.DB.Model(&models.ClientBlacklist{}).
-			Where("id = ?", blacklist.ID).
-			Updates(map[string]interface{}{
-				"client_name":            blacklist.ClientName,
-				"reason":                 blacklist.Reason,
-				"normalized_client_name": blacklist.NormalizedClientName,
-			}).Error; err != nil {
+		if err := s.updateClientBlacklist(blacklist); err != nil {
 			return errors.New("更新黑名单失败")
 		}
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
-		blacklist = models.ClientBlacklist{
+		blacklist = &models.ClientBlacklist{
 			ClientName:           clientName,
 			NormalizedClientName: normalized,
 			Reason:               reason,
 		}
-		if err := db.DB.Create(&blacklist).Error; err != nil {
+		if err := s.createClientBlacklist(blacklist); err != nil {
 			return errors.New("添加黑名单失败")
 		}
 	} else {
@@ -529,9 +545,40 @@ func (s *DeviceService) recordDeviceAction(deviceID, userID, clientName, action,
 	if operatorID != "" {
 		deviceAction.OperatorID = &operatorID
 	}
-	if err := db.DB.Create(&deviceAction).Error; err != nil {
+	s.applyDefaults()
+	if err := s.recordDeviceActionFn(deviceAction); err != nil {
 		log.Printf("[Device] 记录操作日志失败 action=%s deviceId=%s err=%v", action, deviceID, err)
 	}
+}
+
+// findClientBlacklist loads one blacklist row by normalized client name.
+func findClientBlacklist(normalized string) (*models.ClientBlacklist, error) {
+	var blacklist models.ClientBlacklist
+	if err := db.DB.Where("\"normalized_client_name\" = ?", normalized).First(&blacklist).Error; err != nil {
+		return nil, err
+	}
+	return &blacklist, nil
+}
+
+// createClientBlacklist persists a new client blacklist row.
+func createClientBlacklist(blacklist *models.ClientBlacklist) error {
+	return db.DB.Create(blacklist).Error
+}
+
+// updateClientBlacklist persists the mutable fields of an existing client blacklist row.
+func updateClientBlacklist(blacklist *models.ClientBlacklist) error {
+	return db.DB.Model(&models.ClientBlacklist{}).
+		Where("id = ?", blacklist.ID).
+		Updates(map[string]interface{}{
+			"client_name":            blacklist.ClientName,
+			"reason":                 blacklist.Reason,
+			"normalized_client_name": blacklist.NormalizedClientName,
+		}).Error
+}
+
+// recordDeviceAction persists a device operation audit entry.
+func recordDeviceAction(action models.DeviceAction) error {
+	return db.DB.Create(&action).Error
 }
 
 func ensureDeviceEntry(entryMap map[string]*DeviceItem, deviceID string) *DeviceItem {
