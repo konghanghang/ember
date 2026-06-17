@@ -2,6 +2,7 @@ package device
 
 import (
 	"errors"
+	"sort"
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
@@ -208,5 +209,81 @@ func TestRemoveClientFromBlacklistMapsDeleteFailures(t *testing.T) {
 	err := service.RemoveClientFromBlacklist("Infuse", "admin_1")
 	if err == nil || err.Error() != "移除黑名单失败" {
 		t.Fatalf("expected masked delete failure, got %v", err)
+	}
+}
+
+func TestLogoutBlacklistedDevicesLogsOutUniqueBlacklistedDevicesAndRecordsActions(t *testing.T) {
+	var loggedOut []string
+	var recorded []models.DeviceAction
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			return []DeviceItem{
+				{DeviceID: "device_1", UserID: "user_1", ClientName: "Infuse", IsBlacklisted: true},
+				{DeviceID: "device_1", UserID: "user_1", ClientName: "Infuse", IsBlacklisted: true},
+				{DeviceID: "device_2", UserID: "user_2", ClientName: "Kodi", IsBlacklisted: false},
+				{DeviceID: "", UserID: "user_3", ClientName: "Unknown", IsBlacklisted: true},
+				{DeviceID: "device_3", UserID: "user_3", ClientName: "VidHub", IsBlacklisted: true},
+			}, nil
+		},
+		logoutDeviceFn: func(deviceID string) error {
+			loggedOut = append(loggedOut, deviceID)
+			if deviceID == "device_3" {
+				return errors.New("emby timeout")
+			}
+			return nil
+		},
+		recordDeviceActionFn: func(action models.DeviceAction) error {
+			recorded = append(recorded, action)
+			return nil
+		},
+	}
+
+	result, err := service.LogoutBlacklistedDevices("admin_1")
+
+	if err != nil {
+		t.Fatalf("expected batch logout success, got %v", err)
+	}
+	sort.Strings(loggedOut)
+	if len(loggedOut) != 2 || loggedOut[0] != "device_1" || loggedOut[1] != "device_3" {
+		t.Fatalf("unexpected logged out devices: %+v", loggedOut)
+	}
+	sort.Strings(result.SuccessDeviceIDs)
+	if len(result.SuccessDeviceIDs) != 1 || result.SuccessDeviceIDs[0] != "device_1" {
+		t.Fatalf("unexpected success devices: %+v", result.SuccessDeviceIDs)
+	}
+	if len(result.FailedDeviceIDs) != 1 || result.FailedDeviceIDs[0].DeviceID != "device_3" ||
+		result.FailedDeviceIDs[0].Error != "emby timeout" {
+		t.Fatalf("unexpected failed devices: %+v", result.FailedDeviceIDs)
+	}
+	if len(recorded) != 1 {
+		t.Fatalf("expected one recorded action, got %+v", recorded)
+	}
+	action := recorded[0]
+	if action.DeviceID != "device_1" || action.UserID != "user_1" || action.ClientName != "Infuse" ||
+		action.Action != "logout" || action.Note != "blacklist" {
+		t.Fatalf("unexpected recorded action: %+v", action)
+	}
+	if action.OperatorID == nil || *action.OperatorID != "admin_1" {
+		t.Fatalf("expected operator admin_1, got %+v", action.OperatorID)
+	}
+}
+
+func TestLogoutBlacklistedDevicesReturnsBuildFailure(t *testing.T) {
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			return nil, errors.New("emby unavailable")
+		},
+		logoutDeviceFn: func(deviceID string) error {
+			t.Fatalf("logoutDeviceFn must not run when device item build fails")
+			return nil
+		},
+	}
+
+	result, err := service.LogoutBlacklistedDevices("admin_1")
+	if err == nil || err.Error() != "emby unavailable" {
+		t.Fatalf("expected build failure, got result=%+v err=%v", result, err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result on build failure, got %+v", result)
 	}
 }

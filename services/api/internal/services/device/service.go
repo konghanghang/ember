@@ -18,6 +18,8 @@ import (
 
 type DeviceService struct {
 	embyService           *embyint.EmbyService
+	buildDeviceItemsFn    func() ([]DeviceItem, error)
+	logoutDeviceFn        func(deviceID string) error
 	findClientBlacklist   func(normalized string) (*models.ClientBlacklist, error)
 	createClientBlacklist func(blacklist *models.ClientBlacklist) error
 	updateClientBlacklist func(blacklist *models.ClientBlacklist) error
@@ -35,6 +37,12 @@ func NewDeviceService() *DeviceService {
 
 // applyDefaults fills production dependencies while preserving test fakes injected on DeviceService.
 func (s *DeviceService) applyDefaults() {
+	if s.buildDeviceItemsFn == nil {
+		s.buildDeviceItemsFn = s.buildDeviceItemsFromSources
+	}
+	if s.logoutDeviceFn == nil {
+		s.logoutDeviceFn = s.logoutDevice
+	}
 	if s.findClientBlacklist == nil {
 		s.findClientBlacklist = findClientBlacklist
 	}
@@ -246,7 +254,7 @@ func (s *DeviceService) LogoutDevice(deviceID, operatorID string) error {
 		}
 	}
 
-	if err := s.embyService.LogoutDevice(deviceID); err != nil {
+	if err := s.logoutDeviceFn(deviceID); err != nil {
 		return err
 	}
 
@@ -284,7 +292,7 @@ func (s *DeviceService) LogoutBlacklistedDevices(operatorID string) (*LogoutBlac
 		FailedDeviceIDs:  make([]LogoutFailedDevice, 0),
 	}
 	for deviceID, item := range targets {
-		if err := s.embyService.LogoutDevice(deviceID); err != nil {
+		if err := s.logoutDeviceFn(deviceID); err != nil {
 			log.Printf("[Device] 黑名单设备注销失败 deviceId=%s err=%v", deviceID, err)
 			result.FailedDeviceIDs = append(result.FailedDeviceIDs, LogoutFailedDevice{
 				DeviceID: deviceID,
@@ -391,7 +399,13 @@ func (s *DeviceService) GetDeviceActions(limit int) (*DeviceActionsResponse, err
 	}, nil
 }
 
+// buildDeviceItems loads device items through the configured source, allowing tests to avoid Emby and DB calls.
 func (s *DeviceService) buildDeviceItems() ([]DeviceItem, error) {
+	s.applyDefaults()
+	return s.buildDeviceItemsFn()
+}
+
+func (s *DeviceService) buildDeviceItemsFromSources() ([]DeviceItem, error) {
 	devices, devicesErr := s.embyService.GetDevices()
 	sessions, sessionsErr := s.embyService.GetAllSessions()
 
@@ -534,6 +548,11 @@ func (s *DeviceService) buildDeviceItems() ([]DeviceItem, error) {
 	})
 
 	return items, nil
+}
+
+// logoutDevice calls the production Emby logout adapter.
+func (s *DeviceService) logoutDevice(deviceID string) error {
+	return s.embyService.LogoutDevice(deviceID)
 }
 
 func (s *DeviceService) recordDeviceAction(deviceID, userID, clientName, action, note, operatorID string) {
