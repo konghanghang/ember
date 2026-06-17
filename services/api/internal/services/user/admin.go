@@ -407,15 +407,11 @@ func (s *UserService) ToggleUserStatus(userID string) (*UserView, error) {
 	}
 
 	user.IsActive = !user.IsActive
-	if err := db.DB.Model(&models.User{}).
-		Where("id = ?", user.ID).
-		Updates(map[string]interface{}{
-			"is_active": user.IsActive,
-		}).Error; err != nil {
+	if err := s.updateUserActive(user.ID, user.IsActive); err != nil {
 		return nil, err
 	}
 
-	return s.GetUserByID(userID)
+	return s.getUserViewByID(userID)
 }
 
 // adminUpdateChangesEmbyPolicy 判断管理员编辑请求是否修改了 Emby Policy 直接依赖的本地字段。

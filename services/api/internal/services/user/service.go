@@ -43,6 +43,8 @@ type UserServiceDeps struct {
 	GetPlanGroupByKey   func(key string) (*models.PlanGroup, error)
 	SaveUser            func(user *models.User) error
 	DeleteUserRecord    func(user *models.User) error
+	UpdateUserActive    func(userID string, isActive bool) error
+	GetUserViewByID     func(userID string) (*UserView, error)
 	Compensation        *accountpkg.EmbyCompensation
 	NewCompensation     func() *accountpkg.EmbyCompensation
 	ApplyPolicy         func(userID, reason string) error
@@ -60,6 +62,8 @@ type UserService struct {
 	getPlanGroupByKey   func(key string) (*models.PlanGroup, error)
 	saveUser            func(user *models.User) error
 	deleteUserRecord    func(user *models.User) error
+	updateUserActive    func(userID string, isActive bool) error
+	getUserViewByID     func(userID string) (*UserView, error)
 	compensation        *accountpkg.EmbyCompensation
 	newCompensation     func() *accountpkg.EmbyCompensation
 	applyPolicy         func(userID, reason string) error
@@ -85,6 +89,8 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 		getPlanGroupByKey:   deps.GetPlanGroupByKey,
 		saveUser:            deps.SaveUser,
 		deleteUserRecord:    deps.DeleteUserRecord,
+		updateUserActive:    deps.UpdateUserActive,
+		getUserViewByID:     deps.GetUserViewByID,
 		compensation:        deps.Compensation,
 		newCompensation:     deps.NewCompensation,
 		applyPolicy:         deps.ApplyPolicy,
@@ -150,6 +156,18 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 		service.deleteUserRecord = func(user *models.User) error {
 			return db.DB.Delete(user).Error
 		}
+	}
+	if service.updateUserActive == nil {
+		service.updateUserActive = func(userID string, isActive bool) error {
+			return db.DB.Model(&models.User{}).
+				Where("id = ?", userID).
+				Updates(map[string]interface{}{
+					"is_active": isActive,
+				}).Error
+		}
+	}
+	if service.getUserViewByID == nil {
+		service.getUserViewByID = service.GetUserByID
 	}
 	if service.newCompensation == nil {
 		service.newCompensation = func() *accountpkg.EmbyCompensation {

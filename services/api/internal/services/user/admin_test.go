@@ -201,6 +201,95 @@ func TestDeleteUserWithoutEmbyIDDeletesLocalOnly(t *testing.T) {
 	}
 }
 
+func TestToggleUserStatusPersistsFlippedState(t *testing.T) {
+	var persistedUserID string
+	var persistedActive bool
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			if userID != "user_1" {
+				t.Fatalf("unexpected user id: %s", userID)
+			}
+			return &models.User{ID: userID, IsActive: false}, nil
+		},
+		updateUserActive: func(userID string, isActive bool) error {
+			persistedUserID = userID
+			persistedActive = isActive
+			return nil
+		},
+		getUserViewByID: func(userID string) (*UserView, error) {
+			if userID != "user_1" {
+				t.Fatalf("unexpected refreshed user id: %s", userID)
+			}
+			return &UserView{User: models.User{ID: userID, IsActive: persistedActive}}, nil
+		},
+	}
+
+	view, err := service.ToggleUserStatus("user_1")
+
+	if err != nil {
+		t.Fatalf("expected toggle success, got %v", err)
+	}
+	if persistedUserID != "user_1" || !persistedActive {
+		t.Fatalf("expected active status to be persisted for user_1, got userID=%q active=%t", persistedUserID, persistedActive)
+	}
+	if view == nil || !view.IsActive {
+		t.Fatalf("expected refreshed active user view, got %+v", view)
+	}
+}
+
+func TestToggleUserStatusMapsLookupFailureBeforeMutation(t *testing.T) {
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		updateUserActive: func(userID string, isActive bool) error {
+			t.Fatalf("updateUserActive must not run after lookup failure")
+			return nil
+		},
+		getUserViewByID: func(userID string) (*UserView, error) {
+			t.Fatalf("getUserViewByID must not run after lookup failure")
+			return nil, nil
+		},
+	}
+
+	view, err := service.ToggleUserStatus("missing_user")
+
+	if !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound, got %v", err)
+	}
+	if view != nil {
+		t.Fatalf("expected nil view on failure, got %+v", view)
+	}
+}
+
+func TestToggleUserStatusReturnsPersistFailureBeforeRefresh(t *testing.T) {
+	persistErr := errors.New("database unavailable")
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, IsActive: true}, nil
+		},
+		updateUserActive: func(userID string, isActive bool) error {
+			if isActive {
+				t.Fatalf("expected active status to be toggled off")
+			}
+			return persistErr
+		},
+		getUserViewByID: func(userID string) (*UserView, error) {
+			t.Fatalf("getUserViewByID must not run after persist failure")
+			return nil, nil
+		},
+	}
+
+	view, err := service.ToggleUserStatus("user_1")
+
+	if !errors.Is(err, persistErr) {
+		t.Fatalf("expected persist error, got %v", err)
+	}
+	if view != nil {
+		t.Fatalf("expected nil view on failure, got %+v", view)
+	}
+}
+
 func TestSyncEmbyPolicyRecordsFailureWithoutFailingCommittedMutation(t *testing.T) {
 	cause := errors.New("policy write failed")
 	var recordedUserID string
