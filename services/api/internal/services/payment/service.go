@@ -167,16 +167,17 @@ type stripeCheckoutSessionObject struct {
 const pendingCheckoutTTL = 30 * time.Minute
 
 func pendingStripeSessionIDsByScope(tx *gorm.DB, userID, planID string) ([]string, error) {
+	userID = strings.TrimSpace(userID)
+	planID = strings.TrimSpace(planID)
+	if userID == "" && planID == "" {
+		panic("pendingStripeSessionIDsByScope requires userId or planId; misuse will read all pending payments")
+	}
+
 	if tx == nil {
 		if db.DB == nil {
 			return nil, nil
 		}
 		tx = db.DB
-	}
-	userID = strings.TrimSpace(userID)
-	planID = strings.TrimSpace(planID)
-	if userID == "" && planID == "" {
-		panic("pendingStripeSessionIDsByScope requires userId or planId; misuse will read all pending payments")
 	}
 
 	query := tx.Model(&models.Payment{}).

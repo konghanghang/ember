@@ -1323,3 +1323,23 @@ func TestNormalizePaymentStatusFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestPendingStripeSessionIDsByScopeRejectsEmptyScope(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected pendingStripeSessionIDsByScope to panic for empty scope")
+		}
+	}()
+
+	_, _ = pendingStripeSessionIDsByScope(nil, " ", "")
+}
+
+func TestExpirePendingPaymentsByScopeRejectsEmptyScope(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected expirePendingPaymentsByScope to panic for empty scope")
+		}
+	}()
+
+	_, _ = expirePendingPaymentsByScope(nil, "", " ")
+}
