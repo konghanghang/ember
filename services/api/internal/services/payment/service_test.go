@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -986,6 +987,114 @@ func TestCreateCheckoutSessionMapsBackfillFailure(t *testing.T) {
 	}
 	if resp != nil {
 		t.Fatalf("expected nil response on backfill failure, got %+v", resp)
+	}
+}
+
+func TestCreateCheckoutSessionReturnsStripeConfigFailureBeforeStore(t *testing.T) {
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{StripeSecret: "", SuccessURL: "success", CancelURL: "cancel"}, ErrStripeNotConfigured
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			t.Fatalf("getCheckoutUser must not run when Stripe config is missing")
+			return nil, nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if !errors.Is(err, ErrStripeNotConfigured) {
+		t.Fatalf("expected ErrStripeNotConfigured, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on config failure, got %+v", resp)
+	}
+}
+
+func TestCreateCheckoutSessionMapsUserLookupFailure(t *testing.T) {
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret: "sk_test",
+				SuccessURL:   "https://ember.example.com/success",
+				CancelURL:    "https://ember.example.com/cancel",
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return nil, errors.New("database unavailable")
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			t.Fatalf("getCheckoutPlan must not run when user lookup fails")
+			return nil, nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if err == nil || err.Error() != "获取用户信息失败" {
+		t.Fatalf("expected mapped user lookup failure, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on user lookup failure, got %+v", resp)
+	}
+}
+
+func TestCreateCheckoutSessionRejectsInvalidUserPlanGroup(t *testing.T) {
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret: "sk_test",
+				SuccessURL:   "https://ember.example.com/success",
+				CancelURL:    "https://ember.example.com/cancel",
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("vip a")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			t.Fatalf("getCheckoutPlan must not run when user plan group is invalid")
+			return nil, nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if !errors.Is(err, ErrPlanGroupInvalid) {
+		t.Fatalf("expected ErrPlanGroupInvalid, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on invalid user plan group, got %+v", resp)
+	}
+}
+
+func TestCreateCheckoutSessionMapsPlanNotFound(t *testing.T) {
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret: "sk_test",
+				SuccessURL:   "https://ember.example.com/success",
+				CancelURL:    "https://ember.example.com/cancel",
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+		expirePendingPaymentsFn: func(userID, planID string, now time.Time) error {
+			t.Fatalf("expirePendingPaymentsFn must not run when plan is missing")
+			return nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if !errors.Is(err, ErrPlanNotFound) {
+		t.Fatalf("expected ErrPlanNotFound, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on plan not found, got %+v", resp)
 	}
 }
 
