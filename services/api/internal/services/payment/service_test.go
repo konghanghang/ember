@@ -330,6 +330,51 @@ func TestMarkPaymentExpiredRejectsBlankSessionBeforeStore(t *testing.T) {
 	}
 }
 
+func TestMarkPaymentFailedUsesInjectedStore(t *testing.T) {
+	eventCreated := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	var capturedSessionID string
+	var capturedCreated time.Time
+	service := &PaymentService{
+		markPaymentFailedSession: func(sessionID string, eventCreated time.Time) error {
+			capturedSessionID = sessionID
+			capturedCreated = eventCreated
+			return nil
+		},
+	}
+
+	if err := service.markPaymentFailed(" cs_failed ", eventCreated); err != nil {
+		t.Fatalf("expected mark failed success, got %v", err)
+	}
+	if capturedSessionID != "cs_failed" || !capturedCreated.Equal(eventCreated) {
+		t.Fatalf("unexpected captured values: sessionID=%s eventCreated=%s", capturedSessionID, capturedCreated)
+	}
+}
+
+func TestMarkPaymentFailedMapsStoreFailure(t *testing.T) {
+	service := &PaymentService{
+		markPaymentFailedSession: func(sessionID string, eventCreated time.Time) error {
+			return errors.New("database unavailable")
+		},
+	}
+
+	if err := service.markPaymentFailed("cs_failed", time.Time{}); !errors.Is(err, ErrPaymentFailed) {
+		t.Fatalf("expected ErrPaymentFailed, got %v", err)
+	}
+}
+
+func TestMarkPaymentFailedRejectsBlankSessionBeforeStore(t *testing.T) {
+	service := &PaymentService{
+		markPaymentFailedSession: func(sessionID string, eventCreated time.Time) error {
+			t.Fatalf("store must not run for blank session id")
+			return nil
+		},
+	}
+
+	if err := service.markPaymentFailed("  ", time.Time{}); !errors.Is(err, ErrPaymentFailed) {
+		t.Fatalf("expected ErrPaymentFailed, got %v", err)
+	}
+}
+
 func TestDispatchWebhookRoutesPaidCheckoutCompletedToFulfillment(t *testing.T) {
 	eventCreated := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	var capturedSessionID string

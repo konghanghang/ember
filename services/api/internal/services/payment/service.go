@@ -49,6 +49,7 @@ type PaymentService struct {
 	fulfillPaymentFn              func(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error
 	markPaymentFailedFn           func(sessionID string, eventCreated time.Time) error
 	markPaymentExpiredFn          func(sessionID string) error
+	markPaymentFailedSession      func(sessionID string, eventCreated time.Time) error
 }
 
 func NewPaymentService() *PaymentService {
@@ -1419,11 +1420,27 @@ func calculateFulfilledPaymentExpiry(now time.Time, currentExpiry *time.Time, da
 }
 
 func (s *PaymentService) markPaymentFailed(sessionID string, eventCreated time.Time) error {
-	if strings.TrimSpace(sessionID) == "" {
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
 		log.Printf("[Payment] 标记支付失败时缺少 sessionID")
 		return ErrPaymentFailed
 	}
 
+	if err := s.markFailedSession(sid, eventCreated); err != nil {
+		return ErrPaymentFailed
+	}
+	return nil
+}
+
+// markFailedSession marks a local payment as failed through the configured store.
+func (s *PaymentService) markFailedSession(sessionID string, eventCreated time.Time) error {
+	if s.markPaymentFailedSession != nil {
+		return s.markPaymentFailedSession(sessionID, eventCreated)
+	}
+	return s.markPaymentFailedWithDB(sessionID, eventCreated)
+}
+
+func (s *PaymentService) markPaymentFailedWithDB(sessionID string, eventCreated time.Time) error {
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return ErrPaymentFailed
