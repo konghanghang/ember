@@ -350,6 +350,9 @@ func normalizeDispatchPayload(req mediaGapDispatchRequest) map[string]interface{
 		return req.CandidatePayload
 	}
 	if len(req.Candidate) == 0 {
+		if candidateID := strings.TrimSpace(req.CandidateID); candidateID != "" {
+			return map[string]interface{}{"id": candidateID}
+		}
 		return nil
 	}
 	if rawPayload, ok := req.Candidate["payload"].(map[string]interface{}); ok && len(rawPayload) > 0 {
@@ -384,7 +387,7 @@ func buildCandidateID(candidate mediagappkg.SearchCandidate) string {
 	if payloadID := extractMapString(candidate.Payload, "id", "guid", "hash"); payloadID != "" {
 		return payloadID
 	}
-	return candidate.Title
+	return strings.TrimSpace(candidate.Title)
 }
 
 func resolveCandidateMatchMode(candidate mediagappkg.SearchCandidate) string {
