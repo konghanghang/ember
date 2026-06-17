@@ -32,10 +32,11 @@ import (
 )
 
 type PaymentService struct {
-	embyService  *embyint.EmbyService
-	httpClient   *http.Client
-	notifier     *notifierint.BotNotifier
-	compensation *accountpkg.EmbyCompensation
+	embyService               *embyint.EmbyService
+	httpClient                *http.Client
+	notifier                  *notifierint.BotNotifier
+	compensation              *accountpkg.EmbyCompensation
+	markPaymentExpiredSession func(sessionID string) (int64, error)
 }
 
 func NewPaymentService() *PaymentService {
@@ -1343,19 +1344,27 @@ func (s *PaymentService) MarkPaymentExpired(sessionID string) error {
 		return ErrPaymentFailed
 	}
 
-	result := db.DB.Model(&models.Payment{}).
-		Where(`"stripe_session_id" = ? AND status = ?`, sid, models.PaymentPending).
-		Updates(map[string]interface{}{"status": models.PaymentExpired})
-	if result.Error != nil {
-		log.Printf("[Payment] 标记 checkout 过期失败: sessionID=%s err=%v", sid, result.Error)
+	rowsAffected, err := s.markExpiredSession(sid)
+	if err != nil {
+		log.Printf("[Payment] 标记 checkout 过期失败: sessionID=%s err=%v", sid, err)
 		return ErrPaymentFailed
 	}
-	if result.RowsAffected == 0 {
+	if rowsAffected == 0 {
 		log.Printf("[Payment] 收到 checkout.session.expired 但本地无 pending 订单可收口: sessionID=%s", sid)
 		return nil
 	}
-	log.Printf("[Payment] 已按 webhook 标记支付过期: sessionID=%s rowsAffected=%d", sid, result.RowsAffected)
+	log.Printf("[Payment] 已按 webhook 标记支付过期: sessionID=%s rowsAffected=%d", sid, rowsAffected)
 	return nil
+}
+
+func (s *PaymentService) markExpiredSession(sessionID string) (int64, error) {
+	if s.markPaymentExpiredSession != nil {
+		return s.markPaymentExpiredSession(sessionID)
+	}
+	result := db.DB.Model(&models.Payment{}).
+		Where(`"stripe_session_id" = ? AND status = ?`, sessionID, models.PaymentPending).
+		Updates(map[string]interface{}{"status": models.PaymentExpired})
+	return result.RowsAffected, result.Error
 }
 
 func (s *PaymentService) GetUserPayments(userID string, req *GetPaymentsRequest) (*GetPaymentsResponse, error) {

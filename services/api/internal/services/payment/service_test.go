@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -272,6 +273,60 @@ func TestFailedPaymentMarkSkipReason(t *testing.T) {
 				t.Fatalf("expected skip reason %q, got %q", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestMarkPaymentExpiredUsesInjectedStore(t *testing.T) {
+	var capturedSessionID string
+	service := &PaymentService{
+		markPaymentExpiredSession: func(sessionID string) (int64, error) {
+			capturedSessionID = sessionID
+			return 1, nil
+		},
+	}
+
+	if err := service.MarkPaymentExpired(" cs_test_1 "); err != nil {
+		t.Fatalf("expected mark expired success, got %v", err)
+	}
+	if capturedSessionID != "cs_test_1" {
+		t.Fatalf("expected trimmed session id, got %q", capturedSessionID)
+	}
+}
+
+func TestMarkPaymentExpiredTreatsNoRowsAsIdempotent(t *testing.T) {
+	service := &PaymentService{
+		markPaymentExpiredSession: func(sessionID string) (int64, error) {
+			return 0, nil
+		},
+	}
+
+	if err := service.MarkPaymentExpired("cs_test_1"); err != nil {
+		t.Fatalf("expected no-op expired webhook to succeed, got %v", err)
+	}
+}
+
+func TestMarkPaymentExpiredMapsStoreFailure(t *testing.T) {
+	service := &PaymentService{
+		markPaymentExpiredSession: func(sessionID string) (int64, error) {
+			return 0, errors.New("database unavailable")
+		},
+	}
+
+	if err := service.MarkPaymentExpired("cs_test_1"); !errors.Is(err, ErrPaymentFailed) {
+		t.Fatalf("expected ErrPaymentFailed, got %v", err)
+	}
+}
+
+func TestMarkPaymentExpiredRejectsBlankSessionBeforeStore(t *testing.T) {
+	service := &PaymentService{
+		markPaymentExpiredSession: func(sessionID string) (int64, error) {
+			t.Fatalf("store must not run for blank session id")
+			return 0, nil
+		},
+	}
+
+	if err := service.MarkPaymentExpired("  "); !errors.Is(err, ErrPaymentFailed) {
+		t.Fatalf("expected ErrPaymentFailed, got %v", err)
 	}
 }
 
