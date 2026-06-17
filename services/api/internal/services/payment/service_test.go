@@ -1,6 +1,10 @@
 package payment
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"testing"
 	"time"
 
@@ -199,6 +203,44 @@ func TestParseStripeSignature(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVerifyStripeSignature(t *testing.T) {
+	payload := []byte(`{"id":"evt_1"}`)
+	secret := "whsec_test"
+	timestamp := time.Now().Unix()
+	validSignature := buildStripeTestSignature(t, timestamp, payload, secret)
+
+	header := fmt.Sprintf("t=%d,v1=bad_signature,v1=%s", timestamp, validSignature)
+	if err := verifyStripeSignature(header, payload, secret); err != nil {
+		t.Fatalf("expected valid Stripe signature, got %v", err)
+	}
+
+	if err := verifyStripeSignature(fmt.Sprintf("t=%d,v1=%s", timestamp, validSignature), []byte(`{"id":"evt_2"}`), secret); err == nil {
+		t.Fatalf("expected changed payload to fail signature verification")
+	}
+	if err := verifyStripeSignature(fmt.Sprintf("t=%d,v1=%s", timestamp, validSignature), payload, "wrong_secret"); err == nil {
+		t.Fatalf("expected wrong secret to fail signature verification")
+	}
+	if err := verifyStripeSignature("t=not-a-number,v1=sig", payload, secret); err == nil {
+		t.Fatalf("expected invalid timestamp to fail")
+	}
+
+	expiredTimestamp := time.Now().Add(-10 * time.Minute).Unix()
+	expiredSignature := buildStripeTestSignature(t, expiredTimestamp, payload, secret)
+	if err := verifyStripeSignature(fmt.Sprintf("t=%d,v1=%s", expiredTimestamp, expiredSignature), payload, secret); err == nil {
+		t.Fatalf("expected expired timestamp to fail")
+	}
+}
+
+func buildStripeTestSignature(t *testing.T, timestamp int64, payload []byte, secret string) string {
+	t.Helper()
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(fmt.Sprintf("%d", timestamp)))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func TestNormalizePaymentStatusFilter(t *testing.T) {

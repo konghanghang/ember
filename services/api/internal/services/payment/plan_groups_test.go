@@ -228,6 +228,48 @@ func TestPlanGroupManagedPolicyTaskQueryExcludesAdminsAndProtectionFailures(t *t
 	}
 }
 
+func TestBuildPlansWithGroupNameSelectIncludesDisplayJoin(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DryRun:               true,
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	var plans []PlanView
+	stmt := buildPlansWithGroupNameSelect(database.Model(&models.Plan{})).
+		Where(`plans."is_active" = ?`, true).
+		Find(&plans).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+
+	assertSQLContains(t, sql, `plans.*, plan_groups.name AS "planGroupName"`)
+	assertSQLContains(t, sql, `LEFT JOIN plan_groups ON plan_groups.key = plans."plan_group"`)
+	assertSQLContains(t, sql, `plans."is_active" =`)
+	if len(stmt.Vars) != 1 || stmt.Vars[0] != true {
+		t.Fatalf("expected active filter var, got %+v", stmt.Vars)
+	}
+}
+
+func TestBuildPlanGroupViewKeepsPersistentFields(t *testing.T) {
+	group := models.PlanGroup{
+		Key:       "VIP_A",
+		Name:      "VIP A",
+		IsDefault: true,
+	}
+
+	view := buildPlanGroupView(group)
+	if view.Key != "VIP_A" || view.Name != "VIP A" || !view.IsDefault {
+		t.Fatalf("expected plan group fields to be preserved, got %+v", view)
+	}
+	if view.PlanCount != 0 || view.UserCount != 0 || view.PolicySyncStatus != "" {
+		t.Fatalf("expected aggregate fields to start empty, got %+v", view)
+	}
+}
+
 func TestResolveEffectivePlanGroupKeyReturnsExplicitKeyWhenDBUnavailable(t *testing.T) {
 	explicit := " vip-b "
 
