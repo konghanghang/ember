@@ -731,6 +731,117 @@ func TestCreateCheckoutSessionCreatesStripeSessionAndBackfillsPayment(t *testing
 	}
 }
 
+func TestCreateCheckoutSessionReturnsStripeCreateFailureWithoutBackfill(t *testing.T) {
+	stripeErr := errors.New("stripe unavailable")
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret:   "sk_test",
+				SuccessURL:     "https://ember.example.com/success",
+				CancelURL:      "https://ember.example.com/cancel",
+				PaymentMethods: []string{"card"},
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			return &models.Plan{
+				ID:        planID,
+				Name:      "季度方案",
+				Days:      90,
+				Price:     1999,
+				Currency:  "hkd",
+				IsActive:  true,
+				PlanGroup: planGroup,
+			}, nil
+		},
+		expirePendingPaymentsFn: func(userID, planID string, now time.Time) error {
+			return nil
+		},
+		reservePendingPaymentFn: func(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+			return &models.Payment{
+				ID:     "pay_1",
+				UserID: userID,
+				PlanID: plan.ID,
+				Status: models.PaymentPending,
+			}, nil
+		},
+		createStripeCheckoutSessionFn: func(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error) {
+			return nil, stripeErr
+		},
+		backfillCheckoutSession: func(paymentID, sessionID, checkoutURL string) error {
+			t.Fatalf("backfillCheckoutSession must not run when Stripe create fails")
+			return nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if !errors.Is(err, stripeErr) {
+		t.Fatalf("expected Stripe create error, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on Stripe create failure, got %+v", resp)
+	}
+}
+
+func TestCreateCheckoutSessionMapsBackfillFailure(t *testing.T) {
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret:   "sk_test",
+				SuccessURL:     "https://ember.example.com/success",
+				CancelURL:      "https://ember.example.com/cancel",
+				PaymentMethods: []string{"card"},
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			return &models.Plan{
+				ID:        planID,
+				Name:      "季度方案",
+				Days:      90,
+				Price:     1999,
+				Currency:  "hkd",
+				IsActive:  true,
+				PlanGroup: planGroup,
+			}, nil
+		},
+		expirePendingPaymentsFn: func(userID, planID string, now time.Time) error {
+			return nil
+		},
+		reservePendingPaymentFn: func(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+			return &models.Payment{
+				ID:     "pay_1",
+				UserID: userID,
+				PlanID: plan.ID,
+				Status: models.PaymentPending,
+			}, nil
+		},
+		createStripeCheckoutSessionFn: func(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error) {
+			return &stripeCheckoutSessionResponse{
+				ID:  "cs_new",
+				URL: "https://checkout.stripe.com/c/pay/new",
+			}, nil
+		},
+		backfillCheckoutSession: func(paymentID, sessionID, checkoutURL string) error {
+			return errors.New("database unavailable")
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if err == nil || err.Error() != "创建支付记录失败" {
+		t.Fatalf("expected mapped backfill failure, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on backfill failure, got %+v", resp)
+	}
+}
+
 func TestExpireStripeCheckoutSessionsDeduplicatesAndContinuesAfterFailure(t *testing.T) {
 	var expired []string
 	service := &PaymentService{
