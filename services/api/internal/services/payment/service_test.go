@@ -5,11 +5,21 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestNormalizePlanCurrency(t *testing.T) {
 	tests := []struct {
@@ -184,6 +194,180 @@ func TestPaymentPureHelpers(t *testing.T) {
 	}
 }
 
+func TestCreateStripeCheckoutSessionBuildsRequest(t *testing.T) {
+	var capturedForm url.Values
+	var capturedAuth string
+	var capturedContentType string
+	var capturedIdempotencyKey string
+
+	service := &PaymentService{
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.Method != http.MethodPost {
+					t.Fatalf("expected POST request, got %s", req.Method)
+				}
+				if req.URL.String() != "https://api.stripe.com/v1/checkout/sessions" {
+					t.Fatalf("unexpected Stripe URL: %s", req.URL.String())
+				}
+
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
+				values, err := url.ParseQuery(string(body))
+				if err != nil {
+					t.Fatalf("parse request form: %v", err)
+				}
+				capturedForm = values
+				capturedAuth = req.Header.Get("Authorization")
+				capturedContentType = req.Header.Get("Content-Type")
+				capturedIdempotencyKey = req.Header.Get("Idempotency-Key")
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`{"id":"cs_test_1","url":"https://checkout.stripe.com/c/pay/test"}`)),
+					Header:     make(http.Header),
+				}, nil
+			}),
+		},
+	}
+
+	plan := &models.Plan{
+		ID:          "plan_1",
+		Name:        "季度方案",
+		Description: "  90 天套餐  ",
+		Days:        90,
+		Price:       1999,
+		Currency:    "hkd",
+	}
+
+	result, err := service.createStripeCheckoutSession(
+		"sk_test",
+		"https://ember.example.com/payment/success",
+		"https://ember.example.com/payment/cancel",
+		"user_1",
+		plan,
+		[]string{"card", "alipay"},
+		"pay_1",
+	)
+	if err != nil {
+		t.Fatalf("expected checkout session, got %v", err)
+	}
+	if result.ID != "cs_test_1" || result.URL != "https://checkout.stripe.com/c/pay/test" {
+		t.Fatalf("unexpected response: %+v", result)
+	}
+
+	assertFormValue(t, capturedForm, "mode", "payment")
+	assertFormValue(t, capturedForm, "success_url", "https://ember.example.com/payment/success")
+	assertFormValue(t, capturedForm, "cancel_url", "https://ember.example.com/payment/cancel")
+	assertFormValue(t, capturedForm, "line_items[0][price_data][currency]", "hkd")
+	assertFormValue(t, capturedForm, "line_items[0][price_data][unit_amount]", "1999")
+	assertFormValue(t, capturedForm, "line_items[0][price_data][product_data][name]", "季度方案")
+	assertFormValue(t, capturedForm, "line_items[0][price_data][product_data][description]", "90 天套餐")
+	assertFormValue(t, capturedForm, "line_items[0][quantity]", "1")
+	assertFormValue(t, capturedForm, "metadata[user_id]", "user_1")
+	assertFormValue(t, capturedForm, "metadata[plan_id]", "plan_1")
+	assertFormValue(t, capturedForm, "metadata[days]", "90")
+	assertFormValue(t, capturedForm, "metadata[payment_id]", "pay_1")
+	if got := capturedForm["payment_method_types[]"]; len(got) != 2 || got[0] != "card" || got[1] != "alipay" {
+		t.Fatalf("unexpected payment methods: %+v", got)
+	}
+	if capturedAuth != "Bearer sk_test" {
+		t.Fatalf("unexpected Authorization header: %q", capturedAuth)
+	}
+	if capturedContentType != "application/x-www-form-urlencoded" {
+		t.Fatalf("unexpected Content-Type header: %q", capturedContentType)
+	}
+	if capturedIdempotencyKey != "checkout:pay_1" {
+		t.Fatalf("unexpected Idempotency-Key header: %q", capturedIdempotencyKey)
+	}
+}
+
+func TestCreateStripeCheckoutSessionOmitsOptionalFields(t *testing.T) {
+	service := &PaymentService{
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
+				values, err := url.ParseQuery(string(body))
+				if err != nil {
+					t.Fatalf("parse request form: %v", err)
+				}
+				if values.Has("line_items[0][price_data][product_data][description]") {
+					t.Fatalf("expected blank description to be omitted, got %q", values.Get("line_items[0][price_data][product_data][description]"))
+				}
+				if _, ok := values["payment_method_types[]"]; ok {
+					t.Fatalf("expected empty payment methods to be omitted, got %+v", values["payment_method_types[]"])
+				}
+				if got := req.Header.Get("Idempotency-Key"); got != "" {
+					t.Fatalf("expected blank payment id to omit idempotency key, got %q", got)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`{"id":"cs_test_2","url":"https://checkout.stripe.com/c/pay/test2"}`)),
+					Header:     make(http.Header),
+				}, nil
+			}),
+		},
+	}
+
+	_, err := service.createStripeCheckoutSession("sk_test", "success", "cancel", "user_1", &models.Plan{
+		ID:       "plan_1",
+		Name:     "月度方案",
+		Days:     30,
+		Price:    999,
+		Currency: "usd",
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("expected checkout session without optional fields, got %v", err)
+	}
+}
+
+func TestCreateStripeCheckoutSessionMapsUnsafeUpstreamFailures(t *testing.T) {
+	testCases := []struct {
+		name       string
+		statusCode int
+		body       string
+	}{
+		{name: "http error", statusCode: http.StatusBadGateway, body: `{"error":{"message":"secret leaked"}}`},
+		{name: "invalid json", statusCode: http.StatusOK, body: `{`},
+		{name: "missing id", statusCode: http.StatusOK, body: `{"url":"https://checkout.stripe.com/c/pay/test"}`},
+		{name: "missing url", statusCode: http.StatusOK, body: `{"id":"cs_test_1"}`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &PaymentService{
+				httpClient: &http.Client{
+					Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+						return &http.Response{
+							StatusCode: tc.statusCode,
+							Body:       io.NopCloser(strings.NewReader(tc.body)),
+							Header:     make(http.Header),
+						}, nil
+					}),
+				},
+			}
+
+			_, err := service.createStripeCheckoutSession("sk_test", "success", "cancel", "user_1", &models.Plan{
+				ID:       "plan_1",
+				Name:     "月度方案",
+				Days:     30,
+				Price:    999,
+				Currency: "usd",
+			}, []string{"card"}, "pay_1")
+			if err == nil {
+				t.Fatalf("expected checkout session error")
+			}
+			if strings.Contains(err.Error(), "secret leaked") {
+				t.Fatalf("expected upstream error to be sanitized, got %v", err)
+			}
+		})
+	}
+}
+
 func TestParseStripeSignature(t *testing.T) {
 	timestamp, signatures, err := parseStripeSignature("t=1710000000, v1=sig_a, ignored, v1=sig_b")
 	if err != nil {
@@ -202,6 +386,13 @@ func TestParseStripeSignature(t *testing.T) {
 				t.Fatalf("expected parse error for %q", header)
 			}
 		})
+	}
+}
+
+func assertFormValue(t *testing.T, values url.Values, key, want string) {
+	t.Helper()
+	if got := values.Get(key); got != want {
+		t.Fatalf("expected form %s=%q, got %q", key, want, got)
 	}
 }
 
