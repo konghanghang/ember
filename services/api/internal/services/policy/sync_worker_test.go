@@ -122,6 +122,35 @@ func TestBuildUserPolicySyncRetryTaskUsesPendingRetryState(t *testing.T) {
 	}
 }
 
+func TestBuildUserPolicySyncRetryTaskDefaultsReasonAndTruncatesError(t *testing.T) {
+	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	longErr := errors.New(strings.Repeat("x", 600))
+
+	task, err := buildUserPolicySyncRetryTask(&models.User{
+		ID:     "user_1",
+		EmbyID: "emby_1",
+	}, "  ", longErr, now)
+	if err != nil {
+		t.Fatalf("expected retry task, got %v", err)
+	}
+	if task.Reason != "unspecified" {
+		t.Fatalf("expected unspecified reason, got %q", task.Reason)
+	}
+	if task.LastError == nil || len(*task.LastError) != 500 {
+		t.Fatalf("expected truncated 500-byte error, got %+v", task.LastError)
+	}
+}
+
+func TestBuildUserPolicySyncRetryTaskRejectsNilUser(t *testing.T) {
+	task, err := buildUserPolicySyncRetryTask(nil, "admin_retry", errors.New("boom"), time.Now())
+	if err == nil {
+		t.Fatal("expected nil user to fail")
+	}
+	if task != nil {
+		t.Fatalf("expected nil task on error, got %+v", task)
+	}
+}
+
 func TestBuildUserPolicySyncRetryTaskSkipsUnboundEmbyUser(t *testing.T) {
 	task, err := buildUserPolicySyncRetryTask(&models.User{ID: "user_1"}, "user_registered", errors.New("boom"), time.Now())
 	if err != nil {
@@ -149,6 +178,48 @@ func TestBuildUserPolicySyncFailureTaskUsesManualFailureState(t *testing.T) {
 	}
 	if task.LastError == nil || *task.LastError != "policy write failed" {
 		t.Fatalf("expected last error to be preserved, got %+v", task.LastError)
+	}
+}
+
+func TestBuildUserPolicySyncFailureTaskDefaultsReasonAndTruncatesError(t *testing.T) {
+	task := buildUserPolicySyncFailureTask(&models.User{
+		ID:     "user_1",
+		EmbyID: "emby_1",
+	}, "VIP_A", "  ", errors.New(strings.Repeat("x", 600)))
+
+	if task.Reason != "unspecified" {
+		t.Fatalf("expected unspecified reason, got %q", task.Reason)
+	}
+	if task.LastError == nil || len(*task.LastError) != 500 {
+		t.Fatalf("expected truncated 500-byte error, got %+v", task.LastError)
+	}
+}
+
+func TestBatchIDsFromTasksDeduplicatesAndSkipsEmptyValues(t *testing.T) {
+	batchA := "batch_a"
+	batchB := "batch_b"
+	empty := ""
+
+	got := batchIDsFromTasks([]models.EmbyPolicySyncTask{
+		{BatchID: nil},
+		{BatchID: &empty},
+		{BatchID: &batchA},
+		{BatchID: &batchA},
+		{BatchID: &batchB},
+	})
+
+	if len(got) != 2 || got[0] != "batch_a" || got[1] != "batch_b" {
+		t.Fatalf("expected ordered unique batch IDs, got %+v", got)
+	}
+}
+
+func TestStringValueHandlesNilPointer(t *testing.T) {
+	if got := stringValue(nil); got != "" {
+		t.Fatalf("expected blank string for nil pointer, got %q", got)
+	}
+	value := "batch_1"
+	if got := stringValue(&value); got != "batch_1" {
+		t.Fatalf("expected pointed value, got %q", got)
 	}
 }
 
