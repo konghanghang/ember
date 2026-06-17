@@ -41,3 +41,22 @@ func TestUnchangedEmailCheck(t *testing.T) {
 		})
 	}
 }
+
+func TestHashEmailNormalizesAndRedacts(t *testing.T) {
+	testCases := []struct {
+		name  string
+		email string
+		want  string
+	}{
+		{name: "blank", email: "  ", want: "empty"},
+		{name: "normalizes case and whitespace", email: " Ember@Example.COM ", want: "1cb2bc5c"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hashEmail(tc.email); got != tc.want {
+				t.Fatalf("expected hash %q, got %q", tc.want, got)
+			}
+		})
+	}
+}

@@ -64,6 +64,30 @@ func TestAdminUpdateChangesEmbyPolicyIgnoresLocalActiveFlag(t *testing.T) {
 	}
 }
 
+func TestNormalizeUserLookupError(t *testing.T) {
+	cause := errors.New("database unavailable")
+	testCases := []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "nil", err: nil, want: nil},
+		{name: "domain not found", err: ErrUserNotFound, want: ErrUserNotFound},
+		{name: "gorm not found", err: gorm.ErrRecordNotFound, want: ErrUserNotFound},
+		{name: "wrapped gorm not found", err: errors.Join(errors.New("query failed"), gorm.ErrRecordNotFound), want: ErrUserNotFound},
+		{name: "other error", err: cause, want: cause},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeUserLookupError(tc.err)
+			if !errors.Is(got, tc.want) {
+				t.Fatalf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestSyncEmbyPolicyRecordsFailureWithoutFailingCommittedMutation(t *testing.T) {
 	cause := errors.New("policy write failed")
 	var recordedUserID string
