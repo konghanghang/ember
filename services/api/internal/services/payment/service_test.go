@@ -330,6 +330,108 @@ func TestMarkPaymentExpiredRejectsBlankSessionBeforeStore(t *testing.T) {
 	}
 }
 
+func TestDispatchWebhookRoutesPaidCheckoutCompletedToFulfillment(t *testing.T) {
+	eventCreated := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	var capturedSessionID string
+	var capturedPaymentIntentID string
+	var capturedMetadata map[string]string
+	var capturedCreated time.Time
+	service := &PaymentService{
+		fulfillPaymentFn: func(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error {
+			capturedSessionID = sessionID
+			capturedPaymentIntentID = paymentIntentID
+			capturedCreated = eventCreated
+			capturedMetadata = metadata
+			return nil
+		},
+	}
+	event := &stripeWebhookEvent{Type: "checkout.session.completed"}
+	event.Data.Object.ID = "cs_paid"
+	event.Data.Object.PaymentIntent = "pi_1"
+	event.Data.Object.PaymentStatus = "paid"
+	event.Data.Object.Metadata = map[string]string{"payment_id": "pay_1"}
+
+	if err := service.dispatchWebhook(event, eventCreated); err != nil {
+		t.Fatalf("expected dispatch success, got %v", err)
+	}
+	if capturedSessionID != "cs_paid" || capturedPaymentIntentID != "pi_1" || !capturedCreated.Equal(eventCreated) ||
+		capturedMetadata["payment_id"] != "pay_1" {
+		t.Fatalf("unexpected fulfillment dispatch: session=%s intent=%s created=%s metadata=%+v",
+			capturedSessionID, capturedPaymentIntentID, capturedCreated, capturedMetadata)
+	}
+}
+
+func TestDispatchWebhookIgnoresUnpaidCheckoutCompleted(t *testing.T) {
+	service := &PaymentService{
+		fulfillPaymentFn: func(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error {
+			t.Fatalf("fulfillPaymentFn must not run for unpaid checkout completion")
+			return nil
+		},
+	}
+	event := &stripeWebhookEvent{Type: "checkout.session.completed"}
+	event.Data.Object.ID = "cs_unpaid"
+	event.Data.Object.PaymentStatus = "unpaid"
+
+	if err := service.dispatchWebhook(event, time.Time{}); err != nil {
+		t.Fatalf("expected unpaid checkout completion to be ignored, got %v", err)
+	}
+}
+
+func TestDispatchWebhookRoutesAsyncEvents(t *testing.T) {
+	eventCreated := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	var fulfilledSessionID string
+	var failedSessionID string
+	var failedCreated time.Time
+	service := &PaymentService{
+		fulfillPaymentFn: func(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error {
+			fulfilledSessionID = sessionID
+			return nil
+		},
+		markPaymentFailedFn: func(sessionID string, eventCreated time.Time) error {
+			failedSessionID = sessionID
+			failedCreated = eventCreated
+			return nil
+		},
+	}
+
+	successEvent := &stripeWebhookEvent{Type: "checkout.session.async_payment_succeeded"}
+	successEvent.Data.Object.ID = "cs_success"
+	if err := service.dispatchWebhook(successEvent, eventCreated); err != nil {
+		t.Fatalf("expected async success dispatch, got %v", err)
+	}
+	if fulfilledSessionID != "cs_success" {
+		t.Fatalf("unexpected fulfilled session: %s", fulfilledSessionID)
+	}
+
+	failedEvent := &stripeWebhookEvent{Type: "checkout.session.async_payment_failed"}
+	failedEvent.Data.Object.ID = "cs_failed"
+	if err := service.dispatchWebhook(failedEvent, eventCreated); err != nil {
+		t.Fatalf("expected async failure dispatch, got %v", err)
+	}
+	if failedSessionID != "cs_failed" || !failedCreated.Equal(eventCreated) {
+		t.Fatalf("unexpected failed dispatch: session=%s created=%s", failedSessionID, failedCreated)
+	}
+}
+
+func TestDispatchWebhookRoutesExpiredCheckout(t *testing.T) {
+	var capturedSessionID string
+	service := &PaymentService{
+		markPaymentExpiredFn: func(sessionID string) error {
+			capturedSessionID = sessionID
+			return nil
+		},
+	}
+	event := &stripeWebhookEvent{Type: "checkout.session.expired"}
+	event.Data.Object.ID = "cs_expired"
+
+	if err := service.dispatchWebhook(event, time.Time{}); err != nil {
+		t.Fatalf("expected expired checkout dispatch, got %v", err)
+	}
+	if capturedSessionID != "cs_expired" {
+		t.Fatalf("unexpected expired session: %s", capturedSessionID)
+	}
+}
+
 func TestCalculateFulfilledPaymentExpiryStartsFromNowWithoutActiveExpiry(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	expiredAt := now.Add(-time.Second)

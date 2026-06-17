@@ -46,6 +46,9 @@ type PaymentService struct {
 	backfillCheckoutSession       func(paymentID, sessionID, checkoutURL string) error
 	getStripeSecret               func() string
 	expireStripeCheckoutSessionFn func(secret, sessionID string) error
+	fulfillPaymentFn              func(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error
+	markPaymentFailedFn           func(sessionID string, eventCreated time.Time) error
+	markPaymentExpiredFn          func(sessionID string) error
 }
 
 func NewPaymentService() *PaymentService {
@@ -1091,16 +1094,40 @@ func (s *PaymentService) dispatchWebhook(event *stripeWebhookEvent, eventCreated
 				event.Type, strings.TrimSpace(event.Data.Object.ID), strings.TrimSpace(event.Data.Object.PaymentStatus))
 			return nil
 		}
-		return s.fulfillPayment(event.Data.Object.ID, event.Data.Object.PaymentIntent, eventCreated, event.Data.Object.Metadata)
+		return s.dispatchFulfillPayment(event.Data.Object.ID, event.Data.Object.PaymentIntent, eventCreated, event.Data.Object.Metadata)
 	case "checkout.session.async_payment_succeeded":
-		return s.fulfillPayment(event.Data.Object.ID, event.Data.Object.PaymentIntent, eventCreated, event.Data.Object.Metadata)
+		return s.dispatchFulfillPayment(event.Data.Object.ID, event.Data.Object.PaymentIntent, eventCreated, event.Data.Object.Metadata)
 	case "checkout.session.async_payment_failed":
-		return s.markPaymentFailed(event.Data.Object.ID, eventCreated)
+		return s.dispatchMarkPaymentFailed(event.Data.Object.ID, eventCreated)
 	case "checkout.session.expired":
-		return s.MarkPaymentExpired(event.Data.Object.ID)
+		return s.dispatchMarkPaymentExpired(event.Data.Object.ID)
 	default:
 		return nil
 	}
+}
+
+// dispatchFulfillPayment routes a successful Stripe checkout event to the payment fulfillment handler.
+func (s *PaymentService) dispatchFulfillPayment(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error {
+	if s.fulfillPaymentFn != nil {
+		return s.fulfillPaymentFn(sessionID, paymentIntentID, eventCreated, metadata)
+	}
+	return s.fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)
+}
+
+// dispatchMarkPaymentFailed routes a failed async Stripe checkout event to the local failure handler.
+func (s *PaymentService) dispatchMarkPaymentFailed(sessionID string, eventCreated time.Time) error {
+	if s.markPaymentFailedFn != nil {
+		return s.markPaymentFailedFn(sessionID, eventCreated)
+	}
+	return s.markPaymentFailed(sessionID, eventCreated)
+}
+
+// dispatchMarkPaymentExpired routes an expired Stripe checkout event to the local expiry handler.
+func (s *PaymentService) dispatchMarkPaymentExpired(sessionID string) error {
+	if s.markPaymentExpiredFn != nil {
+		return s.markPaymentExpiredFn(sessionID)
+	}
+	return s.MarkPaymentExpired(sessionID)
 }
 
 func truncateString(s string, n int) string {
