@@ -82,12 +82,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 	}
 
 	now := time.Now().UTC()
-	var newExpiry time.Time
-	if user.ExpiresAt == nil || user.ExpiresAt.Before(now) {
-		newExpiry = now.AddDate(0, 0, code.DefaultDays)
-	} else {
-		newExpiry = user.ExpiresAt.AddDate(0, 0, code.DefaultDays)
-	}
+	newExpiry := calculateRedeemedExpiry(now, user.ExpiresAt, code.DefaultDays)
 
 	updates := map[string]interface{}{
 		"expires_at": newExpiry,
@@ -142,6 +137,14 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 		Days:      code.DefaultDays,
 		ExpiresAt: &newExpiry,
 	}, nil
+}
+
+// calculateRedeemedExpiry 计算兑换后的用户到期日；仍有效的账号从原到期日续期，空或已过期账号从当前时间重新起算。
+func calculateRedeemedExpiry(now time.Time, currentExpiry *time.Time, days int) time.Time {
+	if currentExpiry == nil || currentExpiry.Before(now) {
+		return now.AddDate(0, 0, days)
+	}
+	return currentExpiry.AddDate(0, 0, days)
 }
 
 func isRedemptionDuplicateInsert(err error) bool {
