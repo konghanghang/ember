@@ -9,6 +9,7 @@
 - [ ] CI 检查全部通过（查看 GitHub Actions）
 - [ ] 本地测试通过 `npm run build && npm run lint`
 - [ ] 更新了相关文档
+- [ ] 已提交 `docs/releases/<version>.md`，文件名与即将发布的 tag 完全一致
 
 ## 📦 版本号选择
 
@@ -28,15 +29,15 @@ git push origin v1.0.0
 # GitHub Actions 会自动：
 # 1. 构建 Docker 镜像
 # 2. 推送到 ghcr.io
-# 3. 生成 Release Notes
-# 4. 创建 GitHub Release
+# 3. 读取 docs/releases/v1.0.0.md
+# 4. 创建 GitHub Draft Release
 ```
 
 ## 📝 发布后验证
 
 - [ ] GitHub Release 已创建
 - [ ] Docker 镜像已推送到 ghcr.io
-- [ ] Release Notes 内容正确
+- [ ] Release Notes 内容与 `docs/releases/<version>.md` 一致
 - [ ] 可以拉取新镜像 `docker pull ghcr.io/konghanghang/ember:v1.0.0`
 
 ## 🐛 如果发布失败

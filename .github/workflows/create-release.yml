@@ -35,46 +35,20 @@ jobs:
             echo "✅ This is a stable release"
           fi
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Get previous tag
-        id: previoustag
-        run: |
-          # 只在当前 HEAD 可达的 tag 里找上一个版本，避免历史重写后把旁支 tag
-          # 误当作 release notes 基线。
-          CURRENT_TAG=${GITHUB_REF#refs/tags/}
-          PREV_TAG=$(git tag --merged HEAD --sort=-v:refname | grep -vx "${CURRENT_TAG}" | head -n 1)
-          if [ -z "$PREV_TAG" ]; then
-            echo "tag=" >> $GITHUB_OUTPUT
-            echo "has_previous=false" >> $GITHUB_OUTPUT
-            echo "📌 No previous reachable tag found on current history"
-          else
-            echo "tag=${PREV_TAG}" >> $GITHUB_OUTPUT
-            echo "has_previous=true" >> $GITHUB_OUTPUT
-            echo "📌 Previous reachable tag: ${PREV_TAG}"
-          fi
-
-      - name: Generate release notes
-        id: changelog
+      - name: Resolve release notes
+        id: notes
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          PREV_TAG=${{ steps.previoustag.outputs.tag }}
+          NOTES_FILE="docs/releases/${VERSION}.md"
 
-          if [ -n "$PREV_TAG" ]; then
-            python3 .github/scripts/generate_release_notes.py \
-              --current-tag "$VERSION" \
-              --previous-tag "$PREV_TAG" \
-              --repo "${{ github.repository }}" \
-              --output /tmp/release_notes.md
-          else
-            python3 .github/scripts/generate_release_notes.py \
-              --current-tag "$VERSION" \
-              --repo "${{ github.repository }}" \
-              --output /tmp/release_notes.md
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "Missing release notes file: ${NOTES_FILE}"
+            echo "Create ${NOTES_FILE} before pushing the release tag."
+            exit 1
           fi
+
+          echo "file=${NOTES_FILE}" >> $GITHUB_OUTPUT
+          echo "📝 Release notes: ${NOTES_FILE}"
 
       - name: Create Draft Release with GitHub CLI
         env:
@@ -88,14 +62,14 @@ jobs:
             echo "🚧 Creating pre-release draft..."
             gh release create "${VERSION}" \
               --title "Ember ${VERSION}" \
-              --notes-file /tmp/release_notes.md \
+              --notes-file "${{ steps.notes.outputs.file }}" \
               --draft \
               --prerelease
           else
             echo "📝 Creating draft release..."
             gh release create "${VERSION}" \
               --title "Ember ${VERSION}" \
-              --notes-file /tmp/release_notes.md \
+              --notes-file "${{ steps.notes.outputs.file }}" \
               --draft
           fi
 
@@ -104,11 +78,11 @@ jobs:
           echo "**版本**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "**类型**: $([ "$PRERELEASE" = "true" ] && echo "预发布版本" || echo "稳定版本")" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**⚠️ 注意**: Release 已创建为草稿状态，请重点核对自动生成的升级说明后再发布" >> $GITHUB_STEP_SUMMARY
+          echo "**⚠️ 注意**: Release 已创建为草稿状态，请最后核对发布说明后再发布" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Release 链接**: https://github.com/${{ github.repository }}/releases/tag/${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**下一步**:" >> $GITHUB_STEP_SUMMARY
           echo "1. 访问上面的链接" >> $GITHUB_STEP_SUMMARY
-          echo "2. 核对自动生成的 Release Notes，尤其是升级说明" >> $GITHUB_STEP_SUMMARY
+          echo "2. 核对 docs/releases/${VERSION}.md 的发布说明，尤其是升级说明" >> $GITHUB_STEP_SUMMARY
           echo "3. 点击 'Publish release' 发布" >> $GITHUB_STEP_SUMMARY
