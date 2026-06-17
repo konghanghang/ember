@@ -636,6 +636,101 @@ func TestCreateCheckoutSessionReusesExistingPendingCheckout(t *testing.T) {
 	}
 }
 
+func TestCreateCheckoutSessionCreatesStripeSessionAndBackfillsPayment(t *testing.T) {
+	var stripeCall struct {
+		secret         string
+		successURL     string
+		cancelURL      string
+		userID         string
+		planID         string
+		paymentMethods []string
+		paymentID      string
+	}
+	var backfillCall struct {
+		paymentID   string
+		sessionID   string
+		checkoutURL string
+	}
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret:   " sk_test ",
+				SuccessURL:     " https://ember.example.com/success ",
+				CancelURL:      " https://ember.example.com/cancel ",
+				PaymentMethods: []string{"card", "alipay"},
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			return &models.Plan{
+				ID:        planID,
+				Name:      "季度方案",
+				Days:      90,
+				Price:     1999,
+				Currency:  "hkd",
+				IsActive:  true,
+				PlanGroup: planGroup,
+			}, nil
+		},
+		expirePendingPaymentsFn: func(userID, planID string, now time.Time) error {
+			return nil
+		},
+		reservePendingPaymentFn: func(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+			return &models.Payment{
+				ID:     "pay_1",
+				UserID: userID,
+				PlanID: plan.ID,
+				Status: models.PaymentPending,
+			}, nil
+		},
+		createStripeCheckoutSessionFn: func(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error) {
+			stripeCall.secret = secret
+			stripeCall.successURL = successURL
+			stripeCall.cancelURL = cancelURL
+			stripeCall.userID = userID
+			stripeCall.planID = plan.ID
+			stripeCall.paymentMethods = append(stripeCall.paymentMethods, paymentMethods...)
+			stripeCall.paymentID = paymentID
+			return &stripeCheckoutSessionResponse{
+				ID:  "cs_new",
+				URL: " https://checkout.stripe.com/c/pay/new ",
+			}, nil
+		},
+		backfillCheckoutSession: func(paymentID, sessionID, checkoutURL string) error {
+			backfillCall.paymentID = paymentID
+			backfillCall.sessionID = sessionID
+			backfillCall.checkoutURL = checkoutURL
+			return nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: " plan_1 "})
+
+	if err != nil {
+		t.Fatalf("expected checkout create success, got %v", err)
+	}
+	if resp == nil || resp.URL != " https://checkout.stripe.com/c/pay/new " {
+		t.Fatalf("unexpected checkout response: %+v", resp)
+	}
+	if stripeCall.secret != "sk_test" ||
+		stripeCall.successURL != "https://ember.example.com/success" ||
+		stripeCall.cancelURL != "https://ember.example.com/cancel" ||
+		stripeCall.userID != "user_1" ||
+		stripeCall.planID != "plan_1" ||
+		stripeCall.paymentID != "pay_1" {
+		t.Fatalf("unexpected stripe call: %+v", stripeCall)
+	}
+	if len(stripeCall.paymentMethods) != 2 || stripeCall.paymentMethods[0] != "card" || stripeCall.paymentMethods[1] != "alipay" {
+		t.Fatalf("unexpected payment methods: %+v", stripeCall.paymentMethods)
+	}
+	if backfillCall.paymentID != "pay_1" || backfillCall.sessionID != "cs_new" ||
+		backfillCall.checkoutURL != "https://checkout.stripe.com/c/pay/new" {
+		t.Fatalf("unexpected backfill call: %+v", backfillCall)
+	}
+}
+
 func TestExpireStripeCheckoutSessionsDeduplicatesAndContinuesAfterFailure(t *testing.T) {
 	var expired []string
 	service := &PaymentService{
