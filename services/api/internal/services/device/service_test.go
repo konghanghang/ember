@@ -212,6 +212,88 @@ func TestRemoveClientFromBlacklistMapsDeleteFailures(t *testing.T) {
 	}
 }
 
+func TestLogoutDeviceRecordsDeviceContextAfterLogout(t *testing.T) {
+	var loggedOut string
+	var recorded *models.DeviceAction
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			return []DeviceItem{
+				{DeviceID: "device_1", UserID: "user_1", ClientName: "Infuse"},
+				{DeviceID: "device_2", UserID: "user_2", ClientName: "Kodi"},
+			}, nil
+		},
+		logoutDeviceFn: func(deviceID string) error {
+			loggedOut = deviceID
+			return nil
+		},
+		recordDeviceActionFn: func(action models.DeviceAction) error {
+			copy := action
+			recorded = &copy
+			return nil
+		},
+	}
+
+	err := service.LogoutDevice(" device_1 ", "admin_1")
+
+	if err != nil {
+		t.Fatalf("expected logout success, got %v", err)
+	}
+	if loggedOut != "device_1" {
+		t.Fatalf("expected logout device_1, got %q", loggedOut)
+	}
+	if recorded == nil || recorded.DeviceID != "device_1" || recorded.UserID != "user_1" ||
+		recorded.ClientName != "Infuse" || recorded.Action != "logout" || recorded.Note != "manual" {
+		t.Fatalf("unexpected recorded action: %+v", recorded)
+	}
+	if recorded.OperatorID == nil || *recorded.OperatorID != "admin_1" {
+		t.Fatalf("expected operator admin_1, got %+v", recorded.OperatorID)
+	}
+}
+
+func TestLogoutDeviceRejectsBlankDeviceBeforeDependencies(t *testing.T) {
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			t.Fatalf("buildDeviceItemsFn must not run for blank device")
+			return nil, nil
+		},
+		logoutDeviceFn: func(deviceID string) error {
+			t.Fatalf("logoutDeviceFn must not run for blank device")
+			return nil
+		},
+		recordDeviceActionFn: func(action models.DeviceAction) error {
+			t.Fatalf("recordDeviceActionFn must not run for blank device")
+			return nil
+		},
+	}
+
+	err := service.LogoutDevice("  ", "admin_1")
+	if !errors.Is(err, ErrDeviceIDRequired) {
+		t.Fatalf("expected ErrDeviceIDRequired, got %v", err)
+	}
+}
+
+func TestLogoutDeviceReturnsLogoutFailureWithoutRecordingAction(t *testing.T) {
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			return []DeviceItem{
+				{DeviceID: "device_1", UserID: "user_1", ClientName: "Infuse"},
+			}, nil
+		},
+		logoutDeviceFn: func(deviceID string) error {
+			return errors.New("emby timeout")
+		},
+		recordDeviceActionFn: func(action models.DeviceAction) error {
+			t.Fatalf("recordDeviceActionFn must not run when logout fails")
+			return nil
+		},
+	}
+
+	err := service.LogoutDevice("device_1", "admin_1")
+	if err == nil || err.Error() != "emby timeout" {
+		t.Fatalf("expected logout failure, got %v", err)
+	}
+}
+
 func TestLogoutBlacklistedDevicesLogsOutUniqueBlacklistedDevicesAndRecordsActions(t *testing.T) {
 	var loggedOut []string
 	var recorded []models.DeviceAction
