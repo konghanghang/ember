@@ -267,8 +267,8 @@ func (s *TelegramService) Unbind(userID string) error {
 
 // GetAccountInfo 按 Telegram ID 查询账号信息
 func (s *TelegramService) GetAccountInfo(telegramID int64) (*AccountInfoResponse, error) {
-	var user models.User
-	if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&user).Error; err != nil {
+	user, err := s.findUserByTelegramID(telegramID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTelegramNotBound
 		}
@@ -287,8 +287,8 @@ func (s *TelegramService) GetAccountInfo(telegramID int64) (*AccountInfoResponse
 
 // RedeemByTelegram 通过 Telegram 兑换续期码
 func (s *TelegramService) RedeemByTelegram(telegramID int64, code string) (*TelegramRedeemResponse, error) {
-	var user models.User
-	if err := db.DB.Where("\"telegram_id\" = ?", telegramID).First(&user).Error; err != nil {
+	user, err := s.findUserByTelegramID(telegramID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrTelegramNotBound
 		}
@@ -328,8 +328,8 @@ func (s *TelegramService) ResetPassword(telegramID int64, newPassword string) er
 
 // SubscribeByTelegram 通过 Telegram 身份创建求片订阅
 func (s *TelegramService) SubscribeByTelegram(req TelegramSubscribeRequest) error {
-	var user models.User
-	if err := db.DB.Where("\"telegram_id\" = ?", req.TelegramID).First(&user).Error; err != nil {
+	user, err := s.findUserByTelegramID(req.TelegramID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrTelegramNotBound
 		}

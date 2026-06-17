@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
@@ -133,6 +134,202 @@ func TestTelegramServiceSubscribeForUserReturnsSubscriberError(t *testing.T) {
 	}, nil)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected delegated error, got %v", err)
+	}
+}
+
+func TestTelegramServiceGetAccountInfoUsesInjectedLookup(t *testing.T) {
+	expiredAt := time.Now().UTC().Add(-time.Hour)
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		if telegramID != 42 {
+			t.Fatalf("unexpected telegram id: %d", telegramID)
+		}
+		return &models.User{
+			ID:           "user_1",
+			Username:     "ember",
+			Email:        "ember@example.com",
+			ExpiresAt:    &expiredAt,
+			IsActive:     true,
+			EmbyDisabled: true,
+		}, nil
+	}
+
+	resp, err := service.GetAccountInfo(42)
+	if err != nil {
+		t.Fatalf("expected account info, got %v", err)
+	}
+	if resp.Username != "ember" || resp.Email != "ember@example.com" || !resp.IsActive || !resp.EmbyDisabled {
+		t.Fatalf("unexpected account info: %+v", resp)
+	}
+	if resp.ExpiresAt != &expiredAt || !resp.IsExpired {
+		t.Fatalf("expected expired account info, got %+v", resp)
+	}
+}
+
+func TestTelegramServiceGetAccountInfoMapsLookupErrors(t *testing.T) {
+	testCases := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{name: "not bound", err: gorm.ErrRecordNotFound, wantErr: ErrTelegramNotBound},
+		{name: "lookup failure", err: errors.New("database unavailable"), wantErr: errors.New("查询账号信息失败，请稍后重试")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+			service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+				return nil, tc.err
+			}
+
+			resp, err := service.GetAccountInfo(42)
+			if resp != nil {
+				t.Fatalf("expected nil response, got %+v", resp)
+			}
+			if tc.wantErr == ErrTelegramNotBound {
+				if !errors.Is(err, ErrTelegramNotBound) {
+					t.Fatalf("expected ErrTelegramNotBound, got %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr.Error() {
+				t.Fatalf("expected %q, got %v", tc.wantErr.Error(), err)
+			}
+		})
+	}
+}
+
+func TestTelegramServiceRedeemByTelegramUsesInjectedLookup(t *testing.T) {
+	redeemer := &stubTelegramRedeemer{resp: &TelegramRedeemResponse{Message: "兑换成功", Days: 30}}
+	service := NewTelegramService(redeemer, &stubTelegramSubscriber{}, nil)
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		if telegramID != 42 {
+			t.Fatalf("unexpected telegram id: %d", telegramID)
+		}
+		return &models.User{ID: "user_1"}, nil
+	}
+
+	resp, err := service.RedeemByTelegram(42, "RENEW30")
+	if err != nil {
+		t.Fatalf("expected redeem success, got %v", err)
+	}
+	if resp == nil || resp.Message != "兑换成功" || resp.Days != 30 {
+		t.Fatalf("unexpected redeem response: %+v", resp)
+	}
+	if redeemer.lastUserID != "user_1" || redeemer.lastCode != "RENEW30" {
+		t.Fatalf("unexpected delegated redeem payload: userID=%q code=%q", redeemer.lastUserID, redeemer.lastCode)
+	}
+}
+
+func TestTelegramServiceRedeemByTelegramMapsLookupErrors(t *testing.T) {
+	testCases := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{name: "not bound", err: gorm.ErrRecordNotFound, wantErr: ErrTelegramNotBound},
+		{name: "lookup failure", err: errors.New("database unavailable"), wantErr: errors.New("兑换失败，请稍后重试")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			redeemer := &stubTelegramRedeemer{}
+			service := NewTelegramService(redeemer, &stubTelegramSubscriber{}, nil)
+			service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+				return nil, tc.err
+			}
+
+			resp, err := service.RedeemByTelegram(42, "RENEW30")
+			if resp != nil {
+				t.Fatalf("expected nil response, got %+v", resp)
+			}
+			if redeemer.lastUserID != "" || redeemer.lastCode != "" {
+				t.Fatalf("redeemer must not be called after lookup failure")
+			}
+			if tc.wantErr == ErrTelegramNotBound {
+				if !errors.Is(err, ErrTelegramNotBound) {
+					t.Fatalf("expected ErrTelegramNotBound, got %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr.Error() {
+				t.Fatalf("expected %q, got %v", tc.wantErr.Error(), err)
+			}
+		})
+	}
+}
+
+func TestTelegramServiceSubscribeByTelegramUsesInjectedLookup(t *testing.T) {
+	subscriber := &stubTelegramSubscriber{}
+	service := NewTelegramService(&stubTelegramRedeemer{}, subscriber, nil)
+	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+		if telegramID != 42 {
+			t.Fatalf("unexpected telegram id: %d", telegramID)
+		}
+		return &models.User{ID: "user_1"}, nil
+	}
+
+	err := service.SubscribeByTelegram(TelegramSubscribeRequest{
+		TelegramID: 42,
+		Type:       "TV",
+		Name:       "Show",
+		TmdbID:     "123",
+		Season:     2,
+		PosterPath: "/poster.jpg",
+	})
+	if err != nil {
+		t.Fatalf("expected subscribe success, got %v", err)
+	}
+	if subscriber.lastUserID != "user_1" {
+		t.Fatalf("unexpected delegated user id: %q", subscriber.lastUserID)
+	}
+	if subscriber.lastReq.Type != models.MediaTV || subscriber.lastReq.Name != "Show" ||
+		subscriber.lastReq.TmdbID != "123" || subscriber.lastReq.Season != 2 {
+		t.Fatalf("unexpected delegated subscription: %+v", subscriber.lastReq)
+	}
+	if subscriber.lastReq.PosterPath == nil || *subscriber.lastReq.PosterPath != "/poster.jpg" {
+		t.Fatalf("unexpected poster path: %+v", subscriber.lastReq.PosterPath)
+	}
+}
+
+func TestTelegramServiceSubscribeByTelegramMapsLookupErrors(t *testing.T) {
+	testCases := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{name: "not bound", err: gorm.ErrRecordNotFound, wantErr: ErrTelegramNotBound},
+		{name: "lookup failure", err: errors.New("database unavailable"), wantErr: errors.New("订阅失败，请稍后重试")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			subscriber := &stubTelegramSubscriber{}
+			service := NewTelegramService(&stubTelegramRedeemer{}, subscriber, nil)
+			service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
+				return nil, tc.err
+			}
+
+			err := service.SubscribeByTelegram(TelegramSubscribeRequest{
+				TelegramID: 42,
+				Type:       "MOVIE",
+				Name:       "Movie",
+				TmdbID:     "456",
+			})
+			if subscriber.lastUserID != "" {
+				t.Fatalf("subscriber must not be called after lookup failure")
+			}
+			if tc.wantErr == ErrTelegramNotBound {
+				if !errors.Is(err, ErrTelegramNotBound) {
+					t.Fatalf("expected ErrTelegramNotBound, got %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr.Error() {
+				t.Fatalf("expected %q, got %v", tc.wantErr.Error(), err)
+			}
+		})
 	}
 }
 
