@@ -29,6 +29,53 @@ func TestFormatNotificationTimeUsesConfiguredTimezone(t *testing.T) {
 	}
 }
 
+func TestSubscriptionTimeAndStringHelpers(t *testing.T) {
+	parsed, ok := parseSubscriptionTMDBAirDate(" 2026-04-19 ")
+	if !ok {
+		t.Fatal("expected valid TMDB air date")
+	}
+	wantDate := time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC)
+	if !parsed.Equal(wantDate) {
+		t.Fatalf("expected normalized UTC date %s, got %s", wantDate, parsed)
+	}
+
+	for _, value := range []string{"", "2026/04/19", "not-a-date"} {
+		t.Run(value, func(t *testing.T) {
+			if got, ok := parseSubscriptionTMDBAirDate(value); ok || !got.IsZero() {
+				t.Fatalf("expected invalid date to return zero false, got %s %v", got, ok)
+			}
+		})
+	}
+
+	loc := time.FixedZone("UTC+8", 8*60*60)
+	now := time.Date(2026, 4, 18, 18, 30, 0, 0, time.UTC)
+	calendarDate := subscriptionCalendarDateInLocation(now, loc)
+	wantCalendarDate := time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC)
+	if !calendarDate.Equal(wantCalendarDate) {
+		t.Fatalf("expected calendar date %s, got %s", wantCalendarDate, calendarDate)
+	}
+	if got := subscriptionCalendarDateInLocation(wantDate, nil); !got.Equal(wantDate) {
+		t.Fatalf("expected nil location to use UTC date, got %s", got)
+	}
+
+	text := "value"
+	if got := ptrToString(&text); got != "value" {
+		t.Fatalf("expected ptrToString to unwrap value, got %q", got)
+	}
+	if got := ptrToString(nil); got != "" {
+		t.Fatalf("expected nil ptrToString to return blank, got %q", got)
+	}
+	if got := stringPointerValue(&text); got != "value" {
+		t.Fatalf("expected stringPointerValue to unwrap value, got %q", got)
+	}
+	if got := stringPointerValue(nil); got != "" {
+		t.Fatalf("expected nil stringPointerValue to return blank, got %q", got)
+	}
+	if formatNotificationTime(nil) != nil {
+		t.Fatal("expected nil notification time to stay nil")
+	}
+}
+
 type stubSubscriptionEmbyLookup struct {
 	configured bool
 	responses  map[string]stubSubscriptionEmbyLookupResponse
@@ -211,10 +258,141 @@ func resetSubscriptionSeriesTMDBLookupCache() {
 	subscriptionSeriesTMDBLookupCache.mu.Unlock()
 }
 
+func TestSeriesTMDBIDCacheStoresHitsAndEvictsExpiredEntries(t *testing.T) {
+	originalNow := subscriptionSeriesTMDBLookupNow
+	t.Cleanup(func() {
+		subscriptionSeriesTMDBLookupNow = originalNow
+		resetSubscriptionSeriesTMDBLookupCache()
+	})
+	resetSubscriptionSeriesTMDBLookupCache()
+
+	currentTime := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	subscriptionSeriesTMDBLookupNow = func() time.Time {
+		return currentTime
+	}
+
+	cacheSeriesTMDBID(" series_1 ", "1399")
+	if got, ok := getCachedSeriesTMDBID(" series_1 "); !ok || got != "1399" {
+		t.Fatalf("expected cached tmdb id 1399, got %q %v", got, ok)
+	}
+
+	currentTime = currentTime.Add(subscriptionSeriesTMDBLookupCacheTTL + time.Second)
+	if got, ok := getCachedSeriesTMDBID(" series_1 "); ok || got != "" {
+		t.Fatalf("expected expired cache miss, got %q %v", got, ok)
+	}
+}
+
+func TestResolveWebhookMatchTMDBIDsUsesPayloadAndSeriesLookup(t *testing.T) {
+	originalFactory := newSubscriptionEmbyLookup
+	originalNow := subscriptionSeriesTMDBLookupNow
+	t.Cleanup(func() {
+		newSubscriptionEmbyLookup = originalFactory
+		subscriptionSeriesTMDBLookupNow = originalNow
+		resetSubscriptionSeriesTMDBLookupCache()
+	})
+	resetSubscriptionSeriesTMDBLookupCache()
+	subscriptionSeriesTMDBLookupNow = func() time.Time {
+		return time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	}
+
+	service := &SubscriptionService{}
+	lookup := &stubSubscriptionEmbyLookup{
+		configured: true,
+		responses: map[string]stubSubscriptionEmbyLookupResponse{
+			"/emby/Items": {
+				expectedParams: map[string]string{
+					"Ids":    "series_81812",
+					"Fields": "ProviderIds",
+				},
+				body: []byte(`{"Items":[{"ProviderIds":{"Tmdb":"1399"}}]}`),
+			},
+		},
+	}
+	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
+		return lookup
+	}
+
+	got := service.resolveWebhookMatchTMDBIDs("episode", SubscriptionIngestWebhookPayload{
+		TmdbID:   " 27205 ",
+		SeriesID: " series_81812 ",
+	})
+	if !slices.Equal(got, []string{"27205", "1399"}) {
+		t.Fatalf("expected payload tmdb id plus resolved series tmdb id, got %+v", got)
+	}
+	if lookup.callCount != 1 {
+		t.Fatalf("expected one series lookup, got %d", lookup.callCount)
+	}
+
+	got = service.resolveWebhookMatchTMDBIDs("episode", SubscriptionIngestWebhookPayload{
+		TmdbID:   "1399",
+		SeriesID: "series_81812",
+	})
+	if !slices.Equal(got, []string{"1399"}) {
+		t.Fatalf("expected duplicate series tmdb id to be deduped, got %+v", got)
+	}
+	if lookup.callCount != 1 {
+		t.Fatalf("expected second call to use cache, got %d lookups", lookup.callCount)
+	}
+
+	got = service.resolveWebhookMatchTMDBIDs("movie", SubscriptionIngestWebhookPayload{
+		TmdbID:   " 27205 ",
+		SeriesID: "series_ignored",
+	})
+	if !slices.Equal(got, []string{"27205"}) {
+		t.Fatalf("expected movie webhook to use payload tmdb id only, got %+v", got)
+	}
+}
+
+func TestResolveWebhookMatchTMDBIDsKeepsPayloadWhenSeriesLookupUnavailable(t *testing.T) {
+	originalFactory := newSubscriptionEmbyLookup
+	t.Cleanup(func() {
+		newSubscriptionEmbyLookup = originalFactory
+		resetSubscriptionSeriesTMDBLookupCache()
+	})
+	resetSubscriptionSeriesTMDBLookupCache()
+
+	newSubscriptionEmbyLookup = func() subscriptionEmbyLookup {
+		return &stubSubscriptionEmbyLookup{configured: false}
+	}
+
+	service := &SubscriptionService{}
+	got := service.resolveWebhookMatchTMDBIDs("episode", SubscriptionIngestWebhookPayload{
+		TmdbID:   "27205",
+		SeriesID: "series_unconfigured",
+	})
+	if !slices.Equal(got, []string{"27205"}) {
+		t.Fatalf("expected payload tmdb id when lookup is unavailable, got %+v", got)
+	}
+}
+
 func TestIsSubscriptionUniqueConflictDetectsPostgresDuplicateKey(t *testing.T) {
 	err := &pgconn.PgError{Code: "23505"}
 	if !isSubscriptionUniqueConflict(err) {
 		t.Fatal("expected postgres duplicate key to be treated as subscription duplicate")
+	}
+}
+
+func TestBuildConfirmationRequiredResultCopiesExistingSummary(t *testing.T) {
+	checkResult := &CheckExistingResponse{
+		ExistsInLibrary: true,
+		DetectionFailed: true,
+		ExistingSummary: &ExistingSummary{
+			MatchType:       ExistingMatchMovie,
+			EmbyItemID:      "emby_1",
+			Message:         "已存在",
+			DetectionFailed: true,
+		},
+	}
+
+	result := buildConfirmationRequiredResult(checkResult)
+	if result == nil || result.Success {
+		t.Fatalf("expected unsuccessful confirmation result, got %+v", result)
+	}
+	if result.AlreadyExists || !result.ConfirmationRequired || !result.DetectionFailed {
+		t.Fatalf("expected confirmation and detection flags without AlreadyExists, got %+v", result)
+	}
+	if result.ExistingSummary == nil || result.ExistingSummary.EmbyItemID != "emby_1" {
+		t.Fatalf("expected existing summary to be copied, got %+v", result.ExistingSummary)
 	}
 }
 
