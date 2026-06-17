@@ -45,6 +45,7 @@ type UserServiceDeps struct {
 	DeleteUserRecord    func(user *models.User) error
 	UpdateUserActive    func(userID string, isActive bool) error
 	GetUserViewByID     func(userID string) (*UserView, error)
+	UpdateEmailWithCode func(userID, newEmail, code string) error
 	Compensation        *accountpkg.EmbyCompensation
 	NewCompensation     func() *accountpkg.EmbyCompensation
 	ApplyPolicy         func(userID, reason string) error
@@ -64,6 +65,7 @@ type UserService struct {
 	deleteUserRecord    func(user *models.User) error
 	updateUserActive    func(userID string, isActive bool) error
 	getUserViewByID     func(userID string) (*UserView, error)
+	updateEmailWithCode func(userID, newEmail, code string) error
 	compensation        *accountpkg.EmbyCompensation
 	newCompensation     func() *accountpkg.EmbyCompensation
 	applyPolicy         func(userID, reason string) error
@@ -91,6 +93,7 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 		deleteUserRecord:    deps.DeleteUserRecord,
 		updateUserActive:    deps.UpdateUserActive,
 		getUserViewByID:     deps.GetUserViewByID,
+		updateEmailWithCode: deps.UpdateEmailWithCode,
 		compensation:        deps.Compensation,
 		newCompensation:     deps.NewCompensation,
 		applyPolicy:         deps.ApplyPolicy,
@@ -168,6 +171,9 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 	}
 	if service.getUserViewByID == nil {
 		service.getUserViewByID = service.GetUserByID
+	}
+	if service.updateEmailWithCode == nil {
+		service.updateEmailWithCode = service.updateEmailWithCodeTx
 	}
 	if service.newCompensation == nil {
 		service.newCompensation = func() *accountpkg.EmbyCompensation {

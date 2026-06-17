@@ -3,7 +3,6 @@ package user
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"log"
 	"strings"
 
@@ -34,11 +33,8 @@ func (s *UserService) GetProfile(userID string) (*UserView, error) {
 
 // UpdateEmail 通过验证码确认后才落库邮箱变更，并返回变更前的旧邮箱用于通知。
 func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*UpdateEmailResult, error) {
-	var user models.User
-	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
-		}
+	user, err := s.findUserByID(userID)
+	if err != nil {
 		return nil, ErrUserNotFound
 	}
 
@@ -58,24 +54,7 @@ func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*Upda
 		return nil, err
 	}
 
-	err := db.DB.Transaction(func(tx *gorm.DB) error {
-		// 校验即消费验证码（同事务内删除，不可重放）。
-		if err := s.getEmailVerifier().ConsumeCodeTx(tx, newEmail, req.Code, models.VerificationTypeChangeEmail); err != nil {
-			return err
-		}
-
-		updateErr := tx.Model(&models.User{}).
-			Where("id = ?", user.ID).
-			Update("email", newEmail).Error
-		if updateErr != nil {
-			if isUserUniqueViolation(updateErr, "email") {
-				return ErrEmailAlreadyExists
-			}
-			return ErrUserUpdateFailed
-		}
-		return nil
-	})
-	if err != nil {
+	if err := s.updateEmailWithCode(user.ID, newEmail, req.Code); err != nil {
 		return nil, err
 	}
 
@@ -86,8 +65,28 @@ func (s *UserService) UpdateEmail(userID string, req *UpdateEmailRequest) (*Upda
 
 	return &UpdateEmailResult{
 		OldEmail: oldEmail,
-		User:     &user,
+		User:     user,
 	}, nil
+}
+
+func (s *UserService) updateEmailWithCodeTx(userID, newEmail, code string) error {
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		// 校验即消费验证码（同事务内删除，不可重放）。
+		if err := s.getEmailVerifier().ConsumeCodeTx(tx, newEmail, code, models.VerificationTypeChangeEmail); err != nil {
+			return err
+		}
+
+		updateErr := tx.Model(&models.User{}).
+			Where("id = ?", userID).
+			Update("email", newEmail).Error
+		if updateErr != nil {
+			if isUserUniqueViolation(updateErr, "email") {
+				return ErrEmailAlreadyExists
+			}
+			return ErrUserUpdateFailed
+		}
+		return nil
+	})
 }
 
 // hashEmail 对 email 做不可逆哈希，仅取前 8 位 hex 用于日志关联，避免明文落盘。
