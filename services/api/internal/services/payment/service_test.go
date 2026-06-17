@@ -1098,6 +1098,99 @@ func TestCreateCheckoutSessionMapsPlanNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateCheckoutSessionReturnsExpirePendingFailureBeforeReserve(t *testing.T) {
+	expireErr := errors.New("expire pending failed")
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret: "sk_test",
+				SuccessURL:   "https://ember.example.com/success",
+				CancelURL:    "https://ember.example.com/cancel",
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			return &models.Plan{
+				ID:        planID,
+				Name:      "季度方案",
+				Days:      90,
+				Price:     1999,
+				Currency:  "hkd",
+				IsActive:  true,
+				PlanGroup: planGroup,
+			}, nil
+		},
+		expirePendingPaymentsFn: func(userID, planID string, now time.Time) error {
+			return expireErr
+		},
+		reservePendingPaymentFn: func(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+			t.Fatalf("reservePendingPaymentFn must not run when expire pending fails")
+			return nil, nil
+		},
+		createStripeCheckoutSessionFn: func(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error) {
+			t.Fatalf("createStripeCheckoutSessionFn must not run when expire pending fails")
+			return nil, nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if !errors.Is(err, expireErr) {
+		t.Fatalf("expected expire pending error, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on expire pending failure, got %+v", resp)
+	}
+}
+
+func TestCreateCheckoutSessionReturnsReserveFailureBeforeStripe(t *testing.T) {
+	reserveErr := errors.New("reserve pending failed")
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret: "sk_test",
+				SuccessURL:   "https://ember.example.com/success",
+				CancelURL:    "https://ember.example.com/cancel",
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			return &models.Plan{
+				ID:        planID,
+				Name:      "季度方案",
+				Days:      90,
+				Price:     1999,
+				Currency:  "hkd",
+				IsActive:  true,
+				PlanGroup: planGroup,
+			}, nil
+		},
+		expirePendingPaymentsFn: func(userID, planID string, now time.Time) error {
+			return nil
+		},
+		reservePendingPaymentFn: func(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+			return nil, reserveErr
+		},
+		createStripeCheckoutSessionFn: func(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error) {
+			t.Fatalf("createStripeCheckoutSessionFn must not run when reserve pending fails")
+			return nil, nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
+
+	if !errors.Is(err, reserveErr) {
+		t.Fatalf("expected reserve pending error, got resp=%+v err=%v", resp, err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on reserve pending failure, got %+v", resp)
+	}
+}
+
 func TestExpireStripeCheckoutSessionsDeduplicatesAndContinuesAfterFailure(t *testing.T) {
 	var expired []string
 	service := &PaymentService{
