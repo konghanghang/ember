@@ -14,12 +14,168 @@ import (
 
 	"github.com/konghang/ember/backend/internal/common/tmdbcache"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestIsScannableSeriesRequiresPhysicalSeriesAndTmdbID(t *testing.T) {
+	cases := []struct {
+		name              string
+		item              embySeriesItem
+		requireContinuing bool
+		want              bool
+	}{
+		{
+			name: "virtual series skipped",
+			item: embySeriesItem{
+				LocationType: " Virtual ",
+				ProviderIDs:  map[string]string{"Tmdb": "1399"},
+			},
+			want: false,
+		},
+		{
+			name: "missing tmdb id skipped",
+			item: embySeriesItem{
+				ProviderIDs: map[string]string{"Imdb": "tt0944947"},
+			},
+			want: false,
+		},
+		{
+			name: "status ignored when continuing not required",
+			item: embySeriesItem{
+				Status:      "Ended",
+				ProviderIDs: map[string]string{" tmdb ": " 1399 "},
+			},
+			want: true,
+		},
+		{
+			name: "blank status accepted when continuing required",
+			item: embySeriesItem{
+				ProviderIDs: map[string]string{"Tmdb": "1399"},
+			},
+			requireContinuing: true,
+			want:              true,
+		},
+		{
+			name: "series status continuing accepted",
+			item: embySeriesItem{
+				SeriesStatus: "Continuing",
+				ProviderIDs:  map[string]string{"Tmdb": "1399"},
+			},
+			requireContinuing: true,
+			want:              true,
+		},
+		{
+			name: "ended status rejected when continuing required",
+			item: embySeriesItem{
+				Status:      "Ended",
+				ProviderIDs: map[string]string{"Tmdb": "1399"},
+			},
+			requireContinuing: true,
+			want:              false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isScannableSeries(tc.item, tc.requireContinuing); got != tc.want {
+				t.Fatalf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestHasPhysicalEpisodeMedia(t *testing.T) {
+	cases := []struct {
+		name string
+		item embyEpisodeItem
+		want bool
+	}{
+		{
+			name: "virtual episode skipped",
+			item: embyEpisodeItem{LocationType: " Virtual ", Path: "/media/show.mkv"},
+			want: false,
+		},
+		{
+			name: "missing episode skipped",
+			item: embyEpisodeItem{IsMissing: true, Path: "/media/show.mkv"},
+			want: false,
+		},
+		{
+			name: "path marks physical media",
+			item: embyEpisodeItem{Path: " /media/show.mkv "},
+			want: true,
+		},
+		{
+			name: "media source marks physical media",
+			item: embyEpisodeItem{MediaSources: []embyint.EmbyMediaSource{{}}},
+			want: true,
+		},
+		{
+			name: "empty media skipped",
+			item: embyEpisodeItem{},
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasPhysicalEpisodeMedia(tc.item); got != tc.want {
+				t.Fatalf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestParseTMDBAirDate(t *testing.T) {
+	parsed, ok := parseTMDBAirDate(" 2026-04-19 ")
+	if !ok {
+		t.Fatal("expected valid TMDB air date")
+	}
+	want := time.Date(2026, 4, 19, 0, 0, 0, 0, time.UTC)
+	if !parsed.Equal(want) {
+		t.Fatalf("expected %s, got %s", want, parsed)
+	}
+
+	for _, value := range []string{"", "2026/04/19", "not-a-date"} {
+		t.Run(value, func(t *testing.T) {
+			if got, ok := parseTMDBAirDate(value); ok || !got.IsZero() {
+				t.Fatalf("expected invalid date to return zero false, got %s %v", got, ok)
+			}
+		})
+	}
+}
+
+func TestEpisodeInventoryAndSeasonSet(t *testing.T) {
+	inventory := episodeInventory{
+		1: {1: {}, 2: {}},
+		2: {},
+		0: {1: {}},
+	}
+
+	if !inventory.has(1, 2) {
+		t.Fatal("expected inventory to contain season 1 episode 2")
+	}
+	if inventory.has(0, 1) || inventory.has(1, 0) || inventory.has(2, 1) || inventory.has(3, 1) {
+		t.Fatal("expected invalid or absent inventory lookups to be false")
+	}
+
+	active := inventory.activeSeasons()
+	if !active.contains(1) {
+		t.Fatal("expected season 1 to be active")
+	}
+	if active.contains(0) || active.contains(2) || active.contains(3) {
+		t.Fatalf("unexpected active seasons: %+v", active)
+	}
+	if (seasonSet{}).contains(1) {
+		t.Fatal("empty season set must not contain any season")
+	}
+}
+
 func TestFetchTMDBJSONDeduplicatesInflightRequests(t *testing.T) {
 	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
