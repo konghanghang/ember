@@ -21,6 +21,8 @@ import (
 type RedemptionService struct {
 	embyService  *embyint.EmbyService
 	compensation *accountpkg.EmbyCompensation
+
+	redeemCodeStore func(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error)
 }
 
 // NewRedemptionService 装配兑换码服务，复用注入的 Emby client + 补偿队列。
@@ -47,7 +49,18 @@ func (s *RedemptionService) compensationQueue() *accountpkg.EmbyCompensation {
 	return s.compensation
 }
 
+// RedeemCode 兑换用户提交的兑换码，并在进入存储层前统一收口兑换码空白字符。
 func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
+	normalizedReq := *req
+	normalizedReq.Code = strings.TrimSpace(normalizedReq.Code)
+	if s.redeemCodeStore != nil {
+		return s.redeemCodeStore(userID, &normalizedReq)
+	}
+	return s.redeemCodeWithDB(userID, &normalizedReq)
+}
+
+// redeemCodeWithDB 在数据库事务内完成兑换码校验、用户有效期续期和兑换记录落库。
+func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, ErrRedeemFailed
