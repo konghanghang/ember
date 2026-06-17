@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
@@ -367,5 +368,115 @@ func TestLogoutBlacklistedDevicesReturnsBuildFailure(t *testing.T) {
 	}
 	if result != nil {
 		t.Fatalf("expected nil result on build failure, got %+v", result)
+	}
+}
+
+func TestBuildDeviceItemsFromSourcesMergesDeviceSessionUserAndBlacklist(t *testing.T) {
+	var userLookupIDs []string
+	service := &DeviceService{
+		getEmbyDevicesFn: func() ([]embyint.EmbyDevice, error) {
+			return []embyint.EmbyDevice{
+				{
+					ID:               "device_1",
+					Name:             "Apple TV",
+					AppName:          "Infuse 7.8.1",
+					AppVersion:       "7.8.1",
+					LastUserName:     "Emby Alice",
+					LastUserID:       "emby_user_1",
+					LastActivityDate: "2026-06-16T10:00:00Z",
+				},
+				{
+					ID:          "device_2",
+					Name:        "Bedroom",
+					DateCreated: "2026-06-14T10:00:00Z",
+				},
+				{ID: "   ", Name: "Ignored"},
+			}, nil
+		},
+		getEmbySessionsFn: func() ([]embyint.EmbySession, error) {
+			return []embyint.EmbySession{
+				{
+					DeviceID:           "device_1",
+					DeviceName:         "Living Room",
+					Client:             "Infuse",
+					UserID:             "emby_user_1",
+					UserName:           "Session Alice",
+					ApplicationVersion: "8.0.0",
+					LastActivityDate:   "2026-06-17T10:00:00Z",
+					RemoteEndPoint:     "10.0.0.8",
+					NowPlayingItem:     &embyint.EmbyNowPlayingItem{},
+				},
+				{DeviceID: "  ", DeviceName: "Ignored"},
+			}, nil
+		},
+		listClientBlacklists: func() ([]models.ClientBlacklist, error) {
+			return []models.ClientBlacklist{
+				{NormalizedClientName: "infuse", Reason: "blocked player"},
+			}, nil
+		},
+		listUsersByEmbyIDs: func(embyIDs []string) ([]models.User, error) {
+			userLookupIDs = append(userLookupIDs, embyIDs...)
+			return []models.User{
+				{ID: "user_1", Username: "alice", EmbyID: "emby_user_1"},
+			}, nil
+		},
+	}
+
+	items, err := service.buildDeviceItemsFromSources()
+
+	if err != nil {
+		t.Fatalf("expected build success, got %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected two device items, got %+v", items)
+	}
+	if len(userLookupIDs) != 1 || userLookupIDs[0] != "emby_user_1" {
+		t.Fatalf("unexpected user lookup ids: %+v", userLookupIDs)
+	}
+
+	active := items[0]
+	if active.DeviceID != "device_1" || active.DeviceName != "Living Room" || active.ClientName != "Infuse" {
+		t.Fatalf("unexpected active item identity: %+v", active)
+	}
+	if !active.IsActive || !active.IsBlacklisted || active.BlacklistReason != "blocked player" {
+		t.Fatalf("unexpected active item flags: %+v", active)
+	}
+	if active.UserID != "user_1" || active.UserName != "Session Alice" || active.EmbyUserID != "emby_user_1" {
+		t.Fatalf("unexpected active item user mapping: %+v", active)
+	}
+	if active.ApplicationVersion != "8.0.0" || active.RemoteEndpoint != "10.0.0.8" ||
+		active.LastActivityDate != "2026-06-17T10:00:00Z" {
+		t.Fatalf("unexpected active item session fields: %+v", active)
+	}
+
+	inactive := items[1]
+	if inactive.DeviceID != "device_2" || inactive.DeviceName != "Bedroom" || inactive.ClientName != "Unknown" {
+		t.Fatalf("unexpected inactive item defaults: %+v", inactive)
+	}
+	if inactive.IsActive || inactive.IsBlacklisted {
+		t.Fatalf("unexpected inactive item flags: %+v", inactive)
+	}
+}
+
+func TestBuildDeviceItemsFromSourcesReturnsFailureWhenDevicesAndSessionsFail(t *testing.T) {
+	service := &DeviceService{
+		getEmbyDevicesFn: func() ([]embyint.EmbyDevice, error) {
+			return nil, errors.New("devices unavailable")
+		},
+		getEmbySessionsFn: func() ([]embyint.EmbySession, error) {
+			return nil, errors.New("sessions unavailable")
+		},
+		listClientBlacklists: func() ([]models.ClientBlacklist, error) {
+			t.Fatalf("listClientBlacklists must not run when Emby sources both fail")
+			return nil, nil
+		},
+	}
+
+	items, err := service.buildDeviceItemsFromSources()
+	if err == nil || err.Error() != "获取设备列表失败" {
+		t.Fatalf("expected device list failure, got items=%+v err=%v", items, err)
+	}
+	if items != nil {
+		t.Fatalf("expected nil items on failure, got %+v", items)
 	}
 }

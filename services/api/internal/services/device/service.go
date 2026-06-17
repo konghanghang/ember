@@ -20,6 +20,10 @@ type DeviceService struct {
 	embyService           *embyint.EmbyService
 	buildDeviceItemsFn    func() ([]DeviceItem, error)
 	logoutDeviceFn        func(deviceID string) error
+	getEmbyDevicesFn      func() ([]embyint.EmbyDevice, error)
+	getEmbySessionsFn     func() ([]embyint.EmbySession, error)
+	listClientBlacklists  func() ([]models.ClientBlacklist, error)
+	listUsersByEmbyIDs    func(embyIDs []string) ([]models.User, error)
 	findClientBlacklist   func(normalized string) (*models.ClientBlacklist, error)
 	createClientBlacklist func(blacklist *models.ClientBlacklist) error
 	updateClientBlacklist func(blacklist *models.ClientBlacklist) error
@@ -42,6 +46,18 @@ func (s *DeviceService) applyDefaults() {
 	}
 	if s.logoutDeviceFn == nil {
 		s.logoutDeviceFn = s.logoutDevice
+	}
+	if s.getEmbyDevicesFn == nil {
+		s.getEmbyDevicesFn = s.getEmbyDevices
+	}
+	if s.getEmbySessionsFn == nil {
+		s.getEmbySessionsFn = s.getEmbySessions
+	}
+	if s.listClientBlacklists == nil {
+		s.listClientBlacklists = listClientBlacklists
+	}
+	if s.listUsersByEmbyIDs == nil {
+		s.listUsersByEmbyIDs = listUsersByEmbyIDs
 	}
 	if s.findClientBlacklist == nil {
 		s.findClientBlacklist = findClientBlacklist
@@ -406,15 +422,16 @@ func (s *DeviceService) buildDeviceItems() ([]DeviceItem, error) {
 }
 
 func (s *DeviceService) buildDeviceItemsFromSources() ([]DeviceItem, error) {
-	devices, devicesErr := s.embyService.GetDevices()
-	sessions, sessionsErr := s.embyService.GetAllSessions()
+	s.applyDefaults()
+	devices, devicesErr := s.getEmbyDevicesFn()
+	sessions, sessionsErr := s.getEmbySessionsFn()
 
 	if devicesErr != nil && sessionsErr != nil {
 		return nil, errors.New("获取设备列表失败")
 	}
 
-	var blacklists []models.ClientBlacklist
-	if err := db.DB.Find(&blacklists).Error; err != nil {
+	blacklists, err := s.listClientBlacklists()
+	if err != nil {
 		return nil, errors.New("获取设备列表失败")
 	}
 	blacklistMap := make(map[string]models.ClientBlacklist, len(blacklists))
@@ -499,8 +516,8 @@ func (s *DeviceService) buildDeviceItemsFromSources() ([]DeviceItem, error) {
 
 	localUserByEmbyID := make(map[string]models.User)
 	if len(embyUserIDs) > 0 {
-		var users []models.User
-		if err := db.DB.Where("\"emby_id\" IN ?", embyUserIDs).Find(&users).Error; err != nil {
+		users, err := s.listUsersByEmbyIDs(embyUserIDs)
+		if err != nil {
 			return nil, errors.New("获取设备列表失败")
 		}
 		for _, user := range users {
@@ -555,6 +572,16 @@ func (s *DeviceService) logoutDevice(deviceID string) error {
 	return s.embyService.LogoutDevice(deviceID)
 }
 
+// getEmbyDevices loads devices from the production Emby adapter.
+func (s *DeviceService) getEmbyDevices() ([]embyint.EmbyDevice, error) {
+	return s.embyService.GetDevices()
+}
+
+// getEmbySessions loads all sessions from the production Emby adapter.
+func (s *DeviceService) getEmbySessions() ([]embyint.EmbySession, error) {
+	return s.embyService.GetAllSessions()
+}
+
 func (s *DeviceService) recordDeviceAction(deviceID, userID, clientName, action, note, operatorID string) {
 	deviceAction := models.DeviceAction{
 		DeviceID:   strings.TrimSpace(deviceID),
@@ -598,6 +625,24 @@ func updateClientBlacklist(blacklist *models.ClientBlacklist) error {
 			"reason":                 blacklist.Reason,
 			"normalized_client_name": blacklist.NormalizedClientName,
 		}).Error
+}
+
+// listClientBlacklists loads all client blacklist rows for device aggregation.
+func listClientBlacklists() ([]models.ClientBlacklist, error) {
+	var blacklists []models.ClientBlacklist
+	if err := db.DB.Find(&blacklists).Error; err != nil {
+		return nil, err
+	}
+	return blacklists, nil
+}
+
+// listUsersByEmbyIDs loads local users linked to the provided Emby user IDs.
+func listUsersByEmbyIDs(embyIDs []string) ([]models.User, error) {
+	var users []models.User
+	if err := db.DB.Where("\"emby_id\" IN ?", embyIDs).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
 // deleteClientBlacklist removes a client blacklist row.
