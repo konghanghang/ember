@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +112,92 @@ func TestCheckExpiredUsersWithContextRecordsSuccessAndFailure(t *testing.T) {
 	}
 	if result.Canceled || result.FailureTruncated {
 		t.Fatalf("expected non-canceled non-truncated result, got %+v", result)
+	}
+}
+
+func TestCheckExpiredUsersWithContextStopsAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	service := NewSystemService()
+	service.now = testExpiryNow
+	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) {
+		return 3, nil
+	}
+	service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) {
+		return []models.User{
+			{ID: "user_1", Username: "alice", Email: "alice@example.com"},
+			{ID: "user_2", Username: "bob", Email: "bob@example.com"},
+			{ID: "user_3", Username: "charlie", Email: "charlie@example.com"},
+		}, nil
+	}
+	applied := []string{}
+	service.applyExpiredPolicy = func(userID string) error {
+		applied = append(applied, userID)
+		cancel()
+		return nil
+	}
+
+	result, err := service.CheckExpiredUsersWithContext(ctx)
+	if err != nil {
+		t.Fatalf("CheckExpiredUsersWithContext() error = %v", err)
+	}
+	if !result.Canceled {
+		t.Fatalf("expected canceled result, got %+v", result)
+	}
+	if result.TotalExpired != 3 || result.Processed != 1 || result.DisabledCount != 1 {
+		t.Fatalf("unexpected counters after cancellation: %+v", result)
+	}
+	if len(applied) != 1 || applied[0] != "user_1" {
+		t.Fatalf("expected only first user to be processed, got %+v", applied)
+	}
+	if len(result.DisabledUsers) != 1 || result.DisabledUsers[0].Username != "alice" {
+		t.Fatalf("expected first user in disabled list, got %+v", result.DisabledUsers)
+	}
+}
+
+func TestCheckExpiredUsersWithContextTruncatesFailureDetails(t *testing.T) {
+	service := NewSystemService()
+	service.now = testExpiryNow
+	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) {
+		return 25, nil
+	}
+	service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) {
+		users := make([]models.User, 0, 25)
+		for i := 0; i < 25; i++ {
+			username := fmt.Sprintf("user_%c", 'a'+i)
+			users = append(users, models.User{
+				ID:       username,
+				Username: username,
+				Email:    "user@example.com",
+			})
+		}
+		return users, nil
+	}
+	service.applyExpiredPolicy = func(userID string) error {
+		return errors.New("policy failed")
+	}
+
+	result, err := service.CheckExpiredUsersWithContext(context.Background())
+	if err != nil {
+		t.Fatalf("CheckExpiredUsersWithContext() error = %v", err)
+	}
+	if result.TotalExpired != 25 || result.Processed != 25 || result.DisabledCount != 0 {
+		t.Fatalf("unexpected counters: %+v", result)
+	}
+	if !result.FailureTruncated {
+		t.Fatalf("expected failure details to be truncated")
+	}
+	if len(result.Errors) != maxCheckExpiredUsersErrors {
+		t.Fatalf("expected %d error messages, got %d", maxCheckExpiredUsersErrors, len(result.Errors))
+	}
+	if len(result.FailedUsers) != maxCheckExpiredUsersFailedUsers {
+		t.Fatalf("expected %d failed users, got %d", maxCheckExpiredUsersFailedUsers, len(result.FailedUsers))
+	}
+	lastError := result.Errors[len(result.Errors)-1]
+	if !strings.Contains(lastError, "禁用用户 user_t 失败: policy failed") {
+		t.Fatalf("expected last retained error to be for user_t, got %q", lastError)
+	}
+	if result.FailedUsers[len(result.FailedUsers)-1]["username"] != "user_t" {
+		t.Fatalf("expected last retained failed user to be user_t, got %+v", result.FailedUsers[len(result.FailedUsers)-1])
 	}
 }
 
