@@ -14,6 +14,9 @@ import (
 
 // sendEmail 通过 SMTP 发送邮件（使用 gomail 生成 MIME，并设置全链路超时）
 func (s *EmailService) sendEmail(to, subject, body string) error {
+	if s.sendEmailFunc != nil {
+		return s.sendEmailFunc(to, subject, body)
+	}
 	s.refreshConfig()
 	m := gomail.NewMessage()
 	m.SetHeader("From", s.from)

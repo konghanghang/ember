@@ -20,6 +20,7 @@ type emailConfigReader interface {
 // EmailService 邮件验证服务
 type EmailService struct {
 	configReader  emailConfigReader
+	sendEmailFunc func(to, subject, body string) error
 	host          string
 	port          string
 	username      string
