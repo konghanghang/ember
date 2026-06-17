@@ -42,6 +42,7 @@ type UserServiceDeps struct {
 	CreateUser          func(user *models.User) error
 	GetPlanGroupByKey   func(key string) (*models.PlanGroup, error)
 	SaveUser            func(user *models.User) error
+	DeleteUserRecord    func(user *models.User) error
 	Compensation        *accountpkg.EmbyCompensation
 	NewCompensation     func() *accountpkg.EmbyCompensation
 	ApplyPolicy         func(userID, reason string) error
@@ -58,6 +59,7 @@ type UserService struct {
 	createUser          func(user *models.User) error
 	getPlanGroupByKey   func(key string) (*models.PlanGroup, error)
 	saveUser            func(user *models.User) error
+	deleteUserRecord    func(user *models.User) error
 	compensation        *accountpkg.EmbyCompensation
 	newCompensation     func() *accountpkg.EmbyCompensation
 	applyPolicy         func(userID, reason string) error
@@ -82,6 +84,7 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 		createUser:          deps.CreateUser,
 		getPlanGroupByKey:   deps.GetPlanGroupByKey,
 		saveUser:            deps.SaveUser,
+		deleteUserRecord:    deps.DeleteUserRecord,
 		compensation:        deps.Compensation,
 		newCompensation:     deps.NewCompensation,
 		applyPolicy:         deps.ApplyPolicy,
@@ -143,6 +146,11 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 				}).Error
 		}
 	}
+	if service.deleteUserRecord == nil {
+		service.deleteUserRecord = func(user *models.User) error {
+			return db.DB.Delete(user).Error
+		}
+	}
 	if service.newCompensation == nil {
 		service.newCompensation = func() *accountpkg.EmbyCompensation {
 			return accountpkg.NewEmbyCompensation(nil)
@@ -163,6 +171,14 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 
 func (s *UserService) getEmailVerifier() emailVerifier {
 	return s.emailVerifier
+}
+
+// embyClient 返回用户服务当前配置的 Emby 客户端；未完整装配的测试服务回退到共享客户端。
+func (s *UserService) embyClient() embyClient {
+	if s.newEmbyClient != nil {
+		return s.newEmbyClient()
+	}
+	return embyint.GetSharedService()
 }
 
 var ErrInvalidExpiresAfter = errors.New("expiresAfter 必须是 YYYY-MM-DD 格式")

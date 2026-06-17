@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/db"
-	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	"gorm.io/gorm"
@@ -435,13 +434,12 @@ func (s *UserService) DeleteUser(userID string) error {
 	}
 
 	if user.EmbyID != "" {
-		embyService := embyint.GetSharedService()
-		if err := embyService.DeleteUser(user.EmbyID); err != nil {
+		if err := s.embyClient().DeleteUser(user.EmbyID); err != nil {
 			return errors.New("删除用户失败：" + err.Error())
 		}
 	}
 
-	if err := db.DB.Delete(&user).Error; err != nil {
+	if err := s.deleteUserRecord(user); err != nil {
 		return err
 	}
 

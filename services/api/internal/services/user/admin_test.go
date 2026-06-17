@@ -125,6 +125,82 @@ func TestCalculateExtendedExpiryExtendsActiveExpiry(t *testing.T) {
 	}
 }
 
+func TestDeleteUserDeletesEmbyBeforeLocalRecord(t *testing.T) {
+	client := &stubUserEmbyClient{}
+	var deletedUserID string
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, EmbyID: "emby_1"}, nil
+		},
+		newEmbyClient: func() embyClient { return client },
+		deleteUserRecord: func(user *models.User) error {
+			deletedUserID = user.ID
+			return nil
+		},
+	}
+
+	err := service.DeleteUser("user_1")
+
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if client.lastDeleteUserID != "emby_1" {
+		t.Fatalf("expected injected emby client to delete emby_1, got %q", client.lastDeleteUserID)
+	}
+	if deletedUserID != "user_1" {
+		t.Fatalf("expected local user record to be deleted, got %q", deletedUserID)
+	}
+}
+
+func TestDeleteUserSkipsLocalDeleteWhenEmbyDeleteFails(t *testing.T) {
+	client := &stubUserEmbyClient{deleteUserErr: errors.New("emby unavailable")}
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, EmbyID: "emby_1"}, nil
+		},
+		newEmbyClient: func() embyClient { return client },
+		deleteUserRecord: func(user *models.User) error {
+			t.Fatalf("local delete must not run when emby delete fails")
+			return nil
+		},
+	}
+
+	err := service.DeleteUser("user_1")
+
+	if err == nil || err.Error() != "删除用户失败：emby unavailable" {
+		t.Fatalf("expected emby delete failure, got %v", err)
+	}
+	if client.lastDeleteUserID != "emby_1" {
+		t.Fatalf("expected emby delete attempt, got %q", client.lastDeleteUserID)
+	}
+}
+
+func TestDeleteUserWithoutEmbyIDDeletesLocalOnly(t *testing.T) {
+	var deletedUserID string
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID}, nil
+		},
+		newEmbyClient: func() embyClient {
+			t.Fatalf("emby client must not be created for users without emby id")
+			return nil
+		},
+		deleteUserRecord: func(user *models.User) error {
+			deletedUserID = user.ID
+			return nil
+		},
+	}
+
+	err := service.DeleteUser("user_1")
+
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if deletedUserID != "user_1" {
+		t.Fatalf("expected local user record to be deleted, got %q", deletedUserID)
+	}
+}
+
 func TestSyncEmbyPolicyRecordsFailureWithoutFailingCommittedMutation(t *testing.T) {
 	cause := errors.New("policy write failed")
 	var recordedUserID string
