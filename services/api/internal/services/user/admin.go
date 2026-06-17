@@ -375,13 +375,8 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*UserView, error) {
 		return nil, normalizeUserLookupError(err)
 	}
 
-	var newExpiry time.Time
 	now := time.Now().UTC()
-	if user.ExpiresAt == nil || user.ExpiresAt.Before(now) {
-		newExpiry = now.AddDate(0, 0, days)
-	} else {
-		newExpiry = user.ExpiresAt.AddDate(0, 0, days)
-	}
+	newExpiry := calculateExtendedExpiry(now, user.ExpiresAt, days)
 
 	user.ExpiresAt = &newExpiry
 	if err := db.DB.Model(&models.User{}).
@@ -396,6 +391,14 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*UserView, error) {
 	}
 
 	return s.GetUserByID(userID)
+}
+
+// calculateExtendedExpiry 计算管理员手动续期后的用户到期日；有效账号从原到期日累加，空或已过期账号从当前时间起算。
+func calculateExtendedExpiry(now time.Time, currentExpiry *time.Time, days int) time.Time {
+	if currentExpiry == nil || currentExpiry.Before(now) {
+		return now.AddDate(0, 0, days)
+	}
+	return currentExpiry.AddDate(0, 0, days)
 }
 
 func (s *UserService) ToggleUserStatus(userID string) (*UserView, error) {

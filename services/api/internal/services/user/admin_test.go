@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
@@ -85,6 +86,42 @@ func TestNormalizeUserLookupError(t *testing.T) {
 				t.Fatalf("expected %v, got %v", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestCalculateExtendedExpiryStartsFromNowWithoutActiveExpiry(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	expiredAt := now.Add(-time.Minute)
+
+	tests := []struct {
+		name          string
+		currentExpiry *time.Time
+	}{
+		{name: "nil expiry", currentExpiry: nil},
+		{name: "expired expiry", currentExpiry: &expiredAt},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := calculateExtendedExpiry(now, tc.currentExpiry, 14)
+			want := now.AddDate(0, 0, 14)
+
+			if !got.Equal(want) {
+				t.Fatalf("expected expiry from now %s, got %s", want, got)
+			}
+		})
+	}
+}
+
+func TestCalculateExtendedExpiryExtendsActiveExpiry(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	currentExpiry := now.AddDate(0, 0, 7)
+
+	got := calculateExtendedExpiry(now, &currentExpiry, 30)
+	want := currentExpiry.AddDate(0, 0, 30)
+
+	if !got.Equal(want) {
+		t.Fatalf("expected extension from current expiry %s, got %s", want, got)
 	}
 }
 
