@@ -350,6 +350,104 @@ func TestDispatchGapInfrastructureErrorFallsBackToSafeUpstream(t *testing.T) {
 	}
 }
 
+func TestApplyMediaGapWebhookIngestTransitionUpdatesMissingGap(t *testing.T) {
+	gap := models.MediaGap{
+		ID:           "gap_1",
+		TmdbID:       "1399",
+		EmbySeriesID: "old_series",
+		Season:       1,
+		Episode:      2,
+		Status:       models.MediaGapStatusMissing,
+	}
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+
+	updated, changed := applyWebhookIngestTransition(&gap, "new_series", now)
+
+	if !changed {
+		t.Fatal("expected missing gap to be marked changed")
+	}
+	if updated.Status != models.MediaGapStatusIngested {
+		t.Fatalf("expected status INGESTED, got %s", updated.Status)
+	}
+	if updated.IngestedAt == nil || !updated.IngestedAt.Equal(now) {
+		t.Fatalf("expected ingestedAt %s, got %+v", now, updated.IngestedAt)
+	}
+	if updated.EmbySeriesID != "new_series" {
+		t.Fatalf("expected series id to be updated, got %q", updated.EmbySeriesID)
+	}
+}
+
+func TestApplyMediaGapWebhookIngestTransitionKeepsIgnoredGap(t *testing.T) {
+	ignoredAt := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	reasonCode := string(models.MediaGapIgnoreReasonManual)
+	gap := models.MediaGap{
+		ID:               "gap_1",
+		TmdbID:           "1399",
+		EmbySeriesID:     "old_series",
+		Season:           1,
+		Episode:          2,
+		Status:           models.MediaGapStatusIgnored,
+		IgnoredAt:        &ignoredAt,
+		IgnoreReasonCode: &reasonCode,
+		IgnoreReason:     "管理员确认无资源",
+	}
+
+	updated, changed := applyWebhookIngestTransition(&gap, "new_series", time.Now().UTC())
+
+	if changed {
+		t.Fatal("expected ignored gap to remain unchanged")
+	}
+	if updated.Status != models.MediaGapStatusIgnored || updated.EmbySeriesID != "old_series" {
+		t.Fatalf("ignored gap was modified: %+v", updated)
+	}
+	if updated.IgnoredAt != &ignoredAt || updated.IgnoreReasonCode != &reasonCode || updated.IgnoreReason != "管理员确认无资源" {
+		t.Fatalf("ignored metadata must be preserved, got %+v", updated)
+	}
+}
+
+func TestApplyMediaGapWebhookIngestTransitionIsIdempotent(t *testing.T) {
+	ingestedAt := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	gap := models.MediaGap{
+		ID:           "gap_1",
+		EmbySeriesID: "series_1",
+		Status:       models.MediaGapStatusIngested,
+		IngestedAt:   &ingestedAt,
+	}
+
+	updated, changed := applyWebhookIngestTransition(&gap, "series_1", time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+
+	if changed {
+		t.Fatal("expected already ingested gap with same series id to be unchanged")
+	}
+	if updated.IngestedAt != &ingestedAt {
+		t.Fatalf("expected original ingestedAt pointer to be preserved, got %+v", updated.IngestedAt)
+	}
+}
+
+func TestApplyMediaGapWebhookIngestTransitionFillsMissingIngestedAt(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	gap := models.MediaGap{
+		ID:           "gap_1",
+		EmbySeriesID: "series_1",
+		Status:       models.MediaGapStatusIngested,
+	}
+
+	updated, changed := applyWebhookIngestTransition(&gap, "", now)
+
+	if !changed {
+		t.Fatal("expected missing ingestedAt to be filled")
+	}
+	if updated.Status != models.MediaGapStatusIngested {
+		t.Fatalf("expected status to stay INGESTED, got %s", updated.Status)
+	}
+	if updated.IngestedAt == nil || !updated.IngestedAt.Equal(now) {
+		t.Fatalf("expected ingestedAt %s, got %+v", now, updated.IngestedAt)
+	}
+	if updated.EmbySeriesID != "series_1" {
+		t.Fatalf("blank webhook series id must not clear existing series id, got %q", updated.EmbySeriesID)
+	}
+}
+
 // dispatchGapGapFixture 用于断言状态机写入所需的最小 gap 行结构。
 // loadGapByID 的 stub 直接返回这份 fixture，让 DispatchGap 越过状态前置校验，
 // 进入 moviepilot 调用与错误处理分支。

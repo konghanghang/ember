@@ -599,38 +599,21 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 	now := time.Now().UTC()
 	var updatedCount int64
 	for _, gap := range matches {
-		// 命中 IGNORED 的工单是管理员显式做出的"忽略"决定（例如确认该集不会发布、片源不存在等），
-		// webhook 自动回写绝对不能静默撤销该决定。这里仅 INFO 日志记录，让运维可见即可。
-		if gap.Status == models.MediaGapStatusIgnored {
+		updatedGap, changed := applyWebhookIngestTransition(&gap, trimmedSeriesID, now)
+		if !changed && gap.Status == models.MediaGapStatusIgnored {
 			log.Printf("[MediaGap] Webhook 命中 IGNORED 工单，按管理员决定保留 gapId=%s tmdbId=%s season=%d episode=%d ignoreReason=%q",
 				gap.ID, gap.TmdbID, gap.Season, gap.Episode, gap.IgnoreReason)
 			continue
 		}
-
-		changed := false
-		if gap.Status != models.MediaGapStatusIngested {
-			gap.Status = models.MediaGapStatusIngested
-			changed = true
-		}
-		if gap.IngestedAt == nil {
-			gap.IngestedAt = &now
-			changed = true
-		}
-		if trimmedSeriesID != "" && gap.EmbySeriesID != trimmedSeriesID {
-			gap.EmbySeriesID = trimmedSeriesID
-			changed = true
-		}
-		// 注意：不再清空 IgnoredAt / IgnoreReason；这两列只属于 IGNORED 状态语义，
-		// 当前分支已排除 IGNORED 命中，没有可清空的合法情形。
 		if !changed {
 			continue
 		}
 		if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
 			Where("id = ?", gap.ID).
 			Updates(map[string]interface{}{
-				"status":         gap.Status,
-				"ingested_at":    gap.IngestedAt,
-				"emby_series_id": gap.EmbySeriesID,
+				"status":         updatedGap.Status,
+				"ingested_at":    updatedGap.IngestedAt,
+				"emby_series_id": updatedGap.EmbySeriesID,
 			}).Error; err != nil {
 			return updatedCount, fmt.Errorf("回写缺集工单入库状态失败: %w", err)
 		}
@@ -640,6 +623,31 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 	log.Printf("[MediaGap] Webhook 核销完成 matchBy=%s tmdbId=%s seriesId=%s season=%d episode=%d updated=%d itemName=%q",
 		matchBy, trimmedTMDBID, trimmedSeriesID, payload.Season, payload.Episode, updatedCount, strings.TrimSpace(payload.ItemName))
 	return updatedCount, nil
+}
+
+func applyWebhookIngestTransition(gap *models.MediaGap, seriesID string, ingestedAt time.Time) (models.MediaGap, bool) {
+	if gap == nil {
+		return models.MediaGap{}, false
+	}
+	updated := *gap
+	if updated.Status == models.MediaGapStatusIgnored {
+		return updated, false
+	}
+
+	changed := false
+	if updated.Status != models.MediaGapStatusIngested {
+		updated.Status = models.MediaGapStatusIngested
+		changed = true
+	}
+	if updated.IngestedAt == nil {
+		updated.IngestedAt = &ingestedAt
+		changed = true
+	}
+	if trimmedSeriesID := strings.TrimSpace(seriesID); trimmedSeriesID != "" && updated.EmbySeriesID != trimmedSeriesID {
+		updated.EmbySeriesID = trimmedSeriesID
+		changed = true
+	}
+	return updated, changed
 }
 
 func (s *Service) loadGapByID(ctx context.Context, id string) (models.MediaGap, error) {
