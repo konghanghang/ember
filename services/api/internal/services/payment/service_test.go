@@ -562,6 +562,80 @@ func TestCreateStripeCheckoutSessionMapsUnsafeUpstreamFailures(t *testing.T) {
 	}
 }
 
+func TestCreateCheckoutSessionReusesExistingPendingCheckout(t *testing.T) {
+	var expiredUserID string
+	var expiredPlanID string
+	var reservedUserID string
+	var reservedPlanID string
+	service := &PaymentService{
+		getCheckoutConfig: func() (*checkoutConfig, error) {
+			return &checkoutConfig{
+				StripeSecret:   "sk_test",
+				SuccessURL:     "https://ember.example.com/success",
+				CancelURL:      "https://ember.example.com/cancel",
+				PaymentMethods: []string{"card"},
+			}, nil
+		},
+		getCheckoutUser: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
+		},
+		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
+			if planID != "plan_1" || planGroup != "VIP-A" {
+				t.Fatalf("unexpected plan lookup: planID=%s planGroup=%s", planID, planGroup)
+			}
+			return &models.Plan{
+				ID:        planID,
+				Name:      "季度方案",
+				Days:      90,
+				Price:     1999,
+				Currency:  "hkd",
+				IsActive:  true,
+				PlanGroup: planGroup,
+			}, nil
+		},
+		expirePendingPaymentsFn: func(userID, planID string, now time.Time) error {
+			expiredUserID = userID
+			expiredPlanID = planID
+			return nil
+		},
+		reservePendingPaymentFn: func(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+			reservedUserID = userID
+			reservedPlanID = plan.ID
+			return &models.Payment{
+				ID:              "pay_1",
+				UserID:          userID,
+				PlanID:          plan.ID,
+				Status:          models.PaymentPending,
+				StripeSessionID: "cs_existing",
+				CheckoutURL:     " https://checkout.stripe.com/c/pay/existing ",
+			}, nil
+		},
+		createStripeCheckoutSessionFn: func(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error) {
+			t.Fatalf("createStripeCheckoutSessionFn must not run when reusable checkout exists")
+			return nil, nil
+		},
+		backfillCheckoutSession: func(paymentID, sessionID, checkoutURL string) error {
+			t.Fatalf("backfillCheckoutSession must not run when reusable checkout exists")
+			return nil
+		},
+	}
+
+	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: " plan_1 "})
+
+	if err != nil {
+		t.Fatalf("expected checkout reuse success, got %v", err)
+	}
+	if resp == nil || resp.URL != " https://checkout.stripe.com/c/pay/existing " {
+		t.Fatalf("unexpected checkout response: %+v", resp)
+	}
+	if expiredUserID != "user_1" || expiredPlanID != "plan_1" {
+		t.Fatalf("unexpected expire call: userID=%s planID=%s", expiredUserID, expiredPlanID)
+	}
+	if reservedUserID != "user_1" || reservedPlanID != "plan_1" {
+		t.Fatalf("unexpected reserve call: userID=%s planID=%s", reservedUserID, reservedPlanID)
+	}
+}
+
 func TestExpireStripeCheckoutSessionsDeduplicatesAndContinuesAfterFailure(t *testing.T) {
 	var expired []string
 	service := &PaymentService{

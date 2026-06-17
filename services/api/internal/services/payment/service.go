@@ -37,6 +37,13 @@ type PaymentService struct {
 	notifier                      *notifierint.BotNotifier
 	compensation                  *accountpkg.EmbyCompensation
 	markPaymentExpiredSession     func(sessionID string) (int64, error)
+	getCheckoutConfig             func() (*checkoutConfig, error)
+	getCheckoutUser               func(userID string) (*models.User, error)
+	getCheckoutPlan               func(planID, planGroup string) (*models.Plan, error)
+	expirePendingPaymentsFn       func(userID, planID string, now time.Time) error
+	reservePendingPaymentFn       func(userID string, plan *models.Plan, now time.Time) (*models.Payment, error)
+	createStripeCheckoutSessionFn func(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error)
+	backfillCheckoutSession       func(paymentID, sessionID, checkoutURL string) error
 	getStripeSecret               func() string
 	expireStripeCheckoutSessionFn func(secret, sessionID string) error
 }
@@ -95,6 +102,13 @@ type CreateCheckoutRequest struct {
 
 type CreateCheckoutResponse struct {
 	URL string `json:"url"`
+}
+
+type checkoutConfig struct {
+	StripeSecret   string
+	SuccessURL     string
+	CancelURL      string
+	PaymentMethods []string
 }
 
 type PaymentWithMeta struct {
@@ -651,18 +665,26 @@ func (s *PaymentService) expireStripeCheckoutSession(secret, sessionID string) e
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
 	log.Printf("[Payment] 开始创建支付会话: userID=%s planID=%s", userID, strings.TrimSpace(req.PlanID))
 
-	configService := configpkg.NewConfigService()
-	stripeSecret := strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY"))
-	successURL := strings.TrimSpace(configService.GetString("STRIPE_SUCCESS_URL"))
-	cancelURL := strings.TrimSpace(configService.GetString("STRIPE_CANCEL_URL"))
+	checkoutConfig, err := s.checkoutConfig()
+	if err != nil {
+		log.Printf("[Payment] Stripe 配置缺失，无法创建支付会话: userID=%s planID=%s hasSecret=%t hasSuccessURL=%t hasCancelURL=%t",
+			userID, strings.TrimSpace(req.PlanID), checkoutConfig != nil && checkoutConfig.StripeSecret != "", checkoutConfig != nil && checkoutConfig.SuccessURL != "", checkoutConfig != nil && checkoutConfig.CancelURL != "")
+		if errors.Is(err, ErrStripeNotConfigured) {
+			return nil, ErrStripeNotConfigured
+		}
+		return nil, err
+	}
+	stripeSecret := strings.TrimSpace(checkoutConfig.StripeSecret)
+	successURL := strings.TrimSpace(checkoutConfig.SuccessURL)
+	cancelURL := strings.TrimSpace(checkoutConfig.CancelURL)
 	if stripeSecret == "" || successURL == "" || cancelURL == "" {
 		log.Printf("[Payment] Stripe 配置缺失，无法创建支付会话: userID=%s planID=%s hasSecret=%t hasSuccessURL=%t hasCancelURL=%t",
 			userID, strings.TrimSpace(req.PlanID), stripeSecret != "", successURL != "", cancelURL != "")
 		return nil, ErrStripeNotConfigured
 	}
 
-	var user models.User
-	if err := db.DB.Select("id", "plan_group").Where("id = ?", userID).First(&user).Error; err != nil {
+	user, err := s.checkoutUser(userID)
+	if err != nil {
 		log.Printf("[Payment] 查询用户套餐分组失败: userID=%s planID=%s err=%v", userID, strings.TrimSpace(req.PlanID), err)
 		return nil, errors.New("获取用户信息失败")
 	}
@@ -676,8 +698,8 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return nil, err
 	}
 
-	var plan models.Plan
-	if err := db.DB.Where("id = ? AND \"is_active\" = ? AND \"plan_group\" = ?", req.PlanID, true, planGroup).First(&plan).Error; err != nil {
+	plan, err := s.checkoutPlan(strings.TrimSpace(req.PlanID), planGroup)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Printf("[Payment] 方案不存在、未启用或不属于用户分组: userID=%s planID=%s planGroup=%s", userID, strings.TrimSpace(req.PlanID), planGroup)
 			return nil, ErrPlanNotFound
@@ -686,18 +708,14 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return nil, errors.New("获取方案失败")
 	}
 
-	paymentMethods, err := configService.GetStripeAllowedPaymentMethods()
-	if err != nil {
-		log.Printf("[Payment] 读取支付方式限制失败: userID=%s planID=%s err=%v", userID, plan.ID, err)
-		return nil, err
-	}
+	paymentMethods := checkoutConfig.PaymentMethods
 
 	now := time.Now().UTC()
-	if err := s.expirePendingPayments(userID, plan.ID, now); err != nil {
+	if err := s.expirePendingCheckoutPayments(userID, plan.ID, now); err != nil {
 		return nil, err
 	}
 
-	payment, err := s.reservePendingPayment(userID, &plan, now)
+	payment, err := s.reserveCheckoutPayment(userID, plan, now)
 	if err != nil {
 		log.Printf("[Payment] 占位 pending 订单失败: userID=%s planID=%s err=%v", userID, plan.ID, err)
 		return nil, err
@@ -711,18 +729,13 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 	}
 
 	// 否则调 Stripe；并发的两个请求会复用同一 paymentId，Idempotency-Key 保证 Stripe 端只产生一条 Session。
-	sess, err := s.createStripeCheckoutSession(stripeSecret, successURL, cancelURL, userID, &plan, paymentMethods, payment.ID)
+	sess, err := s.createCheckoutSession(stripeSecret, successURL, cancelURL, userID, plan, paymentMethods, payment.ID)
 	if err != nil {
 		log.Printf("[Payment] Stripe 会话创建失败: userID=%s planID=%s paymentID=%s err=%v", userID, plan.ID, payment.ID, err)
 		return nil, err
 	}
 
-	if err := db.DB.Model(&models.Payment{}).
-		Where("id = ?", payment.ID).
-		Updates(map[string]interface{}{
-			"stripe_session_id": sess.ID,
-			"checkout_url":      strings.TrimSpace(sess.URL),
-		}).Error; err != nil {
+	if err := s.backfillCheckout(payment.ID, sess.ID, strings.TrimSpace(sess.URL)); err != nil {
 		log.Printf("[Payment] 回填 Stripe sessionId 失败: userID=%s planID=%s paymentID=%s sessionID=%s err=%v",
 			userID, plan.ID, payment.ID, sess.ID, err)
 		return nil, errors.New("创建支付记录失败")
@@ -736,6 +749,89 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		userID, plan.ID, payment.ID, sess.ID, plan.Price, plan.Currency, plan.Days, expiresAtStr, paymentMethods)
 
 	return &CreateCheckoutResponse{URL: sess.URL}, nil
+}
+
+// checkoutConfig loads Stripe checkout settings from the configured source.
+func (s *PaymentService) checkoutConfig() (*checkoutConfig, error) {
+	if s.getCheckoutConfig != nil {
+		return s.getCheckoutConfig()
+	}
+	configService := configpkg.NewConfigService()
+	cfg := &checkoutConfig{
+		StripeSecret: strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY")),
+		SuccessURL:   strings.TrimSpace(configService.GetString("STRIPE_SUCCESS_URL")),
+		CancelURL:    strings.TrimSpace(configService.GetString("STRIPE_CANCEL_URL")),
+	}
+	if cfg.StripeSecret == "" || cfg.SuccessURL == "" || cfg.CancelURL == "" {
+		return cfg, ErrStripeNotConfigured
+	}
+	paymentMethods, err := configService.GetStripeAllowedPaymentMethods()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.PaymentMethods = paymentMethods
+	return cfg, nil
+}
+
+// checkoutUser loads the user fields needed for checkout plan-group selection.
+func (s *PaymentService) checkoutUser(userID string) (*models.User, error) {
+	if s.getCheckoutUser != nil {
+		return s.getCheckoutUser(userID)
+	}
+	var user models.User
+	if err := db.DB.Select("id", "plan_group").Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// checkoutPlan loads an active plan in the user's effective plan group.
+func (s *PaymentService) checkoutPlan(planID, planGroup string) (*models.Plan, error) {
+	if s.getCheckoutPlan != nil {
+		return s.getCheckoutPlan(planID, planGroup)
+	}
+	var plan models.Plan
+	if err := db.DB.Where("id = ? AND \"is_active\" = ? AND \"plan_group\" = ?", planID, true, planGroup).First(&plan).Error; err != nil {
+		return nil, err
+	}
+	return &plan, nil
+}
+
+// expirePendingCheckoutPayments closes expired pending payments before creating a checkout session.
+func (s *PaymentService) expirePendingCheckoutPayments(userID, planID string, now time.Time) error {
+	if s.expirePendingPaymentsFn != nil {
+		return s.expirePendingPaymentsFn(userID, planID, now)
+	}
+	return s.expirePendingPayments(userID, planID, now)
+}
+
+// reserveCheckoutPayment reserves or reuses the single pending payment for this user and plan.
+func (s *PaymentService) reserveCheckoutPayment(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+	if s.reservePendingPaymentFn != nil {
+		return s.reservePendingPaymentFn(userID, plan, now)
+	}
+	return s.reservePendingPayment(userID, plan, now)
+}
+
+// createCheckoutSession creates the Stripe checkout session through the configured adapter.
+func (s *PaymentService) createCheckoutSession(secret, successURL, cancelURL, userID string, plan *models.Plan, paymentMethods []string, paymentID string) (*stripeCheckoutSessionResponse, error) {
+	if s.createStripeCheckoutSessionFn != nil {
+		return s.createStripeCheckoutSessionFn(secret, successURL, cancelURL, userID, plan, paymentMethods, paymentID)
+	}
+	return s.createStripeCheckoutSession(secret, successURL, cancelURL, userID, plan, paymentMethods, paymentID)
+}
+
+// backfillCheckout writes the Stripe session id and checkout URL back to the payment row.
+func (s *PaymentService) backfillCheckout(paymentID, sessionID, checkoutURL string) error {
+	if s.backfillCheckoutSession != nil {
+		return s.backfillCheckoutSession(paymentID, sessionID, checkoutURL)
+	}
+	return db.DB.Model(&models.Payment{}).
+		Where("id = ?", paymentID).
+		Updates(map[string]interface{}{
+			"stripe_session_id": sessionID,
+			"checkout_url":      strings.TrimSpace(checkoutURL),
+		}).Error
 }
 
 // reservePendingPayment 在事务里 INSERT 一条 pending 占位行（status='pending', stripeSessionId=”）。
