@@ -61,6 +61,7 @@ type AuthServiceDeps struct {
 	GetDefaultPlanGroup        func() (*models.PlanGroup, error)
 	IsRegistrationEmailAllowed func(email string) error
 	ValidateRegistrationCode   func(code string) (*models.RedemptionCode, error)
+	FindLoginUser              func(username string) (*models.User, error)
 	Compensation               *accountpkg.EmbyCompensation
 	NewCompensation            func() *accountpkg.EmbyCompensation
 }
@@ -78,6 +79,7 @@ type AuthService struct {
 	getDefaultPlanGroup        func() (*models.PlanGroup, error)
 	isRegistrationEmailAllowed func(email string) error
 	validateRegistrationCode   func(code string) (*models.RedemptionCode, error)
+	findLoginUserFn            func(username string) (*models.User, error)
 	compensation               *accountpkg.EmbyCompensation
 	newCompensation            func() *accountpkg.EmbyCompensation
 
@@ -115,6 +117,7 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 		getDefaultPlanGroup:        deps.GetDefaultPlanGroup,
 		isRegistrationEmailAllowed: deps.IsRegistrationEmailAllowed,
 		validateRegistrationCode:   deps.ValidateRegistrationCode,
+		findLoginUserFn:            deps.FindLoginUser,
 		compensation:               deps.Compensation,
 		newCompensation:            deps.NewCompensation,
 	}
@@ -169,6 +172,9 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 		service.validateRegistrationCode = func(code string) (*models.RedemptionCode, error) {
 			return redemptionCodeService.ValidateRegistrationCode(code)
 		}
+	}
+	if service.findLoginUserFn == nil {
+		service.findLoginUserFn = service.findLoginUserFromDB
 	}
 	if service.newCompensation == nil {
 		service.newCompensation = func() *accountpkg.EmbyCompensation {

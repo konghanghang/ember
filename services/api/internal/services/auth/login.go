@@ -56,6 +56,13 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 }
 
 func (s *AuthService) findLoginUser(username string) (*models.User, error) {
+	if s.findLoginUserFn == nil {
+		return s.findLoginUserFromDB(username)
+	}
+	return s.findLoginUserFn(username)
+}
+
+func (s *AuthService) findLoginUserFromDB(username string) (*models.User, error) {
 	var user models.User
 	result := db.DB.Where("lower(username) = ?", strings.ToLower(username)).
 		Order("\"created_at\" ASC").

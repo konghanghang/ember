@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"testing"
+	"time"
 
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
@@ -219,5 +220,74 @@ func TestAuthenticateLoginUserRejectsInactiveUser(t *testing.T) {
 	err := service.authenticateLoginUser(user, "pass1234")
 	if err == nil || err.Error() != "用户名或密码错误" {
 		t.Fatalf("expected inactive user to be rejected, got %v", err)
+	}
+}
+
+func TestLoginReturnsUserStateFlags(t *testing.T) {
+	expiredAt := time.Now().UTC().Add(-time.Hour)
+	user := &models.User{
+		ID:                    "admin_1",
+		Username:              "admin",
+		Role:                  "admin",
+		IsActive:              true,
+		ExpiresAt:             &expiredAt,
+		PasswordResetRequired: true,
+	}
+	if err := user.SetPassword("secret123"); err != nil {
+		t.Fatalf("failed to set password: %v", err)
+	}
+
+	service := &AuthService{
+		findLoginUserFn: func(username string) (*models.User, error) {
+			if username != "ADMIN" {
+				t.Fatalf("expected raw login username to be passed through, got %q", username)
+			}
+			return user, nil
+		},
+	}
+
+	resp, err := service.Login(&LoginRequest{
+		Username: "ADMIN",
+		Password: "secret123",
+	})
+
+	if err != nil {
+		t.Fatalf("expected login success, got %v", err)
+	}
+	if resp == nil || resp.User != user {
+		t.Fatalf("expected login response with user pointer, got %+v", resp)
+	}
+	if resp.Token == "" {
+		t.Fatalf("expected token to be generated")
+	}
+	if !resp.IsExpired {
+		t.Fatalf("expected expired flag to be true")
+	}
+	if !resp.PasswordResetRequired {
+		t.Fatalf("expected password reset flag to be true")
+	}
+}
+
+func TestLoginStopsWhenUserLookupFails(t *testing.T) {
+	service := &AuthService{
+		findLoginUserFn: func(username string) (*models.User, error) {
+			return nil, ErrAuthInvalidCredentials
+		},
+		newEmbyClient: func() authEmbyClient {
+			t.Fatalf("emby auth must not run when user lookup fails")
+			return nil
+		},
+	}
+
+	resp, err := service.Login(&LoginRequest{
+		Username: "missing",
+		Password: "secret123",
+	})
+
+	if !errors.Is(err, ErrAuthInvalidCredentials) {
+		t.Fatalf("expected invalid credentials, got %v", err)
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response on lookup failure, got %+v", resp)
 	}
 }
