@@ -72,8 +72,42 @@ func TestValidateTimezone(t *testing.T) {
 	if err := validateTimezone("Asia/Shanghai"); err != nil {
 		t.Fatalf("expected valid timezone, got %v", err)
 	}
+	if err := validateTimezone(" "); err == nil {
+		t.Fatalf("expected blank timezone to fail")
+	}
 	if err := validateTimezone("Invalid/Timezone"); err == nil {
 		t.Fatalf("expected invalid timezone to fail")
+	}
+}
+
+func TestConfigValidationErrorWrapping(t *testing.T) {
+	if wrapConfigValidationError(nil) != nil {
+		t.Fatal("expected nil validation error to stay nil")
+	}
+
+	cause := errors.New("具体配置错误")
+	err := wrapConfigValidationError(cause)
+	if !errors.Is(err, ErrConfigValidation) {
+		t.Fatalf("expected wrapped error to match ErrConfigValidation, got %v", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("expected wrapped error to preserve cause, got %v", err)
+	}
+	if err.Error() != "具体配置错误" {
+		t.Fatalf("expected wrapped error message from cause, got %q", err.Error())
+	}
+
+	existing := wrapConfigValidationError(ErrConfigValidation)
+	if existing != ErrConfigValidation {
+		t.Fatalf("expected existing validation sentinel to be reused, got %v", existing)
+	}
+
+	var nilValidation *configValidationError
+	if nilValidation.Error() != ErrConfigValidation.Error() {
+		t.Fatalf("expected nil validation error receiver to use sentinel message")
+	}
+	if nilValidation.Unwrap() != nil {
+		t.Fatal("expected nil validation error receiver to unwrap nil")
 	}
 }
 
@@ -106,6 +140,112 @@ func TestBasicConfigValidators(t *testing.T) {
 	}
 	if err := validateRange("abc"); err == nil || !strings.Contains(err.Error(), "整数") {
 		t.Fatalf("expected integer parse error, got %v", err)
+	}
+}
+
+func TestValidateMailAddressAllowEmpty(t *testing.T) {
+	if err := validateMailAddressAllowEmpty(" "); err != nil {
+		t.Fatalf("expected blank mail address to be allowed, got %v", err)
+	}
+	if err := validateMailAddressAllowEmpty(" Ember <ember@example.com> "); err != nil {
+		t.Fatalf("expected formatted mail address to pass, got %v", err)
+	}
+	if err := validateMailAddressAllowEmpty("not an address"); err == nil {
+		t.Fatal("expected invalid mail address to fail")
+	}
+}
+
+func TestConsoleAccountLinksParsingAndNormalization(t *testing.T) {
+	raw := `[
+		{
+			"key": " wiki ",
+			"title": " Wiki ",
+			"description": " Docs ",
+			"url": " https://example.com/wiki ",
+			"icon": " wiki ",
+			"sortOrder": 20
+		},
+		{
+			"key": "notify",
+			"title": "Notify",
+			"description": "Channel",
+			"url": "https://example.com/notify",
+			"icon": "notify",
+			"sortOrder": 0
+		}
+	]`
+
+	links, err := parseConsoleAccountLinks(raw)
+	if err != nil {
+		t.Fatalf("expected console links to parse, got %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("expected two links, got %+v", links)
+	}
+	if links[0].Key != "notify" || links[0].SortOrder != 20 {
+		t.Fatalf("expected missing sort order to default and sort by key, got %+v", links[0])
+	}
+	if links[1].Key != "wiki" || links[1].Title != "Wiki" || links[1].Description != "Docs" || links[1].URL != "https://example.com/wiki" {
+		t.Fatalf("expected fields to be trimmed, got %+v", links[1])
+	}
+
+	normalized, err := normalizeConsoleAccountLinks(raw)
+	if err != nil {
+		t.Fatalf("expected console links normalization to pass, got %v", err)
+	}
+	roundTrip, err := parseConsoleAccountLinks(normalized)
+	if err != nil {
+		t.Fatalf("expected normalized console links to parse, got %v", err)
+	}
+	if len(roundTrip) != 2 || roundTrip[0].Key != "notify" || roundTrip[1].Key != "wiki" {
+		t.Fatalf("unexpected normalized round trip: %+v", roundTrip)
+	}
+
+	empty, err := normalizeConsoleAccountLinks(" ")
+	if err != nil {
+		t.Fatalf("expected blank console links to normalize, got %v", err)
+	}
+	if empty != "" {
+		t.Fatalf("expected blank console links to stay blank, got %q", empty)
+	}
+	if err := validateConsoleAccountLinks(raw); err != nil {
+		t.Fatalf("expected console links validation to pass, got %v", err)
+	}
+	if err := validateConsoleAccountLinks(" "); err != nil {
+		t.Fatalf("expected blank console links validation to pass, got %v", err)
+	}
+}
+
+func TestConsoleAccountLinksRejectInvalidInputs(t *testing.T) {
+	invalidCases := []struct {
+		name string
+		raw  string
+	}{
+		{name: "not json", raw: `not-json`},
+		{name: "missing key", raw: `[{"title":"T","description":"D","url":"https://example.com","icon":"notify"}]`},
+		{name: "duplicate key", raw: `[
+			{"key":"a","title":"T","description":"D","url":"https://example.com/1","icon":"notify"},
+			{"key":"a","title":"T","description":"D","url":"https://example.com/2","icon":"notify"}
+		]`},
+		{name: "missing title", raw: `[{"key":"a","description":"D","url":"https://example.com","icon":"notify"}]`},
+		{name: "missing description", raw: `[{"key":"a","title":"T","url":"https://example.com","icon":"notify"}]`},
+		{name: "missing url", raw: `[{"key":"a","title":"T","description":"D","icon":"notify"}]`},
+		{name: "invalid url", raw: `[{"key":"a","title":"T","description":"D","url":"not-url","icon":"notify"}]`},
+		{name: "invalid icon", raw: `[{"key":"a","title":"T","description":"D","url":"https://example.com","icon":"bad"}]`},
+	}
+
+	for _, tc := range invalidCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseConsoleAccountLinks(tc.raw); err == nil {
+				t.Fatalf("expected %s to fail", tc.name)
+			}
+			if _, err := normalizeConsoleAccountLinks(tc.raw); err == nil {
+				t.Fatalf("expected normalize %s to fail", tc.name)
+			}
+			if err := validateConsoleAccountLinks(tc.raw); err == nil {
+				t.Fatalf("expected validate %s to fail", tc.name)
+			}
+		})
 	}
 }
 
