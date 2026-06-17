@@ -21,6 +21,7 @@ type DeviceService struct {
 	findClientBlacklist   func(normalized string) (*models.ClientBlacklist, error)
 	createClientBlacklist func(blacklist *models.ClientBlacklist) error
 	updateClientBlacklist func(blacklist *models.ClientBlacklist) error
+	deleteClientBlacklist func(blacklist *models.ClientBlacklist) error
 	recordDeviceActionFn  func(action models.DeviceAction) error
 }
 
@@ -42,6 +43,9 @@ func (s *DeviceService) applyDefaults() {
 	}
 	if s.updateClientBlacklist == nil {
 		s.updateClientBlacklist = updateClientBlacklist
+	}
+	if s.deleteClientBlacklist == nil {
+		s.deleteClientBlacklist = deleteClientBlacklist
 	}
 	if s.recordDeviceActionFn == nil {
 		s.recordDeviceActionFn = recordDeviceAction
@@ -206,15 +210,16 @@ func (s *DeviceService) RemoveClientFromBlacklist(clientName, operatorID string)
 	}
 	normalized := normalizeClientName(clientName)
 
-	var blacklist models.ClientBlacklist
-	if err := db.DB.Where("\"normalized_client_name\" = ?", normalized).First(&blacklist).Error; err != nil {
+	s.applyDefaults()
+	blacklist, err := s.findClientBlacklist(normalized)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrClientBlacklistNotFound
 		}
 		return errors.New("移除黑名单失败")
 	}
 
-	if err := db.DB.Delete(&blacklist).Error; err != nil {
+	if err := s.deleteClientBlacklist(blacklist); err != nil {
 		return errors.New("移除黑名单失败")
 	}
 
@@ -574,6 +579,11 @@ func updateClientBlacklist(blacklist *models.ClientBlacklist) error {
 			"reason":                 blacklist.Reason,
 			"normalized_client_name": blacklist.NormalizedClientName,
 		}).Error
+}
+
+// deleteClientBlacklist removes a client blacklist row.
+func deleteClientBlacklist(blacklist *models.ClientBlacklist) error {
+	return db.DB.Delete(blacklist).Error
 }
 
 // recordDeviceAction persists a device operation audit entry.
