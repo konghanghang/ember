@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -72,6 +74,117 @@ func TestValidateTimezone(t *testing.T) {
 	}
 	if err := validateTimezone("Invalid/Timezone"); err == nil {
 		t.Fatalf("expected invalid timezone to fail")
+	}
+}
+
+func TestBasicConfigValidators(t *testing.T) {
+	validateMode := validateEnum("open", "invite")
+	if err := validateMode("open"); err != nil {
+		t.Fatalf("expected enum value to pass, got %v", err)
+	}
+	if err := validateMode("closed"); err == nil {
+		t.Fatalf("expected invalid enum value to fail")
+	}
+
+	value, err := normalizeBoolean(" TRUE ")
+	if err != nil {
+		t.Fatalf("expected boolean normalize to pass, got %v", err)
+	}
+	if value != "true" {
+		t.Fatalf("expected normalized boolean true, got %q", value)
+	}
+	if _, err := normalizeBoolean("yes"); err == nil {
+		t.Fatalf("expected invalid boolean to fail")
+	}
+
+	validateRange := validateIntRange(1, 10)
+	if err := validateRange(" 7 "); err != nil {
+		t.Fatalf("expected integer range to pass, got %v", err)
+	}
+	if err := validateRange("0"); err == nil || !strings.Contains(err.Error(), "1 到 10") {
+		t.Fatalf("expected range error, got %v", err)
+	}
+	if err := validateRange("abc"); err == nil || !strings.Contains(err.Error(), "整数") {
+		t.Fatalf("expected integer parse error, got %v", err)
+	}
+}
+
+func TestStripeAllowedPaymentMethodsNormalization(t *testing.T) {
+	methods, err := NormalizeStripeAllowedPaymentMethods(`[" card ","alipay","card","wechat_pay"]`)
+	if err != nil {
+		t.Fatalf("expected payment methods to normalize, got %v", err)
+	}
+	if !slices.Equal(methods, []string{"card", "alipay", "wechat_pay"}) {
+		t.Fatalf("unexpected normalized methods: %+v", methods)
+	}
+
+	empty, err := NormalizeStripeAllowedPaymentMethods(" ")
+	if err != nil {
+		t.Fatalf("expected empty payment methods to be allowed, got %v", err)
+	}
+	if empty != nil {
+		t.Fatalf("expected empty payment methods to return nil, got %+v", empty)
+	}
+
+	invalidInputs := []string{
+		`not-json`,
+		`[]`,
+		`["paypal"]`,
+		`[" "]`,
+	}
+	for _, input := range invalidInputs {
+		if _, err := NormalizeStripeAllowedPaymentMethods(input); !errors.Is(err, ErrPaymentMethodSettingInvalid) {
+			t.Fatalf("expected invalid payment method setting for %q, got %v", input, err)
+		}
+	}
+}
+
+func TestNormalizeStripePaymentMethodsReturnsCanonicalJSON(t *testing.T) {
+	normalized, err := normalizeStripePaymentMethods(`["wechat_pay"," card ","wechat_pay"]`)
+	if err != nil {
+		t.Fatalf("expected Stripe payment method normalization to pass, got %v", err)
+	}
+	if normalized != `["wechat_pay","card"]` {
+		t.Fatalf("unexpected normalized Stripe payment methods: %s", normalized)
+	}
+
+	empty, err := normalizeStripePaymentMethods(" ")
+	if err != nil {
+		t.Fatalf("expected empty Stripe payment method setting to pass, got %v", err)
+	}
+	if empty != "" {
+		t.Fatalf("expected empty Stripe payment method setting to stay empty, got %q", empty)
+	}
+
+	if _, err := normalizeStripePaymentMethods(`["paypal"]`); !errors.Is(err, ErrPaymentMethodSettingInvalid) {
+		t.Fatalf("expected unsupported payment method error, got %v", err)
+	}
+}
+
+func TestTelegramApprovalAdminIDsNormalizationAndValidation(t *testing.T) {
+	normalized, err := normalizeTelegramApprovalAdminIDs(" 1001, 1002,1001,, 1003 ")
+	if err != nil {
+		t.Fatalf("expected approval admin IDs to normalize, got %v", err)
+	}
+	if normalized != "1001,1002,1003" {
+		t.Fatalf("unexpected normalized approval admin IDs: %q", normalized)
+	}
+
+	empty, err := normalizeTelegramApprovalAdminIDs(" , ")
+	if err != nil {
+		t.Fatalf("expected blank approval admin IDs to normalize, got %v", err)
+	}
+	if empty != "" {
+		t.Fatalf("expected blank approval admin IDs to stay empty, got %q", empty)
+	}
+
+	if err := validateTelegramApprovalAdminIDs("1001,1002"); err != nil {
+		t.Fatalf("expected approval admin IDs to validate, got %v", err)
+	}
+	for _, value := range []string{"0", "-1", "abc", "1001,abc"} {
+		if err := validateTelegramApprovalAdminIDs(value); err == nil {
+			t.Fatalf("expected invalid approval admin IDs %q to fail", value)
+		}
 	}
 }
 
