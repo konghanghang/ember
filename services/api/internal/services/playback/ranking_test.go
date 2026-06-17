@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
@@ -22,6 +23,173 @@ func TestGenerateRankingBatchIDUsesULID(t *testing.T) {
 	}
 	if _, err := ulid.ParseStrict(got); err != nil {
 		t.Fatalf("expected valid ULID, got %q err=%v", got, err)
+	}
+}
+
+func TestPlaybackRankingColumnHelpers(t *testing.T) {
+	resp := &embyint.CustomQueryResponse{
+		Columns: []string{" ItemId ", "ItemName"},
+		Colums:  []string{"legacy"},
+	}
+	if got := queryColumns(resp); len(got) != 2 || got[0] != " ItemId " {
+		t.Fatalf("expected columns to take precedence, got %+v", got)
+	}
+
+	resp = &embyint.CustomQueryResponse{Colums: []string{"legacy_item"}}
+	if got := queryColumns(resp); len(got) != 1 || got[0] != "legacy_item" {
+		t.Fatalf("expected legacy colums fallback, got %+v", got)
+	}
+
+	columns := []string{" DateCreated ", "itemid", "ITEMNAME"}
+	if got := matchColumn(columns, "ItemId"); got != "itemid" {
+		t.Fatalf("expected case-insensitive match, got %q", got)
+	}
+	if got := matchColumn(columns, "Missing"); got != "" {
+		t.Fatalf("expected missing column to return blank, got %q", got)
+	}
+	if got := nullableTrimExpr(" ItemName "); got != "NULLIF(TRIM(COALESCE( ItemName , '')), '')" {
+		t.Fatalf("unexpected nullable trim expression: %s", got)
+	}
+	if got := nullableTrimExpr(" "); got != "NULL" {
+		t.Fatalf("expected blank column to become NULL, got %s", got)
+	}
+}
+
+func TestConvertAggregateRowsFiltersShortRowsAndRanksRemaining(t *testing.T) {
+	rankings := convertAggregateRows(models.RankingMediaMovie, []playbackAggregateRow{
+		{itemKey: "short", itemName: "Too Short", playCount: 1, duration: minRankingDurationSeconds - 1},
+		{itemKey: "movie_1", itemSourceType: "movie", itemName: "Movie 1", playCount: 3, duration: 7200},
+		{itemKey: "movie_2", itemSourceType: "movie", itemName: "Movie 2", playCount: 2, duration: minRankingDurationSeconds},
+	})
+
+	if len(rankings) != 2 {
+		t.Fatalf("expected 2 rankings after short-duration filter, got %d", len(rankings))
+	}
+	if rankings[0].Rank != 1 || rankings[0].ItemKey != "movie_1" || rankings[0].Category != models.RankingMediaMovie {
+		t.Fatalf("unexpected first ranking: %+v", rankings[0])
+	}
+	if rankings[1].Rank != 2 || rankings[1].ItemKey != "movie_2" {
+		t.Fatalf("unexpected second ranking: %+v", rankings[1])
+	}
+}
+
+func TestBuildRankingResultFromRowsSplitsCategoriesAndCopiesMetadata(t *testing.T) {
+	snapshotAt := time.Date(2026, 6, 17, 8, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	rows := []models.PlaybackRanking{
+		{
+			Period:      models.RankingDaily,
+			BatchID:     "batch_1",
+			Category:    models.RankingMediaEpisode,
+			Rank:        1,
+			ItemKey:     "series_1",
+			ItemName:    "Show",
+			PlayCount:   4,
+			Duration:    3600,
+			SnapshotAt:  snapshotAt,
+			PeriodStart: start,
+			PeriodEnd:   end,
+		},
+		{
+			Period:         models.RankingDaily,
+			BatchID:        "batch_1",
+			Category:       models.RankingMediaMovie,
+			Rank:           1,
+			ItemKey:        "movie_1",
+			ItemSourceType: "movie",
+			ItemName:       "Movie",
+			PlayCount:      2,
+			Duration:       7200,
+			SnapshotAt:     snapshotAt,
+			PeriodStart:    start,
+			PeriodEnd:      end,
+		},
+		{Category: models.RankingCategory("ignored"), ItemKey: "ignored"},
+	}
+
+	result := buildRankingResultFromRows(rows)
+	if result == nil {
+		t.Fatal("expected ranking result")
+	}
+	if result.Period != models.RankingDaily || result.BatchID != "batch_1" || !result.SnapshotAt.Equal(snapshotAt) {
+		t.Fatalf("unexpected result metadata: %+v", result)
+	}
+	if len(result.Movies) != 1 || result.Movies[0].ItemKey != "movie_1" || result.Movies[0].ItemSourceType != "movie" {
+		t.Fatalf("unexpected movie items: %+v", result.Movies)
+	}
+	if len(result.Episodes) != 1 || result.Episodes[0].ItemKey != "series_1" || result.Episodes[0].PlayCount != 4 {
+		t.Fatalf("unexpected episode items: %+v", result.Episodes)
+	}
+	if buildRankingResultFromRows(nil) != nil {
+		t.Fatal("expected empty rows to return nil result")
+	}
+}
+
+func TestPlaybackRankingTypeConverters(t *testing.T) {
+	if got := asString([]byte("movie")); got != "movie" {
+		t.Fatalf("expected bytes to string, got %q", got)
+	}
+	if got := asString(123); got != "123" {
+		t.Fatalf("expected fmt string conversion, got %q", got)
+	}
+
+	intCases := []struct {
+		name string
+		in   interface{}
+		want int64
+	}{
+		{name: "nil", in: nil, want: 0},
+		{name: "float64", in: float64(12.8), want: 12},
+		{name: "float32", in: float32(7.9), want: 7},
+		{name: "int", in: int(3), want: 3},
+		{name: "int64", in: int64(4), want: 4},
+		{name: "int32", in: int32(5), want: 5},
+		{name: "uint64", in: uint64(6), want: 6},
+		{name: "uint32", in: uint32(7), want: 7},
+		{name: "string", in: " 8 ", want: 8},
+	}
+	for _, tc := range intCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := asInt64(tc.in)
+			if err != nil {
+				t.Fatalf("expected conversion success, got %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("expected %d, got %d", tc.want, got)
+			}
+		})
+	}
+
+	gotInt, err := asInt("9")
+	if err != nil || gotInt != 9 {
+		t.Fatalf("expected asInt string conversion to 9, got %d err=%v", gotInt, err)
+	}
+	if _, err := asInt64("not-a-number"); err == nil {
+		t.Fatal("expected invalid numeric string to fail")
+	}
+	if _, err := asInt64(struct{}{}); err == nil {
+		t.Fatal("expected unsupported type to fail")
+	}
+	if _, err := asInt("not-a-number"); err == nil {
+		t.Fatal("expected asInt to propagate conversion error")
+	}
+}
+
+func TestPlaybackRankingRangeHelpersUseConfiguredTimezone(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
+	input := time.Date(2026, 6, 16, 18, 30, 0, 0, time.UTC)
+
+	dayStart, dayEnd := dayRange(input)
+	if dayStart.Format(time.RFC3339) != "2026-06-17T00:00:00+08:00" ||
+		dayEnd.Format(time.RFC3339) != "2026-06-18T00:00:00+08:00" {
+		t.Fatalf("unexpected day range: %s~%s", dayStart, dayEnd)
+	}
+
+	weekStart, weekEnd := weekRange(time.Date(2026, 6, 21, 12, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60)))
+	if weekStart.Format("2006-01-02") != "2026-06-15" ||
+		weekEnd.Format("2006-01-02") != "2026-06-22" {
+		t.Fatalf("unexpected week range: %s~%s", weekStart, weekEnd)
 	}
 }
 
