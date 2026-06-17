@@ -34,6 +34,7 @@ type TelegramService struct {
 	findActiveBindCodes  func(code string, now time.Time) ([]models.TelegramBindCode, error)
 	upsertBindCode       func(userID, code string, expiresAt time.Time) error
 	bindTelegramID       func(userID string, telegramID int64) (*models.User, error)
+	clearTelegramID      func(userID string) error
 	generateBindCode     func() string
 	saveResetPassword    func(user *models.User) error
 	now                  func() time.Time
@@ -92,6 +93,7 @@ func NewTelegramService(
 			}).Create(&bindCode).Error
 		},
 		bindTelegramID:   bindTelegramIDTx,
+		clearTelegramID:  clearTelegramID,
 		generateBindCode: generateTelegramBindCode,
 		saveResetPassword: func(user *models.User) error {
 			return db.DB.Model(&models.User{}).
@@ -283,21 +285,25 @@ func bindTelegramIDTx(userID string, telegramID int64) (*models.User, error) {
 
 // Unbind 解绑 Telegram
 func (s *TelegramService) Unbind(userID string) error {
-	var user models.User
-	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+	user, err := s.findUserByID(userID)
+	if err != nil {
 		return ErrTelegramUserNotFound
 	}
 	if user.TelegramID == nil {
 		return ErrTelegramNotBound
 	}
 
-	if err := db.DB.Model(&models.User{}).
-		Where("id = ?", userID).
-		Update("telegram_id", nil).Error; err != nil {
+	if err := s.clearTelegramID(userID); err != nil {
 		return errors.New("解绑失败，请稍后重试")
 	}
 
 	return nil
+}
+
+func clearTelegramID(userID string) error {
+	return db.DB.Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("telegram_id", nil).Error
 }
 
 // GetAccountInfo 按 Telegram ID 查询账号信息

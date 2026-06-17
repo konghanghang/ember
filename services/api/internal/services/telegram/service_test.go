@@ -474,6 +474,62 @@ func TestTelegramServiceVerifyBindRejectsOccupiedTelegramBeforeMutating(t *testi
 	}
 }
 
+func TestTelegramServiceUnbindClearsBoundTelegramID(t *testing.T) {
+	telegramID := int64(42)
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findUserByID = func(userID string) (*models.User, error) {
+		if userID != "user_1" {
+			t.Fatalf("unexpected user id: %s", userID)
+		}
+		return &models.User{ID: userID, TelegramID: &telegramID}, nil
+	}
+
+	var clearedUserID string
+	service.clearTelegramID = func(userID string) error {
+		clearedUserID = userID
+		return nil
+	}
+
+	if err := service.Unbind("user_1"); err != nil {
+		t.Fatalf("expected unbind success, got %v", err)
+	}
+	if clearedUserID != "user_1" {
+		t.Fatalf("expected user_1 telegram id to be cleared, got %q", clearedUserID)
+	}
+}
+
+func TestTelegramServiceUnbindRejectsUnboundUserBeforeMutation(t *testing.T) {
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findUserByID = func(userID string) (*models.User, error) {
+		return &models.User{ID: userID}, nil
+	}
+	service.clearTelegramID = func(userID string) error {
+		t.Fatalf("clearTelegramID must not run for an unbound user")
+		return nil
+	}
+
+	err := service.Unbind("user_1")
+	if !errors.Is(err, ErrTelegramNotBound) {
+		t.Fatalf("expected ErrTelegramNotBound, got %v", err)
+	}
+}
+
+func TestTelegramServiceUnbindMapsLookupFailure(t *testing.T) {
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findUserByID = func(userID string) (*models.User, error) {
+		return nil, errors.New("database unavailable")
+	}
+	service.clearTelegramID = func(userID string) error {
+		t.Fatalf("clearTelegramID must not run after lookup failure")
+		return nil
+	}
+
+	err := service.Unbind("user_1")
+	if !errors.Is(err, ErrTelegramUserNotFound) {
+		t.Fatalf("expected ErrTelegramUserNotFound, got %v", err)
+	}
+}
+
 func TestTelegramServiceResetPasswordMasksLookupFailure(t *testing.T) {
 	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
 	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
