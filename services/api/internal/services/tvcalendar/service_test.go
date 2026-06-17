@@ -2,6 +2,7 @@ package tvcalendar
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/common/tmdbcache"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -390,6 +392,150 @@ func TestShouldSyncSourceIncrementally(t *testing.T) {
 	}
 }
 
+func TestTVCalendarDateParsingHelpers(t *testing.T) {
+	date, err := ParseTVCalendarDate(" 2026-03-14 ")
+	if err != nil {
+		t.Fatalf("expected valid date, got %v", err)
+	}
+	want := time.Date(2026, 3, 14, 0, 0, 0, 0, time.UTC)
+	if !date.Equal(want) {
+		t.Fatalf("expected normalized date %s, got %s", want, date)
+	}
+
+	if _, err := ParseTVCalendarDate(""); !errors.Is(err, ErrTVCalendarInvalidDate) {
+		t.Fatalf("expected ErrTVCalendarInvalidDate for empty date, got %v", err)
+	}
+	if _, err := ParseTVCalendarDate("2026/03/14"); !errors.Is(err, ErrTVCalendarInvalidDate) {
+		t.Fatalf("expected ErrTVCalendarInvalidDate for malformed date, got %v", err)
+	}
+
+	parsed, err := parseDateOnly("2026-03-15")
+	if err != nil {
+		t.Fatalf("expected date-only parse to succeed, got %v", err)
+	}
+	if !parsed.Equal(time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected date-only parse result: %s", parsed)
+	}
+	if _, err := parseDateOnly("2026-3-15"); err == nil {
+		t.Fatalf("expected date-only parser to reject non-ISO date")
+	}
+}
+
+func TestTVCalendarWeekOffsetHelpers(t *testing.T) {
+	offset, err := ParseTVCalendarWeekOffset(" ")
+	if err != nil {
+		t.Fatalf("expected default week offset, got %v", err)
+	}
+	if offset != tvCalendarDefaultOffset {
+		t.Fatalf("expected default offset %d, got %d", tvCalendarDefaultOffset, offset)
+	}
+
+	offset, err = ParseTVCalendarWeekOffset(" -1 ")
+	if err != nil {
+		t.Fatalf("expected valid offset, got %v", err)
+	}
+	if offset != -1 {
+		t.Fatalf("expected offset -1, got %d", offset)
+	}
+	if _, err := ParseTVCalendarWeekOffset("2"); !errors.Is(err, ErrTVCalendarInvalidWeekOffset) {
+		t.Fatalf("expected invalid week offset error, got %v", err)
+	}
+	if _, err := ParseTVCalendarWeekOffset("next"); !errors.Is(err, ErrTVCalendarInvalidWeekOffset) {
+		t.Fatalf("expected invalid week offset error for non-number, got %v", err)
+	}
+
+	defaults, err := normalizeWeekOffsets(nil)
+	if err != nil {
+		t.Fatalf("expected default offsets, got %v", err)
+	}
+	assertIntSlice(t, defaults, []int{0, 1})
+
+	normalized, err := normalizeWeekOffsets([]int{1, -1, 1, 0})
+	if err != nil {
+		t.Fatalf("expected normalized offsets, got %v", err)
+	}
+	assertIntSlice(t, normalized, []int{-1, 0, 1})
+
+	if _, err := normalizeWeekOffsets([]int{-2}); !errors.Is(err, ErrTVCalendarInvalidWeekOffset) {
+		t.Fatalf("expected invalid week offset error, got %v", err)
+	}
+}
+
+func TestTVCalendarWeekStartHelpersUseLocation(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+
+	now := time.Date(2026, 3, 15, 16, 30, 0, 0, time.UTC)
+	currentDate := currentCalendarDateInLocation(now, loc)
+	if !currentDate.Equal(time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expected Shanghai calendar date 2026-03-16, got %s", currentDate)
+	}
+
+	weekStart := normalizeTVCalendarWeekStartInLocation(currentDate, loc)
+	if !weekStart.Equal(time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expected local Monday week start, got %s", weekStart)
+	}
+
+	starts := weekStartsFromOffsets([]int{-1, 0, 1}, currentDate, loc)
+	assertTimeSlice(t, starts, []time.Time{
+		time.Date(2026, 3, 9, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC),
+	})
+
+	cutoff := activeSourceCutoff(time.Date(2026, 4, 1, 12, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60)))
+	wantCutoff := time.Date(2026, 4, 1, 4, 0, 0, 0, time.UTC).AddDate(0, 0, -tvCalendarActiveSourceWindowDays)
+	if !cutoff.Equal(wantCutoff) {
+		t.Fatalf("expected UTC active source cutoff %s, got %s", wantCutoff, cutoff)
+	}
+}
+
+func TestTVCalendarLocalMediaHelpers(t *testing.T) {
+	if !isValidTVCalendarStatus(models.TVCalendarStatusToday) || isValidTVCalendarStatus("done") {
+		t.Fatalf("unexpected status validation result")
+	}
+	if !isValidTVCalendarWeekOffset(-1) || isValidTVCalendarWeekOffset(2) {
+		t.Fatalf("unexpected week offset validation result")
+	}
+
+	if got := tvCalendarStatusSortWeight(models.TVCalendarStatusReady); got != 0 {
+		t.Fatalf("expected ready sort weight 0, got %d", got)
+	}
+	if got := tvCalendarStatusSortWeight(models.TVCalendarStatusUpcoming); got != 3 {
+		t.Fatalf("expected upcoming/default sort weight 3, got %d", got)
+	}
+
+	if got := buildTMDBPosterURL(" /poster.jpg "); got != tmdbImageBaseURL+"/poster.jpg" {
+		t.Fatalf("unexpected poster url: %s", got)
+	}
+	if got := buildTMDBPosterURL(" "); got != "" {
+		t.Fatalf("expected empty poster path to stay empty, got %q", got)
+	}
+
+	providerID := extractProviderID(map[string]string{" TmDb ": " 1399 "}, "tmdb")
+	if providerID != "1399" {
+		t.Fatalf("expected trimmed provider id 1399, got %q", providerID)
+	}
+	if extractProviderID(nil, "tmdb") != "" {
+		t.Fatalf("expected missing provider ids to return empty string")
+	}
+
+	if !hasPhysicalEpisodeMedia(embyEpisodeItem{Path: " /media/s01e01.mkv "}) {
+		t.Fatalf("expected item with path to be physical")
+	}
+	if !hasPhysicalEpisodeMedia(embyEpisodeItem{MediaSources: []embyint.EmbyMediaSource{{}}}) {
+		t.Fatalf("expected item with media sources to be physical")
+	}
+	if hasPhysicalEpisodeMedia(embyEpisodeItem{LocationType: " virtual ", Path: "/media/s01e01.mkv"}) {
+		t.Fatalf("expected virtual item to be ignored")
+	}
+	if hasPhysicalEpisodeMedia(embyEpisodeItem{IsMissing: true, Path: "/media/s01e01.mkv"}) {
+		t.Fatalf("expected missing item to be ignored")
+	}
+}
+
 func TestRunTVCalendarSyncOnceDeduplicatesConcurrentCalls(t *testing.T) {
 	var executed int32
 	start := make(chan struct{})
@@ -422,5 +568,29 @@ func TestRunTVCalendarSyncOnceDeduplicatesConcurrentCalls(t *testing.T) {
 	}
 	if results[0] != 7 || results[1] != 7 {
 		t.Fatalf("expected both callers to receive shared result 7, got %v", results)
+	}
+}
+
+func assertIntSlice(t *testing.T, got, want []int) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	}
+}
+
+func assertTimeSlice(t *testing.T, got, want []time.Time) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	for i := range want {
+		if !got[i].Equal(want[i]) {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
 	}
 }
