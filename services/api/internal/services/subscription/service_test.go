@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,6 +215,92 @@ func TestIsSubscriptionUniqueConflictDetectsPostgresDuplicateKey(t *testing.T) {
 	err := &pgconn.PgError{Code: "23505"}
 	if !isSubscriptionUniqueConflict(err) {
 		t.Fatal("expected postgres duplicate key to be treated as subscription duplicate")
+	}
+}
+
+func TestSubscriptionExistingHelpers(t *testing.T) {
+	resp := detectionFailedResponse("检测失败")
+	if !resp.DetectionFailed || resp.ExistsInLibrary {
+		t.Fatalf("unexpected detection failed response: %+v", resp)
+	}
+	if resp.ExistingSummary == nil ||
+		!resp.ExistingSummary.DetectionFailed ||
+		resp.ExistingSummary.MatchType != ExistingMatchUnknown ||
+		resp.ExistingSummary.Message != "检测失败" {
+		t.Fatalf("unexpected detection summary: %+v", resp.ExistingSummary)
+	}
+
+	providerID := extractProviderID(map[string]string{" tmdb ": " 12345 "}, "Tmdb")
+	if providerID != "12345" {
+		t.Fatalf("extractProviderID() = %q, want 12345", providerID)
+	}
+	if extractProviderID(nil, "Tmdb") != "" {
+		t.Fatalf("expected empty provider ID for nil map")
+	}
+
+	if !hasPhysicalExistingItem(embyExistingItem{Path: "/media/movie.mkv"}) {
+		t.Fatalf("expected item with path to be physical")
+	}
+	if !hasPhysicalExistingItem(embyExistingItem{MediaSources: []interface{}{map[string]any{"id": "source"}}}) {
+		t.Fatalf("expected item with media sources to be physical")
+	}
+	if hasPhysicalExistingItem(embyExistingItem{IsMissing: true, Path: "/media/movie.mkv"}) {
+		t.Fatalf("expected missing item to be ignored")
+	}
+	if hasPhysicalExistingItem(embyExistingItem{LocationType: " virtual ", Path: "/media/movie.mkv"}) {
+		t.Fatalf("expected virtual item to be ignored")
+	}
+}
+
+func TestSummarizeEpisodeInventory(t *testing.T) {
+	seasons, counts := summarizeEpisodeInventory([]embyExistingItem{
+		{ParentIndexNumber: 2, IndexNumber: 1, Path: "/show/s2e1.mkv"},
+		{ParentIndexNumber: 1, IndexNumber: 1, MediaSources: []interface{}{"source"}},
+		{ParentIndexNumber: 1, IndexNumber: 2, Path: "/show/s1e2.mkv"},
+		{ParentIndexNumber: 3, IndexNumber: 0, Path: "/invalid.mkv"},
+		{ParentIndexNumber: 4, IndexNumber: 1, IsMissing: true, Path: "/missing.mkv"},
+	})
+
+	if !slices.Equal(seasons, []int{1, 2}) {
+		t.Fatalf("unexpected seasons: %+v", seasons)
+	}
+	if counts[1] != 2 || counts[2] != 1 {
+		t.Fatalf("unexpected episode counts: %+v", counts)
+	}
+	if totalEpisodeCount(counts) != 3 {
+		t.Fatalf("unexpected total episode count: %+v", counts)
+	}
+}
+
+func TestBuildSeriesExistsMessage(t *testing.T) {
+	if got := buildSeriesExistsMessage(nil, 0); got != "Emby 库中已存在该剧条目，确认后仍可继续提交。" {
+		t.Fatalf("unexpected empty season message: %s", got)
+	}
+	got := buildSeriesExistsMessage([]int{1, 3}, 18)
+	if !strings.Contains(got, "已入库季：1、3") || !strings.Contains(got, "共 18 集") {
+		t.Fatalf("unexpected season summary message: %s", got)
+	}
+}
+
+func TestNormalizeSubscriptionSeason(t *testing.T) {
+	season, err := normalizeSubscriptionSeason(models.MediaMovie, 9)
+	if err != nil {
+		t.Fatalf("movie season should not error: %v", err)
+	}
+	if season != 0 {
+		t.Fatalf("movie season should normalize to 0, got %d", season)
+	}
+
+	season, err = normalizeSubscriptionSeason(models.MediaTV, 2)
+	if err != nil {
+		t.Fatalf("tv season should not error: %v", err)
+	}
+	if season != 2 {
+		t.Fatalf("tv season should be preserved, got %d", season)
+	}
+
+	if _, err := normalizeSubscriptionSeason(models.MediaTV, -1); !errors.Is(err, ErrSubscriptionInvalidSeason) {
+		t.Fatalf("expected invalid season error, got %v", err)
 	}
 }
 
