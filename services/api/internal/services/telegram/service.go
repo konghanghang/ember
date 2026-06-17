@@ -30,7 +30,11 @@ type TelegramService struct {
 	subscriptionService  telegramSubscriber
 	newEmbyService       func() *embyint.EmbyService
 	findUserByTelegramID func(telegramID int64) (*models.User, error)
+	findUserByID         func(userID string) (*models.User, error)
+	upsertBindCode       func(userID, code string, expiresAt time.Time) error
+	generateBindCode     func() string
 	saveResetPassword    func(user *models.User) error
+	now                  func() time.Time
 }
 
 func NewTelegramService(
@@ -52,6 +56,29 @@ func NewTelegramService(
 			}
 			return &user, nil
 		},
+		findUserByID: func(userID string) (*models.User, error) {
+			var user models.User
+			if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+				return nil, err
+			}
+			return &user, nil
+		},
+		upsertBindCode: func(userID, code string, expiresAt time.Time) error {
+			bindCode := models.TelegramBindCode{
+				UserID:    userID,
+				Code:      code,
+				ExpiresAt: expiresAt,
+			}
+			return db.DB.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "user_id"}},
+				DoUpdates: clause.Assignments(map[string]interface{}{
+					"code":       code,
+					"expires_at": expiresAt,
+					"created_at": time.Now().UTC(),
+				}),
+			}).Create(&bindCode).Error
+		},
+		generateBindCode: generateTelegramBindCode,
 		saveResetPassword: func(user *models.User) error {
 			return db.DB.Model(&models.User{}).
 				Where("id = ?", user.ID).
@@ -59,6 +86,9 @@ func NewTelegramService(
 					"password":                user.Password,
 					"password_reset_required": false,
 				}).Error
+		},
+		now: func() time.Time {
+			return time.Now().UTC()
 		},
 	}
 }
@@ -131,33 +161,20 @@ type TelegramSubscriptionCommand struct {
 // 与 telegram_bind_codes(userId) 上的唯一索引配合：同一用户调用即"原地刷新"，
 // 不再依赖事务里的 DELETE + INSERT，避免老路径在并发下的竞态。
 func (s *TelegramService) GenerateBindCode(userID string) (string, time.Time, error) {
-	var user models.User
-	if err := db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+	user, err := s.findUserByID(userID)
+	if err != nil {
 		return "", time.Time{}, ErrTelegramUserNotFound
 	}
 	if user.TelegramID != nil {
 		return "", time.Time{}, ErrUserAlreadyBoundTelegram
 	}
 
-	expiresAt := time.Now().UTC().Add(5 * time.Minute)
+	expiresAt := s.now().UTC().Add(5 * time.Minute)
 
 	const maxAttempts = 8
 	for i := 0; i < maxAttempts; i++ {
-		code := generateTelegramBindCode()
-
-		bindCode := models.TelegramBindCode{
-			UserID:    userID,
-			Code:      code,
-			ExpiresAt: expiresAt,
-		}
-		err := db.DB.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "user_id"}},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"code":       code,
-				"expires_at": expiresAt,
-				"created_at": time.Now().UTC(),
-			}),
-		}).Create(&bindCode).Error
+		code := s.generateBindCode()
+		err := s.upsertBindCode(userID, code, expiresAt)
 		if err == nil {
 			return code, expiresAt, nil
 		}

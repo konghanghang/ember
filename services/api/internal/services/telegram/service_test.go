@@ -333,6 +333,64 @@ func TestTelegramServiceSubscribeByTelegramMapsLookupErrors(t *testing.T) {
 	}
 }
 
+func TestTelegramServiceGenerateBindCodeUsesInjectedStore(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.now = func() time.Time { return now }
+	service.generateBindCode = func() string { return "123456" }
+	service.findUserByID = func(userID string) (*models.User, error) {
+		if userID != "user_1" {
+			t.Fatalf("unexpected user id: %s", userID)
+		}
+		return &models.User{ID: userID}, nil
+	}
+
+	var capturedUserID string
+	var capturedCode string
+	var capturedExpiresAt time.Time
+	service.upsertBindCode = func(userID, code string, expiresAt time.Time) error {
+		capturedUserID = userID
+		capturedCode = code
+		capturedExpiresAt = expiresAt
+		return nil
+	}
+
+	code, expiresAt, err := service.GenerateBindCode("user_1")
+	if err != nil {
+		t.Fatalf("expected bind code, got %v", err)
+	}
+	if code != "123456" || capturedCode != "123456" {
+		t.Fatalf("unexpected bind code: returned=%q captured=%q", code, capturedCode)
+	}
+	wantExpiresAt := now.Add(5 * time.Minute)
+	if !expiresAt.Equal(wantExpiresAt) || !capturedExpiresAt.Equal(wantExpiresAt) {
+		t.Fatalf("unexpected expiresAt: returned=%s captured=%s want=%s", expiresAt, capturedExpiresAt, wantExpiresAt)
+	}
+	if capturedUserID != "user_1" {
+		t.Fatalf("expected bind code to be saved for user_1, got %q", capturedUserID)
+	}
+}
+
+func TestTelegramServiceGenerateBindCodeRejectsAlreadyBoundUserBeforeSave(t *testing.T) {
+	telegramID := int64(42)
+	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
+	service.findUserByID = func(userID string) (*models.User, error) {
+		return &models.User{ID: userID, TelegramID: &telegramID}, nil
+	}
+	service.upsertBindCode = func(userID, code string, expiresAt time.Time) error {
+		t.Fatalf("bind code must not be saved for an already bound user")
+		return nil
+	}
+
+	code, expiresAt, err := service.GenerateBindCode("user_1")
+	if !errors.Is(err, ErrUserAlreadyBoundTelegram) {
+		t.Fatalf("expected ErrUserAlreadyBoundTelegram, got %v", err)
+	}
+	if code != "" || !expiresAt.IsZero() {
+		t.Fatalf("expected empty result on failure, got code=%q expiresAt=%s", code, expiresAt)
+	}
+}
+
 func TestTelegramServiceResetPasswordMasksLookupFailure(t *testing.T) {
 	service := NewTelegramService(&stubTelegramRedeemer{}, &stubTelegramSubscriber{}, nil)
 	service.findUserByTelegramID = func(telegramID int64) (*models.User, error) {
