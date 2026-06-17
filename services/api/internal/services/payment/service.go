@@ -32,11 +32,13 @@ import (
 )
 
 type PaymentService struct {
-	embyService               *embyint.EmbyService
-	httpClient                *http.Client
-	notifier                  *notifierint.BotNotifier
-	compensation              *accountpkg.EmbyCompensation
-	markPaymentExpiredSession func(sessionID string) (int64, error)
+	embyService                   *embyint.EmbyService
+	httpClient                    *http.Client
+	notifier                      *notifierint.BotNotifier
+	compensation                  *accountpkg.EmbyCompensation
+	markPaymentExpiredSession     func(sessionID string) (int64, error)
+	getStripeSecret               func() string
+	expireStripeCheckoutSessionFn func(secret, sessionID string) error
 }
 
 func NewPaymentService() *PaymentService {
@@ -566,8 +568,7 @@ func (s *PaymentService) expireStripeCheckoutSessions(sessionIDs []string) {
 	if len(sessionIDs) == 0 {
 		return
 	}
-	configService := configpkg.NewConfigService()
-	secret := strings.TrimSpace(configService.GetString("STRIPE_SECRET_KEY"))
+	secret := strings.TrimSpace(s.stripeSecret())
 	if secret == "" {
 		log.Printf("[Payment] Stripe Secret 未配置，跳过失效旧 checkout sessions: count=%d", len(sessionIDs))
 		return
@@ -583,7 +584,7 @@ func (s *PaymentService) expireStripeCheckoutSessions(sessionIDs []string) {
 			continue
 		}
 		seen[sessionID] = struct{}{}
-		if err := s.expireStripeCheckoutSession(secret, sessionID); err != nil {
+		if err := s.expireCheckoutSession(secret, sessionID); err != nil {
 			log.Printf("[Payment] 失效旧 checkout session 失败: sessionID=%s err=%v", sessionID, err)
 			continue
 		}
@@ -593,6 +594,23 @@ func (s *PaymentService) expireStripeCheckoutSessions(sessionIDs []string) {
 
 func ExpireStripeCheckoutSessions(sessionIDs []string) {
 	NewPaymentService().expireStripeCheckoutSessions(sessionIDs)
+}
+
+// stripeSecret reads the Stripe secret through the configured source.
+func (s *PaymentService) stripeSecret() string {
+	if s.getStripeSecret != nil {
+		return s.getStripeSecret()
+	}
+	configService := configpkg.NewConfigService()
+	return configService.GetString("STRIPE_SECRET_KEY")
+}
+
+// expireCheckoutSession expires one checkout session through the configured Stripe adapter.
+func (s *PaymentService) expireCheckoutSession(secret, sessionID string) error {
+	if s.expireStripeCheckoutSessionFn != nil {
+		return s.expireStripeCheckoutSessionFn(secret, sessionID)
+	}
+	return s.expireStripeCheckoutSession(secret, sessionID)
 }
 
 func (s *PaymentService) expireStripeCheckoutSession(secret, sessionID string) error {

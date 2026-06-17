@@ -562,6 +562,51 @@ func TestCreateStripeCheckoutSessionMapsUnsafeUpstreamFailures(t *testing.T) {
 	}
 }
 
+func TestExpireStripeCheckoutSessionsDeduplicatesAndContinuesAfterFailure(t *testing.T) {
+	var expired []string
+	service := &PaymentService{
+		getStripeSecret: func() string {
+			return "sk_test"
+		},
+		expireStripeCheckoutSessionFn: func(secret, sessionID string) error {
+			if secret != "sk_test" {
+				t.Fatalf("unexpected secret: %q", secret)
+			}
+			expired = append(expired, sessionID)
+			if sessionID == "cs_fail" {
+				return errors.New("stripe timeout")
+			}
+			return nil
+		},
+	}
+
+	service.expireStripeCheckoutSessions([]string{" cs_1 ", "", "cs_1", "cs_fail", "cs_2"})
+
+	want := []string{"cs_1", "cs_fail", "cs_2"}
+	if len(expired) != len(want) {
+		t.Fatalf("expected expired sessions %+v, got %+v", want, expired)
+	}
+	for i := range want {
+		if expired[i] != want[i] {
+			t.Fatalf("expected expired sessions %+v, got %+v", want, expired)
+		}
+	}
+}
+
+func TestExpireStripeCheckoutSessionsSkipsWhenSecretMissing(t *testing.T) {
+	service := &PaymentService{
+		getStripeSecret: func() string {
+			return "  "
+		},
+		expireStripeCheckoutSessionFn: func(secret, sessionID string) error {
+			t.Fatalf("expireStripeCheckoutSessionFn must not run without Stripe secret")
+			return nil
+		},
+	}
+
+	service.expireStripeCheckoutSessions([]string{"cs_1"})
+}
+
 func TestParseStripeSignature(t *testing.T) {
 	timestamp, signatures, err := parseStripeSignature("t=1710000000, v1=sig_a, ignored, v1=sig_b")
 	if err != nil {
