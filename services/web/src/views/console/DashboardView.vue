@@ -92,11 +92,6 @@ const fetchOverview = async () => {
 
   loading.value = true
   try {
-    if (showLockedServerState.value) {
-      stats.value = { MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 }
-      return
-    }
-
     const [configResult, statsResult] = await Promise.allSettled([
       userStore.fetchEmbyConfig(),
       getMediaStats()
