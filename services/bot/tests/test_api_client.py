@@ -136,6 +136,42 @@ class ApiClientRetryTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(url.endswith("/api/v1/internal/telegram/media-libraries/preferences"))
         self.assertEqual(request_mock.await_args.kwargs["json"], {"telegramId": 1001})
 
+    async def test_search_tmdb_uses_internal_proxy_headers(self) -> None:
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(200, request=request, json={"results": [], "total": 0})
+
+        with patch.object(api_client, "_request", AsyncMock(return_value=(response, 12.0))) as request_mock:
+            payload = await api_client.search_tmdb("dark", "tv")
+
+        self.assertEqual(payload, {"results": [], "total": 0})
+        _, method, url = request_mock.await_args.args
+        self.assertEqual(method, "GET")
+        self.assertTrue(url.endswith("/api/v1/internal/tmdb/search"))
+        self.assertEqual(
+            request_mock.await_args.kwargs["headers"],
+            {"X-Internal-Secret": os.environ["INTERNAL_API_SECRET"]},
+        )
+        self.assertEqual(
+            request_mock.await_args.kwargs["params"],
+            {"query": "dark", "type": "tv"},
+        )
+
+    async def test_get_tmdb_tv_seasons_uses_internal_proxy_headers(self) -> None:
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(200, request=request, json={"data": {"seasons": [1, 2]}})
+
+        with patch.object(api_client, "_request", AsyncMock(return_value=(response, 12.0))) as request_mock:
+            payload = await api_client.get_tmdb_tv_seasons(1399)
+
+        self.assertEqual(payload, {"data": {"seasons": [1, 2]}})
+        _, method, url = request_mock.await_args.args
+        self.assertEqual(method, "GET")
+        self.assertTrue(url.endswith("/api/v1/internal/tmdb/tv/1399/seasons"))
+        self.assertEqual(
+            request_mock.await_args.kwargs["headers"],
+            {"X-Internal-Secret": os.environ["INTERNAL_API_SECRET"]},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

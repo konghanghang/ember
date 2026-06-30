@@ -575,14 +575,15 @@ async def release_polling_lock(owner_id: str) -> None:
 
 
 async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:
-    """调用公开 TMDB 搜索 API（无需鉴权，直接 GET）"""
+    """通过 Internal API 调用 TMDB 搜索代理，避免重新开放匿名访问。"""
     endpoint = "search_tmdb"
-    url = f"{API_URL}/api/v1/tmdb/search"
+    url = f"{API_URL}/api/v1/internal/tmdb/search"
     response, elapsed_ms = await _request(
         endpoint,
         "GET",
         url,
         timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
         params={"query": query, "type": media_type},
         log_fields={"mediaType": media_type},
     )
@@ -605,12 +606,13 @@ async def search_tmdb(query: str, media_type: str = "movie") -> Optional[dict]:
 
 async def get_tmdb_tv_seasons(tmdb_id: str | int) -> Optional[dict]:
     endpoint = "get_tmdb_tv_seasons"
-    url = f"{API_URL}/api/v1/tmdb/tv/{tmdb_id}/seasons"
+    url = f"{API_URL}/api/v1/internal/tmdb/tv/{tmdb_id}/seasons"
     response, elapsed_ms = await _request(
         endpoint,
         "GET",
         url,
         timeout=_DEFAULT_TIMEOUT,
+        headers=_INTERNAL_HEADERS,
         log_fields={"tmdbId": str(tmdb_id)},
     )
     if response is None:

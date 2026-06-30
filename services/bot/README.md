@@ -133,6 +133,8 @@ Bot 启动期配置来自环境变量；运行期设置优先从 Go API Internal
 - `POST /api/v1/internal/telegram/redeem`
 - `POST /api/v1/internal/telegram/reset-password`
 - `POST /api/v1/internal/telegram/subscribe`
+- `GET /api/v1/internal/tmdb/search`
+- `GET /api/v1/internal/tmdb/tv/:id/seasons`
 - `PUT /api/v1/internal/subscriptions/:id/approve`
 - `PUT /api/v1/internal/subscriptions/:id/reject`
 

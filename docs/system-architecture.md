@@ -603,6 +603,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `RedeemByTelegram(telegramID, code)` — 复用 `RedemptionService` 完成续期兑换
 - `ResetPassword(telegramID, newPassword)` — 通过 Telegram 身份重置 Ember/Emby 密码
 - `/libraries` — Bot 私聊媒体库偏好入口；通过 Internal API 查询、切换单个媒体库或恢复分组默认，最终仍由 API 统一重算 Emby Policy
+- `/search` — Bot 私聊 TMDB 搜索入口；Bot 通过 `InternalAuth` 保护的内部 TMDB 代理访问搜索与剧集季列表，不重新开放匿名 TMDB 代理
 - `SubscribeByTelegram(req)` — Bot 求片订阅入口；电影直接确认，电视剧先选季再提交，并透传 `season`；为保持既有体验，Bot 提交默认视为已确认库内已存在提示，不走 Web 二次确认弹窗
 - `CleanupExpiredBindCodes()` — 删除过期绑定码（cron 调用）
 
@@ -694,7 +695,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 统一认证路由：当前登录用户可访问的个人信息、订阅、TMDB 搜索代理、兑换、支付、追剧日历、排行等能力
 - 用户路由：保留 `/user/*` 兼容别名
 - 管理员路由：用户管理、单用户 Emby Policy 同步失败重试、配置中心、Admin API Key 管理、支付与兑换后台、媒体质量、设备、追剧日历同步、cron 手动触发
-- 内部服务路由：Bot 通过 `InternalAuth` 访问的审批、配置、媒体统计和 Telegram 内部能力
+- 内部服务路由：Bot 通过 `InternalAuth` 访问的审批、配置、媒体统计、TMDB 代理和 Telegram 内部能力
 
 ### 6.2 关键约束
 

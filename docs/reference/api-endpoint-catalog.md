@@ -186,6 +186,8 @@
 | PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
 | GET | `/api/v1/internal/settings/:key` | 读取内部配置（仅允许访问统一配置层中已注册的非敏感 key；未知 key 返回 404） |
 | GET | `/api/v1/internal/media/stats` | 读取内部媒体统计（Bot 复用） |
+| GET | `/api/v1/internal/tmdb/search?query=&type=` | Bot 使用的 TMDB 搜索代理（InternalAuth，服务端缓存） |
+| GET | `/api/v1/internal/tmdb/tv/:id/seasons` | Bot 使用的 TMDB 剧集季列表代理（InternalAuth，服务端缓存） |
 | POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
 | POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |
 | POST | `/api/v1/internal/telegram/redeem` | Bot 兑换续期码 |
