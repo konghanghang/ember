@@ -5,12 +5,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/oklog/ulid/v2"
 )
@@ -52,6 +54,54 @@ func TestPlaybackRankingColumnHelpers(t *testing.T) {
 	}
 	if got := nullableTrimExpr(" "); got != "NULL" {
 		t.Fatalf("expected blank column to become NULL, got %s", got)
+	}
+}
+
+func TestPlaybackRankingLibraryAllowlistHelpers(t *testing.T) {
+	got, err := parsePlaybackRankingLibraryAllowlist(`[" lib_b ","lib_a","","lib_b"]`)
+	if err != nil {
+		t.Fatalf("parse allowlist: %v", err)
+	}
+	want := []string{"lib_a", "lib_b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %+v, got %+v", want, got)
+	}
+
+	if _, err := parsePlaybackRankingLibraryAllowlist(`{"bad":true}`); err == nil {
+		t.Fatal("expected invalid allowlist json to fail")
+	}
+
+	valid, invalid := partitionRankingLibraryIDs(
+		[]string{"lib_b", "lib_missing", "lib_a"},
+		map[string]RankingLibraryOption{
+			"lib_a": {ID: "lib_a"},
+			"lib_b": {ID: "lib_b"},
+		},
+	)
+	if !reflect.DeepEqual(valid, []string{"lib_a", "lib_b"}) {
+		t.Fatalf("unexpected valid ids: %+v", valid)
+	}
+	if !reflect.DeepEqual(invalid, []string{"lib_missing"}) {
+		t.Fatalf("unexpected invalid ids: %+v", invalid)
+	}
+}
+
+func TestFilterPlaybackAggregateRowsAndSumDuration(t *testing.T) {
+	rows := []playbackAggregateRow{
+		{itemKey: "movie_1", duration: 100},
+		{itemKey: "movie_2", duration: 50},
+		{itemKey: "movie_3", duration: -1},
+	}
+
+	filtered := filterPlaybackAggregateRows(rows, map[string]struct{}{
+		"movie_2": {},
+		"movie_3": {},
+	})
+	if len(filtered) != 2 || filtered[0].itemKey != "movie_2" || filtered[1].itemKey != "movie_3" {
+		t.Fatalf("unexpected filtered rows: %+v", filtered)
+	}
+	if got := sumPlaybackAggregateDuration(filtered); got != 50 {
+		t.Fatalf("expected summed duration 50, got %d", got)
 	}
 }
 
@@ -258,6 +308,295 @@ func TestPreviewRankingGroupsEpisodesBySeriesID(t *testing.T) {
 	}
 }
 
+func TestPreviewRankingFiltersByLibraryAllowlist(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			if r.Method == http.MethodGet && strings.TrimSpace(r.URL.Query().Get("Ids")) != "" {
+				handlePlaybackItemsTestRequest(t, w, r)
+				return
+			}
+			handleRankingLibraryItemsRequest(t, w, r)
+		case "/emby/Library/VirtualFolders/Query":
+			handleRankingLibrariesRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"lib_movie_only"}, nil
+		},
+	}
+
+	result, err := svc.PreviewRanking(models.RankingWeekly)
+	if err != nil {
+		t.Fatalf("preview ranking failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Movies) != 1 || result.Movies[0].ItemKey != "movie_1" {
+		t.Fatalf("expected only allowed movie ranking, got %+v", result.Movies)
+	}
+	if len(result.Episodes) != 0 {
+		t.Fatalf("expected no episode rankings after allowlist filter, got %+v", result.Episodes)
+	}
+}
+
+func TestComputeRankingFiltersTotalDurationByLibraryAllowlist(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			if r.Method == http.MethodGet && strings.TrimSpace(r.URL.Query().Get("Ids")) != "" {
+				handlePlaybackItemsTestRequest(t, w, r)
+				return
+			}
+			handleRankingLibraryItemsRequest(t, w, r)
+		case "/emby/Library/VirtualFolders/Query":
+			handleRankingLibrariesRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"lib_movie_only"}, nil
+		},
+	}
+
+	result, err := svc.computeRanking(models.RankingWeekly, nil, nil)
+	if err != nil {
+		t.Fatalf("compute ranking failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.TotalDuration != 5400 {
+		t.Fatalf("expected filtered totalDuration 5400, got %d", result.TotalDuration)
+	}
+}
+
+func TestComputeRankingUsesFullDurationWhenAllowlistIsEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackQueryTestRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{}, nil
+		},
+	}
+
+	result, err := svc.computeRanking(models.RankingWeekly, nil, nil)
+	if err != nil {
+		t.Fatalf("compute ranking failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.TotalDuration != 6600 {
+		t.Fatalf("expected full totalDuration 6600, got %d", result.TotalDuration)
+	}
+}
+
+func TestBuildRankingNotificationPayloadKeepsFilteredTotalDuration(t *testing.T) {
+	computeResult := &RankingComputeResult{
+		Period:        models.RankingWeekly,
+		Start:         time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		End:           time.Date(2026, 7, 7, 20, 30, 0, 0, time.UTC),
+		TotalDuration: 5400,
+		Movies: []models.PlaybackRanking{
+			{Rank: 1, ItemName: "Movie A", PlayCount: 2, Duration: 5400},
+		},
+		Episodes: []models.PlaybackRanking{},
+	}
+
+	payload := buildRankingNotificationPayload(computeResult)
+	if payload.TotalDuration != 5400 {
+		t.Fatalf("expected payload totalDuration 5400, got %d", payload.TotalDuration)
+	}
+	if payload.Period != "weekly" || payload.PeriodStart != "2026-06-30" || payload.PeriodEnd != "2026-07-07" {
+		t.Fatalf("unexpected payload range: %+v", payload)
+	}
+	if len(payload.Movies) != 1 || payload.Movies[0].Name != "Movie A" {
+		t.Fatalf("unexpected movie payload: %+v", payload.Movies)
+	}
+}
+
+type captureRankingNotifier struct {
+	payloads []notifierint.RankingNotification
+}
+
+func (n *captureRankingNotifier) NotifyRanking(data notifierint.RankingNotification) {
+	n.payloads = append(n.payloads, data)
+}
+
+func TestGenerateRankingNotifiesFilteredPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			if r.Method == http.MethodGet && strings.TrimSpace(r.URL.Query().Get("Ids")) != "" {
+				handlePlaybackItemsTestRequest(t, w, r)
+				return
+			}
+			handleRankingLibraryItemsRequest(t, w, r)
+		case "/emby/Library/VirtualFolders/Query":
+			handleRankingLibrariesRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	notifier := &captureRankingNotifier{}
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"lib_movie_only"}, nil
+		},
+		notifier: notifier,
+		asyncGo: func(_ string, fn func()) {
+			fn()
+		},
+		persistRankings: func([]models.PlaybackRanking) (int64, error) {
+			return 1, nil
+		},
+	}
+
+	if err := svc.GenerateRanking(models.RankingWeekly, nil, nil); err != nil {
+		t.Fatalf("generate ranking failed: %v", err)
+	}
+	if len(notifier.payloads) != 1 {
+		t.Fatalf("expected one ranking payload, got %d", len(notifier.payloads))
+	}
+	payload := notifier.payloads[0]
+	if payload.TotalDuration != 5400 {
+		t.Fatalf("expected filtered totalDuration 5400, got %d", payload.TotalDuration)
+	}
+	if len(payload.Movies) != 1 || payload.Movies[0].Name != "星际穿越" {
+		t.Fatalf("unexpected movie payload: %+v", payload.Movies)
+	}
+	if len(payload.Episodes) != 0 {
+		t.Fatalf("expected no episode payloads, got %+v", payload.Episodes)
+	}
+}
+
+func TestGenerateRankingUsesDefaultAsyncGoWhenNil(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			if r.Method == http.MethodGet && strings.TrimSpace(r.URL.Query().Get("Ids")) != "" {
+				handlePlaybackItemsTestRequest(t, w, r)
+				return
+			}
+			handleRankingLibraryItemsRequest(t, w, r)
+		case "/emby/Library/VirtualFolders/Query":
+			handleRankingLibrariesRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	notifier := &captureRankingNotifier{}
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"lib_movie_only"}, nil
+		},
+		notifier:        notifier,
+		persistRankings: func([]models.PlaybackRanking) (int64, error) { return 1, nil },
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("GenerateRanking should not panic when asyncGo is nil, got %v", r)
+		}
+	}()
+
+	if err := svc.GenerateRanking(models.RankingWeekly, nil, nil); err != nil {
+		t.Fatalf("generate ranking failed: %v", err)
+	}
+}
+
+func TestGetRankingLibraryAllowlistReportsInvalidIDs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/Library/VirtualFolders/Query":
+			handleRankingLibrariesRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"lib_movie_only", "lib_missing"}, nil
+		},
+	}
+
+	settings, err := svc.GetRankingLibraryAllowlist()
+	if err != nil {
+		t.Fatalf("get ranking allowlist: %v", err)
+	}
+	if settings.AllowAll {
+		t.Fatalf("expected allowAll=false, got %+v", settings)
+	}
+	if !reflect.DeepEqual(settings.LibraryIDs, []string{"lib_movie_only"}) {
+		t.Fatalf("unexpected valid library ids: %+v", settings.LibraryIDs)
+	}
+	if !reflect.DeepEqual(settings.InvalidLibraryIDs, []string{"lib_missing"}) {
+		t.Fatalf("unexpected invalid library ids: %+v", settings.InvalidLibraryIDs)
+	}
+}
+
 func TestPreviewRankingKeepsSuccessfulEpisodeBatchesWhenSomeLookupsFail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -420,6 +759,42 @@ func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http
 		"Items":            items,
 		"TotalRecordCount": len(items),
 	})
+}
+
+func handleRankingLibrariesRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Items": []map[string]any{
+			{"Guid": "lib_movie_only", "Name": "电影库", "CollectionType": "movies", "ItemCount": 1},
+			{"Guid": "lib_series_only", "Name": "剧集库", "CollectionType": "tvshows", "ItemCount": 2},
+		},
+	})
+}
+
+func handleRankingLibraryItemsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	switch strings.TrimSpace(r.URL.Query().Get("ParentId")) {
+	case "lib_movie_only":
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"Items": []map[string]any{
+				{"Id": "movie_1", "Name": "星际穿越", "Type": "Movie"},
+			},
+			"TotalRecordCount": 1,
+		})
+	case "lib_series_only":
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"Items": []map[string]any{
+				{"Id": "ep_145", "Name": "斗罗大陆II绝世唐门 - s02e145", "Type": "Episode"},
+				{"Id": "ep_144", "Name": "斗罗大陆II绝世唐门 - s02e144", "Type": "Episode"},
+				{"Id": "ep_b1", "Name": "吞噬星空 - s07e215", "Type": "Episode"},
+			},
+			"TotalRecordCount": 3,
+		})
+	default:
+		t.Fatalf("unexpected library parentId: %s", r.URL.Query().Get("ParentId"))
+	}
 }
 
 func handlePlaybackPartialBatchQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {

@@ -251,7 +251,24 @@
 - 支持 `libraryId=all` 进行全媒体库汇总分析
 - 低画质结果按“影片/剧集”汇总后分页展示
 
-### 3.10 最近入库
+### 3.10 播放排行榜
+
+- 主入口：`/console/rankings`
+- 视图：`views/console/RankingsView.vue`
+- 数据源：
+  - `GET /api/v1/rankings/latest?period=daily|weekly`
+  - `GET /api/v1/rankings/history?period=daily|weekly&date=YYYY-MM-DD`
+  - 管理员额外使用：
+    - `POST /api/v1/admin/rankings/preview?type=daily|weekly`
+    - `GET /api/v1/admin/rankings/library-allowlist`
+    - `PUT /api/v1/admin/rankings/library-allowlist`
+- 页面行为：
+  - 普通用户只查看日榜 / 周榜与历史榜
+  - 管理员可在同页预览即时排行，并配置“参与统计的媒体库” allowlist
+  - allowlist 为全站统一配置，同时影响日榜、周榜、预览生成、正式入库结果与 Telegram 推送
+  - allowlist 为空时默认统计全部媒体库
+
+### 3.11 最近入库
 
 - 主入口：`/console/dashboard`（user）
 - 展示位置：`views/console/DashboardView.vue` + `components/console/RecentLibrarySection.vue`
@@ -261,7 +278,7 @@
 - 权限边界：封面代理只允许访问“当前用户最近入库列表里已经出现的条目”，避免把管理员 API key 图床直接暴露给浏览器
 - 行为：在概览页展示当前用户视角的最近入库摘要，支持电影/剧集切换、横向滑动与手动刷新，不做搜索和分页
 
-### 3.11 Dashboard Emby 入口
+### 3.12 Dashboard Emby 入口
 
 - 主入口：`/console/dashboard`
 - 数据源：`GET /api/v1/emby/config`

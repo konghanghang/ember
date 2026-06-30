@@ -136,6 +136,8 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.POST("/cron/check-expired", h.system.CheckExpiredUsers)
 	admin.POST("/cron/generate-ranking", h.ranking.GenerateRanking)
 	admin.POST("/rankings/preview", h.ranking.PreviewRanking)
+	admin.GET("/rankings/library-allowlist", h.ranking.GetRankingLibraryAllowlist)
+	admin.PUT("/rankings/library-allowlist", h.ranking.UpdateRankingLibraryAllowlist)
 }
 
 func registerInternalRoutes(api *gin.RouterGroup, h *appHandlers) {

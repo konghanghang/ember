@@ -1198,6 +1198,13 @@ export interface RankingResponse {
   episodes: RankingItem[]
 }
 
+export interface RankingLibraryAllowlistSettings {
+  allowAll: boolean
+  libraryIds: string[]
+  invalidLibraryIds?: string[]
+  libraries: MediaLibraryOption[]
+}
+
 export type RankingPreviewResponse = RankingResponse
 export type RankingHistoryResponse = RankingResponse
 

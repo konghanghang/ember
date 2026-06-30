@@ -166,6 +166,8 @@
 | POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |
 | POST | `/api/v1/admin/cron/generate-ranking` | 手动生成排行 |
 | POST | `/api/v1/admin/rankings/preview` | 排行预览 |
+| GET | `/api/v1/admin/rankings/library-allowlist` | 读取排行榜媒体库 allowlist 与当前 Emby 媒体库列表 |
+| PUT | `/api/v1/admin/rankings/library-allowlist` | 保存排行榜媒体库 allowlist（请求体 `{libraryIds}`；空数组表示统计全部媒体库） |
 
 追剧日历同步接口说明：
 

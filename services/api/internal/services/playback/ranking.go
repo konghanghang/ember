@@ -26,8 +26,16 @@ const (
 )
 
 type PlaybackRankingService struct {
-	embyService *embyint.EmbyService
-	notifier    *notifierint.BotNotifier
+	embyService          *embyint.EmbyService
+	notifier             rankingNotifier
+	loadLibraryAllowlist func() ([]string, error)
+	saveLibraryAllowlist func([]string, *string) error
+	asyncGo              func(string, func())
+	persistRankings      func([]models.PlaybackRanking) (int64, error)
+}
+
+type rankingNotifier interface {
+	NotifyRanking(data notifierint.RankingNotification)
 }
 
 type RankingResultItem struct {
@@ -76,8 +84,12 @@ type playbackAggregateRow struct {
 
 func NewPlaybackRankingService() *PlaybackRankingService {
 	return &PlaybackRankingService{
-		embyService: embyint.GetSharedService(),
-		notifier:    notifierint.GetSharedBotNotifier(),
+		embyService:          embyint.GetSharedService(),
+		notifier:             notifierint.GetSharedBotNotifier(),
+		loadLibraryAllowlist: loadPlaybackRankingLibraryAllowlist,
+		saveLibraryAllowlist: savePlaybackRankingLibraryAllowlist,
+		asyncGo:              async.SafeGo,
+		persistRankings:      persistPlaybackRankings,
 	}
 }
 
@@ -85,27 +97,61 @@ func (s *PlaybackRankingService) fetchMovieRanking(
 	columns playbackActivityColumns,
 	start, end time.Time,
 	limit int,
-) ([]models.PlaybackRanking, error) {
-	rows, err := s.queryPlaybackAggregates("Movie", columns.itemID, columns.itemName, "movie_item", start, end, limit)
-	if err != nil {
-		return nil, err
+) ([]models.PlaybackRanking, int64, error) {
+	return s.fetchMovieRankingWithFilter(columns, start, end, limit, rankingLibraryFilter{allowAll: true})
+}
+
+func (s *PlaybackRankingService) fetchMovieRankingWithFilter(
+	columns playbackActivityColumns,
+	start, end time.Time,
+	limit int,
+	filter rankingLibraryFilter,
+) ([]models.PlaybackRanking, int64, error) {
+	queryLimit := limit
+	if !filter.allowAll {
+		queryLimit = 0
 	}
+
+	rows, err := s.queryPlaybackAggregates("Movie", columns.itemID, columns.itemName, "movie_item", start, end, queryLimit)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !filter.allowAll {
+		rows = filterPlaybackAggregateRows(rows, filter.allowedItemIDs)
+	}
+
+	totalDuration := sumPlaybackAggregateDuration(rows)
 	rankings := convertAggregateRows(models.RankingMediaMovie, rows)
+	if limit > 0 && len(rankings) > limit {
+		rankings = rankings[:limit]
+	}
 	log.Printf("[PlaybackRanking] movie aggregates rows=%d rankings=%d range=%s~%s", len(rows), len(rankings), start.Format(time.RFC3339), end.Format(time.RFC3339))
-	return rankings, nil
+	return rankings, totalDuration, nil
 }
 
 func (s *PlaybackRankingService) fetchEpisodeRanking(
 	columns playbackActivityColumns,
 	start, end time.Time,
-) ([]models.PlaybackRanking, error) {
+) ([]models.PlaybackRanking, int64, error) {
+	return s.fetchEpisodeRankingWithFilter(columns, start, end, rankingLibraryFilter{allowAll: true})
+}
+
+func (s *PlaybackRankingService) fetchEpisodeRankingWithFilter(
+	columns playbackActivityColumns,
+	start, end time.Time,
+	filter rankingLibraryFilter,
+) ([]models.PlaybackRanking, int64, error) {
 	rows, err := s.queryPlaybackAggregates("Episode", columns.itemID, columns.itemName, "episode_item", start, end, 0)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	if !filter.allowAll {
+		rows = filterPlaybackAggregateRows(rows, filter.allowedItemIDs)
+	}
+	totalDuration := sumPlaybackAggregateDuration(rows)
 	if len(rows) == 0 {
 		log.Printf("[PlaybackRanking] episode aggregates rows=0 range=%s~%s", start.Format(time.RFC3339), end.Format(time.RFC3339))
-		return []models.PlaybackRanking{}, nil
+		return []models.PlaybackRanking{}, totalDuration, nil
 	}
 
 	itemIDs := make([]string, 0, len(rows))
@@ -119,7 +165,7 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 	}
 	if len(itemIDs) == 0 {
 		log.Printf("[PlaybackRanking] episode aggregates skipped all rows because duration<=0 count=%d", zeroDurationCount)
-		return []models.PlaybackRanking{}, nil
+		return []models.PlaybackRanking{}, totalDuration, nil
 	}
 
 	items, err := s.embyService.GetItemsByIDs(itemIDs)
@@ -130,7 +176,7 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 				len(itemIDs),
 				err,
 			)
-			return []models.PlaybackRanking{}, nil
+			return []models.PlaybackRanking{}, totalDuration, nil
 		}
 		if !embyint.IsGetItemsByIDsPartialFailure(err) {
 			log.Printf(
@@ -248,7 +294,7 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 		end.Format(time.RFC3339),
 	)
 
-	return aggregated, nil
+	return aggregated, totalDuration, nil
 }
 
 func (s *PlaybackRankingService) queryPlaybackAggregates(
@@ -425,17 +471,26 @@ func (s *PlaybackRankingService) computeRanking(period models.RankingPeriod, sta
 
 	log.Printf("[PlaybackRanking] compute start period=%s start=%s end=%s", period, rangeStart.Format(time.RFC3339), rangeEnd.Format(time.RFC3339))
 
-	movies, err := s.fetchMovieRanking(columns, rangeStart, rangeEnd, rankingLimit)
+	filter, err := s.loadRankingLibraryFilter()
 	if err != nil {
 		return nil, err
 	}
-	episodes, err := s.fetchEpisodeRanking(columns, rangeStart, rangeEnd)
+
+	movies, movieDuration, err := s.fetchMovieRankingWithFilter(columns, rangeStart, rangeEnd, rankingLimit, filter)
 	if err != nil {
 		return nil, err
 	}
-	totalDuration, err := s.queryTotalPlaybackDuration(rangeStart, rangeEnd)
+	episodes, episodeDuration, err := s.fetchEpisodeRankingWithFilter(columns, rangeStart, rangeEnd, filter)
 	if err != nil {
 		return nil, err
+	}
+
+	totalDuration := movieDuration + episodeDuration
+	if filter.allowAll {
+		totalDuration, err = s.queryTotalPlaybackDuration(rangeStart, rangeEnd)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &RankingComputeResult{
@@ -449,7 +504,40 @@ func (s *PlaybackRankingService) computeRanking(period models.RankingPeriod, sta
 	}, nil
 }
 
+func filterPlaybackAggregateRows(rows []playbackAggregateRow, allowedItemIDs map[string]struct{}) []playbackAggregateRow {
+	if len(rows) == 0 || len(allowedItemIDs) == 0 {
+		return []playbackAggregateRow{}
+	}
+
+	filtered := make([]playbackAggregateRow, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := allowedItemIDs[row.itemKey]; !ok {
+			continue
+		}
+		filtered = append(filtered, row)
+	}
+	return filtered
+}
+
+func sumPlaybackAggregateDuration(rows []playbackAggregateRow) int64 {
+	var total int64
+	for _, row := range rows {
+		if row.duration <= 0 {
+			continue
+		}
+		total += row.duration
+	}
+	return total
+}
+
 func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, start, end *time.Time) error {
+	if s.persistRankings == nil {
+		s.persistRankings = persistPlaybackRankings
+	}
+	if s.asyncGo == nil {
+		s.asyncGo = async.SafeGo
+	}
+
 	res, err := s.computeRanking(period, start, end)
 	if err != nil {
 		return err
@@ -474,11 +562,11 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 	}
 
 	if len(rankings) > 0 {
-		result := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&rankings)
-		if result.Error != nil {
-			return result.Error
+		rowsAffected, err := s.persistRankings(rankings)
+		if err != nil {
+			return err
 		}
-		if result.RowsAffected == 0 {
+		if rowsAffected == 0 {
 			log.Printf("[Ranking] %s 榜 %s~%s 已存在，跳过", period, res.Start.Format("2006-01-02"), res.End.Format("2006-01-02"))
 			return nil
 		}
@@ -486,16 +574,10 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 
 	log.Printf("[PlaybackRanking] generate done period=%s batchId=%s movies=%d episodes=%d start=%s end=%s snapshot=%s", period, batchID, len(res.Movies), len(res.Episodes), res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339), res.ComputedAt.Format(time.RFC3339))
 
-	rankingPayload := notifierint.RankingNotification{
-		Period:        string(period),
-		PeriodStart:   res.Start.Format("2006-01-02"),
-		PeriodEnd:     res.End.Format("2006-01-02"),
-		CutoffAt:      res.End.Format("15:04"),
-		TotalDuration: res.TotalDuration,
-		Movies:        toNotifyItems(res.Movies),
-		Episodes:      toNotifyItems(res.Episodes),
+	rankingPayload := buildRankingNotificationPayload(res)
+	if s.notifier != nil {
+		s.asyncGo("playback.notifyRanking", func() { s.notifier.NotifyRanking(rankingPayload) })
 	}
-	async.SafeGo("playback.notifyRanking", func() { s.notifier.NotifyRanking(rankingPayload) })
 
 	return nil
 }
@@ -630,6 +712,29 @@ func toNotifyItems(rankings []models.PlaybackRanking) []notifierint.RankingItemN
 		})
 	}
 	return items
+}
+
+func buildRankingNotificationPayload(res *RankingComputeResult) notifierint.RankingNotification {
+	if res == nil {
+		return notifierint.RankingNotification{}
+	}
+	return notifierint.RankingNotification{
+		Period:        string(res.Period),
+		PeriodStart:   res.Start.Format("2006-01-02"),
+		PeriodEnd:     res.End.Format("2006-01-02"),
+		CutoffAt:      res.End.Format("15:04"),
+		TotalDuration: res.TotalDuration,
+		Movies:        toNotifyItems(res.Movies),
+		Episodes:      toNotifyItems(res.Episodes),
+	}
+}
+
+func persistPlaybackRankings(rankings []models.PlaybackRanking) (int64, error) {
+	result := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&rankings)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
 }
 
 func (s *PlaybackRankingService) loadPlaybackActivityColumns() (playbackActivityColumns, error) {

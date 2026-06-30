@@ -541,11 +541,12 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 
-- `GenerateRanking(period)` — 校验 PlaybackActivity 基础字段 → 电影榜按 `ItemId` 聚合；剧集榜先按 episode `ItemId` 聚合，再回查 Emby 条目详情按 `SeriesId` 归并 → 存入数据库 → 通知 Bot
+- `GenerateRanking(period)` — 校验 PlaybackActivity 基础字段 → 读取排行榜媒体库 allowlist → 电影榜按 `ItemId` 聚合并按 allowlist 过滤；剧集榜先按 episode `ItemId` 聚合并按 allowlist 过滤，再回查 Emby 条目详情按 `SeriesId` 归并 → 存入数据库 → 通知 Bot
 - `GetLatestRanking(period)` — 获取指定周期最近一批正式排行榜（按 `periodEnd` 排序，不按 `snapshotAt` 猜）
 - `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容
 - `NotifyRanking` 推送 payload 额外包含整期 `totalDuration`，用于 Telegram 展示当天/当周总播放时长
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
+- `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；空配置视为全部媒体库参与统计
 
 **支持周期**：`daily`（日榜）、`weekly`（周榜）
 
@@ -556,6 +557,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 聚合键不再使用 `ItemName`
 - 电影榜直接依赖 PlaybackActivity 的 `ItemId`
 - 当前 PlaybackActivity 不返回 `SeriesId` / `SeriesName`，剧集榜需额外回查 Emby 媒体详情后按 `SeriesId` 归并
+- 排行榜媒体库范围使用全站统一 allowlist，而不是按用户可见媒体库拆分
+- allowlist 为空时默认统计全部媒体库；非空时通过 Emby 媒体库条目集合推导允许参与统计的 `ItemId`
 
 ### 5.16 PaymentService (`services/payment/service.go`)
 

@@ -63,6 +63,7 @@ import type {
   RedemptionCodeListResponse,
   RedemptionListResponse,
   RankingPreviewResponse,
+  RankingLibraryAllowlistSettings,
   RankingPeriod,
   RedemptionCodeListQuery,
   SystemInfoResponse,
@@ -616,6 +617,21 @@ export function previewRanking(type: RankingPeriod): Promise<RankingPreviewRespo
     url: '/admin/rankings/preview',
     method: 'post',
     params: { type }
+  })
+}
+
+export function getRankingLibraryAllowlist(): Promise<{ data: RankingLibraryAllowlistSettings }> {
+  return request({
+    url: '/admin/rankings/library-allowlist',
+    method: 'get'
+  })
+}
+
+export function updateRankingLibraryAllowlist(libraryIds: string[]): Promise<{ data: RankingLibraryAllowlistSettings }> {
+  return request({
+    url: '/admin/rankings/library-allowlist',
+    method: 'put',
+    data: { libraryIds }
   })
 }
 

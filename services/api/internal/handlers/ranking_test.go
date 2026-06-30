@@ -1,12 +1,51 @@
 package handlers
 
 import (
+	"encoding/json"
+	"errors"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/models"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
 )
+
+type stubRankingService struct {
+	getAllowlistFn    func() (*playbackpkg.RankingLibraryAllowlistSettings, error)
+	updateAllowlistFn func([]string, *string) (*playbackpkg.RankingLibraryAllowlistSettings, error)
+}
+
+func (s *stubRankingService) GetLatestRanking(period models.RankingPeriod) (*playbackpkg.RankingResult, error) {
+	return nil, nil
+}
+
+func (s *stubRankingService) GenerateRanking(period models.RankingPeriod, start, end *time.Time) error {
+	return nil
+}
+
+func (s *stubRankingService) PreviewRanking(period models.RankingPeriod) (*playbackpkg.RankingResult, error) {
+	return nil, nil
+}
+
+func (s *stubRankingService) GetHistoryRanking(period models.RankingPeriod, rangeStart, rangeEnd time.Time) (*playbackpkg.RankingResult, error) {
+	return nil, nil
+}
+
+func (s *stubRankingService) GetRankingLibraryAllowlist() (*playbackpkg.RankingLibraryAllowlistSettings, error) {
+	if s.getAllowlistFn == nil {
+		return nil, nil
+	}
+	return s.getAllowlistFn()
+}
+
+func (s *stubRankingService) UpdateRankingLibraryAllowlist(libraryIDs []string, updatedByUserID *string) (*playbackpkg.RankingLibraryAllowlistSettings, error) {
+	if s.updateAllowlistFn == nil {
+		return nil, nil
+	}
+	return s.updateAllowlistFn(libraryIDs, updatedByUserID)
+}
 
 func TestDateRangeByPeriodBuildsDailyRangeInLocation(t *testing.T) {
 	tz := time.FixedZone("UTC+8", 8*60*60)
@@ -127,5 +166,141 @@ func TestRankingTimeFormatHelpersReturnBlankForZeroValue(t *testing.T) {
 	}
 	if got := formatClockInLocation(time.Time{}, time.UTC); got != "" {
 		t.Fatalf("expected zero clock to be blank, got %q", got)
+	}
+}
+
+func TestRankingHandlerGetRankingLibraryAllowlist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RankingHandler{
+		service: &stubRankingService{
+			getAllowlistFn: func() (*playbackpkg.RankingLibraryAllowlistSettings, error) {
+				return &playbackpkg.RankingLibraryAllowlistSettings{
+					AllowAll:   false,
+					LibraryIDs: []string{"lib_movie"},
+					Libraries: []playbackpkg.RankingLibraryOption{
+						{ID: "lib_movie", Name: "电影", Type: "movies"},
+					},
+				}, nil
+			},
+		},
+	}
+
+	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/admin/rankings/library-allowlist", nil)
+	handler.GetRankingLibraryAllowlist(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		Data playbackpkg.RankingLibraryAllowlistSettings `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.AllowAll || len(resp.Data.LibraryIDs) != 1 || resp.Data.LibraryIDs[0] != "lib_movie" {
+		t.Fatalf("unexpected response: %+v", resp.Data)
+	}
+}
+
+func TestRankingHandlerUpdateRankingLibraryAllowlist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RankingHandler{
+		service: &stubRankingService{
+			updateAllowlistFn: func(libraryIDs []string, updatedByUserID *string) (*playbackpkg.RankingLibraryAllowlistSettings, error) {
+				if len(libraryIDs) != 1 || libraryIDs[0] != "lib_series" {
+					t.Fatalf("unexpected libraryIDs: %+v", libraryIDs)
+				}
+				if updatedByUserID == nil || *updatedByUserID != "admin_1" {
+					t.Fatalf("unexpected updatedByUserID: %+v", updatedByUserID)
+				}
+				return &playbackpkg.RankingLibraryAllowlistSettings{
+					AllowAll:   false,
+					LibraryIDs: []string{"lib_series"},
+					Libraries: []playbackpkg.RankingLibraryOption{
+						{ID: "lib_series", Name: "剧集", Type: "tvshows"},
+					},
+				}, nil
+			},
+		},
+	}
+
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/rankings/library-allowlist", []byte(`{"libraryIds":["lib_series"]}`))
+	ctx.Set("userID", "admin_1")
+	handler.UpdateRankingLibraryAllowlist(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+}
+
+func TestRankingHandlerUpdateRankingLibraryAllowlistMapsInvalidLibraryError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RankingHandler{
+		service: &stubRankingService{
+			updateAllowlistFn: func([]string, *string) (*playbackpkg.RankingLibraryAllowlistSettings, error) {
+				return nil, playbackpkg.ErrRankingLibraryIDInvalid
+			},
+		},
+	}
+
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/rankings/library-allowlist", []byte(`{"libraryIds":["lib_missing"]}`))
+	handler.UpdateRankingLibraryAllowlist(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+}
+
+func TestRankingHandlerUpdateRankingLibraryAllowlistRejectsBadJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RankingHandler{service: &stubRankingService{}}
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/rankings/library-allowlist", []byte(`{"libraryIds":`))
+	handler.UpdateRankingLibraryAllowlist(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+}
+
+func TestRankingHandlerGetRankingLibraryAllowlistMapsInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RankingHandler{
+		service: &stubRankingService{
+			getAllowlistFn: func() (*playbackpkg.RankingLibraryAllowlistSettings, error) {
+				return nil, errors.New("boom")
+			},
+		},
+	}
+
+	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/admin/rankings/library-allowlist", nil)
+	handler.GetRankingLibraryAllowlist(ctx)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", recorder.Code)
+	}
+}
+
+func TestRankingHandlerUpdateRankingLibraryAllowlistMapsInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &RankingHandler{
+		service: &stubRankingService{
+			updateAllowlistFn: func([]string, *string) (*playbackpkg.RankingLibraryAllowlistSettings, error) {
+				return nil, errors.New("boom")
+			},
+		},
+	}
+
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/rankings/library-allowlist", []byte(`{"libraryIds":["lib_movie"]}`))
+	handler.UpdateRankingLibraryAllowlist(ctx)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", recorder.Code)
 	}
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -13,7 +14,16 @@ import (
 )
 
 type RankingHandler struct {
-	service *playbackpkg.PlaybackRankingService
+	service rankingService
+}
+
+type rankingService interface {
+	GetLatestRanking(period models.RankingPeriod) (*playbackpkg.RankingResult, error)
+	GenerateRanking(period models.RankingPeriod, start, end *time.Time) error
+	PreviewRanking(period models.RankingPeriod) (*playbackpkg.RankingResult, error)
+	GetHistoryRanking(period models.RankingPeriod, rangeStart, rangeEnd time.Time) (*playbackpkg.RankingResult, error)
+	GetRankingLibraryAllowlist() (*playbackpkg.RankingLibraryAllowlistSettings, error)
+	UpdateRankingLibraryAllowlist(libraryIDs []string, updatedByUserID *string) (*playbackpkg.RankingLibraryAllowlistSettings, error)
 }
 
 type RankingItemResponse struct {
@@ -39,6 +49,10 @@ func NewRankingHandler() *RankingHandler {
 	return &RankingHandler{
 		service: playbackpkg.NewPlaybackRankingService(),
 	}
+}
+
+type updateRankingLibraryAllowlistRequest struct {
+	LibraryIDs []string `json:"libraryIds"`
 }
 
 // GetLatestRanking 获取最新排行
@@ -143,6 +157,42 @@ func (h *RankingHandler) PreviewRanking(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, buildRankingResponse(period, result, loadTimezone()))
+}
+
+func (h *RankingHandler) GetRankingLibraryAllowlist(c *gin.Context) {
+	resp, err := h.service.GetRankingLibraryAllowlist()
+	if err != nil {
+		httpx.InternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": resp})
+}
+
+func (h *RankingHandler) UpdateRankingLibraryAllowlist(c *gin.Context) {
+	var req updateRankingLibraryAllowlistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	var updatedBy *string
+	if value, ok := c.Get("userID"); ok {
+		if userID, ok := value.(string); ok && userID != "" {
+			updatedBy = &userID
+		}
+	}
+
+	resp, err := h.service.UpdateRankingLibraryAllowlist(req.LibraryIDs, updatedBy)
+	if err != nil {
+		if errors.Is(err, playbackpkg.ErrRankingLibraryIDInvalid) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		httpx.InternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
 func dateRangeByPeriod(tz *time.Location, period models.RankingPeriod, date time.Time) (time.Time, time.Time, error) {
