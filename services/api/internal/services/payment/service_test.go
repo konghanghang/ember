@@ -514,6 +514,18 @@ func TestCalculateFulfilledPaymentExpiryExtendsActiveExpiry(t *testing.T) {
 	}
 }
 
+func TestCalculateFulfilledPaymentExpiryKeepsLaterExpirySecondPrecision(t *testing.T) {
+	now := time.Date(2026, 6, 25, 11, 23, 32, 0, time.UTC)
+	currentExpiry := time.Date(2026, 6, 25, 11, 29, 52, 0, time.UTC)
+
+	got := calculateFulfilledPaymentExpiry(now, &currentExpiry, 31)
+	want := time.Date(2026, 7, 26, 11, 29, 52, 0, time.UTC)
+
+	if !got.Equal(want) {
+		t.Fatalf("expected active expiry extension with preserved time-of-day %s, got %s", want, got)
+	}
+}
+
 func TestPaymentPureHelpers(t *testing.T) {
 	if got := truncateString("abcdef", 3); got != "abc" {
 		t.Fatalf("truncateString() = %q, want abc", got)

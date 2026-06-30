@@ -1,4 +1,7 @@
+import os
+from datetime import datetime, timezone
 from html import escape
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -9,6 +12,7 @@ _SUBSCRIPTION_NOTE_LIMIT = 500
 _RESULT_REASON_LIMIT = 500
 _SEARCH_OVERVIEW_LIMIT = 300
 _TEXT_TRUNCATION_SUFFIX = "..."
+_DEFAULT_DISPLAY_TIMEZONE = "Asia/Shanghai"
 
 
 def _format_media_type(media_type: str) -> str:
@@ -86,7 +90,7 @@ def format_registration_message(data: dict) -> str:
     email = escape(str(data.get("email", "") or "-"))
     emby_id = escape(str(data.get("embyId", "") or "-"))
     mode = escape(_format_registration_mode(str(data.get("registrationMode", ""))))
-    expires_at = escape(str(data.get("expiresAt", "") or "永不过期"))
+    expires_at = _format_expiry(data.get("expiresAt"))
 
     lines = [
         "🆕 <b>新用户注册成功</b>",
@@ -112,11 +116,43 @@ def _format_currency(amount: int, currency: str) -> str:
     return f"{symbol}{major:.2f}"
 
 
-def _format_expiry(value: str | None) -> str:
+def _get_display_timezone() -> ZoneInfo | timezone:
+    tz_name = (os.getenv("TZ", _DEFAULT_DISPLAY_TIMEZONE) or "").strip() or _DEFAULT_DISPLAY_TIMEZONE
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        try:
+            return ZoneInfo(_DEFAULT_DISPLAY_TIMEZONE)
+        except ZoneInfoNotFoundError:
+            return timezone.utc
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    normalized = value.strip()
+    if normalized == "":
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _format_expiry(value: str | None, *, date_only: bool = False) -> str:
     raw = str(value or "").strip()
     if raw == "":
         return "永不过期"
-    return escape(raw.replace("T", " ")[:19])
+    parsed = _parse_datetime(raw)
+    if parsed is None:
+        fallback = raw.replace("T", " ")
+        return escape(fallback[:10] if date_only else fallback[:19])
+    local_value = parsed.astimezone(_get_display_timezone())
+    pattern = "%Y-%m-%d" if date_only else "%Y-%m-%d %H:%M:%S"
+    return escape(local_value.strftime(pattern))
 
 
 def format_payment_message(data: dict) -> str:
@@ -216,7 +252,7 @@ def format_account_info(data: dict) -> str:
     emby_disabled = bool(data.get("embyDisabled", False))
     expires_at = str(data.get("expiresAt", "") or "")
 
-    expires_display = escape(expires_at[:10]) if expires_at else "永久有效"
+    expires_display = _format_expiry(expires_at, date_only=True) if expires_at else "永久有效"
 
     if not is_expired and is_active and not emby_disabled:
         status_emoji = "🟢"
@@ -247,7 +283,7 @@ def format_account_info(data: dict) -> str:
 def format_redeem_success(data: dict) -> str:
     days = int(data.get("days", 0) or 0)
     expires_at = str(data.get("expiresAt", "") or "")
-    expires_display = escape(expires_at[:10]) if expires_at else "-"
+    expires_display = _format_expiry(expires_at, date_only=True) if expires_at else "-"
 
     return _clamp_telegram_text(
         (

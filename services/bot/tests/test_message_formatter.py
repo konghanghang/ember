@@ -1,6 +1,7 @@
 import unittest
 import sys
 import types
+from unittest.mock import patch
 
 if "telegram" not in sys.modules:
     telegram_stub = types.ModuleType("telegram")
@@ -48,39 +49,41 @@ class MessageFormatterTestCase(unittest.TestCase):
         self.assertEqual(keyboard.inline_keyboard[0][1].callback_data, "reject:sub_123")
 
     def test_format_payment_message_formats_currency_and_expiry(self) -> None:
-        text = format_payment_message(
-            {
-                "userName": "ember-user",
-                "planName": "季度套餐",
-                "amount": 1299,
-                "currency": "cny",
-                "days": 90,
-                "paymentId": "pay_123",
-                "oldExpiresAt": "2026-04-15T08:00:00Z",
-                "newExpiresAt": "2026-07-14T08:00:00Z",
-            }
-        )
+        with patch.dict("os.environ", {"TZ": "Asia/Shanghai"}):
+            text = format_payment_message(
+                {
+                    "userName": "ember-user",
+                    "planName": "季度套餐",
+                    "amount": 1299,
+                    "currency": "cny",
+                    "days": 90,
+                    "paymentId": "pay_123",
+                    "oldExpiresAt": "2026-04-15T08:00:00Z",
+                    "newExpiresAt": "2026-07-14T08:00:00Z",
+                }
+            )
 
         self.assertIn("¥12.99", text)
-        self.assertIn("2026-04-15 08:00:00", text)
-        self.assertIn("2026-07-14 08:00:00", text)
+        self.assertIn("2026-04-15 16:00:00", text)
+        self.assertIn("2026-07-14 16:00:00", text)
         self.assertIn("季度套餐", text)
         self.assertNotIn("📧", text)
         self.assertNotIn("Session", text)
 
     def test_format_account_info_marks_expired_users(self) -> None:
-        text = format_account_info(
-            {
-                "username": "ember-user",
-                "email": "user@example.com",
-                "isExpired": True,
-                "expiresAt": "2026-04-15T08:00:00Z",
-            }
-        )
+        with patch.dict("os.environ", {"TZ": "Asia/Shanghai"}):
+            text = format_account_info(
+                {
+                    "username": "ember-user",
+                    "email": "user@example.com",
+                    "isExpired": True,
+                    "expiresAt": "2026-04-15T16:00:00Z",
+                }
+            )
 
         self.assertIn("已过期", text)
         self.assertIn("/redeem", text)
-        self.assertIn("2026-04-15", text)
+        self.assertIn("2026-04-16", text)
 
     def test_format_subscription_message_truncates_long_note_for_caption_limit(self) -> None:
         text, _ = format_subscription_message(
@@ -106,20 +109,22 @@ class MessageFormatterTestCase(unittest.TestCase):
         self.assertIn("...", text)
 
     def test_format_subscription_result_message_truncates_long_reject_reason(self) -> None:
-        text = format_subscription_result_message(
-            {
-                "status": "REJECTED",
-                "type": "TV",
-                "name": "Test Show",
-                "tmdbId": 42,
-                "season": 1,
-                "rejectReason": "资源重复" * 300,
-                "reviewedAt": "2026-04-15T08:00:00Z",
-            }
-        )
+        with patch.dict("os.environ", {"TZ": "Asia/Shanghai"}):
+            text = format_subscription_result_message(
+                {
+                    "status": "REJECTED",
+                    "type": "TV",
+                    "name": "Test Show",
+                    "tmdbId": 42,
+                    "season": 1,
+                    "rejectReason": "资源重复" * 300,
+                    "reviewedAt": "2026-04-15T08:00:00Z",
+                }
+            )
 
         self.assertLessEqual(len(text), 1024)
         self.assertIn("已被拒绝", text)
+        self.assertIn("2026-04-15 16:00:00", text)
         self.assertIn("...", text)
 
 
