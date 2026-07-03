@@ -53,6 +53,32 @@ const pageHeaderStub = defineComponent({
   },
 })
 
+const EmberFormDialogStub = defineComponent({
+  props: {
+    modelValue: {
+      type: Boolean,
+      default: false,
+    },
+    title: {
+      type: String,
+      default: '',
+    },
+  },
+  emits: ['update:modelValue'],
+  setup(props, { slots }) {
+    return () =>
+      props.modelValue
+        ? h('div', {
+          'data-test': 'allowlist-dialog',
+          'data-title': props.title,
+        }, [
+          h('div', { 'data-test': 'dialog-body' }, slots.default?.()),
+          h('div', { 'data-test': 'dialog-footer' }, slots.footer?.()),
+        ])
+        : null
+  },
+})
+
 const checkboxGroupKey = Symbol('checkbox-group')
 
 const CheckboxGroupStub = defineComponent({
@@ -110,6 +136,7 @@ function mountView() {
     global: {
       stubs: {
         EmberPageHeaderCard: pageHeaderStub,
+        EmberFormDialog: EmberFormDialogStub,
         EmberSegmentTabs: passthroughStub,
         EmberEmptyStateCard: passthroughStub,
         'el-icon': passthroughStub,
@@ -174,8 +201,14 @@ describe('RankingsView 媒体库 allowlist', () => {
     await flushPromises()
 
     expect(getRankingLibraryAllowlist).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('参与统计的媒体库')
     expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
+    expect(wrapper.find('[data-test="allowlist-dialog"]').exists()).toBe(false)
+
+    await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="allowlist-dialog"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('参与统计的媒体库')
 
     await wrapper.find('[data-test="library-checkbox-lib_series"]').setValue(true)
     await flushPromises()
@@ -189,6 +222,7 @@ describe('RankingsView 媒体库 allowlist', () => {
 
     expect(updateRankingLibraryAllowlist).toHaveBeenCalledWith(['lib_movie', 'lib_series'])
     expect(ElMessage.success).toHaveBeenCalledWith('排行榜统计媒体库已保存')
+    expect(wrapper.find('[data-test="allowlist-dialog"]').exists()).toBe(false)
   })
 
   it('普通用户不显示媒体库配置区块', async () => {
@@ -197,6 +231,7 @@ describe('RankingsView 媒体库 allowlist', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('参与统计的媒体库')
+    expect(wrapper.find('[data-test="open-allowlist-dialog"]').exists()).toBe(false)
     expect(getRankingLibraryAllowlist).not.toHaveBeenCalled()
   })
 
@@ -213,6 +248,9 @@ describe('RankingsView 媒体库 allowlist', () => {
     })
 
     const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('已失效媒体库')
@@ -237,6 +275,9 @@ describe('RankingsView 媒体库 allowlist', () => {
     await previewButton!.trigger('click')
     await flushPromises()
 
+    await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
+    await flushPromises()
+
     await wrapper.find('[data-test="library-checkbox-lib_series"]').setValue(true)
     await flushPromises()
 
@@ -254,6 +295,9 @@ describe('RankingsView 媒体库 allowlist', () => {
     vi.mocked(updateRankingLibraryAllowlist).mockRejectedValueOnce(new Error('boom'))
 
     const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
     await flushPromises()
 
     const resetButton = wrapper
