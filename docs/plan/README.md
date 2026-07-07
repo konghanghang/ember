@@ -44,6 +44,7 @@
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 - `media-subscription/playback-ranking-library-allowlist.md`
+- `media-subscription/subscription-plan-group-auto-approval.md`
 - `media-subscription/subscription-manual-moviepilot-dispatch.md`
 
 最近已完成归档的实施稿包括：
