@@ -42,6 +42,7 @@
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
+- `console-admin/plan-group-media-library-deferred-sync.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
 - `media-subscription/playback-ranking-library-allowlist.md`
 - `media-subscription/subscription-plan-group-auto-approval.md`
