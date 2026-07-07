@@ -298,4 +298,32 @@ describe('PlanGroupsView', () => {
 
     wrapper.unmount()
   })
+
+  it('创建分组时提交自动通过额度字段', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.$.setupState.createForm = {
+      key: 'VIP_A',
+      name: 'VIP A',
+      description: '高级分组',
+      isDefault: false,
+      sortOrder: 10,
+      subscriptionAutoApproveDailyLimit: 2,
+    }
+
+    await wrapper.vm.$.setupState.handleCreate()
+    await flushPromises()
+
+    expect(createPlanGroup).toHaveBeenCalledWith({
+      key: 'VIP_A',
+      name: 'VIP A',
+      description: '高级分组',
+      isDefault: false,
+      sortOrder: 10,
+      subscriptionAutoApproveDailyLimit: 2,
+    })
+
+    wrapper.unmount()
+  })
 })

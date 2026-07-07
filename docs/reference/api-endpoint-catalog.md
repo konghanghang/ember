@@ -24,8 +24,8 @@
 |------|------|------|
 | GET | `/api/v1/subscriptions` | 我的订阅 |
 | POST | `/api/v1/subscriptions/check-existing` | 创建前检测库内是否已存在资源 |
-| POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧） |
-| POST | `/api/v1/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note` |
+| POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧；命中套餐分组当日额度时会直接自动通过） |
+| POST | `/api/v1/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note`；命中套餐分组当日额度时会直接自动通过 |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
 | GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索（需 JWT，服务端缓存） |
 | GET | `/api/v1/tmdb/tv/:id/seasons` | TMDB 剧集季列表（需 JWT，服务端缓存） |
@@ -73,8 +73,8 @@
 | GET | `/api/v1/user/emby/config` | Emby 服务器地址 |
 | GET | `/api/v1/user/media/stats` | 媒体库统计 |
 | GET | `/api/v1/user/subscriptions` | 我的订阅 |
-| POST | `/api/v1/user/subscriptions` | 创建订阅 |
-| POST | `/api/v1/user/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note` |
+| POST | `/api/v1/user/subscriptions` | 创建订阅（命中套餐分组当日额度时会直接自动通过） |
+| POST | `/api/v1/user/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note`；命中套餐分组当日额度时会直接自动通过 |
 | DELETE | `/api/v1/user/subscriptions/:id` | 删除订阅 |
 
 ## 4. 管理员路由（需认证 + role=admin）
@@ -137,9 +137,9 @@
 | POST | `/api/v1/admin/devices/logout/:deviceId` | 强制注销设备 |
 | POST | `/api/v1/admin/devices/blacklist/logout-all` | 批量注销黑名单设备 |
 | GET | `/api/v1/admin/media-libraries` | Emby 当前媒体库列表，用于配置分组模板；过滤系统生成的 `boxsets` 合集入口 |
-| GET | `/api/v1/admin/plan-groups` | 用户分组 / 权益模板列表 |
-| POST | `/api/v1/admin/plan-groups` | 创建用户分组，并创建默认 Emby 权益模板 |
-| PUT | `/api/v1/admin/plan-groups/:key` | 更新用户分组 / 切换默认分组 |
+| GET | `/api/v1/admin/plan-groups` | 用户分组 / 权益模板列表（包含每日自动通过订阅额度） |
+| POST | `/api/v1/admin/plan-groups` | 创建用户分组，并创建默认 Emby 权益模板；支持设置每日自动通过订阅额度 |
+| PUT | `/api/v1/admin/plan-groups/:key` | 更新用户分组 / 切换默认分组 / 调整每日自动通过订阅额度 |
 | DELETE | `/api/v1/admin/plan-groups/:key` | 删除用户分组；无业务引用时同步清理从属模板和同步记录 |
 | GET | `/api/v1/admin/plan-groups/:key/media-libraries` | 查询分组媒体库模板 |
 | PUT | `/api/v1/admin/plan-groups/:key/media-libraries` | 保存分组媒体库模板并同步该分组用户 Policy |

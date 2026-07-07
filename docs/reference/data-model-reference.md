@@ -123,18 +123,25 @@
 | RetryFromID | *string(25) | retryFromId | 拒绝后重新发起时指向上一条 `REJECTED` 订阅，可空 |
 | MpError | *string(500) | mpError | MoviePilot 同步错误 |
 | RejectReason | *string | rejectReason | 管理员拒绝原因 |
+| ReviewSource | *SubscriptionReviewSource | reviewSource | 审核通过来源：`MANUAL` / `AUTO_QUOTA`；待审核或已拒绝时为空 |
 | ReviewedAt | *time.Time | reviewedAt | 审核时间（通过/拒绝） |
 | IngestedAt | *time.Time | ingestedAt | 真实入库时间（由 Emby webhook 或管理员校验命中后收口写入） |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
 **状态流转**：
-- 用户创建后进入 `PENDING`
+- 用户提交前必须满足：`embyId` 非空且 `embyDisabled=false`
+- 用户创建后默认进入 `PENDING`；若命中所属 `PlanGroup.subscriptionAutoApproveDailyLimit` 的当日额度，则可直接进入 `APPROVED`
 - 管理员审核通过后转 `APPROVED`，并记录 `reviewedAt`
 - 管理员拒绝后转 `REJECTED`，必须写入 `rejectReason` 与 `reviewedAt`
 - 用户可基于自己的 `REJECTED` 记录重新发起一条新的 `PENDING` 订阅，新记录写入 `retryFromId`，原拒绝记录保持历史不改写
 - Emby 真实入库事件命中已通过订阅后转 `INGESTED`，并写入 `ingestedAt`
 - 对历史漏回写记录，管理员可主动触发 Emby 校验；只有命中真实资源时，`APPROVED` 才能收口为 `INGESTED`
+
+**审核来源语义**：
+- `MANUAL`：管理员显式审批通过
+- `AUTO_QUOTA`：系统按套餐分组的每日自动通过额度直接批准
+- `REJECTED` / `PENDING` 记录不保留通过来源
 
 **唯一约束**：
 - `subscriptions` 不再使用全局唯一索引 `uk_subscription_media`
@@ -210,6 +217,7 @@
 | Description | string(500) | description | 分组说明 |
 | IsDefault | bool | isDefault | 是否默认分组（全局唯一） |
 | SortOrder | int | sortOrder | 排序 |
+| SubscriptionAutoApproveDailyLimit | int | subscriptionAutoApproveDailyLimit | 每个用户每天可自动通过的订阅数；`0` 表示全部走人工审核 |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 

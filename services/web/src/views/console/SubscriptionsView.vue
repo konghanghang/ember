@@ -31,7 +31,7 @@ import {
 } from '@/api/admin'
 import { deleteSubscription, getSubscriptions, resubmitSubscription } from '@/api/console'
 import { emberPosterPlaceholder } from '@/utils/posterPlaceholder'
-import type { Subscription, SubscriptionExistingSummary, SubscriptionManualCandidate, SubscriptionStatus } from '@/types/api'
+import type { Subscription, SubscriptionExistingSummary, SubscriptionManualCandidate, SubscriptionReviewSource, SubscriptionStatus } from '@/types/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -416,7 +416,11 @@ const submitResubmission = async (confirmExisting = false) => {
     return
   }
 
-  ElMessage.success('已再次提交，等待审核')
+  if (response.autoApproved) {
+    ElMessage.success('订阅已自动通过，等待入库')
+  } else {
+    ElMessage.success('已再次提交，等待审核')
+  }
   showResubmitDialog.value = false
   resubmitTarget.value = null
   resubmitNote.value = ''
@@ -479,6 +483,23 @@ const getStatusBadgeText = (status: SubscriptionStatus) => {
     case 'APPROVED': return '已通过'
     default: return getStatusText(status)
   }
+}
+
+const getReviewSourceColor = (source?: SubscriptionReviewSource | null) => {
+  if (source === 'AUTO_QUOTA') {
+    return 'bg-indigo-500/85'
+  }
+  return 'bg-slate-700/70'
+}
+
+const getReviewSourceText = (source?: SubscriptionReviewSource | null) => {
+  if (source === 'AUTO_QUOTA') {
+    return '自动通过'
+  }
+  if (source === 'MANUAL') {
+    return '人工通过'
+  }
+  return ''
 }
 
 const padNumber = (value: number) => value.toString().padStart(2, '0')
@@ -736,6 +757,13 @@ onMounted(fetchData)
                   :title="formatTime(sub.reviewedAt)"
                 >
                   审核 {{ formatCompactDateTime(sub.reviewedAt) }}
+                </span>
+                <span
+                  v-if="isAdmin && sub.reviewSource"
+                  class="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                  :class="getReviewSourceColor(sub.reviewSource)"
+                >
+                  {{ getReviewSourceText(sub.reviewSource) }}
                 </span>
                 <span
                   v-if="sub.status === 'APPROVED'"

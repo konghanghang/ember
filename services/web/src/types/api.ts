@@ -2,6 +2,7 @@ export type UserRole = 'admin' | 'user'
 export type PlanGroup = string
 export type MediaType = 'MOVIE' | 'TV'
 export type SubscriptionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INGESTED' | 'EXPIRED'
+export type SubscriptionReviewSource = 'MANUAL' | 'AUTO_QUOTA'
 
 export interface ManagedPlanGroup {
   key: string
@@ -9,6 +10,7 @@ export interface ManagedPlanGroup {
   description?: string
   isDefault: boolean
   sortOrder: number
+  subscriptionAutoApproveDailyLimit?: number
   planCount?: number
   userCount?: number
   followingUserCount?: number
@@ -819,6 +821,7 @@ export interface Subscription {
   note?: string
   mpError?: string | null
   rejectReason?: string | null
+  reviewSource?: SubscriptionReviewSource | null
   ingestProgress?: string | null
   reviewedAt?: string | null
   ingestedAt?: string | null
@@ -868,6 +871,9 @@ export interface CheckExistingSubscriptionResponse {
 
 export interface CreateSubscriptionResponse {
   success: boolean
+  subscriptionId?: string
+  status?: SubscriptionStatus
+  autoApproved?: boolean
   confirmationRequired?: boolean
   detectionFailed?: boolean
   existingSummary?: SubscriptionExistingSummary
@@ -880,6 +886,9 @@ export interface ResubmitSubscriptionRequest {
 
 export interface ResubmitSubscriptionResponse {
   success: boolean
+  subscriptionId?: string
+  status?: SubscriptionStatus
+  autoApproved?: boolean
   confirmationRequired?: boolean
   detectionFailed?: boolean
   existingSummary?: SubscriptionExistingSummary
@@ -1019,6 +1028,7 @@ export interface CreatePlanGroupRequest {
   description?: string
   isDefault?: boolean
   sortOrder?: number
+  subscriptionAutoApproveDailyLimit?: number
 }
 
 export interface UpdatePlanGroupRequest {
@@ -1026,6 +1036,7 @@ export interface UpdatePlanGroupRequest {
   description?: string
   isDefault?: boolean
   sortOrder?: number
+  subscriptionAutoApproveDailyLimit?: number
 }
 
 export type PaymentStatus = 'pending' | 'completed' | 'expired' | 'failed'

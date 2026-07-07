@@ -15,6 +15,7 @@ import (
 )
 
 type stubSubscriptionService struct {
+	createFn           func(userID string, req subscriptionpkg.CreateSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error)
 	resubmitFn         func(userID, subscriptionID string, req subscriptionpkg.ResubmitSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error)
 	deleteFn           func(subscriptionID, userID string) error
 	getAllFn           func(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
@@ -24,7 +25,10 @@ type stubSubscriptionService struct {
 }
 
 func (s *stubSubscriptionService) CreateSubscriptionWithResult(userID string, req subscriptionpkg.CreateSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
-	return nil, nil
+	if s.createFn == nil {
+		return nil, nil
+	}
+	return s.createFn(userID, req)
 }
 
 func (s *stubSubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptionID string, req subscriptionpkg.ResubmitSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
@@ -153,6 +157,81 @@ func TestSubscriptionHandlerDeleteSubscriptionMapsErrors(t *testing.T) {
 			}
 			if resp.Error != tc.wantError {
 				t.Fatalf("expected error %q, got %q", tc.wantError, resp.Error)
+			}
+		})
+	}
+}
+
+func TestSubscriptionHandlerCreateSubscriptionMapsEmbyStateErrorsToForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{name: "emby unlinked", err: subscriptionpkg.ErrSubscriptionEmbyUnlinked},
+		{name: "emby disabled", err: subscriptionpkg.ErrSubscriptionEmbyDisabled},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := &SubscriptionHandler{
+				service: &stubSubscriptionService{
+					createFn: func(userID string, req subscriptionpkg.CreateSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
+						if userID != "user_1" {
+							t.Fatalf("unexpected user id: %s", userID)
+						}
+						return nil, tc.err
+					},
+				},
+			}
+
+			body := []byte(`{"type":"MOVIE","name":"Inception","tmdbId":"27205"}`)
+			ctx, recorder := newTestSubscriptionContext(http.MethodPost, "/api/v1/subscriptions", body)
+			ctx.Set("userID", "user_1")
+
+			handler.CreateSubscription(ctx)
+
+			if recorder.Code != http.StatusForbidden {
+				t.Fatalf("expected status 403, got %d", recorder.Code)
+			}
+		})
+	}
+}
+
+func TestSubscriptionHandlerResubmitSubscriptionMapsEmbyStateErrorsToForbidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{name: "emby unlinked", err: subscriptionpkg.ErrSubscriptionEmbyUnlinked},
+		{name: "emby disabled", err: subscriptionpkg.ErrSubscriptionEmbyDisabled},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := &SubscriptionHandler{
+				service: &stubSubscriptionService{
+					resubmitFn: func(userID, subscriptionID string, req subscriptionpkg.ResubmitSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
+						if userID != "user_1" || subscriptionID != "sub_1" {
+							t.Fatalf("unexpected args userID=%s subscriptionID=%s", userID, subscriptionID)
+						}
+						return nil, tc.err
+					},
+				},
+			}
+
+			body := []byte(`{"note":"补充说明"}`)
+			ctx, recorder := newTestSubscriptionContext(http.MethodPost, "/api/v1/subscriptions/sub_1/resubmit", body)
+			ctx.Params = gin.Params{{Key: "id", Value: "sub_1"}}
+			ctx.Set("userID", "user_1")
+
+			handler.ResubmitSubscription(ctx)
+
+			if recorder.Code != http.StatusForbidden {
+				t.Fatalf("expected status 403, got %d", recorder.Code)
 			}
 		})
 	}

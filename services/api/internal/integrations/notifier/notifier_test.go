@@ -97,3 +97,36 @@ func TestNotifyNewSubscriptionWithDeliveriesDecodesResponse(t *testing.T) {
 		t.Fatalf("unexpected delivery: %+v", deliveries[0])
 	}
 }
+
+func TestNotifySubscriptionAutoApprovedUsesDedicatedEndpoint(t *testing.T) {
+	var capturedPath string
+	notifier := &BotNotifier{
+		botURL: "https://bot.example.com",
+		secret: "test-secret",
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				capturedPath = req.URL.Path
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+					Header:     make(http.Header),
+				}, nil
+			}),
+		},
+		lastRefreshedAt: time.Now().UTC(),
+	}
+
+	notifier.NotifySubscriptionAutoApproved(SubscriptionAutoApprovedNotification{
+		ID:           "sub_auto_1",
+		UserName:     "ember",
+		Type:         "MOVIE",
+		Name:         "Inception",
+		TmdbID:       "27205",
+		PlanGroupKey: "VIP_A",
+		DailyLimit:   2,
+	})
+
+	if capturedPath != "/notify/subscription-auto-approved" {
+		t.Fatalf("expected dedicated auto-approved endpoint, got %s", capturedPath)
+	}
+}

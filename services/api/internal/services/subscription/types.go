@@ -51,12 +51,14 @@ type CheckExistingResponse struct {
 
 // CreateSubscriptionResult 创建订阅结果
 type CreateSubscriptionResult struct {
-	Success              bool             `json:"success"`
-	SubscriptionID       string           `json:"subscriptionId,omitempty"`
-	AlreadyExists        bool             `json:"alreadyExists,omitempty"`
-	ConfirmationRequired bool             `json:"confirmationRequired,omitempty"`
-	DetectionFailed      bool             `json:"detectionFailed,omitempty"`
-	ExistingSummary      *ExistingSummary `json:"existingSummary,omitempty"`
+	Success              bool                       `json:"success"`
+	SubscriptionID       string                     `json:"subscriptionId,omitempty"`
+	AlreadyExists        bool                       `json:"alreadyExists,omitempty"`
+	Status               *models.SubscriptionStatus `json:"status,omitempty"`
+	AutoApproved         bool                       `json:"autoApproved,omitempty"`
+	ConfirmationRequired bool                       `json:"confirmationRequired,omitempty"`
+	DetectionFailed      bool                       `json:"detectionFailed,omitempty"`
+	ExistingSummary      *ExistingSummary           `json:"existingSummary,omitempty"`
 }
 
 // ResubmitSubscriptionRequest 拒绝后重新提交请求

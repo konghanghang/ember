@@ -358,6 +358,36 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([delivery["adminTelegramId"] for delivery in deliveries], [1001, 1002, 1003])
         self.assertEqual(bot.send_message.await_count, 3)
 
+    async def test_send_auto_approved_subscription_notification_sends_read_only_messages(self) -> None:
+        bot = _StubBot()
+        bot.send_message.side_effect = [
+            types.SimpleNamespace(chat_id=1001, message_id=21),
+            types.SimpleNamespace(chat_id=1002, message_id=22),
+        ]
+
+        with patch.object(
+            telegram_handler.runtime_settings_service,
+            "get_approval_admin_ids",
+            AsyncMock(return_value=(1001, 1002)),
+        ):
+            await telegram_handler.send_auto_approved_subscription_notification(
+                bot,
+                {
+                    "id": "sub_auto_1",
+                    "type": "MOVIE",
+                    "name": "Inception",
+                    "userName": "ember-user",
+                    "tmdbId": 42,
+                    "planGroupName": "VIP",
+                    "autoApprovedOrdinal": 1,
+                    "dailyLimit": 2,
+                },
+            )
+
+        self.assertEqual(bot.send_message.await_count, 2)
+        for call in bot.send_message.await_args_list:
+            self.assertIsNone(call.kwargs.get("reply_markup"))
+
     async def test_sync_subscription_admin_messages_edits_all_delivery_refs(self) -> None:
         bot = _StubBot()
         payload = {

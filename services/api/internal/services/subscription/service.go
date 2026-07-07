@@ -23,6 +23,7 @@ import (
 	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
+	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -81,9 +82,23 @@ type seriesTMDBLookupCacheEntry struct {
 	expiresAt time.Time
 }
 
+type subscriptionInsertResult struct {
+	Created             bool
+	ExistingID          string
+	AutoApproved        bool
+	AutoApprovedOrdinal int
+	DailyLimit          int
+	PlanGroupKey        string
+	PlanGroupName       string
+}
+
 const subscriptionSeriesTMDBLookupCacheTTL = 5 * time.Minute
 
 var subscriptionSeriesTMDBLookupNow = func() time.Time {
+	return time.Now().UTC()
+}
+
+var subscriptionNow = func() time.Time {
 	return time.Now().UTC()
 }
 
@@ -117,6 +132,76 @@ var fetchSubscriptionByID = func(subscriptionID string) (models.Subscription, er
 	var subscription models.Subscription
 	err := db.DB.Where("id = ?", strings.TrimSpace(subscriptionID)).First(&subscription).Error
 	return subscription, err
+}
+
+var loadSubscriptionSubmitter = func(userID string) (*models.User, error) {
+	var user models.User
+	err := db.DB.
+		Select("id", "username", "plan_group", "emby_id", "emby_access_disabled", "expires_at").
+		Where("id = ?", strings.TrimSpace(userID)).
+		First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+var resolveSubscriptionPlanGroup = func(tx *gorm.DB, explicitPlanGroup *string) (*models.PlanGroup, error) {
+	key, err := paymentpkg.ResolveEffectivePlanGroupKey(tx, explicitPlanGroup)
+	if err != nil {
+		return nil, err
+	}
+	return paymentpkg.GetPlanGroupByKey(tx, key)
+}
+
+var beginSubscriptionTx = func() (*gorm.DB, error) {
+	tx := db.DB.Begin()
+	return tx, tx.Error
+}
+
+var commitSubscriptionTx = func(tx *gorm.DB) error {
+	if tx == nil {
+		return nil
+	}
+	return tx.Commit().Error
+}
+
+var rollbackSubscriptionTx = func(tx *gorm.DB) {
+	if tx != nil {
+		tx.Rollback()
+	}
+}
+
+var lockSubscriptionTx = func(tx *gorm.DB, lockKey string) error {
+	return tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", lockKey).Error
+}
+
+var findActiveSubscriptionForInsert = func(tx *gorm.DB, mediaType models.MediaType, tmdbID string, season int) (*models.Subscription, error) {
+	var existing models.Subscription
+	err := tx.Where("type = ? AND \"tmdb_id\" = ? AND season = ? AND status IN ?",
+		mediaType, strings.TrimSpace(tmdbID), season, activeSubscriptionStatuses).
+		Order(`"created_at" ASC`).
+		First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &existing, nil
+}
+
+var createSubscriptionRecord = func(tx *gorm.DB, subscription *models.Subscription) error {
+	return tx.Create(subscription).Error
+}
+
+var countAutoApprovedSubscriptionsInWindow = func(tx *gorm.DB, userID string, start, end time.Time) (int64, error) {
+	var count int64
+	err := tx.Model(&models.Subscription{}).
+		Where("\"user_id\" = ? AND review_source = ? AND reviewed_at >= ? AND reviewed_at < ?",
+			strings.TrimSpace(userID), models.SubscriptionReviewSourceAutoQuota, start, end).
+		Count(&count).Error
+	return count, err
 }
 
 // persistSubscriptionMpError 写回订阅的 MoviePilot 自动订阅错误字段。
@@ -229,6 +314,14 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 	req.TmdbID = strings.TrimSpace(req.TmdbID)
 	req.Name = strings.TrimSpace(req.Name)
 
+	user, err := loadSubscriptionSubmitter(userID)
+	if err != nil {
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
+	}
+	if err := ensureUserCanSubmitSubscription(user); err != nil {
+		return nil, err
+	}
+
 	// 不带 ConfirmExisting 的请求：先做"库内已存在"二次确认（不写状态，外部 Emby 调用）。
 	if !req.ConfirmExisting {
 		confirmation, err := s.requireExistingConfirmation(userID, req.Type, req.TmdbID, season, "创建")
@@ -251,22 +344,40 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 		Status:     models.SubscriptionPending,
 	}
 
-	created, existingID, err := s.insertSubscriptionWithLock(req.Type, req.TmdbID, season, subscription)
+	insertResult, err := s.insertSubscriptionWithReviewPolicy(user, req.Type, req.TmdbID, season, subscription)
 	if err != nil {
 		return nil, err
 	}
-	if !created {
+	if !insertResult.Created {
 		log.Printf("[Subscription] 创建命中已有活跃订阅，幂等返回 userId=%s existingSubscriptionId=%s type=%s tmdbId=%s season=%d",
-			userID, existingID, req.Type, req.TmdbID, season)
-		return &CreateSubscriptionResult{Success: true, SubscriptionID: existingID, AlreadyExists: true}, nil
+			userID, insertResult.ExistingID, req.Type, req.TmdbID, season)
+		return &CreateSubscriptionResult{Success: true, SubscriptionID: insertResult.ExistingID, AlreadyExists: true}, nil
 	}
 
 	log.Printf("[Subscription] 创建成功 userId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, subscription.ID, req.Type, req.TmdbID, season)
-	async.SafeGo("subscription.notifyNew", func() {
-		s.notifyNewSubscription(subscription.ID, userID, req, season)
-	})
+	if insertResult.AutoApproved {
+		log.Printf("[Subscription] 命中自动通过额度 userId=%s subscriptionId=%s planGroup=%s quota=%d used=%d",
+			userID, subscription.ID, insertResult.PlanGroupKey, insertResult.DailyLimit, insertResult.AutoApprovedOrdinal)
+		async.SafeGo("subscription.dispatchMoviePilot.autoApproved", func() {
+			s.dispatchMoviePilotAsync(subscription.ID, subscription.Type, subscription.Name, subscription.TmdbID, subscription.Season)
+		})
+		async.SafeGo("subscription.notifyApproved.autoApproved", func() { s.notifyApproved(*subscription) })
+		async.SafeGo("subscription.notifyAutoApproved.admin", func() {
+			s.notifyAutoApprovedToAdmins(*subscription, user.Username, insertResult.PlanGroupKey, insertResult.PlanGroupName, insertResult.AutoApprovedOrdinal, insertResult.DailyLimit)
+		})
+	} else {
+		async.SafeGo("subscription.notifyNew", func() {
+			s.notifyNewSubscription(subscription.ID, userID, req, season)
+		})
+	}
 
-	return &CreateSubscriptionResult{Success: true, SubscriptionID: subscription.ID}, nil
+	status := subscription.Status
+	return &CreateSubscriptionResult{
+		Success:        true,
+		SubscriptionID: subscription.ID,
+		Status:         &status,
+		AutoApproved:   insertResult.AutoApproved,
+	}, nil
 }
 
 // ResubmitSubscriptionWithResult 从已拒绝记录重新提交一条新的待审核订阅。
@@ -282,6 +393,14 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 	}
 	if original.Status != models.SubscriptionRejected {
 		return nil, ErrSubscriptionNotFound
+	}
+
+	user, err := loadSubscriptionSubmitter(userID)
+	if err != nil {
+		return nil, fmt.Errorf("重新提交订阅失败: %w", err)
+	}
+	if err := ensureUserCanSubmitSubscription(user); err != nil {
+		return nil, err
 	}
 
 	if !req.ConfirmExisting {
@@ -307,14 +426,14 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 		RetryFromID: &retryFromID,
 	}
 
-	created, existingID, err := s.insertSubscriptionWithLock(original.Type, original.TmdbID, original.Season, subscription)
+	insertResult, err := s.insertSubscriptionWithReviewPolicy(user, original.Type, original.TmdbID, original.Season, subscription)
 	if err != nil {
 		return nil, err
 	}
-	if !created {
+	if !insertResult.Created {
 		log.Printf("[Subscription] 重新提交命中已有活跃订阅，幂等返回 userId=%s originalSubscriptionId=%s existingSubscriptionId=%s",
-			userID, original.ID, existingID)
-		return &CreateSubscriptionResult{Success: true, SubscriptionID: existingID, AlreadyExists: true}, nil
+			userID, original.ID, insertResult.ExistingID)
+		return &CreateSubscriptionResult{Success: true, SubscriptionID: insertResult.ExistingID, AlreadyExists: true}, nil
 	}
 
 	log.Printf("[Subscription] 重新提交成功 userId=%s originalSubscriptionId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, original.ID, subscription.ID, original.Type, original.TmdbID, original.Season)
@@ -326,76 +445,135 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 		PosterPath: original.PosterPath,
 		Note:       &note,
 	}
-	async.SafeGo("subscription.notifyResubmit", func() {
-		s.notifyNewSubscription(subscription.ID, userID, resubmitReq, original.Season)
-	})
+	if insertResult.AutoApproved {
+		log.Printf("[Subscription] 重新提交命中自动通过额度 userId=%s subscriptionId=%s planGroup=%s quota=%d used=%d",
+			userID, subscription.ID, insertResult.PlanGroupKey, insertResult.DailyLimit, insertResult.AutoApprovedOrdinal)
+		async.SafeGo("subscription.dispatchMoviePilot.autoApprovedResubmit", func() {
+			s.dispatchMoviePilotAsync(subscription.ID, subscription.Type, subscription.Name, subscription.TmdbID, subscription.Season)
+		})
+		async.SafeGo("subscription.notifyApproved.autoApprovedResubmit", func() { s.notifyApproved(*subscription) })
+		async.SafeGo("subscription.notifyAutoApproved.adminResubmit", func() {
+			s.notifyAutoApprovedToAdmins(*subscription, user.Username, insertResult.PlanGroupKey, insertResult.PlanGroupName, insertResult.AutoApprovedOrdinal, insertResult.DailyLimit)
+		})
+	} else {
+		async.SafeGo("subscription.notifyResubmit", func() {
+			s.notifyNewSubscription(subscription.ID, userID, resubmitReq, original.Season)
+		})
+	}
 
-	return &CreateSubscriptionResult{Success: true, SubscriptionID: subscription.ID}, nil
+	status := subscription.Status
+	return &CreateSubscriptionResult{
+		Success:        true,
+		SubscriptionID: subscription.ID,
+		Status:         &status,
+		AutoApproved:   insertResult.AutoApproved,
+	}, nil
 }
 
-// insertSubscriptionWithLock 在 (type, tmdbId, season) 维度的 advisory lock 下完成"先查活跃→否则插入"的原子操作。
-//
-// 返回 (created, existingID, err)：
-//   - created=true 表示本次插入了新行（subscription 已被 GORM 回填 ID）
-//   - created=false 表示同 (type, tmdbId, season) 已有活跃订阅，existingID 为该订阅 ID（幂等返回）
-//
-// advisory lock 仅在事务内有效，事务提交 / 回滚后自动释放，能在多副本部署下序列化同一资源的并发写。
-func (s *SubscriptionService) insertSubscriptionWithLock(mediaType models.MediaType, tmdbID string, season int, subscription *models.Subscription) (bool, string, error) {
-	tmdbID = strings.TrimSpace(tmdbID)
-	lockKey := fmt.Sprintf("subscription:%s:%s:%d", mediaType, tmdbID, season)
+func ensureUserCanSubmitSubscription(user *models.User) error {
+	if user == nil || strings.TrimSpace(user.EmbyID) == "" {
+		return ErrSubscriptionEmbyUnlinked
+	}
+	if user.EmbyAccessDisabled || user.IsExpired() {
+		return ErrSubscriptionEmbyDisabled
+	}
+	return nil
+}
 
-	tx := db.DB.Begin()
-	if tx.Error != nil {
-		return false, "", fmt.Errorf("创建订阅失败: %w", tx.Error)
+// insertSubscriptionWithReviewPolicy 在单事务里串行化"用户当日自动通过额度"与"同一媒体活跃唯一"两类约束。
+func (s *SubscriptionService) insertSubscriptionWithReviewPolicy(user *models.User, mediaType models.MediaType, tmdbID string, season int, subscription *models.Subscription) (*subscriptionInsertResult, error) {
+	tmdbID = strings.TrimSpace(tmdbID)
+	resourceLockKey := buildSubscriptionResourceLockKey(mediaType, tmdbID, season)
+
+	tx, err := beginSubscriptionTx()
+	if err != nil {
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			tx.Rollback()
+			rollbackSubscriptionTx(tx)
 			panic(r)
 		}
 	}()
 
-	if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", lockKey).Error; err != nil {
-		tx.Rollback()
-		return false, "", fmt.Errorf("创建订阅失败: %w", err)
+	planGroup, err := resolveSubscriptionPlanGroup(tx, user.PlanGroup)
+	if err != nil {
+		rollbackSubscriptionTx(tx)
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
 	}
+	result := &subscriptionInsertResult{
+		PlanGroupKey:  planGroup.Key,
+		PlanGroupName: planGroup.Name,
+		DailyLimit:    planGroup.SubscriptionAutoApproveDailyLimit,
+	}
+	currentTime := subscriptionNow()
 
-	var existing models.Subscription
-	err := tx.Where("type = ? AND \"tmdb_id\" = ? AND season = ? AND status IN ?",
-		mediaType, tmdbID, season, activeSubscriptionStatuses).
-		Order(`"created_at" ASC`).
-		First(&existing).Error
-	if err == nil {
-		if commitErr := tx.Commit().Error; commitErr != nil {
-			return false, "", fmt.Errorf("创建订阅失败: %w", commitErr)
+	var autoApproveWindowStart time.Time
+	var autoApproveWindowEnd time.Time
+	if result.DailyLimit > 0 {
+		dayKey, start, end := subscriptionAutoApproveWindow(currentTime, configpkg.LoadConfiguredTimezone())
+		autoApproveWindowStart = start
+		autoApproveWindowEnd = end
+		if err := lockSubscriptionTx(tx, buildSubscriptionAutoApproveLockKey(user.ID, dayKey)); err != nil {
+			rollbackSubscriptionTx(tx)
+			return nil, fmt.Errorf("创建订阅失败: %w", err)
 		}
-		return false, existing.ID, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		tx.Rollback()
-		return false, "", fmt.Errorf("创建订阅失败: %w", err)
 	}
 
-	if err := tx.Create(subscription).Error; err != nil {
-		tx.Rollback()
+	if err := lockSubscriptionTx(tx, resourceLockKey); err != nil {
+		rollbackSubscriptionTx(tx)
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
+	}
+
+	existing, err := findActiveSubscriptionForInsert(tx, mediaType, tmdbID, season)
+	if err != nil {
+		rollbackSubscriptionTx(tx)
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
+	}
+	if existing != nil {
+		if commitErr := commitSubscriptionTx(tx); commitErr != nil {
+			return nil, fmt.Errorf("创建订阅失败: %w", commitErr)
+		}
+		result.ExistingID = existing.ID
+		return result, nil
+	}
+
+	if result.DailyLimit > 0 {
+		autoApprovedCount, err := countAutoApprovedSubscriptionsInWindow(tx, user.ID, autoApproveWindowStart, autoApproveWindowEnd)
+		if err != nil {
+			rollbackSubscriptionTx(tx)
+			return nil, fmt.Errorf("创建订阅失败: %w", err)
+		}
+		if autoApprovedCount < int64(result.DailyLimit) {
+			reviewSource := models.SubscriptionReviewSourceAutoQuota
+			subscription.Status = models.SubscriptionApproved
+			subscription.ReviewedAt = &currentTime
+			subscription.ReviewSource = &reviewSource
+			subscription.RejectReason = nil
+			result.AutoApproved = true
+			result.AutoApprovedOrdinal = int(autoApprovedCount) + 1
+		}
+	}
+
+	if err := createSubscriptionRecord(tx, subscription); err != nil {
+		rollbackSubscriptionTx(tx)
 		// 理论上 advisory lock 已经序列化，进到这里仍冲突极少见；走幂等回查保险。
 		if isSubscriptionUniqueConflict(err) {
-			var conflict models.Subscription
-			if findErr := db.DB.Where("type = ? AND \"tmdb_id\" = ? AND season = ? AND status IN ?",
-				mediaType, tmdbID, season, activeSubscriptionStatuses).
-				Order(`"created_at" ASC`).
-				First(&conflict).Error; findErr == nil {
-				return false, conflict.ID, nil
+			conflict, findErr := findActiveSubscriptionForInsert(db.DB, mediaType, tmdbID, season)
+			if findErr == nil && conflict != nil {
+				result.ExistingID = conflict.ID
+				return result, nil
 			}
-			return false, "", ErrSubscriptionDuplicated
+			return nil, ErrSubscriptionDuplicated
 		}
-		return false, "", fmt.Errorf("创建订阅失败: %w", err)
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
 	}
 
-	if err := tx.Commit().Error; err != nil {
-		return false, "", fmt.Errorf("创建订阅失败: %w", err)
+	if err := commitSubscriptionTx(tx); err != nil {
+		return nil, fmt.Errorf("创建订阅失败: %w", err)
 	}
-	return true, subscription.ID, nil
+	result.Created = true
+	return result, nil
 }
 
 func (s *SubscriptionService) notifyNewSubscription(subscriptionID, userID string, req CreateSubscriptionRequest, season int) {
@@ -632,6 +810,7 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 			"reviewed_at":   now,
 			"reject_reason": nil,
 			"mp_error":      nil,
+			"review_source": models.SubscriptionReviewSourceManual,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("更新订阅状态失败: %w", result.Error)
@@ -645,6 +824,8 @@ func (s *SubscriptionService) ApproveSubscription(subscriptionID string) error {
 	subscription.ReviewedAt = &now
 	subscription.RejectReason = nil
 	subscription.MpError = nil
+	reviewSource := models.SubscriptionReviewSourceManual
+	subscription.ReviewSource = &reviewSource
 
 	log.Printf("[Subscription] 审批通过 subscriptionId=%s userId=%s type=%s tmdbId=%s season=%d",
 		subscription.ID, subscription.UserID, subscription.Type, subscription.TmdbID, subscription.Season)
@@ -721,6 +902,7 @@ func (s *SubscriptionService) RejectSubscription(subscriptionID, reason string) 
 			"status":        models.SubscriptionRejected,
 			"reviewed_at":   now,
 			"reject_reason": reason,
+			"review_source": nil,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("更新订阅状态失败: %w", result.Error)
@@ -1390,6 +1572,24 @@ func subscriptionCalendarDateInLocation(now time.Time, loc *time.Location) time.
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
+func subscriptionAutoApproveWindow(now time.Time, loc *time.Location) (string, time.Time, time.Time) {
+	if loc == nil {
+		loc = time.UTC
+	}
+	y, m, d := now.In(loc).Date()
+	startLocal := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	endLocal := startLocal.AddDate(0, 0, 1)
+	return startLocal.Format("2006-01-02"), startLocal.UTC(), endLocal.UTC()
+}
+
+func buildSubscriptionResourceLockKey(mediaType models.MediaType, tmdbID string, season int) string {
+	return fmt.Sprintf("subscription:%s:%s:%d", mediaType, strings.TrimSpace(tmdbID), season)
+}
+
+func buildSubscriptionAutoApproveLockKey(userID, dayKey string) string {
+	return fmt.Sprintf("subscription:auto-approve:%s:%s", strings.TrimSpace(userID), strings.TrimSpace(dayKey))
+}
+
 func (s *SubscriptionService) collectIngestUpdates(ctx context.Context, subscriptions []models.Subscription, payload SubscriptionIngestWebhookPayload) (int64, error) {
 	if len(subscriptions) == 0 {
 		return 0, nil
@@ -1559,8 +1759,11 @@ func cacheSeriesTMDBID(seriesID, tmdbID string) {
 }
 
 func (s *SubscriptionService) notifyApproved(subscription models.Subscription) {
+	if s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
 	user, ok := loadSubscriptionUser(subscription.UserID)
-	if !ok || user.TelegramID == nil || s.notifier == nil || !s.notifier.IsConfigured() {
+	if !ok || user.TelegramID == nil {
 		return
 	}
 	s.notifier.NotifySubscriptionApproved(notifierint.SubscriptionResultNotification{
@@ -1577,9 +1780,41 @@ func (s *SubscriptionService) notifyApproved(subscription models.Subscription) {
 	})
 }
 
+func (s *SubscriptionService) notifyAutoApprovedToAdmins(
+	subscription models.Subscription,
+	userName string,
+	planGroupKey string,
+	planGroupName string,
+	autoApprovedOrdinal int,
+	dailyLimit int,
+) {
+	if s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
+
+	s.notifier.NotifySubscriptionAutoApproved(notifierint.SubscriptionAutoApprovedNotification{
+		ID:                  subscription.ID,
+		UserName:            userName,
+		Type:                string(subscription.Type),
+		Name:                subscription.Name,
+		TmdbID:              subscription.TmdbID,
+		Season:              subscription.Season,
+		PosterPath:          subscription.PosterPath,
+		Note:                stringToOptionalPointer(subscription.Note),
+		PlanGroupKey:        planGroupKey,
+		PlanGroupName:       planGroupName,
+		AutoApprovedOrdinal: autoApprovedOrdinal,
+		DailyLimit:          dailyLimit,
+		ReviewedAt:          formatNotificationTime(subscription.ReviewedAt),
+	})
+}
+
 func (s *SubscriptionService) notifyRejected(subscription models.Subscription) {
+	if s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
 	user, ok := loadSubscriptionUser(subscription.UserID)
-	if !ok || user.TelegramID == nil || s.notifier == nil || !s.notifier.IsConfigured() {
+	if !ok || user.TelegramID == nil {
 		return
 	}
 	s.notifier.NotifySubscriptionRejected(notifierint.SubscriptionResultNotification{
@@ -1692,8 +1927,11 @@ func (s *SubscriptionService) persistAdminNotificationSyncResults(subscriptionID
 }
 
 func (s *SubscriptionService) notifyIngested(subscription models.Subscription) {
+	if s.notifier == nil || !s.notifier.IsConfigured() {
+		return
+	}
 	user, ok := loadSubscriptionUser(subscription.UserID)
-	if !ok || user.TelegramID == nil || s.notifier == nil || !s.notifier.IsConfigured() {
+	if !ok || user.TelegramID == nil {
 		return
 	}
 	s.notifier.NotifySubscriptionIngested(notifierint.SubscriptionResultNotification{
@@ -1732,4 +1970,11 @@ func stringPointerValue(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func stringToOptionalPointer(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
 }

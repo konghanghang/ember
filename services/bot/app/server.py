@@ -61,6 +61,7 @@ from app.handlers.telegram_handler import (
     handle_search_callback,
     send_payment_notification,
     send_registration_notification,
+    send_auto_approved_subscription_notification,
     send_ranking_notification,
     send_subscription_notification,
     send_subscription_result_notification,
@@ -395,6 +396,17 @@ async def notify_subscription(request: Request):
     data = await request.json()
     deliveries = await send_subscription_notification(tg_app.bot, data)
     return {"ok": True, "deliveries": deliveries}
+
+
+@app.post("/notify/subscription-auto-approved")
+async def notify_subscription_auto_approved(request: Request):
+    unauthorized = _verify_internal_secret(request)
+    if unauthorized is not None:
+        return unauthorized
+
+    data = await request.json()
+    await send_auto_approved_subscription_notification(tg_app.bot, data)
+    return {"ok": True}
 
 
 @app.post("/notify/subscription-admin-sync")

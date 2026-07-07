@@ -18,6 +18,7 @@ from app.config import (
 )
 from app.formatters.message_formatter import (
     format_account_info,
+    format_auto_approved_subscription_message,
     format_bind_success,
     format_payment_message,
     format_ranking_message,
@@ -448,6 +449,73 @@ async def send_subscription_notification(bot, data: dict) -> list[dict[str, Any]
     )
 
     return list(deliveries)
+
+
+async def _send_auto_approved_subscription_notification_to_admin(
+    bot,
+    data: dict,
+    *,
+    admin_id: int,
+    text: str,
+    poster_path: str | None,
+    semaphore: asyncio.Semaphore,
+) -> None:
+    """向单个管理员发送自动通过的只读订阅通知，不附带审批按钮。"""
+    async with semaphore:
+        if poster_path:
+            poster_url = f"{TMDB_IMAGE_BASE}{poster_path}"
+            try:
+                await bot.send_photo(
+                    chat_id=admin_id,
+                    photo=poster_url,
+                    caption=text,
+                    parse_mode="HTML",
+                )
+                return
+            except Exception:
+                logger.exception(
+                    "发送订阅自动通过海报消息失败，降级为文本消息 subscriptionId=%s adminTelegramId=%s",
+                    data.get("id"),
+                    admin_id,
+                )
+
+        try:
+            await bot.send_message(
+                chat_id=admin_id,
+                text=text,
+                parse_mode="HTML",
+            )
+        except Exception:
+            logger.exception(
+                "发送订阅自动通过消息失败 subscriptionId=%s adminTelegramId=%s",
+                data.get("id"),
+                admin_id,
+            )
+
+
+async def send_auto_approved_subscription_notification(bot, data: dict) -> None:
+    """并发向所有审批管理员发送自动通过的只读通知。"""
+    approval_admin_ids = await runtime_settings_service.get_approval_admin_ids()
+    if not approval_admin_ids:
+        logger.warning("Telegram 审批人员未配置，跳过自动通过通知 subscriptionId=%s", data.get("id"))
+        return
+
+    text = format_auto_approved_subscription_message(data)
+    poster_path = data.get("posterPath")
+    semaphore = asyncio.Semaphore(SUBSCRIPTION_APPROVAL_SEND_CONCURRENCY)
+    await asyncio.gather(
+        *[
+            _send_auto_approved_subscription_notification_to_admin(
+                bot,
+                data,
+                admin_id=admin_id,
+                text=text,
+                poster_path=poster_path,
+                semaphore=semaphore,
+            )
+            for admin_id in approval_admin_ids
+        ]
+    )
 
 
 async def _sync_subscription_admin_message(

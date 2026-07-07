@@ -21,6 +21,7 @@ if "telegram" not in sys.modules:
 
 from app.formatters.message_formatter import (
     format_account_info,
+    format_auto_approved_subscription_message,
     format_payment_message,
     format_result_message,
     format_subscription_message,
@@ -100,6 +101,28 @@ class MessageFormatterTestCase(unittest.TestCase):
 
         self.assertLessEqual(len(text), 1024)
         self.assertIn("...", text)
+
+    def test_format_auto_approved_subscription_message_includes_quota_reason(self) -> None:
+        with patch.dict("os.environ", {"TZ": "Asia/Shanghai"}):
+            text = format_auto_approved_subscription_message(
+                {
+                    "id": "sub_123",
+                    "type": "TV",
+                    "name": "Test Show",
+                    "userName": "ember-user",
+                    "tmdbId": 42,
+                    "season": 2,
+                    "planGroupName": "VIP",
+                    "autoApprovedOrdinal": 1,
+                    "dailyLimit": 2,
+                    "reviewedAt": "2026-07-07T08:00:00Z",
+                }
+            )
+
+        self.assertIn("订阅已自动通过", text)
+        self.assertIn("VIP", text)
+        self.assertIn("今日第 1/2 条", text)
+        self.assertIn("2026-07-07 16:00:00", text)
 
     def test_format_result_message_truncates_long_reason(self) -> None:
         text = format_result_message("<b>原始审批消息</b>", "reject", "原因" * 400)

@@ -85,6 +85,47 @@ def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
     return _clamp_telegram_text("\n".join(lines), is_caption=True), keyboard
 
 
+def format_auto_approved_subscription_message(data: dict) -> str:
+    media_type = _format_media_type(data.get("type", ""))
+    name = escape(_truncate_text(str(data.get("name", "")), _SUBSCRIPTION_NAME_LIMIT))
+    user_name = escape(str(data.get("userName", "") or "-"))
+    tmdb_id = escape(str(data.get("tmdbId", "")))
+    season = int(data.get("season", 0) or 0)
+    note = _truncate_text(str(data.get("note", "") or "").strip(), _SUBSCRIPTION_NOTE_LIMIT)
+    plan_group_name = escape(str(data.get("planGroupName", "") or "").strip())
+    plan_group_key = escape(str(data.get("planGroupKey", "") or "").strip())
+    ordinal = int(data.get("autoApprovedOrdinal", 0) or 0)
+    daily_limit = int(data.get("dailyLimit", 0) or 0)
+    reviewed_at = _format_expiry(data.get("reviewedAt"))
+
+    plan_group_display = plan_group_name or plan_group_key or "-"
+    quota_display = "-"
+    if ordinal > 0 and daily_limit > 0:
+        quota_display = f"今日第 {ordinal}/{daily_limit} 条"
+    elif daily_limit > 0:
+        quota_display = f"每日额度 {daily_limit} 条"
+
+    lines = [
+        "⚡ <b>订阅已自动通过</b>",
+        "",
+        f"📌 <b>{name}</b>",
+        f"🎭 类型：{media_type}",
+        f"👤 用户：{user_name}",
+        f"🧩 分组：{plan_group_display}",
+        f"📊 原因：命中分组自动通过额度（{quota_display}）",
+        f"🔗 TMDB：<a href='https://www.themoviedb.org/{'movie' if data.get('type') == 'MOVIE' else 'tv'}/{tmdb_id}'>#{tmdb_id}</a>",
+    ]
+
+    if season > 0:
+        lines.append(f"📺 季：第 {season} 季")
+    if reviewed_at != "永不过期":
+        lines.append(f"🕒 通过时间：{reviewed_at}")
+    if note != "":
+        lines.append(f"💬 备注：{escape(note)}")
+
+    return _clamp_telegram_text("\n".join(lines), is_caption=True)
+
+
 def format_registration_message(data: dict) -> str:
     user_name = escape(str(data.get("userName", "") or "-"))
     email = escape(str(data.get("email", "") or "-"))

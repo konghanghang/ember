@@ -437,8 +437,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
-- `CreateSubscription(userID, type, name, tmdbId, season)` — 创建 PENDING 状态 + 异步通知 Bot；通知创建主请求仍为 fire-and-forget，但异步任务会同步等待 Bot 返回每条管理员审批消息的投递引用，并写入 `subscription_admin_notifications`。**批次 2 改造**：包入事务 + `pg_advisory_xact_lock` 序列化同 `(type, tmdbId, season)` 的并发；命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功（不再 409）
-- `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 同上幂等保护；新记录写入 `retryFromId`，原记录保持 `REJECTED`
+- `CreateSubscription(userID, type, name, tmdbId, season)` — 提交前强校验用户 `embyId` 非空，且按业务真相 `!IsExpired() && !EmbyAccessDisabled` 判定其 Emby 仍可用，而不是依赖 `embyDisabled` 缓存；随后在事务内同时串行化“同资源活跃唯一”和“用户当天自动通过额度”两类约束。命中所属 `PlanGroup.subscriptionAutoApproveDailyLimit` 时直接写 `APPROVED + reviewedAt + reviewSource='AUTO_QUOTA'` 并异步下发 MoviePilot，只向管理员发送只读通知；超额时继续写 `PENDING` 并走现有待审批通知。命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功（不再 409）
+- `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 同上资格校验、幂等保护和自动通过额度判断；新记录写入 `retryFromId`，原记录保持 `REJECTED`
 - `ApproveSubscription(id)` — **批次 2 改原子状态转移**：`UPDATE WHERE status='PENDING'`，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict` → handler 映射 409。MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
 - `RejectSubscription(id, reason)` — 同样原子状态转移，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict`；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
 - `RedispatchSubscription(id)` — **批次 2 新增**：管理员手动重试 MoviePilot 调用，仅在 `status='APPROVED'` 且 `mpError != nil` 时允许；状态保持 APPROVED；mpError 由本次结果覆盖。路由 `PUT /api/v1/admin/subscriptions/:id/redispatch`
@@ -564,7 +564,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 Stripe 一次性支付流程管理。
 
-- `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组存在性、引用检查（`plans` / `users` / `redemption_codes.registrationPlanGroup`）和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
+- `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组除名称/排序外还承载 `subscriptionAutoApproveDailyLimit` 这类审核权益配置。分组存在性、引用检查（`plans` / `users` / `redemption_codes.registrationPlanGroup`）和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
 - `CreateCheckoutSession(userID, planID)` — **批次 2 改造为占位幂等模式**：先在事务里 `INSERT payments (status='pending', stripeSessionId='') ON CONFLICT (uq_payments_pending_user_plan) DO NOTHING`，命中冲突回查现有 pending 复用；事务外调 Stripe 时携带 `Idempotency-Key=checkout:<paymentId>`，并发的两个请求拿到同一 paymentId → Stripe 返回同一 Session；最后 `UPDATE payments SET stripeSessionId, checkoutUrl WHERE id=?` 回填
 - `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐
 - `HandleWebhook(payload, signature)` — 签名验证后按 `event.id` 在 `stripe_webhook_events` 做去重 + 失败重试状态机：

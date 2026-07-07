@@ -256,17 +256,62 @@ func TestBuildPlansWithGroupNameSelectIncludesDisplayJoin(t *testing.T) {
 
 func TestBuildPlanGroupViewKeepsPersistentFields(t *testing.T) {
 	group := models.PlanGroup{
-		Key:       "VIP_A",
-		Name:      "VIP A",
-		IsDefault: true,
+		Key:                               "VIP_A",
+		Name:                              "VIP A",
+		IsDefault:                         true,
+		SubscriptionAutoApproveDailyLimit: 2,
 	}
 
 	view := buildPlanGroupView(group)
 	if view.Key != "VIP_A" || view.Name != "VIP A" || !view.IsDefault {
 		t.Fatalf("expected plan group fields to be preserved, got %+v", view)
 	}
+	if view.SubscriptionAutoApproveDailyLimit != 2 {
+		t.Fatalf("expected auto-approve limit to be preserved, got %+v", view)
+	}
 	if view.PlanCount != 0 || view.UserCount != 0 || view.PolicySyncStatus != "" {
 		t.Fatalf("expected aggregate fields to start empty, got %+v", view)
+	}
+}
+
+func TestCreatePlanGroupRejectsNegativeAutoApproveLimit(t *testing.T) {
+	service := &PaymentService{}
+	_, err := service.CreatePlanGroup(&CreatePlanGroupRequest{
+		Key:                               "VIP_A",
+		Name:                              "VIP A",
+		SubscriptionAutoApproveDailyLimit: -1,
+	})
+	if !errors.Is(err, ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid) {
+		t.Fatalf("expected ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid, got %v", err)
+	}
+}
+
+func TestUpdatePlanGroupRejectsNegativeAutoApproveLimit(t *testing.T) {
+	origBegin := beginPlanGroupTx
+	origCommit := commitPlanGroupTx
+	origRollback := rollbackPlanGroupTx
+	origGetByKeyForUpdate := paymentGetPlanGroupByKeyForUpdate
+	defer func() {
+		beginPlanGroupTx = origBegin
+		commitPlanGroupTx = origCommit
+		rollbackPlanGroupTx = origRollback
+		paymentGetPlanGroupByKeyForUpdate = origGetByKeyForUpdate
+	}()
+
+	beginPlanGroupTx = func() (*gorm.DB, error) { return nil, nil }
+	commitPlanGroupTx = func(tx *gorm.DB) error { return nil }
+	rollbackPlanGroupTx = func(tx *gorm.DB) {}
+	paymentGetPlanGroupByKeyForUpdate = func(tx *gorm.DB, key string) (*models.PlanGroup, error) {
+		return &models.PlanGroup{Key: "VIP_A", Name: "VIP A"}, nil
+	}
+
+	service := &PaymentService{}
+	limit := -1
+	_, err := service.UpdatePlanGroup("VIP_A", &UpdatePlanGroupRequest{
+		SubscriptionAutoApproveDailyLimit: &limit,
+	})
+	if !errors.Is(err, ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid) {
+		t.Fatalf("expected ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid, got %v", err)
 	}
 }
 

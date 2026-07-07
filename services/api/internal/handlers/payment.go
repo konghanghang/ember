@@ -151,6 +151,7 @@ func (h *PaymentHandler) CreatePlanGroup(c *gin.Context) {
 		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupNameRequired),
 			errors.Is(err, paymentpkg.ErrPlanGroupKeyExists),
+			errors.Is(err, paymentpkg.ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid),
 			errors.Is(err, paymentpkg.ErrDefaultPlanGroupRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
@@ -175,6 +176,7 @@ func (h *PaymentHandler) UpdatePlanGroup(c *gin.Context) {
 		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupNameRequired),
 			errors.Is(err, paymentpkg.ErrPlanGroupKeyExists),
+			errors.Is(err, paymentpkg.ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid),
 			errors.Is(err, paymentpkg.ErrDefaultPlanGroupRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrPlanGroupNotFound):

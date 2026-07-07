@@ -195,8 +195,8 @@ const submitSubscription = async (confirmExisting = false) => {
   const payload = buildSubscriptionPayload(confirmExisting)
   if (!payload) return
 
-  await createSubscription(payload)
-  ElMessage.success('订阅提交成功')
+  const response = await createSubscription(payload)
+  ElMessage.success(response.autoApproved ? '订阅已自动通过，等待入库' : '订阅提交成功')
   showConfirmDialog.value = false
   router.push('/console/subscriptions')
 }

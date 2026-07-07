@@ -81,6 +81,11 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionEmbyUnlinked) ||
+			errors.Is(err, subscriptionpkg.ErrSubscriptionEmbyDisabled) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 		httpx.InternalError(c, err)
 		return
 	}
@@ -94,7 +99,11 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	if result == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 // ResubmitSubscription 用户从已拒绝订阅重新提交
@@ -138,6 +147,11 @@ func (h *SubscriptionHandler) ResubmitSubscription(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if errors.Is(err, subscriptionpkg.ErrSubscriptionEmbyUnlinked) ||
+			errors.Is(err, subscriptionpkg.ErrSubscriptionEmbyDisabled) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 		httpx.InternalError(c, err)
 		return
 	}
@@ -151,7 +165,11 @@ func (h *SubscriptionHandler) ResubmitSubscription(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	if result == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 // CheckExisting 提交前库内检测

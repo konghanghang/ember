@@ -28,6 +28,23 @@ type SubscriptionNotification struct {
 	Note       *string `json:"note"`
 }
 
+// SubscriptionAutoApprovedNotification 是按套餐分组额度自动通过后发给管理员的只读通知。
+type SubscriptionAutoApprovedNotification struct {
+	ID                  string  `json:"id"`
+	UserName            string  `json:"userName"`
+	Type                string  `json:"type"`
+	Name                string  `json:"name"`
+	TmdbID              string  `json:"tmdbId"`
+	Season              int     `json:"season"`
+	PosterPath          *string `json:"posterPath"`
+	Note                *string `json:"note"`
+	PlanGroupKey        string  `json:"planGroupKey"`
+	PlanGroupName       string  `json:"planGroupName,omitempty"`
+	AutoApprovedOrdinal int     `json:"autoApprovedOrdinal"`
+	DailyLimit          int     `json:"dailyLimit"`
+	ReviewedAt          *string `json:"reviewedAt,omitempty"`
+}
+
 // SubscriptionAdminDelivery 是 Bot 返回的单条管理员审批消息投递结果。
 type SubscriptionAdminDelivery struct {
 	AdminTelegramID int64   `json:"adminTelegramId"`
@@ -308,6 +325,11 @@ func (n *BotNotifier) NotifyNewSubscriptionWithDeliveries(data SubscriptionNotif
 		return nil, err
 	}
 	return resp.Deliveries, nil
+}
+
+// NotifySubscriptionAutoApproved 通知管理员：订阅已按分组额度自动通过，无需审批操作。
+func (n *BotNotifier) NotifySubscriptionAutoApproved(data SubscriptionAutoApprovedNotification) {
+	n.post("/notify/subscription-auto-approved", data)
 }
 
 // NotifyNewRegistration 通知 Bot 有新用户注册（fire-and-forget）

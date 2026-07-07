@@ -72,7 +72,8 @@ const createForm = ref({
   name: '',
   description: '',
   isDefault: false,
-  sortOrder: 0
+  sortOrder: 0,
+  subscriptionAutoApproveDailyLimit: 0
 })
 
 const editForm = ref({
@@ -80,7 +81,8 @@ const editForm = ref({
   name: '',
   description: '',
   isDefault: false,
-  sortOrder: 0
+  sortOrder: 0,
+  subscriptionAutoApproveDailyLimit: 0
 })
 
 const policyForm = ref<PlanGroupEmbyPolicyTemplateUpdateRequest>({
@@ -280,7 +282,8 @@ const resetCreateForm = () => {
     name: '',
     description: '',
     isDefault: false,
-    sortOrder: 0
+    sortOrder: 0,
+    subscriptionAutoApproveDailyLimit: 0
   }
 }
 
@@ -290,7 +293,8 @@ const openEditDialog = (group: ManagedPlanGroup) => {
     name: group.name,
     description: group.description ?? '',
     isDefault: group.isDefault,
-    sortOrder: group.sortOrder
+    sortOrder: group.sortOrder,
+    subscriptionAutoApproveDailyLimit: group.subscriptionAutoApproveDailyLimit ?? 0
   }
   editDialogVisible.value = true
 }
@@ -353,7 +357,8 @@ const handleCreate = async () => {
     name: createForm.value.name.trim(),
     description: createForm.value.description.trim(),
     isDefault: createForm.value.isDefault,
-    sortOrder: createForm.value.sortOrder
+    sortOrder: createForm.value.sortOrder,
+    subscriptionAutoApproveDailyLimit: createForm.value.subscriptionAutoApproveDailyLimit
   }
 
   creating.value = true
@@ -378,7 +383,8 @@ const handleUpdate = async () => {
     name: editForm.value.name.trim(),
     description: editForm.value.description.trim(),
     isDefault: editForm.value.isDefault,
-    sortOrder: editForm.value.sortOrder
+    sortOrder: editForm.value.sortOrder,
+    subscriptionAutoApproveDailyLimit: editForm.value.subscriptionAutoApproveDailyLimit
   }
 
   updating.value = true
@@ -646,6 +652,12 @@ onBeforeUnmount(stopSyncBatchPolling)
         </template>
       </el-table-column>
 
+      <el-table-column label="自动通过" width="120">
+        <template #default="{ row }">
+          <span class="font-medium text-gray-700">{{ row.subscriptionAutoApproveDailyLimit ?? 0 }}/天</span>
+        </template>
+      </el-table-column>
+
       <el-table-column label="排序" width="90">
         <template #default="{ row }">
           <span class="text-gray-600">{{ row.sortOrder }}</span>
@@ -728,6 +740,17 @@ onBeforeUnmount(stopSyncBatchPolling)
               </div>
             </el-form-item>
           </div>
+
+          <el-form-item label="每日自动通过订阅数">
+            <el-input-number
+              v-model="createForm.subscriptionAutoApproveDailyLimit"
+              :min="0"
+              :step="1"
+              :precision="0"
+              class="w-full !w-full form-number"
+            />
+            <p class="mt-1 text-xs text-gray-500">0 表示该分组全部订阅都进入人工审核。</p>
+          </el-form-item>
         </el-form>
       </div>
       <template #footer>
@@ -779,6 +802,17 @@ onBeforeUnmount(stopSyncBatchPolling)
               </div>
             </el-form-item>
           </div>
+
+          <el-form-item label="每日自动通过订阅数">
+            <el-input-number
+              v-model="editForm.subscriptionAutoApproveDailyLimit"
+              :min="0"
+              :step="1"
+              :precision="0"
+              class="w-full !w-full form-number"
+            />
+            <p class="mt-1 text-xs text-gray-500">0 表示该分组全部订阅都进入人工审核。</p>
+          </el-form-item>
         </el-form>
       </div>
       <template #footer>

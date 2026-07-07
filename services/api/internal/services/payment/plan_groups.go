@@ -62,12 +62,13 @@ var (
 	paymentSavePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
 		return tx.Model(&models.PlanGroup{}).
 			Where("key = ?", group.Key).
-			Select("name", "description", "sort_order", "updated_at").
+			Select("name", "description", "sort_order", "subscription_auto_approve_daily_limit", "updated_at").
 			Updates(map[string]any{
-				"name":        group.Name,
-				"description": group.Description,
-				"sort_order":  group.SortOrder,
-				"updated_at":  time.Now(),
+				"name":                                  group.Name,
+				"description":                           group.Description,
+				"sort_order":                            group.SortOrder,
+				"subscription_auto_approve_daily_limit": group.SubscriptionAutoApproveDailyLimit,
+				"updated_at":                            time.Now(),
 			}).Error
 	}
 	paymentUnsetOtherPlanGroupDefaults = func(tx *gorm.DB, key string) error {
@@ -114,18 +115,20 @@ var (
 )
 
 type CreatePlanGroupRequest struct {
-	Key         string `json:"key" binding:"required"`
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	IsDefault   bool   `json:"isDefault"`
-	SortOrder   int    `json:"sortOrder"`
+	Key                               string `json:"key" binding:"required"`
+	Name                              string `json:"name" binding:"required"`
+	Description                       string `json:"description"`
+	IsDefault                         bool   `json:"isDefault"`
+	SortOrder                         int    `json:"sortOrder"`
+	SubscriptionAutoApproveDailyLimit int    `json:"subscriptionAutoApproveDailyLimit"`
 }
 
 type UpdatePlanGroupRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	IsDefault   *bool   `json:"isDefault"`
-	SortOrder   *int    `json:"sortOrder"`
+	Name                              *string `json:"name"`
+	Description                       *string `json:"description"`
+	IsDefault                         *bool   `json:"isDefault"`
+	SortOrder                         *int    `json:"sortOrder"`
+	SubscriptionAutoApproveDailyLimit *int    `json:"subscriptionAutoApproveDailyLimit"`
 }
 
 type GetPlanGroupsResponse struct {
@@ -353,6 +356,9 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 	if err != nil {
 		return nil, err
 	}
+	if req.SubscriptionAutoApproveDailyLimit < 0 {
+		return nil, ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, ErrPlanGroupNameRequired
@@ -383,11 +389,12 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 	}
 
 	group := models.PlanGroup{
-		Key:         key,
-		Name:        name,
-		Description: strings.TrimSpace(req.Description),
-		IsDefault:   false,
-		SortOrder:   req.SortOrder,
+		Key:                               key,
+		Name:                              name,
+		Description:                       strings.TrimSpace(req.Description),
+		IsDefault:                         false,
+		SortOrder:                         req.SortOrder,
+		SubscriptionAutoApproveDailyLimit: req.SubscriptionAutoApproveDailyLimit,
 	}
 
 	if err := paymentCreatePlanGroup(tx, &group); err != nil {
@@ -450,6 +457,13 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 	}
 	if req.SortOrder != nil {
 		group.SortOrder = *req.SortOrder
+	}
+	if req.SubscriptionAutoApproveDailyLimit != nil {
+		if *req.SubscriptionAutoApproveDailyLimit < 0 {
+			rollbackPlanGroupTx(tx)
+			return nil, ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid
+		}
+		group.SubscriptionAutoApproveDailyLimit = *req.SubscriptionAutoApproveDailyLimit
 	}
 	if req.IsDefault != nil {
 		if *req.IsDefault {
