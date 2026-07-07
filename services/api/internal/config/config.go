@@ -239,7 +239,8 @@ type ConfigGroupTestResult struct {
 }
 
 type ConfigService struct {
-	encryptionKey string
+	encryptionKey      string
+	loadSettingRecords func([]string) (map[string]models.Setting, error)
 }
 
 func NewConfigService() *ConfigService {
@@ -416,6 +417,7 @@ func (s *ConfigService) Update(key string, req UpdateConfigRequest, updatedByUse
 	}).Create(&setting).Error; err != nil {
 		return nil, err
 	}
+	InvalidateCachedSetting(key)
 
 	return s.Get(key)
 }
@@ -830,13 +832,24 @@ func buildFallbackHint(def ConfigDefinition) string {
 }
 
 func (s *ConfigService) loadSettings(definitions []ConfigDefinition) (map[string]models.Setting, error) {
-	if db.DB == nil {
-		return map[string]models.Setting{}, nil
-	}
-
 	keys := make([]string, 0, len(definitions))
 	for _, def := range definitions {
 		keys = append(keys, def.Key)
+	}
+
+	if len(keys) == 0 {
+		return map[string]models.Setting{}, nil
+	}
+
+	return globalSettingsCacheStore.loadMany(keys, s.loadSettingsFromStore)
+}
+
+func (s *ConfigService) loadSettingsFromStore(keys []string) (map[string]models.Setting, error) {
+	if s != nil && s.loadSettingRecords != nil {
+		return s.loadSettingRecords(keys)
+	}
+	if db.DB == nil {
+		return map[string]models.Setting{}, nil
 	}
 
 	var settings []models.Setting

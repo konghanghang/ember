@@ -38,6 +38,7 @@
 
 - `access-auth/admin-api-key.md`
 - `access-auth/registration-user-capacity.md`
+- `architecture/settings-key-cache.md`
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`

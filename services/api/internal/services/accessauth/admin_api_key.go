@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strings"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
@@ -164,7 +165,7 @@ func upsertAdminAPIKeyHash(hash string, updatedByUserID string) error {
 		setting.UpdatedByUserID = &updatedBy
 	}
 
-	return db.DB.Clauses(clause.OnConflict{
+	err := db.DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "key"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"value":              setting.Value,
@@ -173,4 +174,8 @@ func upsertAdminAPIKeyHash(hash string, updatedByUserID string) error {
 			"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
 		}),
 	}).Create(&setting).Error
+	if err == nil {
+		configpkg.InvalidateCachedSetting(AdminAPIKeySettingKey)
+	}
+	return err
 }

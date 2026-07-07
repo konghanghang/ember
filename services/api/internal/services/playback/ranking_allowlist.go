@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
@@ -201,7 +202,11 @@ func loadPlaybackRankingLibraryAllowlist() ([]string, error) {
 func savePlaybackRankingLibraryAllowlist(libraryIDs []string, updatedByUserID *string) error {
 	normalizedIDs := normalizeRankingLibraryIDs(libraryIDs)
 	if len(normalizedIDs) == 0 {
-		return db.DB.Where("key = ?", playbackRankingLibraryAllowlistSettingKey).Delete(&models.Setting{}).Error
+		err := db.DB.Where("key = ?", playbackRankingLibraryAllowlistSettingKey).Delete(&models.Setting{}).Error
+		if err == nil {
+			configpkg.InvalidateCachedSetting(playbackRankingLibraryAllowlistSettingKey)
+		}
+		return err
 	}
 
 	encoded, err := json.Marshal(normalizedIDs)
@@ -217,7 +222,7 @@ func savePlaybackRankingLibraryAllowlist(libraryIDs []string, updatedByUserID *s
 		UpdatedAt:       time.Now().UTC(),
 	}
 
-	return db.DB.Clauses(clause.OnConflict{
+	err = db.DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "key"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"value":              setting.Value,
@@ -226,6 +231,10 @@ func savePlaybackRankingLibraryAllowlist(libraryIDs []string, updatedByUserID *s
 			"updated_at":         setting.UpdatedAt,
 		}),
 	}).Create(&setting).Error
+	if err == nil {
+		configpkg.InvalidateCachedSetting(playbackRankingLibraryAllowlistSettingKey)
+	}
+	return err
 }
 
 func parsePlaybackRankingLibraryAllowlist(raw string) ([]string, error) {
