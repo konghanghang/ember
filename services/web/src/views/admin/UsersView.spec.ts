@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UsersView from './UsersView.vue'
 import {
+  applyAdminUserCurrentPolicySync,
   applyPlanGroupMediaLibrarySync,
   getAdminMediaLibraries,
   getPlanGroups,
@@ -14,6 +15,7 @@ import {
 import type { UserInfo } from '@/types/api'
 
 vi.mock('@/api/admin', () => ({
+  applyAdminUserCurrentPolicySync: vi.fn(),
   applyPlanGroupMediaLibrarySync: vi.fn(),
   clearAdminUserMediaLibraryPreferences: vi.fn(),
   createAdminUser: vi.fn(),
@@ -24,7 +26,6 @@ vi.mock('@/api/admin', () => ({
   getUsers: vi.fn(),
   previewPlanGroupMediaLibrarySync: vi.fn(),
   resetUserPassword: vi.fn(),
-  retryAdminUserPolicySync: vi.fn(),
   syncAdminUserMediaLibraryPreferences: vi.fn(),
   toggleUserStatus: vi.fn(),
   updateAdminUser: vi.fn(),
@@ -270,5 +271,21 @@ describe('UsersView', () => {
       libraryIds: ['lib_a'],
       preferenceUserIds: ['user_2'],
     })
+  })
+
+  it('管理员可以对单个用户触发同步到 Emby', async () => {
+    vi.mocked(applyAdminUserCurrentPolicySync).mockResolvedValue({ data: createUser() })
+
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as {
+      handleApplyCurrentPolicySync: (row: UserInfo) => Promise<void>
+    }
+
+    await vm.handleApplyCurrentPolicySync(createUser({
+      policySyncStatus: 'out_of_sync',
+    }))
+    await flushPromises()
+
+    expect(applyAdminUserCurrentPolicySync).toHaveBeenCalledWith('user_1')
   })
 })

@@ -239,7 +239,9 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"bot_runtime_locks", "expires_at", "20260427_01_bot_runtime_locks"},
 	{"subscription_admin_notifications", "delivery_status", "20260519_01_subscription_admin_notifications"},
 	{"users", "emby_access_disabled", "20260527_01_user_media_library_policy"},
+	{"users", "applied_media_library_template_version", "20260707_02_plan_group_media_library_deferred_sync"},
 	{"plan_groups", "subscription_auto_approve_daily_limit", "20260707_01_subscription_plan_group_auto_approval"},
+	{"plan_groups", "media_library_template_version", "20260707_02_plan_group_media_library_deferred_sync"},
 	{"plan_group_media_libraries", "library_id", "20260527_01_user_media_library_policy"},
 	{"plan_group_emby_policy_templates", "simultaneous_stream_limit", "20260527_01_user_media_library_policy"},
 	{"subscriptions", "review_source", "20260707_01_subscription_plan_group_auto_approval"},
@@ -398,11 +400,12 @@ func seedDefaultPlanGroups() {
 	}
 
 	group = models.PlanGroup{
-		Key:         "DEFAULT",
-		Name:        "默认分组",
-		Description: "系统默认套餐分组",
-		IsDefault:   true,
-		SortOrder:   10,
+		Key:                         "DEFAULT",
+		Name:                        "默认分组",
+		Description:                 "系统默认套餐分组",
+		IsDefault:                   true,
+		SortOrder:                   10,
+		MediaLibraryTemplateVersion: 1,
 	}
 	if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&group).Error; err != nil {
 		log.Printf("⚠️  初始化套餐分组 %s 失败：%v", group.Key, err)

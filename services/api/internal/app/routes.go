@@ -56,6 +56,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.DELETE("/users/:id", h.user.DeleteUser)
 	admin.DELETE("/users/:id/media-libraries/preferences", h.user.ClearAdminUserMediaLibraryPreferences)
 	admin.POST("/users/:id/media-libraries/sync", h.user.SyncAdminUserMediaLibraryPreferences)
+	admin.POST("/users/:id/emby-policy-sync/apply-current", h.user.ApplyAdminUserCurrentPolicy)
 	admin.POST("/users/:id/emby-policy-sync/retry", h.user.RetryAdminUserPolicySync)
 	admin.PUT("/users/:id/emby-access", h.user.UpdateAdminUserEmbyAccess)
 
@@ -196,6 +197,7 @@ func registerAuthenticatedRoutes(api *gin.RouterGroup, h *appHandlers) {
 	authenticated.GET("/user/media-libraries", h.user.GetUserMediaLibraries)
 	authenticated.PUT("/user/media-libraries", h.user.UpdateUserMediaLibraries)
 	authenticated.DELETE("/user/media-libraries/preferences", h.user.ResetUserMediaLibraryPreferences)
+	authenticated.POST("/user/emby-policy-sync/apply-current", h.user.ApplyCurrentUserMediaLibraryPolicy)
 
 	authenticated.GET("/rankings/latest", h.ranking.GetLatestRanking)
 	authenticated.GET("/rankings/history", h.ranking.GetHistoryRanking)

@@ -28,6 +28,7 @@ import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.v
 import { formatDateTime } from '@/utils/date'
 import { formatMediaLibrarySummary } from '@/utils/media-library'
 import {
+  applyAdminUserCurrentPolicySync,
   applyPlanGroupMediaLibrarySync,
   clearAdminUserMediaLibraryPreferences,
   createAdminUser,
@@ -38,7 +39,6 @@ import {
   getUsers,
   previewPlanGroupMediaLibrarySync,
   resetUserPassword,
-  retryAdminUserPolicySync,
   syncAdminUserMediaLibraryPreferences,
   toggleUserStatus,
   updateAdminUser,
@@ -571,15 +571,15 @@ const handleSyncMediaLibraryPreferencesFromEmby = async (row: UserInfo) => {
   }
 }
 
-const handleRetryPolicySync = async (row: UserInfo) => {
+const handleApplyCurrentPolicySync = async (row: UserInfo) => {
   try {
-    await ElMessageBox.confirm(`确认重新同步 ${row.username} 当前有效的 Emby Policy 吗？`, '重试 Emby Policy 同步', {
-      confirmButtonText: '重试',
+    await ElMessageBox.confirm(`确认同步 ${row.username} 当前有效的 Emby Policy 吗？`, '同步到 Emby', {
+      confirmButtonText: '同步',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await retryAdminUserPolicySync(row.id)
-    ElMessage.success('Emby Policy 已重新同步')
+    await applyAdminUserCurrentPolicySync(row.id)
+    ElMessage.success('Emby Policy 已提交同步')
     await fetchData()
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
@@ -728,8 +728,20 @@ const getMediaLibraryStatus = (row: UserInfo) => {
     countText: typeof row.mediaLibraryEnabledCount === 'number' && typeof row.mediaLibraryTemplateCount === 'number'
       ? `${row.mediaLibraryEnabledCount}/${row.mediaLibraryTemplateCount}`
       : '-',
-    statusText: syncing ? '同步中' : status === 'failed' ? '同步失败' : status === 'partial_failed' ? '部分失败' : '已同步',
-    tagType: syncing ? 'warning' : status === 'failed' || status === 'partial_failed' ? 'danger' : 'success',
+    statusText: syncing
+      ? '同步中'
+      : status === 'failed'
+        ? '同步失败'
+        : status === 'partial_failed'
+          ? '部分失败'
+          : status === 'out_of_sync'
+            ? '待同步'
+            : '已同步',
+    tagType: syncing || status === 'out_of_sync'
+      ? 'warning'
+      : status === 'failed' || status === 'partial_failed'
+        ? 'danger'
+        : 'success',
     batchFailed: batchStatus === 'failed' && !!row.policySyncBatchId
   }
 }
@@ -976,11 +988,11 @@ onMounted(async () => {
                     <el-dropdown-item :icon="CreditCard" @click="handleViewPayments(row)">支付记录</el-dropdown-item>
                     <el-dropdown-item :icon="Key" @click="handleResetPassword(row)">重置密码</el-dropdown-item>
                     <el-dropdown-item
-                      v-if="row.policySyncStatus === 'failed'"
+                      v-if="row.role === 'user' && row.embyId"
                       :icon="RefreshRight"
-                      @click="handleRetryPolicySync(row)"
+                      @click="handleApplyCurrentPolicySync(row)"
                     >
-                      重试 Emby 同步
+                      同步到 Emby
                     </el-dropdown-item>
                     <el-dropdown-item
                       v-if="row.policySyncBatchStatus === 'failed' && row.policySyncBatchId"
@@ -989,7 +1001,7 @@ onMounted(async () => {
                     >
                       查看同步批次
                     </el-dropdown-item>
-                    <el-dropdown-item :icon="RefreshRight" @click="handleSyncMediaLibraryPreferencesFromEmby(row)">同步媒体库偏好</el-dropdown-item>
+                    <el-dropdown-item :icon="RefreshRight" @click="handleSyncMediaLibraryPreferencesFromEmby(row)">从 Emby 读取当前偏好</el-dropdown-item>
                     <el-dropdown-item :icon="RefreshRight" @click="handleClearMediaLibraryPreferences(row)">清除媒体库偏好</el-dropdown-item>
                     <el-dropdown-item
                       :icon="row.embyAccessDisabled ? Unlock : Lock"

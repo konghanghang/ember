@@ -332,7 +332,13 @@ func planGroupPolicySyncStatus(key string) string {
 	if err := planGroupManagedPolicyTaskQuery(db.DB, key).
 		Where("tasks.status = ?", "failed").
 		Count(&failedCount).Error; err != nil || failedCount == 0 {
-		return "synced"
+		var outOfSyncCount int64
+		if err := planGroupManagedUsersQuery(db.DB, key).
+			Where(`users."applied_media_library_template_version" < COALESCE(explicit_pg.media_library_template_version, default_pg.media_library_template_version)`).
+			Count(&outOfSyncCount).Error; err != nil || outOfSyncCount == 0 {
+			return "synced"
+		}
+		return "out_of_sync"
 	}
 	var syncedCount int64
 	_ = planGroupManagedPolicyTaskQuery(db.DB, key).
@@ -349,6 +355,15 @@ func planGroupManagedPolicyTaskQuery(database *gorm.DB, key string) *gorm.DB {
 		Joins("JOIN users ON users.id = tasks.user_id").
 		Where("tasks.plan_group_key = ? AND users.role = ?", key, "user").
 		Where("NOT (tasks.status = ? AND COALESCE(tasks.last_error, '') LIKE ?)", "failed", "%There must be at least one user in the system with administrative access%")
+}
+
+func planGroupManagedUsersQuery(database *gorm.DB, key string) *gorm.DB {
+	return database.Table("users").
+		Joins(`LEFT JOIN plan_groups explicit_pg ON explicit_pg.key = users."plan_group"`).
+		Joins(`LEFT JOIN plan_groups default_pg ON default_pg."is_default" = ?`, true).
+		Where(`users."role" = ?`, "user").
+		Where(`COALESCE(users."emby_id", '') <> ''`).
+		Where(`COALESCE(users."plan_group", default_pg.key) = ?`, key)
 }
 
 func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGroupView, error) {
@@ -395,6 +410,7 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 		IsDefault:                         false,
 		SortOrder:                         req.SortOrder,
 		SubscriptionAutoApproveDailyLimit: req.SubscriptionAutoApproveDailyLimit,
+		MediaLibraryTemplateVersion:       1,
 	}
 
 	if err := paymentCreatePlanGroup(tx, &group); err != nil {

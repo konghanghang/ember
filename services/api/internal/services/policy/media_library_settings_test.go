@@ -139,6 +139,45 @@ func TestNormalizePolicyLibraryIDsTrimsDeduplicatesAndSorts(t *testing.T) {
 	}
 }
 
+func TestIsUserMediaLibraryTemplateOutOfSync(t *testing.T) {
+	group := &models.PlanGroup{Key: "VIP", MediaLibraryTemplateVersion: 3}
+
+	if !isUserMediaLibraryTemplateOutOfSync(&models.User{
+		ID:                                 "user_1",
+		Role:                               "user",
+		EmbyID:                             "emby_1",
+		AppliedMediaLibraryTemplateVersion: 2,
+	}, group) {
+		t.Fatal("expected managed user with stale template version to be out of sync")
+	}
+
+	if isUserMediaLibraryTemplateOutOfSync(&models.User{
+		ID:                                 "user_1",
+		Role:                               "user",
+		EmbyID:                             "emby_1",
+		AppliedMediaLibraryTemplateVersion: 3,
+	}, group) {
+		t.Fatal("expected equal template version to be synced")
+	}
+
+	if isUserMediaLibraryTemplateOutOfSync(&models.User{
+		ID:                                 "admin_1",
+		Role:                               "admin",
+		EmbyID:                             "emby_admin",
+		AppliedMediaLibraryTemplateVersion: 1,
+	}, group) {
+		t.Fatal("expected admin user to skip out-of-sync detection")
+	}
+
+	if isUserMediaLibraryTemplateOutOfSync(&models.User{
+		ID:                                 "user_2",
+		Role:                               "user",
+		AppliedMediaLibraryTemplateVersion: 1,
+	}, group) {
+		t.Fatal("expected unbound Emby user to skip out-of-sync detection")
+	}
+}
+
 func TestPolicyValueHelpersKeepOnlyExpectedTypes(t *testing.T) {
 	if !boolPolicyValue(true) {
 		t.Fatal("expected bool true to be accepted")

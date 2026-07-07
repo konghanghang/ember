@@ -13,7 +13,8 @@ import (
 )
 
 type updatePlanGroupLibrariesRequest struct {
-	LibraryIDs []string `json:"libraryIds"`
+	LibraryIDs           []string `json:"libraryIds"`
+	ApplyToExistingUsers *bool    `json:"applyToExistingUsers,omitempty"`
 }
 
 type updateUserLibrariesRequest struct {
@@ -84,14 +85,18 @@ func (h *PaymentHandler) GetPlanGroupMediaLibraries(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
-// UpdatePlanGroupMediaLibraries 保存分组媒体库模板并同步该分组用户的 Emby Policy。
+// UpdatePlanGroupMediaLibraries 保存分组媒体库模板，并按请求决定是否立刻同步现有用户。
 func (h *PaymentHandler) UpdatePlanGroupMediaLibraries(c *gin.Context) {
 	var req updatePlanGroupLibrariesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
-	resp, err := newPolicyService().UpdatePlanGroupMediaLibraries(c.Param("key"), req.LibraryIDs, currentUserIDPtr(c))
+	applyToExistingUsers := true
+	if req.ApplyToExistingUsers != nil {
+		applyToExistingUsers = *req.ApplyToExistingUsers
+	}
+	resp, err := newPolicyService().UpdatePlanGroupMediaLibraries(c.Param("key"), req.LibraryIDs, applyToExistingUsers, currentUserIDPtr(c))
 	if err != nil {
 		handlePolicyError(c, err)
 		return
@@ -210,6 +215,21 @@ func (h *UserHandler) ResetUserMediaLibraryPreferences(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": resp})
 }
 
+// ApplyCurrentUserMediaLibraryPolicy 立即把当前登录用户的有效媒体库设置同步到 Emby。
+func (h *UserHandler) ApplyCurrentUserMediaLibraryPolicy(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+	resp, err := newPolicyService().ApplyUserCurrentPolicy(userID.(string), "user_media_library_apply_current")
+	if err != nil {
+		handlePolicyError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": resp})
+}
+
 func (h *UserHandler) ClearAdminUserMediaLibraryPreferences(c *gin.Context) {
 	resp, err := newPolicyService().ResetUserMediaLibraryPreferences(c.Param("id"))
 	if err != nil {
@@ -226,6 +246,20 @@ func (h *UserHandler) SyncAdminUserMediaLibraryPreferences(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": resp})
+}
+
+// ApplyAdminUserCurrentPolicy 立即把目标用户当前有效的媒体库设置同步到 Emby。
+func (h *UserHandler) ApplyAdminUserCurrentPolicy(c *gin.Context) {
+	if _, err := newPolicyService().ApplyUserCurrentPolicy(c.Param("id"), "admin_user_policy_apply_current"); err != nil {
+		handlePolicyError(c, err)
+		return
+	}
+	user, err := h.userService.GetUserByID(c.Param("id"))
+	if err != nil {
+		handlePolicyError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": user})
 }
 
 // RetryAdminUserPolicySync 由管理员手动重试单个用户当前有效 Emby Policy 同步。

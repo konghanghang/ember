@@ -62,6 +62,10 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 	if err != nil {
 		return normalizePolicyError("解析用户有效分组失败", err)
 	}
+	group, err := getPlanGroupByKey(s.db, planGroupKey)
+	if err != nil {
+		return normalizePolicyError("读取用户有效分组失败", err)
+	}
 
 	template, err := s.loadPolicyTemplate(planGroupKey)
 	if err != nil {
@@ -91,8 +95,11 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 
 	if err := s.db.Model(&models.User{}).
 		Where("id = ?", user.ID).
-		Update("emby_disabled", managedPolicy["IsDisabled"]).Error; err != nil {
-		return normalizePolicyError("更新本地 Emby 禁用缓存失败", err)
+		Updates(map[string]any{
+			"emby_disabled":                          managedPolicy["IsDisabled"],
+			"applied_media_library_template_version": group.MediaLibraryTemplateVersion,
+		}).Error; err != nil {
+		return normalizePolicyError("更新本地 Emby 同步状态失败", err)
 	}
 	if err := s.resolveFailedUserPolicySyncTasks(user.ID); err != nil {
 		return normalizePolicyError("收口用户 Emby Policy 失败任务失败", err)

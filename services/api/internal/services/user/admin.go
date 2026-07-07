@@ -109,6 +109,9 @@ func buildUsersWithPlanGroupSelect(query *gorm.DB) *gorm.DB {
 					  AND tasks.batch_id IS NULL
 					  AND COALESCE(tasks.last_error, '') NOT LIKE ?
 				) THEN 'failed'
+				WHEN COALESCE(users."emby_id", '') <> ''
+				  AND users."applied_media_library_template_version" < COALESCE(explicit_pg.media_library_template_version, default_pg.media_library_template_version)
+				THEN 'out_of_sync'
 				ELSE 'synced'
 			END AS "policySyncStatus",
 			CASE

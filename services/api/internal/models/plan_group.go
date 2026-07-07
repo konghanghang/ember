@@ -10,6 +10,7 @@ type PlanGroup struct {
 	IsDefault                         bool      `json:"isDefault" gorm:"column:is_default;default:false;not null"`
 	SortOrder                         int       `json:"sortOrder" gorm:"column:sort_order;default:0;not null"`
 	SubscriptionAutoApproveDailyLimit int       `json:"subscriptionAutoApproveDailyLimit" gorm:"column:subscription_auto_approve_daily_limit;default:0;not null"`
+	MediaLibraryTemplateVersion       int64     `json:"-" gorm:"column:media_library_template_version;not null;default:1"`
 	CreatedAt                         time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt                         time.Time `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
 }

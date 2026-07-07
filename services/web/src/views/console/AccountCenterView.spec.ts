@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AccountCenterView from './AccountCenterView.vue'
 import {
+  applyCurrentUserMediaLibraryPolicySync,
   getUserMediaLibraries,
   resetUserMediaLibraryPreferences,
   sendEmailChangeCode,
@@ -14,6 +15,7 @@ import { bindAdminEmbyAccount, getAdminEmbyUsers } from '@/api/admin'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 vi.mock('@/api/console', () => ({
+  applyCurrentUserMediaLibraryPolicySync: vi.fn(),
   sendEmailChangeCode: vi.fn(),
   generateTelegramBindCode: vi.fn(),
   getUserMediaLibraries: vi.fn(),
@@ -511,6 +513,19 @@ describe('AccountCenterView 媒体库偏好', () => {
         libraries: [],
       },
     })
+    vi.mocked(applyCurrentUserMediaLibraryPolicySync).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: 'emby_1',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: true,
+        templateCount: 2,
+        enabledCount: 1,
+        policySyncStatus: 'synced',
+        libraries: [],
+      },
+    })
   })
 
   it('加载媒体库偏好并按已启用集合保存', async () => {
@@ -717,6 +732,19 @@ describe('AccountCenterView 媒体库偏好', () => {
     expect(resetUserMediaLibraryPreferences).toHaveBeenCalledTimes(1)
     expect(ElMessage.warning).toHaveBeenCalledWith('本地已保存，Emby 同步失败，请联系管理员处理')
     expect(ElMessage.success).not.toHaveBeenCalledWith('已恢复分组默认')
+  })
+
+  it('可以把当前有效媒体库设置重新同步到 Emby', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const applyButton = wrapper.findAll('button').find(item => item.text().includes('同步到 Emby'))
+    expect(applyButton, '未找到同步到 Emby按钮').toBeTruthy()
+    await applyButton!.trigger('click')
+    await flushPromises()
+
+    expect(applyCurrentUserMediaLibraryPolicySync).toHaveBeenCalledTimes(1)
+    expect(ElMessage.success).toHaveBeenCalledWith('已同步到 Emby')
   })
 
   it('保存遇到 409 时提示媒体库权限正在同步', async () => {

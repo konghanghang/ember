@@ -37,6 +37,7 @@ import type {
   ManagedPlanGroup,
   MediaLibraryOption,
   PlanGroupEmbyPolicyTemplateUpdateRequest,
+  PlanGroupMediaLibraryUpdateResult,
   UpdatePlanGroupRequest
 } from '@/types/api'
 
@@ -51,6 +52,7 @@ const loading = ref(false)
 const creating = ref(false)
 const updating = ref(false)
 const savingLibraries = ref(false)
+const savingLibrariesMode = ref<'deferred' | 'batch' | null>(null)
 const savingPolicy = ref(false)
 const loadingTemplate = ref(false)
 const retryingSyncBatch = ref(false)
@@ -132,7 +134,7 @@ const isConflictError = (error: unknown) => {
 
 /** 判断同步批次是否已进入终态，决定短轮询何时停止。 */
 const isTerminalSyncStatus = (status: EmbyPolicySyncStatus) => {
-  return status === 'synced' || status === 'partial_failed' || status === 'failed'
+  return status === 'synced' || status === 'partial_failed' || status === 'failed' || status === 'out_of_sync'
 }
 
 /** 把后端同步状态映射为表格标签文案。 */
@@ -140,6 +142,7 @@ const getPolicySyncStatusLabel = (status?: EmbyPolicySyncStatus) => {
   const labels: Record<EmbyPolicySyncStatus, string> = {
     pending: '待同步',
     processing: '同步中',
+    out_of_sync: '待同步',
     synced: '已同步',
     partial_failed: '部分失败',
     failed: '失败'
@@ -149,7 +152,7 @@ const getPolicySyncStatusLabel = (status?: EmbyPolicySyncStatus) => {
 
 /** 把后端同步状态映射为 Element Plus 标签语义。 */
 const getPolicySyncStatusType = (status?: EmbyPolicySyncStatus) => {
-  if (status === 'pending' || status === 'processing') return 'warning'
+  if (status === 'pending' || status === 'processing' || status === 'out_of_sync') return 'warning'
   if (status === 'partial_failed' || status === 'failed') return 'danger'
   if (status === 'synced') return 'success'
   return 'info'
@@ -162,6 +165,22 @@ const showSyncBatchResult = (batch: EmbyPolicySyncBatchCreated) => {
     return
   }
   ElMessage.success('模板已保存')
+}
+
+const showMediaLibraryUpdateResult = (result: PlanGroupMediaLibraryUpdateResult) => {
+  if (result.mode === 'deferred') {
+    if ((result.outOfSyncUserCount ?? 0) > 0) {
+      ElMessage.success(`模板已保存，${result.outOfSyncUserCount} 个用户待同步`)
+      return
+    }
+    ElMessage.success('模板已保存')
+    return
+  }
+  showSyncBatchResult({
+    batchId: result.batchId ?? '',
+    affectedUserCount: result.affectedUserCount,
+    status: result.status,
+  })
 }
 
 const stopSyncBatchPolling = () => {
@@ -233,6 +252,21 @@ const startSyncBatchPolling = (batch: EmbyPolicySyncBatchCreated) => {
   syncPollingTimer.value = window.setInterval(() => {
     void pollSyncBatch(batch.batchId)
   }, 2500)
+}
+
+const handleMediaLibraryUpdateResult = async (result: PlanGroupMediaLibraryUpdateResult) => {
+  showMediaLibraryUpdateResult(result)
+  if (result.mode === 'batch' && result.batchId) {
+    startSyncBatchPolling({
+      batchId: result.batchId,
+      affectedUserCount: result.affectedUserCount,
+      status: result.status,
+    })
+  } else {
+    stopSyncBatchPolling()
+    activeSyncBatch.value = null
+  }
+  await fetchData()
 }
 
 /** 对失败的 Emby Policy 批次创建补偿重试批次，并继续展示新批次进度。 */
@@ -425,22 +459,22 @@ const handleDelete = async (group: ManagedPlanGroup) => {
 }
 
 /** 保存分组媒体库模板，并把 409 同步中状态转成明确的页面级反馈。 */
-const handleSaveMediaLibraries = async () => {
+const handleSaveMediaLibraries = async (applyToExistingUsers: boolean = true) => {
   if (!selectedGroup.value) return
 
   savingLibraries.value = true
+  savingLibrariesMode.value = applyToExistingUsers ? 'batch' : 'deferred'
   try {
-    const res = await updatePlanGroupMediaLibraries(selectedGroup.value.key, selectedLibraryIds.value)
+    const res = await updatePlanGroupMediaLibraries(selectedGroup.value.key, selectedLibraryIds.value, applyToExistingUsers)
     mediaDialogVisible.value = false
-    showSyncBatchResult(res.data)
-    startSyncBatchPolling(res.data)
-    await fetchData()
+    await handleMediaLibraryUpdateResult(res.data)
   } catch (error) {
     if (isConflictError(error)) {
       ElMessage.warning('该分组有同步任务未完成，稍后再保存')
     }
   } finally {
     savingLibraries.value = false
+    savingLibrariesMode.value = null
   }
 }
 
@@ -881,11 +915,18 @@ onBeforeUnmount(stopSyncBatchPolling)
             取消
           </button>
           <button
-            @click="handleSaveMediaLibraries"
+            @click="handleSaveMediaLibraries(false)"
+            :disabled="savingLibraries || loadingTemplate"
+            class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-70"
+          >
+            {{ savingLibraries && savingLibrariesMode === 'deferred' ? '保存中...' : '仅保存模板' }}
+          </button>
+          <button
+            @click="handleSaveMediaLibraries(true)"
             :disabled="savingLibraries || loadingTemplate"
             class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
           >
-            {{ savingLibraries ? '保存中...' : '保存模板' }}
+            {{ savingLibraries && savingLibrariesMode === 'batch' ? '保存中...' : '保存并同步现有用户' }}
           </button>
         </div>
       </template>

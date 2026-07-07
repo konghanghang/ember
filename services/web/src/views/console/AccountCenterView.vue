@@ -20,6 +20,7 @@ import { useUserStore } from '@/store/user'
 import { getRegistrationMode } from '@/api/auth'
 import { bindAdminEmbyAccount, getAdminEmbyUsers, unbindAdminEmbyAccount } from '@/api/admin'
 import {
+  applyCurrentUserMediaLibraryPolicySync,
   generateTelegramBindCode,
   getUserMediaLibraries,
   resetUserMediaLibraryPreferences,
@@ -78,6 +79,7 @@ const selectedMediaLibraryIds = ref<string[]>([])
 const loadingMediaLibraries = ref(false)
 const savingMediaLibraries = ref(false)
 const resettingMediaLibraries = ref(false)
+const applyingCurrentMediaLibraryPolicy = ref(false)
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -152,6 +154,7 @@ const mediaLibrarySyncing = computed(() => {
   const status = mediaLibrarySettings.value?.policySyncStatus
   return status === 'pending' || status === 'processing'
 })
+const mediaLibraryOutOfSync = computed(() => mediaLibrarySettings.value?.policySyncStatus === 'out_of_sync')
 
 const embySummary = computed(() => {
   if (isEmbyLinked.value) return '已关联'
@@ -182,6 +185,22 @@ const showMediaLibrarySaveResult = (settings: UserMediaLibrarySettings, syncedMe
   }
   if (settings.policySyncStatus === 'pending' || settings.policySyncStatus === 'processing') {
     ElMessage.info('本地已保存，正在等待 Emby 同步')
+    return
+  }
+  ElMessage.success(syncedMessage)
+}
+
+const showMediaLibraryPolicyApplyResult = (settings: UserMediaLibrarySettings, syncedMessage: string) => {
+  if (settings.policySyncStatus === 'failed' || settings.policySyncStatus === 'partial_failed') {
+    ElMessage.warning('Emby 同步失败，请联系管理员处理')
+    return
+  }
+  if (settings.policySyncStatus === 'pending' || settings.policySyncStatus === 'processing') {
+    ElMessage.info('已提交 Emby 同步，请稍后刷新状态')
+    return
+  }
+  if (settings.policySyncStatus === 'out_of_sync') {
+    ElMessage.warning('当前模板仍待同步，请稍后重试')
     return
   }
   ElMessage.success(syncedMessage)
@@ -363,6 +382,22 @@ const handleResetMediaLibraries = async () => {
     }
   } finally {
     resettingMediaLibraries.value = false
+  }
+}
+
+/** 重新把当前有效媒体库设置下发到 Emby，不修改本地偏好内容。 */
+const handleApplyCurrentMediaLibraryPolicy = async () => {
+  applyingCurrentMediaLibraryPolicy.value = true
+  try {
+    const res = await applyCurrentUserMediaLibraryPolicySync()
+    applyMediaLibrarySettings(res.data)
+    showMediaLibraryPolicyApplyResult(res.data, '已同步到 Emby')
+  } catch (error) {
+    if (isConflictError(error)) {
+      ElMessage.warning('媒体库权限正在同步，稍后再重试')
+    }
+  } finally {
+    applyingCurrentMediaLibraryPolicy.value = false
   }
 }
 
@@ -823,6 +858,9 @@ onMounted(() => {
           >
             同步中
           </el-tag>
+          <el-tag v-else-if="mediaLibraryOutOfSync" type="warning" effect="light" round>
+            待同步
+          </el-tag>
           <el-tag v-else-if="mediaLibrarySettings.policySyncStatus === 'failed'" type="danger" effect="light" round>
             同步失败
           </el-tag>
@@ -869,6 +907,12 @@ onMounted(() => {
           >
             当前媒体库权限正在同步，完成后再修改偏好。
           </div>
+          <div
+            v-else-if="mediaLibraryOutOfSync"
+            class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+          >
+            分组模板已更新，当前 Emby 权限仍待同步。可直接点击“同步到 Emby”应用当前设置。
+          </div>
 
           <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <div
@@ -892,6 +936,14 @@ onMounted(() => {
           </div>
 
           <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="applyingCurrentMediaLibraryPolicy || mediaLibrarySyncing"
+              @click="handleApplyCurrentMediaLibraryPolicy"
+            >
+              {{ applyingCurrentMediaLibraryPolicy ? '同步中...' : '同步到 Emby' }}
+            </button>
             <button
               type="button"
               class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"

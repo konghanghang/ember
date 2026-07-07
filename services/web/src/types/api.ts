@@ -26,12 +26,22 @@ export interface MediaLibraryOption {
   itemCount?: number
 }
 
-export type EmbyPolicySyncStatus = 'pending' | 'processing' | 'synced' | 'partial_failed' | 'failed'
+export type EmbyPolicySyncStatus = 'pending' | 'processing' | 'synced' | 'partial_failed' | 'failed' | 'out_of_sync'
+
+export type PlanGroupMediaLibraryUpdateMode = 'deferred' | 'batch'
 
 export interface EmbyPolicySyncBatchCreated {
   batchId: string
   affectedUserCount: number
   status: EmbyPolicySyncStatus
+}
+
+export interface PlanGroupMediaLibraryUpdateResult {
+  mode: PlanGroupMediaLibraryUpdateMode
+  batchId?: string
+  affectedUserCount: number
+  status: EmbyPolicySyncStatus
+  outOfSyncUserCount?: number
 }
 
 export interface EmbyPolicySyncFailedUser {

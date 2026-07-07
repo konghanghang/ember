@@ -21,6 +21,7 @@ const (
 	SyncStatusSynced        = "synced"
 	SyncStatusFailed        = "failed"
 	SyncStatusPartialFailed = "partial_failed"
+	SyncStatusOutOfSync     = "out_of_sync"
 
 	embyAdminPolicyProtectionText = "There must be at least one user in the system with administrative access"
 )
@@ -86,6 +87,14 @@ type EmbyPolicySyncBatchCreated struct {
 	Reason            string `json:"reason,omitempty"`
 	Status            string `json:"status"`
 	AffectedUserCount int    `json:"affectedUserCount"`
+}
+
+type PlanGroupMediaLibraryUpdateResult struct {
+	Mode               string `json:"mode"`
+	BatchID            string `json:"batchId,omitempty"`
+	Status             string `json:"status"`
+	AffectedUserCount  int    `json:"affectedUserCount"`
+	OutOfSyncUserCount int    `json:"outOfSyncUserCount,omitempty"`
 }
 
 type EmbyPolicySyncFailedUser struct {
@@ -211,7 +220,8 @@ func (s *Service) GetPlanGroupMediaLibraries(key string) (*PlanGroupMediaLibrary
 	}, nil
 }
 
-func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string, createdBy *string) (*EmbyPolicySyncBatchCreated, error) {
+// UpdatePlanGroupMediaLibraries 保存分组媒体库模板，可选是否立刻同步现有用户。
+func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string, applyToExistingUsers bool, createdBy *string) (*PlanGroupMediaLibraryUpdateResult, error) {
 	group, err := getPlanGroupByKey(s.db, key)
 	if err != nil {
 		return nil, err
@@ -245,6 +255,7 @@ func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string,
 		tx.Rollback()
 		return nil, err
 	}
+	nextTemplateVersion := group.MediaLibraryTemplateVersion + 1
 	for i, id := range normalizedIDs {
 		option := optionByID[id]
 		record := models.PlanGroupMediaLibrary{
@@ -259,6 +270,35 @@ func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string,
 			return nil, err
 		}
 	}
+	if err := tx.Model(&models.PlanGroup{}).
+		Where("key = ?", group.Key).
+		Updates(map[string]any{
+			"media_library_template_version": nextTemplateVersion,
+			"updated_at":                     time.Now().UTC(),
+		}).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	group.MediaLibraryTemplateVersion = nextTemplateVersion
+	if !applyToExistingUsers {
+		if err := tx.Commit().Error; err != nil {
+			return nil, err
+		}
+		count, err := s.countAffectedUsers(group.Key)
+		if err != nil {
+			return nil, err
+		}
+		status := SyncStatusSynced
+		if count > 0 {
+			status = SyncStatusOutOfSync
+		}
+		return &PlanGroupMediaLibraryUpdateResult{
+			Mode:               "deferred",
+			Status:             status,
+			AffectedUserCount:  count,
+			OutOfSyncUserCount: count,
+		}, nil
+	}
 	batch, err := s.createBatchWithTasks(tx, group.Key, "plan_group_media_libraries_update", createdBy)
 	if err != nil {
 		tx.Rollback()
@@ -267,7 +307,16 @@ func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string,
 	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
-	return s.buildBatchCreated(batch.ID)
+	created, err := s.buildBatchCreated(batch.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &PlanGroupMediaLibraryUpdateResult{
+		Mode:              "batch",
+		BatchID:           created.BatchID,
+		Status:            created.Status,
+		AffectedUserCount: created.AffectedUserCount,
+	}, nil
 }
 
 func (s *Service) GetPlanGroupEmbyPolicyTemplate(key string) (*PlanGroupEmbyPolicyTemplateResponse, error) {
@@ -388,6 +437,28 @@ func (s *Service) ResetUserMediaLibraryPreferences(userID string) (*UserMediaLib
 	}
 	if err := s.applyPolicyOrRecordFailure(user, group.Key, "user_media_library_preferences_reset"); err != nil {
 		log.Printf("[Policy] 用户媒体库偏好已清除但 Emby 同步失败: userID=%s err=%v", user.ID, err)
+	}
+	return s.GetUserMediaLibrarySettings(user.ID)
+}
+
+// ApplyUserCurrentPolicy 立即对单个用户应用当前有效的 Emby Policy，并返回最新媒体库设置。
+// 若写 Emby 失败但失败状态已成功记账，仍返回 200 与最新状态，让前端能明确展示“同步失败”。
+func (s *Service) ApplyUserCurrentPolicy(userID, reason string) (*UserMediaLibrarySettings, error) {
+	user, group, _, _, err := s.loadUserLibraryContext(userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.EmbyID == "" {
+		return nil, ErrUserEmbyNotBound
+	}
+	if err := s.ensureNoActiveUserTasks(user.ID); err != nil {
+		return nil, err
+	}
+	if err := s.ApplyEffectiveUserPolicy(user.ID, reason); err != nil {
+		if recordErr := s.recordUserPolicySyncFailure(user, group.Key, reason, err); recordErr != nil {
+			return nil, recordErr
+		}
+		log.Printf("[Policy] 单用户 Emby Policy 同步失败但已记录状态: userID=%s reason=%s err=%v", user.ID, reason, err)
 	}
 	return s.GetUserMediaLibrarySettings(user.ID)
 }
@@ -742,6 +813,15 @@ func (s *Service) ApplyPlanGroupMediaLibrarySync(key string, req MediaLibrarySyn
 			tx.Rollback()
 			return nil, err
 		}
+	}
+	if err := tx.Model(&models.PlanGroup{}).
+		Where("key = ?", group.Key).
+		Updates(map[string]any{
+			"media_library_template_version": group.MediaLibraryTemplateVersion + 1,
+			"updated_at":                     time.Now().UTC(),
+		}).Error; err != nil {
+		tx.Rollback()
+		return nil, err
 	}
 	batch, err := s.createBatchWithTasks(tx, group.Key, "plan_group_media_libraries_history_sync", createdBy)
 	if err != nil {
@@ -1113,7 +1193,7 @@ func (s *Service) buildUserMediaLibrarySettings(
 			Enabled:         enabled,
 		})
 	}
-	status, taskID, err := s.userPolicySyncStatus(user.ID)
+	status, taskID, err := s.userPolicySyncStatus(user, group)
 	if err != nil {
 		return nil, err
 	}
@@ -1285,23 +1365,39 @@ func (s *Service) resolveFailedUserPolicySyncTasks(userID string) error {
 		}).Error
 }
 
-func (s *Service) userPolicySyncStatus(userID string) (string, string, error) {
+func (s *Service) userPolicySyncStatus(user *models.User, group *models.PlanGroup) (string, string, error) {
+	if user == nil {
+		return "", "", errors.New("用户不能为空")
+	}
 	var task models.EmbyPolicySyncTask
-	if err := s.db.Where("user_id = ? AND status IN ?", userID, []string{SyncStatusPending, SyncStatusProcessing}).
+	if err := s.db.Where("user_id = ? AND status IN ?", user.ID, []string{SyncStatusPending, SyncStatusProcessing}).
 		Order("updated_at DESC").
 		First(&task).Error; err == nil {
 		return task.Status, task.ID, nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", "", err
 	}
-	if err := s.db.Where("user_id = ? AND batch_id IS NULL AND status = ?", userID, SyncStatusFailed).
+	if err := s.db.Where("user_id = ? AND batch_id IS NULL AND status = ?", user.ID, SyncStatusFailed).
 		Order("updated_at DESC").
 		First(&task).Error; err == nil {
 		return SyncStatusFailed, task.ID, nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", "", err
 	}
+	if isUserMediaLibraryTemplateOutOfSync(user, group) {
+		return SyncStatusOutOfSync, "", nil
+	}
 	return SyncStatusSynced, "", nil
+}
+
+func isUserMediaLibraryTemplateOutOfSync(user *models.User, group *models.PlanGroup) bool {
+	if user == nil || group == nil {
+		return false
+	}
+	if user.IsAdmin() || strings.TrimSpace(user.EmbyID) == "" {
+		return false
+	}
+	return user.AppliedMediaLibraryTemplateVersion < group.MediaLibraryTemplateVersion
 }
 
 func usersInPlanGroupQuery(query *gorm.DB, planGroupKey string) *gorm.DB {

@@ -153,6 +153,13 @@ export function resetUserMediaLibraryPreferences(): Promise<{ data: UserMediaLib
   })
 }
 
+export function applyCurrentUserMediaLibraryPolicySync(): Promise<{ data: UserMediaLibrarySettings }> {
+  return request({
+    url: '/user/emby-policy-sync/apply-current',
+    method: 'post'
+  })
+}
+
 // ==================== 媒体信息 ====================
 // 协议：emby 未配置 / 用户未绑定 Emby 时后端返回 200 + configured/bound 标志位，
 // 前端按业务标志渲染空态。这些是 dashboard 首屏初始化探测，统一走 silent，

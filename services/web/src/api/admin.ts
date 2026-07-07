@@ -44,6 +44,7 @@ import type {
   ManagedPlanGroup,
   EmbyPolicySyncBatchCreated,
   EmbyPolicySyncBatchDetail,
+  PlanGroupMediaLibraryUpdateResult,
   PlaybackProfileListQuery,
   PlaybackProfileListResponse,
   PlaybackProfileQuery,
@@ -406,12 +407,13 @@ export function getPlanGroupMediaLibraries(key: string): Promise<{ data: PlanGro
 
 export function updatePlanGroupMediaLibraries(
   key: string,
-  libraryIds: string[]
-): Promise<{ data: EmbyPolicySyncBatchCreated }> {
+  libraryIds: string[],
+  applyToExistingUsers: boolean = true
+): Promise<{ data: PlanGroupMediaLibraryUpdateResult }> {
   return request({
     url: `/admin/plan-groups/${encodeURIComponent(key)}/media-libraries`,
     method: 'put',
-    data: { libraryIds }
+    data: { libraryIds, applyToExistingUsers }
   })
 }
 
@@ -486,6 +488,13 @@ export function syncAdminUserMediaLibraryPreferences(id: string) {
 export function retryAdminUserPolicySync(id: string): Promise<{ data: UserInfo }> {
   return request({
     url: `/admin/users/${encodeURIComponent(id)}/emby-policy-sync/retry`,
+    method: 'post'
+  })
+}
+
+export function applyAdminUserCurrentPolicySync(id: string): Promise<{ data: UserInfo }> {
+  return request({
+    url: `/admin/users/${encodeURIComponent(id)}/emby-policy-sync/apply-current`,
     method: 'post'
   })
 }

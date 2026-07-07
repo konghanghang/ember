@@ -174,7 +174,7 @@ describe('PlanGroupsView', () => {
     vi.mocked(deletePlanGroup).mockResolvedValue({} as never)
     vi.mocked(updatePlanGroup).mockResolvedValue({} as never)
     vi.mocked(updatePlanGroupMediaLibraries).mockResolvedValue({
-      data: { batchId: 'batch_empty', affectedUserCount: 0, status: 'synced' },
+      data: { mode: 'batch', batchId: 'batch_empty', affectedUserCount: 0, status: 'synced' },
     })
     vi.mocked(updatePlanGroupEmbyPolicyTemplate).mockResolvedValue({
       data: { batchId: 'batch_empty', affectedUserCount: 0, status: 'synced' },
@@ -323,6 +323,38 @@ describe('PlanGroupsView', () => {
       sortOrder: 10,
       subscriptionAutoApproveDailyLimit: 2,
     })
+
+    wrapper.unmount()
+  })
+
+  it('仅保存媒体库模板时不启动批次轮询并提示待同步用户数', async () => {
+    vi.mocked(updatePlanGroupMediaLibraries).mockResolvedValueOnce({
+      data: {
+        mode: 'deferred',
+        affectedUserCount: 3,
+        outOfSyncUserCount: 3,
+        status: 'out_of_sync',
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.$.setupState.selectedGroup = {
+      key: 'vip',
+      name: 'VIP',
+      description: '',
+      isDefault: false,
+      sortOrder: 0,
+    }
+    wrapper.vm.$.setupState.selectedLibraryIds = ['lib_movie']
+
+    await wrapper.vm.$.setupState.handleSaveMediaLibraries(false)
+    await flushPromises()
+
+    expect(updatePlanGroupMediaLibraries).toHaveBeenCalledWith('vip', ['lib_movie'], false)
+    expect(ElMessage.success).toHaveBeenCalledWith('模板已保存，3 个用户待同步')
+    expect(wrapper.vm.$.setupState.activeSyncBatch).toBeNull()
 
     wrapper.unmount()
   })

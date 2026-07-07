@@ -228,6 +228,34 @@ func TestPlanGroupManagedPolicyTaskQueryExcludesAdminsAndProtectionFailures(t *t
 	}
 }
 
+func TestPlanGroupManagedUsersQueryUsesEffectivePlanGroupAndBoundUsers(t *testing.T) {
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DryRun:               true,
+		DisableAutomaticPing: true,
+	})
+	if err != nil {
+		t.Fatalf("open dry-run database: %v", err)
+	}
+
+	var count int64
+	stmt := planGroupManagedUsersQuery(database, "VIP_A").
+		Where(`users."applied_media_library_template_version" < COALESCE(explicit_pg.media_library_template_version, default_pg.media_library_template_version)`).
+		Count(&count).Statement
+	sql := strings.Join(strings.Fields(stmt.SQL.String()), " ")
+
+	assertSQLContains(t, sql, `LEFT JOIN plan_groups explicit_pg ON explicit_pg.key = users."plan_group"`)
+	assertSQLContains(t, sql, `LEFT JOIN plan_groups default_pg ON default_pg."is_default" =`)
+	assertSQLContains(t, sql, `COALESCE(users."emby_id", '') <> ''`)
+	assertSQLContains(t, sql, `COALESCE(users."plan_group", default_pg.key) =`)
+	assertSQLContains(t, sql, `users."applied_media_library_template_version" < COALESCE(explicit_pg.media_library_template_version, default_pg.media_library_template_version)`)
+	if len(stmt.Vars) != 3 || stmt.Vars[0] != true || stmt.Vars[1] != "user" || stmt.Vars[2] != "VIP_A" {
+		t.Fatalf("unexpected query vars: %+v", stmt.Vars)
+	}
+}
+
 func TestBuildPlansWithGroupNameSelectIncludesDisplayJoin(t *testing.T) {
 	database, err := gorm.Open(postgres.New(postgres.Config{
 		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
