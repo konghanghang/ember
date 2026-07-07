@@ -64,6 +64,23 @@ type EmbyLibraryItem struct {
 	MediaSources      []EmbyMediaSource `json:"MediaSources"`
 }
 
+type EmbyItemAncestor struct {
+	ID       string `json:"Id"`
+	Name     string `json:"Name"`
+	Type     string `json:"Type"`
+	ParentID string `json:"ParentId"`
+	SeriesID string `json:"SeriesId"`
+}
+
+type embyViewsResponse struct {
+	Items []struct {
+		ID             string `json:"Id"`
+		Name           string `json:"Name"`
+		Type           string `json:"Type"`
+		CollectionType string `json:"CollectionType"`
+	} `json:"Items"`
+}
+
 type embyLibraryItemsResponse struct {
 	Items            []EmbyLibraryItem `json:"Items"`
 	TotalRecordCount int               `json:"TotalRecordCount"`
@@ -229,6 +246,105 @@ func shouldRetryGetItemsByIDs(err error) bool {
 	}
 
 	return false
+}
+
+func (s *EmbyService) GetItemAncestors(itemID string) ([]EmbyItemAncestor, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
+	}
+
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return nil, errors.New("itemId 不能为空")
+	}
+
+	body, err := s.getWithAPIKey("/emby/Items/"+url.PathEscape(itemID)+"/Ancestors", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var ancestors []EmbyItemAncestor
+	if err := json.Unmarshal(body, &ancestors); err != nil {
+		return nil, fmt.Errorf("解析 Emby 条目祖先链失败: %w", err)
+	}
+	return ancestors, nil
+}
+
+func (s *EmbyService) GetUserViews(userID string) ([]EmbyLibrary, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
+	}
+
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, errors.New("userId 不能为空")
+	}
+
+	body, err := s.getWithAPIKey("/emby/Users/"+url.PathEscape(userID)+"/Views", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp embyViewsResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析 Emby Views 列表失败: %w", err)
+	}
+
+	views := make([]EmbyLibrary, 0, len(resp.Items))
+	for _, item := range resp.Items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		libraryType := strings.TrimSpace(item.CollectionType)
+		if libraryType == "" {
+			libraryType = strings.TrimSpace(item.Type)
+		}
+		if isSystemCollectionLibrary(libraryType) {
+			continue
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = id
+		}
+		if libraryType == "" {
+			libraryType = "unknown"
+		}
+		views = append(views, EmbyLibrary{
+			ID:   id,
+			Name: name,
+			Type: libraryType,
+		})
+	}
+	return views, nil
+}
+
+func (s *EmbyService) GetAdminViews() ([]EmbyLibrary, error) {
+	users, err := s.GetUsers()
+	if err != nil {
+		return nil, err
+	}
+	if len(users) == 0 {
+		return []EmbyLibrary{}, nil
+	}
+
+	userID := strings.TrimSpace(users[0].ID)
+	for _, user := range users {
+		if user.ID == "" {
+			continue
+		}
+		if user.Policy == nil {
+			continue
+		}
+		if isAdmin, ok := user.Policy["IsAdministrator"].(bool); ok && isAdmin {
+			userID = strings.TrimSpace(user.ID)
+			break
+		}
+	}
+	if userID == "" {
+		return []EmbyLibrary{}, nil
+	}
+	return s.GetUserViews(userID)
 }
 
 // GetLibraries 获取媒体库列表（兼容不同 Emby 版本响应结构）

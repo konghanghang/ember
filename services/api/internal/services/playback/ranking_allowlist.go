@@ -35,9 +35,9 @@ type RankingLibraryAllowlistSettings struct {
 }
 
 type rankingLibraryFilter struct {
-	allowAll       bool
-	libraryIDs     []string
-	allowedItemIDs map[string]struct{}
+	allowAll          bool
+	libraryIDs        []string
+	allowedLibraryIDs map[string]struct{}
 }
 
 func (s *PlaybackRankingService) GetRankingLibraryAllowlist() (*RankingLibraryAllowlistSettings, error) {
@@ -52,6 +52,24 @@ func (s *PlaybackRankingService) GetRankingLibraryAllowlist() (*RankingLibraryAl
 	}
 
 	validIDs, invalidIDs := partitionRankingLibraryIDs(storedIDs, libraryOptionMap(libraries))
+	if len(storedIDs) > 0 && len(validIDs) == 0 {
+		log.Printf("[PlaybackRanking] allowlist stored IDs are obsolete, clearing old config stored=%v", storedIDs)
+		if s.saveLibraryAllowlist != nil {
+			if clearErr := s.saveLibraryAllowlist([]string{}, nil); clearErr != nil {
+				return nil, clearErr
+			}
+		}
+		storedIDs = []string{}
+		validIDs = []string{}
+		invalidIDs = []string{}
+	}
+	log.Printf(
+		"[PlaybackRanking] allowlist read stored=%v valid=%v invalid=%v libraries=%s",
+		storedIDs,
+		validIDs,
+		invalidIDs,
+		formatRankingLibraryOptionsForLog(libraries),
+	)
 	return &RankingLibraryAllowlistSettings{
 		AllowAll:          len(storedIDs) == 0,
 		LibraryIDs:        validIDs,
@@ -67,6 +85,9 @@ func (s *PlaybackRankingService) UpdateRankingLibraryAllowlist(libraryIDs []stri
 	}
 
 	normalizedIDs := normalizeRankingLibraryIDs(libraryIDs)
+	if len(normalizedIDs) == len(libraries) && len(libraries) > 0 {
+		normalizedIDs = []string{}
+	}
 	libraryByID := libraryOptionMap(libraries)
 	for _, id := range normalizedIDs {
 		if _, ok := libraryByID[id]; !ok {
@@ -77,6 +98,12 @@ func (s *PlaybackRankingService) UpdateRankingLibraryAllowlist(libraryIDs []stri
 	if s.saveLibraryAllowlist == nil {
 		return nil, errors.New("排行榜媒体库配置保存器未初始化")
 	}
+	log.Printf(
+		"[PlaybackRanking] allowlist update requested=%v normalized=%v libraries=%s",
+		libraryIDs,
+		normalizedIDs,
+		formatRankingLibraryOptionsForLog(libraries),
+	)
 	if err := s.saveLibraryAllowlist(normalizedIDs, updatedByUserID); err != nil {
 		return nil, err
 	}
@@ -106,26 +133,31 @@ func (s *PlaybackRankingService) loadRankingLibraryFilter() (rankingLibraryFilte
 	if len(invalidIDs) > 0 {
 		log.Printf("[PlaybackRanking] 排行榜媒体库 allowlist 包含失效库，将忽略这些库: ids=%s", strings.Join(invalidIDs, ","))
 	}
-
-	allowedItemIDs := make(map[string]struct{})
-	for _, libraryID := range validIDs {
-		items, err := s.embyService.GetLibraryItems(libraryID, 0)
-		if err != nil {
-			return rankingLibraryFilter{}, fmt.Errorf("读取排行榜媒体库条目失败：libraryId=%s err=%w", libraryID, err)
-		}
-		for _, item := range items {
-			itemID := strings.TrimSpace(item.ID)
-			if itemID == "" {
-				continue
+	if len(ids) > 0 && len(validIDs) == 0 {
+		log.Printf("[PlaybackRanking] allowlist filter stored IDs are obsolete, clearing old config stored=%v", ids)
+		if s.saveLibraryAllowlist != nil {
+			if clearErr := s.saveLibraryAllowlist([]string{}, nil); clearErr != nil {
+				return rankingLibraryFilter{}, clearErr
 			}
-			allowedItemIDs[itemID] = struct{}{}
 		}
+		return rankingLibraryFilter{allowAll: true}, nil
+	}
+	log.Printf(
+		"[PlaybackRanking] allowlist filter stored=%v valid=%v invalid=%v libraries=%s",
+		ids,
+		validIDs,
+		invalidIDs,
+		formatRankingLibraryOptionsForLog(libraries),
+	)
+	allowedLibraryIDs := make(map[string]struct{}, len(validIDs))
+	for _, libraryID := range validIDs {
+		allowedLibraryIDs[libraryID] = struct{}{}
 	}
 
 	return rankingLibraryFilter{
-		allowAll:       false,
-		libraryIDs:     ids,
-		allowedItemIDs: allowedItemIDs,
+		allowAll:          false,
+		libraryIDs:        validIDs,
+		allowedLibraryIDs: allowedLibraryIDs,
 	}, nil
 }
 
@@ -140,11 +172,19 @@ func (s *PlaybackRankingService) getRankingLibraries() ([]RankingLibraryOption, 
 	if s == nil || s.embyService == nil {
 		return nil, errors.New("排行榜服务未配置 Emby 客户端")
 	}
-	libraries, err := s.embyService.GetLibraries()
-	if err != nil {
-		return nil, fmt.Errorf("读取 Emby 媒体库失败：%w", err)
+	load := func() ([]RankingLibraryOption, error) {
+		libraries, err := s.embyService.GetAdminViews()
+		if err != nil {
+			return nil, fmt.Errorf("读取 Emby 排行榜媒体库视图失败：%w", err)
+		}
+		return toRankingLibraryOptions(libraries), nil
 	}
-	return toRankingLibraryOptions(libraries), nil
+
+	if s.rankingLibrariesCache == nil {
+		return load()
+	}
+
+	return s.rankingLibrariesCache.Get("all", "ranking-libraries", load)
 }
 
 func loadPlaybackRankingLibraryAllowlist() ([]string, error) {
@@ -262,4 +302,15 @@ func partitionRankingLibraryIDs(storedIDs []string, libraryByID map[string]Ranki
 		invalidIDs = append(invalidIDs, id)
 	}
 	return validIDs, invalidIDs
+}
+
+func formatRankingLibraryOptionsForLog(options []RankingLibraryOption) string {
+	if len(options) == 0 {
+		return "[]"
+	}
+	parts := make([]string, 0, len(options))
+	for _, option := range options {
+		parts = append(parts, fmt.Sprintf("%s(%s)", option.ID, option.Name))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }

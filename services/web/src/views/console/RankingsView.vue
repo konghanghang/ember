@@ -24,7 +24,9 @@ const selectedDate = ref('')
 const periodStart = ref('')
 const periodEnd = ref('')
 const allowlistDialogVisible = ref(false)
-const allowlistLoading = ref(authStore.isAdmin)
+const allowlistLoaded = ref(!authStore.isAdmin)
+const allowlistLoading = ref(false)
+const allowlistLoadFailed = ref(false)
 const allowlistSaving = ref(false)
 const availableLibraries = ref<MediaLibraryOption[]>([])
 const selectedLibraryIds = ref<string[]>([])
@@ -57,6 +59,7 @@ const periodTabs = computed(() => [
 ])
 
 const hasSelectedLibraries = computed(() => selectedLibraryIds.value.length > 0)
+const selectedAllLibraries = computed(() => availableLibraries.value.length > 0 && selectedLibraryIds.value.length === availableLibraries.value.length)
 const hasInvalidOnlyAllowlist = computed(() => !allowlistAppliesToAll.value && !hasSelectedLibraries.value && invalidLibraryIds.value.length > 0)
 const selectedLibrarySet = computed(() => new Set(selectedLibraryIds.value))
 const selectedLibraryNames = computed(() => {
@@ -69,6 +72,15 @@ const selectedLibraryNames = computed(() => {
 })
 
 const allowlistSummary = computed(() => {
+  if (!allowlistLoaded.value) {
+    if (allowlistLoading.value) {
+      return '正在读取媒体库范围'
+    }
+    if (allowlistLoadFailed.value) {
+      return '媒体库范围读取失败'
+    }
+    return '未读取媒体库范围'
+  }
   if (hasInvalidOnlyAllowlist.value) {
     return '当前配置仅包含失效媒体库'
   }
@@ -96,10 +108,6 @@ const movieTotalPlays = computed(() => sumPlayCount(movies.value))
 const episodeTotalPlays = computed(() => sumPlayCount(episodes.value))
 const totalPlays = computed(() => movieTotalPlays.value + episodeTotalPlays.value)
 const rankedItemCount = computed(() => movies.value.length + episodes.value.length)
-const movieLeader = computed(() => movies.value[0] ?? null)
-const episodeLeader = computed(() => episodes.value[0] ?? null)
-const movieOtherItems = computed(() => movies.value.slice(1))
-const episodeOtherItems = computed(() => episodes.value.slice(1))
 
 function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0m'
@@ -113,6 +121,13 @@ function formatDuration(seconds: number): string {
   }
   if (hours > 0) return `${hours}h${minutes}m`
   return `${minutes}m`
+}
+
+function rankBadgeClass(rank: number): string {
+  if (rank === 1) return 'border-amber-200 bg-amber-50 text-amber-800'
+  if (rank === 2) return 'border-slate-200 bg-slate-100 text-slate-700'
+  if (rank === 3) return 'border-orange-200 bg-orange-50 text-orange-700'
+  return 'border-gray-200 bg-white text-gray-500'
 }
 
 function clearRankingState() {
@@ -187,20 +202,33 @@ async function runPreview() {
   }
 }
 
-async function fetchRankingAllowlist() {
-  if (!authStore.isAdmin) return
+async function fetchRankingAllowlist(force = false): Promise<boolean> {
+  if (!authStore.isAdmin) return false
+  if (allowlistLoaded.value && !force) {
+    return true
+  }
 
   allowlistLoading.value = true
+  allowlistLoadFailed.value = false
   try {
     const res = await getRankingLibraryAllowlist()
     applyAllowlistSettings(res.data)
+    allowlistLoaded.value = true
+    return true
   } catch (err) {
+    allowlistLoadFailed.value = true
     ElMessage.error('获取排行榜媒体库配置失败')
     // eslint-disable-next-line no-console
     console.error(err)
+    return false
   } finally {
     allowlistLoading.value = false
   }
+}
+
+function openAllowlistDialog() {
+  allowlistDialogVisible.value = true
+  void fetchRankingAllowlist()
 }
 
 async function runHistory() {
@@ -245,10 +273,11 @@ async function saveRankingAllowlist() {
 
   allowlistSaving.value = true
   try {
-    const res = await updateRankingLibraryAllowlist(selectedLibraryIds.value)
+    const nextLibraryIDs = selectedAllLibraries.value ? [] : selectedLibraryIds.value
+    const res = await updateRankingLibraryAllowlist(nextLibraryIDs)
     applyAllowlistSettings(res.data)
     ElMessage.success(
-      selectedLibraryIds.value.length === 0
+      nextLibraryIDs.length === 0
         ? '已恢复为全部媒体库参与统计'
         : '排行榜统计媒体库已保存'
     )
@@ -299,7 +328,6 @@ async function resetRankingAllowlistToAll() {
 onMounted(() => {
   selectedDate.value = toYMD(new Date())
   fetchLatestAll()
-  fetchRankingAllowlist()
 })
 </script>
 
@@ -352,10 +380,9 @@ onMounted(() => {
           <button
             v-if="authStore.isAdmin"
             type="button"
-            :disabled="allowlistLoading"
             data-test="open-allowlist-dialog"
             class="inline-flex h-[42px] cursor-pointer items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-            @click="allowlistDialogVisible = true"
+            @click="openAllowlistDialog"
           >
             {{ allowlistLoading ? '读取中...' : '媒体库范围' }}
           </button>
@@ -581,7 +608,7 @@ onMounted(() => {
           <button
             type="button"
             class="inline-flex h-[42px] cursor-pointer items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="allowlistSaving || (allowlistAppliesToAll && invalidLibraryIds.length === 0 && !hasSelectedLibraries)"
+            :disabled="allowlistLoading || allowlistSaving || (allowlistAppliesToAll && invalidLibraryIds.length === 0 && !hasSelectedLibraries)"
             @click="resetRankingAllowlistToAll"
           >
             恢复全库统计
@@ -589,7 +616,7 @@ onMounted(() => {
           <button
             type="button"
             class="btn-ember inline-flex h-[42px] cursor-pointer items-center justify-center rounded-xl px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="allowlistSaving"
+            :disabled="allowlistLoading || allowlistSaving"
             @click="saveRankingAllowlist"
           >
             {{ allowlistSaving ? '保存中...' : '保存媒体库范围' }}
@@ -609,29 +636,26 @@ onMounted(() => {
       />
 
       <div v-else class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section class="overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-sm">
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
           <div class="border-b border-gray-100 px-6 py-5">
-            <div class="flex flex-wrap items-end justify-between gap-3">
-              <div class="min-w-0">
-                <p class="text-[11px] font-semibold tracking-[0.22em] text-gray-400">电影榜单</p>
-                <div class="mt-3 flex items-center gap-3">
-                  <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-ember/10 text-ember">
-                    <el-icon :size="18"><Film /></el-icon>
-                  </div>
-                  <div>
-                    <h2 class="text-2xl font-bold tracking-[-0.04em] text-gray-950">电影 TOP 10</h2>
-                    <p class="text-sm text-gray-500">按播放次数排序</p>
-                  </div>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex min-w-0 items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-ember/10 text-ember">
+                  <el-icon :size="18"><Film /></el-icon>
+                </div>
+                <div class="min-w-0">
+                  <p class="text-[11px] font-semibold tracking-[0.22em] text-gray-400">电影榜单</p>
+                  <h2 class="mt-1 text-xl font-semibold text-gray-950">电影 TOP 10</h2>
                 </div>
               </div>
               <div class="text-right">
                 <p class="text-xs font-semibold tracking-wide text-gray-400">榜内播放</p>
-                <p class="text-2xl font-bold tracking-[-0.04em] text-gray-950">{{ movieTotalPlays }}</p>
+                <p class="text-lg font-semibold text-gray-950">{{ movieTotalPlays }}</p>
               </div>
             </div>
           </div>
 
-          <div class="p-6">
+          <div class="p-4 md:p-5">
             <EmberEmptyStateCard
               v-if="movies.length === 0"
               :icon="Film"
@@ -640,82 +664,62 @@ onMounted(() => {
               description="当前时间窗口内还没有电影上榜。"
             />
 
-            <template v-else>
-              <article class="rounded-3xl border border-gray-200 bg-stone-50 p-5">
-                <div class="grid gap-4 md:grid-cols-[72px_minmax(0,1fr)_auto] md:items-end">
-                  <div class="text-[3.25rem] font-black leading-none tracking-[-0.08em] text-ember">01</div>
-                  <div class="min-w-0">
-                    <p class="text-xs font-semibold uppercase tracking-[0.28em] text-gray-400">榜首</p>
-                    <h3 class="mt-2 break-words text-xl font-semibold leading-7 text-gray-950">
-                      {{ movieLeader?.itemName }}
-                    </h3>
-                  </div>
-                  <div class="flex flex-wrap gap-2 md:justify-end">
-                    <span class="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-200">
-                      <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
-                      {{ movieLeader?.playCount }} 次播放
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-200">
+            <div v-else class="space-y-2">
+              <article
+                v-for="item in movies"
+                :key="`${item.itemKey || item.itemName}-${item.rank}`"
+                class="grid items-center gap-3 rounded-2xl border border-gray-100 px-4 py-3 transition-colors duration-200 hover:bg-stone-50/70 md:grid-cols-[52px_minmax(0,1fr)_auto]"
+              >
+                <div class="flex items-center justify-center md:justify-start">
+                  <span
+                    class="inline-flex h-9 min-w-9 items-center justify-center rounded-full border px-2 text-sm font-semibold tabular-nums"
+                    :class="rankBadgeClass(item.rank)"
+                  >
+                    {{ String(item.rank).padStart(2, '0') }}
+                  </span>
+                </div>
+                <div class="min-w-0">
+                  <h3 class="truncate text-sm font-semibold text-gray-900">{{ item.itemName }}</h3>
+                  <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                    <span class="inline-flex items-center">
                       <el-icon :size="12" class="mr-1 text-gray-400"><Timer /></el-icon>
-                      {{ formatDuration(movieLeader?.duration ?? 0) }}
+                      <span>{{ formatDuration(item.duration) }}</span>
+                    </span>
+                    <span class="inline-flex items-center">
+                      <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
+                      <span>{{ item.playCount }} 次</span>
                     </span>
                   </div>
                 </div>
+                <div class="text-left md:text-right">
+                  <p class="text-xs font-medium text-gray-400">排名时长</p>
+                  <p class="mt-1 text-sm font-semibold text-gray-900">{{ formatDuration(item.duration) }}</p>
+                </div>
               </article>
-
-              <div v-if="movieOtherItems.length > 0" class="mt-4 border-t border-gray-100 pt-2">
-                <article
-                  v-for="item in movieOtherItems"
-                  :key="`${item.itemKey || item.itemName}-${item.rank}`"
-                  class="grid gap-3 border-b border-gray-100 px-1 py-4 last:border-b-0 md:grid-cols-[44px_minmax(0,1fr)_auto]"
-                >
-                  <div class="text-lg font-bold tracking-[-0.04em] text-gray-400">
-                    {{ String(item.rank).padStart(2, '0') }}
-                  </div>
-                  <div class="min-w-0">
-                    <h3 class="truncate text-sm font-semibold text-gray-900">{{ item.itemName }}</h3>
-                    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
-                      <span class="inline-flex items-center">
-                        <el-icon :size="12" class="mr-1 text-gray-400"><Timer /></el-icon>
-                        <span>{{ formatDuration(item.duration) }}</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="flex items-center justify-start md:justify-end">
-                    <span class="inline-flex items-center rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-gray-700">
-                      <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
-                      {{ item.playCount }} 次
-                    </span>
-                  </div>
-                </article>
-              </div>
-            </template>
+            </div>
           </div>
         </section>
 
-        <section class="overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-sm">
+        <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
           <div class="border-b border-gray-100 px-6 py-5">
-            <div class="flex flex-wrap items-end justify-between gap-3">
-              <div class="min-w-0">
-                <p class="text-[11px] font-semibold tracking-[0.22em] text-gray-400">剧集榜单</p>
-                <div class="mt-3 flex items-center gap-3">
-                  <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-700">
-                    <el-icon :size="18"><VideoCamera /></el-icon>
-                  </div>
-                  <div>
-                    <h2 class="text-2xl font-bold tracking-[-0.04em] text-gray-950">剧集 TOP 10</h2>
-                    <p class="text-sm text-gray-500">按播放次数排序</p>
-                  </div>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex min-w-0 items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-700">
+                  <el-icon :size="18"><VideoCamera /></el-icon>
+                </div>
+                <div class="min-w-0">
+                  <p class="text-[11px] font-semibold tracking-[0.22em] text-gray-400">剧集榜单</p>
+                  <h2 class="mt-1 text-xl font-semibold text-gray-950">剧集 TOP 10</h2>
                 </div>
               </div>
               <div class="text-right">
                 <p class="text-xs font-semibold tracking-wide text-gray-400">榜内播放</p>
-                <p class="text-2xl font-bold tracking-[-0.04em] text-gray-950">{{ episodeTotalPlays }}</p>
+                <p class="text-lg font-semibold text-gray-950">{{ episodeTotalPlays }}</p>
               </div>
             </div>
           </div>
 
-          <div class="p-6">
+          <div class="p-4 md:p-5">
             <EmberEmptyStateCard
               v-if="episodes.length === 0"
               :icon="VideoCamera"
@@ -724,56 +728,39 @@ onMounted(() => {
               description="当前时间窗口内还没有剧集上榜。"
             />
 
-            <template v-else>
-              <article class="rounded-3xl border border-gray-200 bg-stone-50 p-5">
-                <div class="grid gap-4 md:grid-cols-[72px_minmax(0,1fr)_auto] md:items-end">
-                  <div class="text-[3.25rem] font-black leading-none tracking-[-0.08em] text-gray-900">01</div>
-                  <div class="min-w-0">
-                    <p class="text-xs font-semibold uppercase tracking-[0.28em] text-gray-400">榜首</p>
-                    <h3 class="mt-2 break-words text-xl font-semibold leading-7 text-gray-950">
-                      {{ episodeLeader?.itemName }}
-                    </h3>
-                  </div>
-                  <div class="flex flex-wrap gap-2 md:justify-end">
-                    <span class="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-200">
-                      <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
-                      {{ episodeLeader?.playCount }} 次播放
-                    </span>
-                    <span class="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-200">
+            <div v-else class="space-y-2">
+              <article
+                v-for="item in episodes"
+                :key="`${item.itemKey || item.itemName}-${item.rank}`"
+                class="grid items-center gap-3 rounded-2xl border border-gray-100 px-4 py-3 transition-colors duration-200 hover:bg-stone-50/70 md:grid-cols-[52px_minmax(0,1fr)_auto]"
+              >
+                <div class="flex items-center justify-center md:justify-start">
+                  <span
+                    class="inline-flex h-9 min-w-9 items-center justify-center rounded-full border px-2 text-sm font-semibold tabular-nums"
+                    :class="rankBadgeClass(item.rank)"
+                  >
+                    {{ String(item.rank).padStart(2, '0') }}
+                  </span>
+                </div>
+                <div class="min-w-0">
+                  <h3 class="truncate text-sm font-semibold text-gray-900">{{ item.itemName }}</h3>
+                  <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                    <span class="inline-flex items-center">
                       <el-icon :size="12" class="mr-1 text-gray-400"><Timer /></el-icon>
-                      {{ formatDuration(episodeLeader?.duration ?? 0) }}
+                      <span>{{ formatDuration(item.duration) }}</span>
+                    </span>
+                    <span class="inline-flex items-center">
+                      <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
+                      <span>{{ item.playCount }} 次</span>
                     </span>
                   </div>
                 </div>
+                <div class="text-left md:text-right">
+                  <p class="text-xs font-medium text-gray-400">排名时长</p>
+                  <p class="mt-1 text-sm font-semibold text-gray-900">{{ formatDuration(item.duration) }}</p>
+                </div>
               </article>
-
-              <div v-if="episodeOtherItems.length > 0" class="mt-4 border-t border-gray-100 pt-2">
-                <article
-                  v-for="item in episodeOtherItems"
-                  :key="`${item.itemKey || item.itemName}-${item.rank}`"
-                  class="grid gap-3 border-b border-gray-100 px-1 py-4 last:border-b-0 md:grid-cols-[44px_minmax(0,1fr)_auto]"
-                >
-                  <div class="text-lg font-bold tracking-[-0.04em] text-gray-400">
-                    {{ String(item.rank).padStart(2, '0') }}
-                  </div>
-                  <div class="min-w-0">
-                    <h3 class="truncate text-sm font-semibold text-gray-900">{{ item.itemName }}</h3>
-                    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
-                      <span class="inline-flex items-center">
-                        <el-icon :size="12" class="mr-1 text-gray-400"><Timer /></el-icon>
-                        <span>{{ formatDuration(item.duration) }}</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="flex items-center justify-start md:justify-end">
-                    <span class="inline-flex items-center rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-gray-700">
-                        <el-icon :size="12" class="mr-1 text-gray-400"><VideoPlay /></el-icon>
-                      {{ item.playCount }} 次
-                    </span>
-                  </div>
-                </article>
-              </div>
-            </template>
+            </div>
           </div>
         </section>
       </div>

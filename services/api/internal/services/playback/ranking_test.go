@@ -318,9 +318,13 @@ func TestPreviewRankingFiltersByLibraryAllowlist(t *testing.T) {
 				handlePlaybackItemsTestRequest(t, w, r)
 				return
 			}
-			handleRankingLibraryItemsRequest(t, w, r)
-		case "/emby/Library/VirtualFolders/Query":
-			handleRankingLibrariesRequest(t, w, r)
+			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
+		case "/emby/Items/movie_1/Ancestors", "/emby/Items/series_a/Ancestors", "/emby/Items/series_b/Ancestors", "/emby/Items/series_zero/Ancestors":
+			handleRankingAncestorsRequest(t, w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -363,9 +367,13 @@ func TestComputeRankingFiltersTotalDurationByLibraryAllowlist(t *testing.T) {
 				handlePlaybackItemsTestRequest(t, w, r)
 				return
 			}
-			handleRankingLibraryItemsRequest(t, w, r)
-		case "/emby/Library/VirtualFolders/Query":
-			handleRankingLibrariesRequest(t, w, r)
+			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
+		case "/emby/Items/movie_1/Ancestors", "/emby/Items/series_a/Ancestors", "/emby/Items/series_b/Ancestors", "/emby/Items/series_zero/Ancestors":
+			handleRankingAncestorsRequest(t, w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -471,9 +479,13 @@ func TestGenerateRankingNotifiesFilteredPayload(t *testing.T) {
 				handlePlaybackItemsTestRequest(t, w, r)
 				return
 			}
-			handleRankingLibraryItemsRequest(t, w, r)
-		case "/emby/Library/VirtualFolders/Query":
-			handleRankingLibrariesRequest(t, w, r)
+			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
+		case "/emby/Items/movie_1/Ancestors", "/emby/Items/series_a/Ancestors", "/emby/Items/series_b/Ancestors", "/emby/Items/series_zero/Ancestors":
+			handleRankingAncestorsRequest(t, w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -527,9 +539,13 @@ func TestGenerateRankingUsesDefaultAsyncGoWhenNil(t *testing.T) {
 				handlePlaybackItemsTestRequest(t, w, r)
 				return
 			}
-			handleRankingLibraryItemsRequest(t, w, r)
-		case "/emby/Library/VirtualFolders/Query":
-			handleRankingLibrariesRequest(t, w, r)
+			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
+		case "/emby/Items/movie_1/Ancestors", "/emby/Items/series_a/Ancestors", "/emby/Items/series_b/Ancestors", "/emby/Items/series_zero/Ancestors":
+			handleRankingAncestorsRequest(t, w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -564,8 +580,10 @@ func TestGenerateRankingUsesDefaultAsyncGoWhenNil(t *testing.T) {
 func TestGetRankingLibraryAllowlistReportsInvalidIDs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/emby/Library/VirtualFolders/Query":
-			handleRankingLibrariesRequest(t, w, r)
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -594,6 +612,195 @@ func TestGetRankingLibraryAllowlistReportsInvalidIDs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(settings.InvalidLibraryIDs, []string{"lib_missing"}) {
 		t.Fatalf("unexpected invalid library ids: %+v", settings.InvalidLibraryIDs)
+	}
+}
+
+func TestGetRankingLibraryAllowlistClearsObsoleteGUIDConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+
+	var savedIDs []string
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"048fb0c5744d4fbdabaeff3cb025e3d3"}, nil
+		},
+		saveLibraryAllowlist: func(ids []string, _ *string) error {
+			savedIDs = append([]string{}, ids...)
+			return nil
+		},
+	}
+
+	settings, err := svc.GetRankingLibraryAllowlist()
+	if err != nil {
+		t.Fatalf("get ranking allowlist: %v", err)
+	}
+	if !settings.AllowAll || len(settings.LibraryIDs) != 0 || len(settings.InvalidLibraryIDs) != 0 {
+		t.Fatalf("expected obsolete guid config to be cleared, got %+v", settings)
+	}
+	if len(savedIDs) != 0 {
+		t.Fatalf("expected obsolete guid config to save as empty selection, got %+v", savedIDs)
+	}
+}
+
+func TestUpdateRankingLibraryAllowlistNormalizesFullSelectionToAllowAll(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+
+	var savedIDs []string
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		saveLibraryAllowlist: func(ids []string, _ *string) error {
+			savedIDs = append([]string{}, ids...)
+			return nil
+		},
+	}
+
+	settings, err := svc.UpdateRankingLibraryAllowlist([]string{"lib_movie_only", "lib_series_only"}, nil)
+	if err != nil {
+		t.Fatalf("update ranking allowlist: %v", err)
+	}
+	if !settings.AllowAll || len(settings.LibraryIDs) != 0 {
+		t.Fatalf("expected full selection to normalize to allowAll, got %+v", settings)
+	}
+	if len(savedIDs) != 0 {
+		t.Fatalf("expected full selection to save empty ids, got %+v", savedIDs)
+	}
+}
+
+func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *testing.T) {
+	var movieQueryCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body failed: %v", err)
+			}
+
+			var req map[string]string
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("unmarshal body failed: %v", err)
+			}
+
+			sql := req["CustomQueryString"]
+			switch {
+			case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+					"results": []any{},
+					"message": "",
+				})
+			case strings.Contains(sql, "ItemType = 'Movie'") && strings.Contains(sql, "LIMIT 100"):
+				movieQueryCalls++
+				rows := make([][]any, 0, 100)
+				for i := 0; i < 100; i++ {
+					rows = append(rows, []any{
+						"movie_block_" + strconv.Itoa(i),
+						"Blocked Movie " + strconv.Itoa(i),
+						"movie_item",
+						1,
+						4000 - i,
+					})
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+					"results": rows,
+					"message": "",
+				})
+			case strings.Contains(sql, "ItemType = 'Movie'") && strings.Contains(sql, "LIMIT 300"):
+				movieQueryCalls++
+				rows := make([][]any, 0, 101)
+				for i := 0; i < 100; i++ {
+					rows = append(rows, []any{
+						"movie_block_" + strconv.Itoa(i),
+						"Blocked Movie " + strconv.Itoa(i),
+						"movie_item",
+						1,
+						4000 - i,
+					})
+				}
+				rows = append(rows, []any{"movie_allowed", "Allowed Movie", "movie_item", 2, 3600})
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+					"results": rows,
+					"message": "",
+				})
+			case strings.Contains(sql, "ItemType = 'Episode'"):
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+					"results": [][]any{},
+					"message": "",
+				})
+			default:
+				t.Fatalf("unexpected playback sql: %s", sql)
+			}
+		case "/emby/Items":
+			if strings.TrimSpace(r.URL.Query().Get("Ids")) == "" {
+				t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+			}
+			handleExpansionMovieItemsRequest(t, w, r)
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			handleRankingViewsRequest(t, w, r)
+		default:
+			if strings.HasPrefix(r.URL.Path, "/emby/Items/movie_") && strings.HasSuffix(r.URL.Path, "/Ancestors") {
+				handleExpansionMovieAncestorsRequest(t, w, r)
+				return
+			}
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"lib_movie_only"}, nil
+		},
+	}
+
+	result, err := svc.PreviewRanking(models.RankingWeekly)
+	if err != nil {
+		t.Fatalf("preview ranking failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if movieQueryCalls < 2 {
+		t.Fatalf("expected movie query to expand candidate window, got %d calls", movieQueryCalls)
+	}
+	if len(result.Movies) != 1 || result.Movies[0].ItemKey != "movie_allowed" {
+		t.Fatalf("expected expanded result to include allowed movie, got %+v", result.Movies)
 	}
 }
 
@@ -732,6 +939,18 @@ func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		switch id {
+		case "movie_1":
+			items = append(items, map[string]any{
+				"Id":       id,
+				"ParentId": "lib_movie_only",
+				"Type":     "Movie",
+			})
+		case "movie_short":
+			items = append(items, map[string]any{
+				"Id":       id,
+				"ParentId": "lib_movie_only",
+				"Type":     "Movie",
+			})
 		case "ep_145", "ep_144":
 			items = append(items, map[string]any{
 				"Id":         id,
@@ -750,6 +969,18 @@ func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http
 				"SeriesId":   "series_zero",
 				"SeriesName": "无效剧集",
 			})
+		case "series_a":
+			items = append(items, map[string]any{
+				"Id":       id,
+				"ParentId": "lib_series_only",
+				"Type":     "Series",
+			})
+		case "series_b", "series_zero":
+			items = append(items, map[string]any{
+				"Id":       id,
+				"ParentId": "lib_other",
+				"Type":     "Series",
+			})
 		default:
 			t.Fatalf("unexpected item id lookup: %s", id)
 		}
@@ -761,40 +992,84 @@ func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http
 	})
 }
 
-func handleRankingLibrariesRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+func handleRankingUsersRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	_ = json.NewEncoder(w).Encode([]map[string]any{
+		{"Id": "admin_1", "Name": "admin", "Policy": map[string]any{"IsAdministrator": true}},
+		{"Id": "user_1", "Name": "user"},
+	})
+}
+
+func handleRankingViewsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	t.Helper()
 
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"Items": []map[string]any{
-			{"Guid": "lib_movie_only", "Name": "电影库", "CollectionType": "movies", "ItemCount": 1},
-			{"Guid": "lib_series_only", "Name": "剧集库", "CollectionType": "tvshows", "ItemCount": 2},
+			{"Id": "lib_movie_only", "Name": "电影库", "CollectionType": "movies", "Type": "CollectionFolder"},
+			{"Id": "lib_series_only", "Name": "剧集库", "CollectionType": "tvshows", "Type": "CollectionFolder"},
 		},
 	})
 }
 
-func handleRankingLibraryItemsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+func handleRankingAncestorsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	t.Helper()
 
-	switch strings.TrimSpace(r.URL.Query().Get("ParentId")) {
-	case "lib_movie_only":
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"Items": []map[string]any{
-				{"Id": "movie_1", "Name": "星际穿越", "Type": "Movie"},
-			},
-			"TotalRecordCount": 1,
-		})
-	case "lib_series_only":
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"Items": []map[string]any{
-				{"Id": "ep_145", "Name": "斗罗大陆II绝世唐门 - s02e145", "Type": "Episode"},
-				{"Id": "ep_144", "Name": "斗罗大陆II绝世唐门 - s02e144", "Type": "Episode"},
-				{"Id": "ep_b1", "Name": "吞噬星空 - s07e215", "Type": "Episode"},
-			},
-			"TotalRecordCount": 3,
-		})
+	var ancestors []map[string]any
+	switch r.URL.Path {
+	case "/emby/Items/movie_1/Ancestors":
+		ancestors = []map[string]any{{"Id": "lib_movie_only", "Type": "CollectionFolder", "Name": "电影库"}}
+	case "/emby/Items/series_a/Ancestors":
+		ancestors = []map[string]any{{"Id": "lib_series_only", "Type": "CollectionFolder", "Name": "剧集库"}}
+	case "/emby/Items/series_b/Ancestors", "/emby/Items/series_zero/Ancestors":
+		ancestors = []map[string]any{{"Id": "lib_other", "Type": "CollectionFolder", "Name": "其他库"}}
 	default:
-		t.Fatalf("unexpected library parentId: %s", r.URL.Query().Get("ParentId"))
+		t.Fatalf("unexpected ancestors path: %s", r.URL.Path)
 	}
+
+	_ = json.NewEncoder(w).Encode(ancestors)
+}
+
+func handleExpansionMovieItemsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	rawIDs := strings.TrimSpace(r.URL.Query().Get("Ids"))
+	ids := strings.Split(rawIDs, ",")
+	items := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		parentID := "lib_other"
+		if id == "movie_allowed" {
+			parentID = "lib_unknown"
+		}
+		items = append(items, map[string]any{
+			"Id":       id,
+			"ParentId": parentID,
+			"Type":     "Movie",
+		})
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Items":            items,
+		"TotalRecordCount": len(items),
+	})
+}
+
+func handleExpansionMovieAncestorsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	if strings.Contains(r.URL.Path, "movie_allowed") {
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"Id": "lib_movie_only", "Type": "CollectionFolder", "Name": "电影库"},
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode([]map[string]any{
+		{"Id": "lib_other", "Type": "CollectionFolder", "Name": "其他库"},
+	})
 }
 
 func handlePlaybackPartialBatchQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {

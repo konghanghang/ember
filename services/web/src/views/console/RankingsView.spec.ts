@@ -200,15 +200,17 @@ describe('RankingsView 媒体库 allowlist', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(getRankingLibraryAllowlist).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
+    expect(getRankingLibraryAllowlist).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('未读取媒体库范围')
     expect(wrapper.find('[data-test="allowlist-dialog"]').exists()).toBe(false)
 
     await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
     await flushPromises()
 
+    expect(getRankingLibraryAllowlist).toHaveBeenCalledTimes(1)
     expect(wrapper.find('[data-test="allowlist-dialog"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('参与统计的媒体库')
+    expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
 
     await wrapper.find('[data-test="library-checkbox-lib_series"]').setValue(true)
     await flushPromises()
@@ -220,8 +222,8 @@ describe('RankingsView 媒体库 allowlist', () => {
     await saveButton!.trigger('click')
     await flushPromises()
 
-    expect(updateRankingLibraryAllowlist).toHaveBeenCalledWith(['lib_movie', 'lib_series'])
-    expect(ElMessage.success).toHaveBeenCalledWith('排行榜统计媒体库已保存')
+    expect(updateRankingLibraryAllowlist).toHaveBeenCalledWith([])
+    expect(ElMessage.success).toHaveBeenCalledWith('已恢复为全部媒体库参与统计')
     expect(wrapper.find('[data-test="allowlist-dialog"]').exists()).toBe(false)
   })
 
@@ -310,5 +312,13 @@ describe('RankingsView 媒体库 allowlist', () => {
     expect(ElMessage.error).toHaveBeenCalledWith('保存排行榜媒体库配置失败')
     expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
     expect(wrapper.find('[data-test="library-checkbox-lib_movie"]').element).toHaveProperty('checked', true)
+  })
+
+  it('管理员首屏不会主动请求媒体库配置', async () => {
+    mountView()
+    await flushPromises()
+
+    expect(getLatestRanking).toHaveBeenCalledTimes(1)
+    expect(getRankingLibraryAllowlist).not.toHaveBeenCalled()
   })
 })
