@@ -8,7 +8,8 @@ PYTHON ?= python3.11
 
 .PHONY: help init setup dev-api dev-web dev-bot build-api build-web build \
 	docker-build docker-up docker-down docker-logs docker-logs-api \
-	test-api test-web test-bot test db-backup db-restore clean clean-deps \
+	test-api test-web test-bot test test-api-report test-web-report test-bot-report test-report \
+	db-backup db-restore clean clean-deps clean-test-artifacts \
 	clean-docker fmt-api info
 
 help: ## 显示帮助信息
@@ -31,7 +32,11 @@ setup: ## 安装 API / Web / Bot 依赖
 	@echo "📦 安装 Web 依赖..."
 	@cd $(WEB_DIR) && npm ci
 	@echo "📦 安装 Bot 依赖..."
-	@cd $(BOT_DIR) && $(PYTHON) -m pip install -r requirements.txt
+	@if [ ! -x $(BOT_DIR)/.venv/bin/python ]; then \
+		echo "⚠️  Bot 虚拟环境不存在，请先执行: cd $(BOT_DIR) && $(PYTHON) -m venv .venv"; \
+		exit 1; \
+	fi
+	@cd $(BOT_DIR) && .venv/bin/python -m pip install -r requirements-dev.txt
 	@echo "✅ 依赖安装完成"
 
 # ==================== 开发模式 ====================
@@ -90,16 +95,37 @@ test-api: ## 运行 Go API 测试
 	@echo "🧪 运行 API 测试..."
 	@cd $(API_DIR) && go test -v -race ./...
 
+test-api-report: ## 运行 API 测试并输出结果产物
+	@echo "🧪 运行 API 测试并生成报告..."
+	@bash scripts/test/api.sh
+
 test-web: ## 运行 Web 测试
 	@echo "🧪 运行 Web 测试..."
 	@cd $(WEB_DIR) && npm run test
 
+test-web-report: ## 运行 Web 测试并输出结果产物
+	@echo "🧪 运行 Web 测试并生成报告..."
+	@bash scripts/test/web.sh
+
 test-bot: ## 运行 Bot 测试
 	@echo "🧪 运行 Bot 测试..."
-	@cd $(BOT_DIR) && $(PYTHON) -m unittest discover -s tests
+	@if [ ! -x $(BOT_DIR)/.venv/bin/python ]; then \
+		echo "⚠️  Bot 虚拟环境不存在，请先执行: cd $(BOT_DIR) && $(PYTHON) -m venv .venv"; \
+		exit 1; \
+	fi
+	@cd $(BOT_DIR) && .venv/bin/python -m py_compile main.py && .venv/bin/python -m pytest tests
+
+test-bot-report: ## 运行 Bot 测试并输出结果产物
+	@echo "🧪 运行 Bot 测试并生成报告..."
+	@bash scripts/test/bot.sh
 
 test: test-api test-web test-bot ## 运行所有测试
 	@echo "✅ 所有测试执行完成"
+
+test-report: ## 运行 API / Web / Bot 并统一输出结果产物
+	@echo "🧪 运行全量测试并生成报告..."
+	@bash scripts/test/all.sh
+	@echo "✅ 测试结果已写入 artifacts/test-results"
 
 # ==================== 数据库 ====================
 
@@ -125,6 +151,11 @@ clean: ## 清理构建产物和日志
 	@rm -rf $(BOT_DIR)/logs/*
 	@find $(BOT_DIR) -type d -name "__pycache__" -prune -exec rm -rf {} +
 	@echo "✅ 清理完成"
+
+clean-test-artifacts: ## 清理统一测试结果产物
+	@echo "🧹 清理测试结果产物..."
+	@find artifacts/test-results -mindepth 1 ! -name '.gitkeep' -exec rm -rf {} +
+	@echo "✅ 测试结果产物已清理"
 
 clean-deps: ## 清理依赖目录（node_modules / .venv）
 	@echo "🧹 清理依赖目录..."

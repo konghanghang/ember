@@ -9,6 +9,7 @@
 - [数据库 Migration Baseline](./database-migration-baseline.md) - baseline 生成、验证与旧迁移归档流程
 - [部署排障](./deployment-troubleshooting.md) - 部署失败时的检查动作和恢复动作
 - [测试指南](./testing.md) - 测试入口与最短验证路径
+- [集成测试手册](./integration-testing.md) - API 集成测试、未来 Web+API 联测与结果产物约定
 - [手工测试清单](./manual-testing-checklist.md) - 按变更范围选跑的手工回归清单
 - [测试排障](./testing-troubleshooting.md) - 编译、联调、集成测试常见阻塞
 - [Stripe 支付测试指南](./stripe-payment-testing.md) - Stripe CLI 与 cloudflared 两种支付联调方式

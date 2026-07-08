@@ -19,6 +19,12 @@ go test ./...
 go build ./...
 ```
 
+如果需要保留每个测试用例的执行结果：
+
+```bash
+make test-api-report
+```
+
 ### Web 改动
 
 ```bash
@@ -28,13 +34,32 @@ npm run test
 npm run build
 ```
 
+如果需要保留测试结果产物：
+
+```bash
+make test-web-report
+```
+
 ### Bot 改动
 
 ```bash
 cd services/bot
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements-dev.txt
 python -m py_compile main.py
 python -m pytest tests
+```
+
+约定：
+
+- Bot 测试与本地运行默认使用 `services/bot/.venv`
+- 如果 `.venv` 不存在，`make setup`、`make test-bot`、`make test-bot-report` 会直接提示先创建虚拟环境
+
+如果需要保留测试结果产物：
+
+```bash
+make test-bot-report
 ```
 
 ## 什么时候必须补手工测试
@@ -64,6 +89,8 @@ python -m pytest tests
 
 ## 继续阅读
 
+- [测试策略](../reference/testing-strategy.md)
+- [集成测试手册](./integration-testing.md)
 - [手工测试清单](./manual-testing-checklist.md)
 - [Stripe 支付测试指南](./stripe-payment-testing.md)
 - [测试排障](./testing-troubleshooting.md)

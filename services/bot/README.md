@@ -22,6 +22,12 @@ python -m pytest tests
 services/bot/.venv/bin/python -m pytest services/bot/tests
 ```
 
+约定：
+
+- Bot 的本地运行和测试默认都使用 `services/bot/.venv`
+- 如果 `.venv` 不存在，先执行 `python3.11 -m venv .venv`
+- 仓库根的 `make setup`、`make test-bot`、`make test-bot-report` 也依赖这个虚拟环境路径
+
 本地运行：
 
 ```bash

@@ -17,6 +17,20 @@ go test ./...
 go build ./...
 ```
 
+API 集成测试骨架入口：
+
+```bash
+cd services/api
+EMBER_INTEGRATION_DATABASE_URL='postgres://user:pass@127.0.0.1:5432/ember_test?sslmode=disable' \
+go test ./internal/app -run Integration -count=1
+```
+
+说明：
+
+- 这组测试默认需要显式设置 `EMBER_INTEGRATION_DATABASE_URL`，避免误连开发或生产库。
+- 测试会为每个 case 创建独立 schema，自动跑 migration / VerifySchema / Bootstrap，再起真实 router。
+- 外部系统链路默认不打真实 Emby / Telegram / Stripe；后续需要集成流时，应在测试内把 settings 指向 `httptest` fake server。
+
 ## 环境变量
 
 本地开发可从 [`.env.example`](./.env.example) 起步：

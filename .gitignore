@@ -7,6 +7,8 @@
 # testing
 /coverage
 /services/web/coverage/
+/artifacts/test-results/*
+!/artifacts/test-results/.gitkeep
 
 # next.js
 /.next/

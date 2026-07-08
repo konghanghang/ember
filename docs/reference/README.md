@@ -15,6 +15,7 @@
    - [配置参考](./configuration-reference.md)
    - [数据模型参考](./data-model-reference.md)
    - [API 端点目录](./api-endpoint-catalog.md)
+   - [测试策略](./testing-strategy.md)
    - [Web 信息架构参考](./web-information-architecture.md)
    - [Bot 架构参考](./bot-architecture-reference.md)
    - [Web 设计规范](./web-design-guide.md)
@@ -44,6 +45,7 @@
 - [配置参考](./configuration-reference.md) - 配置来源、优先级和边界
 - [数据模型参考](./data-model-reference.md) - 系统表结构、字段语义与关系说明
 - [API 端点目录](./api-endpoint-catalog.md) - HTTP / Internal API 路由分组与用途总表
+- [测试策略](./testing-strategy.md) - 测试分层、回归边界与结果保留约定
 - [API 开发与目录规范](./api-development-conventions.md) - `services/api` 的分层、依赖方向与稳定实现模式
 - [API 响应规范](./api-response-standard.md) - 接口返回、字段命名和模型映射约定
 - [Web 信息架构参考](./web-information-architecture.md) - 共享组件层、页面职责与路由归属

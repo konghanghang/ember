@@ -31,6 +31,7 @@
 - [多 Agent 协作指南](./reference/multi-agent-collaboration-guide.md)
 - [API 开发与目录规范](./reference/api-development-conventions.md)
 - [API 响应规范](./reference/api-response-standard.md)
+- [测试策略](./reference/testing-strategy.md)
 - [旧版 Emby API 探索笔记](./archive/reference/emby-api-guide.md)
 - [Web 设计规范](./reference/web-design-guide.md)
 
@@ -40,6 +41,7 @@
 - [部署环境与配置](./runbooks/deployment-environment.md)
 - [部署排障](./runbooks/deployment-troubleshooting.md)
 - [测试指南](./runbooks/testing.md)
+- [集成测试手册](./runbooks/integration-testing.md)
 - [手工测试清单](./runbooks/manual-testing-checklist.md)
 - [测试排障](./runbooks/testing-troubleshooting.md)
 - [Stripe 支付测试指南](./runbooks/stripe-payment-testing.md)
