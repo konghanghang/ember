@@ -4,10 +4,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import PlanGroupsView from '@/views/admin/PlanGroupsView.vue'
 import AccountCenterView from '@/views/console/AccountCenterView.vue'
+import RankingsView from '@/views/console/RankingsView.vue'
 import SubscriptionsView from '@/views/console/SubscriptionsView.vue'
 import request from '@/api/request'
 import { login } from '@/api/auth'
-import { updatePlanGroup } from '@/api/admin'
+import { getRankingLibraryAllowlist, updatePlanGroup } from '@/api/admin'
 import { createSubscription } from '@/api/console'
 import type { LoginResponse, UserInfo } from '@/types/api'
 import { startGoIntegrationServer, type RunningGoServer } from './go-server'
@@ -234,6 +235,31 @@ function mountSubscriptionsView() {
   })
 }
 
+function mountRankingsView() {
+  return mount(RankingsView, {
+    global: {
+      stubs: {
+        EmberPageHeaderCard: passthroughStub,
+        EmberFormDialog: passthroughStub,
+        EmberSegmentTabs: passthroughStub,
+        EmberEmptyStateCard: passthroughStub,
+        'el-icon': passthroughStub,
+        'el-skeleton': passthroughStub,
+        'el-empty': passthroughStub,
+        'el-date-picker': passthroughStub,
+        'el-checkbox-group': passthroughStub,
+        'el-checkbox': checkboxStub,
+        Trophy: passthroughStub,
+        Film: passthroughStub,
+        VideoCamera: passthroughStub,
+        Calendar: passthroughStub,
+        Timer: passthroughStub,
+        VideoPlay: passthroughStub,
+      },
+    },
+  })
+}
+
 describe('media library policy web+api+db flow', () => {
   beforeAll(async () => {
     server = await startGoIntegrationServer()
@@ -319,6 +345,26 @@ describe('media library policy web+api+db flow', () => {
     const createdSubscription = wrapper.vm.$.setupState.subscriptions.find((item: { id: string }) => item.id === created.subscriptionId)
     expect(createdSubscription, 'expected created subscription to appear in list').toBeTruthy()
     expect(createdSubscription.status).toBe('APPROVED')
+    wrapper.unmount()
+  })
+
+  it('covers rankings allowlist save through real web api', async () => {
+    switchSession(adminLogin)
+    const wrapper = mountRankingsView()
+    await wrapper.vm.$.setupState.fetchRankingAllowlist(true)
+    await flushPromises()
+
+    expect(wrapper.vm.$.setupState.allowlistSummary).toBe('当前按全部媒体库统计')
+
+    wrapper.vm.$.setupState.allowlistDialogVisible = true
+    wrapper.vm.$.setupState.selectedLibraryIds = ['/data/movies']
+    await wrapper.vm.$.setupState.saveRankingAllowlist()
+    await flushPromises()
+
+    expect(wrapper.vm.$.setupState.allowlistSummary).toBe('当前按 1 个媒体库统计')
+    const persisted = await getRankingLibraryAllowlist()
+    expect(persisted.data.allowAll).toBe(false)
+    expect(persisted.data.libraryIds).toEqual(['/data/movies'])
     wrapper.unmount()
   })
 })

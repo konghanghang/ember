@@ -48,6 +48,20 @@ func newIntegrationFakeEmbyServer(t *testing.T) *integrationFakeEmbyServer {
 				{"Id":"/data/series","Name":"剧集","CollectionType":"tvshows","ItemCount":8}
 			]`)
 			return
+		case r.Method == http.MethodGet && r.URL.Path == "/emby/Users":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[
+				{"Id":"emby_admin","Name":"integration-admin","Policy":{"IsAdministrator":true}},
+				{"Id":"emby_user_policy","Name":"integration-user","Policy":{"IsAdministrator":false}}
+			]`)
+			return
+		case r.Method == http.MethodGet && r.URL.Path == "/emby/Users/emby_admin/Views":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"Items":[
+				{"Id":"/data/movies","Name":"电影","CollectionType":"movies"},
+				{"Id":"/data/series","Name":"剧集","CollectionType":"tvshows"}
+			]}`)
+			return
 		case r.Method == http.MethodGet && r.URL.Path == "/emby/Users/emby_user_policy":
 			w.Header().Set("Content-Type", "application/json")
 			body, _ := json.Marshal(map[string]any{
@@ -228,6 +242,74 @@ func TestIntegrationUserMediaLibraryPolicyApplyCurrentSyncsTemplateVersion(t *te
 	enabledFolders, ok := fakeEmby.lastPolicyBody["EnabledFolders"].([]any)
 	if !ok || len(enabledFolders) != 1 || strings.TrimSpace(enabledFolders[0].(string)) != "/data/movies" {
 		t.Fatalf("expected EnabledFolders to include /data/movies, got %+v", fakeEmby.lastPolicyBody["EnabledFolders"])
+	}
+}
+
+func TestIntegrationRankingLibraryAllowlistPersistsAndReloads(t *testing.T) {
+	harness := newIntegrationHarness(t)
+	fakeEmby := newIntegrationFakeEmbyServer(t)
+	harness.setSetting(t, "EMBY_URL", fakeEmby.server.URL)
+	harness.setSetting(t, "EMBY_API_KEY", "integration-emby-key")
+
+	initial := harness.performAdminRequest(http.MethodGet, "/api/v1/admin/rankings/library-allowlist", nil)
+	if initial.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", initial.Code, initial.Body.String())
+	}
+	var initialResp struct {
+		Data struct {
+			AllowAll   bool     `json:"allowAll"`
+			LibraryIDs []string `json:"libraryIds"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(initial.Body.Bytes(), &initialResp); err != nil {
+		t.Fatalf("decode initial response: %v", err)
+	}
+	if !initialResp.Data.AllowAll || len(initialResp.Data.LibraryIDs) != 0 {
+		t.Fatalf("expected initial allow-all response, got %+v", initialResp.Data)
+	}
+
+	update := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/rankings/library-allowlist", []byte(`{
+		"libraryIds":["/data/movies"]
+	}`))
+	if update.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", update.Code, update.Body.String())
+	}
+	var updatedResp struct {
+		Data struct {
+			AllowAll   bool     `json:"allowAll"`
+			LibraryIDs []string `json:"libraryIds"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(update.Body.Bytes(), &updatedResp); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if updatedResp.Data.AllowAll || len(updatedResp.Data.LibraryIDs) != 1 || updatedResp.Data.LibraryIDs[0] != "/data/movies" {
+		t.Fatalf("unexpected updated allowlist: %+v", updatedResp.Data)
+	}
+
+	var setting models.Setting
+	if err := harness.database.Where("key = ?", "playback_ranking_library_allowlist").First(&setting).Error; err != nil {
+		t.Fatalf("load persisted allowlist setting: %v", err)
+	}
+	if setting.Value != `["/data/movies"]` {
+		t.Fatalf("unexpected persisted allowlist value: %s", setting.Value)
+	}
+
+	reloaded := harness.performAdminRequest(http.MethodGet, "/api/v1/admin/rankings/library-allowlist", nil)
+	if reloaded.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", reloaded.Code, reloaded.Body.String())
+	}
+	var reloadedResp struct {
+		Data struct {
+			AllowAll   bool     `json:"allowAll"`
+			LibraryIDs []string `json:"libraryIds"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(reloaded.Body.Bytes(), &reloadedResp); err != nil {
+		t.Fatalf("decode reloaded response: %v", err)
+	}
+	if reloadedResp.Data.AllowAll || len(reloadedResp.Data.LibraryIDs) != 1 || reloadedResp.Data.LibraryIDs[0] != "/data/movies" {
+		t.Fatalf("unexpected reloaded allowlist: %+v", reloadedResp.Data)
 	}
 }
 

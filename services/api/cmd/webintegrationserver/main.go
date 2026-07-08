@@ -231,6 +231,34 @@ func newFakeEmbyServer() *httptest.Server {
 				{"Id":"/data/series","Name":"剧集","CollectionType":"tvshows","ItemCount":8}
 			]`)
 			return
+		case r.Method == http.MethodGet && r.URL.Path == "/emby/Users":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"Id":   "emby_admin",
+					"Name": "integration-admin",
+					"Policy": map[string]any{
+						"IsAdministrator": true,
+					},
+				},
+				{
+					"Id":   "emby_user_policy",
+					"Name": testUserUsername,
+					"Policy": map[string]any{
+						"IsAdministrator": false,
+					},
+				},
+			})
+			return
+		case r.Method == http.MethodGet && r.URL.Path == "/emby/Users/emby_admin/Views":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Items": []map[string]any{
+					{"Id": "/data/movies", "Name": "电影", "CollectionType": "movies"},
+					{"Id": "/data/series", "Name": "剧集", "CollectionType": "tvshows"},
+				},
+			})
+			return
 		case r.Method == http.MethodGet && r.URL.Path == "/emby/Users/emby_user_policy":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
