@@ -1,6 +1,7 @@
 package config
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
@@ -158,5 +159,81 @@ func TestInvalidateCachedSettingForcesReload(t *testing.T) {
 	}
 	if loadCalls != 2 {
 		t.Fatalf("expected invalidation to force second DB read, got %d", loadCalls)
+	}
+}
+
+func TestResolveStringCoalescesConcurrentSingleKeyLoads(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
+
+	definitions := getConfigDefinitionMap()
+	original, existed := definitions["TEST_CONCURRENT_CACHE_KEY"]
+	definitions["TEST_CONCURRENT_CACHE_KEY"] = ConfigDefinition{
+		Key:                "TEST_CONCURRENT_CACHE_KEY",
+		Type:               ConfigValueString,
+		DisableEnvFallback: true,
+	}
+	t.Cleanup(func() {
+		if existed {
+			definitions["TEST_CONCURRENT_CACHE_KEY"] = original
+			return
+		}
+		delete(definitions, "TEST_CONCURRENT_CACHE_KEY")
+	})
+
+	var mu sync.Mutex
+	loadCalls := 0
+	release := make(chan struct{})
+	service := &ConfigService{
+		loadSettingRecords: func(keys []string) (map[string]models.Setting, error) {
+			mu.Lock()
+			loadCalls++
+			mu.Unlock()
+			<-release
+			return map[string]models.Setting{
+				"TEST_CONCURRENT_CACHE_KEY": {
+					Key:   "TEST_CONCURRENT_CACHE_KEY",
+					Value: "shared-value",
+				},
+			}, nil
+		},
+	}
+
+	const goroutineCount = 8
+	var wg sync.WaitGroup
+	results := make([]string, goroutineCount)
+	sources := make([]string, goroutineCount)
+	errorsSeen := make([]error, goroutineCount)
+
+	wg.Add(goroutineCount)
+	for i := 0; i < goroutineCount; i++ {
+		go func(index int) {
+			defer wg.Done()
+			value, source, err := service.ResolveString("TEST_CONCURRENT_CACHE_KEY")
+			results[index] = value
+			sources[index] = source
+			errorsSeen[index] = err
+		}(i)
+	}
+
+	close(release)
+	wg.Wait()
+
+	for i := 0; i < goroutineCount; i++ {
+		if errorsSeen[i] != nil {
+			t.Fatalf("goroutine %d ResolveString failed: %v", i, errorsSeen[i])
+		}
+		if results[i] != "shared-value" {
+			t.Fatalf("goroutine %d expected shared-value, got %q", i, results[i])
+		}
+		if sources[i] != ConfigSourceDatabase {
+			t.Fatalf("goroutine %d expected database source, got %s", i, sources[i])
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if loadCalls != 1 {
+		t.Fatalf("expected concurrent reads to share one loader call, got %d", loadCalls)
 	}
 }

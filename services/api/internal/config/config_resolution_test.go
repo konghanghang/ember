@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	dbpkg "github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 )
 
@@ -119,6 +120,49 @@ func TestResolveDefinitionCanDisableEnvFallback(t *testing.T) {
 	}
 	if item.Value == nil || *item.Value != "default-value" {
 		t.Fatalf("expected default value, got %+v", item.Value)
+	}
+}
+
+func TestResolveStringAllowsEnvFallbackWhenDatabaseUnavailable(t *testing.T) {
+	t.Setenv("TEST_DB_DOWN_ENV_KEY", "env-value")
+
+	definitions := getConfigDefinitionMap()
+	original, existed := definitions["TEST_DB_DOWN_ENV_KEY"]
+	definitions["TEST_DB_DOWN_ENV_KEY"] = ConfigDefinition{
+		Key:                "TEST_DB_DOWN_ENV_KEY",
+		EnvKey:             "TEST_DB_DOWN_ENV_KEY",
+		DisableEnvFallback: true,
+		Type:               ConfigValueString,
+	}
+	defer func() {
+		if existed {
+			definitions["TEST_DB_DOWN_ENV_KEY"] = original
+			return
+		}
+		delete(definitions, "TEST_DB_DOWN_ENV_KEY")
+	}()
+
+	previousDB := dbpkg.DB
+	dbpkg.DB = nil
+	defer func() {
+		dbpkg.DB = previousDB
+	}()
+
+	service := &ConfigService{
+		loadSettingRecords: func(keys []string) (map[string]models.Setting, error) {
+			return map[string]models.Setting{}, nil
+		},
+	}
+
+	value, source, err := service.ResolveString("TEST_DB_DOWN_ENV_KEY")
+	if err != nil {
+		t.Fatalf("ResolveString returned error: %v", err)
+	}
+	if source != ConfigSourceEnv {
+		t.Fatalf("expected env source when database is unavailable, got %s", source)
+	}
+	if value != "env-value" {
+		t.Fatalf("expected env fallback value, got %q", value)
 	}
 }
 
