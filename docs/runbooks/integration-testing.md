@@ -51,8 +51,15 @@ export EMBER_INTEGRATION_DATABASE_URL='postgres://user:pass@127.0.0.1:5432/ember
 - 只能指向测试数据库
 - 不要复用开发主库
 - 更不能指向生产库
+- 不要指向共享测试库；本地协作时应优先给集成测试单独建一个专用 database
 
 API 集成测试骨架会为每个用例创建独立 schema，并在结束后自动清理。
+
+推荐做法：
+
+- 为集成测试单独创建一个 database，例如 `ember_integration`
+- 通过 `EMBER_INTEGRATION_DATABASE_URL` 显式注入
+- 测试只在这个专用 database 内创建和删除 schema，不碰共享测试库
 
 ### 3.2 必要环境变量
 

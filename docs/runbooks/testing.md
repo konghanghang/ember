@@ -19,6 +19,20 @@ go test ./...
 go build ./...
 ```
 
+如果要跑本地 API 集成测试：
+
+- 必须通过 `EMBER_INTEGRATION_DATABASE_URL` 指向专用测试数据库
+- 不要直接连接共享开发库，尤其不要复用其他人正在使用的测试库
+- 集成测试骨架会在目标数据库里创建并清理独立 schema，所以目标库本身应只用于集成测试
+
+示例：
+
+```bash
+cd services/api
+EMBER_INTEGRATION_DATABASE_URL='postgres://user:pass@127.0.0.1:5432/ember_integration?sslmode=disable' \
+go test ./internal/app -run Integration -count=1
+```
+
 如果需要保留每个测试用例的执行结果：
 
 ```bash
