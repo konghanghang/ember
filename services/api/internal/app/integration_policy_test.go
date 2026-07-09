@@ -245,6 +245,76 @@ func TestIntegrationUserMediaLibraryPolicyApplyCurrentSyncsTemplateVersion(t *te
 	}
 }
 
+func TestIntegrationAdminUserMediaLibraryPolicyApplyCurrentSyncsTemplateVersion(t *testing.T) {
+	harness := newIntegrationHarness(t)
+	fakeEmby := newIntegrationFakeEmbyServer(t)
+	harness.setSetting(t, "EMBY_URL", fakeEmby.server.URL)
+	harness.setSetting(t, "EMBY_API_KEY", "integration-emby-key")
+
+	harness.seedPlanGroup(t, models.PlanGroup{
+		Key:                         "VIP",
+		Name:                        "VIP",
+		MediaLibraryTemplateVersion: 4,
+	})
+	harness.seedPlanGroupTemplate(t, models.PlanGroupEmbyPolicyTemplate{
+		PlanGroupKey:            "VIP",
+		SimultaneousStreamLimit: 3,
+		EnablePlaybackRemuxing:  true,
+		EnableRemoteAccess:      true,
+	})
+	harness.seedPlanGroupLibraries(t, models.PlanGroupMediaLibrary{
+		PlanGroupKey: "VIP",
+		LibraryID:    "/data/movies",
+		LibraryName:  "电影",
+		LibraryType:  "movies",
+		SortOrder:    0,
+	})
+
+	user := harness.seedUser(t, models.User{
+		Username:                           "itest_policy_apply_admin",
+		Email:                              "itest-policy-apply-admin@example.com",
+		EmbyID:                             "emby_user_policy",
+		PlanGroup:                          stringPtr("VIP"),
+		AppliedMediaLibraryTemplateVersion: 1,
+	})
+
+	recorder := harness.performAdminRequest(http.MethodPost, "/api/v1/admin/users/"+user.ID+"/emby-policy-sync/apply-current", []byte(`{}`))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.ID != user.ID {
+		t.Fatalf("expected response id=%s, got %+v", user.ID, resp.Data)
+	}
+
+	var refreshed models.User
+	if err := harness.database.Where("id = ?", user.ID).First(&refreshed).Error; err != nil {
+		t.Fatalf("load refreshed user: %v", err)
+	}
+	if refreshed.AppliedMediaLibraryTemplateVersion != 4 {
+		t.Fatalf("expected applied template version 4, got %d", refreshed.AppliedMediaLibraryTemplateVersion)
+	}
+	if refreshed.EmbyDisabled {
+		t.Fatal("expected embyDisabled to remain false")
+	}
+
+	if fakeEmby.lastPolicyBody == nil {
+		t.Fatal("expected fake emby to receive patched policy")
+	}
+	enabledFolders, ok := fakeEmby.lastPolicyBody["EnabledFolders"].([]any)
+	if !ok || len(enabledFolders) != 1 || strings.TrimSpace(enabledFolders[0].(string)) != "/data/movies" {
+		t.Fatalf("expected EnabledFolders to include /data/movies, got %+v", fakeEmby.lastPolicyBody["EnabledFolders"])
+	}
+}
+
 func TestIntegrationRankingLibraryAllowlistPersistsAndReloads(t *testing.T) {
 	harness := newIntegrationHarness(t)
 	fakeEmby := newIntegrationFakeEmbyServer(t)

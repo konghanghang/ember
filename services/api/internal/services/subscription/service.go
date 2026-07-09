@@ -356,15 +356,7 @@ func (s *SubscriptionService) CreateSubscriptionWithResult(userID string, req Cr
 
 	log.Printf("[Subscription] 创建成功 userId=%s subscriptionId=%s type=%s tmdbId=%s season=%d", userID, subscription.ID, req.Type, req.TmdbID, season)
 	if insertResult.AutoApproved {
-		log.Printf("[Subscription] 命中自动通过额度 userId=%s subscriptionId=%s planGroup=%s quota=%d used=%d",
-			userID, subscription.ID, insertResult.PlanGroupKey, insertResult.DailyLimit, insertResult.AutoApprovedOrdinal)
-		async.SafeGo("subscription.dispatchMoviePilot.autoApproved", func() {
-			s.dispatchMoviePilotAsync(subscription.ID, subscription.Type, subscription.Name, subscription.TmdbID, subscription.Season)
-		})
-		async.SafeGo("subscription.notifyApproved.autoApproved", func() { s.notifyApproved(*subscription) })
-		async.SafeGo("subscription.notifyAutoApproved.admin", func() {
-			s.notifyAutoApprovedToAdmins(*subscription, user.Username, insertResult.PlanGroupKey, insertResult.PlanGroupName, insertResult.AutoApprovedOrdinal, insertResult.DailyLimit)
-		})
+		s.enqueueAutoApprovedSideEffects(*subscription, user.Username, insertResult, false)
 	} else {
 		async.SafeGo("subscription.notifyNew", func() {
 			s.notifyNewSubscription(subscription.ID, userID, req, season)
@@ -446,15 +438,7 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 		Note:       &note,
 	}
 	if insertResult.AutoApproved {
-		log.Printf("[Subscription] 重新提交命中自动通过额度 userId=%s subscriptionId=%s planGroup=%s quota=%d used=%d",
-			userID, subscription.ID, insertResult.PlanGroupKey, insertResult.DailyLimit, insertResult.AutoApprovedOrdinal)
-		async.SafeGo("subscription.dispatchMoviePilot.autoApprovedResubmit", func() {
-			s.dispatchMoviePilotAsync(subscription.ID, subscription.Type, subscription.Name, subscription.TmdbID, subscription.Season)
-		})
-		async.SafeGo("subscription.notifyApproved.autoApprovedResubmit", func() { s.notifyApproved(*subscription) })
-		async.SafeGo("subscription.notifyAutoApproved.adminResubmit", func() {
-			s.notifyAutoApprovedToAdmins(*subscription, user.Username, insertResult.PlanGroupKey, insertResult.PlanGroupName, insertResult.AutoApprovedOrdinal, insertResult.DailyLimit)
-		})
+		s.enqueueAutoApprovedSideEffects(*subscription, user.Username, insertResult, true)
 	} else {
 		async.SafeGo("subscription.notifyResubmit", func() {
 			s.notifyNewSubscription(subscription.ID, userID, resubmitReq, original.Season)
@@ -468,6 +452,47 @@ func (s *SubscriptionService) ResubmitSubscriptionWithResult(userID, subscriptio
 		Status:         &status,
 		AutoApproved:   insertResult.AutoApproved,
 	}, nil
+}
+
+// enqueueAutoApprovedSideEffects 统一编排自动通过后的异步副作用，确保创建与重新提交走同一条通知链路。
+func (s *SubscriptionService) enqueueAutoApprovedSideEffects(
+	subscription models.Subscription,
+	userName string,
+	insertResult *subscriptionInsertResult,
+	isResubmit bool,
+) {
+	if insertResult == nil {
+		return
+	}
+
+	actionLabel := "命中自动通过额度"
+	dispatchTask := "subscription.dispatchMoviePilot.autoApproved"
+	approvedTask := "subscription.notifyApproved.autoApproved"
+	adminTask := "subscription.notifyAutoApproved.admin"
+	if isResubmit {
+		actionLabel = "重新提交命中自动通过额度"
+		dispatchTask = "subscription.dispatchMoviePilot.autoApprovedResubmit"
+		approvedTask = "subscription.notifyApproved.autoApprovedResubmit"
+		adminTask = "subscription.notifyAutoApproved.adminResubmit"
+	}
+
+	log.Printf("[Subscription] %s userId=%s subscriptionId=%s planGroup=%s quota=%d used=%d",
+		actionLabel, subscription.UserID, subscription.ID, insertResult.PlanGroupKey, insertResult.DailyLimit, insertResult.AutoApprovedOrdinal)
+
+	async.SafeGo(dispatchTask, func() {
+		s.dispatchMoviePilotAsync(subscription.ID, subscription.Type, subscription.Name, subscription.TmdbID, subscription.Season)
+	})
+	async.SafeGo(approvedTask, func() { s.notifyApproved(subscription) })
+	async.SafeGo(adminTask, func() {
+		s.notifyAutoApprovedToAdmins(
+			subscription,
+			userName,
+			insertResult.PlanGroupKey,
+			insertResult.PlanGroupName,
+			insertResult.AutoApprovedOrdinal,
+			insertResult.DailyLimit,
+		)
+	})
 }
 
 func ensureUserCanSubmitSubscription(user *models.User) error {
@@ -1948,7 +1973,7 @@ func (s *SubscriptionService) notifyIngested(subscription models.Subscription) {
 	})
 }
 
-func loadSubscriptionUser(userID string) (*models.User, bool) {
+var loadSubscriptionUser = func(userID string) (*models.User, bool) {
 	var user models.User
 	if err := db.DB.Select("id", "username", "telegram_id").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, false

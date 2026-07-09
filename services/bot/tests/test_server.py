@@ -285,3 +285,27 @@ class ServerWebhookRetryTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["webhookRegistered"])
+
+    async def test_notify_subscription_auto_approved_rejects_invalid_internal_secret(self) -> None:
+        request = types.SimpleNamespace(
+            headers={"X-Internal-Secret": "wrong-secret"},
+            json=AsyncMock(return_value={"id": "sub_auto_1"}),
+        )
+
+        response = await server.notify_subscription_auto_approved(request)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.content, {"error": "unauthorized"})
+
+    async def test_notify_subscription_auto_approved_dispatches_handler(self) -> None:
+        payload = {"id": "sub_auto_1", "planGroupKey": "VIP_A"}
+        request = types.SimpleNamespace(
+            headers={"X-Internal-Secret": os.environ["INTERNAL_API_SECRET"]},
+            json=AsyncMock(return_value=payload),
+        )
+
+        with patch.object(server, "send_auto_approved_subscription_notification", AsyncMock()) as notify_mock:
+            response = await server.notify_subscription_auto_approved(request)
+
+        self.assertEqual(response, {"ok": True})
+        notify_mock.assert_awaited_once_with(server.tg_app.bot, payload)

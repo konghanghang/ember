@@ -7,8 +7,8 @@ import {
   manualDispatchSubscription,
   manualSearchSubscription
 } from '@/api/admin'
-import { getSubscriptions } from '@/api/console'
-import { ElMessageBox } from 'element-plus'
+import { getSubscriptions, resubmitSubscription } from '@/api/console'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 vi.mock('@/api/admin', () => ({
   approveSubscription: vi.fn(),
@@ -428,5 +428,65 @@ describe('SubscriptionsView 手动下载', () => {
     // 候选列表被清空，空态显示"暂无候选"
     expect(wrapper.text()).not.toContain('Demo Show S01 1080p')
     expect(wrapper.text()).toContain('暂无候选')
+  })
+
+  it('重新提交命中自动通过时提示等待入库', async () => {
+    const rejected = buildSubscription({
+      id: 'sub_rejected',
+      status: 'REJECTED',
+    })
+    vi.mocked(getSubscriptions).mockResolvedValue({
+      data: [rejected],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    })
+    vi.mocked(resubmitSubscription).mockResolvedValue({
+      success: true,
+      subscriptionId: 'sub_reapproved',
+      status: 'APPROVED',
+      autoApproved: true,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const vm = wrapper.vm as unknown as {
+      openResubmitDialog: (sub: any) => void
+      submitResubmission: () => Promise<void>
+      resubmitNote: string
+    }
+    vm.openResubmitDialog(rejected)
+    vm.resubmitNote = '补充说明'
+    await vm.submitResubmission()
+    await flushPromises()
+
+    expect(ElMessage.success).toHaveBeenCalledWith('订阅已自动通过，等待入库')
+  })
+
+  it('管理员视图展示自动通过和人工通过标签', async () => {
+    vi.mocked(getSubscriptions).mockResolvedValue({
+      data: [
+        buildSubscription({
+          id: 'sub_auto',
+          reviewSource: 'AUTO_QUOTA',
+          reviewedAt: '2026-07-09T08:00:00Z',
+        }),
+        buildSubscription({
+          id: 'sub_manual',
+          reviewSource: 'MANUAL',
+          reviewedAt: '2026-07-09T09:00:00Z',
+        }),
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('自动通过')
+    expect(wrapper.text()).toContain('人工通过')
   })
 })

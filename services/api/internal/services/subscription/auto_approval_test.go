@@ -1,12 +1,23 @@
 package subscription
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
+	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
 )
+
+type notifyRequest struct {
+	path string
+	body map[string]any
+}
 
 func TestInsertSubscriptionWithReviewPolicyAutoApprovesWithinQuota(t *testing.T) {
 	origBegin := beginSubscriptionTx
@@ -240,5 +251,138 @@ func TestCreateSubscriptionWithResultRejectsExpiredEmbyUser(t *testing.T) {
 	})
 	if err != ErrSubscriptionEmbyDisabled {
 		t.Fatalf("expected ErrSubscriptionEmbyDisabled, got %v", err)
+	}
+}
+
+func TestEnqueueAutoApprovedSideEffectsNotifiesAdminsForCreateAndResubmit(t *testing.T) {
+	configpkg.InvalidateCachedSetting("BOT_NOTIFY_URL")
+	t.Cleanup(func() {
+		configpkg.InvalidateCachedSetting("BOT_NOTIFY_URL")
+	})
+	t.Setenv("INTERNAL_API_SECRET", "test-internal-secret")
+
+	requests := make(chan notifyRequest, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode notifier payload: %v", err)
+		}
+		requests <- notifyRequest{path: r.URL.Path, body: payload}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	t.Setenv("BOT_NOTIFY_URL", server.URL)
+
+	originalLoadSubscriptionUser := loadSubscriptionUser
+	t.Cleanup(func() {
+		loadSubscriptionUser = originalLoadSubscriptionUser
+	})
+	loadSubscriptionUser = func(userID string) (*models.User, bool) {
+		telegramID := int64(9001)
+		return &models.User{
+			ID:         userID,
+			Username:   "ember-user",
+			TelegramID: &telegramID,
+		}, true
+	}
+
+	persistStub := &stubPersistMpError{}
+	restorePersist := persistStub.install()
+	defer restorePersist()
+
+	service := &SubscriptionService{
+		moviepilot: &stubSubscriptionMoviePilotClient{},
+		notifier:   notifierint.NewBotNotifier(),
+	}
+	reviewedAt := time.Date(2026, 7, 9, 7, 0, 0, 0, time.UTC)
+	insertResult := &subscriptionInsertResult{
+		AutoApproved:        true,
+		AutoApprovedOrdinal: 1,
+		DailyLimit:          2,
+		PlanGroupKey:        "VIP_A",
+		PlanGroupName:       "VIP A",
+	}
+	subscription := models.Subscription{
+		ID:         "sub_auto_1",
+		UserID:     "user_1",
+		Type:       models.MediaMovie,
+		Name:       "Inception",
+		TmdbID:     "27205",
+		Status:     models.SubscriptionApproved,
+		ReviewedAt: &reviewedAt,
+	}
+
+	service.enqueueAutoApprovedSideEffects(subscription, "ember-user", insertResult, false)
+	createRequests := waitForNotifierRequests(t, requests, 2)
+	assertAutoApprovedNotificationRequests(t, createRequests, "sub_auto_1", "VIP_A", false)
+
+	service.enqueueAutoApprovedSideEffects(subscription, "ember-user", insertResult, true)
+	resubmitRequests := waitForNotifierRequests(t, requests, 2)
+	assertAutoApprovedNotificationRequests(t, resubmitRequests, "sub_auto_1", "VIP_A", true)
+}
+
+func waitForNotifierRequests(t *testing.T, requests <-chan notifyRequest, want int) []notifyRequest {
+	t.Helper()
+
+	deadline := time.After(3 * time.Second)
+	got := make([]notifyRequest, 0, want)
+	for len(got) < want {
+		select {
+		case req := <-requests:
+			got = append(got, req)
+		case <-deadline:
+			t.Fatalf("timeout waiting for %d notifier requests, got %d", want, len(got))
+		}
+	}
+	return got
+}
+
+func assertAutoApprovedNotificationRequests(t *testing.T, requests []notifyRequest, subscriptionID, planGroupKey string, isResubmit bool) {
+	t.Helper()
+
+	paths := make([]string, 0, len(requests))
+	for _, req := range requests {
+		paths = append(paths, req.path)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 notifier requests, got %v", paths)
+	}
+
+	var approvedPayload map[string]any
+	var autoApprovedPayload map[string]any
+	for _, req := range requests {
+		switch req.path {
+		case "/notify/subscription-result":
+			approvedPayload = req.body
+		case "/notify/subscription-auto-approved":
+			autoApprovedPayload = req.body
+		default:
+			t.Fatalf("unexpected notifier path: %s", req.path)
+		}
+	}
+
+	if approvedPayload["subscriptionId"] != subscriptionID {
+		t.Fatalf("expected subscription-result payload to carry %s, got %+v", subscriptionID, approvedPayload)
+	}
+	if autoApprovedPayload["id"] != subscriptionID {
+		t.Fatalf("expected auto-approved payload to carry %s, got %+v", subscriptionID, autoApprovedPayload)
+	}
+	if autoApprovedPayload["planGroupKey"] != planGroupKey {
+		t.Fatalf("expected planGroupKey=%s, got %+v", planGroupKey, autoApprovedPayload)
+	}
+	if autoApprovedPayload["autoApprovedOrdinal"] != float64(1) || autoApprovedPayload["dailyLimit"] != float64(2) {
+		t.Fatalf("unexpected quota payload: %+v", autoApprovedPayload)
+	}
+	if !strings.Contains(approvedPayload["reviewedAt"].(string), "2026-07-09") {
+		t.Fatalf("expected reviewedAt in subscription-result payload, got %+v", approvedPayload)
+	}
+	if !strings.Contains(autoApprovedPayload["reviewedAt"].(string), "2026-07-09") {
+		t.Fatalf("expected reviewedAt in auto-approved payload, got %+v", autoApprovedPayload)
+	}
+	if isResubmit && autoApprovedPayload["userName"] != "ember-user" {
+		t.Fatalf("expected resubmit payload to preserve userName, got %+v", autoApprovedPayload)
 	}
 }
