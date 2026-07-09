@@ -661,6 +661,10 @@ func (s *PlaybackRankingService) resolveEntityLibraries(kind string, ids []strin
 	for _, id := range ids {
 		cacheKey := rankingEntityLibraryCacheKey(kind, id)
 		if libraryID, ok := cacheLookupFreshString(s.entityLibraryCache, cacheKey); ok {
+			if libraryID == rankingUnknownLibraryID {
+				unresolved = append(unresolved, id)
+				continue
+			}
 			results[id] = libraryID
 			log.Printf(
 				"[PlaybackRanking] %s library cache hit entityId=%s libraryId=%s allowed=%v",
@@ -742,13 +746,18 @@ func (s *PlaybackRankingService) resolveEntityLibraries(kind string, ids []strin
 
 func (s *PlaybackRankingService) resolveEntityLibraryByAncestors(kind string, id string, allowedLibraryIDs map[string]struct{}) (string, error) {
 	cacheKey := rankingEntityLibraryCacheKey(kind, id)
-	if s.entityLibraryCache == nil {
-		return s.resolveEntityLibraryByAncestorsUncached(id, allowedLibraryIDs)
+	if libraryID, ok := cacheLookupFreshString(s.entityLibraryCache, cacheKey); ok && libraryID != rankingUnknownLibraryID {
+		return libraryID, nil
 	}
 
-	return s.entityLibraryCache.Get(cacheKey, cacheKey, func() (string, error) {
-		return s.resolveEntityLibraryByAncestorsUncached(id, allowedLibraryIDs)
-	})
+	libraryID, err := s.resolveEntityLibraryByAncestorsUncached(id, allowedLibraryIDs)
+	if err != nil {
+		return rankingUnknownLibraryID, err
+	}
+	if libraryID != rankingUnknownLibraryID {
+		cacheStoreString(s.entityLibraryCache, cacheKey, libraryID)
+	}
+	return libraryID, nil
 }
 
 func (s *PlaybackRankingService) resolveEntityLibraryByAncestorsUncached(id string, allowedLibraryIDs map[string]struct{}) (string, error) {

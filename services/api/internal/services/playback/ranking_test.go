@@ -357,6 +357,52 @@ func TestPreviewRankingFiltersByLibraryAllowlist(t *testing.T) {
 	}
 }
 
+func TestResolveEntityLibrariesDoesNotCacheAllowlistMissAsUnknown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/Items":
+			if r.Method == http.MethodGet && strings.TrimSpace(r.URL.Query().Get("Ids")) != "" {
+				handlePlaybackItemsTestRequest(t, w, r)
+				return
+			}
+			t.Fatalf("unexpected bulk item request: %s", r.URL.RawQuery)
+		case "/emby/Items/movie_1/Ancestors":
+			handleRankingAncestorsRequest(t, w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+
+	svc := &PlaybackRankingService{
+		embyService:       embyint.NewEmbyService(),
+		entityLibraryCache: newSFCache[string, string](time.Hour),
+	}
+
+	first, err := svc.resolveEntityLibraries("movie", []string{"movie_1"}, map[string]struct{}{
+		"lib_series_only": {},
+	})
+	if err != nil {
+		t.Fatalf("first resolveEntityLibraries failed: %v", err)
+	}
+	if got := first["movie_1"]; got != rankingUnknownLibraryID {
+		t.Fatalf("expected first resolve to miss allowlist, got %q", got)
+	}
+
+	second, err := svc.resolveEntityLibraries("movie", []string{"movie_1"}, map[string]struct{}{
+		"lib_movie_only": {},
+	})
+	if err != nil {
+		t.Fatalf("second resolveEntityLibraries failed: %v", err)
+	}
+	if got := second["movie_1"]; got != "lib_movie_only" {
+		t.Fatalf("expected second resolve to match lib_movie_only after allowlist change, got %q", got)
+	}
+}
+
 func TestComputeRankingFiltersTotalDurationByLibraryAllowlist(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
