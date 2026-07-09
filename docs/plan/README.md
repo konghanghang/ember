@@ -36,20 +36,20 @@
 
 当前 `docs/plan/` 中仍在推进中的实施稿包括：
 
-- `access-auth/admin-api-key.md`
 - `access-auth/registration-user-capacity.md`
-- `architecture/settings-key-cache.md`
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
-- `console-admin/plan-group-media-library-deferred-sync.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
-- `media-subscription/playback-ranking-library-allowlist.md`
-- `media-subscription/subscription-plan-group-auto-approval.md`
 - `media-subscription/subscription-manual-moviepilot-dispatch.md`
 
 最近已完成归档的实施稿包括：
 
+- `access-auth/admin-api-key.md` → `docs/archive/plan/access-auth/admin-api-key.md`
+- `architecture/settings-key-cache.md` → `docs/archive/plan/architecture/settings-key-cache.md`
+- `console-admin/plan-group-media-library-deferred-sync.md` → `docs/archive/plan/console-admin/plan-group-media-library-deferred-sync.md`
+- `media-subscription/playback-ranking-library-allowlist.md` → `docs/archive/plan/media-subscription/playback-ranking-library-allowlist.md`
+- `media-subscription/subscription-plan-group-auto-approval.md` → `docs/archive/plan/media-subscription/subscription-plan-group-auto-approval.md`
 - `media-subscription/user-media-library-management.md` → `docs/archive/plan/media-subscription/user-media-library-management.md`
 - `console-admin/console-overview-account-layout-redesign.md` → `docs/archive/plan/console-admin/console-overview-account-layout-redesign.md`
 - `bot-telegram/subscription-admin-message-sync.md` → `docs/archive/plan/bot-telegram/subscription-admin-message-sync.md`

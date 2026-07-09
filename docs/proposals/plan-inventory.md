@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-06-05
+> 更新时间：2026-07-09
 
 本清单只回答三件事：
 
@@ -90,9 +90,11 @@
 | 文档 | 盘点结论 | 主要原因 | 建议动作 |
 |------|----------|----------|----------|
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
+| `access-auth/registration-user-capacity.md` | 继续保留 | 当前仍在 `docs/plan/`，本轮未见它已完成落地并收口到稳定文档 | 继续按实施方案维护 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
+| `media-subscription/subscription-manual-moviepilot-dispatch.md` | 继续保留 | 当前仍在 `docs/plan/`，本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
 
 ## C. 本轮从 `docs/plan/` 迁入归档的文档
 
@@ -108,6 +110,11 @@
 | `archive/plan/bot-telegram/subscription-admin-message-sync.md` | 已归档 | `subscription_admin_notifications` 模型与 migration、`telegram_approval_admin_ids`、Bot 多审批人员投递返回、API 投递记录持久化、Web / Telegram 审批后批量同步管理员消息均已落地，系统架构与配置/数据模型参考文档已同步 | 历史追溯 |
 | `archive/plan/media-subscription/user-media-library-management.md` | 已归档 | 用户媒体库模板、用户偏好、Emby Policy 同步、Bot `/libraries` 和后台分组权益入口均已落地；稳定事实已同步到系统架构、API 目录、数据模型和前端信息架构 | 历史追溯 |
 | `archive/plan/console-admin/console-overview-account-layout-redesign.md` | 已归档 | 控制台概览和账号中心布局已落地；本次仅为页面局部布局改造，无需新增稳定架构规则 | 历史追溯 |
+| `archive/plan/access-auth/admin-api-key.md` | 已归档 | `AdminCredentialAuth()`、Admin API Key 生成 / 状态 / 禁用接口、设置中心管理区与认证边界均已落地；稳定结论已同步到系统架构、配置参考和 API 目录 | 历史追溯 |
+| `archive/plan/architecture/settings-key-cache.md` | 已归档 | `settings` 按 key 的 TTL 缓存、negative cache、并发合并、写后失效与失效竞态修复均已落地；稳定结论已同步到系统架构 | 历史追溯 |
+| `archive/plan/console-admin/plan-group-media-library-deferred-sync.md` | 已归档 | 分组模板 deferred / batch 保存、`out_of_sync` 状态语义、单用户“同步到 Emby”入口和 no-op 脏写收口均已落地；稳定结论已同步到系统架构 | 历史追溯 |
+| `archive/plan/media-subscription/playback-ranking-library-allowlist.md` | 已归档 | 排行榜媒体库 allowlist 配置、候选扩窗 + 运行期归属缓存、latest/history/preview/通知统一口径与缓存污染修复均已落地 | 历史追溯 |
+| `archive/plan/media-subscription/subscription-plan-group-auto-approval.md` | 已归档 | `PlanGroup` 自动通过额度、`review_source`、账号可提交校验、自动通过只读通知和后台来源展示均已落地；稳定结论已同步到架构与参考文档 | 历史追溯 |
 
 ## D. 本轮新增归档记录
 
@@ -145,6 +152,11 @@
 - `bot-telegram/subscription-admin-message-sync.md`
 - `media-subscription/user-media-library-management.md`
 - `console-admin/console-overview-account-layout-redesign.md`
+- `access-auth/admin-api-key.md`
+- `architecture/settings-key-cache.md`
+- `console-admin/plan-group-media-library-deferred-sync.md`
+- `media-subscription/playback-ranking-library-allowlist.md`
+- `media-subscription/subscription-plan-group-auto-approval.md`
 - `embypulse-features/README.md`（索引目录退出，归档方案已按职责边界重组）
 
 本轮已迁移为治理提案：

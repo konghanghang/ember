@@ -13,8 +13,11 @@
 当前 `plan/` 目录按 Ember 现有职责边界分类，而不是按历史来源分类：
 
 - `access-auth/`：注册、登录保护、邮箱验证、找回密码
+  - 例如：[管理员 API Key 实现方案](./plan/access-auth/admin-api-key.md)
 - `billing-redemption/`：Stripe、套餐分组、兑换码、一人一码、兑换目录重构、注册码绑定套餐分组
 - `media-subscription/`：追剧日历、媒体质量、播放历史、分季订阅、排行榜、最近入库、用户侧媒体库入口收口、订阅拒绝后重提、用户媒体库管理
+  - 例如：[播放排行榜媒体库 allowlist 实现方案](./plan/media-subscription/playback-ranking-library-allowlist.md)
+  - 例如：[按套餐分组的订阅自动通过额度实现方案](./plan/media-subscription/subscription-plan-group-auto-approval.md)
   - 例如：[缺集管理与精准补集实现方案](./plan/media-subscription/gap-management-and-precision-download.md)
   - 例如：[订阅状态可见性与结果通知实现方案](./plan/media-subscription/subscription-status-and-notification.md)
   - 例如：[用户侧媒体库入口收口方案](./plan/media-subscription/library-entry-consolidation.md)
@@ -24,11 +27,13 @@
   - 例如：[Bot 通知与信息泄露加固方案](./plan/bot-telegram/bot-notification-and-info-leak-hardening.md)
   - 例如：[多管理员订阅通知消息同步方案](./plan/bot-telegram/subscription-admin-message-sync.md)
 - `console-admin/`：活跃会话、统一控制台、设备管理、头像、权限模板、后台创建用户、管理员 Emby 账号绑定、后台组件基建收口、后台 UI 一致性收口、播放观察与设备链路加固、播放分析菜单合并、控制台概览与账号中心布局改造
+  - 例如：[PlanGroup 媒体库延迟同步与单用户手动下发实现方案](./plan/console-admin/plan-group-media-library-deferred-sync.md)
   - 例如：[管理员 Emby 账号绑定方案](./plan/console-admin/admin-emby-binding.md)
   - 例如：[播放观察与设备链路加固方案](./plan/console-admin/playback-and-device-observation-hardening.md)
   - 例如：[「播放分析」菜单合并方案](./plan/console-admin/playback-center-merge.md)
   - 例如：[控制台概览与账号中心布局改造方案](./plan/console-admin/console-overview-account-layout-redesign.md)
 - `architecture/`：设置中心、邮箱鉴权边界、数据库迁移 baseline、数据库迁移自动应用、OSS 部署体验、schema 与部署基线等结构性方案
+  - 例如：[settings 按 Key 本地缓存方案](./plan/architecture/settings-key-cache.md)
   - 例如：[OSS 部署体验方案](./plan/architecture/oss-deployment-experience.md)
   - 例如：[数据库迁移自动应用方案](./plan/architecture/database-migration-auto-apply.md)
   - 例如：[数据库迁移 Baseline 与归档收口方案](./plan/architecture/database-migration-baseline-and-archive.md)
