@@ -61,6 +61,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.api == 'true'
+    outputs:
+      coverage: ${{ steps.coverage.outputs.percent }}
     services:
       postgres:
         image: postgres:15
@@ -105,6 +107,16 @@ jobs:
           EMBER_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ember_integration?sslmode=disable
         run: bash scripts/test/api.sh
 
+      - name: Extract API coverage
+        id: coverage
+        if: always()
+        run: |
+          percent="$(cat artifacts/test-results/api/coverage-summary.txt 2>/dev/null || true)"
+          if [[ -z "${percent}" ]]; then
+            percent="N/A"
+          fi
+          echo "percent=${percent}" >> "$GITHUB_OUTPUT"
+
       - name: Upload API test artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -118,6 +130,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.web == 'true'
+    outputs:
+      coverage: ${{ steps.coverage.outputs.percent }}
     services:
       postgres:
         image: postgres:15
@@ -172,6 +186,16 @@ jobs:
           EMBER_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ember_integration?sslmode=disable
         run: bash scripts/test/web.sh
 
+      - name: Extract Web coverage
+        id: coverage
+        if: always()
+        run: |
+          percent="$(cat artifacts/test-results/web/coverage-summary.txt 2>/dev/null || true)"
+          if [[ -z "${percent}" ]]; then
+            percent="N/A"
+          fi
+          echo "percent=${percent}" >> "$GITHUB_OUTPUT"
+
       - name: Upload Web test artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -185,6 +209,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.bot == 'true'
+    outputs:
+      coverage: ${{ steps.coverage.outputs.percent }}
 
     steps:
       - name: Checkout code
@@ -210,6 +236,16 @@ jobs:
       - name: Run Bot test report suite
         run: bash scripts/test/bot.sh
 
+      - name: Extract Bot coverage
+        id: coverage
+        if: always()
+        run: |
+          percent="$(cat artifacts/test-results/bot/coverage-summary.txt 2>/dev/null || true)"
+          if [[ -z "${percent}" ]]; then
+            percent="N/A"
+          fi
+          echo "percent=${percent}" >> "$GITHUB_OUTPUT"
+
       - name: Upload Bot test artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -228,16 +264,35 @@ jobs:
     if: always()
 
     steps:
-      - name: Publish artifact summary
+      - name: Publish test summary
+        env:
+          API_COVERAGE: ${{ needs.test-api.outputs.coverage }}
+          WEB_COVERAGE: ${{ needs.test-web.outputs.coverage }}
+          BOT_COVERAGE: ${{ needs.test-bot.outputs.coverage }}
         run: |
+          api="${API_COVERAGE:-N/A}"
+          web="${WEB_COVERAGE:-N/A}"
+          bot="${BOT_COVERAGE:-N/A}"
+
+          if [[ "${api}" != "N/A" ]]; then
+            api="${api}%"
+          fi
+          if [[ "${web}" != "N/A" ]]; then
+            web="${web}%"
+          fi
+          if [[ "${bot}" != "N/A" ]]; then
+            bot="${bot}%"
+          fi
+
           {
-            echo "## Test Artifacts"
+            echo "## Coverage Summary"
             echo ""
-            echo "| Module | Artifact |"
-            echo "| --- | --- |"
-            echo "| API | \`test-results-api\` |"
-            echo "| Web | \`test-results-web\` |"
-            echo "| Bot | \`test-results-bot\` |"
+            echo "| Module | Coverage | Artifact |"
+            echo "| --- | --- | --- |"
+            echo "| API | ${api} | \`test-results-api\` |"
+            echo "| Web | ${web} | \`test-results-web\` |"
+            echo "| Bot | ${bot} | \`test-results-bot\` |"
             echo ""
-            echo "每个 artifact 均包含日志、JSON/JUnit 报告和 suite meta.json。"
+            echo "Coverage 仅统计基础单测套件；集成测试仍通过 artifact 单独留痕。"
+            echo "每个 artifact 均包含日志、JSON/JUnit 报告、suite meta.json 和覆盖率产物。"
           } >> "$GITHUB_STEP_SUMMARY"

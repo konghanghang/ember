@@ -10,6 +10,7 @@ WEB_DIR="${REPO_ROOT}/services/web"
 RESULT_DIR="${ARTIFACTS_ROOT}/web"
 STARTED_AT="$(timestamp_utc)"
 WEB_INTEGRATION_SPEC="src/integration/media-library-policy.flow.spec.ts"
+WEB_COVERAGE_DIR="${RESULT_DIR}/coverage"
 
 reset_dir "${RESULT_DIR}"
 trap 'status=$?; write_meta "${RESULT_DIR}/meta.json" "web" "${STARTED_AT}" "${status}"; exit "${status}"' EXIT
@@ -19,7 +20,17 @@ log "running Web test/build"
   cd "${WEB_DIR}"
 
   run_and_capture "${RESULT_DIR}/vitest.log" \
-    npm run test -- --reporter=json --outputFile "${RESULT_DIR}/vitest-report.json"
+    npm run test -- \
+      --coverage.enabled true \
+      --coverage.provider=v8 \
+      --coverage.reporter=json-summary \
+      --coverage.reporter=lcov \
+      --coverage.reportsDirectory "${WEB_COVERAGE_DIR}" \
+      --reporter=json \
+      --outputFile "${RESULT_DIR}/vitest-report.json"
+
+  node -e 'const fs = require("node:fs"); const summary = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(summary.total.lines.pct.toFixed(2));' \
+    "${WEB_COVERAGE_DIR}/coverage-summary.json" > "${RESULT_DIR}/coverage-summary.txt"
 
   run_and_capture "${RESULT_DIR}/build.log" npm run build
 
