@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 
 export interface RunningGoServer {
@@ -72,7 +73,7 @@ export async function startGoIntegrationServer(): Promise<RunningGoServer> {
   const port = await findFreePort()
   const baseUrl = `http://127.0.0.1:${port}`
   const apiDir = path.resolve(__dirname, '../../../api')
-  const goCacheDir = path.resolve(apiDir, '.gocache-web-integration')
+  const goCacheDir = path.join(os.tmpdir(), 'ember-go-cache-web-integration')
 
   const child = spawn('go', ['run', './cmd/webintegrationserver'], {
     cwd: apiDir,

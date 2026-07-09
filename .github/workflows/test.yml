@@ -41,12 +41,19 @@ jobs:
           filters: |
             api:
               - 'services/api/**'
+              - 'scripts/test/api.sh'
+              - 'scripts/test/lib.sh'
               - '.github/workflows/test.yml'
             web:
+              - 'services/api/**'
               - 'services/web/**'
+              - 'scripts/test/web.sh'
+              - 'scripts/test/lib.sh'
               - '.github/workflows/test.yml'
             bot:
               - 'services/bot/**'
+              - 'scripts/test/bot.sh'
+              - 'scripts/test/lib.sh'
               - '.github/workflows/test.yml'
 
   test-api:
@@ -54,17 +61,24 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.api == 'true'
-    outputs:
-      coverage: ${{ steps.coverage.outputs.percent }}
-    defaults:
-      run:
-        working-directory: ./services/api
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -73,38 +87,51 @@ jobs:
           cache-dependency-path: services/api/go.sum
 
       - name: Download dependencies
+        working-directory: ./services/api
         run: go mod download
 
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run tests with coverage
+      - name: Prepare integration database
+        env:
+          PGPASSWORD: postgres
         run: |
-          export GOCACHE=/tmp/ember-go-build
-          go test ./... -coverprofile=coverage.out -covermode=atomic
+          until pg_isready -h 127.0.0.1 -U postgres -d postgres; do
+            sleep 1
+          done
+          psql -h 127.0.0.1 -U postgres -d postgres -c 'CREATE DATABASE ember_integration;'
 
-      - name: Extract API coverage
-        id: coverage
-        run: |
-          percent=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')
-          echo "percent=$percent" >> "$GITHUB_OUTPUT"
+      - name: Run API test report suite
+        env:
+          GOCACHE: /tmp/ember-go-build
+          EMBER_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ember_integration?sslmode=disable
+        run: bash scripts/test/api.sh
 
-      - name: Build
-        run: go build -v ./...
-
-      - name: ✅ API 测试通过
-        run: echo "Go API 编译验证成功！"
+      - name: Upload API test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-api
+          path: artifacts/test-results/api
+          if-no-files-found: error
 
   test-web:
     name: Test Vue Web
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.web == 'true'
-    outputs:
-      coverage: ${{ steps.coverage.outputs.percent }}
-    defaults:
-      run:
-        working-directory: ./services/web
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -117,34 +144,47 @@ jobs:
           cache: 'npm'
           cache-dependency-path: services/web/package-lock.json
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.13'
+          cache-dependency-path: services/api/go.sum
+
       - name: Install dependencies
+        working-directory: ./services/web
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Download API dependencies for web integration flow
+        working-directory: ./services/api
+        run: go mod download
 
-      - name: Run tests with coverage
-        run: npm run test:coverage
-
-      - name: Extract Web coverage
-        id: coverage
+      - name: Prepare integration database
+        env:
+          PGPASSWORD: postgres
         run: |
-          percent=$(node -p "require('./coverage/coverage-summary.json').total.lines.pct")
-          echo "percent=$percent" >> "$GITHUB_OUTPUT"
+          until pg_isready -h 127.0.0.1 -U postgres -d postgres; do
+            sleep 1
+          done
+          psql -h 127.0.0.1 -U postgres -d postgres -c 'CREATE DATABASE ember_integration;'
 
-      - name: ✅ Web 测试通过
-        run: echo "Vue Web 编译验证成功！"
+      - name: Run Web test report suite
+        env:
+          EMBER_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ember_integration?sslmode=disable
+        run: bash scripts/test/web.sh
+
+      - name: Upload Web test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-web
+          path: artifacts/test-results/web
+          if-no-files-found: error
 
   test-bot:
     name: Test Python Bot
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.bot == 'true'
-    outputs:
-      coverage: ${{ steps.coverage.outputs.percent }}
-    defaults:
-      run:
-        working-directory: ./services/bot
 
     steps:
       - name: Checkout code
@@ -155,28 +195,31 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-          cache-dependency-path: services/bot/requirements.txt
+          cache-dependency-path: |
+            services/bot/requirements.txt
+            services/bot/requirements-dev.txt
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt coverage
+      - name: Create bot virtualenv
+        working-directory: ./services/bot
+        run: python -m venv .venv
 
-      - name: Check syntax
-        run: python -m py_compile main.py
+      - name: Install bot dev dependencies
+        working-directory: ./services/bot
+        run: .venv/bin/python -m pip install -r requirements-dev.txt
 
-      - name: Run tests with coverage
-        run: python -m coverage run --source=app -m unittest discover -s tests -v
+      - name: Run Bot test report suite
+        run: bash scripts/test/bot.sh
 
-      - name: Extract Bot coverage
-        id: coverage
-        run: |
-          percent=$(python -m coverage report --format=total)
-          echo "percent=$percent" >> "$GITHUB_OUTPUT"
+      - name: Upload Bot test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-bot
+          path: artifacts/test-results/bot
+          if-no-files-found: error
 
-      - name: ✅ Bot 测试通过
-        run: echo "Python Bot 单元测试与语法检查成功！"
-
-  coverage-summary:
-    name: Coverage Summary
+  test-summary:
+    name: Test Summary
     runs-on: ubuntu-latest
     needs:
       - test-api
@@ -185,32 +228,16 @@ jobs:
     if: always()
 
     steps:
-      - name: Publish coverage summary
-        env:
-          API_COVERAGE: ${{ needs.test-api.outputs.coverage }}
-          WEB_COVERAGE: ${{ needs.test-web.outputs.coverage }}
-          BOT_COVERAGE: ${{ needs.test-bot.outputs.coverage }}
+      - name: Publish artifact summary
         run: |
-          api="${API_COVERAGE:-N/A}"
-          web="${WEB_COVERAGE:-N/A}"
-          bot="${BOT_COVERAGE:-N/A}"
-
-          if [ "$api" != "N/A" ]; then
-            api="${api}%"
-          fi
-          if [ "$web" != "N/A" ]; then
-            web="${web}%"
-          fi
-          if [ "$bot" != "N/A" ]; then
-            bot="${bot}%"
-          fi
-
           {
-            echo "## Coverage Summary"
+            echo "## Test Artifacts"
             echo ""
-            echo "| Module | Coverage |"
+            echo "| Module | Artifact |"
             echo "| --- | --- |"
-            echo "| API | ${api} |"
-            echo "| Web | ${web} |"
-            echo "| Bot | ${bot} |"
+            echo "| API | \`test-results-api\` |"
+            echo "| Web | \`test-results-web\` |"
+            echo "| Bot | \`test-results-bot\` |"
+            echo ""
+            echo "每个 artifact 均包含日志、JSON/JUnit 报告和 suite meta.json。"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -28,14 +28,14 @@ log "running API vet/test/build"
       ./...
   else
     run_and_capture "${RESULT_DIR}/go-test.log" \
-      bash -lc 'go test -json ./... | tee "'"${RESULT_DIR}"'/go-test.json" >/dev/null'
+      bash -o pipefail -lc 'go test -json ./... | tee "'"${RESULT_DIR}"'/go-test.json" >/dev/null'
   fi
 
   run_and_capture "${RESULT_DIR}/go-build.log" go build ./...
 
   if [[ -n "${EMBER_INTEGRATION_DATABASE_URL:-}" ]]; then
     run_and_capture "${RESULT_DIR}/go-integration.log" \
-      bash -lc 'go test ./internal/app -run Integration -count=1 -json | tee "'"${RESULT_DIR}"'/go-integration.json" >/dev/null'
+      bash -o pipefail -lc 'go test ./internal/app -run Integration -count=1 -json | tee "'"${RESULT_DIR}"'/go-integration.json" >/dev/null'
   else
     log "EMBER_INTEGRATION_DATABASE_URL is empty, skipping API integration suite"
   fi
