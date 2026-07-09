@@ -237,3 +237,112 @@ func TestResolveStringCoalescesConcurrentSingleKeyLoads(t *testing.T) {
 		t.Fatalf("expected concurrent reads to share one loader call, got %d", loadCalls)
 	}
 }
+
+func TestResolveStringDoesNotReuseInvalidatedInflightResult(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
+
+	definitions := getConfigDefinitionMap()
+	original, existed := definitions["TEST_INVALIDATE_INFLIGHT_CACHE_KEY"]
+	definitions["TEST_INVALIDATE_INFLIGHT_CACHE_KEY"] = ConfigDefinition{
+		Key:                "TEST_INVALIDATE_INFLIGHT_CACHE_KEY",
+		Type:               ConfigValueString,
+		DisableEnvFallback: true,
+	}
+	t.Cleanup(func() {
+		if existed {
+			definitions["TEST_INVALIDATE_INFLIGHT_CACHE_KEY"] = original
+			return
+		}
+		delete(definitions, "TEST_INVALIDATE_INFLIGHT_CACHE_KEY")
+	})
+
+	var mu sync.Mutex
+	loadCalls := 0
+	currentValue := "value-v1"
+	firstStarted := make(chan struct{})
+	firstRelease := make(chan struct{})
+	secondStarted := make(chan struct{})
+	secondRelease := make(chan struct{})
+
+	service := &ConfigService{
+		loadSettingRecords: func(keys []string) (map[string]models.Setting, error) {
+			mu.Lock()
+			loadCalls++
+			callNumber := loadCalls
+			snapshot := currentValue
+			mu.Unlock()
+
+			switch callNumber {
+			case 1:
+				close(firstStarted)
+				<-firstRelease
+			case 2:
+				close(secondStarted)
+				<-secondRelease
+			default:
+				t.Fatalf("unexpected loader call %d", callNumber)
+			}
+
+			return map[string]models.Setting{
+				"TEST_INVALIDATE_INFLIGHT_CACHE_KEY": {
+					Key:   "TEST_INVALIDATE_INFLIGHT_CACHE_KEY",
+					Value: snapshot,
+				},
+			}, nil
+		},
+	}
+
+	type resolveResult struct {
+		value  string
+		source string
+		err    error
+	}
+
+	firstDone := make(chan resolveResult, 1)
+	go func() {
+		value, source, err := service.ResolveString("TEST_INVALIDATE_INFLIGHT_CACHE_KEY")
+		firstDone <- resolveResult{value: value, source: source, err: err}
+	}()
+
+	<-firstStarted
+	mu.Lock()
+	currentValue = "value-v2"
+	mu.Unlock()
+	InvalidateCachedSetting("TEST_INVALIDATE_INFLIGHT_CACHE_KEY")
+
+	secondDone := make(chan resolveResult, 1)
+	go func() {
+		value, source, err := service.ResolveString("TEST_INVALIDATE_INFLIGHT_CACHE_KEY")
+		secondDone <- resolveResult{value: value, source: source, err: err}
+	}()
+
+	close(firstRelease)
+	<-secondStarted
+	close(secondRelease)
+
+	first := <-firstDone
+	if first.err != nil {
+		t.Fatalf("first ResolveString failed: %v", first.err)
+	}
+	if first.value != "value-v1" && first.value != "value-v2" {
+		t.Fatalf("expected first read to resolve to either snapshot after retry logic, got %q", first.value)
+	}
+
+	second := <-secondDone
+	if second.err != nil {
+		t.Fatalf("second ResolveString failed: %v", second.err)
+	}
+	if second.value != "value-v2" {
+		t.Fatalf("expected second read to reload value-v2 after invalidation, got %q", second.value)
+	}
+	if second.source != ConfigSourceDatabase {
+		t.Fatalf("expected second read source database, got %s", second.source)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if loadCalls != 2 {
+		t.Fatalf("expected invalidated inflight read to trigger second loader call, got %d", loadCalls)
+	}
+}
