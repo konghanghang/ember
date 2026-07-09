@@ -26,6 +26,7 @@ log "running Web test/build"
   if [[ -n "${EMBER_INTEGRATION_DATABASE_URL:-}" ]]; then
     log "running Web integration flow against real API + database"
     run_and_capture "${RESULT_DIR}/integration-vitest.log" \
+      env EMBER_WEB_RUN_INTEGRATION=1 \
       npm run test -- "${WEB_INTEGRATION_SPEC}" --reporter=json --outputFile "${RESULT_DIR}/integration-vitest-report.json"
   else
     log "EMBER_INTEGRATION_DATABASE_URL is empty, skipping Web integration flow"

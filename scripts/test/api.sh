@@ -21,6 +21,7 @@ log "running API vet/test/build"
 
   if command_exists gotestsum; then
     run_and_capture "${RESULT_DIR}/go-test.log" \
+      env EMBER_INTEGRATION_DATABASE_URL="" \
       gotestsum \
       --format standard-verbose \
       --junitfile "${RESULT_DIR}/junit.xml" \
@@ -28,6 +29,7 @@ log "running API vet/test/build"
       ./...
   else
     run_and_capture "${RESULT_DIR}/go-test.log" \
+      env EMBER_INTEGRATION_DATABASE_URL="" \
       bash -o pipefail -lc 'go test -json ./... | tee "'"${RESULT_DIR}"'/go-test.json" >/dev/null'
   fi
 

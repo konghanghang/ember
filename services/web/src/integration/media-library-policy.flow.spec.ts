@@ -13,6 +13,8 @@ import { createSubscription } from '@/api/console'
 import type { LoginResponse, UserInfo } from '@/types/api'
 import { startGoIntegrationServer, type RunningGoServer } from './go-server'
 
+const describeIntegration = process.env.EMBER_WEB_RUN_INTEGRATION === '1' ? describe : describe.skip
+
 vi.mock('element-plus', () => ({
   ElMessage: {
     info: vi.fn(),
@@ -260,7 +262,7 @@ function mountRankingsView() {
   })
 }
 
-describe('media library policy web+api+db flow', () => {
+describeIntegration('media library policy web+api+db flow', () => {
   beforeAll(async () => {
     server = await startGoIntegrationServer()
     request.defaults.baseURL = `${server.baseUrl}/api/v1`
