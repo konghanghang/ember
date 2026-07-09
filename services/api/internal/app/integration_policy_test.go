@@ -155,6 +155,225 @@ func TestIntegrationUpdatePlanGroupMediaLibrariesDeferred(t *testing.T) {
 	}
 }
 
+func TestIntegrationUpdatePlanGroupMediaLibrariesDeferredNoopKeepsVersion(t *testing.T) {
+	harness := newIntegrationHarness(t)
+	fakeEmby := newIntegrationFakeEmbyServer(t)
+	harness.setSetting(t, "EMBY_URL", fakeEmby.server.URL)
+	harness.setSetting(t, "EMBY_API_KEY", "integration-emby-key")
+
+	harness.seedPlanGroup(t, models.PlanGroup{
+		Key:                         "VIP",
+		Name:                        "VIP",
+		MediaLibraryTemplateVersion: 2,
+	})
+	harness.seedPlanGroupLibraries(t, models.PlanGroupMediaLibrary{
+		PlanGroupKey: "VIP",
+		LibraryID:    "/data/movies",
+		LibraryName:  "电影",
+		LibraryType:  "movies",
+		SortOrder:    0,
+	})
+	user := harness.seedUser(t, models.User{
+		Username:                           "itest_policy_noop_user",
+		Email:                              "itest-policy-noop-user@example.com",
+		EmbyID:                             "emby_user_policy",
+		PlanGroup:                          stringPtr("VIP"),
+		AppliedMediaLibraryTemplateVersion: 2,
+	})
+
+	before := harness.performUserRequest(t, user, http.MethodGet, "/api/v1/user/media-libraries", nil)
+	if before.Code != http.StatusOK {
+		t.Fatalf("expected 200 before noop save, got %d body=%s", before.Code, before.Body.String())
+	}
+
+	recorder := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/plan-groups/VIP/media-libraries", []byte(`{
+		"libraryIds":["/data/movies"],
+		"applyToExistingUsers":false
+	}`))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Mode               string `json:"mode"`
+			Status             string `json:"status"`
+			AffectedUserCount  int    `json:"affectedUserCount"`
+			OutOfSyncUserCount int    `json:"outOfSyncUserCount"`
+			BatchID            string `json:"batchId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Mode != "deferred" || resp.Data.Status != "synced" || resp.Data.OutOfSyncUserCount != 0 || resp.Data.BatchID != "" {
+		t.Fatalf("unexpected noop deferred response: %+v", resp.Data)
+	}
+
+	var group models.PlanGroup
+	if err := harness.database.Where("key = ?", "VIP").First(&group).Error; err != nil {
+		t.Fatalf("load plan group: %v", err)
+	}
+	if group.MediaLibraryTemplateVersion != 2 {
+		t.Fatalf("expected template version to remain 2, got %d", group.MediaLibraryTemplateVersion)
+	}
+
+	var batchCount int64
+	if err := harness.database.Model(&models.EmbyPolicySyncBatch{}).Where("plan_group_key = ?", "VIP").Count(&batchCount).Error; err != nil {
+		t.Fatalf("count sync batches: %v", err)
+	}
+	if batchCount != 0 {
+		t.Fatalf("expected no sync batch for noop deferred save, got %d", batchCount)
+	}
+
+	after := harness.performUserRequest(t, user, http.MethodGet, "/api/v1/user/media-libraries", nil)
+	if after.Code != http.StatusOK {
+		t.Fatalf("expected 200 after noop save, got %d body=%s", after.Code, after.Body.String())
+	}
+	var afterResp struct {
+		Data struct {
+			PolicySyncStatus string `json:"policySyncStatus"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(after.Body.Bytes(), &afterResp); err != nil {
+		t.Fatalf("decode after response: %v", err)
+	}
+	if afterResp.Data.PolicySyncStatus != "synced" {
+		t.Fatalf("expected synced after noop deferred save, got %+v", afterResp.Data)
+	}
+}
+
+func TestIntegrationUpdatePlanGroupMediaLibrariesBatchNoopSkipsSync(t *testing.T) {
+	harness := newIntegrationHarness(t)
+	fakeEmby := newIntegrationFakeEmbyServer(t)
+	harness.setSetting(t, "EMBY_URL", fakeEmby.server.URL)
+	harness.setSetting(t, "EMBY_API_KEY", "integration-emby-key")
+
+	harness.seedPlanGroup(t, models.PlanGroup{
+		Key:                         "VIP",
+		Name:                        "VIP",
+		MediaLibraryTemplateVersion: 2,
+	})
+	harness.seedPlanGroupLibraries(t, models.PlanGroupMediaLibrary{
+		PlanGroupKey: "VIP",
+		LibraryID:    "/data/movies",
+		LibraryName:  "电影",
+		LibraryType:  "movies",
+		SortOrder:    0,
+	})
+	harness.seedUser(t, models.User{
+		Username:                           "itest_policy_batch_noop_user",
+		Email:                              "itest-policy-batch-noop@example.com",
+		EmbyID:                             "emby_user_policy",
+		PlanGroup:                          stringPtr("VIP"),
+		AppliedMediaLibraryTemplateVersion: 2,
+	})
+
+	recorder := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/plan-groups/VIP/media-libraries", []byte(`{
+		"libraryIds":["/data/movies"],
+		"applyToExistingUsers":true
+	}`))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Mode              string `json:"mode"`
+			Status            string `json:"status"`
+			AffectedUserCount int    `json:"affectedUserCount"`
+			BatchID           string `json:"batchId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Mode != "batch" || resp.Data.Status != "synced" || resp.Data.AffectedUserCount != 0 || resp.Data.BatchID != "" {
+		t.Fatalf("unexpected noop batch response: %+v", resp.Data)
+	}
+
+	var group models.PlanGroup
+	if err := harness.database.Where("key = ?", "VIP").First(&group).Error; err != nil {
+		t.Fatalf("load plan group: %v", err)
+	}
+	if group.MediaLibraryTemplateVersion != 2 {
+		t.Fatalf("expected template version to remain 2, got %d", group.MediaLibraryTemplateVersion)
+	}
+
+	var batchCount int64
+	if err := harness.database.Model(&models.EmbyPolicySyncBatch{}).Where("plan_group_key = ?", "VIP").Count(&batchCount).Error; err != nil {
+		t.Fatalf("count sync batches: %v", err)
+	}
+	if batchCount != 0 {
+		t.Fatalf("expected no sync batch for noop batch save, got %d", batchCount)
+	}
+}
+
+func TestIntegrationApplyPlanGroupMediaLibrarySyncNoopKeepsVersion(t *testing.T) {
+	harness := newIntegrationHarness(t)
+	fakeEmby := newIntegrationFakeEmbyServer(t)
+	harness.setSetting(t, "EMBY_URL", fakeEmby.server.URL)
+	harness.setSetting(t, "EMBY_API_KEY", "integration-emby-key")
+
+	harness.seedPlanGroup(t, models.PlanGroup{
+		Key:                         "VIP",
+		Name:                        "VIP",
+		MediaLibraryTemplateVersion: 2,
+	})
+	harness.seedPlanGroupLibraries(t, models.PlanGroupMediaLibrary{
+		PlanGroupKey: "VIP",
+		LibraryID:    "/data/movies",
+		LibraryName:  "电影",
+		LibraryType:  "movies",
+		SortOrder:    0,
+	})
+	harness.seedUser(t, models.User{
+		Username:                           "itest_policy_history_noop_user",
+		Email:                              "itest-policy-history-noop@example.com",
+		EmbyID:                             "emby_user_policy",
+		PlanGroup:                          stringPtr("VIP"),
+		AppliedMediaLibraryTemplateVersion: 2,
+	})
+
+	recorder := harness.performAdminRequest(http.MethodPost, "/api/v1/admin/plan-groups/VIP/media-libraries/sync-apply", []byte(`{
+		"libraryIds":["/data/movies"],
+		"preferenceUserIds":[]
+	}`))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Status            string `json:"status"`
+			AffectedUserCount int    `json:"affectedUserCount"`
+			BatchID           string `json:"batchId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Status != "synced" || resp.Data.AffectedUserCount != 0 || resp.Data.BatchID != "" {
+		t.Fatalf("unexpected noop history sync response: %+v", resp.Data)
+	}
+
+	var group models.PlanGroup
+	if err := harness.database.Where("key = ?", "VIP").First(&group).Error; err != nil {
+		t.Fatalf("load plan group: %v", err)
+	}
+	if group.MediaLibraryTemplateVersion != 2 {
+		t.Fatalf("expected template version to remain 2, got %d", group.MediaLibraryTemplateVersion)
+	}
+
+	var batchCount int64
+	if err := harness.database.Model(&models.EmbyPolicySyncBatch{}).Where("plan_group_key = ?", "VIP").Count(&batchCount).Error; err != nil {
+		t.Fatalf("count sync batches: %v", err)
+	}
+	if batchCount != 0 {
+		t.Fatalf("expected no sync batch for noop history sync, got %d", batchCount)
+	}
+}
+
 func TestIntegrationUserMediaLibraryPolicyApplyCurrentSyncsTemplateVersion(t *testing.T) {
 	harness := newIntegrationHarness(t)
 	fakeEmby := newIntegrationFakeEmbyServer(t)

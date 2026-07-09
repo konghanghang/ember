@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -246,6 +247,49 @@ func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string,
 			return nil, ErrLibraryIDInvalid
 		}
 	}
+	currentLibraryIDs, err := s.loadGroupLibraryIDs(group.Key)
+	if err != nil {
+		return nil, err
+	}
+	if reflect.DeepEqual(currentLibraryIDs, normalizedIDs) {
+		outOfSyncCount, err := s.countOutOfSyncManagedUsers(group)
+		if err != nil {
+			return nil, err
+		}
+		if !applyToExistingUsers {
+			return buildDeferredMediaLibraryUpdateResult(outOfSyncCount), nil
+		}
+		if outOfSyncCount == 0 {
+			return &PlanGroupMediaLibraryUpdateResult{
+				Mode:              "batch",
+				Status:            SyncStatusSynced,
+				AffectedUserCount: 0,
+			}, nil
+		}
+
+		tx := s.db.Begin()
+		if tx.Error != nil {
+			return nil, tx.Error
+		}
+		batch, err := s.createBatchWithTasks(tx, group.Key, "plan_group_media_libraries_update", createdBy)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		if err := tx.Commit().Error; err != nil {
+			return nil, err
+		}
+		created, err := s.buildBatchCreated(batch.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &PlanGroupMediaLibraryUpdateResult{
+			Mode:              "batch",
+			BatchID:           created.BatchID,
+			Status:            created.Status,
+			AffectedUserCount: created.AffectedUserCount,
+		}, nil
+	}
 
 	tx := s.db.Begin()
 	if tx.Error != nil {
@@ -284,20 +328,11 @@ func (s *Service) UpdatePlanGroupMediaLibraries(key string, libraryIDs []string,
 		if err := tx.Commit().Error; err != nil {
 			return nil, err
 		}
-		count, err := s.countAffectedUsers(group.Key)
+		outOfSyncCount, err := s.countOutOfSyncManagedUsers(group)
 		if err != nil {
 			return nil, err
 		}
-		status := SyncStatusSynced
-		if count > 0 {
-			status = SyncStatusOutOfSync
-		}
-		return &PlanGroupMediaLibraryUpdateResult{
-			Mode:               "deferred",
-			Status:             status,
-			AffectedUserCount:  count,
-			OutOfSyncUserCount: count,
-		}, nil
+		return buildDeferredMediaLibraryUpdateResult(outOfSyncCount), nil
 	}
 	batch, err := s.createBatchWithTasks(tx, group.Key, "plan_group_media_libraries_update", createdBy)
 	if err != nil {
@@ -783,6 +818,46 @@ func (s *Service) ApplyPlanGroupMediaLibrarySync(key string, req MediaLibrarySyn
 	if err != nil {
 		return nil, err
 	}
+	currentLibraryIDs, err := s.loadGroupLibraryIDs(group.Key)
+	if err != nil {
+		return nil, err
+	}
+	if reflect.DeepEqual(currentLibraryIDs, normalizedIDs) && len(preferenceUsers) == 0 {
+		outOfSyncCount, err := s.countOutOfSyncManagedUsers(group)
+		if err != nil {
+			return nil, err
+		}
+		if outOfSyncCount == 0 {
+			return &MediaLibrarySyncApplyResult{
+				AffectedUserCount: 0,
+				Status:            SyncStatusSynced,
+				FailedItems:       failedItems,
+			}, nil
+		}
+
+		tx := s.db.Begin()
+		if tx.Error != nil {
+			return nil, tx.Error
+		}
+		batch, err := s.createBatchWithTasks(tx, group.Key, "plan_group_media_libraries_history_sync", createdBy)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		if err := tx.Commit().Error; err != nil {
+			return nil, err
+		}
+		created, err := s.buildBatchCreated(batch.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &MediaLibrarySyncApplyResult{
+			BatchID:           created.BatchID,
+			AffectedUserCount: created.AffectedUserCount,
+			Status:            created.Status,
+			FailedItems:       failedItems,
+		}, nil
+	}
 
 	tx := s.db.Begin()
 	if tx.Error != nil {
@@ -1014,6 +1089,14 @@ func planGroupLibraryIDs(libraries []models.PlanGroupMediaLibrary) []string {
 	return out
 }
 
+func (s *Service) loadGroupLibraryIDs(planGroupKey string) ([]string, error) {
+	options, err := s.loadGroupLibraryOptions(planGroupKey)
+	if err != nil {
+		return nil, err
+	}
+	return mediaLibraryOptionIDs(options), nil
+}
+
 func (s *Service) loadGroupLibraryOptions(planGroupKey string) ([]MediaLibraryOption, error) {
 	var records []models.PlanGroupMediaLibrary
 	if err := s.db.Where("plan_group_key = ?", planGroupKey).
@@ -1040,6 +1123,32 @@ func (s *Service) countAffectedUsers(planGroupKey string) (int, error) {
 		return 0, err
 	}
 	return int(count), nil
+}
+
+func (s *Service) countOutOfSyncManagedUsers(group *models.PlanGroup) (int, error) {
+	if group == nil {
+		return 0, errors.New("分组不能为空")
+	}
+	var count int64
+	if err := managedPolicyUsersInPlanGroupQuery(s.db.Model(&models.User{}), group.Key).
+		Where(`"applied_media_library_template_version" < ?`, group.MediaLibraryTemplateVersion).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func buildDeferredMediaLibraryUpdateResult(outOfSyncCount int) *PlanGroupMediaLibraryUpdateResult {
+	status := SyncStatusSynced
+	if outOfSyncCount > 0 {
+		status = SyncStatusOutOfSync
+	}
+	return &PlanGroupMediaLibraryUpdateResult{
+		Mode:               "deferred",
+		Status:             status,
+		AffectedUserCount:  outOfSyncCount,
+		OutOfSyncUserCount: outOfSyncCount,
+	}
 }
 
 func (s *Service) createBatchWithTasks(tx *gorm.DB, planGroupKey, reason string, createdBy *string) (*models.EmbyPolicySyncBatch, error) {
