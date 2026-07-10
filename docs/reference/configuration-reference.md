@@ -91,13 +91,13 @@
 | `STRIPE_SUCCESS_URL` | 否 | 否 | Stripe 支付成功跳转地址 |
 | `STRIPE_CANCEL_URL` | 否 | 否 | Stripe 支付取消跳转地址 |
 
-### 2.5 调度配置
+### 2.5 调度与全局时区配置
 
 | 配置项 | 敏感 | 需重启 | 说明 |
 |--------|------|--------|------|
 | `CRON_ENABLED` | 否 | 是 | API 内置 cron 总开关 |
 | `CRON_SCHEDULE` | 否 | 是 | 过期检查 cron 表达式 |
-| `CRON_TIMEZONE` | 否 | 是 | cron 执行时区，同时作为追剧日历 `today / upcoming / missing` 的状态判定时区 |
+| `CRON_TIMEZONE` | 否 | 是 | Ember 全局业务时区，统一用于调度、日期边界、排行榜、播放记录和用户可见时间 |
 | `RANKING_CRON_ENABLED` | 否 | 是 | 播放排行榜 cron 开关 |
 | `RANKING_DAILY_SCHEDULE` | 否 | 是 | 日榜 cron 表达式 |
 | `RANKING_WEEKLY_SCHEDULE` | 否 | 是 | 周榜 cron 表达式 |
@@ -106,7 +106,8 @@
 
 说明：
 
-- `CRON_TIMEZONE` 同时作用于追剧日历用户可见状态和周范围判定，不只是 cron 触发时间本身。
+- `CRON_TIMEZONE` 是项目唯一的全局业务时区，不只是 cron 触发时区；禁止为排行榜、Playback Reporting 等子系统再引入独立时区配置。
+- 外部系统返回 UTC 时间时，在协议边界显式转换；外部系统保存本地时间时，部署环境必须将其运行时区与 `CRON_TIMEZONE` 对齐。
 
 - 上述配置已经由设置中心数据库托管，API 不再依赖 Docker 环境变量回退。
 - 调度相关配置虽然也在数据库中，但当前仍是“启动时装配调度器”的模型，所以修改后需要重启 API。
