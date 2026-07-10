@@ -36,9 +36,22 @@
 
 禁止提交 `.env`、密钥、Token、验证码、支付敏感信息、session 文件、构建产物、缓存文件和临时生成物。禁止在日志、测试快照或文档示例里写真实密码、Token、验证码、支付敏感信息或完整外部响应体。
 
+### 7. Emby 功能必须先核对版本化 API 合同
+
+任何 Emby 原生 API 或插件 API 任务，在设计、编码或 review 前必须完成版本化协议核对，禁止根据字段名、经验或其他版本行为猜测接口。
+
+- 先确认目标 Server 和插件版本，并用对应版本的 SDK / OpenAPI、官方文档或固定源码核对 method、path、权限、请求、响应、时间及错误语义；排行榜任务先读 [Emby 4.9.3.0 与 Playback Reporting API 合同](docs/reference/playback-reporting-api-contract.md)。
+- 现有合同未覆盖时，先调查并同步 `docs/reference/`；证据不足的行为必须标记“未证实”，不得据此实现。真实只读验证仍需用户明确授权。
+- 实现后必须用 mock、fixture 或合同测试锁定协议，保持代码、测试和参考文档一致；测试不得真实请求 Emby。
+
+### 8. 时区统一使用全局配置
+
+`CRON_TIMEZONE` 是 Ember 唯一的全局业务时区。调度、日期边界、排行榜、播放记录、用户可见时间和外部系统本地时间解析都必须复用该配置，禁止自行使用 UTC、系统 `time.Local` 或新增子系统时区配置猜测时间语义。外部合同明确使用 UTC 时，必须在边界处显式转换并补测试；外部系统保存本地时间时，其运行时区必须与 `CRON_TIMEZONE` 对齐，否则按部署配置错误处理。
+
 ## 快速入口
 
 - 实现 / 修复任务：首次进入仓库、跨模块改动或涉及状态流转 / 外部集成 / 部署入口时，先读 [docs/system-architecture.md](docs/system-architecture.md)；字段、接口、页面、Bot、配置、部署细节再按主文档入口跳转对应 `docs/reference/` 或 `docs/runbooks/`
+- Emby 相关任务：先确认版本并读取对应合同；排行榜与 Playback Reporting 先读 [docs/reference/playback-reporting-api-contract.md](docs/reference/playback-reporting-api-contract.md)，未覆盖时先补合同，禁止猜测式实现
 - 前端任务：命中页面、组件、交互、视觉改动时，再读 [docs/reference/web-design-guide.md](docs/reference/web-design-guide.md)
 - 文档治理任务：命中归档、目录调整、批量迁移时，再读 [docs/reference/archive-governance.md](docs/reference/archive-governance.md)
 - 计划 / 提案任务：先看 [docs/reference/plan-directory-governance.md](docs/reference/plan-directory-governance.md) 与对应模板；涉及系统边界、契约、流转时，同时回读 [docs/system-architecture.md](docs/system-architecture.md)
