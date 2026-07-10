@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ember Release"
+  short_description: "准备、校验并安全执行 Ember 稳定版本发布流程"
+  default_prompt: "使用 $ember-release 准备并校验 Ember 的下一个稳定版本发布。"
