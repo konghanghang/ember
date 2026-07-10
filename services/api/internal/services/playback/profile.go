@@ -333,10 +333,10 @@ func buildPlaybackProfileWhereClause(playbackUserID string, startAt *time.Time, 
 		fmt.Sprintf("UserId = '%s'", escapeSQLLiteral(playbackUserID)),
 	}
 	if startAt != nil {
-		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", startAt.UTC().Format("2006-01-02 15:04:05")))
+		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", formatPlaybackDatabaseTime(*startAt)))
 	}
 	if endAt != nil {
-		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", endAt.UTC().Format("2006-01-02 15:04:05")))
+		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", formatPlaybackDatabaseTime(*endAt)))
 	}
 	return strings.Join(conditions, " AND ")
 }

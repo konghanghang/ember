@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	rankingLimit                    = 10
-	minRankingDurationSeconds int64 = 60
-	rankingUnknownLibraryID         = "__unknown__"
+	rankingLimit                        = 10
+	minRankingDurationSeconds     int64 = 60
+	rankingUnknownLibraryID             = "__unknown__"
+	rankingFilteredLogSampleLimit       = 10
 )
 
 var (
@@ -32,13 +33,13 @@ var (
 )
 
 type PlaybackRankingService struct {
-	embyService          *embyint.EmbyService
-	notifier             rankingNotifier
-	loadLibraryAllowlist func() ([]string, error)
-	saveLibraryAllowlist func([]string, *string) error
-	asyncGo              func(string, func())
-	persistRankings      func([]models.PlaybackRanking) (int64, error)
-	rankingLibrariesCache *sfCache[string, []RankingLibraryOption]
+	embyService           *embyint.EmbyService
+	notifier              rankingNotifier
+	loadLibraryAllowlist  func() ([]string, error)
+	saveLibraryAllowlist  func([]string, *string) error
+	asyncGo               func(string, func())
+	persistRankings       func([]models.PlaybackRanking) (int64, error)
+	rankingLibrariesCache *sfCache[string, rankingLibraryContext]
 	entityLibraryCache    *sfCache[string, string]
 }
 
@@ -92,13 +93,13 @@ type playbackAggregateRow struct {
 
 func NewPlaybackRankingService() *PlaybackRankingService {
 	return &PlaybackRankingService{
-		embyService:          embyint.GetSharedService(),
-		notifier:             notifierint.GetSharedBotNotifier(),
-		loadLibraryAllowlist: loadPlaybackRankingLibraryAllowlist,
-		saveLibraryAllowlist: savePlaybackRankingLibraryAllowlist,
-		asyncGo:              async.SafeGo,
-		persistRankings:      persistPlaybackRankings,
-		rankingLibrariesCache: newSFCache[string, []RankingLibraryOption](10 * time.Minute),
+		embyService:           embyint.GetSharedService(),
+		notifier:              notifierint.GetSharedBotNotifier(),
+		loadLibraryAllowlist:  loadPlaybackRankingLibraryAllowlist,
+		saveLibraryAllowlist:  savePlaybackRankingLibraryAllowlist,
+		asyncGo:               async.SafeGo,
+		persistRankings:       persistPlaybackRankings,
+		rankingLibrariesCache: newSFCache[string, rankingLibraryContext](10 * time.Minute),
 		entityLibraryCache:    newSFCache[string, string](time.Hour),
 	}
 }
@@ -140,7 +141,7 @@ func (s *PlaybackRankingService) fetchMovieRankingWithFilter(
 		}
 		lastRows = rows
 
-		filteredRows, err = s.filterMovieRowsByLibraries(rows, filter.allowedLibraryIDs)
+		filteredRows, err = s.filterMovieRowsByLibraries(rows, filter.adminUserID, filter.allowedLibraryIDs)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -182,7 +183,7 @@ func (s *PlaybackRankingService) fetchEpisodeRankingWithFilter(
 		if err != nil {
 			return nil, 0, err
 		}
-		return s.aggregateEpisodeRows(rows, start, end, nil)
+		return s.aggregateEpisodeRows(rows, start, end, "", nil)
 	}
 
 	var rows []playbackAggregateRow
@@ -195,7 +196,7 @@ func (s *PlaybackRankingService) fetchEpisodeRankingWithFilter(
 			return nil, 0, err
 		}
 
-		rankings, totalDuration, err = s.aggregateEpisodeRows(rows, start, end, filter.allowedLibraryIDs)
+		rankings, totalDuration, err = s.aggregateEpisodeRows(rows, start, end, filter.adminUserID, filter.allowedLibraryIDs)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -218,10 +219,8 @@ func (s *PlaybackRankingService) queryPlaybackAggregates(
 	keyExpr := nullableTrimExpr(itemIDColumn)
 	nameExpr := nullableTrimExpr(itemNameColumn)
 
-	startStr := start.Format("2006-01-02 15:04:05")
-	endStr := end.Format("2006-01-02 15:04:05")
-	startStr = start.UTC().Format("2006-01-02 15:04:05")
-	endStr = end.UTC().Format("2006-01-02 15:04:05")
+	startStr := formatPlaybackDatabaseTime(start)
+	endStr := formatPlaybackDatabaseTime(end)
 
 	sql := fmt.Sprintf(`
 SELECT %s AS item_key,
@@ -232,7 +231,7 @@ SELECT %s AS item_key,
 FROM PlaybackActivity
 WHERE ItemType = '%s'
   AND DateCreated >= '%s'
-  AND DateCreated <= '%s'
+  AND DateCreated < '%s'
   AND %s IS NOT NULL
 GROUP BY %s, %s
 ORDER BY total_duration DESC, play_count DESC, item_name ASC
@@ -280,14 +279,14 @@ ORDER BY total_duration DESC, play_count DESC, item_name ASC
 }
 
 func (s *PlaybackRankingService) queryTotalPlaybackDuration(start, end time.Time) (int64, error) {
-	startStr := start.UTC().Format("2006-01-02 15:04:05")
-	endStr := end.UTC().Format("2006-01-02 15:04:05")
+	startStr := formatPlaybackDatabaseTime(start)
+	endStr := formatPlaybackDatabaseTime(end)
 
 	sql := fmt.Sprintf(`
 SELECT COALESCE(SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0)), 0) AS total_duration
 FROM PlaybackActivity
 WHERE DateCreated >= '%s'
-  AND DateCreated <= '%s'
+  AND DateCreated < '%s'
 `, startStr, endStr)
 
 	resp, err := s.embyService.QueryPlaybackStats(sql)
@@ -332,7 +331,7 @@ func dayRange(t time.Time) (time.Time, time.Time) {
 	loc := loadCronTimezone()
 	now := t.In(loc)
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	end := start.Add(24 * time.Hour)
+	end := start.AddDate(0, 0, 1)
 	return start, end
 }
 
@@ -419,23 +418,39 @@ func (s *PlaybackRankingService) computeRanking(period models.RankingPeriod, sta
 	}, nil
 }
 
-func (s *PlaybackRankingService) filterMovieRowsByLibraries(rows []playbackAggregateRow, allowedLibraryIDs map[string]struct{}) ([]playbackAggregateRow, error) {
+func (s *PlaybackRankingService) filterMovieRowsByLibraries(rows []playbackAggregateRow, adminUserID string, allowedLibraryIDs map[string]struct{}) ([]playbackAggregateRow, error) {
 	if len(rows) == 0 || len(allowedLibraryIDs) == 0 {
 		return []playbackAggregateRow{}, nil
 	}
 
 	itemIDs := uniqueAggregateItemKeys(rows)
-	libraryByItemID, err := s.resolveEntityLibraries("movie", itemIDs, allowedLibraryIDs)
+	libraryByItemID, err := s.resolveEntityLibraries(adminUserID, "movie", itemIDs, allowedLibraryIDs)
 	if err != nil {
 		return nil, err
 	}
 
 	filtered := make([]playbackAggregateRow, 0, len(rows))
+	filteredOutCount := 0
 	for _, row := range rows {
 		if libraryByItemID[row.itemKey] == rankingUnknownLibraryID {
+			filteredOutCount++
+			if filteredOutCount <= rankingFilteredLogSampleLimit {
+				log.Printf(
+					"[PlaybackRanking] 电影未进入排行榜：itemId=%s itemName=%s reason=条目不属于所选媒体库",
+					row.itemKey,
+					row.itemName,
+				)
+			}
 			continue
 		}
 		filtered = append(filtered, row)
+	}
+	if filteredOutCount > rankingFilteredLogSampleLimit {
+		log.Printf(
+			"[PlaybackRanking] movie library filter omitted additional logs count=%d sampleLimit=%d",
+			filteredOutCount-rankingFilteredLogSampleLimit,
+			rankingFilteredLogSampleLimit,
+		)
 	}
 	return filtered, nil
 }
@@ -443,6 +458,7 @@ func (s *PlaybackRankingService) filterMovieRowsByLibraries(rows []playbackAggre
 func (s *PlaybackRankingService) aggregateEpisodeRows(
 	rows []playbackAggregateRow,
 	start, end time.Time,
+	adminUserID string,
 	allowedLibraryIDs map[string]struct{},
 ) ([]models.PlaybackRanking, int64, error) {
 	totalDuration := sumPlaybackAggregateDuration(rows)
@@ -547,15 +563,31 @@ func (s *PlaybackRankingService) aggregateEpisodeRows(
 		for seriesID := range seriesRows {
 			seriesIDs = append(seriesIDs, seriesID)
 		}
-		libraryBySeriesID, err := s.resolveEntityLibraries("series", seriesIDs, allowedLibraryIDs)
+		libraryBySeriesID, err := s.resolveEntityLibraries(adminUserID, "series", seriesIDs, allowedLibraryIDs)
 		if err != nil {
 			return nil, 0, err
 		}
-		for seriesID := range seriesRows {
+		filteredOutCount := 0
+		for seriesID, row := range seriesRows {
 			if libraryBySeriesID[seriesID] != rankingUnknownLibraryID {
 				continue
 			}
+			filteredOutCount++
+			if filteredOutCount <= rankingFilteredLogSampleLimit {
+				log.Printf(
+					"[PlaybackRanking] 剧集未进入排行榜：seriesId=%s seriesName=%s reason=条目不属于所选媒体库",
+					seriesID,
+					row.itemName,
+				)
+			}
 			delete(seriesRows, seriesID)
+		}
+		if filteredOutCount > rankingFilteredLogSampleLimit {
+			log.Printf(
+				"[PlaybackRanking] series library filter omitted additional logs count=%d sampleLimit=%d",
+				filteredOutCount-rankingFilteredLogSampleLimit,
+				rankingFilteredLogSampleLimit,
+			)
 		}
 	}
 
@@ -655,17 +687,22 @@ func filterPlaybackAggregateRows(rows []playbackAggregateRow, allowedItemIDs map
 	return filtered
 }
 
-func (s *PlaybackRankingService) resolveEntityLibraries(kind string, ids []string, allowedLibraryIDs map[string]struct{}) (map[string]string, error) {
+func (s *PlaybackRankingService) resolveEntityLibraries(adminUserID string, kind string, ids []string, allowedLibraryIDs map[string]struct{}) (map[string]string, error) {
+	adminUserID = strings.TrimSpace(adminUserID)
+	if adminUserID == "" {
+		return nil, errors.New("排行榜媒体库过滤缺少 Emby 管理员用户上下文")
+	}
+	allowedIDs := sortedLibraryIDKeys(allowedLibraryIDs)
 	results := make(map[string]string, len(ids))
 	unresolved := make([]string, 0, len(ids))
 	for _, id := range ids {
-		cacheKey := rankingEntityLibraryCacheKey(kind, id)
+		cacheKey := rankingEntityLibraryCacheKey(adminUserID, kind, id, allowedIDs)
 		if libraryID, ok := cacheLookupFreshString(s.entityLibraryCache, cacheKey); ok {
-			if libraryID == rankingUnknownLibraryID {
-				unresolved = append(unresolved, id)
-				continue
+			if _, allowed := allowedLibraryIDs[libraryID]; allowed {
+				results[id] = libraryID
+			} else {
+				results[id] = rankingUnknownLibraryID
 			}
-			results[id] = libraryID
 			log.Printf(
 				"[PlaybackRanking] %s library cache hit entityId=%s libraryId=%s allowed=%v",
 				kind,
@@ -682,56 +719,38 @@ func (s *PlaybackRankingService) resolveEntityLibraries(kind string, ids []strin
 		return results, nil
 	}
 
-	items, err := s.embyService.GetItemsByIDs(unresolved)
-	if err != nil && len(items) > 0 {
-		log.Printf("[PlaybackRanking] %s detail lookup partially failed ids=%d resolved=%d err=%v", kind, len(unresolved), len(items), err)
-	} else if err != nil {
-		log.Printf("[PlaybackRanking] %s detail lookup failed ids=%d err=%v", kind, len(unresolved), err)
+	requested := make(map[string]struct{}, len(unresolved))
+	for _, id := range unresolved {
+		requested[id] = struct{}{}
 	}
-
-	itemByID := make(map[string]embyint.EmbyLibraryItem, len(items))
-	for _, item := range items {
-		itemByID[strings.TrimSpace(item.ID)] = item
+	for _, libraryID := range allowedIDs {
+		items, err := s.embyService.GetUserLibraryItemsByIDs(adminUserID, libraryID, unresolved)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			itemID := strings.TrimSpace(item.ID)
+			if _, ok := requested[itemID]; !ok {
+				continue
+			}
+			results[itemID] = libraryID
+			cacheStoreString(s.entityLibraryCache, rankingEntityLibraryCacheKey(adminUserID, kind, itemID, allowedIDs), libraryID)
+		}
+		log.Printf(
+			"[PlaybackRanking] %s library membership adminUserId=%s libraryId=%s candidates=%d matched=%d",
+			kind,
+			adminUserID,
+			libraryID,
+			len(unresolved),
+			len(items),
+		)
 	}
 
 	for _, id := range unresolved {
-		if item, ok := itemByID[id]; ok {
-			parentID := strings.TrimSpace(item.ParentID)
-			if _, allowed := allowedLibraryIDs[parentID]; allowed {
-				results[id] = parentID
-				cacheStoreString(s.entityLibraryCache, rankingEntityLibraryCacheKey(kind, id), parentID)
-				log.Printf(
-					"[PlaybackRanking] %s library resolved by parent entityId=%s parentId=%s allowed=%v",
-					kind,
-					id,
-					parentID,
-					sortedLibraryIDKeys(allowedLibraryIDs),
-				)
-				continue
-			}
-			log.Printf(
-				"[PlaybackRanking] %s parent not allowed entityId=%s parentId=%s allowed=%v",
-				kind,
-				id,
-				parentID,
-				sortedLibraryIDKeys(allowedLibraryIDs),
-			)
-		}
-
-		libraryID, err := s.resolveEntityLibraryByAncestors(kind, id, allowedLibraryIDs)
-		if err != nil {
-			log.Printf("[PlaybackRanking] %s library resolve failed id=%s err=%v", kind, id, err)
-			results[id] = rankingUnknownLibraryID
+		if _, ok := results[id]; ok {
 			continue
 		}
-		results[id] = libraryID
-		log.Printf(
-			"[PlaybackRanking] %s library resolved by ancestors entityId=%s libraryId=%s allowed=%v",
-			kind,
-			id,
-			libraryID,
-			sortedLibraryIDKeys(allowedLibraryIDs),
-		)
+		results[id] = rankingUnknownLibraryID
 	}
 
 	log.Printf(
@@ -744,54 +763,13 @@ func (s *PlaybackRankingService) resolveEntityLibraries(kind string, ids []strin
 	return results, nil
 }
 
-func (s *PlaybackRankingService) resolveEntityLibraryByAncestors(kind string, id string, allowedLibraryIDs map[string]struct{}) (string, error) {
-	cacheKey := rankingEntityLibraryCacheKey(kind, id)
-	if libraryID, ok := cacheLookupFreshString(s.entityLibraryCache, cacheKey); ok && libraryID != rankingUnknownLibraryID {
-		return libraryID, nil
-	}
-
-	libraryID, err := s.resolveEntityLibraryByAncestorsUncached(id, allowedLibraryIDs)
-	if err != nil {
-		return rankingUnknownLibraryID, err
-	}
-	if libraryID != rankingUnknownLibraryID {
-		cacheStoreString(s.entityLibraryCache, cacheKey, libraryID)
-	}
-	return libraryID, nil
-}
-
-func (s *PlaybackRankingService) resolveEntityLibraryByAncestorsUncached(id string, allowedLibraryIDs map[string]struct{}) (string, error) {
-	ancestors, err := s.embyService.GetItemAncestors(id)
-	if err != nil {
-		return rankingUnknownLibraryID, err
-	}
-	ancestorIDs := make([]string, 0, len(ancestors))
-	for _, ancestor := range ancestors {
-		ancestorID := strings.TrimSpace(ancestor.ID)
-		if ancestorID != "" {
-			ancestorIDs = append(ancestorIDs, fmt.Sprintf("%s(%s)", ancestorID, ancestor.Name))
-		}
-		if _, ok := allowedLibraryIDs[ancestorID]; ok {
-			log.Printf(
-				"[PlaybackRanking] ancestors matched entityId=%s matched=%s ancestors=%v",
-				id,
-				ancestorID,
-				ancestorIDs,
-			)
-			return ancestorID, nil
-		}
-	}
-	log.Printf(
-		"[PlaybackRanking] ancestors unmatched entityId=%s ancestors=%v allowed=%v",
-		id,
-		ancestorIDs,
-		sortedLibraryIDKeys(allowedLibraryIDs),
-	)
-	return rankingUnknownLibraryID, nil
-}
-
-func rankingEntityLibraryCacheKey(kind, id string) string {
-	return kind + ":" + strings.TrimSpace(id)
+func rankingEntityLibraryCacheKey(adminUserID, kind, id string, allowedLibraryIDs []string) string {
+	return strings.Join([]string{
+		strings.TrimSpace(adminUserID),
+		strings.TrimSpace(kind),
+		strings.TrimSpace(id),
+		strings.Join(allowedLibraryIDs, ","),
+	}, ":")
 }
 
 func cacheLookupFreshString(c *sfCache[string, string], key string) (string, bool) {
@@ -1060,7 +1038,7 @@ func persistPlaybackRankings(rankings []models.PlaybackRanking) (int64, error) {
 }
 
 func (s *PlaybackRankingService) loadPlaybackActivityColumns() (playbackActivityColumns, error) {
-	resp, err := s.embyService.QueryPlaybackStats("SELECT * FROM PlaybackActivity LIMIT 1")
+	resp, err := s.embyService.QueryPlaybackStats("SELECT DateCreated, ItemId, ItemType, ItemName, PlayDuration, PauseDuration FROM PlaybackActivity LIMIT 0")
 	if err != nil {
 		return playbackActivityColumns{}, err
 	}
@@ -1068,6 +1046,13 @@ func (s *PlaybackRankingService) loadPlaybackActivityColumns() (playbackActivity
 	columns := queryColumns(resp)
 	if len(columns) == 0 {
 		return playbackActivityColumns{}, errors.New("无法识别 PlaybackActivity 字段")
+	}
+
+	requiredColumns := []string{"DateCreated", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"}
+	for _, requiredColumn := range requiredColumns {
+		if matchColumn(columns, requiredColumn) == "" {
+			return playbackActivityColumns{}, fmt.Errorf("PlaybackActivity 缺少必需字段：%s", requiredColumn)
+		}
 	}
 
 	out := playbackActivityColumns{
@@ -1086,10 +1071,10 @@ func (s *PlaybackRankingService) loadPlaybackActivityColumns() (playbackActivity
 }
 
 func queryColumns(resp *embyint.CustomQueryResponse) []string {
-	if len(resp.Columns) > 0 {
-		return resp.Columns
+	if len(resp.Colums) > 0 {
+		return resp.Colums
 	}
-	return resp.Colums
+	return resp.Columns
 }
 
 func matchColumn(columns []string, target string) string {

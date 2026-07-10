@@ -813,16 +813,34 @@ type CustomQueryResponse struct {
 	Message string          `json:"message"`
 }
 
+type customQueryRequest struct {
+	CustomQueryString string `json:"CustomQueryString"`
+	ReplaceUserID     bool   `json:"ReplaceUserId"`
+}
+
+// PlaybackReportingQueryError 表示插件通过 HTTP 200 返回的 SQL 执行错误。
+type PlaybackReportingQueryError struct {
+	Message string
+}
+
+func (e *PlaybackReportingQueryError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return "Playback Reporting SQL 查询失败: " + e.Message
+}
+
 // QueryPlaybackStats 通过 Playback Reporting 插件执行自定义 SQL 查询
 // 插件 API：POST /emby/user_usage_stats/submit_custom_query
-// 请求体：{"CustomQueryString": "SQL"}
+// 请求体：{"CustomQueryString": "SQL", "ReplaceUserId": false}
 func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
 
-	reqBody := map[string]string{
-		"CustomQueryString": sql,
+	reqBody := customQueryRequest{
+		CustomQueryString: sql,
+		ReplaceUserID:     false,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -851,15 +869,40 @@ func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, erro
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Playback Reporting 查询失败：HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("Playback Reporting 查询失败：HTTP %d", resp.StatusCode)
 	}
 
 	var out CustomQueryResponse
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, err
 	}
+	if isPlaybackReportingQueryError(out.Message) {
+		return nil, &PlaybackReportingQueryError{Message: sanitizePlaybackReportingMessage(out.Message)}
+	}
 
 	return &out, nil
+}
+
+func isPlaybackReportingQueryError(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	return strings.HasPrefix(normalized, "error running query")
+}
+
+func sanitizePlaybackReportingMessage(message string) string {
+	trimmed := strings.TrimSpace(message)
+	lower := strings.ToLower(trimmed)
+	if index := strings.Index(lower, "<pre>"); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	trimmed = strings.ReplaceAll(trimmed, "</br>", ": ")
+	trimmed = strings.ReplaceAll(trimmed, "<br>", ": ")
+	trimmed = strings.ReplaceAll(trimmed, "<br/>", ": ")
+	trimmed = html.UnescapeString(strings.TrimSpace(trimmed))
+	const maxMessageLength = 512
+	if len(trimmed) > maxMessageLength {
+		return trimmed[:maxMessageLength] + "...(truncated)"
+	}
+	return trimmed
 }
 
 // ==================== Sessions（活跃会话） ====================

@@ -402,16 +402,7 @@ ORDER BY DateCreated DESC
 }
 
 func playbackSQLiteLocalDateExpr(column string) string {
-	loc := loadPlaybackTimezone()
-	_, offsetSeconds := time.Now().In(loc).Zone()
-	sign := "+"
-	if offsetSeconds < 0 {
-		sign = "-"
-		offsetSeconds = -offsetSeconds
-	}
-	hours := offsetSeconds / 3600
-	minutes := (offsetSeconds % 3600) / 60
-	return fmt.Sprintf("strftime('%%Y-%%m-%%d', datetime(%s, '%s%02d:%02d'))", column, sign, hours, minutes)
+	return fmt.Sprintf("strftime('%%Y-%%m-%%d', %s)", column)
 }
 
 func parsePlaybackProfileOverviewAggregateRows(resp *embyint.CustomQueryResponse) ([]playbackProfileOverviewAggregateRow, error) {
@@ -490,10 +481,10 @@ func buildPlaybackProfileOverviewWhereClause(playbackUserIDs []string, startAt *
 		conditions = append(conditions, fmt.Sprintf("UserId IN (%s)", strings.Join(quotedUserIDs, ", ")))
 	}
 	if startAt != nil {
-		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", startAt.UTC().Format("2006-01-02 15:04:05")))
+		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", formatPlaybackDatabaseTime(*startAt)))
 	}
 	if endAt != nil {
-		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", endAt.UTC().Format("2006-01-02 15:04:05")))
+		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", formatPlaybackDatabaseTime(*endAt)))
 	}
 	return strings.Join(conditions, " AND ")
 }

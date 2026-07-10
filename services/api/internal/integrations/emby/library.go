@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,12 @@ type EmbyLibrary struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	ItemCount int    `json:"itemCount"`
+}
+
+// EmbyAdminLibraryContext 绑定同一个管理员用户和其可见媒体库视图。
+type EmbyAdminLibraryContext struct {
+	UserID    string
+	Libraries []EmbyLibrary
 }
 
 // EmbyMediaStream 媒体流信息
@@ -62,14 +69,6 @@ type EmbyLibraryItem struct {
 	IndexNumber       int               `json:"IndexNumber"`
 	MediaStreams      []EmbyMediaStream `json:"MediaStreams"`
 	MediaSources      []EmbyMediaSource `json:"MediaSources"`
-}
-
-type EmbyItemAncestor struct {
-	ID       string `json:"Id"`
-	Name     string `json:"Name"`
-	Type     string `json:"Type"`
-	ParentID string `json:"ParentId"`
-	SeriesID string `json:"SeriesId"`
 }
 
 type embyViewsResponse struct {
@@ -248,28 +247,6 @@ func shouldRetryGetItemsByIDs(err error) bool {
 	return false
 }
 
-func (s *EmbyService) GetItemAncestors(itemID string) ([]EmbyItemAncestor, error) {
-	if err := s.ensureConfigured(); err != nil {
-		return nil, err
-	}
-
-	itemID = strings.TrimSpace(itemID)
-	if itemID == "" {
-		return nil, errors.New("itemId 不能为空")
-	}
-
-	body, err := s.getWithAPIKey("/emby/Items/"+url.PathEscape(itemID)+"/Ancestors", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var ancestors []EmbyItemAncestor
-	if err := json.Unmarshal(body, &ancestors); err != nil {
-		return nil, fmt.Errorf("解析 Emby 条目祖先链失败: %w", err)
-	}
-	return ancestors, nil
-}
-
 func (s *EmbyService) GetUserViews(userID string) ([]EmbyLibrary, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
@@ -319,32 +296,35 @@ func (s *EmbyService) GetUserViews(userID string) ([]EmbyLibrary, error) {
 	return views, nil
 }
 
-func (s *EmbyService) GetAdminViews() ([]EmbyLibrary, error) {
+// GetAdminLibraryContext 返回确定的 Emby 管理员及其媒体库视图。
+func (s *EmbyService) GetAdminLibraryContext() (*EmbyAdminLibraryContext, error) {
 	users, err := s.GetUsers()
 	if err != nil {
 		return nil, err
 	}
-	if len(users) == 0 {
-		return []EmbyLibrary{}, nil
-	}
-
-	userID := strings.TrimSpace(users[0].ID)
+	adminIDs := make([]string, 0)
 	for _, user := range users {
-		if user.ID == "" {
+		userID := strings.TrimSpace(user.ID)
+		if userID == "" {
 			continue
 		}
 		if user.Policy == nil {
 			continue
 		}
 		if isAdmin, ok := user.Policy["IsAdministrator"].(bool); ok && isAdmin {
-			userID = strings.TrimSpace(user.ID)
-			break
+			adminIDs = append(adminIDs, userID)
 		}
 	}
-	if userID == "" {
-		return []EmbyLibrary{}, nil
+	if len(adminIDs) == 0 {
+		return nil, errors.New("未找到 Emby 管理员用户")
 	}
-	return s.GetUserViews(userID)
+	sort.Strings(adminIDs)
+	userID := adminIDs[0]
+	libraries, err := s.GetUserViews(userID)
+	if err != nil {
+		return nil, err
+	}
+	return &EmbyAdminLibraryContext{UserID: userID, Libraries: libraries}, nil
 }
 
 // GetLibraries 获取媒体库列表（兼容不同 Emby 版本响应结构）
@@ -433,6 +413,89 @@ func (s *EmbyService) GetLibraryItems(libraryID string, maxItems int) ([]EmbyLib
 	}
 
 	return items, nil
+}
+
+// GetUserLibraryItemsByIDs 在指定用户上下文中返回候选条目与媒体库的交集。
+func (s *EmbyService) GetUserLibraryItemsByIDs(userID string, libraryID string, itemIDs []string) ([]EmbyLibraryItem, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, errors.New("userId 不能为空")
+	}
+	return s.getLibraryItemsByIDs("/emby/Users/"+url.PathEscape(userID)+"/Items", libraryID, itemIDs)
+}
+
+func (s *EmbyService) getLibraryItemsByIDs(endpoint string, libraryID string, itemIDs []string) ([]EmbyLibraryItem, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
+	}
+
+	libraryID = strings.TrimSpace(libraryID)
+	if libraryID == "" {
+		return nil, errors.New("libraryId 不能为空")
+	}
+
+	normalized := make([]string, 0, len(itemIDs))
+	seen := make(map[string]struct{}, len(itemIDs))
+	for _, rawID := range itemIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	if len(normalized) == 0 {
+		return []EmbyLibraryItem{}, nil
+	}
+
+	items := make([]EmbyLibraryItem, 0, len(normalized))
+	for start := 0; start < len(normalized); start += maxItemIDsPerBatch {
+		end := start + maxItemIDsPerBatch
+		if end > len(normalized) {
+			end = len(normalized)
+		}
+
+		batchItems, err := s.getLibraryItemsByIDsBatch(endpoint, libraryID, normalized[start:end])
+		if err != nil {
+			return nil, err
+		}
+		requested := make(map[string]struct{}, end-start)
+		for _, id := range normalized[start:end] {
+			requested[id] = struct{}{}
+		}
+		for _, item := range batchItems {
+			itemID := strings.TrimSpace(item.ID)
+			if _, ok := requested[itemID]; !ok {
+				return nil, fmt.Errorf("Emby 媒体库候选查询返回未请求条目: libraryId=%s itemId=%s", libraryID, itemID)
+			}
+		}
+		items = append(items, batchItems...)
+	}
+	return items, nil
+}
+
+func (s *EmbyService) getLibraryItemsByIDsBatch(endpoint string, libraryID string, itemIDs []string) ([]EmbyLibraryItem, error) {
+	params := map[string]string{
+		"ParentId":  libraryID,
+		"Recursive": "true",
+		"Ids":       strings.Join(itemIDs, ","),
+		"Fields":    "ParentId,SeriesName,SeriesId",
+		"Limit":     strconv.Itoa(len(itemIDs)),
+	}
+
+	body, err := s.getWithAPIKey(endpoint, params)
+	if err != nil {
+		return nil, fmt.Errorf("读取 Emby 媒体库候选条目失败: libraryId=%s err=%w", libraryID, err)
+	}
+
+	var out embyLibraryItemsResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("解析 Emby 媒体库候选条目失败: libraryId=%s err=%w", libraryID, err)
+	}
+	return out.Items, nil
 }
 
 func (s *EmbyService) getLibraryItemsPage(libraryID string, startIndex, limit int) (*embyLibraryItemsResponse, error) {

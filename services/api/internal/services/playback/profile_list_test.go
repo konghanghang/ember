@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/konghang/ember/backend/internal/models"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
+	"github.com/konghang/ember/backend/internal/models"
 )
 
 func TestNormalizePlaybackProfileListQueryDefaultsToToday(t *testing.T) {
@@ -78,6 +78,13 @@ func TestParsePlaybackProfileOverviewAggregateRows(t *testing.T) {
 	}
 	if rows[0].lastPlayedAt == nil {
 		t.Fatal("expected non-nil lastPlayedAt")
+	}
+}
+
+func TestPlaybackSQLiteLocalDateExprUsesStoredLocalTimeDirectly(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
+	if got := playbackSQLiteLocalDateExpr("DateCreated"); got != "strftime('%Y-%m-%d', DateCreated)" {
+		t.Fatalf("unexpected local date expression: %s", got)
 	}
 }
 

@@ -117,7 +117,7 @@ func TestParsePlaybackTimeWithoutTimezoneUsesLocalTime(t *testing.T) {
 	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
 
 	got := parsePlaybackTime("2026-03-06 10:00:00")
-	want := time.Date(2026, 3, 6, 18, 0, 0, 0, loadPlaybackTimezone())
+	want := time.Date(2026, 3, 6, 10, 0, 0, 0, loadPlaybackTimezone())
 	if !got.Equal(want) {
 		t.Fatalf("unexpected parsed time, want=%s got=%s", want.Format(time.RFC3339), got.Format(time.RFC3339))
 	}
@@ -133,7 +133,8 @@ func TestParsePlaybackTimeWithTimezoneConvertsToConfiguredTimezone(t *testing.T)
 	}
 }
 
-func TestBuildPlaybackWhereClauseConvertsLocalDayToUTCRange(t *testing.T) {
+func TestBuildPlaybackWhereClauseUsesGlobalTimezoneAndHalfOpenDateRange(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
 	tz := time.FixedZone("UTC+8", 8*3600)
 	start := time.Date(2026, 3, 21, 0, 0, 0, 0, tz)
 	end := time.Date(2026, 3, 21, 0, 0, 0, 0, tz)
@@ -143,7 +144,7 @@ func TestBuildPlaybackWhereClauseConvertsLocalDayToUTCRange(t *testing.T) {
 	}
 
 	where := buildPlaybackWhereClause(query, nil)
-	expected := "1=1 AND DateCreated >= '2026-03-20 16:00:00' AND DateCreated <= '2026-03-21 15:59:59'"
+	expected := "1=1 AND DateCreated >= '2026-03-21 00:00:00' AND DateCreated < '2026-03-22 00:00:00'"
 	if where != expected {
 		t.Fatalf("where clause mismatch:\nwant: %s\ngot:  %s", expected, where)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +117,8 @@ func TestGetUserPolicyRawConfiguredReadsPolicyFromUserDetail(t *testing.T) {
 	}))
 	defer server.Close()
 
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "token_1")
 	service := &EmbyService{baseURL: server.URL, apiKey: "token_1", client: server.Client()}
 	policy, err := service.getUserPolicyRawConfigured("emby_1")
 	if err != nil {
@@ -142,6 +145,8 @@ func TestGetUserPolicyRawConfiguredFallsBackWhenUserDetailHasNoPolicy(t *testing
 	}))
 	defer server.Close()
 
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "token_1")
 	service := &EmbyService{baseURL: server.URL, apiKey: "token_1", client: server.Client()}
 	policy, err := service.getUserPolicyRawConfigured("emby_1")
 	if err != nil {
@@ -164,9 +169,91 @@ func TestGetUserPolicyRawConfiguredDoesNotFallbackWhenUserMissing(t *testing.T) 
 	}))
 	defer server.Close()
 
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "token_1")
 	service := &EmbyService{baseURL: server.URL, apiKey: "token_1", client: server.Client()}
 	_, err := service.getUserPolicyRawConfigured("missing")
 	if !errors.Is(err, ErrEmbyUserNotFound) {
 		t.Fatalf("expected ErrEmbyUserNotFound, got %v", err)
+	}
+}
+
+func TestQueryPlaybackStatsUsesPluginContract(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/emby/user_usage_stats/submit_custom_query" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload["CustomQueryString"] != "SELECT 1" {
+			t.Fatalf("unexpected SQL payload: %+v", payload)
+		}
+		if replace, ok := payload["ReplaceUserId"].(bool); !ok || replace {
+			t.Fatalf("expected ReplaceUserId=false, got %+v", payload)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"colums":  []string{"value"},
+			"results": [][]string{{"1"}},
+			"message": "",
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "token_1")
+	service := &EmbyService{baseURL: server.URL, apiKey: "token_1", client: server.Client()}
+	resp, err := service.QueryPlaybackStats("SELECT 1")
+	if err != nil {
+		t.Fatalf("query playback stats: %v", err)
+	}
+	if len(resp.Colums) != 1 || resp.Colums[0] != "value" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
+func TestQueryPlaybackStatsReturnsTypedPluginSQLError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"colums":  []string{},
+			"results": []any{},
+			"message": "Error Running Query</br>no such column: PauseDuration<pre>sensitive stack</pre>",
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "token_1")
+	service := &EmbyService{baseURL: server.URL, apiKey: "token_1", client: server.Client()}
+	_, err := service.QueryPlaybackStats("SELECT PauseDuration FROM PlaybackActivity")
+	var pluginErr *PlaybackReportingQueryError
+	if !errors.As(err, &pluginErr) {
+		t.Fatalf("expected PlaybackReportingQueryError, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "PauseDuration") || strings.Contains(err.Error(), "sensitive stack") {
+		t.Fatalf("expected safe actionable plugin error, got %q", err.Error())
+	}
+}
+
+func TestQueryPlaybackStatsAllowsNoDataMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"colums":  []string{},
+			"results": []any{},
+			"message": "Query executed, no data returned.",
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "token_1")
+	service := &EmbyService{baseURL: server.URL, apiKey: "token_1", client: server.Client()}
+	resp, err := service.QueryPlaybackStats("SELECT 1 WHERE 0")
+	if err != nil {
+		t.Fatalf("expected no-data message to remain successful, got %v", err)
+	}
+	if resp.Message != "Query executed, no data returned." {
+		t.Fatalf("unexpected response: %+v", resp)
 	}
 }

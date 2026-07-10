@@ -1,6 +1,10 @@
 package playback
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestNormalizePlaybackProfileRangeSupportsToday(t *testing.T) {
 	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
@@ -82,5 +86,18 @@ func TestNormalizePlaybackProfileRangeRejectsTooLargeCustomWindow(t *testing.T) 
 	})
 	if err != ErrPlaybackProfileRangeTooLarge {
 		t.Fatalf("expected ErrPlaybackProfileRangeTooLarge, got %v", err)
+	}
+}
+
+func TestBuildPlaybackProfileWhereClauseUsesGlobalTimezone(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
+	loc := loadPlaybackTimezone()
+	start := time.Date(2026, 1, 2, 8, 30, 0, 0, loc)
+	end := time.Date(2026, 1, 2, 22, 15, 0, 0, loc)
+
+	where := buildPlaybackProfileWhereClause("emby_1", &start, &end)
+	if !strings.Contains(where, "DateCreated >= '2026-01-02 08:30:00'") ||
+		!strings.Contains(where, "DateCreated <= '2026-01-02 22:15:00'") {
+		t.Fatalf("expected global-timezone boundaries, got %s", where)
 	}
 }

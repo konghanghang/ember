@@ -448,7 +448,7 @@ func buildPlaybackWhereClause(query *playbackHistoryQuery, playbackUserIDs []str
 				query.startDate.Location(),
 			)
 		}
-		start := startAt.UTC().Format("2006-01-02 15:04:05")
+		start := formatPlaybackDatabaseTime(startAt)
 		conditions = append(conditions, fmt.Sprintf("DateCreated >= '%s'", start))
 	}
 
@@ -459,12 +459,15 @@ func buildPlaybackWhereClause(query *playbackHistoryQuery, playbackUserIDs []str
 				query.endDate.Year(),
 				query.endDate.Month(),
 				query.endDate.Day(),
-				23, 59, 59, 0,
+				0, 0, 0, 0,
 				query.endDate.Location(),
-			)
+			).AddDate(0, 0, 1)
+			end := formatPlaybackDatabaseTime(endAt)
+			conditions = append(conditions, fmt.Sprintf("DateCreated < '%s'", end))
+		} else {
+			end := formatPlaybackDatabaseTime(endAt)
+			conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", end))
 		}
-		end := endAt.UTC().Format("2006-01-02 15:04:05")
-		conditions = append(conditions, fmt.Sprintf("DateCreated <= '%s'", end))
 	}
 
 	return strings.Join(conditions, " AND ")
@@ -619,8 +622,8 @@ func parsePlaybackTime(raw string) time.Time {
 	}
 
 	for _, layout := range layoutsWithoutTimezone {
-		if t, err := time.ParseInLocation(layout, raw, time.UTC); err == nil {
-			return t.In(playbackTZ)
+		if t, err := time.ParseInLocation(layout, raw, playbackTZ); err == nil {
+			return t
 		}
 	}
 
@@ -629,6 +632,10 @@ func parsePlaybackTime(raw string) time.Time {
 
 func loadPlaybackTimezone() *time.Location {
 	return configpkg.LoadConfiguredTimezone()
+}
+
+func formatPlaybackDatabaseTime(value time.Time) string {
+	return value.In(loadPlaybackTimezone()).Format("2006-01-02 15:04:05")
 }
 
 func safeString(v interface{}) string {

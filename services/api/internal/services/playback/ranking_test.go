@@ -33,8 +33,8 @@ func TestPlaybackRankingColumnHelpers(t *testing.T) {
 		Columns: []string{" ItemId ", "ItemName"},
 		Colums:  []string{"legacy"},
 	}
-	if got := queryColumns(resp); len(got) != 2 || got[0] != " ItemId " {
-		t.Fatalf("expected columns to take precedence, got %+v", got)
+	if got := queryColumns(resp); len(got) != 1 || got[0] != "legacy" {
+		t.Fatalf("expected plugin colums to take precedence, got %+v", got)
 	}
 
 	resp = &embyint.CustomQueryResponse{Colums: []string{"legacy_item"}}
@@ -54,6 +54,71 @@ func TestPlaybackRankingColumnHelpers(t *testing.T) {
 	}
 	if got := nullableTrimExpr(" "); got != "NULL" {
 		t.Fatalf("expected blank column to become NULL, got %s", got)
+	}
+}
+
+func TestLoadPlaybackActivityColumnsUsesNoDataContractQueryAndRequiresFullSchema(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		sql, _ := payload["CustomQueryString"].(string)
+		if !strings.Contains(sql, "LIMIT 0") || strings.Contains(sql, "SELECT *") {
+			t.Fatalf("expected explicit no-data schema query, got %s", sql)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"colums":  []string{"DateCreated", "ItemId", "ItemType", "ItemName", "PlayDuration"},
+			"results": []any{},
+			"message": "",
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	svc := &PlaybackRankingService{embyService: embyint.NewEmbyService()}
+	if _, err := svc.loadPlaybackActivityColumns(); err == nil || !strings.Contains(err.Error(), "PauseDuration") {
+		t.Fatalf("expected missing PauseDuration error, got %v", err)
+	}
+}
+
+func TestQueryPlaybackAggregatesUsesGlobalTimezoneAndHalfOpenRange(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		sql, _ := payload["CustomQueryString"].(string)
+		if !strings.Contains(sql, "DateCreated >= '2026-03-21 00:00:00'") ||
+			!strings.Contains(sql, "DateCreated < '2026-03-22 00:00:00'") ||
+			strings.Contains(sql, "DateCreated <=") {
+			t.Fatalf("unexpected time range SQL: %s", sql)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"colums":  []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"results": []any{},
+			"message": "",
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "Asia/Shanghai")
+	loc := loadPlaybackTimezone()
+	svc := &PlaybackRankingService{embyService: embyint.NewEmbyService()}
+	_, err := svc.queryPlaybackAggregates(
+		"Movie",
+		"ItemId",
+		"ItemName",
+		"movie_item",
+		time.Date(2026, 3, 21, 0, 0, 0, 0, loc),
+		time.Date(2026, 3, 22, 0, 0, 0, 0, loc),
+		10,
+	)
+	if err != nil {
+		t.Fatalf("query playback aggregates: %v", err)
 	}
 }
 
@@ -243,6 +308,18 @@ func TestPlaybackRankingRangeHelpersUseConfiguredTimezone(t *testing.T) {
 	}
 }
 
+func TestDayRangeUsesCalendarDayAcrossDST(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "America/New_York")
+	loc := loadPlaybackTimezone()
+	input := time.Date(2026, 3, 8, 12, 0, 0, 0, loc)
+
+	start, end := dayRange(input)
+	if start.Format(time.RFC3339) != "2026-03-08T00:00:00-05:00" ||
+		end.Format(time.RFC3339) != "2026-03-09T00:00:00-04:00" {
+		t.Fatalf("unexpected DST day range: %s~%s", start.Format(time.RFC3339), end.Format(time.RFC3339))
+	}
+}
+
 func TestPreviewRankingGroupsEpisodesBySeriesID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -319,6 +396,8 @@ func TestPreviewRankingFiltersByLibraryAllowlist(t *testing.T) {
 				return
 			}
 			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users/admin_1/Items":
+			handlePlaybackItemsTestRequest(t, w, r)
 		case "/emby/Users":
 			handleRankingUsersRequest(t, w, r)
 		case "/emby/Users/admin_1/Views":
@@ -357,10 +436,62 @@ func TestPreviewRankingFiltersByLibraryAllowlist(t *testing.T) {
 	}
 }
 
+func TestPreviewRankingFiltersWhenViewAndAncestorIDsUseDifferentNamespaces(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby/user_usage_stats/submit_custom_query":
+			handlePlaybackQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			handleNumericParentPlaybackItemsRequest(t, w, r)
+		case "/emby/Users/admin_1/Items":
+			handlePathLibraryCandidateItemsRequest(t, w, r)
+		case "/emby/Users":
+			handleRankingUsersRequest(t, w, r)
+		case "/emby/Users/admin_1/Views":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Items": []map[string]any{
+					{"Id": "/data/movies", "Name": "电影库", "CollectionType": "movies", "Type": "CollectionFolder"},
+					{"Id": "/data/series", "Name": "剧集库", "CollectionType": "tvshows", "Type": "CollectionFolder"},
+					{"Id": "/data/other", "Name": "其他库", "CollectionType": "movies", "Type": "CollectionFolder"},
+				},
+			})
+		case "/emby/Items/movie_1/Ancestors":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"Id": "101", "Name": "电影库", "Type": "CollectionFolder"}})
+		case "/emby/Items/series_a/Ancestors", "/emby/Items/series_b/Ancestors", "/emby/Items/series_zero/Ancestors":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"Id": "202", "Name": "剧集库", "Type": "CollectionFolder"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv("EMBY_URL", server.URL)
+	t.Setenv("EMBY_API_KEY", "test-key")
+	t.Setenv("CRON_TIMEZONE", "UTC")
+
+	svc := &PlaybackRankingService{
+		embyService: embyint.NewEmbyService(),
+		loadLibraryAllowlist: func() ([]string, error) {
+			return []string{"/data/movies", "/data/series"}, nil
+		},
+	}
+
+	result, err := svc.PreviewRanking(models.RankingWeekly)
+	if err != nil {
+		t.Fatalf("preview ranking failed: %v", err)
+	}
+	if len(result.Movies) != 1 || result.Movies[0].ItemKey != "movie_1" {
+		t.Fatalf("expected path-scoped movie ranking, got %+v", result.Movies)
+	}
+	if len(result.Episodes) != 1 || result.Episodes[0].ItemKey != "series_a" {
+		t.Fatalf("expected path-scoped episode ranking, got %+v", result.Episodes)
+	}
+}
+
 func TestResolveEntityLibrariesDoesNotCacheAllowlistMissAsUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/emby/Items":
+		case "/emby/Users/admin_1/Items":
 			if r.Method == http.MethodGet && strings.TrimSpace(r.URL.Query().Get("Ids")) != "" {
 				handlePlaybackItemsTestRequest(t, w, r)
 				return
@@ -378,11 +509,11 @@ func TestResolveEntityLibrariesDoesNotCacheAllowlistMissAsUnknown(t *testing.T) 
 	t.Setenv("EMBY_API_KEY", "test-key")
 
 	svc := &PlaybackRankingService{
-		embyService:       embyint.NewEmbyService(),
+		embyService:        embyint.NewEmbyService(),
 		entityLibraryCache: newSFCache[string, string](time.Hour),
 	}
 
-	first, err := svc.resolveEntityLibraries("movie", []string{"movie_1"}, map[string]struct{}{
+	first, err := svc.resolveEntityLibraries("admin_1", "movie", []string{"movie_1"}, map[string]struct{}{
 		"lib_series_only": {},
 	})
 	if err != nil {
@@ -392,7 +523,7 @@ func TestResolveEntityLibrariesDoesNotCacheAllowlistMissAsUnknown(t *testing.T) 
 		t.Fatalf("expected first resolve to miss allowlist, got %q", got)
 	}
 
-	second, err := svc.resolveEntityLibraries("movie", []string{"movie_1"}, map[string]struct{}{
+	second, err := svc.resolveEntityLibraries("admin_1", "movie", []string{"movie_1"}, map[string]struct{}{
 		"lib_movie_only": {},
 	})
 	if err != nil {
@@ -414,6 +545,8 @@ func TestComputeRankingFiltersTotalDurationByLibraryAllowlist(t *testing.T) {
 				return
 			}
 			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users/admin_1/Items":
+			handlePlaybackItemsTestRequest(t, w, r)
 		case "/emby/Users":
 			handleRankingUsersRequest(t, w, r)
 		case "/emby/Users/admin_1/Views":
@@ -526,6 +659,8 @@ func TestGenerateRankingNotifiesFilteredPayload(t *testing.T) {
 				return
 			}
 			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users/admin_1/Items":
+			handlePlaybackItemsTestRequest(t, w, r)
 		case "/emby/Users":
 			handleRankingUsersRequest(t, w, r)
 		case "/emby/Users/admin_1/Views":
@@ -586,6 +721,8 @@ func TestGenerateRankingUsesDefaultAsyncGoWhenNil(t *testing.T) {
 				return
 			}
 			t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
+		case "/emby/Users/admin_1/Items":
+			handlePlaybackItemsTestRequest(t, w, r)
 		case "/emby/Users":
 			handleRankingUsersRequest(t, w, r)
 		case "/emby/Users/admin_1/Views":
@@ -748,16 +885,16 @@ func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *test
 				t.Fatalf("read body failed: %v", err)
 			}
 
-			var req map[string]string
+			var req map[string]any
 			if err := json.Unmarshal(body, &req); err != nil {
 				t.Fatalf("unmarshal body failed: %v", err)
 			}
 
-			sql := req["CustomQueryString"]
+			sql, _ := req["CustomQueryString"].(string)
 			switch {
-			case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+			case strings.Contains(sql, "FROM PlaybackActivity LIMIT 0"):
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+					"colums":  []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
 					"results": []any{},
 					"message": "",
 				})
@@ -774,7 +911,7 @@ func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *test
 					})
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+					"colums":  []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 					"results": rows,
 					"message": "",
 				})
@@ -792,13 +929,13 @@ func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *test
 				}
 				rows = append(rows, []any{"movie_allowed", "Allowed Movie", "movie_item", 2, 3600})
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+					"colums":  []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 					"results": rows,
 					"message": "",
 				})
 			case strings.Contains(sql, "ItemType = 'Episode'"):
 				_ = json.NewEncoder(w).Encode(map[string]any{
-					"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+					"colums":  []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 					"results": [][]any{},
 					"message": "",
 				})
@@ -809,6 +946,8 @@ func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *test
 			if strings.TrimSpace(r.URL.Query().Get("Ids")) == "" {
 				t.Fatalf("unexpected bulk library scan request: %s", r.URL.RawQuery)
 			}
+			handleExpansionMovieItemsRequest(t, w, r)
+		case "/emby/Users/admin_1/Items":
 			handleExpansionMovieItemsRequest(t, w, r)
 		case "/emby/Users":
 			handleRankingUsersRequest(t, w, r)
@@ -929,22 +1068,22 @@ func handlePlaybackQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http
 		t.Fatalf("read body failed: %v", err)
 	}
 
-	var req map[string]string
+	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
 
-	sql := req["CustomQueryString"]
+	sql, _ := req["CustomQueryString"].(string)
 	switch {
-	case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+	case strings.Contains(sql, "FROM PlaybackActivity LIMIT 0"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+			"colums":  []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
 			"results": []any{},
 			"message": "",
 		})
 	case strings.Contains(sql, "ItemType = 'Movie'"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"colums": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 			"results": [][]any{
 				{"movie_1", "星际穿越", "movie_item", 2, 5400},
 				{"movie_short", "短片预告", "movie_item", 1, 59},
@@ -953,7 +1092,7 @@ func handlePlaybackQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http
 		})
 	case strings.Contains(sql, "ItemType = 'Episode'"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"colums": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 			"results": [][]any{
 				{"ep_145", "斗罗大陆II绝世唐门 - s02e145", "episode_item", 2, 1800},
 				{"ep_144", "斗罗大陆II绝世唐门 - s02e144", "episode_item", 1, 300},
@@ -964,7 +1103,7 @@ func handlePlaybackQueryTestRequest(t *testing.T, w http.ResponseWriter, r *http
 		})
 	case strings.Contains(sql, "SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0))"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"total_duration"},
+			"colums": []string{"total_duration"},
 			"results": [][]any{
 				{6600},
 			},
@@ -981,9 +1120,13 @@ func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http
 	rawIDs := strings.TrimSpace(r.URL.Query().Get("Ids"))
 	ids := strings.Split(rawIDs, ",")
 	items := make([]map[string]any, 0, len(ids))
+	parentID := strings.TrimSpace(r.URL.Query().Get("ParentId"))
 
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
+		if parentID != "" && !rankingTestLibraryContains(parentID, id) {
+			continue
+		}
 		switch id {
 		case "movie_1":
 			items = append(items, map[string]any{
@@ -1029,6 +1172,79 @@ func handlePlaybackItemsTestRequest(t *testing.T, w http.ResponseWriter, r *http
 			})
 		default:
 			t.Fatalf("unexpected item id lookup: %s", id)
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Items":            items,
+		"TotalRecordCount": len(items),
+	})
+}
+
+func rankingTestLibraryContains(libraryID, itemID string) bool {
+	switch libraryID {
+	case "lib_movie_only":
+		return itemID == "movie_1" || itemID == "movie_short"
+	case "lib_series_only":
+		return itemID == "series_a"
+	case "lib_other":
+		return itemID == "series_b" || itemID == "series_zero"
+	default:
+		return false
+	}
+}
+
+func handleNumericParentPlaybackItemsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	rawIDs := strings.TrimSpace(r.URL.Query().Get("Ids"))
+	ids := strings.Split(rawIDs, ",")
+	items := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		switch id {
+		case "movie_1", "movie_short":
+			items = append(items, map[string]any{"Id": id, "ParentId": "101", "Type": "Movie"})
+		case "ep_145", "ep_144":
+			items = append(items, map[string]any{"Id": id, "ParentId": "201", "SeriesId": "series_a", "SeriesName": "斗罗大陆II绝世唐门"})
+		case "ep_b1":
+			items = append(items, map[string]any{"Id": id, "ParentId": "203", "SeriesId": "series_b", "SeriesName": "吞噬星空"})
+		case "ep_zero":
+			items = append(items, map[string]any{"Id": id, "ParentId": "203", "SeriesId": "series_zero", "SeriesName": "无效剧集"})
+		case "series_a":
+			items = append(items, map[string]any{"Id": id, "ParentId": "202", "Type": "Series"})
+		case "series_b", "series_zero":
+			items = append(items, map[string]any{"Id": id, "ParentId": "204", "Type": "Series"})
+		default:
+			t.Fatalf("unexpected numeric-parent item id lookup: %s", id)
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"Items":            items,
+		"TotalRecordCount": len(items),
+	})
+}
+
+func handlePathLibraryCandidateItemsRequest(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+
+	if r.URL.Query().Get("Recursive") != "true" {
+		t.Fatalf("expected recursive library membership query, got %s", r.URL.RawQuery)
+	}
+	parentID := strings.TrimSpace(r.URL.Query().Get("ParentId"))
+	candidateIDs := strings.Split(strings.TrimSpace(r.URL.Query().Get("Ids")), ",")
+	items := make([]map[string]any, 0, len(candidateIDs))
+	for _, candidateID := range candidateIDs {
+		candidateID = strings.TrimSpace(candidateID)
+		if candidateID == "" {
+			continue
+		}
+		if parentID == "/data/movies" && candidateID == "movie_1" {
+			items = append(items, map[string]any{"Id": candidateID, "Type": "Movie"})
+		}
+		if parentID == "/data/series" && candidateID == "series_a" {
+			items = append(items, map[string]any{"Id": candidateID, "Type": "Series"})
 		}
 	}
 
@@ -1087,6 +1303,9 @@ func handleExpansionMovieItemsRequest(t *testing.T, w http.ResponseWriter, r *ht
 		if id == "" {
 			continue
 		}
+		if strings.TrimSpace(r.URL.Query().Get("ParentId")) != "" && id != "movie_allowed" {
+			continue
+		}
 		parentID := "lib_other"
 		if id == "movie_allowed" {
 			parentID = "lib_unknown"
@@ -1126,22 +1345,22 @@ func handlePlaybackPartialBatchQueryTestRequest(t *testing.T, w http.ResponseWri
 		t.Fatalf("read body failed: %v", err)
 	}
 
-	var req map[string]string
+	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
 
-	sql := req["CustomQueryString"]
+	sql, _ := req["CustomQueryString"].(string)
 	switch {
-	case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+	case strings.Contains(sql, "FROM PlaybackActivity LIMIT 0"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+			"colums":  []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
 			"results": []any{},
 			"message": "",
 		})
 	case strings.Contains(sql, "ItemType = 'Movie'"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"colums": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 			"results": [][]any{
 				{"movie_1", "Movie", "movie_item", 1, 300},
 			},
@@ -1154,13 +1373,13 @@ func handlePlaybackPartialBatchQueryTestRequest(t *testing.T, w http.ResponseWri
 		}
 		results = append(results, []any{"ep_fail_101", "Series Fail", "episode_item", 1, 120})
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"colums":  []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 			"results": results,
 			"message": "",
 		})
 	case strings.Contains(sql, "SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0))"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"total_duration"},
+			"colums": []string{"total_duration"},
 			"results": [][]any{
 				{12300},
 			},
@@ -1208,28 +1427,28 @@ func handlePlaybackAllBatchFailQueryTestRequest(t *testing.T, w http.ResponseWri
 		t.Fatalf("read body failed: %v", err)
 	}
 
-	var req map[string]string
+	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
 
-	sql := req["CustomQueryString"]
+	sql, _ := req["CustomQueryString"].(string)
 	switch {
-	case strings.Contains(sql, "SELECT * FROM PlaybackActivity LIMIT 1"):
+	case strings.Contains(sql, "FROM PlaybackActivity LIMIT 0"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
+			"colums":  []string{"DateCreated", "UserId", "ItemId", "ItemType", "ItemName", "PlayDuration", "PauseDuration"},
 			"results": []any{},
 			"message": "",
 		})
 	case strings.Contains(sql, "ItemType = 'Movie'"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"colums":  []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 			"results": [][]any{},
 			"message": "",
 		})
 	case strings.Contains(sql, "ItemType = 'Episode'"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
+			"colums": []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
 			"results": [][]any{
 				{"ep_fail_1", "Series Fail 1", "episode_item", 1, 300},
 				{"ep_fail_2", "Series Fail 2", "episode_item", 1, 300},
@@ -1238,7 +1457,7 @@ func handlePlaybackAllBatchFailQueryTestRequest(t *testing.T, w http.ResponseWri
 		})
 	case strings.Contains(sql, "SUM(COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0))"):
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"columns": []string{"total_duration"},
+			"colums": []string{"total_duration"},
 			"results": [][]any{
 				{600},
 			},

@@ -37,8 +37,14 @@ type RankingLibraryAllowlistSettings struct {
 
 type rankingLibraryFilter struct {
 	allowAll          bool
+	adminUserID       string
 	libraryIDs        []string
 	allowedLibraryIDs map[string]struct{}
+}
+
+type rankingLibraryContext struct {
+	adminUserID string
+	libraries   []RankingLibraryOption
 }
 
 func (s *PlaybackRankingService) GetRankingLibraryAllowlist() (*RankingLibraryAllowlistSettings, error) {
@@ -125,10 +131,11 @@ func (s *PlaybackRankingService) loadRankingLibraryFilter() (rankingLibraryFilte
 		return rankingLibraryFilter{allowAll: true}, nil
 	}
 
-	libraries, err := s.getRankingLibraries()
+	context, err := s.getRankingLibraryContext()
 	if err != nil {
 		return rankingLibraryFilter{}, err
 	}
+	libraries := context.libraries
 
 	validIDs, invalidIDs := partitionRankingLibraryIDs(ids, libraryOptionMap(libraries))
 	if len(invalidIDs) > 0 {
@@ -157,6 +164,7 @@ func (s *PlaybackRankingService) loadRankingLibraryFilter() (rankingLibraryFilte
 
 	return rankingLibraryFilter{
 		allowAll:          false,
+		adminUserID:       context.adminUserID,
 		libraryIDs:        validIDs,
 		allowedLibraryIDs: allowedLibraryIDs,
 	}, nil
@@ -170,15 +178,26 @@ func (s *PlaybackRankingService) currentRankingLibraryAllowlistIDs() ([]string, 
 }
 
 func (s *PlaybackRankingService) getRankingLibraries() ([]RankingLibraryOption, error) {
-	if s == nil || s.embyService == nil {
-		return nil, errors.New("排行榜服务未配置 Emby 客户端")
+	context, err := s.getRankingLibraryContext()
+	if err != nil {
+		return nil, err
 	}
-	load := func() ([]RankingLibraryOption, error) {
-		libraries, err := s.embyService.GetAdminViews()
+	return context.libraries, nil
+}
+
+func (s *PlaybackRankingService) getRankingLibraryContext() (rankingLibraryContext, error) {
+	if s == nil || s.embyService == nil {
+		return rankingLibraryContext{}, errors.New("排行榜服务未配置 Emby 客户端")
+	}
+	load := func() (rankingLibraryContext, error) {
+		adminContext, err := s.embyService.GetAdminLibraryContext()
 		if err != nil {
-			return nil, fmt.Errorf("读取 Emby 排行榜媒体库视图失败：%w", err)
+			return rankingLibraryContext{}, fmt.Errorf("读取 Emby 排行榜媒体库视图失败：%w", err)
 		}
-		return toRankingLibraryOptions(libraries), nil
+		return rankingLibraryContext{
+			adminUserID: adminContext.UserID,
+			libraries:   toRankingLibraryOptions(adminContext.Libraries),
+		}, nil
 	}
 
 	if s.rankingLibrariesCache == nil {
