@@ -4,6 +4,7 @@
 
 ## 当前内容
 
+- [Ember 项目成熟度改进路线提案](./project-maturity-improvement-roadmap.md)
 - [计划文档盘点](./plan-inventory.md)
 - [提案模板](./proposal-template.md)
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
