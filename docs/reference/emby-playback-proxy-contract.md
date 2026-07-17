@@ -1,0 +1,276 @@
+# Emby 4.9.3.0 播放代理 API 合同
+
+本文档记录 Ember 播放网关依赖的 Emby 原生认证、播放信息、原始视频流、字幕和播放会话接口。目标是为后续 115 直连播放提供固定版本证据，禁止根据客户端表现或其他 Emby 版本经验猜测协议。
+
+## 1. 适用范围与证据等级
+
+当前兼容基线：
+
+| 组件 | 已确认版本 | 证据 | 结论 |
+| --- | --- | --- | --- |
+| Emby Server / SDK | `4.9.3.0 Release` | Emby.SDK 提交 `6ee0155063bc85578196489926359a8f37419502` | 本文列出的 method、path 和 DTO 字段按该提交确认 |
+| 目标 Emby Server | 未确认 | 尚未调用目标实例 `GET /emby/System/Info` | 不能断言目标实例与本文基线完全一致 |
+| Infuse 客户端行为 | 未确认 | 尚未对目标版本 Infuse 做合同夹具或真实只读验证 | 不能断言所有请求顺序、重定向和 Header 行为已经覆盖 |
+
+证据等级：
+
+- **固定版本源码确认**：由 Emby `4.9.3.0` SDK OpenAPI 直接证明。
+- **HTTP 传输要求**：由 HTTP 标准和反向代理边界决定，但仍需客户端合同测试锁定。
+- **未实机确认**：OpenAPI 允许该用法，但尚未在目标 Emby 与 Infuse 组合上验证。
+
+固定版本证据：
+
+- [Emby.SDK 4.9.3.0 OpenAPI](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json)
+- [Ember Playback Reporting 合同](./playback-reporting-api-contract.md)
+
+## 2. 网关职责与信任边界
+
+播放网关位于 Emby 客户端与 Emby Server 之间：
+
+```text
+Emby 客户端
+  -> Ember Playback Gateway
+       -> 普通 Emby API、字幕、播放进度：透明转发到 Emby Server
+       -> 符合直连条件的视频流：解析媒体、执行策略、返回 115 直链 302
+```
+
+边界约束：
+
+- 网关必须成为公网唯一 Emby 入口；原始 Emby Server 只允许内网或受控运维访问。
+- 未明确列入本文合同的接口默认透明转发，不做猜测式改写。
+- 网关不得使用客户端提交的 `UserId` 作为最终身份依据，必须由 Emby AccessToken 映射到 Ember 用户。
+- 视频字节在 302 成功后由客户端直接向 115 CDN 请求，不经过 Ember API、播放网关或 Emby Server。
+- 网关不得记录 AccessToken、完整 115 直链、Cookie 或其他可复用凭证。
+
+## 3. 用户认证合同
+
+### 3.1 用户名密码认证
+
+```http
+POST /emby/Users/AuthenticateByName
+Content-Type: application/json
+
+{
+  "Username": "example",
+  "Pw": "<password>"
+}
+```
+
+`4.9.3.0` OpenAPI 的请求模型是 `AuthenticateUserByName`，成功响应是 `Authentication.AuthenticationResult`：
+
+| 字段 | 类型 | 网关用途 |
+| --- | --- | --- |
+| `User` | `UserDto` | 读取 `User.Id`，映射 Ember `users.emby_id` |
+| `SessionInfo` | `SessionInfo` | 保留给 Emby 客户端，不作为 Ember 身份真相源 |
+| `AccessToken` | `string` | 计算不可逆哈希后建立 Token 到 Ember 用户映射 |
+| `ServerId` | `string` | 识别目标 Emby Server，避免跨 Server Token 混用 |
+
+网关处理要求：
+
+1. 将认证请求和响应透明转发，不修改 Emby 返回体。
+2. 成功响应后提取 `User.Id`、`AccessToken` 和 `ServerId`。
+3. 数据库只保存 `AccessToken` 的哈希，不保存明文。
+4. 根据 `users.emby_id` 查找 Ember 用户，并记录设备、客户端和最后访问时间。
+5. 用户过期、停用或解绑时撤销 Token 映射；已发出的短期 CDN 链接不保证可以立即终止。
+
+### 3.2 暂不覆盖的认证方式
+
+首版不根据经验实现以下认证方式：
+
+- Quick Connect
+- PIN 登录
+- Emby Connect 交换登录
+- 其他插件认证入口
+
+如果后续需要支持，必须先把对应版本的 method、path、请求、响应、过期与错误语义补入本文档，再实现 Token 映射。
+
+## 4. 播放信息合同
+
+### 4.1 GET PlaybackInfo
+
+```http
+GET /emby/Items/{Id}/PlaybackInfo?UserId={UserId}
+X-Emby-Token: <access-token>
+```
+
+`4.9.3.0` OpenAPI 声明：
+
+- `Id`：必填 path 参数。
+- `UserId`：必填 query 参数。
+- 响应模型：`PlaybackInfoResponse`。
+
+### 4.2 POST PlaybackInfo
+
+```http
+POST /emby/Items/{Id}/PlaybackInfo
+Content-Type: application/json
+X-Emby-Token: <access-token>
+
+<PlaybackInfoRequest>
+```
+
+响应同样是 `PlaybackInfoResponse`。播放网关不得自行拼装一个缩水版响应；首版应透明转发 Emby 响应，仅在内部读取必要字段。
+
+### 4.3 PlaybackInfoResponse 关键字段
+
+| 字段 | 类型 | 用途 |
+| --- | --- | --- |
+| `MediaSources` | `MediaSourceInfo[]` | 确定媒体源、路径、容器和播放能力 |
+| `PlaySessionId` | `string` | 关联播放请求、进度事件和网关会话 |
+| `ErrorCode` | `PlaybackErrorCode` | Emby 自身播放能力错误 |
+
+`MediaSourceInfo` 至少关注：
+
+| 字段 | 类型 | 用途 |
+| --- | --- | --- |
+| `Id` | `string` | `MediaSourceId` |
+| `ItemId` | `string` | 媒体条目 ID |
+| `Path` | `string` | 路径映射和源文件解析 |
+| `Container` | `string` | 判断流端点和客户端请求容器 |
+| `Size` | `int64` | 与 115 SHA1 一起确认文件身份 |
+| `IsRemote` | `bool` | 辅助判断远端媒体，但不能替代路径规则 |
+| `SupportsDirectPlay` | `bool` | 判断是否允许直接播放 |
+| `SupportsDirectStream` | `bool` | 判断是否可能发生封装转换 |
+| `SupportsTranscoding` | `bool` | 判断客户端是否可能发起转码请求 |
+| `RequiredHttpHeaders` | `object` | 上游媒体源可能要求的请求头 |
+| `DirectStreamUrl` | `string` | Emby 计算出的直接流地址，不能未经验证直接信任为 115 文件定位依据 |
+| `TranscodingUrl` | `string` | 转码地址；首版 115 直连不改写该链路 |
+
+网关必须使用 `ItemId + MediaSourceId` 作为媒体源缓存主键，不能只按 `ItemId` 假设条目永远只有一个文件。
+
+## 5. 原始视频流合同
+
+`4.9.3.0` OpenAPI 明确列出以下视频流入口：
+
+| Method | Path | 处理策略 |
+| --- | --- | --- |
+| `GET`, `HEAD` | `/emby/Videos/{Id}/stream` | 满足直连条件时可返回 302，否则按策略透明转发或拒绝 |
+| `GET`, `HEAD` | `/emby/Videos/{Id}/stream.{Container}` | 同上，`Container` 是 path 参数 |
+| `GET`, `HEAD` | `/emby/Videos/{Id}/{StreamFileName}` | 同上，保留客户端请求文件名 |
+| `GET` | `/emby/Items/{Id}/Download` | 必须额外执行 `EnableContentDownloading` 和网关下载策略 |
+
+`/Videos/{Id}/stream` 的 `Container` 是必填 query 参数；其余常见参数包括 `DeviceId`、`Static`、`StartTimeTicks`、音视频编码、码率、分辨率和字幕流索引。
+
+处理约束：
+
+- 不能看到 `/Videos/` 就一律返回 302；必须先判断 Token、用户状态、媒体源、路径规则和 Direct Play 能力。
+- `GET` 与 `HEAD` 都可能由客户端用于探测，不得把每个请求都计为独立播放会话。
+- 客户端可能在获得 302 后向 115 CDN 发出 `Range` 请求；网关必须通过客户端合同测试确认重定向、UA 和 Range 行为。
+- `/Items/{Id}/Download` 与播放流不是同一权益，必须复用套餐下载开关并单独审计。
+- 首版不改写 HLS、DASH、转码 manifest 和转码分片接口；云端媒体默认失败关闭，不静默回退为服务器中转。
+
+## 6. 字幕合同
+
+`4.9.3.0` OpenAPI 列出以下字幕流入口，均支持 `GET` 和 `HEAD`：
+
+```text
+/emby/Items/{Id}/{MediaSourceId}/Subtitles/{Index}/Stream.{Format}
+/emby/Videos/{Id}/{MediaSourceId}/Subtitles/{Index}/Stream.{Format}
+/emby/Items/{Id}/{MediaSourceId}/Subtitles/{Index}/{StartPositionTicks}/Stream.{Format}
+/emby/Videos/{Id}/{MediaSourceId}/Subtitles/{Index}/{StartPositionTicks}/Stream.{Format}
+```
+
+首版处理策略：
+
+- 字幕请求透明转发给 Emby Server。
+- 不能把字幕请求计入视频播放并发。
+- 如果后续媒体源只存在于 115 且 Emby 无法提供外挂字幕，应另行补充字幕来源合同，不能在视频 302 逻辑中临时拼接。
+
+## 7. 播放会话合同
+
+### 7.1 开始播放
+
+```http
+POST /emby/Sessions/Playing
+Content-Type: application/json
+
+<PlaybackStartInfo>
+```
+
+### 7.2 播放进度
+
+```http
+POST /emby/Sessions/Playing/Progress
+Content-Type: application/json
+
+<PlaybackProgressInfo>
+```
+
+### 7.3 停止播放
+
+```http
+POST /emby/Sessions/Playing/Stopped
+Content-Type: application/json
+
+<PlaybackStopInfo>
+```
+
+上述 DTO 共同关注：
+
+- `SessionId`
+- `PlaySessionId`
+- `ItemId`
+- `MediaSourceId`
+- `PositionTicks`
+
+开始和进度 DTO 还包含 `PlayMethod`、`IsPaused`、音轨和字幕流索引等字段；停止 DTO 还包含 `Failed` 和 `IsAutomated`。
+
+网关处理要求：
+
+- 三类会话请求必须继续转发给 Emby，保持播放历史和进度能力。
+- 网关可以旁路观察事件，更新 `direct_play_sessions`，但不能篡改客户端上报内容。
+- 并发统计以 `PlaySessionId + Ember 用户 + 设备` 为主要维度，并使用 TTL 处理客户端未上报停止事件的情况。
+- `HEAD`、重复 `Range` 和预加载请求不能单独创建新的活跃播放会话。
+
+## 8. 身份与访问策略
+
+网关在签发 302 前必须同时检查：
+
+- AccessToken 哈希存在且未撤销。
+- Token 绑定的 `ServerId` 与当前 Emby Server 一致。
+- Ember 用户存在，且 `emby_id` 与 Token 用户一致。
+- `is_active = true`。
+- 用户未过期。
+- `emby_disabled = false`。
+- `emby_access_disabled = false`。
+- 客户端未命中黑名单。
+- 套餐允许直连播放，且未超过网关并发限制。
+- 下载接口额外满足内容下载权限。
+
+不能仅依赖 Emby 自身 `SimultaneousStreamLimit`，因为 302 后视频字节不再经过 Emby，网关需要维护自己的会话状态。
+
+## 9. 失败与回退语义
+
+- Token 无法映射：拒绝直连，不使用客户端 `UserId` 猜测身份。
+- MediaSource 缺失或不支持 Direct Play：按套餐策略拒绝或显式回退，不能静默中转。
+- 路径未命中 115 映射：本地媒体可按规则透明转发；未知来源默认拒绝直连。
+- 115 解析或秒传失败：返回上游不可用语义，并记录脱敏错误码。
+- 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
+- Emby 会话事件转发失败：记录失败并允许网关会话 TTL 收口，不能伪造成功。
+
+## 10. 合同测试要求
+
+实现前后至少覆盖：
+
+1. `AuthenticateByName` 响应透明转发与 Token 哈希映射。
+2. GET/POST `PlaybackInfo` 的请求和关键响应字段夹具。
+3. 三类原始视频流路径的 `GET`、`HEAD`、query 和 302 行为。
+4. 下载接口与普通播放权限分离。
+5. 字幕接口不被视频拦截器误判。
+6. Playing、Progress、Stopped 事件继续到达 fake Emby。
+7. 重复 `HEAD`、Range 和重连不会重复计并发。
+8. Quick Connect 等未覆盖入口不会被错误当作已支持。
+
+所有测试必须使用 fake Emby Server 或固定 fixture，禁止请求真实 Emby。
+
+## 11. 待实机确认清单
+
+真实只读验证需要用户明确授权，至少确认：
+
+- 目标 Emby Server 的 `Version`、`Id` 和 `ServerName`。
+- 目标 Infuse 版本实际调用的认证和流路径。
+- Infuse 对 `302`、`HEAD`、`Range`、UA 和文件名的处理。
+- 客户端是否始终携带 `PlaySessionId`、`MediaSourceId` 和设备标识。
+- Direct Play、Direct Stream 与 Transcode 三种情况下的实际请求差异。
+
+以上未确认项不能作为实现完成的依据。
