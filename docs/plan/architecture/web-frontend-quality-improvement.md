@@ -142,3 +142,4 @@
 ## 进度记录
 
 - 2026-07-26：完成三路并行评审（构建/状态层/大型视图），问题清单定稿，等待排期修复。
+- 2026-07-26：布局与设计维度的问题另立 [../console-admin/web-layout-design-improvement.md](../console-admin/web-layout-design-improvement.md) 收口；其中日期/时间格式统一（该文档 S11）与本方案 P2-8 同源，执行时合并处理，避免两次触碰同一批文件。
