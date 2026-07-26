@@ -21,7 +21,7 @@
 
 ### 2.2 字体与文本
 
-- 字体：`Plus Jakarta Sans`（代码字体 `JetBrains Mono`）。
+- 字体：以 system-ui 系统字体栈为基线（代码文本使用系统等宽字体），不引入自托管 Web Font；确需新增字体声明时必须先修订本条并说明原因。
 - 页面标题：`text-2xl font-bold text-gray-900`。
 - 说明文案：`text-sm text-gray-500/600`。
 
@@ -77,6 +77,7 @@
 - 深色或高强调背景中的反色按钮属于局部特例，可以保留白底样式，但不能扩散成通用主按钮基线。
 - 图标按钮必须有 `aria-label`
 - 可点击元素必须有 `cursor-pointer`
+- 危险操作按钮统一使用浅底/描边一族（如 `bg-red-50 text-red-600 border border-red-200`，或 Element Plus `danger` + `plain`）；实心 `bg-red-600` 只保留给不可逆操作的最终确认按钮，同一页面不得出现三种以上危险按钮深浅。
 
 ### 3.3 输入（Input）
 
@@ -106,7 +107,7 @@
   - 纯单按钮工具条、纯 tabs 工具条不使用它。
 - `EmberTableCard`
   - 用于表格容器、统一表头样式和分页区。
-  - 表格本身若承担独立区块语义，必须通过 header slot 或等价标题语义补回区块标题，不接受无标题主表。
+  - 页头或上下文已表达同一语义时，允许主表不设标题，不为补标题而制造重复文案；同页存在多张表、或表格语义与页头不一致时，必须通过 header slot 或等价标题语义补回区块标题。
   - 后台列表页默认必须使用，避免每页重复写 `overflow-hidden + rounded-2xl + header-cell-style`。
   - 没有表格主体的卡片型页面不应硬套。
 - `EmberSearchInput`

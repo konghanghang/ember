@@ -226,7 +226,6 @@ services/
 │  │     │  ├─ SubscriptionsView.vue  # 求片订阅
 │  │     │  ├─ NewSubscriptionView.vue # 新建订阅
 │  │     │  ├─ TVCalendarView.vue # 追剧日历
-│  │     │  ├─ LibraryView.vue   # 兼容壳（`/console/library` 路由已重定向到概览页）
 │  │     │  ├─ RankingsView.vue  # 播放排行
 │  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     └─ admin/               # 管理后台

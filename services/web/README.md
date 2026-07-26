@@ -70,10 +70,9 @@ services/web/src/
 
 可用脚本：
 
-- `npm run build`
+- `npm run build`（含 `vue-tsc --noEmit` 类型检查）
 - `npm run test`
-- `npm run test:unit`
-- `npm run test:component`
+- `npm run typecheck`
 
 手工回归范围见 [手工测试清单](/Users/konghang/data/me/github/ember/docs/runbooks/manual-testing-checklist.md)。
 

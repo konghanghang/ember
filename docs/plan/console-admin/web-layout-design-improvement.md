@@ -1,6 +1,6 @@
 # 前端页面布局与设计收口方案
 
-> 状态：草稿（评审已完成，修复未开始）
+> 状态：已实施（2026-07-26），主链路全部收口，少量延后项随迭代做
 > 负责人：Ember
 > 更新时间：2026-07-26
 
@@ -177,3 +177,9 @@
 ## 进度记录
 
 - 2026-07-26：完成 4 路并行布局评审（公开页+骨架 / 控制台用户页 / 后台组一 / 后台组二），问题清单定稿（P1×6、系统性通病 12 项、分页 P2/P3 约 60 条），等待排期修复。
+- 2026-07-26：四批全部实施完成，`vue-tsc --noEmit` 0 错误、`npm run build` 通过、`npm run test` 155 passed / 3 skipped。规范先行修订：§2.2 字体改 system-ui 基线、§3.2 危险按钮补浅底/描边基线、§3.4 EmberTableCard 表头标题放宽（页头已表达同一语义时允许无标题主表）。
+  - 批次 1（P1 快修）：完成。P1-1 TopBar 18 句描述删除；P1-2 支付中心骨架对齐播放/兑换模式（PaymentsView 恢复筛选、PaymentCenterView 删自造头卡、套餐分组分段项移出头卡）；P1-3 兑换中心双标题去重；P1-4 MediaGaps 视图切换换 EmberSegmentTabs；P1-5 Navbar 补 aria-label/aria-expanded/cursor-pointer；P1-6 续期中心标题重复去重。
+  - 批次 2（S1 文案大扫除）：完成。按 §2.2.1 全站删除/压缩复述标题型、设计者视角、二次翻译文案；Dashboard 过期提示三合一。
+  - 批次 3（组件回收 S2/S3/S10/S11）：完成。分段控件三套→EmberSegmentTabs（PlaybackProfileContent/UserPlaybackProfiles/MediaGaps）；统计卡→EmberMetricCard（Dashboard/TVCalendar/PlanGroups）；手写日期范围框→EmberDateRangeField、头卡→EmberPageHeaderCard（PlaybackProfileContent）；MediaGaps tone/圆角/空状态/搜索弹窗收敛；Subscriptions 海报徽章改中性底+状态点；S11 时间格式走 `utils/date`。
+  - 批次 4（一致性长尾 S4/S5/S6/S7/S8/S9/S12）：完成。cursor-pointer 全站补齐；EmberTableCard 表头按规范放宽处理；弹窗宽度 560/640/720→520/680；危险按钮一族统一；骨架双缝（Layout border-r + 品牌/顶栏高度）；fadeIn 全局化进 base.css 并被 prefers-reduced-motion 覆盖；徽章统一中文计数；Hero 徽章中性文案、Footer 死链删除+容器宽度对齐；RegisterView 向登录页对齐。
+  - 延后项（随迭代做）：EmberMetricCard 图标 slot（需扩组件契约）；媒体库 409 toast 双弹（需 api 层 `silent`）；SubscriptionsView 本地 fadeIn-up；PlaybackProfileContent 的 `description` prop 残留（待清理调用方后删）；MediaGapsView 聚合视图约 400 行自绘 CSS 是否整体重写（组件回收完成后另行评估）。

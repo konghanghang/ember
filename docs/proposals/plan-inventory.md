@@ -44,7 +44,7 @@
 | `active-sessions.md` | 已落地 | `SessionHandler`、`/api/v1/admin/sessions`、`views/admin/SessionsView.vue`、架构文档已收录 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `email-verification.md` | 已落地 | `email_verifications` 模型、`SendEmailCode`、注册验证码路由、设置中心配置项 | 已提炼后归档到 `docs/archive/plan/access-auth/` |
 | `forgot-password.md` | 已落地 | `SendResetCode`、`ResetPasswordByCode`、`ForgotPasswordView.vue`、Bot `/resetpw` | 已提炼后归档到 `docs/archive/plan/access-auth/` |
-| `latest-media.md` | 已落地 | `/api/v1/media/latest`、`MediaService.GetLatestItems`、`LibraryView.vue` | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
+| `latest-media.md` | 已落地 | `/api/v1/media/latest`、`MediaService.GetLatestItems`、`RecentLibrarySection.vue` | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `playback-ranking.md` | 已落地 | `RankingHandler`、`PlaybackRankingService`、`RankingsView.vue`、排行 cron | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `redemption-code-batch-create.md` | 已落地 | `CreateRedemptionCodesBatch`、批量接口、管理端批量创建 UI | 已归档到 `docs/archive/plan/billing-redemption/` |
 | `redemption-code-one-per-user.md` | 已落地 | 一人一码约束、兑换历史接口、用户端/管理端兑换历史 UI | 已归档到 `docs/archive/plan/billing-redemption/` |
@@ -70,7 +70,7 @@
 | `media-subscription/tv-calendar-status-correction.md` | 已落地 | TV Calendar 状态已切到 `CRON_TIMEZONE`，默认同步窗口扩到本周+下周，当前周读时 `ready` 纠偏与 webhook 关键日志已补齐 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `media-subscription/gap-management-and-precision-download.md` | 已落地 | `media_gaps` 模型与 migration、`MediaGapService`、`/api/v1/admin/media-gaps/grouped`、`MediaGapsView.vue`、MoviePilot 候选搜索与真实下发链路、架构文档已收录 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `media-subscription/subscription-status-and-notification.md` | 已落地 | `Subscription` 已支持 `INGESTED / rejectReason / reviewedAt / ingestedAt`，订阅服务已实现结果通知与 webhook 入库回写，用户端订阅页已展示状态与拒绝原因 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
-| `media-subscription/library-entry-consolidation.md` | 已落地 | `DashboardView` 已接入 `RecentLibrarySection`，`/console/library` 已路由级重定向到 `/console/dashboard`，`LibraryView.vue` 已退化为兼容壳，架构文档已改写为当前职责说明 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
+| `media-subscription/library-entry-consolidation.md` | 已落地 | `DashboardView` 已接入 `RecentLibrarySection`，`/console/library` 已路由级重定向到 `/console/dashboard`，最近入库摘要由 `RecentLibrarySection` 承载（原 `LibraryView.vue` 兼容壳已删除） | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `embypulse-features/p2-user-avatar.md` | 已落地 | `DefaultAvatar.vue`、Dashboard / Account Center / TopBar / Sidebar / UsersView 已统一接入默认头像组件 | 已归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/admin-create-user-with-plan-group-expiry.md` | 已落地 | `POST /api/v1/admin/users`、`CreateUserByAdmin`、`UsersView.vue` 新建用户弹窗、架构文档已收录后台创建用户接口 | 已提炼后归档到 `docs/archive/plan/console-admin/` |
 | `console-admin/ember-web-component-foundation.md` | 已落地 | `services/web/src/components/ember/` 基础组件层、后台/控制台页头与 tabs 收口、表单基线统一、empty state 组件化、前端残留清理均已落地 | 已提炼后归档到 `docs/archive/plan/console-admin/` |

@@ -1,6 +1,6 @@
 # 前端工程质量收口方案
 
-> 状态：草稿（评审已完成，修复未开始）
+> 状态：前端部分已实施（2026-07-26），仅剩两处前后端联动项待排期
 > 负责人：Ember
 > 更新时间：2026-07-26
 
@@ -143,3 +143,12 @@
 
 - 2026-07-26：完成三路并行评审（构建/状态层/大型视图），问题清单定稿，等待排期修复。
 - 2026-07-26：布局与设计维度的问题另立 [../console-admin/web-layout-design-improvement.md](../console-admin/web-layout-design-improvement.md) 收口；其中日期/时间格式统一（该文档 S11）与本方案 P2-8 同源，执行时合并处理，避免两次触碰同一批文件。
+- 2026-07-26：前端部分全部实施完成，`vue-tsc --noEmit` 全项目 0 错误、`npm run build` 通过、`npm run test` 155 passed / 3 skipped（跳过项为 EMBER_WEB_RUN_INTEGRATION 门控集成 spec）。
+  - 批次 1（类型安全网）：完成。安装 `@vue/tsconfig@0.9.1`、`vue-tsc@3.3.8`；`build` 接入 `vue-tsc --noEmit`，`scripts/test/web.sh` 加独立 typecheck 步骤；tsconfig 双套并存收口；首次暴露的 103 个存量类型错误零 `any` 修平；新增 `request<T>(config): Promise<T>` 具名函数，约 80 个调用点从类型谎言变真实类型。
+  - 批次 2（功能 bug 与契约）：前端项完成，**两处前后端联动项跳过待排期**——P2-1（MediaStats PascalCase）、P2-2（`/tmdb/search` 改 `data` 字段）均需后端 handler 同改，未实施。其余前端项完成：P1-2 扫描按钮卡死（`scanStatus.running` 单一事实源，补 spec）、P2-4 toast 双弹（全站 catch 删 `ElMessage.error` 走拦截器，差异化文案改 `silent`）、P2-7 fetchData 竞态（请求令牌守卫，补 spec）、P2-9 分页 size-change 重置第 1 页。
+  - 批次 3（工具沉淀 + 死资源）：完成。新增 `utils/policy-sync.ts`（三份语义差异实证后沉淀为具名变体）、`clipboard.ts`、`api-error.ts`、`format.ts`（两份规则不同沉淀为两个具名函数）；S11 日期函数全部收口进 `utils/date.ts` 并用测试锁定等价性；字体声明删（规范已改 system-ui 基线）；favicon 364KB→6.6KB；删 favicon.png/vite.svg/vue.svg/LibraryView.vue/sass 依赖/`test:unit`/`test:component` 别名/AccountCenter 死 loading/PlanGroups 死 prop；新 utils 补 48 个测试。
+  - 批次 4（状态层收口）：完成。先补 31 个特征测试（auth/user/request 三 spec）做安全网；P2-6 循环依赖（request.ts 改 DI `setupRequestInterceptors`，main.ts 装配，斩 `request→store/auth→api/auth→request` 环）；P2-5 单一事实源（`role`/`passwordResetRequired` 改从 `userStore.profile` computed 派生）；P3 auth 四项（key===null 误判、restoreAuth 幽灵登录、提取 `store/reset.ts` 的 `resetAllStores()`、protectionConfig TTL）；对外 API 字段名/方法签名/localStorage key 全部不变。整合阶段顺带清除 G 留下的 `setSessionFromProfile` no-op 死壳（定义+导出+router 单处调用）。
+  - 延后项（随迭代做）：P3 巨型组件拆分、模板渲染期重复计算优化、Element Plus 注册防回归测试、`ListResponse<T>` 泛型统一；EmberMetricCard 图标 slot（需扩组件契约）；媒体库 409 toast 双弹（需 api 层 `silent`）。
+  - 已知 follow-up（Codex review 发现，待修，不阻塞本次提交）：
+    - DevicesView 删除了唯一的全量刷新按钮（S4「有查询就删刷新」决策对多数据区页面不适用）：查询只刷新设备列表，stats/黑名单/操作日志仅在挂载时加载，多管理员并发改动后会显示旧数据。修法：保留全量刷新入口，或让查询同时调用 `refreshAll`。
+    - register 切号跨 tab 广播登出：`resetAllStores()` 先删旧 token（广播 `signed-out`）再写新 token（广播 `updated`），其他 tab 会先弹登出跳登录页、再弹切号跳 dashboard，两次竞争。修法：register 成功后只清 user/console 数据并原子替换 token，不走 `resetAllStores`。
