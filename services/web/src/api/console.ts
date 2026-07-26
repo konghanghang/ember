@@ -1,4 +1,4 @@
-import request from './request'
+import { request } from './request'
 import type {
   CheckExistingSubscriptionRequest,
   CheckExistingSubscriptionResponse,
@@ -191,7 +191,7 @@ export function getLatestMedia(type: 'Movie' | 'Series', limit: number = 20): Pr
 }
 
 export function getMediaPoster(itemId: string, type: 'Movie' | 'Series'): Promise<Blob> {
-  return request({
+  return request<Blob>({
     url: `/media/posters/${encodeURIComponent(itemId)}`,
     method: 'get',
     params: {
@@ -201,7 +201,7 @@ export function getMediaPoster(itemId: string, type: 'Movie' | 'Series'): Promis
     },
     responseType: 'blob',
     silent: true
-  }) as unknown as Promise<Blob>
+  })
 }
 
 // ==================== 播放排行 ====================
@@ -235,8 +235,7 @@ export function createCheckout(planId: string): Promise<CheckoutResponse> {
   return request({
     url: '/payments/checkout',
     method: 'post',
-    data: { planId },
-    silent: true
+    data: { planId }
   })
 }
 

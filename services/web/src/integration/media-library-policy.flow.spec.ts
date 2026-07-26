@@ -1,5 +1,8 @@
+/// <reference types="node" />
+// 本文件运行在 Node（vitest）侧，需要 Node 全局类型；应用 tsconfig 的 types 仅含 vite/client。
 import { defineComponent, h, reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import type { VueWrapper } from '@vue/test-utils'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PlanGroupsView from '@/views/admin/PlanGroupsView.vue'
@@ -7,13 +10,51 @@ import AccountCenterView from '@/views/console/AccountCenterView.vue'
 import RankingsView from '@/views/console/RankingsView.vue'
 import SubscriptionsView from '@/views/console/SubscriptionsView.vue'
 import request from '@/api/request'
+import { setupRequestInterceptors } from '@/api/request'
 import { login } from '@/api/auth'
 import { getRankingLibraryAllowlist, updatePlanGroup } from '@/api/admin'
 import { createSubscription } from '@/api/console'
-import type { LoginResponse, UserInfo } from '@/types/api'
+import type { LoginResponse, ManagedPlanGroup, Subscription, UserInfo, UserMediaLibrarySettings } from '@/types/api'
 import { startGoIntegrationServer, type RunningGoServer } from './go-server'
 
 const describeIntegration = process.env.EMBER_WEB_RUN_INTEGRATION === '1' ? describe : describe.skip
+
+// 各视图在集成测试中被直接驱动的 setup 内部成员（ref/computed 已解包）。
+type PlanGroupsSetupState = {
+  fetchData: () => Promise<void>
+  groups: ManagedPlanGroup[]
+  openMediaDialog: (group: ManagedPlanGroup) => Promise<void>
+  selectedLibraryIds: string[]
+  handleSaveMediaLibraries: (applyToExistingUsers?: boolean) => Promise<void>
+}
+
+type AccountCenterSetupState = {
+  loadMediaLibraries: () => Promise<void>
+  mediaLibrarySettings: UserMediaLibrarySettings
+  handleApplyCurrentMediaLibraryPolicy: () => Promise<void>
+}
+
+type SubscriptionsSetupState = {
+  fetchData: () => Promise<void>
+  subscriptions: Subscription[]
+}
+
+type RankingsSetupState = {
+  fetchRankingAllowlist: (force?: boolean) => Promise<boolean>
+  allowlistSummary: string
+  allowlistDialogVisible: boolean
+  selectedLibraryIds: string[]
+  saveRankingAllowlist: () => Promise<void>
+}
+
+/**
+ * 读取组件 setup 内部状态。
+ * Vue 3.5 起 setupState 不再出现在公开的 ComponentInternalInstance 类型上（运行时仍存在），
+ * 集成测试需要直接驱动组件内部方法与状态，这里以结构化类型收窄出实际用到的成员。
+ */
+function setupStateOf<T extends object>(wrapper: VueWrapper): T {
+  return (wrapper.vm.$ as unknown as { setupState: T }).setupState
+}
 
 vi.mock('element-plus', () => ({
   ElMessage: {
@@ -264,6 +305,14 @@ function mountRankingsView() {
 
 describeIntegration('media library policy web+api+db flow', () => {
   beforeAll(async () => {
+    // P2-6 后 request 拦截器依赖通过 setupRequestInterceptors 装配；
+    // 这里把 mock store 的 token getter 与 unauthorized 回调注入，保证集成流程能正常带上 Authorization。
+    setupRequestInterceptors({
+      getToken: () => authState.token,
+      onUnauthorized: async () => {
+        authState.token = null
+      }
+    })
     server = await startGoIntegrationServer()
     request.defaults.baseURL = `${server.baseUrl}/api/v1`
     request.defaults.adapter = 'http' as never
@@ -287,37 +336,39 @@ describeIntegration('media library policy web+api+db flow', () => {
   it('covers deferred template save and user apply-current sync end to end', async () => {
     switchSession(adminLogin)
     const adminWrapper = mountPlanGroupsView()
-    await adminWrapper.vm.$.setupState.fetchData()
+    const planGroupsState = setupStateOf<PlanGroupsSetupState>(adminWrapper)
+    await planGroupsState.fetchData()
     await flushPromises()
 
-    const vipGroup = adminWrapper.vm.$.setupState.groups.find((item: { key: string }) => item.key === 'VIP')
+    const vipGroup = planGroupsState.groups.find((item) => item.key === 'VIP')
     expect(vipGroup, 'expected VIP group to exist').toBeTruthy()
 
-    await adminWrapper.vm.$.setupState.openMediaDialog(vipGroup)
+    await planGroupsState.openMediaDialog(vipGroup!)
     await flushPromises()
 
-    adminWrapper.vm.$.setupState.selectedLibraryIds = ['/data/movies']
-    await adminWrapper.vm.$.setupState.handleSaveMediaLibraries(false)
+    planGroupsState.selectedLibraryIds = ['/data/movies']
+    await planGroupsState.handleSaveMediaLibraries(false)
     await flushPromises()
 
-    const updatedVIPGroup = adminWrapper.vm.$.setupState.groups.find((item: { key: string }) => item.key === 'VIP')
-    expect(updatedVIPGroup.policySyncStatus).toBe('out_of_sync')
+    const updatedVIPGroup = planGroupsState.groups.find((item) => item.key === 'VIP')
+    expect(updatedVIPGroup!.policySyncStatus).toBe('out_of_sync')
     adminWrapper.unmount()
 
     switchSession(userLogin)
     const userWrapper = mountAccountCenterView()
-    await userWrapper.vm.$.setupState.loadMediaLibraries()
+    const accountState = setupStateOf<AccountCenterSetupState>(userWrapper)
+    await accountState.loadMediaLibraries()
     await flushPromises()
 
-    expect(userWrapper.vm.$.setupState.mediaLibrarySettings.policySyncStatus).toBe('out_of_sync')
-    expect(userWrapper.vm.$.setupState.mediaLibrarySettings.templateCount).toBe(1)
-    expect(userWrapper.vm.$.setupState.mediaLibrarySettings.enabledCount).toBe(1)
+    expect(accountState.mediaLibrarySettings.policySyncStatus).toBe('out_of_sync')
+    expect(accountState.mediaLibrarySettings.templateCount).toBe(1)
+    expect(accountState.mediaLibrarySettings.enabledCount).toBe(1)
 
-    await userWrapper.vm.$.setupState.handleApplyCurrentMediaLibraryPolicy()
+    await accountState.handleApplyCurrentMediaLibraryPolicy()
     await flushPromises()
 
-    expect(userWrapper.vm.$.setupState.mediaLibrarySettings.policySyncStatus).toBe('synced')
-    expect(userWrapper.vm.$.setupState.mediaLibrarySettings.enabledCount).toBe(1)
+    expect(accountState.mediaLibrarySettings.policySyncStatus).toBe('synced')
+    expect(accountState.mediaLibrarySettings.enabledCount).toBe(1)
     userWrapper.unmount()
   })
 
@@ -341,29 +392,31 @@ describeIntegration('media library policy web+api+db flow', () => {
 
     authState.isAdmin = false
     const wrapper = mountSubscriptionsView()
-    await wrapper.vm.$.setupState.fetchData()
+    const subscriptionsState = setupStateOf<SubscriptionsSetupState>(wrapper)
+    await subscriptionsState.fetchData()
     await flushPromises()
 
-    const createdSubscription = wrapper.vm.$.setupState.subscriptions.find((item: { id: string }) => item.id === created.subscriptionId)
+    const createdSubscription = subscriptionsState.subscriptions.find((item) => item.id === created.subscriptionId)
     expect(createdSubscription, 'expected created subscription to appear in list').toBeTruthy()
-    expect(createdSubscription.status).toBe('APPROVED')
+    expect(createdSubscription!.status).toBe('APPROVED')
     wrapper.unmount()
   })
 
   it('covers rankings allowlist save through real web api', async () => {
     switchSession(adminLogin)
     const wrapper = mountRankingsView()
-    await wrapper.vm.$.setupState.fetchRankingAllowlist(true)
+    const rankingsState = setupStateOf<RankingsSetupState>(wrapper)
+    await rankingsState.fetchRankingAllowlist(true)
     await flushPromises()
 
-    expect(wrapper.vm.$.setupState.allowlistSummary).toBe('当前按全部媒体库统计')
+    expect(rankingsState.allowlistSummary).toBe('当前按全部媒体库统计')
 
-    wrapper.vm.$.setupState.allowlistDialogVisible = true
-    wrapper.vm.$.setupState.selectedLibraryIds = ['/data/movies']
-    await wrapper.vm.$.setupState.saveRankingAllowlist()
+    rankingsState.allowlistDialogVisible = true
+    rankingsState.selectedLibraryIds = ['/data/movies']
+    await rankingsState.saveRankingAllowlist()
     await flushPromises()
 
-    expect(wrapper.vm.$.setupState.allowlistSummary).toBe('当前按 1 个媒体库统计')
+    expect(rankingsState.allowlistSummary).toBe('当前按 1 个媒体库统计')
     const persisted = await getRankingLibraryAllowlist()
     expect(persisted.data.allowAll).toBe(false)
     expect(persisted.data.libraryIds).toEqual(['/data/movies'])

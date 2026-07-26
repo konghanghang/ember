@@ -5,11 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:unit": "vitest run src/views/admin/settings-center.utils.test.ts",
-    "test:component": "vitest run src/views/admin/SettingsView.spec.ts",
     "test:coverage": "vitest run --coverage.enabled true --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=lcov"
   },
   "dependencies": {
@@ -25,14 +24,14 @@
     "@vitejs/plugin-vue": "^5.0.4",
     "@vitest/coverage-v8": "^4.1.4",
     "@vue/test-utils": "^2.4.6",
+    "@vue/tsconfig": "^0.9.1",
     "autoprefixer": "^10.4.17",
     "jsdom": "^28.1.0",
     "postcss": "^8.4.35",
-    "sass": "^1.71.1",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.2.2",
     "vite": "^5.1.4",
     "vitest": "^4.1.0",
-    "vue-tsc": "^1.8.27"
+    "vue-tsc": "^3.3.8"
   }
 }

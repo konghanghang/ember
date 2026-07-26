@@ -1141,10 +1141,13 @@ export interface LatestMediaResponse {
   bound?: boolean
 }
 
+// 与 services/api internal/handlers/system.go CheckExpiredUsers 的 gin.H 响应一致；
+// 后端不返回 message 字段。
 export interface CronCheckResponse {
   success: boolean
   disabledCount: number
   totalExpired: number
+  processed: number
   errors: string[]
 }
 

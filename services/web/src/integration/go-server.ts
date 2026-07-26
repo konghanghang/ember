@@ -1,3 +1,5 @@
+/// <reference types="node" />
+// 本文件运行在 Node（vitest）侧，需要 Node 全局类型；应用 tsconfig 的 types 仅含 vite/client。
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import net from 'node:net'
 import os from 'node:os'

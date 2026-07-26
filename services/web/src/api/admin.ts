@@ -1,4 +1,4 @@
-import request from './request'
+import { request } from './request'
 import type {
   ActiveSession,
   AdminEmbyBindingRequest,
@@ -284,12 +284,12 @@ export function scanMediaQualityLibrary(libraryId: string): Promise<{ data: Medi
 }
 
 export function getMediaQualityPoster(itemId: string): Promise<Blob> {
-  return request({
+  return request<Blob>({
     url: `/admin/media-quality/posters/${encodeURIComponent(itemId)}`,
     method: 'get',
     responseType: 'blob',
     silent: true
-  }) as unknown as Promise<Blob>
+  })
 }
 
 export function getMediaQualityGroupDetails(
@@ -706,11 +706,11 @@ export function logoutDevice(deviceId: string) {
   })
 }
 
-export function logoutBlacklistedDevices() {
+export function logoutBlacklistedDevices(): Promise<{ successDeviceIds: string[]; failedDeviceIds: Array<{ deviceId: string; error: string }> }> {
   return request({
     url: '/admin/devices/blacklist/logout-all',
     method: 'post'
-  }) as Promise<{ successDeviceIds: string[]; failedDeviceIds: Array<{ deviceId: string; error: string }> }>
+  })
 }
 
 // ==================== 追剧日历 ====================

@@ -32,6 +32,8 @@ log "running Web test/build"
   node -e 'const fs = require("node:fs"); const summary = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(summary.total.lines.pct.toFixed(2));' \
     "${WEB_COVERAGE_DIR}/coverage-summary.json" > "${RESULT_DIR}/coverage-summary.txt"
 
+  run_and_capture "${RESULT_DIR}/typecheck.log" npm run typecheck
+
   run_and_capture "${RESULT_DIR}/build.log" npm run build
 
   if [[ -n "${EMBER_INTEGRATION_DATABASE_URL:-}" ]]; then

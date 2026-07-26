@@ -2,13 +2,15 @@
 import type { Component } from 'vue'
 
 const props = withDefaults(defineProps<{
-  modelValue: string
+  // 允许 undefined：各筛选面板的查询 DTO 普遍把关键字建模为可选字段。
+  modelValue: string | undefined
   label: string
   placeholder?: string
   ariaLabel?: string
   icon?: Component
   type?: string
-  inputmode?: string
+  // 与原生 input inputmode 属性取值对齐。
+  inputmode?: 'text' | 'email' | 'search' | 'tel' | 'url' | 'none' | 'numeric' | 'decimal'
   autocomplete?: string
 }>(), {
   placeholder: '',

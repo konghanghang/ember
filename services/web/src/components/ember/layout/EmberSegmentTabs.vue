@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import type { Component } from 'vue'
+import type { Component, ComponentPublicInstance } from 'vue'
 
 type SegmentTab = {
   key: string
@@ -35,7 +35,8 @@ const handleSelect = (value: string) => {
   emit('change', value)
 }
 
-const setTabRef = (index: number, element: Element | null) => {
+// 模板 ref 回调拿到的可能是元素或组件实例；只保留真实按钮元素，其余置空。
+const setTabRef = (index: number, element: Element | ComponentPublicInstance | null) => {
   tabRefs.value[index] = element instanceof HTMLButtonElement ? element : null
 }
 
