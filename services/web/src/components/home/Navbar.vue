@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
 import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
 
-const router = useRouter()
 const mobileMenuOpen = ref(false)
 const scrolled = ref(false)
 
@@ -41,14 +39,20 @@ onUnmounted(() => {
           <router-link to="/login" class="text-sm font-bold text-gray-900 hover:text-ember transition-colors">
             登录
           </router-link>
-          <router-link to="/register" class="px-5 py-2.5 bg-ember text-white text-sm font-bold rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-ember/20">
+          <router-link to="/register" class="px-5 py-2.5 btn-ember text-sm font-bold rounded-xl">
             立即体验
           </router-link>
         </div>
 
         <!-- Mobile Menu Button -->
-        <button class="md:hidden p-2 text-gray-900" @click="mobileMenuOpen = !mobileMenuOpen">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <button
+          type="button"
+          class="md:hidden p-2 text-gray-900 cursor-pointer"
+          :aria-label="mobileMenuOpen ? '关闭导航菜单' : '打开导航菜单'"
+          :aria-expanded="mobileMenuOpen"
+          @click="mobileMenuOpen = !mobileMenuOpen"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path v-if="mobileMenuOpen" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>

@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SubscriptionsView from './SubscriptionsView.vue'
+import type { Subscription, SubscriptionManualCandidate, SubscriptionManualSearchResult } from '@/types/api'
 import {
   manualDispatchSubscription,
   manualSearchSubscription
@@ -116,7 +117,7 @@ const ElInputNumberStub = defineComponent({
   },
 })
 
-function buildSubscription(overrides: Partial<Record<string, any>> = {}) {
+function buildSubscription(overrides: Partial<Subscription> = {}): Subscription {
   return {
     id: 'sub_1',
     userId: 'u1',
@@ -195,7 +196,7 @@ function findDispatchButton(wrapper: ReturnType<typeof mountView>) {
   return button!
 }
 
-function resolveSearchResponse(candidates: Array<Record<string, any>>) {
+function resolveSearchResponse(candidates: SubscriptionManualCandidate[]): { data: SubscriptionManualSearchResult } {
   return {
     data: {
       subscription: buildSubscription(),
@@ -214,8 +215,6 @@ describe('SubscriptionsView 手动下载', () => {
     vi.mocked(getSubscriptions).mockResolvedValue({
       data: [],
       total: 0,
-      page: 1,
-      pageSize: 20,
     })
     vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
   })
@@ -230,8 +229,6 @@ describe('SubscriptionsView 手动下载', () => {
     vi.mocked(getSubscriptions).mockResolvedValue({
       data: [movie],
       total: 1,
-      page: 1,
-      pageSize: 20,
     })
     vi.mocked(manualSearchSubscription).mockResolvedValue(
       resolveSearchResponse([
@@ -279,8 +276,6 @@ describe('SubscriptionsView 手动下载', () => {
     vi.mocked(getSubscriptions).mockResolvedValue({
       data: [series],
       total: 1,
-      page: 1,
-      pageSize: 20,
     })
     vi.mocked(manualSearchSubscription).mockResolvedValue(
       resolveSearchResponse([
@@ -327,8 +322,6 @@ describe('SubscriptionsView 手动下载', () => {
     vi.mocked(getSubscriptions).mockResolvedValue({
       data: [series],
       total: 1,
-      page: 1,
-      pageSize: 20,
     })
     vi.mocked(manualSearchSubscription).mockResolvedValue(
       resolveSearchResponse([
@@ -387,8 +380,6 @@ describe('SubscriptionsView 手动下载', () => {
     vi.mocked(getSubscriptions).mockResolvedValue({
       data: [series],
       total: 1,
-      page: 1,
-      pageSize: 20,
     })
 
     // 第一次搜索成功
@@ -438,8 +429,6 @@ describe('SubscriptionsView 手动下载', () => {
     vi.mocked(getSubscriptions).mockResolvedValue({
       data: [rejected],
       total: 1,
-      page: 1,
-      pageSize: 20,
     })
     vi.mocked(resubmitSubscription).mockResolvedValue({
       success: true,
@@ -479,8 +468,6 @@ describe('SubscriptionsView 手动下载', () => {
         }),
       ],
       total: 2,
-      page: 1,
-      pageSize: 20,
     })
 
     const wrapper = mountView()
@@ -488,5 +475,86 @@ describe('SubscriptionsView 手动下载', () => {
 
     expect(wrapper.text()).toContain('自动通过')
     expect(wrapper.text()).toContain('人工通过')
+  })
+})
+
+describe('SubscriptionsView 分页与二次提交兜底', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    authStoreState.isAdmin = true
+    vi.mocked(getSubscriptions).mockResolvedValue({
+      data: [],
+      total: 0,
+    })
+    vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
+  })
+
+  it('切换 pageSize 时重置到第 1 页，避免越界空页', async () => {
+    vi.mocked(getSubscriptions).mockResolvedValue({
+      data: [buildSubscription({ id: 'sub_a', status: 'APPROVED' })],
+      total: 60,
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const vm = wrapper.vm as unknown as {
+      queryParams: { page: number; pageSize: number }
+      handleSizeChange: (size: number) => void
+    }
+    // 模拟用户先翻到第 2 页，再切换 pageSize
+    vm.queryParams.page = 2
+    await flushPromises()
+
+    vm.handleSizeChange(40)
+    await flushPromises()
+
+    expect(vm.queryParams.pageSize).toBe(40)
+    expect(vm.queryParams.page).toBe(1)
+    // 切换后请求带的页码应为 1
+    const lastCall = vi.mocked(getSubscriptions).mock.calls.at(-1)?.[0] as any
+    expect(lastCall.page).toBe(1)
+    expect(lastCall.pageSize).toBe(40)
+  })
+
+  it('二次提交命中 confirmationRequired 后再失败不会逃出 catch', async () => {
+    const rejected = buildSubscription({
+      id: 'sub_rejected_v2',
+      status: 'REJECTED',
+    })
+    vi.mocked(getSubscriptions).mockResolvedValue({
+      data: [rejected],
+      total: 1,
+    })
+    // 第一次 submitResubmission 抛 confirmationRequired
+    vi.mocked(resubmitSubscription).mockRejectedValueOnce({
+      response: {
+        data: {
+          confirmationRequired: true,
+          existingSummary: { message: 'already exists' },
+        },
+      },
+    })
+    // 弹窗里点取消 → requestResubmitExistingConfirmation reject
+    vi.mocked(ElMessageBox.confirm).mockRejectedValueOnce(new Error('cancel'))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const vm = wrapper.vm as unknown as {
+      openResubmitDialog: (sub: any) => void
+      handleResubmit: () => Promise<void>
+      resubmitNote: string
+      resubmitting: boolean
+    }
+    vm.openResubmitDialog(rejected)
+    vm.resubmitNote = '补充说明'
+
+    // handleResubmit 内的二次确认被取消，但不应抛出未捕获 rejection
+    await expect(vm.handleResubmit()).resolves.toBeUndefined()
+    // resubmitting 标志位正常复位
+    expect(vm.resubmitting).toBe(false)
+    // 二次确认弹窗确实被触发
+    expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1)
   })
 })

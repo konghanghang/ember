@@ -1,19 +1,8 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/store/auth'
 import { VideoPlay, Connection, ArrowRight, User } from '@element-plus/icons-vue'
 
 const router = useRouter()
-const authStore = useAuthStore()
-
-const handleLoginClick = () => {
-  authStore.restoreAuth()
-  if (authStore.isAuthenticated) {
-    router.push('/console/dashboard')
-    return
-  }
-  router.push('/login')
-}
 </script>
 
 <template>
@@ -30,7 +19,7 @@ const handleLoginClick = () => {
       <div class="lg:col-span-6 relative z-10 text-center lg:text-left">
         <div class="inline-flex items-center gap-2 px-3 py-1 bg-red-50 border border-red-100 rounded-full text-xs font-bold tracking-widest uppercase mb-6 text-ember animate-fade-in-up">
           <span class="w-2 h-2 rounded-full bg-ember animate-pulse"></span>
-          Ember v1.0 正式上线
+          Emby 用户管理平台
         </div>
         
         <h1 class="text-5xl md:text-7xl font-black tracking-tight leading-[1.1] mb-6 animate-fade-in-up" style="animation-delay: 0.1s">
@@ -51,12 +40,9 @@ const handleLoginClick = () => {
         </p>
         
         <div class="flex flex-col sm:flex-row items-center gap-6 justify-center lg:justify-start animate-fade-in-up" style="animation-delay: 0.3s">
-          <button @click="router.push('/register')" class="group relative px-8 py-3.5 bg-ember text-white text-base font-bold tracking-wide rounded-lg transition-all hover:shadow-lg hover:shadow-ember/30 hover:-translate-y-0.5 overflow-hidden">
-            <span class="relative z-10 flex items-center justify-center gap-2">
-              立即体验
-              <el-icon class="transition-transform group-hover:translate-x-1"><ArrowRight /></el-icon>
-            </span>
-            <div class="absolute inset-0 bg-black/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+          <button @click="router.push('/register')" class="group px-8 py-3.5 btn-ember text-base font-bold tracking-wide rounded-xl cursor-pointer inline-flex items-center gap-2">
+            立即体验
+            <el-icon class="transition-transform group-hover:translate-x-1"><ArrowRight /></el-icon>
           </button>
           
           <div class="text-sm text-gray-500 font-medium">

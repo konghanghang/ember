@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, useSlots } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Refresh, EditPen, Goods } from '@element-plus/icons-vue'
 import { createPlan, deletePlan, getPlanGroups, getPlans, updatePlan } from '@/api/admin'
@@ -15,6 +15,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   embedded: false
 })
+
+const slots = useSlots()
 
 const planGroups = ref<ManagedPlanGroup[]>([])
 
@@ -260,21 +262,16 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      :title="props.embedded ? '方案池' : '付费方案管理'"
-      :description="props.embedded ? '管理订阅购买套餐，并按套餐分组筛选当前结果。' : '管理订阅购买套餐，支持 USD、HKD、CNY'"
-    >
+    <EmberPageHeaderCard title="付费方案">
       <template #titleSuffix>
-        <span
-          v-if="!props.embedded"
-          class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500"
-        >
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
           {{ activeCount }}/{{ total }} 启用
         </span>
       </template>
 
       <template #actions>
         <div class="flex flex-wrap items-center gap-3">
+          <slot v-if="props.embedded && slots.tabs" name="tabs" />
           <button
             @click="fetchData"
             class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
@@ -292,11 +289,6 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-
-      <div v-if="props.embedded" class="mt-4 flex flex-wrap items-center gap-2">
-        <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
-        <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-600">启用中 {{ activeCount }} 条</span>
-      </div>
 
       <EmberFilterPanel
         wrapper-class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto]"
@@ -320,7 +312,7 @@ onMounted(async () => {
 
         <div class="space-y-1.5">
           <label class="text-xs font-semibold tracking-wide text-gray-500">显示范围</label>
-          <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-white px-3">
+          <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3">
             <span class="text-sm text-gray-600">包含下架方案</span>
             <el-switch v-model="queryParams.showAll" size="small" @change="handleFilterChange" />
           </div>
@@ -372,8 +364,8 @@ onMounted(async () => {
 
         <el-table-column label="分组" min-width="140">
           <template #default="{ row }">
-            <el-tag effect="light" round size="small" :type="row.planGroup === defaultPlanGroup?.key ? 'warning' : 'success'">
-              {{ row.planGroupName || row.planGroup }}
+            <el-tag effect="light" round size="small" :type="row.planGroup === defaultPlanGroup?.key ? 'warning' : 'info'">
+              {{ row.planGroupName || row.planGroup }}{{ row.planGroup === defaultPlanGroup?.key ? '（默认）' : '' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -482,14 +474,14 @@ onMounted(async () => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button
             @click="dialogVisible = false"
-            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
           <button
             @click="handleCreate"
             :disabled="creating"
-            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+            class="btn-ember cursor-pointer rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
           >
             {{ creating ? '创建中...' : '确认创建' }}
           </button>
@@ -550,8 +542,9 @@ onMounted(async () => {
             </el-form-item>
 
             <el-form-item label="状态">
-              <div class="h-8 flex items-center">
-                <el-switch v-model="editForm.isActive" active-text="启用" inactive-text="下架" />
+              <div class="flex h-[42px] w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3">
+                <span class="text-sm text-gray-600">{{ editForm.isActive ? '启用' : '下架' }}</span>
+                <el-switch v-model="editForm.isActive" />
               </div>
             </el-form-item>
           </div>
@@ -561,14 +554,14 @@ onMounted(async () => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button
             @click="editDialogVisible = false"
-            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
           <button
             @click="handleUpdate"
             :disabled="updating"
-            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+            class="btn-ember cursor-pointer rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
           >
             {{ updating ? '保存中...' : '保存修改' }}
           </button>

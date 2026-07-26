@@ -288,12 +288,4 @@ const handleLogin = async () => {
   background-color: #f9fafb;
   box-shadow: 0 0 0 1px #e5e7eb inset;
 }
-
-.animate-fade-in {
-  animation: fadeIn 0.6s ease-out forwards;
-}
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
 </style>

@@ -118,8 +118,9 @@ const loadReport = async (force = false) => {
     cleanupPosterURLs()
     void preloadPosterURLs(res.data?.lowQualityItems || [])
     if (force) {
-      if (selectedLibraryId.value === 'all' && (res.data?.failedLibraries?.length || 0) > 0) {
-        ElMessage.warning(`已强制刷新，${res.data.failedLibraries.length} 个媒体库读取失败`)
+      const failedLibraryCount = res.data?.failedLibraries?.length ?? 0
+      if (selectedLibraryId.value === 'all' && failedLibraryCount > 0) {
+        ElMessage.warning(`已强制刷新，${failedLibraryCount} 个媒体库读取失败`)
       } else {
         ElMessage.success('已强制刷新并更新报告')
       }
@@ -141,8 +142,9 @@ const scanNow = async () => {
     summaryPosterIDs.value = extractPosterIDs(res.data?.lowQualityItems || [])
     cleanupPosterURLs()
     void preloadPosterURLs(res.data?.lowQualityItems || [])
-    if (selectedLibraryId.value === 'all' && (res.data?.failedLibraries?.length || 0) > 0) {
-      ElMessage.warning(`扫描完成，${res.data.failedLibraries.length} 个媒体库读取失败`)
+    const failedLibraryCount = res.data?.failedLibraries?.length ?? 0
+    if (selectedLibraryId.value === 'all' && failedLibraryCount > 0) {
+      ElMessage.warning(`扫描完成，${failedLibraryCount} 个媒体库读取失败`)
     } else {
       ElMessage.success('扫描完成，报告已更新')
     }

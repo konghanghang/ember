@@ -1,9 +1,10 @@
 import { defineComponent, h, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import type { VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PlanGroupsView from './PlanGroupsView.vue'
-import type { EmbyPolicySyncBatchDetail } from '@/types/api'
+import type { EmbyPolicySyncBatchDetail, ManagedPlanGroup } from '@/types/api'
 import {
   createPlanGroup,
   deletePlanGroup,
@@ -132,6 +133,37 @@ function createBatch(overrides: Partial<EmbyPolicySyncBatchDetail> = {}): EmbyPo
   }
 }
 
+// 视图在测试中被直接驱动的 setup 内部成员（ref 已解包）。
+type PlanGroupsSetupState = {
+  activeSyncBatch: EmbyPolicySyncBatchDetail | null
+  selectedGroup: ManagedPlanGroup | null
+  selectedLibraryIds: string[]
+  syncPollErrorCount: number
+  createForm: {
+    key: string
+    name: string
+    description: string
+    isDefault: boolean
+    sortOrder: number
+    subscriptionAutoApproveDailyLimit: number
+  }
+  openMediaDialog: (group: ManagedPlanGroup) => Promise<void>
+  canDeletePlanGroup: (group: ManagedPlanGroup) => boolean
+  handleCreate: () => Promise<void>
+  handleDelete: (group: ManagedPlanGroup) => Promise<void>
+  handleSaveMediaLibraries: (applyToExistingUsers?: boolean) => Promise<void>
+  pollSyncBatch: (batchId: string) => Promise<void>
+}
+
+/**
+ * 读取组件 setup 内部状态。
+ * Vue 3.5 起 setupState 不再出现在公开的 ComponentInternalInstance 类型上（运行时仍存在），
+ * 测试需要直接驱动组件内部方法与状态，这里以结构化类型收窄出实际用到的成员。
+ */
+function setupStateOf(wrapper: VueWrapper): PlanGroupsSetupState {
+  return (wrapper.vm.$ as unknown as { setupState: PlanGroupsSetupState }).setupState
+}
+
 function mountView() {
   return mount(PlanGroupsView, {
     global: {
@@ -199,7 +231,7 @@ describe('PlanGroupsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.vm.$.setupState.activeSyncBatch = createBatch()
+    setupStateOf(wrapper).activeSyncBatch = createBatch()
     await nextTick()
 
     expect(wrapper.text()).toContain('重试失败项')
@@ -256,7 +288,7 @@ describe('PlanGroupsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    await wrapper.vm.$.setupState.openMediaDialog({
+    await setupStateOf(wrapper).openMediaDialog({
       key: 'vip',
       name: 'VIP',
       description: '',
@@ -287,9 +319,9 @@ describe('PlanGroupsView', () => {
       sortOrder: 0,
     }
 
-    expect(wrapper.vm.$.setupState.canDeletePlanGroup(defaultGroup)).toBe(false)
+    expect(setupStateOf(wrapper).canDeletePlanGroup(defaultGroup)).toBe(false)
 
-    await wrapper.vm.$.setupState.handleDelete(defaultGroup)
+    await setupStateOf(wrapper).handleDelete(defaultGroup)
     await flushPromises()
 
     expect(ElMessage.warning).toHaveBeenCalledWith('默认分组不能删除')
@@ -303,7 +335,7 @@ describe('PlanGroupsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.vm.$.setupState.createForm = {
+    setupStateOf(wrapper).createForm = {
       key: 'VIP_A',
       name: 'VIP A',
       description: '高级分组',
@@ -312,7 +344,7 @@ describe('PlanGroupsView', () => {
       subscriptionAutoApproveDailyLimit: 2,
     }
 
-    await wrapper.vm.$.setupState.handleCreate()
+    await setupStateOf(wrapper).handleCreate()
     await flushPromises()
 
     expect(createPlanGroup).toHaveBeenCalledWith({
@@ -340,21 +372,53 @@ describe('PlanGroupsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.vm.$.setupState.selectedGroup = {
+    setupStateOf(wrapper).selectedGroup = {
       key: 'vip',
       name: 'VIP',
       description: '',
       isDefault: false,
       sortOrder: 0,
     }
-    wrapper.vm.$.setupState.selectedLibraryIds = ['lib_movie']
+    setupStateOf(wrapper).selectedLibraryIds = ['lib_movie']
 
-    await wrapper.vm.$.setupState.handleSaveMediaLibraries(false)
+    await setupStateOf(wrapper).handleSaveMediaLibraries(false)
     await flushPromises()
 
     expect(updatePlanGroupMediaLibraries).toHaveBeenCalledWith('vip', ['lib_movie'], false)
     expect(ElMessage.success).toHaveBeenCalledWith('模板已保存，3 个用户待同步')
-    expect(wrapper.vm.$.setupState.activeSyncBatch).toBeNull()
+    expect(setupStateOf(wrapper).activeSyncBatch).toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it('轮询遇瞬时错误不立即停摆，连续超过上限才停止', async () => {
+    vi.mocked(getEmbyPolicySyncBatch).mockRejectedValueOnce(new Error('network'))
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({
+        data: createBatch({ status: 'synced', syncedCount: 2, failedCount: 0, failedUsers: [] }),
+      })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 预置一个非终态批次，验证瞬时错误不会清空已展示的批次摘要。
+    setupStateOf(wrapper).activeSyncBatch = createBatch({ status: 'pending' })
+    await nextTick()
+
+    // 第一次、第二次失败：累计错误计数，但批次状态保持。
+    await setupStateOf(wrapper).pollSyncBatch('batch_failed')
+    expect(setupStateOf(wrapper).syncPollErrorCount).toBe(1)
+    expect(setupStateOf(wrapper).activeSyncBatch).not.toBeNull()
+
+    await setupStateOf(wrapper).pollSyncBatch('batch_failed')
+    expect(setupStateOf(wrapper).syncPollErrorCount).toBe(2)
+
+    // 第三次成功：错误计数清零，终态正常推进。
+    await setupStateOf(wrapper).pollSyncBatch('batch_failed')
+    await flushPromises()
+
+    expect(setupStateOf(wrapper).syncPollErrorCount).toBe(0)
+    expect(ElMessage.success).toHaveBeenCalledWith('用户同步已完成')
 
     wrapper.unmount()
   })

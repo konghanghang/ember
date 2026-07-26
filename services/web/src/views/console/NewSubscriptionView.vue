@@ -266,10 +266,10 @@ const isConfirmDisabled = () => {
 
 <template>
   <div class="mx-auto max-w-7xl space-y-8">
-    <EmberPageHeaderCard title="添加新订阅" description="搜索你想观看的电影或剧集，并提交订阅请求。">
+    <EmberPageHeaderCard title="添加新订阅">
       <div class="mx-auto mt-6 flex max-w-3xl flex-col gap-4">
         <div class="flex justify-center">
-          <EmberSegmentTabs v-model="searchType" :tabs="typeTabs" :full-width="false" aria-label="订阅类型切换" />
+          <EmberSegmentTabs v-model="searchType" :tabs="typeTabs" :full-width="false" ariaLabel="订阅类型切换" />
         </div>
 
         <div class="relative">
@@ -295,7 +295,7 @@ const isConfirmDisabled = () => {
         v-for="item in results"
         :key="item.id"
         type="button"
-        class="group relative overflow-hidden rounded-xl border border-gray-100 bg-white text-left shadow-sm transition-all duration-300 hover:border-ember/30 hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ember/10"
+        class="group relative cursor-pointer overflow-hidden rounded-xl border border-gray-100 bg-white text-left shadow-sm transition-all duration-300 hover:border-ember/30 hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ember/10"
         :aria-label="`选择 ${item.title}`"
         @click="selectItem(item)"
       >
@@ -416,7 +416,7 @@ const isConfirmDisabled = () => {
                   <button
                     v-if="seasonOptionsError"
                     type="button"
-                    class="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50"
+                    class="cursor-pointer rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50"
                     @click="retryLoadSeasonOptions"
                   >
                     <span class="inline-flex items-center gap-1.5">
@@ -446,7 +446,7 @@ const isConfirmDisabled = () => {
           <button
             type="button"
             @click="showConfirmDialog = false"
-            class="rounded-lg px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="rounded-xl px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
             取消
           </button>
@@ -454,7 +454,7 @@ const isConfirmDisabled = () => {
             type="button"
             @click="confirmSubscription"
             :disabled="isConfirmDisabled()"
-            class="btn-ember inline-flex items-center gap-2 rounded-lg px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+            class="btn-ember inline-flex items-center gap-2 rounded-xl px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
           >
             <span v-if="submitting || checkingExisting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
             <el-icon v-else><Check /></el-icon>

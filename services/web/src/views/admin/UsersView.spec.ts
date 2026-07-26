@@ -130,7 +130,6 @@ describe('UsersView', () => {
       total: 0,
       page: 1,
       pageSize: 10,
-      totalPages: 0,
     })
   })
 
@@ -160,6 +159,34 @@ describe('UsersView', () => {
       isActive: false,
       isExpired: true,
     })).reason).toBe('过期封禁')
+  })
+
+  it('切换每页条数时重置到第 1 页再请求', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as {
+      queryParams: { page: number; pageSize: number }
+      handlePageSizeChange: (size: number) => void
+    }
+
+    vm.queryParams.page = 5
+    vm.handlePageSizeChange(50)
+    await flushPromises()
+
+    expect(vm.queryParams.page).toBe(1)
+    expect(vm.queryParams.pageSize).toBe(50)
+    expect(getUsers).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 50 }))
+  })
+
+  it('编辑用户时非法到期时间按无到期时间处理，不抛 RangeError', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as {
+      editForm: { expiresAt: Date | null; neverExpire: boolean }
+      handleOpenEdit: (row: UserInfo) => void
+    }
+
+    expect(() => vm.handleOpenEdit(createUser({ expiresAt: 'not-a-date' }))).not.toThrow()
+    expect(vm.editForm.expiresAt).toBeNull()
+    expect(vm.editForm.neverExpire).toBe(false)
   })
 
   it('编辑用户时只提交实际变更字段', async () => {

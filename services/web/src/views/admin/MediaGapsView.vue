@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { Component } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Calendar,
+  CircleCheck,
   CircleCheckFilled,
+  CircleClose,
   Clock,
   Collection,
   Download,
@@ -11,8 +14,10 @@ import {
   InfoFilled,
   Loading,
   RefreshRight,
+  Remove,
   Search,
-  Upload
+  Upload,
+  Warning
 } from '@element-plus/icons-vue'
 import {
   dispatchMediaGap,
@@ -24,12 +29,18 @@ import {
   searchMediaGap
 } from '@/api/admin'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberDateRangeField from '@/components/ember/filters/EmberDateRangeField.vue'
 import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
 import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
-import { formatDate } from '@/utils/date'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
+import type { Tone } from '@/components/ember/tokens'
+import { formatSlashedDate, formatSlashedDateTime } from '@/utils/date'
+import { isMessageBoxCancel } from '@/utils/api-error'
+import { formatGapCandidateSize } from '@/utils/format'
 import type {
   MediaGapGroupedQuery,
   MediaGapGroupedResponse,
@@ -48,12 +59,16 @@ type MediaGapViewMode = 'grouped' | 'table'
 type MediaGapSortMode = MediaGapGroupedSortMode
 
 const loading = ref(false)
-const scanning = ref(false)
+// 扫描按钮态只由 scanStatus.running 单一事实源驱动（P1-2），不再保留独立的 scanning 标志，
+// 避免扫描接口抛错时本地标志无复位路径导致按钮永久禁用。
 const scanStatus = ref<MediaGapScanStatus>({
   status: 'idle',
   running: false,
   message: '暂无扫描任务'
 })
+// 扫描启动请求提交中标志：scanStatus.running 只在服务端响应后才置位，请求在途期间用它锁住按钮，
+// 防止用户重复确认触发并发扫描（后端会把后续请求映射为 409）。finally 复位保证抛错后不卡死。
+const scanSubmitting = ref(false)
 const tableData = ref<MediaGapItem[]>([])
 const groupedData = ref<MediaGapGroupedSeries[]>([])
 const total = ref(0)
@@ -80,6 +95,9 @@ const sortMode = ref<MediaGapSortMode>('missing')
 const expandedSeasonKeys = ref<string[]>([])
 const expandedSeriesKeys = ref<string[]>([])
 let scanStatusPollTimer: ReturnType<typeof setTimeout> | null = null
+// fetchData 竞态守卫（P2-7）：每次请求自增令牌，响应落地前校验令牌，
+// 先发请求的迟到响应直接丢弃，避免 grouped/table 乱序渲染空页或旧数据。
+let fetchRequestToken = 0
 
 const queryParams = ref<MediaGapListQuery>({
   page: 1,
@@ -109,13 +127,19 @@ const statusMeta: Record<MediaGapStatus, { label: string; type: '' | 'success' |
   IGNORED: { label: '已忽略', type: 'info' }
 }
 
-const sortOptions: Array<{ label: string; value: MediaGapSortMode; hint: string }> = [
-  { label: '缺口优先', value: 'missing', hint: '先看缺集最多的剧' },
-  { label: '最近变化', value: 'updated', hint: '先看最近有状态变化的剧' },
-  { label: '已下发优先', value: 'requested', hint: '先盯等待入库的剧' },
-  { label: '剧名字母', value: 'name', hint: '按剧名排序浏览' }
+const viewModeTabs: Array<{ key: MediaGapViewMode; label: string; icon: Component }> = [
+  { key: 'grouped', label: '聚合视图', icon: Grid },
+  { key: 'table', label: '明细视图', icon: Collection }
 ]
 
+const sortTabs: Array<{ key: MediaGapSortMode; label: string }> = [
+  { key: 'missing', label: '缺口优先' },
+  { key: 'updated', label: '最近变化' },
+  { key: 'requested', label: '已下发优先' },
+  { key: 'name', label: '剧名字母' }
+]
+
+// 搜索弹窗标题沿用原固定文案；剧名/集号已在弹窗内独立卡片展示，不在标题里重复。
 const dialogTitle = '搜索候选并下发'
 
 const selectedCandidate = computed(() => {
@@ -133,11 +157,6 @@ const missingCount = computed(() => {
   return viewMode.value === 'grouped'
     ? groupedSummary.value.missingCount
     : tableData.value.filter((item) => item.status === 'MISSING').length
-})
-const searchedCount = computed(() => {
-  return viewMode.value === 'grouped'
-    ? groupedSummary.value.searchedCount
-    : tableData.value.filter((item) => item.status === 'SEARCHED').length
 })
 const requestedCount = computed(() => {
   return viewMode.value === 'grouped'
@@ -160,7 +179,9 @@ const dispatchFailedCount = computed(() => {
     : tableData.value.filter((item) => item.status === 'DISPATCH_FAILED').length
 })
 
-const compactStats = computed(() => [
+// 统计徽章 tone 只允许 tokens.ts 的五值（§3.5）：
+// 待处理/下发失败 → danger，已下发 → info，已完成 → success，工单/剧集/已忽略 → neutral。
+const compactStats = computed<Array<{ label: string; value: number; tone: Tone }>>(() => [
   {
     label: '工单',
     value: itemTotal.value,
@@ -174,27 +195,27 @@ const compactStats = computed(() => [
   {
     label: '待处理',
     value: missingCount.value,
-    tone: 'missing'
+    tone: 'danger'
   },
   {
     label: '已下发',
     value: requestedCount.value,
-    tone: 'requested'
+    tone: 'info'
   },
   {
     label: '下发失败',
     value: dispatchFailedCount.value,
-    tone: 'missing'
+    tone: 'danger'
   },
   {
     label: '已完成',
     value: ingestedCount.value,
-    tone: 'settled'
+    tone: 'success'
   },
   {
     label: '已忽略',
     value: ignoredCount.value,
-    tone: 'muted'
+    tone: 'neutral'
   }
 ])
 
@@ -207,7 +228,6 @@ const defaultPageSize = computed(() => {
 })
 
 const isTerminalStatus = (status: MediaGapStatus) => status === 'INGESTED' || status === 'IGNORED'
-const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
 
 const clearScanStatusPoll = () => {
   if (scanStatusPollTimer) {
@@ -218,7 +238,6 @@ const clearScanStatusPoll = () => {
 
 const applyScanStatus = (status: MediaGapScanStatus) => {
   scanStatus.value = status
-  scanning.value = status.running
 }
 
 const scheduleScanStatusPoll = () => {
@@ -259,36 +278,10 @@ const refreshScanStatus = async (notifyCompletion = false) => {
       }
     }
   } catch {
-    if (!scanStatus.value.running) {
-      scanning.value = false
-    }
+    // 状态轮询失败由拦截器统一提示；保留现有 scanStatus，下一轮轮询继续。
   } finally {
     scheduleScanStatusPoll()
   }
-}
-
-const formatDateOnly = (value?: string) => {
-  const raw = String(value ?? '').trim()
-  if (!raw) return '-'
-
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (match) {
-    return `${match[1]}/${match[2]}/${match[3]}`
-  }
-
-  return formatDate(raw)
-}
-
-const formatDateTime = (value?: string) => {
-  const raw = String(value ?? '').trim()
-  if (!raw) return '-'
-
-  const plainDateTime = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/)
-  if (plainDateTime) {
-    return `${plainDateTime[1]}/${plainDateTime[2]}/${plainDateTime[3]} ${plainDateTime[4]}:${plainDateTime[5]}`
-  }
-
-  return formatDate(raw)
 }
 
 const formatEpisodeCode = (row: Pick<MediaGapItem, 'season' | 'episode'>) => {
@@ -369,38 +362,17 @@ const hiddenSeasonGroupCount = (series: MediaGapGroupedSeries) => {
   return Math.max(0, actionableSeasonGroups(series).length - visibleSeasonGroups(series).length)
 }
 
-const statusOrder = (status: MediaGapStatus) => {
-  switch (status) {
-    case 'MISSING':
-      return 0
-    case 'SEARCHED':
-      return 1
-    case 'REQUESTED':
-      return 2
-    case 'DISPATCH_FAILED':
-      return 3
-    case 'INGESTED':
-      return 4
-    case 'IGNORED':
-      return 5
-    default:
-      return 9
-  }
-}
+const compactStatClass = (tone: Tone) => `compact-stat compact-stat-${tone}`
 
-const compactStatClass = (tone: string) => {
-  switch (tone) {
-    case 'missing':
-      return 'compact-stat compact-stat-missing'
-    case 'requested':
-      return 'compact-stat compact-stat-requested'
-    case 'settled':
-      return 'compact-stat compact-stat-settled'
-    case 'muted':
-      return 'compact-stat compact-stat-muted'
-    default:
-      return 'compact-stat compact-stat-neutral'
-  }
+// 剧集 chip 的状态图标：状态不能仅靠底色表达（§10），每种状态补一个差异化图标，
+// 同时模板上补 aria-label 文本。图标语义与 statusMeta 标签一一对应。
+const episodeStatusIcon: Record<MediaGapStatus, Component> = {
+  MISSING: Warning,
+  SEARCHED: Search,
+  REQUESTED: Upload,
+  DISPATCH_FAILED: CircleClose,
+  INGESTED: CircleCheck,
+  IGNORED: Remove
 }
 
 const episodeChipClass = (gap: MediaGapItem) => {
@@ -470,37 +442,6 @@ const parseJSONSafely = (value: unknown) => {
   }
 }
 
-const formatCandidateSize = (value: unknown) => {
-  if (value === null || value === undefined) return undefined
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return undefined
-
-    const numeric = Number(trimmed)
-    if (!Number.isFinite(numeric)) {
-      return trimmed
-    }
-
-    value = numeric
-  }
-
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return undefined
-  }
-
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let size = value
-  let unitIndex = 0
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024
-    unitIndex += 1
-  }
-
-  const precision = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2
-  return `${size.toFixed(precision)} ${units[unitIndex]}`
-}
-
 const normalizeCandidate = (value: unknown, index: number): MediaGapSearchCandidate => {
   if (typeof value === 'string') {
     return {
@@ -522,7 +463,7 @@ const normalizeCandidate = (value: unknown, index: number): MediaGapSearchCandid
   const publishDate = String(record.publishDate ?? record.pubDate ?? record.publishedAt ?? '').trim()
   const source = String(record.source ?? record.provider ?? record.channel ?? '').trim()
   const site = String(record.site ?? record.siteName ?? '').trim()
-  const size = formatCandidateSize(record.size ?? record.sizeLabel)
+  const size = formatGapCandidateSize(record.size ?? record.sizeLabel)
   const language = String(record.language ?? '').trim()
   const releaseGroup = String(record.releaseGroup ?? record.team ?? '').trim()
   const episodeRange = String(record.episodeRange ?? record.episodes ?? '').trim()
@@ -636,10 +577,14 @@ const buildGroupedParams = () => {
 }
 
 const fetchData = async () => {
+  const requestToken = ++fetchRequestToken
   loading.value = true
   try {
     if (viewMode.value === 'grouped') {
       const res = await getGroupedMediaGaps(buildGroupedParams())
+      if (requestToken !== fetchRequestToken) {
+        return
+      }
       groupedData.value = res.data ?? []
       tableData.value = groupedData.value.flatMap((series) => series.gaps)
       total.value = res.total ?? 0
@@ -662,6 +607,9 @@ const fetchData = async () => {
     }
 
     const res = await getMediaGaps(buildParams())
+    if (requestToken !== fetchRequestToken) {
+      return
+    }
     groupedData.value = []
     tableData.value = res.data ?? []
     total.value = res.total ?? 0
@@ -683,7 +631,9 @@ const fetchData = async () => {
   } catch {
     // handled by interceptor
   } finally {
-    loading.value = false
+    if (requestToken === fetchRequestToken) {
+      loading.value = false
+    }
   }
 }
 
@@ -734,7 +684,8 @@ const handleScan = async () => {
     return
   }
 
-  scanning.value = true
+  // 请求在途期间锁定按钮（防重复提交），scanStatus.running 在响应后才置位；finally 复位保证抛错不卡死。
+  scanSubmitting.value = true
   try {
     const res = await scanMediaGaps()
     applyScanStatus({
@@ -748,7 +699,9 @@ const handleScan = async () => {
     ElMessage.success(res.data?.message || '缺集扫描已启动，后台处理中')
     scheduleScanStatusPoll()
   } catch {
-    // handled
+    // handled by interceptor
+  } finally {
+    scanSubmitting.value = false
   }
 }
 
@@ -843,7 +796,8 @@ const handleIgnore = async (gap: MediaGapItem) => {
       inputPlaceholder: '例如：资源命名差异 / 数据源误报',
       inputValue: gap.ignoreReason || ''
     })
-    reason = result.value?.trim() || ''
+    // Element Plus 的 MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
+    reason = typeof result === 'object' ? result.value?.trim() || '' : ''
   } catch (error) {
     if (isMessageBoxCancel(error)) {
       return
@@ -941,43 +895,23 @@ watch(sortMode, () => {
   <div class="space-y-6">
     <EmberPageHeaderCard
       title="缺集管理"
-      description="默认按剧聚合查看缺集断层，先找出哪部剧有问题，再逐集搜索、下发和核销。"
     >
       <template #actions>
         <div class="flex flex-wrap items-center justify-end gap-2">
-          <div class="inline-flex rounded-2xl border border-gray-200 bg-white p-1 shadow-sm">
-            <button
-              @click="viewMode = 'grouped'"
-              class="view-toggle-btn"
-              :class="{ 'view-toggle-btn-active': viewMode === 'grouped' }"
-            >
-              <el-icon><Grid /></el-icon>
-              聚合视图
-            </button>
-            <button
-              @click="viewMode = 'table'"
-              class="view-toggle-btn"
-              :class="{ 'view-toggle-btn-active': viewMode === 'table' }"
-            >
-              <el-icon><Collection /></el-icon>
-              明细视图
-            </button>
-          </div>
+          <EmberSegmentTabs
+            v-model="viewMode"
+            :tabs="viewModeTabs"
+            :full-width="false"
+            ariaLabel="缺集视图切换"
+          />
 
           <button
-            @click="fetchData"
-            class="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
-          >
-            <el-icon><RefreshRight /></el-icon>
-            刷新列表
-          </button>
-          <button
             @click="handleScan"
-            :disabled="scanning"
+            :disabled="scanStatus.running || scanSubmitting"
             class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
           >
             <el-icon><Upload /></el-icon>
-            {{ scanning ? '扫描中...' : '触发全库扫描' }}
+            {{ scanStatus.running ? '扫描中...' : (scanSubmitting ? '提交中...' : '触发全库扫描') }}
           </button>
         </div>
       </template>
@@ -1059,15 +993,12 @@ watch(sortMode, () => {
           class="flex flex-wrap items-center gap-2"
         >
           <span class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">排序</span>
-          <button
-            v-for="option in sortOptions"
-            :key="option.value"
-            @click="sortMode = option.value"
-            class="sort-chip"
-            :class="{ 'sort-chip-active': sortMode === option.value }"
-          >
-            {{ option.label }}
-          </button>
+          <EmberSegmentTabs
+            v-model="sortMode"
+            :tabs="sortTabs"
+            :full-width="false"
+            ariaLabel="聚合视图排序方式"
+          />
         </div>
       </div>
     </EmberPageHeaderCard>
@@ -1077,7 +1008,7 @@ watch(sortMode, () => {
         <div
           v-for="index in 6"
           :key="index"
-          class="h-[320px] animate-pulse rounded-[28px] border border-gray-100 bg-white shadow-sm"
+          class="h-[320px] animate-pulse rounded-2xl border border-gray-100 bg-white shadow-sm"
         ></div>
       </div>
 
@@ -1102,7 +1033,7 @@ watch(sortMode, () => {
             </div>
             <div class="text-right text-xs text-gray-500">
               <div>最近变化</div>
-              <div class="mt-1 font-medium text-gray-700">{{ formatDateTime(series.latestUpdatedAt) }}</div>
+              <div class="mt-1 font-medium text-gray-700">{{ formatSlashedDateTime(series.latestUpdatedAt) }}</div>
             </div>
           </div>
 
@@ -1134,13 +1065,18 @@ watch(sortMode, () => {
                 <button
                   v-for="gap in visibleSeasonGaps(series.key, seasonGroup)"
                   :key="gap.id"
+                  type="button"
                   @click="selectGap(gap)"
                   :class="episodeChipClass(gap)"
+                  :aria-label="`${formatEpisodeCode(gap)} ${statusMeta[gap.status].label}`"
+                  :aria-pressed="selectedGapId === gap.id"
                 >
+                  <el-icon class="episode-chip-icon"><component :is="episodeStatusIcon[gap.status]" /></el-icon>
                   <span>{{ `E${String(gap.episode).padStart(2, '0')}` }}</span>
                 </button>
                 <button
                   v-if="hiddenSeasonGapCount(series.key, seasonGroup) > 0"
+                  type="button"
                   @click="toggleSeasonExpanded(series.key, seasonGroup.season)"
                   class="episode-chip episode-chip-more"
                 >
@@ -1148,6 +1084,7 @@ watch(sortMode, () => {
                 </button>
                 <button
                   v-else-if="seasonGroup.gaps.length > 12"
+                  type="button"
                   @click="toggleSeasonExpanded(series.key, seasonGroup.season)"
                   class="episode-chip episode-chip-less"
                 >
@@ -1156,19 +1093,20 @@ watch(sortMode, () => {
               </div>
             </section>
 
-            <div
+            <EmberEmptyStateCard
               v-if="actionableSeasonGroups(series).length === 0"
-              class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-4 py-5 text-sm text-gray-500"
-            >
-              当前没有待处理缺集，已收口到已忽略或已入库摘要。
-            </div>
+              compact
+              tone="neutral"
+              title="当前没有待处理缺集"
+              description="已收口到已忽略或已入库摘要。"
+            />
 
             <div
               v-if="hiddenSeasonGroupCount(series) > 0"
               class="series-expand-panel"
             >
               <div class="text-sm font-medium text-gray-600">
-                还有 {{ hiddenSeasonGroupCount(series) }} 个季存在缺集，默认先收起，避免整张卡片被历史季撑爆。
+                还有 {{ hiddenSeasonGroupCount(series) }} 个季存在缺集
               </div>
               <button
                 @click="toggleSeriesExpanded(series.key)"
@@ -1205,7 +1143,7 @@ watch(sortMode, () => {
                 <el-tag :type="statusMeta[resolveActiveGap(series)!.status].type" effect="light" round>
                   {{ statusMeta[resolveActiveGap(series)!.status].label }}
                 </el-tag>
-                <span class="text-xs text-gray-500">播出 {{ formatDateOnly(resolveActiveGap(series)!.airDate) }}</span>
+                <span class="text-xs text-gray-500">播出 {{ formatSlashedDate(resolveActiveGap(series)!.airDate) }}</span>
               </div>
               <div
                 v-if="resolveActiveGap(series)!.status === 'IGNORED' && (resolveIgnoreReasonLabel(resolveActiveGap(series)!) || resolveActiveGap(series)!.ignoreReason)"
@@ -1250,18 +1188,15 @@ watch(sortMode, () => {
         </article>
       </div>
 
-      <div
+      <EmberEmptyStateCard
         v-else
-        class="rounded-[28px] border border-dashed border-gray-200 bg-white px-6 py-16 text-center shadow-sm"
-      >
-        <el-icon class="mb-4 text-4xl text-gray-300"><Grid /></el-icon>
-        <div class="text-lg font-semibold text-gray-800">当前没有可展示的缺集剧集</div>
-        <div class="mt-2 text-sm text-gray-500">
-          可以先触发全库扫描，或者调整筛选条件后再看。
-        </div>
-      </div>
+        :icon="Grid"
+        tone="neutral"
+        title="当前没有可展示的缺集剧集"
+        description="可以先触发全库扫描，或者调整筛选条件后再看。"
+      />
 
-      <div class="rounded-3xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+      <div class="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
         <el-pagination
           v-model:current-page="queryParams.page"
           v-model:page-size="queryParams.pageSize"
@@ -1297,12 +1232,12 @@ watch(sortMode, () => {
 
       <el-table-column prop="airDate" label="播出日期" width="140">
         <template #default="{ row }">
-          {{ formatDateOnly(row.airDate) }}
+          {{ formatSlashedDate(row.airDate) }}
         </template>
       </el-table-column>
 
       <el-table-column prop="status" label="状态" width="140">
-        <template #default="{ row }">
+        <template #default="{ row }: { row: MediaGapItem }">
           <div class="space-y-1">
             <el-tag :type="statusMeta[row.status].type" effect="light" round>
               {{ statusMeta[row.status].label }}
@@ -1319,8 +1254,8 @@ watch(sortMode, () => {
       <el-table-column label="扫描 / 搜索" min-width="190">
         <template #default="{ row }">
           <div class="space-y-1 text-sm text-gray-600">
-            <div>扫描：{{ formatDateTime(row.lastScannedAt) }}</div>
-            <div>搜索：{{ formatDateTime(row.lastSearchedAt) }}</div>
+            <div>扫描：{{ formatSlashedDateTime(row.lastScannedAt) }}</div>
+            <div>搜索：{{ formatSlashedDateTime(row.lastSearchedAt) }}</div>
           </div>
         </template>
       </el-table-column>
@@ -1328,15 +1263,15 @@ watch(sortMode, () => {
       <el-table-column label="下发 / 入库" min-width="190">
         <template #default="{ row }">
           <div class="space-y-1 text-sm text-gray-600">
-            <div>下发：{{ formatDateTime(row.requestedAt) }}</div>
-            <div>入库：{{ formatDateTime(row.ingestedAt) }}</div>
+            <div>下发：{{ formatSlashedDateTime(row.requestedAt) }}</div>
+            <div>入库：{{ formatSlashedDateTime(row.ingestedAt) }}</div>
           </div>
         </template>
       </el-table-column>
 
       <el-table-column prop="updatedAt" label="更新时间" width="170">
         <template #default="{ row }">
-          {{ formatDateTime(row.updatedAt) }}
+          {{ formatSlashedDateTime(row.updatedAt) }}
         </template>
       </el-table-column>
 
@@ -1377,12 +1312,11 @@ watch(sortMode, () => {
       </template>
     </EmberTableCard>
 
-    <el-dialog
+    <EmberFormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
-      width="760px"
+      width="680px"
       destroy-on-close
-      align-center
     >
       <div class="space-y-4">
         <div class="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
@@ -1396,12 +1330,13 @@ watch(sortMode, () => {
               </div>
               <div class="flex flex-wrap gap-3 text-sm text-gray-600">
                 <span v-if="currentGap">{{ formatEpisodeCode(currentGap) }}</span>
-                <span>播出日期：{{ formatDateOnly(currentGap?.airDate) }}</span>
+                <span>播出日期：{{ formatSlashedDate(currentGap?.airDate) }}</span>
                 <span v-if="candidateResult.source">来源：{{ candidateResult.source }}</span>
               </div>
             </div>
 
             <button
+              type="button"
               @click="handleDialogSearch"
               :disabled="dialogLoading"
               class="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1418,9 +1353,6 @@ watch(sortMode, () => {
               <el-icon class="animate-spin"><Loading /></el-icon>
               <span>正在搜索候选资源</span>
             </div>
-            <div class="mt-1 text-xs text-amber-600">
-              正在向资源源拉取当前剧集的候选列表，通常需要几秒，请稍等。
-            </div>
           </div>
 
           <div class="space-y-3">
@@ -1433,7 +1365,7 @@ watch(sortMode, () => {
         <div v-else-if="candidateResult.candidates.length > 0" class="space-y-3">
           <div class="flex items-center justify-between text-sm text-gray-500">
             <span>共找到 {{ candidateResult.candidates.length }} 个候选</span>
-            <span v-if="candidateResult.searchedAt">搜索时间：{{ formatDateTime(candidateResult.searchedAt) }}</span>
+            <span v-if="candidateResult.searchedAt">搜索时间：{{ formatSlashedDateTime(candidateResult.searchedAt) }}</span>
           </div>
 
           <div class="max-h-[420px] space-y-3 overflow-y-auto pr-1">
@@ -1485,7 +1417,7 @@ watch(sortMode, () => {
                 <div class="shrink-0 text-right text-xs text-gray-500">
                   <div class="inline-flex items-center gap-1">
                     <el-icon><Clock /></el-icon>
-                    <span>{{ formatDateTime(candidate.publishDate) }}</span>
+                    <span>{{ formatSlashedDateTime(candidate.publishDate) }}</span>
                   </div>
                 </div>
               </div>
@@ -1493,27 +1425,27 @@ watch(sortMode, () => {
           </div>
         </div>
 
-        <div
+        <EmberEmptyStateCard
           v-else
-          class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/70 px-6 py-10 text-center"
-        >
-          <el-icon class="mb-3 text-3xl text-gray-300"><Download /></el-icon>
-          <div class="text-base font-medium text-gray-700">当前没有可用候选</div>
-          <div class="mt-1 text-sm text-gray-500">
-            可以稍后重试搜索，或先检查后端搜索条件与资源源配置。
-          </div>
-        </div>
+          :icon="Download"
+          compact
+          tone="neutral"
+          title="当前没有可用候选"
+          description="可以稍后重试搜索，或先检查后端搜索条件与资源源配置。"
+        />
       </div>
 
       <template #footer>
         <div class="flex items-center justify-end gap-2">
           <button
+            type="button"
             @click="dialogVisible = false"
             class="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
           >
             关闭
           </button>
           <button
+            type="button"
             @click="handleDispatch"
             :disabled="!canDispatch"
             class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
@@ -1523,63 +1455,12 @@ watch(sortMode, () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
   </div>
 </template>
 
 <style scoped>
-.view-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  border-radius: 1rem;
-  padding: 0.625rem 0.875rem;
-  font-size: 0.875rem;
-  color: #4b5563;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.view-toggle-btn:hover {
-  background: #f3f4f6;
-  color: #111827;
-}
-
-.view-toggle-btn-active {
-  background: rgba(229, 9, 20, 0.08);
-  color: var(--ember-red);
-  box-shadow: 0 8px 18px rgba(229, 9, 20, 0.08);
-}
-
-.sort-chip {
-  border-radius: 9999px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  padding: 0.45rem 0.8rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #4b5563;
-  transition:
-    color 0.18s ease,
-    border-color 0.18s ease,
-    background-color 0.18s ease,
-    transform 0.18s ease;
-}
-
-.sort-chip:hover {
-  transform: translateY(-1px);
-  border-color: #cbd5e1;
-  color: #111827;
-}
-
-.sort-chip-active {
-  border-color: rgba(229, 9, 20, 0.24);
-  background: rgba(229, 9, 20, 0.08);
-  color: var(--ember-red);
-}
-
+/* 统计徽章 tone：只复用 tokens.ts 五值（neutral/info/success/warning/danger），不再自造 tone 名。 */
 .compact-stat {
   display: inline-flex;
   align-items: center;
@@ -1597,28 +1478,28 @@ watch(sortMode, () => {
   color: #475569;
 }
 
-.compact-stat-missing {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #dc2626;
-}
-
-.compact-stat-requested {
+.compact-stat-info {
   background: #eff6ff;
   border-color: #bfdbfe;
   color: #2563eb;
 }
 
-.compact-stat-settled {
+.compact-stat-success {
   background: #ecfdf5;
   border-color: #a7f3d0;
   color: #059669;
 }
 
-.compact-stat-muted {
-  background: #f3f4f6;
-  border-color: #d1d5db;
-  color: #6b7280;
+.compact-stat-warning {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #d97706;
+}
+
+.compact-stat-danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
 }
 
 .compact-stat-label {
@@ -1631,7 +1512,7 @@ watch(sortMode, () => {
 
 .series-card {
   border: 1px solid #eef2f7;
-  border-radius: 1.75rem;
+  border-radius: 1rem;
   background:
     linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 1)),
     #fff;
@@ -1644,15 +1525,16 @@ watch(sortMode, () => {
   font-weight: 700;
 }
 
+/* season-pill 改为基线浅底语义色（neutral），不再使用大面积黑底制造第二套视觉系统。 */
 .season-pill {
   display: inline-flex;
   align-items: center;
   border-radius: 9999px;
-  background: #111827;
+  background: #f3f4f6;
   padding: 0.25rem 0.625rem;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #fff;
+  color: #374151;
 }
 
 .season-block {
@@ -1662,6 +1544,7 @@ watch(sortMode, () => {
 }
 
 .season-action-btn {
+  cursor: pointer;
   border-radius: 9999px;
   border: 1px solid #e5e7eb;
   background: #fff;
@@ -1681,12 +1564,6 @@ watch(sortMode, () => {
   border-color: #cbd5e1;
 }
 
-.season-action-btn-primary {
-  border-color: rgba(37, 99, 235, 0.16);
-  background: rgba(37, 99, 235, 0.08);
-  color: #2563eb;
-}
-
 .season-action-btn-muted {
   border-color: rgba(107, 114, 128, 0.16);
   background: #f8fafc;
@@ -1694,6 +1571,10 @@ watch(sortMode, () => {
 }
 
 .episode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
   border: 1px solid transparent;
   border-radius: 9999px;
   padding: 0.48rem 0.78rem;
@@ -1712,6 +1593,10 @@ watch(sortMode, () => {
 
 .episode-chip-selected {
   box-shadow: 0 0 0 2px rgba(229, 9, 20, 0.12);
+}
+
+.episode-chip-icon {
+  font-size: 0.85em;
 }
 
 .episode-chip-missing {
@@ -1750,6 +1635,11 @@ watch(sortMode, () => {
   color: #6b7280;
 }
 
+.episode-chip-more,
+.episode-chip-less {
+  cursor: pointer;
+}
+
 .episode-chip-more {
   background: #fff;
   border-color: #cbd5e1;
@@ -1784,6 +1674,7 @@ watch(sortMode, () => {
 }
 
 .series-expand-btn {
+  cursor: pointer;
   border-radius: 9999px;
   background: rgba(229, 9, 20, 0.08);
   padding: 0.5rem 0.85rem;
@@ -1809,6 +1700,7 @@ watch(sortMode, () => {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
+  cursor: pointer;
   border-radius: 9999px;
   background: rgba(229, 9, 20, 0.08);
   padding: 0.55rem 0.9rem;

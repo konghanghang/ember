@@ -123,13 +123,10 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      title="播放历史"
-      description="按用户、关键词和日期范围筛选播放记录"
-    >
+    <EmberPageHeaderCard title="播放历史">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
-          {{ props.embedded ? `当前结果 ${total} 条` : `Total: ${total}` }}
+          当前结果 {{ total }} 条
         </span>
       </template>
 

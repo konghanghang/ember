@@ -10,13 +10,13 @@ import EmberDateRangeField from '@/components/ember/filters/EmberDateRangeField.
 import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { emberRangePickerPopperClass, rangePickerDefaultTime } from '@/constants/datePicker'
 import { formatPlaybackDate } from '@/utils/date'
 import type {
   PlaybackProfileListItem,
   PlaybackProfileListQuery,
   PlaybackProfileListSortBy,
-  PlaybackProfileListSortOrder,
   PlaybackProfileRange
 } from '@/types/api'
 
@@ -47,6 +47,20 @@ const rangeOptions: Array<{ label: string; value: PlaybackProfileRange }> = [
   { label: '近 90 天', value: '90d' },
   { label: '全部历史', value: 'all' }
 ]
+
+// rangeOptions 用于驱动 EmberSegmentTabs 的分段控件，统一接入 roving tabindex。
+const rangeTabs = computed(() =>
+  rangeOptions.map(option => ({ key: option.value, label: option.label }))
+)
+
+// EmberSegmentTabs 用 string key 维护选中态；这里在边界收窄回业务类型，非法值忽略。
+const isKnownRange = (value: string): value is PlaybackProfileRange => {
+  return ['today', '7d', '30d', '90d', 'all', 'custom'].includes(value)
+}
+const handleRangeSelect = (value: string) => {
+  if (!isKnownRange(value)) return
+  handleRangeChange(value)
+}
 
 const createDefaultQueryParams = (): PlaybackProfileListQuery => ({
   range: 'today',
@@ -165,8 +179,11 @@ const disabledCustomDate = (date: Date) => {
   return Math.abs(date.getTime() - rangeAnchorDate.value.getTime()) > MAX_CUSTOM_RANGE_DAYS * 24 * 60 * 60 * 1000
 }
 
-const handleCustomCalendarChange = (value: Date[]) => {
-  rangeAnchorDate.value = value?.[0] ?? null
+// Element Plus 的 calendar-change 载荷在公共类型中未标注（运行时为已选 Date 数组），
+// 这里只取首个合法 Date 作为范围锚点，其余形态按无锚点处理。
+const handleCustomCalendarChange = (value: unknown) => {
+  const first = Array.isArray(value) ? value[0] : null
+  rangeAnchorDate.value = first instanceof Date ? first : null
 }
 
 const handleSearch = () => {
@@ -187,7 +204,7 @@ const handleRangeChange = (range: PlaybackProfileRange) => {
   fetchData()
 }
 
-const handleCustomRangeChange = (value: [string, string] | null) => {
+const handleCustomRangeChange = (value: [string, string] | [] | null | undefined) => {
   rangeAnchorDate.value = null
 
   if (!value || value.length !== 2) {
@@ -272,13 +289,10 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      :title="props.embedded ? '用户画像' : '用户画像总览'"
-      description="按用户聚合查看播放活跃度，先发现重点用户，再进入画像和历史明细"
-    >
+    <EmberPageHeaderCard :title="props.embedded ? '用户画像' : '用户画像总览'">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
-          {{ props.embedded ? `当前结果 ${total} 条` : `Total: ${total}` }}
+          当前结果 {{ total }} 条
         </span>
       </template>
 
@@ -298,18 +312,14 @@ onMounted(() => {
         actions-class="hidden"
       >
         <div class="flex flex-col gap-3 xl:flex-row xl:items-end">
-          <div class="flex flex-wrap gap-2 xl:shrink-0">
-            <button
-              v-for="option in rangeOptions"
-              :key="option.value"
-              @click="handleRangeChange(option.value)"
-              class="cursor-pointer rounded-xl border px-4 py-2 text-sm transition-colors"
-              :class="queryParams.range === option.value
-                ? 'border-ember bg-ember text-white'
-                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'"
-            >
-              {{ option.label }}
-            </button>
+          <div class="w-full xl:w-auto xl:shrink-0">
+            <EmberSegmentTabs
+              :model-value="queryParams.range ?? 'today'"
+              :tabs="rangeTabs"
+              :full-width="false"
+              ariaLabel="画像时间窗口切换"
+              @change="handleRangeSelect"
+            />
           </div>
 
           <div class="min-w-0 flex-1 xl:max-w-[34rem]">

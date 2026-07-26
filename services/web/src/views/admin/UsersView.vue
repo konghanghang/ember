@@ -26,6 +26,8 @@ import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { formatDateTime } from '@/utils/date'
+import { isMessageBoxCancel } from '@/utils/api-error'
+import { resolveUserPolicySyncPresentation } from '@/utils/policy-sync'
 import { formatMediaLibrarySummary } from '@/utils/media-library'
 import {
   applyAdminUserCurrentPolicySync,
@@ -119,8 +121,6 @@ const defaultPlanGroup = computed(() => planGroups.value.find(group => group.isD
 const usernamePattern = /^[A-Za-z0-9]+$/
 
 // ... (Keep existing logic methods) ...
-const isMessageBoxCancel = (error: unknown) => error === 'cancel' || error === 'close'
-
 const generatePassword = (length = 16) => {
   const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*'
   const randomValues = new Uint32Array(length)
@@ -159,6 +159,13 @@ const handleResetFilters = () => {
   queryParams.value.expiresAfter = undefined
   queryParams.value.embyStatus = ''
   queryParams.value.planGroup = ''
+  queryParams.value.page = 1
+  fetchData()
+}
+
+// 切换每页条数时必须回到第 1 页，否则会按旧页码请求越界空页（对齐 MediaGapsView 的正确写法）。
+const handlePageSizeChange = (size: number) => {
+  queryParams.value.pageSize = size
   queryParams.value.page = 1
   fetchData()
 }
@@ -310,8 +317,15 @@ const handleCreateUser = async () => {
   }
 }
 
+// 把后端到期时间规范化为可比较的 ISO 字符串；非法日期（Invalid Date）调 toISOString 会抛 RangeError，这里按无到期时间处理。
+const normalizeExpiresAt = (value?: string | null) => {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+}
+
 const handleOpenEdit = (row: UserInfo) => {
-  const expiresAt = row.expiresAt ? new Date(row.expiresAt).toISOString() : null
+  const expiresAt = normalizeExpiresAt(row.expiresAt)
   const planGroup = row.effectivePlanGroup || row.planGroup || defaultPlanGroup.value?.key || ''
   editForm.value = {
     id: row.id,
@@ -388,8 +402,10 @@ const handleExtend = async (row: UserInfo) => {
       inputPattern: /^\d+$/,
       inputErrorMessage: '请输入数字',
       inputValue: '30'
-    }).then(async ({ value }) => {
-      await extendUserExpiry(row.id, parseInt(value, 10))
+    }).then(async (result) => {
+      // MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
+      if (typeof result !== 'object') return
+      await extendUserExpiry(row.id, parseInt(result.value, 10))
       ElMessage.success('延长成功')
       await fetchData()
     })
@@ -429,10 +445,13 @@ const handleDelete = async (row: UserInfo) => {
 
 const handleResetPassword = async (row: UserInfo) => {
   try {
-    const { value } = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
+    const result = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
       confirmButtonText: '确定',
       cancelButtonText: '取消'
     })
+    // MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
+    if (typeof result !== 'object') return
+    const { value } = result
 
     let password = value
     if (!password) {
@@ -720,28 +739,15 @@ const getEmbyStatus = (row: UserInfo) => {
 }
 
 const getMediaLibraryStatus = (row: UserInfo) => {
-  const status = row.policySyncStatus
+  const presentation = resolveUserPolicySyncPresentation(row.policySyncStatus)
   const batchStatus = row.policySyncBatchStatus
-  const syncing = status === 'pending' || status === 'processing'
   return {
     customized: row.mediaLibraryPreferenceCustomized === true,
     countText: typeof row.mediaLibraryEnabledCount === 'number' && typeof row.mediaLibraryTemplateCount === 'number'
       ? `${row.mediaLibraryEnabledCount}/${row.mediaLibraryTemplateCount}`
       : '-',
-    statusText: syncing
-      ? '同步中'
-      : status === 'failed'
-        ? '同步失败'
-        : status === 'partial_failed'
-          ? '部分失败'
-          : status === 'out_of_sync'
-            ? '待同步'
-            : '已同步',
-    tagType: syncing || status === 'out_of_sync'
-      ? 'warning'
-      : status === 'failed' || status === 'partial_failed'
-        ? 'danger'
-        : 'success',
+    statusText: presentation.label,
+    tagType: presentation.tagType,
     batchFailed: batchStatus === 'failed' && !!row.policySyncBatchId
   }
 }
@@ -759,7 +765,7 @@ onMounted(async () => {
       description="管理系统注册用户、人工开通账号及其权限状态"
     >
       <template #titleSuffix>
-        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">共 {{ total }} 个用户</span>
       </template>
       <template #actions>
         <div class="flex flex-wrap items-center justify-end gap-3">
@@ -869,7 +875,8 @@ onMounted(async () => {
         <!-- Emby ID -->
         <el-table-column prop="embyId" label="Emby ID" min-width="120" show-overflow-tooltip>
           <template #default="{ row }">
-            <span class="font-mono text-gray-600 bg-gray-50 px-2 py-1 rounded text-xs">{{ row.embyId }}</span>
+            <span v-if="row.embyId" class="font-mono text-gray-600 bg-gray-50 px-2 py-1 rounded text-xs">{{ row.embyId }}</span>
+            <span v-else class="text-xs text-gray-400">-</span>
           </template>
         </el-table-column>
 
@@ -983,7 +990,7 @@ onMounted(async () => {
                   <el-icon :size="18"><MoreFilled /></el-icon>
                 </button>
                 <template #dropdown>
-                  <el-dropdown-menu class="w-40">
+                  <el-dropdown-menu class="w-52">
                     <el-dropdown-item :icon="DataLine" @click="handleViewProfile(row)">用户画像</el-dropdown-item>
                     <el-dropdown-item :icon="CreditCard" @click="handleViewPayments(row)">支付记录</el-dropdown-item>
                     <el-dropdown-item :icon="Key" @click="handleResetPassword(row)">重置密码</el-dropdown-item>
@@ -1009,8 +1016,8 @@ onMounted(async () => {
                     >
                       {{ row.embyAccessDisabled ? '恢复 Emby 访问' : '禁用 Emby 访问' }}
                     </el-dropdown-item>
-                    <el-dropdown-item 
-                      :icon="row.isActive ? Lock : Unlock" 
+                    <el-dropdown-item
+                      :icon="row.isActive ? Lock : Unlock"
                       @click="handleToggle(row)"
                     >
                       {{ row.isActive ? '禁用账号' : '启用账号' }}
@@ -1030,7 +1037,7 @@ onMounted(async () => {
           :total="total"
           :page-sizes="[10, 20, 50, 100]"
           layout="total, sizes, prev, pager, next, jumper"
-          @size-change="fetchData"
+          @size-change="handlePageSizeChange"
           @current-change="fetchData"
           background
         />
@@ -1246,7 +1253,7 @@ onMounted(async () => {
               type="datetime"
               placeholder="选择日期时间"
               :prefix-icon="Calendar"
-              class="w-full !w-full input-ember"
+              class="w-full !w-full input-ember form-date"
             />
           </el-form-item>
         </el-form>
@@ -1324,7 +1331,7 @@ onMounted(async () => {
               type="datetime"
               placeholder="选择日期时间"
               :prefix-icon="Calendar"
-              class="w-full !w-full input-ember"
+              class="w-full !w-full input-ember form-date"
             />
           </el-form-item>
         </el-form>
@@ -1349,15 +1356,3 @@ onMounted(async () => {
     </EmberFormDialog>
   </div>
 </template>
-
-<style scoped>
-:deep(.el-table) {
-  --el-table-header-bg-color: #f9fafb;
-  --el-table-row-hover-bg-color: #fef2f2; /* Light red hover */
-}
-
-:deep(.el-table__inner-wrapper::before) {
-  display: none; /* Remove bottom border */
-}
-
-</style>

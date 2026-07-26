@@ -26,75 +26,24 @@ defineEmits<{
   (e: 'toggle-sidebar'): void
 }>()
 
-const routeMeta: Record<string, { title: string; description: string }> = {
-  'console-dashboard': {
-    title: '概览',
-    description: '查看会员状态、最近入库摘要、Emby 入口和媒体统计'
-  },
-  'console-account': {
-    title: '账号中心',
-    description: '集中管理资料、安全设置与绑定状态'
-  },
-  'console-profile-analytics': {
-    title: '我的画像',
-    description: '查看自己的活跃时段、设备偏好与画像标签'
-  },
-  'console-subscriptions': {
-    title: '订阅管理',
-    description: '维护求片请求与订阅记录'
-  },
-  'console-subscriptions-new': {
-    title: '新建订阅',
-    description: '提交新的影片或剧集订阅需求'
-  },
-  'console-rankings': {
-    title: '播放排行榜',
-    description: '查看近期热门内容与排行快照'
-  },
-  'console-tv-calendar': {
-    title: '追剧日历',
-    description: '管理追更节奏与播出提醒'
-  },
-  'console-renewal': {
-    title: '续费中心',
-    description: '购买方案或兑换续期码'
-  },
-  'console-users': {
-    title: '用户管理',
-    description: '维护用户账号与状态'
-  },
-  'console-user-profile': {
-    title: '用户画像',
-    description: '查看指定用户的播放摘要与活跃分布'
-  },
-  'console-playback': {
-    title: '播放分析',
-    description: '在用户画像与播放历史两种视角间切换'
-  },
-  'console-redemptions': {
-    title: '兑换中心',
-    description: '统一管理兑换码池和兑换记录'
-  },
-  'console-settings': {
-    title: '系统设置',
-    description: '管理系统配置与运行参数'
-  },
-  'console-sessions': {
-    title: '活跃会话',
-    description: '查看在线设备与登录会话'
-  },
-  'console-media-quality': {
-    title: '媒体质量',
-    description: '盘点片库质量和转码信息'
-  },
-  'console-devices': {
-    title: '设备管理',
-    description: '查看设备状态与管控记录'
-  },
-  'console-billing': {
-    title: '支付中心',
-    description: '统一管理付费方案和支付记录'
-  }
+const routeMeta: Record<string, { title: string }> = {
+  'console-dashboard': { title: '概览' },
+  'console-account': { title: '账号中心' },
+  'console-profile-analytics': { title: '我的画像' },
+  'console-subscriptions': { title: '订阅管理' },
+  'console-subscriptions-new': { title: '新建订阅' },
+  'console-rankings': { title: '播放排行榜' },
+  'console-tv-calendar': { title: '追剧日历' },
+  'console-renewal': { title: '续费中心' },
+  'console-users': { title: '用户管理' },
+  'console-user-profile': { title: '用户画像' },
+  'console-playback': { title: '播放分析' },
+  'console-redemptions': { title: '兑换中心' },
+  'console-settings': { title: '系统设置' },
+  'console-sessions': { title: '活跃会话' },
+  'console-media-quality': { title: '媒体质量' },
+  'console-devices': { title: '设备管理' },
+  'console-billing': { title: '支付中心' }
 }
 
 const currentMeta = computed(() => {
@@ -102,20 +51,11 @@ const currentMeta = computed(() => {
   if (name === 'console-playback') {
     const tab = route.query.tab
     if (tab === 'history') {
-      return {
-        title: '播放分析 · 播放历史',
-        description: '审计近期播放记录'
-      }
+      return { title: '播放分析 · 播放历史' }
     }
-    return {
-      title: '播放分析 · 用户画像',
-      description: '按用户维度查看播放活跃度与画像摘要'
-    }
+    return { title: '播放分析 · 用户画像' }
   }
-  return routeMeta[name] ?? {
-    title: '控制台',
-    description: '统一查看账号与业务信息'
-  }
+  return routeMeta[name] ?? { title: '控制台' }
 })
 
 const profile = computed(() => userStore.profile)
@@ -154,7 +94,6 @@ const handleLogout = async () => {
 
       <div class="min-w-0">
         <p class="truncate text-lg font-semibold text-gray-900">{{ currentMeta.title }}</p>
-        <p class="hidden truncate text-sm text-gray-500 md:block">{{ currentMeta.description }}</p>
       </div>
     </div>
 
@@ -168,6 +107,8 @@ const handleLogout = async () => {
           <span class="hidden min-w-0 max-w-[9rem] items-center gap-2 sm:inline-flex">
             <span class="truncate text-sm font-semibold text-gray-900">{{ displayName }}</span>
             <span
+              role="img"
+              :aria-label="membershipLabel"
               class="h-2 w-2 shrink-0 rounded-full"
               :class="isExpired ? 'bg-red-500' : 'bg-emerald-500'"
             ></span>

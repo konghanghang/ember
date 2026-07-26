@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Lock, Message, Ticket, User } from '@element-plus/icons-vue'
+import { Lock, Message, Ticket, User, ArrowLeft } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import { getRegistrationMode, sendEmailCode, validateRegistrationCode } from '@/api/auth'
 
@@ -197,47 +197,88 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-cinema-bg px-4">
-    <div class="w-full max-w-md">
-      <div class="panel-clean rounded-2xl p-8">
-        <div class="text-center mb-8">
-          <h1 class="text-3xl font-bold text-ember">Ember</h1>
-          <p class="text-text-secondary mt-2">用户注册</p>
+  <div class="min-h-screen flex items-center justify-center bg-cinema-bg p-4 relative overflow-hidden">
+    <div class="absolute -top-[30%] -right-[10%] w-[70%] h-[70%] bg-ember/5 opacity-60 blur-[100px] rounded-full pointer-events-none"></div>
+    <div class="absolute bottom-[10%] -left-[10%] w-[40%] h-[40%] bg-gray-50 opacity-60 blur-[80px] rounded-full pointer-events-none"></div>
+
+    <div class="w-full max-w-md relative z-10 animate-fade-in">
+      <router-link to="/" class="inline-flex items-center text-text-secondary hover:text-ember mb-8 transition-colors text-sm group">
+        <el-icon class="mr-1 transition-transform group-hover:-translate-x-1"><ArrowLeft /></el-icon>
+        返回首页
+      </router-link>
+
+      <div class="panel-clean rounded-2xl p-8 md:p-10" v-loading="loadingMode">
+        <div class="text-center mb-10">
+          <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-ember/10 text-ember mb-4">
+            <el-icon class="text-2xl"><User /></el-icon>
+          </div>
+          <h1 class="text-2xl font-bold text-text-primary tracking-tight mb-2">用户注册</h1>
+          <p class="text-text-secondary text-sm">创建您的 Ember 账号</p>
         </div>
 
-        <el-form :model="form" @submit.prevent="handleRegister" size="large" label-position="top" v-loading="loadingMode">
-          <el-form-item v-if="codeRequired" label="兑换码" required>
-            <div class="flex gap-2 w-full">
-              <el-input
-                v-model="form.code"
-                placeholder="请输入兑换码"
-                class="input-ember"
-                :prefix-icon="Ticket"
-                @input="resetCodeValidationState"
-              />
-              <el-button :loading="codeValidating" @click="handleValidateCode">预验证</el-button>
-            </div>
-          </el-form-item>
-
-          <el-form-item label="用户名" required>
-            <el-input v-model="form.username" placeholder="3-50位字母或数字" class="input-ember" :prefix-icon="User" />
-          </el-form-item>
-
-          <el-form-item label="密码" required>
-            <el-input
-              v-model="form.password"
-              type="password"
-              placeholder="至少6位"
-              show-password
-              class="input-ember"
-              :prefix-icon="Lock"
-            />
-          </el-form-item>
-
-          <el-form-item label="邮箱" required>
-            <div class="w-full flex flex-col gap-1.5">
-              <div v-if="emailVerification" class="flex gap-2 w-full">
+        <el-form :model="form" @submit.prevent="handleRegister" size="large" class="space-y-6">
+          <div class="space-y-4">
+            <div v-if="codeRequired" class="space-y-1">
+              <label class="text-xs font-semibold text-text-secondary uppercase tracking-wider ml-1">兑换码</label>
+              <div class="flex gap-2 w-full">
                 <el-input
+                  v-model="form.code"
+                  placeholder="请输入兑换码"
+                  class="input-ember"
+                  :prefix-icon="Ticket"
+                  @input="resetCodeValidationState"
+                />
+                <el-button
+                  type="button"
+                  :loading="codeValidating"
+                  class="!h-[42px] !rounded-xl shrink-0"
+                  @click="handleValidateCode"
+                >预验证</el-button>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-xs font-semibold text-text-secondary uppercase tracking-wider ml-1">用户名</label>
+              <el-input v-model="form.username" placeholder="3-50位字母或数字" class="input-ember" :prefix-icon="User" />
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-xs font-semibold text-text-secondary uppercase tracking-wider ml-1">密码</label>
+              <el-input
+                v-model="form.password"
+                type="password"
+                placeholder="至少6位"
+                show-password
+                class="input-ember"
+                :prefix-icon="Lock"
+              />
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-xs font-semibold text-text-secondary uppercase tracking-wider ml-1">邮箱</label>
+              <div class="w-full flex flex-col gap-1.5">
+                <div v-if="emailVerification" class="flex gap-2 w-full">
+                  <el-input
+                    v-model="form.email"
+                    type="email"
+                    placeholder="请输入邮箱"
+                    class="input-ember"
+                    :prefix-icon="Message"
+                    @blur="handleEmailBlur"
+                    @input="handleEmailInput"
+                  />
+                  <el-button
+                    type="button"
+                    :loading="sendingCode"
+                    :disabled="emailCodeCountdown > 0"
+                    class="!h-[42px] !rounded-xl shrink-0"
+                    @click="handleSendCode"
+                  >
+                    {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '发送验证码' }}
+                  </el-button>
+                </div>
+                <el-input
+                  v-else
                   v-model="form.email"
                   type="email"
                   placeholder="请输入邮箱"
@@ -246,47 +287,42 @@ onBeforeUnmount(() => {
                   @blur="handleEmailBlur"
                   @input="handleEmailInput"
                 />
-                <el-button
-                  native-type="button"
-                  :loading="sendingCode"
-                  :disabled="emailCodeCountdown > 0"
-                  @click="handleSendCode"
-                >
-                  {{ emailCodeCountdown > 0 ? `${emailCodeCountdown}s` : '发送验证码' }}
-                </el-button>
+                <p v-if="emailDomainError" class="text-xs text-red-600 leading-5">
+                  {{ emailDomainError }}
+                </p>
+                <p v-else-if="hasDomainAllowlist" class="text-xs text-gray-500 leading-5">
+                  {{ allowedDomainsHint }}
+                </p>
               </div>
-              <el-input
-                v-else
-                v-model="form.email"
-                type="email"
-                placeholder="请输入邮箱"
-                class="input-ember"
-                :prefix-icon="Message"
-                @blur="handleEmailBlur"
-                @input="handleEmailInput"
-              />
-              <p v-if="emailDomainError" class="text-xs text-red-600 leading-5">
-                {{ emailDomainError }}
-              </p>
-              <p v-else-if="hasDomainAllowlist" class="text-xs text-gray-500 leading-5">
-                {{ allowedDomainsHint }}
-              </p>
             </div>
-          </el-form-item>
 
-          <el-form-item v-if="emailVerification" label="邮箱验证码" required>
-            <el-input v-model="form.emailCode" placeholder="请输入 6 位验证码" maxlength="6" class="input-ember" />
-          </el-form-item>
+            <div v-if="emailVerification" class="space-y-1">
+              <label class="text-xs font-semibold text-text-secondary uppercase tracking-wider ml-1">邮箱验证码</label>
+              <el-input v-model="form.emailCode" placeholder="请输入 6 位验证码" maxlength="6" class="input-ember" />
+            </div>
+          </div>
 
-          <el-form-item class="mt-6">
-            <el-button native-type="submit" :loading="loading" class="btn-ember w-full">注册</el-button>
-          </el-form-item>
+          <el-button
+            native-type="submit"
+            :loading="loading"
+            class="btn-ember w-full !h-12 !text-base !rounded-xl !font-semibold mt-2 shadow-lg"
+          >
+            注册
+          </el-button>
         </el-form>
 
-        <div class="mt-6 text-center">
-          <router-link to="/" class="text-sm text-text-secondary hover:text-ember transition-colors">← 返回首页</router-link>
+        <div class="mt-8 pt-6 border-t border-gray-100">
+          <div class="flex items-center justify-center gap-6 text-sm">
+            <router-link to="/login" class="text-text-secondary hover:text-ember transition-colors font-medium">
+              已有账号？立即登录
+            </router-link>
+          </div>
         </div>
       </div>
+
+      <p class="text-center text-text-muted text-xs mt-8">
+        &copy; 2026 Ember Project
+      </p>
     </div>
   </div>
 </template>

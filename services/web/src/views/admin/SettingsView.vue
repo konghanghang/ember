@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, Key, Monitor, QuestionFilled, Setting } from '@element-plus/icons-vue'
 import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import {
   deleteExternalApiKey,
@@ -14,6 +16,7 @@ import {
   updateConfig
 } from '@/api/admin'
 import type { AdminConfigItem } from '@/types/api'
+import { copyToClipboard as copyTextToClipboard } from '@/utils/clipboard'
 import {
   buildConfigUpdatePayload,
   buildDraftValues,
@@ -201,8 +204,10 @@ const handleTestGroup = async (group: ConfigGroupSection) => {
 const handleRunCron = async () => {
   runningCron.value = true
   try {
-    const res = await runCronJob()
-    ElMessage.success((res as unknown as { message?: string }).message || '任务执行成功')
+    // 后端 /admin/cron/check-expired 不返回 message 字段（见 services/api handlers/system.go CheckExpiredUsers），
+    // 成功时固定展示该文案。
+    await runCronJob()
+    ElMessage.success('任务执行成功')
   } finally {
     runningCron.value = false
   }
@@ -211,10 +216,10 @@ const handleRunCron = async () => {
 const copyApiKey = async () => {
   if (!generatedApiKey.value) return
 
-  try {
-    await navigator.clipboard.writeText(generatedApiKey.value)
+  const ok = await copyTextToClipboard(generatedApiKey.value)
+  if (ok) {
     ElMessage.success('复制成功')
-  } catch {
+  } else {
     ElMessage.error('复制失败')
   }
 }
@@ -398,7 +403,8 @@ const itemTooltipSections = (item: AdminConfigItem) => {
 const compactReadOnlySummary = (item: AdminConfigItem) =>
   item.restartRequired ? '仅展示当前状态' : '后台不可编辑'
 
-const setGroupTabRef = (groupKey: ConfigGroupKey, element: Element | null) => {
+// 模板 ref 回调拿到的可能是元素或组件实例；只保留真实按钮元素，其余置空。
+const setGroupTabRef = (groupKey: ConfigGroupKey, element: Element | ComponentPublicInstance | null) => {
   groupTabRefs.value[groupKey] = element instanceof HTMLButtonElement ? element : null
 }
 
@@ -466,22 +472,18 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-5 animate-fade-in" v-loading="loading">
-    <EmberPageHeaderCard title="设置中心" description="统一管理运行期配置、配置来源和部署边界状态，优先突出当前状态和可执行操作。">
+    <EmberPageHeaderCard title="设置中心">
       <template #titleSuffix>
         <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-600">
           {{ groupSections.length }} 个分组
         </span>
       </template>
 
-      <div class="mt-2">
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Settings Center</p>
-      </div>
-
       <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <EmberMetricCard title="已配置" :value="configuredCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
-        <EmberMetricCard title="缺失" :value="missingCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
-        <EmberMetricCard title="敏感项" :value="sensitiveCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
-        <EmberMetricCard title="需重启" :value="restartCount" value-class="mt-1 text-lg font-semibold text-gray-900" />
+        <EmberMetricCard title="已配置" :value="configuredCount" />
+        <EmberMetricCard title="缺失" :value="missingCount" />
+        <EmberMetricCard title="敏感项" :value="sensitiveCount" />
+        <EmberMetricCard title="需重启" :value="restartCount" />
       </div>
     </EmberPageHeaderCard>
 
@@ -509,7 +511,7 @@ onMounted(async () => {
               class="flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-medium transition"
               :class="
                 activeGroup === group.key
-                  ? 'bg-gray-900 text-white shadow-sm'
+                  ? 'bg-ember/10 text-ember ring-1 ring-ember/20'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
               "
             >
@@ -524,7 +526,7 @@ onMounted(async () => {
                 </span>
                 <span
                   class="rounded-full px-2 py-0.5 text-[11px]"
-                  :class="activeGroup === group.key ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-500'"
+                  :class="activeGroup === group.key ? 'bg-ember/15 text-ember' : 'bg-gray-100 text-gray-500'"
                 >
                   {{ group.items.length }}
                 </span>
@@ -547,10 +549,6 @@ onMounted(async () => {
           >
             {{ runningCron ? '执行中...' : '立即执行过期检查' }}
           </button>
-
-          <p class="mt-2.5 text-xs leading-5 text-gray-400">
-            这里只保留当前系统真正需要的维护动作；配置修改以设置中心保存结果为准。
-          </p>
         </div>
       </aside>
 
@@ -560,7 +558,7 @@ onMounted(async () => {
           :id="`settings-panel-${activeGroupSection.key}`"
           :aria-labelledby="`settings-tab-${activeGroupSection.key}`"
           role="tabpanel"
-          class="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm md:p-5"
+          class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm md:p-5"
         >
           <div class="flex flex-col gap-3 border-b border-gray-100 pb-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -677,7 +675,6 @@ onMounted(async () => {
               :key="item.key"
               class="px-4 py-4 lg:px-5"
               :class="[
-                !item.hasValue && item.missingValueLevel === 'critical' ? 'bg-red-50/30' : '',
                 item.error ? 'bg-red-50/20' : '',
                 activeGroupSection.items[activeGroupSection.items.length - 1]?.key !== item.key ? 'border-b border-gray-100' : ''
               ]"
@@ -793,36 +790,31 @@ onMounted(async () => {
 
                   <div
                     v-else-if="item.editable && item.type === 'boolean'"
-                    class="rounded-xl border border-ember/20 bg-ember/5 p-2.5"
+                    class="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5"
                   >
-                    <div class="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5">
-                      <el-switch
-                        v-model="draftValues[item.key]"
-                        inline-prompt
-                        active-text="开"
-                        inactive-text="关"
-                      />
-                    </div>
+                    <span class="text-sm font-medium text-gray-700">{{ draftValues[item.key] ? '已开启' : '未开启' }}</span>
+                    <el-switch
+                      v-model="draftValues[item.key]"
+                      inline-prompt
+                      active-text="开"
+                      inactive-text="关"
+                    />
                   </div>
 
-                  <div
+                  <el-checkbox-group
                     v-else-if="item.editable && item.type === 'json_list'"
-                    class="rounded-xl border border-gray-100 bg-white p-2.5"
+                    v-model="draftValues[item.key]"
+                    class="flex flex-wrap gap-2"
                   >
-                    <el-checkbox-group
-                      v-model="draftValues[item.key]"
-                      class="flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2.5"
+                    <el-checkbox
+                      v-for="option in item.options || []"
+                      :key="option.value"
+                      :label="option.value"
+                      class="!mr-0 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2"
                     >
-                      <el-checkbox
-                        v-for="option in item.options || []"
-                        :key="option.value"
-                        :label="option.value"
-                        class="!mr-0 rounded-xl border border-gray-200 bg-white px-3 py-2"
-                      >
-                        {{ option.label }}
+                      {{ option.label }}
                       </el-checkbox>
                     </el-checkbox-group>
-                  </div>
 
                   <el-input-number
                     v-else-if="item.editable && item.type === 'integer'"
@@ -874,14 +866,14 @@ onMounted(async () => {
       </main>
     </div>
 
-    <el-dialog
+    <EmberFormDialog
       v-model="apiKeyDialogVisible"
       title="Admin API Key"
-      width="560px"
+      width="520px"
       :destroy-on-close="true"
       @closed="handleApiKeyDialogClosed"
     >
-      <div class="space-y-3">
+      <div class="space-y-3 p-6 pt-2">
         <p class="text-sm leading-6 text-gray-600">
           这是唯一一次明文展示，关闭后无法再次查看。
         </p>
@@ -891,7 +883,7 @@ onMounted(async () => {
       </div>
 
       <template #footer>
-        <div class="flex justify-end gap-2">
+        <div class="flex justify-end gap-2 px-6 pb-6 pt-0">
           <button
             type="button"
             @click="copyApiKey"
@@ -909,24 +901,6 @@ onMounted(async () => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </EmberFormDialog>
   </div>
 </template>
-
-<style scoped>
-.animate-fade-in {
-  animation: fadeIn 0.35s ease-out forwards;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-</style>

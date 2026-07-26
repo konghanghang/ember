@@ -309,7 +309,8 @@ describe('RankingsView 媒体库 allowlist', () => {
     await resetButton!.trigger('click')
     await flushPromises()
 
-    expect(ElMessage.error).toHaveBeenCalledWith('保存排行榜媒体库配置失败')
+    // 共享决策：catch 内的 ElMessage.error 已删除（错误文案由 request 拦截器统一弹出），
+    // 这里只验证本地状态被回滚到原有选择。
     expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
     expect(wrapper.find('[data-test="library-checkbox-lib_movie"]').element).toHaveProperty('checked', true)
   })

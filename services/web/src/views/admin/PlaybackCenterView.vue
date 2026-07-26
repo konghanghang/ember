@@ -25,7 +25,13 @@ const activeComponent = computed(() => (
   activeTab.value === 'history' ? PlaybackHistoryView : UserPlaybackProfilesView
 ))
 
-const setTab = async (tab: PlaybackTab) => {
+// EmberSegmentTabs 的 change 事件按 string 发出；这里收窄回已知 tab 集合，非法值直接忽略。
+const isPlaybackTab = (value: string): value is PlaybackTab => {
+  return tabs.some((tab) => tab.key === value)
+}
+
+const setTab = async (tab: string) => {
+  if (!isPlaybackTab(tab)) return
   if (tab === activeTab.value) return
   await router.replace({
     query: {
@@ -57,7 +63,7 @@ watch(
         <EmberSegmentTabs
           :model-value="activeTab"
           :tabs="tabs"
-          aria-label="播放分析分段切换"
+          ariaLabel="播放分析分段切换"
           @change="setTab"
         />
       </template>

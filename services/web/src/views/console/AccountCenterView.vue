@@ -14,6 +14,9 @@ import {
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import { formatDateTime } from '@/utils/date'
+import { isConflictError } from '@/utils/api-error'
+import { copyToClipboard as copyTextToClipboard } from '@/utils/clipboard'
+import { resolveAccountPolicySyncPresentation } from '@/utils/policy-sync'
 import { formatMediaLibrarySummary } from '@/utils/media-library'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
@@ -46,7 +49,6 @@ const emptyUser: UserInfo = {
 }
 
 const user = computed(() => userStore.profile ?? emptyUser)
-const loading = ref(false)
 const emailInput = ref('')
 const telegramBindCode = ref<TelegramBindCodeResponse | null>(null)
 const generatingBindCode = ref(false)
@@ -162,13 +164,10 @@ const embySummary = computed(() => {
   return '待开通'
 })
 
-/** 判断媒体库偏好保存是否撞上后端同步闸门，用于 409 专门提示。 */
-const isConflictError = (error: unknown) => {
-  return typeof error === 'object'
-    && error !== null
-    && 'response' in error
-    && (error as { response?: { status?: number } }).response?.status === 409
-}
+/** 媒体库同步状态标签的单一事实源；终端用户视角下 partial_failed 折叠为已同步。 */
+const mediaLibrarySyncPresentation = computed(() => {
+  return resolveAccountPolicySyncPresentation(mediaLibrarySettings.value?.policySyncStatus)
+})
 
 /** 用服务端返回的设置重置本地勾选状态，保证保存前后都以 API 契约为准。 */
 const applyMediaLibrarySettings = (settings: UserMediaLibrarySettings) => {
@@ -406,6 +405,11 @@ const handleCancelEmailChange = () => {
 }
 
 const handleUpdatePassword = async () => {
+  // 显式拒绝空密码：避免两次空串绕过不一致校验后误把"未修改密码"发到后端。
+  if (!passwordForm.value.oldPassword || !passwordForm.value.newPassword) {
+    ElMessage.warning('请填写完整的密码信息')
+    return
+  }
   if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
     ElMessage.warning('两次输入密码不一致')
     return
@@ -542,11 +546,12 @@ const handleUnbindEmby = async () => {
   }
 }
 
+/** 复制结果提示归视图层，与全站既有口径一致。 */
 const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text)
+  const ok = await copyTextToClipboard(text)
+  if (ok) {
     ElMessage.success('复制成功')
-  } catch {
+  } else {
     ElMessage.error('复制失败')
   }
 }
@@ -579,7 +584,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6" v-loading="loading">
+  <div class="space-y-6">
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
       <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="flex items-center gap-3">
@@ -593,19 +598,19 @@ onMounted(() => {
 
         <div class="mt-6 grid gap-5 md:grid-cols-2">
           <div class="space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">用户名</p>
+            <p class="text-xs font-semibold text-gray-500">用户名</p>
             <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               {{ user.username || '-' }}
             </div>
           </div>
           <div class="space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">有效期</p>
+            <p class="text-xs font-semibold text-gray-500">有效期</p>
             <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               {{ user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效' }}
             </div>
           </div>
           <div class="space-y-2 md:col-span-2">
-            <label for="account-email" class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">联系邮箱</label>
+            <label for="account-email" class="text-xs font-semibold text-gray-500">联系邮箱</label>
             <div class="flex flex-col gap-3 sm:flex-row">
               <el-input
                 id="account-email"
@@ -634,7 +639,7 @@ onMounted(() => {
             <p class="text-xs text-gray-500">用于找回密码和接收系统通知。</p>
           </div>
           <div class="space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">创建时间</p>
+            <p class="text-xs font-semibold text-gray-500">创建时间</p>
             <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
               {{ formatDateTime(user.createdAt, 'short') }}
             </div>
@@ -654,7 +659,7 @@ onMounted(() => {
 
         <div class="mt-6 space-y-4">
           <div class="space-y-1">
-            <label for="current-password" class="ml-1 text-xs font-semibold uppercase tracking-wider text-gray-400">当前密码</label>
+            <label for="current-password" class="ml-1 text-xs font-semibold text-gray-500">当前密码</label>
             <el-input
               id="current-password"
               v-model="passwordForm.oldPassword"
@@ -666,7 +671,7 @@ onMounted(() => {
             />
           </div>
           <div class="space-y-1">
-            <label for="new-password" class="ml-1 text-xs font-semibold uppercase tracking-wider text-gray-400">新密码</label>
+            <label for="new-password" class="ml-1 text-xs font-semibold text-gray-500">新密码</label>
             <el-input
               id="new-password"
               v-model="passwordForm.newPassword"
@@ -678,7 +683,7 @@ onMounted(() => {
             />
           </div>
           <div class="space-y-1">
-            <label for="confirm-password" class="ml-1 text-xs font-semibold uppercase tracking-wider text-gray-400">确认新密码</label>
+            <label for="confirm-password" class="ml-1 text-xs font-semibold text-gray-500">确认新密码</label>
             <el-input
               id="confirm-password"
               v-model="passwordForm.confirmPassword"
@@ -718,7 +723,6 @@ onMounted(() => {
               </div>
               <div>
                 <h3 class="text-sm font-semibold text-gray-900">Emby 账号</h3>
-                <p class="mt-1 text-xs text-gray-500">{{ embySummary }}</p>
               </div>
             </div>
             <span
@@ -775,7 +779,6 @@ onMounted(() => {
               </div>
               <div>
                 <h3 class="text-sm font-semibold text-gray-900">Telegram Bot</h3>
-                <p class="mt-1 text-xs text-gray-500">查询账号、续期和常用指令</p>
               </div>
             </div>
             <span
@@ -823,7 +826,7 @@ onMounted(() => {
 
             <div v-else class="rounded-2xl border border-gray-200 bg-white p-4">
               <button
-                class="rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-700 cursor-pointer disabled:opacity-60"
+                class="btn-ember rounded-xl px-5 py-3 text-sm font-semibold cursor-pointer disabled:opacity-60"
                 :disabled="generatingBindCode"
                 @click="handleGenerateBindCode"
               >
@@ -850,22 +853,8 @@ onMounted(() => {
         </div>
 
         <div v-if="mediaLibrarySettings" class="flex flex-wrap items-center gap-2">
-          <el-tag
-            v-if="mediaLibrarySyncing"
-            type="warning"
-            effect="light"
-            round
-          >
-            同步中
-          </el-tag>
-          <el-tag v-else-if="mediaLibraryOutOfSync" type="warning" effect="light" round>
-            待同步
-          </el-tag>
-          <el-tag v-else-if="mediaLibrarySettings.policySyncStatus === 'failed'" type="danger" effect="light" round>
-            同步失败
-          </el-tag>
-          <el-tag v-else type="success" effect="light" round>
-            已同步
+          <el-tag :type="mediaLibrarySyncPresentation.tagType" effect="light" round>
+            {{ mediaLibrarySyncPresentation.label }}
           </el-tag>
           <el-tag type="info" effect="light" round>
             {{ mediaLibrarySettings.enabledCount }} / {{ mediaLibrarySettings.templateCount }}
@@ -926,7 +915,7 @@ onMounted(() => {
                 :model-value="selectedMediaLibraryIdSet.has(library.id)"
                 :disabled="!library.inGroupTemplate || mediaLibrarySyncing"
                 size="large"
-                @update:model-value="value => setMediaLibrarySelection(library.id, value)"
+                @update:model-value="(value: string | number | boolean) => setMediaLibrarySelection(library.id, value)"
               />
               <span class="min-w-0">
                 <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
@@ -976,7 +965,7 @@ onMounted(() => {
 
         <div class="space-y-2">
           <div class="flex items-center justify-between">
-            <label for="email-verify-code" class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">验证码</label>
+            <label for="email-verify-code" class="text-xs font-semibold text-gray-500">验证码</label>
             <button
               type="button"
               class="text-xs font-semibold text-ember transition-colors hover:text-ember/80 disabled:cursor-not-allowed disabled:text-gray-400 cursor-pointer"
@@ -1022,7 +1011,7 @@ onMounted(() => {
     >
       <div class="px-6 pb-2 pt-2 space-y-5">
         <div class="space-y-2">
-          <label for="emby-user-search" class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">搜索 Emby 用户</label>
+          <label for="emby-user-search" class="text-xs font-semibold text-gray-500">搜索 Emby 用户</label>
           <div class="flex flex-col gap-3 sm:flex-row">
             <el-input
               id="emby-user-search"

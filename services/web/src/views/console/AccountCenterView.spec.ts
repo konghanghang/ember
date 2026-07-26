@@ -1,5 +1,6 @@
 import { defineComponent, h, reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import type { VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AccountCenterView from './AccountCenterView.vue'
@@ -8,9 +9,9 @@ import {
   getUserMediaLibraries,
   resetUserMediaLibraryPreferences,
   sendEmailChangeCode,
-  updateUserMediaLibraries
+  updateUserMediaLibraries,
+  updatePassword
 } from '@/api/console'
-import { getRegistrationMode } from '@/api/auth'
 import { bindAdminEmbyAccount, getAdminEmbyUsers } from '@/api/admin'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -188,6 +189,20 @@ const EmberFormDialogStub = defineComponent({
     }
   },
 })
+
+// 视图在测试中被直接驱动的 setup 内部成员（ref 已解包）。
+type AccountCenterSetupState = {
+  selectedMediaLibraryIds: string[]
+}
+
+/**
+ * 读取组件 setup 内部状态。
+ * Vue 3.5 起 setupState 不再出现在公开的 ComponentInternalInstance 类型上（运行时仍存在），
+ * 测试需要直接驱动组件内部状态，这里以结构化类型收窄出实际用到的成员。
+ */
+function setupStateOf(wrapper: VueWrapper): AccountCenterSetupState {
+  return (wrapper.vm.$ as unknown as { setupState: AccountCenterSetupState }).setupState
+}
 
 function mountView() {
   return mount(AccountCenterView, {
@@ -656,7 +671,7 @@ describe('AccountCenterView 媒体库偏好', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.vm.$.setupState.selectedMediaLibraryIds = []
+    setupStateOf(wrapper).selectedMediaLibraryIds = []
     await flushPromises()
 
     const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
@@ -682,7 +697,7 @@ describe('AccountCenterView 媒体库偏好', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    wrapper.vm.$.setupState.selectedMediaLibraryIds = []
+    setupStateOf(wrapper).selectedMediaLibraryIds = []
     await flushPromises()
 
     const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
@@ -875,5 +890,37 @@ describe('AccountCenterView 管理员 Emby 绑定', () => {
     expect(bindAdminEmbyAccount).toHaveBeenCalledWith({ embyId: 'emby_free' })
     expect(fetchProfileMock).toHaveBeenCalledTimes(1)
     expect(ElMessage.success).toHaveBeenCalledWith('Emby 账号已关联')
+  })
+})
+
+describe('AccountCenterView 密码修改', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchProfileMock.mockResolvedValue(undefined)
+    userStoreState.profile = {
+      id: 'u1',
+      username: 'demo',
+      role: 'user',
+      email: 'old@example.com',
+      embyId: 'emby_1',
+      embyDisabled: false,
+      isActive: true,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    authStoreState.isAdmin = false
+  })
+
+  it('两次空串密码不再绕过校验，明确拒绝并提示', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    // passwordForm 默认三字段均为空串，过去两次空串相等会绕过不一致校验
+    const updateButton = wrapper.findAll('button').find(item => item.text().includes('更新密码'))
+    expect(updateButton, '未找到更新密码按钮').toBeTruthy()
+    await updateButton!.trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('请填写完整的密码信息')
+    expect(updatePassword).not.toHaveBeenCalled()
   })
 })

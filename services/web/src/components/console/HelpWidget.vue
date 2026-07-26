@@ -112,10 +112,7 @@ onBeforeUnmount(() => {
         class="mb-3 w-[min(22rem,calc(100vw-2rem))] rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-900/10 sm:mb-4 sm:mr-3"
       >
         <div class="flex items-start justify-between gap-4">
-          <div>
-            <h2 class="text-base font-semibold text-slate-900">帮助与资源</h2>
-            <p class="mt-1 text-sm leading-6 text-slate-500">先看公告，再进群沟通，最后查文档。</p>
-          </div>
+          <h2 class="text-base font-semibold text-slate-900">帮助与资源</h2>
           <button
             aria-label="关闭帮助面板"
             class="flex h-9 w-9 items-center justify-center rounded-2xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
@@ -155,8 +152,7 @@ onBeforeUnmount(() => {
               <p class="mt-1 text-xs leading-5 text-slate-600">{{ primaryLink.description }}</p>
             </div>
           </div>
-          <div class="mt-4 flex items-center justify-between border-t border-current/10 pt-3">
-            <span class="text-xs font-medium text-slate-500">优先查看最新状态</span>
+          <div class="mt-4 flex items-center justify-end border-t border-current/10 pt-3">
             <span class="text-sm font-semibold text-ember">
               {{ resourceActionMap[primaryLink.icon] }}
             </span>

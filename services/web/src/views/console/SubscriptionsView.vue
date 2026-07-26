@@ -18,7 +18,8 @@ import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
-import { formatDateTime } from '@/utils/date'
+import { formatCompactDateTime, formatDateTime, formatDottedDate } from '@/utils/date'
+import { formatSubscriptionCandidateSize } from '@/utils/format'
 import { useAuthStore } from '@/store/auth'
 import {
   approveSubscription,
@@ -129,6 +130,13 @@ watch(() => queryParams.value.status, () => {
   fetchData()
 })
 
+// 切换 pageSize 时必须重置到第 1 页，否则可能请求越界空页（P2-9）。
+const handleSizeChange = (size: number) => {
+  queryParams.value.pageSize = size
+  queryParams.value.page = 1
+  fetchData()
+}
+
 const formatSubscriptionTitle = (sub: Subscription) => {
   if (sub.type === 'TV' && sub.season > 0) {
     return `${sub.name} 第 ${sub.season} 季`
@@ -154,7 +162,7 @@ const handleReject = async (sub: Subscription) => {
   if (!canRunAdminAction()) return
 
   try {
-    const { value } = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
+    const result = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
       confirmButtonText: '提交拒绝',
       cancelButtonText: '取消',
       inputPlaceholder: '请填写明确的拒绝原因',
@@ -162,7 +170,9 @@ const handleReject = async (sub: Subscription) => {
       inputErrorMessage: '拒绝原因不能为空',
       type: 'warning'
     })
-    await rejectSubscription(sub.id, value)
+    // MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
+    if (typeof result !== 'object') return
+    await rejectSubscription(sub.id, result.value)
     ElMessage.success('已拒绝')
     fetchData()
   } catch {
@@ -449,21 +459,30 @@ const handleResubmit = async () => {
   } catch (error: any) {
     const responseData = error?.response?.data
     if (responseData?.confirmationRequired) {
-      await requestResubmitExistingConfirmation(responseData.existingSummary)
+      // 库内已存在资源时后端要求二次确认；此分支内的取消/失败不能再逃出到外层，
+      // 否则 finally 之外的调用方会拿到未处理的 rejection（P3 质量项）。
+      try {
+        await requestResubmitExistingConfirmation(responseData.existingSummary)
+      } catch {
+        // 用户取消二次确认或再次提交失败；axios 拦截器已弹后端错误，这里保持安静。
+      }
     }
+    // 其他错误交由 axios 拦截器统一弹错，UI 不再重复提示。
   } finally {
     resubmitting.value = false
   }
 }
 
-const getStatusColor = (status: SubscriptionStatus) => {
+// getStatusDotClass 仅给右上角状态徽章的辅助色点用；状态语义由文字单独承担，
+// 颜色不再作为唯一状态表达（§8.2）。
+const getStatusDotClass = (status: SubscriptionStatus) => {
   switch (status) {
-    case 'PENDING': return 'bg-yellow-500'
-    case 'APPROVED': return 'bg-sky-500'
-    case 'REJECTED': return 'bg-red-500'
-    case 'INGESTED': return 'bg-emerald-500'
-    case 'EXPIRED': return 'bg-gray-400'
-    default: return 'bg-gray-400'
+    case 'PENDING': return 'bg-amber-400'
+    case 'APPROVED': return 'bg-sky-400'
+    case 'REJECTED': return 'bg-red-400'
+    case 'INGESTED': return 'bg-emerald-400'
+    case 'EXPIRED': return 'bg-gray-300'
+    default: return 'bg-gray-300'
   }
 }
 
@@ -485,13 +504,6 @@ const getStatusBadgeText = (status: SubscriptionStatus) => {
   }
 }
 
-const getReviewSourceColor = (source?: SubscriptionReviewSource | null) => {
-  if (source === 'AUTO_QUOTA') {
-    return 'bg-indigo-500/85'
-  }
-  return 'bg-slate-700/70'
-}
-
 const getReviewSourceText = (source?: SubscriptionReviewSource | null) => {
   if (source === 'AUTO_QUOTA') {
     return '自动通过'
@@ -502,41 +514,14 @@ const getReviewSourceText = (source?: SubscriptionReviewSource | null) => {
   return ''
 }
 
-const padNumber = (value: number) => value.toString().padStart(2, '0')
-
-const formatCardDate = (value?: string | null) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return `${date.getFullYear()}.${padNumber(date.getMonth() + 1)}.${padNumber(date.getDate())}`
-}
-
-const formatCompactDateTime = (value?: string | null) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return `${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())} ${padNumber(date.getHours())}:${padNumber(date.getMinutes())}`
-}
-
 const formatTime = (value?: string | null) => {
   return formatDateTime(value, 'short', '')
-}
-
-const formatCandidateSize = (value?: number) => {
-  if (!value || value <= 0) return ''
-  if (value >= 1024 * 1024 * 1024) {
-    return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`
-  }
-  if (value >= 1024 * 1024) {
-    return `${(value / 1024 / 1024).toFixed(1)} MB`
-  }
-  return `${value} B`
 }
 
 const formatCandidateMeta = (candidate: SubscriptionManualCandidate) => {
   return [
     candidate.site,
-    formatCandidateSize(candidate.size),
+    formatSubscriptionCandidateSize(candidate.size),
     candidate.seeders ? `${candidate.seeders} 做种` : '',
     candidate.publishDate
   ].filter(Boolean).join(' · ')
@@ -672,14 +657,14 @@ onMounted(fetchData)
             v-model="queryParams.status"
             :tabs="statusTabs"
             :full-width="false"
-            aria-label="订阅状态筛选"
+            ariaLabel="订阅状态筛选"
           />
 
           <div class="flex flex-wrap items-center gap-3">
             <button
               type="button"
               @click="fetchData"
-              class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              class="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
               aria-label="刷新订阅列表"
               title="刷新列表"
             >
@@ -689,7 +674,7 @@ onMounted(fetchData)
             <button
               type="button"
               @click="router.push('/console/subscriptions/new')"
-              class="btn-ember inline-flex flex-shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+              class="btn-ember inline-flex cursor-pointer flex-shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
             >
               <el-icon><Plus /></el-icon>
               <span>新建订阅</span>
@@ -721,9 +706,9 @@ onMounted(fetchData)
 
             <div class="absolute right-2 top-2">
               <span
-                class="rounded px-2 py-0.5 text-[10px] font-bold text-white shadow-sm backdrop-blur-md"
-                :class="getStatusColor(sub.status)"
+                class="inline-flex items-center gap-1.5 rounded bg-white/15 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm backdrop-blur-md"
               >
+                <span class="h-1.5 w-1.5 rounded-full" :class="getStatusDotClass(sub.status)"></span>
                 {{ getStatusBadgeText(sub.status) }}
               </span>
             </div>
@@ -738,19 +723,13 @@ onMounted(fetchData)
                 {{ formatSubscriptionTitle(sub) }}
               </h3>
               <div class="mt-1 flex items-center gap-2 text-[11px] text-white/70">
-                <span>{{ formatCardDate(sub.createdAt) }}</span>
+                <span>{{ formatDottedDate(sub.createdAt) }}</span>
                 <span v-if="isAdmin && sub.user" class="max-w-[88px] truncate" :title="sub.user.username">
                   {{ sub.user.username }}
                 </span>
               </div>
 
               <div class="mt-2 flex flex-wrap gap-1.5">
-                <span
-                  v-if="sub.status === 'PENDING'"
-                  class="inline-flex items-center rounded-full bg-amber-500/90 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
-                >
-                  待审核
-                </span>
                 <span
                   v-if="sub.reviewedAt"
                   class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-medium text-white/90 backdrop-blur-sm"
@@ -760,20 +739,19 @@ onMounted(fetchData)
                 </span>
                 <span
                   v-if="isAdmin && sub.reviewSource"
-                  class="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
-                  :class="getReviewSourceColor(sub.reviewSource)"
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm"
                 >
                   {{ getReviewSourceText(sub.reviewSource) }}
                 </span>
                 <span
                   v-if="sub.status === 'APPROVED'"
-                  class="inline-flex items-center rounded-full bg-sky-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm"
                 >
                   待入库
                 </span>
                 <span
                   v-if="sub.ingestedAt"
-                  class="inline-flex items-center rounded-full bg-emerald-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm"
                   :title="formatTime(sub.ingestedAt)"
                 >
                   入库 {{ formatCompactDateTime(sub.ingestedAt) }}
@@ -784,7 +762,7 @@ onMounted(fetchData)
                   placement="top"
                   effect="light"
                 >
-                  <span class="inline-flex cursor-help items-center rounded-full bg-red-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm">
+                  <span class="inline-flex cursor-help items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
                     原因
                   </span>
                 </el-tooltip>
@@ -794,13 +772,13 @@ onMounted(fetchData)
                   placement="top"
                   effect="light"
                 >
-                  <span class="inline-flex cursor-help items-center rounded-full bg-amber-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm">
+                  <span class="inline-flex cursor-help items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
                     异常
                   </span>
                 </el-tooltip>
                 <span
                   v-if="sub.season === 0 && sub.status === 'APPROVED' && sub.ingestProgress"
-                  class="inline-flex items-center rounded-full bg-blue-500/85 px-2 py-1 text-[10px] font-semibold text-white shadow-sm"
+                  class="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm"
                   :title="`整剧入库进度 ${sub.ingestProgress}`"
                 >
                   入库 {{ sub.ingestProgress }}
@@ -849,7 +827,7 @@ onMounted(fetchData)
           <button
             type="button"
             @click="hasStatusFilter ? (queryParams.status = '') : router.push('/console/subscriptions/new')"
-            class="rounded-xl border border-gray-300 bg-white px-6 py-2 font-bold text-gray-700 transition-colors hover:bg-gray-50"
+            class="cursor-pointer rounded-xl border border-gray-300 bg-white px-6 py-2 font-bold text-gray-700 transition-colors hover:bg-gray-50"
           >
             {{ hasStatusFilter ? '查看全部' : '去添加' }}
           </button>
@@ -863,8 +841,8 @@ onMounted(fetchData)
         v-model:page-size="queryParams.pageSize"
         :total="total"
         :page-sizes="[20, 40, 80]"
-        layout="total, sizes, prev, pager, next"
-        @size-change="fetchData"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleSizeChange"
         @current-change="fetchData"
         background
       />
@@ -931,7 +909,7 @@ onMounted(fetchData)
               v-for="candidate in manualCandidates"
               :key="candidate.id"
               type="button"
-              class="w-full rounded-xl border bg-white p-3 text-left transition-colors"
+              class="w-full cursor-pointer rounded-xl border bg-white p-3 text-left transition-colors"
               :class="selectedManualCandidateId === candidate.id ? 'border-ember ring-4 ring-ember/10' : 'border-gray-200 hover:border-gray-300'"
               @click="selectedManualCandidateId = candidate.id"
             >
@@ -974,7 +952,7 @@ onMounted(fetchData)
             type="button"
             @click="closeManualDialog"
             :disabled="manualSearching || manualDispatching"
-            class="rounded-lg px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+            class="rounded-xl px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
             取消
           </button>
@@ -982,7 +960,7 @@ onMounted(fetchData)
             type="button"
             @click="handleManualDispatch"
             :disabled="manualSearching || manualDispatching || !canDispatchManual"
-            class="btn-ember inline-flex items-center gap-2 rounded-lg px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+            class="btn-ember inline-flex items-center gap-2 rounded-xl px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
           >
             <span v-if="manualDispatching" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
             <el-icon v-else><Download /></el-icon>
@@ -1013,7 +991,7 @@ onMounted(fetchData)
           <div>
             <h3 class="text-xl font-bold leading-tight text-gray-900">{{ formatSubscriptionTitle(resubmitTarget) }}</h3>
             <p class="mt-1 text-sm text-gray-500">
-              {{ resubmitTarget.type === 'MOVIE' ? '电影' : '剧集' }} · {{ formatCardDate(resubmitTarget.createdAt) }} 提交
+              {{ resubmitTarget.type === 'MOVIE' ? '电影' : '剧集' }} · {{ formatDottedDate(resubmitTarget.createdAt) }} 提交
             </p>
           </div>
 
@@ -1045,7 +1023,7 @@ onMounted(fetchData)
             type="button"
             @click="closeResubmitDialog"
             :disabled="resubmitting"
-            class="rounded-lg px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+            class="rounded-xl px-4 py-2 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
             取消
           </button>
@@ -1053,7 +1031,7 @@ onMounted(fetchData)
             type="button"
             @click="handleResubmit"
             :disabled="resubmitting || !resubmitNote.trim()"
-            class="btn-ember inline-flex items-center gap-2 rounded-lg px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
+            class="btn-ember inline-flex items-center gap-2 rounded-xl px-6 py-2 font-bold shadow-md transition-colors hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70"
           >
             <span v-if="resubmitting" class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
             <el-icon v-else><RefreshRight /></el-icon>

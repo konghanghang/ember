@@ -26,8 +26,11 @@ import {
 } from '@/api/admin'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import { isConflictError } from '@/utils/api-error'
+import { resolveGroupPolicySyncPresentation } from '@/utils/policy-sync'
 import { formatMediaLibrarySummary } from '@/utils/media-library'
 import type {
   CreatePlanGroupRequest,
@@ -40,12 +43,6 @@ import type {
   PlanGroupMediaLibraryUpdateResult,
   UpdatePlanGroupRequest
 } from '@/types/api'
-
-const props = withDefaults(defineProps<{
-  embedded?: boolean
-}>(), {
-  embedded: false
-})
 
 const route = useRoute()
 const loading = ref(false)
@@ -60,6 +57,9 @@ const groups = ref<ManagedPlanGroup[]>([])
 const activeSyncBatch = ref<EmbyPolicySyncBatchDetail | null>(null)
 const syncPollingTimer = ref<number | null>(null)
 const syncTerminalNotified = ref(false)
+const syncPollErrorCount = ref(0)
+// 轮询连续失败上限：瞬时错误不终止轮询，但连续失败超过该值后停止，避免后端长期不可用时静默空转。
+const SYNC_POLL_MAX_ERRORS = 5
 
 const dialogVisible = ref(false)
 const editDialogVisible = ref(false)
@@ -124,38 +124,9 @@ const activeSyncHiddenFailedUserCount = computed(() => {
 /** 判断分组是否允许删除；默认分组是系统兜底分组，不能暴露删除入口。 */
 const canDeletePlanGroup = (group: ManagedPlanGroup) => !group.isDefault
 
-/** 判断请求是否被后端同步闸门拦截，用于把 409 显式转成同步中提示。 */
-const isConflictError = (error: unknown) => {
-  return typeof error === 'object'
-    && error !== null
-    && 'response' in error
-    && (error as { response?: { status?: number } }).response?.status === 409
-}
-
 /** 判断同步批次是否已进入终态，决定短轮询何时停止。 */
 const isTerminalSyncStatus = (status: EmbyPolicySyncStatus) => {
   return status === 'synced' || status === 'partial_failed' || status === 'failed' || status === 'out_of_sync'
-}
-
-/** 把后端同步状态映射为表格标签文案。 */
-const getPolicySyncStatusLabel = (status?: EmbyPolicySyncStatus) => {
-  const labels: Record<EmbyPolicySyncStatus, string> = {
-    pending: '待同步',
-    processing: '同步中',
-    out_of_sync: '待同步',
-    synced: '已同步',
-    partial_failed: '部分失败',
-    failed: '失败'
-  }
-  return status ? labels[status] : '未知'
-}
-
-/** 把后端同步状态映射为 Element Plus 标签语义。 */
-const getPolicySyncStatusType = (status?: EmbyPolicySyncStatus) => {
-  if (status === 'pending' || status === 'processing' || status === 'out_of_sync') return 'warning'
-  if (status === 'partial_failed' || status === 'failed') return 'danger'
-  if (status === 'synced') return 'success'
-  return 'info'
 }
 
 /** 把模板保存后返回的同步批次压缩成管理员可执行的结果反馈。 */
@@ -202,6 +173,7 @@ const loadSyncBatchFromRoute = async () => {
 
   stopSyncBatchPolling()
   syncTerminalNotified.value = true
+  syncPollErrorCount.value = 0
   try {
     const res = await getEmbyPolicySyncBatch(batchId)
     activeSyncBatch.value = res.data
@@ -216,11 +188,15 @@ const loadSyncBatchFromRoute = async () => {
   }
 }
 
-/** 根据 batch id 轮询同步进度，终态后刷新分组摘要。 */
+/** 根据 batch id 轮询同步进度，终态后刷新分组摘要。
+ *  瞬时错误（网络抖动、后端短暂 5xx）只累计错误计数，不终止轮询；
+ *  连续失败超过 SYNC_POLL_MAX_ERRORS 才停止，避免后端长期不可达时空转。
+ */
 const pollSyncBatch = async (batchId: string) => {
   try {
     const res = await getEmbyPolicySyncBatch(batchId)
     activeSyncBatch.value = res.data
+    syncPollErrorCount.value = 0
     if (!isTerminalSyncStatus(res.data.status)) return
 
     stopSyncBatchPolling()
@@ -236,7 +212,11 @@ const pollSyncBatch = async (batchId: string) => {
       ElMessage.error('用户同步失败')
     }
   } catch {
-    stopSyncBatchPolling()
+    syncPollErrorCount.value += 1
+    if (syncPollErrorCount.value >= SYNC_POLL_MAX_ERRORS) {
+      // 连续多次失败视为批次不可达，停止轮询；request 拦截器已负责每次错误提示。
+      stopSyncBatchPolling()
+    }
   }
 }
 
@@ -244,6 +224,7 @@ const pollSyncBatch = async (batchId: string) => {
 const startSyncBatchPolling = (batch: EmbyPolicySyncBatchCreated) => {
   stopSyncBatchPolling()
   syncTerminalNotified.value = false
+  syncPollErrorCount.value = 0
   if (batch.affectedUserCount <= 0) {
     activeSyncBatch.value = null
     return
@@ -528,13 +509,12 @@ onBeforeUnmount(stopSyncBatchPolling)
             @click="fetchData"
             class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
             aria-label="刷新用户分组列表"
-            title="刷新列表"
           >
             <el-icon :size="20"><Refresh /></el-icon>
           </button>
           <button
             @click="dialogVisible = true"
-            class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+            class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer"
           >
             <el-icon><Plus /></el-icon>
             <span>新建分组</span>
@@ -557,21 +537,9 @@ onBeforeUnmount(stopSyncBatchPolling)
         </div>
       </div>
 
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <div class="text-sm font-semibold text-gray-500">媒体库模板</div>
-        <div class="mt-3 text-3xl font-bold text-gray-900">
-          {{ mediaLibraryTemplateCount }}
-        </div>
-        <div class="mt-1 text-sm text-gray-500">已绑定到分组模板的媒体库数量。</div>
-      </div>
+      <EmberMetricCard title="媒体库模板" :value="mediaLibraryTemplateCount" />
 
-      <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-        <div class="text-sm font-semibold text-gray-500">分组引用总量</div>
-        <div class="mt-3 text-3xl font-bold text-gray-900">
-          {{ referenceCount }}
-        </div>
-        <div class="mt-1 text-sm text-gray-500">包含套餐绑定数和显式用户绑定数。</div>
-      </div>
+      <EmberMetricCard title="分组引用总量" :value="referenceCount" />
     </div>
 
     <div
@@ -582,8 +550,8 @@ onBeforeUnmount(stopSyncBatchPolling)
         <div>
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold text-gray-900">Emby Policy 同步</span>
-            <el-tag :type="getPolicySyncStatusType(activeSyncBatch.status)" effect="light" round size="small">
-              {{ getPolicySyncStatusLabel(activeSyncBatch.status) }}
+            <el-tag :type="resolveGroupPolicySyncPresentation(activeSyncBatch.status).tagType" effect="light" round size="small">
+              {{ resolveGroupPolicySyncPresentation(activeSyncBatch.status).label }}
             </el-tag>
           </div>
           <div class="mt-1 text-xs text-gray-500">
@@ -617,6 +585,8 @@ onBeforeUnmount(stopSyncBatchPolling)
             :key="item.userId || item.embyId || item.username || item.error"
             class="grid gap-1 text-xs md:grid-cols-[minmax(8rem,12rem)_1fr] md:gap-3"
           >
+            <!-- users.username 在 schema 上为 NOT NULL（infrastructure/database/00000000_baseline_20260605.sql），
+                 后端 buildEmbyPolicySyncBatchDetail 通过 JOIN users 读取，正常必有值；保留兜底以备异常。 -->
             <span class="min-w-0 truncate font-medium text-gray-800">
               {{ item.username || item.userId || item.embyId || '未知用户' }}
             </span>
@@ -680,8 +650,8 @@ onBeforeUnmount(stopSyncBatchPolling)
 
       <el-table-column label="同步" width="110">
         <template #default="{ row }">
-          <el-tag :type="getPolicySyncStatusType(row.policySyncStatus)" effect="light" round size="small">
-            {{ getPolicySyncStatusLabel(row.policySyncStatus) }}
+          <el-tag :type="resolveGroupPolicySyncPresentation(row.policySyncStatus).tagType" effect="light" round size="small">
+            {{ resolveGroupPolicySyncPresentation(row.policySyncStatus).label }}
           </el-tag>
         </template>
       </el-table-column>
@@ -706,7 +676,6 @@ onBeforeUnmount(stopSyncBatchPolling)
                 @click="openMediaDialog(row)"
                 class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-orange-50 hover:text-orange-600"
                 aria-label="配置媒体库模板"
-                title="媒体库模板"
               >
                 <el-icon :size="18"><FolderOpened /></el-icon>
               </button>
@@ -716,28 +685,29 @@ onBeforeUnmount(stopSyncBatchPolling)
                 @click="openPolicyDialog(row)"
                 class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
                 aria-label="配置 Emby 权益模板"
-                title="Emby 权益模板"
               >
                 <el-icon :size="18"><Setting /></el-icon>
               </button>
             </el-tooltip>
-            <button
-              @click="openEditDialog(row)"
-              class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
-              aria-label="编辑用户分组"
-              title="编辑"
-            >
-              <el-icon :size="18"><EditPen /></el-icon>
-            </button>
-            <button
-              v-if="canDeletePlanGroup(row)"
-              @click="handleDelete(row)"
-              class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
-              aria-label="删除用户分组"
-              title="删除"
-            >
-              <el-icon :size="18"><Delete /></el-icon>
-            </button>
+            <el-tooltip content="编辑" placement="top">
+              <button
+                @click="openEditDialog(row)"
+                class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                aria-label="编辑用户分组"
+              >
+                <el-icon :size="18"><EditPen /></el-icon>
+              </button>
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <button
+                v-if="canDeletePlanGroup(row)"
+                @click="handleDelete(row)"
+                class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                aria-label="删除用户分组"
+              >
+                <el-icon :size="18"><Delete /></el-icon>
+              </button>
+            </el-tooltip>
           </div>
         </template>
       </el-table-column>
@@ -769,7 +739,7 @@ onBeforeUnmount(stopSyncBatchPolling)
             </el-form-item>
 
             <el-form-item label="默认分组">
-              <div class="flex h-10 items-center">
+              <div class="flex h-10 items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3">
                 <el-switch v-model="createForm.isDefault" active-text="是" inactive-text="否" />
               </div>
             </el-form-item>
@@ -791,14 +761,14 @@ onBeforeUnmount(stopSyncBatchPolling)
         <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
           <button
             @click="dialogVisible = false"
-            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
           >
             取消
           </button>
           <button
             @click="handleCreate"
             :disabled="creating"
-            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70 cursor-pointer"
           >
             {{ creating ? '创建中...' : '确认创建' }}
           </button>
@@ -831,7 +801,7 @@ onBeforeUnmount(stopSyncBatchPolling)
             </el-form-item>
 
             <el-form-item label="默认分组">
-              <div class="flex h-10 items-center">
+              <div class="flex h-10 items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3">
                 <el-switch v-model="editForm.isDefault" active-text="是" inactive-text="否" />
               </div>
             </el-form-item>
@@ -853,14 +823,14 @@ onBeforeUnmount(stopSyncBatchPolling)
         <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
           <button
             @click="editDialogVisible = false"
-            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
           >
             取消
           </button>
           <button
             @click="handleUpdate"
             :disabled="updating"
-            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70 cursor-pointer"
           >
             {{ updating ? '保存中...' : '保存修改' }}
           </button>
@@ -871,7 +841,7 @@ onBeforeUnmount(stopSyncBatchPolling)
     <EmberFormDialog
       v-model="mediaDialogVisible"
       title="媒体库模板"
-      width="720px"
+      width="680px"
     >
       <div class="p-6 pt-2">
         <div v-loading="loadingTemplate" class="space-y-4">
@@ -910,21 +880,21 @@ onBeforeUnmount(stopSyncBatchPolling)
         <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
           <button
             @click="mediaDialogVisible = false"
-            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
           >
             取消
           </button>
           <button
             @click="handleSaveMediaLibraries(false)"
             :disabled="savingLibraries || loadingTemplate"
-            class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-70"
+            class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-70 cursor-pointer"
           >
             {{ savingLibraries && savingLibrariesMode === 'deferred' ? '保存中...' : '仅保存模板' }}
           </button>
           <button
             @click="handleSaveMediaLibraries(true)"
             :disabled="savingLibraries || loadingTemplate"
-            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70 cursor-pointer"
           >
             {{ savingLibraries && savingLibrariesMode === 'batch' ? '保存中...' : '保存并同步现有用户' }}
           </button>
@@ -935,7 +905,7 @@ onBeforeUnmount(stopSyncBatchPolling)
     <EmberFormDialog
       v-model="policyDialogVisible"
       title="Emby 权益模板"
-      width="640px"
+      width="680px"
     >
       <div class="p-6 pt-2">
         <el-form v-loading="loadingTemplate" label-position="top" class="space-y-4">
@@ -989,14 +959,14 @@ onBeforeUnmount(stopSyncBatchPolling)
         <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
           <button
             @click="policyDialogVisible = false"
-            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            class="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
           >
             取消
           </button>
           <button
             @click="handleSavePolicyTemplate"
             :disabled="savingPolicy || loadingTemplate"
-            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70 cursor-pointer"
           >
             {{ savingPolicy ? '保存中...' : '保存模板' }}
           </button>

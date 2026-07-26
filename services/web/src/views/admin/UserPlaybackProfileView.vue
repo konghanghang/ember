@@ -104,8 +104,9 @@ const disabledCustomDate = (date: Date) => {
   return Math.abs(date.getTime() - rangeAnchorDate.value.getTime()) > MAX_CUSTOM_RANGE_DAYS * 24 * 60 * 60 * 1000
 }
 
-const handleCustomCalendarChange = (value: Date[]) => {
-  rangeAnchorDate.value = value?.[0] ?? null
+const handleCustomCalendarChange = (value: unknown) => {
+  const first = Array.isArray(value) ? value[0] : null
+  rangeAnchorDate.value = first instanceof Date ? first : null
 }
 
 const fetchProfile = async () => {
@@ -142,7 +143,7 @@ const handleRangeChange = (range: PlaybackProfileRange) => {
   })
 }
 
-const handleCustomRangeChange = (value: [string, string] | null) => {
+const handleCustomRangeChange = (value: [string, string] | [] | null | undefined) => {
   rangeAnchorDate.value = null
   if (!value || value.length !== 2) {
     const fallbackRange: PlaybackProfileRange = 'today'

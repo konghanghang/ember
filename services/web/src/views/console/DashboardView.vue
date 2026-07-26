@@ -3,15 +3,14 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  CircleCloseFilled,
   CopyDocument,
-  Film,
-  Monitor,
-  VideoPlay
+  Monitor
 } from '@element-plus/icons-vue'
 import RecentLibrarySection from '@/components/console/RecentLibrarySection.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
 import { formatDateOnly } from '@/utils/date'
+import { copyToClipboard as copyTextToClipboard } from '@/utils/clipboard'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
 import { getMediaStats } from '@/api/console'
@@ -69,8 +68,8 @@ const membershipStatusMeta = computed(() => {
 })
 
 const membershipStatusHint = computed(() => {
-  if (isExpired.value) return '服务已暂停，请前往续费中心恢复访问。'
-  if (isLifetimeMember.value) return ''
+  // 过期态的提示统一交给 Emby 入口锁定空态 + 主卡续费按钮承担，主卡内不再重复。
+  if (isExpired.value || isLifetimeMember.value) return ''
   if (daysLeft.value === null) return ''
   return `剩余 ${daysLeft.value} 天`
 })
@@ -117,11 +116,12 @@ const fetchOverview = async () => {
   }
 }
 
+/** 复制结果提示归视图层，与全站既有口径一致。 */
 const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text)
+  const ok = await copyTextToClipboard(text)
+  if (ok) {
     ElMessage.success('复制成功')
-  } catch {
+  } else {
     ElMessage.error('复制失败')
   }
 }
@@ -164,15 +164,11 @@ watch(
 
             <div>
               <p class="text-2xl font-semibold" :class="membershipStatusTextClass">
-                {{ membershipStatusLabel }}
-              </p>
-              <p class="mt-1 text-sm text-gray-500">
                 {{ membershipStatusMeta }}
               </p>
               <p
                 v-if="membershipStatusHint"
-                class="mt-2 text-xs font-medium"
-                :class="isExpired ? 'text-red-600' : 'text-gray-500'"
+                class="mt-2 text-xs font-medium text-gray-500"
               >
                 {{ membershipStatusHint }}
               </p>
@@ -189,7 +185,7 @@ watch(
           </div>
         </div>
 
-        <div class="rounded-3xl border border-gray-100 bg-gradient-to-br from-gray-50 via-white to-white p-5 shadow-sm">
+        <div class="rounded-2xl border border-gray-100 bg-gradient-to-br from-gray-50 via-white to-white p-5 shadow-sm">
           <div class="flex flex-col gap-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -278,92 +274,18 @@ watch(
       </div>
     </section>
 
-    <div
-      v-if="isExpired && !authStore.isAdmin"
-      class="flex items-center gap-4 rounded-2xl border border-red-100 bg-red-50 p-4 text-red-800"
-    >
-      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
-        <el-icon :size="20"><CircleCloseFilled /></el-icon>
-      </div>
-      <div class="flex-1">
-        <h3 class="text-sm font-semibold">服务已暂停</h3>
-        <p class="mt-1 text-xs text-red-600">您的订阅已过期。请前往续费中心恢复 Emby 访问权限。</p>
-      </div>
-      <button
-        class="text-sm font-semibold text-red-700 underline transition-colors hover:text-red-900 cursor-pointer"
-        @click="router.push('/console/renewal')"
-      >
-        去续费
-      </button>
-    </div>
-
     <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
       <div class="border-b border-gray-100 px-6 py-5">
-        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <h2 class="text-lg font-semibold text-gray-900">片库概览</h2>
-          <span class="inline-flex w-fit items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-            实时摘要
-          </span>
-        </div>
+        <h2 class="text-lg font-semibold text-gray-900">片库概览</h2>
       </div>
 
       <div class="grid gap-4 p-4 md:grid-cols-3 md:p-6">
-        <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="text-sm font-medium text-gray-500">电影收藏</p>
-              <p class="mt-3 text-3xl font-semibold text-gray-900">{{ stats.MovieCount }}</p>
-            </div>
-            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-100 text-gray-700 shadow-sm">
-              <el-icon :size="24"><Film /></el-icon>
-            </div>
-          </div>
-        </article>
-
-        <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="text-sm font-medium text-gray-500">剧集收藏</p>
-              <p class="mt-3 text-3xl font-semibold text-gray-900">{{ stats.SeriesCount }}</p>
-            </div>
-            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 shadow-sm">
-              <el-icon :size="24"><VideoPlay /></el-icon>
-            </div>
-          </div>
-        </article>
-
-        <article class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="text-sm font-medium text-gray-500">总集数</p>
-              <p class="mt-3 text-3xl font-semibold text-gray-900">{{ stats.EpisodeCount }}</p>
-            </div>
-            <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-600 shadow-sm">
-              <el-icon :size="24"><Monitor /></el-icon>
-            </div>
-          </div>
-        </article>
+        <EmberMetricCard title="电影收藏" :value="stats.MovieCount" />
+        <EmberMetricCard title="剧集收藏" :value="stats.SeriesCount" />
+        <EmberMetricCard title="总集数" :value="stats.EpisodeCount" />
       </div>
     </section>
 
     <RecentLibrarySection :limit="20" />
   </div>
 </template>
-
-<style scoped>
-.animate-fade-in {
-  animation: fadeIn 0.4s ease-out forwards;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-</style>

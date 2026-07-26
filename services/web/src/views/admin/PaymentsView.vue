@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, useSlots, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, RefreshRight, UserFilled, CreditCard, Goods, CollectionTag } from '@element-plus/icons-vue'
 import { getAllPayments, getPlans } from '@/api/admin'
@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
 
 const route = useRoute()
 const router = useRouter()
+const slots = useSlots()
 
 const loading = ref(false)
 const tableData = ref<Payment[]>([])
@@ -57,7 +58,7 @@ const statusMeta = (status: PaymentStatus) => {
     case 'completed':
       return { text: '支付成功', type: 'success' as const }
     case 'expired':
-      return { text: '已过期', type: 'info' as const }
+      return { text: '已过期', type: 'danger' as const }
     case 'failed':
       return { text: '支付失败', type: 'danger' as const }
     default:
@@ -177,13 +178,13 @@ onMounted(fetchPlans)
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      v-if="!props.embedded"
-      title="支付记录"
-      description="管理员审计全部支付记录，当前支持按用户 ID 精确筛选"
-    >
+    <EmberPageHeaderCard title="支付记录">
       <template #titleSuffix>
-        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">当前结果 {{ total }} 条</span>
+      </template>
+
+      <template v-if="props.embedded && slots.tabs" #actions>
+        <slot name="tabs" />
       </template>
 
       <EmberFilterPanel

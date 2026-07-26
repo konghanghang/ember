@@ -8,7 +8,6 @@ import type {
   PlaybackProfileRange,
   UserPlaybackProfile
 } from '@/types/api'
-
 const router = useRouter()
 const route = useRoute()
 const MAX_CUSTOM_RANGE_DAYS = 92
@@ -103,8 +102,9 @@ const disabledCustomDate = (date: Date) => {
   return Math.abs(date.getTime() - rangeAnchorDate.value.getTime()) > MAX_CUSTOM_RANGE_DAYS * 24 * 60 * 60 * 1000
 }
 
-const handleCustomCalendarChange = (value: Date[]) => {
-  rangeAnchorDate.value = value?.[0] ?? null
+const handleCustomCalendarChange = (value: unknown) => {
+  const first = Array.isArray(value) ? value[0] : null
+  rangeAnchorDate.value = first instanceof Date ? first : null
 }
 
 const fetchProfile = async () => {
@@ -116,11 +116,9 @@ const fetchProfile = async () => {
       endDate: isCustomRange.value ? customDateRange.value?.[1] : undefined
     })
     profile.value = res.data
-  } catch (error) {
+  } catch {
+    // 错误文案已由 request 拦截器统一弹出，这里只复位本地状态。
     profile.value = null
-    if (error instanceof Error && error.message) {
-      ElMessage.error(error.message)
-    }
   } finally {
     loading.value = false
   }
@@ -139,7 +137,7 @@ const handleRangeChange = (range: PlaybackProfileRange) => {
   })
 }
 
-const handleCustomRangeChange = (value: [string, string] | null) => {
+const handleCustomRangeChange = (value: [string, string] | [] | null | undefined) => {
   rangeAnchorDate.value = null
   if (!value || value.length !== 2) {
     const fallbackRange: PlaybackProfileRange = 'today'
@@ -185,7 +183,6 @@ watch(
   <PlaybackProfileContent
     v-model:customDateRange="customDateRange"
     :title="profileTitle"
-    description="从播放历史里提炼你的活跃时段、设备偏好和画像标签"
     :profile="profile"
     :loading="loading"
     :range-options="rangeOptions"

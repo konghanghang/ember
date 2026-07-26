@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, useSlots } from 'vue'
-import { Search, Ticket, UserFilled, RefreshRight } from '@element-plus/icons-vue'
+import { Search, Ticket, UserFilled, RefreshRight, Clock } from '@element-plus/icons-vue'
 import { getAllRedemptions } from '@/api/admin'
 import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
@@ -8,12 +8,6 @@ import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import { formatDateOnly, formatTimeOnly } from '@/utils/date'
 import type { Redemption } from '@/types/api'
-
-const props = withDefaults(defineProps<{
-  embedded?: boolean
-}>(), {
-  embedded: false
-})
 
 const slots = useSlots()
 const tableData = ref<Redemption[]>([])
@@ -82,17 +76,14 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      :title="props.embedded ? '兑换记录' : '兑换历史'"
-      description="查看所有用户的兑换码使用记录。"
-    >
+    <EmberPageHeaderCard title="兑换记录">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
-          {{ props.embedded ? `当前结果 ${total} 条` : `Total: ${total}` }}
+          当前结果 {{ total }} 条
         </span>
       </template>
 
-      <template v-if="props.embedded && slots.tabs" #actions>
+      <template v-if="slots.tabs" #actions>
         <slot name="tabs" />
       </template>
 
@@ -164,7 +155,10 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="days" label="延长天数" width="120">
           <template #default="{ row }">
-            <el-tag type="success">{{ row.days }} 天</el-tag>
+            <span class="inline-flex items-center gap-1 text-gray-700">
+              <el-icon class="text-emerald-600"><Clock /></el-icon>
+              <span>+{{ row.days }} 天</span>
+            </span>
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="兑换时间" width="200">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Trophy, Film, VideoCamera, Calendar, Timer, VideoPlay } from '@element-plus/icons-vue'
+import { Trophy, Film, VideoCamera, Timer, VideoPlay } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
@@ -176,7 +176,7 @@ async function fetchLatestAll() {
     applyRanking('latest', res)
   } catch (err) {
     clearRankingState()
-    ElMessage.error('获取排行榜失败')
+    // 错误文案已由 request 拦截器统一弹出，这里只复位本地状态。
     // eslint-disable-next-line no-console
     console.error(err)
   } finally {
@@ -194,7 +194,7 @@ async function runPreview() {
 
     ElMessage.success('预览生成完成（不入库、不推送）')
   } catch (err) {
-    ElMessage.error('预览生成失败')
+    // 错误文案已由 request 拦截器统一弹出，这里只复位本地状态。
     // eslint-disable-next-line no-console
     console.error(err)
   } finally {
@@ -217,7 +217,6 @@ async function fetchRankingAllowlist(force = false): Promise<boolean> {
     return true
   } catch (err) {
     allowlistLoadFailed.value = true
-    ElMessage.error('获取排行榜媒体库配置失败')
     // eslint-disable-next-line no-console
     console.error(err)
     return false
@@ -243,7 +242,7 @@ async function runHistory() {
     applyRanking('history', res)
     ElMessage.success('历史数据已加载')
   } catch (err) {
-    ElMessage.error('获取历史数据失败')
+    // 错误文案已由 request 拦截器统一弹出，这里只复位本地状态。
     // eslint-disable-next-line no-console
     console.error(err)
   } finally {
@@ -287,7 +286,7 @@ async function saveRankingAllowlist() {
       await runPreview()
     }
   } catch (err) {
-    ElMessage.error('保存排行榜媒体库配置失败')
+    // 错误文案已由 request 拦截器统一弹出，这里只复位本地状态。
     // eslint-disable-next-line no-console
     console.error(err)
   } finally {
@@ -317,7 +316,7 @@ async function resetRankingAllowlistToAll() {
     selectedLibraryIds.value = previousSelected
     allowlistAppliesToAll.value = previousAllowAll
     invalidLibraryIds.value = previousInvalid
-    ElMessage.error('保存排行榜媒体库配置失败')
+    // 错误文案已由 request 拦截器统一弹出，这里只复位本地状态。
     // eslint-disable-next-line no-console
     console.error(err)
   } finally {
@@ -333,27 +332,24 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6 animate-fade-in">
-    <EmberPageHeaderCard
-      title="播放排行榜"
-      description="按日榜或周榜查看电影与剧集播放热度"
-    >
+    <EmberPageHeaderCard title="播放排行榜">
       <template #actions>
-        <div class="flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end">
+        <div class="flex w-full flex-col gap-3 md:w-auto md:flex-wrap md:items-center md:justify-end lg:flex-row">
           <EmberSegmentTabs
             v-model="period"
             :tabs="periodTabs"
             :full-width="false"
-            aria-label="排行周期切换"
+            ariaLabel="排行周期切换"
             @change="handlePeriodChange"
           />
 
-          <div class="w-[172px]">
+          <div class="w-full md:w-[172px]">
             <el-date-picker
               v-model="selectedDate"
               :type="period === 'daily' ? 'date' : 'week'"
               value-format="YYYY-MM-DD"
               :placeholder="period === 'daily' ? '选择日期' : '选择周'"
-              class="w-full !w-full input-ember form-date"
+              class="w-full input-ember form-date"
               :disabled="loading"
             />
           </div>
@@ -644,8 +640,7 @@ onMounted(() => {
                   <el-icon :size="18"><Film /></el-icon>
                 </div>
                 <div class="min-w-0">
-                  <p class="text-[11px] font-semibold tracking-[0.22em] text-gray-400">电影榜单</p>
-                  <h2 class="mt-1 text-xl font-semibold text-gray-950">电影 TOP 10</h2>
+                  <h2 class="text-xl font-semibold text-gray-950">电影 TOP 10</h2>
                 </div>
               </div>
               <div class="text-right">
@@ -668,7 +663,7 @@ onMounted(() => {
               <article
                 v-for="item in movies"
                 :key="`${item.itemKey || item.itemName}-${item.rank}`"
-                class="grid items-center gap-3 rounded-2xl border border-gray-100 px-4 py-3 transition-colors duration-200 hover:bg-stone-50/70 md:grid-cols-[52px_minmax(0,1fr)_auto]"
+                class="grid items-center gap-3 rounded-2xl border border-gray-100 px-4 py-3 transition-colors duration-200 hover:bg-stone-50/70 md:grid-cols-[52px_minmax(0,1fr)]"
               >
                 <div class="flex items-center justify-center md:justify-start">
                   <span
@@ -691,10 +686,6 @@ onMounted(() => {
                     </span>
                   </div>
                 </div>
-                <div class="text-left md:text-right">
-                  <p class="text-xs font-medium text-gray-400">排名时长</p>
-                  <p class="mt-1 text-sm font-semibold text-gray-900">{{ formatDuration(item.duration) }}</p>
-                </div>
               </article>
             </div>
           </div>
@@ -708,8 +699,7 @@ onMounted(() => {
                   <el-icon :size="18"><VideoCamera /></el-icon>
                 </div>
                 <div class="min-w-0">
-                  <p class="text-[11px] font-semibold tracking-[0.22em] text-gray-400">剧集榜单</p>
-                  <h2 class="mt-1 text-xl font-semibold text-gray-950">剧集 TOP 10</h2>
+                  <h2 class="text-xl font-semibold text-gray-950">剧集 TOP 10</h2>
                 </div>
               </div>
               <div class="text-right">
@@ -732,7 +722,7 @@ onMounted(() => {
               <article
                 v-for="item in episodes"
                 :key="`${item.itemKey || item.itemName}-${item.rank}`"
-                class="grid items-center gap-3 rounded-2xl border border-gray-100 px-4 py-3 transition-colors duration-200 hover:bg-stone-50/70 md:grid-cols-[52px_minmax(0,1fr)_auto]"
+                class="grid items-center gap-3 rounded-2xl border border-gray-100 px-4 py-3 transition-colors duration-200 hover:bg-stone-50/70 md:grid-cols-[52px_minmax(0,1fr)]"
               >
                 <div class="flex items-center justify-center md:justify-start">
                   <span
@@ -755,10 +745,6 @@ onMounted(() => {
                     </span>
                   </div>
                 </div>
-                <div class="text-left md:text-right">
-                  <p class="text-xs font-medium text-gray-400">排名时长</p>
-                  <p class="mt-1 text-sm font-semibold text-gray-900">{{ formatDuration(item.duration) }}</p>
-                </div>
               </article>
             </div>
           </div>
@@ -767,20 +753,3 @@ onMounted(() => {
     </template>
   </div>
 </template>
-
-<style scoped>
-.animate-fade-in {
-  animation: fadeIn 0.4s ease-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-</style>

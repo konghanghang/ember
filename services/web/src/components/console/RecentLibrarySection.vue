@@ -171,7 +171,7 @@ onBeforeUnmount(() => {
           v-model="activeType"
           :tabs="tabItems"
           :full-width="false"
-          aria-label="最近入库媒体类型切换"
+          ariaLabel="最近入库媒体类型切换"
         />
 
         <button

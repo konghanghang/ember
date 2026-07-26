@@ -41,7 +41,7 @@ watch(
 <template>
   <div class="flex h-screen overflow-hidden bg-gray-50">
     <!-- Desktop Sidebar -->
-    <div class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 lg:border-r lg:border-gray-200 lg:bg-white lg:pt-0 lg:pb-4">
+    <div class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 lg:bg-white lg:pt-0 lg:pb-4">
       <Sidebar />
     </div>
 

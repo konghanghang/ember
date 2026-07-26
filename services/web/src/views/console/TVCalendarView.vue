@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import type { Component } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   CircleCheckFilled,
@@ -9,7 +10,10 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import EmberDateField from '@/components/ember/filters/EmberDateField.vue'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import EmberMetricCard from '@/components/ember/data-display/EmberMetricCard.vue'
 import type { Tone } from '@/components/ember/tokens'
+import { addDays, endOfMonthLocal, formatDateLocal, startOfMonthLocal, startOfWeekLocal } from '@/utils/date'
 import { useAuthStore } from '@/store/auth'
 import { getGlobalTVCalendar } from '@/api/console'
 import { syncTVCalendar } from '@/api/admin'
@@ -56,29 +60,35 @@ const readyCount = computed(() => countItemsByStatus('ready'))
 const todayCount = computed(() => countItemsByStatus('today'))
 const missingCount = computed(() => countItemsByStatus('missing'))
 const hasCalendarItems = computed(() => totalItems.value > 0)
-const emptyStateTitle = computed(() => '当前周历还没有可展示条目')
-const emptyStateDescription = computed(() => '检查 Emby 连载剧识别、TMDB 配置，或者让管理员手动同步一次。')
-const summaryCards = computed(() => [
+type SummaryCard = {
+  title: string
+  value: number
+  detail: string
+  icon: Component
+  tone: Tone
+}
+
+const summaryCards = computed<SummaryCard[]>(() => [
   {
     title: '本周条目',
     value: totalItems.value,
     detail: `${activeDayCount.value} 个活跃日期`,
     icon: VideoPlay,
-    tone: 'neutral' as Tone
+    tone: 'neutral'
   },
   {
     title: '已入库',
     value: readyCount.value,
     detail: '可以直接观看',
     icon: CircleCheckFilled,
-    tone: 'success' as Tone
+    tone: 'success'
   },
   {
     title: '今日播出',
     value: todayCount.value,
     detail: '当天重点',
     icon: Clock,
-    tone: 'info' as Tone
+    tone: 'info'
   },
   {
     title: '缺失集数',
@@ -94,35 +104,6 @@ function countItemsByStatus(status: TVCalendarStatus): number {
     (sum, day) => sum + day.items.filter((item) => item.status === status).length,
     0
   )
-}
-
-function formatDateLocal(date: Date): string {
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function startOfWeekLocal(date: Date): Date {
-  const result = new Date(date)
-  const weekday = result.getDay() === 0 ? 7 : result.getDay()
-  result.setHours(0, 0, 0, 0)
-  result.setDate(result.getDate() - weekday + 1)
-  return result
-}
-
-function startOfMonthLocal(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1)
-}
-
-function endOfMonthLocal(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0)
-}
-
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date)
-  result.setDate(result.getDate() + days)
-  return result
 }
 
 function extractErrorMessage(error: unknown, fallback: string): string {
@@ -172,19 +153,6 @@ function handlePosterError(tmdbId: string, posterUrl?: string): void {
     return
   }
   failedPosterKeys.value[posterKey(tmdbId, posterUrl)] = true
-}
-
-function summaryCardClass(tone: Tone): string {
-  switch (tone) {
-    case 'success':
-      return 'tv-summary-card tv-summary-card-ready'
-    case 'info':
-      return 'tv-summary-card tv-summary-card-today'
-    case 'warning':
-      return 'tv-summary-card tv-summary-card-warning'
-    default:
-      return 'tv-summary-card tv-summary-card-ink'
-  }
 }
 
 function statusChipClass(value: TVCalendarStatus | ''): string {
@@ -308,41 +276,39 @@ onMounted(() => {
       <div class="tv-stage p-6 sm:p-8">
         <div class="space-y-6">
           <div class="max-w-3xl">
-            <p class="tv-kicker">Ember Weekly Watchboard</p>
-            <h1 class="tv-display mt-4 text-4xl leading-none text-slate-950 sm:text-5xl">追剧日历</h1>
+            <h1 class="tv-display text-4xl leading-none text-slate-950 sm:text-5xl">追剧日历</h1>
           </div>
 
           <div class="flex flex-wrap items-center gap-3">
-            <el-button
+            <button
               v-if="isAdmin"
-              class="!rounded-full !border-slate-300 !bg-white/80 !px-5 !text-slate-700 hover:!border-slate-950 hover:!text-slate-950"
-              :icon="Refresh"
-              :loading="refreshing"
+              type="button"
+              :disabled="refreshing"
+              class="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-300 bg-white/80 px-5 py-2 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-950 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
               @click="handleSync"
             >
-              手动同步
-            </el-button>
+              <span v-if="refreshing" class="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700"></span>
+              <el-icon v-else :size="16"><Refresh /></el-icon>
+              <span>{{ refreshing ? '同步中...' : '手动同步' }}</span>
+            </button>
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <article
+            <EmberMetricCard
               v-for="card in summaryCards"
               :key="card.title"
-              :class="summaryCardClass(card.tone)"
+              :title="card.title"
+              :value="card.value"
+              :detail="card.detail"
+              :tone="card.tone"
+              value-class="mt-3 text-3xl font-bold text-gray-900"
             >
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <p class="text-xs uppercase tracking-[0.24em] text-slate-400">{{ card.title }}</p>
-                  <p class="mt-4 text-4xl font-semibold leading-none text-slate-950">{{ card.value }}</p>
-                  <p class="mt-3 text-sm text-slate-500">{{ card.detail }}</p>
-                </div>
-                <div class="tv-summary-icon">
-                  <el-icon :size="18">
-                    <component :is="card.icon" />
-                  </el-icon>
-                </div>
+              <div class="mt-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-500">
+                <el-icon :size="16">
+                  <component :is="card.icon" />
+                </el-icon>
               </div>
-            </article>
+            </EmberMetricCard>
           </div>
 
           <el-alert
@@ -414,23 +380,26 @@ onMounted(() => {
           </div>
         </div>
 
-        <div
+        <EmberEmptyStateCard
           v-else-if="!hasCalendarItems"
-          class="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-[linear-gradient(180deg,#fffaf2_0%,#ffffff_100%)] px-6 py-16 text-center"
+          class="mt-6"
+          :icon="VideoPlay"
+          title="当前周历还没有可展示条目"
+          description="切换其他状态筛选，或让管理员手动同步一次。"
         >
-          <p class="text-lg font-semibold text-slate-900">{{ emptyStateTitle }}</p>
-          <p class="mx-auto mt-3 max-w-xl text-sm leading-7 text-slate-500">{{ emptyStateDescription }}</p>
-          <div class="mt-6 flex justify-center gap-3">
-            <el-button
-              v-if="isAdmin"
-              class="!rounded-full !border-slate-300 !bg-white/80 !px-6 !text-slate-700"
-              :icon="Refresh"
+          <template v-if="isAdmin" #actions>
+            <button
+              type="button"
+              :disabled="refreshing"
+              class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
               @click="handleSync"
             >
-              立即同步
-            </el-button>
-          </div>
-        </div>
+              <span v-if="refreshing" class="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-ember"></span>
+              <el-icon v-else :size="16"><Refresh /></el-icon>
+              <span>{{ refreshing ? '同步中...' : '立即同步' }}</span>
+            </button>
+          </template>
+        </EmberEmptyStateCard>
 
         <div v-else class="mt-6 space-y-4">
           <article
@@ -557,53 +526,9 @@ onMounted(() => {
   letter-spacing: -0.03em;
 }
 
-.tv-kicker {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: #ea580c;
-}
-
-.tv-summary-card,
 .tv-day-row,
 .tv-mini-card {
   backdrop-filter: blur(14px);
-}
-
-.tv-summary-card {
-  border-radius: 18px;
-  padding: 1.15rem 1.25rem;
-  box-shadow: var(--tv-shadow-soft);
-  border: 1px solid rgba(226, 232, 240, 0.95);
-}
-
-.tv-summary-card-ink {
-  background: #ffffff;
-}
-
-.tv-summary-card-ready {
-  background: rgba(240, 253, 244, 0.68);
-}
-
-.tv-summary-card-today {
-  background: rgba(255, 247, 237, 0.78);
-}
-
-.tv-summary-card-warning {
-  background: rgba(255, 241, 242, 0.78);
-}
-
-.tv-summary-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 999px;
-  background: rgba(248, 250, 252, 0.95);
-  color: #0f172a;
-  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.85);
 }
 
 .tv-toolbar {

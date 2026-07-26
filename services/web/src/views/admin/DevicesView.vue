@@ -237,22 +237,9 @@ onMounted(refreshAll)
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard
-      title="设备管理"
-      description="黑名单治理、设备下线与行为审计"
-    >
+    <EmberPageHeaderCard title="设备管理">
       <template #titleSuffix>
-        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">Total: {{ total }}</span>
-      </template>
-      <template #actions>
-        <button
-          type="button"
-          @click="refreshAll"
-          class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer"
-        >
-          <el-icon><RefreshRight /></el-icon>
-          刷新
-        </button>
+        <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">共 {{ total }} 台设备</span>
       </template>
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -308,6 +295,8 @@ onMounted(refreshAll)
           v-model="query.isBlacklisted"
           label="黑名单状态"
           placeholder="全部状态"
+          :icon="WarningFilled"
+          @change="handleDeviceSearch"
         >
           <el-option label="全部状态" value="" />
           <el-option label="仅黑名单" value="true" />
@@ -343,7 +332,7 @@ onMounted(refreshAll)
             type="button"
             @click="handleLogoutBlacklistedDevices"
             :disabled="batchProcessing"
-            class="px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center gap-2"
+            class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 disabled:opacity-60 cursor-pointer"
           >
             <el-icon><SwitchButton /></el-icon>
             一键注销黑名单设备
@@ -374,7 +363,7 @@ onMounted(refreshAll)
               type="button"
               @click="handleAddBlacklist"
               :disabled="submitting"
-              class="btn-ember flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"
+              class="btn-ember flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold cursor-pointer"
             >
               <el-icon><Plus /></el-icon>
               添加黑名单
@@ -382,17 +371,23 @@ onMounted(refreshAll)
           </div>
         </div>
 
-        <el-table :data="blacklists" v-loading="blacklistsLoading" size="small" style="width: 100%">
+        <el-table
+          :data="blacklists"
+          v-loading="blacklistsLoading"
+          size="small"
+          style="width: 100%"
+          :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
+        >
           <el-table-column prop="clientName" label="客户端" min-width="140" />
           <el-table-column prop="reason" label="原因" min-width="150" />
           <el-table-column label="创建时间" min-width="170">
             <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="110" fixed="right">
+          <el-table-column label="操作" width="120" fixed="right">
             <template #default="{ row }">
               <button
                 type="button"
-                class="text-red-600 hover:text-red-700 font-semibold"
+                class="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 cursor-pointer"
                 @click="handleRemoveBlacklist(row.clientName)"
               >
                 移除
@@ -449,7 +444,7 @@ onMounted(refreshAll)
         <template #default="{ row }">
           <button
             type="button"
-            class="px-2 py-1 rounded-md bg-red-50 text-red-600 hover:bg-red-100 text-sm font-semibold"
+            class="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-sm font-semibold text-red-600 transition-colors hover:bg-red-100 cursor-pointer"
             @click="handleLogoutDevice(row)"
           >
             强制注销
@@ -475,7 +470,13 @@ onMounted(refreshAll)
         <el-icon class="text-orange-500"><WarningFilled /></el-icon>
         <h2 class="text-lg font-bold text-gray-900">最近操作日志</h2>
       </div>
-      <el-table :data="actions" v-loading="actionsLoading" size="small" style="width: 100%">
+      <el-table
+        :data="actions"
+        v-loading="actionsLoading"
+        size="small"
+        style="width: 100%"
+        :header-cell-style="{ background: '#f9fafb', color: '#6b7280', fontWeight: '600' }"
+      >
         <el-table-column label="操作" width="130">
           <template #default="{ row }">{{ actionLabelMap[row.action] || row.action }}</template>
         </el-table-column>

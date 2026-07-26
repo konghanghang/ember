@@ -74,7 +74,7 @@ const paymentStatusMeta = (status: PaymentStatus) => {
     case 'completed':
       return { text: '支付成功', type: 'success' as const }
     case 'expired':
-      return { text: '已过期', type: 'info' as const }
+      return { text: '已过期', type: 'danger' as const }
     case 'failed':
       return { text: '支付失败', type: 'danger' as const }
     default:
@@ -133,13 +133,14 @@ const redirectToCheckout = async (planID: string) => {
   try {
     const res = await createCheckout(planID)
     if (!res.url) {
+      // 后端未返回支付链接属于业务异常；request 拦截器只弹通用 error，这里需要差异化文案。
       ElMessage.error('支付链接为空，请稍后重试')
       return
     }
     redirectStarted = true
     window.location.assign(res.url)
   } catch {
-    ElMessage.error('创建支付链接失败，请稍后重试')
+    // 创建支付链接失败由 request 拦截器统一弹后端 error 文案，这里只复位按钮状态。
   } finally {
     if (!redirectStarted) {
       buyingPlanID.value = ''
@@ -217,7 +218,7 @@ onMounted(async () => {
       <div class="border-b border-gray-100 bg-gray-50/50 px-6 py-5 md:px-7">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 class="text-xl font-bold text-gray-900">续费方式</h2>
+            <h2 class="text-2xl font-bold text-gray-900">续费方式</h2>
             <p class="mt-1 text-sm text-gray-500">选择在线购买或使用兑换码完成续费</p>
           </div>
 
@@ -225,7 +226,7 @@ onMounted(async () => {
             v-model="activeRenewalTab"
             :tabs="renewalSegmentTabs"
             :full-width="false"
-            aria-label="续费方式切换"
+            ariaLabel="续费方式切换"
           />
         </div>
       </div>
@@ -235,10 +236,7 @@ onMounted(async () => {
           <div class="flex flex-col gap-6" v-loading="plansLoading">
             <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div class="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h4 class="text-base font-bold text-gray-900">可购买方案</h4>
-                  <p class="mt-1 text-sm text-gray-500">选择一个方案即可跳转支付，成功后自动为当前账户续期。</p>
-                </div>
+                <h4 class="text-base font-bold text-gray-900">可购买方案</h4>
                 <div class="hidden rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-500 md:inline-flex">
                   {{ plans.length }} 个方案
                 </div>
@@ -298,7 +296,7 @@ onMounted(async () => {
             <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div class="mb-4">
                 <h4 class="text-base font-bold text-gray-900">输入兑换码</h4>
-                <p class="mt-1 text-sm text-gray-500">提交后立即校验并尝试续期，成功结果会直接写入当前账户。</p>
+                <p class="mt-1 text-sm text-gray-500">同一兑换码仅可成功使用一次，兑换成功后时长直接叠加。</p>
               </div>
 
               <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-5">
@@ -306,18 +304,14 @@ onMounted(async () => {
                   <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-ember shadow-sm ring-1 ring-ember/10">
                     <el-icon :size="22"><Ticket /></el-icon>
                   </div>
-                  <div>
-                    <h5 class="text-lg font-bold text-gray-900">输入兑换码</h5>
-                    <p class="mt-1 text-sm text-gray-500">同一用户同一码仅可成功一次，兑换成功后时长将直接叠加。</p>
-                  </div>
-                </div>
 
-                <el-input
-                  v-model="redeemForm.code"
-                  placeholder="在此输入兑换码..."
-                  class="input-ember mt-5"
-                  size="large"
-                />
+                  <el-input
+                    v-model="redeemForm.code"
+                    placeholder="在此输入兑换码"
+                    class="input-ember"
+                    size="large"
+                  />
+                </div>
 
                 <button
                   @click="handleRedeem"
@@ -337,16 +331,13 @@ onMounted(async () => {
     <section class="space-y-4">
       <div class="rounded-2xl border border-gray-100 bg-white px-6 py-4 shadow-sm">
         <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 class="font-bold text-gray-900">历史记录</h2>
-            <p class="text-xs text-gray-500 mt-1">查看当前账户的在线购买和兑换码使用记录</p>
-          </div>
+          <h2 class="text-2xl font-bold text-gray-900">历史记录</h2>
 
           <EmberSegmentTabs
             v-model="activeHistoryTab"
             :tabs="historySegmentTabs"
             :full-width="false"
-            aria-label="续费历史类型切换"
+            ariaLabel="续费历史类型切换"
           />
         </div>
       </div>
@@ -382,7 +373,7 @@ onMounted(async () => {
               v-if="row.status === 'pending'"
               @click="handleContinuePayment(row)"
               :disabled="buyingPlanID === row.planId"
-              class="inline-flex items-center justify-center rounded-lg border border-ember/20 bg-ember/5 px-3 py-1.5 text-xs font-semibold text-ember transition-colors hover:bg-ember/10 disabled:opacity-60"
+              class="inline-flex cursor-pointer items-center justify-center rounded-lg border border-ember/20 bg-ember/5 px-3 py-1.5 text-xs font-semibold text-ember transition-colors hover:bg-ember/10 disabled:opacity-60"
             >
               {{ buyingPlanID === row.planId ? '跳转中...' : '继续支付' }}
             </button>

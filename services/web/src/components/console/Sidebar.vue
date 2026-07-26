@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Component } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import {
@@ -20,6 +21,25 @@ import {
 } from '@element-plus/icons-vue'
 import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
 
+// 菜单分两种条目：普通链接项与管理员分组（含子项）。
+// 用可辨识联合建模，模板里 v-if="item.type === 'group'" 才能正确收窄出 children/path。
+type RegularMenuItem = {
+  title: string
+  path: string
+  icon: Component
+  role?: string
+  type?: undefined
+}
+
+type GroupMenuItem = {
+  title: string
+  type: 'group'
+  role: string
+  children: RegularMenuItem[]
+}
+
+type MenuEntry = RegularMenuItem | GroupMenuItem
+
 const route = useRoute()
 const authStore = useAuthStore()
 
@@ -29,7 +49,7 @@ const canAccessItem = (role?: string) => {
   return authStore.role === role
 }
 
-const menuItems = computed(() => [
+const menuItems = computed<MenuEntry[]>(() => [
   {
     title: '概览',
     path: '/console/dashboard',
@@ -146,7 +166,7 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
 <template>
   <aside class="flex flex-col w-64 h-screen bg-white border-r border-gray-100 shadow-sm transition-all duration-300 z-20">
     <!-- Brand -->
-    <div class="flex items-center justify-center h-16 px-6 border-b border-gray-50">
+    <div class="flex items-center justify-center h-[72px] px-6 border-b border-gray-50">
       <router-link to="/" class="flex items-center gap-2 text-ember font-bold text-xl hover:opacity-80 transition-opacity cursor-pointer">
         <el-icon :size="24"><Monitor /></el-icon>
         <span>Ember Console</span>
@@ -189,7 +209,7 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
 
         <!-- Regular Item -->
         <router-link
-          v-else-if="!item.type && canAccessItem(item.role)"
+          v-else-if="item.type !== 'group' && canAccessItem(item.role)"
           :to="item.path"
           class="flex items-center px-3 py-2.5 rounded-lg transition-colors group relative overflow-hidden cursor-pointer"
           :class="[

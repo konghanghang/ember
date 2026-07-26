@@ -6,21 +6,19 @@ import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import PaymentsView from './PaymentsView.vue'
 import PlansView from './PlansView.vue'
 
-type PaymentTab = 'groups' | 'plans' | 'payments'
+type PaymentTab = 'plans' | 'payments'
 
 const route = useRoute()
 const router = useRouter()
 
 const tabs: Array<{ key: PaymentTab; label: string; icon: typeof Goods }> = [
-  { key: 'groups', label: '套餐分组', icon: CollectionTag },
   { key: 'plans', label: '付费方案', icon: Goods },
   { key: 'payments', label: '支付记录', icon: CreditCard }
 ]
 
 const activeTab = computed<PaymentTab>(() => {
   const tab = route.query.tab
-  if (tab === 'payments' || tab === 'plans' || tab === 'groups') return tab
-  return 'plans'
+  return tab === 'payments' ? 'payments' : 'plans'
 })
 
 const activeComponent = computed(() => (
@@ -29,24 +27,37 @@ const activeComponent = computed(() => (
     : PlansView
 ))
 
-const setTab = async (tab: PaymentTab) => {
-  if (tab === 'groups') {
-    await router.push({ name: 'console-plan-groups' })
-    return
-  }
+// EmberSegmentTabs 的 change 事件按 string 发出；这里收窄回已知 tab 集合，非法值直接忽略。
+const isPaymentTab = (value: string): value is PaymentTab => {
+  return tabs.some((tab) => tab.key === value)
+}
+
+const setTab = async (tab: string) => {
+  if (!isPaymentTab(tab)) return
   if (tab === activeTab.value) return
-  const nextQuery = { ...route.query, tab }
-  await router.replace({ query: nextQuery })
+  await router.replace({
+    query: {
+      ...route.query,
+      tab
+    }
+  })
+}
+
+// 套餐分组是独立路由页（侧边栏另有导航项），不是支付中心的分段；单选分段不做导航，这里只提供入口按钮。
+const goPlanGroups = async () => {
+  await router.push({ name: 'console-plan-groups' })
 }
 
 watch(
   () => route.query.tab,
   async (tab) => {
+    if (tab === undefined || tab === 'plans' || tab === 'payments') return
     if (tab === 'groups') {
+      // 兼容旧地址 /console/billing?tab=groups → 套餐分组独立页。
+      // 该映射是 web-information-architecture.md 明确记录的兼容合同，不可当非法值吞掉。
       await router.replace({ name: 'console-plan-groups' })
       return
     }
-    if (tab === undefined || tab === 'plans' || tab === 'payments') return
     await router.replace({
       query: {
         ...route.query,
@@ -60,22 +71,24 @@ watch(
 
 <template>
   <div class="space-y-6">
-    <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 class="text-2xl font-semibold text-slate-900">支付中心</h1>
-          <p class="mt-1 text-sm text-slate-500">把方案配置和订单审计放在一起，支付工作流更完整。</p>
+    <component :is="activeComponent" embedded>
+      <template #tabs>
+        <div class="flex flex-wrap items-center gap-3">
+          <EmberSegmentTabs
+            :model-value="activeTab"
+            :tabs="tabs"
+            ariaLabel="支付中心分段切换"
+            @change="setTab"
+          />
+          <button
+            @click="goPlanGroups"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+          >
+            <el-icon><CollectionTag /></el-icon>
+            <span>套餐分组</span>
+          </button>
         </div>
-
-        <EmberSegmentTabs
-          :model-value="activeTab"
-          :tabs="tabs"
-          aria-label="支付中心分段切换"
-          @change="setTab"
-        />
-      </div>
-    </section>
-
-    <component :is="activeComponent" embedded />
+      </template>
+    </component>
   </div>
 </template>

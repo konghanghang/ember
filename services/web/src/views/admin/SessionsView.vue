@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { DataLine, RefreshRight, VideoPlay, Monitor } from '@element-plus/icons-vue'
+import { RefreshRight, VideoPlay, Monitor } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import { formatTimeWithSeconds } from '@/utils/date'
 import { getActiveSessions } from '@/api/admin'
 import type { ActiveNowPlayingItem, ActiveSession } from '@/types/api'
 
@@ -55,16 +56,16 @@ function progressPercent(session: ActiveSession): number {
 }
 
 function playMethodClass(method: string | undefined): string {
-  if (method === 'DirectPlay') return 'bg-green-100 text-green-700 border border-green-200'
-  if (method === 'DirectStream') return 'bg-blue-100 text-blue-700 border border-blue-200'
-  if (method === 'Transcode') return 'bg-orange-100 text-orange-700 border border-orange-200'
-  return 'bg-gray-100 text-gray-700 border border-gray-200'
+  if (method === 'DirectPlay') return 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (method === 'DirectStream') return 'border border-sky-200 bg-sky-50 text-sky-700'
+  if (method === 'Transcode') return 'border border-amber-200 bg-amber-50 text-amber-700'
+  return 'border border-gray-200 bg-gray-100 text-gray-700'
 }
 
 function playMethodLabel(method: string | undefined): string {
-  if (method === 'DirectPlay') return 'DirectPlay'
-  if (method === 'DirectStream') return 'DirectStream'
-  if (method === 'Transcode') return 'Transcode'
+  if (method === 'DirectPlay') return '直接播放'
+  if (method === 'DirectStream') return '直接串流'
+  if (method === 'Transcode') return '转码'
   return method || '未知方式'
 }
 
@@ -88,12 +89,9 @@ function progressAriaLabel(session: ActiveSession): string {
   return `${mediaDisplayName(session)} 播放进度 ${Math.round(progressPercent(session))}%`
 }
 
+/** 最近刷新时间精确到秒，让用户能判断轮询是否仍在推进。 */
 function updateLastRefreshedAt() {
-  const d = new Date()
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  const ss = String(d.getSeconds()).padStart(2, '0')
-  lastRefreshedAt.value = `${hh}:${mm}:${ss}`
+  lastRefreshedAt.value = formatTimeWithSeconds(new Date())
 }
 
 async function fetchSessions(opts?: { silent?: boolean }) {
@@ -171,7 +169,7 @@ onUnmounted(() => {
             type="button"
             @click="fetchSessions()"
             :disabled="loading || refreshing"
-            class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 font-bold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
             aria-label="刷新活跃会话列表"
           >
             <span v-if="refreshing" class="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-ember"></span>
@@ -182,10 +180,6 @@ onUnmounted(() => {
       </template>
 
       <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-        <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-gray-600">
-          <el-icon><DataLine /></el-icon>
-          当前播放 {{ sessionCount }} 个会话
-        </span>
         <span v-if="lastRefreshedAt" class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-gray-500">
           最近刷新 {{ lastRefreshedAt }}
         </span>

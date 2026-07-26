@@ -147,7 +147,7 @@ onBeforeUnmount(() => {
                 <label class="text-xs font-semibold text-text-secondary uppercase tracking-wider">验证码</label>
                 <button
                   type="button"
-                  class="text-xs text-ember hover:text-ember/80 transition-colors disabled:text-text-muted disabled:cursor-not-allowed"
+                  class="text-xs text-ember hover:text-ember/80 transition-colors disabled:text-text-muted disabled:cursor-not-allowed cursor-pointer"
                   :disabled="emailCodeCountdown > 0 || sendingCode"
                   @click="handleSendCode"
                 >
@@ -205,17 +205,4 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.animate-fade-in {
-  animation: fadeIn 0.6s ease-out forwards;
-}
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 </style>

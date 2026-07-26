@@ -25,7 +25,13 @@ const activeComponent = computed(() => (
   activeTab.value === 'history' ? RedemptionHistoryView : RedemptionCodesView
 ))
 
-const setTab = async (tab: RedemptionTab) => {
+// EmberSegmentTabs 的 change 事件按 string 发出；这里收窄回已知 tab 集合，非法值直接忽略。
+const isRedemptionTab = (value: string): value is RedemptionTab => {
+  return tabs.some((tab) => tab.key === value)
+}
+
+const setTab = async (tab: string) => {
+  if (!isRedemptionTab(tab)) return
   if (tab === activeTab.value) return
   await router.replace({
     query: {
@@ -57,7 +63,7 @@ watch(
         <EmberSegmentTabs
           :model-value="activeTab"
           :tabs="tabs"
-          aria-label="兑换中心分段切换"
+          ariaLabel="兑换中心分段切换"
           @change="setTab"
         />
       </template>

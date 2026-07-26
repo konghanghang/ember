@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, useSlots } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Calendar, Clock, Ticket, Plus, Delete, Refresh, EditPen, CopyDocument, Search, CollectionTag } from '@element-plus/icons-vue'
+import { Calendar, Clock, Ticket, Plus, Delete, EditPen, CopyDocument, Search, CollectionTag } from '@element-plus/icons-vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
 import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
+import { copyToClipboard } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/date'
 import { getRedemptionCodes, createRedemptionCode, createRedemptionCodesBatch, updateRedemptionCode, deleteRedemptionCode, getPlanGroups } from '@/api/admin'
 import type {
@@ -25,6 +26,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   embedded: false
 })
+
+const slots = useSlots()
 
 const maxBatchCreateCount = 100
 
@@ -280,16 +283,7 @@ const handleUpdate = async () => {
 
 const batchCreatedCodesText = computed(() => batchCreatedCodes.value.map((item) => item.code).join('\n'))
 
-const copyBatchCodes = async () => {
-  if (!batchCreatedCodesText.value) return
-  try {
-    await navigator.clipboard.writeText(batchCreatedCodesText.value)
-    ElMessage.success('复制成功')
-  } catch {
-    ElMessage.error('复制失败')
-  }
-}
-
+// 已生效筛选条件计数：仅在用户实际配置了筛选时展示反馈徽章（§5.4）。
 const activeFilterCount = computed(() => {
   let count = 0
   if (queryParams.value.code?.trim()) count += 1
@@ -298,6 +292,17 @@ const activeFilterCount = computed(() => {
   if (queryParams.value.showAll) count += 1
   return count
 })
+
+const copyBatchCodes = async () => {
+  if (!batchCreatedCodesText.value) return
+  // 剪贴板不走 request 拦截器，成功/失败提示由本页自弹。
+  const copied = await copyToClipboard(batchCreatedCodesText.value)
+  if (copied) {
+    ElMessage.success('复制成功')
+  } else {
+    ElMessage.error('复制失败')
+  }
+}
 
 const formatDate = (dateStr?: string | null) => {
   if (!dateStr) return '永久有效'
@@ -314,7 +319,7 @@ const formatRegistrationPlanGroupHint = (row: RedemptionCode) => {
 
 const getUsageStatus = (row: RedemptionCode) => {
   if (row.usedCount >= row.maxUses) return { type: 'danger', text: '已耗尽' }
-  if (row.expiresAt && new Date(row.expiresAt) < new Date()) return { type: 'info', text: '已过期' }
+  if (row.expiresAt && new Date(row.expiresAt) < new Date()) return { type: 'danger', text: '已过期' }
   return { type: 'success', text: '有效' }
 }
 
@@ -326,33 +331,28 @@ onMounted(async () => {
 <template>
   <div class="space-y-6">
     <EmberPageHeaderCard
-      :title="props.embedded ? '兑换码池' : '兑换码管理'"
-      :description="props.embedded ? '支持按兑换码、状态和注册套餐分组筛选。' : '生成和管理注册/续期兑换码'"
+      title="兑换码池"
+      description="生成和管理注册/续期兑换码"
     >
-      <template v-if="!props.embedded" #titleSuffix>
+      <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">{{ total }} 个兑换码</span>
+        <span v-if="activeFilterCount > 0" class="rounded-full bg-red-50 px-2.5 py-1 text-xs text-red-600">
+          已启用 {{ activeFilterCount }} 个筛选条件
+        </span>
       </template>
 
       <template #actions>
         <div class="flex flex-col gap-3 xl:items-end">
-          <slot name="tabs" />
+          <slot v-if="slots.tabs" name="tabs" />
 
           <div class="flex flex-wrap items-center gap-3">
-            <div class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-2.5 py-1.5">
+            <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3">
               <span class="text-sm text-gray-600">包含失效/耗尽</span>
               <el-switch v-model="queryParams.showAll" size="small" @change="handleSearch" />
             </div>
             <button
-              @click="fetchData"
-              class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
-              aria-label="刷新兑换码列表"
-              title="刷新列表"
-            >
-              <el-icon :size="18"><Refresh /></el-icon>
-            </button>
-            <button
               @click="openCreateDialog"
-              class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+              class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
             >
               <el-icon><Plus /></el-icon>
               <span>生成兑换码</span>
@@ -360,17 +360,6 @@ onMounted(async () => {
           </div>
         </div>
       </template>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-sm font-semibold text-gray-900">兑换码池</span>
-        <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">当前结果 {{ total }} 条</span>
-        <span v-if="activeFilterCount > 0" class="rounded-full bg-red-50 px-2.5 py-1 text-xs text-red-600">
-          已启用 {{ activeFilterCount }} 个筛选条件
-        </span>
-      </div>
-      <p class="text-sm text-gray-500" :class="props.embedded ? 'mt-0.5' : 'mt-2'">
-        支持按兑换码、状态和注册套餐分组筛选。
-      </p>
 
       <EmberFilterPanel
         wrapper-class="flex flex-col gap-3 xl:flex-row xl:items-end"
@@ -419,13 +408,13 @@ onMounted(async () => {
         <template #actions>
           <button
             @click="handleReset"
-            class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+            class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-100"
           >
             重置
           </button>
           <button
             @click="handleSearch"
-            class="btn-ember inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+            class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
           >
             <el-icon><Search /></el-icon>
             <span>查询</span>
@@ -640,7 +629,7 @@ onMounted(async () => {
     <EmberFormDialog
       v-model="batchResultDialogVisible"
       title="批量生成结果"
-      width="560px"
+      width="520px"
       class="rounded-2xl"
     >
       <div class="p-6 pt-2 space-y-4">
@@ -651,7 +640,7 @@ onMounted(async () => {
           </div>
           <button
             @click="copyBatchCodes"
-            class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-orange-700 bg-white border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
+            class="inline-flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-orange-700 bg-white border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors"
           >
             <el-icon><CopyDocument /></el-icon>
             <span>复制全部</span>
@@ -673,7 +662,7 @@ onMounted(async () => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button
             @click="batchResultDialogVisible = false"
-            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+            class="cursor-pointer px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
           >
             关闭
           </button>
@@ -684,17 +673,17 @@ onMounted(async () => {
     <EmberFormDialog
       v-model="editDialogVisible"
       title="编辑兑换码"
-      width="560px"
+      width="520px"
       class="rounded-2xl"
     >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
           <div class="grid grid-cols-2 gap-6">
             <el-form-item label="最大使用次数">
-              <el-input-number v-model="editForm.maxUses" :min="editForm.usedCount" class="w-full !w-full" />
+              <el-input-number v-model="editForm.maxUses" :min="editForm.usedCount" class="w-full !w-full form-number" />
             </el-form-item>
             <el-form-item label="有效天数 (激活后)">
-              <el-input-number v-model="editForm.defaultDays" :min="1" class="w-full !w-full" />
+              <el-input-number v-model="editForm.defaultDays" :min="1" class="w-full !w-full form-number" />
             </el-form-item>
           </div>
 
@@ -762,14 +751,14 @@ onMounted(async () => {
         <div class="px-6 pb-6 pt-0 flex justify-end gap-3">
           <button
             @click="editDialogVisible = false"
-            class="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+            class="cursor-pointer px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors font-medium"
           >
             取消
           </button>
           <button
             @click="handleUpdate"
             :disabled="editing"
-            class="btn-ember rounded-xl px-6 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-70"
+            class="btn-ember cursor-pointer rounded-xl px-6 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-70"
           >
             {{ editing ? '保存中...' : '保存修改' }}
           </button>
@@ -778,9 +767,3 @@ onMounted(async () => {
     </EmberFormDialog>
   </div>
 </template>
-
-<style scoped>
-:deep(.el-table) {
-  --el-table-header-bg-color: #f9fafb;
-}
-</style>
