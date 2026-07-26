@@ -279,9 +279,8 @@ router.beforeEach(async (to, _from, next) => {
         next({ name: 'login', query: { redirect: to.fullPath } })
         return
       }
-    } else {
-      authStore.setSessionFromProfile(userStore.profile)
     }
+    // profile 已就位时无需额外同步：role/passwordResetRequired 已从 userStore.profile 派生。
 
     if (requiredRole && requiredRole !== authStore.role) {
       ElMessage.warning('当前账号无权访问该页面')

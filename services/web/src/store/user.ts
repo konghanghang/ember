@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as consoleApi from '@/api/console'
-import { useAuthStore } from '@/store/auth'
 import type {
   MediaStats,
   UserInfo
 } from '@/types/api'
 
 export const useUserStore = defineStore('user', () => {
+  // P2-5：user store.profile 是 role/passwordResetRequired 的单一事实源，
+  // auth store 的对应字段从 profile 派生，不再需要双向同步。
   const profile = ref<UserInfo | null>(null)
   const mediaStats = ref<MediaStats | null>(null)
   const embyUrl = ref<string>('')
@@ -34,7 +35,6 @@ export const useUserStore = defineStore('user', () => {
   const fetchProfile = async () => {
     const res = await consoleApi.getProfile()
     setProfile(res)
-    useAuthStore().setSessionFromProfile(res)
     return res
   }
 
@@ -45,9 +45,12 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  /**
+   * 修改密码：成功后清除 passwordResetRequired 标记。
+   * P2-5 后只写 profile 这一事实源；auth store.passwordResetRequired 通过 computed 派生同步。
+   */
   const updatePassword = async (oldPassword: string, newPassword: string) => {
     await consoleApi.updatePassword({ oldPassword, newPassword })
-    useAuthStore().setPasswordResetRequired(false)
     if (profile.value) {
       profile.value.passwordResetRequired = false
     }
