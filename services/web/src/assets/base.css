@@ -33,7 +33,7 @@
 body {
   background-color: var(--bg-cinema);
   color: var(--text-primary);
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-family: system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -357,6 +357,23 @@ body {
 
 .input-ember .el-textarea__inner:focus {
   box-shadow: var(--ember-field-shadow-focus) !important;
+}
+
+/* Global fade-in utility: single source for page-level entrance animation.
+   Duration unified at 0.4s; covered by the prefers-reduced-motion fallback below. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease both;
 }
 
 @media (prefers-reduced-motion: reduce) {
