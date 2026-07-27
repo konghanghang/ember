@@ -2,17 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ChatDotRound,
   CopyDocument,
   FolderOpened,
-  Key,
   Lock,
-  Message,
-  Monitor,
-  UserFilled
+  Message
 } from '@element-plus/icons-vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import { formatDateTime } from '@/utils/date'
 import { isConflictError } from '@/utils/api-error'
 import { copyToClipboard as copyTextToClipboard } from '@/utils/clipboard'
@@ -29,10 +26,11 @@ import {
   resetUserMediaLibraryPreferences,
   sendEmailChangeCode,
   unbindTelegram,
-  updateUserMediaLibraries,
-  updatePassword
+  updateUserMediaLibraries
 } from '@/api/console'
 import type { AdminEmbyUserOption, TelegramBindCodeResponse, UserInfo, UserMediaLibrarySettings } from '@/types/api'
+
+type AccountTabKey = 'profile' | 'security' | 'media'
 
 const authStore = useAuthStore()
 const userStore = useUserStore()
@@ -49,6 +47,26 @@ const emptyUser: UserInfo = {
 }
 
 const user = computed(() => userStore.profile ?? emptyUser)
+
+/** 强制改密态：路由会锁在本页，默认进入安全分段并给出风险提示。 */
+const passwordResetRequired = computed(
+  () => authStore.passwordResetRequired || user.value.passwordResetRequired === true
+)
+
+const accountTabs = [
+  { key: 'profile', label: '基本资料' },
+  { key: 'security', label: '安全设置' },
+  { key: 'media', label: '媒体库偏好' },
+] as const
+
+const activeTab = ref<AccountTabKey>(passwordResetRequired.value ? 'security' : 'profile')
+
+watch(passwordResetRequired, (required) => {
+  if (required) {
+    activeTab.value = 'security'
+  }
+})
+
 const emailInput = ref('')
 const telegramBindCode = ref<TelegramBindCodeResponse | null>(null)
 const generatingBindCode = ref(false)
@@ -78,6 +96,8 @@ const bindingEmby = ref(false)
 const unbindingEmby = ref(false)
 const mediaLibrarySettings = ref<UserMediaLibrarySettings | null>(null)
 const selectedMediaLibraryIds = ref<string[]>([])
+/** 最近一次从服务端落盘的启用集合，用于计算本地未保存更改。 */
+const savedMediaLibraryIds = ref<string[]>([])
 const loadingMediaLibraries = ref(false)
 const savingMediaLibraries = ref(false)
 const resettingMediaLibraries = ref(false)
@@ -158,6 +178,15 @@ const mediaLibrarySyncing = computed(() => {
 })
 const mediaLibraryOutOfSync = computed(() => mediaLibrarySettings.value?.policySyncStatus === 'out_of_sync')
 
+const normalizeMediaLibraryIdKey = (ids: string[]) => [...ids].map(id => id.trim()).filter(Boolean).sort().join('\0')
+
+/** 勾选集合相对最近一次服务端快照是否有未保存差异。 */
+const mediaLibraryDirty = computed(() => {
+  if (!mediaLibrarySettings.value) return false
+  return normalizeMediaLibraryIdKey(selectedMediaLibraryIds.value)
+    !== normalizeMediaLibraryIdKey(savedMediaLibraryIds.value)
+})
+
 const embySummary = computed(() => {
   if (isEmbyLinked.value) return '已关联'
   if (authStore.isAdmin) return '可关联'
@@ -172,9 +201,11 @@ const mediaLibrarySyncPresentation = computed(() => {
 /** 用服务端返回的设置重置本地勾选状态，保证保存前后都以 API 契约为准。 */
 const applyMediaLibrarySettings = (settings: UserMediaLibrarySettings) => {
   mediaLibrarySettings.value = settings
-  selectedMediaLibraryIds.value = settings.libraries
+  const enabledIds = settings.libraries
     .filter(item => item.enabled)
     .map(item => item.id)
+  selectedMediaLibraryIds.value = enabledIds
+  savedMediaLibraryIds.value = [...enabledIds]
 }
 
 const showMediaLibrarySaveResult = (settings: UserMediaLibrarySettings, syncedMessage: string) => {
@@ -217,6 +248,16 @@ const setMediaLibrarySelection = (libraryId: string, selected: string | number |
     next.delete(normalizedID)
   }
   selectedMediaLibraryIds.value = Array.from(next)
+}
+
+/**
+ * 整卡切换媒体库勾选：卡片已有 hover/cursor 语义，点击空白处也必须生效。
+ * checkbox 自身变更走 setMediaLibrarySelection，并在模板里 stop 冒泡避免双切。
+ */
+const toggleMediaLibraryCard = (libraryId: string, inGroupTemplate: boolean) => {
+  if (!inGroupTemplate || mediaLibrarySyncing.value) return
+  const nextSelected = !selectedMediaLibraryIdSet.value.has(libraryId)
+  setMediaLibrarySelection(libraryId, nextSelected)
 }
 
 /** 读取当前用户的媒体库偏好；接口不可用时保留空态，不阻塞账号中心其他功能。 */
@@ -416,10 +457,11 @@ const handleUpdatePassword = async () => {
   }
 
   try {
-    await updatePassword({
-      oldPassword: passwordForm.value.oldPassword,
-      newPassword: passwordForm.value.newPassword
-    })
+    // 走 userStore：成功后清 passwordResetRequired，与 auth 派生态保持单一事实源。
+    await userStore.updatePassword(
+      passwordForm.value.oldPassword,
+      passwordForm.value.newPassword
+    )
     ElMessage.success('密码修改成功')
     passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
   } catch {
@@ -585,371 +627,414 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
-      <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-ember/10 text-ember">
-            <el-icon><UserFilled /></el-icon>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold text-gray-900">基本资料</h2>
-          </div>
-        </div>
+    <div
+      v-if="passwordResetRequired"
+      data-test="password-reset-banner"
+      class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      role="status"
+    >
+      当前账号必须先修改密码
+    </div>
 
-        <div class="mt-6 grid gap-5 md:grid-cols-2">
-          <div class="space-y-2">
-            <p class="text-xs font-semibold text-gray-500">用户名</p>
-            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-              {{ user.username || '-' }}
+    <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div class="border-b border-gray-100 px-4 py-4 sm:px-6">
+        <div data-test="account-section-nav" class="w-full overflow-x-auto">
+          <EmberSegmentTabs
+            v-model="activeTab"
+            :tabs="[...accountTabs]"
+            aria-label="账号中心分段"
+            ariaLabel="账号中心分段"
+            :full-width="true"
+          />
+        </div>
+      </div>
+
+      <!-- 内容区全宽铺开，并用最小高度避免宽屏白卡只剩一条细内容 -->
+      <div class="min-h-[calc(100vh-14rem)] p-6 sm:p-8">
+        <!-- 基本资料：账号信息 + 邮箱 + Emby/Telegram 绑定 -->
+        <div
+          v-show="activeTab === 'profile'"
+          id="account-profile"
+          data-test="account-section-profile"
+          class="space-y-8"
+        >
+          <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div class="space-y-2 rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+              <p class="text-xs font-semibold text-gray-500">用户名</p>
+              <p class="truncate text-base font-medium text-gray-900">{{ user.username || '-' }}</p>
+            </div>
+            <div class="space-y-2 rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+              <p class="text-xs font-semibold text-gray-500">有效期</p>
+              <p class="truncate text-base font-medium text-gray-900">
+                {{ user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效' }}
+              </p>
+            </div>
+            <div class="space-y-2 rounded-2xl border border-gray-100 bg-gray-50/70 p-4 sm:col-span-2 xl:col-span-1">
+              <p class="text-xs font-semibold text-gray-500">创建时间</p>
+              <p class="truncate text-base font-medium text-gray-900">
+                {{ formatDateTime(user.createdAt, 'short') }}
+              </p>
             </div>
           </div>
-          <div class="space-y-2">
-            <p class="text-xs font-semibold text-gray-500">有效期</p>
-            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-              {{ user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效' }}
-            </div>
-          </div>
-          <div class="space-y-2 md:col-span-2">
+
+          <div class="rounded-2xl border border-gray-100 p-5 sm:p-6">
             <label for="account-email" class="text-xs font-semibold text-gray-500">联系邮箱</label>
-            <div class="flex flex-col gap-3 sm:flex-row">
+            <div class="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center">
               <el-input
                 id="account-email"
                 v-model="emailInput"
                 type="email"
                 placeholder="name@example.com"
                 :prefix-icon="Message"
-                class="input-ember sm:flex-1"
+                class="input-ember lg:flex-1"
                 @blur="handleEmailBlur"
                 @input="handleEmailInput"
               />
               <button
-                class="btn-ember rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer disabled:opacity-60"
+                type="button"
+                class="btn-ember h-11 shrink-0 rounded-xl px-6 text-sm font-semibold cursor-pointer disabled:opacity-60"
                 :disabled="sendingEmailCode"
                 @click="handleSaveEmail"
               >
                 {{ sendingEmailCode ? '发送中...' : '保存邮箱' }}
               </button>
             </div>
-            <p v-if="emailDomainError" class="text-xs text-red-600 leading-5">
+            <p v-if="emailDomainError" class="mt-2 text-xs leading-5 text-red-600">
               {{ emailDomainError }}
             </p>
-            <p v-else-if="hasDomainAllowlist" class="text-xs text-gray-500 leading-5">
+            <p v-else-if="hasDomainAllowlist" class="mt-2 text-xs leading-5 text-gray-500">
               {{ allowedDomainsHint }}
             </p>
-            <p class="text-xs text-gray-500">用于找回密码和接收系统通知。</p>
+            <p v-else class="mt-2 text-xs leading-5 text-gray-500">用于找回密码和接收系统通知。</p>
           </div>
-          <div class="space-y-2">
-            <p class="text-xs font-semibold text-gray-500">创建时间</p>
-            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-              {{ formatDateTime(user.createdAt, 'short') }}
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-700">
-            <el-icon><Key /></el-icon>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold text-gray-900">安全设置</h2>
-          </div>
-        </div>
-
-        <div class="mt-6 space-y-4">
-          <div class="space-y-1">
-            <label for="current-password" class="ml-1 text-xs font-semibold text-gray-500">当前密码</label>
-            <el-input
-              id="current-password"
-              v-model="passwordForm.oldPassword"
-              type="password"
-              show-password
-              placeholder="请输入当前密码"
-              :prefix-icon="Lock"
-              class="input-ember"
-            />
-          </div>
-          <div class="space-y-1">
-            <label for="new-password" class="ml-1 text-xs font-semibold text-gray-500">新密码</label>
-            <el-input
-              id="new-password"
-              v-model="passwordForm.newPassword"
-              type="password"
-              show-password
-              placeholder="请输入新密码"
-              :prefix-icon="Lock"
-              class="input-ember"
-            />
-          </div>
-          <div class="space-y-1">
-            <label for="confirm-password" class="ml-1 text-xs font-semibold text-gray-500">确认新密码</label>
-            <el-input
-              id="confirm-password"
-              v-model="passwordForm.confirmPassword"
-              type="password"
-              show-password
-              placeholder="请再次输入新密码"
-              :prefix-icon="Lock"
-              class="input-ember"
-            />
-          </div>
-          <button
-            class="btn-ember w-full rounded-2xl px-5 py-3 text-sm font-semibold cursor-pointer"
-            @click="handleUpdatePassword"
+          <div
+            id="account-bindings"
+            data-test="account-section-bindings"
+            class="grid gap-4 lg:grid-cols-2 lg:items-stretch"
           >
-            更新密码
-          </button>
-          <p class="text-xs leading-6 text-gray-500">
-            修改密码后，控制台与 Emby 客户端使用同一套新密码重新登录。
-          </p>
-        </div>
-      </section>
-    </div>
-
-    <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 class="text-lg font-semibold text-gray-900">连接与绑定</h2>
-        </div>
-      </div>
-
-      <div class="mt-6 grid gap-4 lg:grid-cols-2">
-        <article class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex items-center gap-3">
-              <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gray-100 text-gray-700">
-                <el-icon><Monitor /></el-icon>
+            <article
+              data-test="binding-emby"
+              class="flex min-h-[12rem] flex-col rounded-2xl border border-gray-100 bg-gray-50/50 p-5 sm:p-6"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <h3 class="text-base font-semibold text-gray-900">Emby 账号</h3>
+                <span
+                  class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                  :class="isEmbyLinked ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'"
+                >
+                  <span
+                    class="h-1.5 w-1.5 rounded-full"
+                    :class="isEmbyLinked ? 'bg-emerald-500' : 'bg-gray-400'"
+                  ></span>
+                  {{ embySummary }}
+                </span>
               </div>
-              <div>
-                <h3 class="text-sm font-semibold text-gray-900">Emby 账号</h3>
+
+              <div class="mt-5 flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+                <code class="min-w-0 flex-1 truncate rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+                  {{ user.embyId || '待激活' }}
+                </code>
+                <button
+                  v-if="user.embyId"
+                  type="button"
+                  aria-label="复制 Emby ID"
+                  class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
+                  @click="copyToClipboard(user.embyId)"
+                >
+                  <el-icon><CopyDocument /></el-icon>
+                </button>
               </div>
-            </div>
-            <span
-              class="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-              :class="isEmbyLinked ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'"
-            >
-              <span class="h-2 w-2 rounded-full" :class="isEmbyLinked ? 'bg-emerald-500' : 'bg-gray-400'"></span>
-              {{ embySummary }}
-            </span>
-          </div>
 
-          <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <code class="min-w-0 flex-1 truncate rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
-              {{ user.embyId || '待激活' }}
-            </code>
-            <button
-              v-if="user.embyId"
-              type="button"
-              aria-label="复制 Emby ID"
-              class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
-              @click="copyToClipboard(user.embyId)"
-            >
-              <el-icon><CopyDocument /></el-icon>
-            </button>
-          </div>
-
-          <div v-if="authStore.isAdmin" class="mt-4 flex flex-wrap gap-2">
-            <button
-              v-if="!user.embyId"
-              type="button"
-              class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer disabled:opacity-60"
-              :disabled="bindingEmby"
-              @click="handleOpenEmbyBindDialog"
-            >
-              关联 Emby 账号
-            </button>
-            <button
-              v-else
-              type="button"
-              class="inline-flex h-11 items-center justify-center rounded-xl border border-red-200 bg-white px-5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
-              :disabled="unbindingEmby"
-              @click="handleUnbindEmby"
-            >
-              {{ unbindingEmby ? '解除中...' : '解除关联' }}
-            </button>
-          </div>
-        </article>
-
-        <article class="rounded-2xl border border-gray-200 bg-gray-50 p-5">
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex items-center gap-3">
-              <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
-                <el-icon><ChatDotRound /></el-icon>
+              <div v-if="authStore.isAdmin" class="mt-auto flex flex-wrap gap-2 pt-5">
+                <button
+                  v-if="!user.embyId"
+                  type="button"
+                  class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm cursor-pointer disabled:opacity-60"
+                  :disabled="bindingEmby"
+                  @click="handleOpenEmbyBindDialog"
+                >
+                  关联 Emby 账号
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="inline-flex h-11 items-center justify-center rounded-xl border border-red-200 bg-white px-5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
+                  :disabled="unbindingEmby"
+                  @click="handleUnbindEmby"
+                >
+                  {{ unbindingEmby ? '解除中...' : '解除关联' }}
+                </button>
               </div>
-              <div>
-                <h3 class="text-sm font-semibold text-gray-900">Telegram Bot</h3>
-              </div>
-            </div>
-            <span
-              class="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-              :class="isTelegramBound ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-600'"
-            >
-              <span class="h-2 w-2 rounded-full" :class="isTelegramBound ? 'bg-sky-500' : 'bg-gray-400'"></span>
-              {{ isTelegramBound ? '已绑定' : '未绑定' }}
-            </span>
-          </div>
+            </article>
 
-          <div class="mt-5">
-            <div v-if="isTelegramBound" class="rounded-2xl border border-sky-100 bg-sky-50 p-4">
-              <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p class="text-sm font-semibold text-sky-900">当前已绑定 Telegram</p>
-                  <p class="mt-1 text-xs font-mono text-sky-700">ID: {{ user.telegramId }}</p>
+            <article
+              data-test="binding-telegram"
+              class="flex min-h-[12rem] flex-col rounded-2xl border border-gray-100 bg-gray-50/50 p-5 sm:p-6"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <h3 class="text-base font-semibold text-gray-900">Telegram Bot</h3>
+                <span
+                  class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+                  :class="isTelegramBound ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'"
+                >
+                  <span
+                    class="h-1.5 w-1.5 rounded-full"
+                    :class="isTelegramBound ? 'bg-emerald-500' : 'bg-gray-400'"
+                  ></span>
+                  {{ isTelegramBound ? '已绑定' : '未绑定' }}
+                </span>
+              </div>
+
+              <div class="mt-5 flex flex-1 flex-col">
+                <div v-if="isTelegramBound" class="flex flex-1 flex-col gap-4">
+                  <code class="block truncate rounded-xl border border-gray-200 bg-white px-4 py-3 font-mono text-sm text-gray-700">
+                    {{ user.telegramId }}
+                  </code>
+                  <div class="mt-auto">
+                    <button
+                      type="button"
+                      class="inline-flex h-11 items-center justify-center rounded-xl border border-red-200 bg-white px-5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
+                      :disabled="unbinding"
+                      @click="handleUnbindTelegram"
+                    >
+                      {{ unbinding ? '解绑中...' : '解除绑定' }}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  class="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 cursor-pointer disabled:opacity-60"
-                  :disabled="unbinding"
-                  @click="handleUnbindTelegram"
-                >
-                  {{ unbinding ? '解绑中...' : '解除绑定' }}
-                </button>
+
+                <div v-else-if="telegramBindCode" class="space-y-3">
+                  <code class="block rounded-xl border border-gray-200 bg-white px-4 py-5 text-center text-xl font-bold tracking-wider text-gray-900 sm:text-2xl">
+                    /bind {{ telegramBindCode.code }}
+                  </code>
+                  <div class="flex flex-col gap-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+                    <span>有效至 {{ formatDateTime(telegramBindCode.expiresAt, 'time') }}</span>
+                    <button
+                      type="button"
+                      class="font-semibold text-ember transition-colors hover:text-ember/80 cursor-pointer disabled:opacity-60"
+                      :disabled="generatingBindCode"
+                      @click="handleGenerateBindCode"
+                    >
+                      {{ generatingBindCode ? '生成中...' : '重新生成验证码' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div v-else class="mt-auto">
+                  <button
+                    type="button"
+                    class="btn-ember inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-semibold cursor-pointer disabled:opacity-60"
+                    :disabled="generatingBindCode"
+                    @click="handleGenerateBindCode"
+                  >
+                    {{ generatingBindCode ? '生成中...' : '生成绑定验证码' }}
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <!-- 安全设置：表单与说明并排，宽屏填满 -->
+        <div
+          v-show="activeTab === 'security'"
+          id="account-security"
+          data-test="account-section-security"
+          class="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(16rem,0.8fr)]"
+        >
+          <div class="space-y-5 rounded-2xl border border-gray-100 p-5 sm:p-6">
+            <div class="grid gap-5 md:grid-cols-2">
+              <div class="space-y-1.5 md:col-span-2">
+                <label for="current-password" class="text-xs font-semibold text-gray-500">当前密码</label>
+                <el-input
+                  id="current-password"
+                  v-model="passwordForm.oldPassword"
+                  type="password"
+                  show-password
+                  placeholder="请输入当前密码"
+                  :prefix-icon="Lock"
+                  class="input-ember"
+                />
+              </div>
+              <div class="space-y-1.5">
+                <label for="new-password" class="text-xs font-semibold text-gray-500">新密码</label>
+                <el-input
+                  id="new-password"
+                  v-model="passwordForm.newPassword"
+                  type="password"
+                  show-password
+                  placeholder="请输入新密码"
+                  :prefix-icon="Lock"
+                  class="input-ember"
+                />
+              </div>
+              <div class="space-y-1.5">
+                <label for="confirm-password" class="text-xs font-semibold text-gray-500">确认新密码</label>
+                <el-input
+                  id="confirm-password"
+                  v-model="passwordForm.confirmPassword"
+                  type="password"
+                  show-password
+                  placeholder="请再次输入新密码"
+                  :prefix-icon="Lock"
+                  class="input-ember"
+                />
               </div>
             </div>
-
-            <div v-else-if="telegramBindCode" class="rounded-2xl border border-sky-100 bg-sky-50 p-4">
-              <p class="text-sm font-semibold text-sky-900">发送以下命令到 Bot 完成绑定</p>
-              <code class="mt-3 block rounded-2xl border border-sky-200 bg-white px-4 py-4 text-center text-2xl font-bold tracking-wider text-sky-900">
-                /bind {{ telegramBindCode.code }}
-              </code>
-              <div class="mt-3 flex flex-col gap-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
-                <span>有效至 {{ formatDateTime(telegramBindCode.expiresAt, 'time') }}</span>
-                <button
-                  class="font-semibold text-sky-700 transition-colors hover:text-sky-900 cursor-pointer disabled:opacity-60"
-                  :disabled="generatingBindCode"
-                  @click="handleGenerateBindCode"
-                >
-                  {{ generatingBindCode ? '生成中...' : '重新生成验证码' }}
-                </button>
-              </div>
-            </div>
-
-            <div v-else class="rounded-2xl border border-gray-200 bg-white p-4">
+            <div class="flex justify-end">
               <button
-                class="btn-ember rounded-xl px-5 py-3 text-sm font-semibold cursor-pointer disabled:opacity-60"
-                :disabled="generatingBindCode"
-                @click="handleGenerateBindCode"
+                type="button"
+                class="btn-ember h-11 rounded-xl px-6 text-sm font-semibold cursor-pointer sm:min-w-[10rem]"
+                @click="handleUpdatePassword"
               >
-                {{ generatingBindCode ? '生成中...' : '生成绑定验证码' }}
+                更新密码
               </button>
             </div>
           </div>
-        </article>
-      </div>
-    </section>
 
-    <section class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-50 text-orange-600">
-            <el-icon><FolderOpened /></el-icon>
-          </div>
-          <div>
-            <h2 class="text-lg font-semibold text-gray-900">媒体库偏好</h2>
-            <p class="mt-1 text-xs text-gray-500">
-              {{ mediaLibrarySettings?.planGroupName || '当前分组' }} · {{ hasMediaLibraryPreferences ? '自定义' : '跟随分组模板' }}
+          <aside class="rounded-2xl border border-gray-100 bg-gray-50/70 p-5 sm:p-6">
+            <h3 class="text-sm font-semibold text-gray-900">密码说明</h3>
+            <p class="mt-3 text-sm leading-6 text-gray-600">
+              控制台与 Emby 客户端共用同一套账号密码。修改后需用新密码重新登录两端。
             </p>
-          </div>
+          </aside>
         </div>
 
-        <div v-if="mediaLibrarySettings" class="flex flex-wrap items-center gap-2">
-          <el-tag :type="mediaLibrarySyncPresentation.tagType" effect="light" round>
-            {{ mediaLibrarySyncPresentation.label }}
-          </el-tag>
-          <el-tag type="info" effect="light" round>
-            {{ mediaLibrarySettings.enabledCount }} / {{ mediaLibrarySettings.templateCount }}
-          </el-tag>
-        </div>
-      </div>
-
-      <div v-loading="loadingMediaLibraries" class="mt-6">
-        <EmberEmptyStateCard
-          v-if="!loadingMediaLibraries && !mediaLibrarySettings"
-          title="媒体库偏好不可用"
-          description="当前账号暂时无法读取媒体库模板。"
-          :icon="FolderOpened"
-          compact
+        <!-- 媒体库偏好：工具条 + 多列网格铺满 -->
+        <div
+          v-show="activeTab === 'media'"
+          id="account-media-libraries"
+          data-test="account-section-media"
+          class="space-y-5"
+          v-loading="loadingMediaLibraries"
         >
-          <template #actions>
-            <button
-              type="button"
-              class="btn-ember rounded-xl px-4 py-2 text-sm font-semibold"
-              @click="loadMediaLibraries"
-            >
-              重新加载
-            </button>
-          </template>
-        </EmberEmptyStateCard>
-
-        <EmberEmptyStateCard
-          v-else-if="!hasMediaLibraryOptions"
-          title="暂无可选媒体库"
-          description="当前分组还没有配置媒体库模板。"
-          :icon="FolderOpened"
-          compact
-        />
-
-        <div v-else class="space-y-5">
           <div
-            v-if="mediaLibrarySyncing"
-            class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+            v-if="mediaLibrarySettings"
+            class="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-gray-50/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"
           >
-            当前媒体库权限正在同步，完成后再修改偏好。
-          </div>
-          <div
-            v-else-if="mediaLibraryOutOfSync"
-            class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
-          >
-            分组模板已更新，当前 Emby 权限仍待同步。可直接点击“同步到 Emby”应用当前设置。
-          </div>
-
-          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <div
-              v-for="library in mediaLibrarySettings?.libraries"
-              :key="library.id"
-              :data-library-id="library.id"
-              class="flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 transition-colors hover:border-ember/40 hover:bg-ember/5"
-              :class="!library.inGroupTemplate ? 'opacity-60' : ''"
-            >
-              <el-checkbox
-                :model-value="selectedMediaLibraryIdSet.has(library.id)"
-                :disabled="!library.inGroupTemplate || mediaLibrarySyncing"
-                size="large"
-                @update:model-value="(value: string | number | boolean) => setMediaLibrarySelection(library.id, value)"
-              />
-              <span class="min-w-0">
-                <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
-                <span class="mt-1 block text-xs text-gray-500">{{ formatMediaLibrarySummary(library) }}</span>
+            <p class="text-sm text-gray-600">
+              {{ mediaLibrarySettings.planGroupName || '当前分组' }}
+              ·
+              {{ hasMediaLibraryPreferences ? '自定义' : '跟随分组模板' }}
+              ·
+              {{ mediaLibrarySettings.enabledCount }} / {{ mediaLibrarySettings.templateCount }}
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+                :class="{
+                  'bg-emerald-50 text-emerald-700': mediaLibrarySyncPresentation.tagType === 'success',
+                  'bg-amber-50 text-amber-700': mediaLibrarySyncPresentation.tagType === 'warning',
+                  'bg-red-50 text-red-700': mediaLibrarySyncPresentation.tagType === 'danger',
+                  'bg-sky-50 text-sky-700': mediaLibrarySyncPresentation.tagType === 'info',
+                }"
+              >
+                {{ mediaLibrarySyncPresentation.label }}
               </span>
+              <button
+                type="button"
+                class="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="applyingCurrentMediaLibraryPolicy || mediaLibrarySyncing"
+                @click="handleApplyCurrentMediaLibraryPolicy"
+              >
+                {{ applyingCurrentMediaLibraryPolicy ? '同步中...' : '同步到 Emby' }}
+              </button>
             </div>
           </div>
 
-          <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="applyingCurrentMediaLibraryPolicy || mediaLibrarySyncing"
-              @click="handleApplyCurrentMediaLibraryPolicy"
+          <EmberEmptyStateCard
+            v-if="!loadingMediaLibraries && !mediaLibrarySettings"
+            title="媒体库偏好不可用"
+            description="当前账号暂时无法读取媒体库模板。"
+            :icon="FolderOpened"
+            compact
+          >
+            <template #actions>
+              <button
+                type="button"
+                class="btn-ember rounded-xl px-4 py-2 text-sm font-semibold cursor-pointer"
+                @click="loadMediaLibraries"
+              >
+                重新加载
+              </button>
+            </template>
+          </EmberEmptyStateCard>
+
+          <EmberEmptyStateCard
+            v-else-if="!loadingMediaLibraries && !hasMediaLibraryOptions"
+            title="暂无可选媒体库"
+            description="当前分组还没有配置媒体库模板。"
+            :icon="FolderOpened"
+            compact
+          />
+
+          <template v-else-if="hasMediaLibraryOptions">
+            <div
+              v-if="mediaLibrarySyncing"
+              class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
             >
-              {{ applyingCurrentMediaLibraryPolicy ? '同步中...' : '同步到 Emby' }}
-            </button>
-            <button
-              type="button"
-              class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="resettingMediaLibraries || mediaLibrarySyncing || !hasMediaLibraryPreferences"
-              @click="handleResetMediaLibraries"
+              当前媒体库权限正在同步，完成后再修改偏好。
+            </div>
+            <div
+              v-else-if="mediaLibraryOutOfSync"
+              class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
             >
-              {{ resettingMediaLibraries ? '恢复中...' : '恢复默认' }}
-            </button>
-            <button
-              type="button"
-              class="btn-ember rounded-xl px-5 py-2.5 text-sm font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="savingMediaLibraries || mediaLibrarySyncing"
-              @click="handleSaveMediaLibraries"
+              分组模板已更新，当前 Emby 权限仍待同步。
+            </div>
+            <p
+              v-if="mediaLibraryDirty"
+              data-test="media-library-dirty"
+              class="text-xs font-medium text-amber-700"
             >
-              {{ savingMediaLibraries ? '保存中...' : '保存偏好' }}
-            </button>
-          </div>
+              有未保存更改
+            </p>
+
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div
+                v-for="library in mediaLibrarySettings?.libraries"
+                :key="library.id"
+                :data-library-id="library.id"
+                role="button"
+                tabindex="0"
+                class="flex min-h-[4.75rem] cursor-pointer items-start gap-3 rounded-2xl border border-gray-200 bg-gray-50/60 p-4 transition-colors hover:border-ember/40 hover:bg-ember/5 focus:outline-none focus:ring-4 focus:ring-ember/10"
+                :class="!library.inGroupTemplate || mediaLibrarySyncing ? 'opacity-60' : ''"
+                @click="toggleMediaLibraryCard(library.id, library.inGroupTemplate)"
+                @keydown.enter.prevent="toggleMediaLibraryCard(library.id, library.inGroupTemplate)"
+                @keydown.space.prevent="toggleMediaLibraryCard(library.id, library.inGroupTemplate)"
+              >
+                <el-checkbox
+                  :model-value="selectedMediaLibraryIdSet.has(library.id)"
+                  :disabled="!library.inGroupTemplate || mediaLibrarySyncing"
+                  size="large"
+                  @click.stop
+                  @update:model-value="(value: string | number | boolean) => setMediaLibrarySelection(library.id, value)"
+                />
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-semibold text-gray-900">{{ library.name }}</span>
+                  <span class="mt-1 block text-xs text-gray-500">{{ formatMediaLibrarySummary(library) }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="flex flex-col-reverse gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                class="h-11 rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="resettingMediaLibraries || mediaLibrarySyncing || !hasMediaLibraryPreferences"
+                @click="handleResetMediaLibraries"
+              >
+                {{ resettingMediaLibraries ? '恢复中...' : '恢复默认' }}
+              </button>
+              <button
+                type="button"
+                class="btn-ember h-11 rounded-xl px-5 text-sm font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="savingMediaLibraries || mediaLibrarySyncing"
+                @click="handleSaveMediaLibraries"
+              >
+                {{ savingMediaLibraries ? '保存中...' : '保存偏好' }}
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </section>

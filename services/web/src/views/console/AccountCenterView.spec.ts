@@ -74,14 +74,20 @@ const userStoreState = reactive({
     embyDisabled: false,
     isActive: true,
     createdAt: '2026-01-01T00:00:00Z',
+    passwordResetRequired: false as boolean | undefined,
   },
 })
 const authStoreState = reactive({
   isAdmin: false,
+  passwordResetRequired: false,
 })
 
 const updateEmailMock = vi.fn(async (newEmail: string, _code: string) => {
   userStoreState.profile.email = newEmail
+})
+const updatePasswordMock = vi.fn(async (_oldPassword: string, _newPassword: string) => {
+  userStoreState.profile.passwordResetRequired = false
+  authStoreState.passwordResetRequired = false
 })
 const setProfileMock = vi.fn()
 const fetchProfileMock = vi.fn()
@@ -92,6 +98,7 @@ vi.mock('@/store/user', () => ({
       return userStoreState.profile
     },
     updateEmail: updateEmailMock,
+    updatePassword: updatePasswordMock,
     setProfile: setProfileMock,
     fetchProfile: fetchProfileMock,
   })),
@@ -101,6 +108,9 @@ vi.mock('@/store/auth', () => ({
   useAuthStore: vi.fn(() => ({
     get isAdmin() {
       return authStoreState.isAdmin
+    },
+    get passwordResetRequired() {
+      return authStoreState.passwordResetRequired
     },
   })),
 }))
@@ -235,6 +245,16 @@ function mountView() {
   })
 }
 
+/** 切换账号中心分段（EmberSegmentTabs 使用 role=radio）。 */
+async function switchAccountTab(wrapper: ReturnType<typeof mountView>, label: string) {
+  const tab = wrapper
+    .findAll('[role="radio"]')
+    .find(item => item.text().includes(label))
+  expect(tab, `未找到分段: ${label}`).toBeTruthy()
+  await tab!.trigger('click')
+  await flushPromises()
+}
+
 function findEmailInput(wrapper: ReturnType<typeof mountView>) {
   const input = wrapper.find('input[placeholder="name@example.com"]')
   expect(input.exists(), '未找到联系邮箱输入框').toBe(true)
@@ -351,8 +371,10 @@ describe('AccountCenterView 邮箱变更验证码弹窗', () => {
       embyDisabled: false,
       isActive: true,
       createdAt: '2026-01-01T00:00:00Z',
+      passwordResetRequired: false,
     }
     authStoreState.isAdmin = false
+    authStoreState.passwordResetRequired = false
   })
 
   it('邮箱格式不合法时不发送验证码并弹 warning', async () => {
@@ -470,8 +492,10 @@ describe('AccountCenterView 媒体库偏好', () => {
       embyDisabled: false,
       isActive: true,
       createdAt: '2026-01-01T00:00:00Z',
+      passwordResetRequired: false,
     }
     authStoreState.isAdmin = false
+    authStoreState.passwordResetRequired = false
     vi.mocked(getUserMediaLibraries).mockResolvedValue({
       data: {
         userId: 'u1',
@@ -546,6 +570,7 @@ describe('AccountCenterView 媒体库偏好', () => {
   it('加载媒体库偏好并按已启用集合保存', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     expect(getUserMediaLibraries).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('媒体库偏好')
@@ -595,6 +620,7 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     const seriesCheckbox = wrapper.find('[data-library-id="lib_series"] input[type="checkbox"]')
     expect(seriesCheckbox.exists(), '未找到剧集媒体库 checkbox').toBe(true)
@@ -627,6 +653,7 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
     expect(saveButton, '未找到保存偏好按钮').toBeTruthy()
@@ -655,6 +682,7 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
     expect(saveButton, '未找到保存偏好按钮').toBeTruthy()
@@ -670,6 +698,7 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     setupStateOf(wrapper).selectedMediaLibraryIds = []
     await flushPromises()
@@ -696,6 +725,7 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     setupStateOf(wrapper).selectedMediaLibraryIds = []
     await flushPromises()
@@ -711,6 +741,7 @@ describe('AccountCenterView 媒体库偏好', () => {
   it('恢复默认会调用偏好删除接口', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     const resetButton = wrapper.findAll('button').find(item => item.text().includes('恢复默认'))
     expect(resetButton, '未找到恢复默认按钮').toBeTruthy()
@@ -738,6 +769,7 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     const resetButton = wrapper.findAll('button').find(item => item.text().includes('恢复默认'))
     expect(resetButton, '未找到恢复默认按钮').toBeTruthy()
@@ -752,6 +784,7 @@ describe('AccountCenterView 媒体库偏好', () => {
   it('可以把当前有效媒体库设置重新同步到 Emby', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     const applyButton = wrapper.findAll('button').find(item => item.text().includes('同步到 Emby'))
     expect(applyButton, '未找到同步到 Emby按钮').toBeTruthy()
@@ -767,12 +800,115 @@ describe('AccountCenterView 媒体库偏好', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
 
     const saveButton = wrapper.findAll('button').find(item => item.text().includes('保存偏好'))
     await saveButton!.trigger('click')
     await flushPromises()
 
     expect(ElMessage.warning).toHaveBeenCalledWith('媒体库权限正在同步，稍后再保存')
+  })
+
+  it('点击媒体库行可切换勾选，并展示未保存更改提示', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await switchAccountTab(wrapper, '媒体库偏好')
+
+    expect(wrapper.find('[data-test="media-library-dirty"]').exists()).toBe(false)
+
+    const seriesCard = wrapper.find('[data-library-id="lib_series"]')
+    expect(seriesCard.exists(), '未找到剧集媒体库行').toBe(true)
+    await seriesCard.trigger('click')
+    await flushPromises()
+
+    expect(setupStateOf(wrapper).selectedMediaLibraryIds).toEqual(['lib_movie', 'lib_series'])
+    expect(wrapper.find('[data-test="media-library-dirty"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="media-library-dirty"]').text()).toContain('有未保存更改')
+  })
+})
+
+describe('AccountCenterView 布局与强制改密', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchProfileMock.mockResolvedValue(undefined)
+    userStoreState.profile = {
+      id: 'u1',
+      username: 'demo',
+      role: 'user',
+      email: 'old@example.com',
+      embyId: '',
+      embyDisabled: false,
+      isActive: true,
+      createdAt: '2026-01-01T00:00:00Z',
+      passwordResetRequired: false,
+    }
+    authStoreState.isAdmin = false
+    authStoreState.passwordResetRequired = false
+    vi.mocked(getUserMediaLibraries).mockResolvedValue({
+      data: {
+        userId: 'u1',
+        embyId: '',
+        planGroup: 'VIP',
+        planGroupName: 'VIP',
+        customized: false,
+        templateCount: 0,
+        enabledCount: 0,
+        policySyncStatus: 'synced',
+        libraries: [],
+      },
+    })
+  })
+
+  it('渲染三段导航，连接绑定并入基本资料', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const nav = wrapper.find('[data-test="account-section-nav"]')
+    expect(nav.exists()).toBe(true)
+    expect(nav.text()).toContain('基本资料')
+    expect(nav.text()).toContain('安全设置')
+    expect(nav.text()).toContain('媒体库偏好')
+    expect(nav.text()).not.toContain('连接与绑定')
+
+    expect(wrapper.find('#account-profile').exists()).toBe(true)
+    expect(wrapper.find('#account-security').exists()).toBe(true)
+    expect(wrapper.find('#account-bindings').exists()).toBe(true)
+    expect(wrapper.find('#account-media-libraries').exists()).toBe(true)
+    // 连接区挂在基本资料分段内，默认可见
+    expect(wrapper.find('[data-test="account-section-bindings"]').isVisible()).toBe(true)
+
+    const profileTab = wrapper.findAll('[role="radio"]').find(item => item.text().includes('基本资料'))
+    expect(profileTab?.attributes('aria-checked')).toBe('true')
+  })
+
+  it('强制改密时展示风险提示，并默认进入安全设置分段', async () => {
+    authStoreState.passwordResetRequired = true
+    userStoreState.profile.passwordResetRequired = true
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const banner = wrapper.find('[data-test="password-reset-banner"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('当前账号必须先修改密码')
+
+    const securityTab = wrapper.findAll('[role="radio"]').find(item => item.text().includes('安全设置'))
+    expect(securityTab?.attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-test="account-section-security"]').isVisible()).toBe(true)
+  })
+
+  it('连接区并入基本资料，使用统一双列卡片且无 sky 整块强调', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    // 默认就是基本资料分段，无需再切「连接与绑定」
+
+    const embyCard = wrapper.find('[data-test="binding-emby"]')
+    const telegramCard = wrapper.find('[data-test="binding-telegram"]')
+    expect(embyCard.exists()).toBe(true)
+    expect(telegramCard.exists()).toBe(true)
+    expect(embyCard.classes().join(' ')).toMatch(/border-gray/)
+    expect(telegramCard.classes().join(' ')).toMatch(/border-gray/)
+    expect(telegramCard.html()).not.toMatch(/bg-sky/)
   })
 })
 
@@ -814,6 +950,7 @@ describe('AccountCenterView 管理员 Emby 绑定', () => {
       ],
     })
     authStoreState.isAdmin = true
+    authStoreState.passwordResetRequired = false
     userStoreState.profile = {
       id: 'admin_1',
       username: 'admin',
@@ -823,6 +960,7 @@ describe('AccountCenterView 管理员 Emby 绑定', () => {
       embyDisabled: false,
       isActive: true,
       createdAt: '2026-01-01T00:00:00Z',
+      passwordResetRequired: false,
     }
   })
 
@@ -906,13 +1044,16 @@ describe('AccountCenterView 密码修改', () => {
       embyDisabled: false,
       isActive: true,
       createdAt: '2026-01-01T00:00:00Z',
+      passwordResetRequired: false,
     }
     authStoreState.isAdmin = false
+    authStoreState.passwordResetRequired = false
   })
 
   it('两次空串密码不再绕过校验，明确拒绝并提示', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await switchAccountTab(wrapper, '安全设置')
 
     // passwordForm 默认三字段均为空串，过去两次空串相等会绕过不一致校验
     const updateButton = wrapper.findAll('button').find(item => item.text().includes('更新密码'))
@@ -921,6 +1062,33 @@ describe('AccountCenterView 密码修改', () => {
     await flushPromises()
 
     expect(ElMessage.warning).toHaveBeenCalledWith('请填写完整的密码信息')
+    expect(updatePasswordMock).not.toHaveBeenCalled()
     expect(updatePassword).not.toHaveBeenCalled()
+  })
+
+  it('改密成功走 userStore 并清除强制改密标记', async () => {
+    authStoreState.passwordResetRequired = true
+    userStoreState.profile.passwordResetRequired = true
+
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-test="password-reset-banner"]').exists()).toBe(true)
+
+    const inputs = wrapper.findAll('input[type="password"]')
+    expect(inputs.length).toBeGreaterThanOrEqual(3)
+    await inputs[0].setValue('old-pass')
+    await inputs[1].setValue('new-pass-1')
+    await inputs[2].setValue('new-pass-1')
+
+    const updateButton = wrapper.findAll('button').find(item => item.text().includes('更新密码'))
+    await updateButton!.trigger('click')
+    await flushPromises()
+
+    expect(updatePasswordMock).toHaveBeenCalledWith('old-pass', 'new-pass-1')
+    expect(updatePassword).not.toHaveBeenCalled()
+    expect(ElMessage.success).toHaveBeenCalledWith('密码修改成功')
+    expect(userStoreState.profile.passwordResetRequired).toBe(false)
+    expect(authStoreState.passwordResetRequired).toBe(false)
+    expect(wrapper.find('[data-test="password-reset-banner"]').exists()).toBe(false)
   })
 })
