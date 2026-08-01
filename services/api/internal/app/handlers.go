@@ -35,10 +35,15 @@ type appHandlers struct {
 }
 
 func newAppHandlers() (*appHandlers, error) {
+	return newAppHandlersWithP115Validator(p115integration.NewCookieCredentialValidator())
+}
+
+// newAppHandlersWithP115Validator builds the handler graph with an explicit 115 validation boundary.
+func newAppHandlersWithP115Validator(validator p115integration.CredentialValidator) (*appHandlers, error) {
 	p115AccountService, err := p115accountpkg.NewService(
 		db.DB,
 		os.Getenv("CONFIG_ENCRYPTION_KEY"),
-		p115integration.NewCookieCredentialValidator(),
+		validator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("初始化 115 账号服务失败: %w", err)

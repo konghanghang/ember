@@ -17,6 +17,7 @@ import (
 	"github.com/konghang/ember/backend/internal/common"
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	dbpkg "github.com/konghang/ember/backend/internal/db"
+	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -40,6 +41,11 @@ type integrationHarness struct {
 }
 
 func newIntegrationHarness(t *testing.T) *integrationHarness {
+	return newIntegrationHarnessWithP115Validator(t, p115integration.NewCookieCredentialValidator())
+}
+
+// newIntegrationHarnessWithP115Validator keeps external 115 traffic behind a test-owned fake.
+func newIntegrationHarnessWithP115Validator(t *testing.T, validator p115integration.CredentialValidator) *integrationHarness {
 	t.Helper()
 
 	baseDSN := strings.TrimSpace(os.Getenv(integrationDatabaseURLEnv))
@@ -97,7 +103,7 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
-	handlers, err := newAppHandlers()
+	handlers, err := newAppHandlersWithP115Validator(validator)
 	if err != nil {
 		t.Fatalf("newAppHandlers(): %v", err)
 	}
