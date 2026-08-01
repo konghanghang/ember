@@ -1,6 +1,8 @@
 # 115 OpenAPI 直连、查重与秒传合同
 
-本文档记录 Ember 115 直连播放依赖的授权、文件身份、目标账号查重、跨账号秒传、下载直链和 Token 生命周期边界。目标是明确区分官方 OpenAPI、公开客户端实现语义和仍需真实账号验证的行为，避免把非官方 Web API 或经验值当成稳定合同。
+本文档记录 Ember 115 OpenAPI Provider 依赖的授权、文件身份、目标账号查重、跨账号秒传、下载直链和 Token 生命周期边界。目标是明确区分官方 OpenAPI、公开客户端实现语义和仍需真实账号验证的行为，避免把非官方 Web API 或经验值当成稳定合同。
+
+Ember 尚未取得 OpenAPI AppID，当前首期计划使用独立的 Cookie Provider；其非官方端点、账号角色和兼容性边界见 [115 Cookie 播放兼容合同](./p115-cookie-playback-contract.md)。Cookie 模式不属于本文的官方合同，也不会与 OpenAPI Token 流程混写。
 
 ## 1. 适用范围与证据等级
 
@@ -77,11 +79,12 @@ POST https://qrcodeapi.115.com/open/authDeviceCode
 
 `redirect_uri` 必须在 115 开放平台应用管理中配置。`client_secret` 属于部署信任根，不应存入前端构建产物或通过普通设置接口返回。
 
-### 2.4 PoC 与兼容模式
+### 2.4 PoC 与 Cookie Provider 边界
 
 - 技术 PoC 可以临时使用当前有效的第三方 AppID，通过 PKCE 验证搜索、秒传和直链链路。
 - 正式 Ember 版本不能写死不受控制的第三方 AppID；应用可能失效、撤销或改变策略。
-- Cookie/Web API 可以作为实验性兼容模式，但默认关闭，不作为稳定合同。
+- 当前首期实现可以显式启用 Cookie Provider，但它仍是非官方兼容模式，不因此升级为 OpenAPI 稳定合同。
+- Cookie Provider 必须独立实现本文档之外的认证、上传加密和直链约束，不能在 OpenAPI 请求失败后静默回退。
 - 仅凭现有 NextEmby 日志无法判断其使用 OpenAPI 还是 Cookie API。
 
 ## 3. Token 生命周期合同
