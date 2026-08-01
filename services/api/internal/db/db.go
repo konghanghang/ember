@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -45,16 +46,7 @@ func InitDB() {
 	}
 	dsn = withConnectTimeout(dsn, "8")
 
-	// 创建自定义 logger，显示详细的 SQL 日志
-	newLogger := logger.New(
-		log.New(logpkg.Writer(), "\r\n", log.LstdFlags), // io writer
-		logger.Config{
-			SlowThreshold:             time.Second, // 慢查询阈值
-			LogLevel:                  logger.Info, // 日志级别：Info 显示所有 SQL
-			IgnoreRecordNotFoundError: false,       // 不忽略 RecordNotFound 错误
-			Colorful:                  true,        // 彩色输出
-		},
-	)
+	newLogger := newGORMLogger(logpkg.Writer())
 
 	var err error
 	log.Println("ℹ️  正在连接 PostgreSQL...")
@@ -101,6 +93,20 @@ func InitDB() {
 	fmt.Println("✅ 数据库连接成功")
 }
 
+// newGORMLogger preserves SQL timing and structure while suppressing all bound values.
+func newGORMLogger(output io.Writer) logger.Interface {
+	return logger.New(
+		log.New(output, "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             time.Second, // 慢查询阈值
+			LogLevel:                  logger.Info, // 日志级别：Info 显示所有 SQL
+			IgnoreRecordNotFoundError: false,       // 不忽略 RecordNotFound 错误
+			ParameterizedQueries:      true,        // 保留 SQL 结构但隐藏敏感参数值
+			Colorful:                  true,        // 彩色输出
+		},
+	)
+}
+
 func defaultDotenvPath() string {
 	for _, path := range []string{".env", "services/api/.env"} {
 		if _, err := os.Stat(path); err == nil {
@@ -139,6 +145,7 @@ func VerifySchema() error {
 		{"media_gaps", &models.MediaGap{}},
 		{"playback_rankings", &models.PlaybackRanking{}},
 		{"media_quality_caches", &models.MediaQualityCache{}},
+		{"p115_accounts", &models.P115Account{}},
 		{"client_blacklists", &models.ClientBlacklist{}},
 		{"device_actions", &models.DeviceAction{}},
 		{"email_verifications", &models.EmailVerification{}},
@@ -248,6 +255,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"user_media_library_preferences", "enabled", "20260527_01_user_media_library_policy"},
 	{"emby_policy_sync_batches", "failed_count", "20260527_01_user_media_library_policy"},
 	{"emby_policy_sync_tasks", "next_retry_at", "20260527_01_user_media_library_policy"},
+	{"p115_accounts", "cookie_ciphertext", "20260801_01_create_p115_accounts"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -283,6 +291,9 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"plan_group_media_libraries", "uq_plan_group_media_libraries_group_library", "20260527_01_user_media_library_policy"},
 	{"user_media_library_preferences", "uq_user_media_library_preferences_user_library", "20260527_01_user_media_library_policy"},
 	{"emby_policy_sync_tasks", "uq_emby_policy_sync_tasks_user_active", "20260527_01_user_media_library_policy"},
+	{"p115_accounts", "uq_p115_accounts_enabled_role", "20260801_01_create_p115_accounts"},
+	{"p115_accounts", "uq_p115_accounts_enabled_provider_user", "20260801_01_create_p115_accounts"},
+	{"p115_accounts", "idx_p115_accounts_status_cooldown", "20260801_01_create_p115_accounts"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。

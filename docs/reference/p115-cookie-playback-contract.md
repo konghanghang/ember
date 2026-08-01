@@ -224,9 +224,9 @@ Provider 必须把外部响应映射为内部枚举，业务层不得直接散�
 | 外部状态 | 内部语义 | Ember 行为 |
 | --- | --- | --- |
 | `status=2` | `reused` | 继续在目标目录复核文件 |
-| `status=7` | `rangeChallenge` | 校验范围并读取源文件指定字节段，再次初始化 |
-| `status=1` | `ordinaryUploadRequired` | 明确失败，禁止全文件上传 |
-| 其他或缺失 | `providerRejected` | 保留脱敏原始错误码并失败 |
+| `status=7` | `range_challenge` | 校验范围并读取源文件指定字节段，再次初始化 |
+| `status=1` | `ordinary_upload_required` | 明确失败，禁止全文件上传 |
+| 其他或缺失 | `provider_rejected` | 保留脱敏原始错误码并失败 |
 
 HTTP `2xx` 不等于秒传成功。最终成功必须同时满足：
 

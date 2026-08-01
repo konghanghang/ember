@@ -1,15 +1,9 @@
 package config
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/mail"
@@ -24,6 +18,7 @@ import (
 	"github.com/konghang/ember/backend/internal/common/upstream"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"github.com/konghang/ember/backend/internal/security/secretbox"
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -865,59 +860,29 @@ func (s *ConfigService) loadSettingsFromStore(keys []string) (map[string]models.
 }
 
 func (s *ConfigService) encrypt(plain string) (string, error) {
-	block, err := aes.NewCipher(hashEncryptionKey(s.encryptionKey))
+	box, err := secretbox.New(s.encryptionKey)
 	if err != nil {
+		if errors.Is(err, secretbox.ErrKeyMissing) {
+			return "", ErrConfigEncryptionKeyMissing
+		}
 		return "", err
 	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-
-	ciphertext := gcm.Seal(nil, nonce, []byte(plain), nil)
-	return base64.StdEncoding.EncodeToString(append(nonce, ciphertext...)), nil
+	return box.Encrypt(plain)
 }
 
 func (s *ConfigService) decrypt(encoded string) (string, error) {
-	payload, err := base64.StdEncoding.DecodeString(encoded)
+	box, err := secretbox.New(s.encryptionKey)
+	if err != nil {
+		if errors.Is(err, secretbox.ErrKeyMissing) {
+			return "", ErrConfigEncryptionKeyMissing
+		}
+		return "", errors.New("配置解密失败")
+	}
+	plain, err := box.Decrypt(encoded)
 	if err != nil {
 		return "", errors.New("配置解密失败")
 	}
-
-	block, err := aes.NewCipher(hashEncryptionKey(s.encryptionKey))
-	if err != nil {
-		return "", errors.New("配置解密失败")
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", errors.New("配置解密失败")
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(payload) < nonceSize {
-		return "", errors.New("配置解密失败")
-	}
-
-	nonce := payload[:nonceSize]
-	ciphertext := payload[nonceSize:]
-	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return "", errors.New("配置解密失败")
-	}
-
-	return string(plain), nil
-}
-
-func hashEncryptionKey(raw string) []byte {
-	sum := sha256.Sum256([]byte(raw))
-	return sum[:]
+	return plain, nil
 }
 
 func intPtr(v int) *int {

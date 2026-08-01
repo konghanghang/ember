@@ -138,7 +138,7 @@
 |--------|------|------|------|
 | `DATABASE_URL` | 是 | PostgreSQL 连接串 | API 启动硬依赖 |
 | `JWT_SECRET` | 是 | 用户 JWT 签名密钥 | 登录态信任根，不应在线修改 |
-| `CONFIG_ENCRYPTION_KEY` | 是 | 敏感配置加密主密钥 | 数据库敏感配置加解密根密钥 |
+| `CONFIG_ENCRYPTION_KEY` | 是 | 数据库敏感值加密主密钥 | settings 敏感配置与 115 Cookie 的加解密根密钥 |
 | `INTERNAL_API_SECRET` | 是 | API 与 Bot 内部调用共享密钥 | 服务间鉴权根密钥 |
 | `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 仅启用 Stripe Webhook 时需要，且只能走环境变量 |
 | `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 仅启用 Turnstile 登录校验时需要，且不应进入设置中心 |
@@ -157,7 +157,7 @@
 说明：
 
 - `WEBHOOK_TOKEN` 已废弃，当前只保留 `EMBY_WEBHOOK_TOKEN`。
-- `CONFIG_ENCRYPTION_KEY` 不参与认证，它只负责数据库敏感配置的加密和解密。
+- `CONFIG_ENCRYPTION_KEY` 不参与认证，它只负责数据库敏感配置与 `p115_accounts.cookie_ciphertext` 的加密和解密。
 - `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_*`、`SMTP_*`、`CRON_*`、`BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已按设置中心模型管理，不再作为 API `.env.example` 的默认项。
 
 ---
@@ -253,9 +253,9 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 
 ### `CONFIG_ENCRYPTION_KEY`
 
-- 用途：加密/解密数据库中的敏感配置
-- 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等敏感值的持久化
-- 备注：如果该值缺失或变更错误，数据库里已有的敏感配置会无法解密
+- 用途：加密/解密数据库中的敏感配置与 115 Cookie
+- 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等 settings 敏感值，以及 `p115_accounts.cookie_ciphertext`
+- 备注：如果该值缺失或变更错误，数据库里已有的敏感配置和 115 Cookie 都会无法解密；共享 `security/secretbox` 保持原 ConfigService AES-GCM 密文格式兼容，并为 115 Cookie 使用 `p115-cookie` purpose 派生隔离密钥
 
 ---
 

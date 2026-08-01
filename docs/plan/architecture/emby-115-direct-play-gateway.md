@@ -1,6 +1,6 @@
 # Emby 115 直连播放网关实现方案
 
-> 状态：草稿
+> 状态：进行中
 > 负责人：Ember
 > 更新时间：2026-08-01
 
@@ -59,7 +59,8 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 管理端已有活跃会话、播放历史、设备管理、客户端黑名单和设备操作日志。
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
-- 当前没有播放数据面进程、Emby AccessToken 到 Ember 用户的映射、115 Provider、秒传任务或直连会话模型。
+- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号凭证 Service 和 Provider-neutral 接口；尚未实现 Cookie HTTP Adapter、账号验证和任何真实 115 调用。
+- 当前仍没有播放数据面进程、Emby AccessToken 到 Ember 用户的映射、秒传任务或直连会话模型。
 
 ### 外部证据与未确认项
 
@@ -83,6 +84,23 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 | 失败策略 | 播放小号或直链不兼容时明确返回 `503`，不使用源账号播放 |
 | 凭证 | Cookie 使用 `CONFIG_ENCRYPTION_KEY` 加密，写入后不可回显 |
 | OpenAPI | 保留独立 Provider 扩展点，AppID 获批后另行实现 |
+
+## 实施进度
+
+截至 2026-08-01 已完成基础层：
+
+- 新增 `p115_accounts` 模型、幂等 SQL migration、角色/目标目录检查和启用账号唯一索引。
+- 将 ConfigService 历史 AES-GCM 格式下沉到共享 `security/secretbox`，已有 settings 密文保持兼容；115 Cookie 使用用途隔离派生密钥。
+- 新增 `services/p115account`，支持加密创建、Cookie 轮换、验证用途凭证读取和活动账号凭证读取。
+- 新增 Provider-neutral 类型与接口，固定秒传状态和下载 Header 模式的 Ember 内部语义。
+- 已用单元测试覆盖密文兼容、Cookie 不回显、角色输入、轮换状态重置和非活动账号拒绝。
+
+仍未完成：
+
+- Cookie/Web API 精确端点 DTO、HTTP Adapter、上传协议加密和固定向量。
+- 管理员账号 API 与 Web 配置页面。
+- 账号验证、启用流转、秒传任务、下载直链和播放网关。
+- 任何真实 115 / Emby / Infuse 验证。
 
 ## 方案设计
 
@@ -206,7 +224,7 @@ services/api/internal/integrations/p115/
 约束：
 
 - 数据库对每个角色至多允许一条启用记录；网关就绪要求两个角色各有一条启用记录。
-- 两条记录验证出的 `provider_user_id` 不得相同。
+- 两条启用记录验证出的非空 `provider_user_id` 不得相同；停用历史记录可保留同一账号标识。
 - Cookie 加密后落库，明文不得离开写入和 Provider 调用边界。
 - Cookie 更新使用覆盖语义，查询接口永不返回密文或明文。
 - 不预建未使用的 OpenAPI Token 字段；OpenAPI Provider 落地时通过新 migration 增加自己的凭证结构。
@@ -396,7 +414,7 @@ services/api/internal/integrations/p115/
 - `PLAYBACK_GATEWAY_LISTEN_ADDR`
 - `CONFIG_ENCRYPTION_KEY`
 
-Cookie 不进入环境变量。播放小号目标目录、appType 和 User-Agent 随账号加密配置管理。具体配置键在实现时同步 `docs/reference/configuration-reference.md`，明确生效方式和重启要求。
+Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录、appType 和 User-Agent 作为普通账号元数据管理。具体配置键在实现时同步 `docs/reference/configuration-reference.md`，明确生效方式和重启要求。
 
 ## 分阶段落地
 

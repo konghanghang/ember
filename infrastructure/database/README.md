@@ -2,9 +2,12 @@
 
 本目录存放 Ember 项目的数据库 schema 真相源。
 
-当前唯一现行入口：
+当前顶层现行入口：
 
 - `00000000_baseline_20260605.sql`：v1.6.0 截点 fresh-install baseline，新装库初始化的全部内容；吸收 2026-05-02 baseline 以及 2026-05-04 至 2026-05-29 顶层增量，已按"全 0 前缀让 baseline 永远字典序最先"的命名约定收口
+- `20260707_01_subscription_plan_group_auto_approval.sql`：套餐分组订阅自动审批额度与审核来源
+- `20260707_02_plan_group_media_library_deferred_sync.sql`：媒体库模板版本与用户延迟同步标记
+- `20260801_01_create_p115_accounts.sql`：管理员 115 源账号 / 播放账号、Cookie 密文和启用唯一约束
 - `archive/`：仅供追溯，不参与任何运行时链路
 
 当前升级支持窗口：

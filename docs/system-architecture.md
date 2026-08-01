@@ -77,6 +77,7 @@ services/
 │     │  ├─ client_blacklist.go  # ClientBlacklist（客户端黑名单）
 │     │  ├─ device_action.go     # DeviceAction（设备操作日志）
 │     │  ├─ media_gap.go         # MediaGap（缺集工单）
+│     │  ├─ p115_account.go      # P115Account（管理员 115 源账号 / 播放账号加密凭证）
 │     │  ├─ tv_calendar.go       # TVCalendar（追剧日历 + 订阅 + TMDB 缓存）
 │     │  └─ utils.go             # generateCUID()
 │     ├─ integrations/           # 外部系统集成
@@ -85,6 +86,8 @@ services/
 │     │  │  └─ library.go        # Emby 媒体库列表/条目查询
 │     │  ├─ moviepilot/
 │     │  │  └─ client.go         # MoviePilot HTTP 客户端
+│     │  ├─ p115/
+│     │  │  └─ provider.go       # 115 Cookie / OpenAPI 共用 Provider 业务合同（当前无 HTTP Adapter）
 │     │  └─ notifier/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ services/               # 业务逻辑
@@ -133,6 +136,9 @@ services/
 │     │  │  └─ ranking.go        # PlaybackRankingService（播放排行生成）
 │     │  ├─ payment/
 │     │  │  └─ service.go        # PaymentService（Stripe 支付流程）
+│     │  ├─ p115account/
+│     │  │  ├─ service.go        # 115 管理员账号创建、凭证读取与 Cookie 轮换
+│     │  │  └─ store.go          # p115_accounts GORM 持久化
 │     │  ├─ policy/
 │     │  │  ├─ effective_policy.go # 普通用户 Emby Policy 统一重算入口
 │     │  │  └─ media_library_settings.go # 分组媒体库模板、用户偏好和同步批次
@@ -169,6 +175,8 @@ services/
 │     ├─ common/
 │     │  ├─ jwt.go               # Token 生成/解析（HS256, 7天有效）
 │     │  └─ utils.go             # CalculateExpiryDate
+│     ├─ security/secretbox/
+│     │  └─ secretbox.go         # CONFIG_ENCRYPTION_KEY 共享 AES-GCM 格式与用途隔离派生
 │     └─ db/
 │        ├─ db.go                # DB 初始化 + VerifySchema + Bootstrap（启动期不再调用 AutoMigrate）
 │        └─ migrate.go           # 启动期自动迁移：advisory lock + schema_migrations 记账 + 五分支判断
@@ -286,7 +294,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 
 ### 4.1 核心模型分组
 
-- 账号与认证：`users`、`email_verifications`、`telegram_bind_codes`
+- 账号与认证：`users`、`email_verifications`、`telegram_bind_codes`、`p115_accounts`
 - 兑换与支付：`redemption_codes`、`redemptions`、`plans`、`plan_groups`、`payments`、`stripe_webhook_events`
 - 内容与行为：`subscriptions`、`subscription_admin_notifications`、`playback_rankings`、`client_blacklists`、`device_actions`
 - 追剧与媒体：`tv_calendar_sources`、`tv_calendar_items`、`tv_calendar_subscriptions`、`tmdb_cache`
@@ -299,6 +307,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动；`SubscriptionAdminNotification` 记录每条 Telegram 管理员审批消息的 `chatId/messageId`，用于 Web / Telegram 任一端审批后的消息同步
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
+- `P115Account` 是管理员维护的独立外部账号，不归普通用户所有；数据库只保存 Cookie 密文，每个角色至多一条启用记录
 
 ### 4.3 维护约束
 
@@ -682,6 +691,19 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 低画质汇总项包含 `groupId`，前端使用 `groupId` 请求下钻接口
 - 报告字段：`resolutionDistribution` / `codecDistribution` / `hdrDistribution` / `lowQualityItems` / `lowQualityTotal` / `page` / `pageSize` / `scanAt`
 
+### 5.24 P115AccountService 与 Provider 合同 (`services/p115account/`, `integrations/p115/provider.go`)
+
+当前只落地 115 Cookie 模式的账号与协议基础层，尚未注册 HTTP 路由、实现 Cookie HTTP Adapter 或调用真实 115：
+
+- `Create(ctx, input)`：校验 `source` / `playback` 角色字段，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
+- `ReplaceCookie(ctx, accountID, cookie)`：覆盖密文并清空 Provider 用户、验证时间、冷却和错误状态，重新回到 `pending + disabled`
+- `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
+- `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
+- `integrations/p115.Provider`：定义验证、上传信息、SHA1 搜索、秒传初始化、目标复核、下载地址和串行删除的 Provider-neutral 语义；当前没有网络实现
+- `security/secretbox`：复用 ConfigService 历史 AES-GCM 密文格式，已有 settings 密文保持兼容；115 Cookie 通过 `p115-cookie` purpose 派生独立密钥，禁止与 settings 密文跨用途替换
+- 数据库 SQL 日志保留参数化查询结构，不插值绑定值，避免 Cookie 密文及其他敏感参数进入日志
+- 数据库约束：`source` / `playback` 每个角色至多一条启用记录；同一 Provider 用户不能同时成为两个启用角色；播放账号必须有目标目录
+
 ---
 
 ## 6. API 端点总览
@@ -839,6 +861,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
+| **115 Cookie/Web API** | 直连播放账号 Provider；当前仅落地账号、加密与接口合同，尚无出站 HTTP 实现 | Cookie 密文在 `p115_accounts`，根密钥为 `CONFIG_ENCRYPTION_KEY` |
 
 ---
 

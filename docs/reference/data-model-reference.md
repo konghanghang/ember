@@ -445,6 +445,7 @@ Plan (1) ──→ (N) Payment        （方案关联）
 PlanGroup (1) ──→ (N) RedemptionCode（注册套餐分组引用）
 RedemptionCode ──→ Redemption   （码被使用时生成记录）
 Setting                         （全局 KV 配置，无外键）
+P115Account                     （管理员维护的 115 源账号 / 播放账号，无用户外键）
 EmailVerification               （独立验证码，无外键）
 PlaybackRanking                 （独立排行快照，无外键）
 ClientBlacklist ──→ DeviceAction（按 clientName 审计）
@@ -522,3 +523,36 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | ExpiresAt | time.Time | expiresAt | 租约到期时间；续租失败或实例 crash 后允许其他实例接管 |
 | CreatedAt | time.Time | createdAt | 创建时间 |
 | UpdatedAt | time.Time | updatedAt | 最近续租时间 |
+
+### 2.20 P115Account（115 管理员账号）
+
+**表名**: `p115_accounts` | **文件**: `models/p115_account.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|---|---|---|---|
+| ID | string(25) | id | CUID 主键 |
+| Role | enum | role | `source` / `playback` |
+| Alias | string(100) | alias | 管理员可识别的账号别名 |
+| AuthMode | enum | authMode | 当前固定 `legacy_cookie` |
+| ProviderUserID | *string(64) | providerUserId | 验证后写入的 115 用户标识，可空 |
+| CookieCiphertext | text | cookie_ciphertext | `CONFIG_ENCRYPTION_KEY` 加密密文，JSON 永不序列化 |
+| AppType | string(32) | appType | Cookie/Web API 使用的客户端类型 |
+| UserAgent | string(512) | userAgent | Provider 请求使用的固定 User-Agent |
+| TargetParentID | *string(64) | targetParentId | 播放账号目标目录；源账号必须为空 |
+| Status | enum | status | `pending` / `active` / `expired` / `error` / `cooling_down` |
+| Enabled | bool | enabled | 是否允许进入播放链路；创建和 Cookie 轮换后固定为 false |
+| LastValidatedAt | *time.Time | lastValidatedAt | 最近凭证验证时间 |
+| LastSucceededAt | *time.Time | lastSucceededAt | 最近 Provider 成功调用时间 |
+| CooldownUntil | *time.Time | cooldownUntil | 账号共享冷却截止时间 |
+| LastErrorCode | *string(100) | lastErrorCode | 最近脱敏错误码 |
+| LastErrorMessage | *string(500) | lastErrorMessage | 最近脱敏错误信息 |
+| CreatedAt | time.Time | createdAt | 创建时间 |
+| UpdatedAt | time.Time | updatedAt | 更新时间 |
+
+**约束**：
+
+- Cookie 只能通过 `services/p115account` 使用 `p115-cookie` purpose 派生密钥加密写入；安全摘要不包含明文或密文字段
+- `source` / `playback` 每个角色至多一条启用记录；网关就绪仍要求两个角色各有一个 `enabled + active` 账号
+- 同一个非空 `provider_user_id` 不能同时出现在两个启用账号中
+- `playback` 必须设置 `target_parent_id`，`source` 必须保持为空
+- Cookie 轮换会清空 Provider 用户、验证时间、成功时间、冷却和错误，并回到 `pending + disabled`
