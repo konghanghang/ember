@@ -556,3 +556,5 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - 同一个非空 `provider_user_id` 不能同时出现在两个启用账号中
 - `playback` 必须设置 `target_parent_id`，`source` 必须保持为空
 - Cookie 轮换会清空 Provider 用户、验证时间、成功时间、冷却和错误，并回到 `pending + disabled`
+- 启用前必须同时满足 `active`、非空 `provider_user_id` 和非空 `last_validated_at`；检查与更新在事务行锁内完成
+- 验证回写必须匹配发起请求时的 Cookie 密文，防止并发轮换后旧验证结果覆盖新凭证状态

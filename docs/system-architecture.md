@@ -691,17 +691,21 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 低画质汇总项包含 `groupId`，前端使用 `groupId` 请求下钻接口
 - 报告字段：`resolutionDistribution` / `codecDistribution` / `hdrDistribution` / `lowQualityItems` / `lowQualityTotal` / `page` / `pageSize` / `scanAt`
 
-### 5.24 P115AccountService 与 Provider 合同 (`services/p115account/`, `integrations/p115/provider.go`)
+### 5.24 P115AccountService 与 Cookie 验证适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前只落地 115 Cookie 模式的账号与协议基础层，尚未注册 HTTP 路由、实现 Cookie HTTP Adapter 或调用真实 115：
+当前已落地 115 Cookie 模式的账号控制面和只读凭证验证适配器；尚未实现上传、查重、秒传、下载直链或播放网关，也未调用真实 115 账号：
 
+- 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - `Create(ctx, input)`：校验 `source` / `playback` 角色字段，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
 - `ReplaceCookie(ctx, accountID, cookie)`：覆盖密文并清空 Provider 用户、验证时间、冷却和错误状态，重新回到 `pending + disabled`
+- `Validate(ctx, accountID)`：调用固定的登录状态端点；成功进入 `active` 但不自动启用，凭证失效进入 `expired + disabled`，网络或协议失败进入 `error`；回写按 Cookie 密文做乐观并发检查
+- `SetEnabled(ctx, accountID, enabled)`：事务行锁内要求 `active + providerUserId + lastValidatedAt`，并由 partial unique index 保证每个角色至多一个启用账号、源账号与播放账号不能是同一 Provider 用户
 - `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
-- `integrations/p115.Provider`：定义验证、上传信息、SHA1 搜索、秒传初始化、目标复核、下载地址和串行删除的 Provider-neutral 语义；当前没有网络实现
+- `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
+- `integrations/p115.Provider`：继续定义上传信息、SHA1 搜索、秒传初始化、目标复核、下载地址和串行删除等 Provider-neutral 语义；除凭证验证外尚无网络实现
 - `security/secretbox`：复用 ConfigService 历史 AES-GCM 密文格式，已有 settings 密文保持兼容；115 Cookie 通过 `p115-cookie` purpose 派生独立密钥，禁止与 settings 密文跨用途替换
-- 数据库 SQL 日志保留参数化查询结构，不插值绑定值，避免 Cookie 密文及其他敏感参数进入日志
+- `p115_accounts` 存储使用局部静默 GORM session，避免 PostgreSQL 失败行详情携带 Cookie 密文；错误日志只保留操作名、SQLSTATE 和约束名
 - 数据库约束：`source` / `playback` 每个角色至多一条启用记录；同一 Provider 用户不能同时成为两个启用角色；播放账号必须有目标目录
 
 ---
@@ -861,7 +865,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放账号 Provider；当前仅落地账号、加密与接口合同，尚无出站 HTTP 实现 | Cookie 密文在 `p115_accounts`，根密钥为 `CONFIG_ENCRYPTION_KEY` |
+| **115 Cookie/Web API** | 直连播放账号 Provider；当前仅实现管理员账号控制面和只读 Cookie 登录状态验证，上传/查重/秒传/下载尚未实现 | Cookie 密文在 `p115_accounts`，根密钥为 `CONFIG_ENCRYPTION_KEY` |
 
 ---
 

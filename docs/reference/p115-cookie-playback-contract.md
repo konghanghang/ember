@@ -11,6 +11,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | 能力 | 证据 | 当前结论 |
 | --- | --- | --- |
 | Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
+| Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id` | 公开实现确认固定 GET 端点、`state` 字段和 Cookie `UID` 取值方式；真实账号兼容性仍未实机确认 |
 | Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` | 可据此独立实现 Go 适配器，必须用固定向量锁定行为 |
 | `emby-toolkit` 小号播放行为 | `emby-toolkit` `v10.8.63`、提交 `7e64564884c9949390e5894b4be71038808e4e2a` | 只用于理解账号选择与失败语义，不复制 AGPL 代码 |
 | 上游许可证 | `p115client` 固定提交的 `LICENSE` / `pyproject.toml` 与 `LICENSE_zh` 表述不一致 | 未澄清前只作协议研究，不逐行翻译或复制源码 |
@@ -86,9 +87,26 @@ Cookie 失效后没有首期自动续期流程。账号状态应转为 `expired`
 
 ### 5.1 账号验证
 
-`ValidateCredential` 的精确端点、成功字段和失效错误码尚未完成固定证据核对，属于**未证实**。实现前必须从固定版本公开源码提取并增加 fixture，禁止根据常见接口名猜测。
+公开实现确认的只读入口：
+
+```http
+GET https://my.115.com/?ct=guide&ac=status
+Cookie: <account-cookie>
+User-Agent: <account-user-agent>
+```
+
+固定源码把 JSON 顶层布尔字段 `state` 作为登录状态，并从 Cookie 中 `UID` 值的第一个 `_` 之前解析数字用户 ID。Ember 的内部合同更严格：
+
+- Cookie 必须恰好包含一个合法、非零的 `UID`；用户 ID 以十进制规范化后保存，不保存 Cookie 片段。
+- 仅接受 `2xx` 且 `state` 为 JSON 布尔值的响应；`state=true` 才验证成功。
+- `state=false` 视为凭证失效，账号转为 `expired + disabled`。
+- 网络错误和非 `2xx` 视为 Provider 暂不可用；缺失或非法 `state` 视为协议错误。两者都转为 `error`，保留管理员的 `enabled` 意图，但 `LoadActiveCredential` 会因状态不是 `active` 而拒绝运行时读取。
+- 验证结果按发起请求时的精确 Cookie 密文做条件更新；如果管理员在请求期间替换 Cookie，旧结果不得覆盖新凭证的 `pending` 状态。
+- 验证成功只把账号转为 `active` 并记录 Provider 用户 ID，不自动启用。启用操作必须另行执行。
 
 验证操作只能读取账号概要，不得修改账号文件或安全设置。成功后只保存 Provider 用户 ID 等脱敏标识。
+
+证据：[`login_status`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L20301-L20339)、[`user_id`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L530-L537)。以上只证明固定公开源码的请求与解析行为，不代表 115 官方承诺；目标账号实际响应、风控和稳定性仍属未实机确认。
 
 ### 5.2 上传信息
 
@@ -265,15 +283,17 @@ playbackAccountId + SHA1 + size
 所有测试必须 mock 115，禁止真实外部请求。至少覆盖：
 
 1. Cookie 加密落库、替换和 API 永不回显明文。
-2. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
-3. SHA1 命中但 size 或文件类型不符时拒绝。
-4. `status=2` 复用后目标文件复核。
-5. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
-6. `status=1` 明确拒绝，且不触发完整文件上传。
-7. 加密请求与解密响应固定向量。
-8. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-9. 下载链接 UA 隔离、过期、域名 allowlist 和 `f=3` 拒绝。
-10. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
+2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化。
+3. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
+4. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
+5. SHA1 命中但 size 或文件类型不符时拒绝。
+6. `status=2` 复用后目标文件复核。
+7. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
+8. `status=1` 明确拒绝，且不触发完整文件上传。
+9. 加密请求与解密响应固定向量。
+10. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
+11. 下载链接 UA 隔离、过期、域名 allowlist 和 `f=3` 拒绝。
+12. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
 
 ## 12. 受控真实验证
 

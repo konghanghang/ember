@@ -49,6 +49,7 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 
 	t.Setenv("EMBER_MIGRATIONS_DIR", integrationMigrationsDir(t))
 	t.Setenv("JWT_SECRET", strings.Repeat("j", 32))
+	t.Setenv("CONFIG_ENCRYPTION_KEY", strings.Repeat("k", 32))
 	if err := common.InitJWT(); err != nil {
 		t.Fatalf("InitJWT(): %v", err)
 	}
@@ -96,7 +97,11 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
-	registerRoutes(router, newAppHandlers())
+	handlers, err := newAppHandlers()
+	if err != nil {
+		t.Fatalf("newAppHandlers(): %v", err)
+	}
+	registerRoutes(router, handlers)
 
 	return &integrationHarness{
 		router:     router,

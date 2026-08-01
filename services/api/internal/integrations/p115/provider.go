@@ -106,9 +106,14 @@ type DownloadURLResult struct {
 	HeaderMode DownloadHeaderMode `json:"headerMode"`
 }
 
-// Provider is the protocol boundary implemented by Cookie and future OpenAPI adapters.
-type Provider interface {
+// CredentialValidator is the minimal account-validation boundary shared by Provider adapters.
+type CredentialValidator interface {
 	ValidateCredential(ctx context.Context, credential Credential) (AccountIdentity, error)
+}
+
+// Provider is the protocol boundary implemented by complete Cookie and future OpenAPI adapters.
+type Provider interface {
+	CredentialValidator
 	GetUploadInfo(ctx context.Context, credential Credential) (UploadInfo, error)
 	SearchBySHA1(ctx context.Context, credential Credential, query FileQuery) ([]File, error)
 	InitRapidUpload(ctx context.Context, credential Credential, request RapidUploadRequest) (RapidUploadResult, error)

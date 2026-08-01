@@ -35,22 +35,31 @@ func (c fakeCredentialCipher) Decrypt(ciphertext string) (string, error) {
 }
 
 type fakeAccountStore struct {
-	accounts        map[string]*models.P115Account
-	createErr       error
-	getErr          error
-	replaceErr      error
-	created         *models.P115Account
-	replacement     credentialReplacement
-	replacementID   string
-	createCallCount int
+	accounts                     map[string]*models.P115Account
+	createErr                    error
+	getErr                       error
+	replaceErr                   error
+	validationErr                error
+	enableErr                    error
+	created                      *models.P115Account
+	replacement                  credentialReplacement
+	replacementID                string
+	validationExpectedCiphertext string
+	validationAt                 time.Time
+	enabledValue                 bool
+	createCallCount              int
 }
 
 func TestNewServiceRequiresDatabaseAndEncryptionKey(t *testing.T) {
-	if _, err := NewService(nil, "encryption-key"); !errors.Is(err, ErrStoreUnavailable) {
+	validator := &fakeCredentialValidator{}
+	if _, err := NewService(nil, "encryption-key", validator); !errors.Is(err, ErrStoreUnavailable) {
 		t.Fatalf("NewService(nil) error = %v, want ErrStoreUnavailable", err)
 	}
-	if _, err := NewService(&gorm.DB{}, " "); !errors.Is(err, secretbox.ErrKeyMissing) {
+	if _, err := NewService(&gorm.DB{}, " ", validator); !errors.Is(err, secretbox.ErrKeyMissing) {
 		t.Fatalf("NewService(empty key) error = %v, want ErrKeyMissing", err)
+	}
+	if _, err := NewService(&gorm.DB{}, "encryption-key", nil); !errors.Is(err, ErrValidatorUnavailable) {
+		t.Fatalf("NewService(nil validator) error = %v, want ErrValidatorUnavailable", err)
 	}
 }
 
@@ -84,6 +93,17 @@ func (s *fakeAccountStore) GetByID(_ context.Context, id string) (*models.P115Ac
 	return &copy, nil
 }
 
+func (s *fakeAccountStore) List(_ context.Context) ([]models.P115Account, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	accounts := make([]models.P115Account, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		accounts = append(accounts, *account)
+	}
+	return accounts, nil
+}
+
 func (s *fakeAccountStore) ReplaceCredential(_ context.Context, id string, replacement credentialReplacement) (*models.P115Account, error) {
 	if s.replaceErr != nil {
 		return nil, s.replaceErr
@@ -103,6 +123,85 @@ func (s *fakeAccountStore) ReplaceCredential(_ context.Context, id string, repla
 	account.CooldownUntil = nil
 	account.LastErrorCode = nil
 	account.LastErrorMessage = nil
+	copy := *account
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) CompleteValidationSuccess(_ context.Context, id, expectedCiphertext, providerUserID string, at time.Time) (*models.P115Account, error) {
+	if s.validationErr != nil {
+		return nil, s.validationErr
+	}
+	account, err := s.accountForValidation(id, expectedCiphertext, at)
+	if err != nil {
+		return nil, err
+	}
+	account.ProviderUserID = &providerUserID
+	account.Status = models.P115AccountStatusActive
+	account.LastSucceededAt = &at
+	account.CooldownUntil = nil
+	account.LastErrorCode = nil
+	account.LastErrorMessage = nil
+	copy := *account
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) CompleteValidationRejected(_ context.Context, id, expectedCiphertext string, at time.Time) (*models.P115Account, error) {
+	if s.validationErr != nil {
+		return nil, s.validationErr
+	}
+	account, err := s.accountForValidation(id, expectedCiphertext, at)
+	if err != nil {
+		return nil, err
+	}
+	code := validationCodeRejected
+	message := "115 Cookie 已失效"
+	account.Status = models.P115AccountStatusExpired
+	account.Enabled = false
+	account.LastErrorCode = &code
+	account.LastErrorMessage = &message
+	copy := *account
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) CompleteValidationError(_ context.Context, id, expectedCiphertext, code, message string, at time.Time) (*models.P115Account, error) {
+	if s.validationErr != nil {
+		return nil, s.validationErr
+	}
+	account, err := s.accountForValidation(id, expectedCiphertext, at)
+	if err != nil {
+		return nil, err
+	}
+	account.Status = models.P115AccountStatusError
+	account.LastErrorCode = &code
+	account.LastErrorMessage = &message
+	copy := *account
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) accountForValidation(id, expectedCiphertext string, at time.Time) (*models.P115Account, error) {
+	account, ok := s.accounts[id]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	s.validationExpectedCiphertext = expectedCiphertext
+	s.validationAt = at
+	if account.CookieCiphertext != expectedCiphertext {
+		return nil, ErrCredentialChanged
+	}
+	account.LastValidatedAt = &at
+	return account, nil
+}
+
+func (s *fakeAccountStore) SetEnabled(_ context.Context, id string, enabled bool) (*models.P115Account, error) {
+	if s.enableErr != nil {
+		return nil, s.enableErr
+	}
+	account, ok := s.accounts[id]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	s.enabledValue = enabled
+	account.Enabled = enabled
 	copy := *account
 	return &copy, nil
 }
@@ -307,9 +406,22 @@ func TestServiceReplaceCookieResetsValidationState(t *testing.T) {
 }
 
 func TestServiceReplaceCookieRejectsEmptyValue(t *testing.T) {
-	service := newServiceWithDependencies(&fakeAccountStore{}, fakeCredentialCipher{})
-	if _, err := service.ReplaceCookie(context.Background(), "account_1", " "); !errors.Is(err, ErrCookieRequired) {
-		t.Fatalf("ReplaceCookie() error = %v, want ErrCookieRequired", err)
+	tests := []struct {
+		name    string
+		cookie  string
+		wantErr error
+	}{
+		{name: "empty", cookie: " ", wantErr: ErrCookieRequired},
+		{name: "header injection", cookie: "UID=fake\r\nX-Test: injected", wantErr: ErrCookieInvalid},
+		{name: "too long", cookie: strings.Repeat("x", maxCookieLength+1), wantErr: ErrCookieInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := newServiceWithDependencies(&fakeAccountStore{}, fakeCredentialCipher{})
+			if _, err := service.ReplaceCookie(context.Background(), "account_1", tt.cookie); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("ReplaceCookie() error = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 

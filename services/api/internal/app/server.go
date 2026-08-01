@@ -19,7 +19,11 @@ func Start() error {
 	}))
 	r.Use(gin.Recovery())
 
-	registerRoutes(r, newAppHandlers())
+	handlers, err := newAppHandlers()
+	if err != nil {
+		return err
+	}
+	registerRoutes(r, handlers)
 	defer initCronJobs()()
 
 	port := os.Getenv("PORT")

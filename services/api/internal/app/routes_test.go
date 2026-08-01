@@ -90,3 +90,30 @@ func TestTMDBProxyRoutesRemainSeparatedByAuthBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestP115AccountAdminRoutesAreRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	registerRoutes(router, &appHandlers{})
+
+	registered := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = struct{}{}
+	}
+
+	expected := map[string]string{
+		"/api/v1/admin/p115-accounts":              http.MethodGet,
+		"/api/v1/admin/p115-accounts/:id":          http.MethodGet,
+		"/api/v1/admin/p115-accounts/:id/cookie":   http.MethodPut,
+		"/api/v1/admin/p115-accounts/:id/validate": http.MethodPost,
+		"/api/v1/admin/p115-accounts/:id/enabled":  http.MethodPut,
+	}
+	for path, method := range expected {
+		if _, ok := registered[method+" "+path]; !ok {
+			t.Fatalf("p115 account route is not registered: %s %s", method, path)
+		}
+	}
+	if _, ok := registered[http.MethodPost+" /api/v1/admin/p115-accounts"]; !ok {
+		t.Fatal("p115 account create route is not registered")
+	}
+}

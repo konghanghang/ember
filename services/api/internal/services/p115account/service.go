@@ -3,8 +3,10 @@ package p115account
 import (
 	"context"
 	"log"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
 	"github.com/konghang/ember/backend/internal/models"
@@ -14,6 +16,10 @@ import (
 
 const credentialEncryptionPurpose = "p115-cookie"
 
+const maxCookieLength = 16 * 1024
+
+var appTypePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
 type credentialCipher interface {
 	Encrypt(plain string) (string, error)
 	Decrypt(ciphertext string) (string, error)
@@ -21,8 +27,13 @@ type credentialCipher interface {
 
 type accountStore interface {
 	Create(ctx context.Context, account *models.P115Account) error
+	List(ctx context.Context) ([]models.P115Account, error)
 	GetByID(ctx context.Context, id string) (*models.P115Account, error)
 	ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error)
+	CompleteValidationSuccess(ctx context.Context, id, expectedCiphertext, providerUserID string, at time.Time) (*models.P115Account, error)
+	CompleteValidationRejected(ctx context.Context, id, expectedCiphertext string, at time.Time) (*models.P115Account, error)
+	CompleteValidationError(ctx context.Context, id, expectedCiphertext, code, message string, at time.Time) (*models.P115Account, error)
+	SetEnabled(ctx context.Context, id string, enabled bool) (*models.P115Account, error)
 }
 
 type credentialReplacement struct {
@@ -62,29 +73,68 @@ type AccountSummary struct {
 	UpdatedAt        time.Time                `json:"updatedAt"`
 }
 
+// ValidationResult reports a completed credential check without exposing credential data.
+type ValidationResult struct {
+	Valid   bool            `json:"valid"`
+	Account *AccountSummary `json:"account"`
+}
+
 // Service owns 115 account validation rules and encrypted credential persistence.
 type Service struct {
-	store  accountStore
-	cipher credentialCipher
+	store     accountStore
+	cipher    credentialCipher
+	validator p115integration.CredentialValidator
+	now       func() time.Time
 }
 
 // NewService builds the production account service without reading environment variables internally.
-func NewService(database *gorm.DB, encryptionKey string) (*Service, error) {
+func NewService(database *gorm.DB, encryptionKey string, validator p115integration.CredentialValidator) (*Service, error) {
 	if database == nil {
 		return nil, ErrStoreUnavailable
+	}
+	if validator == nil {
+		return nil, ErrValidatorUnavailable
 	}
 	box, err := secretbox.NewDerived(encryptionKey, credentialEncryptionPurpose)
 	if err != nil {
 		return nil, err
 	}
 	return &Service{
-		store:  &gormAccountStore{db: database},
-		cipher: box,
+		store:     &gormAccountStore{db: database},
+		cipher:    box,
+		validator: validator,
+		now:       time.Now,
 	}, nil
 }
 
 func newServiceWithDependencies(store accountStore, cipher credentialCipher) *Service {
-	return &Service{store: store, cipher: cipher}
+	return &Service{store: store, cipher: cipher, now: time.Now}
+}
+
+// List returns all administrator-managed accounts as safe summaries.
+func (s *Service) List(ctx context.Context) ([]AccountSummary, error) {
+	accounts, err := s.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]AccountSummary, 0, len(accounts))
+	for i := range accounts {
+		items = append(items, *accountSummary(&accounts[i]))
+	}
+	return items, nil
+}
+
+// Get returns one safe account summary by identifier.
+func (s *Service) Get(ctx context.Context, accountID string) (*AccountSummary, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, ErrAccountIDRequired
+	}
+	account, err := s.store.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return accountSummary(account), nil
 }
 
 // Create validates role-specific fields, encrypts the Cookie, and stores a disabled pending account.
@@ -166,9 +216,10 @@ func (s *Service) ReplaceCookie(ctx context.Context, accountID, cookie string) (
 	if accountID == "" {
 		return nil, ErrAccountIDRequired
 	}
-	cookie = strings.TrimSpace(cookie)
-	if cookie == "" {
-		return nil, ErrCookieRequired
+	var err error
+	cookie, err = normalizeAndValidateCookie(cookie)
+	if err != nil {
+		return nil, err
 	}
 
 	ciphertext, err := s.cipher.Encrypt(cookie)
@@ -191,8 +242,8 @@ func (s *Service) ReplaceCookie(ctx context.Context, accountID, cookie string) (
 }
 
 func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
+	input.Role = models.P115AccountRole(strings.TrimSpace(string(input.Role)))
 	input.Alias = strings.TrimSpace(input.Alias)
-	input.Cookie = strings.TrimSpace(input.Cookie)
 	input.AppType = strings.TrimSpace(input.AppType)
 	input.UserAgent = strings.TrimSpace(input.UserAgent)
 	input.TargetParentID = strings.TrimSpace(input.TargetParentID)
@@ -203,14 +254,28 @@ func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 	if input.Alias == "" {
 		return ErrAliasRequired
 	}
-	if input.Cookie == "" {
-		return ErrCookieRequired
+	if utf8.RuneCountInString(input.Alias) > 100 {
+		return ErrAliasInvalid
+	}
+	var err error
+	input.Cookie, err = normalizeAndValidateCookie(input.Cookie)
+	if err != nil {
+		return err
 	}
 	if input.AppType == "" {
 		return ErrAppTypeRequired
 	}
+	if len(input.AppType) > 32 || !appTypePattern.MatchString(input.AppType) {
+		return ErrAppTypeInvalid
+	}
 	if input.UserAgent == "" {
 		return ErrUserAgentRequired
+	}
+	if utf8.RuneCountInString(input.UserAgent) > 512 || strings.ContainsAny(input.UserAgent, "\r\n") {
+		return ErrUserAgentInvalid
+	}
+	if len(input.TargetParentID) > 64 {
+		return ErrTargetParentInvalid
 	}
 	if input.Role == models.P115AccountRolePlayback && input.TargetParentID == "" {
 		return ErrPlaybackTargetParentRequired
@@ -219,6 +284,17 @@ func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 		return ErrSourceTargetParentUnexpected
 	}
 	return nil
+}
+
+func normalizeAndValidateCookie(cookie string) (string, error) {
+	cookie = strings.TrimSpace(cookie)
+	if cookie == "" {
+		return "", ErrCookieRequired
+	}
+	if len(cookie) > maxCookieLength || strings.ContainsAny(cookie, "\r\n") {
+		return "", ErrCookieInvalid
+	}
+	return cookie, nil
 }
 
 func accountSummary(account *models.P115Account) *AccountSummary {

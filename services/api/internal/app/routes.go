@@ -72,6 +72,12 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.POST("/external-api-key", h.adminAPIKey.Generate)
 	admin.DELETE("/external-api-key", h.adminAPIKey.Disable)
 	admin.GET("/redemptions", h.user.GetAllRedemptions)
+	admin.GET("/p115-accounts", h.p115Account.List)
+	admin.POST("/p115-accounts", h.p115Account.Create)
+	admin.GET("/p115-accounts/:id", h.p115Account.Get)
+	admin.PUT("/p115-accounts/:id/cookie", h.p115Account.ReplaceCookie)
+	admin.POST("/p115-accounts/:id/validate", h.p115Account.Validate)
+	admin.PUT("/p115-accounts/:id/enabled", h.p115Account.SetEnabled)
 
 	admin.GET("/subscriptions", h.subscription.GetAllSubscriptions)
 	admin.PUT("/subscriptions/:id/approve", h.subscription.ApproveSubscription)

@@ -79,7 +79,7 @@
 
 ## 4. 管理员路由（需认证 + role=admin）
 
-管理员路由支持两类 Bearer 凭证：管理员 JWT，或设置中心生成的全局 Admin API Key。API Key 没有真实用户身份语义，不能访问统一认证路由、用户路由或 Internal API。
+管理员路由支持两类 Bearer 凭证：管理员 JWT，或设置中心生成的全局 Admin API Key。API Key 没有真实用户身份语义，不能访问统一认证路由、用户路由或 Internal API。涉及凭证本身的 `external-api-key` 和 `p115-accounts` 管理接口只允许管理员 JWT，Admin API Key 调用时返回 `403`。
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
@@ -112,6 +112,12 @@
 | POST | `/api/v1/admin/external-api-key` | 生成或轮换全局 Admin API Key；响应只在本次返回 `apiKey` 明文 |
 | DELETE | `/api/v1/admin/external-api-key` | 禁用全局 Admin API Key，清空 `external_api_key_hash` |
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
+| GET | `/api/v1/admin/p115-accounts` | 115 账号概要列表（返回 `data`，不返回 Cookie；仅管理员 JWT） |
+| POST | `/api/v1/admin/p115-accounts` | 创建 `pending + disabled` 账号，Cookie 只写（仅管理员 JWT） |
+| GET | `/api/v1/admin/p115-accounts/:id` | 查询单个 115 账号概要，不返回 Cookie（仅管理员 JWT） |
+| PUT | `/api/v1/admin/p115-accounts/:id/cookie` | 替换 Cookie，并重置为 `pending + disabled`（仅管理员 JWT） |
+| POST | `/api/v1/admin/p115-accounts/:id/validate` | 只读验证当前 Cookie；成功进入 `active` 但不自动启用（仅管理员 JWT） |
+| PUT | `/api/v1/admin/p115-accounts/:id/enabled` | 设置启用状态；启用要求账号已验证为 `active`（仅管理员 JWT） |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
