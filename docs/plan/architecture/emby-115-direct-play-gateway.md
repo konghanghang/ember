@@ -2,7 +2,7 @@
 
 > 状态：进行中
 > 负责人：Ember
-> 更新时间：2026-08-01
+> 更新时间：2026-08-02
 
 ## 背景
 
@@ -87,7 +87,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 ## 实施进度
 
-截至 2026-08-01 已完成账号控制面：
+截至 2026-08-02 已完成账号控制面：
 
 - 新增 `p115_accounts` 模型、幂等 SQL migration、角色/目标目录检查和启用账号唯一索引。
 - 将 ConfigService 历史 AES-GCM 格式下沉到共享 `security/secretbox`，已有 settings 密文保持兼容；115 Cookie 使用用途隔离派生密钥。
@@ -96,9 +96,14 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 JWT 管理员账号 API：列表、详情、创建、Cookie 替换、验证和启停；Admin API Key 不得管理 115 凭证。
 - 根据固定 `p115client` 源码实现 `CookieCredentialValidator`，只读检查登录状态并规范化 Cookie `UID`；未进行真实 115 调用。
 - 已用单元测试覆盖密文兼容、Cookie 不回显、输入边界、轮换状态重置、验证状态机、Cookie 并发替换、启用约束、HTTP 错误脱敏和路由注册。
+- 已补真实 Gin router、JWT middleware、Service、GORM 和 PostgreSQL 的 API 进程内集成测试；115 校验器使用 fake，不访问真实 115。
+- 集成测试覆盖账号创建、列表、详情、验证、启停、Cookie 替换与重新验证，以及未验证账号启用、同角色启用冲突、跨角色 Provider UID 冲突、凭证失效、Provider 故障和 Admin API Key `403`。
+- 集成测试确认 Cookie 只以密文落库且不通过 API 回显；每个用例使用独立 `itest_*` schema，完整执行 migration 与 `VerifySchema` 并在结束后清理。
 
 仍未完成：
 
+- 两个目标账号的真实 Cookie 只读验证；当前无法确认真实响应、账号 UID、User-Agent 和风控边界。
+- 同角色并发启用、验证期间并发替换 Cookie 的真实 PostgreSQL 竞态测试；现有单元测试已锁定过期验证结果不得覆盖新 Cookie。
 - 上传信息、SHA1 查重、秒传初始化、下载直链等 Cookie/Web API Adapter，以及上传协议加密和固定向量。
 - 管理员 Web 配置页面。
 - 秒传任务、下载直链和播放网关。
@@ -284,13 +289,14 @@ services/api/internal/integrations/p115/
 
 #### 5.1 管理员 115 账号
 
-- `GET /api/v1/admin/p115/accounts`
-- `POST /api/v1/admin/p115/accounts`
-- `PUT /api/v1/admin/p115/accounts/:id`
-- `POST /api/v1/admin/p115/accounts/:id/validate`
-- `DELETE /api/v1/admin/p115/accounts/:id`
+- `GET /api/v1/admin/p115-accounts`
+- `POST /api/v1/admin/p115-accounts`
+- `GET /api/v1/admin/p115-accounts/:id`
+- `PUT /api/v1/admin/p115-accounts/:id/cookie`
+- `POST /api/v1/admin/p115-accounts/:id/validate`
+- `PUT /api/v1/admin/p115-accounts/:id/enabled`
 
-创建和更新接口接收角色、别名、Cookie、appType、User-Agent 和播放小号目标目录。返回只包含脱敏账号标识、状态、最后验证时间和脱敏错误。
+创建接口接收角色、别名、Cookie、appType、User-Agent 和播放小号目标目录；Cookie 替换与启停使用独立接口。返回只包含脱敏账号标识、状态、最后验证时间和脱敏错误。
 
 首期不提供 `/api/v1/user/p115/*`，也不创建授权会话或二维码轮询 API。
 
@@ -429,6 +435,8 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：所有 method、path、请求字段、响应映射、加密向量和未确认项均有固定证据；不能靠猜测进入实现。
 
+当前进度：账号控制面、Cookie 登录状态合同和离线 fake 测试已完成；上传加密向量、查重/秒传/下载合同 fixture 与受控真实账号验证尚未完成，因此阶段 0 仍为进行中。
+
 ### 阶段 1：最小闭环
 
 - 一个 Emby 4.9.3.0 Server。
@@ -471,6 +479,16 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - `cd services/api && go build ./...`
 - `cd services/web && npm run test`
 - `cd services/web && npm run build`
+
+账号控制面已完成的验证：
+
+- `cd services/api && go test -count=1 ./...`
+- `cd services/api && go vet ./...`
+- `cd services/api && go build ./...`
+- 设置 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 -run '^TestIntegrationP115Account' ./internal/app`
+- 设置 `EMBER_INTEGRATION_DATABASE_URL` 后执行完整 `go test -count=1 ./internal/app`
+
+上述集成测试使用真实 PostgreSQL 和应用内真实 HTTP 路由，但用 fake `CredentialValidator` 隔离 115；它证明账号控制面状态和数据库约束能够闭环，不证明目标 115 账号、Cookie/Web API 或播放链路真实可用。
 
 测试分层：
 
