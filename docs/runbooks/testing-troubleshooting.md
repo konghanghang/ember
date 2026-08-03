@@ -76,6 +76,15 @@ docker compose logs --tail=200 ember-bot
 
 ## 集成链路问题
 
+### Web + API 集成用例全部跳过
+
+如果 `media-library-policy.flow.spec.ts` 的用例全部显示为 skipped，且命令最终返回 `exit code 1`，优先检查 `beforeAll` 中的 Go 集成服务启动过程，而不是业务断言：
+
+- 查看 `artifacts/test-results/web/integration-vitest.log` 中的健康检查错误和服务输出。
+- GitHub Actions 已通过 `setup-go` 恢复标准 Go 构建缓存；workflow 和测试启动器都不要把 `GOCACHE` 改到临时目录，否则 `go run` 会在每个 job 中冷编译。
+- Go 服务健康检查与 Vitest hook 必须共享同一启动时间预算，并为登录等初始化步骤保留额外时间。
+- 集成测试需要同时保留终端 reporter 和 JSON reporter，避免 hook 错误只在 artifact 中留下空消息。
+
 ### Emby 相关功能失败
 
 优先检查：

@@ -103,7 +103,6 @@ jobs:
 
       - name: Run API test report suite
         env:
-          GOCACHE: /tmp/ember-go-build
           EMBER_INTEGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ember_integration?sslmode=disable
         run: bash scripts/test/api.sh
 

@@ -15,7 +15,11 @@ import { login } from '@/api/auth'
 import { getRankingLibraryAllowlist, updatePlanGroup } from '@/api/admin'
 import { createSubscription } from '@/api/console'
 import type { LoginResponse, ManagedPlanGroup, Subscription, UserInfo, UserMediaLibrarySettings } from '@/types/api'
-import { startGoIntegrationServer, type RunningGoServer } from './go-server'
+import {
+  GO_INTEGRATION_STARTUP_TIMEOUT_MS,
+  startGoIntegrationServer,
+  type RunningGoServer,
+} from './go-server'
 
 const describeIntegration = process.env.EMBER_WEB_RUN_INTEGRATION === '1' ? describe : describe.skip
 
@@ -318,7 +322,7 @@ describeIntegration('media library policy web+api+db flow', () => {
     request.defaults.adapter = 'http' as never
     adminLogin = await signIn('itest_admin_web', 'integration-admin-secret')
     userLogin = await signIn('itest_user_web', 'integration-user-secret')
-  }, 40000)
+  }, GO_INTEGRATION_STARTUP_TIMEOUT_MS + 10000)
 
   afterAll(async () => {
     if (server) {
