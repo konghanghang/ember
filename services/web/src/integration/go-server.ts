@@ -81,6 +81,7 @@ export function buildGoIntegrationServerEnv(
     PORT: String(port),
     GIN_MODE: 'test',
     JWT_SECRET: 'jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj',
+    CONFIG_ENCRYPTION_KEY: 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk',
     INTERNAL_API_SECRET: '0123456789abcdef0123456789abcdef',
   }
 }

@@ -26,6 +26,7 @@ describe('buildGoIntegrationServerEnv', () => {
       DATABASE_URL: 'postgresql://tester:secret@127.0.0.1:5432/ember_integration',
       PORT: '43123',
       GIN_MODE: 'test',
+      CONFIG_ENCRYPTION_KEY: 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk',
     })
   })
 
