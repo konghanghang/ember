@@ -786,6 +786,48 @@ export interface AdminConfigListResponse {
   data: AdminConfigItem[]
 }
 
+export type P115AccountRole = 'source' | 'playback'
+export type P115AccountStatus = 'pending' | 'active' | 'expired' | 'error' | 'cooling_down'
+export type P115AuthMode = 'legacy_cookie'
+
+export interface P115Account {
+  id: string
+  role: P115AccountRole
+  alias: string
+  authMode: P115AuthMode
+  providerUserId?: string
+  appType: string
+  userAgent: string
+  targetParentId?: string
+  status: P115AccountStatus
+  enabled: boolean
+  lastValidatedAt?: string
+  lastSucceededAt?: string
+  cooldownUntil?: string
+  lastErrorCode?: string
+  lastErrorMessage?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface P115AccountListResponse {
+  data: P115Account[]
+}
+
+export interface CreateP115AccountRequest {
+  role: P115AccountRole
+  alias: string
+  cookie: string
+  appType: string
+  userAgent: string
+  targetParentId?: string
+}
+
+export interface P115ValidationResult {
+  valid: boolean
+  account: P115Account
+}
+
 export interface AdminExternalApiKeyStatus {
   configured: boolean
 }

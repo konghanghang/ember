@@ -42,6 +42,7 @@
   - `services/web/src/views/admin/SettingsView.vue`
   - `services/web/src/views/admin/SessionsView.vue`
   - `services/web/src/views/admin/MediaQualityView.vue`
+  - `services/web/src/views/admin/P115AccountsView.vue`
 
 当前已接入这套基础组件的控制台页面包括：
 
@@ -73,7 +74,7 @@
 - `api/request.ts` — 基础配置：baseURL=/api/v1, Bearer token 自动注入；普通接口 401 单例化收口为“清本地登录态 + 跳 `/login?redirect=`”；`/login` 和 `/logout` 走专门分支，不混入“登录过期”逻辑
 - `api/auth.ts` — login, getLoginProtectionConfig, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
-- `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings）
+- `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings, p115-accounts）
 - `api/console.ts` — 统一认证路由（profile, subscriptions, payments, rankings, media, emby, telegram, media-libraries；账号中心邮箱变更走 `sendEmailChangeCode(newEmail)` + `updateEmail(newEmail, code)` 两步流，旧 `updateProfile` 已下线）
 
 ### 2.3 路由守卫
@@ -184,6 +185,24 @@
   - `GET /api/v1/admin/devices/stats`
   - `GET /api/v1/admin/devices/blacklist`
   - `POST /api/v1/admin/devices/logout/:deviceId`
+
+### 3.5.1 管理端 115 账号
+
+- 路由：`/console/p115-accounts`（admin）
+- 兼容路由：`/admin/p115-accounts` → `/console/p115-accounts`
+- 视图：`views/admin/P115AccountsView.vue`
+- 页面职责：
+  - 展示管理员维护的源账号和播放账号安全摘要、验证状态、启用状态及脱敏错误
+  - 创建账号、替换 Cookie、显式验证和启停
+  - `pending / expired / error / cooling_down` 账号不提供启用操作；停用不受验证状态限制
+  - Cookie 只存在于创建或替换表单，提交成功或关闭弹窗后立即清空，任何查询结果都不回填
+- 数据源：
+  - `GET /api/v1/admin/p115-accounts`
+  - `POST /api/v1/admin/p115-accounts`
+  - `PUT /api/v1/admin/p115-accounts/:id/cookie`
+  - `POST /api/v1/admin/p115-accounts/:id/validate`
+  - `PUT /api/v1/admin/p115-accounts/:id/enabled`
+- 权限边界：路由只允许管理员角色进入，后端账号接口只接受管理员 JWT，Admin API Key 返回 `403`
 
 ### 3.6 管理端播放分析
 

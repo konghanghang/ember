@@ -17,7 +17,8 @@ import {
   Monitor,
   DataLine,
   Iphone,
-  Calendar
+  Calendar,
+  Key
 } from '@element-plus/icons-vue'
 import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
 
@@ -148,6 +149,12 @@ const menuItems = computed<MenuEntry[]>(() => [
         title: '设备管理',
         path: '/console/devices',
         icon: Iphone,
+        role: 'admin'
+      },
+      {
+        title: '115 账号',
+        path: '/console/p115-accounts',
+        icon: Key,
         role: 'admin'
       },
       {

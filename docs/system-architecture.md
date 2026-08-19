@@ -247,6 +247,7 @@ services/
 │  │        ├─ PaymentCenterView.vue # 支付中心（付费方案 + 支付记录）
 │  │        ├─ PlanGroupsView.vue # 用户分组 / 权益模板管理
 │  │        ├─ SettingsView.vue  # 设置中心
+│  │        ├─ P115AccountsView.vue # 115 源账号 / 播放账号控制面
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ PaymentsView.vue  # 支付记录审计
 │  │        ├─ SessionsView.vue  # 活跃会话
@@ -696,6 +697,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前已落地 115 Cookie 模式的账号控制面和只读凭证验证适配器；尚未实现上传、查重、秒传、下载直链或播放网关，也未调用真实 115 账号：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
+- 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
 - `Create(ctx, input)`：校验 `source` / `playback` 角色字段，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
 - `ReplaceCookie(ctx, accountID, cookie)`：覆盖密文并清空 Provider 用户、验证时间、冷却和错误状态，重新回到 `pending + disabled`
 - `Validate(ctx, accountID)`：调用固定的登录状态端点；成功进入 `active` 但不自动启用，凭证失效进入 `expired + disabled`，网络或协议失败进入 `error`；回写按 Cookie 密文做乐观并发检查

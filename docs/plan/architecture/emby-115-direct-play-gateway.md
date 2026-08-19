@@ -2,7 +2,7 @@
 
 > 状态：进行中
 > 负责人：Ember
-> 更新时间：2026-08-02
+> 更新时间：2026-08-19
 
 ## 背景
 
@@ -59,7 +59,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 管理端已有活跃会话、播放历史、设备管理、客户端黑名单和设备操作日志。
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
-- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、Cookie 登录状态验证适配器和 Provider-neutral 接口；尚未实现上传、查重、秒传、下载直链和任何真实 115 调用。
+- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面、Cookie 登录状态验证适配器和 Provider-neutral 接口；尚未实现上传、查重、秒传、下载直链和任何真实 115 调用。
 - 当前仍没有播放数据面进程、Emby AccessToken 到 Ember 用户的映射、秒传任务或直连会话模型。
 
 ### 外部证据与未确认项
@@ -87,7 +87,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 ## 实施进度
 
-截至 2026-08-02 已完成账号控制面：
+截至 2026-08-19 已完成账号控制面：
 
 - 新增 `p115_accounts` 模型、幂等 SQL migration、角色/目标目录检查和启用账号唯一索引。
 - 将 ConfigService 历史 AES-GCM 格式下沉到共享 `security/secretbox`，已有 settings 密文保持兼容；115 Cookie 使用用途隔离派生密钥。
@@ -99,13 +99,14 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 已补真实 Gin router、JWT middleware、Service、GORM 和 PostgreSQL 的 API 进程内集成测试；115 校验器使用 fake，不访问真实 115。
 - 集成测试覆盖账号创建、列表、详情、验证、启停、Cookie 替换与重新验证，以及未验证账号启用、同角色启用冲突、跨角色 Provider UID 冲突、凭证失效、Provider 故障和 Admin API Key `403`。
 - 集成测试确认 Cookie 只以密文落库且不通过 API 回显；每个用例使用独立 `itest_*` schema，完整执行 migration 与 `VerifySchema` 并在结束后清理。
+- 新增管理员页面 `/console/p115-accounts` 和侧边栏入口，支持安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 不回填，提交成功或关闭弹窗后立即清空。
+- 新增前端 API/类型合同和组件交互测试，覆盖 API 路径与 payload、待验证账号启用闸门、创建、验证、启用和 Cookie 替换流程；`npm run test` 与 `npm run build` 已通过。
 
 仍未完成：
 
 - 两个目标账号的真实 Cookie 只读验证；当前无法确认真实响应、账号 UID、User-Agent 和风控边界。
 - 同角色并发启用、验证期间并发替换 Cookie 的真实 PostgreSQL 竞态测试；现有单元测试已锁定过期验证结果不得覆盖新 Cookie。
 - 上传信息、SHA1 查重、秒传初始化、下载直链等 Cookie/Web API Adapter，以及上传协议加密和固定向量。
-- 管理员 Web 配置页面。
 - 秒传任务、下载直链和播放网关。
 - 任何真实 115 / Emby / Infuse 验证。
 
@@ -464,7 +465,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 ## 影响范围
 
 - API：新增播放网关、direct play Service、Cookie Provider、账号/路径/策略/会话/任务接口。
-- Web：只改管理员系统设置、套餐分组和播放分析；首期不改用户账号中心。
+- Web：账号控制面使用独立的管理员 115 账号页面；后续直连策略再触达系统设置、套餐分组和播放分析，首期不改用户账号中心。
 - Bot：阶段 2 可增加账号失效和连续失败告警。
 - 数据库：新增账号、Token 映射、路径、缓存、任务、会话和策略表，全部提供 SQL migration。
 - 配置/部署：新增网关进程、公开入口和原始 Emby 网络隔离。
@@ -487,6 +488,8 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - `cd services/api && go build ./...`
 - 设置 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 -run '^TestIntegrationP115Account' ./internal/app`
 - 设置 `EMBER_INTEGRATION_DATABASE_URL` 后执行完整 `go test -count=1 ./internal/app`
+- `cd services/web && npm run test`（当前 170 个测试通过、3 个按既有条件跳过）
+- `cd services/web && npm run build`
 
 上述集成测试使用真实 PostgreSQL 和应用内真实 HTTP 路由，但用 fake `CredentialValidator` 隔离 115；它证明账号控制面状态和数据库约束能够闭环，不证明目标 115 账号、Cookie/Web API 或播放链路真实可用。
 

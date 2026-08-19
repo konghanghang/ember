@@ -51,6 +51,9 @@ import type {
   PlaybackProfileResponse,
   PlaybackHistoryQuery,
   PlaybackHistoryResponse,
+  P115Account,
+  P115AccountListResponse,
+  P115ValidationResult,
   Plan,
   PlanGroupEmbyPolicyTemplate,
   PlanGroupEmbyPolicyTemplateUpdateRequest,
@@ -75,7 +78,8 @@ import type {
   UserInfo,
   UserListQuery,
   UserListResponse,
-  UpdateAdminConfigRequest
+  UpdateAdminConfigRequest,
+  CreateP115AccountRequest
 } from '@/types/api'
 
 // User Management
@@ -617,6 +621,59 @@ export function runCronJob(): Promise<CronCheckResponse> {
   return request({
     url: '/admin/cron/check-expired',
     method: 'post'
+  })
+}
+
+// ==================== 115 账号控制面 ====================
+
+/** 获取管理员维护的 115 账号安全摘要，响应不包含 Cookie 字段。 */
+export function getP115Accounts(): Promise<P115AccountListResponse> {
+  return request({
+    url: '/admin/p115-accounts',
+    method: 'get'
+  })
+}
+
+/** 获取单个 115 账号安全摘要，响应不包含 Cookie 字段。 */
+export function getP115Account(id: string): Promise<P115Account> {
+  return request({
+    url: `/admin/p115-accounts/${encodeURIComponent(id)}`,
+    method: 'get'
+  })
+}
+
+/** 创建 115 账号；Cookie 仅随本次写请求发送。 */
+export function createP115Account(data: CreateP115AccountRequest): Promise<P115Account> {
+  return request({
+    url: '/admin/p115-accounts',
+    method: 'post',
+    data
+  })
+}
+
+/** 覆盖 115 Cookie，并让账号回到待验证和停用状态。 */
+export function replaceP115AccountCookie(id: string, cookie: string): Promise<P115Account> {
+  return request({
+    url: `/admin/p115-accounts/${encodeURIComponent(id)}/cookie`,
+    method: 'put',
+    data: { cookie }
+  })
+}
+
+/** 显式执行只读 Cookie 有效性验证。 */
+export function validateP115Account(id: string): Promise<P115ValidationResult> {
+  return request({
+    url: `/admin/p115-accounts/${encodeURIComponent(id)}/validate`,
+    method: 'post'
+  })
+}
+
+/** 启用已验证账号或停用现有账号。 */
+export function setP115AccountEnabled(id: string, enabled: boolean): Promise<P115Account> {
+  return request({
+    url: `/admin/p115-accounts/${encodeURIComponent(id)}/enabled`,
+    method: 'put',
+    data: { enabled }
   })
 }
 

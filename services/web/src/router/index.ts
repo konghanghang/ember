@@ -168,6 +168,12 @@ const router = createRouter({
           component: () => import('../views/admin/SettingsView.vue'),
         },
         {
+          path: 'p115-accounts',
+          name: 'console-p115-accounts',
+          meta: adminRouteMeta,
+          component: () => import('../views/admin/P115AccountsView.vue'),
+        },
+        {
           path: 'sessions',
           name: 'console-sessions',
           meta: adminRouteMeta,
@@ -239,6 +245,7 @@ const router = createRouter({
     { path: '/admin/payments', redirect: '/console/billing?tab=payments' },
     { path: '/admin/subscriptions', redirect: '/console/subscriptions' },
     { path: '/admin/settings', redirect: '/console/settings' },
+    { path: '/admin/p115-accounts', redirect: '/console/p115-accounts' },
     { path: '/user/dashboard', redirect: '/console/dashboard' },
     { path: '/user/subscriptions/new', redirect: '/console/subscriptions/new' },
     { path: '/user/subscriptions', redirect: '/console/subscriptions' },
