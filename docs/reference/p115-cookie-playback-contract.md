@@ -158,6 +158,22 @@ Ember 的 `CookieHTTPAdapter.SearchBySHA1` 当前固定：
 
 证据：[`fs_shasearch`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L17349-L17392)。
 
+#### 5.3.1 目标目录复核与可见性
+
+`status=2` 只表示上传初始化接受了秒传复用，不能证明目标目录已经可查询。调用方随后必须执行 `CookieHTTPAdapter.FindTargetFile`：
+
+- 固定请求 `GET /files/search`，query 为 `aid=1`、目标 `cid`、`fc=2`、`limit=100`、`offset=0`、`search_value=<UPPER_SHA1>`、`show_dir=0`、`type=99`。
+- 固定映射 Web 搜索短字段 `fid/cid/n/pc/sha/s`，字段缺失、非法数字、非法 SHA1 或 Header/JSON/HTTP 错误立即失败，不进入重试。
+- 只有 `sha == expectedSHA1`、`s == expectedSize`、`sha` 非空所表达的 `isDirectory=false`、`cid == expectedParentId` 全部成立时才接受候选；文件名不能替代内容身份。
+- 同一次查询返回多条精确候选时返回 `ErrTargetFileAmbiguous`，禁止任意选择第一条。
+- 首次查询立即执行；只有正常空列表或没有精确候选时继续轮询，默认每 `500ms` 查询一次，整体可见性窗口固定为 `10s`。
+- 最后剩余时间不足一个轮询间隔时只等待剩余时间，并在截止点执行最后一次查询；仍不可见返回 `ErrTargetFileNotVisible`。
+- context 已取消时不发送请求；等待期间取消则原样返回 `context.Canceled` / `context.DeadlineExceeded`。
+
+以上间隔与超时是 Ember 的内部首期策略，不是 115 官方时序保证。真实账号验证必须记录实际可见延迟；调整默认值时需要同步更新 fake clock 测试和本合同。
+
+证据：[`fs_search`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L17012-L17131) 固定 method、path、默认 query 与短字段响应；[`p115tiny302 sha1_to_id`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115tiny302/p115tiny302/app.py#L85-L112) 固定按 SHA1/size 复核候选的公开实现语义。
+
 ### 5.4 Cookie 秒传初始化
 
 公开实现确认的入口：
@@ -328,9 +344,9 @@ playbackAccountId + SHA1 + size
 2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化。
 3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
 4. SHA1 查重端点只发送规范化 SHA1，并覆盖命中、固定未命中、size/目录/parent 不匹配和非法字段。
-5. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
-6. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
-7. `status=2` 复用后目标文件复核。
+5. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。
+6. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
+7. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
 8. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
 9. `status=1` 明确拒绝，且不触发完整文件上传。
 10. 加密请求与解密响应固定向量。

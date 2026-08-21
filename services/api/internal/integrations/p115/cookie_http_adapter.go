@@ -20,23 +20,30 @@ import (
 )
 
 const (
-	cookieUploadInfoURL    = "https://proapi.115.com/app/uploadinfo"
-	cookieSHASearchURL     = "https://webapi.115.com/files/shasearch"
-	cookieUploadInitURL    = "https://uplb.115.com/4.0/initupload.php"
-	cookieUploadAppVersion = "36.2.28"
-	maxCookieResponseBody  = 256 * 1024
-	maxUploadUserKeyLength = 4 * 1024
+	cookieUploadInfoURL          = "https://proapi.115.com/app/uploadinfo"
+	cookieSHASearchURL           = "https://webapi.115.com/files/shasearch"
+	cookieUploadInitURL          = "https://uplb.115.com/4.0/initupload.php"
+	cookieUploadAppVersion       = "36.2.28"
+	maxCookieResponseBody        = 256 * 1024
+	maxUploadUserKeyLength       = 4 * 1024
+	targetSearchLimit            = 100
+	targetVisibilityPollInterval = 500 * time.Millisecond
+	targetVisibilityTimeout      = 10 * time.Second
 )
 
 // CookieHTTPAdapter implements Cookie/Web API operations that have fixed
 // request and response contracts. Remaining Provider methods are added only
 // after their own contract tests exist.
 type CookieHTTPAdapter struct {
-	client             httpDoer
-	uploadInfoEndpoint *url.URL
-	shaSearchEndpoint  *url.URL
-	uploadInitEndpoint *url.URL
-	now                func() time.Time
+	client                  httpDoer
+	uploadInfoEndpoint      *url.URL
+	shaSearchEndpoint       *url.URL
+	targetSearchEndpoint    *url.URL
+	uploadInitEndpoint      *url.URL
+	now                     func() time.Time
+	wait                    func(context.Context, time.Duration) error
+	targetPollInterval      time.Duration
+	targetVisibilityTimeout time.Duration
 }
 
 // NewCookieHTTPAdapter builds the production adapter without performing a network call.
@@ -65,12 +72,19 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 	if err != nil {
 		return nil, err
 	}
+	targetSearchURL := *shaSearchURL
+	targetSearchURL.Path = "/files/search"
+	targetSearchURL.RawPath = ""
 	return &CookieHTTPAdapter{
-		client:             client,
-		uploadInfoEndpoint: uploadInfoURL,
-		shaSearchEndpoint:  shaSearchURL,
-		uploadInitEndpoint: uploadInitURL,
-		now:                time.Now,
+		client:                  client,
+		uploadInfoEndpoint:      uploadInfoURL,
+		shaSearchEndpoint:       shaSearchURL,
+		targetSearchEndpoint:    &targetSearchURL,
+		uploadInitEndpoint:      uploadInitURL,
+		now:                     time.Now,
+		wait:                    waitForCookieTargetPoll,
+		targetPollInterval:      targetVisibilityPollInterval,
+		targetVisibilityTimeout: targetVisibilityTimeout,
 	}, nil
 }
 
@@ -153,6 +167,99 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 		return []File{}, nil
 	}
 	return []File{file}, nil
+}
+
+// FindTargetFile polls the playback account's target directory until exactly
+// one file matches SHA1, size, non-directory type, and parent ID.
+func (a *CookieHTTPAdapter) FindTargetFile(ctx context.Context, credential Credential, query FileQuery) (*File, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	expectedSHA1, err := normalizeSHA1(query.SHA1)
+	if err != nil || query.Size < 0 {
+		return nil, ErrInvalidRequest
+	}
+	expectedParentID, err := normalizeOptionalProviderID(query.ParentID)
+	if err != nil || expectedParentID == "" {
+		return nil, ErrInvalidRequest
+	}
+	if _, err := validateCookieHTTPCredential(credential); err != nil {
+		return nil, err
+	}
+
+	deadline := a.now().Add(a.targetVisibilityTimeout)
+	for {
+		file, err := a.findTargetFileOnce(ctx, credential, FileQuery{
+			SHA1:     expectedSHA1,
+			Size:     query.Size,
+			ParentID: expectedParentID,
+		})
+		if err != nil || file != nil {
+			return file, err
+		}
+		remaining := deadline.Sub(a.now())
+		if remaining <= 0 {
+			return nil, ErrTargetFileNotVisible
+		}
+		waitDuration := a.targetPollInterval
+		if remaining < waitDuration {
+			waitDuration = remaining
+		}
+		if err := a.wait(ctx, waitDuration); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// findTargetFileOnce performs one first-page target search and fails closed on multiple exact matches.
+func (a *CookieHTTPAdapter) findTargetFileOnce(ctx context.Context, credential Credential, query FileQuery) (*File, error) {
+	params := url.Values{
+		"aid":          {"1"},
+		"cid":          {query.ParentID},
+		"fc":           {"2"},
+		"limit":        {strconv.Itoa(targetSearchLimit)},
+		"offset":       {"0"},
+		"search_value": {query.SHA1},
+		"show_dir":     {"0"},
+		"type":         {"99"},
+	}
+	var response struct {
+		State *bool           `json:"state"`
+		Data  json.RawMessage `json:"data"`
+	}
+	if err := a.getJSON(ctx, a.targetSearchEndpoint, params, credential, &response); err != nil {
+		return nil, err
+	}
+	if response.State == nil {
+		return nil, protocolError("target search state missing")
+	}
+	if !*response.State {
+		return nil, ErrProviderRejected
+	}
+	if len(response.Data) == 0 || string(response.Data) == "null" {
+		return nil, protocolError("target search data missing")
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(response.Data, &items); err != nil {
+		return nil, protocolError("target search data invalid")
+	}
+
+	var match *File
+	for _, item := range items {
+		file, err := decodeTargetSearchFile(item)
+		if err != nil {
+			return nil, err
+		}
+		if file.IsDirectory || file.SHA1 != query.SHA1 || file.Size != query.Size || file.ParentID != query.ParentID {
+			continue
+		}
+		if match != nil {
+			return nil, ErrTargetFileAmbiguous
+		}
+		matched := file
+		match = &matched
+	}
+	return match, nil
 }
 
 // InitRapidUpload builds the encrypted Cookie upload request and maps the
@@ -313,6 +420,50 @@ func decodeSHASearchFile(data json.RawMessage) (File, error) {
 		Name:        name,
 		SHA1:        normalizedSHA1,
 		Size:        int64(payload.FileSize.value),
+		IsDirectory: isDirectory,
+	}, nil
+}
+
+// decodeTargetSearchFile maps the pinned web search short fields into a complete file identity.
+func decodeTargetSearchFile(data json.RawMessage) (File, error) {
+	var payload struct {
+		FileID   jsonUint64 `json:"fid"`
+		ParentID jsonUint64 `json:"cid"`
+		Name     *string    `json:"n"`
+		PickCode *string    `json:"pc"`
+		SHA1     *string    `json:"sha"`
+		Size     jsonUint64 `json:"s"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return File{}, protocolError("target search item invalid")
+	}
+	if !payload.FileID.set || payload.FileID.value == 0 || !payload.ParentID.set ||
+		payload.Name == nil || payload.PickCode == nil || payload.SHA1 == nil || !payload.Size.set ||
+		payload.Size.value > math.MaxInt64 {
+		return File{}, protocolError("target search fields missing")
+	}
+	name := *payload.Name
+	pickCode := strings.TrimSpace(*payload.PickCode)
+	if strings.TrimSpace(name) == "" || pickCode == "" || strings.ContainsAny(name+pickCode, "\r\n") {
+		return File{}, protocolError("target search fields invalid")
+	}
+	rawSHA1 := strings.TrimSpace(*payload.SHA1)
+	isDirectory := rawSHA1 == ""
+	normalizedSHA1 := ""
+	if !isDirectory {
+		var err error
+		normalizedSHA1, err = normalizeSHA1(rawSHA1)
+		if err != nil {
+			return File{}, protocolError("target search hash invalid")
+		}
+	}
+	return File{
+		ID:          strconv.FormatUint(payload.FileID.value, 10),
+		PickCode:    pickCode,
+		ParentID:    strconv.FormatUint(payload.ParentID.value, 10),
+		Name:        name,
+		SHA1:        normalizedSHA1,
+		Size:        int64(payload.Size.value),
 		IsDirectory: isDirectory,
 	}, nil
 }
@@ -532,6 +683,18 @@ func newCookieHTTPClient() *http.Client {
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+}
+
+// waitForCookieTargetPoll waits without leaking a timer and returns context cancellation unchanged.
+func waitForCookieTargetPoll(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

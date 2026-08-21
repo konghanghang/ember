@@ -697,7 +697,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面、只读凭证验证、上传信息、旧 SHA1 查重和秒传初始化状态适配器；尚未实现目标目录复核、下载直链或播放网关，也未调用真实 115 账号：
+当前已落地 115 Cookie 模式的账号控制面、只读凭证验证、上传信息、旧 SHA1 查重、秒传初始化状态适配和目标目录复核；尚未实现下载直链或播放网关，也未调用真实 115 账号：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -711,9 +711,10 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `integrations/p115.CookieHTTPAdapter.GetUploadInfo`：固定请求上传信息端点，严格映射顶层 `user_id` / `userkey`，并要求响应用户与 Cookie UID 一致
 - `integrations/p115.CookieHTTPAdapter.SearchBySHA1`：只向旧接口发送规范化 SHA1，在本地复核 size、非目录和可选父目录；固定未命中映射为空列表
 - `integrations/p115.CookieHTTPAdapter.InitRapidUpload`：校验完整内容身份后获取账号上传信息，调用 `p115cipher.BuildUploadRequest` 生成 `k_ec` 与加密 body，并把 `status=1/2/7` 映射为普通上传拒绝、复用和有界 Range challenge
+- `integrations/p115.CookieHTTPAdapter.FindTargetFile`：`status=2` 后立即查询目标目录，只接受 SHA1、size、非目录和 parent 全部一致的唯一候选；每 500ms 轮询、10s 截止并执行最终查询，超时和多候选使用独立错误
 - Cookie HTTP 公共边界：10 秒超时、禁止跟随重定向、响应体限额、网络/HTTP/业务/协议错误分层；错误不包含 Cookie、URL、响应正文或上游原始文本
 - `integrations/p115/p115cipher`：基于固定提交黑盒输出独立实现 `k_ec` token/CRC、AES-CBC 请求、LZ4 响应解压和包含 filename/preID/topupload 的上传签名/表单密文；固定向量不含真实账号信息
-- `integrations/p115.Provider`：继续定义上传信息、SHA1 搜索、秒传初始化、目标复核、下载地址和串行删除等 Provider-neutral 语义；目标复核、下载地址和删除尚无网络实现
+- `integrations/p115.Provider`：继续定义上传信息、SHA1 搜索、秒传初始化、目标复核、下载地址和串行删除等 Provider-neutral 语义；下载地址和删除尚无网络实现
 - `security/secretbox`：复用 ConfigService 历史 AES-GCM 密文格式，已有 settings 密文保持兼容；115 Cookie 通过 `p115-cookie` purpose 派生独立密钥，禁止与 settings 密文跨用途替换
 - `p115_accounts` 存储使用局部静默 GORM session，避免 PostgreSQL 失败行详情携带 Cookie 密文；错误日志只保留操作名、SQLSTATE 和约束名
 - 数据库约束：`source` / `playback` 每个角色至多一条启用记录；同一 Provider 用户不能同时成为两个启用角色；播放账号必须有目标目录
