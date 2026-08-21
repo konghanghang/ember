@@ -103,11 +103,12 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增管理员页面 `/console/p115-accounts` 和侧边栏入口，支持安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 不回填，提交成功或关闭弹窗后立即清空。
 - 新增前端 API/类型合同和组件交互测试，覆盖 API 路径与 payload、待验证账号启用闸门、创建、验证、启用和 Cookie 替换流程；`npm run test` 与 `npm run build` 已通过。
 - 新增 `integrations/p115/p115cipher` 离线 PoC，固定 `k_ec` token/CRC、AES-CBC 请求、LZ4 响应解压、上传 `sig/token` 和排序表单密文；向量不含真实账号信息，不访问 115。
+- 新增 `CookieHTTPAdapter.GetUploadInfo` 和 `SearchBySHA1`，用 `httptest` 固定 method、query、Cookie/User-Agent Header、响应字段、严格内容匹配和脱敏错误；没有请求真实 115。
 
 仍未完成：
 
 - 两个目标账号的真实 Cookie 只读验证；当前无法确认真实响应、账号 UID、User-Agent 和风控边界。
-- 上传信息、SHA1 查重、秒传初始化、下载直链等 Cookie/Web API Adapter；上传协议加密固定向量已完成，但尚未接入 HTTP Adapter。
+- 秒传初始化、目标目录复核、下载直链和串行删除等 Cookie/Web API Adapter；上传信息与旧 SHA1 查重适配器、上传协议加密固定向量已完成。
 - 秒传任务、下载直链和播放网关。
 - 任何真实 115 / Emby / Infuse 验证。
 
@@ -437,7 +438,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：所有 method、path、请求字段、响应映射、加密向量和未确认项均有固定证据；不能靠猜测进入实现。
 
-当前进度：账号控制面、Cookie 登录状态合同、PostgreSQL 竞态测试和上传加密固定向量已完成；查重/秒传/下载合同 fixture、HTTP Adapter 与受控真实账号验证尚未完成，因此阶段 0 仍为进行中。
+当前进度：账号控制面、Cookie 登录状态合同、PostgreSQL 竞态测试、上传加密固定向量、上传信息和旧 SHA1 查重 HTTP Adapter 已完成；秒传初始化、目标复核、下载合同 fixture/Adapter 与受控真实账号验证尚未完成，因此阶段 0 仍为进行中。
 
 ### 阶段 1：最小闭环
 
@@ -482,9 +483,10 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - `cd services/web && npm run test`
 - `cd services/web && npm run build`
 
-账号控制面已完成的验证：
+阶段 0 已完成能力的验证：
 
 - `cd services/api && go test -count=1 ./...`
+- `cd services/api && go test -count=1 ./internal/integrations/p115`
 - `cd services/api && go test -count=1 ./internal/integrations/p115/p115cipher`
 - `cd services/api && go vet ./...`
 - `cd services/api && go build ./...`

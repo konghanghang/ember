@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/konghang/ember/backend/internal/common/upstream"
 )
@@ -31,12 +30,7 @@ type CookieCredentialValidator struct {
 
 // NewCookieCredentialValidator builds the production validator without performing any network call.
 func NewCookieCredentialValidator() *CookieCredentialValidator {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := newCookieHTTPClient()
 	validator, err := newCookieCredentialValidator(client, cookieLoginStatusURL)
 	if err != nil {
 		panic("invalid fixed 115 login status URL: " + err.Error())

@@ -119,7 +119,15 @@ Cookie: <account-cookie>
 
 响应用于取得上传初始化需要的 `user_id` 和 `userkey`。字段缺失、账号不一致或响应业务状态失败时，账号验证失败。
 
-证据：[`upload_info_app`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L26750-L26783)。
+Ember 的 `CookieHTTPAdapter.GetUploadInfo` 当前固定：
+
+- 只发送 `GET /app/uploadinfo`，不带 query 和请求体；Header 仅承载固定 `Accept: */*`、账号 Cookie 和账号 User-Agent，不发送 `Authorization`。
+- 只接受 HTTP `2xx`、顶层布尔 `state=true`、顶层十进制 `user_id` 和非空 `userkey`；`user_id` 可为 JSON number 或十进制 string，进入内部合同前规范化为十进制 string。
+- 响应 `user_id` 必须与请求 Cookie 的规范化 `UID` 一致；不一致按凭证拒绝处理，禁止把其他账号的 `userkey` 带入上传初始化。
+- `state=false` 映射为 `ErrProviderRejected`；网络和非 `2xx` 映射为 `ErrProviderUnavailable`；字段缺失、非法 JSON 或超限响应映射为 `ErrProviderProtocol`。
+- 错误不携带请求 URL、Cookie、`userkey`、响应正文或 Provider 原始错误文本。
+
+证据：[`upload_info_app`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L26750-L26783) 固定 method/path；[`py115 UploadInfoApi`](https://github.com/deadblue/py115/blob/7f96f039be7ec62b937ee41290ba9469aca6921e/src/py115/lowlevel/api/upload.py) 固定顶层 `user_id` / `userkey` 映射。二者都属于公开实现证据，不代替目标账号实测。
 
 ### 5.3 SHA1 查重
 
@@ -139,6 +147,14 @@ candidate.sha1 == expectedSHA1
 ```
 
 如果无法拿到 size 或文件类型，结果只能作为候选，不能直接签发 302。秒传完成后还必须在目标目录复核。
+
+Ember 的 `CookieHTTPAdapter.SearchBySHA1` 当前固定：
+
+- 输入 SHA1 必须是 40 位十六进制并规范化为大写；size 必须非负，可选 `parentId` 必须是十进制 ID。
+- 只发送 `GET /files/shasearch?sha1=<UPPER_SHA1>`；旧接口不接受 size 或目录 query，因此 Ember 在响应映射后本地复核这些条件。
+- 成功响应必须包含顶层布尔 `state=true` 和单个 `data` 对象；固定映射字段为 `file_id`、`parent_id | category_id`、`file_name`、`pick_code`、`sha1 | file_sha1`、`file_size`，缺失、非法或别名冲突时按协议错误处理。
+- 只有 SHA1、size、`isDirectory=false` 以及可选父目录全部匹配时才返回一个候选；不匹配统一返回空列表，调用方仍需在业务层重复校验。
+- 固定公开源码确认的 `state=false + error="文件错误"` 映射为空列表；其他业务拒绝映射为 `ErrProviderRejected`，不向上暴露 Provider 原文。
 
 证据：[`fs_shasearch`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L17349-L17392)。
 
@@ -292,16 +308,17 @@ playbackAccountId + SHA1 + size
 
 1. Cookie 加密落库、替换和 API 永不回显明文。
 2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化。
-3. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
-4. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
-5. SHA1 命中但 size 或文件类型不符时拒绝。
-6. `status=2` 复用后目标文件复核。
-7. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
-8. `status=1` 明确拒绝，且不触发完整文件上传。
-9. 加密请求与解密响应固定向量。
-10. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-11. 下载链接 UA 隔离、过期、域名 allowlist 和 `f=3` 拒绝。
-12. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
+3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
+4. SHA1 查重端点只发送规范化 SHA1，并覆盖命中、固定未命中、size/目录/parent 不匹配和非法字段。
+5. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
+6. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
+7. `status=2` 复用后目标文件复核。
+8. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
+9. `status=1` 明确拒绝，且不触发完整文件上传。
+10. 加密请求与解密响应固定向量。
+11. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
+12. 下载链接 UA 隔离、过期、域名 allowlist 和 `f=3` 拒绝。
+13. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
 
 ## 12. 受控真实验证
 
