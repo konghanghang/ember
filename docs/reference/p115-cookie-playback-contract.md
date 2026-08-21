@@ -266,6 +266,17 @@ Cookie: <playback-account-cookie>
 
 公开实现明确提示删除操作不要并发执行。Ember 必须按播放账号串行清理，并在删除前再次校验目标账号、文件 ID 和 Ember 任务归属，不能把搜索候选直接当作可删除对象。
 
+`CookieHTTPAdapter.DeleteFile` 当前固定：
+
+- 只接受一个正十进制 file ID；进入 HTTP 前规范化 ID，禁止逗号批量值、目录猜测或其他自由表单字段。
+- 固定发送 `POST /rb/delete`，body 仅为 `fid=<canonical-id>`；Header 使用账号 Cookie、账号 User-Agent、`Accept: */*` 和 `Content-Type: application/x-www-form-urlencoded`，不发送 `Authorization`。
+- 只接受 HTTP `2xx` 和顶层布尔 `state=true`；`state=false` 映射为 `ErrProviderRejected`，网络/HTTP/JSON/超限错误沿用脱敏 Provider 错误边界。
+- 串行键使用 Cookie 规范化后的 Provider UID，不使用 Ember 账号记录 ID；同一真实 115 账号即使被不同记录引用，也不会在同一进程内并发删除。
+- 同一 UID 的等待支持 context 取消，取消的 waiter 不发送 HTTP；不同 Provider UID 不互相阻塞。
+- 锁注册表由进程内所有 `CookieHTTPAdapter` 共享并在无持有者/等待者时清理。未来播放网关多实例部署时，业务层必须再使用数据库任务所有权和 advisory lock 或等价分布式互斥，不能把进程内锁误当成全局锁。
+
+Adapter 不判断一个文件是否应当删除。调用 `DeleteFile` 前，业务层必须重新核对成功任务归属、播放账号、目标 parent、file ID、SHA1、size 和清理 TTL；任一不一致都不得调用删除端点。
+
 证据：[`fs_delete`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L10457-L10513)。
 
 ## 6. 上传加密合同
@@ -375,7 +386,8 @@ playbackAccountId + SHA1 + size
 10. 加密请求与解密响应固定向量。
 11. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
 12. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
-13. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
+13. 删除覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；业务层另测任务归属与删除前身份复核。
+14. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
 
 ## 12. 受控真实验证
 

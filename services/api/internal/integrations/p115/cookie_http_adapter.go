@@ -44,6 +44,8 @@ type CookieHTTPAdapter struct {
 	targetSearchEndpoint    *url.URL
 	uploadInitEndpoint      *url.URL
 	downloadEndpoint        *url.URL
+	deleteEndpoint          *url.URL
+	deleteLocks             *keyedSerialLocks
 	downloadEncrypt         func([]byte) (string, error)
 	downloadDecrypt         func(string) ([]byte, error)
 	downloadHostAllowed     func(string) bool
@@ -85,6 +87,9 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 	downloadURL := *uploadInfoURL
 	downloadURL.Path = "/app/chrome/downurl"
 	downloadURL.RawPath = ""
+	deleteURL := *shaSearchURL
+	deleteURL.Path = "/rb/delete"
+	deleteURL.RawPath = ""
 	return &CookieHTTPAdapter{
 		client:                  client,
 		uploadInfoEndpoint:      uploadInfoURL,
@@ -92,6 +97,8 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 		targetSearchEndpoint:    &targetSearchURL,
 		uploadInitEndpoint:      uploadInitURL,
 		downloadEndpoint:        &downloadURL,
+		deleteEndpoint:          &deleteURL,
+		deleteLocks:             sharedCookieDeleteLocks,
 		downloadEncrypt:         p115cipher.RSAEncrypt,
 		downloadDecrypt:         p115cipher.RSADecrypt,
 		downloadHostAllowed:     isAllowed115DownloadHost,
@@ -417,6 +424,66 @@ func (a *CookieHTTPAdapter) GetDownloadURL(ctx context.Context, credential Crede
 		return DownloadURLResult{}, err
 	}
 	return parseDownloadURL(rawURL, a.now().UTC(), a.downloadHostAllowed)
+}
+
+// DeleteFile serializes destructive requests by normalized Provider UID and
+// deletes exactly one caller-verified file ID.
+func (a *CookieHTTPAdapter) DeleteFile(ctx context.Context, credential Credential, fileID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	numericFileID, err := strconv.ParseUint(strings.TrimSpace(fileID), 10, 64)
+	if err != nil || numericFileID == 0 {
+		return ErrInvalidRequest
+	}
+	providerUserID, err := validateCookieHTTPCredential(credential)
+	if err != nil {
+		return err
+	}
+	release, err := a.deleteLocks.acquire(ctx, providerUserID)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	form := url.Values{"fid": {strconv.FormatUint(numericFileID, 10)}}.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, a.deleteEndpoint.String(), strings.NewReader(form))
+	if err != nil {
+		return protocolError("delete request build failed")
+	}
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Cookie", credential.Cookie)
+	request.Header.Set("User-Agent", credential.UserAgent)
+
+	response, err := a.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamHTTPError("p115", response.StatusCode))
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxCookieResponseBody+1))
+	if err != nil {
+		return protocolError("delete response read failed")
+	}
+	if len(body) > maxCookieResponseBody {
+		return protocolError("delete response too large")
+	}
+	var result struct {
+		State *bool `json:"state"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return protocolError("delete response JSON invalid")
+	}
+	if result.State == nil {
+		return protocolError("delete response state missing")
+	}
+	if !*result.State {
+		return ErrProviderRejected
+	}
+	return nil
 }
 
 // getJSON sends a credential-bound GET and maps transport, HTTP, size, and JSON failures without response leakage.
