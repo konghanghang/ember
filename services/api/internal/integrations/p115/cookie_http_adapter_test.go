@@ -91,6 +91,9 @@ func TestCookieHTTPAdapterRejectsInvalidCredentialBeforeHTTP(t *testing.T) {
 	if _, err := adapter.InitRapidUpload(context.Background(), credential, fixtureRapidUploadRequest()); !errors.Is(err, ErrCredentialRejected) {
 		t.Fatalf("InitRapidUpload() error = %v, want ErrCredentialRejected", err)
 	}
+	if _, err := adapter.GetDownloadURL(context.Background(), credential, DownloadURLRequest{PickCode: fixtureDownloadPickCode, UserAgent: fixtureClientUserAgent}); !errors.Is(err, ErrCredentialRejected) {
+		t.Fatalf("GetDownloadURL() error = %v, want ErrCredentialRejected", err)
+	}
 	if calls.Load() != 0 {
 		t.Fatalf("invalid credential reached HTTP client: calls=%d", calls.Load())
 	}

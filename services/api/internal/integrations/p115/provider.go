@@ -101,9 +101,10 @@ const (
 
 // DownloadURLResult describes a URL and its client-side header constraints.
 type DownloadURLResult struct {
-	URL        string             `json:"-"`
-	ExpiresAt  time.Time          `json:"expiresAt"`
-	HeaderMode DownloadHeaderMode `json:"headerMode"`
+	URL                 string             `json:"-"`
+	ExpiresAt           time.Time          `json:"expiresAt"`
+	HeaderMode          DownloadHeaderMode `json:"headerMode"`
+	ConcurrentOpenLimit int64              `json:"concurrentOpenLimit"`
 }
 
 // CredentialValidator is the minimal account-validation boundary shared by Provider adapters.

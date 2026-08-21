@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -26,6 +27,8 @@ const (
 	cookieUploadAppVersion       = "36.2.28"
 	maxCookieResponseBody        = 256 * 1024
 	maxUploadUserKeyLength       = 4 * 1024
+	maxDownloadURLLength         = 16 * 1024
+	maxDownloadUserAgentLength   = 1024
 	targetSearchLimit            = 100
 	targetVisibilityPollInterval = 500 * time.Millisecond
 	targetVisibilityTimeout      = 10 * time.Second
@@ -40,6 +43,10 @@ type CookieHTTPAdapter struct {
 	shaSearchEndpoint       *url.URL
 	targetSearchEndpoint    *url.URL
 	uploadInitEndpoint      *url.URL
+	downloadEndpoint        *url.URL
+	downloadEncrypt         func([]byte) (string, error)
+	downloadDecrypt         func(string) ([]byte, error)
+	downloadHostAllowed     func(string) bool
 	now                     func() time.Time
 	wait                    func(context.Context, time.Duration) error
 	targetPollInterval      time.Duration
@@ -75,12 +82,19 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 	targetSearchURL := *shaSearchURL
 	targetSearchURL.Path = "/files/search"
 	targetSearchURL.RawPath = ""
+	downloadURL := *uploadInfoURL
+	downloadURL.Path = "/app/chrome/downurl"
+	downloadURL.RawPath = ""
 	return &CookieHTTPAdapter{
 		client:                  client,
 		uploadInfoEndpoint:      uploadInfoURL,
 		shaSearchEndpoint:       shaSearchURL,
 		targetSearchEndpoint:    &targetSearchURL,
 		uploadInitEndpoint:      uploadInitURL,
+		downloadEndpoint:        &downloadURL,
+		downloadEncrypt:         p115cipher.RSAEncrypt,
+		downloadDecrypt:         p115cipher.RSADecrypt,
+		downloadHostAllowed:     isAllowed115DownloadHost,
 		now:                     time.Now,
 		wait:                    waitForCookieTargetPoll,
 		targetPollInterval:      targetVisibilityPollInterval,
@@ -322,6 +336,87 @@ func (a *CookieHTTPAdapter) InitRapidUpload(ctx context.Context, credential Cred
 		return RapidUploadResult{}, protocolError("upload response decrypt failed")
 	}
 	return mapRapidUploadResponse(plaintext, normalized.Size)
+}
+
+// GetDownloadURL signs one file URL with the actual playback client User-Agent
+// and returns only an HTTPS 115-owned URL with complete t/c/f semantics.
+func (a *CookieHTTPAdapter) GetDownloadURL(ctx context.Context, credential Credential, request DownloadURLRequest) (DownloadURLResult, error) {
+	providerUserID, err := validateCookieHTTPCredential(credential)
+	if err != nil {
+		return DownloadURLResult{}, err
+	}
+	pickCode := strings.TrimSpace(request.PickCode)
+	userAgent := request.UserAgent
+	if !isValidDownloadPickCode(pickCode) || userAgent == "" || userAgent != strings.TrimSpace(userAgent) ||
+		len(userAgent) > maxDownloadUserAgentLength || strings.ContainsAny(userAgent, "\r\n") {
+		return DownloadURLResult{}, ErrInvalidRequest
+	}
+	userID, err := strconv.ParseUint(providerUserID, 10, 64)
+	if err != nil || userID == 0 {
+		return DownloadURLResult{}, ErrCredentialRejected
+	}
+	payload, err := json.Marshal(struct {
+		PickCode string `json:"pickcode"`
+		UserID   uint64 `json:"user_id"`
+	}{PickCode: pickCode, UserID: userID})
+	if err != nil {
+		return DownloadURLResult{}, protocolError("download payload build failed")
+	}
+	encrypted, err := a.downloadEncrypt(payload)
+	if err != nil {
+		return DownloadURLResult{}, protocolError("download payload encrypt failed")
+	}
+
+	form := url.Values{"data": {encrypted}}.Encode()
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, a.downloadEndpoint.String(), strings.NewReader(form))
+	if err != nil {
+		return DownloadURLResult{}, protocolError("download request build failed")
+	}
+	httpRequest.Header.Set("Accept", "*/*")
+	httpRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	httpRequest.Header.Set("Cookie", credential.Cookie)
+	httpRequest.Header.Set("User-Agent", userAgent)
+
+	response, err := a.client.Do(httpRequest)
+	if err != nil {
+		return DownloadURLResult{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return DownloadURLResult{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamHTTPError("p115", response.StatusCode))
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxCookieResponseBody+1))
+	if err != nil {
+		return DownloadURLResult{}, protocolError("download response read failed")
+	}
+	if len(body) > maxCookieResponseBody {
+		return DownloadURLResult{}, protocolError("download response too large")
+	}
+	var outer struct {
+		State *bool   `json:"state"`
+		Data  *string `json:"data"`
+	}
+	if err := json.Unmarshal(body, &outer); err != nil {
+		return DownloadURLResult{}, protocolError("download response JSON invalid")
+	}
+	if outer.State == nil {
+		return DownloadURLResult{}, protocolError("download response state missing")
+	}
+	if !*outer.State {
+		return DownloadURLResult{}, ErrProviderRejected
+	}
+	if outer.Data == nil || strings.TrimSpace(*outer.Data) == "" {
+		return DownloadURLResult{}, protocolError("download response data missing")
+	}
+	plaintext, err := a.downloadDecrypt(*outer.Data)
+	if err != nil {
+		return DownloadURLResult{}, protocolError("download response decrypt failed")
+	}
+	rawURL, err := decodeChromeDownloadURL(plaintext, pickCode)
+	if err != nil {
+		return DownloadURLResult{}, err
+	}
+	return parseDownloadURL(rawURL, a.now().UTC(), a.downloadHostAllowed)
 }
 
 // getJSON sends a credential-bound GET and maps transport, HTTP, size, and JSON failures without response leakage.
@@ -611,6 +706,120 @@ func parseRapidUploadRange(value string, fileSize int64) (ByteRange, error) {
 		return ByteRange{}, protocolError("upload challenge range invalid")
 	}
 	return ByteRange{Start: start, End: end}, nil
+}
+
+// decodeChromeDownloadURL accepts exactly one decrypted chrome downurl entry bound to the requested pickcode.
+func decodeChromeDownloadURL(plaintext []byte, expectedPickCode string) (string, error) {
+	var entries map[string]struct {
+		PickCode *string `json:"pick_code"`
+		URL      *struct {
+			Value *string `json:"url"`
+		} `json:"url"`
+	}
+	if err := json.Unmarshal(plaintext, &entries); err != nil {
+		return "", protocolError("download data JSON invalid")
+	}
+	if len(entries) != 1 {
+		return "", protocolError("download data entry count invalid")
+	}
+	for _, entry := range entries {
+		if entry.PickCode == nil || *entry.PickCode != expectedPickCode {
+			return "", protocolError("download pickcode mismatch")
+		}
+		if entry.URL == nil || entry.URL.Value == nil || strings.TrimSpace(*entry.URL.Value) == "" {
+			return "", ErrProviderRejected
+		}
+		return *entry.URL.Value, nil
+	}
+	return "", protocolError("download data missing")
+}
+
+// parseDownloadURL validates the redirect target and maps provider t/c/f query semantics.
+func parseDownloadURL(rawURL string, now time.Time, hostAllowed func(string) bool) (DownloadURLResult, error) {
+	if rawURL == "" || rawURL != strings.TrimSpace(rawURL) || len(rawURL) > maxDownloadURLLength {
+		return DownloadURLResult{}, protocolError("download URL invalid")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.Host == "" || parsed.Path == "" {
+		return DownloadURLResult{}, protocolError("download URL invalid")
+	}
+	hostname := strings.ToLower(parsed.Hostname())
+	if parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" ||
+		net.ParseIP(hostname) != nil || !hostAllowed(hostname) {
+		return DownloadURLResult{}, ErrDownloadURLNotAllowed
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return DownloadURLResult{}, protocolError("download URL query invalid")
+	}
+	expiryValue, err := singleDownloadQueryValue(query, "t")
+	if err != nil {
+		return DownloadURLResult{}, err
+	}
+	expiryUnix, err := strconv.ParseInt(expiryValue, 10, 64)
+	if err != nil || expiryUnix <= 0 {
+		return DownloadURLResult{}, protocolError("download URL expiry invalid")
+	}
+	expiresAt := time.Unix(expiryUnix, 0).UTC()
+	if !expiresAt.After(now) {
+		return DownloadURLResult{}, ErrDownloadURLExpired
+	}
+	concurrencyValue, err := singleDownloadQueryValue(query, "c")
+	if err != nil {
+		return DownloadURLResult{}, err
+	}
+	concurrentOpenLimit, err := strconv.ParseInt(concurrencyValue, 10, 64)
+	if err != nil || concurrentOpenLimit < 0 {
+		return DownloadURLResult{}, protocolError("download URL concurrency invalid")
+	}
+	flag, err := singleDownloadQueryValue(query, "f")
+	if err != nil {
+		return DownloadURLResult{}, err
+	}
+	var headerMode DownloadHeaderMode
+	switch flag {
+	case "", "0":
+		headerMode = DownloadHeadersNone
+	case "1":
+		headerMode = DownloadHeadersSameUserAgent
+	case "3":
+		headerMode = DownloadHeadersSameUserAgentAndCookie
+	default:
+		return DownloadURLResult{}, ErrDownloadURLIncompatible
+	}
+	return DownloadURLResult{
+		URL:                 rawURL,
+		ExpiresAt:           expiresAt,
+		HeaderMode:          headerMode,
+		ConcurrentOpenLimit: concurrentOpenLimit,
+	}, nil
+}
+
+func singleDownloadQueryValue(query url.Values, key string) (string, error) {
+	values, exists := query[key]
+	if !exists || len(values) != 1 {
+		return "", protocolError("download URL query field invalid")
+	}
+	return values[0], nil
+}
+
+// isAllowed115DownloadHost keeps redirects inside the initial 115-owned hostname boundary.
+func isAllowed115DownloadHost(hostname string) bool {
+	return hostname == "115.com" || strings.HasSuffix(hostname, ".115.com")
+}
+
+// isValidDownloadPickCode accepts one lowercase file pickcode and rejects directory-like f prefixes.
+func isValidDownloadPickCode(value string) bool {
+	if len(value) < 6 || len(value) > 64 || strings.HasPrefix(value, "f") {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if (character < '0' || character > '9') && (character < 'a' || character > 'z') {
+			return false
+		}
+	}
+	return true
 }
 
 // cookieUploadUserAgent reproduces the pinned upload endpoint's version-bound client identity.

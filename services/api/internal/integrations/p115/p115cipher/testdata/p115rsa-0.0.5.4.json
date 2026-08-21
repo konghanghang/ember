@@ -1,0 +1,9 @@
+{
+  "sourceRepository": "https://github.com/ChenyangGao/p115client",
+  "sourceCommit": "608a44396fea08d36131a68beb245be1fe17aa6d",
+  "moduleVersion": "0.0.5.4",
+  "encryptPlaintext": "{\"pickcode\":\"a1b2c3d4e5f6g7h8\",\"user_id\":12345}",
+  "encryptCiphertext": "BHC5bJyKYOjhsV6IsEEiQnND8a+ISunmA3gtDSDKcWR+ljtI7vBFzpLVGpbHzYuLwBMqzUy+eiZyEkuik0+fWIEsJ9l/iVTvrzMdC2248vW0ofieX4Ja3m4jWPqyr+Ns8WWAGRR8UpNhorO7hkCX285hPrOUKqGpWHy0rWyMubc=",
+  "decryptCiphertext": "frFF/9vA9mCr76/pdhhJBg8oQ+CsTcCgo/tqiH2lHpsU77IIOZQwVQlWWive+JdDvIVv6OzU5BTv2531khvD0bVB/t63ujIFciPHZ7Voknv3lbKb7bSOhVvgtj4MPZgcsxCezu6AMBY0nU/LMu4DwF8nfEn5VCBIITs4dCwbAaw=",
+  "decryptPlaintextHex": "dd15805868005327c65a48b1eb67a50d60bbdec6a5fa4084c900b8dde48baba5826b"
+}

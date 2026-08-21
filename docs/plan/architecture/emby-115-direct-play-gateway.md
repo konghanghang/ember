@@ -59,7 +59,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 管理端已有活跃会话、播放历史、设备管理、客户端黑名单和设备操作日志。
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
-- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面、Cookie 登录状态验证、上传信息、旧 SHA1 查重、秒传初始化状态适配、目标目录复核和 Provider-neutral 接口；尚未实现下载直链和任何真实 115 调用。
+- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面、Cookie 登录状态验证、上传信息、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL 合同适配和 Provider-neutral 接口；尚未实现播放网关和任何真实 115 调用。
 - 当前仍没有播放数据面进程、Emby AccessToken 到 Ember 用户的映射、秒传任务或直连会话模型。
 
 ### 外部证据与未确认项
@@ -106,11 +106,12 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `CookieHTTPAdapter.GetUploadInfo` 和 `SearchBySHA1`，用 `httptest` 固定 method、query、Cookie/User-Agent Header、响应字段、严格内容匹配和脱敏错误；没有请求真实 115。
 - 新增 `CookieHTTPAdapter.InitRapidUpload`，把完整 filename/preID/topupload 固定向量接入 fake POST 端点，并锁定 `status=1/2/7`、未知状态、Range 边界和脱敏失败映射。
 - 新增 `CookieHTTPAdapter.FindTargetFile`，固定目标目录搜索短字段和完整身份校验，并用 fake clock 锁定立即查询、500ms 轮询、10s 最终截止查询、取消、歧义和错误不重试。
+- 新增 `CookieHTTPAdapter.GetDownloadURL`，固定 Chrome downurl RSA request/response seam、真实客户端 UA、HTTPS 115 域名 allowlist、`t/c/f`、并发上限、过期和脱敏错误映射。
 
 仍未完成：
 
 - 两个目标账号的真实 Cookie 只读验证；当前无法确认真实响应、账号 UID、User-Agent 和风控边界。
-- 下载直链和串行删除等 Cookie/Web API Adapter；上传信息、旧 SHA1 查重、秒传初始化、目标目录复核和上传协议加密固定向量已完成。
+- 串行删除 Cookie/Web API Adapter 和播放网关；上传信息、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL 合同适配和加密固定向量已完成。
 - 秒传任务、下载直链和播放网关。
 - 任何真实 115 / Emby / Infuse 验证。
 
@@ -440,7 +441,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：所有 method、path、请求字段、响应映射、加密向量和未确认项均有固定证据；不能靠猜测进入实现。
 
-当前进度：账号控制面、Cookie 登录状态合同、PostgreSQL 竞态测试、完整上传加密固定向量、上传信息、旧 SHA1 查重、秒传初始化和目标目录复核 HTTP Adapter 已完成；下载合同 fixture/Adapter 与受控真实账号验证尚未完成，因此阶段 0 仍为进行中。
+当前进度：账号控制面、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量、上传信息、旧 SHA1 查重、秒传初始化、目标目录复核和下载 URL HTTP Adapter 已完成；串行删除 Adapter 与受控真实账号/Infuse 验证尚未完成，因此阶段 0 仍为进行中。
 
 ### 阶段 1：最小闭环
 

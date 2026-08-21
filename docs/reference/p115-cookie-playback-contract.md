@@ -218,7 +218,20 @@ Ember 的 `CookieHTTPAdapter.InitRapidUpload` 当前固定：
 
 ### 5.5 下载地址
 
-公开实现的 `download_url` 支持多个 app/Web 入口。Ember 首期究竟固定哪个 app 类型和端点，必须由受控验证决定，当前不得猜测。
+公开实现的 `download_url` 支持多个 app/Web 入口。Ember 首期离线合同固定 Cookie 模式的 Chrome App 入口：
+
+```http
+POST https://proapi.115.com/app/chrome/downurl
+Cookie: <playback-account-cookie>
+User-Agent: <actual-playback-client-user-agent>
+Content-Type: application/x-www-form-urlencoded
+
+data=<RSA encrypted {pickcode,user_id}>
+```
+
+真实播放客户端 User-Agent 必须原样参与本次直链签发，不能使用账号配置的 Provider User-Agent 代替。请求明文只包含单个合法文件 pickCode 和从 Cookie `UID` 规范化的 user ID；RSA 请求与响应变换由 `p115cipher` 边界负责，业务层不接触协议常量。
+
+响应固定为顶层布尔 `state` 和 RSA 加密的 `data` string。解密结果必须只有一个文件条目，且条目的 `pick_code` 与请求完全一致；目录、空 URL、多条记录和 pickCode 错配全部拒绝。RSA 请求向量和任意密文解码向量来自固定 `p115cipher 0.0.5.4` 黑盒输出；HTTP 测试通过 cipher seam 返回合成 JSON，不伪造服务端私钥。
 
 公开实现指出下载链接包含以下约束信号：
 
@@ -229,9 +242,18 @@ Ember 的 `CookieHTTPAdapter.InitRapidUpload` 当前固定：
 - `f=1`：要求使用获取直链时相同的 User-Agent。
 - `f=3`：除相同 User-Agent 外，还要求携带直链响应给出的 Cookie。
 
-首期只允许对已通过合同测试和受控验证、且最终客户端能够满足 Header 条件的链接返回 302。若链接需要播放器无法注入的 Cookie 或其他 Header，必须明确失败；不能把 Cookie 拼进 URL，也不能泄露播放小号凭证。
+`CookieHTTPAdapter.GetDownloadURL` 当前固定：
 
-证据：[`download_url`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L8300-L8457)。
+- 只接受绝对 HTTPS URL；禁止 userinfo、显式端口、fragment、IP literal 和非 allowlist 主机。
+- 首期 allowlist 仅允许 `115.com` 及其子域，使用完整 hostname 边界匹配；其他 CDN 域名必须等受控真实验证后再显式加入。
+- `t`、`c`、`f` 必须各出现一次：`t` 是严格晚于当前时间的 Unix 秒并原样映射为 UTC `ExpiresAt`；`c` 是非负并发打开上限，`0` 表示无限；`f="" | 0 | 1 | 3` 分别映射为 none、none、same_user_agent、same_user_agent_and_cookie。
+- 未知 `f` 返回 `ErrDownloadURLIncompatible`；已过期返回 `ErrDownloadURLExpired`；域名/协议不允许返回 `ErrDownloadURLNotAllowed`。
+- Adapter 返回 Provider 原始过期边界，不在这里扣除缓存安全窗口；后续缓存层必须以 `ExpiresAt` 为上限并预留安全窗口。
+- URL、Cookie、RSA 数据、Provider response 和原始错误文本不进入 JSON、日志或错误消息。
+
+`f=3` 会被准确映射，但首期播放网关仍必须按不兼容拒绝 302，因为最终播放器未被证明能够自然携带响应 Cookie。不能把 Cookie 拼进 URL，也不能泄露播放小号凭证。
+
+证据：[`download_url`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L8300-L8457)、[`download_url_app`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L8565-L8657) 和固定源码的 [`p115tiny302 get_downurl`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115tiny302/p115tiny302/app.py#L273-L299)。以上仍是公开实现证据；目标账号响应字段、CDN 域名集合和真实 Infuse Header 行为尚未实机确认。
 
 ### 5.6 删除
 
@@ -269,7 +291,8 @@ Cookie: <playback-account-cookie>
 - `EncodeToken` / `DecodeToken` 覆盖 `k_ec` 时间戳、公钥材料和 CRC；解码拒绝被篡改的 CRC。
 - `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义及长度前缀 LZ4 block 解压，解压结果设置上限。
 - `BuildUploadRequest` 覆盖 filename、preID、topupload、`sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
-- `GetUploadInfo` 和 `InitRapidUpload` 已通过 fake HTTP 合同接入，但尚未请求真实 115，也未实现目标目录复核，因此不能据此宣称秒传可用。
+- `RSAEncrypt` 覆盖 Chrome downurl 请求包装；`RSADecrypt` 使用固定任意密文黑盒向量锁定服务端响应变换，不把测试 seam 当作真实服务端密文证据。
+- `GetUploadInfo`、`InitRapidUpload`、`FindTargetFile` 和 `GetDownloadURL` 已通过 fake HTTP 合同接入，但尚未请求真实 115 或完成播放网关/Infuse 验证，因此不能据此宣称秒传直播放链路可用。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 
@@ -351,7 +374,7 @@ playbackAccountId + SHA1 + size
 9. `status=1` 明确拒绝，且不触发完整文件上传。
 10. 加密请求与解密响应固定向量。
 11. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-12. 下载链接 UA 隔离、过期、域名 allowlist 和 `f=3` 拒绝。
+12. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
 13. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
 
 ## 12. 受控真实验证
