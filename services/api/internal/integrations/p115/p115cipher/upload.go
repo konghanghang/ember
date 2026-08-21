@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -21,10 +22,13 @@ type UploadPayload struct {
 	UserKey    string `json:"-"`
 	UserID     string `json:"-"`
 	FileID     string `json:"-"`
+	FileName   string `json:"-"`
 	Target     string `json:"-"`
 	FileSize   int64  `json:"-"`
+	PreID      string `json:"-"`
 	SignKey    string `json:"-"`
 	SignValue  string `json:"-"`
+	TopUpload  string `json:"-"`
 	AppVersion string `json:"-"`
 }
 
@@ -51,13 +55,18 @@ func BuildUploadRequest(payload UploadPayload, timestamp int64) (UploadRequest, 
 	values := url.Values{
 		"appversion": {payload.AppVersion},
 		"fileid":     {payload.FileID},
+		"filename":   {payload.FileName},
 		"filesize":   {fileSize},
 		"sig":        {signature},
 		"t":          {timestampValue},
 		"target":     {payload.Target},
 		"token":      {token},
+		"topupload":  {payload.TopUpload},
 		"userid":     {payload.UserID},
 		"userkey":    {payload.UserKey},
+	}
+	if payload.PreID != "" {
+		values.Set("preid", payload.PreID)
 	}
 	if payload.SignKey != "" {
 		values.Set("sign_key", payload.SignKey)
@@ -83,8 +92,10 @@ func validateUploadPayload(payload UploadPayload, timestamp int64) error {
 		payload.UserID,
 		payload.FileID,
 		payload.Target,
+		payload.PreID,
 		payload.SignKey,
 		payload.SignValue,
+		payload.TopUpload,
 		payload.AppVersion,
 	}
 	for _, value := range values {
@@ -92,9 +103,12 @@ func validateUploadPayload(payload UploadPayload, timestamp int64) error {
 			return errInvalidUploadPayload
 		}
 	}
-	if payload.UserKey == "" || payload.UserID == "" || payload.FileID == "" ||
+	if payload.UserKey == "" || payload.UserID == "" || payload.FileID == "" || payload.FileName == "" ||
 		payload.Target == "" || payload.FileSize <= 0 || payload.AppVersion == "" ||
-		timestamp <= 0 {
+		payload.TopUpload == "" || timestamp <= 0 {
+		return errInvalidUploadPayload
+	}
+	if !utf8.ValidString(payload.FileName) || len(payload.FileName) > 1024 || strings.ContainsAny(payload.FileName, "\r\n") {
 		return errInvalidUploadPayload
 	}
 	if _, err := strconv.ParseUint(payload.UserID, 10, 64); err != nil {

@@ -12,7 +12,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | --- | --- | --- |
 | Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
 | Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id` | 公开实现确认固定 GET 端点、`state` 字段和 Cookie `UID` 取值方式；真实账号兼容性仍未实机确认 |
-| Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和上传表单密文；未接入真实 HTTP 端点 |
+| Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和完整上传表单，并接入 `httptest` fake HTTP Adapter；未请求真实端点 |
 | `emby-toolkit` 小号播放行为 | `emby-toolkit` `v10.8.63`、提交 `7e64564884c9949390e5894b4be71038808e4e2a` | 只用于理解账号选择与失败语义，不复制 AGPL 代码 |
 | 上游许可证 | 固定提交根 `LICENSE` / `pyproject.toml` 和模块 `pyproject.toml` 写 MIT，但模块 `LICENSE` / `LICENSE_zh` 与源码 `__license__` 写 GPLv3 | 按 GPLv3 保守边界处理：不复制、翻译或运行时依赖上游源码，只使用临时黑盒执行得到的兼容向量；这不是对上游最终许可的法律认定 |
 | 115 Cookie/Web API 稳定性 | 非官方接口 | 随时可能变化，必须通过 Provider 边界隔离 |
@@ -180,6 +180,24 @@ Content-Type: application/x-www-form-urlencoded
 
 该请求不是把上述表单直接明文发送。公开实现会生成签名与 `k_ec`，加密业务负载，并解密和解压响应。Ember 的 Go Provider 必须独立实现协议并用固定测试向量证明兼容，不能在业务 Service 中拼接这套加密逻辑。
 
+Ember 的 `CookieHTTPAdapter.InitRapidUpload` 当前固定：
+
+- 调用前先校验 filename、完整 SHA1、正数 size、十进制目标目录、可选 preID，以及成对出现的 `sign_key/sign_val`；非法输入在任何 HTTP 请求前返回 `ErrInvalidRequest`。
+- 先通过同一账号的 `GetUploadInfo` 获取并核对 `userid/userkey`，再构造 `target=U_1_<parentId>`；固定提交的 `_app_version` 和版本绑定上传 User-Agent 只保留在协议代码中，不进入业务配置或日志。
+- 只发送 `POST /4.0/initupload.php?k_ec=<token>`；请求体是 `BuildUploadRequest` 生成的 AES-CBC 密文，应用层 Header 固定包含 Cookie、`Accept: */*`、`Content-Type: application/x-www-form-urlencoded` 和上传专用 User-Agent，不发送 `Authorization`。
+- 固定向量覆盖 `fileid`、`filename`、`filesize`、`target`、可选 `preid`、`sign_key/sign_val`、`topupload=true`、`userid/userkey`、appVersion、`sig/token` 和密文；测试数据不含真实账号或文件。
+- HTTP `2xx` 响应先执行 AES-CBC 解密和 LZ4 block 解压，再解析顶层 JSON；网络、非 `2xx`、超限密文、解密失败、非法 JSON 和字段错误均返回脱敏错误，不保存原始响应。
+- 不自动重试固定源码注释中的偶发 `401`；在真实账号验证明确重试条件、次数和幂等边界前，所有非 `2xx` 都按 Provider 不可用处理。
+
+状态映射固定为：
+
+| 外部响应 | 内部状态 | 约束 |
+| --- | --- | --- |
+| `status=1` | `ordinary_upload_required` | 明确结束，不触发普通上传 |
+| `status=2` | `reused` | 不信任响应中的占位文件字段，继续目标目录复核 |
+| `status=7` | `range_challenge` | 必须有非空 `sign_key` 和合法的包含端点 Range，且 `end < sourceSize` |
+| 未知 `status` 或 `state=false` | `provider_rejected` | 仅保留短 Provider code，不暴露 message/error/正文 |
+
 证据：[`upload_init`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L26785-L26961)。
 
 ### 5.5 下载地址
@@ -234,8 +252,8 @@ Cookie: <playback-account-cookie>
 - 固定向量记录来源仓库、提交和模块版本，不包含真实账号、Cookie、文件或目录信息。
 - `EncodeToken` / `DecodeToken` 覆盖 `k_ec` 时间戳、公钥材料和 CRC；解码拒绝被篡改的 CRC。
 - `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义及长度前缀 LZ4 block 解压，解压结果设置上限。
-- `BuildUploadRequest` 覆盖 `sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
-- 该 PoC 尚未实现 `GetUploadInfo`、HTTP 上传初始化或任何真实 115 请求，不能据此宣称秒传可用。
+- `BuildUploadRequest` 覆盖 filename、preID、topupload、`sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
+- `GetUploadInfo` 和 `InitRapidUpload` 已通过 fake HTTP 合同接入，但尚未请求真实 115，也未实现目标目录复核，因此不能据此宣称秒传可用。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 

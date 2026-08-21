@@ -1,6 +1,7 @@
 package p115
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -12,29 +13,35 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/konghang/ember/backend/internal/common/upstream"
+	"github.com/konghang/ember/backend/internal/integrations/p115/p115cipher"
 )
 
 const (
 	cookieUploadInfoURL    = "https://proapi.115.com/app/uploadinfo"
 	cookieSHASearchURL     = "https://webapi.115.com/files/shasearch"
+	cookieUploadInitURL    = "https://uplb.115.com/4.0/initupload.php"
+	cookieUploadAppVersion = "36.2.28"
 	maxCookieResponseBody  = 256 * 1024
 	maxUploadUserKeyLength = 4 * 1024
 )
 
-// CookieHTTPAdapter implements the read-only Cookie/Web API operations that
-// have fixed request and response contracts. Remaining Provider methods are
-// added only after their own contract tests exist.
+// CookieHTTPAdapter implements Cookie/Web API operations that have fixed
+// request and response contracts. Remaining Provider methods are added only
+// after their own contract tests exist.
 type CookieHTTPAdapter struct {
 	client             httpDoer
 	uploadInfoEndpoint *url.URL
 	shaSearchEndpoint  *url.URL
+	uploadInitEndpoint *url.URL
+	now                func() time.Time
 }
 
 // NewCookieHTTPAdapter builds the production adapter without performing a network call.
 func NewCookieHTTPAdapter() *CookieHTTPAdapter {
-	adapter, err := newCookieHTTPAdapter(newCookieHTTPClient(), cookieUploadInfoURL, cookieSHASearchURL)
+	adapter, err := newCookieHTTPAdapter(newCookieHTTPClient(), cookieUploadInfoURL, cookieSHASearchURL, cookieUploadInitURL)
 	if err != nil {
 		panic("invalid fixed 115 Cookie HTTP endpoint: " + err.Error())
 	}
@@ -42,7 +49,7 @@ func NewCookieHTTPAdapter() *CookieHTTPAdapter {
 }
 
 // newCookieHTTPAdapter injects test-owned endpoints while enforcing the same absolute-URL boundary as production.
-func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint string) (*CookieHTTPAdapter, error) {
+func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint, uploadInitEndpoint string) (*CookieHTTPAdapter, error) {
 	if client == nil {
 		return nil, fmt.Errorf("%w: http client is nil", ErrProviderUnavailable)
 	}
@@ -54,10 +61,16 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 	if err != nil {
 		return nil, err
 	}
+	uploadInitURL, err := parseCookieHTTPEndpoint(uploadInitEndpoint)
+	if err != nil {
+		return nil, err
+	}
 	return &CookieHTTPAdapter{
 		client:             client,
 		uploadInfoEndpoint: uploadInfoURL,
 		shaSearchEndpoint:  shaSearchURL,
+		uploadInitEndpoint: uploadInitURL,
+		now:                time.Now,
 	}, nil
 }
 
@@ -140,6 +153,68 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 		return []File{}, nil
 	}
 	return []File{file}, nil
+}
+
+// InitRapidUpload builds the encrypted Cookie upload request and maps the
+// provider's direct status response into Ember-owned state semantics.
+func (a *CookieHTTPAdapter) InitRapidUpload(ctx context.Context, credential Credential, request RapidUploadRequest) (RapidUploadResult, error) {
+	normalized, err := normalizeRapidUploadRequest(request)
+	if err != nil {
+		return RapidUploadResult{}, err
+	}
+	uploadInfo, err := a.GetUploadInfo(ctx, credential)
+	if err != nil {
+		return RapidUploadResult{}, err
+	}
+	timestamp := a.now().UTC().Unix()
+	encrypted, err := p115cipher.BuildUploadRequest(p115cipher.UploadPayload{
+		UserKey:    uploadInfo.UserKey,
+		UserID:     uploadInfo.UserID,
+		FileID:     normalized.SHA1,
+		FileName:   normalized.FileName,
+		Target:     "U_1_" + normalized.TargetParentID,
+		FileSize:   normalized.Size,
+		PreID:      normalized.PreID,
+		SignKey:    normalized.SignKey,
+		SignValue:  normalized.SignValue,
+		TopUpload:  "true",
+		AppVersion: cookieUploadAppVersion,
+	}, timestamp)
+	if err != nil {
+		return RapidUploadResult{}, protocolError("upload payload build failed")
+	}
+
+	requestURL := *a.uploadInitEndpoint
+	requestURL.RawQuery = url.Values{"k_ec": {encrypted.KEc}}.Encode()
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL.String(), bytes.NewReader(encrypted.Data))
+	if err != nil {
+		return RapidUploadResult{}, protocolError("upload request build failed")
+	}
+	httpRequest.Header.Set("Accept", "*/*")
+	httpRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	httpRequest.Header.Set("Cookie", credential.Cookie)
+	httpRequest.Header.Set("User-Agent", cookieUploadUserAgent(cookieUploadAppVersion))
+
+	response, err := a.client.Do(httpRequest)
+	if err != nil {
+		return RapidUploadResult{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return RapidUploadResult{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamHTTPError("p115", response.StatusCode))
+	}
+	ciphertext, err := io.ReadAll(io.LimitReader(response.Body, maxCookieResponseBody+1))
+	if err != nil {
+		return RapidUploadResult{}, protocolError("upload response read failed")
+	}
+	if len(ciphertext) > maxCookieResponseBody {
+		return RapidUploadResult{}, protocolError("upload response too large")
+	}
+	plaintext, err := p115cipher.DecryptResponse(ciphertext)
+	if err != nil {
+		return RapidUploadResult{}, protocolError("upload response decrypt failed")
+	}
+	return mapRapidUploadResponse(plaintext, normalized.Size)
 }
 
 // getJSON sends a credential-bound GET and maps transport, HTTP, size, and JSON failures without response leakage.
@@ -264,6 +339,143 @@ func chooseProviderSHA1(sha1Value, fileSHA1 *string) (*string, error) {
 	return fileSHA1, nil
 }
 
+type normalizedRapidUploadRequest struct {
+	FileName       string
+	SHA1           string
+	Size           int64
+	TargetParentID string
+	PreID          string
+	SignKey        string
+	SignValue      string
+}
+
+// normalizeRapidUploadRequest validates content identity and challenge fields before upload-info lookup.
+func normalizeRapidUploadRequest(request RapidUploadRequest) (normalizedRapidUploadRequest, error) {
+	fileName := request.FileName
+	if strings.TrimSpace(fileName) == "" || !utf8.ValidString(fileName) || len(fileName) > 1024 || strings.ContainsAny(fileName, "\r\n") {
+		return normalizedRapidUploadRequest{}, ErrInvalidRequest
+	}
+	sha1Value, err := normalizeSHA1(request.SHA1)
+	if err != nil || request.Size <= 0 {
+		return normalizedRapidUploadRequest{}, ErrInvalidRequest
+	}
+	targetParentID, err := normalizeOptionalProviderID(request.TargetParentID)
+	if err != nil || targetParentID == "" {
+		return normalizedRapidUploadRequest{}, ErrInvalidRequest
+	}
+	preID := ""
+	if strings.TrimSpace(request.PreID) != "" {
+		preID, err = normalizeSHA1(request.PreID)
+		if err != nil {
+			return normalizedRapidUploadRequest{}, ErrInvalidRequest
+		}
+	}
+	signKey := request.SignKey
+	signValue := strings.TrimSpace(request.SignValue)
+	if (signKey == "") != (signValue == "") || len(signKey) > 1024 ||
+		signKey != strings.TrimSpace(signKey) || strings.ContainsAny(signKey, "\r\n") || !isASCIIProtocolValue(signKey) {
+		return normalizedRapidUploadRequest{}, ErrInvalidRequest
+	}
+	if signValue != "" {
+		signValue, err = normalizeSHA1(signValue)
+		if err != nil {
+			return normalizedRapidUploadRequest{}, ErrInvalidRequest
+		}
+	}
+	return normalizedRapidUploadRequest{
+		FileName:       fileName,
+		SHA1:           sha1Value,
+		Size:           request.Size,
+		TargetParentID: targetParentID,
+		PreID:          preID,
+		SignKey:        signKey,
+		SignValue:      signValue,
+	}, nil
+}
+
+// mapRapidUploadResponse parses decrypted JSON without retaining provider messages or response bodies.
+func mapRapidUploadResponse(plaintext []byte, fileSize int64) (RapidUploadResult, error) {
+	var response struct {
+		State      *bool            `json:"state"`
+		Status     jsonUint64       `json:"status"`
+		StatusCode jsonProviderCode `json:"statuscode"`
+		Errno      jsonProviderCode `json:"errno"`
+		SignKey    *string          `json:"sign_key"`
+		SignCheck  *string          `json:"sign_check"`
+	}
+	if err := json.Unmarshal(plaintext, &response); err != nil {
+		return RapidUploadResult{}, protocolError("upload response JSON invalid")
+	}
+	providerCode := response.StatusCode.value
+	if providerCode == "" {
+		providerCode = response.Errno.value
+	}
+	if response.State != nil && !*response.State {
+		return RapidUploadResult{Status: RapidUploadProviderRejected, ProviderCode: providerCode}, nil
+	}
+	if !response.Status.set {
+		return RapidUploadResult{}, protocolError("upload status missing")
+	}
+
+	result := RapidUploadResult{ProviderCode: providerCode}
+	switch response.Status.value {
+	case 1:
+		result.Status = RapidUploadOrdinaryUploadRequired
+	case 2:
+		result.Status = RapidUploadReused
+	case 7:
+		if response.SignKey == nil || response.SignCheck == nil {
+			return RapidUploadResult{}, protocolError("upload challenge fields missing")
+		}
+		signKey := *response.SignKey
+		if signKey == "" || signKey != strings.TrimSpace(signKey) || len(signKey) > 1024 ||
+			strings.ContainsAny(signKey, "\r\n") || !isASCIIProtocolValue(signKey) {
+			return RapidUploadResult{}, protocolError("upload challenge key invalid")
+		}
+		byteRange, err := parseRapidUploadRange(*response.SignCheck, fileSize)
+		if err != nil {
+			return RapidUploadResult{}, err
+		}
+		result.Status = RapidUploadRangeChallenge
+		result.Challenge = &RapidUploadChallenge{Range: byteRange, SignKey: signKey}
+	default:
+		result.Status = RapidUploadProviderRejected
+	}
+	return result, nil
+}
+
+// parseRapidUploadRange validates the inclusive sign_check range against the source file size.
+func parseRapidUploadRange(value string, fileSize int64) (ByteRange, error) {
+	value = strings.TrimSpace(value)
+	startValue, endValue, found := strings.Cut(value, "-")
+	if !found || strings.Contains(endValue, "-") || startValue == "" || endValue == "" {
+		return ByteRange{}, protocolError("upload challenge range invalid")
+	}
+	start, err := strconv.ParseInt(startValue, 10, 64)
+	if err != nil {
+		return ByteRange{}, protocolError("upload challenge range invalid")
+	}
+	end, err := strconv.ParseInt(endValue, 10, 64)
+	if err != nil || start < 0 || end < start || end >= fileSize {
+		return ByteRange{}, protocolError("upload challenge range invalid")
+	}
+	return ByteRange{Start: start, End: end}, nil
+}
+
+// cookieUploadUserAgent reproduces the pinned upload endpoint's version-bound client identity.
+func cookieUploadUserAgent(appVersion string) string {
+	return fmt.Sprintf("Mozilla/5.0 115disk/%s 115Browser/%s 115wangpan_android/%s", appVersion, appVersion, appVersion)
+}
+
+func isASCIIProtocolValue(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] > 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // validateCookieHTTPCredential rejects malformed Cookies and header injection before any network call.
 func validateCookieHTTPCredential(credential Credential) (string, error) {
 	providerUserID, err := parseCookieProviderUserID(credential.Cookie)
@@ -352,4 +564,43 @@ func (value *jsonUint64) UnmarshalJSON(data []byte) error {
 	value.value = parsed
 	value.set = true
 	return nil
+}
+
+type jsonProviderCode struct {
+	value string
+}
+
+// UnmarshalJSON accepts a short number-or-string provider code and rejects message-shaped values.
+func (code *jsonProviderCode) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	if raw[0] == '"' {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		raw = strings.TrimSpace(raw)
+	} else {
+		if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
+			return err
+		}
+	}
+	if raw == "" || len(raw) > 64 || !isSafeProviderCode(raw) {
+		return fmt.Errorf("provider code invalid")
+	}
+	code.value = raw
+	return nil
+}
+
+func isSafeProviderCode(value string) bool {
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '_' || character == '-' || character == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }

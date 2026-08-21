@@ -25,10 +25,13 @@ type cipherVector struct {
 		UserKey           string `json:"userKey"`
 		UserID            string `json:"userID"`
 		FileID            string `json:"fileID"`
+		FileName          string `json:"fileName"`
 		Target            string `json:"target"`
 		FileSize          int64  `json:"fileSize"`
+		PreID             string `json:"preID"`
 		SignKey           string `json:"signKey"`
 		SignValue         string `json:"signValue"`
+		TopUpload         string `json:"topUpload"`
 		AppVersion        string `json:"appVersion"`
 		ExpectedSignature string `json:"expectedSignature"`
 		ExpectedToken     string `json:"expectedToken"`
@@ -194,6 +197,7 @@ func TestBuildUploadRequestRejectsInvalidPayloads(t *testing.T) {
 		timestamp int64
 	}{
 		{name: "missing user key", mutate: func(payload *UploadPayload) { payload.UserKey = "" }, timestamp: vector.Timestamp},
+		{name: "missing file name", mutate: func(payload *UploadPayload) { payload.FileName = "" }, timestamp: vector.Timestamp},
 		{name: "non numeric user id", mutate: func(payload *UploadPayload) { payload.UserID = "fixture-user" }, timestamp: vector.Timestamp},
 		{name: "non ASCII protocol value", mutate: func(payload *UploadPayload) { payload.Target = "目录" }, timestamp: vector.Timestamp},
 		{name: "non positive file size", mutate: func(payload *UploadPayload) { payload.FileSize = 0 }, timestamp: vector.Timestamp},
@@ -215,10 +219,13 @@ func fixtureUploadPayload(vector cipherVector) UploadPayload {
 		UserKey:    vector.Upload.UserKey,
 		UserID:     vector.Upload.UserID,
 		FileID:     vector.Upload.FileID,
+		FileName:   vector.Upload.FileName,
 		Target:     vector.Upload.Target,
 		FileSize:   vector.Upload.FileSize,
+		PreID:      vector.Upload.PreID,
 		SignKey:    vector.Upload.SignKey,
 		SignValue:  vector.Upload.SignValue,
+		TopUpload:  vector.Upload.TopUpload,
 		AppVersion: vector.Upload.AppVersion,
 	}
 }

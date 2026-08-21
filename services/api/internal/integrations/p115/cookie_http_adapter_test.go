@@ -76,7 +76,7 @@ func TestCookieHTTPAdapterRejectsInvalidCredentialBeforeHTTP(t *testing.T) {
 	adapter, err := newCookieHTTPAdapter(httpDoerFunc(func(*http.Request) (*http.Response, error) {
 		calls.Add(1)
 		return nil, errors.New("must not be called")
-	}), "https://example.invalid/app/uploadinfo", "https://example.invalid/files/shasearch")
+	}), "https://example.invalid/app/uploadinfo", "https://example.invalid/files/shasearch", "https://example.invalid/4.0/initupload.php")
 	if err != nil {
 		t.Fatalf("newCookieHTTPAdapter() error = %v", err)
 	}
@@ -87,6 +87,9 @@ func TestCookieHTTPAdapterRejectsInvalidCredentialBeforeHTTP(t *testing.T) {
 	}
 	if _, err := adapter.SearchBySHA1(context.Background(), credential, FileQuery{SHA1: fixtureSHA1, Size: 1024}); !errors.Is(err, ErrCredentialRejected) {
 		t.Fatalf("SearchBySHA1() error = %v, want ErrCredentialRejected", err)
+	}
+	if _, err := adapter.InitRapidUpload(context.Background(), credential, fixtureRapidUploadRequest()); !errors.Is(err, ErrCredentialRejected) {
+		t.Fatalf("InitRapidUpload() error = %v, want ErrCredentialRejected", err)
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("invalid credential reached HTTP client: calls=%d", calls.Load())
@@ -238,7 +241,7 @@ func TestCookieHTTPAdapterSearchBySHA1ValidatesInputBeforeHTTP(t *testing.T) {
 	adapter, err := newCookieHTTPAdapter(httpDoerFunc(func(*http.Request) (*http.Response, error) {
 		calls.Add(1)
 		return nil, errors.New("must not be called")
-	}), "https://example.invalid/app/uploadinfo", "https://example.invalid/files/shasearch")
+	}), "https://example.invalid/app/uploadinfo", "https://example.invalid/files/shasearch", "https://example.invalid/4.0/initupload.php")
 	if err != nil {
 		t.Fatalf("newCookieHTTPAdapter() error = %v", err)
 	}
@@ -260,7 +263,7 @@ func TestCookieHTTPAdapterMapsSafeProviderErrors(t *testing.T) {
 	t.Run("transport", func(t *testing.T) {
 		adapter, err := newCookieHTTPAdapter(httpDoerFunc(func(*http.Request) (*http.Response, error) {
 			return nil, &url.Error{Op: "Get", URL: "https://webapi.115.com/files/shasearch?secret=cookie-secret", Err: errors.New("dial failed")}
-		}), "https://example.invalid/app/uploadinfo", "https://example.invalid/files/shasearch")
+		}), "https://example.invalid/app/uploadinfo", "https://example.invalid/files/shasearch", "https://example.invalid/4.0/initupload.php")
 		if err != nil {
 			t.Fatalf("newCookieHTTPAdapter() error = %v", err)
 		}
@@ -336,6 +339,7 @@ func newTestCookieHTTPAdapter(t *testing.T, server *httptest.Server) *CookieHTTP
 		server.Client(),
 		server.URL+"/app/uploadinfo",
 		server.URL+"/files/shasearch",
+		server.URL+"/4.0/initupload.php",
 	)
 	if err != nil {
 		t.Fatalf("newCookieHTTPAdapter() error = %v", err)
