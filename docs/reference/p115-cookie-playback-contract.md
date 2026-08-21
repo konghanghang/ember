@@ -12,9 +12,9 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | --- | --- | --- |
 | Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
 | Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id` | 公开实现确认固定 GET 端点、`state` 字段和 Cookie `UID` 取值方式；真实账号兼容性仍未实机确认 |
-| Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` | 可据此独立实现 Go 适配器，必须用固定向量锁定行为 |
+| Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和上传表单密文；未接入真实 HTTP 端点 |
 | `emby-toolkit` 小号播放行为 | `emby-toolkit` `v10.8.63`、提交 `7e64564884c9949390e5894b4be71038808e4e2a` | 只用于理解账号选择与失败语义，不复制 AGPL 代码 |
-| 上游许可证 | `p115client` 固定提交的 `LICENSE` / `pyproject.toml` 与 `LICENSE_zh` 表述不一致 | 未澄清前只作协议研究，不逐行翻译或复制源码 |
+| 上游许可证 | 固定提交根 `LICENSE` / `pyproject.toml` 和模块 `pyproject.toml` 写 MIT，但模块 `LICENSE` / `LICENSE_zh` 与源码 `__license__` 写 GPLv3 | 按 GPLv3 保守边界处理：不复制、翻译或运行时依赖上游源码，只使用临时黑盒执行得到的兼容向量；这不是对上游最终许可的法律认定 |
 | 115 Cookie/Web API 稳定性 | 非官方接口 | 随时可能变化，必须通过 Provider 边界隔离 |
 | Ember 真实账号行为 | 未实机确认 | 尚未调用真实 115 接口，不能断言风控、配额和响应字段稳定 |
 
@@ -24,7 +24,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 - **Ember 内部合同**：Ember 自己定义并通过 fake、fixture 和状态机测试锁定的行为。
 - **未实机确认**：必须在用户明确授权后，用受控账号和文件验证；验证前不能写成生产事实。
 
-许可证边界：Ember 不复制 `emby-toolkit` 的 AGPL 实现；对 `p115client` / `p115cipher` 只使用可观察协议行为和无敏感信息测试向量。在复用任何源代码前必须先澄清上游许可证不一致并完成单独审查。
+许可证边界：Ember 不复制 `emby-toolkit` 的 AGPL 实现。`p115client` / `p115cipher` 的固定提交已完成一次保守审查：上游许可声明互相冲突，因此 Ember 不复制或逐行翻译其实现，也不把 Python 包作为构建或运行时依赖；只把固定提交临时执行产生的无敏感信息输入/输出当作兼容性事实，并使用 Go 标准算法和独立依赖实现。若后续希望直接复用上游源码，仍必须先取得明确许可结论。
 
 ## 2. 首期范围
 
@@ -212,6 +212,14 @@ Cookie: <playback-account-cookie>
 3. Go 测试必须覆盖加密、解密、LZ4、签名、token 和单字节变更导致结果变化。
 4. 不把公开实现中的协议常量重复写入文档、日志或业务配置。
 5. 公开实现升级时先对比向量和端点合同，不能直接追随最新版。
+
+当前 Ember 离线 PoC 位于 `internal/integrations/p115/p115cipher/`：
+
+- 固定向量记录来源仓库、提交和模块版本，不包含真实账号、Cookie、文件或目录信息。
+- `EncodeToken` / `DecodeToken` 覆盖 `k_ec` 时间戳、公钥材料和 CRC；解码拒绝被篡改的 CRC。
+- `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义及长度前缀 LZ4 block 解压，解压结果设置上限。
+- `BuildUploadRequest` 覆盖 `sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
+- 该 PoC 尚未实现 `GetUploadInfo`、HTTP 上传初始化或任何真实 115 请求，不能据此宣称秒传可用。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 

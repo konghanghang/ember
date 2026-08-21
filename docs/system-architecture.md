@@ -87,7 +87,8 @@ services/
 │     │  ├─ moviepilot/
 │     │  │  └─ client.go         # MoviePilot HTTP 客户端
 │     │  ├─ p115/
-│     │  │  └─ provider.go       # 115 Cookie / OpenAPI 共用 Provider 业务合同（当前无 HTTP Adapter）
+│     │  │  ├─ provider.go       # 115 Cookie / OpenAPI 共用 Provider 业务合同（当前无 HTTP Adapter）
+│     │  │  └─ p115cipher/       # Cookie 上传 token、AES-CBC、LZ4 与签名固定向量 PoC
 │     │  └─ notifier/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ services/               # 业务逻辑
@@ -705,6 +706,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
+- `integrations/p115/p115cipher`：基于固定提交黑盒输出独立实现 `k_ec` token/CRC、AES-CBC 请求、LZ4 响应解压和上传签名/表单密文；固定向量不含真实账号信息，尚未接入 Provider HTTP Adapter
 - `integrations/p115.Provider`：继续定义上传信息、SHA1 搜索、秒传初始化、目标复核、下载地址和串行删除等 Provider-neutral 语义；除凭证验证外尚无网络实现
 - `security/secretbox`：复用 ConfigService 历史 AES-GCM 密文格式，已有 settings 密文保持兼容；115 Cookie 通过 `p115-cookie` purpose 派生独立密钥，禁止与 settings 密文跨用途替换
 - `p115_accounts` 存储使用局部静默 GORM session，避免 PostgreSQL 失败行详情携带 Cookie 密文；错误日志只保留操作名、SQLSTATE 和约束名

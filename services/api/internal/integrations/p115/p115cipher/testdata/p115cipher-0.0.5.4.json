@@ -1,0 +1,26 @@
+{
+  "sourceRepository": "https://github.com/ChenyangGao/p115client",
+  "sourceCommit": "608a44396fea08d36131a68beb245be1fe17aa6d",
+  "moduleVersion": "0.0.5.4",
+  "timestamp": 1700000000,
+  "token": "HQMOgKF43O7OzaN33hKNAHMAAAAA8VNljtndz1WuYe1G6hIaHPyBAAEAAACWHoRq",
+  "decodedPublicKeyHex": "1d030e80a178dceececda377de128d8ed9ddcf55ae61ed46ea121a1cfc81",
+  "requestPlaintext": "ember-p115cipher-request-vector",
+  "requestCipherHex": "ff0acd0dfe95e65773558ace7912f05a8cc2d01e327f35d05296f9f77ff58bfa",
+  "responsePlaintext": "{\"state\":true,\"status\":2,\"message\":\"fixture\"}",
+  "responseCipherHex": "f0d222831427c50f71382ea21bc841ab28e145de84c3375eb1a25ede00f93712ce66a75686f198f221d43ea5f04e3f5c",
+  "upload": {
+    "userKey": "0123456789abcdef0123456789abcdef",
+    "userID": "100000001",
+    "fileID": "0123456789ABCDEF0123456789ABCDEF01234567",
+    "target": "200000002",
+    "fileSize": 123456789,
+    "signKey": "fixture-sign-key",
+    "signValue": "89ABCDEF0123456789ABCDEF0123456789ABCDEF",
+    "appVersion": "99.99.99",
+    "expectedSignature": "8CE7DA45676FC643CA76F4B309D8C960EE52D1C1",
+    "expectedToken": "832a2c4326832515e5ce2290fa43b65e",
+    "expectedPlaintext": "appversion=99.99.99&fileid=0123456789ABCDEF0123456789ABCDEF01234567&filesize=123456789&sig=8CE7DA45676FC643CA76F4B309D8C960EE52D1C1&sign_key=fixture-sign-key&sign_val=89ABCDEF0123456789ABCDEF0123456789ABCDEF&t=1700000000&target=200000002&token=832a2c4326832515e5ce2290fa43b65e&userid=100000001&userkey=0123456789abcdef0123456789abcdef",
+    "expectedDataHex": "b15fe238db639788fe793098197c5bb2989d078cb1148c5ac76c9acd391309507d6c0824309f26fb913c093f6d8f9b77020408bc59437f14926dfead45a7ff757096279b9506c9266f36d812b8b3fbce1beb1d722151dbce168341fa6297b341ae23ddadb109e361a6ee16ce28151920cc7815913938830a194c4c3d962789f089d595baf875041a09a86761cfce824a6ccd8f755b76eb1256f1c3c30d4e03d69648521e6fa1e453b6ddf53054aa7aa95fd5ded6de9c846c63ab1ad13db1fd5cd27f9f902640e377548104235c34afdef6d4d89de46e7043e0eaa5d5a6dfaccdd5a865d325e963f44e550b89b6e193688a8f4c38cfd1b3130a11faa8b2d0c997ce2b98473654e779e0f8f3118cf987fdd08b9f88689496b0a48ddcc4ff817a022a30ae59e8e1002823be2c58b7a0a5747b24c3170d1c40f6a34b60432c92eefd6ea4e2272648ce36f01967baa17df8d1"
+  }
+}

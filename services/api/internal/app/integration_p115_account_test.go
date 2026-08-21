@@ -25,6 +25,28 @@ type integrationFakeP115Validator struct {
 	calls    []p115integration.Credential
 }
 
+type integrationBlockingP115Validator struct {
+	started chan<- p115integration.Credential
+	release <-chan struct{}
+	outcome integrationP115ValidationOutcome
+}
+
+// ValidateCredential pauses after receiving the decrypted credential so tests can replace it concurrently.
+func (v *integrationBlockingP115Validator) ValidateCredential(ctx context.Context, credential p115integration.Credential) (p115integration.AccountIdentity, error) {
+	select {
+	case v.started <- credential:
+	case <-ctx.Done():
+		return p115integration.AccountIdentity{}, ctx.Err()
+	}
+
+	select {
+	case <-v.release:
+		return v.outcome.identity, v.outcome.err
+	case <-ctx.Done():
+		return p115integration.AccountIdentity{}, ctx.Err()
+	}
+}
+
 // ValidateCredential returns configured account identities without contacting 115.
 func (v *integrationFakeP115Validator) ValidateCredential(_ context.Context, credential p115integration.Credential) (p115integration.AccountIdentity, error) {
 	v.t.Helper()
@@ -183,6 +205,128 @@ func TestIntegrationP115AccountEnableConstraints(t *testing.T) {
 	}
 }
 
+func TestIntegrationP115AccountConcurrentEnableKeepsOneAccountPerRole(t *testing.T) {
+	validator := &integrationFakeP115Validator{
+		t: t,
+		outcomes: map[string][]integrationP115ValidationOutcome{
+			"concurrent-source-a": {{identity: p115integration.AccountIdentity{ProviderUserID: "provider-concurrent-a"}}},
+			"concurrent-source-b": {{identity: p115integration.AccountIdentity{ProviderUserID: "provider-concurrent-b"}}},
+		},
+	}
+	harness := newIntegrationHarnessWithP115Validator(t, validator)
+
+	sourceA := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-a","cookie":"concurrent-source-a","appType":"web","userAgent":"itest"}`)
+	sourceB := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-b","cookie":"concurrent-source-b","appType":"web","userAgent":"itest"}`)
+	validateIntegrationP115Account(t, harness, sourceA.ID, http.StatusOK)
+	validateIntegrationP115Account(t, harness, sourceB.ID, http.StatusOK)
+
+	type enableResult struct {
+		status int
+		body   []byte
+	}
+	start := make(chan struct{})
+	results := make(chan enableResult, 2)
+	for _, accountID := range []string{sourceA.ID, sourceB.ID} {
+		accountID := accountID
+		go func() {
+			<-start
+			recorder := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/p115-accounts/"+accountID+"/enabled", []byte(`{"enabled":true}`))
+			results <- enableResult{status: recorder.Code, body: recorder.Body.Bytes()}
+		}()
+	}
+	close(start)
+
+	statusCounts := map[int]int{}
+	for range 2 {
+		result := <-results
+		statusCounts[result.status]++
+		assertNoP115CredentialFields(t, result.body)
+		if result.status == http.StatusConflict && !strings.Contains(string(result.body), "该角色已有启用的 115 账号") {
+			t.Fatalf("unexpected concurrent role conflict response: %s", result.body)
+		}
+	}
+	if statusCounts[http.StatusOK] != 1 || statusCounts[http.StatusConflict] != 1 {
+		t.Fatalf("concurrent enable statuses = %+v, want one 200 and one 409", statusCounts)
+	}
+
+	var enabledCount int64
+	if err := harness.database.Model(&models.P115Account{}).
+		Where("role = ? AND enabled = true", models.P115AccountRoleSource).
+		Count(&enabledCount).Error; err != nil {
+		t.Fatalf("count concurrently enabled source accounts: %v", err)
+	}
+	if enabledCount != 1 {
+		t.Fatalf("concurrent enable left %d source accounts enabled, want 1", enabledCount)
+	}
+}
+
+func TestIntegrationP115AccountReplacementWinsOverInFlightValidation(t *testing.T) {
+	const oldCookie = "UID=concurrent-old_A1; CID=old; SEID=old"
+	const newCookie = "UID=concurrent-new_A1; CID=new; SEID=new"
+	started := make(chan p115integration.Credential, 1)
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	validator := &integrationBlockingP115Validator{
+		started: started,
+		release: release,
+		outcome: integrationP115ValidationOutcome{
+			identity: p115integration.AccountIdentity{ProviderUserID: "provider-stale-validation"},
+		},
+	}
+	harness := newIntegrationHarnessWithP115Validator(t, validator)
+	account := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-replace","cookie":"`+oldCookie+`","appType":"web","userAgent":"itest"}`)
+
+	type validationHTTPResult struct {
+		status int
+		body   []byte
+	}
+	validationDone := make(chan validationHTTPResult, 1)
+	go func() {
+		recorder := harness.performAdminRequest(http.MethodPost, "/api/v1/admin/p115-accounts/"+account.ID+"/validate", nil)
+		validationDone <- validationHTTPResult{status: recorder.Code, body: recorder.Body.Bytes()}
+	}()
+
+	select {
+	case credential := <-started:
+		if credential.Cookie != oldCookie || credential.AccountID != account.ID {
+			t.Fatalf("in-flight validation credential = %+v, want original account and Cookie", credential)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("validation did not reach the blocking fake")
+	}
+
+	replace := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/p115-accounts/"+account.ID+"/cookie", []byte(`{"cookie":"`+newCookie+`"}`))
+	assertIntegrationHTTPStatus(t, replace.Code, http.StatusOK, replace.Body.String())
+	assertNoP115CredentialFields(t, replace.Body.Bytes())
+	close(release)
+
+	var validation validationHTTPResult
+	select {
+	case validation = <-validationDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("in-flight validation did not complete after release")
+	}
+	assertIntegrationHTTPStatus(t, validation.status, http.StatusConflict, string(validation.body))
+	assertNoP115CredentialFields(t, validation.body)
+	if !strings.Contains(string(validation.body), "Cookie 已被替换，请重新验证") {
+		t.Fatalf("unexpected stale validation response: %s", validation.body)
+	}
+
+	detail := harness.performAdminRequest(http.MethodGet, "/api/v1/admin/p115-accounts/"+account.ID, nil)
+	assertIntegrationHTTPStatus(t, detail.Code, http.StatusOK, detail.Body.String())
+	finalAccount := decodeIntegrationP115Account(t, detail.Body.Bytes())
+	if finalAccount.Status != models.P115AccountStatusPending || finalAccount.Enabled ||
+		finalAccount.ProviderUserID != nil || finalAccount.LastValidatedAt != nil || finalAccount.LastSucceededAt != nil {
+		t.Fatalf("stale validation overwrote replacement state: %+v", finalAccount)
+	}
+}
+
 func TestIntegrationP115AccountValidationFailuresAndAdminAPIKey(t *testing.T) {
 	const rejectedCookie = "rejected-cookie"
 	const unstableCookie = "unstable-cookie"
@@ -329,3 +473,4 @@ func assertIntegrationHTTPStatus(t *testing.T, got, want int, body string) {
 }
 
 var _ p115integration.CredentialValidator = (*integrationFakeP115Validator)(nil)
+var _ p115integration.CredentialValidator = (*integrationBlockingP115Validator)(nil)
