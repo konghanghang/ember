@@ -32,9 +32,10 @@ func TestNewProductionRuntimeVerifiesIdentityAndBuildsHandlers(t *testing.T) {
 
 	var logs bytes.Buffer
 	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
-		Database: &gorm.DB{},
-		Settings: fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
-		Logger:   log.New(&logs, "", 0),
+		Database:          &gorm.DB{},
+		Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
+		Logger:            log.New(&logs, "", 0),
+		DirectPlayService: &fakeDirectPlayService{},
 	})
 	if err != nil {
 		t.Fatalf("NewProductionRuntime() error = %v", err)
@@ -110,9 +111,10 @@ func TestNewProductionRuntimeRejectsUnsupportedEmbyVersion(t *testing.T) {
 	defer upstream.Close()
 
 	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
-		Database: &gorm.DB{},
-		Settings: fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
-		Logger:   log.New(io.Discard, "", 0),
+		Database:          &gorm.DB{},
+		Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
+		Logger:            log.New(io.Discard, "", 0),
+		DirectPlayService: &fakeDirectPlayService{},
 	})
 	if runtime != nil || !errors.Is(err, ErrUnsupportedEmbyVersion) {
 		t.Fatalf("NewProductionRuntime() = (%v, %v), want nil, %v", runtime, err, ErrUnsupportedEmbyVersion)
@@ -128,9 +130,10 @@ func TestRuntimeRunUsesGracefulShutdownWithoutRealListener(t *testing.T) {
 	upstream := newRuntimeIdentityServer(t, &identityCalls, supportedEmbyVersion)
 	defer upstream.Close()
 	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
-		Database: &gorm.DB{},
-		Settings: fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
-		Logger:   log.New(io.Discard, "", 0),
+		Database:          &gorm.DB{},
+		Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
+		Logger:            log.New(io.Discard, "", 0),
+		DirectPlayService: &fakeDirectPlayService{},
 	})
 	if err != nil {
 		t.Fatalf("NewProductionRuntime() error = %v", err)
@@ -170,9 +173,10 @@ func TestRuntimeRunSanitizesListenFailure(t *testing.T) {
 	upstream := newRuntimeIdentityServer(t, &identityCalls, supportedEmbyVersion)
 	defer upstream.Close()
 	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
-		Database: &gorm.DB{},
-		Settings: fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
-		Logger:   log.New(io.Discard, "", 0),
+		Database:          &gorm.DB{},
+		Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
+		Logger:            log.New(io.Discard, "", 0),
+		DirectPlayService: &fakeDirectPlayService{},
 	})
 	if err != nil {
 		t.Fatalf("NewProductionRuntime() error = %v", err)

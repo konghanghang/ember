@@ -14,7 +14,10 @@ import (
 	"time"
 
 	embypkg "github.com/konghang/ember/backend/internal/integrations/emby"
+	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
+	"github.com/konghang/ember/backend/internal/services/directplay"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
+	"github.com/konghang/ember/backend/internal/services/p115account"
 	"gorm.io/gorm"
 )
 
@@ -50,6 +53,9 @@ type ProductionDependencies struct {
 	Settings  RuntimeSettings
 	Transport http.RoundTripper
 	Logger    *log.Logger
+	// DirectPlayService is injectable for fake-only runtime tests. Production
+	// leaves it nil so construction wires the Cookie Provider and account store.
+	DirectPlayService DirectPlayService
 }
 
 type productionConfig struct {
@@ -101,6 +107,13 @@ func NewProductionRuntime(
 	if err != nil {
 		return nil, ErrRuntimeDependency
 	}
+	directPlayService := dependencies.DirectPlayService
+	if directPlayService == nil {
+		directPlayService, err = newProductionDirectPlayService(dependencies.Database, config.encryptionKey)
+		if err != nil {
+			return nil, ErrRuntimeDependency
+		}
+	}
 	upstream, err := url.Parse(config.embyURL)
 	if err != nil {
 		return nil, ErrRuntimeConfig
@@ -110,10 +123,11 @@ func NewProductionRuntime(
 		logger = log.Default()
 	}
 	gateway, err := New(Config{
-		Upstream:     upstream,
-		TokenService: tokenService,
-		Transport:    dependencies.Transport,
-		Logger:       logger,
+		Upstream:          upstream,
+		TokenService:      tokenService,
+		DirectPlayService: directPlayService,
+		Transport:         dependencies.Transport,
+		Logger:            logger,
 	})
 	if err != nil {
 		return nil, ErrRuntimeConfig
@@ -134,6 +148,22 @@ func NewProductionRuntime(
 		logger:          logger,
 		shutdownTimeout: runtimeShutdownTimeout,
 	}, nil
+}
+
+// newProductionDirectPlayService composes the existing encrypted 115 account
+// service, complete Cookie Provider and PostgreSQL-backed transfer service. It
+// performs no Provider request and never exposes the encryption key in errors.
+func newProductionDirectPlayService(database *gorm.DB, encryptionKey string) (DirectPlayService, error) {
+	provider := p115integration.NewCookieProvider()
+	accounts, err := p115account.NewService(database, encryptionKey, provider)
+	if err != nil {
+		return nil, ErrRuntimeDependency
+	}
+	service, err := directplay.NewService(database, accounts, provider)
+	if err != nil {
+		return nil, ErrRuntimeDependency
+	}
+	return service, nil
 }
 
 // Handler returns the fully composed mux for in-process contract tests and

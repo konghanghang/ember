@@ -306,6 +306,8 @@ mappingId + itemId + mediaSourceId + playSessionId
 处理约束：
 
 - 不能看到 `/Videos/` 就一律返回 302；必须先判断 Token、用户状态、媒体源、路径规则和 Direct Play 能力。
+- 首期只有 query 同时提供唯一非空 `MediaSourceId`、唯一非空 `PlaySessionId` 和精确 `Static=true` 时才尝试 115；`/stream` 还必须提供唯一非空 `Container`。缺失、重复或其他值均透明 fallback Emby。
+- `stream.{Container}` 和 `{StreamFileName}` 从最后一个扩展名取得容器并与 PlaybackInfo 证明中的 Container 核对；不一致时 fallback Emby。`m3u8`、`mpd`、`m4s` 明确不进入 115 编排。
 - `GET` 与 `HEAD` 都可能由客户端用于探测，不得把每个请求都计为独立播放会话。
 - 客户端可能在获得 302 后向 115 CDN 发出 `Range` 请求；网关必须通过客户端合同测试确认重定向、UA 和 Range 行为。
 - `/Items/{Id}/Download` 与播放流不是同一权益，必须复用套餐下载开关并单独审计。
@@ -413,7 +415,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 | decision | stage | reasonCode |
 | --- | --- | --- |
 | `reject` | `identity` | `token_missing`、`token_ambiguous`、`token_unmapped`、`token_revoked`、`identity_mismatch`、`identity_store_unavailable` |
-| `reject` | `user_state` | `user_missing`、`user_inactive`、`user_expired`、`emby_disabled`、`emby_access_disabled`、`device_blocked` |
+| `reject` | `user_state` | `user_unavailable`、`user_expired` |
 | `fallback` | `route` | `route_not_accelerated`、`request_not_eligible` |
 | `fallback` | `proof` | `playback_proof_missing`、`playback_proof_expired`、`playback_proof_mismatch` |
 | `fallback` | `eligibility` | `direct_play_disabled`、`client_incompatible`、`concurrency_limited`、`media_not_direct_play` |
@@ -438,6 +440,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 10. `lastSeenAt` 限频、ServerId/EmbyID 错配拒绝、并发登录幂等 upsert，以及数据库/日志/JSON 均不包含 Token 明文。
 11. 302 要求相同 Token 的近期成功 PlaybackInfo；缺少/过期证明时合法请求 fallback Emby，撤销后缓存重用和原始 Emby 公网绕过仍失败关闭。
 12. 每个视频请求只产生一条脱敏 `redirect/fallback/reject` 日志，且任何 fallback 都保持原始请求字节和 Header 语义。
+13. 三种原始视频路径只有完整静态播放参数和匹配 Container 时调用 fake DirectPlay；manifest、参数缺失、无效候选和所有类型化 DirectPlay 错误均进入 fake Emby fallback。
 
 所有测试必须使用 fake Emby Server 或固定 fixture，禁止请求真实 Emby。
 

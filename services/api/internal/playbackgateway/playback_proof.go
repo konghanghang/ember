@@ -53,6 +53,14 @@ type playbackProofKey struct {
 	playSessionID string
 }
 
+type playbackProofLookupStatus uint8
+
+const (
+	playbackProofMissing playbackProofLookupStatus = iota
+	playbackProofFound
+	playbackProofExpired
+)
+
 type playbackProofCache struct {
 	mu         sync.Mutex
 	entries    map[playbackProofKey]PlaybackProof
@@ -102,8 +110,15 @@ func (cache *playbackProofCache) Record(proofs []PlaybackProof) int {
 
 // Lookup requires the exact composite key and lazily removes an expired entry.
 func (cache *playbackProofCache) Lookup(mappingID, itemID, mediaSourceID, playSessionID string) (PlaybackProof, bool) {
+	proof, status := cache.lookup(mappingID, itemID, mediaSourceID, playSessionID)
+	return proof, status == playbackProofFound
+}
+
+// lookup distinguishes an exact expired proof from one that never existed so
+// the final decision log can explain fallback without exposing cached content.
+func (cache *playbackProofCache) lookup(mappingID, itemID, mediaSourceID, playSessionID string) (PlaybackProof, playbackProofLookupStatus) {
 	if cache == nil || cache.now == nil {
-		return PlaybackProof{}, false
+		return PlaybackProof{}, playbackProofMissing
 	}
 	key := playbackProofKey{mappingID: mappingID, itemID: itemID, mediaSourceID: mediaSourceID, playSessionID: playSessionID}
 	now := cache.now().UTC()
@@ -111,13 +126,13 @@ func (cache *playbackProofCache) Lookup(mappingID, itemID, mediaSourceID, playSe
 	defer cache.mu.Unlock()
 	proof, ok := cache.entries[key]
 	if !ok {
-		return PlaybackProof{}, false
+		return PlaybackProof{}, playbackProofMissing
 	}
 	if !proof.ExpiresAt.After(now) {
 		delete(cache.entries, key)
-		return PlaybackProof{}, false
+		return PlaybackProof{}, playbackProofExpired
 	}
-	return proof, true
+	return proof, playbackProofFound
 }
 
 // InvalidateItem removes every proof for one mapping/item before a newer

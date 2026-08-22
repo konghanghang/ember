@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
@@ -41,10 +42,11 @@ type AuthenticationMetadata struct {
 // configuration, database construction and HTTP server startup belong to the
 // later cmd/playback-gateway composition layer.
 type Config struct {
-	Upstream     *url.URL
-	TokenService TokenService
-	Transport    http.RoundTripper
-	Logger       *log.Logger
+	Upstream          *url.URL
+	TokenService      TokenService
+	DirectPlayService DirectPlayService
+	Transport         http.RoundTripper
+	Logger            *log.Logger
 }
 
 // Gateway validates mapped tokens before proxying protected requests and
@@ -53,6 +55,7 @@ type Config struct {
 type Gateway struct {
 	proxy                          *httputil.ReverseProxy
 	tokenService                   TokenService
+	directPlayService              DirectPlayService
 	logger                         *log.Logger
 	proofs                         *playbackProofCache
 	maxAuthenticationResponseBytes int64
@@ -67,6 +70,7 @@ const (
 	routeAuthentication
 	routePublicBootstrap
 	routePlaybackInfo
+	routeVideo
 )
 
 type requestRouteContext struct {
@@ -75,6 +79,7 @@ type requestRouteContext struct {
 	principal            *embytoken.Principal
 	playbackInfoItemID   string
 	playbackInfoEligible bool
+	videoDecision        *videoDecision
 }
 
 type requestRouteContextKey struct{}
@@ -109,6 +114,7 @@ func New(config Config) (*Gateway, error) {
 
 	gateway := &Gateway{
 		tokenService:                   config.TokenService,
+		directPlayService:              config.DirectPlayService,
 		logger:                         logger,
 		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
 		maxAuthenticationResponseBytes: defaultAuthenticationResponseMaxSize,
@@ -127,6 +133,7 @@ func New(config Config) (*Gateway, error) {
 // ServeHTTP applies the exact-route authentication exception and fails closed
 // for every other request before allowing the reverse proxy to reach Emby.
 func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	startedAt := time.Now().UTC()
 	kind := classifyRoute(request)
 	routeContext := requestRouteContext{kind: kind}
 	switch kind {
@@ -141,12 +148,22 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	default:
 		accessToken, ok := singleAccessToken(request.Header)
 		if !ok {
+			if kind == routeVideo {
+				status, reasonCode := videoTokenHeaderRejection(request.Header)
+				gateway.rejectVideo(writer, request, status, "identity", reasonCode, startedAt)
+				return
+			}
 			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid")
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		principal, err := gateway.tokenService.ResolvePrincipal(request.Context(), accessToken)
 		if err != nil {
+			if kind == routeVideo {
+				status, stage, reasonCode := videoPrincipalRejection(err)
+				gateway.rejectVideo(writer, request, status, stage, reasonCode, startedAt)
+				return
+			}
 			status, code := tokenRejection(err)
 			gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
 			writer.WriteHeader(status)
@@ -156,6 +173,10 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		if kind == routePlaybackInfo {
 			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible = gateway.preparePlaybackInfoRequest(request, principal)
 		}
+	}
+	if kind == routeVideo {
+		gateway.serveVideo(writer, request, *routeContext.principal, startedAt)
+		return
 	}
 
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
@@ -174,6 +195,9 @@ func (gateway *Gateway) observeResponse(response *http.Response) error {
 		return gateway.observeAuthenticationResponse(response)
 	case routePlaybackInfo:
 		return gateway.observePlaybackInfoResponse(response, routeContext)
+	case routeVideo:
+		gateway.observeVideoFallbackResponse(response, routeContext)
+		return nil
 	default:
 		return nil
 	}
@@ -230,20 +254,41 @@ func (gateway *Gateway) observeAuthenticationResponse(response *http.Response) e
 // requires the fresh Principal returned by ResolvePrincipal rather than a raw
 // MappingID string.
 func (gateway *Gateway) LookupPlaybackProof(principal embytoken.Principal, itemID, mediaSourceID, playSessionID string) (PlaybackProof, bool) {
+	proof, reasonCode := gateway.lookupPlaybackProof(principal, itemID, mediaSourceID, playSessionID)
+	return proof, reasonCode == ""
+}
+
+// lookupPlaybackProof retains the public bool lookup while giving the video
+// decision path a stable missing, expired or identity-mismatch reason.
+func (gateway *Gateway) lookupPlaybackProof(principal embytoken.Principal, itemID, mediaSourceID, playSessionID string) (PlaybackProof, string) {
 	if gateway == nil || gateway.proofs == nil {
-		return PlaybackProof{}, false
+		return PlaybackProof{}, "playback_proof_missing"
 	}
-	proof, ok := gateway.proofs.Lookup(principal.MappingID, itemID, mediaSourceID, playSessionID)
-	if !ok || proof.ServerID != principal.ServerID || proof.UserID != principal.User.ID ||
+	proof, status := gateway.proofs.lookup(principal.MappingID, itemID, mediaSourceID, playSessionID)
+	if status == playbackProofExpired {
+		return PlaybackProof{}, "playback_proof_expired"
+	}
+	if status != playbackProofFound {
+		return PlaybackProof{}, "playback_proof_missing"
+	}
+	if proof.ServerID != principal.ServerID || proof.UserID != principal.User.ID ||
 		proof.EmbyUserID != principal.User.EmbyID || proof.DeviceID != principal.DeviceID {
-		return PlaybackProof{}, false
+		return PlaybackProof{}, "playback_proof_mismatch"
 	}
-	return proof, true
+	return proof, ""
 }
 
 // handleUpstreamError returns a fixed transport status and logs only the Go
 // error type. Upstream URLs, credentials and response bodies are never logged.
-func (gateway *Gateway) handleUpstreamError(writer http.ResponseWriter, _ *http.Request, err error) {
+func (gateway *Gateway) handleUpstreamError(writer http.ResponseWriter, request *http.Request, err error) {
+	if routeContext, ok := routeContextFromRequest(request); ok && routeContext.kind == routeVideo && routeContext.videoDecision != nil {
+		decision := *routeContext.videoDecision
+		decision.StatusCode = http.StatusBadGateway
+		decision.ProxyErrorCode = "upstream_unavailable"
+		gateway.logVideoDecision(decision)
+		writer.WriteHeader(http.StatusBadGateway)
+		return
+	}
 	gateway.logger.Printf("[PlaybackGateway] code=upstream_unavailable errorType=%T", err)
 	writer.WriteHeader(http.StatusBadGateway)
 }
@@ -265,6 +310,9 @@ func classifyRoute(request *http.Request) routeKind {
 	}
 	if (request.Method == http.MethodGet || request.Method == http.MethodPost) && playbackInfoItemID(request.URL) != "" {
 		return routePlaybackInfo
+	}
+	if (request.Method == http.MethodGet || request.Method == http.MethodHead) && videoPath(request.URL).ItemID != "" {
+		return routeVideo
 	}
 	return routeProtected
 }
@@ -330,6 +378,16 @@ func routeContextFromResponse(response *http.Response) (requestRouteContext, boo
 		return requestRouteContext{}, false
 	}
 	value, ok := response.Request.Context().Value(requestRouteContextKey{}).(requestRouteContext)
+	return value, ok
+}
+
+// routeContextFromRequest recovers the immutable routing decision used by the
+// reverse proxy error path when no upstream response exists.
+func routeContextFromRequest(request *http.Request) (requestRouteContext, bool) {
+	if request == nil {
+		return requestRouteContext{}, false
+	}
+	value, ok := request.Context().Value(requestRouteContextKey{}).(requestRouteContext)
 	return value, ok
 }
 

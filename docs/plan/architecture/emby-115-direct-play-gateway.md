@@ -397,7 +397,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 1. PlaybackInfo 透明转发；只有当前 Emby Server 成功接受相同 Token 后，才记录 Token 映射、ItemId、MediaSourceId 和 PlaySessionId 的短期授权证明。
 2. 原始视频流请求到达后先校验 Token、用户和本地硬状态；失败时 `reject`，不能回退绕过门控。
-3. Principal 合法后再检查证明、加速资格、客户端和并发；任何不满足均 `fallback` 到原始 Emby 请求。
+3. Principal 合法后再检查证明、加速资格、客户端和并发；首期只有固定 `GET/HEAD` 视频路径同时带唯一 `MediaSourceId`、唯一 `PlaySessionId`、精确 `Static=true` 且容器匹配时尝试 115，任何不满足均 `fallback` 到原始 Emby 请求。
 4. 从进程内 PlaybackInfo 快照取得 Path/Size，按 source 账号的 `embyPathPrefix/sourceRootId` 调用 `ResolveMediaPath`。
 5. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
 6. 命中后更新对应任务的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
@@ -513,7 +513,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成公开部署入口；其余为视频路由消费证明、持久直连会话、302、策略门控和 Infuse 验收。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、原始 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。尚未完成公开部署入口、持久直连会话、套餐/并发策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 

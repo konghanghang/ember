@@ -721,7 +721,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配，以及 `directplay.Service` 生产编排；播放网关已具备认证、Token 门控、PlaybackInfo 证明和运行时，但尚未接通视频路由的 302/fallback 决策。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 仍待真实验证，删除没有生产业务调用方：
+当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 仍待真实验证，删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -806,10 +806,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - GET/POST PlaybackInfo 继续透明代理；成功 `200 application/json` 响应旁路生成 `mappingId + itemId + mediaSourceId + playSessionId` 的进程内证明，同时保存 Path/Size/Container/DirectPlay 能力，不重复调用 Emby
 - GET 只有唯一 `UserId` 等于 Principal.EmbyID 才可形成证明；POST 有界检查可选 UserId，错配、无效或超大请求仍透明转发但不缓存
 - 证明缓存固定 5 分钟、最多 4096 条，延迟过期和最早到期淘汰，无后台 goroutine；不保存原始 Token、不记录 Path，进程重启后证明丢失，115 加速不可用但合法请求应 fallback Emby
+- 固定 `GET/HEAD /emby/Videos/{Id}/stream`、`stream.{Container}` 和 `{StreamFileName}` 进入视频编排；只有唯一 `MediaSourceId + PlaySessionId`、精确 `Static=true`、匹配 Container 和当前证明同时成立时才调用 DirectPlay
+- 运行时使用现有 `CONFIG_ENCRYPTION_KEY`、数据库、`CookieProvider` 和 `p115account.Service` 构造生产 `directplay.Service`，构造过程不请求 115；账号未配置或 Provider/任务/直链失败只影响加速
+- DirectPlay 返回安全候选时 Gateway 输出空体 `302`；其余合法请求把原始 method/path/query/Range/User-Agent/Token Header 交给既有 ReverseProxy，Emby 状态、响应头和视频体保持透传
 - `playback_media_cache` 和 `direct_play_sessions` 本轮均未建表；多副本共享、播放并发和 Playing/Progress/Stopped 持久会话推迟到后续
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
 - 每个视频请求只打印一条 `decision=redirect|fallback|reject` 脱敏日志，不新建日志表或 migration；日志禁止 Token、Cookie、完整 Path/SHA1、115 URL 和上游原文
-- 尚未完成 Docker/反向代理公开部署入口、视频路由消费证明、302/fallback 代码和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
+- fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
+- 尚未完成 Docker/反向代理公开部署入口、持久直连会话、套餐/并发策略门控和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际携带 `Static=true`、遵循固定 Header/bootstrap/302 顺序仍未证实
 
 ---
 
