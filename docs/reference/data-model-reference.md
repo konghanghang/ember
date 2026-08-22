@@ -440,6 +440,7 @@ Subscription (1) ──→ (N) SubscriptionAdminNotification（Telegram 管理�
 User (1) ──→ (N) Payment        （支付记录）
 User (1) ──→ (N) TelegramBindCode（临时绑定验证码）
 User (1) ──→ (1) Emby User      （外部 Emby 账号，通过 EmbyID 关联）
+User (1) ──→ (N) EmbyAccessToken（Emby 登录摘要映射；用户删除后保留已撤销审计）
 
 Plan (1) ──→ (N) Payment        （方案关联）
 PlanGroup (1) ──→ (N) RedemptionCode（注册套餐分组引用）
@@ -596,3 +597,31 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `succeeded` 必须具备目标 fileId、pickCode、完成时间和 `last_accessed_at`；`failed` 必须具备完成时间和脱敏错误码
 - 完整 SHA1、目标 fileId/pickCode 和任何签名 URL 都不进入普通 JSON；表中从不保存 Cookie、source 完整路径或下载 URL
 - session advisory lock 不存入本表；Service 使用相同内容键持有 PostgreSQL 物理连接，拿锁后再次查重，再创建活动任务
+
+### 2.22 EmbyAccessToken（Emby 登录摘要映射）
+
+**表名**: `emby_access_tokens` | **文件**: `models/emby_access_token.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|---|---|---|---|
+| ID | string(25) | id | CUID 主键 |
+| ServerID | string(64) | serverId | 签发 Token 的固定 Emby Server ID |
+| TokenHash | bytea(32) | tokenHash | purpose 隔离 HMAC-SHA256 摘要；JSON 永不序列化 |
+| EmbyUserID | string(50) | embyUserId | 认证结果中的 Emby 用户 ID |
+| UserID | *string(25) | userId | Ember 用户外键；用户删除后置空，活动映射禁止为空 |
+| DeviceID | string(256) | deviceId | 非权威设备归组元数据 |
+| ClientName | string(128) | clientName | 非权威客户端审计元数据 |
+| LastSeenAt | time.Time | lastSeenAt | 最近一次成功解析时间；Service 至少按 5 分钟限频写入 |
+| RevokedAt | *time.Time | revokedAt | Ember 本地撤销时间 |
+| RevokedReason | *string(100) | revokedReason | 固定枚举撤销原因 |
+| RevokedBy | *string(64) | revokedBy | 发起撤销的主体标识 |
+| CreatedAt | time.Time | createdAt | 创建时间 |
+| UpdatedAt | time.Time | updatedAt | 更新时间 |
+
+**约束**：
+
+- 映射唯一键是 `server_id + token_hash`；摘要由 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生密钥计算，数据库、JSON、日志和错误均不保存或输出 AccessToken 明文
+- 活动行必须关联 Ember 用户且三个撤销字段全部为空；撤销行必须同时具备 `revoked_at + revoked_reason + revoked_by`
+- 同一摘要的并发认证使用数据库唯一索引和行锁幂等收口；活动摘要不能移动到其他 Emby/Ember 身份，已撤销的同一身份只有在新的成功认证后才可重新激活
+- 单 Token、单设备和用户全部撤销均为软撤销；用户删除使用 `ON DELETE SET NULL` 保留已撤销审计记录
+- 当前只完成内部模型、持久化与 `services/embytoken` 核心；认证代理、设备/用户状态联动和 Playback Gateway 接入尚未完成，不构成可用的公网 Token 门控

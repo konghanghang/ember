@@ -150,6 +150,7 @@ func VerifySchema() error {
 		{"client_blacklists", &models.ClientBlacklist{}},
 		{"device_actions", &models.DeviceAction{}},
 		{"email_verifications", &models.EmailVerification{}},
+		{"emby_access_tokens", &models.EmbyAccessToken{}},
 		{"telegram_bind_codes", &models.TelegramBindCode{}},
 		{"tv_calendar_sources", &models.TVCalendarSource{}},
 		{"tv_calendar_items", &models.TVCalendarItem{}},
@@ -259,6 +260,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"p115_accounts", "cookie_ciphertext", "20260801_01_create_p115_accounts"},
 	{"p115_accounts", "emby_path_prefix", "20260822_02_add_p115_source_location"},
 	{"p115_accounts", "source_root_id", "20260822_02_add_p115_source_location"},
+	{"emby_access_tokens", "revoked_reason", "20260822_03_create_emby_access_tokens"},
 	{"playback_transfer_tasks", "last_accessed_at", "20260822_01_create_playback_transfer_tasks"},
 }
 
@@ -301,6 +303,10 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"playback_transfer_tasks", "uq_playback_transfer_tasks_active_content", "20260822_01_create_playback_transfer_tasks"},
 	{"playback_transfer_tasks", "idx_playback_transfer_tasks_content_lookup", "20260822_01_create_playback_transfer_tasks"},
 	{"playback_transfer_tasks", "idx_playback_transfer_tasks_last_accessed", "20260822_01_create_playback_transfer_tasks"},
+	{"emby_access_tokens", "uq_emby_access_tokens_server_hash", "20260822_03_create_emby_access_tokens"},
+	{"emby_access_tokens", "idx_emby_access_tokens_user_active", "20260822_03_create_emby_access_tokens"},
+	{"emby_access_tokens", "idx_emby_access_tokens_device_active", "20260822_03_create_emby_access_tokens"},
+	{"emby_access_tokens", "idx_emby_access_tokens_last_seen", "20260822_03_create_emby_access_tokens"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。

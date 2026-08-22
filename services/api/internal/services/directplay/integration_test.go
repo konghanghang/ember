@@ -248,6 +248,7 @@ func assertDirectPlayMigrationsIdempotent(t *testing.T, database *gorm.DB) {
 	for _, filename := range []string{
 		"20260822_01_create_playback_transfer_tasks.sql",
 		"20260822_02_add_p115_source_location.sql",
+		"20260822_03_create_emby_access_tokens.sql",
 	} {
 		path := filepath.Join(directPlayMigrationsDir(t), filename)
 		content, err := os.ReadFile(path)

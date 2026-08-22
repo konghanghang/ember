@@ -81,6 +81,7 @@ services/
 │     │  ├─ media_gap.go         # MediaGap（缺集工单）
 │     │  ├─ p115_account.go      # P115Account（管理员 115 源账号 / 播放账号加密凭证）
 │     │  ├─ playback_transfer_task.go # PlaybackTransferTask（保留式秒传任务与 provenance）
+│     │  ├─ emby_access_token.go # EmbyAccessToken（单向摘要映射与本地撤销审计）
 │     │  ├─ tv_calendar.go       # TVCalendar（追剧日历 + 订阅 + TMDB 缓存）
 │     │  └─ utils.go             # generateCUID()
 │     ├─ integrations/           # 外部系统集成
@@ -150,6 +151,9 @@ services/
 │     │  │  ├─ service.go        # 目标查重、秒传、复核与直链候选编排
 │     │  │  ├─ store.go          # playback_transfer_tasks 状态与 provenance 持久化
 │     │  │  └─ lock.go           # 内容级 PostgreSQL session advisory lock
+│     │  ├─ embytoken/
+│     │  │  ├─ service.go        # Emby Token 摘要映射、身份解析与三种本地撤销
+│     │  │  └─ store.go          # 并发安全 upsert、实时用户状态读取与撤销审计
 │     │  ├─ policy/
 │     │  │  ├─ effective_policy.go # 普通用户 Emby Policy 统一重算入口
 │     │  │  └─ media_library_settings.go # 分组媒体库模板、用户偏好和同步批次
@@ -188,6 +192,8 @@ services/
 │     │  └─ utils.go             # CalculateExpiryDate
 │     ├─ security/secretbox/
 │     │  └─ secretbox.go         # CONFIG_ENCRYPTION_KEY 共享 AES-GCM 格式与用途隔离派生
+│     ├─ security/tokenhash/
+│     │  └─ hasher.go            # purpose 隔离的外部 AccessToken HMAC-SHA256
 │     └─ db/
 │        ├─ db.go                # DB 初始化 + VerifySchema + Bootstrap（启动期不再调用 AutoMigrate）
 │        └─ migrate.go           # 启动期自动迁移：advisory lock + schema_migrations 记账 + 五分支判断
@@ -306,7 +312,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 
 ### 4.1 核心模型分组
 
-- 账号与认证：`users`、`email_verifications`、`telegram_bind_codes`、`p115_accounts`
+- 账号与认证：`users`、`email_verifications`、`telegram_bind_codes`、`p115_accounts`、`emby_access_tokens`
 - 兑换与支付：`redemption_codes`、`redemptions`、`plans`、`plan_groups`、`payments`、`stripe_webhook_events`
 - 内容与行为：`subscriptions`、`subscription_admin_notifications`、`playback_rankings`、`client_blacklists`、`device_actions`
 - 追剧与媒体：`tv_calendar_sources`、`tv_calendar_items`、`tv_calendar_subscriptions`、`tmdb_cache`
@@ -320,6 +326,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
 - `P115Account` 是管理员维护的独立外部账号，不归普通用户所有；数据库只保存 Cookie 密文，每个角色至多一条启用记录
+- `EmbyAccessToken` 通过 `serverId + HMAC-SHA256(AccessToken)` 关联 Ember 用户；用户删除后只允许保留已撤销且 `userId` 置空的审计行，明文 Token 永不落库
 - source 账号同时持有 `embyPathPrefix + sourceRootId`，把 Emby 本地路径映射到 115 源目录；首期是一对一账号配置，不建立独立路径映射表
 - `PlaybackTransferTask` 通过 source/playback 账号、SHA1 和 size 记录保留式秒传 provenance；签名 URL 与 Cookie 永不落库
 
@@ -755,6 +762,18 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 任务成功并释放锁后才签发本次 playback 下载 URL；需要客户端 Cookie 的 HeaderMode 失败关闭，不向播放器泄露 playback Cookie
 - PostgreSQL 集成测试在独立 `itest_*` schema 中执行完整 migration/`VerifySchema` 并重复执行新 migration，已证明两个并发请求只调用一次 fake `InitRapidUpload`、challenge 后 `attemptCount=2`、普通上传要求落为 `failed`
 
+### 5.26 EmbyTokenService (`services/embytoken/`, `security/tokenhash/`)
+
+当前完成的是 Playback Gateway 的身份核心，不注册 HTTP 路由，也不代理或请求 Emby：
+
+- `RecordAuthenticationResult` 只接受已由调用方确认成功的 Emby 4.9.3.0 `ServerId/User.Id/AccessToken` 和设备元数据；先核对固定 ServerId，再按唯一 `users.emby_id` 绑定 Ember 用户
+- AccessToken 使用从 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生的 HMAC-SHA256 密钥计算 32 字节摘要；明文和摘要均不出现在 Service 返回值、JSON 或日志
+- `server_id + token_hash` 唯一索引、冲突忽略和行锁共同保证并发 upsert；活动摘要不能换绑身份，已撤销的同一身份只有新的成功认证能重新激活
+- `ResolvePrincipal` 每次重新读取用户，动态检查停用、Emby 禁用、Emby 访问禁用、解绑和到期；`lastSeenAt` 至少按 5 分钟窗口限频更新
+- `RevokeToken`、`RevokeDevice`、`RevokeUserTokens` 使用固定原因和操作者写入软撤销审计；这只保证未来 Playback Gateway 本地拒绝，不宣称 Emby Server 已吊销原始 Token
+- 独立 PostgreSQL schema 集成测试已覆盖 8 路并发认证只生成一条映射、身份冲突、三种撤销粒度、重新认证、动态到期和用户删除后的审计保留
+- 尚未完成认证响应透明代理、受保护请求 Token 提取与门控、设备/用户状态变更调用撤销方法，以及 PlaybackInfo 当前授权证明；因此这部分还没有用户可见入口
+
 ---
 
 ## 6. API 端点总览
@@ -912,7 +931,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同和数据库互斥编排已完成，播放网关与 Infuse 验收尚未完成 | Cookie 密文在 `p115_accounts`，根密钥为 `CONFIG_ENCRYPTION_KEY` |
+| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同和数据库互斥编排已完成，播放网关与 Infuse 验收尚未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；两者根密钥均为 `CONFIG_ENCRYPTION_KEY` |
 
 ---
 

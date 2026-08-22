@@ -10,6 +10,7 @@
 - `20260801_01_create_p115_accounts.sql`：管理员 115 源账号 / 播放账号、Cookie 密文和启用唯一约束
 - `20260822_01_create_playback_transfer_tasks.sql`：保留式秒传任务、活动内容唯一约束和访问时间索引
 - `20260822_02_add_p115_source_location.sql`：source 账号的 Emby 挂载前缀和 115 源目录 ID
+- `20260822_03_create_emby_access_tokens.sql`：Emby AccessToken 单向摘要映射、本地撤销审计和活动用户/设备索引
 - `archive/`：仅供追溯，不参与任何运行时链路
 
 当前升级支持窗口：

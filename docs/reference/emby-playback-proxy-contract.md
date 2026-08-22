@@ -104,6 +104,8 @@ Ember 本地撤销固定三种粒度：
 
 要让设备强制退出成立，所有受保护的公网 Emby 请求都必须先通过 Token 映射检查，而不是只在 115 视频分支检查。部署时原始 Emby 端口必须只对网关和运维网络开放；否则客户端可以绕过 Ember 使用仍被 Emby 接受的原 Token。首次切换到网关后，历史 Emby Token 没有明文可安全回填，客户端需要重新登录一次建立映射。
 
+截至 2026-08-22，`emby_access_tokens` migration、purpose 隔离 HMAC、并发安全 upsert、实时用户资格解析和三种本地撤销 Service 已实现并通过 fake/独立 PostgreSQL 测试。认证代理、Token 载体提取、用户/设备状态联动和 Playback Gateway 门控尚未接入；当前实现不能单独证明设备已被强制退出，也没有真实请求目标 Emby。
+
 ### 3.3 暂不覆盖的认证方式
 
 首版不根据经验实现以下认证方式：

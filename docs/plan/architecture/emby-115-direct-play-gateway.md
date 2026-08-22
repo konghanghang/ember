@@ -60,7 +60,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
 - 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除；尚未实现播放网关。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
-- 当前仍没有播放网关数据面进程、Emby AccessToken 到 Ember 用户的映射或直连会话模型；`playback_transfer_tasks` 和无 HTTP 入口的 DirectPlay 传输核心已落地。
+- 当前仍没有播放网关数据面进程或直连会话模型；`emby_access_tokens`、无 HTTP 入口的 Emby Token 身份核心、`playback_transfer_tasks` 和 DirectPlay 传输核心已落地，但认证代理和状态联动尚未接入。
 
 ### 外部证据与未确认项
 
@@ -124,11 +124,14 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增不暴露 HTTP 入口的 `internal/services/directplay`，按角色加载活动账号，以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，锁内二次查重后编排 preID、一次 challenge、秒传、目标复核和锁外直链签发；其窄 Provider 接口不包含 `DeleteFile`。
 - 专用 PostgreSQL 集成数据库的独立 schema 已验证 migration 可重复执行、两个相同内容并发请求只调用一次 fake `InitRapidUpload`、challenge 将 `attemptCount` 记为 2、普通上传要求落为脱敏失败终态；测试不访问真实 115。
 - source 账号新增 `embyPathPrefix/sourceRootId` 一对一运行位置、独立更新接口和管理员表单；`ResolveMediaPath` 已按完整目录边界转换 Emby 路径，拒绝兄弟前缀、空相对路径、`.`/`..`、反斜杠和非规范 root ID。
+- 新增 `emby_access_tokens` 模型和幂等 migration，只保存按 `emby-access-token` purpose 派生的 32 字节 HMAC；`VerifySchema` 同步校验代表性列和四个索引。
+- 新增无 HTTP 入口的 `internal/services/embytoken`，实现成功认证结果绑定、实时用户资格解析、`lastSeenAt` 限频，以及单 Token、单设备和用户全部登录软撤销；返回值、JSON、日志和错误均不包含 Token 明文或摘要。
+- 专用 PostgreSQL 集成数据库已验证 8 路并发认证只生成一条摘要映射、活动摘要不能换绑身份、三种撤销粒度、撤销后重新认证、动态到期，以及用户删除后已撤销审计保留；测试不请求真实 Emby。
 
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 播放网关、Emby Token 映射、直连会话和运营查询；source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
+- 播放网关、认证响应透明代理、Token 载体提取、设备/用户状态撤销联动、PlaybackInfo 当前授权证明、直连会话和运营查询；Token 映射核心、source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
@@ -500,7 +503,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
 
-当前进度：`playback_transfer_tasks`、活动内容唯一约束、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；PostgreSQL 并发、路径边界、challenge 次数和失败终态测试通过。Emby Token 哈希、设备/用户撤销和 PlaybackInfo 当前授权证明已完成方案收口但尚未实现；其余为直连会话、网关代理/302、策略门控和 Infuse 验收。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种本地撤销核心、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成认证代理和状态联动，因此设备/用户入口还不能触发撤销；其余为 PlaybackInfo 当前授权证明、直连会话、网关代理/302、策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 
@@ -583,7 +586,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - API：新增播放网关、direct play Service、Cookie Provider、账号/路径/策略/会话/任务接口。
 - Web：账号控制面使用独立的管理员 115 账号页面；后续直连策略再触达系统设置、套餐分组和播放分析，首期不改用户账号中心。
 - Bot：阶段 2 可增加账号失效和连续失败告警。
-- 数据库：账号表已增加 source 位置字段，秒传任务表已落地；后续 Token 映射、缓存、会话和策略表继续提供 SQL migration。
+- 数据库：账号表 source 位置字段、秒传任务表和 Token 摘要映射表已落地；后续缓存、会话和策略表继续提供 SQL migration。
 - 配置/部署：新增网关进程、公开入口和原始 Emby 网络隔离。
 - 文档：实现时同步系统架构、配置、数据模型、API 目录、Web 信息架构、部署和测试 runbook。
 
@@ -610,6 +613,13 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - `cd services/web && npm run build`
 
 上述集成测试使用真实 PostgreSQL 和应用内真实 HTTP 路由，但用 fake `CredentialValidator` 隔离 115；它证明账号控制面状态和数据库约束能够闭环，不证明目标 115 账号、Cookie/Web API 或播放链路真实可用。
+
+2026-08-22 Token 身份核心验证：
+
+- 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，`embytoken` 与 `directplay` PostgreSQL 集成测试实际运行并通过。
+- `go test -race -count=1 ./internal/security/tokenhash ./internal/services/embytoken ./internal/services/directplay` 通过。
+- `go vet ./...`、`go build ./...` 与 `git diff --check` 通过。
+- 全部自动化使用固定输入或专用 PostgreSQL schema，没有启动服务、请求真实 Emby，或把 fake/数据库证据表述为网关和 Infuse 实机可用。
 
 测试分层：
 

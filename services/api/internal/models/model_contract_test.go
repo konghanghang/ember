@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ func TestModelTableNames(t *testing.T) {
 		{name: "client blacklist", model: ClientBlacklist{}, want: "client_blacklists"},
 		{name: "device action", model: DeviceAction{}, want: "device_actions"},
 		{name: "email verification", model: EmailVerification{}, want: "email_verifications"},
+		{name: "emby access token", model: EmbyAccessToken{}, want: "emby_access_tokens"},
 		{name: "failed emby async op", model: FailedEmbyAsyncOp{}, want: "failed_emby_async_ops"},
 		{name: "media gap", model: MediaGap{}, want: "media_gaps"},
 		{name: "media gap scan", model: MediaGapScan{}, want: "media_gap_scans"},
@@ -69,6 +71,7 @@ func TestBeforeCreateGeneratesCUIDWhenIDMissing(t *testing.T) {
 		&ClientBlacklist{},
 		&DeviceAction{},
 		&EmailVerification{},
+		&EmbyAccessToken{},
 		&FailedEmbyAsyncOp{},
 		&MediaGap{},
 		&MediaGapScan{},
@@ -134,6 +137,16 @@ func TestPlaybackTransferTaskBeforeCreateInitializesAttempt(t *testing.T) {
 	if task.Status != PlaybackTransferTaskStatusPending || task.AttemptCount != 1 || task.StartedAt.IsZero() {
 		t.Fatalf("PlaybackTransferTask defaults = status=%s attempts=%d startedAt=%v",
 			task.Status, task.AttemptCount, task.StartedAt)
+	}
+}
+
+func TestEmbyAccessTokenJSONOmitsDigest(t *testing.T) {
+	payload, err := json.Marshal(EmbyAccessToken{ID: "mapping-1", TokenHash: []byte("fixture-token-digest")})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(payload), "tokenHash") || strings.Contains(string(payload), "fixture-token-digest") {
+		t.Fatalf("EmbyAccessToken JSON exposed digest: %s", payload)
 	}
 }
 
