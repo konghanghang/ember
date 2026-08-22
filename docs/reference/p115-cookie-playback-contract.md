@@ -61,7 +61,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | `GetDownloadURL` | 获取下载地址及其 UA、Cookie、过期时间等使用约束 |
 | `FindTargetFile` | 秒传后在目标目录复核文件并返回 fileId、pickCode |
 | `HashFileRange` | 在 Provider 内部读取一个有界 Range，只返回大写 SHA1 和读取字节数 |
-| `DeleteFile` | 清理临时目标文件；同一账号内串行执行 |
+| `DeleteFile` | 第二阶段容量回收预留；同一账号内串行执行，第一阶段业务链路不调用 |
 
 `CookieProvider` 组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，并通过 Go 编译期断言完整实现上述接口。后续 OpenAPI Provider 必须实现同一组业务语义。Provider 切换要显式配置，不能在某次请求失败后静默改用另一种认证模式。
 
@@ -286,6 +286,8 @@ Cookie: <playback-account-cookie>
 
 公开实现明确提示删除操作不要并发执行。Ember 必须按播放账号串行清理，并在删除前再次校验目标账号、文件 ID 和 Ember 任务归属，不能把搜索候选直接当作可删除对象。
 
+本节固定的是 Provider 删除协议，不代表第一阶段启用自动删除。第一阶段 playback 专用目录作为持久播放缓存，direct play Service、会话收口和受控写入检查器都不得调用 `DeleteFile`；该方法只为第二阶段经过独立设计和验证的容量回收保留。
+
 `CookieHTTPAdapter.DeleteFile` 当前固定：
 
 - 只接受一个正十进制 file ID；进入 HTTP 前规范化 ID，禁止逗号批量值、目录猜测或其他自由表单字段。
@@ -295,7 +297,7 @@ Cookie: <playback-account-cookie>
 - 同一 UID 的等待支持 context 取消，取消的 waiter 不发送 HTTP；不同 Provider UID 不互相阻塞。
 - 锁注册表由进程内所有 `CookieHTTPAdapter` 共享并在无持有者/等待者时清理。未来播放网关多实例部署时，业务层必须再使用数据库任务所有权和 advisory lock 或等价分布式互斥，不能把进程内锁误当成全局锁。
 
-Adapter 不判断一个文件是否应当删除。调用 `DeleteFile` 前，业务层必须重新核对成功任务归属、播放账号、目标 parent、file ID、SHA1、size 和清理 TTL；任一不一致都不得调用删除端点。
+Adapter 不判断一个文件是否应当删除。第二阶段若启用容量回收，业务层必须重新核对成功任务归属、播放账号、目标 parent、file ID、SHA1、size、最后访问时间、保留策略和活跃会话；任一不一致都不得调用删除端点。
 
 证据：[`fs_delete`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L10457-L10513)。
 
@@ -397,14 +399,14 @@ playbackAccountId + SHA1 + size
    - `status=7`：校验 challenge Range，使用 source Cookie 调用 `HashFileRange`；把返回 SHA1 作为 `sign_val`，连同原 `sign_key` 再次调用 playback `InitRapidUpload`。首期只接受一次 challenge；第二次仍非 `status=2` 时失败关闭，除非后续真实合同证明可以安全继续。
    - `status=2`：只表示初始化接受复用，不能直接视为目标文件存在。
 6. 收到 `status=2` 后，使用 playback Cookie 和精确 `targetParentId` 调用 `FindTargetFile`；只有唯一候选同时满足 parent、SHA1、size 和非目录才算成功。
-7. 只有“锁内再次查重未命中 → 本任务初始化返回 `status=2` → 目标目录复核成功”的文件，才能记录为该任务创建的 playback 文件；任务保存 playback account、target parent、fileId、pickCode、SHA1、size 和完成时间，作为后续清理唯一 provenance。
+7. 只有“锁内再次查重未命中 → 本任务初始化返回 `status=2` → 目标目录复核成功”的文件，才能记录为该任务创建的 playback 文件；任务保存 playback account、target parent、fileId、pickCode、SHA1、size、完成时间和 `lastAccessedAt`。这些 provenance 第一阶段用于复用、审计和外部删除恢复，第二阶段才能作为容量回收依据。
 8. 目标复核失败、超时或出现多个精确候选时，任务失败且不得签发任何下载地址；不确定归属的文件不得自动删除。
 9. 使用 playback Cookie、目标文件 pickCode 和本次真实播放器 User-Agent 调用 `GetDownloadURL`，校验 HTTPS hostname allowlist、`ExpiresAt`、并发上限和 HeaderMode；`f=3` 首期拒绝。
 10. 播放网关只把第 9 步得到的 playback 下载 URL 作为 `Location` 返回 `302`。source 下载 URL 仅允许在服务端执行 preID/challenge Range，永远不能进入客户端、API、日志、数据库或缓存序列化。
-11. `Playing/Progress/Stopped` 继续透明转发给 Emby，并更新 Ember 直连会话；重复 `HEAD`、Range 和重连复用同一任务/会话，不重复计算并发或秒传。
-12. playback 文件只能在会话停止或过期并超过清理 TTL 后进入候选。删除前重新读取成功任务并复核 playback account、target parent、fileId、SHA1、size 和任务 provenance；全部一致才调用 `DeleteFile`。预存文件、归属不明文件、字段漂移文件和仍被活跃会话引用的文件一律不删除。
+11. `Playing/Progress/Stopped` 继续透明转发给 Emby，并更新 Ember 直连会话；重复 `HEAD`、Range 和重连复用同一任务/会话，不重复计算并发或秒传。每次成功复用 playback 文件时更新任务/缓存的 `lastAccessedAt`。
+12. 第一阶段不自动删除 playback 文件：会话停止、过期或用户短期重复打开都只影响会话状态，不触发 `DeleteFile`。文件持续保留在专用目录并作为后续播放缓存；如果管理员在 115 中手工删除，下一次播放必须以实时查重未命中为准重新秒传，不能只信任历史成功任务。
 
-首期不允许以下捷径：使用 source 账号直链播放、把 source Cookie 注入播放器、完整文件中转上传、未复核目标文件就返回 302、搜索命中即纳入自动清理、或在 Provider 失败时静默回退 Emby 视频中转。
+首期不允许以下捷径：使用 source 账号直链播放、把 source Cookie 注入播放器、完整文件中转上传、未复核目标文件就返回 302、播放停止/会话过期后自动删除 playback 文件、或在 Provider 失败时静默回退 Emby 视频中转。
 
 ## 9. 302 与直链安全
 
@@ -416,10 +418,14 @@ playbackAccountId + SHA1 + size
 - `f=3` 或其他需要额外 Cookie 的链接，在证明 Infuse 能自然满足前按不兼容处理。
 - 不兼容、凭证失效或 Provider 不可用时返回明确 `503` 和内部错误码，不静默让源账号播放，也不回退 Emby 视频中转。
 
-## 10. 清理、冷却与错误
+## 10. 保留、冷却与未来清理
 
-- 临时目标文件只能由成功任务记录归属；播放停止且超过 TTL 后才进入清理候选。
-- 清理任务按账号串行执行，删除前复核任务、文件 ID、SHA1 和 size。
+- 第一阶段 playback 专用目录是持久缓存：秒传文件默认保留，direct play Service、会话 TTL 任务和受控写入检查器均不得调用 `DeleteFile`。
+- 重复播放先在精确 `targetParentId` 下按 SHA1 + size 查重；命中后直接刷新下载 URL并更新 `lastAccessedAt`，不创建新传输任务。
+- 成功任务必须保留完整 provenance；管理员手工删除 playback 文件后，实时查重未命中应允许重新秒传，历史 `succeeded` 不能永久阻止恢复。
+- 第一阶段不承诺自动控制 playback 容量，管理员通过专用目录观察占用并手工处理；手工处理不属于 Ember 自动状态流转。
+- 第二阶段才设计自动回收。候选至少同时满足：无活跃会话、超过基于 `lastAccessedAt` 的最短保留期、容量策略要求回收、任务 provenance 完整、删除前 parent/fileId/SHA1/size 全量复核一致。
+- 第二阶段清理任务按账号串行执行，并补跨副本任务所有权/互斥；不能把 Adapter 进程内锁当成全局锁。
 - Provider 限流按账号共享冷却，不让每个播放请求独立重试。
 - Cookie 失效、账号风控、下载地址不兼容、普通上传要求和 Provider 限流必须使用不同内部错误码。
 - 负缓存只能短期存在；一次搜索失败不能长期证明文件不存在。
@@ -443,8 +449,9 @@ playbackAccountId + SHA1 + size
 12. 加密请求与解密响应固定向量。
 13. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
 14. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
-15. 删除覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；业务层另测任务归属与删除前身份复核。
-16. Cookie、完整直链、完整 SHA1、源相对路径和 Provider 响应不进入日志或普通数据库字段。
+15. 删除 Adapter 覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；第一阶段业务测试必须反向确认 Stopped、会话过期和重复播放都不会调用 `DeleteFile`。
+16. 重复播放命中同一 playback 文件时跳过秒传、刷新 `lastAccessedAt` 并签发新临时直链；外部手工删除后查重未命中可以重新创建活动任务。
+17. Cookie、完整直链、完整 SHA1、源相对路径和 Provider 响应不进入日志或普通数据库字段。
 
 ## 12. 受控真实验证
 
@@ -452,7 +459,7 @@ playbackAccountId + SHA1 + size
 
 仓库提供 `go -C services/api run ./cmd/p115-contract-check` 作为只读入口，具体环境变量、安全确认值、执行和清理步骤见 [115 Cookie Provider 一次性只读合同验证](../runbooks/p115-read-only-contract-check.md)。该命令使用不含 `InitRapidUpload` / `DeleteFile` 的窄接口，不连接 Ember 数据库；自动化测试只注入 fake Provider，禁止在测试中调用真实 115。URL 安全策略失败时允许额外输出类型化的 reason、scheme 和 hostname，用于根据真实证据修订 allowlist，仍禁止输出任何可复用 URL 部分。
 
-受控写入验证必须使用独立命令和比只读检查更强的显式确认值，按本合同 §8.1 执行“playback 锁内二次查重 → 秒传/单次 challenge → 目标复核 → playback downurl → playback 128 KiB Range → provenance 复核 → 串行删除”。验证目录必须是 playback 专用目录；不能复用正式媒体目录，也不能删除 source 既有文件。命令未实现前禁止用临时脚本或手工 `curl` 绕过 Provider 和清理边界。
+受控写入验证必须使用独立命令和比只读检查更强的显式确认值，按本合同 §8.1 执行“playback 锁内二次查重 → 秒传/单次 challenge → 目标复核 → playback downurl → playback 128 KiB Range → retained=true”。命令必须明确声明文件会保留在 playback 专用目录，报告 `cleanup.attempted=false`，且接口层不持有 `DeleteFile` 能力；不能复用正式媒体目录，也不能删除 source 既有文件。命令未实现前禁止用临时脚本或手工 `curl` 绕过 Provider 边界。
 
 首轮至少确认：
 
@@ -462,11 +469,11 @@ playbackAccountId + SHA1 + size
 - 源账号 Range 的实际 `206`、`Content-Range`、UA、Cookie 和单次验证字节数。
 - 最终下载地址使用的实际端点，以及 `t`、`c`、`f`、UA、Cookie 和 IP 约束。
 - 当前稳定 Infuse 在目标平台对 `HEAD`、Range、302 和下载 Header 的实际行为。
-- 删除串行要求、频率限制、风控和冷却边界。
+- playback 文件保留后的重复查重/复用行为，以及频率限制、风控和冷却边界。删除只保留为第二阶段独立验证项。
 
 2026-08-22 本地只读验证最终结果为 `outcome=passed`：两个 Cookie 均可验证且 UID 不同，两个账号 `uploadinfo` UID 一致，source 相对路径与 10,747,391,752 字节 size 解析成功，playback SHA1 查询正常未命中；source downurl 为 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，过期时间正常；`bytes=0-131071` 精确读取 `131072` 字节并完成 SHA1。首次运行因该 hostname 未列入 allowlist 而失败关闭；DNS/TLS/证书组织核对后只加入精确 hostname，第二次运行通过。由于 playback 未命中，播放账号最终下载 URL 仍未验证；整个流程没有上传、移动、重命名或删除文件。
 
-如果为验证专门创建了 source 测试文件，可在确认无其他用途后手工清理；使用既有只读 source 文件时不得为了收尾删除。受控写入验证只清理本任务在 playback 专用目录创建且 provenance 完整的目标文件。临时 Cookie 应在验证后替换或撤销。尚未覆盖的行为必须继续标记“未实机确认”。
+如果为验证专门创建了 source 测试文件，可在确认无其他用途后手工清理；使用既有只读 source 文件时不得为了收尾删除。第一阶段受控写入验证创建的 playback 文件按合同保留，用于重复播放、已有文件快速路径和后续 Infuse 验收；如需手工删除，由管理员在完成全部验证后自行处理，不属于检查器自动动作。临时 Cookie 应在验证后替换或撤销。尚未覆盖的行为必须继续标记“未实机确认”。
 
 ## 13. 演进边界
 

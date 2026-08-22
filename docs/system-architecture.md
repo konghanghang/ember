@@ -699,7 +699,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面，以及凭证验证、上传信息、源路径解析、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除的完整 Provider 合同适配；尚未实现播放网关。真实 115 只读链路已部分验证，写入型秒传/复核/清理仍未验证：
+当前已落地 115 Cookie 模式的账号控制面，以及凭证验证、上传信息、源路径解析、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除的完整 Provider 合同适配；尚未实现播放网关。真实 115 只读链路已部分验证，写入型秒传/复核与 playback 最终直链仍未验证；删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -720,6 +720,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 下载 URL 策略拒绝使用类型化安全证据，仅允许一次性检查器读取固定 reason、scheme 和受限 hostname；普通日志/API 仍只接收通用 sentinel，永不包含 URL path、query、签名、端口值、userinfo 或 IP literal
 - `integrations/p115.CookieHTTPAdapter.HashFileRange`：使用源账号配置 UA 获取签名 URL，按 HeaderMode 在 Provider 内发起最大 1 MiB 的 Range GET，只接受精确 `206/Content-Range/Content-Length` 并只返回大写 SHA1 与读取字节数
 - `integrations/p115.CookieHTTPAdapter.DeleteFile`：只发送单个规范化 file ID，并按 Cookie Provider UID 使用进程内共享锁串行删除；不同 UID 可并行，等待支持 context 取消
+- `DeleteFile` 当前只有协议适配与 fake 测试，没有生产业务调用方；第一阶段 playback 专用目录作为持久缓存，Stopped、会话 TTL 和受控写入检查都不自动删除，容量回收推迟到第二阶段
 - Cookie HTTP 公共边界：10 秒超时、禁止跟随重定向、响应体限额、网络/HTTP/业务/协议错误分层；错误不包含 Cookie、URL、响应正文或上游原始文本
 - `integrations/p115/p115cipher`：基于固定提交黑盒输出独立实现上传 `k_ec`/AES-CBC/LZ4、完整签名表单和下载 RSA request/response 变换；固定向量不含真实账号信息
 - `integrations/p115.Provider`：账号验证、上传信息、源路径解析、SHA1 搜索、秒传初始化、目标复核、下载地址、受限 Range Hash 和串行删除的 Cookie 实现均已有 fake HTTP 合同；2026-08-22 本地真实只读检查已通过账号、上传信息、源解析、playback 查重、source downurl 和 128 KiB Range，playback 最终直链与写入型链路仍未验证

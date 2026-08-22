@@ -82,6 +82,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 | 用户侧 | 用户继续使用 Emby，不展示或绑定 115 账号 |
 | Provider | Ember 原生 Go 实现；不运行 Python，不依赖 `p115client` |
 | playback 目标目录 | 管理员按路径输入或目录选择器操作，后端解析并校验；运行时、秒传、复核和清理只信任 `targetParentId`，禁止只保存路径 |
+| 第一阶段文件保留 | playback 专用目录作为持久缓存；只秒传、复核、复用和签发直链，不因 Stopped/会话 TTL 自动调用 `DeleteFile` |
 | 失败策略 | 播放小号或直链不兼容时明确返回 `503`，不使用源账号播放 |
 | 凭证 | Cookie 使用 `CONFIG_ENCRYPTION_KEY` 加密，写入后不可回显 |
 | OpenAPI | 保留独立 Provider 扩展点，AppID 获批后另行实现 |
@@ -120,7 +121,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 - playback 账号已有文件场景和最终下载 URL；当前测试文件在 playback 查重中正常未命中。
 - playback 目标目录仍要求管理员手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 播放网关、按角色加载运行期账号、路径映射持久化、秒传任务、任务所有权/分布式清理锁、直连会话和运营能力；Cookie Provider 离线合同本身已收口。
+- 播放网关、按角色加载运行期账号、路径映射持久化、秒传任务、任务所有权、直连会话和运营能力；Cookie Provider 离线合同本身已收口。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 任何写入型 115 验证，以及真实 Emby / Infuse 验证；本地一次成功不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
@@ -283,7 +284,7 @@ services/api/internal/integrations/p115/
 
 - 源账号、播放账号、SHA1、size、文件名和目标目录。
 - 状态：`pending`、`checking_target`、`initializing`、`challenging`、`verifying`、`succeeded`、`failed`、`cooling_down`。
-- 目标 fileId、pickCode、尝试次数、脱敏错误和起止时间。
+- 目标 fileId、pickCode、尝试次数、脱敏错误、起止时间和 `last_accessed_at`。
 
 活动任务唯一键为 `playback_account_id + sha1 + size`。
 
@@ -360,7 +361,7 @@ services/api/internal/integrations/p115/
 2. 原始视频流请求到达后，校验 Token、用户、套餐、黑名单和并发。
 3. 从缓存读取源文件身份，或把 Emby `Path + Size` 经显式路径映射转换为 `rootId + relativePath + size`，调用源账号 `ResolveFileByPath` 得到 fileId、pickCode、SHA1 和 size。
 4. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
-5. 使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
+5. 命中后更新对应任务/缓存的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
 6. 校验过期时间、Header 要求和域名 allowlist，兼容时返回 302。
 
 #### 6.4 播放小号缺文件
@@ -372,9 +373,9 @@ services/api/internal/integrations/p115/
 5. `status=7`：使用源账号 `HashFileRange` 在 Provider 内读取指定 Range，只取得 SHA1 后再次初始化；源直链、Cookie 和字节内容不进入 Service。
 6. `status=1`：需要普通上传，明确失败；禁止完整文件中转。
 7. 其他状态：映射脱敏错误并失败。
-8. 只有明确复用且在目标目录确认 parent、SHA1、size、非目录一致后，才记录任务 provenance；预存命中文件不归任务所有。
+8. 只有明确复用且在目标目录确认 parent、SHA1、size、非目录一致后，才记录任务 provenance 和初始 `lastAccessedAt`；预存命中文件不归任务所有。
 9. 使用 playback Cookie、复核后的 pickCode 和真实播放器 UA 获取最终直链并返回 302；source 直链永远不能返回给客户端。
-10. 会话停止/过期并超过 TTL 后，只有 provenance 全量复核一致的任务文件才能串行删除；预存文件和归属不明文件永不自动清理。
+10. 第一阶段文件保留在 playback 专用目录；Stopped、会话过期和用户短期重复打开都不触发 `DeleteFile`。外部手工删除后，下一次实时查重未命中时允许重新秒传。
 
 稳定的 Provider 调用顺序、单次 `status=7` challenge、最终直链来源和清理边界统一以 [115 Cookie 播放兼容合同 §8.1](../../reference/p115-cookie-playback-contract.md#81-完整秒传到-playback-并播放流程) 为准，本计划不复制协议细节。
 
@@ -453,7 +454,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：所有 method、path、请求字段、响应映射、加密向量和未确认项均有固定证据；不能靠猜测进入实现。
 
-当前进度：账号控制面、完整 `CookieProvider` 组合、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量，以及上传信息、源路径解析、查重、秒传初始化、目标复核、下载 URL、受限 Range Hash 和串行删除 fake HTTP Adapter 已完成；本地真实只读检查已通过账号、上传信息、源解析、查重、source downurl 和 128 KiB Range。playback 最终直链、写入型秒传/复核/清理与 Infuse 验证尚未完成，因此阶段 0 仍为进行中。
+当前进度：账号控制面、完整 `CookieProvider` 组合、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量，以及上传信息、源路径解析、查重、秒传初始化、目标复核、下载 URL、受限 Range Hash 和串行删除 fake HTTP Adapter 已完成；本地真实只读检查已通过账号、上传信息、源解析、查重、source downurl 和 128 KiB Range。playback 最终直链、写入型秒传/复核与 Infuse 验证尚未完成；删除只保留为第二阶段能力，因此阶段 0 仍为进行中。
 
 ### 阶段 1：最小闭环
 
@@ -462,14 +463,15 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 一种明确路径映射。
 - 目标平台当前稳定版 Infuse Direct Play。
 - Token 映射、目标查重、秒传、目标复核、直链检查和 302。
+- playback 文件作为持久缓存保留；重复播放命中后跳过秒传并刷新 `lastAccessedAt`，第一阶段不启用自动清理。
 - 基础会话、并发、冷却、日志和管理员查询。
 
-完成条件：小号已有文件和缺失秒传两条链路均通过；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
+完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
 
 ### 阶段 2：运营与稳定性
 
 - 管理端完整账号、路径、策略、会话和任务管理。
-- 账号健康检查、Bot 告警、失败趋势和串行清理任务。
+- 账号健康检查、Bot 告警、失败趋势，以及基于 `lastAccessedAt`、无活跃会话和容量水位的串行清理任务。
 - 多网关副本和跨副本互斥。
 - 经过验证的本地媒体回退与云端失败策略。
 
@@ -594,24 +596,25 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 3. `status=7` 只读取源账号指定 Range，再次初始化并复核目标文件。
 4. `status=1` 明确失败，绝不下载和上传完整视频。
 5. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-6. 下载链接通过过期时间、UA、Header 要求和域名 allowlist 校验。
-7. `f=3` 或需要额外 Cookie 的链接明确失败，不泄露凭证。
-8. Playing、Progress、Stopped 仍由 Emby 接收，播放进度正常。
-9. 用户状态、黑名单和并发限制阻止新播放。
-10. 源账号或播放小号失效、限流和秒传失败均返回明确错误，不回退源账号或 Emby 视频中转。
-11. Cookie、Emby Token、完整下载链接和完整 Provider 响应不出现在日志、API 或普通数据库字段。
+6. 重复播放命中同一 playback 文件，跳过秒传、刷新最后访问时间并签发新临时直链；Stopped 和会话 TTL 不调用删除。
+7. 下载链接通过过期时间、UA、Header 要求和域名 allowlist 校验。
+8. `f=3` 或需要额外 Cookie 的链接明确失败，不泄露凭证。
+9. Playing、Progress、Stopped 仍由 Emby 接收，播放进度正常。
+10. 用户状态、黑名单和并发限制阻止新播放。
+11. 源账号或播放小号失效、限流和秒传失败均返回明确错误，不回退源账号或 Emby 视频中转。
+12. Cookie、Emby Token、完整下载链接和完整 Provider 响应不出现在日志、API 或普通数据库字段。
 
 ### 受控真实验证
 
 真实验证只在用户明确授权后执行，并且：
 
 - 使用测试账号和测试文件，以一次性命令运行，不启动项目服务或后台进程。
-- 先做只读账号、文件和路径验证，再做单文件秒传、下载地址和清理验证。
-- 写入验证必须使用 playback 专用 `targetParentId`，并严格按 Cookie 合同 §8.1 保存和复核 provenance；只删除本次任务创建的 playback 文件，使用既有 source 文件时不得删除 source。
+- 先做只读账号、文件和路径验证，再做单文件秒传、playback 下载地址、Range 和保留验证。
+- 写入验证必须使用 playback 专用 `targetParentId`，并严格按 Cookie 合同 §8.1 保存和复核 provenance；检查器不持有 `DeleteFile` 能力，报告必须显示 `retained=true` 与 `cleanup.attempted=false`，source 和 playback 文件均不自动删除。
 - 验证 `status=2`、`status=7`、目标可见延迟，以及 `t`、`c`、`f`、UA、Cookie、IP 约束。
 - 使用目标平台当时的稳定版 Infuse，记录平台、精确版本、日期、`HEAD`/Range/302 行为和结果。
 - 记录脱敏请求字段、响应语义、耗时和实际数据路径。
-- 完成后删除测试文件并替换或撤销临时 Cookie。
+- 完成后保留 playback 文件继续验证已有文件快速路径和 Infuse 重复播放；全部验证结束后如需删除，由管理员手工处理。替换或撤销临时 Cookie。
 
 ## 落地后文档处理
 
