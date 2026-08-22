@@ -365,12 +365,16 @@ services/api/internal/integrations/p115/
 
 1. 创建或复用 `playbackAccountId + SHA1 + size` 任务。
 2. 获取数据库互斥后再次查重。
-3. Cookie Provider 调用上传初始化。
+3. 使用 playback Cookie 和该账号明确配置的 `targetParentId` 调用上传初始化，禁止默认写入根目录。
 4. `status=2`：进入目标文件复核。
 5. `status=7`：使用源账号 `HashFileRange` 在 Provider 内读取指定 Range，只取得 SHA1 后再次初始化；源直链、Cookie 和字节内容不进入 Service。
 6. `status=1`：需要普通上传，明确失败；禁止完整文件中转。
 7. 其他状态：映射脱敏错误并失败。
-8. 只有明确复用且在目标目录确认 SHA1、size 一致后，才获取播放小号直链并返回 302。
+8. 只有明确复用且在目标目录确认 parent、SHA1、size、非目录一致后，才记录任务 provenance；预存命中文件不归任务所有。
+9. 使用 playback Cookie、复核后的 pickCode 和真实播放器 UA 获取最终直链并返回 302；source 直链永远不能返回给客户端。
+10. 会话停止/过期并超过 TTL 后，只有 provenance 全量复核一致的任务文件才能串行删除；预存文件和归属不明文件永不自动清理。
+
+稳定的 Provider 调用顺序、单次 `status=7` challenge、最终直链来源和清理边界统一以 [115 Cookie 播放兼容合同 §8.1](../../reference/p115-cookie-playback-contract.md#81-完整秒传到-playback-并播放流程) 为准，本计划不复制协议细节。
 
 #### 6.5 直链兼容与 302
 
@@ -538,6 +542,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 - 使用测试账号和测试文件，以一次性命令运行，不启动项目服务或后台进程。
 - 先做只读账号、文件和路径验证，再做单文件秒传、下载地址和清理验证。
+- 写入验证必须使用 playback 专用 `targetParentId`，并严格按 Cookie 合同 §8.1 保存和复核 provenance；只删除本次任务创建的 playback 文件，使用既有 source 文件时不得删除 source。
 - 验证 `status=2`、`status=7`、目标可见延迟，以及 `t`、`c`、`f`、UA、Cookie、IP 约束。
 - 使用目标平台当时的稳定版 Infuse，记录平台、精确版本、日期、`HEAD`/Range/302 行为和结果。
 - 记录脱敏请求字段、响应语义、耗时和实际数据路径。

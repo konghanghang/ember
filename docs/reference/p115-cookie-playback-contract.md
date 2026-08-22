@@ -381,6 +381,31 @@ playbackAccountId + SHA1 + size
 
 首次查重后获取数据库唯一任务或 advisory lock，拿锁后再次查重。Infuse 的 `HEAD`、预加载、重复 Range 和重连请求必须复用同一任务。
 
+### 8.1 完整秒传到 playback 并播放流程
+
+以下是 source 文件在 playback 缺失时的唯一首期闭环。各步骤不能交换顺序，也不能把 source 下载地址直接交给播放器：
+
+1. 运行时加载唯一 `active + enabled` 的 source 和 playback 账号，确认两个 Provider UID 不同；playback 必须配置明确的 `targetParentId`，禁止默认写入根目录。
+2. 把 Emby `Path + Size` 经显式路径映射转换为 source `rootId + relativePath + size`，调用 `ResolveFileByPath` 取得 source `fileId/pickCode/SHA1/size/parentId`。
+3. 使用 playback Cookie 按 source `SHA1 + size` 执行 `SearchBySHA1`：
+   - 已命中：复核非目录和 size 后直接进入第 9 步；这是 playback 预存文件，不属于 Ember 秒传任务，禁止后续自动删除。
+   - 未命中：继续创建或复用传输任务。
+4. 以 `playbackAccountId + SHA1 + size` 获取数据库唯一任务和 advisory lock；拿锁后必须再次查询 playback，避免 `HEAD`、预加载、Range 或重连重复秒传。
+5. 锁内仍未命中时，使用 playback Cookie 调用 `InitRapidUpload`，请求的 `TargetParentID` 必须等于该 playback 账号配置的 `targetParentId`：
+   - `status=1`：明确失败，禁止下载并上传完整视频。
+   - `provider_rejected`、凭证失败、协议错误或网络错误：按脱敏错误失败并进入对应账号状态/冷却处理，禁止改用 source 账号播放。
+   - `status=7`：校验 challenge Range，使用 source Cookie 调用 `HashFileRange`；把返回 SHA1 作为 `sign_val`，连同原 `sign_key` 再次调用 playback `InitRapidUpload`。首期只接受一次 challenge；第二次仍非 `status=2` 时失败关闭，除非后续真实合同证明可以安全继续。
+   - `status=2`：只表示初始化接受复用，不能直接视为目标文件存在。
+6. 收到 `status=2` 后，使用 playback Cookie 和精确 `targetParentId` 调用 `FindTargetFile`；只有唯一候选同时满足 parent、SHA1、size 和非目录才算成功。
+7. 只有“锁内再次查重未命中 → 本任务初始化返回 `status=2` → 目标目录复核成功”的文件，才能记录为该任务创建的 playback 文件；任务保存 playback account、target parent、fileId、pickCode、SHA1、size 和完成时间，作为后续清理唯一 provenance。
+8. 目标复核失败、超时或出现多个精确候选时，任务失败且不得签发任何下载地址；不确定归属的文件不得自动删除。
+9. 使用 playback Cookie、目标文件 pickCode 和本次真实播放器 User-Agent 调用 `GetDownloadURL`，校验 HTTPS hostname allowlist、`ExpiresAt`、并发上限和 HeaderMode；`f=3` 首期拒绝。
+10. 播放网关只把第 9 步得到的 playback 下载 URL 作为 `Location` 返回 `302`。source 下载 URL 仅允许在服务端执行 preID/challenge Range，永远不能进入客户端、API、日志、数据库或缓存序列化。
+11. `Playing/Progress/Stopped` 继续透明转发给 Emby，并更新 Ember 直连会话；重复 `HEAD`、Range 和重连复用同一任务/会话，不重复计算并发或秒传。
+12. playback 文件只能在会话停止或过期并超过清理 TTL 后进入候选。删除前重新读取成功任务并复核 playback account、target parent、fileId、SHA1、size 和任务 provenance；全部一致才调用 `DeleteFile`。预存文件、归属不明文件、字段漂移文件和仍被活跃会话引用的文件一律不删除。
+
+首期不允许以下捷径：使用 source 账号直链播放、把 source Cookie 注入播放器、完整文件中转上传、未复核目标文件就返回 302、搜索命中即纳入自动清理、或在 Provider 失败时静默回退 Emby 视频中转。
+
 ## 9. 302 与直链安全
 
 - 获取最终直链时使用真实客户端 User-Agent；直链缓存至少按 `accountId + pickCode + UA` 隔离。
@@ -427,6 +452,8 @@ playbackAccountId + SHA1 + size
 
 仓库提供 `go -C services/api run ./cmd/p115-contract-check` 作为只读入口，具体环境变量、安全确认值、执行和清理步骤见 [115 Cookie Provider 一次性只读合同验证](../runbooks/p115-read-only-contract-check.md)。该命令使用不含 `InitRapidUpload` / `DeleteFile` 的窄接口，不连接 Ember 数据库；自动化测试只注入 fake Provider，禁止在测试中调用真实 115。URL 安全策略失败时允许额外输出类型化的 reason、scheme 和 hostname，用于根据真实证据修订 allowlist，仍禁止输出任何可复用 URL 部分。
 
+受控写入验证必须使用独立命令和比只读检查更强的显式确认值，按本合同 §8.1 执行“playback 锁内二次查重 → 秒传/单次 challenge → 目标复核 → playback downurl → playback 128 KiB Range → provenance 复核 → 串行删除”。验证目录必须是 playback 专用目录；不能复用正式媒体目录，也不能删除 source 既有文件。命令未实现前禁止用临时脚本或手工 `curl` 绕过 Provider 和清理边界。
+
 首轮至少确认：
 
 - 源账号和播放小号 Cookie 的有效性、账号标识与客户端类型约束。
@@ -439,7 +466,7 @@ playbackAccountId + SHA1 + size
 
 2026-08-22 本地只读验证最终结果为 `outcome=passed`：两个 Cookie 均可验证且 UID 不同，两个账号 `uploadinfo` UID 一致，source 相对路径与 10,747,391,752 字节 size 解析成功，playback SHA1 查询正常未命中；source downurl 为 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，过期时间正常；`bytes=0-131071` 精确读取 `131072` 字节并完成 SHA1。首次运行因该 hostname 未列入 allowlist 而失败关闭；DNS/TLS/证书组织核对后只加入精确 hostname，第二次运行通过。由于 playback 未命中，播放账号最终下载 URL 仍未验证；整个流程没有上传、移动、重命名或删除文件。
 
-如果为验证专门创建了测试文件，完成后清理；使用既有只读源文件时不得为了收尾删除。临时 Cookie 应在验证后替换或撤销。尚未覆盖的行为必须继续标记“未实机确认”。
+如果为验证专门创建了 source 测试文件，可在确认无其他用途后手工清理；使用既有只读 source 文件时不得为了收尾删除。受控写入验证只清理本任务在 playback 专用目录创建且 provenance 完整的目标文件。临时 Cookie 应在验证后替换或撤销。尚未覆盖的行为必须继续标记“未实机确认”。
 
 ## 13. 演进边界
 

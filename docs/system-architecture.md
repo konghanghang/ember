@@ -699,7 +699,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面，以及凭证验证、上传信息、源路径解析、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除的完整 Provider 合同适配；尚未实现播放网关或调用真实 115 账号：
+当前已落地 115 Cookie 模式的账号控制面，以及凭证验证、上传信息、源路径解析、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除的完整 Provider 合同适配；尚未实现播放网关。真实 115 只读链路已部分验证，写入型秒传/复核/清理仍未验证：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
