@@ -81,6 +81,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 | 账号拓扑 | 恰好一个源账号和一个播放小号 |
 | 用户侧 | 用户继续使用 Emby，不展示或绑定 115 账号 |
 | Provider | Ember 原生 Go 实现；不运行 Python，不依赖 `p115client` |
+| playback 目标目录 | 管理员按路径输入或目录选择器操作，后端解析并校验；运行时、秒传、复核和清理只信任 `targetParentId`，禁止只保存路径 |
 | 失败策略 | 播放小号或直链不兼容时明确返回 `503`，不使用源账号播放 |
 | 凭证 | Cookie 使用 `CONFIG_ENCRYPTION_KEY` 加密，写入后不可回显 |
 | OpenAPI | 保留独立 Provider 扩展点，AppID 获批后另行实现 |
@@ -118,6 +119,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 仍未完成：
 
 - playback 账号已有文件场景和最终下载 URL；当前测试文件在 playback 查重中正常未命中。
+- playback 目标目录仍要求管理员手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
 - 播放网关、按角色加载运行期账号、路径映射持久化、秒传任务、任务所有权/分布式清理锁、直连会话和运营能力；Cookie Provider 离线合同本身已收口。
 - 任何写入型 115 验证，以及真实 Emby / Infuse 验证；本地一次成功不能证明长期风控、配额或 `hz-sb` 出口行为。
 
@@ -140,7 +142,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 系统设置新增“直连播放”分组：
   - 网关开关和公开地址。
   - 一个源账号和一个播放小号的 Cookie、客户端类型和脱敏状态。
-  - 播放小号目标目录。
+  - 播放小号目标目录；页面展示路径/目录选择器，不要求管理员手工查找内部 ID。
   - 路径映射和 CDN 域名 allowlist。
   - 账号手工验证和 Cookie 替换。
 - 套餐分组增加直连开关、网关并发、下载、本地媒体回退和云端失败策略。
@@ -476,6 +478,69 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - AppID 获批后新增独立 OpenAPI Provider 和 Token 生命周期，不修改 Cookie Provider 语义。
 - 评估多源账号、多播放小号、粘性选路、并发和熔断。
 - 普通用户自有账号、二维码登录、下一集预热和其他 Provider 均需独立计划。
+
+## 后续 TODO：playback 目标目录友好配置
+
+> 状态：待实现
+>
+> 负责人：Ember
+>
+> 更新时间：2026-08-22
+
+### 当前事实与决策
+
+- 当前模型、SQL migration、API 和管理员页面都只使用 `targetParentId`；创建 playback 账号时，页面直接要求管理员填写“目标目录 ID”。
+- 首期 115 账号仍是管理员控制面，普通 Ember 用户不会看到或配置 115 目录；“路径友好”是后台可用性改进，不改变用户侧边界。
+- 目录路径可能因重命名、移动、同名目录和特殊字符而漂移，不能作为秒传、目标复核或删除的真相源。
+- 最终决策固定为“交互使用目录路径/选择器，运行使用目录 ID”：`targetParentId` 继续作为持久化和运行时权威字段，路径只负责输入与展示。
+- 前端实现必须遵守 Ember 风格，设计与交互基线以 [Web 设计规范](../../reference/web-design-guide.md) 为准；当前没有偏离规范的特例。
+
+### 第一阶段：路径输入并解析为现有 ID
+
+目标是不改变现有数据库 schema 和 `POST /api/v1/admin/p115-accounts` 的 `targetParentId` 合同：
+
+1. 创建 playback 账号的表单把主字段从“目标目录 ID”改为“目标目录”，提供根目录相对路径输入和明确的“解析目录”次操作；解析成功前禁止提交。
+2. 新增管理员 JWT-only 只读接口 `POST /api/v1/admin/p115-directory-resolutions`，请求接收 write-only Cookie、User-Agent 和目录路径，返回唯一的规范化目录：
+
+   ```json
+   {
+     "targetParentId": "123456789",
+     "targetParentPath": "/EmberPlayback"
+   }
+   ```
+
+3. Resolver 只允许查询现有目录，不自动创建、移动或重命名目录；Cookie 不进入日志、错误、响应或持久化，Admin API Key 返回 `403`。
+4. 后端必须确认结果存在、是目录、属于当前 Cookie 账号且唯一；无结果、同名歧义、字段非法、无效 cid 回退、Provider 拒绝和网络错误全部失败关闭。
+5. 前端把解析得到的 `targetParentId` 保存在弹窗内的隐藏状态，提交账号创建时继续发送现有 `targetParentId`；Cookie 和解析结果在提交成功或关闭弹窗后一起清空。
+6. 账号卡片主要展示本次解析的规范化路径，目录 ID 只作为次要诊断信息；页面刷新后没有持久化路径时允许回退显示 ID，不为展示路径增加运行时 115 请求。
+7. 现有直接提交 `targetParentId` 的 API 客户端保持兼容，不能因 Web 体验改动破坏 userspace。
+
+第一阶段暂不做目录树浏览器。若后续需要目录树选择，必须通过后端只读目录 API 使用同一安全边界，前端不能直接访问 115，也不能把 Cookie 保存到 Store 或浏览器持久化。
+
+### 第二阶段：可选路径快照
+
+如果真实使用证明账号卡片长期展示路径有价值，再增加可选 `target_parent_path`：
+
+- 模型使用 `TargetParentPath`，JSON 为 `targetParentPath`，GORM 显式指定 `gorm:"column:target_parent_path"`。
+- 同步提供幂等 SQL migration；路径只是规范化展示快照，`target_parent_id` 仍是唯一运行时真相源。
+- 目录重命名或移动后，旧路径快照允许暂时过期；只能通过显式只读刷新更新，禁止运行时因路径变化自动改写 ID。
+- 删除目录或 ID 失效时阻止新秒传并返回明确错误，不能退回根目录、按旧路径猜测新目录或自动创建替代目录。
+
+### 影响范围
+
+- API：新增目录解析 DTO、handler 和 Cookie Provider 目录解析边界；handler 只做绑定、Service 调用和错误映射。
+- Web：修改 `P115AccountsView.vue` 创建弹窗、集中 API 类型和 mock 交互测试；优先复用 `EmberFormDialog` 与既有表单控件。
+- 数据库：第一阶段无变更；第二阶段只有确认需要路径快照时才增加模型字段与 SQL migration。
+- 安全：Cookie 继续 write-only；解析接口不记录请求体、目录完整响应或 Provider 原始错误。
+- 文档：实现时同步系统架构、数据模型、API 端点目录、Web 信息架构和本计划进度。
+
+### 验证与完成条件
+
+- Go TDD：路径规范化、目录/文件区分、无结果、同名歧义、cid 回退、Provider 错误脱敏，以及 Admin API Key `403`。
+- Web Vitest：playback 表单只展示目录路径交互、解析前禁止提交、解析成功后提交隐藏 ID、失败提示、关闭/成功后 Cookie 与解析状态清空。
+- 兼容性：既有 `targetParentId` 创建请求继续通过；source 账号仍拒绝任何目标目录字段。
+- 第一阶段完成条件：管理员无需手工获取 ID 即可绑定唯一目录，数据库仍只以 `targetParentId` 驱动秒传/复核/清理，且 `npm run test`、`npm run build`、`go test ./...`、`go vet ./...`、`go build ./...` 通过。
+- 第二阶段只有在路径快照 migration、真实 PostgreSQL 集成测试和文档同步全部完成后才算落地；未实施时保持“可选后续”，不能预建空字段。
 
 ## 影响范围
 
