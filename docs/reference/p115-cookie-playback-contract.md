@@ -12,13 +12,13 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | --- | --- | --- |
 | Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
 | Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id`；2026-08-22 两个真实 Cookie | 固定 GET 端点、`state` 和 Cookie `UID` 取值已在两个不同账号上通过；长期稳定性、风控和其他客户端仍未证实 |
-| Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和完整上传表单，并接入 `httptest` fake HTTP Adapter；未请求真实端点 |
+| Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出；2026-08-22 受控写入验证 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和完整上传表单；真实端点曾返回 220/236 字节二进制响应，均由完整 AES blocks 加 12 字节短尾部组成。对齐固定实现的完整 block 解密与 LZ4 终止语义后，真实 `range_challenge → reused` 已通过 |
 | 源路径解析与 Range 校验 | 同提交内 `fs_files`、`get_id_to_path`、`read_range` 和秒传 Range callback；2026-08-22 本地真实只读检查 | 10,747,391,752 字节源文件按 root-relative path/size 成功解析；source URL 为 `f=1`、并发上限 `2`，精确 `bytes=0-131071` 读取 `131072` 字节并完成 SHA1；未读取完整文件 |
 | 真实下载 CDN hostname | 2026-08-22 本地一次性只读检查；UDown/38.2.0 UA；真实 `proapi.115.com` 加密响应、DNS 与 TLS 证书 | source 下载 URL 返回 `cdnfhnfile.115cdn.net`；TLS 证书组织为广东一一五科技股份有限公司且 SAN 覆盖 `*.115cdn.net` / `115cdn.net`，Ember 仅把本次精确 hostname 加入 allowlist |
 | `emby-toolkit` 小号播放行为 | `emby-toolkit` `v10.8.63`、提交 `7e64564884c9949390e5894b4be71038808e4e2a` | 只用于理解账号选择与失败语义，不复制 AGPL 代码 |
 | 上游许可证 | 固定提交根 `LICENSE` / `pyproject.toml` 和模块 `pyproject.toml` 写 MIT，但模块 `LICENSE` / `LICENSE_zh` 与源码 `__license__` 写 GPLv3 | 按 GPLv3 保守边界处理：不复制、翻译或运行时依赖上游源码，只使用临时黑盒执行得到的兼容向量；这不是对上游最终许可的法律认定 |
 | 115 Cookie/Web API 稳定性 | 非官方接口 | 随时可能变化，必须通过 Provider 边界隔离 |
-| Ember 真实账号行为 | 部分实机确认 | 两个账号的登录、uploadinfo、源解析、playback 查重、source downurl 和 128 KiB Range 已通过；playback 最终直链、秒传/目标复核/删除、风控、配额和长期稳定性仍未证实 |
+| Ember 真实账号行为 | 部分实机确认 | 两个账号的登录/uploadinfo、源解析、双重查重、preID、一次 Range challenge、秒传复用、目标复核、source/playback downurl、128 KiB Range 和保留文件的 preexisting 快速路径已通过；重复运行未再次上传且未调用删除。数据库锁、播放网关/Infuse、风控、配额和长期稳定性仍未证实 |
 
 证据等级：
 
@@ -166,11 +166,15 @@ Emby `PlaybackInfo` 只提供媒体源 `Path` 和 `Size`，不能提供可直接
 公开实现确认的入口：
 
 ```http
+# 不带目标目录的全局探测
 GET https://webapi.115.com/files/shasearch
+
+# 带目标目录的 playback 查重
+GET https://webapi.115.com/files/search?cid=<target>&search_value=<SHA1>&...
 Cookie: <playback-account-cookie>
 ```
 
-旧 Web API 最多返回一个候选，不能约束目标目录，并通过业务错误表达未命中。Ember 不能只信任第一条或文件名，命中后必须同时校验：
+旧 `shasearch` 最多返回一个全局候选，不能约束目标目录，并通过业务错误表达未命中，因此不得用于 playback 专用目录的 preexisting 判断。带 `parentId` 的查询必须改用目录作用域 `/files/search`；Ember 不能只信任第一条或文件名，命中后必须同时校验：
 
 ```text
 candidate.sha1 == expectedSHA1
@@ -183,12 +187,12 @@ candidate.sha1 == expectedSHA1
 Ember 的 `CookieHTTPAdapter.SearchBySHA1` 当前固定：
 
 - 输入 SHA1 必须是 40 位十六进制并规范化为大写；size 必须非负，可选 `parentId` 必须是十进制 ID。
-- 只发送 `GET /files/shasearch?sha1=<UPPER_SHA1>`；旧接口不接受 size 或目录 query，因此 Ember 在响应映射后本地复核这些条件。
-- 成功响应必须包含顶层布尔 `state=true` 和单个 `data` 对象；固定映射字段为 `file_id`、`parent_id | category_id`、`file_name`、`pick_code`、`sha1 | file_sha1`、`file_size`，缺失、非法或别名冲突时按协议错误处理。
-- 只有 SHA1、size、`isDirectory=false` 以及可选父目录全部匹配时才返回一个候选；不匹配统一返回空列表，调用方仍需在业务层重复校验。
+- `parentId` 为空时发送 `GET /files/shasearch?sha1=<UPPER_SHA1>`；成功响应为单个 `data` 对象，同时接受固定 normalizer 覆盖的 Web 短字段 `fid/cid/n|fn|file_name/pc/sha|sha1/s|fs`，以及旧 app2 长字段 `file_id`、`parent_id | category_id`、`file_name`、`pick_code`、`sha1 | file_sha1`、`file_size`。
+- `parentId` 非空时不调用全局 `shasearch`，而复用一次目录作用域 `/files/search`：固定发送目标 `cid`、SHA1、`fc=2`、`show_dir=0`、`type=99` 和首 100 条，只接受 Web 短字段数组中的唯一精确候选；多个精确候选失败关闭。
+- 两条路径最终都映射为同一份完整文件身份；只有 SHA1、size、`isDirectory=false` 以及作用域查询的父目录全部匹配时才返回一个候选，不匹配统一返回空列表，调用方仍需在业务层重复校验。
 - 固定公开源码确认的 `state=false + error="文件错误"` 映射为空列表；其他业务拒绝映射为 `ErrProviderRejected`，不向上暴露 Provider 原文。
 
-证据：[`fs_shasearch`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L17349-L17392)。
+证据：[`fs_shasearch`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L17349-L17392)、[`normalize_attr_web`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L59-L135)。
 
 #### 5.3.1 目标目录复核与可见性
 
@@ -319,7 +323,8 @@ Adapter 不判断一个文件是否应当删除。第二阶段若启用容量回
 当前固定 `p115cipher` 实现确认：
 
 - 请求负载使用 AES-128-CBC 处理。
-- 响应在解密后进行 LZ4 解压。
+- 响应 AES-CBC 解密只处理 `len(ciphertext) & -16` 个字节，即所有完整 AES blocks；真实响应可能携带不足 16 字节的 opaque suffix，该 suffix 不参与解密。没有任何完整 block 时仍按非法密文拒绝。
+- 响应在解密后进行 LZ4 解压；固定实现只在剩余数据多于 2 字节且 block 长度非零时继续，剩余 1–2 字节或零长度终止头结束解压，正数 block 长度超出剩余数据仍按坏帧拒绝。
 - `k_ec` token 包含时间戳、公钥材料和 CRC 校验。
 - `make_upload_payload` 根据 `userkey`、`userid`、文件 SHA1、大小、目标目录、二次校验参数、时间戳和 app 版本生成签名与 token。
 
@@ -335,10 +340,10 @@ Adapter 不判断一个文件是否应当删除。第二阶段若启用容量回
 
 - 固定向量记录来源仓库、提交和模块版本，不包含真实账号、Cookie、文件或目录信息。
 - `EncodeToken` / `DecodeToken` 覆盖 `k_ec` 时间戳、公钥材料和 CRC；解码拒绝被篡改的 CRC。
-- `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义及长度前缀 LZ4 block 解压，解压结果设置上限。
+- `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义、响应短尾部兼容、长度前缀 LZ4 block 解压及其固定终止语义，解压结果设置上限；失败只向检查器暴露 `aes` / `lz4` 子阶段，不暴露密文或明文。
 - `BuildUploadRequest` 覆盖 filename、preID、topupload、`sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
 - `RSAEncrypt` 覆盖 Chrome downurl 请求包装；`RSADecrypt` 使用固定任意密文黑盒向量锁定服务端响应变换，不把测试 seam 当作真实服务端密文证据。
-- `GetUploadInfo`、`ResolveFileByPath`、`ResolveDirectoryByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 均已通过 fake HTTP 合同接入。2026-08-22 真实只读运行已覆盖账号验证、上传信息、源路径解析、SHA1 查重、source downurl 和 128 KiB Range；playback 目录解析、上传初始化、目标复核、playback 最终直链与播放网关/Infuse 仍未完成真实验证，因此不能据此宣称秒传直播放链路可用。
+- `GetUploadInfo`、`ResolveFileByPath`、`ResolveDirectoryByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 均已通过 fake HTTP 合同接入。2026-08-22 真实只读运行已覆盖账号验证、上传信息、源路径解析、SHA1 查重、source downurl 和 128 KiB Range；受控写入在补齐 AES 短尾部与 LZ4 终止语义后返回 `outcome=passed`，覆盖双重查重、preID、一次 Range challenge、`reused`、目标复核、playback 最终直链和 128 KiB Range。随后用保留文件完成 preexisting 快速路径，确认不再上传、重新签发 playback 直链并再次通过 Range。播放网关/Infuse 与数据库锁仍未完成真实验证，因此不能据此宣称完整秒传直播放链路已上线。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 
@@ -453,14 +458,14 @@ playbackAccountId + SHA1 + size
 3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
 4. 源文件解析覆盖固定 `/files` query、逐级目录、分页、无效 cid 回退、size 不符、重名歧义、目录规模上限和非法相对路径。
 5. playback 目录解析覆盖可选前导 `/`、多层目录、文件同名过滤、最终文件拒绝、同名目录歧义、分页、cid 回退和非法路径。
-6. SHA1 查重端点只发送规范化 SHA1，并覆盖命中、固定未命中、size/目录/parent 不匹配和非法字段。
+6. SHA1 查重覆盖无 parent 的全局 `shasearch` 与有 parent 的目录作用域 `/files/search`，并覆盖 Web 短字段/app2 长字段命中、固定未命中、size/目录/parent 不匹配、多个精确候选和非法字段。
 7. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。
 8. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
 9. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
 10. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
 11. Range Hash 覆盖默认账号 UA、显式 playback 测试 UA、`f=0/1/3` Header、精确 `206/Content-Range/Content-Length`、压缩、短读、长读、传输失败和 `1 MiB` 上限。
 12. `status=1` 明确拒绝，且不触发完整文件上传。
-13. 加密请求与解密响应固定向量。
+13. 加密请求与解密响应固定向量；有效完整 AES blocks 后的 1 至 15 字节短尾部被忽略，不足一个完整 block 的响应仍拒绝；LZ4 剩余 1–2 字节和零长度终止头按固定实现结束，正数截断 block 仍拒绝。
 14. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
 15. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
 16. 删除 Adapter 覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；第一阶段业务测试必须反向确认 Stopped、会话过期和重复播放都不会调用 `DeleteFile`。
@@ -487,6 +492,10 @@ playbackAccountId + SHA1 + size
 - playback 文件保留后的重复查重/复用行为，以及频率限制、风控和冷却边界。删除只保留为第二阶段独立验证项。
 
 2026-08-22 本地只读验证最终结果为 `outcome=passed`：两个 Cookie 均可验证且 UID 不同，两个账号 `uploadinfo` UID 一致，source 相对路径与 10,747,391,752 字节 size 解析成功，playback SHA1 查询正常未命中；source downurl 为 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，过期时间正常；`bytes=0-131071` 精确读取 `131072` 字节并完成 SHA1。首次运行因该 hostname 未列入 allowlist 而失败关闭；DNS/TLS/证书组织核对后只加入精确 hostname，第二次运行通过。由于 playback 未命中，播放账号最终下载 URL 仍未验证；整个流程没有上传、移动、重命名或删除文件。
+
+2026-08-22 本地保留式写入验证最终结果为 `outcome=passed`：两个账号再次验证且 UID 不同，playback 目录解析和写入前双重查重完成；源文件 preID 后首次初始化返回 `range_challenge`，读取一次有界 challenge 后重试为 `reused`，目标文件约 1,179ms 可见并通过 SHA1/size/parent 复核。playback downurl 为 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，`bytes=0-131071` 精确读取 `131072` 字节并完成与 source 相同的 SHA1 前缀校验。报告为 `writePerformed=true`、`created=true`、`retained=true`、`cleanup.attempted=false`；文件按合同保留。
+
+同日用该保留文件完成 preexisting 复跑：目录作用域搜索直接命中，报告为 `outcome=passed`、`writePerformed=false`、`preexisting=true`、`created=false`、`retained=true`、`secondCheckPerformed=false`、`challengeCount=0` 和 `cleanup.attempted=false`；步骤中没有 preID、上传初始化、challenge、重试或目标轮询，只重新签发 playback downurl 并精确读取 128 KiB Range。两次运行均未连接 PostgreSQL，`databaseLockValidated=false`；播放网关和 Infuse 仍未实机确认。
 
 如果为验证专门创建了 source 测试文件，可在确认无其他用途后手工清理；使用既有只读 source 文件时不得为了收尾删除。第一阶段受控写入验证创建的 playback 文件按合同保留，用于重复播放、已有文件快速路径和后续 Infuse 验收；如需手工删除，由管理员在完成全部验证后自行处理，不属于检查器自动动作。临时 Cookie 应在验证后替换或撤销。尚未覆盖的行为必须继续标记“未实机确认”。
 

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/url"
 	"os"
@@ -119,15 +120,79 @@ func TestDecryptResponseMatchesPinnedP115CipherVector(t *testing.T) {
 	}
 }
 
+func TestDecryptResponseIgnoresTrailingPartialAESBlockLikePinnedP115Cipher(t *testing.T) {
+	vector := loadCipherVector(t)
+	ciphertext, err := hex.DecodeString(vector.ResponseCipherHex)
+	if err != nil {
+		t.Fatalf("decode response fixture: %v", err)
+	}
+	// The pinned PyCryptodome path decrypts only complete AES blocks. A real
+	// upload response contained the same protocol shape plus a 12-byte suffix.
+	ciphertext = append(ciphertext, []byte("tail-12-byte")...)
+
+	plaintext, err := DecryptResponse(ciphertext)
+	if err != nil {
+		t.Fatalf("DecryptResponse() error = %v", err)
+	}
+	if string(plaintext) != vector.ResponsePlaintext {
+		t.Fatalf("DecryptResponse() = %q, want %q", plaintext, vector.ResponsePlaintext)
+	}
+}
+
+func TestDecryptResponseMatchesPinnedLZ4TerminationSemantics(t *testing.T) {
+	vector := loadCipherVector(t)
+	ciphertext, err := hex.DecodeString(vector.ResponseCipherHex)
+	if err != nil {
+		t.Fatalf("decode response fixture: %v", err)
+	}
+	framed, err := decryptRequest(ciphertext)
+	if err != nil {
+		t.Fatalf("decrypt response fixture: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		suffix []byte
+	}{
+		{name: "one trailing byte", suffix: []byte{0x7f}},
+		{name: "two trailing bytes", suffix: []byte{0x7f, 0x7f}},
+		{name: "zero terminator with tail", suffix: []byte{0x00, 0x00, 0x7f}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := EncryptRequest(append(append([]byte(nil), framed...), test.suffix...))
+			if err != nil {
+				t.Fatalf("EncryptRequest() error = %v", err)
+			}
+			plaintext, err := DecryptResponse(response)
+			if err != nil {
+				t.Fatalf("DecryptResponse() error = %v", err)
+			}
+			if string(plaintext) != vector.ResponsePlaintext {
+				t.Fatalf("DecryptResponse() = %q, want %q", plaintext, vector.ResponsePlaintext)
+			}
+		})
+	}
+}
+
 func TestDecryptResponseRejectsMalformedCiphertextAndLZ4Frame(t *testing.T) {
-	if _, err := DecryptResponse([]byte("not-aligned")); err == nil {
-		t.Fatal("DecryptResponse() accepted unaligned ciphertext")
+	_, err := DecryptResponse([]byte("not-aligned"))
+	var decryptErr *ResponseDecryptError
+	if !errors.As(err, &decryptErr) || decryptErr.Phase != ResponseDecryptPhaseAES {
+		t.Fatalf("DecryptResponse() error = %v, want AES phase", err)
+	}
+	if err == nil {
+		t.Fatal("DecryptResponse() accepted ciphertext without a complete AES block")
 	}
 	truncatedFrame, err := EncryptRequest([]byte{0x05, 0x00, 0x01})
 	if err != nil {
 		t.Fatalf("EncryptRequest() truncated frame error = %v", err)
 	}
-	if _, err := DecryptResponse(truncatedFrame); err == nil {
+	_, err = DecryptResponse(truncatedFrame)
+	if !errors.As(err, &decryptErr) || decryptErr.Phase != ResponseDecryptPhaseLZ4 {
+		t.Fatalf("DecryptResponse() error = %v, want LZ4 phase", err)
+	}
+	if err == nil {
 		t.Fatal("DecryptResponse() accepted a truncated LZ4 frame")
 	}
 }

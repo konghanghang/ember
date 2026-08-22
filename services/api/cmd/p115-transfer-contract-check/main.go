@@ -127,8 +127,8 @@ func loadCommandInput(getenv func(string) string) (p115integration.TransferContr
 	}, nil
 }
 
-// writeTransferFailure emits fixed failure metadata and optional safe download
-// policy evidence; it never prints the wrapped error string.
+// writeTransferFailure emits fixed failure metadata and optional bounded
+// download/upload protocol evidence; it never prints the wrapped error string.
 func writeTransferFailure(stderr io.Writer, err error) {
 	stage, code, fileMayExist := p115integration.TransferContractCheckFailure(err)
 	_, _ = fmt.Fprintf(
@@ -139,16 +139,79 @@ func writeTransferFailure(stderr io.Writer, err error) {
 		fileMayExist,
 	)
 	var policyErr *p115integration.DownloadURLPolicyError
-	if !errors.As(err, &policyErr) {
-		return
+	if errors.As(err, &policyErr) {
+		_, _ = fmt.Fprintf(
+			stderr,
+			"p115 transfer contract check evidence: reason=%s scheme=%s host=%s\n",
+			safeDownloadPolicyReason(policyErr.Reason),
+			safeDownloadPolicyScheme(policyErr.Scheme),
+			safeDownloadPolicyHost(policyErr.Host),
+		)
 	}
-	_, _ = fmt.Fprintf(
-		stderr,
-		"p115 transfer contract check evidence: reason=%s scheme=%s host=%s\n",
-		safeDownloadPolicyReason(policyErr.Reason),
-		safeDownloadPolicyScheme(policyErr.Scheme),
-		safeDownloadPolicyHost(policyErr.Host),
-	)
+	var protocolErr *p115integration.RapidUploadProtocolError
+	if errors.As(err, &protocolErr) {
+		_, _ = fmt.Fprintf(
+			stderr,
+			"p115 transfer contract check evidence: protocolPhase=%s decryptPhase=%s contentType=%s bodyShape=%s bodyBytes=%d\n",
+			safeRapidUploadProtocolPhase(protocolErr.Phase),
+			safeRapidUploadDecryptPhase(protocolErr.DecryptPhase),
+			safeRapidUploadContentType(protocolErr.ContentType),
+			safeRapidUploadBodyShape(protocolErr.BodyShape),
+			protocolErr.BodyBytes,
+		)
+	}
+}
+
+// safeRapidUploadProtocolPhase limits output to fixed internal upload stages.
+func safeRapidUploadProtocolPhase(phase p115integration.RapidUploadProtocolPhase) string {
+	switch phase {
+	case p115integration.RapidUploadPhasePayloadBuild,
+		p115integration.RapidUploadPhaseRequestBuild,
+		p115integration.RapidUploadPhaseResponseRead,
+		p115integration.RapidUploadPhaseResponseTooLarge,
+		p115integration.RapidUploadPhaseResponseDecrypt,
+		p115integration.RapidUploadPhaseResponseMap:
+		return string(phase)
+	default:
+		return "unknown"
+	}
+}
+
+// safeRapidUploadDecryptPhase limits output to fixed response decoder stages.
+func safeRapidUploadDecryptPhase(phase p115integration.RapidUploadDecryptPhase) string {
+	switch phase {
+	case p115integration.RapidUploadDecryptPhaseAES,
+		p115integration.RapidUploadDecryptPhaseLZ4:
+		return string(phase)
+	default:
+		return "unknown"
+	}
+}
+
+// safeRapidUploadContentType limits output to the Adapter's bounded media types.
+func safeRapidUploadContentType(contentType string) string {
+	switch contentType {
+	case "application/json", "application/octet-stream", "text/plain", "other", "unknown", "":
+		if contentType == "" {
+			return "unknown"
+		}
+		return contentType
+	default:
+		return "unknown"
+	}
+}
+
+// safeRapidUploadBodyShape limits output to fixed structural classifications.
+func safeRapidUploadBodyShape(shape string) string {
+	switch shape {
+	case "json_object", "json_array", "binary", "empty", "":
+		if shape == "" {
+			return "unknown"
+		}
+		return shape
+	default:
+		return "unknown"
+	}
 }
 
 // safeDownloadPolicyReason limits output to the Adapter's fixed reason enum.

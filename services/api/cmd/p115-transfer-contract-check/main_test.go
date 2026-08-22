@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
+
+	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
 )
 
 func TestLoadCommandInputRequiresRetainedWriteAcknowledgementAndRejectsCI(t *testing.T) {
@@ -19,6 +22,28 @@ func TestLoadCommandInputRequiresRetainedWriteAcknowledgementAndRejectsCI(t *tes
 	_, err = loadCommandInput(mapEnvironment(environment))
 	if commandConfigCode(err) != "ci_forbidden" {
 		t.Fatalf("loadCommandInput() CI code = %q", commandConfigCode(err))
+	}
+}
+
+func TestWriteTransferFailurePrintsSafeRapidUploadProtocolEvidence(t *testing.T) {
+	protocolErr := &p115integration.RapidUploadProtocolError{
+		Phase:        p115integration.RapidUploadPhaseResponseDecrypt,
+		DecryptPhase: p115integration.RapidUploadDecryptPhaseLZ4,
+		ContentType:  "application/json",
+		BodyShape:    "json_object",
+		BodyBytes:    57,
+	}
+	var stderr bytes.Buffer
+	writeTransferFailure(&stderr, fmt.Errorf("wrapped: %w", protocolErr))
+
+	output := stderr.String()
+	if !strings.Contains(output, "protocolPhase=response_decrypt decryptPhase=lz4 contentType=application/json bodyShape=json_object bodyBytes=57") {
+		t.Fatalf("writeTransferFailure() output = %q", output)
+	}
+	for _, secret := range []string{"cookie", "errno", "response-body"} {
+		if strings.Contains(output, secret) {
+			t.Fatalf("writeTransferFailure() exposed %q: %s", secret, output)
+		}
 	}
 }
 

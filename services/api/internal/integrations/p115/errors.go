@@ -23,6 +23,47 @@ type DownloadURLPolicyError struct {
 	Host   string
 }
 
+// RapidUploadProtocolPhase identifies a fixed internal upload stage without
+// exposing Provider response content.
+type RapidUploadProtocolPhase string
+
+const (
+	RapidUploadPhasePayloadBuild     RapidUploadProtocolPhase = "payload_build"
+	RapidUploadPhaseRequestBuild     RapidUploadProtocolPhase = "request_build"
+	RapidUploadPhaseResponseRead     RapidUploadProtocolPhase = "response_read"
+	RapidUploadPhaseResponseTooLarge RapidUploadProtocolPhase = "response_too_large"
+	RapidUploadPhaseResponseDecrypt  RapidUploadProtocolPhase = "response_decrypt"
+	RapidUploadPhaseResponseMap      RapidUploadProtocolPhase = "response_map"
+)
+
+// RapidUploadDecryptPhase identifies a bounded upload response decoder stage.
+type RapidUploadDecryptPhase string
+
+const (
+	RapidUploadDecryptPhaseAES RapidUploadDecryptPhase = "aes"
+	RapidUploadDecryptPhaseLZ4 RapidUploadDecryptPhase = "lz4"
+)
+
+// RapidUploadProtocolError carries only bounded response metadata for the
+// one-shot checker while preserving ErrProviderProtocol.
+type RapidUploadProtocolError struct {
+	Phase        RapidUploadProtocolPhase
+	DecryptPhase RapidUploadDecryptPhase
+	ContentType  string
+	BodyShape    string
+	BodyBytes    int
+}
+
+// Error intentionally omits phase metadata and Provider response content.
+func (err *RapidUploadProtocolError) Error() string {
+	return ErrProviderProtocol.Error()
+}
+
+// Unwrap preserves errors.Is(err, ErrProviderProtocol).
+func (err *RapidUploadProtocolError) Unwrap() error {
+	return ErrProviderProtocol
+}
+
 // Error intentionally omits URL components from ordinary logs and API errors.
 func (err *DownloadURLPolicyError) Error() string {
 	return ErrDownloadURLNotAllowed.Error()

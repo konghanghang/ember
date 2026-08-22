@@ -69,7 +69,11 @@ func TestCookieHTTPAdapterInitRapidUploadSendsPinnedEncryptedRequest(t *testing.
 			if !bytes.Equal(body, expected.Data) {
 				t.Fatalf("upload body does not match pinned encrypted payload")
 			}
-			writeEncryptedUploadResponse(t, w, `{"status":2,"statuscode":0,"pickcode":"fixture-pick-code"}`)
+			response := encryptedUploadResponse(t, `{"status":2,"statuscode":0,"pickcode":"fixture-pick-code"}`)
+			// A real upload response carried a 12-byte suffix after its complete
+			// AES blocks; the pinned PyCryptodome path ignores that suffix.
+			response = append(response, []byte("tail-12-byte")...)
+			_, _ = w.Write(response)
 		default:
 			t.Fatalf("unexpected request path: %s", request.URL.Path)
 		}
@@ -229,6 +233,34 @@ func TestCookieHTTPAdapterInitRapidUploadMapsSafeFailures(t *testing.T) {
 			t.Fatalf("InitRapidUpload() transport error exposed details: %v", err)
 		}
 	})
+}
+
+func TestCookieHTTPAdapterInitRapidUploadReturnsSafeProtocolEvidence(t *testing.T) {
+	body := `{"state":false,"errno":990001,"error":"cookie-secret"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/app/uploadinfo" {
+			_, _ = w.Write([]byte(`{"state":true,"user_id":12345,"userkey":"fixture-user-key"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	adapter := newTestRapidUploadAdapter(t, server)
+	_, err := adapter.InitRapidUpload(context.Background(), fixtureCredential(), fixtureRapidUploadRequest())
+	var protocolErr *RapidUploadProtocolError
+	if !errors.As(err, &protocolErr) {
+		t.Fatalf("InitRapidUpload() error type = %T, want RapidUploadProtocolError", err)
+	}
+	if protocolErr.Phase != RapidUploadPhaseResponseDecrypt || protocolErr.DecryptPhase != RapidUploadDecryptPhaseLZ4 ||
+		protocolErr.ContentType != "application/json" ||
+		protocolErr.BodyShape != "json_object" || protocolErr.BodyBytes != len(body) {
+		t.Fatalf("protocol evidence = %+v", protocolErr)
+	}
+	if strings.Contains(protocolErr.Error(), "cookie-secret") || strings.Contains(protocolErr.Error(), "990001") {
+		t.Fatalf("ordinary protocol error exposed response: %v", protocolErr)
+	}
 }
 
 func fixtureRapidUploadRequest() RapidUploadRequest {

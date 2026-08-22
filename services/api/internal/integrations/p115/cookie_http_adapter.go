@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -160,8 +161,9 @@ func (a *CookieHTTPAdapter) GetUploadInfo(ctx context.Context, credential Creden
 	return UploadInfo{UserID: responseUserID, UserKey: userKey}, nil
 }
 
-// SearchBySHA1 queries the legacy single-result endpoint and returns only a
-// candidate that also matches size, non-directory type, and optional parent.
+// SearchBySHA1 uses a directory-scoped Web search when ParentID is present;
+// otherwise it queries the legacy global single-result endpoint. Both paths
+// return only a candidate that matches size and non-directory type.
 func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credential, query FileQuery) ([]File, error) {
 	if _, err := validateCookieHTTPCredential(credential); err != nil {
 		return nil, err
@@ -173,6 +175,20 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 	expectedParentID, err := normalizeOptionalProviderID(query.ParentID)
 	if err != nil {
 		return nil, ErrInvalidRequest
+	}
+	if expectedParentID != "" {
+		file, err := a.findTargetFileOnce(ctx, credential, FileQuery{
+			SHA1:     expectedSHA1,
+			Size:     query.Size,
+			ParentID: expectedParentID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if file == nil {
+			return []File{}, nil
+		}
+		return []File{*file}, nil
 	}
 
 	var response struct {
@@ -419,14 +435,14 @@ func (a *CookieHTTPAdapter) InitRapidUpload(ctx context.Context, credential Cred
 		AppVersion: cookieUploadAppVersion,
 	}, timestamp)
 	if err != nil {
-		return RapidUploadResult{}, protocolError("upload payload build failed")
+		return RapidUploadResult{}, rapidUploadProtocolError(RapidUploadPhasePayloadBuild, nil, nil)
 	}
 
 	requestURL := *a.uploadInitEndpoint
 	requestURL.RawQuery = url.Values{"k_ec": {encrypted.KEc}}.Encode()
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL.String(), bytes.NewReader(encrypted.Data))
 	if err != nil {
-		return RapidUploadResult{}, protocolError("upload request build failed")
+		return RapidUploadResult{}, rapidUploadProtocolError(RapidUploadPhaseRequestBuild, nil, nil)
 	}
 	httpRequest.Header.Set("Accept", "*/*")
 	httpRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -443,16 +459,33 @@ func (a *CookieHTTPAdapter) InitRapidUpload(ctx context.Context, credential Cred
 	}
 	ciphertext, err := io.ReadAll(io.LimitReader(response.Body, maxCookieResponseBody+1))
 	if err != nil {
-		return RapidUploadResult{}, protocolError("upload response read failed")
+		return RapidUploadResult{}, rapidUploadProtocolError(RapidUploadPhaseResponseRead, response, nil)
 	}
 	if len(ciphertext) > maxCookieResponseBody {
-		return RapidUploadResult{}, protocolError("upload response too large")
+		return RapidUploadResult{}, rapidUploadProtocolError(RapidUploadPhaseResponseTooLarge, response, ciphertext)
 	}
 	plaintext, err := p115cipher.DecryptResponse(ciphertext)
 	if err != nil {
-		return RapidUploadResult{}, protocolError("upload response decrypt failed")
+		evidence := rapidUploadProtocolError(RapidUploadPhaseResponseDecrypt, response, ciphertext)
+		var decryptErr *p115cipher.ResponseDecryptError
+		if errors.As(err, &decryptErr) {
+			switch decryptErr.Phase {
+			case p115cipher.ResponseDecryptPhaseAES:
+				evidence.DecryptPhase = RapidUploadDecryptPhaseAES
+			case p115cipher.ResponseDecryptPhaseLZ4:
+				evidence.DecryptPhase = RapidUploadDecryptPhaseLZ4
+			}
+		}
+		return RapidUploadResult{}, evidence
 	}
-	return mapRapidUploadResponse(plaintext, normalized.Size)
+	result, err := mapRapidUploadResponse(plaintext, normalized.Size)
+	if err != nil {
+		if errors.Is(err, ErrProviderProtocol) {
+			return RapidUploadResult{}, rapidUploadProtocolError(RapidUploadPhaseResponseMap, response, nil)
+		}
+		return RapidUploadResult{}, err
+	}
+	return result, nil
 }
 
 // GetDownloadURL signs one file URL with the actual playback client User-Agent
@@ -973,6 +1006,16 @@ func decodeSHASearchFile(data json.RawMessage) (File, error) {
 	if len(data) == 0 || string(data) == "null" {
 		return File{}, protocolError("SHA1 search data missing")
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return File{}, protocolError("SHA1 search data invalid")
+	}
+	_, hasFileID := fields["file_id"]
+	_, hasCategoryID := fields["category_id"]
+	if !hasFileID && !hasCategoryID {
+		return decodeWebSHASearchFile(data)
+	}
+
 	var payload struct {
 		FileID     jsonUint64 `json:"file_id"`
 		ParentID   jsonUint64 `json:"parent_id"`
@@ -1024,6 +1067,89 @@ func decodeSHASearchFile(data json.RawMessage) (File, error) {
 		Size:        int64(payload.FileSize.value),
 		IsDirectory: isDirectory,
 	}, nil
+}
+
+// decodeWebSHASearchFile maps the short Web fields used by the pinned
+// fs_shasearch normalizer into a complete Provider-neutral file identity.
+func decodeWebSHASearchFile(data json.RawMessage) (File, error) {
+	var payload struct {
+		FileID       jsonUint64 `json:"fid"`
+		ParentID     jsonUint64 `json:"cid"`
+		Name         *string    `json:"n"`
+		FallbackName *string    `json:"fn"`
+		LongName     *string    `json:"file_name"`
+		PickCode     *string    `json:"pc"`
+		SHA1         *string    `json:"sha"`
+		FallbackSHA1 *string    `json:"sha1"`
+		Size         jsonUint64 `json:"s"`
+		FallbackSize jsonUint64 `json:"fs"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return File{}, protocolError("SHA1 search data invalid")
+	}
+	name := firstProviderString(payload.Name, payload.FallbackName, payload.LongName)
+	sha1Value := firstProviderString(payload.SHA1, payload.FallbackSHA1)
+	size := firstProviderUint64(payload.Size, payload.FallbackSize)
+	if !payload.FileID.set || payload.FileID.value == 0 || !payload.ParentID.set ||
+		name == nil || payload.PickCode == nil || sha1Value == nil || !size.set || size.value > math.MaxInt64 {
+		return File{}, protocolError("SHA1 search fields missing")
+	}
+	fileName := *name
+	pickCode := strings.TrimSpace(*payload.PickCode)
+	if strings.TrimSpace(fileName) == "" || pickCode == "" || strings.ContainsAny(fileName+pickCode, "\r\n") {
+		return File{}, protocolError("SHA1 search fields invalid")
+	}
+	rawSHA1 := strings.TrimSpace(*sha1Value)
+	isDirectory := rawSHA1 == ""
+	normalizedSHA1 := ""
+	if !isDirectory {
+		var err error
+		normalizedSHA1, err = normalizeSHA1(rawSHA1)
+		if err != nil {
+			return File{}, protocolError("SHA1 search hash invalid")
+		}
+	}
+	return File{
+		ID:          strconv.FormatUint(payload.FileID.value, 10),
+		PickCode:    pickCode,
+		ParentID:    strconv.FormatUint(payload.ParentID.value, 10),
+		Name:        fileName,
+		SHA1:        normalizedSHA1,
+		Size:        int64(size.value),
+		IsDirectory: isDirectory,
+	}, nil
+}
+
+// firstProviderString mirrors the pinned Web normalizer's first non-empty
+// alias selection while preserving an explicit empty value for validation.
+func firstProviderString(values ...*string) *string {
+	for _, value := range values {
+		if value != nil && *value != "" {
+			return value
+		}
+	}
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+// firstProviderUint64 mirrors the pinned Web normalizer's first non-zero
+// numeric alias selection while preserving an explicit zero for validation.
+func firstProviderUint64(values ...jsonUint64) jsonUint64 {
+	for _, value := range values {
+		if value.set && value.value != 0 {
+			return value
+		}
+	}
+	for _, value := range values {
+		if value.set {
+			return value
+		}
+	}
+	return jsonUint64{}
 }
 
 // decodeTargetSearchFile maps the pinned web search short fields into a complete file identity.
@@ -1460,6 +1586,50 @@ func waitForCookieTargetPoll(ctx context.Context, duration time.Duration) error 
 
 func protocolError(reason string) error {
 	return fmt.Errorf("%w: %s", ErrProviderProtocol, reason)
+}
+
+func rapidUploadProtocolError(
+	phase RapidUploadProtocolPhase,
+	response *http.Response,
+	body []byte,
+) *RapidUploadProtocolError {
+	evidence := &RapidUploadProtocolError{Phase: phase}
+	if response != nil {
+		evidence.ContentType = safeRapidUploadContentType(response.Header.Get("Content-Type"))
+	}
+	if body != nil {
+		evidence.BodyBytes = len(body)
+		evidence.BodyShape = safeRapidUploadBodyShape(body)
+	}
+	return evidence
+}
+
+func safeRapidUploadContentType(value string) string {
+	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(value))
+	if err != nil {
+		return "unknown"
+	}
+	switch strings.ToLower(mediaType) {
+	case "application/json", "application/octet-stream", "text/plain":
+		return strings.ToLower(mediaType)
+	default:
+		return "other"
+	}
+}
+
+func safeRapidUploadBodyShape(body []byte) string {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return "empty"
+	}
+	switch trimmed[0] {
+	case '{':
+		return "json_object"
+	case '[':
+		return "json_array"
+	default:
+		return "binary"
+	}
 }
 
 type jsonUint64 struct {

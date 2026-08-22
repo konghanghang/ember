@@ -39,6 +39,32 @@ var (
 	protocolCRCSalt = []byte("^j>WD3Kr?J2gLFjD4W2y@")
 )
 
+// ResponseDecryptPhase identifies a safe response decoding boundary without
+// exposing ciphertext or decrypted Provider content.
+type ResponseDecryptPhase string
+
+const (
+	ResponseDecryptPhaseAES ResponseDecryptPhase = "aes"
+	ResponseDecryptPhaseLZ4 ResponseDecryptPhase = "lz4"
+)
+
+// ResponseDecryptError preserves the internal decoding cause while exposing
+// only its bounded protocol phase to callers.
+type ResponseDecryptError struct {
+	Phase ResponseDecryptPhase
+	cause error
+}
+
+// Error intentionally omits ciphertext and decrypted Provider content.
+func (err *ResponseDecryptError) Error() string {
+	return "p115 response decrypt failed"
+}
+
+// Unwrap preserves the underlying protocol error for package-local diagnosis.
+func (err *ResponseDecryptError) Unwrap() error {
+	return err.cause
+}
+
 // DecodedToken exposes only the timestamp and public material carried by k_ec.
 type DecodedToken struct {
 	Timestamp int64
@@ -106,9 +132,13 @@ func EncryptRequest(plaintext []byte) ([]byte, error) {
 func DecryptResponse(ciphertext []byte) ([]byte, error) {
 	framed, err := decryptRequest(ciphertext)
 	if err != nil {
-		return nil, err
+		return nil, &ResponseDecryptError{Phase: ResponseDecryptPhaseAES, cause: err}
 	}
-	return decompressLZ4Frames(framed)
+	plaintext, err := decompressLZ4Frames(framed)
+	if err != nil {
+		return nil, &ResponseDecryptError{Phase: ResponseDecryptPhaseLZ4, cause: err}
+	}
+	return plaintext, nil
 }
 
 func decryptRequest(ciphertext []byte) ([]byte, error) {
@@ -116,11 +146,14 @@ func decryptRequest(ciphertext []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create p115 AES cipher: %w", err)
 	}
-	if len(ciphertext) == 0 || len(ciphertext)%block.BlockSize() != 0 {
+	// The pinned PyCryptodome implementation decrypts only complete AES blocks.
+	// Real upload responses may carry a short opaque suffix after those blocks.
+	alignedLength := len(ciphertext) & -block.BlockSize()
+	if alignedLength == 0 {
 		return nil, errInvalidCiphertext
 	}
-	plaintext := make([]byte, len(ciphertext))
-	cipher.NewCBCDecrypter(block, protocolAESIV[:]).CryptBlocks(plaintext, ciphertext)
+	plaintext := make([]byte, alignedLength)
+	cipher.NewCBCDecrypter(block, protocolAESIV[:]).CryptBlocks(plaintext, ciphertext[:alignedLength])
 	return protocolUnpad(plaintext, block.BlockSize()), nil
 }
 
@@ -156,18 +189,14 @@ func protocolUnpad(plaintext []byte, blockSize int) []byte {
 
 func decompressLZ4Frames(framed []byte) ([]byte, error) {
 	output := make([]byte, 0, len(framed))
-	for len(framed) > 0 {
-		if len(framed) < 2 {
-			return nil, errInvalidLZ4Frame
-		}
+	// The pinned implementation stops when no complete length-plus-payload can
+	// remain, and treats a zero length as a terminator regardless of its tail.
+	for len(framed) > 2 {
 		compressedSize := int(binary.LittleEndian.Uint16(framed[:2]))
-		framed = framed[2:]
 		if compressedSize == 0 {
-			if len(framed) != 0 {
-				return nil, errInvalidLZ4Frame
-			}
 			break
 		}
+		framed = framed[2:]
 		if compressedSize > len(framed) {
 			return nil, errInvalidLZ4Frame
 		}

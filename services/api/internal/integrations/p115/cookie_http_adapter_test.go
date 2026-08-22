@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -134,9 +135,8 @@ func TestCookieHTTPAdapterSearchBySHA1FixesQueryAndMapsCandidate(t *testing.T) {
 
 	adapter := newTestCookieHTTPAdapter(t, server)
 	files, err := adapter.SearchBySHA1(context.Background(), fixtureCredential(), FileQuery{
-		SHA1:     strings.ToLower(fixtureSHA1),
-		Size:     1024,
-		ParentID: "456",
+		SHA1: strings.ToLower(fixtureSHA1),
+		Size: 1024,
 	})
 	if err != nil {
 		t.Fatalf("SearchBySHA1() error = %v", err)
@@ -148,6 +148,49 @@ func TestCookieHTTPAdapterSearchBySHA1FixesQueryAndMapsCandidate(t *testing.T) {
 	if file.ID != "789" || file.ParentID != "456" || file.Name != "fixture.mkv" ||
 		file.PickCode != "fixture-pick-code" || file.SHA1 != fixtureSHA1 || file.Size != 1024 || file.IsDirectory {
 		t.Fatalf("SearchBySHA1() candidate = %+v", file)
+	}
+}
+
+func TestCookieHTTPAdapterSearchBySHA1UsesScopedTargetSearchWhenParentProvided(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/files/search" {
+			t.Fatalf("unexpected scoped SHA1 search request: %s %s", request.Method, request.URL.Path)
+		}
+		expected := url.Values{
+			"aid":          {"1"},
+			"cid":          {"456"},
+			"fc":           {"2"},
+			"limit":        {strconv.Itoa(targetSearchLimit)},
+			"offset":       {"0"},
+			"search_value": {fixtureSHA1},
+			"show_dir":     {"0"},
+			"type":         {"99"},
+		}
+		if request.URL.Query().Encode() != expected.Encode() {
+			t.Fatalf("scoped SHA1 search query = %s, want %s", request.URL.RawQuery, expected.Encode())
+		}
+		_, _ = w.Write([]byte(`{"state":true,"data":[{
+			"fid":789,
+			"cid":456,
+			"n":"fixture.mkv",
+			"pc":"fixture-pick-code",
+			"sha":"` + fixtureSHA1 + `",
+			"s":1024
+		}]}`))
+	}))
+	defer server.Close()
+
+	adapter := newTestCookieHTTPAdapter(t, server)
+	files, err := adapter.SearchBySHA1(context.Background(), fixtureCredential(), FileQuery{
+		SHA1:     fixtureSHA1,
+		Size:     1024,
+		ParentID: "456",
+	})
+	if err != nil {
+		t.Fatalf("SearchBySHA1() scoped search error = %v", err)
+	}
+	if len(files) != 1 || files[0].ID != "789" || files[0].ParentID != "456" || files[0].SHA1 != fixtureSHA1 {
+		t.Fatalf("SearchBySHA1() scoped result = %+v", files)
 	}
 }
 
@@ -169,15 +212,76 @@ func TestCookieHTTPAdapterSearchBySHA1MapsPinnedLegacyFieldAliases(t *testing.T)
 
 	adapter := newTestCookieHTTPAdapter(t, server)
 	files, err := adapter.SearchBySHA1(context.Background(), fixtureCredential(), FileQuery{
-		SHA1:     fixtureSHA1,
-		Size:     1024,
-		ParentID: "456",
+		SHA1: fixtureSHA1,
+		Size: 1024,
 	})
 	if err != nil {
 		t.Fatalf("SearchBySHA1() legacy alias error = %v", err)
 	}
 	if len(files) != 1 || files[0].ParentID != "456" || files[0].SHA1 != fixtureSHA1 {
 		t.Fatalf("SearchBySHA1() legacy alias result = %+v", files)
+	}
+}
+
+func TestCookieHTTPAdapterSearchBySHA1MapsPinnedWebShortFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"state":true,
+			"data":{
+				"fid":"789",
+				"cid":"456",
+				"n":"fixture.mkv",
+				"pc":"fixture-pick-code",
+				"sha":"` + fixtureSHA1 + `",
+				"s":"1024"
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	adapter := newTestCookieHTTPAdapter(t, server)
+	files, err := adapter.SearchBySHA1(context.Background(), fixtureCredential(), FileQuery{
+		SHA1: fixtureSHA1,
+		Size: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchBySHA1() web short fields error = %v", err)
+	}
+	if len(files) != 1 || files[0].ID != "789" || files[0].ParentID != "456" ||
+		files[0].Name != "fixture.mkv" || files[0].PickCode != "fixture-pick-code" ||
+		files[0].SHA1 != fixtureSHA1 || files[0].Size != 1024 || files[0].IsDirectory {
+		t.Fatalf("SearchBySHA1() web short fields result = %+v", files)
+	}
+}
+
+func TestCookieHTTPAdapterSearchBySHA1MapsPinnedWebFallbackFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"state":true,
+			"data":{
+				"fid":789,
+				"cid":456,
+				"fn":"fixture.mkv",
+				"pc":"fixture-pick-code",
+				"sha1":"` + fixtureSHA1 + `",
+				"fs":1024
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	adapter := newTestCookieHTTPAdapter(t, server)
+	files, err := adapter.SearchBySHA1(context.Background(), fixtureCredential(), FileQuery{
+		SHA1: fixtureSHA1,
+		Size: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchBySHA1() web fallback fields error = %v", err)
+	}
+	if len(files) != 1 || files[0].ID != "789" || files[0].ParentID != "456" ||
+		files[0].Name != "fixture.mkv" || files[0].PickCode != "fixture-pick-code" ||
+		files[0].SHA1 != fixtureSHA1 || files[0].Size != 1024 || files[0].IsDirectory {
+		t.Fatalf("SearchBySHA1() web fallback fields result = %+v", files)
 	}
 }
 
@@ -224,8 +328,8 @@ func TestCookieHTTPAdapterSearchBySHA1RejectsMismatchedCandidates(t *testing.T) 
 		{
 			name:  "parent mismatch",
 			query: FileQuery{SHA1: fixtureSHA1, Size: 1024, ParentID: "999"},
-			response: `{"state":true,"data":{"file_id":789,"parent_id":456,"file_name":"fixture.mkv",` +
-				`"pick_code":"fixture-pick-code","sha1":"` + fixtureSHA1 + `","file_size":1024}}`,
+			response: `{"state":true,"data":[{"fid":789,"cid":456,"n":"fixture.mkv",` +
+				`"pc":"fixture-pick-code","sha":"` + fixtureSHA1 + `","s":1024}]}`,
 		},
 	}
 	for _, test := range tests {

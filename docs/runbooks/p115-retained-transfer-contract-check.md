@@ -115,7 +115,15 @@ p115 transfer contract check failed: stage=<stage> code=<code> fileMayExist=<tru
 
 `fileMayExist=true` 表示 Provider 已返回 reused 或查重已命中，专用目录中可能保留目标文件。不要立即重跑；先在 playback 专用目录人工确认，并保留文件供后续快速路径验证。
 
-下载 hostname 被策略拒绝时，会额外输出仅含 reason/scheme/hostname 的安全证据；不能据此自动开放整个域名后缀。
+下载 hostname 被策略拒绝时，会额外输出仅含 reason/scheme/hostname 的安全证据；不能据此自动开放整个域名后缀。上传协议失败时会额外输出固定 `protocolPhase`、`decryptPhase`、受限 `contentType` / `bodyShape` 和 `bodyBytes`，用于区分请求构造、AES、LZ4、响应读取与字段映射；不会输出响应正文、Cookie、签名或 Provider message。
+
+2026-08-22 首次真实上传初始化返回 `protocolPhase=response_decrypt contentType=other bodyShape=binary bodyBytes=220`，且 `fileMayExist=false`。固定 `p115cipher 0.0.5.4` 的 PyCryptodome 路径只解密完整 AES blocks，因此 Ember 补齐相同边界：220 字节中只处理前 208 字节并忽略 12 字节短尾部。第二次运行返回相同阶段和 236 字节响应，即 224 字节完整 blocks 加 12 字节短尾部，说明处理已经继续到合并在该阶段内的 LZ4；随后又对齐固定实现的 LZ4 剩余 1–2 字节与零长度头终止语义，并新增 `decryptPhase=aes|lz4|unknown` 安全诊断。两项修复均已通过固定向量与 fake HTTP Adapter 测试。
+
+修复后的第三次真实运行返回 `outcome=passed`、`writePerformed=true`：双重查重未命中后计算 preID，首次初始化为 `range_challenge`，一次 challenge 后重试为 `reused`；目标约 1,179ms 可见，playback downurl 使用 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，并精确读取 `0-131071` 共 `131072` 字节。报告确认 `created=true`、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。文件不得为运行手册收尾而删除，后续用于 preexisting 快速路径与 Infuse 验证。
+
+前两次 preexisting 复跑均在 `stage=playback_search code=provider_protocol` 失败，且未进入上传初始化。第一次暴露旧 `shasearch` 命中字段与 fake 长字段不一致；补齐固定 Web normalizer 的短字段后仍失败，进一步确认问题不应靠追加别名收口：`shasearch` 是最多返回一个候选的全局查询，不能表达 playback 目标目录。Ember 随后改为 `SearchBySHA1` 带 `ParentID` 时复用目录作用域 `/files/search`，只接受目标目录内 SHA1、size、非目录和 parent 全部匹配的唯一候选；无 parent 的只读探测才保留旧 `shasearch`。
+
+目录作用域修复后的真实 preexisting 运行返回 `outcome=passed`、`writePerformed=false`、`preexisting=true`、`created=false`、`retained=true`、`secondCheckPerformed=false`、`challengeCount=0` 和 `cleanup.attempted=false`。步骤只有一次 `search_playback`，没有 preID、上传初始化、challenge、重试或 `find_target`；playback downurl 再次使用 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，并再次精确读取 `131072` 字节。该结果证明检查器能复用保留文件，但仍不代表生产数据库锁或 Infuse 已验证。
 
 ## 清理当前 shell，不清理网盘文件
 
