@@ -146,6 +146,7 @@ func VerifySchema() error {
 		{"playback_rankings", &models.PlaybackRanking{}},
 		{"media_quality_caches", &models.MediaQualityCache{}},
 		{"p115_accounts", &models.P115Account{}},
+		{"playback_transfer_tasks", &models.PlaybackTransferTask{}},
 		{"client_blacklists", &models.ClientBlacklist{}},
 		{"device_actions", &models.DeviceAction{}},
 		{"email_verifications", &models.EmailVerification{}},
@@ -256,6 +257,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"emby_policy_sync_batches", "failed_count", "20260527_01_user_media_library_policy"},
 	{"emby_policy_sync_tasks", "next_retry_at", "20260527_01_user_media_library_policy"},
 	{"p115_accounts", "cookie_ciphertext", "20260801_01_create_p115_accounts"},
+	{"playback_transfer_tasks", "last_accessed_at", "20260822_01_create_playback_transfer_tasks"},
 }
 
 // schemaFingerprintIndexes 列出当前 build 时间所有顶层增量 migration 引入的代表性索引。
@@ -294,6 +296,9 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"p115_accounts", "uq_p115_accounts_enabled_role", "20260801_01_create_p115_accounts"},
 	{"p115_accounts", "uq_p115_accounts_enabled_provider_user", "20260801_01_create_p115_accounts"},
 	{"p115_accounts", "idx_p115_accounts_status_cooldown", "20260801_01_create_p115_accounts"},
+	{"playback_transfer_tasks", "uq_playback_transfer_tasks_active_content", "20260822_01_create_playback_transfer_tasks"},
+	{"playback_transfer_tasks", "idx_playback_transfer_tasks_content_lookup", "20260822_01_create_playback_transfer_tasks"},
+	{"playback_transfer_tasks", "idx_playback_transfer_tasks_last_accessed", "20260822_01_create_playback_transfer_tasks"},
 }
 
 // Bootstrap 写入默认管理员、默认 settings、默认 plan_groups 等启动期数据。

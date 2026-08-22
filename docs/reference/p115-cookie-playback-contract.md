@@ -466,12 +466,13 @@ playbackAccountId + SHA1 + size
 11. Range Hash 覆盖默认账号 UA、显式 playback 测试 UA、`f=0/1/3` Header、精确 `206/Content-Range/Content-Length`、压缩、短读、长读、传输失败和 `1 MiB` 上限。
 12. `status=1` 明确拒绝，且不触发完整文件上传。
 13. 加密请求与解密响应固定向量；有效完整 AES blocks 后的 1 至 15 字节短尾部被忽略，不足一个完整 block 的响应仍拒绝；LZ4 剩余 1–2 字节和零长度终止头按固定实现结束，正数截断 block 仍拒绝。
-14. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
+14. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务；PostgreSQL 独立 schema 集成测试必须证明相同内容的两个并发 Resolve 只调用一次 fake `InitRapidUpload`。
 15. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
 16. 删除 Adapter 覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；第一阶段业务测试必须反向确认 Stopped、会话过期和重复播放都不会调用 `DeleteFile`。
 17. 保留式秒传检查器覆盖双重查重、preID、零/一次 challenge、重复 challenge 拒绝、目标复核、preexisting 快速路径、playback UA Range、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
 18. 重复播放命中同一 playback 文件时跳过秒传、刷新 `lastAccessedAt` 并签发新临时直链；外部手工删除后查重未命中可以重新创建活动任务。
-19. Cookie、完整直链、完整 SHA1、源/目标相对路径、目录/文件 ID和 Provider 响应不进入日志或普通数据库字段。
+19. Cookie、完整直链、source 完整路径和 Provider 原始响应不进入日志或数据库；完整 SHA1、目标目录/fileId/pickCode 只进入 `playback_transfer_tasks` provenance，且不进入普通 JSON 或日志。
+20. `playback_transfer_tasks` migration 可重复执行，活动内容 partial unique、终态 provenance、challenge `attemptCount=2`、失败脱敏和 `lastAccessedAt` 均由 PostgreSQL 集成测试锁定。
 
 ## 12. 受控真实验证
 
@@ -496,6 +497,8 @@ playbackAccountId + SHA1 + size
 2026-08-22 本地保留式写入验证最终结果为 `outcome=passed`：两个账号再次验证且 UID 不同，playback 目录解析和写入前双重查重完成；源文件 preID 后首次初始化返回 `range_challenge`，读取一次有界 challenge 后重试为 `reused`，目标文件约 1,179ms 可见并通过 SHA1/size/parent 复核。playback downurl 为 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，`bytes=0-131071` 精确读取 `131072` 字节并完成与 source 相同的 SHA1 前缀校验。报告为 `writePerformed=true`、`created=true`、`retained=true`、`cleanup.attempted=false`；文件按合同保留。
 
 同日用该保留文件完成 preexisting 复跑：目录作用域搜索直接命中，报告为 `outcome=passed`、`writePerformed=false`、`preexisting=true`、`created=false`、`retained=true`、`secondCheckPerformed=false`、`challengeCount=0` 和 `cleanup.attempted=false`；步骤中没有 preID、上传初始化、challenge、重试或目标轮询，只重新签发 playback downurl 并精确读取 128 KiB Range。两次运行均未连接 PostgreSQL，`databaseLockValidated=false`；播放网关和 Infuse 仍未实机确认。
+
+生产编排的数据库合同由独立自动化验证补齐，不改变上述一次性命令的报告语义：`directplay.Service` 使用 `playbackAccountId + SHA1 + size` 的 PostgreSQL session advisory lock，拿锁后再次查重，并在 `playback_transfer_tasks` 记录终态。2026-08-22 专用集成数据库的三个独立 schema 已验证 migration/`VerifySchema` 与 migration 重入、两个并发 Resolve 只执行一次 fake 秒传、challenge 后 `attemptCount=2`，以及普通上传要求落为脱敏 `failed`。这些测试不访问真实 115；播放网关和 Infuse 仍未验证。
 
 如果为验证专门创建了 source 测试文件，可在确认无其他用途后手工清理；使用既有只读 source 文件时不得为了收尾删除。第一阶段受控写入验证创建的 playback 文件按合同保留，用于重复播放、已有文件快速路径和后续 Infuse 验收；如需手工删除，由管理员在完成全部验证后自行处理，不属于检查器自动动作。临时 Cookie 应在验证后替换或撤销。尚未覆盖的行为必须继续标记“未实机确认”。
 

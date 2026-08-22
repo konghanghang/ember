@@ -29,6 +29,7 @@ type accountStore interface {
 	Create(ctx context.Context, account *models.P115Account) error
 	List(ctx context.Context) ([]models.P115Account, error)
 	GetByID(ctx context.Context, id string) (*models.P115Account, error)
+	GetActiveByRole(ctx context.Context, role models.P115AccountRole) (*models.P115Account, error)
 	ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error)
 	CompleteValidationSuccess(ctx context.Context, id, expectedCiphertext, providerUserID string, at time.Time) (*models.P115Account, error)
 	CompleteValidationRejected(ctx context.Context, id, expectedCiphertext string, at time.Time) (*models.P115Account, error)
@@ -77,6 +78,15 @@ type AccountSummary struct {
 type ValidationResult struct {
 	Valid   bool            `json:"valid"`
 	Account *AccountSummary `json:"account"`
+}
+
+// ActiveAccountCredential carries the decrypted runtime credential and the
+// non-secret account metadata required by direct-play orchestration.
+type ActiveAccountCredential struct {
+	Role           models.P115AccountRole
+	ProviderUserID string
+	TargetParentID string
+	Credential     p115integration.Credential
 }
 
 // Service owns 115 account validation rules and encrypted credential persistence.
@@ -181,6 +191,44 @@ func (s *Service) LoadCredentialForValidation(ctx context.Context, accountID str
 // LoadActiveCredential decrypts a credential only when the account is enabled and active.
 func (s *Service) LoadActiveCredential(ctx context.Context, accountID string) (p115integration.Credential, error) {
 	return s.loadCredential(ctx, accountID, true)
+}
+
+// LoadActiveCredentialByRole resolves the unique enabled account for one role
+// and returns only the runtime metadata needed by the direct-play service.
+func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P115AccountRole) (ActiveAccountCredential, error) {
+	if role != models.P115AccountRoleSource && role != models.P115AccountRolePlayback {
+		return ActiveAccountCredential{}, ErrInvalidRole
+	}
+	account, err := s.store.GetActiveByRole(ctx, role)
+	if err != nil {
+		return ActiveAccountCredential{}, err
+	}
+	if account.ProviderUserID == nil || strings.TrimSpace(*account.ProviderUserID) == "" {
+		return ActiveAccountCredential{}, ErrAccountUnavailable
+	}
+	targetParentID := ""
+	if account.TargetParentID != nil {
+		targetParentID = strings.TrimSpace(*account.TargetParentID)
+	}
+	if role == models.P115AccountRolePlayback && targetParentID == "" {
+		return ActiveAccountCredential{}, ErrAccountUnavailable
+	}
+	cookie, err := s.cipher.Decrypt(account.CookieCiphertext)
+	if err != nil {
+		log.Printf("[P115Account] 运行期 Cookie 解密失败 accountId=%s role=%s err=%v", account.ID, role, err)
+		return ActiveAccountCredential{}, err
+	}
+	return ActiveAccountCredential{
+		Role:           role,
+		ProviderUserID: strings.TrimSpace(*account.ProviderUserID),
+		TargetParentID: targetParentID,
+		Credential: p115integration.Credential{
+			AccountID: account.ID,
+			Cookie:    cookie,
+			AppType:   account.AppType,
+			UserAgent: account.UserAgent,
+		},
+	}, nil
 }
 
 func (s *Service) loadCredential(ctx context.Context, accountID string, requireActive bool) (p115integration.Credential, error) {

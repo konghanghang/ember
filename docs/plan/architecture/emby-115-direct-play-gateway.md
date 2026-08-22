@@ -89,7 +89,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 ## 实施进度
 
-截至 2026-08-22 已完成账号控制面和 Cookie Provider 离线 PoC：
+截至 2026-08-22 已完成账号控制面、Cookie Provider 合同验证和首个 DirectPlay 生产编排切片：
 
 - 新增 `p115_accounts` 模型、幂等 SQL migration、角色/目标目录检查和启用账号唯一索引。
 - 将 ConfigService 历史 AES-GCM 格式下沉到共享 `security/secretbox`，已有 settings 密文保持兼容；115 Cookie 使用用途隔离派生密钥。
@@ -120,12 +120,15 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `cmd/p115-transfer-contract-check` 和 fake Provider 编排，覆盖 playback 目录解析、双重查重、preID、单次 challenge、目标复核、playback downurl/Range 与文件保留；命令没有 `DeleteFile` 能力，也不连接 PostgreSQL。
 - 修复真实上传响应的 AES 12 字节短尾部与 LZ4 终止语义后，2026-08-22 保留式写入返回 `outcome=passed`：双重查重未命中，`range_challenge → reused` 仅执行一次 challenge，目标约 1,179ms 可见；playback downurl 为 `same_user_agent`、并发上限 `2`，128 KiB Range 与 source SHA1 前缀一致。报告确认 `writePerformed=true`、`created=true`、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
 - 用保留文件再次运行后返回 `outcome=passed`、`writePerformed=false`、`preexisting=true`、`created=false` 和 `challengeCount=0`；没有再次计算 preID、调用上传初始化或目标轮询，只重新签发 playback downurl 并验证 Range，确认第一期重复打开复用语义成立。
+- 新增 `playback_transfer_tasks` 模型、幂等 migration、活动内容 partial unique、终态 provenance 和 `lastAccessedAt`；`VerifySchema` 同步校验新表、代表性列和三个索引。
+- 新增不暴露 HTTP 入口的 `internal/services/directplay`，按角色加载活动账号，以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，锁内二次查重后编排 preID、一次 challenge、秒传、目标复核和锁外直链签发；其窄 Provider 接口不包含 `DeleteFile`。
+- 专用 PostgreSQL 集成数据库的独立 schema 已验证 migration 可重复执行、两个相同内容并发请求只调用一次 fake `InitRapidUpload`、challenge 将 `attemptCount` 记为 2、普通上传要求落为脱敏失败终态；测试不访问真实 115。
 
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 播放网关、按角色加载运行期账号、路径映射持久化、秒传任务、任务所有权、直连会话和运营能力；Cookie Provider 离线合同本身已收口。自动清理和跨副本清理锁明确推迟到第二阶段。
-- 生产数据库唯一任务/advisory lock，以及真实 Emby / Infuse 验证；本地一次写入成功不能证明长期风控、配额或 `hz-sb` 出口行为。
+- 播放网关、路径映射持久化、Emby Token 映射、直连会话和运营查询；账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
+- 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
 
@@ -286,7 +289,7 @@ services/api/internal/integrations/p115/
 记录播放小号秒传：
 
 - 源账号、播放账号、SHA1、size、文件名和目标目录。
-- 状态：`pending`、`checking_target`、`initializing`、`challenging`、`verifying`、`succeeded`、`failed`、`cooling_down`。
+- 当前生产状态：`pending`、`initializing`、`challenging`、`verifying`、`succeeded`、`failed`；目标查重发生在任务创建前，账号冷却继续由 `p115_accounts` 承担，不在任务表预建空状态。
 - 目标 fileId、pickCode、尝试次数、脱敏错误、起止时间和 `last_accessed_at`。
 
 活动任务唯一键为 `playback_account_id + sha1 + size`。
@@ -457,7 +460,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：所有 method、path、请求字段、响应映射、加密向量和未确认项均有固定证据；不能靠猜测进入实现。
 
-当前进度：账号控制面、完整 `CookieProvider` 组合、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量，以及上传信息、源路径解析、查重、秒传初始化、目标复核、下载 URL、受限 Range Hash 和串行删除 fake HTTP Adapter 已完成；本地真实只读检查已通过账号、上传信息、源解析、查重、source downurl 和 128 KiB Range。2026-08-22 受控写入在补齐 AES 短尾部和 LZ4 终止语义后返回 `outcome=passed`，已覆盖一次 Range challenge、秒传复用、目标复核、playback 最终直链、128 KiB Range 和文件保留；随后目录作用域 preexisting 复跑通过，确认不再次上传。数据库锁与 Infuse 验证尚未完成；删除只保留为第二阶段能力，因此阶段 0 仍为进行中。
+当前进度：账号控制面、完整 `CookieProvider`、固定协议向量、fake HTTP Adapter、真实只读、保留式写入和 preexisting 复跑均已完成；方法、字段、加密、Range、目标复核、playback 直链和文件保留已有固定证据。阶段 0 已完成。删除只保留为第二阶段能力。
 
 ### 阶段 1：最小闭环
 
@@ -470,6 +473,8 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 基础会话、并发、冷却、日志和管理员查询。
 
 完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
+
+当前进度：`playback_transfer_tasks`、活动内容唯一约束、session advisory lock、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；PostgreSQL 并发、challenge 次数和失败终态测试通过。剩余路径映射、Emby Token、直连会话、网关代理/302、策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 

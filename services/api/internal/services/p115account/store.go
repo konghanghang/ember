@@ -52,6 +52,21 @@ func (s *gormAccountStore) GetByID(ctx context.Context, id string) (*models.P115
 	return &account, nil
 }
 
+// GetActiveByRole returns the database-constrained enabled account for one runtime role.
+func (s *gormAccountStore) GetActiveByRole(ctx context.Context, role models.P115AccountRole) (*models.P115Account, error) {
+	var account models.P115Account
+	err := s.database(ctx).
+		Where("role = ? AND enabled = ? AND status = ?", role, true, models.P115AccountStatusActive).
+		First(&account).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAccountUnavailable
+	}
+	if err != nil {
+		return nil, safeP115AccountStoreError("get_active_by_role", err)
+	}
+	return &account, nil
+}
+
 func (s *gormAccountStore) ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error) {
 	var account models.P115Account
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {

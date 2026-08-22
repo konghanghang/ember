@@ -93,6 +93,19 @@ func (s *fakeAccountStore) GetByID(_ context.Context, id string) (*models.P115Ac
 	return &copy, nil
 }
 
+func (s *fakeAccountStore) GetActiveByRole(_ context.Context, role models.P115AccountRole) (*models.P115Account, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	for _, account := range s.accounts {
+		if account.Role == role && account.Enabled && account.Status == models.P115AccountStatusActive {
+			copy := *account
+			return &copy, nil
+		}
+	}
+	return nil, ErrAccountUnavailable
+}
+
 func (s *fakeAccountStore) List(_ context.Context) ([]models.P115Account, error) {
 	if s.getErr != nil {
 		return nil, s.getErr
@@ -355,6 +368,35 @@ func TestServiceLoadActiveCredentialRejectsInactiveAccount(t *testing.T) {
 	}
 	if credential.Cookie != "active-cookie" {
 		t.Fatalf("LoadActiveCredential() Cookie = %q", credential.Cookie)
+	}
+}
+
+func TestServiceLoadActiveCredentialByRoleReturnsProviderIdentityAndTarget(t *testing.T) {
+	providerUserID := "provider-playback"
+	targetParentID := "200000002"
+	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
+		"playback": {
+			ID:               "playback",
+			Role:             models.P115AccountRolePlayback,
+			ProviderUserID:   &providerUserID,
+			CookieCiphertext: "encrypted:playback-cookie",
+			AppType:          "ios",
+			UserAgent:        "playback-agent",
+			TargetParentID:   &targetParentID,
+			Status:           models.P115AccountStatusActive,
+			Enabled:          true,
+		},
+	}}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+
+	active, err := service.LoadActiveCredentialByRole(context.Background(), models.P115AccountRolePlayback)
+	if err != nil {
+		t.Fatalf("LoadActiveCredentialByRole() error = %v", err)
+	}
+	if active.Role != models.P115AccountRolePlayback || active.ProviderUserID != providerUserID ||
+		active.TargetParentID != targetParentID || active.Credential.AccountID != "playback" ||
+		active.Credential.Cookie != "playback-cookie" {
+		t.Fatalf("LoadActiveCredentialByRole() = %+v", active)
 	}
 }
 

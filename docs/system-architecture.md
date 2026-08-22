@@ -80,6 +80,7 @@ services/
 │     │  ├─ device_action.go     # DeviceAction（设备操作日志）
 │     │  ├─ media_gap.go         # MediaGap（缺集工单）
 │     │  ├─ p115_account.go      # P115Account（管理员 115 源账号 / 播放账号加密凭证）
+│     │  ├─ playback_transfer_task.go # PlaybackTransferTask（保留式秒传任务与 provenance）
 │     │  ├─ tv_calendar.go       # TVCalendar（追剧日历 + 订阅 + TMDB 缓存）
 │     │  └─ utils.go             # generateCUID()
 │     ├─ integrations/           # 外部系统集成
@@ -145,6 +146,10 @@ services/
 │     │  ├─ p115account/
 │     │  │  ├─ service.go        # 115 管理员账号创建、凭证读取与 Cookie 轮换
 │     │  │  └─ store.go          # p115_accounts GORM 持久化
+│     │  ├─ directplay/
+│     │  │  ├─ service.go        # 目标查重、秒传、复核与直链候选编排
+│     │  │  ├─ store.go          # playback_transfer_tasks 状态与 provenance 持久化
+│     │  │  └─ lock.go           # 内容级 PostgreSQL session advisory lock
 │     │  ├─ policy/
 │     │  │  ├─ effective_policy.go # 普通用户 Emby Policy 统一重算入口
 │     │  │  └─ media_library_settings.go # 分组媒体库模板、用户偏好和同步批次
@@ -305,7 +310,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - 兑换与支付：`redemption_codes`、`redemptions`、`plans`、`plan_groups`、`payments`、`stripe_webhook_events`
 - 内容与行为：`subscriptions`、`subscription_admin_notifications`、`playback_rankings`、`client_blacklists`、`device_actions`
 - 追剧与媒体：`tv_calendar_sources`、`tv_calendar_items`、`tv_calendar_subscriptions`、`tmdb_cache`
-- 系统运行期：`settings`、`failed_emby_async_ops`、`media_gap_scans`、`bot_runtime_locks`
+- 系统运行期：`settings`、`failed_emby_async_ops`、`media_gap_scans`、`bot_runtime_locks`、`playback_transfer_tasks`
 
 ### 4.2 关键关系
 
@@ -315,6 +320,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
 - `P115Account` 是管理员维护的独立外部账号，不归普通用户所有；数据库只保存 Cookie 密文，每个角色至多一条启用记录
+- `PlaybackTransferTask` 通过 source/playback 账号、SHA1 和 size 记录保留式秒传 provenance；签名 URL 与 Cookie 永不落库
 
 ### 4.3 维护约束
 
@@ -700,7 +706,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面，以及凭证验证、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除的完整 Provider 合同适配；尚未实现播放网关。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过，覆盖一次 Range challenge、复用、目标复核、playback 最终直链、128 KiB Range，以及重复运行不再次上传；数据库锁与 Infuse 仍待真实验证，删除没有生产业务调用方：
+当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配，以及不暴露 HTTP 入口的 `directplay.Service` 生产编排；尚未实现播放网关。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 仍待真实验证，删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -710,6 +716,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `SetEnabled(ctx, accountID, enabled)`：事务行锁内要求 `active + providerUserId + lastValidatedAt`，并由 partial unique index 保证每个角色至多一个启用账号、源账号与播放账号不能是同一 Provider 用户
 - `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
+- `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，返回 Provider UID、playback 目标目录和解密后的窄 Credential；Cookie 仍不进入 JSON
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
 - `integrations/p115.CookieProvider`：组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，通过编译期断言完整实现 Provider-neutral 接口；生产账号控制面注入该对象的验证边界，后续 direct play Service 可复用同一具体 Provider
 - `integrations/p115.CookieHTTPAdapter.GetUploadInfo`：固定请求上传信息端点，严格映射顶层 `user_id` / `userkey`，并要求响应用户与 Cookie UID 一致
@@ -731,6 +738,20 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `security/secretbox`：复用 ConfigService 历史 AES-GCM 密文格式，已有 settings 密文保持兼容；115 Cookie 通过 `p115-cookie` purpose 派生独立密钥，禁止与 settings 密文跨用途替换
 - `p115_accounts` 存储使用局部静默 GORM session，避免 PostgreSQL 失败行详情携带 Cookie 密文；错误日志只保留操作名、SQLSTATE 和约束名
 - 数据库约束：`source` / `playback` 每个角色至多一条启用记录；同一 Provider 用户不能同时成为两个启用角色；播放账号必须有目标目录
+
+### 5.25 DirectPlayTransferService (`services/directplay/`)
+
+当前完成的是播放网关之前的生产编排核心，不注册路由、不启动独立服务，也不解析 Emby 请求：
+
+- `TransferProvider` 只包含源路径解析、目标查重、Range Hash、秒传初始化、目标复核和下载 URL；接口刻意不包含 `DeleteFile`，第一阶段无法自动删除保留文件
+- `Resolve` 加载唯一 `active + enabled` 的 source/playback 账号并核对 Provider UID 不同；入参是上层已映射的 `rootId + relativePath + size` 和真实客户端 User-Agent
+- 首次目录作用域查重命中时跳过任务与锁，成功签发直链后刷新最近成功任务的 `lastAccessedAt`；外部预存文件没有 Ember 任务时允许无行更新
+- 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；相同内容的并发请求只有一个进入秒传，其余请求复用目标文件
+- 锁内创建 `playback_transfer_tasks`，状态依次覆盖初始化、一次 challenge、目标复核和终态；真实 Provider message、Cookie、完整路径和签名 URL 均不落库
+- `status=1`、重复/越界 challenge、Provider 故障和目标复核失败均写入固定脱敏失败码；成功保存目标 fileId/pickCode、完成时间和 `lastAccessedAt`
+- advisory lock 固定在一条 PostgreSQL 物理连接上；释放使用独立超时 context，避免请求取消后把 session 锁带回连接池
+- 任务成功并释放锁后才签发本次 playback 下载 URL；需要客户端 Cookie 的 HeaderMode 失败关闭，不向播放器泄露 playback Cookie
+- PostgreSQL 集成测试在独立 `itest_*` schema 中执行完整 migration/`VerifySchema` 并重复执行新 migration，已证明两个并发请求只调用一次 fake `InitRapidUpload`、challenge 后 `attemptCount=2`、普通上传要求落为 `failed`
 
 ---
 
@@ -889,7 +910,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面和完整离线协议 Adapter 已实现，播放网关与真实账号验证尚未完成 | Cookie 密文在 `p115_accounts`，根密钥为 `CONFIG_ENCRYPTION_KEY` |
+| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同和数据库互斥编排已完成，播放网关与 Infuse 验收尚未完成 | Cookie 密文在 `p115_accounts`，根密钥为 `CONFIG_ENCRYPTION_KEY` |
 
 ---
 

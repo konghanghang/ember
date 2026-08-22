@@ -31,6 +31,7 @@ func TestModelTableNames(t *testing.T) {
 		{name: "media quality cache", model: MediaQualityCache{}, want: "media_quality_caches"},
 		{name: "payment", model: Payment{}, want: "payments"},
 		{name: "p115 account", model: P115Account{}, want: "p115_accounts"},
+		{name: "playback transfer task", model: PlaybackTransferTask{}, want: "playback_transfer_tasks"},
 		{name: "plan", model: Plan{}, want: "plans"},
 		{name: "plan group", model: PlanGroup{}, want: "plan_groups"},
 		{name: "playback ranking", model: PlaybackRanking{}, want: "playback_rankings"},
@@ -78,6 +79,7 @@ func TestBeforeCreateGeneratesCUIDWhenIDMissing(t *testing.T) {
 		&MediaQualityCache{},
 		&Payment{},
 		&P115Account{},
+		&PlaybackTransferTask{},
 		&Plan{},
 		&PlaybackRanking{},
 		&Redemption{},
@@ -121,6 +123,17 @@ func TestFailedEmbyAsyncOpBeforeCreateInitializesNextAttemptAt(t *testing.T) {
 
 	if op.NextAttemptAt.IsZero() {
 		t.Fatalf("expected NextAttemptAt to be initialized")
+	}
+}
+
+func TestPlaybackTransferTaskBeforeCreateInitializesAttempt(t *testing.T) {
+	task := &PlaybackTransferTask{}
+
+	callBeforeCreate(t, task)
+
+	if task.Status != PlaybackTransferTaskStatusPending || task.AttemptCount != 1 || task.StartedAt.IsZero() {
+		t.Fatalf("PlaybackTransferTask defaults = status=%s attempts=%d startedAt=%v",
+			task.Status, task.AttemptCount, task.StartedAt)
 	}
 }
 

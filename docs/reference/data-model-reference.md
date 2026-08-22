@@ -558,3 +558,36 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - Cookie 轮换会清空 Provider 用户、验证时间、成功时间、冷却和错误，并回到 `pending + disabled`
 - 启用前必须同时满足 `active`、非空 `provider_user_id` 和非空 `last_validated_at`；检查与更新在事务行锁内完成
 - 验证回写必须匹配发起请求时的 Cookie 密文，防止并发轮换后旧验证结果覆盖新凭证状态
+
+### 2.21 PlaybackTransferTask（115 播放秒传任务）
+
+**表名**: `playback_transfer_tasks` | **文件**: `models/playback_transfer_task.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|---|---|---|---|
+| ID | string(25) | id | CUID 主键 |
+| SourceAccountID | string(25) | sourceAccountId | 本次解析和 Range 使用的 source 账号 |
+| PlaybackAccountID | string(25) | playbackAccountId | 接收文件并签发直链的 playback 账号 |
+| SHA1 | string(40) | sha1 | 大写内容 SHA1；模型 JSON 永不序列化 |
+| Size | int64 | size | 内容字节数，必须大于 0 |
+| FileName | string(1024) | fileName | 秒传使用的文件名，不保存 source 完整路径 |
+| TargetParentID | string(64) | targetParentId | playback 账号的稳定目标目录 ID |
+| Status | enum | status | `pending` / `initializing` / `challenging` / `verifying` / `succeeded` / `failed` |
+| TargetFileID | *string(64) | targetFileId | 成功后的目标文件 ID；模型 JSON 永不序列化 |
+| TargetPickCode | *string(128) | targetPickCode | 成功后的目标 pickCode；模型 JSON 永不序列化 |
+| AttemptCount | int | attemptCount | 上传初始化调用次数；一次 challenge 重试后为 2 |
+| LastErrorCode | *string(100) | lastErrorCode | Ember 生成的脱敏错误码 |
+| LastErrorMessage | *string(500) | lastErrorMessage | Ember 生成的固定错误说明，不保存 Provider 原文 |
+| StartedAt | time.Time | startedAt | 本次任务开始时间 |
+| CompletedAt | *time.Time | completedAt | `succeeded` / `failed` 终态时间 |
+| LastAccessedAt | *time.Time | lastAccessedAt | 成功创建或再次复用 playback 文件的时间 |
+| CreatedAt | time.Time | createdAt | 创建时间 |
+| UpdatedAt | time.Time | updatedAt | 更新时间 |
+
+**约束**：
+
+- 活动状态按 `playback_account_id + sha1 + size` 建立 partial unique index；历史终态不阻止管理员手工删除后的重新秒传
+- source 与 playback 账号必须不同，且都通过外键引用 `p115_accounts`；删除账号前必须先显式处理任务历史
+- `succeeded` 必须具备目标 fileId、pickCode、完成时间和 `last_accessed_at`；`failed` 必须具备完成时间和脱敏错误码
+- 完整 SHA1、目标 fileId/pickCode 和任何签名 URL 都不进入普通 JSON；表中从不保存 Cookie、source 完整路径或下载 URL
+- session advisory lock 不存入本表；Service 使用相同内容键持有 PostgreSQL 物理连接，拿锁后再次查重，再创建活动任务
