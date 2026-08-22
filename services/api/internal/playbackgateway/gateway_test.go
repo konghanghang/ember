@@ -1,0 +1,419 @@
+package playbackgateway
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/konghang/ember/backend/internal/services/embytoken"
+)
+
+const (
+	fixtureAccessToken = "fixture-access-token"
+	fixturePassword    = "fixture-password"
+)
+
+func TestGatewayAuthenticationResponseIsTransparentAndRecordsMapping(t *testing.T) {
+	responseBody := "{\n  \"Unknown\": {\"keep\": true},\n  \"User\": {\"Id\": \"emby-user-1\", \"Name\": \"user\"},\n  \"AccessToken\": \"" + fixtureAccessToken + "\",\n  \"ServerId\": \"server-1\"\n}\n"
+	requestBody := "{\"Username\":\"user\",\"Pw\":\"" + fixturePassword + "\",\"Unknown\":true}"
+
+	var upstreamRequestBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("read upstream request body: %v", err)
+		}
+		upstreamRequestBody = string(body)
+		if request.Method != http.MethodPost || request.URL.Path != authenticationPath || request.URL.RawQuery != "api_key=keep" {
+			t.Fatalf("upstream request = %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
+		}
+		if request.Header.Get("X-Fixture") != "preserved" {
+			t.Fatalf("upstream fixture header = %q", request.Header.Get("X-Fixture"))
+		}
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("X-Upstream", "preserved")
+		writer.Header().Add("Set-Cookie", "first=value; HttpOnly")
+		writer.Header().Add("Set-Cookie", "second=value; Secure")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs, func(*http.Request) AuthenticationMetadata {
+		return AuthenticationMetadata{DeviceID: "device-1", ClientName: "Infuse"}
+	})
+
+	request := httptest.NewRequest(http.MethodPost, authenticationPath+"?api_key=keep", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Fixture", "preserved")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if response.Body.String() != responseBody {
+		t.Fatalf("body changed:\n got %q\nwant %q", response.Body.String(), responseBody)
+	}
+	if response.Header().Get("Content-Type") != "application/json; charset=utf-8" || response.Header().Get("X-Upstream") != "preserved" {
+		t.Fatalf("response headers = %#v", response.Header())
+	}
+	if got := response.Header().Values("Set-Cookie"); len(got) != 2 || got[0] != "first=value; HttpOnly" || got[1] != "second=value; Secure" {
+		t.Fatalf("Set-Cookie = %#v", got)
+	}
+	if upstreamRequestBody != requestBody {
+		t.Fatalf("request body changed: got %q want %q", upstreamRequestBody, requestBody)
+	}
+
+	records, _ := tokenService.snapshot()
+	if len(records) != 1 {
+		t.Fatalf("record count = %d, want 1", len(records))
+	}
+	if got := records[0]; got.ServerID != "server-1" || got.EmbyUserID != "emby-user-1" ||
+		got.AccessToken != fixtureAccessToken || got.DeviceID != "device-1" || got.ClientName != "Infuse" {
+		t.Fatalf("record input = %+v", got)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, requestBody, responseBody)
+}
+
+func TestGatewayDoesNotRecordUnsuccessfulAuthentication(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			body := "{\"status\":" + http.StatusText(status) + ",\"echo\":\"" + fixturePassword + "\"}"
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("X-Upstream-Status", http.StatusText(status))
+				writer.WriteHeader(status)
+				_, _ = io.WriteString(writer, body)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader("{}")))
+
+			if response.Code != status || response.Body.String() != body || response.Header().Get("X-Upstream-Status") != http.StatusText(status) {
+				t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
+			}
+			records, _ := tokenService.snapshot()
+			if len(records) != 0 {
+				t.Fatalf("record count = %d, want 0", len(records))
+			}
+			assertSecretsAbsent(t, logs.String(), fixturePassword, body)
+		})
+	}
+}
+
+func TestGatewayAuthenticationSidecarFailuresNeverChangeSuccessResponse(t *testing.T) {
+	validBody := "{\"User\":{\"Id\":\"emby-user-1\"},\"AccessToken\":\"" + fixtureAccessToken + "\",\"ServerId\":\"server-1\",\"Unknown\":1}"
+	tests := []struct {
+		name           string
+		body           string
+		recordErr      error
+		limit          int64
+		wantRecordCall bool
+		wantLogCode    string
+	}{
+		{
+			name:           "mapping write fails",
+			body:           validBody,
+			recordErr:      errors.New("store failed with " + fixtureAccessToken + " and " + fixturePassword),
+			wantRecordCall: true,
+			wantLogCode:    "authentication_mapping_failed",
+		},
+		{
+			name:        "success body is not json",
+			body:        "not-json " + fixtureAccessToken,
+			wantLogCode: "authentication_response_invalid",
+		},
+		{
+			name:        "success body exceeds inspection limit",
+			body:        validBody + strings.Repeat("x", 128),
+			limit:       32,
+			wantLogCode: "authentication_response_too_large",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{recordErr: test.recordErr}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+			if test.limit > 0 {
+				gateway.maxAuthenticationResponseBytes = test.limit
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader("{}")))
+
+			if response.Code != http.StatusOK || response.Body.String() != test.body {
+				t.Fatalf("response changed: status=%d body=%q", response.Code, response.Body.String())
+			}
+			records, _ := tokenService.snapshot()
+			if (len(records) == 1) != test.wantRecordCall {
+				t.Fatalf("record count = %d, wantRecordCall=%t", len(records), test.wantRecordCall)
+			}
+			if !strings.Contains(logs.String(), "code="+test.wantLogCode) {
+				t.Fatalf("logs = %q, want code=%s", logs.String(), test.wantLogCode)
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, test.body)
+		})
+	}
+}
+
+func TestGatewayProtectedRequestRequiresMappedTokenBeforeProxy(t *testing.T) {
+	var upstreamCalls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls++
+		if request.Header.Get(accessTokenHeader) != fixtureAccessToken {
+			t.Fatalf("upstream token header changed")
+		}
+		writer.Header().Set("X-Upstream", "called")
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+	request := httptest.NewRequest(http.MethodGet, "/emby/Items/fixture", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent || response.Header().Get("X-Upstream") != "called" || upstreamCalls != 1 {
+		t.Fatalf("response=%d headers=%v upstreamCalls=%d", response.Code, response.Header(), upstreamCalls)
+	}
+	_, resolved := tokenService.snapshot()
+	if len(resolved) != 1 || resolved[0] != fixtureAccessToken {
+		t.Fatalf("resolved tokens = %#v", resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+}
+
+func TestGatewayProtectedRequestFailsClosedWithoutCallingUpstream(t *testing.T) {
+	tests := []struct {
+		name       string
+		token      string
+		duplicate  bool
+		resolveErr error
+		wantStatus int
+	}{
+		{name: "missing token", wantStatus: http.StatusUnauthorized},
+		{name: "duplicate token header", token: fixtureAccessToken, duplicate: true, wantStatus: http.StatusUnauthorized},
+		{name: "unknown token", token: fixtureAccessToken, resolveErr: embytoken.ErrTokenNotFound, wantStatus: http.StatusUnauthorized},
+		{name: "revoked token", token: fixtureAccessToken, resolveErr: embytoken.ErrTokenRevoked, wantStatus: http.StatusUnauthorized},
+		{name: "invalid token", token: fixtureAccessToken, resolveErr: embytoken.ErrInvalidInput, wantStatus: http.StatusUnauthorized},
+		{name: "identity mismatch", token: fixtureAccessToken, resolveErr: embytoken.ErrIdentityMismatch, wantStatus: http.StatusUnauthorized},
+		{name: "disabled user", token: fixtureAccessToken, resolveErr: embytoken.ErrUserUnavailable, wantStatus: http.StatusForbidden},
+		{name: "expired user", token: fixtureAccessToken, resolveErr: embytoken.ErrUserExpired, wantStatus: http.StatusForbidden},
+		{name: "store failure", token: fixtureAccessToken, resolveErr: errors.New("database failed with " + fixtureAccessToken), wantStatus: http.StatusServiceUnavailable},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstreamCalls := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls++
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{resolveErr: test.resolveErr}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+			request := httptest.NewRequest(http.MethodGet, "/emby/Items/fixture", nil)
+			if test.token != "" {
+				request.Header.Add(accessTokenHeader, test.token)
+			}
+			if test.duplicate {
+				request.Header.Add(accessTokenHeader, "second-token")
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, test.wantStatus)
+			}
+			if response.Body.Len() != 0 {
+				t.Fatalf("body = %q, want empty", response.Body.String())
+			}
+			if upstreamCalls != 0 {
+				t.Fatalf("upstream calls = %d, want 0", upstreamCalls)
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "second-token")
+		})
+	}
+}
+
+func TestGatewayUpstreamFailureIsSanitized(t *testing.T) {
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	upstreamURL, err := url.Parse("http://upstream.invalid")
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	gateway, err := New(Config{
+		Upstream:     upstreamURL,
+		TokenService: tokenService,
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("dial http://user:" + fixturePassword + "@upstream.invalid/?token=" + fixtureAccessToken)
+		}),
+		Logger: log.New(&logs, "", 0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/emby/Items/fixture", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadGateway || response.Body.Len() != 0 {
+		t.Fatalf("response = status %d body %q", response.Code, response.Body.String())
+	}
+	if !strings.Contains(logs.String(), "code=upstream_unavailable") {
+		t.Fatalf("logs = %q", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, "upstream.invalid")
+}
+
+func TestNewRejectsUnsafeOrIncompleteConfiguration(t *testing.T) {
+	tokenService := &fakeTokenService{}
+	tests := []struct {
+		name         string
+		upstream     string
+		nilUpstream  bool
+		tokenService TokenService
+	}{
+		{name: "missing upstream", nilUpstream: true, tokenService: tokenService},
+		{name: "non http scheme", upstream: "ftp://emby.internal", tokenService: tokenService},
+		{name: "upstream credentials", upstream: "http://user:password@emby.internal", tokenService: tokenService},
+		{name: "upstream query", upstream: "http://emby.internal?api_key=secret", tokenService: tokenService},
+		{name: "upstream fragment", upstream: "http://emby.internal#fragment", tokenService: tokenService},
+		{name: "missing token service", upstream: "http://emby.internal"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstream *url.URL
+			if !test.nilUpstream {
+				parsed, err := url.Parse(test.upstream)
+				if err != nil {
+					t.Fatalf("parse test upstream: %v", err)
+				}
+				upstream = parsed
+			}
+			if _, err := New(Config{Upstream: upstream, TokenService: test.tokenService}); err == nil {
+				t.Fatal("New() error = nil, want invalid configuration error")
+			}
+		})
+	}
+}
+
+func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+		want   routeKind
+	}{
+		{method: http.MethodPost, path: authenticationPath, want: routeAuthentication},
+		{method: http.MethodGet, path: authenticationPath, want: routeProtected},
+		{method: http.MethodPost, path: authenticationPath + "/", want: routeProtected},
+		{method: http.MethodPost, path: "/emby/users/authenticatebyname", want: routeProtected},
+		{method: http.MethodPost, path: "/emby%2FUsers%2FAuthenticateByName", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/System/Info/Public", want: routeProtected},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest(test.method, test.path, nil)
+		if got := classifyRoute(request); got != test.want {
+			t.Fatalf("classifyRoute(%s %s) = %v, want %v", test.method, test.path, got, test.want)
+		}
+	}
+}
+
+func newTestGateway(
+	t *testing.T,
+	upstreamRawURL string,
+	tokenService *fakeTokenService,
+	logs *bytes.Buffer,
+	extractor AuthenticationMetadataExtractor,
+) *Gateway {
+	t.Helper()
+	upstreamURL, err := url.Parse(upstreamRawURL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	gateway, err := New(Config{
+		Upstream:                        upstreamURL,
+		TokenService:                    tokenService,
+		Logger:                          log.New(logs, "", 0),
+		AuthenticationMetadataExtractor: extractor,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return gateway
+}
+
+func assertSecretsAbsent(t *testing.T, value string, secrets ...string) {
+	t.Helper()
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(value, secret) {
+			t.Fatalf("secret %q leaked in %q", secret, value)
+		}
+	}
+}
+
+type fakeTokenService struct {
+	mu         sync.Mutex
+	records    []embytoken.AuthenticationResultInput
+	resolved   []string
+	recordErr  error
+	resolveErr error
+}
+
+func (service *fakeTokenService) RecordAuthenticationResult(
+	_ context.Context,
+	input embytoken.AuthenticationResultInput,
+) (embytoken.AuthenticationMapping, error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.records = append(service.records, input)
+	return embytoken.AuthenticationMapping{}, service.recordErr
+}
+
+func (service *fakeTokenService) ResolvePrincipal(_ context.Context, accessToken string) (embytoken.Principal, error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.resolved = append(service.resolved, accessToken)
+	return embytoken.Principal{}, service.resolveErr
+}
+
+func (service *fakeTokenService) snapshot() ([]embytoken.AuthenticationResultInput, []string) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return append([]embytoken.AuthenticationResultInput(nil), service.records...), append([]string(nil), service.resolved...)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}

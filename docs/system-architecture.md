@@ -98,6 +98,8 @@ services/
 │     │  │  └─ p115cipher/       # Cookie 上传 AES/LZ4 与下载 RSA 固定向量协议层
 │     │  └─ notifier/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
+│     ├─ playbackgateway/
+│     │  └─ gateway.go           # Emby 认证透明代理、Token 门控和脱敏传输错误边界
 │     ├─ services/               # 业务逻辑
 │     │  ├─ accessauth/
 │     │  │  └─ admin_api_key.go  # 全局 Admin API Key 生成、hash、禁用与校验
@@ -772,7 +774,21 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `ResolvePrincipal` 每次重新读取用户，动态检查停用、Emby 禁用、Emby 访问禁用、解绑和到期；`lastSeenAt` 至少按 5 分钟窗口限频更新
 - `RevokeToken`、`RevokeDevice`、`RevokeUserTokens` 使用固定原因和操作者写入软撤销审计；这只保证未来 Playback Gateway 本地拒绝，不宣称 Emby Server 已吊销原始 Token
 - 独立 PostgreSQL schema 集成测试已覆盖 8 路并发认证只生成一条映射、身份冲突、三种撤销粒度、重新认证、动态到期和用户删除后的审计保留
-- 尚未完成认证响应透明代理、受保护请求 Token 提取与门控、设备/用户状态变更调用撤销方法，以及 PlaybackInfo 当前授权证明；因此这部分还没有用户可见入口
+- `internal/playbackgateway` 已通过窄接口调用 `RecordAuthenticationResult/ResolvePrincipal`；设备/用户状态变更仍未调用撤销方法，PlaybackInfo 当前授权证明也尚未实现
+
+### 5.27 Playback Gateway HTTP 核心 (`internal/playbackgateway/`)
+
+当前完成的是可注入的标准 `http.Handler` 传输核心，不注册现有 API 路由、不启动监听器，也不构成可部署的数据面进程：
+
+- 只把精确 `POST /emby/Users/AuthenticateByName` 识别为认证路由；method、大小写、尾斜杠或 percent-encoding 变体全部进入受保护门控
+- 认证请求透明转发；上游 `200` 响应最多旁路检查 `1 MiB`，只读取 `User.Id/AccessToken/ServerId`，恢复原始字节、状态和普通 Header 后再返回客户端，未知 JSON 字段不重编码
+- 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；日志只记录固定 code 和错误类型，不记录密码、AccessToken、URL 或响应体
+- 设备元数据使用可注入提取器；目标 Infuse 的元数据 Header 尚未实机确认，因此核心不猜测 `X-Emby-Authorization`、query token 或其他载体，默认记录空设备元数据
+- 其他请求必须携带唯一 `X-Emby-Token` 并先通过 `ResolvePrincipal`；缺失、重复、未映射、已撤销或身份错配返回空体 `401`，用户不可用或到期返回空体 `403`，身份存储故障返回空体 `503`，请求不会到达 Emby
+- 当前没有未认证 public bootstrap allowlist；目标 Emby/Infuse 登录前请求序列完成版本化核对前，`System/Info/Public` 等路径不会猜测式放行
+- 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
+- fake Emby 测试已覆盖认证请求/响应透明、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
+- 尚未完成 `cmd/playback-gateway`、运行期配置与部署入口、状态联动撤销、public bootstrap 合同、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收
 
 ---
 

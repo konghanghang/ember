@@ -37,7 +37,7 @@ Emby 客户端
 边界约束：
 
 - 网关必须成为公网唯一 Emby 入口；原始 Emby Server 只允许内网或受控运维访问。
-- 未明确列入本文合同的接口默认透明转发，不做猜测式改写。
+- 已通过 Token 门控的普通接口默认透明转发，不做猜测式改写；未认证 public bootstrap 路由必须先完成同版本合同核对，再加入显式 allowlist。
 - 网关不得使用客户端提交的 `UserId` 作为最终身份依据，必须由 Emby AccessToken 映射到 Ember 用户。
 - 视频字节在 302 成功后由客户端直接向 115 CDN 请求，不经过 Ember API、播放网关或 Emby Server。
 - 网关不得记录 AccessToken、完整 115 直链、Cookie 或其他可复用凭证。
@@ -104,9 +104,22 @@ Ember 本地撤销固定三种粒度：
 
 要让设备强制退出成立，所有受保护的公网 Emby 请求都必须先通过 Token 映射检查，而不是只在 115 视频分支检查。部署时原始 Emby 端口必须只对网关和运维网络开放；否则客户端可以绕过 Ember 使用仍被 Emby 接受的原 Token。首次切换到网关后，历史 Emby Token 没有明文可安全回填，客户端需要重新登录一次建立映射。
 
-截至 2026-08-22，`emby_access_tokens` migration、purpose 隔离 HMAC、并发安全 upsert、实时用户资格解析和三种本地撤销 Service 已实现并通过 fake/独立 PostgreSQL 测试。认证代理、Token 载体提取、用户/设备状态联动和 Playback Gateway 门控尚未接入；当前实现不能单独证明设备已被强制退出，也没有真实请求目标 Emby。
+截至 2026-08-22，`emby_access_tokens` migration、purpose 隔离 HMAC、并发安全 upsert、实时用户资格解析和三种本地撤销 Service 已实现并通过 fake/独立 PostgreSQL 测试。`internal/playbackgateway` 已接入认证响应旁路映射和 `X-Emby-Token` 门控核心，但尚无进程入口、状态联动和真实 Emby 请求；当前实现仍不能单独证明设备已被强制退出。
 
-### 3.3 暂不覆盖的认证方式
+### 3.3 当前 HTTP 门控核心
+
+在独立网关进程和部署入口落地前，当前 `internal/playbackgateway` 固定以下可测试行为：
+
+- 只有 method、大小写、尾斜杠和 escaped path 都精确匹配的 `POST /emby/Users/AuthenticateByName` 免 Token 门控；其余路径默认受保护。
+- 认证上游只有 `200` 才旁路解析；响应检查上限为 `1 MiB`。合法响应逐字节恢复后返回，字段顺序、空白和未知字段不重编码。
+- 不合法、超过检查上限或映射写入失败的成功响应仍原样返回，但该 Token 不建立映射，下一次受保护请求失败关闭。
+- 受保护请求只接受唯一的 `X-Emby-Token`。缺失、重复、未映射、已撤销和身份错配返回空体 `401`；当前用户不可用或到期返回空体 `403`；身份存储不可用返回空体 `503`。
+- 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
+- 目标 Infuse 的登录前 public bootstrap 路径和设备元数据载体尚未确认。当前不放行 `System/Info/Public` 等猜测路径，也不解析 `X-Emby-Authorization`；后续必须先补版本化合同和 fake fixture。
+
+这仍是无监听器的内部核心，不表示目标 Emby/Infuse 已可用，也不包含 PlaybackInfo、视频 302 或播放会话。
+
+### 3.4 暂不覆盖的认证方式
 
 首版不根据经验实现以下认证方式：
 
