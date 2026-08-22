@@ -59,7 +59,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 管理端已有活跃会话、播放历史、设备管理、客户端黑名单和设备操作日志。
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
-- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面、Cookie 登录状态验证、上传信息、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL 合同适配和 Provider-neutral 接口；尚未实现播放网关和任何真实 115 调用。
+- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除；尚未实现播放网关和任何真实 115 调用。
 - 当前仍没有播放数据面进程、Emby AccessToken 到 Ember 用户的映射、秒传任务或直连会话模型。
 
 ### 外部证据与未确认项
@@ -87,7 +87,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 ## 实施进度
 
-截至 2026-08-21 已完成账号控制面和上传加密离线 PoC：
+截至 2026-08-22 已完成账号控制面和 Cookie Provider 离线 PoC：
 
 - 新增 `p115_accounts` 模型、幂等 SQL migration、角色/目标目录检查和启用账号唯一索引。
 - 将 ConfigService 历史 AES-GCM 格式下沉到共享 `security/secretbox`，已有 settings 密文保持兼容；115 Cookie 使用用途隔离派生密钥。
@@ -108,12 +108,14 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `CookieHTTPAdapter.FindTargetFile`，固定目标目录搜索短字段和完整身份校验，并用 fake clock 锁定立即查询、500ms 轮询、10s 最终截止查询、取消、歧义和错误不重试。
 - 新增 `CookieHTTPAdapter.GetDownloadURL`，固定 Chrome downurl RSA request/response seam、真实客户端 UA、HTTPS 115 域名 allowlist、`t/c/f`、并发上限、过期和脱敏错误映射。
 - 新增 `CookieHTTPAdapter.DeleteFile`，固定单文件 `fid` 表单和响应映射，并按 Provider UID 使用进程内共享锁串行删除；跨 UID 可并行，锁等待支持取消。
+- 新增具体 `CookieProvider`，组合账号验证与全部数据面 Adapter，并通过编译期断言保证完整实现 Provider-neutral 接口；生产账号控制面已注入该实现。
+- 新增 `CookieHTTPAdapter.ResolveFileByPath`，在显式 `rootId` 下逐级分页列举 `/files`，精确匹配目录和最终文件名/size，拒绝无效 cid 回退、重名歧义、分页漂移和超大目录。
+- 新增 `CookieHTTPAdapter.HashFileRange`，在 Provider 内获取源账号签名 URL，只读取最大 `1 MiB` 的指定 Range，严格校验 `206`、`Content-Range`、`Content-Length` 与 HeaderMode，只向业务层返回 SHA1 和读取字节数。
 
 仍未完成：
 
 - 两个目标账号的真实 Cookie 只读验证；当前无法确认真实响应、账号 UID、User-Agent 和风控边界。
-- 播放网关、任务所有权/分布式清理锁和运营能力；Cookie Provider 的上传信息、查重、秒传、目标复核、下载 URL、串行删除和加密固定向量已完成。
-- 秒传任务、下载直链和播放网关。
+- 播放网关、按角色加载运行期账号、路径映射持久化、秒传任务、任务所有权/分布式清理锁、直连会话和运营能力；Cookie Provider 离线合同本身已收口。
 - 任何真实 115 / Emby / Infuse 验证。
 
 ## 方案设计
@@ -202,7 +204,7 @@ services/api/internal/integrations/p115/
 - `internal/integrations/p115`：Provider 接口、Cookie HTTP 适配、上传加密和原始 DTO 映射。
 - `internal/integrations/emby`：补充固定合同中的播放信息查询，不把网关业务塞进现有 Emby Client。
 
-业务层只依赖 `ValidateCredential`、`GetUploadInfo`、`SearchBySHA1`、`InitRapidUpload`、`GetDownloadURL`、`FindTargetFile` 和 `DeleteFile` 等内部语义。Cookie 端点、原始状态码和加密算法不能泄漏到 Service。
+业务层只依赖 `ValidateCredential`、`GetUploadInfo`、`ResolveFileByPath`、`SearchBySHA1`、`InitRapidUpload`、`GetDownloadURL`、`FindTargetFile`、`HashFileRange` 和 `DeleteFile` 等内部语义。Cookie 端点、原始状态码、签名 URL、Range 源字节和加密算法不能泄漏到 Service。
 
 首版不新增 Redis。任务幂等和账号级互斥使用 PostgreSQL 唯一约束与 advisory lock；真实负载证明不足时再另行提案。
 
@@ -351,7 +353,7 @@ services/api/internal/integrations/p115/
 
 1. PlaybackInfo 透明转发并记录 ItemId、MediaSourceId 和 PlaySessionId。
 2. 原始视频流请求到达后，校验 Token、用户、套餐、黑名单和并发。
-3. 从缓存或 Emby 媒体源解析路径、SHA1 和 size。
+3. 从缓存读取源文件身份，或把 Emby `Path + Size` 经显式路径映射转换为 `rootId + relativePath + size`，调用源账号 `ResolveFileByPath` 得到 fileId、pickCode、SHA1 和 size。
 4. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
 5. 使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
 6. 校验过期时间、Header 要求和域名 allowlist，兼容时返回 302。
@@ -362,7 +364,7 @@ services/api/internal/integrations/p115/
 2. 获取数据库互斥后再次查重。
 3. Cookie Provider 调用上传初始化。
 4. `status=2`：进入目标文件复核。
-5. `status=7`：校验 `sign_check`，使用源账号只读取指定 Range，计算 SHA1 后再次初始化。
+5. `status=7`：使用源账号 `HashFileRange` 在 Provider 内读取指定 Range，只取得 SHA1 后再次初始化；源直链、Cookie 和字节内容不进入 Service。
 6. `status=1`：需要普通上传，明确失败；禁止完整文件中转。
 7. 其他状态：映射脱敏错误并失败。
 8. 只有明确复用且在目标目录确认 SHA1、size 一致后，才获取播放小号直链并返回 302。
@@ -442,7 +444,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：所有 method、path、请求字段、响应映射、加密向量和未确认项均有固定证据；不能靠猜测进入实现。
 
-当前进度：账号控制面、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量，以及上传信息、查重、秒传初始化、目标复核、下载 URL、串行删除 HTTP Adapter 已完成；受控真实账号/测试文件和 Infuse 验证尚未完成，因此阶段 0 仍为进行中。
+当前进度：账号控制面、完整 `CookieProvider` 组合、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量，以及上传信息、源路径解析、查重、秒传初始化、目标复核、下载 URL、受限 Range Hash 和串行删除 fake HTTP Adapter 已完成；受控真实账号/测试文件和 Infuse 验证尚未完成，因此阶段 0 仍为进行中。
 
 ### 阶段 1：最小闭环
 
@@ -504,7 +506,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 测试分层：
 
 - Emby 合同：固定认证、PlaybackInfo、视频流、字幕和播放事件 fixture。
-- 115 合同：Cookie 脱敏、SHA1 查重、`status=2`、`status=7`、`status=1`、下载 Header 和错误映射。
+- 115 合同：Cookie 脱敏、源路径逐级解析、SHA1 查重、`status=2`、`status=7`、受限 Range Hash、`status=1`、下载 Header 和错误映射。
 - 加密合同：请求加密、响应解密、LZ4、签名和 token 固定向量。
 - Service：用户资格、路径、状态机、冷却、直链兼容和 fail-closed。
 - PostgreSQL：迁移、角色唯一性、Cookie 密文、任务幂等、advisory lock 和会话收口。

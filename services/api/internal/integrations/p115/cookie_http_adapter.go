@@ -3,6 +3,7 @@ package p115
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -32,15 +33,20 @@ const (
 	targetSearchLimit            = 100
 	targetVisibilityPollInterval = 500 * time.Millisecond
 	targetVisibilityTimeout      = 10 * time.Second
+	sourceResolvePageSize        = 200
+	sourceResolveMaxEntries      = 10_000
+	maxSourcePathLength          = 4 * 1024
+	maxSourcePathSegmentLength   = 1024
+	maxSourceRangeBytes          = 1024 * 1024
 )
 
-// CookieHTTPAdapter implements Cookie/Web API operations that have fixed
-// request and response contracts. Remaining Provider methods are added only
-// after their own contract tests exist.
+// CookieHTTPAdapter implements the Cookie/Web data-plane operations whose
+// request and response contracts are fixed by fake HTTP tests.
 type CookieHTTPAdapter struct {
 	client                  httpDoer
 	uploadInfoEndpoint      *url.URL
 	shaSearchEndpoint       *url.URL
+	sourceListEndpoint      *url.URL
 	targetSearchEndpoint    *url.URL
 	uploadInitEndpoint      *url.URL
 	downloadEndpoint        *url.URL
@@ -53,6 +59,8 @@ type CookieHTTPAdapter struct {
 	wait                    func(context.Context, time.Duration) error
 	targetPollInterval      time.Duration
 	targetVisibilityTimeout time.Duration
+	sourceResolvePageSize   int
+	sourceResolveMaxEntries int
 }
 
 // NewCookieHTTPAdapter builds the production adapter without performing a network call.
@@ -84,6 +92,9 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 	targetSearchURL := *shaSearchURL
 	targetSearchURL.Path = "/files/search"
 	targetSearchURL.RawPath = ""
+	sourceListURL := *shaSearchURL
+	sourceListURL.Path = "/files"
+	sourceListURL.RawPath = ""
 	downloadURL := *uploadInfoURL
 	downloadURL.Path = "/app/chrome/downurl"
 	downloadURL.RawPath = ""
@@ -94,6 +105,7 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 		client:                  client,
 		uploadInfoEndpoint:      uploadInfoURL,
 		shaSearchEndpoint:       shaSearchURL,
+		sourceListEndpoint:      &sourceListURL,
 		targetSearchEndpoint:    &targetSearchURL,
 		uploadInitEndpoint:      uploadInitURL,
 		downloadEndpoint:        &downloadURL,
@@ -106,6 +118,8 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 		wait:                    waitForCookieTargetPoll,
 		targetPollInterval:      targetVisibilityPollInterval,
 		targetVisibilityTimeout: targetVisibilityTimeout,
+		sourceResolvePageSize:   sourceResolvePageSize,
+		sourceResolveMaxEntries: sourceResolveMaxEntries,
 	}, nil
 }
 
@@ -188,6 +202,54 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 		return []File{}, nil
 	}
 	return []File{file}, nil
+}
+
+// ResolveFileByPath traverses exact relative path segments below one explicit
+// root and returns a unique file whose name and size match the Emby source.
+func (a *CookieHTTPAdapter) ResolveFileByPath(
+	ctx context.Context,
+	credential Credential,
+	query FilePathQuery,
+) (*File, error) {
+	if _, err := validateCookieHTTPCredential(credential); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeFilePathQuery(query)
+	if err != nil {
+		return nil, err
+	}
+
+	parentID := normalized.RootID
+	for index, segment := range normalized.Segments {
+		entries, err := a.listSourceDirectory(ctx, credential, parentID)
+		if err != nil {
+			return nil, err
+		}
+		wantDirectory := index < len(normalized.Segments)-1
+		matches := make([]File, 0, 1)
+		for _, entry := range entries {
+			if entry.Name != segment || entry.IsDirectory != wantDirectory {
+				continue
+			}
+			if !wantDirectory && entry.Size != normalized.Size {
+				continue
+			}
+			matches = append(matches, entry)
+		}
+		if len(matches) == 0 {
+			return nil, ErrSourceFileNotFound
+		}
+		if len(matches) != 1 {
+			return nil, ErrSourceFileAmbiguous
+		}
+		if wantDirectory {
+			parentID = matches[0].ID
+			continue
+		}
+		file := matches[0]
+		return &file, nil
+	}
+	return nil, ErrSourceFileNotFound
 }
 
 // FindTargetFile polls the playback account's target directory until exactly
@@ -426,6 +488,78 @@ func (a *CookieHTTPAdapter) GetDownloadURL(ctx context.Context, credential Crede
 	return parseDownloadURL(rawURL, a.now().UTC(), a.downloadHostAllowed)
 }
 
+// HashFileRange fetches exactly one bounded source range and returns its SHA1
+// without exposing the signed URL, Cookie, or source bytes to business code.
+func (a *CookieHTTPAdapter) HashFileRange(
+	ctx context.Context,
+	credential Credential,
+	request FileRangeRequest,
+) (FileRangeHash, error) {
+	if _, err := validateCookieHTTPCredential(credential); err != nil {
+		return FileRangeHash{}, err
+	}
+	expectedBytes, err := validateFileRangeRequest(request)
+	if err != nil {
+		return FileRangeHash{}, err
+	}
+	download, err := a.GetDownloadURL(ctx, credential, DownloadURLRequest{
+		PickCode:  request.File.PickCode,
+		UserAgent: credential.UserAgent,
+	})
+	if err != nil {
+		return FileRangeHash{}, err
+	}
+
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, download.URL, nil)
+	if err != nil {
+		return FileRangeHash{}, protocolError("range request build failed")
+	}
+	httpRequest.Header.Set("Accept", "*/*")
+	httpRequest.Header.Set("Accept-Encoding", "identity")
+	httpRequest.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", request.Range.Start, request.Range.End))
+	httpRequest.Header.Set("User-Agent", credential.UserAgent)
+	switch download.HeaderMode {
+	case DownloadHeadersNone, DownloadHeadersSameUserAgent:
+	case DownloadHeadersSameUserAgentAndCookie:
+		httpRequest.Header.Set("Cookie", credential.Cookie)
+	default:
+		return FileRangeHash{}, ErrDownloadURLIncompatible
+	}
+
+	response, err := a.client.Do(httpRequest)
+	if err != nil {
+		if ctx.Err() != nil {
+			return FileRangeHash{}, ctx.Err()
+		}
+		return FileRangeHash{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusPartialContent {
+		if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+			return FileRangeHash{}, protocolError("range response status invalid")
+		}
+		return FileRangeHash{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamHTTPError("p115", response.StatusCode))
+	}
+	if encoding := strings.TrimSpace(response.Header.Get("Content-Encoding")); encoding != "" && !strings.EqualFold(encoding, "identity") {
+		return FileRangeHash{}, protocolError("range response encoding invalid")
+	}
+	if err := validateRangeResponseHeaders(response, request.Range, request.File.Size, expectedBytes); err != nil {
+		return FileRangeHash{}, err
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, expectedBytes+1))
+	if err != nil {
+		if ctx.Err() != nil {
+			return FileRangeHash{}, ctx.Err()
+		}
+		return FileRangeHash{}, protocolError("range response read failed")
+	}
+	if int64(len(body)) != expectedBytes {
+		return FileRangeHash{}, protocolError("range response length invalid")
+	}
+	hash := sha1.Sum(body)
+	return FileRangeHash{SHA1: strings.ToUpper(hex.EncodeToString(hash[:])), BytesRead: expectedBytes}, nil
+}
+
 // DeleteFile serializes destructive requests by normalized Provider UID and
 // deletes exactly one caller-verified file ID.
 func (a *CookieHTTPAdapter) DeleteFile(ctx context.Context, credential Credential, fileID string) error {
@@ -524,6 +658,223 @@ func (a *CookieHTTPAdapter) getJSON(
 	}
 	if err := json.Unmarshal(body, target); err != nil {
 		return protocolError("response JSON invalid")
+	}
+	return nil
+}
+
+// listSourceDirectory reads a stable, bounded snapshot of one directory so
+// path resolution can detect duplicate names instead of accepting a first hit.
+func (a *CookieHTTPAdapter) listSourceDirectory(
+	ctx context.Context,
+	credential Credential,
+	parentID string,
+) ([]File, error) {
+	pageSize := a.sourceResolvePageSize
+	if pageSize <= 0 || pageSize > sourceResolvePageSize {
+		pageSize = sourceResolvePageSize
+	}
+	maxEntries := a.sourceResolveMaxEntries
+	if maxEntries <= 0 || maxEntries > sourceResolveMaxEntries {
+		maxEntries = sourceResolveMaxEntries
+	}
+
+	entries := make([]File, 0)
+	expectedCount := -1
+	for offset := 0; ; {
+		var response struct {
+			State  *bool             `json:"state"`
+			CID    jsonUint64        `json:"cid"`
+			Count  jsonUint64        `json:"count"`
+			Offset jsonUint64        `json:"offset"`
+			Data   []json.RawMessage `json:"data"`
+		}
+		params := url.Values{
+			"aid":           {"1"},
+			"asc":           {"1"},
+			"cid":           {parentID},
+			"count_folders": {"1"},
+			"cur":           {"1"},
+			"fc_mix":        {"1"},
+			"limit":         {strconv.Itoa(pageSize)},
+			"o":             {"file_name"},
+			"offset":        {strconv.Itoa(offset)},
+			"show_dir":      {"1"},
+		}
+		if err := a.getJSON(ctx, a.sourceListEndpoint, params, credential, &response); err != nil {
+			return nil, err
+		}
+		if response.State == nil {
+			return nil, protocolError("source list response state missing")
+		}
+		if !*response.State {
+			return nil, ErrProviderRejected
+		}
+		if !response.CID.set || !response.Count.set || !response.Offset.set || response.Data == nil ||
+			response.Count.value > math.MaxInt || response.Offset.value > math.MaxInt {
+			return nil, protocolError("source list response fields missing")
+		}
+		if strconv.FormatUint(response.CID.value, 10) != parentID {
+			return nil, ErrSourceFileNotFound
+		}
+		count := int(response.Count.value)
+		if count > maxEntries {
+			return nil, ErrSourceDirectoryTooLarge
+		}
+		if expectedCount < 0 {
+			expectedCount = count
+		} else if expectedCount != count {
+			return nil, protocolError("source list count changed")
+		}
+		if int(response.Offset.value) != offset || offset > count || offset+len(response.Data) > count {
+			return nil, protocolError("source list pagination invalid")
+		}
+		if len(response.Data) == 0 && offset < count {
+			return nil, protocolError("source list page empty")
+		}
+		for _, raw := range response.Data {
+			entry, err := decodeSourceListEntry(raw)
+			if err != nil {
+				return nil, err
+			}
+			if entry.ParentID != parentID {
+				return nil, protocolError("source list parent mismatch")
+			}
+			entries = append(entries, entry)
+		}
+		offset += len(response.Data)
+		if offset >= count {
+			return entries, nil
+		}
+	}
+}
+
+// decodeSourceListEntry maps the pinned web /files short fields without
+// accepting aliases from unrelated Provider endpoints.
+func decodeSourceListEntry(data json.RawMessage) (File, error) {
+	var payload struct {
+		FileID     jsonUint64 `json:"fid"`
+		CategoryID jsonUint64 `json:"cid"`
+		ParentID   jsonUint64 `json:"pid"`
+		Name       *string    `json:"n"`
+		PickCode   *string    `json:"pc"`
+		SHA1       *string    `json:"sha"`
+		Size       jsonUint64 `json:"s"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return File{}, protocolError("source list item invalid")
+	}
+	if payload.Name == nil || !payload.CategoryID.set {
+		return File{}, protocolError("source list fields missing")
+	}
+	name := *payload.Name
+	if strings.TrimSpace(name) == "" || !utf8.ValidString(name) || strings.ContainsAny(name, "\x00\r\n") {
+		return File{}, protocolError("source list name invalid")
+	}
+	if !payload.FileID.set {
+		if payload.CategoryID.value == 0 || !payload.ParentID.set {
+			return File{}, protocolError("source directory fields missing")
+		}
+		return File{
+			ID:          strconv.FormatUint(payload.CategoryID.value, 10),
+			ParentID:    strconv.FormatUint(payload.ParentID.value, 10),
+			Name:        name,
+			IsDirectory: true,
+		}, nil
+	}
+	if payload.FileID.value == 0 || payload.PickCode == nil || payload.SHA1 == nil || !payload.Size.set ||
+		payload.Size.value > math.MaxInt64 {
+		return File{}, protocolError("source file fields missing")
+	}
+	pickCode := strings.TrimSpace(*payload.PickCode)
+	if !isValidDownloadPickCode(pickCode) {
+		return File{}, protocolError("source file pickcode invalid")
+	}
+	normalizedSHA1, err := normalizeSHA1(*payload.SHA1)
+	if err != nil {
+		return File{}, protocolError("source file hash invalid")
+	}
+	return File{
+		ID:          strconv.FormatUint(payload.FileID.value, 10),
+		PickCode:    pickCode,
+		ParentID:    strconv.FormatUint(payload.CategoryID.value, 10),
+		Name:        name,
+		SHA1:        normalizedSHA1,
+		Size:        int64(payload.Size.value),
+		IsDirectory: false,
+	}, nil
+}
+
+type normalizedFilePathQuery struct {
+	RootID   string
+	Segments []string
+	Size     int64
+}
+
+// normalizeFilePathQuery fixes the first path format to slash-separated,
+// relative segments so a mapping cannot escape its configured Provider root.
+func normalizeFilePathQuery(query FilePathQuery) (normalizedFilePathQuery, error) {
+	rootID, err := normalizeOptionalProviderID(query.RootID)
+	if err != nil || rootID == "" || query.Size <= 0 {
+		return normalizedFilePathQuery{}, ErrInvalidRequest
+	}
+	pathValue := query.RelativePath
+	if pathValue == "" || pathValue != strings.TrimSpace(pathValue) || !utf8.ValidString(pathValue) ||
+		len(pathValue) > maxSourcePathLength || strings.HasPrefix(pathValue, "/") || strings.HasSuffix(pathValue, "/") ||
+		strings.ContainsAny(pathValue, "\\\x00\r\n") {
+		return normalizedFilePathQuery{}, ErrInvalidRequest
+	}
+	segments := strings.Split(pathValue, "/")
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." || strings.TrimSpace(segment) == "" ||
+			len(segment) > maxSourcePathSegmentLength {
+			return normalizedFilePathQuery{}, ErrInvalidRequest
+		}
+	}
+	return normalizedFilePathQuery{RootID: rootID, Segments: segments, Size: query.Size}, nil
+}
+
+// validateFileRangeRequest accepts only a non-directory file and one inclusive
+// range inside both the file size and Ember's fixed one-megabyte safety cap.
+func validateFileRangeRequest(request FileRangeRequest) (int64, error) {
+	if request.File.IsDirectory || !isValidDownloadPickCode(strings.TrimSpace(request.File.PickCode)) || request.File.Size <= 0 ||
+		request.Range.Start < 0 || request.Range.End < request.Range.Start || request.Range.End >= request.File.Size {
+		return 0, ErrInvalidRequest
+	}
+	length := request.Range.End - request.Range.Start + 1
+	if length <= 0 || length > maxSourceRangeBytes {
+		return 0, ErrInvalidRequest
+	}
+	return length, nil
+}
+
+// validateRangeResponseHeaders prevents a Provider or intermediary from
+// ignoring the request and streaming more source bytes than the challenge.
+func validateRangeResponseHeaders(response *http.Response, byteRange ByteRange, fileSize, expectedBytes int64) error {
+	contentRanges := response.Header.Values("Content-Range")
+	if len(contentRanges) != 1 {
+		return protocolError("range response content-range missing")
+	}
+	value := strings.TrimSpace(contentRanges[0])
+	if !strings.HasPrefix(value, "bytes ") {
+		return protocolError("range response content-range invalid")
+	}
+	rangeAndSize := strings.TrimPrefix(value, "bytes ")
+	rangeValue, sizeValue, found := strings.Cut(rangeAndSize, "/")
+	if !found || strings.Contains(sizeValue, "/") {
+		return protocolError("range response content-range invalid")
+	}
+	startValue, endValue, found := strings.Cut(rangeValue, "-")
+	if !found || strings.Contains(endValue, "-") {
+		return protocolError("range response content-range invalid")
+	}
+	start, startErr := strconv.ParseInt(startValue, 10, 64)
+	end, endErr := strconv.ParseInt(endValue, 10, 64)
+	total, totalErr := strconv.ParseInt(sizeValue, 10, 64)
+	if startErr != nil || endErr != nil || totalErr != nil || start != byteRange.Start || end != byteRange.End || total != fileSize {
+		return protocolError("range response content-range mismatch")
+	}
+	if response.ContentLength != expectedBytes {
+		return protocolError("range response content-length mismatch")
 	}
 	return nil
 }

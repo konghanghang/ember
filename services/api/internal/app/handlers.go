@@ -35,7 +35,7 @@ type appHandlers struct {
 }
 
 func newAppHandlers() (*appHandlers, error) {
-	return newAppHandlersWithP115Validator(p115integration.NewCookieCredentialValidator())
+	return newAppHandlersWithP115Validator(p115integration.NewCookieProvider())
 }
 
 // newAppHandlersWithP115Validator builds the handler graph with an explicit 115 validation boundary.

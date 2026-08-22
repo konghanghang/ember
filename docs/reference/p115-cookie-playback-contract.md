@@ -1,6 +1,6 @@
 # 115 Cookie 播放兼容合同
 
-本文档记录 Ember 首期 115 播放 Provider 在没有 OpenAPI AppID 时，使用 Cookie/Web API 完成文件查重、秒传和下载直链所依赖的兼容合同。该链路不是 115 官方开放平台合同，必须把公开实现证据、Ember 内部语义和仍需实机确认的行为分开。
+本文档记录 Ember 首期 115 播放 Provider 在没有 OpenAPI AppID 时，使用 Cookie/Web API 完成源文件解析、文件查重、秒传、受限 Range 校验和下载直链所依赖的兼容合同。该链路不是 115 官方开放平台合同，必须把公开实现证据、Ember 内部语义和仍需实机确认的行为分开。
 
 OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [115 OpenAPI 直连、查重与秒传合同](./p115-direct-play-contract.md)。
 
@@ -13,6 +13,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
 | Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id` | 公开实现确认固定 GET 端点、`state` 字段和 Cookie `UID` 取值方式；真实账号兼容性仍未实机确认 |
 | Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和完整上传表单，并接入 `httptest` fake HTTP Adapter；未请求真实端点 |
+| 源路径解析与 Range 校验 | 同提交内 `fs_files`、`get_id_to_path`、`read_range` 和秒传 Range callback | Ember 已用 fake HTTP 固定目录逐级解析、分页、歧义、`206`、`Content-Range`、HeaderMode 和读取上限；未请求真实端点 |
 | `emby-toolkit` 小号播放行为 | `emby-toolkit` `v10.8.63`、提交 `7e64564884c9949390e5894b4be71038808e4e2a` | 只用于理解账号选择与失败语义，不复制 AGPL 代码 |
 | 上游许可证 | 固定提交根 `LICENSE` / `pyproject.toml` 和模块 `pyproject.toml` 写 MIT，但模块 `LICENSE` / `LICENSE_zh` 与源码 `__license__` 写 GPLv3 | 按 GPLv3 保守边界处理：不复制、翻译或运行时依赖上游源码，只使用临时黑盒执行得到的兼容向量；这不是对上游最终许可的法律认定 |
 | 115 Cookie/Web API 稳定性 | 非官方接口 | 随时可能变化，必须通过 Provider 边界隔离 |
@@ -54,12 +55,14 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | `ValidateCredential` | 验证 Cookie 是否能识别账号，并返回脱敏账号标识 |
 | `GetUploadInfo` | 获取上传初始化所需 `userId`、`userKey` 等账号数据 |
 | `SearchBySHA1` | 按 SHA1 查询候选文件，业务层再次校验大小和文件类型 |
+| `ResolveFileByPath` | 在显式根目录下逐级解析相对路径，返回完整源文件身份 |
 | `InitRapidUpload` | 发起秒传，映射为复用成功、范围校验、普通上传或失败 |
 | `GetDownloadURL` | 获取下载地址及其 UA、Cookie、过期时间等使用约束 |
 | `FindTargetFile` | 秒传后在目标目录复核文件并返回 fileId、pickCode |
+| `HashFileRange` | 在 Provider 内部读取一个有界 Range，只返回大写 SHA1 和读取字节数 |
 | `DeleteFile` | 清理临时目标文件；同一账号内串行执行 |
 
-后续 OpenAPI Provider 必须实现同一组业务语义。Provider 切换要显式配置，不能在某次请求失败后静默改用另一种认证模式。
+`CookieProvider` 组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，并通过 Go 编译期断言完整实现上述接口。后续 OpenAPI Provider 必须实现同一组业务语义。Provider 切换要显式配置，不能在某次请求失败后静默改用另一种认证模式。
 
 ## 4. 账号与凭证合同
 
@@ -128,6 +131,21 @@ Ember 的 `CookieHTTPAdapter.GetUploadInfo` 当前固定：
 - 错误不携带请求 URL、Cookie、`userkey`、响应正文或 Provider 原始错误文本。
 
 证据：[`upload_info_app`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L26750-L26783) 固定 method/path；[`py115 UploadInfoApi`](https://github.com/deadblue/py115/blob/7f96f039be7ec62b937ee41290ba9469aca6921e/src/py115/lowlevel/api/upload.py) 固定顶层 `user_id` / `userkey` 映射。二者都属于公开实现证据，不代替目标账号实测。
+
+#### 5.2.1 源文件路径解析
+
+Emby `PlaybackInfo` 只提供媒体源 `Path` 和 `Size`，不能提供可直接信任的 115 SHA1。路径映射层必须先把一个明确的 Emby 路径前缀映射到源账号 `rootId`，再把剩余部分作为 slash 分隔的相对路径交给 `CookieHTTPAdapter.ResolveFileByPath`：
+
+- `rootId` 必须是显式十进制目录 ID；相对路径不允许绝对路径、反斜杠、空段、`.`、`..`、NUL 或换行，不执行会改变文件名语义的 path clean。
+- 相对路径总长上限为 `4 KiB`，单段上限为 `1024` 字节；这些是 Ember 首期安全边界，不是 115 官方限制。
+- 每一级固定发送 `GET /files`，query 为 `aid=1`、当前 `cid`、`cur=1`、`show_dir=1`、`fc_mix=1`、`count_folders=1`、`o=file_name`、`asc=1`、`limit=200` 和当前 `offset`。
+- 响应必须有顶层布尔 `state=true`，并严格映射 `cid/count/offset/data`；响应 `cid` 与请求不一致时视为未找到，防止无效目录被 Provider 静默回退到根目录。
+- 固定映射 Web 列表短字段：目录使用 `cid/pid/n`，文件使用 `fid/cid/n/pc/sha/s`。每一项的 parent 必须等于请求 `cid`，返回文件必须包含合法 pickCode、SHA1 和 size。
+- 每一级目录名必须唯一；最终文件使用“精确文件名 + Emby size + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个候选返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。
+- 为了检测同名项，单级目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期每级最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。
+- 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
+
+证据：固定提交的 [`fs_files`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L11481-L11640) 固定 method/path/query 能力与分页字段；[`normalize_attr_web`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L80-L180) 固定 Web 短字段语义；[`get_id_to_path`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L1399-L1580) 证明文件路径需要逐级目录列举而不能只调用目录 ID 接口。以上仍需目标账号实测。
 
 ### 5.3 SHA1 查重
 
@@ -303,7 +321,7 @@ Adapter 不判断一个文件是否应当删除。调用 `DeleteFile` 前，业�
 - `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义及长度前缀 LZ4 block 解压，解压结果设置上限。
 - `BuildUploadRequest` 覆盖 filename、preID、topupload、`sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
 - `RSAEncrypt` 覆盖 Chrome downurl 请求包装；`RSADecrypt` 使用固定任意密文黑盒向量锁定服务端响应变换，不把测试 seam 当作真实服务端密文证据。
-- `GetUploadInfo`、`InitRapidUpload`、`FindTargetFile` 和 `GetDownloadURL` 已通过 fake HTTP 合同接入，但尚未请求真实 115 或完成播放网关/Infuse 验证，因此不能据此宣称秒传直播放链路可用。
+- `GetUploadInfo`、`ResolveFileByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 已通过 fake HTTP 合同接入，但尚未请求真实 115 或完成播放网关/Infuse 验证，因此不能据此宣称秒传直播放链路可用。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 
@@ -326,6 +344,16 @@ SHA1 + size + isDirectory=false
 3. 保留源下载请求所需的 UA 和 Cookie；这些 Header 只在服务端内部使用。
 4. 只读取指定 Range，计算大写 SHA1 作为 `sign_val`。
 5. 携带原 `sign_key` 和 `sign_val` 再次调用目标账号上传初始化。
+
+`CookieHTTPAdapter.HashFileRange` 当前固定：
+
+- 输入必须是非目录文件、合法 pickCode、正文件大小，以及完全位于文件内部的包含端点 Range；单次最多读取 `1 MiB`，超出在任何 HTTP 前返回 `ErrInvalidRequest`。
+- 使用源账号的配置 User-Agent 获取下载 URL，并使用同一 User-Agent 发起 Range GET；`f=3` 只允许在这个服务端内部读取路径携带源账号 Cookie，Cookie 不返回业务层。最终播放器的 `f=3` 仍按不兼容处理。
+- 请求固定包含 `Accept-Encoding: identity` 和 `Range: bytes=<start>-<end>`，禁止透明压缩改变字节语义。
+- 只接受 `206 Partial Content`；`Content-Range` 的 start/end/总文件大小和 `Content-Length` 必须与请求完全一致。`200`、压缩响应、短读、长读和错误范围全部失败关闭。
+- 最多读取“期望长度 + 1”字节用于检测上游越界，读取完成后只返回大写 SHA1 与 `BytesRead`；源字节、签名 URL 和 Cookie 不离开 Provider 边界。
+
+证据：固定提交的 [`read_range`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/fs/fs_base.py#L3827-L3884) 固定下载 URL Header 与 HTTP Range 用法；[`upload_file_init`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L4090-L4180) 固定 `status=7` Range callback 计算 SHA1 的公开实现语义。`1 MiB`、精确响应校验和只返回 Hash 是 Ember 的内部 fail-closed 合同。
 
 ## 8. 秒传状态机
 
@@ -377,17 +405,19 @@ playbackAccountId + SHA1 + size
 1. Cookie 加密落库、替换和 API 永不回显明文。
 2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化。
 3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
-4. SHA1 查重端点只发送规范化 SHA1，并覆盖命中、固定未命中、size/目录/parent 不匹配和非法字段。
-5. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。
-6. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
-7. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
-8. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
-9. `status=1` 明确拒绝，且不触发完整文件上传。
-10. 加密请求与解密响应固定向量。
-11. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-12. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
-13. 删除覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；业务层另测任务归属与删除前身份复核。
-14. Cookie、完整直链、完整 SHA1 和 Provider 响应不进入日志或普通数据库字段。
+4. 源文件解析覆盖固定 `/files` query、逐级目录、分页、无效 cid 回退、size 不符、重名歧义、目录规模上限和非法相对路径。
+5. SHA1 查重端点只发送规范化 SHA1，并覆盖命中、固定未命中、size/目录/parent 不匹配和非法字段。
+6. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。
+7. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
+8. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
+9. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
+10. Range Hash 覆盖 `f=0/1/3` Header、精确 `206/Content-Range/Content-Length`、压缩、短读、长读、传输失败和 `1 MiB` 上限。
+11. `status=1` 明确拒绝，且不触发完整文件上传。
+12. 加密请求与解密响应固定向量。
+13. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
+14. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
+15. 删除覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；业务层另测任务归属与删除前身份复核。
+16. Cookie、完整直链、完整 SHA1、源相对路径和 Provider 响应不进入日志或普通数据库字段。
 
 ## 12. 受控真实验证
 
@@ -396,8 +426,9 @@ playbackAccountId + SHA1 + size
 首轮至少确认：
 
 - 源账号和播放小号 Cookie 的有效性、账号标识与客户端类型约束。
-- `uploadinfo`、`shasearch` 和上传初始化的实际响应字段。
+- `uploadinfo`、`/files`、`shasearch` 和上传初始化的实际响应字段，以及大目录分页和无效 `cid` 行为。
 - `status=2`、`status=7`、`sign_check` 和目标文件可见延迟。
+- 源账号 Range 的实际 `206`、`Content-Range`、UA、Cookie 和单次验证字节数。
 - 最终下载地址使用的实际端点，以及 `t`、`c`、`f`、UA、Cookie 和 IP 约束。
 - 当前稳定 Infuse 在目标平台对 `HEAD`、Range、302 和下载 Header 的实际行为。
 - 删除串行要求、频率限制、风控和冷却边界。

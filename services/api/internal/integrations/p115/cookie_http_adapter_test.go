@@ -88,11 +88,19 @@ func TestCookieHTTPAdapterRejectsInvalidCredentialBeforeHTTP(t *testing.T) {
 	if _, err := adapter.SearchBySHA1(context.Background(), credential, FileQuery{SHA1: fixtureSHA1, Size: 1024}); !errors.Is(err, ErrCredentialRejected) {
 		t.Fatalf("SearchBySHA1() error = %v, want ErrCredentialRejected", err)
 	}
+	if _, err := adapter.ResolveFileByPath(context.Background(), credential, FilePathQuery{RootID: "100", RelativePath: "fixture.mkv", Size: 1024}); !errors.Is(err, ErrCredentialRejected) {
+		t.Fatalf("ResolveFileByPath() error = %v, want ErrCredentialRejected", err)
+	}
 	if _, err := adapter.InitRapidUpload(context.Background(), credential, fixtureRapidUploadRequest()); !errors.Is(err, ErrCredentialRejected) {
 		t.Fatalf("InitRapidUpload() error = %v, want ErrCredentialRejected", err)
 	}
 	if _, err := adapter.GetDownloadURL(context.Background(), credential, DownloadURLRequest{PickCode: fixtureDownloadPickCode, UserAgent: fixtureClientUserAgent}); !errors.Is(err, ErrCredentialRejected) {
 		t.Fatalf("GetDownloadURL() error = %v, want ErrCredentialRejected", err)
+	}
+	if _, err := adapter.HashFileRange(context.Background(), credential, FileRangeRequest{
+		File: File{PickCode: fixtureDownloadPickCode, Size: 1024}, Range: ByteRange{Start: 0, End: 127},
+	}); !errors.Is(err, ErrCredentialRejected) {
+		t.Fatalf("HashFileRange() error = %v, want ErrCredentialRejected", err)
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("invalid credential reached HTTP client: calls=%d", calls.Load())

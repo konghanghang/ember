@@ -32,6 +32,13 @@ type FileQuery struct {
 	ParentID string `json:"parentId,omitempty"`
 }
 
+// FilePathQuery resolves one relative file path below an explicit Provider root.
+type FilePathQuery struct {
+	RootID       string `json:"rootId"`
+	RelativePath string `json:"-"`
+	Size         int64  `json:"size"`
+}
+
 // File is the Provider-neutral identity of a 115 file candidate.
 type File struct {
 	ID          string `json:"id"`
@@ -107,6 +114,18 @@ type DownloadURLResult struct {
 	ConcurrentOpenLimit int64              `json:"concurrentOpenLimit"`
 }
 
+// FileRangeRequest identifies one bounded source-file range to hash inside the Provider boundary.
+type FileRangeRequest struct {
+	File  File      `json:"file"`
+	Range ByteRange `json:"range"`
+}
+
+// FileRangeHash returns only the protocol hash and byte count, never the source bytes.
+type FileRangeHash struct {
+	SHA1      string `json:"-"`
+	BytesRead int64  `json:"bytesRead"`
+}
+
 // CredentialValidator is the minimal account-validation boundary shared by Provider adapters.
 type CredentialValidator interface {
 	ValidateCredential(ctx context.Context, credential Credential) (AccountIdentity, error)
@@ -117,8 +136,10 @@ type Provider interface {
 	CredentialValidator
 	GetUploadInfo(ctx context.Context, credential Credential) (UploadInfo, error)
 	SearchBySHA1(ctx context.Context, credential Credential, query FileQuery) ([]File, error)
+	ResolveFileByPath(ctx context.Context, credential Credential, query FilePathQuery) (*File, error)
 	InitRapidUpload(ctx context.Context, credential Credential, request RapidUploadRequest) (RapidUploadResult, error)
 	GetDownloadURL(ctx context.Context, credential Credential, request DownloadURLRequest) (DownloadURLResult, error)
 	FindTargetFile(ctx context.Context, credential Credential, query FileQuery) (*File, error)
+	HashFileRange(ctx context.Context, credential Credential, request FileRangeRequest) (FileRangeHash, error)
 	DeleteFile(ctx context.Context, credential Credential, fileID string) error
 }

@@ -21,6 +21,10 @@ func (providerContractStub) SearchBySHA1(context.Context, Credential, FileQuery)
 	return nil, nil
 }
 
+func (providerContractStub) ResolveFileByPath(context.Context, Credential, FilePathQuery) (*File, error) {
+	return nil, nil
+}
+
 func (providerContractStub) InitRapidUpload(context.Context, Credential, RapidUploadRequest) (RapidUploadResult, error) {
 	return RapidUploadResult{}, nil
 }
@@ -31,6 +35,10 @@ func (providerContractStub) GetDownloadURL(context.Context, Credential, Download
 
 func (providerContractStub) FindTargetFile(context.Context, Credential, FileQuery) (*File, error) {
 	return nil, nil
+}
+
+func (providerContractStub) HashFileRange(context.Context, Credential, FileRangeRequest) (FileRangeHash, error) {
+	return FileRangeHash{}, nil
 }
 
 func (providerContractStub) DeleteFile(context.Context, Credential, string) error {
@@ -47,7 +55,9 @@ func TestSecretProviderFieldsAreNotJSONSerializable(t *testing.T) {
 		Upload      RapidUploadRequest   `json:"upload"`
 		DownloadURL DownloadURLResult    `json:"downloadUrl"`
 		Query       FileQuery            `json:"query"`
+		PathQuery   FilePathQuery        `json:"pathQuery"`
 		File        File                 `json:"file"`
+		RangeHash   FileRangeHash        `json:"rangeHash"`
 	}{
 		Credential:  Credential{AccountID: "account_1", Cookie: "cookie-secret"},
 		UploadInfo:  UploadInfo{UserID: "user_1", UserKey: "user-key-secret"},
@@ -55,13 +65,15 @@ func TestSecretProviderFieldsAreNotJSONSerializable(t *testing.T) {
 		Upload:      RapidUploadRequest{SignKey: "sign-key-secret", SignValue: "sign-value-secret"},
 		DownloadURL: DownloadURLResult{URL: "https://download.example/signed-url-secret"},
 		Query:       FileQuery{SHA1: "query-sha1-secret"},
+		PathQuery:   FilePathQuery{RelativePath: "secret/source/video.mkv"},
 		File:        File{PickCode: "pick-code-secret", SHA1: "file-sha1-secret"},
+		RangeHash:   FileRangeHash{SHA1: "range-sha1-secret"},
 	})
 	if err != nil {
 		t.Fatalf("json.Marshal() failed: %v", err)
 	}
 	encoded := string(payload)
-	for _, secret := range []string{"cookie-secret", "user-key-secret", "sign-key-secret", "sign-value-secret", "signed-url-secret", "query-sha1-secret", "pick-code-secret", "file-sha1-secret"} {
+	for _, secret := range []string{"cookie-secret", "user-key-secret", "sign-key-secret", "sign-value-secret", "signed-url-secret", "query-sha1-secret", "secret/source/video.mkv", "pick-code-secret", "file-sha1-secret", "range-sha1-secret"} {
 		if !strings.Contains(encoded, secret) {
 			continue
 		}
