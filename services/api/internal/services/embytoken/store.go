@@ -144,6 +144,15 @@ func (store *gormMappingStore) RevokeDevice(ctx context.Context, input revokeInp
 	return result.RowsAffected, result.Error
 }
 
+// RevokeDeviceAcrossServers soft-revokes one user's device mappings without a
+// runtime ServerId dependency. The phase-one control plane has one active Emby
+// Server and conservatively closes historical mappings as well.
+func (store *gormMappingStore) RevokeDeviceAcrossServers(ctx context.Context, input revokeInput) (int64, error) {
+	result := store.revoke(ctx, store.database(ctx).Model(&models.EmbyAccessToken{}).
+		Where("user_id = ? AND device_id = ? AND revoked_at IS NULL", input.UserID, input.DeviceID), input)
+	return result.RowsAffected, result.Error
+}
+
 // RevokeUser soft-revokes all active mappings for one Ember user across Servers.
 func (store *gormMappingStore) RevokeUser(ctx context.Context, input revokeInput) (int64, error) {
 	result := store.revoke(ctx, store.database(ctx).Model(&models.EmbyAccessToken{}).

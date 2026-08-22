@@ -8,6 +8,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 )
 
@@ -18,6 +19,7 @@ type SystemService struct {
 	countExpiredUsers  func(context.Context, time.Time) (int64, error)
 	findExpiredUsers   func(context.Context, time.Time) ([]models.User, error)
 	applyExpiredPolicy func(string) error
+	revokeUserTokens   func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
 }
 
 // NewSystemService 创建系统服务
@@ -30,6 +32,13 @@ func NewSystemService() *SystemService {
 	service.findExpiredUsers = findExpiredUsers
 	service.applyExpiredPolicy = func(userID string) error {
 		return policypkg.NewService(service.embyService).ApplyEffectiveUserPolicyOrRecordFailure(userID, "expired_user_check")
+	}
+	service.revokeUserTokens = func(ctx context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+		revoker, err := embytokenpkg.NewControlPlaneRevoker(db.DB)
+		if err != nil {
+			return 0, err
+		}
+		return revoker.RevokeUserTokens(ctx, userID, reason, actor)
 	}
 	return service
 }

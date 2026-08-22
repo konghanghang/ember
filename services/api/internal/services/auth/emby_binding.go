@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"log"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	"gorm.io/gorm"
 )
 
@@ -25,6 +27,7 @@ var (
 
 	// ErrEmbyUserSearchQueryRequired 表示 Emby 用户候选查询缺少关键词。
 	ErrEmbyUserSearchQueryRequired = errors.New("请输入至少 2 个字符搜索 Emby 用户")
+	ErrEmbyTokenRevocation         = errors.New("Emby 登录撤销失败")
 
 	// ErrEmbyAlreadyBound 当前账号已绑定其他 Emby 用户，需要先解绑。
 	ErrEmbyAlreadyBound = errors.New("当前账号已绑定其他 Emby 用户，请先解除绑定")
@@ -179,6 +182,12 @@ func (s *AuthService) ListAdminEmbyUsers(userID string, req ListAdminEmbyUsersRe
 // 日志按 [Admin Emby Binding] 前缀打入口、关键决策、失败点；严禁输出
 // Emby API Key 或完整返回体。
 func (s *AuthService) BindEmbyAccount(userID string, req *BindEmbyAccountRequest) (*BindEmbyAccountResponse, error) {
+	return s.BindEmbyAccountWithContext(context.Background(), userID, userID, req)
+}
+
+// BindEmbyAccountWithContext revokes legacy mappings before binding a new Emby
+// identity; an idempotent bind to the same identity leaves the active login.
+func (s *AuthService) BindEmbyAccountWithContext(ctx context.Context, userID, actor string, req *BindEmbyAccountRequest) (*BindEmbyAccountResponse, error) {
 	targetEmbyID := ""
 	if req != nil {
 		targetEmbyID = strings.TrimSpace(req.EmbyID)
@@ -237,6 +246,11 @@ func (s *AuthService) BindEmbyAccount(userID string, req *BindEmbyAccountRequest
 			userID, targetEmbyID, conflictUser.Username)
 		return nil, &ErrEmbyUserOccupied{ConflictUsername: conflictUser.Username}
 	}
+	count, err := s.revokeUserTokensFn(ctx, current.ID, embytokenpkg.RevokeReasonSecurityRevoke, actor)
+	if err != nil {
+		return nil, ErrEmbyTokenRevocation
+	}
+	log.Printf("[Admin Emby Binding] op=bind userID=%s step=token_revoked count=%d", userID, count)
 
 	// 写入。db 层唯一索引兜底并发。
 	if err := s.updateUserEmbyID(userID, targetEmbyID); err != nil {
@@ -266,11 +280,22 @@ func (s *AuthService) BindEmbyAccount(userID string, req *BindEmbyAccountRequest
 
 // UnbindEmbyAccount 解除当前本地用户的 Emby 关联，幂等执行。
 func (s *AuthService) UnbindEmbyAccount(userID string) error {
+	return s.UnbindEmbyAccountWithContext(context.Background(), userID, "system:auth-service")
+}
+
+// UnbindEmbyAccountWithContext revokes every historical mapping before
+// clearing emby_id; idempotent unbind also cleans legacy active mappings.
+func (s *AuthService) UnbindEmbyAccountWithContext(ctx context.Context, userID, actor string) error {
 	current, err := s.findUserByIDForBinding(userID)
 	if err != nil {
 		log.Printf("[Admin Emby Binding] op=unbind userID=%s result=lookup_failed err=%v", userID, err)
 		return err
 	}
+	count, err := s.revokeUserTokensFn(ctx, current.ID, embytokenpkg.RevokeReasonEmbyUnbound, actor)
+	if err != nil {
+		return ErrEmbyTokenRevocation
+	}
+	log.Printf("[Admin Emby Binding] op=unbind userID=%s step=token_revoked count=%d", userID, count)
 
 	previousEmbyID := current.EmbyID
 	if previousEmbyID == "" {

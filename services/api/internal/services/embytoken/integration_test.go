@@ -1,6 +1,7 @@
 package embytoken
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -185,6 +186,54 @@ func TestIntegrationExpiryIsDynamicAndRevokedAuditSurvivesUserDelete(t *testing.
 	if persisted.UserID != nil || persisted.RevokedAt == nil || persisted.RevokedReason == nil ||
 		*persisted.RevokedReason != string(RevokeReasonSecurityRevoke) {
 		t.Fatalf("audit mapping after user delete = %+v", persisted)
+	}
+}
+
+func TestIntegrationControlPlaneRevokerScopesDeviceByUserAcrossServers(t *testing.T) {
+	database := newTokenIntegrationDatabase(t)
+	users := []models.User{
+		{ID: "user_token_scope_1", Username: "token-scope-1", Role: "user", EmbyID: "emby-scope-1", IsActive: true},
+		{ID: "user_token_scope_2", Username: "token-scope-2", Role: "user", EmbyID: "emby-scope-2", IsActive: true},
+	}
+	for _, user := range users {
+		seedTokenUser(t, database, user)
+	}
+	now := time.Now().UTC()
+	mappings := []models.EmbyAccessToken{
+		{ID: "token_scope_1", ServerID: "server-1", TokenHash: bytes.Repeat([]byte{0x11}, 32), EmbyUserID: users[0].EmbyID, UserID: &users[0].ID, DeviceID: "shared-device", LastSeenAt: now},
+		{ID: "token_scope_2", ServerID: "server-2", TokenHash: bytes.Repeat([]byte{0x12}, 32), EmbyUserID: users[0].EmbyID, UserID: &users[0].ID, DeviceID: "shared-device", LastSeenAt: now},
+		{ID: "token_scope_3", ServerID: "server-1", TokenHash: bytes.Repeat([]byte{0x13}, 32), EmbyUserID: users[1].EmbyID, UserID: &users[1].ID, DeviceID: "shared-device", LastSeenAt: now},
+		{ID: "token_scope_4", ServerID: "server-1", TokenHash: bytes.Repeat([]byte{0x14}, 32), EmbyUserID: users[0].EmbyID, UserID: &users[0].ID, DeviceID: "other-device", LastSeenAt: now},
+	}
+	if err := database.Create(&mappings).Error; err != nil {
+		t.Fatalf("create mappings: %v", err)
+	}
+	revoker, err := NewControlPlaneRevoker(database)
+	if err != nil {
+		t.Fatalf("NewControlPlaneRevoker() error = %v", err)
+	}
+	count, err := revoker.RevokeDeviceTokens(context.Background(), users[0].ID, "shared-device", RevokeReasonManualDeviceLogout, "admin-1")
+	if err != nil || count != 2 {
+		t.Fatalf("RevokeDeviceTokens() count=%d error=%v", count, err)
+	}
+	var refreshed []models.EmbyAccessToken
+	if err := database.Order("id").Find(&refreshed).Error; err != nil {
+		t.Fatalf("reload mappings: %v", err)
+	}
+	byID := make(map[string]models.EmbyAccessToken, len(refreshed))
+	for _, mapping := range refreshed {
+		byID[mapping.ID] = mapping
+	}
+	for _, id := range []string{"token_scope_1", "token_scope_2"} {
+		mapping := byID[id]
+		if mapping.RevokedAt == nil || mapping.RevokedReason == nil || *mapping.RevokedReason != string(RevokeReasonManualDeviceLogout) {
+			t.Fatalf("mapping %s not revoked correctly: %+v", id, mapping)
+		}
+	}
+	for _, id := range []string{"token_scope_3", "token_scope_4"} {
+		if mapping := byID[id]; mapping.RevokedAt != nil {
+			t.Fatalf("mapping %s was over-revoked: %+v", id, mapping)
+		}
 	}
 }
 

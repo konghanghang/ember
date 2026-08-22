@@ -1,12 +1,14 @@
 package device
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"testing"
 
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	"gorm.io/gorm"
 )
 
@@ -227,6 +229,9 @@ func TestLogoutDeviceRecordsDeviceContextAfterLogout(t *testing.T) {
 			loggedOut = deviceID
 			return nil
 		},
+		revokeDeviceTokensFn: func(context.Context, string, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 0, nil
+		},
 		recordDeviceActionFn: func(action models.DeviceAction) error {
 			copy := action
 			recorded = &copy
@@ -261,6 +266,9 @@ func TestLogoutDeviceRejectsBlankDeviceBeforeDependencies(t *testing.T) {
 			t.Fatalf("logoutDeviceFn must not run for blank device")
 			return nil
 		},
+		revokeDeviceTokensFn: func(context.Context, string, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 1, nil
+		},
 		recordDeviceActionFn: func(action models.DeviceAction) error {
 			t.Fatalf("recordDeviceActionFn must not run for blank device")
 			return nil
@@ -283,6 +291,9 @@ func TestLogoutDeviceReturnsLogoutFailureWithoutRecordingAction(t *testing.T) {
 		logoutDeviceFn: func(deviceID string) error {
 			return errors.New("emby timeout")
 		},
+		revokeDeviceTokensFn: func(context.Context, string, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 0, nil
+		},
 		recordDeviceActionFn: func(action models.DeviceAction) error {
 			t.Fatalf("recordDeviceActionFn must not run when logout fails")
 			return nil
@@ -292,6 +303,93 @@ func TestLogoutDeviceReturnsLogoutFailureWithoutRecordingAction(t *testing.T) {
 	err := service.LogoutDevice("device_1", "admin_1")
 	if err == nil || err.Error() != "emby timeout" {
 		t.Fatalf("expected logout failure, got %v", err)
+	}
+}
+
+func TestLogoutDeviceRevokesLocalTokensBeforeRemoteLogout(t *testing.T) {
+	var order []string
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			return []DeviceItem{{DeviceID: "device_1", UserID: "user_1", ClientName: "Infuse"}}, nil
+		},
+		revokeDeviceTokensFn: func(_ context.Context, userID, deviceID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			order = append(order, "revoke")
+			if userID != "user_1" || deviceID != "device_1" || reason != embytokenpkg.RevokeReasonManualDeviceLogout || actor != "admin_1" {
+				t.Fatalf("revoke input user=%s device=%s reason=%s actor=%s", userID, deviceID, reason, actor)
+			}
+			return 1, nil
+		},
+		logoutDeviceFn: func(deviceID string) error {
+			order = append(order, "remote")
+			return nil
+		},
+		recordDeviceActionFn: func(models.DeviceAction) error { return nil },
+	}
+	if err := service.LogoutDeviceWithContext(context.Background(), " device_1 ", "admin_1"); err != nil {
+		t.Fatalf("LogoutDeviceWithContext() error = %v", err)
+	}
+	if len(order) != 2 || order[0] != "revoke" || order[1] != "remote" {
+		t.Fatalf("operation order = %#v", order)
+	}
+}
+
+func TestLogoutDeviceStopsBeforeRemoteWhenOwnerOrRevocationFails(t *testing.T) {
+	tests := []struct {
+		name       string
+		items      []DeviceItem
+		buildErr   error
+		revokeErr  error
+		wantErr    error
+		wantRevoke int
+	}{
+		{name: "device owner missing", items: []DeviceItem{{DeviceID: "device_1"}}, wantErr: ErrDeviceOwnerUnavailable},
+		{name: "device owner lookup fails", buildErr: errors.New("lookup failed"), wantErr: ErrDeviceOwnerUnavailable},
+		{name: "local revocation fails", items: []DeviceItem{{DeviceID: "device_1", UserID: "user_1"}}, revokeErr: errors.New("database failed"), wantErr: ErrDeviceTokenRevocation, wantRevoke: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			revokeCalls := 0
+			remoteCalls := 0
+			service := &DeviceService{
+				buildDeviceItemsFn: func() ([]DeviceItem, error) { return test.items, test.buildErr },
+				revokeDeviceTokensFn: func(context.Context, string, string, embytokenpkg.RevokeReason, string) (int64, error) {
+					revokeCalls++
+					return 0, test.revokeErr
+				},
+				logoutDeviceFn:       func(string) error { remoteCalls++; return nil },
+				recordDeviceActionFn: func(models.DeviceAction) error { return nil },
+			}
+			if err := service.LogoutDeviceWithContext(context.Background(), "device_1", "admin_1"); !errors.Is(err, test.wantErr) {
+				t.Fatalf("LogoutDeviceWithContext() error = %v, want %v", err, test.wantErr)
+			}
+			if revokeCalls != test.wantRevoke || remoteCalls != 0 {
+				t.Fatalf("calls revoke=%d remote=%d", revokeCalls, remoteCalls)
+			}
+		})
+	}
+}
+
+func TestLogoutDeviceKeepsLocalRevocationWhenRemoteLogoutFails(t *testing.T) {
+	revoked := false
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			return []DeviceItem{{DeviceID: "device_1", UserID: "user_1"}}, nil
+		},
+		revokeDeviceTokensFn: func(context.Context, string, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			revoked = true
+			return 1, nil
+		},
+		logoutDeviceFn: func(string) error { return errors.New("emby unavailable") },
+		recordDeviceActionFn: func(models.DeviceAction) error {
+			t.Fatal("action must not be recorded for remote failure")
+			return nil
+		},
+	}
+	if err := service.LogoutDeviceWithContext(context.Background(), "device_1", "admin_1"); err == nil {
+		t.Fatal("LogoutDeviceWithContext() error = nil")
+	}
+	if !revoked {
+		t.Fatal("local revocation did not run before remote failure")
 	}
 }
 
@@ -314,6 +412,9 @@ func TestLogoutBlacklistedDevicesLogsOutUniqueBlacklistedDevicesAndRecordsAction
 				return errors.New("emby timeout")
 			}
 			return nil
+		},
+		revokeDeviceTokensFn: func(context.Context, string, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 1, nil
 		},
 		recordDeviceActionFn: func(action models.DeviceAction) error {
 			recorded = append(recorded, action)
@@ -368,6 +469,44 @@ func TestLogoutBlacklistedDevicesReturnsBuildFailure(t *testing.T) {
 	}
 	if result != nil {
 		t.Fatalf("expected nil result on build failure, got %+v", result)
+	}
+}
+
+func TestLogoutBlacklistedDevicesSkipsRemoteWhenLocalRevocationFails(t *testing.T) {
+	var remote []string
+	service := &DeviceService{
+		buildDeviceItemsFn: func() ([]DeviceItem, error) {
+			return []DeviceItem{
+				{DeviceID: "device_1", UserID: "user_1", IsBlacklisted: true},
+				{DeviceID: "device_2", UserID: "user_2", IsBlacklisted: true},
+			}, nil
+		},
+		revokeDeviceTokensFn: func(_ context.Context, userID, deviceID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			if reason != embytokenpkg.RevokeReasonSecurityRevoke || actor != "admin_1" {
+				t.Fatalf("reason=%s actor=%s", reason, actor)
+			}
+			if deviceID == "device_1" {
+				return 0, errors.New("revoke failed")
+			}
+			return 1, nil
+		},
+		logoutDeviceFn: func(deviceID string) error {
+			remote = append(remote, deviceID)
+			return nil
+		},
+		recordDeviceActionFn: func(models.DeviceAction) error { return nil },
+	}
+	result, err := service.LogoutBlacklistedDevicesWithContext(context.Background(), "admin_1")
+	if err != nil {
+		t.Fatalf("LogoutBlacklistedDevicesWithContext() error = %v", err)
+	}
+	if len(remote) != 1 || remote[0] != "device_2" {
+		t.Fatalf("remote calls = %#v", remote)
+	}
+	if len(result.SuccessDeviceIDs) != 1 || result.SuccessDeviceIDs[0] != "device_2" ||
+		len(result.FailedDeviceIDs) != 1 || result.FailedDeviceIDs[0].DeviceID != "device_1" ||
+		result.FailedDeviceIDs[0].Error != ErrDeviceTokenRevocation.Error() {
+		t.Fatalf("result = %+v", result)
 	}
 }
 

@@ -34,6 +34,7 @@ const (
 	RevokeReasonEmbyDisabled       RevokeReason = "emby_disabled"
 	RevokeReasonEmbyAccessDisabled RevokeReason = "emby_access_disabled"
 	RevokeReasonEmbyUnbound        RevokeReason = "emby_unbound"
+	RevokeReasonUserDeleted        RevokeReason = "user_deleted"
 	RevokeReasonSecurityRevoke     RevokeReason = "security_revoke"
 )
 
@@ -308,7 +309,7 @@ func validRevokeReason(reason RevokeReason) bool {
 	switch reason {
 	case RevokeReasonManualTokenLogout, RevokeReasonManualDeviceLogout, RevokeReasonManualUserLogout,
 		RevokeReasonUserDisabled, RevokeReasonEmbyDisabled, RevokeReasonEmbyAccessDisabled,
-		RevokeReasonEmbyUnbound, RevokeReasonSecurityRevoke:
+		RevokeReasonEmbyUnbound, RevokeReasonUserDeleted, RevokeReasonSecurityRevoke:
 		return true
 	default:
 		return false

@@ -165,7 +165,11 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.UpdateUserByAdmin(userID, &req)
+	operatorID := ""
+	if current := currentUserIDPtr(c); current != nil {
+		operatorID = *current
+	}
+	user, err := h.userService.UpdateUserByAdminWithContext(c.Request.Context(), userID, &req, operatorID)
 	if err != nil {
 		switch {
 		case errors.Is(err, userpkg.ErrUserNotFound):
@@ -232,8 +236,12 @@ func (h *UserHandler) ExtendExpiry(c *gin.Context) {
 // @Security BearerAuth
 func (h *UserHandler) ToggleUserStatus(c *gin.Context) {
 	userID := c.Param("id")
+	operatorID := ""
+	if current := currentUserIDPtr(c); current != nil {
+		operatorID = *current
+	}
 
-	user, err := h.userService.ToggleUserStatus(userID)
+	user, err := h.userService.ToggleUserStatusWithContext(c.Request.Context(), userID, operatorID)
 	if err != nil {
 		if errors.Is(err, userpkg.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -256,8 +264,12 @@ func (h *UserHandler) ToggleUserStatus(c *gin.Context) {
 // @Security BearerAuth
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	userID := c.Param("id")
+	operatorID := ""
+	if current := currentUserIDPtr(c); current != nil {
+		operatorID = *current
+	}
 
-	err := h.userService.DeleteUser(userID)
+	err := h.userService.DeleteUserWithContext(c.Request.Context(), userID, operatorID)
 	if err != nil {
 		if errors.Is(err, userpkg.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

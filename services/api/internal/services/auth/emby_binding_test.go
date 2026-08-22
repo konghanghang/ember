@@ -1,12 +1,14 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 // fakeBindingDB 表示 BindEmbyAccount 测试场景中的本地数据视图。
@@ -67,6 +69,9 @@ func newAuthServiceForBinding(t *testing.T, embyClient *stubAuthEmbyClient, fake
 			fake.lastWrittenID = userID
 			fake.lastWrittenEmby = embyID
 			return fake.updateErr
+		},
+		revokeUserTokensFn: func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 0, nil
 		},
 	}
 	return service
@@ -343,9 +348,18 @@ func TestUnbindEmbyAccountSuccess(t *testing.T) {
 			fake.lastWrittenEmby = embyID
 			return nil
 		},
+		revokeUserTokensFn: func(_ context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			if userID != "admin_1" || reason != embytokenpkg.RevokeReasonEmbyUnbound || actor != "admin_1" {
+				t.Fatalf("revoke input user=%s reason=%s actor=%s", userID, reason, actor)
+			}
+			if fake.updateCalled {
+				t.Fatal("revoke must run before emby_id update")
+			}
+			return 1, nil
+		},
 	}
 
-	if err := service.UnbindEmbyAccount("admin_1"); err != nil {
+	if err := service.UnbindEmbyAccountWithContext(context.Background(), "admin_1", "admin_1"); err != nil {
 		t.Fatalf("expected unbind success, got %v", err)
 	}
 	if !fake.updateCalled {
@@ -358,6 +372,7 @@ func TestUnbindEmbyAccountSuccess(t *testing.T) {
 
 func TestUnbindEmbyAccountIdempotentWhenAlreadyEmpty(t *testing.T) {
 	updateCalled := false
+	revokeCalled := false
 	service := &AuthService{
 		findUserByIDForBindingFn: func(userID string) (*models.User, error) {
 			return &models.User{ID: "admin_1", Username: "admin", Role: "admin"}, nil
@@ -366,13 +381,42 @@ func TestUnbindEmbyAccountIdempotentWhenAlreadyEmpty(t *testing.T) {
 			updateCalled = true
 			return nil
 		},
+		revokeUserTokensFn: func(_ context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			revokeCalled = true
+			return 0, nil
+		},
 	}
 
-	if err := service.UnbindEmbyAccount("admin_1"); err != nil {
+	if err := service.UnbindEmbyAccountWithContext(context.Background(), "admin_1", "admin_1"); err != nil {
 		t.Fatalf("expected idempotent success, got %v", err)
 	}
 	if updateCalled {
 		t.Fatalf("idempotent unbind must not write to DB")
+	}
+	if !revokeCalled {
+		t.Fatal("idempotent unbind must revoke legacy active mappings")
+	}
+}
+
+func TestUnbindEmbyAccountRevocationFailurePreventsUpdate(t *testing.T) {
+	updateCalled := false
+	service := &AuthService{
+		findUserByIDForBindingFn: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, EmbyID: "emby_1"}, nil
+		},
+		updateUserEmbyIDFn: func(string, string) error {
+			updateCalled = true
+			return nil
+		},
+		revokeUserTokensFn: func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 0, errors.New("revoke failed")
+		},
+	}
+	if err := service.UnbindEmbyAccountWithContext(context.Background(), "admin_1", "admin_1"); !errors.Is(err, ErrEmbyTokenRevocation) {
+		t.Fatalf("UnbindEmbyAccountWithContext() error = %v, want %v", err, ErrEmbyTokenRevocation)
+	}
+	if updateCalled {
+		t.Fatal("emby_id update ran after revoke failure")
 	}
 }
 

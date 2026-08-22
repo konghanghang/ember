@@ -282,7 +282,11 @@ func (h *UserHandler) UpdateAdminUserEmbyAccess(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
-	if err := newPolicyService().UpdateUserEmbyAccess(c.Param("id"), req.Disabled); err != nil {
+	operatorID := ""
+	if current := currentUserIDPtr(c); current != nil {
+		operatorID = *current
+	}
+	if err := newPolicyService().UpdateUserEmbyAccessWithContext(c.Request.Context(), c.Param("id"), req.Disabled, operatorID); err != nil {
 		handlePolicyError(c, err)
 		return
 	}

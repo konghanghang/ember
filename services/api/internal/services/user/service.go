@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
@@ -50,6 +52,7 @@ type UserServiceDeps struct {
 	NewCompensation     func() *accountpkg.EmbyCompensation
 	ApplyPolicy         func(userID, reason string) error
 	RecordPolicyFailure func(userID, reason string, cause error) error
+	RevokeUserTokens    func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
 }
 
 // UserService 用户服务
@@ -70,6 +73,7 @@ type UserService struct {
 	newCompensation     func() *accountpkg.EmbyCompensation
 	applyPolicy         func(userID, reason string) error
 	recordPolicyFailure func(userID, reason string, cause error) error
+	revokeUserTokens    func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
 }
 
 func NewUserService() *UserService {
@@ -98,6 +102,7 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 		newCompensation:     deps.NewCompensation,
 		applyPolicy:         deps.ApplyPolicy,
 		recordPolicyFailure: deps.RecordPolicyFailure,
+		revokeUserTokens:    deps.RevokeUserTokens,
 	}
 
 	if service.emailVerifier == nil {
@@ -188,6 +193,15 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 	if service.recordPolicyFailure == nil {
 		service.recordPolicyFailure = func(userID, reason string, cause error) error {
 			return policypkg.NewService(service.newEmbyClient()).RecordUserPolicySyncFailure(userID, reason, cause)
+		}
+	}
+	if service.revokeUserTokens == nil {
+		service.revokeUserTokens = func(ctx context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			revoker, err := embytokenpkg.NewControlPlaneRevoker(db.DB)
+			if err != nil {
+				return 0, err
+			}
+			return revoker.RevokeUserTokens(ctx, userID, reason, actor)
 		}
 	}
 	return service

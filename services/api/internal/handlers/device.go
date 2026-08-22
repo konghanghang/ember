@@ -91,7 +91,7 @@ func (h *DeviceHandler) RemoveFromBlacklist(c *gin.Context) {
 func (h *DeviceHandler) LogoutDevice(c *gin.Context) {
 	deviceID := c.Param("deviceId")
 	operatorID, _ := c.Get("userID")
-	if err := h.service.LogoutDevice(deviceID, operatorID.(string)); err != nil {
+	if err := h.service.LogoutDeviceWithContext(c.Request.Context(), deviceID, operatorID.(string)); err != nil {
 		switch {
 		case errors.Is(err, devicepkg.ErrDeviceIDRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -106,7 +106,7 @@ func (h *DeviceHandler) LogoutDevice(c *gin.Context) {
 
 func (h *DeviceHandler) LogoutBlacklistedDevices(c *gin.Context) {
 	operatorID, _ := c.Get("userID")
-	result, err := h.service.LogoutBlacklistedDevices(operatorID.(string))
+	result, err := h.service.LogoutBlacklistedDevicesWithContext(c.Request.Context(), operatorID.(string))
 	if err != nil {
 		httpx.InternalError(c, err)
 		return

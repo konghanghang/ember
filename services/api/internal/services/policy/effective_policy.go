@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	"gorm.io/gorm"
 )
 
@@ -18,8 +20,9 @@ type embyPolicyClient interface {
 
 // Service 在保留外部字段的前提下应用 Ember 托管的 Emby Policy 字段。
 type Service struct {
-	embyClient embyPolicyClient
-	db         *gorm.DB
+	embyClient       embyPolicyClient
+	db               *gorm.DB
+	revokeUserTokens func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
 }
 
 // NewService 使用当前数据库句柄创建有效 Policy 服务。
@@ -29,7 +32,15 @@ func NewService(embyClient embyPolicyClient) *Service {
 
 // NewServiceWithDB 为测试或限定事务创建有效 Policy 服务。
 func NewServiceWithDB(database *gorm.DB, embyClient embyPolicyClient) *Service {
-	return &Service{db: database, embyClient: embyClient}
+	service := &Service{db: database, embyClient: embyClient}
+	service.revokeUserTokens = func(ctx context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+		revoker, err := embytokenpkg.NewControlPlaneRevoker(database)
+		if err != nil {
+			return 0, err
+		}
+		return revoker.RevokeUserTokens(ctx, userID, reason, actor)
+	}
+	return service
 }
 
 // ApplyEffectiveUserPolicy 重算并写入某个用户所有 Ember 托管的 Emby Policy 字段。
@@ -88,6 +99,18 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 	managedPolicy, fields := buildManagedPolicyFields(rawPolicy, user.IsExpired() || user.EmbyAccessDisabled, template, libraryIDs)
 	log.Printf("[Policy] 应用用户有效 Emby Policy: userID=%s embyID=%s planGroup=%s reason=%s libraryCount=%d isDisabled=%t",
 		user.ID, user.EmbyID, planGroupKey, reason, len(libraryIDs), managedPolicy["IsDisabled"])
+	if disabled, _ := managedPolicy["IsDisabled"].(bool); disabled || user.EmbyDisabled {
+		revokeReason := embytokenpkg.RevokeReasonEmbyDisabled
+		if !disabled {
+			revokeReason = embytokenpkg.RevokeReasonSecurityRevoke
+		}
+		count, revokeErr := s.revokeUserTokens(context.Background(), user.ID, revokeReason, "system:policy")
+		if revokeErr != nil {
+			return ErrUserTokenRevocation
+		}
+		log.Printf("[Policy] 写入 Emby 禁用状态前已撤销登录 userID=%s targetDisabled=%t reason=%s count=%d",
+			user.ID, disabled, revokeReason, count)
+	}
 
 	if err := s.embyClient.PatchUserPolicyFields(user.EmbyID, managedPolicy, fields); err != nil {
 		return normalizePolicyError("写入 Emby Policy 失败", err)

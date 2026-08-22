@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/mail"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -243,6 +245,12 @@ func (s *UserService) GetUserByID(userID string) (*UserView, error) {
 }
 
 func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserRequest) (*UserView, error) {
+	return s.UpdateUserByAdminWithContext(context.Background(), userID, req, "system:user-service")
+}
+
+// UpdateUserByAdminWithContext preserves the existing transactional admin edit
+// while revoking old mappings before any explicit is_active assignment.
+func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID string, req *AdminUpdateUserRequest, operatorID string) (*UserView, error) {
 	if req == nil {
 		return nil, ErrRequestInvalid
 	}
@@ -264,7 +272,6 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		tx.Rollback()
 		return nil, ErrUserNotFound
 	}
-
 	needSyncEmbyPolicy := adminUpdateChangesEmbyPolicy(req)
 	oldEffectivePlanGroup, err := paymentpkg.ResolveEffectivePlanGroupKey(tx, user.PlanGroup)
 	if err != nil {
@@ -318,6 +325,19 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 		"is_active":  user.IsActive,
 		"plan_group": user.PlanGroup,
 		"expires_at": user.ExpiresAt,
+	}
+	if req.IsActive != nil {
+		reason := embytokenpkg.RevokeReasonUserDisabled
+		if *req.IsActive {
+			reason = embytokenpkg.RevokeReasonSecurityRevoke
+		}
+		count, revokeErr := s.revokeUserTokens(ctx, user.ID, reason, operatorID)
+		if revokeErr != nil {
+			tx.Rollback()
+			return nil, ErrUserTokenRevocation
+		}
+		log.Printf("[User] 管理员状态赋值前已撤销登录 userID=%s targetActive=%t reason=%s count=%d",
+			user.ID, *req.IsActive, reason, count)
 	}
 
 	if err := tx.Model(&models.User{}).
@@ -404,12 +424,28 @@ func calculateExtendedExpiry(now time.Time, currentExpiry *time.Time, days int) 
 }
 
 func (s *UserService) ToggleUserStatus(userID string) (*UserView, error) {
+	return s.ToggleUserStatusWithContext(context.Background(), userID, "system:user-service")
+}
+
+// ToggleUserStatusWithContext revokes all historical mappings before both
+// disable and restore transitions so an old Token can never revive on restore.
+func (s *UserService) ToggleUserStatusWithContext(ctx context.Context, userID, operatorID string) (*UserView, error) {
 	user, err := s.findUserByID(userID)
 	if err != nil {
 		return nil, normalizeUserLookupError(err)
 	}
 
 	user.IsActive = !user.IsActive
+	reason := embytokenpkg.RevokeReasonUserDisabled
+	if user.IsActive {
+		reason = embytokenpkg.RevokeReasonSecurityRevoke
+	}
+	count, err := s.revokeUserTokens(ctx, user.ID, reason, operatorID)
+	if err != nil {
+		return nil, ErrUserTokenRevocation
+	}
+	log.Printf("[User] 用户状态变更前已撤销登录 userID=%s targetActive=%t reason=%s count=%d",
+		user.ID, user.IsActive, reason, count)
 	if err := s.updateUserActive(user.ID, user.IsActive); err != nil {
 		return nil, err
 	}
@@ -427,10 +463,21 @@ func adminUpdateChangesEmbyPolicy(req *AdminUpdateUserRequest) bool {
 }
 
 func (s *UserService) DeleteUser(userID string) error {
+	return s.DeleteUserWithContext(context.Background(), userID, "system:user-service")
+}
+
+// DeleteUserWithContext revokes local Gateway access before any external or
+// destructive user deletion step.
+func (s *UserService) DeleteUserWithContext(ctx context.Context, userID, operatorID string) error {
 	user, err := s.findUserByID(userID)
 	if err != nil {
 		return normalizeUserLookupError(err)
 	}
+	count, err := s.revokeUserTokens(ctx, user.ID, embytokenpkg.RevokeReasonUserDeleted, operatorID)
+	if err != nil {
+		return ErrUserTokenRevocation
+	}
+	log.Printf("[User] 删除前已撤销用户登录 userID=%s count=%d", user.ID, count)
 
 	if user.EmbyID != "" {
 		if err := s.embyClient().DeleteUser(user.EmbyID); err != nil {

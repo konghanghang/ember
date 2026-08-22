@@ -176,7 +176,7 @@ func (h *AuthHandler) BindEmbyAccount(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.authService.BindEmbyAccount(userID.(string), &req)
+	resp, err := h.authService.BindEmbyAccountWithContext(c.Request.Context(), userID.(string), userID.(string), &req)
 	if err != nil {
 		switch {
 		case errors.Is(err, authpkg.ErrEmbyBindingTargetRequired):
@@ -208,7 +208,7 @@ func (h *AuthHandler) BindEmbyAccount(c *gin.Context) {
 func (h *AuthHandler) UnbindEmbyAccount(c *gin.Context) {
 	userID, _ := c.Get("userID")
 
-	if err := h.authService.UnbindEmbyAccount(userID.(string)); err != nil {
+	if err := h.authService.UnbindEmbyAccountWithContext(c.Request.Context(), userID.(string), userID.(string)); err != nil {
 		httpx.InternalError(c, err)
 		return
 	}

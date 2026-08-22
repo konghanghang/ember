@@ -158,7 +158,7 @@ Ember 本地撤销固定三种粒度：
 | 单设备撤销 | `serverId + userId + deviceId` 下全部未撤销映射 | 强制该设备重新登录，不影响其他设备 |
 | 用户全部撤销 | `userId` 下全部未撤销映射 | 使该用户所有设备重新登录 |
 
-撤销使用 `revokedAt + revokedReason + revokedBy` 软删除并保留审计，不直接删除行。固定原因至少包括 `manual_token_logout`、`manual_device_logout`、`manual_user_logout`、`user_disabled`、`emby_access_disabled`、`emby_unbound` 和 `security_revoke`。
+撤销使用 `revokedAt + revokedReason + revokedBy` 软删除并保留审计，不直接删除行。固定原因至少包括 `manual_token_logout`、`manual_device_logout`、`manual_user_logout`、`user_disabled`、`emby_disabled`、`emby_access_disabled`、`emby_unbound`、`user_deleted` 和 `security_revoke`。
 
 状态边界：
 
@@ -166,9 +166,17 @@ Ember 本地撤销固定三种粒度：
 - 用户停用、`emby_disabled=true`、`emby_access_disabled=true`、解绑或删除属于硬撤销；普通状态恢复不能静默清除历史撤销，重新通过 `AuthenticateByName` 才能建立或重新激活映射。
 - “本地撤销”只保证 Ember Playback Gateway 拒绝该映射，不等于 Emby Server 已撤销原始 Token。Emby 4.9.3.0 原生会话/Token 撤销接口尚未完成版本化核对，因此当前必须标记“未证实”。
 
+控制面联动边界：
+
+- API 使用只依赖 PostgreSQL 的 `ControlPlaneRevoker`，不需要 AccessToken 明文、HMAC 密钥、实时 Emby 请求或 Gateway 进程内 ServerId。
+- 设备撤销按 `userId + deviceId` 匹配，并保守撤销该主体所有历史 ServerId 下的活动映射；同 DeviceId 的其他用户不受影响。
+- 手工/黑名单设备退出、本地用户停用或恢复、Emby 访问禁用或恢复、绑定前清理、解绑、删除和过期封禁都先完成本地撤销，再执行后续本地状态或 Emby 副作用。
+- 本地撤销失败时后续状态与外部副作用不执行；本地撤销成功但 Emby 远端操作失败时不回滚本地安全结果。
+- 恢复、重新启用或重新绑定不会清除历史 `revokedAt`，只允许新的成功认证建立新映射。
+
 要让设备强制退出成立，所有受保护的公网 Emby 请求都必须先通过 Token 映射检查，而不是只在 115 视频分支检查。部署时原始 Emby 端口必须只对网关和运维网络开放；否则客户端可以绕过 Ember 使用仍被 Emby 接受的原 Token。首次切换到网关后，历史 Emby Token 没有明文可安全回填，客户端需要重新登录一次建立映射。
 
-截至 2026-08-22，`emby_access_tokens` migration、purpose 隔离 HMAC、并发安全 upsert、实时用户资格解析和三种本地撤销 Service 已实现并通过 fake/独立 PostgreSQL 测试。`internal/playbackgateway` 已接入认证响应旁路映射和 `X-Emby-Token` 门控核心，但尚无进程入口、状态联动和真实 Emby 请求；当前实现仍不能单独证明设备已被强制退出。
+截至 2026-08-22，`emby_access_tokens` migration、purpose 隔离 HMAC、并发安全 upsert、实时用户资格解析、三种 Gateway 撤销、控制面状态联动、认证代理和独立进程均已实现并通过 fake/独立 PostgreSQL 测试。目标 Emby 原生设备退出是否撤销 Server Token、公开部署和 Infuse 实机行为仍未证实。
 
 ### 3.4 当前 HTTP 门控核心
 

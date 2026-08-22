@@ -778,8 +778,11 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `server_id + token_hash` 唯一索引、冲突忽略和行锁共同保证并发 upsert；活动摘要不能换绑身份，已撤销的同一身份只有新的成功认证能重新激活
 - `ResolvePrincipal` 每次重新读取用户，动态检查停用、Emby 禁用、Emby 访问禁用、解绑和到期；`lastSeenAt` 至少按 5 分钟窗口限频更新
 - `RevokeToken`、`RevokeDevice`、`RevokeUserTokens` 使用固定原因和操作者写入软撤销审计；这只保证未来 Playback Gateway 本地拒绝，不宣称 Emby Server 已吊销原始 Token
+- `ControlPlaneRevoker` 不依赖 Token 明文、HMAC 密钥或 runtime ServerId；设备按 `userId + deviceId` 跨历史 Server 撤销，用户按 userId 全部撤销，同 DeviceId 的其他用户不受影响
+- 手工/黑名单设备退出、用户停用与恢复、Emby 访问禁用与恢复、绑定前清理、解绑、删除和过期 cron 已接入本地优先撤销；撤销失败不继续状态/外部副作用，远端失败不回滚本地撤销
+- 恢复状态不清除历史撤销；用户删除后已撤销审计通过 `ON DELETE SET NULL` 保留
 - 独立 PostgreSQL schema 集成测试已覆盖 8 路并发认证只生成一条映射、身份冲突、三种撤销粒度、重新认证、动态到期和用户删除后的审计保留
-- `internal/playbackgateway` 已通过窄接口调用 `RecordAuthenticationResult/ResolvePrincipal`；设备/用户状态变更仍未调用撤销方法，PlaybackInfo 当前授权证明也尚未实现
+- `internal/playbackgateway` 已通过窄接口调用 `RecordAuthenticationResult/ResolvePrincipal`；PlaybackInfo 当前授权证明尚未实现
 
 ### 5.27 Playback Gateway HTTP 核心与运行时 (`cmd/playback-gateway/`, `internal/playbackgateway/`)
 
@@ -800,7 +803,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - bootstrap allowlist 只覆盖固定登录文档明确的 public 用户列表和无 Index 用户头像；`System/Info/Public` 在固定参考页标记需要用户认证，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
 - fake Emby 测试已覆盖认证请求/响应透明、标准应用头、public bootstrap、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
-- 尚未完成 Docker/反向代理公开部署入口、状态联动撤销、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
+- 尚未完成 Docker/反向代理公开部署入口、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
 
 ---
 

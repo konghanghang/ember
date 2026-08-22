@@ -613,7 +613,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | ClientName | string(128) | clientName | 非权威客户端审计元数据 |
 | LastSeenAt | time.Time | lastSeenAt | 最近一次成功解析时间；Service 至少按 5 分钟限频写入 |
 | RevokedAt | *time.Time | revokedAt | Ember 本地撤销时间 |
-| RevokedReason | *string(100) | revokedReason | 固定枚举撤销原因 |
+| RevokedReason | *string(100) | revokedReason | 固定枚举撤销原因：含设备/用户手工退出、硬禁用、解绑、删除和安全清理 |
 | RevokedBy | *string(64) | revokedBy | 发起撤销的主体标识 |
 | CreatedAt | time.Time | createdAt | 创建时间 |
 | UpdatedAt | time.Time | updatedAt | 更新时间 |
@@ -624,4 +624,6 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - 活动行必须关联 Ember 用户且三个撤销字段全部为空；撤销行必须同时具备 `revoked_at + revoked_reason + revoked_by`
 - 同一摘要的并发认证使用数据库唯一索引和行锁幂等收口；活动摘要不能移动到其他 Emby/Ember 身份，已撤销的同一身份只有在新的成功认证后才可重新激活
 - 单 Token、单设备和用户全部撤销均为软撤销；用户删除使用 `ON DELETE SET NULL` 保留已撤销审计记录
-- 当前只完成内部模型、持久化与 `services/embytoken` 核心；认证代理、设备/用户状态联动和 Playback Gateway 接入尚未完成，不构成可用的公网 Token 门控
+- `services/embytoken.ControlPlaneRevoker` 已接入设备退出、用户停用/恢复、Emby 访问禁用/恢复、绑定前清理、解绑、删除和过期封禁；控制面只依赖 PostgreSQL，不持有明文 Token 或 HMAC 密钥
+- 用户删除前先软撤销，删除后依赖 `ON DELETE SET NULL` 保留审计行；恢复状态不会清除历史撤销，必须重新认证
+- 认证代理和独立 Gateway 进程已接入 Token 门控，但公开部署与 Infuse 实机仍未完成

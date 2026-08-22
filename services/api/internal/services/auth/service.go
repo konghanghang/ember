@@ -13,6 +13,7 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	"gorm.io/gorm"
@@ -64,6 +65,7 @@ type AuthServiceDeps struct {
 	FindLoginUser              func(username string) (*models.User, error)
 	Compensation               *accountpkg.EmbyCompensation
 	NewCompensation            func() *accountpkg.EmbyCompensation
+	RevokeUserTokens           func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
 }
 
 // AuthService 认证服务
@@ -82,6 +84,7 @@ type AuthService struct {
 	findLoginUserFn            func(username string) (*models.User, error)
 	compensation               *accountpkg.EmbyCompensation
 	newCompensation            func() *accountpkg.EmbyCompensation
+	revokeUserTokensFn         func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
 
 	// Emby 绑定 hook：默认走 db.DB，测试时由 newAuthServiceForBinding 注入。
 	findUserByIDForBindingFn func(userID string) (*models.User, error)
@@ -120,6 +123,7 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 		findLoginUserFn:            deps.FindLoginUser,
 		compensation:               deps.Compensation,
 		newCompensation:            deps.NewCompensation,
+		revokeUserTokensFn:         deps.RevokeUserTokens,
 	}
 
 	if service.notifier == nil {
@@ -179,6 +183,15 @@ func NewAuthServiceWithDeps(deps AuthServiceDeps) *AuthService {
 	if service.newCompensation == nil {
 		service.newCompensation = func() *accountpkg.EmbyCompensation {
 			return accountpkg.NewEmbyCompensation(embyint.GetSharedService())
+		}
+	}
+	if service.revokeUserTokensFn == nil {
+		service.revokeUserTokensFn = func(ctx context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			revoker, err := embytokenpkg.NewControlPlaneRevoker(db.DB)
+			if err != nil {
+				return 0, err
+			}
+			return revoker.RevokeUserTokens(ctx, userID, reason, actor)
 		}
 	}
 	return service

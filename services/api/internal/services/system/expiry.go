@@ -9,6 +9,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 // CheckExpiredUsersResult 定时任务结果
@@ -33,7 +34,10 @@ type DisabledUserInfo struct {
 const (
 	maxCheckExpiredUsersErrors      = 20
 	maxCheckExpiredUsersFailedUsers = 20
+	expiryRevocationActor           = "system:expiry"
 )
+
+var ErrExpiredUserTokenRevocation = errors.New("撤销过期用户登录失败")
 
 func appendLimitedString(items []string, value string, truncated *bool, limit int) []string {
 	if len(items) >= limit {
@@ -111,6 +115,18 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 		}
 
 		processedCount++
+		count, revokeErr := s.revokeUserTokens(ctx, user.ID, embytokenpkg.RevokeReasonEmbyDisabled, expiryRevocationActor)
+		if revokeErr != nil {
+			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, ErrExpiredUserTokenRevocation)
+			errMessages = appendLimitedString(errMessages, errorMsg, &failureTruncated, maxCheckExpiredUsersErrors)
+			failedUsers = appendLimitedFailedUser(failedUsers, map[string]interface{}{
+				"username": user.Username,
+				"error":    ErrExpiredUserTokenRevocation.Error(),
+			}, &failureTruncated, maxCheckExpiredUsersFailedUsers)
+			log.Printf("[Cron] 过期用户登录撤销失败 userId=%s errorType=%T", user.ID, revokeErr)
+			continue
+		}
+		log.Printf("[Cron] 过期用户登录已撤销 userId=%s count=%d", user.ID, count)
 
 		if err := s.applyExpiredPolicy(user.ID); err != nil {
 			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, err)

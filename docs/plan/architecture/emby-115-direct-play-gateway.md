@@ -60,7 +60,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
 - 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除；尚未实现可部署的播放网关数据面进程。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
-- 当前已有可构建但未部署的播放网关独立进程；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、`playback_transfer_tasks` 和 DirectPlay 传输核心已落地，但状态联动、直连会话与公开部署入口尚未接入。
+- 当前已有可构建但未部署的播放网关独立进程；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks` 和 DirectPlay 传输核心已落地，但直连会话与公开部署入口尚未接入。
 
 ### 外部证据与未确认项
 
@@ -132,11 +132,13 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、应用头与 public bootstrap、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
 - 新增 `integrations/emby.ServerIdentityVerifier`，在监听前调用固定 `/emby/System/Info`，只接受精确 `4.9.3.0` 与有界非空 ServerId；重定向、非 JSON、超大响应、状态失败、超时和字段异常全部返回不含 URL/API Key/响应体的固定错误。
 - 新增 `cmd/playback-gateway`、production runtime builder、独立 `/health`、HTTP Header/空闲边界和 context graceful shutdown；进程复用 migration/VerifySchema 与 ConfigService，但不初始化 JWT、Bot、cron 或默认管理员。
+- 新增不持有 Token/HMAC/runtime ServerId 的 `ControlPlaneRevoker`；设备按用户/设备跨历史 Server 撤销，用户按主体全部撤销，恢复路径同样清理遗留活动映射。
+- 设备手工/黑名单退出、用户 toggle/admin edit、Emby 访问开关、绑定前清理、解绑、删除和过期 cron 已按“本地撤销成功后再执行状态或 Emby 副作用”接入；远端失败不回滚本地安全结果。
 
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- Docker/反向代理公开部署入口、目标 Emby/Infuse 对固定版本/bootstrap/应用头合同的实机确认、设备/用户状态撤销联动、PlaybackInfo 当前授权证明、直连会话和运营查询；独立进程与运行配置、认证代理/门控核心、SDK 版本化 bootstrap/设备元数据合同、Token 映射核心、source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
+- Docker/反向代理公开部署入口、目标 Emby/Infuse 对固定版本/bootstrap/应用头合同的实机确认、PlaybackInfo 当前授权证明、直连会话和运营查询；独立进程与运行配置、认证代理/门控核心、控制面状态撤销、SDK 版本化 bootstrap/设备元数据合同、Token 映射核心、source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
@@ -355,7 +357,7 @@ source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `
 - `POST /api/v1/admin/direct-play/transfers/:id/retry`
 - `POST /api/v1/admin/direct-play/media-cache/:itemId/refresh`
 
-Token 撤销优先复用现有设备/用户管理入口，不平行创建第二套设备页面：设备强制退出调用 `RevokeDevice`，用户全部退出调用 `RevokeUserTokens`，单 Token 安全处置由后续会话/审计详情触发。具体 HTTP DTO 在实现该入口时固定，当前计划不把未实现路由写入现行 API 目录。
+Token 撤销已复用现有设备/用户管理入口，没有创建第二套设备页面：设备强制退出和黑名单批处理调用控制面设备撤销，用户硬状态入口调用用户全部撤销；单 Token 安全处置仍由后续会话/审计详情触发。现有 HTTP DTO 保持兼容，不新增平行路由。
 
 手工重试必须复用任务幂等键，不能绕过账号冷却和并发限制。策略更新只影响新请求，不能承诺撤销已签发链接。
 
@@ -508,7 +510,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种本地撤销核心、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成公开部署入口和状态联动，因此还不能让 Infuse 真实登录或从设备/用户入口触发撤销；其余为 PlaybackInfo 当前授权证明、直连会话、视频代理/302、策略门控和 Infuse 验收。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成公开部署入口；其余为 PlaybackInfo 当前授权证明、直连会话、视频代理/302、策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 
@@ -633,6 +635,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，新 Gateway 包和既有 PostgreSQL 集成测试实际执行并通过；`go vet ./...` 与 `go build ./...` 通过。
 - 自动化没有创建真实 Listener，也没有请求真实 Emby/115 或执行 Infuse 验收；固定 SDK 的 public bootstrap 与应用头合同已确认并由 fake 锁定，目标 Server 版本和 Infuse 实际请求顺序仍保持未证实。
 - `ServerIdentityVerifier` 与 production runtime fake 测试覆盖精确版本/ServerId、Header 与响应边界、配置缺失、`/health`、无真实 Listener 的 graceful shutdown 和监听错误脱敏；`go build ./cmd/playback-gateway` 通过，但没有运行生成的二进制。
+- 控制面撤销单元/PostgreSQL/Gin 集成测试覆盖设备跨 Server 但不跨用户、手工与黑名单本地优先、toggle/admin edit/恢复、Emby 访问禁用、绑定前清理、解绑、删除审计保留和过期 cron 失败关闭；所有 Emby 副作用使用 fake。
 
 测试分层：
 

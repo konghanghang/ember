@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 func TestCheckExpiredUsersWithContextReturnsCanceledBeforeDB(t *testing.T) {
@@ -32,7 +33,7 @@ func TestCheckExpiredUsersWithContextReturnsCanceledBeforeDB(t *testing.T) {
 
 func TestCheckExpiredUsersWithContextReturnsEmptyResultWhenNoExpiredUsers(t *testing.T) {
 	now := testExpiryNow()
-	service := NewSystemService()
+	service := newTestSystemService()
 	service.now = testExpiryNow
 	service.countExpiredUsers = func(_ context.Context, cutoff time.Time) (int64, error) {
 		if !cutoff.Equal(now) {
@@ -65,7 +66,7 @@ func TestCheckExpiredUsersWithContextReturnsEmptyResultWhenNoExpiredUsers(t *tes
 
 func TestCheckExpiredUsersWithContextRecordsSuccessAndFailure(t *testing.T) {
 	expiresAt := time.Date(2026, 6, 15, 8, 9, 10, 0, time.UTC)
-	service := NewSystemService()
+	service := newTestSystemService()
 	service.now = testExpiryNow
 	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) {
 		return 2, nil
@@ -117,7 +118,7 @@ func TestCheckExpiredUsersWithContextRecordsSuccessAndFailure(t *testing.T) {
 
 func TestCheckExpiredUsersWithContextStopsAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	service := NewSystemService()
+	service := newTestSystemService()
 	service.now = testExpiryNow
 	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) {
 		return 3, nil
@@ -155,7 +156,7 @@ func TestCheckExpiredUsersWithContextStopsAfterCancellation(t *testing.T) {
 }
 
 func TestCheckExpiredUsersWithContextTruncatesFailureDetails(t *testing.T) {
-	service := NewSystemService()
+	service := newTestSystemService()
 	service.now = testExpiryNow
 	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) {
 		return 25, nil
@@ -199,6 +200,63 @@ func TestCheckExpiredUsersWithContextTruncatesFailureDetails(t *testing.T) {
 	if result.FailedUsers[len(result.FailedUsers)-1]["username"] != "user_t" {
 		t.Fatalf("expected last retained failed user to be user_t, got %+v", result.FailedUsers[len(result.FailedUsers)-1])
 	}
+}
+
+func TestCheckExpiredUsersRevokesBeforeApplyingExpiredPolicy(t *testing.T) {
+	var order []string
+	service := newTestSystemService()
+	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) { return 1, nil }
+	service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) {
+		return []models.User{{ID: "user_1", Username: "alice"}}, nil
+	}
+	service.revokeUserTokens = func(_ context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+		order = append(order, "revoke")
+		if userID != "user_1" || reason != embytokenpkg.RevokeReasonEmbyDisabled || actor != expiryRevocationActor {
+			t.Fatalf("revoke input user=%s reason=%s actor=%s", userID, reason, actor)
+		}
+		return 1, nil
+	}
+	service.applyExpiredPolicy = func(string) error {
+		order = append(order, "policy")
+		return nil
+	}
+	result, err := service.CheckExpiredUsersWithContext(context.Background())
+	if err != nil || result.DisabledCount != 1 {
+		t.Fatalf("CheckExpiredUsersWithContext() result=%+v error=%v", result, err)
+	}
+	if strings.Join(order, ",") != "revoke,policy" {
+		t.Fatalf("operation order = %#v", order)
+	}
+}
+
+func TestCheckExpiredUsersRevocationFailureSkipsPolicy(t *testing.T) {
+	service := newTestSystemService()
+	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) { return 1, nil }
+	service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) {
+		return []models.User{{ID: "user_1", Username: "alice"}}, nil
+	}
+	service.revokeUserTokens = func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+		return 0, errors.New("revoke failed")
+	}
+	service.applyExpiredPolicy = func(string) error {
+		t.Fatal("policy must not run after revoke failure")
+		return nil
+	}
+	result, err := service.CheckExpiredUsersWithContext(context.Background())
+	if err != nil {
+		t.Fatalf("CheckExpiredUsersWithContext() error = %v", err)
+	}
+	if result.DisabledCount != 0 || len(result.FailedUsers) != 1 || result.FailedUsers[0]["error"] != ErrExpiredUserTokenRevocation.Error() {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func newTestSystemService() *SystemService {
+	service := NewSystemService()
+	service.revokeUserTokens = func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+		return 0, nil
+	}
+	return service
 }
 
 func testExpiryNow() time.Time {

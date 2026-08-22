@@ -1,12 +1,14 @@
 package user
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -137,6 +139,7 @@ func TestDeleteUserDeletesEmbyBeforeLocalRecord(t *testing.T) {
 			deletedUserID = user.ID
 			return nil
 		},
+		revokeUserTokens: noopUserTokenRevoker,
 	}
 
 	err := service.DeleteUser("user_1")
@@ -163,6 +166,7 @@ func TestDeleteUserSkipsLocalDeleteWhenEmbyDeleteFails(t *testing.T) {
 			t.Fatalf("local delete must not run when emby delete fails")
 			return nil
 		},
+		revokeUserTokens: noopUserTokenRevoker,
 	}
 
 	err := service.DeleteUser("user_1")
@@ -189,6 +193,7 @@ func TestDeleteUserWithoutEmbyIDDeletesLocalOnly(t *testing.T) {
 			deletedUserID = user.ID
 			return nil
 		},
+		revokeUserTokens: noopUserTokenRevoker,
 	}
 
 	err := service.DeleteUser("user_1")
@@ -222,6 +227,7 @@ func TestToggleUserStatusPersistsFlippedState(t *testing.T) {
 			}
 			return &UserView{User: models.User{ID: userID, IsActive: persistedActive}}, nil
 		},
+		revokeUserTokens: noopUserTokenRevoker,
 	}
 
 	view, err := service.ToggleUserStatus("user_1")
@@ -250,6 +256,7 @@ func TestToggleUserStatusMapsLookupFailureBeforeMutation(t *testing.T) {
 			t.Fatalf("getUserViewByID must not run after lookup failure")
 			return nil, nil
 		},
+		revokeUserTokens: noopUserTokenRevoker,
 	}
 
 	view, err := service.ToggleUserStatus("missing_user")
@@ -278,6 +285,7 @@ func TestToggleUserStatusReturnsPersistFailureBeforeRefresh(t *testing.T) {
 			t.Fatalf("getUserViewByID must not run after persist failure")
 			return nil, nil
 		},
+		revokeUserTokens: noopUserTokenRevoker,
 	}
 
 	view, err := service.ToggleUserStatus("user_1")
@@ -288,6 +296,117 @@ func TestToggleUserStatusReturnsPersistFailureBeforeRefresh(t *testing.T) {
 	if view != nil {
 		t.Fatalf("expected nil view on failure, got %+v", view)
 	}
+}
+
+func TestToggleUserStatusRevokesBeforeEveryHardStateTransition(t *testing.T) {
+	tests := []struct {
+		name       string
+		isActive   bool
+		wantActive bool
+		wantReason embytokenpkg.RevokeReason
+	}{
+		{name: "disable", isActive: true, wantActive: false, wantReason: embytokenpkg.RevokeReasonUserDisabled},
+		{name: "restore still invalidates old tokens", isActive: false, wantActive: true, wantReason: embytokenpkg.RevokeReasonSecurityRevoke},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var order []string
+			service := &UserService{
+				findUserByID: func(userID string) (*models.User, error) {
+					return &models.User{ID: userID, IsActive: test.isActive}, nil
+				},
+				revokeUserTokens: func(_ context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+					order = append(order, "revoke")
+					if userID != "user_1" || reason != test.wantReason || actor != "admin_1" {
+						t.Fatalf("revoke input user=%s reason=%s actor=%s", userID, reason, actor)
+					}
+					return 1, nil
+				},
+				updateUserActive: func(_ string, active bool) error {
+					order = append(order, "update")
+					if active != test.wantActive {
+						t.Fatalf("active = %t, want %t", active, test.wantActive)
+					}
+					return nil
+				},
+				getUserViewByID: func(userID string) (*UserView, error) {
+					return &UserView{User: models.User{ID: userID, IsActive: test.wantActive}}, nil
+				},
+			}
+			if _, err := service.ToggleUserStatusWithContext(context.Background(), "user_1", "admin_1"); err != nil {
+				t.Fatalf("ToggleUserStatusWithContext() error = %v", err)
+			}
+			if len(order) != 2 || order[0] != "revoke" || order[1] != "update" {
+				t.Fatalf("operation order = %#v", order)
+			}
+		})
+	}
+}
+
+func TestToggleUserStatusRevocationFailurePreventsMutation(t *testing.T) {
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, IsActive: true}, nil
+		},
+		revokeUserTokens: func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 0, errors.New("revoke failed")
+		},
+		updateUserActive: func(string, bool) error {
+			t.Fatal("updateUserActive must not run after revoke failure")
+			return nil
+		},
+		getUserViewByID: func(string) (*UserView, error) {
+			t.Fatal("getUserViewByID must not run after revoke failure")
+			return nil, nil
+		},
+	}
+	if _, err := service.ToggleUserStatusWithContext(context.Background(), "user_1", "admin_1"); !errors.Is(err, ErrUserTokenRevocation) {
+		t.Fatalf("ToggleUserStatusWithContext() error = %v, want %v", err, ErrUserTokenRevocation)
+	}
+}
+
+func TestDeleteUserRevokesBeforeRemoteAndLocalDeletion(t *testing.T) {
+	var order []string
+	client := &stubUserEmbyClient{}
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, EmbyID: "emby_1"}, nil
+		},
+		revokeUserTokens: func(_ context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			order = append(order, "revoke")
+			if userID != "user_1" || reason != embytokenpkg.RevokeReasonUserDeleted || actor != "admin_1" {
+				t.Fatalf("revoke input user=%s reason=%s actor=%s", userID, reason, actor)
+			}
+			return 1, nil
+		},
+		newEmbyClient: func() embyClient {
+			return &orderedDeleteUserClient{stubUserEmbyClient: client, order: &order}
+		},
+		deleteUserRecord: func(*models.User) error {
+			order = append(order, "local_delete")
+			return nil
+		},
+	}
+	if err := service.DeleteUserWithContext(context.Background(), "user_1", "admin_1"); err != nil {
+		t.Fatalf("DeleteUserWithContext() error = %v", err)
+	}
+	if strings.Join(order, ",") != "revoke,remote_delete,local_delete" {
+		t.Fatalf("operation order = %#v", order)
+	}
+}
+
+type orderedDeleteUserClient struct {
+	*stubUserEmbyClient
+	order *[]string
+}
+
+func noopUserTokenRevoker(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+	return 0, nil
+}
+
+func (client *orderedDeleteUserClient) DeleteUser(embyUserID string) error {
+	*client.order = append(*client.order, "remote_delete")
+	return client.stubUserEmbyClient.DeleteUser(embyUserID)
 }
 
 func TestSyncEmbyPolicyRecordsFailureWithoutFailingCommittedMutation(t *testing.T) {

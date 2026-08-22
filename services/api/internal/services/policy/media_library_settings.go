@@ -12,6 +12,7 @@ import (
 
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -36,6 +37,7 @@ var (
 	ErrTelegramNotBound         = errors.New("请求参数错误")
 	ErrPolicyTemplateInvalid    = errors.New("Emby 权益模板参数错误")
 	ErrBatchNotFound            = errors.New("同步批次不存在")
+	ErrUserTokenRevocation      = errors.New("用户登录撤销失败")
 )
 
 type libraryClient interface {
@@ -578,6 +580,12 @@ func (s *Service) ResetTelegramMediaLibraryPreferences(telegramID int64) (*UserM
 }
 
 func (s *Service) UpdateUserEmbyAccess(userID string, disabled bool) error {
+	return s.UpdateUserEmbyAccessWithContext(context.Background(), userID, disabled, "system:policy-service")
+}
+
+// UpdateUserEmbyAccessWithContext revokes old mappings before both disable and
+// restore transitions, then persists the policy intent and applies Emby Policy.
+func (s *Service) UpdateUserEmbyAccessWithContext(ctx context.Context, userID string, disabled bool, actor string) error {
 	var user models.User
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -585,6 +593,16 @@ func (s *Service) UpdateUserEmbyAccess(userID string, disabled bool) error {
 		}
 		return normalizePolicyError("读取用户失败", err)
 	}
+	reason := embytokenpkg.RevokeReasonEmbyAccessDisabled
+	if !disabled {
+		reason = embytokenpkg.RevokeReasonSecurityRevoke
+	}
+	count, err := s.revokeUserTokens(ctx, user.ID, reason, actor)
+	if err != nil {
+		return ErrUserTokenRevocation
+	}
+	log.Printf("[Policy] Emby 访问状态变更前已撤销登录 userID=%s disabled=%t reason=%s count=%d",
+		user.ID, disabled, reason, count)
 	if err := s.db.Model(&models.User{}).
 		Where("id = ?", user.ID).
 		Update("emby_access_disabled", disabled).Error; err != nil {

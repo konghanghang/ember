@@ -1,6 +1,7 @@
 package device
 
 import (
+	"context"
 	"errors"
 	"log"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	"golang.org/x/text/unicode/norm"
 	"gorm.io/gorm"
 )
@@ -29,6 +31,7 @@ type DeviceService struct {
 	updateClientBlacklist func(blacklist *models.ClientBlacklist) error
 	deleteClientBlacklist func(blacklist *models.ClientBlacklist) error
 	recordDeviceActionFn  func(action models.DeviceAction) error
+	revokeDeviceTokensFn  func(context.Context, string, string, embytokenpkg.RevokeReason, string) (int64, error)
 }
 
 func NewDeviceService() *DeviceService {
@@ -73,6 +76,15 @@ func (s *DeviceService) applyDefaults() {
 	}
 	if s.recordDeviceActionFn == nil {
 		s.recordDeviceActionFn = recordDeviceAction
+	}
+	if s.revokeDeviceTokensFn == nil {
+		s.revokeDeviceTokensFn = func(ctx context.Context, userID, deviceID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+			revoker, err := embytokenpkg.NewControlPlaneRevoker(db.DB)
+			if err != nil {
+				return 0, err
+			}
+			return revoker.RevokeDeviceTokens(ctx, userID, deviceID, reason, actor)
+		}
 	}
 }
 
@@ -252,23 +264,34 @@ func (s *DeviceService) RemoveClientFromBlacklist(clientName, operatorID string)
 }
 
 func (s *DeviceService) LogoutDevice(deviceID, operatorID string) error {
+	return s.LogoutDeviceWithContext(context.Background(), deviceID, operatorID)
+}
+
+// LogoutDeviceWithContext resolves one unambiguous local owner, revokes local
+// Gateway mappings, and only then calls the existing Emby device logout path.
+func (s *DeviceService) LogoutDeviceWithContext(ctx context.Context, deviceID, operatorID string) error {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
 		return ErrDeviceIDRequired
 	}
-
-	var actionUserID string
-	var actionClientName string
-	items, err := s.buildDeviceItems()
-	if err == nil {
-		for _, item := range items {
-			if item.DeviceID == deviceID {
-				actionUserID = item.UserID
-				actionClientName = item.ClientName
-				break
-			}
-		}
+	if ctx == nil {
+		ctx = context.Background()
 	}
+
+	s.applyDefaults()
+	items, err := s.buildDeviceItems()
+	if err != nil {
+		return ErrDeviceOwnerUnavailable
+	}
+	actionUserID, actionClientName, ok := resolveDeviceOwner(items, deviceID)
+	if !ok {
+		return ErrDeviceOwnerUnavailable
+	}
+	count, err := s.revokeDeviceTokensFn(ctx, actionUserID, deviceID, embytokenpkg.RevokeReasonManualDeviceLogout, operatorID)
+	if err != nil {
+		return ErrDeviceTokenRevocation
+	}
+	log.Printf("[Device] 本地设备登录已撤销 deviceId=%s userId=%s count=%d", deviceID, actionUserID, count)
 
 	if err := s.logoutDeviceFn(deviceID); err != nil {
 		return err
@@ -276,6 +299,27 @@ func (s *DeviceService) LogoutDevice(deviceID, operatorID string) error {
 
 	s.recordDeviceAction(deviceID, actionUserID, actionClientName, "logout", "manual", operatorID)
 	return nil
+}
+
+// resolveDeviceOwner fails closed when a DeviceId is missing a local user or
+// appears under multiple users.
+func resolveDeviceOwner(items []DeviceItem, deviceID string) (string, string, bool) {
+	userID := ""
+	clientName := ""
+	for _, item := range items {
+		if item.DeviceID != deviceID {
+			continue
+		}
+		candidate := strings.TrimSpace(item.UserID)
+		if candidate == "" || (userID != "" && candidate != userID) {
+			return "", "", false
+		}
+		userID = candidate
+		if clientName == "" {
+			clientName = item.ClientName
+		}
+	}
+	return userID, clientName, userID != ""
 }
 
 // LogoutBlacklistedResult 批量注销黑名单设备的结构化结果
@@ -291,6 +335,15 @@ type LogoutFailedDevice struct {
 }
 
 func (s *DeviceService) LogoutBlacklistedDevices(operatorID string) (*LogoutBlacklistedResult, error) {
+	return s.LogoutBlacklistedDevicesWithContext(context.Background(), operatorID)
+}
+
+// LogoutBlacklistedDevicesWithContext applies the same local-first revocation
+// rule independently to every blacklisted device.
+func (s *DeviceService) LogoutBlacklistedDevicesWithContext(ctx context.Context, operatorID string) (*LogoutBlacklistedResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	items, err := s.buildDeviceItems()
 	if err != nil {
 		return nil, err
@@ -308,6 +361,23 @@ func (s *DeviceService) LogoutBlacklistedDevices(operatorID string) (*LogoutBlac
 		FailedDeviceIDs:  make([]LogoutFailedDevice, 0),
 	}
 	for deviceID, item := range targets {
+		userID, _, ownerOK := resolveDeviceOwner(items, deviceID)
+		if !ownerOK {
+			result.FailedDeviceIDs = append(result.FailedDeviceIDs, LogoutFailedDevice{
+				DeviceID: deviceID,
+				Error:    ErrDeviceOwnerUnavailable.Error(),
+			})
+			continue
+		}
+		count, revokeErr := s.revokeDeviceTokensFn(ctx, userID, deviceID, embytokenpkg.RevokeReasonSecurityRevoke, operatorID)
+		if revokeErr != nil {
+			result.FailedDeviceIDs = append(result.FailedDeviceIDs, LogoutFailedDevice{
+				DeviceID: deviceID,
+				Error:    ErrDeviceTokenRevocation.Error(),
+			})
+			continue
+		}
+		log.Printf("[Device] 黑名单设备本地登录已撤销 deviceId=%s userId=%s count=%d", deviceID, userID, count)
 		if err := s.logoutDeviceFn(deviceID); err != nil {
 			log.Printf("[Device] 黑名单设备注销失败 deviceId=%s err=%v", deviceID, err)
 			result.FailedDeviceIDs = append(result.FailedDeviceIDs, LogoutFailedDevice{
@@ -317,7 +387,7 @@ func (s *DeviceService) LogoutBlacklistedDevices(operatorID string) (*LogoutBlac
 			continue
 		}
 		result.SuccessDeviceIDs = append(result.SuccessDeviceIDs, deviceID)
-		s.recordDeviceAction(deviceID, item.UserID, item.ClientName, "logout", "blacklist", operatorID)
+		s.recordDeviceAction(deviceID, userID, item.ClientName, "logout", "blacklist", operatorID)
 	}
 
 	return result, nil
