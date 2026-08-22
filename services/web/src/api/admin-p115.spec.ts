@@ -6,6 +6,7 @@ import {
   getP115Accounts,
   replaceP115AccountCookie,
   setP115AccountEnabled,
+  updateP115AccountSourceLocation,
   validateP115Account,
 } from './admin'
 import { request } from './request'
@@ -32,6 +33,10 @@ describe('admin 115 account API', () => {
       targetParentId: 'target-1',
     })
     await replaceP115AccountCookie('account/1', 'UID=200_A1')
+    await updateP115AccountSourceLocation('account/1', {
+      embyPathPrefix: '/mnt/cloudNAS/115lifetime',
+      sourceRootId: '0',
+    })
     await validateP115Account('account/1')
     await setP115AccountEnabled('account/1', true)
 
@@ -54,6 +59,14 @@ describe('admin 115 account API', () => {
         url: '/admin/p115-accounts/account%2F1/cookie',
         method: 'put',
         data: { cookie: 'UID=200_A1' },
+      }],
+      [{
+        url: '/admin/p115-accounts/account%2F1/source-location',
+        method: 'put',
+        data: {
+          embyPathPrefix: '/mnt/cloudNAS/115lifetime',
+          sourceRootId: '0',
+        },
       }],
       [{ url: '/admin/p115-accounts/account%2F1/validate', method: 'post' }],
       [{

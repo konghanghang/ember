@@ -39,6 +39,8 @@ type P115Account struct {
 	CookieCiphertext string            `json:"-" gorm:"column:cookie_ciphertext;type:text;not null"`
 	AppType          string            `json:"appType" gorm:"column:app_type;type:varchar(32);not null"`
 	UserAgent        string            `json:"userAgent" gorm:"column:user_agent;type:varchar(512);not null"`
+	EmbyPathPrefix   *string           `json:"embyPathPrefix,omitempty" gorm:"column:emby_path_prefix;type:varchar(4096)"`
+	SourceRootID     *string           `json:"sourceRootId,omitempty" gorm:"column:source_root_id;type:varchar(64)"`
 	TargetParentID   *string           `json:"targetParentId,omitempty" gorm:"column:target_parent_id;type:varchar(64)"`
 	Status           P115AccountStatus `json:"status" gorm:"column:status;type:varchar(20);not null;default:'pending'"`
 	Enabled          bool              `json:"enabled" gorm:"column:enabled;not null;default:false"`

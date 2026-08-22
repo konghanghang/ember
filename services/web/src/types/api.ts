@@ -798,6 +798,8 @@ export interface P115Account {
   providerUserId?: string
   appType: string
   userAgent: string
+  embyPathPrefix?: string
+  sourceRootId?: string
   targetParentId?: string
   status: P115AccountStatus
   enabled: boolean
@@ -820,7 +822,14 @@ export interface CreateP115AccountRequest {
   cookie: string
   appType: string
   userAgent: string
+  embyPathPrefix?: string
+  sourceRootId?: string
   targetParentId?: string
+}
+
+export interface UpdateP115SourceLocationRequest {
+  embyPathPrefix: string
+  sourceRootId: string
 }
 
 export interface P115ValidationResult {

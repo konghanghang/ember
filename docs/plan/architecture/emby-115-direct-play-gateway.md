@@ -123,11 +123,12 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `playback_transfer_tasks` 模型、幂等 migration、活动内容 partial unique、终态 provenance 和 `lastAccessedAt`；`VerifySchema` 同步校验新表、代表性列和三个索引。
 - 新增不暴露 HTTP 入口的 `internal/services/directplay`，按角色加载活动账号，以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，锁内二次查重后编排 preID、一次 challenge、秒传、目标复核和锁外直链签发；其窄 Provider 接口不包含 `DeleteFile`。
 - 专用 PostgreSQL 集成数据库的独立 schema 已验证 migration 可重复执行、两个相同内容并发请求只调用一次 fake `InitRapidUpload`、challenge 将 `attemptCount` 记为 2、普通上传要求落为脱敏失败终态；测试不访问真实 115。
+- source 账号新增 `embyPathPrefix/sourceRootId` 一对一运行位置、独立更新接口和管理员表单；`ResolveMediaPath` 已按完整目录边界转换 Emby 路径，拒绝兄弟前缀、空相对路径、`.`/`..`、反斜杠和非规范 root ID。
 
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 播放网关、路径映射持久化、Emby Token 映射、直连会话和运营查询；账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
+- 播放网关、Emby Token 映射、直连会话和运营查询；source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
@@ -238,6 +239,8 @@ services/api/internal/integrations/p115/
 - `cookie_ciphertext`
 - `app_type`
 - `user_agent`
+- `emby_path_prefix`：仅 source 使用
+- `source_root_id`：仅 source 使用
 - `target_parent_id`：仅播放小号使用
 - `status`：`pending`、`active`、`expired`、`error`、`cooling_down`
 - `enabled`
@@ -255,6 +258,8 @@ services/api/internal/integrations/p115/
 - 两条启用记录验证出的非空 `provider_user_id` 不得相同；停用历史记录可保留同一账号标识。
 - Cookie 加密后落库，明文不得离开写入和 Provider 调用边界。
 - Cookie 更新使用覆盖语义，查询接口永不返回密文或明文。
+- 新建和重新启用 source 要求 `emby_path_prefix + source_root_id` 完整；历史账号不猜默认值，缺失时运行期失败关闭。
+- playback 的 source 位置字段必须为空；source 的 `target_parent_id` 必须为空。
 - 不预建未使用的 OpenAPI Token 字段；OpenAPI Provider 落地时通过新 migration 增加自己的凭证结构。
 
 #### 4.2 `emby_access_tokens`
@@ -269,16 +274,14 @@ services/api/internal/integrations/p115/
 
 只保存 Token 哈希；`server_id + token_hash` 唯一。用户停用、访问禁用或解绑时可批量撤销。
 
-#### 4.3 `playback_path_mappings`
+#### 4.3 source 账号运行位置
 
-字段至少包括：
+首期只有一个启用 source 账号，Emby 挂载前缀和 115 root 是该账号的一对一运行属性，直接保存在 `p115_accounts.emby_path_prefix/source_root_id`，不创建独立映射表：
 
-- `id`、`name`、`source_prefix`
-- `provider`、`source_account_id`、`source_root_id`
-- `local_origin_allowed`、`priority`、`enabled`
-- `created_at`、`updated_at`
-
-首版只支持一种明确路径格式，使用最长前缀和优先级匹配，禁止运行时猜测多种格式。
+- 新建 source 时两个字段必填；playback 必须为空。
+- 历史 source 不猜默认值、不自动回填；运行期加载和重新启用要求显式补齐。
+- `emby_path_prefix` 使用完整目录边界匹配，不做 `path.Clean`；`source_root_id` 使用规范十进制 ID。
+- 如果未来出现“一个 source 账号对应多个本地前缀/root”的真实需求，再新增映射表，不在首期预建多对多结构。
 
 #### 4.4 `playback_media_cache`
 
@@ -319,12 +322,12 @@ services/api/internal/integrations/p115/
 
 创建接口接收角色、别名、Cookie、appType、User-Agent 和播放小号目标目录；Cookie 替换与启停使用独立接口。返回只包含脱敏账号标识、状态、最后验证时间和脱敏错误。
 
+source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `PUT /api/v1/admin/p115-accounts/:id/source-location` 更新。位置更新不改变 Cookie 或验证状态。
+
 首期不提供 `/api/v1/user/p115/*`，也不创建授权会话或二维码轮询 API。
 
 #### 5.2 路径、策略和运维接口
 
-- `GET|POST /api/v1/admin/direct-play/path-mappings`
-- `PUT|DELETE /api/v1/admin/direct-play/path-mappings/:id`
 - `GET|PUT /api/v1/admin/plan-groups/:key/direct-play-policy`
 - `GET /api/v1/admin/direct-play/sessions`
 - `GET /api/v1/admin/direct-play/transfers`
@@ -365,7 +368,7 @@ services/api/internal/integrations/p115/
 
 1. PlaybackInfo 透明转发并记录 ItemId、MediaSourceId 和 PlaySessionId。
 2. 原始视频流请求到达后，校验 Token、用户、套餐、黑名单和并发。
-3. 从缓存读取源文件身份，或把 Emby `Path + Size` 经显式路径映射转换为 `rootId + relativePath + size`，调用源账号 `ResolveFileByPath` 得到 fileId、pickCode、SHA1 和 size。
+3. 从缓存读取源文件身份，或按 source 账号的 `embyPathPrefix/sourceRootId` 把 Emby `Path + Size` 转换为 `rootId + relativePath + size`，调用源账号 `ResolveFileByPath` 得到 fileId、pickCode、SHA1 和 size。
 4. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
 5. 命中后更新对应任务/缓存的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
 6. 校验过期时间、Header 要求和域名 allowlist，兼容时返回 302。
@@ -474,7 +477,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
 
-当前进度：`playback_transfer_tasks`、活动内容唯一约束、session advisory lock、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；PostgreSQL 并发、challenge 次数和失败终态测试通过。剩余路径映射、Emby Token、直连会话、网关代理/302、策略门控和 Infuse 验收。
+当前进度：`playback_transfer_tasks`、活动内容唯一约束、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；PostgreSQL 并发、路径边界、challenge 次数和失败终态测试通过。剩余 Emby Token、直连会话、网关代理/302、策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 
@@ -557,7 +560,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - API：新增播放网关、direct play Service、Cookie Provider、账号/路径/策略/会话/任务接口。
 - Web：账号控制面使用独立的管理员 115 账号页面；后续直连策略再触达系统设置、套餐分组和播放分析，首期不改用户账号中心。
 - Bot：阶段 2 可增加账号失效和连续失败告警。
-- 数据库：新增账号、Token 映射、路径、缓存、任务、会话和策略表，全部提供 SQL migration。
+- 数据库：账号表已增加 source 位置字段，秒传任务表已落地；后续 Token 映射、缓存、会话和策略表继续提供 SQL migration。
 - 配置/部署：新增网关进程、公开入口和原始 Emby 网络隔离。
 - 文档：实现时同步系统架构、配置、数据模型、API 目录、Web 信息架构、部署和测试 runbook。
 
@@ -580,7 +583,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - `cd services/api && go build ./...`
 - 设置 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 -run '^TestIntegrationP115Account' ./internal/app`
 - 设置 `EMBER_INTEGRATION_DATABASE_URL` 后执行完整 `go test -count=1 ./internal/app`
-- `cd services/web && npm run test`（当前 170 个测试通过、3 个按既有条件跳过）
+- `cd services/web && npm run test`（当前 175 个测试通过、3 个按既有条件跳过）
 - `cd services/web && npm run build`
 
 上述集成测试使用真实 PostgreSQL 和应用内真实 HTTP 路由，但用 fake `CredentialValidator` 隔离 115；它证明账号控制面状态和数据库约束能够闭环，不证明目标 115 账号、Cookie/Web API 或播放链路真实可用。

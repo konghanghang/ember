@@ -79,6 +79,7 @@ import type {
   UserListQuery,
   UserListResponse,
   UpdateAdminConfigRequest,
+  UpdateP115SourceLocationRequest,
   CreateP115AccountRequest
 } from '@/types/api'
 
@@ -657,6 +658,15 @@ export function replaceP115AccountCookie(id: string, cookie: string): Promise<P1
     url: `/admin/p115-accounts/${encodeURIComponent(id)}/cookie`,
     method: 'put',
     data: { cookie }
+  })
+}
+
+/** 更新 source 账号的 Emby 挂载前缀和 115 源目录 ID。 */
+export function updateP115AccountSourceLocation(id: string, data: UpdateP115SourceLocationRequest): Promise<P115Account> {
+  return request({
+    url: `/admin/p115-accounts/${encodeURIComponent(id)}/source-location`,
+    method: 'put',
+    data
   })
 }
 

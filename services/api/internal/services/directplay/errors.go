@@ -13,4 +13,5 @@ var (
 	ErrDownloadIncompatible   = errors.New("direct play download incompatible")
 	ErrStoreUnavailable       = errors.New("direct play transfer store unavailable")
 	ErrLockUnavailable        = errors.New("direct play transfer lock unavailable")
+	ErrPathNotMapped          = errors.New("direct play media path not mapped")
 )

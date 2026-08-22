@@ -538,6 +538,8 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | CookieCiphertext | text | cookie_ciphertext | `CONFIG_ENCRYPTION_KEY` 加密密文，JSON 永不序列化 |
 | AppType | string(32) | appType | Cookie/Web API 使用的客户端类型 |
 | UserAgent | string(512) | userAgent | Provider 请求使用的固定 User-Agent |
+| EmbyPathPrefix | *string(4096) | embyPathPrefix | source 账号对应的 Emby 绝对挂载前缀；playback 必须为空 |
+| SourceRootID | *string(64) | sourceRootId | source 账号的 115 根目录 ID；playback 必须为空 |
 | TargetParentID | *string(64) | targetParentId | 播放账号目标目录；源账号必须为空 |
 | Status | enum | status | `pending` / `active` / `expired` / `error` / `cooling_down` |
 | Enabled | bool | enabled | 是否允许进入播放链路；创建和 Cookie 轮换后固定为 false |
@@ -555,6 +557,9 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `source` / `playback` 每个角色至多一条启用记录；网关就绪仍要求两个角色各有一个 `enabled + active` 账号
 - 同一个非空 `provider_user_id` 不能同时出现在两个启用账号中
 - `playback` 必须设置 `target_parent_id`，`source` 必须保持为空
+- 新建或重新启用 `source` 必须同时设置 `emby_path_prefix + source_root_id`；两者属于账号的一对一运行配置，不另建路径映射表
+- 历史 source 账号不自动猜路径或回填；字段允许成对为空，但运行期加载和重新启用会失败关闭，直到管理员显式补齐
+- `emby_path_prefix` 必须是非根目录的绝对 Unix 路径，不执行 `path.Clean`；`source_root_id` 必须是规范十进制 ID
 - Cookie 轮换会清空 Provider 用户、验证时间、成功时间、冷却和错误，并回到 `pending + disabled`
 - 启用前必须同时满足 `active`、非空 `provider_user_id` 和非空 `last_validated_at`；检查与更新在事务行锁内完成
 - 验证回写必须匹配发起请求时的 Cookie 密文，防止并发轮换后旧验证结果覆盖新凭证状态

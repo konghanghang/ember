@@ -48,6 +48,9 @@ type fakeAccountStore struct {
 	validationAt                 time.Time
 	enabledValue                 bool
 	createCallCount              int
+	sourceLocationID             string
+	sourceLocationPrefix         string
+	sourceLocationRootID         string
 }
 
 func TestNewServiceRequiresDatabaseAndEncryptionKey(t *testing.T) {
@@ -219,16 +222,35 @@ func (s *fakeAccountStore) SetEnabled(_ context.Context, id string, enabled bool
 	return &copy, nil
 }
 
+func (s *fakeAccountStore) UpdateSourceLocation(_ context.Context, id, embyPathPrefix, sourceRootID string) (*models.P115Account, error) {
+	account, ok := s.accounts[id]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	if account.Role != models.P115AccountRoleSource {
+		return nil, ErrSourceLocationOnly
+	}
+	s.sourceLocationID = id
+	s.sourceLocationPrefix = embyPathPrefix
+	s.sourceLocationRootID = sourceRootID
+	account.EmbyPathPrefix = &embyPathPrefix
+	account.SourceRootID = &sourceRootID
+	copy := *account
+	return &copy, nil
+}
+
 func TestServiceCreateEncryptsCookieAndReturnsSafeSummary(t *testing.T) {
 	store := &fakeAccountStore{}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{})
 
 	result, err := service.Create(context.Background(), CreateAccountInput{
-		Role:      models.P115AccountRoleSource,
-		Alias:     "source account",
-		Cookie:    "UID=fake; CID=fake",
-		AppType:   "android",
-		UserAgent: "test-user-agent",
+		Role:           models.P115AccountRoleSource,
+		Alias:          "source account",
+		Cookie:         "UID=fake; CID=fake",
+		AppType:        "android",
+		UserAgent:      "test-user-agent",
+		EmbyPathPrefix: "/mnt/cloudNAS/115lifetime",
+		SourceRootID:   "0",
 	})
 	if err != nil {
 		t.Fatalf("Create() failed: %v", err)
@@ -244,6 +266,10 @@ func TestServiceCreateEncryptsCookieAndReturnsSafeSummary(t *testing.T) {
 	}
 	if store.created.Status != models.P115AccountStatusPending || store.created.Enabled {
 		t.Fatalf("new account state = %q enabled=%v, want pending and disabled", store.created.Status, store.created.Enabled)
+	}
+	if store.created.EmbyPathPrefix == nil || *store.created.EmbyPathPrefix != "/mnt/cloudNAS/115lifetime" ||
+		store.created.SourceRootID == nil || *store.created.SourceRootID != "0" {
+		t.Fatalf("stored source location = prefix=%v root=%v", store.created.EmbyPathPrefix, store.created.SourceRootID)
 	}
 	if result.ID != "account_1" || result.Role != models.P115AccountRoleSource {
 		t.Fatalf("unexpected summary: %+v", result)
@@ -284,7 +310,13 @@ func TestServiceCreateValidatesRoleSpecificInput(t *testing.T) {
 		{name: "missing cookie", input: mutateSourceInput(func(in *CreateAccountInput) { in.Cookie = " " }), wantErr: ErrCookieRequired},
 		{name: "missing app type", input: mutateSourceInput(func(in *CreateAccountInput) { in.AppType = " " }), wantErr: ErrAppTypeRequired},
 		{name: "missing user agent", input: mutateSourceInput(func(in *CreateAccountInput) { in.UserAgent = " " }), wantErr: ErrUserAgentRequired},
+		{name: "missing emby path prefix", input: mutateSourceInput(func(in *CreateAccountInput) { in.EmbyPathPrefix = " " }), wantErr: ErrEmbyPathPrefixRequired},
+		{name: "relative emby path prefix", input: mutateSourceInput(func(in *CreateAccountInput) { in.EmbyPathPrefix = "mnt/media" }), wantErr: ErrEmbyPathPrefixInvalid},
+		{name: "ambiguous emby path prefix", input: mutateSourceInput(func(in *CreateAccountInput) { in.EmbyPathPrefix = "/mnt//media" }), wantErr: ErrEmbyPathPrefixInvalid},
+		{name: "missing source root", input: mutateSourceInput(func(in *CreateAccountInput) { in.SourceRootID = " " }), wantErr: ErrSourceRootIDRequired},
+		{name: "non canonical source root", input: mutateSourceInput(func(in *CreateAccountInput) { in.SourceRootID = "00" }), wantErr: ErrSourceRootIDInvalid},
 		{name: "source target directory", input: mutateSourceInput(func(in *CreateAccountInput) { in.TargetParentID = "target" }), wantErr: ErrSourceTargetParentUnexpected},
+		{name: "playback source location", input: CreateAccountInput{Role: models.P115AccountRolePlayback, Alias: "playback", Cookie: "cookie", AppType: "android", UserAgent: "ua", TargetParentID: "target", EmbyPathPrefix: "/mnt/media", SourceRootID: "0"}, wantErr: ErrPlaybackSourceLocationUnexpected},
 		{name: "playback missing target directory", input: CreateAccountInput{Role: models.P115AccountRolePlayback, Alias: "playback", Cookie: "cookie", AppType: "android", UserAgent: "ua"}, wantErr: ErrPlaybackTargetParentRequired},
 	}
 
@@ -400,6 +432,38 @@ func TestServiceLoadActiveCredentialByRoleReturnsProviderIdentityAndTarget(t *te
 	}
 }
 
+func TestServiceLoadActiveSourceCredentialRequiresLocation(t *testing.T) {
+	providerUserID := "provider-source"
+	embyPathPrefix := "/mnt/cloudNAS/115lifetime"
+	sourceRootID := "0"
+	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
+		"source": {
+			ID: "source", Role: models.P115AccountRoleSource, ProviderUserID: &providerUserID,
+			CookieCiphertext: "encrypted:source-cookie", EmbyPathPrefix: &embyPathPrefix,
+			SourceRootID: &sourceRootID, Status: models.P115AccountStatusActive, Enabled: true,
+		},
+		"missing": {
+			ID: "missing", Role: models.P115AccountRoleSource, ProviderUserID: &providerUserID,
+			CookieCiphertext: "encrypted:source-cookie", Status: models.P115AccountStatusActive, Enabled: false,
+		},
+	}}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+
+	active, err := service.LoadActiveCredentialByRole(context.Background(), models.P115AccountRoleSource)
+	if err != nil {
+		t.Fatalf("LoadActiveCredentialByRole(source) error = %v", err)
+	}
+	if active.EmbyPathPrefix != embyPathPrefix || active.SourceRootID != sourceRootID {
+		t.Fatalf("active source location = %+v", active)
+	}
+
+	store.accounts["source"].Enabled = false
+	store.accounts["missing"].Enabled = true
+	if _, err := service.LoadActiveCredentialByRole(context.Background(), models.P115AccountRoleSource); !errors.Is(err, ErrAccountUnavailable) {
+		t.Fatalf("LoadActiveCredentialByRole(missing location) error = %v, want ErrAccountUnavailable", err)
+	}
+}
+
 func TestServiceLoadCredentialForValidationPropagatesDecryptError(t *testing.T) {
 	decryptErr := errors.New("decrypt failed")
 	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
@@ -408,6 +472,32 @@ func TestServiceLoadCredentialForValidationPropagatesDecryptError(t *testing.T) 
 	service := newServiceWithDependencies(store, fakeCredentialCipher{decryptErr: decryptErr})
 	if _, err := service.LoadCredentialForValidation(context.Background(), "account_1"); !errors.Is(err, decryptErr) {
 		t.Fatalf("LoadCredentialForValidation() error = %v, want decrypt error", err)
+	}
+}
+
+func TestServiceUpdateSourceLocationPersistsNormalizedPair(t *testing.T) {
+	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
+		"source":   {ID: "source", Role: models.P115AccountRoleSource},
+		"playback": {ID: "playback", Role: models.P115AccountRolePlayback},
+	}}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+
+	result, err := service.UpdateSourceLocation(context.Background(), "source", SourceLocationInput{
+		EmbyPathPrefix: " /mnt/cloudNAS/115lifetime ",
+		SourceRootID:   "0",
+	})
+	if err != nil {
+		t.Fatalf("UpdateSourceLocation() error = %v", err)
+	}
+	if store.sourceLocationID != "source" || store.sourceLocationPrefix != "/mnt/cloudNAS/115lifetime" ||
+		store.sourceLocationRootID != "0" || result.EmbyPathPrefix == nil || result.SourceRootID == nil {
+		t.Fatalf("source location result=%+v store=%q/%q/%q", result,
+			store.sourceLocationID, store.sourceLocationPrefix, store.sourceLocationRootID)
+	}
+	if _, err := service.UpdateSourceLocation(context.Background(), "playback", SourceLocationInput{
+		EmbyPathPrefix: "/mnt/media", SourceRootID: "0",
+	}); !errors.Is(err, ErrSourceLocationOnly) {
+		t.Fatalf("UpdateSourceLocation(playback) error = %v, want ErrSourceLocationOnly", err)
 	}
 }
 
@@ -469,11 +559,13 @@ func TestServiceReplaceCookieRejectsEmptyValue(t *testing.T) {
 
 func validSourceInput(role models.P115AccountRole) CreateAccountInput {
 	return CreateAccountInput{
-		Role:      role,
-		Alias:     "source",
-		Cookie:    "cookie",
-		AppType:   "android",
-		UserAgent: "ua",
+		Role:           role,
+		Alias:          "source",
+		Cookie:         "cookie",
+		AppType:        "android",
+		UserAgent:      "ua",
+		EmbyPathPrefix: "/mnt/cloudNAS/115lifetime",
+		SourceRootID:   "0",
 	}
 }
 

@@ -129,6 +129,9 @@ func TestServiceValidatePersistsRejectedAndUnavailableStates(t *testing.T) {
 func TestValidateP115AccountEnableState(t *testing.T) {
 	providerUserID := "123"
 	validatedAt := time.Now().UTC()
+	embyPathPrefix := "/mnt/cloudNAS/115lifetime"
+	sourceRootID := "0"
+	targetParentID := "200"
 	tests := []struct {
 		name    string
 		account models.P115Account
@@ -137,7 +140,10 @@ func TestValidateP115AccountEnableState(t *testing.T) {
 		{name: "pending", account: models.P115Account{Status: models.P115AccountStatusPending, ProviderUserID: &providerUserID, LastValidatedAt: &validatedAt}, wantErr: ErrAccountUnavailable},
 		{name: "missing provider user", account: models.P115Account{Status: models.P115AccountStatusActive, LastValidatedAt: &validatedAt}, wantErr: ErrAccountUnavailable},
 		{name: "missing validation", account: models.P115Account{Status: models.P115AccountStatusActive, ProviderUserID: &providerUserID}, wantErr: ErrAccountUnavailable},
-		{name: "active", account: models.P115Account{Status: models.P115AccountStatusActive, ProviderUserID: &providerUserID, LastValidatedAt: &validatedAt}},
+		{name: "source missing location", account: models.P115Account{Role: models.P115AccountRoleSource, Status: models.P115AccountStatusActive, ProviderUserID: &providerUserID, LastValidatedAt: &validatedAt}, wantErr: ErrAccountUnavailable},
+		{name: "active source", account: models.P115Account{Role: models.P115AccountRoleSource, Status: models.P115AccountStatusActive, ProviderUserID: &providerUserID, LastValidatedAt: &validatedAt, EmbyPathPrefix: &embyPathPrefix, SourceRootID: &sourceRootID}},
+		{name: "playback missing target", account: models.P115Account{Role: models.P115AccountRolePlayback, Status: models.P115AccountStatusActive, ProviderUserID: &providerUserID, LastValidatedAt: &validatedAt}, wantErr: ErrAccountUnavailable},
+		{name: "active playback", account: models.P115Account{Role: models.P115AccountRolePlayback, Status: models.P115AccountStatusActive, ProviderUserID: &providerUserID, LastValidatedAt: &validatedAt, TargetParentID: &targetParentID}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

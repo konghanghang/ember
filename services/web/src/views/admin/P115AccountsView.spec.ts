@@ -9,6 +9,7 @@ import {
   getP115Accounts,
   replaceP115AccountCookie,
   setP115AccountEnabled,
+  updateP115AccountSourceLocation,
   validateP115Account,
 } from '@/api/admin'
 import { ElMessage } from 'element-plus'
@@ -18,6 +19,7 @@ vi.mock('@/api/admin', () => ({
   getP115Accounts: vi.fn(),
   replaceP115AccountCookie: vi.fn(),
   setP115AccountEnabled: vi.fn(),
+  updateP115AccountSourceLocation: vi.fn(),
   validateP115Account: vi.fn(),
 }))
 
@@ -98,6 +100,8 @@ function account(overrides: Partial<P115Account> = {}): P115Account {
     authMode: 'legacy_cookie',
     appType: 'web',
     userAgent: 'Ember Test',
+    embyPathPrefix: '/mnt/cloudNAS/115lifetime',
+    sourceRootId: '0',
     status: 'pending',
     enabled: false,
     createdAt: '2026-08-18T00:00:00Z',
@@ -145,6 +149,7 @@ describe('P115AccountsView', () => {
     })
     vi.mocked(setP115AccountEnabled).mockResolvedValue(account({ status: 'active', enabled: true }))
     vi.mocked(replaceP115AccountCookie).mockResolvedValue(account())
+    vi.mocked(updateP115AccountSourceLocation).mockResolvedValue(account())
   })
 
   it('展示安全账号摘要，pending 账号不能直接启用', async () => {
@@ -190,6 +195,55 @@ describe('P115AccountsView', () => {
     expect(getP115Accounts).toHaveBeenCalledTimes(2)
     expect(wrapper.find('[data-test="form-dialog"]').exists()).toBe(false)
     expect(ElMessage.success).toHaveBeenCalledWith('115 账号已添加')
+  })
+
+  it('创建源账号时提交 Emby 挂载目录和 115 源目录', async () => {
+    vi.mocked(getP115Accounts).mockResolvedValueOnce({ data: [] }).mockResolvedValueOnce({ data: [account()] })
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, '添加账号').trigger('click')
+
+    const dialog = wrapper.get('[data-test="form-dialog"]')
+    await dialog.get('input[placeholder="例如：源账号"]').setValue('源账号')
+    await dialog.get('input[placeholder="例如：web"]').setValue('ios')
+    await dialog.get('input[placeholder="请输入固定的 User-Agent"]').setValue('Ember Test')
+    await dialog.get('input[placeholder="例如：/mnt/cloudNAS/115lifetime"]').setValue('/mnt/cloudNAS/115lifetime')
+    await dialog.get('input[placeholder="例如：0"]').setValue('0')
+    await dialog.get('input[placeholder="粘贴完整 Cookie"]').setValue('UID=100_A1')
+    await findButton(wrapper, '保存账号').trigger('click')
+    await flushPromises()
+
+    expect(createP115Account).toHaveBeenCalledWith({
+      role: 'source',
+      alias: '源账号',
+      cookie: 'UID=100_A1',
+      appType: 'ios',
+      userAgent: 'Ember Test',
+      embyPathPrefix: '/mnt/cloudNAS/115lifetime',
+      sourceRootId: '0',
+    })
+  })
+
+  it('允许源账号更新运行路径，缺少路径时不能启用', async () => {
+    vi.mocked(getP115Accounts)
+      .mockResolvedValueOnce({ data: [account({ status: 'active', embyPathPrefix: undefined, sourceRootId: undefined })] })
+      .mockResolvedValueOnce({ data: [account({ status: 'active' })] })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(findButton(wrapper, '启用').attributes('disabled')).toBeDefined()
+    await findButton(wrapper, '配置源目录').trigger('click')
+    const dialog = wrapper.get('[data-test="form-dialog"]')
+    await dialog.get('input[placeholder="例如：/mnt/cloudNAS/115lifetime"]').setValue('/mnt/cloudNAS/115lifetime')
+    await dialog.get('input[placeholder="例如：0"]').setValue('0')
+    await findButton(wrapper, '保存源目录').trigger('click')
+    await flushPromises()
+
+    expect(updateP115AccountSourceLocation).toHaveBeenCalledWith('p115_source', {
+      embyPathPrefix: '/mnt/cloudNAS/115lifetime',
+      sourceRootId: '0',
+    })
+    expect(getP115Accounts).toHaveBeenCalledTimes(2)
   })
 
   it('验证成功后刷新状态并允许启用', async () => {

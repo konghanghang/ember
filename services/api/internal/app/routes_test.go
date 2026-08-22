@@ -102,11 +102,12 @@ func TestP115AccountAdminRoutesAreRegistered(t *testing.T) {
 	}
 
 	expected := map[string]string{
-		"/api/v1/admin/p115-accounts":              http.MethodGet,
-		"/api/v1/admin/p115-accounts/:id":          http.MethodGet,
-		"/api/v1/admin/p115-accounts/:id/cookie":   http.MethodPut,
-		"/api/v1/admin/p115-accounts/:id/validate": http.MethodPost,
-		"/api/v1/admin/p115-accounts/:id/enabled":  http.MethodPut,
+		"/api/v1/admin/p115-accounts":                     http.MethodGet,
+		"/api/v1/admin/p115-accounts/:id":                 http.MethodGet,
+		"/api/v1/admin/p115-accounts/:id/cookie":          http.MethodPut,
+		"/api/v1/admin/p115-accounts/:id/validate":        http.MethodPost,
+		"/api/v1/admin/p115-accounts/:id/enabled":         http.MethodPut,
+		"/api/v1/admin/p115-accounts/:id/source-location": http.MethodPut,
 	}
 	for path, method := range expected {
 		if _, ok := registered[method+" "+path]; !ok {

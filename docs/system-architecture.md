@@ -320,6 +320,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
 - `P115Account` 是管理员维护的独立外部账号，不归普通用户所有；数据库只保存 Cookie 密文，每个角色至多一条启用记录
+- source 账号同时持有 `embyPathPrefix + sourceRootId`，把 Emby 本地路径映射到 115 源目录；首期是一对一账号配置，不建立独立路径映射表
 - `PlaybackTransferTask` 通过 source/playback 账号、SHA1 和 size 记录保留式秒传 provenance；签名 URL 与 Cookie 永不落库
 
 ### 4.3 维护约束
@@ -708,15 +709,16 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配，以及不暴露 HTTP 入口的 `directplay.Service` 生产编排；尚未实现播放网关。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 仍待真实验证，删除没有生产业务调用方：
 
-- 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
-- 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
-- `Create(ctx, input)`：校验 `source` / `playback` 角色字段，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
+- 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
+- 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
+- `Create(ctx, input)`：校验 `source` 的 `embyPathPrefix/sourceRootId` 或 `playback` 的 `targetParentId`，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
+- `UpdateSourceLocation(ctx, accountID, input)`：只允许 source 账号更新 Emby 挂载前缀和 115 源目录 ID；更新使用事务行锁，不修改 Cookie、验证状态或启用状态
 - `ReplaceCookie(ctx, accountID, cookie)`：覆盖密文并清空 Provider 用户、验证时间、冷却和错误状态，重新回到 `pending + disabled`
 - `Validate(ctx, accountID)`：调用固定的登录状态端点；成功进入 `active` 但不自动启用，凭证失效进入 `expired + disabled`，网络或协议失败进入 `error`；回写按 Cookie 密文做乐观并发检查
-- `SetEnabled(ctx, accountID, enabled)`：事务行锁内要求 `active + providerUserId + lastValidatedAt`，并由 partial unique index 保证每个角色至多一个启用账号、源账号与播放账号不能是同一 Provider 用户
+- `SetEnabled(ctx, accountID, enabled)`：事务行锁内要求 `active + providerUserId + lastValidatedAt`；source 还必须具备完整位置，playback 必须具备目标目录；partial unique 保证每个角色至多一个启用账号、两个角色不能是同一 Provider 用户
 - `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
-- `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，返回 Provider UID、playback 目标目录和解密后的窄 Credential；Cookie 仍不进入 JSON
+- `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，source 返回 Emby 前缀/115 root，playback 返回目标目录，并携带解密后的窄 Credential；历史 source 缺位置时失败关闭，Cookie 仍不进入 JSON
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
 - `integrations/p115.CookieProvider`：组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，通过编译期断言完整实现 Provider-neutral 接口；生产账号控制面注入该对象的验证边界，后续 direct play Service 可复用同一具体 Provider
 - `integrations/p115.CookieHTTPAdapter.GetUploadInfo`：固定请求上传信息端点，严格映射顶层 `user_id` / `userkey`，并要求响应用户与 Cookie UID 一致
@@ -744,7 +746,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前完成的是播放网关之前的生产编排核心，不注册路由、不启动独立服务，也不解析 Emby 请求：
 
 - `TransferProvider` 只包含源路径解析、目标查重、Range Hash、秒传初始化、目标复核和下载 URL；接口刻意不包含 `DeleteFile`，第一阶段无法自动删除保留文件
-- `Resolve` 加载唯一 `active + enabled` 的 source/playback 账号并核对 Provider UID 不同；入参是上层已映射的 `rootId + relativePath + size` 和真实客户端 User-Agent
+- `ResolveMediaPath` 加载唯一 `active + enabled` 的 source/playback 账号并核对 Provider UID 不同，按 source 账号配置把 Emby `Path + Size` 严格转换为 `rootId + relativePath + size`，再进入既有 `Resolve` 编排
 - 首次目录作用域查重命中时跳过任务与锁，成功签发直链后刷新最近成功任务的 `lastAccessedAt`；外部预存文件没有 Ember 任务时允许无行更新
 - 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；相同内容的并发请求只有一个进入秒传，其余请求复用目标文件
 - 锁内创建 `playback_transfer_tasks`，状态依次覆盖初始化、一次 challenge、目标复核和终态；真实 Provider message、Cookie、完整路径和签名 URL 均不落库

@@ -8,6 +8,7 @@ import {
   getP115Accounts,
   replaceP115AccountCookie,
   setP115AccountEnabled,
+  updateP115AccountSourceLocation,
   validateP115Account,
 } from '@/api/admin'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
@@ -29,7 +30,14 @@ interface P115AccountForm {
   cookie: string
   appType: string
   userAgent: string
+  embyPathPrefix: string
+  sourceRootId: string
   targetParentId: string
+}
+
+interface P115SourceLocationForm {
+  embyPathPrefix: string
+  sourceRootId: string
 }
 
 const accounts = ref<P115Account[]>([])
@@ -47,6 +55,11 @@ const replaceAccount = ref<P115Account | null>(null)
 const replacementCookie = ref('')
 const replaceSubmitting = ref(false)
 
+const sourceLocationDialogVisible = ref(false)
+const sourceLocationAccount = ref<P115Account | null>(null)
+const sourceLocationForm = ref<P115SourceLocationForm>({ embyPathPrefix: '', sourceRootId: '' })
+const sourceLocationSubmitting = ref(false)
+
 const statusMeta: Record<P115AccountStatus, { label: string; className: string }> = {
   pending: { label: '待验证', className: 'border-amber-100 bg-amber-50 text-amber-700' },
   active: { label: '有效', className: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
@@ -62,11 +75,18 @@ const createReady = computed(() => {
     && form.cookie.trim()
     && form.appType.trim()
     && form.userAgent.trim()
-    && (form.role === 'source' || form.targetParentId.trim()),
+    && (form.role === 'source'
+      ? form.embyPathPrefix.trim() && form.sourceRootId.trim()
+      : form.targetParentId.trim()),
   )
 })
 
 const replaceReady = computed(() => Boolean(replaceAccount.value && replacementCookie.value.trim()))
+const sourceLocationReady = computed(() => Boolean(
+  sourceLocationAccount.value
+  && sourceLocationForm.value.embyPathPrefix.trim()
+  && sourceLocationForm.value.sourceRootId.trim(),
+))
 
 /** 返回新的空白表单，避免 Cookie 在弹窗之间残留。 */
 function newCreateForm(): P115AccountForm {
@@ -76,6 +96,8 @@ function newCreateForm(): P115AccountForm {
     cookie: '',
     appType: 'web',
     userAgent: '',
+    embyPathPrefix: '',
+    sourceRootId: '',
     targetParentId: '',
   }
 }
@@ -127,6 +149,9 @@ async function submitCreate(): Promise<void> {
   }
   if (form.role === 'playback') {
     payload.targetParentId = form.targetParentId.trim()
+  } else {
+    payload.embyPathPrefix = form.embyPathPrefix.trim()
+    payload.sourceRootId = form.sourceRootId.trim()
   }
 
   createSubmitting.value = true
@@ -185,6 +210,7 @@ async function handleValidate(account: P115Account): Promise<void> {
 async function handleEnabled(account: P115Account): Promise<void> {
   const enabled = !account.enabled
   if (enabled && account.status !== 'active') return
+  if (enabled && account.role === 'source' && !hasSourceLocation(account)) return
   if (isAccountBusy(account.id)) return
 
   setActionLoading(account.id, 'enable', true)
@@ -196,6 +222,48 @@ async function handleEnabled(account: P115Account): Promise<void> {
     // 409 等业务冲突由 request 拦截器使用后端原始原因提示。
   } finally {
     setActionLoading(account.id, 'enable', false)
+  }
+}
+
+/** source 账号只有两个位置字段都存在时才具备运行条件。 */
+function hasSourceLocation(account: P115Account): boolean {
+  return Boolean(account.embyPathPrefix?.trim() && account.sourceRootId?.trim())
+}
+
+/** 打开 source 位置弹窗，只回填后端允许公开的路径摘要。 */
+function openSourceLocationDialog(account: P115Account): void {
+  if (account.role !== 'source' || isAccountBusy(account.id)) return
+  sourceLocationAccount.value = account
+  sourceLocationForm.value = {
+    embyPathPrefix: account.embyPathPrefix || '',
+    sourceRootId: account.sourceRootId || '',
+  }
+  sourceLocationDialogVisible.value = true
+}
+
+/** 关闭源目录弹窗时清空账号引用和未提交路径。 */
+function closeSourceLocationDialog(): void {
+  sourceLocationDialogVisible.value = false
+  sourceLocationAccount.value = null
+  sourceLocationForm.value = { embyPathPrefix: '', sourceRootId: '' }
+}
+
+/** 保存 source 账号的一对一运行路径配置并刷新安全摘要。 */
+async function submitSourceLocation(): Promise<void> {
+  if (!sourceLocationReady.value || !sourceLocationAccount.value || sourceLocationSubmitting.value) return
+  sourceLocationSubmitting.value = true
+  try {
+    await updateP115AccountSourceLocation(sourceLocationAccount.value.id, {
+      embyPathPrefix: sourceLocationForm.value.embyPathPrefix.trim(),
+      sourceRootId: sourceLocationForm.value.sourceRootId.trim(),
+    })
+    closeSourceLocationDialog()
+    ElMessage.success('源目录配置已保存')
+    await loadAccounts()
+  } catch {
+    // request 拦截器已展示后端的路径或角色错误，保留输入便于修正。
+  } finally {
+    sourceLocationSubmitting.value = false
   }
 }
 
@@ -349,6 +417,14 @@ onMounted(() => {
               <dt class="text-xs text-gray-400">目标目录 ID</dt>
               <dd class="mt-1 break-all font-medium text-gray-700">{{ account.targetParentId || '-' }}</dd>
             </div>
+            <div v-if="account.role === 'source'" class="sm:col-span-2">
+              <dt class="text-xs text-gray-400">Emby 挂载目录</dt>
+              <dd class="mt-1 break-all font-medium text-gray-700">{{ account.embyPathPrefix || '未配置' }}</dd>
+            </div>
+            <div v-if="account.role === 'source'">
+              <dt class="text-xs text-gray-400">115 源目录 ID</dt>
+              <dd class="mt-1 break-all font-medium text-gray-700">{{ account.sourceRootId || '未配置' }}</dd>
+            </div>
             <div class="sm:col-span-2">
               <dt class="text-xs text-gray-400">User-Agent</dt>
               <dd class="mt-1 break-all font-medium text-gray-700">{{ account.userAgent }}</dd>
@@ -366,6 +442,15 @@ onMounted(() => {
           </div>
 
           <footer class="flex flex-wrap justify-end gap-2 border-t border-gray-100 bg-gray-50/50 px-5 py-4">
+            <button
+              v-if="account.role === 'source'"
+              type="button"
+              class="cursor-pointer rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="isAccountBusy(account.id)"
+              @click="openSourceLocationDialog(account)"
+            >
+              配置源目录
+            </button>
             <button
               type="button"
               class="cursor-pointer rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -388,7 +473,9 @@ onMounted(() => {
               :class="account.enabled
                 ? 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                 : 'btn-ember'"
-              :disabled="isAccountBusy(account.id) || (!account.enabled && account.status !== 'active')"
+              :disabled="isAccountBusy(account.id)
+                || (!account.enabled && account.status !== 'active')
+                || (!account.enabled && account.role === 'source' && !hasSourceLocation(account))"
               @click="handleEnabled(account)"
             >
               {{ isActionLoading(account.id, 'enable') ? '处理中' : (account.enabled ? '停用' : '启用') }}
@@ -441,6 +528,28 @@ onMounted(() => {
           />
         </label>
 
+        <template v-if="createForm.role === 'source'">
+          <label class="space-y-2 text-sm font-medium text-gray-700">
+            <span>115 源目录 ID</span>
+            <el-input
+              v-model="createForm.sourceRootId"
+              placeholder="例如：0"
+              maxlength="64"
+              class="input-ember"
+            />
+          </label>
+
+          <label class="space-y-2 text-sm font-medium text-gray-700 sm:col-span-2">
+            <span>Emby 挂载目录</span>
+            <el-input
+              v-model="createForm.embyPathPrefix"
+              placeholder="例如：/mnt/cloudNAS/115lifetime"
+              maxlength="4096"
+              class="input-ember"
+            />
+          </label>
+        </template>
+
         <label class="space-y-2 text-sm font-medium text-gray-700 sm:col-span-2">
           <span>User-Agent</span>
           <el-input
@@ -479,6 +588,54 @@ onMounted(() => {
             @click="submitCreate"
           >
             {{ createSubmitting ? '保存中' : '保存账号' }}
+          </button>
+        </div>
+      </template>
+    </EmberFormDialog>
+
+    <EmberFormDialog
+      :model-value="sourceLocationDialogVisible"
+      title="配置源目录"
+      width="520px"
+      @update:model-value="$event ? (sourceLocationDialogVisible = true) : closeSourceLocationDialog()"
+    >
+      <div class="space-y-4">
+        <label class="block space-y-2 text-sm font-medium text-gray-700">
+          <span>Emby 挂载目录</span>
+          <el-input
+            v-model="sourceLocationForm.embyPathPrefix"
+            placeholder="例如：/mnt/cloudNAS/115lifetime"
+            maxlength="4096"
+            class="input-ember"
+          />
+        </label>
+        <label class="block space-y-2 text-sm font-medium text-gray-700">
+          <span>115 源目录 ID</span>
+          <el-input
+            v-model="sourceLocationForm.sourceRootId"
+            placeholder="例如：0"
+            maxlength="64"
+            class="input-ember"
+          />
+        </label>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700"
+            @click="closeSourceLocationDialog"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn-ember cursor-pointer rounded-xl px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!sourceLocationReady || sourceLocationSubmitting"
+            @click="submitSourceLocation"
+          >
+            {{ sourceLocationSubmitting ? '保存中' : '保存源目录' }}
           </button>
         </div>
       </template>

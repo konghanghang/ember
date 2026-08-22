@@ -25,6 +25,47 @@ func TestNewServiceRejectsMissingProductionDependencies(t *testing.T) {
 	}
 }
 
+func TestServiceResolveMediaPathUsesSourceAccountLocation(t *testing.T) {
+	provider := newFakeProvider()
+	provider.searchResults = [][]p115integration.File{{provider.targetFile}}
+	service := newServiceWithDependencies(fakeAccountLoader{}, provider, &fakeTaskStore{}, &fakeTaskLocker{})
+
+	result, err := service.ResolveMediaPath(context.Background(), MediaPathResolveRequest{
+		Path:            "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
+		Size:            1024 * 1024,
+		ClientUserAgent: "Infuse-Fixture",
+	})
+	if err != nil {
+		t.Fatalf("ResolveMediaPath() error = %v", err)
+	}
+	if !result.Preexisting || provider.resolvedQuery.RootID != "0" || provider.resolvedQuery.RelativePath != "Media/fixture.mkv" {
+		t.Fatalf("ResolveMediaPath() result=%+v query=%+v", result, provider.resolvedQuery)
+	}
+}
+
+func TestServiceResolveMediaPathRejectsPrefixBoundaryAndTraversal(t *testing.T) {
+	tests := []string{
+		"/mnt/cloudNAS/115lifetime2/Media/fixture.mkv",
+		"/mnt/cloudNAS/115lifetime/Media/../fixture.mkv",
+		"/mnt/cloudNAS/115lifetime",
+	}
+	for _, mediaPath := range tests {
+		t.Run(mediaPath, func(t *testing.T) {
+			provider := newFakeProvider()
+			service := newServiceWithDependencies(fakeAccountLoader{}, provider, &fakeTaskStore{}, &fakeTaskLocker{})
+			_, err := service.ResolveMediaPath(context.Background(), MediaPathResolveRequest{
+				Path: mediaPath, Size: 1024 * 1024, ClientUserAgent: "Infuse-Fixture",
+			})
+			if !errors.Is(err, ErrPathNotMapped) {
+				t.Fatalf("ResolveMediaPath(%q) error = %v, want ErrPathNotMapped", mediaPath, err)
+			}
+			if len(provider.calls) != 0 {
+				t.Fatalf("invalid media path reached provider: %v", provider.calls)
+			}
+		})
+	}
+}
+
 func TestServiceResolveReusesPreexistingTargetWithoutLockOrUpload(t *testing.T) {
 	provider := newFakeProvider()
 	provider.searchResults = [][]p115integration.File{{provider.targetFile}}
@@ -184,6 +225,8 @@ func (loader fakeAccountLoader) LoadActiveCredentialByRole(_ context.Context, ro
 		Role:           role,
 		ProviderUserID: providerUserID,
 		TargetParentID: targetParentID,
+		EmbyPathPrefix: "/mnt/cloudNAS/115lifetime",
+		SourceRootID:   "0",
 		Credential: p115integration.Credential{
 			AccountID: accountID,
 			Cookie:    "fixture-cookie",
@@ -200,6 +243,7 @@ type fakeProvider struct {
 	uploadResults  []p115integration.RapidUploadResult
 	uploadRequests []p115integration.RapidUploadRequest
 	rangeRequests  []p115integration.FileRangeRequest
+	resolvedQuery  p115integration.FilePathQuery
 	sourceFile     p115integration.File
 	targetFile     p115integration.File
 	download       p115integration.DownloadURLResult
@@ -222,8 +266,11 @@ func newFakeProvider() *fakeProvider {
 	}
 }
 
-func (provider *fakeProvider) ResolveFileByPath(_ context.Context, _ p115integration.Credential, _ p115integration.FilePathQuery) (*p115integration.File, error) {
-	provider.record("resolve_source")
+func (provider *fakeProvider) ResolveFileByPath(_ context.Context, _ p115integration.Credential, query p115integration.FilePathQuery) (*p115integration.File, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.calls = append(provider.calls, "resolve_source")
+	provider.resolvedQuery = query
 	file := provider.sourceFile
 	return &file, nil
 }
@@ -351,6 +398,14 @@ func fixtureResolveRequest() ResolveRequest {
 		SourceFile: p115integration.FilePathQuery{
 			RootID: "0", RelativePath: "Media/fixture.mkv", Size: 1024 * 1024,
 		},
+		ClientUserAgent: "Infuse-Fixture",
+	}
+}
+
+func fixtureMediaPathResolveRequest() MediaPathResolveRequest {
+	return MediaPathResolveRequest{
+		Path:            "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
+		Size:            1024 * 1024,
 		ClientUserAgent: "Infuse-Fixture",
 	}
 }

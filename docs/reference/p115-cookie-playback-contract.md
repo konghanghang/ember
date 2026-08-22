@@ -136,8 +136,9 @@ Ember 的 `CookieHTTPAdapter.GetUploadInfo` 当前固定：
 
 #### 5.2.1 源文件路径解析
 
-Emby `PlaybackInfo` 只提供媒体源 `Path` 和 `Size`，不能提供可直接信任的 115 SHA1。路径映射层必须先把一个明确的 Emby 路径前缀映射到源账号 `rootId`，再把剩余部分作为 slash 分隔的相对路径交给 `CookieHTTPAdapter.ResolveFileByPath`：
+Emby `PlaybackInfo` 只提供媒体源 `Path` 和 `Size`，不能提供可直接信任的 115 SHA1。首期唯一启用的 source 账号必须同时配置 `embyPathPrefix + sourceRootId`；DirectPlay 先按完整目录边界移除该账号的 Emby 前缀，再把剩余部分作为 slash 分隔的相对路径交给 `CookieHTTPAdapter.ResolveFileByPath`。当前是一对一账号配置，不建立独立路径映射表：
 
+- `embyPathPrefix` 必须是非 `/` 的绝对 Unix 路径，禁止尾随 `/`、反斜杠、空段、`.`、`..`、NUL 或换行；`/mnt/source2` 不能命中 `/mnt/source`。
 - `rootId` 必须是显式十进制目录 ID；相对路径不允许绝对路径、反斜杠、空段、`.`、`..`、NUL 或换行，不执行会改变文件名语义的 path clean。
 - 相对路径总长上限为 `4 KiB`，单段上限为 `1024` 字节；这些是 Ember 首期安全边界，不是 115 官方限制。
 - 每一级固定发送 `GET /files`，query 为 `aid=1`、当前 `cid`、`cur=1`、`show_dir=1`、`fc_mix=1`、`count_folders=1`、`o=file_name`、`asc=1`、`limit=200` 和当前 `offset`。
@@ -406,7 +407,7 @@ playbackAccountId + SHA1 + size
 以下是 source 文件在 playback 缺失时的唯一首期闭环。各步骤不能交换顺序，也不能把 source 下载地址直接交给播放器：
 
 1. 运行时加载唯一 `active + enabled` 的 source 和 playback 账号，确认两个 Provider UID 不同；playback 必须配置明确的 `targetParentId`，禁止默认写入根目录。
-2. 把 Emby `Path + Size` 经显式路径映射转换为 source `rootId + relativePath + size`，调用 `ResolveFileByPath` 取得 source `fileId/pickCode/SHA1/size/parentId`。
+2. 使用 source 账号的 `embyPathPrefix + sourceRootId` 把 Emby `Path + Size` 转换为 `rootId + relativePath + size`，调用 `ResolveFileByPath` 取得 source `fileId/pickCode/SHA1/size/parentId`。
 3. 使用 playback Cookie 按 source `SHA1 + size` 执行 `SearchBySHA1`：
    - 已命中：复核非目录和 size 后直接进入第 9 步；这是 playback 预存文件，不属于 Ember 秒传任务，禁止后续自动删除。
    - 未命中：继续创建或复用传输任务。

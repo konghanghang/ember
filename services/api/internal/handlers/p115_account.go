@@ -19,6 +19,7 @@ type p115AccountService interface {
 	ReplaceCookie(context.Context, string, string) (*p115accountpkg.AccountSummary, error)
 	Validate(context.Context, string) (*p115accountpkg.ValidationResult, error)
 	SetEnabled(context.Context, string, bool) (*p115accountpkg.AccountSummary, error)
+	UpdateSourceLocation(context.Context, string, p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error)
 }
 
 // P115AccountHandler exposes JWT-admin-only account management without returning credentials.
@@ -32,7 +33,14 @@ type createP115AccountRequest struct {
 	Cookie         string                 `json:"cookie"`
 	AppType        string                 `json:"appType"`
 	UserAgent      string                 `json:"userAgent"`
+	EmbyPathPrefix string                 `json:"embyPathPrefix"`
+	SourceRootID   string                 `json:"sourceRootId"`
 	TargetParentID string                 `json:"targetParentId"`
+}
+
+type updateP115SourceLocationRequest struct {
+	EmbyPathPrefix string `json:"embyPathPrefix"`
+	SourceRootID   string `json:"sourceRootId"`
 }
 
 type replaceP115CookieRequest struct {
@@ -90,6 +98,8 @@ func (h *P115AccountHandler) Create(c *gin.Context) {
 		Cookie:         req.Cookie,
 		AppType:        req.AppType,
 		UserAgent:      req.UserAgent,
+		EmbyPathPrefix: req.EmbyPathPrefix,
+		SourceRootID:   req.SourceRootID,
 		TargetParentID: req.TargetParentID,
 	})
 	if err != nil {
@@ -97,6 +107,27 @@ func (h *P115AccountHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, account)
+}
+
+// UpdateSourceLocation changes the source account's Emby prefix and 115 root.
+func (h *P115AccountHandler) UpdateSourceLocation(c *gin.Context) {
+	if !requireJWTAdminForP115AccountManagement(c) {
+		return
+	}
+	var req updateP115SourceLocationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	account, err := h.service.UpdateSourceLocation(c.Request.Context(), c.Param("id"), p115accountpkg.SourceLocationInput{
+		EmbyPathPrefix: req.EmbyPathPrefix,
+		SourceRootID:   req.SourceRootID,
+	})
+	if err != nil {
+		handleP115AccountError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, account)
 }
 
 // ReplaceCookie overwrites the credential and resets the account to pending and disabled.
@@ -190,5 +221,11 @@ func isP115AccountInputError(err error) bool {
 		errors.Is(err, p115accountpkg.ErrUserAgentInvalid) ||
 		errors.Is(err, p115accountpkg.ErrTargetParentInvalid) ||
 		errors.Is(err, p115accountpkg.ErrPlaybackTargetParentRequired) ||
-		errors.Is(err, p115accountpkg.ErrSourceTargetParentUnexpected)
+		errors.Is(err, p115accountpkg.ErrSourceTargetParentUnexpected) ||
+		errors.Is(err, p115accountpkg.ErrEmbyPathPrefixRequired) ||
+		errors.Is(err, p115accountpkg.ErrEmbyPathPrefixInvalid) ||
+		errors.Is(err, p115accountpkg.ErrSourceRootIDRequired) ||
+		errors.Is(err, p115accountpkg.ErrSourceRootIDInvalid) ||
+		errors.Is(err, p115accountpkg.ErrPlaybackSourceLocationUnexpected) ||
+		errors.Is(err, p115accountpkg.ErrSourceLocationOnly)
 }

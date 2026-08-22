@@ -43,7 +43,7 @@ func TestIntegrationConcurrentResolveUsesOneRapidUpload(t *testing.T) {
 		go func() {
 			defer workers.Done()
 			<-start
-			result, resolveErr := service.Resolve(context.Background(), fixtureResolveRequest())
+			result, resolveErr := service.ResolveMediaPath(context.Background(), fixtureMediaPathResolveRequest())
 			results <- result
 			errorsCh <- resolveErr
 		}()
@@ -111,7 +111,7 @@ func TestIntegrationChallengePersistsSecondAttempt(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	result, err := service.Resolve(context.Background(), fixtureResolveRequest())
+	result, err := service.ResolveMediaPath(context.Background(), fixtureMediaPathResolveRequest())
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -139,7 +139,7 @@ func TestIntegrationOrdinaryUploadPersistsFailedTask(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Resolve(context.Background(), fixtureResolveRequest())
+	_, err = service.ResolveMediaPath(context.Background(), fixtureMediaPathResolveRequest())
 	if !errors.Is(err, ErrRapidUploadUnavailable) {
 		t.Fatalf("Resolve() error = %v, want ErrRapidUploadUnavailable", err)
 	}
@@ -239,19 +239,24 @@ func newDirectPlayIntegrationDatabase(t *testing.T) *gorm.DB {
 	if err := dbpkg.VerifySchema(); err != nil {
 		t.Fatalf("VerifySchema(): %v", err)
 	}
-	assertDirectPlayMigrationIdempotent(t, appDB)
+	assertDirectPlayMigrationsIdempotent(t, appDB)
 	return appDB
 }
 
-func assertDirectPlayMigrationIdempotent(t *testing.T, database *gorm.DB) {
+func assertDirectPlayMigrationsIdempotent(t *testing.T, database *gorm.DB) {
 	t.Helper()
-	path := filepath.Join(directPlayMigrationsDir(t), "20260822_01_create_playback_transfer_tasks.sql")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read direct play migration: %v", err)
-	}
-	if err := database.Exec(string(content)).Error; err != nil {
-		t.Fatalf("reapply direct play migration: %v", err)
+	for _, filename := range []string{
+		"20260822_01_create_playback_transfer_tasks.sql",
+		"20260822_02_add_p115_source_location.sql",
+	} {
+		path := filepath.Join(directPlayMigrationsDir(t), filename)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read migration %s: %v", filename, err)
+		}
+		if err := database.Exec(string(content)).Error; err != nil {
+			t.Fatalf("reapply migration %s: %v", filename, err)
+		}
 	}
 }
 
@@ -299,6 +304,7 @@ func seedDirectPlayAccounts(t *testing.T, database *gorm.DB) *p115account.Servic
 	source, err := service.Create(context.Background(), p115account.CreateAccountInput{
 		Role: models.P115AccountRoleSource, Alias: "source", Cookie: "source-cookie",
 		AppType: "ios", UserAgent: "fixture-agent",
+		EmbyPathPrefix: "/mnt/cloudNAS/115lifetime", SourceRootID: "0",
 	})
 	if err != nil {
 		t.Fatalf("create source account: %v", err)

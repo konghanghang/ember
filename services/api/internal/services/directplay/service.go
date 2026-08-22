@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,6 +20,9 @@ import (
 const (
 	directPlayPreIDBytes         = int64(128 * 1024)
 	maxDirectPlayClientUserAgent = 1024
+	maxDirectPlayMediaPath       = 16 * 1024
+	maxMappedRelativePath        = 4 * 1024
+	maxMappedPathSegment         = 1024
 	taskTerminalWriteTimeout     = 5 * time.Second
 )
 
@@ -26,6 +30,14 @@ const (
 // playback client's User-Agent. It never carries a signed URL or Cookie.
 type ResolveRequest struct {
 	SourceFile      p115integration.FilePathQuery
+	ClientUserAgent string
+}
+
+// MediaPathResolveRequest is the future gateway input before source-account
+// path mapping has produced a Provider FilePathQuery.
+type MediaPathResolveRequest struct {
+	Path            string
+	Size            int64
 	ClientUserAgent string
 }
 
@@ -121,7 +133,38 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
+	return service.resolveWithAccounts(ctx, source, playback, request)
+}
 
+// ResolveMediaPath maps an Emby media path through the active source account
+// before entering the already tested transfer orchestration.
+func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathResolveRequest) (RedirectCandidate, error) {
+	if request.Size <= 0 || !validClientUserAgent(request.ClientUserAgent) {
+		return RedirectCandidate{}, ErrInvalidRequest
+	}
+	if !validAbsoluteMediaPath(request.Path, maxDirectPlayMediaPath) {
+		return RedirectCandidate{}, ErrPathNotMapped
+	}
+	source, playback, err := service.loadAccounts(ctx)
+	if err != nil {
+		return RedirectCandidate{}, err
+	}
+	fileQuery, err := mapMediaPath(source.EmbyPathPrefix, source.SourceRootID, request.Path, request.Size)
+	if err != nil {
+		return RedirectCandidate{}, err
+	}
+	return service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
+		SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
+	})
+}
+
+// resolveWithAccounts shares the transfer state machine between callers that
+// already have a FilePathQuery and the gateway-facing media-path entrypoint.
+func (service *Service) resolveWithAccounts(
+	ctx context.Context,
+	source, playback p115account.ActiveAccountCredential,
+	request ResolveRequest,
+) (RedirectCandidate, error) {
 	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
 	if err != nil {
 		return RedirectCandidate{}, mapProviderFailure("resolve_source", err)
@@ -391,14 +434,61 @@ func (service *Service) failTask(
 }
 
 func validateResolveRequest(request ResolveRequest) error {
-	userAgent := strings.TrimSpace(request.ClientUserAgent)
 	if request.SourceFile.Size <= 0 || strings.TrimSpace(request.SourceFile.RootID) == "" ||
-		strings.TrimSpace(request.SourceFile.RelativePath) == "" || userAgent == "" || userAgent != request.ClientUserAgent ||
-		!utf8.ValidString(request.ClientUserAgent) || len(request.ClientUserAgent) > maxDirectPlayClientUserAgent ||
-		strings.ContainsAny(request.ClientUserAgent, "\r\n") {
+		strings.TrimSpace(request.SourceFile.RelativePath) == "" || !validClientUserAgent(request.ClientUserAgent) {
 		return ErrInvalidRequest
 	}
 	return nil
+}
+
+func validClientUserAgent(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed != "" && trimmed == value && utf8.ValidString(value) &&
+		len(value) <= maxDirectPlayClientUserAgent && !strings.ContainsAny(value, "\r\n")
+}
+
+func mapMediaPath(embyPathPrefix, sourceRootID, mediaPath string, size int64) (p115integration.FilePathQuery, error) {
+	if size <= 0 || !validAbsoluteMediaPath(embyPathPrefix, maxDirectPlayMediaPath) ||
+		!validAbsoluteMediaPath(mediaPath, maxDirectPlayMediaPath) ||
+		!validSourceRootID(sourceRootID) || !strings.HasPrefix(mediaPath, embyPathPrefix+"/") {
+		return p115integration.FilePathQuery{}, ErrPathNotMapped
+	}
+	relativePath := strings.TrimPrefix(mediaPath, embyPathPrefix+"/")
+	if !validRelativeMediaPath(relativePath) {
+		return p115integration.FilePathQuery{}, ErrPathNotMapped
+	}
+	return p115integration.FilePathQuery{RootID: sourceRootID, RelativePath: relativePath, Size: size}, nil
+}
+
+func validRelativeMediaPath(value string) bool {
+	if value == "" || len(value) > maxMappedRelativePath || strings.HasPrefix(value, "/") {
+		return false
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "" || segment == "." || segment == ".." || len(segment) > maxMappedPathSegment {
+			return false
+		}
+	}
+	return true
+}
+
+func validSourceRootID(value string) bool {
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	return err == nil && strconv.FormatUint(parsed, 10) == value && len(value) <= 64
+}
+
+func validAbsoluteMediaPath(value string, maxLength int) bool {
+	if !utf8.ValidString(value) || value == "/" || len(value) > maxLength ||
+		!strings.HasPrefix(value, "/") || strings.HasSuffix(value, "/") ||
+		strings.ContainsAny(value, "\\\x00\r\n") {
+		return false
+	}
+	for _, segment := range strings.Split(strings.TrimPrefix(value, "/"), "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func validateSourceFile(file *p115integration.File, expectedSize int64) (string, error) {

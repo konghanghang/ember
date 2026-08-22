@@ -193,13 +193,14 @@
 - 视图：`views/admin/P115AccountsView.vue`
 - 页面职责：
   - 展示管理员维护的源账号和播放账号安全摘要、验证状态、启用状态及脱敏错误
-  - 创建账号、替换 Cookie、显式验证和启停
+  - 创建账号、配置 source 的 Emby 挂载目录/115 源目录 ID、替换 Cookie、显式验证和启停
   - `pending / expired / error / cooling_down` 账号不提供启用操作；停用不受验证状态限制
   - Cookie 只存在于创建或替换表单，提交成功或关闭弹窗后立即清空，任何查询结果都不回填
 - 数据源：
   - `GET /api/v1/admin/p115-accounts`
   - `POST /api/v1/admin/p115-accounts`
   - `PUT /api/v1/admin/p115-accounts/:id/cookie`
+  - `PUT /api/v1/admin/p115-accounts/:id/source-location`
   - `POST /api/v1/admin/p115-accounts/:id/validate`
   - `PUT /api/v1/admin/p115-accounts/:id/enabled`
 - 权限边界：路由只允许管理员角色进入，后端账号接口只接受管理员 JWT，Admin API Key 返回 `403`

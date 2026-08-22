@@ -67,6 +67,34 @@ func (s *gormAccountStore) GetActiveByRole(ctx context.Context, role models.P115
 	return &account, nil
 }
 
+// UpdateSourceLocation changes only a source account while holding its row lock.
+func (s *gormAccountStore) UpdateSourceLocation(ctx context.Context, id, embyPathPrefix, sourceRootID string) (*models.P115Account, error) {
+	var account models.P115Account
+	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).First(&account).Error; err != nil {
+			return err
+		}
+		if account.Role != models.P115AccountRoleSource {
+			return ErrSourceLocationOnly
+		}
+		if err := tx.Model(&models.P115Account{}).Where("id = ?", id).Updates(map[string]interface{}{
+			"emby_path_prefix": embyPathPrefix,
+			"source_root_id":   sourceRootID,
+			"updated_at":       gorm.Expr("CURRENT_TIMESTAMP"),
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).First(&account).Error
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAccountNotFound
+	}
+	if err != nil {
+		return nil, safeP115AccountStoreError("update_source_location", err)
+	}
+	return &account, nil
+}
+
 func (s *gormAccountStore) ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error) {
 	var account models.P115Account
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
@@ -228,13 +256,23 @@ func validateP115AccountEnableState(account *models.P115Account) error {
 		account.LastValidatedAt == nil {
 		return ErrAccountUnavailable
 	}
+	if account.Role == models.P115AccountRoleSource &&
+		(account.TargetParentID != nil || account.EmbyPathPrefix == nil || strings.TrimSpace(*account.EmbyPathPrefix) == "" ||
+			account.SourceRootID == nil || strings.TrimSpace(*account.SourceRootID) == "") {
+		return ErrAccountUnavailable
+	}
+	if account.Role == models.P115AccountRolePlayback &&
+		(account.TargetParentID == nil || strings.TrimSpace(*account.TargetParentID) == "" ||
+			account.EmbyPathPrefix != nil || account.SourceRootID != nil) {
+		return ErrAccountUnavailable
+	}
 	return nil
 }
 
 func safeP115AccountStoreError(operation string, err error) error {
 	if err == nil || errors.Is(err, ErrAccountNotFound) || errors.Is(err, ErrCredentialChanged) ||
 		errors.Is(err, ErrAccountUnavailable) || errors.Is(err, ErrRoleAlreadyEnabled) ||
-		errors.Is(err, ErrProviderUserAlreadyEnabled) {
+		errors.Is(err, ErrProviderUserAlreadyEnabled) || errors.Is(err, ErrSourceLocationOnly) {
 		return err
 	}
 

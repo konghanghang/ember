@@ -14,12 +14,13 @@ import (
 )
 
 type stubP115AccountService struct {
-	listFn       func(context.Context) ([]p115accountpkg.AccountSummary, error)
-	getFn        func(context.Context, string) (*p115accountpkg.AccountSummary, error)
-	createFn     func(context.Context, p115accountpkg.CreateAccountInput) (*p115accountpkg.AccountSummary, error)
-	replaceFn    func(context.Context, string, string) (*p115accountpkg.AccountSummary, error)
-	validateFn   func(context.Context, string) (*p115accountpkg.ValidationResult, error)
-	setEnabledFn func(context.Context, string, bool) (*p115accountpkg.AccountSummary, error)
+	listFn                 func(context.Context) ([]p115accountpkg.AccountSummary, error)
+	getFn                  func(context.Context, string) (*p115accountpkg.AccountSummary, error)
+	createFn               func(context.Context, p115accountpkg.CreateAccountInput) (*p115accountpkg.AccountSummary, error)
+	replaceFn              func(context.Context, string, string) (*p115accountpkg.AccountSummary, error)
+	validateFn             func(context.Context, string) (*p115accountpkg.ValidationResult, error)
+	setEnabledFn           func(context.Context, string, bool) (*p115accountpkg.AccountSummary, error)
+	updateSourceLocationFn func(context.Context, string, p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error)
 }
 
 func (s *stubP115AccountService) List(ctx context.Context) ([]p115accountpkg.AccountSummary, error) {
@@ -44,6 +45,10 @@ func (s *stubP115AccountService) Validate(ctx context.Context, id string) (*p115
 
 func (s *stubP115AccountService) SetEnabled(ctx context.Context, id string, enabled bool) (*p115accountpkg.AccountSummary, error) {
 	return s.setEnabledFn(ctx, id, enabled)
+}
+
+func (s *stubP115AccountService) UpdateSourceLocation(ctx context.Context, id string, input p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error) {
+	return s.updateSourceLocationFn(ctx, id, input)
 }
 
 func TestP115AccountHandlerListUsesDataField(t *testing.T) {
@@ -75,6 +80,41 @@ func TestP115AccountHandlerCreateBindsWriteOnlyCookie(t *testing.T) {
 	handler.Create(ctx)
 	if recorder.Code != http.StatusCreated || strings.Contains(recorder.Body.String(), "UID=fake") {
 		t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestP115AccountHandlerCreateBindsSourceLocation(t *testing.T) {
+	handler := &P115AccountHandler{service: &stubP115AccountService{
+		createFn: func(_ context.Context, input p115accountpkg.CreateAccountInput) (*p115accountpkg.AccountSummary, error) {
+			if input.Role != models.P115AccountRoleSource || input.EmbyPathPrefix != "/mnt/cloudNAS/115lifetime" || input.SourceRootID != "0" {
+				t.Fatalf("unexpected source create input: %+v", input)
+			}
+			return &p115accountpkg.AccountSummary{ID: "source_1", Role: input.Role}, nil
+		},
+	}}
+	body := []byte(`{"role":"source","alias":"source","cookie":"UID=fake","appType":"ios","userAgent":"agent","embyPathPrefix":"/mnt/cloudNAS/115lifetime","sourceRootId":"0"}`)
+	ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/p115-accounts", body)
+	handler.Create(ctx)
+	if recorder.Code != http.StatusCreated || strings.Contains(recorder.Body.String(), "UID=fake") {
+		t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestP115AccountHandlerUpdatesSourceLocation(t *testing.T) {
+	handler := &P115AccountHandler{service: &stubP115AccountService{
+		updateSourceLocationFn: func(_ context.Context, id string, input p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error) {
+			if id != "source_1" || input.EmbyPathPrefix != "/mnt/cloudNAS/115lifetime" || input.SourceRootID != "0" {
+				t.Fatalf("unexpected source location input: id=%q input=%+v", id, input)
+			}
+			return &p115accountpkg.AccountSummary{ID: id, Role: models.P115AccountRoleSource}, nil
+		},
+	}}
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/p115-accounts/source_1/source-location",
+		[]byte(`{"embyPathPrefix":"/mnt/cloudNAS/115lifetime","sourceRootId":"0"}`))
+	ctx.Params = gin.Params{{Key: "id", Value: "source_1"}}
+	handler.UpdateSourceLocation(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", recorder.Code, recorder.Body.String())
 	}
 }
 

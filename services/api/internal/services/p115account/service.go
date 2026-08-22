@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,6 +18,8 @@ import (
 const credentialEncryptionPurpose = "p115-cookie"
 
 const maxCookieLength = 16 * 1024
+
+const maxEmbyPathPrefixLength = 4 * 1024
 
 var appTypePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
@@ -35,6 +38,7 @@ type accountStore interface {
 	CompleteValidationRejected(ctx context.Context, id, expectedCiphertext string, at time.Time) (*models.P115Account, error)
 	CompleteValidationError(ctx context.Context, id, expectedCiphertext, code, message string, at time.Time) (*models.P115Account, error)
 	SetEnabled(ctx context.Context, id string, enabled bool) (*models.P115Account, error)
+	UpdateSourceLocation(ctx context.Context, id, embyPathPrefix, sourceRootID string) (*models.P115Account, error)
 }
 
 type credentialReplacement struct {
@@ -50,6 +54,8 @@ type CreateAccountInput struct {
 	Cookie         string
 	AppType        string
 	UserAgent      string
+	EmbyPathPrefix string
+	SourceRootID   string
 	TargetParentID string
 }
 
@@ -62,6 +68,8 @@ type AccountSummary struct {
 	ProviderUserID   *string                  `json:"providerUserId,omitempty"`
 	AppType          string                   `json:"appType"`
 	UserAgent        string                   `json:"userAgent"`
+	EmbyPathPrefix   *string                  `json:"embyPathPrefix,omitempty"`
+	SourceRootID     *string                  `json:"sourceRootId,omitempty"`
 	TargetParentID   *string                  `json:"targetParentId,omitempty"`
 	Status           models.P115AccountStatus `json:"status"`
 	Enabled          bool                     `json:"enabled"`
@@ -86,7 +94,15 @@ type ActiveAccountCredential struct {
 	Role           models.P115AccountRole
 	ProviderUserID string
 	TargetParentID string
+	EmbyPathPrefix string
+	SourceRootID   string
 	Credential     p115integration.Credential
+}
+
+// SourceLocationInput updates the source account's local Emby prefix and 115 root.
+type SourceLocationInput struct {
+	EmbyPathPrefix string `json:"embyPathPrefix"`
+	SourceRootID   string `json:"sourceRootId"`
 }
 
 // Service owns 115 account validation rules and encrypted credential persistence.
@@ -172,6 +188,11 @@ func (s *Service) Create(ctx context.Context, input CreateAccountInput) (*Accoun
 	if input.Role == models.P115AccountRolePlayback {
 		targetParentID := input.TargetParentID
 		account.TargetParentID = &targetParentID
+	} else {
+		embyPathPrefix := input.EmbyPathPrefix
+		sourceRootID := input.SourceRootID
+		account.EmbyPathPrefix = &embyPathPrefix
+		account.SourceRootID = &sourceRootID
 	}
 
 	if err := s.store.Create(ctx, account); err != nil {
@@ -210,7 +231,20 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 	if account.TargetParentID != nil {
 		targetParentID = strings.TrimSpace(*account.TargetParentID)
 	}
-	if role == models.P115AccountRolePlayback && targetParentID == "" {
+	embyPathPrefix := ""
+	if account.EmbyPathPrefix != nil {
+		embyPathPrefix = strings.TrimSpace(*account.EmbyPathPrefix)
+	}
+	sourceRootID := ""
+	if account.SourceRootID != nil {
+		sourceRootID = strings.TrimSpace(*account.SourceRootID)
+	}
+	if role == models.P115AccountRoleSource &&
+		(targetParentID != "" || embyPathPrefix == "" || sourceRootID == "") {
+		return ActiveAccountCredential{}, ErrAccountUnavailable
+	}
+	if role == models.P115AccountRolePlayback &&
+		(targetParentID == "" || embyPathPrefix != "" || sourceRootID != "") {
 		return ActiveAccountCredential{}, ErrAccountUnavailable
 	}
 	cookie, err := s.cipher.Decrypt(account.CookieCiphertext)
@@ -222,6 +256,8 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 		Role:           role,
 		ProviderUserID: strings.TrimSpace(*account.ProviderUserID),
 		TargetParentID: targetParentID,
+		EmbyPathPrefix: embyPathPrefix,
+		SourceRootID:   sourceRootID,
 		Credential: p115integration.Credential{
 			AccountID: account.ID,
 			Cookie:    cookie,
@@ -229,6 +265,24 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 			UserAgent: account.UserAgent,
 		},
 	}, nil
+}
+
+// UpdateSourceLocation changes only the source account's explicit path mapping.
+func (s *Service) UpdateSourceLocation(ctx context.Context, accountID string, input SourceLocationInput) (*AccountSummary, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, ErrAccountIDRequired
+	}
+	embyPathPrefix, sourceRootID, err := normalizeSourceLocation(input.EmbyPathPrefix, input.SourceRootID)
+	if err != nil {
+		return nil, err
+	}
+	account, err := s.store.UpdateSourceLocation(ctx, accountID, embyPathPrefix, sourceRootID)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[P115Account] 源目录配置更新 accountId=%s sourceRootId=%s", account.ID, sourceRootID)
+	return accountSummary(account), nil
 }
 
 func (s *Service) loadCredential(ctx context.Context, accountID string, requireActive bool) (p115integration.Credential, error) {
@@ -294,6 +348,8 @@ func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 	input.Alias = strings.TrimSpace(input.Alias)
 	input.AppType = strings.TrimSpace(input.AppType)
 	input.UserAgent = strings.TrimSpace(input.UserAgent)
+	input.EmbyPathPrefix = strings.TrimSpace(input.EmbyPathPrefix)
+	input.SourceRootID = strings.TrimSpace(input.SourceRootID)
 	input.TargetParentID = strings.TrimSpace(input.TargetParentID)
 
 	if input.Role != models.P115AccountRoleSource && input.Role != models.P115AccountRolePlayback {
@@ -331,7 +387,49 @@ func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 	if input.Role == models.P115AccountRoleSource && input.TargetParentID != "" {
 		return ErrSourceTargetParentUnexpected
 	}
+	if input.Role == models.P115AccountRoleSource {
+		var err error
+		input.EmbyPathPrefix, input.SourceRootID, err = normalizeSourceLocation(input.EmbyPathPrefix, input.SourceRootID)
+		if err != nil {
+			return err
+		}
+	} else if input.EmbyPathPrefix != "" || input.SourceRootID != "" {
+		return ErrPlaybackSourceLocationUnexpected
+	}
 	return nil
+}
+
+func normalizeSourceLocation(embyPathPrefix, sourceRootID string) (string, string, error) {
+	embyPathPrefix = strings.TrimSpace(embyPathPrefix)
+	sourceRootID = strings.TrimSpace(sourceRootID)
+	if embyPathPrefix == "" {
+		return "", "", ErrEmbyPathPrefixRequired
+	}
+	if sourceRootID == "" {
+		return "", "", ErrSourceRootIDRequired
+	}
+	if !validEmbyPathPrefix(embyPathPrefix) {
+		return "", "", ErrEmbyPathPrefixInvalid
+	}
+	parsedRootID, err := strconv.ParseUint(sourceRootID, 10, 64)
+	if err != nil || strconv.FormatUint(parsedRootID, 10) != sourceRootID || len(sourceRootID) > 64 {
+		return "", "", ErrSourceRootIDInvalid
+	}
+	return embyPathPrefix, sourceRootID, nil
+}
+
+func validEmbyPathPrefix(value string) bool {
+	if !utf8.ValidString(value) || len(value) > maxEmbyPathPrefixLength || value == "/" ||
+		!strings.HasPrefix(value, "/") || strings.HasSuffix(value, "/") ||
+		strings.ContainsAny(value, "\\\x00\r\n") {
+		return false
+	}
+	for _, segment := range strings.Split(strings.TrimPrefix(value, "/"), "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeAndValidateCookie(cookie string) (string, error) {
@@ -357,6 +455,8 @@ func accountSummary(account *models.P115Account) *AccountSummary {
 		ProviderUserID:   account.ProviderUserID,
 		AppType:          account.AppType,
 		UserAgent:        account.UserAgent,
+		EmbyPathPrefix:   account.EmbyPathPrefix,
+		SourceRootID:     account.SourceRootID,
 		TargetParentID:   account.TargetParentID,
 		Status:           account.Status,
 		Enabled:          account.Enabled,

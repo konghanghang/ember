@@ -78,6 +78,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.PUT("/p115-accounts/:id/cookie", h.p115Account.ReplaceCookie)
 	admin.POST("/p115-accounts/:id/validate", h.p115Account.Validate)
 	admin.PUT("/p115-accounts/:id/enabled", h.p115Account.SetEnabled)
+	admin.PUT("/p115-accounts/:id/source-location", h.p115Account.UpdateSourceLocation)
 
 	admin.GET("/subscriptions", h.subscription.GetAllSubscriptions)
 	admin.PUT("/subscriptions/:id/approve", h.subscription.ApproveSubscription)

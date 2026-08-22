@@ -97,7 +97,9 @@ func TestIntegrationP115AccountLifecycle(t *testing.T) {
 		"alias":"source-account",
 		"cookie":"`+oldCookie+`",
 		"appType":"web",
-		"userAgent":"Ember Integration Test"
+		"userAgent":"Ember Integration Test",
+		"embyPathPrefix":"/mnt/cloudNAS/115lifetime",
+		"sourceRootId":"0"
 	}`)
 	if created.Role != models.P115AccountRoleSource || created.AuthMode != models.P115AuthModeLegacyCookie ||
 		created.Status != models.P115AccountStatusPending || created.Enabled || created.ProviderUserID != nil {
@@ -160,6 +162,44 @@ func TestIntegrationP115AccountLifecycle(t *testing.T) {
 	}
 }
 
+func TestIntegrationP115SourceLocationUpdate(t *testing.T) {
+	harness := newIntegrationHarnessWithP115Validator(t, &integrationFakeP115Validator{t: t})
+	source := createIntegrationP115Account(t, harness, `{
+		"role":"source",
+		"alias":"source-location",
+		"cookie":"source-location-cookie",
+		"appType":"web",
+		"userAgent":"itest",
+		"embyPathPrefix":"/mnt/old-source",
+		"sourceRootId":"0"
+	}`)
+
+	updated := harness.performAdminRequest(http.MethodPut,
+		"/api/v1/admin/p115-accounts/"+source.ID+"/source-location",
+		[]byte(`{"embyPathPrefix":"/mnt/cloudNAS/115lifetime","sourceRootId":"0"}`))
+	assertIntegrationHTTPStatus(t, updated.Code, http.StatusOK, updated.Body.String())
+	var summary struct {
+		EmbyPathPrefix *string `json:"embyPathPrefix"`
+		SourceRootID   *string `json:"sourceRootId"`
+	}
+	if err := json.Unmarshal(updated.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("decode source location response: %v", err)
+	}
+	if summary.EmbyPathPrefix == nil || *summary.EmbyPathPrefix != "/mnt/cloudNAS/115lifetime" ||
+		summary.SourceRootID == nil || *summary.SourceRootID != "0" {
+		t.Fatalf("source location summary = %+v", summary)
+	}
+
+	playback := createIntegrationP115Account(t, harness, `{
+		"role":"playback","alias":"playback-location","cookie":"playback-location-cookie",
+		"appType":"web","userAgent":"itest","targetParentId":"200"
+	}`)
+	rejected := harness.performAdminRequest(http.MethodPut,
+		"/api/v1/admin/p115-accounts/"+playback.ID+"/source-location",
+		[]byte(`{"embyPathPrefix":"/mnt/invalid","sourceRootId":"0"}`))
+	assertIntegrationHTTPStatus(t, rejected.Code, http.StatusBadRequest, rejected.Body.String())
+}
+
 func TestIntegrationP115AccountEnableConstraints(t *testing.T) {
 	validator := &integrationFakeP115Validator{
 		t: t,
@@ -171,7 +211,7 @@ func TestIntegrationP115AccountEnableConstraints(t *testing.T) {
 	}
 	harness := newIntegrationHarnessWithP115Validator(t, validator)
 
-	sourceA := createIntegrationP115Account(t, harness, `{"role":"source","alias":"source-a","cookie":"source-a-cookie","appType":"web","userAgent":"itest"}`)
+	sourceA := createIntegrationP115Account(t, harness, `{"role":"source","alias":"source-a","cookie":"source-a-cookie","appType":"web","userAgent":"itest","embyPathPrefix":"/mnt/source-a","sourceRootId":"0"}`)
 	pendingConflict := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/p115-accounts/"+sourceA.ID+"/enabled", []byte(`{"enabled":true}`))
 	assertIntegrationHTTPStatus(t, pendingConflict.Code, http.StatusConflict, pendingConflict.Body.String())
 	if !strings.Contains(pendingConflict.Body.String(), "115 账号尚未验证为有效状态") {
@@ -180,7 +220,7 @@ func TestIntegrationP115AccountEnableConstraints(t *testing.T) {
 	validateIntegrationP115Account(t, harness, sourceA.ID, http.StatusOK)
 	setIntegrationP115AccountEnabled(t, harness, sourceA.ID, true, http.StatusOK)
 
-	sourceB := createIntegrationP115Account(t, harness, `{"role":"source","alias":"source-b","cookie":"source-b-cookie","appType":"web","userAgent":"itest"}`)
+	sourceB := createIntegrationP115Account(t, harness, `{"role":"source","alias":"source-b","cookie":"source-b-cookie","appType":"web","userAgent":"itest","embyPathPrefix":"/mnt/source-b","sourceRootId":"0"}`)
 	validateIntegrationP115Account(t, harness, sourceB.ID, http.StatusOK)
 	roleConflict := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/p115-accounts/"+sourceB.ID+"/enabled", []byte(`{"enabled":true}`))
 	assertIntegrationHTTPStatus(t, roleConflict.Code, http.StatusConflict, roleConflict.Body.String())
@@ -215,8 +255,8 @@ func TestIntegrationP115AccountConcurrentEnableKeepsOneAccountPerRole(t *testing
 	}
 	harness := newIntegrationHarnessWithP115Validator(t, validator)
 
-	sourceA := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-a","cookie":"concurrent-source-a","appType":"web","userAgent":"itest"}`)
-	sourceB := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-b","cookie":"concurrent-source-b","appType":"web","userAgent":"itest"}`)
+	sourceA := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-a","cookie":"concurrent-source-a","appType":"web","userAgent":"itest","embyPathPrefix":"/mnt/concurrent-a","sourceRootId":"0"}`)
+	sourceB := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-b","cookie":"concurrent-source-b","appType":"web","userAgent":"itest","embyPathPrefix":"/mnt/concurrent-b","sourceRootId":"0"}`)
 	validateIntegrationP115Account(t, harness, sourceA.ID, http.StatusOK)
 	validateIntegrationP115Account(t, harness, sourceB.ID, http.StatusOK)
 
@@ -280,7 +320,7 @@ func TestIntegrationP115AccountReplacementWinsOverInFlightValidation(t *testing.
 		},
 	}
 	harness := newIntegrationHarnessWithP115Validator(t, validator)
-	account := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-replace","cookie":"`+oldCookie+`","appType":"web","userAgent":"itest"}`)
+	account := createIntegrationP115Account(t, harness, `{"role":"source","alias":"concurrent-replace","cookie":"`+oldCookie+`","appType":"web","userAgent":"itest","embyPathPrefix":"/mnt/concurrent-replace","sourceRootId":"0"}`)
 
 	type validationHTTPResult struct {
 		status int
@@ -342,7 +382,7 @@ func TestIntegrationP115AccountValidationFailuresAndAdminAPIKey(t *testing.T) {
 	}
 	harness := newIntegrationHarnessWithP115Validator(t, validator)
 
-	rejected := createIntegrationP115Account(t, harness, `{"role":"source","alias":"rejected","cookie":"`+rejectedCookie+`","appType":"web","userAgent":"itest"}`)
+	rejected := createIntegrationP115Account(t, harness, `{"role":"source","alias":"rejected","cookie":"`+rejectedCookie+`","appType":"web","userAgent":"itest","embyPathPrefix":"/mnt/rejected","sourceRootId":"0"}`)
 	rejectedResult := validateIntegrationP115Account(t, harness, rejected.ID, http.StatusOK)
 	if rejectedResult.Valid || rejectedResult.Account.Status != models.P115AccountStatusExpired ||
 		rejectedResult.Account.Enabled || rejectedResult.Account.LastErrorCode == nil ||

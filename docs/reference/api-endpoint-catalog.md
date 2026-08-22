@@ -113,11 +113,12 @@
 | DELETE | `/api/v1/admin/external-api-key` | 禁用全局 Admin API Key，清空 `external_api_key_hash` |
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
 | GET | `/api/v1/admin/p115-accounts` | 115 账号概要列表（返回 `data`，不返回 Cookie；仅管理员 JWT） |
-| POST | `/api/v1/admin/p115-accounts` | 创建 `pending + disabled` 账号，Cookie 只写（仅管理员 JWT） |
+| POST | `/api/v1/admin/p115-accounts` | 创建 `pending + disabled` 账号，Cookie 只写；source 同时提交 `embyPathPrefix/sourceRootId`，playback 提交 `targetParentId`（仅管理员 JWT） |
 | GET | `/api/v1/admin/p115-accounts/:id` | 查询单个 115 账号概要，不返回 Cookie（仅管理员 JWT） |
 | PUT | `/api/v1/admin/p115-accounts/:id/cookie` | 替换 Cookie，并重置为 `pending + disabled`（仅管理员 JWT） |
 | POST | `/api/v1/admin/p115-accounts/:id/validate` | 只读验证当前 Cookie；成功进入 `active` 但不自动启用（仅管理员 JWT） |
 | PUT | `/api/v1/admin/p115-accounts/:id/enabled` | 设置启用状态；启用要求账号已验证为 `active`（仅管理员 JWT） |
+| PUT | `/api/v1/admin/p115-accounts/:id/source-location` | 更新 source 账号的 `embyPathPrefix/sourceRootId`；playback 调用返回 400（仅管理员 JWT） |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |

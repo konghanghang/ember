@@ -9,6 +9,7 @@
 - `20260707_02_plan_group_media_library_deferred_sync.sql`：媒体库模板版本与用户延迟同步标记
 - `20260801_01_create_p115_accounts.sql`：管理员 115 源账号 / 播放账号、Cookie 密文和启用唯一约束
 - `20260822_01_create_playback_transfer_tasks.sql`：保留式秒传任务、活动内容唯一约束和访问时间索引
+- `20260822_02_add_p115_source_location.sql`：source 账号的 Emby 挂载前缀和 115 源目录 ID
 - `archive/`：仅供追溯，不参与任何运行时链路
 
 当前升级支持窗口：
