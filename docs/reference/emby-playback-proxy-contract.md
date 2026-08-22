@@ -21,6 +21,9 @@
 固定版本证据：
 
 - [Emby.SDK 4.9.3.0 OpenAPI](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json)
+- [Emby.SDK 4.9.3.0 User Authentication](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/doc/restapi/User-Authentication.html)
+- [Emby.SDK 4.9.3.0 Password Authenticator](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/SampleCode/RestApi/Emby.ApiClient/Emby.ApiClient/Client/Authentication/EmbyPasswordAuthenticator.cs)
+- [Emby.SDK 4.9.3.0 SystemInfoPublic](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/reference/RestAPI/SystemService/getSystemInfoPublic.html)
 - [Ember Playback Reporting 合同](./playback-reporting-api-contract.md)
 
 ## 2. 网关职责与信任边界
@@ -65,16 +68,52 @@ Content-Type: application/json
 | `AccessToken` | `string` | 计算不可逆哈希后建立 Token 到 Ember 用户映射 |
 | `ServerId` | `string` | 识别目标 Emby Server，避免跨 Server Token 混用 |
 
+固定提交同时要求认证请求携带应用/设备授权头，Header 名允许二选一：
+
+```http
+Authorization: Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-id", Version="version", Token=""
+```
+
+或：
+
+```http
+X-Emby-Authorization: Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-id", Version="version", Token=""
+```
+
+首期解析约束：
+
+- 两个 Header 只能出现一个且只能有一个值；同时出现、重复值或空值都失败关闭。
+- scheme 固定为大小写敏感的 `Emby`；要求唯一的 `Client`、`Device`、`DeviceId` 和 `Version`，`UserId` 可空。
+- 登录前 `Token` 只允许缺失或空字符串；非空 Token 不能替代已经固定的 `X-Emby-Token` 门控。
+- 值使用有界 quoted-string；重复字段、未知字段、控制字符、非法转义和超长值全部拒绝。
+- `Client` 保存为非权威 `clientName`，`DeviceId` 保存为非权威 `deviceId`；二者只用于审计和设备撤销，不能替代 `User.Id + ServerId + AccessToken` 身份绑定。
+
 网关处理要求：
 
-1. 将认证请求和响应透明转发，不修改 Emby 返回体。
+1. 先验证应用/设备授权头，再将认证请求和响应透明转发，不修改 Emby 返回体。
 2. 成功响应后提取 `User.Id`、`AccessToken` 和 `ServerId`。
 3. 使用从 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生的密钥计算 HMAC-SHA256；数据库只保存 32 字节摘要，不保存明文。
 4. 根据 `users.emby_id` 查找 Ember 用户，并记录设备、客户端和最后访问时间。
 5. 映射写入失败不能篡改 Emby 已成功的认证响应；该 Token 保持未映射，后续受保护请求和直连失败关闭。
 6. 用户过期只做动态资格拒绝，不立即硬撤销映射；用户停用、Emby 访问禁用、Emby 账号解绑或删除时硬撤销。已发出的短期 CDN 链接不保证可以立即终止。
 
-### 3.2 Token 哈希映射与本地撤销
+### 3.2 登录前 bootstrap
+
+固定 `4.9.3.0` User Authentication 文档明确把以下调用放在用户认证之前：
+
+| Method | Path | 用途 | 首期网关处理 |
+| --- | --- | --- | --- |
+| `GET` | `/emby/Users/Public` | 获取允许显示在登录页的公开用户 | 验证应用/设备授权头后透明转发 |
+| `GET`, `HEAD` | `/emby/Users/{Id}/Images/{Type}` | 可选公开用户头像 | 验证应用/设备授权头和精确路径形态后透明转发 |
+
+边界：
+
+- bootstrap 表示“不要求已映射 AccessToken”，不表示任意匿名请求；仍必须携带上节固定的应用/设备授权头。
+- public 用户头像只放行文档明确引用的无 `Index` 形态；上传、删除、`/Delete`、带额外 path segment 或其他用户接口仍受 Token 门控。
+- `/emby/System/Info/Public` 虽返回 `PublicSystemInfo`，但固定提交的参考页明确标记 `Requires authentication as user`，当前不能因路径名包含 `Public` 就加入 bootstrap allowlist。
+- Branding、服务器发现、Quick Connect 和其他登录前路径没有进入本次固定证据，继续失败关闭；目标 Infuse 实际请求到这些路径时，必须先补合同。
+
+### 3.3 Token 哈希映射与本地撤销
 
 `emby_access_tokens` 是 Emby 身份到 Ember 用户的桥接，不是新的 Token，也不代替 Emby 验证：
 
@@ -106,20 +145,20 @@ Ember 本地撤销固定三种粒度：
 
 截至 2026-08-22，`emby_access_tokens` migration、purpose 隔离 HMAC、并发安全 upsert、实时用户资格解析和三种本地撤销 Service 已实现并通过 fake/独立 PostgreSQL 测试。`internal/playbackgateway` 已接入认证响应旁路映射和 `X-Emby-Token` 门控核心，但尚无进程入口、状态联动和真实 Emby 请求；当前实现仍不能单独证明设备已被强制退出。
 
-### 3.3 当前 HTTP 门控核心
+### 3.4 当前 HTTP 门控核心
 
 在独立网关进程和部署入口落地前，当前 `internal/playbackgateway` 固定以下可测试行为：
 
-- 只有 method、大小写、尾斜杠和 escaped path 都精确匹配的 `POST /emby/Users/AuthenticateByName` 免 Token 门控；其余路径默认受保护。
+- 精确 `POST /emby/Users/AuthenticateByName` 和上节固定的 bootstrap 路由不要求已映射 Token，但必须先通过应用/设备授权头；其余路径默认受保护。
 - 认证上游只有 `200` 才旁路解析；响应检查上限为 `1 MiB`。合法响应逐字节恢复后返回，字段顺序、空白和未知字段不重编码。
 - 不合法、超过检查上限或映射写入失败的成功响应仍原样返回，但该 Token 不建立映射，下一次受保护请求失败关闭。
 - 受保护请求只接受唯一的 `X-Emby-Token`。缺失、重复、未映射、已撤销和身份错配返回空体 `401`；当前用户不可用或到期返回空体 `403`；身份存储不可用返回空体 `503`。
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
-- 目标 Infuse 的登录前 public bootstrap 路径和设备元数据载体尚未确认。当前不放行 `System/Info/Public` 等猜测路径，也不解析 `X-Emby-Authorization`；后续必须先补版本化合同和 fake fixture。
+- 固定 SDK 已确认标准应用/设备授权头及 `/Users/Public` 登录流程；目标 Infuse 是否实际使用同一 Header 名、scheme、字段和请求顺序仍未实机确认。`System/Info/Public` 等未进入 allowlist 的路径继续失败关闭。
 
 这仍是无监听器的内部核心，不表示目标 Emby/Infuse 已可用，也不包含 PlaybackInfo、视频 302 或播放会话。
 
-### 3.4 暂不覆盖的认证方式
+### 3.5 暂不覆盖的认证方式
 
 首版不根据经验实现以下认证方式：
 

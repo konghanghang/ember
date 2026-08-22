@@ -99,7 +99,8 @@ services/
 │     │  └─ notifier/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ playbackgateway/
-│     │  └─ gateway.go           # Emby 认证透明代理、Token 门控和脱敏传输错误边界
+│     │  ├─ authorization.go     # Emby 应用/设备授权头严格解析
+│     │  └─ gateway.go           # 认证/bootstrap 代理、Token 门控和脱敏传输错误边界
 │     ├─ services/               # 业务逻辑
 │     │  ├─ accessauth/
 │     │  │  └─ admin_api_key.go  # 全局 Admin API Key 生成、hash、禁用与校验
@@ -780,15 +781,16 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 当前完成的是可注入的标准 `http.Handler` 传输核心，不注册现有 API 路由、不启动监听器，也不构成可部署的数据面进程：
 
-- 只把精确 `POST /emby/Users/AuthenticateByName` 识别为认证路由；method、大小写、尾斜杠或 percent-encoding 变体全部进入受保护门控
+- 精确 `POST /emby/Users/AuthenticateByName` 进入认证路由；固定 SDK 登录文档中的 `GET /emby/Users/Public` 与无 Index 公共用户头像 `GET/HEAD` 进入 bootstrap 路由；method、大小写、尾斜杠、深层图片路径或 percent-encoding 变体全部进入受保护门控
+- 认证与 bootstrap 请求都必须先通过一个 `Authorization` 或 `X-Emby-Authorization` 的严格 `Emby ...` 应用头；两个 Header 同时出现、重复值、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空内嵌 Token、非法 quoted-string 或越界值返回空体 `401`
 - 认证请求透明转发；上游 `200` 响应最多旁路检查 `1 MiB`，只读取 `User.Id/AccessToken/ServerId`，恢复原始字节、状态和普通 Header 后再返回客户端，未知 JSON 字段不重编码
 - 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；日志只记录固定 code 和错误类型，不记录密码、AccessToken、URL 或响应体
-- 设备元数据使用可注入提取器；目标 Infuse 的元数据 Header 尚未实机确认，因此核心不猜测 `X-Emby-Authorization`、query token 或其他载体，默认记录空设备元数据
+- 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求必须携带唯一 `X-Emby-Token` 并先通过 `ResolvePrincipal`；缺失、重复、未映射、已撤销或身份错配返回空体 `401`，用户不可用或到期返回空体 `403`，身份存储故障返回空体 `503`，请求不会到达 Emby
-- 当前没有未认证 public bootstrap allowlist；目标 Emby/Infuse 登录前请求序列完成版本化核对前，`System/Info/Public` 等路径不会猜测式放行
+- bootstrap allowlist 只覆盖固定登录文档明确的 public 用户列表和无 Index 用户头像；`System/Info/Public` 在固定参考页标记需要用户认证，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
-- fake Emby 测试已覆盖认证请求/响应透明、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
-- 尚未完成 `cmd/playback-gateway`、运行期配置与部署入口、状态联动撤销、public bootstrap 合同、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收
+- fake Emby 测试已覆盖认证请求/响应透明、标准应用头、public bootstrap、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
+- 尚未完成 `cmd/playback-gateway`、运行期配置与部署入口、状态联动撤销、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收；目标 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
 
 ---
 

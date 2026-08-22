@@ -37,20 +37,14 @@ type AuthenticationMetadata struct {
 	ClientName string
 }
 
-// AuthenticationMetadataExtractor reads version-confirmed request metadata
-// without consuming or replacing the request body. A nil extractor records no
-// metadata, which is safer than guessing an unverified client header format.
-type AuthenticationMetadataExtractor func(*http.Request) AuthenticationMetadata
-
 // Config contains only dependencies needed by the transport core. Process
 // configuration, database construction and HTTP server startup belong to the
 // later cmd/playback-gateway composition layer.
 type Config struct {
-	Upstream                        *url.URL
-	TokenService                    TokenService
-	Transport                       http.RoundTripper
-	Logger                          *log.Logger
-	AuthenticationMetadataExtractor AuthenticationMetadataExtractor
+	Upstream     *url.URL
+	TokenService TokenService
+	Transport    http.RoundTripper
+	Logger       *log.Logger
 }
 
 // Gateway validates mapped tokens before proxying protected requests and
@@ -60,7 +54,6 @@ type Gateway struct {
 	proxy                          *httputil.ReverseProxy
 	tokenService                   TokenService
 	logger                         *log.Logger
-	metadataExtractor              AuthenticationMetadataExtractor
 	maxAuthenticationResponseBytes int64
 }
 
@@ -69,6 +62,7 @@ type routeKind uint8
 const (
 	routeProtected routeKind = iota
 	routeAuthentication
+	routePublicBootstrap
 )
 
 type requestRouteContext struct {
@@ -109,7 +103,6 @@ func New(config Config) (*Gateway, error) {
 	gateway := &Gateway{
 		tokenService:                   config.TokenService,
 		logger:                         logger,
-		metadataExtractor:              config.AuthenticationMetadataExtractor,
 		maxAuthenticationResponseBytes: defaultAuthenticationResponseMaxSize,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
@@ -126,11 +119,16 @@ func New(config Config) (*Gateway, error) {
 func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	kind := classifyRoute(request)
 	routeContext := requestRouteContext{kind: kind}
-	if kind == routeAuthentication {
-		if gateway.metadataExtractor != nil {
-			routeContext.metadata = gateway.metadataExtractor(request)
+	switch kind {
+	case routeAuthentication, routePublicBootstrap:
+		metadata, ok := extractApplicationMetadata(request.Header)
+		if !ok {
+			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid")
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
 		}
-	} else {
+		routeContext.metadata = metadata
+	default:
 		accessToken, ok := singleAccessToken(request.Header)
 		if !ok {
 			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid")
@@ -206,11 +204,46 @@ func (gateway *Gateway) handleUpstreamError(writer http.ResponseWriter, _ *http.
 // Exact method and path matching prevents case, suffix or trailing-slash
 // variants from bypassing token validation.
 func classifyRoute(request *http.Request) routeKind {
-	if request != nil && request.Method == http.MethodPost && request.URL != nil &&
-		request.URL.Path == authenticationPath && request.URL.EscapedPath() == authenticationPath {
+	if request == nil || request.URL == nil {
+		return routeProtected
+	}
+	if request.Method == http.MethodPost && exactRequestPath(request.URL, authenticationPath) {
 		return routeAuthentication
 	}
+	if request.Method == http.MethodGet && exactRequestPath(request.URL, publicUsersPath) {
+		return routePublicBootstrap
+	}
+	if (request.Method == http.MethodGet || request.Method == http.MethodHead) && isPublicUserImagePath(request.URL) {
+		return routePublicBootstrap
+	}
 	return routeProtected
+}
+
+// exactRequestPath rejects alternate escaping even when net/url decodes it to
+// the same Path, preventing an encoded route from inheriting a public class.
+func exactRequestPath(requestURL *url.URL, expected string) bool {
+	return requestURL != nil && requestURL.Path == expected && requestURL.EscapedPath() == expected
+}
+
+// isPublicUserImagePath accepts only the no-index GET/HEAD shape referenced by
+// the version-pinned login documentation. Mutation and deeper image paths stay
+// protected.
+func isPublicUserImagePath(requestURL *url.URL) bool {
+	if requestURL == nil || requestURL.EscapedPath() != requestURL.Path {
+		return false
+	}
+	segments := strings.Split(requestURL.Path, "/")
+	if len(segments) != 6 || segments[0] != "" || segments[1] != "emby" || segments[2] != "Users" ||
+		segments[4] != "Images" {
+		return false
+	}
+	return validPublicPathSegment(segments[3]) && validPublicPathSegment(segments[5])
+}
+
+// validPublicPathSegment bounds the two dynamic route segments and rejects dot
+// semantics instead of relying on proxy or upstream path normalization.
+func validPublicPathSegment(value string) bool {
+	return value != "" && value != "." && value != ".." && len(value) <= 128
 }
 
 // singleAccessToken accepts exactly one header value and preserves the opaque

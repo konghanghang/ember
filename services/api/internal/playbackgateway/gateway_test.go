@@ -11,14 +11,16 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 const (
-	fixtureAccessToken = "fixture-access-token"
-	fixturePassword    = "fixture-password"
+	fixtureAccessToken              = "fixture-access-token"
+	fixturePassword                 = "fixture-password"
+	fixtureApplicationAuthorization = `Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Token=""`
 )
 
 func TestGatewayAuthenticationResponseIsTransparentAndRecordsMapping(t *testing.T) {
@@ -32,11 +34,14 @@ func TestGatewayAuthenticationResponseIsTransparentAndRecordsMapping(t *testing.
 			t.Fatalf("read upstream request body: %v", err)
 		}
 		upstreamRequestBody = string(body)
-		if request.Method != http.MethodPost || request.URL.Path != authenticationPath || request.URL.RawQuery != "api_key=keep" {
+		if request.Method != http.MethodPost || request.URL.Path != authenticationPath || request.URL.RawQuery != "fixture=keep" {
 			t.Fatalf("upstream request = %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
 		}
 		if request.Header.Get("X-Fixture") != "preserved" {
 			t.Fatalf("upstream fixture header = %q", request.Header.Get("X-Fixture"))
+		}
+		if request.Header.Get("Authorization") != fixtureApplicationAuthorization {
+			t.Fatal("application authorization header changed")
 		}
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		writer.Header().Set("X-Upstream", "preserved")
@@ -49,13 +54,12 @@ func TestGatewayAuthenticationResponseIsTransparentAndRecordsMapping(t *testing.
 
 	tokenService := &fakeTokenService{}
 	var logs bytes.Buffer
-	gateway := newTestGateway(t, upstream.URL, tokenService, &logs, func(*http.Request) AuthenticationMetadata {
-		return AuthenticationMetadata{DeviceID: "device-1", ClientName: "Infuse"}
-	})
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 
-	request := httptest.NewRequest(http.MethodPost, authenticationPath+"?api_key=keep", strings.NewReader(requestBody))
+	request := httptest.NewRequest(http.MethodPost, authenticationPath+"?fixture=keep", strings.NewReader(requestBody))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Fixture", "preserved")
+	request.Header.Set("Authorization", fixtureApplicationAuthorization)
 	response := httptest.NewRecorder()
 	gateway.ServeHTTP(response, request)
 
@@ -99,9 +103,9 @@ func TestGatewayDoesNotRecordUnsuccessfulAuthentication(t *testing.T) {
 
 			tokenService := &fakeTokenService{}
 			var logs bytes.Buffer
-			gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 			response := httptest.NewRecorder()
-			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader("{}")))
+			gateway.ServeHTTP(response, newAuthenticationRequest("{}"))
 
 			if response.Code != status || response.Body.String() != body || response.Header().Get("X-Upstream-Status") != http.StatusText(status) {
 				t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
@@ -156,12 +160,12 @@ func TestGatewayAuthenticationSidecarFailuresNeverChangeSuccessResponse(t *testi
 
 			tokenService := &fakeTokenService{recordErr: test.recordErr}
 			var logs bytes.Buffer
-			gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 			if test.limit > 0 {
 				gateway.maxAuthenticationResponseBytes = test.limit
 			}
 			response := httptest.NewRecorder()
-			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader("{}")))
+			gateway.ServeHTTP(response, newAuthenticationRequest("{}"))
 
 			if response.Code != http.StatusOK || response.Body.String() != test.body {
 				t.Fatalf("response changed: status=%d body=%q", response.Code, response.Body.String())
@@ -192,7 +196,7 @@ func TestGatewayProtectedRequestRequiresMappedTokenBeforeProxy(t *testing.T) {
 
 	tokenService := &fakeTokenService{}
 	var logs bytes.Buffer
-	gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 	request := httptest.NewRequest(http.MethodGet, "/emby/Items/fixture", nil)
 	request.Header.Set(accessTokenHeader, fixtureAccessToken)
 	response := httptest.NewRecorder()
@@ -238,7 +242,7 @@ func TestGatewayProtectedRequestFailsClosedWithoutCallingUpstream(t *testing.T) 
 
 			tokenService := &fakeTokenService{resolveErr: test.resolveErr}
 			var logs bytes.Buffer
-			gateway := newTestGateway(t, upstream.URL, tokenService, &logs, nil)
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 			request := httptest.NewRequest(http.MethodGet, "/emby/Items/fixture", nil)
 			if test.token != "" {
 				request.Header.Add(accessTokenHeader, test.token)
@@ -295,6 +299,137 @@ func TestGatewayUpstreamFailureIsSanitized(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, "upstream.invalid")
 }
 
+func TestGatewayPublicBootstrapUsesApplicationHeaderWithoutTokenMapping(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "public users", method: http.MethodGet, path: "/emby/Users/Public", body: `[{"Id":"public-user"}]`},
+		{name: "public user image", method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary?Tag=fixture", body: "fixture-image"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.Method != test.method || request.URL.RequestURI() != test.path {
+					t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+				}
+				if request.Header.Get("X-Emby-Authorization") != fixtureApplicationAuthorization {
+					t.Error("application authorization header changed")
+				}
+				writer.Header().Set("X-Upstream", "called")
+				writer.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			request := httptest.NewRequest(test.method, test.path, nil)
+			request.Header.Set("X-Emby-Authorization", fixtureApplicationAuthorization)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK || response.Body.String() != test.body || response.Header().Get("X-Upstream") != "called" {
+				t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
+			}
+			recorded, resolved := tokenService.snapshot()
+			if len(recorded) != 0 || len(resolved) != 0 {
+				t.Fatalf("token service calls: recorded=%d resolved=%d", len(recorded), len(resolved))
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization)
+		})
+	}
+}
+
+func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		headers http.Header
+	}{
+		{name: "authentication missing header", method: http.MethodPost, path: authenticationPath},
+		{
+			name: "authentication wrong scheme", method: http.MethodPost, path: authenticationPath,
+			headers: http.Header{"Authorization": {`MediaBrowser Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0"`}},
+		},
+		{
+			name: "bootstrap has both header names", method: http.MethodGet, path: "/emby/Users/Public",
+			headers: http.Header{
+				"Authorization":        {fixtureApplicationAuthorization},
+				"X-Emby-Authorization": {fixtureApplicationAuthorization},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			request := httptest.NewRequest(test.method, test.path, strings.NewReader("{}"))
+			request.Header = test.headers.Clone()
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 {
+				t.Fatalf("response = status %d body=%q", response.Code, response.Body.String())
+			}
+			if upstreamCalls.Load() != 0 {
+				t.Fatalf("upstream calls = %d, want 0", upstreamCalls.Load())
+			}
+			if !strings.Contains(logs.String(), "code=application_header_invalid") {
+				t.Fatalf("logs = %q", logs.String())
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization)
+		})
+	}
+}
+
+func TestExtractApplicationMetadataUsesStrictVersionedHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		headers    http.Header
+		want       AuthenticationMetadata
+		wantAccept bool
+	}{
+		{
+			name: "authorization header", headers: http.Header{"Authorization": {fixtureApplicationAuthorization}},
+			want: AuthenticationMetadata{DeviceID: "device-1", ClientName: "Infuse"}, wantAccept: true,
+		},
+		{
+			name: "x emby authorization header with quoted comma", headers: http.Header{
+				"X-Emby-Authorization": {`Emby Client="Infuse, Pro", Device="Living Room, TV", DeviceId="device-2", Version="8.1"`},
+			},
+			want: AuthenticationMetadata{DeviceID: "device-2", ClientName: "Infuse, Pro"}, wantAccept: true,
+		},
+		{name: "missing required field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Device="iPhone", Version="8.0"`}}},
+		{name: "duplicate field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Client="Other", Device="iPhone", DeviceId="device-1", Version="8.0"`}}},
+		{name: "unknown field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Language="zh"`}}},
+		{name: "nonempty embedded token", headers: http.Header{"Authorization": {`Emby Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Token="old-token"`}}},
+		{name: "invalid escape", headers: http.Header{"Authorization": {`Emby Client="Infuse\n", Device="iPhone", DeviceId="device-1", Version="8.0"`}}},
+		{name: "duplicate header value", headers: http.Header{"Authorization": {fixtureApplicationAuthorization, fixtureApplicationAuthorization}}},
+		{name: "oversized device id", headers: http.Header{"Authorization": {`Emby Client="Infuse", Device="iPhone", DeviceId="` + strings.Repeat("x", 257) + `", Version="8.0"`}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metadata, ok := extractApplicationMetadata(test.headers)
+			if ok != test.wantAccept || metadata != test.want {
+				t.Fatalf("extractApplicationMetadata() = (%+v, %t), want (%+v, %t)", metadata, ok, test.want, test.wantAccept)
+			}
+		})
+	}
+}
+
 func TestNewRejectsUnsafeOrIncompleteConfiguration(t *testing.T) {
 	tokenService := &fakeTokenService{}
 	tests := []struct {
@@ -338,6 +473,13 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 		{method: http.MethodPost, path: authenticationPath + "/", want: routeProtected},
 		{method: http.MethodPost, path: "/emby/users/authenticatebyname", want: routeProtected},
 		{method: http.MethodPost, path: "/emby%2FUsers%2FAuthenticateByName", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Users/Public", want: routePublicBootstrap},
+		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary", want: routePublicBootstrap},
+		{method: http.MethodHead, path: "/emby/Users/public-user/Images/Primary", want: routePublicBootstrap},
+		{method: http.MethodPost, path: "/emby/Users/public-user/Images/Primary", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary/0", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary/Delete", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Users/public%2Duser/Images/Primary", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/System/Info/Public", want: routeProtected},
 	}
 	for _, test := range tests {
@@ -348,12 +490,17 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 	}
 }
 
+func newAuthenticationRequest(body string) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader(body))
+	request.Header.Set("Authorization", fixtureApplicationAuthorization)
+	return request
+}
+
 func newTestGateway(
 	t *testing.T,
 	upstreamRawURL string,
 	tokenService *fakeTokenService,
 	logs *bytes.Buffer,
-	extractor AuthenticationMetadataExtractor,
 ) *Gateway {
 	t.Helper()
 	upstreamURL, err := url.Parse(upstreamRawURL)
@@ -361,10 +508,9 @@ func newTestGateway(
 		t.Fatalf("parse upstream URL: %v", err)
 	}
 	gateway, err := New(Config{
-		Upstream:                        upstreamURL,
-		TokenService:                    tokenService,
-		Logger:                          log.New(logs, "", 0),
-		AuthenticationMetadataExtractor: extractor,
+		Upstream:     upstreamURL,
+		TokenService: tokenService,
+		Logger:       log.New(logs, "", 0),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

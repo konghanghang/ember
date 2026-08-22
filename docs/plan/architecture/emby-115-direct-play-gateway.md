@@ -127,13 +127,14 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `emby_access_tokens` 模型和幂等 migration，只保存按 `emby-access-token` purpose 派生的 32 字节 HMAC；`VerifySchema` 同步校验代表性列和四个索引。
 - 新增无 HTTP 入口的 `internal/services/embytoken`，实现成功认证结果绑定、实时用户资格解析、`lastSeenAt` 限频，以及单 Token、单设备和用户全部登录软撤销；返回值、JSON、日志和错误均不包含 Token 明文或摘要。
 - 专用 PostgreSQL 集成数据库已验证 8 路并发认证只生成一条摘要映射、活动摘要不能换绑身份、三种撤销粒度、撤销后重新认证、动态到期，以及用户删除后已撤销审计保留；测试不请求真实 Emby。
-- 新增无监听器的 `internal/playbackgateway` 标准 HTTP Handler：精确认证路由透明代理并旁路写入 Token 映射，其余请求使用唯一 `X-Emby-Token` 调用 `ResolvePrincipal` 后再转发；认证响应、普通 Header 和未知 JSON 字段不重编码。
-- Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
+- 新增无监听器的 `internal/playbackgateway` 标准 HTTP Handler：认证路由透明代理并旁路写入 Token 映射，固定登录文档中的 public 用户列表/头像进入 bootstrap allowlist，其余请求使用唯一 `X-Emby-Token` 调用 `ResolvePrincipal` 后再转发；认证响应、普通 Header 和未知 JSON 字段不重编码。
+- 按 SDK 固定提交实现 `Authorization/X-Emby-Authorization` 的严格 `Emby` 应用头解析，要求 `Client/Device/DeviceId/Version`，拒绝重复/未知字段、非空内嵌 Token、非法 quoted-string 和 Header 歧义；`Client/DeviceId` 只作为非权威映射元数据。
+- Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、应用头与 public bootstrap、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
 
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- `cmd/playback-gateway`、运行配置/部署入口、目标 Infuse public bootstrap 与设备元数据合同、设备/用户状态撤销联动、PlaybackInfo 当前授权证明、直连会话和运营查询；认证代理/门控核心、Token 映射核心、source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
+- `cmd/playback-gateway`、运行配置/部署入口、目标 Infuse 对固定 public bootstrap/应用头合同的实机确认、设备/用户状态撤销联动、PlaybackInfo 当前授权证明、直连会话和运营查询；认证代理/门控核心、SDK 版本化 bootstrap/设备元数据合同、Token 映射核心、source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
@@ -505,7 +506,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种本地撤销核心、无监听器的认证透明代理与 Token 门控、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成网关进程/部署入口、public bootstrap/设备元数据合同和状态联动，因此还不能让 Infuse 登录或从设备/用户入口触发撤销；其余为 PlaybackInfo 当前授权证明、直连会话、视频代理/302、策略门控和 Infuse 验收。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种本地撤销核心、无监听器的认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成网关进程/部署入口和状态联动，因此还不能让 Infuse 真实登录或从设备/用户入口触发撤销；其余为 PlaybackInfo 当前授权证明、直连会话、视频代理/302、策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 
@@ -625,10 +626,10 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 2026-08-22 Gateway 认证代理与门控核心验证：
 
-- `go test -count=1 ./internal/playbackgateway` 通过，fake Emby 覆盖认证透明性、旁路失败、Token 门控、路由分类和脱敏 transport 错误。
+- `go test -count=1 ./internal/playbackgateway` 通过，fake Emby 覆盖认证透明性、标准应用头、public 用户/头像 bootstrap、旁路失败、Token 门控、路由分类和脱敏 transport 错误。
 - `go test -race -count=1 ./internal/playbackgateway ./internal/services/embytoken` 通过。
 - 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，新 Gateway 包和既有 PostgreSQL 集成测试实际执行并通过；`go vet ./...` 与 `go build ./...` 通过。
-- 没有新增 listener、真实 Emby 请求、115 请求或 Infuse 验收；目标 Server 版本、public bootstrap 请求和设备元数据 Header 仍保持未证实。
+- 没有新增 listener、真实 Emby 请求、115 请求或 Infuse 验收；固定 SDK 的 public bootstrap 与应用头合同已确认并由 fake 锁定，目标 Server 版本和 Infuse 实际请求顺序仍保持未证实。
 
 测试分层：
 
