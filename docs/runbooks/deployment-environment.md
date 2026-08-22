@@ -12,6 +12,8 @@
 
 `ember-bot` 通过 `profiles: ["bot"]` 控制，默认不启动；启用 Bot 时使用 `docker compose --profile bot up -d`。
 
+已确认但尚未实现的目标是增加第四个默认服务 `ember-gateway`。它不对应第四个镜像：`ember-api` 与 `ember-gateway` 复用同一 `EMBER_API_IMAGE` 中的单个 `ember` 二进制，分别选择 `api` 与 `gateway` 子命令。当前 Compose 没有该服务，部署者现在不能使用这一目标配置。
+
 ## 必填变量
 
 ### 基础设施与 API 启动期变量
@@ -83,6 +85,8 @@
 - 新环境启动后，API 可以先起来；
 - 但媒体、MoviePilot、Bot fire-and-forget、追剧日历和调度能力，要在设置中心补齐配置后才会真正可用；
 - 不要再把这些项当成 compose 自动注入的前提变量。
+
+Gateway 部署落地后必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问原始 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是用户和播放器看到的 Gateway 公网 HTTPS 地址。二者指向同一公网 Gateway 会形成代理回环，原始 Emby 继续公开则会形成安全旁路。
 
 ## `.env.example` 的已知缺口
 
@@ -170,6 +174,8 @@ go run ./cmd/server
 ```
 
 `cmd/server` 启动期 Migrate 阶段会探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL（即 baseline + 后续增量），跑 `VerifySchema` 自检，再写入默认管理员 / 默认设置 / 默认套餐分组。**严禁在生产使用**——生产路径走 docker compose `pull + up -d`。
+
+统一入口尚未实现；落地后本地 API 等价命令迁移为 `go run ./cmd/ember api`，无参数仍默认 API。现有 `go run ./cmd/server` 在所有仓库调用面迁移完成前保留为薄兼容入口，不在本轮文档决策中提前删除。
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行这两份 SQL；已经执行过它们的环境无需重复处理。
 

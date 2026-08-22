@@ -151,7 +151,7 @@
 | 配置项 | 敏感 | 说明 | 原因 |
 |--------|------|------|------|
 | `PORT` | 否 | API 监听端口 | 有默认值 `8080`，属于进程启动参数 |
-| `PLAYBACK_GATEWAY_LISTEN_ADDR` | 否 | Playback Gateway 监听地址 | 仅独立 Gateway 进程使用；必须显式提供数值端口，无默认值 |
+| `PLAYBACK_GATEWAY_LISTEN_ADDR` | 否 | Playback Gateway 监听地址 | 仅 Gateway 进程使用；目标统一入口中只对 `ember gateway` 生效，必须显式提供数值端口，无默认值 |
 | `ADMIN_USERNAME` | 否 | 首次初始化管理员用户名 | 仅首次启动且需要初始化管理员时才有意义 |
 | `ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 | 仅首次启动且需要初始化管理员时才有意义 |
 
@@ -260,10 +260,10 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 
 ### `PLAYBACK_GATEWAY_LISTEN_ADDR`
 
-- 用途：独立 `cmd/playback-gateway` 的 TCP 监听地址，例如 `127.0.0.1:8090` 或 `:8090`
+- 用途：Gateway 进程的 TCP 监听地址，例如 `127.0.0.1:8090` 或 `:8090`；目标统一入口中只由 `ember gateway` 读取
 - 来源：只允许部署环境变量，不进入设置中心
 - 校验：必须显式提供 `host:port`，端口必须是 `1-65535` 的十进制数；不接受随机端口 `0`、URL 或服务名
-- 当前边界：代码入口已可构建，但 Compose、公开反向代理和端口暴露尚未落地；不要把该变量写成“当前已部署”
+- 当前边界：兼容入口 `cmd/playback-gateway` 已可构建，目标 `cmd/ember gateway`、Compose、公开反向代理和端口暴露尚未落地；不要把该变量写成“当前已部署”
 
 ---
 

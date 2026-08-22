@@ -13,6 +13,13 @@
 - 支持直接使用 GHCR 预构建镜像
 - 也支持切换到本地 `build:` 方式验证未发布代码
 
+## Playback Gateway 目标（待实现）
+
+- Compose 将新增服务名 `ember-gateway`，但不会新增镜像名。
+- `ember-api` 与 `ember-gateway` 复用同一 `EMBER_API_IMAGE` 和同一 `ember` 二进制，分别运行 `api` / `gateway` 子命令。
+- 两个服务仍使用独立容器、健康检查和日志卷；禁止在一个容器内后台启动两个进程。
+- 当前 `docker-compose.yml` 尚无该服务，现行最小启动方式和下方服务清单仍以当前文件为准。
+
 ## 你现在应该看哪份文档
 
 - 想知道怎么部署：看 [部署指南](/Users/konghang/data/me/github/ember/docs/runbooks/deployment.md)
@@ -42,6 +49,7 @@ docker compose --profile bot up -d
 - compose 默认启动 `postgres`、`ember-api`、`ember-web`；`ember-bot` 通过 `profiles: ["bot"]` 控制，默认不启动
 - `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 在 compose 中已钉版默认值，每次发版会同步更新；生产环境建议在 `.env` 显式覆盖以避免依赖默认值漂移
 - `DATABASE_URL` 默认由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时在 `.env` 显式提供完整 DSN 即可覆盖
+- 统一入口落地后，`ember-api` 与 `ember-gateway` 必须使用同一个 `EMBER_API_IMAGE` digest，不允许独立漂移版本
 - 这个目录的路径和文件名属于部署入口的一部分，改动前先同步更新 runbooks
 
 ## 数据库初始化与升级

@@ -30,6 +30,8 @@ go build ./cmd/playback-gateway
 
 上述命令只做 fake 上游、生命周期和构建验证，不启动 Gateway、不请求真实 Emby。`go build ./cmd/playback-gateway` 如果在模块根生成 `playback-gateway` 二进制，验证后必须移出工作区，禁止提交构建物。
 
+统一入口决策已经固定但尚未实现：落地后生产入口验证改为 `go test` 覆盖 `cmd/ember` 的 `api/gateway`、无参数默认 API 和未知子命令 fail-fast，并使用 `go build ./cmd/ember`。在此之前继续使用上面的当前命令，禁止提前把不存在的 `cmd/ember` 写成已通过验证。
+
 如果要跑本地 API 集成测试：
 
 - 必须通过 `EMBER_INTEGRATION_DATABASE_URL` 指向专用测试数据库

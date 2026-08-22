@@ -25,6 +25,7 @@ cd services/bot && pip install -r requirements.txt && python -m py_compile main.
 打 Tag 前必须勾完：
 
 - [ ] 更新 `infrastructure/docker/docker-compose.yml` 中 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 的默认 tag 为新版本（compose 默认值是 OSS 用户首次部署的 fallback，必须随发版同步）
+- [ ] 如果当前版本已落地 `ember-gateway`，确认它与 `ember-api` 引用同一 `EMBER_API_IMAGE` digest，镜像内只有一个支持 `api/gateway` 子命令的 `ember` 生产二进制；禁止新增独立 Gateway Tag 或漏升其中一个容器
 - [ ] 新增 `docs/releases/<version>.md`，文件名与即将推送的 tag 完全一致，并人工核对发布说明
 - [ ] 顶层迁移 SQL 已在 `infrastructure/database/` 落地，并确认会随 `services/api/Dockerfile` 打进 API 镜像（PG `initdb.d` 已退役，schema 初始化与升级统一由 `ember-api` 启动期 Migrate 接管）
 - [ ] 如本次生成新 baseline 或归档 migration，已明确最低直接升级支持版本，并同步 `infrastructure/database/README.md`、部署 runbook 与 `docs/releases/<version>.md`
@@ -56,6 +57,8 @@ cd services/bot && pip install -r requirements.txt && python -m py_compile main.
 - push 到 `pre_release`：构建预览镜像
 - push `v*` Tag：构建正式镜像
 
+Gateway 镜像决策已经固定但尚未实现：它继续由 `build-api.yml` 的 `ember-api` 镜像承载，不新增第四个 workflow。统一入口落地前，本段只记录目标，不代表当前 API 镜像已经支持 `ember gateway`。
+
 ## 预览发布
 
 适合先让测试环境验证镜像。
@@ -83,6 +86,7 @@ git push origin v1.0.0
 预期结果：
 
 - 三个镜像工作流推送正式镜像
+- 若版本已包含统一入口，`ember-api` 镜像同时供 `ember-api` 与 `ember-gateway` 两个容器使用，二者版本必须一致
 - `create-release.yml` 读取 `docs/releases/v1.0.0.md` 创建一个 Draft Release
 - 如果对应发布说明文件不存在，`create-release.yml` 会 fail-fast，不会创建草稿
 

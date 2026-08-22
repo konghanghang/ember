@@ -4,13 +4,22 @@
 
 ## 镜像划分
 
-Ember 为三个服务分别构建镜像：
+Ember 当前发布三个镜像：
 
 | 服务 | 镜像名 | Dockerfile |
 |------|--------|------------|
-| API | `ghcr.io/konghanghang/ember-api` | `services/api/Dockerfile` |
+| API（目标同时承载 Gateway 进程角色） | `ghcr.io/konghanghang/ember-api` | `services/api/Dockerfile` |
 | Web | `ghcr.io/konghanghang/ember-web` | `services/web/Dockerfile` |
 | Bot | `ghcr.io/konghanghang/ember-bot` | `services/bot/Dockerfile` |
+
+### 已确认的 Gateway 镜像决策（待实现）
+
+- 不新增 `ember-gateway` 镜像、独立 GHCR 仓库、构建工作流或版本号。
+- `ember-api` 镜像目标只包含一个 `ember` 二进制，以 `ENTRYPOINT ["./ember"]` 和默认 `CMD ["api"]` 启动 API。
+- Compose 中 `ember-gateway` 服务复用完全相同的 `EMBER_API_IMAGE`，只用 `command: ["gateway"]` 选择 Gateway 进程角色。
+- 单二进制不表示单进程：API 与 Gateway 仍是两个容器、两个生命周期和两个健康检查，只共享镜像 digest 与代码版本。
+
+当前 Dockerfile 仍只构建 `cmd/server`，上述目标尚不可用于实际部署；落地后再把本节从“待实现”改为现行构建说明。
 
 ## 本地构建
 
@@ -20,6 +29,8 @@ Ember 为三个服务分别构建镜像：
 # 在仓库根执行，build context 必须是仓库根（Dockerfile 需要 COPY infrastructure/database/）
 docker build -f services/api/Dockerfile -t ember-api:dev .
 ```
+
+当前命令只证明现行 API 镜像可构建。统一入口落地后的镜像验收必须额外确认容器内只有一个生产二进制，并分别执行 `ember api` 与 `ember gateway` 的无监听构造/帮助或命令分发检查；不能通过构建两个可执行文件伪装成单二进制方案。
 
 ### Web
 
@@ -67,6 +78,8 @@ docker compose up -d
 - `.github/workflows/build-api.yml`
 - `.github/workflows/build-web.yml`
 - `.github/workflows/build-bot.yml`
+
+Gateway 继续由 `build-api.yml` 产出的同一个 `ember-api` 镜像承载，不新增第四个 workflow。
 
 它们的共同规则：
 

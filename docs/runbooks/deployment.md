@@ -8,6 +8,19 @@
 - 默认使用 GHCR 预构建镜像
 - 适合单机或小规模环境的标准部署
 
+## Playback Gateway 目标部署边界（待实现）
+
+当前 Compose 尚未包含 Gateway，以下内容是已经确认但还不能执行的下一部署切片：
+
+- 保持一个 `EMBER_API_IMAGE` 和一个 `ember` 二进制；默认子命令为 `api`。
+- `ember-api` 容器运行 `ember api`，`ember-gateway` 容器复用同一镜像并运行 `ember gateway`。
+- 两个容器分别维护生命周期、健康检查和日志卷，不能在一个容器里同时启动两个后台进程。
+- Gateway 公网入口必须代理完整 Emby 请求面；`EMBY_URL` 保持为容器可访问的原始 Emby 内网地址，`NEXT_PUBLIC_EMBY_URL` 才指向 Gateway 的公网 HTTPS 地址。
+- 原始 Emby 公网入口必须关闭或限制，否则本地 Token 撤销与用户状态门控可以被绕过。
+- 不新增第四个镜像、Gateway Tag 或独立发布节奏；API 与 Gateway 必须使用同一镜像 digest。
+
+在 Dockerfile、Compose、健康检查和反向代理配置真正落地前，本文后续“最短路径”和验收清单仍只描述当前 API/Web/PostgreSQL/Bot 部署，不得据此宣称 Gateway 已上线。
+
 ## 最短路径
 
 1. 进入 Docker 目录并准备环境变量。
@@ -64,6 +77,8 @@ curl http://localhost:8080/health
 ### 模式 A：预构建镜像
 
 这是默认模式，也是当前推荐路径。`docker-compose.yml` 中 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 已钉版默认值（随每次发版同步更新），开箱可拉起。
+
+统一入口落地后，`EMBER_API_IMAGE` 还会同时作为 `ember-gateway` 的镜像来源；部署时两项服务必须引用同一 digest，不能只升级其中一个容器。
 
 生产环境建议在 `.env` 中显式覆盖避免依赖默认值漂移：
 
