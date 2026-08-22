@@ -14,7 +14,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 ## 目标
 
-1. 新增独立播放网关，作为客户端访问 Emby 的公网入口；普通 Emby 请求透明代理，固定合同中的原始视频流请求进入直连编排。
+1. 新增独立播放网关，作为客户端访问 Emby 的公网入口；Emby 正常代理播放是基线，固定合同中的原始视频流请求尝试 115 直连，未完整成功时透明回退原始 Emby 请求。
 2. 首期使用一个管理员源账号和一个管理员播放小号，通过 Cookie/Web API 完成查重、秒传、目标复核和兼容条件成立时的 302。
 3. 复用 Ember 用户状态、套餐分组、客户端黑名单和并发策略，禁止绕过既有用户管理。
 4. 保持 Emby 登录、媒体信息、图片、字幕、播放进度和停止事件正常工作。
@@ -31,7 +31,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 不自动猜测 STRM、OpenList、WebDAV 或挂载路径格式。
 - 不改写 HLS、DASH、转码 manifest 或转码分片。
 - 不下载完整视频到 Ember 再上传到 115。
-- 不在播放小号不可用时改用源账号签发直链，也不静默回退 Emby 视频中转。
+- 不在播放小号不可用时改用 source 账号签发直链；115 加速不适用或失败时回退 Emby 正常代理播放。
 - 不在首版实现下一集预热、批量预转存、复杂计费或用户自有存储。
 - 不承诺 302 发出后能立即终止已建立的 115 CDN 连接。
 
@@ -83,7 +83,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 | Provider | Ember 原生 Go 实现；不运行 Python，不依赖 `p115client` |
 | playback 目标目录 | 管理员按路径输入或目录选择器操作，后端解析并校验；运行时、秒传、复核和清理只信任 `targetParentId`，禁止只保存路径 |
 | 第一阶段文件保留 | playback 专用目录作为持久缓存；只秒传、复核、复用和签发直链，不因 Stopped/会话 TTL 自动调用 `DeleteFile` |
-| 失败策略 | 播放小号或直链不兼容时明确返回 `503`，不使用源账号播放 |
+| 失败策略 | 身份/硬状态失败拒绝；合法用户的 115 加速不适用或失败时透明回退 Emby，绝不借 source 账号签发直链 |
 | 凭证 | Cookie 使用 `CONFIG_ENCRYPTION_KEY` 加密，写入后不可回显 |
 | OpenAPI | 保留独立 Provider 扩展点，AppID 获批后另行实现 |
 
@@ -154,8 +154,8 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 播放符合直连条件的媒体时：
   - 播放小号已有相同文件：直接获取播放小号直链并 302。
   - 播放小号缺文件：等待 SHA1 秒传、目标复核后 302。
-  - 小号凭证失效、秒传失败或直链需要客户端无法提供的 Header：返回明确失败。
-- 用户过期、停用、Emby 访问禁用、客户端黑名单或并发超限时，不生成新直链。
+  - 小号凭证失效、秒传失败或直链需要客户端无法提供的 Header：透明回退 Emby 正常播放。
+- 用户未启用 115 加速、客户端不适合直连或加速并发已满时回退 Emby；用户停用、Emby 访问禁用和本地 Token 撤销仍按安全门控拒绝。
 
 #### 1.2 管理员
 
@@ -165,7 +165,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
   - 播放小号目标目录；页面展示路径/目录选择器，不要求管理员手工查找内部 ID。
   - 路径映射和 CDN 域名 allowlist。
   - 账号手工验证和 Cookie 替换。
-- 套餐分组增加直连开关、网关并发、下载、本地媒体回退和云端失败策略。
+- 套餐分组后续可增加直连开关、网关并发和下载能力；首期不暴露“失败时拒绝播放”策略，合法用户固定回退 Emby。
 - 播放分析增加直连会话和秒传任务视图，展示阶段、耗时和脱敏错误。
 - 设备管理继续承载客户端黑名单和设备注销，不增加平行风控页面。
 
@@ -173,7 +173,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 - 现有登录、续期、封禁、套餐分组和 Emby Policy 同步保持不变。
 - 图片、媒体信息、字幕、Playing、Progress、Stopped 和非视频 API 继续转发。
-- 本地媒体只按显式路径规则决定是否保留原始 Emby 播放。
+- 本地媒体、路径未映射媒体和所有不适合 115 加速的媒体继续使用原始 Emby 播放。
 - 前端实现必须遵守 Ember 风格，以 `docs/reference/web-design-guide.md` 为设计与交互基线；当前没有偏离规范的特例。
 
 ### 2. 目标架构
@@ -186,17 +186,13 @@ ember-playback-gateway
   |-- 登录、媒体信息、图片、字幕、播放事件 --> Emby 4.9.3.0
   |
   `-- 原始视频流请求
-       |-- Emby Token -> Ember 用户
-       |-- 用户 / 套餐 / 设备 / 并发策略
-       |-- ItemId + MediaSourceId -> 源文件身份
-       |-- 播放小号按 SHA1 + size 查重
-       |-- 缺失时源账号 Range -> 播放小号秒传
-       |-- 播放小号目标复核
-       |-- 获取兼容下载地址
-       `-- HTTP 302
-                |
-                v
-            115 CDN
+       |-- 身份/硬状态失败 ----------------------> reject
+       `-- Principal 合法
+            |-- 证明/资格/115 任一步不满足 ------> Emby 正常代理
+            `-- 直连完整成功
+                 |-- 播放小号查重/秒传/目标复核
+                 |-- 获取兼容下载地址
+                 `-- HTTP 302 --> 115 CDN
 
 Ember API / Web
   |-- 账号、路径规则、套餐策略、会话和任务管理
@@ -206,9 +202,9 @@ Ember API / Web
 边界：
 
 - `services/api`：配置、账号管理、路径规则、策略和管理查询。
-- `ember-playback-gateway`：Emby 兼容代理、身份解析、播放策略和 302 数据面。
+- `ember-playback-gateway`：Emby 兼容代理、身份解析、可选 115 加速和 302 数据面；正常 Emby 视频代理始终是合法用户的基线。
 - PostgreSQL：账号、任务、会话和跨副本互斥的真相源。
-- 视频字节：302 后只在客户端与 115 CDN 之间传输；Ember 只允许读取秒传 challenge 指定的有界 Range。
+- 视频字节：302 后只在客户端与 115 CDN 之间传输；fallback 时从 Emby 经 Gateway 返回客户端。Ember 只允许额外读取秒传 challenge 指定的有界 Range。
 
 ### 3. 代码边界
 
@@ -334,7 +330,7 @@ Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内�
 
 #### 4.7 `plan_group_direct_play_policies`
 
-直连策略与 Emby Policy 分表维护：`enabled`、`simultaneous_stream_limit`、`allow_download`、`allow_local_origin_fallback`、`cloud_failure_mode`。首版云端失败默认并固定为 `fail_closed`。
+直连策略与 Emby Policy 分表维护：`enabled`、`simultaneous_stream_limit`、`allow_download`。首期不建立独立策略表；视频正常代理是基线，115 加速关闭、条件不满足或执行失败统一固定为 `fallback_to_emby`。只有 Token、本地撤销、身份错配和用户硬状态继续 `fail_closed`。
 
 ### 5. API 与边界
 
@@ -400,11 +396,12 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 #### 6.3 播放小号已有文件
 
 1. PlaybackInfo 透明转发；只有当前 Emby Server 成功接受相同 Token 后，才记录 Token 映射、ItemId、MediaSourceId 和 PlaySessionId 的短期授权证明。
-2. 原始视频流请求到达后，校验 Token、用户、套餐、黑名单和并发。
-3. 从缓存读取源文件身份，或按 source 账号的 `embyPathPrefix/sourceRootId` 把 Emby `Path + Size` 转换为 `rootId + relativePath + size`，调用源账号 `ResolveFileByPath` 得到 fileId、pickCode、SHA1 和 size。
-4. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
-5. 命中后更新对应任务/缓存的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
-6. 校验过期时间、Header 要求和域名 allowlist，兼容时返回 302。
+2. 原始视频流请求到达后先校验 Token、用户和本地硬状态；失败时 `reject`，不能回退绕过门控。
+3. Principal 合法后再检查证明、加速资格、客户端和并发；任何不满足均 `fallback` 到原始 Emby 请求。
+4. 从进程内 PlaybackInfo 快照取得 Path/Size，按 source 账号的 `embyPathPrefix/sourceRootId` 调用 `ResolveMediaPath`。
+5. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
+6. 命中后更新对应任务的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
+7. 校验过期时间、Header 要求和域名 allowlist，兼容时返回空体 302；任一步失败都透明 fallback Emby。
 
 #### 6.4 播放小号缺文件
 
@@ -427,7 +424,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 2. `t` 决定最大缓存时间，并预留安全窗口。
 3. `f=0`、`f=1` 等模式只有通过合同测试和受控 Infuse 验证后才允许。
 4. `f=3` 或其他要求播放器额外携带 Cookie 的链接，首期按不兼容处理。
-5. 不兼容时返回明确 `503`，不暴露 Cookie，不改用源账号，不回退视频中转。
+5. 不兼容时不暴露 Cookie、不改用 source 账号，记录固定 fallback 原因并透明转发 Emby。
 
 #### 6.6 会话与并发
 
@@ -448,22 +445,22 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 - Emby Token 无法映射：拒绝，不信任请求参数里的 `UserId`。
 - Emby Token 已本地撤销：所有受保护的网关请求拒绝，不继续转发给 Emby 作为回退。
-- Token 只有历史登录映射但没有近期成功 PlaybackInfo：拒绝 302；客户端直接请求云端视频时失败关闭。
-- 用户过期、停用或访问禁用：不生成新直链或新秒传任务。
-- 源账号或播放小号未配置、未验证、过期或冷却：返回明确 `503`。
-- 路径未命中：本地媒体只按显式规则回退；未知云端路径失败关闭。
-- SHA1 搜索候选的 size 或类型不符：视为未命中。
-- challenge 越界、Range 获取失败或初始化要求普通上传：任务失败。
+- Token 只有历史登录映射但没有近期成功 PlaybackInfo：不生成 302，合法请求透明 fallback Emby。
+- 用户过期、停用或访问禁用：按现有用户资格门控拒绝，不生成新直链，也不能用 fallback 绕过 Ember 状态。
+- Principal 合法但源账号或播放小号未配置、未验证、过期或冷却：记录固定原因并 fallback Emby。
+- 路径未命中、MediaSource 不支持 Direct Play、视频参数不完整或加速策略未启用：fallback Emby。
+- SHA1 搜索候选的 size 或类型不符：视为加速未命中；后续无法完成秒传/复核时 fallback Emby。
+- challenge 越界、Range 获取失败或初始化要求普通上传：任务失败并 fallback Emby。
 - HTTP `2xx` 但没有明确复用：不能判定成功。
-- 直链域名不在 allowlist、已过期或要求额外 Cookie：拒绝 302。
-- 客户端请求云端转码：明确失败，不让 Emby 静默中转视频。
+- 直链域名不在 allowlist、已过期或要求额外 Cookie：拒绝 302 并 fallback Emby。
+- HLS、DASH、转码 manifest、转码分片和其他非原始直连视频请求：直接透明转发 Emby。
 - 播放小号失败：禁止使用源账号向最终客户端签发直链。
 - 用户播放中被封禁：阻止新请求；已建立 CDN 连接可能持续到链接过期。
 - 单设备退出撤销该设备全部活动映射，用户全部退出撤销该用户全部映射；已签发的 CDN URL 只能通过停止重签和等待过期收口。
 - 多副本并发：数据库唯一约束和 advisory lock 保证任务幂等。
 - 未进入固定合同的 Emby/115 行为保持“未证实”，不能用一次偶然成功替代合同。
 
-日志可以记录 userId、itemId、playSessionId、账号 ID、SHA1 前缀、文件大小、阶段耗时和脱敏错误码。禁止记录 Emby AccessToken、115 Cookie、上传加密材料、完整 SHA1 与账号组合、完整下载直链、`Set-Cookie` 或完整 Provider 响应。
+每个视频请求只直接打印一条最终决策日志：`decision=redirect|fallback|reject`。`stage/reasonCode` 统一使用 `docs/reference/emby-playback-proxy-contract.md` 的固定枚举；日志可以记录 requestId、method、userId、mappingId、deviceId、clientName、itemId、mediaSourceId、playSessionId、stage、reasonCode、taskId、preexisting、statusCode、upstreamStatus、proxyErrorCode 和 durationMs。禁止新建播放决策日志表或 migration；禁止记录 Emby AccessToken、115 Cookie、完整 Path、上传加密材料、完整 SHA1、完整下载直链、`Set-Cookie`、PlaybackInfo 原文、Provider 原始错误或 Emby 代理原始错误。
 
 ### 8. 配置与部署
 
@@ -514,7 +511,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - playback 文件作为持久缓存保留；重复播放命中后跳过秒传并刷新 `lastAccessedAt`，第一阶段不启用自动清理。
 - 基础会话、并发、冷却、日志和管理员查询。
 
-完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
+完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
 当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成公开部署入口；其余为视频路由消费证明、持久直连会话、302、策略门控和 Infuse 验收。
 
@@ -652,9 +649,9 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 115 合同：Cookie 脱敏、源路径逐级解析、SHA1 查重、`status=2`、`status=7`、受限 Range Hash、`status=1`、下载 Header 和错误映射。
 - 保留式秒传检查器：双重查重、preID、零/一次 challenge、重复 challenge 失败关闭、目标复核、playback UA Range、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
 - 加密合同：请求加密、响应解密、LZ4、签名和 token 固定向量。
-- Service：用户资格、路径、状态机、冷却、直链兼容和 fail-closed。
+- Service/Gateway：身份安全 fail-closed；路径、账号、Provider、冷却和直链不兼容时 fallback-to-Emby。
 - PostgreSQL：迁移、角色唯一性、Cookie 密文、Token 唯一性/撤销审计、任务幂等、advisory lock 和会话收口。
-- 网关：认证响应透明、受保护请求 Token 门控、近期 PlaybackInfo 证明、Header、GET/HEAD、302 allowlist 和 `503`。
+- 网关：认证响应透明、受保护请求 Token 门控、近期 PlaybackInfo 证明、Header、GET/HEAD、安全 reject、115 redirect 和原始请求 Emby fallback。
 - Web：账号只写交互、脱敏状态、路径、套餐策略和会话列表。
 
 涉及账号状态、用户资格、任务状态机、DTO 或 Provider 适配时按 TDD 推进。所有外部依赖必须 fake，禁止测试真实 Emby、115 或 Infuse。
@@ -670,13 +667,14 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 7. 下载链接通过过期时间、UA、Header 要求和域名 allowlist 校验。
 8. `f=3` 或需要额外 Cookie 的链接明确失败，不泄露凭证。
 9. Playing、Progress、Stopped 仍由 Emby 接收，播放进度正常。
-10. 用户状态、黑名单和并发限制阻止新播放。
-11. 源账号或播放小号失效、限流和秒传失败均返回明确错误，不回退源账号或 Emby 视频中转。
+10. 用户硬状态和已撤销设备阻止新播放；仅影响 115 加速的客户端、套餐或并发条件不满足时 fallback Emby。
+11. source 或 playback 账号失效、限流、秒传和直链失败均不得借 source 账号播放；合法用户必须透明 fallback Emby 并记录固定原因。
 12. Cookie、Emby AccessToken 明文、完整下载链接和完整 Provider 响应不出现在日志、API 或数据库；Token 表只保存 purpose 隔离的 HMAC 摘要。
 13. 同一 Token 并发登录只产生一条映射；数据库只含 32 字节 HMAC，不含 AccessToken 明文。
 14. 单设备撤销只影响目标设备，用户全部撤销影响所有设备；硬禁用后重新请求仍拒绝，普通到期续期后不要求因到期本身重新登录。
 15. 未映射、已撤销、ServerId/EmbyID 错配和缺少近期成功 PlaybackInfo 的请求都不能获得 302。
 16. 网关切换后历史 Token 要求重新登录，原始 Emby 公网入口不可绕过本地撤销。
+17. 每个视频请求只打印一条 `redirect/fallback/reject` 决策日志；日志不落表，且不包含 Token、Cookie、完整 Path、SHA1、115 URL 或上游原文。
 
 ### 受控真实验证
 

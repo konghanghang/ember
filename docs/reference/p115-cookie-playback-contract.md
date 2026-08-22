@@ -425,7 +425,7 @@ playbackAccountId + SHA1 + size
 11. `Playing/Progress/Stopped` 继续透明转发给 Emby，并更新 Ember 直连会话；重复 `HEAD`、Range 和重连复用同一任务/会话，不重复计算并发或秒传。每次成功复用 playback 文件时更新任务/缓存的 `lastAccessedAt`。
 12. 第一阶段不自动删除 playback 文件：会话停止、过期或用户短期重复打开都只影响会话状态，不触发 `DeleteFile`。文件持续保留在专用目录并作为后续播放缓存；如果管理员在 115 中手工删除，下一次播放必须以实时查重未命中为准重新秒传，不能只信任历史成功任务。
 
-首期不允许以下捷径：使用 source 账号直链播放、把 source Cookie 注入播放器、完整文件中转上传、未复核目标文件就返回 302、播放停止/会话过期后自动删除 playback 文件、或在 Provider 失败时静默回退 Emby 视频中转。
+首期不允许以下捷径：使用 source 账号直链播放、把 source Cookie 注入播放器、完整文件中转上传、未复核目标文件就返回 302、播放停止/会话过期后自动删除 playback 文件。Provider/DirectPlay Service 只返回类型化结果，不自行代理 Emby；Gateway 在 Principal 合法且 115 非成功时记录固定原因并显式 fallback 原始 Emby 请求。
 
 ## 9. 302 与直链安全
 
@@ -435,7 +435,7 @@ playbackAccountId + SHA1 + size
 - `Location` 必须匹配配置的 115/CDN 域名 allowlist，禁止开放重定向。
 - 源账号用于 Range challenge 的直链永远不能返回给客户端。
 - `f=3` 或其他需要额外 Cookie 的链接，在证明 Infuse 能自然满足前按不兼容处理。
-- 不兼容、凭证失效或 Provider 不可用时返回明确 `503` 和内部错误码，不静默让源账号播放，也不回退 Emby 视频中转。
+- 不兼容、凭证失效或 Provider 不可用时向 Gateway 返回类型化内部错误，禁止改用 source 账号；Gateway 不签发 302，记录脱敏 fallback 原因并透明转发原始 Emby 视频请求。
 
 ## 10. 保留、冷却与未来清理
 

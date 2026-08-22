@@ -34,7 +34,9 @@
 Emby 客户端
   -> Ember Playback Gateway
        -> 普通 Emby API、字幕、播放进度：透明转发到 Emby Server
-       -> 符合直连条件的视频流：解析媒体、执行策略、返回 115 直链 302
+       -> 视频流：先做本地身份门控，再尝试 115 加速
+            -> 加速成功：返回 115 直链 302
+            -> 不适用或失败：透明转发原始请求到 Emby Server
 ```
 
 边界约束：
@@ -42,7 +44,8 @@ Emby 客户端
 - 网关必须成为公网唯一 Emby 入口；原始 Emby Server 只允许内网或受控运维访问。
 - 已通过 Token 门控的普通接口默认透明转发，不做猜测式改写；未认证 public bootstrap 路由必须先完成同版本合同核对，再加入显式 allowlist。
 - 网关不得使用客户端提交的 `UserId` 作为最终身份依据，必须由 Emby AccessToken 映射到 Ember 用户。
-- 视频字节在 302 成功后由客户端直接向 115 CDN 请求，不经过 Ember API、播放网关或 Emby Server。
+- 视频字节在 302 成功后由客户端直接向 115 CDN 请求；fallback 时仍按普通反向代理链路由 Emby 经 Gateway 返回客户端。
+- Emby 正常代理播放是基线能力，115 直连是可选加速；合法 Principal 不能因为没有 115 条件、路径未映射或 Provider 故障而失去正常播放能力。
 - 网关不得记录 AccessToken、完整 115 直链、Cookie 或其他可复用凭证。
 
 ### 2.1 启动期上游身份核对
@@ -283,7 +286,7 @@ mappingId + itemId + mediaSourceId + playSessionId
 - 固定 TTL 为 5 分钟，最大 4096 条；写入和查询都延迟清理过期项，满载时淘汰最早过期项，不启动后台 goroutine。
 - 每个有资格形成证明的新版 PlaybackInfo 响应都会先清除相同 `mappingId + itemId` 的旧证明；非 `200`、错误或不可用响应不能继续复用旧成功结果。
 - 视频请求仍必须先重新执行 `ResolvePrincipal`，再用完全相同的 mapping/item/mediaSource/playSession 查询；缓存不能绕过撤销或用户实时状态。
-- 进程重启会丢失证明并失败关闭，Infuse 再次调用 PlaybackInfo 后重建；多 Gateway、副本共享和持久播放会话推迟到后续阶段。
+- 进程重启会丢失证明；此时视频请求不能获得 115 302，但应 fallback 到 Emby，Infuse 再次调用 PlaybackInfo 后重建证明。多 Gateway、副本共享和持久播放会话推迟到后续阶段。
 - Token、完整 PlaybackInfo 响应和 Path 不进入日志；缓存对象只存在于 Gateway 进程内，不序列化为 API。
 - 响应无效、过大、解析失败或没有合格 MediaSource 时，Emby 原始响应仍逐字节返回，只是不产生证明。
 
@@ -293,7 +296,7 @@ mappingId + itemId + mediaSourceId + playSessionId
 
 | Method | Path | 处理策略 |
 | --- | --- | --- |
-| `GET`, `HEAD` | `/emby/Videos/{Id}/stream` | 满足直连条件时可返回 302，否则按策略透明转发或拒绝 |
+| `GET`, `HEAD` | `/emby/Videos/{Id}/stream` | 满足直连条件时返回 302，否则透明转发 Emby |
 | `GET`, `HEAD` | `/emby/Videos/{Id}/stream.{Container}` | 同上，`Container` 是 path 参数 |
 | `GET`, `HEAD` | `/emby/Videos/{Id}/{StreamFileName}` | 同上，保留客户端请求文件名 |
 | `GET` | `/emby/Items/{Id}/Download` | 必须额外执行 `EnableContentDownloading` 和网关下载策略 |
@@ -306,7 +309,7 @@ mappingId + itemId + mediaSourceId + playSessionId
 - `GET` 与 `HEAD` 都可能由客户端用于探测，不得把每个请求都计为独立播放会话。
 - 客户端可能在获得 302 后向 115 CDN 发出 `Range` 请求；网关必须通过客户端合同测试确认重定向、UA 和 Range 行为。
 - `/Items/{Id}/Download` 与播放流不是同一权益，必须复用套餐下载开关并单独审计。
-- 首版不改写 HLS、DASH、转码 manifest 和转码分片接口；云端媒体默认失败关闭，不静默回退为服务器中转。
+- 首版不改写 HLS、DASH、转码 manifest 和转码分片接口；这些请求继续透明转发 Emby，保持正常播放和转码能力。
 
 ## 6. 字幕合同
 
@@ -389,18 +392,35 @@ Content-Type: application/json
 
 不能仅依赖 Emby 自身 `SimultaneousStreamLimit`，因为 302 后视频字节不再经过 Emby，网关需要维护自己的会话状态。
 
-Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”，不能单独证明 Token 此刻仍被 Emby 接受。首期必须把近期成功的 GET/POST `PlaybackInfo` 作为当前授权证据；客户端绕过 PlaybackInfo 直接请求云端视频时失败关闭。Token 被撤销或用户状态变化后清除对应的直链缓存和未签发会话，但已经建立的 115 CDN 连接只能等到断线、重连或链接过期。
+Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”，不能单独证明 Token 此刻仍被 Emby 接受。首期必须把近期成功的 GET/POST `PlaybackInfo` 作为 115 加速授权证据；缺少证明的合法请求不能获得 302，但仍 fallback 到 Emby。Token 被撤销或用户状态变化后拒绝所有受保护请求并清除对应直链缓存和未签发会话；已经建立的 115 CDN 连接只能等到断线、重连或链接过期。
 
 ## 9. 失败与回退语义
 
-- Token 无法映射：拒绝直连，不使用客户端 `UserId` 猜测身份。
-- Token 已在 Ember 本地撤销：所有受保护的网关请求拒绝；不能把请求继续转发给 Emby 作为隐式回退。
-- Token 有历史映射但没有近期成功的 PlaybackInfo：拒绝 302；不能把历史登录记录当作当前 Emby 授权。
-- MediaSource 缺失或不支持 Direct Play：按套餐策略拒绝或显式回退，不能静默中转。
-- 路径未命中 115 映射：本地媒体可按规则透明转发；未知来源默认拒绝直连。
-- 115 解析或秒传失败：返回上游不可用语义，并记录脱敏错误码。
+- Token 缺失、重复、无法映射、已本地撤销、身份错配或用户硬状态拒绝：返回固定拒绝响应，不能继续转发 Emby，否则会绕过 Ember 本地安全门控。
+- 身份存储不可用：拒绝，不把基础设施故障降级成未受控代理。
+- Principal 合法但没有近期 PlaybackInfo、证明过期、视频参数不完整或 MediaSource 不支持 Direct Play：不尝试 115 或停止尝试，透明转发原始请求到 Emby。
+- 路径未命中 115 source、套餐未启用加速、客户端不适合直连、账号未配置/未验证/冷却、查重/Range challenge/秒传/目标复核失败：透明转发原始请求到 Emby。
+- 直链域名、过期时间、HeaderMode 或并发信息不兼容：不返回 302，透明转发原始请求到 Emby。
+- fallback 必须保留客户端原始 method、path、query、Range、User-Agent、`X-Emby-Token` 和其他 Emby Header，不能重新拼装缩水版视频请求。
+- fallback 只允许使用 Emby 正常代理，禁止改用 source 账号向客户端签发 115 直链。
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
 - Emby 会话事件转发失败：记录失败并允许网关会话 TTL 收口，不能伪造成功。
+- 每个视频请求只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode` 和必要 ID/耗时；日志不建表、不进入数据库。
+- 决策日志禁止记录 Token、Cookie、完整 Path、完整 SHA1、115 URL、PlaybackInfo 原始响应或 Provider 原始错误。
+
+首期决策日志枚举固定如下；实现可以在同一 `reasonCode` 下补充脱敏上下文字段，但不能把原始错误字符串当作新枚举：
+
+| decision | stage | reasonCode |
+| --- | --- | --- |
+| `reject` | `identity` | `token_missing`、`token_ambiguous`、`token_unmapped`、`token_revoked`、`identity_mismatch`、`identity_store_unavailable` |
+| `reject` | `user_state` | `user_missing`、`user_inactive`、`user_expired`、`emby_disabled`、`emby_access_disabled`、`device_blocked` |
+| `fallback` | `route` | `route_not_accelerated`、`request_not_eligible` |
+| `fallback` | `proof` | `playback_proof_missing`、`playback_proof_expired`、`playback_proof_mismatch` |
+| `fallback` | `eligibility` | `direct_play_disabled`、`client_incompatible`、`concurrency_limited`、`media_not_direct_play` |
+| `fallback` | `direct_play` | `invalid_request`、`path_not_mapped`、`account_unavailable`、`accounts_same`、`provider_unavailable`、`provider_protocol`、`rapid_upload_unavailable`、`target_unavailable`、`download_incompatible`、`store_unavailable`、`lock_unavailable` |
+| `redirect` | `direct_play` | `direct_play_ready` |
+
+所有决策日志记录 `statusCode`；fallback 已取得 Emby 响应时再记录 `upstreamStatus`，代理传输失败只记录固定 `proxyErrorCode`，禁止输出上游原始错误。该日志描述 Gateway 对本次请求选择的路径，不把“已选择 fallback”误写成“Emby 已成功播放”。
 
 ## 10. 合同测试要求
 
@@ -408,7 +428,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 
 1. `AuthenticateByName` 响应透明转发、HMAC-SHA256 映射、明文不落库，以及映射写入失败不篡改原响应。
 2. GET/POST `PlaybackInfo` 的请求和关键响应字段夹具。
-3. 三类原始视频流路径的 `GET`、`HEAD`、query 和 302 行为。
+3. 三类原始视频流路径的 `GET`、`HEAD`、query、302、Emby fallback 和安全 reject 行为。
 4. 下载接口与普通播放权限分离。
 5. 字幕接口不被视频拦截器误判。
 6. Playing、Progress、Stopped 事件继续到达 fake Emby。
@@ -416,7 +436,8 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 8. Quick Connect 等未覆盖入口不会被错误当作已支持。
 9. 单 Token、单设备和用户全部撤销只影响各自范围；硬撤销后请求拒绝，动态到期/套餐拒绝不错误写入 `revokedAt`。
 10. `lastSeenAt` 限频、ServerId/EmbyID 错配拒绝、并发登录幂等 upsert，以及数据库/日志/JSON 均不包含 Token 明文。
-11. 302 要求相同 Token 的近期成功 PlaybackInfo；绕过 PlaybackInfo、撤销后缓存重用和原始 Emby 公网绕过均失败关闭。
+11. 302 要求相同 Token 的近期成功 PlaybackInfo；缺少/过期证明时合法请求 fallback Emby，撤销后缓存重用和原始 Emby 公网绕过仍失败关闭。
+12. 每个视频请求只产生一条脱敏 `redirect/fallback/reject` 日志，且任何 fallback 都保持原始请求字节和 Header 语义。
 
 所有测试必须使用 fake Emby Server 或固定 fixture，禁止请求真实 Emby。
 
