@@ -1162,9 +1162,25 @@ func parseDownloadURL(rawURL string, now time.Time, hostAllowed func(string) boo
 		return DownloadURLResult{}, protocolError("download URL invalid")
 	}
 	hostname := strings.ToLower(parsed.Hostname())
-	if parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" ||
-		net.ParseIP(hostname) != nil || !hostAllowed(hostname) {
-		return DownloadURLResult{}, ErrDownloadURLNotAllowed
+	safeScheme := safeDownloadURLScheme(parsed.Scheme)
+	safeHostname := safeDownloadURLHostname(hostname)
+	if parsed.Scheme != "https" {
+		return DownloadURLResult{}, downloadURLPolicyError(DownloadURLPolicySchemeNotHTTPS, safeScheme, safeHostname)
+	}
+	if parsed.User != nil {
+		return DownloadURLResult{}, downloadURLPolicyError(DownloadURLPolicyUserinfo, safeScheme, safeHostname)
+	}
+	if parsed.Port() != "" {
+		return DownloadURLResult{}, downloadURLPolicyError(DownloadURLPolicyExplicitPort, safeScheme, safeHostname)
+	}
+	if parsed.Fragment != "" {
+		return DownloadURLResult{}, downloadURLPolicyError(DownloadURLPolicyFragment, safeScheme, safeHostname)
+	}
+	if net.ParseIP(hostname) != nil {
+		return DownloadURLResult{}, downloadURLPolicyError(DownloadURLPolicyIPLiteral, safeScheme, "")
+	}
+	if !hostAllowed(hostname) {
+		return DownloadURLResult{}, downloadURLPolicyError(DownloadURLPolicyHostNotAllowed, safeScheme, safeHostname)
 	}
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil {
@@ -1213,6 +1229,34 @@ func parseDownloadURL(rawURL string, now time.Time, hostAllowed func(string) boo
 	}, nil
 }
 
+func downloadURLPolicyError(reason DownloadURLPolicyReason, scheme, host string) error {
+	return &DownloadURLPolicyError{Reason: reason, Scheme: scheme, Host: host}
+}
+
+func safeDownloadURLScheme(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "http" || value == "https" {
+		return value
+	}
+	return "other"
+}
+
+func safeDownloadURLHostname(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || len(value) > 253 {
+		return ""
+	}
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') ||
+			character == '.' || character == '-' {
+			continue
+		}
+		return ""
+	}
+	return value
+}
+
 func singleDownloadQueryValue(query url.Values, key string) (string, error) {
 	values, exists := query[key]
 	if !exists || len(values) != 1 {
@@ -1223,7 +1267,7 @@ func singleDownloadQueryValue(query url.Values, key string) (string, error) {
 
 // isAllowed115DownloadHost keeps redirects inside the initial 115-owned hostname boundary.
 func isAllowed115DownloadHost(hostname string) bool {
-	return hostname == "115.com" || strings.HasSuffix(hostname, ".115.com")
+	return hostname == "115.com" || strings.HasSuffix(hostname, ".115.com") || hostname == "cdnfhnfile.115cdn.net"
 }
 
 // isValidDownloadPickCode accepts one lowercase file pickcode and rejects directory-like f prefixes.

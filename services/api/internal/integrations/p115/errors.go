@@ -2,6 +2,37 @@ package p115
 
 import "errors"
 
+// DownloadURLPolicyReason identifies which non-secret URL boundary rejected a
+// Provider download target.
+type DownloadURLPolicyReason string
+
+const (
+	DownloadURLPolicySchemeNotHTTPS DownloadURLPolicyReason = "scheme_not_https"
+	DownloadURLPolicyUserinfo       DownloadURLPolicyReason = "userinfo_present"
+	DownloadURLPolicyExplicitPort   DownloadURLPolicyReason = "explicit_port"
+	DownloadURLPolicyFragment       DownloadURLPolicyReason = "fragment_present"
+	DownloadURLPolicyIPLiteral      DownloadURLPolicyReason = "ip_literal"
+	DownloadURLPolicyHostNotAllowed DownloadURLPolicyReason = "host_not_allowed"
+)
+
+// DownloadURLPolicyError retains only sanitized scheme/hostname evidence while
+// preserving errors.Is(err, ErrDownloadURLNotAllowed).
+type DownloadURLPolicyError struct {
+	Reason DownloadURLPolicyReason
+	Scheme string
+	Host   string
+}
+
+// Error intentionally omits URL components from ordinary logs and API errors.
+func (err *DownloadURLPolicyError) Error() string {
+	return ErrDownloadURLNotAllowed.Error()
+}
+
+// Unwrap preserves the existing stable sentinel contract.
+func (err *DownloadURLPolicyError) Unwrap() error {
+	return ErrDownloadURLNotAllowed
+}
+
 var (
 	ErrCredentialRejected      = errors.New("p115 credential rejected")
 	ErrDownloadURLExpired      = errors.New("p115 download URL expired")

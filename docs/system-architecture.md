@@ -56,6 +56,7 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 services/
 ├─ api/                          # Go 后端
 │  ├─ cmd/server/main.go         # 入口：路由注册 + cron 初始化
+│  ├─ cmd/p115-contract-check/   # 显式授权后运行的一次性真实 115 只读合同检查器
 │  └─ internal/
 │     ├─ config/                 # 运行期配置定义 / 解析 / 校验
 │     │  ├─ config.go            # ConfigService（配置定义/解析/测试/导入）
@@ -715,12 +716,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `integrations/p115.CookieHTTPAdapter.SearchBySHA1`：只向旧接口发送规范化 SHA1，在本地复核 size、非目录和可选父目录；固定未命中映射为空列表
 - `integrations/p115.CookieHTTPAdapter.InitRapidUpload`：校验完整内容身份后获取账号上传信息，调用 `p115cipher.BuildUploadRequest` 生成 `k_ec` 与加密 body，并把 `status=1/2/7` 映射为普通上传拒绝、复用和有界 Range challenge
 - `integrations/p115.CookieHTTPAdapter.FindTargetFile`：`status=2` 后立即查询目标目录，只接受 SHA1、size、非目录和 parent 全部一致的唯一候选；每 500ms 轮询、10s 截止并执行最终查询，超时和多候选使用独立错误
-- `integrations/p115.CookieHTTPAdapter.GetDownloadURL`：使用真实播放客户端 UA 请求 Chrome downurl，RSA 解密单文件响应，并严格映射 HTTPS 115 域名 allowlist、UTC 过期时间、并发限制和 `f` HeaderMode；URL 不通过 JSON 或错误回显
+- `integrations/p115.CookieHTTPAdapter.GetDownloadURL`：使用真实播放客户端 UA 请求 Chrome downurl，RSA 解密单文件响应，并严格映射 HTTPS 115 域名 allowlist、UTC 过期时间、并发限制和 `f` HeaderMode；allowlist 包含 `115.com` 完整域边界及 2026-08-22 真实验证后精确加入的 `cdnfhnfile.115cdn.net`，URL 不通过 JSON 或错误回显
+- 下载 URL 策略拒绝使用类型化安全证据，仅允许一次性检查器读取固定 reason、scheme 和受限 hostname；普通日志/API 仍只接收通用 sentinel，永不包含 URL path、query、签名、端口值、userinfo 或 IP literal
 - `integrations/p115.CookieHTTPAdapter.HashFileRange`：使用源账号配置 UA 获取签名 URL，按 HeaderMode 在 Provider 内发起最大 1 MiB 的 Range GET，只接受精确 `206/Content-Range/Content-Length` 并只返回大写 SHA1 与读取字节数
 - `integrations/p115.CookieHTTPAdapter.DeleteFile`：只发送单个规范化 file ID，并按 Cookie Provider UID 使用进程内共享锁串行删除；不同 UID 可并行，等待支持 context 取消
 - Cookie HTTP 公共边界：10 秒超时、禁止跟随重定向、响应体限额、网络/HTTP/业务/协议错误分层；错误不包含 Cookie、URL、响应正文或上游原始文本
 - `integrations/p115/p115cipher`：基于固定提交黑盒输出独立实现上传 `k_ec`/AES-CBC/LZ4、完整签名表单和下载 RSA request/response 变换；固定向量不含真实账号信息
-- `integrations/p115.Provider`：账号验证、上传信息、源路径解析、SHA1 搜索、秒传初始化、目标复核、下载地址、受限 Range Hash 和串行删除的 Cookie 实现均已有 fake HTTP 合同；生产可用性仍必须通过受控真实账号验证
+- `integrations/p115.Provider`：账号验证、上传信息、源路径解析、SHA1 搜索、秒传初始化、目标复核、下载地址、受限 Range Hash 和串行删除的 Cookie 实现均已有 fake HTTP 合同；2026-08-22 本地真实只读检查已通过账号、上传信息、源解析、playback 查重、source downurl 和 128 KiB Range，playback 最终直链与写入型链路仍未验证
+- `cmd/p115-contract-check`：只组合 Provider 的六个只读方法；凭证仅从当前进程环境读取，CI 或缺少确认值时拒绝运行，报告不包含可复用凭证、完整文件身份或签名 URL
 - `security/secretbox`：复用 ConfigService 历史 AES-GCM 密文格式，已有 settings 密文保持兼容；115 Cookie 通过 `p115-cookie` purpose 派生独立密钥，禁止与 settings 密文跨用途替换
 - `p115_accounts` 存储使用局部静默 GORM session，避免 PostgreSQL 失败行详情携带 Cookie 密文；错误日志只保留操作名、SQLSTATE 和约束名
 - 数据库约束：`source` / `playback` 每个角色至多一条启用记录；同一 Provider 用户不能同时成为两个启用角色；播放账号必须有目标目录

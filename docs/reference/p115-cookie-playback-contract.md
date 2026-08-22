@@ -11,13 +11,14 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | 能力 | 证据 | 当前结论 |
 | --- | --- | --- |
 | Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
-| Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id` | 公开实现确认固定 GET 端点、`state` 字段和 Cookie `UID` 取值方式；真实账号兼容性仍未实机确认 |
+| Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id`；2026-08-22 两个真实 Cookie | 固定 GET 端点、`state` 和 Cookie `UID` 取值已在两个不同账号上通过；长期稳定性、风控和其他客户端仍未证实 |
 | Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和完整上传表单，并接入 `httptest` fake HTTP Adapter；未请求真实端点 |
-| 源路径解析与 Range 校验 | 同提交内 `fs_files`、`get_id_to_path`、`read_range` 和秒传 Range callback | Ember 已用 fake HTTP 固定目录逐级解析、分页、歧义、`206`、`Content-Range`、HeaderMode 和读取上限；未请求真实端点 |
+| 源路径解析与 Range 校验 | 同提交内 `fs_files`、`get_id_to_path`、`read_range` 和秒传 Range callback；2026-08-22 本地真实只读检查 | 10,747,391,752 字节源文件按 root-relative path/size 成功解析；source URL 为 `f=1`、并发上限 `2`，精确 `bytes=0-131071` 读取 `131072` 字节并完成 SHA1；未读取完整文件 |
+| 真实下载 CDN hostname | 2026-08-22 本地一次性只读检查；UDown/38.2.0 UA；真实 `proapi.115.com` 加密响应、DNS 与 TLS 证书 | source 下载 URL 返回 `cdnfhnfile.115cdn.net`；TLS 证书组织为广东一一五科技股份有限公司且 SAN 覆盖 `*.115cdn.net` / `115cdn.net`，Ember 仅把本次精确 hostname 加入 allowlist |
 | `emby-toolkit` 小号播放行为 | `emby-toolkit` `v10.8.63`、提交 `7e64564884c9949390e5894b4be71038808e4e2a` | 只用于理解账号选择与失败语义，不复制 AGPL 代码 |
 | 上游许可证 | 固定提交根 `LICENSE` / `pyproject.toml` 和模块 `pyproject.toml` 写 MIT，但模块 `LICENSE` / `LICENSE_zh` 与源码 `__license__` 写 GPLv3 | 按 GPLv3 保守边界处理：不复制、翻译或运行时依赖上游源码，只使用临时黑盒执行得到的兼容向量；这不是对上游最终许可的法律认定 |
 | 115 Cookie/Web API 稳定性 | 非官方接口 | 随时可能变化，必须通过 Provider 边界隔离 |
-| Ember 真实账号行为 | 未实机确认 | 尚未调用真实 115 接口，不能断言风控、配额和响应字段稳定 |
+| Ember 真实账号行为 | 部分实机确认 | 两个账号的登录、uploadinfo、源解析、playback 查重、source downurl 和 128 KiB Range 已通过；playback 最终直链、秒传/目标复核/删除、风控、配额和长期稳定性仍未证实 |
 
 证据等级：
 
@@ -263,15 +264,16 @@ data=<RSA encrypted {pickcode,user_id}>
 `CookieHTTPAdapter.GetDownloadURL` 当前固定：
 
 - 只接受绝对 HTTPS URL；禁止 userinfo、显式端口、fragment、IP literal 和非 allowlist 主机。
-- 首期 allowlist 仅允许 `115.com` 及其子域，使用完整 hostname 边界匹配；其他 CDN 域名必须等受控真实验证后再显式加入。
+- 首期 allowlist 允许 `115.com` 及其子域，并根据 2026-08-22 受控真实响应额外精确允许 `cdnfhnfile.115cdn.net`；不因此开放整个 `*.115cdn.net`。所有匹配都使用完整 hostname 边界，其他 CDN hostname 必须取得同等级真实证据后再逐项加入。
 - `t`、`c`、`f` 必须各出现一次：`t` 是严格晚于当前时间的 Unix 秒并原样映射为 UTC `ExpiresAt`；`c` 是非负并发打开上限，`0` 表示无限；`f="" | 0 | 1 | 3` 分别映射为 none、none、same_user_agent、same_user_agent_and_cookie。
 - 未知 `f` 返回 `ErrDownloadURLIncompatible`；已过期返回 `ErrDownloadURLExpired`；域名/协议不允许返回 `ErrDownloadURLNotAllowed`。
+- URL 安全策略拒绝使用类型化 `DownloadURLPolicyError` 保留固定 reason、受限 scheme 和仅含 ASCII hostname；普通 `Error()`、API 和日志仍只看到通用 sentinel。一次性检查器可以显式读取这三个安全字段定位合同漂移，但不能输出 path、query、userinfo、端口值、IP 或完整 URL。
 - Adapter 返回 Provider 原始过期边界，不在这里扣除缓存安全窗口；后续缓存层必须以 `ExpiresAt` 为上限并预留安全窗口。
 - URL、Cookie、RSA 数据、Provider response 和原始错误文本不进入 JSON、日志或错误消息。
 
 `f=3` 会被准确映射，但首期播放网关仍必须按不兼容拒绝 302，因为最终播放器未被证明能够自然携带响应 Cookie。不能把 Cookie 拼进 URL，也不能泄露播放小号凭证。
 
-证据：[`download_url`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L8300-L8457)、[`download_url_app`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L8565-L8657) 和固定源码的 [`p115tiny302 get_downurl`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115tiny302/p115tiny302/app.py#L273-L299)。以上仍是公开实现证据；目标账号响应字段、CDN 域名集合和真实 Infuse Header 行为尚未实机确认。
+证据：[`download_url`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L8300-L8457)、[`download_url_app`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L8565-L8657) 和固定源码的 [`p115tiny302 get_downurl`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115tiny302/p115tiny302/app.py#L273-L299)。source 账号的 `f=1`、并发上限 `2`、精确 CDN hostname 和同 UA Range 已实测；playback 账号最终直链、完整 CDN 集合和真实 Infuse Header 行为尚未确认。
 
 ### 5.6 删除
 
@@ -321,7 +323,7 @@ Adapter 不判断一个文件是否应当删除。调用 `DeleteFile` 前，业�
 - `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义及长度前缀 LZ4 block 解压，解压结果设置上限。
 - `BuildUploadRequest` 覆盖 filename、preID、topupload、`sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
 - `RSAEncrypt` 覆盖 Chrome downurl 请求包装；`RSADecrypt` 使用固定任意密文黑盒向量锁定服务端响应变换，不把测试 seam 当作真实服务端密文证据。
-- `GetUploadInfo`、`ResolveFileByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 已通过 fake HTTP 合同接入，但尚未请求真实 115 或完成播放网关/Infuse 验证，因此不能据此宣称秒传直播放链路可用。
+- `GetUploadInfo`、`ResolveFileByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 均已通过 fake HTTP 合同接入。2026-08-22 真实只读运行已覆盖账号验证、上传信息、源路径解析、SHA1 查重、source downurl 和 128 KiB Range；上传初始化、目标复核、playback 最终直链与播放网关/Infuse 仍未完成真实验证，因此不能据此宣称秒传直播放链路可用。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 
@@ -423,6 +425,8 @@ playbackAccountId + SHA1 + size
 
 真实验证必须由用户明确授权，使用测试账号和测试文件，并以一次性命令执行；不能启动 Ember 服务或后台进程作为验证手段。每次记录日期、平台、Infuse 当前稳定版本、脱敏请求字段和结果。
 
+仓库提供 `go -C services/api run ./cmd/p115-contract-check` 作为只读入口，具体环境变量、安全确认值、执行和清理步骤见 [115 Cookie Provider 一次性只读合同验证](../runbooks/p115-read-only-contract-check.md)。该命令使用不含 `InitRapidUpload` / `DeleteFile` 的窄接口，不连接 Ember 数据库；自动化测试只注入 fake Provider，禁止在测试中调用真实 115。URL 安全策略失败时允许额外输出类型化的 reason、scheme 和 hostname，用于根据真实证据修订 allowlist，仍禁止输出任何可复用 URL 部分。
+
 首轮至少确认：
 
 - 源账号和播放小号 Cookie 的有效性、账号标识与客户端类型约束。
@@ -433,7 +437,9 @@ playbackAccountId + SHA1 + size
 - 当前稳定 Infuse 在目标平台对 `HEAD`、Range、302 和下载 Header 的实际行为。
 - 删除串行要求、频率限制、风控和冷却边界。
 
-验证完成后清理测试文件并替换或撤销临时 Cookie。在这些行为完成实测前，文档和实现结论必须保持“未实机确认”。
+2026-08-22 本地只读验证最终结果为 `outcome=passed`：两个 Cookie 均可验证且 UID 不同，两个账号 `uploadinfo` UID 一致，source 相对路径与 10,747,391,752 字节 size 解析成功，playback SHA1 查询正常未命中；source downurl 为 `cdnfhnfile.115cdn.net`、`same_user_agent`、并发上限 `2`，过期时间正常；`bytes=0-131071` 精确读取 `131072` 字节并完成 SHA1。首次运行因该 hostname 未列入 allowlist 而失败关闭；DNS/TLS/证书组织核对后只加入精确 hostname，第二次运行通过。由于 playback 未命中，播放账号最终下载 URL 仍未验证；整个流程没有上传、移动、重命名或删除文件。
+
+如果为验证专门创建了测试文件，完成后清理；使用既有只读源文件时不得为了收尾删除。临时 Cookie 应在验证后替换或撤销。尚未覆盖的行为必须继续标记“未实机确认”。
 
 ## 13. 演进边界
 

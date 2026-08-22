@@ -61,6 +61,45 @@ func TestCookieHTTPAdapterGetDownloadURLUsesRealClientUserAgentAndMapsURL(t *tes
 	}
 }
 
+func TestCookieHTTPAdapterGetDownloadURLAllowsObservedExact115CDNHost(t *testing.T) {
+	directURL := strings.Replace(
+		fixtureDirectDownloadURL("1", "1", fixtureDownloadExpiry),
+		"cdnfhnfile.115.com",
+		"cdnfhnfile.115cdn.net",
+		1,
+	)
+	server := newDownloadURLServer(t)
+	defer server.Close()
+	adapter := newTestDownloadURLAdapter(t, server, directURL)
+
+	result, err := adapter.GetDownloadURL(context.Background(), fixtureCredential(), DownloadURLRequest{
+		PickCode: fixtureDownloadPickCode, UserAgent: fixtureClientUserAgent,
+	})
+	if err != nil {
+		t.Fatalf("GetDownloadURL() error = %v", err)
+	}
+	if result.URL != directURL || result.HeaderMode != DownloadHeadersSameUserAgent {
+		t.Fatalf("GetDownloadURL() = %+v", result)
+	}
+}
+
+func TestAllowed115DownloadHostKeeps115CDNNetBoundaryExact(t *testing.T) {
+	tests := map[string]bool{
+		"115.com":                       true,
+		"cdnfhnfile.115.com":            true,
+		"cdnfhnfile.115cdn.net":         true,
+		"115cdn.net":                    false,
+		"other.115cdn.net":              false,
+		"cdnfhnfile.115cdn.net.example": false,
+		"evil115.com":                   false,
+	}
+	for hostname, want := range tests {
+		if got := isAllowed115DownloadHost(hostname); got != want {
+			t.Fatalf("isAllowed115DownloadHost(%q) = %t, want %t", hostname, got, want)
+		}
+	}
+}
+
 func TestCookieHTTPAdapterGetDownloadURLMapsHeaderModesAndConcurrency(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -94,15 +133,19 @@ func TestCookieHTTPAdapterGetDownloadURLMapsHeaderModesAndConcurrency(t *testing
 
 func TestCookieHTTPAdapterGetDownloadURLRejectsUnsafeURLs(t *testing.T) {
 	tests := []struct {
-		name    string
-		url     string
-		wantErr error
+		name       string
+		url        string
+		wantErr    error
+		wantReason DownloadURLPolicyReason
+		wantScheme string
+		wantHost   string
 	}{
-		{name: "http scheme", url: "http://cdnfhnfile.115.com/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed},
-		{name: "foreign host", url: "https://evil.example/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed},
-		{name: "userinfo", url: "https://user@cdnfhnfile.115.com/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed},
-		{name: "port", url: "https://cdnfhnfile.115.com:8443/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed},
-		{name: "fragment", url: "https://cdnfhnfile.115.com/video.mkv?t=1700003600&c=0&f=1#fragment", wantErr: ErrDownloadURLNotAllowed},
+		{name: "http scheme", url: "http://cdnfhnfile.115.com/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed, wantReason: DownloadURLPolicySchemeNotHTTPS, wantScheme: "http", wantHost: "cdnfhnfile.115.com"},
+		{name: "foreign host", url: "https://evil.example/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed, wantReason: DownloadURLPolicyHostNotAllowed, wantScheme: "https", wantHost: "evil.example"},
+		{name: "userinfo", url: "https://user@cdnfhnfile.115.com/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed, wantReason: DownloadURLPolicyUserinfo, wantScheme: "https", wantHost: "cdnfhnfile.115.com"},
+		{name: "port", url: "https://cdnfhnfile.115.com:8443/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed, wantReason: DownloadURLPolicyExplicitPort, wantScheme: "https", wantHost: "cdnfhnfile.115.com"},
+		{name: "fragment", url: "https://cdnfhnfile.115.com/video.mkv?t=1700003600&c=0&f=1#fragment", wantErr: ErrDownloadURLNotAllowed, wantReason: DownloadURLPolicyFragment, wantScheme: "https", wantHost: "cdnfhnfile.115.com"},
+		{name: "ip literal", url: "https://192.0.2.1/video.mkv?t=1700003600&c=0&f=1", wantErr: ErrDownloadURLNotAllowed, wantReason: DownloadURLPolicyIPLiteral, wantScheme: "https"},
 		{name: "missing expiry", url: "https://cdnfhnfile.115.com/video.mkv?c=0&f=1", wantErr: ErrProviderProtocol},
 		{name: "duplicate expiry", url: "https://cdnfhnfile.115.com/video.mkv?t=1700003600&t=1700007200&c=0&f=1", wantErr: ErrProviderProtocol},
 		{name: "expired", url: "https://cdnfhnfile.115.com/video.mkv?t=1700000000&c=0&f=1", wantErr: ErrDownloadURLExpired},
@@ -124,6 +167,18 @@ func TestCookieHTTPAdapterGetDownloadURLRejectsUnsafeURLs(t *testing.T) {
 			}
 			if strings.Contains(fmt.Sprint(err), test.url) {
 				t.Fatalf("download error exposed URL: %v", err)
+			}
+			if test.wantReason != "" {
+				var policyErr *DownloadURLPolicyError
+				if !errors.As(err, &policyErr) {
+					t.Fatalf("GetDownloadURL() error type = %T, want DownloadURLPolicyError", err)
+				}
+				if policyErr.Reason != test.wantReason || policyErr.Scheme != test.wantScheme || policyErr.Host != test.wantHost {
+					t.Fatalf("policy evidence = %+v, want reason=%s scheme=%s host=%s", policyErr, test.wantReason, test.wantScheme, test.wantHost)
+				}
+				if (test.wantHost != "" && strings.Contains(policyErr.Error(), test.wantHost)) || strings.Contains(policyErr.Error(), "video.mkv") {
+					t.Fatalf("ordinary policy error exposed evidence: %v", policyErr)
+				}
 			}
 		})
 	}

@@ -59,7 +59,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 管理端已有活跃会话、播放历史、设备管理、客户端黑名单和设备操作日志。
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
-- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除；尚未实现播放网关和任何真实 115 调用。
+- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、旧 SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除；尚未实现播放网关。2026-08-22 本地真实只读检查已通过账号、上传信息、源解析、查重、source downurl 和 128 KiB Range。
 - 当前仍没有播放数据面进程、Emby AccessToken 到 Ember 用户的映射、秒传任务或直连会话模型。
 
 ### 外部证据与未确认项
@@ -68,7 +68,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 上传加密参考同一提交内 `p115cipher` `0.0.5.4` 黑盒输出；Go 固定向量和 fake HTTP 上传初始化已通过，尚未请求真实 HTTP 端点。
 - `emby-toolkit` `v10.8.63` 只用于理解播放小号的账号选择和失败语义；不得复制其 AGPL 代码。
 - `p115client` 固定提交根许可声明为 MIT，但 `p115cipher` 模块许可证和源码声明为 GPLv3；当前按 GPLv3 保守边界处理，不复制或逐行翻译源码、不引入 Python 运行时，只使用临时黑盒输出的兼容向量独立实现 Go 协议层。
-- 尚未真实调用目标 115 账号。登录状态端点已有固定公开源码证据，但目标账号响应、其余 Cookie 端点、风控、限流、最终下载 Header 和当前 Infuse 行为仍保持“未实机确认”。
+- 2026-08-22 本地一次性只读检查已确认两个 Cookie 登录、`uploadinfo`、source 路径/size 解析、playback SHA1 查询、source downurl 和精确 128 KiB Range；source URL 为 `cdnfhnfile.115cdn.net`、`f=1`、并发上限 `2`。playback 未命中同内容，因此 playback 最终下载 URL，以及风控、限流和 Infuse 行为仍保持“未实机确认”。
 - Infuse 不设长期固定版本。每次受控验收使用目标平台当时的稳定最新版，并记录平台、精确版本、日期和结果。
 
 ## 已确认决策
@@ -94,7 +94,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `services/p115account`，支持安全概要查询、加密创建、Cookie 轮换、显式验证、事务启停和活动账号凭证读取。
 - 新增 Provider-neutral 类型与接口，固定秒传状态和下载 Header 模式的 Ember 内部语义。
 - 新增 JWT 管理员账号 API：列表、详情、创建、Cookie 替换、验证和启停；Admin API Key 不得管理 115 凭证。
-- 根据固定 `p115client` 源码实现 `CookieCredentialValidator`，只读检查登录状态并规范化 Cookie `UID`；未进行真实 115 调用。
+- 根据固定 `p115client` 源码实现 `CookieCredentialValidator`，只读检查登录状态并规范化 Cookie `UID`；fake 合同和 2026-08-22 两个真实 Cookie 均已通过。
 - 已用单元测试覆盖密文兼容、Cookie 不回显、输入边界、轮换状态重置、验证状态机、Cookie 并发替换、启用约束、HTTP 错误脱敏和路由注册。
 - 已补真实 Gin router、JWT middleware、Service、GORM 和 PostgreSQL 的 API 进程内集成测试；115 校验器使用 fake，不访问真实 115。
 - 集成测试覆盖账号创建、列表、详情、验证、启停、Cookie 替换与重新验证，以及未验证账号启用、同角色启用冲突、跨角色 Provider UID 冲突、凭证失效、Provider 故障和 Admin API Key `403`。
@@ -111,12 +111,15 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增具体 `CookieProvider`，组合账号验证与全部数据面 Adapter，并通过编译期断言保证完整实现 Provider-neutral 接口；生产账号控制面已注入该实现。
 - 新增 `CookieHTTPAdapter.ResolveFileByPath`，在显式 `rootId` 下逐级分页列举 `/files`，精确匹配目录和最终文件名/size，拒绝无效 cid 回退、重名歧义、分页漂移和超大目录。
 - 新增 `CookieHTTPAdapter.HashFileRange`，在 Provider 内获取源账号签名 URL，只读取最大 `1 MiB` 的指定 Range，严格校验 `206`、`Content-Range`、`Content-Length` 与 HeaderMode，只向业务层返回 SHA1 和读取字节数。
+- 新增一次性 `cmd/p115-contract-check`，使用不包含上传和删除的窄接口完成真实只读检查；CI、缺少显式确认值或缺少终端环境输入时拒绝运行，脱敏报告不输出 Cookie、账号标识、路径、pickCode、完整 SHA1 或签名 URL。fake Provider 自动化验证和 2026-08-22 本地真实只读完整运行均已通过。
+- 首次真实只读运行在 source download 安全策略处发现 `cdnfhnfile.115cdn.net`；类型化安全证据只输出 reason/scheme/hostname。真实响应、阿里云 OSS DNS 和 115 公司 TLS 证书构成一致证据后，仅加入该精确 hostname，并保留兄弟域名与后缀绕过拒绝测试。
+- allowlist 收口后第二次真实运行返回 `outcome=passed`：source 文件 size 为 10,747,391,752 字节，下载 URL 为 `same_user_agent`、并发上限 `2`，精确读取 `0-131071` 共 `131072` 字节并完成 Hash；playback 查重正常未命中，因此没有验证 playback 最终直链。
 
 仍未完成：
 
-- 两个目标账号的真实 Cookie 只读验证；当前无法确认真实响应、账号 UID、User-Agent 和风控边界。
+- playback 账号已有文件场景和最终下载 URL；当前测试文件在 playback 查重中正常未命中。
 - 播放网关、按角色加载运行期账号、路径映射持久化、秒传任务、任务所有权/分布式清理锁、直连会话和运营能力；Cookie Provider 离线合同本身已收口。
-- 任何真实 115 / Emby / Infuse 验证。
+- 任何写入型 115 验证，以及真实 Emby / Infuse 验证；本地一次成功不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
 
@@ -444,7 +447,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：所有 method、path、请求字段、响应映射、加密向量和未确认项均有固定证据；不能靠猜测进入实现。
 
-当前进度：账号控制面、完整 `CookieProvider` 组合、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量，以及上传信息、源路径解析、查重、秒传初始化、目标复核、下载 URL、受限 Range Hash 和串行删除 fake HTTP Adapter 已完成；受控真实账号/测试文件和 Infuse 验证尚未完成，因此阶段 0 仍为进行中。
+当前进度：账号控制面、完整 `CookieProvider` 组合、Cookie 登录状态合同、PostgreSQL 竞态测试、上传/RSA 固定向量，以及上传信息、源路径解析、查重、秒传初始化、目标复核、下载 URL、受限 Range Hash 和串行删除 fake HTTP Adapter 已完成；本地真实只读检查已通过账号、上传信息、源解析、查重、source downurl 和 128 KiB Range。playback 最终直链、写入型秒传/复核/清理与 Infuse 验证尚未完成，因此阶段 0 仍为进行中。
 
 ### 阶段 1：最小闭环
 
