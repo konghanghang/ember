@@ -45,6 +45,31 @@ Emby 客户端
 - 视频字节在 302 成功后由客户端直接向 115 CDN 请求，不经过 Ember API、播放网关或 Emby Server。
 - 网关不得记录 AccessToken、完整 115 直链、Cookie 或其他可复用凭证。
 
+### 2.1 启动期上游身份核对
+
+固定 `4.9.3.0` OpenAPI 声明：
+
+```http
+GET /emby/System/Info
+X-Emby-Token: <admin-api-key>
+```
+
+成功响应是 `SystemInfo`，当前启动边界只读取：
+
+| 字段 | 类型 | 用途 |
+| --- | --- | --- |
+| `Id` | `string` | 固定当前上游 ServerId，并传给 `EmbyTokenService` |
+| `Version` | `string` | 必须精确等于当前兼容基线 `4.9.3.0` |
+| `ServerName` | `string` | 可选的脱敏启动诊断，不参与身份判断 |
+
+运行要求：
+
+- Gateway 只能在身份核对成功后进入监听状态；不能使用第一次任意登录响应静默定义 ServerId。
+- `Id` 必须非空且满足长度/控制字符边界，`Version` 必须精确匹配；`ServerName` 可空但必须有界。
+- 上游重定向、非 `200`、非 JSON、响应超过 `256 KiB`、字段缺失、版本不符、超时或取消全部失败关闭。
+- API Key 只存在于请求 Header，禁止进入错误、日志、响应、指标或持久化；上游 URL 和完整响应体同样不得进入错误或日志。
+- 自动化只使用 fake Emby；目标实例完成显式只读验证前，仍不能宣称其版本与 ServerId 已确认。
+
 ## 3. 用户认证合同
 
 ### 3.1 用户名密码认证

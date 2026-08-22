@@ -138,7 +138,7 @@
 |--------|------|------|------|
 | `DATABASE_URL` | 是 | PostgreSQL 连接串 | API 启动硬依赖 |
 | `JWT_SECRET` | 是 | 用户 JWT 签名密钥 | 登录态信任根，不应在线修改 |
-| `CONFIG_ENCRYPTION_KEY` | 是 | 数据库敏感值加密主密钥 | settings 敏感配置与 115 Cookie 的加解密根密钥 |
+| `CONFIG_ENCRYPTION_KEY` | 是 | 数据库敏感值加密与 Token HMAC 根密钥 | settings 敏感配置、115 Cookie 与 Emby Token 摘要的用途隔离根密钥 |
 | `INTERNAL_API_SECRET` | 是 | API 与 Bot 内部调用共享密钥 | 服务间鉴权根密钥 |
 | `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 仅启用 Stripe Webhook 时需要，且只能走环境变量 |
 | `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 仅启用 Turnstile 登录校验时需要，且不应进入设置中心 |
@@ -151,13 +151,14 @@
 | 配置项 | 敏感 | 说明 | 原因 |
 |--------|------|------|------|
 | `PORT` | 否 | API 监听端口 | 有默认值 `8080`，属于进程启动参数 |
+| `PLAYBACK_GATEWAY_LISTEN_ADDR` | 否 | Playback Gateway 监听地址 | 仅独立 Gateway 进程使用；必须显式提供数值端口，无默认值 |
 | `ADMIN_USERNAME` | 否 | 首次初始化管理员用户名 | 仅首次启动且需要初始化管理员时才有意义 |
 | `ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 | 仅首次启动且需要初始化管理员时才有意义 |
 
 说明：
 
 - `WEBHOOK_TOKEN` 已废弃，当前只保留 `EMBY_WEBHOOK_TOKEN`。
-- `CONFIG_ENCRYPTION_KEY` 不参与认证，它只负责数据库敏感配置与 `p115_accounts.cookie_ciphertext` 的加密和解密。
+- `CONFIG_ENCRYPTION_KEY` 不作为客户端认证凭证；它负责数据库敏感配置与 `p115_accounts.cookie_ciphertext` 的加解密，并按 `emby-access-token` purpose 派生 Gateway Token HMAC 密钥。
 - `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_*`、`SMTP_*`、`CRON_*`、`BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已按设置中心模型管理，不再作为 API `.env.example` 的默认项。
 
 ---
@@ -254,8 +255,15 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 ### `CONFIG_ENCRYPTION_KEY`
 
 - 用途：加密/解密数据库中的敏感配置与 115 Cookie
-- 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等 settings 敏感值，以及 `p115_accounts.cookie_ciphertext`
-- 备注：如果该值缺失或变更错误，数据库里已有的敏感配置和 115 Cookie 都会无法解密；共享 `security/secretbox` 保持原 ConfigService AES-GCM 密文格式兼容，并为 115 Cookie 使用 `p115-cookie` purpose 派生隔离密钥
+- 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等 settings 敏感值、`p115_accounts.cookie_ciphertext`，以及 `emby_access_tokens.token_hash` 的 purpose 隔离 HMAC
+- 备注：如果该值缺失或变更错误，数据库里已有的敏感配置和 115 Cookie 都会无法解密，已有 Emby Token 摘要也无法再命中并要求客户端重新登录；共享 `security/secretbox` 保持原 ConfigService AES-GCM 密文格式兼容，并为 115 Cookie 与 Emby Token 使用不同 purpose 派生隔离密钥
+
+### `PLAYBACK_GATEWAY_LISTEN_ADDR`
+
+- 用途：独立 `cmd/playback-gateway` 的 TCP 监听地址，例如 `127.0.0.1:8090` 或 `:8090`
+- 来源：只允许部署环境变量，不进入设置中心
+- 校验：必须显式提供 `host:port`，端口必须是 `1-65535` 的十进制数；不接受随机端口 `0`、URL 或服务名
+- 当前边界：代码入口已可构建，但 Compose、公开反向代理和端口暴露尚未落地；不要把该变量写成“当前已部署”
 
 ---
 

@@ -19,6 +19,17 @@ go test ./...
 go build ./...
 ```
 
+Playback Gateway 相关改动额外运行：
+
+```bash
+cd services/api
+go test -count=1 ./internal/integrations/emby ./internal/playbackgateway
+go test -race -count=1 ./internal/integrations/emby ./internal/playbackgateway ./internal/services/embytoken
+go build ./cmd/playback-gateway
+```
+
+上述命令只做 fake 上游、生命周期和构建验证，不启动 Gateway、不请求真实 Emby。`go build ./cmd/playback-gateway` 如果在模块根生成 `playback-gateway` 二进制，验证后必须移出工作区，禁止提交构建物。
+
 如果要跑本地 API 集成测试：
 
 - 必须通过 `EMBER_INTEGRATION_DATABASE_URL` 指向专用测试数据库

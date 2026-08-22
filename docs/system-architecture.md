@@ -56,6 +56,7 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 services/
 ├─ api/                          # Go 后端
 │  ├─ cmd/server/main.go         # 入口：路由注册 + cron 初始化
+│  ├─ cmd/playback-gateway/      # 独立播放网关进程入口
 │  ├─ cmd/p115-contract-check/   # 显式授权后运行的一次性真实 115 只读合同检查器
 │  ├─ cmd/p115-transfer-contract-check/ # 显式授权后运行的 retained playback 秒传检查器
 │  └─ internal/
@@ -87,7 +88,8 @@ services/
 │     ├─ integrations/           # 外部系统集成
 │     │  ├─ emby/
 │     │  │  ├─ emby.go           # Emby HTTP 客户端
-│     │  │  └─ library.go        # Emby 媒体库列表/条目查询
+│     │  │  ├─ library.go        # Emby 媒体库列表/条目查询
+│     │  │  └─ server_identity.go # Gateway 启动期 SystemInfo 身份核对
 │     │  ├─ moviepilot/
 │     │  │  └─ client.go         # MoviePilot HTTP 客户端
 │     │  ├─ p115/
@@ -100,7 +102,9 @@ services/
 │     │     └─ notifier.go       # BotNotifier（火忘式推送通知给 Bot）
 │     ├─ playbackgateway/
 │     │  ├─ authorization.go     # Emby 应用/设备授权头严格解析
-│     │  └─ gateway.go           # 认证/bootstrap 代理、Token 门控和脱敏传输错误边界
+│     │  ├─ gateway.go           # 认证/bootstrap 代理、Token 门控和脱敏传输错误边界
+│     │  ├─ runtime.go           # 版本核对、依赖装配、health 与 HTTP 生命周期
+│     │  └─ process.go           # 数据库/配置装配，不初始化 API JWT、Bot 或 cron
 │     ├─ services/               # 业务逻辑
 │     │  ├─ accessauth/
 │     │  │  └─ admin_api_key.go  # 全局 Admin API Key 生成、hash、禁用与校验
@@ -777,9 +781,15 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 独立 PostgreSQL schema 集成测试已覆盖 8 路并发认证只生成一条映射、身份冲突、三种撤销粒度、重新认证、动态到期和用户删除后的审计保留
 - `internal/playbackgateway` 已通过窄接口调用 `RecordAuthenticationResult/ResolvePrincipal`；设备/用户状态变更仍未调用撤销方法，PlaybackInfo 当前授权证明也尚未实现
 
-### 5.27 Playback Gateway HTTP 核心 (`internal/playbackgateway/`)
+### 5.27 Playback Gateway HTTP 核心与运行时 (`cmd/playback-gateway/`, `internal/playbackgateway/`)
 
-当前完成的是可注入的标准 `http.Handler` 传输核心，不注册现有 API 路由、不启动监听器，也不构成可部署的数据面进程：
+当前已有可构建的独立二进制、可注入 `http.Handler` 和 HTTP 生命周期装配；尚未加入 Docker Compose、反向代理或公开入口，也没有真实启动/Infuse 验收：
+
+- 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
+- `GET /emby/System/Info` 使用设置中心的 `EMBY_URL/EMBY_API_KEY`，只接受无重定向 `200 application/json` 和不超过 `256 KiB` 的响应；要求非空 `Id`、精确 `Version=4.9.3.0` 和有界 `ServerName`，失败时不会产生监听器
+- 核对得到的 `Id` 是本进程唯一 `expectedServerID`；API Key、URL 和响应体不进入错误或日志
+- 部署期要求 `DATABASE_URL`、至少 32 字符的 `CONFIG_ENCRYPTION_KEY` 和显式 `PLAYBACK_GATEWAY_LISTEN_ADDR`；Emby URL/API Key 继续由现有 ConfigService 管理，不建立第二套环境变量真相源
+- 独立 `GET /health` 在完整构造后返回固定 JSON，不查询数据库或 Emby、不经过 Token 门控；HTTP Server 设置 5 秒 `ReadHeaderTimeout`、60 秒 `IdleTimeout`、1 MiB Header 上限和 10 秒 graceful shutdown
 
 - 精确 `POST /emby/Users/AuthenticateByName` 进入认证路由；固定 SDK 登录文档中的 `GET /emby/Users/Public` 与无 Index 公共用户头像 `GET/HEAD` 进入 bootstrap 路由；method、大小写、尾斜杠、深层图片路径或 percent-encoding 变体全部进入受保护门控
 - 认证与 bootstrap 请求都必须先通过一个 `Authorization` 或 `X-Emby-Authorization` 的严格 `Emby ...` 应用头；两个 Header 同时出现、重复值、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空内嵌 Token、非法 quoted-string 或越界值返回空体 `401`
@@ -790,7 +800,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - bootstrap allowlist 只覆盖固定登录文档明确的 public 用户列表和无 Index 用户头像；`System/Info/Public` 在固定参考页标记需要用户认证，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
 - fake Emby 测试已覆盖认证请求/响应透明、标准应用头、public bootstrap、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
-- 尚未完成 `cmd/playback-gateway`、运行期配置与部署入口、状态联动撤销、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收；目标 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
+- 尚未完成 Docker/反向代理公开部署入口、状态联动撤销、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
 
 ---
 
