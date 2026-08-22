@@ -57,6 +57,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | `GetUploadInfo` | 获取上传初始化所需 `userId`、`userKey` 等账号数据 |
 | `SearchBySHA1` | 按 SHA1 查询候选文件，业务层再次校验大小和文件类型 |
 | `ResolveFileByPath` | 在显式根目录下逐级解析相对路径，返回完整源文件身份 |
+| `ResolveDirectoryByPath` | 把用户友好的 playback 根目录相对路径解析为唯一目录 ID；不创建目录 |
 | `InitRapidUpload` | 发起秒传，映射为复用成功、范围校验、普通上传或失败 |
 | `GetDownloadURL` | 获取下载地址及其 UA、Cookie、过期时间等使用约束 |
 | `FindTargetFile` | 秒传后在目标目录复核文件并返回 fileId、pickCode |
@@ -147,6 +148,18 @@ Emby `PlaybackInfo` 只提供媒体源 `Path` 和 `Size`，不能提供可直接
 - 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
 
 证据：固定提交的 [`fs_files`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L11481-L11640) 固定 method/path/query 能力与分页字段；[`normalize_attr_web`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L80-L180) 固定 Web 短字段语义；[`get_id_to_path`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L1399-L1580) 证明文件路径需要逐级目录列举而不能只调用目录 ID 接口。以上仍需目标账号实测。
+
+#### 5.2.2 playback 目录路径解析
+
+`CookieHTTPAdapter.ResolveDirectoryByPath` 复用 `/files` 分页合同，把管理员输入的 `/EmberPlayback` 或 `EmberPlayback` 解析为唯一目录：
+
+- `rootId` 必须是显式十进制 ID；相对路径允许一个前导 `/` 作为 UI 表达，但禁止根目录 `/`、尾随 `/`、反斜杠、空段、`.`、`..`、NUL 和换行。
+- 每一级读取完整目录分页，只接受 `isDirectory=true` 且名称完全一致的候选；文件与目录同名时忽略文件，多个同名目录返回 `ErrDirectoryAmbiguous`。
+- 响应 cid 回退、目录不存在、路径中间节点不是目录和最终节点是文件都返回 `ErrDirectoryNotFound` 或协议错误，禁止默认写入根目录。
+- 返回 `Directory{ID, ParentID, Name, Path}`，其中 `Path` 是带单个前导 `/` 的规范化展示路径；秒传、复核和未来清理只使用 `ID`。
+- 该方法只读，不创建、移动或重命名目录；Cookie、原始路径和目录响应不进入普通日志或检查报告。
+
+当前 Provider 方法和 fake HTTP 合同已实现；管理员 API/Web 的路径解析体验仍按现行计划 TODO 后续落地。
 
 ### 5.3 SHA1 查重
 
@@ -325,7 +338,7 @@ Adapter 不判断一个文件是否应当删除。第二阶段若启用容量回
 - `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义及长度前缀 LZ4 block 解压，解压结果设置上限。
 - `BuildUploadRequest` 覆盖 filename、preID、topupload、`sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
 - `RSAEncrypt` 覆盖 Chrome downurl 请求包装；`RSADecrypt` 使用固定任意密文黑盒向量锁定服务端响应变换，不把测试 seam 当作真实服务端密文证据。
-- `GetUploadInfo`、`ResolveFileByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 均已通过 fake HTTP 合同接入。2026-08-22 真实只读运行已覆盖账号验证、上传信息、源路径解析、SHA1 查重、source downurl 和 128 KiB Range；上传初始化、目标复核、playback 最终直链与播放网关/Infuse 仍未完成真实验证，因此不能据此宣称秒传直播放链路可用。
+- `GetUploadInfo`、`ResolveFileByPath`、`ResolveDirectoryByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 均已通过 fake HTTP 合同接入。2026-08-22 真实只读运行已覆盖账号验证、上传信息、源路径解析、SHA1 查重、source downurl 和 128 KiB Range；playback 目录解析、上传初始化、目标复核、playback 最终直链与播放网关/Infuse 仍未完成真实验证，因此不能据此宣称秒传直播放链路可用。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 
@@ -353,7 +366,7 @@ SHA1 + size + isDirectory=false
 
 - 输入必须是非目录文件、合法 pickCode、正文件大小，以及完全位于文件内部的包含端点 Range；单次最多读取 `1 MiB`，超出在任何 HTTP 前返回 `ErrInvalidRequest`。
 - 使用源账号的配置 User-Agent 获取下载 URL，并使用同一 User-Agent 发起 Range GET；`f=3` 只允许在这个服务端内部读取路径携带源账号 Cookie，Cookie 不返回业务层。最终播放器的 `f=3` 仍按不兼容处理。
-- 请求固定包含 `Accept-Encoding: identity` 和 `Range: bytes=<start>-<end>`，禁止透明压缩改变字节语义。
+- 请求固定包含 `Accept-Encoding: identity` 和 `Range: bytes=<start>-<end>`，禁止透明压缩改变字节语义。默认使用账号 User-Agent；受控 playback Range 可以显式传入本次测试/播放器 User-Agent，签发下载 URL 和读取 Range 必须使用同一个值。
 - 只接受 `206 Partial Content`；`Content-Range` 的 start/end/总文件大小和 `Content-Length` 必须与请求完全一致。`200`、压缩响应、短读、长读和错误范围全部失败关闭。
 - 最多读取“期望长度 + 1”字节用于检测上游越界，读取完成后只返回大写 SHA1 与 `BytesRead`；源字节、签名 URL 和 Cookie 不离开 Provider 边界。
 
@@ -439,19 +452,21 @@ playbackAccountId + SHA1 + size
 2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化。
 3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
 4. 源文件解析覆盖固定 `/files` query、逐级目录、分页、无效 cid 回退、size 不符、重名歧义、目录规模上限和非法相对路径。
-5. SHA1 查重端点只发送规范化 SHA1，并覆盖命中、固定未命中、size/目录/parent 不匹配和非法字段。
-6. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。
-7. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
-8. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
-9. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
-10. Range Hash 覆盖 `f=0/1/3` Header、精确 `206/Content-Range/Content-Length`、压缩、短读、长读、传输失败和 `1 MiB` 上限。
-11. `status=1` 明确拒绝，且不触发完整文件上传。
-12. 加密请求与解密响应固定向量。
-13. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-14. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
-15. 删除 Adapter 覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；第一阶段业务测试必须反向确认 Stopped、会话过期和重复播放都不会调用 `DeleteFile`。
-16. 重复播放命中同一 playback 文件时跳过秒传、刷新 `lastAccessedAt` 并签发新临时直链；外部手工删除后查重未命中可以重新创建活动任务。
-17. Cookie、完整直链、完整 SHA1、源相对路径和 Provider 响应不进入日志或普通数据库字段。
+5. playback 目录解析覆盖可选前导 `/`、多层目录、文件同名过滤、最终文件拒绝、同名目录歧义、分页、cid 回退和非法路径。
+6. SHA1 查重端点只发送规范化 SHA1，并覆盖命中、固定未命中、size/目录/parent 不匹配和非法字段。
+7. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。
+8. 验证结果与 Cookie 版本绑定，过期、协议错误、网络错误和成功状态流转正确。
+9. 源账号与播放账号角色唯一性，以及相同 Provider 账号拒绝启用。
+10. `status=7` 的正常范围、越界、格式错误和 Range 获取失败。
+11. Range Hash 覆盖默认账号 UA、显式 playback 测试 UA、`f=0/1/3` Header、精确 `206/Content-Range/Content-Length`、压缩、短读、长读、传输失败和 `1 MiB` 上限。
+12. `status=1` 明确拒绝，且不触发完整文件上传。
+13. 加密请求与解密响应固定向量。
+14. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
+15. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
+16. 删除 Adapter 覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；第一阶段业务测试必须反向确认 Stopped、会话过期和重复播放都不会调用 `DeleteFile`。
+17. 保留式秒传检查器覆盖双重查重、preID、零/一次 challenge、重复 challenge 拒绝、目标复核、preexisting 快速路径、playback UA Range、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
+18. 重复播放命中同一 playback 文件时跳过秒传、刷新 `lastAccessedAt` 并签发新临时直链；外部手工删除后查重未命中可以重新创建活动任务。
+19. Cookie、完整直链、完整 SHA1、源/目标相对路径、目录/文件 ID和 Provider 响应不进入日志或普通数据库字段。
 
 ## 12. 受控真实验证
 
@@ -459,7 +474,7 @@ playbackAccountId + SHA1 + size
 
 仓库提供 `go -C services/api run ./cmd/p115-contract-check` 作为只读入口，具体环境变量、安全确认值、执行和清理步骤见 [115 Cookie Provider 一次性只读合同验证](../runbooks/p115-read-only-contract-check.md)。该命令使用不含 `InitRapidUpload` / `DeleteFile` 的窄接口，不连接 Ember 数据库；自动化测试只注入 fake Provider，禁止在测试中调用真实 115。URL 安全策略失败时允许额外输出类型化的 reason、scheme 和 hostname，用于根据真实证据修订 allowlist，仍禁止输出任何可复用 URL 部分。
 
-受控写入验证必须使用独立命令和比只读检查更强的显式确认值，按本合同 §8.1 执行“playback 锁内二次查重 → 秒传/单次 challenge → 目标复核 → playback downurl → playback 128 KiB Range → retained=true”。命令必须明确声明文件会保留在 playback 专用目录，报告 `cleanup.attempted=false`，且接口层不持有 `DeleteFile` 能力；不能复用正式媒体目录，也不能删除 source 既有文件。命令未实现前禁止用临时脚本或手工 `curl` 绕过 Provider 边界。
+受控写入验证使用独立命令 `go -C services/api run ./cmd/p115-transfer-contract-check` 和更强的显式确认值，按本合同 §8.1 执行“playback 单进程二次查重 → 秒传/单次 challenge → 目标复核 → playback downurl → playback 128 KiB Range → retained=true”。命令明确声明文件会保留在 playback 专用目录，报告 `cleanup.attempted=false`，且接口层不持有 `DeleteFile` 能力；具体步骤见 [115 playback 保留式秒传合同验证](../runbooks/p115-retained-transfer-contract-check.md)。该命令不连接 PostgreSQL，不能把二次查重结果表述为生产唯一约束/advisory lock 已验证。
 
 首轮至少确认：
 

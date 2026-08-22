@@ -112,15 +112,17 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `CookieHTTPAdapter.DeleteFile`，固定单文件 `fid` 表单和响应映射，并按 Provider UID 使用进程内共享锁串行删除；跨 UID 可并行，锁等待支持取消。
 - 新增具体 `CookieProvider`，组合账号验证与全部数据面 Adapter，并通过编译期断言保证完整实现 Provider-neutral 接口；生产账号控制面已注入该实现。
 - 新增 `CookieHTTPAdapter.ResolveFileByPath`，在显式 `rootId` 下逐级分页列举 `/files`，精确匹配目录和最终文件名/size，拒绝无效 cid 回退、重名歧义、分页漂移和超大目录。
+- 新增 `CookieHTTPAdapter.ResolveDirectoryByPath`，支持 `/EmberPlayback` 形式的 playback 路径，逐级只接受唯一目录并返回内部 ID；不创建目录，目录 API/Web 体验仍待实现。
 - 新增 `CookieHTTPAdapter.HashFileRange`，在 Provider 内获取源账号签名 URL，只读取最大 `1 MiB` 的指定 Range，严格校验 `206`、`Content-Range`、`Content-Length` 与 HeaderMode，只向业务层返回 SHA1 和读取字节数。
 - 新增一次性 `cmd/p115-contract-check`，使用不包含上传和删除的窄接口完成真实只读检查；CI、缺少显式确认值或缺少终端环境输入时拒绝运行，脱敏报告不输出 Cookie、账号标识、路径、pickCode、完整 SHA1 或签名 URL。fake Provider 自动化验证和 2026-08-22 本地真实只读完整运行均已通过。
 - 首次真实只读运行在 source download 安全策略处发现 `cdnfhnfile.115cdn.net`；类型化安全证据只输出 reason/scheme/hostname。真实响应、阿里云 OSS DNS 和 115 公司 TLS 证书构成一致证据后，仅加入该精确 hostname，并保留兄弟域名与后缀绕过拒绝测试。
 - allowlist 收口后第二次真实运行返回 `outcome=passed`：source 文件 size 为 10,747,391,752 字节，下载 URL 为 `same_user_agent`、并发上限 `2`，精确读取 `0-131071` 共 `131072` 字节并完成 Hash；playback 查重正常未命中，因此没有验证 playback 最终直链。
+- 新增 `cmd/p115-transfer-contract-check` 和 fake Provider 编排，覆盖 playback 目录解析、双重查重、preID、单次 challenge、目标复核、playback downurl/Range 与文件保留；命令没有 `DeleteFile` 能力，也不连接 PostgreSQL。
 
 仍未完成：
 
 - playback 账号已有文件场景和最终下载 URL；当前测试文件在 playback 查重中正常未命中。
-- playback 目标目录仍要求管理员手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
+- playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
 - 播放网关、按角色加载运行期账号、路径映射持久化、秒传任务、任务所有权、直连会话和运营能力；Cookie Provider 离线合同本身已收口。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 任何写入型 115 验证，以及真实 Emby / Infuse 验证；本地一次成功不能证明长期风控、配额或 `hz-sb` 出口行为。
 
@@ -491,7 +493,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 ### 当前事实与决策
 
-- 当前模型、SQL migration、API 和管理员页面都只使用 `targetParentId`；创建 playback 账号时，页面直接要求管理员填写“目标目录 ID”。
+- 当前模型、SQL migration、API 和管理员页面都只使用 `targetParentId`；创建 playback 账号时，页面直接要求管理员填写“目标目录 ID”。Provider `ResolveDirectoryByPath` 与 fake 合同已实现，可直接复用到后续解析接口。
 - 首期 115 账号仍是管理员控制面，普通 Ember 用户不会看到或配置 115 目录；“路径友好”是后台可用性改进，不改变用户侧边界。
 - 目录路径可能因重命名、移动、同名目录和特殊字符而漂移，不能作为秒传、目标复核或删除的真相源。
 - 最终决策固定为“交互使用目录路径/选择器，运行使用目录 ID”：`targetParentId` 继续作为持久化和运行时权威字段，路径只负责输入与展示。
@@ -581,6 +583,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 - Emby 合同：固定认证、PlaybackInfo、视频流、字幕和播放事件 fixture。
 - 115 合同：Cookie 脱敏、源路径逐级解析、SHA1 查重、`status=2`、`status=7`、受限 Range Hash、`status=1`、下载 Header 和错误映射。
+- 保留式秒传检查器：双重查重、preID、零/一次 challenge、重复 challenge 失败关闭、目标复核、playback UA Range、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
 - 加密合同：请求加密、响应解密、LZ4、签名和 token 固定向量。
 - Service：用户资格、路径、状态机、冷却、直链兼容和 fail-closed。
 - PostgreSQL：迁移、角色唯一性、Cookie 密文、任务幂等、advisory lock 和会话收口。

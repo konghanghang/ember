@@ -13,6 +13,7 @@
 - [手工测试清单](./manual-testing-checklist.md) - 按变更范围选跑的手工回归清单
 - [测试排障](./testing-troubleshooting.md) - 编译、联调、集成测试常见阻塞
 - [115 Cookie Provider 一次性只读合同验证](./p115-read-only-contract-check.md) - 不启动服务、不连接数据库的真实 115 脱敏验证流程
+- [115 playback 保留式秒传合同验证](./p115-retained-transfer-contract-check.md) - 在专用目录秒传、复核、验证 playback Range 并保留文件
 - [Stripe 支付测试指南](./stripe-payment-testing.md) - Stripe CLI 与 cloudflared 两种支付联调方式
 - [Cloudflared 本地联调](./cloudflared-local-testing.md) - Telegram Webhook 本地联调
 - [Docker 构建指南](./docker-build-guide.md) - 镜像构建与本地 build 使用方式

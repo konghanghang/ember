@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -250,6 +251,53 @@ func (a *CookieHTTPAdapter) ResolveFileByPath(
 		return &file, nil
 	}
 	return nil, ErrSourceFileNotFound
+}
+
+// ResolveDirectoryByPath traverses a root-relative path and accepts exactly
+// one directory at every segment, returning its stable ID and canonical path.
+func (a *CookieHTTPAdapter) ResolveDirectoryByPath(
+	ctx context.Context,
+	credential Credential,
+	query DirectoryPathQuery,
+) (*Directory, error) {
+	if _, err := validateCookieHTTPCredential(credential); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeDirectoryPathQuery(query)
+	if err != nil {
+		return nil, err
+	}
+
+	parentID := normalized.RootID
+	for index, segment := range normalized.Segments {
+		entries, err := a.listSourceDirectory(ctx, credential, parentID)
+		if err != nil {
+			if errors.Is(err, ErrSourceFileNotFound) {
+				return nil, ErrDirectoryNotFound
+			}
+			return nil, err
+		}
+		matches := make([]File, 0, 1)
+		for _, entry := range entries {
+			if entry.IsDirectory && entry.Name == segment {
+				matches = append(matches, entry)
+			}
+		}
+		if len(matches) == 0 {
+			return nil, ErrDirectoryNotFound
+		}
+		if len(matches) != 1 {
+			return nil, ErrDirectoryAmbiguous
+		}
+		match := matches[0]
+		if index == len(normalized.Segments)-1 {
+			return &Directory{
+				ID: match.ID, ParentID: match.ParentID, Name: match.Name, Path: normalized.Path,
+			}, nil
+		}
+		parentID = match.ID
+	}
+	return nil, ErrDirectoryNotFound
 }
 
 // FindTargetFile polls the playback account's target directory until exactly
@@ -502,9 +550,13 @@ func (a *CookieHTTPAdapter) HashFileRange(
 	if err != nil {
 		return FileRangeHash{}, err
 	}
+	rangeUserAgent := credential.UserAgent
+	if request.UserAgent != "" {
+		rangeUserAgent = request.UserAgent
+	}
 	download, err := a.GetDownloadURL(ctx, credential, DownloadURLRequest{
 		PickCode:  request.File.PickCode,
-		UserAgent: credential.UserAgent,
+		UserAgent: rangeUserAgent,
 	})
 	if err != nil {
 		return FileRangeHash{}, err
@@ -517,7 +569,7 @@ func (a *CookieHTTPAdapter) HashFileRange(
 	httpRequest.Header.Set("Accept", "*/*")
 	httpRequest.Header.Set("Accept-Encoding", "identity")
 	httpRequest.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", request.Range.Start, request.Range.End))
-	httpRequest.Header.Set("User-Agent", credential.UserAgent)
+	httpRequest.Header.Set("User-Agent", rangeUserAgent)
 	switch download.HeaderMode {
 	case DownloadHeadersNone, DownloadHeadersSameUserAgent:
 	case DownloadHeadersSameUserAgentAndCookie:
@@ -810,6 +862,12 @@ type normalizedFilePathQuery struct {
 	Size     int64
 }
 
+type normalizedDirectoryPathQuery struct {
+	RootID   string
+	Segments []string
+	Path     string
+}
+
 // normalizeFilePathQuery fixes the first path format to slash-separated,
 // relative segments so a mapping cannot escape its configured Provider root.
 func normalizeFilePathQuery(query FilePathQuery) (normalizedFilePathQuery, error) {
@@ -833,11 +891,42 @@ func normalizeFilePathQuery(query FilePathQuery) (normalizedFilePathQuery, error
 	return normalizedFilePathQuery{RootID: rootID, Segments: segments, Size: query.Size}, nil
 }
 
+// normalizeDirectoryPathQuery accepts one optional leading slash for admin UX
+// while rejecting root, empty, escaping, or ambiguous path forms.
+func normalizeDirectoryPathQuery(query DirectoryPathQuery) (normalizedDirectoryPathQuery, error) {
+	rootID, err := normalizeOptionalProviderID(query.RootID)
+	if err != nil || rootID == "" {
+		return normalizedDirectoryPathQuery{}, ErrInvalidRequest
+	}
+	pathValue := query.RelativePath
+	if pathValue == "" || pathValue != strings.TrimSpace(pathValue) || !utf8.ValidString(pathValue) ||
+		len(pathValue) > maxSourcePathLength || strings.HasSuffix(pathValue, "/") ||
+		strings.ContainsAny(pathValue, "\\\x00\r\n") {
+		return normalizedDirectoryPathQuery{}, ErrInvalidRequest
+	}
+	pathValue = strings.TrimPrefix(pathValue, "/")
+	if pathValue == "" || strings.HasPrefix(pathValue, "/") {
+		return normalizedDirectoryPathQuery{}, ErrInvalidRequest
+	}
+	segments := strings.Split(pathValue, "/")
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." || strings.TrimSpace(segment) == "" ||
+			len(segment) > maxSourcePathSegmentLength {
+			return normalizedDirectoryPathQuery{}, ErrInvalidRequest
+		}
+	}
+	return normalizedDirectoryPathQuery{
+		RootID: rootID, Segments: segments, Path: "/" + strings.Join(segments, "/"),
+	}, nil
+}
+
 // validateFileRangeRequest accepts only a non-directory file and one inclusive
 // range inside both the file size and Ember's fixed one-megabyte safety cap.
 func validateFileRangeRequest(request FileRangeRequest) (int64, error) {
 	if request.File.IsDirectory || !isValidDownloadPickCode(strings.TrimSpace(request.File.PickCode)) || request.File.Size <= 0 ||
-		request.Range.Start < 0 || request.Range.End < request.Range.Start || request.Range.End >= request.File.Size {
+		request.Range.Start < 0 || request.Range.End < request.Range.Start || request.Range.End >= request.File.Size ||
+		(request.UserAgent != "" && (request.UserAgent != strings.TrimSpace(request.UserAgent) ||
+			len(request.UserAgent) > maxDownloadUserAgentLength || strings.ContainsAny(request.UserAgent, "\r\n"))) {
 		return 0, ErrInvalidRequest
 	}
 	length := request.Range.End - request.Range.Start + 1

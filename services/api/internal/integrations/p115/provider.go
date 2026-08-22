@@ -39,6 +39,20 @@ type FilePathQuery struct {
 	Size         int64  `json:"size"`
 }
 
+// DirectoryPathQuery resolves one root-relative directory path.
+type DirectoryPathQuery struct {
+	RootID       string `json:"rootId"`
+	RelativePath string `json:"-"`
+}
+
+// Directory is the Provider-neutral identity returned after exact path resolution.
+type Directory struct {
+	ID       string `json:"id"`
+	ParentID string `json:"parentId"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+}
+
 // File is the Provider-neutral identity of a 115 file candidate.
 type File struct {
 	ID          string `json:"id"`
@@ -116,8 +130,9 @@ type DownloadURLResult struct {
 
 // FileRangeRequest identifies one bounded source-file range to hash inside the Provider boundary.
 type FileRangeRequest struct {
-	File  File      `json:"file"`
-	Range ByteRange `json:"range"`
+	File      File      `json:"file"`
+	Range     ByteRange `json:"range"`
+	UserAgent string    `json:"userAgent,omitempty"`
 }
 
 // FileRangeHash returns only the protocol hash and byte count, never the source bytes.
@@ -137,6 +152,7 @@ type Provider interface {
 	GetUploadInfo(ctx context.Context, credential Credential) (UploadInfo, error)
 	SearchBySHA1(ctx context.Context, credential Credential, query FileQuery) ([]File, error)
 	ResolveFileByPath(ctx context.Context, credential Credential, query FilePathQuery) (*File, error)
+	ResolveDirectoryByPath(ctx context.Context, credential Credential, query DirectoryPathQuery) (*Directory, error)
 	InitRapidUpload(ctx context.Context, credential Credential, request RapidUploadRequest) (RapidUploadResult, error)
 	GetDownloadURL(ctx context.Context, credential Credential, request DownloadURLRequest) (DownloadURLResult, error)
 	FindTargetFile(ctx context.Context, credential Credential, query FileQuery) (*File, error)

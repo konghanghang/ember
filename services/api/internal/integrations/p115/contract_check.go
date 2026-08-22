@@ -349,6 +349,10 @@ func providerContractErrorCode(err error) string {
 		return "download_incompatible"
 	case errors.Is(err, ErrDownloadURLNotAllowed):
 		return "download_host_not_allowed"
+	case errors.Is(err, ErrDirectoryAmbiguous):
+		return "directory_ambiguous"
+	case errors.Is(err, ErrDirectoryNotFound):
+		return "directory_not_found"
 	case errors.Is(err, ErrInvalidRequest):
 		return "invalid_request"
 	case errors.Is(err, ErrProviderRejected):
@@ -363,6 +367,10 @@ func providerContractErrorCode(err error) string {
 		return "source_file_ambiguous"
 	case errors.Is(err, ErrSourceFileNotFound):
 		return "source_file_not_found"
+	case errors.Is(err, ErrTargetFileAmbiguous):
+		return "target_file_ambiguous"
+	case errors.Is(err, ErrTargetFileNotVisible):
+		return "target_file_not_visible"
 	default:
 		return "unknown"
 	}

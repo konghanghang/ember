@@ -107,6 +107,7 @@ make test-bot-report
 - [集成测试手册](./integration-testing.md)
 - [手工测试清单](./manual-testing-checklist.md)
 - [115 Cookie Provider 一次性只读合同验证](./p115-read-only-contract-check.md)
+- [115 playback 保留式秒传合同验证](./p115-retained-transfer-contract-check.md)
 - [Stripe 支付测试指南](./stripe-payment-testing.md)
 - [测试排障](./testing-troubleshooting.md)
 - [部署指南](./deployment.md)

@@ -57,6 +57,24 @@ func TestCookieHTTPAdapterHashFileRangeUsesSignedHeadersAndReturnsSHA1(t *testin
 	}
 }
 
+func TestCookieHTTPAdapterHashFileRangeUsesExplicitRequestUserAgent(t *testing.T) {
+	adapter := newTestRangeAdapter(t, "1", func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("User-Agent") != fixtureClientUserAgent {
+			t.Fatalf("range User-Agent = %q, want %q", request.Header.Get("User-Agent"), fixtureClientUserAgent)
+		}
+		return rangeHTTPResponse(http.StatusPartialContent, "bytes 0-9/1024", []byte("0123456789")), nil
+	})
+
+	_, err := adapter.HashFileRange(context.Background(), fixtureCredential(), FileRangeRequest{
+		File:      File{ID: "789", PickCode: fixtureDownloadPickCode, Size: 1024},
+		Range:     ByteRange{Start: 0, End: 9},
+		UserAgent: fixtureClientUserAgent,
+	})
+	if err != nil {
+		t.Fatalf("HashFileRange() error = %v", err)
+	}
+}
+
 func TestCookieHTTPAdapterHashFileRangeRejectsInvalidRequestBeforeHTTP(t *testing.T) {
 	var calls atomic.Int32
 	adapter, err := newCookieHTTPAdapter(httpDoerFunc(func(*http.Request) (*http.Response, error) {
@@ -79,6 +97,7 @@ func TestCookieHTTPAdapterHashFileRangeRejectsInvalidRequestBeforeHTTP(t *testin
 		{File: valid.File, Range: ByteRange{Start: 20, End: 19}},
 		{File: valid.File, Range: ByteRange{Start: 10, End: 1024}},
 		{File: File{PickCode: fixtureDownloadPickCode, Size: maxSourceRangeBytes + 1}, Range: ByteRange{Start: 0, End: maxSourceRangeBytes}},
+		{File: valid.File, Range: valid.Range, UserAgent: "Infuse\r\nCookie: secret"},
 	}
 	for _, request := range tests {
 		if _, err := adapter.HashFileRange(context.Background(), fixtureCredential(), request); !errors.Is(err, ErrInvalidRequest) {

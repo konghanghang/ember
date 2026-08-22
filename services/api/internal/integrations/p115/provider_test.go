@@ -25,6 +25,10 @@ func (providerContractStub) ResolveFileByPath(context.Context, Credential, FileP
 	return nil, nil
 }
 
+func (providerContractStub) ResolveDirectoryByPath(context.Context, Credential, DirectoryPathQuery) (*Directory, error) {
+	return nil, nil
+}
+
 func (providerContractStub) InitRapidUpload(context.Context, Credential, RapidUploadRequest) (RapidUploadResult, error) {
 	return RapidUploadResult{}, nil
 }
@@ -56,6 +60,7 @@ func TestSecretProviderFieldsAreNotJSONSerializable(t *testing.T) {
 		DownloadURL DownloadURLResult    `json:"downloadUrl"`
 		Query       FileQuery            `json:"query"`
 		PathQuery   FilePathQuery        `json:"pathQuery"`
+		DirQuery    DirectoryPathQuery   `json:"directoryQuery"`
 		File        File                 `json:"file"`
 		RangeHash   FileRangeHash        `json:"rangeHash"`
 	}{
@@ -66,6 +71,7 @@ func TestSecretProviderFieldsAreNotJSONSerializable(t *testing.T) {
 		DownloadURL: DownloadURLResult{URL: "https://download.example/signed-url-secret"},
 		Query:       FileQuery{SHA1: "query-sha1-secret"},
 		PathQuery:   FilePathQuery{RelativePath: "secret/source/video.mkv"},
+		DirQuery:    DirectoryPathQuery{RelativePath: "secret/playback/cache"},
 		File:        File{PickCode: "pick-code-secret", SHA1: "file-sha1-secret"},
 		RangeHash:   FileRangeHash{SHA1: "range-sha1-secret"},
 	})
@@ -73,7 +79,7 @@ func TestSecretProviderFieldsAreNotJSONSerializable(t *testing.T) {
 		t.Fatalf("json.Marshal() failed: %v", err)
 	}
 	encoded := string(payload)
-	for _, secret := range []string{"cookie-secret", "user-key-secret", "sign-key-secret", "sign-value-secret", "signed-url-secret", "query-sha1-secret", "secret/source/video.mkv", "pick-code-secret", "file-sha1-secret", "range-sha1-secret"} {
+	for _, secret := range []string{"cookie-secret", "user-key-secret", "sign-key-secret", "sign-value-secret", "signed-url-secret", "query-sha1-secret", "secret/source/video.mkv", "secret/playback/cache", "pick-code-secret", "file-sha1-secret", "range-sha1-secret"} {
 		if !strings.Contains(encoded, secret) {
 			continue
 		}
