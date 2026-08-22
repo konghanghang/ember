@@ -60,12 +60,12 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
 - 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除；尚未实现播放网关。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
-- 当前仍没有播放数据面进程、Emby AccessToken 到 Ember 用户的映射、秒传任务或直连会话模型。
+- 当前仍没有播放网关数据面进程、Emby AccessToken 到 Ember 用户的映射或直连会话模型；`playback_transfer_tasks` 和无 HTTP 入口的 DirectPlay 传输核心已落地。
 
 ### 外部证据与未确认项
 
 - Cookie 协议参考固定为 `p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`、包版本 `0.0.9.6.4`；它仅是调查和测试向量来源，不是运行时依赖。
-- 上传加密参考同一提交内 `p115cipher` `0.0.5.4` 黑盒输出；Go 固定向量和 fake HTTP 上传初始化已通过，尚未请求真实 HTTP 端点。
+- 上传加密参考同一提交内 `p115cipher` `0.0.5.4` 黑盒输出；Go 固定向量、fake HTTP 和 2026-08-22 受控真实上传初始化均已通过。目标 Emby/Infuse 组合仍未验证。
 - `emby-toolkit` `v10.8.63` 只用于理解播放小号的账号选择和失败语义；不得复制其 AGPL 代码。
 - `p115client` 固定提交根许可声明为 MIT，但 `p115cipher` 模块许可证和源码声明为 GPLv3；当前按 GPLv3 保守边界处理，不复制或逐行翻译源码、不引入 Python 运行时，只使用临时黑盒输出的兼容向量独立实现 Go 协议层。
 - 2026-08-22 本地一次性只读检查已确认两个 Cookie 登录、`uploadinfo`、source 路径/size 解析、playback SHA1 查询、source downurl 和精确 128 KiB Range；source URL 为 `cdnfhnfile.115cdn.net`、`f=1`、并发上限 `2`。playback 未命中同内容，因此 playback 最终下载 URL，以及风控、限流和 Infuse 行为仍保持“未实机确认”。
@@ -266,13 +266,26 @@ services/api/internal/integrations/p115/
 
 建立 Emby AccessToken 到 Ember 用户的映射：
 
-- `id`、`server_id`、`token_hash`
+- `id`、`server_id`、`token_hash BYTEA(32)`
 - `emby_user_id`、`user_id`
 - `device_id`、`client_name`
-- `last_seen_at`、`revoked_at`
+- `last_seen_at`、`revoked_at`、`revoked_reason`、`revoked_by`
 - `created_at`、`updated_at`
 
-只保存 Token 哈希；`server_id + token_hash` 唯一。用户停用、访问禁用或解绑时可批量撤销。
+只保存使用 `derive(CONFIG_ENCRYPTION_KEY, "emby-access-token")` 计算的 HMAC-SHA256；`server_id + token_hash` 唯一，模型 JSON 隐藏摘要。`device_id/client_name` 只做设备归组和审计，不参与用户身份判断。
+
+服务边界：
+
+- `RecordAuthenticationResult`：只接收固定 `AuthenticationResult` 的 `User.Id/AccessToken/ServerId` 和请求设备元数据，先核对响应 ServerId 等于网关启动期确认的上游 ServerId，再按 `users.emby_id` 找到唯一用户并发安全 upsert；原始响应仍由网关逐字节透明返回。
+- `ResolvePrincipal`：从已确认的 Token 载体提取明文，计算 HMAC 后按当前 ServerId 查询未撤销映射，再实时读取用户状态；客户端 `UserId` 永不作为身份输入。
+- `RevokeToken`：撤销一条 `server_id + token_hash` 映射。
+- `RevokeDevice`：撤销 `server_id + user_id + device_id` 下全部活动映射，使单个设备重新登录。
+- `RevokeUserTokens`：撤销用户全部活动映射，用于全部退出、用户停用、Emby 访问禁用、解绑和安全处置。
+- `TouchLastSeen`：只有成功认证后且旧值早于 5 分钟窗口才更新，避免播放器请求放大数据库写入。
+
+撤销是软状态：写入 `revoked_at/revoked_reason/revoked_by`，不删除审计记录。到期、套餐拒绝、并发已满和设备策略拒绝只做动态资格检查，不硬撤销；用户停用、`emby_disabled`、`emby_access_disabled`、解绑和删除触发硬撤销。恢复普通状态不自动清除撤销，重新成功登录后才允许建立或重新激活映射。
+
+本地撤销不宣称 Emby Server 原始 Token 已被撤销。目标版本的原生撤销接口完成独立版本化合同前，管理员设备退出只保证 Playback Gateway 拒绝；原始 Emby 端口必须对公网隔离。切换网关时既有 Token 无法从 hash 反推或安全回填，客户端需重新登录一次。
 
 #### 4.3 source 账号运行位置
 
@@ -334,6 +347,8 @@ source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `
 - `POST /api/v1/admin/direct-play/transfers/:id/retry`
 - `POST /api/v1/admin/direct-play/media-cache/:itemId/refresh`
 
+Token 撤销优先复用现有设备/用户管理入口，不平行创建第二套设备页面：设备强制退出调用 `RevokeDevice`，用户全部退出调用 `RevokeUserTokens`，单 Token 安全处置由后续会话/审计详情触发。具体 HTTP DTO 在实现该入口时固定，当前计划不把未实现路由写入现行 API 目录。
+
 手工重试必须复用任务幂等键，不能绕过账号冷却和并发限制。策略更新只影响新请求，不能承诺撤销已签发链接。
 
 #### 5.3 播放网关公开接口
@@ -361,12 +376,14 @@ source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `
 1. 客户端通过网关调用 `AuthenticateByName`。
 2. 网关转发给 Emby 4.9.3.0。
 3. 成功后读取 `User.Id`、`AccessToken` 和 `ServerId`。
-4. 只保存 AccessToken 哈希，并按 `users.emby_id` 映射 Ember 用户。
-5. 原始认证响应不修改地返回客户端。
+4. 按 `users.emby_id` 映射唯一 Ember 用户，使用 purpose 隔离的 HMAC-SHA256 计算摘要，并按 `serverId + tokenHash` upsert 设备元数据和最近访问时间。
+5. 用户不存在、EmbyID 错配或处于硬禁用状态时不建立可用映射；用户仅到期时可以保留身份映射，但后续直连动态拒绝，续期后无需因到期本身强制重登。
+6. 原始认证响应不修改地返回客户端；旁路持久化失败只记录脱敏错误，Token 保持未映射，不能把 Emby 成功响应改写为 Ember 自造响应。
+7. 首期只提取固定合同确认的 `X-Emby-Token`；Infuse 的其他 Token 载体必须实机确认后再加入。
 
 #### 6.3 播放小号已有文件
 
-1. PlaybackInfo 透明转发并记录 ItemId、MediaSourceId 和 PlaySessionId。
+1. PlaybackInfo 透明转发；只有当前 Emby Server 成功接受相同 Token 后，才记录 Token 映射、ItemId、MediaSourceId 和 PlaySessionId 的短期授权证明。
 2. 原始视频流请求到达后，校验 Token、用户、套餐、黑名单和并发。
 3. 从缓存读取源文件身份，或按 source 账号的 `embyPathPrefix/sourceRootId` 把 Emby `Path + Size` 转换为 `rootId + relativePath + size`，调用源账号 `ResolveFileByPath` 得到 fileId、pickCode、SHA1 和 size。
 4. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
@@ -414,6 +431,8 @@ source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `
 ### 7. 失败与安全边界
 
 - Emby Token 无法映射：拒绝，不信任请求参数里的 `UserId`。
+- Emby Token 已本地撤销：所有受保护的网关请求拒绝，不继续转发给 Emby 作为回退。
+- Token 只有历史登录映射但没有近期成功 PlaybackInfo：拒绝 302；客户端直接请求云端视频时失败关闭。
 - 用户过期、停用或访问禁用：不生成新直链或新秒传任务。
 - 源账号或播放小号未配置、未验证、过期或冷却：返回明确 `503`。
 - 路径未命中：本地媒体只按显式规则回退；未知云端路径失败关闭。
@@ -424,6 +443,7 @@ source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `
 - 客户端请求云端转码：明确失败，不让 Emby 静默中转视频。
 - 播放小号失败：禁止使用源账号向最终客户端签发直链。
 - 用户播放中被封禁：阻止新请求；已建立 CDN 连接可能持续到链接过期。
+- 单设备退出撤销该设备全部活动映射，用户全部退出撤销该用户全部映射；已签发的 CDN URL 只能通过停止重签和等待过期收口。
 - 多副本并发：数据库唯一约束和 advisory lock 保证任务幂等。
 - 未进入固定合同的 Emby/115 行为保持“未证实”，不能用一次偶然成功替代合同。
 
@@ -443,6 +463,8 @@ source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `
 - `PLAYBACK_GATEWAY_PUBLIC_URL`
 - `P115_COOKIE_COMPAT_ENABLED`
 - 直链域名 allowlist
+
+网关切换说明：历史 Emby Token 没有可安全迁移的明文，切换后客户端需重新登录一次建立映射；Quick Connect、PIN、Emby Connect 和未确认的 query token 不做兼容猜测。
 - 媒体缓存、会话、任务和账号冷却 TTL
 
 部署期环境变量：
@@ -472,12 +494,13 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 一种明确路径映射。
 - 目标平台当前稳定版 Infuse Direct Play。
 - Token 映射、目标查重、秒传、目标复核、直链检查和 302。
+- 单 Token、单设备和用户全部登录撤销；设备强制退出后允许重新登录，用户硬禁用后新登录也不能恢复直连。
 - playback 文件作为持久缓存保留；重复播放命中后跳过秒传并刷新 `lastAccessedAt`，第一阶段不启用自动清理。
 - 基础会话、并发、冷却、日志和管理员查询。
 
 完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
 
-当前进度：`playback_transfer_tasks`、活动内容唯一约束、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；PostgreSQL 并发、路径边界、challenge 次数和失败终态测试通过。剩余 Emby Token、直连会话、网关代理/302、策略门控和 Infuse 验收。
+当前进度：`playback_transfer_tasks`、活动内容唯一约束、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；PostgreSQL 并发、路径边界、challenge 次数和失败终态测试通过。Emby Token 哈希、设备/用户撤销和 PlaybackInfo 当前授权证明已完成方案收口但尚未实现；其余为直连会话、网关代理/302、策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 
@@ -591,12 +614,14 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 测试分层：
 
 - Emby 合同：固定认证、PlaybackInfo、视频流、字幕和播放事件 fixture。
+- Token 身份：HMAC 固定向量、认证响应透明、并发 upsert、ServerId/EmbyID 错配、明文不落库、`lastSeenAt` 限频和 revoked 查询。
+- Token 撤销：单 Token、单设备、用户全部撤销，以及停用/访问禁用/解绑的硬撤销联动；到期和套餐拒绝保持动态判断。
 - 115 合同：Cookie 脱敏、源路径逐级解析、SHA1 查重、`status=2`、`status=7`、受限 Range Hash、`status=1`、下载 Header 和错误映射。
 - 保留式秒传检查器：双重查重、preID、零/一次 challenge、重复 challenge 失败关闭、目标复核、playback UA Range、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
 - 加密合同：请求加密、响应解密、LZ4、签名和 token 固定向量。
 - Service：用户资格、路径、状态机、冷却、直链兼容和 fail-closed。
-- PostgreSQL：迁移、角色唯一性、Cookie 密文、任务幂等、advisory lock 和会话收口。
-- 网关：透明代理、Header、GET/HEAD、302 allowlist 和 `503`。
+- PostgreSQL：迁移、角色唯一性、Cookie 密文、Token 唯一性/撤销审计、任务幂等、advisory lock 和会话收口。
+- 网关：认证响应透明、受保护请求 Token 门控、近期 PlaybackInfo 证明、Header、GET/HEAD、302 allowlist 和 `503`。
 - Web：账号只写交互、脱敏状态、路径、套餐策略和会话列表。
 
 涉及账号状态、用户资格、任务状态机、DTO 或 Provider 适配时按 TDD 推进。所有外部依赖必须 fake，禁止测试真实 Emby、115 或 Infuse。
@@ -614,7 +639,11 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 9. Playing、Progress、Stopped 仍由 Emby 接收，播放进度正常。
 10. 用户状态、黑名单和并发限制阻止新播放。
 11. 源账号或播放小号失效、限流和秒传失败均返回明确错误，不回退源账号或 Emby 视频中转。
-12. Cookie、Emby Token、完整下载链接和完整 Provider 响应不出现在日志、API 或普通数据库字段。
+12. Cookie、Emby AccessToken 明文、完整下载链接和完整 Provider 响应不出现在日志、API 或数据库；Token 表只保存 purpose 隔离的 HMAC 摘要。
+13. 同一 Token 并发登录只产生一条映射；数据库只含 32 字节 HMAC，不含 AccessToken 明文。
+14. 单设备撤销只影响目标设备，用户全部撤销影响所有设备；硬禁用后重新请求仍拒绝，普通到期续期后不要求因到期本身重新登录。
+15. 未映射、已撤销、ServerId/EmbyID 错配和缺少近期成功 PlaybackInfo 的请求都不能获得 302。
+16. 网关切换后历史 Token 要求重新登录，原始 Emby 公网入口不可绕过本地撤销。
 
 ### 受控真实验证
 

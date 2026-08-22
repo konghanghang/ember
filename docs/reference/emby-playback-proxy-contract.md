@@ -69,11 +69,42 @@ Content-Type: application/json
 
 1. 将认证请求和响应透明转发，不修改 Emby 返回体。
 2. 成功响应后提取 `User.Id`、`AccessToken` 和 `ServerId`。
-3. 数据库只保存 `AccessToken` 的哈希，不保存明文。
+3. 使用从 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生的密钥计算 HMAC-SHA256；数据库只保存 32 字节摘要，不保存明文。
 4. 根据 `users.emby_id` 查找 Ember 用户，并记录设备、客户端和最后访问时间。
-5. 用户过期、停用或解绑时撤销 Token 映射；已发出的短期 CDN 链接不保证可以立即终止。
+5. 映射写入失败不能篡改 Emby 已成功的认证响应；该 Token 保持未映射，后续受保护请求和直连失败关闭。
+6. 用户过期只做动态资格拒绝，不立即硬撤销映射；用户停用、Emby 访问禁用、Emby 账号解绑或删除时硬撤销。已发出的短期 CDN 链接不保证可以立即终止。
 
-### 3.2 暂不覆盖的认证方式
+### 3.2 Token 哈希映射与本地撤销
+
+`emby_access_tokens` 是 Emby 身份到 Ember 用户的桥接，不是新的 Token，也不代替 Emby 验证：
+
+- 映射主键语义为 `ServerId + HMAC-SHA256(AccessToken)`；同一 Server/Token 重复认证必须幂等 upsert。
+- 认证响应的 `ServerId` 必须与网关启动期版本化核对得到的当前上游 ServerId 一致；请求参数或第一次任意登录响应不能静默定义网关身份。
+- `tokenHash` 使用 `BYTEA(32)`，不进入 JSON、日志、错误、指标 label 或管理页面；数据库摘要不能作为 Emby Token 重放。
+- `embyUserId` 必须等于当前 `users.emby_id`，`userId` 外键指向 Ember 用户；客户端提交的 `UserId`、`DeviceId` 和客户端名称都不能替代这一身份绑定。
+- `deviceId/clientName` 只作为设备归组和审计元数据。一个用户允许多个 Token；一个设备可能因重复登录存在多个活动 Token。
+- 当前固定合同只确认 `X-Emby-Token`。query token、`Authorization` 的其他格式、Quick Connect 或插件 Token 在实机确认并补合同前不得猜测式提取。
+- `lastSeenAt` 只在成功通过映射和用户资格检查后更新，并至少按 5 分钟窗口限频，避免 `HEAD`、Range 和预加载制造逐请求数据库写入。
+
+Ember 本地撤销固定三种粒度：
+
+| 操作 | 匹配范围 | 语义 |
+| --- | --- | --- |
+| 单 Token 撤销 | `serverId + tokenHash` | 只使一次登录失效 |
+| 单设备撤销 | `serverId + userId + deviceId` 下全部未撤销映射 | 强制该设备重新登录，不影响其他设备 |
+| 用户全部撤销 | `userId` 下全部未撤销映射 | 使该用户所有设备重新登录 |
+
+撤销使用 `revokedAt + revokedReason + revokedBy` 软删除并保留审计，不直接删除行。固定原因至少包括 `manual_token_logout`、`manual_device_logout`、`manual_user_logout`、`user_disabled`、`emby_access_disabled`、`emby_unbound` 和 `security_revoke`。
+
+状态边界：
+
+- 到期、套餐不允许、并发已满和设备策略拒绝属于动态资格失败，不写 `revokedAt`；续期或策略恢复后原映射可以再次通过。
+- 用户停用、`emby_disabled=true`、`emby_access_disabled=true`、解绑或删除属于硬撤销；普通状态恢复不能静默清除历史撤销，重新通过 `AuthenticateByName` 才能建立或重新激活映射。
+- “本地撤销”只保证 Ember Playback Gateway 拒绝该映射，不等于 Emby Server 已撤销原始 Token。Emby 4.9.3.0 原生会话/Token 撤销接口尚未完成版本化核对，因此当前必须标记“未证实”。
+
+要让设备强制退出成立，所有受保护的公网 Emby 请求都必须先通过 Token 映射检查，而不是只在 115 视频分支检查。部署时原始 Emby 端口必须只对网关和运维网络开放；否则客户端可以绕过 Ember 使用仍被 Emby 接受的原 Token。首次切换到网关后，历史 Emby Token 没有明文可安全回填，客户端需要重新登录一次建立映射。
+
+### 3.3 暂不覆盖的认证方式
 
 首版不根据经验实现以下认证方式：
 
@@ -236,12 +267,17 @@ Content-Type: application/json
 - 客户端未命中黑名单。
 - 套餐允许直连播放，且未超过网关并发限制。
 - 下载接口额外满足内容下载权限。
+- 相同 Token 最近一次 `PlaybackInfo` 已被当前 Emby Server 成功接受，且 ItemId、MediaSourceId、PlaySessionId 与本次直连请求一致。
 
 不能仅依赖 Emby 自身 `SimultaneousStreamLimit`，因为 302 后视频字节不再经过 Emby，网关需要维护自己的会话状态。
+
+Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”，不能单独证明 Token 此刻仍被 Emby 接受。首期必须把近期成功的 GET/POST `PlaybackInfo` 作为当前授权证据；客户端绕过 PlaybackInfo 直接请求云端视频时失败关闭。Token 被撤销或用户状态变化后清除对应的直链缓存和未签发会话，但已经建立的 115 CDN 连接只能等到断线、重连或链接过期。
 
 ## 9. 失败与回退语义
 
 - Token 无法映射：拒绝直连，不使用客户端 `UserId` 猜测身份。
+- Token 已在 Ember 本地撤销：所有受保护的网关请求拒绝；不能把请求继续转发给 Emby 作为隐式回退。
+- Token 有历史映射但没有近期成功的 PlaybackInfo：拒绝 302；不能把历史登录记录当作当前 Emby 授权。
 - MediaSource 缺失或不支持 Direct Play：按套餐策略拒绝或显式回退，不能静默中转。
 - 路径未命中 115 映射：本地媒体可按规则透明转发；未知来源默认拒绝直连。
 - 115 解析或秒传失败：返回上游不可用语义，并记录脱敏错误码。
@@ -252,7 +288,7 @@ Content-Type: application/json
 
 实现前后至少覆盖：
 
-1. `AuthenticateByName` 响应透明转发与 Token 哈希映射。
+1. `AuthenticateByName` 响应透明转发、HMAC-SHA256 映射、明文不落库，以及映射写入失败不篡改原响应。
 2. GET/POST `PlaybackInfo` 的请求和关键响应字段夹具。
 3. 三类原始视频流路径的 `GET`、`HEAD`、query 和 302 行为。
 4. 下载接口与普通播放权限分离。
@@ -260,6 +296,9 @@ Content-Type: application/json
 6. Playing、Progress、Stopped 事件继续到达 fake Emby。
 7. 重复 `HEAD`、Range 和重连不会重复计并发。
 8. Quick Connect 等未覆盖入口不会被错误当作已支持。
+9. 单 Token、单设备和用户全部撤销只影响各自范围；硬撤销后请求拒绝，动态到期/套餐拒绝不错误写入 `revokedAt`。
+10. `lastSeenAt` 限频、ServerId/EmbyID 错配拒绝、并发登录幂等 upsert，以及数据库/日志/JSON 均不包含 Token 明文。
+11. 302 要求相同 Token 的近期成功 PlaybackInfo；绕过 PlaybackInfo、撤销后缓存重用和原始 Emby 公网绕过均失败关闭。
 
 所有测试必须使用 fake Emby Server 或固定 fixture，禁止请求真实 Emby。
 
@@ -269,8 +308,10 @@ Content-Type: application/json
 
 - 目标 Emby Server 的 `Version`、`Id` 和 `ServerName`。
 - 目标 Infuse 版本实际调用的认证和流路径。
+- Infuse 实际通过哪个 Header 或 query 参数携带 AccessToken，以及 DeviceId/客户端名称是否稳定。
 - Infuse 对 `302`、`HEAD`、`Range`、UA 和文件名的处理。
 - 客户端是否始终携带 `PlaySessionId`、`MediaSourceId` 和设备标识。
 - Direct Play、Direct Stream 与 Transcode 三种情况下的实际请求差异。
+- 目标 Emby 4.9.3.0 是否提供可安全调用的单 Token、单设备或会话撤销接口；确认前只能宣称 Ember 网关本地撤销。
 
 以上未确认项不能作为实现完成的依据。
