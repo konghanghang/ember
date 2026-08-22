@@ -54,7 +54,10 @@ type Gateway struct {
 	proxy                          *httputil.ReverseProxy
 	tokenService                   TokenService
 	logger                         *log.Logger
+	proofs                         *playbackProofCache
 	maxAuthenticationResponseBytes int64
+	maxPlaybackInfoRequestBytes    int64
+	maxPlaybackInfoResponseBytes   int64
 }
 
 type routeKind uint8
@@ -63,11 +66,15 @@ const (
 	routeProtected routeKind = iota
 	routeAuthentication
 	routePublicBootstrap
+	routePlaybackInfo
 )
 
 type requestRouteContext struct {
-	kind     routeKind
-	metadata AuthenticationMetadata
+	kind                 routeKind
+	metadata             AuthenticationMetadata
+	principal            *embytoken.Principal
+	playbackInfoItemID   string
+	playbackInfoEligible bool
 }
 
 type requestRouteContextKey struct{}
@@ -103,13 +110,16 @@ func New(config Config) (*Gateway, error) {
 	gateway := &Gateway{
 		tokenService:                   config.TokenService,
 		logger:                         logger,
+		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
 		maxAuthenticationResponseBytes: defaultAuthenticationResponseMaxSize,
+		maxPlaybackInfoRequestBytes:    defaultPlaybackInfoRequestMaxSize,
+		maxPlaybackInfoResponseBytes:   defaultPlaybackInfoResponseMaxSize,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	proxy.Transport = transport
 	proxy.ErrorLog = log.New(io.Discard, "", 0)
 	proxy.ErrorHandler = gateway.handleUpstreamError
-	proxy.ModifyResponse = gateway.observeAuthenticationResponse
+	proxy.ModifyResponse = gateway.observeResponse
 	gateway.proxy = proxy
 	return gateway, nil
 }
@@ -135,16 +145,38 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if _, err := gateway.tokenService.ResolvePrincipal(request.Context(), accessToken); err != nil {
+		principal, err := gateway.tokenService.ResolvePrincipal(request.Context(), accessToken)
+		if err != nil {
 			status, code := tokenRejection(err)
 			gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
 			writer.WriteHeader(status)
 			return
 		}
+		routeContext.principal = &principal
+		if kind == routePlaybackInfo {
+			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible = gateway.preparePlaybackInfoRequest(request, principal)
+		}
 	}
 
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
 	gateway.proxy.ServeHTTP(writer, request.WithContext(ctx))
+}
+
+// observeResponse dispatches sidecar observation by the already classified
+// request route while preserving ReverseProxy's original response semantics.
+func (gateway *Gateway) observeResponse(response *http.Response) error {
+	routeContext, ok := routeContextFromResponse(response)
+	if !ok {
+		return nil
+	}
+	switch routeContext.kind {
+	case routeAuthentication:
+		return gateway.observeAuthenticationResponse(response)
+	case routePlaybackInfo:
+		return gateway.observePlaybackInfoResponse(response, routeContext)
+	default:
+		return nil
+	}
 }
 
 // observeAuthenticationResponse buffers only the bounded successful login
@@ -194,6 +226,21 @@ func (gateway *Gateway) observeAuthenticationResponse(response *http.Response) e
 	return nil
 }
 
+// LookupPlaybackProof returns one exact, non-expired in-process proof and
+// requires the fresh Principal returned by ResolvePrincipal rather than a raw
+// MappingID string.
+func (gateway *Gateway) LookupPlaybackProof(principal embytoken.Principal, itemID, mediaSourceID, playSessionID string) (PlaybackProof, bool) {
+	if gateway == nil || gateway.proofs == nil {
+		return PlaybackProof{}, false
+	}
+	proof, ok := gateway.proofs.Lookup(principal.MappingID, itemID, mediaSourceID, playSessionID)
+	if !ok || proof.ServerID != principal.ServerID || proof.UserID != principal.User.ID ||
+		proof.EmbyUserID != principal.User.EmbyID || proof.DeviceID != principal.DeviceID {
+		return PlaybackProof{}, false
+	}
+	return proof, true
+}
+
 // handleUpstreamError returns a fixed transport status and logs only the Go
 // error type. Upstream URLs, credentials and response bodies are never logged.
 func (gateway *Gateway) handleUpstreamError(writer http.ResponseWriter, _ *http.Request, err error) {
@@ -215,6 +262,9 @@ func classifyRoute(request *http.Request) routeKind {
 	}
 	if (request.Method == http.MethodGet || request.Method == http.MethodHead) && isPublicUserImagePath(request.URL) {
 		return routePublicBootstrap
+	}
+	if (request.Method == http.MethodGet || request.Method == http.MethodPost) && playbackInfoItemID(request.URL) != "" {
+		return routePlaybackInfo
 	}
 	return routeProtected
 }

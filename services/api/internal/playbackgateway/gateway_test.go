@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
@@ -178,6 +179,176 @@ func TestGatewayAuthenticationSidecarFailuresNeverChangeSuccessResponse(t *testi
 				t.Fatalf("logs = %q, want code=%s", logs.String(), test.wantLogCode)
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, test.body)
+		})
+	}
+}
+
+func TestGatewayGetPlaybackInfoIsTransparentAndRecordsProofs(t *testing.T) {
+	responseBody := "{\n  \"MediaSources\": [\n" +
+		"    {\"Id\":\"source-1\",\"ItemId\":\"item-1\",\"Path\":\"/private/media/one.mkv\",\"Size\":1024,\"Container\":\"mkv\",\"SupportsDirectPlay\":true,\"SupportsDirectStream\":true},\n" +
+		"    {\"Id\":\"source-2\",\"Path\":\"/private/media/two.mp4\",\"Size\":2048,\"Container\":\"mp4\",\"SupportsDirectPlay\":true,\"SupportsTranscoding\":true}\n" +
+		"  ],\n  \"PlaySessionId\": \"session-1\",\n  \"Unknown\": true\n}\n"
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.Method != http.MethodGet || request.URL.Path != "/emby/Items/item-1/PlaybackInfo" || request.URL.Query().Get("UserId") != "emby-user-1" {
+			t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+		}
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("X-Upstream", "preserved")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/emby/Items/item-1/PlaybackInfo?UserId=emby-user-1", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != responseBody || response.Header().Get("X-Upstream") != "preserved" {
+		t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
+	}
+	if upstreamCalls.Load() != 1 {
+		t.Fatalf("upstream calls = %d, want 1", upstreamCalls.Load())
+	}
+	for _, expected := range []struct {
+		id   string
+		path string
+		size int64
+	}{
+		{id: "source-1", path: "/private/media/one.mkv", size: 1024},
+		{id: "source-2", path: "/private/media/two.mp4", size: 2048},
+	} {
+		proof, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", expected.id, "session-1")
+		if !ok || proof.Path != expected.path || proof.Size != expected.size || proof.UserID != "user-1" || proof.EmbyUserID != "emby-user-1" {
+			t.Fatalf("proof %s = (%+v, %t)", expected.id, proof, ok)
+		}
+	}
+	wrongPrincipal := fixturePrincipal()
+	wrongPrincipal.User.ID = "other-user"
+	if _, ok := gateway.LookupPlaybackProof(wrongPrincipal, "item-1", "source-1", "session-1"); ok {
+		t.Fatal("proof was reusable by a different principal")
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody, "/private/media/one.mkv", "/private/media/two.mp4")
+}
+
+func TestGatewayPostPlaybackInfoPreservesRequestAndRecordsProof(t *testing.T) {
+	requestBody := `{"UserId":"emby-user-1","MediaSourceId":"source-1","Unknown":true}`
+	responseBody := `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"Container":"mkv","SupportsDirectPlay":true}],"PlaySessionId":"session-1"}`
+	var upstreamBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		upstreamBody = string(body)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodPost, "/emby/Items/item-1/PlaybackInfo", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != responseBody || upstreamBody != requestBody {
+		t.Fatalf("response=%d body=%q upstreamBody=%q", response.Code, response.Body.String(), upstreamBody)
+	}
+	if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); !ok {
+		t.Fatal("POST PlaybackInfo did not record proof")
+	}
+}
+
+func TestGatewayPlaybackInfoIneligibleRequestRemainsTransparentWithoutProof(t *testing.T) {
+	responseBody := `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"SupportsDirectPlay":true}],"PlaySessionId":"session-1"}`
+	tests := []struct {
+		name        string
+		method      string
+		target      string
+		body        string
+		contentType string
+		requestMax  int64
+	}{
+		{name: "GET missing UserId", method: http.MethodGet, target: "/emby/Items/item-1/PlaybackInfo"},
+		{name: "GET mismatched UserId", method: http.MethodGet, target: "/emby/Items/item-1/PlaybackInfo?UserId=other"},
+		{name: "POST mismatched UserId", method: http.MethodPost, target: "/emby/Items/item-1/PlaybackInfo", body: `{"UserId":"other"}`, contentType: "application/json"},
+		{name: "POST invalid JSON", method: http.MethodPost, target: "/emby/Items/item-1/PlaybackInfo", body: `{`, contentType: "application/json"},
+		{name: "POST oversized", method: http.MethodPost, target: "/emby/Items/item-1/PlaybackInfo", body: `{"UserId":"emby-user-1"}`, contentType: "application/json", requestMax: 8},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(writer, responseBody)
+			}))
+			defer upstream.Close()
+			tokenService := &fakeTokenService{principal: fixturePrincipal()}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			if test.requestMax > 0 {
+				gateway.maxPlaybackInfoRequestBytes = test.requestMax
+			}
+			request := httptest.NewRequest(test.method, test.target, strings.NewReader(test.body))
+			request.Header.Set(accessTokenHeader, fixtureAccessToken)
+			if test.contentType != "" {
+				request.Header.Set("Content-Type", test.contentType)
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || response.Body.String() != responseBody {
+				t.Fatalf("response = status %d body=%q", response.Code, response.Body.String())
+			}
+			if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); ok {
+				t.Fatal("ineligible request recorded proof")
+			}
+		})
+	}
+}
+
+func TestGatewayPlaybackInfoInvalidResponseDoesNotRecordProof(t *testing.T) {
+	validSource := `{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"SupportsDirectPlay":true}`
+	tests := []struct {
+		name        string
+		status      int
+		body        string
+		responseMax int64
+	}{
+		{name: "upstream rejected", status: http.StatusForbidden, body: `{"ErrorCode":"NotAllowed"}`},
+		{name: "error code", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `],"PlaySessionId":"session-1","ErrorCode":"NotAllowed"}`},
+		{name: "missing play session", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `]}`},
+		{name: "duplicate media source", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `,` + validSource + `],"PlaySessionId":"session-1"}`},
+		{name: "not direct play", status: http.StatusOK, body: `{"MediaSources":[{"Id":"source-1","Path":"/private/media/one.mkv","Size":1024}],"PlaySessionId":"session-1"}`},
+		{name: "oversized response", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `],"PlaySessionId":"session-1","Padding":"` + strings.Repeat("x", 128) + `"}`, responseMax: 32},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(test.status)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer upstream.Close()
+			tokenService := &fakeTokenService{principal: fixturePrincipal()}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			gateway.proofs.Record([]PlaybackProof{fixturePlaybackProof("mapping-1", "item-1", "source-1", "session-1")})
+			if test.responseMax > 0 {
+				gateway.maxPlaybackInfoResponseBytes = test.responseMax
+			}
+			request := httptest.NewRequest(http.MethodGet, "/emby/Items/item-1/PlaybackInfo?UserId=emby-user-1", nil)
+			request.Header.Set(accessTokenHeader, fixtureAccessToken)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+			if response.Code != test.status || response.Body.String() != test.body {
+				t.Fatalf("response = status %d body=%q", response.Code, response.Body.String())
+			}
+			if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); ok {
+				t.Fatal("invalid response recorded proof")
+			}
+			assertSecretsAbsent(t, logs.String(), test.body, "/private/media/one.mkv")
 		})
 	}
 }
@@ -481,6 +652,11 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary/Delete", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Users/public%2Duser/Images/Primary", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/System/Info/Public", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
+		{method: http.MethodPost, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
+		{method: http.MethodHead, path: "/emby/Items/item-1/PlaybackInfo", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Items/item-1/PlaybackInfo/", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Items/item%2D1/PlaybackInfo", want: routeProtected},
 	}
 	for _, test := range tests {
 		request := httptest.NewRequest(test.method, test.path, nil)
@@ -531,6 +707,7 @@ type fakeTokenService struct {
 	mu         sync.Mutex
 	records    []embytoken.AuthenticationResultInput
 	resolved   []string
+	principal  embytoken.Principal
 	recordErr  error
 	resolveErr error
 }
@@ -549,13 +726,20 @@ func (service *fakeTokenService) ResolvePrincipal(_ context.Context, accessToken
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.resolved = append(service.resolved, accessToken)
-	return embytoken.Principal{}, service.resolveErr
+	return service.principal, service.resolveErr
 }
 
 func (service *fakeTokenService) snapshot() ([]embytoken.AuthenticationResultInput, []string) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	return append([]embytoken.AuthenticationResultInput(nil), service.records...), append([]string(nil), service.resolved...)
+}
+
+func fixturePrincipal() embytoken.Principal {
+	return embytoken.Principal{
+		MappingID: "mapping-1", ServerID: "server-1", DeviceID: "device-1", ClientName: "Infuse",
+		User: models.User{ID: "user-1", EmbyID: "emby-user-1", IsActive: true},
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

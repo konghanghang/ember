@@ -134,11 +134,13 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增 `cmd/playback-gateway`、production runtime builder、独立 `/health`、HTTP Header/空闲边界和 context graceful shutdown；进程复用 migration/VerifySchema 与 ConfigService，但不初始化 JWT、Bot、cron 或默认管理员。
 - 新增不持有 Token/HMAC/runtime ServerId 的 `ControlPlaneRevoker`；设备按用户/设备跨历史 Server 撤销，用户按主体全部撤销，恢复路径同样清理遗留活动映射。
 - 设备手工/黑名单退出、用户 toggle/admin edit、Emby 访问开关、绑定前清理、解绑、删除和过期 cron 已按“本地撤销成功后再执行状态或 Emby 副作用”接入；远端失败不回滚本地安全结果。
+- Gateway 已精确分类 GET/POST PlaybackInfo、保留 ResolvePrincipal 结果、透明观察成功响应，并在 5 分钟/4096 条有界进程内缓存中保存 mapping/item/mediaSource/playSession 证明与 MediaSource 快照；没有重复请求 Emby。
+- PlaybackInfo 请求/响应不符合证明条件时仍透明代理但不缓存；缓存并发、TTL、容量淘汰、Token 隔离、请求/响应字节保持和 Path/Token 日志脱敏已有 fake 测试。
 
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- Docker/反向代理公开部署入口、目标 Emby/Infuse 对固定版本/bootstrap/应用头合同的实机确认、PlaybackInfo 当前授权证明、直连会话和运营查询；独立进程与运行配置、认证代理/门控核心、控制面状态撤销、SDK 版本化 bootstrap/设备元数据合同、Token 映射核心、source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
+- Docker/反向代理公开部署入口、目标 Emby/Infuse 对固定版本/bootstrap/应用头合同的实机确认、视频路由消费 PlaybackInfo 证明、持久直连会话和运营查询；独立进程与运行配置、认证代理/门控核心、控制面状态撤销、进程内 PlaybackInfo 当前授权证明、SDK 版本化 bootstrap/设备元数据合同、Token 映射核心、source 账号位置、账号按角色加载、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
@@ -308,7 +310,9 @@ services/api/internal/integrations/p115/
 
 #### 4.4 `playback_media_cache`
 
-缓存 `emby_server_id + emby_item_id + media_source_id` 到源账号 `fileId`、`pickCode`、SHA1、size 和路径的映射。缓存命中仍需检查过期时间；生成源下载地址失败时失效并重解析一次。
+> 状态：首期推迟，不创建表。
+
+Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内证明同时保存 MediaSource `Path/Size/Container`；不重复请求 Emby，也不把短期快照落库。只有后续真实负载证明跨请求长期复用源文件身份有收益时，再实现持久缓存。
 
 #### 4.5 `playback_transfer_tasks`
 
@@ -322,7 +326,9 @@ services/api/internal/integrations/p115/
 
 #### 4.6 `direct_play_sessions`
 
-记录用户、ItemId、MediaSourceId、PlaySessionId、设备、客户端、源账号、播放账号、任务和状态。状态为 `requested`、`resolving`、`transferring`、`redirect_issued`、`playing`、`stopped`、`expired`、`failed`。
+> 状态：本次 PlaybackInfo 证明切片不创建表。
+
+首期当前切片只维护 `mappingId + ItemId + MediaSourceId + PlaySessionId` 的进程内短期证明。持久 `direct_play_sessions` 仍用于后续并发、Playing/Progress/Stopped、TTL 和管理员查询，状态计划为 `requested`、`resolving`、`transferring`、`redirect_issued`、`playing`、`stopped`、`expired`、`failed`。
 
 不保存完整 115 直链；IP 如需持久化必须哈希或脱敏。
 
@@ -510,7 +516,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；视频字节不经过 Ember/Emby；用户状态和策略能阻止新播放；任何失败都不借源账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成公开部署入口；其余为 PlaybackInfo 当前授权证明、直连会话、视频代理/302、策略门控和 Infuse 验收。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和无 HTTP 入口的 direct play 传输编排已完成；对应单元测试和 PostgreSQL 集成测试通过。尚未完成公开部署入口；其余为视频路由消费证明、持久直连会话、302、策略门控和 Infuse 验收。
 
 ### 阶段 2：运营与稳定性
 
@@ -631,6 +637,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 2026-08-22 Gateway 认证代理与门控核心验证：
 
 - `go test -count=1 ./internal/playbackgateway` 通过，fake Emby 覆盖认证透明性、标准应用头、public 用户/头像 bootstrap、旁路失败、Token 门控、路由分类和脱敏 transport 错误。
+- 同一 Gateway fake/race 测试覆盖 GET/POST PlaybackInfo 请求与响应字节保持、Principal/UserId 绑定、多 MediaSource 快照、复合键隔离、5 分钟 TTL、4096 条容量、并发访问、无效请求/响应不缓存和 Path/Token 日志脱敏。
 - `go test -race -count=1 ./internal/playbackgateway ./internal/services/embytoken` 通过。
 - 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，新 Gateway 包和既有 PostgreSQL 集成测试实际执行并通过；`go vet ./...` 与 `go build ./...` 通过。
 - 自动化没有创建真实 Listener，也没有请求真实 Emby/115 或执行 Infuse 验收；固定 SDK 的 public bootstrap 与应用头合同已确认并由 fake 锁定，目标 Server 版本和 Infuse 实际请求顺序仍保持未证实。

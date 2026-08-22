@@ -189,7 +189,7 @@ Ember 本地撤销固定三种粒度：
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
 - 固定 SDK 已确认标准应用/设备授权头及 `/Users/Public` 登录流程；目标 Infuse 是否实际使用同一 Header 名、scheme、字段和请求顺序仍未实机确认。`System/Info/Public` 等未进入 allowlist 的路径继续失败关闭。
 
-这仍是无监听器的内部核心，不表示目标 Emby/Infuse 已可用，也不包含 PlaybackInfo、视频 302 或播放会话。
+当前 HTTP 核心还会观察经自身代理的 PlaybackInfo 并生成进程内短期证明，但仍不包含视频路由、302 或持久播放会话，不表示目标 Emby/Infuse 已可用。
 
 ### 3.5 暂不覆盖的认证方式
 
@@ -217,6 +217,8 @@ X-Emby-Token: <access-token>
 - `UserId`：必填 query 参数。
 - 响应模型：`PlaybackInfoResponse`。
 
+Gateway 不把 query `UserId` 当身份来源；只有它唯一存在且等于当前 `ResolvePrincipal.User.EmbyID` 时，成功响应才有资格形成短期证明。缺失或错配请求仍透明交给 Emby 处理，但不会进入直连证明缓存。
+
 ### 4.2 POST PlaybackInfo
 
 ```http
@@ -228,6 +230,8 @@ X-Emby-Token: <access-token>
 ```
 
 响应同样是 `PlaybackInfoResponse`。播放网关不得自行拼装一个缩水版响应；首版应透明转发 Emby 响应，仅在内部读取必要字段。
+
+`PlaybackInfoRequest.UserId` 在 OpenAPI 中可选。Gateway 对不超过 `1 MiB` 的 JSON 请求体做旁路检查：字段缺失允许由 Emby 按原合同处理，非空时必须等于当前 Principal 的 EmbyID；无效、超大或错配请求仍透明转发，但不形成直连证明。
 
 ### 4.3 PlaybackInfoResponse 关键字段
 
@@ -255,6 +259,33 @@ X-Emby-Token: <access-token>
 | `TranscodingUrl` | `string` | 转码地址；首版 115 直连不改写该链路 |
 
 网关必须使用 `ItemId + MediaSourceId` 作为媒体源缓存主键，不能只按 `ItemId` 假设条目永远只有一个文件。
+
+### 4.4 单实例短期授权证明
+
+首期不重复调用 PlaybackInfo，也不为证明或媒体快照建表。Gateway 已经代理 Infuse 的 PlaybackInfo，因此在上游成功响应经过时同时执行：
+
+```text
+透明返回原始响应
+  + 在进程内记录短期证明和 MediaSource 快照
+```
+
+缓存键固定为：
+
+```text
+mappingId + itemId + mediaSourceId + playSessionId
+```
+
+缓存值包含当前 Principal 的 `userId/embyUserId/serverId/deviceId/clientName`，以及本次响应的 `path/size/container/direct-play` 能力。约束：
+
+- 只有 `200 application/json`、空 `ErrorCode`、非空有界 `PlaySessionId` 和至少一个合格 MediaSource 才记录。
+- 请求 path `ItemId` 是条目真相；MediaSource.ItemId 可空，非空时必须与 path 一致。
+- MediaSource 必须具备唯一非空 Id、非空有界 Path、正数 Size 和 `SupportsDirectPlay=true`；重复 MediaSourceId 使整次响应不产生证明。
+- 固定 TTL 为 5 分钟，最大 4096 条；写入和查询都延迟清理过期项，满载时淘汰最早过期项，不启动后台 goroutine。
+- 每个有资格形成证明的新版 PlaybackInfo 响应都会先清除相同 `mappingId + itemId` 的旧证明；非 `200`、错误或不可用响应不能继续复用旧成功结果。
+- 视频请求仍必须先重新执行 `ResolvePrincipal`，再用完全相同的 mapping/item/mediaSource/playSession 查询；缓存不能绕过撤销或用户实时状态。
+- 进程重启会丢失证明并失败关闭，Infuse 再次调用 PlaybackInfo 后重建；多 Gateway、副本共享和持久播放会话推迟到后续阶段。
+- Token、完整 PlaybackInfo 响应和 Path 不进入日志；缓存对象只存在于 Gateway 进程内，不序列化为 API。
+- 响应无效、过大、解析失败或没有合格 MediaSource 时，Emby 原始响应仍逐字节返回，只是不产生证明。
 
 ## 5. 原始视频流合同
 

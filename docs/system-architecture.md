@@ -782,7 +782,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 手工/黑名单设备退出、用户停用与恢复、Emby 访问禁用与恢复、绑定前清理、解绑、删除和过期 cron 已接入本地优先撤销；撤销失败不继续状态/外部副作用，远端失败不回滚本地撤销
 - 恢复状态不清除历史撤销；用户删除后已撤销审计通过 `ON DELETE SET NULL` 保留
 - 独立 PostgreSQL schema 集成测试已覆盖 8 路并发认证只生成一条映射、身份冲突、三种撤销粒度、重新认证、动态到期和用户删除后的审计保留
-- `internal/playbackgateway` 已通过窄接口调用 `RecordAuthenticationResult/ResolvePrincipal`；PlaybackInfo 当前授权证明尚未实现
+- `internal/playbackgateway` 已通过窄接口调用 `RecordAuthenticationResult/ResolvePrincipal`，并把 Principal 保留在请求 context 供 PlaybackInfo 观察和后续视频路由使用
 
 ### 5.27 Playback Gateway HTTP 核心与运行时 (`cmd/playback-gateway/`, `internal/playbackgateway/`)
 
@@ -803,7 +803,11 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - bootstrap allowlist 只覆盖固定登录文档明确的 public 用户列表和无 Index 用户头像；`System/Info/Public` 在固定参考页标记需要用户认证，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
 - fake Emby 测试已覆盖认证请求/响应透明、标准应用头、public bootstrap、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
-- 尚未完成 Docker/反向代理公开部署入口、PlaybackInfo 授权证明、视频路由、302 和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
+- GET/POST PlaybackInfo 继续透明代理；成功 `200 application/json` 响应旁路生成 `mappingId + itemId + mediaSourceId + playSessionId` 的进程内证明，同时保存 Path/Size/Container/DirectPlay 能力，不重复调用 Emby
+- GET 只有唯一 `UserId` 等于 Principal.EmbyID 才可形成证明；POST 有界检查可选 UserId，错配、无效或超大请求仍透明转发但不缓存
+- 证明缓存固定 5 分钟、最多 4096 条，延迟过期和最早到期淘汰，无后台 goroutine；不保存原始 Token、不记录 Path，进程重启后证明丢失并失败关闭
+- `playback_media_cache` 和 `direct_play_sessions` 本轮均未建表；多副本共享、播放并发和 Playing/Progress/Stopped 持久会话推迟到后续
+- 尚未完成 Docker/反向代理公开部署入口、视频路由消费证明、302 和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际遵循固定 SDK 的 Header 与 bootstrap 顺序仍未证实
 
 ---
 
