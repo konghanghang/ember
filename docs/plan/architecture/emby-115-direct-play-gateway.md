@@ -477,6 +477,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 - `services/api/Dockerfile` 只构建一个 `ember`；镜像使用 `ENTRYPOINT ["./ember"]` 和默认 `CMD ["api"]`。
 - `ember-api` 与 `ember-gateway` 复用完全相同的 `EMBER_API_IMAGE`；前者运行 `ember api`，后者以 Compose `command: ["gateway"]` 覆盖默认子命令。
+- API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；Compose 只允许通过 `PLAYBACK_GATEWAY_PORT` 调整 Gateway 的宿主机回环映射端口。
 - `ember-gateway` 使用显式 `gateway` profile；当前 Compose 默认 Tag 仍可能指向不支持子命令的旧发行镜像，普通 `docker compose up` 必须保持原 API userspace，启用 Gateway 前先切换到新镜像或本地构建。
 - 不新增 Gateway GHCR 镜像、构建工作流、Tag 或独立版本号；API 与 Gateway 必须以同一镜像 digest 部署。
 - 公网反向代理只暴露播放网关；原始 Emby 端口仅对内网或运维 allowlist 开放。
@@ -494,7 +495,6 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 部署期环境变量：
 
-- `PLAYBACK_GATEWAY_LISTEN_ADDR`
 - `CONFIG_ENCRYPTION_KEY`
 
 Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录、appType 和 User-Agent 作为普通账号元数据管理。具体配置键在实现时同步 `docs/reference/configuration-reference.md`，明确生效方式和重启要求。

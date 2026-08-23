@@ -19,7 +19,7 @@
 - 原始 Emby 公网入口必须关闭或限制，否则本地 Token 撤销与用户状态门控可以被绕过。
 - 不新增第四个镜像、Gateway Tag 或独立发布节奏；API 与 Gateway 使用同一镜像引用。
 
-Compose 只把 Gateway 映射到 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8090}`，不会自动配置公网 TLS。部署者仍需在宿主机 Nginx/Caddy/Cloudflare Tunnel 中把完整 Emby 请求面代理到该回环端口，并关闭或限制原始 Emby 公网入口。
+Gateway 固定监听容器内 `8081`；Compose 只把它映射到 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}`，不会自动配置公网 TLS。部署者仍需在宿主机 Nginx/Caddy/Cloudflare Tunnel 中把完整 Emby 请求面代理到该回环端口，并关闭或限制原始 Emby 公网入口。
 
 为兼容当前默认 Tag 中尚无统一入口的旧镜像，Gateway 不随普通 `docker compose up -d` 自动启动。启用前必须使用包含 `ember gateway` 的新镜像或本地构建镜像，再显式执行 `docker compose --profile gateway up -d`。
 
@@ -41,7 +41,7 @@ server {
     # ssl_certificate_key /path/to/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:8090;
+        proxy_pass http://127.0.0.1:8081;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -77,7 +77,7 @@ cp .env.example .env
    - `DATABASE_URL`：缺省由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时显式提供
    - `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`：compose 中已钉版默认值，随每次发版同步更新
    - `ADMIN_PASSWORD`：未填时 API 首启会生成临时管理员口令并要求首次登录改密
-   - `PLAYBACK_GATEWAY_PORT`：Gateway 宿主机回环端口，默认 `8090`
+   - `PLAYBACK_GATEWAY_PORT`：Gateway 宿主机回环端口，默认 `8081`
    - `EMBY_URL` / `EMBY_API_KEY` 等媒体能力配置已托管到设置中心，可在首启后补
    - 启用 Bot 时再填：`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` / `WEBHOOK_URL`
 
@@ -112,7 +112,7 @@ docker compose --profile bot up -d
 ```bash
 docker compose ps
 curl http://localhost:8080/health
-# 在设置中心配置内部 EMBY_URL / EMBY_API_KEY 后：curl http://localhost:8090/health
+# 在设置中心配置内部 EMBY_URL / EMBY_API_KEY 后：curl http://localhost:8081/health
 # 启用 Bot 时再加：curl http://localhost:8000/health
 ```
 
@@ -160,7 +160,7 @@ docker compose --profile gateway up -d
 - `postgres`、`ember-api`、`ember-web` 均为 `Up`
 - 启用 `gateway` profile 且设置中心已有可用 `EMBY_URL/EMBY_API_KEY` 后，`ember-gateway` 为 `Up (healthy)`
 - `GET http://localhost:8080/health` 返回 200
-- Gateway 就绪后，`GET http://localhost:8090/health` 返回 200
+- Gateway 就绪后，`GET http://localhost:8081/health` 返回 200
 - `http://localhost` 可打开前端页面
 - API 日志中没有持续刷屏的数据库连接错误
 - Gateway 日志中没有持续出现 `process_failed`；如有，优先核对内部 Emby 地址、版本和 API Key

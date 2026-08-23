@@ -19,7 +19,7 @@
 - Gateway 使用 `profiles: ["gateway"]`，避免当前默认旧镜像不认识新子命令时破坏既有部署；启用时执行 `docker compose --profile gateway up -d`。
 - `ember-api` 与 `ember-gateway` 复用同一 `EMBER_API_IMAGE` 和同一 `ember` 二进制，分别运行 `api` / `gateway` 子命令。
 - 两个服务仍使用独立容器、健康检查和日志卷；禁止在一个容器内后台启动两个进程。
-- Gateway 只映射到宿主机 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8090}`；公网 HTTPS 由外部反向代理负责。
+- Gateway 进程固定监听容器内 `8081`，只映射到宿主机 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}`；公网 HTTPS 由外部反向代理负责。
 
 ## 你现在应该看哪份文档
 

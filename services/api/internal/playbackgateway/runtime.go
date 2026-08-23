@@ -24,6 +24,7 @@ import (
 const (
 	minimumSupportedEmbyVersion          = "4.9.0.0"
 	exclusiveMaximumSupportedEmbyVersion = "4.10.0.0"
+	playbackGatewayListenAddress         = ":8081"
 	runtimeReadHeaderTimeout             = 5 * time.Second
 	runtimeIdleTimeout                   = 60 * time.Second
 	runtimeShutdownTimeout               = 10 * time.Second
@@ -61,7 +62,6 @@ type ProductionDependencies struct {
 
 type productionConfig struct {
 	encryptionKey string
-	listenAddress string
 	embyURL       string
 	embyAPIKey    string
 }
@@ -138,7 +138,7 @@ func NewProductionRuntime(
 	mux.Handle("/", gateway)
 	return &Runtime{
 		server: &http.Server{
-			Addr:              config.listenAddress,
+			Addr:              playbackGatewayListenAddress,
 			Handler:           mux,
 			ReadHeaderTimeout: runtimeReadHeaderTimeout,
 			IdleTimeout:       runtimeIdleTimeout,
@@ -219,7 +219,7 @@ func (runtime *Runtime) Handler() http.Handler {
 	return runtime.server.Handler
 }
 
-// ListenAddress returns the validated deployment address without resolving or
+// ListenAddress returns the fixed Gateway process address without resolving or
 // opening it.
 func (runtime *Runtime) ListenAddress() string {
 	return runtime.server.Addr
@@ -279,30 +279,15 @@ func loadProductionConfig(getenv func(string) string, settings RuntimeSettings) 
 	databaseURL := getenv("DATABASE_URL")
 	config := productionConfig{
 		encryptionKey: getenv("CONFIG_ENCRYPTION_KEY"),
-		listenAddress: getenv("PLAYBACK_GATEWAY_LISTEN_ADDR"),
 		embyURL:       settings.GetString("EMBY_URL"),
 		embyAPIKey:    settings.GetString("EMBY_API_KEY"),
 	}
 	if !validExactNonEmpty(databaseURL) || !validExactNonEmpty(config.encryptionKey) ||
-		len(config.encryptionKey) < minimumEncryptionKeyLength || !validListenAddress(config.listenAddress) ||
+		len(config.encryptionKey) < minimumEncryptionKeyLength ||
 		!validExactNonEmpty(config.embyURL) || !validExactNonEmpty(config.embyAPIKey) {
 		return productionConfig{}, ErrRuntimeConfig
 	}
 	return config, nil
-}
-
-// validListenAddress requires an explicit numeric TCP port and rejects port 0,
-// leaving no implicit or randomly selected production listener.
-func validListenAddress(address string) bool {
-	if !validExactNonEmpty(address) {
-		return false
-	}
-	_, portText, err := net.SplitHostPort(address)
-	if err != nil {
-		return false
-	}
-	port, err := strconv.Atoi(portText)
-	return err == nil && port >= 1 && port <= 65535
 }
 
 // validExactNonEmpty rejects surrounding whitespace and line injection while

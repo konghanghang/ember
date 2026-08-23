@@ -11,7 +11,7 @@ docker compose logs --tail=100 ember-api
 # 启用 gateway profile 时：docker compose logs --tail=100 ember-gateway
 docker compose logs --tail=100 ember-bot
 curl http://localhost:8080/health
-# 启用 gateway profile 时：curl http://localhost:8090/health
+# 启用 gateway profile 时：curl http://localhost:8081/health
 curl http://localhost:8000/health
 ```
 
@@ -68,13 +68,13 @@ curl http://localhost:8080/health
 - 设置中心 `EMBY_URL` 是否指向容器可访问的原始 Emby，而不是 Gateway 公网地址
 - `EMBY_API_KEY` 是否有效，目标 Server 是否仍为固定兼容版本
 - `CONFIG_ENCRYPTION_KEY` 是否与 API 完全一致
-- `PLAYBACK_GATEWAY_PORT` 是否只用于宿主机回环映射，没有被误写成容器监听地址
+- `PLAYBACK_GATEWAY_PORT` 是否正确映射到 Gateway 固定的容器内 `8081`
 
 辅助命令：
 
 ```bash
 docker compose logs --tail=200 ember-gateway
-curl http://localhost:8090/health
+curl http://localhost:8081/health
 ```
 
 新环境尚未配置 Emby 时 Gateway fail-fast/restart 是预期；先通过 Web/API 完成设置，不要通过放宽身份核对让进程假启动。

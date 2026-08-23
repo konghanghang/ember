@@ -87,10 +87,9 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}
       - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY 必须显式提供}
-      - PLAYBACK_GATEWAY_LISTEN_ADDR=:8090
     ports:
       # 只允许宿主机反向代理访问；禁止直接把 Gateway HTTP 端口暴露公网
-      - "127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8090}:8090"
+      - "127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}:8081"
     depends_on:
       ember-api:
         condition: service_healthy
@@ -100,7 +99,7 @@ services:
     volumes:
       - gateway_logs:/app/logs
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8090/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8081/health"]
       interval: 30s
       timeout: 3s
       start_period: 10s

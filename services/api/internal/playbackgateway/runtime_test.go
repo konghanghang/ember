@@ -22,7 +22,6 @@ const (
 	fixtureRuntimeDatabaseURL   = "fixture-database-url"
 	fixtureRuntimeEncryptionKey = "fixture-runtime-encryption-key-32-bytes"
 	fixtureRuntimeAPIKey        = "fixture-runtime-emby-api-key"
-	fixtureRuntimeListenAddress = "127.0.0.1:18096"
 	fixtureRuntimeEmbyVersion   = "4.9.3.0"
 )
 
@@ -48,7 +47,7 @@ func TestNewProductionRuntimeVerifiesIdentityAndBuildsHandlers(t *testing.T) {
 	if identity.ID != "server-1" || identity.Version != fixtureRuntimeEmbyVersion || identity.ServerName != "Fixture" {
 		t.Fatalf("ServerIdentity() = %+v", identity)
 	}
-	if runtime.ListenAddress() != fixtureRuntimeListenAddress {
+	if runtime.ListenAddress() != ":8081" {
 		t.Fatalf("ListenAddress() = %q", runtime.ListenAddress())
 	}
 	if runtime.server.ReadHeaderTimeout != 5*time.Second || runtime.server.IdleTimeout != 60*time.Second || runtime.server.MaxHeaderBytes != 1<<20 {
@@ -82,8 +81,6 @@ func TestNewProductionRuntimeRejectsMissingConfigurationBeforeIdentityRequest(t 
 	}{
 		{name: "missing database URL", env: map[string]string{"DATABASE_URL": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
-		{name: "missing listen address", env: map[string]string{"PLAYBACK_GATEWAY_LISTEN_ADDR": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
-		{name: "invalid listen address", env: map[string]string{"DATABASE_URL": fixtureRuntimeDatabaseURL, "CONFIG_ENCRYPTION_KEY": fixtureRuntimeEncryptionKey, "PLAYBACK_GATEWAY_LISTEN_ADDR": "not-an-address"}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing Emby URL", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_API_KEY": fixtureRuntimeAPIKey}, database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing Emby API key", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_URL": "http://emby.invalid"}, database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing database dependency", env: runtimeEnvironmentMap(), settings: validRuntimeSettings(), wantErr: ErrRuntimeDependency},
@@ -190,7 +187,7 @@ func TestRuntimeRunUsesGracefulShutdownWithoutRealListener(t *testing.T) {
 	listener := newBlockingListener()
 	listenCalled := make(chan struct{})
 	runtime.listen = func(network, address string) (net.Listener, error) {
-		if network != "tcp" || address != fixtureRuntimeListenAddress {
+		if network != "tcp" || address != ":8081" {
 			t.Errorf("listen = %s %s", network, address)
 		}
 		close(listenCalled)
@@ -235,7 +232,7 @@ func TestRuntimeRunSanitizesListenFailure(t *testing.T) {
 	if err := runtime.Run(context.Background()); !errors.Is(err, ErrRuntimeListen) {
 		t.Fatalf("Run() error = %v, want %v", err, ErrRuntimeListen)
 	} else {
-		assertRuntimeSecretsAbsent(t, err.Error(), fixtureRuntimeEncryptionKey, fixtureRuntimeListenAddress)
+		assertRuntimeSecretsAbsent(t, err.Error(), fixtureRuntimeEncryptionKey)
 	}
 }
 
@@ -263,7 +260,7 @@ func runtimeEnvironmentMap() map[string]string {
 	return map[string]string{
 		"DATABASE_URL":                 fixtureRuntimeDatabaseURL,
 		"CONFIG_ENCRYPTION_KEY":        fixtureRuntimeEncryptionKey,
-		"PLAYBACK_GATEWAY_LISTEN_ADDR": fixtureRuntimeListenAddress,
+		"PLAYBACK_GATEWAY_LISTEN_ADDR": "legacy-value-must-be-ignored",
 	}
 }
 

@@ -799,7 +799,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
 - `GET /emby/System/Info` 使用设置中心的 `EMBY_URL/EMBY_API_KEY`，只接受无重定向 `200 application/json` 和不超过 `256 KiB` 的响应；要求非空 `Id`、四段数字 `Version` 满足 `>= 4.9.0.0 && < 4.10.0.0`，并要求有界 `ServerName`，失败时不会产生监听器；`4.9.3.0` 是协议证据基线，不是唯一运行版本
 - 核对得到的 `Id` 是本进程唯一 `expectedServerID`；API Key、URL 和响应体不进入错误或日志
-- 部署期要求 `DATABASE_URL`、至少 32 字符的 `CONFIG_ENCRYPTION_KEY` 和显式 `PLAYBACK_GATEWAY_LISTEN_ADDR`；Emby URL/API Key 继续由现有 ConfigService 管理，不建立第二套环境变量真相源
+- 部署期要求 `DATABASE_URL` 和至少 32 字符的 `CONFIG_ENCRYPTION_KEY`；Gateway 固定监听 `:8081`，API 固定使用默认端口 `8080`，宿主机回环映射只由 Compose 的 `PLAYBACK_GATEWAY_PORT` 控制；Emby URL/API Key 继续由现有 ConfigService 管理，不建立第二套环境变量真相源
 - 独立 `GET /health` 在完整构造后返回固定 JSON，不查询数据库或 Emby、不经过 Token 门控；HTTP Server 设置 5 秒 `ReadHeaderTimeout`、60 秒 `IdleTimeout`、1 MiB Header 上限和 10 秒 graceful shutdown
 
 - 精确 `POST /emby/Users/AuthenticateByName` 进入认证路由；固定 SDK 登录文档中的 `GET /emby/Users/Public` 与无 Index 公共用户头像 `GET/HEAD` 进入 bootstrap 路由；method、大小写、尾斜杠、深层图片路径或 percent-encoding 变体全部进入受保护门控

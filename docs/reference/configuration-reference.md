@@ -151,8 +151,6 @@
 | 配置项 | 敏感 | 说明 | 原因 |
 |--------|------|------|------|
 | `PORT` | 否 | API 监听端口 | 有默认值 `8080`，属于进程启动参数 |
-| `PLAYBACK_GATEWAY_LISTEN_ADDR` | 否 | Playback Gateway 监听地址 | 仅 `ember gateway` 读取；Compose 固定为 `:8090`，直接运行时必须显式提供数值端口 |
-| `PLAYBACK_GATEWAY_PORT` | 否 | Gateway 宿主机回环映射端口 | 仅由 Compose 插值读取，默认 `8090`，Go 进程不读取 |
 | `ADMIN_USERNAME` | 否 | 首次初始化管理员用户名 | 仅首次启动且需要初始化管理员时才有意义 |
 | `ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 | 仅首次启动且需要初始化管理员时才有意义 |
 
@@ -161,6 +159,14 @@
 - `WEBHOOK_TOKEN` 已废弃，当前只保留 `EMBY_WEBHOOK_TOKEN`。
 - `CONFIG_ENCRYPTION_KEY` 不作为客户端认证凭证；它负责数据库敏感配置与 `p115_accounts.cookie_ciphertext` 的加解密，并按 `emby-access-token` purpose 派生 Gateway Token HMAC 密钥。
 - `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_*`、`SMTP_*`、`CRON_*`、`BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已按设置中心模型管理，不再作为 API `.env.example` 的默认项。
+
+### 3.3 Docker Compose 端口变量
+
+| 配置项 | 敏感 | 说明 |
+|--------|------|------|
+| `PLAYBACK_GATEWAY_PORT` | 否 | Gateway 宿主机回环映射端口；默认 `8081`，Compose 将其映射到 Gateway 固定的容器内 `8081`，Go 进程不读取 |
+
+API 固定使用默认端口 `8080`，Gateway 固定监听 `:8081`。直接运行 `ember gateway` 也使用 `8081`；不再提供 `PLAYBACK_GATEWAY_LISTEN_ADDR`。
 
 ---
 
@@ -258,13 +264,6 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 - 用途：加密/解密数据库中的敏感配置与 115 Cookie
 - 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等 settings 敏感值、`p115_accounts.cookie_ciphertext`，以及 `emby_access_tokens.token_hash` 的 purpose 隔离 HMAC
 - 备注：如果该值缺失或变更错误，数据库里已有的敏感配置和 115 Cookie 都会无法解密，已有 Emby Token 摘要也无法再命中并要求客户端重新登录；共享 `security/secretbox` 保持原 ConfigService AES-GCM 密文格式兼容，并为 115 Cookie 与 Emby Token 使用不同 purpose 派生隔离密钥
-
-### `PLAYBACK_GATEWAY_LISTEN_ADDR`
-
-- 用途：Gateway 进程的 TCP 监听地址，例如 `127.0.0.1:8090` 或 `:8090`；只由 `ember gateway` 读取
-- 来源：只允许部署环境变量，不进入设置中心
-- 校验：必须显式提供 `host:port`，端口必须是 `1-65535` 的十进制数；不接受随机端口 `0`、URL 或服务名
-- Compose 的 `gateway` profile 在容器内固定注入 `:8090`；`PLAYBACK_GATEWAY_PORT` 只控制 `127.0.0.1:<hostPort>:8090` 的宿主机映射。外部 HTTPS 反向代理仍需部署者配置，原始 Emby 公网入口必须关闭或限制
 
 ---
 

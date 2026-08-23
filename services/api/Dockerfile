@@ -62,8 +62,8 @@ RUN mkdir -p /app/logs && chown -R ember:ember /app
 # 切换到非 root 用户
 USER ember
 
-# 暴露 API 与 Gateway 容器内端口；实际服务每次只监听其中一个。
-EXPOSE 8080 8090
+# 暴露 API 与 Gateway 容器内固定端口；实际服务每次只监听其中一个。
+EXPOSE 8080 8081
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

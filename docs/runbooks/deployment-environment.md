@@ -38,7 +38,7 @@
 | `ADMIN_USERNAME` | 默认 `admin` |
 | `ADMIN_PASSWORD` | 首次启动管理员初始化密码（落地后立即在控制台改密）|
 | `EMBY_WEBHOOK_TOKEN` | Emby Webhook 验签口令 |
-| `PLAYBACK_GATEWAY_PORT` | Gateway 宿主机回环映射端口，默认 `8090` |
+| `PLAYBACK_GATEWAY_PORT` | Gateway 宿主机回环映射端口，默认 `8081` |
 
 ### Bot 与 Webhook
 
@@ -89,7 +89,7 @@
 
 Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问原始 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是用户和播放器看到的 Gateway 公网 HTTPS 地址。二者指向同一公网 Gateway 会形成代理回环，原始 Emby 继续公开则会形成安全旁路。
 
-Gateway 容器内固定使用 `PLAYBACK_GATEWAY_LISTEN_ADDR=:8090`；`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变宿主机 `127.0.0.1` 映射端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
+API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接运行 `ember gateway` 时同样监听 `:8081`。`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变映射到 Gateway `8081` 的宿主机 `127.0.0.1` 端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
 
 ## `.env.example` 的已知缺口
 

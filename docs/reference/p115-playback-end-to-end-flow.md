@@ -64,7 +64,7 @@ flowchart LR
 
 `ember gateway` 按 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyToken/DirectPlay/Gateway → listen` 启动。只有目标 Emby 的 ServerId 非空，且四段数字 Version 满足 `>= 4.9.0.0 && < 4.10.0.0` 时才打开 Listener；`4.9.3.0` 是协议证据基线，不是唯一运行版本；`/health` 只在完整构造后可用。
 
-Compose 的 `gateway` profile 复用 `ember-api` 镜像，只把 command 改为 `gateway`，并把容器端口 `8090` 映射到宿主机回环地址。公网 HTTPS 和原始 Emby 网络隔离不由 Compose 自动完成。
+Compose 的 `gateway` profile 复用 `ember-api` 镜像，只把 command 改为 `gateway`；Gateway 进程固定监听容器内 `8081`，Compose 再将可配置的宿主机回环端口映射到该端口。公网 HTTPS 和原始 Emby 网络隔离不由 Compose 自动完成。
 
 ## 3. 管理员账号控制面
 
