@@ -630,6 +630,84 @@ func TestGatewayRootPlaybackInfoReusesProofObserver(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody, "/private/media/one.mkv")
 }
 
+func TestGatewayLowercasePlaybackInfoQueryPreservesYambyEmptyMediaStreams(t *testing.T) {
+	responseBody := `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"Container":"mkv","SupportsDirectPlay":true,"MediaStreams":[]}],"PlaySessionId":"session-1"}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/emby/items/item-1/playbackinfo" ||
+			request.URL.Query().Get("userid") != "emby-user-1" || request.URL.Query().Get("api_KEY") != fixtureAccessToken {
+			t.Fatalf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/items/item-1/playbackinfo?userid=emby-user-1&api_KEY="+fixtureAccessToken,
+		nil,
+	)
+	request.Header.Set("User-Agent", "Yamby/1.2.0")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != responseBody {
+		t.Fatalf("response=%d body=%q", response.Code, response.Body.String())
+	}
+	if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); !ok {
+		t.Fatal("lowercase PlaybackInfo did not record proof")
+	}
+	for _, expected := range []string{"route=playback_info", "queryTokenState=present", "userAgentFamily=yamby"} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs=%q, want %s", logs.String(), expected)
+		}
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "/private/media/one.mkv")
+}
+
+func TestGatewayEncodedPlaybackInfoPreservesBytesAndRecordsProof(t *testing.T) {
+	responseBody := []byte(`{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"Container":"mkv","SupportsDirectPlay":true,"MediaStreams":[]}],"PlaySessionId":"session-1"}`)
+	tests := []struct {
+		name     string
+		encoding string
+		encode   func(*testing.T, []byte) []byte
+	}{
+		{name: "gzip", encoding: "gzip", encode: gzipFixture},
+		{name: "deflate", encoding: "deflate", encode: func(t *testing.T, body []byte) []byte { return deflateFixture(t, body, false) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encodedBody := test.encode(t, responseBody)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("Content-Encoding", test.encoding)
+				_, _ = writer.Write(encodedBody)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{principal: fixturePrincipal()}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			request := httptest.NewRequest(http.MethodGet, "/Items/item-1/PlaybackInfo?UserId=emby-user-1", nil)
+			request.Header.Set(accessTokenHeader, fixtureAccessToken)
+			request.Header.Set("Accept-Encoding", test.encoding)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), encodedBody) || response.Header().Get("Content-Encoding") != test.encoding {
+				t.Fatalf("response=%d encoding=%q bodyLength=%d", response.Code, response.Header().Get("Content-Encoding"), response.Body.Len())
+			}
+			if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); !ok {
+				t.Fatal("encoded PlaybackInfo did not record proof")
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, string(responseBody), "/private/media/one.mkv")
+		})
+	}
+}
+
 func TestGatewayPlaybackInfoIneligibleRequestRemainsTransparentWithoutProof(t *testing.T) {
 	responseBody := `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"SupportsDirectPlay":true}],"PlaySessionId":"session-1"}`
 	tests := []struct {
@@ -877,7 +955,7 @@ func TestExtractProtectedAccessTokenUsesOneConsistentVersionedSource(t *testing.
 	}
 }
 
-func TestGatewayProtectedRequestDoesNotAcceptAPIKeyQuery(t *testing.T) {
+func TestGatewayProtectedRequestAcceptsMappedAPIKeyQuery(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		upstreamCalls.Add(1)
@@ -885,22 +963,74 @@ func TestGatewayProtectedRequestDoesNotAcceptAPIKeyQuery(t *testing.T) {
 	}))
 	defer upstream.Close()
 
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
 	var logs bytes.Buffer
-	gateway := newTestGateway(t, upstream.URL, &fakeTokenService{}, &logs)
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 	request := httptest.NewRequest(http.MethodGet, "/Users/emby-user-1/Views?api_key="+fixtureAccessToken, nil)
-	request.Header.Set(accessTokenHeader, fixtureAccessToken)
 	response := httptest.NewRecorder()
 	gateway.ServeHTTP(response, request)
 
-	if response.Code != http.StatusUnauthorized || upstreamCalls.Load() != 0 {
-		t.Fatalf("response=%d upstreamCalls=%d, want local 401", response.Code, upstreamCalls.Load())
+	if response.Code != http.StatusNoContent || upstreamCalls.Load() != 1 {
+		t.Fatalf("response=%d upstreamCalls=%d, want proxied 204", response.Code, upstreamCalls.Load())
 	}
-	for _, expected := range []string{"code=token_header_invalid", "reasonCode=token_invalid", "apiKeyQueryPresent=true"} {
+	_, resolved := tokenService.snapshot()
+	if len(resolved) != 1 || resolved[0] != fixtureAccessToken {
+		t.Fatalf("resolved tokens = %#v", resolved)
+	}
+	for _, expected := range []string{"statusCode=204", "outcome=success", "apiKeyQueryPresent=true", "queryTokenSourceCount=1", "queryTokenState=present"} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("logs = %q, want %s", logs.String(), expected)
 		}
 	}
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+}
+
+func TestExtractProtectedRequestAccessTokenSupportsCompatibleCarriers(t *testing.T) {
+	tests := []struct {
+		name       string
+		target     string
+		headers    http.Header
+		wantToken  string
+		wantReason string
+		wantAccept bool
+	}{
+		{name: "api_key query", target: "/Items/fixture?api_key=" + fixtureAccessToken, wantToken: fixtureAccessToken, wantAccept: true},
+		{name: "mixed case api key query", target: "/Items/fixture?API_KEY=" + fixtureAccessToken, wantToken: fixtureAccessToken, wantAccept: true},
+		{name: "X-Emby-Token query", target: "/Items/fixture?x-emby-token=" + fixtureAccessToken, wantToken: fixtureAccessToken, wantAccept: true},
+		{name: "X-MediaBrowser-Token query", target: "/Items/fixture?X-MediaBrowser-Token=" + fixtureAccessToken, wantToken: fixtureAccessToken, wantAccept: true},
+		{name: "AccessToken query", target: "/Items/fixture?AccessToken=" + fixtureAccessToken, wantToken: fixtureAccessToken, wantAccept: true},
+		{
+			name: "X-MediaBrowser-Token header", target: "/Items/fixture",
+			headers: http.Header{http.CanonicalHeaderKey(mediaBrowserTokenHeader): {fixtureAccessToken}}, wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "X-MediaBrowser-Authorization embedded token", target: "/Items/fixture",
+			headers:   http.Header{http.CanonicalHeaderKey(mediaBrowserAuthorizationHeader): {mediaBrowserAuthorizationWithToken(fixtureAccessToken)}},
+			wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "header and query match", target: "/Items/fixture?api_key=" + fixtureAccessToken,
+			headers: http.Header{accessTokenHeader: {fixtureAccessToken}}, wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "header and query conflict", target: "/Items/fixture?api_key=conflicting-token",
+			headers: http.Header{accessTokenHeader: {fixtureAccessToken}}, wantReason: "token_ambiguous",
+		},
+		{name: "duplicate query value", target: "/Items/fixture?api_key=a&api_key=a", wantReason: "token_ambiguous"},
+		{name: "duplicate query alias case", target: "/Items/fixture?api_key=a&API_KEY=a", wantReason: "token_ambiguous"},
+		{name: "empty query token", target: "/Items/fixture?api_key=", wantReason: "token_invalid"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.target, nil)
+			request.Header = test.headers.Clone()
+			token, reasonCode, accepted := extractProtectedRequestAccessToken(request)
+			if token != test.wantToken || reasonCode != test.wantReason || accepted != test.wantAccept {
+				t.Fatalf("result=(%q,%q,%t), want (%q,%q,%t)", token, reasonCode, accepted, test.wantToken, test.wantReason, test.wantAccept)
+			}
+		})
+	}
 }
 
 func TestGatewayRequestCompletionLogsSanitizedAuthenticationShape(t *testing.T) {
@@ -1023,7 +1153,14 @@ func TestApplicationAuthorizationDiagnosticsHandlesEitherHeaderWithoutSecrets(t 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			scheme, tokenState := applicationAuthorizationDiagnostics(test.xEmbyValues, test.standardValues)
+			header := make(http.Header)
+			for _, value := range test.xEmbyValues {
+				header.Add(embyAuthorizationHeader, value)
+			}
+			for _, value := range test.standardValues {
+				header.Add(standardAuthorizationHeader, value)
+			}
+			scheme, tokenState := applicationAuthorizationDiagnostics(header)
 			if scheme != test.wantScheme || tokenState != test.wantTokenState {
 				t.Fatalf("diagnostics=(%s,%s), want (%s,%s)", scheme, tokenState, test.wantScheme, test.wantTokenState)
 			}
@@ -1051,10 +1188,40 @@ func TestRequestLogInfrastructurePreservesWriterAndBoundsInput(t *testing.T) {
 			"User-Agent":      {"Infuse-Direct/8.5 with-untrusted-suffix"},
 		},
 	}
+	request.Header.Set(mediaBrowserTokenHeader, fixtureAccessToken)
+	request.Header.Set(mediaBrowserAuthorizationHeader, mediaBrowserAuthorizationWithToken(fixtureAccessToken))
 	snapshot := captureRequestLogSnapshot(request)
 	if snapshot.path != "" || snapshot.apiKeyQueryPresent || snapshot.xEmbyTokenState != "ambiguous" ||
-		snapshot.userAgentFamily != "infuse_direct" || snapshot.userAgentVersion != "invalid" {
+		snapshot.xMediaBrowserTokenCount != 1 || snapshot.xMediaBrowserTokenState != "present" ||
+		snapshot.xMediaAuthorizationCount != 1 || snapshot.applicationScheme != "media_browser" || snapshot.embeddedTokenState != "present" ||
+		snapshot.userAgentFamily != "infuse_direct" || snapshot.userAgentVersion != "8.5" {
 		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}
+
+func TestUserAgentDiagnosticsRecognizesClientFamiliesWithoutRawSuffix(t *testing.T) {
+	tests := []struct {
+		userAgent   string
+		wantFamily  string
+		wantVersion string
+	}{
+		{userAgent: "Infuse-Library/8.5", wantFamily: "infuse_library", wantVersion: "8.5"},
+		{userAgent: "SenPlayer/3.1", wantFamily: "senplayer", wantVersion: "3.1"},
+		{userAgent: "Yamby/1.2.0", wantFamily: "yamby", wantVersion: "1.2.0"},
+		{userAgent: "VidHub/1.7.6", wantFamily: "vidhub", wantVersion: "1.7.6"},
+		{userAgent: "Fileball/238 CFNetwork/1410.0.3 Darwin/22.6.0", wantFamily: "fileball", wantVersion: "238"},
+		{userAgent: "Conflux/1.2.0 (app.svn.Conflux; build:1200)", wantFamily: "conflux", wantVersion: "1.2.0"},
+		{userAgent: "Emby/3.2.32-17.41 (Linux;Android 14)", wantFamily: "emby", wantVersion: "3.2.32-17.41"},
+		{userAgent: "Yamby/fixture-access-token", wantFamily: "yamby", wantVersion: "invalid"},
+		{userAgent: "Mozilla/5.0 token-like-private-value", wantFamily: "other"},
+	}
+	for _, test := range tests {
+		t.Run(test.wantFamily, func(t *testing.T) {
+			family, version := userAgentDiagnostics(test.userAgent)
+			if family != test.wantFamily || version != test.wantVersion {
+				t.Fatalf("diagnostics=(%q,%q), want (%q,%q)", family, version, test.wantFamily, test.wantVersion)
+			}
+		})
 	}
 }
 
@@ -1191,6 +1358,43 @@ func TestGatewayProtectedRequestFailsClosedWithoutCallingUpstream(t *testing.T) 
 	}
 }
 
+func TestGatewayDistinguishesCanceledIdentityLookupFromStoreOutage(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "request canceled", err: context.Canceled, wantStatus: 499, wantCode: "token_request_canceled"},
+		{name: "deadline exceeded", err: context.DeadlineExceeded, wantStatus: http.StatusGatewayTimeout, wantCode: "token_request_deadline_exceeded"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, &fakeTokenService{resolveErr: test.err}, &logs)
+			request := httptest.NewRequest(http.MethodGet, "/Items/fixture", nil)
+			request.Header.Set(accessTokenHeader, fixtureAccessToken)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != test.wantStatus || upstreamCalls.Load() != 0 {
+				t.Fatalf("response=%d upstreamCalls=%d, want local %d", response.Code, upstreamCalls.Load(), test.wantStatus)
+			}
+			if !strings.Contains(logs.String(), "code="+test.wantCode) || strings.Contains(logs.String(), "code=token_store_unavailable") {
+				t.Fatalf("logs=%q", logs.String())
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+		})
+	}
+}
+
 func TestGatewayUpstreamFailureIsSanitized(t *testing.T) {
 	tokenService := &fakeTokenService{}
 	var logs bytes.Buffer
@@ -1264,6 +1468,74 @@ func TestGatewayPublicBootstrapUsesApplicationHeaderWithoutTokenMapping(t *testi
 				t.Fatalf("token service calls: recorded=%d resolved=%d", len(recorded), len(resolved))
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization)
+		})
+	}
+}
+
+func TestGatewayPublicBootstrapAcceptsMappedTokenCarrier(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.URL.RequestURI() != "/emby/users/public?API_KEY="+fixtureAccessToken {
+			t.Fatalf("upstream request=%s", request.URL.RequestURI())
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/users/public?API_KEY="+fixtureAccessToken, nil)
+	request.Header.Set(embyAuthorizationHeader, fixtureApplicationAuthorization)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent || upstreamCalls.Load() != 1 {
+		t.Fatalf("response=%d upstreamCalls=%d", response.Code, upstreamCalls.Load())
+	}
+	_, resolved := tokenService.snapshot()
+	if len(resolved) != 1 || resolved[0] != fixtureAccessToken {
+		t.Fatalf("resolved tokens=%#v", resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+}
+
+func TestGatewayAuthenticationRejectsExternalTokenCarriers(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		header string
+	}{
+		{name: "direct token header", target: authenticationPath, header: fixtureAccessToken},
+		{name: "query token", target: authenticationPath + "?api_key=" + fixtureAccessToken},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, &fakeTokenService{}, &logs)
+			request := httptest.NewRequest(http.MethodPost, test.target, strings.NewReader(`{"Username":"user"}`))
+			request.Header.Set(embyAuthorizationHeader, fixtureApplicationAuthorization)
+			if test.header != "" {
+				request.Header.Set(accessTokenHeader, test.header)
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusUnauthorized || upstreamCalls.Load() != 0 {
+				t.Fatalf("response=%d upstreamCalls=%d", response.Code, upstreamCalls.Load())
+			}
+			if !strings.Contains(logs.String(), "code=authentication_token_invalid") {
+				t.Fatalf("logs=%q", logs.String())
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 		})
 	}
 }
@@ -1346,6 +1618,14 @@ func TestExtractApplicationMetadataUsesStrictVersionedHeader(t *testing.T) {
 			},
 			want: AuthenticationMetadata{DeviceID: "device-1", ClientName: "Infuse"}, wantAccept: true,
 		},
+		{
+			name: "MediaBrowser compatibility header", headers: func() http.Header {
+				header := make(http.Header)
+				header.Set(mediaBrowserAuthorizationHeader, fixtureMediaBrowserAuthorization)
+				return header
+			}(),
+			want: AuthenticationMetadata{DeviceID: "device-1", ClientName: "Infuse"}, wantAccept: true,
+		},
 		{name: "missing required field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Device="iPhone", Version="8.0"`}}},
 		{name: "duplicate field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Client="Other", Device="iPhone", DeviceId="device-1", Version="8.0"`}}},
 		{name: "unknown field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Language="zh"`}}},
@@ -1405,7 +1685,7 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 		{method: http.MethodPost, path: authenticationPath, want: routeAuthentication},
 		{method: http.MethodGet, path: authenticationPath, want: routeProtected},
 		{method: http.MethodPost, path: authenticationPath + "/", want: routeProtected},
-		{method: http.MethodPost, path: "/emby/users/authenticatebyname", want: routeProtected},
+		{method: http.MethodPost, path: "/emby/users/authenticatebyname", want: routeAuthentication},
 		{method: http.MethodPost, path: "/emby%2FUsers%2FAuthenticateByName", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Users/Public", want: routePublicBootstrap},
 		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary", want: routePublicBootstrap},
@@ -1418,7 +1698,7 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 		{method: http.MethodHead, path: "/emby/System/Info/Public", want: routeProtected},
 		{method: http.MethodPost, path: "/emby/System/Info/Public", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/System/Info/Public/", want: routeProtected},
-		{method: http.MethodGet, path: "/emby/system/info/public", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/system/info/public", want: routeSystemInfoPublic},
 		{method: http.MethodGet, path: "/emby/System%2FInfo%2FPublic", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
 		{method: http.MethodPost, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},

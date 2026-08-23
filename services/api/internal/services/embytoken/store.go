@@ -3,6 +3,8 @@ package embytoken
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"log"
 	"time"
@@ -21,12 +23,15 @@ type gormMappingStore struct {
 // FindUserByEmbyID resolves the unique local binding for an Emby user ID.
 func (store *gormMappingStore) FindUserByEmbyID(ctx context.Context, embyUserID string) (*models.User, error) {
 	var user models.User
-	err := store.database(ctx).Where("emby_id = ?", embyUserID).First(&user).Error
+	err := executeMappingStoreRead(ctx, func() error {
+		user = models.User{}
+		return store.database(ctx).Where("emby_id = ?", embyUserID).First(&user).Error
+	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
-		return nil, safeMappingStoreError("find_user_by_emby_id", err)
+		return nil, safeMappingStoreError("find_user_by_emby_id", err, store.db)
 	}
 	return &user, nil
 }
@@ -34,12 +39,15 @@ func (store *gormMappingStore) FindUserByEmbyID(ctx context.Context, embyUserID 
 // FindUserByID reloads current authorization state for one mapped user.
 func (store *gormMappingStore) FindUserByID(ctx context.Context, userID string) (*models.User, error) {
 	var user models.User
-	err := store.database(ctx).Where("id = ?", userID).First(&user).Error
+	err := executeMappingStoreRead(ctx, func() error {
+		user = models.User{}
+		return store.database(ctx).Where("id = ?", userID).First(&user).Error
+	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
-		return nil, safeMappingStoreError("find_user_by_id", err)
+		return nil, safeMappingStoreError("find_user_by_id", err, store.db)
 	}
 	return &user, nil
 }
@@ -95,7 +103,7 @@ func (store *gormMappingStore) UpsertMapping(ctx context.Context, input upsertMa
 		return tx.Where("id = ?", mappingID).First(&mapping).Error
 	})
 	if err != nil {
-		return nil, safeMappingStoreError("upsert_mapping", err)
+		return nil, safeMappingStoreError("upsert_mapping", err, store.db)
 	}
 	return &mapping, nil
 }
@@ -104,12 +112,15 @@ func (store *gormMappingStore) UpsertMapping(ctx context.Context, input upsertMa
 // an explicit revoked error instead of treating revocation as absence.
 func (store *gormMappingStore) FindMapping(ctx context.Context, serverID string, tokenHash []byte) (*models.EmbyAccessToken, error) {
 	var mapping models.EmbyAccessToken
-	err := store.database(ctx).Where("server_id = ? AND token_hash = ?", serverID, tokenHash).First(&mapping).Error
+	err := executeMappingStoreRead(ctx, func() error {
+		mapping = models.EmbyAccessToken{}
+		return store.database(ctx).Where("server_id = ? AND token_hash = ?", serverID, tokenHash).First(&mapping).Error
+	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrTokenNotFound
 	}
 	if err != nil {
-		return nil, safeMappingStoreError("find_mapping", err)
+		return nil, safeMappingStoreError("find_mapping", err, store.db)
 	}
 	if !bytes.Equal(mapping.TokenHash, tokenHash) {
 		return nil, ErrTokenNotFound
@@ -124,7 +135,7 @@ func (store *gormMappingStore) TouchLastSeen(ctx context.Context, mappingID stri
 		Where("id = ? AND revoked_at IS NULL AND last_seen_at < ?", mappingID, cutoff).
 		Updates(map[string]interface{}{"last_seen_at": at, "updated_at": at})
 	if result.Error != nil {
-		return safeMappingStoreError("touch_last_seen", result.Error)
+		return safeMappingStoreError("touch_last_seen", result.Error, store.db)
 	}
 	return nil
 }
@@ -168,7 +179,7 @@ func (store *gormMappingStore) revoke(_ context.Context, query *gorm.DB, input r
 		"revoked_by": input.RevokedBy, "updated_at": input.At,
 	})
 	if result.Error != nil {
-		result.Error = safeMappingStoreError("revoke", result.Error)
+		result.Error = safeMappingStoreError("revoke", result.Error, store.db)
 	}
 	return result
 }
@@ -179,19 +190,92 @@ func (store *gormMappingStore) database(ctx context.Context) *gorm.DB {
 	return store.db.Session(&gorm.Session{Logger: gormlogger.Default.LogMode(gormlogger.Silent)}).WithContext(ctx)
 }
 
-// safeMappingStoreError preserves domain errors and reduces storage failures
-// to bounded diagnostics without SQL values.
-func safeMappingStoreError(operation string, err error) error {
+// executeMappingStoreRead retries one idempotent read only when the driver
+// guarantees that the failed attempt did not reach the server.
+func executeMappingStoreRead(ctx context.Context, read func() error) error {
+	if read == nil {
+		return ErrStoreUnavailable
+	}
+	err := read()
+	if err == nil {
+		return nil
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || !retryableMappingStoreReadError(err) {
+		return err
+	}
+	return read()
+}
+
+// retryableMappingStoreReadError accepts only connection errors that are safe
+// before any server-side execution; PostgreSQL response errors are not retried.
+func retryableMappingStoreReadError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return false
+	}
+	return errors.Is(err, driver.ErrBadConn) || pgconn.SafeToRetry(err)
+}
+
+// mappingStoreErrorReason maps failures to fixed labels without using error
+// text, SQL arguments, Token digests or connection strings.
+func mappingStoreErrorReason(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "context_canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, driver.ErrBadConn):
+		return "bad_connection"
+	default:
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			return "postgres"
+		}
+		return "unknown"
+	}
+}
+
+// safeMappingStoreError preserves request termination and domain errors, then
+// reduces actual storage failures to bounded diagnostics without SQL values.
+func safeMappingStoreError(operation string, err error, database *gorm.DB) error {
 	if err == nil || errors.Is(err, ErrUserNotFound) || errors.Is(err, ErrTokenNotFound) ||
 		errors.Is(err, ErrTokenIdentityConflict) || errors.Is(err, ErrStoreUnavailable) {
 		return err
 	}
+	reasonCode := mappingStoreErrorReason(err)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		log.Printf("[EmbyTokenStore] 请求已终止 operation=%s reasonCode=%s errorType=%T", operation, reasonCode, err)
+		return err
+	}
+	stats, statsAvailable := mappingStorePoolStats(database)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		log.Printf("[EmbyTokenStore] 数据库操作失败 operation=%s code=%s constraint=%s",
-			operation, pgErr.Code, pgErr.ConstraintName)
+		log.Printf("[EmbyTokenStore] 数据库操作失败 operation=%s reasonCode=%s code=%s constraint=%s poolAvailable=%t poolMaxOpen=%d poolOpen=%d poolInUse=%d poolIdle=%d poolWaitCount=%d poolWaitMs=%d",
+			operation, reasonCode, pgErr.Code, pgErr.ConstraintName, statsAvailable, stats.MaxOpenConnections,
+			stats.OpenConnections, stats.InUse, stats.Idle, stats.WaitCount, stats.WaitDuration.Milliseconds())
 	} else {
-		log.Printf("[EmbyTokenStore] 存储操作失败 operation=%s errorType=%T", operation, err)
+		log.Printf("[EmbyTokenStore] 存储操作失败 operation=%s reasonCode=%s errorType=%T poolAvailable=%t poolMaxOpen=%d poolOpen=%d poolInUse=%d poolIdle=%d poolWaitCount=%d poolWaitMs=%d",
+			operation, reasonCode, err, statsAvailable, stats.MaxOpenConnections, stats.OpenConnections,
+			stats.InUse, stats.Idle, stats.WaitCount, stats.WaitDuration.Milliseconds())
 	}
 	return ErrStoreUnavailable
+}
+
+// mappingStorePoolStats returns only database/sql counters and never exposes a
+// DSN, host, SQL statement or argument.
+func mappingStorePoolStats(database *gorm.DB) (sql.DBStats, bool) {
+	if database == nil {
+		return sql.DBStats{}, false
+	}
+	sqlDB, err := database.DB()
+	if err != nil || sqlDB == nil {
+		return sql.DBStats{}, false
+	}
+	return sqlDB.Stats(), true
 }

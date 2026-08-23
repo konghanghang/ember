@@ -149,6 +149,7 @@ func TestGatewayVideoStreamAndFileNameShapesRedirect(t *testing.T) {
 		{name: "query container stream", method: http.MethodGet, target: "/emby/Videos/item-1/stream?Container=mkv&MediaSourceId=source-1&PlaySessionId=session-1&Static=true"},
 		{name: "original file name", method: http.MethodHead, target: "/emby/Videos/item-1/fixture.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true"},
 		{name: "root path stream", method: http.MethodGet, target: "/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true"},
+		{name: "lowercase path and query", method: http.MethodGet, target: "/videos/item-1/STREAM.MKV?mediasourceid=source-1&playsessionid=session-1&static=TRUE"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

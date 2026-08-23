@@ -13,8 +13,8 @@ const (
 	requestPathModePassthrough  requestPathMode = "passthrough"
 )
 
-// normalizeEmbyAPIPath maps the root API paths emitted by Emby clients onto
-// the upstream /emby base while leaving Web and unknown root surfaces alone.
+// normalizeEmbyAPIPath maps case-insensitive root API families emitted by Emby
+// clients onto the upstream /emby base while leaving Web and unknown surfaces.
 // It mutates only URL.Path; method, query, headers and body remain untouched.
 func normalizeEmbyAPIPath(request *http.Request) (requestPathMode, bool) {
 	if request == nil || request.URL == nil {
@@ -24,10 +24,16 @@ func normalizeEmbyAPIPath(request *http.Request) (requestPathMode, bool) {
 	if request.URL.EscapedPath() != requestPath {
 		return requestPathModePassthrough, true
 	}
-	if requestPath == "/emby/emby" || strings.HasPrefix(requestPath, "/emby/emby/") {
-		return requestPathModeEmbyPrefixed, false
-	}
-	if requestPath == "/emby" || strings.HasPrefix(requestPath, "/emby/") {
+	segments := strings.Split(requestPath, "/")
+	if len(segments) >= 2 && strings.EqualFold(segments[1], "emby") {
+		if len(segments) >= 3 && strings.EqualFold(segments[2], "emby") {
+			return requestPathModeEmbyPrefixed, false
+		}
+		if segments[1] != "emby" {
+			segments[1] = "emby"
+			request.URL.Path = strings.Join(segments, "/")
+			request.URL.RawPath = ""
+		}
 		return requestPathModeEmbyPrefixed, true
 	}
 	if !isEmbyRootAPIPath(requestPath) {
@@ -38,9 +44,8 @@ func normalizeEmbyAPIPath(request *http.Request) (requestPathMode, bool) {
 	return requestPathModeRoot, true
 }
 
-// isEmbyRootAPIPath recognizes the union of top-level API families from the
-// supported stable Emby 4.9 OpenAPI tags. The ambiguous root /web surface is
-// excluded until its static-resource and WebSocket contract is implemented.
+// isEmbyRootAPIPath recognizes the case-insensitive union of top-level API
+// families from supported stable Emby 4.9 tags. Root /web stays separate.
 func isEmbyRootAPIPath(requestPath string) bool {
 	if len(requestPath) < 2 || requestPath[0] != '/' {
 		return false
@@ -49,16 +54,16 @@ func isEmbyRootAPIPath(requestPath string) bool {
 	if separator := strings.IndexByte(segment, '/'); separator >= 0 {
 		segment = segment[:separator]
 	}
-	switch segment {
-	case "Albums", "Artists", "Audio", "AudioBooks", "AudioCodecs", "AudioLayouts",
-		"Auth", "BackupRestore", "Branding", "Channels", "Collections", "Connect",
-		"Containers", "Devices", "DisplayPreferences", "Dlna", "Encoding", "Environment",
-		"ExtendedVideoTypes", "Features", "GameGenres", "Games", "Genres", "Images",
-		"ItemTypes", "Items", "Libraries", "Library", "LiveStreams", "LiveTv", "Localization",
-		"Movies", "MusicGenres", "Notifications", "OfficialRatings", "Packages", "Parties",
-		"Persons", "Playback", "Playlists", "Plugins", "Providers", "ScheduledTasks", "Sessions",
-		"Shows", "Songs", "StreamLanguages", "Studios", "SubtitleCodecs", "Sync", "System",
-		"Tags", "Trailers", "UI", "UserSettings", "Users", "VideoCodecs", "Videos", "Years",
+	switch strings.ToLower(segment) {
+	case "albums", "artists", "audio", "audiobooks", "audiocodecs", "audiolayouts",
+		"auth", "backuprestore", "branding", "channels", "collections", "connect",
+		"containers", "devices", "displaypreferences", "dlna", "encoding", "environment",
+		"extendedvideotypes", "features", "gamegenres", "games", "genres", "images",
+		"itemtypes", "items", "libraries", "library", "livestreams", "livetv", "localization",
+		"movies", "musicgenres", "notifications", "officialratings", "packages", "parties",
+		"persons", "playback", "playlists", "plugins", "providers", "scheduledtasks", "sessions",
+		"shows", "songs", "streamlanguages", "studios", "subtitlecodecs", "sync", "system",
+		"tags", "trailers", "ui", "usersettings", "users", "videocodecs", "videos", "years",
 		"openapi", "openapi.json", "swagger", "swagger.json":
 		return true
 	default:

@@ -20,10 +20,13 @@ func TestNormalizeEmbyAPIPathUsesVersionedRootFamilies(t *testing.T) {
 		{name: "session root", target: "/Sessions/Playing/Progress", wantPath: "/emby/Sessions/Playing/Progress", wantMode: requestPathModeRoot, wantOK: true},
 		{name: "openapi root", target: "/openapi.json", wantPath: "/emby/openapi.json", wantMode: requestPathModeRoot, wantOK: true},
 		{name: "existing prefix", target: "/emby/Items/item-1", wantPath: "/emby/Items/item-1", wantMode: requestPathModeEmbyPrefixed, wantOK: true},
+		{name: "lowercase root family", target: "/videos/item-1/stream.mkv", wantPath: "/emby/videos/item-1/stream.mkv", wantMode: requestPathModeRoot, wantOK: true},
+		{name: "mixed case prefix", target: "/EmBy/items/item-1/playbackinfo", wantPath: "/emby/items/item-1/playbackinfo", wantMode: requestPathModeEmbyPrefixed, wantOK: true},
 		{name: "web surface remains separate", target: "/web/index.html", wantPath: "/web/index.html", wantMode: requestPathModePassthrough, wantOK: true},
 		{name: "unknown surface remains separate", target: "/favicon.ico", wantPath: "/favicon.ico", wantMode: requestPathModePassthrough, wantOK: true},
 		{name: "escaped special path is not normalized", target: "/System%2FInfo%2FPublic", wantPath: "/System/Info/Public", wantMode: requestPathModePassthrough, wantOK: true},
 		{name: "duplicate prefix", target: "/emby/emby/System/Info", wantPath: "/emby/emby/System/Info", wantMode: requestPathModeEmbyPrefixed},
+		{name: "mixed case duplicate prefix", target: "/EmBy/EMBY/System/Info", wantPath: "/EmBy/EMBY/System/Info", wantMode: requestPathModeEmbyPrefixed},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -51,6 +54,10 @@ func TestNormalizeEmbyAPIPathFeedsExistingSpecialRouteClassifiers(t *testing.T) 
 		{method: http.MethodGet, path: "/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
 		{method: http.MethodGet, path: "/Videos/item-1/stream.mkv", want: routeVideo},
 		{method: http.MethodPost, path: "/Sessions/Playing/Progress", want: routeProtected},
+		{method: http.MethodGet, path: "/system/info/public", want: routeSystemInfoPublic},
+		{method: http.MethodPost, path: "/users/authenticatebyname", want: routeAuthentication},
+		{method: http.MethodGet, path: "/items/item-1/playbackinfo", want: routePlaybackInfo},
+		{method: http.MethodGet, path: "/videos/item-1/STREAM.MKV", want: routeVideo},
 	}
 	for _, test := range tests {
 		request := httptest.NewRequest(test.method, test.path, nil)

@@ -152,7 +152,7 @@ stateDiagram-v2
 
 ```mermaid
 sequenceDiagram
-    participant Client as Infuse
+    participant Client as Emby Client
     participant Gateway as ember-gateway
     participant Emby as Emby 4.9.x
     participant Token as EmbyTokenService
@@ -179,29 +179,30 @@ sequenceDiagram
 关键语义：
 
 - Emby 登录响应始终是客户端真相；旁路映射失败不能改写 Emby 成功响应。
-- 固定 OpenAPI API family 的 root path 与已有 `/emby/...` 共用同一门控和处理器；重复 `/emby/emby/...` 失败关闭，根 `/web/...` 留给后续 Web Surface 合同。
+- 固定 OpenAPI API family 的 root path 与已有 `/emby/...` 共用同一门控和处理器；family/前缀大小写不敏感，重复 `/emby/emby/...`、尾斜杠、额外层级和 alternate escaping 失败关闭，根 `/web/...` 留给后续 Web Surface 合同。
 - `System/Info/Public` 是唯一不要求已映射 AccessToken 和应用头的登录前公开接口；Gateway 只规范化并透明转发，其他 bootstrap 不随之放宽。
 - 数据库只保存 32 字节 Token HMAC，不保存 AccessToken 明文。
-- 后续受保护请求接受唯一 `X-Emby-Token`，或严格 Emby/MediaBrowser 应用头中的非空 Token；双来源仅同值接受，冲突、重复和非法格式失败关闭。任何 query `api_key` 都直接拒绝，避免 Gateway 与 Emby 选择不同身份；Quick Connect/PIN 不进入 Gateway 身份来源。
+- 后续受保护请求按 [客户端兼容矩阵](./emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格应用头和固定 query aliases；所有非空来源同值才接受，空值、重复、冲突和非法格式失败关闭。任意 Bearer、Quick Connect/PIN 不进入 Gateway 身份来源。
+- Store 请求取消/deadline 分别返回 `499/504`，只有 driver 保证未发送到 PostgreSQL 的幂等读错误才重试一次；真正存储失败继续 `503` 并记录脱敏连接池统计。
 - 用户停用、Emby 禁用、访问禁用、解绑/删除和设备强制退出会写本地软撤销；普通到期使用实时资格拒绝，不永久撤销映射。
 
 ## 5. PlaybackInfo 短期证明
 
 ```mermaid
 sequenceDiagram
-    participant Client as Infuse
+    participant Client as Emby Client
     participant Gateway as ember-gateway
     participant Token as EmbyTokenService
     participant Emby as Emby
     participant Proof as 进程内证明缓存
 
     Client->>Gateway: GET/POST Items/{Id}/PlaybackInfo<br/>root 或 /emby 形态
-    Gateway->>Gateway: 提取唯一且一致的 Header Token 来源
+    Gateway->>Gateway: 提取唯一且一致的 Header/query Token 来源
     Gateway->>Token: ResolvePrincipal(AccessToken)
     Token-->>Gateway: Principal
     Gateway->>Emby: 原请求透明转发
-    Emby-->>Gateway: 200 application/json
-    Gateway->>Gateway: 有界旁路解析 PlaySessionId + MediaSources
+    Emby-->>Gateway: 200 application/json<br/>identity / gzip / deflate
+    Gateway->>Gateway: 保留原响应并有界解码旁路副本<br/>解析 PlaySessionId + MediaSources
     Gateway->>Proof: 记录 mapping/item/mediaSource/playSession
     Gateway-->>Client: Emby 原响应字节
 ```
@@ -218,12 +219,13 @@ mappingId + itemId + mediaSourceId + playSessionId
 
 ```mermaid
 flowchart TD
-    A[GET / HEAD 固定视频路径] --> B{唯一且一致的 Header Token 来源?}
+    A[GET / HEAD 固定视频路径] --> B{唯一且一致的 Header/query Token 来源?}
     B -- 否 --> R[reject<br/>401]
     B -- 是 --> C{ResolvePrincipal 成功?}
     C -- Token/身份失败 --> R
     C -- 用户硬状态/到期 --> R2[reject<br/>403]
     C -- 身份存储失败 --> R3[reject<br/>503]
+    C -- 请求取消 / deadline --> R4[reject<br/>499 / 504]
     C -- Principal 合法 --> D{固定静态播放形态?}
     D -- 否 --> F[fallback 原始请求到 Emby]
     D -- 是 --> E{近期 PlaybackInfo 证明匹配?}
@@ -360,11 +362,11 @@ reasonCode=<fixed-reason>
 
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
-| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、root 与 `/emby` API 规范化、`System/Info/Public` bootstrap、Infuse MediaBrowser 内嵌 Token、双来源一致/冲突、根路径认证/PlaybackInfo/视频/进度、Gateway redirect/fallback/reject | 真实 115 风控和新 Token 提取上线后的 Infuse 后续请求行为 |
+| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、root/`/emby` 与大小写路由、SystemInfoPublic、直接 Header/query/应用头 Token aliases、多来源一致/冲突、Yamby 空数组原字节保持、取消/deadline、PlaybackInfo/视频/进度和 Gateway 决策 | 真实 115 风控、SenPlayer/Yamby 等客户端实机行为和完整播放 |
 | PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 2026-08-23 已确认 root SystemInfoPublic 无登录语义、认证使用唯一 `X-Emby-Authorization: MediaBrowser ...`、成功响应使用 deflate JSON，并在认证映射后通过同一 Header 的非空 Token 请求 root `/Users/{Id}/Views`；四项兼容及 identity/gzip/deflate 旁路检查已完成 fake 验证，gzip 未做目标环境实测 | 新 Token 提取代码尚未完成目标环境复验；`Static`、PlaybackInfo、302、HEAD/Range、UA/IP 绑定与进度事件仍未确认 |
+| Gateway/Infuse | 2026-08-23 已确认 root SystemInfoPublic、MediaBrowser 认证、deflate JSON、内嵌 Token，以及 Views/VirtualFolders/DisplayPreferences/Items/Latest/Resume 普通资源 API 均经 Gateway 取得上游 `200` | `Static`、PlaybackInfo、302、HEAD/Range、字幕、UA/IP 绑定与进度事件仍未确认；旧日志中的两次 Store error 需用新 reasonCode 复验 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
@@ -376,12 +378,12 @@ reasonCode=<fixed-reason>
 
 【致命问题】
 
-- `P1-1`：SystemInfoPublic、MediaBrowser scheme、deflate 认证响应和内嵌 Token 已按真实 Emby/Infuse 证据修复，但新 Token 提取尚未在目标环境复验，115 资格请求合同仍未确认。
+- `P1-1`：Infuse 登录和普通资源代理已实机通过，但 PlaybackInfo、视频请求参数、302/HEAD/Range 和进度合同仍未实机确认。
 - `P1-2`：如果原始 Emby 公网入口未隔离，所有 Gateway 本地门控都可以被绕过。
 
 【改进方向】
 
-- 先部署内嵌 Token 修复并确认 `/Users/{Id}/Views` 成功，再继续 PlaybackInfo、视频、进度和会话/策略合同验收。
+- 先部署通用客户端矩阵与 Store 诊断，继续完成 PlaybackInfo、视频、字幕、进度和 115 `302` 合同验收。
 - 随后收口账号运行期健康回写、冷却、会话/并发和容量治理。
 
 问题总表：
@@ -389,19 +391,19 @@ reasonCode=<fixed-reason>
 | 优先级 | 问题 |
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
-| `P1` | `P1-1` 四项登录兼容已修复但新 Token 提取尚未实机复验；`P1-2` 原始 Emby 旁路风险 |
-| `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理 |
+| `P1` | `P1-1` 登录/资源已通过但播放合同未实机；`P1-2` 原始 Emby 旁路风险 |
+| `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理；`P2-5` 两次历史 Store error 根因待新日志复验 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
 
-#### 【P1-1】四项登录兼容已修复但新 Token 提取尚未复验
+#### 【P1-1】登录与普通资源已通过但播放合同尚未实机
 
-- 触发条件：目标环境仍运行要求 SystemInfoPublic 应用头、只接受 `Emby` scheme、直接把 gzip/deflate 字节作为 JSON 解析，或只读取 `X-Emby-Token` 的旧 Gateway。
-- 实际后果：Infuse 请求被本地门控阻断，或认证响应无法建立 Token 映射；后续受保护 API、PlaybackInfo、视频 fallback 和 115 资格分支不会执行。
+- 触发条件：目标客户端进入 PlaybackInfo、视频、字幕或进度路径后使用尚未实测的 path/query/Token 组合，或不接受 115 `302`/HEAD/Range 行为。
+- 实际后果：普通资源浏览虽然成功，但播放可能只能 fallback、无法形成证明、无法 302，或在客户端侧失败。
 - 定位：`services/api/internal/playbackgateway/routing.go`、`services/api/internal/playbackgateway/gateway.go`、`docs/reference/emby-playback-proxy-contract.md`。
-- 建议：本地重跑后确认 SystemInfoPublic 与 AuthenticateByName 仍为 `200`、`/Users/{Id}/Views` 不再本地 `401`，再验证 `Static`、`MediaSourceId`、`PlaySessionId` 和视频路径。
-- 证据边界：SystemInfoPublic、MediaBrowser scheme、deflate 和登录后内嵌 Token 已由目标环境证明；Gateway 的 identity/gzip/deflate 与统一 Token 提取已有 fake 证据，其中 gzip 和新提取实现未做目标环境成功复验，PlaybackInfo/视频仍未证实。
+- 建议：使用新日志依次确认 PlaybackInfo 的 `MediaSourceId/PlaySessionId`、视频 `Static/Container`、302、HEAD/Range、字幕和 Playing/Progress/Stopped。
+- 证据边界：Infuse 登录与普通资源 API 已由目标环境证明；通用载体/大小写/Yamby 响应保持只有 fake/上游源码证据，PlaybackInfo/视频仍未证实。
 
 #### 【P1-2】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
 
@@ -440,6 +442,13 @@ reasonCode=<fixed-reason>
 - 定位：DirectPlay 生产接口刻意不包含 `DeleteFile`，Stopped/TTL 没有清理调用方。
 - 建议：保留首期“不自动删”不变；阶段 2 基于 `lastAccessedAt + 无活跃会话 + 容量水位` 做串行清理，默认 dry-run，并要求明确 provenance。
 
+#### 【P2-5】两次历史 Token Store error 的底层原因仍需新日志复验
+
+- 触发条件：Infuse 并发扫描 Items/Latest 时，旧日志分别在 `find_mapping` 和 `find_user_by_id` 记录 `*errors.errorString`。
+- 实际后果：对应请求被误写为 `503 token_store_unavailable`；旧日志无法区分客户端取消、deadline、坏连接或未知存储错误。
+- 定位：`services/api/internal/services/embytoken/store.go`、`services/api/internal/playbackgateway/gateway.go`。
+- 建议：部署新分类后观察固定 `reasonCode` 与 pool 统计；`context_canceled/deadline_exceeded` 不再算 Store outage，只有最终真实存储错误才继续按 `503` 处理。没有新运行证据前，不把历史两次失败断言为连接池耗尽。
+
 ### P3
 
 #### 【P3-1】playback 目标目录仍要求管理员手工填写内部 ID
@@ -450,8 +459,8 @@ reasonCode=<fixed-reason>
 
 ## 12. 建议的后续顺序
 
-1. 发布精确 SystemInfoPublic 无鉴权透明代理修复，复验上游 `200` 与 Infuse 用户名密码登录。
-2. 完成外部 HTTPS 和原始 Emby 隔离后，继续受控 Infuse 验收并固定 PlaybackInfo、视频和进度事件 fixture。
+1. 部署通用客户端矩阵与 Token Store 分类，确认 Infuse 扫库不再出现误导性 `503`，并取得真实失败时的固定 reason/pool 证据。
+2. 完成外部 HTTPS 和原始 Emby 隔离后，继续受控 Infuse 验收并固定 PlaybackInfo、视频、字幕和进度事件 fixture。
 3. 接入账号运行期健康回写和冷却，避免 115 故障时逐请求重试。
 4. 实现持久 session、事件/TTL、套餐开关和 Gateway 并发。
 5. 在 session 可证明“无活跃播放”后设计保留文件容量治理。

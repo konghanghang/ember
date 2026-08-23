@@ -179,7 +179,7 @@ func inspectVideoRequest(request *http.Request) videoRequestInfo {
 	info.MediaSourceID = mediaSourceID
 	info.PlaySessionID = playSessionID
 	info.Container = container
-	if !mediaSourceOK || !playSessionOK || !staticOK || staticValue != "true" {
+	if !mediaSourceOK || !playSessionOK || !staticOK || !strings.EqualFold(staticValue, "true") {
 		return info
 	}
 	info.Accelerated = true
@@ -188,15 +188,14 @@ func inspectVideoRequest(request *http.Request) videoRequestInfo {
 	return info
 }
 
-// videoPath recognizes only the three fixed GET/HEAD path shapes at one exact
-// segment depth. Escaped, trailing-slash and subtitle variants remain protected
-// ordinary routes.
+// videoPath recognizes the three fixed video shapes case-insensitively at one
+// exact depth. Escaped, trailing-slash and subtitle variants remain ordinary.
 func videoPath(requestURL *url.URL) videoPathInfo {
 	if requestURL == nil || requestURL.EscapedPath() != requestURL.Path {
 		return videoPathInfo{}
 	}
 	segments := strings.Split(requestURL.Path, "/")
-	if len(segments) != 5 || segments[0] != "" || segments[1] != "emby" || segments[2] != "Videos" ||
+	if len(segments) != 5 || segments[0] != "" || !strings.EqualFold(segments[1], "emby") || !strings.EqualFold(segments[2], "Videos") ||
 		!validProofValue(segments[3], maxProofItemIDBytes, false) ||
 		!validProofValue(segments[4], maxVideoStreamFileNameBytes, false) {
 		return videoPathInfo{}
@@ -208,15 +207,16 @@ func videoPath(requestURL *url.URL) videoPathInfo {
 // original media container from the fixed stream path variants.
 func acceleratedStreamContainer(streamFileName string, query url.Values) (string, bool) {
 	var container string
+	lowerFileName := strings.ToLower(streamFileName)
 	switch {
-	case streamFileName == "stream":
+	case lowerFileName == "stream":
 		value, ok := singleBoundedQueryValue(query, "Container", maxProofContainerBytes)
 		if !ok {
 			return "", false
 		}
 		container = value
-	case strings.HasPrefix(streamFileName, "stream."):
-		container = strings.TrimPrefix(streamFileName, "stream.")
+	case strings.HasPrefix(lowerFileName, "stream."):
+		container = strings.TrimPrefix(lowerFileName, "stream.")
 	default:
 		container = strings.TrimPrefix(path.Ext(streamFileName), ".")
 	}
@@ -232,11 +232,22 @@ func acceleratedStreamContainer(streamFileName string, query url.Values) (string
 	}
 }
 
-// singleBoundedQueryValue requires one exact query value before it can enter a
-// proof lookup key or decision log.
+// singleBoundedQueryValue accepts one case-insensitive logical key while
+// rejecting duplicate casing variants before values enter proof or log keys.
 func singleBoundedQueryValue(values url.Values, key string, maxBytes int) (string, bool) {
-	items, exists := values[key]
-	if !exists || len(items) != 1 || !validProofValue(items[0], maxBytes, false) {
+	var items []string
+	found := false
+	for candidateKey, candidateItems := range values {
+		if !strings.EqualFold(candidateKey, key) {
+			continue
+		}
+		if found {
+			return "", false
+		}
+		found = true
+		items = candidateItems
+	}
+	if !found || len(items) != 1 || !validProofValue(items[0], maxBytes, false) {
 		return "", false
 	}
 	return items[0], true

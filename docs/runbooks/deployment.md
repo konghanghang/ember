@@ -33,12 +33,20 @@ map $http_upgrade $ember_connection_upgrade {
     ''      close;
 }
 
+# Emby 客户端可能把 AccessToken 放在 query。这里只记录 $uri，禁止使用
+# 会展开 query value 的 $request、$request_uri 或 $args。
+log_format ember_gateway_safe '$remote_addr - $host [$time_local] '
+                              '"$request_method $uri $server_protocol" '
+                              '$status $body_bytes_sent $request_time';
+
 server {
     listen 443 ssl;
     server_name emby.example.com;
 
     # ssl_certificate /path/to/fullchain.pem;
     # ssl_certificate_key /path/to/privkey.pem;
+
+    access_log /var/log/nginx/ember-gateway-access.log ember_gateway_safe;
 
     location / {
         proxy_pass http://127.0.0.1:8081;
@@ -57,7 +65,7 @@ server {
 }
 ```
 
-必须代理 `/` 下的完整 Emby 请求面，不能只代理 `/Videos/`；认证、public bootstrap、PlaybackInfo、字幕和播放事件都要经过 Gateway。外部代理不应自行改写 `Range`、`Location` 或 `X-Emby-*` Header。确认新公网入口可用后，再从公网防火墙或原反向代理中移除原始 Emby 入口。
+必须代理 `/` 下的完整 Emby 请求面，不能只代理 `/Videos/`；认证、public bootstrap、PlaybackInfo、字幕和播放事件都要经过 Gateway。外部代理不应自行改写 `Range`、`Location` 或 `X-Emby-*` Header。由于 `api_key`、`AccessToken`、`X-Emby-Token` 等 query carrier 属于兼容合同，Nginx/Caddy/CDN access log 都必须隐藏 query value；不能把示例中的安全格式改回默认完整 request URI。确认新公网入口可用后，再从公网防火墙或原反向代理中移除原始 Emby 入口。
 
 ## 最短路径
 

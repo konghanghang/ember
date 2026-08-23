@@ -2,6 +2,7 @@ package playbackgateway
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -28,11 +29,16 @@ type requestLogSnapshot struct {
 	queryKeysTruncated         bool
 	xEmbyTokenCount            int
 	xEmbyTokenState            string
+	xMediaBrowserTokenCount    int
+	xMediaBrowserTokenState    string
 	xEmbyAuthorizationCount    int
+	xMediaAuthorizationCount   int
 	standardAuthorizationCount int
 	applicationScheme          string
 	embeddedTokenState         string
 	apiKeyQueryPresent         bool
+	queryTokenSourceCount      int
+	queryTokenState            string
 	userAgentFamily            string
 	userAgentVersion           string
 }
@@ -82,19 +88,20 @@ func captureRequestLogSnapshot(request *http.Request) requestLogSnapshot {
 
 	path := ""
 	pathTruncated := false
+	queryTokenSourceCount := 0
+	queryTokenState := "missing"
 	apiKeyQueryPresent := false
 	if request.URL != nil {
 		path, pathTruncated = boundedRequestLogValue(request.URL.EscapedPath(), maxLoggedRequestPathBytes)
-		apiKeyQueryPresent = request.URL.Query().Has("api_key")
+		queryTokenSourceCount, queryTokenState, apiKeyQueryPresent = queryTokenDiagnostics(request.URL.Query())
 	}
 	queryKeys, queryKeyCount, queryKeysTruncated := requestQueryKeySummary(request)
 	xEmbyTokenValues := request.Header.Values(accessTokenHeader)
+	xMediaBrowserTokenValues := request.Header.Values(mediaBrowserTokenHeader)
 	xEmbyAuthorizationValues := request.Header.Values(embyAuthorizationHeader)
+	xMediaAuthorizationValues := request.Header.Values(mediaBrowserAuthorizationHeader)
 	standardAuthorizationValues := request.Header.Values(standardAuthorizationHeader)
-	applicationScheme, embeddedTokenState := applicationAuthorizationDiagnostics(
-		xEmbyAuthorizationValues,
-		standardAuthorizationValues,
-	)
+	applicationScheme, embeddedTokenState := applicationAuthorizationDiagnostics(request.Header)
 	userAgentFamily, userAgentVersion := userAgentDiagnostics(request.UserAgent())
 
 	return requestLogSnapshot{
@@ -107,11 +114,16 @@ func captureRequestLogSnapshot(request *http.Request) requestLogSnapshot {
 		queryKeysTruncated:         queryKeysTruncated,
 		xEmbyTokenCount:            len(xEmbyTokenValues),
 		xEmbyTokenState:            tokenValueState(xEmbyTokenValues),
+		xMediaBrowserTokenCount:    len(xMediaBrowserTokenValues),
+		xMediaBrowserTokenState:    tokenValueState(xMediaBrowserTokenValues),
 		xEmbyAuthorizationCount:    len(xEmbyAuthorizationValues),
+		xMediaAuthorizationCount:   len(xMediaAuthorizationValues),
 		standardAuthorizationCount: len(standardAuthorizationValues),
 		applicationScheme:          applicationScheme,
 		embeddedTokenState:         embeddedTokenState,
 		apiKeyQueryPresent:         apiKeyQueryPresent,
+		queryTokenSourceCount:      queryTokenSourceCount,
+		queryTokenState:            queryTokenState,
 		userAgentFamily:            userAgentFamily,
 		userAgentVersion:           userAgentVersion,
 	}
@@ -127,7 +139,7 @@ func (gateway *Gateway) logRequestCompletion(
 	startedAt time.Time,
 ) {
 	gateway.logger.Printf(
-		"[PlaybackGateway] code=request_completed method=%s host=%q path=%q pathTruncated=%t queryKeys=%q queryKeyCount=%d queryKeysTruncated=%t route=%s pathMode=%s statusCode=%d outcome=%s durationMs=%d xEmbyTokenCount=%d xEmbyTokenState=%s xEmbyAuthorizationCount=%d authorizationCount=%d applicationScheme=%s embeddedTokenState=%s apiKeyQueryPresent=%t userAgentFamily=%s userAgentVersion=%q",
+		"[PlaybackGateway] code=request_completed method=%s host=%q path=%q pathTruncated=%t queryKeys=%q queryKeyCount=%d queryKeysTruncated=%t route=%s pathMode=%s statusCode=%d outcome=%s durationMs=%d xEmbyTokenCount=%d xEmbyTokenState=%s xMediaBrowserTokenCount=%d xMediaBrowserTokenState=%s xEmbyAuthorizationCount=%d xMediaBrowserAuthorizationCount=%d authorizationCount=%d applicationScheme=%s embeddedTokenState=%s apiKeyQueryPresent=%t queryTokenSourceCount=%d queryTokenState=%s userAgentFamily=%s userAgentVersion=%q",
 		snapshot.method,
 		snapshot.host,
 		snapshot.path,
@@ -142,11 +154,16 @@ func (gateway *Gateway) logRequestCompletion(
 		time.Since(startedAt).Milliseconds(),
 		snapshot.xEmbyTokenCount,
 		snapshot.xEmbyTokenState,
+		snapshot.xMediaBrowserTokenCount,
+		snapshot.xMediaBrowserTokenState,
 		snapshot.xEmbyAuthorizationCount,
+		snapshot.xMediaAuthorizationCount,
 		snapshot.standardAuthorizationCount,
 		snapshot.applicationScheme,
 		snapshot.embeddedTokenState,
 		snapshot.apiKeyQueryPresent,
+		snapshot.queryTokenSourceCount,
+		snapshot.queryTokenState,
 		snapshot.userAgentFamily,
 		snapshot.userAgentVersion,
 	)
@@ -172,23 +189,50 @@ func requestQueryKeySummary(request *http.Request) (string, int, bool) {
 	return strings.Join(keys, ","), keyCount, truncated
 }
 
+// queryTokenDiagnostics reports carrier shape without retaining or logging any
+// query Token value.
+func queryTokenDiagnostics(values url.Values) (int, string, bool) {
+	sourceCount := 0
+	apiKeyPresent := false
+	for key, items := range values {
+		canonicalKey, supported := canonicalTokenQueryKey(key)
+		if !supported {
+			continue
+		}
+		if canonicalKey == "api_key" {
+			apiKeyPresent = true
+		}
+		if len(items) == 0 {
+			sourceCount++
+		} else {
+			sourceCount += len(items)
+		}
+	}
+	candidates, reasonCode := protectedQueryAccessTokenCandidates(values)
+	if reasonCode != "" {
+		return sourceCount, strings.TrimPrefix(reasonCode, "token_"), apiKeyPresent
+	}
+	if candidates.present {
+		return sourceCount, "present", apiKeyPresent
+	}
+	return sourceCount, "missing", apiKeyPresent
+}
+
 // applicationAuthorizationDiagnostics reports only fixed scheme and Token
 // presence labels, never the application authorization Header value.
-func applicationAuthorizationDiagnostics(xEmbyValues, standardValues []string) (string, string) {
-	if len(xEmbyValues)+len(standardValues) == 0 {
+func applicationAuthorizationDiagnostics(header http.Header) (string, string) {
+	standardValues := header.Values(standardAuthorizationHeader)
+	xEmbyValues := header.Values(embyAuthorizationHeader)
+	xMediaValues := header.Values(mediaBrowserAuthorizationHeader)
+	if len(xEmbyValues)+len(xMediaValues)+len(standardValues) == 0 {
 		return "missing", "missing"
 	}
-	if len(xEmbyValues)+len(standardValues) != 1 {
+	if len(xEmbyValues)+len(xMediaValues)+len(standardValues) != 1 {
 		return "ambiguous", "ambiguous"
 	}
-	var headerKind applicationAuthorizationHeader
-	var value string
-	if len(xEmbyValues) == 1 {
-		headerKind = applicationHeaderEmby
-		value = xEmbyValues[0]
-	} else {
-		headerKind = applicationHeaderStandard
-		value = standardValues[0]
+	value, headerKind, ok := singleApplicationAuthorization(header)
+	if !ok {
+		return "other", "unparseable"
 	}
 	scheme := applicationAuthorizationSchemeCode(value)
 	fields, ok := parseApplicationAuthorizationWithAccessToken(value, headerKind)
@@ -241,13 +285,22 @@ func userAgentDiagnostics(value string) (string, string) {
 		family string
 	}{
 		{prefix: "Infuse-Direct/", family: "infuse_direct"},
+		{prefix: "Infuse-Library/", family: "infuse_library"},
 		{prefix: "Infuse/", family: "infuse"},
+		{prefix: "SenPlayer/", family: "senplayer"},
+		{prefix: "Yamby/", family: "yamby"},
+		{prefix: "VidHub/", family: "vidhub"},
+		{prefix: "Fileball/", family: "fileball"},
+		{prefix: "Conflux/", family: "conflux"},
 		{prefix: "Emby/", family: "emby"},
 	} {
 		if !strings.HasPrefix(value, candidate.prefix) {
 			continue
 		}
 		version := strings.TrimPrefix(value, candidate.prefix)
+		if separator := strings.IndexAny(version, " \t"); separator >= 0 {
+			version = version[:separator]
+		}
 		if len(version) == 0 || len(version) > maxLoggedUserAgentVersion || !isSafeUserAgentVersion(version) {
 			return candidate.family, "invalid"
 		}
@@ -259,12 +312,15 @@ func userAgentDiagnostics(value string) (string, string) {
 	return "other", ""
 }
 
-// isSafeUserAgentVersion accepts only the bounded token used by known clients.
+// isSafeUserAgentVersion accepts numeric version syntax only so arbitrary
+// opaque User-Agent suffixes cannot be copied into logs as a "version".
 func isSafeUserAgentVersion(value string) bool {
+	if value == "" || value[0] < '0' || value[0] > '9' {
+		return false
+	}
 	for index := 0; index < len(value); index++ {
 		character := value[index]
-		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
-			character >= '0' && character <= '9' || character == '.' || character == '-' || character == '_' {
+		if character >= '0' && character <= '9' || character == '.' || character == '-' {
 			continue
 		}
 		return false

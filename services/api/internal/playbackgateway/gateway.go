@@ -25,13 +25,14 @@ const (
 	authenticationPath                   = "/emby/Users/AuthenticateByName"
 	publicSystemInfoPath                 = "/emby/System/Info/Public"
 	accessTokenHeader                    = "X-Emby-Token"
+	statusClientClosedRequest            = 499
 	defaultAuthenticationResponseMaxSize = int64(1 << 20)
 )
 
 var (
-	errAuthenticationResponseEncodingUnsupported = errors.New("authentication response encoding unsupported")
-	errAuthenticationResponseDecodeFailed        = errors.New("authentication response decode failed")
-	errAuthenticationResponseDecodedTooLarge     = errors.New("authentication response decoded body too large")
+	errSidecarResponseEncodingUnsupported = errors.New("sidecar response encoding unsupported")
+	errSidecarResponseDecodeFailed        = errors.New("sidecar response decode failed")
+	errSidecarResponseDecodedTooLarge     = errors.New("sidecar response decoded body too large")
 )
 
 // TokenService is the narrow identity boundary required by the HTTP gateway.
@@ -142,7 +143,7 @@ func New(config Config) (*Gateway, error) {
 	return gateway, nil
 }
 
-// ServeHTTP normalizes versioned root API paths, applies exact bootstrap and
+// ServeHTTP normalizes versioned API paths, applies depth-exact bootstrap and
 // authentication exceptions, then fails closed before any protected proxy.
 func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	startedAt := time.Now().UTC()
@@ -168,14 +169,57 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	case routeSystemInfoPublic:
 		// PublicSystemInfo is the exact pre-login discovery endpoint. Emby is
 		// authoritative for its response and no local identity exists yet.
-	case routeAuthentication, routePublicBootstrap:
+	case routeAuthentication:
 		metadata, ok := extractApplicationMetadata(request.Header)
 		if !ok {
 			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
 			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		if _, reasonCode, tokenPresent := extractProtectedRequestAccessToken(request); tokenPresent || reasonCode != "token_missing" {
+			if tokenPresent {
+				reasonCode = "token_present"
+			}
+			gateway.logger.Printf("[PlaybackGateway] code=authentication_token_invalid reasonCode=%s", reasonCode)
+			statusWriter.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		routeContext.metadata = metadata
+	case routePublicBootstrap:
+		metadata, metadataOK := extractApplicationMetadata(request.Header)
+		applicationHeaderCount := len(request.Header.Values(standardAuthorizationHeader)) +
+			len(request.Header.Values(embyAuthorizationHeader)) + len(request.Header.Values(mediaBrowserAuthorizationHeader))
+		accessToken, reasonCode, tokenOK := extractProtectedRequestAccessToken(request)
+		if tokenOK {
+			principal, resolved := gateway.resolveRequestPrincipal(statusWriter, request, kind, startedAt, accessToken)
+			if !resolved {
+				return
+			}
+			routeContext.principal = &principal
+			if metadataOK {
+				routeContext.metadata = metadata
+			}
+			break
+		}
+		if reasonCode != "token_missing" {
+			if applicationHeaderCount > 0 {
+				gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
+			} else {
+				gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid route=%s pathMode=%s reasonCode=%s", routeKindCode(kind), pathMode, reasonCode)
+			}
+			statusWriter.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if metadataOK {
+			routeContext.metadata = metadata
+			break
+		}
+		if applicationHeaderCount > 0 {
+			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
+			statusWriter.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fallthrough
 	default:
 		accessToken, reasonCode, ok := extractProtectedRequestAccessToken(request)
 		if !ok {
@@ -187,16 +231,8 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		principal, err := gateway.tokenService.ResolvePrincipal(request.Context(), accessToken)
-		if err != nil {
-			if kind == routeVideo {
-				status, stage, reasonCode := videoPrincipalRejection(err)
-				gateway.rejectVideo(statusWriter, request, status, stage, reasonCode, startedAt)
-				return
-			}
-			status, code := tokenRejection(err)
-			gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
-			statusWriter.WriteHeader(status)
+		principal, resolved := gateway.resolveRequestPrincipal(statusWriter, request, kind, startedAt, accessToken)
+		if !resolved {
 			return
 		}
 		routeContext.principal = &principal
@@ -211,6 +247,39 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
 	gateway.proxy.ServeHTTP(statusWriter, request.WithContext(ctx))
+}
+
+// resolveRequestPrincipal applies one shared cancellation, video rejection and
+// ordinary API error mapping after a Token carrier has been normalized.
+func (gateway *Gateway) resolveRequestPrincipal(
+	writer http.ResponseWriter,
+	request *http.Request,
+	kind routeKind,
+	startedAt time.Time,
+	accessToken string,
+) (embytoken.Principal, bool) {
+	principal, err := gateway.tokenService.ResolvePrincipal(request.Context(), accessToken)
+	if err == nil {
+		return principal, true
+	}
+	if status, code, terminated := tokenRequestTermination(err); terminated {
+		if kind == routeVideo {
+			gateway.rejectVideo(writer, request, status, "identity", strings.TrimPrefix(code, "token_"), startedAt)
+			return embytoken.Principal{}, false
+		}
+		gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
+		writer.WriteHeader(status)
+		return embytoken.Principal{}, false
+	}
+	if kind == routeVideo {
+		status, stage, reasonCode := videoPrincipalRejection(err)
+		gateway.rejectVideo(writer, request, status, stage, reasonCode, startedAt)
+		return embytoken.Principal{}, false
+	}
+	status, code := tokenRejection(err)
+	gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
+	writer.WriteHeader(status)
+	return embytoken.Principal{}, false
 }
 
 // observeResponse dispatches sidecar observation by the already classified
@@ -278,12 +347,12 @@ func (gateway *Gateway) observeAuthenticationResponse(response *http.Response) e
 		return nil
 	}
 
-	decodedPrefix, decodeErr := decodeAuthenticationResponse(prefix, response.Header.Get("Content-Encoding"), gateway.maxAuthenticationResponseBytes)
+	decodedPrefix, decodeErr := decodeResponseSidecar(prefix, response.Header.Get("Content-Encoding"), gateway.maxAuthenticationResponseBytes)
 	if decodeErr != nil {
 		gateway.logger.Printf(
 			"[PlaybackGateway] code=authentication_response_decode_failed contentEncoding=%s reasonCode=%s errorType=%T",
-			authenticationResponseEncodingCode(response.Header.Get("Content-Encoding")),
-			authenticationResponseDecodeReasonCode(decodeErr),
+			responseSidecarEncodingCode(response.Header.Get("Content-Encoding")),
+			responseSidecarDecodeReasonCode(decodeErr),
 			decodeErr,
 		)
 		return nil
@@ -307,64 +376,64 @@ func (gateway *Gateway) observeAuthenticationResponse(response *http.Response) e
 	return nil
 }
 
-// decodeAuthenticationResponse decodes only the bounded sidecar copy used for
-// Token mapping. The original response body and Content-Encoding stay intact.
-func decodeAuthenticationResponse(body []byte, contentEncoding string, maxBytes int64) ([]byte, error) {
+// decodeResponseSidecar decodes only a bounded observation copy. The original
+// response body and Content-Encoding stay intact for the client.
+func decodeResponseSidecar(body []byte, contentEncoding string, maxBytes int64) ([]byte, error) {
 	switch strings.ToLower(strings.TrimSpace(contentEncoding)) {
 	case "", "identity":
 		return body, nil
 	case "gzip":
-		return decodeGzipAuthenticationResponse(body, maxBytes)
+		return decodeGzipResponseSidecar(body, maxBytes)
 	case "deflate":
-		return decodeDeflateAuthenticationResponse(body, maxBytes)
+		return decodeDeflateResponseSidecar(body, maxBytes)
 	default:
-		return nil, errAuthenticationResponseEncodingUnsupported
+		return nil, errSidecarResponseEncodingUnsupported
 	}
 }
 
-// decodeGzipAuthenticationResponse decodes a gzip sidecar while keeping the
+// decodeGzipResponseSidecar decodes a gzip sidecar while keeping the
 // compressed response bytes untouched for the downstream client.
-func decodeGzipAuthenticationResponse(body []byte, maxBytes int64) ([]byte, error) {
+func decodeGzipResponseSidecar(body []byte, maxBytes int64) ([]byte, error) {
 	gzipReader, err := gzip.NewReader(bytes.NewReader(body))
 	if err != nil {
-		return nil, errAuthenticationResponseDecodeFailed
+		return nil, errSidecarResponseDecodeFailed
 	}
 	defer gzipReader.Close()
-	return readBoundedAuthenticationResponse(gzipReader, maxBytes)
+	return readBoundedResponseSidecar(gzipReader, maxBytes)
 }
 
-// decodeDeflateAuthenticationResponse accepts the zlib-wrapped HTTP deflate
+// decodeDeflateResponseSidecar accepts the zlib-wrapped HTTP deflate
 // form and the legacy raw DEFLATE form while applying the same decoded limit.
-func decodeDeflateAuthenticationResponse(body []byte, maxBytes int64) ([]byte, error) {
+func decodeDeflateResponseSidecar(body []byte, maxBytes int64) ([]byte, error) {
 	zlibReader, err := zlib.NewReader(bytes.NewReader(body))
 	if err == nil {
 		defer zlibReader.Close()
-		return readBoundedAuthenticationResponse(zlibReader, maxBytes)
+		return readBoundedResponseSidecar(zlibReader, maxBytes)
 	}
 
 	rawReader := flate.NewReader(bytes.NewReader(body))
 	defer rawReader.Close()
-	return readBoundedAuthenticationResponse(rawReader, maxBytes)
+	return readBoundedResponseSidecar(rawReader, maxBytes)
 }
 
-// readBoundedAuthenticationResponse prevents compressed responses from
+// readBoundedResponseSidecar prevents compressed responses from
 // expanding beyond the sidecar inspection limit.
-func readBoundedAuthenticationResponse(reader io.Reader, maxBytes int64) ([]byte, error) {
+func readBoundedResponseSidecar(reader io.Reader, maxBytes int64) ([]byte, error) {
 	if reader == nil || maxBytes <= 0 {
-		return nil, errAuthenticationResponseDecodeFailed
+		return nil, errSidecarResponseDecodeFailed
 	}
 	decoded, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
 	if err != nil {
-		return nil, errAuthenticationResponseDecodeFailed
+		return nil, errSidecarResponseDecodeFailed
 	}
 	if int64(len(decoded)) > maxBytes {
-		return nil, errAuthenticationResponseDecodedTooLarge
+		return nil, errSidecarResponseDecodedTooLarge
 	}
 	return decoded, nil
 }
 
-// authenticationResponseEncodingCode limits logs to fixed encoding labels.
-func authenticationResponseEncodingCode(contentEncoding string) string {
+// responseSidecarEncodingCode limits logs to fixed encoding labels.
+func responseSidecarEncodingCode(contentEncoding string) string {
 	switch strings.ToLower(strings.TrimSpace(contentEncoding)) {
 	case "", "identity":
 		return "identity"
@@ -377,13 +446,13 @@ func authenticationResponseEncodingCode(contentEncoding string) string {
 	}
 }
 
-// authenticationResponseDecodeReasonCode maps decoder failures without
+// responseSidecarDecodeReasonCode maps decoder failures without
 // exposing compressed bytes or upstream-controlled Header text.
-func authenticationResponseDecodeReasonCode(err error) string {
+func responseSidecarDecodeReasonCode(err error) string {
 	switch {
-	case errors.Is(err, errAuthenticationResponseEncodingUnsupported):
+	case errors.Is(err, errSidecarResponseEncodingUnsupported):
 		return "encoding_unsupported"
-	case errors.Is(err, errAuthenticationResponseDecodedTooLarge):
+	case errors.Is(err, errSidecarResponseDecodedTooLarge):
 		return "decoded_body_too_large"
 	default:
 		return "decode_failed"
@@ -433,19 +502,19 @@ func (gateway *Gateway) handleUpstreamError(writer http.ResponseWriter, request 
 	writer.WriteHeader(http.StatusBadGateway)
 }
 
-// Exact method and path matching prevents case, suffix or trailing-slash
-// variants from bypassing token validation.
+// Exact method/depth matching with case-insensitive semantic segments supports
+// client casing differences without allowing suffix or trailing-slash bypass.
 func classifyRoute(request *http.Request) routeKind {
 	if request == nil || request.URL == nil {
 		return routeProtected
 	}
-	if request.Method == http.MethodPost && exactRequestPath(request.URL, authenticationPath) {
+	if request.Method == http.MethodPost && exactRequestPathFold(request.URL, authenticationPath) {
 		return routeAuthentication
 	}
-	if request.Method == http.MethodGet && exactRequestPath(request.URL, publicSystemInfoPath) {
+	if request.Method == http.MethodGet && exactRequestPathFold(request.URL, publicSystemInfoPath) {
 		return routeSystemInfoPublic
 	}
-	if request.Method == http.MethodGet && exactRequestPath(request.URL, publicUsersPath) {
+	if request.Method == http.MethodGet && exactRequestPathFold(request.URL, publicUsersPath) {
 		return routePublicBootstrap
 	}
 	if (request.Method == http.MethodGet || request.Method == http.MethodHead) && isPublicUserImagePath(request.URL) {
@@ -460,10 +529,10 @@ func classifyRoute(request *http.Request) routeKind {
 	return routeProtected
 }
 
-// exactRequestPath rejects alternate escaping even when net/url decodes it to
-// the same Path, preventing an encoded route from inheriting a public class.
-func exactRequestPath(requestURL *url.URL, expected string) bool {
-	return requestURL != nil && requestURL.Path == expected && requestURL.EscapedPath() == expected
+// exactRequestPathFold accepts client casing differences but rejects alternate
+// escaping, suffixes and depth changes before granting a special route class.
+func exactRequestPathFold(requestURL *url.URL, expected string) bool {
+	return requestURL != nil && requestURL.EscapedPath() == requestURL.Path && strings.EqualFold(requestURL.Path, expected)
 }
 
 // isPublicUserImagePath accepts only the no-index GET/HEAD shape referenced by
@@ -474,8 +543,8 @@ func isPublicUserImagePath(requestURL *url.URL) bool {
 		return false
 	}
 	segments := strings.Split(requestURL.Path, "/")
-	if len(segments) != 6 || segments[0] != "" || segments[1] != "emby" || segments[2] != "Users" ||
-		segments[4] != "Images" {
+	if len(segments) != 6 || segments[0] != "" || !strings.EqualFold(segments[1], "emby") || !strings.EqualFold(segments[2], "Users") ||
+		!strings.EqualFold(segments[4], "Images") {
 		return false
 	}
 	return validPublicPathSegment(segments[3]) && validPublicPathSegment(segments[5])
@@ -485,6 +554,19 @@ func isPublicUserImagePath(requestURL *url.URL) bool {
 // semantics instead of relying on proxy or upstream path normalization.
 func validPublicPathSegment(value string) bool {
 	return value != "" && value != "." && value != ".." && len(value) <= 128
+}
+
+// tokenRequestTermination distinguishes an abandoned client request from an
+// actual identity-store outage before generic token rejection mapping.
+func tokenRequestTermination(err error) (int, string, bool) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return statusClientClosedRequest, "token_request_canceled", true
+	case errors.Is(err, context.DeadlineExceeded):
+		return http.StatusGatewayTimeout, "token_request_deadline_exceeded", true
+	default:
+		return 0, "", false
+	}
 }
 
 // tokenRejection separates invalid login state, dynamic user policy and

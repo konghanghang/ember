@@ -11,7 +11,7 @@
 | 协议证据基线 | `4.9.3.0 Release` | Emby.SDK 提交 `6ee0155063bc85578196489926359a8f37419502` | 本文列出的 method、path 和 DTO 字段以该提交为主要出处 |
 | Gateway 运行兼容范围 | `>= 4.9.0.0 && < 4.10.0.0` | 官方 `4.9.0.70` 至 `4.9.5.0` 的 9 个稳定 SDK Tag 对当前使用的 12 个 path 及核心 DTO 做过语义比对 | 四段数字版本落在该半开区间即可启动；`4.9.3.0` 不是唯一允许版本 |
 | 目标 Emby Server | 部分确认 | 2026-08-23 Gateway 生产启动日志确认 `4.9.3.0` 与非空 ServerId；同一实例的 `GET /System/Info/Public` 已确认无登录返回 `PublicSystemInfo` | 已确认目标版本和公开发现语义；ServerId 原值及其他 API 运行行为未公开或未验证 |
-| Infuse 客户端行为 | 部分确认 | 2026-08-23 本地实测确认 `Infuse-Direct/8.5` 使用根 API path、`X-Emby-Authorization: MediaBrowser ...`，认证成功响应为 `deflate` JSON，并在登录后通过同一 Header 的非空 `Token` 字段请求根 `/Users/{Id}/Views`，不发送 `X-Emby-Token` | 四项兼容及 `identity/gzip/deflate` 响应检查已完成 fake 验证；gzip 不是目标环境实测事实，新 Token 提取实现尚未在目标环境复验，PlaybackInfo、视频和 302 行为仍未确认 |
+| Infuse 客户端行为 | 部分确认 | 2026-08-23 本地实测确认 `Infuse-Direct/8.5` 使用根 API path、`X-Emby-Authorization: MediaBrowser ...`，认证成功响应为 `deflate` JSON，并在登录后通过同一 Header 的非空 `Token` 字段请求 Views、VirtualFolders、DisplayPreferences、Items、Latest 与 Resume；这些资源 API 已取得上游 `200` | 登录与普通资源代理已实机通过；gzip、PlaybackInfo、视频、字幕、进度和 115 `302` 仍未完成目标环境验证 |
 
 证据等级：
 
@@ -30,6 +30,7 @@
 - [Emby.SDK 4.9.3.0 Password Authenticator](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/SampleCode/RestApi/Emby.ApiClient/Emby.ApiClient/Client/Authentication/EmbyPasswordAuthenticator.cs)
 - [Emby.SDK 4.9.3.0 SystemInfoPublic](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/reference/RestAPI/SystemService/getSystemInfoPublic.html)
 - [Ember Playback Reporting 合同](./playback-reporting-api-contract.md)
+- [Emby Gateway 客户端兼容矩阵](./emby-client-compatibility-matrix.md)
 
 ## 2. 网关职责与信任边界
 
@@ -134,9 +135,10 @@ X-Emby-Authorization: MediaBrowser UserId="", Client="Infuse", Device="...", Dev
 
 首期解析约束：
 
-- 两个 Header 只能出现一个且只能有一个值；同时出现、重复值或空值都失败关闭。
-- `Emby` scheme 可用于固定 SDK 声明的两个 Header；`MediaBrowser` 只允许用于目标 Infuse `8.5` 实测的 `X-Emby-Authorization`，标准 `Authorization: MediaBrowser ...` 继续拒绝。scheme 大小写敏感；要求唯一的 `Client`、`Device`、`DeviceId` 和 `Version`，`UserId` 可空，其他组合失败关闭。
+- `Authorization`、`X-Emby-Authorization`、`X-MediaBrowser-Authorization` 只能出现一个且只能有一个值；同时出现、重复值或空值都失败关闭。
+- `Emby` scheme 允许用于固定 SDK 声明的 `Authorization` 或 `X-Emby-Authorization`；`MediaBrowser` 允许用于目标 Infuse 实测的 `X-Emby-Authorization` 和兼容 `X-MediaBrowser-Authorization`，标准 `Authorization: MediaBrowser ...` 继续拒绝。scheme 大小写敏感；要求唯一的 `Client`、`Device`、`DeviceId` 和 `Version`，`UserId` 可空，其他组合失败关闭。
 - 登录前 AuthenticateByName 的 `Token` 只允许缺失或空字符串；登录后受保护请求可以把非空 Token 放在严格合法的 `Emby` 应用头中，目标 Infuse `8.5` 实测还会放在 `X-Emby-Authorization: MediaBrowser ...` 中。
+- AuthenticateByName 同时禁止直接 Token Header 和固定 query Token aliases；public users/无 Index 头像在登录前可使用空 Token 应用头，登录后可改用已经映射的通用 Token carrier。
 - 值使用有界 quoted-string；重复字段、未知字段、控制字符、非法转义和超长值全部拒绝。
 - `Client` 保存为非权威 `clientName`，`DeviceId` 保存为非权威 `deviceId`；二者只用于审计和设备撤销，不能替代 `User.Id + ServerId + AccessToken` 身份绑定。
 
@@ -167,7 +169,7 @@ X-Emby-Authorization: MediaBrowser UserId="", Client="Infuse", Device="...", Dev
 
 边界：
 
-- bootstrap 表示“不要求已映射 AccessToken”，不表示任意匿名请求；只有精确 `GET System/Info/Public` 不要求应用头，公开用户与头像仍必须携带上节固定的应用/设备授权头。
+- bootstrap 表示“不要求已映射 AccessToken”，不表示任意匿名请求；只有层级精确的 `GET System/Info/Public` 不要求应用头。公开用户与头像在登录前必须携带严格应用/设备授权头，登录后也可携带已经映射的兼容矩阵 Token carrier。
 - public 用户头像只放行文档明确引用的无 `Index` 形态；上传、删除、`/Delete`、带额外 path segment 或其他用户接口仍受 Token 门控。
 - `System/Info/Public` 固定参考页标记 `Requires authentication as user`，但 2026-08-23 两份运行证据推翻了这一生成标记：Infuse `8.5` 在取得用户 Token 前不带可解析应用头请求该路径；同一目标 Emby `4.9.3.0` 的精确接口在无登录请求下直接返回 `PublicSystemInfo`。Gateway 因此只对这个精确 `GET` 取消本地应用头和 Token 门控，保留原始 Header 并让 Emby 响应保持权威；其他匿名路径没有扩大。
 - Branding、服务器发现、Quick Connect 和其他登录前路径没有进入本次固定证据，继续失败关闭；目标 Infuse 实际请求到这些路径时，必须先补合同。
@@ -181,8 +183,9 @@ X-Emby-Authorization: MediaBrowser UserId="", Client="Infuse", Device="...", Dev
 - `tokenHash` 使用 `BYTEA(32)`，不进入 JSON、日志、错误、指标 label 或管理页面；数据库摘要不能作为 Emby Token 重放。
 - `embyUserId` 必须等于当前 `users.emby_id`，`userId` 外键指向 Ember 用户；客户端提交的 `UserId`、`DeviceId` 和客户端名称都不能替代这一身份绑定。
 - `deviceId/clientName` 只作为设备归组和审计元数据。一个用户允许多个 Token；一个设备可能因重复登录存在多个活动 Token。
-- 受保护请求支持唯一非空 `X-Emby-Token`，或严格合法的 `Authorization/X-Emby-Authorization: Emby ... Token="..."`，以及目标 Infuse 实测的 `X-Emby-Authorization: MediaBrowser ... Token="..."`。两个非空来源同时存在时只有值完全一致才接受；重复、冲突、未知 scheme、字段不全和非法 quoted-string 失败关闭。应用头 Token 缺失/为空时不与有效 `X-Emby-Token` 竞争；请求只要携带 query `api_key` 就返回 `401 token_invalid`，避免 Gateway 校验身份与 Emby 实际采用身份分叉。Quick Connect 和插件 Token 不作为 Gateway 身份来源。
+- 受保护请求按 [客户端兼容矩阵](./emby-client-compatibility-matrix.md) 收集直接 Token Header、严格应用认证头和大小写不敏感的固定 query Token aliases；所有非空候选必须逐字节相同。重复逻辑来源、空值、冲突、未知 scheme、字段不全和非法 quoted-string 失败关闭；任意 Bearer、Quick Connect 和插件 Token 不作为 Gateway 身份来源。
 - `lastSeenAt` 只在成功通过映射和用户资格检查后更新，并至少按 5 分钟窗口限频，避免 `HEAD`、Range 和预加载制造逐请求数据库写入。
+- Infuse 扫库中的 `context.Canceled` 返回固定 `499/token_request_canceled`，deadline 返回 `504/token_request_deadline_exceeded`，不再伪装成数据库不可用；只有 driver 保证未发送到 PostgreSQL 的幂等读失败才重试一次，最终存储错误记录固定原因与连接池统计。
 
 Ember 本地撤销固定三种粒度：
 
@@ -216,15 +219,15 @@ Ember 本地撤销固定三种粒度：
 
 当前 `internal/playbackgateway` 固定以下可测试行为：
 
-- 固定 OpenAPI 顶层 API family 的 root path 先规范化为单一 `/emby/...`；已有 `/emby/...` 保持不变，重复 `/emby/emby/...` 返回空体 `400`，根 `/web/...` 和未知 Surface 不参与规范化。
-- 精确 root 或 `/emby` 形态的 `GET System/Info/Public` 不做本地鉴权；`POST Users/AuthenticateByName`、公开用户和无 Index 公开头像不要求已映射 Token，但仍必须先通过应用/设备授权头；其余路径默认受保护。
+- 固定 OpenAPI 顶层 API family 的 root path 先规范化为单一 `/emby/...`；family 与 `/emby` 前缀比较大小写不敏感，已有规范前缀保持，重复大小写变体 `/emby/emby/...` 返回空体 `400`，根 `/web/...` 和未知 Surface 不参与规范化。
+- root 或 `/emby` 形态的 `GET System/Info/Public` 在固定语义段上大小写不敏感且不做本地鉴权；`POST Users/AuthenticateByName`、公开用户和无 Index 公开头像不要求已映射 Token，但仍必须先通过应用/设备授权头。尾斜杠、额外层级和 alternate escaping 不放宽，其余路径默认受保护。
 - 认证上游只有 `200` 才旁路解析；编码响应与解码副本检查上限均为 `1 MiB`。identity、gzip 或 deflate 响应逐字节恢复后返回，字段顺序、压缩编码和未知 JSON 字段不重编码。
 - 不合法、超过检查上限或映射写入失败的成功响应仍原样返回，但该 Token 不建立映射，下一次受保护请求失败关闭。
-- 受保护请求按上一节的严格多来源规则取得唯一 AccessToken，再调用 `ResolvePrincipal`；Token 来源缺失、非法、重复、冲突、未映射、已撤销和身份错配返回空体 `401`，当前用户不可用或到期返回空体 `403`，身份存储不可用返回空体 `503`。
+- 受保护请求按兼容矩阵取得唯一 AccessToken，再调用 `ResolvePrincipal`；Token 来源缺失、非法、重复、冲突、未映射、已撤销和身份错配返回空体 `401`，当前用户不可用或到期返回空体 `403`，身份存储不可用返回空体 `503`。请求取消和 deadline 分别使用 `499/504`，不计作 Store outage。
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
-- 固定 SDK 已确认两个 Header 的 `Emby` scheme，目标 Infuse `8.5` 已确认 `X-Emby-Authorization: MediaBrowser ...`；两者共用完全相同的字段、唯一性、Token 和 quoted-string 校验，不扩展为任意 Header/scheme 组合。真实目标环境同时确认 `System/Info/Public` 无登录可访问，Gateway 对该独立公开路由记录不含 Header、URL 或响应体的上游状态日志。
+- 固定 SDK 已确认 `Authorization/X-Emby-Authorization` 的 `Emby` scheme，目标 Infuse `8.5` 已确认 `X-Emby-Authorization: MediaBrowser ...`；兼容矩阵额外接受严格 `X-MediaBrowser-Authorization: MediaBrowser ...`，但不扩展到任意 Header/scheme。真实目标环境同时确认 SystemInfoPublic 无登录可访问，Gateway 对该公开路由记录不含 Header value、URL query 或响应体的上游状态日志。
 
-当前 HTTP 核心还会让 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；持久播放会话和 Web Surface 仍未实现。SystemInfoPublic、MediaBrowser、deflate 和内嵌 Token 四项兼容已通过 fake、race 和 API 全量测试，但最新 Token 提取尚未部署成功复验，不能表示目标 Emby/Infuse 已可用。通用透明代理和 Web Surface 的后续计划见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
+当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；持久播放会话和 Web Surface 仍未实现。Infuse 登录和普通资源 API 已实机通过，通用载体/大小写矩阵已有 fake 证据；SenPlayer、Yamby 等其他客户端和完整播放仍未实机确认。通用透明代理和 Web Surface 的后续计划见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
 
 ### 3.5 暂不覆盖的认证方式
 
@@ -267,6 +270,8 @@ X-Emby-Token: <access-token>
 响应同样是 `PlaybackInfoResponse`。播放网关不得自行拼装一个缩水版响应；首版应透明转发 Emby 响应，仅在内部读取必要字段。
 
 `PlaybackInfoRequest.UserId` 在 OpenAPI 中可选。Gateway 对不超过 `1 MiB` 的 JSON 请求体做旁路检查：字段缺失允许由 Emby 按原合同处理，非空时必须等于当前 Principal 的 EmbyID；无效、超大或错配请求仍透明转发，但不形成直连证明。
+
+PlaybackInfo 成功响应的编码体与解码旁路副本上限均为 `2 MiB`，支持 `identity/gzip/deflate`（含 zlib-wrapped/raw DEFLATE）。解码失败、超限或未知编码只使本次证明不可用，客户端仍收到原压缩字节、Header 和状态；Gateway 不通过删除 `Accept-Encoding` 换取旁路解析。
 
 ### 4.3 PlaybackInfoResponse 关键字段
 
@@ -431,7 +436,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 ## 9. 失败与回退语义
 
 - Token 缺失、重复、无法映射、已本地撤销、身份错配或用户硬状态拒绝：返回固定拒绝响应，不能继续转发 Emby，否则会绕过 Ember 本地安全门控。
-- 身份存储不可用：拒绝，不把基础设施故障降级成未受控代理。
+- 请求已取消或 deadline：分别记录 `499/504`，不误报 Store outage；真实身份存储不可用仍拒绝，不能降级成未受控代理。
 - Principal 合法但没有近期 PlaybackInfo、证明过期、视频参数不完整或 MediaSource 不支持 Direct Play：不尝试 115 或停止尝试，透明转发原始请求到 Emby。
 - 路径未命中 115 source、套餐未启用加速、客户端不适合直连、账号未配置/未验证/冷却、查重/Range challenge/秒传/目标复核失败：透明转发原始请求到 Emby。
 - 直链域名、过期时间、HeaderMode 或并发信息不兼容：不返回 302，透明转发原始请求到 Emby。
@@ -439,7 +444,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - fallback 只允许使用 Emby 正常代理，禁止改用 source 账号向客户端签发 115 直链。
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
 - Emby 会话事件转发失败：记录失败并允许网关会话 TTL 收口，不能伪造成功。
-- 每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、认证 Header 数量与固定 scheme/Token presence、`api_key` query 是否存在、已知 User-Agent family/version。不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
+- 每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
 - 每个视频请求额外只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode` 和必要 ID/耗时；日志不建表、不进入数据库。
 - 决策日志禁止记录 Token、Cookie、完整 Path、完整 SHA1、115 URL、PlaybackInfo 原始响应或 Provider 原始错误。
 
@@ -447,7 +452,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 
 | decision | stage | reasonCode |
 | --- | --- | --- |
-| `reject` | `identity` | `token_missing`、`token_invalid`、`token_ambiguous`、`token_unmapped`、`token_revoked`、`identity_mismatch`、`identity_store_unavailable` |
+| `reject` | `identity` | `token_missing`、`token_invalid`、`token_ambiguous`、`token_unmapped`、`token_revoked`、`identity_mismatch`、`identity_store_unavailable`、`request_canceled`、`request_deadline_exceeded` |
 | `reject` | `user_state` | `user_unavailable`、`user_expired` |
 | `fallback` | `route` | `route_not_accelerated`、`request_not_eligible` |
 | `fallback` | `proof` | `playback_proof_missing`、`playback_proof_expired`、`playback_proof_mismatch` |
@@ -470,12 +475,15 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 7. 重复 `HEAD`、Range 和重连不会重复计并发。
 8. Quick Connect 等未覆盖入口不会被错误当作已支持。
 9. 请求完成日志覆盖上游成功与本地拒绝，能区分 `X-Emby-Token` 缺失/空值/存在/歧义和应用认证头内嵌 Token 状态，同时不包含任何凭证或 query value。
-10. Infuse 内嵌 Token、单独 `X-Emby-Token`、双来源同值、冲突、重复、空值、非法应用头，以及携带 `api_key` query 即拒绝的分支保持上述接受/拒绝语义。
+10. Infuse 内嵌 Token、`X-Emby/X-MediaBrowser` Token Header、固定 query aliases、大小写变体、多来源同值、冲突、重复、空值和非法应用头保持上述接受/拒绝语义。
 11. 单 Token、单设备和用户全部撤销只影响各自范围；硬撤销后请求拒绝，动态到期/套餐拒绝不错误写入 `revokedAt`。
 12. `lastSeenAt` 限频、ServerId/EmbyID 错配拒绝、并发登录幂等 upsert，以及数据库/日志/JSON 均不包含 Token 明文。
 13. 302 要求相同 Token 的近期成功 PlaybackInfo；缺少/过期证明时合法请求 fallback Emby，撤销后缓存重用和原始 Emby 公网绕过仍失败关闭。
 14. 每个视频请求只产生一条脱敏 `redirect/fallback/reject` 日志，且任何 fallback 都保持原始请求字节和 Header 语义。
 15. 三种原始视频路径只有完整静态播放参数和匹配 Container 时调用 fake DirectPlay；manifest、参数缺失、无效候选和所有类型化 DirectPlay 错误均进入 fake Emby fallback。
+16. 特殊 path 与 Gateway 消费的 query key 大小写不敏感但不重写原始请求；尾斜杠、额外层级、duplicate logical key 和 alternate escaping 继续失败关闭。
+17. PlaybackInfo 含 `MediaStreams: []` 时客户端响应逐字节保持，SenPlayer/Yamby 等 UA 不改变认证或代理路径。
+18. Store 请求取消/deadline、一次安全只读重试、非重试 PostgreSQL 错误和最终连接池诊断均有固定测试。
 
 所有测试必须使用 fake Emby Server 或固定 fixture，禁止请求真实 Emby。
 
@@ -483,9 +491,9 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 
 真实只读验证需要用户明确授权，至少确认：
 
-- 目标 Emby Server 的 `Version`、`Id` 和 `ServerName`。
-- 目标 Infuse 版本实际调用的认证和流路径。
-- Infuse 实际通过哪个 Header 或 query 参数携带 AccessToken，以及 DeviceId/客户端名称是否稳定。
+- 目标 Emby Server 的 `ServerName` 和完整可公开身份边界；Version 与非空 Id 已确认。
+- Infuse PlaybackInfo、视频、字幕和进度的实际 path/query/Token 组合；登录和普通资源路径已确认。
+- SenPlayer、Yamby、VidHub、Fileball、Conflux 与官方 Emby 客户端实际使用的 Token carriers、大小写和 DeviceId/客户端名称稳定性。
 - Infuse 对 `302`、`HEAD`、`Range`、UA 和文件名的处理。
 - 客户端是否始终携带 `PlaySessionId`、`MediaSourceId` 和设备标识。
 - Direct Play、Direct Stream 与 Transcode 三种情况下的实际请求差异。

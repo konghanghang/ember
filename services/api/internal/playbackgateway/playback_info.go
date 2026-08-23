@@ -49,8 +49,8 @@ func (gateway *Gateway) preparePlaybackInfoRequest(request *http.Request, princi
 	}
 	switch request.Method {
 	case http.MethodGet:
-		values, exists := request.URL.Query()["UserId"]
-		return itemID, exists && len(values) == 1 && values[0] == principal.User.EmbyID
+		userID, ok := singleBoundedQueryValue(request.URL.Query(), "UserId", maxApplicationUserIDSize)
+		return itemID, ok && userID == principal.User.EmbyID
 	case http.MethodPost:
 		return itemID, gateway.inspectPlaybackInfoPostRequest(request, principal.User.EmbyID)
 	default:
@@ -107,7 +107,17 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_response_too_large")
 		return nil
 	}
-	proofs, ok := buildPlaybackProofs(prefix, routeContext)
+	decodedPrefix, decodeErr := decodeResponseSidecar(prefix, response.Header.Get("Content-Encoding"), gateway.maxPlaybackInfoResponseBytes)
+	if decodeErr != nil {
+		gateway.logger.Printf(
+			"[PlaybackGateway] code=playback_info_response_decode_failed contentEncoding=%s reasonCode=%s errorType=%T",
+			responseSidecarEncodingCode(response.Header.Get("Content-Encoding")),
+			responseSidecarDecodeReasonCode(decodeErr),
+			decodeErr,
+		)
+		return nil
+	}
+	proofs, ok := buildPlaybackProofs(decodedPrefix, routeContext)
 	if !ok {
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_response_unusable")
 		return nil
@@ -166,15 +176,15 @@ func buildPlaybackProofs(body []byte, routeContext requestRouteContext) ([]Playb
 	return proofs, len(proofs) > 0
 }
 
-// playbackInfoItemID matches only GET/POST /emby/Items/{Id}/PlaybackInfo with
-// an unescaped, bounded item segment.
+// playbackInfoItemID matches the fixed case-insensitive PlaybackInfo segments
+// with one unescaped, bounded item segment.
 func playbackInfoItemID(requestURL *url.URL) string {
 	if requestURL == nil || requestURL.EscapedPath() != requestURL.Path {
 		return ""
 	}
 	segments := strings.Split(requestURL.Path, "/")
-	if len(segments) != 5 || segments[0] != "" || segments[1] != "emby" || segments[2] != "Items" ||
-		segments[4] != "PlaybackInfo" || !validProofValue(segments[3], maxProofItemIDBytes, false) {
+	if len(segments) != 5 || segments[0] != "" || !strings.EqualFold(segments[1], "emby") || !strings.EqualFold(segments[2], "Items") ||
+		!strings.EqualFold(segments[4], "PlaybackInfo") || !validProofValue(segments[3], maxProofItemIDBytes, false) {
 		return ""
 	}
 	return segments[3]

@@ -2,6 +2,7 @@ package playbackgateway
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 )
@@ -9,6 +10,8 @@ import (
 const (
 	publicUsersPath                 = "/emby/Users/Public"
 	embyAuthorizationHeader         = "X-Emby-Authorization"
+	mediaBrowserAuthorizationHeader = "X-MediaBrowser-Authorization"
+	mediaBrowserTokenHeader         = "X-MediaBrowser-Token"
 	standardAuthorizationHeader     = "Authorization"
 	embyAuthorizationScheme         = "Emby "
 	mediaBrowserAuthorizationScheme = "MediaBrowser "
@@ -25,10 +28,16 @@ type applicationAuthorizationHeader uint8
 const (
 	applicationHeaderStandard applicationAuthorizationHeader = iota + 1
 	applicationHeaderEmby
+	applicationHeaderMediaBrowser
 )
 
-// extractApplicationMetadata accepts exactly one of the two header names
-// fixed by the Emby 4.9 contract and returns only non-authoritative audit metadata.
+type accessTokenCandidates struct {
+	value   string
+	present bool
+}
+
+// extractApplicationMetadata accepts exactly one supported application Header
+// and returns only non-authoritative audit metadata.
 func extractApplicationMetadata(header http.Header) (AuthenticationMetadata, bool) {
 	rawValue, headerKind, ok := singleApplicationAuthorization(header)
 	if !ok {
@@ -41,51 +50,126 @@ func extractApplicationMetadata(header http.Header) (AuthenticationMetadata, boo
 	return AuthenticationMetadata{DeviceID: fields["DeviceId"], ClientName: fields["Client"]}, true
 }
 
-// extractProtectedRequestAccessToken rejects query credentials before applying
-// the supported Header-source contract, preventing a forwarded api_key from
-// selecting a different Emby identity than the Gateway validated.
+// extractProtectedRequestAccessToken resolves every supported Header and query
+// carrier to one opaque Token. Multiple carriers are valid only when all
+// values are identical, preventing Gateway/Emby identity selection drift.
 func extractProtectedRequestAccessToken(request *http.Request) (string, string, bool) {
 	if request == nil {
 		return "", "token_invalid", false
 	}
-	if request.URL != nil && request.URL.Query().Has("api_key") {
-		return "", "token_invalid", false
-	}
-	return extractProtectedAccessToken(request.Header)
-}
-
-// extractProtectedAccessToken accepts the versioned X-Emby-Token source and
-// the strictly parsed Emby/MediaBrowser application Header Token field. Two
-// non-empty sources are valid only when their opaque values are identical.
-func extractProtectedAccessToken(header http.Header) (string, string, bool) {
-	xEmbyTokenValues := header.Values(accessTokenHeader)
-	if len(xEmbyTokenValues) > 1 {
-		return "", "token_ambiguous", false
-	}
-	xEmbyToken := ""
-	if len(xEmbyTokenValues) == 1 {
-		xEmbyToken = xEmbyTokenValues[0]
-		if xEmbyToken == "" {
-			return "", "token_invalid", false
-		}
-	}
-
-	embeddedToken, embeddedPresent, reasonCode := protectedApplicationAccessToken(header)
+	candidates, reasonCode := protectedHeaderAccessTokenCandidates(request.Header)
 	if reasonCode != "" {
 		return "", reasonCode, false
 	}
-	switch {
-	case xEmbyToken == "" && !embeddedPresent:
-		return "", "token_missing", false
-	case xEmbyToken == "":
-		return embeddedToken, "", true
-	case !embeddedPresent:
-		return xEmbyToken, "", true
-	case xEmbyToken != embeddedToken:
-		return "", "token_ambiguous", false
-	default:
-		return xEmbyToken, "", true
+	if request.URL != nil {
+		queryCandidates, queryReasonCode := protectedQueryAccessTokenCandidates(request.URL.Query())
+		if queryReasonCode != "" {
+			return "", queryReasonCode, false
+		}
+		if queryCandidates.present && !candidates.add(queryCandidates.value) {
+			return "", "token_ambiguous", false
+		}
 	}
+	return candidates.result()
+}
+
+// extractProtectedAccessToken applies the Header-only subset used by focused
+// unit tests and by callers that have no URL query.
+func extractProtectedAccessToken(header http.Header) (string, string, bool) {
+	candidates, reasonCode := protectedHeaderAccessTokenCandidates(header)
+	if reasonCode != "" {
+		return "", reasonCode, false
+	}
+	return candidates.result()
+}
+
+// protectedHeaderAccessTokenCandidates collects the two direct Token headers
+// and one strict application authorization header without source precedence.
+func protectedHeaderAccessTokenCandidates(header http.Header) (accessTokenCandidates, string) {
+	var candidates accessTokenCandidates
+	for _, headerName := range []string{accessTokenHeader, mediaBrowserTokenHeader} {
+		values := header.Values(headerName)
+		switch {
+		case len(values) > 1:
+			return accessTokenCandidates{}, "token_ambiguous"
+		case len(values) == 1 && values[0] == "":
+			return accessTokenCandidates{}, "token_invalid"
+		case len(values) == 1 && !candidates.add(values[0]):
+			return accessTokenCandidates{}, "token_ambiguous"
+		}
+	}
+	embeddedToken, embeddedPresent, reasonCode := protectedApplicationAccessToken(header)
+	if reasonCode != "" {
+		return accessTokenCandidates{}, reasonCode
+	}
+	if embeddedPresent && !candidates.add(embeddedToken) {
+		return accessTokenCandidates{}, "token_ambiguous"
+	}
+	return candidates, ""
+}
+
+// protectedQueryAccessTokenCandidates accepts the exact compatibility aliases
+// case-insensitively while treating repeated logical sources as ambiguous.
+func protectedQueryAccessTokenCandidates(values url.Values) (accessTokenCandidates, string) {
+	var candidates accessTokenCandidates
+	seen := make(map[string]struct{}, 4)
+	for key, items := range values {
+		canonicalKey, supported := canonicalTokenQueryKey(key)
+		if !supported {
+			continue
+		}
+		if _, duplicate := seen[canonicalKey]; duplicate {
+			return accessTokenCandidates{}, "token_ambiguous"
+		}
+		seen[canonicalKey] = struct{}{}
+		if len(items) != 1 {
+			return accessTokenCandidates{}, "token_ambiguous"
+		}
+		if items[0] == "" {
+			return accessTokenCandidates{}, "token_invalid"
+		}
+		if !candidates.add(items[0]) {
+			return accessTokenCandidates{}, "token_ambiguous"
+		}
+	}
+	return candidates, ""
+}
+
+// canonicalTokenQueryKey returns only fixed labels and never a Token value.
+func canonicalTokenQueryKey(key string) (string, bool) {
+	switch strings.ToLower(key) {
+	case "api_key":
+		return "api_key", true
+	case "x-emby-token":
+		return "x-emby-token", true
+	case "x-mediabrowser-token":
+		return "x-mediabrowser-token", true
+	case "accesstoken":
+		return "accesstoken", true
+	default:
+		return "", false
+	}
+}
+
+// add merges a non-empty candidate without allowing conflicting identities.
+func (candidates *accessTokenCandidates) add(value string) bool {
+	if value == "" {
+		return false
+	}
+	if !candidates.present {
+		candidates.value = value
+		candidates.present = true
+		return true
+	}
+	return candidates.value == value
+}
+
+// result maps an empty candidate set to the fixed missing-token rejection.
+func (candidates accessTokenCandidates) result() (string, string, bool) {
+	if !candidates.present {
+		return "", "token_missing", false
+	}
+	return candidates.value, "", true
 }
 
 // protectedApplicationAccessToken validates an optional application Header
@@ -94,10 +178,11 @@ func extractProtectedAccessToken(header http.Header) (string, string, bool) {
 func protectedApplicationAccessToken(header http.Header) (string, bool, string) {
 	standardValues := header.Values(standardAuthorizationHeader)
 	embyValues := header.Values(embyAuthorizationHeader)
-	if len(standardValues)+len(embyValues) == 0 {
+	mediaBrowserValues := header.Values(mediaBrowserAuthorizationHeader)
+	if len(standardValues)+len(embyValues)+len(mediaBrowserValues) == 0 {
 		return "", false, ""
 	}
-	if len(standardValues)+len(embyValues) != 1 {
+	if len(standardValues)+len(embyValues)+len(mediaBrowserValues) != 1 {
 		return "", false, "token_ambiguous"
 	}
 	rawValue, headerKind, ok := singleApplicationAuthorization(header)
@@ -117,13 +202,17 @@ func protectedApplicationAccessToken(header http.Header) (string, bool, string) 
 func singleApplicationAuthorization(header http.Header) (string, applicationAuthorizationHeader, bool) {
 	standardValues := header.Values(standardAuthorizationHeader)
 	embyValues := header.Values(embyAuthorizationHeader)
-	if len(standardValues)+len(embyValues) != 1 {
+	mediaBrowserValues := header.Values(mediaBrowserAuthorizationHeader)
+	if len(standardValues)+len(embyValues)+len(mediaBrowserValues) != 1 {
 		return "", 0, false
 	}
 	if len(standardValues) == 1 {
 		return standardValues[0], applicationHeaderStandard, standardValues[0] != ""
 	}
-	return embyValues[0], applicationHeaderEmby, embyValues[0] != ""
+	if len(embyValues) == 1 {
+		return embyValues[0], applicationHeaderEmby, embyValues[0] != ""
+	}
+	return mediaBrowserValues[0], applicationHeaderMediaBrowser, mediaBrowserValues[0] != ""
 }
 
 // parseApplicationAuthorization parses the fixed Emby quoted field grammar.
@@ -192,14 +281,14 @@ func parseApplicationAuthorizationWithTokenPolicy(value string, headerKind appli
 	return fields, true
 }
 
-// applicationAuthorizationFieldsStart accepts Emby on either documented
-// header and MediaBrowser only on the X-Emby-Authorization shape observed from
-// Infuse 8.5, without case folding or arbitrary scheme expansion.
+// applicationAuthorizationFieldsStart accepts Emby on its documented headers
+// and MediaBrowser on the X-Emby shape observed from Infuse or its explicit
+// X-MediaBrowser compatibility alias, without arbitrary scheme expansion.
 func applicationAuthorizationFieldsStart(value string, headerKind applicationAuthorizationHeader) (int, bool) {
 	switch {
-	case strings.HasPrefix(value, embyAuthorizationScheme):
+	case (headerKind == applicationHeaderStandard || headerKind == applicationHeaderEmby) && strings.HasPrefix(value, embyAuthorizationScheme):
 		return len(embyAuthorizationScheme), true
-	case headerKind == applicationHeaderEmby && strings.HasPrefix(value, mediaBrowserAuthorizationScheme):
+	case (headerKind == applicationHeaderEmby || headerKind == applicationHeaderMediaBrowser) && strings.HasPrefix(value, mediaBrowserAuthorizationScheme):
 		return len(mediaBrowserAuthorizationScheme), true
 	default:
 		return 0, false
