@@ -42,6 +42,7 @@ type videoDecision struct {
 	Decision       string
 	Stage          string
 	ReasonCode     string
+	FallbackSource string
 	Method         string
 	UserID         string
 	MappingID      string
@@ -60,9 +61,46 @@ type videoDecision struct {
 
 // serveVideo chooses exactly one of reject, redirect or transparent Emby
 // fallback after ServeHTTP has already resolved a fresh local Principal.
-func (gateway *Gateway) serveVideo(writer http.ResponseWriter, request *http.Request, principal embytoken.Principal, startedAt time.Time) {
+func (gateway *Gateway) serveVideo(
+	writer http.ResponseWriter,
+	request *http.Request,
+	principal embytoken.Principal,
+	accessToken string,
+	startedAt time.Time,
+) {
+	fallbackRequest := request
+	fallbackSource := onDemandFallbackSourceClient
+	playbackInfoResolved := false
+	if itemID, mediaSourceID, eligible := onDemandPlaybackInfoCandidate(request); eligible {
+		clientRequest := request
+		resolved, reasonCode := gateway.resolvePlaybackInfoOnDemand(request, principal, accessToken, itemID, mediaSourceID)
+		if reasonCode == "" {
+			request, playbackInfoResolved = augmentVideoRequestWithPlaybackInfo(request, resolved)
+			if playbackInfoResolved {
+				fallbackRequest, fallbackSource = buildOnDemandEmbyFallbackRequest(
+					clientRequest,
+					request,
+					resolved,
+					accessToken,
+				)
+			}
+		} else if reasonCode != "upstream_status" {
+			gateway.logger.Printf(
+				"[PlaybackGateway] code=playback_info_resolve_failed reasonCode=%s mappingId=%s itemId=%s",
+				reasonCode,
+				principal.MappingID,
+				itemID,
+			)
+		}
+	}
 	var containerRecovered bool
-	request, containerRecovered = gateway.recoverMissingStreamContainer(request, principal)
+	if !playbackInfoResolved {
+		request, containerRecovered = gateway.recoverMissingStreamContainer(request, principal)
+		fallbackRequest = request
+		if containerRecovered {
+			fallbackSource = onDemandFallbackSourceContainer
+		}
+	}
 	info := inspectVideoRequest(request)
 	if containerRecovered {
 		info.Accelerated = false
@@ -73,7 +111,7 @@ func (gateway *Gateway) serveVideo(writer http.ResponseWriter, request *http.Req
 	if !info.Accelerated {
 		decision.Stage = info.FallbackStage
 		decision.ReasonCode = info.FallbackReason
-		gateway.proxyVideoFallback(writer, request, decision, principal)
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 
@@ -81,19 +119,19 @@ func (gateway *Gateway) serveVideo(writer http.ResponseWriter, request *http.Req
 	if proofReason != "" {
 		decision.Stage = "proof"
 		decision.ReasonCode = proofReason
-		gateway.proxyVideoFallback(writer, request, decision, principal)
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 	if proof.Container != "" && info.Container != "" && !strings.EqualFold(proof.Container, info.Container) {
 		decision.Stage = "eligibility"
 		decision.ReasonCode = "media_not_direct_play"
-		gateway.proxyVideoFallback(writer, request, decision, principal)
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 	if gateway.directPlayService == nil {
 		decision.Stage = "eligibility"
 		decision.ReasonCode = "direct_play_disabled"
-		gateway.proxyVideoFallback(writer, request, decision, principal)
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 
@@ -103,13 +141,13 @@ func (gateway *Gateway) serveVideo(writer http.ResponseWriter, request *http.Req
 	if err != nil {
 		decision.Stage = "direct_play"
 		decision.ReasonCode = directPlayReasonCode(err)
-		gateway.proxyVideoFallback(writer, request, decision, principal)
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 	if !validRedirectCandidate(candidate) {
 		decision.Stage = "direct_play"
 		decision.ReasonCode = "provider_protocol"
-		gateway.proxyVideoFallback(writer, request, decision, principal)
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 
@@ -125,15 +163,17 @@ func (gateway *Gateway) serveVideo(writer http.ResponseWriter, request *http.Req
 	gateway.logVideoDecision(decision)
 }
 
-// proxyVideoFallback preserves the original request object and delegates it to
-// the existing reverse proxy. The response/error hooks own the single final log.
+// proxyVideoFallback delegates the selected client or PlaybackInfo-authorized
+// Emby request to the existing proxy; response/error hooks own the final log.
 func (gateway *Gateway) proxyVideoFallback(
 	writer http.ResponseWriter,
 	request *http.Request,
 	decision videoDecision,
 	principal embytoken.Principal,
+	fallbackSource string,
 ) {
 	decision.Decision = "fallback"
+	decision.FallbackSource = fallbackSource
 	routeContext := requestRouteContext{kind: routeVideo, principal: &principal, videoDecision: &decision}
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
 	gateway.proxy.ServeHTTP(writer, request.WithContext(ctx))
@@ -350,8 +390,8 @@ func (gateway *Gateway) logVideoDecision(decision videoDecision) {
 		duration = 0
 	}
 	gateway.logger.Printf(
-		"[PlaybackGateway] decision=%s stage=%s reasonCode=%s method=%s userId=%s mappingId=%s deviceId=%s clientName=%s itemId=%s mediaSourceId=%s playSessionId=%s taskId=%s preexisting=%t statusCode=%d upstreamStatus=%d proxyErrorCode=%s durationMs=%d",
-		decision.Decision, decision.Stage, decision.ReasonCode, decision.Method,
+		"[PlaybackGateway] decision=%s stage=%s reasonCode=%s fallbackSource=%s method=%s userId=%s mappingId=%s deviceId=%s clientName=%s itemId=%s mediaSourceId=%s playSessionId=%s taskId=%s preexisting=%t statusCode=%d upstreamStatus=%d proxyErrorCode=%s durationMs=%d",
+		decision.Decision, decision.Stage, decision.ReasonCode, decision.FallbackSource, decision.Method,
 		strconv.Quote(decision.UserID), strconv.Quote(decision.MappingID), strconv.Quote(decision.DeviceID),
 		strconv.Quote(decision.ClientName), strconv.Quote(decision.ItemID), strconv.Quote(decision.MediaSourceID),
 		strconv.Quote(decision.PlaySessionID), strconv.Quote(decision.TaskID), decision.Preexisting,

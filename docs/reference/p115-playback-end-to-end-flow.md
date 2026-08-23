@@ -194,7 +194,20 @@ Infuse 可能不先调用 PlaybackInfo，而是在成功获取 `/Users/{UserId}/
 mappingId + itemId + mediaSourceId -> container
 ```
 
-该缓存不包含 Token、Path、Size 或响应体，不是 115 授权证明。plain stream 完全缺少必填 Container 时，它只用于克隆正常 Emby fallback 并追加 Container；没有 PlaySessionId 仍不会进入 DirectPlay。
+该缓存不包含 Token、Path、Size 或响应体，不是 115 授权证明。按需 PlaybackInfo 失败后，plain stream 仍完全缺少必填 Container 时，它才用于克隆正常 Emby fallback 并追加 Container；该降级分支不会进入 DirectPlay。
+
+### 4.2 缺 PlaySessionId 的按需 PlaybackInfo
+
+plain stream 带唯一 MediaSourceId 和 `Static=true`、但没有 PlaySessionId 时：
+
+1. 先复用同一 mapping/item/source 最新、未过期的 PlaybackInfo 证明，并再次核对当前 server/user/Emby user/device 身份；身份变化时不得复用旧 PlaySessionId。
+2. 未命中时使用当前用户 Token 请求内部 Emby `GET /Items/{Id}/PlaybackInfo?UserId=...`；不使用管理员 API Key，Token 不进入 URL。
+3. 相同 key 的并发请求 singleflight 合并；调用固定 10 秒超时，等待方可独立取消。
+4. 成功响应必须匹配 item/source 并提供 PlaySessionId/Container；合格 DirectPlay source 写入原证明缓存。
+5. 分别准备两份请求：追加缺失参数的 115 决策请求，以及严格验证 `DirectStreamUrl` 后形成的正常 Emby fallback 请求。
+6. DirectStreamUrl 缺失或无效时，正常 fallback 使用 Emby 官方 Web 的 `/Videos/{Id}/stream.{Container}`；只有扩展名也无法安全形成时才使用补齐后的 plain stream。
+7. DirectStreamUrl 中的 URL Token 全部删除，改用当前用户 Token Header；原 method、Range、应用 Header 和非播放身份参数继续保留。
+8. resolver 失败时不伪造参数，回到原请求或 4.1 的 Container 降级 fallback。
 
 ## 5. PlaybackInfo 短期证明
 
@@ -236,20 +249,29 @@ flowchart TD
     C -- 用户硬状态/到期 --> R2[reject<br/>403]
     C -- 身份存储失败 --> R3[reject<br/>503]
     C -- 请求取消 / deadline --> R4[reject<br/>499 / 504]
-    C -- Principal 合法 --> D{固定静态播放形态?}
-    D -- 否 --> CR{plain stream 缺 Container<br/>且条目快照可用?}
-    CR -- 否 --> F[fallback 原始请求到 Emby]
+    C -- Principal 合法 --> OD{plain static stream<br/>缺 PlaySessionId?}
+    OD -- 是 --> PI[当前用户 Token<br/>补取 PlaybackInfo]
+    PI -- 成功 --> AF[准备独立 Emby fallback<br/>DirectStreamUrl / stream.Container]
+    AF --> D{固定静态播放形态?}
+    PI -- 失败 --> CR
+    OD -- 否 --> D
+    D -- 否 --> FB{已有权威 fallback?}
+    CR{plain stream 缺 Container<br/>且条目快照可用?}
+    CR -- 否 --> F[fallback 客户端请求到 Emby]
     CR -- 是 --> FC[追加 Container<br/>fallback 到 Emby]
     D -- 是 --> E{近期 PlaybackInfo 证明匹配?}
-    E -- 否 --> F
+    E -- 否 --> FB
     E -- 是 --> G{Container 匹配且 DirectPlay 可用?}
-    G -- 否 --> F
+    G -- 否 --> FB
     G -- 是 --> H[ResolveMediaPath]
     H --> I{115 全链路成功?}
-    I -- 否 --> F
+    I -- 否 --> FB
     I -- 是 --> J[redirect<br/>空体 302 到 playback 直链]
+    FB -- 是 --> FA[fallback 权威流地址到 Emby]
+    FB -- 否 --> F
     F --> K[Emby 状态/Header/视频体透明返回]
     FC --> K
+    FA --> K
     J --> L[客户端向 115 CDN 发 Range]
 ```
 
@@ -265,7 +287,7 @@ flowchart TD
 
 HLS/DASH manifest、转码分片、不完整参数、未映射路径、账号不可用、Provider 错误、秒传失败、目标复核失败、链接不兼容等都进入 fallback，不拒绝合法用户。
 
-其中 plain `/stream` 缺少 Container 但命中近期用户条目快照时，固定记录 `fallback/route/container_recovered`；该兼容分支不尝试 115，避免把 Container 元数据误当成 PlaybackInfo/PlaySession 授权。
+其中按需 PlaybackInfo 成功时会补齐真实 PlaySessionId/Container，并可能获得 115 `302`；115 不适用或失败时使用与决策请求分离的权威 Emby fallback。失败后 plain `/stream` 再命中近期用户条目快照时，固定记录 `fallback/route/container_recovered`，该降级分支不尝试 115。
 
 ## 7. DirectPlay 保留式秒传
 
@@ -377,11 +399,11 @@ reasonCode=<fixed-reason>
 
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
-| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、root/`/emby` 与大小写路由、Token aliases、多来源冲突、Yamby 空数组、用户条目 Container 快照、缺参 fallback 恢复、取消/deadline、PlaybackInfo/视频/进度和 Gateway 决策 | 真实 115 风控、SenPlayer/Yamby 等客户端实机行为和完整播放 |
+| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、Token aliases、Yamby 空数组、条目快照、按需 PlaybackInfo 的压缩/错配/失败/singleflight/证明复用、DirectStreamUrl Token 清理/Item 校验、扩展名 fallback、补全后 302、取消/deadline 和 Gateway 决策 | 真实 115 风控、SenPlayer/Yamby 等客户端实机行为和完整播放 |
 | PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 2026-08-23 已确认登录、普通资源 API 上游 `200`，以及 plain stream 只带 `MediaSourceId + Static` 时原始 fallback 因缺必填 Container 返回 `404` | Container 恢复后的正常 Emby 播放、PlaybackInfo、302、HEAD/Range、字幕、UA/IP 绑定与进度事件仍未确认；旧 Store error 需新 reasonCode 复验 |
+| Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200`、按需 PlaybackInfo `proofCount=1`，以及原始、Container-only、补齐参数后的 plain fallback 都返回 `404`；115 分支到达 `account_unavailable` 后按规则 fallback | DirectStreamUrl/扩展名权威 Emby fallback、115 302、HEAD/Range、字幕、UA/IP 绑定与进度事件仍未确认；旧 Store error 需新 reasonCode 复验 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
@@ -393,7 +415,7 @@ reasonCode=<fixed-reason>
 
 【致命问题】
 
-- `P1-1`：Infuse 登录和普通资源已通过，但原始 plain stream fallback 因缺 Container `404`；恢复实现尚未实机确认，PlaybackInfo、302/HEAD/Range 和进度合同仍未闭环。
+- `P1-1`：Infuse 登录、普通资源和按需 PlaybackInfo 已通过，但三种 plain fallback 都 `404`；权威 DirectStreamUrl/扩展名 fallback 尚未实机确认，302/HEAD/Range 和进度合同仍未闭环。
 - `P1-2`：如果原始 Emby 公网入口未隔离，所有 Gateway 本地门控都可以被绕过。
 
 【改进方向】
@@ -406,19 +428,19 @@ reasonCode=<fixed-reason>
 | 优先级 | 问题 |
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
-| `P1` | `P1-1` plain stream Container 恢复尚未实机且播放合同未闭环；`P1-2` 原始 Emby 旁路风险 |
+| `P1` | `P1-1` 本地视频权威 Emby fallback 尚未实机且播放合同未闭环；`P1-2` 原始 Emby 旁路风险 |
 | `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理；`P2-5` 两次历史 Store error 根因待新日志复验 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
 
-#### 【P1-1】plain stream Container 恢复尚未实机且播放合同未闭环
+#### 【P1-1】本地视频权威 Emby fallback 尚未实机且播放合同未闭环
 
-- 触发条件：Infuse 在用户条目 `200` 后直接请求 plain `/Videos/{Id}/stream?MediaSourceId=...&Static=true`，没有 Container/PlaySessionId；原始 Emby fallback 对缺少必填 Container 返回 `404`。
-- 实际后果：媒体库浏览正常但视频无法播放，也不会形成 PlaybackInfo 证明或进入 115 `302`。
-- 定位：`services/api/internal/playbackgateway/item_snapshot.go`、`video.go`、`docs/reference/emby-playback-proxy-contract.md`。
-- 建议：部署后确认条目请求出现 `item_container_snapshot_recorded`，随后视频决策为 `fallback/route/container_recovered` 且上游状态不再 `404`；再继续 PlaybackInfo、302、HEAD/Range、字幕和进度验收。
-- 证据边界：缺 Container 的原始 fallback `404` 已由目标环境证明；Container 恢复和不放宽 115 已有 fake 证据，真实恢复结果仍未确认。
+- 触发条件：Infuse 直接请求没有 Container/PlaySessionId 的 plain stream；原始、Container-only 和按需 PlaybackInfo 补齐参数后的 plain fallback 都由目标 Emby 返回 `404`。
+- 实际后果：媒体库浏览与按需 PlaybackInfo 正常，115 不适用或不可用时本地视频仍无法播放。
+- 定位：`services/api/internal/playbackgateway/playback_info_resolver.go`、`video.go`、`docs/reference/emby-playback-proxy-contract.md`。
+- 建议：部署后确认 `fallbackSource=playback_info_direct_stream` 或 `playback_info_extension_stream`，且本地视频由 Emby 返回 `200/206`；再继续 115、HEAD/Range、字幕和进度验收。
+- 证据边界：三种 plain fallback `404` 与按需 proof 已由目标环境证明；DirectStreamUrl/扩展名 fallback、URL Token 清理和失败边界已有 fake 证据，真实结果仍未确认。
 
 #### 【P1-2】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
 

@@ -282,8 +282,9 @@ func TestGatewayVideoNonStaticManifestFallsBackWithoutDirectPlay(t *testing.T) {
 	assertSingleDecisionLog(t, logs.String(), "fallback", "route", "route_not_accelerated")
 }
 
-func TestGatewayRecoversMissingStreamContainerFromUserItemResponse(t *testing.T) {
+func TestGatewayResolvesPlaybackInfoForIncompleteInfuseStreamFallback(t *testing.T) {
 	var itemCalls atomic.Int32
+	var playbackInfoCalls atomic.Int32
 	var videoCalls atomic.Int32
 	itemBody := []byte(`{"Id":"item-1","Container":"mkv","MediaSources":[{"Id":"source-1","Container":"mkv"}]}`)
 	encodedItemBody := deflateFixture(t, itemBody, false)
@@ -294,23 +295,29 @@ func TestGatewayRecoversMissingStreamContainerFromUserItemResponse(t *testing.T)
 			writer.Header().Set("Content-Type", "application/json")
 			writer.Header().Set("Content-Encoding", "deflate")
 			_, _ = writer.Write(encodedItemBody)
-		case "/emby/Videos/item-1/stream":
+		case "/emby/Videos/item-1/stream.mkv":
 			videoCalls.Add(1)
 			if request.URL.Query().Get("MediaSourceId") != "source-1" || request.URL.Query().Get("Static") != "true" ||
-				request.URL.Query().Get("Container") != "mkv" || request.URL.Query().Get("PlaySessionId") != "" {
+				request.URL.Query().Get("Container") != "" || request.URL.Query().Get("PlaySessionId") != "" {
 				t.Fatalf("upstream video query=%q", request.URL.RawQuery)
 			}
 			writer.WriteHeader(http.StatusOK)
 			_, _ = io.WriteString(writer, "fixture-video")
+		case "/emby/Items/item-1/PlaybackInfo":
+			playbackInfoCalls.Add(1)
+			if request.Method != http.MethodGet || request.URL.Query().Get("UserId") != "emby-user-1" || request.Header.Get(accessTokenHeader) != fixtureAccessToken {
+				t.Fatalf("PlaybackInfo request=%s %s headers=%v", request.Method, request.URL.RequestURI(), request.Header)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"Container":"mkv","SupportsDirectPlay":true}],"PlaySessionId":"session-1"}`)
 		default:
 			t.Fatalf("unexpected upstream path=%s", request.URL.Path)
 		}
 	}))
 	defer upstream.Close()
 
-	directPlay := &fakeDirectPlayService{}
 	var logs bytes.Buffer
-	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
+	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, nil, nil, &logs)
 
 	itemRequest := httptest.NewRequest(http.MethodGet, "/Users/emby-user-1/Items/item-1?Fields=MediaSources", nil)
 	itemRequest.Header.Set(accessTokenHeader, fixtureAccessToken)
@@ -326,14 +333,161 @@ func TestGatewayRecoversMissingStreamContainerFromUserItemResponse(t *testing.T)
 	videoResponse := httptest.NewRecorder()
 	gateway.ServeHTTP(videoResponse, videoRequest)
 
-	if videoResponse.Code != http.StatusOK || videoResponse.Body.String() != "fixture-video" || itemCalls.Load() != 1 || videoCalls.Load() != 1 {
-		t.Fatalf("video response=%d body=%q itemCalls=%d videoCalls=%d", videoResponse.Code, videoResponse.Body.String(), itemCalls.Load(), videoCalls.Load())
+	if videoResponse.Code != http.StatusOK || videoResponse.Body.String() != "fixture-video" || itemCalls.Load() != 1 || playbackInfoCalls.Load() != 1 || videoCalls.Load() != 1 {
+		t.Fatalf("video response=%d body=%q itemCalls=%d playbackInfoCalls=%d videoCalls=%d", videoResponse.Code, videoResponse.Body.String(), itemCalls.Load(), playbackInfoCalls.Load(), videoCalls.Load())
 	}
-	if len(directPlay.snapshot()) != 0 {
-		t.Fatalf("DirectPlay calls=%d, want none without PlaySessionId", len(directPlay.snapshot()))
+	assertSingleDecisionLog(t, logs.String(), "fallback", "eligibility", "direct_play_disabled")
+	if !strings.Contains(logs.String(), "fallbackSource=playback_info_extension_stream") {
+		t.Fatalf("logs=%q", logs.String())
 	}
-	assertSingleDecisionLog(t, logs.String(), "fallback", "route", "container_recovered")
+	if !strings.Contains(logs.String(), "code=playback_info_resolved_on_demand") {
+		t.Fatalf("logs=%q", logs.String())
+	}
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "fixture-video")
+}
+
+func TestGatewayUsesPlaybackInfoDirectStreamURLWhenDirectPlayUnavailable(t *testing.T) {
+	const directStreamToken = "fixture-direct-stream-token"
+	var playbackInfoCalls atomic.Int32
+	var authoritativeStreamCalls atomic.Int32
+	var originalStreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/emby/Items/item-1/PlaybackInfo":
+			playbackInfoCalls.Add(1)
+			if request.Header.Get(accessTokenHeader) != fixtureAccessToken || request.URL.Query().Has("api_key") {
+				t.Fatalf("PlaybackInfo authentication=%s headers=%v", request.URL.RequestURI(), request.Header)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"Container":"mkv","SupportsDirectPlay":true,"SupportsDirectStream":true,"DirectStreamUrl":"/Videos/item-1/stream.mkv?Static=true&MediaSourceId=source-1&api_key=`+directStreamToken+`"}],"PlaySessionId":"session-1"}`)
+		case "/emby/Videos/item-1/stream.mkv":
+			authoritativeStreamCalls.Add(1)
+			if request.URL.Query().Get("Static") != "true" || request.URL.Query().Get("MediaSourceId") != "source-1" ||
+				request.URL.Query().Get("StartTimeTicks") != "123" || request.URL.Query().Has("api_key") ||
+				request.Header.Get(accessTokenHeader) != fixtureAccessToken || request.Header.Get("Range") != "bytes=123-" ||
+				request.Header.Get("X-Fixture") != "preserved" {
+				t.Fatalf("authoritative fallback request=%s headers=%v", request.URL.RequestURI(), request.Header)
+			}
+			writer.WriteHeader(http.StatusPartialContent)
+			_, _ = io.WriteString(writer, "fixture-local-video")
+		case "/emby/Videos/item-1/stream":
+			originalStreamCalls.Add(1)
+			writer.WriteHeader(http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected upstream path=%s", request.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	directPlay := &fakeDirectPlayService{err: directplay.ErrAccountUnavailable}
+	var logs bytes.Buffer
+	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/Videos/item-1/stream?MediaSourceId=source-1&Static=true&StartTimeTicks=123&api_key="+fixtureAccessToken,
+		nil,
+	)
+	request.Header.Set("Range", "bytes=123-")
+	request.Header.Set("X-Fixture", "preserved")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusPartialContent || response.Body.String() != "fixture-local-video" ||
+		playbackInfoCalls.Load() != 1 || authoritativeStreamCalls.Load() != 1 || originalStreamCalls.Load() != 0 {
+		t.Fatalf(
+			"response=%d body=%q playbackInfoCalls=%d authoritativeStreamCalls=%d originalStreamCalls=%d",
+			response.Code,
+			response.Body.String(),
+			playbackInfoCalls.Load(),
+			authoritativeStreamCalls.Load(),
+			originalStreamCalls.Load(),
+		)
+	}
+	assertSingleDecisionLog(t, logs.String(), "fallback", "direct_play", "account_unavailable")
+	if !strings.Contains(logs.String(), "fallbackSource=playback_info_direct_stream") {
+		t.Fatalf("logs=%q", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, directStreamToken, "/private/media/one.mkv")
+}
+
+func TestGatewayOnDemandPlaybackInfoCanAuthorizeDirectPlay(t *testing.T) {
+	var playbackInfoCalls atomic.Int32
+	var videoCalls atomic.Int32
+	playbackInfoBody := []byte(`{"MediaSources":[{"Id":"mediasource_item-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"Container":"mkv","SupportsDirectPlay":true}],"PlaySessionId":"session-1"}`)
+	encodedPlaybackInfoBody := deflateFixture(t, playbackInfoBody, false)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/emby/Items/item-1/PlaybackInfo":
+			playbackInfoCalls.Add(1)
+			if request.Header.Get(embyAuthorizationHeader) != mediaBrowserAuthorizationWithToken(fixtureAccessToken) || request.Header.Get(accessTokenHeader) != "" {
+				t.Fatal("on-demand PlaybackInfo authentication headers changed")
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			writer.Header().Set("Content-Encoding", "deflate")
+			_, _ = writer.Write(encodedPlaybackInfoBody)
+		case "/emby/Videos/item-1/stream":
+			videoCalls.Add(1)
+			writer.WriteHeader(http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected upstream path=%s", request.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	directPlay := &fakeDirectPlayService{result: validFixtureRedirectCandidate()}
+	var logs bytes.Buffer
+	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/Videos/item-1/stream?MediaSourceId=mediasource_item-1&Static=true", nil)
+	request.Header.Set(embyAuthorizationHeader, mediaBrowserAuthorizationWithToken(fixtureAccessToken))
+	request.Header.Set("Accept-Encoding", "deflate")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusFound || response.Header().Get("Location") != fixtureRedirectURL || playbackInfoCalls.Load() != 1 || videoCalls.Load() != 0 {
+		t.Fatalf("response=%d location=%q playbackInfoCalls=%d videoCalls=%d", response.Code, response.Header().Get("Location"), playbackInfoCalls.Load(), videoCalls.Load())
+	}
+	requests := directPlay.snapshot()
+	if len(requests) != 1 || requests[0].Path != "/private/media/one.mkv" || requests[0].Size != 1024 {
+		t.Fatalf("DirectPlay requests=%+v", requests)
+	}
+	assertSingleDecisionLog(t, logs.String(), "redirect", "direct_play", "direct_play_ready")
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "/private/media/one.mkv")
+}
+
+func TestGatewayOnDemandPlaybackInfoFailureKeepsOriginalFallback(t *testing.T) {
+	var playbackInfoCalls atomic.Int32
+	var videoCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/emby/Items/item-1/PlaybackInfo":
+			playbackInfoCalls.Add(1)
+			writer.WriteHeader(http.StatusServiceUnavailable)
+		case "/emby/Videos/item-1/stream":
+			videoCalls.Add(1)
+			if request.URL.Query().Get("Container") != "" || request.URL.Query().Get("PlaySessionId") != "" {
+				t.Fatalf("failed resolver changed fallback query=%q", request.URL.RawQuery)
+			}
+			writer.WriteHeader(http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected upstream path=%s", request.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	directPlay := &fakeDirectPlayService{}
+	var logs bytes.Buffer
+	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
+	request := newVideoRequest(http.MethodGet, "/Videos/item-1/stream?MediaSourceId=source-1&Static=true")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound || playbackInfoCalls.Load() != 1 || videoCalls.Load() != 1 || len(directPlay.snapshot()) != 0 {
+		t.Fatalf("response=%d playbackInfoCalls=%d videoCalls=%d directPlayCalls=%d", response.Code, playbackInfoCalls.Load(), videoCalls.Load(), len(directPlay.snapshot()))
+	}
+	if !strings.Contains(logs.String(), "code=playback_info_resolve_failed reasonCode=upstream_status mappingId=mapping-1 itemId=item-1 statusCode=503") {
+		t.Fatalf("logs=%q", logs.String())
+	}
+	assertSingleDecisionLog(t, logs.String(), "fallback", "route", "route_not_accelerated")
 }
 
 func TestGatewayVideoSecurityFailuresRejectWithoutFallback(t *testing.T) {

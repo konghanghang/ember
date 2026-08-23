@@ -65,11 +65,14 @@ type Config struct {
 // without changing the upstream response.
 type Gateway struct {
 	proxy                          *httputil.ReverseProxy
+	upstream                       *url.URL
+	transport                      http.RoundTripper
 	tokenService                   TokenService
 	directPlayService              DirectPlayService
 	logger                         *log.Logger
 	proofs                         *playbackProofCache
 	itemContainers                 *itemContainerSnapshotCache
+	playbackInfoFlights            *onDemandPlaybackInfoFlightGroup
 	maxAuthenticationResponseBytes int64
 	maxPlaybackInfoRequestBytes    int64
 	maxPlaybackInfoResponseBytes   int64
@@ -131,11 +134,14 @@ func New(config Config) (*Gateway, error) {
 	}
 
 	gateway := &Gateway{
+		upstream:                       upstream,
+		transport:                      transport,
 		tokenService:                   config.TokenService,
 		directPlayService:              config.DirectPlayService,
 		logger:                         logger,
 		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
 		itemContainers:                 newItemContainerSnapshotCache(defaultItemContainerSnapshotMaxEntries, defaultItemContainerSnapshotTTL),
+		playbackInfoFlights:            &onDemandPlaybackInfoFlightGroup{},
 		maxAuthenticationResponseBytes: defaultAuthenticationResponseMaxSize,
 		maxPlaybackInfoRequestBytes:    defaultPlaybackInfoRequestMaxSize,
 		maxPlaybackInfoResponseBytes:   defaultPlaybackInfoResponseMaxSize,
@@ -172,6 +178,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	kind := classifyRoute(request)
 	routeCode = routeKindCode(kind)
 	routeContext := requestRouteContext{kind: kind, pathMode: pathMode}
+	requestAccessToken := ""
 	switch kind {
 	case routeSystemInfoPublic:
 		// PublicSystemInfo is the exact pre-login discovery endpoint. Emby is
@@ -243,6 +250,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		routeContext.principal = &principal
+		requestAccessToken = accessToken
 		if kind == routePlaybackInfo {
 			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible = gateway.preparePlaybackInfoRequest(request, principal)
 		} else if kind == routeItemDetail {
@@ -252,7 +260,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		}
 	}
 	if kind == routeVideo {
-		gateway.serveVideo(statusWriter, request, *routeContext.principal, startedAt)
+		gateway.serveVideo(statusWriter, request, *routeContext.principal, requestAccessToken, startedAt)
 		return
 	}
 
@@ -493,11 +501,18 @@ func (gateway *Gateway) lookupPlaybackProof(principal embytoken.Principal, itemI
 	if status != playbackProofFound {
 		return PlaybackProof{}, "playback_proof_missing"
 	}
-	if proof.ServerID != principal.ServerID || proof.UserID != principal.User.ID ||
-		proof.EmbyUserID != principal.User.EmbyID || proof.DeviceID != principal.DeviceID {
+	if !playbackProofMatchesPrincipal(proof, principal) {
 		return PlaybackProof{}, "playback_proof_mismatch"
 	}
 	return proof, ""
+}
+
+// playbackProofMatchesPrincipal prevents a cached session from crossing the
+// current Emby server, Ember user, Emby user or device identity boundary.
+func playbackProofMatchesPrincipal(proof PlaybackProof, principal embytoken.Principal) bool {
+	return proof.MappingID == principal.MappingID && proof.ServerID == principal.ServerID &&
+		proof.UserID == principal.User.ID && proof.EmbyUserID == principal.User.EmbyID &&
+		proof.DeviceID == principal.DeviceID
 }
 
 // handleUpstreamError returns a fixed transport status and logs only the Go

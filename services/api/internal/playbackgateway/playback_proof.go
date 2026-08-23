@@ -114,6 +114,30 @@ func (cache *playbackProofCache) Lookup(mappingID, itemID, mediaSourceID, playSe
 	return proof, status == playbackProofFound
 }
 
+// LookupLatestMediaSource returns the freshest non-expired proof for one exact
+// mapping/item/source when a client omits PlaySessionId on a later stream URL.
+func (cache *playbackProofCache) LookupLatestMediaSource(mappingID, itemID, mediaSourceID string) (PlaybackProof, bool) {
+	if cache == nil || cache.now == nil {
+		return PlaybackProof{}, false
+	}
+	now := cache.now().UTC()
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.pruneExpiredLocked(now)
+	var latest PlaybackProof
+	found := false
+	for key, proof := range cache.entries {
+		if key.mappingID != mappingID || key.itemID != itemID || key.mediaSourceID != mediaSourceID {
+			continue
+		}
+		if !found || proof.AuthorizedAt.After(latest.AuthorizedAt) {
+			latest = proof
+			found = true
+		}
+	}
+	return latest, found
+}
+
 // lookup distinguishes an exact expired proof from one that never existed so
 // the final decision log can explain fallback without exposing cached content.
 func (cache *playbackProofCache) lookup(mappingID, itemID, mediaSourceID, playSessionID string) (PlaybackProof, playbackProofLookupStatus) {

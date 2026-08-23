@@ -820,19 +820,22 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - SystemInfoPublic 上游响应只记录固定 route、pathMode 和 statusCode，不记录 Header、URL、ServerId 或响应体；上游 `401/403/500` 仍逐状态透明返回
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
 - fake Emby 测试已覆盖 root/`/emby` 与大小写路径、重复前缀拒绝、SystemInfoPublic、认证响应透明、三种应用头、Header/query Token aliases、多来源冲突、public bootstrap、用户条目 Container 快照/身份隔离/缺参 fallback、取消/deadline、统一请求日志和传输错误脱敏；没有请求真实 Emby
-- root 或 `/emby` 形态的 GET/POST PlaybackInfo 固定语义段大小写不敏感并继续透明代理；成功 `200 application/json` 响应按 `identity/gzip/deflate` 有界解码旁路副本并生成 `mappingId + itemId + mediaSourceId + playSessionId` 证明，同时保存 Path/Size/Container/DirectPlay 能力，不重复调用 Emby、不改写原压缩响应
+- root 或 `/emby` 形态的客户端 GET/POST PlaybackInfo 固定语义段大小写不敏感并继续透明代理；成功 `200 application/json` 响应按 `identity/gzip/deflate` 有界解码旁路副本并生成 `mappingId + itemId + mediaSourceId + playSessionId` 证明，同时保存 Path/Size/Container/DirectPlay 能力，不改写原压缩响应；只有后述缺 PlaySessionId 兼容分支会按需补取
 - GET 只有大小写不敏感的唯一 `UserId` key 等于 Principal.EmbyID 才可形成证明；POST 有界检查可选 UserId，错配、无效或超大请求仍透明转发但不缓存
 - 层级精确的 `GET /Users/{UserId}/Items/{ItemId}` 只有 path UserId 等于 Principal.EmbyID、上游 `200 application/json` 且响应 Id 匹配时，才从 `identity/gzip/deflate` 有界旁路副本缓存 `mappingId + itemId + mediaSourceId -> container`；有可用 MediaSource 时不使用顶层 Container 猜测其他 source。快照不含 Token、Path、Size 或响应体，TTL 5 分钟、最多 4096 条
 - 证明缓存固定 5 分钟、最多 4096 条，延迟过期和最早到期淘汰，无后台 goroutine；不保存原始 Token、不记录 Path，进程重启后证明丢失，115 加速不可用但合法请求应 fallback Emby
+- plain stream 具备唯一 MediaSourceId、`Static=true` 但完全没有 PlaySessionId 时，Gateway 先按 mapping/item/source 复用最新证明，并再次核对当前 server/user/Emby user/device 身份；未命中或身份变化则使用当前用户 AccessToken 对同一内部 Emby 执行 10 秒有界 GET PlaybackInfo。内部 URL 只有 UserId，不含 Token；相同 key 并发 singleflight 合并，等待方可独立取消
+- 按需 PlaybackInfo 内部请求只广告 Gateway 可解码的 gzip/deflate，并只接受无重定向 `200 application/json`、identity/gzip/deflate、匹配 item/source 的非重复 MediaSources 和非空 PlaySessionId；合格 source 写入原证明缓存。115 决策请求追加缺失 Container/PlaySessionId，正常 Emby fallback 则独立使用严格限定到当前 Item 的 DirectStreamUrl；缺失时使用官方 Web 的 `stream.{Container}` 形态
+- DirectStreamUrl 只接受相对视频路径，拒绝外部 host、未知 Item、编码 path、source/session/static/container 错配和 manifest；URL Token aliases 全部删除并替换为当前映射 Token Header，Range、method、应用头和非播放身份参数保持。无法安全生成权威 fallback 时才退回补齐后的 plain stream
 - root 或 `/emby` 形态的固定 `GET/HEAD Videos/{Id}/stream`、`stream.{Container}` 和 `{StreamFileName}` 在语义段上大小写不敏感并进入视频编排；Gateway 消费的 `MediaSourceId/PlaySessionId/Static/Container` query key 大小写不敏感但重复逻辑 key 拒绝加速，只有完整参数、匹配 Container 和当前证明同时成立时才调用 DirectPlay
-- 目标 Infuse 实测 plain `/Videos/{Id}/stream` 只带 `MediaSourceId + Static`；同版本 Emby 要求 Container。若客户端完全没有 Container key 且近期条目快照可用，Gateway 仅克隆 Emby fallback 并在原 RawQuery 后追加 Container，固定记录 `container_recovered`；该快照不替代 PlaySessionId 证明，分支永不直接 115 `302`
+- 目标 Infuse 实测 plain `/Videos/{Id}/stream` 只带 `MediaSourceId + Static`；原始、Container-only 与按需补齐参数后的 plain fallback 均由同一 Emby 返回 `404`，但按需 PlaybackInfo 已成功形成 proof。当前改用 DirectStreamUrl/扩展名权威 Emby fallback；只有 resolver 失败且近期条目快照可用时才进入 `container_recovered` 降级
 - 运行时使用现有 `CONFIG_ENCRYPTION_KEY`、数据库、`CookieProvider` 和 `p115account.Service` 构造生产 `directplay.Service`，构造过程不请求 115；账号未配置或 Provider/任务/直链失败只影响加速
-- DirectPlay 返回安全候选时 Gateway 输出空体 `302`；其余合法请求把原始 method/query/Range/User-Agent/Token 与应用认证 Header 及规范化后的单一上游 path 交给既有 ReverseProxy，Emby 状态、响应头和视频体保持透传
+- DirectPlay 返回安全候选时 Gateway 输出空体 `302`；普通请求继续原样代理。只有已由 Infuse 观察到的“plain static stream 缺播放上下文”通用兼容分支，会在按需 PlaybackInfo 成功后把 method/Range/Header 与非身份参数迁移到 Emby 权威 DirectStreamUrl/扩展名路径；不按客户端名称分支，Emby 状态、响应头和视频体仍保持透传
 - `playback_media_cache` 和 `direct_play_sessions` 本轮均未建表；多副本共享、播放并发和 Playing/Progress/Stopped 持久会话推迟到后续
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
-- 每个视频请求除统一 `request_completed` 摘要外，只额外打印一条 `decision=redirect|fallback|reject` 脱敏决策日志，不新建日志表或 migration；日志禁止 Token、Cookie、完整媒体 Path/SHA1、115 URL 和上游原文
+- 每个视频请求除统一 `request_completed` 摘要外，只额外打印一条 `decision=redirect|fallback|reject` 脱敏决策日志，并用固定 `fallbackSource` 区分 client request、Container 降级、DirectStreamUrl、扩展名和补齐 plain stream；不新建日志表或 migration，禁止 Token、Cookie、完整媒体 Path/SHA1、115 URL 和上游原文
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
-- 2026-08-23 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5`：登录和普通资源 API 均取得上游 `200`；随后 plain `/Videos/{Id}/stream?MediaSourceId=...&Static=true` 因缺少必填 Container 进入原始 fallback 并上游 `404`。Container 快照恢复已有 fake 证据但尚未实机复验；其他播放器、PlaybackInfo、字幕、`302` 和进度事件仍未确认
+- 2026-08-23 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5`：登录和普通资源 API 均取得上游 `200`，按需 PlaybackInfo `proofCount=1`；原始、`container_recovered` 与补齐参数后的 plain fallback 都返回 `404`。DirectStreamUrl/扩展名权威 fallback 已有 fake 证据但尚未实机复验；其他播放器、字幕、进度和完整 CDN 链路仍未确认
 
 ---
 

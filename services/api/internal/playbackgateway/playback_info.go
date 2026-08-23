@@ -33,6 +33,8 @@ type playbackInfoMediaSource struct {
 	ItemID               string `json:"ItemId"`
 	Path                 string `json:"Path"`
 	Container            string `json:"Container"`
+	DirectStreamURL      string `json:"DirectStreamUrl"`
+	AddAPIKeyToDirectURL bool   `json:"AddApiKeyToDirectStreamUrl"`
 	Size                 *int64 `json:"Size"`
 	IsRemote             bool   `json:"IsRemote"`
 	SupportsDirectPlay   bool   `json:"SupportsDirectPlay"`
