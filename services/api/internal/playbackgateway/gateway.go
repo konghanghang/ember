@@ -69,6 +69,7 @@ type routeKind uint8
 const (
 	routeProtected routeKind = iota
 	routeAuthentication
+	routeSystemInfoPublic
 	routePublicBootstrap
 	routePlaybackInfo
 	routeVideo
@@ -76,6 +77,7 @@ const (
 
 type requestRouteContext struct {
 	kind                 routeKind
+	pathMode             requestPathMode
 	metadata             AuthenticationMetadata
 	principal            *embytoken.Principal
 	playbackInfoItemID   string
@@ -142,8 +144,11 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	kind := classifyRoute(request)
-	routeContext := requestRouteContext{kind: kind}
+	routeContext := requestRouteContext{kind: kind, pathMode: pathMode}
 	switch kind {
+	case routeSystemInfoPublic:
+		// PublicSystemInfo is the exact pre-login discovery endpoint. Emby is
+		// authoritative for its response and no local identity exists yet.
 	case routeAuthentication, routePublicBootstrap:
 		metadata, ok := extractApplicationMetadata(request.Header)
 		if !ok {
@@ -200,6 +205,9 @@ func (gateway *Gateway) observeResponse(response *http.Response) error {
 	switch routeContext.kind {
 	case routeAuthentication:
 		return gateway.observeAuthenticationResponse(response)
+	case routeSystemInfoPublic:
+		gateway.logSystemInfoPublicResponse(response, routeContext)
+		return nil
 	case routePlaybackInfo:
 		return gateway.observePlaybackInfoResponse(response, routeContext)
 	case routeVideo:
@@ -208,6 +216,19 @@ func (gateway *Gateway) observeResponse(response *http.Response) error {
 	default:
 		return nil
 	}
+}
+
+// logSystemInfoPublicResponse records only the upstream status and fixed route
+// metadata so production can distinguish local discovery failures from Emby.
+func (gateway *Gateway) logSystemInfoPublicResponse(response *http.Response, routeContext requestRouteContext) {
+	if response == nil {
+		return
+	}
+	gateway.logger.Printf(
+		"[PlaybackGateway] code=bootstrap_upstream_response route=system_info_public pathMode=%s statusCode=%d",
+		routeContext.pathMode,
+		response.StatusCode,
+	)
 }
 
 // observeAuthenticationResponse buffers only the bounded successful login
@@ -310,7 +331,7 @@ func classifyRoute(request *http.Request) routeKind {
 		return routeAuthentication
 	}
 	if request.Method == http.MethodGet && exactRequestPath(request.URL, publicSystemInfoPath) {
-		return routePublicBootstrap
+		return routeSystemInfoPublic
 	}
 	if request.Method == http.MethodGet && exactRequestPath(request.URL, publicUsersPath) {
 		return routePublicBootstrap

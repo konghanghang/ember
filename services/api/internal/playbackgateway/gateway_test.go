@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,43 +25,94 @@ const (
 	fixtureApplicationAuthorization = `Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Token=""`
 )
 
-func TestGatewayRootSystemInfoPublicBootstrapIsTransparent(t *testing.T) {
-	responseBody := `{"LocalAddress":"http://emby.internal:8096","ServerName":"Fixture","Version":"4.9.3.0","Id":"server-1"}`
-	var upstreamCalls atomic.Int32
-	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		upstreamCalls.Add(1)
-		if request.Method != http.MethodGet || request.URL.Path != "/emby/System/Info/Public" || request.URL.RawQuery != "fixture=keep" {
-			t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
-		}
-		if request.Header.Get("X-Emby-Authorization") != fixtureApplicationAuthorization || request.Header.Get("X-Fixture") != "preserved" {
-			t.Errorf("upstream headers = %#v", request.Header)
-		}
-		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-		writer.Header().Set("X-Upstream", "preserved")
-		_, _ = io.WriteString(writer, responseBody)
-	}))
-	defer upstream.Close()
+func TestGatewaySystemInfoPublicIsTransparentWithoutLocalAuthentication(t *testing.T) {
+	responseBody := `{"LocalAddresses":[],"RemoteAddresses":[],"ServerName":"Fixture","Version":"4.9.3.0","Id":"server-1"}`
+	tests := []struct {
+		name              string
+		target            string
+		pathMode          string
+		applicationHeader string
+	}{
+		{name: "root path", target: "/System/Info/Public?fixture=keep", pathMode: "root"},
+		{name: "emby prefixed path", target: "/emby/System/Info/Public?fixture=keep", pathMode: "emby_prefixed"},
+		{name: "opaque application header", target: "/System/Info/Public?fixture=keep", pathMode: "root", applicationHeader: `MediaBrowser Client="Infuse"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				upstreamCalls.Add(1)
+				if request.Method != http.MethodGet || request.URL.Path != publicSystemInfoPath || request.URL.RawQuery != "fixture=keep" {
+					t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+				}
+				if request.Header.Get("Authorization") != test.applicationHeader || request.Header.Get("X-Emby-Authorization") != "" || request.Header.Get("X-Fixture") != "preserved" {
+					t.Errorf("upstream headers = %#v", request.Header)
+				}
+				writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+				writer.Header().Set("X-Upstream", "preserved")
+				_, _ = io.WriteString(writer, responseBody)
+			}))
+			defer upstream.Close()
 
-	tokenService := &fakeTokenService{}
-	var logs bytes.Buffer
-	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
-	request := httptest.NewRequest(http.MethodGet, "/System/Info/Public?fixture=keep", nil)
-	request.Header.Set("X-Emby-Authorization", fixtureApplicationAuthorization)
-	request.Header.Set("X-Fixture", "preserved")
-	response := httptest.NewRecorder()
-	gateway.ServeHTTP(response, request)
+			tokenService := &fakeTokenService{}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			request := httptest.NewRequest(http.MethodGet, test.target, nil)
+			request.Header.Set("X-Fixture", "preserved")
+			if test.applicationHeader != "" {
+				request.Header.Set("Authorization", test.applicationHeader)
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
 
-	if response.Code != http.StatusOK || response.Body.String() != responseBody || response.Header().Get("X-Upstream") != "preserved" {
-		t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
+			if response.Code != http.StatusOK || response.Body.String() != responseBody || response.Header().Get("X-Upstream") != "preserved" {
+				t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
+			}
+			if upstreamCalls.Load() != 1 {
+				t.Fatalf("upstream calls = %d, want 1", upstreamCalls.Load())
+			}
+			recorded, resolved := tokenService.snapshot()
+			if len(recorded) != 0 || len(resolved) != 0 {
+				t.Fatalf("token calls = recorded %d resolved %d, want none", len(recorded), len(resolved))
+			}
+			for _, expected := range []string{"code=bootstrap_upstream_response", "route=system_info_public", "pathMode=" + test.pathMode, "statusCode=200"} {
+				if !strings.Contains(logs.String(), expected) {
+					t.Fatalf("logs = %q, want %s", logs.String(), expected)
+				}
+			}
+			assertSecretsAbsent(t, logs.String(), responseBody)
+		})
 	}
-	if upstreamCalls.Load() != 1 {
-		t.Fatalf("upstream calls = %d, want 1", upstreamCalls.Load())
+}
+
+func TestGatewaySystemInfoPublicPreservesUpstreamFailure(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			responseBody := `{"status":` + strconv.Itoa(status) + `}`
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != publicSystemInfoPath {
+					t.Errorf("upstream path = %s", request.URL.Path)
+				}
+				writer.Header().Set("X-Upstream", "preserved")
+				writer.WriteHeader(status)
+				_, _ = io.WriteString(writer, responseBody)
+			}))
+			defer upstream.Close()
+
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, &fakeTokenService{}, &logs)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/System/Info/Public", nil))
+
+			if response.Code != status || response.Body.String() != responseBody || response.Header().Get("X-Upstream") != "preserved" {
+				t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
+			}
+			if !strings.Contains(logs.String(), "code=bootstrap_upstream_response") || !strings.Contains(logs.String(), "statusCode="+strconv.Itoa(status)) {
+				t.Fatalf("logs = %q", logs.String())
+			}
+			assertSecretsAbsent(t, logs.String(), responseBody)
+		})
 	}
-	recorded, resolved := tokenService.snapshot()
-	if len(recorded) != 0 || len(resolved) != 0 {
-		t.Fatalf("token calls = recorded %d resolved %d, want none", len(recorded), len(resolved))
-	}
-	assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization, responseBody)
 }
 
 func TestGatewayRootAuthenticationIsTransparentAndRecordsMapping(t *testing.T) {
@@ -782,7 +834,6 @@ func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *test
 				"X-Emby-Authorization": {fixtureApplicationAuthorization},
 			},
 		},
-		{name: "root system info missing application header", method: http.MethodGet, path: "/System/Info/Public"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -809,9 +860,6 @@ func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *test
 			}
 			if !strings.Contains(logs.String(), "code=application_header_invalid") {
 				t.Fatalf("logs = %q", logs.String())
-			}
-			if test.path == "/System/Info/Public" && (!strings.Contains(logs.String(), "route=public_bootstrap") || !strings.Contains(logs.String(), "pathMode=root")) {
-				t.Fatalf("root bootstrap logs = %q", logs.String())
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization)
 		})
@@ -903,8 +951,12 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary/0", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary/Delete", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Users/public%2Duser/Images/Primary", want: routeProtected},
-		{method: http.MethodGet, path: "/emby/System/Info/Public", want: routePublicBootstrap},
+		{method: http.MethodGet, path: "/emby/System/Info/Public", want: routeSystemInfoPublic},
 		{method: http.MethodHead, path: "/emby/System/Info/Public", want: routeProtected},
+		{method: http.MethodPost, path: "/emby/System/Info/Public", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/System/Info/Public/", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/system/info/public", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/System%2FInfo%2FPublic", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
 		{method: http.MethodPost, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
 		{method: http.MethodHead, path: "/emby/Items/item-1/PlaybackInfo", want: routeProtected},

@@ -805,13 +805,15 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - Gateway 按支持范围内 9 个稳定 Emby `4.9` OpenAPI 顶层 API family 的并集，把客户端根路径 `/System/...`、`/Users/...`、`/Items/...`、`/Videos/...`、`/Sessions/...` 等规范化为单一上游 `/emby/...`；已经带 `/emby` 的请求保持不变，精确重复 `/emby/emby/...` 返回空体 `400`，query/Header/body 不改写
 - 根 `/web/...` 和未知 Surface 不参与 API 规范化，继续维持当前受保护透传边界；Emby Web 静态资源和 WebSocket 要等独立版本合同与全局开关落地，不能被 API root 规则误改写
-- 精确 `POST /Users/AuthenticateByName` 或 `/emby/Users/AuthenticateByName` 进入认证路由；`GET /System/Info/Public`、公开用户与无 Index 公共用户头像同时接受 root 和 `/emby` 形态并进入 bootstrap；method、大小写、尾斜杠、深层图片路径或 percent-encoding 变体不继承特殊权限
-- 认证与 bootstrap 请求都必须先通过一个 `Authorization` 或 `X-Emby-Authorization` 的严格 `Emby ...` 应用头；两个 Header 同时出现、重复值、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空内嵌 Token、非法 quoted-string 或越界值返回空体 `401`
+- 精确 root 或 `/emby` 形态的 `GET System/Info/Public` 进入独立公开路由，不做本地应用头或 Token 校验，规范化后由 Emby 上游状态保持权威；其他 method、大小写、尾斜杠和 percent-encoding 变体不继承公开权限
+- 精确 `POST /Users/AuthenticateByName` 或 `/emby/Users/AuthenticateByName` 进入认证路由；公开用户与无 Index 公共用户头像同时接受 root 和 `/emby` 形态并进入 bootstrap
+- 认证与除 SystemInfoPublic 外的 bootstrap 请求必须先通过一个 `Authorization` 或 `X-Emby-Authorization` 的严格 `Emby ...` 应用头；两个 Header 同时出现、重复值、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空内嵌 Token、非法 quoted-string 或越界值返回空体 `401`
 - 认证请求透明转发；上游 `200` 响应最多旁路检查 `1 MiB`，只读取 `User.Id/AccessToken/ServerId`，恢复原始字节、状态和普通 Header 后再返回客户端，未知 JSON 字段不重编码
 - 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；日志只记录固定 code 和错误类型，不记录密码、AccessToken、URL 或响应体
 - 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求必须携带唯一 `X-Emby-Token` 并先通过 `ResolvePrincipal`；缺失、重复、未映射、已撤销或身份错配返回空体 `401`，用户不可用或到期返回空体 `403`，身份存储故障返回空体 `503`，请求不会到达 Emby
-- bootstrap allowlist 只覆盖精确 `GET System/Info/Public`、固定登录文档明确的 public 用户列表和无 Index 用户头像；三类请求都必须携带严格应用头，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
+- bootstrap allowlist 只覆盖精确 `GET System/Info/Public`、固定登录文档明确的 public 用户列表和无 Index 用户头像；只有 SystemInfoPublic 允许无应用头，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
+- SystemInfoPublic 上游响应只记录固定 route、pathMode 和 statusCode，不记录 Header、URL、ServerId 或响应体；上游 `401/403/500` 仍逐状态透明返回
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
 - fake Emby 测试已覆盖 root 与 `/emby` 路径规范化、重复前缀拒绝、`System/Info/Public`、认证请求/响应透明、标准应用头、public bootstrap、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
 - root 或 `/emby` 形态的 GET/POST PlaybackInfo 都继续透明代理；成功 `200 application/json` 响应旁路生成 `mappingId + itemId + mediaSourceId + playSessionId` 的进程内证明，同时保存 Path/Size/Container/DirectPlay 能力，不重复调用 Emby
@@ -824,7 +826,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
 - 每个视频请求只打印一条 `decision=redirect|fallback|reject` 脱敏日志，不新建日志表或 migration；日志禁止 Token、Cookie、完整 Path/SHA1、115 URL 和上游原文
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
-- 2026-08-23 生产启动日志已确认目标 Emby `4.9.3.0`，同日访问日志确认 Infuse `8.5` 首次请求根 `GET /System/Info/Public`；root/bootstrap 修复已通过 fake 与 race 测试但尚未部署复验，Infuse 是否携带严格应用头，以及后续 `Static=true`、Token Header、PlaybackInfo、302 和进度事件顺序仍未证实
+- 2026-08-23 生产启动日志已确认目标 Emby `4.9.3.0`；Infuse `8.5` 首次请求根 `GET /System/Info/Public` 时没有可解析应用头，且同一 Emby 的精确接口已实测无登录返回 PublicSystemInfo。对应公开路由修复已通过 fake、race 与 API 全量测试但尚未部署复验，后续认证、`Static=true`、Token Header、PlaybackInfo、302 和进度事件顺序仍未证实
 
 ---
 

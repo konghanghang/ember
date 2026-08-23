@@ -72,6 +72,8 @@ func routeKindCode(kind routeKind) string {
 	switch kind {
 	case routeAuthentication:
 		return "authentication"
+	case routeSystemInfoPublic:
+		return "system_info_public"
 	case routePublicBootstrap:
 		return "public_bootstrap"
 	case routePlaybackInfo:

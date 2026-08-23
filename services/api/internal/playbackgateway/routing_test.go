@@ -46,7 +46,7 @@ func TestNormalizeEmbyAPIPathFeedsExistingSpecialRouteClassifiers(t *testing.T) 
 		path   string
 		want   routeKind
 	}{
-		{method: http.MethodGet, path: "/System/Info/Public", want: routePublicBootstrap},
+		{method: http.MethodGet, path: "/System/Info/Public", want: routeSystemInfoPublic},
 		{method: http.MethodPost, path: "/Users/AuthenticateByName", want: routeAuthentication},
 		{method: http.MethodGet, path: "/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
 		{method: http.MethodGet, path: "/Videos/item-1/stream.mkv", want: routeVideo},

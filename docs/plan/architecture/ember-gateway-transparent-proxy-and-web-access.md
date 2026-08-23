@@ -53,9 +53,9 @@
 
 ### 已由代码确认
 
-- 当前 `classifyRoute` 只识别 `/emby/Users/AuthenticateByName`、公开用户、PlaybackInfo 和视频流等 `/emby/...` 精确路径。
-- 除认证和 public bootstrap 外，其他请求都会先提取唯一 `X-Emby-Token` 并调用 `ResolvePrincipal`；成功后已有 `ReverseProxy` 默认透明转发能力。
-- 当前 `GET /emby/System/Info/Public` 被测试明确锁定为 `routeProtected`，根路径 `GET /System/Info/Public` 同样不会进入 bootstrap。
+- 当前 `classifyRoute` 在规范化后识别 AuthenticateByName、SystemInfoPublic、公开用户、PlaybackInfo 和视频流等精确路径。
+- SystemInfoPublic 是唯一无本地鉴权的公开路由；认证和其他 public bootstrap 校验应用头，其余请求提取唯一 `X-Emby-Token` 并调用 `ResolvePrincipal`。
+- root 与 `/emby` 形态的精确 `GET System/Info/Public` 都透明代理到上游，其他 method、大小写、尾斜杠和 encoded path 不继承公开权限。
 - PlaybackInfo、视频流是普通代理上的选择性处理器；Playing、Progress、Stopped、图片、字幕和其他未知受保护接口没有独立处理器时会走普通代理。
 - 外部 Nginx 示例把请求原样 `proxy_pass` 到 Gateway，没有路径 rewrite；路径规范化应由 Gateway 单点负责。
 - Gateway 与 API 共用一个镜像和一个 `ember` 二进制，分别以 `ember gateway`、`ember api` 运行；本计划不改变进程和镜像模型。
@@ -69,14 +69,16 @@
 - 首次连接请求：`GET /System/Info/Public`
 - 当前响应：`401`
 - Gateway 分支：`code=token_header_invalid`
+- `v2.0.1` 部署后同一路径进入 `code=application_header_invalid route=public_bootstrap pathMode=root`，证明路径已修复但应用头门控仍错误。
+- 同一目标 Emby `4.9.3.0` 的精确接口已实测无需登录即可返回 PublicSystemInfo。
 
-这些证据证明目标 Emby 版本已通过 Gateway 启动核对，以及根路径和登录前时序不兼容；它们没有公开 ServerId 原值，没有证明该请求是否携带格式正确的 `Authorization` / `X-Emby-Authorization` 应用头，也没有证明后续 PlaybackInfo、视频路径和 302 行为。
+这些证据证明目标 Emby 版本、root path 和 SystemInfoPublic 无登录语义；没有公开 ServerId 原值，也没有证明后续 AuthenticateByName、PlaybackInfo、视频路径和 302 行为。
 
 ### 已由固定版本 SDK 确认
 
 - Emby SDK `4.9.3.0` OpenAPI 的 server base URL 是 `http://emby.media/emby`。
 - OpenAPI path 使用 `/System/Info/Public`、`/Users/AuthenticateByName`、`/Items/{Id}/PlaybackInfo`、`/Videos/{Id}/stream` 等根路径形态。
-- 生成的 `SystemInfoPublic` 文档把接口标记为需要用户认证，但真实 Infuse 在登录前调用它；这一冲突必须通过脱敏请求夹具、fake 合同和受控实机复验收口。
+- 生成的 `SystemInfoPublic` 文档把接口标记为需要用户认证，但真实 Infuse 在登录前调用它，目标 Emby 又确认无登录可访问；实现以运行证据为准，并在版本合同中保留这一生成文档偏差。
 
 ## 已确认决策
 
@@ -84,7 +86,7 @@
 | --- | --- |
 | 公网入口 | `ember-gateway` 是用户访问 Emby 的唯一公网入口；原始 Emby 只允许 Gateway 和运维网络访问 |
 | 默认行为 | 已解析为合法 Principal 的普通 Emby API 默认透明代理，只有少数固定路由进入特殊处理器 |
-| 匿名行为 | 只允许精确 bootstrap allowlist；未知、变体和协议未确认路径失败关闭 |
+| 匿名行为 | 只允许精确 `GET System/Info/Public` 无本地鉴权；其他 bootstrap 和未知路径继续失败关闭 |
 | 客户端路径 | 同时接受根 API 路径和 `/emby/...` API 路径 |
 | 上游 API 路径 | 转发给 Emby 时规范化为单一 `/emby/...`，禁止双前缀 |
 | Web Surface | 与 API 路径分开识别，由独立全局开关控制；默认开启以保持现有用户可见行为 |
@@ -116,10 +118,11 @@ flowchart TD
     WebSwitch -- 否 --> NotFound[固定空体 404]
     WebSwitch -- 是 --> WebProxy[按 Web 原始路径透明代理]
     Web -- 否 --> Bootstrap{精确 bootstrap?}
-    Bootstrap -- 是 --> AppHeader[校验应用/设备授权头]
+    Bootstrap -- SystemInfoPublic --> BootstrapProxy[无本地鉴权透明代理]
+    Bootstrap -- 其他 --> AppHeader[校验应用/设备授权头]
     AppHeader --> BootstrapRoute{登录认证?}
     BootstrapRoute -- 是 --> AuthObserve[透明代理并观察登录响应]
-    BootstrapRoute -- 否 --> BootstrapProxy[透明代理 bootstrap]
+    BootstrapRoute -- 否 --> AuthenticatedBootstrapProxy[透明代理 bootstrap]
     Bootstrap -- 否 --> Principal[解析 X-Emby-Token 并 ResolvePrincipal]
     Principal --> Route{特殊路由?}
     Route -- PlaybackInfo --> ProofObserve[透明代理并观察短期证明]
@@ -159,19 +162,19 @@ Gateway 内部引入一个只描述路由事实的规范化结果，至少包含
 
 | Method | 规范化 API path | 处理 |
 | --- | --- | --- |
-| `GET` | `/emby/System/Info/Public` | 新增候选；校验应用/设备授权头后透明代理 |
+| `GET` | `/emby/System/Info/Public` | 无本地鉴权，透明代理并记录脱敏上游状态 |
 | `POST` | `/emby/Users/AuthenticateByName` | 保持现有登录响应观察与 Token 映射 |
 | `GET` | `/emby/Users/Public` | 保持现有公开用户代理 |
 | `GET`, `HEAD` | `/emby/Users/{Id}/Images/{Type}` | 保持现有精确无 Index 图片形态 |
 
-`System/Info/Public` 是已确认的兼容缺口，但应用头是否存在仍未证实。实施顺序必须是：
+`System/Info/Public` 的官方生成文档与真实行为冲突，现已按运行证据收口：
 
-1. 先增加不输出 Header 值的分类日志或受控夹具，确认请求是否携带唯一应用授权头。
-2. 更新 Emby 版本合同，明确真实 Infuse 行为与官方生成文档的差异。
-3. 用失败测试锁定根路径、应用头校验、上游 path 和响应透传。
-4. 最小实现精确放行；不因兼容一个路径而扩大匿名面。
+1. Infuse `8.5` 在取得用户 Token 前请求该路径，且不满足严格应用头解析。
+2. 同一目标 Emby `4.9.3.0` 已确认无登录直接返回 PublicSystemInfo。
+3. Gateway 只对精确 `GET` 取消本地鉴权，保留原始 Header 和上游响应权威。
+4. 上游状态使用固定 route/pathMode/statusCode 日志观察，不记录 Header、URL 或响应体。
 
-如果实测请求不携带应用授权头，不能直接允许任意匿名转发；必须重新确认 Emby 对该端点的真实匿名合同，并单独评审该例外允许暴露的响应字段和限流边界。
+这一例外不扩展到公开用户、头像、Branding、Quick Connect、其他 method 或路径变体。
 
 ### 5. 默认透明代理与选择性处理
 
@@ -218,7 +221,7 @@ Gateway 内部引入一个只描述路由事实的规范化结果，至少包含
 
 - `surface=emby_api|emby_web`。
 - `pathMode=root|emby_prefixed`，不记录原始 path、query 或媒体文件名。
-- bootstrap 被接受或因应用头无效被拒绝。
+- SystemInfoPublic 的上游状态，以及其他 bootstrap 因应用头无效被拒绝。
 - Web Surface 因全局开关被拒绝。
 - 普通代理上游不可用。
 - 现有视频 `decision=redirect|fallback|reject`。
@@ -238,7 +241,6 @@ sequenceDiagram
 
     Infuse->>Gateway: GET /System/Info/Public
     Gateway->>Gateway: 规范化为 /emby/System/Info/Public
-    Gateway->>Gateway: 校验精确 bootstrap 与应用头
     Gateway->>Emby: GET /emby/System/Info/Public
     Emby-->>Gateway: PublicSystemInfo
     Gateway-->>Infuse: 原样返回
@@ -273,7 +275,7 @@ sequenceDiagram
 
 - 根路径无法安全规范化：返回固定客户端错误，不尝试猜测上游 path。
 - encoded slash、重复前缀或大小写变体试图命中特殊路由：不继承 bootstrap/特殊权限，按受保护或不支持路径处理。
-- bootstrap 应用头缺失、重复或格式非法：空体 `401`，不访问 Emby。
+- AuthenticateByName、公开用户或公开头像应用头缺失、重复或格式非法：空体 `401`，不访问 Emby；SystemInfoPublic 不使用该门控。
 - AccessToken 缺失、未映射、已撤销或身份错配：保持现有 `401`；用户不可用或到期保持 `403`。
 - Web Surface 已关闭：固定空体 `404`，不向上游发送请求。
 - Web 路径归属未确认：不因猜测扩大匿名或 Web allowlist；先补合同。
@@ -287,7 +289,7 @@ sequenceDiagram
 ### 阶段 0：合同与失败测试
 
 - 把 2026-08-23 Infuse 根路径实证同步到版本合同。
-- 增加脱敏夹具，确认 `System/Info/Public` 的应用头存在性，不保存 Header 原值。
+- 使用生产日志和目标 Emby 只读结果确认 `System/Info/Public` 无需应用头或用户 Token，不保存 Header 原值。
 - 固定 root、`/emby`、Web、WebSocket、Branding 和不支持路径的 Surface 矩阵。
 - 先补会失败的 Gateway 测试，覆盖路径规范化、双前缀、bootstrap 和 Web 开关。
 
@@ -298,7 +300,7 @@ sequenceDiagram
 - 在证据成立后精确支持登录前 `System/Info/Public`。
 - 保持默认受保护 API 透明代理和现有 115 fallback。
 
-截至 2026-08-23，本阶段代码已完成：Gateway 按支持范围内 9 个稳定 `4.9` OpenAPI 顶层 API family 的并集规范化 root path，保留已有 `/emby/...`，拒绝重复 `/emby/emby/...`，并让 `System/Info/Public`、AuthenticateByName、PlaybackInfo、视频和进度事件复用现有处理器。fake 与 `go test -race` 已通过；目标 Infuse 应用头和真实登录仍待部署复验。
+截至 2026-08-23，本阶段代码已完成：Gateway 按支持范围内 9 个稳定 `4.9` OpenAPI 顶层 API family 的并集规范化 root path，保留已有 `/emby/...`，拒绝重复 `/emby/emby/...`，并让 AuthenticateByName、PlaybackInfo、视频和进度事件复用现有处理器。生产日志已确认 Infuse 的 SystemInfoPublic 请求不满足应用头门控，目标 Emby `4.9.3.0` 已确认该接口无登录可访问；Gateway 已据此把精确 SystemInfoPublic 拆为无本地鉴权的透明代理，fake、race 与 API 全量测试已通过，完整 Infuse 登录仍待部署复验。
 
 ### 阶段 2：Web Surface 控制
 
@@ -328,7 +330,7 @@ sequenceDiagram
 
 - TDD：先补根路径当前返回 `401`、双前缀风险、Web 关闭仍访问上游等失败用例，再做最小实现。
 - Gateway fake upstream 测试覆盖：根 API path、`/emby` path、method/query/body/Header/状态/响应体透传、encoded path、404/401/403/502、取消和上游错误脱敏。
-- bootstrap 测试覆盖：`System/Info/Public` 精确 method/path、应用头有效/缺失/重复/非法、未知匿名路径拒绝。
+- bootstrap 测试覆盖：`System/Info/Public` 无鉴权精确 method/path、上游状态透传，以及其他 bootstrap 的应用头和未知匿名路径拒绝。
 - 特殊处理回归覆盖：AuthenticateByName Token 映射、PlaybackInfo 证明、视频 302、115 失败 fallback、进度事件普通代理。
 - Web Surface 测试覆盖：开关默认值、配置解析、开启代理、关闭不触发 upstream、API 不受误伤、WebSocket/静态资源合同。
 - ConfigService/API/Web 测试覆盖：boolean DTO 为 camelCase、设置保存与读取、跨进程生效语义、页面开关成功/失败状态。
@@ -370,13 +372,13 @@ npm --prefix services/web run build
 - PlaybackInfo 证明、115 视频 302/fallback、普通进度接口透传能力。
 - 2026-08-23 生产日志确认 Infuse 根 `System/Info/Public` 兼容缺口。
 - 已按支持范围内稳定 OpenAPI API family 并集把 root path 规范化为单一 `/emby/...`，已有 `/emby` 请求保持兼容，重复前缀失败关闭。
-- 已把精确 root/`/emby` `GET System/Info/Public` 纳入应用头保护的 bootstrap，并让 root AuthenticateByName、PlaybackInfo、视频与进度请求复用现有处理器。
+- 已把精确 root/`/emby` `GET System/Info/Public` 拆为唯一无本地鉴权的公开透明代理，并让 root AuthenticateByName、PlaybackInfo、视频与进度请求复用现有处理器。
 - 已用 fake 和 race 测试覆盖 method/query/Header/body/响应透传、Token 门控、登录映射、证明、视频 redirect/fallback、未知/Web Surface 不改写和错误日志脱敏。
 - API 全量 `go test ./...`、`go vet ./...` 和 `go build ./...` 已通过；自动化没有请求真实 Emby 或 115。
 
 ### 剩余项
 
-- 部署新代码并确认 Infuse `System/Info/Public` 是否携带当前严格应用头，完成真实用户名密码登录复验。
+- 部署 SystemInfoPublic 修复并确认上游 `200`，完成真实用户名密码登录复验。
 - Web/静态资源/WebSocket Surface 合同。
 - ConfigService 全局 Web 开关和设置页面。
 - 受控 Infuse 与 Web 实机验收。
