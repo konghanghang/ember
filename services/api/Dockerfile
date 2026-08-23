@@ -27,8 +27,8 @@ RUN go mod download
 # 复制后端源码
 COPY services/api/. .
 
-# 构建应用（单二进制：cmd/server）
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ember cmd/server/main.go
+# 构建统一生产入口；API 与 Gateway 通过运行时子命令选择进程角色。
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ember ./cmd/ember
 
 # ==================== 运行阶段 ====================
 FROM alpine:3.22
@@ -62,12 +62,13 @@ RUN mkdir -p /app/logs && chown -R ember:ember /app
 # 切换到非 root 用户
 USER ember
 
-# 暴露端口
-EXPOSE 8080
+# 暴露 API 与 Gateway 容器内端口；实际服务每次只监听其中一个。
+EXPOSE 8080 8090
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -q -O /dev/null http://localhost:8080/health || exit 1
 
-# 启动应用
-CMD ["./ember"]
+# 单镜像、单二进制：默认 API；Compose Gateway 只覆盖 CMD 为 gateway。
+ENTRYPOINT ["./ember"]
+CMD ["api"]

@@ -13,7 +13,7 @@
 ```bash
 cd services/api
 cp .env.example .env
-go run cmd/server/main.go
+go run ./cmd/ember api
 ```
 
 健康检查：
@@ -35,8 +35,8 @@ go build ./...
 ### 直接跑二进制
 
 ```bash
-go build -o bin/ember cmd/server/main.go
-./bin/ember
+go build -o bin/ember ./cmd/ember
+./bin/ember api
 ```
 
 ### 用脚本做最小接口冒烟

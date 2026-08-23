@@ -178,7 +178,7 @@ func VerifySchema() error {
 		}
 	}
 	if len(missingTables) > 0 {
-		return fmt.Errorf("数据库缺少必要的表：%s；请按 infrastructure/database/README.md 执行 SQL migration（本地空库可直接 `go run ./cmd/server`，启动期会自动应用）", strings.Join(missingTables, ", "))
+		return fmt.Errorf("数据库缺少必要的表：%s；请按 infrastructure/database/README.md 执行 SQL migration（本地空库可直接 `go run ./cmd/ember api`，启动期会自动应用）", strings.Join(missingTables, ", "))
 	}
 
 	var missingColumns []string
@@ -313,7 +313,7 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 //
 // 启动序列为 `InitDB → Migrate → VerifySchema → Bootstrap → Start`：先把 schema
 // 应用齐再 seed，否则 seed 会因表不存在而失败；这一拆分同时让本地空库一步到位
-// 由 `go run ./cmd/server` 自然接管。
+// 由 `go run ./cmd/ember api` 自然接管。
 func Bootstrap() {
 	seedDefaultAdmin()
 	seedDefaultSettings()

@@ -25,12 +25,11 @@ Playback Gateway 相关改动额外运行：
 cd services/api
 go test -count=1 ./internal/integrations/emby ./internal/playbackgateway
 go test -race -count=1 ./internal/integrations/emby ./internal/playbackgateway ./internal/services/embytoken
-go build ./cmd/playback-gateway
+go test -count=1 ./internal/entrypoint ./internal/app
+go build ./cmd/ember ./cmd/server ./cmd/playback-gateway
 ```
 
-上述命令只做 fake 上游、生命周期和构建验证，不启动 Gateway、不请求真实 Emby。`go build ./cmd/playback-gateway` 如果在模块根生成 `playback-gateway` 二进制，验证后必须移出工作区，禁止提交构建物。
-
-统一入口决策已经固定但尚未实现：落地后生产入口验证改为 `go test` 覆盖 `cmd/ember` 的 `api/gateway`、无参数默认 API 和未知子命令 fail-fast，并使用 `go build ./cmd/ember`。在此之前继续使用上面的当前命令，禁止提前把不存在的 `cmd/ember` 写成已通过验证。
+上述命令只做 fake 上游、生命周期、统一子命令分发和构建验证，不启动 API/Gateway、不请求真实 Emby。多个 main package 一次构建不会在工作区生成二进制；需要单独产物时显式使用 `go build -o bin/ember ./cmd/ember`，且禁止提交 `bin/`。
 
 如果要跑本地 API 集成测试：
 

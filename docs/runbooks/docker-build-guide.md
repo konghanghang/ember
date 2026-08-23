@@ -8,18 +8,18 @@ Ember 当前发布三个镜像：
 
 | 服务 | 镜像名 | Dockerfile |
 |------|--------|------------|
-| API（目标同时承载 Gateway 进程角色） | `ghcr.io/konghanghang/ember-api` | `services/api/Dockerfile` |
+| API / Gateway | `ghcr.io/konghanghang/ember-api` | `services/api/Dockerfile` |
 | Web | `ghcr.io/konghanghang/ember-web` | `services/web/Dockerfile` |
 | Bot | `ghcr.io/konghanghang/ember-bot` | `services/bot/Dockerfile` |
 
-### 已确认的 Gateway 镜像决策（待实现）
+### Gateway 镜像合同
 
 - 不新增 `ember-gateway` 镜像、独立 GHCR 仓库、构建工作流或版本号。
-- `ember-api` 镜像目标只包含一个 `ember` 二进制，以 `ENTRYPOINT ["./ember"]` 和默认 `CMD ["api"]` 启动 API。
-- Compose 中 `ember-gateway` 服务复用完全相同的 `EMBER_API_IMAGE`，只用 `command: ["gateway"]` 选择 Gateway 进程角色。
+- `ember-api` 镜像只构建一个 `ember` 二进制，以 `ENTRYPOINT ["./ember"]` 和默认 `CMD ["api"]` 启动 API。
+- Compose 中 `ember-gateway` profile 复用完全相同的 `EMBER_API_IMAGE`，只用 `command: ["gateway"]` 选择 Gateway 进程角色。
 - 单二进制不表示单进程：API 与 Gateway 仍是两个容器、两个生命周期和两个健康检查，只共享镜像 digest 与代码版本。
 
-当前 Dockerfile 仍只构建 `cmd/server`，上述目标尚不可用于实际部署；落地后再把本节从“待实现”改为现行构建说明。
+当前 Dockerfile 从 `cmd/ember` 构建该统一二进制；`cmd/server` 和 `cmd/playback-gateway` 不进入镜像。
 
 ## 本地构建
 
@@ -30,7 +30,7 @@ Ember 当前发布三个镜像：
 docker build -f services/api/Dockerfile -t ember-api:dev .
 ```
 
-当前命令只证明现行 API 镜像可构建。统一入口落地后的镜像验收必须额外确认容器内只有一个生产二进制，并分别执行 `ember api` 与 `ember gateway` 的无监听构造/帮助或命令分发检查；不能通过构建两个可执行文件伪装成单二进制方案。
+镜像验收必须确认容器内只有一个生产 `ember` 二进制，并检查默认 `api` 与 Compose `gateway` command；不能通过构建两个可执行文件伪装成单二进制方案。
 
 ### Web
 
@@ -61,14 +61,14 @@ docker build -t ember-bot:dev .
 默认 compose 使用预构建镜像。若要改成本地构建：
 
 1. 打开 [`infrastructure/docker/docker-compose.yml`](../../infrastructure/docker/docker-compose.yml)
-2. 对目标服务注释 `image:`
-3. 取消注释 `build:`
+2. 保留 `ember-api.image` 作为本地 Tag，取消 `ember-api.build` 注释
+3. 不给 `ember-gateway` 添加第二份 build；它直接复用同名本地镜像
 4. 执行：
 
 ```bash
 cd infrastructure/docker
 docker compose build
-docker compose up -d
+docker compose --profile gateway up -d
 ```
 
 ## GitHub Actions 中的构建流程

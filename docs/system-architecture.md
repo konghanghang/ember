@@ -55,12 +55,14 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 ```
 services/
 ├─ api/                          # Go 后端
-│  ├─ cmd/ember/main.go          # 目标统一入口（待实现）：api / gateway 子命令
-│  ├─ cmd/server/main.go         # 当前 API 入口；统一入口落地后保留薄兼容层
-│  ├─ cmd/playback-gateway/      # 当前 Gateway 入口；统一入口落地后保留薄兼容层
+│  ├─ cmd/ember/main.go          # 统一生产入口：api / gateway 子命令
+│  ├─ cmd/server/main.go         # API 薄兼容入口
+│  ├─ cmd/playback-gateway/      # Gateway 薄兼容入口
 │  ├─ cmd/p115-contract-check/   # 显式授权后运行的一次性真实 115 只读合同检查器
 │  ├─ cmd/p115-transfer-contract-check/ # 显式授权后运行的 retained playback 秒传检查器
 │  └─ internal/
+│     ├─ entrypoint/             # 单二进制子命令解析、信号与进程分发
+│     ├─ app/                    # API 启动装配、路由和 cron
 │     ├─ config/                 # 运行期配置定义 / 解析 / 校验
 │     │  ├─ config.go            # ConfigService（配置定义/解析/测试/导入）
 │     │  ├─ setting.go           # Stripe 支付方式规范化
@@ -785,12 +787,13 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 独立 PostgreSQL schema 集成测试已覆盖 8 路并发认证只生成一条映射、身份冲突、三种撤销粒度、重新认证、动态到期和用户删除后的审计保留
 - `internal/playbackgateway` 已通过窄接口调用 `RecordAuthenticationResult/ResolvePrincipal`，并把 Principal 保留在请求 context 供 PlaybackInfo 观察和后续视频路由使用
 
-### 5.27 Playback Gateway HTTP 核心与运行时 (`cmd/playback-gateway/`, `internal/playbackgateway/`；目标 `cmd/ember gateway`)
+### 5.27 Playback Gateway HTTP 核心与运行时 (`cmd/ember gateway`, `internal/playbackgateway/`)
 
-当前已有可构建的独立二进制、可注入 `http.Handler` 和 HTTP 生命周期装配；尚未加入 Docker Compose、反向代理或公开入口，也没有真实启动/Infuse 验收：
+当前已有单 `ember` 二进制、同镜像双容器 Compose、可注入 `http.Handler` 和 HTTP 生命周期装配；尚未接入外部 HTTPS 反向代理、原始 Emby 公网隔离或真实 Infuse 验收：
 
-- 已确认目标进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
-- 当前 `cmd/server` 与 `cmd/playback-gateway` 仍是实际入口；目标 `cmd/ember` 尚未实现。迁移后旧入口只做薄包装，等 Docker、CI、Makefile、runbook 和脚本引用归零再删除
+- 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
+- `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、日志初始化和退出码；`cmd/server` 与 `cmd/playback-gateway` 只保留固定子命令薄包装，不进入生产镜像
+- Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 
 - 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
 - `GET /emby/System/Info` 使用设置中心的 `EMBY_URL/EMBY_API_KEY`，只接受无重定向 `200 application/json` 和不超过 `256 KiB` 的响应；要求非空 `Id`、精确 `Version=4.9.3.0` 和有界 `ServerName`，失败时不会产生监听器
@@ -817,7 +820,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
 - 每个视频请求只打印一条 `decision=redirect|fallback|reject` 脱敏日志，不新建日志表或 migration；日志禁止 Token、Cookie、完整 Path/SHA1、115 URL 和上游原文
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
-- 尚未完成统一 `cmd/ember`、单二进制镜像、Docker/Compose/反向代理公开部署入口、持久直连会话、套餐/并发策略门控和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际携带 `Static=true`、遵循固定 Header/bootstrap/302 顺序仍未证实
+- 尚未完成外部 HTTPS 反向代理、原始 Emby 公网隔离、持久直连会话、套餐/并发策略门控和 Infuse 实机验收；目标 Emby 实例版本以及 Infuse 是否实际携带 `Static=true`、遵循固定 Header/bootstrap/302 顺序仍未证实
 
 ---
 

@@ -151,7 +151,8 @@
 | 配置项 | 敏感 | 说明 | 原因 |
 |--------|------|------|------|
 | `PORT` | 否 | API 监听端口 | 有默认值 `8080`，属于进程启动参数 |
-| `PLAYBACK_GATEWAY_LISTEN_ADDR` | 否 | Playback Gateway 监听地址 | 仅 Gateway 进程使用；目标统一入口中只对 `ember gateway` 生效，必须显式提供数值端口，无默认值 |
+| `PLAYBACK_GATEWAY_LISTEN_ADDR` | 否 | Playback Gateway 监听地址 | 仅 `ember gateway` 读取；Compose 固定为 `:8090`，直接运行时必须显式提供数值端口 |
+| `PLAYBACK_GATEWAY_PORT` | 否 | Gateway 宿主机回环映射端口 | 仅由 Compose 插值读取，默认 `8090`，Go 进程不读取 |
 | `ADMIN_USERNAME` | 否 | 首次初始化管理员用户名 | 仅首次启动且需要初始化管理员时才有意义 |
 | `ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 | 仅首次启动且需要初始化管理员时才有意义 |
 
@@ -260,10 +261,10 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 
 ### `PLAYBACK_GATEWAY_LISTEN_ADDR`
 
-- 用途：Gateway 进程的 TCP 监听地址，例如 `127.0.0.1:8090` 或 `:8090`；目标统一入口中只由 `ember gateway` 读取
+- 用途：Gateway 进程的 TCP 监听地址，例如 `127.0.0.1:8090` 或 `:8090`；只由 `ember gateway` 读取
 - 来源：只允许部署环境变量，不进入设置中心
 - 校验：必须显式提供 `host:port`，端口必须是 `1-65535` 的十进制数；不接受随机端口 `0`、URL 或服务名
-- 当前边界：兼容入口 `cmd/playback-gateway` 已可构建，目标 `cmd/ember gateway`、Compose、公开反向代理和端口暴露尚未落地；不要把该变量写成“当前已部署”
+- Compose 的 `gateway` profile 在容器内固定注入 `:8090`；`PLAYBACK_GATEWAY_PORT` 只控制 `127.0.0.1:<hostPort>:8090` 的宿主机映射。外部 HTTPS 反向代理仍需部署者配置，原始 Emby 公网入口必须关闭或限制
 
 ---
 

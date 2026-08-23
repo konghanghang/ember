@@ -8,8 +8,10 @@
 cd infrastructure/docker
 docker compose ps
 docker compose logs --tail=100 ember-api
+# 启用 gateway profile 时：docker compose logs --tail=100 ember-gateway
 docker compose logs --tail=100 ember-bot
 curl http://localhost:8080/health
+# 启用 gateway profile 时：curl http://localhost:8090/health
 curl http://localhost:8000/health
 ```
 
@@ -59,7 +61,25 @@ curl http://localhost:8080/health
 - `ADMIN_PASSWORD` 没配：仍会创建管理员，但会生成临时口令并要求首次改密
 - 数据库里已有 admin：不会重复创建
 
-### 4. Web 能打开，但页面请求 API 失败
+### 4. Gateway 重启或健康检查失败
+
+检查：
+
+- 设置中心 `EMBY_URL` 是否指向容器可访问的原始 Emby，而不是 Gateway 公网地址
+- `EMBY_API_KEY` 是否有效，目标 Server 是否仍为固定兼容版本
+- `CONFIG_ENCRYPTION_KEY` 是否与 API 完全一致
+- `PLAYBACK_GATEWAY_PORT` 是否只用于宿主机回环映射，没有被误写成容器监听地址
+
+辅助命令：
+
+```bash
+docker compose logs --tail=200 ember-gateway
+curl http://localhost:8090/health
+```
+
+新环境尚未配置 Emby 时 Gateway fail-fast/restart 是预期；先通过 Web/API 完成设置，不要通过放宽身份核对让进程假启动。
+
+### 5. Web 能打开，但页面请求 API 失败
 
 检查：
 
@@ -73,7 +93,7 @@ docker compose logs --tail=100 ember-web
 curl http://localhost:8080/health
 ```
 
-### 5. Bot 401 或收不到 Telegram 回调
+### 6. Bot 401 或收不到 Telegram 回调
 
 检查：
 
@@ -90,7 +110,7 @@ curl http://localhost:8000/health
 
 本地联调不要在这里反复试，直接去 [Cloudflared 本地联调](./cloudflared-local-testing.md)。
 
-### 6. 某些功能页面能打开，但能力不可用
+### 7. 某些功能页面能打开，但能力不可用
 
 这通常不是“服务没起”，而是功能配置没补齐。
 
@@ -108,6 +128,7 @@ curl http://localhost:8000/health
 
 ```bash
 docker compose restart ember-api
+docker compose restart ember-gateway
 docker compose restart ember-bot
 docker compose restart ember-web
 ```

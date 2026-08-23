@@ -4,22 +4,60 @@
 
 ## 适用范围
 
-- 使用 [`infrastructure/docker/docker-compose.yml`](../../infrastructure/docker/docker-compose.yml) 部署 API、Web、Bot 和 PostgreSQL
+- 使用 [`infrastructure/docker/docker-compose.yml`](../../infrastructure/docker/docker-compose.yml) 部署 API、Gateway、Web、Bot 和 PostgreSQL
 - 默认使用 GHCR 预构建镜像
 - 适合单机或小规模环境的标准部署
 
-## Playback Gateway 目标部署边界（待实现）
+## Playback Gateway 部署边界
 
-当前 Compose 尚未包含 Gateway，以下内容是已经确认但还不能执行的下一部署切片：
+当前 Compose 已包含可选 `gateway` profile：
 
 - 保持一个 `EMBER_API_IMAGE` 和一个 `ember` 二进制；默认子命令为 `api`。
-- `ember-api` 容器运行 `ember api`，`ember-gateway` 容器复用同一镜像并运行 `ember gateway`。
+- `ember-api` 容器使用镜像默认命令（新镜像等价于 `ember api`），`ember-gateway` 容器复用同一镜像并运行 `ember gateway`。
 - 两个容器分别维护生命周期、健康检查和日志卷，不能在一个容器里同时启动两个后台进程。
 - Gateway 公网入口必须代理完整 Emby 请求面；`EMBY_URL` 保持为容器可访问的原始 Emby 内网地址，`NEXT_PUBLIC_EMBY_URL` 才指向 Gateway 的公网 HTTPS 地址。
 - 原始 Emby 公网入口必须关闭或限制，否则本地 Token 撤销与用户状态门控可以被绕过。
-- 不新增第四个镜像、Gateway Tag 或独立发布节奏；API 与 Gateway 必须使用同一镜像 digest。
+- 不新增第四个镜像、Gateway Tag 或独立发布节奏；API 与 Gateway 使用同一镜像引用。
 
-在 Dockerfile、Compose、健康检查和反向代理配置真正落地前，本文后续“最短路径”和验收清单仍只描述当前 API/Web/PostgreSQL/Bot 部署，不得据此宣称 Gateway 已上线。
+Compose 只把 Gateway 映射到 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8090}`，不会自动配置公网 TLS。部署者仍需在宿主机 Nginx/Caddy/Cloudflare Tunnel 中把完整 Emby 请求面代理到该回环端口，并关闭或限制原始 Emby 公网入口。
+
+为兼容当前默认 Tag 中尚无统一入口的旧镜像，Gateway 不随普通 `docker compose up -d` 自动启动。启用前必须使用包含 `ember gateway` 的新镜像或本地构建镜像，再显式执行 `docker compose --profile gateway up -d`。
+
+### 外部 Nginx 示例
+
+下面只展示 Gateway 需要的代理边界，证书路径和 TLS 策略由部署者按现有环境补齐：
+
+```nginx
+map $http_upgrade $ember_connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    server_name emby.example.com;
+
+    # ssl_certificate /path/to/fullchain.pem;
+    # ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $ember_connection_upgrade;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+必须代理 `/` 下的完整 Emby 请求面，不能只代理 `/Videos/`；认证、public bootstrap、PlaybackInfo、字幕和播放事件都要经过 Gateway。外部代理不应自行改写 `Range`、`Location` 或 `X-Emby-*` Header。确认新公网入口可用后，再从公网防火墙或原反向代理中移除原始 Emby 入口。
 
 ## 最短路径
 
@@ -39,6 +77,7 @@ cp .env.example .env
    - `DATABASE_URL`：缺省由 compose 按 `POSTGRES_USER/PASSWORD/DB` 自动拼接到内置 postgres；指向独立 DB 时显式提供
    - `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`：compose 中已钉版默认值，随每次发版同步更新
    - `ADMIN_PASSWORD`：未填时 API 首启会生成临时管理员口令并要求首次登录改密
+   - `PLAYBACK_GATEWAY_PORT`：Gateway 宿主机回环端口，默认 `8090`
    - `EMBY_URL` / `EMBY_API_KEY` 等媒体能力配置已托管到设置中心，可在首启后补
    - 启用 Bot 时再填：`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` / `WEBHOOK_URL`
 
@@ -55,6 +94,12 @@ docker compose pull
 docker compose up -d
 ```
 
+启用 Playback Gateway（要求新镜像且已配置内部 Emby）：
+
+```bash
+docker compose --profile gateway up -d
+```
+
 启用 Bot：
 
 ```bash
@@ -67,6 +112,7 @@ docker compose --profile bot up -d
 ```bash
 docker compose ps
 curl http://localhost:8080/health
+# 在设置中心配置内部 EMBY_URL / EMBY_API_KEY 后：curl http://localhost:8090/health
 # 启用 Bot 时再加：curl http://localhost:8000/health
 ```
 
@@ -78,7 +124,7 @@ curl http://localhost:8080/health
 
 这是默认模式，也是当前推荐路径。`docker-compose.yml` 中 `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE` 已钉版默认值（随每次发版同步更新），开箱可拉起。
 
-统一入口落地后，`EMBER_API_IMAGE` 还会同时作为 `ember-gateway` 的镜像来源；部署时两项服务必须引用同一 digest，不能只升级其中一个容器。
+启用 `gateway` profile 时，`EMBER_API_IMAGE` 同时作为 `ember-api` 和 `ember-gateway` 的镜像来源；不能为两个服务配置不同版本。
 
 生产环境建议在 `.env` 中显式覆盖避免依赖默认值漂移：
 
@@ -98,13 +144,13 @@ EMBER_BOT_IMAGE=ghcr.io/konghanghang/ember-bot:v1.6.1
 
 如果你正在验证未发布代码，可以在 `docker-compose.yml` 中：
 
-1. 注释对应服务的 `image:`
-2. 取消注释 `build:`
+1. 保留 `ember-api` 的 `image:` 作为本地 Tag
+2. 取消 `ember-api` 的 `build:` 注释；`ember-gateway` 会复用构建后的同名镜像
 3. 执行本地构建
 
 ```bash
 docker compose build
-docker compose up -d
+docker compose --profile gateway up -d
 ```
 
 镜像构建细节见 [Docker 构建指南](./docker-build-guide.md)。
@@ -112,9 +158,12 @@ docker compose up -d
 ## 最小验收清单
 
 - `postgres`、`ember-api`、`ember-web` 均为 `Up`
+- 启用 `gateway` profile 且设置中心已有可用 `EMBY_URL/EMBY_API_KEY` 后，`ember-gateway` 为 `Up (healthy)`
 - `GET http://localhost:8080/health` 返回 200
+- Gateway 就绪后，`GET http://localhost:8090/health` 返回 200
 - `http://localhost` 可打开前端页面
 - API 日志中没有持续刷屏的数据库连接错误
+- Gateway 日志中没有持续出现 `process_failed`；如有，优先核对内部 Emby 地址、版本和 API Key
 - 若首次环境没有现成 admin，日志中能看到“默认管理员已创建”或“已生成临时口令并要求首次改密”的提示
 - 启用 Bot 时（`docker compose --profile bot up -d`）：`ember-bot` 也为 `Up`，`GET http://localhost:8000/health` 返回 200
 

@@ -60,7 +60,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
 - 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除。Gateway 数据面核心已经可构建，缺口是统一单二进制和公开部署入口。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
-- 当前已有可构建但未部署的播放网关独立进程；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks` 和 DirectPlay 传输核心已落地，但直连会话与公开部署入口尚未接入。
+- 当前已有统一 `cmd/ember`、`api/gateway` 子命令和同镜像双容器 Compose 入口；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks` 和 DirectPlay 传输核心已落地，但直连会话、外部 HTTPS 反向代理和实机验收尚未接入。
 
 ### 外部证据与未确认项
 
@@ -132,8 +132,8 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 按 SDK 固定提交实现 `Authorization/X-Emby-Authorization` 的严格 `Emby` 应用头解析，要求 `Client/Device/DeviceId/Version`，拒绝重复/未知字段、非空内嵌 Token、非法 quoted-string 和 Header 歧义；`Client/DeviceId` 只作为非权威映射元数据。
 - Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、应用头与 public bootstrap、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
 - 新增 `integrations/emby.ServerIdentityVerifier`，在监听前调用固定 `/emby/System/Info`，只接受精确 `4.9.3.0` 与有界非空 ServerId；重定向、非 JSON、超大响应、状态失败、超时和字段异常全部返回不含 URL/API Key/响应体的固定错误。
-- 新增 `cmd/playback-gateway`、production runtime builder、独立 `/health`、HTTP Header/空闲边界和 context graceful shutdown；进程复用 migration/VerifySchema 与 ConfigService，但不初始化 JWT、Bot、cron 或默认管理员。
-- 已确认下一部署切片把镜像入口收口为单个 `ember` 二进制及 `api/gateway` 子命令；当前两个 `cmd` 入口仍是代码事实，统一入口、Docker/Compose 和兼容迁移尚未实现。
+- 新增 `cmd/ember` 和 `internal/entrypoint`，无参数/`api` 启动 API，`gateway` 启动 Gateway，help/未知参数保持无副作用；`cmd/server` 与 `cmd/playback-gateway` 已收口为调用同一分发器的薄兼容入口。
+- Gateway production runtime 提供独立 `/health`、HTTP Header/空闲边界和 context graceful shutdown；进程复用 migration/VerifySchema 与 ConfigService，但不初始化 JWT、Bot、cron 或默认管理员。
 - 新增不持有 Token/HMAC/runtime ServerId 的 `ControlPlaneRevoker`；设备按用户/设备跨历史 Server 撤销，用户按主体全部撤销，恢复路径同样清理遗留活动映射。
 - 设备手工/黑名单退出、用户 toggle/admin edit、Emby 访问开关、绑定前清理、解绑、删除和过期 cron 已按“本地撤销成功后再执行状态或 Emby 副作用”接入；远端失败不回滚本地安全结果。
 - Gateway 已精确分类 GET/POST PlaybackInfo、保留 ResolvePrincipal 结果、透明观察成功响应，并在 5 分钟/4096 条有界进程内缓存中保存 mapping/item/mediaSource/playSession 证明与 MediaSource 快照；没有重复请求 Emby。
@@ -142,7 +142,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 单 `ember` 二进制与 `api/gateway` 子命令、Docker/Compose/反向代理公开部署入口、目标 Emby/Infuse 对固定版本/bootstrap/应用头合同的实机确认、持久直连会话和运营查询；视频路由消费证明、302/fallback、独立进程运行配置、认证代理/门控核心、控制面状态撤销、SDK 版本化合同、Token 映射核心、source 账号位置、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
+- 外部 HTTPS 反向代理、原始 Emby 公网隔离、目标 Emby/Infuse 对固定版本/bootstrap/应用头合同的实机确认、持久直连会话和运营查询；单 `ember` 二进制、同镜像双容器 Compose、视频路由消费证明、302/fallback、进程运行配置、认证代理/门控核心、控制面状态撤销、SDK 版本化合同、Token 映射核心、source 账号位置、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
 - 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
 
 ## 方案设计
@@ -210,12 +210,13 @@ Ember API / Web
 
 ### 3. 代码边界
 
-目标是在现有 Go Module 内收口为一个生产二进制，同时保留当前两个入口作为短期兼容层：
+现有 Go Module 已收口为一个生产二进制，同时保留两个薄兼容入口：
 
 ```text
-services/api/cmd/ember/main.go              # 目标统一入口：api / gateway 子命令
-services/api/cmd/server/main.go             # 当前 API 入口，迁移后保留薄兼容包装
-services/api/cmd/playback-gateway/main.go   # 当前 Gateway 入口，迁移后保留薄兼容包装
+services/api/cmd/ember/main.go              # 统一生产入口：api / gateway 子命令
+services/api/cmd/server/main.go             # API 薄兼容包装
+services/api/cmd/playback-gateway/main.go   # Gateway 薄兼容包装
+services/api/internal/entrypoint/
 services/api/internal/playbackgateway/
 services/api/internal/services/directplay/
 services/api/internal/integrations/p115/
@@ -223,8 +224,9 @@ services/api/internal/integrations/p115/
 
 职责：
 
-- `cmd/ember`：只解析 `api/gateway` 子命令、分发进程入口和统一退出码；禁止复制数据库、HTTP 或业务装配。无参数默认 `api` 以保持现有镜像行为，未知子命令必须 fail-fast。
-- `cmd/server` 与 `cmd/playback-gateway`：只调用迁移后的 API/Gateway `RunProcess`，不进入生产镜像；当 Docker、CI、Makefile、runbook 和仓库脚本全部不再引用旧入口后删除。
+- `cmd/ember`：只把参数交给 `internal/entrypoint` 并返回退出码；无参数默认 `api`，未知子命令 fail-fast。
+- `internal/entrypoint`：解析 `api/gateway/help`、初始化日志、为 Gateway 建立信号 context，并分别调用 API/Gateway `RunProcess`；API 在具备 context graceful shutdown 前保持操作系统原有信号行为。
+- `cmd/server` 与 `cmd/playback-gateway`：只固定传入 `api` 或 `gateway`，不进入生产镜像；当外部调用方也不再依赖旧入口后删除。
 - `internal/playbackgateway`：数据库/配置/HTTP 生命周期装配、Emby 反向代理、路由分类、Header 和 302 输出。
 - `internal/services/directplay`：资格判断、媒体解析、查重、秒传、并发和会话状态机。
 - `internal/integrations/p115`：Provider 接口、Cookie HTTP 适配、上传加密和原始 DTO 映射。
@@ -469,10 +471,11 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 ### 8. 配置与部署
 
-目标部署拓扑（当前尚未落地）：
+当前部署拓扑：
 
-- `services/api/Dockerfile` 只构建一个 `ember`；镜像固定使用 `ENTRYPOINT ["./ember"]` 和默认 `CMD ["api"]`。
+- `services/api/Dockerfile` 只构建一个 `ember`；镜像使用 `ENTRYPOINT ["./ember"]` 和默认 `CMD ["api"]`。
 - `ember-api` 与 `ember-gateway` 复用完全相同的 `EMBER_API_IMAGE`；前者运行 `ember api`，后者以 Compose `command: ["gateway"]` 覆盖默认子命令。
+- `ember-gateway` 使用显式 `gateway` profile；当前 Compose 默认 Tag 仍可能指向不支持子命令的旧发行镜像，普通 `docker compose up` 必须保持原 API userspace，启用 Gateway 前先切换到新镜像或本地构建。
 - 不新增 Gateway GHCR 镜像、构建工作流、Tag 或独立版本号；API 与 Gateway 必须以同一镜像 digest 部署。
 - 公网反向代理只暴露播放网关；原始 Emby 端口仅对内网或运维 allowlist 开放。
 - `EMBY_URL` 继续指向内部 Emby；`NEXT_PUBLIC_EMBY_URL` 改为网关公开地址。
@@ -520,7 +523,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、可构建独立进程、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、原始 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。单 `ember` 二进制及 `api/gateway` 子命令的决策已固定但尚未实现；公开部署入口、持久直连会话、套餐/并发策略门控和 Infuse 验收仍待完成。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、原始 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。外部 HTTPS 反向代理、原始 Emby 公网隔离、持久直连会话、套餐/并发策略门控和 Infuse 验收仍待完成。
 
 ### 阶段 2：运营与稳定性
 
@@ -646,7 +649,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，新 Gateway 包和既有 PostgreSQL 集成测试实际执行并通过；`go vet ./...` 与 `go build ./...` 通过。
 - 自动化没有创建真实 Listener，也没有请求真实 Emby/115 或执行 Infuse 验收；固定 SDK 的 public bootstrap 与应用头合同已确认并由 fake 锁定，目标 Server 版本和 Infuse 实际请求顺序仍保持未证实。
 - `ServerIdentityVerifier` 与 production runtime fake 测试覆盖精确版本/ServerId、Header 与响应边界、配置缺失、`/health`、无真实 Listener 的 graceful shutdown 和监听错误脱敏；`go build ./cmd/playback-gateway` 通过，但没有运行生成的二进制。
-- 上一条是当前兼容入口的历史证据；统一入口落地后必须新增 `cmd/ember` 子命令分发测试并以 `go build ./cmd/ember`、Docker 单二进制检查和 Compose command 检查替代生产入口证据。
+- 统一入口测试覆盖无参数默认 API、显式 `api/gateway`、help、未知/额外参数、日志初始化和进程失败脱敏；`go build ./cmd/ember` 与兼容入口构建通过，Compose 已确认两个服务复用同一镜像 Tag。当前机器 Docker daemon 未运行，因此镜像实构建仍需在可用 daemon/CI 中补证。
 - 控制面撤销单元/PostgreSQL/Gin 集成测试覆盖设备跨 Server 但不跨用户、手工与黑名单本地优先、toggle/admin edit/恢复、Emby 访问禁用、绑定前清理、解绑、删除审计保留和过期 cron 失败关闭；所有 Emby 副作用使用 fake。
 
 测试分层：

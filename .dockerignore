@@ -11,6 +11,7 @@ infrastructure/database/archive/
 
 # 显式排除的子模块与无关目录
 services/api/.idea/
+services/api/bin/
 services/api/logs/
 services/api/.env
 services/api/.env.*

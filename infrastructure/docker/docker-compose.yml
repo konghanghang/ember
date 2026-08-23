@@ -32,7 +32,8 @@ services:
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
     image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v1.6.4}
 
-    # 如需本地构建，取消下面三行注释并注释上面的 image 行
+    # 如需本地构建，保留上面的 image 行作为本地 Tag，并取消下面三行注释；
+    # ember-gateway 会直接复用构建后的同一镜像。
     # build:
     #   context: ../../
     #   dockerfile: services/api/Dockerfile
@@ -66,6 +67,40 @@ services:
       # 与 Dockerfile HEALTHCHECK 行为对齐，但显式声明便于 review；
       # 镜像层若调整 HEALTHCHECK 时本字段是单一来源
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    init: true
+    stop_grace_period: 30s
+
+  # Emby 兼容播放网关：与 API 复用同一镜像，只切换进程子命令
+  ember-gateway:
+    profiles: ["gateway"]
+    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v1.6.4}
+    container_name: ember-gateway
+    command: ["gateway"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}
+      - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY 必须显式提供}
+      - PLAYBACK_GATEWAY_LISTEN_ADDR=:8090
+    ports:
+      # 只允许宿主机反向代理访问；禁止直接把 Gateway HTTP 端口暴露公网
+      - "127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8090}:8090"
+    depends_on:
+      ember-api:
+        condition: service_healthy
+    networks:
+      - ember-network
+    restart: unless-stopped
+    volumes:
+      - gateway_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8090/health"]
       interval: 30s
       timeout: 3s
       start_period: 10s
@@ -166,4 +201,5 @@ networks:
 volumes:
   postgres_data:
   api_logs:
+  gateway_logs:
   bot_logs:

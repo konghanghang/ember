@@ -80,6 +80,8 @@
 
 现在已经下沉到：
 
+- `internal/entrypoint/entrypoint.go`
+- `internal/app/process.go`
 - `internal/app/server.go`
 - `internal/app/routes.go`
 - `internal/app/cron.go`
@@ -87,9 +89,9 @@
 
 以后继续新增启动流程时，也应优先放到 `internal/app` 或对应运行时包，不要重新把 `main.go` 变回巨型入口。
 
-Playback Gateway 部署入口的目标合同是单个 `cmd/ember`：`ember api` 分发到 API `RunProcess`，`ember gateway` 分发到 `internal/playbackgateway.RunProcess`。无参数默认 API 以兼容当前镜像行为，未知子命令必须 fail-fast；禁止通过环境变量隐式选择进程角色。
+当前生产入口是单个 `cmd/ember`：`ember api` 分发到 API `RunProcess`，`ember gateway` 分发到 `internal/playbackgateway.RunProcess`。无参数默认 API 以兼容既有镜像行为，未知子命令 fail-fast；禁止通过环境变量隐式选择进程角色。
 
-当前 `cmd/server` 与 `cmd/playback-gateway` 在统一入口落地后只允许作为薄兼容包装存在，不进入生产镜像。删除条件固定为 Docker、CI、Makefile、runbook 和仓库脚本全部迁移到 `cmd/ember`，不能让兼容层长期承载第二套装配逻辑。
+`cmd/server` 与 `cmd/playback-gateway` 当前只把固定子命令交给 `internal/entrypoint`，不进入生产镜像。仓库内 Docker、Makefile 和现行 runbook 已迁移；待外部调用方也不再依赖旧入口后删除，不能让兼容层重新承载第二套装配逻辑。
 
 ---
 

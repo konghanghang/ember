@@ -7,5 +7,5 @@ import (
 )
 
 func main() {
-	os.Exit(entrypoint.Run([]string{"gateway"}))
+	os.Exit(entrypoint.Run(os.Args[1:]))
 }

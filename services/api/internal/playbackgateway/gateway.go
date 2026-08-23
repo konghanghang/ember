@@ -40,7 +40,7 @@ type AuthenticationMetadata struct {
 
 // Config contains only dependencies needed by the transport core. Process
 // configuration, database construction and HTTP server startup belong to the
-// later cmd/playback-gateway composition layer.
+// gateway runtime selected by the unified ember entrypoint.
 type Config struct {
 	Upstream          *url.URL
 	TokenService      TokenService

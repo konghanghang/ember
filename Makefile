@@ -6,8 +6,8 @@ WEB_DIR := services/web
 BOT_DIR := services/bot
 PYTHON ?= python3.11
 
-.PHONY: help init setup dev-api dev-web dev-bot build-api build-web build \
-	docker-build docker-up docker-down docker-logs docker-logs-api \
+.PHONY: help init setup dev-api dev-gateway dev-web dev-bot build-api build-web build \
+	docker-build docker-up docker-up-gateway docker-down docker-logs docker-logs-api docker-logs-gateway \
 	test-api test-web test-bot test test-api-report test-web-report test-bot-report test-report \
 	db-backup db-restore clean clean-deps clean-test-artifacts \
 	clean-docker fmt-api info
@@ -43,7 +43,11 @@ setup: ## 安装 API / Web / Bot 依赖
 
 dev-api: ## 启动 Go API 服务（手动开发用）
 	@echo "🚀 启动 API 服务..."
-	@cd $(API_DIR) && go run cmd/server/main.go
+	@cd $(API_DIR) && go run ./cmd/ember api
+
+dev-gateway: ## 启动 Playback Gateway（手动开发用）
+	@echo "🚀 启动 Playback Gateway..."
+	@cd $(API_DIR) && go run ./cmd/ember gateway
 
 dev-web: ## 启动 Vue 前端（手动开发用）
 	@echo "🚀 启动 Web 前端..."
@@ -56,10 +60,10 @@ dev-bot: ## 启动 Python Bot（手动开发用）
 # ==================== 构建 ====================
 
 build-api: ## 构建 Go API
-	@echo "🔨 构建 API 服务..."
+	@echo "🔨 构建 Ember API/Gateway 统一入口..."
 	@mkdir -p $(API_DIR)/bin
-	@cd $(API_DIR) && go build -o bin/ember cmd/server/main.go
-	@echo "✅ API 构建完成: $(API_DIR)/bin/ember"
+	@cd $(API_DIR) && go build -o bin/ember ./cmd/ember
+	@echo "✅ API/Gateway 构建完成: $(API_DIR)/bin/ember"
 
 build-web: ## 构建 Vue 前端
 	@echo "🔨 构建 Web 前端..."
@@ -79,6 +83,10 @@ docker-up: ## 启动 Docker 服务
 	@echo "🚀 启动 Docker 服务..."
 	@docker compose -f $(COMPOSE_FILE) up -d
 
+docker-up-gateway: ## 启动 Docker 服务并启用 Playback Gateway profile
+	@echo "🚀 启动 Docker 服务和 Playback Gateway..."
+	@docker compose -f $(COMPOSE_FILE) --profile gateway up -d
+
 docker-down: ## 停止 Docker 服务
 	@echo "🛑 停止 Docker 服务..."
 	@docker compose -f $(COMPOSE_FILE) down
@@ -88,6 +96,9 @@ docker-logs: ## 查看 Docker 日志
 
 docker-logs-api: ## 查看 API 日志
 	@docker compose -f $(COMPOSE_FILE) logs -f ember-api
+
+docker-logs-gateway: ## 查看 Playback Gateway 日志
+	@docker compose -f $(COMPOSE_FILE) logs -f ember-gateway
 
 # ==================== 测试 ====================
 
