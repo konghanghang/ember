@@ -29,7 +29,7 @@ Commands:
 `
 
 type dependencies struct {
-	initLogging func() error
+	initLogging func(string) error
 	runAPI      func() error
 	runGateway  func(context.Context) error
 }
@@ -70,7 +70,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, dependenc
 		_, _ = fmt.Fprintln(stderr, "ember: code=dependency_missing")
 		return exitFailure
 	}
-	if err := dependencies.initLogging(); err != nil {
+	if err := dependencies.initLogging(command); err != nil {
 		_, _ = fmt.Fprintf(stderr, "ember: command=%s code=logging_init_failed errorType=%T\n", command, err)
 		return exitFailure
 	}

@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -57,6 +56,27 @@ func TestDailyFileWriterReusesCurrentDateFile(t *testing.T) {
 	}
 }
 
+func TestProcessLogPrefix(t *testing.T) {
+	tests := []struct {
+		role string
+		want string
+	}{
+		{role: ProcessRoleAPI, want: "api"},
+		{role: ProcessRoleGateway, want: "gateway"},
+	}
+	for _, test := range tests {
+		t.Run(test.role, func(t *testing.T) {
+			got, err := processLogPrefix(test.role)
+			if err != nil || got != test.want {
+				t.Fatalf("processLogPrefix(%q) = (%q, %v), want (%q, nil)", test.role, got, err, test.want)
+			}
+		})
+	}
+	if _, err := processLogPrefix("unknown"); err == nil {
+		t.Fatal("processLogPrefix(unknown) error = nil")
+	}
+}
+
 func TestInitSetsGlobalWriters(t *testing.T) {
 	originalWd, err := os.Getwd()
 	if err != nil {
@@ -88,7 +108,7 @@ func TestInitSetsGlobalWriters(t *testing.T) {
 	logWriter = os.Stdout
 	initErr = nil
 
-	if err := Init(); err != nil {
+	if err := Init(ProcessRoleGateway); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	if Writer() == os.Stdout {
@@ -97,10 +117,19 @@ func TestInitSetsGlobalWriters(t *testing.T) {
 	if _, ok := Writer().(*dailyFileWriter); !ok {
 		t.Fatalf("expected dailyFileWriter, got %T", Writer())
 	}
-	if _, err := os.Stat(apiLogDir); err != nil {
-		t.Fatalf("expected log dir %q to exist: %v", apiLogDir, err)
+	if _, err := os.Stat(logDir); err != nil {
+		t.Fatalf("expected log dir %q to exist: %v", logDir, err)
 	}
-	if !strings.Contains(log.Writer().(*dailyFileWriter).filePrefix, apiLogName) {
-		t.Fatalf("expected log writer prefix %q", apiLogName)
+	writer, ok := log.Writer().(*dailyFileWriter)
+	if !ok || writer.filePrefix != ProcessRoleGateway {
+		t.Fatalf("expected log writer prefix %q, got %T %+v", ProcessRoleGateway, log.Writer(), writer)
+	}
+	writer.stdout = &bytes.Buffer{}
+	if _, err := writer.Write([]byte("gateway log\n")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	path := filepath.Join(logDir, ProcessRoleGateway+"-"+time.Now().Format("2006-01-02")+".log")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected role-specific log file %q: %v", path, err)
 	}
 }

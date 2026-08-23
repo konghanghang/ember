@@ -794,6 +794,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
 - `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、日志初始化和退出码；`cmd/server` 与 `cmd/playback-gateway` 只保留固定子命令薄包装，不进入生产镜像
+- entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 
 - 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron

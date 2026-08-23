@@ -91,6 +91,8 @@ Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问
 
 API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接运行 `ember gateway` 时同样监听 `:8081`。`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变映射到 Gateway `8081` 的宿主机 `127.0.0.1` 端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
 
+两个进程都把日志写到 stdout 和按日文件，但文件前缀固定隔离：API 使用 `logs/api-YYYY-MM-DD.log`，Gateway 使用 `logs/gateway-YYYY-MM-DD.log`。Compose 分别挂载 `api_logs` 与 `gateway_logs`；直接在同一工作目录运行两个二进制进程时也不会写入同一个文件。
+
 ## `.env.example` 的已知缺口
 
 [`infrastructure/docker/.env.example`](../../infrastructure/docker/.env.example) 已覆盖启动期所有强制 env（含 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `JWT_SECRET` / `CONFIG_ENCRYPTION_KEY` / `INTERNAL_API_SECRET` / `ADMIN_*`），但仍不是"所有运行期能力都能开箱即用"的完整模板。

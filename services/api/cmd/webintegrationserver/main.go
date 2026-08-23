@@ -28,7 +28,7 @@ const (
 )
 
 func main() {
-	if err := logpkg.Init(); err != nil {
+	if err := logpkg.Init(logpkg.ProcessRoleAPI); err != nil {
 		log.Fatalf("init logging: %v", err)
 	}
 

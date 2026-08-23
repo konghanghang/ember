@@ -14,25 +14,27 @@ func TestRunDispatchesOnlySelectedProcess(t *testing.T) {
 		args        []string
 		wantAPICall int
 		wantGateway int
+		wantLogRole string
 	}{
-		{name: "no arguments default to api", wantAPICall: 1},
-		{name: "explicit api", args: []string{"api"}, wantAPICall: 1},
-		{name: "explicit gateway", args: []string{"gateway"}, wantGateway: 1},
+		{name: "no arguments default to api", wantAPICall: 1, wantLogRole: "api"},
+		{name: "explicit api", args: []string{"api"}, wantAPICall: 1, wantLogRole: "api"},
+		{name: "explicit gateway", args: []string{"gateway"}, wantGateway: 1, wantLogRole: "gateway"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			apiCalls := 0
 			gatewayCalls := 0
-			loggingCalls := 0
+			loggingRoles := make([]string, 0, 1)
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			exitCode := run(context.Background(), test.args, &stdout, &stderr, dependencies{
-				initLogging: func() error { loggingCalls++; return nil },
+				initLogging: func(role string) error { loggingRoles = append(loggingRoles, role); return nil },
 				runAPI:      func() error { apiCalls++; return nil },
 				runGateway:  func(context.Context) error { gatewayCalls++; return nil },
 			})
-			if exitCode != exitSuccess || loggingCalls != 1 || apiCalls != test.wantAPICall || gatewayCalls != test.wantGateway {
-				t.Fatalf("run(%v) = exit %d logging=%d api=%d gateway=%d", test.args, exitCode, loggingCalls, apiCalls, gatewayCalls)
+			if exitCode != exitSuccess || len(loggingRoles) != 1 || loggingRoles[0] != test.wantLogRole ||
+				apiCalls != test.wantAPICall || gatewayCalls != test.wantGateway {
+				t.Fatalf("run(%v) = exit %d logging=%v api=%d gateway=%d", test.args, exitCode, loggingRoles, apiCalls, gatewayCalls)
 			}
 			if stdout.Len() != 0 || stderr.Len() != 0 {
 				t.Fatalf("unexpected output: stdout=%q stderr=%q", stdout.String(), stderr.String())
@@ -61,7 +63,7 @@ func TestRunHelpAndInvalidArgumentsNeverInitializeProcesses(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			exitCode := run(context.Background(), test.args, &stdout, &stderr, dependencies{
-				initLogging: func() error { calls++; return nil },
+				initLogging: func(string) error { calls++; return nil },
 				runAPI:      func() error { calls++; return nil },
 				runGateway:  func(context.Context) error { calls++; return nil },
 			})
@@ -90,14 +92,14 @@ func TestRunSanitizesInitializationAndProcessFailures(t *testing.T) {
 		{
 			name: "logging failure",
 			deps: dependencies{
-				initLogging: func() error { return errors.New("logging failed with " + secret) },
+				initLogging: func(string) error { return errors.New("logging failed with " + secret) },
 				runAPI:      func() error { return nil },
 			},
 		},
 		{
 			name: "api failure",
 			deps: dependencies{
-				initLogging: func() error { return nil },
+				initLogging: func(string) error { return nil },
 				runAPI:      func() error { return errors.New("api failed with " + secret) },
 			},
 			wantRunnerCalls: 1,
@@ -106,7 +108,7 @@ func TestRunSanitizesInitializationAndProcessFailures(t *testing.T) {
 			name: "gateway failure",
 			args: []string{"gateway"},
 			deps: dependencies{
-				initLogging: func() error { return nil },
+				initLogging: func(string) error { return nil },
 				runGateway:  func(context.Context) error { return errors.New("gateway failed with " + secret) },
 			},
 			wantRunnerCalls: 1,

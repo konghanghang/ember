@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,9 +14,12 @@ import (
 )
 
 const (
-	apiLogDir  = "logs"
-	apiLogName = "app"
+	logDir             = "logs"
+	ProcessRoleAPI     = "api"
+	ProcessRoleGateway = "gateway"
 )
+
+var ErrInvalidProcessRole = errors.New("logging process role invalid")
 
 type dailyFileWriter struct {
 	baseDir     string
@@ -93,15 +97,31 @@ var (
 	initErr   error
 )
 
-func Init() error {
+// processLogPrefix maps the two production process roles to distinct file
+// prefixes so direct non-Docker execution cannot mix API and Gateway logs.
+func processLogPrefix(processRole string) (string, error) {
+	switch processRole {
+	case ProcessRoleAPI, ProcessRoleGateway:
+		return processRole, nil
+	default:
+		return "", ErrInvalidProcessRole
+	}
+}
+
+// Init configures stdout and daily file logging for one validated process role.
+func Init(processRole string) error {
+	filePrefix, err := processLogPrefix(processRole)
+	if err != nil {
+		return err
+	}
 	initOnce.Do(func() {
-		writer := newDailyFileWriter(apiLogDir, apiLogName)
+		writer := newDailyFileWriter(logDir, filePrefix)
 		logWriter = writer
 		log.SetOutput(writer)
 		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 		gin.DefaultWriter = writer
 		gin.DefaultErrorWriter = writer
-		initErr = os.MkdirAll(apiLogDir, 0o755)
+		initErr = os.MkdirAll(logDir, 0o755)
 	})
 	return initErr
 }
