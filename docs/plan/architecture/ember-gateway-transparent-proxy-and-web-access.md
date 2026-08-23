@@ -10,6 +10,8 @@
 
 2026-08-23 的生产访问日志已经确认：Infuse `8.5` 首次连接时会在尚未取得用户 AccessToken 前请求根路径 `GET /System/Info/Public`，当时已部署的旧 Gateway 将其归类为普通受保护请求并返回 `401`，日志为 `code=token_header_invalid`。因此登录链路会在用户名密码认证之前中断。
 
+同日补充的脱敏请求日志进一步确认：AuthenticateByName 已返回 `200` 并成功建立认证映射，但 Infuse 随后的根 `GET /Users/{Id}/Views` 不发送 `X-Emby-Token`，而是在 `X-Emby-Authorization: MediaBrowser ... Token="..."` 中携带非空 Token；只读取 `X-Emby-Token` 的旧门控因此再次返回本地 `401`，请求没有到达 Emby。
+
 固定的 Emby SDK `4.9.3.0` OpenAPI 同时给出两个容易混淆的事实：Server base URL 包含 `/emby`，接口 path 本身写作 `/System/Info/Public`、`/Users/AuthenticateByName` 等根路径形态；生成的 `SystemInfoPublic` 参考页又把该接口标记为需要用户认证。真实 Infuse 的登录前行为与生成文档的认证标记存在冲突，不能继续靠路径名或经验猜测。
 
 现有 [Emby 115 直连播放网关实现方案](./emby-115-direct-play-gateway.md) 负责 115 Provider、DirectPlay 和播放回退；本计划单独负责 Gateway 的通用反向代理、客户端路径兼容、登录前 bootstrap 和 Emby Web Surface 控制。两者共用同一个 `ember-gateway` 进程，但职责和验收条件不同。
@@ -54,7 +56,7 @@
 ### 已由代码确认
 
 - 当前 `classifyRoute` 在规范化后识别 AuthenticateByName、SystemInfoPublic、公开用户、PlaybackInfo 和视频流等精确路径。
-- SystemInfoPublic 是唯一无本地鉴权的公开路由；认证和其他 public bootstrap 校验应用头，其余请求提取唯一 `X-Emby-Token` 并调用 `ResolvePrincipal`。
+- SystemInfoPublic 是唯一无本地鉴权的公开路由；认证和其他 public bootstrap 校验应用头，其余请求从唯一 `X-Emby-Token` 或严格的 Emby/MediaBrowser 应用头内嵌 Token 中取得一致 AccessToken 并调用 `ResolvePrincipal`。
 - root 与 `/emby` 形态的精确 `GET System/Info/Public` 都透明代理到上游，其他 method、大小写、尾斜杠和 encoded path 不继承公开权限。
 - PlaybackInfo、视频流是普通代理上的选择性处理器；Playing、Progress、Stopped、图片、字幕和其他未知受保护接口没有独立处理器时会走普通代理。
 - 外部 Nginx 示例把请求原样 `proxy_pass` 到 Gateway，没有路径 rewrite；路径规范化应由 Gateway 单点负责。
@@ -67,14 +69,15 @@
 - Gateway 已完成上游身份核对并监听 `:8081`，接受的目标 Emby 版本为 `4.9.3.0`，ServerId 长度为 `32`；日志未暴露 ServerId 原值。
 - 客户端：`Infuse-Direct/8.5`
 - 首次连接请求：`GET /System/Info/Public`
-- 当前响应：`401`
+- 初始旧 Gateway 响应：`401`
 - Gateway 分支：`code=token_header_invalid`
 - `v2.0.1` 部署后同一路径进入 `code=application_header_invalid route=public_bootstrap pathMode=root`，证明路径已修复但应用头门控仍错误。
 - 同一目标 Emby `4.9.3.0` 的精确接口已实测无需登录即可返回 PublicSystemInfo。
 - SystemInfoPublic 放行后，Infuse AuthenticateByName 已实测使用唯一 `X-Emby-Authorization` 和大小写敏感的 `MediaBrowser` scheme。
 - Emby `4.9.3.0` 的认证成功响应已实测使用 `Content-Encoding: deflate`，Content-Type 为 JSON；原始压缩长度约 `1.2 KiB`。
+- AuthenticateByName 已返回 `200` 并成功建立 Token 映射；随后 Infuse 通过 `X-Emby-Authorization: MediaBrowser ... Token="..."` 请求根 `/Users/{Id}/Views`，`X-Emby-Token` 缺失，旧门控在上游调用前返回本地 `401`。
 
-这些证据证明目标 Emby 版本、root path、SystemInfoPublic 无登录语义、AuthenticateByName Header/scheme 和 deflate 响应编码；没有公开 ServerId 原值，也没有证明 Token 映射后的后续请求、PlaybackInfo、视频路径和 302 行为。
+这些证据证明目标 Emby 版本、root path、SystemInfoPublic 无登录语义、AuthenticateByName Header/scheme、deflate 响应编码，以及登录后 `/Users/{Id}/Views` 使用 MediaBrowser 内嵌 Token；没有公开 ServerId 原值，也没有证明新 Token 提取上线后的后续请求成功、PlaybackInfo、视频路径和 302 行为。
 
 ### 已由固定版本 SDK 确认
 
@@ -125,7 +128,7 @@ flowchart TD
     AppHeader --> BootstrapRoute{登录认证?}
     BootstrapRoute -- 是 --> AuthObserve[透明代理并观察登录响应]
     BootstrapRoute -- 否 --> AuthenticatedBootstrapProxy[透明代理 bootstrap]
-    Bootstrap -- 否 --> Principal[解析 X-Emby-Token 并 ResolvePrincipal]
+    Bootstrap -- 否 --> Principal[解析唯一且一致的 Header Token 来源并 ResolvePrincipal]
     Principal --> Route{特殊路由?}
     Route -- PlaybackInfo --> ProofObserve[透明代理并观察短期证明]
     Route -- Video --> DirectPlay[尝试 115 302，失败回退 Emby]
@@ -251,7 +254,7 @@ sequenceDiagram
     Emby-->>Gateway: AuthenticationResult
     Gateway->>Token: 旁路建立 Token 映射
     Gateway-->>Infuse: 原样返回 AuthenticationResult
-    Infuse->>Gateway: 携带 X-Emby-Token 的普通 API
+    Infuse->>Gateway: 普通 API<br/>MediaBrowser ... Token="..."
     Gateway->>Token: ResolvePrincipal
     Gateway->>Emby: 透明代理规范化 API path
     Emby-->>Gateway: 原始响应
@@ -261,7 +264,7 @@ sequenceDiagram
 #### 9.2 普通 API 和视频请求
 
 1. 解析 Surface 和路径模式，得到唯一规范化 API path。
-2. 非 bootstrap 请求先通过 `X-Emby-Token` 映射和实时用户资格检查。
+2. 非 bootstrap 请求先拒绝任何 query `api_key`，再从唯一 `X-Emby-Token` 或严格应用头内嵌 Token 中取得一致 AccessToken 并执行映射和实时用户资格检查，避免 Gateway 与 Emby 选择不同身份。
 3. PlaybackInfo 观察证明；视频流尝试 115 302；其他请求直接代理。
 4. 115 任一步骤不适用或失败时，合法 Principal 的视频请求回退 Emby，不拒绝正常播放。
 5. 上游状态、普通 Header 和响应体保持 Emby 权威；Gateway 不重编码未知 JSON。
@@ -302,7 +305,7 @@ sequenceDiagram
 - 在证据成立后精确支持登录前 `System/Info/Public`。
 - 保持默认受保护 API 透明代理和现有 115 fallback。
 
-截至 2026-08-23，本阶段代码已完成：Gateway 按支持范围内 9 个稳定 `4.9` OpenAPI 顶层 API family 的并集规范化 root path，保留已有 `/emby/...`，拒绝重复 `/emby/emby/...`，并让 AuthenticateByName、PlaybackInfo、视频和进度事件复用现有处理器。目标 Emby 已确认 SystemInfoPublic 无登录可访问，Infuse `8.5` 已确认认证使用 `X-Emby-Authorization: MediaBrowser ...`；Gateway 已实现精确公开路由与 `Emby/MediaBrowser` 双固定 scheme，fake、race 与 API 全量测试已通过，完整 Infuse 登录仍待本地复验。
+截至 2026-08-23，本阶段代码已完成：Gateway 按支持范围内 9 个稳定 `4.9` OpenAPI 顶层 API family 的并集规范化 root path，保留已有 `/emby/...`，拒绝重复 `/emby/emby/...`，并让 AuthenticateByName、PlaybackInfo、视频和进度事件复用现有处理器。目标 Emby 已确认 SystemInfoPublic 无登录可访问，Infuse `8.5` 已确认认证和登录后 `/Users/{Id}/Views` 都使用 `X-Emby-Authorization: MediaBrowser ...`，后者通过非空 Token 字段携带身份；Gateway 已实现精确公开路由、双固定 scheme、identity/gzip/deflate 旁路解码和严格多来源 Token 提取，fake、race 与 API 全量测试已通过，最新 Token 提取仍待本地成功复验。
 
 ### 阶段 2：Web Surface 控制
 
@@ -378,12 +381,13 @@ npm --prefix services/web run build
 - 已按 Infuse `8.5` 实测兼容精确 `X-Emby-Authorization: MediaBrowser ...`，同时保留 SDK `Emby` scheme 和全部 Header 唯一性、字段、Token、quoted-string 严格校验。
 - 已按目标 Emby 实测的 deflate 认证响应建立 `identity/gzip/deflate` 白名单旁路解析：原响应透明返回，只解压有界旁路副本，失败时不建立映射且不泄露响应内容；其中 gzip 为 fake 合同测试覆盖的兼容能力，不表述为目标环境实测行为。
 - 已为每个 Gateway 请求增加统一 `request_completed` 脱敏日志，覆盖有界 method/Host/原始 path、query key、route、status/outcome/耗时，以及认证 Header 数量、scheme 和 Token presence；query value、Header 原值、Cookie 与 Token 永不进入日志。
+- 已按真实 `/Users/{Id}/Views` 日志兼容 Infuse 的 MediaBrowser 内嵌 Token，并统一支持严格 Emby 应用头与 `X-Emby-Token`；双来源仅同值接受，冲突、重复、非法格式和 query `api_key` 失败关闭。
 - 已用 fake 和 race 测试覆盖 method/query/Header/body/响应透传、Token 门控、登录映射、证明、视频 redirect/fallback、未知/Web Surface 不改写和错误日志脱敏。
 - API 全量 `go test ./...`、`go vet ./...` 和 `go build ./...` 已通过；自动化没有请求真实 Emby 或 115。
 
 ### 剩余项
 
-- 部署 SystemInfoPublic 修复并确认上游 `200`，完成真实用户名密码登录复验。
+- 部署内嵌 Token 修复并确认 `/Users/{Id}/Views` 不再被本地 `401`，继续完成 PlaybackInfo、视频与进度请求实机复验。
 - Web/静态资源/WebSocket Surface 合同。
 - ConfigService 全局 Web 开关和设置页面。
 - 受控 Infuse 与 Web 实机验收。

@@ -282,16 +282,6 @@ func directPlayReasonCode(err error) string {
 	}
 }
 
-// videoTokenHeaderRejection distinguishes absence from ambiguous duplicate or
-// conflicting token values without logging either value.
-func videoTokenHeaderRejection(header http.Header) (int, string) {
-	values := header.Values(accessTokenHeader)
-	if len(values) == 0 || len(values) == 1 && values[0] == "" {
-		return http.StatusUnauthorized, "token_missing"
-	}
-	return http.StatusUnauthorized, "token_ambiguous"
-}
-
 // videoPrincipalRejection maps local identity and user-state failures to fixed
 // reject status, stage and reason values.
 func videoPrincipalRejection(err error) (int, string, string) {

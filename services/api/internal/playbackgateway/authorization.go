@@ -41,6 +41,77 @@ func extractApplicationMetadata(header http.Header) (AuthenticationMetadata, boo
 	return AuthenticationMetadata{DeviceID: fields["DeviceId"], ClientName: fields["Client"]}, true
 }
 
+// extractProtectedRequestAccessToken rejects query credentials before applying
+// the supported Header-source contract, preventing a forwarded api_key from
+// selecting a different Emby identity than the Gateway validated.
+func extractProtectedRequestAccessToken(request *http.Request) (string, string, bool) {
+	if request == nil {
+		return "", "token_invalid", false
+	}
+	if request.URL != nil && request.URL.Query().Has("api_key") {
+		return "", "token_invalid", false
+	}
+	return extractProtectedAccessToken(request.Header)
+}
+
+// extractProtectedAccessToken accepts the versioned X-Emby-Token source and
+// the strictly parsed Emby/MediaBrowser application Header Token field. Two
+// non-empty sources are valid only when their opaque values are identical.
+func extractProtectedAccessToken(header http.Header) (string, string, bool) {
+	xEmbyTokenValues := header.Values(accessTokenHeader)
+	if len(xEmbyTokenValues) > 1 {
+		return "", "token_ambiguous", false
+	}
+	xEmbyToken := ""
+	if len(xEmbyTokenValues) == 1 {
+		xEmbyToken = xEmbyTokenValues[0]
+		if xEmbyToken == "" {
+			return "", "token_invalid", false
+		}
+	}
+
+	embeddedToken, embeddedPresent, reasonCode := protectedApplicationAccessToken(header)
+	if reasonCode != "" {
+		return "", reasonCode, false
+	}
+	switch {
+	case xEmbyToken == "" && !embeddedPresent:
+		return "", "token_missing", false
+	case xEmbyToken == "":
+		return embeddedToken, "", true
+	case !embeddedPresent:
+		return xEmbyToken, "", true
+	case xEmbyToken != embeddedToken:
+		return "", "token_ambiguous", false
+	default:
+		return xEmbyToken, "", true
+	}
+}
+
+// protectedApplicationAccessToken validates an optional application Header
+// and returns only its non-empty Token candidate. Empty or missing Token fields
+// do not compete with a valid X-Emby-Token source.
+func protectedApplicationAccessToken(header http.Header) (string, bool, string) {
+	standardValues := header.Values(standardAuthorizationHeader)
+	embyValues := header.Values(embyAuthorizationHeader)
+	if len(standardValues)+len(embyValues) == 0 {
+		return "", false, ""
+	}
+	if len(standardValues)+len(embyValues) != 1 {
+		return "", false, "token_ambiguous"
+	}
+	rawValue, headerKind, ok := singleApplicationAuthorization(header)
+	if !ok {
+		return "", false, "token_invalid"
+	}
+	fields, ok := parseApplicationAuthorizationWithAccessToken(rawValue, headerKind)
+	if !ok || fields["Client"] == "" || fields["Device"] == "" || fields["DeviceId"] == "" || fields["Version"] == "" {
+		return "", false, "token_invalid"
+	}
+	token := fields["Token"]
+	return token, token != "", ""
+}
+
 // singleApplicationAuthorization prevents duplicate or conflicting header
 // names from creating parser differences between the gateway and Emby.
 func singleApplicationAuthorization(header http.Header) (string, applicationAuthorizationHeader, bool) {
@@ -62,9 +133,10 @@ func parseApplicationAuthorization(value string, headerKind applicationAuthoriza
 	return parseApplicationAuthorizationWithTokenPolicy(value, headerKind, false)
 }
 
-// parseApplicationAuthorizationForDiagnostics accepts a bounded non-empty
-// Token only to report its presence; callers must never log the returned map.
-func parseApplicationAuthorizationForDiagnostics(value string, headerKind applicationAuthorizationHeader) (map[string]string, bool) {
+// parseApplicationAuthorizationWithAccessToken accepts a bounded non-empty
+// Token for protected authentication and diagnostics. Callers must never log
+// the returned map or any value from it.
+func parseApplicationAuthorizationWithAccessToken(value string, headerKind applicationAuthorizationHeader) (map[string]string, bool) {
 	return parseApplicationAuthorizationWithTokenPolicy(value, headerKind, true)
 }
 

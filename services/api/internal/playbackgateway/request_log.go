@@ -191,7 +191,7 @@ func applicationAuthorizationDiagnostics(xEmbyValues, standardValues []string) (
 		value = standardValues[0]
 	}
 	scheme := applicationAuthorizationSchemeCode(value)
-	fields, ok := parseApplicationAuthorizationForDiagnostics(value, headerKind)
+	fields, ok := parseApplicationAuthorizationWithAccessToken(value, headerKind)
 	if !ok {
 		return scheme, "unparseable"
 	}

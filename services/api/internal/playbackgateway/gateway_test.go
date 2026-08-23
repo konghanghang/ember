@@ -751,6 +751,158 @@ func TestGatewayProtectedRequestRequiresMappedTokenBeforeProxy(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
+func TestGatewayProtectedRequestAcceptsInfuseEmbeddedToken(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.Method != http.MethodGet || request.URL.RequestURI() != "/emby/Users/emby-user-1/Views?fixture=keep" {
+			t.Fatalf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+		}
+		if request.Header.Get("X-Emby-Authorization") != mediaBrowserAuthorizationWithToken(fixtureAccessToken) || request.Header.Get(accessTokenHeader) != "" {
+			t.Fatal("upstream authentication headers changed")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/Users/emby-user-1/Views?fixture=keep", nil)
+	request.Header.Set("X-Emby-Authorization", mediaBrowserAuthorizationWithToken(fixtureAccessToken))
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent || upstreamCalls.Load() != 1 {
+		t.Fatalf("response=%d upstreamCalls=%d, want proxied 204", response.Code, upstreamCalls.Load())
+	}
+	_, resolved := tokenService.snapshot()
+	if len(resolved) != 1 || resolved[0] != fixtureAccessToken {
+		t.Fatalf("resolved tokens = %#v", resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+}
+
+func TestExtractProtectedAccessTokenUsesOneConsistentVersionedSource(t *testing.T) {
+	embyEmbeddedToken := `Emby UserId="emby-user-1", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.5", Token="` + fixtureAccessToken + `"`
+	tests := []struct {
+		name       string
+		header     http.Header
+		wantToken  string
+		wantReason string
+		wantAccept bool
+	}{
+		{
+			name: "X-Emby-Token only", header: http.Header{accessTokenHeader: {fixtureAccessToken}},
+			wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "Infuse MediaBrowser embedded token", header: http.Header{embyAuthorizationHeader: {mediaBrowserAuthorizationWithToken(fixtureAccessToken)}},
+			wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "X-Emby-Authorization Emby embedded token", header: http.Header{embyAuthorizationHeader: {embyEmbeddedToken}},
+			wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "Authorization Emby embedded token", header: http.Header{standardAuthorizationHeader: {embyEmbeddedToken}},
+			wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "both sources match", header: http.Header{
+				accessTokenHeader:       {fixtureAccessToken},
+				embyAuthorizationHeader: {mediaBrowserAuthorizationWithToken(fixtureAccessToken)},
+			},
+			wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "X-Emby-Token with empty application token", header: http.Header{
+				accessTokenHeader:       {fixtureAccessToken},
+				embyAuthorizationHeader: {fixtureMediaBrowserAuthorization},
+			},
+			wantToken: fixtureAccessToken, wantAccept: true,
+		},
+		{
+			name: "both sources conflict", header: http.Header{
+				accessTokenHeader:       {fixtureAccessToken},
+				embyAuthorizationHeader: {mediaBrowserAuthorizationWithToken("conflicting-token")},
+			},
+			wantReason: "token_ambiguous",
+		},
+		{
+			name: "duplicate X-Emby-Token", header: http.Header{accessTokenHeader: {fixtureAccessToken, fixtureAccessToken}},
+			wantReason: "token_ambiguous",
+		},
+		{
+			name: "conflicting application header names", header: http.Header{
+				embyAuthorizationHeader:     {mediaBrowserAuthorizationWithToken(fixtureAccessToken)},
+				standardAuthorizationHeader: {embyEmbeddedToken},
+			},
+			wantReason: "token_ambiguous",
+		},
+		{
+			name: "empty X-Emby-Token", header: http.Header{accessTokenHeader: {""}},
+			wantReason: "token_invalid",
+		},
+		{
+			name: "embedded token missing", header: http.Header{embyAuthorizationHeader: {fixtureMediaBrowserAuthorization}},
+			wantReason: "token_missing",
+		},
+		{
+			name:       "embedded token has incomplete metadata",
+			header:     http.Header{embyAuthorizationHeader: {`MediaBrowser Client="Infuse", Token="` + fixtureAccessToken + `"`}},
+			wantReason: "token_invalid",
+		},
+		{
+			name: "unsupported scheme", header: http.Header{standardAuthorizationHeader: {`Bearer ` + fixtureAccessToken}},
+			wantReason: "token_invalid",
+		},
+		{
+			name: "invalid application header does not hide behind X-Emby-Token", header: http.Header{
+				accessTokenHeader:           {fixtureAccessToken},
+				standardAuthorizationHeader: {`Bearer ` + fixtureAccessToken},
+			},
+			wantReason: "token_invalid",
+		},
+		{name: "no token source", header: http.Header{}, wantReason: "token_missing"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			token, reasonCode, accepted := extractProtectedAccessToken(test.header)
+			if token != test.wantToken || reasonCode != test.wantReason || accepted != test.wantAccept {
+				t.Fatalf("result=(%q,%q,%t), want (%q,%q,%t)", token, reasonCode, accepted, test.wantToken, test.wantReason, test.wantAccept)
+			}
+		})
+	}
+}
+
+func TestGatewayProtectedRequestDoesNotAcceptAPIKeyQuery(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, &fakeTokenService{}, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/Users/emby-user-1/Views?api_key="+fixtureAccessToken, nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized || upstreamCalls.Load() != 0 {
+		t.Fatalf("response=%d upstreamCalls=%d, want local 401", response.Code, upstreamCalls.Load())
+	}
+	for _, expected := range []string{"code=token_header_invalid", "reasonCode=token_invalid", "apiKeyQueryPresent=true"} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs = %q, want %s", logs.String(), expected)
+		}
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+}
+
 func TestGatewayRequestCompletionLogsSanitizedAuthenticationShape(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -764,7 +916,7 @@ func TestGatewayRequestCompletionLogsSanitizedAuthenticationShape(t *testing.T) 
 	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 	request := httptest.NewRequest(
 		http.MethodGet,
-		"/Items/fixture?api_key="+fixtureAccessToken+"&UserId=emby-user-1",
+		"/Items/fixture?IncludeExternalContent=true&UserId=emby-user-1",
 		nil,
 	)
 	request.Header.Set(
@@ -775,27 +927,27 @@ func TestGatewayRequestCompletionLogsSanitizedAuthenticationShape(t *testing.T) 
 	response := httptest.NewRecorder()
 	gateway.ServeHTTP(response, request)
 
-	if response.Code != http.StatusUnauthorized || upstreamCalls.Load() != 0 {
-		t.Fatalf("response=%d upstreamCalls=%d, want local 401", response.Code, upstreamCalls.Load())
+	if response.Code != http.StatusNoContent || upstreamCalls.Load() != 1 {
+		t.Fatalf("response=%d upstreamCalls=%d, want proxied 204", response.Code, upstreamCalls.Load())
 	}
 	for _, expected := range []string{
 		"code=request_completed",
 		"method=GET",
 		`host="example.com"`,
 		`path="/Items/fixture"`,
-		`queryKeys="UserId,api_key"`,
+		`queryKeys="IncludeExternalContent,UserId"`,
 		"queryKeyCount=2",
 		"route=protected",
 		"pathMode=root",
-		"statusCode=401",
-		"outcome=failure",
+		"statusCode=204",
+		"outcome=success",
 		"xEmbyTokenCount=0",
 		"xEmbyTokenState=missing",
 		"xEmbyAuthorizationCount=1",
 		"authorizationCount=0",
 		"applicationScheme=media_browser",
 		"embeddedTokenState=present",
-		"apiKeyQueryPresent=true",
+		"apiKeyQueryPresent=false",
 		"userAgentFamily=infuse_direct",
 		`userAgentVersion="8.5"`,
 	} {
@@ -1286,6 +1438,10 @@ func newAuthenticationRequest(body string) *http.Request {
 	request := httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader(body))
 	request.Header.Set("Authorization", fixtureApplicationAuthorization)
 	return request
+}
+
+func mediaBrowserAuthorizationWithToken(token string) string {
+	return `MediaBrowser UserId="emby-user-1", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.5", Token="` + token + `"`
 }
 
 func deflateFixture(t *testing.T, body []byte, raw bool) []byte {

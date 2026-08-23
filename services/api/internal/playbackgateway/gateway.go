@@ -177,14 +177,13 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		}
 		routeContext.metadata = metadata
 	default:
-		accessToken, ok := singleAccessToken(request.Header)
+		accessToken, reasonCode, ok := extractProtectedRequestAccessToken(request)
 		if !ok {
 			if kind == routeVideo {
-				status, reasonCode := videoTokenHeaderRejection(request.Header)
-				gateway.rejectVideo(statusWriter, request, status, "identity", reasonCode, startedAt)
+				gateway.rejectVideo(statusWriter, request, http.StatusUnauthorized, "identity", reasonCode, startedAt)
 				return
 			}
-			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
+			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid route=%s pathMode=%s reasonCode=%s", routeKindCode(kind), pathMode, reasonCode)
 			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -486,17 +485,6 @@ func isPublicUserImagePath(requestURL *url.URL) bool {
 // semantics instead of relying on proxy or upstream path normalization.
 func validPublicPathSegment(value string) bool {
 	return value != "" && value != "." && value != ".." && len(value) <= 128
-}
-
-// singleAccessToken accepts exactly one header value and preserves the opaque
-// token bytes for the purpose-separated hasher to validate.
-func singleAccessToken(header http.Header) (string, bool) {
-	values := header.Values(accessTokenHeader)
-	returnValue := ""
-	if len(values) == 1 {
-		returnValue = values[0]
-	}
-	return returnValue, len(values) == 1 && returnValue != ""
 }
 
 // tokenRejection separates invalid login state, dynamic user policy and
