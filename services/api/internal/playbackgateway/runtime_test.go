@@ -81,6 +81,7 @@ func TestNewProductionRuntimeRejectsMissingConfigurationBeforeIdentityRequest(t 
 	}{
 		{name: "missing database URL", env: map[string]string{"DATABASE_URL": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
+		{name: "padded encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": " legacy-key "}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing Emby URL", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_API_KEY": fixtureRuntimeAPIKey}, database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing Emby API key", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_URL": "http://emby.invalid"}, database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
 		{name: "missing database dependency", env: runtimeEnvironmentMap(), settings: validRuntimeSettings(), wantErr: ErrRuntimeDependency},
@@ -100,6 +101,28 @@ func TestNewProductionRuntimeRejectsMissingConfigurationBeforeIdentityRequest(t 
 			assertRuntimeSecretsAbsent(t, err.Error(), fixtureRuntimeDatabaseURL, fixtureRuntimeEncryptionKey, fixtureRuntimeAPIKey)
 			assertRuntimeSecretsAbsent(t, logs.String(), fixtureRuntimeDatabaseURL, fixtureRuntimeEncryptionKey, fixtureRuntimeAPIKey)
 		})
+	}
+}
+
+func TestNewProductionRuntimeAcceptsExistingShortEncryptionKey(t *testing.T) {
+	const existingEncryptionKey = "legacy-key"
+	var identityCalls atomic.Int32
+	upstream := newRuntimeIdentityServer(t, &identityCalls, fixtureRuntimeEmbyVersion)
+	defer upstream.Close()
+
+	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(map[string]string{
+		"CONFIG_ENCRYPTION_KEY": existingEncryptionKey,
+	}), ProductionDependencies{
+		Database:          &gorm.DB{},
+		Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
+		Logger:            log.New(io.Discard, "", 0),
+		DirectPlayService: &fakeDirectPlayService{},
+	})
+	if err != nil || runtime == nil {
+		t.Fatalf("NewProductionRuntime() = (%v, %v), want existing short key compatibility", runtime, err)
+	}
+	if identityCalls.Load() != 1 {
+		t.Fatalf("identity calls = %d, want 1", identityCalls.Load())
 	}
 }
 

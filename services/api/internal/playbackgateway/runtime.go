@@ -29,7 +29,6 @@ const (
 	runtimeIdleTimeout                   = 60 * time.Second
 	runtimeShutdownTimeout               = 10 * time.Second
 	runtimeMaxHeaderBytes                = 1 << 20
-	minimumEncryptionKeyLength           = 32
 )
 
 var (
@@ -283,7 +282,6 @@ func loadProductionConfig(getenv func(string) string, settings RuntimeSettings) 
 		embyAPIKey:    settings.GetString("EMBY_API_KEY"),
 	}
 	if !validExactNonEmpty(databaseURL) || !validExactNonEmpty(config.encryptionKey) ||
-		len(config.encryptionKey) < minimumEncryptionKeyLength ||
 		!validExactNonEmpty(config.embyURL) || !validExactNonEmpty(config.embyAPIKey) {
 		return productionConfig{}, ErrRuntimeConfig
 	}

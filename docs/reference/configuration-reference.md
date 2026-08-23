@@ -263,7 +263,9 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 
 - 用途：加密/解密数据库中的敏感配置与 115 Cookie
 - 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等 settings 敏感值、`p115_accounts.cookie_ciphertext`，以及 `emby_access_tokens.token_hash` 的 purpose 隔离 HMAC
+- 兼容约束：API 与 Gateway 都接受非空、无首尾空白和换行的已有密钥，不对历史密钥追加长度门槛；新部署仍应使用随机的至少 32 字节密钥
 - 备注：如果该值缺失或变更错误，数据库里已有的敏感配置和 115 Cookie 都会无法解密，已有 Emby Token 摘要也无法再命中并要求客户端重新登录；共享 `security/secretbox` 保持原 ConfigService AES-GCM 密文格式兼容，并为 115 Cookie 与 Emby Token 使用不同 purpose 派生隔离密钥
+- 轮换边界：禁止为了满足新建议而直接补长或替换已有值；强制升级密钥强度必须另行实现“旧密钥解密 → 新密钥重加密 → Token 重新登录”的受控轮换流程
 
 ---
 
