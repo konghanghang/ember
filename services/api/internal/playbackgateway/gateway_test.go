@@ -24,6 +24,148 @@ const (
 	fixtureApplicationAuthorization = `Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Token=""`
 )
 
+func TestGatewayRootSystemInfoPublicBootstrapIsTransparent(t *testing.T) {
+	responseBody := `{"LocalAddress":"http://emby.internal:8096","ServerName":"Fixture","Version":"4.9.3.0","Id":"server-1"}`
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.Method != http.MethodGet || request.URL.Path != "/emby/System/Info/Public" || request.URL.RawQuery != "fixture=keep" {
+			t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+		}
+		if request.Header.Get("X-Emby-Authorization") != fixtureApplicationAuthorization || request.Header.Get("X-Fixture") != "preserved" {
+			t.Errorf("upstream headers = %#v", request.Header)
+		}
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("X-Upstream", "preserved")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/System/Info/Public?fixture=keep", nil)
+	request.Header.Set("X-Emby-Authorization", fixtureApplicationAuthorization)
+	request.Header.Set("X-Fixture", "preserved")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != responseBody || response.Header().Get("X-Upstream") != "preserved" {
+		t.Fatalf("response = status %d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
+	}
+	if upstreamCalls.Load() != 1 {
+		t.Fatalf("upstream calls = %d, want 1", upstreamCalls.Load())
+	}
+	recorded, resolved := tokenService.snapshot()
+	if len(recorded) != 0 || len(resolved) != 0 {
+		t.Fatalf("token calls = recorded %d resolved %d, want none", len(recorded), len(resolved))
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization, responseBody)
+}
+
+func TestGatewayRootAuthenticationIsTransparentAndRecordsMapping(t *testing.T) {
+	responseBody := `{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1"}`
+	requestBody := `{"Username":"user","Pw":"` + fixturePassword + `"}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("read upstream request body: %v", err)
+		}
+		if request.Method != http.MethodPost || request.URL.Path != authenticationPath || request.URL.RawQuery != "fixture=keep" {
+			t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+		}
+		if string(body) != requestBody {
+			t.Errorf("upstream body = %q, want %q", string(body), requestBody)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodPost, "/Users/AuthenticateByName?fixture=keep", strings.NewReader(requestBody))
+	request.Header.Set("Authorization", fixtureApplicationAuthorization)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != responseBody {
+		t.Fatalf("response = status %d body=%q", response.Code, response.Body.String())
+	}
+	recorded, resolved := tokenService.snapshot()
+	if len(recorded) != 1 || len(resolved) != 0 || recorded[0].AccessToken != fixtureAccessToken ||
+		recorded[0].EmbyUserID != "emby-user-1" || recorded[0].ServerID != "server-1" {
+		t.Fatalf("token calls = recorded %+v resolved %#v", recorded, resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, requestBody, responseBody)
+}
+
+func TestGatewayRootProtectedAPIIsCanonicalizedAfterTokenGate(t *testing.T) {
+	requestBody := `{"ItemId":"item-1","PositionTicks":123456789}`
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("read upstream request body: %v", err)
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/emby/Sessions/Playing/Progress" || request.URL.RawQuery != "fixture=keep" {
+			t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+		}
+		if request.Header.Get(accessTokenHeader) != fixtureAccessToken || string(body) != requestBody {
+			t.Errorf("upstream token/body changed")
+		}
+		writer.Header().Set("X-Upstream", "preserved")
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodPost, "/Sessions/Playing/Progress?fixture=keep", strings.NewReader(requestBody))
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent || response.Header().Get("X-Upstream") != "preserved" || upstreamCalls.Load() != 1 {
+		t.Fatalf("response=%d headers=%v upstreamCalls=%d", response.Code, response.Header(), upstreamCalls.Load())
+	}
+	_, resolved := tokenService.snapshot()
+	if len(resolved) != 1 || resolved[0] != fixtureAccessToken {
+		t.Fatalf("resolved tokens = %#v", resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, requestBody)
+}
+
+func TestGatewayRejectsDuplicateEmbyPrefixBeforeProxy(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/emby/emby/System/Info", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest || upstreamCalls.Load() != 0 {
+		t.Fatalf("response=%d upstreamCalls=%d, want 400 and no upstream", response.Code, upstreamCalls.Load())
+	}
+	if !strings.Contains(logs.String(), "code=request_path_invalid") {
+		t.Fatalf("logs = %q, want request_path_invalid", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+}
+
 func TestGatewayAuthenticationResponseIsTransparentAndRecordsMapping(t *testing.T) {
 	responseBody := "{\n  \"Unknown\": {\"keep\": true},\n  \"User\": {\"Id\": \"emby-user-1\", \"Name\": \"user\"},\n  \"AccessToken\": \"" + fixtureAccessToken + "\",\n  \"ServerId\": \"server-1\"\n}\n"
 	requestBody := "{\"Username\":\"user\",\"Pw\":\"" + fixturePassword + "\",\"Unknown\":true}"
@@ -260,6 +402,34 @@ func TestGatewayPostPlaybackInfoPreservesRequestAndRecordsProof(t *testing.T) {
 	if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); !ok {
 		t.Fatal("POST PlaybackInfo did not record proof")
 	}
+}
+
+func TestGatewayRootPlaybackInfoReusesProofObserver(t *testing.T) {
+	responseBody := `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"Container":"mkv","SupportsDirectPlay":true}],"PlaySessionId":"session-1"}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/emby/Items/item-1/PlaybackInfo" || request.URL.Query().Get("UserId") != "emby-user-1" {
+			t.Errorf("upstream request = %s %s", request.Method, request.URL.RequestURI())
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/Items/item-1/PlaybackInfo?UserId=emby-user-1", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != responseBody {
+		t.Fatalf("response = status %d body=%q", response.Code, response.Body.String())
+	}
+	if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); !ok {
+		t.Fatal("root PlaybackInfo did not record proof")
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody, "/private/media/one.mkv")
 }
 
 func TestGatewayPlaybackInfoIneligibleRequestRemainsTransparentWithoutProof(t *testing.T) {
@@ -612,6 +782,7 @@ func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *test
 				"X-Emby-Authorization": {fixtureApplicationAuthorization},
 			},
 		},
+		{name: "root system info missing application header", method: http.MethodGet, path: "/System/Info/Public"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -638,6 +809,9 @@ func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *test
 			}
 			if !strings.Contains(logs.String(), "code=application_header_invalid") {
 				t.Fatalf("logs = %q", logs.String())
+			}
+			if test.path == "/System/Info/Public" && (!strings.Contains(logs.String(), "route=public_bootstrap") || !strings.Contains(logs.String(), "pathMode=root")) {
+				t.Fatalf("root bootstrap logs = %q", logs.String())
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization)
 		})
@@ -729,7 +903,8 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary/0", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Users/public-user/Images/Primary/Delete", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Users/public%2Duser/Images/Primary", want: routeProtected},
-		{method: http.MethodGet, path: "/emby/System/Info/Public", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/System/Info/Public", want: routePublicBootstrap},
+		{method: http.MethodHead, path: "/emby/System/Info/Public", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
 		{method: http.MethodPost, path: "/emby/Items/item-1/PlaybackInfo", want: routePlaybackInfo},
 		{method: http.MethodHead, path: "/emby/Items/item-1/PlaybackInfo", want: routeProtected},

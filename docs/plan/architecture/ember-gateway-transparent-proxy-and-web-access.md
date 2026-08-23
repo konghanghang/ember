@@ -1,6 +1,6 @@
 # Ember Gateway 透明代理与 Web 访问控制实现方案
 
-> 状态：草稿
+> 状态：进行中
 > 负责人：Ember
 > 更新时间：2026-08-23
 
@@ -8,7 +8,7 @@
 
 `ember-gateway` 已经具备 Emby 登录响应观察、AccessToken 映射、本地用户资格门控、PlaybackInfo 证明、115 直连决策和 Emby 视频回退能力。但当前路由合同仍围绕 `/emby/...` 特定路径设计，没有完整承担“客户端访问 Emby 的唯一公网入口”职责。
 
-2026-08-23 的生产访问日志已经确认：Infuse `8.5` 首次连接时会在尚未取得用户 AccessToken 前请求根路径 `GET /System/Info/Public`，当前 Gateway 将其归类为普通受保护请求并返回 `401`，日志为 `code=token_header_invalid`。因此登录链路会在用户名密码认证之前中断。
+2026-08-23 的生产访问日志已经确认：Infuse `8.5` 首次连接时会在尚未取得用户 AccessToken 前请求根路径 `GET /System/Info/Public`，当时已部署的旧 Gateway 将其归类为普通受保护请求并返回 `401`，日志为 `code=token_header_invalid`。因此登录链路会在用户名密码认证之前中断。
 
 固定的 Emby SDK `4.9.3.0` OpenAPI 同时给出两个容易混淆的事实：Server base URL 包含 `/emby`，接口 path 本身写作 `/System/Info/Public`、`/Users/AuthenticateByName` 等根路径形态；生成的 `SystemInfoPublic` 参考页又把该接口标记为需要用户认证。真实 Infuse 的登录前行为与生成文档的认证标记存在冲突，不能继续靠路径名或经验猜测。
 
@@ -298,6 +298,8 @@ sequenceDiagram
 - 在证据成立后精确支持登录前 `System/Info/Public`。
 - 保持默认受保护 API 透明代理和现有 115 fallback。
 
+截至 2026-08-23，本阶段代码已完成：Gateway 按支持范围内 9 个稳定 `4.9` OpenAPI 顶层 API family 的并集规范化 root path，保留已有 `/emby/...`，拒绝重复 `/emby/emby/...`，并让 `System/Info/Public`、AuthenticateByName、PlaybackInfo、视频和进度事件复用现有处理器。fake 与 `go test -race` 已通过；目标 Infuse 应用头和真实登录仍待部署复验。
+
 ### 阶段 2：Web Surface 控制
 
 - 完成 Emby Web 入口、静态资源和 WebSocket 版本合同。
@@ -367,14 +369,17 @@ npm --prefix services/web run build
 - 所有现有受保护 `/emby/...` 请求的 Principal 门控与默认代理。
 - PlaybackInfo 证明、115 视频 302/fallback、普通进度接口透传能力。
 - 2026-08-23 生产日志确认 Infuse 根 `System/Info/Public` 兼容缺口。
+- 已按支持范围内稳定 OpenAPI API family 并集把 root path 规范化为单一 `/emby/...`，已有 `/emby` 请求保持兼容，重复前缀失败关闭。
+- 已把精确 root/`/emby` `GET System/Info/Public` 纳入应用头保护的 bootstrap，并让 root AuthenticateByName、PlaybackInfo、视频与进度请求复用现有处理器。
+- 已用 fake 和 race 测试覆盖 method/query/Header/body/响应透传、Token 门控、登录映射、证明、视频 redirect/fallback、未知/Web Surface 不改写和错误日志脱敏。
+- API 全量 `go test ./...`、`go vet ./...` 和 `go build ./...` 已通过；自动化没有请求真实 Emby 或 115。
 
 ### 剩余项
 
-- 根 API path 与 `/emby` path 的统一规范化。
-- `System/Info/Public` 应用头证据、合同修订和精确 bootstrap。
+- 部署新代码并确认 Infuse `System/Info/Public` 是否携带当前严格应用头，完成真实用户名密码登录复验。
 - Web/静态资源/WebSocket Surface 合同。
 - ConfigService 全局 Web 开关和设置页面。
-- fake 自动化、编译、受控 Infuse 与 Web 实机验收。
+- 受控 Infuse 与 Web 实机验收。
 - 原始 Emby 公网入口隔离确认。
 
 ## 落地后文档处理

@@ -158,7 +158,13 @@ sequenceDiagram
     participant Token as EmbyTokenService
     participant DB as PostgreSQL
 
-    Client->>Gateway: POST /emby/Users/AuthenticateByName<br/>应用/设备授权头
+    Client->>Gateway: GET /System/Info/Public<br/>应用/设备授权头
+    Gateway->>Gateway: root API 规范化为 /emby/System/Info/Public
+    Gateway->>Emby: 透明转发 bootstrap
+    Emby-->>Gateway: PublicSystemInfo
+    Gateway-->>Client: Emby 原状态/Header/Body
+    Client->>Gateway: POST /Users/AuthenticateByName<br/>应用/设备授权头
+    Gateway->>Gateway: root API 规范化为 /emby/Users/AuthenticateByName
     Gateway->>Gateway: 严格校验 Client/Device/DeviceId/Version
     Gateway->>Emby: 原请求透明转发
     Emby-->>Gateway: 原 AuthenticationResult
@@ -172,6 +178,8 @@ sequenceDiagram
 关键语义：
 
 - Emby 登录响应始终是客户端真相；旁路映射失败不能改写 Emby 成功响应。
+- 固定 OpenAPI API family 的 root path 与已有 `/emby/...` 共用同一门控和处理器；重复 `/emby/emby/...` 失败关闭，根 `/web/...` 留给后续 Web Surface 合同。
+- `System/Info/Public` 只豁免已映射 AccessToken，仍必须携带严格应用头；目标 Infuse 是否满足该条件尚待部署复验。
 - 数据库只保存 32 字节 Token HMAC，不保存 AccessToken 明文。
 - 后续受保护请求只接受唯一 `X-Emby-Token`；query token、其他 Authorization 形式、Quick Connect/PIN 尚未进入固定合同。
 - 用户停用、Emby 禁用、访问禁用、解绑/删除和设备强制退出会写本地软撤销；普通到期使用实时资格拒绝，不永久撤销映射。
@@ -186,7 +194,7 @@ sequenceDiagram
     participant Emby as Emby
     participant Proof as 进程内证明缓存
 
-    Client->>Gateway: GET/POST /emby/Items/{Id}/PlaybackInfo
+    Client->>Gateway: GET/POST Items/{Id}/PlaybackInfo<br/>root 或 /emby 形态
     Gateway->>Token: ResolvePrincipal(X-Emby-Token)
     Token-->>Gateway: Principal
     Gateway->>Emby: 原请求透明转发
@@ -350,11 +358,11 @@ reasonCode=<fixed-reason>
 
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
-| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、Gateway redirect/fallback/reject | 真实 115 风控和未固化的 Infuse 请求行为 |
+| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、root 与 `/emby` API 规范化、`System/Info/Public` bootstrap、根路径认证/PlaybackInfo/视频/进度、Gateway redirect/fallback/reject | 真实 115 风控和未固化的 Infuse Header/后续请求行为 |
 | PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 2026-08-23 生产日志确认 `Infuse-Direct/8.5` 首次连接请求根路径 `GET /System/Info/Public`，当前 Gateway 返回 `401 code=token_header_invalid` | 应用授权头、认证成功、`Static`、Token Header、302、HEAD/Range、UA/IP 绑定与进度事件 |
+| Gateway/Infuse | 2026-08-23 生产日志确认 `Infuse-Direct/8.5` 首次连接请求根路径 `GET /System/Info/Public`，旧 Gateway 返回 `401 code=token_header_invalid`；对应 root/bootstrap 修复已完成 fake/race 验证 | 新代码尚未部署复验；应用授权头、认证成功、`Static`、Token Header、302、HEAD/Range、UA/IP 绑定与进度事件仍未确认 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
@@ -366,12 +374,12 @@ reasonCode=<fixed-reason>
 
 【致命问题】
 
-- `P1-1`：Infuse 首次登录已确定被根路径/bootstrap 不兼容阻塞，且后续 115 资格请求合同仍未确认。
+- `P1-1`：根路径/bootstrap 代码缺口已修复，但目标 Infuse 应用头与完整登录尚未部署复验，后续 115 资格请求合同仍未确认。
 - `P1-2`：如果原始 Emby 公网入口未隔离，所有 Gateway 本地门控都可以被绕过。
 
 【改进方向】
 
-- 先按 [Gateway 透明代理计划](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md) 修复根路径/bootstrap，并完成部署网络和后续 Infuse 请求合同验收，再继续会话/策略建模。
+- 先部署 root/bootstrap 修复并完成 Infuse 应用头、登录和后续请求合同验收，再继续会话/策略建模。
 - 随后收口账号运行期健康回写、冷却、会话/并发和容量治理。
 
 问题总表：
@@ -379,19 +387,19 @@ reasonCode=<fixed-reason>
 | 优先级 | 问题 |
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
-| `P1` | `P1-1` Infuse 首次登录路径已确定不兼容且后续请求合同未确认；`P1-2` 原始 Emby 旁路风险 |
+| `P1` | `P1-1` root/bootstrap 已修复但真实登录及后续请求合同未复验；`P1-2` 原始 Emby 旁路风险 |
 | `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
 
-#### 【P1-1】Infuse 首次登录已被根路径/bootstrap 不兼容阻塞
+#### 【P1-1】Root/bootstrap 已修复但真实 Infuse 登录尚未复验
 
-- 触发条件：Infuse `8.5` 首次连接使用根路径 `GET /System/Info/Public`，当前 Gateway 只按 `/emby/...` 特定路径分类，并把该请求视为需要 `X-Emby-Token` 的普通受保护请求。
-- 实际后果：请求返回 `401 code=token_header_invalid`，客户端无法进入用户名密码登录；PlaybackInfo、视频 fallback 和 115 资格分支都不会执行。
-- 定位：`services/api/internal/playbackgateway/gateway.go`、`docs/reference/emby-playback-proxy-contract.md`。
-- 建议：按 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md) 先固定根 API path、`/emby` 兼容和 `System/Info/Public` 应用头合同，再用 fake 测试修复；随后继续验证 `Static`、`MediaSourceId`、`PlaySessionId`、Token Header 和视频路径。
-- 证据边界：根路径与当前门控冲突已经由生产日志证实；请求应用头和后续播放合同仍未证实。
+- 触发条件：目标环境仍运行旧 Gateway，或 Infuse `8.5` 的根 `GET /System/Info/Public` 不携带当前严格解析所需的应用授权头。
+- 实际后果：旧代码返回 `token_header_invalid`；新代码在应用头缺失/非法时返回 `application_header_invalid`，两者都会阻断用户名密码登录，后续 PlaybackInfo、视频 fallback 和 115 资格分支不会执行。
+- 定位：`services/api/internal/playbackgateway/routing.go`、`services/api/internal/playbackgateway/gateway.go`、`docs/reference/emby-playback-proxy-contract.md`。
+- 建议：部署新代码后先检查脱敏 code；若仍是 `application_header_invalid`，只捕获 Header 名存在性和解析失败类别，不记录值，再补版本合同与 fixture。登录成功后继续验证 `Static`、`MediaSourceId`、`PlaySessionId`、Token Header 和视频路径。
+- 证据边界：root 规范化、精确 bootstrap 和现有特殊处理器复用已由 fake/race 测试证明；真实 Infuse Header 和登录成功仍未证实。
 
 #### 【P1-2】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
 
@@ -440,8 +448,8 @@ reasonCode=<fixed-reason>
 
 ## 12. 建议的后续顺序
 
-1. 按透明代理计划固定根 API path、`/emby` 兼容、`System/Info/Public` bootstrap 和 Web Surface 合同，并用 fake 测试修复首次登录阻塞。
-2. 完成外部 HTTPS 和原始 Emby 隔离后，继续受控 Infuse 验收并固定后续认证、PlaybackInfo、视频和进度事件 fixture。
+1. 发布已经完成 fake/race 验证的 root API、`/emby` 兼容和 `System/Info/Public` bootstrap 修复，复验 Infuse 应用头与用户名密码登录。
+2. 完成外部 HTTPS 和原始 Emby 隔离后，继续受控 Infuse 验收并固定 PlaybackInfo、视频和进度事件 fixture。
 3. 接入账号运行期健康回写和冷却，避免 115 故障时逐请求重试。
 4. 实现持久 session、事件/TTL、套餐开关和 Gateway 并发。
 5. 在 session 可证明“无活跃播放”后设计保留文件容量治理。

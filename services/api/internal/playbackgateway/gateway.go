@@ -20,6 +20,7 @@ import (
 
 const (
 	authenticationPath                   = "/emby/Users/AuthenticateByName"
+	publicSystemInfoPath                 = "/emby/System/Info/Public"
 	accessTokenHeader                    = "X-Emby-Token"
 	defaultAuthenticationResponseMaxSize = int64(1 << 20)
 )
@@ -130,17 +131,23 @@ func New(config Config) (*Gateway, error) {
 	return gateway, nil
 }
 
-// ServeHTTP applies the exact-route authentication exception and fails closed
-// for every other request before allowing the reverse proxy to reach Emby.
+// ServeHTTP normalizes versioned root API paths, applies exact bootstrap and
+// authentication exceptions, then fails closed before any protected proxy.
 func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	startedAt := time.Now().UTC()
+	pathMode, pathOK := normalizeEmbyAPIPath(request)
+	if !pathOK {
+		gateway.logger.Printf("[PlaybackGateway] code=request_path_invalid pathMode=%s", pathMode)
+		writer.WriteHeader(http.StatusBadRequest)
+		return
+	}
 	kind := classifyRoute(request)
 	routeContext := requestRouteContext{kind: kind}
 	switch kind {
 	case routeAuthentication, routePublicBootstrap:
 		metadata, ok := extractApplicationMetadata(request.Header)
 		if !ok {
-			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid")
+			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -153,7 +160,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 				gateway.rejectVideo(writer, request, status, "identity", reasonCode, startedAt)
 				return
 			}
-			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid")
+			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -301,6 +308,9 @@ func classifyRoute(request *http.Request) routeKind {
 	}
 	if request.Method == http.MethodPost && exactRequestPath(request.URL, authenticationPath) {
 		return routeAuthentication
+	}
+	if request.Method == http.MethodGet && exactRequestPath(request.URL, publicSystemInfoPath) {
+		return routePublicBootstrap
 	}
 	if request.Method == http.MethodGet && exactRequestPath(request.URL, publicUsersPath) {
 		return routePublicBootstrap

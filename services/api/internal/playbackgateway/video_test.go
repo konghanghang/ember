@@ -62,7 +62,7 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixtureRedirectURL, "/mnt/media/fixture.mkv")
 }
 
-func TestGatewayVideoWithoutProofFallsBackToOriginalEmbyRequest(t *testing.T) {
+func TestGatewayRootVideoWithoutProofFallsBackToCanonicalEmbyRequest(t *testing.T) {
 	const responseBody = "fixture-video-bytes"
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -90,7 +90,7 @@ func TestGatewayVideoWithoutProofFallsBackToOriginalEmbyRequest(t *testing.T) {
 	directPlay := &fakeDirectPlayService{}
 	var logs bytes.Buffer
 	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
-	request := newVideoRequest(http.MethodGet, "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true&api=keep")
+	request := newVideoRequest(http.MethodGet, "/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true&api=keep")
 	request.Header.Set("User-Agent", "Infuse-Fixture")
 	request.Header.Set("Range", "bytes=128-")
 	request.Header.Set("X-Fixture", "preserved")
@@ -148,6 +148,7 @@ func TestGatewayVideoStreamAndFileNameShapesRedirect(t *testing.T) {
 	}{
 		{name: "query container stream", method: http.MethodGet, target: "/emby/Videos/item-1/stream?Container=mkv&MediaSourceId=source-1&PlaySessionId=session-1&Static=true"},
 		{name: "original file name", method: http.MethodHead, target: "/emby/Videos/item-1/fixture.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true"},
+		{name: "root path stream", method: http.MethodGet, target: "/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
