@@ -12,6 +12,8 @@ Ember 已经管理用户生命周期、Emby 账号、套餐分组、设备和播
 
 Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方案实施。当前决定是独立实现一个原生 Go Cookie Provider，并保留 Provider 边界，待 AppID 获批后再增加 OpenAPI Provider。
 
+当前实现的完整组件图、请求时序、状态机、数据边界和系统性审查结果统一维护在 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)；本计划只保留阶段目标和未完成项。
+
 ## 目标
 
 1. 新增独立播放网关，作为客户端访问 Emby 的公网入口；Emby 正常代理播放是基线，固定合同中的原始视频流请求尝试 115 直连，未完整成功时透明回退原始 Emby 请求。
@@ -39,7 +41,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 ### 已固定合同
 
-- Emby Server 固定基线为 `4.9.3.0`：
+- Emby 播放代理协议以 `4.9.3.0` 为证据基线，Gateway 运行兼容范围固定为 `>= 4.9.0.0 && < 4.10.0.0`：
   - `docs/reference/emby-playback-proxy-contract.md`
   - `docs/reference/playback-reporting-api-contract.md`
 - 115 当前与未来 Provider 合同：
@@ -59,7 +61,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 管理端已有活跃会话、播放历史、设备管理、客户端黑名单和设备操作日志。
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
-- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除。Gateway 数据面核心已经可构建，缺口是统一单二进制和公开部署入口。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
+- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除。Gateway 数据面、统一单二进制、Compose profile 和预览镜像均已完成，外部反向代理与 Infuse 验收仍未完成。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
 - 当前已有统一 `cmd/ember`、`api/gateway` 子命令和同镜像双容器 Compose 入口；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks` 和 DirectPlay 传输核心已落地，但直连会话、外部 HTTPS 反向代理和实机验收尚未接入。
 
 ### 外部证据与未确认项
@@ -75,7 +77,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 | 维度 | 首期决策 |
 | --- | --- |
-| Emby | 固定 `4.9.3.0` 合同 |
+| Emby | `4.9.3.0` 协议证据基线；Gateway 接受 `>= 4.9.0.0 && < 4.10.0.0` |
 | Infuse | 验收时使用目标平台当前稳定版并记录精确版本，不把版本写成永久合同 |
 | 115 认证 | 管理员手工配置 Cookie，默认视为非官方兼容模式 |
 | 账号拓扑 | 恰好一个源账号和一个播放小号 |
@@ -131,7 +133,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 - 新增无监听器的 `internal/playbackgateway` 标准 HTTP Handler：认证路由透明代理并旁路写入 Token 映射，固定登录文档中的 public 用户列表/头像进入 bootstrap allowlist，其余请求使用唯一 `X-Emby-Token` 调用 `ResolvePrincipal` 后再转发；认证响应、普通 Header 和未知 JSON 字段不重编码。
 - 按 SDK 固定提交实现 `Authorization/X-Emby-Authorization` 的严格 `Emby` 应用头解析，要求 `Client/Device/DeviceId/Version`，拒绝重复/未知字段、非空内嵌 Token、非法 quoted-string 和 Header 歧义；`Client/DeviceId` 只作为非权威映射元数据。
 - Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、应用头与 public bootstrap、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
-- 新增 `integrations/emby.ServerIdentityVerifier`，在监听前调用固定 `/emby/System/Info`，只接受精确 `4.9.3.0` 与有界非空 ServerId；重定向、非 JSON、超大响应、状态失败、超时和字段异常全部返回不含 URL/API Key/响应体的固定错误。
+- 新增 `integrations/emby.ServerIdentityVerifier`，在监听前调用固定 `/emby/System/Info`；Runtime 只接受四段数字版本 `>= 4.9.0.0 && < 4.10.0.0` 与有界非空 ServerId，重定向、非 JSON、超大响应、状态失败、超时、版本越界和字段异常全部返回不含 URL/API Key/响应体的固定错误。
 - 新增 `cmd/ember` 和 `internal/entrypoint`，无参数/`api` 启动 API，`gateway` 启动 Gateway，help/未知参数保持无副作用；`cmd/server` 与 `cmd/playback-gateway` 已收口为调用同一分发器的薄兼容入口。
 - Gateway production runtime 提供独立 `/health`、HTTP Header/空闲边界和 context graceful shutdown；进程复用 migration/VerifySchema 与 ConfigService，但不初始化 JWT、Bot、cron 或默认管理员。
 - 新增不持有 Token/HMAC/runtime ServerId 的 `ControlPlaneRevoker`；设备按用户/设备跨历史 Server 撤销，用户按主体全部撤销，恢复路径同样清理遗留活动映射。
@@ -185,7 +187,7 @@ Infuse / Emby Client
           |
           v
 ember-gateway (`ember gateway`)
-  |-- 登录、媒体信息、图片、字幕、播放事件 --> Emby 4.9.3.0
+  |-- 登录、媒体信息、图片、字幕、播放事件 --> Emby 4.9.x
   |
   `-- 原始视频流请求
        |-- 身份/硬状态失败 ----------------------> reject
@@ -393,7 +395,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 #### 6.2 Emby 登录与 Token 映射
 
 1. 客户端通过网关调用 `AuthenticateByName`。
-2. 网关转发给 Emby 4.9.3.0。
+2. 网关转发给支持范围内的 Emby 4.9 Server。
 3. 成功后读取 `User.Id`、`AccessToken` 和 `ServerId`。
 4. 按 `users.emby_id` 映射唯一 Ember 用户，使用 purpose 隔离的 HMAC-SHA256 计算摘要，并按 `serverId + tokenHash` upsert 设备元数据和最近访问时间。
 5. 用户不存在、EmbyID 错配或处于硬禁用状态时不建立可用映射；用户仅到期时可以保留身份映射，但后续直连动态拒绝，续期后无需因到期本身强制重登。
@@ -501,7 +503,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 ### 阶段 0：合同与离线 PoC
 
-- 固定 Emby 4.9.3.0、Cookie Provider 和 OpenAPI Provider 三份合同。
+- 固定 Emby 4.9 协议基线与运行兼容范围、Cookie Provider 和 OpenAPI Provider 三份合同。
 - 从固定 `p115client`/`p115cipher` 提取无敏感信息 fixture 和加密向量。
 - 建立 fake Emby、fake 115、状态映射和直链兼容测试。
 - 在用户明确授权后，以一次性命令验证一个源账号、一个播放小号和测试文件。
@@ -512,7 +514,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 ### 阶段 1：最小闭环
 
-- 一个 Emby 4.9.3.0 Server。
+- 一个满足 `>= 4.9.0.0 && < 4.10.0.0` 的 Emby Server。
 - 一个管理员源账号和一个管理员播放小号，手工录入 Cookie。
 - 一种明确路径映射。
 - 目标平台当前稳定版 Infuse Direct Play。
@@ -649,7 +651,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，新 Gateway 包和既有 PostgreSQL 集成测试实际执行并通过；`go vet ./...` 与 `go build ./...` 通过。
 - 自动化没有创建真实 Listener，也没有请求真实 Emby/115 或执行 Infuse 验收；固定 SDK 的 public bootstrap 与应用头合同已确认并由 fake 锁定，目标 Server 版本和 Infuse 实际请求顺序仍保持未证实。
 - `ServerIdentityVerifier` 与 production runtime fake 测试覆盖精确版本/ServerId、Header 与响应边界、配置缺失、`/health`、无真实 Listener 的 graceful shutdown 和监听错误脱敏；`go build ./cmd/playback-gateway` 通过，但没有运行生成的二进制。
-- 统一入口测试覆盖无参数默认 API、显式 `api/gateway`、help、未知/额外参数、日志初始化和进程失败脱敏；`go build ./cmd/ember` 与兼容入口构建通过，Compose 已确认两个服务复用同一镜像 Tag。当前机器 Docker daemon 未运行，因此镜像实构建仍需在可用 daemon/CI 中补证。
+- 统一入口测试覆盖无参数默认 API、显式 `api/gateway`、help、未知/额外参数、日志初始化和进程失败脱敏；`go build ./cmd/ember` 与兼容入口构建通过，Compose 已确认两个服务复用同一镜像 Tag。2026-08-23 `pre_release` 的 API GitHub Actions 已实际构建并推送单二进制预览镜像。
 - 控制面撤销单元/PostgreSQL/Gin 集成测试覆盖设备跨 Server 但不跨用户、手工与黑名单本地优先、toggle/admin edit/恢复、Emby 访问禁用、绑定前清理、解绑、删除审计保留和过期 cron 失败关闭；所有 Emby 副作用使用 fake。
 
 测试分层：

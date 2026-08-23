@@ -4,6 +4,8 @@
 
 OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [115 OpenAPI 直连、查重与秒传合同](./p115-direct-play-contract.md)。
 
+从管理员配置到 Gateway/Emby/115 CDN 的整体调用关系、状态流转和当前缺口，见 [115 Cookie 直连播放端到端流程参考](./p115-playback-end-to-end-flow.md)。
+
 ## 1. 状态与证据等级
 
 当前选择 Cookie Provider 的唯一原因是 Ember 尚未取得 115 OpenAPI AppID。它是可替换的首期兼容实现，不是长期绑定的基础设施。

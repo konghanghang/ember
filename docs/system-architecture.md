@@ -15,6 +15,7 @@
 
 - 全量配置与环境变量字典：看 [docs/reference/configuration-reference.md](./reference/configuration-reference.md)
 - 详细部署与排障步骤：看 [docs/runbooks/deployment.md](./runbooks/deployment.md)、[docs/runbooks/deployment-environment.md](./runbooks/deployment-environment.md)、[docs/runbooks/deployment-troubleshooting.md](./runbooks/deployment-troubleshooting.md)
+- 115 Cookie 账号到 Infuse/Emby/115 CDN 的完整链路图：看 [docs/reference/p115-playback-end-to-end-flow.md](./reference/p115-playback-end-to-end-flow.md)
 
 当前主文档中的大块枚举型内容已迁移到 `docs/reference/`；后续以目录入口收尾、引用校正和归档准备为主。
 
@@ -724,7 +725,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 仍待真实验证，删除没有生产业务调用方：
+当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 仍待真实验证，删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -776,7 +777,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 当前完成的是 Playback Gateway 的身份核心，不注册 HTTP 路由，也不代理或请求 Emby：
 
-- `RecordAuthenticationResult` 只接受已由调用方确认成功的 Emby 4.9.3.0 `ServerId/User.Id/AccessToken` 和设备元数据；先核对固定 ServerId，再按唯一 `users.emby_id` 绑定 Ember 用户
+- `RecordAuthenticationResult` 只接受已由调用方确认成功的兼容 Emby 4.9 `ServerId/User.Id/AccessToken` 和设备元数据；先核对固定 ServerId，再按唯一 `users.emby_id` 绑定 Ember 用户
 - AccessToken 使用从 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生的 HMAC-SHA256 密钥计算 32 字节摘要；明文和摘要均不出现在 Service 返回值、JSON 或日志
 - `server_id + token_hash` 唯一索引、冲突忽略和行锁共同保证并发 upsert；活动摘要不能换绑身份，已撤销的同一身份只有新的成功认证能重新激活
 - `ResolvePrincipal` 每次重新读取用户，动态检查停用、Emby 禁用、Emby 访问禁用、解绑和到期；`lastSeenAt` 至少按 5 分钟窗口限频更新
@@ -796,7 +797,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 
 - 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
-- `GET /emby/System/Info` 使用设置中心的 `EMBY_URL/EMBY_API_KEY`，只接受无重定向 `200 application/json` 和不超过 `256 KiB` 的响应；要求非空 `Id`、精确 `Version=4.9.3.0` 和有界 `ServerName`，失败时不会产生监听器
+- `GET /emby/System/Info` 使用设置中心的 `EMBY_URL/EMBY_API_KEY`，只接受无重定向 `200 application/json` 和不超过 `256 KiB` 的响应；要求非空 `Id`、四段数字 `Version` 满足 `>= 4.9.0.0 && < 4.10.0.0`，并要求有界 `ServerName`，失败时不会产生监听器；`4.9.3.0` 是协议证据基线，不是唯一运行版本
 - 核对得到的 `Id` 是本进程唯一 `expectedServerID`；API Key、URL 和响应体不进入错误或日志
 - 部署期要求 `DATABASE_URL`、至少 32 字符的 `CONFIG_ENCRYPTION_KEY` 和显式 `PLAYBACK_GATEWAY_LISTEN_ADDR`；Emby URL/API Key 继续由现有 ConfigService 管理，不建立第二套环境变量真相源
 - 独立 `GET /health` 在完整构造后返回固定 JSON，不查询数据库或 Emby、不经过 Token 门控；HTTP Server 设置 5 秒 `ReadHeaderTimeout`、60 秒 `IdleTimeout`、1 MiB Header 上限和 10 秒 graceful shutdown
@@ -979,7 +980,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同和数据库互斥编排已完成，播放网关与 Infuse 验收尚未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；两者根密钥均为 `CONFIG_ENCRYPTION_KEY` |
+| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同、数据库互斥编排和 Gateway 代码已完成，Infuse/部署网络验收尚未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；完整链路见 `p115-playback-end-to-end-flow.md` |
 
 ---
 

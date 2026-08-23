@@ -23,11 +23,12 @@ const (
 	fixtureRuntimeEncryptionKey = "fixture-runtime-encryption-key-32-bytes"
 	fixtureRuntimeAPIKey        = "fixture-runtime-emby-api-key"
 	fixtureRuntimeListenAddress = "127.0.0.1:18096"
+	fixtureRuntimeEmbyVersion   = "4.9.3.0"
 )
 
 func TestNewProductionRuntimeVerifiesIdentityAndBuildsHandlers(t *testing.T) {
 	var identityCalls atomic.Int32
-	upstream := newRuntimeIdentityServer(t, &identityCalls, supportedEmbyVersion)
+	upstream := newRuntimeIdentityServer(t, &identityCalls, fixtureRuntimeEmbyVersion)
 	defer upstream.Close()
 
 	var logs bytes.Buffer
@@ -44,7 +45,7 @@ func TestNewProductionRuntimeVerifiesIdentityAndBuildsHandlers(t *testing.T) {
 		t.Fatalf("identity calls = %d, want 1", identityCalls.Load())
 	}
 	identity := runtime.ServerIdentity()
-	if identity.ID != "server-1" || identity.Version != supportedEmbyVersion || identity.ServerName != "Fixture" {
+	if identity.ID != "server-1" || identity.Version != fixtureRuntimeEmbyVersion || identity.ServerName != "Fixture" {
 		t.Fatalf("ServerIdentity() = %+v", identity)
 	}
 	if runtime.ListenAddress() != fixtureRuntimeListenAddress {
@@ -105,29 +106,76 @@ func TestNewProductionRuntimeRejectsMissingConfigurationBeforeIdentityRequest(t 
 	}
 }
 
-func TestNewProductionRuntimeRejectsUnsupportedEmbyVersion(t *testing.T) {
-	var identityCalls atomic.Int32
-	upstream := newRuntimeIdentityServer(t, &identityCalls, "4.9.2.0")
-	defer upstream.Close()
+func TestSupportedEmbyVersionRange(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{version: "4.9.0.0", want: true},
+		{version: "4.9.0.70", want: true},
+		{version: "4.9.3.0", want: true},
+		{version: "4.9.999.999", want: true},
+		{version: "4.8.99.99"},
+		{version: "4.10.0.0"},
+		{version: "5.0.0.0"},
+		{version: "4.9.3"},
+		{version: "4.9.3.0-Beta"},
+		{version: "04.9.3.0"},
+		{version: "4.9.3.0.1"},
+		{version: "4.9.-1.0"},
+		{version: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.version, func(t *testing.T) {
+			if got := isSupportedEmbyVersion(test.version); got != test.want {
+				t.Fatalf("isSupportedEmbyVersion(%q) = %t, want %t", test.version, got, test.want)
+			}
+		})
+	}
+}
 
-	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
-		Database:          &gorm.DB{},
-		Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
-		Logger:            log.New(io.Discard, "", 0),
-		DirectPlayService: &fakeDirectPlayService{},
-	})
-	if runtime != nil || !errors.Is(err, ErrUnsupportedEmbyVersion) {
-		t.Fatalf("NewProductionRuntime() = (%v, %v), want nil, %v", runtime, err, ErrUnsupportedEmbyVersion)
+func TestNewProductionRuntimeAppliesEmbyVersionRange(t *testing.T) {
+	tests := []struct {
+		version string
+		wantErr error
+	}{
+		{version: "4.9.0.0"},
+		{version: "4.9.5.0"},
+		{version: "4.8.11.0", wantErr: ErrUnsupportedEmbyVersion},
+		{version: "4.10.0.0", wantErr: ErrUnsupportedEmbyVersion},
+		{version: "4.9.5.0-Beta", wantErr: ErrUnsupportedEmbyVersion},
 	}
-	if identityCalls.Load() != 1 {
-		t.Fatalf("identity calls = %d, want 1", identityCalls.Load())
+	for _, test := range tests {
+		t.Run(test.version, func(t *testing.T) {
+			var identityCalls atomic.Int32
+			upstream := newRuntimeIdentityServer(t, &identityCalls, test.version)
+			defer upstream.Close()
+			runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
+				Database:          &gorm.DB{},
+				Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
+				Logger:            log.New(io.Discard, "", 0),
+				DirectPlayService: &fakeDirectPlayService{},
+			})
+			if test.wantErr == nil {
+				if err != nil || runtime == nil || runtime.ServerIdentity().Version != test.version {
+					t.Fatalf("NewProductionRuntime() = (%v, %v), want supported", runtime, err)
+				}
+			} else if runtime != nil || !errors.Is(err, test.wantErr) {
+				t.Fatalf("NewProductionRuntime() = (%v, %v), want nil, %v", runtime, err, test.wantErr)
+			}
+			if identityCalls.Load() != 1 {
+				t.Fatalf("identity calls = %d, want 1", identityCalls.Load())
+			}
+			if err != nil {
+				assertRuntimeSecretsAbsent(t, err.Error(), fixtureRuntimeAPIKey, upstream.URL)
+			}
+		})
 	}
-	assertRuntimeSecretsAbsent(t, err.Error(), fixtureRuntimeAPIKey, upstream.URL)
 }
 
 func TestRuntimeRunUsesGracefulShutdownWithoutRealListener(t *testing.T) {
 	var identityCalls atomic.Int32
-	upstream := newRuntimeIdentityServer(t, &identityCalls, supportedEmbyVersion)
+	upstream := newRuntimeIdentityServer(t, &identityCalls, fixtureRuntimeEmbyVersion)
 	defer upstream.Close()
 	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
 		Database:          &gorm.DB{},
@@ -170,7 +218,7 @@ func TestRuntimeRunUsesGracefulShutdownWithoutRealListener(t *testing.T) {
 
 func TestRuntimeRunSanitizesListenFailure(t *testing.T) {
 	var identityCalls atomic.Int32
-	upstream := newRuntimeIdentityServer(t, &identityCalls, supportedEmbyVersion)
+	upstream := newRuntimeIdentityServer(t, &identityCalls, fixtureRuntimeEmbyVersion)
 	defer upstream.Close()
 	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
 		Database:          &gorm.DB{},

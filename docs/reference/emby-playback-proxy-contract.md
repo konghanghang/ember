@@ -1,26 +1,30 @@
-# Emby 4.9.3.0 播放代理 API 合同
+# Emby 4.9 系列播放代理 API 合同
 
-本文档记录 Ember 播放网关依赖的 Emby 原生认证、播放信息、原始视频流、字幕和播放会话接口。目标是为后续 115 直连播放提供固定版本证据，禁止根据客户端表现或其他 Emby 版本经验猜测协议。
+本文档记录 Ember 播放网关依赖的 Emby 原生认证、播放信息、原始视频流、字幕和播放会话接口。目标是为后续 115 直连播放提供版本化证据，禁止根据客户端表现或其他 Emby 版本经验猜测协议。
 
 ## 1. 适用范围与证据等级
 
-当前兼容基线：
+当前协议基线与运行兼容范围：
 
-| 组件 | 已确认版本 | 证据 | 结论 |
+| 组件 | 版本 | 证据 | 结论 |
 | --- | --- | --- | --- |
-| Emby Server / SDK | `4.9.3.0 Release` | Emby.SDK 提交 `6ee0155063bc85578196489926359a8f37419502` | 本文列出的 method、path 和 DTO 字段按该提交确认 |
-| 目标 Emby Server | 未确认 | 尚未调用目标实例 `GET /emby/System/Info` | 不能断言目标实例与本文基线完全一致 |
+| 协议证据基线 | `4.9.3.0 Release` | Emby.SDK 提交 `6ee0155063bc85578196489926359a8f37419502` | 本文列出的 method、path 和 DTO 字段以该提交为主要出处 |
+| Gateway 运行兼容范围 | `>= 4.9.0.0 && < 4.10.0.0` | 官方 `4.9.0.70` 至 `4.9.5.0` 的 9 个稳定 SDK Tag 对当前使用的 12 个 path 及核心 DTO 做过语义比对 | 四段数字版本落在该半开区间即可启动；`4.9.3.0` 不是唯一允许版本 |
+| 目标 Emby Server | 未确认 | 尚未调用目标实例 `GET /emby/System/Info` | 不能断言目标实例已落在支持范围或运行行为已通过实机验证 |
 | Infuse 客户端行为 | 未确认 | 尚未对目标版本 Infuse 做合同夹具或真实只读验证 | 不能断言所有请求顺序、重定向和 Header 行为已经覆盖 |
 
 证据等级：
 
 - **固定版本源码确认**：由 Emby `4.9.3.0` SDK OpenAPI 直接证明。
+- **4.9 系列兼容确认**：官方 9 个稳定 `4.9` SDK Tag 中，Gateway 当前依赖的 12 个 path 以及 `SystemInfo`、`AuthenticationResult`、`UserDto`、`PlaybackInfoResponse`、`MediaSourceInfo` 核心字段保持一致。
 - **HTTP 传输要求**：由 HTTP 标准和反向代理边界决定，但仍需客户端合同测试锁定。
 - **未实机确认**：OpenAPI 允许该用法，但尚未在目标 Emby 与 Infuse 组合上验证。
 
 固定版本证据：
 
 - [Emby.SDK 4.9.3.0 OpenAPI](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json)
+- [Emby.SDK 4.9.5.0 OpenAPI](https://github.com/MediaBrowser/Emby.SDK/blob/4.9.5.0/Resources/OpenApi/openapi_v3.json)
+- [Emby.SDK 官方 Tags](https://github.com/MediaBrowser/Emby.SDK/tags)
 - [Emby.SDK 4.9.3.0 User Authentication](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/doc/restapi/User-Authentication.html)
 - [Emby.SDK 4.9.3.0 Password Authenticator](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/SampleCode/RestApi/Emby.ApiClient/Emby.ApiClient/Client/Authentication/EmbyPasswordAuthenticator.cs)
 - [Emby.SDK 4.9.3.0 SystemInfoPublic](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/reference/RestAPI/SystemService/getSystemInfoPublic.html)
@@ -50,7 +54,7 @@ Emby 客户端
 
 ### 2.1 启动期上游身份核对
 
-固定 `4.9.3.0` OpenAPI 声明：
+协议基线 `4.9.3.0` OpenAPI 声明：
 
 ```http
 GET /emby/System/Info
@@ -62,16 +66,16 @@ X-Emby-Token: <admin-api-key>
 | 字段 | 类型 | 用途 |
 | --- | --- | --- |
 | `Id` | `string` | 固定当前上游 ServerId，并传给 `EmbyTokenService` |
-| `Version` | `string` | 必须精确等于当前兼容基线 `4.9.3.0` |
+| `Version` | `string` | 必须是四段数字版本，且满足 `>= 4.9.0.0 && < 4.10.0.0` |
 | `ServerName` | `string` | 可选的脱敏启动诊断，不参与身份判断 |
 
 运行要求：
 
 - Gateway 只能在身份核对成功后进入监听状态；不能使用第一次任意登录响应静默定义 ServerId。
-- `Id` 必须非空且满足长度/控制字符边界，`Version` 必须精确匹配；`ServerName` 可空但必须有界。
+- `Id` 必须非空且满足长度/控制字符边界；`Version` 必须精确由四段无符号十进制数组成并落在 `[4.9.0.0, 4.10.0.0)`，前导零、后缀、空白、缺段或多段全部拒绝；`ServerName` 可空但必须有界。
 - 上游重定向、非 `200`、非 JSON、响应超过 `256 KiB`、字段缺失、版本不符、超时或取消全部失败关闭。
 - API Key 只存在于请求 Header，禁止进入错误、日志、响应、指标或持久化；上游 URL 和完整响应体同样不得进入错误或日志。
-- 自动化只使用 fake Emby；目标实例完成显式只读验证前，仍不能宣称其版本与 ServerId 已确认。
+- 自动化只使用 fake Emby；目标实例完成显式只读验证前，仍不能宣称其版本、ServerId 和运行行为已确认。
 
 ## 3. 用户认证合同
 
@@ -167,7 +171,7 @@ Ember 本地撤销固定三种粒度：
 
 - 到期、套餐不允许、并发已满和设备策略拒绝属于动态资格失败，不写 `revokedAt`；续期或策略恢复后原映射可以再次通过。
 - 用户停用、`emby_disabled=true`、`emby_access_disabled=true`、解绑或删除属于硬撤销；普通状态恢复不能静默清除历史撤销，重新通过 `AuthenticateByName` 才能建立或重新激活映射。
-- “本地撤销”只保证 Ember Playback Gateway 拒绝该映射，不等于 Emby Server 已撤销原始 Token。Emby 4.9.3.0 原生会话/Token 撤销接口尚未完成版本化核对，因此当前必须标记“未证实”。
+- “本地撤销”只保证 Ember Playback Gateway 拒绝该映射，不等于 Emby Server 已撤销原始 Token。兼容范围内 Emby 4.9 的原生会话/Token 撤销接口尚未完成版本化核对，因此当前必须标记“未证实”。
 
 控制面联动边界：
 
@@ -454,6 +458,6 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - Infuse 对 `302`、`HEAD`、`Range`、UA 和文件名的处理。
 - 客户端是否始终携带 `PlaySessionId`、`MediaSourceId` 和设备标识。
 - Direct Play、Direct Stream 与 Transcode 三种情况下的实际请求差异。
-- 目标 Emby 4.9.3.0 是否提供可安全调用的单 Token、单设备或会话撤销接口；确认前只能宣称 Ember 网关本地撤销。
+- 目标 Emby 4.9 实例是否提供可安全调用的单 Token、单设备或会话撤销接口；确认前只能宣称 Ember 网关本地撤销。
 
 以上未确认项不能作为实现完成的依据。

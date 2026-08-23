@@ -50,7 +50,7 @@ type Config struct {
 }
 
 // Gateway validates mapped tokens before proxying protected requests and
-// observes successful Emby 4.9.3.0 username/password authentication responses
+// observes successful Emby 4.9 username/password authentication responses
 // without changing the upstream response.
 type Gateway struct {
 	proxy                          *httputil.ReverseProxy
@@ -391,7 +391,7 @@ func routeContextFromRequest(request *http.Request) (requestRouteContext, bool) 
 	return value, ok
 }
 
-// validAuthenticationResult checks only fields fixed by the 4.9.3.0 contract;
+// validAuthenticationResult checks only fields fixed by the Emby 4.9 contract;
 // detailed bounds and identity rules remain owned by EmbyTokenService.
 func validAuthenticationResult(result authenticationResult) bool {
 	return strings.TrimSpace(result.User.ID) != "" && result.AccessToken != "" && strings.TrimSpace(result.ServerID) != ""

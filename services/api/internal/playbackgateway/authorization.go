@@ -20,7 +20,7 @@ const (
 )
 
 // extractApplicationMetadata accepts exactly one of the two header names
-// fixed by Emby SDK 4.9.3.0 and returns only non-authoritative audit metadata.
+// fixed by the Emby 4.9 contract and returns only non-authoritative audit metadata.
 func extractApplicationMetadata(header http.Header) (AuthenticationMetadata, bool) {
 	rawValue, ok := singleApplicationAuthorization(header)
 	if !ok {

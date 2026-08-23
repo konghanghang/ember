@@ -22,12 +22,13 @@ import (
 )
 
 const (
-	supportedEmbyVersion       = "4.9.3.0"
-	runtimeReadHeaderTimeout   = 5 * time.Second
-	runtimeIdleTimeout         = 60 * time.Second
-	runtimeShutdownTimeout     = 10 * time.Second
-	runtimeMaxHeaderBytes      = 1 << 20
-	minimumEncryptionKeyLength = 32
+	minimumSupportedEmbyVersion          = "4.9.0.0"
+	exclusiveMaximumSupportedEmbyVersion = "4.10.0.0"
+	runtimeReadHeaderTimeout             = 5 * time.Second
+	runtimeIdleTimeout                   = 60 * time.Second
+	runtimeShutdownTimeout               = 10 * time.Second
+	runtimeMaxHeaderBytes                = 1 << 20
+	minimumEncryptionKeyLength           = 32
 )
 
 var (
@@ -79,7 +80,7 @@ type Runtime struct {
 }
 
 // NewProductionRuntime loads deployment and ConfigService values, verifies the
-// fixed Emby identity, then composes EmbyTokenService and the gateway handler.
+// compatible Emby identity, then composes EmbyTokenService and the gateway handler.
 func NewProductionRuntime(
 	ctx context.Context,
 	getenv func(string) string,
@@ -100,7 +101,7 @@ func NewProductionRuntime(
 	if err != nil {
 		return nil, ErrUpstreamIdentity
 	}
-	if identity.Version != supportedEmbyVersion {
+	if !isSupportedEmbyVersion(identity.Version) {
 		return nil, ErrUnsupportedEmbyVersion
 	}
 	tokenService, err := embytoken.NewService(dependencies.Database, config.encryptionKey, identity.ID)
@@ -148,6 +149,52 @@ func NewProductionRuntime(
 		logger:          logger,
 		shutdownTimeout: runtimeShutdownTimeout,
 	}, nil
+}
+
+type embyVersion [4]uint32
+
+// isSupportedEmbyVersion accepts canonical four-part numeric versions in the
+// configured half-open compatibility interval [4.9.0.0, 4.10.0.0).
+func isSupportedEmbyVersion(value string) bool {
+	version, ok := parseEmbyVersion(value)
+	if !ok {
+		return false
+	}
+	minimum, minimumOK := parseEmbyVersion(minimumSupportedEmbyVersion)
+	maximum, maximumOK := parseEmbyVersion(exclusiveMaximumSupportedEmbyVersion)
+	return minimumOK && maximumOK && compareEmbyVersion(version, minimum) >= 0 && compareEmbyVersion(version, maximum) < 0
+}
+
+// parseEmbyVersion accepts exactly four canonical unsigned decimal components;
+// suffixes, whitespace, signs and leading-zero variants are rejected.
+func parseEmbyVersion(value string) (embyVersion, bool) {
+	parts := strings.Split(value, ".")
+	if len(parts) != len(embyVersion{}) {
+		return embyVersion{}, false
+	}
+	var version embyVersion
+	for index, part := range parts {
+		parsed, err := strconv.ParseUint(part, 10, 32)
+		if err != nil || strconv.FormatUint(parsed, 10) != part {
+			return embyVersion{}, false
+		}
+		version[index] = uint32(parsed)
+	}
+	return version, true
+}
+
+// compareEmbyVersion performs lexicographic comparison on four numeric version
+// components and returns -1, 0 or 1.
+func compareEmbyVersion(left, right embyVersion) int {
+	for index := range left {
+		switch {
+		case left[index] < right[index]:
+			return -1
+		case left[index] > right[index]:
+			return 1
+		}
+	}
+	return 0
 }
 
 // newProductionDirectPlayService composes the existing encrypted 115 account
