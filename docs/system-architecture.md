@@ -796,6 +796,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 
 - 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
+- Gateway runtime 初始化或运行失败时先记录固定 `stage + reasonCode + errorType`，区分数据库 DSN、加密密钥、Emby URL/API Key、上游身份、版本、依赖、监听、Serve 和 shutdown；禁止输出原始错误文本、URL、DSN、API Key 或响应体
 - `GET /emby/System/Info` 使用设置中心的 `EMBY_URL/EMBY_API_KEY`，只接受无重定向 `200 application/json` 和不超过 `256 KiB` 的响应；要求非空 `Id`、四段数字 `Version` 满足 `>= 4.9.0.0 && < 4.10.0.0`，并要求有界 `ServerName`，失败时不会产生监听器；`4.9.3.0` 是协议证据基线，不是唯一运行版本
 - 核对得到的 `Id` 是本进程唯一 `expectedServerID`；API Key、URL 和响应体不进入错误或日志
 - 部署期要求 `DATABASE_URL` 和非空、无首尾空白/换行的 `CONFIG_ENCRYPTION_KEY`；已有短密钥保持兼容且禁止直接更换，新部署推荐随机至少 32 字节。Gateway 固定监听 `:8081`，API 固定使用默认端口 `8080`，宿主机回环映射只由 Compose 的 `PLAYBACK_GATEWAY_PORT` 控制；Emby URL/API Key 继续由现有 ConfigService 管理，不建立第二套环境变量真相源

@@ -3,6 +3,7 @@ package playbackgateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -32,13 +33,17 @@ const (
 )
 
 var (
-	ErrRuntimeConfig          = errors.New("playback gateway runtime configuration invalid")
-	ErrRuntimeDependency      = errors.New("playback gateway runtime dependency missing")
-	ErrUpstreamIdentity       = errors.New("playback gateway upstream identity failed")
-	ErrUnsupportedEmbyVersion = errors.New("playback gateway upstream version unsupported")
-	ErrRuntimeListen          = errors.New("playback gateway listen failed")
-	ErrRuntimeServe           = errors.New("playback gateway serve failed")
-	ErrRuntimeShutdown        = errors.New("playback gateway shutdown failed")
+	ErrRuntimeConfig                = errors.New("playback gateway runtime configuration invalid")
+	ErrRuntimeDependency            = errors.New("playback gateway runtime dependency missing")
+	ErrUpstreamIdentity             = errors.New("playback gateway upstream identity failed")
+	ErrUnsupportedEmbyVersion       = errors.New("playback gateway upstream version unsupported")
+	ErrRuntimeListen                = errors.New("playback gateway listen failed")
+	ErrRuntimeServe                 = errors.New("playback gateway serve failed")
+	ErrRuntimeShutdown              = errors.New("playback gateway shutdown failed")
+	ErrRuntimeDatabaseURLInvalid    = fmt.Errorf("%w: database URL invalid", ErrRuntimeConfig)
+	ErrRuntimeEncryptionKeyInvalid  = fmt.Errorf("%w: encryption key invalid", ErrRuntimeConfig)
+	ErrRuntimeEmbyURLUnavailable    = fmt.Errorf("%w: Emby URL unavailable", ErrRuntimeConfig)
+	ErrRuntimeEmbyAPIKeyUnavailable = fmt.Errorf("%w: Emby API key unavailable", ErrRuntimeConfig)
 )
 
 // RuntimeSettings resolves the two Emby settings already owned by
@@ -281,9 +286,17 @@ func loadProductionConfig(getenv func(string) string, settings RuntimeSettings) 
 		embyURL:       settings.GetString("EMBY_URL"),
 		embyAPIKey:    settings.GetString("EMBY_API_KEY"),
 	}
-	if !validExactNonEmpty(databaseURL) || !validExactNonEmpty(config.encryptionKey) ||
-		!validExactNonEmpty(config.embyURL) || !validExactNonEmpty(config.embyAPIKey) {
-		return productionConfig{}, ErrRuntimeConfig
+	if !validExactNonEmpty(databaseURL) {
+		return productionConfig{}, ErrRuntimeDatabaseURLInvalid
+	}
+	if !validExactNonEmpty(config.encryptionKey) {
+		return productionConfig{}, ErrRuntimeEncryptionKeyInvalid
+	}
+	if !validExactNonEmpty(config.embyURL) {
+		return productionConfig{}, ErrRuntimeEmbyURLUnavailable
+	}
+	if !validExactNonEmpty(config.embyAPIKey) {
+		return productionConfig{}, ErrRuntimeEmbyAPIKeyUnavailable
 	}
 	return config, nil
 }

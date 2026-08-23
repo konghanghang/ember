@@ -79,11 +79,11 @@ func TestNewProductionRuntimeRejectsMissingConfigurationBeforeIdentityRequest(t 
 		database *gorm.DB
 		wantErr  error
 	}{
-		{name: "missing database URL", env: map[string]string{"DATABASE_URL": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
-		{name: "missing encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
-		{name: "padded encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": " legacy-key "}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
-		{name: "missing Emby URL", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_API_KEY": fixtureRuntimeAPIKey}, database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
-		{name: "missing Emby API key", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_URL": "http://emby.invalid"}, database: &gorm.DB{}, wantErr: ErrRuntimeConfig},
+		{name: "missing database URL", env: map[string]string{"DATABASE_URL": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeDatabaseURLInvalid},
+		{name: "missing encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": ""}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeEncryptionKeyInvalid},
+		{name: "padded encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": " legacy-key "}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeEncryptionKeyInvalid},
+		{name: "missing Emby URL", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_API_KEY": fixtureRuntimeAPIKey}, database: &gorm.DB{}, wantErr: ErrRuntimeEmbyURLUnavailable},
+		{name: "missing Emby API key", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_URL": "http://emby.invalid"}, database: &gorm.DB{}, wantErr: ErrRuntimeEmbyAPIKeyUnavailable},
 		{name: "missing database dependency", env: runtimeEnvironmentMap(), settings: validRuntimeSettings(), wantErr: ErrRuntimeDependency},
 		{name: "missing settings dependency", env: runtimeEnvironmentMap(), database: &gorm.DB{}, wantErr: ErrRuntimeDependency},
 	}

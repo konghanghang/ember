@@ -79,6 +79,28 @@ curl http://localhost:8081/health
 
 新环境尚未配置 Emby 时 Gateway fail-fast/restart 是预期；先通过 Web/API 完成设置，不要通过放宽身份核对让进程假启动。
 
+Gateway 在通用 `ember: command=gateway code=process_failed` 之前会打印一条脱敏原因日志：
+
+```text
+[PlaybackGateway] code=process_failed stage=<runtime_init|runtime_run> reasonCode=<fixed-code> errorType=<type>
+```
+
+常见 `reasonCode`：
+
+| reasonCode | 含义 |
+| --- | --- |
+| `database_url_invalid` | `DATABASE_URL` 缺失、带首尾空白或换行 |
+| `encryption_key_invalid` | `CONFIG_ENCRYPTION_KEY` 缺失、带首尾空白或换行 |
+| `emby_url_unavailable` | 设置中心没有可用的 `EMBY_URL` |
+| `emby_api_key_unavailable` | 设置中心没有可用的 `EMBY_API_KEY`，或现有密文无法用当前根密钥解密 |
+| `upstream_identity_failed` | 无法从原始 Emby 取得合法 ServerIdentity；检查网络、API Key、HTTP 状态和响应合同 |
+| `upstream_version_unsupported` | Emby 版本不在 Gateway 支持范围 |
+| `runtime_dependency_missing` | Token/DirectPlay 等运行依赖构造失败 |
+| `listen_failed` | 固定监听端口 `8081` 不可用，通常是端口已被占用 |
+| `serve_failed` / `shutdown_failed` | HTTP Serve 或 graceful shutdown 失败 |
+
+日志不会输出原始错误文本、数据库 DSN、Emby URL、API Key 或响应体；不要为了排障把这些值手工打印出来。
+
 ### 5. Web 能打开，但页面请求 API 失败
 
 检查：

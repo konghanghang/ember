@@ -2,6 +2,7 @@ package playbackgateway
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 
@@ -34,7 +35,57 @@ func RunProcess(ctx context.Context) error {
 		Logger:   log.Default(),
 	})
 	if err != nil {
+		logRuntimeProcessFailure(log.Default(), "runtime_init", err)
 		return err
 	}
-	return runtime.Run(ctx)
+	if err := runtime.Run(ctx); err != nil {
+		logRuntimeProcessFailure(log.Default(), "runtime_run", err)
+		return err
+	}
+	return nil
+}
+
+// runtimeFailureReasonCode maps every public runtime sentinel to a stable,
+// credential-free code suitable for production logs.
+func runtimeFailureReasonCode(err error) string {
+	switch {
+	case errors.Is(err, ErrRuntimeDatabaseURLInvalid):
+		return "database_url_invalid"
+	case errors.Is(err, ErrRuntimeEncryptionKeyInvalid):
+		return "encryption_key_invalid"
+	case errors.Is(err, ErrRuntimeEmbyURLUnavailable):
+		return "emby_url_unavailable"
+	case errors.Is(err, ErrRuntimeEmbyAPIKeyUnavailable):
+		return "emby_api_key_unavailable"
+	case errors.Is(err, ErrRuntimeConfig):
+		return "runtime_config_invalid"
+	case errors.Is(err, ErrUpstreamIdentity):
+		return "upstream_identity_failed"
+	case errors.Is(err, ErrUnsupportedEmbyVersion):
+		return "upstream_version_unsupported"
+	case errors.Is(err, ErrRuntimeDependency):
+		return "runtime_dependency_missing"
+	case errors.Is(err, ErrRuntimeListen):
+		return "listen_failed"
+	case errors.Is(err, ErrRuntimeServe):
+		return "serve_failed"
+	case errors.Is(err, ErrRuntimeShutdown):
+		return "shutdown_failed"
+	default:
+		return "unknown"
+	}
+}
+
+// logRuntimeProcessFailure records only fixed stage/reason metadata and the Go
+// error type; the original error text may contain URLs or provider details.
+func logRuntimeProcessFailure(logger *log.Logger, stage string, err error) {
+	if logger == nil {
+		logger = log.Default()
+	}
+	logger.Printf(
+		"[PlaybackGateway] code=process_failed stage=%s reasonCode=%s errorType=%T",
+		stage,
+		runtimeFailureReasonCode(err),
+		err,
+	)
 }
