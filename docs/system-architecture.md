@@ -809,13 +809,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 认证与除 SystemInfoPublic 外的 bootstrap 请求必须先通过应用头：固定 SDK 的 `Emby` scheme 可用于 `Authorization` 或 `X-Emby-Authorization`，目标 Infuse `8.5` 实测的 `MediaBrowser` 只允许用于 `X-Emby-Authorization`。两个 Header 同时出现、重复值、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空内嵌 Token、非法 quoted-string、其他 Header/scheme 组合或越界值返回空体 `401`
 - 认证请求透明转发；上游 `200` 响应最多旁路检查 `1 MiB`，只读取 `User.Id/AccessToken/ServerId`，恢复原始字节、状态和普通 Header 后再返回客户端，未知 JSON 字段不重编码
 - 目标 Emby/Infuse 实测认证响应使用 `Content-Encoding: deflate`；Gateway 原样返回响应字节，只对有界旁路副本按 `identity/gzip/deflate` 白名单解码，其中 deflate 兼容 zlib-wrapped/raw DEFLATE。解码失败、未知编码或解码后超过 `1 MiB` 不改写响应且不建立 Token 映射，只记录固定脱敏原因码；gzip 为 fake 合同测试覆盖的兼容能力，不表述为目标环境实测行为
-- 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；日志只记录固定 code 和错误类型，不记录密码、AccessToken、URL 或响应体
+- 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；错误日志只记录固定 code 和错误类型，不记录密码、AccessToken、上游 URL 或响应体
 - 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求必须携带唯一 `X-Emby-Token` 并先通过 `ResolvePrincipal`；缺失、重复、未映射、已撤销或身份错配返回空体 `401`，用户不可用或到期返回空体 `403`，身份存储故障返回空体 `503`，请求不会到达 Emby
+- 每个经过 Gateway Handler 的请求收尾统一记录 `code=request_completed`：包含有界 method/Host/原始 path、query key 名称/数量、route/pathMode、statusCode、success/failure、耗时，以及 `X-Emby-Token`、`X-Emby-Authorization`、`Authorization` 的数量和固定 scheme/Token presence、`api_key` query presence、已知 User-Agent family/version；禁止记录 query value、Header 原值、Cookie、Token 或 Authorization 内容
 - bootstrap allowlist 只覆盖精确 `GET System/Info/Public`、固定登录文档明确的 public 用户列表和无 Index 用户头像；只有 SystemInfoPublic 允许无应用头，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
 - SystemInfoPublic 上游响应只记录固定 route、pathMode 和 statusCode，不记录 Header、URL、ServerId 或响应体；上游 `401/403/500` 仍逐状态透明返回
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
-- fake Emby 测试已覆盖 root 与 `/emby` 路径规范化、重复前缀拒绝、`System/Info/Public`、认证请求/响应透明、标准应用头、public bootstrap、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过和传输错误脱敏；没有请求真实 Emby
+- fake Emby 测试已覆盖 root 与 `/emby` 路径规范化、重复前缀拒绝、`System/Info/Public`、认证请求/响应透明、标准应用头、public bootstrap、非成功响应、不合法/超大成功响应、旁路写入失败、Token 门控、错误状态、Header 歧义、路由绕过、统一请求完成日志和传输错误脱敏；没有请求真实 Emby
 - root 或 `/emby` 形态的 GET/POST PlaybackInfo 都继续透明代理；成功 `200 application/json` 响应旁路生成 `mappingId + itemId + mediaSourceId + playSessionId` 的进程内证明，同时保存 Path/Size/Container/DirectPlay 能力，不重复调用 Emby
 - GET 只有唯一 `UserId` 等于 Principal.EmbyID 才可形成证明；POST 有界检查可选 UserId，错配、无效或超大请求仍透明转发但不缓存
 - 证明缓存固定 5 分钟、最多 4096 条，延迟过期和最早到期淘汰，无后台 goroutine；不保存原始 Token、不记录 Path，进程重启后证明丢失，115 加速不可用但合法请求应 fallback Emby
@@ -824,7 +825,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - DirectPlay 返回安全候选时 Gateway 输出空体 `302`；其余合法请求把原始 method/query/Range/User-Agent/Token Header 与规范化后的单一上游 path 交给既有 ReverseProxy，Emby 状态、响应头和视频体保持透传
 - `playback_media_cache` 和 `direct_play_sessions` 本轮均未建表；多副本共享、播放并发和 Playing/Progress/Stopped 持久会话推迟到后续
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
-- 每个视频请求只打印一条 `decision=redirect|fallback|reject` 脱敏日志，不新建日志表或 migration；日志禁止 Token、Cookie、完整 Path/SHA1、115 URL 和上游原文
+- 每个视频请求除统一 `request_completed` 摘要外，只额外打印一条 `decision=redirect|fallback|reject` 脱敏决策日志，不新建日志表或 migration；日志禁止 Token、Cookie、完整媒体 Path/SHA1、115 URL 和上游原文
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
 - 2026-08-23 生产启动日志已确认目标 Emby `4.9.3.0`；Infuse `8.5` 已实测使用 root SystemInfoPublic、`X-Emby-Authorization: MediaBrowser ...` 认证头和 deflate 认证响应。对应三项兼容及 identity/gzip/deflate 旁路检查已通过 fake 测试，其中 gzip 未做目标环境实测；尚未完成 Token 映射后续请求复验，后续 `Static=true`、Token Header、PlaybackInfo、302 和进度事件顺序仍未证实
 

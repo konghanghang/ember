@@ -377,6 +377,7 @@ npm --prefix services/web run build
 - 已把精确 root/`/emby` `GET System/Info/Public` 拆为唯一无本地鉴权的公开透明代理，并让 root AuthenticateByName、PlaybackInfo、视频与进度请求复用现有处理器。
 - 已按 Infuse `8.5` 实测兼容精确 `X-Emby-Authorization: MediaBrowser ...`，同时保留 SDK `Emby` scheme 和全部 Header 唯一性、字段、Token、quoted-string 严格校验。
 - 已按目标 Emby 实测的 deflate 认证响应建立 `identity/gzip/deflate` 白名单旁路解析：原响应透明返回，只解压有界旁路副本，失败时不建立映射且不泄露响应内容；其中 gzip 为 fake 合同测试覆盖的兼容能力，不表述为目标环境实测行为。
+- 已为每个 Gateway 请求增加统一 `request_completed` 脱敏日志，覆盖有界 method/Host/原始 path、query key、route、status/outcome/耗时，以及认证 Header 数量、scheme 和 Token presence；query value、Header 原值、Cookie 与 Token 永不进入日志。
 - 已用 fake 和 race 测试覆盖 method/query/Header/body/响应透传、Token 门控、登录映射、证明、视频 redirect/fallback、未知/Web Surface 不改写和错误日志脱敏。
 - API 全量 `go test ./...`、`go vet ./...` 和 `go build ./...` 已通过；自动化没有请求真实 Emby 或 115。
 

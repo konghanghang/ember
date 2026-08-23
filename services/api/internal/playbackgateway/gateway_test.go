@@ -751,6 +751,161 @@ func TestGatewayProtectedRequestRequiresMappedTokenBeforeProxy(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
+func TestGatewayRequestCompletionLogsSanitizedAuthenticationShape(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/Items/fixture?api_key="+fixtureAccessToken+"&UserId=emby-user-1",
+		nil,
+	)
+	request.Header.Set(
+		"X-Emby-Authorization",
+		`MediaBrowser UserId="emby-user-1", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.5", Token="`+fixtureAccessToken+`"`,
+	)
+	request.Header.Set("User-Agent", "Infuse-Direct/8.5")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized || upstreamCalls.Load() != 0 {
+		t.Fatalf("response=%d upstreamCalls=%d, want local 401", response.Code, upstreamCalls.Load())
+	}
+	for _, expected := range []string{
+		"code=request_completed",
+		"method=GET",
+		`host="example.com"`,
+		`path="/Items/fixture"`,
+		`queryKeys="UserId,api_key"`,
+		"queryKeyCount=2",
+		"route=protected",
+		"pathMode=root",
+		"statusCode=401",
+		"outcome=failure",
+		"xEmbyTokenCount=0",
+		"xEmbyTokenState=missing",
+		"xEmbyAuthorizationCount=1",
+		"authorizationCount=0",
+		"applicationScheme=media_browser",
+		"embeddedTokenState=present",
+		"apiKeyQueryPresent=true",
+		"userAgentFamily=infuse_direct",
+		`userAgentVersion="8.5"`,
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs = %q, want %s", logs.String(), expected)
+		}
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "emby-user-1")
+}
+
+func TestGatewayRequestCompletionLogsSuccessfulUpstreamStatus(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal()}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/emby/Items/fixture", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("response=%d, want 204", response.Code)
+	}
+	for _, expected := range []string{
+		"code=request_completed",
+		"method=GET",
+		`path="/emby/Items/fixture"`,
+		"route=protected",
+		"pathMode=emby_prefixed",
+		"statusCode=204",
+		"outcome=success",
+		"xEmbyTokenCount=1",
+		"xEmbyTokenState=present",
+		"embeddedTokenState=missing",
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs = %q, want %s", logs.String(), expected)
+		}
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+}
+
+func TestApplicationAuthorizationDiagnosticsHandlesEitherHeaderWithoutSecrets(t *testing.T) {
+	tests := []struct {
+		name           string
+		xEmbyValues    []string
+		standardValues []string
+		wantScheme     string
+		wantTokenState string
+	}{
+		{name: "missing", wantScheme: "missing", wantTokenState: "missing"},
+		{
+			name: "standard Emby without token", standardValues: []string{fixtureApplicationAuthorization},
+			wantScheme: "emby", wantTokenState: "empty",
+		},
+		{
+			name:        "Infuse MediaBrowser with token",
+			xEmbyValues: []string{`MediaBrowser UserId="emby-user-1", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.5", Token="` + fixtureAccessToken + `"`},
+			wantScheme:  "media_browser", wantTokenState: "present",
+		},
+		{
+			name: "conflicting header names", xEmbyValues: []string{fixtureApplicationAuthorization}, standardValues: []string{fixtureApplicationAuthorization},
+			wantScheme: "ambiguous", wantTokenState: "ambiguous",
+		},
+		{
+			name: "unsupported scheme", standardValues: []string{`Bearer ` + fixtureAccessToken},
+			wantScheme: "other", wantTokenState: "unparseable",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			scheme, tokenState := applicationAuthorizationDiagnostics(test.xEmbyValues, test.standardValues)
+			if scheme != test.wantScheme || tokenState != test.wantTokenState {
+				t.Fatalf("diagnostics=(%s,%s), want (%s,%s)", scheme, tokenState, test.wantScheme, test.wantTokenState)
+			}
+		})
+	}
+}
+
+func TestRequestLogInfrastructurePreservesWriterAndBoundsInput(t *testing.T) {
+	response := httptest.NewRecorder()
+	statusWriter := &requestStatusWriter{ResponseWriter: response}
+	if _, err := statusWriter.Write([]byte("ok")); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+	if statusWriter.statusCode != http.StatusOK || response.Code != http.StatusOK {
+		t.Fatalf("status writer=%d response=%d, want 200", statusWriter.statusCode, response.Code)
+	}
+	if err := http.NewResponseController(statusWriter).Flush(); err != nil {
+		t.Fatalf("flush through wrapped writer: %v", err)
+	}
+
+	request := &http.Request{
+		Method: http.MethodGet,
+		Header: http.Header{
+			accessTokenHeader: {fixtureAccessToken, "second-token"},
+			"User-Agent":      {"Infuse-Direct/8.5 with-untrusted-suffix"},
+		},
+	}
+	snapshot := captureRequestLogSnapshot(request)
+	if snapshot.path != "" || snapshot.apiKeyQueryPresent || snapshot.xEmbyTokenState != "ambiguous" ||
+		snapshot.userAgentFamily != "infuse_direct" || snapshot.userAgentVersion != "invalid" {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}
+
 func TestGatewayPlaybackSessionEventsAreTransparent(t *testing.T) {
 	tests := []struct {
 		name string

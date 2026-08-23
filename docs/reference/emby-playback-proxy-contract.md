@@ -439,7 +439,8 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - fallback 只允许使用 Emby 正常代理，禁止改用 source 账号向客户端签发 115 直链。
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
 - Emby 会话事件转发失败：记录失败并允许网关会话 TTL 收口，不能伪造成功。
-- 每个视频请求只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode` 和必要 ID/耗时；日志不建表、不进入数据库。
+- 每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、认证 Header 数量与固定 scheme/Token presence、`api_key` query 是否存在、已知 User-Agent family/version。不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
+- 每个视频请求额外只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode` 和必要 ID/耗时；日志不建表、不进入数据库。
 - 决策日志禁止记录 Token、Cookie、完整 Path、完整 SHA1、115 URL、PlaybackInfo 原始响应或 Provider 原始错误。
 
 首期决策日志枚举固定如下；实现可以在同一 `reasonCode` 下补充脱敏上下文字段，但不能把原始错误字符串当作新枚举：
@@ -468,6 +469,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 6. Playing、Progress、Stopped 事件继续到达 fake Emby。
 7. 重复 `HEAD`、Range 和重连不会重复计并发。
 8. Quick Connect 等未覆盖入口不会被错误当作已支持。
+9. 请求完成日志覆盖上游成功与本地拒绝，能区分 `X-Emby-Token` 缺失/空值/存在/歧义和应用认证头内嵌 Token 状态，同时不包含任何凭证或 query value。
 9. 单 Token、单设备和用户全部撤销只影响各自范围；硬撤销后请求拒绝，动态到期/套餐拒绝不错误写入 `revokedAt`。
 10. `lastSeenAt` 限频、ServerId/EmbyID 错配拒绝、并发登录幂等 upsert，以及数据库/日志/JSON 均不包含 Token 明文。
 11. 302 要求相同 Token 的近期成功 PlaybackInfo；缺少/过期证明时合法请求 fallback Emby，撤销后缓存重用和原始 Emby 公网绕过仍失败关闭。

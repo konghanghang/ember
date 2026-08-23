@@ -59,6 +59,18 @@ func singleApplicationAuthorization(header http.Header) (string, applicationAuth
 // It supports commas inside quoted values but rejects unknown/duplicate fields,
 // control characters and all escapes except quoted quote/backslash.
 func parseApplicationAuthorization(value string, headerKind applicationAuthorizationHeader) (map[string]string, bool) {
+	return parseApplicationAuthorizationWithTokenPolicy(value, headerKind, false)
+}
+
+// parseApplicationAuthorizationForDiagnostics accepts a bounded non-empty
+// Token only to report its presence; callers must never log the returned map.
+func parseApplicationAuthorizationForDiagnostics(value string, headerKind applicationAuthorizationHeader) (map[string]string, bool) {
+	return parseApplicationAuthorizationWithTokenPolicy(value, headerKind, true)
+}
+
+// parseApplicationAuthorizationWithTokenPolicy shares the strict grammar while
+// keeping login validation and request diagnostics on separate Token policies.
+func parseApplicationAuthorizationWithTokenPolicy(value string, headerKind applicationAuthorizationHeader, allowNonEmptyToken bool) (map[string]string, bool) {
 	if len(value) > maxApplicationAuthorizationSize || !utf8.ValidString(value) ||
 		strings.ContainsAny(value, "\r\n") {
 		return nil, false
@@ -78,7 +90,7 @@ func parseApplicationAuthorization(value string, headerKind applicationAuthoriza
 			position++
 		}
 		key := value[keyStart:position]
-		limit, allowEmpty, known := applicationFieldLimit(key)
+		limit, allowEmpty, known := applicationFieldLimit(key, allowNonEmptyToken)
 		if key == "" || !known {
 			return nil, false
 		}
@@ -162,7 +174,7 @@ func validApplicationFieldValue(value string, limit int, allowEmpty bool) bool {
 
 // applicationFieldLimit keeps the accepted schema immutable and makes empty
 // value semantics explicit for UserId and the pre-login Token placeholder.
-func applicationFieldLimit(key string) (limit int, allowEmpty, known bool) {
+func applicationFieldLimit(key string, allowNonEmptyToken bool) (limit int, allowEmpty, known bool) {
 	switch key {
 	case "UserId":
 		return maxApplicationUserIDSize, true, true
@@ -175,6 +187,9 @@ func applicationFieldLimit(key string) (limit int, allowEmpty, known bool) {
 	case "Version":
 		return maxApplicationVersionSize, false, true
 	case "Token":
+		if allowNonEmptyToken {
+			return maxApplicationAuthorizationSize, true, true
+		}
 		return 0, true, true
 	default:
 		return 0, false, false

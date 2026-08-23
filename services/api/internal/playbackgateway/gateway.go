@@ -146,13 +146,23 @@ func New(config Config) (*Gateway, error) {
 // authentication exceptions, then fails closed before any protected proxy.
 func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	startedAt := time.Now().UTC()
-	pathMode, pathOK := normalizeEmbyAPIPath(request)
+	requestLog := captureRequestLogSnapshot(request)
+	statusWriter := &requestStatusWriter{ResponseWriter: writer}
+	routeCode := "unclassified"
+	pathMode := requestPathModePassthrough
+	defer func() {
+		gateway.logRequestCompletion(requestLog, routeCode, pathMode, statusWriter.statusCode, startedAt)
+	}()
+
+	var pathOK bool
+	pathMode, pathOK = normalizeEmbyAPIPath(request)
 	if !pathOK {
 		gateway.logger.Printf("[PlaybackGateway] code=request_path_invalid pathMode=%s", pathMode)
-		writer.WriteHeader(http.StatusBadRequest)
+		statusWriter.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	kind := classifyRoute(request)
+	routeCode = routeKindCode(kind)
 	routeContext := requestRouteContext{kind: kind, pathMode: pathMode}
 	switch kind {
 	case routeSystemInfoPublic:
@@ -162,7 +172,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		metadata, ok := extractApplicationMetadata(request.Header)
 		if !ok {
 			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
-			writer.WriteHeader(http.StatusUnauthorized)
+			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		routeContext.metadata = metadata
@@ -171,23 +181,23 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		if !ok {
 			if kind == routeVideo {
 				status, reasonCode := videoTokenHeaderRejection(request.Header)
-				gateway.rejectVideo(writer, request, status, "identity", reasonCode, startedAt)
+				gateway.rejectVideo(statusWriter, request, status, "identity", reasonCode, startedAt)
 				return
 			}
 			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
-			writer.WriteHeader(http.StatusUnauthorized)
+			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		principal, err := gateway.tokenService.ResolvePrincipal(request.Context(), accessToken)
 		if err != nil {
 			if kind == routeVideo {
 				status, stage, reasonCode := videoPrincipalRejection(err)
-				gateway.rejectVideo(writer, request, status, stage, reasonCode, startedAt)
+				gateway.rejectVideo(statusWriter, request, status, stage, reasonCode, startedAt)
 				return
 			}
 			status, code := tokenRejection(err)
 			gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
-			writer.WriteHeader(status)
+			statusWriter.WriteHeader(status)
 			return
 		}
 		routeContext.principal = &principal
@@ -196,12 +206,12 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		}
 	}
 	if kind == routeVideo {
-		gateway.serveVideo(writer, request, *routeContext.principal, startedAt)
+		gateway.serveVideo(statusWriter, request, *routeContext.principal, startedAt)
 		return
 	}
 
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
-	gateway.proxy.ServeHTTP(writer, request.WithContext(ctx))
+	gateway.proxy.ServeHTTP(statusWriter, request.WithContext(ctx))
 }
 
 // observeResponse dispatches sidecar observation by the already classified

@@ -330,7 +330,7 @@ fallback 复用原始 request，保留 method、path、query、Range、User-Agen
 
 ### 8.3 单条决策日志
 
-每个固定视频请求只打印一条：
+每个固定视频请求除 Gateway 统一的 `request_completed` 请求摘要外，只额外打印一条播放决策：
 
 ```text
 decision=redirect|fallback|reject
@@ -338,7 +338,7 @@ stage=<fixed-stage>
 reasonCode=<fixed-reason>
 ```
 
-可以记录必要 ID、状态和耗时；禁止记录 Token、Cookie、完整 Path/SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建播放决策日志表。
+统一请求摘要记录有界 method/Host/原始 path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；播放决策可以记录必要 ID、状态和耗时。两者都禁止记录 query value、Header 原值、Token、Cookie、完整媒体 Path/SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
 
 ## 9. 数据与秘密边界
 
@@ -353,7 +353,7 @@ reasonCode=<fixed-reason>
 | pickCode/fileId | Provider、成功 task provenance | 客户端响应、普通日志 |
 | 115 下载 URL | 当前请求内存与 302 `Location` | 数据库、日志、API JSON |
 | source Range 字节 | Provider HTTP body 内部 | Service、数据库、日志 |
-| 播放决策 | 单条应用日志 | 数据库表 |
+| Gateway 请求摘要与播放决策 | 脱敏应用日志 | 数据库表 |
 
 ## 10. 当前验证证据
 
