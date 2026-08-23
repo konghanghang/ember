@@ -2,6 +2,7 @@
 import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { MessageBoxInputData } from 'element-plus'
 import {
   Check,
   Close,
@@ -162,7 +163,7 @@ const handleReject = async (sub: Subscription) => {
   if (!canRunAdminAction()) return
 
   try {
-    const result = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
+    const result: MessageBoxInputData = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
       confirmButtonText: '提交拒绝',
       cancelButtonText: '取消',
       inputPlaceholder: '请填写明确的拒绝原因',
@@ -170,8 +171,7 @@ const handleReject = async (sub: Subscription) => {
       inputErrorMessage: '拒绝原因不能为空',
       type: 'warning'
     })
-    // MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
-    if (typeof result !== 'object') return
+    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
     await rejectSubscription(sub.id, result.value)
     ElMessage.success('已拒绝')
     fetchData()

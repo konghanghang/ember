@@ -2,6 +2,7 @@
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { MessageBoxInputData } from 'element-plus'
 import {
   Calendar,
   Search,
@@ -396,19 +397,17 @@ const handleUpdateUser = async () => {
 
 const handleExtend = async (row: UserInfo) => {
   try {
-    await ElMessageBox.prompt('请输入延长天数', '延长到期时间', {
+    const result: MessageBoxInputData = await ElMessageBox.prompt('请输入延长天数', '延长到期时间', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       inputPattern: /^\d+$/,
       inputErrorMessage: '请输入数字',
       inputValue: '30'
-    }).then(async (result) => {
-      // MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
-      if (typeof result !== 'object') return
-      await extendUserExpiry(row.id, parseInt(result.value, 10))
-      ElMessage.success('延长成功')
-      await fetchData()
     })
+    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
+    await extendUserExpiry(row.id, parseInt(result.value, 10))
+    ElMessage.success('延长成功')
+    await fetchData()
   } catch (error) {
     if (!isMessageBoxCancel(error)) {
       // handled
@@ -445,12 +444,11 @@ const handleDelete = async (row: UserInfo) => {
 
 const handleResetPassword = async (row: UserInfo) => {
   try {
-    const result = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
+    const result: MessageBoxInputData = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
       confirmButtonText: '确定',
       cancelButtonText: '取消'
     })
-    // MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
-    if (typeof result !== 'object') return
+    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
     const { value } = result
 
     let password = value

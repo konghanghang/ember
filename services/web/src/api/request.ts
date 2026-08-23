@@ -113,7 +113,10 @@ export function setupRequestInterceptors(options: RequestInterceptorsOptions) {
  * 一致仍需以 `src/types/api.ts` 的契约为准。
  */
 export function request<T = unknown>(config: AxiosRequestConfig): Promise<T> {
-  return service<T, T>(config)
+  // Axios 1.19 wraps the custom response generic in a conditional type that
+  // TypeScript cannot reduce for arbitrary T. Runtime behavior is still fixed
+  // by the response interceptor above and locked by request.spec.ts.
+  return service<T, T>(config).then((result) => result as T)
 }
 
 // 默认导出保留原始 axios 实例：仅用于需要实例级能力的场景

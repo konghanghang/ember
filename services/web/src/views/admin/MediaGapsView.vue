@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { MessageBoxInputData } from 'element-plus'
 import {
   Calendar,
   CircleCheck,
@@ -790,14 +791,14 @@ const handleDispatch = async () => {
 const handleIgnore = async (gap: MediaGapItem) => {
   let reason = ''
   try {
-    const result = await ElMessageBox.prompt('可选填写忽略原因，后续排查误报时会更省事。', '忽略缺集工单', {
+    const result: MessageBoxInputData = await ElMessageBox.prompt('可选填写忽略原因，后续排查误报时会更省事。', '忽略缺集工单', {
       confirmButtonText: '确认忽略',
       cancelButtonText: '取消',
       inputPlaceholder: '例如：资源命名差异 / 数据源误报',
       inputValue: gap.ignoreReason || ''
     })
-    // Element Plus 的 MessageBoxData 联合了 Action 字符串；prompt 确认时实际返回 { value, action }。
-    reason = typeof result === 'object' ? result.value?.trim() || '' : ''
+    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
+    reason = result.value?.trim() || ''
   } catch (error) {
     if (isMessageBoxCancel(error)) {
       return
