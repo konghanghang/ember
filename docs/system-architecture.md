@@ -57,8 +57,6 @@ Ember 是一个 Emby 媒体服务器的用户管理系统，提供：
 services/
 ├─ api/                          # Go 后端
 │  ├─ cmd/ember/main.go          # 统一生产入口：api / gateway 子命令
-│  ├─ cmd/server/main.go         # API 薄兼容入口
-│  ├─ cmd/playback-gateway/      # Gateway 薄兼容入口
 │  ├─ cmd/p115-contract-check/   # 显式授权后运行的一次性真实 115 只读合同检查器
 │  ├─ cmd/p115-transfer-contract-check/ # 显式授权后运行的 retained playback 秒传检查器
 │  └─ internal/
@@ -793,7 +791,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前已有单 `ember` 二进制、同镜像双容器 Compose、可注入 `http.Handler` 和 HTTP 生命周期装配；尚未接入外部 HTTPS 反向代理、原始 Emby 公网隔离或真实 Infuse 验收：
 
 - 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
-- `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、日志初始化和退出码；`cmd/server` 与 `cmd/playback-gateway` 只保留固定子命令薄包装，不进入生产镜像
+- `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、日志初始化和退出码；服务进程只保留 `cmd/ember` 一个 main package，不再维护旧启动包装
 - entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 

@@ -136,7 +136,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 按 SDK 固定提交实现 `Authorization/X-Emby-Authorization` 的严格 `Emby` 应用头解析，要求 `Client/Device/DeviceId/Version`，拒绝重复/未知字段、非空内嵌 Token、非法 quoted-string 和 Header 歧义；`Client/DeviceId` 只作为非权威映射元数据。
 - Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、应用头与 public bootstrap、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
 - 新增 `integrations/emby.ServerIdentityVerifier`，在监听前调用固定 `/emby/System/Info`；Runtime 只接受四段数字版本 `>= 4.9.0.0 && < 4.10.0.0` 与有界非空 ServerId，重定向、非 JSON、超大响应、状态失败、超时、版本越界和字段异常全部返回不含 URL/API Key/响应体的固定错误。
-- 新增 `cmd/ember` 和 `internal/entrypoint`，无参数/`api` 启动 API，`gateway` 启动 Gateway，help/未知参数保持无副作用；`cmd/server` 与 `cmd/playback-gateway` 已收口为调用同一分发器的薄兼容入口。
+- 新增 `cmd/ember` 和 `internal/entrypoint`，无参数/`api` 启动 API，`gateway` 启动 Gateway，help/未知参数保持无副作用；外部调用方确认不需要历史兼容后，`cmd/server` 与 `cmd/playback-gateway` 薄包装已删除。
 - Gateway production runtime 提供独立 `/health`、HTTP Header/空闲边界和 context graceful shutdown；进程复用 migration/VerifySchema 与 ConfigService，但不初始化 JWT、Bot、cron 或默认管理员。
 - 新增不持有 Token/HMAC/runtime ServerId 的 `ControlPlaneRevoker`；设备按用户/设备跨历史 Server 撤销，用户按主体全部撤销，恢复路径同样清理遗留活动映射。
 - 设备手工/黑名单退出、用户 toggle/admin edit、Emby 访问开关、绑定前清理、解绑、删除和过期 cron 已按“本地撤销成功后再执行状态或 Emby 副作用”接入；远端失败不回滚本地安全结果。
@@ -214,12 +214,10 @@ Ember API / Web
 
 ### 3. 代码边界
 
-现有 Go Module 已收口为一个生产二进制，同时保留两个薄兼容入口：
+现有 Go Module 已收口为一个服务进程入口：
 
 ```text
 services/api/cmd/ember/main.go              # 统一生产入口：api / gateway 子命令
-services/api/cmd/server/main.go             # API 薄兼容包装
-services/api/cmd/playback-gateway/main.go   # Gateway 薄兼容包装
 services/api/internal/entrypoint/
 services/api/internal/playbackgateway/
 services/api/internal/services/directplay/
@@ -230,7 +228,6 @@ services/api/internal/integrations/p115/
 
 - `cmd/ember`：只把参数交给 `internal/entrypoint` 并返回退出码；无参数默认 `api`，未知子命令 fail-fast。
 - `internal/entrypoint`：解析 `api/gateway/help`、初始化日志、为 Gateway 建立信号 context，并分别调用 API/Gateway `RunProcess`；API 在具备 context graceful shutdown 前保持操作系统原有信号行为。
-- `cmd/server` 与 `cmd/playback-gateway`：只固定传入 `api` 或 `gateway`，不进入生产镜像；当外部调用方也不再依赖旧入口后删除。
 - `internal/playbackgateway`：数据库/配置/HTTP 生命周期装配、Emby 反向代理、路由分类、Header 和 302 输出。
 - `internal/services/directplay`：资格判断、媒体解析、查重、秒传、并发和会话状态机。
 - `internal/integrations/p115`：Provider 接口、Cookie HTTP 适配、上传加密和原始 DTO 映射。
@@ -652,8 +649,8 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - `go test -race -count=1 ./internal/playbackgateway ./internal/services/embytoken` 通过。
 - 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，新 Gateway 包和既有 PostgreSQL 集成测试实际执行并通过；`go vet ./...` 与 `go build ./...` 通过。
 - 自动化没有创建真实 Listener，也没有请求真实 Emby/115 或执行 Infuse 验收；固定 SDK 的 public bootstrap 与应用头合同已确认并由 fake 锁定，目标 Server 版本和 Infuse 实际请求顺序仍保持未证实。
-- `ServerIdentityVerifier` 与 production runtime fake 测试覆盖精确版本/ServerId、Header 与响应边界、配置缺失、`/health`、无真实 Listener 的 graceful shutdown 和监听错误脱敏；`go build ./cmd/playback-gateway` 通过，但没有运行生成的二进制。
-- 统一入口测试覆盖无参数默认 API、显式 `api/gateway`、help、未知/额外参数、日志初始化和进程失败脱敏；`go build ./cmd/ember` 与兼容入口构建通过，Compose 已确认两个服务复用同一镜像 Tag。2026-08-23 `pre_release` 的 API GitHub Actions 已实际构建并推送单二进制预览镜像。
+- `ServerIdentityVerifier` 与 production runtime fake 测试覆盖精确版本/ServerId、Header 与响应边界、配置缺失、`/health`、无真实 Listener 的 graceful shutdown 和监听错误脱敏。
+- 统一入口测试覆盖无参数默认 API、显式 `api/gateway`、help、未知/额外参数、日志初始化和进程失败脱敏；`go build ./cmd/ember` 通过，Compose 已确认两个服务复用同一镜像 Tag。2026-08-23 `pre_release` 的 API GitHub Actions 已实际构建并推送单二进制预览镜像。
 - 控制面撤销单元/PostgreSQL/Gin 集成测试覆盖设备跨 Server 但不跨用户、手工与黑名单本地优先、toggle/admin edit/恢复、Emby 访问禁用、绑定前清理、解绑、删除审计保留和过期 cron 失败关闭；所有 Emby 副作用使用 fake。
 
 测试分层：

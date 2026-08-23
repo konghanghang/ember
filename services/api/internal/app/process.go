@@ -19,8 +19,8 @@ type processDependencies struct {
 	start              func() error
 }
 
-// RunProcess owns the API process lifecycle shared by the unified ember
-// command and the temporary cmd/server compatibility entrypoint.
+// RunProcess owns the API process lifecycle selected by the unified ember
+// command.
 func RunProcess() error {
 	return runProcess(processDependencies{
 		initDB:             dbpkg.InitDB,

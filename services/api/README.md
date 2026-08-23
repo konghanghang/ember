@@ -7,7 +7,6 @@ Go API 服务，负责认证、用户生命周期、兑换码、订阅、支付�
 - 统一入口：`cmd/ember/main.go`
 - API 子命令：`ember api`（无参数时同样默认 API）
 - Gateway 子命令：`ember gateway`
-- 兼容入口：`cmd/server`、`cmd/playback-gateway`（仅薄包装，不进入生产镜像）
 - 默认端口：`8080`
 - 健康检查：`GET /health`
 
@@ -80,8 +79,6 @@ go run ./cmd/ember api
 ```text
 services/api/
 ├── cmd/ember/                 # 统一生产入口：api / gateway
-├── cmd/server/                # API 薄兼容入口
-├── cmd/playback-gateway/      # Gateway 薄兼容入口
 ├── internal/entrypoint/       # 子命令解析、信号与进程分发
 ├── internal/app/              # 启动装配、路由、cron
 ├── internal/config/           # 配置定义与解析

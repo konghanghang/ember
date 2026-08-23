@@ -178,7 +178,7 @@ cd services/api
 go run ./cmd/ember api
 ```
 
-`ember api` 启动期 Migrate 阶段会探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL（即 baseline + 后续增量），跑 `VerifySchema` 自检，再写入默认管理员 / 默认设置 / 默认套餐分组。无参数同样默认 API；`go run ./cmd/server` 只保留为薄兼容入口。**严禁在生产使用**——生产路径走 docker compose `pull + up -d`。
+`ember api` 启动期 Migrate 阶段会探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支按字典序应用 `infrastructure/database/` 顶层与生产同源的 SQL（即 baseline + 后续增量），跑 `VerifySchema` 自检，再写入默认管理员 / 默认设置 / 默认套餐分组。无参数同样默认 API。**严禁在生产使用本地 Go 启动方式**——生产路径走 docker compose `pull + up -d`。
 
 如果当前数据库还停留在 `v1.2.13` 对应阶段，升级到当前版本前需要按顺序执行这两份 SQL；已经执行过它们的环境无需重复处理。
 

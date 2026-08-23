@@ -26,10 +26,10 @@ cd services/api
 go test -count=1 ./internal/integrations/emby ./internal/playbackgateway
 go test -race -count=1 ./internal/integrations/emby ./internal/playbackgateway ./internal/services/embytoken
 go test -count=1 ./internal/entrypoint ./internal/app
-go build ./cmd/ember ./cmd/server ./cmd/playback-gateway
+go build ./cmd/ember
 ```
 
-上述命令只做 fake 上游、生命周期、统一子命令分发和构建验证，不启动 API/Gateway、不请求真实 Emby。多个 main package 一次构建不会在工作区生成二进制；需要单独产物时显式使用 `go build -o bin/ember ./cmd/ember`，且禁止提交 `bin/`。
+上述命令只做 fake 上游、生命周期、统一子命令分发和构建验证，不启动 API/Gateway、不请求真实 Emby。默认构建验证不会在工作区生成二进制；需要单独产物时显式使用 `go build -o bin/ember ./cmd/ember`，且禁止提交 `bin/`。
 
 如果要跑本地 API 集成测试：
 

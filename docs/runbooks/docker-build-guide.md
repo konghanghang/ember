@@ -19,7 +19,7 @@ Ember 当前发布三个镜像：
 - Compose 中 `ember-gateway` profile 复用完全相同的 `EMBER_API_IMAGE`，只用 `command: ["gateway"]` 选择 Gateway 进程角色。
 - 单二进制不表示单进程：API 与 Gateway 仍是两个容器、两个生命周期和两个健康检查，只共享镜像 digest 与代码版本。
 
-当前 Dockerfile 从 `cmd/ember` 构建该统一二进制；`cmd/server` 和 `cmd/playback-gateway` 不进入镜像。
+当前 Dockerfile 只从 `cmd/ember` 构建统一服务二进制；API 与 Gateway 不再维护其他 main package。
 
 ## 本地构建
 

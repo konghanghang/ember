@@ -82,7 +82,7 @@ type migrationDriver interface {
 	RecordBackfill(file migrationFile) error
 }
 
-// Migrate 在 cmd/server 启动期被调用，完成所有未应用 SQL 的 forward-only 应用。
+// Migrate 在 ember api/gateway 启动期被调用，完成所有未应用 SQL 的 forward-only 应用。
 //
 // 调用时机：紧跟 InitDB 之后、VerifySchema 之前；DB 必须已经初始化。
 //

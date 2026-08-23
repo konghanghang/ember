@@ -81,7 +81,7 @@ cd services/api
 go run ./cmd/ember api
 ```
 
-`ember api` 启动期 Migrate 阶段会探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支按字典序 forward-only 跑全部 SQL，再走 `VerifySchema` 自检与 `Bootstrap` 写入默认 admin / settings / plan_groups。`cmd/server` 仅保留为调用同一 `RunProcess` 的兼容入口。
+`ember api` 启动期 Migrate 阶段会探测到业务核心表不存在 + `schema_migrations` 为空 → 进入"新空库"分支按字典序 forward-only 跑全部 SQL，再走 `VerifySchema` 自检与 `Bootstrap` 写入默认 admin / settings / plan_groups。API 与 Gateway 统一由 `cmd/ember` 分发。
 
 `EMBER_MIGRATIONS_DIR` 在容器内由镜像 ENV 注入为 `/app/migrations`；本地未设时按 `../../infrastructure/database` / `../infrastructure/database` / `infrastructure/database` 逐个 fallback 到仓库工作树。
 

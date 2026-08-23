@@ -91,7 +91,7 @@
 
 当前生产入口是单个 `cmd/ember`：`ember api` 分发到 API `RunProcess`，`ember gateway` 分发到 `internal/playbackgateway.RunProcess`。无参数默认 API 以兼容既有镜像行为，未知子命令 fail-fast；禁止通过环境变量隐式选择进程角色。
 
-`cmd/server` 与 `cmd/playback-gateway` 当前只把固定子命令交给 `internal/entrypoint`，不进入生产镜像。仓库内 Docker、Makefile 和现行 runbook 已迁移；待外部调用方也不再依赖旧入口后删除，不能让兼容层重新承载第二套装配逻辑。
+API 与 Gateway 不再保留第二套兼容 main package。新增进程角色必须继续通过 `cmd/ember` 子命令和 `internal/entrypoint` 分发，禁止重新创建只固定参数的启动包装。
 
 ---
 
