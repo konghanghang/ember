@@ -1705,6 +1705,9 @@ func TestClassifyRouteFailsClosedOutsideExactAuthenticationContract(t *testing.T
 		{method: http.MethodHead, path: "/emby/Items/item-1/PlaybackInfo", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Items/item-1/PlaybackInfo/", want: routeProtected},
 		{method: http.MethodGet, path: "/emby/Items/item%2D1/PlaybackInfo", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Users/user-1/Items/item-1", want: routeItemDetail},
+		{method: http.MethodPost, path: "/emby/Users/user-1/Items/item-1", want: routeProtected},
+		{method: http.MethodGet, path: "/emby/Users/user-1/Items/item-1/LocalTrailers", want: routeProtected},
 	}
 	for _, test := range tests {
 		request := httptest.NewRequest(test.method, test.path, nil)

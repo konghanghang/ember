@@ -273,7 +273,22 @@ X-Emby-Token: <access-token>
 
 PlaybackInfo 成功响应的编码体与解码旁路副本上限均为 `2 MiB`，支持 `identity/gzip/deflate`（含 zlib-wrapped/raw DEFLATE）。解码失败、超限或未知编码只使本次证明不可用，客户端仍收到原压缩字节、Header 和状态；Gateway 不通过删除 `Accept-Encoding` 换取旁路解析。
 
-### 4.3 PlaybackInfoResponse 关键字段
+### 4.3 用户条目 Container 兼容快照
+
+固定 `4.9.3.0` OpenAPI 的 [`GET /Users/{UserId}/Items/{Id}`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L92839-L92889) 返回 `BaseItemDto`；该 DTO 明确包含顶层 `Container` 与 [`MediaSources`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L103723-L103755)，MediaSourceInfo 又包含 [`Id/Container/Path/Size/SupportsDirectPlay`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L104395-L104471)。
+
+目标 Infuse `8.5` 已实测在视频请求前成功读取用户条目，随后直接请求 `/Videos/{Id}/stream?MediaSourceId=...&Static=true`，不携带 `Container` 或 `PlaySessionId`。而同版本 `/Videos/{Id}/stream` 把 `Container` 声明为必填 query；原始 fallback 因此得到上游 `404`。
+
+Gateway 对层级精确的用户条目 `200 application/json` 响应执行以下兼容观察：
+
+- path UserId 必须等于当前 Principal.EmbyID，响应 `Id` 必须等于 path ItemId。
+- 编码体和 `identity/gzip/deflate` 解码副本均限制为 `2 MiB`，客户端仍收到原状态、Header 与压缩字节。
+- 优先只缓存 `mappingId + itemId + mediaSourceId -> container`；响应没有任何可用 MediaSource 时才保存同一条目的顶层 Container，禁止用顶层值覆盖一个不匹配的已知 MediaSourceId。不缓存 Token、Path、Size、响应体或用户可见元数据。
+- Container 只允许有界小写字母、数字、逗号和连字符；重复 MediaSourceId 使整次响应不写缓存。
+- 缓存 TTL 5 分钟、最多 4096 条、无后台 goroutine；每个视频请求仍先重新执行 `ResolvePrincipal`，撤销和用户状态不能被缓存绕过。
+- 该快照只用于补齐正常 Emby fallback 的必填 Container，绝不是 PlaybackInfo/PlaySession 授权证明，不能凭它获得 115 `302`。
+
+### 4.4 PlaybackInfoResponse 关键字段
 
 | 字段 | 类型 | 用途 |
 | --- | --- | --- |
@@ -300,7 +315,7 @@ PlaybackInfo 成功响应的编码体与解码旁路副本上限均为 `2 MiB`�
 
 网关必须使用 `ItemId + MediaSourceId` 作为媒体源缓存主键，不能只按 `ItemId` 假设条目永远只有一个文件。
 
-### 4.4 单实例短期授权证明
+### 4.5 单实例短期授权证明
 
 首期不重复调用 PlaybackInfo，也不为证明或媒体快照建表。Gateway 已经代理 Infuse 的 PlaybackInfo，因此在上游成功响应经过时同时执行：
 
@@ -344,6 +359,8 @@ mappingId + itemId + mediaSourceId + playSessionId
 
 - 不能看到 `/Videos/` 就一律返回 302；必须先判断 Token、用户状态、媒体源、路径规则和 Direct Play 能力。
 - 首期只有 query 同时提供唯一非空 `MediaSourceId`、唯一非空 `PlaySessionId` 和精确 `Static=true` 时才尝试 115；`/stream` 还必须提供唯一非空 `Container`。缺失、重复或其他值均透明 fallback Emby。
+- 对 plain `/stream` 且完全没有 Container key 的请求，如果同一 mapping/item/mediaSource 有近期用户条目快照，Gateway 只克隆本次 Emby fallback 并在原始 RawQuery 后追加有界 `Container`；不删除、覆盖或重新编码其他参数。该分支固定 `decision=fallback stage=route reasonCode=container_recovered`，即使请求另带 PlaySessionId 也不尝试 115。
+- 没有可用 Container 快照、客户端已经提交任意大小写的 Container key、快照过期或响应歧义时不猜测容器，继续使用原请求 fallback。
 - `stream.{Container}` 和 `{StreamFileName}` 从最后一个扩展名取得容器并与 PlaybackInfo 证明中的 Container 核对；不一致时 fallback Emby。`m3u8`、`mpd`、`m4s` 明确不进入 115 编排。
 - `GET` 与 `HEAD` 都可能由客户端用于探测，不得把每个请求都计为独立播放会话。
 - 客户端可能在获得 302 后向 115 CDN 发出 `Range` 请求；网关必须通过客户端合同测试确认重定向、UA 和 Range 行为。
@@ -484,6 +501,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 16. 特殊 path 与 Gateway 消费的 query key 大小写不敏感但不重写原始请求；尾斜杠、额外层级、duplicate logical key 和 alternate escaping 继续失败关闭。
 17. PlaybackInfo 含 `MediaStreams: []` 时客户端响应逐字节保持，SenPlayer/Yamby 等 UA 不改变认证或代理路径。
 18. Store 请求取消/deadline、一次安全只读重试、非重试 PostgreSQL 错误和最终连接池诊断均有固定测试。
+19. 用户条目 identity/gzip/deflate 响应逐字节保持；同 mapping/item/mediaSource 的 Container 可恢复 plain stream fallback，但没有 PlaySessionId 时 DirectPlay 调用次数必须为零。
 
 所有测试必须使用 fake Emby Server 或固定 fixture，禁止请求真实 Emby。
 

@@ -79,8 +79,9 @@
 - AuthenticateByName 已返回 `200` 并成功建立 Token 映射；随后 Infuse 通过 `X-Emby-Authorization: MediaBrowser ... Token="..."` 请求根 `/Users/{Id}/Views`，`X-Emby-Token` 缺失，旧门控在上游调用前返回本地 `401`。
 - 内嵌 Token 修复后，Views、VirtualFolders、DisplayPreferences、Items、Latest 与 Resume 已通过 Gateway 并取得上游 `200`，确认登录和普通资源代理闭环。
 - 同一轮 Infuse 并发扫库曾有 `find_mapping/find_user_by_id` 两次旧式 `503`，周围请求仍成功；旧日志只能看到 `*errors.errorString`，不能证明连接池耗尽。新实现区分取消/deadline、一次安全只读重试与真正 Store failure。
+- Infuse 在用户条目详情 `200` 后直接请求 `/Videos/{Id}/stream?MediaSourceId=...&Static=true`，没有 Container/PlaySessionId；Gateway 保守 fallback 后，目标 Emby 因 `/stream` 缺少官方必填 Container 返回 `404`。
 
-这些证据证明目标 Emby 版本、root path、SystemInfoPublic 无登录语义、AuthenticateByName Header/scheme、deflate 响应编码、MediaBrowser 内嵌 Token，以及普通资源 API 上游 `200`；没有公开 ServerId 原值，也没有证明 PlaybackInfo、视频、字幕、进度和 302 行为。
+这些证据证明目标 Emby 版本、root path、SystemInfoPublic 无登录语义、AuthenticateByName Header/scheme、deflate 响应编码、MediaBrowser 内嵌 Token、普通资源 API 上游 `200`，以及 Infuse plain stream 缺少 Container/PlaySessionId；没有公开 ServerId 原值，也没有证明 Container 恢复后的播放、PlaybackInfo、字幕、进度和 302 行为。
 
 ### 已由固定版本 SDK 确认
 
@@ -388,13 +389,14 @@ npm --prefix services/web run build
 - 已把受保护 Token 扩展为能力矩阵：`X-Emby/X-MediaBrowser` 直接 Header、固定大小写不敏感 query aliases 和严格应用头；多来源只同值接受，不根据 Infuse/SenPlayer/Yamby 名称改变认证。
 - 已为固定特殊 path 和 `UserId/MediaSourceId/PlaySessionId/Static/Container` query key 增加大小写兼容，同时保持原始转发字节；PlaybackInfo 的空 `MediaStreams` 不重编码。
 - 已让 AuthenticationResult 与 PlaybackInfo 共用 `identity/gzip/deflate` 有界旁路解码，客户端原始压缩状态/Header/字节保持不变。
+- 已按官方 BaseItemDto 合同旁路观察精确用户条目响应，仅缓存有界 `mapping/item/mediaSource -> container`；plain stream 完全缺 Container 时只为 Emby fallback 追加参数，固定记录 `container_recovered`，不生成 PlaySessionId、不放宽 115。
 - 已把 Store 请求取消/deadline 映射为 `499/504`，只对明确未发送的幂等读错误重试一次，最终真实失败自动记录脱敏 SQLSTATE/连接池计数。
 - 已用 fake 和 race 测试覆盖 method/query/Header/body/响应透传、Token 门控、登录映射、证明、视频 redirect/fallback、未知/Web Surface 不改写和错误日志脱敏。
 - API 全量 `go test ./...`、`go vet ./...` 和 `go build ./...` 已通过；自动化没有请求真实 Emby 或 115。
 
 ### 剩余项
 
-- 部署通用客户端矩阵与 Store 分类，确认扫库不再误报 `503`；继续完成 PlaybackInfo、视频、字幕、进度和其他客户端实机复验。
+- 部署 Container 恢复与 Store 分类，确认条目快照被记录、plain stream fallback 不再 `404`、扫库不再误报 `503`；继续完成 PlaybackInfo、302、字幕、进度和其他客户端实机复验。
 - Web/静态资源/WebSocket Surface 合同。
 - ConfigService 全局 Web 开关和设置页面。
 - 受控 Infuse 与 Web 实机验收。

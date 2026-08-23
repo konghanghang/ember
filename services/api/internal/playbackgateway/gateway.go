@@ -69,9 +69,11 @@ type Gateway struct {
 	directPlayService              DirectPlayService
 	logger                         *log.Logger
 	proofs                         *playbackProofCache
+	itemContainers                 *itemContainerSnapshotCache
 	maxAuthenticationResponseBytes int64
 	maxPlaybackInfoRequestBytes    int64
 	maxPlaybackInfoResponseBytes   int64
+	maxItemDetailResponseBytes     int64
 }
 
 type routeKind uint8
@@ -82,6 +84,7 @@ const (
 	routeSystemInfoPublic
 	routePublicBootstrap
 	routePlaybackInfo
+	routeItemDetail
 	routeVideo
 )
 
@@ -92,6 +95,8 @@ type requestRouteContext struct {
 	principal            *embytoken.Principal
 	playbackInfoItemID   string
 	playbackInfoEligible bool
+	itemDetailItemID     string
+	itemDetailEligible   bool
 	videoDecision        *videoDecision
 }
 
@@ -130,9 +135,11 @@ func New(config Config) (*Gateway, error) {
 		directPlayService:              config.DirectPlayService,
 		logger:                         logger,
 		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
+		itemContainers:                 newItemContainerSnapshotCache(defaultItemContainerSnapshotMaxEntries, defaultItemContainerSnapshotTTL),
 		maxAuthenticationResponseBytes: defaultAuthenticationResponseMaxSize,
 		maxPlaybackInfoRequestBytes:    defaultPlaybackInfoRequestMaxSize,
 		maxPlaybackInfoResponseBytes:   defaultPlaybackInfoResponseMaxSize,
+		maxItemDetailResponseBytes:     defaultItemDetailResponseMaxSize,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	proxy.Transport = transport
@@ -238,6 +245,10 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		routeContext.principal = &principal
 		if kind == routePlaybackInfo {
 			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible = gateway.preparePlaybackInfoRequest(request, principal)
+		} else if kind == routeItemDetail {
+			userID, itemID, pathOK := userItemDetailPath(request.URL)
+			routeContext.itemDetailItemID = itemID
+			routeContext.itemDetailEligible = pathOK && userID == principal.User.EmbyID && principal.MappingID != ""
 		}
 	}
 	if kind == routeVideo {
@@ -297,6 +308,8 @@ func (gateway *Gateway) observeResponse(response *http.Response) error {
 		return nil
 	case routePlaybackInfo:
 		return gateway.observePlaybackInfoResponse(response, routeContext)
+	case routeItemDetail:
+		return gateway.observeUserItemDetailResponse(response, routeContext)
 	case routeVideo:
 		gateway.observeVideoFallbackResponse(response, routeContext)
 		return nil
@@ -522,6 +535,11 @@ func classifyRoute(request *http.Request) routeKind {
 	}
 	if (request.Method == http.MethodGet || request.Method == http.MethodPost) && playbackInfoItemID(request.URL) != "" {
 		return routePlaybackInfo
+	}
+	if request.Method == http.MethodGet {
+		if _, _, ok := userItemDetailPath(request.URL); ok {
+			return routeItemDetail
+		}
 	}
 	if (request.Method == http.MethodGet || request.Method == http.MethodHead) && videoPath(request.URL).ItemID != "" {
 		return routeVideo

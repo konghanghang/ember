@@ -282,6 +282,60 @@ func TestGatewayVideoNonStaticManifestFallsBackWithoutDirectPlay(t *testing.T) {
 	assertSingleDecisionLog(t, logs.String(), "fallback", "route", "route_not_accelerated")
 }
 
+func TestGatewayRecoversMissingStreamContainerFromUserItemResponse(t *testing.T) {
+	var itemCalls atomic.Int32
+	var videoCalls atomic.Int32
+	itemBody := []byte(`{"Id":"item-1","Container":"mkv","MediaSources":[{"Id":"source-1","Container":"mkv"}]}`)
+	encodedItemBody := deflateFixture(t, itemBody, false)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/emby/Users/emby-user-1/Items/item-1":
+			itemCalls.Add(1)
+			writer.Header().Set("Content-Type", "application/json")
+			writer.Header().Set("Content-Encoding", "deflate")
+			_, _ = writer.Write(encodedItemBody)
+		case "/emby/Videos/item-1/stream":
+			videoCalls.Add(1)
+			if request.URL.Query().Get("MediaSourceId") != "source-1" || request.URL.Query().Get("Static") != "true" ||
+				request.URL.Query().Get("Container") != "mkv" || request.URL.Query().Get("PlaySessionId") != "" {
+				t.Fatalf("upstream video query=%q", request.URL.RawQuery)
+			}
+			writer.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(writer, "fixture-video")
+		default:
+			t.Fatalf("unexpected upstream path=%s", request.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	directPlay := &fakeDirectPlayService{}
+	var logs bytes.Buffer
+	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
+
+	itemRequest := httptest.NewRequest(http.MethodGet, "/Users/emby-user-1/Items/item-1?Fields=MediaSources", nil)
+	itemRequest.Header.Set(accessTokenHeader, fixtureAccessToken)
+	itemRequest.Header.Set("Accept-Encoding", "deflate")
+	itemResponse := httptest.NewRecorder()
+	gateway.ServeHTTP(itemResponse, itemRequest)
+	if itemResponse.Code != http.StatusOK || !bytes.Equal(itemResponse.Body.Bytes(), encodedItemBody) || itemResponse.Header().Get("Content-Encoding") != "deflate" {
+		t.Fatalf("item response=%d encoding=%q bodyLength=%d", itemResponse.Code, itemResponse.Header().Get("Content-Encoding"), itemResponse.Body.Len())
+	}
+
+	videoRequest := httptest.NewRequest(http.MethodGet, "/Videos/item-1/stream?MediaSourceId=source-1&Static=true", nil)
+	videoRequest.Header.Set(accessTokenHeader, fixtureAccessToken)
+	videoResponse := httptest.NewRecorder()
+	gateway.ServeHTTP(videoResponse, videoRequest)
+
+	if videoResponse.Code != http.StatusOK || videoResponse.Body.String() != "fixture-video" || itemCalls.Load() != 1 || videoCalls.Load() != 1 {
+		t.Fatalf("video response=%d body=%q itemCalls=%d videoCalls=%d", videoResponse.Code, videoResponse.Body.String(), itemCalls.Load(), videoCalls.Load())
+	}
+	if len(directPlay.snapshot()) != 0 {
+		t.Fatalf("DirectPlay calls=%d, want none without PlaySessionId", len(directPlay.snapshot()))
+	}
+	assertSingleDecisionLog(t, logs.String(), "fallback", "route", "container_recovered")
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "fixture-video")
+}
+
 func TestGatewayVideoSecurityFailuresRejectWithoutFallback(t *testing.T) {
 	tests := []struct {
 		name       string

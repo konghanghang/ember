@@ -54,6 +54,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 
 - 普通 API、图片、字幕、会话和未知受保护 Surface 默认走同一个透明代理。
 - AuthenticationResult 与 PlaybackInfo 只对有界旁路副本按 `identity/gzip/deflate` 解码，客户端收到的状态、Content-Encoding、Header 和原始字节不重新编码。
+- 层级精确的用户条目响应同样保持原字节，只缓存当前 mapping 下的 Item/MediaSource Container；plain `/Videos/{Id}/stream` 缺少必填 Container 时只为 Emby fallback 补齐，不生成 PlaySessionId、不放宽 115 授权。
 - 因此 `MediaStreams: []` 等空数组不会被 `omitempty` 丢失；这是 MediaWarp 源码标注的 [Yamby 兼容点](https://github.com/AkimioJR/MediaWarp/blob/070ad99cb32e940b2b8ccb7c55b6efb7d311eac5/internal/service/emby/schema.go#L224-L233)。
 - 日志识别 Infuse Direct/Library、SenPlayer、Yamby、VidHub、Fileball、Conflux 和官方 Emby family；未知 UA 仍代理，不因名称进入不同认证或播放逻辑。
 
@@ -61,7 +62,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 
 | 客户端 | 已确认 | 尚未确认 |
 | --- | --- | --- |
-| Infuse `8.5` | 目标环境已确认 root API、`MediaBrowser` 应用头、deflate AuthenticationResult、内嵌 Token 和普通资源 API `200` | PlaybackInfo、视频 302、字幕、进度与 115 CDN 完整链路 |
+| Infuse `8.5` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`，以及无 Container/PlaySessionId 的 plain stream 请求会让原始 Emby fallback `404` | Container 恢复后的正常 Emby 播放、PlaybackInfo、视频 302、字幕、进度与 115 CDN 完整链路 |
 | SenPlayer | `emby-toolkit` 固定源码将其列为 native client；Ember 有 UA 与通用载体 fake 测试 | 真实 Header/query/path、播放和字幕行为 |
 | Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试 | 真实 Token 载体、路径与播放行为 |
 | Web / iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |

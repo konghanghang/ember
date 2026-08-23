@@ -83,6 +83,8 @@ func routeKindCode(kind routeKind) string {
 		return "public_bootstrap"
 	case routePlaybackInfo:
 		return "playback_info"
+	case routeItemDetail:
+		return "item_detail"
 	case routeVideo:
 		return "video"
 	default:

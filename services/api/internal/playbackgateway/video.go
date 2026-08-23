@@ -61,7 +61,14 @@ type videoDecision struct {
 // serveVideo chooses exactly one of reject, redirect or transparent Emby
 // fallback after ServeHTTP has already resolved a fresh local Principal.
 func (gateway *Gateway) serveVideo(writer http.ResponseWriter, request *http.Request, principal embytoken.Principal, startedAt time.Time) {
+	var containerRecovered bool
+	request, containerRecovered = gateway.recoverMissingStreamContainer(request, principal)
 	info := inspectVideoRequest(request)
+	if containerRecovered {
+		info.Accelerated = false
+		info.FallbackStage = "route"
+		info.FallbackReason = "container_recovered"
+	}
 	decision := newVideoDecision(request, info, &principal, startedAt)
 	if !info.Accelerated {
 		decision.Stage = info.FallbackStage
