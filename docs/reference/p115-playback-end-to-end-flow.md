@@ -163,12 +163,13 @@ sequenceDiagram
     Gateway->>Emby: 透明转发 bootstrap
     Emby-->>Gateway: PublicSystemInfo
     Gateway-->>Client: Emby 原状态/Header/Body
-    Client->>Gateway: POST /Users/AuthenticateByName<br/>应用/设备授权头
+    Client->>Gateway: POST /Users/AuthenticateByName<br/>X-Emby-Authorization: MediaBrowser ...
     Gateway->>Gateway: root API 规范化为 /emby/Users/AuthenticateByName
     Gateway->>Gateway: 严格校验 Client/Device/DeviceId/Version
     Gateway->>Emby: 原请求透明转发
-    Emby-->>Gateway: 原 AuthenticationResult
-    Gateway->>Gateway: 有界旁路读取 User.Id / AccessToken / ServerId
+    Emby-->>Gateway: deflate AuthenticationResult
+    Gateway->>Gateway: 保留原压缩响应，按 identity/gzip/deflate 白名单有界解码旁路副本
+    Gateway->>Gateway: 读取 User.Id / AccessToken / ServerId
     Gateway->>Token: RecordAuthenticationResult
     Token->>Token: purpose 隔离 HMAC-SHA256(AccessToken)
     Token->>DB: upsert serverId + tokenHash + user/device
@@ -362,7 +363,7 @@ reasonCode=<fixed-reason>
 | PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 2026-08-23 生产日志确认 Infuse `8.5` 请求 root SystemInfoPublic 后被严格应用头门控拒绝；同一 Emby `4.9.3.0` 已实测该接口无登录返回 PublicSystemInfo；精确公开路由修复已完成 fake/race/API 全量验证 | 新代码尚未部署复验；认证成功、`Static`、Token Header、302、HEAD/Range、UA/IP 绑定与进度事件仍未确认 |
+| Gateway/Infuse | 2026-08-23 已确认 root SystemInfoPublic 无登录语义、认证使用唯一 `X-Emby-Authorization: MediaBrowser ...`、成功响应使用 deflate JSON；三项兼容及 identity/gzip/deflate 旁路检查已完成 fake 验证，gzip 未做目标环境实测 | 新代码尚未完成 Token 映射后续请求复验；`Static`、Token Header、302、HEAD/Range、UA/IP 绑定与进度事件仍未确认 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
@@ -374,7 +375,7 @@ reasonCode=<fixed-reason>
 
 【致命问题】
 
-- `P1-1`：SystemInfoPublic 的错误应用头门控已按真实 Emby/Infuse 证据修复，但完整登录尚未部署复验，后续 115 资格请求合同仍未确认。
+- `P1-1`：SystemInfoPublic、MediaBrowser scheme 与 deflate 认证响应已按真实 Emby/Infuse 证据修复，但 Token 映射后续请求尚未复验，115 资格请求合同仍未确认。
 - `P1-2`：如果原始 Emby 公网入口未隔离，所有 Gateway 本地门控都可以被绕过。
 
 【改进方向】
@@ -387,19 +388,19 @@ reasonCode=<fixed-reason>
 | 优先级 | 问题 |
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
-| `P1` | `P1-1` SystemInfoPublic 门控已修复但真实登录及后续请求合同未复验；`P1-2` 原始 Emby 旁路风险 |
+| `P1` | `P1-1` 三项登录兼容已修复但 Token 后续请求合同未复验；`P1-2` 原始 Emby 旁路风险 |
 | `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
 
-#### 【P1-1】SystemInfoPublic 门控已修复但真实 Infuse 登录尚未复验
+#### 【P1-1】三项登录兼容已修复但 Token 后续请求尚未复验
 
-- 触发条件：目标环境仍运行要求 SystemInfoPublic 应用头的旧 Gateway。
-- 实际后果：Infuse 请求被 `application_header_invalid` 阻断，无法进入用户名密码登录；后续 PlaybackInfo、视频 fallback 和 115 资格分支不会执行。
+- 触发条件：目标环境仍运行要求 SystemInfoPublic 应用头、只接受 `Emby` scheme，或直接把 gzip/deflate 字节作为 JSON 解析的旧 Gateway。
+- 实际后果：Infuse 请求被本地门控阻断，或认证响应无法建立 Token 映射；后续受保护 API、PlaybackInfo、视频 fallback 和 115 资格分支不会执行。
 - 定位：`services/api/internal/playbackgateway/routing.go`、`services/api/internal/playbackgateway/gateway.go`、`docs/reference/emby-playback-proxy-contract.md`。
-- 建议：部署新代码后确认 `bootstrap_upstream_response route=system_info_public pathMode=root statusCode=200`，再继续验证认证、`Static`、`MediaSourceId`、`PlaySessionId`、Token Header 和视频路径。
-- 证据边界：Emby 无登录可访问和 Infuse 不满足应用头门控已由目标环境证明；Gateway 修复已有 fake/race/API 全量证据，完整登录成功仍未证实。
+- 建议：本地重跑后确认 SystemInfoPublic 上游 `200`、AuthenticateByName 不再出现应用头/解压错误，再验证 Token 后续请求、`Static`、`MediaSourceId`、`PlaySessionId` 和视频路径。
+- 证据边界：SystemInfoPublic、MediaBrowser scheme 和 deflate 已由目标环境证明；Gateway 的 identity/gzip/deflate 兼容已有 fake 证据，其中 gzip 未做目标环境实测，Token 映射后续请求仍未证实。
 
 #### 【P1-2】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
 

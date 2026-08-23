@@ -71,8 +71,10 @@
 - Gateway 分支：`code=token_header_invalid`
 - `v2.0.1` 部署后同一路径进入 `code=application_header_invalid route=public_bootstrap pathMode=root`，证明路径已修复但应用头门控仍错误。
 - 同一目标 Emby `4.9.3.0` 的精确接口已实测无需登录即可返回 PublicSystemInfo。
+- SystemInfoPublic 放行后，Infuse AuthenticateByName 已实测使用唯一 `X-Emby-Authorization` 和大小写敏感的 `MediaBrowser` scheme。
+- Emby `4.9.3.0` 的认证成功响应已实测使用 `Content-Encoding: deflate`，Content-Type 为 JSON；原始压缩长度约 `1.2 KiB`。
 
-这些证据证明目标 Emby 版本、root path 和 SystemInfoPublic 无登录语义；没有公开 ServerId 原值，也没有证明后续 AuthenticateByName、PlaybackInfo、视频路径和 302 行为。
+这些证据证明目标 Emby 版本、root path、SystemInfoPublic 无登录语义、AuthenticateByName Header/scheme 和 deflate 响应编码；没有公开 ServerId 原值，也没有证明 Token 映射后的后续请求、PlaybackInfo、视频路径和 302 行为。
 
 ### 已由固定版本 SDK 确认
 
@@ -300,7 +302,7 @@ sequenceDiagram
 - 在证据成立后精确支持登录前 `System/Info/Public`。
 - 保持默认受保护 API 透明代理和现有 115 fallback。
 
-截至 2026-08-23，本阶段代码已完成：Gateway 按支持范围内 9 个稳定 `4.9` OpenAPI 顶层 API family 的并集规范化 root path，保留已有 `/emby/...`，拒绝重复 `/emby/emby/...`，并让 AuthenticateByName、PlaybackInfo、视频和进度事件复用现有处理器。生产日志已确认 Infuse 的 SystemInfoPublic 请求不满足应用头门控，目标 Emby `4.9.3.0` 已确认该接口无登录可访问；Gateway 已据此把精确 SystemInfoPublic 拆为无本地鉴权的透明代理，fake、race 与 API 全量测试已通过，完整 Infuse 登录仍待部署复验。
+截至 2026-08-23，本阶段代码已完成：Gateway 按支持范围内 9 个稳定 `4.9` OpenAPI 顶层 API family 的并集规范化 root path，保留已有 `/emby/...`，拒绝重复 `/emby/emby/...`，并让 AuthenticateByName、PlaybackInfo、视频和进度事件复用现有处理器。目标 Emby 已确认 SystemInfoPublic 无登录可访问，Infuse `8.5` 已确认认证使用 `X-Emby-Authorization: MediaBrowser ...`；Gateway 已实现精确公开路由与 `Emby/MediaBrowser` 双固定 scheme，fake、race 与 API 全量测试已通过，完整 Infuse 登录仍待本地复验。
 
 ### 阶段 2：Web Surface 控制
 
@@ -373,6 +375,8 @@ npm --prefix services/web run build
 - 2026-08-23 生产日志确认 Infuse 根 `System/Info/Public` 兼容缺口。
 - 已按支持范围内稳定 OpenAPI API family 并集把 root path 规范化为单一 `/emby/...`，已有 `/emby` 请求保持兼容，重复前缀失败关闭。
 - 已把精确 root/`/emby` `GET System/Info/Public` 拆为唯一无本地鉴权的公开透明代理，并让 root AuthenticateByName、PlaybackInfo、视频与进度请求复用现有处理器。
+- 已按 Infuse `8.5` 实测兼容精确 `X-Emby-Authorization: MediaBrowser ...`，同时保留 SDK `Emby` scheme 和全部 Header 唯一性、字段、Token、quoted-string 严格校验。
+- 已按目标 Emby 实测的 deflate 认证响应建立 `identity/gzip/deflate` 白名单旁路解析：原响应透明返回，只解压有界旁路副本，失败时不建立映射且不泄露响应内容；其中 gzip 为 fake 合同测试覆盖的兼容能力，不表述为目标环境实测行为。
 - 已用 fake 和 race 测试覆盖 method/query/Header/body/响应透传、Token 门控、登录映射、证明、视频 redirect/fallback、未知/Web Surface 不改写和错误日志脱敏。
 - API 全量 `go test ./...`、`go vet ./...` 和 `go build ./...` 已通过；自动化没有请求真实 Emby 或 115。
 

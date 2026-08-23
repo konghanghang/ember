@@ -10,7 +10,8 @@ const (
 	publicUsersPath                 = "/emby/Users/Public"
 	embyAuthorizationHeader         = "X-Emby-Authorization"
 	standardAuthorizationHeader     = "Authorization"
-	applicationAuthorizationScheme  = "Emby "
+	embyAuthorizationScheme         = "Emby "
+	mediaBrowserAuthorizationScheme = "MediaBrowser "
 	maxApplicationAuthorizationSize = 8 * 1024
 	maxApplicationUserIDSize        = 50
 	maxApplicationClientSize        = 128
@@ -19,14 +20,21 @@ const (
 	maxApplicationVersionSize       = 64
 )
 
+type applicationAuthorizationHeader uint8
+
+const (
+	applicationHeaderStandard applicationAuthorizationHeader = iota + 1
+	applicationHeaderEmby
+)
+
 // extractApplicationMetadata accepts exactly one of the two header names
 // fixed by the Emby 4.9 contract and returns only non-authoritative audit metadata.
 func extractApplicationMetadata(header http.Header) (AuthenticationMetadata, bool) {
-	rawValue, ok := singleApplicationAuthorization(header)
+	rawValue, headerKind, ok := singleApplicationAuthorization(header)
 	if !ok {
 		return AuthenticationMetadata{}, false
 	}
-	fields, ok := parseApplicationAuthorization(rawValue)
+	fields, ok := parseApplicationAuthorization(rawValue, headerKind)
 	if !ok || fields["Client"] == "" || fields["Device"] == "" || fields["DeviceId"] == "" || fields["Version"] == "" {
 		return AuthenticationMetadata{}, false
 	}
@@ -35,28 +43,31 @@ func extractApplicationMetadata(header http.Header) (AuthenticationMetadata, boo
 
 // singleApplicationAuthorization prevents duplicate or conflicting header
 // names from creating parser differences between the gateway and Emby.
-func singleApplicationAuthorization(header http.Header) (string, bool) {
+func singleApplicationAuthorization(header http.Header) (string, applicationAuthorizationHeader, bool) {
 	standardValues := header.Values(standardAuthorizationHeader)
 	embyValues := header.Values(embyAuthorizationHeader)
 	if len(standardValues)+len(embyValues) != 1 {
-		return "", false
+		return "", 0, false
 	}
 	if len(standardValues) == 1 {
-		return standardValues[0], standardValues[0] != ""
+		return standardValues[0], applicationHeaderStandard, standardValues[0] != ""
 	}
-	return embyValues[0], embyValues[0] != ""
+	return embyValues[0], applicationHeaderEmby, embyValues[0] != ""
 }
 
 // parseApplicationAuthorization parses the fixed Emby quoted field grammar.
 // It supports commas inside quoted values but rejects unknown/duplicate fields,
 // control characters and all escapes except quoted quote/backslash.
-func parseApplicationAuthorization(value string) (map[string]string, bool) {
+func parseApplicationAuthorization(value string, headerKind applicationAuthorizationHeader) (map[string]string, bool) {
 	if len(value) > maxApplicationAuthorizationSize || !utf8.ValidString(value) ||
-		strings.ContainsAny(value, "\r\n") || !strings.HasPrefix(value, applicationAuthorizationScheme) {
+		strings.ContainsAny(value, "\r\n") {
+		return nil, false
+	}
+	position, ok := applicationAuthorizationFieldsStart(value, headerKind)
+	if !ok {
 		return nil, false
 	}
 	fields := make(map[string]string, 6)
-	position := len(applicationAuthorizationScheme)
 	for {
 		position = skipOptionalWhitespace(value, position)
 		if position >= len(value) {
@@ -95,6 +106,20 @@ func parseApplicationAuthorization(value string) (map[string]string, bool) {
 		position++
 	}
 	return fields, true
+}
+
+// applicationAuthorizationFieldsStart accepts Emby on either documented
+// header and MediaBrowser only on the X-Emby-Authorization shape observed from
+// Infuse 8.5, without case folding or arbitrary scheme expansion.
+func applicationAuthorizationFieldsStart(value string, headerKind applicationAuthorizationHeader) (int, bool) {
+	switch {
+	case strings.HasPrefix(value, embyAuthorizationScheme):
+		return len(embyAuthorizationScheme), true
+	case headerKind == applicationHeaderEmby && strings.HasPrefix(value, mediaBrowserAuthorizationScheme):
+		return len(mediaBrowserAuthorizationScheme), true
+	default:
+		return 0, false
+	}
 }
 
 // parseApplicationQuotedValue returns one decoded quoted-string and the first

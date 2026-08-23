@@ -2,6 +2,9 @@ package playbackgateway
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"errors"
 	"io"
@@ -20,9 +23,10 @@ import (
 )
 
 const (
-	fixtureAccessToken              = "fixture-access-token"
-	fixturePassword                 = "fixture-password"
-	fixtureApplicationAuthorization = `Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Token=""`
+	fixtureAccessToken               = "fixture-access-token"
+	fixturePassword                  = "fixture-password"
+	fixtureApplicationAuthorization  = `Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Token=""`
+	fixtureMediaBrowserAuthorization = `MediaBrowser UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.5", Token=""`
 )
 
 func TestGatewaySystemInfoPublicIsTransparentWithoutLocalAuthentication(t *testing.T) {
@@ -129,6 +133,9 @@ func TestGatewayRootAuthenticationIsTransparentAndRecordsMapping(t *testing.T) {
 		if string(body) != requestBody {
 			t.Errorf("upstream body = %q, want %q", string(body), requestBody)
 		}
+		if request.Header.Get("X-Emby-Authorization") != fixtureMediaBrowserAuthorization {
+			t.Error("MediaBrowser application authorization header changed")
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, responseBody)
 	}))
@@ -138,7 +145,7 @@ func TestGatewayRootAuthenticationIsTransparentAndRecordsMapping(t *testing.T) {
 	var logs bytes.Buffer
 	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
 	request := httptest.NewRequest(http.MethodPost, "/Users/AuthenticateByName?fixture=keep", strings.NewReader(requestBody))
-	request.Header.Set("Authorization", fixtureApplicationAuthorization)
+	request.Header.Set("X-Emby-Authorization", fixtureMediaBrowserAuthorization)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	gateway.ServeHTTP(response, request)
@@ -152,6 +159,145 @@ func TestGatewayRootAuthenticationIsTransparentAndRecordsMapping(t *testing.T) {
 		t.Fatalf("token calls = recorded %+v resolved %#v", recorded, resolved)
 	}
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, requestBody, responseBody)
+}
+
+func TestGatewayAuthenticationDeflateResponseIsTransparentAndRecordsMapping(t *testing.T) {
+	responseBody := `{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1","Unknown":true}`
+	for _, mode := range []string{"zlib", "raw"} {
+		t.Run(mode, func(t *testing.T) {
+			compressed := deflateFixture(t, []byte(responseBody), mode == "raw")
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != authenticationPath || request.Header.Get("X-Emby-Authorization") != fixtureMediaBrowserAuthorization {
+					t.Errorf("upstream request = %s headers=%#v", request.URL.RequestURI(), request.Header)
+				}
+				writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+				writer.Header().Set("Content-Encoding", "deflate")
+				writer.Header().Set("X-Upstream", "preserved")
+				_, _ = writer.Write(compressed)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			request := httptest.NewRequest(http.MethodPost, "/Users/AuthenticateByName", strings.NewReader(`{"Username":"user","Pw":"fixture"}`))
+			request.Header.Set("X-Emby-Authorization", fixtureMediaBrowserAuthorization)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), compressed) || response.Header().Get("Content-Encoding") != "deflate" || response.Header().Get("X-Upstream") != "preserved" {
+				t.Fatalf("response = status %d headers=%v bodyLength=%d, want original deflate response", response.Code, response.Header(), response.Body.Len())
+			}
+			recorded, resolved := tokenService.snapshot()
+			if len(recorded) != 1 || len(resolved) != 0 || recorded[0].AccessToken != fixtureAccessToken || recorded[0].DeviceID != "device-1" || recorded[0].ClientName != "Infuse" {
+				t.Fatalf("token calls = recorded %+v resolved %#v", recorded, resolved)
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody)
+		})
+	}
+}
+
+func TestGatewayAuthenticationGzipResponseIsTransparentAndRecordsMapping(t *testing.T) {
+	responseBody := `{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1","Unknown":true}`
+	compressed := gzipFixture(t, []byte(responseBody))
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != authenticationPath || request.Header.Get("X-Emby-Authorization") != fixtureMediaBrowserAuthorization {
+			t.Errorf("upstream request = %s headers=%#v", request.URL.RequestURI(), request.Header)
+		}
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("Content-Encoding", "gzip")
+		writer.Header().Set("X-Upstream", "preserved")
+		_, _ = writer.Write(compressed)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodPost, "/Users/AuthenticateByName", strings.NewReader(`{"Username":"user","Pw":"fixture"}`))
+	request.Header.Set("X-Emby-Authorization", fixtureMediaBrowserAuthorization)
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), compressed) || response.Header().Get("Content-Encoding") != "gzip" || response.Header().Get("X-Upstream") != "preserved" {
+		t.Fatalf("response = status %d headers=%v bodyLength=%d, want original gzip response", response.Code, response.Header(), response.Body.Len())
+	}
+	recorded, resolved := tokenService.snapshot()
+	if len(recorded) != 1 || len(resolved) != 0 || recorded[0].AccessToken != fixtureAccessToken || recorded[0].DeviceID != "device-1" || recorded[0].ClientName != "Infuse" {
+		t.Fatalf("token calls = recorded %+v resolved %#v", recorded, resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody)
+}
+
+func TestGatewayAuthenticationEncodedSidecarFailuresRemainTransparent(t *testing.T) {
+	oversizedJSON := []byte(`{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1","Padding":"` + strings.Repeat("x", 4096) + `"}`)
+	tests := []struct {
+		name            string
+		contentEncoding string
+		body            []byte
+		responseMax     int64
+		wantEncoding    string
+		wantReason      string
+	}{
+		{
+			name: "invalid deflate", contentEncoding: "deflate",
+			body: []byte("invalid-deflate-" + fixtureAccessToken), wantEncoding: "deflate", wantReason: "decode_failed",
+		},
+		{
+			name: "invalid gzip", contentEncoding: "gzip",
+			body: []byte("invalid-gzip-" + fixtureAccessToken), wantEncoding: "gzip", wantReason: "decode_failed",
+		},
+		{
+			name: "decoded body too large", contentEncoding: "deflate",
+			body: deflateFixture(t, oversizedJSON, false), responseMax: 512, wantEncoding: "deflate", wantReason: "decoded_body_too_large",
+		},
+		{
+			name: "gzip decoded body too large", contentEncoding: "gzip",
+			body: gzipFixture(t, oversizedJSON), responseMax: 512, wantEncoding: "gzip", wantReason: "decoded_body_too_large",
+		},
+		{
+			name: "unsupported encoding", contentEncoding: "br",
+			body: []byte(`{"AccessToken":"` + fixtureAccessToken + `"}`), wantEncoding: "unsupported", wantReason: "encoding_unsupported",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Encoding", test.contentEncoding)
+				writer.WriteHeader(http.StatusOK)
+				_, _ = writer.Write(test.body)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			if test.responseMax > 0 {
+				gateway.maxAuthenticationResponseBytes = test.responseMax
+			}
+			request := newAuthenticationRequest(`{"Username":"user","Pw":"fixture"}`)
+			if test.contentEncoding == "gzip" {
+				request.Header.Set("Accept-Encoding", "gzip")
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), test.body) || response.Header().Get("Content-Encoding") != test.contentEncoding {
+				t.Fatalf("response = status %d headers=%v bodyLength=%d, want original encoded response", response.Code, response.Header(), response.Body.Len())
+			}
+			recorded, _ := tokenService.snapshot()
+			if len(recorded) != 0 {
+				t.Fatalf("recorded mappings = %+v, want none", recorded)
+			}
+			for _, expected := range []string{"code=authentication_response_decode_failed", "contentEncoding=" + test.wantEncoding, "reasonCode=" + test.wantReason} {
+				if !strings.Contains(logs.String(), expected) {
+					t.Fatalf("logs = %q, want %s", logs.String(), expected)
+				}
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, string(test.body))
+		})
+	}
 }
 
 func TestGatewayRootProtectedAPIIsCanonicalizedAfterTokenGate(t *testing.T) {
@@ -825,7 +971,11 @@ func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *test
 		{name: "authentication missing header", method: http.MethodPost, path: authenticationPath},
 		{
 			name: "authentication wrong scheme", method: http.MethodPost, path: authenticationPath,
-			headers: http.Header{"Authorization": {`MediaBrowser Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0"`}},
+			headers: http.Header{"Authorization": {`Bearer Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0"`}},
+		},
+		{
+			name: "MediaBrowser on standard authorization is unsupported", method: http.MethodPost, path: authenticationPath,
+			headers: http.Header{"Authorization": {fixtureMediaBrowserAuthorization}},
 		},
 		{
 			name: "bootstrap has both header names", method: http.MethodGet, path: "/emby/Users/Public",
@@ -882,6 +1032,12 @@ func TestExtractApplicationMetadataUsesStrictVersionedHeader(t *testing.T) {
 				"X-Emby-Authorization": {`Emby Client="Infuse, Pro", Device="Living Room, TV", DeviceId="device-2", Version="8.1"`},
 			},
 			want: AuthenticationMetadata{DeviceID: "device-2", ClientName: "Infuse, Pro"}, wantAccept: true,
+		},
+		{
+			name: "Infuse MediaBrowser scheme", headers: http.Header{
+				"X-Emby-Authorization": {fixtureMediaBrowserAuthorization},
+			},
+			want: AuthenticationMetadata{DeviceID: "device-1", ClientName: "Infuse"}, wantAccept: true,
 		},
 		{name: "missing required field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Device="iPhone", Version="8.0"`}}},
 		{name: "duplicate field", headers: http.Header{"Authorization": {`Emby Client="Infuse", Client="Other", Device="iPhone", DeviceId="device-1", Version="8.0"`}}},
@@ -975,6 +1131,41 @@ func newAuthenticationRequest(body string) *http.Request {
 	request := httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader(body))
 	request.Header.Set("Authorization", fixtureApplicationAuthorization)
 	return request
+}
+
+func deflateFixture(t *testing.T, body []byte, raw bool) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	var writer io.WriteCloser
+	if raw {
+		flateWriter, err := flate.NewWriter(&buffer, flate.DefaultCompression)
+		if err != nil {
+			t.Fatalf("new raw deflate writer: %v", err)
+		}
+		writer = flateWriter
+	} else {
+		writer = zlib.NewWriter(&buffer)
+	}
+	if _, err := writer.Write(body); err != nil {
+		t.Fatalf("write deflate fixture: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close deflate fixture: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func gzipFixture(t *testing.T, body []byte) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write(body); err != nil {
+		t.Fatalf("write gzip fixture: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close gzip fixture: %v", err)
+	}
+	return buffer.Bytes()
 }
 
 func newTestGateway(

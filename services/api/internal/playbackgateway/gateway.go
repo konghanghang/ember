@@ -4,6 +4,9 @@ package playbackgateway
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +26,12 @@ const (
 	publicSystemInfoPath                 = "/emby/System/Info/Public"
 	accessTokenHeader                    = "X-Emby-Token"
 	defaultAuthenticationResponseMaxSize = int64(1 << 20)
+)
+
+var (
+	errAuthenticationResponseEncodingUnsupported = errors.New("authentication response encoding unsupported")
+	errAuthenticationResponseDecodeFailed        = errors.New("authentication response decode failed")
+	errAuthenticationResponseDecodedTooLarge     = errors.New("authentication response decoded body too large")
 )
 
 // TokenService is the narrow identity boundary required by the HTTP gateway.
@@ -260,8 +269,19 @@ func (gateway *Gateway) observeAuthenticationResponse(response *http.Response) e
 		return nil
 	}
 
+	decodedPrefix, decodeErr := decodeAuthenticationResponse(prefix, response.Header.Get("Content-Encoding"), gateway.maxAuthenticationResponseBytes)
+	if decodeErr != nil {
+		gateway.logger.Printf(
+			"[PlaybackGateway] code=authentication_response_decode_failed contentEncoding=%s reasonCode=%s errorType=%T",
+			authenticationResponseEncodingCode(response.Header.Get("Content-Encoding")),
+			authenticationResponseDecodeReasonCode(decodeErr),
+			decodeErr,
+		)
+		return nil
+	}
+
 	var result authenticationResult
-	if err := json.Unmarshal(prefix, &result); err != nil || !validAuthenticationResult(result) {
+	if err := json.Unmarshal(decodedPrefix, &result); err != nil || !validAuthenticationResult(result) {
 		gateway.logger.Printf("[PlaybackGateway] code=authentication_response_invalid errorType=%T", err)
 		return nil
 	}
@@ -276,6 +296,89 @@ func (gateway *Gateway) observeAuthenticationResponse(response *http.Response) e
 		gateway.logger.Printf("[PlaybackGateway] code=authentication_mapping_failed errorType=%T", err)
 	}
 	return nil
+}
+
+// decodeAuthenticationResponse decodes only the bounded sidecar copy used for
+// Token mapping. The original response body and Content-Encoding stay intact.
+func decodeAuthenticationResponse(body []byte, contentEncoding string, maxBytes int64) ([]byte, error) {
+	switch strings.ToLower(strings.TrimSpace(contentEncoding)) {
+	case "", "identity":
+		return body, nil
+	case "gzip":
+		return decodeGzipAuthenticationResponse(body, maxBytes)
+	case "deflate":
+		return decodeDeflateAuthenticationResponse(body, maxBytes)
+	default:
+		return nil, errAuthenticationResponseEncodingUnsupported
+	}
+}
+
+// decodeGzipAuthenticationResponse decodes a gzip sidecar while keeping the
+// compressed response bytes untouched for the downstream client.
+func decodeGzipAuthenticationResponse(body []byte, maxBytes int64) ([]byte, error) {
+	gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, errAuthenticationResponseDecodeFailed
+	}
+	defer gzipReader.Close()
+	return readBoundedAuthenticationResponse(gzipReader, maxBytes)
+}
+
+// decodeDeflateAuthenticationResponse accepts the zlib-wrapped HTTP deflate
+// form and the legacy raw DEFLATE form while applying the same decoded limit.
+func decodeDeflateAuthenticationResponse(body []byte, maxBytes int64) ([]byte, error) {
+	zlibReader, err := zlib.NewReader(bytes.NewReader(body))
+	if err == nil {
+		defer zlibReader.Close()
+		return readBoundedAuthenticationResponse(zlibReader, maxBytes)
+	}
+
+	rawReader := flate.NewReader(bytes.NewReader(body))
+	defer rawReader.Close()
+	return readBoundedAuthenticationResponse(rawReader, maxBytes)
+}
+
+// readBoundedAuthenticationResponse prevents compressed responses from
+// expanding beyond the sidecar inspection limit.
+func readBoundedAuthenticationResponse(reader io.Reader, maxBytes int64) ([]byte, error) {
+	if reader == nil || maxBytes <= 0 {
+		return nil, errAuthenticationResponseDecodeFailed
+	}
+	decoded, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+	if err != nil {
+		return nil, errAuthenticationResponseDecodeFailed
+	}
+	if int64(len(decoded)) > maxBytes {
+		return nil, errAuthenticationResponseDecodedTooLarge
+	}
+	return decoded, nil
+}
+
+// authenticationResponseEncodingCode limits logs to fixed encoding labels.
+func authenticationResponseEncodingCode(contentEncoding string) string {
+	switch strings.ToLower(strings.TrimSpace(contentEncoding)) {
+	case "", "identity":
+		return "identity"
+	case "gzip":
+		return "gzip"
+	case "deflate":
+		return "deflate"
+	default:
+		return "unsupported"
+	}
+}
+
+// authenticationResponseDecodeReasonCode maps decoder failures without
+// exposing compressed bytes or upstream-controlled Header text.
+func authenticationResponseDecodeReasonCode(err error) string {
+	switch {
+	case errors.Is(err, errAuthenticationResponseEncodingUnsupported):
+		return "encoding_unsupported"
+	case errors.Is(err, errAuthenticationResponseDecodedTooLarge):
+		return "decoded_body_too_large"
+	default:
+		return "decode_failed"
+	}
 }
 
 // LookupPlaybackProof returns one exact, non-expired in-process proof and

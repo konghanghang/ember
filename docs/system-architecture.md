@@ -806,8 +806,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 根 `/web/...` 和未知 Surface 不参与 API 规范化，继续维持当前受保护透传边界；Emby Web 静态资源和 WebSocket 要等独立版本合同与全局开关落地，不能被 API root 规则误改写
 - 精确 root 或 `/emby` 形态的 `GET System/Info/Public` 进入独立公开路由，不做本地应用头或 Token 校验，规范化后由 Emby 上游状态保持权威；其他 method、大小写、尾斜杠和 percent-encoding 变体不继承公开权限
 - 精确 `POST /Users/AuthenticateByName` 或 `/emby/Users/AuthenticateByName` 进入认证路由；公开用户与无 Index 公共用户头像同时接受 root 和 `/emby` 形态并进入 bootstrap
-- 认证与除 SystemInfoPublic 外的 bootstrap 请求必须先通过一个 `Authorization` 或 `X-Emby-Authorization` 的严格 `Emby ...` 应用头；两个 Header 同时出现、重复值、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空内嵌 Token、非法 quoted-string 或越界值返回空体 `401`
+- 认证与除 SystemInfoPublic 外的 bootstrap 请求必须先通过应用头：固定 SDK 的 `Emby` scheme 可用于 `Authorization` 或 `X-Emby-Authorization`，目标 Infuse `8.5` 实测的 `MediaBrowser` 只允许用于 `X-Emby-Authorization`。两个 Header 同时出现、重复值、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空内嵌 Token、非法 quoted-string、其他 Header/scheme 组合或越界值返回空体 `401`
 - 认证请求透明转发；上游 `200` 响应最多旁路检查 `1 MiB`，只读取 `User.Id/AccessToken/ServerId`，恢复原始字节、状态和普通 Header 后再返回客户端，未知 JSON 字段不重编码
+- 目标 Emby/Infuse 实测认证响应使用 `Content-Encoding: deflate`；Gateway 原样返回响应字节，只对有界旁路副本按 `identity/gzip/deflate` 白名单解码，其中 deflate 兼容 zlib-wrapped/raw DEFLATE。解码失败、未知编码或解码后超过 `1 MiB` 不改写响应且不建立 Token 映射，只记录固定脱敏原因码；gzip 为 fake 合同测试覆盖的兼容能力，不表述为目标环境实测行为
 - 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；日志只记录固定 code 和错误类型，不记录密码、AccessToken、URL 或响应体
 - 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求必须携带唯一 `X-Emby-Token` 并先通过 `ResolvePrincipal`；缺失、重复、未映射、已撤销或身份错配返回空体 `401`，用户不可用或到期返回空体 `403`，身份存储故障返回空体 `503`，请求不会到达 Emby
@@ -825,7 +826,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
 - 每个视频请求只打印一条 `decision=redirect|fallback|reject` 脱敏日志，不新建日志表或 migration；日志禁止 Token、Cookie、完整 Path/SHA1、115 URL 和上游原文
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
-- 2026-08-23 生产启动日志已确认目标 Emby `4.9.3.0`；Infuse `8.5` 首次请求根 `GET /System/Info/Public` 时没有可解析应用头，且同一 Emby 的精确接口已实测无登录返回 PublicSystemInfo。对应公开路由修复已通过 fake、race 与 API 全量测试但尚未部署复验，后续认证、`Static=true`、Token Header、PlaybackInfo、302 和进度事件顺序仍未证实
+- 2026-08-23 生产启动日志已确认目标 Emby `4.9.3.0`；Infuse `8.5` 已实测使用 root SystemInfoPublic、`X-Emby-Authorization: MediaBrowser ...` 认证头和 deflate 认证响应。对应三项兼容及 identity/gzip/deflate 旁路检查已通过 fake 测试，其中 gzip 未做目标环境实测；尚未完成 Token 映射后续请求复验，后续 `Static=true`、Token Header、PlaybackInfo、302 和进度事件顺序仍未证实
 
 ---
 
