@@ -14,6 +14,8 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 当前实现的完整组件图、请求时序、状态机、数据边界和系统性审查结果统一维护在 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)；本计划只保留阶段目标和未完成项。
 
+Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap 和 Emby Web Surface 控制由 [Ember Gateway 透明代理与 Web 访问控制实现方案](./ember-gateway-transparent-proxy-and-web-access.md) 负责；本计划只负责 115 Provider、DirectPlay 决策和正常 Emby 播放回退。
+
 ## 目标
 
 1. 新增独立播放网关，作为客户端访问 Emby 的公网入口；Emby 正常代理播放是基线，固定合同中的原始视频流请求尝试 115 直连，未完整成功时透明回退原始 Emby 请求。

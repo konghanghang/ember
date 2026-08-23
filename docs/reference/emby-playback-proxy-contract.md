@@ -10,14 +10,15 @@
 | --- | --- | --- | --- |
 | 协议证据基线 | `4.9.3.0 Release` | Emby.SDK 提交 `6ee0155063bc85578196489926359a8f37419502` | 本文列出的 method、path 和 DTO 字段以该提交为主要出处 |
 | Gateway 运行兼容范围 | `>= 4.9.0.0 && < 4.10.0.0` | 官方 `4.9.0.70` 至 `4.9.5.0` 的 9 个稳定 SDK Tag 对当前使用的 12 个 path 及核心 DTO 做过语义比对 | 四段数字版本落在该半开区间即可启动；`4.9.3.0` 不是唯一允许版本 |
-| 目标 Emby Server | 未确认 | 尚未调用目标实例 `GET /emby/System/Info` | 不能断言目标实例已落在支持范围或运行行为已通过实机验证 |
-| Infuse 客户端行为 | 未确认 | 尚未对目标版本 Infuse 做合同夹具或真实只读验证 | 不能断言所有请求顺序、重定向和 Header 行为已经覆盖 |
+| 目标 Emby Server | 部分确认 | 2026-08-23 Gateway 生产启动日志为 `listener_ready version=4.9.3.0 listenAddress=:8081 serverIdLength=32`；该日志只会在 `GET /emby/System/Info` 身份和版本核对通过后输出 | 已确认目标版本落在支持范围且 ServerId 非空；ServerId 原值、ServerName 和其他 API 运行行为未公开或未验证 |
+| Infuse 客户端行为 | 部分确认 | 2026-08-23 生产访问日志确认 `Infuse-Direct/8.5` 在首次登录前请求根路径 `GET /System/Info/Public`，当前 Gateway 返回 `401` | 已确认一个登录前根路径兼容缺口；应用授权头、后续认证、PlaybackInfo、视频和 302 行为仍未确认 |
 
 证据等级：
 
 - **固定版本源码确认**：由 Emby `4.9.3.0` SDK OpenAPI 直接证明。
 - **4.9 系列兼容确认**：官方 9 个稳定 `4.9` SDK Tag 中，Gateway 当前依赖的 12 个 path 以及 `SystemInfo`、`AuthenticationResult`、`UserDto`、`PlaybackInfoResponse`、`MediaSourceInfo` 核心字段保持一致。
 - **HTTP 传输要求**：由 HTTP 标准和反向代理边界决定，但仍需客户端合同测试锁定。
+- **受控生产日志确认**：只证明日志中可直接观察到的 method、path、状态、客户端标识和 Gateway 分支，不扩展推断未记录的 Header 或后续请求行为。
 - **未实机确认**：OpenAPI 允许该用法，但尚未在目标 Emby 与 Infuse 组合上验证。
 
 固定版本证据：
@@ -142,7 +143,7 @@ X-Emby-Authorization: Emby UserId="", Client="Infuse", Device="iPhone", DeviceId
 
 - bootstrap 表示“不要求已映射 AccessToken”，不表示任意匿名请求；仍必须携带上节固定的应用/设备授权头。
 - public 用户头像只放行文档明确引用的无 `Index` 形态；上传、删除、`/Delete`、带额外 path segment 或其他用户接口仍受 Token 门控。
-- `/emby/System/Info/Public` 虽返回 `PublicSystemInfo`，但固定提交的参考页明确标记 `Requires authentication as user`，当前不能因路径名包含 `Public` 就加入 bootstrap allowlist。
+- `/emby/System/Info/Public` 虽返回 `PublicSystemInfo`，固定提交的参考页明确标记 `Requires authentication as user`；但 2026-08-23 生产日志已确认 Infuse `8.5` 在取得用户 Token 前请求根路径 `/System/Info/Public`。官方生成文档与真实客户端时序存在冲突，必须先确认请求的应用授权头和上游匿名语义，再以精确 method/path 加入 bootstrap；不能仅因路径名包含 `Public` 扩大 allowlist。
 - Branding、服务器发现、Quick Connect 和其他登录前路径没有进入本次固定证据，继续失败关闭；目标 Infuse 实际请求到这些路径时，必须先补合同。
 
 ### 3.3 Token 哈希映射与本地撤销
@@ -194,9 +195,9 @@ Ember 本地撤销固定三种粒度：
 - 不合法、超过检查上限或映射写入失败的成功响应仍原样返回，但该 Token 不建立映射，下一次受保护请求失败关闭。
 - 受保护请求只接受唯一的 `X-Emby-Token`。缺失、重复、未映射、已撤销和身份错配返回空体 `401`；当前用户不可用或到期返回空体 `403`；身份存储不可用返回空体 `503`。
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
-- 固定 SDK 已确认标准应用/设备授权头及 `/Users/Public` 登录流程；目标 Infuse 是否实际使用同一 Header 名、scheme、字段和请求顺序仍未实机确认。`System/Info/Public` 等未进入 allowlist 的路径继续失败关闭。
+- 固定 SDK 已确认标准应用/设备授权头及 `/Users/Public` 登录流程；生产日志已确认目标 Infuse 在首次登录前使用根路径 `GET /System/Info/Public`，但是否携带同一 Header 名、scheme 和字段仍未确认。当前该路径尚未进入 allowlist，因此确定会失败关闭并中断首次登录。
 
-当前 HTTP 核心还会观察经自身代理的 PlaybackInfo 并生成进程内短期证明，但仍不包含视频路由、302 或持久播放会话，不表示目标 Emby/Infuse 已可用。
+当前 HTTP 核心还会观察经自身代理的 PlaybackInfo 并生成进程内短期证明，固定视频路由已经具备 115 `302` 与 Emby fallback；持久播放会话仍未实现，且首次登录已被根路径/bootstrap 不兼容阻塞，不能表示目标 Emby/Infuse 已可用。通用透明代理和 Web Surface 的收口计划见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
 
 ### 3.5 暂不覆盖的认证方式
 

@@ -350,11 +350,11 @@ reasonCode=<fixed-reason>
 
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
-| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、Gateway redirect/fallback/reject | 真实 115 风控和 Infuse 行为 |
+| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、Gateway redirect/fallback/reject | 真实 115 风控和未固化的 Infuse 请求行为 |
 | PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 尚未执行真实验收 | `Static`、Token Header、302、HEAD/Range、UA/IP 绑定与进度事件 |
+| Gateway/Infuse | 2026-08-23 生产日志确认 `Infuse-Direct/8.5` 首次连接请求根路径 `GET /System/Info/Public`，当前 Gateway 返回 `401 code=token_header_invalid` | 应用授权头、认证成功、`Static`、Token Header、302、HEAD/Range、UA/IP 绑定与进度事件 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
@@ -366,12 +366,12 @@ reasonCode=<fixed-reason>
 
 【致命问题】
 
-- `P1-1`：真实 Infuse 请求是否进入当前 115 资格分支尚未确认，可能导致加速功能整体不触发。
+- `P1-1`：Infuse 首次登录已确定被根路径/bootstrap 不兼容阻塞，且后续 115 资格请求合同仍未确认。
 - `P1-2`：如果原始 Emby 公网入口未隔离，所有 Gateway 本地门控都可以被绕过。
 
 【改进方向】
 
-- 先完成部署网络和 Infuse 请求合同验收，再继续会话/策略建模。
+- 先按 [Gateway 透明代理计划](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md) 修复根路径/bootstrap，并完成部署网络和后续 Infuse 请求合同验收，再继续会话/策略建模。
 - 随后收口账号运行期健康回写、冷却、会话/并发和容量治理。
 
 问题总表：
@@ -379,19 +379,19 @@ reasonCode=<fixed-reason>
 | 优先级 | 问题 |
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
-| `P1` | `P1-1` Infuse 请求合同未确认；`P1-2` 原始 Emby 旁路风险 |
+| `P1` | `P1-1` Infuse 首次登录路径已确定不兼容且后续请求合同未确认；`P1-2` 原始 Emby 旁路风险 |
 | `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
 
-#### 【P1-1】Infuse 请求合同尚未实机确认，115 加速可能始终不触发
+#### 【P1-1】Infuse 首次登录已被根路径/bootstrap 不兼容阻塞
 
-- 触发条件：目标 Infuse 不携带精确 `Static=true`、`MediaSourceId`、`PlaySessionId` 或固定 Token Header，或者使用不同流路径。
-- 实际后果：播放仍会 fallback Emby，但整个 115 加速功能对真实客户端可能表现为“永远没有 302”。
-- 定位：`services/api/internal/playbackgateway/video.go:159-233`、`docs/reference/emby-playback-proxy-contract.md`。
-- 建议：下一步先用预览镜像做受控 Infuse 验收并保存脱敏请求夹具；实测不符时先修版本化合同和 fake，再做会话/策略。
-- 证据边界：这是高影响验收阻塞，当前尚未证实为代码缺陷。
+- 触发条件：Infuse `8.5` 首次连接使用根路径 `GET /System/Info/Public`，当前 Gateway 只按 `/emby/...` 特定路径分类，并把该请求视为需要 `X-Emby-Token` 的普通受保护请求。
+- 实际后果：请求返回 `401 code=token_header_invalid`，客户端无法进入用户名密码登录；PlaybackInfo、视频 fallback 和 115 资格分支都不会执行。
+- 定位：`services/api/internal/playbackgateway/gateway.go`、`docs/reference/emby-playback-proxy-contract.md`。
+- 建议：按 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md) 先固定根 API path、`/emby` 兼容和 `System/Info/Public` 应用头合同，再用 fake 测试修复；随后继续验证 `Static`、`MediaSourceId`、`PlaySessionId`、Token Header 和视频路径。
+- 证据边界：根路径与当前门控冲突已经由生产日志证实；请求应用头和后续播放合同仍未证实。
 
 #### 【P1-2】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
 
@@ -440,8 +440,8 @@ reasonCode=<fixed-reason>
 
 ## 12. 建议的后续顺序
 
-1. 使用已构建的预览镜像完成外部 HTTPS、原始 Emby 隔离和目标 Infuse 请求验收。
-2. 根据实测请求固定新的 fixture；如果真实请求不满足当前资格，先修合同/Gateway。
+1. 按透明代理计划固定根 API path、`/emby` 兼容、`System/Info/Public` bootstrap 和 Web Surface 合同，并用 fake 测试修复首次登录阻塞。
+2. 完成外部 HTTPS 和原始 Emby 隔离后，继续受控 Infuse 验收并固定后续认证、PlaybackInfo、视频和进度事件 fixture。
 3. 接入账号运行期健康回写和冷却，避免 115 故障时逐请求重试。
 4. 实现持久 session、事件/TTL、套餐开关和 Gateway 并发。
 5. 在 session 可证明“无活跃播放”后设计保留文件容量治理。
