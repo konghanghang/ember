@@ -383,6 +383,84 @@ func TestGatewayProtectedRequestRequiresMappedTokenBeforeProxy(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
+func TestGatewayPlaybackSessionEventsAreTransparent(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "playing",
+			path: "/emby/Sessions/Playing",
+			body: `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":0,"PlayMethod":"DirectPlay","CanSeek":true}`,
+		},
+		{
+			name: "progress",
+			path: "/emby/Sessions/Playing/Progress",
+			body: `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":123456789,"PlayMethod":"DirectPlay","IsPaused":false}`,
+		},
+		{
+			name: "stopped",
+			path: "/emby/Sessions/Playing/Stopped",
+			body: `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":223456789,"Failed":false,"IsAutomated":false}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls int
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				upstreamCalls++
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					t.Fatalf("read upstream request body: %v", err)
+				}
+				if request.Method != http.MethodPost || request.URL.Path != test.path || request.URL.RawQuery != "fixture=keep" {
+					t.Fatalf("upstream request = %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
+				}
+				if request.Header.Get(accessTokenHeader) != fixtureAccessToken ||
+					request.Header.Get("Content-Type") != "application/json" || request.Header.Get("X-Fixture") != "preserved" {
+					t.Fatalf("upstream headers = %#v", request.Header)
+				}
+				if string(body) != test.body {
+					t.Fatalf("upstream body = %q, want %q", string(body), test.body)
+				}
+				writer.Header().Set("X-Upstream", "preserved")
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			tokenService := &fakeTokenService{principal: fixturePrincipal()}
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+			request := httptest.NewRequest(http.MethodPost, test.path+"?fixture=keep", strings.NewReader(test.body))
+			request.Header.Set(accessTokenHeader, fixtureAccessToken)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("X-Fixture", "preserved")
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusNoContent || response.Header().Get("X-Upstream") != "preserved" || upstreamCalls != 1 {
+				t.Fatalf("response=%d headers=%v upstreamCalls=%d", response.Code, response.Header(), upstreamCalls)
+			}
+
+			unauthorizedRequest := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+			unauthorizedRequest.Header.Set("Content-Type", "application/json")
+			unauthorizedResponse := httptest.NewRecorder()
+			gateway.ServeHTTP(unauthorizedResponse, unauthorizedRequest)
+			if unauthorizedResponse.Code != http.StatusUnauthorized || unauthorizedResponse.Body.Len() != 0 || upstreamCalls != 1 {
+				t.Fatalf("unauthorized response=%d body=%q upstreamCalls=%d", unauthorizedResponse.Code, unauthorizedResponse.Body.String(), upstreamCalls)
+			}
+
+			_, resolved := tokenService.snapshot()
+			if len(resolved) != 1 || resolved[0] != fixtureAccessToken {
+				t.Fatalf("resolved tokens = %#v", resolved)
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, test.body)
+		})
+	}
+}
+
 func TestGatewayProtectedRequestFailsClosedWithoutCallingUpstream(t *testing.T) {
 	tests := []struct {
 		name       string
