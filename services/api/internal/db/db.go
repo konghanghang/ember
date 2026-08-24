@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/konghang/ember/backend/internal/envbootstrap"
 	logpkg "github.com/konghang/ember/backend/internal/logging"
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/driver/postgres"
@@ -26,19 +26,9 @@ var DB *gorm.DB
 
 // InitDB 初始化数据库连接
 func InitDB() {
-	if envPath := os.Getenv("EMBER_DOTENV"); envPath != "" {
-		if err := godotenv.Load(envPath); err != nil {
-			log.Printf("[Env] godotenv.Load(%s) 失败：%v", envPath, err)
-		} else {
-			log.Printf("✅ 成功加载环境变量：%s", envPath)
-		}
-	} else if envPath := defaultDotenvPath(); envPath != "" {
-		if err := godotenv.Load(envPath); err != nil {
-			log.Printf("[Env] godotenv.Load(%s) 失败：%v", envPath, err)
-		} else {
-			log.Printf("✅ 成功加载环境变量：%s", envPath)
-		}
-	}
+	// Unified cmd/ember loads dotenv before logging. This silent once-only call
+	// preserves direct InitDB users such as the Web integration helper.
+	_ = envbootstrap.Load()
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -109,15 +99,6 @@ func newGORMLogger(output io.Writer, debug bool) logger.Interface {
 			Colorful:                  true,        // 彩色输出
 		},
 	)
-}
-
-func defaultDotenvPath() string {
-	for _, path := range []string{".env", "services/api/.env"} {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
 }
 
 // VerifySchema 在启动期检查所有业务表、关键列与关键索引是否存在。

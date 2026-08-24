@@ -30,6 +30,8 @@
 
 API、Gateway 与 Bot 额外共用一个部署期应用日志变量 `LOG_LEVEL`：只接受 `info/debug`，默认 `info`，修改后重启对应进程生效。它不进入设置中心，也不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 自身日志。
 
+Go 统一入口会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未指定时依次检查当前目录 `.env` 与 `services/api/.env`。因此本地文件中的 `LOG_LEVEL` 与 Compose 直接注入具有相同语义，已有系统环境变量继续优先，不被 dotenv 覆盖。
+
 ---
 
 ## 2. API 数据库配置

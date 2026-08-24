@@ -109,6 +109,7 @@ var (
 	logWriter    io.Writer = os.Stdout
 	initErr      error
 	currentLevel atomic.Uint32
+	levelInvalid atomic.Bool
 )
 
 // parseLevel accepts the two currently safe project-wide levels. Invalid
@@ -170,6 +171,7 @@ func Init(processRole string) error {
 	initOnce.Do(func() {
 		level, invalid := parseLevel(os.Getenv("LOG_LEVEL"))
 		currentLevel.Store(uint32(level))
+		levelInvalid.Store(invalid)
 		writer := newDailyFileWriter(logDir, filePrefix)
 		logWriter = writer
 		log.SetOutput(writer)
@@ -177,12 +179,18 @@ func Init(processRole string) error {
 		gin.DefaultWriter = writer
 		gin.DefaultErrorWriter = writer
 		initErr = os.MkdirAll(logDir, 0o755)
-		if invalid {
-			log.Printf("[Logging] level=info code=log_level_invalid fallbackLevel=info")
-		}
-		log.Printf("[Logging] level=info code=logging_initialized processRole=%s logLevel=%s", processRole, levelName(level))
 	})
 	return initErr
+}
+
+// LogInitialized emits the final process logging decision after entrypoint has
+// reported any dotenv bootstrap result, keeping startup evidence in real order.
+func LogInitialized(processRole string) {
+	if levelInvalid.Load() {
+		log.Printf("[Logging] level=info code=log_level_invalid fallbackLevel=info")
+	}
+	log.Printf("[Logging] level=info code=logging_initialized processRole=%s logLevel=%s",
+		processRole, levelName(Level(currentLevel.Load())))
 }
 
 func Writer() io.Writer {

@@ -4,9 +4,34 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/konghang/ember/backend/internal/envbootstrap"
 )
+
+func TestRunLoadsEnvironmentBeforeLogging(t *testing.T) {
+	events := make([]string, 0, 4)
+	exitCode := run(context.Background(), []string{"gateway"}, &bytes.Buffer{}, &bytes.Buffer{}, dependencies{
+		loadEnvironment: func() envbootstrap.Result {
+			events = append(events, "environment")
+			return envbootstrap.Result{Path: ".env"}
+		},
+		initLogging: func(string) error {
+			events = append(events, "logging")
+			return nil
+		},
+		logInitialized: func(string) { events = append(events, "logging_ready") },
+		runGateway: func(context.Context) error {
+			events = append(events, "gateway")
+			return nil
+		},
+	})
+	if exitCode != exitSuccess || !reflect.DeepEqual(events, []string{"environment", "logging", "logging_ready", "gateway"}) {
+		t.Fatalf("exit=%d events=%v", exitCode, events)
+	}
+}
 
 func TestRunDispatchesOnlySelectedProcess(t *testing.T) {
 	tests := []struct {
@@ -63,9 +88,10 @@ func TestRunHelpAndInvalidArgumentsNeverInitializeProcesses(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			exitCode := run(context.Background(), test.args, &stdout, &stderr, dependencies{
-				initLogging: func(string) error { calls++; return nil },
-				runAPI:      func() error { calls++; return nil },
-				runGateway:  func(context.Context) error { calls++; return nil },
+				loadEnvironment: func() envbootstrap.Result { calls++; return envbootstrap.Result{} },
+				initLogging:     func(string) error { calls++; return nil },
+				runAPI:          func() error { calls++; return nil },
+				runGateway:      func(context.Context) error { calls++; return nil },
 			})
 			if exitCode != test.wantExit || calls != 0 {
 				t.Fatalf("run(%v) = exit %d calls=%d", test.args, exitCode, calls)

@@ -93,6 +93,8 @@ API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接
 
 API、Gateway 和 Bot 共用项目级 `LOG_LEVEL`，只接受 `info/debug` 并默认 `info`。Info 保留关键业务事件、失败和视频最终决策；Debug 额外输出安全请求摘要、正常 access log、参数化 SQL、Gateway 缓存/载体诊断和 Bot 应用调试信息。非法值回退 `info` 并记录一次固定警告；修改后重启目标服务生效。该变量不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 自身日志。
 
+本地直接运行 `ember api/gateway` 时，entrypoint 会先加载 `EMBER_DOTENV` 指定文件；未指定时检查当前目录 `.env`、再检查 `services/api/.env`，之后才初始化日志。因此若日志启动行仍显示 `logLevel=info`，先确认 Debug 写入的是上述实际命中的文件，或直接在进程环境中导出 `LOG_LEVEL=debug`。
+
 API 与 Gateway 都把日志写到 stdout 和按日文件，但文件前缀固定隔离：API 使用 `logs/api-YYYY-MM-DD.log`，Gateway 使用 `logs/gateway-YYYY-MM-DD.log`。Compose 分别挂载 `api_logs` 与 `gateway_logs`；直接在同一工作目录运行两个二进制进程时也不会写入同一个文件。Bot 继续使用自己的 stdout 与按日轮转文件。
 
 ## `.env.example` 的已知缺口

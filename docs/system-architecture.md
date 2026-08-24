@@ -793,7 +793,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前已有单 `ember` 二进制、同镜像双容器 Compose、可注入 `http.Handler` 和 HTTP 生命周期装配；Infuse 登录与普通资源 API 已完成本地实机验证，尚未完成外部 HTTPS 反向代理、原始 Emby 公网隔离和真实播放验收：
 
 - 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
-- `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、日志初始化和退出码；服务进程只保留 `cmd/ember` 一个 main package，不再维护旧启动包装
+- `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、可选 dotenv bootstrap、日志初始化和退出码；合法运行命令先按 `EMBER_DOTENV → .env → services/api/.env` 选择并加载一次环境文件，再解析 `LOG_LEVEL` 初始化日志，最后进入 API/Gateway。help 与非法参数保持无环境读取副作用；`InitDB` 保留一次静默兜底以兼容直接调用方
 - entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写。API/Gateway/Bot 共用启动期 `LOG_LEVEL=info|debug`，默认 `info`；非法值回退 Info，详细请求形态、普通 access、全部参数化 SQL 和高频缓存命中只在 Debug 输出。API/Bot access 使用路由模板而非真实 path 参数，Bot 关闭 Uvicorn 原生 access，第三方 Bot HTTP logger 不随项目 Debug 放宽
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 

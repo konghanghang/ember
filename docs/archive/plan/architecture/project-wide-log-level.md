@@ -201,6 +201,7 @@ docker compose -f infrastructure/docker/docker-compose.yml config
 - Gateway 的 `request_completed`、Container 快照成功和 PlaybackInfo 复用归 Debug；视频最终决策继续在 Info 输出；普通请求取消不再由 Store、Gateway 和完成摘要重复输出三次。
 - Bot 已读取同一变量，Uvicorn 原生 access 固定关闭并由安全路由模板摘要替代，`httpx/httpcore/telegram` 固定不低于 Warning。
 - 已通过 API `go test ./...`、目标包 race、`go vet ./...`、`go build ./...`；Bot `47 passed` 与 `py_compile`；Compose 静态配置和 `git diff --check`。本轮未启动服务，未执行改造后的运行时手工切换验证。
+- 2026-08-24 首次本地启动验收发现 entrypoint 在 `InitDB` 加载 `.env` 之前已初始化日志，导致写在 `.env` 中的 `LOG_LEVEL=debug` 被当作空值并回退 Info；后续已将可选 dotenv bootstrap 提前到日志初始化之前，并保留 `InitDB` 直接调用方的静默兜底。该修复已有加载优先级、环境覆盖和 entrypoint 顺序测试，用户再次启动已确认 `.env` 中的 Debug 级别正确生效。
 
 ## 落地后文档处理
 

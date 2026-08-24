@@ -62,6 +62,26 @@ func TestDebugfHonorsGlobalLevel(t *testing.T) {
 	}
 }
 
+func TestLogInitializedReportsResolvedLevel(t *testing.T) {
+	originalOutput := log.Writer()
+	originalLevel := currentLevel.Load()
+	originalInvalid := levelInvalid.Load()
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+		currentLevel.Store(originalLevel)
+		levelInvalid.Store(originalInvalid)
+	})
+
+	var output bytes.Buffer
+	log.SetOutput(&output)
+	currentLevel.Store(uint32(LevelDebug))
+	levelInvalid.Store(false)
+	LogInitialized(ProcessRoleGateway)
+	if !strings.Contains(output.String(), "processRole=gateway logLevel=debug") {
+		t.Fatalf("initialized output=%q", output.String())
+	}
+}
+
 func TestGinAccessLoggerUsesGlobalLevelWithoutQueryValues(t *testing.T) {
 	originalOutput := log.Writer()
 	originalLevel := currentLevel.Load()
@@ -179,6 +199,8 @@ func TestInitSetsGlobalWriters(t *testing.T) {
 	originalLogFlags := log.Flags()
 	originalGinWriter := gin.DefaultWriter
 	originalGinErrorWriter := gin.DefaultErrorWriter
+	originalLevel := currentLevel.Load()
+	originalInvalid := levelInvalid.Load()
 
 	t.Cleanup(func() {
 		_ = os.Chdir(originalWd)
@@ -189,7 +211,10 @@ func TestInitSetsGlobalWriters(t *testing.T) {
 		log.SetFlags(originalLogFlags)
 		gin.DefaultWriter = originalGinWriter
 		gin.DefaultErrorWriter = originalGinErrorWriter
+		currentLevel.Store(originalLevel)
+		levelInvalid.Store(originalInvalid)
 	})
+	t.Setenv("LOG_LEVEL", "info")
 
 	if err := os.Chdir(t.TempDir()); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
