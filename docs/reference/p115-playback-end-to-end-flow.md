@@ -370,7 +370,7 @@ fallback 复用原始 request，保留 method、path、query、Range、User-Agen
 
 ### 8.3 单条决策日志
 
-每个固定视频请求除 Gateway 统一的 `request_completed` 请求摘要外，只额外打印一条播放决策：
+每个固定视频请求在默认 Info 只打印一条播放决策；`LOG_LEVEL=debug` 时才额外打印 Gateway 统一的 `request_completed` 请求摘要：
 
 ```text
 decision=redirect|fallback|reject
@@ -378,7 +378,7 @@ stage=<fixed-stage>
 reasonCode=<fixed-reason>
 ```
 
-统一请求摘要记录有界 method/Host/原始 path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；播放决策可以记录必要 ID、状态和耗时。两者都禁止记录 query value、Header 原值、Token、Cookie、完整媒体 Path/SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
+Debug 请求摘要记录有界 method/Host/原始 path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；Info 播放决策可以记录必要 ID、状态和耗时。Debug 不重复生成第二条决策；两者都禁止记录 query value、Header 原值、Token、Cookie、完整媒体 Path/SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
 
 ## 9. 数据与秘密边界
 

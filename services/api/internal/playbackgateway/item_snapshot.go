@@ -210,7 +210,7 @@ func (gateway *Gateway) observeUserItemDetailResponse(response *http.Response, r
 		payload.MediaSources,
 	)
 	if written > 0 {
-		gateway.logger.Printf("[PlaybackGateway] code=item_container_snapshot_recorded mappingId=%s itemId=%s count=%d",
+		gateway.debugf("[PlaybackGateway] level=debug code=item_container_snapshot_recorded mappingId=%s itemId=%s count=%d",
 			routeContext.principal.MappingID, routeContext.itemDetailItemID, written)
 	}
 	return nil

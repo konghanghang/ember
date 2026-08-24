@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sys
 import types
@@ -42,6 +43,11 @@ if "fastapi" not in sys.modules:
             return decorator
 
         def post(self, *args, **kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+
+        def middleware(self, *args, **kwargs):
             def decorator(fn):
                 return fn
             return decorator
@@ -246,7 +252,45 @@ server.TELEGRAM_WEBHOOK_SECRET = "test-webhook-secret"
 server.WEBHOOK_URL = "https://example.com"
 
 
+class LoggingConfigurationTestCase(unittest.TestCase):
+    def test_resolve_log_level_defaults_normalizes_and_falls_back(self) -> None:
+        self.assertEqual(server.resolve_log_level(None), (logging.INFO, "info", False))
+        self.assertEqual(server.resolve_log_level(" DeBuG "), (logging.DEBUG, "debug", False))
+        self.assertEqual(server.resolve_log_level("verbose"), (logging.INFO, "info", True))
+
+    def test_request_log_level_keeps_success_debug_only(self) -> None:
+        self.assertIsNone(server.request_log_level(debug_enabled=False, status_code=200))
+        self.assertEqual(server.request_log_level(debug_enabled=True, status_code=200), logging.DEBUG)
+        self.assertEqual(server.request_log_level(debug_enabled=False, status_code=500), logging.INFO)
+
+    def test_third_party_loggers_remain_warning_in_debug(self) -> None:
+        server.configure_third_party_loggers()
+        for name in ("httpx", "httpcore", "telegram"):
+            self.assertGreaterEqual(logging.getLogger(name).level, logging.WARNING)
+
+
 class ServerWebhookRetryTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_safe_request_log_uses_route_template_without_query(self) -> None:
+        request = types.SimpleNamespace(
+            method="GET",
+            url=types.SimpleNamespace(path="/notify/item-1"),
+            scope={"route": types.SimpleNamespace(path="/notify/:id")},
+        )
+        call_next = AsyncMock(return_value=types.SimpleNamespace(status_code=204))
+        original_debug = server.BOT_DEBUG_LOGGING
+        server.BOT_DEBUG_LOGGING = True
+        try:
+            with patch.object(server.logger, "log") as log_mock:
+                response = await server.log_http_request(request, call_next)
+        finally:
+            server.BOT_DEBUG_LOGGING = original_debug
+
+        self.assertEqual(response.status_code, 204)
+        log_mock.assert_called_once()
+        self.assertEqual(log_mock.call_args.args[0], logging.DEBUG)
+        rendered = " ".join(str(value) for value in log_mock.call_args.args)
+        self.assertIn("/notify/:id", rendered)
+        self.assertNotIn("item-1", rendered)
     async def test_register_webhook_with_retry_stops_after_max_attempts(self) -> None:
         stop_event = asyncio.Event()
 

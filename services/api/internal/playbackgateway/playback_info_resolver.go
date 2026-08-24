@@ -60,7 +60,7 @@ func (gateway *Gateway) resolvePlaybackInfoOnDemand(
 	}
 	if proof, ok := gateway.proofs.LookupLatestMediaSource(principal.MappingID, itemID, mediaSourceID); ok &&
 		playbackProofMatchesPrincipal(proof, principal) {
-		gateway.logger.Printf("[PlaybackGateway] code=playback_info_reused_on_demand mappingId=%s itemId=%s", principal.MappingID, itemID)
+		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_reused_on_demand mappingId=%s itemId=%s", principal.MappingID, itemID)
 		return onDemandPlaybackInfo{PlaySessionID: proof.PlaySessionID, Container: proof.Container}, ""
 	}
 	key := principal.MappingID + "\x00" + itemID + "\x00" + mediaSourceID

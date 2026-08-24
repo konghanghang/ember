@@ -16,6 +16,7 @@ import (
 
 	embypkg "github.com/konghang/ember/backend/internal/integrations/emby"
 	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 	"github.com/konghang/ember/backend/internal/services/directplay"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 	"github.com/konghang/ember/backend/internal/services/p115account"
@@ -133,6 +134,7 @@ func NewProductionRuntime(
 		DirectPlayService: directPlayService,
 		Transport:         dependencies.Transport,
 		Logger:            logger,
+		Debug:             logpkg.DebugEnabled(),
 	})
 	if err != nil {
 		return nil, ErrRuntimeConfig

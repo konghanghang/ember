@@ -46,7 +46,7 @@ func InitDB() {
 	}
 	dsn = withConnectTimeout(dsn, "8")
 
-	newLogger := newGORMLogger(logpkg.Writer())
+	newLogger := newGORMLogger(logpkg.Writer(), logpkg.DebugEnabled())
 
 	var err error
 	log.Println("ℹ️  正在连接 PostgreSQL...")
@@ -94,12 +94,16 @@ func InitDB() {
 }
 
 // newGORMLogger preserves SQL timing and structure while suppressing all bound values.
-func newGORMLogger(output io.Writer) logger.Interface {
+func newGORMLogger(output io.Writer, debug bool) logger.Interface {
+	logLevel := logger.Warn
+	if debug {
+		logLevel = logger.Info
+	}
 	return logger.New(
 		log.New(output, "\r\n", log.LstdFlags),
 		logger.Config{
 			SlowThreshold:             time.Second, // 慢查询阈值
-			LogLevel:                  logger.Info, // 日志级别：Info 显示所有 SQL
+			LogLevel:                  logLevel,    // 正常只保留慢 SQL/错误，Debug 才显示全部 SQL
 			IgnoreRecordNotFoundError: false,       // 不忽略 RecordNotFound 错误
 			ParameterizedQueries:      true,        // 保留 SQL 结构但隐藏敏感参数值
 			Colorful:                  true,        // 彩色输出

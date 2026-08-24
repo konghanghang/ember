@@ -1124,6 +1124,34 @@ func TestGatewayRequestCompletionLogsSuccessfulUpstreamStatus(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
+func TestGatewayInfoLevelSuppressesDetailedSuccessfulRequestLog(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	var logs bytes.Buffer
+	gateway, err := New(Config{
+		Upstream:     upstreamURL,
+		TokenService: &fakeTokenService{principal: fixturePrincipal()},
+		Logger:       log.New(&logs, "", 0),
+		Debug:        false,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/Items/fixture", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	gateway.ServeHTTP(httptest.NewRecorder(), request)
+	if strings.Contains(logs.String(), "code=request_completed") {
+		t.Fatalf("info logs=%q, want no detailed request completion", logs.String())
+	}
+}
+
 func TestApplicationAuthorizationDiagnosticsHandlesEitherHeaderWithoutSecrets(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -1365,7 +1393,7 @@ func TestGatewayDistinguishesCanceledIdentityLookupFromStoreOutage(t *testing.T)
 		wantStatus int
 		wantCode   string
 	}{
-		{name: "request canceled", err: context.Canceled, wantStatus: 499, wantCode: "token_request_canceled"},
+		{name: "request canceled", err: context.Canceled, wantStatus: 499, wantCode: "code=request_completed"},
 		{name: "deadline exceeded", err: context.DeadlineExceeded, wantStatus: http.StatusGatewayTimeout, wantCode: "token_request_deadline_exceeded"},
 	}
 	for _, test := range tests {
@@ -1387,8 +1415,11 @@ func TestGatewayDistinguishesCanceledIdentityLookupFromStoreOutage(t *testing.T)
 			if response.Code != test.wantStatus || upstreamCalls.Load() != 0 {
 				t.Fatalf("response=%d upstreamCalls=%d, want local %d", response.Code, upstreamCalls.Load(), test.wantStatus)
 			}
-			if !strings.Contains(logs.String(), "code="+test.wantCode) || strings.Contains(logs.String(), "code=token_store_unavailable") {
+			if !strings.Contains(logs.String(), test.wantCode) || strings.Contains(logs.String(), "code=token_store_unavailable") {
 				t.Fatalf("logs=%q", logs.String())
+			}
+			if test.err == context.Canceled && strings.Count(logs.String(), "code=") != 1 {
+				t.Fatalf("canceled request logs=%q, want one completion event", logs.String())
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 		})
@@ -1777,6 +1808,7 @@ func newTestGateway(
 		Upstream:     upstreamURL,
 		TokenService: tokenService,
 		Logger:       log.New(logs, "", 0),
+		Debug:        true,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -17,7 +17,7 @@
 - 进行中的功能实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将管理员 API Key 方案移入 `docs/archive/plan/access-auth/`，将 settings key cache 方案移入 `docs/archive/plan/architecture/`，将 PlanGroup 媒体库延迟同步方案移入 `docs/archive/plan/console-admin/`，并将播放排行榜媒体库 allowlist 与按套餐分组的订阅自动通过额度方案移入 `docs/archive/plan/media-subscription/`；上一轮已将用户媒体库管理方案移入 `docs/archive/plan/media-subscription/`，并将控制台概览与账号中心布局改造方案移入 `docs/archive/plan/console-admin/`；更早已将多管理员订阅通知消息同步方案移入 `docs/archive/plan/bot-telegram/`，以及 OSS 部署体验、数据库迁移自动应用、管理员 Emby 账号绑定、注册邮箱域名白名单、数据库迁移 Baseline 与归档收口、订阅拒绝后重新发起、用户侧媒体库入口收口、控制台与后台 UI 一致性收口优化、注册码绑定套餐分组、缺集管理与精准补集、订阅状态可见性与结果通知等方案陆续迁入归档。当前 `docs/plan/` 只保留仍在推进中的实施稿与模板入口。
+最近一次归档已将项目级日志级别方案移入 `docs/archive/plan/architecture/`；此前已将管理员 API Key 方案移入 `docs/archive/plan/access-auth/`，将 settings key cache 方案移入 `docs/archive/plan/architecture/`，将 PlanGroup 媒体库延迟同步方案移入 `docs/archive/plan/console-admin/`，并将播放排行榜媒体库 allowlist 与按套餐分组的订阅自动通过额度方案移入 `docs/archive/plan/media-subscription/`；更早已将用户媒体库管理方案、控制台概览与账号中心布局改造方案、多管理员订阅通知消息同步方案，以及 OSS 部署体验、数据库迁移自动应用、管理员 Emby 账号绑定、注册邮箱域名白名单、数据库迁移 Baseline 与归档收口、订阅拒绝后重新发起、控制台与后台 UI 一致性收口、缺集管理与精准补集、订阅状态可见性与结果通知等方案陆续迁入归档。当前 `docs/plan/` 只保留仍在推进中的实施稿与模板入口。
 
 具体状态见 [计划文档盘点](./plan-inventory.md)。
 

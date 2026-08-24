@@ -10,13 +10,7 @@ import (
 
 func Start() error {
 	r := gin.New()
-	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-		Output: logpkg.Writer(),
-		SkipPaths: []string{
-			"/",
-			"/health",
-		},
-	}))
+	r.Use(logpkg.GinAccessLogger())
 	r.Use(gin.Recovery())
 
 	handlers, err := newAppHandlers()

@@ -58,6 +58,7 @@ type Config struct {
 	DirectPlayService DirectPlayService
 	Transport         http.RoundTripper
 	Logger            *log.Logger
+	Debug             bool
 }
 
 // Gateway validates mapped tokens before proxying protected requests and
@@ -70,6 +71,7 @@ type Gateway struct {
 	tokenService                   TokenService
 	directPlayService              DirectPlayService
 	logger                         *log.Logger
+	debug                          bool
 	proofs                         *playbackProofCache
 	itemContainers                 *itemContainerSnapshotCache
 	playbackInfoFlights            *onDemandPlaybackInfoFlightGroup
@@ -139,6 +141,7 @@ func New(config Config) (*Gateway, error) {
 		tokenService:                   config.TokenService,
 		directPlayService:              config.DirectPlayService,
 		logger:                         logger,
+		debug:                          config.Debug,
 		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
 		itemContainers:                 newItemContainerSnapshotCache(defaultItemContainerSnapshotMaxEntries, defaultItemContainerSnapshotTTL),
 		playbackInfoFlights:            &onDemandPlaybackInfoFlightGroup{},
@@ -286,7 +289,9 @@ func (gateway *Gateway) resolveRequestPrincipal(
 			gateway.rejectVideo(writer, request, status, "identity", strings.TrimPrefix(code, "token_"), startedAt)
 			return embytoken.Principal{}, false
 		}
-		gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
+		if code != "token_request_canceled" {
+			gateway.logger.Printf("[PlaybackGateway] code=%s errorType=%T", code, err)
+		}
 		writer.WriteHeader(status)
 		return embytoken.Principal{}, false
 	}

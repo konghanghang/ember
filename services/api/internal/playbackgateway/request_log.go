@@ -138,8 +138,11 @@ func (gateway *Gateway) logRequestCompletion(
 	statusCode int,
 	startedAt time.Time,
 ) {
+	if !gateway.debug {
+		return
+	}
 	gateway.logger.Printf(
-		"[PlaybackGateway] code=request_completed method=%s host=%q path=%q pathTruncated=%t queryKeys=%q queryKeyCount=%d queryKeysTruncated=%t route=%s pathMode=%s statusCode=%d outcome=%s durationMs=%d xEmbyTokenCount=%d xEmbyTokenState=%s xMediaBrowserTokenCount=%d xMediaBrowserTokenState=%s xEmbyAuthorizationCount=%d xMediaBrowserAuthorizationCount=%d authorizationCount=%d applicationScheme=%s embeddedTokenState=%s apiKeyQueryPresent=%t queryTokenSourceCount=%d queryTokenState=%s userAgentFamily=%s userAgentVersion=%q",
+		"[PlaybackGateway] level=debug code=request_completed method=%s host=%q path=%q pathTruncated=%t queryKeys=%q queryKeyCount=%d queryKeysTruncated=%t route=%s pathMode=%s statusCode=%d outcome=%s durationMs=%d xEmbyTokenCount=%d xEmbyTokenState=%s xMediaBrowserTokenCount=%d xMediaBrowserTokenState=%s xEmbyAuthorizationCount=%d xMediaBrowserAuthorizationCount=%d authorizationCount=%d applicationScheme=%s embeddedTokenState=%s apiKeyQueryPresent=%t queryTokenSourceCount=%d queryTokenState=%s userAgentFamily=%s userAgentVersion=%q",
 		snapshot.method,
 		snapshot.host,
 		snapshot.path,
@@ -167,6 +170,14 @@ func (gateway *Gateway) logRequestCompletion(
 		snapshot.userAgentFamily,
 		snapshot.userAgentVersion,
 	)
+}
+
+// debugf keeps request-shape and cache diagnostics injectable with the
+// Gateway's existing logger while honoring the process-level Debug decision.
+func (gateway *Gateway) debugf(format string, args ...interface{}) {
+	if gateway != nil && gateway.debug {
+		gateway.logger.Printf(format, args...)
+	}
 }
 
 // requestQueryKeySummary logs sorted, bounded key names but never query values.

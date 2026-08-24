@@ -91,7 +91,9 @@ Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问
 
 API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接运行 `ember gateway` 时同样监听 `:8081`。`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变映射到 Gateway `8081` 的宿主机 `127.0.0.1` 端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
 
-两个进程都把日志写到 stdout 和按日文件，但文件前缀固定隔离：API 使用 `logs/api-YYYY-MM-DD.log`，Gateway 使用 `logs/gateway-YYYY-MM-DD.log`。Compose 分别挂载 `api_logs` 与 `gateway_logs`；直接在同一工作目录运行两个二进制进程时也不会写入同一个文件。
+API、Gateway 和 Bot 共用项目级 `LOG_LEVEL`，只接受 `info/debug` 并默认 `info`。Info 保留关键业务事件、失败和视频最终决策；Debug 额外输出安全请求摘要、正常 access log、参数化 SQL、Gateway 缓存/载体诊断和 Bot 应用调试信息。非法值回退 `info` 并记录一次固定警告；修改后重启目标服务生效。该变量不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 自身日志。
+
+API 与 Gateway 都把日志写到 stdout 和按日文件，但文件前缀固定隔离：API 使用 `logs/api-YYYY-MM-DD.log`，Gateway 使用 `logs/gateway-YYYY-MM-DD.log`。Compose 分别挂载 `api_logs` 与 `gateway_logs`；直接在同一工作目录运行两个二进制进程时也不会写入同一个文件。Bot 继续使用自己的 stdout 与按日轮转文件。
 
 ## `.env.example` 的已知缺口
 

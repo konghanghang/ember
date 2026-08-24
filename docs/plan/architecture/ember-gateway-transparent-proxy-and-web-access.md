@@ -386,7 +386,7 @@ npm --prefix services/web run build
 - 已把层级精确、语义段大小写兼容的 root/`/emby` `GET System/Info/Public` 拆为唯一无本地鉴权的公开透明代理，并让 root AuthenticateByName、PlaybackInfo、视频与进度请求复用现有处理器。
 - 已按 Infuse `8.5` 实测兼容精确 `X-Emby-Authorization: MediaBrowser ...`，同时保留 SDK `Emby` scheme 和全部 Header 唯一性、字段、Token、quoted-string 严格校验。
 - 已按目标 Emby 实测的 deflate 认证响应建立 `identity/gzip/deflate` 白名单旁路解析：原响应透明返回，只解压有界旁路副本，失败时不建立映射且不泄露响应内容；其中 gzip 为 fake 合同测试覆盖的兼容能力，不表述为目标环境实测行为。
-- 已为每个 Gateway 请求增加统一 `request_completed` 脱敏日志，覆盖有界 method/Host/原始 path、query key、route、status/outcome/耗时，以及认证 Header 数量、scheme 和 Token presence；query value、Header 原值、Cookie 与 Token 永不进入日志。
+- 已为每个 Gateway 请求增加统一 Debug 级别 `request_completed` 脱敏日志，覆盖有界 method/Host/原始 path、query key、route、status/outcome/耗时，以及认证 Header 数量、scheme 和 Token presence；默认 Info 不逐请求输出，任何级别下 query value、Header 原值、Cookie 与 Token 永不进入日志。
 - 已按真实 `/Users/{Id}/Views` 日志兼容 Infuse 的 MediaBrowser 内嵌 Token，并以此演进为下述通用 carrier 矩阵，不保留 Infuse 专用认证分支。
 - 已把受保护 Token 扩展为能力矩阵：`X-Emby/X-MediaBrowser` 直接 Header、固定大小写不敏感 query aliases 和严格应用头；多来源只同值接受，不根据 Infuse/SenPlayer/Yamby 名称改变认证。
 - 已为固定特殊 path 和 `UserId/MediaSourceId/PlaySessionId/Static/Container` query key 增加大小写兼容，同时保持原始转发字节；PlaybackInfo 的空 `MediaStreams` 不重编码。

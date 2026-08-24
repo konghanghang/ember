@@ -334,7 +334,7 @@ Gateway 对层级精确的用户条目 `200 application/json` 响应执行以下
 - DirectStreamUrl 缺失或未通过校验时，按 Emby 官方 Web 客户端行为把 plain stream 改为 `/Videos/{Id}/stream.{Container}`；无法形成单一安全扩展名时才保留补齐参数后的 plain stream。
 - 权威 fallback 保留原 method、Range、应用认证 Header 和非播放身份 query；DirectStreamUrl 自己的 MediaSourceId/PlaySessionId/Container/Static 不被不完整客户端参数覆盖。
 - 补全后重新进入现有视频决策：证明和 115 条件齐全则可 `302`；115 未配置、不适用或失败时，也必须使用独立的权威 fallback 请求代理 Emby。resolver 失败时才保持原请求（或已有条目 Container fallback），不伪造成功。
-- 日志只记录 `playback_info_resolved_on_demand`、`playback_info_reused_on_demand`、`playback_info_resolve_failed`、`fallbackSource`、mappingId、itemId、proofCount、固定 reason 和上游 status；禁止 Token、UserId query value、Path、响应体或完整 URL。
+- Info 记录 `playback_info_resolved_on_demand`、`playback_info_resolve_failed`、`fallbackSource`、mappingId、itemId、proofCount、固定 reason 和上游 status；高频 `playback_info_reused_on_demand` 只在 Debug 输出。所有级别都禁止 Token、UserId query value、Path、响应体或完整 URL。
 
 ### 4.6 单实例短期授权证明
 
@@ -483,8 +483,8 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - fallback 只允许使用 Emby 正常代理，禁止改用 source 账号向客户端签发 115 直链。
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
 - Emby 会话事件转发失败：记录失败并允许网关会话 TTL 收口，不能伪造成功。
-- 每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
-- 每个视频请求额外只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode/fallbackSource` 和必要 ID/耗时；日志不建表、不进入数据库。
+- `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
+- 每个视频请求在默认 Info 额外只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode/fallbackSource` 和必要 ID/耗时；Debug 不重复生成第二条决策，日志不建表、不进入数据库。
 - 决策日志禁止记录 Token、Cookie、完整 Path、完整 SHA1、115 URL、PlaybackInfo 原始响应或 Provider 原始错误。
 
 首期决策日志枚举固定如下；实现可以在同一 `reasonCode` 下补充脱敏上下文字段，但不能把原始错误字符串当作新枚举：
@@ -515,7 +515,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 6. Playing、Progress、Stopped 事件继续到达 fake Emby。
 7. 重复 `HEAD`、Range 和重连不会重复计并发。
 8. Quick Connect 等未覆盖入口不会被错误当作已支持。
-9. 请求完成日志覆盖上游成功与本地拒绝，能区分 `X-Emby-Token` 缺失/空值/存在/歧义和应用认证头内嵌 Token 状态，同时不包含任何凭证或 query value。
+9. Debug 请求完成日志覆盖上游成功与本地拒绝，能区分 `X-Emby-Token` 缺失/空值/存在/歧义和应用认证头内嵌 Token 状态；Info 默认不输出该详细摘要，两种级别都不包含任何凭证或 query value。
 10. Infuse 内嵌 Token、`X-Emby/X-MediaBrowser` Token Header、固定 query aliases、大小写变体、多来源同值、冲突、重复、空值和非法应用头保持上述接受/拒绝语义。
 11. 单 Token、单设备和用户全部撤销只影响各自范围；硬撤销后请求拒绝，动态到期/套餐拒绝不错误写入 `revokedAt`。
 12. `lastSeenAt` 限频、ServerId/EmbyID 错配拒绝、并发登录幂等 upsert，以及数据库/日志/JSON 均不包含 Token 明文。

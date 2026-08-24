@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import socket
+import time
 from contextlib import asynccontextmanager, suppress
 from hmac import compare_digest
 from logging.handlers import TimedRotatingFileHandler
@@ -74,14 +75,38 @@ LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "bot.log"
 
 
-class SkipHealthAccessFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        message = record.getMessage()
-        return "GET /health" not in message
+def resolve_log_level(raw: str | None) -> tuple[int, str, bool]:
+    """Resolve the shared info/debug contract without failing service startup."""
+    normalized = (raw or "").strip().lower()
+    if normalized in ("", "info"):
+        return logging.INFO, "info", False
+    if normalized == "debug":
+        return logging.DEBUG, "debug", False
+    return logging.INFO, "info", True
 
 
-def configure_logging() -> None:
+def configure_third_party_loggers() -> None:
+    """Keep third-party HTTP namespaces above the project Debug boundary."""
+    # Telegram/httpx debug output may contain complete Bot API URLs or wire
+    # context, so project Debug never lowers these third-party namespaces.
+    for name in ("httpx", "httpcore", "telegram"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def request_log_level(debug_enabled: bool, status_code: int) -> int | None:
+    """Select a safe Bot request-summary level for the completed response."""
+    if status_code >= 400:
+        return logging.INFO
+    if debug_enabled:
+        return logging.DEBUG
+    return None
+
+
+def configure_logging() -> bool:
+    """Configure Bot stdout/file logging and return whether Debug is active."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    level, level_name, invalid = resolve_log_level(os.getenv("LOG_LEVEL"))
 
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     stream_handler = logging.StreamHandler(sys.stdout)
@@ -96,14 +121,20 @@ def configure_logging() -> None:
     file_handler.setFormatter(formatter)
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         handlers=[stream_handler, file_handler],
         force=True,
     )
-    logging.getLogger("uvicorn.access").addFilter(SkipHealthAccessFilter())
+    logging.getLogger("uvicorn.access").disabled = True
+    configure_third_party_loggers()
+    bootstrap_logger = logging.getLogger(__name__)
+    if invalid:
+        bootstrap_logger.warning("code=log_level_invalid fallbackLevel=info")
+    bootstrap_logger.info("code=logging_initialized processRole=bot logLevel=%s", level_name)
+    return level == logging.DEBUG
 
 
-configure_logging()
+BOT_DEBUG_LOGGING = configure_logging()
 logger = logging.getLogger(__name__)
 
 POLLING_LOCK_LEASE_SECONDS = 90
@@ -351,6 +382,33 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+@app.middleware("http")
+async def log_http_request(request: Request, call_next):
+    """Log only a route template and bounded result metadata, never raw query."""
+    started_at = time.monotonic()
+    response = await call_next(request)
+    if request.url.path == "/health":
+        return response
+    level = request_log_level(BOT_DEBUG_LOGGING, response.status_code)
+    if level is None:
+        return response
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", "unmatched") or "unmatched"
+    route_path = route_path[:1024]
+    duration_ms = max(0, int((time.monotonic() - started_at) * 1000))
+    code = "request_failed" if response.status_code >= 400 else "request_completed"
+    logger.log(
+        level,
+        "code=%s method=%s path=%s statusCode=%d durationMs=%d",
+        code,
+        request.method[:32],
+        route_path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
+
+
 @app.get("/health")
 async def health():
     if TELEGRAM_UPDATE_MODE == TELEGRAM_UPDATE_MODE_WEBHOOK and not _webhook_registration_state["registered"]:
@@ -465,7 +523,7 @@ async def notify_ranking(request: Request):
 
 
 def run() -> None:
-    uvicorn.run(app, host="0.0.0.0", port=BOT_PORT, log_config=None)
+    uvicorn.run(app, host="0.0.0.0", port=BOT_PORT, log_config=None, access_log=False)
 
 
 if __name__ == "__main__":

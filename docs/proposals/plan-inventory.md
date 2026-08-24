@@ -102,6 +102,7 @@
 
 | 文档 | 盘点结论 | 主要证据 | 建议动作 |
 |------|----------|----------|----------|
+| `archive/plan/architecture/project-wide-log-level.md` | 已归档 | API/Gateway/Bot 共用 `LOG_LEVEL=info|debug`，Gin/GORM/Gateway/Bot 高噪声入口已分级，测试、race、vet/build、Bot pytest/py_compile 与 Compose 静态校验通过，稳定事实已同步 | 历史追溯 |
 | `archive/plan/architecture/oss-deployment-experience.md` | 已归档 | README quickstart、Docker Compose 默认部署、Bot profile、GHCR 双架构构建、升级流程、`initdb/` 退役和部署 runbook 均已完成并验证 | 历史追溯 |
 | `archive/plan/architecture/database-migration-auto-apply.md` | 已归档 | API 启动期自动迁移、SQL 镜像内置、五分支判断、checksum 防改写、部署升级文档与系统架构同步均已落地；相关提交已进入 `v1.5.0` / `v1.5.1` | 历史追溯 |
 | `archive/plan/console-admin/admin-emby-binding.md` | 已归档 | 管理员 Emby 用户候选查询、按 `embyId` 绑定 / 解绑、前端选择器、测试、API 目录和系统架构同步均已落地；真实环境回归日志已覆盖成功路径 | 历史追溯 |
@@ -120,6 +121,7 @@
 
 本轮已补充归档：
 
+- `architecture/project-wide-log-level.md`
 - `architecture/oss-deployment-experience.md`
 - `architecture/database-migration-auto-apply.md`
 - `console-admin/admin-emby-binding.md`

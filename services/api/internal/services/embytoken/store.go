@@ -250,7 +250,6 @@ func safeMappingStoreError(operation string, err error, database *gorm.DB) error
 	}
 	reasonCode := mappingStoreErrorReason(err)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		log.Printf("[EmbyTokenStore] 请求已终止 operation=%s reasonCode=%s errorType=%T", operation, reasonCode, err)
 		return err
 	}
 	stats, statsAvailable := mappingStorePoolStats(database)

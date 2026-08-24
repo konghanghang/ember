@@ -49,6 +49,7 @@
 
 最近已完成归档的实施稿包括：
 
+- `architecture/project-wide-log-level.md` → `docs/archive/plan/architecture/project-wide-log-level.md`
 - `access-auth/admin-api-key.md` → `docs/archive/plan/access-auth/admin-api-key.md`
 - `architecture/settings-key-cache.md` → `docs/archive/plan/architecture/settings-key-cache.md`
 - `console-admin/plan-group-media-library-deferred-sync.md` → `docs/archive/plan/console-admin/plan-group-media-library-deferred-sync.md`

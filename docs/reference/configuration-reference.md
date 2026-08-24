@@ -28,6 +28,8 @@
    - 用于展示 GitHub 源码入口和当前构建对应的 commit hash
    - 不属于容器运行期配置，修改后需要重新构建 Web 镜像
 
+API、Gateway 与 Bot 额外共用一个部署期应用日志变量 `LOG_LEVEL`：只接受 `info/debug`，默认 `info`，修改后重启对应进程生效。它不进入设置中心，也不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 自身日志。
+
 ---
 
 ## 2. API 数据库配置
@@ -132,7 +134,7 @@
 
 ### 3.1 `.env.example` 默认保留项
 
-这些项要么是 API 启动硬依赖，要么是只能放环境变量里的密钥，因此会保留在 `services/api/.env.example`。
+这些项要么是 API 启动硬依赖、只能放环境变量里的密钥，要么是 API/Gateway/Bot 共用的启动期运维参数，因此会保留在 `services/api/.env.example`。
 
 | 配置项 | 敏感 | 说明 | 原因 |
 |--------|------|------|------|
@@ -143,6 +145,7 @@
 | `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 仅启用 Stripe Webhook 时需要，且只能走环境变量 |
 | `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 仅启用 Turnstile 登录校验时需要，且不应进入设置中心 |
 | `EMBY_WEBHOOK_TOKEN` | 是 | Emby Webhook token | 仅启用 Emby Webhook 回写追剧日历时需要，且只能走环境变量 |
+| `LOG_LEVEL` | 否 | Ember 应用日志级别，`info` 或 `debug` | API/Gateway/Bot 共用的启动参数，默认 `info`；非法值回退 `info` |
 
 ### 3.2 仍是环境变量来源，但不放进 `.env.example` 的项
 
@@ -172,7 +175,7 @@ API 固定使用默认端口 `8080`，Gateway 固定监听 `:8081`。直接运�
 
 ## 4. Bot 环境变量
 
-Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留启动硬依赖。
+Bot 进程当前仍主要依赖环境变量启动；`.env.example` 保留启动硬依赖和跨进程共用的运维参数。
 
 ### 4.1 `.env.example` 默认保留项
 
@@ -183,6 +186,7 @@ Bot 进程当前仍主要依赖环境变量启动，但 `.env.example` 只保留
 | `TELEGRAM_WEBHOOK_SECRET` | 条件敏感 | — | `webhook` 模式下的 Telegram Webhook 校验密钥 |
 | `INTERNAL_API_SECRET` | 是 | — | 与 API 共享的内部调用密钥 |
 | `WEBHOOK_URL` | 条件敏感 | — | `webhook` 模式下的 Bot 对外 Webhook 地址 |
+| `LOG_LEVEL` | 否 | `info` | 与 API/Gateway 共用；`debug` 增加 Ember 应用诊断，Uvicorn 原生 access 固定关闭并使用脱敏路由模板摘要，第三方 HTTP logger 仍保持 `WARNING` |
 
 ### 4.2 仍支持环境变量回退，但不放进 `.env.example` 的项
 

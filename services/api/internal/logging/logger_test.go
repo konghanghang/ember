@@ -3,14 +3,104 @@ package logging
 import (
 	"bytes"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+func TestParseLevelDefaultsAndNormalizes(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         string
+		want        Level
+		wantInvalid bool
+	}{
+		{name: "empty defaults to info", want: LevelInfo},
+		{name: "info", raw: " info ", want: LevelInfo},
+		{name: "debug", raw: "DeBuG", want: LevelDebug},
+		{name: "invalid falls back", raw: "verbose", want: LevelInfo, wantInvalid: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, invalid := parseLevel(test.raw)
+			if got != test.want || invalid != test.wantInvalid {
+				t.Fatalf("parseLevel(%q)=(%q,%t), want (%q,%t)", test.raw, got, invalid, test.want, test.wantInvalid)
+			}
+		})
+	}
+}
+
+func TestDebugfHonorsGlobalLevel(t *testing.T) {
+	originalOutput := log.Writer()
+	originalLevel := currentLevel.Load()
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+		currentLevel.Store(originalLevel)
+	})
+
+	var output bytes.Buffer
+	log.SetOutput(&output)
+	currentLevel.Store(uint32(LevelInfo))
+	Debugf("code=debug_hidden")
+	Infof("code=info_visible")
+	if strings.Contains(output.String(), "debug_hidden") || !strings.Contains(output.String(), "info_visible") {
+		t.Fatalf("info output=%q", output.String())
+	}
+
+	output.Reset()
+	currentLevel.Store(uint32(LevelDebug))
+	Debugf("code=debug_visible")
+	if !strings.Contains(output.String(), "debug_visible") {
+		t.Fatalf("debug output=%q", output.String())
+	}
+}
+
+func TestGinAccessLoggerUsesGlobalLevelWithoutQueryValues(t *testing.T) {
+	originalOutput := log.Writer()
+	originalLevel := currentLevel.Load()
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+		currentLevel.Store(originalLevel)
+	})
+
+	var output bytes.Buffer
+	log.SetOutput(&output)
+	router := gin.New()
+	router.Use(GinAccessLogger())
+	router.GET("/items", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/failed", func(c *gin.Context) { c.Status(http.StatusBadGateway) })
+	router.GET("/redeem/:code", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	currentLevel.Store(uint32(LevelInfo))
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/items?api_key=secret", nil))
+	if output.Len() != 0 {
+		t.Fatalf("info success log=%q, want empty", output.String())
+	}
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/failed?api_key=secret", nil))
+	if !strings.Contains(output.String(), "code=request_failed") || strings.Contains(output.String(), "secret") {
+		t.Fatalf("info failure log=%q", output.String())
+	}
+
+	output.Reset()
+	currentLevel.Store(uint32(LevelDebug))
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/items?api_key=secret", nil))
+	if !strings.Contains(output.String(), "code=request_completed") || strings.Contains(output.String(), "secret") {
+		t.Fatalf("debug access log=%q", output.String())
+	}
+
+	output.Reset()
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/redeem/sensitive-redemption-code", nil))
+	if !strings.Contains(output.String(), `path="/redeem/:code"`) || strings.Contains(output.String(), "sensitive-redemption-code") {
+		t.Fatalf("debug path parameter log=%q", output.String())
+	}
+}
 
 func TestDailyFileWriterWritesStdoutAndDailyLogFile(t *testing.T) {
 	var stdout bytes.Buffer

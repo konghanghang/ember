@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewGORMLoggerSuppressesBoundValues(t *testing.T) {
-	logger := newGORMLogger(&bytes.Buffer{})
+	logger := newGORMLogger(&bytes.Buffer{}, false)
 	filter, ok := logger.(gorm.ParamsFilter)
 	if !ok {
 		t.Fatal("database logger must implement gorm.ParamsFilter")
@@ -26,5 +26,20 @@ func TestNewGORMLoggerSuppressesBoundValues(t *testing.T) {
 	}
 	if !reflect.DeepEqual(params, []interface{}(nil)) {
 		t.Fatalf("ParamsFilter() exposed bound values: %#v", params)
+	}
+}
+
+func TestNewGORMLoggerMapsProjectLevel(t *testing.T) {
+	ctx := context.Background()
+	var infoOutput bytes.Buffer
+	newGORMLogger(&infoOutput, false).Info(ctx, "normal SQL must stay debug")
+	if infoOutput.Len() != 0 {
+		t.Fatalf("info level emitted GORM info: %q", infoOutput.String())
+	}
+
+	var debugOutput bytes.Buffer
+	newGORMLogger(&debugOutput, true).Info(ctx, "debug SQL visible")
+	if !bytes.Contains(debugOutput.Bytes(), []byte("debug SQL visible")) {
+		t.Fatalf("debug level did not emit GORM info: %q", debugOutput.String())
 	}
 }

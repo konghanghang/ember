@@ -794,7 +794,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
 - `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、日志初始化和退出码；服务进程只保留 `cmd/ember` 一个 main package，不再维护旧启动包装
-- entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写
+- entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写。API/Gateway/Bot 共用启动期 `LOG_LEVEL=info|debug`，默认 `info`；非法值回退 Info，详细请求形态、普通 access、全部参数化 SQL 和高频缓存命中只在 Debug 输出。API/Bot access 使用路由模板而非真实 path 参数，Bot 关闭 Uvicorn 原生 access，第三方 Bot HTTP logger 不随项目 Debug 放宽
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 
 - 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
@@ -815,7 +815,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；错误日志只记录固定 code 和错误类型，不记录密码、AccessToken、上游 URL 或响应体
 - 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求按 [Emby Gateway 客户端兼容矩阵](./reference/emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格 Emby/MediaBrowser 应用头和固定 query aliases；所有非空候选同值才调用 `ResolvePrincipal`。缺失、空值、重复、冲突或非法格式返回 `401`；用户不可用/到期返回 `403`，请求取消/deadline 返回 `499/504`，真实身份存储故障返回 `503`
-- 每个经过 Gateway Handler 的请求收尾统一记录 `code=request_completed`：包含有界 method/Host/原始 path、query key 名称/数量、route/pathMode、statusCode、success/failure、耗时，直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态和已知 User-Agent family/version；禁止记录 query value、Header 原值、Cookie、Token 或 Authorization 内容
+- 每个经过 Gateway Handler 的请求都可在 Debug 级别记录 `code=request_completed`：包含有界 method/Host/原始 path、query key 名称/数量、route/pathMode、statusCode、success/failure、耗时，直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态和已知 User-Agent family/version；默认 Info 不逐请求输出该摘要。所有级别都禁止记录 query value、Header 原值、Cookie、Token 或 Authorization 内容
 - bootstrap allowlist 只覆盖大小写兼容但层级精确的 `GET System/Info/Public`、固定登录文档明确的 public 用户列表和无 Index 用户头像；只有 SystemInfoPublic 允许无应用头，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
 - SystemInfoPublic 上游响应只记录固定 route、pathMode 和 statusCode，不记录 Header、URL、ServerId 或响应体；上游 `401/403/500` 仍逐状态透明返回
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
@@ -833,9 +833,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - DirectPlay 返回安全候选时 Gateway 输出空体 `302`；普通请求继续原样代理。只有已由 Infuse 观察到的“plain static stream 缺播放上下文”通用兼容分支，会在按需 PlaybackInfo 成功后把 method/Range/Header 与非身份参数迁移到 Emby 权威 DirectStreamUrl/扩展名路径；不按客户端名称分支，Emby 状态、响应头和视频体仍保持透传
 - `playback_media_cache` 和 `direct_play_sessions` 本轮均未建表；多副本共享、播放并发和 Playing/Progress/Stopped 持久会话推迟到后续
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
-- 每个视频请求除统一 `request_completed` 摘要外，只额外打印一条 `decision=redirect|fallback|reject` 脱敏决策日志，并用固定 `fallbackSource` 区分 client request、Container 降级、DirectStreamUrl、扩展名和补齐 plain stream；不新建日志表或 migration，禁止 Token、Cookie、完整媒体 Path/SHA1、115 URL 和上游原文
+- 每个视频请求在 Info 保留一条 `decision=redirect|fallback|reject` 脱敏决策日志；Debug 可再输出统一 `request_completed` 请求摘要，但不能重复生成第二条决策。固定 `fallbackSource` 区分 client request、Container 降级、DirectStreamUrl、扩展名和补齐 plain stream；不新建日志表或 migration，禁止 Token、Cookie、完整媒体 Path/SHA1、115 URL 和上游原文
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
-- 2026-08-23 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5`：登录和普通资源 API 均取得上游 `200`，按需 PlaybackInfo `proofCount=1`；原始、`container_recovered` 与补齐参数后的 plain fallback 都返回 `404`。DirectStreamUrl/扩展名权威 fallback 已有 fake 证据但尚未实机复验；其他播放器、字幕、进度和完整 CDN 链路仍未确认
+- 2026-08-24 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5`：根路径发现、登录、普通资源 API、PlaybackInfo 证明均成功；115 账号不可用时 `fallbackSource=playback_info_extension_stream` 由 Emby 返回 `206` 并可播放，Playing/Progress 返回 `204`。这证明 account-unavailable 回退与进度上报，不证明 Stopped、115 `302`、字幕、其他播放器或完整 CDN 链路
 
 ---
 
