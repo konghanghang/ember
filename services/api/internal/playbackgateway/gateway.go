@@ -75,10 +75,12 @@ type Gateway struct {
 	proofs                         *playbackProofCache
 	itemContainers                 *itemContainerSnapshotCache
 	playbackInfoFlights            *onDemandPlaybackInfoFlightGroup
+	playbackSessionFailures        *playbackSessionFailureTracker
 	maxAuthenticationResponseBytes int64
 	maxPlaybackInfoRequestBytes    int64
 	maxPlaybackInfoResponseBytes   int64
 	maxItemDetailResponseBytes     int64
+	maxPlaybackSessionRequestBytes int64
 }
 
 type routeKind uint8
@@ -145,10 +147,12 @@ func New(config Config) (*Gateway, error) {
 		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
 		itemContainers:                 newItemContainerSnapshotCache(defaultItemContainerSnapshotMaxEntries, defaultItemContainerSnapshotTTL),
 		playbackInfoFlights:            &onDemandPlaybackInfoFlightGroup{},
+		playbackSessionFailures:        newPlaybackSessionFailureTracker(defaultPlaybackSessionFailureMaxEntries, defaultPlaybackSessionFailureTTL),
 		maxAuthenticationResponseBytes: defaultAuthenticationResponseMaxSize,
 		maxPlaybackInfoRequestBytes:    defaultPlaybackInfoRequestMaxSize,
 		maxPlaybackInfoResponseBytes:   defaultPlaybackInfoResponseMaxSize,
 		maxItemDetailResponseBytes:     defaultItemDetailResponseMaxSize,
+		maxPlaybackSessionRequestBytes: defaultPlaybackSessionRequestMaxSize,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	proxy.Transport = transport
@@ -167,7 +171,10 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	statusWriter := &requestStatusWriter{ResponseWriter: writer}
 	routeCode := "unclassified"
 	pathMode := requestPathModePassthrough
+	playbackSessionEvent := playbackSessionEventSnapshot{}
+	playbackSessionForwardAttempted := false
 	defer func() {
+		gateway.logPlaybackSessionEvent(playbackSessionEvent, statusWriter.statusCode, playbackSessionForwardAttempted, startedAt)
 		gateway.logRequestCompletion(requestLog, routeCode, pathMode, statusWriter.statusCode, startedAt)
 	}()
 
@@ -180,6 +187,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}
 	kind := classifyRoute(request)
 	routeCode = routeKindCode(kind)
+	playbackSessionEvent = newPlaybackSessionEventSnapshot(request)
 	routeContext := requestRouteContext{kind: kind, pathMode: pathMode}
 	requestAccessToken := ""
 	switch kind {
@@ -248,13 +256,22 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		if playbackSessionEvent.kind != playbackSessionEventNone {
+			playbackSessionEvent.correlationKey, playbackSessionEvent.correlationPresent =
+				gateway.playbackSessionFailures.CorrelationKey(accessToken)
+		}
 		principal, resolved := gateway.resolveRequestPrincipal(statusWriter, request, kind, startedAt, accessToken)
 		if !resolved {
 			return
 		}
 		routeContext.principal = &principal
 		requestAccessToken = accessToken
-		if kind == routePlaybackInfo {
+		if playbackSessionEvent.kind != playbackSessionEventNone {
+			observed := gateway.inspectPlaybackSessionRequest(request)
+			observed.correlationKey = playbackSessionEvent.correlationKey
+			observed.correlationPresent = playbackSessionEvent.correlationPresent
+			playbackSessionEvent = observed
+		} else if kind == routePlaybackInfo {
 			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible = gateway.preparePlaybackInfoRequest(request, principal)
 		} else if kind == routeItemDetail {
 			userID, itemID, pathOK := userItemDetailPath(request.URL)
@@ -268,6 +285,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}
 
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
+	playbackSessionForwardAttempted = playbackSessionEvent.kind != playbackSessionEventNone
 	gateway.proxy.ServeHTTP(statusWriter, request.WithContext(ctx))
 }
 

@@ -779,8 +779,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - AccessToken 使用从 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生的 HMAC-SHA256 密钥计算 32 字节摘要；明文和摘要均不出现在 Service 返回值、JSON 或日志
 - `server_id + token_hash` 唯一索引、冲突忽略和行锁共同保证并发 upsert；活动摘要不能换绑身份，已撤销的同一身份只有新的成功认证能重新激活
 - `ResolvePrincipal` 每次重新读取用户，动态检查停用、Emby 禁用、Emby 访问禁用、解绑和到期；`lastSeenAt` 至少按 5 分钟窗口限频更新
-- `FindMapping/FindUserByEmbyID/FindUserByID` 只在 driver 明确保证请求尚未发送到 PostgreSQL 时重试一次；SQLSTATE、业务错误和所有写操作不重试
-- Store 保留 `context.Canceled/context.DeadlineExceeded`，Gateway 分别映射为 `499/504`，不再误报 `token_store_unavailable`；最终真实存储失败只记录固定 reasonCode、SQLSTATE/constraint（如有）与 database/sql 连接池计数，不记录 DSN、SQL 参数、Token digest 或错误原文
+- `FindMapping/FindUserByEmbyID/FindUserByID` 的幂等 SELECT 对 `driver.ErrBadConn`、`sql.ErrConnDone`、EOF、pgconn 安全重试/超时和 `net.Error` 等已分类连接故障最多重试一次；请求取消、deadline、PostgreSQL 响应错误、业务错误和所有写操作不重试
+- Store 保留 `context.Canceled/context.DeadlineExceeded`，Gateway 分别映射为 `499/504`，不再误报 `token_store_unavailable`；最终真实存储失败只记录固定 `reasonCode + retryable`、SQLSTATE/constraint（如有）与 database/sql 连接池计数，能区分坏连接、连接关闭、EOF、网络/超时和 PostgreSQL connection class，不记录 DSN、SQL 参数、Token digest 或错误原文
 - `RevokeToken`、`RevokeDevice`、`RevokeUserTokens` 使用固定原因和操作者写入软撤销审计；这只保证未来 Playback Gateway 本地拒绝，不宣称 Emby Server 已吊销原始 Token
 - `ControlPlaneRevoker` 不依赖 Token 明文、HMAC 密钥或 runtime ServerId；设备按 `userId + deviceId` 跨历史 Server 撤销，用户按 userId 全部撤销，同 DeviceId 的其他用户不受影响
 - 手工/黑名单设备退出、用户停用与恢复、Emby 访问禁用与恢复、绑定前清理、解绑、删除和过期 cron 已接入本地优先撤销；撤销失败不继续状态/外部副作用，远端失败不回滚本地撤销
@@ -816,6 +816,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求按 [Emby Gateway 客户端兼容矩阵](./reference/emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格 Emby/MediaBrowser 应用头和固定 query aliases；所有非空候选同值才调用 `ResolvePrincipal`。缺失、空值、重复、冲突或非法格式返回 `401`；用户不可用/到期返回 `403`，请求取消/deadline 返回 `499/504`，真实身份存储故障返回 `503`
 - 每个经过 Gateway Handler 的请求都可在 Debug 级别记录 `code=request_completed`：包含有界 method/Host/原始 path、query key 名称/数量、route/pathMode、statusCode、success/failure、耗时，直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态和已知 User-Agent family/version；默认 Info 不逐请求输出该摘要。所有级别都禁止记录 query value、Header 原值、Cookie、Token 或 Authorization 内容
+- 三类固定 `POST /Sessions/Playing*` 请求只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 并恢复原始 body，提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 只用于排障；未通过身份门控时不读取 body，非法、超大或不支持编码的已认证 body 仍原样透明转发，只记录固定 `snapshotState`。开始/停止成功、任一会话失败和失败后的首次恢复使用中文 Info 事件；正常 Progress 心跳只在 Debug 输出，避免每 10 秒刷 Info
+- 会话失败恢复观察使用进程内随机 seed 生成且永不输出的 Token 关联值，最多 4096 条、TTL 6 小时、无后台 goroutine，不保存原始 Token 或可跨进程复用的稳定摘要；它不参与授权、并发、播放历史或响应决策。身份 Store 或 Emby 上游失败仍返回真实失败状态，禁止伪造 `204`；同一 Token 后续 Start/Progress 成功时只输出一次 `playback_progress_recovered`
 - bootstrap allowlist 只覆盖大小写兼容但层级精确的 `GET System/Info/Public`、固定登录文档明确的 public 用户列表和无 Index 用户头像；只有 SystemInfoPublic 允许无应用头，Branding、发现、Quick Connect 和其他猜测路径继续受 Token 门控
 - SystemInfoPublic 上游响应只记录固定 route、pathMode 和 statusCode，不记录 Header、URL、ServerId 或响应体；上游 `401/403/500` 仍逐状态透明返回
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志

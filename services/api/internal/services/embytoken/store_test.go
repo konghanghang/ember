@@ -2,9 +2,12 @@ package embytoken
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -20,6 +23,10 @@ func TestExecuteMappingStoreReadRetriesOnlySafeConnectionFailure(t *testing.T) {
 	}{
 		{name: "bad connection then success", firstErr: driver.ErrBadConn, wantCalls: 2},
 		{name: "wrapped bad connection", firstErr: fmt.Errorf("wrapped: %w", driver.ErrBadConn), wantCalls: 2},
+		{name: "closed sql connection then success", firstErr: sql.ErrConnDone, wantCalls: 2},
+		{name: "connection eof then success", firstErr: io.EOF, wantCalls: 2},
+		{name: "unexpected connection eof then success", firstErr: io.ErrUnexpectedEOF, wantCalls: 2},
+		{name: "network timeout then success", firstErr: &testStoreNetworkError{timeout: true}, wantCalls: 2},
 		{name: "retry exhausted", firstErr: driver.ErrBadConn, secondErr: driver.ErrBadConn, wantCalls: 2, wantErr: driver.ErrBadConn},
 		{name: "request canceled", firstErr: context.Canceled, wantCalls: 1, wantErr: context.Canceled},
 		{name: "deadline exceeded", firstErr: context.DeadlineExceeded, wantCalls: 1, wantErr: context.DeadlineExceeded},
@@ -65,7 +72,13 @@ func TestMappingStoreErrorReasonUsesFixedLabels(t *testing.T) {
 		{context.Canceled, "context_canceled"},
 		{context.DeadlineExceeded, "deadline_exceeded"},
 		{driver.ErrBadConn, "bad_connection"},
-		{&pgconn.PgError{Code: "08006"}, "postgres"},
+		{sql.ErrConnDone, "connection_closed"},
+		{io.EOF, "connection_eof"},
+		{io.ErrUnexpectedEOF, "connection_eof"},
+		{&testStoreNetworkError{timeout: true}, "network_timeout"},
+		{&testStoreNetworkError{}, "network"},
+		{&pgconn.PgError{Code: "08006"}, "postgres_connection"},
+		{&pgconn.PgError{Code: "23505"}, "postgres"},
 		{errors.New("contains secret fixture-access-token"), "unknown"},
 	}
 	for _, test := range tests {
@@ -74,3 +87,13 @@ func TestMappingStoreErrorReasonUsesFixedLabels(t *testing.T) {
 		}
 	}
 }
+
+type testStoreNetworkError struct {
+	timeout bool
+}
+
+func (err *testStoreNetworkError) Error() string   { return "network fixture" }
+func (err *testStoreNetworkError) Timeout() bool   { return err.timeout }
+func (err *testStoreNetworkError) Temporary() bool { return true }
+
+var _ net.Error = (*testStoreNetworkError)(nil)

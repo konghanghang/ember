@@ -452,6 +452,7 @@ Content-Type: application/json
 
 - 三类会话请求必须继续转发给 Emby，保持播放历史和进度能力。
 - 网关可以旁路观察事件，更新 `direct_play_sessions`，但不能篡改客户端上报内容。
+- 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，只提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
 - 并发统计以 `PlaySessionId + Ember 用户 + 设备` 为主要维度，并使用 TTL 处理客户端未上报停止事件的情况。
 - `HEAD`、重复 `Range` 和预加载请求不能单独创建新的活跃播放会话。
 
@@ -485,7 +486,8 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - fallback 必须保留客户端原始 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header，不能重新拼装缩水版视频请求。
 - fallback 只允许使用 Emby 正常代理，禁止改用 source 账号向客户端签发 115 直链。
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
-- Emby 会话事件转发失败：记录失败并允许网关会话 TTL 收口，不能伪造成功。
+- Emby 会话事件转发失败：返回真实失败状态并记录中文失败事件，不能伪造成功；`forwardState=not_attempted|attempted` 必须区分本地身份门控失败和已尝试上游转发。
+- 开始和停止成功在 Info 分别记录 `playback_session_started/playback_session_stopped`；正常 Progress 成功只在 Debug 记录 `playback_progress_reported`，避免心跳刷屏。失败后同一请求 Token 的首次 Start/Progress 成功在 Info 额外记录一次 `playback_progress_recovered` 和 `interruptionMs`；关联键由进程内随机 seed 生成且永不输出，恢复观察最多 4096 条、TTL 6 小时，不保存原始 Token 或可跨进程复用摘要，只服务日志，不参与授权、并发或响应决策。
 - `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
 - 每个视频请求在默认 Info 额外只写一条最终决策日志，并把人工可读结论放在行首：直链成功使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；DirectPlay 失败使用 `code=direct_play_fallback message="115直链失败，Emby回退成功|失败" directPlayResult=failure fallbackResult=success|failure`；其他 fallback 和 reject 分别使用 `code=playback_fallback`、`code=playback_rejected`。全部继续记录 `decision=redirect|fallback|reject`、固定 `stage/reasonCode/fallbackSource` 和必要 ID/耗时；进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Debug 不重复生成第二条决策，日志不建表、不进入数据库。
 - 完整媒体 Path 已按运维排障需求明确允许进入持久日志；仍禁止记录 Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原始响应、Provider 原始错误或 Emby 代理原始错误。
@@ -516,7 +518,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 3. 三类原始视频流路径的 `GET`、`HEAD`、query、302、Emby fallback 和安全 reject 行为。
 4. 下载接口与普通播放权限分离。
 5. 字幕接口不被视频拦截器误判。
-6. Playing、Progress、Stopped 事件继续到达 fake Emby。
+6. Playing、Progress、Stopped 的合法、非法、超大和不支持编码请求体逐字节到达 fake Emby；开始/停止、Progress 失败及失败后单次恢复日志包含固定 code、中文 message、有界会话字段和真实状态，正常 Progress 成功只在 Debug 输出。
 7. 重复 `HEAD`、Range 和重连不会重复计并发。
 8. Quick Connect 等未覆盖入口不会被错误当作已支持。
 9. Debug 请求完成日志覆盖上游成功与本地拒绝，能区分 `X-Emby-Token` 缺失/空值/存在/歧义和应用认证头内嵌 Token 状态；Info 默认不输出该详细摘要，两种级别都不包含任何凭证或 query value。
@@ -528,7 +530,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 15. 三种原始视频路径只有完整静态播放参数和匹配 Container 时调用 fake DirectPlay；manifest、参数缺失、无效候选和所有类型化 DirectPlay 错误均进入 fake Emby fallback。
 16. 特殊 path 与 Gateway 消费的 query key 大小写不敏感但不重写原始请求；尾斜杠、额外层级、duplicate logical key 和 alternate escaping 继续失败关闭。
 17. PlaybackInfo 含 `MediaStreams: []` 时客户端响应逐字节保持，SenPlayer/Yamby 等 UA 不改变认证或代理路径。
-18. Store 请求取消/deadline、一次安全只读重试、非重试 PostgreSQL 错误和最终连接池诊断均有固定测试。
+18. Store 请求取消/deadline、坏连接/连接关闭/EOF/网络超时的一次幂等只读重试、非重试 PostgreSQL 响应错误，以及最终固定原因与连接池诊断均有测试。
 19. 用户条目 identity/gzip/deflate 响应逐字节保持；按需 PlaybackInfo 失败、仅由条目 Container 恢复 plain stream fallback 时，DirectPlay 调用次数必须为零。
 20. 缺 PlaySessionId 的 plain stream 使用当前用户 Token 补取 PlaybackInfo；压缩响应、source/item 错配、重复 source、非法 Container、上游非 200、取消/超时、singleflight 和 proof 复用均有 fake 测试，内部 URL 与日志不含 Token。
 21. 115 不可用时，合法 DirectStreamUrl fallback 返回 fake Emby `200/206`；绝对 URL、错 Item/source/session/container、encoded path、manifest 被拒绝，URL Token 被删除并替换为当前用户 Header；DirectStreamUrl 缺失时固定使用 `stream.{Container}`。

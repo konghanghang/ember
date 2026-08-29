@@ -6,7 +6,10 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"io"
 	"log"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -190,8 +193,9 @@ func (store *gormMappingStore) database(ctx context.Context) *gorm.DB {
 	return store.db.Session(&gorm.Session{Logger: gormlogger.Default.LogMode(gormlogger.Silent)}).WithContext(ctx)
 }
 
-// executeMappingStoreRead retries one idempotent read only when the driver
-// guarantees that the failed attempt did not reach the server.
+// executeMappingStoreRead retries one idempotent read after a classified
+// connection failure. Replaying these mapping/user SELECTs has no side effect;
+// request termination and PostgreSQL response errors still fail immediately.
 func executeMappingStoreRead(ctx context.Context, read func() error) error {
 	if read == nil {
 		return ErrStoreUnavailable
@@ -209,8 +213,8 @@ func executeMappingStoreRead(ctx context.Context, read func() error) error {
 	return read()
 }
 
-// retryableMappingStoreReadError accepts only connection errors that are safe
-// before any server-side execution; PostgreSQL response errors are not retried.
+// retryableMappingStoreReadError accepts only connection-level failures for
+// one replay of an idempotent SELECT; PostgreSQL response errors are not retried.
 func retryableMappingStoreReadError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
@@ -219,7 +223,13 @@ func retryableMappingStoreReadError(err error) bool {
 	if errors.As(err, &pgErr) {
 		return false
 	}
-	return errors.Is(err, driver.ErrBadConn) || pgconn.SafeToRetry(err)
+	if errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		pgconn.SafeToRetry(err) || pgconn.Timeout(err) {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError)
 }
 
 // mappingStoreErrorReason maps failures to fixed labels without using error
@@ -232,10 +242,26 @@ func mappingStoreErrorReason(err error) string {
 		return "deadline_exceeded"
 	case errors.Is(err, driver.ErrBadConn):
 		return "bad_connection"
+	case errors.Is(err, sql.ErrConnDone):
+		return "connection_closed"
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return "connection_eof"
+	case pgconn.Timeout(err):
+		return "network_timeout"
 	default:
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
+			if strings.HasPrefix(pgErr.Code, "08") {
+				return "postgres_connection"
+			}
 			return "postgres"
+		}
+		var networkError net.Error
+		if errors.As(err, &networkError) {
+			if networkError.Timeout() {
+				return "network_timeout"
+			}
+			return "network"
 		}
 		return "unknown"
 	}
@@ -253,14 +279,15 @@ func safeMappingStoreError(operation string, err error, database *gorm.DB) error
 		return err
 	}
 	stats, statsAvailable := mappingStorePoolStats(database)
+	retryable := retryableMappingStoreReadError(err)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		log.Printf("[EmbyTokenStore] 数据库操作失败 operation=%s reasonCode=%s code=%s constraint=%s poolAvailable=%t poolMaxOpen=%d poolOpen=%d poolInUse=%d poolIdle=%d poolWaitCount=%d poolWaitMs=%d",
-			operation, reasonCode, pgErr.Code, pgErr.ConstraintName, statsAvailable, stats.MaxOpenConnections,
+		log.Printf("[EmbyTokenStore] 数据库操作失败 operation=%s reasonCode=%s retryable=%t code=%s constraint=%s poolAvailable=%t poolMaxOpen=%d poolOpen=%d poolInUse=%d poolIdle=%d poolWaitCount=%d poolWaitMs=%d",
+			operation, reasonCode, retryable, pgErr.Code, pgErr.ConstraintName, statsAvailable, stats.MaxOpenConnections,
 			stats.OpenConnections, stats.InUse, stats.Idle, stats.WaitCount, stats.WaitDuration.Milliseconds())
 	} else {
-		log.Printf("[EmbyTokenStore] 存储操作失败 operation=%s reasonCode=%s errorType=%T poolAvailable=%t poolMaxOpen=%d poolOpen=%d poolInUse=%d poolIdle=%d poolWaitCount=%d poolWaitMs=%d",
-			operation, reasonCode, err, statsAvailable, stats.MaxOpenConnections, stats.OpenConnections,
+		log.Printf("[EmbyTokenStore] 存储操作失败 operation=%s reasonCode=%s retryable=%t errorType=%T poolAvailable=%t poolMaxOpen=%d poolOpen=%d poolInUse=%d poolIdle=%d poolWaitCount=%d poolWaitMs=%d",
+			operation, reasonCode, retryable, err, statsAvailable, stats.MaxOpenConnections, stats.OpenConnections,
 			stats.InUse, stats.Idle, stats.WaitCount, stats.WaitDuration.Milliseconds())
 	}
 	return ErrStoreUnavailable

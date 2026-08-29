@@ -1298,24 +1298,32 @@ func TestUserAgentDiagnosticsRecognizesClientFamiliesWithoutRawSuffix(t *testing
 
 func TestGatewayPlaybackSessionEventsAreTransparent(t *testing.T) {
 	tests := []struct {
-		name string
-		path string
-		body string
+		name        string
+		path        string
+		body        string
+		wantLogCode string
+		wantMessage string
 	}{
 		{
-			name: "playing",
-			path: "/emby/Sessions/Playing",
-			body: `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":0,"PlayMethod":"DirectPlay","CanSeek":true}`,
+			name:        "playing",
+			path:        "/emby/Sessions/Playing",
+			body:        `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":0,"PlayMethod":"DirectPlay","CanSeek":true}`,
+			wantLogCode: "code=playback_session_started",
+			wantMessage: `message="播放开始上报成功"`,
 		},
 		{
-			name: "progress",
-			path: "/emby/Sessions/Playing/Progress",
-			body: `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":123456789,"PlayMethod":"DirectPlay","IsPaused":false}`,
+			name:        "progress",
+			path:        "/emby/Sessions/Playing/Progress",
+			body:        `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":123456789,"PlayMethod":"DirectPlay","IsPaused":false}`,
+			wantLogCode: "code=playback_progress_reported",
+			wantMessage: `message="播放进度上报成功"`,
 		},
 		{
-			name: "stopped",
-			path: "/emby/Sessions/Playing/Stopped",
-			body: `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":223456789,"Failed":false,"IsAutomated":false}`,
+			name:        "stopped",
+			path:        "/emby/Sessions/Playing/Stopped",
+			body:        `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":223456789,"Failed":false,"IsAutomated":false}`,
+			wantLogCode: "code=playback_session_stopped",
+			wantMessage: `message="播放停止上报成功"`,
 		},
 	}
 
@@ -1369,9 +1377,93 @@ func TestGatewayPlaybackSessionEventsAreTransparent(t *testing.T) {
 			if len(resolved) != 1 || resolved[0] != fixtureAccessToken {
 				t.Fatalf("resolved tokens = %#v", resolved)
 			}
+			for _, expected := range []string{
+				test.wantLogCode,
+				test.wantMessage,
+				`itemId="item-1"`,
+				`playSessionId="session-1"`,
+				"snapshotState=recorded",
+				"statusCode=204",
+			} {
+				if !strings.Contains(logs.String(), expected) {
+					t.Fatalf("logs=%q, want %s", logs.String(), expected)
+				}
+			}
 			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, test.body)
 		})
 	}
+}
+
+func TestGatewayPlaybackProgressFailureAndRecoveryAreObvious(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{principal: fixturePrincipal(), resolveErr: embytoken.ErrStoreUnavailable}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	progressBody := `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":123456789,"PlayMethod":"DirectPlay","IsPaused":false}`
+
+	failedRequest := httptest.NewRequest(http.MethodPost, "/Sessions/Playing/Progress", strings.NewReader(progressBody))
+	failedRequest.Header.Set(accessTokenHeader, fixtureAccessToken)
+	failedRequest.Header.Set("Content-Type", "application/json")
+	failedResponse := httptest.NewRecorder()
+	gateway.ServeHTTP(failedResponse, failedRequest)
+
+	if failedResponse.Code != http.StatusServiceUnavailable || upstreamCalls.Load() != 0 {
+		t.Fatalf("failed response=%d upstreamCalls=%d", failedResponse.Code, upstreamCalls.Load())
+	}
+	for _, expected := range []string{
+		"code=playback_progress_failed",
+		`message="播放进度上报失败"`,
+		"result=failure",
+		"forwardState=not_attempted",
+		"statusCode=503",
+		`itemId=""`,
+		`playSessionId=""`,
+		"snapshotState=not_inspected",
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("failure logs=%q, want %s", logs.String(), expected)
+		}
+	}
+
+	tokenService.mu.Lock()
+	tokenService.resolveErr = nil
+	tokenService.mu.Unlock()
+	playingBody := `{"ItemId":"item-1","MediaSourceId":"source-1","PlaySessionId":"session-1","PositionTicks":123456790,"PlayMethod":"DirectPlay"}`
+	recoveredRequest := httptest.NewRequest(http.MethodPost, "/Sessions/Playing", strings.NewReader(playingBody))
+	recoveredRequest.Header.Set(accessTokenHeader, fixtureAccessToken)
+	recoveredRequest.Header.Set("Content-Type", "application/json")
+	recoveredResponse := httptest.NewRecorder()
+	gateway.ServeHTTP(recoveredResponse, recoveredRequest)
+
+	if recoveredResponse.Code != http.StatusNoContent || upstreamCalls.Load() != 1 {
+		t.Fatalf("recovered response=%d upstreamCalls=%d", recoveredResponse.Code, upstreamCalls.Load())
+	}
+	for _, expected := range []string{
+		"code=playback_progress_recovered",
+		`message="播放进度上报已恢复"`,
+		"result=success",
+		"recoveryEvent=start",
+		`playSessionId="session-1"`,
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("recovery logs=%q, want %s", logs.String(), expected)
+		}
+	}
+
+	secondProgressRequest := httptest.NewRequest(http.MethodPost, "/Sessions/Playing/Progress", strings.NewReader(progressBody))
+	secondProgressRequest.Header.Set(accessTokenHeader, fixtureAccessToken)
+	secondProgressRequest.Header.Set("Content-Type", "application/json")
+	gateway.ServeHTTP(httptest.NewRecorder(), secondProgressRequest)
+	if count := strings.Count(logs.String(), "code=playback_progress_recovered"); count != 1 {
+		t.Fatalf("recovery log count=%d, want one; logs=%q", count, logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, progressBody, playingBody)
 }
 
 func TestGatewayProtectedRequestFailsClosedWithoutCallingUpstream(t *testing.T) {
