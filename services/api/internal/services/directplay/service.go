@@ -41,6 +41,16 @@ type MediaPathResolveRequest struct {
 	ClientUserAgent string
 }
 
+// MediaPathMapping keeps the exact Emby path and the source-account mapping
+// selected for one Gateway request. It is runtime diagnostic provenance only:
+// callers may log it, but it is never serialized or persisted by DirectPlay.
+type MediaPathMapping struct {
+	OriginalPath   string
+	EmbyPathPrefix string
+	SourceRootID   string
+	RelativePath   string
+}
+
 // RedirectCandidate is the internal handoff to the future playback gateway.
 // URL is deliberately excluded from JSON and persistent task state.
 type RedirectCandidate struct {
@@ -50,6 +60,7 @@ type RedirectCandidate struct {
 	ConcurrentOpenLimit int64                              `json:"concurrentOpenLimit"`
 	TaskID              string                             `json:"taskId,omitempty"`
 	Preexisting         bool                               `json:"preexisting"`
+	PathMapping         MediaPathMapping                   `json:"-"`
 }
 
 type activeAccountLoader interface {
@@ -139,23 +150,29 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 // ResolveMediaPath maps an Emby media path through the active source account
 // before entering the already tested transfer orchestration.
 func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathResolveRequest) (RedirectCandidate, error) {
+	mapping := MediaPathMapping{OriginalPath: request.Path}
 	if request.Size <= 0 || !validClientUserAgent(request.ClientUserAgent) {
-		return RedirectCandidate{}, ErrInvalidRequest
+		return RedirectCandidate{PathMapping: mapping}, ErrInvalidRequest
 	}
 	if !validAbsoluteMediaPath(request.Path, maxDirectPlayMediaPath) {
-		return RedirectCandidate{}, ErrPathNotMapped
+		return RedirectCandidate{PathMapping: mapping}, ErrPathNotMapped
 	}
 	source, playback, err := service.loadAccounts(ctx)
 	if err != nil {
-		return RedirectCandidate{}, err
+		return RedirectCandidate{PathMapping: mapping}, err
 	}
+	mapping.EmbyPathPrefix = source.EmbyPathPrefix
+	mapping.SourceRootID = source.SourceRootID
 	fileQuery, err := mapMediaPath(source.EmbyPathPrefix, source.SourceRootID, request.Path, request.Size)
 	if err != nil {
-		return RedirectCandidate{}, err
+		return RedirectCandidate{PathMapping: mapping}, err
 	}
-	return service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
+	mapping.RelativePath = fileQuery.RelativePath
+	candidate, err := service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
 		SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
 	})
+	candidate.PathMapping = mapping
+	return candidate, err
 }
 
 // resolveWithAccounts shares the transfer state machine between callers that

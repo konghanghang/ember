@@ -75,6 +75,57 @@ func TestUserItemDetailPathRequiresExactDepthAndUnescapedIdentity(t *testing.T) 
 	}
 }
 
+func TestGatewayClassifiesInvalidItemDetailResponses(t *testing.T) {
+	tests := []struct {
+		name         string
+		body         string
+		wantReason   string
+		wantFragment string
+	}{
+		{name: "invalid json", body: `{`, wantReason: "response_json_invalid"},
+		{name: "missing item id", body: `{}`, wantReason: "response_item_id_missing"},
+		{name: "mismatched item id", body: `{"Id":"other-item"}`, wantReason: "response_item_id_mismatch", wantFragment: "responseItemIdTruncated=false"},
+		{
+			name: "oversized mismatched item id", body: `{"Id":"` + strings.Repeat("x", maxProofItemIDBytes+1) + `"}`,
+			wantReason: "response_item_id_mismatch", wantFragment: "responseItemIdTruncated=true",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			defer upstream.Close()
+
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, &logs)
+			request := httptest.NewRequest(http.MethodGet, "/Users/emby-user-1/Items/item-1", nil)
+			request.Header.Set(accessTokenHeader, fixtureAccessToken)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK || response.Body.String() != test.body {
+				t.Fatalf("response=%d body=%q", response.Code, response.Body.String())
+			}
+			for _, expected := range []string{
+				"code=item_container_snapshot_unusable",
+				"reasonCode=" + test.wantReason,
+				`mappingId="mapping-1"`,
+				`itemId="item-1"`,
+			} {
+				if !strings.Contains(logs.String(), expected) {
+					t.Fatalf("logs=%q, want %s", logs.String(), expected)
+				}
+			}
+			if test.wantFragment != "" && !strings.Contains(logs.String(), test.wantFragment) {
+				t.Fatalf("logs=%q, want %s", logs.String(), test.wantFragment)
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, test.body)
+		})
+	}
+}
+
 func TestGatewayDoesNotReuseContainerAcrossPrincipalUserMismatch(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if strings.Contains(request.URL.Path, "/Users/") {

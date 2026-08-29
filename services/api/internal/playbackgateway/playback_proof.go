@@ -216,18 +216,38 @@ func (cache *playbackProofCache) evictEarliestLocked() {
 
 // validPlaybackProof bounds all cache-resident identity and media fields.
 func validPlaybackProof(proof PlaybackProof) bool {
-	return validProofValue(proof.MappingID, maxProofMappingIDBytes, false) &&
-		validProofValue(proof.ServerID, maxProofServerIDBytes, false) &&
-		validProofValue(proof.UserID, maxProofUserIDBytes, false) &&
-		validProofValue(proof.EmbyUserID, maxProofEmbyUserIDBytes, false) &&
-		validProofValue(proof.DeviceID, maxProofDeviceIDBytes, true) &&
-		validProofValue(proof.ClientName, maxProofClientNameBytes, true) &&
-		validProofValue(proof.ItemID, maxProofItemIDBytes, false) &&
-		validProofValue(proof.MediaSourceID, maxProofMediaSourceIDBytes, false) &&
-		validProofValue(proof.PlaySessionID, maxProofPlaySessionIDBytes, false) &&
-		validProofValue(proof.Path, maxProofPathBytes, false) &&
-		validProofValue(proof.Container, maxProofContainerBytes, true) &&
-		proof.Size > 0 && proof.SupportsDirectPlay
+	return playbackProofRejectionReason(proof) == ""
+}
+
+// playbackProofRejectionReason returns one stable diagnostic for the first
+// contract field that prevents a MediaSource from becoming a 115 proof.
+func playbackProofRejectionReason(proof PlaybackProof) string {
+	switch {
+	case !validProofValue(proof.MappingID, maxProofMappingIDBytes, false),
+		!validProofValue(proof.ServerID, maxProofServerIDBytes, false),
+		!validProofValue(proof.UserID, maxProofUserIDBytes, false),
+		!validProofValue(proof.EmbyUserID, maxProofEmbyUserIDBytes, false),
+		!validProofValue(proof.DeviceID, maxProofDeviceIDBytes, true),
+		!validProofValue(proof.ClientName, maxProofClientNameBytes, true),
+		!validProofValue(proof.ItemID, maxProofItemIDBytes, false):
+		return "identity_invalid"
+	case !validProofValue(proof.MediaSourceID, maxProofMediaSourceIDBytes, false):
+		return "media_source_invalid"
+	case !validProofValue(proof.PlaySessionID, maxProofPlaySessionIDBytes, false):
+		return "play_session_invalid"
+	case proof.Path == "":
+		return "path_missing"
+	case !validProofValue(proof.Path, maxProofPathBytes, false):
+		return "path_invalid"
+	case !validProofValue(proof.Container, maxProofContainerBytes, true):
+		return "container_invalid"
+	case proof.Size <= 0:
+		return "size_invalid"
+	case !proof.SupportsDirectPlay:
+		return "direct_play_unsupported"
+	default:
+		return ""
+	}
 }
 
 // validProofValue rejects normalized/control-character variants before a value

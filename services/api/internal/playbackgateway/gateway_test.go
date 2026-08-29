@@ -572,7 +572,28 @@ func TestGatewayGetPlaybackInfoIsTransparentAndRecordsProofs(t *testing.T) {
 	if _, ok := gateway.LookupPlaybackProof(wrongPrincipal, "item-1", "source-1", "session-1"); ok {
 		t.Fatal("proof was reusable by a different principal")
 	}
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody, "/private/media/one.mkv", "/private/media/two.mp4")
+	for _, expected := range []string{
+		`code=playback_info_media_source_observed mappingId="mapping-1" itemId="item-1" mediaSourceId="source-1" mediaPath="/private/media/one.mkv"`,
+		`code=playback_info_media_source_observed mappingId="mapping-1" itemId="item-1" mediaSourceId="source-2" mediaPath="/private/media/two.mp4"`,
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs=%q, want %s", logs.String(), expected)
+		}
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody)
+}
+
+func TestPlaybackInfoMediaPathLogQuotesControlCharacters(t *testing.T) {
+	var logs bytes.Buffer
+	gateway := &Gateway{logger: log.New(&logs, "", 0)}
+	gateway.logPlaybackInfoMediaSourceObservations("mapping-1", "item-1", []playbackInfoMediaSourceObservation{{
+		MediaSourceID: "source-1", MediaPath: "/mnt/media/line\nbreak.mkv", PathPresent: true,
+		ProofAccepted: true, ProofRejectReason: "none",
+	}})
+
+	if strings.Count(logs.String(), "\n") != 1 || !strings.Contains(logs.String(), `mediaPath="/mnt/media/line\nbreak.mkv"`) {
+		t.Fatalf("logs=%q, want one quoted log line", logs.String())
+	}
 }
 
 func TestGatewayPostPlaybackInfoPreservesRequestAndRecordsProof(t *testing.T) {
@@ -627,7 +648,10 @@ func TestGatewayRootPlaybackInfoReusesProofObserver(t *testing.T) {
 	if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); !ok {
 		t.Fatal("root PlaybackInfo did not record proof")
 	}
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody, "/private/media/one.mkv")
+	if !strings.Contains(logs.String(), `code=playback_info_media_source_observed mappingId="mapping-1" itemId="item-1" mediaSourceId="source-1" mediaPath="/private/media/one.mkv"`) {
+		t.Fatalf("logs=%q, want complete media path", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody)
 }
 
 func TestGatewayLowercasePlaybackInfoQueryPreservesYambyEmptyMediaStreams(t *testing.T) {
@@ -665,7 +689,10 @@ func TestGatewayLowercasePlaybackInfoQueryPreservesYambyEmptyMediaStreams(t *tes
 			t.Fatalf("logs=%q, want %s", logs.String(), expected)
 		}
 	}
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "/private/media/one.mkv")
+	if !strings.Contains(logs.String(), `mediaPath="/private/media/one.mkv"`) {
+		t.Fatalf("logs=%q, want complete media path", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
 func TestGatewayEncodedPlaybackInfoPreservesBytesAndRecordsProof(t *testing.T) {
@@ -703,7 +730,10 @@ func TestGatewayEncodedPlaybackInfoPreservesBytesAndRecordsProof(t *testing.T) {
 			if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); !ok {
 				t.Fatal("encoded PlaybackInfo did not record proof")
 			}
-			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, string(responseBody), "/private/media/one.mkv")
+			if !strings.Contains(logs.String(), `mediaPath="/private/media/one.mkv"`) {
+				t.Fatalf("logs=%q, want complete media path", logs.String())
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, string(responseBody))
 		})
 	}
 }
@@ -757,16 +787,17 @@ func TestGatewayPlaybackInfoIneligibleRequestRemainsTransparentWithoutProof(t *t
 func TestGatewayPlaybackInfoInvalidResponseDoesNotRecordProof(t *testing.T) {
 	validSource := `{"Id":"source-1","ItemId":"item-1","Path":"/private/media/one.mkv","Size":1024,"SupportsDirectPlay":true}`
 	tests := []struct {
-		name        string
-		status      int
-		body        string
-		responseMax int64
+		name            string
+		status          int
+		body            string
+		responseMax     int64
+		wantObservation bool
 	}{
 		{name: "upstream rejected", status: http.StatusForbidden, body: `{"ErrorCode":"NotAllowed"}`},
 		{name: "error code", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `],"PlaySessionId":"session-1","ErrorCode":"NotAllowed"}`},
 		{name: "missing play session", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `]}`},
 		{name: "duplicate media source", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `,` + validSource + `],"PlaySessionId":"session-1"}`},
-		{name: "not direct play", status: http.StatusOK, body: `{"MediaSources":[{"Id":"source-1","Path":"/private/media/one.mkv","Size":1024}],"PlaySessionId":"session-1"}`},
+		{name: "not direct play", status: http.StatusOK, body: `{"MediaSources":[{"Id":"source-1","Path":"/private/media/one.mkv","Size":1024}],"PlaySessionId":"session-1"}`, wantObservation: true},
 		{name: "oversized response", status: http.StatusOK, body: `{"MediaSources":[` + validSource + `],"PlaySessionId":"session-1","Padding":"` + strings.Repeat("x", 128) + `"}`, responseMax: 32},
 	}
 	for _, test := range tests {
@@ -794,7 +825,19 @@ func TestGatewayPlaybackInfoInvalidResponseDoesNotRecordProof(t *testing.T) {
 			if _, ok := gateway.LookupPlaybackProof(fixturePrincipal(), "item-1", "source-1", "session-1"); ok {
 				t.Fatal("invalid response recorded proof")
 			}
-			assertSecretsAbsent(t, logs.String(), test.body, "/private/media/one.mkv")
+			if test.wantObservation {
+				for _, expected := range []string{
+					`code=playback_info_media_source_observed mappingId="mapping-1" itemId="item-1" mediaSourceId="source-1" mediaPath="/private/media/one.mkv"`,
+					"proofAccepted=false", "proofRejectReason=direct_play_unsupported",
+				} {
+					if !strings.Contains(logs.String(), expected) {
+						t.Fatalf("logs=%q, want %s", logs.String(), expected)
+					}
+				}
+				assertSecretsAbsent(t, logs.String(), test.body)
+			} else {
+				assertSecretsAbsent(t, logs.String(), test.body, "/private/media/one.mkv")
+			}
 		})
 	}
 }

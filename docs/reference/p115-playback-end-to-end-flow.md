@@ -378,7 +378,7 @@ stage=<fixed-stage>
 reasonCode=<fixed-reason>
 ```
 
-Debug 请求摘要记录有界 method/Host/原始 path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；Info 播放决策可以记录必要 ID、状态和耗时。Debug 不重复生成第二条决策；两者都禁止记录 query value、Header 原值、Token、Cookie、完整媒体 Path/SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
+Debug 请求摘要记录有界 method/Host/原始 request path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；Info 对响应级合同成立后的每个唯一 MediaSource 记录 `playback_info_media_source_observed`，完整显示合法 `mediaPath`、Size/播放能力和 proof 接受/拒绝原因。按需 PlaybackInfo 选中的路径即使没有形成 proof 也进入最终决策；真正进入 DirectPlay 后再记录 `embyPathPrefix/sourceRootId/mappedRelativePath`，以核对 Emby 原路径和 115 source 映射。Debug 不重复生成第二条决策；所有日志仍禁止 query value、Header 原值、Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
 
 ## 9. 数据与秘密边界
 
@@ -403,7 +403,7 @@ Debug 请求摘要记录有界 method/Host/原始 path、query key、route、sta
 | PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200`、按需 PlaybackInfo `proofCount=1`，以及原始、Container-only、补齐参数后的 plain fallback 都返回 `404`；115 分支到达 `account_unavailable` 后按规则 fallback | DirectStreamUrl/扩展名权威 Emby fallback、115 302、HEAD/Range、字幕、UA/IP 绑定与进度事件仍未确认；旧 Store error 需新 reasonCode 复验 |
+| Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200`、按需 PlaybackInfo `proofCount=1`，以及原始、Container-only、补齐参数后的 plain fallback 都返回 `404`；115 分支到达 `account_unavailable` 后按规则 fallback。2026-08-29 Infuse `8.5.2` 的另一条目确认 Container 快照成功、按需 PlaybackInfo `proofCount=0`、DirectStreamUrl fallback `404`；新增 proof 观察日志前无法判断具体拒绝字段 | DirectStreamUrl/扩展名权威 Emby fallback 的媒体差异、115 302、HEAD/Range、字幕、UA/IP 绑定与进度事件仍未确认；`proofCount=0` 条目需用新 `proofRejectReason` 复验 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 

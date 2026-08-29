@@ -181,6 +181,15 @@ func TestResolvePlaybackInfoOnDemandInvalidatesStaleItemProofsWithoutNewDirectPl
 	if reasonCode != "" || resolved.PlaySessionID != "session-current" || resolved.ProofCount != 0 {
 		t.Fatalf("resolved=%+v reasonCode=%q", resolved, reasonCode)
 	}
+	for _, expected := range []string{
+		`code=playback_info_media_source_observed mappingId="mapping-1" itemId="item-1" mediaSourceId="source-current" mediaPath=""`,
+		"pathPresent=false", "sizePresent=false", "supportsDirectPlay=false",
+		"proofAccepted=false", "proofRejectReason=path_missing",
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs=%q, want %s", logs.String(), expected)
+		}
+	}
 	if _, ok := gateway.proofs.LookupLatestMediaSource("mapping-1", "item-1", "source-stale"); ok {
 		t.Fatal("stale proof survived a newer authoritative PlaybackInfo response")
 	}
@@ -205,7 +214,10 @@ func TestResolvePlaybackInfoOnDemandConvertsQueryTokenToInternalHeader(t *testin
 	if reasonCode != "" || resolved.PlaySessionID != "session-1" || resolved.Container != "mkv" || resolved.ProofCount != 1 {
 		t.Fatalf("resolved=%+v reasonCode=%q", resolved, reasonCode)
 	}
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "/private/media/one.mkv")
+	if !strings.Contains(logs.String(), `code=playback_info_media_source_observed mappingId="mapping-1" itemId="item-1" mediaSourceId="source-1" mediaPath="/private/media/one.mkv"`) {
+		t.Fatalf("logs=%q, want complete media path", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
 func TestResolvePlaybackInfoOnceClassifiesTransportTermination(t *testing.T) {

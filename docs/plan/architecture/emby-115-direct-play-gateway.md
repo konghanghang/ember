@@ -141,7 +141,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 新增不持有 Token/HMAC/runtime ServerId 的 `ControlPlaneRevoker`；设备按用户/设备跨历史 Server 撤销，用户按主体全部撤销，恢复路径同样清理遗留活动映射。
 - 设备手工/黑名单退出、用户 toggle/admin edit、Emby 访问开关、绑定前清理、解绑、删除和过期 cron 已按“本地撤销成功后再执行状态或 Emby 副作用”接入；远端失败不回滚本地安全结果。
 - Gateway 已精确分类 GET/POST PlaybackInfo、保留 ResolvePrincipal 结果、透明观察成功响应，并在 5 分钟/4096 条有界进程内缓存中保存 mapping/item/mediaSource/playSession 证明与 MediaSource 快照；没有重复请求 Emby。
-- PlaybackInfo 请求/响应不符合证明条件时仍透明代理但不缓存；缓存并发、TTL、容量淘汰、Token 隔离、请求/响应字节保持和 Path/Token 日志脱敏已有 fake 测试。
+- PlaybackInfo 请求/响应不符合证明条件时仍透明代理但不缓存；缓存并发、TTL、容量淘汰、Token 隔离和请求/响应字节保持已有 fake 测试。2026-08-29 起响应级合同成立后的唯一 MediaSource 均按运维要求记录完整合法 Path、Size/播放能力和 proof 接受/拒绝原因，不再依赖 proof 写入成功；Token 与完整响应仍保持脱敏。
 
 仍未完成：
 
@@ -468,7 +468,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 - 多副本并发：数据库唯一约束和 advisory lock 保证任务幂等。
 - 未进入固定合同的 Emby/115 行为保持“未证实”，不能用一次偶然成功替代合同。
 
-每个视频请求只直接打印一条最终决策日志：`decision=redirect|fallback|reject`。`stage/reasonCode` 统一使用 `docs/reference/emby-playback-proxy-contract.md` 的固定枚举；日志可以记录 requestId、method、userId、mappingId、deviceId、clientName、itemId、mediaSourceId、playSessionId、stage、reasonCode、taskId、preexisting、statusCode、upstreamStatus、proxyErrorCode 和 durationMs。禁止新建播放决策日志表或 migration；禁止记录 Emby AccessToken、115 Cookie、完整 Path、上传加密材料、完整 SHA1、完整下载直链、`Set-Cookie`、PlaybackInfo 原文、Provider 原始错误或 Emby 代理原始错误。
+每个视频请求只直接打印一条最终决策日志：`decision=redirect|fallback|reject`。`stage/reasonCode` 统一使用 `docs/reference/emby-playback-proxy-contract.md` 的固定枚举；日志可以记录 requestId、method、userId、mappingId、deviceId、clientName、itemId、mediaSourceId、playSessionId、stage、reasonCode、taskId、preexisting、statusCode、upstreamStatus、proxyErrorCode、durationMs，以及进入 DirectPlay 后的完整 `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。禁止新建播放决策日志表或 migration；禁止记录 Emby AccessToken、115 Cookie、上传加密材料、完整 SHA1、完整下载直链、`Set-Cookie`、PlaybackInfo 原文、Provider 原始错误或 Emby 代理原始错误。
 
 ### 8. 配置与部署
 
@@ -645,7 +645,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 2026-08-22 Gateway 认证代理与门控核心验证：
 
 - `go test -count=1 ./internal/playbackgateway` 通过，fake Emby 覆盖认证透明性、标准应用头、public 用户/头像 bootstrap、旁路失败、Token 门控、路由分类和脱敏 transport 错误。
-- 同一 Gateway fake/race 测试覆盖 GET/POST PlaybackInfo 请求与响应字节保持、Principal/UserId 绑定、多 MediaSource 快照、复合键隔离、5 分钟 TTL、4096 条容量、并发访问、无效请求/响应不缓存和 Path/Token 日志脱敏。
+- 同一 Gateway fake/race 测试覆盖 GET/POST PlaybackInfo 请求与响应字节保持、Principal/UserId 绑定、多 MediaSource 快照、复合键隔离、5 分钟 TTL、4096 条容量、并发访问、无效请求/响应不缓存、完整 Path quoted 日志和 Token 脱敏。
 - `go test -race -count=1 ./internal/playbackgateway ./internal/services/embytoken` 通过。
 - 设置专用 `EMBER_INTEGRATION_DATABASE_URL` 后执行 `go test -count=1 ./...`，新 Gateway 包和既有 PostgreSQL 集成测试实际执行并通过；`go vet ./...` 与 `go build ./...` 通过。
 - 自动化没有创建真实 Listener，也没有请求真实 Emby/115 或执行 Infuse 验收；固定 SDK 的 public bootstrap 与应用头合同已确认并由 fake 锁定，目标 Server 版本和 Infuse 实际请求顺序仍保持未证实。
@@ -686,7 +686,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 14. 单设备撤销只影响目标设备，用户全部撤销影响所有设备；硬禁用后重新请求仍拒绝，普通到期续期后不要求因到期本身重新登录。
 15. 未映射、已撤销、ServerId/EmbyID 错配和缺少近期成功 PlaybackInfo 的请求都不能获得 302。
 16. 网关切换后历史 Token 要求重新登录，原始 Emby 公网入口不可绕过本地撤销。
-17. 每个视频请求只打印一条 `redirect/fallback/reject` 决策日志；日志不落表，且不包含 Token、Cookie、完整 Path、SHA1、115 URL 或上游原文。
+17. 每个视频请求只打印一条 `redirect/fallback/reject` 决策日志；日志不落表，进入 DirectPlay 后包含完整原始/映射路径，但不包含 Token、Cookie、SHA1、115 URL 或上游原文。
 
 ### 受控真实验证
 

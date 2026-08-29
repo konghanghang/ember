@@ -237,7 +237,7 @@ Gateway 内部引入一个只描述路由事实的规范化结果，至少包含
 - 普通代理上游不可用。
 - 现有视频 `decision=redirect|fallback|reject`。
 
-禁止记录 AccessToken、Authorization 原值、用户名密码、Cookie、完整 URL/query、媒体 Path、115 URL、上游响应体或静态资源完整文件名。普通成功 API 请求不应逐请求刷大量日志；只对登录链路、策略拒绝、路径兼容分支和失败点保留足够诊断信息。
+禁止记录 AccessToken、Authorization 原值、用户名密码、Cookie、完整 URL/query、115 URL、上游响应体或静态资源完整文件名。PlaybackInfo 响应级合同成立后的 MediaSource 观察与 DirectPlay 最终决策按 2026-08-29 运维授权记录 quoted 完整合法媒体 Path、proof 结果和映射字段；普通成功 API 请求不应逐请求刷大量日志，只对登录链路、策略拒绝、路径兼容分支和失败点保留足够诊断信息。
 
 ### 9. 关键流程
 

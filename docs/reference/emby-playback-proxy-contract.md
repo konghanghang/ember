@@ -289,6 +289,7 @@ Gateway 对层级精确的用户条目 `200 application/json` 响应执行以下
 - Container 只允许有界小写字母、数字、逗号和连字符；重复 MediaSourceId 使整次响应不写缓存。
 - 缓存 TTL 5 分钟、最多 4096 条、无后台 goroutine；每个视频请求仍先重新执行 `ResolvePrincipal`，撤销和用户状态不能被缓存绕过。
 - 该快照只用于补齐正常 Emby fallback 的必填 Container，绝不是 PlaybackInfo/PlaySession 授权证明，不能凭它获得 115 `302`。
+- 旁路 JSON 解析失败、响应 `Id` 缺失和响应 `Id` 与 path 不一致时，分别记录 `response_json_invalid`、`response_item_id_missing`、`response_item_id_mismatch`；日志带 quoted `mappingId/itemId` 和有界响应元数据，不记录响应体，Emby 原状态/Header/Body 仍保持权威。
 
 ### 4.4 PlaybackInfoResponse 关键字段
 
@@ -334,7 +335,7 @@ Gateway 对层级精确的用户条目 `200 application/json` 响应执行以下
 - DirectStreamUrl 缺失或未通过校验时，按 Emby 官方 Web 客户端行为把 plain stream 改为 `/Videos/{Id}/stream.{Container}`；无法形成单一安全扩展名时才保留补齐参数后的 plain stream。
 - 权威 fallback 保留原 method、Range、应用认证 Header 和非播放身份 query；DirectStreamUrl 自己的 MediaSourceId/PlaySessionId/Container/Static 不被不完整客户端参数覆盖。
 - 补全后重新进入现有视频决策：证明和 115 条件齐全则可 `302`；115 未配置、不适用或失败时，也必须使用独立的权威 fallback 请求代理 Emby。resolver 失败时才保持原请求（或已有条目 Container fallback），不伪造成功。
-- Info 记录 `playback_info_resolved_on_demand`、`playback_info_resolve_failed`、`fallbackSource`、mappingId、itemId、proofCount、固定 reason 和上游 status；高频 `playback_info_reused_on_demand` 只在 Debug 输出。所有级别都禁止 Token、UserId query value、Path、响应体或完整 URL。
+- Info 记录 `playback_info_resolved_on_demand`、`playback_info_resolve_failed`、`fallbackSource`、mappingId、itemId、proofCount、固定 reason 和上游 status。响应级合同成立后，每个唯一有效 MediaSource ID 都记录 `code=playback_info_media_source_observed`：quoted `mediaPath`、`pathPresent/pathTruncated`、`sizePresent/size`、DirectPlay/DirectStream 能力、`proofAccepted` 与固定 `proofRejectReason`；不再依赖 proof 写入成功。高频 `playback_info_reused_on_demand` 只在 Debug 输出。所有级别仍禁止 Token、UserId query value、完整响应体或完整 URL。
 
 ### 4.6 单实例短期授权证明
 
@@ -360,8 +361,10 @@ mappingId + itemId + mediaSourceId + playSessionId
 - 每个有资格形成证明的新版 PlaybackInfo 响应都会先清除相同 `mappingId + itemId` 的旧证明；非 `200`、错误或不可用响应不能继续复用旧成功结果。
 - 视频请求仍必须先重新执行 `ResolvePrincipal`，再用完全相同的 mapping/item/mediaSource/playSession 查询；缓存不能绕过撤销或用户实时状态。
 - 进程重启会丢失证明；此时视频请求不能获得 115 302，但应 fallback 到 Emby，Infuse 再次调用 PlaybackInfo 后重建证明。多 Gateway、副本共享和持久播放会话推迟到后续阶段。
-- Token、完整 PlaybackInfo 响应和 Path 不进入日志；缓存对象只存在于 Gateway 进程内，不序列化为 API。
+- Token 和完整 PlaybackInfo 响应不进入日志；完整 Path 按运维授权进入上述 MediaSource 观察与最终视频决策日志。缓存对象只存在于 Gateway 进程内，不序列化为 API。
 - 响应无效、过大、解析失败或没有合格 MediaSource 时，Emby 原始响应仍逐字节返回，只是不产生证明。
+
+MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRejectReason=none`，或 `proofAccepted=false` 搭配 `identity_invalid`、`item_mismatch`、`path_missing`、`path_invalid`、`size_missing`、`size_invalid`、`container_invalid`、`direct_play_unsupported`。合法 Path 完整记录；超过 proof 上限的异常 Path 使用 `pathTruncated=true` 有界记录。
 
 ## 5. 原始视频流合同
 
@@ -484,8 +487,8 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
 - Emby 会话事件转发失败：记录失败并允许网关会话 TTL 收口，不能伪造成功。
 - `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
-- 每个视频请求在默认 Info 额外只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode/fallbackSource` 和必要 ID/耗时；Debug 不重复生成第二条决策，日志不建表、不进入数据库。
-- 决策日志禁止记录 Token、Cookie、完整 Path、完整 SHA1、115 URL、PlaybackInfo 原始响应或 Provider 原始错误。
+- 每个视频请求在默认 Info 额外只写一条最终决策日志：`decision=redirect|fallback|reject`，同时记录固定 `stage/reasonCode/fallbackSource` 和必要 ID/耗时；进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。成功 `302` 和 Provider 失败后的 fallback 复用同一字段合同；Debug 不重复生成第二条决策，日志不建表、不进入数据库。
+- 完整媒体 Path 已按运维排障需求明确允许进入持久日志；仍禁止记录 Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原始响应、Provider 原始错误或 Emby 代理原始错误。
 
 首期决策日志枚举固定如下；实现可以在同一 `reasonCode` 下补充脱敏上下文字段，但不能把原始错误字符串当作新枚举：
 

@@ -32,6 +32,10 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 	directPlay := &fakeDirectPlayService{result: directplay.RedirectCandidate{
 		URL: fixtureRedirectURL, ExpiresAt: time.Now().Add(time.Minute),
 		ConcurrentOpenLimit: 2, TaskID: "task-1", Preexisting: true,
+		PathMapping: directplay.MediaPathMapping{
+			OriginalPath: "/mnt/media/fixture.mkv", EmbyPathPrefix: "/mnt/media",
+			SourceRootID: "100", RelativePath: "fixture.mkv",
+		},
 	}}
 	var logs bytes.Buffer
 	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
@@ -54,12 +58,16 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 		t.Fatalf("direct play requests = %+v", requests)
 	}
 	assertSingleDecisionLog(t, logs.String(), "redirect", "direct_play", "direct_play_ready")
-	for _, expected := range []string{"statusCode=302", `userId="user-1"`, `itemId="item-1"`, `taskId="task-1"`, "preexisting=true"} {
+	for _, expected := range []string{
+		"statusCode=302", `userId="user-1"`, `itemId="item-1"`, `taskId="task-1"`, "preexisting=true",
+		`mediaPath="/mnt/media/fixture.mkv"`, `embyPathPrefix="/mnt/media"`,
+		`sourceRootId="100"`, `mappedRelativePath="fixture.mkv"`,
+	} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("logs = %q, want %s", logs.String(), expected)
 		}
 	}
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixtureRedirectURL, "/mnt/media/fixture.mkv")
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixtureRedirectURL)
 }
 
 func TestGatewayRootVideoWithoutProofFallsBackToCanonicalEmbyRequest(t *testing.T) {
@@ -122,7 +130,13 @@ func TestGatewayVideoDirectPlayFailureFallsBackToEmby(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	directPlay := &fakeDirectPlayService{err: directplay.ErrProviderUnavailable}
+	directPlay := &fakeDirectPlayService{
+		result: directplay.RedirectCandidate{PathMapping: directplay.MediaPathMapping{
+			OriginalPath: "/mnt/media/fixture.mkv", EmbyPathPrefix: "/mnt/media",
+			SourceRootID: "100", RelativePath: "fixture.mkv",
+		}},
+		err: directplay.ErrProviderUnavailable,
+	}
 	var logs bytes.Buffer
 	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
 	gateway.proofs.Record([]PlaybackProof{fixturePlaybackProof("mapping-1", "item-1", "source-1", "session-1")})
@@ -138,6 +152,14 @@ func TestGatewayVideoDirectPlayFailureFallsBackToEmby(t *testing.T) {
 		t.Fatalf("calls = Emby %d DirectPlay %d", upstreamCalls.Load(), len(directPlay.snapshot()))
 	}
 	assertSingleDecisionLog(t, logs.String(), "fallback", "direct_play", "provider_unavailable")
+	for _, expected := range []string{
+		`mediaPath="/mnt/media/fixture.mkv"`, `embyPathPrefix="/mnt/media"`,
+		`sourceRootId="100"`, `mappedRelativePath="fixture.mkv"`,
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs=%q, want %s", logs.String(), expected)
+		}
+	}
 }
 
 func TestGatewayVideoStreamAndFileNameShapesRedirect(t *testing.T) {
@@ -407,7 +429,55 @@ func TestGatewayUsesPlaybackInfoDirectStreamURLWhenDirectPlayUnavailable(t *test
 	if !strings.Contains(logs.String(), "fallbackSource=playback_info_direct_stream") {
 		t.Fatalf("logs=%q", logs.String())
 	}
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, directStreamToken, "/private/media/one.mkv")
+	if !strings.Contains(logs.String(), `mediaPath="/private/media/one.mkv"`) {
+		t.Fatalf("logs=%q, want complete media path", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, directStreamToken)
+}
+
+func TestGatewayOnDemandPlaybackInfoWithoutProofLogsPathInFallbackDecision(t *testing.T) {
+	const mediaPath = "/mnt/cloudNAS/115lifetime/Media/fixture.mkv"
+	var playbackInfoCalls atomic.Int32
+	var streamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/emby/Items/item-1/PlaybackInfo":
+			playbackInfoCalls.Add(1)
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"`+mediaPath+`","Size":1024,"Container":"mkv","SupportsDirectPlay":false,"SupportsDirectStream":true,"DirectStreamUrl":"/Videos/item-1/stream.mkv?Static=true&MediaSourceId=source-1"}],"PlaySessionId":"session-1"}`)
+		case "/emby/Videos/item-1/stream.mkv":
+			streamCalls.Add(1)
+			writer.WriteHeader(http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected upstream path=%s", request.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	directPlay := &fakeDirectPlayService{}
+	var logs bytes.Buffer
+	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
+	request := httptest.NewRequest(http.MethodGet, "/Videos/item-1/stream?MediaSourceId=source-1&Static=true", nil)
+	request.Header.Set(accessTokenHeader, fixtureAccessToken)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound || playbackInfoCalls.Load() != 1 || streamCalls.Load() != 1 || len(directPlay.snapshot()) != 0 {
+		t.Fatalf("response=%d playbackInfoCalls=%d streamCalls=%d directPlayCalls=%d", response.Code, playbackInfoCalls.Load(), streamCalls.Load(), len(directPlay.snapshot()))
+	}
+	assertSingleDecisionLog(t, logs.String(), "fallback", "proof", "playback_proof_missing")
+	for _, expected := range []string{
+		`code=playback_info_media_source_observed mappingId="mapping-1" itemId="item-1" mediaSourceId="source-1" mediaPath="` + mediaPath + `"`,
+		"pathPresent=true", "sizePresent=true", "supportsDirectPlay=false", "supportsDirectStream=true",
+		"proofAccepted=false", "proofRejectReason=direct_play_unsupported",
+		"fallbackSource=playback_info_direct_stream", `mediaPath="` + mediaPath + `"`,
+		`embyPathPrefix=""`, `sourceRootId=""`, `mappedRelativePath=""`,
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("logs=%q, want %s", logs.String(), expected)
+		}
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
 func TestGatewayOnDemandPlaybackInfoCanAuthorizeDirectPlay(t *testing.T) {
@@ -451,7 +521,10 @@ func TestGatewayOnDemandPlaybackInfoCanAuthorizeDirectPlay(t *testing.T) {
 		t.Fatalf("DirectPlay requests=%+v", requests)
 	}
 	assertSingleDecisionLog(t, logs.String(), "redirect", "direct_play", "direct_play_ready")
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "/private/media/one.mkv")
+	if !strings.Contains(logs.String(), `mediaPath="/private/media/one.mkv"`) {
+		t.Fatalf("logs=%q, want complete media path", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
 func TestGatewayOnDemandPlaybackInfoFailureKeepsOriginalFallback(t *testing.T) {

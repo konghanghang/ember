@@ -39,24 +39,28 @@ type videoRequestInfo struct {
 }
 
 type videoDecision struct {
-	Decision       string
-	Stage          string
-	ReasonCode     string
-	FallbackSource string
-	Method         string
-	UserID         string
-	MappingID      string
-	DeviceID       string
-	ClientName     string
-	ItemID         string
-	MediaSourceID  string
-	PlaySessionID  string
-	TaskID         string
-	Preexisting    bool
-	StatusCode     int
-	UpstreamStatus int
-	ProxyErrorCode string
-	StartedAt      time.Time
+	Decision           string
+	Stage              string
+	ReasonCode         string
+	FallbackSource     string
+	Method             string
+	UserID             string
+	MappingID          string
+	DeviceID           string
+	ClientName         string
+	ItemID             string
+	MediaSourceID      string
+	PlaySessionID      string
+	TaskID             string
+	Preexisting        bool
+	StatusCode         int
+	UpstreamStatus     int
+	ProxyErrorCode     string
+	MediaPath          string
+	EmbyPathPrefix     string
+	SourceRootID       string
+	MappedRelativePath string
+	StartedAt          time.Time
 }
 
 // serveVideo chooses exactly one of reject, redirect or transparent Emby
@@ -71,10 +75,12 @@ func (gateway *Gateway) serveVideo(
 	fallbackRequest := request
 	fallbackSource := onDemandFallbackSourceClient
 	playbackInfoResolved := false
+	resolvedMediaPath := ""
 	if itemID, mediaSourceID, eligible := onDemandPlaybackInfoCandidate(request); eligible {
 		clientRequest := request
 		resolved, reasonCode := gateway.resolvePlaybackInfoOnDemand(request, principal, accessToken, itemID, mediaSourceID)
 		if reasonCode == "" {
+			resolvedMediaPath = resolved.MediaSource.MediaPath
 			request, playbackInfoResolved = augmentVideoRequestWithPlaybackInfo(request, resolved)
 			if playbackInfoResolved {
 				fallbackRequest, fallbackSource = buildOnDemandEmbyFallbackRequest(
@@ -108,6 +114,7 @@ func (gateway *Gateway) serveVideo(
 		info.FallbackReason = "container_recovered"
 	}
 	decision := newVideoDecision(request, info, &principal, startedAt)
+	decision.MediaPath = resolvedMediaPath
 	if !info.Accelerated {
 		decision.Stage = info.FallbackStage
 		decision.ReasonCode = info.FallbackReason
@@ -135,9 +142,16 @@ func (gateway *Gateway) serveVideo(
 		return
 	}
 
+	decision.MediaPath = proof.Path
 	candidate, err := gateway.directPlayService.ResolveMediaPath(request.Context(), directplay.MediaPathResolveRequest{
 		Path: proof.Path, Size: proof.Size, ClientUserAgent: request.UserAgent(),
 	})
+	if candidate.PathMapping.OriginalPath != "" {
+		decision.MediaPath = candidate.PathMapping.OriginalPath
+	}
+	decision.EmbyPathPrefix = candidate.PathMapping.EmbyPathPrefix
+	decision.SourceRootID = candidate.PathMapping.SourceRootID
+	decision.MappedRelativePath = candidate.PathMapping.RelativePath
 	if err != nil {
 		decision.Stage = "direct_play"
 		decision.ReasonCode = directPlayReasonCode(err)
@@ -381,20 +395,22 @@ func newVideoDecision(request *http.Request, info videoRequestInfo, principal *e
 	return decision
 }
 
-// logVideoDecision writes the single request-level decision record using only
-// bounded identifiers and fixed enums; paths, Tokens, URLs and raw errors never
-// enter the message.
+// logVideoDecision writes the single request-level decision record with fixed
+// enums and the explicitly authorized Emby/source path mapping provenance.
+// Tokens, Cookies, signed URLs, response bodies and raw errors never enter it.
 func (gateway *Gateway) logVideoDecision(decision videoDecision) {
 	duration := time.Since(decision.StartedAt).Milliseconds()
 	if duration < 0 {
 		duration = 0
 	}
 	gateway.logger.Printf(
-		"[PlaybackGateway] decision=%s stage=%s reasonCode=%s fallbackSource=%s method=%s userId=%s mappingId=%s deviceId=%s clientName=%s itemId=%s mediaSourceId=%s playSessionId=%s taskId=%s preexisting=%t statusCode=%d upstreamStatus=%d proxyErrorCode=%s durationMs=%d",
+		"[PlaybackGateway] decision=%s stage=%s reasonCode=%s fallbackSource=%s method=%s userId=%s mappingId=%s deviceId=%s clientName=%s itemId=%s mediaSourceId=%s playSessionId=%s taskId=%s preexisting=%t statusCode=%d upstreamStatus=%d proxyErrorCode=%s mediaPath=%s embyPathPrefix=%s sourceRootId=%s mappedRelativePath=%s durationMs=%d",
 		decision.Decision, decision.Stage, decision.ReasonCode, decision.FallbackSource, decision.Method,
 		strconv.Quote(decision.UserID), strconv.Quote(decision.MappingID), strconv.Quote(decision.DeviceID),
 		strconv.Quote(decision.ClientName), strconv.Quote(decision.ItemID), strconv.Quote(decision.MediaSourceID),
 		strconv.Quote(decision.PlaySessionID), strconv.Quote(decision.TaskID), decision.Preexisting,
-		decision.StatusCode, decision.UpstreamStatus, decision.ProxyErrorCode, duration,
+		decision.StatusCode, decision.UpstreamStatus, decision.ProxyErrorCode,
+		strconv.Quote(decision.MediaPath), strconv.Quote(decision.EmbyPathPrefix),
+		strconv.Quote(decision.SourceRootID), strconv.Quote(decision.MappedRelativePath), duration,
 	)
 }

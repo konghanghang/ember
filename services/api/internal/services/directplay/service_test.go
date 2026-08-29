@@ -41,6 +41,11 @@ func TestServiceResolveMediaPathUsesSourceAccountLocation(t *testing.T) {
 	if !result.Preexisting || provider.resolvedQuery.RootID != "0" || provider.resolvedQuery.RelativePath != "Media/fixture.mkv" {
 		t.Fatalf("ResolveMediaPath() result=%+v query=%+v", result, provider.resolvedQuery)
 	}
+	if result.PathMapping.OriginalPath != "/mnt/cloudNAS/115lifetime/Media/fixture.mkv" ||
+		result.PathMapping.EmbyPathPrefix != "/mnt/cloudNAS/115lifetime" ||
+		result.PathMapping.SourceRootID != "0" || result.PathMapping.RelativePath != "Media/fixture.mkv" {
+		t.Fatalf("ResolveMediaPath() mapping=%+v", result.PathMapping)
+	}
 }
 
 func TestServiceResolveMediaPathRejectsPrefixBoundaryAndTraversal(t *testing.T) {
@@ -63,6 +68,23 @@ func TestServiceResolveMediaPathRejectsPrefixBoundaryAndTraversal(t *testing.T) 
 				t.Fatalf("invalid media path reached provider: %v", provider.calls)
 			}
 		})
+	}
+}
+
+func TestServiceResolveMediaPathReturnsKnownMappingOnPrefixMismatch(t *testing.T) {
+	service := newServiceWithDependencies(fakeAccountLoader{}, newFakeProvider(), &fakeTaskStore{}, &fakeTaskLocker{})
+	result, err := service.ResolveMediaPath(context.Background(), MediaPathResolveRequest{
+		Path:            "/mnt/other/Media/fixture.mkv",
+		Size:            1024 * 1024,
+		ClientUserAgent: "Infuse-Fixture",
+	})
+	if !errors.Is(err, ErrPathNotMapped) {
+		t.Fatalf("ResolveMediaPath() error=%v, want ErrPathNotMapped", err)
+	}
+	if result.PathMapping.OriginalPath != "/mnt/other/Media/fixture.mkv" ||
+		result.PathMapping.EmbyPathPrefix != "/mnt/cloudNAS/115lifetime" ||
+		result.PathMapping.SourceRootID != "0" || result.PathMapping.RelativePath != "" {
+		t.Fatalf("ResolveMediaPath() mapping=%+v", result.PathMapping)
 	}
 }
 

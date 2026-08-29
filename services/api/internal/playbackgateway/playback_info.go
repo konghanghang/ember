@@ -42,6 +42,19 @@ type playbackInfoMediaSource struct {
 	SupportsTranscoding  bool   `json:"SupportsTranscoding"`
 }
 
+type playbackInfoMediaSourceObservation struct {
+	MediaSourceID        string
+	MediaPath            string
+	PathPresent          bool
+	PathTruncated        bool
+	Size                 int64
+	SizePresent          bool
+	SupportsDirectPlay   bool
+	SupportsDirectStream bool
+	ProofAccepted        bool
+	ProofRejectReason    string
+}
+
 // preparePlaybackInfoRequest records only bounded request metadata in context.
 // Invalid or mismatched requests remain transparent but become proof-ineligible.
 func (gateway *Gateway) preparePlaybackInfoRequest(request *http.Request, principal embytoken.Principal) (string, bool) {
@@ -119,7 +132,12 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 		)
 		return nil
 	}
-	proofs, ok := buildPlaybackProofs(decodedPrefix, routeContext)
+	proofs, observations, ok := buildPlaybackProofs(decodedPrefix, routeContext)
+	gateway.logPlaybackInfoMediaSourceObservations(
+		routeContext.principal.MappingID,
+		routeContext.playbackInfoItemID,
+		observations,
+	)
 	if !ok {
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_response_unusable")
 		return nil
@@ -134,31 +152,86 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 	return nil
 }
 
+// logPlaybackInfoMediaSourceObservations records each observed Emby path and
+// the exact proof acceptance boundary before any cache write.
+func (gateway *Gateway) logPlaybackInfoMediaSourceObservations(
+	mappingID string,
+	itemID string,
+	observations []playbackInfoMediaSourceObservation,
+) {
+	if gateway == nil || gateway.logger == nil {
+		return
+	}
+	for _, observation := range observations {
+		gateway.logger.Printf(
+			"[PlaybackGateway] code=playback_info_media_source_observed mappingId=%q itemId=%q mediaSourceId=%q mediaPath=%q pathPresent=%t pathTruncated=%t sizePresent=%t size=%d supportsDirectPlay=%t supportsDirectStream=%t proofAccepted=%t proofRejectReason=%s",
+			mappingID,
+			itemID,
+			observation.MediaSourceID,
+			observation.MediaPath,
+			observation.PathPresent,
+			observation.PathTruncated,
+			observation.SizePresent,
+			observation.Size,
+			observation.SupportsDirectPlay,
+			observation.SupportsDirectStream,
+			observation.ProofAccepted,
+			observation.ProofRejectReason,
+		)
+	}
+}
+
 // buildPlaybackProofs validates the response-level identity once and produces
-// one proof per unique, direct-play-capable MediaSource.
-func buildPlaybackProofs(body []byte, routeContext requestRouteContext) ([]PlaybackProof, bool) {
+// one observation per unique MediaSource and one proof per accepted source.
+func buildPlaybackProofs(
+	body []byte,
+	routeContext requestRouteContext,
+) ([]PlaybackProof, []playbackInfoMediaSourceObservation, bool) {
 	var payload playbackInfoResponsePayload
 	if err := json.Unmarshal(body, &payload); err != nil || payload.ErrorCode != "" ||
 		!validProofValue(payload.PlaySessionID, maxProofPlaySessionIDBytes, false) ||
 		len(payload.MediaSources) == 0 || len(payload.MediaSources) > maxPlaybackInfoMediaSources ||
 		routeContext.principal == nil {
-		return nil, false
+		return nil, nil, false
 	}
 	seen := make(map[string]struct{}, len(payload.MediaSources))
 	proofs := make([]PlaybackProof, 0, len(payload.MediaSources))
+	observations := make([]playbackInfoMediaSourceObservation, 0, len(payload.MediaSources))
 	principal := routeContext.principal
 	for _, source := range payload.MediaSources {
-		if source.ID == "" {
+		if !validProofValue(source.ID, maxProofMediaSourceIDBytes, false) {
 			continue
 		}
 		if _, duplicate := seen[source.ID]; duplicate {
-			return nil, false
+			return nil, nil, false
 		}
 		seen[source.ID] = struct{}{}
+		mediaPath, pathTruncated := boundedRequestLogValue(source.Path, maxProofPathBytes)
+		observation := playbackInfoMediaSourceObservation{
+			MediaSourceID:        source.ID,
+			MediaPath:            mediaPath,
+			PathPresent:          source.Path != "",
+			PathTruncated:        pathTruncated,
+			SizePresent:          source.Size != nil,
+			SupportsDirectPlay:   source.SupportsDirectPlay,
+			SupportsDirectStream: source.SupportsDirectStream,
+		}
+		if source.Size != nil {
+			observation.Size = *source.Size
+		}
 		if source.ItemID != "" && source.ItemID != routeContext.playbackInfoItemID {
+			observation.ProofRejectReason = "item_mismatch"
+			observations = append(observations, observation)
 			continue
 		}
 		if source.Size == nil {
+			observation.ProofRejectReason = "size_missing"
+			if source.Path == "" {
+				observation.ProofRejectReason = "path_missing"
+			} else if !validProofValue(source.Path, maxProofPathBytes, false) {
+				observation.ProofRejectReason = "path_invalid"
+			}
+			observations = append(observations, observation)
 			continue
 		}
 		proof := PlaybackProof{
@@ -171,11 +244,15 @@ func buildPlaybackProofs(body []byte, routeContext requestRouteContext) ([]Playb
 			SupportsDirectPlay: source.SupportsDirectPlay, SupportsDirectStream: source.SupportsDirectStream,
 			SupportsTranscoding: source.SupportsTranscoding,
 		}
-		if validPlaybackProof(proof) {
+		observation.ProofRejectReason = playbackProofRejectionReason(proof)
+		if observation.ProofRejectReason == "" {
+			observation.ProofAccepted = true
+			observation.ProofRejectReason = "none"
 			proofs = append(proofs, proof)
 		}
+		observations = append(observations, observation)
 	}
-	return proofs, len(proofs) > 0
+	return proofs, observations, len(proofs) > 0
 }
 
 // playbackInfoItemID matches the fixed case-insensitive PlaybackInfo segments

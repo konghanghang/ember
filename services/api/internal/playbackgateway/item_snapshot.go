@@ -199,8 +199,38 @@ func (gateway *Gateway) observeUserItemDetailResponse(response *http.Response, r
 		return nil
 	}
 	var payload userItemDetailPayload
-	if err := json.Unmarshal(decoded, &payload); err != nil || payload.ID != routeContext.itemDetailItemID {
-		gateway.logger.Printf("[PlaybackGateway] code=item_container_snapshot_unusable reasonCode=response_invalid")
+	if err := json.Unmarshal(decoded, &payload); err != nil {
+		gateway.logger.Printf(
+			"[PlaybackGateway] code=item_container_snapshot_unusable reasonCode=response_json_invalid mappingId=%q itemId=%q contentEncoding=%s bodyBytes=%d errorType=%T",
+			routeContext.principal.MappingID,
+			routeContext.itemDetailItemID,
+			responseSidecarEncodingCode(response.Header.Get("Content-Encoding")),
+			len(decoded),
+			err,
+		)
+		return nil
+	}
+	if payload.ID == "" {
+		gateway.logger.Printf(
+			"[PlaybackGateway] code=item_container_snapshot_unusable reasonCode=response_item_id_missing mappingId=%q itemId=%q contentEncoding=%s bodyBytes=%d",
+			routeContext.principal.MappingID,
+			routeContext.itemDetailItemID,
+			responseSidecarEncodingCode(response.Header.Get("Content-Encoding")),
+			len(decoded),
+		)
+		return nil
+	}
+	if payload.ID != routeContext.itemDetailItemID {
+		responseItemID, responseItemIDTruncated := boundedRequestLogValue(payload.ID, maxProofItemIDBytes)
+		gateway.logger.Printf(
+			"[PlaybackGateway] code=item_container_snapshot_unusable reasonCode=response_item_id_mismatch mappingId=%q itemId=%q responseItemId=%q responseItemIdTruncated=%t contentEncoding=%s bodyBytes=%d",
+			routeContext.principal.MappingID,
+			routeContext.itemDetailItemID,
+			responseItemID,
+			responseItemIDTruncated,
+			responseSidecarEncodingCode(response.Header.Get("Content-Encoding")),
+			len(decoded),
+		)
 		return nil
 	}
 	written := gateway.itemContainers.Record(

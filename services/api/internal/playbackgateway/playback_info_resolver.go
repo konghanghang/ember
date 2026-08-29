@@ -31,6 +31,7 @@ type onDemandPlaybackInfo struct {
 	Container     string
 	ProofCount    int
 	FallbackURL   *url.URL
+	MediaSource   playbackInfoMediaSourceObservation
 }
 
 type onDemandPlaybackInfoResolveCall struct {
@@ -61,7 +62,15 @@ func (gateway *Gateway) resolvePlaybackInfoOnDemand(
 	if proof, ok := gateway.proofs.LookupLatestMediaSource(principal.MappingID, itemID, mediaSourceID); ok &&
 		playbackProofMatchesPrincipal(proof, principal) {
 		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_reused_on_demand mappingId=%s itemId=%s", principal.MappingID, itemID)
-		return onDemandPlaybackInfo{PlaySessionID: proof.PlaySessionID, Container: proof.Container}, ""
+		return onDemandPlaybackInfo{
+			PlaySessionID: proof.PlaySessionID,
+			Container:     proof.Container,
+			MediaSource: playbackInfoMediaSourceObservation{
+				MediaSourceID: proof.MediaSourceID, MediaPath: proof.Path, PathPresent: proof.Path != "",
+				Size: proof.Size, SizePresent: true, SupportsDirectPlay: proof.SupportsDirectPlay,
+				SupportsDirectStream: proof.SupportsDirectStream, ProofAccepted: true, ProofRejectReason: "none",
+			},
+		}, ""
 	}
 	key := principal.MappingID + "\x00" + itemID + "\x00" + mediaSourceID
 	return gateway.playbackInfoFlights.Do(request.Context(), key, func() (onDemandPlaybackInfo, string) {
@@ -145,6 +154,7 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 	if err != nil {
 		return onDemandPlaybackInfo{}, "response_unusable"
 	}
+	gateway.logPlaybackInfoMediaSourceObservations(principal.MappingID, itemID, []playbackInfoMediaSourceObservation{resolved.MediaSource})
 	gateway.proofs.InvalidateItem(principal.MappingID, itemID)
 	if len(proofs) > 0 {
 		resolved.ProofCount = gateway.proofs.Record(proofs)
@@ -292,11 +302,22 @@ func parseOnDemandPlaybackInfo(
 		kind: routePlaybackInfo, principal: &principal,
 		playbackInfoItemID: itemID, playbackInfoEligible: true,
 	}
-	proofs, _ := buildPlaybackProofs(body, routeContext)
+	proofs, observations, _ := buildPlaybackProofs(body, routeContext)
+	var selectedObservation playbackInfoMediaSourceObservation
+	for _, observation := range observations {
+		if observation.MediaSourceID == mediaSourceID {
+			selectedObservation = observation
+			break
+		}
+	}
+	if selectedObservation.MediaSourceID == "" {
+		return onDemandPlaybackInfo{}, nil, errOnDemandPlaybackInfoInvalid
+	}
 	return onDemandPlaybackInfo{
 		PlaySessionID: payload.PlaySessionID,
 		Container:     container,
 		FallbackURL:   fallbackURL,
+		MediaSource:   selectedObservation,
 	}, proofs, nil
 }
 
