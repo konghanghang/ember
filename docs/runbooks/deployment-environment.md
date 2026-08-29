@@ -89,6 +89,8 @@
 
 Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问原始 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是用户和播放器看到的 Gateway 公网 HTTPS 地址。二者指向同一公网 Gateway 会形成代理回环，原始 Emby 继续公开则会形成安全旁路。
 
+`PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 对下一次 `/`、`/favicon.ico` 或 `/web` 页面/静态资源请求直接读取新值并实时生效。关闭时返回空体 `404`，数据库读取失败时返回空体 `503`；Infuse 等客户端 API、视频和带 Token 的根 WebSocket 不受该开关影响。
+
 API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接运行 `ember gateway` 时同样监听 `:8081`。`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变映射到 Gateway `8081` 的宿主机 `127.0.0.1` 端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
 
 API、Gateway 和 Bot 共用项目级 `LOG_LEVEL`，只接受 `info/debug` 并默认 `info`。Info 保留关键业务事件、失败和视频最终决策；Debug 额外输出安全请求摘要、正常 access log、参数化 SQL、Gateway 缓存/载体诊断和 Bot 应用调试信息。非法值回退 `info` 并记录一次固定警告；修改后重启目标服务生效。该变量不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 自身日志。

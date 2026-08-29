@@ -51,6 +51,7 @@ var (
 // ConfigService without creating a second configuration source.
 type RuntimeSettings interface {
 	GetString(string) string
+	PlaybackGatewayWebEnabled(context.Context) (bool, error)
 }
 
 // ProductionDependencies are process-owned objects that remain injectable for
@@ -132,6 +133,7 @@ func NewProductionRuntime(
 		Upstream:          upstream,
 		TokenService:      tokenService,
 		DirectPlayService: directPlayService,
+		WebSurfacePolicy:  dependencies.Settings,
 		Transport:         dependencies.Transport,
 		Logger:            logger,
 		Debug:             logpkg.DebugEnabled(),

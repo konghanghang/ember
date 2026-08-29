@@ -22,6 +22,7 @@
 - API 持久日志写入 `api_logs` 中的 `api-YYYY-MM-DD.log`，Gateway 写入 `gateway_logs` 中的 `gateway-YYYY-MM-DD.log`；两者同时保留各自容器 stdout。
 - API、Gateway、Bot 共用 `LOG_LEVEL=info|debug`，默认 `info`；排查时临时切到 `debug` 并重启目标服务，第三方 HTTP logger 不随之放宽。
 - Gateway 进程固定监听容器内 `8081`，只映射到宿主机 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}`；公网 HTTPS 由外部反向代理负责。
+- Emby 网页入口由设置中心数据库项 `PLAYBACK_GATEWAY_WEB_ENABLED` 控制，默认开启；保存后下一次 Web 请求实时生效，不需要新增环境变量或重启 Gateway。关闭只影响 `/`、`/favicon.ico` 和 `/web` 页面/静态资源，不影响原生客户端 API、视频和根 WebSocket。
 
 ## 你现在应该看哪份文档
 

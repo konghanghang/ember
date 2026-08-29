@@ -65,7 +65,10 @@ Emby 客户端
 | 固定 OpenAPI 顶层 API family 的根路径，例如 `/System/...` | `/emby/System/...` | 先规范化，再执行同一路由分类和门控 |
 | 已带 `/emby/...` | 保持单一 `/emby/...` | 兼容历史客户端地址，不重复添加前缀 |
 | 精确重复 `/emby/emby/...` | 不转发 | 返回空体 `400` 并记录固定 `request_path_invalid` |
-| 根 `/web/...` 与未知 Surface | 不做 API 规范化 | 当前继续受保护透传；Web/static/WebSocket 合同另行实现 |
+| `GET/HEAD /`、`/favicon.ico`、`/web` 页面和静态资源 | 不做 API 规范化 | 进入独立 Web Surface，由后台数据库开关实时控制 |
+| 固定 `GET /web/ConfigurationPage(s)`、`strings`、`stringset` | `/emby/web/...` | 继续按受保护 Emby API 处理；尾斜杠和深层变体不继承匿名权限 |
+| 根 WebSocket Upgrade | 保持 `/` | 使用固定 query Token 合同并继续执行本地身份门控，不受 Web UI 开关影响 |
+| 其他未知 Surface | 不做 API 规范化 | 继续受保护并失败关闭 |
 
 规范化只改 `URL.Path`，必须保留 method、query、Header 和 body。存在 alternate escaping 的请求不能通过 root 规范化继承认证、bootstrap、PlaybackInfo 或视频特殊处理；大小写、尾斜杠和额外层级同样不能放宽精确路由。
 
@@ -221,7 +224,7 @@ Ember 本地撤销固定三种粒度：
 
 当前 `internal/playbackgateway` 固定以下可测试行为：
 
-- 固定 OpenAPI 顶层 API family 的 root path 先规范化为单一 `/emby/...`；family 与 `/emby` 前缀比较大小写不敏感，已有规范前缀保持，重复大小写变体 `/emby/emby/...` 返回空体 `400`，根 `/web/...` 和未知 Surface 不参与规范化。
+- 固定 OpenAPI 顶层 API family 的 root path 先规范化为单一 `/emby/...`；family 与 `/emby` 前缀比较大小写不敏感，已有规范前缀保持，重复大小写变体 `/emby/emby/...` 返回空体 `400`。Web UI Surface 不参与 API 规范化，四个固定 `/web` WebAppService API 例外仍规范化并受保护。
 - root 或 `/emby` 形态的 `GET System/Info/Public` 在固定语义段上大小写不敏感且不做本地鉴权；`POST Users/AuthenticateByName`、公开用户和无 Index 公开头像不要求已映射 Token，但仍必须先通过应用/设备授权头。尾斜杠、额外层级和 alternate escaping 不放宽，其余路径默认受保护。
 - 认证上游只有 `200` 才旁路解析；编码响应与解码副本检查上限均为 `1 MiB`。identity、gzip 或 deflate 响应逐字节恢复后返回，字段顺序、压缩编码和未知 JSON 字段不重编码。
 - 不合法、超过检查上限或映射写入失败的成功响应仍原样返回，但该 Token 不建立映射，下一次受保护请求失败关闭。
@@ -229,9 +232,26 @@ Ember 本地撤销固定三种粒度：
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
 - 固定 SDK 已确认 `Authorization/X-Emby-Authorization` 的 `Emby` scheme，目标 Infuse `8.5` 已确认 `X-Emby-Authorization: MediaBrowser ...`；兼容矩阵额外接受严格 `X-MediaBrowser-Authorization: MediaBrowser ...`，但不扩展到任意 Header/scheme。真实目标环境同时确认 SystemInfoPublic 无登录可访问，Gateway 对该公开路由记录不含 Header value、URL query 或响应体的上游状态日志。
 
-当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；持久播放会话和 Web Surface 仍未实现。Infuse 登录、普通资源 API、按需 PlaybackInfo、source 映射、转存和 Gateway `302` 已有实机证据，通用载体/大小写矩阵已有 fake 证据；115 CDN 媒体字节、字幕、完整会话以及 SenPlayer、Yamby 等其他客户端仍未实机确认。通用透明代理和 Web Surface 的后续计划见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
+当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同，持久播放会话仍未实现。Infuse 登录、普通资源 API、按需 PlaybackInfo、source 映射、转存和 Gateway `302` 已有实机证据，通用载体/大小写矩阵已有 fake 证据；115 CDN 媒体字节、字幕、完整会话、目标 Emby Web 页面字节以及 SenPlayer、Yamby 等其他客户端仍未实机确认。后续收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
 
-### 3.5 暂不覆盖的认证方式
+### 3.5 Emby Web Surface 与根 WebSocket
+
+固定 `4.9.3.0` OpenAPI 明确把以下 WebAppService 路径标记为 `Requires authentication as user`：
+
+- `GET /web/ConfigurationPage`
+- `GET /web/ConfigurationPages`
+- `GET /web/strings`
+- `GET /web/stringset`
+
+因此 Web UI 不能简单按 `/web/*` 全部匿名代理。Gateway 只把不携带 Token 的 `GET/HEAD /`、`/favicon.ico`、`/web` 页面和静态资源识别为 `emby_web`；上述四个 API 的精确 root path 规范化到 `/emby/web/...` 并继续执行 Token 门控，其尾斜杠和深层变体也不能继承静态资源权限。携带任一受支持或非法 Token carrier 的 Web path 回到受保护分支，避免利用匿名 Surface 绕过本地撤销和用户状态。
+
+固定 SDK [Web Socket 合同](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/doc/restapi/Web-Socket.html) 使用服务根地址的 `ws/wss` Upgrade，并携带 `api_key + deviceId`。Gateway 对根 Upgrade 继续执行通用 query Token 映射，现有 ReverseProxy 透传并升级 `101`；关闭 Web UI 不影响该链路。
+
+`PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对每个已识别 Web Surface 请求绕过通用进程缓存直接读取新值：开启则保持原始 method/path/query/Header 和响应透明代理，关闭返回空体 `404` 且不访问上游，读取失败返回空体 `503`。该读取不进入普通 API、视频、WebSocket 或健康检查路径。
+
+目标日志仅确认浏览器访问 Gateway 时实际请求 `/` 与 `/favicon.ico`；Emby Web 根响应、后续静态资源清单和真实 `101` 仍未在目标实例实机验收，当前能力等级为 Ember fake 合同。
+
+### 3.6 暂不覆盖的认证方式
 
 首版不根据经验实现以下认证方式：
 
@@ -534,6 +554,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 19. 用户条目 identity/gzip/deflate 响应逐字节保持；按需 PlaybackInfo 失败、仅由条目 Container 恢复 plain stream fallback 时，DirectPlay 调用次数必须为零。
 20. 缺 PlaySessionId 的 plain stream 使用当前用户 Token 补取 PlaybackInfo；压缩响应、source/item 错配、重复 source、非法 Container、上游非 200、取消/超时、singleflight 和 proof 复用均有 fake 测试，内部 URL 与日志不含 Token。
 21. 115 不可用时，合法 DirectStreamUrl fallback 返回 fake Emby `200/206`；绝对 URL、错 Item/source/session/container、encoded path、manifest 被拒绝，URL Token 被删除并替换为当前用户 Header；DirectStreamUrl 缺失时固定使用 `stream.{Container}`。
+22. Web 开关默认值、无环境变量回退、连续数据库读取实时变化、开启透明代理、关闭不访问上游、读取失败 `503`、受保护 `/web` API、非法/携 Token Web path 和根 WebSocket `101` 均有 fake 合同测试；日志不得包含 query Token。
 
 所有测试必须使用 fake Emby Server 或固定 fixture，禁止请求真实 Emby。
 
@@ -547,6 +568,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - Infuse 对 `302`、`HEAD`、`Range`、UA 和文件名的处理。
 - 客户端是否始终携带 `PlaySessionId`、`MediaSourceId` 和设备标识。
 - Direct Play、Direct Stream 与 Transcode 三种情况下的实际请求差异。
+- 目标 Emby `GET /` 的状态/Location、`/favicon.ico`、`/web` 静态资源清单、绝对 Location 行为和根 WebSocket `101`；当前只有 Gateway 浏览器请求形态与 fake 代理证据。
 - 目标 Emby 4.9 实例是否提供可安全调用的单 Token、单设备或会话撤销接口；确认前只能宣称 Ember 网关本地撤销。
 
 以上未确认项不能作为实现完成的依据。

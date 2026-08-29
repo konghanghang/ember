@@ -213,6 +213,46 @@ describe('SettingsView', () => {
     expect((wrapper.find('input[placeholder="https://t.me/ember"]').element as HTMLInputElement).value).toBe('https://t.me/updated')
   })
 
+  it('Gateway Emby 网页开关作为后台配置保存并标记立即生效', async () => {
+    const webConfig = createConfigItem({
+      key: 'PLAYBACK_GATEWAY_WEB_ENABLED',
+      group: 'media',
+      groupLabel: '媒体集成',
+      label: 'Gateway Emby 网页访问',
+      description: '控制是否允许通过 Playback Gateway 打开 Emby 网页端',
+      type: 'boolean',
+      source: 'default',
+      value: 'true',
+      restartRequired: false,
+      allowEmpty: false,
+      emptyValueMode: 'not_allowed',
+    })
+    vi.mocked(getConfigs)
+      .mockResolvedValueOnce({ data: [webConfig] })
+      .mockResolvedValueOnce({
+        data: [createConfigItem({ ...webConfig, source: 'database', value: 'false' })],
+      })
+    vi.mocked(updateConfig).mockResolvedValue(
+      createConfigItem({ ...webConfig, source: 'database', value: 'false' })
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Gateway Emby 网页访问')
+    expect(wrapper.text()).toContain('立即生效')
+    const toggle = wrapper.find('input[type="checkbox"]')
+    expect((toggle.element as HTMLInputElement).checked).toBe(true)
+    await toggle.setValue(false)
+    await flushPromises()
+
+    await findButton(wrapper, '保存本组配置').trigger('click')
+    await flushPromises()
+
+    expect(updateConfig).toHaveBeenCalledWith('PLAYBACK_GATEWAY_WEB_ENABLED', { value: 'false' })
+    expect(ElMessage.success).toHaveBeenCalledWith('媒体集成保存成功')
+  })
+
   it('多行配置项会渲染为 textarea 并按字符串保存', async () => {
     vi.mocked(getConfigs)
       .mockResolvedValueOnce({

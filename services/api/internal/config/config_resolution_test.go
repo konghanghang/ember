@@ -1,6 +1,8 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -377,5 +379,65 @@ func TestConfigServiceBusinessConfigHelpers(t *testing.T) {
 	}
 	if len(methods) != 0 {
 		t.Fatalf("unexpected payment methods: %+v", methods)
+	}
+}
+
+func TestPlaybackGatewayWebEnabledReadsFreshDatabaseValue(t *testing.T) {
+	t.Setenv(PlaybackGatewayWebEnabledKey, "false")
+	current := "true"
+	loadCalls := 0
+	service := &ConfigService{
+		loadSettingRecords: func(keys []string) (map[string]models.Setting, error) {
+			loadCalls++
+			if len(keys) != 1 || keys[0] != PlaybackGatewayWebEnabledKey {
+				t.Fatalf("unexpected setting keys: %#v", keys)
+			}
+			return map[string]models.Setting{
+				PlaybackGatewayWebEnabledKey: {Key: PlaybackGatewayWebEnabledKey, Value: current},
+			}, nil
+		},
+	}
+
+	enabled, err := service.PlaybackGatewayWebEnabled(context.Background())
+	if err != nil || !enabled {
+		t.Fatalf("first PlaybackGatewayWebEnabled()=(%t,%v), want true", enabled, err)
+	}
+	current = "false"
+	enabled, err = service.PlaybackGatewayWebEnabled(context.Background())
+	if err != nil || enabled {
+		t.Fatalf("second PlaybackGatewayWebEnabled()=(%t,%v), want false", enabled, err)
+	}
+	if loadCalls != 2 {
+		t.Fatalf("fresh load calls=%d, want 2", loadCalls)
+	}
+}
+
+func TestPlaybackGatewayWebEnabledDefaultsTrueAndFailsClosedOnInvalidStore(t *testing.T) {
+	t.Setenv(PlaybackGatewayWebEnabledKey, "false")
+	service := &ConfigService{
+		loadSettingRecords: func([]string) (map[string]models.Setting, error) {
+			return map[string]models.Setting{}, nil
+		},
+	}
+	enabled, err := service.PlaybackGatewayWebEnabled(context.Background())
+	if err != nil || !enabled {
+		t.Fatalf("default PlaybackGatewayWebEnabled()=(%t,%v), want true", enabled, err)
+	}
+
+	service.loadSettingRecords = func([]string) (map[string]models.Setting, error) {
+		return map[string]models.Setting{
+			PlaybackGatewayWebEnabledKey: {Key: PlaybackGatewayWebEnabledKey, Value: "invalid"},
+		}, nil
+	}
+	if _, err := service.PlaybackGatewayWebEnabled(context.Background()); !errors.Is(err, ErrConfigValidation) {
+		t.Fatalf("invalid PlaybackGatewayWebEnabled() error=%v, want ErrConfigValidation", err)
+	}
+
+	storeErr := errors.New("store unavailable")
+	service.loadSettingRecords = func([]string) (map[string]models.Setting, error) {
+		return nil, storeErr
+	}
+	if _, err := service.PlaybackGatewayWebEnabled(context.Background()); !errors.Is(err, storeErr) {
+		t.Fatalf("store PlaybackGatewayWebEnabled() error=%v, want %v", err, storeErr)
 	}
 }

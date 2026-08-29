@@ -24,6 +24,11 @@ func normalizeEmbyAPIPath(request *http.Request) (requestPathMode, bool) {
 	if request.URL.EscapedPath() != requestPath {
 		return requestPathModePassthrough, true
 	}
+	if isRootWebAppAPIPath(requestPath) {
+		request.URL.Path = "/emby" + requestPath
+		request.URL.RawPath = ""
+		return requestPathModeRoot, true
+	}
 	segments := strings.Split(requestPath, "/")
 	if len(segments) >= 2 && strings.EqualFold(segments[1], "emby") {
 		if len(segments) >= 3 && strings.EqualFold(segments[2], "emby") {
@@ -87,6 +92,8 @@ func routeKindCode(kind routeKind) string {
 		return "item_detail"
 	case routeVideo:
 		return "video"
+	case routeWebSurface:
+		return "emby_web"
 	default:
 		return "protected"
 	}

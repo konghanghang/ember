@@ -805,7 +805,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 独立 `GET /health` 在完整构造后返回固定 JSON，不查询数据库或 Emby、不经过 Token 门控；HTTP Server 设置 5 秒 `ReadHeaderTimeout`、60 秒 `IdleTimeout`、1 MiB Header 上限和 10 秒 graceful shutdown
 
 - Gateway 按支持范围内 9 个稳定 Emby `4.9` OpenAPI 顶层 API family 的并集，把客户端根路径 `/System/...`、`/Users/...`、`/Items/...`、`/Videos/...`、`/Sessions/...` 等规范化为单一上游 `/emby/...`；family 与 `/emby` 前缀比较大小写不敏感，重复大小写变体 `/emby/emby/...` 返回空体 `400`，query/Header/body 不改写
-- 根 `/web/...` 和未知 Surface 不参与 API 规范化，继续维持当前受保护透传边界；Emby Web 静态资源和 WebSocket 要等独立版本合同与全局开关落地，不能被 API root 规则误改写
+- `GET/HEAD /`、`/favicon.ico` 与 `/web` 页面/静态资源进入独立 `emby_web` Surface，不做 API path 改写或本地用户 Token 门控；固定 Emby 4.9.3.0 `GET /web/ConfigurationPage(s)|strings|stringset` 及其深层变体不继承匿名权限，精确 API path 规范化为 `/emby/web/...` 后继续受保护。其他未知 Surface 仍失败关闭
+- 固定 SDK 根 WebSocket Upgrade 使用 `api_key + deviceId`，继续走通用 Token 映射与用户状态门控，并由现有 ReverseProxy 完成 `101` 升级；它不属于 Web UI Surface，关闭网页访问不能破坏 Infuse/原生客户端长连接
 - root 或 `/emby` 形态的 `GET System/Info/Public` 在固定语义段上大小写不敏感并进入独立公开路由，不做本地应用头或 Token 校验；其他 method、尾斜杠、额外层级和 percent-encoding 变体不继承公开权限
 - `POST /Users/AuthenticateByName` 或 `/emby/Users/AuthenticateByName` 的固定语义段大小写不敏感并进入认证路由；公开用户与无 Index 公共用户头像同时接受 root 和 `/emby` 形态
 - 认证与除 SystemInfoPublic 外的 bootstrap 请求必须先通过唯一应用头：固定 SDK 的 `Emby` scheme 可用于 `Authorization` 或 `X-Emby-Authorization`；`MediaBrowser` 可用于目标 Infuse 实测的 `X-Emby-Authorization` 和兼容 `X-MediaBrowser-Authorization`。重复/冲突 Header、缺少 `Client/Device/DeviceId/Version`、未知/重复字段、非空登录 Token、非法 quoted-string、其他 Header/scheme 或越界值返回空体 `401`
@@ -815,6 +816,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；错误日志只记录固定 code 和错误类型，不记录密码、AccessToken、上游 URL 或响应体
 - 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求按 [Emby Gateway 客户端兼容矩阵](./reference/emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格 Emby/MediaBrowser 应用头和固定 query aliases；所有非空候选同值才调用 `ResolvePrincipal`。缺失、空值、重复、冲突或非法格式返回 `401`；用户不可用/到期返回 `403`，请求取消/deadline 返回 `499/504`，真实身份存储故障返回 `503`
+- `PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心 `media` 分组的数据库布尔项，默认 `true`、`restartRequired=false`、没有同名环境变量。API 保存后，独立 Gateway 对下一次已识别 Web Surface 请求使用 request context 直接读取 `settings`，不经过通用 60 秒进程缓存；关闭返回空体 `404`，读取失败 fail-closed 返回空体 `503`。普通 API、视频、WebSocket 和 `/health` 不执行该查询
+- 设置中心继续使用数据驱动的 boolean 控件展示该项并标记“立即生效”，不新增页面或前端运行期配置源
 - 每个经过 Gateway Handler 的请求都可在 Debug 级别记录 `code=request_completed`：包含有界 method/Host/原始 path、query key 名称/数量、route/pathMode、statusCode、success/failure、耗时，直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态和已知 User-Agent family/version；默认 Info 不逐请求输出该摘要。所有级别都禁止记录 query value、Header 原值、Cookie、Token 或 Authorization 内容
 - 三类固定 `POST /Sessions/Playing*` 请求只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 并恢复原始 body，提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 只用于排障；未通过身份门控时不读取 body，非法、超大或不支持编码的已认证 body 仍原样透明转发，只记录固定 `snapshotState`。开始/停止成功、任一会话失败和失败后的首次恢复使用中文 Info 事件；正常 Progress 心跳只在 Debug 输出，避免每 10 秒刷 Info
 - 会话失败恢复观察使用进程内随机 seed 生成且永不输出的 Token 关联值，最多 4096 条、TTL 6 小时、无后台 goroutine，不保存原始 Token 或可跨进程复用的稳定摘要；它不参与授权、并发、播放历史或响应决策。身份 Store 或 Emby 上游失败仍返回真实失败状态，禁止伪造 `204`；同一 Token 后续 Start/Progress 成功时只输出一次 `playback_progress_recovered`

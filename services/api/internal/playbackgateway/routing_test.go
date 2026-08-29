@@ -23,6 +23,8 @@ func TestNormalizeEmbyAPIPathUsesVersionedRootFamilies(t *testing.T) {
 		{name: "lowercase root family", target: "/videos/item-1/stream.mkv", wantPath: "/emby/videos/item-1/stream.mkv", wantMode: requestPathModeRoot, wantOK: true},
 		{name: "mixed case prefix", target: "/EmBy/items/item-1/playbackinfo", wantPath: "/emby/items/item-1/playbackinfo", wantMode: requestPathModeEmbyPrefixed, wantOK: true},
 		{name: "web surface remains separate", target: "/web/index.html", wantPath: "/web/index.html", wantMode: requestPathModePassthrough, wantOK: true},
+		{name: "protected root web API", target: "/web/ConfigurationPages", wantPath: "/emby/web/ConfigurationPages", wantMode: requestPathModeRoot, wantOK: true},
+		{name: "protected mixed case root web API", target: "/WEB/Strings", wantPath: "/emby/WEB/Strings", wantMode: requestPathModeRoot, wantOK: true},
 		{name: "unknown surface remains separate", target: "/favicon.ico", wantPath: "/favicon.ico", wantMode: requestPathModePassthrough, wantOK: true},
 		{name: "escaped special path is not normalized", target: "/System%2FInfo%2FPublic", wantPath: "/System/Info/Public", wantMode: requestPathModePassthrough, wantOK: true},
 		{name: "duplicate prefix", target: "/emby/emby/System/Info", wantPath: "/emby/emby/System/Info", wantMode: requestPathModeEmbyPrefixed},

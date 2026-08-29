@@ -31,9 +31,10 @@ func TestNewProductionRuntimeVerifiesIdentityAndBuildsHandlers(t *testing.T) {
 	defer upstream.Close()
 
 	var logs bytes.Buffer
+	settings := fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey}
 	runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(nil), ProductionDependencies{
 		Database:          &gorm.DB{},
-		Settings:          fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
+		Settings:          settings,
 		Logger:            log.New(&logs, "", 0),
 		DirectPlayService: &fakeDirectPlayService{},
 	})
@@ -61,6 +62,18 @@ func TestNewProductionRuntimeVerifiesIdentityAndBuildsHandlers(t *testing.T) {
 	}
 	if identityCalls.Load() != 1 {
 		t.Fatalf("health triggered identity call: %d", identityCalls.Load())
+	}
+
+	webEnabled := httptest.NewRecorder()
+	runtime.Handler().ServeHTTP(webEnabled, httptest.NewRequest(http.MethodGet, "/", nil))
+	if webEnabled.Code != http.StatusOK || identityCalls.Load() != 2 {
+		t.Fatalf("enabled Web response=%d identity/upstream calls=%d", webEnabled.Code, identityCalls.Load())
+	}
+	settings["PLAYBACK_GATEWAY_WEB_ENABLED"] = "false"
+	webDisabled := httptest.NewRecorder()
+	runtime.Handler().ServeHTTP(webDisabled, httptest.NewRequest(http.MethodGet, "/", nil))
+	if webDisabled.Code != http.StatusNotFound || identityCalls.Load() != 2 {
+		t.Fatalf("disabled Web response=%d identity/upstream calls=%d", webDisabled.Code, identityCalls.Load())
 	}
 
 	protected := httptest.NewRecorder()
@@ -263,11 +276,15 @@ func newRuntimeIdentityServer(t *testing.T, calls *atomic.Int32, version string)
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		calls.Add(1)
-		if request.Header.Get("X-Emby-Token") != fixtureRuntimeAPIKey {
-			t.Error("runtime identity API key changed")
+		if request.URL.Path == "/emby/System/Info" {
+			if request.Header.Get("X-Emby-Token") != fixtureRuntimeAPIKey {
+				t.Error("runtime identity API key changed")
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"Id":"server-1","Version":"`+version+`","ServerName":"Fixture"}`)
+			return
 		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(writer, `{"Id":"server-1","Version":"`+version+`","ServerName":"Fixture"}`)
+		writer.WriteHeader(http.StatusOK)
 	}))
 }
 
@@ -295,6 +312,10 @@ type fakeRuntimeSettings map[string]string
 
 func (settings fakeRuntimeSettings) GetString(key string) string {
 	return settings[key]
+}
+
+func (settings fakeRuntimeSettings) PlaybackGatewayWebEnabled(context.Context) (bool, error) {
+	return settings["PLAYBACK_GATEWAY_WEB_ENABLED"] != "false", nil
 }
 
 type blockingListener struct {

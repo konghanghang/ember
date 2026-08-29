@@ -60,6 +60,7 @@ Go 统一入口会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未�
 | `EMBY_URL` | 否 | 否 | API 访问 Emby 的基础地址 |
 | `EMBY_API_KEY` | 是 | 否 | Emby API 鉴权密钥 |
 | `NEXT_PUBLIC_EMBY_URL` | 否 | 否 | 控制台展示与用户跳转使用的前端 Emby 地址；沿用历史键名，作为数据库配置项保留，为空时回退 `EMBY_URL` |
+| `PLAYBACK_GATEWAY_WEB_ENABLED` | 否 | 否 | 是否允许通过 Gateway 打开 Emby 网页端；默认开启，后台保存后下一次 Web 请求实时生效，不影响客户端 API、视频或 WebSocket |
 | `TMDB_API_KEY` | 是 | 否 | TMDB 接口密钥 |
 | `MOVIEPILOT_URL` | 否 | 否 | MoviePilot 地址 |
 | `MOVIEPILOT_API_KEY` | 是 | 否 | MoviePilot API Key（X-API-KEY） |
@@ -68,6 +69,7 @@ Go 统一入口会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未�
 
 - 旧版 `MOVIEPILOT_USERNAME` / `MOVIEPILOT_PASSWORD` 已废弃。
 - 若历史实例仍保存旧用户名密码配置，而 `MOVIEPILOT_API_KEY` 为空，设置中心测试应视为需要迁移，而不是“未配置成功”。
+- `PLAYBACK_GATEWAY_WEB_ENABLED` 只存在于设置中心和 `settings` 表，不读取同名环境变量；Gateway 对已识别 Web Surface 绕过 60 秒进程缓存执行强一致读取，配置读取失败时返回 `503`，关闭时返回 `404`。
 - `email_verification` 会经过 Normalize（大小写与首尾空格不敏感），不要再假设只有严格字面量 `"true"` 才算开启。
 
 ### 2.3 邮件服务

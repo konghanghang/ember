@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,6 +74,8 @@ const (
 
 const defaultCronTimezone = "Asia/Shanghai"
 const defaultTelegramUpdateMode = "webhook"
+
+const PlaybackGatewayWebEnabledKey = "PLAYBACK_GATEWAY_WEB_ENABLED"
 
 type configValidationError struct {
 	cause error
@@ -278,6 +281,29 @@ func (s *ConfigService) IsEmailVerificationEnabled() bool {
 
 func (s *ConfigService) IsTurnstileLoginEnabled() bool {
 	return s.GetString("turnstile_login_enabled") == "true"
+}
+
+// PlaybackGatewayWebEnabled reads the database-backed Web Surface switch
+// without the process-local settings cache so the separate Gateway process
+// observes an admin update on the next Web request.
+func (s *ConfigService) PlaybackGatewayWebEnabled(ctx context.Context) (bool, error) {
+	def, ok := getConfigDefinitionMap()[PlaybackGatewayWebEnabledKey]
+	if !ok {
+		return false, ErrConfigNotFound
+	}
+	settingsMap, err := s.loadFreshSetting(ctx, def.Key)
+	if err != nil {
+		return false, err
+	}
+	value, _, _, err := s.resolveRawValue(def, settingsMap)
+	if err != nil {
+		return false, err
+	}
+	normalized, err := normalizeBoolean(value)
+	if err != nil {
+		return false, wrapConfigValidationError(err)
+	}
+	return normalized == "true", nil
 }
 
 func (s *ConfigService) GetTurnstileSiteKey() string {
@@ -859,6 +885,29 @@ func (s *ConfigService) loadSettingsFromStore(keys []string) (map[string]models.
 	return result, nil
 }
 
+// loadFreshSetting bypasses the shared in-process cache for one dynamic
+// cross-process setting while preserving injectable fake loaders in tests.
+func (s *ConfigService) loadFreshSetting(ctx context.Context, key string) (map[string]models.Setting, error) {
+	if s != nil && s.loadSettingRecords != nil {
+		return s.loadSettingRecords([]string{key})
+	}
+	if db.DB == nil {
+		return map[string]models.Setting{}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var setting models.Setting
+	result := db.DB.WithContext(ctx).Where("key = ?", key).Limit(1).Find(&setting)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return map[string]models.Setting{}, nil
+	}
+	return map[string]models.Setting{key: setting}, nil
+}
+
 func (s *ConfigService) encrypt(plain string) (string, error) {
 	box, err := secretbox.New(s.encryptionKey)
 	if err != nil {
@@ -1121,6 +1170,19 @@ func getConfigDefinitions() []ConfigDefinition {
 			EmptyValueMode: ConfigEmptyValueFallback,
 			EmptyValueHint: "保存为空值后将回退到 Emby 服务地址。",
 			Normalize:      normalizeTrimmedURLAllowEmpty,
+		},
+		{
+			Key:                PlaybackGatewayWebEnabledKey,
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "Gateway Emby 网页访问",
+			Description:        "控制是否允许通过 Playback Gateway 打开 Emby 网页端；不影响 Infuse 等客户端 API 和播放请求",
+			Type:               ConfigValueBoolean,
+			DefaultValue:       "true",
+			Editable:           true,
+			Validate:           validateBoolean,
+			Normalize:          normalizeBoolean,
 		},
 		{
 			Key:                "TMDB_API_KEY",

@@ -42,6 +42,12 @@ type TokenService interface {
 	ResolvePrincipal(context.Context, string) (embytoken.Principal, error)
 }
 
+// WebSurfacePolicy resolves the database-backed Web UI switch for each Web
+// request so an admin update in the API process is visible without a restart.
+type WebSurfacePolicy interface {
+	PlaybackGatewayWebEnabled(context.Context) (bool, error)
+}
+
 // AuthenticationMetadata contains non-authoritative device information that
 // may be persisted for audit and device-scoped local revocation.
 type AuthenticationMetadata struct {
@@ -56,6 +62,7 @@ type Config struct {
 	Upstream          *url.URL
 	TokenService      TokenService
 	DirectPlayService DirectPlayService
+	WebSurfacePolicy  WebSurfacePolicy
 	Transport         http.RoundTripper
 	Logger            *log.Logger
 	Debug             bool
@@ -70,6 +77,7 @@ type Gateway struct {
 	transport                      http.RoundTripper
 	tokenService                   TokenService
 	directPlayService              DirectPlayService
+	webSurfacePolicy               WebSurfacePolicy
 	logger                         *log.Logger
 	debug                          bool
 	proofs                         *playbackProofCache
@@ -93,6 +101,7 @@ const (
 	routePlaybackInfo
 	routeItemDetail
 	routeVideo
+	routeWebSurface
 )
 
 type requestRouteContext struct {
@@ -142,6 +151,7 @@ func New(config Config) (*Gateway, error) {
 		transport:                      transport,
 		tokenService:                   config.TokenService,
 		directPlayService:              config.DirectPlayService,
+		webSurfacePolicy:               config.WebSurfacePolicy,
 		logger:                         logger,
 		debug:                          config.Debug,
 		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
@@ -177,6 +187,11 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		gateway.logPlaybackSessionEvent(playbackSessionEvent, statusWriter.statusCode, playbackSessionForwardAttempted, startedAt)
 		gateway.logRequestCompletion(requestLog, routeCode, pathMode, statusWriter.statusCode, startedAt)
 	}()
+	if isEmbyWebSurfaceRequest(request) {
+		routeCode = routeKindCode(routeWebSurface)
+		gateway.serveWebSurface(statusWriter, request)
+		return
+	}
 
 	var pathOK bool
 	pathMode, pathOK = normalizeEmbyAPIPath(request)

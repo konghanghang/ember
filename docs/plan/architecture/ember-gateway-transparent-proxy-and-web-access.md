@@ -1,8 +1,8 @@
 # Ember Gateway 透明代理与 Web 访问控制实现方案
 
-> 状态：进行中
+> 状态：主体完成，待受控实机验收
 > 负责人：Ember
-> 更新时间：2026-08-23
+> 更新时间：2026-08-29
 
 ## 背景
 
@@ -62,6 +62,7 @@
 - PlaybackInfo、视频流是普通代理上的选择性处理器；Playing、Progress、Stopped、图片、字幕和其他未知受保护接口没有独立处理器时会走普通代理。
 - 外部 Nginx 示例把请求原样 `proxy_pass` 到 Gateway，没有路径 rewrite；路径规范化应由 Gateway 单点负责。
 - Gateway 与 API 共用一个镜像和一个 `ember` 二进制，分别以 `ember gateway`、`ember api` 运行；本计划不改变进程和镜像模型。
+- 通用 ConfigService 读取使用进程内 60 秒缓存；API 保存只会失效 API 进程缓存，不能让独立 Gateway 实时感知 Web 开关。
 
 ### 已由生产日志确认
 
@@ -82,6 +83,7 @@
 - Infuse 在用户条目详情 `200` 后直接请求 `/Videos/{Id}/stream?MediaSourceId=...&Static=true`，没有 Container/PlaySessionId；Gateway 保守 fallback 后，目标 Emby 因 `/stream` 缺少官方必填 Container 返回 `404`。
 - 用户条目 Container 快照已命中并追加参数，但同一目标 Emby 仍返回 `404`，证明仅补 Container 不足；参考网关在缺播放上下文时会主动补取 PlaybackInfo。
 - 按需 PlaybackInfo 随后已在目标环境返回 `proofCount=1`，但 115 账号不可用后的补齐参数 plain fallback 仍由 Emby 返回 `404`；因此本地视频 fallback 必须与 115 决策 URL 分离。
+- 2026-08-29 浏览器直接访问 Gateway `8081` 会请求 `GET /` 与 `GET /favicon.ico`；两者当前均按 `protected + passthrough` 返回本地 `401`，没有到达 Emby。
 
 这些证据证明目标 Emby 版本、登录/资源协议、按需 PlaybackInfo proof，以及原始、Container-only、补齐参数 plain fallback 都 `404`；没有公开 ServerId 原值，也没有证明 DirectStreamUrl/扩展名 fallback、字幕、进度和 302 行为。
 
@@ -89,6 +91,8 @@
 
 - Emby SDK `4.9.3.0` OpenAPI 的 server base URL 是 `http://emby.media/emby`。
 - OpenAPI path 使用 `/System/Info/Public`、`/Users/AuthenticateByName`、`/Items/{Id}/PlaybackInfo`、`/Videos/{Id}/stream` 等根路径形态。
+- OpenAPI 还定义了受保护的 `GET /web/ConfigurationPage`、`ConfigurationPages`、`strings`、`stringset`；这些 API 不能因为 `/web` 前缀继承匿名静态资源权限。
+- 固定 SDK WebSocket 文档使用服务根地址 Upgrade，并通过 `api_key + deviceId` 建连；根路径 WebSocket 必须继续走 Token 门控，不受 Web UI 开关影响。
 - 生成的 `SystemInfoPublic` 文档把接口标记为需要用户认证，但真实 Infuse 在登录前调用它，目标 Emby 又确认无登录可访问；实现以运行证据为准，并在版本合同中保留这一生成文档偏差。
 
 ## 已确认决策
@@ -97,13 +101,13 @@
 | --- | --- |
 | 公网入口 | `ember-gateway` 是用户访问 Emby 的唯一公网入口；原始 Emby 只允许 Gateway 和运维网络访问 |
 | 默认行为 | 已解析为合法 Principal 的普通 Emby API 默认透明代理，只有少数固定路由进入特殊处理器 |
-| 匿名行为 | 只允许精确 `GET System/Info/Public` 无本地鉴权；其他 bootstrap 和未知路径继续失败关闭 |
+| 匿名行为 | 精确 `GET System/Info/Public` 和开关允许的 Web 页面/静态资源可无本地用户 Token；其他 bootstrap、受保护 `/web` API 与未知路径继续失败关闭 |
 | 客户端路径 | 同时接受根 API 路径和 `/emby/...` API 路径 |
 | 上游 API 路径 | 转发给 Emby 时规范化为单一 `/emby/...`，禁止双前缀 |
-| Web Surface | 与 API 路径分开识别，由独立全局开关控制；默认开启以保持现有用户可见行为 |
+| Web Surface | 与 API 路径分开识别，由后台数据库配置控制；默认开启，保存后的下一次 Web 请求实时生效 |
 | 外部反向代理 | 只负责 HTTPS、域名和原样转发，不承担 Emby 路径 rewrite |
 | 特殊处理 | 登录、PlaybackInfo、视频直连继续由既有处理器负责；其余接口走默认代理 |
-| 配置真相源 | 复用 ConfigService 和通用 `settings`，不增加第二套环境变量配置 |
+| 配置真相源 | 只使用 ConfigService 和通用 `settings`；不定义同名环境变量，不使用启动快照或跨进程缓存 |
 | 日志 | 只写应用日志，不新建数据库日志表；不记录 Token、密码、Cookie、完整 URL/query 或响应体 |
 
 ## 方案设计
@@ -203,17 +207,19 @@ Gateway 内部引入一个只描述路由事实的规范化结果，至少包含
 
 ### 6. Web Surface 全局开关
 
-计划新增 ConfigService 配置项：
+新增 ConfigService 数据库配置项：
 
 | Key | 类型 | 默认值 | 生效方式 | 用途 |
 | --- | --- | --- | --- | --- |
-| `PLAYBACK_GATEWAY_WEB_ENABLED` | boolean | `true` | 重启 `ember-gateway` | 是否允许通过 Gateway 访问已确认的 Emby Web Surface |
+| `PLAYBACK_GATEWAY_WEB_ENABLED` | boolean | `true` | 保存后下一次 Web 请求 | 是否允许通过 Gateway 访问已确认的 Emby Web Surface |
 
-该配置复用通用 `settings` 表和现有设置 API，不新增业务表或 SQL migration。当前 Gateway 只在进程构造时读取运行设置，首期配置定义必须标记 `restartRequired=true`，保存后由管理员重启 `ember-gateway` 生效；设置页面复用现有重启提示。热更新需要独立的跨进程失效机制，本计划不伪造即时生效语义。
+该配置复用通用 `settings` 表和现有设置 API，不新增业务表或 SQL migration，不定义 `EnvKey`，配置定义标记 `restartRequired=false`。Gateway 只对已识别 Web Surface 的请求执行一次带 request context 的数据库强一致读取，绕过通用 60 秒进程内缓存；普通 Emby API、视频和根路径 WebSocket 不增加这次查询。API 更新提交后，Gateway 的下一次 Web 请求直接读取新值，因此不依赖跨进程通知或重启。
+
+动态读取失败时固定返回空体 `503` 并记录脱敏 `web_surface_config_unavailable`；不能沿用旧值继续开放，也不能把数据库故障误报成“Web 已关闭”。
 
 管理员设置入口放在现有“媒体集成”职责下，只增加一个开关和至多一条简短风险说明。前端实现必须遵守 Ember 风格，设计和交互基线以 [Web 设计规范](../../reference/web-design-guide.md) 为准；本计划没有偏离规范的特例。
 
-关闭时只拒绝经合同确认属于 Web UI 的页面和静态资源，不拒绝普通 Emby API，也不基于浏览器 UA 判断。WebSocket、Branding 或根路径若同时被原生客户端使用，必须先完成版本合同与 mock 覆盖，再决定归属，不能因为名称像 Web 就直接拦截。
+关闭时只拒绝经合同确认属于 Web UI 的 `GET/HEAD /`、`/favicon.ico` 与 `/web` 页面/静态资源，不拒绝普通 Emby API，也不基于浏览器 UA 判断。根路径 WebSocket Upgrade 和固定 `/web/ConfigurationPage(s)|strings|stringset` API 继续走现有 Token 门控，不继承 Web UI 匿名权限。
 
 这个开关控制的是 Gateway 暴露面，不是强客户端身份认证。要使它有实际意义，原始 Emby 公网入口仍必须隔离；否则用户可以绕过 Gateway 直接访问 Emby Web。
 
@@ -313,11 +319,13 @@ sequenceDiagram
 
 截至 2026-08-23，本阶段代码已完成：Gateway 按稳定 `4.9` OpenAPI API family 规范化 root/`/emby` path，语义段与 Gateway 消费的 query key 大小写不敏感，重复逻辑来源失败关闭；AuthenticateByName、PlaybackInfo、视频和进度继续复用既有处理器。Infuse `8.5` 的 SystemInfoPublic、MediaBrowser 登录/内嵌 Token 和普通资源 API 已实机通过；通用 Token carrier、Yamby 空数组保持、取消/deadline 和 Store 安全重试已有 fake 测试，其他播放器与真实播放仍待验证。
 
-### 阶段 2：Web Surface 控制
+### 阶段 2：Web Surface 控制（已完成）
 
 - 完成 Emby Web 入口、静态资源和 WebSocket 版本合同。
-- 接入 `PLAYBACK_GATEWAY_WEB_ENABLED` ConfigService 定义、管理 API 和设置页面。
+- 接入仅由数据库设置中心托管的 `PLAYBACK_GATEWAY_WEB_ENABLED`；后台保存后下一次 Web 请求实时生效，不新增环境变量或重启要求。
 - 锁定关闭时不访问上游、开启时页面和 API 均可工作的测试。
+
+截至 2026-08-29，本阶段代码与文档已完成：设置中心自动展示媒体集成 boolean 配置并标记“立即生效”；Gateway 对 Web Surface 强一致读取数据库值，默认开启、关闭 `404`、读取失败 `503`；固定 `/web` API、携 Token Web path 和根 WebSocket 保持身份门控。fake HTTP 已覆盖根页面/静态资源透明代理和真实 `101` Upgrade，目标 Emby Web 页面字节与浏览器完整链路仍属于阶段 3 实机验收，不得由 fake 结果替代。
 
 ### 阶段 3：受控实机验收
 

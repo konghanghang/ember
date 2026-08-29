@@ -49,6 +49,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 - 认证、SystemInfoPublic、公共用户、PlaybackInfo、视频固定路径的语义段大小写不敏感；尾斜杠、额外层级和 alternate escaping 不放宽。
 - Gateway 自己读取的 `UserId`、`MediaSourceId`、`PlaySessionId`、`Static`、`Container` query key 大小写不敏感；相同逻辑 key 的大小写重复仍视为歧义。
 - query 原始 key/value 与顺序继续交给上游，Gateway 不做 MediaWarp 式全局小写重写。
+- 无 Token 的 `GET/HEAD /`、`/favicon.ico` 与 `/web` 页面/静态资源由数据库 Web 开关控制；固定 `/web/ConfigurationPage(s)|strings|stringset` API、携带 Token 的 Web path 和根 WebSocket Upgrade 仍走通用 Token 门控，不能借 Web UI Surface 绕过本地撤销。
 
 ### 2.3 响应与客户端名称
 
@@ -65,7 +66,8 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 | Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`；Playing 返回 `204` | 115 CDN 实际媒体字节/Range、稳定 Provider 重试或冷却、DirectStreamUrl/扩展名 Emby fallback、字幕、Progress/Stopped 完整链路 |
 | SenPlayer | `emby-toolkit` 固定源码将其列为 native client；Ember 有 UA 与通用载体 fake 测试 | 真实 Header/query/path、播放和字幕行为 |
 | Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试 | 真实 Token 载体、路径与播放行为 |
-| Web / iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |
+| Emby Web | 目标 Gateway 日志已确认浏览器请求 `/` 与 `/favicon.ico`；固定 4.9.3 SDK 确认四个受保护 `/web` API 和根 WebSocket query 合同；Ember fake 测试覆盖后台开关实时变化、页面/静态资源代理、API 门控和真实 HTTP `101` Upgrade | 目标 Emby 根响应、Location、完整静态资源、登录、播放和 WebSocket 实机链路 |
+| iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |
 
 不能把上游 README 或 Ember fake 测试写成目标环境已通过。新增客户端兼容必须先捕获脱敏请求形态，再扩展协议矩阵；禁止仅凭 UA 添加认证绕过。
 
@@ -75,7 +77,7 @@ Infuse 会并发请求 Views、VirtualFolders、DisplayPreferences、Items、Lat
 
 - `context.Canceled` 返回固定 `499`/`token_request_canceled`，不再误报存储故障。
 - `context.DeadlineExceeded` 返回 `504`/`token_request_deadline_exceeded`。
-- 只有 driver 明确保证尚未向服务器发送数据的幂等读错误才重试一次；PostgreSQL 响应错误、业务错误和写操作不重试。
-- 最终真实存储失败记录固定 reasonCode、SQLSTATE（如有）及 database/sql `maxOpen/open/inUse/idle/waitCount/waitMs`，禁止 DSN、SQL 参数、Token digest 或错误原文。
+- 坏连接、连接关闭、EOF、网络/pgconn 超时等已分类连接故障对幂等 SELECT 最多重试一次；请求取消/deadline、PostgreSQL 响应错误、业务错误和写操作不重试。
+- 最终真实存储失败记录固定 `reasonCode + retryable`、SQLSTATE（如有）及 database/sql `maxOpen/open/inUse/idle/waitCount/waitMs`，禁止 DSN、SQL 参数、Token digest 或错误原文。
 
 这只消除取消误报和安全可重试的瞬时读失败，不缓存 Principal，也不延迟封禁、撤销或到期生效。

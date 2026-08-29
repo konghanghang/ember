@@ -355,6 +355,18 @@ func TestPaymentAndTelegramConfigDefinitionsAreEditable(t *testing.T) {
 	}
 }
 
+func TestPlaybackGatewayWebConfigIsDatabaseManagedAndImmediate(t *testing.T) {
+	definition, ok := getConfigDefinitionMap()[PlaybackGatewayWebEnabledKey]
+	if !ok {
+		t.Fatalf("expected %s definition", PlaybackGatewayWebEnabledKey)
+	}
+	if definition.Group != ConfigGroupMedia || definition.Type != ConfigValueBoolean ||
+		definition.DefaultValue != "true" || !definition.Editable || definition.RestartRequired ||
+		definition.EnvKey != "" || !definition.DisableEnvFallback {
+		t.Fatalf("unexpected playback Gateway Web definition: %+v", definition)
+	}
+}
+
 func TestIntegerConfigDefinitionsExposeBounds(t *testing.T) {
 	testCases := []struct {
 		key string
