@@ -64,6 +64,33 @@ func TestPlaybackProofCacheRejectsInvalidProofWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestBuildPlaybackProofsTreatsEmbySizeAsObservationOnly(t *testing.T) {
+	tests := []struct {
+		name     string
+		sizeJSON string
+		wantSize int64
+		present  bool
+	}{
+		{name: "missing", wantSize: 0},
+		{name: "zero", sizeJSON: `,"Size":0`, wantSize: 0, present: true},
+		{name: "negative", sizeJSON: `,"Size":-1`, wantSize: -1, present: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			principal := fixturePrincipal()
+			body := []byte(`{"MediaSources":[{"Id":"source-1","ItemId":"item-1","Path":"/mnt/source/video.mkv"` +
+				test.sizeJSON + `,"Container":"mkv","SupportsDirectPlay":true}],"PlaySessionId":"session-1"}`)
+			proofs, observations, ok := buildPlaybackProofs(body, requestRouteContext{
+				principal: &principal, playbackInfoItemID: "item-1", playbackInfoEligible: true,
+			})
+			if !ok || len(proofs) != 1 || proofs[0].Size != test.wantSize || len(observations) != 1 ||
+				observations[0].SizePresent != test.present || !observations[0].ProofAccepted || observations[0].ProofRejectReason != "none" {
+				t.Fatalf("proofs=%+v observations=%+v ok=%t", proofs, observations, ok)
+			}
+		})
+	}
+}
+
 func TestPlaybackProofCacheInvalidatesOnlyTargetMappingItem(t *testing.T) {
 	cache := newPlaybackProofCache(8, time.Minute)
 	cache.Record([]PlaybackProof{

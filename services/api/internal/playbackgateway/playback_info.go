@@ -224,22 +224,12 @@ func buildPlaybackProofs(
 			observations = append(observations, observation)
 			continue
 		}
-		if source.Size == nil {
-			observation.ProofRejectReason = "size_missing"
-			if source.Path == "" {
-				observation.ProofRejectReason = "path_missing"
-			} else if !validProofValue(source.Path, maxProofPathBytes, false) {
-				observation.ProofRejectReason = "path_invalid"
-			}
-			observations = append(observations, observation)
-			continue
-		}
 		proof := PlaybackProof{
 			MappingID: principal.MappingID, ServerID: principal.ServerID,
 			UserID: principal.User.ID, EmbyUserID: principal.User.EmbyID,
 			DeviceID: principal.DeviceID, ClientName: principal.ClientName,
 			ItemID: routeContext.playbackInfoItemID, MediaSourceID: source.ID,
-			PlaySessionID: payload.PlaySessionID, Path: source.Path, Size: *source.Size,
+			PlaySessionID: payload.PlaySessionID, Path: source.Path, Size: observation.Size,
 			Container: source.Container, IsRemote: source.IsRemote,
 			SupportsDirectPlay: source.SupportsDirectPlay, SupportsDirectStream: source.SupportsDirectStream,
 			SupportsTranscoding: source.SupportsTranscoding,

@@ -43,7 +43,6 @@ func TestCookieHTTPAdapterResolveFileByPathTraversesExactSegments(t *testing.T) 
 	file, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
 		RootID:       "100",
 		RelativePath: "Movies/Sci-Fi/fixture-video.mkv",
-		Size:         1024,
 	})
 	if err != nil {
 		t.Fatalf("ResolveFileByPath() error = %v", err)
@@ -54,6 +53,23 @@ func TestCookieHTTPAdapterResolveFileByPathTraversesExactSegments(t *testing.T) 
 	}
 	if calls.Load() != 3 {
 		t.Fatalf("ResolveFileByPath() calls = %d, want 3", calls.Load())
+	}
+}
+
+func TestCookieHTTPAdapterResolveFileByPathUsesProviderSizeAfterUniqueNameMatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"state":true,"cid":100,"count":1,"offset":0,"data":[` +
+			`{"fid":789,"cid":100,"n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `",` +
+			`"sha":"` + fixtureSHA1 + `","s":2048}]}`))
+	}))
+	defer server.Close()
+
+	adapter := newTestCookieHTTPAdapter(t, server)
+	file, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
+		RootID: "100", RelativePath: "fixture-video.mkv",
+	})
+	if err != nil || file == nil || file.Size != 2048 {
+		t.Fatalf("ResolveFileByPath() file=%+v error=%v", file, err)
 	}
 }
 
@@ -77,7 +93,7 @@ func TestCookieHTTPAdapterResolveFileByPathPaginatesBeforeAcceptingMatch(t *test
 	adapter := newTestCookieHTTPAdapter(t, server)
 	adapter.sourceResolvePageSize = 1
 	file, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
-		RootID: "100", RelativePath: "fixture-video.mkv", Size: 1024,
+		RootID: "100", RelativePath: "fixture-video.mkv",
 	})
 	if err != nil || file == nil || file.ID != "789" {
 		t.Fatalf("ResolveFileByPath() file=%+v error=%v", file, err)
@@ -92,17 +108,10 @@ func TestCookieHTTPAdapterResolveFileByPathFailsClosedOnMissingAndAmbiguousMatch
 		wantErr      error
 	}{
 		{
-			name: "missing exact size",
-			body: `{"state":true,"cid":100,"count":1,"offset":0,"data":[` +
-				`{"fid":789,"cid":100,"n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `",` +
-				`"sha":"` + fixtureSHA1 + `","s":2048}]}`,
-			wantErr: ErrSourceFileNotFound,
-		},
-		{
-			name: "ambiguous exact files",
+			name: "ambiguous same-name files with different sizes",
 			body: `{"state":true,"cid":100,"count":2,"offset":0,"data":[` +
 				`{"fid":789,"cid":100,"n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `","sha":"` + fixtureSHA1 + `","s":1024},` +
-				`{"fid":790,"cid":100,"n":"fixture-video.mkv","pc":"a1b2c3d4e5f6g7h9","sha":"` + fixtureSHA1 + `","s":1024}]}`,
+				`{"fid":790,"cid":100,"n":"fixture-video.mkv","pc":"a1b2c3d4e5f6g7h9","sha":"` + fixtureSHA1 + `","s":2048}]}`,
 			wantErr: ErrSourceFileAmbiguous,
 		},
 		{
@@ -153,7 +162,7 @@ func TestCookieHTTPAdapterResolveFileByPathFailsClosedOnMissingAndAmbiguousMatch
 				relativePath = "fixture-video.mkv"
 			}
 			_, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
-				RootID: "100", RelativePath: relativePath, Size: 1024,
+				RootID: "100", RelativePath: relativePath,
 			})
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("ResolveFileByPath() error = %v, want %v", err, test.wantErr)
@@ -176,14 +185,13 @@ func TestCookieHTTPAdapterResolveFileByPathRejectsInvalidQueryBeforeHTTP(t *test
 	}
 
 	queries := []FilePathQuery{
-		{RootID: "", RelativePath: "fixture-video.mkv", Size: 1024},
-		{RootID: "bad", RelativePath: "fixture-video.mkv", Size: 1024},
-		{RootID: "100", RelativePath: "", Size: 1024},
-		{RootID: "100", RelativePath: "/absolute/video.mkv", Size: 1024},
-		{RootID: "100", RelativePath: "Movies/../video.mkv", Size: 1024},
-		{RootID: "100", RelativePath: "Movies//video.mkv", Size: 1024},
-		{RootID: "100", RelativePath: "Movies\\video.mkv", Size: 1024},
-		{RootID: "100", RelativePath: "fixture-video.mkv", Size: 0},
+		{RootID: "", RelativePath: "fixture-video.mkv"},
+		{RootID: "bad", RelativePath: "fixture-video.mkv"},
+		{RootID: "100", RelativePath: ""},
+		{RootID: "100", RelativePath: "/absolute/video.mkv"},
+		{RootID: "100", RelativePath: "Movies/../video.mkv"},
+		{RootID: "100", RelativePath: "Movies//video.mkv"},
+		{RootID: "100", RelativePath: "Movies\\video.mkv"},
 	}
 	for _, query := range queries {
 		if _, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), query); !errors.Is(err, ErrInvalidRequest) {

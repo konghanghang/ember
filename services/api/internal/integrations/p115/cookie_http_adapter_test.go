@@ -89,7 +89,7 @@ func TestCookieHTTPAdapterRejectsInvalidCredentialBeforeHTTP(t *testing.T) {
 	if _, err := adapter.SearchBySHA1(context.Background(), credential, FileQuery{SHA1: fixtureSHA1, Size: 1024}); !errors.Is(err, ErrCredentialRejected) {
 		t.Fatalf("SearchBySHA1() error = %v, want ErrCredentialRejected", err)
 	}
-	if _, err := adapter.ResolveFileByPath(context.Background(), credential, FilePathQuery{RootID: "100", RelativePath: "fixture.mkv", Size: 1024}); !errors.Is(err, ErrCredentialRejected) {
+	if _, err := adapter.ResolveFileByPath(context.Background(), credential, FilePathQuery{RootID: "100", RelativePath: "fixture.mkv"}); !errors.Is(err, ErrCredentialRejected) {
 		t.Fatalf("ResolveFileByPath() error = %v, want ErrCredentialRejected", err)
 	}
 	if _, err := adapter.InitRapidUpload(context.Background(), credential, fixtureRapidUploadRequest()); !errors.Is(err, ErrCredentialRejected) {

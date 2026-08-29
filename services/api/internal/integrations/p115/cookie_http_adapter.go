@@ -222,7 +222,7 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 }
 
 // ResolveFileByPath traverses exact relative path segments below one explicit
-// root and returns a unique file whose name and size match the Emby source.
+// root and returns the unique file at that exact directory/name path.
 func (a *CookieHTTPAdapter) ResolveFileByPath(
 	ctx context.Context,
 	credential Credential,
@@ -246,9 +246,6 @@ func (a *CookieHTTPAdapter) ResolveFileByPath(
 		matches := make([]File, 0, 1)
 		for _, entry := range entries {
 			if entry.Name != segment || entry.IsDirectory != wantDirectory {
-				continue
-			}
-			if !wantDirectory && entry.Size != normalized.Size {
 				continue
 			}
 			matches = append(matches, entry)
@@ -892,7 +889,6 @@ func decodeSourceListEntry(data json.RawMessage) (File, error) {
 type normalizedFilePathQuery struct {
 	RootID   string
 	Segments []string
-	Size     int64
 }
 
 type normalizedDirectoryPathQuery struct {
@@ -905,7 +901,7 @@ type normalizedDirectoryPathQuery struct {
 // relative segments so a mapping cannot escape its configured Provider root.
 func normalizeFilePathQuery(query FilePathQuery) (normalizedFilePathQuery, error) {
 	rootID, err := normalizeOptionalProviderID(query.RootID)
-	if err != nil || rootID == "" || query.Size <= 0 {
+	if err != nil || rootID == "" {
 		return normalizedFilePathQuery{}, ErrInvalidRequest
 	}
 	pathValue := query.RelativePath
@@ -921,7 +917,7 @@ func normalizeFilePathQuery(query FilePathQuery) (normalizedFilePathQuery, error
 			return normalizedFilePathQuery{}, ErrInvalidRequest
 		}
 	}
-	return normalizedFilePathQuery{RootID: rootID, Segments: segments, Size: query.Size}, nil
+	return normalizedFilePathQuery{RootID: rootID, Segments: segments}, nil
 }
 
 // normalizeDirectoryPathQuery accepts one optional leading slash for admin UX

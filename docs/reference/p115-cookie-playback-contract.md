@@ -138,7 +138,7 @@ Ember 的 `CookieHTTPAdapter.GetUploadInfo` 当前固定：
 
 #### 5.2.1 源文件路径解析
 
-Emby `PlaybackInfo` 只提供媒体源 `Path` 和 `Size`，不能提供可直接信任的 115 SHA1。首期唯一启用的 source 账号必须同时配置 `embyPathPrefix + sourceRootId`；DirectPlay 先按完整目录边界移除该账号的 Emby 前缀，再把剩余部分作为 slash 分隔的相对路径交给 `CookieHTTPAdapter.ResolveFileByPath`。当前是一对一账号配置，不建立独立路径映射表：
+Emby `PlaybackInfo` 提供媒体源 `Path` 和可能缺失或不可靠的 `Size`，不能提供可直接信任的 115 文件身份。首期唯一启用的 source 账号必须同时配置 `embyPathPrefix + sourceRootId`；DirectPlay 先按完整目录边界移除该账号的 Emby 前缀，再把剩余部分作为 slash 分隔的相对路径交给 `CookieHTTPAdapter.ResolveFileByPath`。Emby Size 不进入该查询。当前是一对一账号配置，不建立独立路径映射表：
 
 - `embyPathPrefix` 必须是非 `/` 的绝对 Unix 路径，禁止尾随 `/`、反斜杠、空段、`.`、`..`、NUL 或换行；`/mnt/source2` 不能命中 `/mnt/source`。
 - `rootId` 必须是显式十进制目录 ID；相对路径不允许绝对路径、反斜杠、空段、`.`、`..`、NUL 或换行，不执行会改变文件名语义的 path clean。
@@ -146,7 +146,7 @@ Emby `PlaybackInfo` 只提供媒体源 `Path` 和 `Size`，不能提供可直接
 - 每一级固定发送 `GET /files`，query 为 `aid=1`、当前 `cid`、`cur=1`、`show_dir=1`、`fc_mix=1`、`count_folders=1`、`o=file_name`、`asc=1`、`limit=200` 和当前 `offset`。
 - 响应必须有顶层布尔 `state=true`，并严格映射 `cid/count/offset/data`；响应 `cid` 与请求不一致时视为未找到，防止无效目录被 Provider 静默回退到根目录。
 - 固定映射 Web 列表短字段：目录使用 `cid/pid/n`，文件使用 `fid/cid/n/pc/sha/s`。每一项的 parent 必须等于请求 `cid`，返回文件必须包含合法 pickCode、SHA1 和 size。
-- 每一级目录名必须唯一；最终文件使用“精确文件名 + Emby size + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个候选返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。
+- 每一级目录名必须唯一；最终文件在已经确定的父目录内使用“精确文件名 + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个同名候选即使 Size 不同也返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。唯一命中后必须由 115 响应提供合法 fileId、pickCode、SHA1、正数 Size 和正确 parentId；这些 Provider 字段才是后续文件身份。
 - 为了检测同名项，单级目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期每级最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。
 - 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
 
@@ -409,7 +409,7 @@ playbackAccountId + SHA1 + size
 以下是 source 文件在 playback 缺失时的唯一首期闭环。各步骤不能交换顺序，也不能把 source 下载地址直接交给播放器：
 
 1. 运行时加载唯一 `active + enabled` 的 source 和 playback 账号，确认两个 Provider UID 不同；playback 必须配置明确的 `targetParentId`，禁止默认写入根目录。
-2. 使用 source 账号的 `embyPathPrefix + sourceRootId` 把 Emby `Path + Size` 转换为 `rootId + relativePath + size`，调用 `ResolveFileByPath` 取得 source `fileId/pickCode/SHA1/size/parentId`。
+2. 使用 source 账号的 `embyPathPrefix + sourceRootId` 把 Emby `Path` 转换为 `rootId + relativePath`，调用 `ResolveFileByPath` 按完整目录链和最终文件名唯一取得 source `fileId/pickCode/SHA1/size/parentId`；Emby Size 只作为观察值，不参与解析或一致性判断，后续统一使用 Provider 返回的正数 Size。
 3. 使用 playback Cookie 按 source `SHA1 + size` 执行 `SearchBySHA1`：
    - 已命中：复核非目录和 size 后直接进入第 9 步；这是 playback 预存文件，不属于 Ember 秒传任务，禁止后续自动删除。
    - 未命中：继续创建或复用传输任务。

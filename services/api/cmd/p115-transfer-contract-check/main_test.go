@@ -52,7 +52,7 @@ func TestLoadCommandInputMapsSourceAndPlaybackPathsWithoutEchoing(t *testing.T) 
 	if err != nil {
 		t.Fatalf("loadCommandInput() error = %v", err)
 	}
-	if input.SourceFile.RelativePath != "safe/source/video.mkv" || input.SourceFile.Size != 10_747_391_752 {
+	if input.SourceFile.RelativePath != "safe/source/video.mkv" || input.ExpectedSourceSize != 10_747_391_752 {
 		t.Fatalf("source input = %+v", input.SourceFile)
 	}
 	if input.TargetDirectory.RootID != "0" || input.TargetDirectory.RelativePath != "/EmberPlayback" {

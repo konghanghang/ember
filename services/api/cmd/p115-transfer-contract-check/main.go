@@ -118,8 +118,9 @@ func loadCommandInput(getenv func(string) string) (p115integration.TransferContr
 			AccountID: "playback", Cookie: values["P115_PLAYBACK_COOKIE"], UserAgent: values["P115_PLAYBACK_USER_AGENT"],
 		},
 		SourceFile: p115integration.FilePathQuery{
-			RootID: values["P115_SOURCE_ROOT_ID"], RelativePath: values["P115_SOURCE_RELATIVE_PATH"], Size: sourceSize,
+			RootID: values["P115_SOURCE_ROOT_ID"], RelativePath: values["P115_SOURCE_RELATIVE_PATH"],
 		},
+		ExpectedSourceSize: sourceSize,
 		TargetDirectory: p115integration.DirectoryPathQuery{
 			RootID: values["P115_PLAYBACK_ROOT_ID"], RelativePath: values["P115_PLAYBACK_TARGET_PATH"],
 		},

@@ -1,6 +1,6 @@
 # Gateway 媒体路径诊断日志实现方案
 
-> 状态：已完成（待部署验收）
+> 状态：已完成（旧路径日志已部署验证，新决策格式待部署验收）
 > 负责人：Ember
 > 更新时间：2026-08-29
 
@@ -18,6 +18,7 @@
 2. 按用户明确授权，在持久日志中记录从 Emby 选中的完整媒体路径。
 3. 在最终视频决策日志中记录原始媒体路径、配置前缀、source root 和映射后相对路径，使 `302`、fallback 与映射失败都可关联排查。
 4. 保持 Token、Cookie、Authorization、115 下载 URL、完整外部响应体和 Provider 原始错误不进入日志。
+5. 将人工结论前置并适当使用中文，明确区分 115 直链成功、首次/复用、Emby 回退成功/失败、账号角色和 Provider 失败步骤。
 
 ## 非目标
 
@@ -44,6 +45,8 @@
 - 成功形成 PlaybackInfo 证明时，每个被接受的 MediaSource 记录 `mappingId/itemId/mediaSourceId/mediaPath`。
 - 每条视频最终决策继续只记录一次；进入 DirectPlay 后增加 `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。
 - 路径字段使用 quoted 日志格式，避免换行或控制字符破坏单行日志。
+- redirect 使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；fallback/reject 使用各自 code、中文结论和独立结果字段，不再让操作员从空字段中推断结果。
+- Provider 错误只暴露固定 `providerOperation`，账号加载错误只暴露 `accountRole=source|playback`；未知诊断值丢弃。
 
 ### 2. 数据与模型
 
@@ -66,7 +69,7 @@ DirectPlay 的 Gateway 返回结构增加仅用于进程内诊断的路径映射
 
 ### 4. 关键流程
 
-1. Gateway 解析 Emby PlaybackInfo，校验 item/source/session/Path/Size/DirectPlay 能力。
+1. Gateway 解析 Emby PlaybackInfo，校验 item/source/session/Path/DirectPlay 能力；Size 只作为观察值记录。
 2. 响应级合同成立后，每个唯一有效 MediaSource ID 都记录完整 `mediaPath`、字段存在性、播放能力和 proof 接受/拒绝原因，不依赖证明缓存写入成功。
 3. 按需 PlaybackInfo 选中的路径进入最终视频决策；命中证明后再把 `PlaybackProof.Path` 交给 DirectPlay。
 4. DirectPlay 返回原始路径、配置前缀、source root 和映射后相对路径；Provider 后续失败不抹掉已经形成的映射诊断。
@@ -103,8 +106,9 @@ DirectPlay 的 Gateway 返回结构增加仅用于进程内诊断的路径映射
 ### 手工验证
 
 - 部署后打开一个媒体详情并播放，确认 PlaybackInfo 日志包含完整 `mediaPath`。
-- 直连成功时确认 `decision=redirect statusCode=302` 同时包含原始路径和映射后路径。
+- 直连成功时确认 `message="115直链成功" result=success statusCode=302 target=p115`，同时包含原始路径和映射后路径。
 - 路径前缀错误时确认 `decision=fallback reasonCode=path_not_mapped` 包含原始路径和已知配置字段。
+- Provider 失败时确认 `providerOperation` 能区分源路径解析、目标查重、秒传、目标复核和下载 URL；账号不可用时确认 `accountRole` 能区分 source/playback。
 - 手工日志验证必须由用户明确执行；本次实现不启动服务、不调用真实 Emby/115。
 
 ## 落地后文档处理
@@ -118,6 +122,6 @@ DirectPlay 的 Gateway 返回结构增加仅用于进程内诊断的路径映射
 - 条目快照已用 `response_json_invalid`、`response_item_id_missing`、`response_item_id_mismatch` 区分三类失败，并保持 Emby 响应透明。
 - 普通与按需 PlaybackInfo 都会记录 `playback_info_media_source_observed`；`proofCount=0` 时仍输出选中 MediaSource 的 quoted `mediaPath`、Size/能力和固定 `proofRejectReason`。
 - DirectPlay 候选携带不序列化、不持久化的 `PathMapping`；映射成功后即使 Provider 后续失败，也会把原始路径、配置前缀、source root 和相对路径交给最终视频决策日志。
-- `decision=redirect|fallback|reject` 保持每请求一条；按需解析得到的 `mediaPath` 在 `playback_proof_missing` 时也保留，进入 DirectPlay 后再增加 `embyPathPrefix/sourceRootId/mappedRelativePath`。Token、Cookie、115 URL、完整响应体和原始错误继续由测试保护。
+- `decision=redirect|fallback|reject` 保持每请求一条；新格式使用中文 `message` 与稳定 code/result 将结论前置，302 记录 `targetState=created|reused`，fallback 记录 `fallbackResult=success|failure`，失败上下文只允许固定 `providerOperation/accountRole`。按需解析得到的 `mediaPath` 在 `playback_proof_missing` 时也保留，进入 DirectPlay 后再增加 `embyPathPrefix/sourceRootId/mappedRelativePath`。Token、Cookie、115 URL、完整响应体和原始错误继续由测试保护。
 - 已通过目标包测试、目标包 race、API 全量 `go test ./...`、`go vet ./...`、`go build ./...` 与 `git diff --check`。
-- 用户提供的 2026-08-29 Infuse `8.5.2` 日志已确认旧落点在 `proofCount=0` 时丢失路径，本轮已用对应 fake 回归测试修复。未由 AI 启动服务或请求真实 Emby/115；新 `proofRejectReason`、真实 `302` 和 `path_not_mapped` 日志形态仍待部署后受控复现确认。
+- 用户提供的 2026-08-29 Infuse `8.5.2` 部署日志已确认完整原始/映射路径、Provider 权威 Size、首次转存成功以及连续 Gateway `302`；也暴露旧格式把成功标志埋在长字段中，并将后续 `provider_unavailable` 的具体步骤抹平。新的中文结论、结果前置和类型化失败步骤已有 fake 测试，仍待下一次部署复验。未由 AI 启动服务或请求真实 Emby/115。

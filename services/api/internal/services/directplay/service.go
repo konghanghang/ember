@@ -37,7 +37,6 @@ type ResolveRequest struct {
 // path mapping has produced a Provider FilePathQuery.
 type MediaPathResolveRequest struct {
 	Path            string
-	Size            int64
 	ClientUserAgent string
 }
 
@@ -151,7 +150,7 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 // before entering the already tested transfer orchestration.
 func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathResolveRequest) (RedirectCandidate, error) {
 	mapping := MediaPathMapping{OriginalPath: request.Path}
-	if request.Size <= 0 || !validClientUserAgent(request.ClientUserAgent) {
+	if !validClientUserAgent(request.ClientUserAgent) {
 		return RedirectCandidate{PathMapping: mapping}, ErrInvalidRequest
 	}
 	if !validAbsoluteMediaPath(request.Path, maxDirectPlayMediaPath) {
@@ -163,7 +162,7 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	}
 	mapping.EmbyPathPrefix = source.EmbyPathPrefix
 	mapping.SourceRootID = source.SourceRootID
-	fileQuery, err := mapMediaPath(source.EmbyPathPrefix, source.SourceRootID, request.Path, request.Size)
+	fileQuery, err := mapMediaPath(source.EmbyPathPrefix, source.SourceRootID, request.Path)
 	if err != nil {
 		return RedirectCandidate{PathMapping: mapping}, err
 	}
@@ -184,9 +183,9 @@ func (service *Service) resolveWithAccounts(
 ) (RedirectCandidate, error) {
 	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
 	if err != nil {
-		return RedirectCandidate{}, mapProviderFailure("resolve_source", err)
+		return RedirectCandidate{}, mapProviderFailure(failureOperationResolveSourcePath, err)
 	}
-	sha1Value, err := validateSourceFile(sourceFile, request.SourceFile.Size)
+	sha1Value, err := validateSourceFile(sourceFile)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -245,17 +244,26 @@ func (service *Service) resolveWithAccounts(
 func (service *Service) loadAccounts(ctx context.Context) (p115account.ActiveAccountCredential, p115account.ActiveAccountCredential, error) {
 	source, err := service.accounts.LoadActiveCredentialByRole(ctx, models.P115AccountRoleSource)
 	if err != nil {
-		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, fmt.Errorf("%w: source", ErrAccountUnavailable)
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
+			ErrAccountUnavailable,
+			FailureContext{AccountRole: string(models.P115AccountRoleSource)},
+		)
 	}
 	playback, err := service.accounts.LoadActiveCredentialByRole(ctx, models.P115AccountRolePlayback)
 	if err != nil {
-		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, fmt.Errorf("%w: playback", ErrAccountUnavailable)
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
+			ErrAccountUnavailable,
+			FailureContext{AccountRole: string(models.P115AccountRolePlayback)},
+		)
 	}
 	if source.ProviderUserID == playback.ProviderUserID || source.Credential.AccountID == playback.Credential.AccountID {
 		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, ErrAccountsSame
 	}
 	if strings.TrimSpace(playback.TargetParentID) == "" {
-		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, ErrAccountUnavailable
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
+			ErrAccountUnavailable,
+			FailureContext{AccountRole: string(models.P115AccountRolePlayback)},
+		)
 	}
 	return source, playback, nil
 }
@@ -296,7 +304,7 @@ func (service *Service) resolveUnderLock(
 		File: sourceFile, Range: preIDRange,
 	})
 	if err != nil {
-		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", mapProviderFailure("preid", err))
+		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", mapProviderFailure(failureOperationHashSourcePreID, err))
 	}
 	preID, err := validateRangeHash(preIDHash, preIDRange)
 	if err != nil {
@@ -309,7 +317,7 @@ func (service *Service) resolveUnderLock(
 	}
 	result, err := service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
 	if err != nil {
-		return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload initialization failed", mapProviderFailure("init_upload", err))
+		return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload initialization failed", mapProviderFailure(failureOperationRapidUpload, err))
 	}
 	if result.Status == p115integration.RapidUploadRangeChallenge {
 		if !validChallenge(result.Challenge, sourceFile.Size) {
@@ -322,7 +330,7 @@ func (service *Service) resolveUnderLock(
 			File: sourceFile, Range: result.Challenge.Range,
 		})
 		if hashErr != nil {
-			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", mapProviderFailure("challenge", hashErr))
+			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", mapProviderFailure(failureOperationHashSourceChallenge, hashErr))
 		}
 		signValue, hashErr := validateRangeHash(challengeHash, result.Challenge.Range)
 		if hashErr != nil {
@@ -338,7 +346,7 @@ func (service *Service) resolveUnderLock(
 		}
 		result, err = service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
 		if err != nil {
-			return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload retry failed", mapProviderFailure("init_upload_retry", err))
+			return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload retry failed", mapProviderFailure(failureOperationRapidUploadRetry, err))
 		}
 		if result.Status == p115integration.RapidUploadRangeChallenge {
 			return service.failTask(ctx, task.ID, "repeated_challenge", "rapid upload repeated challenge", ErrProviderProtocol)
@@ -357,7 +365,7 @@ func (service *Service) resolveUnderLock(
 	}
 	target, err = service.provider.FindTargetFile(ctx, playback.Credential, query)
 	if err != nil {
-		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", mapProviderFailure("target_verify", err))
+		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", mapProviderFailure(failureOperationVerifyPlaybackTarget, err))
 	}
 	if !validTargetFile(target, query) {
 		return service.failTask(ctx, task.ID, "target_invalid", "target verification invalid", ErrTargetUnavailable)
@@ -376,7 +384,7 @@ func (service *Service) resolveUnderLock(
 func (service *Service) searchTarget(ctx context.Context, credential p115integration.Credential, query p115integration.FileQuery) (*p115integration.File, bool, error) {
 	files, err := service.provider.SearchBySHA1(ctx, credential, query)
 	if err != nil {
-		return nil, false, mapProviderFailure("search_target", err)
+		return nil, false, mapProviderFailure(failureOperationSearchPlaybackTarget, err)
 	}
 	if len(files) > 1 {
 		return nil, false, ErrProviderProtocol
@@ -403,7 +411,7 @@ func (service *Service) downloadCandidate(
 		PickCode: target.PickCode, UserAgent: userAgent,
 	})
 	if err != nil {
-		return RedirectCandidate{}, mapProviderFailure("download", err)
+		return RedirectCandidate{}, mapProviderFailure(failureOperationGetDownloadURL, err)
 	}
 	if download.URL == "" || !download.ExpiresAt.After(service.now().UTC()) || download.ConcurrentOpenLimit <= 0 {
 		return RedirectCandidate{}, ErrProviderProtocol
@@ -451,7 +459,7 @@ func (service *Service) failTask(
 }
 
 func validateResolveRequest(request ResolveRequest) error {
-	if request.SourceFile.Size <= 0 || strings.TrimSpace(request.SourceFile.RootID) == "" ||
+	if strings.TrimSpace(request.SourceFile.RootID) == "" ||
 		strings.TrimSpace(request.SourceFile.RelativePath) == "" || !validClientUserAgent(request.ClientUserAgent) {
 		return ErrInvalidRequest
 	}
@@ -464,8 +472,8 @@ func validClientUserAgent(value string) bool {
 		len(value) <= maxDirectPlayClientUserAgent && !strings.ContainsAny(value, "\r\n")
 }
 
-func mapMediaPath(embyPathPrefix, sourceRootID, mediaPath string, size int64) (p115integration.FilePathQuery, error) {
-	if size <= 0 || !validAbsoluteMediaPath(embyPathPrefix, maxDirectPlayMediaPath) ||
+func mapMediaPath(embyPathPrefix, sourceRootID, mediaPath string) (p115integration.FilePathQuery, error) {
+	if !validAbsoluteMediaPath(embyPathPrefix, maxDirectPlayMediaPath) ||
 		!validAbsoluteMediaPath(mediaPath, maxDirectPlayMediaPath) ||
 		!validSourceRootID(sourceRootID) || !strings.HasPrefix(mediaPath, embyPathPrefix+"/") {
 		return p115integration.FilePathQuery{}, ErrPathNotMapped
@@ -474,7 +482,7 @@ func mapMediaPath(embyPathPrefix, sourceRootID, mediaPath string, size int64) (p
 	if !validRelativeMediaPath(relativePath) {
 		return p115integration.FilePathQuery{}, ErrPathNotMapped
 	}
-	return p115integration.FilePathQuery{RootID: sourceRootID, RelativePath: relativePath, Size: size}, nil
+	return p115integration.FilePathQuery{RootID: sourceRootID, RelativePath: relativePath}, nil
 }
 
 func validRelativeMediaPath(value string) bool {
@@ -508,8 +516,8 @@ func validAbsoluteMediaPath(value string, maxLength int) bool {
 	return true
 }
 
-func validateSourceFile(file *p115integration.File, expectedSize int64) (string, error) {
-	if file == nil || file.IsDirectory || file.Size != expectedSize || file.Size <= 0 ||
+func validateSourceFile(file *p115integration.File) (string, error) {
+	if file == nil || file.IsDirectory || file.Size <= 0 ||
 		strings.TrimSpace(file.ID) == "" || strings.TrimSpace(file.PickCode) == "" ||
 		strings.TrimSpace(file.ParentID) == "" || strings.TrimSpace(file.Name) == "" {
 		return "", ErrProviderProtocol
@@ -576,15 +584,15 @@ func mapProviderFailure(operation string, err error) error {
 	}
 	switch {
 	case errors.Is(err, p115integration.ErrCredentialRejected):
-		return fmt.Errorf("%w: %s", ErrAccountUnavailable, operation)
+		return withFailureContext(ErrAccountUnavailable, FailureContext{ProviderOperation: operation})
 	case errors.Is(err, p115integration.ErrProviderUnavailable):
-		return fmt.Errorf("%w: %s", ErrProviderUnavailable, operation)
+		return withFailureContext(ErrProviderUnavailable, FailureContext{ProviderOperation: operation})
 	case errors.Is(err, p115integration.ErrDownloadURLIncompatible):
-		return fmt.Errorf("%w: %s", ErrDownloadIncompatible, operation)
+		return withFailureContext(ErrDownloadIncompatible, FailureContext{ProviderOperation: operation})
 	case errors.Is(err, p115integration.ErrTargetFileNotVisible), errors.Is(err, p115integration.ErrTargetFileAmbiguous):
-		return fmt.Errorf("%w: %s", ErrTargetUnavailable, operation)
+		return withFailureContext(ErrTargetUnavailable, FailureContext{ProviderOperation: operation})
 	default:
-		return fmt.Errorf("%w: %s", ErrProviderProtocol, operation)
+		return withFailureContext(ErrProviderProtocol, FailureContext{ProviderOperation: operation})
 	}
 }
 

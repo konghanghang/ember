@@ -723,7 +723,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 登录与普通资源已实机通过，真实播放仍待验证，删除没有生产业务调用方：
+当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 登录、普通资源和 Gateway 302 已有实机证据，115 CDN 媒体字节、Range/字幕/完整会话仍待验证，删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -738,7 +738,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
 - `integrations/p115.CookieProvider`：组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，通过编译期断言完整实现 Provider-neutral 接口；生产账号控制面注入该对象的验证边界，后续 direct play Service 可复用同一具体 Provider
 - `integrations/p115.CookieHTTPAdapter.GetUploadInfo`：固定请求上传信息端点，严格映射顶层 `user_id` / `userkey`，并要求响应用户与 Cookie UID 一致
-- `integrations/p115.CookieHTTPAdapter.ResolveFileByPath`：在显式 root 下逐级分页列举 `/files`，精确匹配相对路径目录和最终文件名/size，返回完整源文件身份；无效 cid 回退、分页漂移、重名和单级超过 10,000 项全部失败关闭
+- `integrations/p115.CookieHTTPAdapter.ResolveFileByPath`：在显式 root 下逐级分页列举 `/files`，精确匹配相对路径目录链和最终文件名，唯一命中后返回 Provider 权威 Size/SHA1/fileId/pickCode；不使用 Emby Size 过滤。无效 cid 回退、分页漂移、同目录同名歧义和单级超过 10,000 项全部失败关闭
 - `integrations/p115.CookieHTTPAdapter.ResolveDirectoryByPath`：接受一个可选前导 `/` 的 playback 目录路径，逐级只接受唯一目录并返回稳定 ID/规范化路径；根目录、最终文件、同名歧义和 cid 回退全部失败关闭
 - `integrations/p115.CookieHTTPAdapter.SearchBySHA1`：无 parent 时使用旧全局 `shasearch` 并兼容 Web 短字段/app2 长字段；有 parent 时改用目录作用域 `/files/search`，只接受目标目录内 SHA1、size、非目录全部匹配的唯一候选，避免全局单候选造成假未命中
 - `integrations/p115.CookieHTTPAdapter.InitRapidUpload`：校验完整内容身份后获取账号上传信息，调用 `p115cipher.BuildUploadRequest` 生成 `k_ec` 与加密 body；响应 AES-CBC 只解密完整 blocks 并忽略不足 16 字节的短尾部，再把 `status=1/2/7` 映射为普通上传拒绝、复用和有界 Range challenge
@@ -762,7 +762,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前完成的是播放网关之前的生产编排核心，不注册路由、不启动独立服务，也不解析 Emby 请求：
 
 - `TransferProvider` 只包含源路径解析、目标查重、Range Hash、秒传初始化、目标复核和下载 URL；接口刻意不包含 `DeleteFile`，第一阶段无法自动删除保留文件
-- `ResolveMediaPath` 加载唯一 `active + enabled` 的 source/playback 账号并核对 Provider UID 不同，按 source 账号配置把 Emby `Path + Size` 严格转换为 `rootId + relativePath + size`，再进入既有 `Resolve` 编排
+- `ResolveMediaPath` 加载唯一 `active + enabled` 的 source/playback 账号并核对 Provider UID 不同，按 source 账号配置把 Emby `Path` 严格转换为 `rootId + relativePath`；Provider 唯一解析后返回的正数 Size/SHA1 才作为后续查重、锁、秒传和任务身份
 - 首次目录作用域查重命中时跳过任务与锁，成功签发直链后刷新最近成功任务的 `lastAccessedAt`；外部预存文件没有 Ember 任务时允许无行更新
 - 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；相同内容的并发请求只有一个进入秒传，其余请求复用目标文件
 - 锁内创建 `playback_transfer_tasks`，状态依次覆盖初始化、一次 challenge、目标复核和终态；真实 Provider message、Cookie、完整路径和签名 URL 均不落库
@@ -820,7 +820,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - SystemInfoPublic 上游响应只记录固定 route、pathMode 和 statusCode，不记录 Header、URL、ServerId 或响应体；上游 `401/403/500` 仍逐状态透明返回
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
 - fake Emby 测试已覆盖 root/`/emby` 与大小写路径、重复前缀拒绝、SystemInfoPublic、认证响应透明、三种应用头、Header/query Token aliases、多来源冲突、public bootstrap、用户条目 Container 快照/身份隔离/缺参 fallback、取消/deadline、统一请求日志和传输错误脱敏；没有请求真实 Emby
-- root 或 `/emby` 形态的客户端 GET/POST PlaybackInfo 固定语义段大小写不敏感并继续透明代理；成功 `200 application/json` 响应按 `identity/gzip/deflate` 有界解码旁路副本并生成 `mappingId + itemId + mediaSourceId + playSessionId` 证明，同时保存 Path/Size/Container/DirectPlay 能力，不改写原压缩响应；只有后述缺 PlaySessionId 兼容分支会按需补取
+- root 或 `/emby` 形态的客户端 GET/POST PlaybackInfo 固定语义段大小写不敏感并继续透明代理；成功 `200 application/json` 响应按 `identity/gzip/deflate` 有界解码旁路副本并生成 `mappingId + itemId + mediaSourceId + playSessionId` 证明，同时保存 Path、Emby Size 观察值、Container 和 DirectPlay 能力，不改写原压缩响应。Emby Size 为零、缺失或异常都不阻断 proof 或 115 路径解析；只有后述缺 PlaySessionId 兼容分支会按需补取
 - GET 只有大小写不敏感的唯一 `UserId` key 等于 Principal.EmbyID 才可形成证明；POST 有界检查可选 UserId，错配、无效或超大请求仍透明转发但不缓存
 - 层级精确的 `GET /Users/{UserId}/Items/{ItemId}` 只有 path UserId 等于 Principal.EmbyID、上游 `200 application/json` 且响应 Id 匹配时，才从 `identity/gzip/deflate` 有界旁路副本缓存 `mappingId + itemId + mediaSourceId -> container`；有可用 MediaSource 时不使用顶层 Container 猜测其他 source。JSON 非法、响应 Id 缺失和响应 Id 错配分别记录固定 `response_json_invalid`、`response_item_id_missing`、`response_item_id_mismatch`，原响应仍透明返回。快照不含 Token、Path、Size 或响应体，TTL 5 分钟、最多 4096 条
 - 证明缓存固定 5 分钟、最多 4096 条，延迟过期和最早到期淘汰，无后台 goroutine；不保存原始 Token。PlaybackInfo 响应级合同成立后，Info 按唯一有效 MediaSource ID 记录 `code=playback_info_media_source_observed`，包含完整 `MediaSources[].Path`、Size/DirectPlay/DirectStream 能力、`proofAccepted` 和固定 `proofRejectReason`；该观察不依赖 proof 写入成功。进程重启后证明丢失，115 加速不可用但合法请求应 fallback Emby
@@ -833,9 +833,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - DirectPlay 返回安全候选时 Gateway 输出空体 `302`；普通请求继续原样代理。只有已由 Infuse 观察到的“plain static stream 缺播放上下文”通用兼容分支，会在按需 PlaybackInfo 成功后把 method/Range/Header 与非身份参数迁移到 Emby 权威 DirectStreamUrl/扩展名路径；不按客户端名称分支，Emby 状态、响应头和视频体仍保持透传
 - `playback_media_cache` 和 `direct_play_sessions` 本轮均未建表；多副本共享、播放并发和 Playing/Progress/Stopped 持久会话推迟到后续
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
-- 每个视频请求在 Info 保留一条 `decision=redirect|fallback|reject` 决策日志；Debug 可再输出统一 `request_completed` 请求摘要，但不能重复生成第二条决策。按需 PlaybackInfo 选中的原始 `mediaPath` 会进入最终决策，即使 `proofCount=0` / `playback_proof_missing` 也不丢；真正进入 DirectPlay 后再补 `embyPathPrefix`、`sourceRootId` 和 `mappedRelativePath`，使 `302` 与 fallback 都能核对路径替换。固定 `fallbackSource` 区分 client request、Container 降级、DirectStreamUrl、扩展名和补齐 plain stream；不新建日志表或 migration，仍禁止 Token、Cookie、完整 SHA1、115 URL、完整响应体和上游原始错误
+- 每个视频请求在 Info 保留一条 `decision=redirect|fallback|reject` 决策日志；行首使用中文结论和稳定 code/result 明示 `115直链成功`、`115直链失败，Emby回退成功|失败` 或 `播放请求已拒绝`。成功 `302` 同时记录 `target=p115 + targetState=created|reused`；DirectPlay 失败只补固定 `providerOperation`，账号加载失败只补 `accountRole=source|playback`。Debug 可再输出统一 `request_completed` 请求摘要，但不能重复生成第二条决策。按需 PlaybackInfo 选中的原始 `mediaPath` 会进入最终决策，即使 `proofCount=0` / `playback_proof_missing` 也不丢；真正进入 DirectPlay 后再补 `embyPathPrefix`、`sourceRootId` 和 `mappedRelativePath`，使 `302` 与 fallback 都能核对路径替换。无意义的空结果字段不打印；不新建日志表或 migration，仍禁止 Token、Cookie、完整 SHA1、115 URL、完整响应体和上游原始错误
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
-- 2026-08-24 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5`：根路径发现、登录、普通资源 API、PlaybackInfo 证明均成功；115 账号不可用时 `fallbackSource=playback_info_extension_stream` 由 Emby 返回 `206` 并可播放，Playing/Progress 返回 `204`。2026-08-29 Infuse `8.5.2` 的另一条目实测为 Container 快照成功、按需 PlaybackInfo `proofCount=0`、`fallbackSource=playback_info_direct_stream` 且 Emby 返回 `404`；它证明不同媒体源的 proof/fallback 结果会不同，旧日志尚不能说明具体 proof 拒绝字段。本轮新增观察日志用于下一次复现。这些证据都不证明 Stopped、115 `302`、字幕、其他播放器或完整 CDN 链路
+- 2026-08-24 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5`：根路径发现、登录、普通资源 API、PlaybackInfo 证明均成功；115 账号不可用时 `fallbackSource=playback_info_extension_stream` 由 Emby 返回 `206` 并可播放，Playing/Progress 返回 `204`。2026-08-29 Infuse `8.5.2` 的另一条目实测返回完整 115 挂载 Path、`SupportsDirectPlay=true`、`Size=0`；Size 解耦版本部署后已确认 `proofAccepted=true`、source 前缀映射、Provider 权威 Size `27932893135`、首次保留式转存成功、一次 `preexisting=false` 和多次 `preexisting=true` 的 Gateway `302`。后续连续请求出现 `provider_unavailable` 并在 Emby 扩展名 fallback 得到 `404`，当前日志尚不能证明 115 CDN 媒体字节、Stopped、字幕或其他播放器；新的 `providerOperation` 用于下一次部署复现定位具体 115 步骤
 
 ---
 
@@ -994,7 +994,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同、数据库互斥编排和 Gateway 代码已完成，Infuse 播放与部署网络验收尚未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；完整链路见 `p115-playback-end-to-end-flow.md` |
+| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同、数据库互斥编排和 Gateway 302 已完成，Infuse 的 115 CDN 字节、字幕、完整会话与部署网络隔离尚未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；完整链路见 `p115-playback-end-to-end-flow.md` |
 
 ---
 

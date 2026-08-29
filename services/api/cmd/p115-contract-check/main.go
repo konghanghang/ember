@@ -176,8 +176,9 @@ func loadCommandInput(getenv func(string) string) (p115integration.ReadOnlyContr
 			AccountID: "playback", Cookie: values["P115_PLAYBACK_COOKIE"], UserAgent: values["P115_PLAYBACK_USER_AGENT"],
 		},
 		SourceFile: p115integration.FilePathQuery{
-			RootID: values["P115_SOURCE_ROOT_ID"], RelativePath: values["P115_SOURCE_RELATIVE_PATH"], Size: sourceSize,
+			RootID: values["P115_SOURCE_ROOT_ID"], RelativePath: values["P115_SOURCE_RELATIVE_PATH"],
 		},
+		ExpectedSourceSize:  sourceSize,
 		TestClientUserAgent: values["P115_TEST_CLIENT_USER_AGENT"],
 	}, nil
 }

@@ -27,6 +27,7 @@ type ReadOnlyContractCheckInput struct {
 	SourceCredential    Credential
 	PlaybackCredential  Credential
 	SourceFile          FilePathQuery
+	ExpectedSourceSize  int64
 	TestClientUserAgent string
 }
 
@@ -196,7 +197,7 @@ func RunReadOnlyContractCheck(
 		return nil, providerContractFailure("source_resolve", err)
 	}
 	recordContractStep(report, "resolve_source", started)
-	if sourceFile == nil || sourceFile.IsDirectory || sourceFile.Size != input.SourceFile.Size ||
+	if sourceFile == nil || sourceFile.IsDirectory || sourceFile.Size != input.ExpectedSourceSize ||
 		strings.TrimSpace(sourceFile.PickCode) == "" {
 		return nil, contractFailure("source_resolve", "response_invalid", ErrProviderProtocol)
 	}
@@ -292,7 +293,7 @@ func validateReadOnlyContractCheckInput(provider ReadOnlyContractProvider, input
 		input.SourceCredential.Cookie == input.PlaybackCredential.Cookie ||
 		strings.TrimSpace(input.SourceCredential.UserAgent) == "" ||
 		strings.TrimSpace(input.PlaybackCredential.UserAgent) == "" ||
-		strings.TrimSpace(input.TestClientUserAgent) == "" || input.SourceFile.Size <= 0 ||
+		strings.TrimSpace(input.TestClientUserAgent) == "" || input.ExpectedSourceSize <= 0 ||
 		strings.TrimSpace(input.SourceFile.RootID) == "" || strings.TrimSpace(input.SourceFile.RelativePath) == "" {
 		return ErrInvalidRequest
 	}

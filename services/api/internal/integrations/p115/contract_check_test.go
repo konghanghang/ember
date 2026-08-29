@@ -95,7 +95,7 @@ func TestRunReadOnlyContractCheckAllowsPlaybackMissWithoutPretendingDownloadWasV
 func TestRunReadOnlyContractCheckFailsClosedBeforeProviderOnInvalidInput(t *testing.T) {
 	provider := newFakeReadOnlyContractProvider()
 	input := fixtureContractCheckInput()
-	input.SourceFile.Size = 0
+	input.ExpectedSourceSize = 0
 
 	_, err := RunReadOnlyContractCheck(context.Background(), provider, input)
 	stage, code := ContractCheckFailure(err)
@@ -238,7 +238,8 @@ func fixtureContractCheckInput() ReadOnlyContractCheckInput {
 	return ReadOnlyContractCheckInput{
 		SourceCredential:    Credential{AccountID: "source", Cookie: contractSourceCookie, UserAgent: "source-provider-agent"},
 		PlaybackCredential:  Credential{AccountID: "playback", Cookie: contractPlaybackCookie, UserAgent: "playback-provider-agent"},
-		SourceFile:          FilePathQuery{RootID: "0", RelativePath: contractRelativePath, Size: 10_747_391_752},
+		SourceFile:          FilePathQuery{RootID: "0", RelativePath: contractRelativePath},
+		ExpectedSourceSize:  10_747_391_752,
 		TestClientUserAgent: "Infuse-Contract/1.0",
 	}
 }

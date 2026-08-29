@@ -241,8 +241,6 @@ func playbackProofRejectionReason(proof PlaybackProof) string {
 		return "path_invalid"
 	case !validProofValue(proof.Container, maxProofContainerBytes, true):
 		return "container_invalid"
-	case proof.Size <= 0:
-		return "size_invalid"
 	case !proof.SupportsDirectPlay:
 		return "direct_play_unsupported"
 	default:

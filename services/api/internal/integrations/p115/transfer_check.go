@@ -27,6 +27,7 @@ type TransferContractCheckInput struct {
 	SourceCredential    Credential
 	PlaybackCredential  Credential
 	SourceFile          FilePathQuery
+	ExpectedSourceSize  int64
 	TargetDirectory     DirectoryPathQuery
 	TestClientUserAgent string
 }
@@ -147,7 +148,7 @@ func RunTransferContractCheck(
 		return nil, transferProviderFailure("source_resolve", false, err)
 	}
 	recordTransferStep(report, "resolve_source", started)
-	if !validTransferFile(sourceFile, input.SourceFile.Size, "") {
+	if !validTransferFile(sourceFile, input.ExpectedSourceSize, "") {
 		return nil, transferFailure("source_resolve", "response_invalid", false, ErrProviderProtocol)
 	}
 	sourceSHA1, err := normalizeSHA1(sourceFile.SHA1)
@@ -306,7 +307,7 @@ func RunTransferContractCheck(
 }
 
 func validateTransferContractInput(provider TransferContractProvider, input TransferContractCheckInput) error {
-	if provider == nil || input.SourceFile.Size <= 0 || strings.TrimSpace(input.TestClientUserAgent) == "" ||
+	if provider == nil || input.ExpectedSourceSize <= 0 || strings.TrimSpace(input.TestClientUserAgent) == "" ||
 		strings.ContainsAny(input.TestClientUserAgent, "\r\n") ||
 		strings.TrimSpace(input.SourceCredential.Cookie) == "" || strings.TrimSpace(input.PlaybackCredential.Cookie) == "" ||
 		input.SourceCredential.Cookie == input.PlaybackCredential.Cookie {

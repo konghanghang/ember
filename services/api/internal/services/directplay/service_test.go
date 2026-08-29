@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,63 @@ func TestNewServiceRejectsMissingProductionDependencies(t *testing.T) {
 	}
 }
 
+func TestFailureContextPreservesProviderOperationAndAccountRole(t *testing.T) {
+	t.Run("provider operation", func(t *testing.T) {
+		err := mapProviderFailure("get_download_url", p115integration.ErrProviderUnavailable)
+		if !errors.Is(err, ErrProviderUnavailable) {
+			t.Fatalf("error=%v, want ErrProviderUnavailable", err)
+		}
+		if context := InspectFailure(err); context.ProviderOperation != "get_download_url" || context.AccountRole != "" {
+			t.Fatalf("failure context=%+v", context)
+		}
+	})
+
+	t.Run("source account", func(t *testing.T) {
+		service := newServiceWithDependencies(
+			fakeAccountLoader{sourceErr: p115account.ErrAccountUnavailable},
+			newFakeProvider(),
+			&fakeTaskStore{},
+			&fakeTaskLocker{},
+		)
+		_, _, err := service.loadAccounts(context.Background())
+		if !errors.Is(err, ErrAccountUnavailable) {
+			t.Fatalf("error=%v, want ErrAccountUnavailable", err)
+		}
+		if context := InspectFailure(err); context.AccountRole != "source" || context.ProviderOperation != "" {
+			t.Fatalf("failure context=%+v", context)
+		}
+	})
+
+	t.Run("playback account", func(t *testing.T) {
+		service := newServiceWithDependencies(
+			fakeAccountLoader{playbackErr: p115account.ErrAccountUnavailable},
+			newFakeProvider(),
+			&fakeTaskStore{},
+			&fakeTaskLocker{},
+		)
+		_, _, err := service.loadAccounts(context.Background())
+		if !errors.Is(err, ErrAccountUnavailable) {
+			t.Fatalf("error=%v, want ErrAccountUnavailable", err)
+		}
+		if context := InspectFailure(err); context.AccountRole != "playback" || context.ProviderOperation != "" {
+			t.Fatalf("failure context=%+v", context)
+		}
+	})
+
+	t.Run("unknown values are omitted", func(t *testing.T) {
+		err := withFailureContext(ErrProviderUnavailable, FailureContext{
+			ProviderOperation: "cookie-secret\nforged=true",
+			AccountRole:       "administrator",
+		})
+		if strings.Contains(err.Error(), "cookie-secret") || strings.Contains(err.Error(), "forged") {
+			t.Fatalf("error exposed unknown diagnostic: %v", err)
+		}
+		if context := InspectFailure(err); context != (FailureContext{}) {
+			t.Fatalf("failure context=%+v, want empty safe context", context)
+		}
+	})
+}
+
 func TestServiceResolveMediaPathUsesSourceAccountLocation(t *testing.T) {
 	provider := newFakeProvider()
 	provider.searchResults = [][]p115integration.File{{provider.targetFile}}
@@ -32,7 +90,6 @@ func TestServiceResolveMediaPathUsesSourceAccountLocation(t *testing.T) {
 
 	result, err := service.ResolveMediaPath(context.Background(), MediaPathResolveRequest{
 		Path:            "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
-		Size:            1024 * 1024,
 		ClientUserAgent: "Infuse-Fixture",
 	})
 	if err != nil {
@@ -59,7 +116,7 @@ func TestServiceResolveMediaPathRejectsPrefixBoundaryAndTraversal(t *testing.T) 
 			provider := newFakeProvider()
 			service := newServiceWithDependencies(fakeAccountLoader{}, provider, &fakeTaskStore{}, &fakeTaskLocker{})
 			_, err := service.ResolveMediaPath(context.Background(), MediaPathResolveRequest{
-				Path: mediaPath, Size: 1024 * 1024, ClientUserAgent: "Infuse-Fixture",
+				Path: mediaPath, ClientUserAgent: "Infuse-Fixture",
 			})
 			if !errors.Is(err, ErrPathNotMapped) {
 				t.Fatalf("ResolveMediaPath(%q) error = %v, want ErrPathNotMapped", mediaPath, err)
@@ -75,7 +132,6 @@ func TestServiceResolveMediaPathReturnsKnownMappingOnPrefixMismatch(t *testing.T
 	service := newServiceWithDependencies(fakeAccountLoader{}, newFakeProvider(), &fakeTaskStore{}, &fakeTaskLocker{})
 	result, err := service.ResolveMediaPath(context.Background(), MediaPathResolveRequest{
 		Path:            "/mnt/other/Media/fixture.mkv",
-		Size:            1024 * 1024,
 		ClientUserAgent: "Infuse-Fixture",
 	})
 	if !errors.Is(err, ErrPathNotMapped) {
@@ -229,9 +285,17 @@ func TestServiceResolveRejectsSameProviderAccountAndCookieDownloadMode(t *testin
 
 type fakeAccountLoader struct {
 	sameProviderUser bool
+	sourceErr        error
+	playbackErr      error
 }
 
 func (loader fakeAccountLoader) LoadActiveCredentialByRole(_ context.Context, role models.P115AccountRole) (p115account.ActiveAccountCredential, error) {
+	if role == models.P115AccountRoleSource && loader.sourceErr != nil {
+		return p115account.ActiveAccountCredential{}, loader.sourceErr
+	}
+	if role == models.P115AccountRolePlayback && loader.playbackErr != nil {
+		return p115account.ActiveAccountCredential{}, loader.playbackErr
+	}
 	providerUserID := "provider-source"
 	accountID := "source_account"
 	targetParentID := ""
@@ -418,7 +482,7 @@ func (lock fakeTaskLock) Release() error {
 func fixtureResolveRequest() ResolveRequest {
 	return ResolveRequest{
 		SourceFile: p115integration.FilePathQuery{
-			RootID: "0", RelativePath: "Media/fixture.mkv", Size: 1024 * 1024,
+			RootID: "0", RelativePath: "Media/fixture.mkv",
 		},
 		ClientUserAgent: "Infuse-Fixture",
 	}
@@ -427,7 +491,6 @@ func fixtureResolveRequest() ResolveRequest {
 func fixtureMediaPathResolveRequest() MediaPathResolveRequest {
 	return MediaPathResolveRequest{
 		Path:            "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
-		Size:            1024 * 1024,
 		ClientUserAgent: "Infuse-Fixture",
 	}
 }

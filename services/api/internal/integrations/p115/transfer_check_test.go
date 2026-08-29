@@ -265,7 +265,8 @@ func fixtureTransferCheckInput() TransferContractCheckInput {
 	return TransferContractCheckInput{
 		SourceCredential:    Credential{AccountID: "source", Cookie: contractSourceCookie, UserAgent: "source-provider-agent"},
 		PlaybackCredential:  Credential{AccountID: "playback", Cookie: contractPlaybackCookie, UserAgent: "playback-provider-agent"},
-		SourceFile:          FilePathQuery{RootID: "0", RelativePath: contractRelativePath, Size: 10_747_391_752},
+		SourceFile:          FilePathQuery{RootID: "0", RelativePath: contractRelativePath},
+		ExpectedSourceSize:  10_747_391_752,
 		TargetDirectory:     DirectoryPathQuery{RootID: "0", RelativePath: "/EmberPlayback"},
 		TestClientUserAgent: "Infuse-Contract/1.0",
 	}

@@ -116,7 +116,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 新增 `CookieHTTPAdapter.GetDownloadURL`，固定 Chrome downurl RSA request/response seam、真实客户端 UA、HTTPS 115 域名 allowlist、`t/c/f`、并发上限、过期和脱敏错误映射。
 - 新增 `CookieHTTPAdapter.DeleteFile`，固定单文件 `fid` 表单和响应映射，并按 Provider UID 使用进程内共享锁串行删除；跨 UID 可并行，锁等待支持取消。
 - 新增具体 `CookieProvider`，组合账号验证与全部数据面 Adapter，并通过编译期断言保证完整实现 Provider-neutral 接口；生产账号控制面已注入该实现。
-- 新增 `CookieHTTPAdapter.ResolveFileByPath`，在显式 `rootId` 下逐级分页列举 `/files`，精确匹配目录和最终文件名/size，拒绝无效 cid 回退、重名歧义、分页漂移和超大目录。
+- 新增 `CookieHTTPAdapter.ResolveFileByPath`，在显式 `rootId` 下逐级分页列举 `/files`，精确匹配目录链和最终文件名，拒绝无效 cid 回退、同名歧义、分页漂移和超大目录；2026-08-29 起不再使用 Emby Size 过滤，唯一 Provider 文件的 Size/SHA1 才是权威身份。
 - 新增 `CookieHTTPAdapter.ResolveDirectoryByPath`，支持 `/EmberPlayback` 形式的 playback 路径，逐级只接受唯一目录并返回内部 ID；不创建目录，目录 API/Web 体验仍待实现。
 - 新增 `CookieHTTPAdapter.HashFileRange`，在 Provider 内获取源账号签名 URL，只读取最大 `1 MiB` 的指定 Range，严格校验 `206`、`Content-Range`、`Content-Length` 与 HeaderMode，只向业务层返回 SHA1 和读取字节数。
 - 新增一次性 `cmd/p115-contract-check`，使用不包含上传和删除的窄接口完成真实只读检查；CI、缺少显式确认值或缺少终端环境输入时拒绝运行，脱敏报告不输出 Cookie、账号标识、路径、pickCode、完整 SHA1 或签名 URL。fake Provider 自动化验证和 2026-08-22 本地真实只读完整运行均已通过。
@@ -316,7 +316,7 @@ services/api/internal/integrations/p115/
 
 > 状态：首期推迟，不创建表。
 
-Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内证明同时保存 MediaSource `Path/Size/Container`；不重复请求 Emby，也不把短期快照落库。只有后续真实负载证明跨请求长期复用源文件身份有收益时，再实现持久缓存。
+Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内证明同时保存 MediaSource `Path/Container`、Emby Size 观察值和播放能力；Emby Size 不影响 proof 或路径解析。不重复请求 Emby，也不把短期快照落库。只有后续真实负载证明跨请求长期复用源文件身份有收益时，再实现持久缓存。
 
 #### 4.5 `playback_transfer_tasks`
 
@@ -406,7 +406,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 1. PlaybackInfo 透明转发；只有当前 Emby Server 成功接受相同 Token 后，才记录 Token 映射、ItemId、MediaSourceId 和 PlaySessionId 的短期授权证明。
 2. 原始视频流请求到达后先校验 Token、用户和本地硬状态；失败时 `reject`，不能回退绕过门控。
 3. Principal 合法后再检查证明、加速资格、客户端和并发；首期只有固定 `GET/HEAD` 视频路径同时带唯一 `MediaSourceId`、唯一 `PlaySessionId`、精确 `Static=true` 且容器匹配时尝试 115，任何不满足均 `fallback` 到原始 Emby 请求。
-4. 从进程内 PlaybackInfo 快照取得 Path/Size，按 source 账号的 `embyPathPrefix/sourceRootId` 调用 `ResolveMediaPath`。
+4. 从进程内 PlaybackInfo 快照取得 Path，按 source 账号的 `embyPathPrefix/sourceRootId` 调用 `ResolveMediaPath`；Emby Size 仅留在观察日志。
 5. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
 6. 命中后更新对应任务的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
 7. 校验过期时间、Header 要求和域名 allowlist，兼容时返回空体 302；任一步失败都透明 fallback Emby。
@@ -468,7 +468,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 - 多副本并发：数据库唯一约束和 advisory lock 保证任务幂等。
 - 未进入固定合同的 Emby/115 行为保持“未证实”，不能用一次偶然成功替代合同。
 
-每个视频请求只直接打印一条最终决策日志：`decision=redirect|fallback|reject`。`stage/reasonCode` 统一使用 `docs/reference/emby-playback-proxy-contract.md` 的固定枚举；日志可以记录 requestId、method、userId、mappingId、deviceId、clientName、itemId、mediaSourceId、playSessionId、stage、reasonCode、taskId、preexisting、statusCode、upstreamStatus、proxyErrorCode、durationMs，以及进入 DirectPlay 后的完整 `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。禁止新建播放决策日志表或 migration；禁止记录 Emby AccessToken、115 Cookie、上传加密材料、完整 SHA1、完整下载直链、`Set-Cookie`、PlaybackInfo 原文、Provider 原始错误或 Emby 代理原始错误。
+每个视频请求只直接打印一条最终决策日志：`decision=redirect|fallback|reject`。人工结论放在行首，使用稳定 `code/result/statusCode` 配合中文 `message` 明示“115直链成功”“115直链失败，Emby回退成功/失败”或“播放请求已拒绝”；直链成功额外记录 `targetState=created|reused`。`stage/reasonCode` 统一使用 `docs/reference/emby-playback-proxy-contract.md` 的固定枚举；日志可以记录 requestId、method、userId、mappingId、deviceId、clientName、itemId、mediaSourceId、playSessionId、stage、reasonCode、taskId、preexisting、statusCode、upstreamStatus、proxyErrorCode、durationMs，以及进入 DirectPlay 后的完整 `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Provider 失败只记录固定 `providerOperation`，账号加载失败只记录 `accountRole=source|playback`；未知诊断和无意义空字段不打印。禁止新建播放决策日志表或 migration；禁止记录 Emby AccessToken、115 Cookie、上传加密材料、完整 SHA1、完整下载直链、`Set-Cookie`、PlaybackInfo 原文、Provider 原始错误或 Emby 代理原始错误。
 
 ### 8. 配置与部署
 
@@ -686,7 +686,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 14. 单设备撤销只影响目标设备，用户全部撤销影响所有设备；硬禁用后重新请求仍拒绝，普通到期续期后不要求因到期本身重新登录。
 15. 未映射、已撤销、ServerId/EmbyID 错配和缺少近期成功 PlaybackInfo 的请求都不能获得 302。
 16. 网关切换后历史 Token 要求重新登录，原始 Emby 公网入口不可绕过本地撤销。
-17. 每个视频请求只打印一条 `redirect/fallback/reject` 决策日志；日志不落表，进入 DirectPlay 后包含完整原始/映射路径，但不包含 Token、Cookie、SHA1、115 URL 或上游原文。
+17. 每个视频请求只打印一条 `redirect/fallback/reject` 决策日志；行首明确显示中文结果、稳定 code/result/statusCode 和首次/复用状态，失败时只补固定 Provider 步骤或账号角色。日志不落表，进入 DirectPlay 后包含完整原始/映射路径，但不包含 Token、Cookie、SHA1、115 URL 或上游原文。
 
 ### 受控真实验证
 

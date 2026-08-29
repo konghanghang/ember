@@ -40,6 +40,7 @@
 - `architecture/ember-gateway-transparent-proxy-and-web-access.md`
 - `architecture/emby-115-direct-play-gateway.md`
 - `architecture/gateway-media-path-diagnostics.md`
+- `architecture/p115-path-resolution-without-emby-size.md`
 - `architecture/web-frontend-quality-improvement.md`
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`

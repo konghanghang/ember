@@ -36,7 +36,6 @@ type FileQuery struct {
 type FilePathQuery struct {
 	RootID       string `json:"rootId"`
 	RelativePath string `json:"-"`
-	Size         int64  `json:"size"`
 }
 
 // DirectoryPathQuery resolves one root-relative directory path.

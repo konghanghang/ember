@@ -56,6 +56,8 @@ type videoDecision struct {
 	StatusCode         int
 	UpstreamStatus     int
 	ProxyErrorCode     string
+	ProviderOperation  string
+	AccountRole        string
 	MediaPath          string
 	EmbyPathPrefix     string
 	SourceRootID       string
@@ -144,7 +146,7 @@ func (gateway *Gateway) serveVideo(
 
 	decision.MediaPath = proof.Path
 	candidate, err := gateway.directPlayService.ResolveMediaPath(request.Context(), directplay.MediaPathResolveRequest{
-		Path: proof.Path, Size: proof.Size, ClientUserAgent: request.UserAgent(),
+		Path: proof.Path, ClientUserAgent: request.UserAgent(),
 	})
 	if candidate.PathMapping.OriginalPath != "" {
 		decision.MediaPath = candidate.PathMapping.OriginalPath
@@ -153,6 +155,9 @@ func (gateway *Gateway) serveVideo(
 	decision.SourceRootID = candidate.PathMapping.SourceRootID
 	decision.MappedRelativePath = candidate.PathMapping.RelativePath
 	if err != nil {
+		failureContext := directplay.InspectFailure(err)
+		decision.ProviderOperation = failureContext.ProviderOperation
+		decision.AccountRole = failureContext.AccountRole
 		decision.Stage = "direct_play"
 		decision.ReasonCode = directPlayReasonCode(err)
 		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
@@ -395,22 +400,112 @@ func newVideoDecision(request *http.Request, info videoRequestInfo, principal *e
 	return decision
 }
 
-// logVideoDecision writes the single request-level decision record with fixed
-// enums and the explicitly authorized Emby/source path mapping provenance.
+// logVideoDecision writes one outcome-specific request record whose leading
+// fields state the human-readable result before the detailed diagnostics.
 // Tokens, Cookies, signed URLs, response bodies and raw errors never enter it.
 func (gateway *Gateway) logVideoDecision(decision videoDecision) {
 	duration := time.Since(decision.StartedAt).Milliseconds()
 	if duration < 0 {
 		duration = 0
 	}
-	gateway.logger.Printf(
-		"[PlaybackGateway] decision=%s stage=%s reasonCode=%s fallbackSource=%s method=%s userId=%s mappingId=%s deviceId=%s clientName=%s itemId=%s mediaSourceId=%s playSessionId=%s taskId=%s preexisting=%t statusCode=%d upstreamStatus=%d proxyErrorCode=%s mediaPath=%s embyPathPrefix=%s sourceRootId=%s mappedRelativePath=%s durationMs=%d",
-		decision.Decision, decision.Stage, decision.ReasonCode, decision.FallbackSource, decision.Method,
-		strconv.Quote(decision.UserID), strconv.Quote(decision.MappingID), strconv.Quote(decision.DeviceID),
-		strconv.Quote(decision.ClientName), strconv.Quote(decision.ItemID), strconv.Quote(decision.MediaSourceID),
-		strconv.Quote(decision.PlaySessionID), strconv.Quote(decision.TaskID), decision.Preexisting,
-		decision.StatusCode, decision.UpstreamStatus, decision.ProxyErrorCode,
-		strconv.Quote(decision.MediaPath), strconv.Quote(decision.EmbyPathPrefix),
-		strconv.Quote(decision.SourceRootID), strconv.Quote(decision.MappedRelativePath), duration,
+	fields := videoDecisionHeadline(decision)
+	fields = appendVideoDecisionContext(fields, decision, duration)
+	gateway.logger.Print(strings.Join(fields, " "))
+}
+
+// videoDecisionHeadline puts the human and machine-readable outcome before
+// request identifiers so operators can classify a line without scanning it.
+func videoDecisionHeadline(decision videoDecision) []string {
+	fields := []string{"[PlaybackGateway]"}
+	switch decision.Decision {
+	case "redirect":
+		targetState := "created"
+		if decision.Preexisting {
+			targetState = "reused"
+		}
+		fields = append(fields,
+			"level=info", "code=direct_play_redirect", "message="+strconv.Quote("115直链成功"),
+			"result=success", "statusCode="+strconv.Itoa(decision.StatusCode), "target=p115",
+			"targetState="+targetState,
+		)
+	case "fallback":
+		fallbackResult := requestOutcome(decision.StatusCode)
+		message := "Emby回退成功"
+		level := "info"
+		if fallbackResult != "success" {
+			message = "Emby回退失败"
+			level = "warn"
+		}
+		code := "playback_fallback"
+		if decision.Stage == "direct_play" {
+			code = "direct_play_fallback"
+			message = "115直链失败，" + message
+		}
+		fields = append(fields, "level="+level, "code="+code, "message="+strconv.Quote(message))
+		if decision.Stage == "direct_play" {
+			fields = append(fields, "directPlayResult=failure")
+		}
+		fields = append(fields,
+			"fallbackResult="+fallbackResult,
+			"statusCode="+strconv.Itoa(decision.StatusCode),
+		)
+	case "reject":
+		fields = append(fields,
+			"level=warn", "code=playback_rejected", "message="+strconv.Quote("播放请求已拒绝"),
+			"result=rejected", "statusCode="+strconv.Itoa(decision.StatusCode),
+		)
+	default:
+		fields = append(fields,
+			"level=warn", "code=playback_decision_unknown", "message="+strconv.Quote("播放决策异常"),
+			"result=unknown", "statusCode="+strconv.Itoa(decision.StatusCode),
+		)
+	}
+	return fields
+}
+
+// appendVideoDecisionContext adds only relevant diagnostics for the selected
+// outcome; empty fallback/task/mapping fields are intentionally omitted.
+func appendVideoDecisionContext(fields []string, decision videoDecision, duration int64) []string {
+	fields = append(fields,
+		"decision="+decision.Decision,
+		"stage="+decision.Stage,
+		"reasonCode="+decision.ReasonCode,
 	)
+	fields = appendOptionalLogField(fields, "fallbackSource", decision.FallbackSource, false)
+	fields = appendOptionalLogField(fields, "providerOperation", decision.ProviderOperation, false)
+	fields = appendOptionalLogField(fields, "accountRole", decision.AccountRole, false)
+	fields = appendOptionalLogField(fields, "method", decision.Method, false)
+	fields = appendOptionalLogField(fields, "userId", decision.UserID, true)
+	fields = appendOptionalLogField(fields, "mappingId", decision.MappingID, true)
+	fields = appendOptionalLogField(fields, "deviceId", decision.DeviceID, true)
+	fields = appendOptionalLogField(fields, "clientName", decision.ClientName, true)
+	fields = appendOptionalLogField(fields, "itemId", decision.ItemID, true)
+	fields = appendOptionalLogField(fields, "mediaSourceId", decision.MediaSourceID, true)
+	fields = appendOptionalLogField(fields, "playSessionId", decision.PlaySessionID, true)
+	fields = appendOptionalLogField(fields, "taskId", decision.TaskID, true)
+	if decision.Decision == "redirect" {
+		fields = append(fields, "preexisting="+strconv.FormatBool(decision.Preexisting))
+	}
+	if decision.UpstreamStatus > 0 {
+		fields = append(fields, "upstreamStatus="+strconv.Itoa(decision.UpstreamStatus))
+	}
+	fields = appendOptionalLogField(fields, "proxyErrorCode", decision.ProxyErrorCode, false)
+	fields = appendOptionalLogField(fields, "mediaPath", decision.MediaPath, true)
+	fields = appendOptionalLogField(fields, "embyPathPrefix", decision.EmbyPathPrefix, true)
+	fields = appendOptionalLogField(fields, "sourceRootId", decision.SourceRootID, true)
+	fields = appendOptionalLogField(fields, "mappedRelativePath", decision.MappedRelativePath, true)
+	fields = append(fields, "durationMs="+strconv.FormatInt(duration, 10))
+	return fields
+}
+
+// appendOptionalLogField omits meaningless empty values while preserving
+// quoted output for identifiers and the explicitly authorized media paths.
+func appendOptionalLogField(fields []string, key, value string, quoted bool) []string {
+	if value == "" {
+		return fields
+	}
+	if quoted {
+		value = strconv.Quote(value)
+	}
+	return append(fields, key+"="+value)
 }

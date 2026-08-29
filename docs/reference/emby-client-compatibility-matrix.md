@@ -62,7 +62,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 
 | 客户端 | 已确认 | 尚未确认 |
 | --- | --- | --- |
-| Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。既有条目出现按需 PlaybackInfo `proofCount=1`；2026-08-29 Infuse `8.5.2` 的另一条目为 Container 快照成功、`proofCount=0`、DirectStreamUrl fallback `404`，证明结果依赖媒体源字段 | `proofCount=0` 的新 `proofRejectReason` 复验、稳定 DirectStreamUrl/扩展名 Emby fallback、115 302、字幕、进度与 115 CDN 完整链路 |
+| Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`；Playing 返回 `204` | 115 CDN 实际媒体字节/Range、稳定 Provider 重试或冷却、DirectStreamUrl/扩展名 Emby fallback、字幕、Progress/Stopped 完整链路 |
 | SenPlayer | `emby-toolkit` 固定源码将其列为 native client；Ember 有 UA 与通用载体 fake 测试 | 真实 Header/query/path、播放和字幕行为 |
 | Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试 | 真实 Token 载体、路径与播放行为 |
 | Web / iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |

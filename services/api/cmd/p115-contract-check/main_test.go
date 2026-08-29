@@ -74,7 +74,7 @@ func TestLoadCommandInputReadsSecretsOnlyFromEnvironment(t *testing.T) {
 	if input.SourceCredential.Cookie != "source-cookie-secret" || input.PlaybackCredential.Cookie != "playback-cookie-secret" {
 		t.Fatalf("loadCommandInput() did not preserve Cookie values")
 	}
-	if input.SourceFile.RootID != "0" || input.SourceFile.RelativePath != "safe/source/video.mkv" || input.SourceFile.Size != 10_747_391_752 {
+	if input.SourceFile.RootID != "0" || input.SourceFile.RelativePath != "safe/source/video.mkv" || input.ExpectedSourceSize != 10_747_391_752 {
 		t.Fatalf("loadCommandInput() source file = %+v", input.SourceFile)
 	}
 }
