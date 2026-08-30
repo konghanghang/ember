@@ -2,7 +2,7 @@
 
 > 状态：草稿
 > 负责人：Ember
-> 更新时间：2026-07-12
+> 更新时间：2026-08-30
 
 ## 问题
 
@@ -33,7 +33,7 @@ Ember 已经从单一的 Emby 用户管理工具扩展为覆盖注册、账号�
 - 不以提高覆盖率数字为唯一目标，不要求所有包机械达到同一覆盖率。
 - 不在本提案中直接设计具体数据库字段、API DTO、前端页面或监控指标名称；进入实施时再创建对应计划。
 - 不为了国际化或多媒体服务器支持而立即改造现有 Emby 专用模型；是否扩展必须由目标用户和维护成本决定。
-- 不把现有六份功能计划全部并入本提案；它们继续保留各自业务边界。
+- 不把现有功能计划全部并入本提案；它们继续保留各自业务边界。
 - 不以一次大重构替代渐进式收口，不改变未被明确要求的用户可见行为。
 
 ## 当前状态
@@ -145,7 +145,7 @@ Ember 已经从单一的 Emby 用户管理工具扩展为覆盖注册、账号�
 - 对外 OpenAPI / Swagger
 - 明确的版本兼容矩阵和社区支持入口
 
-同时，`docs/plan/media-subscription/subscription-manual-moviepilot-dispatch.md` 仍标记为“草稿”，但对应的 `manual-search` 和 `manual-dispatch` 路由已经落地。该问题应在下一轮计划盘点中核实、提炼和归档，而不是继续把已实现方案视为未完成计划。
+2026-08-30 计划盘点已确认 `manual-search`、`manual-dispatch`、MoviePilot 通用搜索/下发、前端交互和稳定文档均已落地；对应方案已归档到 `docs/archive/plan/media-subscription/subscription-manual-moviepilot-dispatch.md`，不再按未完成新功能排序。
 
 ## 当前进度
 
@@ -157,6 +157,7 @@ Ember 已经从单一的 Emby 用户管理工具扩展为覆盖注册、账号�
 - 已确认发布工作流、测试工作流和三端镜像工作流当前相互独立。
 - 已识别核心复杂度热点、可观测性缺口、开源协作缺口和文档状态漂移。
 - 已确认本轮应先保留一份总纲提案，具体实施开始时再按职责拆分计划。
+- 已完成 2026-08-30 现行计划复核与归档：原 13 份实施稿中 3 份已正式归档，`docs/plan/` 当前保留 10 份。
 
 ### 剩余项
 
@@ -166,7 +167,7 @@ Ember 已经从单一的 Emby 用户管理工具扩展为覆盖注册、账号�
 - 确定运行指标、任务状态摘要和外部依赖可观测性边界。
 - 收口基础安全、供应链扫描和公开安全报告流程。
 - 更新项目定位、开源协作入口和对外 API 文档策略。
-- 重新盘点存在状态漂移的计划文档。
+- 后续归档继续同步 plan/archive/proposals 索引与直接引用，避免计划状态再次漂移。
 
 ## 提案内容
 
@@ -202,7 +203,7 @@ Ember 已经从单一的 Emby 用户管理工具扩展为覆盖注册、账号�
 - 测试失败时禁止推送正式版本镜像和更新 `latest`。
 - 三端镜像全部构建成功后再统一完成版本发布。
 - 保留现有预览镜像入口，不影响 `pre_release` 使用方式。
-- 重新核对 `subscription-manual-moviepilot-dispatch.md` 等计划状态，已完成的先提炼稳定事实再归档。
+- 正式迁移已完成正文收口的计划，并同步 plan/archive/proposals 索引与直接引用。
 - 补 `SECURITY.md` 和最小贡献说明，明确漏洞报告和协作入口。
 
 进入实施前创建：
@@ -281,7 +282,7 @@ docs/plan/architecture/observability-and-security-baseline.md
 5. `media-subscription/media-dedupe-and-quality-governance.md`
    - 有运营价值，但不应先于发布、测试和核心复杂度治理。
 
-`media-subscription/subscription-manual-moviepilot-dispatch.md` 应先重新盘点落地状态，不继续按未完成新功能排序。
+`subscription-manual-moviepilot-dispatch.md` 已完成状态复核、正文收口和正式归档，不再参与未完成功能排序。
 
 ## 风险与约束
 

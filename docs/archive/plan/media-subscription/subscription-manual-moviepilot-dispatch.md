@@ -1,8 +1,8 @@
 # 订阅手动补偿下载实现方案
 
-> 状态：草稿
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-06-09
+> 更新时间：2026-08-30
 
 ## 背景
 
@@ -209,9 +209,17 @@
 
 落地后应同步处理：
 
-- 将稳定结论同步到 `docs/system-architecture.md`：
+- 稳定结论已同步到 `docs/system-architecture.md`：
   - 订阅自动链路与手动补偿链路边界。
   - MoviePilot client 通用搜索 / 下载能力。
   - 缺集下发携带 `tmdbid` 的新行为。
-- 如新增 API 纳入长期使用，同步更新 `docs/reference/api-endpoint-catalog.md`。
-- 功能稳定后，将本方案移入 `docs/archive/plan/media-subscription/`。
+- 两个长期使用的管理员 API 已同步到 `docs/reference/api-endpoint-catalog.md`。
+- 稳定事实由系统架构和 API 端点目录接管，本计划仅保留历史追溯价值。
+
+## 实施结果
+
+- 提交 `5df0244` 已落地 MoviePilot TMDB 精确搜索、通用候选下发、订阅 `manual-search/manual-dispatch` Service/Handler/路由，以及订阅页管理员候选交互；后续提交 `29409ed` 收口了手动下载文案。
+- `ManualSearchSubscription` 只允许 `APPROVED`，电影按 `tmdbId + movie`、单季剧按 `tmdbId + tv + season` 搜索；整剧订阅必须显式选择季。
+- `ManualDispatchSubscription` 下发 `torrent_in + tmdbid`，TV 同时携带季号；成功清空旧 `mpError`，失败不污染自动订阅重试语义，订阅继续保持 `APPROVED` 等待 webhook 入库。
+- MoviePilot `HTTP 200 + success=false` 已按业务拒绝处理并映射为管理员可见的 `409`，基础设施错误继续脱敏。
+- 2026-08-30 当前代码验证通过：`go test ./internal/services/subscription ./internal/handlers ./internal/integrations/moviepilot`；`npx vitest run src/views/console/SubscriptionsView.spec.ts` 为 `1 passed / 8 passed`。测试使用 fake 外部依赖，没有请求真实 MoviePilot、Emby 或外网。

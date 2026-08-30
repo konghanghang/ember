@@ -1,8 +1,8 @@
 # Emby 115 直连播放网关实现方案
 
-> 状态：进行中
+> 状态：进行中（阶段 1 核心闭环已落地并取得真实 302，完整 E2E 与阶段 2 未完成）
 > 负责人：Ember
-> 更新时间：2026-08-21
+> 更新时间：2026-08-30
 
 ## 背景
 
@@ -73,6 +73,8 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - `emby-toolkit` `v10.8.63` 只用于理解播放小号的账号选择和失败语义；不得复制其 AGPL 代码。
 - `p115client` 固定提交根许可声明为 MIT，但 `p115cipher` 模块许可证和源码声明为 GPLv3；当前按 GPLv3 保守边界处理，不复制或逐行翻译源码、不引入 Python 运行时，只使用临时黑盒输出的兼容向量独立实现 Go 协议层。
 - 2026-08-22 本地一次性只读检查已确认两个 Cookie 登录、`uploadinfo`、source 路径/size 解析、playback SHA1 查询、source downurl 和精确 128 KiB Range；source URL 为 `cdnfhnfile.115cdn.net`、`f=1`、并发上限 `2`。playback 未命中同内容，因此 playback 最终下载 URL，以及风控、限流和 Infuse 行为仍保持“未实机确认”。
+- 2026-08-24 Infuse `8.5` 已通过 Gateway 完成登录、普通资源 API、PlaybackInfo 和 Emby 扩展名 fallback `206` 播放；Playing/Progress 返回 `204`。
+- 2026-08-29 Infuse `8.5.2` 已确认 `Size=0` 不阻断 proof，source 路径映射以 Provider 权威 Size 完成首次保留式转存并返回 `302`，后续多次 `preexisting=true` 复用也返回 `302`。该证据仍不能证明客户端已完整读取 115 CDN 媒体字节。
 - Infuse 不设长期固定版本。每次受控验收使用目标平台当时的稳定最新版，并记录平台、精确版本、日期和结果。
 
 ## 已确认决策
@@ -146,8 +148,8 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 外部 HTTPS 反向代理、原始 Emby 公网隔离、目标 Emby/Infuse 对固定版本/bootstrap/应用头合同的实机确认、持久直连会话和运营查询；单 `ember` 二进制、同镜像双容器 Compose、视频路由消费证明、302/fallback、进程运行配置、认证代理/门控核心、控制面状态撤销、SDK 版本化合同、Token 映射核心、source 账号位置、秒传任务、任务所有权与数据库互斥已完成。自动清理和跨副本清理锁明确推迟到第二阶段。
-- 真实 Emby / Infuse 验证；本地一次写入成功和 fake Provider 并发测试不能证明长期风控、配额或 `hz-sb` 出口行为。
+- 外部 HTTPS 反向代理与原始 Emby 公网隔离、持久直连会话、套餐/并发策略、运营查询、账号健康与清理任务仍未完成；自动清理和跨副本清理锁明确推迟到第二阶段。
+- 真实 Emby/Infuse 已有登录、资源 API、Emby fallback `206` 与 Gateway `302` 的局部证据；115 CDN 完整媒体字节、HEAD/Range、字幕、Stopped、长期风控、配额和其他客户端仍未验证。
 
 ## 方案设计
 
@@ -524,7 +526,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、原始 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。外部 HTTPS 反向代理、原始 Emby 公网隔离、持久直连会话、套餐/并发策略门控和 Infuse 验收仍待完成。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得 Emby fallback `206` 和首次/复用 Gateway `302`，但完整 CDN 字节、持久会话、套餐/并发策略、运营查询、外部 HTTPS 与原始 Emby 隔离仍待完成。
 
 ### 阶段 2：运营与稳定性
 

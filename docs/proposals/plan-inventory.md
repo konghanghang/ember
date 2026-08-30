@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-07-09
+> 更新时间：2026-08-30
 
 本清单只回答三件事：
 
@@ -12,9 +12,9 @@
 
 - 以当前代码结构和 [系统架构文档](../system-architecture.md) 为准
 - “文档里写了已完成”不算证据，必须能在代码或架构文档里找到落点
-- 本清单反映 2026-05-01 的盘点结果；若后续目录已调整，以仓库当前文件位置为准
+- 本清单反映 2026-08-30 的当前盘点结果；后续每次归档动作都必须同步更新本文
 
-## 0. 本轮 8 份主计划进度表
+## 0. 历史主干批次 8 份计划进度表
 
 这里的“8 份主计划”指本轮批次 0→5 主干路线图实际使用的 8 份实施稿，不包含 `notification-mute-rules.md`、`registration-email-domain-allowlist.md`、`database-migration-baseline-and-archive.md`、`in-app-notification-center.md` 等旁支文档。
 
@@ -83,25 +83,32 @@
 | `archive/plan/media-subscription/user-media-library-management.md` | 已落地 | `plan_group_media_libraries`、`plan_group_emby_policy_templates`、`user_media_library_preferences`、`emby_policy_sync_batches`、`emby_policy_sync_tasks` 与 `users.emby_access_disabled` 已落地；用户 Web / Telegram 媒体库偏好、分组模板、Emby Policy 同步 worker、API 目录、数据模型参考、系统架构和前端信息架构均已同步 | 已提炼后归档到 `docs/archive/plan/media-subscription/` |
 | `archive/plan/console-admin/console-overview-account-layout-redesign.md` | 已落地 | `DashboardView.vue` 已按服务状态、Emby 入口、片库数字和最近入库重排；`AccountCenterView.vue` 已收口连接与绑定、媒体库偏好和账号设置布局；本次无 API / schema 变化 | 已归档到 `docs/archive/plan/console-admin/` |
 
-## B. 当前仍留在 `docs/plan/` 的未完成文档
+## B. 当前 `docs/plan/` 状态复核
 
-这些文档当前还没有退出 `docs/plan/`，并且按现有代码与稳定文档判断，仍未满足归档条件。
+2026-08-30 对原 13 份实施稿逐份核对代码、测试、Git 历史和稳定文档；3 份已完成正式归档，当前 `docs/plan/` 保留以下 10 份。
 
-| 文档 | 盘点结论 | 主要原因 | 建议动作 |
-|------|----------|----------|----------|
-| `bot-telegram/notification-mute-rules.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
-| `access-auth/registration-user-capacity.md` | 继续保留 | 当前仍在 `docs/plan/`，本轮未见它已完成落地并收口到稳定文档 | 继续按实施方案维护 |
-| `console-admin/device-risk-automation.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
-| `console-admin/in-app-notification-center.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
-| `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
-| `media-subscription/subscription-manual-moviepilot-dispatch.md` | 继续保留 | 当前仍在 `docs/plan/`，本轮未见它已完成归档所需的稳定结论提炼与退场动作 | 继续按实施方案维护 |
+| 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
+|------|----------|------------------|----------|
+| `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
+| `architecture/ember-gateway-transparent-proxy-and-web-access.md` | 继续保留 | v2.0.3 已包含 Web query 登录、Brotli、图片 Surface、动态开关和友好 404；完整 Web 资源、WebSocket、关闭页真实浏览器与原始 Emby 隔离仍未验收 | 保留在 `docs/plan/architecture/` |
+| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 已有 Emby fallback `206` 与首次/复用 Gateway `302` 实证；CDN 完整字节、字幕、Stopped、持久会话、套餐并发、运维查询与阶段 2 未完成 | 保留在 `docs/plan/architecture/` |
+| `architecture/gateway-media-path-diagnostics.md` | 继续保留 | `5189ff3` 已进入 v2.0.3，代码和 fake 测试已完成；尚无新中文决策格式的部署日志 | 实机日志回填后归档到 `docs/archive/plan/architecture/` |
+| `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
+| `architecture/web-frontend-quality-improvement.md` | 继续保留 | 前端四批已完成，但 MediaStats 仍为 PascalCase，`/tmdb/search` 仍返回 `results`，两处 API/Web 合同未收口 | 完成 P2-1/P2-2 后再归档 |
+| `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
+| `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
+| `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
+| `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
 
-## C. 本轮从 `docs/plan/` 迁入归档的文档
+## C. 已完成的归档记录
 
 这些文档已经有明确代码或稳定文档落点，已按职责边界迁入对应 `docs/archive/plan/` 分类目录。
 
 | 文档 | 盘点结论 | 主要证据 | 建议动作 |
 |------|----------|----------|----------|
+| `archive/plan/architecture/p115-path-resolution-without-emby-size.md` | 已归档 | `5189ff3` 已落地并进入 v2.0.3；Size=0 条目已有 proof、路径映射、Provider Size、首次与复用 302 部署证据，稳定合同已提炼 | 历史追溯 |
+| `archive/plan/console-admin/web-layout-design-improvement.md` | 已归档 | `9234559` 完成四批代码收口，`0082121` 同步设计规范和计划；计划内验证结果与组件测试已记录 | 历史追溯 |
+| `archive/plan/media-subscription/subscription-manual-moviepilot-dispatch.md` | 已归档 | `5df0244` 已落地 Service/Handler/API/Web，稳定事实已进入系统架构和 API 目录；2026-08-30 当前目标 Go 测试与 8 个 Web 用例通过 | 历史追溯 |
 | `archive/plan/architecture/project-wide-log-level.md` | 已归档 | API/Gateway/Bot 共用 `LOG_LEVEL=info|debug`，Gin/GORM/Gateway/Bot 高噪声入口已分级，测试、race、vet/build、Bot pytest/py_compile 与 Compose 静态校验通过，稳定事实已同步 | 历史追溯 |
 | `archive/plan/architecture/oss-deployment-experience.md` | 已归档 | README quickstart、Docker Compose 默认部署、Bot profile、GHCR 双架构构建、升级流程、`initdb/` 退役和部署 runbook 均已完成并验证 | 历史追溯 |
 | `archive/plan/architecture/database-migration-auto-apply.md` | 已归档 | API 启动期自动迁移、SQL 镜像内置、五分支判断、checksum 防改写、部署升级文档与系统架构同步均已落地；相关提交已进入 `v1.5.0` / `v1.5.1` | 历史追溯 |
@@ -117,9 +124,9 @@
 | `archive/plan/media-subscription/playback-ranking-library-allowlist.md` | 已归档 | 排行榜媒体库 allowlist 配置、候选扩窗 + 运行期归属缓存、latest/history/preview/通知统一口径与缓存污染修复均已落地 | 历史追溯 |
 | `archive/plan/media-subscription/subscription-plan-group-auto-approval.md` | 已归档 | `PlanGroup` 自动通过额度、`review_source`、账号可提交校验、自动通过只读通知和后台来源展示均已落地；稳定结论已同步到架构与参考文档 | 历史追溯 |
 
-## D. 本轮新增归档记录
+## D. 历史归档记录
 
-本轮已补充归档：
+历史批次已补充归档：
 
 - `architecture/project-wide-log-level.md`
 - `architecture/oss-deployment-experience.md`
@@ -159,9 +166,12 @@
 - `console-admin/plan-group-media-library-deferred-sync.md`
 - `media-subscription/playback-ranking-library-allowlist.md`
 - `media-subscription/subscription-plan-group-auto-approval.md`
+- `architecture/p115-path-resolution-without-emby-size.md`
+- `console-admin/web-layout-design-improvement.md`
+- `media-subscription/subscription-manual-moviepilot-dispatch.md`
 - `embypulse-features/README.md`（索引目录退出，归档方案已按职责边界重组）
 
-本轮已迁移为治理提案：
+历史批次已迁移为治理提案：
 
 - `design-system-governance.md` → `docs/proposals/design-system-governance.md`
 
@@ -169,6 +179,8 @@
 
 - 仍在推进中的功能实施稿
 - 功能方案模板：`plan-template.md`
+
+2026-08-30 新一轮复核与迁移已完成：3 份计划退出 `docs/plan/`，对应状态、索引和直接引用均已同步。
 
 ## E. 归档前提炼原则
 
@@ -188,7 +200,8 @@
 
 ## 当前结论
 
-`docs/plan/` 已经基本完成一轮收口，当前主要问题不再是“已落地方案没有退场”，而是：
+`docs/plan/` 当前共有 10 份仍在推进或观察的实施稿；本轮识别出的 3 份完成计划已经正式归档。当前需要处理的是：
 
-1. 持续治理类文档的边界还不够清楚，后续应决定转入 `docs/proposals/`、`docs/reference/` 还是归档
-2. 盘点清单本身也需要随归档动作同步更新，避免“正文已归档、索引仍显示未落地”的信息漂移
+1. 继续以真实 E2E 边界约束 Gateway/115 计划，不能用 fake、发布 Tag 或 Gateway `302` 代替 CDN 字节与完整会话验收
+2. 完成前端工程质量计划剩余两处 API 合同，避免长期把“前端批次完成”误写成“整份计划完成”
+3. 后续每次计划退场继续同步 plan/archive/proposals 三层索引和直接引用，避免再次出现状态漂移

@@ -1,8 +1,8 @@
 # 前端工程质量收口方案
 
-> 状态：前端部分已实施（2026-07-26），仅剩两处前后端联动项待排期
+> 状态：前端批次已完成，两处 API 合同项待实施
 > 负责人：Ember
-> 更新时间：2026-07-26
+> 更新时间：2026-08-30
 
 ## 背景
 
@@ -142,7 +142,7 @@
 ## 进度记录
 
 - 2026-07-26：完成三路并行评审（构建/状态层/大型视图），问题清单定稿，等待排期修复。
-- 2026-07-26：布局与设计维度的问题另立 [../console-admin/web-layout-design-improvement.md](../console-admin/web-layout-design-improvement.md) 收口；其中日期/时间格式统一（该文档 S11）与本方案 P2-8 同源，执行时合并处理，避免两次触碰同一批文件。
+- 2026-07-26：布局与设计维度的问题另立 [前端页面布局与设计收口方案](../../archive/plan/console-admin/web-layout-design-improvement.md) 收口；其中日期/时间格式统一（该文档 S11）与本方案 P2-8 同源，执行时合并处理，避免两次触碰同一批文件。该方案已于 2026-08-30 归档。
 - 2026-07-26：前端部分全部实施完成，`vue-tsc --noEmit` 全项目 0 错误、`npm run build` 通过、`npm run test` 155 passed / 3 skipped（跳过项为 EMBER_WEB_RUN_INTEGRATION 门控集成 spec）。
   - 批次 1（类型安全网）：完成。安装 `@vue/tsconfig@0.9.1`、`vue-tsc@3.3.8`；`build` 接入 `vue-tsc --noEmit`，`scripts/test/web.sh` 加独立 typecheck 步骤；tsconfig 双套并存收口；首次暴露的 103 个存量类型错误零 `any` 修平；新增 `request<T>(config): Promise<T>` 具名函数，约 80 个调用点从类型谎言变真实类型。
   - 批次 2（功能 bug 与契约）：前端项完成，**两处前后端联动项跳过待排期**——P2-1（MediaStats PascalCase）、P2-2（`/tmdb/search` 改 `data` 字段）均需后端 handler 同改，未实施。其余前端项完成：P1-2 扫描按钮卡死（`scanStatus.running` 单一事实源，补 spec）、P2-4 toast 双弹（全站 catch 删 `ElMessage.error` 走拦截器，差异化文案改 `silent`）、P2-7 fetchData 竞态（请求令牌守卫，补 spec）、P2-9 分页 size-change 重置第 1 页。
@@ -152,3 +152,4 @@
   - 已知 follow-up（Codex review 发现，待修，不阻塞本次提交）：
     - DevicesView 删除了唯一的全量刷新按钮（S4「有查询就删刷新」决策对多数据区页面不适用）：查询只刷新设备列表，stats/黑名单/操作日志仅在挂载时加载，多管理员并发改动后会显示旧数据。修法：保留全量刷新入口，或让查询同时调用 `refreshAll`。
     - register 切号跨 tab 广播登出：`resetAllStores()` 先删旧 token（广播 `signed-out`）再写新 token（广播 `updated`），其他 tab 会先弹登出跳登录页、再弹切号跳 dashboard，两次竞争。修法：register 成功后只清 user/console 数据并原子替换 token，不走 `resetAllStores`。
+- 2026-08-30：进度复核确认 P2-1 与 P2-2 仍未实施：`MediaStats` 仍使用 `MovieCount/SeriesCount/EpisodeCount`，`/tmdb/search` 仍返回 `results`。这两项属于 API/Web 同步合同变更，未完成前本计划继续保留在 `docs/plan/architecture/`。

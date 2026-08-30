@@ -1,8 +1,8 @@
 # Gateway 媒体路径诊断日志实现方案
 
-> 状态：已完成（旧路径日志已部署验证，新决策格式待部署验收）
+> 状态：已完成（代码已进入 v2.0.3，待新格式实机日志验收）
 > 负责人：Ember
-> 更新时间：2026-08-29
+> 更新时间：2026-08-30
 
 ## 背景
 
@@ -125,3 +125,4 @@ DirectPlay 的 Gateway 返回结构增加仅用于进程内诊断的路径映射
 - `decision=redirect|fallback|reject` 保持每请求一条；新格式使用中文 `message` 与稳定 code/result 将结论前置，302 记录 `targetState=created|reused`，fallback 记录 `fallbackResult=success|failure`，失败上下文只允许固定 `providerOperation/accountRole`。按需解析得到的 `mediaPath` 在 `playback_proof_missing` 时也保留，进入 DirectPlay 后再增加 `embyPathPrefix/sourceRootId/mappedRelativePath`。Token、Cookie、115 URL、完整响应体和原始错误继续由测试保护。
 - 已通过目标包测试、目标包 race、API 全量 `go test ./...`、`go vet ./...`、`go build ./...` 与 `git diff --check`。
 - 用户提供的 2026-08-29 Infuse `8.5.2` 部署日志已确认完整原始/映射路径、Provider 权威 Size、首次转存成功以及连续 Gateway `302`；也暴露旧格式把成功标志埋在长字段中，并将后续 `provider_unavailable` 的具体步骤抹平。新的中文结论、结果前置和类型化失败步骤已有 fake 测试，仍待下一次部署复验。未由 AI 启动服务或请求真实 Emby/115。
+- 实现提交 `5189ff3` 已进入 `v2.0.3` 发布线；当前仓库只能证明代码、测试与发布内容已包含新格式，仍没有部署后新格式日志，暂不满足归档条件。

@@ -1,18 +1,18 @@
 # 前端页面布局与设计收口方案
 
-> 状态：已实施（2026-07-26），主链路全部收口，少量延后项随迭代做
+> 状态：已归档
 > 负责人：Ember
-> 更新时间：2026-07-26
+> 更新时间：2026-08-30
 
 ## 背景
 
-2026-07-26 对 `services/web` 全部页面做了一轮布局与设计评审（4 路并行，覆盖 26 个页面/组件，逐行对照 [docs/reference/web-design-guide.md](../../reference/web-design-guide.md)，下称"规范"），结论：
+2026-07-26 对 `services/web` 全部页面做了一轮布局与设计评审（4 路并行，覆盖 26 个页面/组件，逐行对照 [docs/reference/web-design-guide.md](../../../reference/web-design-guide.md)，下称"规范"），结论：
 
 - 基础组件体系在标准列表页落地良好：`UsersView`、`PlaybackCenterView`、`LoginView`、`Sidebar` 是四个贴规范的标杆。
 - 拉低一致性的主要是三类问题：**中心页骨架分裂**（支付中心筛选消失/双标题、兑换中心标题双渲染）、**文案克制规则（§2.2.1）被系统性突破**（TopBar 骨架层 18 句 + 各页约 20 处）、**手写组件未回收**（分段控件/统计卡各三套写法）。
 - 用户体感"布局太烂"的页面集中在：支付中心、兑换中心、续期中心、媒体缺口、TopBar 骨架。
 
-本方案与 [../architecture/web-frontend-quality-improvement.md](../architecture/web-frontend-quality-improvement.md) 互补：那份管工程质量（类型检查、契约、工具函数、死资源），这份管布局与设计一致性。两份的"文案/组件回收"改动不重叠，可独立排期。
+本方案与 [前端工程质量收口方案](../../../plan/architecture/web-frontend-quality-improvement.md) 互补：那份管工程质量（类型检查、契约、工具函数、死资源），这份管布局与设计一致性。两份的"文案/组件回收"改动不重叠，可独立排期。
 
 如果不收口：规范第 12 条检查清单在多个页面形同虚设；中心页两种骨架并存会让后续每个新中心页都要重新发明一次结构；支付记录筛选在生产环境不可达是真实功能缺失。
 
@@ -183,3 +183,4 @@
   - 批次 3（组件回收 S2/S3/S10/S11）：完成。分段控件三套→EmberSegmentTabs（PlaybackProfileContent/UserPlaybackProfiles/MediaGaps）；统计卡→EmberMetricCard（Dashboard/TVCalendar/PlanGroups）；手写日期范围框→EmberDateRangeField、头卡→EmberPageHeaderCard（PlaybackProfileContent）；MediaGaps tone/圆角/空状态/搜索弹窗收敛；Subscriptions 海报徽章改中性底+状态点；S11 时间格式走 `utils/date`。
   - 批次 4（一致性长尾 S4/S5/S6/S7/S8/S9/S12）：完成。cursor-pointer 全站补齐；EmberTableCard 表头按规范放宽处理；弹窗宽度 560/640/720→520/680；危险按钮一族统一；骨架双缝（Layout border-r + 品牌/顶栏高度）；fadeIn 全局化进 base.css 并被 prefers-reduced-motion 覆盖；徽章统一中文计数；Hero 徽章中性文案、Footer 死链删除+容器宽度对齐；RegisterView 向登录页对齐。
   - 延后项（随迭代做）：EmberMetricCard 图标 slot（需扩组件契约）；媒体库 409 toast 双弹（需 api 层 `silent`）；SubscriptionsView 本地 fadeIn-up；PlaybackProfileContent 的 `description` prop 残留（待清理调用方后删）；MediaGapsView 聚合视图约 400 行自绘 CSS 是否整体重写（组件回收完成后另行评估）。
+- 2026-08-30：归档复核确认四个实施批次、规范修订和组件测试均已有代码与 Git 证据；延后项不属于本方案完成条件，后续随对应功能迭代处理。稳定设计规则由现行 Web 设计规范接管，本计划仅保留历史追溯价值。

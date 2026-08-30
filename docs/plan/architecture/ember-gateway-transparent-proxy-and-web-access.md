@@ -1,8 +1,8 @@
 # Ember Gateway 透明代理与 Web 访问控制实现方案
 
-> 状态：主体完成，待受控实机验收
+> 状态：主体完成，v2.0.3 已发布，待受控实机验收
 > 负责人：Ember
-> 更新时间：2026-08-29
+> 更新时间：2026-08-30
 
 ## 背景
 
@@ -420,13 +420,15 @@ npm --prefix services/web run build
 - 已把 Store 请求取消/deadline 映射为 `499/504`，只对明确未发送的幂等读错误重试一次，最终真实失败自动记录脱敏 SQLSTATE/连接池计数。
 - 已用 fake 和 race 测试覆盖 method/query/Header/body/响应透传、Token 门控、登录映射、证明、视频 redirect/fallback、未知/Web Surface 不改写和错误日志脱敏。
 - API 全量 `go test ./...`、`go vet ./...` 和 `go build ./...` 已通过；自动化没有请求真实 Emby 或 115。
+- 2026-08-24 实机日志已确认 115 账号不可用时，权威扩展名 Emby fallback 返回 `206` 并可播放，Playing/Progress 返回 `204`。
+- 2026-08-29 实机日志已确认 `Size=0` 条目可进入 source 路径映射、首次保留式转存并返回 `302`，后续预存命中重复请求也返回 `302`；这只证明 Gateway 决策与响应，不证明 115 CDN 完整媒体字节。
+- `v2.0.3` 已包含 Web query 登录、Brotli 认证映射、无 Token Item Image、5 秒 Web 开关缓存和关闭时中文友好 `404` 页面；代码、fake 合同与发布材料已收口。
 
 ### 剩余项
 
-- 部署后优先验证本地视频：确认 `fallbackSource=playback_info_direct_stream` 或 `playback_info_extension_stream`，Emby 返回 `200/206`，即使 115 为 `account_unavailable` 也能播放；随后再处理 115、HEAD/Range、字幕、进度和其他客户端实机复验。
-- Web/静态资源/WebSocket Surface 合同。
-- ConfigService 全局 Web 开关和设置页面。
-- 受控 Infuse 与 Web 实机验收。
+- Backdrop Index 修复后的真实图片状态、完整 Web 页面资源、网页播放和登录后根 WebSocket `101` 仍未实机确认。
+- Web 开关关闭后的中文友好 `404` 页面仍需在真实浏览器和外层反向代理下验收，确认代理不会替换响应 HTML；同时复验关闭 Web 不影响 Infuse API、视频和 WebSocket。
+- 115 CDN 完整媒体字节、HEAD/Range、字幕、Stopped 和其他客户端仍需受控实机验收。
 - 原始 Emby 公网入口隔离确认。
 
 ## 落地后文档处理
