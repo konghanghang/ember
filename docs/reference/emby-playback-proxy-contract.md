@@ -262,7 +262,7 @@ Ember 本地撤销固定三种粒度：
 
 固定 SDK [Web Socket 合同](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/doc/restapi/Web-Socket.html) 使用服务根地址的 `ws/wss` Upgrade，并携带 `api_key + deviceId`。Gateway 对根 Upgrade 继续执行通用 query Token 映射，现有 ReverseProxy 透传并升级 `101`；关闭 Web UI 不影响该链路。
 
-`PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对已识别 Web Surface 请求使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取，刷新错误同样退避 5 秒：开启则保持原始 method/path/query/Header 和响应透明代理，关闭返回空体 `404` 且不访问上游，刷新读取失败期间返回空体 `503`。该读取不进入普通 API、视频、WebSocket 或健康检查路径。
+`PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对已识别 Web Surface 请求使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取，刷新错误同样退避 5 秒：开启则保持原始 method/path/query/Header 和响应透明代理；关闭时不访问上游，`GET` 返回固定的 `text/html; charset=utf-8` 中文友好 `404` 页面并携带 `Cache-Control: no-store`，`HEAD` 返回同状态及等价响应头但不写正文。提示页不加载 Emby、Vue、脚本、外部样式或字体，只显示“Emby 网页访问已关闭”和一条客户端/管理员指引；刷新读取失败期间仍返回空体 `503`。该读取不进入普通 API、视频、WebSocket 或健康检查路径。
 
 目标日志已确认浏览器访问 Gateway 时实际请求 `/`、`/favicon.ico`、完整静态资源，以及登录前 `/web/strings/zh-CN.json`、`/emby/Branding/Css.css`、`/emby/Users/Public`、`/emby/Branding/Configuration` 和 `POST /emby/Users/AuthenticateByName`。公开用户、Branding Configuration、Brotli 认证映射、Sessions Capabilities、UserSettings 与无 Index Primary 图片已在目标链路分别取得上游 `200/200/200/204/200/200`；Backdrop Index 图片、页面完整资源、播放和登录后的真实 WebSocket `101` 仍未在目标实例验收，不能由 fake 合同替代。
 

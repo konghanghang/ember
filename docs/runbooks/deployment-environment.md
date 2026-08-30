@@ -89,7 +89,7 @@
 
 Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问原始 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是用户和播放器看到的 Gateway 公网 HTTPS 地址。二者指向同一公网 Gateway 会形成代理回环，原始 Emby 继续公开则会形成安全旁路。
 
-`PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 最多在 5 秒内同步新值。已识别的 `/`、`/favicon.ico`、`/web` 页面/静态资源、单层语言 JSON、精确 `/emby/Branding/Css.css`、携严格 Web query 元数据的精确 `GET /emby/Branding/Configuration`，以及无 Token 的精确 `GET/HEAD /emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index 优先读取进程缓存，TTL 到期后的并发刷新只查询一次数据库；刷新错误同样退避 5 秒。关闭时返回空体 `404`，刷新读取失败期间返回空体 `503`；Infuse 等客户端 API、视频、携 Token 图片和根 WebSocket 不受该开关影响。
+`PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 最多在 5 秒内同步新值。已识别的 `/`、`/favicon.ico`、`/web` 页面/静态资源、单层语言 JSON、精确 `/emby/Branding/Css.css`、携严格 Web query 元数据的精确 `GET /emby/Branding/Configuration`，以及无 Token 的精确 `GET/HEAD /emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index 优先读取进程缓存，TTL 到期后的并发刷新只查询一次数据库；刷新错误同样退避 5 秒。关闭时不访问上游，浏览器 `GET` 收到禁止缓存且不依赖 Emby 静态资源的中文友好 HTML `404`，`HEAD` 只返回等价响应头；刷新读取失败期间返回空体 `503`。Infuse 等客户端 API、视频、携 Token 图片和根 WebSocket 不受该开关影响。
 
 API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接运行 `ember gateway` 时同样监听 `:8081`。`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变映射到 Gateway `8081` 的宿主机 `127.0.0.1` 端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
 

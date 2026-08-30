@@ -122,7 +122,7 @@
 - 历史上已经使用 `/emby` 前缀的客户端继续可用，不会被拼成 `/emby/emby/...`。
 - 登录、浏览媒体库、获取图片与字幕、上报播放进度及普通代理播放保持 Emby 原有状态、Header 和响应体语义。
 - 115 条件成立时视频请求仍返回 302；115 不可用、账号未配置、源路径未映射或直链失败时仍回退普通 Emby 播放。
-- Web Surface 开启时，Gateway 透明提供 Emby Web；关闭时，明确属于 Emby Web 页面和静态资源的请求返回固定空体 `404`，且不访问上游。
+- Web Surface 开启时，Gateway 透明提供 Emby Web；关闭时不访问上游，明确属于 Emby Web 页面和静态资源的 `GET` 返回固定、无外部依赖且禁止缓存的中文友好 HTML `404`，`HEAD` 返回同状态及等价响应头但无正文。
 - Web Surface 关闭不影响已认证 Emby API；不能使用 `User-Agent` 粗暴拦截浏览器请求。
 
 ### 2. 请求处理流水线
@@ -134,7 +134,7 @@ flowchart TD
     Health -- 是 --> HealthResponse[返回 Gateway 健康状态]
     Health -- 否 --> Web{Emby Web Surface?}
     Web -- 是 --> WebSwitch{Web 是否开启?}
-    WebSwitch -- 否 --> NotFound[固定空体 404]
+    WebSwitch -- 否 --> NotFound[固定友好 HTML 404]
     WebSwitch -- 是 --> WebProxy[按 Web 原始路径透明代理]
     Web -- 否 --> Bootstrap{精确 bootstrap?}
     Bootstrap -- SystemInfoPublic --> BootstrapProxy[无本地鉴权透明代理]
@@ -294,7 +294,7 @@ sequenceDiagram
 #### 9.3 Web Surface
 
 1. 先根据固定合同识别 Web 页面/静态资源 Surface，不把其 path 当作 Emby API 前缀处理；单层有界语言 JSON 与精确 `/emby/Branding/Css.css` 是目标 Web 已确认的登录前资产，无 Token 的精确 `/emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index 是登录后已确认的 Web 图片资源。
-2. 开关关闭时返回固定空体 `404`，不访问 Emby。
+2. 开关关闭时不访问 Emby；`GET` 返回固定中文友好 HTML `404`，`HEAD` 返回同状态及等价响应头但无正文。
 3. 开关开启时按合同要求的原始 path 代理，并保留 WebSocket upgrade 等已确认传输语义。
 4. Web 页面后续调用受保护 API 时，仍必须经过同一 Token 门控；打开网页入口不等于绕过用户资格。
 
@@ -304,7 +304,7 @@ sequenceDiagram
 - encoded slash、重复前缀或大小写变体试图命中特殊路由：不继承 bootstrap/特殊权限，按受保护或不支持路径处理。
 - AuthenticateByName、公开用户或公开头像应用元数据缺失、重复或格式非法：空体 `401`，不访问 Emby；AuthenticateByName 与 Public users 可二选一使用 Header 或 query bundle，混用返回 `401`。Branding Configuration 只接受 query bundle；SystemInfoPublic 与精确 Branding CSS 不使用该门控。
 - AccessToken 缺失、未映射、已撤销或身份错配：保持现有 `401`；用户不可用或到期保持 `403`。
-- Web Surface 已关闭：固定空体 `404`，不向上游发送请求。
+- Web Surface 已关闭：返回固定且禁止缓存的中文友好 HTML `404`，不向上游发送请求；`HEAD` 不写正文。
 - Item Image 只有精确 `/emby` GET/HEAD、无 Token、动态段有界且可选 Index 为规范非负 int32 时进入 Web Surface；携 Token 请求走普通身份门控，root、非法 Index、修改、深层和 encoded path 返回现有受保护结果。
 - Web 路径归属未确认：不因猜测扩大匿名或 Web allowlist；先补合同。
 - 上游不可用：保持固定空体 `502` 和脱敏错误类型。
@@ -336,7 +336,7 @@ sequenceDiagram
 - 接入仅由数据库设置中心托管的 `PLAYBACK_GATEWAY_WEB_ENABLED`；后台保存后最多 5 秒生效，不新增环境变量或重启要求。
 - 锁定关闭时不访问上游、开启时页面和 API 均可工作的测试。
 
-截至 2026-08-30，本阶段代码与文档已完成：设置中心自动展示媒体集成 boolean 配置并标记“立即生效”；Gateway 对 Web Surface 使用 5 秒进程缓存，正值与缺失默认值均缓存，并发刷新合并，默认开启、关闭 `404`、刷新读取失败 `503`；固定 `/web` API、携 Token Web path 和根 WebSocket 保持身份门控。语言 JSON、Branding CSS、Public users、Branding Configuration、AuthenticateByName query 元数据与无 Token Item Image 已用精确 Surface 和 fake 合同收口；Public users、Branding、Brotli 登录映射、Sessions Capabilities、UserSettings 与无 Index Primary 图片已获得目标上游成功状态，Backdrop Index 修复后的目标状态和 WebSocket 仍属于阶段 3 实机验收，不得由 fake 结果代替。
+截至 2026-08-30，本阶段代码与文档已完成：设置中心自动展示媒体集成 boolean 配置并标记“立即生效”；Gateway 对 Web Surface 使用 5 秒进程缓存，正值与缺失默认值均缓存，并发刷新合并，默认开启、关闭时返回固定友好 HTML `404`、刷新读取失败 `503`；固定 `/web` API、携 Token Web path 和根 WebSocket 保持身份门控。语言 JSON、Branding CSS、Public users、Branding Configuration、AuthenticateByName query 元数据与无 Token Item Image 已用精确 Surface 和 fake 合同收口；Public users、Branding、Brotli 登录映射、Sessions Capabilities、UserSettings 与无 Index Primary 图片已获得目标上游成功状态，Backdrop Index 修复后的目标状态和 WebSocket 仍属于阶段 3 实机验收，不得由 fake 结果代替。
 
 ### 阶段 3：受控实机验收
 
@@ -363,7 +363,7 @@ sequenceDiagram
 - Gateway fake upstream 测试覆盖：root/`/emby` 与大小写 path、Header/query/应用头 Token carriers、多来源一致/冲突、method/query/body/Header/响应透传、encoded path、Yamby 空数组、499/504/502 和错误脱敏。
 - bootstrap 测试覆盖：`System/Info/Public` 无鉴权精确 method/path、上游状态透传，Public users query 元数据，以及其他 bootstrap 的应用头和未知匿名路径拒绝。
 - 特殊处理回归覆盖：AuthenticateByName Header/query 两种元数据载体、Token 映射、外部 Token 拒绝、PlaybackInfo 证明、视频 302、115 失败 fallback、进度事件普通代理。
-- Web Surface 测试覆盖：开关默认值、配置解析、开启代理、关闭不触发 upstream、Branding Configuration 严格 query/path/method、Item Image GET/HEAD/root/无 Index/Index 0 与 int32 上界/前导零/负数/符号/非数字/溢出/修改/encoded/动态段边界、携映射 Token 回到受保护路由、API 不受误伤、WebSocket/静态资源合同。
+- Web Surface 测试覆盖：开关默认值、配置解析、开启代理、关闭时 GET 友好 HTML/HEAD 空正文/禁止缓存/不触发 upstream、Branding Configuration 严格 query/path/method、Item Image GET/HEAD/root/无 Index/Index 0 与 int32 上界/前导零/负数/符号/非数字/溢出/修改/encoded/动态段边界、携映射 Token 回到受保护路由、API 不受误伤、WebSocket/静态资源合同。
 - ConfigService/API/Web 测试覆盖：boolean DTO 为 camelCase、设置保存与读取、跨进程生效语义、页面开关成功/失败状态。
 - 所有 Emby 上游均使用 fake/`httptest`，不得请求真实 Emby 或外网。
 

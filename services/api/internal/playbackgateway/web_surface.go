@@ -28,7 +28,7 @@ func (gateway *Gateway) serveWebSurface(writer http.ResponseWriter, request *htt
 	}
 	if !enabled {
 		gateway.logger.Printf("[PlaybackGateway] code=web_surface_disabled message=%q result=rejected statusCode=404", "Emby网页访问已关闭")
-		writer.WriteHeader(http.StatusNotFound)
+		writeWebSurfaceDisabledResponse(writer, request)
 		return
 	}
 

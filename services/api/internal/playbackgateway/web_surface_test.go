@@ -19,6 +19,35 @@ import (
 	"time"
 )
 
+// assertWebSurfaceDisabledResponse locks the user-visible GET page and the
+// equivalent bodyless HEAD contract shared by every disabled Web Surface.
+func assertWebSurfaceDisabledResponse(t *testing.T, response *httptest.ResponseRecorder, method string) {
+	t.Helper()
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("disabled response=%d body=%q", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/html; charset=utf-8" {
+		t.Fatalf("disabled Content-Type=%q", contentType)
+	}
+	if cacheControl := response.Header().Get("Cache-Control"); cacheControl != "no-store" {
+		t.Fatalf("disabled Cache-Control=%q", cacheControl)
+	}
+	if contentLength := response.Header().Get("Content-Length"); contentLength != fmt.Sprint(len(webSurfaceDisabledPage)) {
+		t.Fatalf("disabled Content-Length=%q", contentLength)
+	}
+	if method == http.MethodHead {
+		if response.Body.Len() != 0 {
+			t.Fatalf("disabled HEAD body=%q", response.Body.String())
+		}
+		return
+	}
+	for _, expected := range []string{"<html lang=\"zh-CN\">", "Emby 网页访问已关闭", "请使用受支持的 Emby 客户端，或联系管理员"} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Fatalf("disabled body=%q, want %q", response.Body.String(), expected)
+		}
+	}
+}
+
 func TestGatewayWebSurfaceFollowsPolicyAtRequestBoundary(t *testing.T) {
 	var upstreamMu sync.Mutex
 	upstreamRequests := make([]string, 0, 4)
@@ -56,9 +85,11 @@ func TestGatewayWebSurfaceFollowsPolicyAtRequestBoundary(t *testing.T) {
 	policy.set(false, nil)
 	disabled := httptest.NewRecorder()
 	gateway.ServeHTTP(disabled, httptest.NewRequest(http.MethodGet, "/web/app.js", nil))
-	if disabled.Code != http.StatusNotFound || disabled.Body.Len() != 0 {
-		t.Fatalf("disabled response=%d body=%q", disabled.Code, disabled.Body.String())
-	}
+	assertWebSurfaceDisabledResponse(t, disabled, http.MethodGet)
+
+	disabledHead := httptest.NewRecorder()
+	gateway.ServeHTTP(disabledHead, httptest.NewRequest(http.MethodHead, "/web/app.js", nil))
+	assertWebSurfaceDisabledResponse(t, disabledHead, http.MethodHead)
 
 	policy.set(true, nil)
 	reenabled := httptest.NewRecorder()
@@ -79,7 +110,7 @@ func TestGatewayWebSurfaceFollowsPolicyAtRequestBoundary(t *testing.T) {
 			t.Fatalf("upstream requests=%#v, want %#v", requests, wantRequests)
 		}
 	}
-	if calls := policy.callCount(); calls != 4 {
+	if calls := policy.callCount(); calls != 5 {
 		t.Fatalf("policy calls=%d, want one evaluation per Web request", calls)
 	}
 	for _, expected := range []string{"code=web_surface_disabled", `message="Emby网页访问已关闭"`, "route=emby_web"} {
@@ -168,8 +199,9 @@ func TestGatewayBrandingConfigurationRequiresExactWebQueryMetadataAndPolicy(t *t
 		enabled    bool
 		wantStatus int
 		wantPolicy int
+		wantPage   bool
 	}{
-		{name: "disabled", method: http.MethodGet, path: "/emby/Branding/Configuration", query: validWebApplicationQuery(), wantStatus: http.StatusNotFound, wantPolicy: 1},
+		{name: "disabled", method: http.MethodGet, path: "/emby/Branding/Configuration", query: validWebApplicationQuery(), wantStatus: http.StatusNotFound, wantPolicy: 1, wantPage: true},
 		{name: "missing query", method: http.MethodGet, path: "/emby/Branding/Configuration", wantStatus: http.StatusUnauthorized},
 		{name: "incomplete query", method: http.MethodGet, path: "/emby/Branding/Configuration", query: func() url.Values {
 			values := validWebApplicationQuery()
@@ -205,8 +237,13 @@ func TestGatewayBrandingConfigurationRequiresExactWebQueryMetadataAndPolicy(t *t
 			response := httptest.NewRecorder()
 			gateway.ServeHTTP(response, request)
 
-			if response.Code != test.wantStatus || response.Body.Len() != 0 || upstreamCalls.Load() != 0 || policy.callCount() != test.wantPolicy {
+			if response.Code != test.wantStatus || upstreamCalls.Load() != 0 || policy.callCount() != test.wantPolicy {
 				t.Fatalf("response=%d body=%q upstreamCalls=%d policyCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load(), policy.callCount())
+			}
+			if test.wantPage {
+				assertWebSurfaceDisabledResponse(t, response, test.method)
+			} else if response.Body.Len() != 0 {
+				t.Fatalf("response body=%q, want empty", response.Body.String())
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization, "Emby Web", "web-device-1")
 		})
@@ -303,8 +340,9 @@ func TestGatewayItemImageRequiresExactPathMethodAndWebPolicy(t *testing.T) {
 		enabled    bool
 		wantStatus int
 		wantPolicy int
+		wantPage   bool
 	}{
-		{name: "disabled indexed image", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/1?tag=fixture", wantStatus: http.StatusNotFound, wantPolicy: 1},
+		{name: "disabled indexed image", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/1?tag=fixture", wantStatus: http.StatusNotFound, wantPolicy: 1, wantPage: true},
 		{name: "root path", method: http.MethodGet, target: "/Items/32019/Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
 		{name: "trailing slash", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary/?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
 		{name: "encoded item id", method: http.MethodGet, target: "/emby/Items/item%2Did/Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
@@ -334,8 +372,13 @@ func TestGatewayItemImageRequiresExactPathMethodAndWebPolicy(t *testing.T) {
 			response := httptest.NewRecorder()
 			gateway.ServeHTTP(response, httptest.NewRequest(test.method, test.target, nil))
 
-			if response.Code != test.wantStatus || response.Body.Len() != 0 || upstreamCalls.Load() != 0 || policy.callCount() != test.wantPolicy {
+			if response.Code != test.wantStatus || upstreamCalls.Load() != 0 || policy.callCount() != test.wantPolicy {
 				t.Fatalf("response=%d body=%q upstreamCalls=%d policyCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load(), policy.callCount())
+			}
+			if test.wantPage {
+				assertWebSurfaceDisabledResponse(t, response, test.method)
+			} else if response.Body.Len() != 0 {
+				t.Fatalf("response body=%q, want empty", response.Body.String())
 			}
 		})
 	}
