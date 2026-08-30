@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/andybalholm/brotli"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
@@ -28,6 +29,18 @@ const (
 	fixtureApplicationAuthorization  = `Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0", Token=""`
 	fixtureMediaBrowserAuthorization = `MediaBrowser UserId="", Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.5", Token=""`
 )
+
+// validWebApplicationQuery returns the exact application metadata shape
+// observed from the target Emby Web 4.9.3.0 login flow.
+func validWebApplicationQuery() url.Values {
+	return url.Values{
+		"X-Emby-Client":         {"Emby Web"},
+		"X-Emby-Client-Version": {"4.9.3.0"},
+		"X-Emby-Device-Id":      {"web-device-1"},
+		"X-Emby-Device-Name":    {"Google Chrome macOS"},
+		"X-Emby-Language":       {"zh-cn"},
+	}
+}
 
 func TestGatewaySystemInfoPublicIsTransparentWithoutLocalAuthentication(t *testing.T) {
 	responseBody := `{"LocalAddresses":[],"RemoteAddresses":[],"ServerName":"Fixture","Version":"4.9.3.0","Id":"server-1"}`
@@ -161,6 +174,47 @@ func TestGatewayRootAuthenticationIsTransparentAndRecordsMapping(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, requestBody, responseBody)
 }
 
+func TestGatewayAuthenticationAcceptsWebQueryMetadataAndRecordsMapping(t *testing.T) {
+	responseBody := `{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1"}`
+	requestBody := `{"Username":"user","Pw":"` + fixturePassword + `"}`
+	query := validWebApplicationQuery()
+	target := "/emby/Users/authenticatebyname?" + query.Encode()
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("read upstream request body: %v", err)
+		}
+		if request.Method != http.MethodPost || request.URL.RequestURI() != target || string(body) != requestBody {
+			t.Fatalf("upstream request=%s %s body=%q", request.Method, request.URL.RequestURI(), string(body))
+		}
+		if applicationAuthorizationHeaderCount(request.Header) != 0 {
+			t.Fatalf("unexpected application authorization headers=%v", request.Header)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodPost, target, strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != responseBody {
+		t.Fatalf("response=%d body=%q", response.Code, response.Body.String())
+	}
+	recorded, resolved := tokenService.snapshot()
+	if len(recorded) != 1 || len(resolved) != 0 || recorded[0].AccessToken != fixtureAccessToken ||
+		recorded[0].DeviceID != "web-device-1" || recorded[0].ClientName != "Emby Web" {
+		t.Fatalf("token calls=recorded %+v resolved %#v", recorded, resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixturePassword, requestBody, responseBody,
+		"Emby Web", "web-device-1", "Google Chrome macOS", "zh-cn")
+}
+
 func TestGatewayAuthenticationDeflateResponseIsTransparentAndRecordsMapping(t *testing.T) {
 	responseBody := `{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1","Unknown":true}`
 	for _, mode := range []string{"zlib", "raw"} {
@@ -230,6 +284,44 @@ func TestGatewayAuthenticationGzipResponseIsTransparentAndRecordsMapping(t *test
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody)
 }
 
+func TestGatewayAuthenticationBrotliResponseIsTransparentAndRecordsMapping(t *testing.T) {
+	responseBody := `{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1","Unknown":true}`
+	compressed := brotliFixture(t, []byte(responseBody))
+	query := validWebApplicationQuery()
+	target := authenticationPath + "?" + query.Encode()
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.RequestURI() != target || request.Header.Get("Accept-Encoding") != "br" {
+			t.Fatalf("upstream request=%s acceptEncoding=%q", request.URL.RequestURI(), request.Header.Get("Accept-Encoding"))
+		}
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("Content-Encoding", "br")
+		writer.Header().Set("Content-Length", strconv.Itoa(len(compressed)))
+		writer.Header().Set("X-Upstream", "preserved")
+		_, _ = writer.Write(compressed)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	request := httptest.NewRequest(http.MethodPost, target, strings.NewReader(`{"Username":"user","Pw":"fixture"}`))
+	request.Header.Set("Accept-Encoding", "br")
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), compressed) ||
+		response.Header().Get("Content-Encoding") != "br" || response.Header().Get("Content-Length") != strconv.Itoa(len(compressed)) ||
+		response.Header().Get("X-Upstream") != "preserved" {
+		t.Fatalf("response=status %d headers=%v bodyLength=%d", response.Code, response.Header(), response.Body.Len())
+	}
+	recorded, resolved := tokenService.snapshot()
+	if len(recorded) != 1 || len(resolved) != 0 || recorded[0].AccessToken != fixtureAccessToken ||
+		recorded[0].DeviceID != "web-device-1" || recorded[0].ClientName != "Emby Web" {
+		t.Fatalf("token calls=recorded %+v resolved %#v", recorded, resolved)
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, responseBody, "Emby Web", "web-device-1")
+}
+
 func TestGatewayAuthenticationEncodedSidecarFailuresRemainTransparent(t *testing.T) {
 	oversizedJSON := []byte(`{"User":{"Id":"emby-user-1"},"AccessToken":"` + fixtureAccessToken + `","ServerId":"server-1","Padding":"` + strings.Repeat("x", 4096) + `"}`)
 	tests := []struct {
@@ -257,7 +349,15 @@ func TestGatewayAuthenticationEncodedSidecarFailuresRemainTransparent(t *testing
 			body: gzipFixture(t, oversizedJSON), responseMax: 512, wantEncoding: "gzip", wantReason: "decoded_body_too_large",
 		},
 		{
-			name: "unsupported encoding", contentEncoding: "br",
+			name: "invalid brotli", contentEncoding: "br",
+			body: []byte("invalid-brotli-" + fixtureAccessToken), wantEncoding: "br", wantReason: "decode_failed",
+		},
+		{
+			name: "brotli decoded body too large", contentEncoding: "br",
+			body: brotliFixture(t, oversizedJSON), responseMax: 512, wantEncoding: "br", wantReason: "decoded_body_too_large",
+		},
+		{
+			name: "unsupported encoding", contentEncoding: "zstd",
 			body: []byte(`{"AccessToken":"` + fixtureAccessToken + `"}`), wantEncoding: "unsupported", wantReason: "encoding_unsupported",
 		},
 	}
@@ -704,6 +804,7 @@ func TestGatewayEncodedPlaybackInfoPreservesBytesAndRecordsProof(t *testing.T) {
 	}{
 		{name: "gzip", encoding: "gzip", encode: gzipFixture},
 		{name: "deflate", encoding: "deflate", encode: func(t *testing.T, body []byte) []byte { return deflateFixture(t, body, false) }},
+		{name: "brotli", encoding: "br", encode: brotliFixture},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1697,6 +1798,122 @@ func TestGatewayPublicBootstrapUsesApplicationHeaderWithoutTokenMapping(t *testi
 	}
 }
 
+func TestGatewayPublicUsersAcceptsWebQueryMetadataWithoutTokenMapping(t *testing.T) {
+	query := url.Values{
+		"X-Emby-Client":         {"Emby Web"},
+		"X-Emby-Client-Version": {"4.9.3.0"},
+		"X-Emby-Device-Id":      {"web-device-1"},
+		"X-Emby-Device-Name":    {"Chrome macOS"},
+		"X-Emby-Language":       {"zh-CN"},
+	}
+	target := "/emby/users/public?" + query.Encode()
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.RequestURI() != target {
+			t.Fatalf("upstream request=%s %s, want GET %s", request.Method, request.URL.RequestURI(), target)
+		}
+		writer.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(writer, `[{"Id":"public-user"}]`)
+	}))
+	defer upstream.Close()
+
+	tokenService := &fakeTokenService{}
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, tokenService, &logs)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+
+	if response.Code != http.StatusOK || response.Body.String() != `[{"Id":"public-user"}]` {
+		t.Fatalf("response=%d body=%q", response.Code, response.Body.String())
+	}
+	recorded, resolved := tokenService.snapshot()
+	if len(recorded) != 0 || len(resolved) != 0 {
+		t.Fatalf("token service calls: recorded=%d resolved=%d", len(recorded), len(resolved))
+	}
+	assertSecretsAbsent(t, logs.String(), "Emby Web", "web-device-1", "Chrome macOS", "zh-CN")
+}
+
+func TestGatewayPublicUsersRejectsInvalidWebQueryMetadata(t *testing.T) {
+	validQuery := func() url.Values {
+		return url.Values{
+			"X-Emby-Client":         {"Emby Web"},
+			"X-Emby-Client-Version": {"4.9.3.0"},
+			"X-Emby-Device-Id":      {"web-device-1"},
+			"X-Emby-Device-Name":    {"Chrome macOS"},
+		}
+	}
+	tests := []struct {
+		name    string
+		path    string
+		query   url.Values
+		header  string
+		wantLog string
+	}{
+		{name: "missing required value", query: func() url.Values {
+			values := validQuery()
+			values.Del("X-Emby-Device-Id")
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "empty required value", query: func() url.Values {
+			values := validQuery()
+			values.Set("X-Emby-Client", "")
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "duplicate logical key", query: func() url.Values {
+			values := validQuery()
+			values["x-emby-client"] = []string{"Other Web"}
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "oversized device id", query: func() url.Values {
+			values := validQuery()
+			values.Set("X-Emby-Device-Id", strings.Repeat("x", maxApplicationDeviceIDSize+1))
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "control character", query: func() url.Values {
+			values := validQuery()
+			values.Set("X-Emby-Device-Name", "Chrome\nmacOS")
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "unknown x emby field", query: func() url.Values {
+			values := validQuery()
+			values.Set("X-Emby-Unknown", "fixture")
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "header and query carriers", query: validQuery(), header: fixtureApplicationAuthorization, wantLog: "code=application_metadata_ambiguous"},
+		{name: "public image does not inherit query metadata", path: "/emby/Users/public-user/Images/Primary", query: validQuery(), wantLog: "code=application_query_invalid"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, &fakeTokenService{}, &logs)
+			path := test.path
+			if path == "" {
+				path = "/emby/users/public"
+			}
+			request := httptest.NewRequest(http.MethodGet, path+"?"+test.query.Encode(), nil)
+			if test.header != "" {
+				request.Header.Set(embyAuthorizationHeader, test.header)
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 || upstreamCalls.Load() != 0 {
+				t.Fatalf("response=%d body=%q upstreamCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load())
+			}
+			if !strings.Contains(logs.String(), test.wantLog) {
+				t.Fatalf("logs=%q, want %s", logs.String(), test.wantLog)
+			}
+			assertSecretsAbsent(t, logs.String(), "Emby Web", "web-device-1", "Chrome macOS", "Other Web")
+		})
+	}
+}
+
 func TestGatewayPublicBootstrapAcceptsMappedTokenCarrier(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -1761,6 +1978,79 @@ func TestGatewayAuthenticationRejectsExternalTokenCarriers(t *testing.T) {
 				t.Fatalf("logs=%q", logs.String())
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
+		})
+	}
+}
+
+func TestGatewayAuthenticationWebQueryRejectsExternalTokenCarrier(t *testing.T) {
+	query := validWebApplicationQuery()
+	query.Set("api_key", fixtureAccessToken)
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	var logs bytes.Buffer
+	gateway := newTestGateway(t, upstream.URL, &fakeTokenService{}, &logs)
+	request := httptest.NewRequest(http.MethodPost, authenticationPath+"?"+query.Encode(), strings.NewReader(`{"Username":"user"}`))
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 || upstreamCalls.Load() != 0 {
+		t.Fatalf("response=%d body=%q upstreamCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load())
+	}
+	if !strings.Contains(logs.String(), "code=authentication_token_invalid reasonCode=token_present") {
+		t.Fatalf("logs=%q", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "Emby Web", "web-device-1")
+}
+
+func TestGatewayAuthenticationRejectsInvalidWebQueryMetadata(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   url.Values
+		header  string
+		wantLog string
+	}{
+		{name: "missing required value", query: func() url.Values {
+			values := validWebApplicationQuery()
+			values.Del("X-Emby-Device-Id")
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "duplicate logical key", query: func() url.Values {
+			values := validWebApplicationQuery()
+			values["x-emby-client"] = []string{"Other Web"}
+			return values
+		}(), wantLog: "code=application_query_invalid"},
+		{name: "header and query carriers", query: validWebApplicationQuery(), header: fixtureApplicationAuthorization, wantLog: "code=application_metadata_ambiguous"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, &fakeTokenService{}, &logs)
+			request := httptest.NewRequest(http.MethodPost, authenticationPath+"?"+test.query.Encode(), strings.NewReader(`{"Username":"user"}`))
+			if test.header != "" {
+				request.Header.Set(embyAuthorizationHeader, test.header)
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 || upstreamCalls.Load() != 0 {
+				t.Fatalf("response=%d body=%q upstreamCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load())
+			}
+			if !strings.Contains(logs.String(), test.wantLog) {
+				t.Fatalf("logs=%q, want %s", logs.String(), test.wantLog)
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization, "Emby Web", "web-device-1", "Other Web")
 		})
 	}
 }
@@ -1983,6 +2273,19 @@ func gzipFixture(t *testing.T, body []byte) []byte {
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close gzip fixture: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func brotliFixture(t *testing.T, body []byte) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := brotli.NewWriter(&buffer)
+	if _, err := writer.Write(body); err != nil {
+		t.Fatalf("write brotli fixture: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close brotli fixture: %v", err)
 	}
 	return buffer.Bytes()
 }

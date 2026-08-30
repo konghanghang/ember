@@ -4,14 +4,21 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 var errWebSurfacePolicyUnavailable = errors.New("playback gateway Web Surface policy unavailable")
 
+const (
+	brandingCSSPath           = "/emby/Branding/Css.css"
+	brandingConfigurationPath = "/emby/Branding/Configuration"
+	maxWebLocaleNameLength    = 64
+)
+
 // serveWebSurface applies the current short-cached database switch before
-// transparently proxying an Emby Web page or static asset without local user
-// Token gating.
+// transparently proxying an Emby Web page, static asset or exact metadata-gated
+// login bootstrap without local user Token gating.
 func (gateway *Gateway) serveWebSurface(writer http.ResponseWriter, request *http.Request) {
 	enabled, err := gateway.playbackGatewayWebEnabled(request.Context())
 	if err != nil {
@@ -39,9 +46,9 @@ func (gateway *Gateway) playbackGatewayWebEnabled(ctx context.Context) (bool, er
 	return gateway.webSurfacePolicy.PlaybackGatewayWebEnabled(ctx)
 }
 
-// isEmbyWebSurfaceRequest recognizes only browser entry/static GET and HEAD
-// requests. Protected WebAppService APIs and root WebSocket upgrades stay on
-// the normal Token-gated API path.
+// isEmbyWebSurfaceRequest recognizes browser entry/static GET and HEAD requests,
+// the exact query-gated Branding bootstrap and no-Token item images. Protected
+// WebAppService APIs and root WebSocket upgrades stay on the Token-gated path.
 func isEmbyWebSurfaceRequest(request *http.Request) bool {
 	if request == nil || request.URL == nil ||
 		(request.Method != http.MethodGet && request.Method != http.MethodHead) ||
@@ -58,7 +65,45 @@ func isEmbyWebSurfaceRequest(request *http.Request) bool {
 	if path == "/favicon.ico" || path == "/web" {
 		return true
 	}
+	if exactRequestPathFold(request.URL, brandingCSSPath) {
+		return true
+	}
+	if request.Method == http.MethodGet && exactRequestPathFold(request.URL, brandingConfigurationPath) {
+		_, carrier, metadataOK := extractAuthenticationApplicationMetadata(request)
+		return carrier == applicationMetadataQuery && metadataOK
+	}
+	if isEmbyWebItemImagePath(path) {
+		return true
+	}
 	return strings.HasPrefix(path, "/web/") && !hasRootWebAppAPIReservedPrefix(path)
+}
+
+// isEmbyWebItemImagePath accepts the exact /emby item image shape with an
+// optional canonical non-negative int32 Index emitted by the target Web
+// client. Mutation, root, empty and deeper segments remain protected.
+func isEmbyWebItemImagePath(path string) bool {
+	segments := strings.Split(path, "/")
+	if (len(segments) != 6 && len(segments) != 7) || segments[0] != "" || !strings.EqualFold(segments[1], "emby") ||
+		!strings.EqualFold(segments[2], "Items") || !strings.EqualFold(segments[4], "Images") {
+		return false
+	}
+	if !validPublicPathSegment(segments[3]) || !validPublicPathSegment(segments[5]) {
+		return false
+	}
+	return len(segments) == 6 || validEmbyWebImageIndex(segments[6])
+}
+
+// validEmbyWebImageIndex accepts the canonical non-negative int32 path value
+// from the fixed ImageService contract and rejects alternate numeric spellings.
+func validEmbyWebImageIndex(value string) bool {
+	if value == "0" {
+		return true
+	}
+	if value == "" || value[0] == '0' {
+		return false
+	}
+	index, err := strconv.ParseUint(value, 10, 31)
+	return err == nil && strconv.FormatUint(index, 10) == value
 }
 
 // isRootWebAppAPIPath protects the four /web API paths fixed by the Emby
@@ -76,11 +121,37 @@ func hasRootWebAppAPIReservedPrefix(path string) bool {
 		return false
 	}
 	switch strings.ToLower(segments[2]) {
-	case "configurationpage", "configurationpages", "strings", "stringset":
+	case "configurationpage", "configurationpages", "stringset":
 		return true
+	case "strings":
+		return !isWebLocaleResourcePath(path)
 	default:
 		return false
 	}
+}
+
+// isWebLocaleResourcePath accepts only the one-segment locale JSON shape
+// emitted by the target Emby 4.9.3.0 Web client. The exact /web/strings API and
+// every other deeper variant remain protected.
+func isWebLocaleResourcePath(path string) bool {
+	segments := strings.Split(path, "/")
+	if len(segments) != 4 || segments[0] != "" || !strings.EqualFold(segments[1], "web") ||
+		!strings.EqualFold(segments[2], "strings") || !strings.HasSuffix(segments[3], ".json") {
+		return false
+	}
+	locale := strings.TrimSuffix(segments[3], ".json")
+	if len(locale) == 0 || len(locale) > maxWebLocaleNameLength {
+		return false
+	}
+	for index := range len(locale) {
+		character := locale[index]
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || character == '-' || character == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // isWebSocketUpgrade follows the fixed SDK root WebSocket contract and keeps

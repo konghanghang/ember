@@ -163,12 +163,12 @@ sequenceDiagram
     Gateway->>Emby: 透明转发 bootstrap
     Emby-->>Gateway: PublicSystemInfo
     Gateway-->>Client: Emby 原状态/Header/Body
-    Client->>Gateway: POST /Users/AuthenticateByName<br/>X-Emby-Authorization: MediaBrowser ...
+    Client->>Gateway: POST /Users/AuthenticateByName<br/>严格应用头或 Web query 元数据
     Gateway->>Gateway: root API 规范化为 /emby/Users/AuthenticateByName
-    Gateway->>Gateway: 严格校验 Client/Device/DeviceId/Version
+    Gateway->>Gateway: 严格校验唯一 Header/query 元数据载体
     Gateway->>Emby: 原请求透明转发
     Emby-->>Gateway: deflate AuthenticationResult
-    Gateway->>Gateway: 保留原压缩响应，按 identity/gzip/deflate 白名单有界解码旁路副本
+    Gateway->>Gateway: 保留原压缩响应，按 identity/gzip/deflate/br 白名单有界解码旁路副本
     Gateway->>Gateway: 读取 User.Id / AccessToken / ServerId
     Gateway->>Token: RecordAuthenticationResult
     Token->>Token: purpose 隔离 HMAC-SHA256(AccessToken)
@@ -180,7 +180,8 @@ sequenceDiagram
 
 - Emby 登录响应始终是客户端真相；旁路映射失败不能改写 Emby 成功响应。
 - 固定 OpenAPI API family 的 root path 与已有 `/emby/...` 共用同一门控和处理器；family/前缀大小写不敏感，重复 `/emby/emby/...`、尾斜杠、额外层级和 alternate escaping 失败关闭，根 `/web/...` 留给后续 Web Surface 合同。
-- `System/Info/Public` 是唯一不要求已映射 AccessToken 和应用头的登录前公开接口；Gateway 只规范化并透明转发，其他 bootstrap 不随之放宽。
+- `System/Info/Public` 仍是原生客户端唯一不要求已映射 AccessToken 和应用头的登录前公开 API；Emby Web 仅额外允许精确 `/emby/Branding/Css.css`、单层语言 JSON、携严格 query 元数据的 Branding Configuration，并让 Public users 与 AuthenticateByName 使用同一严格 query 形态，其他 bootstrap 不随之放宽。
+- 登录后的目标 Web Item Image 可按 Web Surface 合同使用无 Token 的精确 `/emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index；它不参与 Principal、PlaybackInfo 证明或 115 决策，携 Token 图片仍走普通身份门控。
 - 数据库只保存 32 字节 Token HMAC，不保存 AccessToken 明文。
 - 后续受保护请求按 [客户端兼容矩阵](./emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格应用头和固定 query aliases；所有非空来源同值才接受，空值、重复、冲突和非法格式失败关闭。任意 Bearer、Quick Connect/PIN 不进入 Gateway 身份来源。
 - Store 请求取消/deadline 分别返回 `499/504`，只有 driver 保证未发送到 PostgreSQL 的幂等读错误才重试一次；真正存储失败继续 `503` 并记录脱敏连接池统计。
@@ -224,7 +225,7 @@ sequenceDiagram
     Gateway->>Token: ResolvePrincipal(AccessToken)
     Token-->>Gateway: Principal
     Gateway->>Emby: 原请求透明转发
-    Emby-->>Gateway: 200 application/json<br/>identity / gzip / deflate
+    Emby-->>Gateway: 200 application/json<br/>identity / gzip / deflate / br
     Gateway->>Gateway: 保留原响应并有界解码旁路副本<br/>解析 PlaySessionId + MediaSources
     Gateway->>Proof: 记录 mapping/item/mediaSource/playSession
     Gateway-->>Client: Emby 原响应字节

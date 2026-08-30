@@ -38,8 +38,8 @@
 
 同一请求出现多个非空候选时，只有所有字节完全一致才接受；重复逻辑来源、空值、冲突、未知 scheme、缺字段、非法 quoted-string 均返回 `401`。Gateway 使用唯一候选执行 HMAC 映射和用户状态检查，原始 Header/query 不改写并继续透明转发。
 
-- `AuthenticateByName` 必须使用严格应用头且所有外部 Token carrier 缺失，避免旧 Token 改变重新登录语义。
-- Public users/无 Index 用户头像在登录前接受严格空 Token 应用头，登录后也接受已经映射的通用 Token carrier；非法应用头不能借 query Token 绕过。
+- `AuthenticateByName` 必须使用严格应用头或目标 Emby Web 已确认的严格 query 应用元数据，且所有外部 Token carrier 缺失；两种元数据载体同时出现时拒绝，避免元数据歧义或旧 Token 改变重新登录语义。
+- Public users/无 Index 用户头像在登录前接受严格空 Token 应用头，登录后也接受已经映射的通用 Token carrier；Public users 额外接受目标 Emby Web 已确认的四个必填 `X-Emby-*` query 应用元数据，非法或重复 query 不能借该入口绕过。
 
 query Token 可能被外层代理 access log 记录。部署必须只记录 `$uri` 和 query key 形态，禁止 `$request`、`$request_uri`、`$args` 等包含 query value 的字段。
 
@@ -49,12 +49,14 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 - 认证、SystemInfoPublic、公共用户、PlaybackInfo、视频固定路径的语义段大小写不敏感；尾斜杠、额外层级和 alternate escaping 不放宽。
 - Gateway 自己读取的 `UserId`、`MediaSourceId`、`PlaySessionId`、`Static`、`Container` query key 大小写不敏感；相同逻辑 key 的大小写重复仍视为歧义。
 - query 原始 key/value 与顺序继续交给上游，Gateway 不做 MediaWarp 式全局小写重写。
-- 无 Token 的 `GET/HEAD /`、`/favicon.ico` 与 `/web` 页面/静态资源由数据库 Web 开关控制；固定 `/web/ConfigurationPage(s)|strings|stringset` API、携带 Token 的 Web path 和根 WebSocket Upgrade 仍走通用 Token 门控，不能借 Web UI Surface 绕过本地撤销。
+- 无 Token 的 `GET/HEAD /`、`/favicon.ico` 与 `/web` 页面/静态资源由数据库 Web 开关控制；单层有界 `/web/strings/{locale}.json` 是目标 Web 已确认的静态资源，精确 `/web/ConfigurationPage(s)|strings|stringset` API、其他深层变体、携带 Token 的 Web path 和根 WebSocket Upgrade 仍走通用 Token 门控，不能借 Web UI Surface 绕过本地撤销。
+- 精确 `GET/HEAD /emby/Branding/Css.css` 是目标 Web 已确认的登录前匿名请求；精确 `GET /emby/Branding/Configuration` 只接受严格 Web query 应用元数据并受 Web Surface 开关控制。其他 Branding API、方法、尾斜杠和深层路径不继承登录前权限。
+- 目标 Web 登录后批量请求的无 Token `GET/HEAD /emby/Items/{Id}/Images/{Type}`，以及追加一个规范非负十进制 int32 `{Index}` 的形态，只按层级精确、动态段有界的 `/emby` 路径进入 Web Surface；携 Token 请求仍受保护，root、非法 Index、修改、深层和 encoded path 不继承权限。固定 SDK 的认证标记与目标请求形态存在冲突；无 Index Primary 已取得真实上游 `200`，Backdrop Index 修复后的状态仍待验证。
 
 ### 2.3 响应与客户端名称
 
 - 普通 API、图片、字幕、会话和未知受保护 Surface 默认走同一个透明代理。
-- AuthenticationResult 与 PlaybackInfo 只对有界旁路副本按 `identity/gzip/deflate` 解码，客户端收到的状态、Content-Encoding、Header 和原始字节不重新编码。
+- AuthenticationResult 与 PlaybackInfo 只对有界旁路副本按 `identity/gzip/deflate/br` 解码，客户端收到的状态、Content-Encoding、Header 和原始字节不重新编码。目标 Infuse 已确认 deflate，目标 Emby Web `4.9.3.0` 已确认 Brotli 登录响应。
 - 层级精确的用户条目响应同样保持原字节，只缓存当前 mapping 下的 Item/MediaSource Container。plain `/Videos/{Id}/stream` 缺 PlaySessionId 时，Gateway 优先使用当前用户 Token 向同一 Emby 补取 PlaybackInfo；成功后分离 115 决策请求与 Emby fallback，后者使用严格验证并移除 URL Token 的 DirectStreamUrl，缺失时使用 `stream.{Container}`。
 - 因此 `MediaStreams: []` 等空数组不会被 `omitempty` 丢失；这是 MediaWarp 源码标注的 [Yamby 兼容点](https://github.com/AkimioJR/MediaWarp/blob/070ad99cb32e940b2b8ccb7c55b6efb7d311eac5/internal/service/emby/schema.go#L224-L233)。
 - 日志识别 Infuse Direct/Library、SenPlayer、Yamby、VidHub、Fileball、Conflux 和官方 Emby family；未知 UA 仍代理，不因名称进入不同认证或播放逻辑。
@@ -66,7 +68,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 | Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`；Playing 返回 `204` | 115 CDN 实际媒体字节/Range、稳定 Provider 重试或冷却、DirectStreamUrl/扩展名 Emby fallback、字幕、Progress/Stopped 完整链路 |
 | SenPlayer | `emby-toolkit` 固定源码将其列为 native client；Ember 有 UA 与通用载体 fake 测试 | 真实 Header/query/path、播放和字幕行为 |
 | Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试 | 真实 Token 载体、路径与播放行为 |
-| Emby Web | 目标 Gateway 日志已确认浏览器请求 `/` 与 `/favicon.ico`；固定 4.9.3 SDK 确认四个受保护 `/web` API 和根 WebSocket query 合同；Ember fake 测试覆盖后台开关实时变化、页面/静态资源代理、API 门控和真实 HTTP `101` Upgrade | 目标 Emby 根响应、Location、完整静态资源、登录、播放和 WebSocket 实机链路 |
+| Emby Web | 目标 Gateway 日志已确认浏览器请求 `/`、`/favicon.ico`、完整静态资源、单层语言 JSON、Branding CSS，以及携四个必填 `X-Emby-*` query 元数据的 Public users、Branding Configuration 和 AuthenticateByName；Public users、Branding Configuration、Brotli 认证映射、Sessions Capabilities、UserSettings 与无 Index Primary 图片已分别取得上游 `200/200/200/204/200/200`。登录后 Backdrop `/0`、`/1` 同样不带 Token，旧边界本地 `401`。固定 4.9.3 SDK 确认四个精确受保护 `/web` API、两种 Item Image 认证标记和根 WebSocket query 合同；Ember fake 测试覆盖后台开关、页面/静态资源代理、API 门控和真实 HTTP `101` Upgrade | Backdrop Index Surface 修复后的真实图片状态、页面完整资源、播放和登录后 WebSocket 实机链路 |
 | iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |
 
 不能把上游 README 或 Ember fake 测试写成目标环境已通过。新增客户端兼容必须先捕获脱敏请求形态，再扩展协议矩阵；禁止仅凭 UA 添加认证绕过。

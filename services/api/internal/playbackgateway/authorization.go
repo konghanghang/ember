@@ -21,6 +21,7 @@ const (
 	maxApplicationDeviceSize        = 128
 	maxApplicationDeviceIDSize      = 256
 	maxApplicationVersionSize       = 64
+	maxApplicationLanguageSize      = 64
 )
 
 type applicationAuthorizationHeader uint8
@@ -36,18 +37,158 @@ type accessTokenCandidates struct {
 	present bool
 }
 
+type applicationMetadataCarrier uint8
+
+const (
+	applicationMetadataNone applicationMetadataCarrier = iota
+	applicationMetadataHeader
+	applicationMetadataQuery
+	applicationMetadataAmbiguous
+)
+
 // extractApplicationMetadata accepts exactly one supported application Header
 // and returns only non-authoritative audit metadata.
 func extractApplicationMetadata(header http.Header) (AuthenticationMetadata, bool) {
+	return extractApplicationHeaderMetadata(header, false)
+}
+
+// extractApplicationHeaderMetadata shares the strict application grammar while
+// allowing public bootstrap requests to carry an already mapped embedded Token.
+func extractApplicationHeaderMetadata(header http.Header, allowNonEmptyToken bool) (AuthenticationMetadata, bool) {
 	rawValue, headerKind, ok := singleApplicationAuthorization(header)
 	if !ok {
 		return AuthenticationMetadata{}, false
 	}
-	fields, ok := parseApplicationAuthorization(rawValue, headerKind)
+	var fields map[string]string
+	if allowNonEmptyToken {
+		fields, ok = parseApplicationAuthorizationWithAccessToken(rawValue, headerKind)
+	} else {
+		fields, ok = parseApplicationAuthorization(rawValue, headerKind)
+	}
 	if !ok || fields["Client"] == "" || fields["Device"] == "" || fields["DeviceId"] == "" || fields["Version"] == "" {
 		return AuthenticationMetadata{}, false
 	}
 	return AuthenticationMetadata{DeviceID: fields["DeviceId"], ClientName: fields["Client"]}, true
+}
+
+// extractAuthenticationApplicationMetadata accepts one strict application
+// metadata carrier for AuthenticateByName. Header tokens remain empty-only,
+// while the Web query form never acts as a Token source.
+func extractAuthenticationApplicationMetadata(request *http.Request) (AuthenticationMetadata, applicationMetadataCarrier, bool) {
+	return extractRequestApplicationMetadata(request, false)
+}
+
+// extractPublicBootstrapApplicationMetadata accepts exactly one application
+// metadata carrier. The query form is limited to the target Emby Web login
+// bundle and never acts as an AccessToken source.
+func extractPublicBootstrapApplicationMetadata(request *http.Request) (AuthenticationMetadata, applicationMetadataCarrier, bool) {
+	return extractRequestApplicationMetadata(request, true)
+}
+
+// extractRequestApplicationMetadata enforces one Header-or-query carrier and
+// applies the caller's embedded Header Token policy without normalizing the
+// request forwarded upstream.
+func extractRequestApplicationMetadata(request *http.Request, allowNonEmptyHeaderToken bool) (AuthenticationMetadata, applicationMetadataCarrier, bool) {
+	if request == nil {
+		return AuthenticationMetadata{}, applicationMetadataNone, false
+	}
+	headerPresent := applicationAuthorizationHeaderCount(request.Header) > 0
+	queryMetadata, queryPresent, queryOK := extractApplicationQueryMetadata(request.URL)
+	if headerPresent && queryPresent {
+		return AuthenticationMetadata{}, applicationMetadataAmbiguous, false
+	}
+	if headerPresent {
+		metadata, ok := extractApplicationHeaderMetadata(request.Header, allowNonEmptyHeaderToken)
+		return metadata, applicationMetadataHeader, ok
+	}
+	if queryPresent {
+		return queryMetadata, applicationMetadataQuery, queryOK
+	}
+	return AuthenticationMetadata{}, applicationMetadataNone, false
+}
+
+// invalidApplicationMetadataLogCode maps the non-sensitive carrier kind to a
+// stable rejection code without exposing any Header or query value.
+func invalidApplicationMetadataLogCode(carrier applicationMetadataCarrier) string {
+	switch carrier {
+	case applicationMetadataQuery:
+		return "application_query_invalid"
+	case applicationMetadataAmbiguous:
+		return "application_metadata_ambiguous"
+	default:
+		return "application_header_invalid"
+	}
+}
+
+// extractApplicationQueryMetadata validates the four required X-Emby query
+// fields emitted before Web login. It preserves the original query for the
+// upstream and returns only bounded non-authoritative audit metadata.
+func extractApplicationQueryMetadata(requestURL *url.URL) (AuthenticationMetadata, bool, bool) {
+	if requestURL == nil {
+		return AuthenticationMetadata{}, false, false
+	}
+	fields := make(map[string]string, 5)
+	present := false
+	for key, values := range requestURL.Query() {
+		canonicalKey, limit, supported := applicationMetadataQueryField(key)
+		if !supported {
+			if strings.HasPrefix(strings.ToLower(key), "x-emby-") {
+				if _, tokenKey := canonicalTokenQueryKey(key); !tokenKey {
+					return AuthenticationMetadata{}, true, false
+				}
+			}
+			continue
+		}
+		present = true
+		if _, duplicate := fields[canonicalKey]; duplicate || len(values) != 1 || !validApplicationQueryValue(values[0], limit) {
+			return AuthenticationMetadata{}, true, false
+		}
+		fields[canonicalKey] = values[0]
+	}
+	if !present || fields["Client"] == "" || fields["Device"] == "" || fields["DeviceId"] == "" || fields["Version"] == "" {
+		return AuthenticationMetadata{}, present, false
+	}
+	return AuthenticationMetadata{DeviceID: fields["DeviceId"], ClientName: fields["Client"]}, true, true
+}
+
+// applicationMetadataQueryField maps only the fixed target Web query schema to
+// the existing application field limits.
+func applicationMetadataQueryField(key string) (string, int, bool) {
+	switch strings.ToLower(key) {
+	case "x-emby-client":
+		return "Client", maxApplicationClientSize, true
+	case "x-emby-device-name":
+		return "Device", maxApplicationDeviceSize, true
+	case "x-emby-device-id":
+		return "DeviceId", maxApplicationDeviceIDSize, true
+	case "x-emby-client-version":
+		return "Version", maxApplicationVersionSize, true
+	case "x-emby-language":
+		return "Language", maxApplicationLanguageSize, true
+	default:
+		return "", 0, false
+	}
+}
+
+// validApplicationQueryValue applies UTF-8, control-character, whitespace and
+// byte-length bounds without normalizing the value forwarded to Emby.
+func validApplicationQueryValue(value string, limit int) bool {
+	if value == "" || limit <= 0 || len(value) > limit || !utf8.ValidString(value) || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// applicationAuthorizationHeaderCount reports carrier presence without
+// reading or logging any Header value.
+func applicationAuthorizationHeaderCount(header http.Header) int {
+	return len(header.Values(standardAuthorizationHeader)) + len(header.Values(embyAuthorizationHeader)) +
+		len(header.Values(mediaBrowserAuthorizationHeader))
 }
 
 // extractProtectedRequestAccessToken resolves every supported Header and query

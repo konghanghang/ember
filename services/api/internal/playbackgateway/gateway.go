@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/andybalholm/brotli"
 	logpkg "github.com/konghang/ember/backend/internal/logging"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
@@ -242,9 +243,9 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		// PublicSystemInfo is the exact pre-login discovery endpoint. Emby is
 		// authoritative for its response and no local identity exists yet.
 	case routeAuthentication:
-		metadata, ok := extractApplicationMetadata(request.Header)
+		metadata, metadataCarrier, ok := extractAuthenticationApplicationMetadata(request)
 		if !ok {
-			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
+			gateway.logger.Printf("[PlaybackGateway] code=%s route=%s pathMode=%s", invalidApplicationMetadataLogCode(metadataCarrier), routeKindCode(kind), pathMode)
 			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -258,9 +259,17 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		}
 		routeContext.metadata = metadata
 	case routePublicBootstrap:
-		metadata, metadataOK := extractApplicationMetadata(request.Header)
-		applicationHeaderCount := len(request.Header.Values(standardAuthorizationHeader)) +
-			len(request.Header.Values(embyAuthorizationHeader)) + len(request.Header.Values(mediaBrowserAuthorizationHeader))
+		metadata, metadataCarrier, metadataOK := extractPublicBootstrapApplicationMetadata(request)
+		// The target Web query bundle is proven only for the exact public user
+		// list. Public images keep the existing application Header contract.
+		if metadataCarrier == applicationMetadataQuery && !exactRequestPathFold(request.URL, publicUsersPath) {
+			metadataOK = false
+		}
+		if metadataCarrier != applicationMetadataNone && !metadataOK {
+			gateway.logger.Printf("[PlaybackGateway] code=%s route=%s pathMode=%s", invalidApplicationMetadataLogCode(metadataCarrier), routeKindCode(kind), pathMode)
+			statusWriter.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		accessToken, reasonCode, tokenOK := extractProtectedRequestAccessToken(request)
 		if tokenOK {
 			principal, resolved := gateway.resolveRequestPrincipal(statusWriter, request, kind, startedAt, accessToken)
@@ -274,22 +283,13 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			break
 		}
 		if reasonCode != "token_missing" {
-			if applicationHeaderCount > 0 {
-				gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
-			} else {
-				gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid route=%s pathMode=%s reasonCode=%s", routeKindCode(kind), pathMode, reasonCode)
-			}
+			gateway.logger.Printf("[PlaybackGateway] code=token_header_invalid route=%s pathMode=%s reasonCode=%s", routeKindCode(kind), pathMode, reasonCode)
 			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		if metadataOK {
 			routeContext.metadata = metadata
 			break
-		}
-		if applicationHeaderCount > 0 {
-			gateway.logger.Printf("[PlaybackGateway] code=application_header_invalid route=%s pathMode=%s", routeKindCode(kind), pathMode)
-			statusWriter.WriteHeader(http.StatusUnauthorized)
-			return
 		}
 		fallthrough
 	default:
@@ -502,6 +502,8 @@ func decodeResponseSidecar(body []byte, contentEncoding string, maxBytes int64) 
 		return decodeGzipResponseSidecar(body, maxBytes)
 	case "deflate":
 		return decodeDeflateResponseSidecar(body, maxBytes)
+	case "br":
+		return decodeBrotliResponseSidecar(body, maxBytes)
 	default:
 		return nil, errSidecarResponseEncodingUnsupported
 	}
@@ -532,6 +534,13 @@ func decodeDeflateResponseSidecar(body []byte, maxBytes int64) ([]byte, error) {
 	return readBoundedResponseSidecar(rawReader, maxBytes)
 }
 
+// decodeBrotliResponseSidecar reads only the bounded observation copy used by
+// browser authentication and other JSON sidecars. The downstream still
+// receives the original Brotli bytes and Content-Encoding header.
+func decodeBrotliResponseSidecar(body []byte, maxBytes int64) ([]byte, error) {
+	return readBoundedResponseSidecar(brotli.NewReader(bytes.NewReader(body)), maxBytes)
+}
+
 // readBoundedResponseSidecar prevents compressed responses from
 // expanding beyond the sidecar inspection limit.
 func readBoundedResponseSidecar(reader io.Reader, maxBytes int64) ([]byte, error) {
@@ -557,6 +566,8 @@ func responseSidecarEncodingCode(contentEncoding string) string {
 		return "gzip"
 	case "deflate":
 		return "deflate"
+	case "br":
+		return "br"
 	default:
 		return "unsupported"
 	}

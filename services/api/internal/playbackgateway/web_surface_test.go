@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -86,6 +87,285 @@ func TestGatewayWebSurfaceFollowsPolicyAtRequestBoundary(t *testing.T) {
 			t.Fatalf("logs=%q, want %s", logs.String(), expected)
 		}
 	}
+}
+
+func TestGatewayWebSurfaceProxiesExactLoginAssetsWithoutToken(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "locale resource", target: "/web/strings/zh-CN.json?v=fixture"},
+		{name: "branding css", target: "/emby/Branding/Css.css?v=fixture"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				upstreamCalls.Add(1)
+				if request.Method != http.MethodGet || request.URL.RequestURI() != test.target {
+					t.Fatalf("upstream request=%s %s, want GET %s", request.Method, request.URL.RequestURI(), test.target)
+				}
+				writer.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(writer, "fixture-login-asset")
+			}))
+			defer upstream.Close()
+
+			policy := &fakeWebSurfacePolicy{enabled: true}
+			var logs bytes.Buffer
+			gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.target, nil))
+
+			if response.Code != http.StatusOK || response.Body.String() != "fixture-login-asset" || upstreamCalls.Load() != 1 {
+				t.Fatalf("response=%d body=%q upstreamCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load())
+			}
+			if calls := policy.callCount(); calls != 1 {
+				t.Fatalf("Web policy calls=%d, want 1", calls)
+			}
+			if !strings.Contains(logs.String(), "route=emby_web") || strings.Contains(logs.String(), "code=token_header_invalid") {
+				t.Fatalf("logs=%q", logs.String())
+			}
+		})
+	}
+}
+
+func TestGatewayWebSurfaceProxiesBrandingConfigurationWithWebQueryMetadata(t *testing.T) {
+	query := validWebApplicationQuery()
+	target := "/emby/Branding/Configuration?" + query.Encode()
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.Method != http.MethodGet || request.URL.RequestURI() != target {
+			t.Fatalf("upstream request=%s %s, want GET %s", request.Method, request.URL.RequestURI(), target)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"CustomCss":"fixture","LoginDisclaimer":"fixture"}`)
+	}))
+	defer upstream.Close()
+
+	policy := &fakeWebSurfacePolicy{enabled: true}
+	var logs bytes.Buffer
+	gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+
+	if response.Code != http.StatusOK || upstreamCalls.Load() != 1 || policy.callCount() != 1 {
+		t.Fatalf("response=%d upstreamCalls=%d policyCalls=%d", response.Code, upstreamCalls.Load(), policy.callCount())
+	}
+	if !strings.Contains(logs.String(), "route=emby_web") {
+		t.Fatalf("logs=%q", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), "Emby Web", "web-device-1", "Google Chrome macOS", "zh-cn")
+}
+
+func TestGatewayBrandingConfigurationRequiresExactWebQueryMetadataAndPolicy(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		query      url.Values
+		header     string
+		enabled    bool
+		wantStatus int
+		wantPolicy int
+	}{
+		{name: "disabled", method: http.MethodGet, path: "/emby/Branding/Configuration", query: validWebApplicationQuery(), wantStatus: http.StatusNotFound, wantPolicy: 1},
+		{name: "missing query", method: http.MethodGet, path: "/emby/Branding/Configuration", wantStatus: http.StatusUnauthorized},
+		{name: "incomplete query", method: http.MethodGet, path: "/emby/Branding/Configuration", query: func() url.Values {
+			values := validWebApplicationQuery()
+			values.Del("X-Emby-Device-Name")
+			return values
+		}(), wantStatus: http.StatusUnauthorized},
+		{name: "header and query", method: http.MethodGet, path: "/emby/Branding/Configuration", query: validWebApplicationQuery(), header: fixtureApplicationAuthorization, enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "head", method: http.MethodHead, path: "/emby/Branding/Configuration", query: validWebApplicationQuery(), enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "root path", method: http.MethodGet, path: "/Branding/Configuration", query: validWebApplicationQuery(), enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "trailing slash", method: http.MethodGet, path: "/emby/Branding/Configuration/", query: validWebApplicationQuery(), enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "encoded path", method: http.MethodGet, path: "/emby/Br%61nding/Configuration", query: validWebApplicationQuery(), enabled: true, wantStatus: http.StatusUnauthorized},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			policy := &fakeWebSurfacePolicy{enabled: test.enabled}
+			var logs bytes.Buffer
+			gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
+			target := test.path
+			if len(test.query) > 0 {
+				target += "?" + test.query.Encode()
+			}
+			request := httptest.NewRequest(test.method, target, nil)
+			if test.header != "" {
+				request.Header.Set(embyAuthorizationHeader, test.header)
+			}
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != test.wantStatus || response.Body.Len() != 0 || upstreamCalls.Load() != 0 || policy.callCount() != test.wantPolicy {
+				t.Fatalf("response=%d body=%q upstreamCalls=%d policyCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load(), policy.callCount())
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization, "Emby Web", "web-device-1")
+		})
+	}
+}
+
+func TestGatewayBrandingConfigurationWithMappedTokenUsesProtectedRoute(t *testing.T) {
+	query := validWebApplicationQuery()
+	query.Set("api_key", fixtureAccessToken)
+	target := "/emby/Branding/Configuration?" + query.Encode()
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.URL.RequestURI() != target {
+			t.Fatalf("upstream request=%s, want %s", request.URL.RequestURI(), target)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	policy := &fakeWebSurfacePolicy{enabled: false}
+	var logs bytes.Buffer
+	gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+
+	if response.Code != http.StatusNoContent || upstreamCalls.Load() != 1 || policy.callCount() != 0 {
+		t.Fatalf("response=%d upstreamCalls=%d policyCalls=%d", response.Code, upstreamCalls.Load(), policy.callCount())
+	}
+	if !strings.Contains(logs.String(), "route=protected") || strings.Contains(logs.String(), "route=emby_web") {
+		t.Fatalf("logs=%q", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "Emby Web", "web-device-1")
+}
+
+func TestGatewayWebSurfaceProxiesExactItemImageWithoutToken(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		target string
+	}{
+		{
+			name: "get primary image", method: http.MethodGet,
+			target: "/emby/Items/32019/Images/Primary?maxHeight=380&maxWidth=676&tag=fixture-tag&quality=90",
+		},
+		{
+			name: "get indexed backdrop image", method: http.MethodGet,
+			target: "/emby/Items/72567/Images/Backdrop/0?tag=fixture-tag&maxWidth=3840&quality=70",
+		},
+		{name: "head backdrop image", method: http.MethodHead, target: "/emby/Items/item-guid/Images/Backdrop?tag=fixture-tag"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				upstreamCalls.Add(1)
+				if request.Method != test.method || request.URL.RequestURI() != test.target {
+					t.Fatalf("upstream request=%s %s, want %s %s", request.Method, request.URL.RequestURI(), test.method, test.target)
+				}
+				writer.Header().Set("Content-Type", "image/jpeg")
+				writer.WriteHeader(http.StatusOK)
+				if request.Method != http.MethodHead {
+					_, _ = io.WriteString(writer, "fixture-image")
+				}
+			}))
+			defer upstream.Close()
+
+			policy := &fakeWebSurfacePolicy{enabled: true}
+			var logs bytes.Buffer
+			gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, httptest.NewRequest(test.method, test.target, nil))
+
+			if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/jpeg" ||
+				upstreamCalls.Load() != 1 || policy.callCount() != 1 {
+				t.Fatalf("response=%d headers=%v upstreamCalls=%d policyCalls=%d", response.Code, response.Header(), upstreamCalls.Load(), policy.callCount())
+			}
+			if test.method == http.MethodGet && response.Body.String() != "fixture-image" {
+				t.Fatalf("body=%q", response.Body.String())
+			}
+			if !strings.Contains(logs.String(), "route=emby_web") || strings.Contains(logs.String(), "code=token_header_invalid") {
+				t.Fatalf("logs=%q", logs.String())
+			}
+			assertSecretsAbsent(t, logs.String(), "fixture-tag")
+		})
+	}
+}
+
+func TestGatewayItemImageRequiresExactPathMethodAndWebPolicy(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		enabled    bool
+		wantStatus int
+		wantPolicy int
+	}{
+		{name: "disabled indexed image", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/1?tag=fixture", wantStatus: http.StatusNotFound, wantPolicy: 1},
+		{name: "root path", method: http.MethodGet, target: "/Items/32019/Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "trailing slash", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary/?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "encoded item id", method: http.MethodGet, target: "/emby/Items/item%2Did/Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "empty item id", method: http.MethodGet, target: "/emby/Items//Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "oversized image type", method: http.MethodGet, target: "/emby/Items/32019/Images/" + strings.Repeat("a", 129), enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "index leading zero", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/00", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "negative index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/-1", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "signed index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/+1", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "non numeric index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/first", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "int32 overflow index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/2147483648", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "encoded index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/%30", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "index extra path", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/0/extra", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "post", method: http.MethodPost, target: "/emby/Items/32019/Images/Primary", enabled: true, wantStatus: http.StatusUnauthorized},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				upstreamCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer upstream.Close()
+
+			policy := &fakeWebSurfacePolicy{enabled: test.enabled}
+			var logs bytes.Buffer
+			gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, httptest.NewRequest(test.method, test.target, nil))
+
+			if response.Code != test.wantStatus || response.Body.Len() != 0 || upstreamCalls.Load() != 0 || policy.callCount() != test.wantPolicy {
+				t.Fatalf("response=%d body=%q upstreamCalls=%d policyCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load(), policy.callCount())
+			}
+		})
+	}
+}
+
+func TestGatewayItemImageWithMappedTokenUsesProtectedRoute(t *testing.T) {
+	target := "/emby/Items/72567/Images/Backdrop/0?tag=fixture&api_key=" + fixtureAccessToken
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		upstreamCalls.Add(1)
+		if request.URL.RequestURI() != target {
+			t.Fatalf("upstream request=%s, want %s", request.URL.RequestURI(), target)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	policy := &fakeWebSurfacePolicy{enabled: false}
+	var logs bytes.Buffer
+	gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+
+	if response.Code != http.StatusNoContent || upstreamCalls.Load() != 1 || policy.callCount() != 0 {
+		t.Fatalf("response=%d upstreamCalls=%d policyCalls=%d", response.Code, upstreamCalls.Load(), policy.callCount())
+	}
+	if !strings.Contains(logs.String(), "route=protected") || strings.Contains(logs.String(), "route=emby_web") {
+		t.Fatalf("logs=%q", logs.String())
+	}
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
 func TestGatewayWebSurfaceConfigFailureFailsClosed(t *testing.T) {
@@ -259,9 +539,38 @@ func TestClassifyEmbyWebSurfaceIsDepthAndMethodExact(t *testing.T) {
 		{name: "favicon", method: http.MethodHead, target: "/favicon.ico", want: true},
 		{name: "web root", method: http.MethodGet, target: "/web", want: true},
 		{name: "web asset", method: http.MethodGet, target: "/web/app.js", want: true},
+		{name: "locale json asset", method: http.MethodGet, target: "/web/strings/zh-CN.json?v=fixture", want: true},
+		{name: "branding css", method: http.MethodHead, target: "/emby/Branding/Css.css?v=fixture", want: true},
+		{name: "branding configuration", method: http.MethodGet, target: "/emby/Branding/Configuration?" + validWebApplicationQuery().Encode(), want: true},
+		{name: "branding configuration missing query", method: http.MethodGet, target: "/emby/Branding/Configuration"},
+		{name: "branding configuration head", method: http.MethodHead, target: "/emby/Branding/Configuration?" + validWebApplicationQuery().Encode()},
+		{name: "item image get", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary?tag=fixture", want: true},
+		{name: "item image head", method: http.MethodHead, target: "/emby/Items/item-guid/Images/Backdrop", want: true},
+		{name: "root item image remains protected", method: http.MethodGet, target: "/Items/32019/Images/Primary"},
+		{name: "indexed item image", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/0", want: true},
+		{name: "indexed item image int32 max", method: http.MethodHead, target: "/emby/Items/72567/Images/Backdrop/2147483647", want: true},
+		{name: "indexed item image leading zero", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/00"},
+		{name: "indexed item image negative", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/-1"},
+		{name: "indexed item image overflow", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/2147483648"},
+		{name: "indexed item image extra path", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/0/extra"},
+		{name: "encoded item image remains protected", method: http.MethodGet, target: "/emby/Items/item%2Did/Images/Primary"},
+		{name: "item image post", method: http.MethodPost, target: "/emby/Items/32019/Images/Primary"},
+		{name: "item image token query", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary?api_key=fixture"},
+		{name: "root branding remains protected", method: http.MethodGet, target: "/Branding/Css.css"},
 		{name: "protected web api", method: http.MethodGet, target: "/web/ConfigurationPage"},
+		{name: "protected exact strings api", method: http.MethodGet, target: "/web/strings"},
+		{name: "protected strings trailing slash", method: http.MethodGet, target: "/web/strings/"},
 		{name: "protected web api trailing slash", method: http.MethodGet, target: "/web/ConfigurationPage/"},
 		{name: "protected web api deeper variant", method: http.MethodGet, target: "/web/strings/fixture"},
+		{name: "locale resource wrong extension", method: http.MethodGet, target: "/web/strings/zh-CN.js"},
+		{name: "locale resource deeper path", method: http.MethodGet, target: "/web/strings/zh-CN.json/extra"},
+		{name: "locale resource unsafe name", method: http.MethodGet, target: "/web/strings/zh.CN.json"},
+		{name: "locale resource oversized name", method: http.MethodGet, target: "/web/strings/" + strings.Repeat("a", maxWebLocaleNameLength+1) + ".json"},
+		{name: "locale resource encoded name", method: http.MethodGet, target: "/web/strings/zh%2DCN.json"},
+		{name: "branding without css extension", method: http.MethodGet, target: "/emby/Branding/Css"},
+		{name: "branding deeper path", method: http.MethodGet, target: "/emby/Branding/Css.css/extra"},
+		{name: "branding encoded path", method: http.MethodGet, target: "/emby/Br%61nding/Css.css"},
+		{name: "branding post", method: http.MethodPost, target: "/emby/Branding/Css.css"},
 		{name: "post asset", method: http.MethodPost, target: "/web/app.js"},
 		{name: "web lookalike", method: http.MethodGet, target: "/webish/app.js"},
 		{name: "encoded web", method: http.MethodGet, target: "/web%2Fapp.js"},
