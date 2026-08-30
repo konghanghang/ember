@@ -794,7 +794,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
 - `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、可选 dotenv bootstrap、日志 writer 初始化和退出码；合法运行命令先按 `EMBER_DOTENV → .env → services/api/.env` 选择并加载一次环境文件，再以安全 `info` 默认级别初始化对应进程日志文件，最后进入 API/Gateway。help 与非法参数保持无环境读取副作用；`InitDB` 保留一次静默兜底以兼容直接调用方
-- entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写。API/Gateway 的 `LOG_LEVEL=info|debug` 改由设置中心数据库托管并默认 `info`：API 在 settings 表可用后加载最终值，后台保存后立即原子切换；Gateway 启动加载一次，并在每个业务请求边界使用 `500ms` 上限强一致刷新，失败时保留上一次有效级别且不影响请求。GORM 在每次事件读取当前级别，所以不重建连接也能切换参数化 SQL；Bot 继续独立读取环境变量 `LOG_LEVEL`，第三方 Bot HTTP logger 不随 Debug 放宽
+- entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写。API/Gateway 的 `LOG_LEVEL=info|debug` 改由设置中心数据库托管并默认 `info`：API 在 settings 表可用后加载最终值，后台保存后立即原子切换；Gateway 启动加载一次，之后在业务请求边界读取 5 秒进程缓存，TTL 到期后的并发刷新合并为一次带 `500ms` 上限的数据库读取，刷新错误同样退避 5 秒，失败时保留上一次有效级别且不影响请求。GORM 在每次事件读取当前级别，所以不重建连接也能切换参数化 SQL；Bot 继续独立读取环境变量 `LOG_LEVEL`，第三方 Bot HTTP logger 不随 Debug 放宽
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 
 - Gateway 进程启动顺序为 `InitDB → Migrate → VerifySchema → load LOG_LEVEL → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
@@ -816,7 +816,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 响应无效、超过检查上限或 Token 映射写入失败时不建立映射，但仍返回 Emby 原始成功响应；错误日志只记录固定 code 和错误类型，不记录密码、AccessToken、上游 URL 或响应体
 - 标准应用头中的 `Client/DeviceId` 分别作为非权威 `clientName/deviceId` 写入认证映射，只用于审计和设备撤销；不能替代响应中的 `User.Id/ServerId/AccessToken` 身份绑定
 - 其他请求按 [Emby Gateway 客户端兼容矩阵](./reference/emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格 Emby/MediaBrowser 应用头和固定 query aliases；所有非空候选同值才调用 `ResolvePrincipal`。缺失、空值、重复、冲突或非法格式返回 `401`；用户不可用/到期返回 `403`，请求取消/deadline 返回 `499/504`，真实身份存储故障返回 `503`
-- `PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心 `media` 分组的数据库布尔项，默认 `true`、`restartRequired=false`、没有同名环境变量。API 保存后，独立 Gateway 对下一次已识别 Web Surface 请求使用 request context 直接读取 `settings`，不经过通用 60 秒进程缓存；关闭返回空体 `404`，读取失败 fail-closed 返回空体 `503`。普通 API、视频、WebSocket 和 `/health` 不执行该查询
+- `PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心 `media` 分组的数据库布尔项，默认 `true`、`restartRequired=false`、没有同名环境变量。API 保存后，独立 Gateway 最多在 5 秒内同步新值；已识别 Web Surface 请求读取同一短期进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次带 request context 的数据库读取，刷新错误同样退避 5 秒。关闭返回空体 `404`，刷新读取失败期间 fail-closed 返回空体 `503`。普通 API、视频、WebSocket 和 `/health` 不读取该项
 - 设置中心继续使用数据驱动的 boolean 控件展示该项并标记“立即生效”，不新增页面或前端运行期配置源
 - 每个经过 Gateway Handler 的请求都可在 Debug 级别记录 `code=request_completed`：包含有界 method/Host/原始 path、query key 名称/数量、route/pathMode、statusCode、success/failure、耗时，直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态和已知 User-Agent family/version；默认 Info 不逐请求输出该摘要。所有级别都禁止记录 query value、Header 原值、Cookie、Token 或 Authorization 内容
 - 三类固定 `POST /Sessions/Playing*` 请求只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 并恢复原始 body，提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 只用于排障；未通过身份门控时不读取 body，非法、超大或不支持编码的已认证 body 仍原样透明转发，只记录固定 `snapshotState`。开始/停止成功、任一会话失败和失败后的首次恢复使用中文 Info 事件；正常 Progress 心跳只在 Debug 输出，避免每 10 秒刷 Info

@@ -9,8 +9,9 @@ import (
 
 var errWebSurfacePolicyUnavailable = errors.New("playback gateway Web Surface policy unavailable")
 
-// serveWebSurface applies the fresh database switch before transparently
-// proxying an Emby Web page or static asset without local user Token gating.
+// serveWebSurface applies the current short-cached database switch before
+// transparently proxying an Emby Web page or static asset without local user
+// Token gating.
 func (gateway *Gateway) serveWebSurface(writer http.ResponseWriter, request *http.Request) {
 	enabled, err := gateway.playbackGatewayWebEnabled(request.Context())
 	if err != nil {

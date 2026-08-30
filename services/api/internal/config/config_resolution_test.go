@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	dbpkg "github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
@@ -382,7 +384,9 @@ func TestConfigServiceBusinessConfigHelpers(t *testing.T) {
 	}
 }
 
-func TestPlaybackGatewayWebEnabledReadsFreshDatabaseValue(t *testing.T) {
+func TestPlaybackGatewayWebEnabledUsesRuntimeCacheUntilRefreshTTL(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
 	t.Setenv(PlaybackGatewayWebEnabledKey, "false")
 	current := "true"
 	loadCalls := 0
@@ -404,24 +408,42 @@ func TestPlaybackGatewayWebEnabledReadsFreshDatabaseValue(t *testing.T) {
 	}
 	current = "false"
 	enabled, err = service.PlaybackGatewayWebEnabled(context.Background())
+	if err != nil || !enabled {
+		t.Fatalf("cached PlaybackGatewayWebEnabled()=(%t,%v), want true", enabled, err)
+	}
+	if loadCalls != 1 {
+		t.Fatalf("cached load calls=%d, want 1", loadCalls)
+	}
+
+	expireCachedSettingForTest(PlaybackGatewayWebEnabledKey)
+	enabled, err = service.PlaybackGatewayWebEnabled(context.Background())
 	if err != nil || enabled {
-		t.Fatalf("second PlaybackGatewayWebEnabled()=(%t,%v), want false", enabled, err)
+		t.Fatalf("refreshed PlaybackGatewayWebEnabled()=(%t,%v), want false", enabled, err)
 	}
 	if loadCalls != 2 {
-		t.Fatalf("fresh load calls=%d, want 2", loadCalls)
+		t.Fatalf("refreshed load calls=%d, want 2", loadCalls)
 	}
 }
 
 func TestPlaybackGatewayWebEnabledDefaultsTrueAndFailsClosedOnInvalidStore(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
 	t.Setenv(PlaybackGatewayWebEnabledKey, "false")
+	loadCalls := 0
 	service := &ConfigService{
 		loadSettingRecords: func([]string) (map[string]models.Setting, error) {
+			loadCalls++
 			return map[string]models.Setting{}, nil
 		},
 	}
-	enabled, err := service.PlaybackGatewayWebEnabled(context.Background())
-	if err != nil || !enabled {
-		t.Fatalf("default PlaybackGatewayWebEnabled()=(%t,%v), want true", enabled, err)
+	for requestNumber := range 2 {
+		enabled, err := service.PlaybackGatewayWebEnabled(context.Background())
+		if err != nil || !enabled {
+			t.Fatalf("default request %d PlaybackGatewayWebEnabled()=(%t,%v), want true", requestNumber, enabled, err)
+		}
+	}
+	if loadCalls != 1 {
+		t.Fatalf("missing setting load calls=%d, want one negative-cached read", loadCalls)
 	}
 
 	service.loadSettingRecords = func([]string) (map[string]models.Setting, error) {
@@ -429,6 +451,7 @@ func TestPlaybackGatewayWebEnabledDefaultsTrueAndFailsClosedOnInvalidStore(t *te
 			PlaybackGatewayWebEnabledKey: {Key: PlaybackGatewayWebEnabledKey, Value: "invalid"},
 		}, nil
 	}
+	InvalidateCachedSetting(PlaybackGatewayWebEnabledKey)
 	if _, err := service.PlaybackGatewayWebEnabled(context.Background()); !errors.Is(err, ErrConfigValidation) {
 		t.Fatalf("invalid PlaybackGatewayWebEnabled() error=%v, want ErrConfigValidation", err)
 	}
@@ -437,12 +460,15 @@ func TestPlaybackGatewayWebEnabledDefaultsTrueAndFailsClosedOnInvalidStore(t *te
 	service.loadSettingRecords = func([]string) (map[string]models.Setting, error) {
 		return nil, storeErr
 	}
+	InvalidateCachedSetting(PlaybackGatewayWebEnabledKey)
 	if _, err := service.PlaybackGatewayWebEnabled(context.Background()); !errors.Is(err, storeErr) {
 		t.Fatalf("store PlaybackGatewayWebEnabled() error=%v, want %v", err, storeErr)
 	}
 }
 
-func TestLogLevelReadsFreshDatabaseValueAndIgnoresEnvironment(t *testing.T) {
+func TestLogLevelUsesRuntimeCacheUntilRefreshTTLAndIgnoresEnvironment(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
 	t.Setenv(LogLevelKey, "debug")
 	current := "info"
 	loadCalls := 0
@@ -464,15 +490,26 @@ func TestLogLevelReadsFreshDatabaseValueAndIgnoresEnvironment(t *testing.T) {
 	}
 	current = "debug"
 	level, err = service.LogLevel(context.Background())
+	if err != nil || level != "info" {
+		t.Fatalf("cached LogLevel()=(%q,%v), want info", level, err)
+	}
+	if loadCalls != 1 {
+		t.Fatalf("cached load calls=%d, want 1", loadCalls)
+	}
+
+	expireCachedSettingForTest(LogLevelKey)
+	level, err = service.LogLevel(context.Background())
 	if err != nil || level != "debug" {
-		t.Fatalf("second LogLevel()=(%q,%v), want debug", level, err)
+		t.Fatalf("refreshed LogLevel()=(%q,%v), want debug", level, err)
 	}
 	if loadCalls != 2 {
-		t.Fatalf("fresh load calls=%d, want 2", loadCalls)
+		t.Fatalf("refreshed load calls=%d, want 2", loadCalls)
 	}
 }
 
 func TestLogLevelDefaultsInfoAndRejectsInvalidStore(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
 	t.Setenv(LogLevelKey, "debug")
 	service := &ConfigService{
 		loadSettingRecords: func([]string) (map[string]models.Setting, error) {
@@ -489,7 +526,115 @@ func TestLogLevelDefaultsInfoAndRejectsInvalidStore(t *testing.T) {
 			LogLevelKey: {Key: LogLevelKey, Value: "trace"},
 		}, nil
 	}
+	InvalidateCachedSetting(LogLevelKey)
 	if _, err := service.LogLevel(context.Background()); !errors.Is(err, ErrConfigValidation) {
 		t.Fatalf("invalid LogLevel() error=%v, want ErrConfigValidation", err)
 	}
+}
+
+func TestLogLevelRuntimeCacheCoalescesConcurrentRefresh(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
+
+	var mu sync.Mutex
+	current := "info"
+	loadCalls := 0
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	service := &ConfigService{
+		loadSettingRecords: func(keys []string) (map[string]models.Setting, error) {
+			mu.Lock()
+			loadCalls++
+			callNumber := loadCalls
+			value := current
+			mu.Unlock()
+			if callNumber == 2 {
+				close(refreshStarted)
+				<-releaseRefresh
+			}
+			return map[string]models.Setting{
+				LogLevelKey: {Key: LogLevelKey, Value: value},
+			}, nil
+		},
+	}
+
+	if level, err := service.LogLevel(context.Background()); err != nil || level != "info" {
+		t.Fatalf("initial LogLevel()=(%q,%v), want info", level, err)
+	}
+	mu.Lock()
+	current = "debug"
+	mu.Unlock()
+	expireCachedSettingForTest(LogLevelKey)
+
+	const requestCount = 16
+	var waitGroup sync.WaitGroup
+	levels := make([]string, requestCount)
+	errorsSeen := make([]error, requestCount)
+	waitGroup.Add(requestCount)
+	for index := range requestCount {
+		go func() {
+			defer waitGroup.Done()
+			levels[index], errorsSeen[index] = service.LogLevel(context.Background())
+		}()
+	}
+
+	<-refreshStarted
+	close(releaseRefresh)
+	waitGroup.Wait()
+
+	for index := range requestCount {
+		if errorsSeen[index] != nil || levels[index] != "debug" {
+			t.Fatalf("request %d LogLevel()=(%q,%v), want debug", index, levels[index], errorsSeen[index])
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if loadCalls != 2 {
+		t.Fatalf("load calls=%d, want one initial load and one shared refresh", loadCalls)
+	}
+}
+
+func TestGatewayRuntimeSettingCacheBacksOffStoreFailures(t *testing.T) {
+	resetSettingsCacheForTest()
+	t.Cleanup(resetSettingsCacheForTest)
+
+	storeErr := errors.New("store unavailable")
+	loadCalls := 0
+	service := &ConfigService{
+		loadSettingRecords: func([]string) (map[string]models.Setting, error) {
+			loadCalls++
+			return nil, storeErr
+		},
+	}
+
+	for requestNumber := range 2 {
+		if _, err := service.PlaybackGatewayWebEnabled(context.Background()); !errors.Is(err, storeErr) {
+			t.Fatalf("request %d error=%v, want cached store error", requestNumber, err)
+		}
+	}
+	if loadCalls != 1 {
+		t.Fatalf("store failure load calls=%d, want one load during backoff window", loadCalls)
+	}
+
+	service.loadSettingRecords = func([]string) (map[string]models.Setting, error) {
+		loadCalls++
+		return map[string]models.Setting{}, nil
+	}
+	expireCachedSettingForTest(PlaybackGatewayWebEnabledKey)
+	enabled, err := service.PlaybackGatewayWebEnabled(context.Background())
+	if err != nil || !enabled {
+		t.Fatalf("recovered PlaybackGatewayWebEnabled()=(%t,%v), want true", enabled, err)
+	}
+	if loadCalls != 2 {
+		t.Fatalf("recovered load calls=%d, want one retry after backoff", loadCalls)
+	}
+}
+
+func expireCachedSettingForTest(key string) {
+	globalSettingsCacheStore.mu.Lock()
+	entry := globalSettingsCacheStore.entries[key]
+	entry.loadedAt = time.Now().Add(-time.Hour)
+	entry.errorUntil = time.Now().Add(-time.Hour)
+	globalSettingsCacheStore.entries[key] = entry
+	globalSettingsCacheStore.mu.Unlock()
 }

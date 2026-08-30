@@ -89,11 +89,11 @@
 
 Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问原始 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是用户和播放器看到的 Gateway 公网 HTTPS 地址。二者指向同一公网 Gateway 会形成代理回环，原始 Emby 继续公开则会形成安全旁路。
 
-`PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 对下一次 `/`、`/favicon.ico` 或 `/web` 页面/静态资源请求直接读取新值并实时生效。关闭时返回空体 `404`，数据库读取失败时返回空体 `503`；Infuse 等客户端 API、视频和带 Token 的根 WebSocket 不受该开关影响。
+`PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 最多在 5 秒内同步新值。已识别的 `/`、`/favicon.ico` 或 `/web` 页面/静态资源请求优先读取进程缓存，TTL 到期后的并发刷新只查询一次数据库；刷新错误同样退避 5 秒。关闭时返回空体 `404`，刷新读取失败期间返回空体 `503`；Infuse 等客户端 API、视频和带 Token 的根 WebSocket 不受该开关影响。
 
 API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接运行 `ember gateway` 时同样监听 `:8081`。`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变映射到 Gateway `8081` 的宿主机 `127.0.0.1` 端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
 
-API 与 Gateway 的 `LOG_LEVEL` 由设置中心数据库托管，只接受 `info/debug` 并默认 `info`。Info 保留关键业务事件、失败和视频最终决策；Debug 额外输出安全请求摘要、正常 access log、参数化 SQL 和 Gateway 缓存/载体诊断。API 保存后当前进程立即生效；Gateway 在下一次业务请求读取新值，读取失败时保留上一次有效级别且不阻断请求。修改不需要重启。
+API 与 Gateway 的 `LOG_LEVEL` 由设置中心数据库托管，只接受 `info/debug` 并默认 `info`。Info 保留关键业务事件、失败和视频最终决策；Debug 额外输出安全请求摘要、正常 access log、参数化 SQL 和 Gateway 缓存/载体诊断。API 保存后当前进程立即生效；Gateway 通过 5 秒进程缓存同步新值，TTL 到期后的并发刷新只查询一次数据库，刷新错误同样退避 5 秒，读取失败时保留上一次有效级别且不阻断请求。修改不需要重启。
 
 本地直接运行 `ember api/gateway` 时，entrypoint 仍会加载 dotenv 中的数据库连接和密钥，但忽略环境中的 `LOG_LEVEL`。启动日志先出现 `logging_initialized ... source=bootstrap_default`，settings 表可用后再出现最终的 `log_level_loaded ... source=system_config`。Compose 的 `LOG_LEVEL` 只继续传给 Python Bot；Bot 修改后仍需重启自身进程。
 

@@ -47,8 +47,8 @@ var (
 	ErrRuntimeEmbyAPIKeyUnavailable = fmt.Errorf("%w: Emby API key unavailable", ErrRuntimeConfig)
 )
 
-// RuntimeSettings resolves Emby, Web Surface and runtime log settings already
-// owned by ConfigService without creating a second configuration source.
+// RuntimeSettings resolves Emby plus short-cached Web Surface and runtime log
+// settings already owned by ConfigService without creating a second source.
 type RuntimeSettings interface {
 	GetString(string) string
 	PlaybackGatewayWebEnabled(context.Context) (bool, error)

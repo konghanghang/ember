@@ -1,11 +1,35 @@
 package config
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
 	"github.com/konghang/ember/backend/internal/models"
 )
+
+func TestDefaultSettingsCacheDoesNotBackOffStoreFailures(t *testing.T) {
+	store := &settingsCacheStore{
+		entries:     make(map[string]settingsCacheEntry),
+		inflight:    make(map[string]*settingsCacheCall),
+		generations: make(map[string]uint64),
+	}
+	storeErr := errors.New("store unavailable")
+	loadCalls := 0
+	loader := func([]string) (map[string]models.Setting, error) {
+		loadCalls++
+		return nil, storeErr
+	}
+
+	for requestNumber := range 2 {
+		if _, err := store.loadMany([]string{"TEST_ERROR_KEY"}, loader); !errors.Is(err, storeErr) {
+			t.Fatalf("request %d error=%v, want store error", requestNumber, err)
+		}
+	}
+	if loadCalls != 2 {
+		t.Fatalf("default cache load calls=%d, want immediate retry behavior", loadCalls)
+	}
+}
 
 func TestResolveStringUsesKeyCacheForRepeatedDatabaseReads(t *testing.T) {
 	resetSettingsCacheForTest()

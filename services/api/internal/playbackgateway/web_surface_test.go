@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-func TestGatewayWebSurfaceFollowsLivePolicy(t *testing.T) {
+func TestGatewayWebSurfaceFollowsPolicyAtRequestBoundary(t *testing.T) {
 	var upstreamMu sync.Mutex
 	upstreamRequests := make([]string, 0, 4)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -79,7 +79,7 @@ func TestGatewayWebSurfaceFollowsLivePolicy(t *testing.T) {
 		}
 	}
 	if calls := policy.callCount(); calls != 4 {
-		t.Fatalf("policy calls=%d, want one fresh read per Web request", calls)
+		t.Fatalf("policy calls=%d, want one evaluation per Web request", calls)
 	}
 	for _, expected := range []string{"code=web_surface_disabled", `message="Emby网页访问已关闭"`, "route=emby_web"} {
 		if !strings.Contains(logs.String(), expected) {

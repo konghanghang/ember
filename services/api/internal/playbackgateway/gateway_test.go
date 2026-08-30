@@ -1195,7 +1195,7 @@ func TestGatewayInfoLevelSuppressesDetailedSuccessfulRequestLog(t *testing.T) {
 	}
 }
 
-func TestGatewayRefreshesDatabaseLogLevelPerRequestAndRetainsLastValidLevel(t *testing.T) {
+func TestGatewayRefreshesLogLevelPolicyAtRequestBoundaryAndRetainsLastValidLevel(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusNoContent)
 	}))

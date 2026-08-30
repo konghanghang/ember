@@ -302,14 +302,15 @@ func (s *ConfigService) IsTurnstileLoginEnabled() bool {
 }
 
 // PlaybackGatewayWebEnabled reads the database-backed Web Surface switch
-// without the process-local settings cache so the separate Gateway process
-// observes an admin update on the next Web request.
+// through the short runtime cache so bursts of Web assets do not query the
+// database per request. The separate Gateway observes updates within the
+// bounded cache freshness window.
 func (s *ConfigService) PlaybackGatewayWebEnabled(ctx context.Context) (bool, error) {
 	def, ok := getConfigDefinitionMap()[PlaybackGatewayWebEnabledKey]
 	if !ok {
 		return false, ErrConfigNotFound
 	}
-	settingsMap, err := s.loadFreshSetting(ctx, def.Key)
+	settingsMap, err := s.loadGatewayRuntimeSetting(ctx, def.Key)
 	if err != nil {
 		return false, err
 	}
@@ -324,15 +325,15 @@ func (s *ConfigService) PlaybackGatewayWebEnabled(ctx context.Context) (bool, er
 	return normalized == "true", nil
 }
 
-// LogLevel reads the database-only API/Gateway log level without the shared
-// settings cache so the Gateway can observe an admin update on its next
-// request. The Python Bot intentionally keeps its environment configuration.
+// LogLevel reads the database-only API/Gateway log level through the short
+// runtime cache. The Python Bot intentionally keeps its environment
+// configuration.
 func (s *ConfigService) LogLevel(ctx context.Context) (string, error) {
 	def, ok := getConfigDefinitionMap()[LogLevelKey]
 	if !ok {
 		return "", ErrConfigNotFound
 	}
-	settingsMap, err := s.loadFreshSetting(ctx, def.Key)
+	settingsMap, err := s.loadGatewayRuntimeSetting(ctx, def.Key)
 	if err != nil {
 		return "", err
 	}
@@ -913,6 +914,10 @@ func (s *ConfigService) loadSettings(definitions []ConfigDefinition) (map[string
 }
 
 func (s *ConfigService) loadSettingsFromStore(keys []string) (map[string]models.Setting, error) {
+	return s.loadSettingsFromStoreContext(context.Background(), keys)
+}
+
+func (s *ConfigService) loadSettingsFromStoreContext(ctx context.Context, keys []string) (map[string]models.Setting, error) {
 	if s != nil && s.loadSettingRecords != nil {
 		return s.loadSettingRecords(keys)
 	}
@@ -920,8 +925,11 @@ func (s *ConfigService) loadSettingsFromStore(keys []string) (map[string]models.
 		return map[string]models.Setting{}, nil
 	}
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var settings []models.Setting
-	if err := db.DB.Where("key IN ?", keys).Find(&settings).Error; err != nil {
+	if err := db.DB.WithContext(ctx).Where("key IN ?", keys).Find(&settings).Error; err != nil {
 		return nil, err
 	}
 
@@ -932,27 +940,18 @@ func (s *ConfigService) loadSettingsFromStore(keys []string) (map[string]models.
 	return result, nil
 }
 
-// loadFreshSetting bypasses the shared in-process cache for one dynamic
-// cross-process setting while preserving injectable fake loaders in tests.
-func (s *ConfigService) loadFreshSetting(ctx context.Context, key string) (map[string]models.Setting, error) {
-	if s != nil && s.loadSettingRecords != nil {
-		return s.loadSettingRecords([]string{key})
-	}
-	if db.DB == nil {
-		return map[string]models.Setting{}, nil
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	var setting models.Setting
-	result := db.DB.WithContext(ctx).Where("key = ?", key).Limit(1).Find(&setting)
-	if result.Error != nil {
-		return nil, result.Error
-	}
-	if result.RowsAffected == 0 {
-		return map[string]models.Setting{}, nil
-	}
-	return map[string]models.Setting{key: setting}, nil
+// loadGatewayRuntimeSetting keeps one positive or negative cache entry per
+// fixed runtime key. The shared store coalesces concurrent refreshes and backs
+// off failed refreshes for the same TTL, so Web asset bursts cannot turn either
+// healthy or unavailable database reads into a per-request query loop.
+func (s *ConfigService) loadGatewayRuntimeSetting(ctx context.Context, key string) (map[string]models.Setting, error) {
+	return globalSettingsCacheStore.loadManyWithTTL(
+		[]string{key},
+		gatewayRuntimeSettingCacheTTL,
+		func(keys []string) (map[string]models.Setting, error) {
+			return s.loadSettingsFromStoreContext(ctx, keys)
+		},
+	)
 }
 
 func (s *ConfigService) encrypt(plain string) (string, error) {
@@ -1593,7 +1592,7 @@ func getConfigDefinitions() []ConfigDefinition {
 			Group:              ConfigGroupDeployment,
 			GroupLabel:         "部署与密钥",
 			Label:              "API / Gateway 日志级别",
-			Description:        "实时控制 API 与 Playback Gateway 的应用日志详细程度；不影响 Python Bot、Nginx 和数据库原生日志",
+			Description:        "控制 API 与 Playback Gateway 的应用日志详细程度；Gateway 最多 5 秒同步，不影响 Python Bot、Nginx 和数据库原生日志",
 			Type:               ConfigValueEnum,
 			DefaultValue:       "info",
 			Editable:           true,

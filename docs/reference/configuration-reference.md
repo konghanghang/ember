@@ -28,7 +28,7 @@
    - 用于展示 GitHub 源码入口和当前构建对应的 commit hash
    - 不属于容器运行期配置，修改后需要重新构建 Web 镜像
 
-API 与 Gateway 的 `LOG_LEVEL` 已迁移为设置中心数据库配置，只接受 `info/debug` 并默认 `info`。API 保存成功后当前 API 进程立即切换；独立 Gateway 在下一次进入 Handler 的业务请求上强一致读取并切换，不需要重启。Python Bot 继续使用启动环境变量 `LOG_LEVEL`，不参与本次运行期配置。
+API 与 Gateway 的 `LOG_LEVEL` 已迁移为设置中心数据库配置，只接受 `info/debug` 并默认 `info`。API 保存成功后当前 API 进程立即切换；独立 Gateway 通过 5 秒进程缓存同步新值，不需要重启。Python Bot 继续使用启动环境变量 `LOG_LEVEL`，不参与本次运行期配置。
 
 Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未指定时依次检查当前目录 `.env` 与 `services/api/.env`，用于数据库连接和密钥等部署期变量。Go API/Gateway 不再读取其中的 `LOG_LEVEL`。
 
@@ -60,7 +60,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 | `EMBY_URL` | 否 | 否 | API 访问 Emby 的基础地址 |
 | `EMBY_API_KEY` | 是 | 否 | Emby API 鉴权密钥 |
 | `NEXT_PUBLIC_EMBY_URL` | 否 | 否 | 控制台展示与用户跳转使用的前端 Emby 地址；沿用历史键名，作为数据库配置项保留，为空时回退 `EMBY_URL` |
-| `PLAYBACK_GATEWAY_WEB_ENABLED` | 否 | 否 | 是否允许通过 Gateway 打开 Emby 网页端；默认开启，后台保存后下一次 Web 请求实时生效，不影响客户端 API、视频或 WebSocket |
+| `PLAYBACK_GATEWAY_WEB_ENABLED` | 否 | 否 | 是否允许通过 Gateway 打开 Emby 网页端；默认开启，后台保存后最多 5 秒生效，不影响客户端 API、视频或 WebSocket |
 | `TMDB_API_KEY` | 是 | 否 | TMDB 接口密钥 |
 | `MOVIEPILOT_URL` | 否 | 否 | MoviePilot 地址 |
 | `MOVIEPILOT_API_KEY` | 是 | 否 | MoviePilot API Key（X-API-KEY） |
@@ -69,7 +69,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 
 - 旧版 `MOVIEPILOT_USERNAME` / `MOVIEPILOT_PASSWORD` 已废弃。
 - 若历史实例仍保存旧用户名密码配置，而 `MOVIEPILOT_API_KEY` 为空，设置中心测试应视为需要迁移，而不是“未配置成功”。
-- `PLAYBACK_GATEWAY_WEB_ENABLED` 只存在于设置中心和 `settings` 表，不读取同名环境变量；Gateway 对已识别 Web Surface 绕过 60 秒进程缓存执行强一致读取，配置读取失败时返回 `503`，关闭时返回 `404`。
+- `PLAYBACK_GATEWAY_WEB_ENABLED` 只存在于设置中心和 `settings` 表，不读取同名环境变量；Gateway 对已识别 Web Surface 使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取。刷新错误同样退避 5 秒，期间持续返回 `503`，避免数据库故障时逐请求重试；关闭时返回 `404`。
 - `email_verification` 会经过 Normalize（大小写与首尾空格不敏感），不要再假设只有严格字面量 `"true"` 才算开启。
 
 ### 2.3 邮件服务
@@ -139,8 +139,8 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 说明：
 
 - API 保存 `LOG_LEVEL` 后立即原子切换当前进程；Gin 安全 access 摘要和 GORM 参数化 SQL 随新级别生效，不重建数据库连接。
-- Gateway 启动时读取一次最终值，之后每个进入 Gateway Handler 的业务请求都绕过设置缓存读取最新值，单次读取上限 `500ms`；`/health` 不承担配置刷新职责。
-- Gateway 刷新失败时保留上一次有效级别并继续处理请求；同一连续失败只记录一次 `log_level_refresh_failed`，恢复时记录 `log_level_refresh_recovered`。
+- Gateway 启动时读取一次最终值，之后每个进入 Gateway Handler 的业务请求先读取进程缓存；缓存 5 秒内不访问数据库，TTL 到期后的并发刷新合并为一次数据库读取，单次读取上限 `500ms`。`/health` 不承担配置刷新职责。
+- Gateway 刷新失败时保留上一次有效级别并继续处理请求；刷新错误会退避 5 秒，避免数据库故障时逐请求重试。同一连续失败只记录一次 `log_level_refresh_failed`，恢复时记录 `log_level_refresh_recovered`。
 - `debug` 仍不得输出 query value、Header 原值、Cookie、Token、Authorization、完整外部响应或其他敏感载体，也不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 原生日志。
 - Python Bot 继续使用环境变量 `LOG_LEVEL`；后台修改不会改变 Bot 日志级别。
 

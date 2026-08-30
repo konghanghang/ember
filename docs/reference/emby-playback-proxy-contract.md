@@ -65,7 +65,7 @@ Emby 客户端
 | 固定 OpenAPI 顶层 API family 的根路径，例如 `/System/...` | `/emby/System/...` | 先规范化，再执行同一路由分类和门控 |
 | 已带 `/emby/...` | 保持单一 `/emby/...` | 兼容历史客户端地址，不重复添加前缀 |
 | 精确重复 `/emby/emby/...` | 不转发 | 返回空体 `400` 并记录固定 `request_path_invalid` |
-| `GET/HEAD /`、`/favicon.ico`、`/web` 页面和静态资源 | 不做 API 规范化 | 进入独立 Web Surface，由后台数据库开关实时控制 |
+| `GET/HEAD /`、`/favicon.ico`、`/web` 页面和静态资源 | 不做 API 规范化 | 进入独立 Web Surface，由后台数据库开关控制并在 5 秒内同步 |
 | 固定 `GET /web/ConfigurationPage(s)`、`strings`、`stringset` | `/emby/web/...` | 继续按受保护 Emby API 处理；尾斜杠和深层变体不继承匿名权限 |
 | 根 WebSocket Upgrade | 保持 `/` | 使用固定 query Token 合同并继续执行本地身份门控，不受 Web UI 开关影响 |
 | 其他未知 Surface | 不做 API 规范化 | 继续受保护并失败关闭 |
@@ -247,7 +247,7 @@ Ember 本地撤销固定三种粒度：
 
 固定 SDK [Web Socket 合同](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/doc/restapi/Web-Socket.html) 使用服务根地址的 `ws/wss` Upgrade，并携带 `api_key + deviceId`。Gateway 对根 Upgrade 继续执行通用 query Token 映射，现有 ReverseProxy 透传并升级 `101`；关闭 Web UI 不影响该链路。
 
-`PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对每个已识别 Web Surface 请求绕过通用进程缓存直接读取新值：开启则保持原始 method/path/query/Header 和响应透明代理，关闭返回空体 `404` 且不访问上游，读取失败返回空体 `503`。该读取不进入普通 API、视频、WebSocket 或健康检查路径。
+`PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对已识别 Web Surface 请求使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取，刷新错误同样退避 5 秒：开启则保持原始 method/path/query/Header 和响应透明代理，关闭返回空体 `404` 且不访问上游，刷新读取失败期间返回空体 `503`。该读取不进入普通 API、视频、WebSocket 或健康检查路径。
 
 目标日志仅确认浏览器访问 Gateway 时实际请求 `/` 与 `/favicon.ico`；Emby Web 根响应、后续静态资源清单和真实 `101` 仍未在目标实例实机验收，当前能力等级为 Ember fake 合同。
 
@@ -508,7 +508,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
 - Emby 会话事件转发失败：返回真实失败状态并记录中文失败事件，不能伪造成功；`forwardState=not_attempted|attempted` 必须区分本地身份门控失败和已尝试上游转发。
 - 开始和停止成功在 Info 分别记录 `playback_session_started/playback_session_stopped`；正常 Progress 成功只在 Debug 记录 `playback_progress_reported`，避免心跳刷屏。失败后同一请求 Token 的首次 Start/Progress 成功在 Info 额外记录一次 `playback_progress_recovered` 和 `interruptionMs`；关联键由进程内随机 seed 生成且永不输出，恢复观察最多 4096 条、TTL 6 小时，不保存原始 Token 或可跨进程复用摘要，只服务日志，不参与授权、并发或响应决策。
-- 设置中心数据库项 `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。API 保存后 Gateway 在下一次业务请求强一致读取；读取失败保留上一次有效级别且不改变请求结果。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
+- 设置中心数据库项 `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。API 保存后 Gateway 最多在 5 秒内从进程缓存刷新；TTL 到期后的并发请求只触发一次数据库读取，读取失败保留上一次有效级别且不改变请求结果。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
 - 每个视频请求在默认 Info 额外只写一条最终决策日志，并把人工可读结论放在行首：直链成功使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；DirectPlay 失败使用 `code=direct_play_fallback message="115直链失败，Emby回退成功|失败" directPlayResult=failure fallbackResult=success|failure`；其他 fallback 和 reject 分别使用 `code=playback_fallback`、`code=playback_rejected`。全部继续记录 `decision=redirect|fallback|reject`、固定 `stage/reasonCode/fallbackSource` 和必要 ID/耗时；进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Debug 不重复生成第二条决策，日志不建表、不进入数据库。
 - 完整媒体 Path 已按运维排障需求明确允许进入持久日志；仍禁止记录 Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原始响应、Provider 原始错误或 Emby 代理原始错误。
 - Provider 失败只允许补充固定 `providerOperation=resolve_source_path|hash_source_preid|rapid_upload|hash_source_challenge|rapid_upload_retry|verify_playback_target|search_playback_target|get_download_url`；账号加载失败只允许补充 `accountRole=source|playback`。未知诊断值必须丢弃，不能进入日志。

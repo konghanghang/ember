@@ -45,15 +45,15 @@ type TokenService interface {
 	ResolvePrincipal(context.Context, string) (embytoken.Principal, error)
 }
 
-// WebSurfacePolicy resolves the database-backed Web UI switch for each Web
-// request so an admin update in the API process is visible without a restart.
+// WebSurfacePolicy resolves the short-cached database-backed Web UI switch at
+// request boundaries so an admin update is visible without a restart.
 type WebSurfacePolicy interface {
 	PlaybackGatewayWebEnabled(context.Context) (bool, error)
 }
 
-// LogLevelPolicy resolves the database-only API/Gateway log level. Gateway
-// calls it at request boundaries so a setting saved by the API process becomes
-// visible without restarting either process.
+// LogLevelPolicy resolves the short-cached database-only API/Gateway log level.
+// Gateway calls it at request boundaries so a setting saved by the API process
+// becomes visible without restarting either process.
 type LogLevelPolicy interface {
 	LogLevel(context.Context) (string, error)
 }
@@ -336,9 +336,10 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	gateway.proxy.ServeHTTP(statusWriter, request.WithContext(ctx))
 }
 
-// refreshLogLevel applies the newest database value without making logging
-// availability part of the HTTP availability contract. Consecutive failures
-// emit one bounded transition log and retain the last valid runtime level.
+// refreshLogLevel applies the current runtime policy value without making
+// logging availability part of the HTTP availability contract. The production
+// policy bounds database refreshes with a short cache; consecutive failures
+// emit one transition log and retain the last valid runtime level.
 func (gateway *Gateway) refreshLogLevel(ctx context.Context) {
 	if gateway == nil || gateway.logLevelPolicy == nil || gateway.applyLogLevel == nil {
 		return

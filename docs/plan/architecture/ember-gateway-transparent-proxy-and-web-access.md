@@ -104,7 +104,7 @@
 | 匿名行为 | 精确 `GET System/Info/Public` 和开关允许的 Web 页面/静态资源可无本地用户 Token；其他 bootstrap、受保护 `/web` API 与未知路径继续失败关闭 |
 | 客户端路径 | 同时接受根 API 路径和 `/emby/...` API 路径 |
 | 上游 API 路径 | 转发给 Emby 时规范化为单一 `/emby/...`，禁止双前缀 |
-| Web Surface | 与 API 路径分开识别，由后台数据库配置控制；默认开启，保存后的下一次 Web 请求实时生效 |
+| Web Surface | 与 API 路径分开识别，由后台数据库配置控制；默认开启，保存后最多 5 秒生效 |
 | 外部反向代理 | 只负责 HTTPS、域名和原样转发，不承担 Emby 路径 rewrite |
 | 特殊处理 | 登录、PlaybackInfo、视频直连继续由既有处理器负责；其余接口走默认代理 |
 | 配置真相源 | 只使用 ConfigService 和通用 `settings`；不定义同名环境变量，不使用启动快照或跨进程缓存 |
@@ -211,9 +211,9 @@ Gateway 内部引入一个只描述路由事实的规范化结果，至少包含
 
 | Key | 类型 | 默认值 | 生效方式 | 用途 |
 | --- | --- | --- | --- | --- |
-| `PLAYBACK_GATEWAY_WEB_ENABLED` | boolean | `true` | 保存后下一次 Web 请求 | 是否允许通过 Gateway 访问已确认的 Emby Web Surface |
+| `PLAYBACK_GATEWAY_WEB_ENABLED` | boolean | `true` | 保存后最多 5 秒 | 是否允许通过 Gateway 访问已确认的 Emby Web Surface |
 
-该配置复用通用 `settings` 表和现有设置 API，不新增业务表或 SQL migration，不定义 `EnvKey`，配置定义标记 `restartRequired=false`。Gateway 只对已识别 Web Surface 的请求执行一次带 request context 的数据库强一致读取，绕过通用 60 秒进程内缓存；普通 Emby API、视频和根路径 WebSocket 不增加这次查询。API 更新提交后，Gateway 的下一次 Web 请求直接读取新值，因此不依赖跨进程通知或重启。
+该配置复用通用 `settings` 表和现有设置 API，不新增业务表或 SQL migration，不定义 `EnvKey`，配置定义标记 `restartRequired=false`。Gateway 只对已识别 Web Surface 请求读取 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次带 request context 的数据库读取，刷新错误同样退避 5 秒；普通 Emby API、视频和根路径 WebSocket 不读取该项。API 更新提交后，Gateway 最多在 5 秒内读取新值，因此不依赖跨进程通知或重启。
 
 动态读取失败时固定返回空体 `503` 并记录脱敏 `web_surface_config_unavailable`；不能沿用旧值继续开放，也不能把数据库故障误报成“Web 已关闭”。
 
@@ -322,10 +322,10 @@ sequenceDiagram
 ### 阶段 2：Web Surface 控制（已完成）
 
 - 完成 Emby Web 入口、静态资源和 WebSocket 版本合同。
-- 接入仅由数据库设置中心托管的 `PLAYBACK_GATEWAY_WEB_ENABLED`；后台保存后下一次 Web 请求实时生效，不新增环境变量或重启要求。
+- 接入仅由数据库设置中心托管的 `PLAYBACK_GATEWAY_WEB_ENABLED`；后台保存后最多 5 秒生效，不新增环境变量或重启要求。
 - 锁定关闭时不访问上游、开启时页面和 API 均可工作的测试。
 
-截至 2026-08-29，本阶段代码与文档已完成：设置中心自动展示媒体集成 boolean 配置并标记“立即生效”；Gateway 对 Web Surface 强一致读取数据库值，默认开启、关闭 `404`、读取失败 `503`；固定 `/web` API、携 Token Web path 和根 WebSocket 保持身份门控。fake HTTP 已覆盖根页面/静态资源透明代理和真实 `101` Upgrade，目标 Emby Web 页面字节与浏览器完整链路仍属于阶段 3 实机验收，不得由 fake 结果替代。
+截至 2026-08-30，本阶段代码与文档已完成：设置中心自动展示媒体集成 boolean 配置并标记“立即生效”；Gateway 对 Web Surface 使用 5 秒进程缓存，正值与缺失默认值均缓存，并发刷新合并，默认开启、关闭 `404`、刷新读取失败 `503`；固定 `/web` API、携 Token Web path 和根 WebSocket 保持身份门控。fake HTTP 已覆盖根页面/静态资源透明代理和真实 `101` Upgrade，目标 Emby Web 页面字节与浏览器完整链路仍属于阶段 3 实机验收，不得由 fake 结果替代。
 
 ### 阶段 3：受控实机验收
 
