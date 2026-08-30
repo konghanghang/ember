@@ -38,6 +38,8 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 
 以下配置由 API 的 `ConfigService` 统一解析，并由设置中心托管。
 
+`ConfigService` 对普通数据库 key 使用当前进程内 `60s` 惰性 TTL 缓存：首次加载后在 TTL 内复用，过期后的下一次访问同步回源，访问不会延长 TTL；数据库不存在的 key 也会缓存。设置中心保存成功后会立即失效当前 API 进程对应 key，但没有后台自动刷新、空闲淘汰或跨进程失效。Gateway 的动态日志级别和 Web Surface 开关另用下文所述 `5s` policy；未来演进边界见 [运行期配置缓存演进方案](../plan/architecture/runtime-settings-cache-evolution.md)。
+
 ### 2.1 基础业务
 
 | 配置项 | 敏感 | 需重启 | 说明 |

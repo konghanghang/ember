@@ -435,6 +435,12 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - 运行期配置中心 API 的后端基础设施
 - `external_api_key_hash` 属于设置中心可见的只读敏感项，由 Admin API Key 专用接口写入或清空，不通过通用 `UpdateConfig` 手填
 
+**缓存边界**：
+- 普通数据库配置按 key 使用进程内 `60s` 惰性 TTL 缓存，同时缓存不存在记录；TTL 从加载时间计算，命中不会续期，过期后的下一次访问同步回源
+- 单 key 并发 miss/过期会合并回源；设置中心及已知直接写 `settings` 的路径成功后失效当前 API 进程对应 key，并防止失效前的在途结果重新填回
+- 当前没有后台自动刷新、`expireAfterAccess`、空闲条目主动淘汰或跨进程失效；独立 Gateway 的 `LOG_LEVEL`、`PLAYBACK_GATEWAY_WEB_ENABLED` 使用另行定义的 `5s` policy
+- 后续是否引入 Caffeine 风格缓存按 [运行期配置缓存演进方案](plan/architecture/runtime-settings-cache-evolution.md) 的实证门槛决定，不为单纯换库改变现有行为
+
 ### 5.6 SystemService (`services/system/service.go`, `services/system/expiry.go`)
 
 - `GetSystemInfo()` — 统计：用户数、活跃数、兑换码数
