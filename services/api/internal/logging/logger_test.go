@@ -2,6 +2,8 @@ package logging
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -62,22 +64,74 @@ func TestDebugfHonorsGlobalLevel(t *testing.T) {
 	}
 }
 
-func TestLogInitializedReportsResolvedLevel(t *testing.T) {
+func TestApplyLevelSwitchesDynamicallyAndRejectsInvalidValue(t *testing.T) {
+	originalLevel := currentLevel.Load()
+	t.Cleanup(func() { currentLevel.Store(originalLevel) })
+	currentLevel.Store(uint32(LevelInfo))
+
+	if err := ApplyLevel(" DeBuG "); err != nil || !DebugEnabled() {
+		t.Fatalf("ApplyLevel(debug) error=%v debug=%t", err, DebugEnabled())
+	}
+	if err := ApplyLevel("trace"); !errors.Is(err, ErrInvalidLevel) {
+		t.Fatalf("ApplyLevel(trace) error=%v, want ErrInvalidLevel", err)
+	}
+	if !DebugEnabled() {
+		t.Fatal("invalid level changed the last valid runtime level")
+	}
+	if err := ApplyLevel("info"); err != nil || DebugEnabled() {
+		t.Fatalf("ApplyLevel(info) error=%v debug=%t", err, DebugEnabled())
+	}
+}
+
+func TestSyncLevelAppliesDatabaseValueAndKeepsLastLevelOnFailure(t *testing.T) {
 	originalOutput := log.Writer()
 	originalLevel := currentLevel.Load()
-	originalInvalid := levelInvalid.Load()
 	t.Cleanup(func() {
 		log.SetOutput(originalOutput)
 		currentLevel.Store(originalLevel)
-		levelInvalid.Store(originalInvalid)
+	})
+	var output bytes.Buffer
+	log.SetOutput(&output)
+	currentLevel.Store(uint32(LevelInfo))
+
+	provider := &stubLevelProvider{level: "debug"}
+	SyncLevel(context.Background(), ProcessRoleGateway, provider)
+	if !DebugEnabled() || !strings.Contains(output.String(), "code=log_level_loaded") ||
+		!strings.Contains(output.String(), "source=system_config") {
+		t.Fatalf("sync success debug=%t logs=%q", DebugEnabled(), output.String())
+	}
+
+	output.Reset()
+	provider.err = errors.New("database unavailable with secret-value")
+	SyncLevel(context.Background(), ProcessRoleGateway, provider)
+	if !DebugEnabled() || !strings.Contains(output.String(), "code=log_level_load_failed") ||
+		strings.Contains(output.String(), "secret-value") {
+		t.Fatalf("sync failure debug=%t logs=%q", DebugEnabled(), output.String())
+	}
+}
+
+type stubLevelProvider struct {
+	level string
+	err   error
+}
+
+func (provider *stubLevelProvider) LogLevel(context.Context) (string, error) {
+	return provider.level, provider.err
+}
+
+func TestLogInitializedReportsResolvedLevel(t *testing.T) {
+	originalOutput := log.Writer()
+	originalLevel := currentLevel.Load()
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+		currentLevel.Store(originalLevel)
 	})
 
 	var output bytes.Buffer
 	log.SetOutput(&output)
 	currentLevel.Store(uint32(LevelDebug))
-	levelInvalid.Store(false)
 	LogInitialized(ProcessRoleGateway)
-	if !strings.Contains(output.String(), "processRole=gateway logLevel=debug") {
+	if !strings.Contains(output.String(), "processRole=gateway logLevel=debug source=bootstrap_default") {
 		t.Fatalf("initialized output=%q", output.String())
 	}
 }
@@ -200,7 +254,9 @@ func TestInitSetsGlobalWriters(t *testing.T) {
 	originalGinWriter := gin.DefaultWriter
 	originalGinErrorWriter := gin.DefaultErrorWriter
 	originalLevel := currentLevel.Load()
-	originalInvalid := levelInvalid.Load()
+	roleMu.RLock()
+	originalRole := currentRole
+	roleMu.RUnlock()
 
 	t.Cleanup(func() {
 		_ = os.Chdir(originalWd)
@@ -212,9 +268,11 @@ func TestInitSetsGlobalWriters(t *testing.T) {
 		gin.DefaultWriter = originalGinWriter
 		gin.DefaultErrorWriter = originalGinErrorWriter
 		currentLevel.Store(originalLevel)
-		levelInvalid.Store(originalInvalid)
+		roleMu.Lock()
+		currentRole = originalRole
+		roleMu.Unlock()
 	})
-	t.Setenv("LOG_LEVEL", "info")
+	t.Setenv("LOG_LEVEL", "debug")
 
 	if err := os.Chdir(t.TempDir()); err != nil {
 		t.Fatalf("Chdir() error = %v", err)
@@ -225,6 +283,9 @@ func TestInitSetsGlobalWriters(t *testing.T) {
 
 	if err := Init(ProcessRoleGateway); err != nil {
 		t.Fatalf("Init() error = %v", err)
+	}
+	if DebugEnabled() {
+		t.Fatal("Init must ignore deployment LOG_LEVEL and keep database default info")
 	}
 	if Writer() == os.Stdout {
 		t.Fatalf("expected Init to replace default writer")

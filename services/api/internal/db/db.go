@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/url"
 	"os"
@@ -19,7 +18,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
@@ -36,7 +34,7 @@ func InitDB() {
 	}
 	dsn = withConnectTimeout(dsn, "8")
 
-	newLogger := newGORMLogger(logpkg.Writer(), logpkg.DebugEnabled())
+	newLogger := newGORMLogger(logpkg.Writer())
 
 	var err error
 	log.Println("ℹ️  正在连接 PostgreSQL...")
@@ -81,24 +79,6 @@ func InitDB() {
 	fmt.Printf("✅ PostgreSQL 版本：%s\n", pgVersion)
 
 	fmt.Println("✅ 数据库连接成功")
-}
-
-// newGORMLogger preserves SQL timing and structure while suppressing all bound values.
-func newGORMLogger(output io.Writer, debug bool) logger.Interface {
-	logLevel := logger.Warn
-	if debug {
-		logLevel = logger.Info
-	}
-	return logger.New(
-		log.New(output, "\r\n", log.LstdFlags),
-		logger.Config{
-			SlowThreshold:             time.Second, // 慢查询阈值
-			LogLevel:                  logLevel,    // 正常只保留慢 SQL/错误，Debug 才显示全部 SQL
-			IgnoreRecordNotFoundError: false,       // 不忽略 RecordNotFound 错误
-			ParameterizedQueries:      true,        // 保留 SQL 结构但隐藏敏感参数值
-			Colorful:                  true,        // 彩色输出
-		},
-	)
 }
 
 // VerifySchema 在启动期检查所有业务表、关键列与关键索引是否存在。

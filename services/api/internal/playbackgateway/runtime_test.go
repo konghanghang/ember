@@ -318,6 +318,13 @@ func (settings fakeRuntimeSettings) PlaybackGatewayWebEnabled(context.Context) (
 	return settings["PLAYBACK_GATEWAY_WEB_ENABLED"] != "false", nil
 }
 
+func (settings fakeRuntimeSettings) LogLevel(context.Context) (string, error) {
+	if level := settings["LOG_LEVEL"]; level != "" {
+		return level, nil
+	}
+	return "info", nil
+}
+
 type blockingListener struct {
 	closed chan struct{}
 	once   sync.Once

@@ -8,6 +8,7 @@ import (
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
 	dbpkg "github.com/konghang/ember/backend/internal/db"
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 )
 
 // RunProcess prepares the shared database schema and ConfigService-backed Emby
@@ -29,9 +30,11 @@ func RunProcess(ctx context.Context) error {
 	if err := dbpkg.VerifySchema(); err != nil {
 		return err
 	}
+	settings := configpkg.NewConfigService()
+	logpkg.SyncLevel(ctx, logpkg.ProcessRoleGateway, settings)
 	runtime, err := NewProductionRuntime(ctx, os.Getenv, ProductionDependencies{
 		Database: dbpkg.DB,
-		Settings: configpkg.NewConfigService(),
+		Settings: settings,
 		Logger:   log.Default(),
 	})
 	if err != nil {

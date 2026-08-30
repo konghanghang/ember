@@ -253,6 +253,46 @@ describe('SettingsView', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('媒体集成保存成功')
   })
 
+  it('API 和 Gateway 日志级别作为后台枚举配置立即生效', async () => {
+    const logConfig = createConfigItem({
+      key: 'LOG_LEVEL',
+      group: 'deployment',
+      groupLabel: '部署与密钥',
+      label: 'API / Gateway 日志级别',
+      description: '实时控制 API 与 Playback Gateway 的应用日志详细程度',
+      type: 'enum',
+      options: [
+        { label: '信息', value: 'info' },
+        { label: '调试', value: 'debug' },
+      ],
+      source: 'default',
+      value: 'info',
+      restartRequired: false,
+      allowEmpty: false,
+      emptyValueMode: 'not_allowed',
+    })
+    vi.mocked(getConfigs)
+      .mockResolvedValueOnce({ data: [logConfig] })
+      .mockResolvedValueOnce({
+        data: [createConfigItem({ ...logConfig, source: 'database', value: 'debug' })],
+      })
+    vi.mocked(updateConfig).mockResolvedValue(
+      createConfigItem({ ...logConfig, source: 'database', value: 'debug' })
+    )
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('API / Gateway 日志级别')
+    expect(wrapper.text()).toContain('立即生效')
+    await findButton(wrapper, '调试').trigger('click')
+    await findButton(wrapper, '保存本组配置').trigger('click')
+    await flushPromises()
+
+    expect(updateConfig).toHaveBeenCalledWith('LOG_LEVEL', { value: 'debug' })
+    expect(ElMessage.success).toHaveBeenCalledWith('部署与密钥保存成功')
+  })
+
   it('多行配置项会渲染为 textarea 并按字符串保存', async () => {
     vi.mocked(getConfigs)
       .mockResolvedValueOnce({

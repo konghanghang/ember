@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/mail"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/common/upstream"
 	"github.com/konghang/ember/backend/internal/db"
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/security/secretbox"
 	"github.com/robfig/cron/v3"
@@ -75,7 +77,10 @@ const (
 const defaultCronTimezone = "Asia/Shanghai"
 const defaultTelegramUpdateMode = "webhook"
 
-const PlaybackGatewayWebEnabledKey = "PLAYBACK_GATEWAY_WEB_ENABLED"
+const (
+	PlaybackGatewayWebEnabledKey = "PLAYBACK_GATEWAY_WEB_ENABLED"
+	LogLevelKey                  = "LOG_LEVEL"
+)
 
 type configValidationError struct {
 	cause error
@@ -239,11 +244,24 @@ type ConfigGroupTestResult struct {
 type ConfigService struct {
 	encryptionKey      string
 	loadSettingRecords func([]string) (map[string]models.Setting, error)
+	applyRuntimeConfig func(ConfigItem)
 }
 
 func NewConfigService() *ConfigService {
 	return &ConfigService{
-		encryptionKey: strings.TrimSpace(os.Getenv("CONFIG_ENCRYPTION_KEY")),
+		encryptionKey:      strings.TrimSpace(os.Getenv("CONFIG_ENCRYPTION_KEY")),
+		applyRuntimeConfig: applyGoRuntimeConfig,
+	}
+}
+
+// applyGoRuntimeConfig updates only process-local Go runtime state after a
+// setting has been committed. Gateway independently refreshes the same value.
+func applyGoRuntimeConfig(item ConfigItem) {
+	if item.Key != LogLevelKey || item.Value == nil {
+		return
+	}
+	if err := logpkg.ApplyLevel(*item.Value); err != nil {
+		log.Printf("[Logging] level=info code=log_level_apply_failed processRole=api errorType=%T", err)
 	}
 }
 
@@ -304,6 +322,29 @@ func (s *ConfigService) PlaybackGatewayWebEnabled(ctx context.Context) (bool, er
 		return false, wrapConfigValidationError(err)
 	}
 	return normalized == "true", nil
+}
+
+// LogLevel reads the database-only API/Gateway log level without the shared
+// settings cache so the Gateway can observe an admin update on its next
+// request. The Python Bot intentionally keeps its environment configuration.
+func (s *ConfigService) LogLevel(ctx context.Context) (string, error) {
+	def, ok := getConfigDefinitionMap()[LogLevelKey]
+	if !ok {
+		return "", ErrConfigNotFound
+	}
+	settingsMap, err := s.loadFreshSetting(ctx, def.Key)
+	if err != nil {
+		return "", err
+	}
+	value, _, _, err := s.resolveRawValue(def, settingsMap)
+	if err != nil {
+		return "", err
+	}
+	normalized, err := normalizeLogLevel(value)
+	if err != nil {
+		return "", wrapConfigValidationError(err)
+	}
+	return normalized, nil
 }
 
 func (s *ConfigService) GetTurnstileSiteKey() string {
@@ -439,8 +480,14 @@ func (s *ConfigService) Update(key string, req UpdateConfigRequest, updatedByUse
 		return nil, err
 	}
 	InvalidateCachedSetting(key)
-
-	return s.Get(key)
+	item, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	if s.applyRuntimeConfig != nil {
+		s.applyRuntimeConfig(*item)
+	}
+	return item, nil
 }
 
 func (s *ConfigService) TestGroup(group string) (*ConfigGroupTestResult, error) {
@@ -1541,6 +1588,23 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:          normalizeTrimmedURL,
 		},
 		{
+			Key:                LogLevelKey,
+			DisableEnvFallback: true,
+			Group:              ConfigGroupDeployment,
+			GroupLabel:         "部署与密钥",
+			Label:              "API / Gateway 日志级别",
+			Description:        "实时控制 API 与 Playback Gateway 的应用日志详细程度；不影响 Python Bot、Nginx 和数据库原生日志",
+			Type:               ConfigValueEnum,
+			DefaultValue:       "info",
+			Editable:           true,
+			Options: []ConfigOption{
+				{Label: "信息", Value: "info"},
+				{Label: "调试", Value: "debug"},
+			},
+			Validate:  validateEnum("info", "debug"),
+			Normalize: normalizeLogLevel,
+		},
+		{
 			Key:             "DATABASE_URL",
 			EnvKey:          "DATABASE_URL",
 			Group:           ConfigGroupDeployment,
@@ -1834,6 +1898,16 @@ func normalizeTrimmedURLAllowEmpty(value string) (string, error) {
 
 func normalizeTrimmedString(value string) (string, error) {
 	return strings.TrimSpace(value), nil
+}
+
+func normalizeLogLevel(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "info", "debug":
+		return normalized, nil
+	default:
+		return "", errors.New("日志级别只支持 info 或 debug")
+	}
 }
 
 func validateTurnstileSiteKeyAllowEmpty(value string) error {

@@ -1195,6 +1195,65 @@ func TestGatewayInfoLevelSuppressesDetailedSuccessfulRequestLog(t *testing.T) {
 	}
 }
 
+func TestGatewayRefreshesDatabaseLogLevelPerRequestAndRetainsLastValidLevel(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	policy := &fakeGatewayLogLevelPolicy{level: "debug"}
+	debug := false
+	var logs bytes.Buffer
+	gateway, err := New(Config{
+		Upstream:       upstreamURL,
+		TokenService:   &fakeTokenService{},
+		LogLevelPolicy: policy,
+		ApplyLogLevel: func(level string) error {
+			debug = level == "debug"
+			return nil
+		},
+		DebugEnabled: func() bool { return debug },
+		Logger:       log.New(&logs, "", 0),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	request := func() {
+		gateway.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/System/Info/Public", nil))
+	}
+	request()
+	if !strings.Contains(logs.String(), "code=request_completed") || policy.callCount() != 1 || !policy.sawDeadline() {
+		t.Fatalf("debug logs=%q calls=%d", logs.String(), policy.callCount())
+	}
+
+	logs.Reset()
+	policy.set("info", nil)
+	request()
+	if strings.Contains(logs.String(), "code=request_completed") || policy.callCount() != 2 {
+		t.Fatalf("info logs=%q calls=%d", logs.String(), policy.callCount())
+	}
+
+	policy.set("debug", nil)
+	request()
+	logs.Reset()
+	policy.set("", errors.New("database unavailable with secret-value"))
+	request()
+	request()
+	if strings.Count(logs.String(), "code=log_level_refresh_failed") != 1 ||
+		strings.Count(logs.String(), "code=request_completed") != 2 ||
+		strings.Contains(logs.String(), "secret-value") {
+		t.Fatalf("refresh failure logs=%q", logs.String())
+	}
+	if policy.callCount() != 5 {
+		t.Fatalf("policy calls=%d, want 5", policy.callCount())
+	}
+}
+
 func TestApplicationAuthorizationDiagnosticsHandlesEitherHeaderWithoutSecrets(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -1967,6 +2026,41 @@ type fakeTokenService struct {
 	principal  embytoken.Principal
 	recordErr  error
 	resolveErr error
+}
+
+type fakeGatewayLogLevelPolicy struct {
+	mu               sync.Mutex
+	level            string
+	err              error
+	calls            int
+	deadlineObserved bool
+}
+
+func (policy *fakeGatewayLogLevelPolicy) LogLevel(ctx context.Context) (string, error) {
+	policy.mu.Lock()
+	defer policy.mu.Unlock()
+	policy.calls++
+	_, policy.deadlineObserved = ctx.Deadline()
+	return policy.level, policy.err
+}
+
+func (policy *fakeGatewayLogLevelPolicy) set(level string, err error) {
+	policy.mu.Lock()
+	defer policy.mu.Unlock()
+	policy.level = level
+	policy.err = err
+}
+
+func (policy *fakeGatewayLogLevelPolicy) callCount() int {
+	policy.mu.Lock()
+	defer policy.mu.Unlock()
+	return policy.calls
+}
+
+func (policy *fakeGatewayLogLevelPolicy) sawDeadline() bool {
+	policy.mu.Lock()
+	defer policy.mu.Unlock()
+	return policy.deadlineObserved
 }
 
 func (service *fakeTokenService) RecordAuthenticationResult(

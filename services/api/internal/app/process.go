@@ -1,11 +1,14 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 
 	"github.com/konghang/ember/backend/internal/common"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	dbpkg "github.com/konghang/ember/backend/internal/db"
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 )
 
 type processDependencies struct {
@@ -13,6 +16,7 @@ type processDependencies struct {
 	closeDB            func() error
 	migrate            func() error
 	verifySchema       func() error
+	syncLogLevel       func()
 	bootstrap          func()
 	initJWT            func() error
 	initInternalSecret func() error
@@ -23,10 +27,13 @@ type processDependencies struct {
 // command.
 func RunProcess() error {
 	return runProcess(processDependencies{
-		initDB:             dbpkg.InitDB,
-		closeDB:            dbpkg.Close,
-		migrate:            dbpkg.Migrate,
-		verifySchema:       dbpkg.VerifySchema,
+		initDB:       dbpkg.InitDB,
+		closeDB:      dbpkg.Close,
+		migrate:      dbpkg.Migrate,
+		verifySchema: dbpkg.VerifySchema,
+		syncLogLevel: func() {
+			logpkg.SyncLevel(context.Background(), logpkg.ProcessRoleAPI, configpkg.NewConfigService())
+		},
 		bootstrap:          dbpkg.Bootstrap,
 		initJWT:            common.InitJWT,
 		initInternalSecret: common.InitInternalAPISecret,
@@ -38,7 +45,7 @@ func RunProcess() error {
 // every post-connect failure still closes the shared database handle.
 func runProcess(dependencies processDependencies) error {
 	if dependencies.initDB == nil || dependencies.closeDB == nil || dependencies.migrate == nil ||
-		dependencies.verifySchema == nil || dependencies.bootstrap == nil || dependencies.initJWT == nil ||
+		dependencies.verifySchema == nil || dependencies.syncLogLevel == nil || dependencies.bootstrap == nil || dependencies.initJWT == nil ||
 		dependencies.initInternalSecret == nil || dependencies.start == nil {
 		return fmt.Errorf("api process dependency missing")
 	}
@@ -54,6 +61,7 @@ func runProcess(dependencies processDependencies) error {
 	if err := dependencies.verifySchema(); err != nil {
 		return apiProcessFailure("schema_verification", err)
 	}
+	dependencies.syncLogLevel()
 	dependencies.bootstrap()
 	if err := dependencies.initJWT(); err != nil {
 		return apiProcessFailure("jwt_initialization", err)

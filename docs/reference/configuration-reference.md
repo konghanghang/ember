@@ -6,7 +6,7 @@
 
 ## 1. 先看结论
 
-当前配置分成三类：
+当前配置分成四类：
 
 1. **API 运行期数据库配置**
    - 由设置中心管理
@@ -28,9 +28,9 @@
    - 用于展示 GitHub 源码入口和当前构建对应的 commit hash
    - 不属于容器运行期配置，修改后需要重新构建 Web 镜像
 
-API、Gateway 与 Bot 额外共用一个部署期应用日志变量 `LOG_LEVEL`：只接受 `info/debug`，默认 `info`，修改后重启对应进程生效。它不进入设置中心，也不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 自身日志。
+API 与 Gateway 的 `LOG_LEVEL` 已迁移为设置中心数据库配置，只接受 `info/debug` 并默认 `info`。API 保存成功后当前 API 进程立即切换；独立 Gateway 在下一次进入 Handler 的业务请求上强一致读取并切换，不需要重启。Python Bot 继续使用启动环境变量 `LOG_LEVEL`，不参与本次运行期配置。
 
-Go 统一入口会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未指定时依次检查当前目录 `.env` 与 `services/api/.env`。因此本地文件中的 `LOG_LEVEL` 与 Compose 直接注入具有相同语义，已有系统环境变量继续优先，不被 dotenv 覆盖。
+Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未指定时依次检查当前目录 `.env` 与 `services/api/.env`，用于数据库连接和密钥等部署期变量。Go API/Gateway 不再读取其中的 `LOG_LEVEL`。
 
 ---
 
@@ -130,6 +130,20 @@ Go 统一入口会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未�
 - 配置表只保存 hash，不保存明文；设置中心不允许手填 hash。
 - 该 key 只用于 `/api/v1/admin/*` 管理员接口，不替代用户 JWT，也不替代 Bot 使用的 `INTERNAL_API_SECRET`。
 
+### 2.7 运行与诊断
+
+| 配置项 | 敏感 | 需重启 | 说明 |
+|--------|------|--------|------|
+| `LOG_LEVEL` | 否 | 否 | API/Gateway 应用日志级别，`info` 或 `debug`；默认 `info`，不读取同名环境变量 |
+
+说明：
+
+- API 保存 `LOG_LEVEL` 后立即原子切换当前进程；Gin 安全 access 摘要和 GORM 参数化 SQL 随新级别生效，不重建数据库连接。
+- Gateway 启动时读取一次最终值，之后每个进入 Gateway Handler 的业务请求都绕过设置缓存读取最新值，单次读取上限 `500ms`；`/health` 不承担配置刷新职责。
+- Gateway 刷新失败时保留上一次有效级别并继续处理请求；同一连续失败只记录一次 `log_level_refresh_failed`，恢复时记录 `log_level_refresh_recovered`。
+- `debug` 仍不得输出 query value、Header 原值、Cookie、Token、Authorization、完整外部响应或其他敏感载体，也不控制浏览器 console、Nginx、Docker logging driver 或 PostgreSQL 原生日志。
+- Python Bot 继续使用环境变量 `LOG_LEVEL`；后台修改不会改变 Bot 日志级别。
+
 ---
 
 ## 3. API 环境变量
@@ -138,7 +152,7 @@ Go 统一入口会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未�
 
 ### 3.1 `.env.example` 默认保留项
 
-这些项要么是 API 启动硬依赖、只能放环境变量里的密钥，要么是 API/Gateway/Bot 共用的启动期运维参数，因此会保留在 `services/api/.env.example`。
+这些项是 API 启动硬依赖或只能放环境变量里的密钥，因此会保留在 `services/api/.env.example`。
 
 | 配置项 | 敏感 | 说明 | 原因 |
 |--------|------|------|------|
@@ -149,7 +163,6 @@ Go 统一入口会在日志初始化前加载 `EMBER_DOTENV` 指定文件；未�
 | `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 仅启用 Stripe Webhook 时需要，且只能走环境变量 |
 | `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 仅启用 Turnstile 登录校验时需要，且不应进入设置中心 |
 | `EMBY_WEBHOOK_TOKEN` | 是 | Emby Webhook token | 仅启用 Emby Webhook 回写追剧日历时需要，且只能走环境变量 |
-| `LOG_LEVEL` | 否 | Ember 应用日志级别，`info` 或 `debug` | API/Gateway/Bot 共用的启动参数，默认 `info`；非法值回退 `info` |
 
 ### 3.2 仍是环境变量来源，但不放进 `.env.example` 的项
 
@@ -190,7 +203,7 @@ Bot 进程当前仍主要依赖环境变量启动；`.env.example` 保留启动�
 | `TELEGRAM_WEBHOOK_SECRET` | 条件敏感 | — | `webhook` 模式下的 Telegram Webhook 校验密钥 |
 | `INTERNAL_API_SECRET` | 是 | — | 与 API 共享的内部调用密钥 |
 | `WEBHOOK_URL` | 条件敏感 | — | `webhook` 模式下的 Bot 对外 Webhook 地址 |
-| `LOG_LEVEL` | 否 | `info` | 与 API/Gateway 共用；`debug` 增加 Ember 应用诊断，Uvicorn 原生 access 固定关闭并使用脱敏路由模板摘要，第三方 HTTP logger 仍保持 `WARNING` |
+| `LOG_LEVEL` | 否 | `info` | 仅控制 Python Bot；`debug` 增加 Bot 应用诊断，Uvicorn 原生 access 固定关闭并使用脱敏路由模板摘要，第三方 HTTP logger 仍保持 `WARNING` |
 
 ### 4.2 仍支持环境变量回退，但不放进 `.env.example` 的项
 

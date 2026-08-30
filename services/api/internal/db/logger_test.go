@@ -5,12 +5,14 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 	"gorm.io/gorm"
 )
 
 func TestNewGORMLoggerSuppressesBoundValues(t *testing.T) {
-	logger := newGORMLogger(&bytes.Buffer{}, false)
+	logger := newGORMLogger(&bytes.Buffer{})
 	filter, ok := logger.(gorm.ParamsFilter)
 	if !ok {
 		t.Fatal("database logger must implement gorm.ParamsFilter")
@@ -31,15 +33,25 @@ func TestNewGORMLoggerSuppressesBoundValues(t *testing.T) {
 
 func TestNewGORMLoggerMapsProjectLevel(t *testing.T) {
 	ctx := context.Background()
-	var infoOutput bytes.Buffer
-	newGORMLogger(&infoOutput, false).Info(ctx, "normal SQL must stay debug")
-	if infoOutput.Len() != 0 {
-		t.Fatalf("info level emitted GORM info: %q", infoOutput.String())
+	t.Cleanup(func() { _ = logpkg.ApplyLevel("info") })
+	if err := logpkg.ApplyLevel("info"); err != nil {
+		t.Fatalf("ApplyLevel(info) error=%v", err)
+	}
+	var output bytes.Buffer
+	logger := newGORMLogger(&output)
+	logger.Info(ctx, "normal SQL must stay debug")
+	logger.Trace(ctx, time.Now(), func() (string, int64) { return "SELECT info_hidden", 1 }, nil)
+	if output.Len() != 0 {
+		t.Fatalf("info level emitted GORM info: %q", output.String())
 	}
 
-	var debugOutput bytes.Buffer
-	newGORMLogger(&debugOutput, true).Info(ctx, "debug SQL visible")
-	if !bytes.Contains(debugOutput.Bytes(), []byte("debug SQL visible")) {
-		t.Fatalf("debug level did not emit GORM info: %q", debugOutput.String())
+	if err := logpkg.ApplyLevel("debug"); err != nil {
+		t.Fatalf("ApplyLevel(debug) error=%v", err)
+	}
+	logger.Info(ctx, "debug SQL visible")
+	logger.Trace(ctx, time.Now(), func() (string, int64) { return "SELECT debug_visible", 1 }, nil)
+	if !bytes.Contains(output.Bytes(), []byte("debug SQL visible")) ||
+		!bytes.Contains(output.Bytes(), []byte("SELECT debug_visible")) {
+		t.Fatalf("runtime debug level did not emit GORM info: %q", output.String())
 	}
 }

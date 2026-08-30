@@ -441,3 +441,55 @@ func TestPlaybackGatewayWebEnabledDefaultsTrueAndFailsClosedOnInvalidStore(t *te
 		t.Fatalf("store PlaybackGatewayWebEnabled() error=%v, want %v", err, storeErr)
 	}
 }
+
+func TestLogLevelReadsFreshDatabaseValueAndIgnoresEnvironment(t *testing.T) {
+	t.Setenv(LogLevelKey, "debug")
+	current := "info"
+	loadCalls := 0
+	service := &ConfigService{
+		loadSettingRecords: func(keys []string) (map[string]models.Setting, error) {
+			loadCalls++
+			if len(keys) != 1 || keys[0] != LogLevelKey {
+				t.Fatalf("unexpected setting keys: %#v", keys)
+			}
+			return map[string]models.Setting{
+				LogLevelKey: {Key: LogLevelKey, Value: current},
+			}, nil
+		},
+	}
+
+	level, err := service.LogLevel(context.Background())
+	if err != nil || level != "info" {
+		t.Fatalf("first LogLevel()=(%q,%v), want info", level, err)
+	}
+	current = "debug"
+	level, err = service.LogLevel(context.Background())
+	if err != nil || level != "debug" {
+		t.Fatalf("second LogLevel()=(%q,%v), want debug", level, err)
+	}
+	if loadCalls != 2 {
+		t.Fatalf("fresh load calls=%d, want 2", loadCalls)
+	}
+}
+
+func TestLogLevelDefaultsInfoAndRejectsInvalidStore(t *testing.T) {
+	t.Setenv(LogLevelKey, "debug")
+	service := &ConfigService{
+		loadSettingRecords: func([]string) (map[string]models.Setting, error) {
+			return map[string]models.Setting{}, nil
+		},
+	}
+	level, err := service.LogLevel(context.Background())
+	if err != nil || level != "info" {
+		t.Fatalf("default LogLevel()=(%q,%v), want info", level, err)
+	}
+
+	service.loadSettingRecords = func([]string) (map[string]models.Setting, error) {
+		return map[string]models.Setting{
+			LogLevelKey: {Key: LogLevelKey, Value: "trace"},
+		}, nil
+	}
+	if _, err := service.LogLevel(context.Background()); !errors.Is(err, ErrConfigValidation) {
+		t.Fatalf("invalid LogLevel() error=%v, want ErrConfigValidation", err)
+	}
+}

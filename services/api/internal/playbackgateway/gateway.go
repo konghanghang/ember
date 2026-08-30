@@ -16,8 +16,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
@@ -27,6 +29,7 @@ const (
 	accessTokenHeader                    = "X-Emby-Token"
 	statusClientClosedRequest            = 499
 	defaultAuthenticationResponseMaxSize = int64(1 << 20)
+	defaultLogLevelRefreshTimeout        = 500 * time.Millisecond
 )
 
 var (
@@ -48,6 +51,13 @@ type WebSurfacePolicy interface {
 	PlaybackGatewayWebEnabled(context.Context) (bool, error)
 }
 
+// LogLevelPolicy resolves the database-only API/Gateway log level. Gateway
+// calls it at request boundaries so a setting saved by the API process becomes
+// visible without restarting either process.
+type LogLevelPolicy interface {
+	LogLevel(context.Context) (string, error)
+}
+
 // AuthenticationMetadata contains non-authoritative device information that
 // may be persisted for audit and device-scoped local revocation.
 type AuthenticationMetadata struct {
@@ -63,9 +73,12 @@ type Config struct {
 	TokenService      TokenService
 	DirectPlayService DirectPlayService
 	WebSurfacePolicy  WebSurfacePolicy
+	LogLevelPolicy    LogLevelPolicy
 	Transport         http.RoundTripper
 	Logger            *log.Logger
 	Debug             bool
+	ApplyLogLevel     func(string) error
+	DebugEnabled      func() bool
 }
 
 // Gateway validates mapped tokens before proxying protected requests and
@@ -78,8 +91,11 @@ type Gateway struct {
 	tokenService                   TokenService
 	directPlayService              DirectPlayService
 	webSurfacePolicy               WebSurfacePolicy
+	logLevelPolicy                 LogLevelPolicy
+	applyLogLevel                  func(string) error
+	debugEnabled                   func() bool
+	logLevelRefreshFailed          atomic.Bool
 	logger                         *log.Logger
-	debug                          bool
 	proofs                         *playbackProofCache
 	itemContainers                 *itemContainerSnapshotCache
 	playbackInfoFlights            *onDemandPlaybackInfoFlightGroup
@@ -145,6 +161,15 @@ func New(config Config) (*Gateway, error) {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
+	applyLogLevel := config.ApplyLogLevel
+	if applyLogLevel == nil {
+		applyLogLevel = logpkg.ApplyLevel
+	}
+	debugEnabled := config.DebugEnabled
+	if debugEnabled == nil {
+		fixedDebug := config.Debug
+		debugEnabled = func() bool { return fixedDebug }
+	}
 
 	gateway := &Gateway{
 		upstream:                       upstream,
@@ -152,8 +177,10 @@ func New(config Config) (*Gateway, error) {
 		tokenService:                   config.TokenService,
 		directPlayService:              config.DirectPlayService,
 		webSurfacePolicy:               config.WebSurfacePolicy,
+		logLevelPolicy:                 config.LogLevelPolicy,
+		applyLogLevel:                  applyLogLevel,
+		debugEnabled:                   debugEnabled,
 		logger:                         logger,
-		debug:                          config.Debug,
 		proofs:                         newPlaybackProofCache(defaultPlaybackProofMaxEntries, defaultPlaybackProofTTL),
 		itemContainers:                 newItemContainerSnapshotCache(defaultItemContainerSnapshotMaxEntries, defaultItemContainerSnapshotTTL),
 		playbackInfoFlights:            &onDemandPlaybackInfoFlightGroup{},
@@ -177,6 +204,11 @@ func New(config Config) (*Gateway, error) {
 // authentication exceptions, then fails closed before any protected proxy.
 func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	startedAt := time.Now().UTC()
+	logLevelContext := context.Background()
+	if request != nil {
+		logLevelContext = request.Context()
+	}
+	gateway.refreshLogLevel(logLevelContext)
 	requestLog := captureRequestLogSnapshot(request)
 	statusWriter := &requestStatusWriter{ResponseWriter: writer}
 	routeCode := "unclassified"
@@ -302,6 +334,30 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
 	playbackSessionForwardAttempted = playbackSessionEvent.kind != playbackSessionEventNone
 	gateway.proxy.ServeHTTP(statusWriter, request.WithContext(ctx))
+}
+
+// refreshLogLevel applies the newest database value without making logging
+// availability part of the HTTP availability contract. Consecutive failures
+// emit one bounded transition log and retain the last valid runtime level.
+func (gateway *Gateway) refreshLogLevel(ctx context.Context) {
+	if gateway == nil || gateway.logLevelPolicy == nil || gateway.applyLogLevel == nil {
+		return
+	}
+	refreshContext, cancel := context.WithTimeout(ctx, defaultLogLevelRefreshTimeout)
+	defer cancel()
+	level, err := gateway.logLevelPolicy.LogLevel(refreshContext)
+	if err == nil {
+		err = gateway.applyLogLevel(level)
+	}
+	if err != nil {
+		if !gateway.logLevelRefreshFailed.Swap(true) {
+			gateway.logger.Printf("[Logging] level=info code=log_level_refresh_failed processRole=gateway errorType=%T", err)
+		}
+		return
+	}
+	if gateway.logLevelRefreshFailed.Swap(false) {
+		gateway.logger.Printf("[Logging] level=info code=log_level_refresh_recovered processRole=gateway")
+	}
 }
 
 // resolveRequestPrincipal applies one shared cancellation, video rejection and

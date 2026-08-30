@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	logpkg "github.com/konghang/ember/backend/internal/logging"
 )
 
 func TestScheduleConfigDefinitionsAreEditable(t *testing.T) {
@@ -367,6 +369,54 @@ func TestPlaybackGatewayWebConfigIsDatabaseManagedAndImmediate(t *testing.T) {
 	}
 }
 
+func TestLogLevelConfigIsDatabaseManagedAndImmediate(t *testing.T) {
+	definition, ok := getConfigDefinitionMap()[LogLevelKey]
+	if !ok {
+		t.Fatalf("expected %s definition", LogLevelKey)
+	}
+	if definition.Group != ConfigGroupDeployment || definition.Type != ConfigValueEnum ||
+		definition.DefaultValue != "info" || !definition.Editable || definition.RestartRequired ||
+		definition.EnvKey != "" || !definition.DisableEnvFallback {
+		t.Fatalf("unexpected log level definition: %+v", definition)
+	}
+	wantOptions := []ConfigOption{
+		{Label: "信息", Value: "info"},
+		{Label: "调试", Value: "debug"},
+	}
+	if !slices.Equal(definition.Options, wantOptions) {
+		t.Fatalf("log level options=%+v, want %+v", definition.Options, wantOptions)
+	}
+	if definition.Normalize == nil || definition.Validate == nil {
+		t.Fatal("expected log level normalization and validation")
+	}
+	if got, err := definition.Normalize(" DeBuG "); err != nil || got != "debug" {
+		t.Fatalf("Normalize(debug)=(%q,%v), want debug", got, err)
+	}
+	if _, err := definition.Normalize("trace"); err == nil {
+		t.Fatal("Normalize(trace) error=nil")
+	}
+}
+
+func TestApplyGoRuntimeConfigSwitchesOnlyLogLevel(t *testing.T) {
+	if NewConfigService().applyRuntimeConfig == nil {
+		t.Fatal("NewConfigService must wire the Go runtime config applier")
+	}
+	t.Cleanup(func() { _ = logpkg.ApplyLevel("info") })
+	if err := logpkg.ApplyLevel("info"); err != nil {
+		t.Fatalf("ApplyLevel(info) error=%v", err)
+	}
+	debug := "debug"
+	applyGoRuntimeConfig(ConfigItem{Key: LogLevelKey, Value: &debug})
+	if !logpkg.DebugEnabled() {
+		t.Fatal("LOG_LEVEL runtime update did not enable debug")
+	}
+	info := "info"
+	applyGoRuntimeConfig(ConfigItem{Key: "unrelated", Value: &info})
+	if !logpkg.DebugEnabled() {
+		t.Fatal("unrelated config changed runtime log level")
+	}
+}
+
 func TestIntegerConfigDefinitionsExposeBounds(t *testing.T) {
 	testCases := []struct {
 		key string
@@ -428,6 +478,7 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 		"turnstile_site_key",
 		"turnstile_expected_hostname",
 		"external_api_key_hash",
+		LogLevelKey,
 	}
 
 	definitions := getConfigDefinitionMap()

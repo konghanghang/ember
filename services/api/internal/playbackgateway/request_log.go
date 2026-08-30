@@ -138,7 +138,7 @@ func (gateway *Gateway) logRequestCompletion(
 	statusCode int,
 	startedAt time.Time,
 ) {
-	if !gateway.debug {
+	if !gateway.isDebugEnabled() {
 		return
 	}
 	gateway.logger.Printf(
@@ -175,9 +175,15 @@ func (gateway *Gateway) logRequestCompletion(
 // debugf keeps request-shape and cache diagnostics injectable with the
 // Gateway's existing logger while honoring the process-level Debug decision.
 func (gateway *Gateway) debugf(format string, args ...interface{}) {
-	if gateway != nil && gateway.debug {
+	if gateway.isDebugEnabled() {
 		gateway.logger.Printf(format, args...)
 	}
+}
+
+// isDebugEnabled keeps fixed test configuration and the production atomic
+// runtime level behind one nil-safe query.
+func (gateway *Gateway) isDebugEnabled() bool {
+	return gateway != nil && gateway.debugEnabled != nil && gateway.debugEnabled()
 }
 
 // requestQueryKeySummary logs sorted, bounded key names but never query values.

@@ -793,11 +793,11 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前已有单 `ember` 二进制、同镜像双容器 Compose、可注入 `http.Handler` 和 HTTP 生命周期装配；Infuse 登录与普通资源 API 已完成本地实机验证，尚未完成外部 HTTPS 反向代理、原始 Emby 公网隔离和真实播放验收：
 
 - 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
-- `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、可选 dotenv bootstrap、日志初始化和退出码；合法运行命令先按 `EMBER_DOTENV → .env → services/api/.env` 选择并加载一次环境文件，再解析 `LOG_LEVEL` 初始化日志，最后进入 API/Gateway。help 与非法参数保持无环境读取副作用；`InitDB` 保留一次静默兜底以兼容直接调用方
-- entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写。API/Gateway/Bot 共用启动期 `LOG_LEVEL=info|debug`，默认 `info`；非法值回退 Info，详细请求形态、普通 access、全部参数化 SQL 和高频缓存命中只在 Debug 输出。API/Bot access 使用路由模板而非真实 path 参数，Bot 关闭 Uvicorn 原生 access，第三方 Bot HTTP logger 不随项目 Debug 放宽
+- `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、可选 dotenv bootstrap、日志 writer 初始化和退出码；合法运行命令先按 `EMBER_DOTENV → .env → services/api/.env` 选择并加载一次环境文件，再以安全 `info` 默认级别初始化对应进程日志文件，最后进入 API/Gateway。help 与非法参数保持无环境读取副作用；`InitDB` 保留一次静默兜底以兼容直接调用方
+- entrypoint 把已解析的进程角色传给共享日志初始化：API 同时写 stdout 与 `logs/api-YYYY-MM-DD.log`，Gateway 同时写 stdout 与 `logs/gateway-YYYY-MM-DD.log`；Compose 再用独立 `api_logs/gateway_logs` volume 隔离持久文件，非 Docker 同目录双进程也不会混写。API/Gateway 的 `LOG_LEVEL=info|debug` 改由设置中心数据库托管并默认 `info`：API 在 settings 表可用后加载最终值，后台保存后立即原子切换；Gateway 启动加载一次，并在每个业务请求边界使用 `500ms` 上限强一致刷新，失败时保留上一次有效级别且不影响请求。GORM 在每次事件读取当前级别，所以不重建连接也能切换参数化 SQL；Bot 继续独立读取环境变量 `LOG_LEVEL`，第三方 Bot HTTP logger 不随 Debug 放宽
 - Compose 通过显式 `gateway` profile 启动 `ember-gateway`，普通默认启动不覆盖 `ember-api` 命令，避免当前钉版旧镜像因不认识新子命令而破坏 userspace
 
-- 进程启动顺序为 `InitDB → Migrate → VerifySchema → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
+- Gateway 进程启动顺序为 `InitDB → Migrate → VerifySchema → load LOG_LEVEL → load ConfigService → GET /emby/System/Info → build EmbyTokenService/Gateway → listen`；不初始化 API JWT、Internal API Secret、默认管理员、Bot 或 cron
 - Gateway runtime 初始化或运行失败时先记录固定 `stage + reasonCode + errorType`，区分数据库 DSN、加密密钥、Emby URL/API Key、上游身份、版本、依赖、监听、Serve 和 shutdown；禁止输出原始错误文本、URL、DSN、API Key 或响应体
 - `GET /emby/System/Info` 使用设置中心的 `EMBY_URL/EMBY_API_KEY`，只接受无重定向 `200 application/json` 和不超过 `256 KiB` 的响应；要求非空 `Id`、四段数字 `Version` 满足 `>= 4.9.0.0 && < 4.10.0.0`，并要求有界 `ServerName`，失败时不会产生监听器；`4.9.3.0` 是协议证据基线，不是唯一运行版本
 - 核对得到的 `Id` 是本进程唯一 `expectedServerID`；API Key、URL 和响应体不进入错误或日志

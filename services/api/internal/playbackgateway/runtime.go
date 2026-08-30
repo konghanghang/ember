@@ -47,11 +47,12 @@ var (
 	ErrRuntimeEmbyAPIKeyUnavailable = fmt.Errorf("%w: Emby API key unavailable", ErrRuntimeConfig)
 )
 
-// RuntimeSettings resolves the two Emby settings already owned by
-// ConfigService without creating a second configuration source.
+// RuntimeSettings resolves Emby, Web Surface and runtime log settings already
+// owned by ConfigService without creating a second configuration source.
 type RuntimeSettings interface {
 	GetString(string) string
 	PlaybackGatewayWebEnabled(context.Context) (bool, error)
+	LogLevel(context.Context) (string, error)
 }
 
 // ProductionDependencies are process-owned objects that remain injectable for
@@ -134,9 +135,10 @@ func NewProductionRuntime(
 		TokenService:      tokenService,
 		DirectPlayService: directPlayService,
 		WebSurfacePolicy:  dependencies.Settings,
+		LogLevelPolicy:    dependencies.Settings,
 		Transport:         dependencies.Transport,
 		Logger:            logger,
-		Debug:             logpkg.DebugEnabled(),
+		DebugEnabled:      logpkg.DebugEnabled,
 	})
 	if err != nil {
 		return nil, ErrRuntimeConfig

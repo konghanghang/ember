@@ -41,7 +41,6 @@ services:
     container_name: ember-api
     environment:
       - PORT=8080
-      - LOG_LEVEL=${LOG_LEVEL:-info}
       # DATABASE_URL 缺省时由 compose 按 POSTGRES_USER/PASSWORD/DB 自动拼接到内置 postgres；
       # 外部覆盖（指向独立 DB）时仍取外部值
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}
@@ -88,7 +87,6 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}
       - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY 必须显式提供}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
     ports:
       # 只允许宿主机反向代理访问；禁止直接把 Gateway HTTP 端口暴露公网
       - "127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}:8081"

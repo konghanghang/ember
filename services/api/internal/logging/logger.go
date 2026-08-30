@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,13 @@ const (
 )
 
 var ErrInvalidProcessRole = errors.New("logging process role invalid")
+var ErrInvalidLevel = errors.New("logging level invalid")
+
+// LevelProvider is the narrow database-backed setting boundary shared by the
+// API and Gateway process assembly.
+type LevelProvider interface {
+	LogLevel(context.Context) (string, error)
+}
 
 type dailyFileWriter struct {
 	baseDir     string
@@ -109,7 +117,8 @@ var (
 	logWriter    io.Writer = os.Stdout
 	initErr      error
 	currentLevel atomic.Uint32
-	levelInvalid atomic.Bool
+	roleMu       sync.RWMutex
+	currentRole  string
 )
 
 // parseLevel accepts the two currently safe project-wide levels. Invalid
@@ -137,6 +146,48 @@ func levelName(level Level) string {
 // environment again, keeping API, GORM, Gin and Gateway assembly consistent.
 func DebugEnabled() bool {
 	return Level(currentLevel.Load()) == LevelDebug
+}
+
+// ApplyLevel atomically switches the process-wide runtime level. Invalid
+// database values leave the last valid level untouched.
+func ApplyLevel(raw string) error {
+	level, invalid := parseLevel(raw)
+	if invalid || strings.TrimSpace(raw) == "" {
+		return ErrInvalidLevel
+	}
+	previous := Level(currentLevel.Swap(uint32(level)))
+	if previous != level {
+		roleMu.RLock()
+		processRole := currentRole
+		roleMu.RUnlock()
+		if processRole != "" {
+			log.Printf(
+				"[Logging] level=info code=log_level_changed processRole=%s previousLevel=%s logLevel=%s source=database",
+				processRole,
+				levelName(previous),
+				levelName(level),
+			)
+		}
+	}
+	return nil
+}
+
+// SyncLevel loads the final startup level after the settings table is ready.
+// Failure retains the safe Info bootstrap level and never blocks a process.
+func SyncLevel(ctx context.Context, processRole string, provider LevelProvider) {
+	if provider == nil {
+		log.Printf("[Logging] level=info code=log_level_load_failed processRole=%s errorType=nil_provider", processRole)
+		return
+	}
+	level, err := provider.LogLevel(ctx)
+	if err == nil {
+		err = ApplyLevel(level)
+	}
+	if err != nil {
+		log.Printf("[Logging] level=info code=log_level_load_failed processRole=%s errorType=%T", processRole, err)
+		return
+	}
+	LogLevelLoaded(processRole, "system_config")
 }
 
 // Debugf writes a diagnostic only while the process-wide Debug level is active.
@@ -169,9 +220,10 @@ func Init(processRole string) error {
 		return err
 	}
 	initOnce.Do(func() {
-		level, invalid := parseLevel(os.Getenv("LOG_LEVEL"))
-		currentLevel.Store(uint32(level))
-		levelInvalid.Store(invalid)
+		currentLevel.Store(uint32(LevelInfo))
+		roleMu.Lock()
+		currentRole = processRole
+		roleMu.Unlock()
 		writer := newDailyFileWriter(logDir, filePrefix)
 		logWriter = writer
 		log.SetOutput(writer)
@@ -183,14 +235,22 @@ func Init(processRole string) error {
 	return initErr
 }
 
-// LogInitialized emits the final process logging decision after entrypoint has
-// reported any dotenv bootstrap result, keeping startup evidence in real order.
+// LogInitialized records the writer-ready bootstrap level before the database
+// setting can be loaded. LogLevelLoaded later records the final decision.
 func LogInitialized(processRole string) {
-	if levelInvalid.Load() {
-		log.Printf("[Logging] level=info code=log_level_invalid fallbackLevel=info")
-	}
-	log.Printf("[Logging] level=info code=logging_initialized processRole=%s logLevel=%s",
+	log.Printf("[Logging] level=info code=logging_initialized processRole=%s logLevel=%s source=bootstrap_default",
 		processRole, levelName(Level(currentLevel.Load())))
+}
+
+// LogLevelLoaded records the final database-backed startup decision after the
+// settings table is available. The source is always fixed by the caller.
+func LogLevelLoaded(processRole, source string) {
+	log.Printf(
+		"[Logging] level=info code=log_level_loaded processRole=%s logLevel=%s source=%s",
+		processRole,
+		levelName(Level(currentLevel.Load())),
+		source,
+	)
 }
 
 func Writer() io.Writer {
