@@ -173,6 +173,7 @@
 ### 语言与子系统约定
 
 - Go API：遵守 `docs/reference/api-development-conventions.md` 的分层与依赖方向；handler 只做参数绑定、调用 service、错误映射和响应拼装；业务逻辑放 `internal/services/<domain>`；第三方协议适配放 `internal/integrations/<vendor>`；新增测试优先用 `go test ./...` 覆盖，提交前关键改动同时跑 `go vet ./...` 和 `go build ./...`
+- 执行 Go 格式化、测试、vet 和 build 时，必须优先将执行工具的 `workdir` 设为 `services/api`，命令本体只保留 `gofmt ...`、`go test ...`、`go vet ...` 或 `go build ...`；禁止在命令字符串中显式拼接 `cd services/api && ...` 或额外套 `bash` / `zsh -lc`。只有确需从仓库根目录编排时，才使用 `go -C services/api ...`
 - Go 数据模型：数据库表 / 列 / 索引名使用 `snake_case`；Go 字段使用 `CamelCase`；JSON 字段使用 camelCase；GORM 映射和 SQL migration 要求见“API、数据库与日志”
 - Web：Vue 3 + TypeScript + Element Plus + Pinia；接口类型集中维护在 `services/web/src/types/api.ts` 或既有类型入口；新增接口适配、组合函数、状态处理、复杂组件交互时补 `Vitest` / 组件测试；验证优先使用 `npm run test` 和 `npm run build`，禁止用 `npm run dev` 代替验证
 - Bot：Python 3.11 + FastAPI + python-telegram-bot；命令处理、通知格式化、Internal API 客户端、运行期配置和菜单同步改动优先补 `pytest`；验证路径为 `python -m py_compile main.py` 与 `python -m pytest tests`；测试必须 fake Telegram Bot API、Go Internal API 和外网 HTTP

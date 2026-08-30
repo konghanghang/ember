@@ -86,6 +86,50 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = ["go", "-C", "services/api", ["test", "vet", "build"]],
+    decision = "allow",
+    justification = "Allow backend validation from the repository root without shell directory wrappers.",
+    match = [
+        "go -C services/api test ./...",
+        "go -C services/api vet ./...",
+        "go -C services/api build ./...",
+    ],
+    not_match = [
+        "go -C services/api run ./cmd/server",
+        "go -C services/web test ./...",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "-C=services/api", ["test", "vet", "build"]],
+    decision = "allow",
+    justification = "Allow the equivalent compact Go working-directory form for backend validation.",
+    match = [
+        "go -C=services/api test ./...",
+        "go -C=services/api vet ./...",
+        "go -C=services/api build ./...",
+    ],
+    not_match = [
+        "go -C=services/api run ./cmd/server",
+        "go -C=services/web test ./...",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gofmt", "-w"],
+    decision = "allow",
+    justification = "Allow formatting explicitly selected Go source files.",
+    match = [
+        "gofmt -w internal/config/config.go",
+        "gofmt -w internal/config/config.go internal/config/config_test.go",
+    ],
+    not_match = [
+        "gofmt -d internal/config/config.go",
+        "gofmt internal/config/config.go",
+    ],
+)
+
+prefix_rule(
     pattern = ["npm", "run", "build"],
     decision = "allow",
     justification = "Allow standard frontend production build validation.",
@@ -376,6 +420,26 @@ prefix_rule(
     justification = "Repository rules forbid starting services from the coding agent.",
     match = [
         "go run ./cmd/server",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "-C", "services/api", "run"],
+    decision = "forbidden",
+    justification = "Do not bypass the repository's `go run` restriction with Go's working-directory flag; use tests or builds instead.",
+    match = [
+        "go -C services/api run ./cmd/server",
+        "go -C services/api run ./cmd/p115-contract-check",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "-C=services/api", "run"],
+    decision = "forbidden",
+    justification = "Do not bypass the repository's `go run` restriction with Go's compact working-directory flag; use tests or builds instead.",
+    match = [
+        "go -C=services/api run ./cmd/server",
+        "go -C=services/api run ./cmd/p115-contract-check",
     ],
 )
 
