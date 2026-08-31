@@ -10,8 +10,8 @@
 | --- | --- | --- | --- |
 | 协议证据基线 | `4.9.3.0 Release` | Emby.SDK 提交 `6ee0155063bc85578196489926359a8f37419502` | 本文列出的 method、path 和 DTO 字段以该提交为主要出处 |
 | Gateway 运行兼容范围 | `>= 4.9.0.0 && < 4.10.0.0` | 官方 `4.9.0.70` 至 `4.9.5.0` 的 9 个稳定 SDK Tag 对当前使用的 12 个 path 及核心 DTO 做过语义比对 | 四段数字版本落在该半开区间即可启动；`4.9.3.0` 不是唯一允许版本 |
-| 目标 Emby Server | 部分确认 | 2026-08-23 Gateway 生产启动日志确认 `4.9.3.0` 与非空 ServerId；同一实例的 `GET /System/Info/Public` 已确认无登录返回 `PublicSystemInfo`。2026-08-30 目标 Emby Web 经 Gateway 实际发出匿名 `/web/strings/zh-CN.json`、`/emby/Branding/Css.css`，并使用固定 `X-Emby-*` query 元数据请求 `/emby/Users/Public` | 已确认目标版本、公开发现语义和 Web 登录前请求形态；三条 Web 请求被 Gateway 本地 `401` 拦截，上游匿名响应仍未验证 |
-| Infuse 客户端行为 | 部分确认 | 2026-08-23 本地实测确认 `Infuse-Direct/8.5` 使用根 API path、`X-Emby-Authorization: MediaBrowser ...`，认证成功响应为 `deflate` JSON，并在登录后通过同一 Header 的非空 `Token` 字段请求普通资源。2026-08-29 Infuse `8.5.2` 已确认按需 PlaybackInfo、`Size=0` proof、source 映射、首次转存、已有目标复用和 Gateway `302` | 登录、普通资源、PlaybackInfo 与 Gateway 302 已有实机证据；gzip、115 CDN 媒体字节/Range、字幕及完整 Progress/Stopped 仍未完成目标环境验证 |
+| 目标 Emby Server | 已确认当前范围 | 2026-08-23 Gateway 生产启动日志确认 `4.9.3.0` 与非空 ServerId；同一实例的 `GET /System/Info/Public` 已确认无登录返回 `PublicSystemInfo`。2026-08-31 真实浏览器确认完整 Web 资源、语言/Branding/Public users、query 登录、Primary/Backdrop 与 WebSocket OPEN | 已确认本计划使用的目标版本、公开发现、Web 登录前资源、认证和图片/WebSocket Surface；未扩展到 Quick Connect 等非目标认证 |
+| Infuse 客户端行为 | 已确认当前范围 | 2026-08-23 本地实测确认 `Infuse-Direct/8.5` 使用根 API path、`X-Emby-Authorization: MediaBrowser ...`，认证成功响应为 `deflate` JSON，并在登录后通过同一 Header 的非空 `Token` 字段请求普通资源。2026-08-29/31 Infuse `8.5.2` 已确认按需 PlaybackInfo、`Size=0` proof、source 映射、首次/复用 `302`、本地 fallback `206`、外挂/内嵌字幕和 Playing/Progress/Stopped `204` | gzip、115 CDN 完整响应头/Range/全文件字节仍未完成目标环境取证，不影响通用代理合同结论 |
 
 证据等级：
 
@@ -245,7 +245,7 @@ Ember 本地撤销固定三种粒度：
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
 - 固定 SDK 已确认 `Authorization/X-Emby-Authorization` 的 `Emby` scheme，目标 Infuse `8.5` 已确认 `X-Emby-Authorization: MediaBrowser ...`；兼容矩阵额外接受严格 `X-MediaBrowser-Authorization: MediaBrowser ...`，但不扩展到任意 Header/scheme。真实目标环境同时确认 SystemInfoPublic 无登录可访问，Gateway 对该公开路由记录不含 Header value、URL query 或响应体的上游状态日志。
 
-当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同，持久播放会话仍未实现。Infuse 登录、普通资源 API、按需 PlaybackInfo、source 映射、转存和 Gateway `302` 已有实机证据，通用载体/大小写矩阵已有 fake 证据；115 CDN 媒体字节、字幕、完整会话、目标 Emby Web 页面字节以及 SenPlayer、Yamby 等其他客户端仍未实机确认。后续收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
+当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同与目标浏览器实机验收，持久播放会话仍未实现。Infuse 登录、普通资源 API、按需 PlaybackInfo、本地 fallback `206`、source 映射、首次/复用 `302`、字幕和 Playing/Progress/Stopped 已有实机证据；115 CDN 完整响应合同以及 SenPlayer、Yamby 等其他客户端仍未实机确认。历史收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
 
 ### 3.5 Emby Web Surface 与根 WebSocket
 
@@ -258,13 +258,13 @@ Ember 本地撤销固定三种粒度：
 
 因此 Web UI 不能简单按 `/web/*` 全部匿名代理。Gateway 只把不携带 Token 的 `GET/HEAD /`、`/favicon.ico`、`/web` 页面和静态资源识别为 `emby_web`；上述四个 API 只有精确 root path 规范化到 `/emby/web/...` 并继续执行 Token 门控。目标 Web 已确认的单层 `/web/strings/{locale}.json` 按有界文件名进入静态 Surface，精确 `GET /emby/Branding/Configuration` 只有在严格 query 元数据有效时进入同一开关边界。固定 SDK 同时把 `GET/HEAD /Items/{Id}/Images/{Type}` 与 `GET/HEAD /Items/{Id}/Images/{Type}/{Index}` 标记为 `Requires authentication as user`，后者要求 int32 图片序号；但目标 Web 在本地映射已经成功、相邻 Sessions Capabilities/UserSettings 分别取得上游 `204/200` 后，批量发出的上述两种图片请求均不携带任何 Token carrier。
 
-第一轮修复后，无 Index Primary 图片已通过真实 Gateway 进入 `route=emby_web` 并取得上游 `200`；目标 Web 随后请求 `/emby/Items/72567/Images/Backdrop/0` 与 `/1`，仍无 Token，旧边界因额外 Index 段分别以 `token_missing` 本地 `401`。为兼容该目标行为，只有 `/emby` 前缀、无 Token、层级精确且动态段有界的 `GET/HEAD /emby/Items/{Id}/Images/{Type}`，以及追加一个规范非负十进制 int32 `{Index}` 的形态进入 Web Surface，并由 `PLAYBACK_GATEWAY_WEB_ENABLED` 控制；原始 query/Header 和响应不改写，Emby 上游状态保持权威。Index 只接受 `0` 或无前导零的十进制数，拒绝负数、加号、非数字、溢出和空值。携带任一支持或非法 Token carrier 的同路径回到受保护分支；root `/Items/...`、上传、删除、额外层级和 encoded path 不继承该权限。修复后的目标 Backdrop Index 上游状态仍未验证。
+第一轮修复后，无 Index Primary 图片已通过真实 Gateway 进入 `route=emby_web` 并取得上游 `200`；目标 Web 随后请求 `/emby/Items/72567/Images/Backdrop/0` 与 `/1`，仍无 Token，旧边界因额外 Index 段分别以 `token_missing` 本地 `401`。为兼容该目标行为，只有 `/emby` 前缀、无 Token、层级精确且动态段有界的 `GET/HEAD /emby/Items/{Id}/Images/{Type}`，以及追加一个规范非负十进制 int32 `{Index}` 的形态进入 Web Surface，并由 `PLAYBACK_GATEWAY_WEB_ENABLED` 控制；原始 query/Header 和响应不改写，Emby 上游状态保持权威。Index 只接受 `0` 或无前导零的十进制数，拒绝负数、加号、非数字、溢出和空值。携带任一支持或非法 Token carrier 的同路径回到受保护分支；root `/Items/...`、上传、删除、额外层级和 encoded path 不继承该权限。2026-08-31 真实浏览器无 Token 读取 Backdrop Index `0/1` 均取得 `200 image/jpeg` 与非零字节。
 
 固定 SDK [Web Socket 合同](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/doc/restapi/Web-Socket.html) 使用服务根地址的 `ws/wss` Upgrade，并携带 `api_key + deviceId`。Gateway 对根 Upgrade 继续执行通用 query Token 映射，现有 ReverseProxy 透传并升级 `101`；关闭 Web UI 不影响该链路。
 
 `PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对已识别 Web Surface 请求使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取，刷新错误同样退避 5 秒：开启则保持原始 method/path/query/Header 和响应透明代理；关闭时不访问上游，`GET` 返回固定的 `text/html; charset=utf-8` 中文友好 `404` 页面并携带 `Cache-Control: no-store`，`HEAD` 返回同状态及等价响应头但不写正文。提示页不加载 Emby、Vue、脚本、外部样式或字体，只显示“Emby 网页访问已关闭”和一条客户端/管理员指引；刷新读取失败期间仍返回空体 `503`。该读取不进入普通 API、视频、WebSocket 或健康检查路径。
 
-目标日志已确认浏览器访问 Gateway 时实际请求 `/`、`/favicon.ico`、完整静态资源，以及登录前 `/web/strings/zh-CN.json`、`/emby/Branding/Css.css`、`/emby/Users/Public`、`/emby/Branding/Configuration` 和 `POST /emby/Users/AuthenticateByName`。公开用户、Branding Configuration、Brotli 认证映射、Sessions Capabilities、UserSettings 与无 Index Primary 图片已在目标链路分别取得上游 `200/200/200/204/200/200`；Backdrop Index 图片、页面完整资源、播放和登录后的真实 WebSocket `101` 仍未在目标实例验收，不能由 fake 合同替代。
+目标日志已确认浏览器访问 Gateway 时实际请求 `/`、`/favicon.ico`、完整静态资源，以及登录前 `/web/strings/zh-CN.json`、`/emby/Branding/Css.css`、`/emby/Users/Public`、`/emby/Branding/Configuration` 和 `POST /emby/Users/AuthenticateByName`。2026-08-31 真实浏览器确认完整资源、公开用户、Branding Configuration、Brotli 登录映射、Sessions Capabilities、UserSettings、Primary/Backdrop 图片和登录后 WebSocket OPEN；Web 关闭 GET/HEAD 的中文 `404`、禁缓存和 Infuse 不受影响同样通过。Web 播放 115 文件按用户当前无使用场景排除，不表述为已兼容。
 
 ### 3.6 暂不覆盖的认证方式
 
@@ -583,7 +583,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - Infuse 对 `302`、`HEAD`、`Range`、UA 和文件名的处理。
 - 客户端是否始终携带 `PlaySessionId`、`MediaSourceId` 和设备标识。
 - Direct Play、Direct Stream 与 Transcode 三种情况下的实际请求差异。
-- 目标 Emby `GET /` 的状态/Location、`/favicon.ico`、`/web` 静态资源清单、绝对 Location 行为和根 WebSocket `101`；当前只有 Gateway 浏览器请求形态与 fake 代理证据。
+- 目标 Emby `GET /`、完整 `/web` 静态资源、登录、Primary/Backdrop 和 WebSocket 已完成浏览器实机确认；未来 Surface 扩展仍须按相同证据等级补合同。
 - 目标 Emby 4.9 实例是否提供可安全调用的单 Token、单设备或会话撤销接口；确认前只能宣称 Ember 网关本地撤销。
 
 以上未确认项不能作为实现完成的依据。

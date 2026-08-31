@@ -796,7 +796,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.27 Playback Gateway HTTP 核心与运行时 (`cmd/ember gateway`, `internal/playbackgateway/`)
 
-当前已有单 `ember` 二进制、同镜像双容器 Compose、可注入 `http.Handler` 和 HTTP 生命周期装配；Infuse 登录与普通资源 API 已完成本地实机验证，尚未完成外部 HTTPS 反向代理、原始 Emby 公网隔离和真实播放验收：
+当前已有单 `ember` 二进制、同镜像双容器 Compose、可注入 `http.Handler` 和 HTTP 生命周期装配；`v2.0.3` 目标部署已完成外部 HTTPS Gateway、Infuse/Web 受控验收，原始 Emby 公网隔离由部署管理员确认收口：
 
 - 进程模型为“一个 `ember-api` 镜像、一个 `ember` 二进制、`api/gateway` 两个子命令、`ember-api/ember-gateway` 两个容器”；单二进制只统一分发入口，不把两个进程合并运行
 - `internal/entrypoint` 负责无参数默认 API、显式 `api/gateway`、help/usage、可选 dotenv bootstrap、日志 writer 初始化和退出码；合法运行命令先按 `EMBER_DOTENV → .env → services/api/.env` 选择并加载一次环境文件，再以安全 `info` 默认级别初始化对应进程日志文件，最后进入 API/Gateway。help 与非法参数保持无环境读取副作用；`InitDB` 保留一次静默兜底以兼容直接调用方
@@ -829,6 +829,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 会话失败恢复观察使用进程内随机 seed 生成且永不输出的 Token 关联值，最多 4096 条、TTL 6 小时、无后台 goroutine，不保存原始 Token 或可跨进程复用的稳定摘要；它不参与授权、并发、播放历史或响应决策。身份 Store 或 Emby 上游失败仍返回真实失败状态，禁止伪造 `204`；同一 Token 后续 Start/Progress 成功时只输出一次 `playback_progress_recovered`
 - bootstrap allowlist 只覆盖大小写兼容但层级精确的 `GET System/Info/Public`、public 用户列表、无 Index 用户头像和目标 Web 已确认的精确 Branding 路径；SystemInfoPublic 与 `/emby/Branding/Css.css` 允许无应用头，Public users 可使用严格 Header 或 query 应用元数据，`GET /emby/Branding/Configuration` 只接受严格 query 元数据并受 Web 开关控制。发现、Quick Connect、root/其他 Branding 和猜测路径继续受 Token 门控
 - 固定 SDK 将无 Index 与 int32 Index Item Image 都标记为用户认证接口，但目标 Web 在认证映射已成功、相邻受保护接口已返回上游 `204/200` 后，发出的 `/emby/Items/{Id}/Images/Primary` 与 `/Images/Backdrop/0|1` 均不携带 Token。Gateway 只把精确 `/emby` GET/HEAD、两个有界动态段、可选规范非负 int32 Index 和无 Token 形态交给 Web 开关；原 query/Header/响应保持，携 Token 时继续 `ResolvePrincipal`，root、非法 Index、修改、encoded 和深层图片路径不继承权限
+- 2026-08-31 目标 Emby `4.9.3.0` 受控验收确认：macOS Infuse `8.5.2` 可经 Gateway 登录、浏览、读取外挂/内嵌字幕，本地硬盘条目以 `path_not_mapped` 回退扩展名流并取得 `206`，115 条目首次/复用均取得 `302`，Playing/Progress/Stopped 均取得 `204`；Emby Web 完整资源、query 登录、Primary/Backdrop 图片和 WebSocket OPEN 均通过。Gateway `302` 与用户播放观察不替代 115 CDN 完整响应头、HEAD/Range 和全文件字节取证；Web 播放 115 文件按用户当前无使用场景排除
 - SystemInfoPublic 上游响应只记录固定 route、pathMode 和 statusCode，不记录 Header、URL、ServerId 或响应体；上游 `401/403/500` 仍逐状态透明返回
 - 上游传输失败返回空体 `502`；反向代理内部错误日志被关闭，只保留不含 URL 和凭证的固定脱敏日志
 - fake Emby 测试已覆盖 root/`/emby` 与大小写路径、重复前缀拒绝、SystemInfoPublic、认证响应透明、三种应用头、Header/query Token aliases、多来源冲突、public bootstrap、用户条目 Container 快照/身份隔离/缺参 fallback、取消/deadline、统一请求日志和传输错误脱敏；没有请求真实 Emby
@@ -847,7 +848,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
 - 每个视频请求在 Info 保留一条 `decision=redirect|fallback|reject` 决策日志；行首使用中文结论和稳定 code/result 明示 `115直链成功`、`115直链失败，Emby回退成功|失败` 或 `播放请求已拒绝`。成功 `302` 同时记录 `target=p115 + targetState=created|reused`；DirectPlay 失败只补固定 `providerOperation`，账号加载失败只补 `accountRole=source|playback`。Debug 可再输出统一 `request_completed` 请求摘要，但不能重复生成第二条决策。按需 PlaybackInfo 选中的原始 `mediaPath` 会进入最终决策，即使 `proofCount=0` / `playback_proof_missing` 也不丢；真正进入 DirectPlay 后再补 `embyPathPrefix`、`sourceRootId` 和 `mappedRelativePath`，使 `302` 与 fallback 都能核对路径替换。无意义的空结果字段不打印；不新建日志表或 migration，仍禁止 Token、Cookie、完整 SHA1、115 URL、完整响应体和上游原始错误
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
-- 2026-08-24 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5`：根路径发现、登录、普通资源 API、PlaybackInfo 证明均成功；115 账号不可用时 `fallbackSource=playback_info_extension_stream` 由 Emby 返回 `206` 并可播放，Playing/Progress 返回 `204`。2026-08-29 Infuse `8.5.2` 的另一条目实测返回完整 115 挂载 Path、`SupportsDirectPlay=true`、`Size=0`；Size 解耦版本部署后已确认 `proofAccepted=true`、source 前缀映射、Provider 权威 Size `27932893135`、首次保留式转存成功、一次 `preexisting=false` 和多次 `preexisting=true` 的 Gateway `302`。后续连续请求出现 `provider_unavailable` 并在 Emby 扩展名 fallback 得到 `404`，当前日志尚不能证明 115 CDN 媒体字节、Stopped、字幕或其他播放器；新的 `providerOperation` 用于下一次部署复现定位具体 115 步骤
+- 2026-08-24 本地实机日志已确认目标 Emby `4.9.3.0` 与 Infuse `8.5` 的根路径发现、登录、普通资源 API、PlaybackInfo 证明和扩展名 fallback `206`；2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目确认 `proofAccepted=true`、source 前缀映射、Provider 权威 Size、首次保留式转存和首次/复用 Gateway `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认本地 `path_not_mapped` fallback `206` 实际播放、115 首次/复用 `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped `204`。现有证据仍不扩展证明 115 CDN 完整响应头、HEAD/Range、全文件字节、其他播放器或生产 Provider 故障分类
 
 ---
 
@@ -1007,7 +1008,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同、数据库互斥编排和 Gateway 302 已完成，Infuse 的 115 CDN 字节、字幕、完整会话与部署网络隔离尚未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；完整链路见 `p115-playback-end-to-end-flow.md` |
+| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同、数据库互斥编排、Gateway 首次/复用 302、Infuse 字幕与播放事件已完成受控验收；115 CDN 完整响应合同、持久会话和策略治理仍未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；完整链路见 `p115-playback-end-to-end-flow.md` |
 
 ---
 

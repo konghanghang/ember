@@ -406,7 +406,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 | PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200`、按需 PlaybackInfo `proofCount=1`，以及原始、Container-only、补齐参数后的 plain fallback 都返回 `404`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中确认 `proofAccepted=true`、source 路径映射、Provider Size 转存成功，并由 Gateway 首次及多次复用返回 `302`；Playing 返回 `204` | 115 CDN 实际媒体字节/Range、字幕、UA/IP 绑定、Progress/Stopped；连续请求后 `provider_unavailable` 的具体步骤需用新 `providerOperation` 复验，扩展名 fallback 当前仍返回 `404` |
+| Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200` 与按需 PlaybackInfo `proofCount=1`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目确认 `proofAccepted=true`、source 路径映射、Provider Size 转存成功，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认 `path_not_mapped` 本地条目经扩展名 fallback 返回 `206` 并实际播放，115 首次/复用 `302` 可播放，外挂/内嵌字幕及 Playing/Progress/Stopped `204` 均正常 | 115 CDN 完整响应头/Range/全文件字节、UA/IP 绑定和长期 Provider 风控；生产未故障注入 `providerOperation/accountRole`，只保留 fake 测试证据 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
@@ -414,43 +414,43 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 【品味评分】
 
-🟡 凑合。安全边界、凭证隔离、版本范围、fallback 和 transfer 幂等设计是清楚的；但运行期健康状态、会话/策略和真实客户端验收仍没有闭环。
+🟡 凑合。安全边界、凭证隔离、版本范围、fallback、transfer 幂等和目标 Infuse 基础播放已闭环；运行期健康状态、持久会话/策略和 CDN 完整响应合同仍未完成。
 
 【致命问题】
 
-- `P1-1`：Infuse 登录、普通资源、按需 PlaybackInfo、source 映射、首次转存和 Gateway `302` 已通过，但权威 DirectStreamUrl/扩展名 fallback 仍出现 `404`；115 CDN 字节、HEAD/Range、字幕和完整进度合同尚未闭环。
-- `P1-2`：如果原始 Emby 公网入口未隔离，所有 Gateway 本地门控都可以被绕过。
+- `P1-1` 已关闭：2026-08-31 本地媒体扩展名 fallback 已取得上游 `206` 并由 Infuse 实际播放，字幕和 Playing/Progress/Stopped 同步通过。
+- `P1-2` 按部署确认关闭：部署管理员确认原始 Emby 公网隔离已处理；该项属于运维确认，不表述为 AI 独立网络复验通过。
 
 【改进方向】
 
-- 先部署新决策日志并用 `providerOperation` 定位连续请求后的 Provider 故障，再继续完成 115 CDN 字节、HEAD/Range、字幕、进度和 Emby fallback 合同验收。
-- 随后收口账号运行期健康回写、冷却、会话/并发和容量治理。
+- 后续只继续完成 115 CDN 完整响应头/Range/全文件字节，以及账号运行期健康回写、冷却、会话/并发和容量治理。
+- 生产不为归档主动制造 Provider/账号故障；`providerOperation/accountRole` 继续由 fake 合同保护，出现自然故障时再补实机证据。
 
 问题总表：
 
 | 优先级 | 问题 |
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
-| `P1` | `P1-1` 本地视频权威 Emby fallback 仍返回 404 且播放合同未闭环；`P1-2` 原始 Emby 旁路风险 |
+| `P1` | `P1-1` 本地 fallback 已以 `206` 实机关闭；`P1-2` 原始 Emby 旁路风险按部署管理员确认关闭 |
 | `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理；`P2-5` 两次历史 Store error 根因待新日志复验 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
 
-#### 【P1-1】本地视频权威 Emby fallback 仍返回 404 且播放合同未闭环
+#### 【P1-1，已关闭】本地视频权威 Emby fallback 已返回 206
 
-- 触发条件：Infuse 直接请求没有 Container/PlaySessionId 的 plain stream；原始、Container-only 和按需 PlaybackInfo 补齐参数后的 plain fallback 都由目标 Emby 返回 `404`。
-- 实际后果：媒体库浏览与按需 PlaybackInfo 正常，115 不适用或不可用时本地视频仍无法播放。
+- 原触发条件：Infuse 直接请求没有 Container/PlaySessionId 的 plain stream，历史 plain fallback 由目标 Emby 返回 `404`。
+- 关闭证据：2026-08-31 本地硬盘条目因 `path_not_mapped` 进入 `fallbackSource=playback_info_extension_stream`，连续 Range 请求由目标 Emby 返回 `206`，macOS Infuse `8.5.2` 实际播放成功。
 - 定位：`services/api/internal/playbackgateway/playback_info_resolver.go`、`video.go`、`docs/reference/emby-playback-proxy-contract.md`。
-- 建议：先用新 `providerOperation` 定位 115 连续请求失败步骤，并继续核对 `fallbackSource=playback_info_direct_stream|playback_info_extension_stream` 为什么由目标 Emby 返回 `404`；fallback 能稳定返回 `200/206` 后再完成 CDN Range、字幕和进度验收。
-- 证据边界：三种 plain fallback、DirectStreamUrl 和扩展名 fallback 的 `404` 已由目标环境证明；URL Token 清理和失败边界有 fake 证据。Gateway `302` 已确认，但不证明客户端读取了 115 CDN 媒体字节。
+- 当前边界：本地 fallback、字幕和会话事件已闭环；Gateway `302` 与用户实际播放观察仍不替代 115 CDN 完整响应头、Range 和全文件字节取证。
 
-#### 【P1-2】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
+#### 【P1-2，按部署确认关闭】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
 
 - 触发条件：客户端仍能直接访问原始 Emby 地址。
 - 实际后果：本地 Token 撤销、用户硬状态和 Gateway 日志全部可以被绕过。
 - 定位：`infrastructure/docker/docker-compose.yml` 只提供 Gateway 回环端口；外部防火墙/反向代理隔离必须由部署者完成。
 - 建议：Infuse 验收前先确认公网只有 Gateway 域名，原始 Emby 只允许内网或运维 allowlist。
+- 关闭记录：2026-08-31 部署管理员明确确认原始 Emby 公网隔离已处理并批准相关 Gateway 计划归档；这是运维确认，未提升为 AI 独立网络复验证据。
 
 ### P2
 
@@ -500,7 +500,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 ## 12. 建议的后续顺序
 
 1. 部署通用客户端矩阵与 Token Store 分类，确认 Infuse 扫库不再出现误导性 `503`，并取得真实失败时的固定 reason/pool 证据。
-2. 完成外部 HTTPS 和原始 Emby 隔离后，继续受控 Infuse 验收并固定 PlaybackInfo、视频、字幕和进度事件 fixture。
+2. 外部 HTTPS、Infuse 登录/播放/字幕/进度验收和原始 Emby 隔离运维确认已完成；继续把新增客户端证据固定为脱敏 fixture。
 3. 接入账号运行期健康回写和冷却，避免 115 故障时逐请求重试。
 4. 实现持久 session、事件/TTL、套餐开关和 Gateway 并发。
 5. 在 session 可证明“无活跃播放”后设计保留文件容量治理。

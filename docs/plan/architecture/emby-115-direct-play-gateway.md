@@ -14,7 +14,7 @@ Ember 当前没有 115 OpenAPI AppID，因此首期不能按 OpenAPI 授权方�
 
 当前实现的完整组件图、请求时序、状态机、数据边界和系统性审查结果统一维护在 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)；本计划只保留阶段目标和未完成项。
 
-Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap 和 Emby Web Surface 控制由 [Ember Gateway 透明代理与 Web 访问控制实现方案](./ember-gateway-transparent-proxy-and-web-access.md) 负责；本计划只负责 115 Provider、DirectPlay 决策和正常 Emby 播放回退。
+Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap 和 Emby Web Surface 控制已由 [Ember Gateway 透明代理与 Web 访问控制实现方案](../../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md) 完成并归档；本计划只负责 115 Provider、DirectPlay 决策和正常 Emby 播放回退。
 
 ## 目标
 
@@ -63,8 +63,8 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 管理端已有活跃会话、播放历史、设备管理、客户端黑名单和设备操作日志。
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
-- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除。Gateway 数据面、统一单二进制、Compose profile 和预览镜像均已完成，外部反向代理与 Infuse 验收仍未完成。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
-- 当前已有统一 `cmd/ember`、`api/gateway` 子命令和同镜像双容器 Compose 入口；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks` 和 DirectPlay 传输核心已落地，但直连会话、外部 HTTPS 反向代理和实机验收尚未接入。
+- 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除。Gateway 数据面、统一单二进制、Compose profile、预览镜像、外部 HTTPS 和目标 Infuse/Web 基础验收均已完成。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
+- 当前已有统一 `cmd/ember`、`api/gateway` 子命令和同镜像双容器 Compose 入口；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks`、DirectPlay 传输核心、外部 HTTPS Gateway 和目标 Infuse/Web 基础验收已落地，持久直连会话仍未接入。
 
 ### 外部证据与未确认项
 
@@ -148,8 +148,8 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 外部 HTTPS 反向代理与原始 Emby 公网隔离、持久直连会话、套餐/并发策略、运营查询、账号健康与清理任务仍未完成；自动清理和跨副本清理锁明确推迟到第二阶段。
-- 真实 Emby/Infuse 已有登录、资源 API、Emby fallback `206` 与 Gateway `302` 的局部证据；115 CDN 完整媒体字节、HEAD/Range、字幕、Stopped、长期风控、配额和其他客户端仍未验证。
+- 持久直连会话、套餐/并发策略、运营查询、账号健康与清理任务仍未完成；自动清理和跨副本清理锁明确推迟到第二阶段。外部 HTTPS 已完成，原始 Emby 公网隔离由部署管理员确认收口。
+- 真实 Emby/Infuse 已有登录、资源 API、本地 fallback `206`、首次/复用 Gateway `302`、外挂/内嵌字幕和 Playing/Progress/Stopped `204` 证据；115 CDN 完整响应头、HEAD/Range、全文件字节、长期风控、配额和其他客户端仍未验证。
 
 ## 方案设计
 
@@ -526,7 +526,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得 Emby fallback `206` 和首次/复用 Gateway `302`，但完整 CDN 字节、持久会话、套餐/并发策略、运营查询、外部 HTTPS 与原始 Emby 隔离仍待完成。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得本地 fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认，完整 CDN 响应合同、持久会话、套餐/并发策略和运营查询仍待完成。
 
 ### 阶段 2：运营与稳定性
 

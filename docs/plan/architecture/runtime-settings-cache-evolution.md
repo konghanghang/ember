@@ -39,7 +39,7 @@ Ember 已为数据库 `settings` 建立按 key 的进程内缓存，解决同一
 - 系统边界：[系统架构](../../system-architecture.md)
 - 配置来源与生效规则：[配置参考](../../reference/configuration-reference.md)
 - Bot 运行期配置边界：[Bot 架构参考](../../reference/bot-architecture-reference.md)
-- Gateway 独立进程配置背景：[Ember Gateway 透明代理与 Web 访问方案](./ember-gateway-transparent-proxy-and-web-access.md)
+- Gateway 独立进程配置背景：[Ember Gateway 透明代理与 Web 访问方案](../../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)
 - Go 通用缓存实现：`services/api/internal/config/settings_cache.go`
 - Go 配置解析入口：`services/api/internal/config/config.go`
 - API 到 Bot 通知配置缓存：`services/api/internal/integrations/notifier/notifier.go`

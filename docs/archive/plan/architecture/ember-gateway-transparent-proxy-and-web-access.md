@@ -1,8 +1,8 @@
 # Ember Gateway 透明代理与 Web 访问控制实现方案
 
-> 状态：主体完成，v2.0.3 已发布，待受控实机验收
+> 状态：已归档（v2.0.3 代码、合同与受控验收已收口）
 > 负责人：Ember
-> 更新时间：2026-08-30
+> 更新时间：2026-08-31
 
 ## 背景
 
@@ -14,7 +14,7 @@
 
 固定的 Emby SDK `4.9.3.0` OpenAPI 同时给出两个容易混淆的事实：Server base URL 包含 `/emby`，接口 path 本身写作 `/System/Info/Public`、`/Users/AuthenticateByName` 等根路径形态；生成的 `SystemInfoPublic` 参考页又把该接口标记为需要用户认证。真实 Infuse 的登录前行为与生成文档的认证标记存在冲突，不能继续靠路径名或经验猜测。
 
-现有 [Emby 115 直连播放网关实现方案](./emby-115-direct-play-gateway.md) 负责 115 Provider、DirectPlay 和播放回退；本计划单独负责 Gateway 的通用反向代理、客户端路径兼容、登录前 bootstrap 和 Emby Web Surface 控制。两者共用同一个 `ember-gateway` 进程，但职责和验收条件不同。
+现有 [Emby 115 直连播放网关实现方案](../../../plan/architecture/emby-115-direct-play-gateway.md) 负责 115 Provider、DirectPlay 和播放回退；本计划单独负责 Gateway 的通用反向代理、客户端路径兼容、登录前 bootstrap 和 Emby Web Surface 控制。两者共用同一个 `ember-gateway` 进程，但职责和验收条件不同。
 
 ## 目标
 
@@ -44,12 +44,12 @@
 
 ### 相关文档与实现
 
-- 系统边界：[系统架构](../../system-architecture.md)
-- Emby 版本化协议：[Emby 4.9 系列播放代理 API 合同](../../reference/emby-playback-proxy-contract.md)
-- 客户端能力矩阵：[Emby Gateway 客户端兼容矩阵](../../reference/emby-client-compatibility-matrix.md)
-- 115 播放链路：[115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)
-- 115 专项计划：[Emby 115 直连播放网关实现方案](./emby-115-direct-play-gateway.md)
-- 部署入口：[Docker Compose 部署说明](../../../infrastructure/docker/README.md)
+- 系统边界：[系统架构](../../../system-architecture.md)
+- Emby 版本化协议：[Emby 4.9 系列播放代理 API 合同](../../../reference/emby-playback-proxy-contract.md)
+- 客户端能力矩阵：[Emby Gateway 客户端兼容矩阵](../../../reference/emby-client-compatibility-matrix.md)
+- 115 播放链路：[115 Cookie 直连播放端到端流程参考](../../../reference/p115-playback-end-to-end-flow.md)
+- 115 专项计划：[Emby 115 直连播放网关实现方案](../../../plan/architecture/emby-115-direct-play-gateway.md)
+- 部署入口：[Docker Compose 部署说明](../../../../infrastructure/docker/README.md)
 - Gateway HTTP 核心：`services/api/internal/playbackgateway/`
 - Gateway 运行时：`services/api/internal/playbackgateway/runtime.go`
 - 设置中心：`services/api/internal/config/`、`services/web/src/views/admin/SettingsView.vue`
@@ -227,7 +227,7 @@ Gateway 内部引入一个只描述路由事实的规范化结果，至少包含
 
 动态读取失败时固定返回空体 `503` 并记录脱敏 `web_surface_config_unavailable`；不能沿用旧值继续开放，也不能把数据库故障误报成“Web 已关闭”。
 
-管理员设置入口放在现有“媒体集成”职责下，只增加一个开关和至多一条简短风险说明。前端实现必须遵守 Ember 风格，设计和交互基线以 [Web 设计规范](../../reference/web-design-guide.md) 为准；本计划没有偏离规范的特例。
+管理员设置入口放在现有“媒体集成”职责下，只增加一个开关和至多一条简短风险说明。前端实现必须遵守 Ember 风格，设计和交互基线以 [Web 设计规范](../../../reference/web-design-guide.md) 为准；本计划没有偏离规范的特例。
 
 关闭时只拒绝经合同确认属于 Web UI 的 `GET/HEAD /`、`/favicon.ico` 与 `/web` 页面/静态资源，不拒绝普通 Emby API，也不基于浏览器 UA 判断。根路径 WebSocket Upgrade 和固定 `/web/ConfigurationPage(s)|strings|stringset` API 继续走现有 Token 门控，不继承 Web UI 匿名权限。
 
@@ -338,13 +338,18 @@ sequenceDiagram
 
 截至 2026-08-30，本阶段代码与文档已完成：设置中心自动展示媒体集成 boolean 配置并标记“立即生效”；Gateway 对 Web Surface 使用 5 秒进程缓存，正值与缺失默认值均缓存，并发刷新合并，默认开启、关闭时返回固定友好 HTML `404`、刷新读取失败 `503`；固定 `/web` API、携 Token Web path 和根 WebSocket 保持身份门控。语言 JSON、Branding CSS、Public users、Branding Configuration、AuthenticateByName query 元数据与无 Token Item Image 已用精确 Surface 和 fake 合同收口；Public users、Branding、Brotli 登录映射、Sessions Capabilities、UserSettings 与无 Index Primary 图片已获得目标上游成功状态，Backdrop Index 修复后的目标状态和 WebSocket 仍属于阶段 3 实机验收，不得由 fake 结果代替。
 
-### 阶段 3：受控实机验收
+### 阶段 3：受控实机验收（已完成）
 
-- 使用目标生产版本记录 Infuse 平台、精确版本和日期。
-- 验证系统信息、用户名密码登录、媒体库、图片、字幕、PlaybackInfo、普通 Emby 视频回退、115 302 和 Playing/Progress/Stopped。
-- 分别验证 Web 开启/关闭；确认关闭 Web 不影响 Infuse。
-- 验证语言 JSON、Branding CSS、Public users、Branding Configuration、query 形态 AuthenticateByName 与无 Token Item Image 分别到达上游并返回目标 Emby 的真实状态，确认登录页完成登录并显示海报。
-- 验收前确认原始 Emby 公网入口已隔离；否则只能证明功能，不能证明安全边界。
+2026-08-31 使用目标 Emby `4.9.3.0`、macOS Infuse `8.5.2` 和 `v2.0.3` Gateway 完成受控验收：
+
+- API 与 Gateway 使用同一 `v2.0.3` 镜像摘要且均为 healthy；Gateway 启动日志确认上游版本 `4.9.3.0`、监听 `:8081` 和有界 ServerId 长度。
+- root 与 `/emby` 两种 `System/Info/Public` 均在无 Token 下返回 `200`；Infuse 用户名密码登录、媒体库、PlaybackInfo、外挂/内嵌字幕均正常。
+- 本地硬盘条目以 `path_not_mapped` 进入 `playback_info_extension_stream` fallback，上游持续返回 `206` 并由 Infuse 实际播放；115 条目首次与复用均返回 `302`，客户端实际播放成功。该用户观察不替代 115 CDN 完整响应头、HEAD/Range 和全文件字节取证，后者继续归属 115 DirectPlay 计划。
+- Playing、Progress、Stopped 均真实转发并取得上游 `204`；Progress 在临时 Debug 验收中确认 position 持续递增与 pause 状态，随后 Gateway 已恢复 `LOG_LEVEL=info`。
+- Web 开启时，完整页面资源、语言 JSON、Branding CSS、Public users、Branding Configuration、query 形态 AuthenticateByName、Primary 海报与 Backdrop Index `0/1` 均取得真实成功状态和响应字节；登录后 WebSocket 已进入 `OPEN`。
+- Web 关闭时，真实浏览器和外层 Cloudflare 收到固定中文 HTML `404`、`Cache-Control: no-store` 与安全响应头，HEAD 无正文；同一关闭期 Infuse API、本地视频、115 视频和会话事件未受影响。Cloudflare Browser Insights 曾注入一个被 CSP 拦截的 beacon 脚本，属于用户接受的非阻断部署层偏差，不改变关闭页主体和 fail-closed 结果。
+- 目标用户明确没有通过 Emby Web 播放 115 文件的需求；该路径不作为本计划归档条件，也不表述为已兼容。未来若新增需求，须在 115 DirectPlay 计划或新计划中独立确认浏览器 CDN/CORS/Range 合同。
+- 部署管理员明确确认原始 Emby 公网入口隔离已处理，并据此批准归档。本轮独立外部探测曾仍观察到旧域名的 Cloudflare 动态 Emby `404` 响应，因此本项只记录为运维确认，不表述为 AI 独立复验通过。
 
 ## 影响范围
 
@@ -380,19 +385,19 @@ npm --prefix services/web run build
 
 ### 手工验收
 
-手工验收属于阶段 3，必须由用户明确授权且不能通过 Codex 启动项目服务。需要区分记录：
+手工验收已在用户明确授权下完成，Codex 未启动项目服务或后台进程：
 
-- fake 自动化通过。
-- 编译通过。
-- 目标 Emby/Infuse 真实登录通过。
-- 普通 Emby 视频 fallback 通过。
-- 115 302 通过。
-- Web 开关开启/关闭通过。
-- 原始 Emby 入口隔离通过。
+- [x] fake 自动化与编译验证通过。
+- [x] 目标 Emby/Infuse 真实登录、媒体库、PlaybackInfo 和字幕通过。
+- [x] 普通 Emby 视频 fallback `206` 与实际播放通过。
+- [x] 115 首次/复用 Gateway `302` 与客户端实际播放通过；未扩展声称 CDN 完整响应合同已取证。
+- [x] Playing/Progress/Stopped 上游 `204` 通过。
+- [x] Web 开关开启/关闭、完整资源、登录、Primary/Backdrop 和 WebSocket 通过。
+- [x] 原始 Emby 入口隔离由部署管理员确认完成；证据等级为运维确认。
 
-任何一层未执行，都不能用其他层的结果代替。
+各层证据保持独立，fake、Gateway `302`、用户播放观察和部署确认不互相替代。
 
-## 已完成项与剩余项
+## 已完成项与归档边界
 
 ### 已完成基线
 
@@ -423,22 +428,24 @@ npm --prefix services/web run build
 - 2026-08-24 实机日志已确认 115 账号不可用时，权威扩展名 Emby fallback 返回 `206` 并可播放，Playing/Progress 返回 `204`。
 - 2026-08-29 实机日志已确认 `Size=0` 条目可进入 source 路径映射、首次保留式转存并返回 `302`，后续预存命中重复请求也返回 `302`；这只证明 Gateway 决策与响应，不证明 115 CDN 完整媒体字节。
 - `v2.0.3` 已包含 Web query 登录、Brotli 认证映射、无 Token Item Image、5 秒 Web 开关缓存和关闭时中文友好 `404` 页面；代码、fake 合同与发布材料已收口。
+- 2026-08-31 受控验收已确认 Infuse 登录/资源/字幕、本地 fallback `206`、首次/复用 `302`、Playing/Progress/Stopped `204`，以及 Web 开启/关闭、完整资源、query 登录、Primary/Backdrop 与 WebSocket OPEN。
 
-### 剩余项
+### 归档时保留的证据边界
 
-- Backdrop Index 修复后的真实图片状态、完整 Web 页面资源、网页播放和登录后根 WebSocket `101` 仍未实机确认。
-- Web 开关关闭后的中文友好 `404` 页面仍需在真实浏览器和外层反向代理下验收，确认代理不会替换响应 HTML；同时复验关闭 Web 不影响 Infuse API、视频和 WebSocket。
-- 115 CDN 完整媒体字节、HEAD/Range、字幕、Stopped 和其他客户端仍需受控实机验收。
-- 原始 Emby 公网入口隔离确认。
+- 115 CDN 完整响应头、HEAD/Range、全文件字节、Provider 长期风控和其他播放器仍由 [Emby 115 直连播放网关实现方案](../../../plan/architecture/emby-115-direct-play-gateway.md) 与客户端兼容矩阵跟踪，不属于本计划的通用代理/Web Surface 归档阻塞项。
+- Emby Web 播放 115 文件被用户明确排除，不表述为已兼容；Web 普通页面、登录、图片和 WebSocket 已完成实机验收。
+- Cloudflare Browser Insights 注入被 CSP 拦截，记录为用户接受的非阻断部署偏差；关闭页主体、状态和禁缓存语义已通过。
+- 原始 Emby 入口隔离按部署管理员确认收口；此前冲突的独立探测结果保留在本计划阶段 3 的证据边界中。
+- SenPlayer、Yamby、VidHub、Fileball、Conflux 与官方客户端的实际兼容继续由稳定客户端矩阵维护，不阻塞本计划退场。
 
 ## 落地后文档处理
 
-实现完成后必须：
+归档前已完成：
 
 1. 把稳定的 Gateway Surface、路径规范化、bootstrap、默认代理和 Web 开关职责写入 `docs/system-architecture.md`。
 2. 把确认后的 Emby `4.9` root/base path、`System/Info/Public`、Web 资源和 WebSocket 合同写入 `docs/reference/emby-playback-proxy-contract.md`。
 3. 更新 `docs/reference/p115-playback-end-to-end-flow.md` 的完整时序、验证证据和审查问题状态。
 4. 更新配置参考、部署说明和反向代理示例，明确 Nginx 不 rewrite、原始 Emby 必须隔离、query Token value 不得进入 access log。
-5. 当代码、测试、部署文档和真实 Infuse/Web 验收全部完成，且稳定事实已提炼到 reference/architecture 后，把本计划状态改为“已完成”，迁入 `docs/archive/plan/architecture/`。
+5. 代码、测试、部署文档和真实 Infuse/Web 验收已完成；证据边界和用户排除项已明确记录，本文迁入 `docs/archive/plan/architecture/` 后只保留历史追溯价值。
 
-以下任一项未完成时不得归档：root 与 `/emby` 兼容测试、bootstrap 合同、Web 开关边界、普通播放 fallback、文档同步或明确记录的实机验证结论。
+root 与 `/emby` 兼容、bootstrap 合同、Web 开关边界、普通播放 fallback、文档同步和实机验证结论均已收口；未纳入本计划的 115 CDN 与其他客户端事项已有现行文档继续承接。
