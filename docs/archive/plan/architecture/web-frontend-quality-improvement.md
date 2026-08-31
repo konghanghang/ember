@@ -1,6 +1,6 @@
 # 前端工程质量收口方案
 
-> 状态：代码与自动化验证已完成，待受控手工验收
+> 状态：已完成并归档（未执行真实浏览器验收）
 > 负责人：Ember
 > 更新时间：2026-08-31
 
@@ -26,7 +26,7 @@
 - 不做框架级升级（Vite 5→7、Tailwind 3→4 另行排期）。
 - 不一次性拆分所有巨型视图；拆分边界已在本文档记录，随后续功能迭代顺手做。
 - 不重构 Element Plus 注册机制（现状正确，仅补防回归测试）。
-- 前端实现必须遵守 Ember 风格；设计与交互基线以 [docs/reference/web-design-guide.md](../../reference/web-design-guide.md) 为准，本方案不允许偏离。
+- 前端实现必须遵守 Ember 风格；设计与交互基线以 [docs/reference/web-design-guide.md](../../../reference/web-design-guide.md) 为准，本方案不允许偏离。
 
 ## 立项时事实（2026-07-26）
 
@@ -137,14 +137,14 @@
 
 ## 落地后文档处理
 
-- 全部批次与 follow-up 代码已完成；受控手工验收通过后，本文档移入 `docs/archive/plan/architecture/`。
+- 全部批次与 follow-up 代码已完成，稳定结论已经提炼；按用户明确决定，本文档已移入 `docs/archive/plan/architecture/`。
 - 批次 1 的“build 必过 vue-tsc”结论已沉淀到 `docs/runbooks/testing.md`。
 - 批次 2 的 MediaStats camelCase 与 TMDB `data` 合同已同步到 `docs/system-architecture.md` 和 API 端点目录。
 
 ## 进度记录
 
 - 2026-07-26：完成三路并行评审（构建/状态层/大型视图），问题清单定稿，等待排期修复。
-- 2026-07-26：布局与设计维度的问题另立 [前端页面布局与设计收口方案](../../archive/plan/console-admin/web-layout-design-improvement.md) 收口；其中日期/时间格式统一（该文档 S11）与本方案 P2-8 同源，执行时合并处理，避免两次触碰同一批文件。该方案已于 2026-08-30 归档。
+- 2026-07-26：布局与设计维度的问题另立 [前端页面布局与设计收口方案](../console-admin/web-layout-design-improvement.md) 收口；其中日期/时间格式统一（该文档 S11）与本方案 P2-8 同源，执行时合并处理，避免两次触碰同一批文件。该方案已于 2026-08-30 归档。
 - 2026-07-26：前端部分全部实施完成，`vue-tsc --noEmit` 全项目 0 错误、`npm run build` 通过、`npm run test` 155 passed / 3 skipped（跳过项为 EMBER_WEB_RUN_INTEGRATION 门控集成 spec）。
   - 批次 1（类型安全网）：完成。安装 `@vue/tsconfig@0.9.1`、`vue-tsc@3.3.8`；`build` 接入 `vue-tsc --noEmit`，`scripts/test/web.sh` 加独立 typecheck 步骤；tsconfig 双套并存收口；首次暴露的 103 个存量类型错误零 `any` 修平；新增 `request<T>(config): Promise<T>` 具名函数，约 80 个调用点从类型谎言变真实类型。
   - 批次 2（功能 bug 与契约）：前端项完成，**两处前后端联动项跳过待排期**——P2-1（MediaStats PascalCase）、P2-2（`/tmdb/search` 改 `data` 字段）均需后端 handler 同改，未实施。其余前端项完成：P1-2 扫描按钮卡死（`scanStatus.running` 单一事实源，补 spec）、P2-4 toast 双弹（全站 catch 删 `ElMessage.error` 走拦截器，差异化文案改 `silent`）、P2-7 fetchData 竞态（请求令牌守卫，补 spec）、P2-9 分页 size-change 重置第 1 页。
@@ -162,10 +162,11 @@
   - 构建收口：`vue-tsc` 暴露的 4 处 Element Plus `prompt` 联合返回类型注解已用成功分支运行时合同收窄，不改变交互行为。
   - 自动化验证：API `go test ./...`、`go vet ./...`、`go build ./...` 通过；Web `npm run test` 为 181 passed / 3 skipped，`npm run build` 通过；Bot `pytest tests` 为 49 passed，`py_compile main.py` 通过；`git diff --check` 通过。所有上游均为 fake 或未触发，没有启动服务或真实请求 Emby、TMDB、Telegram。
   - 未执行项：真实浏览器双标签页注册切号与设备页全量刷新仍需受控手工验收；当前自动化结果不表述为 E2E 或真实 Emby 验证。
+- 2026-08-31：用户明确决定直接归档；未执行的真实浏览器验收作为历史限制保留，不再作为归档阻塞项，也不补写为“已通过”。
 
-## 剩余验收与归档条件
+## 归档结论
 
-- 在真实浏览器两个标签页中完成注册切号，确认其他标签页只发生一次“账号已切换”同步，不出现中间登出提示或登录页跳转。
-- 在设备管理页保留筛选条件点击页头“刷新”，确认设备列表、统计、黑名单和操作日志一并更新，按钮在请求期间正确进入禁用/刷新中状态。
-- 上述验收需要用户明确授权，并且不得由 Codex 启动项目服务或真实触发 Emby；结果回填后方可归档。
+- 四个实施批次、两处 API 合同项与两项 follow-up 均已完成，现行代码、测试、系统架构、API 端点目录和 Web 设计规范已接管稳定事实，本文只保留历史追溯价值。
+- 真实浏览器双标签页注册切号与设备页全量刷新未执行；本归档不声称 E2E、真实 Emby 或人工交互验收通过。
+- 用户已明确接受上述验证限制并要求归档；如后续复现交互问题，应新建缺陷或计划，不再恢复本历史方案为现行实施稿。
 - P3 巨型组件拆分、模板计算优化、Element Plus 注册防回归和 `ListResponse<T>` 统一仍按原约定随后续功能迭代处理，不属于本轮验收或归档阻塞项。

@@ -12,7 +12,7 @@
 - 拉低一致性的主要是三类问题：**中心页骨架分裂**（支付中心筛选消失/双标题、兑换中心标题双渲染）、**文案克制规则（§2.2.1）被系统性突破**（TopBar 骨架层 18 句 + 各页约 20 处）、**手写组件未回收**（分段控件/统计卡各三套写法）。
 - 用户体感"布局太烂"的页面集中在：支付中心、兑换中心、续期中心、媒体缺口、TopBar 骨架。
 
-本方案与 [前端工程质量收口方案](../../../plan/architecture/web-frontend-quality-improvement.md) 互补：那份管工程质量（类型检查、契约、工具函数、死资源），这份管布局与设计一致性。两份的"文案/组件回收"改动不重叠，可独立排期。
+本方案与 [前端工程质量收口方案](../architecture/web-frontend-quality-improvement.md) 互补：那份管工程质量（类型检查、契约、工具函数、死资源），这份管布局与设计一致性。两份的"文案/组件回收"改动不重叠，可独立排期。
 
 如果不收口：规范第 12 条检查清单在多个页面形同虚设；中心页两种骨架并存会让后续每个新中心页都要重新发明一次结构；支付记录筛选在生产环境不可达是真实功能缺失。
 
@@ -26,7 +26,7 @@
 ## 非目标
 
 - 不重新设计任何页面的信息架构与视觉风格；只做"向现行规范收敛"，不发明新规范。
-- 不处理工程质量项（类型检查、API 契约、死资源等），归 `architecture/web-frontend-quality-improvement.md`。
+- 不处理工程质量项（类型检查、API 契约、死资源等），归 `../architecture/web-frontend-quality-improvement.md`。
 - TVCalendarView、首页重视觉模块属规范 3.4 明确允许的特例页，只修违规点（kicker 文案、空状态组件），不强行套列表骨架。
 - MediaGapsView 聚合视图约 400 行自绘 CSS 本方案只做"收敛到基线"（tone、圆角、组件替换），不做整体重写；重写与否在组件回收完成后另行评估。
 
@@ -172,7 +172,7 @@
 
 - 全部批次完成后，本文档移入 `docs/archive/plan/console-admin/`。
 - 批次执行中产生的规范修订直接落在 `docs/reference/web-design-guide.md`，规范始终代表现行事实。
-- 与 `architecture/web-frontend-quality-improvement.md` 的日期/工具函数交集项（S11）在那份文档批次 3 执行时一并收口，两边进度记录互相标注。
+- 与 `../architecture/web-frontend-quality-improvement.md` 的日期/工具函数交集项（S11）在那份文档批次 3 执行时一并收口，两边进度记录互相标注。
 
 ## 进度记录
 

@@ -34,7 +34,8 @@
   - 例如：[播放观察与设备链路加固方案](./plan/console-admin/playback-and-device-observation-hardening.md)
   - 例如：[「播放分析」菜单合并方案](./plan/console-admin/playback-center-merge.md)
   - 例如：[控制台概览与账号中心布局改造方案](./plan/console-admin/console-overview-account-layout-redesign.md)
-- `architecture/`：设置中心、邮箱鉴权边界、项目级日志、数据库迁移 baseline、数据库迁移自动应用、OSS 部署体验、schema 与部署基线等结构性方案
+- `architecture/`：设置中心、邮箱鉴权边界、前端工程质量、项目级日志、数据库迁移 baseline、数据库迁移自动应用、OSS 部署体验、schema 与部署基线等结构性方案
+  - 例如：[前端工程质量收口方案](./plan/architecture/web-frontend-quality-improvement.md)
   - 例如：[115 源文件路径解析与 Emby Size 解耦方案](./plan/architecture/p115-path-resolution-without-emby-size.md)
   - 例如：[项目级日志级别方案](./plan/architecture/project-wide-log-level.md)
   - 例如：[settings 按 Key 本地缓存方案](./plan/architecture/settings-key-cache.md)
