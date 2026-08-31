@@ -325,6 +325,7 @@ Gateway 对层级精确的用户条目 `200 application/json` 响应执行以下
 - 缓存 TTL 5 分钟、最多 4096 条、无后台 goroutine；每个视频请求仍先重新执行 `ResolvePrincipal`，撤销和用户状态不能被缓存绕过。
 - 该快照只用于补齐正常 Emby fallback 的必填 Container，绝不是 PlaybackInfo/PlaySession 授权证明，不能凭它获得 115 `302`。
 - 旁路 JSON 解析失败、响应 `Id` 缺失和响应 `Id` 与 path 不一致时，分别记录 `response_json_invalid`、`response_item_id_missing`、`response_item_id_mismatch`；日志带 quoted `mappingId/itemId` 和有界响应元数据，不记录响应体，Emby 原状态/Header/Body 仍保持权威。
+- 已知实现偏差：当前六段路径分类会把 `/Users/{UserId}/Items/Latest` 的静态 `Latest` 段当成 ItemId，导致列表 JSON 触发无效 `response_json_invalid`；原响应仍透明。修复与回归测试由 [GitHub Issue #8](https://github.com/konghanghang/ember/issues/8) 跟踪。
 
 ### 4.4 PlaybackInfoResponse 关键字段
 

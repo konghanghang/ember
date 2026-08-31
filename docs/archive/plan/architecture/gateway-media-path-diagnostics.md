@@ -1,8 +1,8 @@
 # Gateway 媒体路径诊断日志实现方案
 
-> 状态：已完成（代码已进入 v2.0.3，待新格式实机日志验收）
+> 状态：已归档（v2.0.3 新格式实机日志验收已收口）
 > 负责人：Ember
-> 更新时间：2026-08-30
+> 更新时间：2026-08-31
 
 ## 背景
 
@@ -105,17 +105,18 @@ DirectPlay 的 Gateway 返回结构增加仅用于进程内诊断的路径映射
 
 ### 手工验证
 
-- 部署后打开一个媒体详情并播放，确认 PlaybackInfo 日志包含完整 `mediaPath`。
-- 直连成功时确认 `message="115直链成功" result=success statusCode=302 target=p115`，同时包含原始路径和映射后路径。
-- 路径前缀错误时确认 `decision=fallback reasonCode=path_not_mapped` 包含原始路径和已知配置字段。
-- Provider 失败时确认 `providerOperation` 能区分源路径解析、目标查重、秒传、目标复核和下载 URL；账号不可用时确认 `accountRole` 能区分 source/playback。
+- [x] 部署后打开媒体详情并播放，PlaybackInfo 日志包含完整 quoted `mediaPath`、Size/能力和 `proofAccepted=true`。
+- [x] 首次直连确认 `message="115直链成功" result=success statusCode=302 target=p115 targetState=created`，同时包含原始路径和映射后路径。
+- [x] 重复播放确认 `targetState=reused preexisting=true`，没有重复转存。
+- [x] 本地媒体确认 `decision=fallback reasonCode=path_not_mapped`，包含 `mediaPath/embyPathPrefix/sourceRootId`；映射未成立时不伪造 `mappedRelativePath`。
+- [ ] 生产历史未自然出现 `providerOperation/accountRole` 失败日志；用户明确决定不为归档主动制造 Provider/账号故障，该部分只保留 fake 合同测试证据，不表述为实机通过。
 - 手工日志验证必须由用户明确执行；本次实现不启动服务、不调用真实 Emby/115。
 
 ## 落地后文档处理
 
 - 稳定日志合同已同步到 `docs/reference/emby-playback-proxy-contract.md` 与 `docs/reference/p115-playback-end-to-end-flow.md`。
 - 架构事实已同步到 `docs/system-architecture.md`，相关进行中架构计划的旧 Path 禁止边界也已同步校正。
-- 真实部署验收结果回填后，将本计划移入 `docs/archive/plan/architecture/`。
+- 2026-08-31 真实部署验收结果已回填；本文迁入 `docs/archive/plan/architecture/` 后只保留历史追溯价值。
 
 ## 实施结果
 
@@ -124,5 +125,14 @@ DirectPlay 的 Gateway 返回结构增加仅用于进程内诊断的路径映射
 - DirectPlay 候选携带不序列化、不持久化的 `PathMapping`；映射成功后即使 Provider 后续失败，也会把原始路径、配置前缀、source root 和相对路径交给最终视频决策日志。
 - `decision=redirect|fallback|reject` 保持每请求一条；新格式使用中文 `message` 与稳定 code/result 将结论前置，302 记录 `targetState=created|reused`，fallback 记录 `fallbackResult=success|failure`，失败上下文只允许固定 `providerOperation/accountRole`。按需解析得到的 `mediaPath` 在 `playback_proof_missing` 时也保留，进入 DirectPlay 后再增加 `embyPathPrefix/sourceRootId/mappedRelativePath`。Token、Cookie、115 URL、完整响应体和原始错误继续由测试保护。
 - 已通过目标包测试、目标包 race、API 全量 `go test ./...`、`go vet ./...`、`go build ./...` 与 `git diff --check`。
-- 用户提供的 2026-08-29 Infuse `8.5.2` 部署日志已确认完整原始/映射路径、Provider 权威 Size、首次转存成功以及连续 Gateway `302`；也暴露旧格式把成功标志埋在长字段中，并将后续 `provider_unavailable` 的具体步骤抹平。新的中文结论、结果前置和类型化失败步骤已有 fake 测试，仍待下一次部署复验。未由 AI 启动服务或请求真实 Emby/115。
-- 实现提交 `5189ff3` 已进入 `v2.0.3` 发布线；当前仓库只能证明代码、测试与发布内容已包含新格式，仍没有部署后新格式日志，暂不满足归档条件。
+- 用户提供的 2026-08-29 Infuse `8.5.2` 部署日志已确认完整原始/映射路径、Provider 权威 Size、首次转存成功以及连续 Gateway `302`；也暴露旧格式把成功标志埋在长字段中，并将后续 `provider_unavailable` 的具体步骤抹平。
+- 2026-08-31 `v2.0.3` 受控日志已确认新中文决策格式、结果前置、首次/复用状态、完整 `mediaPath` 与路径映射字段；本地 `path_not_mapped` fallback 按已知字段输出并取得上游 `206`。未由 AI 启动服务或请求真实 Emby/115。
+- 同轮实机发现 `/Users/{UserId}/Items/Latest` 被当前六段路径分类误判为单条 Item 详情，导致列表响应重复产生 `response_json_invalid itemId="Latest"`。原响应仍透明返回，该分类缺陷已拆分为独立 [GitHub Issue #8](https://github.com/konghanghang/ember/issues/8)，不与本计划已完成的日志字段合同混在一起继续推进。
+- 实现提交 `5189ff3` 已进入 `v2.0.3` 发布线；代码、测试、发布内容和目标部署新格式日志均已有证据，归档条件已满足。Provider/账号失败步骤没有生产故障注入，证据等级明确保留为 fake 测试。
+
+## 归档结论
+
+- 稳定日志合同由 `docs/system-architecture.md`、`docs/reference/emby-playback-proxy-contract.md` 与 `docs/reference/p115-playback-end-to-end-flow.md` 接管。
+- 新格式的成功、fallback、首次/复用和路径映射证据已经完成部署回填；生产未触发的故障分类没有被伪写成实机通过。
+- `Items/Latest` 路由误分类由 Issue #8 独立跟踪，后续修复不再依赖本计划正文。
+- 本文不再指导现行实现，只保留需求、设计、验证与证据边界的历史追溯价值。

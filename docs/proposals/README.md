@@ -14,14 +14,16 @@
 
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
-- 8 份进行中或观察期的功能实施稿
+- 7 份进行中或观察期的功能实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将 Gateway 透明代理与 Web 访问控制方案移入 `docs/archive/plan/architecture/`；此前已将前端工程质量、115 Size 解耦、前端页面布局与设计收口、订阅手动补偿下载、项目级日志级别、管理员 API Key、settings key cache 等方案陆续迁入归档。当前 `docs/plan/` 保留 8 份进行中或观察期实施稿与模板入口。
+最近一次归档已将 Gateway 媒体路径诊断日志方案移入 `docs/archive/plan/architecture/`；此前已将 Gateway 透明代理与 Web 访问控制、前端工程质量、115 Size 解耦、前端页面布局与设计收口、订阅手动补偿下载、项目级日志级别、管理员 API Key、settings key cache 等方案陆续迁入归档。当前 `docs/plan/` 保留 7 份进行中或观察期实施稿与模板入口。
 
 2026-08-31 已完成前端工程质量实施稿的代码、自动化验证和正式归档；真实浏览器验收未执行且未写成已通过，具体限制和剩余计划状态见 [计划文档盘点](./plan-inventory.md)。
 
 同日 Gateway 透明代理与 Web 访问控制方案完成 v2.0.3 受控验收并按用户明确决定归档；各项实机证据、排除项和部署确认边界已保留在归档正文与稳定参考文档中。
+
+Gateway 媒体路径诊断日志方案随后完成 v2.0.3 新格式日志回填并归档；实机暴露的 `Items/Latest` 路由误分类已转入 [GitHub Issue #8](https://github.com/konghanghang/ember/issues/8)，不再让完成态计划继续承担缺陷跟踪职责。
 
 ## 目录边界
 

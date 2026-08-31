@@ -85,13 +85,12 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-08-31 继续核对代码、测试和稳定文档；Gateway 透明代理与 Web 访问方案完成 v2.0.3 受控验收并按用户明确决定归档，当前 `docs/plan/` 保留以下 8 份。
+2026-08-31 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，当前 `docs/plan/` 保留以下 7 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
 | `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 已有本地 fallback `206`、首次/复用 Gateway `302`、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、持久会话、套餐并发、运维查询与阶段 2 未完成 | 保留在 `docs/plan/architecture/` |
-| `architecture/gateway-media-path-diagnostics.md` | 继续保留 | `5189ff3` 已进入 v2.0.3，新中文决策、完整路径、首次/复用 302 与 `path_not_mapped` 已有部署日志；实机同时发现 `Items/Latest` 被误判为单条详情并产生错误诊断 | 修复路由分类并回填计划后归档到 `docs/archive/plan/architecture/` |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
@@ -104,6 +103,7 @@
 
 | 文档 | 盘点结论 | 主要证据 | 建议动作 |
 |------|----------|----------|----------|
+| `archive/plan/architecture/gateway-media-path-diagnostics.md` | 已归档 | `5189ff3` 已进入 v2.0.3，新中文决策、完整 `mediaPath`、首次/复用 302、映射字段与 `path_not_mapped` 均有部署日志；生产未故障注入 Provider/账号失败，保留 fake 证据边界；`Items/Latest` 误分类转由 [Issue #8](https://github.com/konghanghang/ember/issues/8) 跟踪 | 历史追溯；稳定日志合同由系统架构、Emby 代理合同和 115 端到端参考接管 |
 | `archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md` | 已归档 | v2.0.3 已完成 root/`/emby` bootstrap、Infuse 登录/资源/字幕、本地 fallback `206`、首次/复用 `302`、Playing/Progress/Stopped，以及 Web 开启/关闭、完整资源、query 登录、Primary/Backdrop 和 WebSocket 验收；115 Web 播放按用户无使用场景排除，原始 Emby 隔离按部署管理员确认收口 | 历史追溯；稳定合同由系统架构、Emby 代理合同、客户端矩阵与部署 runbook 接管 |
 | `archive/plan/architecture/web-frontend-quality-improvement.md` | 已归档 | MediaStats camelCase、TMDB `{data,total}`、Web/Bot 调用方、注册跨 tab 会话替换和设备页全量刷新均有自动化测试；API/Web/Bot 全量验证与 Web build 通过；真实浏览器验收未执行，按用户决定不再阻塞归档 | 历史追溯，不表述为 E2E 或人工验收通过 |
 | `archive/plan/architecture/p115-path-resolution-without-emby-size.md` | 已归档 | `5189ff3` 已落地并进入 v2.0.3；Size=0 条目已有 proof、路径映射、Provider Size、首次与复用 302 部署证据，稳定合同已提炼 | 历史追溯 |

@@ -197,6 +197,8 @@ mappingId + itemId + mediaSourceId -> container
 
 该缓存不包含 Token、Path、Size 或响应体，不是 115 授权证明。按需 PlaybackInfo 失败后，plain stream 仍完全缺少必填 Container 时，它才用于克隆正常 Emby fallback 并追加 Container；该降级分支不会进入 DirectPlay。
 
+当前已知实现偏差：六段路径分类会把 `/Users/{UserId}/Items/Latest` 的静态集合路由误判为单条详情，列表响应因此产生无效 `response_json_invalid` 日志，但原响应仍透明。修复与静态路由回归测试由 [GitHub Issue #8](https://github.com/konghanghang/ember/issues/8) 跟踪。
+
 ### 4.2 缺 PlaySessionId 的按需 PlaybackInfo
 
 plain stream 带唯一 MediaSourceId 和 `Static=true`、但没有 PlaySessionId 时：
