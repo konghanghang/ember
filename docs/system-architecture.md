@@ -476,7 +476,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 - `GetEmbyConfig()` — 优先返回设置中心里的前端 Emby 地址（配置键沿用 `NEXT_PUBLIC_EMBY_URL`），为空时回退 `EMBY_URL`，供控制台拼接 Emby 图片与地址展示
 - `IsEmbyConfigured()` — 代理 `EmbyService.IsConfigured()`，供 dashboard 媒体接口在调用上游前判断"系统是否已配置 Emby"，避免把"未配置"当成上游错误返回
-- `GetMediaStats()` — 5 分钟 RWMutex 缓存层
+- `GetMediaStats()` — 5 分钟 RWMutex 缓存层；Emby integration 继续解析上游 PascalCase，HTTP handler 映射为 `data.movieCount / seriesCount / episodeCount`，Web Dashboard 与 Bot `/count` 共用该 Ember camelCase 合同
 - `GetLatestItems(embyUserID, itemType, limit)` — 通过 Emby `/Users/{userId}/Items/Latest` 获取最近入库媒体，并做短 TTL 去重缓存
 
 > Dashboard 三个接口（`/emby/config`、`/media/stats`、`/media/latest`）在 emby 未配置 / 用户未绑定 Emby 时返回 `200 + configured/bound` 业务标志位，仅在依赖已配置但调用真实失败时才走 `500 + "上游服务暂不可用"`；详见 [docs/reference/api-response-standard.md](reference/api-response-standard.md) 的《未初始化态 vs 上游错误》章节。前端首屏探测请求统一带 `silent: true`，由组件自行渲染空态，避免 fresh-install 场景下叠加触发全局 toast。
@@ -869,6 +869,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 列表接口统一使用 `data` 字段
 - 字段命名统一使用 camelCase
+- 公开与 Internal `/tmdb/search` 复用同一 handler，统一返回 `{data,total}`；Web 求片与 Bot `/search` 只消费该 Ember 合同，上游 TMDB `results/total_results` 只停留在 integration 边界
 - 返回格式约定以 [docs/reference/api-response-standard.md](./reference/api-response-standard.md) 为准
 - 完整路径清单和分组用途统一维护在 [docs/reference/api-endpoint-catalog.md](./reference/api-endpoint-catalog.md)
 

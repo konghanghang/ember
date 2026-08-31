@@ -14,12 +14,12 @@
 
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
-- 10 份进行中或观察期的功能实施稿
+- 10 份进行中、待验收或观察期的功能实施稿
 - 功能方案模板与后续新增实施稿入口
 
-最近一次归档已将 115 Size 解耦、前端页面布局与设计收口、订阅手动补偿下载三份方案分别移入 `docs/archive/plan/architecture/`、`docs/archive/plan/console-admin/` 和 `docs/archive/plan/media-subscription/`；此前已将项目级日志级别、管理员 API Key、settings key cache、PlanGroup 媒体库延迟同步、播放排行榜媒体库 allowlist 与按套餐分组的订阅自动通过额度等方案陆续迁入归档。当前 `docs/plan/` 只保留 10 份进行中或观察期实施稿与模板入口。
+最近一次归档已将 115 Size 解耦、前端页面布局与设计收口、订阅手动补偿下载三份方案分别移入对应归档目录；此前已将项目级日志级别、管理员 API Key、settings key cache 等方案陆续迁入归档。当前 `docs/plan/` 保留 10 份进行中、待验收或观察期实施稿与模板入口。
 
-2026-08-30 已完成 115 Size 解耦、前端页面布局与设计收口、订阅手动补偿下载三份实施稿的正式归档；具体证据和剩余计划状态见 [计划文档盘点](./plan-inventory.md)。
+2026-08-31 已完成前端工程质量实施稿的最终合同与交互 follow-up 代码收口，待受控手工验收后归档；具体证据和剩余计划状态见 [计划文档盘点](./plan-inventory.md)。
 
 ## 目录边界
 

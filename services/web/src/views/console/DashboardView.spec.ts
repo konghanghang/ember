@@ -138,9 +138,9 @@ describe('DashboardView 过期用户概览', () => {
       success: true,
       configured: true,
       data: {
-        MovieCount: 321,
-        SeriesCount: 45,
-        EpisodeCount: 6789,
+        movieCount: 321,
+        seriesCount: 45,
+        episodeCount: 6789,
       },
     })
   })

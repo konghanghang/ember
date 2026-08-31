@@ -278,6 +278,78 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
     def test_pending_reject_requests_removed(self) -> None:
         self.assertFalse(hasattr(telegram_handler, "pending_reject_requests"))
 
+    async def test_handle_count_uses_camel_case_media_stats(self) -> None:
+        message = _StubMessage(chat_id=2001, user_id=1001)
+        update = _StubUpdate(message=message)
+
+        with patch.object(
+            telegram_handler.api_client,
+            "get_media_stats",
+            AsyncMock(
+                return_value={
+                    "success": True,
+                    "data": {
+                        "movieCount": 12,
+                        "seriesCount": 5,
+                        "episodeCount": 98,
+                    },
+                }
+            ),
+        ):
+            await telegram_handler.handle_count(update, None)
+
+        message.reply_text.assert_awaited_once()
+        text = message.reply_text.await_args.args[0]
+        self.assertIn("电影：<b>12</b>", text)
+        self.assertIn("剧集：<b>5</b>", text)
+        self.assertIn("总集数：<b>98</b>", text)
+
+    async def test_do_search_reads_data_field_and_keeps_filtering(self) -> None:
+        message = _StubMessage(chat_id=2001, user_id=1001)
+        message.reply_text.return_value = types.SimpleNamespace(chat_id=2001, message_id=3001)
+
+        with patch.object(
+            telegram_handler.api_client,
+            "search_tmdb",
+            AsyncMock(
+                return_value={
+                    "data": [
+                        {
+                            "id": 11,
+                            "title": "Movie Result",
+                            "mediaType": "movie",
+                            "posterPath": "",
+                        },
+                        {
+                            "id": 22,
+                            "title": "Person Result",
+                            "mediaType": "person",
+                            "posterPath": "",
+                        },
+                        {
+                            "id": 33,
+                            "title": "TV Result",
+                            "mediaType": "tv",
+                            "posterPath": "",
+                        },
+                    ],
+                    "total": 3,
+                }
+            ),
+        ):
+            await telegram_handler._do_search(message, 1001, "dark", "multi")
+
+        message.reply_text.assert_awaited_once()
+        text = message.reply_text.await_args.kwargs["text"]
+        keyboard = message.reply_text.await_args.kwargs["reply_markup"]
+        self.assertIn("Movie Result", text)
+        self.assertIn("TV Result", text)
+        self.assertNotIn("Person Result", text)
+        self.assertEqual(
+            [button.callback_data for row in keyboard.inline_keyboard for button in row],
+            ["sub:pick:0", "sub:pick:1"],
+        )
+
     async def test_send_subscription_notification_returns_delivery_refs_for_all_approval_admins(self) -> None:
         bot = _StubBot()
         bot.send_message.side_effect = [

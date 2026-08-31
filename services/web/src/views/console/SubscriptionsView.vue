@@ -163,15 +163,15 @@ const handleReject = async (sub: Subscription) => {
   if (!canRunAdminAction()) return
 
   try {
-    const result: MessageBoxInputData = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
+    const result = await ElMessageBox.prompt(`请输入拒绝 "${formatSubscriptionTitle(sub)}" 的原因`, '拒绝订阅', {
       confirmButtonText: '提交拒绝',
       cancelButtonText: '取消',
       inputPlaceholder: '请填写明确的拒绝原因',
       inputPattern: /\S+/,
       inputErrorMessage: '拒绝原因不能为空',
       type: 'warning'
-    })
-    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
+    }) as MessageBoxInputData
+    // prompt 与 confirm 共用包含 Action 的声明；成功分支运行时固定返回输入对象。
     await rejectSubscription(sub.id, result.value)
     ElMessage.success('已拒绝')
     fetchData()

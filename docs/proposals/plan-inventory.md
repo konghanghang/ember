@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-08-30
+> 更新时间：2026-08-31
 
 本清单只回答三件事：
 
@@ -85,7 +85,7 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-08-30 对原 13 份实施稿逐份核对代码、测试、Git 历史和稳定文档；3 份已完成正式归档，当前 `docs/plan/` 保留以下 10 份。
+2026-08-31 继续核对代码、测试和稳定文档；前端工程质量方案已完成最终合同与 follow-up 代码收口，待受控手工验收，当前 `docs/plan/` 保留以下 10 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
@@ -94,7 +94,7 @@
 | `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 已有 Emby fallback `206` 与首次/复用 Gateway `302` 实证；CDN 完整字节、字幕、Stopped、持久会话、套餐并发、运维查询与阶段 2 未完成 | 保留在 `docs/plan/architecture/` |
 | `architecture/gateway-media-path-diagnostics.md` | 继续保留 | `5189ff3` 已进入 v2.0.3，代码和 fake 测试已完成；尚无新中文决策格式的部署日志 | 实机日志回填后归档到 `docs/archive/plan/architecture/` |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
-| `architecture/web-frontend-quality-improvement.md` | 继续保留 | 前端四批已完成，但 MediaStats 仍为 PascalCase，`/tmdb/search` 仍返回 `results`，两处 API/Web 合同未收口 | 完成 P2-1/P2-2 后再归档 |
+| `architecture/web-frontend-quality-improvement.md` | 待手工验收 | MediaStats camelCase、TMDB `{data,total}`、Web/Bot 调用方、注册跨 tab 会话替换和设备页全量刷新均已由自动化测试保护；尚未执行真实双标签页与设备页验收 | 验收结果回填后归档到 `docs/archive/plan/architecture/` |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |

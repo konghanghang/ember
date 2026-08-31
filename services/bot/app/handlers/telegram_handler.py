@@ -961,9 +961,9 @@ async def handle_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     stats = result["data"]
-    movie_count = int(stats.get("MovieCount", 0) or 0)
-    series_count = int(stats.get("SeriesCount", 0) or 0)
-    episode_count = int(stats.get("EpisodeCount", 0) or 0)
+    movie_count = int(stats.get("movieCount", 0) or 0)
+    series_count = int(stats.get("seriesCount", 0) or 0)
+    episode_count = int(stats.get("episodeCount", 0) or 0)
 
     await message.reply_text(
         "🎬 <b>当前媒体库统计</b>\n\n"
@@ -1289,7 +1289,7 @@ async def _do_search(message, user_id: int, query: str, media_type: str) -> None
         )
         return
 
-    all_results = result.get("results", [])
+    all_results = result.get("data", [])
     if not all_results:
         await message.reply_text("😔 未找到相关内容，请尝试其他关键词")
         return

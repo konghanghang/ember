@@ -791,13 +791,13 @@ const handleDispatch = async () => {
 const handleIgnore = async (gap: MediaGapItem) => {
   let reason = ''
   try {
-    const result: MessageBoxInputData = await ElMessageBox.prompt('可选填写忽略原因，后续排查误报时会更省事。', '忽略缺集工单', {
+    const result = await ElMessageBox.prompt('可选填写忽略原因，后续排查误报时会更省事。', '忽略缺集工单', {
       confirmButtonText: '确认忽略',
       cancelButtonText: '取消',
       inputPlaceholder: '例如：资源命名差异 / 数据源误报',
       inputValue: gap.ignoreReason || ''
-    })
-    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
+    }) as MessageBoxInputData
+    // prompt 与 confirm 共用包含 Action 的声明；成功分支运行时固定返回输入对象。
     reason = result.value?.trim() || ''
   } catch (error) {
     if (isMessageBoxCancel(error)) {

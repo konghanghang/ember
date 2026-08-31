@@ -138,12 +138,12 @@ class ApiClientRetryTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_search_tmdb_uses_internal_proxy_headers(self) -> None:
         request = httpx.Request("GET", "https://example.com")
-        response = httpx.Response(200, request=request, json={"results": [], "total": 0})
+        response = httpx.Response(200, request=request, json={"data": [], "total": 0})
 
         with patch.object(api_client, "_request", AsyncMock(return_value=(response, 12.0))) as request_mock:
             payload = await api_client.search_tmdb("dark", "tv")
 
-        self.assertEqual(payload, {"results": [], "total": 0})
+        self.assertEqual(payload, {"data": [], "total": 0})
         _, method, url = request_mock.await_args.args
         self.assertEqual(method, "GET")
         self.assertTrue(url.endswith("/api/v1/internal/tmdb/search"))

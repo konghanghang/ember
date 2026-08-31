@@ -71,11 +71,43 @@ describe('NewSubscriptionView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     pushMock.mockReset()
-    vi.mocked(searchTmdb).mockResolvedValue({ results: [] } as never)
+    vi.mocked(searchTmdb).mockResolvedValue({ data: [], total: 0 } as never)
     vi.mocked(checkExistingSubscription).mockResolvedValue({
       existsInLibrary: false,
       detectionFailed: false,
     } as never)
+  })
+
+  it('uses the data field from TMDB search results', async () => {
+    vi.mocked(searchTmdb).mockResolvedValue({
+      data: [
+        {
+          id: 27205,
+          title: 'Inception',
+          posterPath: '/poster.jpg',
+          overview: 'dreams',
+        },
+      ],
+      total: 1,
+    } as never)
+    const wrapper = mountView()
+    const vm = wrapper.vm as unknown as {
+      searchQuery: string
+      handleSearch: () => Promise<void>
+      results: Array<{ id: number; title: string }>
+    }
+
+    vm.searchQuery = 'Inception'
+    await vm.handleSearch()
+    await flushPromises()
+
+    expect(searchTmdb).toHaveBeenCalledWith('Inception', 'movie', { silent: true })
+    expect(vm.results).toEqual([
+      expect.objectContaining({
+        id: 27205,
+        title: 'Inception',
+      }),
+    ])
   })
 
   it('创建订阅命中自动通过时提示等待入库', async () => {

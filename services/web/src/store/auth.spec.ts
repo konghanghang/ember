@@ -394,6 +394,43 @@ describe('auth store — current behavior characterization', () => {
       expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBe('reg-tok')
     })
 
+    it('switches an existing session on successful register without broadcasting an intermediate sign-out', async () => {
+      const response: RegisterResponse = {
+        token: 'new-reg-tok',
+        user: buildUser({ id: 'u2', role: 'user', passwordResetRequired: false }),
+      }
+      registerMock.mockResolvedValue(response)
+      const auth = useAuthStore()
+      const user = useUserStore()
+      const consoleStore = useConsoleStore()
+      auth.setAuth('old-tok', buildUser({ id: 'old-user', role: 'admin' }))
+      user.setProfile(buildUser({ id: 'old-user', role: 'admin' }))
+
+      const removeTokenSpy = vi.spyOn(window.localStorage, 'removeItem')
+      const clearAuthSpy = vi.spyOn(auth, 'clearAuth')
+      const userSpy = vi.spyOn(user, 'clearUserData')
+      const consoleSpy = vi.spyOn(consoleStore, 'clearConsoleData')
+
+      await auth.register({
+        username: 'new',
+        password: 'pw',
+        email: 'a@b.com',
+        code: '1234',
+      })
+
+      expect(clearAuthSpy).not.toHaveBeenCalled()
+      expect(removeTokenSpy).not.toHaveBeenCalledWith(AUTH_TOKEN_KEY)
+      expect(userSpy).toHaveBeenCalledTimes(1)
+      expect(consoleSpy).toHaveBeenCalledTimes(1)
+      expect(auth.token).toBe('new-reg-tok')
+      expect(auth.role).toBe('user')
+      expect(user.profile?.id).toBe('u2')
+      expect(window.localStorage.getItem(AUTH_TOKEN_KEY)).toBe('new-reg-tok')
+
+      removeTokenSpy.mockRestore()
+      clearAuthSpy.mockRestore()
+    })
+
     it('preserves the existing session when register fails (does not clear token before request)', async () => {
       // 已登录用户从未受保护的 /register 提交一个会失败的注册请求时，不能被意外登出：
       // 会话切换只能在注册成功后发生。

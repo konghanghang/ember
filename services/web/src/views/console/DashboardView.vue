@@ -35,7 +35,8 @@ const emptyUser: UserInfo = {
 const user = computed(() => userStore.profile ?? emptyUser)
 const embyUrl = computed(() => userStore.embyUrl)
 const embyConfigured = computed(() => userStore.embyConfigured)
-const stats = ref<MediaStats>({ MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 })
+const emptyStats: MediaStats = { movieCount: 0, seriesCount: 0, episodeCount: 0 }
+const stats = ref<MediaStats>({ ...emptyStats })
 const loading = ref(false)
 
 const isExpired = computed(() => {
@@ -109,7 +110,7 @@ const fetchOverview = async () => {
     ) {
       stats.value = statsResult.value.data
     } else {
-      stats.value = { MovieCount: 0, SeriesCount: 0, EpisodeCount: 0 }
+      stats.value = { ...emptyStats }
     }
   } finally {
     loading.value = false
@@ -280,9 +281,9 @@ watch(
       </div>
 
       <div class="grid gap-4 p-4 md:grid-cols-3 md:p-6">
-        <EmberMetricCard title="电影收藏" :value="stats.MovieCount" />
-        <EmberMetricCard title="剧集收藏" :value="stats.SeriesCount" />
-        <EmberMetricCard title="总集数" :value="stats.EpisodeCount" />
+        <EmberMetricCard title="电影收藏" :value="stats.movieCount" />
+        <EmberMetricCard title="剧集收藏" :value="stats.seriesCount" />
+        <EmberMetricCard title="总集数" :value="stats.episodeCount" />
       </div>
     </section>
 

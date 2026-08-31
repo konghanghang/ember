@@ -111,6 +111,24 @@ func TestTMDBHandlerSearchUsesTMDBCache(t *testing.T) {
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("request %d expected status 200, got %d body=%s", i+1, recorder.Code, recorder.Body.String())
 		}
+
+		var body map[string]interface{}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatalf("request %d failed to decode response: %v", i+1, err)
+		}
+		if _, exists := body["results"]; exists {
+			t.Fatalf("request %d expected no top-level results field, got %s", i+1, recorder.Body.String())
+		}
+		data, ok := body["data"].([]interface{})
+		if !ok {
+			t.Fatalf("request %d expected array data, got %#v in %s", i+1, body["data"], recorder.Body.String())
+		}
+		if len(data) != 1 {
+			t.Fatalf("request %d expected one result in data, got %d", i+1, len(data))
+		}
+		if got := body["total"]; got != float64(1) {
+			t.Fatalf("request %d expected total=1, got %#v in %s", i+1, got, recorder.Body.String())
+		}
 	}
 
 	if got := requestCount.Load(); got != 1 {

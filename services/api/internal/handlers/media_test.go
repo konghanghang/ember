@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 )
 
 // 关键约定：emby 未配置时三个 dashboard 接口必须返回 200 + configured:false，而不是 500。
@@ -62,6 +63,52 @@ func TestMediaHandlerGetMediaStatsReturnsUnconfiguredStateWhenEmbyMissing(t *tes
 	}
 	if !resp.Success || resp.Configured || resp.Data != nil {
 		t.Fatalf("expected unconfigured state with nil data, got %+v", resp)
+	}
+}
+
+func TestMediaHandlerGetMediaStatsReturnsCamelCaseData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &MediaHandler{
+		isEmbyConfigured: func() bool { return true },
+		getMediaStats: func() (*embyint.MediaStats, error) {
+			return &embyint.MediaStats{
+				MovieCount:   12,
+				SeriesCount:  3,
+				EpisodeCount: 45,
+			}, nil
+		},
+	}
+
+	ctx, recorder := newTestConfigContext(http.MethodGet, "/api/v1/media/stats", nil)
+	handler.GetMediaStats(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected object data, got %#v", body["data"])
+	}
+	for _, key := range []string{"MovieCount", "SeriesCount", "EpisodeCount"} {
+		if _, exists := data[key]; exists {
+			t.Fatalf("expected data not to expose PascalCase key %q: %s", key, recorder.Body.String())
+		}
+	}
+	expected := map[string]float64{
+		"movieCount":   12,
+		"seriesCount":  3,
+		"episodeCount": 45,
+	}
+	for key, want := range expected {
+		if got := data[key]; got != want {
+			t.Fatalf("expected data.%s=%v, got %#v in %s", key, want, got, recorder.Body.String())
+		}
 	}
 }
 

@@ -137,7 +137,9 @@ export const useAuthStore = defineStore('auth', () => {
     // 注册成功后再切换会话：已登录用户进入未受保护的 /register 并提交一个会失败的注册请求时，
     // 不能在请求发出前就清掉当前 token，否则失败后用户被意外登出。
     const res: RegisterResponse = await authApi.register(data)
-    resetAllStores()
+    // 成功注册本质是会话替换，不是登出；只清业务派生态，避免跨 tab 收到中间 signed-out。
+    useConsoleStore().clearConsoleData()
+    userStore.clearUserData()
     token.value = res.token
     writeStorageItem(AUTH_TOKEN_KEY, res.token)
     userStore.setProfile(res.user)

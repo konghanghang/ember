@@ -246,8 +246,8 @@ func (h *TMDBHandler) Search(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"results": results,
-		"total":   tmdbResp.TotalResults,
+		"data":  results,
+		"total": tmdbResp.TotalResults,
 	})
 }
 

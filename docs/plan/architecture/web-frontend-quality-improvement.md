@@ -1,8 +1,8 @@
 # 前端工程质量收口方案
 
-> 状态：前端批次已完成，两处 API 合同项待实施
+> 状态：代码与自动化验证已完成，待受控手工验收
 > 负责人：Ember
-> 更新时间：2026-08-30
+> 更新时间：2026-08-31
 
 ## 背景
 
@@ -28,7 +28,9 @@
 - 不重构 Element Plus 注册机制（现状正确，仅补防回归测试）。
 - 前端实现必须遵守 Ember 风格；设计与交互基线以 [docs/reference/web-design-guide.md](../../reference/web-design-guide.md) 为准，本方案不允许偏离。
 
-## 当前事实
+## 立项时事实（2026-07-26）
+
+以下内容保留为实施前基线；完成态以文末进度和归档结论为准。
 
 - 相关服务：`services/web`；契约违规涉及后端 `services/api/internal/handlers/media.go`、`tmdb.go`。
 - 构建现状：`package.json` 的 `build` 仅 `vite build`（转译不做类型检查）；`vue-tsc@1.8.27` 躺在 devDependencies 从未被脚本/CI 调用；`tsconfig.app.json` extends 未安装的 `@vue/tsconfig`，手动跑 `vue-tsc` 直接报错；根 `tsconfig.json` 自包含，两套配置并存。
@@ -116,7 +118,7 @@
 
 - API：有。`handlers/media.go`、`handlers/tmdb.go` 响应字段映射。
 - Web：有。构建脚本、request 层、store、7 个大型视图、utils、public 资源。
-- Bot：无。
+- Bot：有。Internal MediaStats 与 TMDB 搜索复用同一 handler，Bot `/count`、`/search` 已同步消费 camelCase 和 `data` 合同。
 - 配置/部署：无（nginx 缓存策略已健康，不动）。
 - 文档：批次 2 契约变更后同步 `docs/system-architecture.md` 与 `docs/reference/api-response-standard.md`（若该标准文档已有 MediaStats 例外记录则需移除例外）；字体决策若保留需同步 `docs/reference/web-design-guide.md`。
 
@@ -135,9 +137,9 @@
 
 ## 落地后文档处理
 
-- 全部批次完成后，本文档移入 `docs/archive/plan/architecture/`。
-- 批次 1 的"build 必过 vue-tsc"结论沉淀到 `docs/runbooks/testing.md`。
-- 批次 2 的契约变更结论同步 `docs/system-architecture.md`。
+- 全部批次与 follow-up 代码已完成；受控手工验收通过后，本文档移入 `docs/archive/plan/architecture/`。
+- 批次 1 的“build 必过 vue-tsc”结论已沉淀到 `docs/runbooks/testing.md`。
+- 批次 2 的 MediaStats camelCase 与 TMDB `data` 合同已同步到 `docs/system-architecture.md` 和 API 端点目录。
 
 ## 进度记录
 
@@ -153,3 +155,17 @@
     - DevicesView 删除了唯一的全量刷新按钮（S4「有查询就删刷新」决策对多数据区页面不适用）：查询只刷新设备列表，stats/黑名单/操作日志仅在挂载时加载，多管理员并发改动后会显示旧数据。修法：保留全量刷新入口，或让查询同时调用 `refreshAll`。
     - register 切号跨 tab 广播登出：`resetAllStores()` 先删旧 token（广播 `signed-out`）再写新 token（广播 `updated`），其他 tab 会先弹登出跳登录页、再弹切号跳 dashboard，两次竞争。修法：register 成功后只清 user/console 数据并原子替换 token，不走 `resetAllStores`。
 - 2026-08-30：进度复核确认 P2-1 与 P2-2 仍未实施：`MediaStats` 仍使用 `MovieCount/SeriesCount/EpisodeCount`，`/tmdb/search` 仍返回 `results`。这两项属于 API/Web 同步合同变更，未完成前本计划继续保留在 `docs/plan/architecture/`。
+- 2026-08-31：完成四项剩余代码与自动化验证，等待受控手工验收后归档。
+  - P2-1：API handler 使用 DTO 将 Emby `MovieCount/SeriesCount/EpisodeCount` 映射为 Ember 对外 `movieCount/seriesCount/episodeCount`；Web Dashboard 与 Bot `/count` 同步新合同，Emby integration 原协议保持不变。
+  - P2-2：公开与 Internal `/tmdb/search` 统一返回 `{data,total}`；Web 新建订阅与 Bot `/search` 同步调用方，Bot 原有 movie/tv 过滤与序号语义保持不变。
+  - follow-up：注册成功切号不再执行删除 token 的登出式清场，只清 user/console 派生态后写入新会话；设备页在页头恢复独立全量刷新，查询/重置仍只负责筛选设备列表，并补 loading/disabled 反馈。
+  - 构建收口：`vue-tsc` 暴露的 4 处 Element Plus `prompt` 联合返回类型注解已用成功分支运行时合同收窄，不改变交互行为。
+  - 自动化验证：API `go test ./...`、`go vet ./...`、`go build ./...` 通过；Web `npm run test` 为 181 passed / 3 skipped，`npm run build` 通过；Bot `pytest tests` 为 49 passed，`py_compile main.py` 通过；`git diff --check` 通过。所有上游均为 fake 或未触发，没有启动服务或真实请求 Emby、TMDB、Telegram。
+  - 未执行项：真实浏览器双标签页注册切号与设备页全量刷新仍需受控手工验收；当前自动化结果不表述为 E2E 或真实 Emby 验证。
+
+## 剩余验收与归档条件
+
+- 在真实浏览器两个标签页中完成注册切号，确认其他标签页只发生一次“账号已切换”同步，不出现中间登出提示或登录页跳转。
+- 在设备管理页保留筛选条件点击页头“刷新”，确认设备列表、统计、黑名单和操作日志一并更新，按钮在请求期间正确进入禁用/刷新中状态。
+- 上述验收需要用户明确授权，并且不得由 Codex 启动项目服务或真实触发 Emby；结果回填后方可归档。
+- P3 巨型组件拆分、模板计算优化、Element Plus 注册防回归和 `ListResponse<T>` 统一仍按原约定随后续功能迭代处理，不属于本轮验收或归档阻塞项。

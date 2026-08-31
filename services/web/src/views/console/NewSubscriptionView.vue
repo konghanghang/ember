@@ -73,7 +73,7 @@ const handleSearch = async () => {
     const type = searchType.value === 'MOVIE' ? 'movie' : 'tv'
     const res = await searchTmdb(searchQuery.value, type, { silent: true })
     if (requestToken !== searchRequestToken) return
-    results.value = res.results || []
+    results.value = res.data || []
     searchFailed.value = false
   } catch {
     if (requestToken !== searchRequestToken) return

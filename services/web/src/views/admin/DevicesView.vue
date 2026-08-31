@@ -25,6 +25,7 @@ const loading = ref(false)
 const blacklistsLoading = ref(false)
 const statsLoading = ref(false)
 const actionsLoading = ref(false)
+const fullRefreshing = ref(false)
 const submitting = ref(false)
 const batchProcessing = ref(false)
 
@@ -145,6 +146,21 @@ const refreshAll = async () => {
   await Promise.all([fetchDevices(), fetchStats(), fetchBlacklists(), fetchActions()])
 }
 
+/**
+ * 手动刷新设备管理页的全部数据面板。
+ *
+ * 查询/重置只代表筛选当前设备列表；这里保留独立全量刷新语义，用于同步统计、
+ * 黑名单和操作日志这类会被其他管理员或外部会话变更影响的数据。
+ */
+const handleFullRefresh = async () => {
+  fullRefreshing.value = true
+  try {
+    await refreshAll()
+  } finally {
+    fullRefreshing.value = false
+  }
+}
+
 const handleAddBlacklist = async () => {
   if (!blacklistForm.value.clientName.trim()) {
     ElMessage.warning('请输入客户端名称')
@@ -240,6 +256,19 @@ onMounted(refreshAll)
     <EmberPageHeaderCard title="设备管理">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">共 {{ total }} 台设备</span>
+      </template>
+
+      <template #actions>
+        <button
+          type="button"
+          aria-label="刷新设备管理全部数据"
+          :disabled="fullRefreshing"
+          class="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
+          @click="handleFullRefresh"
+        >
+          <el-icon :class="{ 'animate-spin': fullRefreshing }"><RefreshRight /></el-icon>
+          {{ fullRefreshing ? '刷新中' : '刷新' }}
+        </button>
       </template>
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">

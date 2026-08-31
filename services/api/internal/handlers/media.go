@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
 	"github.com/konghang/ember/backend/internal/db"
+	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
 	mediapkg "github.com/konghang/ember/backend/internal/services/media"
 )
@@ -20,6 +21,8 @@ type MediaHandler struct {
 	service *mediapkg.MediaService
 	// isEmbyConfigured 用于轻量测试注入；生产路径默认指向 service.IsEmbyConfigured。
 	isEmbyConfigured func() bool
+	// getMediaStats 用于轻量测试注入；生产路径默认指向 service.GetMediaStats。
+	getMediaStats func() (*embyint.MediaStats, error)
 }
 
 // NewMediaHandler 创建媒体处理器
@@ -28,6 +31,7 @@ func NewMediaHandler() *MediaHandler {
 	return &MediaHandler{
 		service:          service,
 		isEmbyConfigured: service.IsEmbyConfigured,
+		getMediaStats:    service.GetMediaStats,
 	}
 }
 
@@ -92,7 +96,11 @@ func (h *MediaHandler) GetMediaStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.service.GetMediaStats()
+	getMediaStats := h.getMediaStats
+	if getMediaStats == nil {
+		getMediaStats = h.service.GetMediaStats
+	}
+	stats, err := getMediaStats()
 	if err != nil {
 		httpx.InternalError(c, err)
 		return
@@ -101,8 +109,26 @@ func (h *MediaHandler) GetMediaStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
 		"configured": true,
-		"data":       stats,
+		"data":       newMediaStatsResponse(stats),
 	})
+}
+
+type mediaStatsResponse struct {
+	MovieCount   int `json:"movieCount"`
+	SeriesCount  int `json:"seriesCount"`
+	EpisodeCount int `json:"episodeCount"`
+}
+
+// newMediaStatsResponse maps the Emby protocol stats object to Ember's public JSON contract.
+func newMediaStatsResponse(stats *embyint.MediaStats) *mediaStatsResponse {
+	if stats == nil {
+		return nil
+	}
+	return &mediaStatsResponse{
+		MovieCount:   stats.MovieCount,
+		SeriesCount:  stats.SeriesCount,
+		EpisodeCount: stats.EpisodeCount,
+	}
 }
 
 type LatestMediaItem struct {

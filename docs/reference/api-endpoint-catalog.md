@@ -27,7 +27,7 @@
 | POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧；命中套餐分组当日额度时会直接自动通过） |
 | POST | `/api/v1/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note`；命中套餐分组当日额度时会直接自动通过 |
 | DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
-| GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索（需 JWT，服务端缓存） |
+| GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索（需 JWT，服务端缓存；响应 `{data,total}`） |
 | GET | `/api/v1/tmdb/tv/:id/seasons` | TMDB 剧集季列表（需 JWT，服务端缓存） |
 | GET | `/api/v1/profile` | 个人信息 |
 | GET | `/api/v1/profile/analytics` | 当前登录用户画像（支持 `range` 或 `startDate/endDate`） |
@@ -40,7 +40,7 @@
 | POST | `/api/v1/telegram/bindcode` | 生成 Telegram 绑定验证码 |
 | DELETE | `/api/v1/telegram/unbind` | 解除 Telegram 绑定 |
 | GET | `/api/v1/emby/config` | Emby 配置 |
-| GET | `/api/v1/media/stats` | 媒体统计 |
+| GET | `/api/v1/media/stats` | 媒体统计（`data` 字段使用 `movieCount/seriesCount/episodeCount`） |
 | GET | `/api/v1/media/latest` | 最新入库 |
 | GET | `/api/v1/media/posters/:itemId` | 最近入库封面代理（需登录） |
 | GET | `/api/v1/user/media-libraries` | 当前登录用户媒体库偏好与分组模板 |
@@ -192,8 +192,8 @@
 | PUT | `/api/v1/internal/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/internal/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
 | GET | `/api/v1/internal/settings/:key` | 读取内部配置（仅允许访问统一配置层中已注册的非敏感 key；未知 key 返回 404） |
-| GET | `/api/v1/internal/media/stats` | 读取内部媒体统计（Bot 复用） |
-| GET | `/api/v1/internal/tmdb/search?query=&type=` | Bot 使用的 TMDB 搜索代理（InternalAuth，服务端缓存） |
+| GET | `/api/v1/internal/media/stats` | 读取内部媒体统计（Bot 复用；`data` 字段使用 `movieCount/seriesCount/episodeCount`） |
+| GET | `/api/v1/internal/tmdb/search?query=&type=` | Bot 使用的 TMDB 搜索代理（InternalAuth，服务端缓存；响应 `{data,total}`） |
 | GET | `/api/v1/internal/tmdb/tv/:id/seasons` | Bot 使用的 TMDB 剧集季列表代理（InternalAuth，服务端缓存） |
 | POST | `/api/v1/internal/telegram/bind` | Bot 校验并绑定账号 |
 | POST | `/api/v1/internal/telegram/info` | Bot 查询账号信息 |

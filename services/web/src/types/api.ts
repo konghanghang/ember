@@ -1161,9 +1161,9 @@ export interface EmbyConfigResponse {
 }
 
 export interface MediaStats {
-  MovieCount: number
-  SeriesCount: number
-  EpisodeCount: number
+  movieCount: number
+  seriesCount: number
+  episodeCount: number
 }
 
 export interface MediaStatsResponse {
@@ -1213,7 +1213,7 @@ export interface TmdbSearchItem {
 }
 
 export interface TmdbSearchResponse {
-  results: TmdbSearchItem[]
+  data: TmdbSearchItem[]
   total: number
 }
 

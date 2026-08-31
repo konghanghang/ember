@@ -397,14 +397,14 @@ const handleUpdateUser = async () => {
 
 const handleExtend = async (row: UserInfo) => {
   try {
-    const result: MessageBoxInputData = await ElMessageBox.prompt('请输入延长天数', '延长到期时间', {
+    const result = await ElMessageBox.prompt('请输入延长天数', '延长到期时间', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       inputPattern: /^\d+$/,
       inputErrorMessage: '请输入数字',
       inputValue: '30'
-    })
-    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
+    }) as MessageBoxInputData
+    // prompt 与 confirm 共用包含 Action 的声明；成功分支运行时固定返回输入对象。
     await extendUserExpiry(row.id, parseInt(result.value, 10))
     ElMessage.success('延长成功')
     await fetchData()
@@ -444,11 +444,11 @@ const handleDelete = async (row: UserInfo) => {
 
 const handleResetPassword = async (row: UserInfo) => {
   try {
-    const result: MessageBoxInputData = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
+    const result = await ElMessageBox.prompt('请输入新密码 (留空生成随机密码)', '重置密码', {
       confirmButtonText: '确定',
       cancelButtonText: '取消'
-    })
-    // Element Plus 2.14.5 的 prompt 声明错误收窄为 never；运行时合同仍是 MessageBoxInputData。
+    }) as MessageBoxInputData
+    // prompt 与 confirm 共用包含 Action 的声明；成功分支运行时固定返回输入对象。
     const { value } = result
 
     let password = value
