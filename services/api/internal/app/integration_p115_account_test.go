@@ -82,7 +82,7 @@ type integrationP115AccountResponse struct {
 
 func TestIntegrationP115AccountLifecycle(t *testing.T) {
 	const oldCookie = "UID=source-old_A1; CID=old-cid; SEID=old-seid"
-	const newCookie = "UID=source-new_A1; CID=new-cid; SEID=new-seid"
+	const newCookie = "UID=source-new_F1; CID=new-cid; SEID=new-seid"
 	validator := &integrationFakeP115Validator{
 		t: t,
 		outcomes: map[string][]integrationP115ValidationOutcome{
@@ -96,13 +96,12 @@ func TestIntegrationP115AccountLifecycle(t *testing.T) {
 		"role":"source",
 		"alias":"source-account",
 		"cookie":"`+oldCookie+`",
-		"appType":"web",
 		"userAgent":"Ember Integration Test",
 		"embyPathPrefix":"/mnt/cloudNAS/115lifetime",
 		"sourceRootId":"0"
 	}`)
 	if created.Role != models.P115AccountRoleSource || created.AuthMode != models.P115AuthModeLegacyCookie ||
-		created.Status != models.P115AccountStatusPending || created.Enabled || created.ProviderUserID != nil {
+		created.Status != models.P115AccountStatusPending || created.Enabled || created.ProviderUserID != nil || created.AppType != "web" {
 		t.Fatalf("unexpected created account: %+v", created)
 	}
 
@@ -138,9 +137,15 @@ func TestIntegrationP115AccountLifecycle(t *testing.T) {
 	assertIntegrationHTTPStatus(t, replace.Code, http.StatusOK, replace.Body.String())
 	replaced := decodeIntegrationP115Account(t, replace.Body.Bytes())
 	assertNoP115CredentialFields(t, replace.Body.Bytes())
-	if replaced.Status != models.P115AccountStatusPending || replaced.Enabled || replaced.ProviderUserID != nil ||
+	if replaced.Status != models.P115AccountStatusPending || replaced.Enabled || replaced.ProviderUserID != nil || replaced.AppType != "android" ||
 		replaced.LastValidatedAt != nil || replaced.LastSucceededAt != nil || replaced.LastErrorCode != nil {
 		t.Fatalf("replacement did not reset validation state: %+v", replaced)
+	}
+	if err := harness.database.Where("id = ?", created.ID).First(&stored).Error; err != nil {
+		t.Fatalf("load replaced 115 account: %v", err)
+	}
+	if stored.AppType != "android" {
+		t.Fatalf("stored app type after replacement = %q, want android", stored.AppType)
 	}
 
 	revalidated := validateIntegrationP115Account(t, harness, created.ID, http.StatusOK)

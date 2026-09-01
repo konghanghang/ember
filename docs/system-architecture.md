@@ -732,16 +732,17 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。Infuse 登录、普通资源和 Gateway 302 已有实机证据，115 CDN 媒体字节、Range/字幕/完整会话仍待验证，删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
-- 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
-- `Create(ctx, input)`：校验 `source` 的 `embyPathPrefix/sourceRootId` 或 `playback` 的 `targetParentId`，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
+- 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；客户端类型从 Cookie 自动展示，未知编码才开放人工兜底；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
+- `Create(ctx, input)`：优先从 Cookie `UID.ssoent` 识别并写入现有 `app_type`，未知编码才校验可选人工兜底；校验 `source` 的 `embyPathPrefix/sourceRootId` 或 `playback` 的 `targetParentId`，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
 - `UpdateSourceLocation(ctx, accountID, input)`：只允许 source 账号更新 Emby 挂载前缀和 115 源目录 ID；更新使用事务行锁，不修改 Cookie、验证状态或启用状态
-- `ReplaceCookie(ctx, accountID, cookie)`：覆盖密文并清空 Provider 用户、验证时间、冷却和错误状态，重新回到 `pending + disabled`
+- `ReplaceCookie(ctx, accountID, input)`：本地识别新 Cookie 的客户端类型并在同一次更新中刷新 `app_type`，覆盖密文并清空 Provider 用户、验证时间、冷却和错误状态，重新回到 `pending + disabled`
 - `Validate(ctx, accountID)`：调用固定的登录状态端点；成功进入 `active` 但不自动启用，凭证失效进入 `expired + disabled`，网络或协议失败进入 `error`；回写按 Cookie 密文做乐观并发检查
 - `SetEnabled(ctx, accountID, enabled)`：事务行锁内要求 `active + providerUserId + lastValidatedAt`；source 还必须具备完整位置，playback 必须具备目标目录；partial unique 保证每个角色至多一个启用账号、两个角色不能是同一 Provider 用户
 - `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
 - `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，source 返回 Emby 前缀/115 root，playback 返回目标目录，并携带解密后的窄 Credential；历史 source 缺位置时失败关闭，Cookie 仍不进入 JSON
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
+- `integrations/p115.DetectCookieAppType`：只解析 Cookie `UID` 的第二段 `ssoent` 并映射固定客户端类型，不调用 115；`A1` 归一为 `web`，未知编码不猜测
 - `integrations/p115.CookieProvider`：组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，通过编译期断言完整实现 Provider-neutral 接口；生产账号控制面注入该对象的验证边界，后续 direct play Service 可复用同一具体 Provider
 - `integrations/p115.CookieHTTPAdapter.GetUploadInfo`：固定请求上传信息端点，严格映射顶层 `user_id` / `userkey`，并要求响应用户与 Cookie UID 一致
 - `integrations/p115.CookieHTTPAdapter.ResolveFileByPath`：在显式 root 下逐级分页列举 `/files`，精确匹配相对路径目录链和最终文件名，唯一命中后返回 Provider 权威 Size/SHA1/fileId/pickCode；不使用 Emby Size 过滤。无效 cid 回退、分页漂移、同目录同名歧义和单级超过 10,000 项全部失败关闭

@@ -131,6 +131,7 @@ func (s *fakeAccountStore) ReplaceCredential(_ context.Context, id string, repla
 	s.replacementID = id
 	s.replacement = replacement
 	account.CookieCiphertext = replacement.CookieCiphertext
+	account.AppType = replacement.AppType
 	account.ProviderUserID = nil
 	account.Status = replacement.Status
 	account.Enabled = replacement.Enabled
@@ -334,6 +335,38 @@ func TestServiceCreateValidatesRoleSpecificInput(t *testing.T) {
 	}
 }
 
+func TestServiceCreateDetectsAppTypeFromCookie(t *testing.T) {
+	store := &fakeAccountStore{}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+	input := validSourceInput(models.P115AccountRoleSource)
+	input.Cookie = "UID=100_F1_1700000000; CID=fake"
+	input.AppType = "ios"
+
+	result, err := service.Create(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Create() failed: %v", err)
+	}
+	if store.created.AppType != "android" || result.AppType != "android" {
+		t.Fatalf("detected app type not persisted: stored=%q result=%q", store.created.AppType, result.AppType)
+	}
+}
+
+func TestServiceCreateUsesManualAppTypeOnlyWhenCookieTypeUnknown(t *testing.T) {
+	store := &fakeAccountStore{}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+	input := validSourceInput(models.P115AccountRoleSource)
+	input.Cookie = "UID=100_A2_1700000000; CID=fake"
+	input.AppType = "custom_client"
+
+	result, err := service.Create(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Create() failed: %v", err)
+	}
+	if store.created.AppType != "custom_client" || result.AppType != "custom_client" {
+		t.Fatalf("manual app type fallback not persisted: stored=%q result=%q", store.created.AppType, result.AppType)
+	}
+}
+
 func TestServiceCreatePropagatesEncryptionAndStoreErrors(t *testing.T) {
 	encryptErr := errors.New("encrypt failed")
 	service := newServiceWithDependencies(&fakeAccountStore{}, fakeCredentialCipher{encryptErr: encryptErr})
@@ -522,12 +555,18 @@ func TestServiceReplaceCookieResetsValidationState(t *testing.T) {
 	}}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{})
 
-	result, err := service.ReplaceCookie(context.Background(), "account_1", "new-cookie")
+	result, err := service.ReplaceCookie(context.Background(), "account_1", ReplaceCookieInput{
+		Cookie:  "UID=100_F1_1700000000; CID=new",
+		AppType: "ios",
+	})
 	if err != nil {
 		t.Fatalf("ReplaceCookie() failed: %v", err)
 	}
-	if store.replacementID != "account_1" || store.replacement.CookieCiphertext != "encrypted:new-cookie" {
+	if store.replacementID != "account_1" || store.replacement.CookieCiphertext != "encrypted:UID=100_F1_1700000000; CID=new" {
 		t.Fatalf("unexpected replacement: id=%q replacement=%+v", store.replacementID, store.replacement)
+	}
+	if store.replacement.AppType != "android" || result.AppType != "android" {
+		t.Fatalf("replacement app type = %q result=%q, want android", store.replacement.AppType, result.AppType)
 	}
 	if store.replacement.Status != models.P115AccountStatusPending || store.replacement.Enabled {
 		t.Fatalf("replacement state = %q enabled=%v, want pending and disabled", store.replacement.Status, store.replacement.Enabled)
@@ -550,10 +589,37 @@ func TestServiceReplaceCookieRejectsEmptyValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := newServiceWithDependencies(&fakeAccountStore{}, fakeCredentialCipher{})
-			if _, err := service.ReplaceCookie(context.Background(), "account_1", tt.cookie); !errors.Is(err, tt.wantErr) {
+			if _, err := service.ReplaceCookie(context.Background(), "account_1", ReplaceCookieInput{Cookie: tt.cookie, AppType: "web"}); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("ReplaceCookie() error = %v, want %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestServiceReplaceCookieRequiresManualAppTypeForUnknownClient(t *testing.T) {
+	service := newServiceWithDependencies(&fakeAccountStore{}, fakeCredentialCipher{})
+	_, err := service.ReplaceCookie(context.Background(), "account_1", ReplaceCookieInput{
+		Cookie: "UID=100_A2_1700000000; CID=fake",
+	})
+	if !errors.Is(err, ErrAppTypeRequired) {
+		t.Fatalf("ReplaceCookie() error = %v, want ErrAppTypeRequired", err)
+	}
+}
+
+func TestServiceReplaceCookieUsesManualAppTypeForUnknownClient(t *testing.T) {
+	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
+		"account_1": {ID: "account_1", AppType: "web", CookieCiphertext: "encrypted:old-cookie"},
+	}}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+	result, err := service.ReplaceCookie(context.Background(), "account_1", ReplaceCookieInput{
+		Cookie:  "UID=100_A2_1700000000; CID=fake",
+		AppType: "custom_client",
+	})
+	if err != nil {
+		t.Fatalf("ReplaceCookie() failed: %v", err)
+	}
+	if store.replacement.AppType != "custom_client" || result.AppType != "custom_client" {
+		t.Fatalf("manual replacement app type not persisted: replacement=%q result=%q", store.replacement.AppType, result.AppType)
 	}
 }
 

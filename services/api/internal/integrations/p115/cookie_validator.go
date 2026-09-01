@@ -100,18 +100,11 @@ func (v *CookieCredentialValidator) ValidateCredential(ctx context.Context, cred
 }
 
 func parseCookieProviderUserID(cookieHeader string) (string, error) {
-	request := &http.Request{Header: make(http.Header)}
-	request.Header.Set("Cookie", strings.TrimSpace(cookieHeader))
-	var uidValues []string
-	for _, cookie := range request.Cookies() {
-		if cookie.Name == "UID" {
-			uidValues = append(uidValues, cookie.Value)
-		}
-	}
-	if len(uidValues) != 1 {
+	uid, ok := singleCookieUID(cookieHeader)
+	if !ok {
 		return "", ErrCredentialRejected
 	}
-	rawUserID, _, _ := strings.Cut(strings.TrimSpace(uidValues[0]), "_")
+	rawUserID, _, _ := strings.Cut(uid, "_")
 	userID, err := strconv.ParseUint(rawUserID, 10, 64)
 	if err != nil || userID == 0 {
 		return "", ErrCredentialRejected

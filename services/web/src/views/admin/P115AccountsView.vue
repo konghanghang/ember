@@ -19,8 +19,10 @@ import type {
   P115Account,
   P115AccountRole,
   P115AccountStatus,
+  ReplaceP115AccountCookieRequest,
 } from '@/types/api'
 import { formatDateTime } from '@/utils/date'
+import { detectP115CookieAppType } from '@/utils/p115'
 
 type AccountAction = 'validate' | 'enable'
 
@@ -53,6 +55,7 @@ const createForm = ref<P115AccountForm>(newCreateForm())
 const replaceDialogVisible = ref(false)
 const replaceAccount = ref<P115Account | null>(null)
 const replacementCookie = ref('')
+const replacementAppType = ref('')
 const replaceSubmitting = ref(false)
 
 const sourceLocationDialogVisible = ref(false)
@@ -68,12 +71,15 @@ const statusMeta: Record<P115AccountStatus, { label: string; className: string }
   cooling_down: { label: '冷却中', className: 'border-sky-100 bg-sky-50 text-sky-700' },
 }
 
+const detectedCreateAppType = computed(() => detectP115CookieAppType(createForm.value.cookie))
+const resolvedCreateAppType = computed(() => detectedCreateAppType.value || createForm.value.appType.trim())
+
 const createReady = computed(() => {
   const form = createForm.value
   return Boolean(
     form.alias.trim()
     && form.cookie.trim()
-    && form.appType.trim()
+    && resolvedCreateAppType.value
     && form.userAgent.trim()
     && (form.role === 'source'
       ? form.embyPathPrefix.trim() && form.sourceRootId.trim()
@@ -81,7 +87,13 @@ const createReady = computed(() => {
   )
 })
 
-const replaceReady = computed(() => Boolean(replaceAccount.value && replacementCookie.value.trim()))
+const detectedReplacementAppType = computed(() => detectP115CookieAppType(replacementCookie.value))
+const resolvedReplacementAppType = computed(() => detectedReplacementAppType.value || replacementAppType.value.trim())
+const replaceReady = computed(() => Boolean(
+  replaceAccount.value
+  && replacementCookie.value.trim()
+  && resolvedReplacementAppType.value,
+))
 const sourceLocationReady = computed(() => Boolean(
   sourceLocationAccount.value
   && sourceLocationForm.value.embyPathPrefix.trim()
@@ -94,7 +106,7 @@ function newCreateForm(): P115AccountForm {
     role: 'source',
     alias: '',
     cookie: '',
-    appType: 'web',
+    appType: '',
     userAgent: '',
     embyPathPrefix: '',
     sourceRootId: '',
@@ -144,7 +156,7 @@ async function submitCreate(): Promise<void> {
     role: form.role,
     alias: form.alias.trim(),
     cookie: form.cookie.trim(),
-    appType: form.appType.trim(),
+    appType: resolvedCreateAppType.value,
     userAgent: form.userAgent.trim(),
   }
   if (form.role === 'playback') {
@@ -271,6 +283,7 @@ function openReplaceDialog(account: P115Account): void {
   if (isAccountBusy(account.id)) return
   replaceAccount.value = account
   replacementCookie.value = ''
+  replacementAppType.value = ''
   replaceDialogVisible.value = true
 }
 
@@ -279,6 +292,7 @@ function closeReplaceDialog(): void {
   replaceDialogVisible.value = false
   replaceAccount.value = null
   replacementCookie.value = ''
+  replacementAppType.value = ''
 }
 
 /** 替换成功后账号会回到 pending + disabled，必须由管理员重新验证。 */
@@ -287,7 +301,11 @@ async function submitReplacement(): Promise<void> {
 
   replaceSubmitting.value = true
   try {
-    await replaceP115AccountCookie(replaceAccount.value.id, replacementCookie.value.trim())
+    const input: ReplaceP115AccountCookieRequest = {
+      cookie: replacementCookie.value.trim(),
+      appType: resolvedReplacementAppType.value,
+    }
+    await replaceP115AccountCookie(replaceAccount.value.id, input)
     closeReplaceDialog()
     ElMessage.success('Cookie 已替换，请重新验证账号')
     await loadAccounts()
@@ -510,11 +528,6 @@ onMounted(() => {
           />
         </label>
 
-        <label class="space-y-2 text-sm font-medium text-gray-700">
-          <span>客户端类型</span>
-          <el-input v-model="createForm.appType" placeholder="例如：web" maxlength="32" class="input-ember" />
-        </label>
-
         <label
           v-if="createForm.role === 'playback'"
           class="space-y-2 text-sm font-medium text-gray-700"
@@ -567,6 +580,26 @@ onMounted(() => {
             type="password"
             placeholder="粘贴完整 Cookie"
             autocomplete="off"
+            class="input-ember"
+          />
+        </label>
+
+        <label class="space-y-2 text-sm font-medium text-gray-700 sm:col-span-2">
+          <span>客户端类型</span>
+          <el-input
+            v-if="detectedCreateAppType"
+            data-test="create-app-type"
+            :model-value="detectedCreateAppType"
+            readonly
+            class="input-ember"
+          />
+          <el-input
+            v-else
+            v-model="createForm.appType"
+            data-test="create-app-type"
+            :placeholder="createForm.cookie.trim() ? '请输入客户端类型' : '等待 Cookie 识别'"
+            :readonly="!createForm.cookie.trim()"
+            maxlength="32"
             class="input-ember"
           />
         </label>
@@ -658,6 +691,25 @@ onMounted(() => {
             type="password"
             placeholder="粘贴新的完整 Cookie"
             autocomplete="off"
+            class="input-ember"
+          />
+        </label>
+        <label class="block space-y-2 text-sm font-medium text-gray-700">
+          <span>客户端类型</span>
+          <el-input
+            v-if="detectedReplacementAppType"
+            data-test="replace-app-type"
+            :model-value="detectedReplacementAppType"
+            readonly
+            class="input-ember"
+          />
+          <el-input
+            v-else
+            v-model="replacementAppType"
+            data-test="replace-app-type"
+            :placeholder="replacementCookie.trim() ? '请输入客户端类型' : '等待 Cookie 识别'"
+            :readonly="!replacementCookie.trim()"
+            maxlength="32"
             class="input-ember"
           />
         </label>

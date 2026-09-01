@@ -16,7 +16,7 @@ var (
 	ErrAliasInvalid                     = errors.New("115 账号别名长度不能超过 100 个字符")
 	ErrCookieRequired                   = errors.New("115 Cookie 不能为空")
 	ErrCookieInvalid                    = errors.New("115 Cookie 格式或长度无效")
-	ErrAppTypeRequired                  = errors.New("115 appType 不能为空")
+	ErrAppTypeRequired                  = errors.New("无法从 Cookie 识别客户端类型，请手动填写 appType")
 	ErrAppTypeInvalid                   = errors.New("115 appType 格式或长度无效")
 	ErrUserAgentRequired                = errors.New("115 User-Agent 不能为空")
 	ErrUserAgentInvalid                 = errors.New("115 User-Agent 格式或长度无效")

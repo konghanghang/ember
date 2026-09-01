@@ -27,12 +27,14 @@ describe('admin 115 account API', () => {
     await createP115Account({
       role: 'playback',
       alias: '播放小号',
-      cookie: 'UID=100_A1',
-      appType: 'web',
+      cookie: 'UID=100_A1_1700000000',
       userAgent: 'Ember Test',
       targetParentId: 'target-1',
     })
-    await replaceP115AccountCookie('account/1', 'UID=200_A1')
+    await replaceP115AccountCookie('account/1', {
+      cookie: 'UID=200_A2_1700000000',
+      appType: 'custom_client',
+    })
     await updateP115AccountSourceLocation('account/1', {
       embyPathPrefix: '/mnt/cloudNAS/115lifetime',
       sourceRootId: '0',
@@ -49,8 +51,7 @@ describe('admin 115 account API', () => {
         data: {
           role: 'playback',
           alias: '播放小号',
-          cookie: 'UID=100_A1',
-          appType: 'web',
+          cookie: 'UID=100_A1_1700000000',
           userAgent: 'Ember Test',
           targetParentId: 'target-1',
         },
@@ -58,7 +59,10 @@ describe('admin 115 account API', () => {
       [{
         url: '/admin/p115-accounts/account%2F1/cookie',
         method: 'put',
-        data: { cookie: 'UID=200_A1' },
+        data: {
+          cookie: 'UID=200_A2_1700000000',
+          appType: 'custom_client',
+        },
       }],
       [{
         url: '/admin/p115-accounts/account%2F1/source-location',

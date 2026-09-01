@@ -43,6 +43,7 @@ type accountStore interface {
 
 type credentialReplacement struct {
 	CookieCiphertext string
+	AppType          string
 	Status           models.P115AccountStatus
 	Enabled          bool
 }
@@ -103,6 +104,13 @@ type ActiveAccountCredential struct {
 type SourceLocationInput struct {
 	EmbyPathPrefix string `json:"embyPathPrefix"`
 	SourceRootID   string `json:"sourceRootId"`
+}
+
+// ReplaceCookieInput contains the new write-only Cookie and an optional
+// client type fallback used only when the UID ssoent is unknown.
+type ReplaceCookieInput struct {
+	Cookie  string `json:"cookie"`
+	AppType string `json:"appType"`
 }
 
 // Service owns 115 account validation rules and encrypted credential persistence.
@@ -312,25 +320,30 @@ func (s *Service) loadCredential(ctx context.Context, accountID string, requireA
 	}, nil
 }
 
-// ReplaceCookie encrypts a replacement Cookie and resets validation-derived state.
-func (s *Service) ReplaceCookie(ctx context.Context, accountID, cookie string) (*AccountSummary, error) {
+// ReplaceCookie encrypts a replacement Cookie, refreshes its client type, and resets validation-derived state.
+func (s *Service) ReplaceCookie(ctx context.Context, accountID string, input ReplaceCookieInput) (*AccountSummary, error) {
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
 		return nil, ErrAccountIDRequired
 	}
 	var err error
-	cookie, err = normalizeAndValidateCookie(cookie)
+	input.Cookie, err = normalizeAndValidateCookie(input.Cookie)
+	if err != nil {
+		return nil, err
+	}
+	input.AppType, err = resolveCookieAppType(input.Cookie, input.AppType)
 	if err != nil {
 		return nil, err
 	}
 
-	ciphertext, err := s.cipher.Encrypt(cookie)
+	ciphertext, err := s.cipher.Encrypt(input.Cookie)
 	if err != nil {
 		log.Printf("[P115Account] 替换 Cookie 加密失败 accountId=%s err=%v", accountID, err)
 		return nil, err
 	}
 	account, err := s.store.ReplaceCredential(ctx, accountID, credentialReplacement{
 		CookieCiphertext: ciphertext,
+		AppType:          input.AppType,
 		Status:           models.P115AccountStatusPending,
 		Enabled:          false,
 	})
@@ -346,7 +359,6 @@ func (s *Service) ReplaceCookie(ctx context.Context, accountID, cookie string) (
 func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 	input.Role = models.P115AccountRole(strings.TrimSpace(string(input.Role)))
 	input.Alias = strings.TrimSpace(input.Alias)
-	input.AppType = strings.TrimSpace(input.AppType)
 	input.UserAgent = strings.TrimSpace(input.UserAgent)
 	input.EmbyPathPrefix = strings.TrimSpace(input.EmbyPathPrefix)
 	input.SourceRootID = strings.TrimSpace(input.SourceRootID)
@@ -366,11 +378,9 @@ func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 	if err != nil {
 		return err
 	}
-	if input.AppType == "" {
-		return ErrAppTypeRequired
-	}
-	if len(input.AppType) > 32 || !appTypePattern.MatchString(input.AppType) {
-		return ErrAppTypeInvalid
+	input.AppType, err = resolveCookieAppType(input.Cookie, input.AppType)
+	if err != nil {
+		return err
 	}
 	if input.UserAgent == "" {
 		return ErrUserAgentRequired
@@ -397,6 +407,22 @@ func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 		return ErrPlaybackSourceLocationUnexpected
 	}
 	return nil
+}
+
+// resolveCookieAppType prefers the client encoded in UID and validates the
+// administrator fallback only when the provider code is unknown.
+func resolveCookieAppType(cookie, fallback string) (string, error) {
+	if detected, ok := p115integration.DetectCookieAppType(cookie); ok {
+		return detected, nil
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback == "" {
+		return "", ErrAppTypeRequired
+	}
+	if len(fallback) > 32 || !appTypePattern.MatchString(fallback) {
+		return "", ErrAppTypeInvalid
+	}
+	return fallback, nil
 }
 
 func normalizeSourceLocation(embyPathPrefix, sourceRootID string) (string, string, error) {

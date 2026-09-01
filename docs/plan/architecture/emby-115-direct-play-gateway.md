@@ -2,7 +2,7 @@
 
 > 状态：进行中（阶段 1 核心闭环已落地并取得真实 302，完整 E2E 与阶段 2 未完成）
 > 负责人：Ember
-> 更新时间：2026-08-30
+> 更新时间：2026-09-01
 
 ## 背景
 
@@ -110,6 +110,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 集成测试确认 Cookie 只以密文落库且不通过 API 回显；每个用例使用独立 `itest_*` schema，完整执行 migration 与 `VerifySchema` 并在结束后清理。
 - PostgreSQL 竞态集成测试确认同角色并发启用只允许一个成功，验证期间替换 Cookie 后旧验证结果返回冲突且不能覆盖新凭证状态。
 - 新增管理员页面 `/console/p115-accounts` 和侧边栏入口，支持安全摘要、创建、Cookie 替换、显式验证和启停；Cookie 不回填，提交成功或关闭弹窗后立即清空。
+- 创建和替换 Cookie 时已从 `UID.ssoent` 自动识别客户端类型并复用 `p115_accounts.app_type`；已知编码覆盖请求值，未知编码才开放人工兜底，识别不调用 115 设备接口。
 - 新增前端 API/类型合同和组件交互测试，覆盖 API 路径与 payload、待验证账号启用闸门、创建、验证、启用和 Cookie 替换流程；`npm run test` 与 `npm run build` 已通过。
 - 新增 `integrations/p115/p115cipher` 离线 PoC，固定 `k_ec` token/CRC、AES-CBC 请求、LZ4 响应解压、上传 `sig/token` 和排序表单密文；向量不含真实账号信息，不访问 115。
 - 新增 `CookieHTTPAdapter.GetUploadInfo` 和 `SearchBySHA1`，用 `httptest` 固定 method、query、Cookie/User-Agent Header、Web 短字段/app2 长字段响应、严格内容匹配和脱敏错误；真实 preexisting 连续两次暴露旧全局 `shasearch` 不适合目标目录查重，改为有 parent 时复用目录作用域 `/files/search` 后真实复跑通过。
@@ -355,7 +356,7 @@ Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内�
 - `POST /api/v1/admin/p115-accounts/:id/validate`
 - `PUT /api/v1/admin/p115-accounts/:id/enabled`
 
-创建接口接收角色、别名、Cookie、appType、User-Agent 和播放小号目标目录；Cookie 替换与启停使用独立接口。返回只包含脱敏账号标识、状态、最后验证时间和脱敏错误。
+创建接口接收角色、别名、Cookie、可选 appType 兜底、User-Agent 和播放小号目标目录；Cookie 替换接口同样接受可选 appType 兜底，已知 `UID.ssoent` 始终以自动识别结果为准。启停使用独立接口。返回只包含脱敏账号标识、状态、最后验证时间和脱敏错误。
 
 source 创建同时接收 `embyPathPrefix/sourceRootId`；已有 source 使用 `PUT /api/v1/admin/p115-accounts/:id/source-location` 更新。位置更新不改变 Cookie 或验证状态。
 

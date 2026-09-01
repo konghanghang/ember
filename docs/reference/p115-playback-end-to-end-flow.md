@@ -94,6 +94,7 @@ sequenceDiagram
     Admin->>Web: 输入角色、Cookie、UA、目录信息
     Web->>API: POST /api/v1/admin/p115-accounts
     API->>Account: Create(input)
+    Account->>Account: 从 UID ssoent 识别 appType
     Account->>Secret: Encrypt(Cookie)
     Secret-->>Account: cookieCiphertext
     Account->>DB: INSERT pending + disabled
@@ -128,7 +129,7 @@ sequenceDiagram
     API-->>Web: 200
 ```
 
-Cookie 替换会把账号重置为 `pending + disabled`，同时清空 Provider UID、验证时间、成功时间、冷却和错误字段；必须重新验证后才能启用。
+创建和 Cookie 替换都会优先从 `UID` 的 `ssoent` 自动识别客户端类型并写入现有 `app_type`；只有未知编码才接受请求中的 `appType` 人工兜底。Cookie 替换会在同一次更新中刷新 `app_type`，把账号重置为 `pending + disabled`，并清空 Provider UID、验证时间、成功时间、冷却和错误字段；必须重新验证后才能启用。识别全程在本地完成，不请求 115 设备接口。
 
 ### 3.3 账号状态
 

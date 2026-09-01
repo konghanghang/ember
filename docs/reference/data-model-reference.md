@@ -537,7 +537,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | AuthMode | enum | authMode | 当前固定 `legacy_cookie` |
 | ProviderUserID | *string(64) | providerUserId | 验证后写入的 115 用户标识，可空 |
 | CookieCiphertext | text | cookie_ciphertext | `CONFIG_ENCRYPTION_KEY` 加密密文，JSON 永不序列化 |
-| AppType | string(32) | appType | Cookie/Web API 使用的客户端类型 |
+| AppType | string(32) | appType | Cookie `UID.ssoent` 自动识别的客户端类型；未知编码使用管理员兜底值 |
 | UserAgent | string(512) | userAgent | Provider 请求使用的固定 User-Agent |
 | EmbyPathPrefix | *string(4096) | embyPathPrefix | source 账号对应的 Emby 绝对挂载前缀；playback 必须为空 |
 | SourceRootID | *string(64) | sourceRootId | source 账号的 115 根目录 ID；playback 必须为空 |

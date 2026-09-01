@@ -17,7 +17,7 @@ type stubP115AccountService struct {
 	listFn                 func(context.Context) ([]p115accountpkg.AccountSummary, error)
 	getFn                  func(context.Context, string) (*p115accountpkg.AccountSummary, error)
 	createFn               func(context.Context, p115accountpkg.CreateAccountInput) (*p115accountpkg.AccountSummary, error)
-	replaceFn              func(context.Context, string, string) (*p115accountpkg.AccountSummary, error)
+	replaceFn              func(context.Context, string, p115accountpkg.ReplaceCookieInput) (*p115accountpkg.AccountSummary, error)
 	validateFn             func(context.Context, string) (*p115accountpkg.ValidationResult, error)
 	setEnabledFn           func(context.Context, string, bool) (*p115accountpkg.AccountSummary, error)
 	updateSourceLocationFn func(context.Context, string, p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error)
@@ -35,8 +35,8 @@ func (s *stubP115AccountService) Create(ctx context.Context, input p115accountpk
 	return s.createFn(ctx, input)
 }
 
-func (s *stubP115AccountService) ReplaceCookie(ctx context.Context, id, cookie string) (*p115accountpkg.AccountSummary, error) {
-	return s.replaceFn(ctx, id, cookie)
+func (s *stubP115AccountService) ReplaceCookie(ctx context.Context, id string, input p115accountpkg.ReplaceCookieInput) (*p115accountpkg.AccountSummary, error) {
+	return s.replaceFn(ctx, id, input)
 }
 
 func (s *stubP115AccountService) Validate(ctx context.Context, id string) (*p115accountpkg.ValidationResult, error) {
@@ -69,16 +69,17 @@ func TestP115AccountHandlerListUsesDataField(t *testing.T) {
 func TestP115AccountHandlerCreateBindsWriteOnlyCookie(t *testing.T) {
 	handler := &P115AccountHandler{service: &stubP115AccountService{
 		createFn: func(_ context.Context, input p115accountpkg.CreateAccountInput) (*p115accountpkg.AccountSummary, error) {
-			if input.Cookie != "UID=fake" || input.Role != models.P115AccountRolePlayback || input.TargetParentID != "target" {
+			if input.Cookie != "UID=100_F1_1700000000" || input.Role != models.P115AccountRolePlayback ||
+				input.TargetParentID != "target" || input.AppType != "" {
 				t.Fatalf("unexpected create input: %+v", input)
 			}
 			return &p115accountpkg.AccountSummary{ID: "account_1", Role: input.Role}, nil
 		},
 	}}
-	body := []byte(`{"role":"playback","alias":"playback","cookie":"UID=fake","appType":"android","userAgent":"agent","targetParentId":"target"}`)
+	body := []byte(`{"role":"playback","alias":"playback","cookie":"UID=100_F1_1700000000","userAgent":"agent","targetParentId":"target"}`)
 	ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/p115-accounts", body)
 	handler.Create(ctx)
-	if recorder.Code != http.StatusCreated || strings.Contains(recorder.Body.String(), "UID=fake") {
+	if recorder.Code != http.StatusCreated || strings.Contains(recorder.Body.String(), "UID=100_F1_1700000000") {
 		t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
@@ -96,6 +97,24 @@ func TestP115AccountHandlerCreateBindsSourceLocation(t *testing.T) {
 	ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/p115-accounts", body)
 	handler.Create(ctx)
 	if recorder.Code != http.StatusCreated || strings.Contains(recorder.Body.String(), "UID=fake") {
+		t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestP115AccountHandlerReplaceCookieBindsOptionalAppType(t *testing.T) {
+	handler := &P115AccountHandler{service: &stubP115AccountService{
+		replaceFn: func(_ context.Context, id string, input p115accountpkg.ReplaceCookieInput) (*p115accountpkg.AccountSummary, error) {
+			if id != "account_1" || input.Cookie != "UID=100_A2_1700000000" || input.AppType != "custom_client" {
+				t.Fatalf("unexpected replace input: id=%q input=%+v", id, input)
+			}
+			return &p115accountpkg.AccountSummary{ID: id, AppType: input.AppType}, nil
+		},
+	}}
+	body := []byte(`{"cookie":"UID=100_A2_1700000000","appType":"custom_client"}`)
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/p115-accounts/account_1/cookie", body)
+	ctx.Params = gin.Params{{Key: "id", Value: "account_1"}}
+	handler.ReplaceCookie(ctx)
+	if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), "UID=100_A2_1700000000") {
 		t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

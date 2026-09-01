@@ -820,11 +820,16 @@ export interface CreateP115AccountRequest {
   role: P115AccountRole
   alias: string
   cookie: string
-  appType: string
+  appType?: string
   userAgent: string
   embyPathPrefix?: string
   sourceRootId?: string
   targetParentId?: string
+}
+
+export interface ReplaceP115AccountCookieRequest {
+  cookie: string
+  appType?: string
 }
 
 export interface UpdateP115SourceLocationRequest {

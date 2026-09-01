@@ -16,7 +16,7 @@ type p115AccountService interface {
 	List(context.Context) ([]p115accountpkg.AccountSummary, error)
 	Get(context.Context, string) (*p115accountpkg.AccountSummary, error)
 	Create(context.Context, p115accountpkg.CreateAccountInput) (*p115accountpkg.AccountSummary, error)
-	ReplaceCookie(context.Context, string, string) (*p115accountpkg.AccountSummary, error)
+	ReplaceCookie(context.Context, string, p115accountpkg.ReplaceCookieInput) (*p115accountpkg.AccountSummary, error)
 	Validate(context.Context, string) (*p115accountpkg.ValidationResult, error)
 	SetEnabled(context.Context, string, bool) (*p115accountpkg.AccountSummary, error)
 	UpdateSourceLocation(context.Context, string, p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error)
@@ -44,7 +44,8 @@ type updateP115SourceLocationRequest struct {
 }
 
 type replaceP115CookieRequest struct {
-	Cookie string `json:"cookie"`
+	Cookie  string `json:"cookie"`
+	AppType string `json:"appType"`
 }
 
 type setP115AccountEnabledRequest struct {
@@ -140,7 +141,10 @@ func (h *P115AccountHandler) ReplaceCookie(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
-	account, err := h.service.ReplaceCookie(c.Request.Context(), c.Param("id"), req.Cookie)
+	account, err := h.service.ReplaceCookie(c.Request.Context(), c.Param("id"), p115accountpkg.ReplaceCookieInput{
+		Cookie:  req.Cookie,
+		AppType: req.AppType,
+	})
 	if err != nil {
 		handleP115AccountError(c, err)
 		return

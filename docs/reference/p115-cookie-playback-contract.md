@@ -86,7 +86,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 - 管理端只展示账号别名、角色、脱敏 Provider 用户标识、状态和最后验证时间。
 - 不通过环境变量、命令行参数、前端构建变量或普通 settings 表保存 Cookie。
 - Cookie、完整 `Set-Cookie`、上传加密材料、完整下载地址和 Provider 完整响应体不得进入日志、审计详情或测试快照。
-- Provider 使用的 `appType` 和 User-Agent 必须作为账号兼容参数显式保存；不能在不同请求里随机切换客户端身份。
+- Provider 使用的 `appType` 和 User-Agent 必须作为账号兼容参数显式保存；`appType` 优先从 Cookie `UID` 的 `ssoent` 自动识别，User-Agent 仍由管理员显式配置，不能在不同请求里随机切换客户端身份。
 
 Cookie 失效后没有首期自动续期流程。账号状态应转为 `expired` 或 `error`，停止新秒传和新直链，由管理员替换 Cookie 并重新验证。
 
@@ -114,6 +114,35 @@ User-Agent: <account-user-agent>
 验证操作只能读取账号概要，不得修改账号文件或安全设置。成功后只保存 Provider 用户 ID 等脱敏标识。
 
 证据：[`login_status`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L20301-L20339)、[`user_id`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L530-L537)。以上只证明固定公开源码的请求与解析行为，不代表 115 官方承诺；目标账号实际响应、风控和稳定性仍属未实机确认。
+
+#### 5.1.1 Cookie 客户端类型识别
+
+固定公开源码把 Cookie `UID` 解析为 `<userId>_<ssoent>_<timestamp>`，并使用第二段 `ssoent` 映射登录客户端。Ember 在创建和替换 Cookie 时只做同样的本地解析，不调用设备列表或 SSO 检查接口：
+
+| `ssoent` | Ember `appType` | `ssoent` | Ember `appType` |
+| --- | --- | --- | --- |
+| `A1` | `web` | `D1` | `ios` |
+| `D2` | `bios` | `D3` | `115ios` |
+| `F1` | `android` | `F2` | `bandroid` |
+| `F3` | `115android` | `H1` | `ipad` |
+| `H2` | `bipad` | `H3` | `115ipad` |
+| `I1` | `tv` | `I2` | `apple_tv` |
+| `M1` | `qandroid` | `N1` | `qios` |
+| `O1` | `qipad` | `P1` | `os_windows` |
+| `P2` | `os_mac` | `P3` | `os_linux` |
+| `R1` | `wechatmini` | `R2` | `alipaymini` |
+| `S1` | `harmony` |  |  |
+
+内部合同：
+
+- 已知 `ssoent` 的识别结果是权威值，覆盖请求中可能携带的 `appType`，并写入现有 `p115_accounts.app_type`。
+- `A1` 同时被公开实现用于 `web` 和 `desktop`；Ember 统一归一为 `web`，不声称能进一步区分浏览器类型。
+- 未知、缺失或重复 `UID` 不猜测客户端；创建或替换请求必须显式提供合法 `appType` 作为兼容兜底。
+- `appType` 只描述 Cookie 登录客户端，不能推导完整原始 User-Agent；User-Agent 继续单独保存。
+- Cookie 替换必须在同一次持久化更新中写入新 `app_type`，并把账号重置为 `pending + disabled`；旧客户端类型不能残留。
+- 识别不调用 `login_devices`；更不能调用可能影响同设备旧 Cookie 的 `check/sso`，客户端识别失败不扩大为外部副作用。
+
+证据：固定提交的 [`P115UID`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/type.py#L39-L46) 与 [`APP_TO_SSOENT`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/const.py#L48-L78)。这是公开实现兼容证据，不是 115 官方稳定承诺；新增编码必须先核对并更新本表和合同测试。
 
 ### 5.2 上传信息
 
@@ -457,7 +486,7 @@ playbackAccountId + SHA1 + size
 所有测试必须 mock 115，禁止真实外部请求。至少覆盖：
 
 1. Cookie 加密落库、替换和 API 永不回显明文。
-2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化。
+2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化；Cookie 客户端识别覆盖完整已知 `ssoent` 映射、`A1 → web`、未知编码人工兜底，以及创建/替换同步刷新 `app_type`。
 3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
 4. 源文件解析覆盖固定 `/files` query、逐级目录、分页、无效 cid 回退、size 不符、重名歧义、目录规模上限和非法相对路径。
 5. playback 目录解析覆盖可选前导 `/`、多层目录、文件同名过滤、最终文件拒绝、同名目录歧义、分页、cid 回退和非法路径。

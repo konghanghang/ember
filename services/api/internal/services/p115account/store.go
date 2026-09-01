@@ -100,6 +100,7 @@ func (s *gormAccountStore) ReplaceCredential(ctx context.Context, id string, rep
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&models.P115Account{}).Where("id = ?", id).Updates(map[string]interface{}{
 			"cookie_ciphertext":  replacement.CookieCiphertext,
+			"app_type":           replacement.AppType,
 			"provider_user_id":   nil,
 			"status":             replacement.Status,
 			"enabled":            replacement.Enabled,

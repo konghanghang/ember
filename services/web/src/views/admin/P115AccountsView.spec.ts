@@ -177,18 +177,18 @@ describe('P115AccountsView', () => {
     expect(dialog.attributes('data-title')).toBe('添加 115 账号')
     await dialog.get('select').setValue('playback')
     await dialog.get('input[placeholder="例如：播放小号"]').setValue('播放小号')
-    await dialog.get('input[placeholder="例如：web"]').setValue('web')
     await dialog.get('input[placeholder="请输入固定的 User-Agent"]').setValue('Ember Test')
     await dialog.get('input[placeholder="请输入播放小号目标目录 ID"]').setValue('target-1')
-    await dialog.get('input[placeholder="粘贴完整 Cookie"]').setValue('UID=100_A1')
+    await dialog.get('input[placeholder="粘贴完整 Cookie"]').setValue('UID=100_F1_1700000000')
+    expect((dialog.get('[data-test="create-app-type"]').element as HTMLInputElement).value).toBe('android')
     await findButton(wrapper, '保存账号').trigger('click')
     await flushPromises()
 
     expect(createP115Account).toHaveBeenCalledWith({
       role: 'playback',
       alias: '播放小号',
-      cookie: 'UID=100_A1',
-      appType: 'web',
+      cookie: 'UID=100_F1_1700000000',
+      appType: 'android',
       userAgent: 'Ember Test',
       targetParentId: 'target-1',
     })
@@ -205,19 +205,45 @@ describe('P115AccountsView', () => {
 
     const dialog = wrapper.get('[data-test="form-dialog"]')
     await dialog.get('input[placeholder="例如：源账号"]').setValue('源账号')
-    await dialog.get('input[placeholder="例如：web"]').setValue('ios')
     await dialog.get('input[placeholder="请输入固定的 User-Agent"]').setValue('Ember Test')
     await dialog.get('input[placeholder="例如：/mnt/cloudNAS/115lifetime"]').setValue('/mnt/cloudNAS/115lifetime')
     await dialog.get('input[placeholder="例如：0"]').setValue('0')
-    await dialog.get('input[placeholder="粘贴完整 Cookie"]').setValue('UID=100_A1')
+    await dialog.get('input[placeholder="粘贴完整 Cookie"]').setValue('UID=100_D1_1700000000')
     await findButton(wrapper, '保存账号').trigger('click')
     await flushPromises()
 
     expect(createP115Account).toHaveBeenCalledWith({
       role: 'source',
       alias: '源账号',
-      cookie: 'UID=100_A1',
+      cookie: 'UID=100_D1_1700000000',
       appType: 'ios',
+      userAgent: 'Ember Test',
+      embyPathPrefix: '/mnt/cloudNAS/115lifetime',
+      sourceRootId: '0',
+    })
+  })
+
+  it('Cookie 客户端编码未知时才允许手工填写客户端类型', async () => {
+    vi.mocked(getP115Accounts).mockResolvedValueOnce({ data: [] }).mockResolvedValueOnce({ data: [account()] })
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, '添加账号').trigger('click')
+
+    const dialog = wrapper.get('[data-test="form-dialog"]')
+    await dialog.get('input[placeholder="例如：源账号"]').setValue('源账号')
+    await dialog.get('input[placeholder="请输入固定的 User-Agent"]').setValue('Ember Test')
+    await dialog.get('input[placeholder="例如：/mnt/cloudNAS/115lifetime"]').setValue('/mnt/cloudNAS/115lifetime')
+    await dialog.get('input[placeholder="例如：0"]').setValue('0')
+    await dialog.get('input[placeholder="粘贴完整 Cookie"]').setValue('UID=100_A2_1700000000')
+    await dialog.get('[data-test="create-app-type"]').setValue('custom_client')
+    await findButton(wrapper, '保存账号').trigger('click')
+    await flushPromises()
+
+    expect(createP115Account).toHaveBeenCalledWith({
+      role: 'source',
+      alias: '源账号',
+      cookie: 'UID=100_A2_1700000000',
+      appType: 'custom_client',
       userAgent: 'Ember Test',
       embyPathPrefix: '/mnt/cloudNAS/115lifetime',
       sourceRootId: '0',
@@ -326,13 +352,34 @@ describe('P115AccountsView', () => {
     expect(dialog.attributes('data-title')).toBe('替换 Cookie')
     const cookieInput = dialog.get('input[placeholder="粘贴新的完整 Cookie"]')
     expect((cookieInput.element as HTMLInputElement).value).toBe('')
-    await cookieInput.setValue('UID=200_A1')
+    await cookieInput.setValue('UID=200_F1_1700000000')
+    expect((dialog.get('[data-test="replace-app-type"]').element as HTMLInputElement).value).toBe('android')
     await findButton(wrapper, '确认替换').trigger('click')
     await flushPromises()
 
-    expect(replaceP115AccountCookie).toHaveBeenCalledWith('p115_source', 'UID=200_A1')
+    expect(replaceP115AccountCookie).toHaveBeenCalledWith('p115_source', {
+      cookie: 'UID=200_F1_1700000000',
+      appType: 'android',
+    })
     expect(getP115Accounts).toHaveBeenCalledTimes(2)
     expect(wrapper.find('[data-test="form-dialog"]').exists()).toBe(false)
     expect(ElMessage.success).toHaveBeenCalledWith('Cookie 已替换，请重新验证账号')
+  })
+
+  it('替换 Cookie 的客户端编码未知时提交人工兜底值', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, '替换 Cookie').trigger('click')
+    const dialog = wrapper.get('[data-test="form-dialog"]')
+    await dialog.get('input[placeholder="粘贴新的完整 Cookie"]').setValue('UID=200_A2_1700000000')
+    await dialog.get('[data-test="replace-app-type"]').setValue('custom_client')
+    await findButton(wrapper, '确认替换').trigger('click')
+    await flushPromises()
+
+    expect(replaceP115AccountCookie).toHaveBeenCalledWith('p115_source', {
+      cookie: 'UID=200_A2_1700000000',
+      appType: 'custom_client',
+    })
   })
 })

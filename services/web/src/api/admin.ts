@@ -53,6 +53,7 @@ import type {
   PlaybackHistoryResponse,
   P115Account,
   P115AccountListResponse,
+  ReplaceP115AccountCookieRequest,
   P115ValidationResult,
   Plan,
   PlanGroupEmbyPolicyTemplate,
@@ -653,11 +654,11 @@ export function createP115Account(data: CreateP115AccountRequest): Promise<P115A
 }
 
 /** 覆盖 115 Cookie，并让账号回到待验证和停用状态。 */
-export function replaceP115AccountCookie(id: string, cookie: string): Promise<P115Account> {
+export function replaceP115AccountCookie(id: string, data: ReplaceP115AccountCookieRequest): Promise<P115Account> {
   return request({
     url: `/admin/p115-accounts/${encodeURIComponent(id)}/cookie`,
     method: 'put',
-    data: { cookie }
+    data
   })
 }
 
