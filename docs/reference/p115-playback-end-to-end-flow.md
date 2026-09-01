@@ -145,12 +145,14 @@ stateDiagram-v2
     error --> active: 再次验证成功
     active --> cooling_down: 播放遇到临时 Provider 故障
     cooling_down --> cooling_down: 半开探测失败并续租
-    cooling_down --> active: 半开探测成功
+    cooling_down --> active: 显式验证 / 半开探测成功
     active --> expired: 播放确认 Cookie 失效
-    cooling_down --> expired: 半开探测确认 Cookie 失效
+    cooling_down --> expired: 显式验证 / 半开探测确认 Cookie 失效
     active --> error: 播放确认 Provider 协议错误
+    cooling_down --> error: 显式验证 / 半开探测遇到协议错误
     expired --> pending: 替换 Cookie
     error --> pending: 替换 Cookie
+    cooling_down --> pending: 替换 Cookie
 ```
 
 `enabled` 是独立布尔轴：`active` 不等于已启用。显式验证或播放调用确认 Cookie 失效时会进入 `expired + disabled`；显式验证的网络/协议错误进入 `error` 并保留 enabled。播放期间临时 Provider 故障进入固定 1 分钟 `cooling_down`，未到期时不读取 Cookie；到期后 PostgreSQL 行锁只发放一个 1 分钟半开探测租约，成功恢复 `active`，失败重新冷却。播放协议错误进入 `error`。运行期回写同时匹配加载凭证时的 Cookie 密文和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的结果。
