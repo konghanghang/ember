@@ -545,8 +545,8 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | Status | enum | status | `pending` / `active` / `expired` / `error` / `cooling_down` |
 | Enabled | bool | enabled | 是否允许进入播放链路；创建和 Cookie 轮换后固定为 false |
 | LastValidatedAt | *time.Time | lastValidatedAt | 最近凭证验证时间 |
-| LastSucceededAt | *time.Time | lastSucceededAt | 最近 Provider 成功调用时间 |
-| CooldownUntil | *time.Time | cooldownUntil | 账号共享冷却截止时间 |
+| LastSucceededAt | *time.Time | lastSucceededAt | 最近显式验证成功或完整 DirectPlay 候选签发时间 |
+| CooldownUntil | *time.Time | cooldownUntil | 账号共享冷却/半开探测租约截止时间；当前固定 1 分钟 |
 | LastErrorCode | *string(100) | lastErrorCode | 最近脱敏错误码 |
 | LastErrorMessage | *string(500) | lastErrorMessage | 最近脱敏错误信息 |
 | CreatedAt | time.Time | createdAt | 创建时间 |
@@ -555,7 +555,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 **约束**：
 
 - Cookie 只能通过 `services/p115account` 使用 `p115-cookie` purpose 派生密钥加密写入；安全摘要不包含明文或密文字段
-- `source` / `playback` 每个角色至多一条启用记录；网关就绪仍要求两个角色各有一个 `enabled + active` 账号
+- `source` / `playback` 每个角色至多一条启用记录；网关稳定运行要求两个角色各有一个 `enabled + active` 账号，唯一例外是已到期 `cooling_down` 账号可由数据库租约持有者执行一次半开探测
 - 同一个非空 `provider_user_id` 不能同时出现在两个启用账号中
 - `playback` 必须设置 `target_parent_id`，`source` 必须保持为空
 - 新建或重新启用 `source` 必须同时设置 `emby_path_prefix + source_root_id`；两者属于账号的一对一运行配置，不另建路径映射表
@@ -564,6 +564,9 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - Cookie 轮换会清空 Provider 用户、验证时间、成功时间、冷却和错误，并回到 `pending + disabled`
 - 启用前必须同时满足 `active`、非空 `provider_user_id` 和非空 `last_validated_at`；检查与更新在事务行锁内完成
 - 验证回写必须匹配发起请求时的 Cookie 密文，防止并发轮换后旧验证结果覆盖新凭证状态
+- DirectPlay 运行期回写同时匹配加载凭证时的 Cookie 密文和 `updated_at`；旧请求不能覆盖 Cookie 轮换、显式验证、手工启停或更新后的健康结果
+- `credential_rejected` 进入 `expired + disabled`；`provider_unavailable` 保留启用意图并进入 1 分钟 `cooling_down`；`provider_protocol` 进入 `error`；成功签发完整候选后恢复 `active`、更新 `last_succeeded_at` 并清空冷却和错误
+- 未到期冷却不读取运行期 Cookie；冷却到期后在 PostgreSQL 行锁内延长 1 分钟租约并只放行一个半开探测，成功立即恢复，失败重新开始冷却
 
 ### 2.21 PlaybackTransferTask（115 播放秒传任务）
 

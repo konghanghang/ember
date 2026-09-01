@@ -283,10 +283,101 @@ func TestServiceResolveRejectsSameProviderAccountAndCookieDownloadMode(t *testin
 	})
 }
 
+func TestServiceResolveReportsRuntimeSuccessForBothAccounts(t *testing.T) {
+	health := &fakeAccountHealthReporter{err: errors.New("health write failed")}
+	provider := newFakeProvider()
+	provider.searchResults = [][]p115integration.File{{provider.targetFile}}
+	service := newServiceWithDependencies(fakeAccountLoader{health: health}, provider, &fakeTaskStore{}, &fakeTaskLocker{})
+
+	result, err := service.Resolve(context.Background(), fixtureResolveRequest())
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if result.URL == "" {
+		t.Fatal("Resolve() returned empty URL")
+	}
+	want := []runtimeHealthEvent{
+		{accountID: "source_account", role: models.P115AccountRoleSource, outcome: p115account.RuntimeHealthSucceeded},
+		{accountID: "playback_account", role: models.P115AccountRolePlayback, outcome: p115account.RuntimeHealthSucceeded},
+	}
+	if !reflect.DeepEqual(health.events, want) {
+		t.Fatalf("runtime health events = %+v, want %+v", health.events, want)
+	}
+}
+
+func TestServiceResolveReportsAccountWideProviderFailures(t *testing.T) {
+	tests := []struct {
+		name        string
+		configure   func(*fakeProvider)
+		wantErr     error
+		wantAccount string
+		wantRole    models.P115AccountRole
+		wantOutcome p115account.RuntimeHealthOutcome
+	}{
+		{
+			name: "source credential rejected",
+			configure: func(provider *fakeProvider) {
+				provider.resolveErr = p115integration.ErrCredentialRejected
+			},
+			wantErr: ErrAccountUnavailable, wantAccount: "source_account", wantRole: models.P115AccountRoleSource,
+			wantOutcome: p115account.RuntimeHealthCredentialRejected,
+		},
+		{
+			name: "playback provider unavailable",
+			configure: func(provider *fakeProvider) {
+				provider.searchErr = p115integration.ErrProviderUnavailable
+			},
+			wantErr: ErrProviderUnavailable, wantAccount: "playback_account", wantRole: models.P115AccountRolePlayback,
+			wantOutcome: p115account.RuntimeHealthProviderUnavailable,
+		},
+		{
+			name: "playback provider protocol",
+			configure: func(provider *fakeProvider) {
+				provider.downloadErr = p115integration.ErrProviderProtocol
+				provider.searchResults = [][]p115integration.File{{provider.targetFile}}
+			},
+			wantErr: ErrProviderProtocol, wantAccount: "playback_account", wantRole: models.P115AccountRolePlayback,
+			wantOutcome: p115account.RuntimeHealthProviderProtocol,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			health := &fakeAccountHealthReporter{err: errors.New("health write failed")}
+			provider := newFakeProvider()
+			tt.configure(provider)
+			service := newServiceWithDependencies(fakeAccountLoader{health: health}, provider, &fakeTaskStore{}, &fakeTaskLocker{})
+
+			_, err := service.Resolve(context.Background(), fixtureResolveRequest())
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Resolve() error = %v, want %v", err, tt.wantErr)
+			}
+			want := []runtimeHealthEvent{{accountID: tt.wantAccount, role: tt.wantRole, outcome: tt.wantOutcome}}
+			if !reflect.DeepEqual(health.events, want) {
+				t.Fatalf("runtime health events = %+v, want %+v", health.events, want)
+			}
+		})
+	}
+}
+
+func TestServiceResolveDoesNotTreatCancellationAsAccountFailure(t *testing.T) {
+	health := &fakeAccountHealthReporter{}
+	provider := newFakeProvider()
+	provider.resolveErr = context.Canceled
+	service := newServiceWithDependencies(fakeAccountLoader{health: health}, provider, &fakeTaskStore{}, &fakeTaskLocker{})
+
+	if _, err := service.Resolve(context.Background(), fixtureResolveRequest()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Resolve() error = %v, want context.Canceled", err)
+	}
+	if len(health.events) != 0 {
+		t.Fatalf("canceled request reported account failure: %+v", health.events)
+	}
+}
+
 type fakeAccountLoader struct {
 	sameProviderUser bool
 	sourceErr        error
 	playbackErr      error
+	health           *fakeAccountHealthReporter
 }
 
 func (loader fakeAccountLoader) LoadActiveCredentialByRole(_ context.Context, role models.P115AccountRole) (p115account.ActiveAccountCredential, error) {
@@ -322,6 +413,33 @@ func (loader fakeAccountLoader) LoadActiveCredentialByRole(_ context.Context, ro
 	}, nil
 }
 
+func (loader fakeAccountLoader) ReportRuntimeHealth(
+	_ context.Context,
+	account p115account.ActiveAccountCredential,
+	outcome p115account.RuntimeHealthOutcome,
+) error {
+	if loader.health == nil {
+		return nil
+	}
+	loader.health.events = append(loader.health.events, runtimeHealthEvent{
+		accountID: account.Credential.AccountID,
+		role:      account.Role,
+		outcome:   outcome,
+	})
+	return loader.health.err
+}
+
+type runtimeHealthEvent struct {
+	accountID string
+	role      models.P115AccountRole
+	outcome   p115account.RuntimeHealthOutcome
+}
+
+type fakeAccountHealthReporter struct {
+	events []runtimeHealthEvent
+	err    error
+}
+
 type fakeProvider struct {
 	mu             sync.Mutex
 	calls          []string
@@ -333,6 +451,9 @@ type fakeProvider struct {
 	sourceFile     p115integration.File
 	targetFile     p115integration.File
 	download       p115integration.DownloadURLResult
+	resolveErr     error
+	searchErr      error
+	downloadErr    error
 }
 
 func newFakeProvider() *fakeProvider {
@@ -357,6 +478,9 @@ func (provider *fakeProvider) ResolveFileByPath(_ context.Context, _ p115integra
 	defer provider.mu.Unlock()
 	provider.calls = append(provider.calls, "resolve_source")
 	provider.resolvedQuery = query
+	if provider.resolveErr != nil {
+		return nil, provider.resolveErr
+	}
 	file := provider.sourceFile
 	return &file, nil
 }
@@ -365,6 +489,9 @@ func (provider *fakeProvider) SearchBySHA1(_ context.Context, _ p115integration.
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	provider.calls = append(provider.calls, "search_target")
+	if provider.searchErr != nil {
+		return nil, provider.searchErr
+	}
 	if len(provider.searchResults) == 0 {
 		return []p115integration.File{}, nil
 	}
@@ -406,6 +533,9 @@ func (provider *fakeProvider) FindTargetFile(_ context.Context, _ p115integratio
 
 func (provider *fakeProvider) GetDownloadURL(_ context.Context, _ p115integration.Credential, _ p115integration.DownloadURLRequest) (p115integration.DownloadURLResult, error) {
 	provider.record("download")
+	if provider.downloadErr != nil {
+		return p115integration.DownloadURLResult{}, provider.downloadErr
+	}
 	return provider.download, nil
 }
 

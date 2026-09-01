@@ -109,6 +109,10 @@ func (s *fakeAccountStore) GetActiveByRole(_ context.Context, role models.P115Ac
 	return nil, ErrAccountUnavailable
 }
 
+func (s *fakeAccountStore) AcquireRuntimeByRole(_ context.Context, role models.P115AccountRole, _, _ time.Time) (*models.P115Account, error) {
+	return s.GetActiveByRole(context.Background(), role)
+}
+
 func (s *fakeAccountStore) List(_ context.Context) ([]models.P115Account, error) {
 	if s.getErr != nil {
 		return nil, s.getErr
@@ -193,6 +197,34 @@ func (s *fakeAccountStore) CompleteValidationError(_ context.Context, id, expect
 	account.LastErrorMessage = &message
 	copy := *account
 	return &copy, nil
+}
+
+func (s *fakeAccountStore) CompleteRuntimeHealth(_ context.Context, ref runtimeCredentialRef, mutation runtimeHealthMutation) error {
+	account, ok := s.accounts[ref.accountID]
+	if !ok {
+		return ErrAccountNotFound
+	}
+	if account.CookieCiphertext != ref.expectedCiphertext || !account.UpdatedAt.Equal(ref.expectedUpdatedAt) {
+		return ErrRuntimeStateChanged
+	}
+	account.Status = mutation.Status
+	account.CooldownUntil = mutation.CooldownUntil
+	account.LastErrorCode = nil
+	account.LastErrorMessage = nil
+	account.UpdatedAt = mutation.At
+	if mutation.Disable {
+		account.Enabled = false
+	}
+	if mutation.Succeeded {
+		account.LastSucceededAt = &mutation.At
+	}
+	if mutation.Code != "" {
+		code := mutation.Code
+		message := mutation.Message
+		account.LastErrorCode = &code
+		account.LastErrorMessage = &message
+	}
+	return nil
 }
 
 func (s *fakeAccountStore) accountForValidation(id, expectedCiphertext string, at time.Time) (*models.P115Account, error) {

@@ -24,6 +24,7 @@ const (
 	maxMappedRelativePath        = 4 * 1024
 	maxMappedPathSegment         = 1024
 	taskTerminalWriteTimeout     = 5 * time.Second
+	accountHealthWriteTimeout    = 2 * time.Second
 )
 
 // ResolveRequest contains the already mapped source path and the actual
@@ -64,6 +65,15 @@ type RedirectCandidate struct {
 
 type activeAccountLoader interface {
 	LoadActiveCredentialByRole(ctx context.Context, role models.P115AccountRole) (p115account.ActiveAccountCredential, error)
+}
+
+type accountHealthReporter interface {
+	ReportRuntimeHealth(ctx context.Context, account p115account.ActiveAccountCredential, outcome p115account.RuntimeHealthOutcome) error
+}
+
+type accountRuntime interface {
+	activeAccountLoader
+	accountHealthReporter
 }
 
 // TransferProvider intentionally omits DeleteFile so the phase-one service
@@ -107,7 +117,7 @@ type taskLock interface {
 // Service serializes retained playback transfers and returns a validated 115
 // redirect candidate without exposing an HTTP endpoint.
 type Service struct {
-	accounts activeAccountLoader
+	accounts accountRuntime
 	provider TransferProvider
 	store    taskStore
 	locker   taskLocker
@@ -129,7 +139,7 @@ func NewService(database *gorm.DB, accounts *p115account.Service, provider Trans
 
 // newServiceWithDependencies keeps unit tests on fake accounts, Provider,
 // task persistence, and locks without weakening the production constructor.
-func newServiceWithDependencies(accounts activeAccountLoader, provider TransferProvider, store taskStore, locker taskLocker) *Service {
+func newServiceWithDependencies(accounts accountRuntime, provider TransferProvider, store taskStore, locker taskLocker) *Service {
 	return &Service{accounts: accounts, provider: provider, store: store, locker: locker, now: time.Now}
 }
 
@@ -183,26 +193,28 @@ func (service *Service) resolveWithAccounts(
 ) (RedirectCandidate, error) {
 	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
 	if err != nil {
-		return RedirectCandidate{}, mapProviderFailure(failureOperationResolveSourcePath, err)
+		return RedirectCandidate{}, service.reportProviderFailure(source, failureOperationResolveSourcePath, err)
 	}
 	sha1Value, err := validateSourceFile(sourceFile)
 	if err != nil {
+		service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
 		return RedirectCandidate{}, err
 	}
 	query := p115integration.FileQuery{SHA1: sha1Value, Size: sourceFile.Size, ParentID: playback.TargetParentID}
 
-	target, found, err := service.searchTarget(ctx, playback.Credential, query)
+	target, found, err := service.searchTarget(ctx, playback, query)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
 	if found {
-		candidate, err := service.downloadCandidate(ctx, playback.Credential, *target, request.ClientUserAgent, "", true)
+		candidate, err := service.downloadCandidate(ctx, playback, *target, request.ClientUserAgent, "", true)
 		if err != nil {
 			return RedirectCandidate{}, err
 		}
 		if err := service.touchSucceeded(ctx, playback.Credential.AccountID, sha1Value, sourceFile.Size); err != nil {
 			return RedirectCandidate{}, err
 		}
+		service.reportRuntimeSuccess(source, playback)
 		return candidate, nil
 	}
 
@@ -227,7 +239,7 @@ func (service *Service) resolveWithAccounts(
 		return RedirectCandidate{}, fmt.Errorf("%w: release", ErrLockUnavailable)
 	}
 	released = true
-	candidate, err := service.downloadCandidate(ctx, playback.Credential, lockedTarget, request.ClientUserAgent, taskID, preexisting)
+	candidate, err := service.downloadCandidate(ctx, playback, lockedTarget, request.ClientUserAgent, taskID, preexisting)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -236,6 +248,7 @@ func (service *Service) resolveWithAccounts(
 			return RedirectCandidate{}, err
 		}
 	}
+	service.reportRuntimeSuccess(source, playback)
 	return candidate, nil
 }
 
@@ -276,7 +289,7 @@ func (service *Service) resolveUnderLock(
 	sourceFile p115integration.File,
 	query p115integration.FileQuery,
 ) (p115integration.File, string, bool, error) {
-	target, found, err := service.searchTarget(ctx, playback.Credential, query)
+	target, found, err := service.searchTarget(ctx, playback, query)
 	if err != nil {
 		return p115integration.File{}, "", false, err
 	}
@@ -304,10 +317,11 @@ func (service *Service) resolveUnderLock(
 		File: sourceFile, Range: preIDRange,
 	})
 	if err != nil {
-		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", mapProviderFailure(failureOperationHashSourcePreID, err))
+		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(source, failureOperationHashSourcePreID, err))
 	}
 	preID, err := validateRangeHash(preIDHash, preIDRange)
 	if err != nil {
+		service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
 		return service.failTask(ctx, task.ID, "preid_invalid", "source preID range invalid", err)
 	}
 
@@ -317,10 +331,11 @@ func (service *Service) resolveUnderLock(
 	}
 	result, err := service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
 	if err != nil {
-		return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload initialization failed", mapProviderFailure(failureOperationRapidUpload, err))
+		return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload initialization failed", service.reportProviderFailure(playback, failureOperationRapidUpload, err))
 	}
 	if result.Status == p115integration.RapidUploadRangeChallenge {
 		if !validChallenge(result.Challenge, sourceFile.Size) {
+			service.reportRuntimeHealth(playback, p115account.RuntimeHealthProviderProtocol)
 			return service.failTask(ctx, task.ID, "challenge_invalid", "rapid upload challenge invalid", ErrProviderProtocol)
 		}
 		if err := service.markStatus(ctx, task.ID, models.PlaybackTransferTaskStatusChallenging); err != nil {
@@ -330,10 +345,11 @@ func (service *Service) resolveUnderLock(
 			File: sourceFile, Range: result.Challenge.Range,
 		})
 		if hashErr != nil {
-			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", mapProviderFailure(failureOperationHashSourceChallenge, hashErr))
+			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", service.reportProviderFailure(source, failureOperationHashSourceChallenge, hashErr))
 		}
 		signValue, hashErr := validateRangeHash(challengeHash, result.Challenge.Range)
 		if hashErr != nil {
+			service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
 			return service.failTask(ctx, task.ID, "challenge_invalid", "rapid upload challenge range invalid", hashErr)
 		}
 		uploadRequest.SignKey = result.Challenge.SignKey
@@ -346,9 +362,10 @@ func (service *Service) resolveUnderLock(
 		}
 		result, err = service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
 		if err != nil {
-			return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload retry failed", mapProviderFailure(failureOperationRapidUploadRetry, err))
+			return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload retry failed", service.reportProviderFailure(playback, failureOperationRapidUploadRetry, err))
 		}
 		if result.Status == p115integration.RapidUploadRangeChallenge {
+			service.reportRuntimeHealth(playback, p115account.RuntimeHealthProviderProtocol)
 			return service.failTask(ctx, task.ID, "repeated_challenge", "rapid upload repeated challenge", ErrProviderProtocol)
 		}
 	}
@@ -358,6 +375,7 @@ func (service *Service) resolveUnderLock(
 	case p115integration.RapidUploadOrdinaryUploadRequired:
 		return service.failTask(ctx, task.ID, "ordinary_upload_required", "ordinary upload is disabled", ErrRapidUploadUnavailable)
 	default:
+		service.reportRuntimeHealth(playback, p115account.RuntimeHealthProviderProtocol)
 		return service.failTask(ctx, task.ID, "provider_rejected", "rapid upload rejected", ErrRapidUploadUnavailable)
 	}
 	if err := service.markStatus(ctx, task.ID, models.PlaybackTransferTaskStatusVerifying); err != nil {
@@ -365,9 +383,10 @@ func (service *Service) resolveUnderLock(
 	}
 	target, err = service.provider.FindTargetFile(ctx, playback.Credential, query)
 	if err != nil {
-		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", mapProviderFailure(failureOperationVerifyPlaybackTarget, err))
+		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", service.reportProviderFailure(playback, failureOperationVerifyPlaybackTarget, err))
 	}
 	if !validTargetFile(target, query) {
+		service.reportRuntimeHealth(playback, p115account.RuntimeHealthProviderProtocol)
 		return service.failTask(ctx, task.ID, "target_invalid", "target verification invalid", ErrTargetUnavailable)
 	}
 	completedAt := service.now().UTC()
@@ -381,18 +400,20 @@ func (service *Service) resolveUnderLock(
 }
 
 // searchTarget accepts only one exact file in the configured playback parent.
-func (service *Service) searchTarget(ctx context.Context, credential p115integration.Credential, query p115integration.FileQuery) (*p115integration.File, bool, error) {
-	files, err := service.provider.SearchBySHA1(ctx, credential, query)
+func (service *Service) searchTarget(ctx context.Context, account p115account.ActiveAccountCredential, query p115integration.FileQuery) (*p115integration.File, bool, error) {
+	files, err := service.provider.SearchBySHA1(ctx, account.Credential, query)
 	if err != nil {
-		return nil, false, mapProviderFailure(failureOperationSearchPlaybackTarget, err)
+		return nil, false, service.reportProviderFailure(account, failureOperationSearchPlaybackTarget, err)
 	}
 	if len(files) > 1 {
+		service.reportRuntimeHealth(account, p115account.RuntimeHealthProviderProtocol)
 		return nil, false, ErrProviderProtocol
 	}
 	if len(files) == 0 {
 		return nil, false, nil
 	}
 	if !validTargetFile(&files[0], query) {
+		service.reportRuntimeHealth(account, p115account.RuntimeHealthProviderProtocol)
 		return nil, false, ErrProviderProtocol
 	}
 	return &files[0], true, nil
@@ -402,18 +423,19 @@ func (service *Service) searchTarget(ctx context.Context, credential p115integra
 // the short-lived URL; it never persists or logs that URL.
 func (service *Service) downloadCandidate(
 	ctx context.Context,
-	credential p115integration.Credential,
+	account p115account.ActiveAccountCredential,
 	target p115integration.File,
 	userAgent, taskID string,
 	preexisting bool,
 ) (RedirectCandidate, error) {
-	download, err := service.provider.GetDownloadURL(ctx, credential, p115integration.DownloadURLRequest{
+	download, err := service.provider.GetDownloadURL(ctx, account.Credential, p115integration.DownloadURLRequest{
 		PickCode: target.PickCode, UserAgent: userAgent,
 	})
 	if err != nil {
-		return RedirectCandidate{}, mapProviderFailure(failureOperationGetDownloadURL, err)
+		return RedirectCandidate{}, service.reportProviderFailure(account, failureOperationGetDownloadURL, err)
 	}
 	if download.URL == "" || !download.ExpiresAt.After(service.now().UTC()) || download.ConcurrentOpenLimit <= 0 {
+		service.reportRuntimeHealth(account, p115account.RuntimeHealthProviderProtocol)
 		return RedirectCandidate{}, ErrProviderProtocol
 	}
 	if download.HeaderMode != p115integration.DownloadHeadersNone &&
@@ -424,6 +446,72 @@ func (service *Service) downloadCandidate(
 		URL: download.URL, ExpiresAt: download.ExpiresAt, HeaderMode: download.HeaderMode,
 		ConcurrentOpenLimit: download.ConcurrentOpenLimit, TaskID: taskID, Preexisting: preexisting,
 	}, nil
+}
+
+// reportProviderFailure preserves the existing DirectPlay error while sending
+// only account-wide Provider outcomes to the health state machine.
+func (service *Service) reportProviderFailure(
+	account p115account.ActiveAccountCredential,
+	operation string,
+	providerErr error,
+) error {
+	mapped := mapProviderFailure(operation, providerErr)
+	if outcome, ok := runtimeHealthOutcome(providerErr); ok {
+		service.reportRuntimeHealth(account, outcome)
+	}
+	return mapped
+}
+
+// reportRuntimeSuccess marks both accounts healthy only after a usable download
+// candidate and required transfer persistence have completed.
+func (service *Service) reportRuntimeSuccess(source, playback p115account.ActiveAccountCredential) {
+	persistCtx, cancelPersist := context.WithTimeout(context.Background(), accountHealthWriteTimeout)
+	defer cancelPersist()
+	service.reportRuntimeHealthWithContext(persistCtx, source, p115account.RuntimeHealthSucceeded)
+	service.reportRuntimeHealthWithContext(persistCtx, playback, p115account.RuntimeHealthSucceeded)
+}
+
+// reportRuntimeHealth persists a bounded account outcome without changing the
+// redirect/fallback result when the health side effect is stale or unavailable.
+func (service *Service) reportRuntimeHealth(account p115account.ActiveAccountCredential, outcome p115account.RuntimeHealthOutcome) {
+	persistCtx, cancelPersist := context.WithTimeout(context.Background(), accountHealthWriteTimeout)
+	defer cancelPersist()
+	service.reportRuntimeHealthWithContext(persistCtx, account, outcome)
+}
+
+// reportRuntimeHealthWithContext shares one bounded write budget across all
+// account outcomes emitted by the same DirectPlay result.
+func (service *Service) reportRuntimeHealthWithContext(
+	persistCtx context.Context,
+	account p115account.ActiveAccountCredential,
+	outcome p115account.RuntimeHealthOutcome,
+) {
+	if err := service.accounts.ReportRuntimeHealth(persistCtx, account, outcome); err != nil {
+		if errors.Is(err, p115account.ErrRuntimeStateChanged) {
+			log.Printf("[DirectPlay] 账号运行期健康结果已过期 accountId=%s role=%s outcome=%s",
+				account.Credential.AccountID, account.Role, outcome)
+			return
+		}
+		log.Printf("[DirectPlay] 账号运行期健康回写失败 accountId=%s role=%s outcome=%s errorType=%T",
+			account.Credential.AccountID, account.Role, outcome, err)
+	}
+}
+
+// runtimeHealthOutcome excludes request cancellation and file-specific errors
+// from account-wide state changes.
+func runtimeHealthOutcome(err error) (p115account.RuntimeHealthOutcome, bool) {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "", false
+	case errors.Is(err, p115integration.ErrCredentialRejected):
+		return p115account.RuntimeHealthCredentialRejected, true
+	case errors.Is(err, p115integration.ErrProviderUnavailable):
+		return p115account.RuntimeHealthProviderUnavailable, true
+	case errors.Is(err, p115integration.ErrProviderRejected), errors.Is(err, p115integration.ErrProviderProtocol):
+		return p115account.RuntimeHealthProviderProtocol, true
+	default:
+		return "", false
+	}
 }
 
 // markStatus persists one non-terminal task transition using the request context.

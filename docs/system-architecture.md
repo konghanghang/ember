@@ -740,7 +740,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `SetEnabled(ctx, accountID, enabled)`：事务行锁内要求 `active + providerUserId + lastValidatedAt`；source 还必须具备完整位置，playback 必须具备目标目录；partial unique 保证每个角色至多一个启用账号、两个角色不能是同一 Provider 用户
 - `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
-- `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，source 返回 Emby 前缀/115 root，playback 返回目标目录，并携带解密后的窄 Credential；历史 source 缺位置时失败关闭，Cookie 仍不进入 JSON
+- `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，source 返回 Emby 前缀/115 root，playback 返回目标目录，并携带解密后的窄 Credential；`active` 直接可用，未到期的 `cooling_down` 失败关闭，已到期冷却在事务行锁内把 `cooldown_until` 延长 1 分钟并只放行一个半开探测；历史 source 缺位置时同样失败关闭，Cookie 仍不进入 JSON
+- `ReportRuntimeHealth(ctx, account, outcome)`：DirectPlay 只回传 `succeeded/credential_rejected/provider_unavailable/provider_protocol` 四种固定结果；成功更新 `last_succeeded_at` 并清除冷却/错误，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。回写同时匹配请求加载时的 Cookie 密文和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的运行期结果
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
 - `integrations/p115.DetectCookieAppType`：只解析 Cookie `UID` 的第二段 `ssoent` 并映射固定客户端类型，不调用 115；`A1` 归一为 `web`，未知编码不猜测
 - `integrations/p115.CookieProvider`：组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，通过编译期断言完整实现 Provider-neutral 接口；生产账号控制面注入该对象的验证边界，后续 direct play Service 可复用同一具体 Provider
@@ -769,14 +770,15 @@ Telegram 账号绑定与 Bot 自助能力服务。
 当前完成的是播放网关之前的生产编排核心，不注册路由、不启动独立服务，也不解析 Emby 请求：
 
 - `TransferProvider` 只包含源路径解析、目标查重、Range Hash、秒传初始化、目标复核和下载 URL；接口刻意不包含 `DeleteFile`，第一阶段无法自动删除保留文件
-- `ResolveMediaPath` 加载唯一 `active + enabled` 的 source/playback 账号并核对 Provider UID 不同，按 source 账号配置把 Emby `Path` 严格转换为 `rootId + relativePath`；Provider 唯一解析后返回的正数 Size/SHA1 才作为后续查重、锁、秒传和任务身份
+- `ResolveMediaPath` 加载唯一可运行的 source/playback 账号并核对 Provider UID 不同；未到期冷却直接返回账号不可用，由 Gateway fallback Emby，已到期冷却只允许一个数据库租约持有者探测。随后按 source 账号配置把 Emby `Path` 严格转换为 `rootId + relativePath`；Provider 唯一解析后返回的正数 Size/SHA1 才作为后续查重、锁、秒传和任务身份
 - 首次目录作用域查重命中时跳过任务与锁，成功签发直链后刷新最近成功任务的 `lastAccessedAt`；外部预存文件没有 Ember 任务时允许无行更新
 - 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；相同内容的并发请求只有一个进入秒传，其余请求复用目标文件
 - 锁内创建 `playback_transfer_tasks`，状态依次覆盖初始化、一次 challenge、目标复核和终态；真实 Provider message、Cookie、完整路径和签名 URL 均不落库
 - `status=1`、重复/越界 challenge、Provider 故障和目标复核失败均写入固定脱敏失败码；成功保存目标 fileId/pickCode、完成时间和 `lastAccessedAt`
 - advisory lock 固定在一条 PostgreSQL 物理连接上；释放使用独立超时 context，避免请求取消后把 session 锁带回连接池
 - 任务成功并释放锁后才签发本次 playback 下载 URL；需要客户端 Cookie 的 HeaderMode 失败关闭，不向播放器泄露 playback Cookie
-- PostgreSQL 集成测试在独立 `itest_*` schema 中执行完整 migration/`VerifySchema` 并重复执行新 migration，已证明两个并发请求只调用一次 fake `InitRapidUpload`、challenge 后 `attemptCount=2`、普通上传要求落为 `failed`
+- 可用直链签发并完成必要任务持久化后，source/playback 都回写运行期成功；Provider 凭证失效、临时不可用和协议错误只按实际调用账号回写固定状态。回写使用独立 2 秒上限且失败不改写 302/fallback 结果，请求取消和文件级错误不污染账号健康
+- PostgreSQL 集成测试在独立 `itest_*` schema 中执行完整 migration/`VerifySchema` 并重复执行新 migration，已证明两个并发请求只调用一次 fake `InitRapidUpload`、challenge 后 `attemptCount=2`、普通上传要求落为 `failed`，以及临时故障进入共享冷却、冷却期间不触达 Provider、过期冷却只放行一个探测、成功探测恢复、凭证失效停用和旧 Cookie 请求不覆盖新状态
 
 ### 5.26 EmbyTokenService (`services/embytoken/`, `security/tokenhash/`)
 

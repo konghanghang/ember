@@ -132,6 +132,8 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 新增 `playback_transfer_tasks` 模型、幂等 migration、活动内容 partial unique、终态 provenance 和 `lastAccessedAt`；`VerifySchema` 同步校验新表、代表性列和三个索引。
 - 新增不暴露 HTTP 入口的 `internal/services/directplay`，按角色加载活动账号，以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，锁内二次查重后编排 preID、一次 challenge、秒传、目标复核和锁外直链签发；其窄 Provider 接口不包含 `DeleteFile`。
 - 专用 PostgreSQL 集成数据库的独立 schema 已验证 migration 可重复执行、两个相同内容并发请求只调用一次 fake `InitRapidUpload`、challenge 将 `attemptCount` 记为 2、普通上传要求落为脱敏失败终态；测试不访问真实 115。
+- DirectPlay 已通过窄 `AccountHealthReporter` 回写实际调用账号：完整候选成功后更新 source/playback `lastSucceededAt`，凭证失效进入 `expired + disabled`，临时 Provider 故障进入固定 1 分钟 `cooling_down`，协议错误进入 `error`；冷却期间不请求 115，过期后通过 PostgreSQL 行锁只放行一个半开探测。
+- 运行期健康回写同时匹配请求加载时的 Cookie 密文和 `updatedAt`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或较新的运行期结果；回写使用独立 2 秒上限，失败不改变原 302/fallback 结果。fake/race 与 PostgreSQL 集成测试已覆盖冷却阻断、单探测、成功恢复、凭证停用和旧结果丢弃。
 - source 账号新增 `embyPathPrefix/sourceRootId` 一对一运行位置、独立更新接口和管理员表单；`ResolveMediaPath` 已按完整目录边界转换 Emby 路径，拒绝兄弟前缀、空相对路径、`.`/`..`、反斜杠和非规范 root ID。
 - 新增 `emby_access_tokens` 模型和幂等 migration，只保存按 `emby-access-token` purpose 派生的 32 字节 HMAC；`VerifySchema` 同步校验代表性列和四个索引。
 - 新增无 HTTP 入口的 `internal/services/embytoken`，实现成功认证结果绑定、实时用户资格解析、`lastSeenAt` 限频，以及单 Token、单设备和用户全部登录软撤销；返回值、JSON、日志和错误均不包含 Token 明文或摘要。
@@ -150,7 +152,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 仍未完成：
 
 - playback 目录的 Provider 路径解析已完成，但管理员 API/Web 仍要求手工填写内部 ID；后续按“路径交互、ID 真相源”完成友好配置，见本文“后续 TODO：playback 目标目录友好配置”。
-- 持久直连会话、套餐/并发策略、运营查询、账号健康与清理任务仍未完成；自动清理和跨副本清理锁明确推迟到第二阶段。外部 HTTPS 已完成，原始 Emby 公网隔离由部署管理员确认收口。
+- 持久直连会话、套餐/并发策略、运营查询、主动账号健康检查、Bot 告警与清理任务仍未完成；被动运行期健康回写和共享冷却已完成，自动清理和跨副本清理锁明确推迟到第二阶段。外部 HTTPS 已完成，原始 Emby 公网隔离由部署管理员确认收口。
 - 真实 Emby/Infuse 已有登录、资源 API、本地 fallback `206`、首次/复用 Gateway `302`、外挂/内嵌字幕和 Playing/Progress/Stopped `204` 证据；115 CDN 完整响应头、HEAD/Range、全文件字节、长期风控、配额和其他客户端仍未验证。
 
 ## 方案设计
@@ -448,10 +450,13 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 #### 6.7 Cookie 失效与冷却
 
-1. Provider 识别凭证失效后，将账号标记为 `expired`，阻止新任务和新直链。
-2. 限流或风控按账号进入共享 `cooling_down`，记录截止时间和脱敏原因。
-3. 冷却期间不为每个播放请求重复探测外部接口。
-4. 管理员更新 Cookie 后必须重新验证，成功才恢复 `active`。
+当前状态：被动运行期健康回写与共享冷却已实现；主动定时健康检查和告警仍属于阶段 2。
+
+1. Provider 识别凭证失效后，将账号标记为 `expired + disabled`，阻止新任务和新直链。
+2. 临时 Provider 不可用按实际 source/playback 账号进入固定 1 分钟 `cooling_down`，记录截止时间和脱敏原因；协议错误进入 `error`，不伪装成凭证失效。
+3. 冷却期间不读取 Cookie、不重复探测外部接口；到期后以 PostgreSQL 行锁和条件更新发放一个 1 分钟半开探测租约，跨 Gateway 副本也只有一个请求放行。
+4. 完整 DirectPlay 候选签发并完成必要持久化后，source/playback 都恢复 `active`、更新 `lastSucceededAt` 并清空冷却/错误；运行期回写失败不得改写原始 302/fallback 结果。
+5. 所有回写匹配加载时的 Cookie 密文和 `updatedAt`；管理员更新 Cookie 后仍必须重新验证，旧播放请求不能覆盖新凭证的 `pending` 状态。
 
 ### 7. 失败与安全边界
 
@@ -528,12 +533,12 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载和 direct play 传输编排已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得本地 fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认，完整 CDN 响应合同、持久会话、套餐/并发策略和运营查询仍待完成。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载、direct play 传输编排、被动运行期健康回写和 1 分钟共享冷却已完成；对应 fake 单元/race 测试和 PostgreSQL 集成测试通过。实机已获得本地 fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认，完整 CDN 响应合同、持久会话、套餐/并发策略和运营查询仍待完成。
 
 ### 阶段 2：运营与稳定性
 
 - 管理端完整账号、路径、策略、会话和任务管理。
-- 账号健康检查、Bot 告警、失败趋势，以及基于 `lastAccessedAt`、无活跃会话和容量水位的串行清理任务。
+- 主动账号健康检查、Bot 告警、失败趋势，以及基于 `lastAccessedAt`、无活跃会话和容量水位的串行清理任务；被动播放结果回写和共享冷却不再属于本阶段剩余项。
 - 多网关副本和跨副本互斥。
 - 经过验证的本地媒体回退与云端失败策略。
 
@@ -657,6 +662,12 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 统一入口测试覆盖无参数默认 API、显式 `api/gateway`、help、未知/额外参数、日志初始化和进程失败脱敏；`go build ./cmd/ember` 通过，Compose 已确认两个服务复用同一镜像 Tag。2026-08-23 `pre_release` 的 API GitHub Actions 已实际构建并推送单二进制预览镜像。
 - 控制面撤销单元/PostgreSQL/Gin 集成测试覆盖设备跨 Server 但不跨用户、手工与黑名单本地优先、toggle/admin edit/恢复、Emby 访问禁用、绑定前清理、解绑、删除审计保留和过期 cron 失败关闭；所有 Emby 副作用使用 fake。
 
+2026-09-01 账号运行期健康与共享冷却验证：
+
+- `go test -count=1 ./...` 通过；专用 PostgreSQL schema 用例实际运行，覆盖临时 Provider 故障进入冷却、冷却期间不触达 Provider、过期冷却并发只放行一个探测、成功恢复、凭证失效停用和旧 Cookie 结果丢弃。
+- `go test -race -count=1 ./internal/services/p115account ./internal/services/directplay`、`go vet ./...` 和 `go build ./...` 通过。
+- 全部 Provider/DirectPlay 自动化使用 fake，不启动服务、不请求真实 Emby/115；这证明状态机、数据库条件更新和并发租约，不证明生产 115 限流错误码或 1 分钟冷却时长最优。
+
 测试分层：
 
 - Emby 合同：固定认证、PlaybackInfo、视频流、字幕和播放事件 fixture。
@@ -667,6 +678,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 加密合同：请求加密、响应解密、LZ4、签名和 token 固定向量。
 - Service/Gateway：身份安全 fail-closed；路径、账号、Provider、冷却和直链不兼容时 fallback-to-Emby。
 - PostgreSQL：迁移、角色唯一性、Cookie 密文、Token 唯一性/撤销审计、任务幂等、advisory lock 和会话收口。
+- 运行期健康：成功、凭证失效、Provider 临时不可用和协议错误映射；冷却期间不触达 Provider、过期冷却单探测、成功恢复、旧 Cookie/旧状态结果丢弃，以及回写失败不改变 302/fallback。
 - 网关：认证响应透明、受保护请求 Token 门控、近期 PlaybackInfo 证明、Header、GET/HEAD、安全 reject、115 redirect 和原始请求 Emby fallback。
 - Web：账号只写交互、脱敏状态、路径、套餐策略和会话列表。
 

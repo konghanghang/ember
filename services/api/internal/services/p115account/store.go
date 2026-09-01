@@ -52,17 +52,51 @@ func (s *gormAccountStore) GetByID(ctx context.Context, id string) (*models.P115
 	return &account, nil
 }
 
-// GetActiveByRole returns the database-constrained enabled account for one runtime role.
-func (s *gormAccountStore) GetActiveByRole(ctx context.Context, role models.P115AccountRole) (*models.P115Account, error) {
+// AcquireRuntimeByRole returns an active account or leases one expired
+// cooldown probe while holding the account row lock. The probe lease keeps
+// concurrent Gateway replicas from retrying the same Provider account.
+func (s *gormAccountStore) AcquireRuntimeByRole(
+	ctx context.Context,
+	role models.P115AccountRole,
+	now time.Time,
+	probeUntil time.Time,
+) (*models.P115Account, error) {
 	var account models.P115Account
-	err := s.database(ctx).
-		Where("role = ? AND enabled = ? AND status = ?", role, true, models.P115AccountStatusActive).
-		First(&account).Error
+	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("role = ? AND enabled = ?", role, true).
+			First(&account).Error; err != nil {
+			return err
+		}
+		switch account.Status {
+		case models.P115AccountStatusActive:
+			return nil
+		case models.P115AccountStatusCoolingDown:
+			if account.CooldownUntil == nil || account.CooldownUntil.After(now) {
+				return ErrAccountCoolingDown
+			}
+			result := tx.Model(&models.P115Account{}).
+				Where("id = ? AND status = ? AND updated_at = ?", account.ID, models.P115AccountStatusCoolingDown, account.UpdatedAt).
+				Updates(map[string]interface{}{
+					"cooldown_until": probeUntil,
+					"updated_at":     now,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return ErrRuntimeStateChanged
+			}
+			return tx.Where("id = ?", account.ID).First(&account).Error
+		default:
+			return ErrAccountUnavailable
+		}
+	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrAccountUnavailable
 	}
 	if err != nil {
-		return nil, safeP115AccountStoreError("get_active_by_role", err)
+		return nil, safeP115AccountStoreError("acquire_runtime_by_role", err)
 	}
 	return &account, nil
 }
@@ -177,6 +211,50 @@ func (s *gormAccountStore) CompleteValidationError(
 	})
 }
 
+// CompleteRuntimeHealth applies a fixed state transition only to the exact
+// credential and account generation used by the finished playback request.
+func (s *gormAccountStore) CompleteRuntimeHealth(
+	ctx context.Context,
+	ref runtimeCredentialRef,
+	mutation runtimeHealthMutation,
+) error {
+	updates := map[string]interface{}{
+		"status":             mutation.Status,
+		"cooldown_until":     mutation.CooldownUntil,
+		"last_error_code":    nil,
+		"last_error_message": nil,
+		"updated_at":         mutation.At,
+	}
+	if mutation.Disable {
+		updates["enabled"] = false
+	}
+	if mutation.Succeeded {
+		updates["last_succeeded_at"] = mutation.At
+	}
+	if mutation.Code != "" {
+		updates["last_error_code"] = mutation.Code
+		updates["last_error_message"] = mutation.Message
+	}
+
+	result := s.database(ctx).Model(&models.P115Account{}).
+		Where("id = ? AND cookie_ciphertext = ? AND updated_at = ?", ref.accountID, ref.expectedCiphertext, ref.expectedUpdatedAt).
+		Updates(updates)
+	if result.Error != nil {
+		return safeP115AccountStoreError("complete_runtime_health", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		var count int64
+		if err := s.database(ctx).Model(&models.P115Account{}).Where("id = ?", ref.accountID).Count(&count).Error; err != nil {
+			return safeP115AccountStoreError("complete_runtime_health", err)
+		}
+		if count == 0 {
+			return ErrAccountNotFound
+		}
+		return ErrRuntimeStateChanged
+	}
+	return nil
+}
+
 func (s *gormAccountStore) completeValidation(
 	ctx context.Context,
 	id, expectedCiphertext string,
@@ -272,6 +350,7 @@ func validateP115AccountEnableState(account *models.P115Account) error {
 
 func safeP115AccountStoreError(operation string, err error) error {
 	if err == nil || errors.Is(err, ErrAccountNotFound) || errors.Is(err, ErrCredentialChanged) ||
+		errors.Is(err, ErrAccountCoolingDown) || errors.Is(err, ErrRuntimeStateChanged) ||
 		errors.Is(err, ErrAccountUnavailable) || errors.Is(err, ErrRoleAlreadyEnabled) ||
 		errors.Is(err, ErrProviderUserAlreadyEnabled) || errors.Is(err, ErrSourceLocationOnly) {
 		return err

@@ -75,7 +75,7 @@ Compose 的 `gateway` profile 复用 `ember-api` 镜像，只把 command 改为 
 | `source` | 定位 Emby 原始文件并读取秒传所需的有界 Range | `embyPathPrefix + sourceRootId` |
 | `playback` | 保存保留式秒传文件并签发最终客户端直链 | `targetParentId` |
 
-运行期要求恰好存在一个 `enabled + active` source 和一个 `enabled + active` playback。数据库 partial unique 保证同一角色最多启用一条记录，并禁止同一 Provider UID 同时成为两个启用角色。
+运行期稳定态要求恰好存在一个 `enabled + active` source 和一个 `enabled + active` playback。数据库 partial unique 保证同一角色最多启用一条记录，并禁止同一 Provider UID 同时成为两个启用角色；已到期 `cooling_down` 是唯一例外，仅 PostgreSQL 半开租约持有者可临时加载并探测。
 
 这两个账号是管理员配置的全局基础设施，不属于单个 Ember 用户；普通用户继续只使用自己的 Emby 账号，不绑定、不查看也不提供 115 Cookie。
 
@@ -143,11 +143,17 @@ stateDiagram-v2
     active --> error: 显式验证遇到网络/协议失败
     pending --> error: 显式验证遇到网络/协议失败
     error --> active: 再次验证成功
+    active --> cooling_down: 播放遇到临时 Provider 故障
+    cooling_down --> cooling_down: 半开探测失败并续租
+    cooling_down --> active: 半开探测成功
+    active --> expired: 播放确认 Cookie 失效
+    cooling_down --> expired: 半开探测确认 Cookie 失效
+    active --> error: 播放确认 Provider 协议错误
     expired --> pending: 替换 Cookie
     error --> pending: 替换 Cookie
 ```
 
-`enabled` 是独立布尔轴：`active` 不等于已启用。显式验证确认 Cookie 失效时会同时停用；网络/协议错误会把 status 改为 `error` 但保留 enabled，运行期查询仍因非 active 而拒绝，后续验证成功可自动恢复。`cooling_down` 虽已出现在模型、SQL 和 Web 状态文案中，但当前没有生产代码写入该状态，见“已知问题”。
+`enabled` 是独立布尔轴：`active` 不等于已启用。显式验证或播放调用确认 Cookie 失效时会进入 `expired + disabled`；显式验证的网络/协议错误进入 `error` 并保留 enabled。播放期间临时 Provider 故障进入固定 1 分钟 `cooling_down`，未到期时不读取 Cookie；到期后 PostgreSQL 行锁只发放一个 1 分钟半开探测租约，成功恢复 `active`，失败重新冷却。播放协议错误进入 `error`。运行期回写同时匹配加载凭证时的 Cookie 密文和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的结果。
 
 ## 4. Emby 登录与 Token 映射
 
@@ -339,7 +345,10 @@ sequenceDiagram
         DP->>Provider: GetDownloadURL(playback Cookie, ClientUA)
         DP-->>Gateway: RedirectCandidate
     end
+    DP->>Accounts: ReportRuntimeHealth(source/playback, succeeded)
 ```
+
+任一 Provider 调用返回账号级类型化错误时，DirectPlay 只把实际调用账号和固定 `credential_rejected/provider_unavailable/provider_protocol` 结果交给 `P115AccountService`；请求取消、目标文件不可见、下载 Header 不兼容和其他文件级失败不污染账号健康。健康回写使用独立 2 秒上限，失败或旧结果被拒绝都不替换原始 DirectPlay 错误、302 或 Gateway fallback。
 
 ### 7.1 Transfer task 状态
 
@@ -405,8 +414,8 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
-| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、Token aliases、Yamby 空数组、条目快照、按需 PlaybackInfo 的压缩/错配/失败/singleflight/证明复用、DirectStreamUrl Token 清理/Item 校验、扩展名 fallback、补全后 302、取消/deadline 和 Gateway 决策 | 真实 115 风控、SenPlayer/Yamby 等客户端实机行为和完整播放 |
-| PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次 | 多 Gateway 副本真实负载 |
+| Go 单元/fake HTTP | 账号生命周期、Provider method/query/Header/响应、加密向量、运行期健康四类映射、回写失败不改播放结果、取消不污染账号、Token aliases、Yamby 空数组、条目快照、按需 PlaybackInfo 的压缩/错配/失败/singleflight/证明复用、DirectStreamUrl Token 清理/Item 校验、扩展名 fallback、补全后 302 和 Gateway 决策 | 真实 115 风控、SenPlayer/Yamby 等客户端实机行为和完整播放 |
+| PostgreSQL 集成 | migration、账号唯一约束、Token 并发映射/撤销、transfer task、advisory lock、并发只秒传一次、临时故障冷却、冷却阻断、过期冷却单探测、成功恢复、凭证失效停用和旧 Cookie 结果丢弃 | 多 Gateway 副本真实负载；自然发生的生产 Provider 冷却与恢复时长 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
 | Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200` 与按需 PlaybackInfo `proofCount=1`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目确认 `proofAccepted=true`、source 路径映射、Provider Size 转存成功，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认 `path_not_mapped` 本地条目经扩展名 fallback 返回 `206` 并实际播放，115 首次/复用 `302` 可播放，外挂/内嵌字幕及 Playing/Progress/Stopped `204` 均正常 | 115 CDN 完整响应头/Range/全文件字节、UA/IP 绑定和长期 Provider 风控；生产未故障注入 `providerOperation/accountRole`，只保留 fake 测试证据 |
@@ -417,7 +426,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 【品味评分】
 
-🟡 凑合。安全边界、凭证隔离、版本范围、fallback、transfer 幂等和目标 Infuse 基础播放已闭环；运行期健康状态、持久会话/策略和 CDN 完整响应合同仍未完成。
+🟡 凑合。安全边界、凭证隔离、版本范围、fallback、transfer 幂等、运行期健康/共享冷却和目标 Infuse 基础播放已闭环；持久会话/策略和 CDN 完整响应合同仍未完成。
 
 【致命问题】
 
@@ -426,7 +435,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 【改进方向】
 
-- 后续只继续完成 115 CDN 完整响应头/Range/全文件字节，以及账号运行期健康回写、冷却、会话/并发和容量治理。
+- 后续只继续完成 115 CDN 完整响应头/Range/全文件字节，以及持久会话/并发、主动健康告警和容量治理；被动运行期健康回写与共享冷却已完成。
 - 生产不为归档主动制造 Provider/账号故障；`providerOperation/accountRole` 继续由 fake 合同保护，出现自然故障时再补实机证据。
 
 问题总表：
@@ -435,7 +444,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
 | `P1` | `P1-1` 本地 fallback 已以 `206` 实机关闭；`P1-2` 原始 Emby 旁路风险按部署管理员确认关闭 |
-| `P2` | `P2-1` 账号运行期健康未回写；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理；`P2-5` 两次历史 Store error 根因待新日志复验 |
+| `P2` | `P2-1` 账号运行期健康与共享冷却已关闭；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理；`P2-5` 两次历史 Store error 根因待新日志复验 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
@@ -457,12 +466,12 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 ### P2
 
-#### 【P2-1】播放运行期没有回写账号失效、冷却和成功状态
+#### 【P2-1，已关闭】播放运行期已回写账号失效、冷却和成功状态
 
-- 触发条件：播放时 Cookie 失效、115 限流/网络失败，或直链/秒传成功。
-- 实际后果：`p115_accounts.status/cooldownUntil/lastSucceededAt` 只反映显式验证，不反映真实播放；`cooling_down` 没有生产写入路径，连续视频请求会重复打 Provider，管理页面可能仍显示旧状态。
-- 定位：`services/api/internal/services/directplay/service.go` 的账号接口只有 `LoadActiveCredentialByRole`；`P115AccountStatusCoolingDown` 仅定义于模型，仓库搜索没有运行期状态写入。
-- 建议：增加窄 `AccountHealthReporter`，按类型化错误更新 expired/cooling/error/lastSucceededAt；冷却期间直接 fallback Emby，禁止逐请求探测。
+- 关闭实现：`directplay.Service` 通过窄 `AccountHealthReporter` 只回传实际调用账号和四种固定结果；成功更新 source/playback `lastSucceededAt`，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。
+- 并发边界：冷却期间不读取 Cookie；到期后 `AcquireRuntimeByRole` 在 PostgreSQL 行锁内续租并只放行一个半开探测。回写同时匹配 Cookie 密文和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的健康结果。
+- 失败边界：请求取消和文件级错误不改变账号状态；健康回写使用独立 2 秒上限，失败不改写原始 302/fallback 结果。
+- 验证证据：Go 单元/race 与独立 PostgreSQL schema 已覆盖四类映射、冷却阻断、过期冷却并发单探测、成功恢复、凭证失效停用和旧 Cookie 结果丢弃；没有请求真实 115，生产自然故障的冷却时长仍待观察。
 
 #### 【P2-2】持久播放会话、套餐开关和 Gateway 并发尚未实现
 
@@ -504,7 +513,6 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 1. 部署通用客户端矩阵与 Token Store 分类，确认 Infuse 扫库不再出现误导性 `503`，并取得真实失败时的固定 reason/pool 证据。
 2. 外部 HTTPS、Infuse 登录/播放/字幕/进度验收和原始 Emby 隔离运维确认已完成；继续把新增客户端证据固定为脱敏 fixture。
-3. 接入账号运行期健康回写和冷却，避免 115 故障时逐请求重试。
-4. 实现持久 session、事件/TTL、套餐开关和 Gateway 并发。
-5. 在 session 可证明“无活跃播放”后设计保留文件容量治理。
-6. 最后收口 playback 目录路径解析等管理员体验。
+3. 实现持久 session、事件/TTL、套餐开关和 Gateway 并发。
+4. 在 session 可证明“无活跃播放”后设计保留文件容量治理。
+5. 最后收口主动账号健康告警和 playback 目录路径解析等管理员体验。

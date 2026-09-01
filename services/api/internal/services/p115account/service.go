@@ -32,11 +32,12 @@ type accountStore interface {
 	Create(ctx context.Context, account *models.P115Account) error
 	List(ctx context.Context) ([]models.P115Account, error)
 	GetByID(ctx context.Context, id string) (*models.P115Account, error)
-	GetActiveByRole(ctx context.Context, role models.P115AccountRole) (*models.P115Account, error)
+	AcquireRuntimeByRole(ctx context.Context, role models.P115AccountRole, now, probeUntil time.Time) (*models.P115Account, error)
 	ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error)
 	CompleteValidationSuccess(ctx context.Context, id, expectedCiphertext, providerUserID string, at time.Time) (*models.P115Account, error)
 	CompleteValidationRejected(ctx context.Context, id, expectedCiphertext string, at time.Time) (*models.P115Account, error)
 	CompleteValidationError(ctx context.Context, id, expectedCiphertext, code, message string, at time.Time) (*models.P115Account, error)
+	CompleteRuntimeHealth(ctx context.Context, ref runtimeCredentialRef, mutation runtimeHealthMutation) error
 	SetEnabled(ctx context.Context, id string, enabled bool) (*models.P115Account, error)
 	UpdateSourceLocation(ctx context.Context, id, embyPathPrefix, sourceRootID string) (*models.P115Account, error)
 }
@@ -98,6 +99,7 @@ type ActiveAccountCredential struct {
 	EmbyPathPrefix string
 	SourceRootID   string
 	Credential     p115integration.Credential
+	runtimeRef     runtimeCredentialRef
 }
 
 // SourceLocationInput updates the source account's local Emby prefix and 115 root.
@@ -228,7 +230,8 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 	if role != models.P115AccountRoleSource && role != models.P115AccountRolePlayback {
 		return ActiveAccountCredential{}, ErrInvalidRole
 	}
-	account, err := s.store.GetActiveByRole(ctx, role)
+	now := s.now().UTC()
+	account, err := s.store.AcquireRuntimeByRole(ctx, role, now, now.Add(runtimeProviderCooldown))
 	if err != nil {
 		return ActiveAccountCredential{}, err
 	}
@@ -271,6 +274,11 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 			Cookie:    cookie,
 			AppType:   account.AppType,
 			UserAgent: account.UserAgent,
+		},
+		runtimeRef: runtimeCredentialRef{
+			accountID:          account.ID,
+			expectedCiphertext: account.CookieCiphertext,
+			expectedUpdatedAt:  account.UpdatedAt,
 		},
 	}, nil
 }

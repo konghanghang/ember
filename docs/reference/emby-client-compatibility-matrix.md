@@ -65,7 +65,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 
 | 客户端 | 已确认 | 尚未确认 |
 | --- | --- | --- |
-| Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认本地扩展名 fallback `206`、首次/复用 `302` 实际播放、外挂/内嵌字幕，以及 Playing/Progress/Stopped `204` | 115 CDN 完整响应头/Range/全文件字节取证、稳定 Provider 重试或冷却；其他平台仍需按目标版本记录 |
+| Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认本地扩展名 fallback `206`、首次/复用 `302` 实际播放、外挂/内嵌字幕，以及 Playing/Progress/Stopped `204`。账号运行期四类回写、1 分钟共享冷却和半开单探测已有 fake/race 与 PostgreSQL 集成证据 | 115 CDN 完整响应头/Range/全文件字节取证，以及自然发生的生产 Provider 冷却/恢复时长；其他平台仍需按目标版本记录 |
 | SenPlayer | `emby-toolkit` 固定源码将其列为 native client；Ember 有 UA 与通用载体 fake 测试 | 真实 Header/query/path、播放和字幕行为 |
 | Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试 | 真实 Token 载体、路径与播放行为 |
 | Emby Web | 目标 Gateway 日志已确认浏览器请求 `/`、`/favicon.ico`、完整静态资源、单层语言 JSON、Branding CSS，以及携四个必填 `X-Emby-*` query 元数据的 Public users、Branding Configuration 和 AuthenticateByName。2026-08-31 真实浏览器进一步确认完整页面资源、query 登录、Primary、Backdrop Index `0/1` 与登录后 WebSocket OPEN；Web 关闭时 GET/HEAD 中文 `404`、禁缓存和 Infuse 不受影响均通过 | Web 播放 115 文件按用户当前无使用场景排除，不表述为已兼容；Cloudflare Browser Insights 注入被 CSP 拦截，属于接受的部署层偏差 |

@@ -437,7 +437,7 @@ playbackAccountId + SHA1 + size
 
 以下是 source 文件在 playback 缺失时的唯一首期闭环。各步骤不能交换顺序，也不能把 source 下载地址直接交给播放器：
 
-1. 运行时加载唯一 `active + enabled` 的 source 和 playback 账号，确认两个 Provider UID 不同；playback 必须配置明确的 `targetParentId`，禁止默认写入根目录。
+1. 运行时加载唯一可运行的 source 和 playback 账号，确认两个 Provider UID 不同；稳定态必须为 `active + enabled`，已到期 `cooling_down` 仅允许数据库半开租约持有者继续。playback 必须配置明确的 `targetParentId`，禁止默认写入根目录。
 2. 使用 source 账号的 `embyPathPrefix + sourceRootId` 把 Emby `Path` 转换为 `rootId + relativePath`，调用 `ResolveFileByPath` 按完整目录链和最终文件名唯一取得 source `fileId/pickCode/SHA1/size/parentId`；Emby Size 只作为观察值，不参与解析或一致性判断，后续统一使用 Provider 返回的正数 Size。
 3. 使用 playback Cookie 按 source `SHA1 + size` 执行 `SearchBySHA1`：
    - 已命中：复核非目录和 size 后直接进入第 9 步；这是 playback 预存文件，不属于 Ember 秒传任务，禁止后续自动删除。
@@ -476,7 +476,10 @@ playbackAccountId + SHA1 + size
 - 第一阶段不承诺自动控制 playback 容量，管理员通过专用目录观察占用并手工处理；手工处理不属于 Ember 自动状态流转。
 - 第二阶段才设计自动回收。候选至少同时满足：无活跃会话、超过基于 `lastAccessedAt` 的最短保留期、容量策略要求回收、任务 provenance 完整、删除前 parent/fileId/SHA1/size 全量复核一致。
 - 第二阶段清理任务按账号串行执行，并补跨副本任务所有权/互斥；不能把 Adapter 进程内锁当成全局锁。
-- Provider 限流按账号共享冷却，不让每个播放请求独立重试。
+- DirectPlay 当前只将 `succeeded/credential_rejected/provider_unavailable/provider_protocol` 四种固定账号级结果回写到实际调用的 source/playback 账号；Provider 原始错误和响应体不进入账号 Service。
+- `provider_unavailable` 当前按账号进入固定 1 分钟共享冷却，不让每个播放请求独立重试；冷却未到期时不读取 Cookie，到期后用 PostgreSQL 行锁续租并只放行一个半开探测，成功立即恢复 `active`，失败重新冷却。
+- `credential_rejected` 进入 `expired + disabled`，`provider_protocol` 进入 `error`；请求取消、目标文件不可见、下载 Header 不兼容等文件/请求级失败不污染账号健康。
+- 运行期回写同时匹配请求加载时的 Cookie 密文和 `updated_at`；旧请求不能覆盖 Cookie 替换、显式验证、手工启停或较新的运行期结果。健康回写失败不改变原始 302/fallback 结果。
 - Cookie 失效、账号风控、下载地址不兼容、普通上传要求和 Provider 限流必须使用不同内部错误码。
 - 负缓存只能短期存在；一次搜索失败不能长期证明文件不存在。
 - 已签发的 CDN 链接无法由 Ember 保证立即失效，封禁和账号失效只能阻止新直链。

@@ -154,6 +154,185 @@ func TestIntegrationOrdinaryUploadPersistsFailedTask(t *testing.T) {
 	}
 }
 
+func TestIntegrationProviderFailureCoolsAccountAndSkipsNextProviderCall(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	provider := newFakeProvider()
+	provider.resolveErr = p115integration.ErrProviderUnavailable
+	service, err := NewService(database, accounts, provider)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	_, err = service.ResolveMediaPath(context.Background(), fixtureMediaPathResolveRequest())
+	if !errors.Is(err, ErrProviderUnavailable) {
+		t.Fatalf("first ResolveMediaPath() error = %v, want ErrProviderUnavailable", err)
+	}
+	var source models.P115Account
+	if err := database.Where("role = ?", models.P115AccountRoleSource).First(&source).Error; err != nil {
+		t.Fatalf("load source account: %v", err)
+	}
+	if source.Status != models.P115AccountStatusCoolingDown || !source.Enabled || source.CooldownUntil == nil ||
+		!source.CooldownUntil.After(time.Now().UTC()) || source.LastErrorCode == nil || *source.LastErrorCode != "provider_unavailable" {
+		t.Fatalf("source runtime health = %+v", source)
+	}
+	if countCalls(provider.calls, "resolve_source") != 1 {
+		t.Fatalf("provider calls after first failure = %v", provider.calls)
+	}
+
+	_, err = service.ResolveMediaPath(context.Background(), fixtureMediaPathResolveRequest())
+	if !errors.Is(err, ErrAccountUnavailable) {
+		t.Fatalf("second ResolveMediaPath() error = %v, want ErrAccountUnavailable", err)
+	}
+	if countCalls(provider.calls, "resolve_source") != 1 {
+		t.Fatalf("cooling request reached provider: %v", provider.calls)
+	}
+}
+
+func TestIntegrationCredentialRejectedExpiresAndDisablesAccount(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	provider := newFakeProvider()
+	provider.resolveErr = p115integration.ErrCredentialRejected
+	service, err := NewService(database, accounts, provider)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	_, err = service.ResolveMediaPath(context.Background(), fixtureMediaPathResolveRequest())
+	if !errors.Is(err, ErrAccountUnavailable) {
+		t.Fatalf("ResolveMediaPath() error = %v, want ErrAccountUnavailable", err)
+	}
+	var source models.P115Account
+	if err := database.Where("role = ?", models.P115AccountRoleSource).First(&source).Error; err != nil {
+		t.Fatalf("load source account: %v", err)
+	}
+	if source.Status != models.P115AccountStatusExpired || source.Enabled || source.CooldownUntil != nil ||
+		source.LastErrorCode == nil || *source.LastErrorCode != "credential_rejected" {
+		t.Fatalf("source rejected state = %+v", source)
+	}
+}
+
+func TestIntegrationExpiredCooldownAllowsOnlyOneProbeLease(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	past := time.Now().UTC().Add(-time.Minute)
+	if err := database.Model(&models.P115Account{}).
+		Where("role = ?", models.P115AccountRoleSource).
+		Updates(map[string]interface{}{
+			"status":         models.P115AccountStatusCoolingDown,
+			"cooldown_until": past,
+			"updated_at":     past,
+		}).Error; err != nil {
+		t.Fatalf("seed expired cooldown: %v", err)
+	}
+
+	start := make(chan struct{})
+	errorsCh := make(chan error, 2)
+	var workers sync.WaitGroup
+	for range 2 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			_, loadErr := accounts.LoadActiveCredentialByRole(context.Background(), models.P115AccountRoleSource)
+			errorsCh <- loadErr
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(errorsCh)
+
+	successes := 0
+	cooling := 0
+	for loadErr := range errorsCh {
+		switch {
+		case loadErr == nil:
+			successes++
+		case errors.Is(loadErr, p115account.ErrAccountCoolingDown):
+			cooling++
+		default:
+			t.Fatalf("LoadActiveCredentialByRole() error = %v", loadErr)
+		}
+	}
+	if successes != 1 || cooling != 1 {
+		t.Fatalf("probe lease results success=%d cooling=%d", successes, cooling)
+	}
+}
+
+func TestIntegrationSuccessfulProbeClearsExpiredCooldown(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	past := time.Now().UTC().Add(-time.Minute)
+	oldCode := "provider_unavailable"
+	oldMessage := "115 服务暂不可用"
+	if err := database.Model(&models.P115Account{}).
+		Where("role = ?", models.P115AccountRoleSource).
+		Updates(map[string]interface{}{
+			"status":             models.P115AccountStatusCoolingDown,
+			"cooldown_until":     past,
+			"last_error_code":    oldCode,
+			"last_error_message": oldMessage,
+			"updated_at":         past,
+		}).Error; err != nil {
+		t.Fatalf("seed expired cooldown: %v", err)
+	}
+	provider := newFakeProvider()
+	provider.searchResults = [][]p115integration.File{{provider.targetFile}}
+	service, err := NewService(database, accounts, provider)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	if _, err := service.ResolveMediaPath(context.Background(), fixtureMediaPathResolveRequest()); err != nil {
+		t.Fatalf("ResolveMediaPath() error = %v", err)
+	}
+	var source models.P115Account
+	if err := database.Where("role = ?", models.P115AccountRoleSource).First(&source).Error; err != nil {
+		t.Fatalf("load source account: %v", err)
+	}
+	if source.Status != models.P115AccountStatusActive || source.CooldownUntil != nil || source.LastSucceededAt == nil ||
+		source.LastErrorCode != nil || source.LastErrorMessage != nil {
+		t.Fatalf("source recovered state = %+v", source)
+	}
+}
+
+func TestIntegrationStaleRuntimeFailureCannotOverrideReplacedCookie(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	active, err := accounts.LoadActiveCredentialByRole(context.Background(), models.P115AccountRoleSource)
+	if err != nil {
+		t.Fatalf("LoadActiveCredentialByRole() error = %v", err)
+	}
+	if _, err := accounts.ReplaceCookie(context.Background(), active.Credential.AccountID, p115account.ReplaceCookieInput{
+		Cookie: "UID=100_F1_1700000000; CID=replaced",
+	}); err != nil {
+		t.Fatalf("ReplaceCookie() error = %v", err)
+	}
+
+	err = accounts.ReportRuntimeHealth(context.Background(), active, p115account.RuntimeHealthProviderUnavailable)
+	if !errors.Is(err, p115account.ErrRuntimeStateChanged) {
+		t.Fatalf("ReportRuntimeHealth() error = %v, want ErrRuntimeStateChanged", err)
+	}
+	var source models.P115Account
+	if err := database.Where("id = ?", active.Credential.AccountID).First(&source).Error; err != nil {
+		t.Fatalf("load replaced source account: %v", err)
+	}
+	if source.Status != models.P115AccountStatusPending || source.Enabled || source.CooldownUntil != nil || source.LastErrorCode != nil {
+		t.Fatalf("stale runtime failure changed replacement state: %+v", source)
+	}
+}
+
+func countCalls(calls []string, want string) int {
+	count := 0
+	for _, call := range calls {
+		if call == want {
+			count++
+		}
+	}
+	return count
+}
+
 type concurrentTransferProvider struct {
 	*fakeProvider
 	initialSearchBarrier chan struct{}
