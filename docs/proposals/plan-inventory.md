@@ -85,12 +85,12 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-08-31 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，当前 `docs/plan/` 保留以下 7 份。
+2026-09-01 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，115 Cookie 客户端类型自动识别已同步进入代码和稳定文档，当前 `docs/plan/` 保留以下 7 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
-| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 已有本地 fallback `206`、首次/复用 Gateway `302`、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、持久会话、套餐并发、运维查询与阶段 2 未完成 | 保留在 `docs/plan/architecture/` |
+| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 账号控制面已支持 Cookie 客户端类型自动识别，且已有本地 fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、账号运行期健康、持久会话、套餐并发、运维查询与阶段 2 未完成 | 保留在 `docs/plan/architecture/` |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |

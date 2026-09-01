@@ -69,12 +69,13 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 ### 外部证据与未确认项
 
 - Cookie 协议参考固定为 `p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`、包版本 `0.0.9.6.4`；它仅是调查和测试向量来源，不是运行时依赖。
-- 上传加密参考同一提交内 `p115cipher` `0.0.5.4` 黑盒输出；Go 固定向量、fake HTTP 和 2026-08-22 受控真实上传初始化均已通过。目标 Emby/Infuse 组合仍未验证。
+- 上传加密参考同一提交内 `p115cipher` `0.0.5.4` 黑盒输出；Go 固定向量、fake HTTP 和 2026-08-22 受控真实上传初始化均已通过。该次检查只证明 Provider 写入、目标复核和有界 Range，不独立证明 Gateway/Infuse；后续组合实证见本节 2026-08-29、2026-08-31 记录。
 - `emby-toolkit` `v10.8.63` 只用于理解播放小号的账号选择和失败语义；不得复制其 AGPL 代码。
 - `p115client` 固定提交根许可声明为 MIT，但 `p115cipher` 模块许可证和源码声明为 GPLv3；当前按 GPLv3 保守边界处理，不复制或逐行翻译源码、不引入 Python 运行时，只使用临时黑盒输出的兼容向量独立实现 Go 协议层。
 - 2026-08-22 本地一次性只读检查已确认两个 Cookie 登录、`uploadinfo`、source 路径/size 解析、playback SHA1 查询、source downurl 和精确 128 KiB Range；source URL 为 `cdnfhnfile.115cdn.net`、`f=1`、并发上限 `2`。playback 未命中同内容，因此 playback 最终下载 URL，以及风控、限流和 Infuse 行为仍保持“未实机确认”。
 - 2026-08-24 Infuse `8.5` 已通过 Gateway 完成登录、普通资源 API、PlaybackInfo 和 Emby 扩展名 fallback `206` 播放；Playing/Progress 返回 `204`。
 - 2026-08-29 Infuse `8.5.2` 已确认 `Size=0` 不阻断 proof，source 路径映射以 Provider 权威 Size 完成首次保留式转存并返回 `302`，后续多次 `preexisting=true` 复用也返回 `302`。该证据仍不能证明客户端已完整读取 115 CDN 媒体字节。
+- 2026-08-31 macOS Infuse `8.5.2` 已确认本地 fallback `206`、115 首次/复用 `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped `204`。该实机观察仍不替代 115 CDN 完整响应头、HEAD/Range、全文件字节、UA/IP 绑定和长期风控取证。
 - Infuse 不设长期固定版本。每次受控验收使用目标平台当时的稳定最新版，并记录平台、精确版本、日期和结果。
 
 ## 已确认决策
@@ -96,7 +97,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 
 ## 实施进度
 
-截至 2026-08-22 已完成账号控制面、Cookie Provider 合同验证和首个 DirectPlay 生产编排切片：
+截至 2026-09-01 已完成账号控制面、Cookie Provider 合同验证、DirectPlay 生产编排和 Gateway/Infuse 基础播放闭环：
 
 - 新增 `p115_accounts` 模型、幂等 SQL migration、角色/目标目录检查和启用账号唯一索引。
 - 将 ConfigService 历史 AES-GCM 格式下沉到共享 `security/secretbox`，已有 settings 密文保持兼容；115 Cookie 使用用途隔离派生密钥。
