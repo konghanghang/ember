@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-08-31
+> 更新时间：2026-09-02
 
 本清单只回答三件事：
 
@@ -85,12 +85,13 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-09-01 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，115 Cookie 客户端类型自动识别已同步进入代码和稳定文档，当前 `docs/plan/` 保留以下 7 份。
+2026-09-02 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，115 Cookie 客户端类型自动识别已同步进入代码和稳定文档。115 用户自有账号、套餐来源和 Redis 配额已完成需求决策并拆为独立实施稿，当前 `docs/plan/` 保留以下 8 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
-| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有本地 fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、持久会话、套餐并发、运维查询、主动健康告警与阶段 2 未完成 | 保留在 `docs/plan/architecture/` |
+| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 系统 source + 系统 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有本地 fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
+| `architecture/p115-personal-account-routing-and-redis-quotas.md` | 新增，待实施 | 已确认套餐组默认 `personal`、显式 `system`、普通用户 Cookie/目录/最大播放路数、Redis account/user 当前活跃数、暂停 TTL，以及套餐组小时/每日转存配额；当前没有账号所有权模型、用户 API/Web、Redis 客户端或部署入口 | 按阶段 0→3 推进，禁止把需求决策写成当前实现 |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |

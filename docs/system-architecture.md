@@ -729,7 +729,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。2026-08-31 macOS Infuse `8.5.2` 已确认登录、普通资源、本地 fallback `206`、115 首次/复用 `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped `204`；115 CDN 完整响应头、HEAD/Range、全文件字节、UA/IP 绑定、长期风控和持久直连会话仍待验证，删除没有生产业务调用方：
+当前已落地 115 Cookie 模式的系统账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。2026-08-31 macOS Infuse `8.5.2` 已确认登录、普通资源、本地 fallback `206`、115 首次/复用 `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped `204`；115 CDN 完整响应头、HEAD/Range、全文件字节、UA/IP 绑定和长期风控仍待验证，用户自有账号与 Redis 活跃/配额尚未实现，删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；客户端类型从 Cookie 自动展示，未知编码才开放人工兜底；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -848,7 +848,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 目标 Infuse 实测 plain `/Videos/{Id}/stream` 只带 `MediaSourceId + Static`；原始、Container-only 与按需补齐参数后的 plain fallback 均由同一 Emby 返回 `404`，但按需 PlaybackInfo 已成功形成 proof。当前改用 DirectStreamUrl/扩展名权威 Emby fallback；只有 resolver 失败且近期条目快照可用时才进入 `container_recovered` 降级
 - 运行时使用现有 `CONFIG_ENCRYPTION_KEY`、数据库、`CookieProvider` 和 `p115account.Service` 构造生产 `directplay.Service`，构造过程不请求 115；账号未配置或 Provider/任务/直链失败只影响加速
 - DirectPlay 返回安全候选时 Gateway 输出空体 `302`；普通请求继续原样代理。只有已由 Infuse 观察到的“plain static stream 缺播放上下文”通用兼容分支，会在按需 PlaybackInfo 成功后把 method/Range/Header 与非身份参数迁移到 Emby 权威 DirectStreamUrl/扩展名路径；不按客户端名称分支，Emby 状态、响应头和视频体仍保持透传
-- `playback_media_cache` 和 `direct_play_sessions` 本轮均未建表；多副本共享、播放并发和 Playing/Progress/Stopped 持久会话推迟到后续
+- `playback_media_cache` 和 `direct_play_sessions` 均未建表；已确认后续也不创建数据库播放会话。用户自有账号方案将使用 Redis 同时维护 playback 账号与用户当前活跃数，Playing/Progress 续租、暂停使用更长 TTL、Stopped 成功转发后释放；套餐组默认 `personal`，只有管理员显式设置时使用系统 playback，详细设计见 [115 用户自有账号路由与 Redis 配额实现方案](./plan/architecture/p115-personal-account-routing-and-redis-quotas.md)
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
 - 每个视频请求在 Info 保留一条 `decision=redirect|fallback|reject` 决策日志；行首使用中文结论和稳定 code/result 明示 `115直链成功`、`115直链失败，Emby回退成功|失败` 或 `播放请求已拒绝`。成功 `302` 同时记录 `target=p115 + targetState=created|reused`；DirectPlay 失败只补固定 `providerOperation`，账号加载失败只补 `accountRole=source|playback`。Debug 可再输出统一 `request_completed` 请求摘要，但不能重复生成第二条决策。按需 PlaybackInfo 选中的原始 `mediaPath` 会进入最终决策，即使 `proofCount=0` / `playback_proof_missing` 也不丢；真正进入 DirectPlay 后再补 `embyPathPrefix`、`sourceRootId` 和 `mappedRelativePath`，使 `302` 与 fallback 都能核对路径替换。无意义的空结果字段不打印；不新建日志表或 migration，仍禁止 Token、Cookie、完整 SHA1、115 URL、完整响应体和上游原始错误
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
@@ -1012,7 +1012,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放 Cookie Provider；账号控制面、真实 Provider 合同、数据库互斥编排、Gateway 首次/复用 302、Infuse 字幕与播放事件已完成受控验收；115 CDN 完整响应合同、持久会话和策略治理仍未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；完整链路见 `p115-playback-end-to-end-flow.md` |
+| **115 Cookie/Web API** | 直连播放 Cookie Provider；系统账号控制面、真实 Provider 合同、数据库 transfer 互斥编排、Gateway 首次/复用 302、Infuse 字幕与播放事件已完成受控验收；115 CDN 完整响应合同、用户自有账号、套餐账号来源、Redis 当前活跃数和转存配额仍未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；当前链路见 `p115-playback-end-to-end-flow.md`，后续方案见 `p115-personal-account-routing-and-redis-quotas.md` |
 
 ---
 

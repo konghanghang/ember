@@ -6,7 +6,8 @@
 
 - Emby method/path/Header/DTO：看 [Emby 4.9 系列播放代理 API 合同](./emby-playback-proxy-contract.md)。
 - 115 Cookie/Web API、上传加密和直链安全：看 [115 Cookie 播放兼容合同](./p115-cookie-playback-contract.md)。
-- 尚未完成项和阶段安排：看 [Emby 115 直连播放网关实施计划](../plan/architecture/emby-115-direct-play-gateway.md)。
+- 当前系统内置链路的尚未完成项和阶段安排：看 [Emby 115 直连播放网关实施计划](../plan/architecture/emby-115-direct-play-gateway.md)。
+- 已确认但尚未实现的用户自有账号、套餐来源、Redis 当前活跃数与转存配额：看 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
 
 ## 1. 核心原则
 
@@ -21,6 +22,19 @@
 最重要的边界是：
 
 > Emby 正常代理播放是基线，115 是可选加速。只有安全失败可以拒绝；合法用户不能因为没有 115 条件而失去正常播放能力。
+
+### 1.1 已确认的后续方向（尚未实现）
+
+当前运行时仍只有一个管理员 source 和一个管理员 playback。后续方案不会建立数据库播放会话或套餐播放并发，而是：
+
+- 套餐组增加 `personal|system` 账号来源，所有套餐组默认 `personal`，只有管理员主动设置的套餐组使用当前系统 playback。
+- `personal` 用户可在控制台用 write-only Cookie、已有目录路径和最大播放路数绑定本人唯一 playback 账号；未绑定或账号不可用时回退 Emby。
+- 最大播放路数属于具体 playback 账号；系统账号按所有使用者合计，个人账号按本人账号统计。
+- Redis 同时维护账号和用户两个当前活跃播放索引；Playing/Progress 续租，暂停继续占用并使用更长 TTL，Stopped 成功转发后释放，无 Stopped 时自然过期。
+- 套餐组提供用户小时/每日转存限额；只有目标缺失且秒传、目标复核均成功的新文件消耗额度，预存命中和失败不消耗。
+- Redis、账号并发或转存配额不可用时只停止新的 115 加速并 fallback Emby，不改变用户安全门控，不污染 115 账号健康状态。
+
+以上都是已确认的实施方向，不是当前生产能力。
 
 ## 2. 组件与职责
 
@@ -77,7 +91,7 @@ Compose 的 `gateway` profile 复用 `ember-api` 镜像，只把 command 改为 
 
 运行期稳定态要求恰好存在一个 `enabled + active` source 和一个 `enabled + active` playback。数据库 partial unique 保证同一角色最多启用一条记录，并禁止同一 Provider UID 同时成为两个启用角色；已到期 `cooling_down` 是唯一例外，仅 PostgreSQL 半开租约持有者可临时加载并探测。
 
-这两个账号是管理员配置的全局基础设施，不属于单个 Ember 用户；普通用户继续只使用自己的 Emby 账号，不绑定、不查看也不提供 115 Cookie。
+这两个账号是当前管理员配置的全局基础设施，不属于单个 Ember 用户；当前版本的普通用户仍只使用自己的 Emby 账号，不绑定、不查看也不提供 115 Cookie。用户自有 playback 账号属于尚未实现的独立计划，不能提前写成当前能力。
 
 ### 3.2 创建、验证、启用时序
 
@@ -428,7 +442,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 【品味评分】
 
-🟡 凑合。安全边界、凭证隔离、版本范围、fallback、transfer 幂等、运行期健康/共享冷却和目标 Infuse 基础播放已闭环；持久会话/策略和 CDN 完整响应合同仍未完成。
+🟡 凑合。安全边界、凭证隔离、版本范围、fallback、transfer 幂等、运行期健康/共享冷却和目标 Infuse 基础播放已闭环；用户自有账号、套餐来源、Redis 活跃/配额和 CDN 完整响应合同仍未完成。
 
 【致命问题】
 
@@ -437,7 +451,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 【改进方向】
 
-- 后续只继续完成 115 CDN 完整响应头/Range/全文件字节，以及持久会话/并发、主动健康告警和容量治理；被动运行期健康回写与共享冷却已完成。
+- 后续继续完成 115 CDN 完整响应头/Range/全文件字节、用户自有账号、套餐来源、Redis 账号/用户当前活跃数、小时/每日转存配额、主动健康告警和容量治理；被动运行期健康回写与共享冷却已完成。
 - 生产不为归档主动制造 Provider/账号故障；`providerOperation/accountRole` 继续由 fake 合同保护，出现自然故障时再补实机证据。
 
 问题总表：
@@ -446,7 +460,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 | --- | --- |
 | `P0` | 本轮未发现 P0 |
 | `P1` | `P1-1` 本地 fallback 已以 `206` 实机关闭；`P1-2` 原始 Emby 旁路风险按部署管理员确认关闭 |
-| `P2` | `P2-1` 账号运行期健康与共享冷却已关闭；`P2-2` 会话/策略/并发未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理；`P2-5` 两次历史 Store error 根因待新日志复验 |
+| `P2` | `P2-1` 账号运行期健康与共享冷却已关闭；`P2-2` 用户账号路由与 Redis 活跃/配额未实现；`P2-3` HEAD 探测副作用；`P2-4` 保留文件无容量治理；`P2-5` 两次历史 Store error 根因待新日志复验 |
 | `P3` | `P3-1` playback 目录仍需手工填写内部 ID |
 
 ### P1
@@ -475,19 +489,19 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 - 失败边界：请求取消和文件级错误不改变账号状态；健康回写使用独立 2 秒上限，失败不改写原始 302/fallback 结果。
 - 验证证据：Go 单元/race 与独立 PostgreSQL schema 已覆盖四类映射、冷却阻断、过期冷却并发单探测、成功恢复、凭证失效停用和旧 Cookie 结果丢弃；没有请求真实 115，生产自然故障的冷却时长仍待观察。
 
-#### 【P2-2】持久播放会话、套餐开关和 Gateway 并发尚未实现
+#### 【P2-2】用户自有账号路由与 Redis 活跃/转存配额尚未实现
 
-- 触发条件：同一播放产生 HEAD、GET、Range、重连，或套餐需要限制 115 加速。
-- 实际后果：当前只依赖短期证明和 transfer 锁；没有 `direct_play_sessions`、plan policy 或 Gateway 同时流限制，不能形成可审计的播放状态，也不能按套餐关闭/限流加速。
-- 定位：`services/api/internal/playbackgateway/`、`services/api/internal/services/directplay/`；数据库没有对应 session/policy 表。
-- 建议：Infuse 请求合同确认后再落 session migration、Playing/Progress/Stopped/TTL 和套餐策略，避免围绕错误的 PlaySessionId 行为建表。
+- 触发条件：套餐组选择 `personal` 或 `system`、用户绑定自己的 playback 账号、共享/个人账号达到最大播放路数，或用户达到小时/每日转存额度。
+- 实际后果：当前仍固定加载唯一管理员 playback；没有用户账号所有权、套餐来源字段、Redis account/user 当前活跃索引或用户转存配额，不能按已确认的新业务规则选择和保护实际 playback 账号。
+- 定位：`services/api/internal/services/p115account/`、`services/api/internal/services/directplay/`、`services/api/internal/playbackgateway/`；当前仓库也没有 Redis 客户端和部署入口。
+- 建议：按 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md) 分阶段落地。禁止恢复数据库 `direct_play_sessions` 或套餐播放并发：当前播放只进 Redis，套餐只决定账号来源和用户转存配额，最大播放路数属于具体 playback 账号。
 
 #### 【P2-3】HEAD/预加载会同步进入完整 DirectPlay 流程
 
 - 触发条件：播放器只做 HEAD 或预加载探测，但请求具备完整静态播放参数和证明。
 - 实际后果：探测请求可能执行多次 115 查询，甚至触发保留式秒传和最长目标复核等待；没有 redirect cache/session 时，后续 GET 仍会再次解析 source、查重和签发 downurl。
 - 定位：`services/api/internal/playbackgateway/video.go:61-119` 对 GET/HEAD 共用 `ResolveMediaPath`；`directplay.Service` 同步完成查重/秒传/复核。
-- 建议：先通过 Infuse 实测确认 HEAD 顺序，再决定 HEAD 是否允许创建任务；至少按 accountId+pickCode+UA 增加短期直链缓存并与 session 归并。
+- 建议：先通过 Infuse 实测确认 HEAD 顺序，再决定 HEAD 是否允许创建任务；至少按 accountId+pickCode+UA 增加短期直链缓存，并与 Redis sessionFingerprint 归并。
 
 #### 【P2-4】playback 文件无限保留但没有容量治理
 

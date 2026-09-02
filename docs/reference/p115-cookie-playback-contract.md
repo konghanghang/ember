@@ -6,6 +6,8 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 
 从管理员配置到 Gateway/Emby/115 CDN 的整体调用关系、状态流转和当前缺口，见 [115 Cookie 直连播放端到端流程参考](./p115-playback-end-to-end-flow.md)。
 
+普通用户后续复用同一 Cookie Provider 绑定本人 playback 账号、按套餐选择系统/个人账号并使用 Redis 执行当前播放与转存配额的方案，见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。该方案尚未实现，不改变本文“首期只支持管理员账号”的当前合同。
+
 ## 1. 状态与证据等级
 
 当前选择 Cookie Provider 的唯一原因是 Ember 尚未取得 115 OpenAPI AppID。它是可替换的首期兼容实现，不是长期绑定的基础设施。
@@ -42,7 +44,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 
 首期不支持：
 
-- 普通用户绑定自己的 115 账号。
+- 普通用户绑定自己的 115 账号（已拆入独立后续计划，当前仍不支持）。
 - 二维码登录、自动抓取 Cookie 或 Cookie 自动续期。
 - 多播放账号池、自动选路、主备切换或账号借用。
 - OpenAPI 与 Cookie 的隐式回退。
@@ -453,7 +455,7 @@ playbackAccountId + SHA1 + size
 8. 目标复核失败、超时或出现多个精确候选时，任务失败且不得签发任何下载地址；不确定归属的文件不得自动删除。
 9. 使用 playback Cookie、目标文件 pickCode 和本次真实播放器 User-Agent 调用 `GetDownloadURL`，校验 HTTPS hostname allowlist、`ExpiresAt`、并发上限和 HeaderMode；`f=3` 首期拒绝。
 10. 播放网关只把第 9 步得到的 playback 下载 URL 作为 `Location` 返回 `302`。source 下载 URL 仅允许在服务端执行 preID/challenge Range，永远不能进入客户端、API、日志、数据库或缓存序列化。
-11. `Playing/Progress/Stopped` 继续透明转发给 Emby，并更新 Ember 直连会话；重复 `HEAD`、Range 和重连复用同一任务/会话，不重复计算并发或秒传。每次成功复用 playback 文件时更新任务/缓存的 `lastAccessedAt`。
+11. `Playing/Progress/Stopped` 继续透明转发给 Emby；当前只做脱敏旁路日志。独立后续计划落地后，成功的 115 `302` 使用 Redis sessionFingerprint 归并重复 `HEAD`、Range 和重连，Playing/Progress 续租账号/用户两个当前活跃索引，暂停继续占用，Stopped 成功转发后释放。每次成功复用 playback 文件时仍更新任务/缓存的 `lastAccessedAt`。
 12. 第一阶段不自动删除 playback 文件：会话停止、过期或用户短期重复打开都只影响会话状态，不触发 `DeleteFile`。文件持续保留在专用目录并作为后续播放缓存；如果管理员在 115 中手工删除，下一次播放必须以实时查重未命中为准重新秒传，不能只信任历史成功任务。
 
 首期不允许以下捷径：使用 source 账号直链播放、把 source Cookie 注入播放器、完整文件中转上传、未复核目标文件就返回 302、播放停止/会话过期后自动删除 playback 文件。Provider/DirectPlay Service 只返回类型化结果，不自行代理 Emby；Gateway 在 Principal 合法且 115 非成功时记录固定原因并显式 fallback 原始 Emby 请求。
@@ -470,7 +472,7 @@ playbackAccountId + SHA1 + size
 
 ## 10. 保留、冷却与未来清理
 
-- 第一阶段 playback 专用目录是持久缓存：秒传文件默认保留，direct play Service、会话 TTL 任务和受控写入检查器均不得调用 `DeleteFile`。
+- 第一阶段 playback 专用目录是持久缓存：秒传文件默认保留，direct play Service、Redis 租约 TTL 和受控写入检查器均不得调用 `DeleteFile`。
 - 重复播放先在精确 `targetParentId` 下按 SHA1 + size 查重；命中后直接刷新下载 URL并更新 `lastAccessedAt`，不创建新传输任务。
 - 成功任务必须保留完整 provenance；管理员手工删除 playback 文件后，实时查重未命中应允许重新秒传，历史 `succeeded` 不能永久阻止恢复。
 - 第一阶段不承诺自动控制 playback 容量，管理员通过专用目录观察占用并手工处理；手工处理不属于 Ember 自动状态流转。

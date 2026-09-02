@@ -245,7 +245,7 @@ Ember 本地撤销固定三种粒度：
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
 - 固定 SDK 已确认 `Authorization/X-Emby-Authorization` 的 `Emby` scheme，目标 Infuse `8.5` 已确认 `X-Emby-Authorization: MediaBrowser ...`；兼容矩阵额外接受严格 `X-MediaBrowser-Authorization: MediaBrowser ...`，但不扩展到任意 Header/scheme。真实目标环境同时确认 SystemInfoPublic 无登录可访问，Gateway 对该公开路由记录不含 Header value、URL query 或响应体的上游状态日志。
 
-当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同与目标浏览器实机验收，持久播放会话仍未实现。Infuse 登录、普通资源 API、按需 PlaybackInfo、本地 fallback `206`、source 映射、首次/复用 `302`、字幕和 Playing/Progress/Stopped 已有实机证据；115 CDN 完整响应合同以及 SenPlayer、Yamby 等其他客户端仍未实机确认。历史收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)。
+当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同与目标浏览器实机验收，Redis 当前播放租约仍未实现且不计划建立数据库播放会话。Infuse 登录、普通资源 API、按需 PlaybackInfo、本地 fallback `206`、source 映射、首次/复用 `302`、字幕和 Playing/Progress/Stopped 已有实机证据；115 CDN 完整响应合同以及 SenPlayer、Yamby 等其他客户端仍未实机确认。历史收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)，后续账号路由与租约见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
 
 ### 3.5 Emby Web Surface 与根 WebSocket
 
@@ -396,7 +396,7 @@ mappingId + itemId + mediaSourceId + playSessionId
 - 固定 TTL 为 5 分钟，最大 4096 条；写入和查询都延迟清理过期项，满载时淘汰最早过期项，不启动后台 goroutine。
 - 每个有资格形成证明的新版 PlaybackInfo 响应都会先清除相同 `mappingId + itemId` 的旧证明；非 `200`、错误或不可用响应不能继续复用旧成功结果。
 - 视频请求仍必须先重新执行 `ResolvePrincipal`，再用完全相同的 mapping/item/mediaSource/playSession 查询；缓存不能绕过撤销或用户实时状态。
-- 进程重启会丢失证明；此时视频请求不能获得 115 302，但应 fallback 到 Emby，Infuse 再次调用 PlaybackInfo 后重建证明。多 Gateway、副本共享和持久播放会话推迟到后续阶段。
+- 进程重启会丢失证明；此时视频请求不能获得 115 302，但应 fallback 到 Emby，Infuse 再次调用 PlaybackInfo 后重建证明。多 Gateway 共享 PlaybackInfo 证明仍未实现，也不能把后续 Redis 当前播放租约误当成持久证明缓存。
 - Token 和完整 PlaybackInfo 响应不进入日志；完整 Path 按运维授权进入上述 MediaSource 观察与最终视频决策日志。缓存对象只存在于 Gateway 进程内，不序列化为 API。
 - 响应无效、过大、解析失败或没有合格 MediaSource 时，Emby 原始响应仍逐字节返回，只是不产生证明。
 
@@ -487,9 +487,10 @@ Content-Type: application/json
 网关处理要求：
 
 - 三类会话请求必须继续转发给 Emby，保持播放历史和进度能力。
-- 网关可以旁路观察事件，更新 `direct_play_sessions`，但不能篡改客户端上报内容。
+- 网关当前只旁路观察事件；后续可以更新 Redis 当前播放租约，但不能篡改客户端上报内容，也不创建数据库播放会话。
 - 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，只提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
-- 并发统计以 `PlaySessionId + Ember 用户 + 设备` 为主要维度，并使用 TTL 处理客户端未上报停止事件的情况。
+- 后续 Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度，同一次 115 播放同时进入 playback 账号和用户两个当前活跃索引，并使用 TTL 处理客户端未上报停止事件的情况。
+- `Progress + IsPaused=true` 表示暂停，不是 Stopped；暂停继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放两个索引。
 - `HEAD`、重复 `Range` 和预加载请求不能单独创建新的活跃播放会话。
 
 ## 8. 身份与访问策略
