@@ -34,12 +34,13 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中仍在推进中的实施稿共 8 份：
+当前 `docs/plan/` 中仍在推进中的实施稿共 9 份：
 
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
 - `architecture/p115-personal-account-routing-and-redis-quotas.md`
 - `architecture/runtime-settings-cache-evolution.md`
+- `architecture/strm-local-media-fallback.md`
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`

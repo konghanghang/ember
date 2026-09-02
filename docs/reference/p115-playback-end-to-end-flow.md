@@ -8,6 +8,7 @@
 - 115 Cookie/Web API、上传加密和直链安全：看 [115 Cookie 播放兼容合同](./p115-cookie-playback-contract.md)。
 - 当前系统内置链路的尚未完成项和阶段安排：看 [Emby 115 直连播放网关实施计划](../plan/architecture/emby-115-direct-play-gateway.md)。
 - 已确认但尚未实现的用户自有账号、套餐来源、Redis 当前活跃数与转存配额：看 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
+- 已确认但尚未实现的 STRM 本地媒体回退：看 [STRM 本地媒体回退播放实现方案](../plan/architecture/strm-local-media-fallback.md)。
 
 ## 1. 核心原则
 
@@ -33,6 +34,7 @@
 - Redis 同时维护账号和用户两个当前活跃播放索引；Playing/Progress 续租，暂停继续占用并使用更长 TTL，Stopped 成功转发后释放，无 Stopped 时自然过期。
 - 套餐组提供用户小时/每日转存限额；只有目标缺失且秒传、目标复核均成功的新文件消耗额度，预存命中和失败不消耗。
 - Redis、账号并发或转存配额不可用时只停止新的 115 加速并 fallback Emby，不改变用户安全门控，不污染 115 账号健康状态。
+- 后续本地回退落地后，成功的 115 `302` 仍保持不变；原本进入 Emby fallback 的可信直接视频请求先按 `MediaSource.Path` 的精确相对路径检查 Gateway 只读挂载的本地文件，命中则由 Gateway 返回本地字节，未命中才继续 Emby/CloudDrive2。该能力不做哈希、大小或修改时间比较，不负责 MoviePilot 上传。
 
 以上都是已确认的实施方向，不是当前生产能力。
 

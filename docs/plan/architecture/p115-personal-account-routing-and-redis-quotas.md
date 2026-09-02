@@ -63,9 +63,11 @@
 | 实际门控 | 当前只用账号活跃数执行 `maxConcurrentStreams`；用户活跃数用于展示、归因和后续治理，不重复实现 Emby 用户并发 |
 | 转存配额 | 小时/每日限额属于套餐组，由管理员配置，按发起播放的 Ember 用户统计 |
 | 会话存储 | 不建数据库会话表；Redis 租约处理 Playing/Progress/Stopped、暂停和 TTL |
-| 失败策略 | 合法用户在账号、Redis、并发或配额不满足时固定 fallback Emby；身份和硬状态失败仍拒绝 |
+| 失败策略 | 合法用户在账号、Redis、并发或配额不满足时进入公共 fallback；本地回退方案落地后先查本地精确路径，未命中才到 Emby；身份和硬状态失败仍拒绝 |
 
 ## 方案设计
+
+本文后续沿用的“fallback Emby”表示当前已实现行为。与 [STRM 本地媒体回退播放实现方案](./strm-local-media-fallback.md) 组合后，账号、Redis、并发或配额失败先进入同一个 Gateway fallback 选择器：本地精确路径命中则直接播放，本地未命中才代理 Emby/CloudDrive2。个人/系统账号选择、Redis 计数和转存配额本身不负责本地文件判断。
 
 ### 1. 用户可见行为
 

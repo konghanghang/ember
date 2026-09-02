@@ -569,6 +569,8 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 系统/个人 playback 的统一目录路径输入、`targetParentPath` 展示快照、个人 Cookie 控制面、账号最大播放路数、套餐账号来源和 Redis 配额均由 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md) 承接。本计划只保留当前系统账号运行事实，不再复制该方案的 API、Web、migration 和验证清单。
 
+Emby 只维护 115 STRM、外部系统另行维护同相对路径本地硬链接的场景，由 [STRM 本地媒体回退播放实现方案](./strm-local-media-fallback.md) 承接。该方案只在本计划的 115 DirectPlay fallback 出口增加“本地精确路径 → Emby/CloudDrive2”的选择，不覆盖成功 `302`，也不把 MoviePilot 上传纳入 Ember。
+
 ## 影响范围
 
 - API：新增播放网关、direct play Service、Cookie Provider、系统账号/路径和任务接口。

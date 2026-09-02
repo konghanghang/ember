@@ -12,7 +12,7 @@
 
 - 以当前代码结构和 [系统架构文档](../system-architecture.md) 为准
 - “文档里写了已完成”不算证据，必须能在代码或架构文档里找到落点
-- 本清单反映 2026-08-31 的当前盘点结果；后续每次归档动作都必须同步更新本文
+- 本清单反映 2026-09-02 的当前盘点结果；后续每次新增或归档计划都必须同步更新本文
 
 ## 0. 历史主干批次 8 份计划进度表
 
@@ -85,7 +85,7 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-09-02 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，115 Cookie 客户端类型自动识别已同步进入代码和稳定文档。115 用户自有账号、套餐来源和 Redis 配额已完成需求决策并拆为独立实施稿，当前 `docs/plan/` 保留以下 8 份。
+2026-09-02 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，115 Cookie 客户端类型自动识别已同步进入代码和稳定文档。115 用户自有账号、套餐来源和 Redis 配额已完成需求决策并拆为独立实施稿；STRM 同相对路径本地媒体回退也已确认边界并形成独立实施稿。当前 `docs/plan/` 保留以下 9 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
@@ -93,6 +93,7 @@
 | `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 系统 source + 系统 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有本地 fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
 | `architecture/p115-personal-account-routing-and-redis-quotas.md` | 新增，待实施 | 已确认套餐组默认 `personal`、显式 `system`、普通用户 Cookie/目录/最大播放路数、Redis account/user 当前活跃数、暂停 TTL，以及套餐组小时/每日转存配额；当前没有账号所有权模型、用户 API/Web、Redis 客户端或部署入口 | 按阶段 0→3 推进，禁止把需求决策写成当前实现 |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
+| `architecture/strm-local-media-fallback.md` | 新增，待实施 | 已确认 Emby 只维护 115 STRM；115 DirectPlay 失败后按 `MediaSource.Path` 的精确相对路径检查本地硬链接，命中由 Gateway 返回本地 Range，未命中才到 Emby/CloudDrive2；不做哈希/大小/修改时间比较，不承担 MoviePilot 上传 | 按阶段 0→3 推进，先锁住现有 `302`、身份门控和权威 Emby fallback |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
