@@ -69,6 +69,7 @@
 | 租约状态 | `reservation → active ↔ paused → stopped/expired`；302 前短预留与真实活跃播放必须分开，不能把 `HEAD` 或预加载直接算成正在播放 |
 | 两组计数 | Redis 同时维护账号/用户的占用数和真实活跃数；占用数包含 `reservation + active + paused` 并用于准入，活跃数只包含 `active + paused` 并用于展示、归因和后续治理 |
 | Redis 账号键 | 对规范化 `providerUserId` 使用服务端用途隔离 HMAC；不使用数据库账号 ID 或 Ember 用户 ID，不在 Redis 暴露原始 Provider UID |
+| Redis 真相源 | Redis 可用且命令成功时，只按当前 Key 判断；Key 不存在就是零占用、零用量，重启或数据丢失后的计数重置是接受的结果，不做 epoch、恢复等待或数据库重建 |
 | 实际门控 | 当前只用账号占用数执行 `maxConcurrentStreams`；用户占用数不参与第二套并发门控，Emby 继续负责用户整体播放并发 |
 | 转存配额 | 小时/每日限额属于套餐组，由管理员配置，按发起播放的 Ember 用户统计 |
 | 会话存储 | 不建数据库会话表；Redis 处理 302 reservation、Playing/Progress/Stopped 状态晋级、暂停和 TTL |
@@ -173,8 +174,8 @@
 #### 3.1 运行要求
 
 - 新增 Redis 客户端边界和 `REDIS_URL`；Cookie、Emby Token、完整 SHA1、下载 URL 和 Provider 原始响应不得进入连接串示例、Key 或 Value。
-- Compose 的 `gateway` profile 增加 Redis 服务、healthcheck、持久卷和 AOF；允许部署者用外部 `REDIS_URL` 覆盖。
-- Redis 不可用时 Gateway 仍可代理 Emby，但禁止签发新的 115 `302`，固定 fallback Emby。
+- Compose 的 `gateway` profile 增加 Redis 服务、healthcheck、持久卷和 AOF；允许部署者用外部 `REDIS_URL` 覆盖。持久化只用于尽量保留计数，不引入额外恢复协议。
+- Redis 可用且命令成功时，当前数据就是唯一真相源；不存在的 Key 按零占用、零用量处理。Redis 不可用、超时或命令失败时 Gateway 仍可代理 Emby，但禁止签发新的 115 `302`，固定 fallback Emby。
 - Redis 脚本使用固定参数化实现，所有 Key 通过 `KEYS` 传入；客户端必须处理脚本缓存丢失并重新加载。
 - 账号/用户活跃索引和反向会话映射必须在一个 Redis 原子操作中更新，禁止分别 `INCR/DECR` 造成漂移。
 
@@ -275,7 +276,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 个人账号创建和 Cookie 替换 DTO 的凭证字段都只有 `cookie`；不声明 `appType` 或 `userAgent`，请求值不能覆盖后端派生结果。后端必须先解析唯一合法 `UID`：已知 `ssoent` 写入映射后的 `app_type`，未知 `ssoent` 写入 `unknown`，缺失、重复或非法 UID 返回参数错误。账号 `user_agent` 固定写入 `Mozilla/5.0`。
 
-账号摘要只返回脱敏 Provider 标识、状态、启用状态、目录路径快照、最大播放路数、账号/用户的 `reservedStreams`、`activeStreams`、`occupiedStreams` 和小时/每日配额用量；其中 `occupiedStreams = reservedStreams + activeStreams`，`activeStreams` 已包含 paused。Redis 不可用时这些用量字段必须明确为 unavailable，不能伪装成零。
+账号摘要只返回脱敏 Provider 标识、状态、启用状态、目录路径快照、最大播放路数、账号/用户的 `reservedStreams`、`activeStreams`、`occupiedStreams` 和小时/每日配额用量；其中 `occupiedStreams = reservedStreams + activeStreams`，`activeStreams` 已包含 paused。Redis 可用且查询成功但 Key 不存在时返回零；Redis 不可用或查询失败时这些用量字段必须明确为 unavailable，不能伪装成成功读取到的零。
 
 目录接口接收用户输入的已有目录路径，使用本人当前 write-only Cookie/加密凭证调用 `ResolveDirectoryByPath`；成功后保存规范化路径快照和唯一 ID。禁止使用根目录兜底、自动创建目录或返回 Provider 原始目录响应。
 
@@ -319,7 +320,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 - 用户是 `personal` 但未绑定账号：fallback Emby，不自动借用管理员共享 playback。
 - 用户是 `system`：忽略个人账号，使用管理员共享 playback；共享账号不可用时 fallback Emby。
-- Redis 不可用、超时或脚本失败：fallback Emby；不能按零活跃数放行，也不能污染账号健康。
+- Redis 不可用、超时或脚本失败：fallback Emby；不能伪装成成功读取到的零活跃数，也不能污染账号健康。
 - 账号 `reservation + active + paused` 占用数达到 `maxConcurrentStreams`：fallback Emby；不拒绝用户，不撤销 Token。
 - 任一 account/user `leases` 或 `active` 索引写入失败：整个原子操作失败并 fallback，禁止只更新部分索引。
 - `HEAD` 没有同 session 既有租约：不创建 reservation，不触发新的 115 DirectPlay，进入公共 fallback。
@@ -329,7 +330,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - 转存配额达到小时或每日上限：不调用 `InitRapidUpload`，fallback Emby。
 - 转存失败：释放 pending；Provider 类型化错误仍按现有账号健康合同处理。
 - 目标文件已经存在：不消耗转存额度，只申请播放租约并获取新直链。
-- Redis 重启或数据丢失：Gateway 不能把缺失 Key 当作已确认的零占用；部署和恢复策略必须在实现前固定，AOF 只降低风险，不替代故障时 fail-safe。
+- Redis 重启或数据丢失：恢复连接后只按 Redis 当前数据继续判断；缺失 Key 按零占用、零用量处理，允许会话和转存计数随 Redis 数据一起重置。不增加 epoch、恢复等待、历史重建或数据库补偿。
 - 用户解绑：先把个人账号原子写成 revoked tombstone 并擦除凭证，再尽力删除 Redis 租约；旧 CDN URL 无法保证立即失效，Redis 失败时旧租约按 TTL 收口。
 - 用户解绑后重新绑定：必须创建新账号 ID；旧 transfer 继续引用 revoked tombstone，不能改挂到新凭证。
 - 管理员删除用户：Token 撤销或个人账号 tombstone 失败时不调用 Emby 删除；Redis 清理失败只降级为 TTL 收口，不能恢复已擦除凭证。
@@ -352,7 +353,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 - Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因。
 - 账号键测试：同一规范 Provider UID 在不同数据库账号 ID、owner 和解绑重绑前后生成相同 `playbackAccountKey`，不同 Provider UID 生成不同 Key；Redis Key、日志和响应不包含原始 Provider UID，purpose 变化时摘要必须不同。
-- Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、重复 session、并发上限、reservation/active/paused TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；默认验证不得启动项目服务或访问真实 Redis 云服务。
+- Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、缺失 Key 按零、重复 session、并发上限、reservation/active/paused TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；连接错误必须 fallback，重新连接后的空数据必须按零重新开始，不执行恢复等待或历史重建。默认验证不得启动项目服务或访问真实 Redis 云服务。
 - 转存配额测试：滚动小时窗口、`CRON_TIMEZONE` 自然日、并发预留、成功提交、失败退款、pending crash TTL、预存不计数、system/personal 一致口径。
 - Gateway fake Emby/115 测试：HEAD 无租约不创建且直接 fallback、HEAD 命中既有租约可复用、重复 GET 不重复计数、预加载只形成短 reservation；Playing/Progress/Stopped 请求与响应透明，只有成功事件且命中反向 session 才更新 Redis；Redis/配额/账号失败均回退 fake Emby。
 - PostgreSQL 集成测试：migration 幂等、套餐默认 personal、管理员共享/个人账号 partial unique、所有权隔离、revoked 条件约束、带 transfer 历史的解绑、非 revoked owner 对直接用户删除的 RESTRICT、tombstone 清空 owner 后可删除用户、tombstone 不会进入共享账号查询，以及既有管理员账号兼容。

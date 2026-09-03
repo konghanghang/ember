@@ -36,6 +36,7 @@
 - 个人账号解绑使用不可复活的 `revoked` tombstone：在同一事务清空 owner、Cookie、Provider、目录等运行期数据，但保留账号 ID 供 transfer provenance 引用；owner 外键使用 `ON DELETE RESTRICT`，确保未完成 tombstone 的活动个人账号会阻止直接删除用户，revoked 状态则保证已清空 owner 的 tombstone 不会被共享账号加载器选中。
 - Redis 同时维护账号/用户的占用与真实活跃索引：合格 GET 在 302 前只建立 `30s reservation` 并参与账号并发准入，HEAD 无既有租约时直接 fallback；成功 Playing/Progress 才晋级为 `active`，暂停继续占用并使用更长 TTL，Stopped 成功转发后释放，无后续事件时自然过期。
 - Redis 账号索引键使用规范化 Provider UID 的服务端用途隔离 HMAC，不使用数据库账号 ID、owner 或 Ember 用户 ID，也不暴露原始 Provider UID；同一真实 115 账号解绑后以新数据库 ID 重新绑定时仍命中旧租约。
+- Redis 可用且命令成功时，当前 Key 是占用和转存用量的唯一真相源；Key 不存在按零处理。Redis 重启或数据丢失后的计数重置是已接受行为，不增加 epoch、恢复等待、数据库重建或历史补偿。
 - 套餐组提供用户小时/每日转存限额；只有目标缺失且秒传、目标复核均成功的新文件消耗额度，预存命中和失败不消耗。
 - Redis、账号并发或转存配额不可用时只停止新的 115 加速并 fallback Emby，不改变用户安全门控，不污染 115 账号健康状态。
 - 后续本地回退落地后，成功的 115 `302` 仍保持不变；原本进入 Emby fallback 的可信直接视频请求先按 `MediaSource.Path` 的精确相对路径检查 Gateway 只读挂载的本地文件，命中则由 Gateway 返回本地字节，未命中才继续 Emby/CloudDrive2。该能力不做哈希、大小或修改时间比较，不负责 MoviePilot 上传。
