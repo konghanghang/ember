@@ -22,7 +22,7 @@
 2. 为普通用户增加自助绑定一个 115 playback 账号的页面和 API；凭证侧只要求 write-only Cookie，`appType` 由后端识别、Provider User-Agent 由后端固定，同时支持已有目标目录路径、显式验证、启停、解绑和最大播放路数配置。
 3. 保留当前管理员维护的全局 source + 共享 playback 链路，让 `system` 套餐组无需用户配置即可继续使用共享 playback。
 4. 使用 Redis 同时维护 playback 账号与 Ember 用户的短期 302 预留、当前活跃播放和暂停租约，不创建数据库播放会话表。
-5. 使用 Redis 按用户执行小时和每日转存配额；默认值由套餐组提供，首次建议为每小时 `5` 个、每天 `10` 个。
+5. 使用 Redis 按用户执行小时和每日转存配额；套餐组默认固定为每小时 `5` 个、每天 `10` 个。
 6. 任一 115 账号、并发、配额或 Redis 条件不成立时，对合法用户固定回退 Emby，不污染账号健康状态，也不绕过现有身份与硬状态门控。
 
 ## 非目标
@@ -72,12 +72,13 @@
 | 个人账号校验 | `SimultaneousStreamLimit > 0` 时要求 `1 <= maxConcurrentStreams <= SimultaneousStreamLimit`；等于 `0` 时只要求 `1..100`，其“无有限套餐上限”语义仅属于 Ember 内部合同 |
 | 运行时有效值 | 个人账号使用 `effectiveMaxConcurrentStreams = min(configuredMaxConcurrentStreams, positive SimultaneousStreamLimit)`；套餐上限为 `0` 时有效值等于配置值，套餐降低不自动改写数据库配置 |
 | 租约状态 | `reservation → active ↔ paused → stopped/expired`；302 前短预留与真实活跃播放必须分开，不能把 `HEAD` 或预加载直接算成正在播放 |
+| 租约 TTL | 首期固定为 `reservation=30s`、`active=2m`、`paused=15m`，由 Playing/Progress 按状态续期；使用代码常量，不增加环境变量或后台配置 |
 | 两组计数 | Redis 同时维护账号/用户的占用数和真实活跃数；占用数包含 `reservation + active + paused` 并用于准入，活跃数只包含 `active + paused` 并用于展示、归因和后续治理 |
 | Redis 账号键 | 对规范化 `providerUserId` 使用服务端用途隔离 HMAC；不使用数据库账号 ID 或 Ember 用户 ID，不在 Redis 暴露原始 Provider UID |
 | Redis 真相源 | Redis 可用且命令成功时，只按当前 Key 判断；Key 不存在就是零占用、零用量，重启或数据丢失后的计数重置是接受的结果，不做 epoch、恢复等待或数据库重建 |
 | 实际门控 | 只用账号占用数执行账号有效上限；Redis 用户索引只用于展示、归因和后续治理，不参与第二套并发门控 |
 | Emby 证据边界 | 不新增 Gateway 用户级总并发门控；Emby `SimultaneousStreamLimit` 能否限制 115 `302` 或本地文件分流播放仍未证实，不能把该假设写成当前保证 |
-| 转存配额 | 小时/每日限额属于套餐组，由管理员配置，按发起播放的 Ember 用户统计 |
+| 转存配额 | 小时/每日限额属于套餐组，默认每小时 `5`、每天 `10`，只接受正整数且不复用 `0` 表示无限或关闭；按发起播放的 Ember 用户统计，只有缺失目标的新文件在秒传和目标复核都成功后才消耗一次，预存命中、重复请求和失败不消耗 |
 | 会话存储 | 不建数据库会话表；Redis 处理 302 reservation、Playing/Progress/Stopped 状态晋级、暂停和 TTL |
 | 失败策略 | 合法用户在账号、Redis、并发或配额不满足时进入公共 fallback；本地回退方案落地后先查本地精确路径，未命中才到 Emby；身份和硬状态失败仍拒绝 |
 
@@ -212,7 +213,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 2. 清理 account/user `leases` 与 `active` 索引中 score 已过期的 member。
 3. 如果同一 session 已存在，只复用既有 `reservation|active|paused`，不重复计数，也不因视频重试把 `active|paused` 降级成 reservation。
 4. 取得本次选中账号的运行时上限：个人账号使用当前有效套餐模板计算 `effectiveMaxConcurrentStreams`，管理员共享 playback 直接使用自身配置上限；账号 `leases` 占用数已满则返回 `account_concurrency_exceeded`。套餐组或模板无法解析时不得猜默认值，也不得申请 reservation。
-5. 未满时同时写入 account/user `leases` 和反向 session，状态为 `reservation`，TTL 暂定 `30s`；此时不写 `active` 索引。
+5. 未满时同时写入 account/user `leases` 和反向 session，状态为 `reservation`，TTL 固定 `30s`；此时不写 `active` 索引。
 6. DirectPlay 未能生成安全候选时立即原子释放本次 `reservation`；既有 `active|paused` 不能因一次重新签发失败被释放。成功返回 `302` 后只保留 `reservation`，等待成功的播放事件晋级。
 
 `HEAD` 处理固定为：已有同 session 的 `reservation|active|paused` 时可以复用并继续执行直链候选；没有既有租约时不创建新租约、不触发新的 115 DirectPlay，直接进入公共 fallback。
@@ -220,13 +221,13 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 事件语义：
 
 - 只有会话事件成功转发给 Emby，且反向 session 已证明该会话取得过 115 `reservation|active|paused`，才允许更新 Redis；普通 Emby/local fallback 会话不能借事件创建 115 租约。
-- `Playing`：把已有 `reservation|paused` 晋级/恢复为 `active`，或续租已有 `active`；同时写入 account/user `active` 索引并使用 active TTL。
-- `Progress + IsPaused=false`：把已有 `reservation|paused` 晋级/恢复为 `active`，或续租已有 `active`。
-- `Progress + IsPaused=true`：把已有 `reservation|active` 晋级/切换为 `paused`，继续计入 `leases` 与 `active`，并使用更长的 paused TTL；暂停不能按 `Stopped` 删除。
+- `Playing`：把已有 `reservation|paused` 晋级/恢复为 `active`，或续租已有 `active`；同时写入 account/user `active` 索引并使用固定 `2m` active TTL。
+- `Progress + IsPaused=false`：把已有 `reservation|paused` 晋级/恢复为 `active`，或续租已有 `active`，并刷新固定 `2m` active TTL。
+- `Progress + IsPaused=true`：把已有 `reservation|active` 晋级/切换为 `paused`，继续计入 `leases` 与 `active`，并刷新固定 `15m` paused TTL；暂停不能按 `Stopped` 删除。
 - `Stopped`：只有请求成功转发给 Emby 后，才同时删除 account/user `leases`、`active` 和反向 session。
 - 找不到反向 session 的 Playing/Progress/Stopped 不创建或猜测 playback 账号租约，只记录固定观察结果；无后续事件时由 score/Key TTL 自然过期，不依赖数据库 cron 才能释放名额。
 
-首版建议 reservation TTL 为 `30s`、active TTL 为 `2m`、paused TTL 为 `15m`。这些是保守初值，不是实机最优值；真实 Infuse 的视频请求与 Playing 顺序、暂停/恢复时序有证据后再调整。reservation 只承担 302 签发前后的并发防穿透，不展示为正在播放；暂停期间继续占用一路，避免恢复旧连接时突破账号上限。
+首期 TTL 固定为 `reservation=30s`、`active=2m`、`paused=15m`，并作为同一套代码常量在所有 Gateway 实例生效；不增加环境变量或后台配置，避免部署漂移。这些是保守初值，不扩写为已由真实客户端证明的最优值；后续只有取得目标客户端的请求与事件间隔证据后才能修改，并同步测试和稳定文档。reservation 只承担 302 签发前后的并发防穿透，不展示为正在播放；暂停期间继续占用一路，避免恢复旧连接时突破账号上限。
 
 #### 3.3 用户转存配额
 
@@ -337,7 +338,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - 任一 account/user `leases` 或 `active` 索引写入失败：整个原子操作失败并 fallback，禁止只更新部分索引。
 - `HEAD` 没有同 session 既有租约：不创建 reservation，不触发新的 115 DirectPlay，进入公共 fallback。
 - 302 后没有成功 Playing/Progress：reservation 最多保留 `30s` 后自然过期，不能长期显示为真实活跃播放。
-- `IsPaused=true`：继续占用，使用 paused TTL；不能删除索引。
+- `IsPaused=true`：继续占用并刷新 `15m` paused TTL；不能删除索引。
 - Stopped 上游失败：不假装停止成功，等待后续事件或 TTL 收口。
 - 转存配额达到小时或每日上限：不调用 `InitRapidUpload`，fallback Emby。
 - 转存失败：释放 pending；Provider 类型化错误仍按现有账号健康合同处理。
@@ -365,7 +366,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 - Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因；覆盖 `SimultaneousStreamLimit` 为 `0/1/100`、正数上下界、越界拒绝、默认套餐解析、套餐/模板缺失时不写入，以及响应同时返回配置值、有效值和套餐值。
 - 账号键测试：同一规范 Provider UID 在不同数据库账号 ID、owner 和解绑重绑前后生成相同 `playbackAccountKey`，不同 Provider UID 生成不同 Key；Redis Key、日志和响应不包含原始 Provider UID，purpose 变化时摘要必须不同。
-- Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、缺失 Key 按零、重复 session、配置/有效并发上限、reservation/active/paused TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；个人账号按有效值准入，共享账号按自身配置值准入，用户索引不形成第二套门控。连接错误必须 fallback，重新连接后的空数据必须按零重新开始，不执行恢复等待或历史重建。默认验证不得启动项目服务或访问真实 Redis 云服务。
+- Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、缺失 Key 按零、重复 session、配置/有效并发上限、固定 `30s/2m/15m` TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；个人账号按有效值准入，共享账号按自身配置值准入，用户索引不形成第二套门控。连接错误必须 fallback，重新连接后的空数据必须按零重新开始，不执行恢复等待或历史重建。默认验证不得启动项目服务或访问真实 Redis 云服务。
 - 转存配额测试：滚动小时窗口、`CRON_TIMEZONE` 自然日、并发预留、成功提交、失败退款、pending crash TTL、预存不计数、system/personal 一致口径。
 - Gateway fake Emby/115 测试：HEAD 无租约不创建且直接 fallback、HEAD 命中既有租约可复用、重复 GET 不重复计数、预加载只形成短 reservation；Playing/Progress/Stopped 请求与响应透明，只有成功事件且命中反向 session 才更新 Redis；套餐降低后不改数据库配置但立即使用更小有效值，套餐上限为 `0` 时恢复配置值，模板解析失败以及 Redis/配额/账号失败均回退 fake Emby。
 - PostgreSQL 集成测试：migration 幂等、套餐默认 personal、管理员共享/个人账号 partial unique、所有权隔离、revoked 条件约束、带 transfer 历史的解绑、非 revoked owner 对直接用户删除的 RESTRICT、tombstone 清空 owner 后可删除用户、tombstone 不会进入共享账号查询，以及既有管理员账号兼容。
@@ -395,7 +396,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 ### 阶段 0：计划、合同与 Redis 原型
 
 - 已修订现有 115 总计划和稳定参考中的旧套餐并发/数据库会话设想。
-- 固定 Redis Key、`reservation → active ↔ paused → stopped/expired` 原子结果、HEAD 禁止创建、三类 TTL、配额窗口和故障行为。
+- 固定 Redis Key、`reservation → active ↔ paused → stopped/expired` 原子结果、HEAD 禁止创建、`30s/2m/15m` 三类代码常量 TTL、配额窗口和故障行为。
 - 为普通用户仅 Cookie 写入、appType 自动识别/unknown、固定 Provider UA、真实播放器 UA 隔离、目录解析和所有权补充合同测试。
 
 完成条件：计划、数据合同、失败语义和 fake Redis 测试边界明确，不依赖真实 115 开始业务实现。
@@ -410,7 +411,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 ### 阶段 2：Redis 播放租约与账号路由
 
-- Redis 部署/客户端、account/user `leases + active` 两组索引、反向 session、reservation/active/paused TTL 和事件旁路。
+- Redis 部署/客户端、account/user `leases + active` 两组索引、反向 session、固定 `30s/2m/15m` TTL 和事件旁路。
 - Gateway 按 `personal|system` 套餐模式选择个人 playback 或管理员共享 playback；个人账号按 `effectiveMaxConcurrentStreams`、共享账号按自身总上限执行准入，账号满、套餐模板不可用或 Redis 失败时 fallback。Redis 用户索引不新增第二套门控。
 
 完成条件：并发和三类 TTL 测试覆盖多 Gateway 竞争；HEAD/预加载不会形成真实活跃会话，GET reservation 不能穿透账号上限，普通 Emby 代理在 Redis 故障时保持可用。
@@ -448,7 +449,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 - `docs/system-architecture.md`：账号归属、套餐路由、Redis 边界和 fallback。
 - `docs/reference/data-model-reference.md`：套餐组和账号长期配置字段。
-- `docs/reference/configuration-reference.md`：Redis 地址、可用性、TTL 和生效方式。
+- `docs/reference/configuration-reference.md`：Redis 地址、可用性和生效方式；播放租约 TTL 是代码常量，不增加运行时配置。
 - `docs/reference/api-endpoint-catalog.md`：用户账号、用量和套餐组字段。
 - `docs/reference/web-information-architecture.md`：用户 115 菜单、管理员共享账号和套餐组页面职责。
 - `docs/reference/p115-playback-end-to-end-flow.md`：从当前全局账号链路更新为已实现的 system/personal 路由。

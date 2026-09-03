@@ -346,7 +346,7 @@ Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内�
 
 > 状态：需求边界已确认，尚未实现；不创建 `direct_play_sessions` 表。
 
-当前切片只维护 `mappingId + ItemId + MediaSourceId + PlaySessionId` 的进程内 PlaybackInfo 短期证明。后续 Redis 会把准入占用和真实活跃拆开：只有合格 `GET` 能在 302 前建立 `30s reservation` 并占用账号名额，`HEAD` 无既有租约时直接 fallback；成功的 Playing/Progress 才把 reservation 晋级为 `active`，暂停使用更长 TTL 且继续占用，Stopped 成功转发后释放，无后续事件时自然过期。
+当前切片只维护 `mappingId + ItemId + MediaSourceId + PlaySessionId` 的进程内 PlaybackInfo 短期证明。后续 Redis 会把准入占用和真实活跃拆开：只有合格 `GET` 能在 302 前建立 `30s reservation` 并占用账号名额，`HEAD` 无既有租约时直接 fallback；成功的 Playing/Progress 才把 reservation 晋级为 `active` 并使用 `2m` TTL，暂停继续占用并使用 `15m` TTL，Stopped 成功转发后释放，无后续事件时自然过期。三类 TTL 首期使用代码常量，不增加运行时配置。
 
 Redis 不保存完整 115 直链、Cookie、Token、完整 SHA1 或播放历史；详细 Key、原子更新和故障回退见 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md)。
 
@@ -355,7 +355,7 @@ Redis 不保存完整 115 直链、Cookie、Token、完整 SHA1 或播放历史�
 不建立 `plan_group_direct_play_policies` 表，也不按套餐限制播放并发。后续直接扩展 `plan_groups`：
 
 - `p115PlaybackMode=personal|system`，所有套餐组默认 `personal`，`system` 由管理员主动设置。
-- `p115TransferHourlyLimit` 和 `p115TransferDailyLimit` 由管理员配置，Redis 按用户记录用量。
+- `p115TransferHourlyLimit` 和 `p115TransferDailyLimit` 由管理员配置，默认分别为 `5` 和 `10`，只接受正整数且不赋予 `0` 特殊语义。Redis 按用户记录用量；只有目标原本缺失、秒传和目标复核均成功的新文件消耗一次，预存命中、重复请求和失败不消耗。
 
 `system` 只是套餐选择管理员共享 playback 的路由值，不是 `p115_accounts` 的账号类型或 scope。最大播放路数属于具体 playback 账号：个人账号由本人设置，管理员共享 playback 由管理员设置。账号达到上限、Redis 不可用、个人账号未绑定或转存配额已满时统一 `fallback_to_emby`；只有 Token、本地撤销、身份错配和用户硬状态继续 `fail_closed`。
 
@@ -458,7 +458,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 1. 按 `PlaySessionId + Ember 用户 + 设备` 归并 GET、HEAD、预加载和重连，同一会话不能重复计数；HEAD 只能复用既有租约，不能创建新租约。
 2. 合格 GET 在 302 前建立短期 `reservation`，同时进入 playback 账号与用户的 `leases` 占用索引；个人账号按配置值与正数套餐 `SimultaneousStreamLimit` 的较小值、管理员共享账号按自身配置值，以 `reservation + active + paused` 总占用数门控。
-3. 只有成功转发给 Emby 的 Playing 或 Progress 才能把既有 reservation 晋级为 `active`；`IsPaused=true` 切换为 `paused`，继续占用并使用更长 TTL。
+3. 只有成功转发给 Emby 的 Playing 或 Progress 才能把既有 reservation 晋级为 `active` 并刷新 `2m` TTL；`IsPaused=true` 切换为 `paused`，继续占用并刷新 `15m` TTL。三类 TTL 首期固定为代码常量，不开放环境变量或后台配置。
 4. API 展示的真实活跃数只统计 `active + paused`，不把 reservation 表述为正在播放；用户活跃数只用于展示和归因，不建立第二套用户并发门控。
 5. Stopped 只有成功转发给 Emby 后才释放占用/活跃索引；客户端未上报停止时由对应 Redis TTL 自然收口。
 6. 不新增 Gateway 用户级总并发门控，用户索引只用于展示和归因。115 `302` 后视频字节不经过 Emby，Emby `SimultaneousStreamLimit` 能否限制该分流播放仍未证实；套餐模板只约束个人账号配置值和运行时有效上限，详细规则以独立计划为准。
