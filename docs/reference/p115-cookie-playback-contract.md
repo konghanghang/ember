@@ -6,7 +6,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 
 从管理员配置到 Gateway/Emby/115 CDN 的整体调用关系、状态流转和当前缺口，见 [115 Cookie 直连播放端到端流程参考](./p115-playback-end-to-end-flow.md)。
 
-普通用户后续复用同一 Cookie Provider 绑定本人 playback 账号、按套餐选择系统/个人账号并使用 Redis 执行当前播放与转存配额的方案，见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。该方案尚未实现，不改变本文“首期只支持管理员账号”的当前合同。
+普通用户后续复用同一 Cookie Provider 绑定本人 playback 账号、按套餐路由到个人 playback 或管理员共享 playback，并使用 Redis 执行当前播放与转存配额的方案，见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。该方案尚未实现，不改变本文“首期只支持管理员账号”的当前合同。
 
 ## 1. 状态与证据等级
 
@@ -76,7 +76,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 
 账号角色固定为：
 
-- `source`：系统源账号，只用于定位源文件、获取源下载地址和读取指定 Range。
+- `source`：管理员维护的全局源账号，只用于定位源文件、获取源下载地址和读取指定 Range。
 - `playback`：播放小号，只用于目标查重、秒传落盘和签发最终直链。
 
 数据库对每个角色至多允许一条启用记录；网关进入就绪状态时，必须同时存在一个启用的 `source` 和一个启用的 `playback`。两者不能是同一条账号记录；Provider 返回的账号标识相同时应拒绝启用，避免把源账号误当播放小号。
@@ -88,7 +88,9 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 - 管理端只展示账号别名、角色、脱敏 Provider 用户标识、状态和最后验证时间。
 - 不通过环境变量、命令行参数、前端构建变量或普通 settings 表保存 Cookie。
 - Cookie、完整 `Set-Cookie`、上传加密材料、完整下载地址和 Provider 完整响应体不得进入日志、审计详情或测试快照。
-- Provider 使用的 `appType` 和 User-Agent 必须作为账号兼容参数显式保存；`appType` 优先从 Cookie `UID` 的 `ssoent` 自动识别，User-Agent 仍由管理员显式配置，不能在不同请求里随机切换客户端身份。
+- 当前管理员账号的 `appType` 和 User-Agent 必须作为兼容参数显式保存；`appType` 优先从 Cookie `UID` 的 `ssoent` 自动识别，User-Agent 仍由管理员显式配置，不能在不同请求里随机切换客户端身份。
+
+后续个人账号不沿用管理员输入合同：创建和替换凭证时只提交 Cookie，不接收 `appType` 或 `userAgent`。后端从唯一合法 `UID` 的第二段 `ssoent` 派生 `app_type`；已知编码使用下表映射，未知编码保存固定诊断值 `unknown`，缺失、重复或非法 `UID` 直接拒绝。普通 Cookie/Web 请求的 Provider User-Agent 固定为 `Mozilla/5.0`，最终下载直链仍使用 Gateway 收到的真实播放器 User-Agent，秒传初始化继续使用协议代码内的版本绑定上传 User-Agent。该个人账号方案尚未实现，固定 Provider User-Agent 只有公开源码依据，尚未经过目标个人 Cookie 的真实 115 验证。
 
 Cookie 失效后没有首期自动续期流程。账号状态应转为 `expired` 或 `error`，停止新秒传和新直链，由管理员替换 Cookie 并重新验证。
 
@@ -135,7 +137,7 @@ User-Agent: <account-user-agent>
 | `R1` | `wechatmini` | `R2` | `alipaymini` |
 | `S1` | `harmony` |  |  |
 
-内部合同：
+当前管理员控制面的内部合同：
 
 - 已知 `ssoent` 的识别结果是权威值，覆盖请求中可能携带的 `appType`，并写入现有 `p115_accounts.app_type`。
 - `A1` 同时被公开实现用于 `web` 和 `desktop`；Ember 统一归一为 `web`，不声称能进一步区分浏览器类型。
@@ -144,7 +146,9 @@ User-Agent: <account-user-agent>
 - Cookie 替换必须在同一次持久化更新中写入新 `app_type`，并把账号重置为 `pending + disabled`；旧客户端类型不能残留。
 - 识别不调用 `login_devices`；更不能调用可能影响同设备旧 Cookie 的 `check/sso`，客户端识别失败不扩大为外部副作用。
 
-证据：固定提交的 [`P115UID`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/type.py#L39-L46) 与 [`APP_TO_SSOENT`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/const.py#L48-L78)。这是公开实现兼容证据，不是 115 官方稳定承诺；新增编码必须先核对并更新本表和合同测试。
+后续个人账号控制面复用同一映射表，但不接受人工兜底：未知编码保存 `unknown`，缺失、重复或非法 `UID` 拒绝创建或替换。`appType` 只是诊断元数据，当前 Provider 不读取它来选择端点或改变协议。
+
+证据：固定提交的 [`P115UID`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/type.py#L39-L46)、[`APP_TO_SSOENT`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/const.py#L48-L78) 与[客户端默认 Header](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L518-L528)。固定源码中的普通请求默认 User-Agent 为 `Mozilla/5.0`。这些都是公开实现兼容证据，不是 115 官方稳定承诺；新增编码必须先核对并更新本表和合同测试，个人账号固定 UA 仍需受控真实验证。
 
 ### 5.2 上传信息
 

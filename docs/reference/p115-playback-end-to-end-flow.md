@@ -29,7 +29,9 @@
 当前运行时仍只有一个管理员 source 和一个管理员 playback。后续方案不会建立数据库播放会话或套餐播放并发，而是：
 
 - 套餐组增加 `personal|system` 账号来源，所有套餐组默认 `personal`，只有管理员主动设置的套餐组使用当前管理员共享 playback；`system` 只是套餐路由值，不是账号类型或 scope。
-- `personal` 用户可在控制台用 write-only Cookie、已有目录路径和最大播放路数绑定本人唯一 playback 账号；未绑定或账号不可用时回退 Emby。
+- `personal` 用户可在控制台用 write-only Cookie、已有目录路径和最大播放路数绑定本人唯一 playback 账号；凭证输入只包含 Cookie，页面和 API 不要求 `appType/UserAgent`，未绑定或账号不可用时回退 Emby。
+- 后端从 Cookie 唯一合法 `UID` 的 `ssoent` 自动派生个人账号 `app_type`，未知编码保存 `unknown`，缺失、重复或非法 `UID` 直接拒绝；普通 Cookie/Web 请求固定使用 `Mozilla/5.0`，该默认值尚未经过目标个人 Cookie 的真实 115 验证。
+- 最终下载直链继续使用 Gateway 收到的真实播放器 User-Agent，不能用固定 Provider User-Agent 替代；秒传初始化继续使用协议代码内的版本绑定上传 User-Agent。
 - 最大播放路数属于具体 playback 账号；管理员共享 playback 按所有使用者合计，个人账号按本人账号统计。
 - 个人账号解绑使用不可复活的 `revoked` tombstone：在同一事务清空 owner、Cookie、Provider、目录等运行期数据，但保留账号 ID 供 transfer provenance 引用；owner 外键使用 `ON DELETE RESTRICT`，确保未完成 tombstone 的活动个人账号会阻止直接删除用户，revoked 状态则保证已清空 owner 的 tombstone 不会被共享账号加载器选中。
 - Redis 同时维护账号/用户的占用与真实活跃索引：合格 GET 在 302 前只建立 `30s reservation` 并参与账号并发准入，HEAD 无既有租约时直接 fallback；成功 Playing/Progress 才晋级为 `active`，暂停继续占用并使用更长 TTL，Stopped 成功转发后释放，无后续事件时自然过期。
@@ -147,6 +149,8 @@ sequenceDiagram
 ```
 
 创建和 Cookie 替换都会优先从 `UID` 的 `ssoent` 自动识别客户端类型并写入现有 `app_type`；只有未知编码才接受请求中的 `appType` 人工兜底。Cookie 替换会在同一次更新中刷新 `app_type`，把账号重置为 `pending + disabled`，并清空 Provider UID、验证时间、成功时间、冷却和错误字段；必须重新验证后才能启用。识别全程在本地完成，不请求 115 设备接口。
+
+以上是当前管理员账号合同。后续个人账号创建和 Cookie 替换只提交 Cookie：未知 `ssoent` 保存 `unknown`，缺失、重复或非法 `UID` 拒绝，Provider User-Agent 由后端固定为 `Mozilla/5.0`；管理员现有 `appType` 人工兜底和显式 User-Agent 输入保持兼容。
 
 ### 3.3 账号状态
 

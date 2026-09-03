@@ -2,7 +2,7 @@
 
 > 状态：草稿（需求边界已确认，尚未实现）
 > 负责人：Ember
-> 更新时间：2026-09-02
+> 更新时间：2026-09-03
 
 ## 背景
 
@@ -19,7 +19,7 @@
 本方案要实现：
 
 1. 在套餐组上明确选择 `personal` 或 `system` 115 playback 账号来源；所有套餐组默认 `personal`，`system` 必须由管理员主动设置。
-2. 为普通用户增加自助绑定一个 115 playback 账号的页面和 API，支持 write-only Cookie、已有目标目录路径、显式验证、启停、解绑和最大播放路数配置。
+2. 为普通用户增加自助绑定一个 115 playback 账号的页面和 API；凭证侧只要求 write-only Cookie，`appType` 由后端识别、Provider User-Agent 由后端固定，同时支持已有目标目录路径、显式验证、启停、解绑和最大播放路数配置。
 3. 保留当前管理员维护的全局 source + 共享 playback 链路，让 `system` 套餐组无需用户配置即可继续使用共享 playback。
 4. 使用 Redis 同时维护 playback 账号与 Ember 用户的短期 302 预留、当前活跃播放和暂停租约，不创建数据库播放会话表。
 5. 使用 Redis 按用户执行小时和每日转存配额；默认值由套餐组提供，首次建议为每小时 `5` 个、每天 `10` 个。
@@ -44,6 +44,9 @@
 - `p115_accounts` 当前只表示管理员维护的全局 `source|playback` 账号；`uq_p115_accounts_enabled_role` 限制每个角色全局只能启用一个账号。
 - `directplay.Service` 当前通过角色加载唯一 source/playback 账号，还不能按用户和套餐组选择 playback 账号。
 - Cookie 已使用 `CONFIG_ENCRYPTION_KEY` 的用途隔离派生密钥加密；创建、替换和验证状态机已有 fake、race 和 PostgreSQL 测试保护。
+- `DetectCookieAppType` 已能从 Cookie 唯一 `UID` 的第二段 `ssoent` 识别已知客户端类型；当前 Cookie Provider 的生产请求不读取 `Credential.AppType` 选择端点或改变协议，它只作为账号诊断元数据保存和展示。
+- 当前管理员账号控制面要求手工配置 Provider User-Agent，但计划固定的 `p115client` 提交对普通 Cookie/Web 请求默认使用 `Mozilla/5.0`；这能作为个人账号后端默认值的公开源码依据，尚未经过目标个人 Cookie 的真实 115 验证。
+- 获取最终下载直链时使用 Gateway 当前视频请求携带的真实播放器 User-Agent，不使用账号 Provider User-Agent；秒传初始化继续使用协议代码内的版本绑定上传 UA。
 - `CookieProvider.ResolveDirectoryByPath` 已能把已存在的根相对目录路径解析为唯一目录 ID，但不会创建目录。
 - Gateway 已在身份门控成功后旁路解析 `Playing/Progress/Stopped` 的 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused`，当前只用于日志，不维护业务计数。
 - `playback_transfer_tasks` 已按 `playbackAccountId + SHA1 + size` 保存秒传任务与 provenance，并用 PostgreSQL advisory lock 防止相同目标文件重复秒传；它不是播放会话或用户配额表。
@@ -59,6 +62,9 @@
 | `system` 语义 | `system` 只表示套餐路由到当前管理员共享 playback，不是 `p115_accounts` 的账号类型或 scope |
 | `system` 路由 | 使用当前管理员 source + 管理员共享 playback；用户无需绑定 115 |
 | 个人模式 | 使用管理员 source + 当前用户唯一的个人 playback 账号；未绑定或不可用时回退 Emby |
+| 个人账号 `appType` | 用户不填写；已知 `ssoent` 自动映射，未知编码保存固定诊断值 `unknown`，缺失/重复/非法 `UID` 直接拒绝 Cookie |
+| 个人账号 Provider UA | 用户不填写；验证、目录和查重等普通 Cookie/Web 请求固定使用代码常量 `Mozilla/5.0`，不新增配置项 |
+| 最终直链 UA | 始终使用 Gateway 收到的真实播放器 User-Agent；不得用固定 Provider UA 替代 |
 | 并发归属 | 最大播放路数属于具体 playback 账号，不属于套餐组 |
 | 租约状态 | `reservation → active ↔ paused → stopped/expired`；302 前短预留与真实活跃播放必须分开，不能把 `HEAD` 或预加载直接算成正在播放 |
 | 两组计数 | Redis 同时维护账号/用户的占用数和真实活跃数；占用数包含 `reservation + active + paused` 并用于准入，活跃数只包含 `active + paused` 并用于展示、归因和后续治理 |
@@ -88,7 +94,7 @@
 控制台新增独立“115 网盘”菜单。普通用户可以：
 
 - 查看本人账号的脱敏状态、目标目录路径、最大播放路数、当前账号/本人真实活跃数；短 reservation 单独显示为“准备中”，不混入正在播放。
-- 填写或替换 Cookie；Cookie 使用密码输入语义、禁止自动填充，提交后立即清空，查询接口永不返回。
+- 填写或替换 Cookie；Cookie 使用密码输入语义、禁止自动填充，提交后立即清空，查询接口永不返回。页面不展示或要求填写 `appType/UserAgent`。
 - 手工填写一个已经存在的 115 目标目录路径；后端解析并保存唯一 `targetParentId`，页面不要求用户获取内部 ID。
 - 显式验证、启用、停用或解绑自己的账号。
 - 设置本人 playback 账号的 `maxConcurrentStreams`。
@@ -130,6 +136,8 @@
 - `max_concurrent_streams`：非 revoked playback 账号必填正整数；source 与 revoked 账号必须为空。
 - `status` 增加不可逆终态 `revoked`；`system` 不进入账号状态枚举。
 - `cookie_ciphertext` 改为可空，但只允许 `status=revoked` 时为空；Go 模型同步改为可空类型，所有非 revoked 凭证加载仍要求非空密文。
+- `app_type` 对个人账号只保存后端派生结果：已知 `ssoent` 使用固定映射，未知编码保存 `unknown`；它不参与当前 Provider 路由或权限判断。
+- `user_agent` 对个人账号由后端写入固定 `Mozilla/5.0`；现有管理员全局账号继续保留已配置值，避免改变既有 userspace。
 
 需要重写现有 partial unique/约束：
 
@@ -263,6 +271,8 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - `DELETE /api/v1/user/p115-account`
 - `GET /api/v1/user/p115-usage`
 
+个人账号创建和 Cookie 替换 DTO 的凭证字段都只有 `cookie`；不声明 `appType` 或 `userAgent`，请求值不能覆盖后端派生结果。后端必须先解析唯一合法 `UID`：已知 `ssoent` 写入映射后的 `app_type`，未知 `ssoent` 写入 `unknown`，缺失、重复或非法 UID 返回参数错误。账号 `user_agent` 固定写入 `Mozilla/5.0`。
+
 账号摘要只返回脱敏 Provider 标识、状态、启用状态、目录路径快照、最大播放路数、账号/用户的 `reservedStreams`、`activeStreams`、`occupiedStreams` 和小时/每日配额用量；其中 `occupiedStreams = reservedStreams + activeStreams`，`activeStreams` 已包含 paused。Redis 不可用时这些用量字段必须明确为 unavailable，不能伪装成零。
 
 目录接口接收用户输入的已有目录路径，使用本人当前 write-only Cookie/加密凭证调用 `ResolveDirectoryByPath`；成功后保存规范化路径快照和唯一 ID。禁止使用根目录兜底、自动创建目录或返回 Provider 原始目录响应。
@@ -270,6 +280,8 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 #### 4.3 管理员共享账号
 
 现有 `/api/v1/admin/p115-accounts` 合同继续只管理 `owner_user_id IS NULL AND status <> revoked` 的管理员全局 source/共享 playback，并为 playback 摘要、创建和更新增加 `targetParentPath` 与 `maxConcurrentStreams`。source 请求必须拒绝并发字段，playback 请求必须拒绝 source 位置字段；解绑时已清空 owner 的 revoked tombstone 不进入该控制面。
+
+管理员控制面现有 `appType` 未识别时人工兜底和显式 `userAgent` 输入保持兼容；本计划只简化普通用户个人账号，不借机改变已落地的管理员请求合同。
 
 ### 5. DirectPlay 账号选择
 
@@ -336,13 +348,13 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 ### 自动化验证
 
-- Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因。
+- Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因。
 - Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、重复 session、并发上限、reservation/active/paused TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；默认验证不得启动项目服务或访问真实 Redis 云服务。
 - 转存配额测试：滚动小时窗口、`CRON_TIMEZONE` 自然日、并发预留、成功提交、失败退款、pending crash TTL、预存不计数、system/personal 一致口径。
 - Gateway fake Emby/115 测试：HEAD 无租约不创建且直接 fallback、HEAD 命中既有租约可复用、重复 GET 不重复计数、预加载只形成短 reservation；Playing/Progress/Stopped 请求与响应透明，只有成功事件且命中反向 session 才更新 Redis；Redis/配额/账号失败均回退 fake Emby。
 - PostgreSQL 集成测试：migration 幂等、套餐默认 personal、管理员共享/个人账号 partial unique、所有权隔离、revoked 条件约束、带 transfer 历史的解绑、非 revoked owner 对直接用户删除的 RESTRICT、tombstone 清空 owner 后可删除用户、tombstone 不会进入共享账号查询，以及既有管理员账号兼容。
 - 用户删除状态流转测试：Token 撤销失败或 tombstone 失败时不得调用 Emby 删除；Redis 清理失败仍保留凭证擦除并继续删除；Emby 删除失败不复活 Token 或个人账号；重新绑定生成新账号 ID 且旧 transfer 归属不变。
-- Web Vitest：套餐字段、用户 Cookie 清空、目录路径、最大路数、reservation“准备中”与真实活跃区分、状态门控、用量 unavailable 和角色隔离。
+- Web Vitest：个人账号只显示 Cookie 而不出现 appType/UserAgent 输入、Cookie 提交后清空、未知客户端显示“未识别”、目录路径、最大路数、reservation“准备中”与真实活跃区分、状态门控、用量 unavailable 和角色隔离。
 - `services/api` 下执行 `go test ./...`、关键包 `go test -race`、`go vet ./...`、`go build ./...`。
 - `services/web` 下执行 `npm run test`、`npm run build`。
 - Compose 静态校验 Redis profile、依赖、healthcheck、volume 和外部 `REDIS_URL` 覆盖。
@@ -354,7 +366,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 真实验证必须由用户另行明确授权，并逐项执行：
 
 1. 先确认套餐组默认 personal、system 显式切换和无个人账号时 Emby fallback。
-2. 使用测试用户/测试 115 账号验证 Cookie、已有目录、最大路数和个人目标秒传。
+2. 使用测试用户/测试 115 账号验证只提交 Cookie 时，固定 `Mozilla/5.0` 能完成账号验证、目录解析和目标查重，再验证已有目录、最大路数和个人目标秒传；记录该默认 UA 的真实结果，不能用固定源码或 fake 测试代替。
 3. 分别验证 personal 账号上限与 system 共享账号总上限，确认超限只 fallback Emby。
 4. 验证 HEAD、首次 GET、Playing、暂停 Progress、恢复 Progress、Stopped、预加载未播放和无 Stopped TTL；记录目标客户端精确版本、事件顺序以及 reservation 是否按期晋级或释放。
 5. 验证第 5/6 个小时请求、第 10/11 个每日请求、预存文件和失败退款边界。
@@ -368,17 +380,17 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 - 已修订现有 115 总计划和稳定参考中的旧套餐并发/数据库会话设想。
 - 固定 Redis Key、`reservation → active ↔ paused → stopped/expired` 原子结果、HEAD 禁止创建、三类 TTL、配额窗口和故障行为。
-- 为普通用户 Cookie 写入、目录解析和所有权补充合同测试。
+- 为普通用户仅 Cookie 写入、appType 自动识别/unknown、固定 Provider UA、真实播放器 UA 隔离、目录解析和所有权补充合同测试。
 
 完成条件：计划、数据合同、失败语义和 fake Redis 测试边界明确，不依赖真实 115 开始业务实现。
 
 ### 阶段 1：持久配置与用户控制面
 
 - migration、模型、套餐组字段和现有管理员共享账号扩展；`system` 只保留为套餐路由枚举。
-- 用户个人账号 API/Web、Cookie/目录/最大路数、revoked tombstone 和用户删除联动。
+- 用户个人账号 API/Web、仅 Cookie 凭证输入、后端 appType/Provider UA、目录/最大路数、revoked tombstone 和用户删除联动。
 - 暂不切换 Gateway 数据面。
 
-完成条件：管理员共享账号 userspace 保持，个人账号只能由 owner 管理；解绑后 Cookie 被擦除、transfer provenance 保留、tombstone 不会被共享加载器选中，套餐默认 personal 有 migration 和前端测试保护。
+完成条件：管理员共享账号 userspace 保持，个人账号只提交 Cookie 且不能覆盖后端 appType/Provider UA；个人账号只能由 owner 管理，解绑后 Cookie 被擦除、transfer provenance 保留、tombstone 不会被共享加载器选中，套餐默认 personal 有 migration 和前端测试保护。
 
 ### 阶段 2：Redis 播放租约与账号路由
 
