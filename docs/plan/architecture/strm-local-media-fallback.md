@@ -63,6 +63,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 | 明确不比较 | 不比较 SHA1、文件大小、修改时间、inode 或上传状态 |
 | 查找方式 | 只拼接并检查一个确定路径，不扫描、不模糊匹配、不尝试候选列表 |
 | 链接边界 | 普通文件和硬链接允许；配置根目录、任一中间目录和最终文件均禁止符号链接 |
+| source 映射加载 | 只读取唯一启用的管理员全局 source 位置元数据，不检查 Provider 健康状态、不读取 Provider UID、不解密 Cookie |
 | 状态存储 | 不使用 PostgreSQL 或 Redis 保存本地文件索引、命中结果或播放字节状态 |
 | 失败策略 | 本地未命中或打开失败时继续现有 Emby fallback；不能因为可选本地能力让合法用户失去播放 |
 | 115 兼容 | 成功的个人/系统 115 `302` 保持不变；本地播放不占用 115 Redis 播放租约和转存配额 |
@@ -103,7 +104,8 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 把“根据 source 的 `embyPathPrefix` 将 `MediaSource.Path` 转成 `relativePath`”收口为 DirectPlay 和本地回退共用的单一映射能力：
 
 - 输入只能来自当前 Principal 对应的有效 PlaybackInfo 证明或按需 PlaybackInfo 结果，不能来自客户端提交的任意文件路径。
-- 映射只读取 source 的非敏感位置配置，不调用 115 Provider，不读取或返回 Cookie。
+- 新增独立的 source 映射加载边界，只选择唯一的管理员全局 `role=source + owner_user_id IS NULL + enabled=true + status<>revoked` 记录，并且只返回 `embyPathPrefix/sourceRootId`。它不要求 `status=active`，不读取 Provider UID，不解密 Cookie，也不申请冷却半开探测租约。
+- source 处于 `error` 或 `cooling_down` 时，只要仍是唯一启用的全局 source 且位置有效，本地路径映射继续可用；真正访问 115 时仍使用现有严格凭证加载器和健康状态机。管理员手动停用 source、没有唯一启用记录或位置非法时，不从其他历史 source 猜测路径。
 - 映射必须在根据 `personal|system` 套餐模式选择“个人 playback 或管理员共享 playback”、申请 Redis 租约和调用 Provider 之前完成；这样个人账号未绑定、账号并发已满、Redis 不可用或 Provider 失败时仍可复用同一个 `relativePath` 做本地回退。
 - DirectPlay 与本地回退不得分别实现一套前缀剥离规则；兄弟前缀、路径遍历、反斜杠和空相对路径继续使用同一合同拒绝。
 - 映射失败只禁止本地/115 加速，合法请求仍使用权威 Emby fallback。
@@ -169,6 +171,8 @@ flowchart TD
 - Token 未映射、已撤销、用户停用/过期或身份错配：保持现有安全 `reject`，不得尝试读取本地文件。
 - PlaybackInfo 证明缺失、过期或错配：不信任客户端参数里的路径，直接走当前 Emby fallback。
 - `MediaSource.Path` 是 `.strm` 文件路径、外部 URL、相对路径或不命中 source 前缀：不猜测真实视频路径，继续 Emby fallback。
+- 唯一启用的管理员全局 source 处于 `error/cooling_down`：仍可使用其非敏感位置配置做本地映射；只有后续真实 115 调用继续受健康状态限制。
+- 管理员手动停用 source、没有唯一启用 source 或位置配置非法：不读取其他历史账号，也不解密 Cookie，直接使用 Emby fallback。
 - source 路径映射成功，但个人账号未绑定、管理员共享 playback 不可用、账号并发已满、Redis 不可用、转存配额已满或 Provider 失败：检查本地精确路径；命中则本地播放，否则 Emby fallback。
 - 本地根目录未配置或启动时不可用：关闭本地回退，保持当前 Emby 行为。
 - 本地候选不存在、是目录、不可读或打开失败：记录固定原因后使用 Emby fallback。
@@ -214,6 +218,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 ## 影响范围
 
 - API/Gateway：调整视频编排顺序，抽取可复用路径映射，新增本地媒体解析与 HTTP Range 响应边界。
+- P115Account Service：新增只读 source 映射元数据加载器，与现有运行期凭证/冷却加载器保持分离。
 - DirectPlay Service：允许在 playback 账号选择和 Provider 调用前得到稳定 `relativePath`，失败结果继续携带可用于本地 fallback 的非敏感映射。
 - Web：无改动，不新增页面或配置控件。
 - Bot：无改动。
@@ -228,6 +233,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 按 TDD 落地，不访问真实 Emby、115、CloudDrive2 或外网：
 
+- source 映射加载测试：唯一启用的管理员全局 source 在 `active/error/cooling_down` 下均只返回位置元数据且不调用 Cookie 解密器；手动停用、无唯一启用记录、个人账号、revoked 和非法位置必须拒绝，不能回退读取历史 source。
 - 路径映射测试：精确前缀、目录边界、Unicode/空格、兄弟前缀、空相对路径、`.`/`..`、反斜杠和超长路径。
 - 本地解析器测试：精确普通文件/硬链接命中、不存在、目录、不可读、根目录未配置、根目录不可用和路径逃逸；覆盖符号链接根目录、中间目录 symlink、最终文件 symlink，以及检查后路径被替换的竞态，证明解析器不会读取根目录外文件。测试不得加入 SHA1、大小或修改时间匹配条件。
 - HTTP 合同测试：完整 `GET 200`、`HEAD` 无响应体、固定 Range/open-ended/suffix Range 的 `206`、准确 `Content-Length/Content-Range/Accept-Ranges`、不可满足 Range `416` 和请求取消。
@@ -268,10 +274,11 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 ### 阶段 1：路径映射与本地文件边界
 
 - 把 source 前缀映射收口为 DirectPlay 与本地 fallback 共用能力。
+- 新增与凭证加载器分离的 source 映射元数据加载器，证明 `error/cooling_down` 不阻断本地映射且不会解密 Cookie。
 - 保证映射发生在按套餐模式选择个人/管理员共享 playback 和 Provider 调用之前。
 - 落地 `PLAYBACK_LOCAL_MEDIA_ROOT` 解析、基于根目录文件描述符的逐段无跟随打开和普通文件检查。
 
-完成条件：账号/Provider 尚未成功时仍能得到已验证 `relativePath`；本地 resolver 只有精确 hit/miss，不包含内容校验或目录搜索，并且硬链接可命中、任一符号链接或路径替换竞态不能逃逸根目录。
+完成条件：唯一启用 source 的 Provider 健康异常时仍能得到已验证 `relativePath`，手动停用或映射歧义时不猜测历史账号；本地 resolver 只有精确 hit/miss，不包含内容校验或目录搜索，并且硬链接可命中、任一符号链接或路径替换竞态不能逃逸根目录。
 
 ### 阶段 2：Gateway 本地 Range 播放
 
