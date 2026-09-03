@@ -28,10 +28,11 @@
 
 当前运行时仍只有一个管理员 source 和一个管理员 playback。后续方案不会建立数据库播放会话或套餐播放并发，而是：
 
-- 套餐组增加 `personal|system` 账号来源，所有套餐组默认 `personal`，只有管理员主动设置的套餐组使用当前系统 playback。
+- 套餐组增加 `personal|system` 账号来源，所有套餐组默认 `personal`，只有管理员主动设置的套餐组使用当前管理员共享 playback；`system` 只是套餐路由值，不是账号类型或 scope。
 - `personal` 用户可在控制台用 write-only Cookie、已有目录路径和最大播放路数绑定本人唯一 playback 账号；未绑定或账号不可用时回退 Emby。
-- 最大播放路数属于具体 playback 账号；系统账号按所有使用者合计，个人账号按本人账号统计。
-- Redis 同时维护账号和用户两个当前活跃播放索引；Playing/Progress 续租，暂停继续占用并使用更长 TTL，Stopped 成功转发后释放，无 Stopped 时自然过期。
+- 最大播放路数属于具体 playback 账号；管理员共享 playback 按所有使用者合计，个人账号按本人账号统计。
+- 个人账号解绑使用不可复活的 `revoked` tombstone：在同一事务清空 owner、Cookie、Provider、目录等运行期数据，但保留账号 ID 供 transfer provenance 引用；owner 外键使用 `ON DELETE RESTRICT`，确保未完成 tombstone 的活动个人账号会阻止直接删除用户，revoked 状态则保证已清空 owner 的 tombstone 不会被共享账号加载器选中。
+- Redis 同时维护账号/用户的占用与真实活跃索引：合格 GET 在 302 前只建立 `30s reservation` 并参与账号并发准入，HEAD 无既有租约时直接 fallback；成功 Playing/Progress 才晋级为 `active`，暂停继续占用并使用更长 TTL，Stopped 成功转发后释放，无后续事件时自然过期。
 - 套餐组提供用户小时/每日转存限额；只有目标缺失且秒传、目标复核均成功的新文件消耗额度，预存命中和失败不消耗。
 - Redis、账号并发或转存配额不可用时只停止新的 115 加速并 fallback Emby，不改变用户安全门控，不污染 115 账号健康状态。
 - 后续本地回退落地后，成功的 115 `302` 仍保持不变；原本进入 Emby fallback 的可信直接视频请求先按 `MediaSource.Path` 的精确相对路径检查 Gateway 只读挂载的本地文件，命中则由 Gateway 返回本地字节，未命中才继续 Emby/CloudDrive2。该能力不做哈希、大小或修改时间比较，不负责 MoviePilot 上传。
@@ -503,7 +504,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 - 触发条件：播放器只做 HEAD 或预加载探测，但请求具备完整静态播放参数和证明。
 - 实际后果：探测请求可能执行多次 115 查询，甚至触发保留式秒传和最长目标复核等待；没有 redirect cache/session 时，后续 GET 仍会再次解析 source、查重和签发 downurl。
 - 定位：`services/api/internal/playbackgateway/video.go:61-119` 对 GET/HEAD 共用 `ResolveMediaPath`；`directplay.Service` 同步完成查重/秒传/复核。
-- 建议：先通过 Infuse 实测确认 HEAD 顺序，再决定 HEAD 是否允许创建任务；至少按 accountId+pickCode+UA 增加短期直链缓存，并与 Redis sessionFingerprint 归并。
+- 已确认后续租约合同：HEAD 无同 session 既有租约时不创建 reservation、不触发新的 115 DirectPlay，直接 fallback；已有租约时才按 accountId+pickCode+UA 复用有界短期直链缓存。当前代码尚未实现该收口，仍需保留真实 Infuse HEAD 顺序取证。
 
 #### 【P2-4】playback 文件无限保留但没有容量治理
 

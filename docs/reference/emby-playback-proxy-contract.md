@@ -489,9 +489,9 @@ Content-Type: application/json
 - 三类会话请求必须继续转发给 Emby，保持播放历史和进度能力。
 - 网关当前只旁路观察事件；后续可以更新 Redis 当前播放租约，但不能篡改客户端上报内容，也不创建数据库播放会话。
 - 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，只提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
-- 后续 Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度，同一次 115 播放同时进入 playback 账号和用户两个当前活跃索引，并使用 TTL 处理客户端未上报停止事件的情况。
-- `Progress + IsPaused=true` 表示暂停，不是 Stopped；暂停继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放两个索引。
-- `HEAD`、重复 `Range` 和预加载请求不能单独创建新的活跃播放会话。
+- 后续 Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度。合格 GET 在 302 前只建立短期 `reservation` 并进入账号/用户占用索引；只有成功转发给 Emby 的 Playing 或 Progress 才能把已有 reservation 晋级为 `active`，API 真实活跃数不包含 reservation。
+- `Progress + IsPaused=true` 表示暂停，不是 Stopped；`paused` 继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放占用和活跃索引。
+- `HEAD` 不能创建 reservation 或 active，只有命中同 session 既有租约时才允许复用 115 候选，否则继续 Emby fallback。符合条件的首次/预加载/带 Range GET 在网关侧无法可靠区分，因此最多创建同 session 的一个短 reservation；重复 GET/Range 只能复用，任何视频请求都不能绕过成功的会话事件直接形成 active。
 
 ## 8. 身份与访问策略
 

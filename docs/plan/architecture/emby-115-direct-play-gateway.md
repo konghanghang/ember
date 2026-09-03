@@ -175,7 +175,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
   - 播放小号已有相同文件：直接获取播放小号直链并 302。
   - 播放小号缺文件：等待 SHA1 秒传、目标复核后 302。
   - 小号凭证失效、秒传失败或直链需要客户端无法提供的 Header：透明回退 Emby 正常播放。
-- 当前账号不可用或客户端不适合直连时回退 Emby；未来个人/系统 playback 账号达到自身最大播放路数、Redis 不可用或用户转存配额已满时同样回退 Emby。用户停用、Emby 访问禁用和本地 Token 撤销仍按安全门控拒绝。
+- 当前账号不可用或客户端不适合直连时回退 Emby；未来个人 playback 或管理员共享 playback 达到自身最大播放路数、Redis 不可用或用户转存配额已满时同样回退 Emby。用户停用、Emby 访问禁用和本地 Token 撤销仍按安全门控拒绝。
 
 #### 1.2 管理员
 
@@ -346,7 +346,7 @@ Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内�
 
 > 状态：需求边界已确认，尚未实现；不创建 `direct_play_sessions` 表。
 
-当前切片只维护 `mappingId + ItemId + MediaSourceId + PlaySessionId` 的进程内 PlaybackInfo 短期证明。后续使用 Redis 同时维护 playback 账号当前活跃数和 Ember 用户当前活跃数：只有成功的 115 `302` 占用名额，Playing/Progress 续租，暂停使用更长 TTL 且继续占用，Stopped 成功转发后释放，无 Stopped 时自然过期。
+当前切片只维护 `mappingId + ItemId + MediaSourceId + PlaySessionId` 的进程内 PlaybackInfo 短期证明。后续 Redis 会把准入占用和真实活跃拆开：只有合格 `GET` 能在 302 前建立 `30s reservation` 并占用账号名额，`HEAD` 无既有租约时直接 fallback；成功的 Playing/Progress 才把 reservation 晋级为 `active`，暂停使用更长 TTL 且继续占用，Stopped 成功转发后释放，无后续事件时自然过期。
 
 Redis 不保存完整 115 直链、Cookie、Token、完整 SHA1 或播放历史；详细 Key、原子更新和故障回退见 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md)。
 
@@ -357,7 +357,7 @@ Redis 不保存完整 115 直链、Cookie、Token、完整 SHA1 或播放历史�
 - `p115PlaybackMode=personal|system`，所有套餐组默认 `personal`，`system` 由管理员主动设置。
 - `p115TransferHourlyLimit` 和 `p115TransferDailyLimit` 由管理员配置，Redis 按用户记录用量。
 
-最大播放路数属于具体 playback 账号：个人账号由本人设置，系统 playback 由管理员设置。账号达到上限、Redis 不可用、个人账号未绑定或转存配额已满时统一 `fallback_to_emby`；只有 Token、本地撤销、身份错配和用户硬状态继续 `fail_closed`。
+`system` 只是套餐选择管理员共享 playback 的路由值，不是 `p115_accounts` 的账号类型或 scope。最大播放路数属于具体 playback 账号：个人账号由本人设置，管理员共享 playback 由管理员设置。账号达到上限、Redis 不可用、个人账号未绑定或转存配额已满时统一 `fallback_to_emby`；只有 Token、本地撤销、身份错配和用户硬状态继续 `fail_closed`。
 
 ### 5. API 与边界
 
@@ -454,13 +454,14 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 #### 6.6 会话与并发
 
-本计划只固定 Emby 事件透明转发和当前系统账号播放合同；后续 Redis 语义由独立计划承接：
+本计划只固定 Emby 事件透明转发和当前管理员共享账号播放合同；后续 Redis 语义由独立计划承接：
 
-1. 按 `PlaySessionId + Ember 用户 + 设备` 归并 `HEAD`、Range、预加载和重连，同一会话不能重复计数。
-2. 同一次 115 播放同时进入 playback 账号与用户两个当前活跃索引；真正门控使用账号自身的 `maxConcurrentStreams`，用户活跃数只用于展示和归因。
-3. Playing 和非暂停 Progress 使用 active TTL；`IsPaused=true` 继续占用并使用更长 paused TTL，不能按 Stopped 处理。
-4. Stopped 只有成功转发给 Emby 后才释放两个索引；客户端未上报停止时由 Redis TTL 自然收口。
-5. Emby `SimultaneousStreamLimit` 继续负责用户整体播放并发；套餐组不再建立第二套播放并发限制。
+1. 按 `PlaySessionId + Ember 用户 + 设备` 归并 GET、HEAD、预加载和重连，同一会话不能重复计数；HEAD 只能复用既有租约，不能创建新租约。
+2. 合格 GET 在 302 前建立短期 `reservation`，同时进入 playback 账号与用户的 `leases` 占用索引；账号 `maxConcurrentStreams` 以 `reservation + active + paused` 总占用数门控。
+3. 只有成功转发给 Emby 的 Playing 或 Progress 才能把既有 reservation 晋级为 `active`；`IsPaused=true` 切换为 `paused`，继续占用并使用更长 TTL。
+4. API 展示的真实活跃数只统计 `active + paused`，不把 reservation 表述为正在播放；用户活跃数只用于展示和归因，不建立第二套用户并发门控。
+5. Stopped 只有成功转发给 Emby 后才释放占用/活跃索引；客户端未上报停止时由对应 Redis TTL 自然收口。
+6. Emby `SimultaneousStreamLimit` 继续负责用户整体播放并发；套餐组不再建立第二套播放并发限制。
 
 #### 6.7 Cookie 失效与冷却
 
@@ -557,7 +558,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 主动账号健康检查、Bot 告警、失败趋势，以及基于 `lastAccessedAt`、无活跃会话和容量水位的串行清理任务；被动播放结果回写和共享冷却不再属于本阶段剩余项。
 - transfer 秒传已由 PostgreSQL advisory lock 支持多 Gateway；仍需为清理任务补跨副本互斥，并在后续 Redis 租约可用后接入“无活跃播放”条件。
 - 本地媒体 fallback 已有 `206` 实机证据；仍需补 115 CDN 完整合同和自然发生的云端故障恢复证据。
-- 收口 HEAD/预加载重复进入完整 DirectPlay 的 Provider 开销，按账号、目标文件和真实 UA 设计有界短期直链缓存，并与后续 Redis sessionFingerprint 归并。
+- 收口 HEAD/预加载重复进入完整 DirectPlay 的 Provider 开销：HEAD 无既有 Redis 租约时直接 fallback，有既有租约时按账号、目标文件和真实 UA 复用有界短期直链缓存；GET reservation 与缓存统一按 sessionFingerprint 归并。
 
 ### 阶段 3：OpenAPI 与账号池
 
@@ -567,13 +568,13 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 ## 已拆分的后续范围
 
-系统/个人 playback 的统一目录路径输入、`targetParentPath` 展示快照、个人 Cookie 控制面、账号最大播放路数、套餐账号来源和 Redis 配额均由 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md) 承接。本计划只保留当前系统账号运行事实，不再复制该方案的 API、Web、migration 和验证清单。
+管理员共享/个人 playback 的统一目录路径输入、`targetParentPath` 展示快照、个人 Cookie 控制面、账号最大播放路数、套餐账号来源和 Redis 配额均由 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md) 承接。本计划只保留当前管理员全局账号运行事实，不再复制该方案的 API、Web、migration 和验证清单。
 
 Emby 只维护 115 STRM、外部系统另行维护同相对路径本地硬链接的场景，由 [STRM 本地媒体回退播放实现方案](./strm-local-media-fallback.md) 承接。该方案只在本计划的 115 DirectPlay fallback 出口增加“本地精确路径 → Emby/CloudDrive2”的选择，不覆盖成功 `302`，也不把 MoviePilot 上传纳入 Ember。
 
 ## 影响范围
 
-- API：新增播放网关、direct play Service、Cookie Provider、系统账号/路径和任务接口。
+- API：新增播放网关、direct play Service、Cookie Provider、管理员全局账号/路径和任务接口。
 - Web：当前账号控制面使用独立的管理员 115 账号页面；用户账号、套餐组来源和 Redis 用量页面由独立计划承接。
 - Bot：阶段 2 可增加账号失效和连续失败告警。
 - 数据库：账号表 source 位置字段、秒传任务表和 Token 摘要映射表已落地；本计划不再规划数据库播放会话或套餐直连策略表。
@@ -640,7 +641,7 @@ Emby 只维护 115 STRM、外部系统另行维护同相对路径本地硬链接
 - PostgreSQL：迁移、角色唯一性、Cookie 密文、Token 唯一性/撤销审计、任务幂等和 advisory lock。
 - 运行期健康：成功、凭证失效、Provider 临时不可用和协议错误映射；冷却期间不触达 Provider、过期冷却单探测、成功恢复、旧 Cookie/旧状态结果丢弃，以及回写失败不改变 302/fallback。
 - 网关：认证响应透明、受保护请求 Token 门控、近期 PlaybackInfo 证明、Header、GET/HEAD、安全 reject、115 redirect 和原始请求 Emby fallback。
-- Web：当前系统账号只写交互、脱敏状态和路径；套餐账号来源、个人账号和 Redis 当前用量由独立计划覆盖。
+- Web：当前管理员全局账号只写交互、脱敏状态和路径；套餐账号来源、个人账号和 Redis 当前用量由独立计划覆盖。
 
 涉及账号状态、用户资格、任务状态机、DTO 或 Provider 适配时按 TDD 推进。所有外部依赖必须 fake，禁止测试真实 Emby、115 或 Infuse。
 
@@ -682,9 +683,9 @@ Emby 只维护 115 STRM、外部系统另行维护同相对路径本地硬链接
 
 - `docs/system-architecture.md`：网关进程、控制面/数据面和关键数据流。
 - `docs/reference/configuration-reference.md`：稳定配置、来源、加密和生效方式。
-- `docs/reference/data-model-reference.md`：系统账号、映射和任务表。
-- `docs/reference/api-endpoint-catalog.md`：管理员系统账号、路径和运维 API。
-- `docs/reference/web-information-architecture.md`：管理员系统账号和播放分析页面职责。
+- `docs/reference/data-model-reference.md`：管理员全局账号、映射和任务表。
+- `docs/reference/api-endpoint-catalog.md`：管理员全局账号、路径和运维 API。
+- `docs/reference/web-information-architecture.md`：管理员全局账号和播放分析页面职责。
 - 部署与测试 runbook：公网入口、原始 Emby 隔离、Cookie 轮换和故障排查。
 
 阶段 1 系统内置链路和阶段 2 运维能力完成测试与现行文档收口后，将本计划移入 `docs/archive/plan/architecture/`。用户自有账号、Redis 配额、OpenAPI 和多账号池由各自独立计划承接，不阻碍本计划按既定边界归档。

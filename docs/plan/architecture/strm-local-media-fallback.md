@@ -12,7 +12,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 
 本计划只在现有 Gateway 播放链路中增加一个透明的本地回退层：成功的 115 `302` 保持不变；原本准备回退 Emby 的请求，先用 STRM 对应的真实媒体路径计算相对路径，本地精确路径存在时由 Gateway 直接提供视频字节，本地不存在或不可用时再保持当前 Emby/CloudDrive2 回退。
 
-当前 115 组件、时序和证据边界见 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)；系统账号 DirectPlay 主计划见 [Emby 115 直连播放网关实现方案](./emby-115-direct-play-gateway.md)；用户个人账号和 Redis 配额见 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md)。
+当前 115 组件、时序和证据边界见 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)；管理员全局账号 DirectPlay 主计划见 [Emby 115 直连播放网关实现方案](./emby-115-direct-play-gateway.md)；用户个人账号和 Redis 配额见 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md)。
 
 ## 目标
 
@@ -102,7 +102,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 
 - 输入只能来自当前 Principal 对应的有效 PlaybackInfo 证明或按需 PlaybackInfo 结果，不能来自客户端提交的任意文件路径。
 - 映射只读取 source 的非敏感位置配置，不调用 115 Provider，不读取或返回 Cookie。
-- 映射必须在选择 personal/system playback 账号、申请 Redis 租约和调用 Provider 之前完成；这样个人账号未绑定、账号并发已满、Redis 不可用或 Provider 失败时仍可复用同一个 `relativePath` 做本地回退。
+- 映射必须在根据 `personal|system` 套餐模式选择“个人 playback 或管理员共享 playback”、申请 Redis 租约和调用 Provider 之前完成；这样个人账号未绑定、账号并发已满、Redis 不可用或 Provider 失败时仍可复用同一个 `relativePath` 做本地回退。
 - DirectPlay 与本地回退不得分别实现一套前缀剥离规则；兄弟前缀、路径遍历、反斜杠和空相对路径继续使用同一合同拒绝。
 - 映射失败只禁止本地/115 加速，合法请求仍使用权威 Emby fallback。
 
@@ -143,7 +143,7 @@ flowchart TD
     D -- 否 --> E[权威 Emby fallback]
     D -- 是 --> M[按 source embyPathPrefix 计算 relativePath]
     M -- 映射失败 --> E
-    M -- 映射成功 --> P[尝试 personal/system 115 DirectPlay]
+    M -- 映射成功 --> P[按套餐模式尝试个人或共享 playback]
     P -- 成功 --> X[空体 302 到 115 CDN]
     P -- 不适用或失败 --> L{localMediaRoot + relativePath 可打开?}
     L -- 是 --> S[Gateway 返回本地 GET/HEAD/Range]
@@ -156,7 +156,7 @@ flowchart TD
 
 1. 本地文件检查必须位于身份门控和 PlaybackInfo 证明之后，不能把本地磁盘变成绕过 Ember 用户状态的下载入口。
 2. `relativePath` 来自 STRM 指向的真实媒体对应的 `MediaSource.Path`，不是 Emby 扫描目录中的 `.strm` 文件路径。
-3. 115 候选完整成功时立即返回当前 `302`，不查询本地文件，也不改变个人/系统账号使用语义。
+3. 115 候选完整成功时立即返回当前 `302`，不查询本地文件，也不改变个人/管理员共享 playback 的路由语义。
 4. 只有准备进入 fallback 的直接视频请求才查询本地；manifest、转码和无法形成可信媒体路径的请求继续交给 Emby。
 5. 本地命中后不访问 Emby 视频上游；本地 miss 后使用请求开始时已经准备好的权威 fallback request，不重新猜测扩展名、Container 或 Token。
 6. 本地播放不是 115 播放，不申请或保留 115 Redis 活跃租约，不消耗小时/每日转存额度。
@@ -166,7 +166,7 @@ flowchart TD
 - Token 未映射、已撤销、用户停用/过期或身份错配：保持现有安全 `reject`，不得尝试读取本地文件。
 - PlaybackInfo 证明缺失、过期或错配：不信任客户端参数里的路径，直接走当前 Emby fallback。
 - `MediaSource.Path` 是 `.strm` 文件路径、外部 URL、相对路径或不命中 source 前缀：不猜测真实视频路径，继续 Emby fallback。
-- source 路径映射成功，但个人账号未绑定、系统账号不可用、账号并发已满、Redis 不可用、转存配额已满或 Provider 失败：检查本地精确路径；命中则本地播放，否则 Emby fallback。
+- source 路径映射成功，但个人账号未绑定、管理员共享 playback 不可用、账号并发已满、Redis 不可用、转存配额已满或 Provider 失败：检查本地精确路径；命中则本地播放，否则 Emby fallback。
 - 本地根目录未配置或启动时不可用：关闭本地回退，保持当前 Emby 行为。
 - 本地候选不存在、是目录、不可读或打开失败：记录固定原因后使用 Emby fallback。
 - 本地路径包含父目录穿越、绝对路径注入、NUL、反斜杠歧义或越过根目录：禁止本地读取，但合法用户仍可使用 Emby fallback。
@@ -202,8 +202,8 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 ## 与其他计划的关系
 
-- [Emby 115 直连播放网关实现方案](./emby-115-direct-play-gateway.md) 继续负责系统 source/playback、Provider、秒传、302、身份门控和权威 Emby fallback。本计划只在其 fallback 出口前增加本地媒体目标。
-- [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md) 继续决定使用个人还是系统 playback，以及何时因账号、并发、Redis 或配额进入 fallback。本计划统一消费这些 fallback，不改变账号选择和计数规则。
+- [Emby 115 直连播放网关实现方案](./emby-115-direct-play-gateway.md) 继续负责管理员全局 source/共享 playback、Provider、秒传、302、身份门控和权威 Emby fallback。本计划只在其 fallback 出口前增加本地媒体目标。
+- [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md) 继续按 `personal|system` 套餐模式选择个人 playback 或管理员共享 playback，以及决定何时因账号、并发、Redis 或配额进入 fallback。本计划统一消费这些 fallback，不改变账号选择和计数规则。
 - 两个计划都不得分别实现本地文件映射或本地 HTTP 响应；本地回退必须只有一个 Gateway 公共实现。
 - 本计划可独立于个人账号计划先落地；个人账号计划后续只需要把类型化失败交给同一个 fallback 选择器。
 
@@ -264,7 +264,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 ### 阶段 1：路径映射与本地文件边界
 
 - 把 source 前缀映射收口为 DirectPlay 与本地 fallback 共用能力。
-- 保证映射发生在 personal/system playback 选择和 Provider 调用之前。
+- 保证映射发生在按套餐模式选择个人/管理员共享 playback 和 Provider 调用之前。
 - 落地 `PLAYBACK_LOCAL_MEDIA_ROOT` 解析、本地精确路径打开和根目录安全检查。
 
 完成条件：账号/Provider 尚未成功时仍能得到已验证 `relativePath`；本地 resolver 只有精确 hit/miss，不包含内容校验或目录搜索。
