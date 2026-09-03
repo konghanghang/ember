@@ -78,7 +78,9 @@
 | Redis 真相源 | Redis 可用且命令成功时，只按当前 Key 判断；Key 不存在就是零占用、零用量，重启或数据丢失后的计数重置是接受的结果，不做 epoch、恢复等待或数据库重建 |
 | 实际门控 | 只用账号占用数执行账号有效上限；Redis 用户索引只用于展示、归因和后续治理，不参与第二套并发门控 |
 | Emby 证据边界 | 不新增 Gateway 用户级总并发门控；Emby `SimultaneousStreamLimit` 能否限制 115 `302` 或本地文件分流播放仍未证实，不能把该假设写成当前保证 |
-| 转存配额 | 小时/每日限额属于套餐组，默认每小时 `5`、每天 `10`，只接受正整数且不复用 `0` 表示无限或关闭；按发起播放的 Ember 用户统计，只有缺失目标的新文件在秒传和目标复核都成功后才消耗一次，预存命中、重复请求和失败不消耗 |
+| 转存配额 | 小时/每日限额属于套餐组，默认每小时 `5`、每天 `10`；小时只接受 `1..100`，每日只接受 `1..1000`，`0` 非法，越界直接拒绝且不截断。两者不要求大小关系；按发起播放的 Ember 用户统计，只有缺失目标的新文件在秒传和目标复核都成功后才消耗一次，预存命中、重复请求和失败不消耗 |
+| 转存预留 TTL | `pending reservation` 首期固定为 `5m` 代码常量且不续租；成功后以同一 `transferAttemptId` 幂等写入 succeeded，失败或确认预存命中时立即删除。pending 已过期但外部转存最终成功时仍必须记账，进程崩溃且没有成功结果时最多保留 5 分钟 |
+| 成功记账失败 | 目标复核成功后使用独立 `2s` 总超时，以同一 `transferAttemptId` 有限重试 succeeded 提交；只有记账成功才继续 `302`。最终失败时保留外部文件和仍存在的 pending，本次公共 fallback，不新增数据库补偿或历史重建 |
 | 会话存储 | 不建数据库会话表；Redis 处理 302 reservation、Playing/Progress/Stopped 状态晋级、暂停和 TTL |
 | 失败策略 | 合法用户在账号、Redis、并发或配额不满足时进入公共 fallback；本地回退方案落地后先查本地精确路径，未命中才到 Emby；身份和硬状态失败仍拒绝 |
 
@@ -93,8 +95,8 @@
 管理员在现有套餐组页面配置：
 
 - `p115PlaybackMode`：`personal|system`，默认 `personal`。
-- `p115TransferHourlyLimit`：每个用户滚动 60 分钟内允许成功创建的新 playback 文件数，默认 `5`。
-- `p115TransferDailyLimit`：每个用户在 `CRON_TIMEZONE` 自然日内允许成功创建的新 playback 文件数，默认 `10`。
+- `p115TransferHourlyLimit`：每个用户滚动 60 分钟内允许成功创建的新 playback 文件数，默认 `5`，允许范围 `1..100`。
+- `p115TransferDailyLimit`：每个用户在 `CRON_TIMEZONE` 自然日内允许成功创建的新 playback 文件数，默认 `10`，允许范围 `1..1000`。
 
 套餐组不再配置 115 播放并发。套餐模式或转存配额更新只影响后续新请求，不撤销已签发的 115 CDN URL。
 
@@ -132,7 +134,7 @@
 要求：
 
 - `p115_playback_mode` 只接受 `personal|system`。
-- 两个配额必须是正整数；本次不使用含义不清的 `0` 表示禁用或无限。
+- 小时配额 SQL CHECK 固定为 `1..100`，每日配额固定为 `1..1000`；`0` 不表示禁用或无限，越界值不自动截断。每日配额不要求大于等于小时配额，因为滚动小时窗口和 `CRON_TIMEZONE` 自然日窗口并不对齐。
 - migration 将全部已有套餐组回填为 `personal`；部署者需要在启用新路由前显式把家人/朋友套餐组改成 `system`。
 - Go 字段使用 CamelCase、JSON 使用 camelCase、GORM 显式指定 snake_case 列名。
 
@@ -238,6 +240,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 {p115}:transfer:succeeded:{userId}
 ```
 
+- pending 与 succeeded 的 member 使用同一个服务端生成、不含用户输入和 Provider 标识的 opaque `transferAttemptId`；同一尝试的完成重试必须复用该 ID，禁止因重试重复计数。该 ID 只用于 Redis 原子幂等，不返回 API，也不写日志。
 - 小时窗口使用滚动 60 分钟；每日窗口使用 `CRON_TIMEZONE` 的自然日边界。
 - 配额适用于 `personal` 和 `system` 两种模式，按发起请求的 Ember 用户统计。
 - 只有目标 playback 账号原本缺少文件、秒传成功且目标目录复核通过，才消耗一次成功额度。
@@ -248,9 +251,15 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 1. 同时清理过期 pending/succeeded 事件并计算小时、每日已用量。
 2. 任一窗口达到套餐组上限时返回 `transfer_quota_exceeded`，不调用 115。
-3. 未达到上限时写入短 TTL pending reservation。
-4. 目标复核成功后原子转为 succeeded；失败或确认预存命中时删除 pending。
-5. 进程异常退出时 pending 自动过期，不能永久占用额度。
+3. 未达到上限时写入固定 `5m` TTL 的 pending reservation；TTL 使用代码常量且执行期间不续租。
+4. 目标复核成功后，用同一 `transferAttemptId` 原子删除 pending 并以 NX 语义写入 succeeded；重复完成只能保留一条 succeeded。pending 已因 `5m` TTL 过期时仍写入 succeeded，并返回内部诊断结果 `transfer_pending_expired_before_commit`，不能让已经成功创建的新文件永久漏计。
+5. 进程异常退出时 pending 最多保留 `5m` 后自动过期，不能永久占用额度；正常链路应远短于该时间，超过 `5m` 视为异常并记录固定诊断结果。
+
+晚到成功可能在 pending 过期到 succeeded 写入之间短暂放出一个配额名额，这是外部 115 副作用与 Redis 无法形成单事务时接受的异常窗口；succeeded 落地后，后续请求立即按新用量判断。不得为消除该窗口而删除已创建文件、伪造账号健康错误或恢复数据库配额真相源。
+
+目标复核成功后的 succeeded 提交使用独立于客户端请求取消的 `2s` 总超时，并在该总预算内以同一 `transferAttemptId` 有限重试瞬时 Redis 错误；幂等 NX 语义保证重试不会重复计数。只有 succeeded 确认落地后才能继续签发本次 `302`。总预算耗尽后固定返回 `transfer_quota_commit_failed`：不删除已经创建的 115 文件、不主动删除仍存在的 pending、不污染账号健康，本次进入公共 fallback；pending 在 Redis 可用且仍存在时按原 `5m` TTL 自然释放。
+
+该失败不创建 PostgreSQL 补偿任务，不从 `playback_transfer_tasks` 回放或重建 Redis。后续请求若将文件识别为预存命中，可能不再补计本次成功转存；这是“Redis 当前数据是唯一真相、数据丢失允许计数重置”合同在外部副作用边界上的已接受结果，必须通过固定日志暴露，不能伪装成成功记账。
 
 `transfer_quota_exceeded`、Redis 不可用和账号并发已满都是 Gateway 加速资格结果，不是 Provider 健康错误：不能把账号写成 `expired/error/cooling_down`。
 
@@ -266,7 +275,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - `PUT /api/v1/admin/plan-groups/:key`
 - `GET /api/v1/admin/plan-groups`
 
-请求/响应增加 `p115PlaybackMode`、`p115TransferHourlyLimit`、`p115TransferDailyLimit`。创建默认值和 migration 默认值必须一致。
+请求/响应增加 `p115PlaybackMode`、`p115TransferHourlyLimit`、`p115TransferDailyLimit`。创建默认值和 migration 默认值必须一致；API 对小时 `1..100`、每日 `1..1000` 强制校验，任一越界时整次创建/更新失败且不写数据库，不允许静默截断或只更新另一字段。
 
 #### 4.2 用户个人 115 账号
 
@@ -323,7 +332,8 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - `accountReservedStreams`、`accountOccupiedStreams`
 - `userReservedStreams`、`userOccupiedStreams`
 - `transferHourlyUsed/Limit`、`transferDailyUsed/Limit`（只有进入转存配额判断时记录）
-- `reasonCode=personal_account_missing|account_concurrency_exceeded|transfer_quota_exceeded|redis_unavailable`
+- `reasonCode=personal_account_missing|account_concurrency_exceeded|transfer_quota_exceeded|transfer_quota_commit_failed|redis_unavailable`
+- 晚到成功额外记录固定诊断码 `transfer_pending_expired_before_commit`，但最终播放决策仍由 succeeded 记账和后续直链结果决定，不能把它映射为 Provider/账号健康错误。
 
 禁止记录 Cookie、Token、完整 SHA1、下载 URL、Redis 连接串、原始 PlaySessionId、Lua 参数原文或 Provider 原始错误。Redis Key 日志只允许固定模板名，不打印完整实例 Key。
 
@@ -341,7 +351,10 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - `IsPaused=true`：继续占用并刷新 `15m` paused TTL；不能删除索引。
 - Stopped 上游失败：不假装停止成功，等待后续事件或 TTL 收口。
 - 转存配额达到小时或每日上限：不调用 `InitRapidUpload`，fallback Emby。
+- 套餐组提交的小时配额不在 `1..100` 或每日配额不在 `1..1000`：返回参数错误且整次写入失败；不截断、不赋予 `0` 特殊语义，也不强制两个字段的大小关系。
 - 转存失败：释放 pending；Provider 类型化错误仍按现有账号健康合同处理。
+- pending 已过期后目标复核成功：使用原 `transferAttemptId` 幂等写入 succeeded，记录 `transfer_pending_expired_before_commit`，不删除 115 文件、不污染账号健康；记账成功后继续当前直链流程。
+- 目标复核成功但 succeeded 在独立 `2s` 总预算内仍无法写入：保留已创建文件和仍存在的 pending，记录 `transfer_quota_commit_failed`，本次进入公共 fallback；不签发 `302`、不污染账号健康、不创建数据库补偿或历史重建。
 - 目标文件已经存在：不消耗转存额度，只申请播放租约并获取新直链。
 - Redis 重启或数据丢失：恢复连接后只按 Redis 当前数据继续判断；缺失 Key 按零占用、零用量处理，允许会话和转存计数随 Redis 数据一起重置。不增加 epoch、恢复等待、历史重建或数据库补偿。
 - 用户解绑：先把个人账号原子写成 revoked tombstone 并擦除凭证，再尽力删除 Redis 租约；旧 CDN URL 无法保证立即失效，Redis 失败时旧租约按 TTL 收口。
@@ -364,14 +377,14 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 ### 自动化验证
 
-- Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因；覆盖 `SimultaneousStreamLimit` 为 `0/1/100`、正数上下界、越界拒绝、默认套餐解析、套餐/模板缺失时不写入，以及响应同时返回配置值、有效值和套餐值。
+- Go TDD：套餐模式默认/更新、转存配额默认 `5/10`、小时 `1..100`、每日 `1..1000`、边界内任意大小关系、任一越界时整次拒绝且不写入、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因；覆盖 `SimultaneousStreamLimit` 为 `0/1/100`、正数上下界、越界拒绝、默认套餐解析、套餐/模板缺失时不写入，以及响应同时返回配置值、有效值和套餐值。
 - 账号键测试：同一规范 Provider UID 在不同数据库账号 ID、owner 和解绑重绑前后生成相同 `playbackAccountKey`，不同 Provider UID 生成不同 Key；Redis Key、日志和响应不包含原始 Provider UID，purpose 变化时摘要必须不同。
 - Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、缺失 Key 按零、重复 session、配置/有效并发上限、固定 `30s/2m/15m` TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；个人账号按有效值准入，共享账号按自身配置值准入，用户索引不形成第二套门控。连接错误必须 fallback，重新连接后的空数据必须按零重新开始，不执行恢复等待或历史重建。默认验证不得启动项目服务或访问真实 Redis 云服务。
-- 转存配额测试：滚动小时窗口、`CRON_TIMEZONE` 自然日、并发预留、成功提交、失败退款、pending crash TTL、预存不计数、system/personal 一致口径。
+- 转存配额测试：滚动小时窗口、`CRON_TIMEZONE` 自然日、并发预留、成功提交、失败退款、固定 `5m` pending TTL、不续租、进程崩溃后到期释放、预存不计数、system/personal 一致口径；覆盖 pending 存在时正常转换、pending 过期后的晚到成功仍以同一 `transferAttemptId` 写入一次 succeeded、重复完成不重复计数、后续请求看到新用量且账号健康不变。另用 fake clock/Redis 覆盖独立 `2s` 总预算、客户端取消后仍可完成、瞬时失败重试成功、预算耗尽后不签发 `302`、文件和 pending 不被主动删除、固定诊断码以及无数据库补偿调用。
 - Gateway fake Emby/115 测试：HEAD 无租约不创建且直接 fallback、HEAD 命中既有租约可复用、重复 GET 不重复计数、预加载只形成短 reservation；Playing/Progress/Stopped 请求与响应透明，只有成功事件且命中反向 session 才更新 Redis；套餐降低后不改数据库配置但立即使用更小有效值，套餐上限为 `0` 时恢复配置值，模板解析失败以及 Redis/配额/账号失败均回退 fake Emby。
 - PostgreSQL 集成测试：migration 幂等、套餐默认 personal、管理员共享/个人账号 partial unique、所有权隔离、revoked 条件约束、带 transfer 历史的解绑、非 revoked owner 对直接用户删除的 RESTRICT、tombstone 清空 owner 后可删除用户、tombstone 不会进入共享账号查询，以及既有管理员账号兼容。
 - 用户删除状态流转测试：Token 撤销失败或 tombstone 失败时不得调用 Emby 删除；Redis 清理失败仍保留凭证擦除并继续删除；Emby 删除失败不复活 Token 或个人账号；重新绑定生成新账号 ID 且旧 transfer 归属不变。
-- Web Vitest：个人账号只显示 Cookie 而不出现 appType/UserAgent 输入、Cookie 提交后清空、未知客户端显示“未识别”、目录路径、配置/有效最大路数和套餐上限、动态输入边界 `1..100`、reservation“准备中”与真实活跃区分、状态门控、用量 unavailable 和角色隔离；套餐上限降低时不得把有效值误写回配置值。
+- Web Vitest：个人账号只显示 Cookie 而不出现 appType/UserAgent 输入、Cookie 提交后清空、未知客户端显示“未识别”、目录路径、配置/有效最大路数和套餐上限、动态输入边界 `1..100`、reservation“准备中”与真实活跃区分、状态门控、用量 unavailable 和角色隔离；套餐上限降低时不得把有效值误写回配置值。套餐组表单同时覆盖小时 `1..100`、每日 `1..1000`、越界阻止提交、无静默截断以及每日小于小时仍允许提交。
 - `services/api` 下执行 `go test ./...`、关键包 `go test -race`、`go vet ./...`、`go build ./...`。
 - `services/web` 下执行 `npm run test`、`npm run build`。
 - Compose 静态校验 Redis profile、依赖、healthcheck、volume 和外部 `REDIS_URL` 覆盖。
@@ -418,10 +431,10 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 ### 阶段 3：转存配额
 
-- 小时/每日配额、pending reservation、成功提交和失败退款。
+- 小时/每日配额、固定 `5m` 且不续租的 pending reservation、基于 `transferAttemptId` 的幂等成功提交、晚到成功补记、独立 `2s` succeeded 提交预算和失败退款。
 - 用量 API/Web 与固定诊断日志。
 
-完成条件：并发请求不能穿透 `5/10` 默认值，预存文件和失败不误扣，日界线复用 `CRON_TIMEZONE`。
+完成条件：并发请求不能穿透 `5/10` 默认值，小时 `1..100` 与每日 `1..1000` 在 API/Web/SQL CHECK 中一致，预存文件和失败不误扣，日界线复用 `CRON_TIMEZONE`。
 
 ## 已完成项、剩余项与归档条件
 
@@ -449,7 +462,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 - `docs/system-architecture.md`：账号归属、套餐路由、Redis 边界和 fallback。
 - `docs/reference/data-model-reference.md`：套餐组和账号长期配置字段。
-- `docs/reference/configuration-reference.md`：Redis 地址、可用性和生效方式；播放租约 TTL 是代码常量，不增加运行时配置。
+- `docs/reference/configuration-reference.md`：Redis 地址、可用性和生效方式；播放租约与转存 pending TTL 都是代码常量，不增加运行时配置。
 - `docs/reference/api-endpoint-catalog.md`：用户账号、用量和套餐组字段。
 - `docs/reference/web-information-architecture.md`：用户 115 菜单、管理员共享账号和套餐组页面职责。
 - `docs/reference/p115-playback-end-to-end-flow.md`：从当前全局账号链路更新为已实现的 system/personal 路由。

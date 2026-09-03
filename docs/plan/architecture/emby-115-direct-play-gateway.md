@@ -355,7 +355,7 @@ Redis 不保存完整 115 直链、Cookie、Token、完整 SHA1 或播放历史�
 不建立 `plan_group_direct_play_policies` 表，也不按套餐限制播放并发。后续直接扩展 `plan_groups`：
 
 - `p115PlaybackMode=personal|system`，所有套餐组默认 `personal`，`system` 由管理员主动设置。
-- `p115TransferHourlyLimit` 和 `p115TransferDailyLimit` 由管理员配置，默认分别为 `5` 和 `10`，只接受正整数且不赋予 `0` 特殊语义。Redis 按用户记录用量；只有目标原本缺失、秒传和目标复核均成功的新文件消耗一次，预存命中、重复请求和失败不消耗。
+- `p115TransferHourlyLimit` 和 `p115TransferDailyLimit` 由管理员配置，默认分别为 `5` 和 `10`；小时范围固定 `1..100`，每日范围固定 `1..1000`，越界直接拒绝且不截断，`0` 没有特殊语义，两者不要求大小关系。Redis 按用户记录用量；只有目标原本缺失、秒传和目标复核均成功的新文件消耗一次，预存命中、重复请求和失败不消耗。并发防穿透使用固定 `5m` 且不续租的 pending reservation；成功后按同一 `transferAttemptId` 幂等写入 succeeded，失败或预存命中立即释放，进程崩溃后自然过期。pending 已过期但外部转存晚到成功时仍补记 succeeded，不删除文件或污染账号健康。succeeded 提交使用独立 `2s` 总预算有限重试，只有记账成功才继续 `302`；最终失败时保留文件和 pending、本次 fallback，且不增加数据库补偿或历史重建。
 
 `system` 只是套餐选择管理员共享 playback 的路由值，不是 `p115_accounts` 的账号类型或 scope。最大播放路数属于具体 playback 账号：个人账号由本人设置，管理员共享 playback 由管理员设置。账号达到上限、Redis 不可用、个人账号未绑定或转存配额已满时统一 `fallback_to_emby`；只有 Token、本地撤销、身份错配和用户硬状态继续 `fail_closed`。
 
