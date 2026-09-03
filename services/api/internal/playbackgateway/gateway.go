@@ -70,16 +70,17 @@ type AuthenticationMetadata struct {
 // configuration, database construction and HTTP server startup belong to the
 // gateway runtime selected by the unified ember entrypoint.
 type Config struct {
-	Upstream          *url.URL
-	TokenService      TokenService
-	DirectPlayService DirectPlayService
-	WebSurfacePolicy  WebSurfacePolicy
-	LogLevelPolicy    LogLevelPolicy
-	Transport         http.RoundTripper
-	Logger            *log.Logger
-	Debug             bool
-	ApplyLogLevel     func(string) error
-	DebugEnabled      func() bool
+	Upstream           *url.URL
+	TokenService       TokenService
+	DirectPlayService  DirectPlayService
+	LocalMediaResolver LocalMediaResolver
+	WebSurfacePolicy   WebSurfacePolicy
+	LogLevelPolicy     LogLevelPolicy
+	Transport          http.RoundTripper
+	Logger             *log.Logger
+	Debug              bool
+	ApplyLogLevel      func(string) error
+	DebugEnabled       func() bool
 }
 
 // Gateway validates mapped tokens before proxying protected requests and
@@ -91,6 +92,7 @@ type Gateway struct {
 	transport                      http.RoundTripper
 	tokenService                   TokenService
 	directPlayService              DirectPlayService
+	localMediaResolver             LocalMediaResolver
 	webSurfacePolicy               WebSurfacePolicy
 	logLevelPolicy                 LogLevelPolicy
 	applyLogLevel                  func(string) error
@@ -177,6 +179,7 @@ func New(config Config) (*Gateway, error) {
 		transport:                      transport,
 		tokenService:                   config.TokenService,
 		directPlayService:              config.DirectPlayService,
+		localMediaResolver:             config.LocalMediaResolver,
 		webSurfacePolicy:               config.WebSurfacePolicy,
 		logLevelPolicy:                 config.LogLevelPolicy,
 		applyLogLevel:                  applyLogLevel,

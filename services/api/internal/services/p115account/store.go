@@ -52,6 +52,24 @@ func (s *gormAccountStore) GetByID(ctx context.Context, id string) (*models.P115
 	return &account, nil
 }
 
+// GetEnabledSourceLocation reads only the non-sensitive columns required for
+// local path mapping. Runtime status and Provider credential state are
+// intentionally excluded from this query.
+func (s *gormAccountStore) GetEnabledSourceLocation(ctx context.Context) (*models.P115Account, error) {
+	var account models.P115Account
+	err := s.database(ctx).
+		Select("id", "role", "enabled", "emby_path_prefix", "source_root_id").
+		Where("role = ? AND enabled = ?", models.P115AccountRoleSource, true).
+		First(&account).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAccountUnavailable
+	}
+	if err != nil {
+		return nil, safeP115AccountStoreError("get_enabled_source_location", err)
+	}
+	return &account, nil
+}
+
 // AcquireRuntimeByRole returns an active account or leases one expired
 // cooldown probe while holding the account row lock. The probe lease keeps
 // concurrent Gateway replicas from retrying the same Provider account.

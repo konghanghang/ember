@@ -18,6 +18,7 @@ import (
 type fakeCredentialCipher struct {
 	encryptErr error
 	decryptErr error
+	decrypts   *int
 }
 
 func (c fakeCredentialCipher) Encrypt(plain string) (string, error) {
@@ -28,6 +29,9 @@ func (c fakeCredentialCipher) Encrypt(plain string) (string, error) {
 }
 
 func (c fakeCredentialCipher) Decrypt(ciphertext string) (string, error) {
+	if c.decrypts != nil {
+		*c.decrypts++
+	}
 	if c.decryptErr != nil {
 		return "", c.decryptErr
 	}
@@ -94,6 +98,19 @@ func (s *fakeAccountStore) GetByID(_ context.Context, id string) (*models.P115Ac
 	}
 	copy := *account
 	return &copy, nil
+}
+
+func (s *fakeAccountStore) GetEnabledSourceLocation(_ context.Context) (*models.P115Account, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	for _, account := range s.accounts {
+		if account.Role == models.P115AccountRoleSource && account.Enabled {
+			copy := *account
+			return &copy, nil
+		}
+	}
+	return nil, ErrAccountUnavailable
 }
 
 func (s *fakeAccountStore) GetActiveByRole(_ context.Context, role models.P115AccountRole) (*models.P115Account, error) {
@@ -537,6 +554,62 @@ func TestServiceLoadCredentialForValidationPropagatesDecryptError(t *testing.T) 
 	service := newServiceWithDependencies(store, fakeCredentialCipher{decryptErr: decryptErr})
 	if _, err := service.LoadCredentialForValidation(context.Background(), "account_1"); !errors.Is(err, decryptErr) {
 		t.Fatalf("LoadCredentialForValidation() error = %v, want decrypt error", err)
+	}
+}
+
+func TestServiceLoadEnabledSourceLocationDoesNotDecryptOrGateProviderHealth(t *testing.T) {
+	for _, status := range []models.P115AccountStatus{
+		models.P115AccountStatusActive,
+		models.P115AccountStatusError,
+		models.P115AccountStatusCoolingDown,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			embyPathPrefix := "/mnt/cloudNAS/115lifetime"
+			sourceRootID := "0"
+			providerUserID := "provider-secret"
+			store := &fakeAccountStore{accounts: map[string]*models.P115Account{
+				"source": {
+					ID: "source", Role: models.P115AccountRoleSource, Enabled: true, Status: status,
+					EmbyPathPrefix: &embyPathPrefix, SourceRootID: &sourceRootID,
+					ProviderUserID: &providerUserID, CookieCiphertext: "encrypted:cookie-secret",
+				},
+			}}
+			decrypts := 0
+			service := newServiceWithDependencies(store, fakeCredentialCipher{decrypts: &decrypts})
+
+			location, err := service.LoadEnabledSourceLocation(context.Background())
+			if err != nil {
+				t.Fatalf("LoadEnabledSourceLocation() error = %v", err)
+			}
+			if location.AccountID != "source" || location.EmbyPathPrefix != embyPathPrefix || location.SourceRootID != sourceRootID {
+				t.Fatalf("LoadEnabledSourceLocation() = %+v", location)
+			}
+			if decrypts != 0 {
+				t.Fatalf("LoadEnabledSourceLocation() decrypted credential %d times", decrypts)
+			}
+		})
+	}
+}
+
+func TestServiceLoadEnabledSourceLocationRejectsDisabledOrInvalidSource(t *testing.T) {
+	embyPathPrefix := "/mnt/cloudNAS/115lifetime"
+	sourceRootID := "0"
+	tests := []struct {
+		name    string
+		account models.P115Account
+	}{
+		{name: "disabled", account: models.P115Account{ID: "source", Role: models.P115AccountRoleSource, Enabled: false, EmbyPathPrefix: &embyPathPrefix, SourceRootID: &sourceRootID}},
+		{name: "missing prefix", account: models.P115Account{ID: "source", Role: models.P115AccountRoleSource, Enabled: true, SourceRootID: &sourceRootID}},
+		{name: "invalid root", account: models.P115Account{ID: "source", Role: models.P115AccountRoleSource, Enabled: true, EmbyPathPrefix: &embyPathPrefix, SourceRootID: func() *string { value := "01"; return &value }()}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeAccountStore{accounts: map[string]*models.P115Account{"source": &test.account}}
+			service := newServiceWithDependencies(store, fakeCredentialCipher{})
+			if _, err := service.LoadEnabledSourceLocation(context.Background()); !errors.Is(err, ErrAccountUnavailable) {
+				t.Fatalf("LoadEnabledSourceLocation() error = %v, want ErrAccountUnavailable", err)
+			}
+		})
 	}
 }
 

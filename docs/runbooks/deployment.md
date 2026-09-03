@@ -23,6 +23,32 @@ Gateway 固定监听容器内 `8081`；Compose 只把它映射到 `127.0.0.1:${P
 
 为兼容当前默认 Tag 中尚无统一入口的旧镜像，Gateway 不随普通 `docker compose up -d` 自动启动。启用前必须使用包含 `ember gateway` 的新镜像或本地构建镜像，再显式执行 `docker compose --profile gateway up -d`。
 
+### STRM 本地媒体回退（可选）
+
+本地回退默认关闭。启用时在 `.env` 设置 Gateway 容器内路径：
+
+```env
+PLAYBACK_LOCAL_MEDIA_ROOT=/media
+```
+
+再创建部署环境自己的 Compose override，禁止把真实宿主机路径提交到仓库：
+
+```yaml
+services:
+  ember-gateway:
+    volumes:
+      - /path/on/host/media:/media:ro
+```
+
+部署边界：
+
+- `PLAYBACK_LOCAL_MEDIA_ROOT` 必须是规范化绝对目录，不能是 `/` 或符号链接；修改后重启 Gateway 生效。
+- 配置错误或 mount 不可用只会关闭本地回退，正常 115 `302` 与 Emby/CloudDrive2 fallback 不受影响。
+- Emby 仍只维护原有 STRM 媒体条目；本地目录不生成第二套媒体库。
+- 115 正式目录与本地根目录下的相对路径、大小写和文件名必须完全一致。Ember 只检查唯一精确路径，不扫描、不模糊匹配，也不比较 SHA1、大小或修改时间。
+- 本地解析允许普通文件和硬链接，拒绝根目录、中间目录和最终文件的所有符号链接；挂载必须保持只读。
+- 多 Gateway 副本必须把同一逻辑媒体根目录挂载到相同容器路径；某个副本没有可用 mount 时只会关闭或 miss 本地回退，并继续 Emby。
+
 ### 外部 Nginx 示例
 
 下面只展示 Gateway 需要的代理边界，证书路径和 TLS 策略由部署者按现有环境补齐：

@@ -182,13 +182,16 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 - `CONFIG_ENCRYPTION_KEY` 不作为客户端认证凭证；它负责数据库敏感配置与 `p115_accounts.cookie_ciphertext` 的加解密，并按 `emby-access-token` purpose 派生 Gateway Token HMAC 密钥。
 - `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_*`、`SMTP_*`、`CRON_*`、`BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已按设置中心模型管理，不再作为 API `.env.example` 的默认项。
 
-### 3.3 Docker Compose 端口变量
+### 3.3 Gateway 部署变量
 
 | 配置项 | 敏感 | 说明 |
 |--------|------|------|
 | `PLAYBACK_GATEWAY_PORT` | 否 | Gateway 宿主机回环映射端口；默认 `8081`，Compose 将其映射到 Gateway 固定的容器内 `8081`，Go 进程不读取 |
+| `PLAYBACK_LOCAL_MEDIA_ROOT` | 否 | Gateway 容器/进程内的本地媒体只读根目录；默认空即关闭，修改后重启 Gateway 生效 |
 
 API 固定使用默认端口 `8080`，Gateway 固定监听 `:8081`。直接运行 `ember gateway` 也使用 `8081`；不再提供 `PLAYBACK_GATEWAY_LISTEN_ADDR`。
+
+`PLAYBACK_LOCAL_MEDIA_ROOT` 只允许规范化绝对目录，不能是 `/` 或符号链接。配置非空但目录不存在、不可读或不安全时，Gateway 记录不含真实路径的固定原因并关闭本地回退，身份门控、115 DirectPlay 和 Emby fallback 继续可用。官方 Compose 只透传变量，不提供默认宿主机挂载；部署者必须通过本地 override 把对应宿主机目录以 `:ro` 挂载到同一容器路径。该值不进入设置中心，避免数据库路径与实际容器 mount 脱节。
 
 ---
 

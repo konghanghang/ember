@@ -144,6 +144,36 @@ func TestServiceResolveMediaPathReturnsKnownMappingOnPrefixMismatch(t *testing.T
 	}
 }
 
+func TestServiceResolveMediaPathKeepsMappingWhenRuntimeAccountIsUnavailable(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		loader fakeAccountLoader
+	}{
+		{name: "source unhealthy", loader: fakeAccountLoader{sourceErr: p115account.ErrAccountUnavailable}},
+		{name: "playback unavailable", loader: fakeAccountLoader{playbackErr: p115account.ErrAccountUnavailable}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			provider := newFakeProvider()
+			service := newServiceWithDependencies(test.loader, provider, &fakeTaskStore{}, &fakeTaskLocker{})
+
+			result, err := service.ResolveMediaPath(context.Background(), MediaPathResolveRequest{
+				Path:            "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
+				ClientUserAgent: "Infuse-Fixture",
+			})
+			if !errors.Is(err, ErrAccountUnavailable) {
+				t.Fatalf("ResolveMediaPath() error = %v, want ErrAccountUnavailable", err)
+			}
+			if result.PathMapping.RelativePath != "Media/fixture.mkv" ||
+				result.PathMapping.EmbyPathPrefix != "/mnt/cloudNAS/115lifetime" || result.PathMapping.SourceRootID != "0" {
+				t.Fatalf("ResolveMediaPath() mapping = %+v", result.PathMapping)
+			}
+			if len(provider.calls) != 0 {
+				t.Fatalf("unavailable runtime account reached Provider: %v", provider.calls)
+			}
+		})
+	}
+}
+
 func TestServiceResolveReusesPreexistingTargetWithoutLockOrUpload(t *testing.T) {
 	provider := newFakeProvider()
 	provider.searchResults = [][]p115integration.File{{provider.targetFile}}
@@ -375,9 +405,19 @@ func TestServiceResolveDoesNotTreatCancellationAsAccountFailure(t *testing.T) {
 
 type fakeAccountLoader struct {
 	sameProviderUser bool
+	locationErr      error
 	sourceErr        error
 	playbackErr      error
 	health           *fakeAccountHealthReporter
+}
+
+func (loader fakeAccountLoader) LoadEnabledSourceLocation(_ context.Context) (p115account.SourceLocation, error) {
+	if loader.locationErr != nil {
+		return p115account.SourceLocation{}, loader.locationErr
+	}
+	return p115account.SourceLocation{
+		AccountID: "source_account", EmbyPathPrefix: "/mnt/cloudNAS/115lifetime", SourceRootID: "0",
+	}, nil
 }
 
 func (loader fakeAccountLoader) LoadActiveCredentialByRole(_ context.Context, role models.P115AccountRole) (p115account.ActiveAccountCredential, error) {

@@ -105,6 +105,8 @@ services/
 │     ├─ playbackgateway/
 │     │  ├─ authorization.go     # Emby 应用/设备授权头严格解析
 │     │  ├─ gateway.go           # 认证/bootstrap 代理、Token 门控和脱敏传输错误边界
+│     │  ├─ local_media.go       # 本地媒体根目录下逐段无符号链接打开
+│     │  ├─ local_media_http.go  # 本地 GET/HEAD/单 Range 与 identity 响应合同
 │     │  ├─ runtime.go           # 版本核对、依赖装配、health 与 HTTP 生命周期
 │     │  └─ process.go           # 数据库/配置装配，不初始化 API JWT、Bot 或 cron
 │     ├─ services/               # 业务逻辑
@@ -729,7 +731,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的管理员全局账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 302/fallback 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。2026-08-31 macOS Infuse `8.5.2` 已确认登录、普通资源、本地 fallback `206`、115 首次/复用 `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped `204`；115 CDN 完整响应头、HEAD/Range、全文件字节、UA/IP 绑定和长期风控仍待验证，用户自有账号与 Redis 活跃/配额尚未实现，删除没有生产业务调用方：
+当前已落地 115 Cookie 模式的管理员全局账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 `115 302 → 本地精确路径 → Emby` 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。2026-08-31 macOS Infuse `8.5.2` 已确认登录、普通资源、由 Emby 返回的旧本地 fallback `206`、115 首次/复用 `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped `204`；新 Gateway 本地文件回退目前只有自动化 fixture 证据，尚未执行真实客户端验证。115 CDN 完整响应头、HEAD/Range、全文件字节、UA/IP 绑定和长期风控仍待验证，用户自有账号与 Redis 活跃/配额尚未实现，删除没有生产业务调用方：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；客户端类型从 Cookie 自动展示，未知编码才开放人工兜底；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
@@ -741,6 +743,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `LoadCredentialForValidation(ctx, accountID)`：仅供显式账号验证读取待验证凭证
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
 - `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，source 返回 Emby 前缀/115 root，playback 返回目标目录，并携带解密后的窄 Credential；`active` 直接可用，未到期的 `cooling_down` 失败关闭，已到期冷却在事务行锁内把 `cooldown_until` 延长 1 分钟并只放行一个半开探测；历史 source 缺位置时同样失败关闭，Cookie 仍不进入 JSON
+- `LoadEnabledSourceLocation(ctx)`：只读取唯一启用 source 的 `id/embyPathPrefix/sourceRootId`，不读取 Provider UID、不解密 Cookie，也不受 `active/error/cooling_down` 影响；手工停用或位置非法时失败关闭。DirectPlay 在读取 playback 凭证和调用 Provider 前完成这次映射，因此后续失败仍可把同一可信 `relativePath` 交给本地 fallback
+- Gateway 本地回退：仅在身份门控、PlaybackInfo proof、source 精确映射和 115 DirectPlay 失败之后执行；`PLAYBACK_LOCAL_MEDIA_ROOT` 为空默认关闭。解析器从每次固定打开的根目录文件描述符逐段 `openat + O_NOFOLLOW`，只接受普通文件/硬链接，拒绝根目录、中间目录和最终文件的符号链接、路径穿越与特殊文件，不扫描目录也不比较 SHA1/大小/修改时间
+- Gateway 本地 HTTP：只接受无条件 `GET/HEAD` 和至多一个 Range；重复/多段 Range、条件请求、明确拒绝 identity 或非法 `Accept-Encoding` 保留原请求回退 Emby。命中后返回原始 identity 字节及 `200/206/416`、`Cache-Control: private, no-store`，零字节文件携 Range 固定返回 `416 + bytes */0`，不生成 ETag/Last-Modified/Content-Encoding；本地 miss 或响应开始前失败继续权威 Emby fallback。DirectPlay 期间取消/deadline 以 `499/504` 终止且不再读取本地，响应开始后的提前 EOF、请求取消或客户端写失败统一记录 `local_stream_interrupted`
 - `ReportRuntimeHealth(ctx, account, outcome)`：DirectPlay 只回传 `succeeded/credential_rejected/provider_unavailable/provider_protocol` 四种固定结果；成功更新 `last_succeeded_at` 并清除冷却/错误，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。回写同时匹配请求加载时的 Cookie 密文和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的运行期结果
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
 - `integrations/p115.DetectCookieAppType`：只解析 Cookie `UID` 的第二段 `ssoent` 并映射固定客户端类型，不调用 115；`A1` 归一为 `web`，未知编码不猜测

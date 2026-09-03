@@ -82,11 +82,11 @@
 | 转存预留 TTL | `pending reservation` 首期固定为 `5m` 代码常量且不续租；成功后以同一 `transferAttemptId` 幂等写入 succeeded，失败或确认预存命中时立即删除。pending 已过期但外部转存最终成功时仍必须记账，进程崩溃且没有成功结果时最多保留 5 分钟 |
 | 成功记账失败 | 目标复核成功后使用独立 `2s` 总超时，以同一 `transferAttemptId` 有限重试 succeeded 提交；只有记账成功才继续 `302`。最终失败时保留外部文件和仍存在的 pending，本次公共 fallback，不新增数据库补偿或历史重建 |
 | 会话存储 | 不建数据库会话表；Redis 处理 302 reservation、Playing/Progress/Stopped 状态晋级、暂停和 TTL |
-| 失败策略 | 合法用户在账号、Redis、并发或配额不满足时进入公共 fallback；本地回退方案落地后先查本地精确路径，未命中才到 Emby；身份和硬状态失败仍拒绝 |
+| 失败策略 | 合法用户在账号、Redis、并发或配额不满足时进入已实现的公共 fallback；先查本地精确路径，未命中才到 Emby；身份和硬状态失败仍拒绝 |
 
 ## 方案设计
 
-本文后续沿用的“fallback Emby”表示当前已实现行为。与 [STRM 本地媒体回退播放实现方案](./strm-local-media-fallback.md) 组合后，账号、Redis、并发或配额失败先进入同一个 Gateway fallback 选择器：本地精确路径命中则直接播放，本地未命中才代理 Emby/CloudDrive2。`personal|system` 套餐路由选择、Redis 计数和转存配额本身不负责本地文件判断。
+本文后续沿用的“fallback Emby”表示最终权威 Emby 分支。当前 [STRM 本地媒体回退播放实现方案](./strm-local-media-fallback.md) 已完成代码与自动化验证：账号、Redis、并发或配额失败应进入同一个 Gateway fallback 选择器，本地精确路径命中则直接播放，本地未命中才代理 Emby/CloudDrive2。`personal|system` 套餐路由选择、Redis 计数和转存配额本身不负责本地文件判断。
 
 ### 1. 用户可见行为
 

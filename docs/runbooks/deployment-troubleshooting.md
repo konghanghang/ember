@@ -101,6 +101,18 @@ Gateway 在通用 `ember: command=gateway code=process_failed` 之前会打印�
 
 日志不会输出原始错误文本、数据库 DSN、Emby URL、API Key 或响应体；不要为了排障把这些值手工打印出来。
 
+`PLAYBACK_LOCAL_MEDIA_ROOT` 配置错误不会触发 `process_failed`，而是关闭可选本地回退并继续启动 Gateway：
+
+```text
+[PlaybackGateway] level=warn code=local_media_disabled reasonCode=<local_media_root_invalid|local_media_root_unsafe|local_media_root_unavailable> errorType=<type>
+```
+
+- `local_media_root_invalid`：不是规范化绝对目录、使用 `/`、包含歧义段或非法字符。
+- `local_media_root_unsafe`：配置根目录本身是符号链接。
+- `local_media_root_unavailable`：容器内目录不存在、不是目录或不可访问；优先核对 Compose override 的 `:ro` mount 和容器内路径是否与变量一致。
+
+日志不会显示真实本地根目录。排障时也不要把宿主机绝对路径写入仓库、工单或公开日志。
+
 ### 5. Web 能打开，但页面请求 API 失败
 
 检查：

@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-09-02
+> 更新时间：2026-09-03
 
 本清单只回答三件事：
 
@@ -85,7 +85,7 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-09-03 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，115 Cookie 客户端类型自动识别已同步进入代码和稳定文档。115 用户自有账号、套餐来源和 Redis 配额已完成需求决策并拆为独立实施稿；STRM 同相对路径本地媒体回退也已确认边界并形成独立实施稿。当前 `docs/plan/` 保留以下 9 份。
+2026-09-03 继续核对代码、测试和稳定文档；Gateway 透明代理/Web 访问与媒体路径诊断两份方案均完成 v2.0.3 受控验收并归档，115 Cookie 客户端类型自动识别已同步进入代码和稳定文档。115 用户自有账号、套餐来源和 Redis 配额已完成需求决策并拆为独立实施稿；STRM 同相对路径本地媒体回退已完成代码、自动化测试、部署入口和稳定文档同步，因当前环境缺少 Docker CLI 且未获真实外部验证授权，继续保留在计划目录。当前 `docs/plan/` 保留以下 9 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
@@ -93,7 +93,7 @@
 | `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 管理员 source + 管理员共享 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有本地 fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
 | `architecture/p115-personal-account-routing-and-redis-quotas.md` | 新增，待实施 | 已确认 `system` 只表示套餐路由到管理员共享 playback，不新增账号 scope；个人账号创建/替换只提交 Cookie，后端自动派生 `appType` 并固定普通 Provider UA，最终直链仍使用真实播放器 UA；解绑使用擦除凭证但保留 transfer 引用的 revoked tombstone。个人 `maxConcurrentStreams` 必须受有效套餐 `SimultaneousStreamLimit` 约束，运行时取配置值与正数套餐上限的较小值，套餐值 `0` 按 Ember 内部合同表示没有有限套餐上限；共享账号不与单个套餐比较。Redis 采用 `reservation → active ↔ paused` 并只执行账号准入，TTL 首期固定为代码常量 `30s/2m/15m`，用户索引不形成第二套门控；转存配额默认每小时 `5`、每天 `10`，小时范围 `1..100`、每日范围 `1..1000`，只统计目标缺失后成功秒传并复核的新文件。pending reservation 固定 `5m` 且不续租，晚到成功按同一 `transferAttemptId` 幂等补记 succeeded；succeeded 提交使用独立 `2s` 总预算，最终失败时保留文件并 fallback，不建立数据库补偿。Emby 对 115/本地分流播放的限制效果仍未证实。当前没有账号所有权模型、用户 API/Web、Redis 客户端或部署入口 | 按阶段 0→3 推进，禁止把需求决策写成当前实现 |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
-| `architecture/strm-local-media-fallback.md` | 新增，待实施 | 已确认 Emby 只维护 115 STRM；115 DirectPlay 失败后按 `MediaSource.Path` 的精确相对路径检查本地硬链接，命中由 Gateway 返回本地 Range，未命中才到 Emby/CloudDrive2；source 映射只读唯一启用全局账号的位置元数据，不受临时 Provider 健康状态影响且不解密 Cookie；普通文件/硬链接允许，根目录、中间目录和最终文件的符号链接全部拒绝；不做哈希/大小/修改时间比较，不承担 MoviePilot 上传 | 按阶段 0→3 推进，先锁住现有 `302`、身份门控和权威 Emby fallback |
+| `architecture/strm-local-media-fallback.md` | 代码与自动化已完成，待受控验收 | source 非敏感位置加载、DirectPlay 前置映射、Gateway 本地选择器、逐段无 symlink 打开、GET/HEAD/单 Range/416、identity/no-store、配置与文档均已落地；全量 Go test/vet/build 和目标 race 通过。未启动服务，未验证真实容器 mount、Emby/CloudDrive2 I/O 或播放器行为；当前环境也没有 Docker CLI | 保留到 Compose CLI 和用户授权范围内的真实验证完成，或由用户明确决定按未验证限制归档 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |

@@ -74,6 +74,7 @@ type accountHealthReporter interface {
 type accountRuntime interface {
 	activeAccountLoader
 	accountHealthReporter
+	LoadEnabledSourceLocation(ctx context.Context) (p115account.SourceLocation, error)
 }
 
 // TransferProvider intentionally omits DeleteFile so the phase-one service
@@ -160,23 +161,37 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 // before entering the already tested transfer orchestration.
 func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathResolveRequest) (RedirectCandidate, error) {
 	mapping := MediaPathMapping{OriginalPath: request.Path}
-	if !validClientUserAgent(request.ClientUserAgent) {
-		return RedirectCandidate{PathMapping: mapping}, ErrInvalidRequest
-	}
 	if !validAbsoluteMediaPath(request.Path, maxDirectPlayMediaPath) {
 		return RedirectCandidate{PathMapping: mapping}, ErrPathNotMapped
+	}
+	location, err := service.accounts.LoadEnabledSourceLocation(ctx)
+	if err != nil {
+		return RedirectCandidate{PathMapping: mapping}, withFailureContext(
+			ErrAccountUnavailable,
+			FailureContext{AccountRole: string(models.P115AccountRoleSource)},
+		)
+	}
+	mapping.EmbyPathPrefix = location.EmbyPathPrefix
+	mapping.SourceRootID = location.SourceRootID
+	fileQuery, err := mapMediaPath(location.EmbyPathPrefix, location.SourceRootID, request.Path)
+	if err != nil {
+		return RedirectCandidate{PathMapping: mapping}, err
+	}
+	mapping.RelativePath = fileQuery.RelativePath
+	if !validClientUserAgent(request.ClientUserAgent) {
+		return RedirectCandidate{PathMapping: mapping}, ErrInvalidRequest
 	}
 	source, playback, err := service.loadAccounts(ctx)
 	if err != nil {
 		return RedirectCandidate{PathMapping: mapping}, err
 	}
-	mapping.EmbyPathPrefix = source.EmbyPathPrefix
-	mapping.SourceRootID = source.SourceRootID
-	fileQuery, err := mapMediaPath(source.EmbyPathPrefix, source.SourceRootID, request.Path)
-	if err != nil {
-		return RedirectCandidate{PathMapping: mapping}, err
+	if source.Credential.AccountID != location.AccountID || source.EmbyPathPrefix != location.EmbyPathPrefix ||
+		source.SourceRootID != location.SourceRootID {
+		return RedirectCandidate{PathMapping: mapping}, withFailureContext(
+			ErrAccountUnavailable,
+			FailureContext{AccountRole: string(models.P115AccountRoleSource)},
+		)
 	}
-	mapping.RelativePath = fileQuery.RelativePath
 	candidate, err := service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
 		SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
 	})

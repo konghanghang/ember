@@ -32,6 +32,7 @@ type accountStore interface {
 	Create(ctx context.Context, account *models.P115Account) error
 	List(ctx context.Context) ([]models.P115Account, error)
 	GetByID(ctx context.Context, id string) (*models.P115Account, error)
+	GetEnabledSourceLocation(ctx context.Context) (*models.P115Account, error)
 	AcquireRuntimeByRole(ctx context.Context, role models.P115AccountRole, now, probeUntil time.Time) (*models.P115Account, error)
 	ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error)
 	CompleteValidationSuccess(ctx context.Context, id, expectedCiphertext, providerUserID string, at time.Time) (*models.P115Account, error)
@@ -100,6 +101,14 @@ type ActiveAccountCredential struct {
 	SourceRootID   string
 	Credential     p115integration.Credential
 	runtimeRef     runtimeCredentialRef
+}
+
+// SourceLocation contains only the non-sensitive source mapping metadata needed
+// before DirectPlay decides whether Provider credentials are currently usable.
+type SourceLocation struct {
+	AccountID      string
+	EmbyPathPrefix string
+	SourceRootID   string
 }
 
 // SourceLocationInput updates the source account's local Emby prefix and 115 root.
@@ -222,6 +231,28 @@ func (s *Service) LoadCredentialForValidation(ctx context.Context, accountID str
 // LoadActiveCredential decrypts a credential only when the account is enabled and active.
 func (s *Service) LoadActiveCredential(ctx context.Context, accountID string) (p115integration.Credential, error) {
 	return s.loadCredential(ctx, accountID, true)
+}
+
+// LoadEnabledSourceLocation returns the single manually enabled source mapping
+// without reading Provider identity, decrypting Cookie data, or gating on the
+// account's transient runtime health state.
+func (s *Service) LoadEnabledSourceLocation(ctx context.Context) (SourceLocation, error) {
+	account, err := s.store.GetEnabledSourceLocation(ctx)
+	if err != nil {
+		return SourceLocation{}, err
+	}
+	if account == nil || account.Role != models.P115AccountRoleSource || !account.Enabled ||
+		strings.TrimSpace(account.ID) == "" || account.ID != strings.TrimSpace(account.ID) ||
+		account.EmbyPathPrefix == nil || account.SourceRootID == nil {
+		return SourceLocation{}, ErrAccountUnavailable
+	}
+	embyPathPrefix, sourceRootID, err := normalizeSourceLocation(*account.EmbyPathPrefix, *account.SourceRootID)
+	if err != nil || embyPathPrefix != *account.EmbyPathPrefix || sourceRootID != *account.SourceRootID {
+		return SourceLocation{}, ErrAccountUnavailable
+	}
+	return SourceLocation{
+		AccountID: account.ID, EmbyPathPrefix: embyPathPrefix, SourceRootID: sourceRootID,
+	}, nil
 }
 
 // LoadActiveCredentialByRole resolves the unique enabled account for one role

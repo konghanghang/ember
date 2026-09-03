@@ -1,6 +1,6 @@
 # STRM 本地媒体回退播放实现方案
 
-> 状态：草稿
+> 状态：实现完成，待 Compose CLI 与受控真实客户端验收
 > 负责人：Ember
 > 更新时间：2026-09-03
 
@@ -46,13 +46,13 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 以当前代码和现行文档为准：
 
 - `internal/playbackgateway` 已对 Emby `>= 4.9.0.0 && < 4.10.0.0` 的固定视频路由做身份门控，并从透明代理的 PlaybackInfo 响应保存有界 `MediaSource.Path` 证明。
-- `playbackgateway.serveVideo` 当前只在完整 DirectPlay 候选成立时返回 `302`；其余合法请求最终调用 `proxyVideoFallback`，由 Emby 返回状态、响应头和视频体。
+- `playbackgateway.serveVideo` 在完整 DirectPlay 候选成立时返回 `302`；DirectPlay 失败且已有可信 `relativePath` 时调用公共本地选择器，本地未命中或请求不支持才调用 `proxyVideoFallback`。
 - 按需 PlaybackInfo 已为普通视频请求准备与 DirectPlay 决策分离的权威 Emby fallback request，不能为了本地回退退化为猜测路径。
 - `directplay.Service.ResolveMediaPath` 已能按 source 账号的 `embyPathPrefix + sourceRootId` 将 `MediaSource.Path` 映射为 115 `relativePath`，并拒绝兄弟前缀、空路径、`.`、`..`、反斜杠和非规范路径。
-- 当前 `ResolveMediaPath` 在 source/playback 账号加载后才完成映射；如果 playback 账号未绑定、不可用、达到未来并发上限，Gateway 不一定能获得可供本地查询复用的 `relativePath`。
-- 当前 Gateway 没有本地媒体读取组件，没有 `PLAYBACK_LOCAL_MEDIA_ROOT`，Compose 的 `ember-gateway` 也没有本地媒体只读挂载。
-- 当前每个视频请求只记录一条 `redirect|fallback|reject` 最终决策日志；fallback 的上游状态由 ReverseProxy 响应钩子补齐。
-- 当前实机证据中的“本地 fallback `206`”是 Emby 对一个本地媒体条目的权威 fallback，不等于“115 STRM 映射到隐藏的本地硬链接后由 Gateway 直接读取”；本计划能力尚未实现，也尚无真实客户端证据。
+- `ResolveMediaPath` 现在先通过 `LoadEnabledSourceLocation` 读取不含 Cookie/Provider UID 的 source 位置并完成映射，再加载严格运行期 source/playback 凭证；后续账号或 Provider 失败仍返回同一个 `relativePath`。
+- Gateway 已实现 `PLAYBACK_LOCAL_MEDIA_ROOT`、逐段 `openat + O_NOFOLLOW` 的本地 resolver，以及 `GET/HEAD/单 Range/416` 的 identity/no-store 响应；Compose 默认只透传空配置，不挂载真实目录。
+- 每个视频请求仍只记录一条 `redirect|fallback|reject` 最终决策日志；本地分支增加 `fallbackTarget/localLookup/localReasonCode`，Emby 分支继续由 ReverseProxy 响应钩子补齐上游状态。
+- 2026-08-31 实机证据中的“本地 fallback `206`”仍是 Emby 对一个本地媒体条目的权威 fallback；本次新增的 Gateway 本地文件读取只有自动化 fixture 证据，尚未执行真实客户端验收。
 - 本计划依赖一个部署前提：外部系统保证 115 正式目录和本地媒体根目录下的相对路径、大小写及文件名完全一致。Ember 不负责建立或验证这个同步合同。
 
 ## 已确认决策
@@ -140,6 +140,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 - 本地请求资格只接受没有条件 Header 且 Range Header 缺失，或恰好一个不含逗号的 Range Header 值的 `GET/HEAD`；资格门控只排除重复/多段 Range，不提前把非法单 Range 改成 Emby fallback。合法多段 Range、重复 Range Header，或携带 `If-Range/If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since` 时，不打开本地文件，直接使用已准备好的权威 Emby fallback request，并完整保留原 Header。
 - 本地请求资格按 HTTP `Accept-Encoding` 语义判断 identity 是否可接受：Header 缺失或只声明 gzip/deflate/br 等编码时，identity 默认仍允许；显式 `identity;q=0`，或 `*;q=0` 且没有更具体的正值 identity 时，直接保留原 Header 回退 Emby。Header 语法非法、重复 token 给出冲突 q 值或无法得到唯一结论时也按不支持处理，不打开本地文件。
 - 不可满足 Range：返回标准 `416`，不能把已经选择的本地文件请求改成 Emby 上游请求。
+- 零字节文件只要携带 Range，也必须返回空体 `416 + Content-Range: bytes */0`，显式覆盖 Go 标准库为兼容通用下载场景而返回 `200` 的空文件特例。
 - 本地响应不生成 ETag，也不使用文件修改时间生成 `Last-Modified` 或判断条件请求，避免把 Emby/CloudDrive2 的 validator 错套到未做内容一致性校验的本地文件。
 - 本地完整 `GET 200`、单 Range `206`、`HEAD` 和 `416` 都固定返回 `Cache-Control: private, no-store`，禁止公开缓存和持久复用；每个新请求必须重新经过 Gateway 身份与用户状态门控。该 Header 不改变当前响应的流式读取和内存缓冲语义。
 - 本地完整 `GET 200`、单 Range `206`、`HEAD` 和 `416` 都直接使用磁盘原始 identity 字节，响应不得设置 `Content-Encoding` 或进入 HTTP 压缩中间件；`Content-Length`、`Content-Range` 和实际响应体必须基于同一份未编码文件字节。由于响应固定且禁止缓存，不需要增加 `Vary: Accept-Encoding`。
@@ -201,6 +202,7 @@ flowchart TD
 - 本地响应缓存：本地 `200/206/HEAD/416` 必须携带 `private, no-store`；不能继承先前 Emby 响应的缓存 Header。进入 Emby fallback 时则继续保持上游缓存语义，不由本地分支覆盖。
 - 本地响应编码：本地状态不得携带 `Content-Encoding`，Range 和长度全部按原始文件字节计算；未来新增全局压缩中间件时必须显式排除本地媒体响应。
 - 本地读取在响应开始后中断：关闭响应并记录 `local_stream_interrupted`，不拼接 Emby 响应。
+- DirectPlay 返回 `context.Canceled/context.DeadlineExceeded`，或请求 context 在 DirectPlay 完成时已经终止：分别以空体 `499/504` 收口，不打开本地文件，也不发起 Emby fallback。
 - Gateway 多副本：每个需要本地回退的副本都必须挂载同一逻辑本地根目录；未挂载的副本只会 miss 并继续 Emby，不共享文件索引状态。
 
 ### 6. 日志与观察边界
@@ -209,7 +211,9 @@ flowchart TD
 
 - `fallbackTarget=local|emby`
 - `localLookup=hit|miss|disabled|unsupported|unsafe|unavailable`
-- `reasonCode=local_media_ready|local_media_not_found|local_media_disabled|local_request_unsupported|local_media_unsafe|local_media_open_failed|local_stream_interrupted`
+- `localReasonCode=local_media_ready|local_media_not_found|local_media_disabled|local_request_unsupported|local_media_unsafe|local_media_open_failed|local_stream_interrupted`
+
+现有 `reasonCode` 继续保留触发 DirectPlay fallback 的原始固定原因；本地选择只写独立 `localReasonCode`，避免用中间本地 miss 覆盖账号或 Provider 根因。
 
 本地命中示例语义：
 
@@ -223,7 +227,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 - 本地媒体根目录和拼接后的宿主机/容器绝对路径。
 - Token、Cookie、Authorization、完整 115 URL、完整 SHA1 或响应字节。
-- 文件系统原始错误文本；只记录固定 reasonCode 和错误类型。
+- 文件系统原始错误文本；只记录固定 `localReasonCode`，启动期配置失败最多补充 Go 错误类型。
 
 现有 `mediaPath/embyPathPrefix/mappedRelativePath` 诊断字段继续按当前脱敏和有界规则处理。
 
@@ -285,7 +289,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 ## 分阶段落地
 
-### 阶段 0：固定合同与测试入口
+### 阶段 0：固定合同与测试入口（已完成）
 
 - 固定本计划的优先级、非目标、配置名、本地命中规则和响应语义。
 - 用特征测试锁住当前 `302`、权威 Emby fallback、单条决策日志和 PlaybackInfo proof 行为。
@@ -293,7 +297,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 完成条件：测试能证明当前行为未被误改，并明确本地路径只来自可信 PlaybackInfo 证明。
 
-### 阶段 1：路径映射与本地文件边界
+### 阶段 1：路径映射与本地文件边界（已完成）
 
 - 把 source 前缀映射收口为 DirectPlay 与本地 fallback 共用能力。
 - 新增与凭证加载器分离的 source 映射元数据加载器，证明 `error/cooling_down` 不阻断本地映射且不会解密 Cookie。
@@ -302,7 +306,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 完成条件：唯一启用 source 的 Provider 健康异常时仍能得到已验证 `relativePath`，手动停用或映射歧义时不猜测历史账号；本地 resolver 只有精确 hit/miss，不包含内容校验或目录搜索，并且硬链接可命中、任一符号链接或路径替换竞态不能逃逸根目录。
 
-### 阶段 2：Gateway 本地 Range 播放
+### 阶段 2：Gateway 本地 Range 播放（已完成）
 
 - 在 DirectPlay fallback 出口接入本地选择器。
 - 完成无条件 `GET/HEAD`、单 Range 响应、`private, no-store` 缓存策略、identity 传输编码、请求资格门控、取消和响应开始后的错误边界。
@@ -310,7 +314,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 完成条件：fake 链路证明 `302` 不查本地、本地 hit 不访问 Emby、本地 miss 和不支持的 Range/条件请求无损访问 Emby，所有安全拒绝仍 fail-closed。
 
-### 阶段 3：部署、文档与受控验收
+### 阶段 3：部署与文档已完成，受控验收未执行
 
 - 补 Gateway 只读 mount 的 Compose override 示例和配置说明。
 - 完成 Go 全量测试、race、vet、build 和文档一致性检查。
@@ -327,10 +331,17 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 - 已确认本地文件身份只按精确相对路径、文件名和存在性判断，不增加哈希、大小或修改时间比较。
 - 已确认 MoviePilot 上传和所有外部同步能力不属于 Ember。
 - 当前代码、现行参考和相关计划边界已完成盘点。
+- source 位置元数据加载已与凭证/健康加载分离，映射在 playback 账号和 Provider 调用前完成。
+- 本地 resolver 已覆盖普通文件、硬链接、根/中间/最终 symlink、路径穿越、缺失和根目录替换竞态。
+- Gateway 已覆盖 `302` 不查本地、本地命中不访问 Emby、本地 miss/unsupported 无损回退 Emby，以及完整 GET、HEAD、单 Range、`416`、identity 与 no-store 合同。
+- Review 收口已覆盖零字节 Range `416`、DirectPlay 取消/deadline 的 `499/504` 终止，以及文件提前 EOF、请求取消和客户端 Writer 失败的 `local_stream_interrupted`。
+- `PLAYBACK_LOCAL_MEDIA_ROOT`、Compose 透传、只读 mount override、配置参考、部署/测试 runbook、系统架构和版本化 Emby/115 参考均已同步。
+- `go test -count=1 ./...`、目标包 race、`go vet ./...`、`go build ./...` 和 YAML 解析已通过；测试没有启动服务或访问真实外部系统。
 
 剩余：
 
-- 阶段 0 至阶段 3 的代码、配置、部署示例、自动化验证、受控真实验证和稳定文档同步均未实施。
+- 当前环境没有 `docker` 命令，尚未执行 `docker compose config --quiet`；Compose YAML 已完成解析，但不能把它写成 Compose CLI 验证通过。
+- 用户尚未授权真实外部验证，因此没有启动项目服务，也没有执行真实容器 mount、Emby/115/CloudDrive2 I/O、播放器 Range/拖动/字幕/会话事件或 `SimultaneousStreamLimit` 验收。
 
 归档条件：
 
@@ -350,3 +361,5 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 - `docs/runbooks/deployment.md`、`docs/runbooks/deployment-environment.md`：补本地媒体只读 mount 和多 Gateway 副本要求。
 - `docs/runbooks/testing.md`：补本地 Range fake/fixture 测试与受控真实验证入口。
 - 本计划全部完成并满足归档条件后移入 `docs/archive/plan/architecture/`。
+
+当前尚未满足归档条件；保留在 `docs/plan/architecture/`，直到上述 Compose CLI 与授权范围内的真实验证边界完成或由用户明确决定按未验证限制归档。

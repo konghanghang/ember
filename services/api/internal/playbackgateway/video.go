@@ -43,6 +43,9 @@ type videoDecision struct {
 	Stage              string
 	ReasonCode         string
 	FallbackSource     string
+	FallbackTarget     string
+	LocalLookup        string
+	LocalReasonCode    string
 	Method             string
 	UserID             string
 	MappingID          string
@@ -154,19 +157,28 @@ func (gateway *Gateway) serveVideo(
 	decision.EmbyPathPrefix = candidate.PathMapping.EmbyPathPrefix
 	decision.SourceRootID = candidate.PathMapping.SourceRootID
 	decision.MappedRelativePath = candidate.PathMapping.RelativePath
+	if status, reasonCode, terminated := directPlayRequestTermination(request, err); terminated {
+		decision.Decision = "reject"
+		decision.Stage = "direct_play"
+		decision.ReasonCode = reasonCode
+		decision.StatusCode = status
+		writer.WriteHeader(status)
+		gateway.logVideoDecision(decision)
+		return
+	}
 	if err != nil {
 		failureContext := directplay.InspectFailure(err)
 		decision.ProviderOperation = failureContext.ProviderOperation
 		decision.AccountRole = failureContext.AccountRole
 		decision.Stage = "direct_play"
 		decision.ReasonCode = directPlayReasonCode(err)
-		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		gateway.serveMappedVideoFallback(writer, request, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 	if !validRedirectCandidate(candidate) {
 		decision.Stage = "direct_play"
 		decision.ReasonCode = "provider_protocol"
-		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		gateway.serveMappedVideoFallback(writer, request, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
 
@@ -182,6 +194,23 @@ func (gateway *Gateway) serveVideo(
 	gateway.logVideoDecision(decision)
 }
 
+// directPlayRequestTermination prevents an already canceled or expired request
+// from opening local media or starting an Emby fallback after DirectPlay exits.
+func directPlayRequestTermination(request *http.Request, directPlayErr error) (int, string, bool) {
+	requestErr := error(nil)
+	if request != nil {
+		requestErr = request.Context().Err()
+	}
+	switch {
+	case errors.Is(requestErr, context.DeadlineExceeded), errors.Is(directPlayErr, context.DeadlineExceeded):
+		return http.StatusGatewayTimeout, "request_deadline_exceeded", true
+	case errors.Is(requestErr, context.Canceled), errors.Is(directPlayErr, context.Canceled):
+		return statusClientClosedRequest, "request_canceled", true
+	default:
+		return 0, "", false
+	}
+}
+
 // proxyVideoFallback delegates the selected client or PlaybackInfo-authorized
 // Emby request to the existing proxy; response/error hooks own the final log.
 func (gateway *Gateway) proxyVideoFallback(
@@ -192,10 +221,78 @@ func (gateway *Gateway) proxyVideoFallback(
 	fallbackSource string,
 ) {
 	decision.Decision = "fallback"
+	decision.FallbackTarget = "emby"
 	decision.FallbackSource = fallbackSource
 	routeContext := requestRouteContext{kind: routeVideo, principal: &principal, videoDecision: &decision}
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
 	gateway.proxy.ServeHTTP(writer, request.WithContext(ctx))
+}
+
+// serveMappedVideoFallback tries the optional exact local file only after the
+// authenticated DirectPlay path has produced a trusted relative mapping. Any
+// pre-response local miss or incompatibility preserves the authoritative Emby
+// fallback request without changing its method, headers, query, or body.
+func (gateway *Gateway) serveMappedVideoFallback(
+	writer http.ResponseWriter,
+	request *http.Request,
+	fallbackRequest *http.Request,
+	decision videoDecision,
+	principal embytoken.Principal,
+	fallbackSource string,
+) {
+	if decision.MappedRelativePath == "" {
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		return
+	}
+	if gateway.localMediaResolver == nil {
+		decision.LocalLookup = "disabled"
+		decision.LocalReasonCode = "local_media_disabled"
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		return
+	}
+	if !localMediaRequestEligible(request) {
+		decision.LocalLookup = "unsupported"
+		decision.LocalReasonCode = "local_request_unsupported"
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		return
+	}
+
+	file, err := gateway.localMediaResolver.Open(decision.MappedRelativePath)
+	if err != nil {
+		decision.LocalLookup, decision.LocalReasonCode = localMediaOpenFailure(err)
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		return
+	}
+	result := serveLocalMediaFile(writer, request, file)
+	_ = file.Close()
+	if result.StatusCode == 0 {
+		decision.LocalLookup = "unavailable"
+		decision.LocalReasonCode = "local_media_open_failed"
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		return
+	}
+
+	decision.Decision = "fallback"
+	decision.FallbackTarget = "local"
+	decision.FallbackSource = ""
+	decision.LocalLookup = "hit"
+	decision.LocalReasonCode = "local_media_ready"
+	decision.StatusCode = result.StatusCode
+	if result.Interrupted {
+		decision.LocalReasonCode = "local_stream_interrupted"
+	}
+	gateway.logVideoDecision(decision)
+}
+
+func localMediaOpenFailure(err error) (string, string) {
+	switch {
+	case errors.Is(err, ErrLocalMediaNotFound):
+		return "miss", "local_media_not_found"
+	case errors.Is(err, ErrLocalMediaUnsafe), errors.Is(err, ErrLocalMediaRootUnsafe):
+		return "unsafe", "local_media_unsafe"
+	default:
+		return "unavailable", "local_media_open_failed"
+	}
 }
 
 // observeVideoFallbackResponse records the upstream status without treating a
@@ -430,10 +527,15 @@ func videoDecisionHeadline(decision videoDecision) []string {
 		)
 	case "fallback":
 		fallbackResult := requestOutcome(decision.StatusCode)
-		message := "Emby回退成功"
+		fallbackName := "Emby"
+		if decision.FallbackTarget == "local" {
+			fallbackName = "本地"
+		}
+		message := fallbackName + "回退成功"
 		level := "info"
-		if fallbackResult != "success" {
-			message = "Emby回退失败"
+		if fallbackResult != "success" || decision.LocalReasonCode == "local_stream_interrupted" {
+			fallbackResult = "failure"
+			message = fallbackName + "回退失败"
 			level = "warn"
 		}
 		code := "playback_fallback"
@@ -472,6 +574,9 @@ func appendVideoDecisionContext(fields []string, decision videoDecision, duratio
 		"reasonCode="+decision.ReasonCode,
 	)
 	fields = appendOptionalLogField(fields, "fallbackSource", decision.FallbackSource, false)
+	fields = appendOptionalLogField(fields, "fallbackTarget", decision.FallbackTarget, false)
+	fields = appendOptionalLogField(fields, "localLookup", decision.LocalLookup, false)
+	fields = appendOptionalLogField(fields, "localReasonCode", decision.LocalReasonCode, false)
 	fields = appendOptionalLogField(fields, "providerOperation", decision.ProviderOperation, false)
 	fields = appendOptionalLogField(fields, "accountRole", decision.AccountRole, false)
 	fields = appendOptionalLogField(fields, "method", decision.Method, false)
