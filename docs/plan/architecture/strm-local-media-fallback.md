@@ -36,6 +36,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 - 不让本地文件覆盖成功的 115 DirectPlay；115 候选完整成立时仍返回当前 `302`。
 - 不改写 HLS、DASH、转码 manifest 或转码分片，不在 Gateway 中新增转码能力。
 - 不实现 multipart 多段 Range，也不为本地文件生成或比较 ETag、Last-Modified 等缓存 validator；超出首期本地响应合同的请求保留原 Header 并交给 Emby。
+- 不对本地视频字节应用 gzip、deflate、br 或其他 HTTP Content-Encoding；媒体容器自身编码与 HTTP 内容编码是两条不同边界。
 - 不新增可直接传入任意磁盘路径的公开下载接口，不向客户端暴露宿主机或容器文件路径。
 - 不改变 MoviePilot、CloudDrive2、STRM 生成器或 115 Provider 的实现与配置。
 
@@ -66,6 +67,8 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 | 链接边界 | 普通文件和硬链接允许；配置根目录、任一中间目录和最终文件均禁止符号链接 |
 | source 映射加载 | 只读取唯一启用的管理员全局 source 位置元数据，不检查 Provider 健康状态、不读取 Provider UID、不解密 Cookie |
 | 本地请求范围 | 只处理无条件 `GET/HEAD` 与至多一个 Range；多段 Range、重复 Range Header 和任一条件请求直接保留原请求回退 Emby |
+| 本地缓存 | 本地 `200/206/HEAD/416` 统一返回 `Cache-Control: private, no-store`，不生成公开缓存或 validator；Emby fallback 保留上游 Header |
+| 传输编码 | 本地 `200/206/HEAD/416` 只返回磁盘原始 identity 字节，不设置 `Content-Encoding`；客户端明确拒绝 identity 或 `Accept-Encoding` 非法/冲突时回退 Emby |
 | 状态存储 | 不使用 PostgreSQL 或 Redis 保存本地文件索引、命中结果或播放字节状态 |
 | 失败策略 | 本地未命中或打开失败时继续现有 Emby fallback；不能因为可选本地能力让合法用户失去播放 |
 | 115 兼容 | 成功的个人/系统 115 `302` 保持不变；本地播放不占用 115 Redis 播放租约和转存配额 |
@@ -133,8 +136,11 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 - 合法单 Range、开放尾端 Range 和后缀 Range：返回 `206`、准确的 `Content-Range` 与该响应的 `Content-Length`。
 - `HEAD`：返回与对应 `GET` 一致的状态和必要响应头，但不写响应体。
 - 本地请求资格只接受没有条件 Header 且 Range Header 缺失，或恰好一个不含逗号的 Range Header 值的 `GET/HEAD`；资格门控只排除重复/多段 Range，不提前把非法单 Range 改成 Emby fallback。合法多段 Range、重复 Range Header，或携带 `If-Range/If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since` 时，不打开本地文件，直接使用已准备好的权威 Emby fallback request，并完整保留原 Header。
+- 本地请求资格按 HTTP `Accept-Encoding` 语义判断 identity 是否可接受：Header 缺失或只声明 gzip/deflate/br 等编码时，identity 默认仍允许；显式 `identity;q=0`，或 `*;q=0` 且没有更具体的正值 identity 时，直接保留原 Header 回退 Emby。Header 语法非法、重复 token 给出冲突 q 值或无法得到唯一结论时也按不支持处理，不打开本地文件。
 - 不可满足 Range：返回标准 `416`，不能把已经选择的本地文件请求改成 Emby 上游请求。
 - 本地响应不生成 ETag，也不使用文件修改时间生成 `Last-Modified` 或判断条件请求，避免把 Emby/CloudDrive2 的 validator 错套到未做内容一致性校验的本地文件。
+- 本地完整 `GET 200`、单 Range `206`、`HEAD` 和 `416` 都固定返回 `Cache-Control: private, no-store`，禁止公开缓存和持久复用；每个新请求必须重新经过 Gateway 身份与用户状态门控。该 Header 不改变当前响应的流式读取和内存缓冲语义。
+- 本地完整 `GET 200`、单 Range `206`、`HEAD` 和 `416` 都直接使用磁盘原始 identity 字节，响应不得设置 `Content-Encoding` 或进入 HTTP 压缩中间件；`Content-Length`、`Content-Range` 和实际响应体必须基于同一份未编码文件字节。由于响应固定且禁止缓存，不需要增加 `Vary: Accept-Encoding`。
 - 返回 `Accept-Ranges: bytes` 和与文件扩展名/容器相符的 `Content-Type`；不回显本地绝对路径。
 - 在发送响应头前完成本地文件打开和基本可服务性检查；如果此时失败，仍可进入 Emby fallback。
 - 响应头或文件字节已经发送后发生读取错误时，只能终止本次本地响应并记录固定错误，不能把 Emby 响应体拼接到已发送的本地字节后面。客户端重试时重新执行完整决策。
@@ -169,7 +175,7 @@ flowchart TD
 2. `relativePath` 来自 STRM 指向的真实媒体对应的 `MediaSource.Path`，不是 Emby 扫描目录中的 `.strm` 文件路径。
 3. 115 候选完整成功时立即返回当前 `302`，不查询本地文件，也不改变个人/管理员共享 playback 的路由语义。
 4. 只有准备进入 fallback 的直接视频请求才查询本地；manifest、转码和无法形成可信媒体路径的请求继续交给 Emby。
-5. 多段/重复 Range 或条件请求在打开本地文件前直接使用请求开始时已经准备好的权威 Emby fallback request，并保留原 Header。
+5. 多段/重复 Range、条件请求、明确拒绝 identity 或非法/冲突的 `Accept-Encoding` 在打开本地文件前直接使用请求开始时已经准备好的权威 Emby fallback request，并保留原 Header。
 6. 本地命中后不访问 Emby 视频上游；本地 miss 后使用同一权威 fallback request，不重新猜测扩展名、Container 或 Token。
 7. 本地播放不是 115 播放，不申请或保留 115 Redis 活跃租约，不消耗小时/每日转存额度。
 
@@ -188,7 +194,10 @@ flowchart TD
 - 本地文件在检查和打开之间被删除：打开失败则 Emby fallback；成功打开后被外部删除时由当前文件描述符继续读取或按读取错误结束。
 - 本地文件在响应期间被外部改写：Ember 不做内容一致性检测，也不切换数据源；外部文件管理者负责路径合同和文件稳定性。
 - 合法多段 Range、重复 Range Header 或条件 Header：不打开本地文件，保留原请求语义并回退 Emby；不能静默忽略 Header 后返回本地 `200/206`。
+- `Accept-Encoding` 明确拒绝 identity、语法非法或重复编码给出冲突 q 值：不打开本地文件，保留原 Header 回退 Emby；普通 gzip/br 偏好没有排除 identity 时仍可返回本地原始字节。
 - Range 无效或不可满足：对已经命中的本地文件返回标准 `416`，不把错误 Range 转交 Emby 获得不同语义。
+- 本地响应缓存：本地 `200/206/HEAD/416` 必须携带 `private, no-store`；不能继承先前 Emby 响应的缓存 Header。进入 Emby fallback 时则继续保持上游缓存语义，不由本地分支覆盖。
+- 本地响应编码：本地状态不得携带 `Content-Encoding`，Range 和长度全部按原始文件字节计算；未来新增全局压缩中间件时必须显式排除本地媒体响应。
 - 本地读取在响应开始后中断：关闭响应并记录 `local_stream_interrupted`，不拼接 Emby 响应。
 - Gateway 多副本：每个需要本地回退的副本都必须挂载同一逻辑本地根目录；未挂载的副本只会 miss 并继续 Emby，不共享文件索引状态。
 
@@ -244,7 +253,8 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 - source 映射加载测试：唯一启用的管理员全局 source 在 `active/error/cooling_down` 下均只返回位置元数据且不调用 Cookie 解密器；手动停用、无唯一启用记录、个人账号、revoked 和非法位置必须拒绝，不能回退读取历史 source。
 - 路径映射测试：精确前缀、目录边界、Unicode/空格、兄弟前缀、空相对路径、`.`/`..`、反斜杠和超长路径。
 - 本地解析器测试：精确普通文件/硬链接命中、不存在、目录、不可读、根目录未配置、根目录不可用和路径逃逸；覆盖符号链接根目录、中间目录 symlink、最终文件 symlink，以及检查后路径被替换的竞态，证明解析器不会读取根目录外文件。测试不得加入 SHA1、大小或修改时间匹配条件。
-- HTTP 合同测试：完整 `GET 200`、`HEAD` 无响应体、固定 Range/open-ended/suffix Range 的 `206`、准确 `Content-Length/Content-Range/Accept-Ranges`、不可满足 Range `416` 和请求取消；重复 Range Header、逗号多段 Range 及五类条件 Header 必须在打开文件前保留原请求回退 Emby，本地响应不得生成 ETag 或 Last-Modified。
+- HTTP 合同测试：完整 `GET 200`、`HEAD` 无响应体、固定 Range/open-ended/suffix Range 的 `206`、准确 `Content-Length/Content-Range/Accept-Ranges`、不可满足 Range `416` 和请求取消；所有本地状态必须返回 `Cache-Control: private, no-store`，不得生成 ETag/Last-Modified 或 `Content-Encoding`，响应长度与字节必须对应原始文件。重复 Range Header、逗号多段 Range 及五类条件 Header 必须在打开文件前保留原请求回退 Emby，且不得覆盖 fake Emby 的缓存 Header。
+- Accept-Encoding 测试：Header 缺失、gzip/br 偏好和显式正值 identity 允许本地原始字节；`identity;q=0`、只有 `*;q=0`、非法 q 值、非法语法和重复 token 冲突必须在打开文件前保留 Header 回退 Emby。
 - Gateway 决策测试：
   - 115 成功 `302` 时不访问本地解析器。
   - DirectPlay 失败且本地命中时不调用 fake Emby 视频上游。
@@ -265,7 +275,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 3. 在保持本地文件存在的情况下让 115 DirectPlay 进入可控 fallback，验证客户端收到本地 `200/206`，并以 Gateway/Emby/CloudDrive2 的日志或 I/O 证据确认视频请求没有到达 CloudDrive2。
 4. 临时让同一精确本地路径不命中，验证同一 STRM 请求恢复为当前 Emby/CloudDrive2 fallback，且播放器仍可播放。
 5. 恢复本地文件并让 115 DirectPlay 成功，验证结果仍是 `302`，本地文件不会覆盖成功的 115 路径。
-6. 验证拖动、续播、连续 Range、`HEAD`、外挂/内嵌字幕和 Playing/Progress/Stopped；每一项只按实际证据标记通过。
+6. 验证 `Cache-Control: private, no-store`、无 `Content-Encoding` 下的拖动、续播、连续 Range、`HEAD`、外挂/内嵌字幕和 Playing/Progress/Stopped；每一项只按实际证据标记通过，不能用 HTTP Header 检查代替播放器行为。
 
 真实验证日志和报告不得包含 Token、Cookie、完整签名 URL、Authorization、响应体或本地宿主机绝对路径。Gateway 日志只能证明响应决策和状态，不能把“返回 `206`”扩大表述为客户端已完整播放；完整播放仍需要客户端观察确认。
 
@@ -291,7 +301,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 ### 阶段 2：Gateway 本地 Range 播放
 
 - 在 DirectPlay fallback 出口接入本地选择器。
-- 完成无条件 `GET/HEAD`、单 Range 响应、请求资格门控、取消和响应开始后的错误边界。
+- 完成无条件 `GET/HEAD`、单 Range 响应、`private, no-store` 缓存策略、identity 传输编码、请求资格门控、取消和响应开始后的错误边界。
 - 扩展单条最终决策日志，明确 local 与 Emby fallback 目标。
 
 完成条件：fake 链路证明 `302` 不查本地、本地 hit 不访问 Emby、本地 miss 和不支持的 Range/条件请求无损访问 Emby，所有安全拒绝仍 fail-closed。

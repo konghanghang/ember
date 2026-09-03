@@ -42,6 +42,8 @@
 - 后续本地回退落地后，成功的 115 `302` 仍保持不变；原本进入 Emby fallback 的可信直接视频请求先按 `MediaSource.Path` 的精确相对路径检查 Gateway 只读挂载的本地文件，命中则由 Gateway 返回本地字节，未命中才继续 Emby/CloudDrive2。该能力不做哈希、大小或修改时间比较，不负责 MoviePilot 上传；普通文件和硬链接允许，配置根目录、中间目录和最终文件的符号链接全部拒绝，并使用基于根目录文件描述符的无跟随打开防止路径替换逃逸。
 - 本地回退的 source 路径映射使用独立非敏感加载边界：只读取唯一启用的管理员全局 source 的 `embyPathPrefix/sourceRootId`，不检查 Provider 的 `active/error/cooling_down`、不读取 Provider UID、不解密 Cookie 或申请半开探测；管理员手动停用 source、没有唯一启用记录或位置非法时直接回退 Emby，真正访问 115 仍走严格凭证加载器。
 - 本地响应首期只接受无条件 `GET/HEAD` 和至多一个 Range；合法多段 Range、重复 Range Header 或任一条件请求在打开本地文件前保留原 Header 回退 Emby。本地响应不生成 ETag/Last-Modified，已进入本地响应的非法或不可满足单 Range 返回 `416`。
+- 本地 `200/206/HEAD/416` 统一返回 `Cache-Control: private, no-store`，每个新请求重新经过身份与用户状态门控；该策略不扩展为“已实测所有播放器兼容”，Emby fallback 仍保留上游原始缓存 Header。
+- 本地 `200/206/HEAD/416` 只返回磁盘原始 identity 字节，不设置 `Content-Encoding`，所有长度和 Range 均按未编码文件计算。普通 gzip/br 偏好默认仍允许 identity；客户端明确拒绝 identity 或 `Accept-Encoding` 非法/冲突时，在打开文件前保留原 Header 回退 Emby。
 
 以上都是已确认的实施方向，不是当前生产能力。
 
