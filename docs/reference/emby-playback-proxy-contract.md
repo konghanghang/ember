@@ -509,7 +509,7 @@ Content-Type: application/json
 - 下载接口额外满足内容下载权限。
 - 相同 Token 最近一次 `PlaybackInfo` 已被当前 Emby Server 成功接受，且 ItemId、MediaSourceId、PlaySessionId 与本次直连请求一致。
 
-不能仅依赖 Emby 自身 `SimultaneousStreamLimit`，因为 302 后视频字节不再经过 Emby，网关需要维护自己的会话状态。
+115 `302` 后视频字节不再经过 Emby，后续本地回退命中时也不会访问 Emby 视频上游；现有版本化合同和运行证据都不能证明 Emby `SimultaneousStreamLimit` 会拦截这两类分流播放，该效果保持“未证实”。已确认但尚未实施的方案只为实际选中的 115 playback 账号维护 Redis 租约并执行账号上限：个人账号配置值受当前有效套餐模板约束，管理员共享 playback 按所有 `system` 用户合计；Redis 用户索引只用于展示和归因，不新增 Gateway 用户级总并发门控。
 
 Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”，不能单独证明 Token 此刻仍被 Emby 接受。首期必须把近期成功的 GET/POST `PlaybackInfo` 作为 115 加速授权证据；缺少证明的合法请求不能获得 302，但仍 fallback 到 Emby。Token 被撤销或用户状态变化后拒绝所有受保护请求并清除对应直链缓存和未签发会话；已经建立的 115 CDN 连接只能等到断线、重连或链接过期。
 

@@ -33,7 +33,8 @@
 - 不允许一个用户绑定多个个人 playback 账号，不实现个人账号池、粘性选路或主备切换。
 - 不新增 `direct_play_sessions` 或其他数据库播放会话表，也不把当前播放数、暂停状态、小时用量和每日用量写入 PostgreSQL。
 - 不用 Redis 替代 `p115_accounts` 的持久账号配置、Cookie 密文或现有 `playback_transfer_tasks` provenance。
-- 不改变 Emby `SimultaneousStreamLimit`；Emby 继续负责用户整体播放并发，Redis 只决定是否允许新的 115 加速。
+- 不修改 Emby `SimultaneousStreamLimit` 的现有配置和同步机制；本计划只把有效套餐模板中的该值作为个人 115 账号配置上限，不新增 Gateway 用户级总并发门控。
+- 不把 Emby 当作已证实的分流播放并发门控：115 `302` 后视频字节不经过 Emby，后续本地命中也不访问 Emby 视频上游，当前没有证据证明 `SimultaneousStreamLimit` 能拦截这两类播放。
 - 不自动创建、移动或重命名用户的 115 目录；用户必须填写已经存在的目标目录路径。
 - 不因 `Stopped`、Redis TTL、解绑或套餐切换自动删除 playback 文件。
 - 不把 115 下载 URL 返回到 API、Web、数据库、日志或可长期读取的 Redis 值中。
@@ -51,6 +52,8 @@
 - Gateway 已在身份门控成功后旁路解析 `Playing/Progress/Stopped` 的 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused`，当前只用于日志，不维护业务计数。
 - `playback_transfer_tasks` 已按 `playbackAccountId + SHA1 + size` 保存秒传任务与 provenance，并用 PostgreSQL advisory lock 防止相同目标文件重复秒传；它不是播放会话或用户配额表。
 - 当前仓库没有 Redis 客户端、`REDIS_URL`、Compose Redis 服务或 Redis 测试夹具。
+- 套餐组 Emby 策略模板已经持久化 `SimultaneousStreamLimit`；API 当前接受 `0..100`，模型默认值为 `3`，有效套餐组由用户显式 `plan_group` 或默认套餐组解析。Web 当前控件上限为 `99`，实施本计划时必须与 API 的 `100` 上限对齐。
+- 固定 Emby SDK/OpenAPI 只声明 `SimultaneousStreamLimit` 为整数，没有定义 `0` 的业务语义。本计划把 `0` 固定为 Ember 内部的“没有有限套餐上限”，不能扩写成 Emby 官方语义。
 - 现有实机证据确认 Infuse `8.5.2` 的 Playing/Progress/Stopped 可经 Gateway 转发并取得 `204`，但没有固定“暂停后是否持续发送 Progress、多久发送一次”的客户端时序证据。
 
 ## 已确认决策
@@ -65,12 +68,15 @@
 | 个人账号 `appType` | 用户不填写；已知 `ssoent` 自动映射，未知编码保存固定诊断值 `unknown`，缺失/重复/非法 `UID` 直接拒绝 Cookie |
 | 个人账号 Provider UA | 用户不填写；验证、目录和查重等普通 Cookie/Web 请求固定使用代码常量 `Mozilla/5.0`，不新增配置项 |
 | 最终直链 UA | 始终使用 Gateway 收到的真实播放器 User-Agent；不得用固定 Provider UA 替代 |
-| 并发归属 | 最大播放路数属于具体 playback 账号，不属于套餐组 |
+| 并发归属 | 最大播放路数属于具体 playback 账号；个人账号配置值受当前有效套餐模板约束，管理员共享 playback 是所有 `system` 用户合计的账号总上限，不与任一用户套餐上限比较 |
+| 个人账号校验 | `SimultaneousStreamLimit > 0` 时要求 `1 <= maxConcurrentStreams <= SimultaneousStreamLimit`；等于 `0` 时只要求 `1..100`，其“无有限套餐上限”语义仅属于 Ember 内部合同 |
+| 运行时有效值 | 个人账号使用 `effectiveMaxConcurrentStreams = min(configuredMaxConcurrentStreams, positive SimultaneousStreamLimit)`；套餐上限为 `0` 时有效值等于配置值，套餐降低不自动改写数据库配置 |
 | 租约状态 | `reservation → active ↔ paused → stopped/expired`；302 前短预留与真实活跃播放必须分开，不能把 `HEAD` 或预加载直接算成正在播放 |
 | 两组计数 | Redis 同时维护账号/用户的占用数和真实活跃数；占用数包含 `reservation + active + paused` 并用于准入，活跃数只包含 `active + paused` 并用于展示、归因和后续治理 |
 | Redis 账号键 | 对规范化 `providerUserId` 使用服务端用途隔离 HMAC；不使用数据库账号 ID 或 Ember 用户 ID，不在 Redis 暴露原始 Provider UID |
 | Redis 真相源 | Redis 可用且命令成功时，只按当前 Key 判断；Key 不存在就是零占用、零用量，重启或数据丢失后的计数重置是接受的结果，不做 epoch、恢复等待或数据库重建 |
-| 实际门控 | 当前只用账号占用数执行 `maxConcurrentStreams`；用户占用数不参与第二套并发门控，Emby 继续负责用户整体播放并发 |
+| 实际门控 | 只用账号占用数执行账号有效上限；Redis 用户索引只用于展示、归因和后续治理，不参与第二套并发门控 |
+| Emby 证据边界 | 不新增 Gateway 用户级总并发门控；Emby `SimultaneousStreamLimit` 能否限制 115 `302` 或本地文件分流播放仍未证实，不能把该假设写成当前保证 |
 | 转存配额 | 小时/每日限额属于套餐组，由管理员配置，按发起播放的 Ember 用户统计 |
 | 会话存储 | 不建数据库会话表；Redis 处理 302 reservation、Playing/Progress/Stopped 状态晋级、暂停和 TTL |
 | 失败策略 | 合法用户在账号、Redis、并发或配额不满足时进入公共 fallback；本地回退方案落地后先查本地精确路径，未命中才到 Emby；身份和硬状态失败仍拒绝 |
@@ -95,11 +101,11 @@
 
 控制台新增独立“115 网盘”菜单。普通用户可以：
 
-- 查看本人账号的脱敏状态、目标目录路径、最大播放路数、当前账号/本人真实活跃数；短 reservation 单独显示为“准备中”，不混入正在播放。
+- 查看本人账号的脱敏状态、目标目录路径、配置最大播放路数、当前有效最大播放路数、有效套餐的 `SimultaneousStreamLimit`、当前账号/本人真实活跃数；短 reservation 单独显示为“准备中”，不混入正在播放。
 - 填写或替换 Cookie；Cookie 使用密码输入语义、禁止自动填充，提交后立即清空，查询接口永不返回。页面不展示或要求填写 `appType/UserAgent`。
 - 手工填写一个已经存在的 115 目标目录路径；后端解析并保存唯一 `targetParentId`，页面不要求用户获取内部 ID。
 - 显式验证、启用、停用或解绑自己的账号。
-- 设置本人 playback 账号的 `maxConcurrentStreams`。
+- 设置本人 playback 账号的 `maxConcurrentStreams`：有效套餐上限为正数时只能填写 `1..SimultaneousStreamLimit`，为 `0` 时只能填写 `1..100`。
 - 查看当前小时/每日成功转存用量和套餐组限额，但不能自行修改套餐额度。
 
 用户处于 `system` 套餐组时仍可提前绑定个人账号，但新播放只使用管理员共享 playback；切换到 `personal` 后无需重新录入。
@@ -150,6 +156,7 @@
 - 数据库 CHECK 要求 `owner_user_id IS NOT NULL` 的账号只能是非 revoked playback；`status=revoked` 时必须同时满足 `enabled=false`，且 owner、Cookie、Provider、目标目录、最大路数、验证/成功时间、冷却和错误字段全部为空。
 - 用户个人 playback 与管理员 source 的 Provider UID 必须不同，禁止借 source 账号签发最终直链。
 - 所有 owner、状态、凭证、目录与并发约束都必须在 SQL migration 中重写，并由 GORM 字段显式映射；不能只在 Service 层约定。
+- SQL CHECK 继续固定 source/revoked 必须为空、非 revoked playback 必须为正数；个人账号额外的 `1..100` 和有效套餐跨表上限由 Service 在创建、更新和运行时解析，不能用无法表达跨表语义的 CHECK 或触发器伪装完成。
 
 ##### 解绑与用户删除
 
@@ -204,7 +211,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 1. 只有身份、PlaybackInfo 证明和静态原文件条件完整的 `GET` 才能申请新预留；首次实际播放、带 Range 的 GET 或预加载 GET 在网关侧无法可靠区分，因此都最多形成同 session 的一个短 reservation，不能直接形成 active。`HEAD` 和会话事件不能创建新预留。
 2. 清理 account/user `leases` 与 `active` 索引中 score 已过期的 member。
 3. 如果同一 session 已存在，只复用既有 `reservation|active|paused`，不重复计数，也不因视频重试把 `active|paused` 降级成 reservation。
-4. 读取 playback 账号 `maxConcurrentStreams`，账号 `leases` 占用数已满则返回 `account_concurrency_exceeded`。
+4. 取得本次选中账号的运行时上限：个人账号使用当前有效套餐模板计算 `effectiveMaxConcurrentStreams`，管理员共享 playback 直接使用自身配置上限；账号 `leases` 占用数已满则返回 `account_concurrency_exceeded`。套餐组或模板无法解析时不得猜默认值，也不得申请 reservation。
 5. 未满时同时写入 account/user `leases` 和反向 session，状态为 `reservation`，TTL 暂定 `30s`；此时不写 `active` 索引。
 6. DirectPlay 未能生成安全候选时立即原子释放本次 `reservation`；既有 `active|paused` 不能因一次重新签发失败被释放。成功返回 `302` 后只保留 `reservation`，等待成功的播放事件晋级。
 
@@ -276,7 +283,9 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 个人账号创建和 Cookie 替换 DTO 的凭证字段都只有 `cookie`；不声明 `appType` 或 `userAgent`，请求值不能覆盖后端派生结果。后端必须先解析唯一合法 `UID`：已知 `ssoent` 写入映射后的 `app_type`，未知 `ssoent` 写入 `unknown`，缺失、重复或非法 UID 返回参数错误。账号 `user_agent` 固定写入 `Mozilla/5.0`。
 
-账号摘要只返回脱敏 Provider 标识、状态、启用状态、目录路径快照、最大播放路数、账号/用户的 `reservedStreams`、`activeStreams`、`occupiedStreams` 和小时/每日配额用量；其中 `occupiedStreams = reservedStreams + activeStreams`，`activeStreams` 已包含 paused。Redis 可用且查询成功但 Key 不存在时返回零；Redis 不可用或查询失败时这些用量字段必须明确为 unavailable，不能伪装成成功读取到的零。
+账号摘要只返回脱敏 Provider 标识、状态、启用状态、目录路径快照、配置值 `maxConcurrentStreams`、运行时值 `effectiveMaxConcurrentStreams`、有效套餐值 `simultaneousStreamLimit`、账号/用户的 `reservedStreams`、`activeStreams`、`occupiedStreams` 和小时/每日配额用量；其中 `occupiedStreams = reservedStreams + activeStreams`，`activeStreams` 已包含 paused。`SimultaneousStreamLimit=0` 时 `effectiveMaxConcurrentStreams` 等于配置值，不能返回 `0` 伪装为账号无限制。Redis 可用且查询成功但 Key 不存在时返回零；Redis 不可用或查询失败时这些用量字段必须明确为 unavailable，不能伪装成成功读取到的零。
+
+创建个人账号和 `PUT /api/v1/user/p115-account/concurrency` 必须通过现有有效套餐解析器读取当前用户的套餐组及其 Emby 策略模板，再按上述区间强制校验。套餐组缺失、默认套餐组缺失或模板读取失败时，接口失败关闭且不得写入账号配置；禁止回退到模型默认值、当前 Emby 用户字段或硬编码值。摘要读取同样不得在模板不可用时猜测 `effectiveMaxConcurrentStreams`。
 
 目录接口接收用户输入的已有目录路径，使用本人当前 write-only Cookie/加密凭证调用 `ResolveDirectoryByPath`；成功后保存规范化路径快照和唯一 ID。禁止使用根目录兜底、自动创建目录或返回 Provider 原始目录响应。
 
@@ -295,11 +304,11 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 3. `p115PlaybackMode=personal`：按 Principal.User.ID 加载本人唯一、已验证且启用的 personal playback 账号。
 4. 个人账号未绑定、未验证、停用、过期或冷却时，返回类型化不适用原因并 fallback Emby。
 5. source 始终使用管理员维护的全局 source；source 与选中 playback 的 Provider UID 相同则拒绝加速。
-6. `GET` 使用选中 playback 账号申请 Redis `reservation`；账号占用已满或 Redis 不可用时 fallback Emby。`HEAD` 只有命中同 session 既有租约才继续，否则直接 fallback。
+6. `GET` 使用选中 playback 账号申请 Redis `reservation`；个人账号先按当前有效套餐模板计算 `effectiveMaxConcurrentStreams`，共享账号直接使用自身配置上限。账号占用已满、套餐模板不可用或 Redis 不可用时 fallback Emby。`HEAD` 只有命中同 session 既有租约才继续，否则直接 fallback。
 7. 目标查重命中则直接签发新下载 URL，不消费转存配额；缺失时进入 transfer lock 和 Redis 配额预留。
 8. 只有全部合同成立才返回空体 `302`；任一步失败均保持现有 Emby fallback。
 
-套餐模式改变、个人账号停用或最大播放路数调低时不撤销已签发链接，也不删除文件；只影响新租约。最大值调低到当前占用数以下时，新 115 播放持续 fallback，直到 `reservation + active + paused` 占用数低于新上限。
+套餐模式改变、个人账号停用、账号配置值调低或有效套餐的 `SimultaneousStreamLimit` 调低时不撤销已签发链接，也不删除文件；只影响新租约。套餐降低不会自动改写数据库中的 `max_concurrent_streams`，运行时通过 `effectiveMaxConcurrentStreams` 立即收紧新准入；当前占用数不低于有效值时，新 115 播放持续 fallback，直到 `reservation + active + paused` 占用数低于有效上限。套餐上限随后调高或改为 `0` 时，原配置值继续生效。
 
 ### 6. 日志与可观察性
 
@@ -307,7 +316,8 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 - `playbackMode=personal|system`
 - `playbackAccountOwner=shared|current_user`
-- `accountActiveStreams`、`accountStreamLimit`
+- `accountActiveStreams`、`accountConfiguredStreamLimit`、`accountEffectiveStreamLimit`
+- `simultaneousStreamLimit`（只在个人账号路由中记录当前有效套餐值；`0` 保留原值）
 - `userActiveStreams`
 - `accountReservedStreams`、`accountOccupiedStreams`
 - `userReservedStreams`、`userOccupiedStreams`
@@ -321,7 +331,9 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - 用户是 `personal` 但未绑定账号：fallback Emby，不自动借用管理员共享 playback。
 - 用户是 `system`：忽略个人账号，使用管理员共享 playback；共享账号不可用时 fallback Emby。
 - Redis 不可用、超时或脚本失败：fallback Emby；不能伪装成成功读取到的零活跃数，也不能污染账号健康。
-- 账号 `reservation + active + paused` 占用数达到 `maxConcurrentStreams`：fallback Emby；不拒绝用户，不撤销 Token。
+- 个人账号 `reservation + active + paused` 占用数达到 `effectiveMaxConcurrentStreams`，或共享账号占用数达到自身 `maxConcurrentStreams`：fallback Emby；不拒绝用户，不撤销 Token。
+- 个人账号创建/更新不满足当前有效套餐区间：返回参数错误且不写数据库；套餐组或策略模板读取失败：失败关闭且不猜默认值。
+- 套餐模板在账号保存后降低：保留原 `maxConcurrentStreams` 配置值，运行时按较小的 `effectiveMaxConcurrentStreams` 准入；管理员共享 playback 不参与该比较。
 - 任一 account/user `leases` 或 `active` 索引写入失败：整个原子操作失败并 fallback，禁止只更新部分索引。
 - `HEAD` 没有同 session 既有租约：不创建 reservation，不触发新的 115 DirectPlay，进入公共 fallback。
 - 302 后没有成功 Playing/Progress：reservation 最多保留 `30s` 后自然过期，不能长期显示为真实活跃播放。
@@ -351,14 +363,14 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 ### 自动化验证
 
-- Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因。
+- Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因；覆盖 `SimultaneousStreamLimit` 为 `0/1/100`、正数上下界、越界拒绝、默认套餐解析、套餐/模板缺失时不写入，以及响应同时返回配置值、有效值和套餐值。
 - 账号键测试：同一规范 Provider UID 在不同数据库账号 ID、owner 和解绑重绑前后生成相同 `playbackAccountKey`，不同 Provider UID 生成不同 Key；Redis Key、日志和响应不包含原始 Provider UID，purpose 变化时摘要必须不同。
-- Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、缺失 Key 按零、重复 session、并发上限、reservation/active/paused TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；连接错误必须 fallback，重新连接后的空数据必须按零重新开始，不执行恢复等待或历史重建。默认验证不得启动项目服务或访问真实 Redis 云服务。
+- Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、缺失 Key 按零、重复 session、配置/有效并发上限、reservation/active/paused TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；个人账号按有效值准入，共享账号按自身配置值准入，用户索引不形成第二套门控。连接错误必须 fallback，重新连接后的空数据必须按零重新开始，不执行恢复等待或历史重建。默认验证不得启动项目服务或访问真实 Redis 云服务。
 - 转存配额测试：滚动小时窗口、`CRON_TIMEZONE` 自然日、并发预留、成功提交、失败退款、pending crash TTL、预存不计数、system/personal 一致口径。
-- Gateway fake Emby/115 测试：HEAD 无租约不创建且直接 fallback、HEAD 命中既有租约可复用、重复 GET 不重复计数、预加载只形成短 reservation；Playing/Progress/Stopped 请求与响应透明，只有成功事件且命中反向 session 才更新 Redis；Redis/配额/账号失败均回退 fake Emby。
+- Gateway fake Emby/115 测试：HEAD 无租约不创建且直接 fallback、HEAD 命中既有租约可复用、重复 GET 不重复计数、预加载只形成短 reservation；Playing/Progress/Stopped 请求与响应透明，只有成功事件且命中反向 session 才更新 Redis；套餐降低后不改数据库配置但立即使用更小有效值，套餐上限为 `0` 时恢复配置值，模板解析失败以及 Redis/配额/账号失败均回退 fake Emby。
 - PostgreSQL 集成测试：migration 幂等、套餐默认 personal、管理员共享/个人账号 partial unique、所有权隔离、revoked 条件约束、带 transfer 历史的解绑、非 revoked owner 对直接用户删除的 RESTRICT、tombstone 清空 owner 后可删除用户、tombstone 不会进入共享账号查询，以及既有管理员账号兼容。
 - 用户删除状态流转测试：Token 撤销失败或 tombstone 失败时不得调用 Emby 删除；Redis 清理失败仍保留凭证擦除并继续删除；Emby 删除失败不复活 Token 或个人账号；重新绑定生成新账号 ID 且旧 transfer 归属不变。
-- Web Vitest：个人账号只显示 Cookie 而不出现 appType/UserAgent 输入、Cookie 提交后清空、未知客户端显示“未识别”、目录路径、最大路数、reservation“准备中”与真实活跃区分、状态门控、用量 unavailable 和角色隔离。
+- Web Vitest：个人账号只显示 Cookie 而不出现 appType/UserAgent 输入、Cookie 提交后清空、未知客户端显示“未识别”、目录路径、配置/有效最大路数和套餐上限、动态输入边界 `1..100`、reservation“准备中”与真实活跃区分、状态门控、用量 unavailable 和角色隔离；套餐上限降低时不得把有效值误写回配置值。
 - `services/api` 下执行 `go test ./...`、关键包 `go test -race`、`go vet ./...`、`go build ./...`。
 - `services/web` 下执行 `npm run test`、`npm run build`。
 - Compose 静态校验 Redis profile、依赖、healthcheck、volume 和外部 `REDIS_URL` 覆盖。
@@ -371,7 +383,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 1. 先确认套餐组默认 personal、system 显式切换和无个人账号时 Emby fallback。
 2. 使用测试用户/测试 115 账号验证只提交 Cookie 时，固定 `Mozilla/5.0` 能完成账号验证、目录解析和目标查重，再验证已有目录、最大路数和个人目标秒传；记录该默认 UA 的真实结果，不能用固定源码或 fake 测试代替。
-3. 分别验证 personal 账号上限与 system 共享账号总上限，确认超限只 fallback Emby。
+3. 分别验证 personal 账号配置上限、正数套餐上限、套餐值 `0`、套餐降低后的运行时有效值与 system 共享账号跨用户总上限；确认个人账号越界配置被拒绝、降级不改数据库配置、共享账号不与单一套餐比较，超限只进入公共 fallback。
 4. 验证 HEAD、首次 GET、Playing、暂停 Progress、恢复 Progress、Stopped、预加载未播放和无 Stopped TTL；记录目标客户端精确版本、事件顺序以及 reservation 是否按期晋级或释放。
 5. 验证第 5/6 个小时请求、第 10/11 个每日请求、预存文件和失败退款边界。
 6. 验证 Redis 短暂不可用时 Gateway 仍可通过 Emby 播放，且没有未计数的 115 新直链。
@@ -391,15 +403,15 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 ### 阶段 1：持久配置与用户控制面
 
 - migration、模型、套餐组字段和现有管理员共享账号扩展；`system` 只保留为套餐路由枚举。
-- 用户个人账号 API/Web、仅 Cookie 凭证输入、后端 appType/Provider UA、目录/最大路数、revoked tombstone 和用户删除联动。
+- 用户个人账号 API/Web、仅 Cookie 凭证输入、后端 appType/Provider UA、目录、受有效套餐约束的配置/有效最大路数、revoked tombstone 和用户删除联动。
 - 暂不切换 Gateway 数据面。
 
-完成条件：管理员共享账号 userspace 保持，个人账号只提交 Cookie 且不能覆盖后端 appType/Provider UA；个人账号只能由 owner 管理，解绑后 Cookie 被擦除、transfer provenance 保留、tombstone 不会被共享加载器选中，套餐默认 personal 有 migration 和前端测试保护。
+完成条件：管理员共享账号 userspace 保持，个人账号只提交 Cookie 且不能覆盖后端 appType/Provider UA；个人账号只能由 owner 管理，解绑后 Cookie 被擦除、transfer provenance 保留、tombstone 不会被共享加载器选中；个人并发配置按有效套餐模板强制校验并返回配置值/有效值/套餐值，模板不可用时不写入；套餐默认 personal 有 migration 和前端测试保护。
 
 ### 阶段 2：Redis 播放租约与账号路由
 
 - Redis 部署/客户端、account/user `leases + active` 两组索引、反向 session、reservation/active/paused TTL 和事件旁路。
-- Gateway 按 `personal|system` 套餐模式选择个人 playback 或管理员共享 playback，账号满或 Redis 失败时 fallback。
+- Gateway 按 `personal|system` 套餐模式选择个人 playback 或管理员共享 playback；个人账号按 `effectiveMaxConcurrentStreams`、共享账号按自身总上限执行准入，账号满、套餐模板不可用或 Redis 失败时 fallback。Redis 用户索引不新增第二套门控。
 
 完成条件：并发和三类 TTL 测试覆盖多 Gateway 竞争；HEAD/预加载不会形成真实活跃会话，GET reservation 不能穿透账号上限，普通 Emby 代理在 Redis 故障时保持可用。
 

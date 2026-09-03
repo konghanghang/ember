@@ -457,11 +457,11 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 本计划只固定 Emby 事件透明转发和当前管理员共享账号播放合同；后续 Redis 语义由独立计划承接：
 
 1. 按 `PlaySessionId + Ember 用户 + 设备` 归并 GET、HEAD、预加载和重连，同一会话不能重复计数；HEAD 只能复用既有租约，不能创建新租约。
-2. 合格 GET 在 302 前建立短期 `reservation`，同时进入 playback 账号与用户的 `leases` 占用索引；账号 `maxConcurrentStreams` 以 `reservation + active + paused` 总占用数门控。
+2. 合格 GET 在 302 前建立短期 `reservation`，同时进入 playback 账号与用户的 `leases` 占用索引；个人账号按配置值与正数套餐 `SimultaneousStreamLimit` 的较小值、管理员共享账号按自身配置值，以 `reservation + active + paused` 总占用数门控。
 3. 只有成功转发给 Emby 的 Playing 或 Progress 才能把既有 reservation 晋级为 `active`；`IsPaused=true` 切换为 `paused`，继续占用并使用更长 TTL。
 4. API 展示的真实活跃数只统计 `active + paused`，不把 reservation 表述为正在播放；用户活跃数只用于展示和归因，不建立第二套用户并发门控。
 5. Stopped 只有成功转发给 Emby 后才释放占用/活跃索引；客户端未上报停止时由对应 Redis TTL 自然收口。
-6. Emby `SimultaneousStreamLimit` 继续负责用户整体播放并发；套餐组不再建立第二套播放并发限制。
+6. 不新增 Gateway 用户级总并发门控，用户索引只用于展示和归因。115 `302` 后视频字节不经过 Emby，Emby `SimultaneousStreamLimit` 能否限制该分流播放仍未证实；套餐模板只约束个人账号配置值和运行时有效上限，详细规则以独立计划为准。
 
 #### 6.7 Cookie 失效与冷却
 

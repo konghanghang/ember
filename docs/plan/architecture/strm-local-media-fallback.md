@@ -32,6 +32,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 - 不递归扫描目录，不按文件名模糊搜索，也不处理不同目录下的同名文件匹配。
 - 不跟随 `PLAYBACK_LOCAL_MEDIA_ROOT`、中间目录或最终文件的符号链接；本地同步目标是普通文件/硬链接，不需要用符号链接扩展可访问范围。
 - 不创建媒体映射表、文件索引表或播放缓存表，不在 PostgreSQL 或 Redis 保存本地文件存在状态。
+- 不为本地播放新增 Gateway 用户级总并发门控；本地播放不创建或保留 115 Redis 租约。Emby `SimultaneousStreamLimit` 能否限制本地分流播放继续标记“未证实”。
 - 不使用本地文件替代 source 115 的 preID/challenge `HashFileRange`；本计划只优化最终返回给播放器的视频字节。
 - 不让本地文件覆盖成功的 115 DirectPlay；115 候选完整成立时仍返回当前 `302`。
 - 不改写 HLS、DASH、转码 manifest 或转码分片，不在 Gateway 中新增转码能力。
@@ -72,6 +73,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 | 状态存储 | 不使用 PostgreSQL 或 Redis 保存本地文件索引、命中结果或播放字节状态 |
 | 失败策略 | 本地未命中或打开失败时继续现有 Emby fallback；不能因为可选本地能力让合法用户失去播放 |
 | 115 兼容 | 成功的个人/系统 115 `302` 保持不变；本地播放不占用 115 Redis 播放租约和转存配额 |
+| 用户并发 | 不新增 Gateway 用户级总并发门控；Emby 对不访问其视频上游的本地播放是否仍执行 `SimultaneousStreamLimit` 尚未证实 |
 | 配置边界 | 本地根目录是 Gateway 部署期配置，默认未配置即关闭，不增加后台页面 |
 
 ## 方案设计
@@ -177,7 +179,7 @@ flowchart TD
 4. 只有准备进入 fallback 的直接视频请求才查询本地；manifest、转码和无法形成可信媒体路径的请求继续交给 Emby。
 5. 多段/重复 Range、条件请求、明确拒绝 identity 或非法/冲突的 `Accept-Encoding` 在打开本地文件前直接使用请求开始时已经准备好的权威 Emby fallback request，并保留原 Header。
 6. 本地命中后不访问 Emby 视频上游；本地 miss 后使用同一权威 fallback request，不重新猜测扩展名、Container 或 Token。
-7. 本地播放不是 115 播放，不申请或保留 115 Redis 活跃租约，不消耗小时/每日转存额度。
+7. 本地播放不是 115 播放，不申请或保留 115 Redis 活跃租约，不消耗小时/每日转存额度，也不新增 Gateway 用户级总并发门控。Emby 对该分流播放的 `SimultaneousStreamLimit` 效果在受控实测前保持“未证实”。
 
 ### 5. 失败路径与边界条件
 
@@ -240,7 +242,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 - Web：无改动，不新增页面或配置控件。
 - Bot：无改动。
 - 数据库：无改动，无 migration。
-- Redis：无新增 Key；本地播放不计入 115 活跃播放和转存配额。
+- Redis：无新增 Key；本地播放不计入 115 活跃播放和转存配额，用户索引也不参与本地播放的第二套并发门控。
 - 配置/部署：新增 `PLAYBACK_LOCAL_MEDIA_ROOT`，Gateway 容器需要按部署者选择只读挂载本地媒体目录。
 - 文档：实现后同步系统架构、配置参考、播放端到端流程和部署/测试 runbook。
 
@@ -258,6 +260,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 - Gateway 决策测试：
   - 115 成功 `302` 时不访问本地解析器。
   - DirectPlay 失败且本地命中时不调用 fake Emby 视频上游。
+  - 本地命中不创建、续租或释放 115 Redis 租约，也不调用用户级并发门控。
   - DirectPlay 失败且本地 miss/open 失败时继续现有权威 fake Emby fallback。
   - 身份/硬状态失败时既不访问本地，也不访问 Emby/115。
   - proof 缺失、错配、manifest 和转码请求不能借本地文件绕过现有合同。
@@ -276,6 +279,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 4. 临时让同一精确本地路径不命中，验证同一 STRM 请求恢复为当前 Emby/CloudDrive2 fallback，且播放器仍可播放。
 5. 恢复本地文件并让 115 DirectPlay 成功，验证结果仍是 `302`，本地文件不会覆盖成功的 115 路径。
 6. 验证 `Cache-Control: private, no-store`、无 `Content-Encoding` 下的拖动、续播、连续 Range、`HEAD`、外挂/内嵌字幕和 Playing/Progress/Stopped；每一项只按实际证据标记通过，不能用 HTTP Header 检查代替播放器行为。
+7. 使用同一 Emby 用户从多个设备发起超过套餐 `SimultaneousStreamLimit` 的本地命中播放，核对 Emby/Gateway/客户端证据，单独记录 Emby 是否会拦截这种不访问 Emby 视频上游的分流播放；在该验证完成前不得把限制效果写成已确认能力。
 
 真实验证日志和报告不得包含 Token、Cookie、完整签名 URL、Authorization、响应体或本地宿主机绝对路径。Gateway 日志只能证明响应决策和状态，不能把“返回 `206`”扩大表述为客户端已完整播放；完整播放仍需要客户端观察确认。
 
