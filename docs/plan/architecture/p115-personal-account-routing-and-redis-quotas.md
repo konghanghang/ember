@@ -68,6 +68,7 @@
 | 并发归属 | 最大播放路数属于具体 playback 账号，不属于套餐组 |
 | 租约状态 | `reservation → active ↔ paused → stopped/expired`；302 前短预留与真实活跃播放必须分开，不能把 `HEAD` 或预加载直接算成正在播放 |
 | 两组计数 | Redis 同时维护账号/用户的占用数和真实活跃数；占用数包含 `reservation + active + paused` 并用于准入，活跃数只包含 `active + paused` 并用于展示、归因和后续治理 |
+| Redis 账号键 | 对规范化 `providerUserId` 使用服务端用途隔离 HMAC；不使用数据库账号 ID 或 Ember 用户 ID，不在 Redis 暴露原始 Provider UID |
 | 实际门控 | 当前只用账号占用数执行 `maxConcurrentStreams`；用户占用数不参与第二套并发门控，Emby 继续负责用户整体播放并发 |
 | 转存配额 | 小时/每日限额属于套餐组，由管理员配置，按发起播放的 Ember 用户统计 |
 | 会话存储 | 不建数据库会话表；Redis 处理 302 reservation、Playing/Progress/Stopped 状态晋级、暂停和 TTL |
@@ -154,7 +155,7 @@
 `DELETE /api/v1/user/p115-account` 的语义是“撤销并擦除凭证”，不是物理删除账号行：
 
 1. 事务内按 `owner_user_id` 锁定当前非 revoked 个人 playback；不存在时按幂等成功返回。
-2. 在清空字段前取得只存在于当前调用内存中的非敏感 Redis cleanup handle；随后原子写入 `status=revoked + enabled=false`，并清空 `owner_user_id/cookie_ciphertext/provider_user_id/target_parent_id/target_parent_path/max_concurrent_streams`、验证/成功时间、冷却和错误字段。cleanup handle 不落库、不进入日志或响应。
+2. 在清空字段前，用规范化 `provider_user_id` 派生只存在于当前调用内存中的 `playbackAccountKey`，并将它作为非敏感 Redis cleanup handle；随后原子写入 `status=revoked + enabled=false`，并清空 `owner_user_id/cookie_ciphertext/provider_user_id/target_parent_id/target_parent_path/max_concurrent_streams`、验证/成功时间、冷却和错误字段。cleanup handle 不落库、不进入日志或响应。
 3. 保留账号 `id/role/alias/created_at/updated_at`，让既有 `playback_transfer_tasks` 继续通过 `ON DELETE RESTRICT` 引用同一个账号 ID；不删除 transfer provenance，也不调用 `DeleteFile`。
 4. revoked 是不可复活终态：验证、启停、Cookie/目录/并发更新和 DirectPlay 加载全部拒绝。用户重新绑定必须创建新的账号 ID，不能让新凭证继承旧任务历史。
 5. 数据库撤销成功后尽力清理该账号的 Redis reservation/active/paused；Redis 清理失败只记录固定脱敏日志并等待 TTL，不回滚凭证擦除，也不承诺撤销已签发 CDN URL。
@@ -194,7 +195,8 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - account/user `leases` 索引使用 Sorted Set 保存所有仍占账号名额的 `reservation|active|paused`；`active` 索引只保存 `active|paused`，用于 API 展示真实活跃播放。两类索引的 member 都是同一 `sessionFingerprint`，score 为各自状态的租约到期时间。
 - `sessionFingerprint` 使用服务端用途隔离 HMAC 关联 `serverId + userId + mappingId + deviceId + playSessionId`，不在 Redis 保存原始 Token。
 - 反向 session 值只保存继续更新两组索引所需的内部账号键、用户 ID、`reservation|active|paused` 状态和有界时间；不根据用户当前套餐重新猜测历史播放使用的账号。
-- `playbackAccountKey` 必须稳定标识实际 115 playback 账号，账号解绑/重绑不能通过生成新数据库 ID 绕过仍有效的旧租约；具体派生不得暴露 Cookie 或 Provider 凭证。
+- `playbackAccountKey = lowerHex(HMAC-SHA256(K_p115_playback_account, canonicalProviderUserId))`。`K_p115_playback_account` 使用现有 `CONFIG_ENCRYPTION_KEY` 经 `tokenhash` 用途隔离机制派生，固定 purpose 为 `p115-playback-account-key`，不新增密钥配置；`canonicalProviderUserId` 使用账号验证后保存的规范十进制 Provider UID。
+- 该 Key 只标识真实 115 playback 账号，不混入 `p115_accounts.id`、owner 或 Ember `userId`。同一 115 账号解绑后以新数据库 ID 重新绑定，必须命中旧租约；不同 115 账号必须生成不同 Key。Redis Key、日志和 API 都不得出现原始 Provider UID 或 HMAC 输入。
 
 `GET` 原子预留流程：
 
@@ -349,6 +351,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 ### 自动化验证
 
 - Go TDD：套餐模式默认/更新、个人账号所有权、Cookie write-only、已知 `ssoent` 自动识别、未知编码写 `unknown`、缺失/重复/非法 UID 拒绝、固定 Provider UA、真实播放器 UA 隔离、目录解析、唯一约束、账号选择、revoked 终态和所有 fallback 原因。
+- 账号键测试：同一规范 Provider UID 在不同数据库账号 ID、owner 和解绑重绑前后生成相同 `playbackAccountKey`，不同 Provider UID 生成不同 Key；Redis Key、日志和响应不包含原始 Provider UID，purpose 变化时摘要必须不同。
 - Redis adapter/fake 测试：GET 原子 reservation、leases/active 两组索引一致性、重复 session、并发上限、reservation/active/paused TTL、状态晋级、Stopped、脚本缓存丢失、连接失败和取消；默认验证不得启动项目服务或访问真实 Redis 云服务。
 - 转存配额测试：滚动小时窗口、`CRON_TIMEZONE` 自然日、并发预留、成功提交、失败退款、pending crash TTL、预存不计数、system/personal 一致口径。
 - Gateway fake Emby/115 测试：HEAD 无租约不创建且直接 fallback、HEAD 命中既有租约可复用、重复 GET 不重复计数、预加载只形成短 reservation；Playing/Progress/Stopped 请求与响应透明，只有成功事件且命中反向 session 才更新 Redis；Redis/配额/账号失败均回退 fake Emby。
