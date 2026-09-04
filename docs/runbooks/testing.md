@@ -29,15 +29,15 @@ go test -count=1 ./internal/entrypoint ./internal/app
 go build ./cmd/ember
 ```
 
-STRM 本地媒体回退的默认测试使用 `t.TempDir`、普通文件/硬链接/symlink fixture 和 fake Emby/115，不需要真实媒体目录。专项入口：
+115 personal/system 路由、Redis 配额与 STRM 本地媒体回退的默认测试使用进程内 fake Redis、`httptest` fake Emby/115，以及 `t.TempDir` 普通文件/硬链接/symlink fixture，不需要真实服务或媒体目录。专项入口：
 
 ```bash
 cd services/api
-go test -count=1 ./internal/playbackgateway ./internal/services/directplay ./internal/services/p115account
-go test -race -count=1 ./internal/playbackgateway ./internal/services/directplay ./internal/services/p115account
+go test -count=1 ./internal/playbackgateway ./internal/services/directplay ./internal/services/p115account ./internal/services/p115quota
+go test -race -count=1 ./internal/playbackgateway ./internal/services/directplay ./internal/services/p115account ./internal/services/p115quota
 ```
 
-专项测试必须覆盖成功 `302` 不查本地、本地命中不访问 Emby、本地 miss/不支持请求无损回到 Emby，以及根目录/路径段符号链接和替换竞态。不得把临时测试目录替换为真实 Emby、115 或 CloudDrive2 调用。
+专项测试必须覆盖 personal/system 账号路由、Redis reservation/active/paused/Stopped、HEAD 不创建、小时/自然日转存额度、Redis 断连 fallback，以及成功 `302` 不查本地、本地命中不访问 Emby、本地 miss/不支持请求无损回到 Emby和符号链接/替换竞态。不得把 fake Redis 或临时测试目录替换为真实 Redis、Emby、115 或 CloudDrive2 调用。
 
 上述命令只做 fake 上游、生命周期、统一子命令分发和构建验证，不启动 API/Gateway、不请求真实 Emby。默认构建验证不会在工作区生成二进制；需要单独产物时显式使用 `go build -o bin/ember ./cmd/ember`，且禁止提交 `bin/`。
 
@@ -46,6 +46,7 @@ go test -race -count=1 ./internal/playbackgateway ./internal/services/directplay
 - 必须通过 `EMBER_INTEGRATION_DATABASE_URL` 指向专用测试数据库
 - 不要直接连接共享开发库，尤其不要复用其他人正在使用的测试库
 - 集成测试骨架会在目标数据库里创建并清理独立 schema，所以目标库本身应只用于集成测试
+- 115 migration 用例会重复执行当前增量，并覆盖套餐默认值、账号 partial unique、owner `ON DELETE RESTRICT`、revoked tombstone 与 transfer provenance；未设置该变量时会明确跳过，不能据此声称 PostgreSQL migration 已实际执行
 
 示例：
 

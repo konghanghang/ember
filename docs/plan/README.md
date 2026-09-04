@@ -38,7 +38,7 @@
 
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
-- `architecture/p115-personal-account-routing-and-redis-quotas.md`
+- `architecture/p115-personal-account-routing-and-redis-quotas.md`（代码与自动化已完成，待 PostgreSQL 集成执行与受控真实验收）
 - `architecture/runtime-settings-cache-evolution.md`
 - `architecture/strm-local-media-fallback.md`（代码与自动化已完成，待 Compose CLI 与受控真实验收）
 - `bot-telegram/notification-mute-rules.md`

@@ -156,8 +156,10 @@ services/
 │     │  ├─ payment/
 │     │  │  └─ service.go        # PaymentService（Stripe 支付流程）
 │     │  ├─ p115account/
-│     │  │  ├─ service.go        # 115 管理员账号创建、凭证读取与 Cookie 轮换
-│     │  │  └─ store.go          # p115_accounts GORM 持久化
+│     │  │  ├─ service.go        # 115 管理员/个人账号控制面、凭证读取与 Cookie 轮换
+│     │  │  ├─ routing.go        # personal/system 非敏感路由快照与准入后凭证加载
+│     │  │  └─ store.go          # p115_accounts GORM 持久化与 revoked tombstone
+│     │  ├─ p115quota/           # Redis 播放租约、用户归因、转存配额及进程内 fake
 │     │  ├─ directplay/
 │     │  │  ├─ service.go        # 目标查重、秒传、复核与直链候选编排
 │     │  │  ├─ store.go          # playback_transfer_tasks 状态与 provenance 持久化
@@ -263,7 +265,8 @@ services/
 │  │     │  ├─ NewSubscriptionView.vue # 新建订阅
 │  │     │  ├─ TVCalendarView.vue # 追剧日历
 │  │     │  ├─ RankingsView.vue  # 播放排行
-│  │     │  └─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
+│  │     │  ├─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
+│  │     │  └─ P115AccountView.vue  # 普通用户个人 115 playback 四步配置与用量
 │  │     └─ admin/               # 管理后台
 │  │        ├─ UsersView.vue     # 用户管理（筛选 / 后台创建 / 编辑）
 │  │        ├─ PlaybackCenterView.vue # 播放分析（用户画像 + 播放历史）
@@ -336,7 +339,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动；`SubscriptionAdminNotification` 记录每条 Telegram 管理员审批消息的 `chatId/messageId`，用于 Web / Telegram 任一端审批后的消息同步
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
-- `P115Account` 是管理员维护的独立外部账号，不归普通用户所有；数据库只保存 Cookie 密文，每个角色至多一条启用记录
+- `P115Account` 同时承载管理员全局 source/shared playback 与普通用户唯一个人 playback；个人账号以 `ownerUserId` 关联用户，解绑写入清空 owner/凭证的 revoked tombstone，管理员控制面始终排除个人和 revoked 记录
 - `EmbyAccessToken` 通过 `serverId + HMAC-SHA256(AccessToken)` 关联 Ember 用户；用户删除后只允许保留已撤销且 `userId` 置空的审计行，明文 Token 永不落库
 - source 账号同时持有 `embyPathPrefix + sourceRootId`，把 Emby 本地路径映射到 115 源目录；首期是一对一账号配置，不建立独立路径映射表
 - `PlaybackTransferTask` 通过 source/playback 账号、SHA1 和 size 记录保留式秒传 provenance；签名 URL 与 Cookie 永不落库
@@ -731,10 +734,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 5.24 P115AccountService 与 Cookie HTTP 适配器 (`services/p115account/`, `integrations/p115/`)
 
-当前已落地 115 Cookie 模式的管理员全局账号控制面、完整 Provider 合同适配、`directplay.Service` 生产编排，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 `115 302 → 本地精确路径 → Emby` 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；独立 PostgreSQL schema 集成测试已验证任务 migration、session advisory lock、并发只秒传一次、challenge 次数和失败终态。2026-08-31 macOS Infuse `8.5.2` 已确认登录、普通资源、由 Emby 返回的旧本地 fallback `206`、115 首次/复用 `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped `204`；新 Gateway 本地文件回退目前只有自动化 fixture 证据，尚未执行真实客户端验证。115 CDN 完整响应头、HEAD/Range、全文件字节、UA/IP 绑定和长期风控仍待验证，用户自有账号与 Redis 活跃/配额尚未实现，删除没有生产业务调用方：
+当前已落地 115 Cookie 模式的管理员全局账号与普通用户个人 playback 控制面、完整 Provider 合同适配、`directplay.Service` 的 personal/system 路由、Redis 播放租约/转存配额，以及播放网关的认证、Token 门控、PlaybackInfo 证明、视频 `115 302 → 本地精确路径 → Emby` 决策和运行时装配。完整组件、时序、状态和数据边界见 [115 Cookie 直连播放端到端流程参考](./reference/p115-playback-end-to-end-flow.md)。2026-08-22 真实只读、保留式写入和 preexisting 复用检查均已通过；2026-08-31 macOS Infuse `8.5.2` 已确认既有共享账号链路的登录、普通资源、Emby fallback `206`、115 首次/复用 `302`、字幕和 Playing/Progress/Stopped `204`。个人 Cookie 默认 UA、Redis 准入/配额、个人账号路由和新 Gateway 本地回退目前只有 fake/单元证据，尚未执行真实服务或客户端验证：
 
 - 管理 API：`/api/v1/admin/p115-accounts` 提供列表、详情、创建、Cookie 替换、source 路径更新、显式验证和启停；全部只允许管理员 JWT，Admin API Key 返回 `403`
+- 用户 API：`/api/v1/user/p115-account` 提供当前用户的 Cookie-only 创建/替换、显式验证、目录、并发、启停和 revoked 解绑；`/api/v1/user/p115-usage` 返回本人播放归因与转存用量，Redis 故障时计数为 `null`
 - 管理 Web：`/console/p115-accounts` 提供安全摘要、创建、source 路径配置、Cookie 替换、显式验证和启停；客户端类型从 Cookie 自动展示，未知编码才开放人工兜底；Cookie 输入不会从查询结果回填，提交成功或关闭弹窗后立即从页面状态清空
+- 用户 Web：`/console/p115` 只对普通用户开放，按绑定、验证、目录/并发配置、启用四步渐进披露；Cookie 不回显，配置值、套餐值、有效值及 Redis 用量分开显示
 - `Create(ctx, input)`：优先从 Cookie `UID.ssoent` 识别并写入现有 `app_type`，未知编码才校验可选人工兜底；校验 `source` 的 `embyPathPrefix/sourceRootId` 或 `playback` 的 `targetParentId`，使用 `CONFIG_ENCRYPTION_KEY` 加密 Cookie，账号以 `pending + disabled` 创建
 - `UpdateSourceLocation(ctx, accountID, input)`：只允许 source 账号更新 Emby 挂载前缀和 115 源目录 ID；更新使用事务行锁，不修改 Cookie、验证状态或启用状态
 - `ReplaceCookie(ctx, accountID, input)`：本地识别新 Cookie 的客户端类型并在同一次更新中刷新 `app_type`，覆盖密文并清空 Provider 用户、验证时间、冷却和错误状态，重新回到 `pending + disabled`
@@ -744,6 +749,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `LoadActiveCredential(ctx, accountID)`：只允许读取 `enabled + active` 账号，防止播放链路误用未验证 Cookie
 - `LoadActiveCredentialByRole(ctx, role)`：按数据库唯一角色加载运行期账号，source 返回 Emby 前缀/115 root，playback 返回目标目录，并携带解密后的窄 Credential；`active` 直接可用，未到期的 `cooling_down` 失败关闭，已到期冷却在事务行锁内把 `cooldown_until` 延长 1 分钟并只放行一个半开探测；历史 source 缺位置时同样失败关闭，Cookie 仍不进入 JSON
 - `LoadEnabledSourceLocation(ctx)`：只读取唯一启用 source 的 `id/embyPathPrefix/sourceRootId`，不读取 Provider UID、不解密 Cookie，也不受 `active/error/cooling_down` 影响；手工停用或位置非法时失败关闭。DirectPlay 在读取 playback 凭证和调用 Provider 前完成这次映射，因此后续失败仍可把同一可信 `relativePath` 交给本地 fallback
+- `ResolvePlaybackRoute(ctx, userId, now)`：在同一 PostgreSQL 事务内读取用户有效套餐、Emby Policy 模板和精确 personal/shared playback 非敏感元数据；Redis 准入成功后 `AcquirePlaybackRoute` 才按 account ID/owner/`updated_at` 锁定并解密凭证
+- 个人账号生命周期：只提交 Cookie 创建 `pending + disabled`，后端派生 `appType` 并固定 Provider UA；验证后分别配置已有目录和 `1..100` 播放路数，启用时复验当前套餐。解绑保留 transfer 引用的 revoked tombstone，用户删除固定先撤销 Gateway Token、再 tombstone、再删除 Emby/本地用户
 - Gateway 本地回退：仅在身份门控、PlaybackInfo proof、source 精确映射和 115 DirectPlay 失败之后执行；`PLAYBACK_LOCAL_MEDIA_ROOT` 为空默认关闭。解析器从每次固定打开的根目录文件描述符逐段 `openat + O_NOFOLLOW`，只接受普通文件/硬链接，拒绝根目录、中间目录和最终文件的符号链接、路径穿越与特殊文件，不扫描目录也不比较 SHA1/大小/修改时间
 - Gateway 本地 HTTP：只接受无条件 `GET/HEAD` 和至多一个 Range；重复/多段 Range、条件请求、明确拒绝 identity 或非法 `Accept-Encoding` 保留原请求回退 Emby。命中后返回原始 identity 字节及 `200/206/416`、`Cache-Control: private, no-store`，零字节文件携 Range 固定返回 `416 + bytes */0`，不生成 ETag/Last-Modified/Content-Encoding；本地 miss 或响应开始前失败继续权威 Emby fallback。DirectPlay 期间取消/deadline 以 `499/504` 终止且不再读取本地，响应开始后的提前 EOF、请求取消或客户端写失败统一记录 `local_stream_interrupted`
 - `ReportRuntimeHealth(ctx, account, outcome)`：DirectPlay 只回传 `succeeded/credential_rejected/provider_unavailable/provider_protocol` 四种固定结果；成功更新 `last_succeeded_at` 并清除冷却/错误，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。回写同时匹配请求加载时的 Cookie 密文和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的运行期结果
@@ -853,12 +860,12 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 目标 Infuse 实测 plain `/Videos/{Id}/stream` 只带 `MediaSourceId + Static`；原始、Container-only 与按需补齐参数后的 plain fallback 均由同一 Emby 返回 `404`，但按需 PlaybackInfo 已成功形成 proof。当前改用 DirectStreamUrl/扩展名权威 Emby fallback；只有 resolver 失败且近期条目快照可用时才进入 `container_recovered` 降级
 - 运行时使用现有 `CONFIG_ENCRYPTION_KEY`、数据库、`CookieProvider` 和 `p115account.Service` 构造生产 `directplay.Service`，构造过程不请求 115；账号未配置或 Provider/任务/直链失败只影响加速
 - DirectPlay 返回安全候选时 Gateway 输出空体 `302`；普通请求继续原样代理。只有已由 Infuse 观察到的“plain static stream 缺播放上下文”通用兼容分支，会在按需 PlaybackInfo 成功后把 method/Range/Header 与非身份参数迁移到 Emby 权威 DirectStreamUrl/扩展名路径；不按客户端名称分支，Emby 状态、响应头和视频体仍保持透传
-- `playback_media_cache` 和 `direct_play_sessions` 均未建表；已确认后续也不创建数据库播放会话。用户自有账号方案将使用 Redis 分开维护 playback 账号/用户的准入占用与真实活跃数：合格 GET 在 302 前只建立 `30s reservation`，HEAD 无既有租约时直接 fallback，成功 Playing/Progress 才晋级 `active` 并刷新 `2m` TTL，暂停继续占用并刷新 `15m` TTL，Stopped 成功转发后释放；三类 TTL 首期使用代码常量，Sorted Set 每次脚本按 Gateway 时钟清理过期 member，account/user `leases + active` 使用 `16m` Key TTL 回收无后续请求的索引。账号索引键使用规范化 Provider UID 的用途隔离 HMAC，不使用数据库账号 ID、owner 或 Ember 用户 ID，确保同一真实 115 账号解绑重绑后仍命中旧租约且不暴露原始 UID。解绑只擦除持久凭证并停止新 `302`，不删除已签发 CDN URL 对应的 Redis 占用；已有会话由成功 `Stopped` 或 TTL 如实收口。个人与共享 playback 运行时先选择不解密 Cookie 的精确账号元数据，Redis 准入成功后再按 account ID/owner 加载凭证；未到期冷却直接 fallback，到期后 PostgreSQL 行锁只放行一个 1 分钟半开探测，Redis 失败不消耗探测机会。Redis 不锁定版本或做版本探测，首期只支持单 Gateway，score 与套餐窗口使用 Gateway 可注入时钟及 `CRON_TIMEZONE`；不声明多 Gateway、Redis Cluster 或跨主机时钟兼容。Redis 可用且命令成功时以当前数据为唯一真相，缺失 Key 按零处理；重启或数据丢失后的计数重置是接受的结果，不增加恢复等待或数据库重建。migration 与新建套餐组都默认 `personal`，既有用户未绑定个人账号时按明确产品语义进入公共 fallback，不为历史共享直连保留隐式 `system` 或 feature flag；只有管理员显式设置 `system` 路由时才使用当前管理员共享 playback，`system` 不成为账号类型，详细设计见 [115 用户自有账号路由与 Redis 配额实现方案](./plan/architecture/p115-personal-account-routing-and-redis-quotas.md)
-- 同一尚未实施的方案要求个人账号配置受当前有效套餐模板约束：`SimultaneousStreamLimit > 0` 时 `maxConcurrentStreams` 必须位于 `1..SimultaneousStreamLimit`，为 `0` 时按 Ember 内部合同视为没有有限套餐上限，但配置仍限制为 `1..100`。运行时使用配置值与正数套餐上限的较小值；套餐降低不改写数据库配置。管理员共享 playback 是所有 `system` 用户合计的账号总上限，不与单个套餐比较；Redis 用户索引只展示和归因，不形成第二套门控
-- 管理员共享 playback 的后续控制面使用独立 `PUT /api/v1/admin/p115-accounts/:id/playback-config`，只接受已验证的管理员 playback，并要求已有目录路径和正整数并发上限完整提交；目录解析成功且账号版本、凭证、状态未变化时才原子保存 path、ID 和并发配置，竞态变化返回 `409`。已启用账号降低上限不清理既有租约，只阻止后续 reservation。现有管理员列表/详情直接返回该账号下由 `system` 路由建立的全部现存租约合计，不按用户当前套餐重新归类；Redis 查询成功但 Key 缺失返回可用的零值，Redis 故障返回 `usageAvailable=false` 和 `null` 计数，不以零掩盖故障
-- 同一未实施方案中的套餐转存配额默认每小时 `5`、每天 `10`，小时范围 `1..100`、每日范围 `1..1000`，`0` 非法，越界直接拒绝且不截断，两者不要求大小关系；Redis 按发起播放的 Ember 用户统计，只有目标原本缺失、秒传和目标复核均成功的新文件消耗一次，预存命中、重复请求和失败不消耗。并发防穿透使用固定 `5m` 且不续租的 pending reservation，pending/succeeded 复用同一 opaque `transferAttemptId` 并幂等完成；失败或预存命中立即释放，进程崩溃后自然过期，pending 过期后的晚到成功仍补记 succeeded，不删除文件或污染账号健康。succeeded 提交使用独立 `2s` 总预算有限重试，只有记账成功才继续 `302`；最终失败时保留文件和 pending、本次 fallback，不增加数据库补偿或历史重建
+- `playback_media_cache` 和 `direct_play_sessions` 均未建表；播放租约已经使用 Redis 分开维护 playback 账号/用户的准入占用与真实活跃数。合格 GET 在 302 前只建立 `30s reservation`，HEAD 无既有租约时直接 fallback，成功 Playing/Progress 才晋级 `active` 并刷新 `2m` TTL，暂停继续占用并刷新 `15m` TTL，Stopped 成功转发后释放；account/user `leases + active` 使用 `16m` Key TTL。账号键使用规范化 Provider UID 的用途隔离 HMAC，同一真实账号解绑重绑后继续命中旧占用。个人与共享 playback 都先读取无 Cookie 路由元数据、完成 Redis 准入，再按 account ID/owner/`updated_at` 加载凭证；Redis 失败不消耗半开探测机会。Redis 不锁定或探测版本，当前只支持单 Gateway；当前 Key 是唯一真相，缺失按零，不从 PostgreSQL 重建。migration 与新建套餐组默认 `personal`，只有管理员显式设置 `system` 才路由到共享 playback
+- 个人账号配置已受当前有效套餐模板约束：`SimultaneousStreamLimit > 0` 时保存值必须位于 `1..SimultaneousStreamLimit`，为 `0` 时账号配置仍限制为 `1..100`。运行时使用配置值与正数套餐上限的较小值，套餐降低不改写数据库配置；共享 playback 按所有 `system` 用户合计账号上限，用户索引只展示/归因，不形成第二套门控
+- 管理员共享 playback 使用 `PUT /api/v1/admin/p115-accounts/:id/playback-config` 完整提交已有目录路径和正整数并发上限；目录解析和账号版本条件成立后才原子保存 path、ID、并发。管理员列表/详情返回共享账号现存租约合计，Redis Key 缺失是可用零值，故障则 `usageAvailable=false` 且计数为 `null`
+- 套餐转存配额默认每小时 `5`、每天 `10`，范围分别为 `1..100`、`1..1000` 且不要求大小关系。Redis 按发起用户统计，只有目标缺失且秒传/复核成功的新文件计一次；固定 `5m` pending 防并发穿透，成功以同一 opaque `transferAttemptId` 幂等转入 succeeded。晚到成功仍补记；成功提交使用独立 `2s` 总预算重试，最终失败保留文件和 pending 并 fallback，不增加数据库补偿或历史重建
 - 115 `302` 与计划中的本地文件命中都使视频字节不经过 Emby 视频上游。当前没有证据证明 Emby `SimultaneousStreamLimit` 能限制这两类分流播放，因此该效果保持“未证实”；计划不新增 Gateway 用户级总并发门控，不能把未证实的 Emby 行为写成已实现保证
-- 同一后续方案中，个人账号固定按“只用 Cookie 创建 `pending + disabled` → 显式验证 `active + disabled` → 配置已有目录和并发 → 完整性/套餐复验后启用”流转；创建和 Cookie 替换 DTO 只提交 Cookie，不接受 alias、role、owner、目录、并发、`appType/UserAgent`。后端从唯一合法 `UID` 自动派生 `app_type`，未知编码保存 `unknown`，并为普通 Cookie/Web 请求固定 Provider User-Agent `Mozilla/5.0`。Cookie 替换清空旧 Provider UID 和目标目录 path/ID，保留待启用复验的并发配置；revoked tombstone 清空 owner、凭证及其派生元数据、目录、并发和健康字段，只保留 transfer provenance 需要的账号身份/状态与时间。最终下载直链仍使用 Gateway 收到的真实播放器 User-Agent，秒传初始化继续使用版本绑定上传 UA；这些尚未实现，固定 Provider UA 也尚未经过目标个人 Cookie 的真实 115 验证。现有管理员账号输入合同保持不变
+- 个人账号已按“只用 Cookie 创建 `pending + disabled` → 显式验证 `active + disabled` → 配置已有目录和并发 → 完整性/套餐复验后启用”流转；创建/替换 DTO 只提交 Cookie，后端从唯一合法 `UID` 派生 `app_type`，未知编码保存 `unknown`，并固定 Provider User-Agent `Mozilla/5.0`。Cookie 替换清空旧 Provider/目录但保留待复验并发配置；revoked tombstone 清空 owner、凭证、目录、并发和健康字段并保留 transfer provenance。最终直链仍使用真实播放器 UA，秒传初始化使用版本绑定上传 UA；个人 Cookie 的固定 Provider UA 尚未经过真实 115 验证
 - 视频处理固定为“本地身份/硬状态失败 reject；Principal 合法后 115 加速成功 redirect，否则 fallback Emby”，正常 Emby 视频代理是基线，115 只是可选加速
 - 每个视频请求在 Info 保留一条 `decision=redirect|fallback|reject` 决策日志；行首使用中文结论和稳定 code/result 明示 `115直链成功`、`115直链失败，Emby回退成功|失败` 或 `播放请求已拒绝`。成功 `302` 同时记录 `target=p115 + targetState=created|reused`；DirectPlay 失败只补固定 `providerOperation`，账号加载失败只补 `accountRole=source|playback`。Debug 可再输出统一 `request_completed` 请求摘要，但不能重复生成第二条决策。按需 PlaybackInfo 选中的原始 `mediaPath` 会进入最终决策，即使 `proofCount=0` / `playback_proof_missing` 也不丢；真正进入 DirectPlay 后再补 `embyPathPrefix`、`sourceRootId` 和 `mappedRelativePath`，使 `302` 与 fallback 都能核对路径替换。无意义的空结果字段不打印；不新建日志表或 migration，仍禁止 Token、Cookie、完整 SHA1、115 URL、完整响应体和上游原始错误
 - fake 测试已覆盖三种视频路径、GET/HEAD、302、完整原始请求 fallback、manifest、不完整参数、证明缺失/过期/错配、所有 DirectPlay 错误类、安全 reject、上游失败和每请求单条日志；没有请求真实 Emby/115
@@ -1022,7 +1029,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | **Stripe API** | 一次性支付（Checkout Session + Webhook）| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | **SMTP** | 邮箱验证码发送 | `SMTP_HOST/PORT/USERNAME/PASSWORD` |
 | **Telegram Bot API** | 通知推送、订阅审批、账号绑定/查询/续期 | `TELEGRAM_BOT_TOKEN` 等（见 Bot 章节）|
-| **115 Cookie/Web API** | 直连播放 Cookie Provider；管理员全局账号控制面、真实 Provider 合同、数据库 transfer 互斥编排、Gateway 首次/复用 302、Infuse 字幕与播放事件已完成受控验收；115 CDN 完整响应合同、用户自有账号、套餐账号来源、Redis 当前活跃数和转存配额仍未完成 | Cookie 密文在 `p115_accounts`；Emby Token 只存 purpose 隔离 HMAC；当前链路见 `p115-playback-end-to-end-flow.md`，后续方案见 `p115-personal-account-routing-and-redis-quotas.md` |
+| **115 Cookie/Web API** | 直连播放 Cookie Provider；管理员全局与用户个人 playback 控制面、personal/system 路由、Redis 租约/转存配额和 Gateway 事件接入已实现。既有共享账号 302/字幕/事件有受控验收；个人 Cookie、Redis 与个人路由仍只有 fake 证据，115 CDN 完整响应合同未完成 | Cookie 密文在 `p115_accounts`；Redis 只存用途隔离 HMAC/会话指纹和计数；当前链路见 `p115-playback-end-to-end-flow.md` |
 
 ---
 
@@ -1036,9 +1043,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 ### 部署拓扑
 
-- 默认部署拓扑为：PostgreSQL 16 + Go API + Vue Web + Telegram Bot（`profiles: ["bot"]` 控制，默认不启动）
+- 默认部署拓扑为 PostgreSQL 16 + Go API + Vue Web；Telegram Bot 由 `bot` profile 控制，Playback Gateway 与 Redis 由 `gateway` profile 控制，两个 profile 默认均不启动
 - Compose 主入口为 `infrastructure/docker/docker-compose.yml`
-- API 与 Web 使用独立镜像；Bot 按 profile 显式启用
+- API 与 Web 使用独立镜像；Gateway 复用 API 镜像，Redis 使用浮动 `redis:alpine`、AOF 和独立持久卷，并只在 gateway profile 启用
 - PostgreSQL 默认仅监听 `127.0.0.1:5432`；远程访问应通过 SSH tunnel 或受控反代
 
 ### 关键约束

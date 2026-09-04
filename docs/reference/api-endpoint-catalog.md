@@ -70,6 +70,15 @@
 | POST | `/api/v1/user/redeem` | 兑换续期 |
 | GET | `/api/v1/user/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
 | GET | `/api/v1/user/redemptions` | 我的兑换历史 |
+| GET | `/api/v1/user/p115-account` | 当前用户个人 115 playback 安全摘要；不返回 Cookie、内部目录 ID、Provider User-Agent 或 owner |
+| POST | `/api/v1/user/p115-account` | 仅提交 `{cookie}` 创建 `pending + disabled` 个人账号；客户端类型由后端派生 |
+| PUT | `/api/v1/user/p115-account/cookie` | 仅提交 `{cookie}` 替换凭证，清空旧 Provider/目录并回到 `pending + disabled` |
+| POST | `/api/v1/user/p115-account/validate` | 显式验证当前 Cookie；成功进入 `active + disabled` |
+| PUT | `/api/v1/user/p115-account/directory` | 提交已有目录路径，由后端解析并原子保存 path/内部 ID |
+| PUT | `/api/v1/user/p115-account/concurrency` | 保存 `1..100` 且不超过当前正数套餐 `SimultaneousStreamLimit` 的配置值 |
+| PUT | `/api/v1/user/p115-account/enabled` | 启停个人账号；启用时原子复验完整状态和当前套餐 |
+| DELETE | `/api/v1/user/p115-account` | 幂等解绑并写入无凭证 `revoked` tombstone；保留 transfer provenance |
+| GET | `/api/v1/user/p115-usage` | 本人播放归因、pending 与小时/自然日转存用量；Redis 故障时计数为 `null` |
 | GET | `/api/v1/user/emby/config` | Emby 服务器地址 |
 | GET | `/api/v1/user/media/stats` | 媒体库统计 |
 | GET | `/api/v1/user/subscriptions` | 我的订阅 |
@@ -112,13 +121,14 @@
 | POST | `/api/v1/admin/external-api-key` | 生成或轮换全局 Admin API Key；响应只在本次返回 `apiKey` 明文 |
 | DELETE | `/api/v1/admin/external-api-key` | 禁用全局 Admin API Key，清空 `external_api_key_hash` |
 | GET | `/api/v1/admin/redemptions` | 全部兑换历史（支持 `username` / `userId` / `code` 过滤） |
-| GET | `/api/v1/admin/p115-accounts` | 115 账号概要列表（返回 `data`，不返回 Cookie；仅管理员 JWT） |
-| POST | `/api/v1/admin/p115-accounts` | 创建 `pending + disabled` 账号，Cookie 只写；source 同时提交 `embyPathPrefix/sourceRootId`，playback 提交 `targetParentId`（仅管理员 JWT） |
+| GET | `/api/v1/admin/p115-accounts` | 管理员全局 115 账号概要列表（返回 `data`，排除个人/revoked；共享 playback 同时返回 Redis 用量可用性与计数） |
+| POST | `/api/v1/admin/p115-accounts` | 创建 `pending + disabled` 管理员账号，Cookie 只写；source 提交 `embyPathPrefix/sourceRootId`，playback 可在验证后通过路径配置（仅管理员 JWT） |
 | GET | `/api/v1/admin/p115-accounts/:id` | 查询单个 115 账号概要，不返回 Cookie（仅管理员 JWT） |
 | PUT | `/api/v1/admin/p115-accounts/:id/cookie` | 替换 Cookie，并重置为 `pending + disabled`（仅管理员 JWT） |
 | POST | `/api/v1/admin/p115-accounts/:id/validate` | 只读验证当前 Cookie；成功进入 `active` 但不自动启用（仅管理员 JWT） |
 | PUT | `/api/v1/admin/p115-accounts/:id/enabled` | 设置启用状态；启用要求账号已验证为 `active`（仅管理员 JWT） |
 | PUT | `/api/v1/admin/p115-accounts/:id/source-location` | 更新 source 账号的 `embyPathPrefix/sourceRootId`；playback 调用返回 400（仅管理员 JWT） |
+| PUT | `/api/v1/admin/p115-accounts/:id/playback-config` | 为已验证共享 playback 完整提交 `{targetParentPath,maxConcurrentStreams}`；路径解析与版本条件成立后原子保存（仅管理员 JWT） |
 | GET | `/api/v1/admin/subscriptions` | 全部订阅 |
 | PUT | `/api/v1/admin/subscriptions/:id/approve` | 审批通过 |
 | PUT | `/api/v1/admin/subscriptions/:id/reject` | 审批拒绝（请求体必须携带 `reason`） |
@@ -144,9 +154,9 @@
 | POST | `/api/v1/admin/devices/logout/:deviceId` | 强制注销设备 |
 | POST | `/api/v1/admin/devices/blacklist/logout-all` | 批量注销黑名单设备 |
 | GET | `/api/v1/admin/media-libraries` | Emby 当前媒体库列表，用于配置分组模板；过滤系统生成的 `boxsets` 合集入口 |
-| GET | `/api/v1/admin/plan-groups` | 用户分组 / 权益模板列表（包含每日自动通过订阅额度） |
-| POST | `/api/v1/admin/plan-groups` | 创建用户分组，并创建默认 Emby 权益模板；支持设置每日自动通过订阅额度 |
-| PUT | `/api/v1/admin/plan-groups/:key` | 更新用户分组 / 切换默认分组 / 调整每日自动通过订阅额度 |
+| GET | `/api/v1/admin/plan-groups` | 用户分组 / 权益模板列表（含订阅额度、`personal|system` 115 路由和小时/每日转存额度） |
+| POST | `/api/v1/admin/plan-groups` | 创建用户分组与默认 Emby 权益模板；115 策略缺省为 `personal / 5 / 10` |
+| PUT | `/api/v1/admin/plan-groups/:key` | 更新用户分组、默认分组、订阅额度和 115 路由/转存额度 |
 | DELETE | `/api/v1/admin/plan-groups/:key` | 删除用户分组；无业务引用时同步清理从属模板和同步记录 |
 | GET | `/api/v1/admin/plan-groups/:key/media-libraries` | 查询分组媒体库模板 |
 | PUT | `/api/v1/admin/plan-groups/:key/media-libraries` | 保存分组媒体库模板并同步该分组用户 Policy |

@@ -1,8 +1,8 @@
 # 115 用户自有账号路由与 Redis 配额实现方案
 
-> 状态：草稿（需求边界已确认，尚未实现）
+> 状态：代码与自动化已完成，待 PostgreSQL 集成执行与受控真实验收
 > 负责人：Ember
-> 更新时间：2026-09-03
+> 更新时间：2026-09-04
 
 ## 背景
 
@@ -12,7 +12,7 @@
 - 管理员共享 playback 账号会被多个用户使用，需要按该账号的总活跃播放数限制新直连，不能只按单个用户统计。
 - 个人账号同样需要可配置最大播放路数，达到上限时应回退 Emby，而不是拒绝播放。
 - 从管理员 source 向 playback 账号秒传新文件会消耗 115 侧操作额度，必须按用户限制小时和每日成功转存数。
-- 当前项目没有 Redis；原 DirectPlay 计划曾保留“套餐并发”和数据库 `direct_play_sessions` 设想，本轮文档已撤销并由本计划接管。
+- 实施前项目没有 Redis；原 DirectPlay 计划曾保留“套餐并发”和数据库 `direct_play_sessions` 设想，本计划已撤销旧方向并完成 Redis 数据面的实现。
 
 ## 目标
 
@@ -42,17 +42,17 @@
 ## 当前事实
 
 - 当前版本化协议和系统内置链路分别见 [115 Cookie 播放兼容合同](../../reference/p115-cookie-playback-contract.md)、[Emby 4.9 系列播放代理 API 合同](../../reference/emby-playback-proxy-contract.md) 与 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)。
-- `p115_accounts` 当前只表示管理员维护的全局 `source|playback` 账号；`uq_p115_accounts_enabled_role` 限制每个角色全局只能启用一个账号。
-- `directplay.Service` 当前通过角色加载唯一 source/playback 账号，还不能按用户和套餐组选择 playback 账号。
+- `p115_accounts` 已同时表示管理员全局 `source|playback` 与用户个人 playback；owner 外键、非 revoked Provider UID/owner unique、共享启用角色 unique、字段 CHECK 和 revoked tombstone 由 `20260903_01` migration 维护。
+- `directplay.Service` 已按用户有效套餐选择 personal/shared playback，并在 Redis 准入后才按精确账号 ID、owner 和 `updated_at` 加载凭证。
 - Cookie 已使用 `CONFIG_ENCRYPTION_KEY` 的用途隔离派生密钥加密；创建、替换和验证状态机已有 fake、race 和 PostgreSQL 测试保护。
 - `DetectCookieAppType` 已能从 Cookie 唯一 `UID` 的第二段 `ssoent` 识别已知客户端类型；当前 Cookie Provider 的生产请求不读取 `Credential.AppType` 选择端点或改变协议，它只作为账号诊断元数据保存和展示。
 - 当前管理员账号控制面要求手工配置 Provider User-Agent，但计划固定的 `p115client` 提交对普通 Cookie/Web 请求默认使用 `Mozilla/5.0`；这能作为个人账号后端默认值的公开源码依据，尚未经过目标个人 Cookie 的真实 115 验证。
 - 获取最终下载直链时使用 Gateway 当前视频请求携带的真实播放器 User-Agent，不使用账号 Provider User-Agent；秒传初始化继续使用协议代码内的版本绑定上传 UA。
 - `CookieProvider.ResolveDirectoryByPath` 已能把已存在的根相对目录路径解析为唯一目录 ID，但不会创建目录。
-- Gateway 已在身份门控成功后旁路解析 `Playing/Progress/Stopped` 的 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused`，当前只用于日志，不维护业务计数。
+- Gateway 已在身份门控和 Emby 成功响应后把 `Playing/Progress/Stopped` 映射到既有 115 反向 session，完成 active/paused 续租与 Stopped 释放；普通 Emby/local 会话不会创建租约。
 - `playback_transfer_tasks` 已按 `playbackAccountId + SHA1 + size` 保存秒传任务与 provenance，并用 PostgreSQL advisory lock 防止相同目标文件重复秒传；它不是播放会话或用户配额表。
-- 当前仓库没有 Redis 客户端、`REDIS_URL`、Compose Redis 服务或 Redis 测试夹具。
-- 套餐组 Emby 策略模板已经持久化 `SimultaneousStreamLimit`；API 当前接受 `0..100`，模型默认值为 `3`，有效套餐组由用户显式 `plan_group` 或默认套餐组解析。Web 当前控件上限为 `99`，实施本计划时必须与 API 的 `100` 上限对齐。
+- 当前仓库已使用 `go-redis/v9`、miniredis/进程内 fake、`REDIS_URL` 和 gateway profile 的浮动 `redis:alpine` + AOF + volume；客户端不做版本探测，当前只支持单 Gateway。
+- 套餐组 Emby 策略模板持久化 `SimultaneousStreamLimit`；API/Web 接受 `0..100`。个人账号保存值限制 `1..100` 并受正数套餐值约束，运行时取配置值与套餐值的较小值；共享账号不与单个套餐比较。
 - 固定 Emby SDK/OpenAPI 只声明 `SimultaneousStreamLimit` 为整数，没有定义 `0` 的业务语义。本计划把 `0` 固定为 Ember 内部的“没有有限套餐上限”，不能扩写成 Emby 官方语义。
 - 现有实机证据确认 Infuse `8.5.2` 的 Playing/Progress/Stopped 可经 Gateway 转发并取得 `204`，但没有固定“暂停后是否持续发送 Progress、多久发送一次”的客户端时序证据。
 
@@ -488,17 +488,24 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 已完成：
 
 - 需求方向和核心语义已确认。
-- 现有 115 总计划、计划索引、盘点清单和稳定参考已同步新的文档边界。
-- 管理员全局 source + 共享 playback、Cookie Provider、秒传/复核/302 和 Emby fallback 已由现有计划落地。
-- Gateway 已有三类播放事件的透明旁路解析基础。
+- 阶段 0：固定 TTL、Key/HMAC、Cookie `ssoent` 和 fake Redis 合同。
+- 阶段 1：套餐字段、migration、管理员共享 playback 原子配置/用量、个人账号 API/Web 四步流转、revoked tombstone 与用户删除顺序。
+- 阶段 2：Redis leases/active/reverse session、personal/system 两段式路由、账号准入、HEAD 复用和成功播放事件更新。
+- 阶段 3：小时/自然日转存配额、pending/succeeded、晚到成功、独立 2s 提交预算、用户用量和最终决策日志。
+- 稳定架构、数据模型、配置、API、Web 信息架构、115 端到端流程、数据库入口和部署/测试 runbook 已同步。
+- `go test ./...`、`go vet ./...`、`go build ./...` 通过；`p115quota/p115account/directplay/playbackgateway` race 通过；Web 30 个文件通过、1 个跳过（224 项通过、3 项跳过），生产构建通过；Compose Redis 合同通过 YAML 静态检查。
 
 剩余：
 
-- 本计划阶段 0 至阶段 3 的全部代码、migration、Redis、Web、验证和稳定文档同步。
+- 当前环境未设置 `EMBER_INTEGRATION_DATABASE_URL`，新增 migration 幂等/约束集成用例已编译但明确跳过；尚不能声称 `20260903_01` 已在 PostgreSQL 实际执行。
+- 当前环境没有 Docker CLI，未执行 `docker compose config`；仅完成 YAML 解析与 Redis profile/image/AOF/healthcheck/volume/依赖/URL 静态断言。
+- 未启动项目服务，未访问真实 Redis、Emby 或 115；个人 Cookie 固定 `Mozilla/5.0`、真实 personal/system 路由、客户端事件间隔、配额边界和 Redis 故障回退均待用户另行授权后受控验证。
+- Emby `SimultaneousStreamLimit` 能否限制 115/local 分流仍未证实，本计划不新增 Gateway 用户级门控。
 
 归档条件：
 
 - 四个阶段全部落地并通过自动化验证。
+- 在专用 PostgreSQL 集成库实际执行新增 migration 用例；若继续缺少环境，必须由用户明确接受该未验证边界。
 - 真实验证按用户授权范围记录证据；未授权的外部 E2E 必须明确标为未验证，不能伪写通过。
 - 当前实现事实提炼到 `docs/system-architecture.md` 和对应 `docs/reference/`。
 - `docs/plan/README.md`、计划盘点和交叉引用同步完成后，移入 `docs/archive/plan/architecture/`。

@@ -51,6 +51,7 @@
 - `services/web/src/views/console/RenewalCenterView.vue`
 - `services/web/src/views/console/DashboardView.vue`
 - `services/web/src/views/console/RankingsView.vue`
+- `services/web/src/views/console/P115AccountView.vue`
 
 边界约束：
 
@@ -162,6 +163,7 @@
 - 视图：`views/admin/PlanGroupsView.vue`
 - 页面职责：
   - 用户业务分组 CRUD
+  - 配置 `personal|system` 115 播放账号来源，以及独立的滚动小时/自然日转存额度；创建默认 `personal / 5 / 10`，每日额度允许小于小时额度
   - 分组媒体库模板配置
   - 分组 Emby 权益模板配置
   - 展示模板保存后创建的 Emby Policy 同步批次入口结果
@@ -192,8 +194,9 @@
 - 兼容路由：`/admin/p115-accounts` → `/console/p115-accounts`
 - 视图：`views/admin/P115AccountsView.vue`
 - 页面职责：
-  - 展示管理员维护的源账号和播放账号安全摘要、验证状态、启用状态及脱敏错误
+  - 只展示 `owner_user_id IS NULL AND status <> revoked` 的管理员 source/shared playback 安全摘要、验证状态、启用状态及脱敏错误
   - 创建账号、配置 source 的 Emby 挂载目录/115 源目录 ID、替换 Cookie、显式验证和启停
+  - 共享 playback 通过已有目录路径和最大路数整体提交；页面不要求管理员填写内部目录 ID，并区分 Redis 零占用与用量不可用
   - `pending / expired / error / cooling_down` 账号不提供启用操作；停用不受验证状态限制
   - Cookie 只存在于创建或替换表单，提交成功或关闭弹窗后立即清空，任何查询结果都不回填
 - 数据源：
@@ -201,9 +204,29 @@
   - `POST /api/v1/admin/p115-accounts`
   - `PUT /api/v1/admin/p115-accounts/:id/cookie`
   - `PUT /api/v1/admin/p115-accounts/:id/source-location`
+  - `PUT /api/v1/admin/p115-accounts/:id/playback-config`
   - `POST /api/v1/admin/p115-accounts/:id/validate`
   - `PUT /api/v1/admin/p115-accounts/:id/enabled`
 - 权限边界：路由只允许管理员角色进入，后端账号接口只接受管理员 JWT，Admin API Key 返回 `403`
+
+### 3.5.2 用户端 115 网盘
+
+- 路由：`/console/p115`（仅 `role=user`；管理员侧边栏不展示且路由守卫不继承）
+- 视图：`views/console/P115AccountView.vue`
+- 页面职责：
+  - 按“绑定 Cookie → 验证 Cookie → 配置已有目录/最大路数 → 启用”渐进披露当前用户唯一个人 playback
+  - Cookie 只存在于密码输入框，创建/替换成功后立即销毁，不回显 Provider User-Agent、owner 或内部目录 ID
+  - 同时展示账号配置值、按套餐计算的有效值、`SimultaneousStreamLimit`，以及账号/本人 reservation、真实活跃、总占用和转存用量
+  - Redis 可用且 Key 缺失显示零；读取失败显示“用量不可用”，不把 `null` 渲染成成功读取的零
+  - 当前套餐为 `system` 时仍允许维护个人账号，但明确当前播放路由使用管理员共享账号
+- 数据源：
+  - `GET/POST/DELETE /api/v1/user/p115-account`
+  - `PUT /api/v1/user/p115-account/cookie`
+  - `POST /api/v1/user/p115-account/validate`
+  - `PUT /api/v1/user/p115-account/directory`
+  - `PUT /api/v1/user/p115-account/concurrency`
+  - `PUT /api/v1/user/p115-account/enabled`
+  - `GET /api/v1/user/p115-usage`
 
 ### 3.6 管理端播放分析
 

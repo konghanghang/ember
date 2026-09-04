@@ -64,7 +64,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - `EMBY_URL` 是 Ember API 访问 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是控制台展示和用户跳转地址。
 - 系统已有基于 `CONFIG_ENCRYPTION_KEY` 的敏感值加密能力，但普通 `settings` 表不适合保存账号 Cookie。
 - 已落地 `p115_accounts`、共享 Cookie 加密组件、账号管理 Service、JWT-only 管理 API、管理员 Web 账号页面，以及完整可注入的 `CookieProvider`；其 fake HTTP 合同覆盖 Cookie 登录、上传信息、源路径解析、SHA1 查重、秒传初始化、目标目录复核、下载 URL、受限 Range Hash 和串行删除。Gateway 数据面、统一单二进制、Compose profile、预览镜像、外部 HTTPS 和目标 Infuse/Web 基础验收均已完成。2026-08-22 本地真实检查已通过 source 只读、playback 保留式写入和 preexisting 复用链路。
-- 当前已有统一 `cmd/ember`、`api/gateway` 子命令和同镜像双容器 Compose 入口；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks`、DirectPlay 传输核心、外部 HTTPS Gateway 和目标 Infuse/Web 基础验收已落地；用户自有账号与 Redis 当前播放租约尚未接入。
+- 当前已有统一 `cmd/ember`、`api/gateway` 子命令和同镜像双容器 Compose 入口；`emby_access_tokens`、Emby Token 身份核心、认证透明代理/Token 门控、启动期上游身份核对、控制面硬状态撤销、`playback_transfer_tasks`、DirectPlay 传输核心、外部 HTTPS Gateway 和目标 Infuse/Web 基础验收已落地；用户自有账号与 Redis 当前播放租约/转存配额已由独立计划完成代码和自动化，真实个人链路仍未验收。
 
 ### 外部证据与未确认项
 
@@ -160,8 +160,8 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 
 已拆分、不再计入本计划欠账：
 
-- playback 目录的 Provider 路径解析已完成，当前管理员 API/Web 仍要求手工填写内部 ID；系统/个人 playback 的统一路径输入体验已迁入 [用户自有账号与 Redis 配额计划](./p115-personal-account-routing-and-redis-quotas.md)。
-- 普通用户自有 playback 账号、套餐组 `personal|system` 路由、Redis account/user 当前活跃数和小时/每日转存配额也由该独立计划承接。
+- playback 目录的 Provider 路径解析已完成；管理员共享/用户个人 playback 已通过 [用户自有账号与 Redis 配额计划](./p115-personal-account-routing-and-redis-quotas.md) 落地统一路径输入，不再要求 Web 填写内部目录 ID。
+- 普通用户自有 playback、套餐组 `personal|system` 路由、Redis account/user 当前活跃数和小时/每日转存配额已由该独立计划完成代码与自动化验证。
 
 ## 方案设计
 
@@ -522,7 +522,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 
 Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录、appType 和 User-Agent 作为普通账号元数据管理。具体配置键在实现时同步 `docs/reference/configuration-reference.md`，明确生效方式和重启要求。
 
-个人账号路由落地时新增 Redis 与 `REDIS_URL`，但 Redis 只承载当前播放租约和转存配额；Redis 不可用时 Gateway 仍提供 Emby 透明代理并停止签发新的 115 直链。该部署变更不属于当前已实现事实，见 [独立计划](./p115-personal-account-routing-and-redis-quotas.md)。
+个人账号路由已新增 Redis 与 `REDIS_URL`，但 Redis 只承载当前播放租约和转存配额；Redis 不可用时 Gateway 仍提供 Emby 透明代理并停止签发新的 115 直链。部署和验证边界见 [独立计划](./p115-personal-account-routing-and-redis-quotas.md)。
 
 ## 分阶段落地
 
@@ -550,7 +550,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载、direct play 传输编排、被动运行期健康回写和 1 分钟共享冷却已完成；对应 fake 单元/race 测试和 PostgreSQL 集成测试通过。实机已获得本地 fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认。完整 CDN 响应合同与阶段 2 运维能力仍待完成；用户自有账号、套餐来源和 Redis 配额已拆入独立计划，不阻塞本系统内置链路的阶段 1 收口。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载、direct play 传输编排、被动运行期健康回写和 1 分钟共享冷却已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得本地 fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认。完整 CDN 响应合同与阶段 2 运维能力仍待完成；用户自有账号、套餐来源和 Redis 配额已由独立计划完成代码与自动化，但不把尚未执行的个人/Redis真实链路写成实机证据。
 
 ### 阶段 2：运营与稳定性
 

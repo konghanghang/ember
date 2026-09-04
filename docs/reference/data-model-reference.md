@@ -218,6 +218,9 @@
 | IsDefault | bool | isDefault | 是否默认分组（全局唯一） |
 | SortOrder | int | sortOrder | 排序 |
 | SubscriptionAutoApproveDailyLimit | int | subscriptionAutoApproveDailyLimit | 每个用户每天可自动通过的订阅数；`0` 表示全部走人工审核 |
+| P115PlaybackMode | enum | p115PlaybackMode | `personal` / `system`；历史和新建分组默认 `personal` |
+| P115TransferHourlyLimit | int | p115TransferHourlyLimit | 每用户滚动小时成功转存额度，`1..100`，默认 `5` |
+| P115TransferDailyLimit | int | p115TransferDailyLimit | 每用户 `CRON_TIMEZONE` 自然日成功转存额度，`1..1000`，默认 `10` |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
@@ -446,7 +449,8 @@ Plan (1) ──→ (N) Payment        （方案关联）
 PlanGroup (1) ──→ (N) RedemptionCode（注册套餐分组引用）
 RedemptionCode ──→ Redemption   （码被使用时生成记录）
 Setting                         （全局 KV 配置，无外键）
-P115Account                     （管理员维护的 115 源账号 / 播放账号，无用户外键）
+User (1) ──→ (0..1) P115Account（当前非 revoked 的个人 playback；owner 外键 ON DELETE RESTRICT）
+P115Account                     （管理员全局 source/shared playback 的 owner 为空；revoked tombstone 也清空 owner）
 EmailVerification               （独立验证码，无外键）
 PlaybackRanking                 （独立排行快照，无外键）
 ClientBlacklist ──→ DeviceAction（按 clientName 审计）
@@ -525,7 +529,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | CreatedAt | time.Time | createdAt | 创建时间 |
 | UpdatedAt | time.Time | updatedAt | 最近续租时间 |
 
-### 2.20 P115Account（115 管理员账号）
+### 2.20 P115Account（管理员全局账号与用户个人 playback）
 
 **表名**: `p115_accounts` | **文件**: `models/p115_account.go`
 
@@ -533,16 +537,19 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 |---|---|---|---|
 | ID | string(25) | id | CUID 主键 |
 | Role | enum | role | `source` / `playback` |
-| Alias | string(100) | alias | 管理员可识别的账号别名 |
+| Alias | string(100) | alias | 管理员账号为可识别别名；个人账号使用后端固定值 |
 | AuthMode | enum | authMode | 当前固定 `legacy_cookie` |
+| OwnerUserID | *string(25) | ownerUserId | 个人 playback 的 Ember 用户；管理员账号与 revoked tombstone 为空，外键 `ON DELETE RESTRICT` |
 | ProviderUserID | *string(64) | providerUserId | 验证后写入的 115 用户标识，可空 |
-| CookieCiphertext | text | cookie_ciphertext | `CONFIG_ENCRYPTION_KEY` 加密密文，JSON 永不序列化 |
-| AppType | string(32) | appType | Cookie `UID.ssoent` 自动识别的客户端类型；未知编码使用管理员兜底值 |
-| UserAgent | string(512) | userAgent | Provider 请求使用的固定 User-Agent |
+| CookieCiphertext | *text | cookie_ciphertext | `CONFIG_ENCRYPTION_KEY` 加密密文；仅 revoked 可空，JSON 永不序列化 |
+| AppType | *string(32) | appType | Cookie `UID.ssoent` 派生的客户端类型；个人未知编码固定 `unknown`，revoked 清空 |
+| UserAgent | *string(512) | userAgent | Provider 请求 User-Agent；个人固定 `Mozilla/5.0`，管理员保留显式值，revoked 清空 |
 | EmbyPathPrefix | *string(4096) | embyPathPrefix | source 账号对应的 Emby 绝对挂载前缀；playback 必须为空 |
 | SourceRootID | *string(64) | sourceRootId | source 账号的 115 根目录 ID；playback 必须为空 |
-| TargetParentID | *string(64) | targetParentId | 播放账号目标目录；源账号必须为空 |
-| Status | enum | status | `pending` / `active` / `expired` / `error` / `cooling_down` |
+| TargetParentID | *string(64) | targetParentId | playback 目标目录运行时真相；source/revoked 必须为空 |
+| TargetParentPath | *string(4096) | targetParentPath | playback 目标目录规范化路径快照；个人账号与 ID 同空或同非空 |
+| MaxConcurrentStreams | *int | maxConcurrentStreams | playback 账号并发配置；source/revoked 必须为空，enabled playback 必须为正数 |
+| Status | enum | status | `pending` / `active` / `expired` / `error` / `cooling_down` / `revoked` |
 | Enabled | bool | enabled | 是否允许进入播放链路；创建和 Cookie 轮换后固定为 false |
 | LastValidatedAt | *time.Time | lastValidatedAt | 最近凭证验证时间 |
 | LastSucceededAt | *time.Time | lastSucceededAt | 最近显式验证成功或完整 DirectPlay 候选签发时间 |
@@ -555,9 +562,9 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 **约束**：
 
 - Cookie 只能通过 `services/p115account` 使用 `p115-cookie` purpose 派生密钥加密写入；安全摘要不包含明文或密文字段
-- `source` / `playback` 每个角色至多一条启用记录；网关稳定运行要求两个角色各有一个 `enabled + active` 账号，唯一例外是已到期 `cooling_down` 账号可由数据库租约持有者执行一次半开探测
-- 同一个非空 `provider_user_id` 不能同时出现在两个启用账号中
-- `playback` 必须设置 `target_parent_id`，`source` 必须保持为空
+- 管理员共享范围每个角色至多一条启用记录；每个 owner 至多一条非 revoked 个人 playback
+- 同一个非空 `provider_user_id` 不能出现在两个非 revoked 账号中；个人账号与管理员 source 不能复用同一 Provider UID
+- `source` 必须保持 playback 目录/并发为空；个人 playback 的 path/ID 必须同空或同非空，任何 enabled playback 必须具备完整目录和正整数并发
 - 新建或重新启用 `source` 必须同时设置 `emby_path_prefix + source_root_id`；两者属于账号的一对一运行配置，不另建路径映射表
 - 历史 source 账号不自动猜路径或回填；字段允许成对为空，但运行期加载和重新启用会失败关闭，直到管理员显式补齐
 - `emby_path_prefix` 必须是非根目录的绝对 Unix 路径，不执行 `path.Clean`；`source_root_id` 必须是规范十进制 ID
@@ -567,6 +574,8 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - DirectPlay 运行期回写同时匹配加载凭证时的 Cookie 密文和 `updated_at`；旧请求不能覆盖 Cookie 轮换、显式验证、手工启停或更新后的健康结果
 - `credential_rejected` 进入 `expired + disabled`；`provider_unavailable` 保留启用意图并进入 1 分钟 `cooling_down`；`provider_protocol` 进入 `error`；成功签发完整候选后恢复 `active`、更新 `last_succeeded_at` 并清空冷却和错误
 - 未到期冷却不读取运行期 Cookie；冷却到期后在 PostgreSQL 行锁内延长 1 分钟租约并只放行一个半开探测，成功立即恢复，失败重新开始冷却
+- 个人账号解绑不物理删除：事务内写入不可复活 `revoked + disabled`，清空 owner、凭证、Provider、目录、并发和健康字段，保留 ID/role/alias/authMode/时间供 transfer provenance 引用
+- 个人 `maxConcurrentStreams` 在 Service 层限制为 `1..100`，并受当前有效套餐正数 `SimultaneousStreamLimit` 约束；已启用账号遇到套餐降低时数据库配置不回写，运行时使用两者较小值
 
 ### 2.21 PlaybackTransferTask（115 播放秒传任务）
 
@@ -596,7 +605,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 **约束**：
 
 - 活动状态按 `playback_account_id + sha1 + size` 建立 partial unique index；历史终态不阻止管理员手工删除后的重新秒传
-- source 与 playback 账号必须不同，且都通过外键引用 `p115_accounts`；删除账号前必须先显式处理任务历史
+- source 与 playback 账号必须不同，且都通过 `ON DELETE RESTRICT` 外键引用 `p115_accounts`；个人账号解绑保留 revoked tombstone，因此既有任务历史继续引用原账号 ID
 - `succeeded` 必须具备目标 fileId、pickCode、完成时间和 `last_accessed_at`；`failed` 必须具备完成时间和脱敏错误码
 - 完整 SHA1、目标 fileId/pickCode 和任何签名 URL 都不进入普通 JSON；表中从不保存 Cookie、source 完整路径或下载 URL
 - session advisory lock 不存入本表；Service 使用相同内容键持有 PostgreSQL 物理连接，拿锁后再次查重，再创建活动任务
