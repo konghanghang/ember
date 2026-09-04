@@ -18,10 +18,17 @@
 - Gateway 公网入口必须代理完整 Emby 请求面；`EMBY_URL` 保持为容器可访问的原始 Emby 内网地址，`NEXT_PUBLIC_EMBY_URL` 才指向 Gateway 的公网 HTTPS 地址。
 - 原始 Emby 公网入口必须关闭或限制，否则本地 Token 撤销与用户状态门控可以被绕过。
 - 不新增第四个镜像、Gateway Tag 或独立发布节奏；API 与 Gateway 使用同一镜像引用。
+- 同一 profile 同时启动内置 Redis；API 和 Gateway 共用 `REDIS_URL`，Redis healthy 后 Gateway 才启动。Redis 只承载可丢失的播放租约与转存配额，不替代 PostgreSQL 配置和 transfer provenance。
 
 Gateway 固定监听容器内 `8081`；Compose 只把它映射到 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}`，不会自动配置公网 TLS。部署者仍需在宿主机 Nginx/Caddy/Cloudflare Tunnel 中把完整 Emby 请求面代理到该回环端口，并关闭或限制原始 Emby 公网入口。
 
 为兼容当前默认 Tag 中尚无统一入口的旧镜像，Gateway 不随普通 `docker compose up -d` 自动启动。启用前必须使用包含 `ember gateway` 的新镜像或本地构建镜像，再显式执行 `docker compose --profile gateway up -d`。
+
+### 115 播放 Redis
+
+官方 Compose 的 `gateway` profile 默认使用浮动 `redis:alpine`、AOF 和 `redis_data` 持久卷，不锁定或探测 Redis 服务端版本。部署者也可以通过私有 `REDIS_URL` 指向外部 Redis；连接串可能包含密码，禁止写入仓库或日志。
+
+当前合同只允许一个 Gateway 进程消费这些 Key，不支持多 Gateway、Redis Cluster 或跨主机时钟协调。Redis 不可用、超时或脚本失败时，Gateway 不签发新的 115 `302`，但合法请求继续走本地/Emby fallback；API 用量字段显示不可用而不是零。Redis 数据丢失后以当前空 Key 重新计数，不从 PostgreSQL 或 `playback_transfer_tasks` 重建。
 
 ### STRM 本地媒体回退（可选）
 
@@ -112,6 +119,7 @@ cp .env.example .env
    - `EMBER_API_IMAGE` / `EMBER_WEB_IMAGE` / `EMBER_BOT_IMAGE`：compose 中已钉版默认值，随每次发版同步更新
    - `ADMIN_PASSWORD`：未填时 API 首启会生成临时管理员口令并要求首次登录改密
    - `PLAYBACK_GATEWAY_PORT`：Gateway 宿主机回环端口，默认 `8081`
+   - `REDIS_URL` / `REDIS_IMAGE`：Gateway profile 默认使用内置 `redis:alpine`；只有外部 Redis 或自定义浮动镜像时才覆盖
    - `EMBY_URL` / `EMBY_API_KEY` 等媒体能力配置已托管到设置中心，可在首启后补
    - 启用 Bot 时再填：`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` / `WEBHOOK_URL`
 

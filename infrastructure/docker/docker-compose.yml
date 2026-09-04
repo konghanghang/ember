@@ -26,6 +26,25 @@ services:
     init: true
     stop_grace_period: 30s
 
+  # Redis 只承载可丢失的播放租约与转存配额；镜像标签不锁定服务端版本。
+  redis:
+    profiles: ["gateway"]
+    image: ${REDIS_IMAGE:-redis:alpine}
+    container_name: ember-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - ember-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+
   # Go API 服务
   ember-api:
     # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
@@ -46,6 +65,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET 必须显式提供（≥32 字符）}
       - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY 必须显式提供}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:?INTERNAL_API_SECRET 必须显式提供（API ↔ Bot 共享密钥）}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
@@ -87,12 +107,15 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ember}?sslmode=disable}
       - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY 必须显式提供}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - PLAYBACK_LOCAL_MEDIA_ROOT=${PLAYBACK_LOCAL_MEDIA_ROOT:-}
     ports:
       # 只允许宿主机反向代理访问；禁止直接把 Gateway HTTP 端口暴露公网
       - "127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}:8081"
     depends_on:
       ember-api:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - ember-network
@@ -203,4 +226,5 @@ volumes:
   postgres_data:
   api_logs:
   gateway_logs:
+  redis_data:
   bot_logs:

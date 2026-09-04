@@ -161,6 +161,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 | `DATABASE_URL` | 是 | PostgreSQL 连接串 | API 启动硬依赖 |
 | `JWT_SECRET` | 是 | 用户 JWT 签名密钥 | 登录态信任根，不应在线修改 |
 | `CONFIG_ENCRYPTION_KEY` | 是 | 数据库敏感值加密与 Token HMAC 根密钥 | settings 敏感配置、115 Cookie 与 Emby Token 摘要的用途隔离根密钥 |
+| `REDIS_URL` | 条件敏感 | 115 播放租约与转存配额 Redis 连接串 | API 用于展示用量，Gateway 用于准入和记账；缺失/非法/不可用时 115 加速失败关闭，普通 Emby 播放保持可用 |
 | `INTERNAL_API_SECRET` | 是 | API 与 Bot 内部调用共享密钥 | 服务间鉴权根密钥 |
 | `STRIPE_WEBHOOK_SECRET` | 是 | Stripe Webhook 签名密钥 | 仅启用 Stripe Webhook 时需要，且只能走环境变量 |
 | `TURNSTILE_SECRET_KEY` | 是 | 登录 Turnstile 服务端校验密钥 | 仅启用 Turnstile 登录校验时需要，且不应进入设置中心 |
@@ -179,7 +180,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 说明：
 
 - `WEBHOOK_TOKEN` 已废弃，当前只保留 `EMBY_WEBHOOK_TOKEN`。
-- `CONFIG_ENCRYPTION_KEY` 不作为客户端认证凭证；它负责数据库敏感配置与 `p115_accounts.cookie_ciphertext` 的加解密，并按 `emby-access-token` purpose 派生 Gateway Token HMAC 密钥。
+- `CONFIG_ENCRYPTION_KEY` 不作为客户端认证凭证；它负责数据库敏感配置与 `p115_accounts.cookie_ciphertext` 的加解密，并分别按 `emby-access-token`、`p115-playback-account-key`、`p115-playback-session-fingerprint` purpose 派生隔离 HMAC 密钥。
 - `EMBY_URL`、`EMBY_API_KEY`、`TMDB_API_KEY`、`MOVIEPILOT_*`、`SMTP_*`、`CRON_*`、`BOT_NOTIFY_URL`、`TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID` 已按设置中心模型管理，不再作为 API `.env.example` 的默认项。
 
 ### 3.3 Gateway 部署变量
@@ -188,10 +189,14 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 |--------|------|------|
 | `PLAYBACK_GATEWAY_PORT` | 否 | Gateway 宿主机回环映射端口；默认 `8081`，Compose 将其映射到 Gateway 固定的容器内 `8081`，Go 进程不读取 |
 | `PLAYBACK_LOCAL_MEDIA_ROOT` | 否 | Gateway 容器/进程内的本地媒体只读根目录；默认空即关闭，修改后重启 Gateway 生效 |
+| `REDIS_URL` | 条件敏感 | API 与 Gateway 共用的 Redis DSN；官方 Compose 缺省为 `redis://redis:6379/0`，外部 Redis 可覆盖 |
+| `REDIS_IMAGE` | 否 | 只控制 Compose 内置 Redis 镜像；默认浮动 `redis:alpine`，不作为服务端版本锁定或兼容性声明 |
 
 API 固定使用默认端口 `8080`，Gateway 固定监听 `:8081`。直接运行 `ember gateway` 也使用 `8081`；不再提供 `PLAYBACK_GATEWAY_LISTEN_ADDR`。
 
 `PLAYBACK_LOCAL_MEDIA_ROOT` 只允许规范化绝对目录，不能是 `/` 或符号链接。配置非空但目录不存在、不可读或不安全时，Gateway 记录不含真实路径的固定原因并关闭本地回退，身份门控、115 DirectPlay 和 Emby fallback 继续可用。官方 Compose 只透传变量，不提供默认宿主机挂载；部署者必须通过本地 override 把对应宿主机目录以 `:ro` 挂载到同一容器路径。该值不进入设置中心，避免数据库路径与实际容器 mount 脱节。
+
+`REDIS_URL` 不进入设置中心。客户端固定 `500ms` 连接/读/写超时并关闭自动重试，不执行 `INFO` 或版本探测。当前只支持一个 Gateway 进程，不承诺多 Gateway、Redis Cluster 或跨主机时钟兼容；Redis 当前 Key 是唯一真相，重启或数据丢失后缺失 Key 按零重新开始，不从 PostgreSQL 重建。连接串、Redis Key 和 Lua 参数不得进入日志。
 
 ---
 
@@ -288,7 +293,7 @@ Bot 进程当前仍主要依赖环境变量启动；`.env.example` 保留启动�
 ### `CONFIG_ENCRYPTION_KEY`
 
 - 用途：加密/解密数据库中的敏感配置与 115 Cookie
-- 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等 settings 敏感值、`p115_accounts.cookie_ciphertext`，以及 `emby_access_tokens.token_hash` 的 purpose 隔离 HMAC
+- 影响面：`EMBY_API_KEY`、`SMTP_PASSWORD`、`STRIPE_SECRET_KEY` 等 settings 敏感值、`p115_accounts.cookie_ciphertext`，以及 Emby Token、115 playback 账号键和播放会话指纹的 purpose 隔离 HMAC
 - 兼容约束：API 与 Gateway 都接受非空、无首尾空白和换行的已有密钥，不对历史密钥追加长度门槛；新部署仍应使用随机的至少 32 字节密钥
 - 备注：如果该值缺失或变更错误，数据库里已有的敏感配置和 115 Cookie 都会无法解密，已有 Emby Token 摘要也无法再命中并要求客户端重新登录；共享 `security/secretbox` 保持原 ConfigService AES-GCM 密文格式兼容，并为 115 Cookie 与 Emby Token 使用不同 purpose 派生隔离密钥
 - 轮换边界：禁止为了满足新建议而直接补长或替换已有值；强制升级密钥强度必须另行实现“旧密钥解密 → 新密钥重加密 → Token 重新登录”的受控轮换流程

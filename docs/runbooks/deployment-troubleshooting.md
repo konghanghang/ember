@@ -69,6 +69,7 @@ curl http://localhost:8080/health
 - `EMBY_API_KEY` 是否有效，目标 Server 是否仍为固定兼容版本
 - `CONFIG_ENCRYPTION_KEY` 是否与 API 完全一致
 - `PLAYBACK_GATEWAY_PORT` 是否正确映射到 Gateway 固定的容器内 `8081`
+- gateway profile 的 `redis` 是否 healthy，API 与 Gateway 的 `REDIS_URL` 是否指向同一实例
 
 辅助命令：
 
@@ -98,6 +99,15 @@ Gateway 在通用 `ember: command=gateway code=process_failed` 之前会打印�
 | `runtime_dependency_missing` | Token/DirectPlay 等运行依赖构造失败 |
 | `listen_failed` | 固定监听端口 `8081` 不可用，通常是端口已被占用 |
 | `serve_failed` / `shutdown_failed` | HTTP Serve 或 graceful shutdown 失败 |
+
+Redis 不可用通常不会产生 `process_failed`：客户端构造不执行网络探测，实际请求会在固定短超时后记录 `reasonCode=redis_unavailable` 并走本地/Emby fallback，用户账号页显示“用量不可用”。先检查：
+
+```bash
+docker compose --profile gateway ps redis ember-gateway
+docker compose --profile gateway logs --tail=200 redis ember-gateway
+```
+
+不要通过固定 Redis 版本、增加多 Gateway 补偿或从 `playback_transfer_tasks` 回放计数来绕过故障。当前合同接受 Redis 数据丢失后从零开始；如果使用外部 Redis，只核对私有 `REDIS_URL` 的网络、认证和通用 Lua/Sorted Set/TTL 能力，禁止把连接串或完整 Key 粘进日志。
 
 日志不会输出原始错误文本、数据库 DSN、Emby URL、API Key 或响应体；不要为了排障把这些值手工打印出来。
 

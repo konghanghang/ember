@@ -10,7 +10,7 @@
 - `ember-api`
 - `ember-web`
 
-`ember-bot` 通过 `profiles: ["bot"]` 控制，`ember-gateway` 通过 `profiles: ["gateway"]` 控制，二者默认不启动。启用 Gateway 时使用包含统一入口的新镜像并执行 `docker compose --profile gateway up -d`。
+`ember-bot` 通过 `profiles: ["bot"]` 控制；`ember-gateway` 和内置 `redis` 通过 `profiles: ["gateway"]` 控制，默认不启动。启用 Gateway 时使用包含统一入口的新镜像并执行 `docker compose --profile gateway up -d`，Compose 会等待 Redis healthy 后再启动 Gateway。
 
 `ember-gateway` 不对应第四个镜像：启用 profile 后，`ember-api` 与 `ember-gateway` 复用同一 `EMBER_API_IMAGE` 中的单个 `ember` 二进制，分别选择默认 `api` 与显式 `gateway` 子命令。profile 设计避免当前默认旧 Tag 因不认识新子命令而破坏既有部署。
 
@@ -40,6 +40,8 @@
 | `EMBY_WEBHOOK_TOKEN` | Emby Webhook 验签口令 |
 | `PLAYBACK_GATEWAY_PORT` | Gateway 宿主机回环映射端口，默认 `8081` |
 | `PLAYBACK_LOCAL_MEDIA_ROOT` | Gateway 容器内本地媒体只读根目录；默认空即关闭，启用时需要额外只读 mount |
+| `REDIS_URL` | API/Gateway 共用 Redis DSN；缺省指向 gateway profile 内置 Redis，外部 Redis 可覆盖 |
+| `REDIS_IMAGE` | 内置 Redis 浮动镜像，默认 `redis:alpine`；不作为版本兼容承诺 |
 
 ### Bot 与 Webhook
 
@@ -93,6 +95,8 @@ Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问
 `PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 最多在 5 秒内同步新值。已识别的 `/`、`/favicon.ico`、`/web` 页面/静态资源、单层语言 JSON、精确 `/emby/Branding/Css.css`、携严格 Web query 元数据的精确 `GET /emby/Branding/Configuration`，以及无 Token 的精确 `GET/HEAD /emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index 优先读取进程缓存，TTL 到期后的并发刷新只查询一次数据库；刷新错误同样退避 5 秒。关闭时不访问上游，浏览器 `GET` 收到禁止缓存且不依赖 Emby 静态资源的中文友好 HTML `404`，`HEAD` 只返回等价响应头；刷新读取失败期间返回空体 `503`。Infuse 等客户端 API、视频、携 Token 图片和根 WebSocket 不受该开关影响。
 
 `PLAYBACK_LOCAL_MEDIA_ROOT` 是 Gateway 独有的部署期环境变量，不进入设置中心。它填写 Gateway 容器内的规范化绝对目录，留空关闭；非空但目录缺失、不可读、是符号链接或格式非法时只关闭本地回退，不阻止 Gateway 基线启动。启用时必须通过 Compose override 把宿主机媒体目录只读挂载到该路径，并保证 115 正式目录与本地根目录下的相对路径、大小写和文件名完全一致；Ember 不扫描目录，也不校验或同步这份外部路径合同。
+
+`REDIS_URL` 同样不进入设置中心，可能包含认证信息。官方 Compose 缺省为 `redis://redis:6379/0`，内置 Redis 开启 AOF 并挂载 `redis_data`；API 用它读取账号/用户用量，Gateway 用它执行 Lua 原子准入和转存记账。客户端不做版本探测，连接/读/写超时固定 `500ms` 且关闭自动重试。当前只支持单 Gateway；数据丢失后缺失 Key 按零处理，不做历史恢复。
 
 API 固定使用容器内 `8080`，Gateway 固定监听容器内 `8081`；直接运行 `ember gateway` 时同样监听 `:8081`。`.env` 的 `PLAYBACK_GATEWAY_PORT` 只改变映射到 Gateway `8081` 的宿主机 `127.0.0.1` 端口，不进入 Go 配置。必须先在设置中心填写 `EMBY_URL/EMBY_API_KEY` 再启用 profile；配置错误时 Gateway 按启动合同 fail-fast 并由 Docker 重启。
 
