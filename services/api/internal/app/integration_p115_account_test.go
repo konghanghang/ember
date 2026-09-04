@@ -240,12 +240,19 @@ func TestIntegrationP115AccountEnableConstraints(t *testing.T) {
 	}
 
 	playbackC := createIntegrationP115Account(t, harness, `{"role":"playback","alias":"playback-c","cookie":"playback-c-cookie","appType":"web","userAgent":"itest","targetParentId":"target-1"}`)
-	validateIntegrationP115Account(t, harness, playbackC.ID, http.StatusOK)
-	configureIntegrationP115Playback(t, harness, playbackC.ID, "/Playback", 3)
-	providerConflict := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/p115-accounts/"+playbackC.ID+"/enabled", []byte(`{"enabled":true}`))
+	providerConflict := harness.performAdminRequest(http.MethodPost, "/api/v1/admin/p115-accounts/"+playbackC.ID+"/validate", nil)
 	assertIntegrationHTTPStatus(t, providerConflict.Code, http.StatusConflict, providerConflict.Body.String())
+	assertNoP115CredentialFields(t, providerConflict.Body.Bytes())
 	if !strings.Contains(providerConflict.Body.String(), "源账号和播放账号不能使用同一个 115 账号") {
 		t.Fatalf("unexpected provider conflict response: %s", providerConflict.Body.String())
+	}
+	var rejectedPlayback models.P115Account
+	if err := harness.database.Where("id = ?", playbackC.ID).First(&rejectedPlayback).Error; err != nil {
+		t.Fatalf("load playback account after provider conflict: %v", err)
+	}
+	if rejectedPlayback.Status != models.P115AccountStatusPending || rejectedPlayback.Enabled ||
+		rejectedPlayback.ProviderUserID != nil || rejectedPlayback.LastValidatedAt != nil {
+		t.Fatalf("provider conflict persisted partial validation state: %+v", rejectedPlayback)
 	}
 
 	var enabledCount int64
