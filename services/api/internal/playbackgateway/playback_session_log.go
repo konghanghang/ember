@@ -169,9 +169,9 @@ func (gateway *Gateway) logPlaybackSessionEvent(
 	if result == "failure" {
 		gateway.playbackSessionFailures.Record(event, now)
 		gateway.logger.Printf(
-			"[PlaybackGateway] code=%s message=%q event=%s result=failure forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q playSessionId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d",
+			"[PlaybackGateway] code=%s message=%q event=%s result=failure forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d",
 			playbackSessionFailureCode(event.kind), playbackSessionFailureMessage(event.kind), event.kind,
-			forwardState, statusCode, event.itemID, event.mediaSourceID, event.playSessionID,
+			forwardState, statusCode, event.itemID, event.mediaSourceID,
 			event.positionTicks, event.positionPresent, event.pausedState(), event.snapshotState, durationMs,
 		)
 		return
@@ -180,8 +180,8 @@ func (gateway *Gateway) logPlaybackSessionEvent(
 	if event.kind == playbackSessionEventStart || event.kind == playbackSessionEventProgress {
 		if interruptionMs, recovered := gateway.playbackSessionFailures.Recover(event, now); recovered {
 			gateway.logger.Printf(
-				"[PlaybackGateway] code=playback_progress_recovered message=%q result=success recoveryEvent=%s itemId=%q playSessionId=%q positionTicks=%d positionPresent=%t isPaused=%s interruptionMs=%d",
-				"播放进度上报已恢复", event.kind, event.itemID, event.playSessionID, event.positionTicks,
+				"[PlaybackGateway] code=playback_progress_recovered message=%q result=success recoveryEvent=%s itemId=%q positionTicks=%d positionPresent=%t isPaused=%s interruptionMs=%d",
+				"播放进度上报已恢复", event.kind, event.itemID, event.positionTicks,
 				event.positionPresent, event.pausedState(), interruptionMs,
 			)
 		}
@@ -189,10 +189,10 @@ func (gateway *Gateway) logPlaybackSessionEvent(
 		gateway.playbackSessionFailures.Clear(event)
 	}
 
-	format := "[PlaybackGateway] code=%s message=%q event=%s result=success forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q playSessionId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d"
+	format := "[PlaybackGateway] code=%s message=%q event=%s result=success forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d"
 	args := []interface{}{
 		playbackSessionSuccessCode(event.kind), playbackSessionSuccessMessage(event.kind), event.kind,
-		forwardState, statusCode, event.itemID, event.mediaSourceID, event.playSessionID,
+		forwardState, statusCode, event.itemID, event.mediaSourceID,
 		event.positionTicks, event.positionPresent, event.pausedState(), event.snapshotState, durationMs,
 	}
 	if event.kind == playbackSessionEventProgress {

@@ -31,6 +31,7 @@ var (
 	ErrUserPasswordLocalUpdateFail = errors.New("本地密码更新失败")
 	ErrUserPasswordLocalSaveFail   = errors.New("本地密码保存失败")
 	ErrUserTokenRevocation         = errors.New("用户登录撤销失败")
+	ErrUserP115AccountRevocation   = errors.New("用户 115 账号撤销失败")
 )
 
 func isUserUniqueViolation(err error, column string) bool {

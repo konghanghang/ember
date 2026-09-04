@@ -478,6 +478,10 @@ func (s *UserService) DeleteUserWithContext(ctx context.Context, userID, operato
 		return ErrUserTokenRevocation
 	}
 	log.Printf("[User] 删除前已撤销用户登录 userID=%s count=%d", user.ID, count)
+	if s.revokePersonalP115Account == nil || s.revokePersonalP115Account(ctx, user.ID) != nil {
+		return ErrUserP115AccountRevocation
+	}
+	log.Printf("[User] 删除前已撤销个人 115 账号 userID=%s", user.ID)
 
 	if user.EmbyID != "" {
 		if err := s.embyClient().DeleteUser(user.EmbyID); err != nil {

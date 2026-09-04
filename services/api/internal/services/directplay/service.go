@@ -2,10 +2,12 @@ package directplay
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services/p115account"
+	"github.com/konghang/ember/backend/internal/services/p115quota"
 	"gorm.io/gorm"
 )
 
@@ -25,6 +28,9 @@ const (
 	maxMappedPathSegment         = 1024
 	taskTerminalWriteTimeout     = 5 * time.Second
 	accountHealthWriteTimeout    = 2 * time.Second
+	reservationReleaseTimeout    = time.Second
+	transferCommitTimeout        = 2 * time.Second
+	transferCommitRetryInterval  = 50 * time.Millisecond
 )
 
 // ResolveRequest contains the already mapped source path and the actual
@@ -39,6 +45,11 @@ type ResolveRequest struct {
 type MediaPathResolveRequest struct {
 	Path            string
 	ClientUserAgent string
+	Method          string
+	UserID          string
+	MappingID       string
+	DeviceID        string
+	PlaySessionID   string
 }
 
 // MediaPathMapping keeps the exact Emby path and the source-account mapping
@@ -61,6 +72,27 @@ type RedirectCandidate struct {
 	TaskID              string                             `json:"taskId,omitempty"`
 	Preexisting         bool                               `json:"preexisting"`
 	PathMapping         MediaPathMapping                   `json:"-"`
+	Routing             RoutingDiagnostics                 `json:"-"`
+}
+
+// RoutingDiagnostics contains only fixed modes and aggregate counts used by
+// the Gateway's single final decision log.
+type RoutingDiagnostics struct {
+	Routed                         bool
+	PlaybackMode                   models.P115PlaybackMode
+	PlaybackAccountOwner           string
+	AccountLimitsAvailable         bool
+	ConfiguredMaxConcurrentStreams int
+	EffectiveMaxConcurrentStreams  int
+	SimultaneousStreamLimit        int
+	LeaseUsageAvailable            bool
+	AccountUsage                   p115quota.LeaseUsage
+	UserUsage                      p115quota.LeaseUsage
+	TransferChecked                bool
+	TransferUsageAvailable         bool
+	TransferUsage                  p115quota.TransferUsage
+	TransferHourlyLimit            int
+	TransferDailyLimit             int
 }
 
 type activeAccountLoader interface {
@@ -75,6 +107,16 @@ type accountRuntime interface {
 	activeAccountLoader
 	accountHealthReporter
 	LoadEnabledSourceLocation(ctx context.Context) (p115account.SourceLocation, error)
+}
+
+type playbackAccountRouter interface {
+	ResolvePlaybackRoute(context.Context, string, time.Time) (p115account.PlaybackRoute, error)
+	AcquirePlaybackRoute(context.Context, p115account.PlaybackRoute) (p115account.ActiveAccountCredential, error)
+}
+
+type leaseKeyDeriver interface {
+	PlaybackAccountKey(string) (string, error)
+	SessionFingerprint(p115quota.SessionIdentity) (string, error)
 }
 
 // TransferProvider intentionally omits DeleteFile so the phase-one service
@@ -115,14 +157,31 @@ type taskLock interface {
 	Release() error
 }
 
+type transferQuotaContext struct {
+	UserID         string
+	HourlyLimit    int
+	DailyLimit     int
+	Checked        bool
+	UsageAvailable bool
+	Usage          p115quota.TransferUsage
+}
+
 // Service serializes retained playback transfers and returns a validated 115
 // redirect candidate without exposing an HTTP endpoint.
 type Service struct {
-	accounts accountRuntime
-	provider TransferProvider
-	store    taskStore
-	locker   taskLocker
-	now      func() time.Time
+	accounts              accountRuntime
+	playbackRouter        playbackAccountRouter
+	provider              TransferProvider
+	store                 taskStore
+	locker                taskLocker
+	leases                p115quota.LeaseStore
+	transferQuotas        p115quota.TransferQuotaStore
+	keyDeriver            leaseKeyDeriver
+	serverID              string
+	businessTimezone      *time.Location
+	transferCommitBudget  time.Duration
+	transferRetryInterval time.Duration
+	now                   func() time.Time
 }
 
 // NewService builds the production transfer service using PostgreSQL task
@@ -144,6 +203,53 @@ func newServiceWithDependencies(accounts accountRuntime, provider TransferProvid
 	return &Service{accounts: accounts, provider: provider, store: store, locker: locker, now: time.Now}
 }
 
+// NewRoutedService adds personal/system account routing and Redis admission to
+// the production media-path entrypoint while preserving the lower transfer state machine.
+func NewRoutedService(
+	database *gorm.DB,
+	accounts *p115account.Service,
+	provider TransferProvider,
+	leases p115quota.LeaseStore,
+	keyDeriver *p115quota.KeyDeriver,
+	serverID string,
+	businessTimezone *time.Location,
+) (*Service, error) {
+	if database == nil || accounts == nil || provider == nil || leases == nil || keyDeriver == nil || strings.TrimSpace(serverID) == "" || businessTimezone == nil {
+		return nil, ErrStoreUnavailable
+	}
+	locker, err := newPostgresTaskLocker(database)
+	if err != nil {
+		return nil, err
+	}
+	return newRoutedServiceWithDependencies(
+		accounts, accounts, provider, &gormTaskStore{db: database}, locker, leases, keyDeriver, serverID, businessTimezone,
+	)
+}
+
+func newRoutedServiceWithDependencies(
+	accounts accountRuntime,
+	playbackRouter playbackAccountRouter,
+	provider TransferProvider,
+	store taskStore,
+	locker taskLocker,
+	leases p115quota.LeaseStore,
+	keyDeriver leaseKeyDeriver,
+	serverID string,
+	businessTimezone *time.Location,
+) (*Service, error) {
+	transferQuotas, ok := leases.(p115quota.TransferQuotaStore)
+	if accounts == nil || playbackRouter == nil || provider == nil || store == nil || locker == nil || leases == nil ||
+		!ok || keyDeriver == nil || strings.TrimSpace(serverID) == "" || businessTimezone == nil {
+		return nil, ErrStoreUnavailable
+	}
+	return &Service{
+		accounts: accounts, playbackRouter: playbackRouter, provider: provider, store: store, locker: locker,
+		leases: leases, transferQuotas: transferQuotas, keyDeriver: keyDeriver, serverID: serverID,
+		businessTimezone: businessTimezone, transferCommitBudget: transferCommitTimeout,
+		transferRetryInterval: transferCommitRetryInterval, now: time.Now,
+	}, nil
+}
+
 // Resolve returns a fresh playback-account download URL, creating and
 // retaining the target file exactly once when it is absent.
 func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (RedirectCandidate, error) {
@@ -154,7 +260,7 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
-	return service.resolveWithAccounts(ctx, source, playback, request)
+	return service.resolveWithAccounts(ctx, source, playback, request, nil)
 }
 
 // ResolveMediaPath maps an Emby media path through the active source account
@@ -181,6 +287,11 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	if !validClientUserAgent(request.ClientUserAgent) {
 		return RedirectCandidate{PathMapping: mapping}, ErrInvalidRequest
 	}
+	if service.playbackRouter != nil {
+		candidate, err := service.resolveRoutedMediaPath(ctx, request, fileQuery, location)
+		candidate.PathMapping = mapping
+		return candidate, err
+	}
 	source, playback, err := service.loadAccounts(ctx)
 	if err != nil {
 		return RedirectCandidate{PathMapping: mapping}, err
@@ -194,9 +305,231 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	}
 	candidate, err := service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
 		SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
-	})
+	}, nil)
 	candidate.PathMapping = mapping
 	return candidate, err
+}
+
+// PlaybackSessionEvent is the authenticated, bounded event identity forwarded
+// by Gateway only after Emby accepted Playing/Progress/Stopped.
+type PlaybackSessionEvent struct {
+	UserID        string
+	MappingID     string
+	DeviceID      string
+	PlaySessionID string
+	IsProgress    bool
+	IsPaused      bool
+	Stopped       bool
+}
+
+// PlaybackSessionEventResult exposes only bounded lease observations needed by
+// Gateway diagnostics; it contains no raw Provider or session identifiers.
+type PlaybackSessionEventResult struct {
+	Found   bool
+	State   p115quota.LeaseState
+	Account p115quota.LeaseUsage
+	User    p115quota.LeaseUsage
+}
+
+// HandlePlaybackSessionEvent advances or releases only an existing reverse
+// session; ordinary Emby/local playback events cannot create a 115 lease.
+func (service *Service) HandlePlaybackSessionEvent(ctx context.Context, event PlaybackSessionEvent) (PlaybackSessionEventResult, error) {
+	if service.leases == nil || service.keyDeriver == nil || strings.TrimSpace(service.serverID) == "" {
+		return PlaybackSessionEventResult{}, ErrRedisUnavailable
+	}
+	fingerprint, err := service.keyDeriver.SessionFingerprint(p115quota.SessionIdentity{
+		ServerID: service.serverID, UserID: event.UserID, MappingID: event.MappingID,
+		DeviceID: event.DeviceID, PlaySessionID: event.PlaySessionID,
+	})
+	if err != nil {
+		return PlaybackSessionEventResult{}, ErrInvalidRequest
+	}
+	now := service.now().UTC()
+	var result p115quota.TransitionResult
+	if event.Stopped {
+		result, err = service.leases.Stop(ctx, fingerprint, now)
+	} else {
+		state := p115quota.LeaseStateActive
+		if event.IsProgress && event.IsPaused {
+			state = p115quota.LeaseStatePaused
+		}
+		result, err = service.leases.Advance(ctx, fingerprint, state, now)
+	}
+	if err != nil {
+		return PlaybackSessionEventResult{}, mapLeaseError(err)
+	}
+	return PlaybackSessionEventResult{Found: result.Found, State: result.State, Account: result.Account, User: result.User}, nil
+}
+
+func (service *Service) resolveRoutedMediaPath(
+	ctx context.Context,
+	request MediaPathResolveRequest,
+	fileQuery p115integration.FilePathQuery,
+	location p115account.SourceLocation,
+) (RedirectCandidate, error) {
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		return RedirectCandidate{}, ErrInvalidRequest
+	}
+	now := service.now().UTC()
+	fingerprint, err := service.keyDeriver.SessionFingerprint(p115quota.SessionIdentity{
+		ServerID: service.serverID, UserID: request.UserID, MappingID: request.MappingID,
+		DeviceID: request.DeviceID, PlaySessionID: request.PlaySessionID,
+	})
+	if err != nil {
+		return RedirectCandidate{}, ErrInvalidRequest
+	}
+	route, err := service.playbackRouter.ResolvePlaybackRoute(ctx, request.UserID, now)
+	diagnostics := routingDiagnosticsFromRoute(route)
+	if err != nil {
+		return RedirectCandidate{Routing: diagnostics}, mapPlaybackRouteError(err)
+	}
+	accountKey, err := service.keyDeriver.PlaybackAccountKey(route.ProviderUserID)
+	if err != nil {
+		return RedirectCandidate{Routing: diagnostics}, withFailureContext(ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRolePlayback)})
+	}
+
+	createdReservation := false
+	if request.Method == http.MethodHead {
+		session, found, leaseErr := service.leases.Session(ctx, fingerprint, now)
+		if leaseErr != nil {
+			return RedirectCandidate{Routing: diagnostics}, mapLeaseError(leaseErr)
+		}
+		if !found {
+			return RedirectCandidate{Routing: diagnostics}, ErrHeadLeaseMissing
+		}
+		if session.PlaybackAccountKey != accountKey || session.UserID != request.UserID {
+			return RedirectCandidate{Routing: diagnostics}, ErrPlaybackRouteChanged
+		}
+		accountUsage, leaseErr := service.leases.AccountUsage(ctx, accountKey, now)
+		if leaseErr != nil {
+			return RedirectCandidate{Routing: diagnostics}, mapLeaseError(leaseErr)
+		}
+		userUsage, leaseErr := service.leases.UserUsage(ctx, request.UserID, now)
+		if leaseErr != nil {
+			return RedirectCandidate{Routing: diagnostics}, mapLeaseError(leaseErr)
+		}
+		diagnostics.LeaseUsageAvailable = true
+		diagnostics.AccountUsage = accountUsage
+		diagnostics.UserUsage = userUsage
+	} else {
+		admission, leaseErr := service.leases.Reserve(ctx, p115quota.ReserveRequest{
+			PlaybackAccountKey: accountKey, UserID: request.UserID, SessionFingerprint: fingerprint,
+			MaxConcurrentStreams: route.EffectiveMaxConcurrentStreams,
+		}, now)
+		if leaseErr != nil {
+			if errors.Is(leaseErr, p115quota.ErrAccountConcurrencyExceeded) {
+				diagnostics.LeaseUsageAvailable = true
+				diagnostics.AccountUsage = admission.Account
+				diagnostics.UserUsage = admission.User
+			}
+			return RedirectCandidate{Routing: diagnostics}, mapLeaseError(leaseErr)
+		}
+		if admission.PlaybackAccountKey != accountKey || admission.UserID != request.UserID {
+			return RedirectCandidate{Routing: diagnostics}, ErrPlaybackRouteChanged
+		}
+		createdReservation = admission.Created
+		diagnostics.LeaseUsageAvailable = true
+		diagnostics.AccountUsage = admission.Account
+		diagnostics.UserUsage = admission.User
+	}
+
+	source, playback, err := service.loadRoutedAccounts(ctx, route, location)
+	if err != nil {
+		service.releaseNewReservation(ctx, fingerprint, createdReservation)
+		return RedirectCandidate{Routing: diagnostics}, err
+	}
+	quotaContext := &transferQuotaContext{UserID: request.UserID, HourlyLimit: route.TransferHourlyLimit, DailyLimit: route.TransferDailyLimit}
+	candidate, err := service.resolveWithAccounts(
+		ctx, source, playback,
+		ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent},
+		quotaContext,
+	)
+	diagnostics.TransferChecked = quotaContext.Checked
+	diagnostics.TransferUsageAvailable = quotaContext.UsageAvailable
+	diagnostics.TransferUsage = quotaContext.Usage
+	candidate.Routing = diagnostics
+	if err != nil {
+		service.releaseNewReservation(ctx, fingerprint, createdReservation)
+	}
+	return candidate, err
+}
+
+// routingDiagnosticsFromRoute converts only policy labels, aggregate limits
+// and availability markers; account identity and Provider UID stay private.
+func routingDiagnosticsFromRoute(route p115account.PlaybackRoute) RoutingDiagnostics {
+	diagnostics := RoutingDiagnostics{
+		PlaybackMode: route.PlaybackMode, SimultaneousStreamLimit: route.SimultaneousStreamLimit,
+		TransferHourlyLimit: route.TransferHourlyLimit, TransferDailyLimit: route.TransferDailyLimit,
+	}
+	switch route.PlaybackMode {
+	case models.P115PlaybackModePersonal:
+		diagnostics.Routed = true
+		diagnostics.PlaybackAccountOwner = "current_user"
+	case models.P115PlaybackModeSystem:
+		diagnostics.Routed = true
+		diagnostics.PlaybackAccountOwner = "shared"
+	}
+	if route.AccountID != "" {
+		diagnostics.AccountLimitsAvailable = true
+		diagnostics.ConfiguredMaxConcurrentStreams = route.ConfiguredMaxConcurrentStreams
+		diagnostics.EffectiveMaxConcurrentStreams = route.EffectiveMaxConcurrentStreams
+	}
+	return diagnostics
+}
+
+func (service *Service) loadRoutedAccounts(
+	ctx context.Context,
+	route p115account.PlaybackRoute,
+	location p115account.SourceLocation,
+) (p115account.ActiveAccountCredential, p115account.ActiveAccountCredential, error) {
+	source, err := service.accounts.LoadActiveCredentialByRole(ctx, models.P115AccountRoleSource)
+	if err != nil {
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
+			ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRoleSource)},
+		)
+	}
+	playback, err := service.playbackRouter.AcquirePlaybackRoute(ctx, route)
+	if err != nil {
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
+			ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRolePlayback)},
+		)
+	}
+	if source.Credential.AccountID != location.AccountID || source.EmbyPathPrefix != location.EmbyPathPrefix ||
+		source.SourceRootID != location.SourceRootID {
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
+			ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRoleSource)},
+		)
+	}
+	if source.ProviderUserID == playback.ProviderUserID || source.Credential.AccountID == playback.Credential.AccountID {
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, ErrAccountsSame
+	}
+	return source, playback, nil
+}
+
+func (service *Service) releaseNewReservation(ctx context.Context, fingerprint string, created bool) {
+	if !created {
+		return
+	}
+	releaseContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), reservationReleaseTimeout)
+	defer cancel()
+	_, _ = service.leases.ReleaseReservation(releaseContext, fingerprint, service.now().UTC())
+}
+
+func mapPlaybackRouteError(err error) error {
+	if errors.Is(err, p115account.ErrPersonalAccountMissing) {
+		return ErrPersonalAccountMissing
+	}
+	return withFailureContext(ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRolePlayback)})
+}
+
+func mapLeaseError(err error) error {
+	if errors.Is(err, p115quota.ErrAccountConcurrencyExceeded) {
+		return ErrAccountConcurrencyExceeded
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return ErrRedisUnavailable
 }
 
 // resolveWithAccounts shares the transfer state machine between callers that
@@ -205,6 +538,7 @@ func (service *Service) resolveWithAccounts(
 	ctx context.Context,
 	source, playback p115account.ActiveAccountCredential,
 	request ResolveRequest,
+	quota *transferQuotaContext,
 ) (RedirectCandidate, error) {
 	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
 	if err != nil {
@@ -246,7 +580,7 @@ func (service *Service) resolveWithAccounts(
 		}
 	}()
 
-	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query)
+	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query, quota)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -303,6 +637,7 @@ func (service *Service) resolveUnderLock(
 	source, playback p115account.ActiveAccountCredential,
 	sourceFile p115integration.File,
 	query p115integration.FileQuery,
+	quota *transferQuotaContext,
 ) (p115integration.File, string, bool, error) {
 	target, found, err := service.searchTarget(ctx, playback, query)
 	if err != nil {
@@ -313,6 +648,35 @@ func (service *Service) resolveUnderLock(
 	}
 
 	now := service.now().UTC()
+	transferAttemptID := ""
+	releasePending := false
+	if quota != nil {
+		var err error
+		transferAttemptID, err = newTransferAttemptID()
+		if err != nil {
+			return p115integration.File{}, "", false, ErrStoreUnavailable
+		}
+		dayStart, dayEnd := p115quota.DayWindow(now, service.businessTimezone)
+		reservation, err := service.transferQuotas.ReserveTransfer(ctx, p115quota.TransferReserveRequest{
+			UserID: quota.UserID, AttemptID: transferAttemptID,
+			HourlyLimit: quota.HourlyLimit, DailyLimit: quota.DailyLimit, DayStart: dayStart, DayEnd: dayEnd,
+		}, now)
+		quota.Checked = true
+		quota.Usage = reservation.Usage
+		quota.UsageAvailable = err == nil || errors.Is(err, p115quota.ErrTransferQuotaExceeded)
+		if err != nil {
+			return p115integration.File{}, "", false, mapTransferQuotaError(err)
+		}
+		if !reservation.Created {
+			return p115integration.File{}, "", false, ErrRedisUnavailable
+		}
+		releasePending = true
+		defer func() {
+			if releasePending {
+				service.releaseTransferReservation(quota.UserID, transferAttemptID)
+			}
+		}()
+	}
 	task, err := service.store.BeginAttempt(ctx, beginAttemptInput{
 		SourceAccountID: source.Credential.AccountID, PlaybackAccountID: playback.Credential.AccountID,
 		SHA1: query.SHA1, Size: query.Size, FileName: sourceFile.Name,
@@ -404,6 +768,19 @@ func (service *Service) resolveUnderLock(
 		service.reportRuntimeHealth(playback, p115account.RuntimeHealthProviderProtocol)
 		return service.failTask(ctx, task.ID, "target_invalid", "target verification invalid", ErrTargetUnavailable)
 	}
+	if quota != nil {
+		// After Provider success, preserve pending on bookkeeping failure so its
+		// original five-minute TTL remains the only automatic release path.
+		releasePending = false
+		commit, commitErr := service.commitTransferWithRetry(quota.UserID, transferAttemptID)
+		if commitErr != nil {
+			return service.failTask(ctx, task.ID, "transfer_quota_commit_failed", "transfer quota success bookkeeping failed", ErrTransferQuotaCommitFailed)
+		}
+		if commit.PendingExpiredBeforeCommit {
+			log.Printf("[DirectPlay] code=transfer_pending_expired_before_commit userId=%s", quota.UserID)
+		}
+		quota.Usage = commit.Usage
+	}
 	completedAt := service.now().UTC()
 	persistCtx, cancelPersist := context.WithTimeout(context.Background(), taskTerminalWriteTimeout)
 	defer cancelPersist()
@@ -412,6 +789,63 @@ func (service *Service) resolveUnderLock(
 	}
 	log.Printf("[DirectPlay] transfer task 成功 taskId=%s playbackAccountId=%s size=%d", task.ID, playback.Credential.AccountID, sourceFile.Size)
 	return *target, task.ID, false, nil
+}
+
+func newTransferAttemptID() (string, error) {
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(random), nil
+}
+
+func (service *Service) releaseTransferReservation(userID, attemptID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), reservationReleaseTimeout)
+	defer cancel()
+	_, _ = service.transferQuotas.ReleaseTransfer(ctx, userID, attemptID, service.now().UTC())
+}
+
+func (service *Service) commitTransferWithRetry(userID, attemptID string) (p115quota.TransferCommitResult, error) {
+	budget := service.transferCommitBudget
+	if budget <= 0 {
+		budget = transferCommitTimeout
+	}
+	retryInterval := service.transferRetryInterval
+	if retryInterval <= 0 {
+		retryInterval = transferCommitRetryInterval
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	for {
+		now := service.now().UTC()
+		dayStart, dayEnd := p115quota.DayWindow(now, service.businessTimezone)
+		result, err := service.transferQuotas.CommitTransfer(ctx, p115quota.TransferCommitRequest{
+			UserID: userID, AttemptID: attemptID, DayStart: dayStart, DayEnd: dayEnd,
+		}, now)
+		if err == nil {
+			return result, nil
+		}
+		if ctx.Err() != nil {
+			return p115quota.TransferCommitResult{}, ErrTransferQuotaCommitFailed
+		}
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return p115quota.TransferCommitResult{}, ErrTransferQuotaCommitFailed
+		case <-timer.C:
+		}
+	}
+}
+
+func mapTransferQuotaError(err error) error {
+	if errors.Is(err, p115quota.ErrTransferQuotaExceeded) {
+		return ErrTransferQuotaExceeded
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return ErrRedisUnavailable
 }
 
 // searchTarget accepts only one exact file in the configured playback parent.

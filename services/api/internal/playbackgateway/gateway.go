@@ -70,17 +70,18 @@ type AuthenticationMetadata struct {
 // configuration, database construction and HTTP server startup belong to the
 // gateway runtime selected by the unified ember entrypoint.
 type Config struct {
-	Upstream           *url.URL
-	TokenService       TokenService
-	DirectPlayService  DirectPlayService
-	LocalMediaResolver LocalMediaResolver
-	WebSurfacePolicy   WebSurfacePolicy
-	LogLevelPolicy     LogLevelPolicy
-	Transport          http.RoundTripper
-	Logger             *log.Logger
-	Debug              bool
-	ApplyLogLevel      func(string) error
-	DebugEnabled       func() bool
+	Upstream               *url.URL
+	TokenService           TokenService
+	DirectPlayService      DirectPlayService
+	PlaybackSessionService PlaybackSessionService
+	LocalMediaResolver     LocalMediaResolver
+	WebSurfacePolicy       WebSurfacePolicy
+	LogLevelPolicy         LogLevelPolicy
+	Transport              http.RoundTripper
+	Logger                 *log.Logger
+	Debug                  bool
+	ApplyLogLevel          func(string) error
+	DebugEnabled           func() bool
 }
 
 // Gateway validates mapped tokens before proxying protected requests and
@@ -92,6 +93,7 @@ type Gateway struct {
 	transport                      http.RoundTripper
 	tokenService                   TokenService
 	directPlayService              DirectPlayService
+	playbackSessionService         PlaybackSessionService
 	localMediaResolver             LocalMediaResolver
 	webSurfacePolicy               WebSurfacePolicy
 	logLevelPolicy                 LogLevelPolicy
@@ -179,6 +181,7 @@ func New(config Config) (*Gateway, error) {
 		transport:                      transport,
 		tokenService:                   config.TokenService,
 		directPlayService:              config.DirectPlayService,
+		playbackSessionService:         config.PlaybackSessionService,
 		localMediaResolver:             config.LocalMediaResolver,
 		webSurfacePolicy:               config.WebSurfacePolicy,
 		logLevelPolicy:                 config.LogLevelPolicy,
@@ -337,6 +340,9 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
 	playbackSessionForwardAttempted = playbackSessionEvent.kind != playbackSessionEventNone
 	gateway.proxy.ServeHTTP(statusWriter, request.WithContext(ctx))
+	if playbackSessionForwardAttempted && statusWriter.statusCode >= http.StatusOK && statusWriter.statusCode < http.StatusMultipleChoices && routeContext.principal != nil {
+		gateway.updatePlaybackSessionLease(request.Context(), *routeContext.principal, playbackSessionEvent)
+	}
 }
 
 // refreshLogLevel applies the current runtime policy value without making

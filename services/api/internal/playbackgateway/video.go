@@ -23,6 +23,12 @@ type DirectPlayService interface {
 	ResolveMediaPath(context.Context, directplay.MediaPathResolveRequest) (directplay.RedirectCandidate, error)
 }
 
+// PlaybackSessionService updates only Redis leases after Emby accepted a
+// previously authenticated Playing/Progress/Stopped event.
+type PlaybackSessionService interface {
+	HandlePlaybackSessionEvent(context.Context, directplay.PlaybackSessionEvent) (directplay.PlaybackSessionEventResult, error)
+}
+
 type videoPathInfo struct {
 	ItemID         string
 	StreamFileName string
@@ -65,6 +71,7 @@ type videoDecision struct {
 	EmbyPathPrefix     string
 	SourceRootID       string
 	MappedRelativePath string
+	Routing            directplay.RoutingDiagnostics
 	StartedAt          time.Time
 }
 
@@ -149,8 +156,10 @@ func (gateway *Gateway) serveVideo(
 
 	decision.MediaPath = proof.Path
 	candidate, err := gateway.directPlayService.ResolveMediaPath(request.Context(), directplay.MediaPathResolveRequest{
-		Path: proof.Path, ClientUserAgent: request.UserAgent(),
+		Path: proof.Path, ClientUserAgent: request.UserAgent(), Method: request.Method,
+		UserID: principal.User.ID, MappingID: principal.MappingID, DeviceID: principal.DeviceID, PlaySessionID: info.PlaySessionID,
 	})
+	decision.Routing = candidate.Routing
 	if candidate.PathMapping.OriginalPath != "" {
 		decision.MediaPath = candidate.PathMapping.OriginalPath
 	}
@@ -437,6 +446,20 @@ func directPlayReasonCode(err error) string {
 		return "path_not_mapped"
 	case errors.Is(err, directplay.ErrAccountUnavailable):
 		return "account_unavailable"
+	case errors.Is(err, directplay.ErrPersonalAccountMissing):
+		return "personal_account_missing"
+	case errors.Is(err, directplay.ErrAccountConcurrencyExceeded):
+		return "account_concurrency_exceeded"
+	case errors.Is(err, directplay.ErrRedisUnavailable):
+		return "redis_unavailable"
+	case errors.Is(err, directplay.ErrHeadLeaseMissing):
+		return "head_lease_missing"
+	case errors.Is(err, directplay.ErrPlaybackRouteChanged):
+		return "playback_route_changed"
+	case errors.Is(err, directplay.ErrTransferQuotaExceeded):
+		return "transfer_quota_exceeded"
+	case errors.Is(err, directplay.ErrTransferQuotaCommitFailed):
+		return "transfer_quota_commit_failed"
 	case errors.Is(err, directplay.ErrAccountsSame):
 		return "accounts_same"
 	case errors.Is(err, directplay.ErrProviderUnavailable):
@@ -586,7 +609,6 @@ func appendVideoDecisionContext(fields []string, decision videoDecision, duratio
 	fields = appendOptionalLogField(fields, "clientName", decision.ClientName, true)
 	fields = appendOptionalLogField(fields, "itemId", decision.ItemID, true)
 	fields = appendOptionalLogField(fields, "mediaSourceId", decision.MediaSourceID, true)
-	fields = appendOptionalLogField(fields, "playSessionId", decision.PlaySessionID, true)
 	fields = appendOptionalLogField(fields, "taskId", decision.TaskID, true)
 	if decision.Decision == "redirect" {
 		fields = append(fields, "preexisting="+strconv.FormatBool(decision.Preexisting))
@@ -599,7 +621,52 @@ func appendVideoDecisionContext(fields []string, decision videoDecision, duratio
 	fields = appendOptionalLogField(fields, "embyPathPrefix", decision.EmbyPathPrefix, true)
 	fields = appendOptionalLogField(fields, "sourceRootId", decision.SourceRootID, true)
 	fields = appendOptionalLogField(fields, "mappedRelativePath", decision.MappedRelativePath, true)
+	fields = appendRoutingDecisionContext(fields, decision.Routing)
 	fields = append(fields, "durationMs="+strconv.FormatInt(duration, 10))
+	return fields
+}
+
+// appendRoutingDecisionContext exposes only fixed routing labels and aggregate
+// counters. Provider identities, session fingerprints and Redis keys never
+// cross the DirectPlay-to-Gateway diagnostic boundary.
+func appendRoutingDecisionContext(fields []string, routing directplay.RoutingDiagnostics) []string {
+	if !routing.Routed {
+		return fields
+	}
+	playbackMode := string(routing.PlaybackMode)
+	if playbackMode == "personal" || playbackMode == "system" {
+		fields = append(fields, "playbackMode="+playbackMode)
+	}
+	if routing.PlaybackAccountOwner == "shared" || routing.PlaybackAccountOwner == "current_user" {
+		fields = append(fields, "playbackAccountOwner="+routing.PlaybackAccountOwner)
+	}
+	if routing.AccountLimitsAvailable {
+		fields = append(fields,
+			"accountConfiguredStreamLimit="+strconv.Itoa(routing.ConfiguredMaxConcurrentStreams),
+			"accountEffectiveStreamLimit="+strconv.Itoa(routing.EffectiveMaxConcurrentStreams),
+		)
+	}
+	if playbackMode == "personal" {
+		fields = append(fields, "simultaneousStreamLimit="+strconv.Itoa(routing.SimultaneousStreamLimit))
+	}
+	if routing.LeaseUsageAvailable {
+		fields = append(fields,
+			"accountReservedStreams="+strconv.Itoa(routing.AccountUsage.ReservedStreams),
+			"accountActiveStreams="+strconv.Itoa(routing.AccountUsage.ActiveStreams),
+			"accountOccupiedStreams="+strconv.Itoa(routing.AccountUsage.OccupiedStreams),
+			"userReservedStreams="+strconv.Itoa(routing.UserUsage.ReservedStreams),
+			"userActiveStreams="+strconv.Itoa(routing.UserUsage.ActiveStreams),
+			"userOccupiedStreams="+strconv.Itoa(routing.UserUsage.OccupiedStreams),
+		)
+	}
+	if routing.TransferChecked && routing.TransferUsageAvailable {
+		fields = append(fields,
+			"transferHourlyUsed="+strconv.Itoa(routing.TransferUsage.HourlyUsed),
+			"transferHourlyLimit="+strconv.Itoa(routing.TransferHourlyLimit),
+			"transferDailyUsed="+strconv.Itoa(routing.TransferUsage.DailyUsed),
+			"transferDailyLimit="+strconv.Itoa(routing.TransferDailyLimit),
+		)
+	}
 	return fields
 }
 

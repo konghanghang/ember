@@ -51,7 +51,7 @@ func TestServiceLoadActiveCredentialByRoleUsesBoundedRuntimeProbe(t *testing.T) 
 	store := &runtimeHealthStore{fakeAccountStore: fakeAccountStore{accounts: map[string]*models.P115Account{
 		"source": {
 			ID: "source", Role: models.P115AccountRoleSource, ProviderUserID: &providerUserID,
-			CookieCiphertext: "encrypted:source-cookie", Status: models.P115AccountStatusActive, Enabled: true,
+			CookieCiphertext: stringPointer("encrypted:source-cookie"), AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent"), Status: models.P115AccountStatusActive, Enabled: true,
 			EmbyPathPrefix: &embyPathPrefix, SourceRootID: &sourceRootID, UpdatedAt: now.Add(-time.Hour),
 		},
 	}}}
@@ -78,6 +78,27 @@ func TestServiceLoadActiveCredentialByRolePreservesCoolingError(t *testing.T) {
 
 	if _, err := service.LoadActiveCredentialByRole(context.Background(), models.P115AccountRolePlayback); !errors.Is(err, ErrAccountCoolingDown) {
 		t.Fatalf("LoadActiveCredentialByRole() error = %v, want ErrAccountCoolingDown", err)
+	}
+}
+
+func TestServiceLoadActiveCredentialByRoleDoesNotSelectPersonalPlayback(t *testing.T) {
+	providerUserID := "personal-provider"
+	targetParentID := "200"
+	targetParentPath := "/Playback"
+	maxConcurrentStreams := 2
+	store := &runtimeHealthStore{fakeAccountStore: fakeAccountStore{accounts: map[string]*models.P115Account{
+		"personal": {
+			ID: "personal", OwnerUserID: stringPointer("user-1"), Role: models.P115AccountRolePlayback,
+			ProviderUserID: &providerUserID, CookieCiphertext: stringPointer("encrypted:cookie"),
+			AppType: stringPointer("web"), UserAgent: stringPointer(personalProviderUserAgent),
+			TargetParentID: &targetParentID, TargetParentPath: &targetParentPath, MaxConcurrentStreams: &maxConcurrentStreams,
+			Status: models.P115AccountStatusActive, Enabled: true,
+		},
+	}}}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+
+	if _, err := service.LoadActiveCredentialByRole(context.Background(), models.P115AccountRolePlayback); !errors.Is(err, ErrAccountUnavailable) {
+		t.Fatalf("LoadActiveCredentialByRole(personal-only) error = %v", err)
 	}
 }
 

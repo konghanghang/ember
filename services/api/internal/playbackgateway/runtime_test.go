@@ -98,6 +98,7 @@ func TestNewProductionRuntimeRejectsMissingConfigurationBeforeIdentityRequest(t 
 		{name: "padded encryption key", env: map[string]string{"CONFIG_ENCRYPTION_KEY": " legacy-key "}, settings: validRuntimeSettings(), database: &gorm.DB{}, wantErr: ErrRuntimeEncryptionKeyInvalid},
 		{name: "missing Emby URL", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_API_KEY": fixtureRuntimeAPIKey}, database: &gorm.DB{}, wantErr: ErrRuntimeEmbyURLUnavailable},
 		{name: "missing Emby API key", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_URL": "http://emby.invalid"}, database: &gorm.DB{}, wantErr: ErrRuntimeEmbyAPIKeyUnavailable},
+		{name: "invalid CRON timezone", env: runtimeEnvironmentMap(), settings: fakeRuntimeSettings{"EMBY_URL": "http://emby.invalid", "EMBY_API_KEY": fixtureRuntimeAPIKey, "CRON_TIMEZONE": "invalid/timezone"}, database: &gorm.DB{}, wantErr: ErrRuntimeTimezoneInvalid},
 		{name: "missing database dependency", env: runtimeEnvironmentMap(), settings: validRuntimeSettings(), wantErr: ErrRuntimeDependency},
 		{name: "missing settings dependency", env: runtimeEnvironmentMap(), database: &gorm.DB{}, wantErr: ErrRuntimeDependency},
 	}
@@ -303,6 +304,25 @@ func TestRuntimeRunUsesGracefulShutdownWithoutRealListener(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunClosesDependenciesWhenContextIsAlreadyCanceled(t *testing.T) {
+	closer := &countingRuntimeCloser{}
+	runtime := &Runtime{
+		server:           &http.Server{},
+		listen:           func(string, string) (net.Listener, error) { t.Fatal("listen must not run"); return nil, nil },
+		logger:           log.New(io.Discard, "", 0),
+		dependencyCloser: closer,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := runtime.Run(ctx); err != nil {
+		t.Fatalf("Run(canceled) error = %v", err)
+	}
+	if closer.calls.Load() != 1 {
+		t.Fatalf("dependency close calls = %d", closer.calls.Load())
+	}
+}
+
 func TestRuntimeRunSanitizesListenFailure(t *testing.T) {
 	var identityCalls atomic.Int32
 	upstream := newRuntimeIdentityServer(t, &identityCalls, fixtureRuntimeEmbyVersion)
@@ -324,6 +344,15 @@ func TestRuntimeRunSanitizesListenFailure(t *testing.T) {
 	} else {
 		assertRuntimeSecretsAbsent(t, err.Error(), fixtureRuntimeEncryptionKey)
 	}
+}
+
+type countingRuntimeCloser struct {
+	calls atomic.Int32
+}
+
+func (closer *countingRuntimeCloser) Close() error {
+	closer.calls.Add(1)
+	return nil
 }
 
 func newRuntimeIdentityServer(t *testing.T, calls *atomic.Int32, version string) *httptest.Server {
@@ -365,6 +394,9 @@ func validRuntimeSettings() fakeRuntimeSettings {
 type fakeRuntimeSettings map[string]string
 
 func (settings fakeRuntimeSettings) GetString(key string) string {
+	if key == "CRON_TIMEZONE" && settings[key] == "" {
+		return "Asia/Shanghai"
+	}
 	return settings[key]
 }
 

@@ -20,6 +20,7 @@ type p115AccountService interface {
 	Validate(context.Context, string) (*p115accountpkg.ValidationResult, error)
 	SetEnabled(context.Context, string, bool) (*p115accountpkg.AccountSummary, error)
 	UpdateSourceLocation(context.Context, string, p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error)
+	UpdatePlaybackConfig(context.Context, string, p115accountpkg.PlaybackConfigInput) (*p115accountpkg.AccountSummary, error)
 }
 
 // P115AccountHandler exposes JWT-admin-only account management without returning credentials.
@@ -41,6 +42,11 @@ type createP115AccountRequest struct {
 type updateP115SourceLocationRequest struct {
 	EmbyPathPrefix string `json:"embyPathPrefix"`
 	SourceRootID   string `json:"sourceRootId"`
+}
+
+type updateP115PlaybackConfigRequest struct {
+	TargetParentPath     *string `json:"targetParentPath"`
+	MaxConcurrentStreams *int    `json:"maxConcurrentStreams"`
 }
 
 type replaceP115CookieRequest struct {
@@ -131,6 +137,27 @@ func (h *P115AccountHandler) UpdateSourceLocation(c *gin.Context) {
 	c.JSON(http.StatusOK, account)
 }
 
+// UpdatePlaybackConfig atomically updates a validated administrator playback account.
+func (h *P115AccountHandler) UpdatePlaybackConfig(c *gin.Context) {
+	if !requireJWTAdminForP115AccountManagement(c) {
+		return
+	}
+	var req updateP115PlaybackConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.TargetParentPath == nil || req.MaxConcurrentStreams == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	account, err := h.service.UpdatePlaybackConfig(c.Request.Context(), c.Param("id"), p115accountpkg.PlaybackConfigInput{
+		TargetParentPath:     *req.TargetParentPath,
+		MaxConcurrentStreams: *req.MaxConcurrentStreams,
+	})
+	if err != nil {
+		handleP115AccountError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, account)
+}
+
 // ReplaceCookie overwrites the credential and resets the account to pending and disabled.
 func (h *P115AccountHandler) ReplaceCookie(c *gin.Context) {
 	if !requireJWTAdminForP115AccountManagement(c) {
@@ -201,12 +228,17 @@ func handleP115AccountError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, p115accountpkg.ErrAccountUnavailable),
 		errors.Is(err, p115accountpkg.ErrCredentialChanged),
+		errors.Is(err, p115accountpkg.ErrRuntimeStateChanged),
+		errors.Is(err, p115accountpkg.ErrMaxConcurrentStreamsExceedsPlan),
 		errors.Is(err, p115accountpkg.ErrRoleAlreadyEnabled),
-		errors.Is(err, p115accountpkg.ErrProviderUserAlreadyEnabled):
+		errors.Is(err, p115accountpkg.ErrProviderUserAlreadyEnabled),
+		errors.Is(err, p115accountpkg.ErrPersonalAccountAlreadyExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, p115integration.ErrProviderUnavailable),
 		errors.Is(err, p115integration.ErrProviderProtocol):
 		c.JSON(http.StatusBadGateway, gin.H{"error": "115 服务暂不可用"})
+	case errors.Is(err, p115accountpkg.ErrPersonalPlanPolicyUnavailable):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 	default:
 		httpx.InternalError(c, err)
 	}
@@ -214,6 +246,7 @@ func handleP115AccountError(c *gin.Context, err error) {
 
 func isP115AccountInputError(err error) bool {
 	return errors.Is(err, p115accountpkg.ErrAccountIDRequired) ||
+		errors.Is(err, p115accountpkg.ErrOwnerUserIDRequired) ||
 		errors.Is(err, p115accountpkg.ErrInvalidRole) ||
 		errors.Is(err, p115accountpkg.ErrAliasRequired) ||
 		errors.Is(err, p115accountpkg.ErrAliasInvalid) ||
@@ -231,5 +264,11 @@ func isP115AccountInputError(err error) bool {
 		errors.Is(err, p115accountpkg.ErrSourceRootIDRequired) ||
 		errors.Is(err, p115accountpkg.ErrSourceRootIDInvalid) ||
 		errors.Is(err, p115accountpkg.ErrPlaybackSourceLocationUnexpected) ||
-		errors.Is(err, p115accountpkg.ErrSourceLocationOnly)
+		errors.Is(err, p115accountpkg.ErrSourceLocationOnly) ||
+		errors.Is(err, p115accountpkg.ErrPlaybackConfigOnly) ||
+		errors.Is(err, p115accountpkg.ErrTargetParentPathRequired) ||
+		errors.Is(err, p115accountpkg.ErrMaxConcurrentStreamsInvalid) ||
+		errors.Is(err, p115integration.ErrDirectoryNotFound) ||
+		errors.Is(err, p115integration.ErrDirectoryAmbiguous) ||
+		errors.Is(err, p115integration.ErrInvalidRequest)
 }

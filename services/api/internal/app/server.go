@@ -17,6 +17,9 @@ func Start() error {
 	if err != nil {
 		return err
 	}
+	if handlers.closer != nil {
+		defer func() { _ = handlers.closer.Close() }()
+	}
 	registerRoutes(r, handlers)
 	defer initCronJobs()()
 

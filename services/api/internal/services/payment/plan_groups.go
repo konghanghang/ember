@@ -62,12 +62,15 @@ var (
 	paymentSavePlanGroup = func(tx *gorm.DB, group *models.PlanGroup) error {
 		return tx.Model(&models.PlanGroup{}).
 			Where("key = ?", group.Key).
-			Select("name", "description", "sort_order", "subscription_auto_approve_daily_limit", "updated_at").
+			Select("name", "description", "sort_order", "subscription_auto_approve_daily_limit", "p115_playback_mode", "p115_transfer_hourly_limit", "p115_transfer_daily_limit", "updated_at").
 			Updates(map[string]any{
 				"name":                                  group.Name,
 				"description":                           group.Description,
 				"sort_order":                            group.SortOrder,
 				"subscription_auto_approve_daily_limit": group.SubscriptionAutoApproveDailyLimit,
+				"p115_playback_mode":                    group.P115PlaybackMode,
+				"p115_transfer_hourly_limit":            group.P115TransferHourlyLimit,
+				"p115_transfer_daily_limit":             group.P115TransferDailyLimit,
 				"updated_at":                            time.Now(),
 			}).Error
 	}
@@ -115,12 +118,15 @@ var (
 )
 
 type CreatePlanGroupRequest struct {
-	Key                               string `json:"key" binding:"required"`
-	Name                              string `json:"name" binding:"required"`
-	Description                       string `json:"description"`
-	IsDefault                         bool   `json:"isDefault"`
-	SortOrder                         int    `json:"sortOrder"`
-	SubscriptionAutoApproveDailyLimit int    `json:"subscriptionAutoApproveDailyLimit"`
+	Key                               string  `json:"key" binding:"required"`
+	Name                              string  `json:"name" binding:"required"`
+	Description                       string  `json:"description"`
+	IsDefault                         bool    `json:"isDefault"`
+	SortOrder                         int     `json:"sortOrder"`
+	SubscriptionAutoApproveDailyLimit int     `json:"subscriptionAutoApproveDailyLimit"`
+	P115PlaybackMode                  *string `json:"p115PlaybackMode"`
+	P115TransferHourlyLimit           *int    `json:"p115TransferHourlyLimit"`
+	P115TransferDailyLimit            *int    `json:"p115TransferDailyLimit"`
 }
 
 type UpdatePlanGroupRequest struct {
@@ -129,6 +135,9 @@ type UpdatePlanGroupRequest struct {
 	IsDefault                         *bool   `json:"isDefault"`
 	SortOrder                         *int    `json:"sortOrder"`
 	SubscriptionAutoApproveDailyLimit *int    `json:"subscriptionAutoApproveDailyLimit"`
+	P115PlaybackMode                  *string `json:"p115PlaybackMode"`
+	P115TransferHourlyLimit           *int    `json:"p115TransferHourlyLimit"`
+	P115TransferDailyLimit            *int    `json:"p115TransferDailyLimit"`
 }
 
 type GetPlanGroupsResponse struct {
@@ -374,6 +383,10 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 	if req.SubscriptionAutoApproveDailyLimit < 0 {
 		return nil, ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid
 	}
+	p115PlaybackMode, p115HourlyLimit, p115DailyLimit, err := resolveCreateP115Policy(req)
+	if err != nil {
+		return nil, err
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, ErrPlanGroupNameRequired
@@ -410,6 +423,9 @@ func (s *PaymentService) CreatePlanGroup(req *CreatePlanGroupRequest) (*PlanGrou
 		IsDefault:                         false,
 		SortOrder:                         req.SortOrder,
 		SubscriptionAutoApproveDailyLimit: req.SubscriptionAutoApproveDailyLimit,
+		P115PlaybackMode:                  p115PlaybackMode,
+		P115TransferHourlyLimit:           p115HourlyLimit,
+		P115TransferDailyLimit:            p115DailyLimit,
 		MediaLibraryTemplateVersion:       1,
 	}
 
@@ -446,6 +462,9 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 	if err != nil {
 		return nil, err
 	}
+	if err := validateP115PolicyUpdate(req); err != nil {
+		return nil, err
+	}
 
 	tx, err := beginPlanGroupTx()
 	if err != nil {
@@ -480,6 +499,15 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 			return nil, ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid
 		}
 		group.SubscriptionAutoApproveDailyLimit = *req.SubscriptionAutoApproveDailyLimit
+	}
+	if req.P115PlaybackMode != nil {
+		group.P115PlaybackMode = models.P115PlaybackMode(strings.ToLower(strings.TrimSpace(*req.P115PlaybackMode)))
+	}
+	if req.P115TransferHourlyLimit != nil {
+		group.P115TransferHourlyLimit = *req.P115TransferHourlyLimit
+	}
+	if req.P115TransferDailyLimit != nil {
+		group.P115TransferDailyLimit = *req.P115TransferDailyLimit
 	}
 	if req.IsDefault != nil {
 		if *req.IsDefault {
@@ -535,6 +563,54 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 	}
 	view := buildPlanGroupView(*group)
 	return &view, nil
+}
+
+func resolveCreateP115Policy(req *CreatePlanGroupRequest) (models.P115PlaybackMode, int, int, error) {
+	mode := models.P115PlaybackModePersonal
+	hourlyLimit := 5
+	dailyLimit := 10
+	if req.P115PlaybackMode != nil {
+		mode = models.P115PlaybackMode(strings.ToLower(strings.TrimSpace(*req.P115PlaybackMode)))
+	}
+	if req.P115TransferHourlyLimit != nil {
+		hourlyLimit = *req.P115TransferHourlyLimit
+	}
+	if req.P115TransferDailyLimit != nil {
+		dailyLimit = *req.P115TransferDailyLimit
+	}
+	if err := validateP115Policy(mode, hourlyLimit, dailyLimit); err != nil {
+		return "", 0, 0, err
+	}
+	return mode, hourlyLimit, dailyLimit, nil
+}
+
+func validateP115PolicyUpdate(req *UpdatePlanGroupRequest) error {
+	if req.P115PlaybackMode != nil {
+		mode := models.P115PlaybackMode(strings.ToLower(strings.TrimSpace(*req.P115PlaybackMode)))
+		if mode != models.P115PlaybackModePersonal && mode != models.P115PlaybackModeSystem {
+			return ErrPlanGroupP115PlaybackModeInvalid
+		}
+	}
+	if req.P115TransferHourlyLimit != nil && (*req.P115TransferHourlyLimit < 1 || *req.P115TransferHourlyLimit > 100) {
+		return ErrPlanGroupP115TransferHourlyLimitInvalid
+	}
+	if req.P115TransferDailyLimit != nil && (*req.P115TransferDailyLimit < 1 || *req.P115TransferDailyLimit > 1000) {
+		return ErrPlanGroupP115TransferDailyLimitInvalid
+	}
+	return nil
+}
+
+func validateP115Policy(mode models.P115PlaybackMode, hourlyLimit, dailyLimit int) error {
+	if mode != models.P115PlaybackModePersonal && mode != models.P115PlaybackModeSystem {
+		return ErrPlanGroupP115PlaybackModeInvalid
+	}
+	if hourlyLimit < 1 || hourlyLimit > 100 {
+		return ErrPlanGroupP115TransferHourlyLimitInvalid
+	}
+	if dailyLimit < 1 || dailyLimit > 1000 {
+		return ErrPlanGroupP115TransferDailyLimitInvalid
+	}
+	return nil
 }
 
 func (s *PaymentService) DeletePlanGroup(key string) error {

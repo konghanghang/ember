@@ -139,7 +139,8 @@ func TestDeleteUserDeletesEmbyBeforeLocalRecord(t *testing.T) {
 			deletedUserID = user.ID
 			return nil
 		},
-		revokeUserTokens: noopUserTokenRevoker,
+		revokeUserTokens:          noopUserTokenRevoker,
+		revokePersonalP115Account: noopPersonalP115Revoker,
 	}
 
 	err := service.DeleteUser("user_1")
@@ -166,7 +167,8 @@ func TestDeleteUserSkipsLocalDeleteWhenEmbyDeleteFails(t *testing.T) {
 			t.Fatalf("local delete must not run when emby delete fails")
 			return nil
 		},
-		revokeUserTokens: noopUserTokenRevoker,
+		revokeUserTokens:          noopUserTokenRevoker,
+		revokePersonalP115Account: noopPersonalP115Revoker,
 	}
 
 	err := service.DeleteUser("user_1")
@@ -193,7 +195,8 @@ func TestDeleteUserWithoutEmbyIDDeletesLocalOnly(t *testing.T) {
 			deletedUserID = user.ID
 			return nil
 		},
-		revokeUserTokens: noopUserTokenRevoker,
+		revokeUserTokens:          noopUserTokenRevoker,
+		revokePersonalP115Account: noopPersonalP115Revoker,
 	}
 
 	err := service.DeleteUser("user_1")
@@ -379,6 +382,13 @@ func TestDeleteUserRevokesBeforeRemoteAndLocalDeletion(t *testing.T) {
 			}
 			return 1, nil
 		},
+		revokePersonalP115Account: func(_ context.Context, userID string) error {
+			order = append(order, "p115_tombstone")
+			if userID != "user_1" {
+				t.Fatalf("p115 tombstone user=%s", userID)
+			}
+			return nil
+		},
 		newEmbyClient: func() embyClient {
 			return &orderedDeleteUserClient{stubUserEmbyClient: client, order: &order}
 		},
@@ -390,8 +400,35 @@ func TestDeleteUserRevokesBeforeRemoteAndLocalDeletion(t *testing.T) {
 	if err := service.DeleteUserWithContext(context.Background(), "user_1", "admin_1"); err != nil {
 		t.Fatalf("DeleteUserWithContext() error = %v", err)
 	}
-	if strings.Join(order, ",") != "revoke,remote_delete,local_delete" {
+	if strings.Join(order, ",") != "revoke,p115_tombstone,remote_delete,local_delete" {
 		t.Fatalf("operation order = %#v", order)
+	}
+}
+
+func TestDeleteUserStopsWhenPersonalP115TombstoneFails(t *testing.T) {
+	service := &UserService{
+		findUserByID: func(userID string) (*models.User, error) {
+			return &models.User{ID: userID, EmbyID: "emby_1"}, nil
+		},
+		revokeUserTokens: func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+			return 1, nil
+		},
+		revokePersonalP115Account: func(context.Context, string) error {
+			return errors.New("tombstone failed")
+		},
+		newEmbyClient: func() embyClient {
+			t.Fatal("Emby delete must not run after P115 tombstone failure")
+			return nil
+		},
+		deleteUserRecord: func(*models.User) error {
+			t.Fatal("local delete must not run after P115 tombstone failure")
+			return nil
+		},
+	}
+
+	err := service.DeleteUserWithContext(context.Background(), "user_1", "admin_1")
+	if !errors.Is(err, ErrUserP115AccountRevocation) {
+		t.Fatalf("DeleteUserWithContext() error = %v, want ErrUserP115AccountRevocation", err)
 	}
 }
 
@@ -402,6 +439,10 @@ type orderedDeleteUserClient struct {
 
 func noopUserTokenRevoker(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
 	return 0, nil
+}
+
+func noopPersonalP115Revoker(context.Context, string) error {
+	return nil
 }
 
 func (client *orderedDeleteUserClient) DeleteUser(embyUserID string) error {

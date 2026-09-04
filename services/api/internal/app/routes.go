@@ -79,6 +79,7 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.POST("/p115-accounts/:id/validate", h.p115Account.Validate)
 	admin.PUT("/p115-accounts/:id/enabled", h.p115Account.SetEnabled)
 	admin.PUT("/p115-accounts/:id/source-location", h.p115Account.UpdateSourceLocation)
+	admin.PUT("/p115-accounts/:id/playback-config", h.p115Account.UpdatePlaybackConfig)
 
 	admin.GET("/subscriptions", h.subscription.GetAllSubscriptions)
 	admin.PUT("/subscriptions/:id/approve", h.subscription.ApproveSubscription)
@@ -233,6 +234,15 @@ func registerUserRoutes(api *gin.RouterGroup, h *appHandlers) {
 	user.POST("/redeem", h.user.RedeemCode)
 	user.GET("/redeem/:code/validate", h.user.ValidateRedeemCode)
 	user.GET("/redemptions", h.user.GetRedemptions)
+	user.GET("/p115-account", h.p115UserAccount.Get)
+	user.POST("/p115-account", h.p115UserAccount.Create)
+	user.PUT("/p115-account/cookie", h.p115UserAccount.ReplaceCookie)
+	user.PUT("/p115-account/directory", h.p115UserAccount.UpdateDirectory)
+	user.PUT("/p115-account/concurrency", h.p115UserAccount.UpdateConcurrency)
+	user.POST("/p115-account/validate", h.p115UserAccount.Validate)
+	user.PUT("/p115-account/enabled", h.p115UserAccount.SetEnabled)
+	user.DELETE("/p115-account", h.p115UserAccount.Revoke)
+	user.GET("/p115-usage", h.p115UserAccount.GetUsage)
 
 	user.GET("/subscriptions", h.subscription.GetMySubscriptions)
 	user.POST("/subscriptions/check-existing", h.subscription.CheckExisting)

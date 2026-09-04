@@ -2,15 +2,20 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/handlers"
 	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
 	p115accountpkg "github.com/konghang/ember/backend/internal/services/p115account"
+	"github.com/konghang/ember/backend/internal/services/p115quota"
 )
 
 type appHandlers struct {
+	closer          io.Closer
 	auth            *handlers.AuthHandler
 	user            *handlers.UserHandler
 	redemptionCode  *handlers.RedemptionCodeHandler
@@ -32,6 +37,7 @@ type appHandlers struct {
 	mediaQuality    *handlers.MediaQualityHandler
 	mediaGap        *handlers.MediaGapHandler
 	p115Account     *handlers.P115AccountHandler
+	p115UserAccount *handlers.P115UserAccountHandler
 }
 
 func newAppHandlers() (*appHandlers, error) {
@@ -40,15 +46,30 @@ func newAppHandlers() (*appHandlers, error) {
 
 // newAppHandlersWithP115Validator builds the handler graph with an explicit 115 validation boundary.
 func newAppHandlersWithP115Validator(validator p115integration.CredentialValidator) (*appHandlers, error) {
-	p115AccountService, err := p115accountpkg.NewService(
+	leaseStore, leaseCloser := p115quota.NewLeaseStoreFromURL(os.Getenv("REDIS_URL"))
+	timezoneName := configpkg.NewConfigService().GetString("CRON_TIMEZONE")
+	businessTimezone, timezoneErr := time.LoadLocation(timezoneName)
+	if timezoneErr != nil {
+		if leaseCloser != nil {
+			_ = leaseCloser.Close()
+		}
+		return nil, fmt.Errorf("初始化 115 配额时区失败: %w", timezoneErr)
+	}
+	p115AccountService, err := p115accountpkg.NewServiceWithLeaseStore(
 		db.DB,
 		os.Getenv("CONFIG_ENCRYPTION_KEY"),
 		validator,
+		leaseStore,
+		businessTimezone,
 	)
 	if err != nil {
+		if leaseCloser != nil {
+			_ = leaseCloser.Close()
+		}
 		return nil, fmt.Errorf("初始化 115 账号服务失败: %w", err)
 	}
 	return &appHandlers{
+		closer:          leaseCloser,
 		auth:            handlers.NewAuthHandler(),
 		user:            handlers.NewUserHandler(),
 		redemptionCode:  handlers.NewRedemptionCodeHandler(),
@@ -70,5 +91,6 @@ func newAppHandlersWithP115Validator(validator p115integration.CredentialValidat
 		mediaQuality:    handlers.NewMediaQualityHandler(),
 		mediaGap:        handlers.NewMediaGapHandler(),
 		p115Account:     handlers.NewP115AccountHandler(p115AccountService),
+		p115UserAccount: handlers.NewP115UserAccountHandler(p115AccountService),
 	}, nil
 }

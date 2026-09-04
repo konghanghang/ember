@@ -314,6 +314,69 @@ func TestCreatePlanGroupRejectsNegativeAutoApproveLimit(t *testing.T) {
 	}
 }
 
+func TestCreatePlanGroupRejectsInvalidP115Policy(t *testing.T) {
+	tests := []struct {
+		name string
+		req  CreatePlanGroupRequest
+		err  error
+	}{
+		{name: "mode", req: CreatePlanGroupRequest{Key: "VIP_A", Name: "VIP A", P115PlaybackMode: strPtr("shared")}, err: ErrPlanGroupP115PlaybackModeInvalid},
+		{name: "hourly zero", req: CreatePlanGroupRequest{Key: "VIP_A", Name: "VIP A", P115PlaybackMode: strPtr("personal"), P115TransferHourlyLimit: planGroupIntPtr(0), P115TransferDailyLimit: planGroupIntPtr(10)}, err: ErrPlanGroupP115TransferHourlyLimitInvalid},
+		{name: "hourly high", req: CreatePlanGroupRequest{Key: "VIP_A", Name: "VIP A", P115PlaybackMode: strPtr("personal"), P115TransferHourlyLimit: planGroupIntPtr(101), P115TransferDailyLimit: planGroupIntPtr(10)}, err: ErrPlanGroupP115TransferHourlyLimitInvalid},
+		{name: "daily zero", req: CreatePlanGroupRequest{Key: "VIP_A", Name: "VIP A", P115PlaybackMode: strPtr("personal"), P115TransferHourlyLimit: planGroupIntPtr(5), P115TransferDailyLimit: planGroupIntPtr(0)}, err: ErrPlanGroupP115TransferDailyLimitInvalid},
+		{name: "daily high", req: CreatePlanGroupRequest{Key: "VIP_A", Name: "VIP A", P115PlaybackMode: strPtr("personal"), P115TransferHourlyLimit: planGroupIntPtr(5), P115TransferDailyLimit: planGroupIntPtr(1001)}, err: ErrPlanGroupP115TransferDailyLimitInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &PaymentService{}
+			_, err := service.CreatePlanGroup(&tt.req)
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("CreatePlanGroup() error = %v, want %v", err, tt.err)
+			}
+		})
+	}
+}
+
+func TestUpdatePlanGroupRejectsInvalidP115PolicyBeforeOpeningTransaction(t *testing.T) {
+	service := &PaymentService{}
+	tests := []struct {
+		name string
+		req  UpdatePlanGroupRequest
+		err  error
+	}{
+		{name: "mode", req: UpdatePlanGroupRequest{P115PlaybackMode: strPtr("shared")}, err: ErrPlanGroupP115PlaybackModeInvalid},
+		{name: "hourly", req: UpdatePlanGroupRequest{P115TransferHourlyLimit: planGroupIntPtr(0)}, err: ErrPlanGroupP115TransferHourlyLimitInvalid},
+		{name: "daily", req: UpdatePlanGroupRequest{P115TransferDailyLimit: planGroupIntPtr(1001)}, err: ErrPlanGroupP115TransferDailyLimitInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := service.UpdatePlanGroup("VIP_A", &tt.req)
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("UpdatePlanGroup() error = %v, want %v", err, tt.err)
+			}
+		})
+	}
+}
+
+func planGroupIntPtr(value int) *int {
+	return &value
+}
+
+func TestBuildPlanGroupViewKeepsP115Policy(t *testing.T) {
+	group := models.PlanGroup{
+		Key:                     "VIP_A",
+		Name:                    "VIP A",
+		P115PlaybackMode:        models.P115PlaybackModeSystem,
+		P115TransferHourlyLimit: 7,
+		P115TransferDailyLimit:  3,
+	}
+
+	view := buildPlanGroupView(group)
+	if view.P115PlaybackMode != models.P115PlaybackModeSystem || view.P115TransferHourlyLimit != 7 || view.P115TransferDailyLimit != 3 {
+		t.Fatalf("buildPlanGroupView() lost P115 policy: %+v", view)
+	}
+}
+
 func TestUpdatePlanGroupRejectsNegativeAutoApproveLimit(t *testing.T) {
 	origBegin := beginPlanGroupTx
 	origCommit := commitPlanGroupTx

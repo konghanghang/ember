@@ -63,6 +63,12 @@ func (v *integrationFakeP115Validator) ValidateCredential(_ context.Context, cre
 	return outcome.identity, outcome.err
 }
 
+// ResolveDirectoryByPath returns a deterministic fake directory without contacting 115.
+func (v *integrationFakeP115Validator) ResolveDirectoryByPath(_ context.Context, _ p115integration.Credential, query p115integration.DirectoryPathQuery) (*p115integration.Directory, error) {
+	path := "/" + strings.TrimPrefix(strings.TrimSpace(query.RelativePath), "/")
+	return &p115integration.Directory{ID: "200", ParentID: "0", Name: "Playback", Path: path}, nil
+}
+
 type integrationP115AccountResponse struct {
 	ID               string                   `json:"id"`
 	Role             models.P115AccountRole   `json:"role"`
@@ -109,7 +115,7 @@ func TestIntegrationP115AccountLifecycle(t *testing.T) {
 	if err := harness.database.Where("id = ?", created.ID).First(&stored).Error; err != nil {
 		t.Fatalf("load created 115 account: %v", err)
 	}
-	if stored.CookieCiphertext == oldCookie || strings.Contains(stored.CookieCiphertext, oldCookie) {
+	if stored.CookieCiphertext == nil || *stored.CookieCiphertext == oldCookie || strings.Contains(*stored.CookieCiphertext, oldCookie) {
 		t.Fatal("115 Cookie was persisted as plaintext")
 	}
 
@@ -144,8 +150,8 @@ func TestIntegrationP115AccountLifecycle(t *testing.T) {
 	if err := harness.database.Where("id = ?", created.ID).First(&stored).Error; err != nil {
 		t.Fatalf("load replaced 115 account: %v", err)
 	}
-	if stored.AppType != "android" {
-		t.Fatalf("stored app type after replacement = %q, want android", stored.AppType)
+	if stored.AppType == nil || *stored.AppType != "android" {
+		t.Fatalf("stored app type after replacement = %v, want android", stored.AppType)
 	}
 
 	revalidated := validateIntegrationP115Account(t, harness, created.ID, http.StatusOK)
@@ -235,6 +241,7 @@ func TestIntegrationP115AccountEnableConstraints(t *testing.T) {
 
 	playbackC := createIntegrationP115Account(t, harness, `{"role":"playback","alias":"playback-c","cookie":"playback-c-cookie","appType":"web","userAgent":"itest","targetParentId":"target-1"}`)
 	validateIntegrationP115Account(t, harness, playbackC.ID, http.StatusOK)
+	configureIntegrationP115Playback(t, harness, playbackC.ID, "/Playback", 3)
 	providerConflict := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/p115-accounts/"+playbackC.ID+"/enabled", []byte(`{"enabled":true}`))
 	assertIntegrationHTTPStatus(t, providerConflict.Code, http.StatusConflict, providerConflict.Body.String())
 	if !strings.Contains(providerConflict.Body.String(), "源账号和播放账号不能使用同一个 115 账号") {
@@ -397,6 +404,7 @@ func TestIntegrationP115AccountValidationFailuresAndAdminAPIKey(t *testing.T) {
 
 	unstable := createIntegrationP115Account(t, harness, `{"role":"playback","alias":"unstable","cookie":"`+unstableCookie+`","appType":"web","userAgent":"itest","targetParentId":"target-2"}`)
 	validateIntegrationP115Account(t, harness, unstable.ID, http.StatusOK)
+	configureIntegrationP115Playback(t, harness, unstable.ID, "/Playback", 3)
 	setIntegrationP115AccountEnabled(t, harness, unstable.ID, true, http.StatusOK)
 	validateIntegrationP115Account(t, harness, unstable.ID, http.StatusBadGateway)
 
@@ -473,6 +481,20 @@ func setIntegrationP115AccountEnabled(t *testing.T, harness *integrationHarness,
 	if wantStatus != http.StatusOK {
 		return integrationP115AccountResponse{}
 	}
+	return decodeIntegrationP115Account(t, recorder.Body.Bytes())
+}
+
+func configureIntegrationP115Playback(t *testing.T, harness *integrationHarness, accountID, path string, maxConcurrentStreams int) integrationP115AccountResponse {
+	t.Helper()
+	body, err := json.Marshal(map[string]interface{}{
+		"targetParentPath":     path,
+		"maxConcurrentStreams": maxConcurrentStreams,
+	})
+	if err != nil {
+		t.Fatalf("marshal playback config: %v", err)
+	}
+	recorder := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/p115-accounts/"+accountID+"/playback-config", body)
+	assertIntegrationHTTPStatus(t, recorder.Code, http.StatusOK, recorder.Body.String())
 	return decodeIntegrationP115Account(t, recorder.Body.Bytes())
 }
 

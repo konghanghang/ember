@@ -1541,13 +1541,15 @@ func TestGatewayPlaybackSessionEventsAreTransparent(t *testing.T) {
 				test.wantLogCode,
 				test.wantMessage,
 				`itemId="item-1"`,
-				`playSessionId="session-1"`,
 				"snapshotState=recorded",
 				"statusCode=204",
 			} {
 				if !strings.Contains(logs.String(), expected) {
 					t.Fatalf("logs=%q, want %s", logs.String(), expected)
 				}
+			}
+			if strings.Contains(logs.String(), "playSessionId=") {
+				t.Fatalf("logs exposed raw PlaySessionId: %q", logs.String())
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, test.body)
 		})
@@ -1583,7 +1585,6 @@ func TestGatewayPlaybackProgressFailureAndRecoveryAreObvious(t *testing.T) {
 		"forwardState=not_attempted",
 		"statusCode=503",
 		`itemId=""`,
-		`playSessionId=""`,
 		"snapshotState=not_inspected",
 	} {
 		if !strings.Contains(logs.String(), expected) {
@@ -1609,11 +1610,13 @@ func TestGatewayPlaybackProgressFailureAndRecoveryAreObvious(t *testing.T) {
 		`message="播放进度上报已恢复"`,
 		"result=success",
 		"recoveryEvent=start",
-		`playSessionId="session-1"`,
 	} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("recovery logs=%q, want %s", logs.String(), expected)
 		}
+	}
+	if strings.Contains(logs.String(), "playSessionId=") {
+		t.Fatalf("logs exposed raw PlaySessionId: %q", logs.String())
 	}
 
 	secondProgressRequest := httptest.NewRequest(http.MethodPost, "/Sessions/Playing/Progress", strings.NewReader(progressBody))

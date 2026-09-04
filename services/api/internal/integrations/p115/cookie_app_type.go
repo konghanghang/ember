@@ -1,6 +1,7 @@
 package p115
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -47,6 +48,26 @@ func DetectCookieAppType(cookieHeader string) (string, bool) {
 	}
 	appType, ok := cookieAppTypeBySSOEnt[ssoent]
 	return appType, ok
+}
+
+// DetectPersonalCookieAppType validates the single Cookie UID locally and
+// returns a stable diagnostic client type without calling 115.
+func DetectPersonalCookieAppType(cookieHeader string) (string, error) {
+	if _, err := parseCookieProviderUserID(cookieHeader); err != nil {
+		return "", err
+	}
+	uid, ok := singleCookieUID(cookieHeader)
+	if !ok {
+		return "", ErrCredentialRejected
+	}
+	parts := strings.Split(uid, "_")
+	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+		return "", fmt.Errorf("%w: cookie UID ssoent is missing", ErrCredentialRejected)
+	}
+	if appType, ok := cookieAppTypeBySSOEnt[strings.ToUpper(strings.TrimSpace(parts[1]))]; ok {
+		return appType, nil
+	}
+	return "unknown", nil
 }
 
 func singleCookieUID(cookieHeader string) (string, bool) {

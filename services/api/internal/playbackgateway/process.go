@@ -60,6 +60,8 @@ func runtimeFailureReasonCode(err error) string {
 		return "emby_url_unavailable"
 	case errors.Is(err, ErrRuntimeEmbyAPIKeyUnavailable):
 		return "emby_api_key_unavailable"
+	case errors.Is(err, ErrRuntimeTimezoneInvalid):
+		return "cron_timezone_invalid"
 	case errors.Is(err, ErrRuntimeConfig):
 		return "runtime_config_invalid"
 	case errors.Is(err, ErrUpstreamIdentity):

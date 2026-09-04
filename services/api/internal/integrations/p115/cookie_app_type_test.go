@@ -47,3 +47,36 @@ func TestDetectCookieAppType(t *testing.T) {
 		})
 	}
 }
+
+func TestDetectPersonalCookieAppType(t *testing.T) {
+	tests := []struct {
+		name    string
+		cookie  string
+		want    string
+		wantErr bool
+	}{
+		{name: "known", cookie: "UID=100_F1_1700000000; CID=fake", want: "android"},
+		{name: "unknown", cookie: "UID=100_Z9_1700000000", want: "unknown"},
+		{name: "missing ssoent", cookie: "UID=100", wantErr: true},
+		{name: "empty ssoent", cookie: "UID=100__1700000000", wantErr: true},
+		{name: "invalid user id", cookie: "UID=abc_F1_1700000000", wantErr: true},
+		{name: "zero user id", cookie: "UID=0_F1_1700000000", wantErr: true},
+		{name: "duplicate uid", cookie: "UID=100_F1_1700000000; UID=200_F1_1700000000", wantErr: true},
+		{name: "missing uid", cookie: "CID=fake", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := DetectPersonalCookieAppType(tt.cookie)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("DetectPersonalCookieAppType() = %q, want error", got)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Fatalf("DetectPersonalCookieAppType() = %q, %v, want %q, nil", got, err, tt.want)
+			}
+		})
+	}
+}

@@ -18,8 +18,9 @@ import (
 var errStoreOperation = errors.New("115 账号存储操作失败")
 
 const (
-	enabledRoleConstraint         = "uq_p115_accounts_enabled_role"
-	enabledProviderUserConstraint = "uq_p115_accounts_enabled_provider_user"
+	enabledRoleConstraint         = "uq_p115_accounts_enabled_shared_role"
+	enabledProviderUserConstraint = "uq_p115_accounts_non_revoked_provider_user"
+	currentOwnerConstraint        = "uq_p115_accounts_current_owner"
 )
 
 type gormAccountStore struct {
@@ -27,12 +28,17 @@ type gormAccountStore struct {
 }
 
 func (s *gormAccountStore) Create(ctx context.Context, account *models.P115Account) error {
-	return safeP115AccountStoreError("create", s.database(ctx).Create(account).Error)
+	err := s.database(ctx).Create(account).Error
+	if err != nil {
+		err = mapP115AccountConstraintError(err)
+	}
+	return safeP115AccountStoreError("create", err)
 }
 
 func (s *gormAccountStore) List(ctx context.Context) ([]models.P115Account, error) {
 	var accounts []models.P115Account
 	err := s.database(ctx).
+		Where("owner_user_id IS NULL AND status <> ?", models.P115AccountStatusRevoked).
 		Order("role ASC").
 		Order("created_at ASC").
 		Order("id ASC").
@@ -52,6 +58,61 @@ func (s *gormAccountStore) GetByID(ctx context.Context, id string) (*models.P115
 	return &account, nil
 }
 
+// GetByOwner returns the user's single current non-revoked personal account.
+func (s *gormAccountStore) GetByOwner(ctx context.Context, ownerUserID string) (*models.P115Account, error) {
+	var account models.P115Account
+	err := s.database(ctx).
+		Where("owner_user_id = ? AND role = ? AND status <> ?", ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusRevoked).
+		First(&account).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAccountNotFound
+	}
+	if err != nil {
+		return nil, safeP115AccountStoreError("get_by_owner", err)
+	}
+	return &account, nil
+}
+
+// UpdatePlaybackConfig conditionally stores the resolved directory and limit
+// for the exact administrator playback credential generation that was resolved.
+func (s *gormAccountStore) UpdatePlaybackConfig(
+	ctx context.Context,
+	id, expectedCiphertext string,
+	expectedUpdatedAt time.Time,
+	targetParentPath, targetParentID string,
+	maxConcurrentStreams int,
+) (*models.P115Account, error) {
+	result := s.database(ctx).Model(&models.P115Account{}).
+		Where("id = ? AND owner_user_id IS NULL AND role = ? AND status = ? AND cookie_ciphertext = ? AND updated_at = ?",
+			id, models.P115AccountRolePlayback, models.P115AccountStatusActive, expectedCiphertext, expectedUpdatedAt).
+		Updates(map[string]interface{}{
+			"target_parent_path":     targetParentPath,
+			"target_parent_id":       targetParentID,
+			"max_concurrent_streams": maxConcurrentStreams,
+			"updated_at":             gorm.Expr("CURRENT_TIMESTAMP"),
+		})
+	if result.Error != nil {
+		return nil, safeP115AccountStoreError("update_playback_config", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		var count int64
+		if err := s.database(ctx).Model(&models.P115Account{}).
+			Where("id = ? AND owner_user_id IS NULL AND status <> ?", id, models.P115AccountStatusRevoked).
+			Count(&count).Error; err != nil {
+			return nil, safeP115AccountStoreError("update_playback_config", err)
+		}
+		if count == 0 {
+			return nil, ErrAccountNotFound
+		}
+		return nil, ErrRuntimeStateChanged
+	}
+	var account models.P115Account
+	if err := s.database(ctx).Where("id = ?", id).First(&account).Error; err != nil {
+		return nil, safeP115AccountStoreError("update_playback_config", err)
+	}
+	return &account, nil
+}
+
 // GetEnabledSourceLocation reads only the non-sensitive columns required for
 // local path mapping. Runtime status and Provider credential state are
 // intentionally excluded from this query.
@@ -59,7 +120,8 @@ func (s *gormAccountStore) GetEnabledSourceLocation(ctx context.Context) (*model
 	var account models.P115Account
 	err := s.database(ctx).
 		Select("id", "role", "enabled", "emby_path_prefix", "source_root_id").
-		Where("role = ? AND enabled = ?", models.P115AccountRoleSource, true).
+		Where("owner_user_id IS NULL AND role = ? AND status <> ? AND enabled = ?",
+			models.P115AccountRoleSource, models.P115AccountStatusRevoked, true).
 		First(&account).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrAccountUnavailable
@@ -82,7 +144,8 @@ func (s *gormAccountStore) AcquireRuntimeByRole(
 	var account models.P115Account
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("role = ? AND enabled = ?", role, true).
+			Where("owner_user_id IS NULL AND role = ? AND status <> ? AND enabled = ?",
+				role, models.P115AccountStatusRevoked, true).
 			First(&account).Error; err != nil {
 			return err
 		}
@@ -150,19 +213,21 @@ func (s *gormAccountStore) UpdateSourceLocation(ctx context.Context, id, embyPat
 func (s *gormAccountStore) ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error) {
 	var account models.P115Account
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&models.P115Account{}).Where("id = ?", id).Updates(map[string]interface{}{
-			"cookie_ciphertext":  replacement.CookieCiphertext,
-			"app_type":           replacement.AppType,
-			"provider_user_id":   nil,
-			"status":             replacement.Status,
-			"enabled":            replacement.Enabled,
-			"last_validated_at":  nil,
-			"last_succeeded_at":  nil,
-			"cooldown_until":     nil,
-			"last_error_code":    nil,
-			"last_error_message": nil,
-			"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
-		})
+		result := tx.Model(&models.P115Account{}).
+			Where("id = ? AND owner_user_id IS NULL AND status <> ?", id, models.P115AccountStatusRevoked).
+			Updates(map[string]interface{}{
+				"cookie_ciphertext":  replacement.CookieCiphertext,
+				"app_type":           replacement.AppType,
+				"provider_user_id":   nil,
+				"status":             replacement.Status,
+				"enabled":            replacement.Enabled,
+				"last_validated_at":  nil,
+				"last_succeeded_at":  nil,
+				"cooldown_until":     nil,
+				"last_error_code":    nil,
+				"last_error_message": nil,
+				"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
+			})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -178,6 +243,82 @@ func (s *gormAccountStore) ReplaceCredential(ctx context.Context, id string, rep
 		return nil, safeP115AccountStoreError("replace_credential", err)
 	}
 	return &account, nil
+}
+
+// ReplacePersonalCredential resets Provider-derived state for the user's
+// current account while preserving only its configured concurrency value.
+func (s *gormAccountStore) ReplacePersonalCredential(ctx context.Context, ownerUserID string, replacement credentialReplacement) (*models.P115Account, error) {
+	var account models.P115Account
+	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("owner_user_id = ? AND role = ? AND status <> ?", ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusRevoked).
+			First(&account).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.P115Account{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
+			"cookie_ciphertext":  replacement.CookieCiphertext,
+			"app_type":           replacement.AppType,
+			"user_agent":         personalProviderUserAgent,
+			"provider_user_id":   nil,
+			"target_parent_id":   nil,
+			"target_parent_path": nil,
+			"status":             replacement.Status,
+			"enabled":            replacement.Enabled,
+			"last_validated_at":  nil,
+			"last_succeeded_at":  nil,
+			"cooldown_until":     nil,
+			"last_error_code":    nil,
+			"last_error_message": nil,
+			"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
+		}).Error; err != nil {
+			return mapP115AccountConstraintError(err)
+		}
+		return tx.Where("id = ?", account.ID).First(&account).Error
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAccountNotFound
+	}
+	if err != nil {
+		return nil, safeP115AccountStoreError("replace_personal_credential", err)
+	}
+	return &account, nil
+}
+
+// RevokePersonal erases the current user's credential and runtime fields while
+// preserving the account row for transfer provenance. Missing accounts succeed.
+func (s *gormAccountStore) RevokePersonal(ctx context.Context, ownerUserID string) error {
+	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
+		var account models.P115Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("owner_user_id = ? AND role = ? AND status <> ?", ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusRevoked).
+			First(&account).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		return tx.Model(&models.P115Account{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
+			"owner_user_id":          nil,
+			"provider_user_id":       nil,
+			"cookie_ciphertext":      nil,
+			"app_type":               nil,
+			"user_agent":             nil,
+			"emby_path_prefix":       nil,
+			"source_root_id":         nil,
+			"target_parent_id":       nil,
+			"target_parent_path":     nil,
+			"max_concurrent_streams": nil,
+			"status":                 models.P115AccountStatusRevoked,
+			"enabled":                false,
+			"last_validated_at":      nil,
+			"last_succeeded_at":      nil,
+			"cooldown_until":         nil,
+			"last_error_code":        nil,
+			"last_error_message":     nil,
+			"updated_at":             gorm.Expr("CURRENT_TIMESTAMP"),
+		}).Error
+	})
+	return safeP115AccountStoreError("revoke_personal", err)
 }
 
 func (s *gormAccountStore) CompleteValidationSuccess(
@@ -353,6 +494,9 @@ func validateP115AccountEnableState(account *models.P115Account) error {
 		account.LastValidatedAt == nil {
 		return ErrAccountUnavailable
 	}
+	if _, _, _, err := requiredCredentialFields(account); err != nil {
+		return ErrAccountUnavailable
+	}
 	if account.Role == models.P115AccountRoleSource &&
 		(account.TargetParentID != nil || account.EmbyPathPrefix == nil || strings.TrimSpace(*account.EmbyPathPrefix) == "" ||
 			account.SourceRootID == nil || strings.TrimSpace(*account.SourceRootID) == "") {
@@ -360,6 +504,8 @@ func validateP115AccountEnableState(account *models.P115Account) error {
 	}
 	if account.Role == models.P115AccountRolePlayback &&
 		(account.TargetParentID == nil || strings.TrimSpace(*account.TargetParentID) == "" ||
+			account.TargetParentPath == nil || strings.TrimSpace(*account.TargetParentPath) == "" ||
+			account.MaxConcurrentStreams == nil || *account.MaxConcurrentStreams <= 0 ||
 			account.EmbyPathPrefix != nil || account.SourceRootID != nil) {
 		return ErrAccountUnavailable
 	}
@@ -370,7 +516,9 @@ func safeP115AccountStoreError(operation string, err error) error {
 	if err == nil || errors.Is(err, ErrAccountNotFound) || errors.Is(err, ErrCredentialChanged) ||
 		errors.Is(err, ErrAccountCoolingDown) || errors.Is(err, ErrRuntimeStateChanged) ||
 		errors.Is(err, ErrAccountUnavailable) || errors.Is(err, ErrRoleAlreadyEnabled) ||
-		errors.Is(err, ErrProviderUserAlreadyEnabled) || errors.Is(err, ErrSourceLocationOnly) {
+		errors.Is(err, ErrProviderUserAlreadyEnabled) || errors.Is(err, ErrPersonalAccountAlreadyExists) ||
+		errors.Is(err, ErrSourceLocationOnly) || errors.Is(err, ErrPersonalPlanPolicyUnavailable) ||
+		errors.Is(err, ErrMaxConcurrentStreamsInvalid) || errors.Is(err, ErrMaxConcurrentStreamsExceedsPlan) {
 		return err
 	}
 
@@ -394,6 +542,8 @@ func mapP115AccountConstraintError(err error) error {
 		return ErrRoleAlreadyEnabled
 	case enabledProviderUserConstraint:
 		return ErrProviderUserAlreadyEnabled
+	case currentOwnerConstraint:
+		return ErrPersonalAccountAlreadyExists
 	default:
 		return err
 	}

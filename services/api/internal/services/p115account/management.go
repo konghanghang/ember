@@ -26,25 +26,33 @@ func (s *Service) Validate(ctx context.Context, accountID string) (*ValidationRe
 	if s.validator == nil {
 		return nil, ErrValidatorUnavailable
 	}
-	account, err := s.store.GetByID(ctx, accountID)
+	account, err := s.getAdminAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	cookie, err := s.cipher.Decrypt(account.CookieCiphertext)
+	return s.validateAccount(ctx, account)
+}
+
+func (s *Service) validateAccount(ctx context.Context, account *models.P115Account) (*ValidationResult, error) {
+	ciphertext, appType, userAgent, err := requiredCredentialFields(account)
 	if err != nil {
-		log.Printf("[P115Account] 验证前 Cookie 解密失败 accountId=%s err=%v", account.ID, err)
+		return nil, err
+	}
+	cookie, err := s.cipher.Decrypt(ciphertext)
+	if err != nil {
+		log.Printf("[P115Account] 验证前 Cookie 解密失败 accountId=%s errorType=%T", account.ID, err)
 		return nil, err
 	}
 
 	identity, validationErr := s.validator.ValidateCredential(ctx, p115integration.Credential{
 		AccountID: account.ID,
 		Cookie:    cookie,
-		AppType:   account.AppType,
-		UserAgent: account.UserAgent,
+		AppType:   appType,
+		UserAgent: userAgent,
 	})
 	validatedAt := s.now().UTC()
 	if errors.Is(validationErr, p115integration.ErrCredentialRejected) {
-		updated, updateErr := s.store.CompleteValidationRejected(ctx, account.ID, account.CookieCiphertext, validatedAt)
+		updated, updateErr := s.store.CompleteValidationRejected(ctx, account.ID, ciphertext, validatedAt)
 		if updateErr != nil {
 			return nil, updateErr
 		}
@@ -59,7 +67,7 @@ func (s *Service) Validate(ctx context.Context, accountID string) (*ValidationRe
 	if providerUserID == "" {
 		return s.completeValidationError(ctx, account, p115integration.ErrProviderProtocol, validatedAt)
 	}
-	updated, err := s.store.CompleteValidationSuccess(ctx, account.ID, account.CookieCiphertext, providerUserID, validatedAt)
+	updated, err := s.store.CompleteValidationSuccess(ctx, account.ID, ciphertext, providerUserID, validatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -77,10 +85,13 @@ func (s *Service) completeValidationError(ctx context.Context, account *models.P
 		message = "115 响应格式不兼容"
 		publicErr = p115integration.ErrProviderProtocol
 	}
-	if _, err := s.store.CompleteValidationError(ctx, account.ID, account.CookieCiphertext, code, message, validatedAt); err != nil {
+	if account.CookieCiphertext == nil {
+		return nil, ErrAccountUnavailable
+	}
+	if _, err := s.store.CompleteValidationError(ctx, account.ID, *account.CookieCiphertext, code, message, validatedAt); err != nil {
 		return nil, err
 	}
-	log.Printf("[P115Account] Cookie 验证失败 accountId=%s code=%s err=%v", account.ID, code, validationErr)
+	log.Printf("[P115Account] Cookie 验证失败 accountId=%s code=%s errorType=%T", account.ID, code, validationErr)
 	return nil, publicErr
 }
 
@@ -89,6 +100,9 @@ func (s *Service) SetEnabled(ctx context.Context, accountID string, enabled bool
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
 		return nil, ErrAccountIDRequired
+	}
+	if _, err := s.getAdminAccount(ctx, accountID); err != nil {
+		return nil, err
 	}
 	account, err := s.store.SetEnabled(ctx, accountID, enabled)
 	if err != nil {

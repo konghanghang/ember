@@ -19,6 +19,7 @@ import (
 
 	"github.com/konghang/ember/backend/internal/services/directplay"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
+	"github.com/konghang/ember/backend/internal/services/p115quota"
 )
 
 const fixtureRedirectURL = "https://cdn.example.invalid/video.mkv?t=1787414400"
@@ -38,6 +39,17 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 			OriginalPath: "/mnt/media/fixture.mkv", EmbyPathPrefix: "/mnt/media",
 			SourceRootID: "100", RelativePath: "fixture.mkv",
 		},
+		Routing: directplay.RoutingDiagnostics{
+			Routed: true, PlaybackMode: "personal", PlaybackAccountOwner: "current_user",
+			AccountLimitsAvailable:         true,
+			ConfiguredMaxConcurrentStreams: 4, EffectiveMaxConcurrentStreams: 3, SimultaneousStreamLimit: 3,
+			LeaseUsageAvailable: true,
+			AccountUsage:        p115quota.LeaseUsage{ReservedStreams: 1, ActiveStreams: 1, OccupiedStreams: 2},
+			UserUsage:           p115quota.LeaseUsage{ReservedStreams: 1, ActiveStreams: 1, OccupiedStreams: 2},
+			TransferChecked:     true, TransferUsageAvailable: true,
+			TransferUsage:       p115quota.TransferUsage{HourlyUsed: 2, DailyUsed: 7},
+			TransferHourlyLimit: 5, TransferDailyLimit: 10,
+		},
 	}}
 	var logs bytes.Buffer
 	gateway := newVideoTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, directPlay, nil, &logs)
@@ -45,9 +57,10 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 	gateway.localMediaResolver = localMedia
 	gateway.proofs.Record([]PlaybackProof{fixturePlaybackProof("mapping-1", "item-1", "source-1", "session-1")})
 
-	request := newVideoRequest(http.MethodGet, "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true")
+	request := newVideoRequest(http.MethodGet, "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true&transferAttemptId=transfer-attempt-secret&redisKey=%7Bp115%7D%3Aleases%3Aaccount%3Asecret")
 	request.Header.Set("User-Agent", "Infuse-Fixture")
 	request.Header.Set("Range", "bytes=0-")
+	request.Header.Set("Cookie", "UID=provider-uid-secret; token=cookie-secret")
 	response := httptest.NewRecorder()
 	gateway.ServeHTTP(response, request)
 
@@ -61,7 +74,9 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 		t.Fatalf("local media calls = %d, want 0", localMedia.calls.Load())
 	}
 	requests := directPlay.snapshot()
-	if len(requests) != 1 || requests[0].Path != "/mnt/media/fixture.mkv" || requests[0].ClientUserAgent != "Infuse-Fixture" {
+	if len(requests) != 1 || requests[0].Path != "/mnt/media/fixture.mkv" || requests[0].ClientUserAgent != "Infuse-Fixture" ||
+		requests[0].Method != http.MethodGet || requests[0].UserID != "user-1" || requests[0].MappingID != "mapping-1" ||
+		requests[0].DeviceID != "device-1" || requests[0].PlaySessionID != "session-1" {
 		t.Fatalf("direct play requests = %+v", requests)
 	}
 	assertSingleDecisionLog(t, logs.String(), "redirect", "direct_play", "direct_play_ready")
@@ -71,6 +86,11 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 		`taskId="task-1"`, "preexisting=true",
 		`mediaPath="/mnt/media/fixture.mkv"`, `embyPathPrefix="/mnt/media"`,
 		`sourceRootId="100"`, `mappedRelativePath="fixture.mkv"`,
+		"playbackMode=personal", "playbackAccountOwner=current_user",
+		"accountReservedStreams=1", "accountActiveStreams=1", "accountOccupiedStreams=2",
+		"accountConfiguredStreamLimit=4", "accountEffectiveStreamLimit=3", "simultaneousStreamLimit=3",
+		"userReservedStreams=1", "userActiveStreams=1", "userOccupiedStreams=2",
+		"transferHourlyUsed=2", "transferHourlyLimit=5", "transferDailyUsed=7", "transferDailyLimit=10",
 	} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("logs = %q, want %s", logs.String(), expected)
@@ -81,7 +101,7 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 			t.Fatalf("logs = %q, unexpected %s", logs.String(), unexpected)
 		}
 	}
-	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixtureRedirectURL)
+	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, fixtureRedirectURL, "provider-uid-secret", "cookie-secret", "session-1", "{p115}:leases:account:", "transfer-attempt-secret")
 }
 
 func TestGatewayRootVideoWithoutProofFallsBackToCanonicalEmbyRequest(t *testing.T) {
@@ -1029,6 +1049,30 @@ func assertSingleDecisionLog(t *testing.T, logs, decision, stage, reasonCode str
 	if strings.Count(logs, "decision=") != 1 || !strings.Contains(logs, "decision="+decision) ||
 		!strings.Contains(logs, "stage="+stage) || !strings.Contains(logs, "reasonCode="+reasonCode) {
 		t.Fatalf("decision logs = %q", logs)
+	}
+}
+
+func TestAppendRoutingDecisionContextOmitsUnavailableUsageAndSystemPlanLimit(t *testing.T) {
+	fields := appendRoutingDecisionContext(nil, directplay.RoutingDiagnostics{
+		Routed: true, PlaybackMode: "system", PlaybackAccountOwner: "shared",
+		AccountLimitsAvailable: true, ConfiguredMaxConcurrentStreams: 6, EffectiveMaxConcurrentStreams: 6,
+		SimultaneousStreamLimit: 2, TransferChecked: true,
+	})
+	encoded := strings.Join(fields, " ")
+	for _, expected := range []string{
+		"playbackMode=system", "playbackAccountOwner=shared",
+		"accountConfiguredStreamLimit=6", "accountEffectiveStreamLimit=6",
+	} {
+		if !strings.Contains(encoded, expected) {
+			t.Fatalf("routing context = %q, want %s", encoded, expected)
+		}
+	}
+	for _, unexpected := range []string{
+		"simultaneousStreamLimit=", "accountReservedStreams=", "userActiveStreams=", "transferHourlyUsed=", "transferDailyLimit=",
+	} {
+		if strings.Contains(encoded, unexpected) {
+			t.Fatalf("routing context = %q, unexpected %s", encoded, unexpected)
+		}
 	}
 }
 

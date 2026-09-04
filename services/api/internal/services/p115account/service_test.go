@@ -39,22 +39,41 @@ func (c fakeCredentialCipher) Decrypt(ciphertext string) (string, error) {
 }
 
 type fakeAccountStore struct {
-	accounts                     map[string]*models.P115Account
-	createErr                    error
-	getErr                       error
-	replaceErr                   error
-	validationErr                error
-	enableErr                    error
-	created                      *models.P115Account
-	replacement                  credentialReplacement
-	replacementID                string
-	validationExpectedCiphertext string
-	validationAt                 time.Time
-	enabledValue                 bool
-	createCallCount              int
-	sourceLocationID             string
-	sourceLocationPrefix         string
-	sourceLocationRootID         string
+	accounts                         map[string]*models.P115Account
+	createErr                        error
+	getErr                           error
+	replaceErr                       error
+	validationErr                    error
+	enableErr                        error
+	created                          *models.P115Account
+	replacement                      credentialReplacement
+	replacementID                    string
+	validationExpectedCiphertext     string
+	validationAt                     time.Time
+	enabledValue                     bool
+	createCallCount                  int
+	sourceLocationID                 string
+	sourceLocationPrefix             string
+	sourceLocationRootID             string
+	playbackConfigID                 string
+	playbackConfigExpectedCiphertext string
+	playbackConfigExpectedUpdatedAt  time.Time
+	playbackConfigPath               string
+	playbackConfigTargetID           string
+	playbackConfigMax                int
+	playbackConfigErr                error
+	personalPolicy                   PersonalPlanPolicy
+	personalPolicyErr                error
+	personalDirectoryOwner           string
+	personalDirectoryPath            string
+	personalDirectoryTargetID        string
+	personalDirectoryErr             error
+	personalConcurrencyOwner         string
+	personalConcurrencyMax           int
+	personalConcurrencyErr           error
+	personalEnabledOwner             string
+	personalEnabledValue             bool
+	personalEnableErr                error
 }
 
 func TestNewServiceRequiresDatabaseAndEncryptionKey(t *testing.T) {
@@ -100,12 +119,86 @@ func (s *fakeAccountStore) GetByID(_ context.Context, id string) (*models.P115Ac
 	return &copy, nil
 }
 
+func (s *fakeAccountStore) GetByOwner(_ context.Context, ownerUserID string) (*models.P115Account, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	for _, account := range s.accounts {
+		if account.OwnerUserID != nil && *account.OwnerUserID == ownerUserID && account.Status != models.P115AccountStatusRevoked {
+			copy := *account
+			return &copy, nil
+		}
+	}
+	return nil, ErrAccountNotFound
+}
+
+func (s *fakeAccountStore) GetPersonalPlaybackMetadata(ctx context.Context, ownerUserID string) (*models.P115Account, error) {
+	return s.GetByOwner(ctx, ownerUserID)
+}
+
+func (s *fakeAccountStore) GetSharedPlaybackMetadata(_ context.Context) (*models.P115Account, error) {
+	for _, account := range s.accounts {
+		if account.OwnerUserID == nil && account.Role == models.P115AccountRolePlayback && account.Status != models.P115AccountStatusRevoked && account.Enabled {
+			copy := *account
+			return &copy, nil
+		}
+	}
+	return nil, ErrAccountUnavailable
+}
+
+func (s *fakeAccountStore) ResolvePlaybackRouteMetadata(ctx context.Context, ownerUserID string) (*models.P115Account, PersonalPlanPolicy, error) {
+	policy, err := s.GetPersonalPlanPolicy(ctx, ownerUserID)
+	if err != nil {
+		return nil, PersonalPlanPolicy{}, err
+	}
+	var account *models.P115Account
+	if policy.PlaybackMode == models.P115PlaybackModePersonal {
+		account, err = s.GetPersonalPlaybackMetadata(ctx, ownerUserID)
+	} else {
+		account, err = s.GetSharedPlaybackMetadata(ctx)
+	}
+	return account, policy, err
+}
+
+func (s *fakeAccountStore) AcquirePlaybackRoute(_ context.Context, route PlaybackRoute, now, probeUntil time.Time) (*models.P115Account, error) {
+	account, ok := s.accounts[route.AccountID]
+	if !ok || !account.UpdatedAt.Equal(route.UpdatedAt) || !account.Enabled || account.Role != models.P115AccountRolePlayback {
+		return nil, ErrRuntimeStateChanged
+	}
+	if route.OwnerUserID == "" {
+		if account.OwnerUserID != nil {
+			return nil, ErrRuntimeStateChanged
+		}
+	} else if account.OwnerUserID == nil || *account.OwnerUserID != route.OwnerUserID {
+		return nil, ErrRuntimeStateChanged
+	}
+	if account.Status == models.P115AccountStatusCoolingDown {
+		if account.CooldownUntil == nil || account.CooldownUntil.After(now) {
+			return nil, ErrAccountCoolingDown
+		}
+		account.CooldownUntil = &probeUntil
+		account.UpdatedAt = now
+	} else if account.Status != models.P115AccountStatusActive {
+		return nil, ErrAccountUnavailable
+	}
+	copy := *account
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) GetPersonalPlanPolicy(_ context.Context, ownerUserID string) (PersonalPlanPolicy, error) {
+	if s.personalPolicyErr != nil {
+		return PersonalPlanPolicy{}, s.personalPolicyErr
+	}
+	_ = ownerUserID
+	return s.personalPolicy, nil
+}
+
 func (s *fakeAccountStore) GetEnabledSourceLocation(_ context.Context) (*models.P115Account, error) {
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
 	for _, account := range s.accounts {
-		if account.Role == models.P115AccountRoleSource && account.Enabled {
+		if account.OwnerUserID == nil && account.Role == models.P115AccountRoleSource && account.Enabled {
 			copy := *account
 			return &copy, nil
 		}
@@ -118,7 +211,7 @@ func (s *fakeAccountStore) GetActiveByRole(_ context.Context, role models.P115Ac
 		return nil, s.getErr
 	}
 	for _, account := range s.accounts {
-		if account.Role == role && account.Enabled && account.Status == models.P115AccountStatusActive {
+		if account.OwnerUserID == nil && account.Role == role && account.Enabled && account.Status == models.P115AccountStatusActive {
 			copy := *account
 			return &copy, nil
 		}
@@ -151,8 +244,8 @@ func (s *fakeAccountStore) ReplaceCredential(_ context.Context, id string, repla
 	}
 	s.replacementID = id
 	s.replacement = replacement
-	account.CookieCiphertext = replacement.CookieCiphertext
-	account.AppType = replacement.AppType
+	account.CookieCiphertext = stringPointer(replacement.CookieCiphertext)
+	account.AppType = stringPointer(replacement.AppType)
 	account.ProviderUserID = nil
 	account.Status = replacement.Status
 	account.Enabled = replacement.Enabled
@@ -163,6 +256,56 @@ func (s *fakeAccountStore) ReplaceCredential(_ context.Context, id string, repla
 	account.LastErrorMessage = nil
 	copy := *account
 	return &copy, nil
+}
+
+func (s *fakeAccountStore) ReplacePersonalCredential(_ context.Context, ownerUserID string, replacement credentialReplacement) (*models.P115Account, error) {
+	account, err := s.GetByOwner(context.Background(), ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	stored := s.accounts[account.ID]
+	stored.CookieCiphertext = stringPointer(replacement.CookieCiphertext)
+	stored.AppType = stringPointer(replacement.AppType)
+	stored.UserAgent = stringPointer(personalProviderUserAgent)
+	stored.ProviderUserID = nil
+	stored.TargetParentID = nil
+	stored.TargetParentPath = nil
+	stored.Status = replacement.Status
+	stored.Enabled = replacement.Enabled
+	stored.LastValidatedAt = nil
+	stored.LastSucceededAt = nil
+	stored.CooldownUntil = nil
+	stored.LastErrorCode = nil
+	stored.LastErrorMessage = nil
+	copy := *stored
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) RevokePersonal(_ context.Context, ownerUserID string) error {
+	for _, account := range s.accounts {
+		if account.OwnerUserID == nil || *account.OwnerUserID != ownerUserID || account.Status == models.P115AccountStatusRevoked {
+			continue
+		}
+		account.OwnerUserID = nil
+		account.ProviderUserID = nil
+		account.CookieCiphertext = nil
+		account.AppType = nil
+		account.UserAgent = nil
+		account.EmbyPathPrefix = nil
+		account.SourceRootID = nil
+		account.TargetParentID = nil
+		account.TargetParentPath = nil
+		account.MaxConcurrentStreams = nil
+		account.Status = models.P115AccountStatusRevoked
+		account.Enabled = false
+		account.LastValidatedAt = nil
+		account.LastSucceededAt = nil
+		account.CooldownUntil = nil
+		account.LastErrorCode = nil
+		account.LastErrorMessage = nil
+		return nil
+	}
+	return nil
 }
 
 func (s *fakeAccountStore) CompleteValidationSuccess(_ context.Context, id, expectedCiphertext, providerUserID string, at time.Time) (*models.P115Account, error) {
@@ -221,7 +364,7 @@ func (s *fakeAccountStore) CompleteRuntimeHealth(_ context.Context, ref runtimeC
 	if !ok {
 		return ErrAccountNotFound
 	}
-	if account.CookieCiphertext != ref.expectedCiphertext || !account.UpdatedAt.Equal(ref.expectedUpdatedAt) {
+	if stringValue(account.CookieCiphertext) != ref.expectedCiphertext || !account.UpdatedAt.Equal(ref.expectedUpdatedAt) {
 		return ErrRuntimeStateChanged
 	}
 	account.Status = mutation.Status
@@ -251,7 +394,7 @@ func (s *fakeAccountStore) accountForValidation(id, expectedCiphertext string, a
 	}
 	s.validationExpectedCiphertext = expectedCiphertext
 	s.validationAt = at
-	if account.CookieCiphertext != expectedCiphertext {
+	if stringValue(account.CookieCiphertext) != expectedCiphertext {
 		return nil, ErrCredentialChanged
 	}
 	account.LastValidatedAt = &at
@@ -289,6 +432,97 @@ func (s *fakeAccountStore) UpdateSourceLocation(_ context.Context, id, embyPathP
 	return &copy, nil
 }
 
+func (s *fakeAccountStore) UpdatePlaybackConfig(
+	_ context.Context,
+	id, expectedCiphertext string,
+	expectedUpdatedAt time.Time,
+	targetParentPath, targetParentID string,
+	maxConcurrentStreams int,
+) (*models.P115Account, error) {
+	s.playbackConfigID = id
+	s.playbackConfigExpectedCiphertext = expectedCiphertext
+	s.playbackConfigExpectedUpdatedAt = expectedUpdatedAt
+	if s.playbackConfigErr != nil {
+		return nil, s.playbackConfigErr
+	}
+	account, ok := s.accounts[id]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	s.playbackConfigPath = targetParentPath
+	s.playbackConfigTargetID = targetParentID
+	s.playbackConfigMax = maxConcurrentStreams
+	account.TargetParentPath = stringPointer(targetParentPath)
+	account.TargetParentID = stringPointer(targetParentID)
+	account.MaxConcurrentStreams = &maxConcurrentStreams
+	copy := *account
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) UpdatePersonalDirectory(
+	_ context.Context,
+	ownerUserID, expectedCiphertext string,
+	expectedUpdatedAt time.Time,
+	targetParentPath, targetParentID string,
+) (*models.P115Account, error) {
+	s.personalDirectoryOwner = ownerUserID
+	if s.personalDirectoryErr != nil {
+		return nil, s.personalDirectoryErr
+	}
+	account, err := s.GetByOwner(context.Background(), ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	if stringValue(account.CookieCiphertext) != expectedCiphertext || !account.UpdatedAt.Equal(expectedUpdatedAt) {
+		return nil, ErrRuntimeStateChanged
+	}
+	s.personalDirectoryPath = targetParentPath
+	s.personalDirectoryTargetID = targetParentID
+	stored := s.accounts[account.ID]
+	stored.TargetParentPath = stringPointer(targetParentPath)
+	stored.TargetParentID = stringPointer(targetParentID)
+	copy := *stored
+	return &copy, nil
+}
+
+func (s *fakeAccountStore) UpdatePersonalConcurrency(_ context.Context, ownerUserID string, maxConcurrentStreams int) (*models.P115Account, PersonalPlanPolicy, error) {
+	if s.personalConcurrencyErr != nil {
+		return nil, PersonalPlanPolicy{}, s.personalConcurrencyErr
+	}
+	if s.personalPolicyErr != nil {
+		return nil, PersonalPlanPolicy{}, s.personalPolicyErr
+	}
+	account, err := s.GetByOwner(context.Background(), ownerUserID)
+	if err != nil {
+		return nil, PersonalPlanPolicy{}, err
+	}
+	if _, err := effectivePersonalConcurrentLimit(maxConcurrentStreams, s.personalPolicy.SimultaneousStreamLimit); err != nil {
+		return nil, PersonalPlanPolicy{}, err
+	}
+	s.personalConcurrencyOwner = ownerUserID
+	s.personalConcurrencyMax = maxConcurrentStreams
+	stored := s.accounts[account.ID]
+	stored.MaxConcurrentStreams = intPointer(maxConcurrentStreams)
+	copy := *stored
+	return &copy, s.personalPolicy, nil
+}
+
+func (s *fakeAccountStore) SetPersonalEnabled(_ context.Context, ownerUserID string, enabled bool) (*models.P115Account, PersonalPlanPolicy, error) {
+	s.personalEnabledOwner = ownerUserID
+	s.personalEnabledValue = enabled
+	if s.personalEnableErr != nil {
+		return nil, PersonalPlanPolicy{}, s.personalEnableErr
+	}
+	account, err := s.GetByOwner(context.Background(), ownerUserID)
+	if err != nil {
+		return nil, PersonalPlanPolicy{}, err
+	}
+	stored := s.accounts[account.ID]
+	stored.Enabled = enabled
+	copy := *stored
+	return &copy, s.personalPolicy, nil
+}
+
 func TestServiceCreateEncryptsCookieAndReturnsSafeSummary(t *testing.T) {
 	store := &fakeAccountStore{}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{})
@@ -308,8 +542,8 @@ func TestServiceCreateEncryptsCookieAndReturnsSafeSummary(t *testing.T) {
 	if store.created == nil {
 		t.Fatal("Create() did not persist an account")
 	}
-	if store.created.CookieCiphertext != "encrypted:UID=fake; CID=fake" {
-		t.Fatalf("stored ciphertext = %q", store.created.CookieCiphertext)
+	if stringValue(store.created.CookieCiphertext) != "encrypted:UID=fake; CID=fake" {
+		t.Fatalf("stored ciphertext = %q", stringValue(store.created.CookieCiphertext))
 	}
 	if store.created.AuthMode != models.P115AuthModeLegacyCookie {
 		t.Fatalf("AuthMode = %q, want legacy_cookie", store.created.AuthMode)
@@ -349,6 +583,26 @@ func TestAccountSummaryUsesCamelCaseAndOmitsCredentialFields(t *testing.T) {
 	}
 }
 
+func TestAccountSummaryDistinguishesUnavailablePlaybackUsageFromSource(t *testing.T) {
+	playbackPayload, err := json.Marshal(accountSummary(&models.P115Account{ID: "playback", Role: models.P115AccountRolePlayback}))
+	if err != nil {
+		t.Fatalf("marshal playback summary: %v", err)
+	}
+	encoded := string(playbackPayload)
+	for _, fragment := range []string{`"usageAvailable":false`, `"reservedStreams":null`, `"activeStreams":null`, `"occupiedStreams":null`} {
+		if !strings.Contains(encoded, fragment) {
+			t.Fatalf("playback summary missing %s: %s", fragment, encoded)
+		}
+	}
+	sourcePayload, err := json.Marshal(accountSummary(&models.P115Account{ID: "source", Role: models.P115AccountRoleSource}))
+	if err != nil {
+		t.Fatalf("marshal source summary: %v", err)
+	}
+	if strings.Contains(string(sourcePayload), "usageAvailable") || strings.Contains(string(sourcePayload), "reservedStreams") {
+		t.Fatalf("source summary exposed playback usage: %s", sourcePayload)
+	}
+}
+
 func TestServiceCreateValidatesRoleSpecificInput(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -367,7 +621,6 @@ func TestServiceCreateValidatesRoleSpecificInput(t *testing.T) {
 		{name: "non canonical source root", input: mutateSourceInput(func(in *CreateAccountInput) { in.SourceRootID = "00" }), wantErr: ErrSourceRootIDInvalid},
 		{name: "source target directory", input: mutateSourceInput(func(in *CreateAccountInput) { in.TargetParentID = "target" }), wantErr: ErrSourceTargetParentUnexpected},
 		{name: "playback source location", input: CreateAccountInput{Role: models.P115AccountRolePlayback, Alias: "playback", Cookie: "cookie", AppType: "android", UserAgent: "ua", TargetParentID: "target", EmbyPathPrefix: "/mnt/media", SourceRootID: "0"}, wantErr: ErrPlaybackSourceLocationUnexpected},
-		{name: "playback missing target directory", input: CreateAccountInput{Role: models.P115AccountRolePlayback, Alias: "playback", Cookie: "cookie", AppType: "android", UserAgent: "ua"}, wantErr: ErrPlaybackTargetParentRequired},
 	}
 
 	for _, tt := range tests {
@@ -384,6 +637,24 @@ func TestServiceCreateValidatesRoleSpecificInput(t *testing.T) {
 	}
 }
 
+func TestServiceCreateAllowsPlaybackConfigurationAfterValidation(t *testing.T) {
+	store := &fakeAccountStore{}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+
+	result, err := service.Create(context.Background(), CreateAccountInput{
+		Role: models.P115AccountRolePlayback, Alias: "shared-playback", Cookie: "cookie", AppType: "web", UserAgent: "ua",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if store.created.TargetParentID != nil || store.created.TargetParentPath != nil || store.created.MaxConcurrentStreams != nil {
+		t.Fatalf("pending playback account has premature config: %+v", store.created)
+	}
+	if result.Status != models.P115AccountStatusPending || result.Enabled {
+		t.Fatalf("created playback summary = %+v", result)
+	}
+}
+
 func TestServiceCreateDetectsAppTypeFromCookie(t *testing.T) {
 	store := &fakeAccountStore{}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{})
@@ -395,8 +666,8 @@ func TestServiceCreateDetectsAppTypeFromCookie(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() failed: %v", err)
 	}
-	if store.created.AppType != "android" || result.AppType != "android" {
-		t.Fatalf("detected app type not persisted: stored=%q result=%q", store.created.AppType, result.AppType)
+	if stringValue(store.created.AppType) != "android" || result.AppType != "android" {
+		t.Fatalf("detected app type not persisted: stored=%q result=%q", stringValue(store.created.AppType), result.AppType)
 	}
 }
 
@@ -411,8 +682,8 @@ func TestServiceCreateUsesManualAppTypeOnlyWhenCookieTypeUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() failed: %v", err)
 	}
-	if store.created.AppType != "custom_client" || result.AppType != "custom_client" {
-		t.Fatalf("manual app type fallback not persisted: stored=%q result=%q", store.created.AppType, result.AppType)
+	if stringValue(store.created.AppType) != "custom_client" || result.AppType != "custom_client" {
+		t.Fatalf("manual app type fallback not persisted: stored=%q result=%q", stringValue(store.created.AppType), result.AppType)
 	}
 }
 
@@ -435,9 +706,9 @@ func TestServiceLoadCredentialForValidationDecryptsPendingAccount(t *testing.T) 
 		"account_1": {
 			ID:               "account_1",
 			Role:             models.P115AccountRolePlayback,
-			CookieCiphertext: "encrypted:UID=fake; CID=fake",
-			AppType:          "android",
-			UserAgent:        "playback-agent",
+			CookieCiphertext: stringPointer("encrypted:UID=fake; CID=fake"),
+			AppType:          stringPointer("android"),
+			UserAgent:        stringPointer("playback-agent"),
 		},
 	}}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{})
@@ -461,12 +732,16 @@ func TestServiceLoadActiveCredentialRejectsInactiveAccount(t *testing.T) {
 	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
 		"pending": {
 			ID:               "pending",
-			CookieCiphertext: "encrypted:pending-cookie",
+			CookieCiphertext: stringPointer("encrypted:pending-cookie"),
+			AppType:          stringPointer("web"),
+			UserAgent:        stringPointer("fixture-agent"),
 			Status:           models.P115AccountStatusPending,
 		},
 		"active": {
 			ID:               "active",
-			CookieCiphertext: "encrypted:active-cookie",
+			CookieCiphertext: stringPointer("encrypted:active-cookie"),
+			AppType:          stringPointer("web"),
+			UserAgent:        stringPointer("fixture-agent"),
 			Status:           models.P115AccountStatusActive,
 			Enabled:          true,
 		},
@@ -493,9 +768,9 @@ func TestServiceLoadActiveCredentialByRoleReturnsProviderIdentityAndTarget(t *te
 			ID:               "playback",
 			Role:             models.P115AccountRolePlayback,
 			ProviderUserID:   &providerUserID,
-			CookieCiphertext: "encrypted:playback-cookie",
-			AppType:          "ios",
-			UserAgent:        "playback-agent",
+			CookieCiphertext: stringPointer("encrypted:playback-cookie"),
+			AppType:          stringPointer("ios"),
+			UserAgent:        stringPointer("playback-agent"),
 			TargetParentID:   &targetParentID,
 			Status:           models.P115AccountStatusActive,
 			Enabled:          true,
@@ -521,12 +796,12 @@ func TestServiceLoadActiveSourceCredentialRequiresLocation(t *testing.T) {
 	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
 		"source": {
 			ID: "source", Role: models.P115AccountRoleSource, ProviderUserID: &providerUserID,
-			CookieCiphertext: "encrypted:source-cookie", EmbyPathPrefix: &embyPathPrefix,
+			CookieCiphertext: stringPointer("encrypted:source-cookie"), AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent"), EmbyPathPrefix: &embyPathPrefix,
 			SourceRootID: &sourceRootID, Status: models.P115AccountStatusActive, Enabled: true,
 		},
 		"missing": {
 			ID: "missing", Role: models.P115AccountRoleSource, ProviderUserID: &providerUserID,
-			CookieCiphertext: "encrypted:source-cookie", Status: models.P115AccountStatusActive, Enabled: false,
+			CookieCiphertext: stringPointer("encrypted:source-cookie"), AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent"), Status: models.P115AccountStatusActive, Enabled: false,
 		},
 	}}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{})
@@ -549,7 +824,7 @@ func TestServiceLoadActiveSourceCredentialRequiresLocation(t *testing.T) {
 func TestServiceLoadCredentialForValidationPropagatesDecryptError(t *testing.T) {
 	decryptErr := errors.New("decrypt failed")
 	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
-		"account_1": {ID: "account_1", CookieCiphertext: "broken"},
+		"account_1": {ID: "account_1", CookieCiphertext: stringPointer("broken"), AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent")},
 	}}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{decryptErr: decryptErr})
 	if _, err := service.LoadCredentialForValidation(context.Background(), "account_1"); !errors.Is(err, decryptErr) {
@@ -571,7 +846,7 @@ func TestServiceLoadEnabledSourceLocationDoesNotDecryptOrGateProviderHealth(t *t
 				"source": {
 					ID: "source", Role: models.P115AccountRoleSource, Enabled: true, Status: status,
 					EmbyPathPrefix: &embyPathPrefix, SourceRootID: &sourceRootID,
-					ProviderUserID: &providerUserID, CookieCiphertext: "encrypted:cookie-secret",
+					ProviderUserID: &providerUserID, CookieCiphertext: stringPointer("encrypted:cookie-secret"),
 				},
 			}}
 			decrypts := 0
@@ -647,7 +922,7 @@ func TestServiceReplaceCookieResetsValidationState(t *testing.T) {
 	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
 		"account_1": {
 			ID:               "account_1",
-			CookieCiphertext: "encrypted:old-cookie",
+			CookieCiphertext: stringPointer("encrypted:old-cookie"),
 			ProviderUserID:   &providerUserID,
 			Status:           models.P115AccountStatusActive,
 			Enabled:          true,
@@ -713,7 +988,7 @@ func TestServiceReplaceCookieRequiresManualAppTypeForUnknownClient(t *testing.T)
 
 func TestServiceReplaceCookieUsesManualAppTypeForUnknownClient(t *testing.T) {
 	store := &fakeAccountStore{accounts: map[string]*models.P115Account{
-		"account_1": {ID: "account_1", AppType: "web", CookieCiphertext: "encrypted:old-cookie"},
+		"account_1": {ID: "account_1", AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent"), CookieCiphertext: stringPointer("encrypted:old-cookie")},
 	}}
 	service := newServiceWithDependencies(store, fakeCredentialCipher{})
 	result, err := service.ReplaceCookie(context.Background(), "account_1", ReplaceCookieInput{

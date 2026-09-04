@@ -108,6 +108,7 @@ func TestP115AccountAdminRoutesAreRegistered(t *testing.T) {
 		"/api/v1/admin/p115-accounts/:id/validate":        http.MethodPost,
 		"/api/v1/admin/p115-accounts/:id/enabled":         http.MethodPut,
 		"/api/v1/admin/p115-accounts/:id/source-location": http.MethodPut,
+		"/api/v1/admin/p115-accounts/:id/playback-config": http.MethodPut,
 	}
 	for path, method := range expected {
 		if _, ok := registered[method+" "+path]; !ok {
@@ -116,5 +117,36 @@ func TestP115AccountAdminRoutesAreRegistered(t *testing.T) {
 	}
 	if _, ok := registered[http.MethodPost+" /api/v1/admin/p115-accounts"]; !ok {
 		t.Fatal("p115 account create route is not registered")
+	}
+}
+
+func TestP115PersonalAccountRoutesAreRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	registerRoutes(router, &appHandlers{})
+
+	registered := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = struct{}{}
+	}
+	expected := map[string]string{
+		"/api/v1/user/p115-account":             http.MethodGet,
+		"/api/v1/user/p115-account/cookie":      http.MethodPut,
+		"/api/v1/user/p115-account/directory":   http.MethodPut,
+		"/api/v1/user/p115-account/concurrency": http.MethodPut,
+		"/api/v1/user/p115-account/validate":    http.MethodPost,
+		"/api/v1/user/p115-account/enabled":     http.MethodPut,
+		"/api/v1/user/p115-usage":               http.MethodGet,
+	}
+	for path, method := range expected {
+		if _, ok := registered[method+" "+path]; !ok {
+			t.Fatalf("personal p115 route is not registered: %s %s", method, path)
+		}
+	}
+	if _, ok := registered[http.MethodPost+" /api/v1/user/p115-account"]; !ok {
+		t.Fatal("personal p115 create route is not registered")
+	}
+	if _, ok := registered[http.MethodDelete+" /api/v1/user/p115-account"]; !ok {
+		t.Fatal("personal p115 revoke route is not registered")
 	}
 }

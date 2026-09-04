@@ -498,13 +498,18 @@ func seedDirectPlayAccounts(t *testing.T, database *gorm.DB) *p115account.Servic
 	}
 	now := time.Now().UTC()
 	activate := func(id, providerUserID string) {
-		if err := database.Model(&models.P115Account{}).Where("id = ?", id).Updates(map[string]interface{}{
+		updates := map[string]interface{}{
 			"provider_user_id":  providerUserID,
 			"status":            models.P115AccountStatusActive,
 			"enabled":           true,
 			"last_validated_at": now,
 			"updated_at":        now,
-		}).Error; err != nil {
+		}
+		if id == playback.ID {
+			updates["target_parent_path"] = "/Playback"
+			updates["max_concurrent_streams"] = 3
+		}
+		if err := database.Model(&models.P115Account{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 			t.Fatalf("activate p115 account %s: %v", id, err)
 		}
 	}

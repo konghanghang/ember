@@ -18,17 +18,39 @@ func TestP115AccountUsesExplicitColumnMappings(t *testing.T) {
 }
 
 func TestP115AccountNeverSerializesCredentialCiphertext(t *testing.T) {
+	ciphertext := "encrypted-cookie-value"
 	account := P115Account{
 		ID:               "account_1",
-		CookieCiphertext: "encrypted-cookie-value",
+		CookieCiphertext: &ciphertext,
 	}
 
 	payload, err := json.Marshal(account)
 	if err != nil {
 		t.Fatalf("json.Marshal() failed: %v", err)
 	}
-	if strings.Contains(string(payload), account.CookieCiphertext) || strings.Contains(string(payload), "cookieCiphertext") {
+	if strings.Contains(string(payload), ciphertext) || strings.Contains(string(payload), "cookieCiphertext") {
 		t.Fatalf("serialized account exposed credential ciphertext: %s", payload)
+	}
+}
+
+func TestP115AccountExposesPersonalRoutingColumns(t *testing.T) {
+	modelType := reflect.TypeOf(P115Account{})
+	wants := map[string]string{
+		"OwnerUserID":          "owner_user_id",
+		"TargetParentPath":     "target_parent_path",
+		"MaxConcurrentStreams": "max_concurrent_streams",
+	}
+	for fieldName, columnName := range wants {
+		field, ok := modelType.FieldByName(fieldName)
+		if !ok {
+			t.Fatalf("P115Account missing %s", fieldName)
+		}
+		if !strings.Contains(field.Tag.Get("gorm"), "column:"+columnName) {
+			t.Fatalf("P115Account.%s must map column %s", fieldName, columnName)
+		}
+	}
+	if P115AccountStatusRevoked != "revoked" {
+		t.Fatalf("P115AccountStatusRevoked = %q, want revoked", P115AccountStatusRevoked)
 	}
 }
 

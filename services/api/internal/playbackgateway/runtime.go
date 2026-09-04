@@ -20,6 +20,7 @@ import (
 	"github.com/konghang/ember/backend/internal/services/directplay"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 	"github.com/konghang/ember/backend/internal/services/p115account"
+	"github.com/konghang/ember/backend/internal/services/p115quota"
 	"gorm.io/gorm"
 )
 
@@ -45,6 +46,7 @@ var (
 	ErrRuntimeEncryptionKeyInvalid  = fmt.Errorf("%w: encryption key invalid", ErrRuntimeConfig)
 	ErrRuntimeEmbyURLUnavailable    = fmt.Errorf("%w: Emby URL unavailable", ErrRuntimeConfig)
 	ErrRuntimeEmbyAPIKeyUnavailable = fmt.Errorf("%w: Emby API key unavailable", ErrRuntimeConfig)
+	ErrRuntimeTimezoneInvalid       = fmt.Errorf("%w: CRON timezone invalid", ErrRuntimeConfig)
 )
 
 // RuntimeSettings resolves Emby plus short-cached Web Surface and runtime log
@@ -65,16 +67,21 @@ type ProductionDependencies struct {
 	// DirectPlayService is injectable for fake-only runtime tests. Production
 	// leaves it nil so construction wires the Cookie Provider and account store.
 	DirectPlayService DirectPlayService
+	// PlaybackSessionService may accompany an injected DirectPlay fake. In
+	// production the routed DirectPlay service implements both boundaries.
+	PlaybackSessionService PlaybackSessionService
 	// LocalMediaResolver is injectable for filesystem-free runtime tests.
 	// Production leaves it nil and uses PLAYBACK_LOCAL_MEDIA_ROOT when configured.
 	LocalMediaResolver LocalMediaResolver
 }
 
 type productionConfig struct {
-	encryptionKey  string
-	embyURL        string
-	embyAPIKey     string
-	localMediaRoot string
+	encryptionKey    string
+	embyURL          string
+	embyAPIKey       string
+	localMediaRoot   string
+	redisURL         string
+	businessTimezone *time.Location
 }
 
 type listenFunction func(network, address string) (net.Listener, error)
@@ -83,11 +90,12 @@ type listenFunction func(network, address string) (net.Listener, error)
 // performs no listen operation, so identity/configuration failures occur before
 // any client-visible socket exists.
 type Runtime struct {
-	server          *http.Server
-	identity        embypkg.ServerIdentity
-	listen          listenFunction
-	logger          *log.Logger
-	shutdownTimeout time.Duration
+	server           *http.Server
+	identity         embypkg.ServerIdentity
+	listen           listenFunction
+	logger           *log.Logger
+	shutdownTimeout  time.Duration
+	dependencyCloser io.Closer
 }
 
 // NewProductionRuntime loads deployment and ConfigService values, verifies the
@@ -120,10 +128,19 @@ func NewProductionRuntime(
 		return nil, ErrRuntimeDependency
 	}
 	directPlayService := dependencies.DirectPlayService
+	playbackSessionService := dependencies.PlaybackSessionService
+	var dependencyCloser io.Closer
 	if directPlayService == nil {
-		directPlayService, err = newProductionDirectPlayService(dependencies.Database, config.encryptionKey)
+		directPlayService, playbackSessionService, dependencyCloser, err = newProductionDirectPlayService(
+			dependencies.Database, config.encryptionKey, identity.ID, config.redisURL, config.businessTimezone,
+		)
 		if err != nil {
 			return nil, ErrRuntimeDependency
+		}
+	}
+	if playbackSessionService == nil {
+		if service, ok := directPlayService.(PlaybackSessionService); ok {
+			playbackSessionService = service
 		}
 	}
 	upstream, err := url.Parse(config.embyURL)
@@ -145,15 +162,16 @@ func NewProductionRuntime(
 		}
 	}
 	gateway, err := New(Config{
-		Upstream:           upstream,
-		TokenService:       tokenService,
-		DirectPlayService:  directPlayService,
-		LocalMediaResolver: localMediaResolver,
-		WebSurfacePolicy:   dependencies.Settings,
-		LogLevelPolicy:     dependencies.Settings,
-		Transport:          dependencies.Transport,
-		Logger:             logger,
-		DebugEnabled:       logpkg.DebugEnabled,
+		Upstream:               upstream,
+		TokenService:           tokenService,
+		DirectPlayService:      directPlayService,
+		PlaybackSessionService: playbackSessionService,
+		LocalMediaResolver:     localMediaResolver,
+		WebSurfacePolicy:       dependencies.Settings,
+		LogLevelPolicy:         dependencies.Settings,
+		Transport:              dependencies.Transport,
+		Logger:                 logger,
+		DebugEnabled:           logpkg.DebugEnabled,
 	})
 	if err != nil {
 		return nil, ErrRuntimeConfig
@@ -169,10 +187,11 @@ func NewProductionRuntime(
 			IdleTimeout:       runtimeIdleTimeout,
 			MaxHeaderBytes:    runtimeMaxHeaderBytes,
 		},
-		identity:        identity,
-		listen:          net.Listen,
-		logger:          logger,
-		shutdownTimeout: runtimeShutdownTimeout,
+		identity:         identity,
+		listen:           net.Listen,
+		logger:           logger,
+		shutdownTimeout:  runtimeShutdownTimeout,
+		dependencyCloser: dependencyCloser,
 	}, nil
 }
 
@@ -225,17 +244,37 @@ func compareEmbyVersion(left, right embyVersion) int {
 // newProductionDirectPlayService composes the existing encrypted 115 account
 // service, complete Cookie Provider and PostgreSQL-backed transfer service. It
 // performs no Provider request and never exposes the encryption key in errors.
-func newProductionDirectPlayService(database *gorm.DB, encryptionKey string) (DirectPlayService, error) {
+func newProductionDirectPlayService(
+	database *gorm.DB,
+	encryptionKey string,
+	serverID string,
+	redisURL string,
+	businessTimezone *time.Location,
+) (DirectPlayService, PlaybackSessionService, io.Closer, error) {
 	provider := p115integration.NewCookieProvider()
-	accounts, err := p115account.NewService(database, encryptionKey, provider)
+	leaseStore, closer := p115quota.NewLeaseStoreFromURL(redisURL)
+	accounts, err := p115account.NewServiceWithLeaseStore(database, encryptionKey, provider, leaseStore, businessTimezone)
 	if err != nil {
-		return nil, ErrRuntimeDependency
+		if closer != nil {
+			_ = closer.Close()
+		}
+		return nil, nil, nil, ErrRuntimeDependency
 	}
-	service, err := directplay.NewService(database, accounts, provider)
+	keyDeriver, err := p115quota.NewKeyDeriver(encryptionKey)
 	if err != nil {
-		return nil, ErrRuntimeDependency
+		if closer != nil {
+			_ = closer.Close()
+		}
+		return nil, nil, nil, ErrRuntimeDependency
 	}
-	return service, nil
+	service, err := directplay.NewRoutedService(database, accounts, provider, leaseStore, keyDeriver, serverID, businessTimezone)
+	if err != nil {
+		if closer != nil {
+			_ = closer.Close()
+		}
+		return nil, nil, nil, ErrRuntimeDependency
+	}
+	return service, service, closer, nil
 }
 
 // Handler returns the fully composed mux for in-process contract tests and
@@ -261,6 +300,9 @@ func (runtime *Runtime) ServerIdentity() embypkg.ServerIdentity {
 func (runtime *Runtime) Run(ctx context.Context) error {
 	if runtime == nil || runtime.server == nil || runtime.listen == nil || runtime.logger == nil || ctx == nil {
 		return ErrRuntimeDependency
+	}
+	if runtime.dependencyCloser != nil {
+		defer func() { _ = runtime.dependencyCloser.Close() }()
 	}
 	if ctx.Err() != nil {
 		return nil
@@ -307,7 +349,17 @@ func loadProductionConfig(getenv func(string) string, settings RuntimeSettings) 
 		embyURL:        settings.GetString("EMBY_URL"),
 		embyAPIKey:     settings.GetString("EMBY_API_KEY"),
 		localMediaRoot: getenv("PLAYBACK_LOCAL_MEDIA_ROOT"),
+		redisURL:       getenv("REDIS_URL"),
 	}
+	timezoneName := settings.GetString("CRON_TIMEZONE")
+	if !validExactNonEmpty(timezoneName) {
+		return productionConfig{}, ErrRuntimeTimezoneInvalid
+	}
+	businessTimezone, err := time.LoadLocation(timezoneName)
+	if err != nil {
+		return productionConfig{}, ErrRuntimeTimezoneInvalid
+	}
+	config.businessTimezone = businessTimezone
 	if !validExactNonEmpty(databaseURL) {
 		return productionConfig{}, ErrRuntimeDatabaseURLInvalid
 	}

@@ -140,6 +140,24 @@ func TestPlaybackTransferTaskBeforeCreateInitializesAttempt(t *testing.T) {
 	}
 }
 
+func TestPlanGroupP115DefaultsAreExplicit(t *testing.T) {
+	modelType := reflect.TypeOf(PlanGroup{})
+	wants := map[string]string{
+		"P115PlaybackMode":        "default:'personal'",
+		"P115TransferHourlyLimit": "default:5",
+		"P115TransferDailyLimit":  "default:10",
+	}
+	for fieldName, defaultTag := range wants {
+		field, ok := modelType.FieldByName(fieldName)
+		if !ok {
+			t.Fatalf("PlanGroup missing %s", fieldName)
+		}
+		if !strings.Contains(field.Tag.Get("gorm"), defaultTag) {
+			t.Fatalf("PlanGroup.%s gorm tag = %q, want %q", fieldName, field.Tag.Get("gorm"), defaultTag)
+		}
+	}
+}
+
 func TestEmbyAccessTokenJSONOmitsDigest(t *testing.T) {
 	payload, err := json.Marshal(EmbyAccessToken{ID: "mapping-1", TokenHash: []byte("fixture-token-digest")})
 	if err != nil {

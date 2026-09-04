@@ -14,6 +14,7 @@ import (
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
 	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
+	p115accountpkg "github.com/konghang/ember/backend/internal/services/p115account"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
@@ -36,44 +37,46 @@ type embyClient interface {
 }
 
 type UserServiceDeps struct {
-	EmailVerifier       emailVerifier
-	NewEmbyClient       func() embyClient
-	FindUserByID        func(userID string) (*models.User, error)
-	FindUserByUsername  func(username string) (*models.User, error)
-	FindUserByEmail     func(email string) (*models.User, error)
-	CreateUser          func(user *models.User) error
-	GetPlanGroupByKey   func(key string) (*models.PlanGroup, error)
-	SaveUser            func(user *models.User) error
-	DeleteUserRecord    func(user *models.User) error
-	UpdateUserActive    func(userID string, isActive bool) error
-	GetUserViewByID     func(userID string) (*UserView, error)
-	UpdateEmailWithCode func(userID, newEmail, code string) error
-	Compensation        *accountpkg.EmbyCompensation
-	NewCompensation     func() *accountpkg.EmbyCompensation
-	ApplyPolicy         func(userID, reason string) error
-	RecordPolicyFailure func(userID, reason string, cause error) error
-	RevokeUserTokens    func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
+	EmailVerifier             emailVerifier
+	NewEmbyClient             func() embyClient
+	FindUserByID              func(userID string) (*models.User, error)
+	FindUserByUsername        func(username string) (*models.User, error)
+	FindUserByEmail           func(email string) (*models.User, error)
+	CreateUser                func(user *models.User) error
+	GetPlanGroupByKey         func(key string) (*models.PlanGroup, error)
+	SaveUser                  func(user *models.User) error
+	DeleteUserRecord          func(user *models.User) error
+	UpdateUserActive          func(userID string, isActive bool) error
+	GetUserViewByID           func(userID string) (*UserView, error)
+	UpdateEmailWithCode       func(userID, newEmail, code string) error
+	Compensation              *accountpkg.EmbyCompensation
+	NewCompensation           func() *accountpkg.EmbyCompensation
+	ApplyPolicy               func(userID, reason string) error
+	RecordPolicyFailure       func(userID, reason string, cause error) error
+	RevokeUserTokens          func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
+	RevokePersonalP115Account func(context.Context, string) error
 }
 
 // UserService 用户服务
 type UserService struct {
-	emailVerifier       emailVerifier
-	newEmbyClient       func() embyClient
-	findUserByID        func(userID string) (*models.User, error)
-	findUserByUsername  func(username string) (*models.User, error)
-	findUserByEmail     func(email string) (*models.User, error)
-	createUser          func(user *models.User) error
-	getPlanGroupByKey   func(key string) (*models.PlanGroup, error)
-	saveUser            func(user *models.User) error
-	deleteUserRecord    func(user *models.User) error
-	updateUserActive    func(userID string, isActive bool) error
-	getUserViewByID     func(userID string) (*UserView, error)
-	updateEmailWithCode func(userID, newEmail, code string) error
-	compensation        *accountpkg.EmbyCompensation
-	newCompensation     func() *accountpkg.EmbyCompensation
-	applyPolicy         func(userID, reason string) error
-	recordPolicyFailure func(userID, reason string, cause error) error
-	revokeUserTokens    func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
+	emailVerifier             emailVerifier
+	newEmbyClient             func() embyClient
+	findUserByID              func(userID string) (*models.User, error)
+	findUserByUsername        func(username string) (*models.User, error)
+	findUserByEmail           func(email string) (*models.User, error)
+	createUser                func(user *models.User) error
+	getPlanGroupByKey         func(key string) (*models.PlanGroup, error)
+	saveUser                  func(user *models.User) error
+	deleteUserRecord          func(user *models.User) error
+	updateUserActive          func(userID string, isActive bool) error
+	getUserViewByID           func(userID string) (*UserView, error)
+	updateEmailWithCode       func(userID, newEmail, code string) error
+	compensation              *accountpkg.EmbyCompensation
+	newCompensation           func() *accountpkg.EmbyCompensation
+	applyPolicy               func(userID, reason string) error
+	recordPolicyFailure       func(userID, reason string, cause error) error
+	revokeUserTokens          func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
+	revokePersonalP115Account func(context.Context, string) error
 }
 
 func NewUserService() *UserService {
@@ -86,23 +89,24 @@ func NewUserServiceWithEmailVerifier(verifier emailVerifier) *UserService {
 
 func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 	service := &UserService{
-		emailVerifier:       deps.EmailVerifier,
-		newEmbyClient:       deps.NewEmbyClient,
-		findUserByID:        deps.FindUserByID,
-		findUserByUsername:  deps.FindUserByUsername,
-		findUserByEmail:     deps.FindUserByEmail,
-		createUser:          deps.CreateUser,
-		getPlanGroupByKey:   deps.GetPlanGroupByKey,
-		saveUser:            deps.SaveUser,
-		deleteUserRecord:    deps.DeleteUserRecord,
-		updateUserActive:    deps.UpdateUserActive,
-		getUserViewByID:     deps.GetUserViewByID,
-		updateEmailWithCode: deps.UpdateEmailWithCode,
-		compensation:        deps.Compensation,
-		newCompensation:     deps.NewCompensation,
-		applyPolicy:         deps.ApplyPolicy,
-		recordPolicyFailure: deps.RecordPolicyFailure,
-		revokeUserTokens:    deps.RevokeUserTokens,
+		emailVerifier:             deps.EmailVerifier,
+		newEmbyClient:             deps.NewEmbyClient,
+		findUserByID:              deps.FindUserByID,
+		findUserByUsername:        deps.FindUserByUsername,
+		findUserByEmail:           deps.FindUserByEmail,
+		createUser:                deps.CreateUser,
+		getPlanGroupByKey:         deps.GetPlanGroupByKey,
+		saveUser:                  deps.SaveUser,
+		deleteUserRecord:          deps.DeleteUserRecord,
+		updateUserActive:          deps.UpdateUserActive,
+		getUserViewByID:           deps.GetUserViewByID,
+		updateEmailWithCode:       deps.UpdateEmailWithCode,
+		compensation:              deps.Compensation,
+		newCompensation:           deps.NewCompensation,
+		applyPolicy:               deps.ApplyPolicy,
+		recordPolicyFailure:       deps.RecordPolicyFailure,
+		revokeUserTokens:          deps.RevokeUserTokens,
+		revokePersonalP115Account: deps.RevokePersonalP115Account,
 	}
 
 	if service.emailVerifier == nil {
@@ -202,6 +206,15 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 				return 0, err
 			}
 			return revoker.RevokeUserTokens(ctx, userID, reason, actor)
+		}
+	}
+	if service.revokePersonalP115Account == nil {
+		service.revokePersonalP115Account = func(ctx context.Context, userID string) error {
+			revoker, err := p115accountpkg.NewControlPlaneRevoker(db.DB)
+			if err != nil {
+				return err
+			}
+			return revoker.RevokePersonalAccount(ctx, userID)
 		}
 	}
 	return service

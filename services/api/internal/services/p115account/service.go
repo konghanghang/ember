@@ -12,6 +12,7 @@ import (
 	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/security/secretbox"
+	"github.com/konghang/ember/backend/internal/services/p115quota"
 	"gorm.io/gorm"
 )
 
@@ -28,19 +29,35 @@ type credentialCipher interface {
 	Decrypt(ciphertext string) (string, error)
 }
 
+type directoryResolver interface {
+	ResolveDirectoryByPath(context.Context, p115integration.Credential, p115integration.DirectoryPathQuery) (*p115integration.Directory, error)
+}
+
 type accountStore interface {
 	Create(ctx context.Context, account *models.P115Account) error
 	List(ctx context.Context) ([]models.P115Account, error)
 	GetByID(ctx context.Context, id string) (*models.P115Account, error)
+	GetByOwner(ctx context.Context, ownerUserID string) (*models.P115Account, error)
+	ResolvePlaybackRouteMetadata(ctx context.Context, ownerUserID string) (*models.P115Account, PersonalPlanPolicy, error)
+	GetPersonalPlaybackMetadata(ctx context.Context, ownerUserID string) (*models.P115Account, error)
+	GetSharedPlaybackMetadata(ctx context.Context) (*models.P115Account, error)
+	GetPersonalPlanPolicy(ctx context.Context, ownerUserID string) (PersonalPlanPolicy, error)
 	GetEnabledSourceLocation(ctx context.Context) (*models.P115Account, error)
 	AcquireRuntimeByRole(ctx context.Context, role models.P115AccountRole, now, probeUntil time.Time) (*models.P115Account, error)
+	AcquirePlaybackRoute(ctx context.Context, route PlaybackRoute, now, probeUntil time.Time) (*models.P115Account, error)
 	ReplaceCredential(ctx context.Context, id string, replacement credentialReplacement) (*models.P115Account, error)
+	ReplacePersonalCredential(ctx context.Context, ownerUserID string, replacement credentialReplacement) (*models.P115Account, error)
 	CompleteValidationSuccess(ctx context.Context, id, expectedCiphertext, providerUserID string, at time.Time) (*models.P115Account, error)
 	CompleteValidationRejected(ctx context.Context, id, expectedCiphertext string, at time.Time) (*models.P115Account, error)
 	CompleteValidationError(ctx context.Context, id, expectedCiphertext, code, message string, at time.Time) (*models.P115Account, error)
 	CompleteRuntimeHealth(ctx context.Context, ref runtimeCredentialRef, mutation runtimeHealthMutation) error
 	SetEnabled(ctx context.Context, id string, enabled bool) (*models.P115Account, error)
 	UpdateSourceLocation(ctx context.Context, id, embyPathPrefix, sourceRootID string) (*models.P115Account, error)
+	UpdatePlaybackConfig(ctx context.Context, id, expectedCiphertext string, expectedUpdatedAt time.Time, targetParentPath, targetParentID string, maxConcurrentStreams int) (*models.P115Account, error)
+	UpdatePersonalDirectory(ctx context.Context, ownerUserID, expectedCiphertext string, expectedUpdatedAt time.Time, targetParentPath, targetParentID string) (*models.P115Account, error)
+	UpdatePersonalConcurrency(ctx context.Context, ownerUserID string, maxConcurrentStreams int) (*models.P115Account, PersonalPlanPolicy, error)
+	SetPersonalEnabled(ctx context.Context, ownerUserID string, enabled bool) (*models.P115Account, PersonalPlanPolicy, error)
+	RevokePersonal(ctx context.Context, ownerUserID string) error
 }
 
 type credentialReplacement struct {
@@ -64,25 +81,31 @@ type CreateAccountInput struct {
 
 // AccountSummary is the safe account view and intentionally has no credential field.
 type AccountSummary struct {
-	ID               string                   `json:"id"`
-	Role             models.P115AccountRole   `json:"role"`
-	Alias            string                   `json:"alias"`
-	AuthMode         models.P115AuthMode      `json:"authMode"`
-	ProviderUserID   *string                  `json:"providerUserId,omitempty"`
-	AppType          string                   `json:"appType"`
-	UserAgent        string                   `json:"userAgent"`
-	EmbyPathPrefix   *string                  `json:"embyPathPrefix,omitempty"`
-	SourceRootID     *string                  `json:"sourceRootId,omitempty"`
-	TargetParentID   *string                  `json:"targetParentId,omitempty"`
-	Status           models.P115AccountStatus `json:"status"`
-	Enabled          bool                     `json:"enabled"`
-	LastValidatedAt  *time.Time               `json:"lastValidatedAt,omitempty"`
-	LastSucceededAt  *time.Time               `json:"lastSucceededAt,omitempty"`
-	CooldownUntil    *time.Time               `json:"cooldownUntil,omitempty"`
-	LastErrorCode    *string                  `json:"lastErrorCode,omitempty"`
-	LastErrorMessage *string                  `json:"lastErrorMessage,omitempty"`
-	CreatedAt        time.Time                `json:"createdAt"`
-	UpdatedAt        time.Time                `json:"updatedAt"`
+	ID                   string                   `json:"id"`
+	Role                 models.P115AccountRole   `json:"role"`
+	Alias                string                   `json:"alias"`
+	AuthMode             models.P115AuthMode      `json:"authMode"`
+	ProviderUserID       *string                  `json:"providerUserId,omitempty"`
+	AppType              string                   `json:"appType"`
+	UserAgent            string                   `json:"userAgent"`
+	EmbyPathPrefix       *string                  `json:"embyPathPrefix,omitempty"`
+	SourceRootID         *string                  `json:"sourceRootId,omitempty"`
+	TargetParentID       *string                  `json:"targetParentId,omitempty"`
+	TargetParentPath     *string                  `json:"targetParentPath,omitempty"`
+	MaxConcurrentStreams *int                     `json:"maxConcurrentStreams,omitempty"`
+	UsageAvailable       *bool                    `json:"usageAvailable,omitempty"`
+	ReservedStreams      any                      `json:"reservedStreams,omitempty"`
+	ActiveStreams        any                      `json:"activeStreams,omitempty"`
+	OccupiedStreams      any                      `json:"occupiedStreams,omitempty"`
+	Status               models.P115AccountStatus `json:"status"`
+	Enabled              bool                     `json:"enabled"`
+	LastValidatedAt      *time.Time               `json:"lastValidatedAt,omitempty"`
+	LastSucceededAt      *time.Time               `json:"lastSucceededAt,omitempty"`
+	CooldownUntil        *time.Time               `json:"cooldownUntil,omitempty"`
+	LastErrorCode        *string                  `json:"lastErrorCode,omitempty"`
+	LastErrorMessage     *string                  `json:"lastErrorMessage,omitempty"`
+	CreatedAt            time.Time                `json:"createdAt"`
+	UpdatedAt            time.Time                `json:"updatedAt"`
 }
 
 // ValidationResult reports a completed credential check without exposing credential data.
@@ -126,14 +149,30 @@ type ReplaceCookieInput struct {
 
 // Service owns 115 account validation rules and encrypted credential persistence.
 type Service struct {
-	store     accountStore
-	cipher    credentialCipher
-	validator p115integration.CredentialValidator
-	now       func() time.Time
+	store             accountStore
+	cipher            credentialCipher
+	validator         p115integration.CredentialValidator
+	directoryResolver directoryResolver
+	leases            p115quota.LeaseStore
+	keyDeriver        *p115quota.KeyDeriver
+	businessTimezone  *time.Location
+	now               func() time.Time
 }
 
 // NewService builds the production account service without reading environment variables internally.
 func NewService(database *gorm.DB, encryptionKey string, validator p115integration.CredentialValidator) (*Service, error) {
+	return NewServiceWithLeaseStore(database, encryptionKey, validator, p115quota.UnavailableLeaseStore{}, time.UTC)
+}
+
+// NewServiceWithLeaseStore builds the account control plane with optional
+// Redis-backed usage summaries. Redis failure never blocks account writes.
+func NewServiceWithLeaseStore(
+	database *gorm.DB,
+	encryptionKey string,
+	validator p115integration.CredentialValidator,
+	leases p115quota.LeaseStore,
+	businessTimezone *time.Location,
+) (*Service, error) {
 	if database == nil {
 		return nil, ErrStoreUnavailable
 	}
@@ -144,12 +183,24 @@ func NewService(database *gorm.DB, encryptionKey string, validator p115integrati
 	if err != nil {
 		return nil, err
 	}
-	return &Service{
-		store:     &gormAccountStore{db: database},
-		cipher:    box,
-		validator: validator,
-		now:       time.Now,
-	}, nil
+	keyDeriver, err := p115quota.NewKeyDeriver(encryptionKey)
+	if err != nil {
+		return nil, err
+	}
+	if leases == nil {
+		leases = p115quota.UnavailableLeaseStore{}
+	}
+	if businessTimezone == nil {
+		return nil, ErrPersonalPlanPolicyUnavailable
+	}
+	service := &Service{
+		store: &gormAccountStore{db: database}, cipher: box, validator: validator,
+		leases: leases, keyDeriver: keyDeriver, businessTimezone: businessTimezone, now: time.Now,
+	}
+	if resolver, ok := validator.(directoryResolver); ok {
+		service.directoryResolver = resolver
+	}
+	return service, nil
 }
 
 func newServiceWithDependencies(store accountStore, cipher credentialCipher) *Service {
@@ -164,7 +215,7 @@ func (s *Service) List(ctx context.Context) ([]AccountSummary, error) {
 	}
 	items := make([]AccountSummary, 0, len(accounts))
 	for i := range accounts {
-		items = append(items, *accountSummary(&accounts[i]))
+		items = append(items, *s.accountSummary(ctx, &accounts[i]))
 	}
 	return items, nil
 }
@@ -175,11 +226,11 @@ func (s *Service) Get(ctx context.Context, accountID string) (*AccountSummary, e
 	if accountID == "" {
 		return nil, ErrAccountIDRequired
 	}
-	account, err := s.store.GetByID(ctx, accountID)
+	account, err := s.getAdminAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	return accountSummary(account), nil
+	return s.accountSummary(ctx, account), nil
 }
 
 // Create validates role-specific fields, encrypts the Cookie, and stores a disabled pending account.
@@ -190,7 +241,7 @@ func (s *Service) Create(ctx context.Context, input CreateAccountInput) (*Accoun
 
 	ciphertext, err := s.cipher.Encrypt(input.Cookie)
 	if err != nil {
-		log.Printf("[P115Account] Cookie 加密失败 role=%s err=%v", input.Role, err)
+		log.Printf("[P115Account] Cookie 加密失败 role=%s errorType=%T", input.Role, err)
 		return nil, err
 	}
 
@@ -198,15 +249,17 @@ func (s *Service) Create(ctx context.Context, input CreateAccountInput) (*Accoun
 		Role:             input.Role,
 		Alias:            input.Alias,
 		AuthMode:         models.P115AuthModeLegacyCookie,
-		CookieCiphertext: ciphertext,
-		AppType:          input.AppType,
-		UserAgent:        input.UserAgent,
+		CookieCiphertext: stringPointer(ciphertext),
+		AppType:          stringPointer(input.AppType),
+		UserAgent:        stringPointer(input.UserAgent),
 		Status:           models.P115AccountStatusPending,
 		Enabled:          false,
 	}
 	if input.Role == models.P115AccountRolePlayback {
-		targetParentID := input.TargetParentID
-		account.TargetParentID = &targetParentID
+		if input.TargetParentID != "" {
+			targetParentID := input.TargetParentID
+			account.TargetParentID = &targetParentID
+		}
 	} else {
 		embyPathPrefix := input.EmbyPathPrefix
 		sourceRootID := input.SourceRootID
@@ -215,7 +268,7 @@ func (s *Service) Create(ctx context.Context, input CreateAccountInput) (*Accoun
 	}
 
 	if err := s.store.Create(ctx, account); err != nil {
-		log.Printf("[P115Account] 创建账号失败 role=%s err=%v", input.Role, err)
+		log.Printf("[P115Account] 创建账号失败 role=%s errorType=%T", input.Role, err)
 		return nil, err
 	}
 	log.Printf("[P115Account] 创建账号成功 accountId=%s role=%s status=%s enabled=%t",
@@ -225,7 +278,15 @@ func (s *Service) Create(ctx context.Context, input CreateAccountInput) (*Accoun
 
 // LoadCredentialForValidation decrypts an account for explicit validation without an activation gate.
 func (s *Service) LoadCredentialForValidation(ctx context.Context, accountID string) (p115integration.Credential, error) {
-	return s.loadCredential(ctx, accountID, false)
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return p115integration.Credential{}, ErrAccountIDRequired
+	}
+	account, err := s.getAdminAccount(ctx, accountID)
+	if err != nil {
+		return p115integration.Credential{}, err
+	}
+	return s.credentialFromAccount(account, false)
 }
 
 // LoadActiveCredential decrypts a credential only when the account is enabled and active.
@@ -289,9 +350,13 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 		(targetParentID == "" || embyPathPrefix != "" || sourceRootID != "") {
 		return ActiveAccountCredential{}, ErrAccountUnavailable
 	}
-	cookie, err := s.cipher.Decrypt(account.CookieCiphertext)
+	ciphertext, appType, userAgent, err := requiredCredentialFields(account)
 	if err != nil {
-		log.Printf("[P115Account] 运行期 Cookie 解密失败 accountId=%s role=%s err=%v", account.ID, role, err)
+		return ActiveAccountCredential{}, err
+	}
+	cookie, err := s.cipher.Decrypt(ciphertext)
+	if err != nil {
+		log.Printf("[P115Account] 运行期 Cookie 解密失败 accountId=%s role=%s errorType=%T", account.ID, role, err)
 		return ActiveAccountCredential{}, err
 	}
 	return ActiveAccountCredential{
@@ -303,12 +368,12 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 		Credential: p115integration.Credential{
 			AccountID: account.ID,
 			Cookie:    cookie,
-			AppType:   account.AppType,
-			UserAgent: account.UserAgent,
+			AppType:   appType,
+			UserAgent: userAgent,
 		},
 		runtimeRef: runtimeCredentialRef{
 			accountID:          account.ID,
-			expectedCiphertext: account.CookieCiphertext,
+			expectedCiphertext: ciphertext,
 			expectedUpdatedAt:  account.UpdatedAt,
 		},
 	}, nil
@@ -319,6 +384,9 @@ func (s *Service) UpdateSourceLocation(ctx context.Context, accountID string, in
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" {
 		return nil, ErrAccountIDRequired
+	}
+	if _, err := s.getAdminAccount(ctx, accountID); err != nil {
+		return nil, err
 	}
 	embyPathPrefix, sourceRootID, err := normalizeSourceLocation(input.EmbyPathPrefix, input.SourceRootID)
 	if err != nil {
@@ -341,21 +409,29 @@ func (s *Service) loadCredential(ctx context.Context, accountID string, requireA
 	if err != nil {
 		return p115integration.Credential{}, err
 	}
+	return s.credentialFromAccount(account, requireActive)
+}
+
+func (s *Service) credentialFromAccount(account *models.P115Account, requireActive bool) (p115integration.Credential, error) {
 	if requireActive && (!account.Enabled || account.Status != models.P115AccountStatusActive) {
 		log.Printf("[P115Account] 拒绝读取非活动凭据 accountId=%s status=%s enabled=%t",
 			account.ID, account.Status, account.Enabled)
 		return p115integration.Credential{}, ErrAccountUnavailable
 	}
-	cookie, err := s.cipher.Decrypt(account.CookieCiphertext)
+	ciphertext, appType, userAgent, err := requiredCredentialFields(account)
 	if err != nil {
-		log.Printf("[P115Account] Cookie 解密失败 accountId=%s err=%v", account.ID, err)
+		return p115integration.Credential{}, err
+	}
+	cookie, err := s.cipher.Decrypt(ciphertext)
+	if err != nil {
+		log.Printf("[P115Account] Cookie 解密失败 accountId=%s errorType=%T", account.ID, err)
 		return p115integration.Credential{}, err
 	}
 	return p115integration.Credential{
 		AccountID: account.ID,
 		Cookie:    cookie,
-		AppType:   account.AppType,
-		UserAgent: account.UserAgent,
+		AppType:   appType,
+		UserAgent: userAgent,
 	}, nil
 }
 
@@ -374,10 +450,13 @@ func (s *Service) ReplaceCookie(ctx context.Context, accountID string, input Rep
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.getAdminAccount(ctx, accountID); err != nil {
+		return nil, err
+	}
 
 	ciphertext, err := s.cipher.Encrypt(input.Cookie)
 	if err != nil {
-		log.Printf("[P115Account] 替换 Cookie 加密失败 accountId=%s err=%v", accountID, err)
+		log.Printf("[P115Account] 替换 Cookie 加密失败 accountId=%s errorType=%T", accountID, err)
 		return nil, err
 	}
 	account, err := s.store.ReplaceCredential(ctx, accountID, credentialReplacement{
@@ -387,7 +466,7 @@ func (s *Service) ReplaceCookie(ctx context.Context, accountID string, input Rep
 		Enabled:          false,
 	})
 	if err != nil {
-		log.Printf("[P115Account] 替换 Cookie 失败 accountId=%s err=%v", accountID, err)
+		log.Printf("[P115Account] 替换 Cookie 失败 accountId=%s errorType=%T", accountID, err)
 		return nil, err
 	}
 	log.Printf("[P115Account] 替换 Cookie 成功 accountId=%s status=%s enabled=%t",
@@ -429,9 +508,6 @@ func normalizeAndValidateCreateInput(input *CreateAccountInput) error {
 	}
 	if len(input.TargetParentID) > 64 {
 		return ErrTargetParentInvalid
-	}
-	if input.Role == models.P115AccountRolePlayback && input.TargetParentID == "" {
-		return ErrPlaybackTargetParentRequired
 	}
 	if input.Role == models.P115AccountRoleSource && input.TargetParentID != "" {
 		return ErrSourceTargetParentUnexpected
@@ -512,25 +588,68 @@ func accountSummary(account *models.P115Account) *AccountSummary {
 	if account == nil {
 		return nil
 	}
-	return &AccountSummary{
-		ID:               account.ID,
-		Role:             account.Role,
-		Alias:            account.Alias,
-		AuthMode:         account.AuthMode,
-		ProviderUserID:   account.ProviderUserID,
-		AppType:          account.AppType,
-		UserAgent:        account.UserAgent,
-		EmbyPathPrefix:   account.EmbyPathPrefix,
-		SourceRootID:     account.SourceRootID,
-		TargetParentID:   account.TargetParentID,
-		Status:           account.Status,
-		Enabled:          account.Enabled,
-		LastValidatedAt:  account.LastValidatedAt,
-		LastSucceededAt:  account.LastSucceededAt,
-		CooldownUntil:    account.CooldownUntil,
-		LastErrorCode:    account.LastErrorCode,
-		LastErrorMessage: account.LastErrorMessage,
-		CreatedAt:        account.CreatedAt,
-		UpdatedAt:        account.UpdatedAt,
+	summary := &AccountSummary{
+		ID:                   account.ID,
+		Role:                 account.Role,
+		Alias:                account.Alias,
+		AuthMode:             account.AuthMode,
+		ProviderUserID:       account.ProviderUserID,
+		AppType:              stringValue(account.AppType),
+		UserAgent:            stringValue(account.UserAgent),
+		EmbyPathPrefix:       account.EmbyPathPrefix,
+		SourceRootID:         account.SourceRootID,
+		TargetParentID:       account.TargetParentID,
+		TargetParentPath:     account.TargetParentPath,
+		MaxConcurrentStreams: account.MaxConcurrentStreams,
+		Status:               account.Status,
+		Enabled:              account.Enabled,
+		LastValidatedAt:      account.LastValidatedAt,
+		LastSucceededAt:      account.LastSucceededAt,
+		CooldownUntil:        account.CooldownUntil,
+		LastErrorCode:        account.LastErrorCode,
+		LastErrorMessage:     account.LastErrorMessage,
+		CreatedAt:            account.CreatedAt,
+		UpdatedAt:            account.UpdatedAt,
 	}
+	if account.Role == models.P115AccountRolePlayback {
+		available := false
+		summary.UsageAvailable = &available
+		var unavailable *int
+		summary.ReservedStreams = unavailable
+		summary.ActiveStreams = unavailable
+		summary.OccupiedStreams = unavailable
+	}
+	return summary
+}
+
+func requiredCredentialFields(account *models.P115Account) (string, string, string, error) {
+	if account == nil || account.Status == models.P115AccountStatusRevoked ||
+		account.CookieCiphertext == nil || strings.TrimSpace(*account.CookieCiphertext) == "" ||
+		account.AppType == nil || strings.TrimSpace(*account.AppType) == "" ||
+		account.UserAgent == nil || strings.TrimSpace(*account.UserAgent) == "" {
+		return "", "", "", ErrAccountUnavailable
+	}
+	return *account.CookieCiphertext, strings.TrimSpace(*account.AppType), strings.TrimSpace(*account.UserAgent), nil
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func (s *Service) getAdminAccount(ctx context.Context, accountID string) (*models.P115Account, error) {
+	account, err := s.store.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account.OwnerUserID != nil || account.Status == models.P115AccountStatusRevoked {
+		return nil, ErrAccountNotFound
+	}
+	return account, nil
 }

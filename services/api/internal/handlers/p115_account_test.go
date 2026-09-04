@@ -21,6 +21,7 @@ type stubP115AccountService struct {
 	validateFn             func(context.Context, string) (*p115accountpkg.ValidationResult, error)
 	setEnabledFn           func(context.Context, string, bool) (*p115accountpkg.AccountSummary, error)
 	updateSourceLocationFn func(context.Context, string, p115accountpkg.SourceLocationInput) (*p115accountpkg.AccountSummary, error)
+	updatePlaybackConfigFn func(context.Context, string, p115accountpkg.PlaybackConfigInput) (*p115accountpkg.AccountSummary, error)
 }
 
 func (s *stubP115AccountService) List(ctx context.Context) ([]p115accountpkg.AccountSummary, error) {
@@ -51,6 +52,10 @@ func (s *stubP115AccountService) UpdateSourceLocation(ctx context.Context, id st
 	return s.updateSourceLocationFn(ctx, id, input)
 }
 
+func (s *stubP115AccountService) UpdatePlaybackConfig(ctx context.Context, id string, input p115accountpkg.PlaybackConfigInput) (*p115accountpkg.AccountSummary, error) {
+	return s.updatePlaybackConfigFn(ctx, id, input)
+}
+
 func TestP115AccountHandlerListUsesDataField(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &P115AccountHandler{service: &stubP115AccountService{
@@ -70,13 +75,13 @@ func TestP115AccountHandlerCreateBindsWriteOnlyCookie(t *testing.T) {
 	handler := &P115AccountHandler{service: &stubP115AccountService{
 		createFn: func(_ context.Context, input p115accountpkg.CreateAccountInput) (*p115accountpkg.AccountSummary, error) {
 			if input.Cookie != "UID=100_F1_1700000000" || input.Role != models.P115AccountRolePlayback ||
-				input.TargetParentID != "target" || input.AppType != "" {
+				input.TargetParentID != "" || input.AppType != "" {
 				t.Fatalf("unexpected create input: %+v", input)
 			}
 			return &p115accountpkg.AccountSummary{ID: "account_1", Role: input.Role}, nil
 		},
 	}}
-	body := []byte(`{"role":"playback","alias":"playback","cookie":"UID=100_F1_1700000000","userAgent":"agent","targetParentId":"target"}`)
+	body := []byte(`{"role":"playback","alias":"playback","cookie":"UID=100_F1_1700000000","userAgent":"agent"}`)
 	ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/p115-accounts", body)
 	handler.Create(ctx)
 	if recorder.Code != http.StatusCreated || strings.Contains(recorder.Body.String(), "UID=100_F1_1700000000") {
@@ -134,6 +139,41 @@ func TestP115AccountHandlerUpdatesSourceLocation(t *testing.T) {
 	handler.UpdateSourceLocation(ctx)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s, want 200", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestP115AccountHandlerUpdatesPlaybackConfigAsOneRequest(t *testing.T) {
+	handler := &P115AccountHandler{service: &stubP115AccountService{
+		updatePlaybackConfigFn: func(_ context.Context, id string, input p115accountpkg.PlaybackConfigInput) (*p115accountpkg.AccountSummary, error) {
+			if id != "playback_1" || input.TargetParentPath != "/Ember/Playback" || input.MaxConcurrentStreams != 3 {
+				t.Fatalf("unexpected playback config input: id=%q input=%+v", id, input)
+			}
+			return &p115accountpkg.AccountSummary{ID: id, Role: models.P115AccountRolePlayback}, nil
+		},
+	}}
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/p115-accounts/playback_1/playback-config",
+		[]byte(`{"targetParentPath":"/Ember/Playback","maxConcurrentStreams":3}`))
+	ctx.Params = gin.Params{{Key: "id", Value: "playback_1"}}
+	handler.UpdatePlaybackConfig(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestP115AccountHandlerRejectsPartialPlaybackConfig(t *testing.T) {
+	called := false
+	handler := &P115AccountHandler{service: &stubP115AccountService{
+		updatePlaybackConfigFn: func(context.Context, string, p115accountpkg.PlaybackConfigInput) (*p115accountpkg.AccountSummary, error) {
+			called = true
+			return nil, nil
+		},
+	}}
+	ctx, recorder := newTestConfigContext(http.MethodPut, "/api/v1/admin/p115-accounts/playback_1/playback-config",
+		[]byte(`{"targetParentPath":"/Ember/Playback"}`))
+	ctx.Params = gin.Params{{Key: "id", Value: "playback_1"}}
+	handler.UpdatePlaybackConfig(ctx)
+	if recorder.Code != http.StatusBadRequest || called {
+		t.Fatalf("status=%d called=%t body=%s", recorder.Code, called, recorder.Body.String())
 	}
 }
 
