@@ -3,6 +3,7 @@ export type PlanGroup = string
 export type MediaType = 'MOVIE' | 'TV'
 export type SubscriptionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INGESTED' | 'EXPIRED'
 export type SubscriptionReviewSource = 'MANUAL' | 'AUTO_QUOTA'
+export type P115PlaybackMode = 'personal' | 'system'
 
 export interface ManagedPlanGroup {
   key: string
@@ -11,6 +12,9 @@ export interface ManagedPlanGroup {
   isDefault: boolean
   sortOrder: number
   subscriptionAutoApproveDailyLimit?: number
+  p115PlaybackMode: P115PlaybackMode
+  p115TransferHourlyLimit: number
+  p115TransferDailyLimit: number
   planCount?: number
   userCount?: number
   followingUserCount?: number
@@ -787,7 +791,7 @@ export interface AdminConfigListResponse {
 }
 
 export type P115AccountRole = 'source' | 'playback'
-export type P115AccountStatus = 'pending' | 'active' | 'expired' | 'error' | 'cooling_down'
+export type P115AccountStatus = 'pending' | 'active' | 'expired' | 'error' | 'cooling_down' | 'revoked'
 export type P115AuthMode = 'legacy_cookie'
 
 export interface P115Account {
@@ -801,6 +805,12 @@ export interface P115Account {
   embyPathPrefix?: string
   sourceRootId?: string
   targetParentId?: string
+  targetParentPath?: string
+  maxConcurrentStreams?: number
+  usageAvailable?: boolean
+  reservedStreams?: number | null
+  activeStreams?: number | null
+  occupiedStreams?: number | null
   status: P115AccountStatus
   enabled: boolean
   lastValidatedAt?: string
@@ -837,9 +847,63 @@ export interface UpdateP115SourceLocationRequest {
   sourceRootId: string
 }
 
+export interface UpdateP115PlaybackConfigRequest {
+  targetParentPath: string
+  maxConcurrentStreams: number
+}
+
 export interface P115ValidationResult {
   valid: boolean
   account: P115Account
+}
+
+export interface PersonalP115Account {
+  id: string
+  providerUserId?: string
+  appType: string
+  targetParentPath?: string
+  maxConcurrentStreams?: number
+  effectiveMaxConcurrentStreams?: number
+  simultaneousStreamLimit?: number
+  p115PlaybackMode?: P115PlaybackMode
+  transferHourlyLimit?: number
+  transferDailyLimit?: number
+  status: P115AccountStatus
+  enabled: boolean
+  usageAvailable: boolean
+  reservedStreams: number | null
+  activeStreams: number | null
+  occupiedStreams: number | null
+  userReservedStreams?: number | null
+  userActiveStreams?: number | null
+  userOccupiedStreams?: number | null
+  transferPending?: number | null
+  transferHourlyUsed?: number | null
+  transferDailyUsed?: number | null
+  lastValidatedAt?: string
+  lastSucceededAt?: string
+  cooldownUntil?: string
+  lastErrorCode?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PersonalP115ValidationResult {
+  valid: boolean
+  account: PersonalP115Account
+}
+
+export interface PersonalP115Usage {
+  p115PlaybackMode: P115PlaybackMode
+  usageAvailable: boolean
+  userReservedStreams: number | null
+  userActiveStreams: number | null
+  userOccupiedStreams: number | null
+  transferPending: number | null
+  transferHourlyUsed: number | null
+  transferHourlyLimit: number
+  transferDailyUsed: number | null
+  transferDailyLimit: number
 }
 
 export interface AdminExternalApiKeyStatus {
@@ -1095,6 +1159,9 @@ export interface CreatePlanGroupRequest {
   isDefault?: boolean
   sortOrder?: number
   subscriptionAutoApproveDailyLimit?: number
+  p115PlaybackMode?: P115PlaybackMode
+  p115TransferHourlyLimit?: number
+  p115TransferDailyLimit?: number
 }
 
 export interface UpdatePlanGroupRequest {
@@ -1103,6 +1170,9 @@ export interface UpdatePlanGroupRequest {
   isDefault?: boolean
   sortOrder?: number
   subscriptionAutoApproveDailyLimit?: number
+  p115PlaybackMode?: P115PlaybackMode
+  p115TransferHourlyLimit?: number
+  p115TransferDailyLimit?: number
 }
 
 export type PaymentStatus = 'pending' | 'completed' | 'expired' | 'failed'

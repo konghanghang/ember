@@ -8,6 +8,7 @@ import {
   getP115Accounts,
   replaceP115AccountCookie,
   setP115AccountEnabled,
+  updateP115AccountPlaybackConfig,
   updateP115AccountSourceLocation,
   validateP115Account,
 } from '@/api/admin'
@@ -34,12 +35,16 @@ interface P115AccountForm {
   userAgent: string
   embyPathPrefix: string
   sourceRootId: string
-  targetParentId: string
 }
 
 interface P115SourceLocationForm {
   embyPathPrefix: string
   sourceRootId: string
+}
+
+interface P115PlaybackConfigForm {
+  targetParentPath: string
+  maxConcurrentStreams: number
 }
 
 const accounts = ref<P115Account[]>([])
@@ -63,12 +68,18 @@ const sourceLocationAccount = ref<P115Account | null>(null)
 const sourceLocationForm = ref<P115SourceLocationForm>({ embyPathPrefix: '', sourceRootId: '' })
 const sourceLocationSubmitting = ref(false)
 
+const playbackConfigDialogVisible = ref(false)
+const playbackConfigAccount = ref<P115Account | null>(null)
+const playbackConfigForm = ref<P115PlaybackConfigForm>({ targetParentPath: '', maxConcurrentStreams: 1 })
+const playbackConfigSubmitting = ref(false)
+
 const statusMeta: Record<P115AccountStatus, { label: string; className: string }> = {
   pending: { label: '待验证', className: 'border-amber-100 bg-amber-50 text-amber-700' },
   active: { label: '有效', className: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
   expired: { label: '已失效', className: 'border-red-100 bg-red-50 text-red-700' },
   error: { label: '验证异常', className: 'border-red-100 bg-red-50 text-red-700' },
   cooling_down: { label: '冷却中', className: 'border-sky-100 bg-sky-50 text-sky-700' },
+  revoked: { label: '已撤销', className: 'border-gray-200 bg-gray-50 text-gray-600' },
 }
 
 const detectedCreateAppType = computed(() => detectP115CookieAppType(createForm.value.cookie))
@@ -81,9 +92,7 @@ const createReady = computed(() => {
     && form.cookie.trim()
     && resolvedCreateAppType.value
     && form.userAgent.trim()
-    && (form.role === 'source'
-      ? form.embyPathPrefix.trim() && form.sourceRootId.trim()
-      : form.targetParentId.trim()),
+    && (form.role !== 'source' || (form.embyPathPrefix.trim() && form.sourceRootId.trim())),
   )
 })
 
@@ -99,6 +108,13 @@ const sourceLocationReady = computed(() => Boolean(
   && sourceLocationForm.value.embyPathPrefix.trim()
   && sourceLocationForm.value.sourceRootId.trim(),
 ))
+const playbackConfigReady = computed(() => Boolean(
+  playbackConfigAccount.value
+  && playbackConfigForm.value.targetParentPath.trim()
+  && Number.isInteger(playbackConfigForm.value.maxConcurrentStreams)
+  && playbackConfigForm.value.maxConcurrentStreams >= 1
+  && playbackConfigForm.value.maxConcurrentStreams <= 2147483647,
+))
 
 /** 返回新的空白表单，避免 Cookie 在弹窗之间残留。 */
 function newCreateForm(): P115AccountForm {
@@ -110,7 +126,6 @@ function newCreateForm(): P115AccountForm {
     userAgent: '',
     embyPathPrefix: '',
     sourceRootId: '',
-    targetParentId: '',
   }
 }
 
@@ -159,9 +174,7 @@ async function submitCreate(): Promise<void> {
     appType: resolvedCreateAppType.value,
     userAgent: form.userAgent.trim(),
   }
-  if (form.role === 'playback') {
-    payload.targetParentId = form.targetParentId.trim()
-  } else {
+  if (form.role === 'source') {
     payload.embyPathPrefix = form.embyPathPrefix.trim()
     payload.sourceRootId = form.sourceRootId.trim()
   }
@@ -223,6 +236,7 @@ async function handleEnabled(account: P115Account): Promise<void> {
   const enabled = !account.enabled
   if (enabled && account.status !== 'active') return
   if (enabled && account.role === 'source' && !hasSourceLocation(account)) return
+  if (enabled && account.role === 'playback' && !hasPlaybackConfig(account)) return
   if (isAccountBusy(account.id)) return
 
   setActionLoading(account.id, 'enable', true)
@@ -240,6 +254,11 @@ async function handleEnabled(account: P115Account): Promise<void> {
 /** source 账号只有两个位置字段都存在时才具备运行条件。 */
 function hasSourceLocation(account: P115Account): boolean {
   return Boolean(account.embyPathPrefix?.trim() && account.sourceRootId?.trim())
+}
+
+/** 共享 playback 只有目录快照和并发上限都存在时才允许启用。 */
+function hasPlaybackConfig(account: P115Account): boolean {
+  return Boolean(account.targetParentPath?.trim() && account.maxConcurrentStreams && account.maxConcurrentStreams > 0)
 }
 
 /** 打开 source 位置弹窗，只回填后端允许公开的路径摘要。 */
@@ -276,6 +295,43 @@ async function submitSourceLocation(): Promise<void> {
     // request 拦截器已展示后端的路径或角色错误，保留输入便于修正。
   } finally {
     sourceLocationSubmitting.value = false
+  }
+}
+
+/** 打开共享 playback 配置弹窗，不向管理员暴露 Provider 内部目录 ID。 */
+function openPlaybackConfigDialog(account: P115Account): void {
+  if (account.role !== 'playback' || account.status !== 'active' || isAccountBusy(account.id)) return
+  playbackConfigAccount.value = account
+  playbackConfigForm.value = {
+    targetParentPath: account.targetParentPath || '',
+    maxConcurrentStreams: account.maxConcurrentStreams || 1,
+  }
+  playbackConfigDialogVisible.value = true
+}
+
+/** 关闭共享 playback 配置弹窗并丢弃未提交值。 */
+function closePlaybackConfigDialog(): void {
+  playbackConfigDialogVisible.value = false
+  playbackConfigAccount.value = null
+  playbackConfigForm.value = { targetParentPath: '', maxConcurrentStreams: 1 }
+}
+
+/** 目录解析和并发上限由后端以一个原子动作保存。 */
+async function submitPlaybackConfig(): Promise<void> {
+  if (!playbackConfigReady.value || !playbackConfigAccount.value || playbackConfigSubmitting.value) return
+  playbackConfigSubmitting.value = true
+  try {
+    await updateP115AccountPlaybackConfig(playbackConfigAccount.value.id, {
+      targetParentPath: playbackConfigForm.value.targetParentPath.trim(),
+      maxConcurrentStreams: playbackConfigForm.value.maxConcurrentStreams,
+    })
+    closePlaybackConfigDialog()
+    ElMessage.success('播放账号配置已保存')
+    await loadAccounts()
+  } catch {
+    // request 拦截器已展示目录解析或账号竞态错误，保留输入便于修正。
+  } finally {
+    playbackConfigSubmitting.value = false
   }
 }
 
@@ -432,8 +488,12 @@ onMounted(() => {
               <dd class="mt-1 break-all font-medium text-gray-700">{{ account.appType }}</dd>
             </div>
             <div v-if="account.role === 'playback'">
-              <dt class="text-xs text-gray-400">目标目录 ID</dt>
-              <dd class="mt-1 break-all font-medium text-gray-700">{{ account.targetParentId || '-' }}</dd>
+              <dt class="text-xs text-gray-400">目标目录</dt>
+              <dd class="mt-1 break-all font-medium text-gray-700">{{ account.targetParentPath || '未配置' }}</dd>
+            </div>
+            <div v-if="account.role === 'playback'">
+              <dt class="text-xs text-gray-400">最大播放路数</dt>
+              <dd class="mt-1 font-medium tabular-nums text-gray-700">{{ account.maxConcurrentStreams ?? '未配置' }}</dd>
             </div>
             <div v-if="account.role === 'source'" class="sm:col-span-2">
               <dt class="text-xs text-gray-400">Emby 挂载目录</dt>
@@ -448,6 +508,18 @@ onMounted(() => {
               <dd class="mt-1 break-all font-medium text-gray-700">{{ account.userAgent }}</dd>
             </div>
           </dl>
+
+          <div
+            v-if="account.role === 'playback'"
+            class="mx-5 mb-5 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3"
+          >
+            <div v-if="account.usageAvailable" class="flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600">
+              <span>准备中 <strong class="tabular-nums text-gray-900">{{ account.reservedStreams ?? 0 }}</strong></span>
+              <span>播放中 <strong class="tabular-nums text-gray-900">{{ account.activeStreams ?? 0 }}</strong></span>
+              <span>总占用 <strong class="tabular-nums text-gray-900">{{ account.occupiedStreams ?? 0 }}</strong></span>
+            </div>
+            <span v-else class="text-sm font-medium text-amber-700">用量不可用</span>
+          </div>
 
           <div
             v-if="account.lastErrorMessage"
@@ -468,6 +540,15 @@ onMounted(() => {
               @click="openSourceLocationDialog(account)"
             >
               配置源目录
+            </button>
+            <button
+              v-if="account.role === 'playback'"
+              type="button"
+              class="cursor-pointer rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="isAccountBusy(account.id) || account.status !== 'active'"
+              @click="openPlaybackConfigDialog(account)"
+            >
+              配置播放账号
             </button>
             <button
               type="button"
@@ -493,7 +574,8 @@ onMounted(() => {
                 : 'btn-ember'"
               :disabled="isAccountBusy(account.id)
                 || (!account.enabled && account.status !== 'active')
-                || (!account.enabled && account.role === 'source' && !hasSourceLocation(account))"
+                || (!account.enabled && account.role === 'source' && !hasSourceLocation(account))
+                || (!account.enabled && account.role === 'playback' && !hasPlaybackConfig(account))"
               @click="handleEnabled(account)"
             >
               {{ isActionLoading(account.id, 'enable') ? '处理中' : (account.enabled ? '停用' : '启用') }}
@@ -524,19 +606,6 @@ onMounted(() => {
             v-model="createForm.alias"
             :placeholder="createForm.role === 'source' ? '例如：源账号' : '例如：播放小号'"
             maxlength="100"
-            class="input-ember"
-          />
-        </label>
-
-        <label
-          v-if="createForm.role === 'playback'"
-          class="space-y-2 text-sm font-medium text-gray-700"
-        >
-          <span>目标目录 ID</span>
-          <el-input
-            v-model="createForm.targetParentId"
-            placeholder="请输入播放小号目标目录 ID"
-            maxlength="64"
             class="input-ember"
           />
         </label>
@@ -621,6 +690,56 @@ onMounted(() => {
             @click="submitCreate"
           >
             {{ createSubmitting ? '保存中' : '保存账号' }}
+          </button>
+        </div>
+      </template>
+    </EmberFormDialog>
+
+    <EmberFormDialog
+      :model-value="playbackConfigDialogVisible"
+      title="配置播放账号"
+      width="520px"
+      @update:model-value="$event ? (playbackConfigDialogVisible = true) : closePlaybackConfigDialog()"
+    >
+      <div class="space-y-4">
+        <label class="block space-y-2 text-sm font-medium text-gray-700">
+          <span>目标目录路径</span>
+          <el-input
+            v-model="playbackConfigForm.targetParentPath"
+            placeholder="例如：/Ember/Playback"
+            maxlength="4096"
+            class="input-ember"
+          />
+        </label>
+        <label class="block space-y-2 text-sm font-medium text-gray-700">
+          <span>最大播放路数</span>
+          <el-input-number
+            v-model="playbackConfigForm.maxConcurrentStreams"
+            :min="1"
+            :max="2147483647"
+            :step="1"
+            :precision="0"
+            class="w-full !w-full form-number"
+          />
+        </label>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700"
+            @click="closePlaybackConfigDialog"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn-ember cursor-pointer rounded-xl px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!playbackConfigReady || playbackConfigSubmitting"
+            @click="submitPlaybackConfig"
+          >
+            {{ playbackConfigSubmitting ? '保存中' : '保存播放配置' }}
           </button>
         </div>
       </template>

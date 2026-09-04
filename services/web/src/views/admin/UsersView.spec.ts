@@ -222,6 +222,9 @@ describe('UsersView', () => {
         name: 'VIP',
         isDefault: false,
         sortOrder: 1,
+        p115PlaybackMode: 'personal',
+        p115TransferHourlyLimit: 5,
+        p115TransferDailyLimit: 10,
       }],
     })
     vi.mocked(getAdminMediaLibraries).mockResolvedValue({

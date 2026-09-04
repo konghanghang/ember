@@ -18,6 +18,7 @@ import {
   DataLine,
   Iphone,
   Calendar,
+  FolderOpened,
   Key
 } from '@element-plus/icons-vue'
 import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
@@ -29,6 +30,7 @@ type RegularMenuItem = {
   path: string
   icon: Component
   role?: string
+  exactRole?: boolean
   type?: undefined
 }
 
@@ -44,10 +46,11 @@ type MenuEntry = RegularMenuItem | GroupMenuItem
 const route = useRoute()
 const authStore = useAuthStore()
 
-const canAccessItem = (role?: string) => {
-  if (!role) return true
+const canAccessItem = (item: RegularMenuItem) => {
+  if (!item.role) return true
+  if (item.exactRole) return authStore.role === item.role
   if (authStore.isAdmin) return true
-  return authStore.role === role
+  return authStore.role === item.role
 }
 
 const menuItems = computed<MenuEntry[]>(() => [
@@ -62,6 +65,13 @@ const menuItems = computed<MenuEntry[]>(() => [
     path: '/console/account',
     icon: Setting,
     role: 'user'
+  },
+  {
+    title: '115 网盘',
+    path: '/console/p115',
+    icon: FolderOpened,
+    role: 'user',
+    exactRole: true
   },
   {
     title: '我的画像',
@@ -216,7 +226,7 @@ const isActive = (path: string) => route.path === path || route.path.startsWith(
 
         <!-- Regular Item -->
         <router-link
-          v-else-if="item.type !== 'group' && canAccessItem(item.role)"
+          v-else-if="item.type !== 'group' && canAccessItem(item)"
           :to="item.path"
           class="flex items-center px-3 py-2.5 rounded-lg transition-colors group relative overflow-hidden cursor-pointer"
           :class="[

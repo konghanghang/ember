@@ -81,6 +81,7 @@ import type {
   UserListResponse,
   UpdateAdminConfigRequest,
   UpdateP115SourceLocationRequest,
+  UpdateP115PlaybackConfigRequest,
   CreateP115AccountRequest
 } from '@/types/api'
 
@@ -666,6 +667,15 @@ export function replaceP115AccountCookie(id: string, data: ReplaceP115AccountCoo
 export function updateP115AccountSourceLocation(id: string, data: UpdateP115SourceLocationRequest): Promise<P115Account> {
   return request({
     url: `/admin/p115-accounts/${encodeURIComponent(id)}/source-location`,
+    method: 'put',
+    data
+  })
+}
+
+/** 原子更新共享 playback 账号的目录路径和账号总并发上限。 */
+export function updateP115AccountPlaybackConfig(id: string, data: UpdateP115PlaybackConfigRequest): Promise<P115Account> {
+  return request({
+    url: `/admin/p115-accounts/${encodeURIComponent(id)}/playback-config`,
     method: 'put',
     data
   })

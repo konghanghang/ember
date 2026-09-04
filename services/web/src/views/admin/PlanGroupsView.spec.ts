@@ -146,10 +146,26 @@ type PlanGroupsSetupState = {
     isDefault: boolean
     sortOrder: number
     subscriptionAutoApproveDailyLimit: number
+    p115PlaybackMode: 'personal' | 'system'
+    p115TransferHourlyLimit: number
+    p115TransferDailyLimit: number
+  }
+  editForm: {
+    key: string
+    name: string
+    description: string
+    isDefault: boolean
+    sortOrder: number
+    subscriptionAutoApproveDailyLimit: number
+    p115PlaybackMode: 'personal' | 'system'
+    p115TransferHourlyLimit: number
+    p115TransferDailyLimit: number
   }
   openMediaDialog: (group: ManagedPlanGroup) => Promise<void>
+  openEditDialog: (group: ManagedPlanGroup) => void
   canDeletePlanGroup: (group: ManagedPlanGroup) => boolean
   handleCreate: () => Promise<void>
+  handleUpdate: () => Promise<void>
   handleDelete: (group: ManagedPlanGroup) => Promise<void>
   handleSaveMediaLibraries: (applyToExistingUsers?: boolean) => Promise<void>
   pollSyncBatch: (batchId: string) => Promise<void>
@@ -184,6 +200,8 @@ function mountView() {
         'el-icon': passthroughStub,
         'el-input': passthroughStub,
         'el-input-number': passthroughStub,
+        'el-option': passthroughStub,
+        'el-select': passthroughStub,
         'el-progress': progressStub,
         'el-switch': passthroughStub,
         'el-table-column': emptyStub,
@@ -294,6 +312,9 @@ describe('PlanGroupsView', () => {
       description: '',
       isDefault: false,
       sortOrder: 0,
+      p115PlaybackMode: 'personal',
+      p115TransferHourlyLimit: 5,
+      p115TransferDailyLimit: 10,
     })
     await flushPromises()
 
@@ -317,6 +338,9 @@ describe('PlanGroupsView', () => {
       description: '系统默认套餐分组',
       isDefault: true,
       sortOrder: 0,
+      p115PlaybackMode: 'personal' as const,
+      p115TransferHourlyLimit: 5,
+      p115TransferDailyLimit: 10,
     }
 
     expect(setupStateOf(wrapper).canDeletePlanGroup(defaultGroup)).toBe(false)
@@ -342,6 +366,9 @@ describe('PlanGroupsView', () => {
       isDefault: false,
       sortOrder: 10,
       subscriptionAutoApproveDailyLimit: 2,
+      p115PlaybackMode: 'personal',
+      p115TransferHourlyLimit: 7,
+      p115TransferDailyLimit: 3,
     }
 
     await setupStateOf(wrapper).handleCreate()
@@ -354,7 +381,65 @@ describe('PlanGroupsView', () => {
       isDefault: false,
       sortOrder: 10,
       subscriptionAutoApproveDailyLimit: 2,
+      p115PlaybackMode: 'personal',
+      p115TransferHourlyLimit: 7,
+      p115TransferDailyLimit: 3,
     })
+
+    wrapper.unmount()
+  })
+
+  it('转存日额度可以小于滚动小时额度，并随分组更新整体提交', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const group: ManagedPlanGroup = {
+      key: 'VIP',
+      name: 'VIP',
+      description: '',
+      isDefault: false,
+      sortOrder: 0,
+      p115PlaybackMode: 'system',
+      p115TransferHourlyLimit: 12,
+      p115TransferDailyLimit: 4,
+    }
+    setupStateOf(wrapper).openEditDialog(group)
+    await setupStateOf(wrapper).handleUpdate()
+    await flushPromises()
+
+    expect(updatePlanGroup).toHaveBeenCalledWith('VIP', {
+      name: 'VIP',
+      description: '',
+      isDefault: false,
+      sortOrder: 0,
+      subscriptionAutoApproveDailyLimit: 0,
+      p115PlaybackMode: 'system',
+      p115TransferHourlyLimit: 12,
+      p115TransferDailyLimit: 4,
+    })
+
+    wrapper.unmount()
+  })
+
+  it('转存额度越界时阻止提交且不静默截断', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    setupStateOf(wrapper).createForm = {
+      key: 'VIP_A',
+      name: 'VIP A',
+      description: '',
+      isDefault: false,
+      sortOrder: 0,
+      subscriptionAutoApproveDailyLimit: 0,
+      p115PlaybackMode: 'personal',
+      p115TransferHourlyLimit: 101,
+      p115TransferDailyLimit: 10,
+    }
+    await setupStateOf(wrapper).handleCreate()
+
+    expect(createPlanGroup).not.toHaveBeenCalled()
+    expect(ElMessage.warning).toHaveBeenCalledWith('115 转存额度超出允许范围')
 
     wrapper.unmount()
   })
@@ -378,6 +463,9 @@ describe('PlanGroupsView', () => {
       description: '',
       isDefault: false,
       sortOrder: 0,
+      p115PlaybackMode: 'personal',
+      p115TransferHourlyLimit: 5,
+      p115TransferDailyLimit: 10,
     }
     setupStateOf(wrapper).selectedLibraryIds = ['lib_movie']
 

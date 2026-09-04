@@ -10,6 +10,9 @@ import type {
   LatestMediaResponse,
   MediaStatsResponse,
   PaymentListResponse,
+  PersonalP115Account,
+  PersonalP115ValidationResult,
+  PersonalP115Usage,
   PlaybackProfileQuery,
   PlaybackProfileResponse,
   RankingResponse,
@@ -157,6 +160,86 @@ export function applyCurrentUserMediaLibraryPolicySync(): Promise<{ data: UserMe
   return request({
     url: '/user/emby-policy-sync/apply-current',
     method: 'post'
+  })
+}
+
+// ==================== 个人 115 账号 ====================
+/** 获取当前用户的个人 115 账号；404 由页面转为空状态。 */
+export function getPersonalP115Account(): Promise<PersonalP115Account> {
+  return request({
+    url: '/user/p115-account',
+    method: 'get',
+    silent: true
+  })
+}
+
+/** 获取当前用户跨账号归因的播放与转存配额用量。 */
+export function getPersonalP115Usage(): Promise<PersonalP115Usage> {
+  return request({
+    url: '/user/p115-usage',
+    method: 'get',
+    silent: true
+  })
+}
+
+/** 只提交 write-only Cookie 创建当前用户的个人 playback 账号。 */
+export function createPersonalP115Account(cookie: string): Promise<PersonalP115Account> {
+  return request({
+    url: '/user/p115-account',
+    method: 'post',
+    data: { cookie }
+  })
+}
+
+/** 替换 write-only Cookie 并重置 Provider 派生状态。 */
+export function replacePersonalP115Cookie(cookie: string): Promise<PersonalP115Account> {
+  return request({
+    url: '/user/p115-account/cookie',
+    method: 'put',
+    data: { cookie }
+  })
+}
+
+/** 解析并保存已经存在的个人 playback 目标目录。 */
+export function updatePersonalP115Directory(targetParentPath: string): Promise<PersonalP115Account> {
+  return request({
+    url: '/user/p115-account/directory',
+    method: 'put',
+    data: { targetParentPath }
+  })
+}
+
+/** 保存受当前套餐模板约束的个人账号并发上限。 */
+export function updatePersonalP115Concurrency(maxConcurrentStreams: number): Promise<PersonalP115Account> {
+  return request({
+    url: '/user/p115-account/concurrency',
+    method: 'put',
+    data: { maxConcurrentStreams }
+  })
+}
+
+/** 显式验证当前用户已经保存的 Cookie。 */
+export function validatePersonalP115Account(): Promise<PersonalP115ValidationResult> {
+  return request({
+    url: '/user/p115-account/validate',
+    method: 'post'
+  })
+}
+
+/** 启用完整账号或停用当前个人账号。 */
+export function setPersonalP115Enabled(enabled: boolean): Promise<PersonalP115Account> {
+  return request({
+    url: '/user/p115-account/enabled',
+    method: 'put',
+    data: { enabled }
+  })
+}
+
+/** 不可逆擦除当前个人账号凭证并保留历史 tombstone。 */
+export function revokePersonalP115Account(): Promise<{ message: string }> {
+  return request({
+    url: '/user/p115-account',
+    method: 'delete'
   })
 }
 

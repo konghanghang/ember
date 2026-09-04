@@ -50,6 +50,12 @@ const router = createRouter({
           component: () => import('../views/console/AccountCenterView.vue'),
         },
         {
+          path: 'p115',
+          name: 'console-p115',
+          meta: { role: 'user' },
+          component: () => import('../views/console/P115AccountView.vue'),
+        },
+        {
           path: 'profile-analytics',
           name: 'console-profile-analytics',
           component: () => import('../views/console/ProfileAnalyticsView.vue'),

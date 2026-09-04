@@ -9,6 +9,7 @@ import {
   getP115Accounts,
   replaceP115AccountCookie,
   setP115AccountEnabled,
+  updateP115AccountPlaybackConfig,
   updateP115AccountSourceLocation,
   validateP115Account,
 } from '@/api/admin'
@@ -19,6 +20,7 @@ vi.mock('@/api/admin', () => ({
   getP115Accounts: vi.fn(),
   replaceP115AccountCookie: vi.fn(),
   setP115AccountEnabled: vi.fn(),
+  updateP115AccountPlaybackConfig: vi.fn(),
   updateP115AccountSourceLocation: vi.fn(),
   validateP115Account: vi.fn(),
 }))
@@ -92,6 +94,20 @@ const optionStub = defineComponent({
   },
 })
 
+const inputNumberStub = defineComponent({
+  props: {
+    modelValue: { type: Number, default: 1 },
+  },
+  emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    return () => h('input', {
+      value: String(props.modelValue),
+      type: 'number',
+      onInput: (event: Event) => emit('update:modelValue', Number((event.target as HTMLInputElement).value)),
+    })
+  },
+})
+
 function account(overrides: Partial<P115Account> = {}): P115Account {
   return {
     id: 'p115_source',
@@ -125,6 +141,7 @@ function mountView() {
         EmberFormDialog: formDialogStub,
         'el-icon': passthroughStub,
         'el-input': inputStub,
+        'el-input-number': inputNumberStub,
         'el-select': selectStub,
         'el-option': optionStub,
       },
@@ -149,6 +166,7 @@ describe('P115AccountsView', () => {
     })
     vi.mocked(setP115AccountEnabled).mockResolvedValue(account({ status: 'active', enabled: true }))
     vi.mocked(replaceP115AccountCookie).mockResolvedValue(account())
+    vi.mocked(updateP115AccountPlaybackConfig).mockResolvedValue(account({ role: 'playback' }))
     vi.mocked(updateP115AccountSourceLocation).mockResolvedValue(account())
   })
 
@@ -178,7 +196,6 @@ describe('P115AccountsView', () => {
     await dialog.get('select').setValue('playback')
     await dialog.get('input[placeholder="例如：播放小号"]').setValue('播放小号')
     await dialog.get('input[placeholder="请输入固定的 User-Agent"]').setValue('Ember Test')
-    await dialog.get('input[placeholder="请输入播放小号目标目录 ID"]').setValue('target-1')
     await dialog.get('input[placeholder="粘贴完整 Cookie"]').setValue('UID=100_F1_1700000000')
     expect((dialog.get('[data-test="create-app-type"]').element as HTMLInputElement).value).toBe('android')
     await findButton(wrapper, '保存账号').trigger('click')
@@ -190,11 +207,67 @@ describe('P115AccountsView', () => {
       cookie: 'UID=100_F1_1700000000',
       appType: 'android',
       userAgent: 'Ember Test',
-      targetParentId: 'target-1',
     })
+    expect(dialog.text()).not.toContain('目标目录 ID')
     expect(getP115Accounts).toHaveBeenCalledTimes(2)
     expect(wrapper.find('[data-test="form-dialog"]').exists()).toBe(false)
     expect(ElMessage.success).toHaveBeenCalledWith('115 账号已添加')
+  })
+
+  it('共享播放账号通过路径和并发整体配置，页面不要求内部目录 ID', async () => {
+    vi.mocked(getP115Accounts)
+      .mockResolvedValueOnce({ data: [account({ id: 'playback', role: 'playback', status: 'active', embyPathPrefix: undefined, sourceRootId: undefined })] })
+      .mockResolvedValueOnce({ data: [account({ id: 'playback', role: 'playback', status: 'active', targetParentPath: '/Playback', maxConcurrentStreams: 3 })] })
+
+    const wrapper = mountView()
+    await flushPromises()
+    expect(findButton(wrapper, '启用').attributes('disabled')).toBeDefined()
+
+    await findButton(wrapper, '配置播放账号').trigger('click')
+    const dialog = wrapper.get('[data-test="form-dialog"]')
+    expect(dialog.text()).not.toContain('目标目录 ID')
+    await dialog.get('input[placeholder="例如：/Ember/Playback"]').setValue('/Playback')
+    await dialog.get('input[type="number"]').setValue('3')
+    await findButton(wrapper, '保存播放配置').trigger('click')
+    await flushPromises()
+
+    expect(updateP115AccountPlaybackConfig).toHaveBeenCalledWith('playback', {
+      targetParentPath: '/Playback',
+      maxConcurrentStreams: 3,
+    })
+    expect(getP115Accounts).toHaveBeenCalledTimes(2)
+  })
+
+  it('共享播放用量区分 Redis 不可用和零占用', async () => {
+    vi.mocked(getP115Accounts).mockResolvedValueOnce({
+      data: [account({
+        role: 'playback',
+        usageAvailable: false,
+        reservedStreams: null,
+        activeStreams: null,
+        occupiedStreams: null,
+      })],
+    })
+    const unavailable = mountView()
+    await flushPromises()
+    expect(unavailable.text()).toContain('用量不可用')
+    unavailable.unmount()
+
+    vi.mocked(getP115Accounts).mockResolvedValueOnce({
+      data: [account({
+        role: 'playback',
+        usageAvailable: true,
+        reservedStreams: 0,
+        activeStreams: 0,
+        occupiedStreams: 0,
+      })],
+    })
+    const zero = mountView()
+    await flushPromises()
+    expect(zero.text()).toContain('准备中 0')
+    expect(zero.text()).toContain('播放中 0')
+    expect(zero.text()).toContain('总占用 0')
+    zero.unmount()
   })
 
   it('创建源账号时提交 Emby 挂载目录和 115 源目录', async () => {

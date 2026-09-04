@@ -6,6 +6,7 @@ import {
   getP115Accounts,
   replaceP115AccountCookie,
   setP115AccountEnabled,
+  updateP115AccountPlaybackConfig,
   updateP115AccountSourceLocation,
   validateP115Account,
 } from './admin'
@@ -39,6 +40,10 @@ describe('admin 115 account API', () => {
       embyPathPrefix: '/mnt/cloudNAS/115lifetime',
       sourceRootId: '0',
     })
+    await updateP115AccountPlaybackConfig('account/1', {
+      targetParentPath: '/Ember/Playback',
+      maxConcurrentStreams: 3,
+    })
     await validateP115Account('account/1')
     await setP115AccountEnabled('account/1', true)
 
@@ -70,6 +75,14 @@ describe('admin 115 account API', () => {
         data: {
           embyPathPrefix: '/mnt/cloudNAS/115lifetime',
           sourceRootId: '0',
+        },
+      }],
+      [{
+        url: '/admin/p115-accounts/account%2F1/playback-config',
+        method: 'put',
+        data: {
+          targetParentPath: '/Ember/Playback',
+          maxConcurrentStreams: 3,
         },
       }],
       [{ url: '/admin/p115-accounts/account%2F1/validate', method: 'post' }],

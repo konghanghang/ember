@@ -75,7 +75,10 @@ const createForm = ref({
   description: '',
   isDefault: false,
   sortOrder: 0,
-  subscriptionAutoApproveDailyLimit: 0
+  subscriptionAutoApproveDailyLimit: 0,
+  p115PlaybackMode: 'personal' as 'personal' | 'system',
+  p115TransferHourlyLimit: 5,
+  p115TransferDailyLimit: 10
 })
 
 const editForm = ref({
@@ -84,7 +87,10 @@ const editForm = ref({
   description: '',
   isDefault: false,
   sortOrder: 0,
-  subscriptionAutoApproveDailyLimit: 0
+  subscriptionAutoApproveDailyLimit: 0,
+  p115PlaybackMode: 'personal' as 'personal' | 'system',
+  p115TransferHourlyLimit: 5,
+  p115TransferDailyLimit: 10
 })
 
 const policyForm = ref<PlanGroupEmbyPolicyTemplateUpdateRequest>({
@@ -298,7 +304,10 @@ const resetCreateForm = () => {
     description: '',
     isDefault: false,
     sortOrder: 0,
-    subscriptionAutoApproveDailyLimit: 0
+    subscriptionAutoApproveDailyLimit: 0,
+    p115PlaybackMode: 'personal',
+    p115TransferHourlyLimit: 5,
+    p115TransferDailyLimit: 10
   }
 }
 
@@ -309,9 +318,19 @@ const openEditDialog = (group: ManagedPlanGroup) => {
     description: group.description ?? '',
     isDefault: group.isDefault,
     sortOrder: group.sortOrder,
-    subscriptionAutoApproveDailyLimit: group.subscriptionAutoApproveDailyLimit ?? 0
+    subscriptionAutoApproveDailyLimit: group.subscriptionAutoApproveDailyLimit ?? 0,
+    p115PlaybackMode: group.p115PlaybackMode ?? 'personal',
+    p115TransferHourlyLimit: group.p115TransferHourlyLimit ?? 5,
+    p115TransferDailyLimit: group.p115TransferDailyLimit ?? 10
   }
   editDialogVisible.value = true
+}
+
+/** 套餐转存额度使用两个独立窗口，不要求每日额度大于小时额度。 */
+const isValidP115Policy = (mode: string, hourly: number, daily: number) => {
+  return (mode === 'personal' || mode === 'system')
+    && Number.isInteger(hourly) && hourly >= 1 && hourly <= 100
+    && Number.isInteger(daily) && daily >= 1 && daily <= 1000
 }
 
 /** 打开媒体库模板弹窗时同时读取 Emby 当前库和该分组已保存模板。 */
@@ -366,6 +385,14 @@ const handleCreate = async () => {
     ElMessage.warning('请填写分组标识和分组名称')
     return
   }
+  if (!isValidP115Policy(
+    createForm.value.p115PlaybackMode,
+    createForm.value.p115TransferHourlyLimit,
+    createForm.value.p115TransferDailyLimit,
+  )) {
+    ElMessage.warning('115 转存额度超出允许范围')
+    return
+  }
 
   const payload: CreatePlanGroupRequest = {
     key: createForm.value.key.trim(),
@@ -373,7 +400,10 @@ const handleCreate = async () => {
     description: createForm.value.description.trim(),
     isDefault: createForm.value.isDefault,
     sortOrder: createForm.value.sortOrder,
-    subscriptionAutoApproveDailyLimit: createForm.value.subscriptionAutoApproveDailyLimit
+    subscriptionAutoApproveDailyLimit: createForm.value.subscriptionAutoApproveDailyLimit,
+    p115PlaybackMode: createForm.value.p115PlaybackMode,
+    p115TransferHourlyLimit: createForm.value.p115TransferHourlyLimit,
+    p115TransferDailyLimit: createForm.value.p115TransferDailyLimit
   }
 
   creating.value = true
@@ -393,13 +423,24 @@ const handleUpdate = async () => {
     ElMessage.warning('请输入分组名称')
     return
   }
+  if (!isValidP115Policy(
+    editForm.value.p115PlaybackMode,
+    editForm.value.p115TransferHourlyLimit,
+    editForm.value.p115TransferDailyLimit,
+  )) {
+    ElMessage.warning('115 转存额度超出允许范围')
+    return
+  }
 
   const payload: UpdatePlanGroupRequest = {
     name: editForm.value.name.trim(),
     description: editForm.value.description.trim(),
     isDefault: editForm.value.isDefault,
     sortOrder: editForm.value.sortOrder,
-    subscriptionAutoApproveDailyLimit: editForm.value.subscriptionAutoApproveDailyLimit
+    subscriptionAutoApproveDailyLimit: editForm.value.subscriptionAutoApproveDailyLimit,
+    p115PlaybackMode: editForm.value.p115PlaybackMode,
+    p115TransferHourlyLimit: editForm.value.p115TransferHourlyLimit,
+    p115TransferDailyLimit: editForm.value.p115TransferDailyLimit
   }
 
   updating.value = true
@@ -662,6 +703,19 @@ onBeforeUnmount(stopSyncBatchPolling)
         </template>
       </el-table-column>
 
+      <el-table-column label="115 播放" min-width="180">
+        <template #default="{ row }">
+          <div class="space-y-1">
+            <span class="text-sm font-medium text-gray-700">
+              {{ row.p115PlaybackMode === 'system' ? '系统共享账号' : '用户个人账号' }}
+            </span>
+            <div class="text-xs tabular-nums text-gray-500">
+              {{ row.p115TransferHourlyLimit }}/小时 · {{ row.p115TransferDailyLimit }}/天
+            </div>
+          </div>
+        </template>
+      </el-table-column>
+
       <el-table-column label="排序" width="90">
         <template #default="{ row }">
           <span class="text-gray-600">{{ row.sortOrder }}</span>
@@ -716,7 +770,7 @@ onBeforeUnmount(stopSyncBatchPolling)
     <EmberFormDialog
       v-model="dialogVisible"
       title="新建用户分组"
-      width="520px"
+      width="680px"
     >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
@@ -755,6 +809,39 @@ onBeforeUnmount(stopSyncBatchPolling)
             />
             <p class="mt-1 text-xs text-gray-500">0 表示该分组全部订阅都进入人工审核。</p>
           </el-form-item>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
+            <div class="mb-4 text-sm font-semibold text-gray-900">115 播放策略</div>
+            <el-form-item label="播放账号来源">
+              <el-select v-model="createForm.p115PlaybackMode" class="w-full form-select">
+                <el-option label="用户个人账号" value="personal" />
+                <el-option label="系统共享账号" value="system" />
+              </el-select>
+            </el-form-item>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <el-form-item label="滚动小时转存额度">
+                <el-input-number
+                  v-model="createForm.p115TransferHourlyLimit"
+                  :min="1"
+                  :max="100"
+                  :step="1"
+                  :precision="0"
+                  class="w-full !w-full form-number"
+                />
+              </el-form-item>
+              <el-form-item label="每日转存额度">
+                <el-input-number
+                  v-model="createForm.p115TransferDailyLimit"
+                  :min="1"
+                  :max="1000"
+                  :step="1"
+                  :precision="0"
+                  class="w-full !w-full form-number"
+                />
+              </el-form-item>
+            </div>
+            <p class="text-xs text-gray-500">两个额度按独立时间窗口计算，不要求每日额度大于小时额度。</p>
+          </div>
         </el-form>
       </div>
       <template #footer>
@@ -779,7 +866,7 @@ onBeforeUnmount(stopSyncBatchPolling)
     <EmberFormDialog
       v-model="editDialogVisible"
       title="编辑用户分组"
-      width="520px"
+      width="680px"
     >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
@@ -817,6 +904,39 @@ onBeforeUnmount(stopSyncBatchPolling)
             />
             <p class="mt-1 text-xs text-gray-500">0 表示该分组全部订阅都进入人工审核。</p>
           </el-form-item>
+
+          <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
+            <div class="mb-4 text-sm font-semibold text-gray-900">115 播放策略</div>
+            <el-form-item label="播放账号来源">
+              <el-select v-model="editForm.p115PlaybackMode" class="w-full form-select">
+                <el-option label="用户个人账号" value="personal" />
+                <el-option label="系统共享账号" value="system" />
+              </el-select>
+            </el-form-item>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <el-form-item label="滚动小时转存额度">
+                <el-input-number
+                  v-model="editForm.p115TransferHourlyLimit"
+                  :min="1"
+                  :max="100"
+                  :step="1"
+                  :precision="0"
+                  class="w-full !w-full form-number"
+                />
+              </el-form-item>
+              <el-form-item label="每日转存额度">
+                <el-input-number
+                  v-model="editForm.p115TransferDailyLimit"
+                  :min="1"
+                  :max="1000"
+                  :step="1"
+                  :precision="0"
+                  class="w-full !w-full form-number"
+                />
+              </el-form-item>
+            </div>
+            <p class="text-xs text-gray-500">两个额度按独立时间窗口计算，不要求每日额度大于小时额度。</p>
+          </div>
         </el-form>
       </div>
       <template #footer>
