@@ -1,6 +1,6 @@
 # STRM 本地媒体回退播放实现方案
 
-> 状态：实现完成，待 Compose CLI 与受控真实客户端验收
+> 状态：实现与自动化验证完成；真实客户端验收由部署者按上线范围执行
 > 负责人：Ember
 > 更新时间：2026-09-03
 
@@ -340,7 +340,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 剩余：
 
-- 当前环境虽已安装 Docker CLI，但 Docker daemon 未运行，尚未执行 `docker compose config --quiet`；Compose YAML 已完成解析，但不能把它写成 Compose CLI 验证通过。
+- 本机未执行 `docker compose config --quiet`；该命令属于部署者上线前的运行前检查，不作为本计划的代码交付阻挡项。Compose YAML 已完成静态解析，部署者仍应在目标环境按实际 `.env`、override 和只读 mount 执行该检查。
 - 用户尚未授权真实外部验证，因此没有启动项目服务，也没有执行真实容器 mount、Emby/115/CloudDrive2 I/O、播放器 Range/拖动/字幕/会话事件或 `SimultaneousStreamLimit` 验收。
 
 归档条件：
@@ -360,6 +360,6 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 - `docs/reference/configuration-reference.md`：补 `PLAYBACK_LOCAL_MEDIA_ROOT`、默认关闭、重启生效和容器路径语义。
 - `docs/runbooks/deployment.md`、`docs/runbooks/deployment-environment.md`：补本地媒体只读 mount 和单 Gateway 部署限制。
 - `docs/runbooks/testing.md`：补本地 Range fake/fixture 测试与受控真实验证入口。
-- 本计划全部完成并满足归档条件后移入 `docs/archive/plan/architecture/`。
+- 本计划完成文档收口后可移入 `docs/archive/plan/architecture/`；真实客户端结果继续按部署者授权范围追加记录。
 
-当前尚未满足归档条件；保留在 `docs/plan/architecture/`，直到上述 Compose CLI 与授权范围内的真实验证边界完成或由用户明确决定按未验证限制归档。
+Compose CLI 解析不再作为本计划的归档阻挡项；真实客户端验证仍保持“未执行即未验证”，由部署者按上线范围决定并记录。
