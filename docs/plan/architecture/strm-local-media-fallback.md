@@ -340,7 +340,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 剩余：
 
-- 当前环境没有 `docker` 命令，尚未执行 `docker compose config --quiet`；Compose YAML 已完成解析，但不能把它写成 Compose CLI 验证通过。
+- 当前环境虽已安装 Docker CLI，但 Docker daemon 未运行，尚未执行 `docker compose config --quiet`；Compose YAML 已完成解析，但不能把它写成 Compose CLI 验证通过。
 - 用户尚未授权真实外部验证，因此没有启动项目服务，也没有执行真实容器 mount、Emby/115/CloudDrive2 I/O、播放器 Range/拖动/字幕/会话事件或 `SimultaneousStreamLimit` 验收。
 
 归档条件：

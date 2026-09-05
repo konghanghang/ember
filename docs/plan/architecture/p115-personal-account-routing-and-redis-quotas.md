@@ -1,6 +1,6 @@
 # 115 用户自有账号路由与 Redis 配额实现方案
 
-> 状态：代码与自动化已完成，待 PostgreSQL 集成执行与受控真实验收
+> 状态：代码、自动化与 PostgreSQL 集成已完成，待受控真实验收
 > 负责人：Ember
 > 更新时间：2026-09-04
 
@@ -497,15 +497,15 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 剩余：
 
-- 当前环境未设置 `EMBER_INTEGRATION_DATABASE_URL`，新增 migration 幂等/约束集成用例已编译但明确跳过；尚不能声称 `20260903_01` 已在 PostgreSQL 实际执行。
-- 当前环境没有 Docker CLI，未执行 `docker compose config`；仅完成 YAML 解析与 Redis profile/image/AOF/healthcheck/volume/依赖/URL 静态断言。
+- 2026-09-05 已使用专用 `EMBER_INTEGRATION_DATABASE_URL` 执行 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`；新增 migration 幂等、约束、个人账号生命周期、tombstone、用户删除顺序等 PostgreSQL 集成用例全部通过。测试 harness 使用独立 `itest_*` schema，未启动项目服务或访问真实 115/Emby。
+- 当前环境虽已安装 Docker CLI，但 Docker daemon 未运行，未执行 `docker compose config`；仅完成 YAML 解析与 Redis profile/image/AOF/healthcheck/volume/依赖/URL 静态断言。
 - 未启动项目服务，未访问真实 Redis、Emby 或 115；个人 Cookie 固定 `Mozilla/5.0`、真实 personal/system 路由、客户端事件间隔、配额边界和 Redis 故障回退均待用户另行授权后受控验证。
 - Emby `SimultaneousStreamLimit` 能否限制 115/local 分流仍未证实，本计划不新增 Gateway 用户级门控。
 
 归档条件：
 
 - 四个阶段全部落地并通过自动化验证。
-- 在专用 PostgreSQL 集成库实际执行新增 migration 用例；若继续缺少环境，必须由用户明确接受该未验证边界。
+- 在专用 PostgreSQL 集成库实际执行新增 migration 用例（已于 2026-09-05 完成）。
 - 真实验证按用户授权范围记录证据；未授权的外部 E2E 必须明确标为未验证，不能伪写通过。
 - 当前实现事实提炼到 `docs/system-architecture.md` 和对应 `docs/reference/`。
 - `docs/plan/README.md`、计划盘点和交叉引用同步完成后，移入 `docs/archive/plan/architecture/`。

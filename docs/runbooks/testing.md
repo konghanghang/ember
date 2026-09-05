@@ -44,6 +44,14 @@ go test -race -count=1 ./internal/playbackgateway ./internal/services/directplay
 如果要跑本地 API 集成测试：
 
 - 必须通过 `EMBER_INTEGRATION_DATABASE_URL` 指向专用测试数据库
+
+截至 2026-09-05，已在专用 PostgreSQL 集成环境执行并通过：
+
+```bash
+go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v
+```
+
+该测试会由 harness 创建和清理独立的 `itest_*` schema；不会启动 Ember 服务，也不会访问真实 Emby、115 或其他外部系统。若环境变量缺失，相关测试会跳过，不能将跳过写成通过。
 - 不要直接连接共享开发库，尤其不要复用其他人正在使用的测试库
 - 集成测试骨架会在目标数据库里创建并清理独立 schema，所以目标库本身应只用于集成测试
 - 115 migration 用例会重复执行当前增量，并覆盖套餐默认值、账号 partial unique、owner `ON DELETE RESTRICT`、revoked tombstone 与 transfer provenance；未设置该变量时会明确跳过，不能据此声称 PostgreSQL migration 已实际执行

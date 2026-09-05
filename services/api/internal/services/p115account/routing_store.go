@@ -29,8 +29,8 @@ func (s *gormAccountStore) ResolvePlaybackRouteMetadata(ctx context.Context, own
 		var selected models.P115Account
 		query := tx.Select(playbackRouteMetadataColumns)
 		if policy.PlaybackMode == models.P115PlaybackModePersonal {
-			query = query.Where("owner_user_id = ? AND role = ? AND status <> ?",
-				ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusRevoked)
+			query = query.Where("owner_user_id = ? AND role = ? AND status <> ? AND enabled = ?",
+				ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusRevoked, true)
 		} else {
 			query = query.Where("owner_user_id IS NULL AND role = ? AND status <> ? AND enabled = ?",
 				models.P115AccountRolePlayback, models.P115AccountStatusRevoked, true)
@@ -57,7 +57,7 @@ func (s *gormAccountStore) ResolvePlaybackRouteMetadata(ctx context.Context, own
 func (s *gormAccountStore) GetPersonalPlaybackMetadata(ctx context.Context, ownerUserID string) (*models.P115Account, error) {
 	var account models.P115Account
 	err := s.database(ctx).Select(playbackRouteMetadataColumns).
-		Where("owner_user_id = ? AND role = ? AND status <> ?", ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusRevoked).
+		Where("owner_user_id = ? AND role = ? AND status <> ? AND enabled = ?", ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusRevoked, true).
 		First(&account).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrAccountNotFound
