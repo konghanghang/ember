@@ -52,6 +52,8 @@ go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v
 ```
 
 该测试会由 harness 创建和清理独立的 `itest_*` schema；不会启动 Ember 服务，也不会访问真实 Emby、115 或其他外部系统。若环境变量缺失，相关测试会跳过，不能将跳过写成通过。
+
+`docker compose config --quiet` 属于部署者上线前的运行前检查，不是本地代码测试的必要条件；应在目标部署环境使用实际 `.env` 和 Compose override 单独执行。
 - 不要直接连接共享开发库，尤其不要复用其他人正在使用的测试库
 - 集成测试骨架会在目标数据库里创建并清理独立 schema，所以目标库本身应只用于集成测试
 - 115 migration 用例会重复执行当前增量，并覆盖套餐默认值、账号 partial unique、owner `ON DELETE RESTRICT`、revoked tombstone 与 transfer provenance；未设置该变量时会明确跳过，不能据此声称 PostgreSQL migration 已实际执行
@@ -99,6 +101,7 @@ python -m pytest tests
 约定：
 
 - Bot 测试与本地运行默认使用 `services/bot/.venv`
+- 当前仓库通过 `services/bot/.python-version` 固定 pyenv Python `3.11.15`；本机验证已执行 `.venv/bin/python -m py_compile main.py` 和 `.venv/bin/python -m pytest tests`，49 项测试全部通过
 - 如果 `.venv` 不存在，`make setup`、`make test-bot`、`make test-bot-report` 会直接提示先创建虚拟环境
 
 如果需要保留测试结果产物：
