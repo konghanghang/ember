@@ -498,7 +498,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 剩余：
 
 - 2026-09-05 已使用专用 `EMBER_INTEGRATION_DATABASE_URL` 执行 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`；新增 migration 幂等、约束、个人账号生命周期、tombstone、用户删除顺序等 PostgreSQL 集成用例全部通过。测试 harness 使用独立 `itest_*` schema，未启动项目服务或访问真实 115/Emby。
-- 本机未执行 `docker compose config`；该命令属于部署者上线前的运行前检查，不作为本计划的代码交付或归档阻挡项。Compose YAML 已完成静态解析，部署者仍应在目标环境按实际 `.env` 和 override 执行该检查。
+- 2026-09-05 已使用占位必填配置并包含 `gateway`、`bot` profile 执行 `docker compose config --quiet`，解析通过；该结果不替代部署者在目标环境使用实际 `.env`、override 和只读 mount 执行同一检查。
 - 未启动项目服务，未访问真实 Redis、Emby 或 115；个人 Cookie 固定 `Mozilla/5.0`、真实 personal/system 路由、客户端事件间隔、配额边界和 Redis 故障回退均待用户另行授权后受控验证。
 - Emby `SimultaneousStreamLimit` 能否限制 115/local 分流仍未证实，本计划不新增 Gateway 用户级门控。
 

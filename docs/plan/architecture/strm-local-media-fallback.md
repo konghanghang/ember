@@ -340,7 +340,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 
 剩余：
 
-- 本机未执行 `docker compose config --quiet`；该命令属于部署者上线前的运行前检查，不作为本计划的代码交付阻挡项。Compose YAML 已完成静态解析，部署者仍应在目标环境按实际 `.env`、override 和只读 mount 执行该检查。
+- 2026-09-05 已使用占位必填配置并包含 `gateway`、`bot` profile 执行 `docker compose config --quiet`，解析通过；该结果不替代部署者在目标环境使用实际 `.env`、override 和只读 mount 执行同一检查。
 - 用户尚未授权真实外部验证，因此没有启动项目服务，也没有执行真实容器 mount、Emby/115/CloudDrive2 I/O、播放器 Range/拖动/字幕/会话事件或 `SimultaneousStreamLimit` 验收。
 
 归档条件：

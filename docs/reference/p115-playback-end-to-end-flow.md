@@ -489,7 +489,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
 | Go 单元/fake HTTP/进程内 fake Redis | 管理员/个人账号生命周期、personal/system 路由、Cookie/会话用途隔离 HMAC、账号/用户 leases+active、`30s/2m/15m` 状态、HEAD 不创建、断连 fallback、小时/自然日配额、pending/succeeded、晚到成功和 2s 提交预算；Provider/Token/Gateway/本地回退既有合同 | 真实 Redis 服务、个人 Cookie 固定 UA、真实 personal/system 播放与配额边界、新本地 mount/播放器完整播放 |
-| PostgreSQL 集成 | 既有账号/transfer/Token migration、唯一约束、advisory lock、并发只秒传一次、共享冷却和旧 Cookie 结果丢弃已有历史证据；本轮新增 personal migration 用例已覆盖幂等、默认 personal、owner/Provider/共享角色 unique、RESTRICT、tombstone 与 transfer provenance | 2026-09-05 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境执行并通过 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`；不验证多 Gateway |
+| PostgreSQL 集成 | 既有账号/transfer/Token migration、唯一约束、advisory lock、并发只秒传一次、共享冷却和旧 Cookie 结果丢弃已有历史证据；2026-09-05 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境执行并通过 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`，本轮新增 personal migration 用例覆盖幂等、默认 personal、owner/Provider/共享角色 unique、RESTRICT、tombstone 与 transfer provenance | 不验证真实 Redis、真实 115 或多 Gateway 部署语义 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
 | Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200` 与按需 PlaybackInfo `proofCount=1`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目确认 `proofAccepted=true`、source 路径映射、Provider Size 转存成功，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认 `path_not_mapped` 条目经权威 Emby 扩展名 fallback 返回 `206` 并实际播放，115 首次/复用 `302` 可播放，外挂/内嵌字幕及 Playing/Progress/Stopped `204` 均正常 | 新 Gateway 本地文件回退尚未实机验证；115 CDN 完整响应头/Range/全文件字节、UA/IP 绑定和长期 Provider 风控；生产未故障注入 `providerOperation/accountRole`，只保留 fake 测试证据 |
@@ -500,7 +500,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 【品味评分】
 
-🟡 凑合。用户自有账号、套餐来源、Redis 租约/转存配额、HEAD 收口和管理员目录路径配置已经完成代码、fake 测试、race、静态检查和构建；本轮未发现新的 P0/P1。新增 PostgreSQL migration 尚未在专用集成库实际执行，个人 Cookie/Redis/客户端真实链路和 CDN 完整响应合同也未验证。
+🟡 凑合。用户自有账号、套餐来源、Redis 租约/转存配额、HEAD 收口和管理员目录路径配置已经完成代码、fake 测试、race、静态检查和构建；新增 PostgreSQL migration 已在专用集成库实际执行并通过，本轮未发现新的 P0/P1。个人 Cookie/Redis/客户端真实链路和 CDN 完整响应合同仍未验证。
 
 【致命问题】
 
@@ -509,7 +509,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 【改进方向】
 
-- 后续只把未验证边界作为受控验收：专用 PostgreSQL migration、真实个人 Cookie 默认 UA、单 Gateway Redis 断连/配额与播放器事件时序、115 CDN 完整响应头/Range/全文件字节。主动健康告警和容量治理仍是独立后续能力。
+- 后续只把未验证边界作为受控验收：真实个人 Cookie 默认 UA、单 Gateway Redis 断连/配额与播放器事件时序、115 CDN 完整响应头/Range/全文件字节。主动健康告警和容量治理仍是独立后续能力。
 - 生产不为归档主动制造 Provider/账号故障；`providerOperation/accountRole` 继续由 fake 合同保护，出现自然故障时再补实机证据。
 
 问题总表：
@@ -551,7 +551,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 - 关闭实现：`p115account` 已提供 owner/tombstone/个人控制面与同事务路由元数据；`p115quota` 已提供 Lua/Sorted Set 租约和 pending/succeeded 配额；DirectPlay/Gateway 已接入准入、事件、成功记账、fallback 和固定日志；API/Web 已展示 null/zero 语义。
 - 自动化证据：关键包单元和 race、API 全量 test/vet/build、Web 全量 test/build、Compose YAML 静态合同均通过；外部依赖只使用 fake/miniredis。
-- 未关闭边界：当前没有专用 PostgreSQL 连接串，新增 migration 集成用例未实跑；真实 Redis、个人 115 Cookie 和播放器事件/配额验收未执行。
+- 未关闭边界：真实 Redis、个人 115 Cookie 和播放器事件/配额验收未执行；新增 migration 已在专用 PostgreSQL 集成库实际执行并通过。
 
 #### 【P2-3，自动化已关闭】HEAD 无租约不再进入完整 DirectPlay
 
