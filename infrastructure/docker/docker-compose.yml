@@ -101,6 +101,7 @@ services:
   # Emby 兼容播放网关：与 API 复用同一镜像，只切换进程子命令
   ember-gateway:
     profiles: ["gateway"]
+    # 首期只支持单 Gateway；不要通过 --scale 或其他编排方式运行多个副本。
     image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v2.0.3}
     container_name: ember-gateway
     command: ["gateway"]

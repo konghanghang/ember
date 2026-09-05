@@ -203,7 +203,7 @@ flowchart TD
 - 本地响应编码：本地状态不得携带 `Content-Encoding`，Range 和长度全部按原始文件字节计算；未来新增全局压缩中间件时必须显式排除本地媒体响应。
 - 本地读取在响应开始后中断：关闭响应并记录 `local_stream_interrupted`，不拼接 Emby 响应。
 - DirectPlay 返回 `context.Canceled/context.DeadlineExceeded`，或请求 context 在 DirectPlay 完成时已经终止：分别以空体 `499/504` 收口，不打开本地文件，也不发起 Emby fallback。
-- Gateway 多副本：每个需要本地回退的副本都必须挂载同一逻辑本地根目录；未挂载的副本只会 miss 并继续 Emby，不共享文件索引状态。
+- Gateway 部署只支持单进程；启用本地回退时，该唯一进程必须挂载与 STRM 相对路径一致的只读媒体根目录。多副本、跨主机文件挂载和共享文件索引不属于当前合同。
 
 ### 6. 日志与观察边界
 
@@ -358,7 +358,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 - `docs/system-architecture.md`：Gateway 视频决策改为 `115 redirect → local fallback → Emby fallback`，并记录本地字节边界。
 - `docs/reference/p115-playback-end-to-end-flow.md`：更新 fallback 时序、状态、日志字段和证据边界。
 - `docs/reference/configuration-reference.md`：补 `PLAYBACK_LOCAL_MEDIA_ROOT`、默认关闭、重启生效和容器路径语义。
-- `docs/runbooks/deployment.md`、`docs/runbooks/deployment-environment.md`：补本地媒体只读 mount 和多 Gateway 副本要求。
+- `docs/runbooks/deployment.md`、`docs/runbooks/deployment-environment.md`：补本地媒体只读 mount 和单 Gateway 部署限制。
 - `docs/runbooks/testing.md`：补本地 Range fake/fixture 测试与受控真实验证入口。
 - 本计划全部完成并满足归档条件后移入 `docs/archive/plan/architecture/`。
 
