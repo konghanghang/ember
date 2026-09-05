@@ -49,7 +49,7 @@ services:
   ember-api:
     # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
-    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v2.0.3}
+    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v2.1.0}
 
     # 如需本地构建，保留上面的 image 行作为本地 Tag，并取消下面三行注释；
     # ember-gateway 会直接复用构建后的同一镜像。
@@ -102,7 +102,7 @@ services:
   ember-gateway:
     profiles: ["gateway"]
     # 首期只支持单 Gateway；不要通过 --scale 或其他编排方式运行多个副本。
-    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v2.0.3}
+    image: ${EMBER_API_IMAGE:-ghcr.io/konghanghang/ember-api:v2.1.0}
     container_name: ember-gateway
     command: ["gateway"]
     environment:
@@ -140,7 +140,7 @@ services:
   ember-web:
     # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
-    image: ${EMBER_WEB_IMAGE:-ghcr.io/konghanghang/ember-web:v2.0.3}
+    image: ${EMBER_WEB_IMAGE:-ghcr.io/konghanghang/ember-web:v2.1.0}
 
     # 如需本地构建，取消下面两行注释并注释上面的 image 行
     # build:
@@ -165,7 +165,7 @@ services:
     profiles: ["bot"]
     # 默认 tag 随每次发版同步更新（见 docs/runbooks/release-process.md 的发版 checklist）；
     # 生产环境建议在 .env 中显式覆盖以避免依赖默认值漂移。
-    image: ${EMBER_BOT_IMAGE:-ghcr.io/konghanghang/ember-bot:v2.0.3}
+    image: ${EMBER_BOT_IMAGE:-ghcr.io/konghanghang/ember-bot:v2.1.0}
 
     # 如需本地构建，取消下面两行注释并注释上面的 image 行
     # build:
