@@ -11,8 +11,6 @@ import {
   Setting,
   User,
   Ticket,
-  Goods,
-  CollectionTag,
   ShoppingCart,
   Monitor,
   DataLine,
@@ -100,37 +98,19 @@ const menuItems = computed<MenuEntry[]>(() => [
     role: 'admin',
     children: [
       {
-        title: '用户管理',
+        title: '用户中心',
         path: '/console/users',
         icon: User,
         role: 'admin'
       },
       {
-        title: '用户分组',
-        path: '/console/plan-groups',
-        icon: CollectionTag,
-        role: 'admin'
-      },
-      {
-        title: '兑换中心',
-        path: '/console/redemptions',
+        title: '计费中心',
+        path: '/console/billing',
         icon: Ticket,
         role: 'admin'
       },
       {
-        title: '支付中心',
-        path: '/console/billing',
-        icon: Goods,
-        role: 'admin'
-      },
-      {
-        title: '活跃会话',
-        path: '/console/sessions',
-        icon: DataLine,
-        role: 'admin'
-      },
-      {
-        title: '播放分析',
+        title: '播放中心',
         path: '/console/playback',
         icon: DataLine,
         role: 'admin'

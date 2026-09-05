@@ -7,6 +7,8 @@ import { formatTimeWithSeconds } from '@/utils/date'
 import { getActiveSessions } from '@/api/admin'
 import type { ActiveNowPlayingItem, ActiveSession } from '@/types/api'
 
+withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+
 const sessions = ref<ActiveSession[]>([])
 const loading = ref(true)
 const refreshing = ref(false)
@@ -150,7 +152,7 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-6 animate-fade-in" v-loading="loading">
-    <EmberPageHeaderCard title="活跃会话" description="查看当前 Emby 播放会话与刷新状态。">
+    <EmberPageHeaderCard v-if="!embedded" title="活跃会话" description="查看当前 Emby 播放会话与刷新状态。">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-normal text-gray-500">
           {{ sessionCount }} 个会话
@@ -191,6 +193,15 @@ onUnmounted(() => {
         </span>
       </div>
     </EmberPageHeaderCard>
+
+    <div v-else class="flex flex-wrap items-center justify-end gap-3">
+      <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">{{ sessionCount }} 个会话</span>
+      <div class="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+        <span class="text-xs font-semibold text-gray-500">自动刷新</span>
+        <el-switch v-model="autoRefresh" aria-label="切换活跃会话自动刷新" />
+      </div>
+      <button type="button" @click="fetchSessions()" :disabled="loading || refreshing" class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60">刷新</button>
+    </div>
 
     <EmberEmptyStateCard
       v-if="!loading && loadError && sessions.length === 0"

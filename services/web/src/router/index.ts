@@ -97,7 +97,7 @@ const router = createRouter({
           path: 'users',
           name: 'console-users',
           meta: adminRouteMeta,
-          component: () => import('../views/admin/UsersView.vue'),
+          component: () => import('../views/admin/UserCenterView.vue'),
         },
         {
           path: 'plan-groups',
