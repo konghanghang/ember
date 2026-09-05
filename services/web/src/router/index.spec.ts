@@ -18,3 +18,9 @@ describe('console 115 account routes', () => {
     expect(personalRoute?.meta.role).toBe('user')
   })
 })
+
+describe('plan group page routes', () => {
+  it.each(['/console/plan-groups', '/admin/plan-groups'])('%s 不再注册独立页面或兼容重定向', (path) => {
+    expect(router.getRoutes().find(route => route.path === path)).toBeUndefined()
+  })
+})

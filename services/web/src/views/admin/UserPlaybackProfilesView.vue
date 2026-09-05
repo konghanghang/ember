@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useSlots } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Calendar, RefreshRight, Search, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -28,7 +28,6 @@ const props = withDefaults(defineProps<{
 
 const route = useRoute()
 const router = useRouter()
-const slots = useSlots()
 const MAX_CUSTOM_RANGE_DAYS = 92
 const loading = ref(false)
 const tableData = ref<PlaybackProfileListItem[]>([])
@@ -289,18 +288,14 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard :title="props.embedded ? '用户画像' : '用户画像总览'">
+    <EmberPageHeaderCard :hide-title="props.embedded" :title="props.embedded ? '用户画像' : '用户画像总览'">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
           当前结果 {{ total }} 条
         </span>
       </template>
 
-      <template v-if="props.embedded && slots.tabs" #actions>
-        <slot name="tabs" />
-      </template>
-
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[30rem]">
+      <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[30rem]">
         <EmberMetricCard title="有播放用户" :value="summary.userCount" />
         <EmberMetricCard title="总播放次数" :value="summary.totalPlayCount" />
         <EmberMetricCard title="总播放时长" :value="summary.totalPlayDurationFormatted" />

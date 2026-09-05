@@ -44,9 +44,11 @@ vi.mock('element-plus', () => ({
   },
 }))
 
+const routerPush = vi.hoisted(() => vi.fn())
+
 vi.mock('vue-router', () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: routerPush,
   }),
 }))
 
@@ -175,6 +177,23 @@ describe('UsersView', () => {
     expect(vm.queryParams.page).toBe(1)
     expect(vm.queryParams.pageSize).toBe(50)
     expect(getUsers).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 50 }))
+  })
+
+  it('同步批次入口跳到计费中心的套餐分组并保留批次 ID', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as {
+      handleViewPolicySyncBatch: (row: UserInfo) => void
+    }
+
+    vm.handleViewPolicySyncBatch(createUser({ policySyncBatchId: 'batch_1' }))
+
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'console-billing',
+      query: {
+        tab: 'groups',
+        syncBatchId: 'batch_1',
+      },
+    })
   })
 
   it('编辑用户时非法到期时间按无到期时间处理，不抛 RangeError', async () => {

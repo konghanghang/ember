@@ -59,6 +59,7 @@ import type {
   UserListQuery
 } from '@/types/api'
 
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 const router = useRouter()
 
 const tableData = ref<UserInfo[]>([])
@@ -605,11 +606,15 @@ const handleApplyCurrentPolicySync = async (row: UserInfo) => {
   }
 }
 
+// 从用户列表进入对应同步批次时，统一落到计费中心的套餐分组分段。
 const handleViewPolicySyncBatch = (row: UserInfo) => {
   if (!row.policySyncBatchId) return
   router.push({
-    name: 'console-plan-groups',
-    query: { syncBatchId: row.policySyncBatchId }
+    name: 'console-billing',
+    query: {
+      tab: 'groups',
+      syncBatchId: row.policySyncBatchId
+    }
   })
 }
 
@@ -759,6 +764,7 @@ onMounted(async () => {
 <template>
   <div class="space-y-6">
     <EmberPageHeaderCard
+      :hide-title="props.embedded"
       title="用户管理"
       description="管理系统注册用户、人工开通账号及其权限状态"
     >

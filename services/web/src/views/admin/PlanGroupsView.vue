@@ -44,6 +44,7 @@ import type {
   UpdatePlanGroupRequest
 } from '@/types/api'
 
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
 const route = useRoute()
 const loading = ref(false)
 const creating = ref(false)
@@ -537,6 +538,7 @@ onBeforeUnmount(stopSyncBatchPolling)
 <template>
   <div class="space-y-6">
     <EmberPageHeaderCard
+      :hide-title="props.embedded"
       title="用户分组 / 权益模板"
       description="用户分组、媒体库模板和 Emby 权益模板统一在这里维护。"
     >

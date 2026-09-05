@@ -2,6 +2,7 @@
 import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Document, Ticket } from '@element-plus/icons-vue'
+import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import RedemptionCodesView from './RedemptionCodesView.vue'
 import RedemptionHistoryView from './RedemptionHistoryView.vue'
@@ -58,15 +59,19 @@ watch(
 
 <template>
   <div class="space-y-6">
-    <component :is="activeComponent" embedded>
-      <template #tabs>
-        <EmberSegmentTabs
-          :model-value="activeTab"
-          :tabs="tabs"
-          ariaLabel="兑换中心分段切换"
-          @change="setTab"
-        />
+    <EmberPageHeaderCard title="兑换中心">
+      <template #actions>
+        <div class="max-w-full overflow-x-auto">
+          <EmberSegmentTabs
+            :model-value="activeTab"
+            :tabs="tabs"
+            ariaLabel="兑换中心分段切换"
+            @change="setTab"
+          />
+        </div>
       </template>
-    </component>
+    </EmberPageHeaderCard>
+
+    <component :is="activeComponent" embedded />
   </div>
 </template>

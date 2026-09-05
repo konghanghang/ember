@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useSlots } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Calendar, Clock, Ticket, Plus, Delete, EditPen, CopyDocument, Search, CollectionTag } from '@element-plus/icons-vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
@@ -26,8 +26,6 @@ const props = withDefaults(defineProps<{
 }>(), {
   embedded: false
 })
-
-const slots = useSlots()
 
 const maxBatchCreateCount = 100
 
@@ -331,6 +329,7 @@ onMounted(async () => {
 <template>
   <div class="space-y-6">
     <EmberPageHeaderCard
+      :hide-title="props.embedded"
       title="兑换码池"
       description="生成和管理注册/续期兑换码"
     >
@@ -342,22 +341,18 @@ onMounted(async () => {
       </template>
 
       <template #actions>
-        <div class="flex flex-col gap-3 xl:items-end">
-          <slot v-if="slots.tabs" name="tabs" />
-
-          <div class="flex flex-wrap items-center gap-3">
-            <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3">
-              <span class="text-sm text-gray-600">包含失效/耗尽</span>
-              <el-switch v-model="queryParams.showAll" size="small" @change="handleSearch" />
-            </div>
-            <button
-              @click="openCreateDialog"
-              class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
-            >
-              <el-icon><Plus /></el-icon>
-              <span>生成兑换码</span>
-            </button>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex h-[42px] items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3">
+            <span class="text-sm text-gray-600">包含失效/耗尽</span>
+            <el-switch v-model="queryParams.showAll" size="small" @change="handleSearch" />
           </div>
+          <button
+            @click="openCreateDialog"
+            class="btn-ember inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99]"
+          >
+            <el-icon><Plus /></el-icon>
+            <span>生成兑换码</span>
+          </button>
         </div>
       </template>
 

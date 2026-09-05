@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, useSlots } from 'vue'
+import { onMounted, ref } from 'vue'
 import { Search, Ticket, UserFilled, RefreshRight, Clock } from '@element-plus/icons-vue'
 import { getAllRedemptions } from '@/api/admin'
 import EmberSearchInput from '@/components/ember/filters/EmberSearchInput.vue'
@@ -9,7 +9,8 @@ import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.v
 import { formatDateOnly, formatTimeOnly } from '@/utils/date'
 import type { Redemption } from '@/types/api'
 
-const slots = useSlots()
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+
 const tableData = ref<Redemption[]>([])
 const loading = ref(false)
 const total = ref(0)
@@ -76,15 +77,11 @@ onMounted(() => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard title="兑换记录">
+    <EmberPageHeaderCard :hide-title="props.embedded" title="兑换记录">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
           当前结果 {{ total }} 条
         </span>
-      </template>
-
-      <template v-if="slots.tabs" #actions>
-        <slot name="tabs" />
       </template>
 
       <EmberFilterPanel

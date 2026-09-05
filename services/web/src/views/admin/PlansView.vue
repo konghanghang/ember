@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useSlots } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Refresh, EditPen, Goods } from '@element-plus/icons-vue'
 import { createPlan, deletePlan, getPlanGroups, getPlans, updatePlan } from '@/api/admin'
@@ -15,8 +15,6 @@ const props = withDefaults(defineProps<{
 }>(), {
   embedded: false
 })
-
-const slots = useSlots()
 
 const planGroups = ref<ManagedPlanGroup[]>([])
 
@@ -262,7 +260,7 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <EmberPageHeaderCard title="付费方案">
+    <EmberPageHeaderCard :hide-title="props.embedded" title="付费方案">
       <template #titleSuffix>
         <span class="rounded-full bg-gray-100 px-2 py-1 text-xs font-normal text-gray-500">
           {{ activeCount }}/{{ total }} 启用
@@ -271,7 +269,6 @@ onMounted(async () => {
 
       <template #actions>
         <div class="flex flex-wrap items-center gap-3">
-          <slot v-if="props.embedded && slots.tabs" name="tabs" />
           <button
             @click="fetchData"
             class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"

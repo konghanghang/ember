@@ -100,12 +100,6 @@ const router = createRouter({
           component: () => import('../views/admin/UserCenterView.vue'),
         },
         {
-          path: 'plan-groups',
-          name: 'console-plan-groups',
-          meta: adminRouteMeta,
-          component: () => import('../views/admin/PlanGroupsView.vue'),
-        },
-        {
           path: 'playback',
           name: 'console-playback',
           meta: adminRouteMeta,
@@ -244,7 +238,6 @@ const router = createRouter({
 
     // Legacy redirects
     { path: '/admin/users', redirect: '/console/users' },
-    { path: '/admin/plan-groups', redirect: '/console/plan-groups' },
     { path: '/admin/redemption-codes', redirect: '/console/redemptions?tab=codes' },
     { path: '/admin/redemption-history', redirect: '/console/redemptions?tab=history' },
     { path: '/admin/plans', redirect: '/console/billing?tab=plans' },

@@ -8,7 +8,7 @@
 `services/web/src/components/ember/` 是当前 Web 端的 Ember 基础组件层，职责是把后台与控制台高频重复的 UI 骨架收口为稳定契约，而不是把业务逻辑搬进组件。
 
 - `layout/`
-  - `EmberPageHeaderCard`：统一页面标题、说明、统计 badge、右侧 actions/tabs slot
+  - `EmberPageHeaderCard`：统一页面标题、说明、统计 badge、右侧 actions slot；中心页容器承载唯一页头和分段导航，嵌入子页通过 `hideTitle` 隐藏重复标题并保留统计与操作
   - `EmberFilterPanel`：统一筛选区容器、字段区布局、按钮区对齐
   - `EmberSegmentTabs`：统一页内单选分段切换，当前以 `radiogroup / radio` 语义提供共享键盘交互约定，但不默认承诺 `tabpanel` 语义
 - `filters/`
@@ -36,6 +36,7 @@
   - `services/web/src/views/admin/PlansView.vue`
   - `services/web/src/views/admin/PlanGroupsView.vue`（用户分组 / 权益模板主入口）
 - 容器型中心页：
+  - `services/web/src/views/admin/UserCenterView.vue`
   - `services/web/src/views/admin/PaymentCenterView.vue`
   - `services/web/src/views/admin/PlaybackCenterView.vue`
   - `services/web/src/views/admin/RedemptionCenterView.vue`
@@ -118,6 +119,13 @@
   - 支付记录 + 兑换记录
 - 目标：把“在线支付”和“兑换码续期”统一到同一续费心智下，而不是分散在 Dashboard 和独立价格页中
 
+### 3.2.1 管理端用户中心
+
+- 路由：`/console/users`（admin）
+- 视图：`views/admin/UserCenterView.vue`
+- 子视图：`views/admin/UsersView.vue`
+- 容器统一承载“用户中心”页头，用户管理子视图以嵌入模式复用原有统计、操作、筛选和数据主体
+
 ### 3.3 管理端兑换中心
 
 - 路由：`/console/redemptions`（admin）
@@ -136,18 +144,18 @@
   - `DELETE /api/v1/admin/redemption-codes/:id`
   - `GET /api/v1/admin/redemptions`（支持按用户名、用户 ID、兑换码筛选）
 
-### 3.4 管理端支付中心
+### 3.4 管理端计费中心
 
 - 路由：`/console/billing`（admin）
 - 兼容路由：
-  - `/console/billing?tab=groups` → `/console/plan-groups`
   - `/console/plans` → `?tab=plans`
   - `/console/payments` → `?tab=payments`
 - 视图：`views/admin/PaymentCenterView.vue`
 - Tab 结构：
   - `plans`：`views/admin/PlansView.vue`
   - `payments`：`views/admin/PaymentsView.vue`
-- 分组维护职责已迁移到“用户分组 / 权益模板”，支付中心不再嵌入第二套分组编辑 UI。
+  - `groups`：`views/admin/PlanGroupsView.vue`
+- 套餐分组作为计费中心第三个分段直接嵌入，不通过独立页面路由跳转。
 - 数据源：
   - `GET /api/v1/admin/plans`
   - `POST /api/v1/admin/plans`
@@ -157,9 +165,8 @@
 
 ### 3.4.1 管理端用户分组 / 权益模板
 
-- 路由：`/console/plan-groups`（admin）
-- 兼容路由：
-  - `/admin/plan-groups` → `/console/plan-groups`
+- 主入口：`/console/billing?tab=groups`（admin）
+- 不注册 `/console/plan-groups` 或 `/admin/plan-groups` 页面及兼容重定向
 - 视图：`views/admin/PlanGroupsView.vue`
 - 页面职责：
   - 用户业务分组 CRUD
@@ -228,16 +235,19 @@
   - `PUT /api/v1/user/p115-account/enabled`
   - `GET /api/v1/user/p115-usage`
 
-### 3.6 管理端播放分析
+### 3.6 管理端播放中心
 
 - 主路由：`/console/playback`（admin），分段 Tab 切换
+  - `?tab=sessions`：实时会话
   - `?tab=profiles`（默认）：用户画像总览
   - `?tab=history`：播放历史
 - 容器视图：`views/admin/PlaybackCenterView.vue`
 - 子视图：
+  - `views/admin/SessionsView.vue`（实时会话）
   - `views/admin/UserPlaybackProfilesView.vue`（用户画像总览）
   - `views/admin/PlaybackHistoryView.vue`（播放历史）
 - 数据源：
+  - `GET /api/v1/admin/sessions`（实时会话）
   - `GET /api/v1/admin/playback-profiles`（用户画像总览，支持 `range / startDate / endDate / keyword / sortBy / sortOrder / page / pageSize`）
   - `GET /api/v1/admin/playback-history`（播放历史，支持 username / keyword / 日期范围 / 分页筛选，兼容旧 `userId`）
 - 跨 Tab 上下文：切 Tab 时透传 `username / userId / startDate / endDate`；`keyword` 与 `range` 各 Tab 内部自治，不跨 Tab 透传
@@ -248,6 +258,7 @@
   - `/console/user-profiles` → `/console/playback?tab=profiles`
   - `/console/playback-history` → `/console/playback?tab=history`
   - `/admin/users` 等历史 admin 路径不涉及
+- `/console/sessions` 继续保留为实时会话独立入口，中心页与独立入口复用 `SessionsView.vue`
 
 ### 3.7 管理端单用户画像
 
@@ -256,8 +267,8 @@
   - `/console/user-profiles/:id` → `/console/playback/users/:id`
   - `/console/users/:id/profile` → `/console/playback/users/:id`
 - 视图：`views/admin/UserPlaybackProfileView.vue`
-- 主入口：`views/admin/UserPlaybackProfilesView.vue`（嵌入「播放分析」容器中）
-- 辅助入口：`views/admin/PlaybackHistoryView.vue`（嵌入「播放分析」容器中）
+- 主入口：`views/admin/UserPlaybackProfilesView.vue`（嵌入「播放中心」容器中）
+- 辅助入口：`views/admin/PlaybackHistoryView.vue`（嵌入「播放中心」容器中）
 - 兼容入口：`views/admin/UsersView.vue`
 - 页面主体：复用 `components/profile/PlaybackProfileContent.vue`，仅在外层补管理员操作
 - 数据源：`GET /api/v1/admin/users/:id/profile?range=today|7d|30d|90d|all` 或 `startDate/endDate`

@@ -29,32 +29,28 @@ defineEmits<{
 const routeMeta: Record<string, { title: string }> = {
   'console-dashboard': { title: '概览' },
   'console-account': { title: '账号中心' },
+  'console-p115': { title: '115 网盘' },
   'console-profile-analytics': { title: '我的画像' },
   'console-subscriptions': { title: '订阅管理' },
   'console-subscriptions-new': { title: '新建订阅' },
   'console-rankings': { title: '播放排行榜' },
   'console-tv-calendar': { title: '追剧日历' },
   'console-renewal': { title: '续费中心' },
-  'console-users': { title: '用户管理' },
+  'console-users': { title: '用户中心' },
   'console-user-profile': { title: '用户画像' },
-  'console-playback': { title: '播放分析' },
+  'console-playback': { title: '播放中心' },
   'console-redemptions': { title: '兑换中心' },
   'console-settings': { title: '系统设置' },
+  'console-p115-accounts': { title: '115 账号' },
   'console-sessions': { title: '活跃会话' },
   'console-media-quality': { title: '媒体质量' },
+  'console-media-gaps': { title: '缺集管理' },
   'console-devices': { title: '设备管理' },
-  'console-billing': { title: '支付中心' }
+  'console-billing': { title: '计费中心' }
 }
 
 const currentMeta = computed(() => {
   const name = String(route.name)
-  if (name === 'console-playback') {
-    const tab = route.query.tab
-    if (tab === 'history') {
-      return { title: '播放分析 · 播放历史' }
-    }
-    return { title: '播放分析 · 用户画像' }
-  }
   return routeMeta[name] ?? { title: '控制台' }
 })
 

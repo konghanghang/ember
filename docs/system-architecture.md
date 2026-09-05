@@ -268,21 +268,22 @@ services/
 │  │     │  ├─ RenewalCenterView.vue # 续费中心（支付 + 兑换码）
 │  │     │  └─ P115AccountView.vue  # 普通用户个人 115 playback 四步配置与用量
 │  │     └─ admin/               # 管理后台
+│  │        ├─ UserCenterView.vue # 用户中心（用户管理）
 │  │        ├─ UsersView.vue     # 用户管理（筛选 / 后台创建 / 编辑）
-│  │        ├─ PlaybackCenterView.vue # 播放分析（用户画像 + 播放历史）
-│  │        ├─ UserPlaybackProfilesView.vue # 用户画像总览（嵌入播放分析容器）
+│  │        ├─ PlaybackCenterView.vue # 播放中心（实时会话 + 用户画像 + 播放历史）
+│  │        ├─ UserPlaybackProfilesView.vue # 用户画像总览（嵌入播放中心容器）
 │  │        ├─ UserPlaybackProfileView.vue # 单用户画像（详情）
 │  │        ├─ RedemptionCenterView.vue # 兑换中心（兑换码池 + 兑换记录）
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
-│  │        ├─ PaymentCenterView.vue # 支付中心（付费方案 + 支付记录）
+│  │        ├─ PaymentCenterView.vue # 计费中心（付费方案 + 支付记录 + 套餐分组）
 │  │        ├─ PlanGroupsView.vue # 用户分组 / 权益模板管理
 │  │        ├─ SettingsView.vue  # 设置中心
 │  │        ├─ P115AccountsView.vue # 115 源账号 / 播放账号控制面
 │  │        ├─ PlansView.vue     # 方案管理
 │  │        ├─ PaymentsView.vue  # 支付记录审计
 │  │        ├─ SessionsView.vue  # 活跃会话
-│  │        ├─ PlaybackHistoryView.vue # 播放历史（嵌入播放分析容器）
+│  │        ├─ PlaybackHistoryView.vue # 播放历史（嵌入播放中心容器）
 │  │        ├─ MediaQualityView.vue # 媒体质量盘点
 │  │        └─ DevicesView.vue   # 设备管理
 │  ├─ vite.config.ts             # dev:3000, proxy /api→:8080, build manualChunks 分包
@@ -936,7 +937,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ### 8.2 高层页面边界
 
 - 用户侧重点页面：Dashboard、Renewal、Subscriptions、TV Calendar、Rankings、Profile Analytics
-- 管理侧重点页面：Users、Playback Center、Payment Center、Redemption Center、Media Quality、Devices、Settings
+- 管理侧重点页面：User Center、Playback Center、Billing Center、Redemption Center、Media Quality、Devices、Settings
+- 管理端中心页由容器 view 统一承载唯一页头与分段导航，嵌入子页只保留统计、操作、筛选和数据主体
 - 页面级职责、Tab 结构、兼容路由和关键数据源统一维护在 [docs/reference/web-information-architecture.md](./reference/web-information-architecture.md)
 
 ---
