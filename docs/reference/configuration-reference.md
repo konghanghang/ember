@@ -188,13 +188,10 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 | 配置项 | 敏感 | 说明 |
 |--------|------|------|
 | `PLAYBACK_GATEWAY_PORT` | 否 | Gateway 宿主机回环映射端口；默认 `8081`，Compose 将其映射到 Gateway 固定的容器内 `8081`，Go 进程不读取 |
-| `PLAYBACK_LOCAL_MEDIA_ROOT` | 否 | Gateway 容器/进程内的本地媒体只读根目录；默认空即关闭，修改后重启 Gateway 生效 |
 | `REDIS_URL` | 条件敏感 | API 与 Gateway 共用的 Redis DSN；官方 Compose 缺省为 `redis://redis:6379/0`，外部 Redis 可覆盖 |
 | `REDIS_IMAGE` | 否 | 只控制 Compose 内置 Redis 镜像；默认浮动 `redis:alpine`，不作为服务端版本锁定或兼容性声明 |
 
 API 固定使用默认端口 `8080`，Gateway 固定监听 `:8081`。直接运行 `ember gateway` 也使用 `8081`；不再提供 `PLAYBACK_GATEWAY_LISTEN_ADDR`。
-
-`PLAYBACK_LOCAL_MEDIA_ROOT` 只允许规范化绝对目录，不能是 `/` 或符号链接。配置非空但目录不存在、不可读或不安全时，Gateway 记录不含真实路径的固定原因并关闭本地回退，身份门控、115 DirectPlay 和 Emby fallback 继续可用。官方 Compose 只透传变量，不提供默认宿主机挂载；部署者必须通过本地 override 把对应宿主机目录以 `:ro` 挂载到同一容器路径。该值不进入设置中心，避免数据库路径与实际容器 mount 脱节。
 
 `REDIS_URL` 不进入设置中心。客户端固定 `500ms` 连接/读/写超时并关闭自动重试，不执行 `INFO` 或版本探测。当前只支持一个 Gateway 进程，不承诺多 Gateway、Redis Cluster 或跨主机时钟兼容；Redis 当前 Key 是唯一真相，重启或数据丢失后缺失 Key 按零重新开始，不从 PostgreSQL 重建。连接串、Redis Key 和 Lua 参数不得进入日志。
 

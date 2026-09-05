@@ -1,6 +1,6 @@
 # 115 Cookie 直连播放端到端流程参考
 
-本文档从当前代码出发，说明 Ember 的 115 Cookie 账号控制面、Emby 身份桥接、PlaybackInfo 短期证明、保留式秒传、302 直连、本地/Emby fallback、安全 reject、持久化与日志边界。
+本文档从当前代码出发，说明 Ember 的 115 Cookie 账号控制面、Emby 身份桥接、PlaybackInfo 短期证明、保留式秒传、302 直连、Emby fallback、安全 reject、持久化与日志边界。
 
 它回答“现在实际怎么运行”，不替代协议合同和实施计划：
 
@@ -8,7 +8,6 @@
 - 115 Cookie/Web API、上传加密和直链安全：看 [115 Cookie 播放兼容合同](./p115-cookie-playback-contract.md)。
 - 当前系统内置链路的尚未完成项和阶段安排：看 [Emby 115 直连播放网关实施计划](../plan/architecture/emby-115-direct-play-gateway.md)。
 - 用户自有账号、套餐来源、Redis 当前活跃数与转存配额的实现约束及未执行受控验证：看 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
-- 已完成自动化实现、但尚未执行真实客户端验收的 STRM 本地媒体回退：看 [STRM 本地媒体回退播放实现方案](../plan/architecture/strm-local-media-fallback.md)。
 
 ## 1. 核心原则
 
@@ -16,9 +15,9 @@
 
 | 决策 | 条件 | 客户端结果 |
 | --- | --- | --- |
-| `reject` | Token/身份/用户硬状态失败，或 DirectPlay 期间请求已取消/超时 | Gateway 固定终止，不访问后续本地文件或 Emby/115 |
+| `reject` | Token/身份/用户硬状态失败，或 DirectPlay 期间请求已取消/超时 | Gateway 固定终止，不访问后续 Emby/115 |
 | `redirect` | Principal、PlaybackInfo 证明、请求资格和 115 全链路均成功 | Gateway 返回空体 `302`，客户端直连 115 CDN |
-| `fallback` | Principal 合法，但请求不适合加速或任一 115 步骤失败 | 有可信精确映射时先尝试 Gateway 本地文件；未命中或请求不支持时透明代理权威 Emby 请求 |
+| `fallback` | Principal 合法，但请求不适合加速或任一 115 步骤失败 | 透明代理权威 Emby 请求 |
 
 最重要的边界是：
 
@@ -42,18 +41,15 @@
 - Redis 可用且命令成功时，当前 Key 是占用和转存用量的唯一真相源；Key 不存在按零处理。不锁定或探测 Redis 版本，只使用 Lua/Sorted Set/TTL 通用能力；首期只支持单 Gateway，所有 score 和套餐窗口使用 Gateway 可注入时钟与全局 `CRON_TIMEZONE`，不承诺多 Gateway、Redis Cluster 或跨主机时钟兼容。Redis 重启或数据丢失后的计数重置是已接受行为，不增加 epoch、恢复等待、数据库重建或历史补偿。
 - 套餐组提供用户小时/每日转存限额，默认每小时 `5`、每天 `10`；小时范围固定 `1..100`，每日范围固定 `1..1000`，`0` 非法，越界直接拒绝且不截断，两者不要求大小关系。只有目标缺失且秒传、目标复核均成功的新文件消耗一次额度，预存命中、重复请求和失败不消耗。并发防穿透使用固定 `5m` 且不续租的 pending reservation，pending/succeeded 复用同一 opaque `transferAttemptId` 并幂等完成。失败或预存命中立即删除 pending，进程崩溃后最多保留 5 分钟；pending 已过期但外部转存晚到成功时仍补记一次 succeeded，记录固定诊断码且不删除文件、不污染账号健康。succeeded 提交使用独立 `2s` 总预算有限重试，只有记账成功才继续 `302`；最终失败时保留文件和 pending、本次公共 fallback，不建立数据库补偿或从 transfer 历史重建 Redis。
 - Redis、账号并发或转存配额不可用时只停止新的 115 加速并 fallback Emby，不改变用户安全门控，不污染 115 账号健康状态。
-- 不新增 Gateway 用户级总并发门控。115 `302` 与本地命中都使视频字节绕开 Emby 视频上游，当前没有证据证明 Emby `SimultaneousStreamLimit` 能限制这些分流播放；该效果保持“未证实”，不能写成当前保证。
+- 不新增 Gateway 用户级总并发门控。115 `302` 使视频字节绕开 Emby 视频上游，当前没有证据证明 Emby `SimultaneousStreamLimit` 能限制这类分流播放；该效果保持“未证实”，不能写成当前保证。
 
-### 1.2 STRM 本地媒体回退（已实现，真实客户端未验证）
+### 1.2 Emby fallback 边界
 
-- 成功的 115 `302` 保持不变；原本进入 Emby fallback 的可信直接视频请求先按 `MediaSource.Path` 的精确相对路径检查 Gateway 只读挂载的本地文件，命中则由 Gateway 返回本地字节，未命中才继续 Emby/CloudDrive2。本地命中不创建 115 Redis 租约，也不新增用户级并发门控。该能力不做哈希、大小或修改时间比较，不负责 MoviePilot 上传；普通文件和硬链接允许，配置根目录、中间目录和最终文件的符号链接全部拒绝，并使用基于根目录文件描述符的无跟随打开防止路径替换逃逸。
-- 本地回退的 source 路径映射使用独立非敏感加载边界：只读取唯一启用的管理员全局 source 的 `embyPathPrefix/sourceRootId`，不检查 Provider 的 `active/error/cooling_down`、不读取 Provider UID、不解密 Cookie 或申请半开探测；管理员手动停用 source、没有唯一启用记录或位置非法时直接回退 Emby，真正访问 115 仍走严格凭证加载器。
-- 本地响应首期只接受无条件 `GET/HEAD` 和至多一个 Range；合法多段 Range、重复 Range Header 或任一条件请求在打开本地文件前保留原 Header 回退 Emby。本地响应不生成 ETag/Last-Modified，已进入本地响应的非法或不可满足单 Range 返回 `416`。
-- 零字节本地文件携带 Range 时显式返回空体 `416 + Content-Range: bytes */0`；DirectPlay 返回取消/deadline 或 request context 已终止时返回 `499/504`，不打开本地文件，也不发起 Emby fallback。
-- 本地 `200/206/HEAD/416` 统一返回 `Cache-Control: private, no-store`，每个新请求重新经过身份与用户状态门控；该策略不扩展为“已实测所有播放器兼容”，Emby fallback 仍保留上游原始缓存 Header。
-- 本地 `200/206/HEAD/416` 只返回磁盘原始 identity 字节，不设置 `Content-Encoding`，所有长度和 Range 均按未编码文件计算。普通 gzip/br 偏好默认仍允许 identity；客户端明确拒绝 identity 或 `Accept-Encoding` 非法/冲突时，在打开文件前保留原 Header 回退 Emby。
+- source 路径映射使用独立非敏感加载边界：只读取唯一启用的管理员全局 source 的 `embyPathPrefix/sourceRootId`，不检查 Provider 的 `active/error/cooling_down`、不读取 Provider UID、不解密 Cookie 或申请半开探测；管理员手工停用 source、没有唯一启用记录或位置非法时直接回退 Emby，真正访问 115 仍走严格凭证加载器并复核 source 位置。
+- DirectPlay 返回取消/deadline 或 request context 已终止时返回 `499/504`，不发起 Emby fallback。
+- 其他 DirectPlay 不适用或失败场景直接代理权威 Emby 请求；Gateway 不读取媒体文件，也不自行实现 Range、缓存或传输编码语义。
 
-用户账号、套餐来源、Redis 租约/配额和本地回退均已有代码与自动化 fake/fixture 证据；本轮没有启动项目服务，也没有执行真实 Redis、个人 115 Cookie、Emby/CloudDrive2 或客户端验收。
+用户账号、套餐来源和 Redis 租约/配额均已有代码与自动化 fake/fixture 证据；本轮没有启动项目服务，也没有执行真实 Redis、个人 115 Cookie、Emby/CloudDrive2 或客户端验收。
 
 ## 2. 组件与职责
 
@@ -76,7 +72,6 @@ flowchart LR
     Gateway --> Proof[进程内 PlaybackInfo 证明缓存]
     Gateway --> DirectPlay[DirectPlayService]
     Gateway --> Redis[(Redis<br/>leases + transfer quota)]
-    Gateway --> Local[本地只读媒体根目录]
     DirectPlay --> AccountService
     DirectPlay --> Redis
     DirectPlay --> TaskStore[TransferTaskStore + advisory lock]
@@ -85,7 +80,7 @@ flowchart LR
     Provider --> P115
     Gateway -- 302 --> CDN[115 CDN]
     Client -- Range / 视频字节 --> CDN
-    Gateway -- local miss/unsupported --> Emby
+    Gateway -- fallback --> Emby
 ```
 
 | 组件 | 当前职责 | 明确不负责 |
@@ -94,7 +89,7 @@ flowchart LR
 | P115AccountService | 加密凭证、owner/状态/唯一性、personal/system 路由元数据、准入后凭证加载、控制面用量与 revoked tombstone | 不做 Provider 秒传编排，不清理 Redis 旧租约 |
 | CookieProvider | 固定 Cookie/Web 协议、路径解析、查重、秒传、目标复核、下载 URL、Range Hash | 不做用户资格和 Gateway 决策 |
 | EmbyTokenService | Token HMAC 映射、实时用户资格、软撤销 | 不保存 Token 明文，不替代 Emby Token |
-| Playback Gateway | Emby 透明代理、身份门控、证明观察、视频决策、成功事件后的 Redis 租约更新、本地精确文件响应和单条最终日志 | 不持久化播放决策，不扫描本地目录，不把 Cookie/Provider UID/Redis Key 给客户端或日志 |
+| Playback Gateway | Emby 透明代理、身份门控、证明观察、视频决策、成功事件后的 Redis 租约更新和单条最终日志 | 不持久化播放决策，不读取媒体文件，不把 Cookie/Provider UID/Redis Key 给客户端或日志 |
 | DirectPlayService | 路由元数据、Redis reservation、source 解析、目标查重、转存配额、保留式秒传、任务/锁、直链候选 | 不注册 HTTP 路由，不删除保留文件，不把 Redis 故障写成账号健康错误 |
 | Redis | account/user `leases + active`、反向 session、用户 transfer pending/succeeded；Lua 原子更新，缺失 Key 按零 | 不保存 Cookie、下载 URL、原始 Provider UID 或原始 PlaySessionId，不从 PostgreSQL 重建 |
 | PostgreSQL | 账号密文、Token 摘要、transfer provenance、唯一约束与 advisory lock | 不保存完整 115 URL、Token 或播放证明 Path |
@@ -450,7 +445,7 @@ stateDiagram-v2
 
 ### 8.2 fallback
 
-115 fallback 在已经取得可信 `relativePath` 时先检查可选本地根目录。本地命中直接返回原始 identity 文件字节；本地 disabled/miss/unsafe/unavailable 或请求语义不支持时，权威 Emby fallback 继续保留 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header。本地或 Emby fallback 都只表示 Gateway 的本次 HTTP 决策，不代表客户端已经完整播放。
+115 fallback 始终使用权威 Emby 请求，并保留 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header。Gateway 的 fallback 决策只表示请求已交给 Emby，不代表客户端已经完整播放。
 
 ### 8.3 单条决策日志
 
@@ -458,7 +453,6 @@ stateDiagram-v2
 
 ```text
 level=info code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused
-level=info|warn code=direct_play_fallback message="115直链失败，本地回退成功|失败" directPlayResult=failure fallbackResult=success|failure fallbackTarget=local
 level=info|warn code=direct_play_fallback message="115直链失败，Emby回退成功|失败" directPlayResult=failure fallbackResult=success|failure fallbackTarget=emby
 level=warn code=playback_rejected message="播放请求已拒绝" result=rejected
 ```
@@ -467,7 +461,7 @@ level=warn code=playback_rejected message="播放请求已拒绝" result=rejecte
 
 进入套餐路由后，最终同一条日志补充 `playbackMode`、`playbackAccountOwner`、账号配置/有效并发、账号和用户的 reserved/active/occupied；个人模式额外记录原始 `simultaneousStreamLimit`。只有实际进入转存准入且 Redis 返回有效快照时才记录小时/每日 used/limit，Redis 故障不伪造零。日志边界不接收原始 Provider UID、PlaySessionId、Redis Key 或 `transferAttemptId`。
 
-Debug 请求摘要记录有界 method/Host/原始 request path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；Info 对响应级合同成立后的每个唯一 MediaSource 记录 `playback_info_media_source_observed`，完整显示合法 `mediaPath`、Size/播放能力和 proof 接受/拒绝原因。按需 PlaybackInfo 选中的路径即使没有形成 proof 也进入最终决策；真正进入 DirectPlay 后再记录 `embyPathPrefix/sourceRootId/mappedRelativePath`，以核对 Emby 原路径和 115 source 映射。本地选择补充 `fallbackTarget/localLookup/localReasonCode`，不记录本地根目录、拼接绝对路径或文件系统原始错误；只有 Emby 分支记录 `fallbackSource/upstreamStatus/proxyErrorCode`。Debug 不重复生成第二条决策。所有日志仍禁止 query value、Header 原值、Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
+Debug 请求摘要记录有界 method/Host/原始 request path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；Info 对响应级合同成立后的每个唯一 MediaSource 记录 `playback_info_media_source_observed`，完整显示合法 `mediaPath`、Size/播放能力和 proof 接受/拒绝原因。按需 PlaybackInfo 选中的路径即使没有形成 proof 也进入最终决策；真正进入 DirectPlay 后再记录 `embyPathPrefix/sourceRootId/mappedRelativePath`，以核对 Emby 原路径和 115 source 映射。Emby fallback 记录 `fallbackTarget/fallbackSource/upstreamStatus/proxyErrorCode`。Debug 不重复生成第二条决策。所有日志仍禁止 query value、Header 原值、Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
 
 ## 9. 数据与秘密边界
 
@@ -488,11 +482,11 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
-| Go 单元/fake HTTP/进程内 fake Redis | 管理员/个人账号生命周期、personal/system 路由、Cookie/会话用途隔离 HMAC、账号/用户 leases+active、`30s/2m/15m` 状态、HEAD 不创建、断连 fallback、小时/自然日配额、pending/succeeded、晚到成功和 2s 提交预算；Provider/Token/Gateway/本地回退既有合同 | 真实 Redis 服务、个人 Cookie 固定 UA、真实 personal/system 播放与配额边界、新本地 mount/播放器完整播放 |
+| Go 单元/fake HTTP/进程内 fake Redis | 管理员/个人账号生命周期、personal/system 路由、Cookie/会话用途隔离 HMAC、账号/用户 leases+active、`30s/2m/15m` 状态、HEAD 不创建、断连 fallback、小时/自然日配额、pending/succeeded、晚到成功和 2s 提交预算；Provider/Token/Gateway 既有合同 | 真实 Redis 服务、个人 Cookie 固定 UA、真实 personal/system 播放与配额边界 |
 | PostgreSQL 集成 | 既有账号/transfer/Token migration、唯一约束、advisory lock、并发只秒传一次、共享冷却和旧 Cookie 结果丢弃已有历史证据；2026-09-05 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境执行并通过 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`，本轮新增 personal migration 用例覆盖幂等、默认 personal、owner/Provider/共享角色 unique、RESTRICT、tombstone 与 transfer provenance | 不验证真实 Redis、真实 115 或多 Gateway 部署语义 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |
-| Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200` 与按需 PlaybackInfo `proofCount=1`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目确认 `proofAccepted=true`、source 路径映射、Provider Size 转存成功，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认 `path_not_mapped` 条目经权威 Emby 扩展名 fallback 返回 `206` 并实际播放，115 首次/复用 `302` 可播放，外挂/内嵌字幕及 Playing/Progress/Stopped `204` 均正常 | 新 Gateway 本地文件回退尚未实机验证；115 CDN 完整响应头/Range/全文件字节、UA/IP 绑定和长期 Provider 风控；生产未故障注入 `providerOperation/accountRole`，只保留 fake 测试证据 |
+| Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200` 与按需 PlaybackInfo `proofCount=1`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目确认 `proofAccepted=true`、source 路径映射、Provider Size 转存成功，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认 `path_not_mapped` 条目经权威 Emby 扩展名 fallback 返回 `206` 并实际播放，115 首次/复用 `302` 可播放，外挂/内嵌字幕及 Playing/Progress/Stopped `204` 均正常 | 115 CDN 完整响应头/Range/全文件字节、UA/IP 绑定和长期 Provider 风控；生产未故障注入 `providerOperation/accountRole`，只保留 fake 测试证据 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
@@ -528,7 +522,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 - 原触发条件：Infuse 直接请求没有 Container/PlaySessionId 的 plain stream，历史 plain fallback 由目标 Emby 返回 `404`。
 - 关闭证据：2026-08-31 本地硬盘条目因 `path_not_mapped` 进入 `fallbackSource=playback_info_extension_stream`，连续 Range 请求由目标 Emby 返回 `206`，macOS Infuse `8.5.2` 实际播放成功。
 - 定位：`services/api/internal/playbackgateway/playback_info_resolver.go`、`video.go`、`docs/reference/emby-playback-proxy-contract.md`。
-- 当前边界：这里关闭的是“本地媒体条目经权威 Emby fallback 播放”，不是新 Gateway 本地文件读取；新本地回退只有自动化 fixture，字幕和会话事件仍走既有透明代理。Gateway `302` 与用户实际播放观察也不替代 115 CDN 完整响应头、Range 和全文件字节取证。
+- 当前边界：这里关闭的是“本地媒体条目经权威 Emby fallback 播放”。Gateway `302` 与用户实际播放观察不替代 115 CDN 完整响应头、Range 和全文件字节取证。
 
 #### 【P1-2，按部署确认关闭】原始 Emby 公网入口未隔离时可以绕过 Ember 门控
 

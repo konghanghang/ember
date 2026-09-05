@@ -70,16 +70,12 @@ type ProductionDependencies struct {
 	// PlaybackSessionService may accompany an injected DirectPlay fake. In
 	// production the routed DirectPlay service implements both boundaries.
 	PlaybackSessionService PlaybackSessionService
-	// LocalMediaResolver is injectable for filesystem-free runtime tests.
-	// Production leaves it nil and uses PLAYBACK_LOCAL_MEDIA_ROOT when configured.
-	LocalMediaResolver LocalMediaResolver
 }
 
 type productionConfig struct {
 	encryptionKey    string
 	embyURL          string
 	embyAPIKey       string
-	localMediaRoot   string
 	redisURL         string
 	businessTimezone *time.Location
 }
@@ -151,22 +147,11 @@ func NewProductionRuntime(
 	if logger == nil {
 		logger = log.Default()
 	}
-	localMediaResolver := dependencies.LocalMediaResolver
-	if localMediaResolver == nil && config.localMediaRoot != "" {
-		localMediaResolver, err = newFilesystemLocalMediaResolver(config.localMediaRoot)
-		if err != nil {
-			logger.Printf("[PlaybackGateway] level=warn code=local_media_disabled reasonCode=%s errorType=%T", localMediaRootReasonCode(err), err)
-			localMediaResolver = nil
-		} else {
-			logger.Printf("[PlaybackGateway] level=info code=local_media_enabled")
-		}
-	}
 	gateway, err := New(Config{
 		Upstream:               upstream,
 		TokenService:           tokenService,
 		DirectPlayService:      directPlayService,
 		PlaybackSessionService: playbackSessionService,
-		LocalMediaResolver:     localMediaResolver,
 		WebSurfacePolicy:       dependencies.Settings,
 		LogLevelPolicy:         dependencies.Settings,
 		Transport:              dependencies.Transport,
@@ -345,11 +330,10 @@ func loadProductionConfig(getenv func(string) string, settings RuntimeSettings) 
 	}
 	databaseURL := getenv("DATABASE_URL")
 	config := productionConfig{
-		encryptionKey:  getenv("CONFIG_ENCRYPTION_KEY"),
-		embyURL:        settings.GetString("EMBY_URL"),
-		embyAPIKey:     settings.GetString("EMBY_API_KEY"),
-		localMediaRoot: getenv("PLAYBACK_LOCAL_MEDIA_ROOT"),
-		redisURL:       getenv("REDIS_URL"),
+		encryptionKey: getenv("CONFIG_ENCRYPTION_KEY"),
+		embyURL:       settings.GetString("EMBY_URL"),
+		embyAPIKey:    settings.GetString("EMBY_API_KEY"),
+		redisURL:      getenv("REDIS_URL"),
 	}
 	timezoneName := settings.GetString("CRON_TIMEZONE")
 	if !validExactNonEmpty(timezoneName) {
@@ -373,17 +357,6 @@ func loadProductionConfig(getenv func(string) string, settings RuntimeSettings) 
 		return productionConfig{}, ErrRuntimeEmbyAPIKeyUnavailable
 	}
 	return config, nil
-}
-
-func localMediaRootReasonCode(err error) string {
-	switch {
-	case errors.Is(err, ErrLocalMediaRootInvalid):
-		return "local_media_root_invalid"
-	case errors.Is(err, ErrLocalMediaRootUnsafe):
-		return "local_media_root_unsafe"
-	default:
-		return "local_media_root_unavailable"
-	}
 }
 
 // validExactNonEmpty rejects surrounding whitespace and line injection while

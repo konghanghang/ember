@@ -39,6 +39,7 @@
   - 例如：[Gateway 透明代理与 Web 访问控制方案](./plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)
   - 例如：[前端工程质量收口方案](./plan/architecture/web-frontend-quality-improvement.md)
   - 例如：[115 源文件路径解析与 Emby Size 解耦方案](./plan/architecture/p115-path-resolution-without-emby-size.md)
+  - 例如：[已撤销的 STRM 本地媒体回退方案](./plan/architecture/strm-local-media-fallback.md)
   - 例如：[项目级日志级别方案](./plan/architecture/project-wide-log-level.md)
   - 例如：[settings 按 Key 本地缓存方案](./plan/architecture/settings-key-cache.md)
   - 例如：[OSS 部署体验方案](./plan/architecture/oss-deployment-experience.md)

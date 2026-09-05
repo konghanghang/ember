@@ -550,7 +550,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
-当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载、direct play 传输编排、被动运行期健康回写和 1 分钟共享冷却已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得本地 fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认。完整 CDN 响应合同与阶段 2 运维能力仍待完成；用户自有账号、套餐来源和 Redis 配额已由独立计划完成代码与自动化，但不把尚未执行的个人/Redis真实链路写成实机证据。
+当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载、direct play 传输编排、被动运行期健康回写和 1 分钟共享冷却已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得权威 Emby fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认。完整 CDN 响应合同与阶段 2 运维能力仍待完成；用户自有账号、套餐来源和 Redis 配额已由独立计划完成代码与自动化，但不把尚未执行的个人/Redis真实链路写成实机证据。
 
 ### 阶段 2：运营与稳定性
 
@@ -570,7 +570,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 
 管理员共享/个人 playback 的统一目录路径输入、`targetParentPath` 展示快照、个人 Cookie 控制面、账号最大播放路数、套餐账号来源和 Redis 配额均由 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md) 承接。本计划只保留当前管理员全局账号运行事实，不再复制该方案的 API、Web、migration 和验证清单。
 
-Emby 只维护 115 STRM、外部系统另行维护同相对路径本地硬链接的场景，由 [STRM 本地媒体回退播放实现方案](./strm-local-media-fallback.md) 承接。该方案只在本计划的 115 DirectPlay fallback 出口增加“本地精确路径 → Emby/CloudDrive2”的选择，不覆盖成功 `302`，也不把 MoviePilot 上传纳入 Ember。
+Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败时固定透明回退 Emby/CloudDrive2；曾实现的 Gateway 本地直出方案已因职责边界不符而[撤销归档](../../archive/plan/architecture/strm-local-media-fallback.md)。
 
 ## 影响范围
 

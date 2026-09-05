@@ -74,7 +74,6 @@ type Config struct {
 	TokenService           TokenService
 	DirectPlayService      DirectPlayService
 	PlaybackSessionService PlaybackSessionService
-	LocalMediaResolver     LocalMediaResolver
 	WebSurfacePolicy       WebSurfacePolicy
 	LogLevelPolicy         LogLevelPolicy
 	Transport              http.RoundTripper
@@ -94,7 +93,6 @@ type Gateway struct {
 	tokenService                   TokenService
 	directPlayService              DirectPlayService
 	playbackSessionService         PlaybackSessionService
-	localMediaResolver             LocalMediaResolver
 	webSurfacePolicy               WebSurfacePolicy
 	logLevelPolicy                 LogLevelPolicy
 	applyLogLevel                  func(string) error
@@ -182,7 +180,6 @@ func New(config Config) (*Gateway, error) {
 		tokenService:                   config.TokenService,
 		directPlayService:              config.DirectPlayService,
 		playbackSessionService:         config.PlaybackSessionService,
-		localMediaResolver:             config.LocalMediaResolver,
 		webSurfacePolicy:               config.WebSurfacePolicy,
 		logLevelPolicy:                 config.LogLevelPolicy,
 		applyLogLevel:                  applyLogLevel,

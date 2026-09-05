@@ -11,7 +11,7 @@
 | 协议证据基线 | `4.9.3.0 Release` | Emby.SDK 提交 `6ee0155063bc85578196489926359a8f37419502` | 本文列出的 method、path 和 DTO 字段以该提交为主要出处 |
 | Gateway 运行兼容范围 | `>= 4.9.0.0 && < 4.10.0.0` | 官方 `4.9.0.70` 至 `4.9.5.0` 的 9 个稳定 SDK Tag 对当前使用的 12 个 path 及核心 DTO 做过语义比对 | 四段数字版本落在该半开区间即可启动；`4.9.3.0` 不是唯一允许版本 |
 | 目标 Emby Server | 已确认当前范围 | 2026-08-23 Gateway 生产启动日志确认 `4.9.3.0` 与非空 ServerId；同一实例的 `GET /System/Info/Public` 已确认无登录返回 `PublicSystemInfo`。2026-08-31 真实浏览器确认完整 Web 资源、语言/Branding/Public users、query 登录、Primary/Backdrop 与 WebSocket OPEN | 已确认本计划使用的目标版本、公开发现、Web 登录前资源、认证和图片/WebSocket Surface；未扩展到 Quick Connect 等非目标认证 |
-| Infuse 客户端行为 | 已确认当前范围 | 2026-08-23 本地实测确认 `Infuse-Direct/8.5` 使用根 API path、`X-Emby-Authorization: MediaBrowser ...`，认证成功响应为 `deflate` JSON，并在登录后通过同一 Header 的非空 `Token` 字段请求普通资源。2026-08-29/31 Infuse `8.5.2` 已确认按需 PlaybackInfo、`Size=0` proof、source 映射、首次/复用 `302`、本地 fallback `206`、外挂/内嵌字幕和 Playing/Progress/Stopped `204` | gzip、115 CDN 完整响应头/Range/全文件字节仍未完成目标环境取证，不影响通用代理合同结论 |
+| Infuse 客户端行为 | 已确认当前范围 | 2026-08-23 本地实测确认 `Infuse-Direct/8.5` 使用根 API path、`X-Emby-Authorization: MediaBrowser ...`，认证成功响应为 `deflate` JSON，并在登录后通过同一 Header 的非空 `Token` 字段请求普通资源。2026-08-29/31 Infuse `8.5.2` 已确认按需 PlaybackInfo、`Size=0` proof、source 映射、首次/复用 `302`、权威 Emby fallback `206`、外挂/内嵌字幕和 Playing/Progress/Stopped `204` | gzip、115 CDN 完整响应头/Range/全文件字节仍未完成目标环境取证，不影响通用代理合同结论 |
 
 证据等级：
 
@@ -40,13 +40,11 @@
 
 ```text
 Emby 客户端
-  -> Ember Playback Gateway
-       -> 普通 Emby API、字幕、播放进度：透明转发到 Emby Server
-       -> 视频流：先做本地身份门控，再尝试 115 加速
-            -> 加速成功：返回 115 直链 302
-            -> 不适用或失败：按可信 MediaSource.Path 精确检查本地只读副本
-                 -> 本地命中：Gateway 返回原始文件 GET/HEAD/单 Range
-                 -> 本地未命中或请求不支持：透明转发权威请求到 Emby Server
+	  -> Ember Playback Gateway
+	       -> 普通 Emby API、字幕、播放进度：透明转发到 Emby Server
+	       -> 视频流：先做本地身份门控，再尝试 115 加速
+	            -> 加速成功：返回 115 直链 302
+	            -> 不适用或失败：透明转发权威请求到 Emby Server
 ```
 
 边界约束：
@@ -54,7 +52,7 @@ Emby 客户端
 - 网关必须成为公网唯一 Emby 入口；原始 Emby Server 只允许内网或受控运维访问。
 - 已通过 Token 门控的普通接口默认透明转发，不做猜测式改写；未认证 public bootstrap 路由必须先完成同版本合同核对，再加入显式 allowlist。
 - 网关不得使用客户端提交的 `UserId` 作为最终身份依据，必须由 Emby AccessToken 映射到 Ember 用户。
-- 视频字节在 302 成功后由客户端直接向 115 CDN 请求；115 不适用或失败时，可由 Gateway 返回可信精确路径对应的本地原始字节，本地不命中或请求语义不支持时再按普通反向代理链路由 Emby 返回客户端。
+- 视频字节在 302 成功后由客户端直接向 115 CDN 请求；115 不适用或失败时，按普通反向代理链路由 Emby 返回客户端，Gateway 不读取或提供媒体文件。
 - Emby 正常代理播放是基线能力，115 直连是可选加速；合法 Principal 不能因为没有 115 条件、路径未映射或 Provider 故障而失去正常播放能力。
 - 网关不得记录 AccessToken、完整 115 直链、Cookie 或其他可复用凭证。
 
@@ -247,7 +245,7 @@ Ember 本地撤销固定三种粒度：
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
 - 固定 SDK 已确认 `Authorization/X-Emby-Authorization` 的 `Emby` scheme，目标 Infuse `8.5` 已确认 `X-Emby-Authorization: MediaBrowser ...`；兼容矩阵额外接受严格 `X-MediaBrowser-Authorization: MediaBrowser ...`，但不扩展到任意 Header/scheme。真实目标环境同时确认 SystemInfoPublic 无登录可访问，Gateway 对该公开路由记录不含 Header value、URL query 或响应体的上游状态日志。
 
-当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同与目标浏览器实机验收，Redis 当前播放租约仍未实现且不计划建立数据库播放会话。Infuse 登录、普通资源 API、按需 PlaybackInfo、本地 fallback `206`、source 映射、首次/复用 `302`、字幕和 Playing/Progress/Stopped 已有实机证据；115 CDN 完整响应合同以及 SenPlayer、Yamby 等其他客户端仍未实机确认。历史收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)，后续账号路由与租约见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
+当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同与目标浏览器实机验收，Redis 播放租约及 personal/system 路由已有自动化证据但尚未真实验收，且不建立数据库播放会话。Infuse 登录、普通资源 API、按需 PlaybackInfo、权威 Emby fallback `206`、source 映射、首次/复用 `302`、字幕和 Playing/Progress/Stopped 已有实机证据；115 CDN 完整响应合同以及 SenPlayer、Yamby 等其他客户端仍未实机确认。历史收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)，后续账号路由与租约见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
 
 ### 3.5 Emby Web Surface 与根 WebSocket
 
@@ -410,7 +408,7 @@ MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRej
 
 | Method | Path | 处理策略 |
 | --- | --- | --- |
-| `GET`, `HEAD` | `/emby/Videos/{Id}/stream` | 满足直连条件时返回 302；否则在可信精确路径成立时尝试本地文件，再回退 Emby |
+| `GET`, `HEAD` | `/emby/Videos/{Id}/stream` | 满足直连条件时返回 302；否则透明回退 Emby |
 | `GET`, `HEAD` | `/emby/Videos/{Id}/stream.{Container}` | 同上，`Container` 是 path 参数 |
 | `GET`, `HEAD` | `/emby/Videos/{Id}/{StreamFileName}` | 同上，保留客户端请求文件名 |
 | `GET` | `/emby/Items/{Id}/Download` | 必须额外执行 `EnableContentDownloading` 和网关下载策略 |
@@ -422,13 +420,9 @@ MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRej
 - 不能看到 `/Videos/` 就一律返回 302；必须先判断 Token、用户状态、媒体源、路径规则和 Direct Play 能力。
 - 首期只有 query 同时提供唯一非空 `MediaSourceId`、唯一非空 `PlaySessionId` 和精确 `Static=true` 时才尝试 115；`/stream` 还必须提供唯一非空 `Container`。缺失、重复或其他值均透明 fallback Emby。
 - plain `/stream` 缺 PlaySessionId 时先按 4.5 补取权威 PlaybackInfo。只有 resolver 失败、请求也完全没有 Container key、且同一 mapping/item/mediaSource 有近期用户条目快照时，才克隆 Emby fallback 并追加有界 Container；该降级分支固定 `container_recovered` 且不尝试 115。
-- 按需 PlaybackInfo 成功后，115 决策使用补齐参数的请求；任何 115 fallback 使用 4.5 的 DirectStreamUrl/扩展名权威 Emby 请求。二者不能共用同一个 URL，否则本地视频会继续继承客户端 plain stream 缺口。
+- 按需 PlaybackInfo 成功后，115 决策使用补齐参数的请求；任何 115 fallback 使用 4.5 的 DirectStreamUrl/扩展名权威 Emby 请求。二者不能共用同一个 URL，否则权威 Emby fallback 会继续继承客户端 plain stream 缺口。
 - 没有可用 Container 快照、客户端已经提交任意大小写的 Container key、快照过期或响应歧义时不猜测容器，继续使用原请求 fallback。
 - `stream.{Container}` 和 `{StreamFileName}` 从最后一个扩展名取得容器并与 PlaybackInfo 证明中的 Container 核对；不一致时 fallback Emby。`m3u8`、`mpd`、`m4s` 明确不进入 115 编排。
-- 只有身份门控、PlaybackInfo 证明和 source 前缀精确映射均成立，且 115 DirectPlay 未返回有效 `302` 时，才允许使用同一个 `relativePath` 检查 `PLAYBACK_LOCAL_MEDIA_ROOT`。本地查询不接受客户端提交的任意文件路径。
-- 本地请求只接受无条件 `GET/HEAD` 与至多一个 Range；重复或逗号多段 Range、五类条件 Header、明确拒绝 identity 以及非法/冲突的 `Accept-Encoding` 在打开文件前保留原请求回退 Emby。已选中本地文件的非法或不可满足单 Range 返回 `416`。
-- 零字节本地文件只要携带 Range，同样返回空体 `416 + Content-Range: bytes */0`；不能继承 Go `http.ServeContent` 对空文件忽略 Range 并返回 `200` 的默认特例。
-- 本地 `200/206/HEAD/416` 固定 `Cache-Control: private, no-store`，不生成 ETag/Last-Modified/Content-Encoding；Content-Length 与 Content-Range 均基于同一份磁盘原始字节。路径解析逐段禁止符号链接，普通文件和硬链接允许。
 - `GET` 与 `HEAD` 都可能由客户端用于探测，不得把每个请求都计为独立播放会话。
 - 客户端可能在获得 302 后向 115 CDN 发出 `Range` 请求；网关必须通过客户端合同测试确认重定向、UA 和 Range 行为。
 - `/Items/{Id}/Download` 与播放流不是同一权益，必须复用套餐下载开关并单独审计。
@@ -515,7 +509,7 @@ Content-Type: application/json
 - 下载接口额外满足内容下载权限。
 - 相同 Token 最近一次 `PlaybackInfo` 已被当前 Emby Server 成功接受，且 ItemId、MediaSourceId、PlaySessionId 与本次直连请求一致。
 
-115 `302` 后视频字节不再经过 Emby，本地回退命中时也不会访问 Emby 视频上游；现有版本化合同和运行证据都不能证明 Emby `SimultaneousStreamLimit` 会拦截这两类分流播放，该效果保持“未证实”。已确认但尚未实施的方案只为实际选中的 115 playback 账号维护 Redis 租约并执行账号上限：个人账号配置值受当前有效套餐模板约束，管理员共享 playback 按所有 `system` 用户合计；Redis 用户索引只用于展示和归因，不新增 Gateway 用户级总并发门控。
+115 `302` 后视频字节不再经过 Emby；现有版本化合同和运行证据不能证明 Emby `SimultaneousStreamLimit` 会拦截这类分流播放，该效果保持“未证实”。当前实现只为实际选中的 115 playback 账号维护 Redis 租约并执行账号上限：个人账号配置值受当前有效套餐模板约束，管理员共享 playback 按所有 `system` 用户合计；Redis 用户索引只用于展示和归因，不新增 Gateway 用户级总并发门控。
 
 Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”，不能单独证明 Token 此刻仍被 Emby 接受。首期必须把近期成功的 GET/POST `PlaybackInfo` 作为 115 加速授权证据；缺少证明的合法请求不能获得 302，但仍 fallback 到 Emby。Token 被撤销或用户状态变化后拒绝所有受保护请求并清除对应直链缓存和未签发会话；已经建立的 115 CDN 连接只能等到断线、重连或链接过期。
 
@@ -523,17 +517,17 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 
 - Token 缺失、重复、无法映射、已本地撤销、身份错配或用户硬状态拒绝：返回固定拒绝响应，不能继续转发 Emby，否则会绕过 Ember 本地安全门控。
 - 请求已取消或 deadline：分别记录 `499/504`，不误报 Store outage；真实身份存储不可用仍拒绝，不能降级成未受控代理。
-- DirectPlay 返回取消/deadline，或请求 context 在其完成时已经终止：分别返回空体 `499/504`，不再打开本地文件或发起 Emby fallback；最终决策固定为 `reject + stage=direct_play + reasonCode=request_canceled|request_deadline_exceeded`。
+- DirectPlay 返回取消/deadline，或请求 context 在其完成时已经终止：分别返回空体 `499/504`，不再发起 Emby fallback；最终决策固定为 `reject + stage=direct_play + reasonCode=request_canceled|request_deadline_exceeded`。
 - Principal 合法但没有近期 PlaybackInfo、证明过期、视频参数不完整或 MediaSource 不支持 Direct Play：不尝试 115 或停止尝试，透明转发原始请求到 Emby。
-- 路径未命中 115 source 时没有可信 `relativePath`，直接转发权威请求到 Emby；账号未配置/未验证/冷却、查重/Range challenge/秒传/目标复核失败但已有可信映射时，先尝试本地精确路径，未命中再转发 Emby。
-- 直链域名、过期时间、HeaderMode 或并发信息不兼容：不返回 302；已有可信映射时可以进入相同本地选择器，否则回退 Emby。
-- Emby fallback 必须保留客户端原始 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header，不能重新拼装缩水版视频请求。本地请求不支持的 Header 形态也必须无损进入该权威请求。
-- fallback 禁止改用 source 账号向客户端签发 115 直链；本地目标只允许读取部署期只读根目录下的唯一精确路径。
+- 路径未命中 115 source、账号未配置/未验证/冷却、查重/Range challenge/秒传/目标复核失败时，直接转发权威请求到 Emby。
+- 直链域名、过期时间、HeaderMode 或并发信息不兼容：不返回 302，直接回退 Emby。
+- Emby fallback 必须保留客户端原始 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header，不能重新拼装缩水版视频请求。
+- fallback 禁止改用 source 账号向客户端签发 115 直链。
 - 已发出 302 后用户被禁用：阻止后续直链和 Token 使用，但不保证立即切断已建立的 CDN 连接。
 - Emby 会话事件转发失败：返回真实失败状态并记录中文失败事件，不能伪造成功；`forwardState=not_attempted|attempted` 必须区分本地身份门控失败和已尝试上游转发。
 - 开始和停止成功在 Info 分别记录 `playback_session_started/playback_session_stopped`；正常 Progress 成功只在 Debug 记录 `playback_progress_reported`，避免心跳刷屏。失败后同一请求 Token 的首次 Start/Progress 成功在 Info 额外记录一次 `playback_progress_recovered` 和 `interruptionMs`；关联键由进程内随机 seed 生成且永不输出，恢复观察最多 4096 条、TTL 6 小时，不保存原始 Token 或可跨进程复用摘要，只服务日志，不参与授权、并发或响应决策。
 - 设置中心数据库项 `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。API 保存后 Gateway 最多在 5 秒内从进程缓存刷新；TTL 到期后的并发请求只触发一次数据库读取，读取失败保留上一次有效级别且不改变请求结果。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
-- 每个视频请求在默认 Info 额外只写一条最终决策日志，并把人工可读结论放在行首：直链成功使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；DirectPlay 失败使用 `code=direct_play_fallback message="115直链失败，本地回退成功|失败"` 或 `message="115直链失败，Emby回退成功|失败"`，并记录 `directPlayResult=failure fallbackResult=success|failure fallbackTarget=local|emby`；其他 fallback 和 reject 分别使用 `code=playback_fallback`、`code=playback_rejected`。全部继续记录 `decision=redirect|fallback|reject`、固定 `stage/reasonCode` 和必要 ID/耗时；本地分支补 `localLookup/localReasonCode`，只有 Emby 分支记录 `fallbackSource`。进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Debug 不重复生成第二条决策，日志不建表、不进入数据库。
+- 每个视频请求在默认 Info 额外只写一条最终决策日志，并把人工可读结论放在行首：直链成功使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；DirectPlay 失败使用 `code=direct_play_fallback message="115直链失败，Emby回退成功|失败" directPlayResult=failure fallbackResult=success|failure fallbackTarget=emby`；其他 fallback 和 reject 分别使用 `code=playback_fallback`、`code=playback_rejected`。全部继续记录 `decision=redirect|fallback|reject`、固定 `stage/reasonCode`、`fallbackSource` 和必要 ID/耗时。进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Debug 不重复生成第二条决策，日志不建表、不进入数据库。
 - 完整媒体 Path 已按运维排障需求明确允许进入持久日志；仍禁止记录 Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原始响应、Provider 原始错误或 Emby 代理原始错误。
 - Provider 失败只允许补充固定 `providerOperation=resolve_source_path|hash_source_preid|rapid_upload|hash_source_challenge|rapid_upload_retry|verify_playback_target|search_playback_target|get_download_url`；账号加载失败只允许补充 `accountRole=source|playback`。未知诊断值必须丢弃，不能进入日志。
 
@@ -550,7 +544,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 | `fallback` | `direct_play` | `invalid_request`、`path_not_mapped`、`account_unavailable`、`accounts_same`、`provider_unavailable`、`provider_protocol`、`rapid_upload_unavailable`、`target_unavailable`、`download_incompatible`、`store_unavailable`、`lock_unavailable` |
 | `redirect` | `direct_play` | `direct_play_ready` |
 
-`fallbackTarget=emby` 时，`fallbackSource` 只允许固定值：`client_request`、`container_recovered`、`playback_info_direct_stream`、`playback_info_extension_stream`、`playback_info_augmented_stream`；本地命中与 redirect/reject 留空。它只描述交给 Emby 的请求来源，不包含 URL、Container、Token 或媒体路径。本地查询只记录 `localLookup=hit|miss|disabled|unsupported|unsafe|unavailable` 与固定 `localReasonCode`，不记录本地根目录、绝对路径或文件系统原始错误。
+`fallbackTarget=emby` 时，`fallbackSource` 只允许固定值：`client_request`、`container_recovered`、`playback_info_direct_stream`、`playback_info_extension_stream`、`playback_info_augmented_stream`；redirect/reject 留空。它只描述交给 Emby 的请求来源，不包含 URL、Container、Token 或媒体路径。
 
 所有决策日志记录 `statusCode`；fallback 以最终 Emby 状态明确生成 `fallbackResult=success|failure`，已取得 Emby 响应时再记录 `upstreamStatus`，代理传输失败只记录固定 `proxyErrorCode`，禁止输出上游原始错误。redirect 不打印空 `fallbackSource`、零值 `upstreamStatus` 或空 `proxyErrorCode`，其他结果也省略无意义的空 task/映射字段。该日志描述 Gateway 对本次请求选择的路径和 HTTP 结果；`302` 仍只证明 Gateway 已返回重定向，不证明客户端已从 115 CDN 读取媒体字节。
 

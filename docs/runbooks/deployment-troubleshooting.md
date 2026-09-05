@@ -100,7 +100,7 @@ Gateway 在通用 `ember: command=gateway code=process_failed` 之前会打印�
 | `listen_failed` | 固定监听端口 `8081` 不可用，通常是端口已被占用 |
 | `serve_failed` / `shutdown_failed` | HTTP Serve 或 graceful shutdown 失败 |
 
-Redis 不可用通常不会产生 `process_failed`：客户端构造不执行网络探测，实际请求会在固定短超时后记录 `reasonCode=redis_unavailable` 并走本地/Emby fallback，用户账号页显示“用量不可用”。先检查：
+Redis 不可用通常不会产生 `process_failed`：客户端构造不执行网络探测，实际请求会在固定短超时后记录 `reasonCode=redis_unavailable` 并走 Emby fallback，用户账号页显示“用量不可用”。先检查：
 
 ```bash
 docker compose --profile gateway ps redis ember-gateway
@@ -110,18 +110,6 @@ docker compose --profile gateway logs --tail=200 redis ember-gateway
 不要通过固定 Redis 版本、增加多 Gateway 补偿或从 `playback_transfer_tasks` 回放计数来绕过故障。当前合同接受 Redis 数据丢失后从零开始；如果使用外部 Redis，只核对私有 `REDIS_URL` 的网络、认证和通用 Lua/Sorted Set/TTL 能力，禁止把连接串或完整 Key 粘进日志。
 
 日志不会输出原始错误文本、数据库 DSN、Emby URL、API Key 或响应体；不要为了排障把这些值手工打印出来。
-
-`PLAYBACK_LOCAL_MEDIA_ROOT` 配置错误不会触发 `process_failed`，而是关闭可选本地回退并继续启动 Gateway：
-
-```text
-[PlaybackGateway] level=warn code=local_media_disabled reasonCode=<local_media_root_invalid|local_media_root_unsafe|local_media_root_unavailable> errorType=<type>
-```
-
-- `local_media_root_invalid`：不是规范化绝对目录、使用 `/`、包含歧义段或非法字符。
-- `local_media_root_unsafe`：配置根目录本身是符号链接。
-- `local_media_root_unavailable`：容器内目录不存在、不是目录或不可访问；优先核对 Compose override 的 `:ro` mount 和容器内路径是否与变量一致。
-
-日志不会显示真实本地根目录。排障时也不要把宿主机绝对路径写入仓库、工单或公开日志。
 
 ### 5. Web 能打开，但页面请求 API 失败
 

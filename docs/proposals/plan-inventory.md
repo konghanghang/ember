@@ -85,15 +85,14 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env`、override 和只读 mount 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。STRM 本地媒体回退保持同样的受控验证边界。当前 `docs/plan/` 仍保留以下 9 份。
+2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env` 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。Gateway 本地媒体直出已按产品边界撤销并归档，不再列为现行计划。当前 `docs/plan/` 仍保留以下 8 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
-| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 管理员 source + 管理员共享 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有本地 fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
-| `architecture/p115-personal-account-routing-and-redis-quotas.md` | 代码与自动化已完成，待受控验收 | 阶段 0–3 已落地：套餐默认 personal 与 `5/10` 配额、个人账号四步 API/Web、管理员共享 playback 路径/并发原子配置、revoked tombstone、用户删除顺序、personal/system 两段式路由、Redis `reservation → active ↔ paused`、HEAD 不创建、成功事件更新、小时/自然日 pending/succeeded 配额、晚到成功和独立 2s 记账、null/zero 用量与固定诊断日志。Go 全量 test/vet/build、关键 race、Web 243 项测试通过且 3 项跳过、生产 build、专用 PostgreSQL migration 集成用例和占位配置 Compose 解析均通过；未执行真实 Redis/个人 115/客户端验收，Emby 对 115/local 分流的限制效果仍未证实 | 保留到用户授权范围内的真实验证完成，或由用户明确接受未验证限制后归档 |
+| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 管理员 source + 管理员共享 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有权威 Emby fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
+| `architecture/p115-personal-account-routing-and-redis-quotas.md` | 代码与自动化已完成，待受控验收 | 阶段 0–3 已落地：套餐默认 personal 与 `5/10` 配额、个人账号四步 API/Web、管理员共享 playback 路径/并发原子配置、revoked tombstone、用户删除顺序、personal/system 两段式路由、Redis `reservation → active ↔ paused`、HEAD 不创建、成功事件更新、小时/自然日 pending/succeeded 配额、晚到成功和独立 2s 记账、null/zero 用量与固定诊断日志。Go 全量 test/vet/build、关键 race、Web 243 项测试通过且 3 项跳过、生产 build、专用 PostgreSQL migration 集成用例和占位配置 Compose 解析均通过；未执行真实 Redis/个人 115/客户端验收，Emby 对 115 `302` 分流的限制效果仍未证实 | 保留到用户授权范围内的真实验证完成，或由用户明确接受未验证限制后归档 |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
-| `architecture/strm-local-media-fallback.md` | 代码与自动化已完成，待受控验收 | source 非敏感位置加载、DirectPlay 前置映射、Gateway 本地选择器、逐段无 symlink 打开、GET/HEAD/单 Range/416、identity/no-store、配置与文档均已落地；全量 Go test/vet/build、目标 race 和占位配置 Compose 解析通过。未启动服务，未验证目标环境实际 `.env`/override/只读 mount、Emby/CloudDrive2 I/O 或播放器行为 | 保留到用户授权范围内的真实验证完成，或由用户明确决定按未验证限制归档 |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |

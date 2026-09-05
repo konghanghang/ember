@@ -34,7 +34,7 @@
 - 不新增 `direct_play_sessions` 或其他数据库播放会话表，也不把当前播放数、暂停状态、小时用量和每日用量写入 PostgreSQL。
 - 不用 Redis 替代 `p115_accounts` 的持久账号配置、Cookie 密文或现有 `playback_transfer_tasks` provenance。
 - 不修改 Emby `SimultaneousStreamLimit` 的现有配置和同步机制；本计划只把有效套餐模板中的该值作为个人 115 账号配置上限，不新增 Gateway 用户级总并发门控。
-- 不把 Emby 当作已证实的分流播放并发门控：115 `302` 后视频字节不经过 Emby，后续本地命中也不访问 Emby 视频上游，当前没有证据证明 `SimultaneousStreamLimit` 能拦截这两类播放。
+- 不把 Emby 当作已证实的分流播放并发门控：115 `302` 后视频字节不经过 Emby，当前没有证据证明 `SimultaneousStreamLimit` 能拦截这类播放。
 - 不自动创建、移动或重命名用户的 115 目录；用户必须填写已经存在的目标目录路径。
 - 不因 `Stopped`、Redis TTL、解绑或套餐切换自动删除 playback 文件。
 - 不把 115 下载 URL 返回到 API、Web、数据库、日志或可长期读取的 Redis 值中。
@@ -49,7 +49,7 @@
 - 当前管理员账号控制面要求手工配置 Provider User-Agent，但计划固定的 `p115client` 提交对普通 Cookie/Web 请求默认使用 `Mozilla/5.0`；这能作为个人账号后端默认值的公开源码依据，尚未经过目标个人 Cookie 的真实 115 验证。
 - 获取最终下载直链时使用 Gateway 当前视频请求携带的真实播放器 User-Agent，不使用账号 Provider User-Agent；秒传初始化继续使用协议代码内的版本绑定上传 UA。
 - `CookieProvider.ResolveDirectoryByPath` 已能把已存在的根相对目录路径解析为唯一目录 ID，但不会创建目录。
-- Gateway 已在身份门控和 Emby 成功响应后把 `Playing/Progress/Stopped` 映射到既有 115 反向 session，完成 active/paused 续租与 Stopped 释放；普通 Emby/local 会话不会创建租约。
+- Gateway 已在身份门控和 Emby 成功响应后把 `Playing/Progress/Stopped` 映射到既有 115 反向 session，完成 active/paused 续租与 Stopped 释放；普通 Emby fallback 会话不会创建租约。
 - `playback_transfer_tasks` 已按 `playbackAccountId + SHA1 + size` 保存秒传任务与 provenance，并用 PostgreSQL advisory lock 防止相同目标文件重复秒传；它不是播放会话或用户配额表。
 - 当前仓库已使用 `go-redis/v9`、miniredis/进程内 fake、`REDIS_URL` 和 gateway profile 的浮动 `redis:alpine` + AOF + volume；客户端不做版本探测，当前只支持单 Gateway。
 - 套餐组 Emby 策略模板持久化 `SimultaneousStreamLimit`；API/Web 接受 `0..100`。个人账号保存值限制 `1..100` 并受正数套餐值约束，运行时取配置值与套餐值的较小值；共享账号不与单个套餐比较。
@@ -80,16 +80,16 @@
 | Redis 兼容与部署范围 | 不锁定 Redis 版本、不做版本探测，只使用 Lua/Sorted Set/TTL 等通用能力；首期只支持单 Gateway 进程，不设计多 Gateway、Redis Cluster 或跨主机时钟协调 |
 | Redis 业务时间 | 租约 score、滚动小时和自然日边界都使用 Gateway 可注入时钟；自然日复用全局 `CRON_TIMEZONE`，不调用 Redis `TIME` |
 | 实际门控 | 只用账号占用数执行账号有效上限；Redis 用户索引只用于展示、归因和后续治理，不参与第二套并发门控 |
-| Emby 证据边界 | 不新增 Gateway 用户级总并发门控；Emby `SimultaneousStreamLimit` 能否限制 115 `302` 或本地文件分流播放仍未证实，不能把该假设写成当前保证 |
+| Emby 证据边界 | 不新增 Gateway 用户级总并发门控；Emby `SimultaneousStreamLimit` 能否限制 115 `302` 分流播放仍未证实，不能把该假设写成当前保证 |
 | 转存配额 | 小时/每日限额属于套餐组，默认每小时 `5`、每天 `10`；小时只接受 `1..100`，每日只接受 `1..1000`，`0` 非法，越界直接拒绝且不截断。两者不要求大小关系；按发起播放的 Ember 用户统计，只有缺失目标的新文件在秒传和目标复核都成功后才消耗一次，预存命中、重复请求和失败不消耗 |
 | 转存预留 TTL | `pending reservation` 首期固定为 `5m` 代码常量且不续租；成功后以同一 `transferAttemptId` 幂等写入 succeeded，失败或确认预存命中时立即删除。pending 已过期但外部转存最终成功时仍必须记账，进程崩溃且没有成功结果时最多保留 5 分钟 |
 | 成功记账失败 | 目标复核成功后使用独立 `2s` 总超时，以同一 `transferAttemptId` 有限重试 succeeded 提交；只有记账成功才继续 `302`。最终失败时保留外部文件和仍存在的 pending，本次公共 fallback，不新增数据库补偿或历史重建 |
 | 会话存储 | 不建数据库会话表；Redis 处理 302 reservation、Playing/Progress/Stopped 状态晋级、暂停和 TTL |
-| 失败策略 | 合法用户在账号、Redis、并发或配额不满足时进入已实现的公共 fallback；先查本地精确路径，未命中才到 Emby；身份和硬状态失败仍拒绝 |
+| 失败策略 | 合法用户在账号、Redis、并发或配额不满足时直接进入权威 Emby fallback；身份和硬状态失败仍拒绝 |
 
 ## 方案设计
 
-本文后续沿用的“fallback Emby”表示最终权威 Emby 分支。当前 [STRM 本地媒体回退播放实现方案](./strm-local-media-fallback.md) 已完成代码与自动化验证：账号、Redis、并发或配额失败应进入同一个 Gateway fallback 选择器，本地精确路径命中则直接播放，本地未命中才代理 Emby/CloudDrive2。`personal|system` 套餐路由选择、Redis 计数和转存配额本身不负责本地文件判断。
+本文后续沿用的“fallback Emby”表示最终权威 Emby 分支。账号、Redis、并发或配额失败时，Gateway 保留权威请求并直接代理 Emby/CloudDrive2；`personal|system` 套餐路由选择、Redis 计数和转存配额不读取或返回媒体文件。
 
 ### 1. 用户可见行为
 
@@ -242,7 +242,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 事件语义：
 
-- 只有会话事件成功转发给 Emby，且反向 session 已证明该会话取得过 115 `reservation|active|paused`，才允许更新 Redis；普通 Emby/local fallback 会话不能借事件创建 115 租约。
+- 只有会话事件成功转发给 Emby，且反向 session 已证明该会话取得过 115 `reservation|active|paused`，才允许更新 Redis；普通 Emby fallback 会话不能借事件创建 115 租约。
 - `Playing`：把已有 `reservation|paused` 晋级/恢复为 `active`，或续租已有 `active`；同时写入 account/user `active` 索引并使用固定 `2m` active TTL。
 - `Progress + IsPaused=false`：把已有 `reservation|paused` 晋级/恢复为 `active`，或续租已有 `active`，并刷新固定 `2m` active TTL。
 - `Progress + IsPaused=true`：把已有 `reservation|active` 晋级/切换为 `paused`，继续计入 `leases` 与 `active`，并刷新固定 `15m` paused TTL；暂停不能按 `Stopped` 删除。
@@ -500,7 +500,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - 2026-09-05 已使用专用 `EMBER_INTEGRATION_DATABASE_URL` 执行 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`；新增 migration 幂等、约束、个人账号生命周期、tombstone、用户删除顺序等 PostgreSQL 集成用例全部通过。测试 harness 使用独立 `itest_*` schema，未启动项目服务或访问真实 115/Emby。
 - 2026-09-05 已使用占位必填配置并包含 `gateway`、`bot` profile 执行 `docker compose config --quiet`，解析通过；该结果不替代部署者在目标环境使用实际 `.env`、override 和只读 mount 执行同一检查。
 - 未启动项目服务，未访问真实 Redis、Emby 或 115；个人 Cookie 固定 `Mozilla/5.0`、真实 personal/system 路由、客户端事件间隔、配额边界和 Redis 故障回退均待用户另行授权后受控验证。
-- Emby `SimultaneousStreamLimit` 能否限制 115/local 分流仍未证实，本计划不新增 Gateway 用户级门控。
+- Emby `SimultaneousStreamLimit` 能否限制 115 `302` 分流仍未证实，本计划不新增 Gateway 用户级门控。
 
 归档条件：
 

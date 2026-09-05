@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,59 +137,6 @@ func TestNewProductionRuntimeAcceptsExistingShortEncryptionKey(t *testing.T) {
 	}
 	if identityCalls.Load() != 1 {
 		t.Fatalf("identity calls = %d, want 1", identityCalls.Load())
-	}
-}
-
-func TestNewProductionRuntimeConfiguresOptionalLocalMediaRootWithoutMakingItFatal(t *testing.T) {
-	t.Run("valid root enabled", func(t *testing.T) {
-		var identityCalls atomic.Int32
-		upstream := newRuntimeIdentityServer(t, &identityCalls, fixtureRuntimeEmbyVersion)
-		defer upstream.Close()
-		root := t.TempDir()
-		var logs bytes.Buffer
-		runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(map[string]string{
-			"PLAYBACK_LOCAL_MEDIA_ROOT": root,
-		}), ProductionDependencies{
-			Database: &gorm.DB{}, Settings: fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
-			Logger: log.New(&logs, "", 0), DirectPlayService: &fakeDirectPlayService{},
-		})
-		if err != nil || runtime == nil || !strings.Contains(logs.String(), "code=local_media_enabled") {
-			t.Fatalf("NewProductionRuntime()=(%v,%v) logs=%q", runtime, err, logs.String())
-		}
-		if strings.Contains(logs.String(), root) {
-			t.Fatalf("local root leaked in logs: %q", logs.String())
-		}
-	})
-
-	t.Run("unavailable root disables local fallback", func(t *testing.T) {
-		var identityCalls atomic.Int32
-		upstream := newRuntimeIdentityServer(t, &identityCalls, fixtureRuntimeEmbyVersion)
-		defer upstream.Close()
-		root := filepath.Join(t.TempDir(), "private-missing-root")
-		var logs bytes.Buffer
-		runtime, err := NewProductionRuntime(context.Background(), runtimeEnvironment(map[string]string{
-			"PLAYBACK_LOCAL_MEDIA_ROOT": root,
-		}), ProductionDependencies{
-			Database: &gorm.DB{}, Settings: fakeRuntimeSettings{"EMBY_URL": upstream.URL, "EMBY_API_KEY": fixtureRuntimeAPIKey},
-			Logger: log.New(&logs, "", 0), DirectPlayService: &fakeDirectPlayService{},
-		})
-		if err != nil || runtime == nil || !strings.Contains(logs.String(), "code=local_media_disabled reasonCode=local_media_root_unavailable") {
-			t.Fatalf("NewProductionRuntime()=(%v,%v) logs=%q", runtime, err, logs.String())
-		}
-		if strings.Contains(logs.String(), root) {
-			t.Fatalf("unavailable local root leaked in logs: %q", logs.String())
-		}
-	})
-}
-
-func TestLoadProductionConfigKeepsLocalMediaRootAsDeploymentValue(t *testing.T) {
-	root := t.TempDir()
-	config, err := loadProductionConfig(runtimeEnvironment(map[string]string{"PLAYBACK_LOCAL_MEDIA_ROOT": root}), validRuntimeSettings())
-	if err != nil {
-		t.Fatalf("loadProductionConfig() error = %v", err)
-	}
-	if config.localMediaRoot != root {
-		t.Fatalf("localMediaRoot=%q, want configured root", config.localMediaRoot)
 	}
 }
 

@@ -24,7 +24,6 @@
 - Gateway 进程固定监听容器内 `8081`，只映射到宿主机 `127.0.0.1:${PLAYBACK_GATEWAY_PORT:-8081}`；公网 HTTPS 由外部反向代理负责。
 - Gateway 当前只支持单进程部署；不要使用 `docker compose up --scale ember-gateway>1`、多个宿主机 Gateway 或其他副本编排。Redis 播放租约和转存配额的多 Gateway/Cluster 合同尚未实现。
 - Emby 网页入口由设置中心数据库项 `PLAYBACK_GATEWAY_WEB_ENABLED` 控制，默认开启；保存后最多 5 秒生效，不需要新增环境变量或重启 Gateway。关闭只影响 `/`、`/favicon.ico`、`/web` 页面/静态资源、单层语言 JSON、精确 `/emby/Branding/Css.css`、携严格 Web query 元数据的精确 `GET /emby/Branding/Configuration` 和无 Token 的精确 `GET/HEAD /emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index，不影响原生客户端 API、视频、携 Token 图片和根 WebSocket。
-- `PLAYBACK_LOCAL_MEDIA_ROOT` 是可选的 Gateway 部署期容器路径；留空时关闭本地回退。启用时必须通过 Compose override 把宿主机媒体目录只读挂载到该路径，不能把宿主机路径写入设置中心。
 
 ## 你现在应该看哪份文档
 
@@ -55,17 +54,6 @@ docker compose --profile bot up -d
 ```bash
 docker compose --profile gateway up -d
 ```
-
-需要启用 STRM 本地媒体回退时，先在 `.env` 设置容器内路径，例如 `PLAYBACK_LOCAL_MEDIA_ROOT=/media`，再创建不提交到仓库的 Compose override：
-
-```yaml
-services:
-  ember-gateway:
-    volumes:
-      - /path/on/host/media:/media:ro
-```
-
-宿主机目录、115 正式目录和 STRM 对应视频的相对路径、大小写及文件名必须一致。官方 Compose 不提供默认宿主机挂载，也不会扫描或同步目录。
 
 ## 说明
 

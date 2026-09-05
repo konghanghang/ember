@@ -28,33 +28,7 @@ Gateway 固定监听容器内 `8081`；Compose 只把它映射到 `127.0.0.1:${P
 
 官方 Compose 的 `gateway` profile 默认使用浮动 `redis:alpine`、AOF 和 `redis_data` 持久卷，不锁定或探测 Redis 服务端版本。部署者也可以通过私有 `REDIS_URL` 指向外部 Redis；连接串可能包含密码，禁止写入仓库或日志。
 
-当前合同只允许一个 Gateway 进程消费这些 Key，不支持多 Gateway、Redis Cluster 或跨主机时钟协调。部署时禁止使用 `docker compose up --scale ember-gateway>1`、多个宿主机 Gateway 或其他副本编排；这不是经过验证的高可用拓扑。Redis 不可用、超时或脚本失败时，Gateway 不签发新的 115 `302`，但合法请求继续走本地/Emby fallback；API 用量字段显示不可用而不是零。Redis 数据丢失后以当前空 Key 重新计数，不从 PostgreSQL 或 `playback_transfer_tasks` 重建。
-
-### STRM 本地媒体回退（可选）
-
-本地回退默认关闭。启用时在 `.env` 设置 Gateway 容器内路径：
-
-```env
-PLAYBACK_LOCAL_MEDIA_ROOT=/media
-```
-
-再创建部署环境自己的 Compose override，禁止把真实宿主机路径提交到仓库：
-
-```yaml
-services:
-  ember-gateway:
-    volumes:
-      - /path/on/host/media:/media:ro
-```
-
-部署边界：
-
-- `PLAYBACK_LOCAL_MEDIA_ROOT` 必须是规范化绝对目录，不能是 `/` 或符号链接；修改后重启 Gateway 生效。
-- 配置错误或 mount 不可用只会关闭本地回退，正常 115 `302` 与 Emby/CloudDrive2 fallback 不受影响。
-- Emby 仍只维护原有 STRM 媒体条目；本地目录不生成第二套媒体库。
-- 115 正式目录与本地根目录下的相对路径、大小写和文件名必须完全一致。Ember 只检查唯一精确路径，不扫描、不模糊匹配，也不比较 SHA1、大小或修改时间。
-- 本地解析允许普通文件和硬链接，拒绝根目录、中间目录和最终文件的所有符号链接；挂载必须保持只读。
-- 当前不支持多 Gateway 副本；启用本地媒体回退时，唯一 Gateway 必须挂载与 STRM 相对路径一致的只读媒体根目录。
+当前合同只允许一个 Gateway 进程消费这些 Key，不支持多 Gateway、Redis Cluster 或跨主机时钟协调。部署时禁止使用 `docker compose up --scale ember-gateway>1`、多个宿主机 Gateway 或其他副本编排；这不是经过验证的高可用拓扑。Redis 不可用、超时或脚本失败时，Gateway 不签发新的 115 `302`，但合法请求继续走 Emby fallback；API 用量字段显示不可用而不是零。Redis 数据丢失后以当前空 Key 重新计数，不从 PostgreSQL 或 `playback_transfer_tasks` 重建。
 
 ### 外部 Nginx 示例
 
