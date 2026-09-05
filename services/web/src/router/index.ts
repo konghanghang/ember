@@ -53,7 +53,7 @@ const router = createRouter({
           path: 'p115',
           name: 'console-p115',
           meta: { role: 'user' },
-          component: () => import('../views/console/P115AccountView.vue'),
+          redirect: '/console/account',
         },
         {
           path: 'profile-analytics',

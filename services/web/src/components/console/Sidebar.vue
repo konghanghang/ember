@@ -18,7 +18,6 @@ import {
   DataLine,
   Iphone,
   Calendar,
-  FolderOpened,
   Key
 } from '@element-plus/icons-vue'
 import ProjectSourceLink from '@/components/common/ProjectSourceLink.vue'
@@ -65,13 +64,6 @@ const menuItems = computed<MenuEntry[]>(() => [
     path: '/console/account',
     icon: Setting,
     role: 'user'
-  },
-  {
-    title: '115 网盘',
-    path: '/console/p115',
-    icon: FolderOpened,
-    role: 'user',
-    exactRole: true
   },
   {
     title: '我的画像',

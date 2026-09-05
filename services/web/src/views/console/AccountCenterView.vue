@@ -10,6 +10,7 @@ import {
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
+import P115AccountView from './P115AccountView.vue'
 import { formatDateTime } from '@/utils/date'
 import { isConflictError } from '@/utils/api-error'
 import { copyToClipboard as copyTextToClipboard } from '@/utils/clipboard'
@@ -30,7 +31,7 @@ import {
 } from '@/api/console'
 import type { AdminEmbyUserOption, TelegramBindCodeResponse, UserInfo, UserMediaLibrarySettings } from '@/types/api'
 
-type AccountTabKey = 'profile' | 'security' | 'media'
+type AccountTabKey = 'profile' | 'security' | 'media' | 'p115'
 
 const authStore = useAuthStore()
 const userStore = useUserStore()
@@ -57,6 +58,7 @@ const accountTabs = [
   { key: 'profile', label: '基本资料' },
   { key: 'security', label: '安全设置' },
   { key: 'media', label: '媒体库偏好' },
+  { key: 'p115', label: '115 播放账号' },
 ] as const
 
 const activeTab = ref<AccountTabKey>(passwordResetRequired.value ? 'security' : 'profile')
@@ -651,6 +653,24 @@ onMounted(() => {
 
       <!-- 内容区全宽铺开，并用最小高度避免宽屏白卡只剩一条细内容 -->
       <div class="min-h-[calc(100vh-14rem)] p-6 sm:p-8">
+        <div v-if="activeTab === 'p115'" data-test="account-section-p115">
+          <EmberEmptyStateCard
+            v-if="authStore.isAdmin"
+            title="管理员账号请使用 115 账号管理"
+            description="此处用于普通用户配置个人播放账号。管理员共享账号请前往管理页面配置。"
+            :icon="FolderOpened"
+          >
+            <template #actions>
+              <RouterLink
+                to="/console/p115-accounts"
+                class="btn-ember inline-flex cursor-pointer items-center rounded-xl px-4 py-2.5 text-sm font-semibold"
+              >
+                前往 115 账号管理
+              </RouterLink>
+            </template>
+          </EmberEmptyStateCard>
+          <P115AccountView v-else />
+        </div>
         <!-- 基本资料：账号信息 + 邮箱 + Emby/Telegram 绑定 -->
         <div
           v-show="activeTab === 'profile'"
