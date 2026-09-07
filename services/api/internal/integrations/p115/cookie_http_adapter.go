@@ -48,6 +48,7 @@ type CookieHTTPAdapter struct {
 	client                  httpDoer
 	uploadInfoEndpoint      *url.URL
 	shaSearchEndpoint       *url.URL
+	sourcePathIDEndpoint    *url.URL
 	sourceListEndpoint      *url.URL
 	targetSearchEndpoint    *url.URL
 	uploadInitEndpoint      *url.URL
@@ -97,6 +98,9 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 	sourceListURL := *shaSearchURL
 	sourceListURL.Path = "/files"
 	sourceListURL.RawPath = ""
+	sourcePathIDURL := *shaSearchURL
+	sourcePathIDURL.Path = "/files/get_path_id"
+	sourcePathIDURL.RawPath = ""
 	downloadURL := *uploadInfoURL
 	downloadURL.Path = "/app/chrome/downurl"
 	downloadURL.RawPath = ""
@@ -107,6 +111,7 @@ func newCookieHTTPAdapter(client httpDoer, uploadInfoEndpoint, shaSearchEndpoint
 		client:                  client,
 		uploadInfoEndpoint:      uploadInfoURL,
 		shaSearchEndpoint:       shaSearchURL,
+		sourcePathIDEndpoint:    &sourcePathIDURL,
 		sourceListEndpoint:      &sourceListURL,
 		targetSearchEndpoint:    &targetSearchURL,
 		uploadInitEndpoint:      uploadInitURL,
@@ -221,8 +226,9 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 	return []File{file}, nil
 }
 
-// ResolveFileByPath traverses exact relative path segments below one explicit
-// root and returns the unique file at that exact directory/name path.
+// ResolveFileByPath resolves the parent directory below one explicit root in a
+// single Provider call, then returns the unique file from a complete snapshot
+// of that final directory.
 func (a *CookieHTTPAdapter) ResolveFileByPath(
 	ctx context.Context,
 	credential Credential,
@@ -237,33 +243,80 @@ func (a *CookieHTTPAdapter) ResolveFileByPath(
 	}
 
 	parentID := normalized.RootID
-	for index, segment := range normalized.Segments {
-		entries, err := a.listSourceDirectory(ctx, credential, parentID)
+	if len(normalized.Segments) > 1 {
+		parentPath := strings.Join(normalized.Segments[:len(normalized.Segments)-1], "/")
+		parentID, err = a.resolveSourceParentDirectory(ctx, credential, normalized.RootID, parentPath)
 		if err != nil {
 			return nil, err
 		}
-		wantDirectory := index < len(normalized.Segments)-1
-		matches := make([]File, 0, 1)
-		for _, entry := range entries {
-			if entry.Name != segment || entry.IsDirectory != wantDirectory {
-				continue
-			}
+	}
+	entries, err := a.listSourceDirectory(ctx, credential, parentID)
+	if err != nil {
+		return nil, err
+	}
+	fileName := normalized.Segments[len(normalized.Segments)-1]
+	matches := make([]File, 0, 1)
+	for _, entry := range entries {
+		if entry.Name == fileName && !entry.IsDirectory {
 			matches = append(matches, entry)
 		}
-		if len(matches) == 0 {
-			return nil, ErrSourceFileNotFound
-		}
-		if len(matches) != 1 {
-			return nil, ErrSourceFileAmbiguous
-		}
-		if wantDirectory {
-			parentID = matches[0].ID
-			continue
-		}
-		file := matches[0]
-		return &file, nil
 	}
-	return nil, ErrSourceFileNotFound
+	if len(matches) == 0 {
+		return nil, ErrSourceFileNotFound
+	}
+	if len(matches) != 1 {
+		return nil, ErrSourceFileAmbiguous
+	}
+	file := matches[0]
+	return &file, nil
+}
+
+// resolveSourceParentDirectory maps one validated relative directory path to a
+// Provider directory ID without allowing playback to create missing folders.
+func (a *CookieHTTPAdapter) resolveSourceParentDirectory(
+	ctx context.Context,
+	credential Credential,
+	rootID, relativePath string,
+) (string, error) {
+	params := url.Values{
+		"is_create": {"0"},
+		"parent_id": {rootID},
+		"path":      {relativePath},
+	}
+	var response struct {
+		State *bool      `json:"state"`
+		ID    jsonUint64 `json:"id"`
+		Data  *struct {
+			FileID jsonUint64 `json:"file_id"`
+		} `json:"data"`
+	}
+	if err := a.getJSON(ctx, a.sourcePathIDEndpoint, params, credential, &response); err != nil {
+		return "", err
+	}
+	if response.State == nil {
+		return "", protocolError("source path response state missing")
+	}
+	if !*response.State {
+		return "", ErrProviderRejected
+	}
+	nestedID := jsonUint64{}
+	if response.Data != nil {
+		nestedID = response.Data.FileID
+	}
+	if response.ID.set && nestedID.set && response.ID.value != nestedID.value {
+		return "", protocolError("source path response id conflict")
+	}
+	directoryID := response.ID
+	if !directoryID.set {
+		directoryID = nestedID
+	}
+	if !directoryID.set {
+		return "", protocolError("source path response id missing")
+	}
+	if directoryID.value == 0 {
+		return "", ErrSourceFileNotFound
+	}
+	return strconv.FormatUint(directoryID.value, 10), nil
 }
 
 // ResolveDirectoryByPath traverses a root-relative path and accepts exactly

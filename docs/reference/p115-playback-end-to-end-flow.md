@@ -373,7 +373,7 @@ sequenceDiagram
     DP->>Accounts: LoadActiveCredentialByRole(source) + AcquirePlaybackRoute(exact account/version)
     Accounts-->>DP: 解密后的窄 Credential + 目录配置
     DP->>Provider: ResolveFileByPath(source root + relative path)
-    Provider->>P115: 逐级目录/文件解析
+    Provider->>P115: 父目录路径一次解析 + 最终目录文件唯一校验
     P115-->>DP: source fileId/pickCode/SHA1/size
 
     DP->>Provider: SearchBySHA1(playback target, SHA1, size)
@@ -482,7 +482,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 | 层级 | 已证明 | 没有证明 |
 | --- | --- | --- |
-| Go 单元/fake HTTP/进程内 fake Redis | 管理员/个人账号生命周期、personal/system 路由、Cookie/会话用途隔离 HMAC、账号/用户 leases+active、`30s/2m/15m` 状态、HEAD 不创建、断连 fallback、小时/自然日配额、pending/succeeded、晚到成功和 2s 提交预算；Provider/Token/Gateway 既有合同 | 真实 Redis 服务、个人 Cookie 固定 UA、真实 personal/system 播放与配额边界 |
+| Go 单元/fake HTTP/进程内 fake Redis | 管理员/个人账号生命周期、personal/system 路由、Cookie/会话用途隔离 HMAC、账号/用户 leases+active、`30s/2m/15m` 状态、HEAD 不创建、断连 fallback、小时/自然日配额、pending/succeeded、晚到成功和 2s 提交预算；source 父目录 `/files/get_path_id` 一次解析、最终目录分页与文件唯一性；Provider/Token/Gateway 既有合同 | 真实 Redis 服务、目标账号 `/files/get_path_id` 响应与非零 `parent_id` 行为、个人 Cookie 固定 UA、真实 personal/system 播放与配额边界 |
 | PostgreSQL 集成 | 既有账号/transfer/Token migration、唯一约束、advisory lock、并发只秒传一次、共享冷却和旧 Cookie 结果丢弃已有历史证据；2026-09-05 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境执行并通过 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`，本轮新增 personal migration 用例覆盖幂等、默认 personal、owner/Provider/共享角色 unique、RESTRICT、tombstone 与 transfer provenance | 不验证真实 Redis、真实 115 或多 Gateway 部署语义 |
 | 2026-08-22 受控 115 检查 | source 只读、一次 challenge 秒传、目标复核、playback downurl/128 KiB Range、preexisting 复跑、文件保留 | Gateway/Infuse 端到端播放 |
 | GitHub Actions 预览构建 | 单 `ember` 二进制 API 镜像可实际构建和推送 | 目标部署网络与原始 Emby 隔离 |

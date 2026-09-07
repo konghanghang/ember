@@ -17,12 +17,12 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
 | Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id`；2026-08-22 两个真实 Cookie | 固定 GET 端点、`state` 和 Cookie `UID` 取值已在两个不同账号上通过；长期稳定性、风控和其他客户端仍未证实 |
 | Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出；2026-08-22 受控写入验证 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和完整上传表单；真实端点曾返回 220/236 字节二进制响应，均由完整 AES blocks 加 12 字节短尾部组成。对齐固定实现的完整 block 解密与 LZ4 终止语义后，真实 `range_challenge → reused` 已通过 |
-| 源路径解析与 Range 校验 | 同提交内 `fs_files`、`get_id_to_path`、`read_range` 和秒传 Range callback；2026-08-22 本地真实只读检查 | 10,747,391,752 字节源文件按 root-relative path/size 成功解析；source URL 为 `f=1`、并发上限 `2`，精确 `bytes=0-131071` 读取 `131072` 字节并完成 SHA1；未读取完整文件 |
+| 源路径解析与 Range 校验 | 同提交内 `fs_dir_getid2`、`fs_files`、`read_range` 和秒传 Range callback；父目录快速解析已有 fake HTTP 合同；2026-08-22 本地真实只读检查仍是旧逐级 `/files` 路径 | 父目录路径一次解析、最终目录完整分页与文件唯一性已由自动化锁定；旧真实源文件曾按 root-relative path/size 成功解析并完成精确 128 KiB Range，但尚未真实验证 `/files/get_path_id` 的响应和非零 `parent_id` 行为 |
 | 真实下载 CDN hostname | 2026-08-22 本地一次性只读检查；UDown/38.2.0 UA；真实 `proapi.115.com` 加密响应、DNS 与 TLS 证书 | source 下载 URL 返回 `cdnfhnfile.115cdn.net`；TLS 证书组织为广东一一五科技股份有限公司且 SAN 覆盖 `*.115cdn.net` / `115cdn.net`，Ember 仅把本次精确 hostname 加入 allowlist |
 | `emby-toolkit` 小号播放行为 | `emby-toolkit` `v10.8.63`、提交 `7e64564884c9949390e5894b4be71038808e4e2a` | 只用于理解账号选择与失败语义，不复制 AGPL 代码 |
 | 上游许可证 | 固定提交根 `LICENSE` / `pyproject.toml` 和模块 `pyproject.toml` 写 MIT，但模块 `LICENSE` / `LICENSE_zh` 与源码 `__license__` 写 GPLv3 | 按 GPLv3 保守边界处理：不复制、翻译或运行时依赖上游源码，只使用临时黑盒执行得到的兼容向量；这不是对上游最终许可的法律认定 |
 | 115 Cookie/Web API 稳定性 | 非官方接口 | 随时可能变化，必须通过 Provider 边界隔离 |
-| Ember 真实账号行为 | 部分实机确认 | 两个账号的登录/uploadinfo、源解析、双重查重、preID、一次 Range challenge、秒传复用、目标复核、source/playback downurl、128 KiB Range 和保留文件的 preexisting 快速路径已通过；重复运行未再次上传且未调用删除。数据库锁、播放网关/Infuse、风控、配额和长期稳定性仍未证实 |
+| Ember 真实账号行为 | 部分实机确认 | 两个账号的登录/uploadinfo、旧逐级源解析、双重查重、preID、一次 Range challenge、秒传复用、目标复核、source/playback downurl、128 KiB Range 和保留文件的 preexisting 快速路径已通过；重复运行未再次上传且未调用删除。新的父目录路径接口、风控和长期稳定性仍未证实 |
 
 证据等级：
 
@@ -60,7 +60,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 | `ValidateCredential` | 验证 Cookie 是否能识别账号，并返回脱敏账号标识 |
 | `GetUploadInfo` | 获取上传初始化所需 `userId`、`userKey` 等账号数据 |
 | `SearchBySHA1` | 按 SHA1 查询候选文件，业务层再次校验大小和文件类型 |
-| `ResolveFileByPath` | 在显式根目录下逐级解析相对路径，返回完整源文件身份 |
+| `ResolveFileByPath` | 在显式根目录下按父目录路径一次解析目录 ID，再在最终目录唯一取得完整源文件身份 |
 | `ResolveDirectoryByPath` | 把用户友好的 playback 根目录相对路径解析为唯一目录 ID；不创建目录 |
 | `InitRapidUpload` | 发起秒传，映射为复用成功、范围校验、普通上传或失败 |
 | `GetDownloadURL` | 获取下载地址及其 UA、Cookie、过期时间等使用约束 |
@@ -178,14 +178,16 @@ Emby `PlaybackInfo` 提供媒体源 `Path` 和可能缺失或不可靠的 `Size`
 - `embyPathPrefix` 必须是非 `/` 的绝对 Unix 路径，禁止尾随 `/`、反斜杠、空段、`.`、`..`、NUL 或换行；`/mnt/source2` 不能命中 `/mnt/source`。
 - `rootId` 必须是显式十进制目录 ID；相对路径不允许绝对路径、反斜杠、空段、`.`、`..`、NUL 或换行，不执行会改变文件名语义的 path clean。
 - 相对路径总长上限为 `4 KiB`，单段上限为 `1024` 字节；这些是 Ember 首期安全边界，不是 115 官方限制。
-- 每一级固定发送 `GET /files`，query 为 `aid=1`、当前 `cid`、`cur=1`、`show_dir=1`、`fc_mix=1`、`count_folders=1`、`o=file_name`、`asc=1`、`limit=200` 和当前 `offset`。
-- 响应必须有顶层布尔 `state=true`，并严格映射 `cid/count/offset/data`；响应 `cid` 与请求不一致时视为未找到，防止无效目录被 Provider 静默回退到根目录。
+- 相对路径只有最终文件名时，父目录直接使用显式 `rootId`；存在父目录时固定发送 `GET /files/get_path_id`，query 只包含 `parent_id=rootId`、slash 分隔的相对父目录 `path` 和 `is_create=0`。播放解析禁止创建目录。
+- 路径响应必须有顶层布尔 `state=true`，目录 ID 只接受顶层 `id` 或 `data.file_id` 的正十进制值；两者同时存在时必须相等。缺字段、非法值或冲突按协议错误，零 ID 按未找到处理，业务拒绝不回显原始响应。
+- 取得父目录 ID 后固定发送 `GET /files`，query 为 `aid=1`、该 `cid`、`cur=1`、`show_dir=1`、`fc_mix=1`、`count_folders=1`、`o=file_name`、`asc=1`、`limit=200` 和当前 `offset`。
+- `/files` 响应必须有顶层布尔 `state=true`，并严格映射 `cid/count/offset/data`；响应 `cid` 与请求不一致时视为未找到，防止无效目录被 Provider 静默回退到根目录。
 - 固定映射 Web 列表短字段：目录使用 `cid/pid/n`，文件使用 `fid/cid/n/pc/sha/s`。每一项的 parent 必须等于请求 `cid`，返回文件必须包含合法 pickCode、SHA1 和 size。
-- 每一级目录名必须唯一；最终文件在已经确定的父目录内使用“精确文件名 + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个同名候选即使 Size 不同也返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。唯一命中后必须由 115 响应提供合法 fileId、pickCode、SHA1、正数 Size 和正确 parentId；这些 Provider 字段才是后续文件身份。
-- 为了检测同名项，单级目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期每级最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。
+- 最终文件在已经确定的父目录内使用“精确文件名 + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个同名候选即使 Size 不同也返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。唯一命中后必须由 115 响应提供合法 fileId、pickCode、SHA1、正数 Size 和正确 parentId；这些 Provider 字段才是后续文件身份。
+- 为了检测最终文件同名项，最终目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。中间目录由 Provider 路径接口选择，Ember 不再自行枚举并判断同名目录歧义。
 - 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
 
-证据：固定提交的 [`fs_files`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L11481-L11640) 固定 method/path/query 能力与分页字段；[`normalize_attr_web`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L80-L180) 固定 Web 短字段语义；[`get_id_to_path`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L1399-L1580) 证明文件路径需要逐级目录列举而不能只调用目录 ID 接口。以上仍需目标账号实测。
+证据：固定提交的 [`fs_dir_getid2`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L10837-L10885) 固定 `GET /files/get_path_id`、`path/parent_id/is_create` 和仅返回目录 ID 的边界；[`fs_files`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L11481-L11640) 固定最终目录 method/path/query 与分页字段；[`normalize_attr_web`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L80-L180) 固定 Web 短字段语义。父目录路径接口已有 fake HTTP 合同，尚未使用目标账号执行真实只读验证。
 
 #### 5.2.2 playback 目录路径解析
 
@@ -381,7 +383,7 @@ Adapter 不判断一个文件是否应当删除。第二阶段若启用容量回
 - `EncryptRequest` 与 `DecryptResponse` 覆盖协议 AES-CBC 填充语义、响应短尾部兼容、长度前缀 LZ4 block 解压及其固定终止语义，解压结果设置上限；失败只向检查器暴露 `aes` / `lz4` 子阶段，不暴露密文或明文。
 - `BuildUploadRequest` 覆盖 filename、preID、topupload、`sig`、`token`、参数排序和请求密文；单字节输入变化必须改变派生结果。
 - `RSAEncrypt` 覆盖 Chrome downurl 请求包装；`RSADecrypt` 使用固定任意密文黑盒向量锁定服务端响应变换，不把测试 seam 当作真实服务端密文证据。
-- `GetUploadInfo`、`ResolveFileByPath`、`ResolveDirectoryByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 均已通过 fake HTTP 合同接入。2026-08-22 真实只读运行已覆盖账号验证、上传信息、源路径解析、SHA1 查重、source downurl 和 128 KiB Range；受控写入在补齐 AES 短尾部与 LZ4 终止语义后返回 `outcome=passed`，覆盖双重查重、preID、一次 Range challenge、`reused`、目标复核、playback 最终直链和 128 KiB Range。随后用保留文件完成 preexisting 快速路径，确认不再上传、重新签发 playback 直链并再次通过 Range。播放网关/Infuse 与数据库锁仍未完成真实验证，因此不能据此宣称完整秒传直播放链路已上线。
+- `GetUploadInfo`、`ResolveFileByPath`、`ResolveDirectoryByPath`、`InitRapidUpload`、`FindTargetFile`、`GetDownloadURL` 和 `HashFileRange` 均已通过 fake HTTP 合同接入。2026-08-22 真实只读运行已覆盖账号验证、当时逐级 `/files` 的源路径解析、SHA1 查重、source downurl 和 128 KiB Range；这份旧证据不证明 2026-09-07 新增的 `/files/get_path_id` 父目录快速解析。受控写入在补齐 AES 短尾部与 LZ4 终止语义后返回 `outcome=passed`，覆盖双重查重、preID、一次 Range challenge、`reused`、目标复核、playback 最终直链和 128 KiB Range。随后用保留文件完成 preexisting 快速路径，确认不再上传、重新签发 playback 直链并再次通过 Range。
 
 证据：[`p115cipher`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/modules/p115cipher/p115cipher/__init__.py)。
 
@@ -444,7 +446,7 @@ playbackAccountId + SHA1 + size
 以下是 source 文件在 playback 缺失时的唯一首期闭环。各步骤不能交换顺序，也不能把 source 下载地址直接交给播放器：
 
 1. 运行时加载唯一可运行的 source 和 playback 账号，确认两个 Provider UID 不同；稳定态必须为 `active + enabled`，已到期 `cooling_down` 仅允许数据库半开租约持有者继续。playback 必须配置明确的 `targetParentId`，禁止默认写入根目录。
-2. 使用 source 账号的 `embyPathPrefix + sourceRootId` 把 Emby `Path` 转换为 `rootId + relativePath`，调用 `ResolveFileByPath` 按完整目录链和最终文件名唯一取得 source `fileId/pickCode/SHA1/size/parentId`；Emby Size 只作为观察值，不参与解析或一致性判断，后续统一使用 Provider 返回的正数 Size。
+2. 使用 source 账号的 `embyPathPrefix + sourceRootId` 把 Emby `Path` 转换为 `rootId + relativePath`。相对路径存在父目录时，`ResolveFileByPath` 先以 `parent_id=rootId + path=相对父目录 + is_create=0` 一次取得父目录 ID；随后在最终目录完整分页并按最终文件名唯一取得 source `fileId/pickCode/SHA1/size/parentId`。Emby Size 只作为观察值，不参与解析或一致性判断，后续统一使用 Provider 返回的正数 Size。
 3. 使用 playback Cookie 按 source `SHA1 + size` 执行 `SearchBySHA1`：
    - 已命中：复核非目录和 size 后直接进入第 9 步；这是 playback 预存文件，不属于 Ember 秒传任务，禁止后续自动删除。
    - 未命中：继续创建或复用传输任务。
@@ -497,7 +499,7 @@ playbackAccountId + SHA1 + size
 1. Cookie 加密落库、替换和 API 永不回显明文。
 2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化；Cookie 客户端识别覆盖完整已知 `ssoent` 映射、`A1 → web`、未知编码人工兜底，以及创建/替换同步刷新 `app_type`。
 3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
-4. 源文件解析覆盖固定 `/files` query、逐级目录、分页、无效 cid 回退、size 不符、重名歧义、目录规模上限和非法相对路径。
+4. 源文件解析覆盖固定 `/files/get_path_id` method/query、`is_create=0`、顶层/嵌套目录 ID、缺失/零值/冲突 ID、根目录文件跳过路径接口，以及最终 `/files` 完整分页、无效 cid 回退、同名文件歧义、目录规模上限和非法相对路径。
 5. playback 目录解析覆盖可选前导 `/`、多层目录、文件同名过滤、最终文件拒绝、同名目录歧义、分页、cid 回退和非法路径。
 6. SHA1 查重覆盖无 parent 的全局 `shasearch` 与有 parent 的目录作用域 `/files/search`，并覆盖 Web 短字段/app2 长字段命中、固定未命中、size/目录/parent 不匹配、多个精确候选和非法字段。
 7. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。

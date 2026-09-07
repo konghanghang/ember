@@ -755,7 +755,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `integrations/p115.DetectCookieAppType`：只解析 Cookie `UID` 的第二段 `ssoent` 并映射固定客户端类型，不调用 115；`A1` 归一为 `web`，未知编码不猜测
 - `integrations/p115.CookieProvider`：组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，通过编译期断言完整实现 Provider-neutral 接口；生产账号控制面注入该对象的验证边界，后续 direct play Service 可复用同一具体 Provider
 - `integrations/p115.CookieHTTPAdapter.GetUploadInfo`：固定请求上传信息端点，严格映射顶层 `user_id` / `userkey`，并要求响应用户与 Cookie UID 一致
-- `integrations/p115.CookieHTTPAdapter.ResolveFileByPath`：在显式 root 下逐级分页列举 `/files`，精确匹配相对路径目录链和最终文件名，唯一命中后返回 Provider 权威 Size/SHA1/fileId/pickCode；不使用 Emby Size 过滤。无效 cid 回退、分页漂移、同目录同名歧义和单级超过 10,000 项全部失败关闭
+- `integrations/p115.CookieHTTPAdapter.ResolveFileByPath`：相对路径存在父目录时，以显式 `sourceRootId` 作为 `parent_id`、相对父目录作为 `path` 并固定 `is_create=0`，通过 `/files/get_path_id` 一次取得父目录 ID；文件直接位于 source root 时跳过该调用。随后只在最终目录完整分页 `/files`，按精确文件名和非目录类型唯一取得 Provider 权威 Size/SHA1/fileId/pickCode；不使用 Emby Size 过滤。路径 ID 缺失/零值/冲突、无效 cid 回退、分页漂移、最终文件同名歧义和目录超过 10,000 项全部失败关闭；中间目录选择信任 Provider 路径接口，当前只有 fake HTTP 证据，尚未执行目标账号真实只读验证
 - `integrations/p115.CookieHTTPAdapter.ResolveDirectoryByPath`：接受一个可选前导 `/` 的 playback 目录路径，逐级只接受唯一目录并返回稳定 ID/规范化路径；根目录、最终文件、同名歧义和 cid 回退全部失败关闭
 - `integrations/p115.CookieHTTPAdapter.SearchBySHA1`：无 parent 时使用旧全局 `shasearch` 并兼容 Web 短字段/app2 长字段；有 parent 时改用目录作用域 `/files/search`，只接受目标目录内 SHA1、size、非目录全部匹配的唯一候选，避免全局单候选造成假未命中
 - `integrations/p115.CookieHTTPAdapter.InitRapidUpload`：校验完整内容身份后获取账号上传信息，调用 `p115cipher.BuildUploadRequest` 生成 `k_ec` 与加密 body；响应 AES-CBC 只解密完整 blocks 并忽略不足 16 字节的短尾部，再把 `status=1/2/7` 映射为普通上传拒绝、复用和有界 Range challenge

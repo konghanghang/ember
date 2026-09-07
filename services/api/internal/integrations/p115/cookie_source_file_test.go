@@ -12,29 +12,32 @@ import (
 	"testing"
 )
 
-func TestCookieHTTPAdapterResolveFileByPathTraversesExactSegments(t *testing.T) {
+func TestCookieHTTPAdapterResolveFileByPathResolvesParentPathOnce(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet || request.URL.Path != "/files" {
-			t.Fatalf("unexpected source resolve request: %s %s", request.Method, request.URL.Path)
+		if request.Method != http.MethodGet {
+			t.Fatalf("unexpected source resolve method: %s", request.Method)
 		}
 		assertCookieAdapterHeaders(t, request)
-		assertSourceListQuery(t, request, sourceResolvePageSize)
 		calls.Add(1)
-		switch request.URL.Query().Get("cid") {
-		case "100":
-			_, _ = w.Write([]byte(`{"state":true,"cid":100,"count":2,"offset":0,"data":[` +
-				`{"fid":901,"cid":100,"n":"unrelated.txt","pc":"unrelated000001","sha":"` + fixtureSHA1 + `","s":5},` +
-				`{"cid":200,"pid":100,"n":"Movies"}]}`))
-		case "200":
-			_, _ = w.Write([]byte(`{"state":true,"cid":"200","count":"1","offset":"0","data":[` +
-				`{"cid":"300","pid":"200","n":"Sci-Fi"}]}`))
-		case "300":
+		switch request.URL.Path {
+		case "/files/get_path_id":
+			query := request.URL.Query()
+			if len(query) != 3 || query.Get("parent_id") != "100" || query.Get("path") != "Movies/科幻 (2026) {tmdb-1}" ||
+				query.Get("is_create") != "0" {
+				t.Fatalf("unexpected source path query: %v", query)
+			}
+			_, _ = w.Write([]byte(`{"state":true,"data":{"file_id":"300"}}`))
+		case "/files":
+			assertSourceListQuery(t, request, sourceResolvePageSize)
+			if request.URL.Query().Get("cid") != "300" {
+				t.Fatalf("unexpected source directory cid=%s", request.URL.Query().Get("cid"))
+			}
 			_, _ = w.Write([]byte(`{"state":true,"cid":300,"count":1,"offset":0,"data":[` +
 				`{"fid":"789","cid":"300","n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `",` +
 				`"sha":"` + fixtureSHA1 + `","s":"1024"}]}`))
 		default:
-			t.Fatalf("unexpected source directory cid=%s", request.URL.Query().Get("cid"))
+			t.Fatalf("unexpected source resolve path: %s", request.URL.Path)
 		}
 	}))
 	defer server.Close()
@@ -42,7 +45,7 @@ func TestCookieHTTPAdapterResolveFileByPathTraversesExactSegments(t *testing.T) 
 	adapter := newTestCookieHTTPAdapter(t, server)
 	file, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
 		RootID:       "100",
-		RelativePath: "Movies/Sci-Fi/fixture-video.mkv",
+		RelativePath: "Movies/科幻 (2026) {tmdb-1}/fixture-video.mkv",
 	})
 	if err != nil {
 		t.Fatalf("ResolveFileByPath() error = %v", err)
@@ -51,13 +54,92 @@ func TestCookieHTTPAdapterResolveFileByPathTraversesExactSegments(t *testing.T) 
 		file.PickCode != fixtureDownloadPickCode || file.SHA1 != fixtureSHA1 || file.Size != 1024 || file.IsDirectory {
 		t.Fatalf("ResolveFileByPath() file = %+v", file)
 	}
-	if calls.Load() != 3 {
-		t.Fatalf("ResolveFileByPath() calls = %d, want 3", calls.Load())
+	if calls.Load() != 2 {
+		t.Fatalf("ResolveFileByPath() calls = %d, want 2", calls.Load())
+	}
+}
+
+func TestCookieHTTPAdapterResolveFileByPathFailsClosedOnParentPathResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr error
+	}{
+		{name: "state missing", body: `{"data":{"file_id":"300"}}`, wantErr: ErrProviderProtocol},
+		{name: "provider rejected", body: `{"state":false,"error":"cookie-secret"}`, wantErr: ErrProviderRejected},
+		{name: "file id missing", body: `{"state":true,"data":{}}`, wantErr: ErrProviderProtocol},
+		{name: "file id invalid", body: `{"state":true,"data":{"file_id":"bad"}}`, wantErr: ErrProviderProtocol},
+		{name: "directory not found", body: `{"state":true,"data":{"file_id":"0"}}`, wantErr: ErrSourceFileNotFound},
+		{name: "conflicting ids", body: `{"state":true,"id":"300","data":{"file_id":"301"}}`, wantErr: ErrProviderProtocol},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				calls.Add(1)
+				if request.URL.Path != "/files/get_path_id" {
+					t.Fatalf("unexpected source resolve path: %s", request.URL.Path)
+				}
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+
+			adapter := newTestCookieHTTPAdapter(t, server)
+			_, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
+				RootID: "100", RelativePath: "Movies/fixture-video.mkv",
+			})
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("ResolveFileByPath() error = %v, want %v", err, test.wantErr)
+			}
+			if calls.Load() != 1 {
+				t.Fatalf("ResolveFileByPath() calls = %d, want 1", calls.Load())
+			}
+			if strings.Contains(fmt.Sprint(err), "cookie-secret") {
+				t.Fatalf("ResolveFileByPath() exposed provider response: %v", err)
+			}
+		})
+	}
+}
+
+func TestCookieHTTPAdapterResolveFileByPathAcceptsTopLevelParentID(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		switch request.URL.Path {
+		case "/files/get_path_id":
+			_, _ = w.Write([]byte(`{"state":true,"id":300}`))
+		case "/files":
+			if request.URL.Query().Get("cid") != "300" {
+				t.Fatalf("unexpected source directory cid=%s", request.URL.Query().Get("cid"))
+			}
+			_, _ = w.Write([]byte(`{"state":true,"cid":300,"count":1,"offset":0,"data":[` +
+				`{"fid":789,"cid":300,"n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `",` +
+				`"sha":"` + fixtureSHA1 + `","s":1024}]}`))
+		default:
+			t.Fatalf("unexpected source resolve path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	adapter := newTestCookieHTTPAdapter(t, server)
+	file, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
+		RootID: "100", RelativePath: "Movies/fixture-video.mkv",
+	})
+	if err != nil || file == nil || file.ID != "789" {
+		t.Fatalf("ResolveFileByPath() file=%+v error=%v", file, err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("ResolveFileByPath() calls = %d, want 2", calls.Load())
 	}
 }
 
 func TestCookieHTTPAdapterResolveFileByPathUsesProviderSizeAfterUniqueNameMatch(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.URL.Path != "/files" || request.URL.Query().Get("cid") != "100" {
+			t.Fatalf("unexpected root file request: %s %v", request.URL.Path, request.URL.Query())
+		}
 		_, _ = w.Write([]byte(`{"state":true,"cid":100,"count":1,"offset":0,"data":[` +
 			`{"fid":789,"cid":100,"n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `",` +
 			`"sha":"` + fixtureSHA1 + `","s":2048}]}`))
@@ -68,7 +150,7 @@ func TestCookieHTTPAdapterResolveFileByPathUsesProviderSizeAfterUniqueNameMatch(
 	file, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
 		RootID: "100", RelativePath: "fixture-video.mkv",
 	})
-	if err != nil || file == nil || file.Size != 2048 {
+	if err != nil || file == nil || file.Size != 2048 || calls.Load() != 1 {
 		t.Fatalf("ResolveFileByPath() file=%+v error=%v", file, err)
 	}
 }
@@ -113,13 +195,6 @@ func TestCookieHTTPAdapterResolveFileByPathFailsClosedOnMissingAndAmbiguousMatch
 				`{"fid":789,"cid":100,"n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `","sha":"` + fixtureSHA1 + `","s":1024},` +
 				`{"fid":790,"cid":100,"n":"fixture-video.mkv","pc":"a1b2c3d4e5f6g7h9","sha":"` + fixtureSHA1 + `","s":2048}]}`,
 			wantErr: ErrSourceFileAmbiguous,
-		},
-		{
-			name: "ambiguous intermediate directories",
-			body: `{"state":true,"cid":100,"count":2,"offset":0,"data":[` +
-				`{"cid":200,"pid":100,"n":"Movies"},{"cid":201,"pid":100,"n":"Movies"}]}`,
-			relativePath: "Movies/fixture-video.mkv",
-			wantErr:      ErrSourceFileAmbiguous,
 		},
 		{
 			name:    "directory exceeds bounded snapshot",

@@ -2,7 +2,7 @@
 
 > 状态：进行中（阶段 1 核心闭环已落地并取得真实 302，完整 E2E 与阶段 2 未完成）
 > 负责人：Ember
-> 更新时间：2026-09-01
+> 更新时间：2026-09-07
 
 ## 背景
 
@@ -120,7 +120,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 新增 `CookieHTTPAdapter.GetDownloadURL`，固定 Chrome downurl RSA request/response seam、真实客户端 UA、HTTPS 115 域名 allowlist、`t/c/f`、并发上限、过期和脱敏错误映射。
 - 新增 `CookieHTTPAdapter.DeleteFile`，固定单文件 `fid` 表单和响应映射，并按 Provider UID 使用进程内共享锁串行删除；跨 UID 可并行，锁等待支持取消。
 - 新增具体 `CookieProvider`，组合账号验证与全部数据面 Adapter，并通过编译期断言保证完整实现 Provider-neutral 接口；生产账号控制面已注入该实现。
-- 新增 `CookieHTTPAdapter.ResolveFileByPath`，在显式 `rootId` 下逐级分页列举 `/files`，精确匹配目录链和最终文件名，拒绝无效 cid 回退、同名歧义、分页漂移和超大目录；2026-08-29 起不再使用 Emby Size 过滤，唯一 Provider 文件的 Size/SHA1 才是权威身份。
+- 新增 `CookieHTTPAdapter.ResolveFileByPath`；2026-08-29 起不再使用 Emby Size 过滤，唯一 Provider 文件的 Size/SHA1 才是权威身份。2026-09-07 真实 Infuse `8.5.3` 首次播放日志确认单次冷路径在返回 `302` 前达到约 `7.8s`，现有日志不能独立拆分各 Provider 阶段；代码路径中的旧多级 source 解析已改为使用 Cookie/Web `GET /files/get_path_id`，以 `parent_id=sourceRootId + path=相对父目录 + is_create=0` 一次解析父目录，再对最终目录执行完整分页与文件唯一性校验。目录接口不充当文件身份接口，播放时不创建目录；新路径接口已有 fake HTTP 合同，目标账号真实只读验证待明确授权后执行。
 - 新增 `CookieHTTPAdapter.ResolveDirectoryByPath`，支持 `/EmberPlayback` 形式的 playback 路径，逐级只接受唯一目录并返回内部 ID；不创建目录，目录 API/Web 体验仍待实现。
 - 新增 `CookieHTTPAdapter.HashFileRange`，在 Provider 内获取源账号签名 URL，只读取最大 `1 MiB` 的指定 Range，严格校验 `206`、`Content-Range`、`Content-Length` 与 HeaderMode，只向业务层返回 SHA1 和读取字节数。
 - 新增一次性 `cmd/p115-contract-check`，使用不包含上传和删除的窄接口完成真实只读检查；CI、缺少显式确认值或缺少终端环境输入时拒绝运行，脱敏报告不输出 Cookie、账号标识、路径、pickCode、完整 SHA1 或签名 URL。fake Provider 自动化验证和 2026-08-22 本地真实只读完整运行均已通过。
@@ -424,7 +424,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 1. PlaybackInfo 透明转发；只有当前 Emby Server 成功接受相同 Token 后，才记录 Token 映射、ItemId、MediaSourceId 和 PlaySessionId 的短期授权证明。
 2. 原始视频流请求到达后先校验 Token、用户和本地硬状态；失败时 `reject`，不能回退绕过门控。
 3. Principal 合法后再检查证明、加速资格、客户端和并发；首期只有固定 `GET/HEAD` 视频路径同时带唯一 `MediaSourceId`、唯一 `PlaySessionId`、精确 `Static=true` 且容器匹配时尝试 115，任何不满足均 `fallback` 到原始 Emby 请求。
-4. 从进程内 PlaybackInfo 快照取得 Path，按 source 账号的 `embyPathPrefix/sourceRootId` 调用 `ResolveMediaPath`；Emby Size 仅留在观察日志。
+4. 从进程内 PlaybackInfo 快照取得 Path，按 source 账号的 `embyPathPrefix/sourceRootId` 调用 `ResolveMediaPath`；Emby Size 仅留在观察日志。相对路径存在父目录时，Provider 使用 `GET /files/get_path_id` 配合 `parent_id=sourceRootId`、相对父目录路径和固定 `is_create=0` 一次取得父目录 ID；文件直接位于 source root 时跳过该调用。随后只在已确认父目录内完整分页，按精确文件名和非目录类型唯一取得 Provider 权威 `fileId/pickCode/SHA1/size/parentId`。
 5. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
 6. 命中后更新对应任务的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
 7. 校验过期时间、Header 要求和域名 allowlist，兼容时返回空体 302；任一步失败都透明 fallback Emby。
@@ -629,12 +629,19 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 - `go test -race -count=1 ./internal/services/p115account ./internal/services/directplay`、`go vet ./...` 和 `go build ./...` 通过。
 - 全部 Provider/DirectPlay 自动化使用 fake，不启动服务、不请求真实 Emby/115；这证明状态机、数据库条件更新和并发租约，不证明生产 115 限流错误码或 1 分钟冷却时长最优。
 
+2026-09-07 source 父目录快速解析验证：
+
+- TDD 先将多层源路径用例收口为 `GET /files/get_path_id` 一次解析父目录、`GET /files` 一次读取最终目录，生产实现前测试按预期失败，最小实现后通过。
+- fake HTTP 合同覆盖非零 `parent_id`、中文/空格/括号路径、固定 `is_create=0`、顶层 `id` 与嵌套 `data.file_id`、缺失/零值/冲突 ID、根目录文件跳过路径接口、最终目录分页与文件同名歧义。
+- `go test ./... -count=1`、`go test -race ./internal/integrations/p115 ./internal/services/directplay ./internal/playbackgateway -count=1`、`go vet ./...`、`go build ./...` 与 `git diff --check` 通过；全部外部依赖使用 fake，没有启动服务或请求真实 115/Emby。
+- 目标账号 `/files/get_path_id` 真实响应、非零 `parent_id` 和冷路径耗时改善仍待用户明确授权后的只读检查，不能用固定源码或 fake 测试替代。
+
 测试分层：
 
 - Emby 合同：固定认证、PlaybackInfo、视频流、字幕和播放事件 fixture。
 - Token 身份：HMAC 固定向量、认证响应透明、并发 upsert、ServerId/EmbyID 错配、明文不落库、`lastSeenAt` 限频和 revoked 查询。
 - Token 撤销：单 Token、单设备、用户全部撤销，以及停用/访问禁用/解绑的硬撤销联动；到期和套餐拒绝保持动态判断。
-- 115 合同：Cookie 脱敏、源路径逐级解析、SHA1 查重、`status=2`、`status=7`、受限 Range Hash、`status=1`、下载 Header 和错误映射。
+- 115 合同：Cookie 脱敏、父目录路径一次解析、最终目录完整分页和文件唯一性、SHA1 查重、`status=2`、`status=7`、受限 Range Hash、`status=1`、下载 Header 和错误映射。
 - 保留式秒传检查器：双重查重、preID、零/一次 challenge、重复 challenge 失败关闭、目标复核、playback UA Range、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
 - 加密合同：请求加密、响应解密、LZ4、签名和 token 固定向量。
 - Service/Gateway：身份安全 fail-closed；路径、账号、Provider、冷却和直链不兼容时 fallback-to-Emby。
