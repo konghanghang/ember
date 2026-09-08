@@ -23,6 +23,9 @@ import (
 const fixtureRedirectURL = "https://cdn.example.invalid/video.mkv?t=1787414400"
 
 func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
+	// An invalid request exits before dependency loading but still produces a
+	// real timing snapshot, allowing the Gateway handoff to be tested directly.
+	timed, _ := (&directplay.Service{}).Resolve(context.Background(), directplay.ResolveRequest{})
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		upstreamCalls.Add(1)
@@ -31,7 +34,8 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 	defer upstream.Close()
 
 	directPlay := &fakeDirectPlayService{result: directplay.RedirectCandidate{
-		URL: fixtureRedirectURL, ExpiresAt: time.Now().Add(time.Minute),
+		Timing: timed.Timing,
+		URL:    fixtureRedirectURL, ExpiresAt: time.Now().Add(time.Minute),
 		ConcurrentOpenLimit: 2, TaskID: "task-1", Preexisting: true,
 		PathMapping: directplay.MediaPathMapping{
 			OriginalPath: "/mnt/media/fixture.mkv", EmbyPathPrefix: "/mnt/media",
@@ -84,6 +88,7 @@ func TestGatewayVideoRedirectUsesPlaybackProofAndNeverCallsEmby(t *testing.T) {
 		"accountConfiguredStreamLimit=4", "accountEffectiveStreamLimit=3", "simultaneousStreamLimit=3",
 		"userReservedStreams=1", "userActiveStreams=1", "userOccupiedStreams=2",
 		"transferHourlyUsed=2", "transferHourlyLimit=5", "transferDailyUsed=7", "transferDailyLimit=10",
+		"directPlayMs=", "prepareCalls=1", "otherMs=",
 	} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("logs = %q, want %s", logs.String(), expected)
@@ -195,6 +200,7 @@ func TestGatewayVideoDirectPlayFailureFallsBackToEmby(t *testing.T) {
 }
 
 func TestGatewayVideoDirectPlayFailureAlwaysUsesAuthoritativeEmbyFallback(t *testing.T) {
+	timed, _ := (&directplay.Service{}).Resolve(context.Background(), directplay.ResolveRequest{})
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		upstreamCalls.Add(1)
@@ -209,7 +215,7 @@ func TestGatewayVideoDirectPlayFailureAlwaysUsesAuthoritativeEmbyFallback(t *tes
 	defer upstream.Close()
 
 	directPlay := &fakeDirectPlayService{
-		result: directplay.RedirectCandidate{PathMapping: directplay.MediaPathMapping{
+		result: directplay.RedirectCandidate{Timing: timed.Timing, PathMapping: directplay.MediaPathMapping{
 			OriginalPath: "/mnt/media/Media/fixture.mkv", EmbyPathPrefix: "/mnt/media",
 			SourceRootID: "100", RelativePath: "Media/fixture.mkv",
 		}},
@@ -232,6 +238,9 @@ func TestGatewayVideoDirectPlayFailureAlwaysUsesAuthoritativeEmbyFallback(t *tes
 		t.Fatalf("response headers=%v", response.Header())
 	}
 	assertSingleDecisionLog(t, logs.String(), "fallback", "direct_play", "account_unavailable")
+	if !strings.Contains(logs.String(), "directPlayMs=") || !strings.Contains(logs.String(), "prepareCalls=1") {
+		t.Fatalf("fallback dropped timing: %s", logs.String())
+	}
 	for _, expected := range []string{`message="115直链失败，Emby回退成功"`, "directPlayResult=failure", "fallbackTarget=emby", "fallbackResult=success", "statusCode=206"} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("logs=%q, want %s", logs.String(), expected)

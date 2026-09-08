@@ -73,6 +73,7 @@ type RedirectCandidate struct {
 	Preexisting         bool                               `json:"preexisting"`
 	PathMapping         MediaPathMapping                   `json:"-"`
 	Routing             RoutingDiagnostics                 `json:"-"`
+	Timing              TimingDiagnostics                  `json:"-"`
 }
 
 // RoutingDiagnostics contains only fixed modes and aggregate counts used by
@@ -251,8 +252,11 @@ func newRoutedServiceWithDependencies(
 }
 
 // Resolve returns a fresh playback-account download URL, creating and
-// retaining the target file exactly once when it is absent.
-func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (RedirectCandidate, error) {
+// retaining the target file exactly once when it is absent. Timing is returned
+// on both success and failure for the Gateway's single decision log.
+func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (candidate RedirectCandidate, resolveErr error) {
+	ctx, timing := withTiming(ctx)
+	defer func() { candidate.Timing = timing.finish() }()
 	if err := validateResolveRequest(request); err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -264,8 +268,11 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (Re
 }
 
 // ResolveMediaPath maps an Emby media path through the active source account
-// before entering the already tested transfer orchestration.
-func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathResolveRequest) (RedirectCandidate, error) {
+// before entering transfer orchestration, preserving elapsed diagnostics even
+// when mapping, account admission or Provider operations fail.
+func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathResolveRequest) (candidate RedirectCandidate, resolveErr error) {
+	ctx, timing := withTiming(ctx)
+	defer func() { candidate.Timing = timing.finish() }()
 	mapping := MediaPathMapping{OriginalPath: request.Path}
 	if !validAbsoluteMediaPath(request.Path, maxDirectPlayMediaPath) {
 		return RedirectCandidate{PathMapping: mapping}, ErrPathNotMapped
@@ -303,7 +310,7 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 			FailureContext{AccountRole: string(models.P115AccountRoleSource)},
 		)
 	}
-	candidate, err := service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
+	candidate, err = service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
 		SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
 	}, nil)
 	candidate.PathMapping = mapping
@@ -540,7 +547,10 @@ func (service *Service) resolveWithAccounts(
 	request ResolveRequest,
 	quota *transferQuotaContext,
 ) (RedirectCandidate, error) {
+	finishPreparation(ctx)
+	finishSource := measureStage(ctx, "sourceResolve")
 	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
+	finishSource()
 	if err != nil {
 		return RedirectCandidate{}, service.reportProviderFailure(source, failureOperationResolveSourcePath, err)
 	}
@@ -567,7 +577,9 @@ func (service *Service) resolveWithAccounts(
 		return candidate, nil
 	}
 
+	finishLock := measureStage(ctx, "lockWait")
 	lock, err := service.locker.Acquire(ctx, playback.Credential.AccountID, sha1Value, sourceFile.Size)
+	finishLock()
 	if err != nil {
 		return RedirectCandidate{}, fmt.Errorf("%w: acquire", ErrLockUnavailable)
 	}
@@ -692,9 +704,11 @@ func (service *Service) resolveUnderLock(
 		return p115integration.File{}, "", false, err
 	}
 	preIDRange := boundedRange(sourceFile.Size)
+	finishPreID := measureStage(ctx, "preID")
 	preIDHash, err := service.provider.HashFileRange(ctx, source.Credential, p115integration.FileRangeRequest{
 		File: sourceFile, Range: preIDRange,
 	})
+	finishPreID()
 	if err != nil {
 		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(source, failureOperationHashSourcePreID, err))
 	}
@@ -708,7 +722,9 @@ func (service *Service) resolveUnderLock(
 		FileName: sourceFile.Name, SHA1: query.SHA1, Size: query.Size,
 		TargetParentID: playback.TargetParentID, PreID: preID,
 	}
+	finishUpload := measureStage(ctx, "rapidUpload")
 	result, err := service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
+	finishUpload()
 	if err != nil {
 		return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload initialization failed", service.reportProviderFailure(playback, failureOperationRapidUpload, err))
 	}
@@ -720,9 +736,11 @@ func (service *Service) resolveUnderLock(
 		if err := service.markStatus(ctx, task.ID, models.PlaybackTransferTaskStatusChallenging); err != nil {
 			return p115integration.File{}, "", false, err
 		}
+		finishChallenge := measureStage(ctx, "challenge")
 		challengeHash, hashErr := service.provider.HashFileRange(ctx, source.Credential, p115integration.FileRangeRequest{
 			File: sourceFile, Range: result.Challenge.Range,
 		})
+		finishChallenge()
 		if hashErr != nil {
 			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", service.reportProviderFailure(source, failureOperationHashSourceChallenge, hashErr))
 		}
@@ -739,7 +757,9 @@ func (service *Service) resolveUnderLock(
 		if err := service.markStatus(ctx, task.ID, models.PlaybackTransferTaskStatusInitializing); err != nil {
 			return p115integration.File{}, "", false, err
 		}
+		finishUpload = measureStage(ctx, "rapidUpload")
 		result, err = service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
+		finishUpload()
 		if err != nil {
 			return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload retry failed", service.reportProviderFailure(playback, failureOperationRapidUploadRetry, err))
 		}
@@ -760,7 +780,9 @@ func (service *Service) resolveUnderLock(
 	if err := service.markStatus(ctx, task.ID, models.PlaybackTransferTaskStatusVerifying); err != nil {
 		return p115integration.File{}, "", false, err
 	}
+	finishVerify := measureStage(ctx, "targetVerify")
 	target, err = service.provider.FindTargetFile(ctx, playback.Credential, query)
+	finishVerify()
 	if err != nil {
 		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", service.reportProviderFailure(playback, failureOperationVerifyPlaybackTarget, err))
 	}
@@ -772,7 +794,9 @@ func (service *Service) resolveUnderLock(
 		// After Provider success, preserve pending on bookkeeping failure so its
 		// original five-minute TTL remains the only automatic release path.
 		releasePending = false
+		finishCommit := measureStage(ctx, "transferCommit")
 		commit, commitErr := service.commitTransferWithRetry(quota.UserID, transferAttemptID)
+		finishCommit()
 		if commitErr != nil {
 			return service.failTask(ctx, task.ID, "transfer_quota_commit_failed", "transfer quota success bookkeeping failed", ErrTransferQuotaCommitFailed)
 		}
@@ -850,7 +874,9 @@ func mapTransferQuotaError(err error) error {
 
 // searchTarget accepts only one exact file in the configured playback parent.
 func (service *Service) searchTarget(ctx context.Context, account p115account.ActiveAccountCredential, query p115integration.FileQuery) (*p115integration.File, bool, error) {
+	finishSearch := measureStage(ctx, "targetSearch")
 	files, err := service.provider.SearchBySHA1(ctx, account.Credential, query)
+	finishSearch()
 	if err != nil {
 		return nil, false, service.reportProviderFailure(account, failureOperationSearchPlaybackTarget, err)
 	}
@@ -877,9 +903,11 @@ func (service *Service) downloadCandidate(
 	userAgent, taskID string,
 	preexisting bool,
 ) (RedirectCandidate, error) {
+	finishDownload := measureStage(ctx, "downloadURL")
 	download, err := service.provider.GetDownloadURL(ctx, account.Credential, p115integration.DownloadURLRequest{
 		PickCode: target.PickCode, UserAgent: userAgent,
 	})
+	finishDownload()
 	if err != nil {
 		return RedirectCandidate{}, service.reportProviderFailure(account, failureOperationGetDownloadURL, err)
 	}

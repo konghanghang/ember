@@ -2,7 +2,7 @@
 
 > 状态：进行中（阶段 1 核心闭环已落地并取得真实 302，完整 E2E 与阶段 2 未完成）
 > 负责人：Ember
-> 更新时间：2026-09-07
+> 更新时间：2026-09-08
 
 ## 背景
 
@@ -635,6 +635,16 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 - fake HTTP 合同覆盖非零 `parent_id`、中文/空格/括号路径、固定 `is_create=0`、顶层 `id` 与嵌套 `data.file_id`、缺失/零值/冲突 ID、根目录文件跳过路径接口、最终目录分页与文件同名歧义。
 - `go test ./... -count=1`、`go test -race ./internal/integrations/p115 ./internal/services/directplay ./internal/playbackgateway -count=1`、`go vet ./...`、`go build ./...` 与 `git diff --check` 通过；全部外部依赖使用 fake，没有启动服务或请求真实 115/Emby。
 - 目标账号 `/files/get_path_id` 真实响应、非零 `parent_id` 和冷路径耗时改善仍待用户明确授权后的只读检查，不能用固定源码或 fake 测试替代。
+
+2026-09-08 source 目录并发合并：
+
+- 已实现：同账号/精确凭证/Provider UA/AppType/root/相对父目录在途请求合并，目录内文件各自唯一性校验；完成移除，不引入跨请求 TTL 缓存、Redis 元数据或数据库变更。
+- 生命周期：等待者独立取消，最后离开取消上游；旧完成不覆盖新任务；共享读取总预算 30 秒，耗尽保持 Provider unavailable/fallback 语义。
+- TDD 已复现原实现两个并发文件请求产生 2 次路径解析和 2 次列表；合并后各 1 次，后续顺序请求重新读取。fake 测试覆盖取消、全部离开、重试、错误共享、部分结果丢弃、总预算和凭证/目录隔离。
+- 已通过 `go test ./... -count=1`、`go test -race ./internal/integrations/p115 ./internal/services/directplay ./internal/playbackgateway -count=1`、`go vet ./...`、`go build ./...` 与 `git diff --check`；共享根目录三页列表同时覆盖唯一文件成功、缺失和跨页重名拒绝。
+- 验证边界：仅使用 fake 上游；真实路径接口响应、非零 parent_id、中间目录重名和耗时改善仍待受控证据，不把最终文件唯一性当作完整目录链唯一性。短期缓存需先确定同路径文件替换的可见性要求，未纳入本次实现。
+- 文档已同步当前系统架构、Cookie 合同与端到端流程；上述真实验证边界收口前不据此宣布完整计划归档。
+- 耗时诊断：Gateway 原有单条最终决策日志补 DirectPlay 总耗时、准备/源解析/查重/锁等待/preID/challenge/秒传/复核/Redis 记账/直链的阶段耗时与次数，成功和失败均保留；Debug 共享目录摘要补路径解析耗时、分页耗时与请求页数。fake 覆盖精确耗时累计、重复调用计数、未知名称不输出、成功/失败日志传递与共享根目录页数；真实各阶段耗时仍需部署后观察。
 
 测试分层：
 

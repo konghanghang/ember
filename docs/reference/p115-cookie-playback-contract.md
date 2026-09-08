@@ -187,6 +187,14 @@ Emby `PlaybackInfo` 提供媒体源 `Path` 和可能缺失或不可靠的 `Size`
 - 为了检测最终文件同名项，最终目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。中间目录由 Provider 路径接口选择，Ember 不再自行枚举并判断同名目录歧义。
 - 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
 
+2026-09-08 源目录并发读取合同：
+
+- 同一个 Cookie Adapter 内，相同账号 ID、精确 Cookie、AppType、Provider UA、规范化 root ID 和相对父目录共享正在进行的“父目录解析 + 完整分页”；不同文件名各自做唯一性匹配，根目录文件也共享目录读取。合并键使用长度分隔字段的 SHA256 摘要，不保存明文 Cookie，也不输出摘要。
+- 只合并时间重叠的调用；成功或失败完成后立即移除，不缓存完整文件身份或目录快照，不跨进程共享。顺序播放、下一集或后续重试仍重新访问 Provider；每个调用者返回独立 File 值。
+- 每个等待者独立响应取消或 deadline；最后一个等待者离开时取消上游请求并移除任务。旧任务稍后结束不能删除同键的新任务。共享读取从创建起固定最多 `30s`，包含父目录解析与全部分页；这个 Provider 预算耗尽映射 `ErrProviderUnavailable`，不冒充客户端 deadline。每个 HTTP 请求仍使用既有 `10s` 上限。
+- 用户资格、账号健康、租约/转存配额和最终下载 URL 不在共享范围内；仍由各自调用链检查。Debug 每次共享读取结束只记录一条 `source_directory_resolved`，包含 shared、callers、entries、parentResolveMs、listMs、listPages、durationMs、success；listPages 统计实际尝试页数（含失败页），不记录凭证、路径、Provider ID、摘要或响应体。DirectPlay 各调用者另在 Gateway 最终决策日志携带自身等待源解析及后续各阶段的耗时，不把共享工作时间重复累加。
+- **中间目录重名仍未收口**：路径接口只返回一个 ID，现有证据不能证明其会拒绝同名中间目录；最终文件唯一性不等于完整路径唯一性。并发合并不恢复旧逐层歧义检查。后续必须用固定协议证据或明确授权的只读验证确认；若不能保证唯一性，再单独评估逐层校验的请求成本。目标账号的非零 `parent_id`、不存在目录、重名目录和真实耗时仍未证实。
+
 证据：固定提交的 [`fs_dir_getid2`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L10837-L10885) 固定 `GET /files/get_path_id`、`path/parent_id/is_create` 和仅返回目录 ID 的边界；[`fs_files`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L11481-L11640) 固定最终目录 method/path/query 与分页字段；[`normalize_attr_web`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L80-L180) 固定 Web 短字段语义。父目录路径接口已有 fake HTTP 合同，尚未使用目标账号执行真实只读验证。
 
 #### 5.2.2 playback 目录路径解析

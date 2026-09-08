@@ -222,6 +222,12 @@ func TestServiceResolveRunsOneChallengeAndPersistsSucceededTask(t *testing.T) {
 	if result.Preexisting || result.TaskID != "task_1" || result.URL != provider.download.URL {
 		t.Fatalf("Resolve() result = %+v", result)
 	}
+	timingFields := strings.Join(result.Timing.LogFields(), " ")
+	for _, expected := range []string{"targetSearchCalls=2", "lockWaitCalls=1", "preIDCalls=1", "rapidUploadCalls=2", "challengeCalls=1", "targetVerifyCalls=1", "downloadURLCalls=1"} {
+		if !strings.Contains(timingFields, expected) {
+			t.Fatalf("challenge timing=%s missing %s", timingFields, expected)
+		}
+	}
 	if locker.acquireCount != 1 || locker.releaseCount != 1 || store.beginCount != 1 ||
 		store.incrementCount != 1 || store.succeededTaskID != "task_1" {
 		t.Fatalf("transfer persistence: locker=%d/%d begin=%d increments=%d succeeded=%q",

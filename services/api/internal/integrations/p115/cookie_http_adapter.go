@@ -64,6 +64,7 @@ type CookieHTTPAdapter struct {
 	targetVisibilityTimeout time.Duration
 	sourceResolvePageSize   int
 	sourceResolveMaxEntries int
+	sourceFlights           sourceDirectoryFlights
 }
 
 // NewCookieHTTPAdapter builds the production adapter without performing a network call.
@@ -227,8 +228,8 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 }
 
 // ResolveFileByPath resolves the parent directory below one explicit root in a
-// single Provider call, then returns the unique file from a complete snapshot
-// of that final directory.
+// single Provider call, sharing in-flight directory reads with sibling files.
+// Each caller independently requires a unique file in the completed snapshot.
 func (a *CookieHTTPAdapter) ResolveFileByPath(
 	ctx context.Context,
 	credential Credential,
@@ -242,15 +243,18 @@ func (a *CookieHTTPAdapter) ResolveFileByPath(
 		return nil, err
 	}
 
-	parentID := normalized.RootID
-	if len(normalized.Segments) > 1 {
-		parentPath := strings.Join(normalized.Segments[:len(normalized.Segments)-1], "/")
-		parentID, err = a.resolveSourceParentDirectory(ctx, credential, normalized.RootID, parentPath)
-		if err != nil {
-			return nil, err
+	parentPath := strings.Join(normalized.Segments[:len(normalized.Segments)-1], "/")
+	entries, err := a.sourceFlights.do(ctx, sourceDirectoryKey(credential, normalized.RootID, parentPath), func(sharedCtx context.Context) ([]File, error) {
+		parentID := normalized.RootID
+		if parentPath != "" {
+			var resolveErr error
+			parentID, resolveErr = a.resolveSourceParentDirectory(sharedCtx, credential, normalized.RootID, parentPath)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
 		}
-	}
-	entries, err := a.listSourceDirectory(ctx, credential, parentID)
+		return a.listSourceDirectory(sharedCtx, credential, parentID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +282,12 @@ func (a *CookieHTTPAdapter) resolveSourceParentDirectory(
 	credential Credential,
 	rootID, relativePath string,
 ) (string, error) {
+	started := time.Now()
+	defer func() {
+		if timing, ok := ctx.Value(sourceReadTimingKey{}).(*sourceReadTiming); ok {
+			timing.parent += time.Since(started)
+		}
+	}()
 	params := url.Values{
 		"is_create": {"0"},
 		"parent_id": {rootID},
@@ -804,6 +814,13 @@ func (a *CookieHTTPAdapter) listSourceDirectory(
 	credential Credential,
 	parentID string,
 ) ([]File, error) {
+	started := time.Now()
+	timing, _ := ctx.Value(sourceReadTimingKey{}).(*sourceReadTiming)
+	defer func() {
+		if timing != nil {
+			timing.listing += time.Since(started)
+		}
+	}()
 	pageSize := a.sourceResolvePageSize
 	if pageSize <= 0 || pageSize > sourceResolvePageSize {
 		pageSize = sourceResolvePageSize
@@ -834,6 +851,9 @@ func (a *CookieHTTPAdapter) listSourceDirectory(
 			"o":             {"file_name"},
 			"offset":        {strconv.Itoa(offset)},
 			"show_dir":      {"1"},
+		}
+		if timing != nil {
+			timing.pages++
 		}
 		if err := a.getJSON(ctx, a.sourceListEndpoint, params, credential, &response); err != nil {
 			return nil, err

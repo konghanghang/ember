@@ -70,6 +70,7 @@ type videoDecision struct {
 	SourceRootID       string
 	MappedRelativePath string
 	Routing            directplay.RoutingDiagnostics
+	Timing             directplay.TimingDiagnostics
 	StartedAt          time.Time
 }
 
@@ -158,6 +159,7 @@ func (gateway *Gateway) serveVideo(
 		UserID: principal.User.ID, MappingID: principal.MappingID, DeviceID: principal.DeviceID, PlaySessionID: info.PlaySessionID,
 	})
 	decision.Routing = candidate.Routing
+	decision.Timing = candidate.Timing
 	if candidate.PathMapping.OriginalPath != "" {
 		decision.MediaPath = candidate.PathMapping.OriginalPath
 	}
@@ -547,6 +549,7 @@ func appendVideoDecisionContext(fields []string, decision videoDecision, duratio
 	fields = appendOptionalLogField(fields, "sourceRootId", decision.SourceRootID, true)
 	fields = appendOptionalLogField(fields, "mappedRelativePath", decision.MappedRelativePath, true)
 	fields = appendRoutingDecisionContext(fields, decision.Routing)
+	fields = append(fields, decision.Timing.LogFields()...)
 	fields = append(fields, "durationMs="+strconv.FormatInt(duration, 10))
 	return fields
 }

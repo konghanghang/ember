@@ -353,6 +353,8 @@ HLS/DASH manifest、转码分片、不完整参数、未映射路径、账号不
 
 ## 7. DirectPlay 保留式秒传
 
+源目录解析在 Cookie Adapter 内合并时间重叠的相同账号、精确凭证和父目录请求，多个文件共享一次路径解析与完整分页，再分别校验文件名唯一性。完成即移除，不缓存后续播放；等待者独立取消，全部离开取消上游，总预算 30 秒耗尽按 Provider unavailable 处理。该优化位于用户/账号/Redis 准入之后，不共享目标查重、转存记账或最终直链；详细隔离、日志及中间目录重名未验证边界见 [115 Cookie 合同](./p115-cookie-playback-contract.md#521-源文件路径解析)。
+
 ```mermaid
 sequenceDiagram
     participant Gateway as ember-gateway
@@ -448,6 +450,26 @@ stateDiagram-v2
 115 fallback 始终使用权威 Emby 请求，并保留 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header。Gateway 的 fallback 决策只表示请求已交给 Emby，不代表客户端已经完整播放。
 
 ### 8.3 单条决策日志
+
+2026-09-08 起，实际进入 DirectPlay 的请求在同一条最终决策日志附带分阶段耗时，默认 Info 可见，失败和取消也保留已执行阶段；未执行阶段不输出，亚毫秒操作可显示 `0`，用 `Calls` 区分是否执行。字段全部为固定名称与数值，不增加第二条 Info 决策日志：
+
+| 字段 | 统计范围 |
+| --- | --- |
+| `directPlayMs` | DirectPlay 入口到返回，包括错误返回；不包含 Gateway 身份验证、按需 PlaybackInfo 或 Emby fallback |
+| `prepareMs` | DirectPlay 内路径映射、账号/路由加载及播放租约准入 |
+| `sourceResolveMs` | 当前调用等待源文件解析的时间，包括共享目录等待与最终文件匹配 |
+| `targetSearchMs` | playback 目标查重累计耗时；锁内外重复查询累计计数 |
+| `lockWaitMs` | 获取内容锁的等待时间，不是持锁时长 |
+| `preIDMs` / `challengeMs` | 源 preID / challenge 的 Provider Range Hash，各自包含其内部获取源直链与读取范围 |
+| `rapidUploadMs` | 秒传初始化与 challenge 后重试累计，包含 Provider 内上传信息读取 |
+| `targetVerifyMs` | 秒传后目标复核，包括 Provider 的可见性轮询等待 |
+| `transferCommitMs` | Redis 转存成功记账及其有限重试累计 |
+| `downloadURLMs` | 最终 playback 直链获取 |
+| `otherMs` | DirectPlay 总耗时减上述互不嵌套阶段，包括任务持久化、健康回写、其余转存准入/清理及本地编排；不能直接认定为数据库耗时 |
+
+各阶段同时输出同前缀 `Calls`，例如 `targetSearchCalls=2`、`rapidUploadCalls=2`；这些是业务操作调用次数，不能当成 HTTP 请求总数。耗时使用单调时钟，单位毫秒，分别取整可能使展示值相差少量毫秒。既有 `durationMs` 仍是 Gateway 请求处理时长，fallback 时可能包含媒体代理传输，不能当作首帧时间，也不能把它与 `directPlayMs` 相加。
+
+排查 sourceResolve 耗时时，开启 Debug 后查看 `code=source_directory_resolved` 的 `parentResolveMs/listMs/listPages` 及 `shared/callers/entries/durationMs/success`。该明细每个共享任务一条，`listPages` 为实际尝试的列表请求数（含失败页），根目录文件的 `parentResolveMs=0`；不可把共享任务耗时乘以等待者人数视为串行耗时。明细不输出路径、凭证、Provider ID 或摘要。
 
 每个固定视频请求在默认 Info 只打印一条播放决策；设置中心数据库项 `LOG_LEVEL=debug` 时才额外打印 Gateway 统一的 `request_completed` 请求摘要，API 保存后由 Gateway 最多在 5 秒内从进程缓存刷新生效：
 

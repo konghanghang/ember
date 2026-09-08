@@ -757,6 +757,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `integrations/p115.CookieHTTPAdapter.GetUploadInfo`：固定请求上传信息端点，严格映射顶层 `user_id` / `userkey`，并要求响应用户与 Cookie UID 一致
 - `integrations/p115.CookieHTTPAdapter.ResolveFileByPath`：相对路径存在父目录时，以显式 `sourceRootId` 作为 `parent_id`、相对父目录作为 `path` 并固定 `is_create=0`，通过 `/files/get_path_id` 一次取得父目录 ID；文件直接位于 source root 时跳过该调用。随后只在最终目录完整分页 `/files`，按精确文件名和非目录类型唯一取得 Provider 权威 Size/SHA1/fileId/pickCode；不使用 Emby Size 过滤。路径 ID 缺失/零值/冲突、无效 cid 回退、分页漂移、最终文件同名歧义和目录超过 10,000 项全部失败关闭；中间目录选择信任 Provider 路径接口，当前只有 fake HTTP 证据，尚未执行目标账号真实只读验证
 - `integrations/p115.CookieHTTPAdapter.ResolveDirectoryByPath`：接受一个可选前导 `/` 的 playback 目录路径，逐级只接受唯一目录并返回稳定 ID/规范化路径；根目录、最终文件、同名歧义和 cid 回退全部失败关闭
+- source 目录读取使用 Adapter 内的在途请求合并：按账号/精确凭证/Provider UA/AppType/root/相对父目录摘要隔离，共享父目录解析与完整分页，各文件独立匹配；完成即移除，不引入 TTL 缓存。等待者独立取消，全部离开取消上游；共享读取总预算 30 秒，耗尽按 Provider unavailable 处理，单 HTTP 仍为 10 秒。账号/用户门控、Redis 配额和下载 URL 不共享。Debug `source_directory_resolved` 仅记录合并人数、条目数、耗时与结果；中间目录重名选择仍未证实，不能把最终文件唯一性表述为完整路径唯一性
 - `integrations/p115.CookieHTTPAdapter.SearchBySHA1`：无 parent 时使用旧全局 `shasearch` 并兼容 Web 短字段/app2 长字段；有 parent 时改用目录作用域 `/files/search`，只接受目标目录内 SHA1、size、非目录全部匹配的唯一候选，避免全局单候选造成假未命中
 - `integrations/p115.CookieHTTPAdapter.InitRapidUpload`：校验完整内容身份后获取账号上传信息，调用 `p115cipher.BuildUploadRequest` 生成 `k_ec` 与加密 body；响应 AES-CBC 只解密完整 blocks 并忽略不足 16 字节的短尾部，再把 `status=1/2/7` 映射为普通上传拒绝、复用和有界 Range challenge
 - `integrations/p115.CookieHTTPAdapter.FindTargetFile`：`status=2` 后立即查询目标目录，只接受 SHA1、size、非目录和 parent 全部一致的唯一候选；每 500ms 轮询、10s 截止并执行最终查询，超时和多候选使用独立错误
@@ -766,6 +767,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `integrations/p115.CookieHTTPAdapter.DeleteFile`：只发送单个规范化 file ID，并按 Cookie Provider UID 使用进程内共享锁串行删除；不同 UID 可并行，等待支持 context 取消
 - `DeleteFile` 当前只有协议适配与 fake 测试，没有生产业务调用方；第一阶段 playback 专用目录作为持久缓存，Stopped、会话 TTL 和受控写入检查都不自动删除，容量回收推迟到第二阶段
 - Cookie HTTP 公共边界：10 秒超时、禁止跟随重定向、响应体限额、网络/HTTP/业务/协议错误分层；错误不包含 Cookie、URL、响应正文或上游原始文本
+- DirectPlay 每次入口返回仅用于日志的 Timing 快照，成功/失败均附在 Gateway 单条最终决策日志：directPlayMs、prepare/sourceResolve/targetSearch/lockWait/preID/rapidUpload/challenge/targetVerify/transferCommit/downloadURL 的 Ms 与 Calls，以及未分类 otherMs；重复调用累计，未执行阶段省略。使用单调时钟，不改业务时区或控制流。源目录共享任务 Debug 另含 parentResolveMs/listMs/listPages；统计解释见端到端流程第 8.3 节，Gateway durationMs 不等于首帧耗时
 - `integrations/p115/p115cipher`：基于固定提交黑盒输出独立实现上传 `k_ec`/AES-CBC/LZ4、完整签名表单和下载 RSA request/response 变换；上传响应兼容完整 AES blocks 后的 1 至 15 字节短尾部，以及 LZ4 剩余 1–2 字节/零长度头终止语义，没有完整 AES block 或正数截断 LZ4 block 时失败关闭；固定向量不含真实账号信息
 - `integrations/p115.Provider`：账号验证、上传信息、源路径解析、SHA1 搜索、秒传初始化、目标复核、下载地址、受限 Range Hash 和串行删除的 Cookie 实现均已有 fake HTTP 合同；2026-08-22 本地真实检查已通过 source 只读链路，以及 playback `range_challenge → reused → 目标复核 → downurl → 128 KiB Range` 保留式写入链路
 - `cmd/p115-contract-check`：只组合 Provider 的六个只读方法；凭证仅从当前进程环境读取，CI 或缺少确认值时拒绝运行，报告不包含可复用凭证、完整文件身份或签名 URL
