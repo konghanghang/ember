@@ -556,8 +556,8 @@ func (service *Service) resolveWithAccounts(
 	}
 	sha1Value, err := validateSourceFile(sourceFile)
 	if err != nil {
-		service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
-		return RedirectCandidate{}, err
+		// A malformed file identity cannot establish an account-wide failure.
+		return RedirectCandidate{}, withFailureContext(err, FailureContext{ProviderOperation: failureOperationResolveSourcePath})
 	}
 	query := p115integration.FileQuery{SHA1: sha1Value, Size: sourceFile.Size, ParentID: playback.TargetParentID}
 
@@ -925,15 +925,15 @@ func (service *Service) downloadCandidate(
 	}, nil
 }
 
-// reportProviderFailure preserves the existing DirectPlay error while sending
-// only account-wide Provider outcomes to the health state machine.
+// reportProviderFailure preserves the operation's safe fallback diagnostics
+// while reporting only failures with account-wide scope to the health state machine.
 func (service *Service) reportProviderFailure(
 	account p115account.ActiveAccountCredential,
 	operation string,
 	providerErr error,
 ) error {
 	mapped := mapProviderFailure(operation, providerErr)
-	if outcome, ok := runtimeHealthOutcome(providerErr); ok {
+	if outcome, ok := runtimeHealthOutcome(operation, providerErr); ok {
 		service.reportRuntimeHealth(account, outcome)
 	}
 	return mapped
@@ -974,9 +974,10 @@ func (service *Service) reportRuntimeHealthWithContext(
 	}
 }
 
-// runtimeHealthOutcome excludes request cancellation and file-specific errors
-// from account-wide state changes.
-func runtimeHealthOutcome(err error) (p115account.RuntimeHealthOutcome, bool) {
+// runtimeHealthOutcome excludes cancellation and source-path rejection or
+// protocol errors from account-wide changes. Source credential and transport
+// failures still retain their existing expiry and cooldown behavior.
+func runtimeHealthOutcome(operation string, err error) (p115account.RuntimeHealthOutcome, bool) {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return "", false
@@ -985,6 +986,9 @@ func runtimeHealthOutcome(err error) (p115account.RuntimeHealthOutcome, bool) {
 	case errors.Is(err, p115integration.ErrProviderUnavailable):
 		return p115account.RuntimeHealthProviderUnavailable, true
 	case errors.Is(err, p115integration.ErrProviderRejected), errors.Is(err, p115integration.ErrProviderProtocol):
+		if operation == failureOperationResolveSourcePath {
+			return "", false
+		}
 		return p115account.RuntimeHealthProviderProtocol, true
 	default:
 		return "", false

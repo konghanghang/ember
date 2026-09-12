@@ -359,6 +359,22 @@ func TestServiceResolveReportsAccountWideProviderFailures(t *testing.T) {
 			wantOutcome: p115account.RuntimeHealthCredentialRejected,
 		},
 		{
+			name: "source provider unavailable",
+			configure: func(provider *fakeProvider) {
+				provider.resolveErr = p115integration.ErrProviderUnavailable
+			},
+			wantErr: ErrProviderUnavailable, wantAccount: "source_account", wantRole: models.P115AccountRoleSource,
+			wantOutcome: p115account.RuntimeHealthProviderUnavailable,
+		},
+		{
+			name: "playback request rejected",
+			configure: func(provider *fakeProvider) {
+				provider.searchErr = p115integration.ErrProviderRejected
+			},
+			wantErr: ErrProviderProtocol, wantAccount: "playback_account", wantRole: models.P115AccountRolePlayback,
+			wantOutcome: p115account.RuntimeHealthProviderProtocol,
+		},
+		{
 			name: "playback provider unavailable",
 			configure: func(provider *fakeProvider) {
 				provider.searchErr = p115integration.ErrProviderUnavailable

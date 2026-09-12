@@ -153,6 +153,81 @@ func TestRoutedResolveMediaPathEnforcesAccountLimitAndReleasesFailedCandidate(t 
 	}
 }
 
+// TestRoutedSourceResolutionFailureIsRequestScoped keeps a bad source path from
+// changing account health or retaining admission, then exercises a healthy path.
+func TestRoutedSourceResolutionFailureIsRequestScoped(t *testing.T) {
+	tests := []struct {
+		name       string
+		resolveErr error
+		mutateFile func(*p115integration.File)
+	}{
+		{name: "path rejected", resolveErr: p115integration.ErrProviderRejected},
+		{name: "path response invalid", resolveErr: p115integration.ErrProviderProtocol},
+		{name: "path missing", resolveErr: p115integration.ErrSourceFileNotFound},
+		{name: "file ambiguous", resolveErr: p115integration.ErrSourceFileAmbiguous},
+		{name: "directory too large", resolveErr: p115integration.ErrSourceDirectoryTooLarge},
+		{name: "file size invalid", mutateFile: func(file *p115integration.File) { file.Size = 0 }},
+		{name: "file hash invalid", mutateFile: func(file *p115integration.File) { file.SHA1 = "invalid" }},
+		{name: "file is directory", mutateFile: func(file *p115integration.File) { file.IsDirectory = true }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			health := &fakeAccountHealthReporter{}
+			accounts := &fakeRoutedAccountRuntime{fakeAccountLoader: fakeAccountLoader{health: health}}
+			provider := newFakeProvider()
+			healthyFile := provider.sourceFile
+			provider.resolveErr = test.resolveErr
+			if test.mutateFile != nil {
+				test.mutateFile(&provider.sourceFile)
+			}
+			leases := p115quota.NewMemoryLeaseStore()
+			service := newRoutedDirectPlayForTest(t, accounts, provider, leases)
+			request := routedMediaPathRequest("GET", "failed-path-session")
+
+			candidate, err := service.ResolveMediaPath(context.Background(), request)
+			if !errors.Is(err, ErrProviderProtocol) || candidate.URL != "" {
+				t.Fatalf("ResolveMediaPath(bad path) error=%v returnedCandidate=%t", err, candidate.URL != "")
+			}
+			if failure := InspectFailure(err); failure.ProviderOperation != "resolve_source_path" {
+				t.Fatalf("source failure context = %+v", failure)
+			}
+			timingFields := strings.Join(candidate.Timing.LogFields(), " ")
+			if !strings.Contains(timingFields, "sourceResolveCalls=1") {
+				t.Fatalf("source failure lost stage timing: %s", timingFields)
+			}
+			if len(health.events) != 0 {
+				t.Fatalf("source path failure changed account health: %+v", health.events)
+			}
+			if len(provider.calls) != 1 || provider.calls[0] != "resolve_source" {
+				t.Fatalf("source path failure reached later Provider stages: %v", provider.calls)
+			}
+			accountKey, _ := service.keyDeriver.PlaybackAccountKey("100")
+			accountUsage, err := leases.AccountUsage(context.Background(), accountKey, service.now())
+			if err != nil || accountUsage.OccupiedStreams != 0 {
+				t.Fatalf("failed path retained account reservation: %+v, %v", accountUsage, err)
+			}
+			userUsage, err := leases.UserUsage(context.Background(), request.UserID, service.now())
+			if err != nil || userUsage.OccupiedStreams != 0 {
+				t.Fatalf("failed path retained user reservation: %+v, %v", userUsage, err)
+			}
+
+			provider.resolveErr = nil
+			provider.sourceFile = healthyFile
+			provider.searchResults = [][]p115integration.File{{provider.targetFile}}
+			request.Path = "/mnt/cloudNAS/115lifetime/Other/fixture.mkv"
+			request.PlaySessionID = "healthy-path-session"
+			candidate, err = service.ResolveMediaPath(context.Background(), request)
+			if err != nil || candidate.URL == "" || !candidate.Preexisting {
+				t.Fatalf("ResolveMediaPath(healthy path) error=%v returnedCandidate=%t", err, candidate.URL != "")
+			}
+			if len(health.events) != 2 || health.events[0].outcome != p115account.RuntimeHealthSucceeded ||
+				health.events[1].outcome != p115account.RuntimeHealthSucceeded {
+				t.Fatalf("healthy path did not report both account successes: %+v", health.events)
+			}
+		})
+	}
+}
+
 func TestRoutedResolveMediaPathHEADRequiresExistingLease(t *testing.T) {
 	accounts := &fakeRoutedAccountRuntime{}
 	provider := newFakeProvider()

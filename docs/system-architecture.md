@@ -789,6 +789,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - advisory lock 固定在一条 PostgreSQL 物理连接上；释放使用独立超时 context，避免请求取消后把 session 锁带回连接池
 - 任务成功并释放锁后才签发本次 playback 下载 URL；需要客户端 Cookie 的 HeaderMode 失败关闭，不向播放器泄露 playback Cookie
 - 可用直链签发并完成必要任务持久化后，source/playback 都回写运行期成功；Provider 凭证失效、临时不可用和协议错误只按实际调用账号回写固定状态。回写使用独立 2 秒上限且失败不改写 302/fallback 结果，请求取消和文件级错误不污染账号健康
+- 源路径解析的业务拒绝、协议异常及无效源文件身份统一限制在当前请求：不回写源账号 `error`，不进入查重/秒传，释放本次新播放 reservation，并保留 `providerOperation=resolve_source_path` 供 Gateway 的单条 fallback 日志排障。源解析明确返回凭证失效或临时不可用时仍执行原账号状态/冷却处理；其他 Provider 操作的协议故障仍按原合同回写账号 `error`
 - PostgreSQL 集成测试在独立 `itest_*` schema 中执行完整 migration/`VerifySchema` 并重复执行新 migration，已证明两个并发请求只调用一次 fake `InitRapidUpload`、challenge 后 `attemptCount=2`、普通上传要求落为 `failed`，以及临时故障进入共享冷却、冷却期间不触达 Provider、过期冷却只放行一个探测、成功探测恢复、凭证失效停用和旧 Cookie 请求不覆盖新状态
 
 ### 5.26 EmbyTokenService (`services/embytoken/`, `security/tokenhash/`)

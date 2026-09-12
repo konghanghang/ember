@@ -335,6 +335,7 @@ func TestGatewayVideoAccelerationIneligibleOrInvalidFallsBack(t *testing.T) {
 		wantDirectCalls int
 		wantStage       string
 		wantReason      string
+		wantOperation   string
 	}{
 		{
 			name: "static flag missing", target: "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1",
@@ -343,6 +344,14 @@ func TestGatewayVideoAccelerationIneligibleOrInvalidFallsBack(t *testing.T) {
 		{
 			name: "direct play disabled", target: "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true",
 			wantStage: "eligibility", wantReason: "direct_play_disabled",
+		},
+		{
+			name: "source path protocol failure", target: "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true",
+			directPlay: &fakeDirectPlayService{err: fixtureDirectPlayFailure{
+				cause:   directplay.ErrProviderProtocol,
+				context: directplay.FailureContext{ProviderOperation: "resolve_source_path"},
+			}},
+			wantDirectCalls: 1, wantStage: "direct_play", wantReason: "provider_protocol", wantOperation: "resolve_source_path",
 		},
 		{
 			name: "invalid candidate", target: "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true",
@@ -371,6 +380,9 @@ func TestGatewayVideoAccelerationIneligibleOrInvalidFallsBack(t *testing.T) {
 				t.Fatalf("DirectPlay calls = %d, want %d", len(fake.snapshot()), test.wantDirectCalls)
 			}
 			assertSingleDecisionLog(t, logs.String(), "fallback", test.wantStage, test.wantReason)
+			if test.wantOperation != "" && !strings.Contains(logs.String(), "providerOperation="+test.wantOperation) {
+				t.Fatalf("fallback log lost provider operation: %q", logs.String())
+			}
 		})
 	}
 }

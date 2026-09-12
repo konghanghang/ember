@@ -186,6 +186,7 @@ Emby `PlaybackInfo` 提供媒体源 `Path` 和可能缺失或不可靠的 `Size`
 - 最终文件在已经确定的父目录内使用“精确文件名 + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个同名候选即使 Size 不同也返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。唯一命中后必须由 115 响应提供合法 fileId、pickCode、SHA1、正数 Size 和正确 parentId；这些 Provider 字段才是后续文件身份。
 - 为了检测最终文件同名项，最终目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。中间目录由 Provider 路径接口选择，Ember 不再自行枚举并判断同名目录歧义。
 - 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
+- 源解析的业务拒绝、响应协议异常和无效源文件身份只使本次 DirectPlay 失败，不据此回写源账号 `error`；目录/文件未找到、同名文件歧义和目录超限同样属于请求级错误。Gateway 继续按 `providerOperation=resolve_source_path` 记录失败并回退 Emby，DirectPlay 释放本次新建的播放 reservation。明确的 `ErrCredentialRejected` 和 `ErrProviderUnavailable` 仍分别触发凭证停用与临时冷却；其他 Provider 操作的健康分类保持原合同。
 
 2026-09-08 源目录并发读取合同：
 
@@ -196,6 +197,8 @@ Emby `PlaybackInfo` 提供媒体源 `Path` 和可能缺失或不可靠的 `Size`
 - **中间目录重名仍未收口**：路径接口只返回一个 ID，现有证据不能证明其会拒绝同名中间目录；最终文件唯一性不等于完整路径唯一性。并发合并不恢复旧逐层歧义检查。后续必须用固定协议证据或明确授权的只读验证确认；若不能保证唯一性，再单独评估逐层校验的请求成本。目标账号的非零 `parent_id`、不存在目录、重名目录和真实耗时仍未证实。
 
 证据：固定提交的 [`fs_dir_getid2`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L10837-L10885) 固定 `GET /files/get_path_id`、`path/parent_id/is_create` 和仅返回目录 ID 的边界；[`fs_files`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L11481-L11640) 固定最终目录 method/path/query 与分页字段；[`normalize_attr_web`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/tool/attr.py#L80-L180) 固定 Web 短字段语义。父目录路径接口已有 fake HTTP 合同，尚未使用目标账号执行真实只读验证。
+
+`fs_dir_getid2` 的这段公开实现只转发响应，没有定义成功、目录不存在或业务拒绝的完整响应结构。顶层 `id` / `data.file_id` 的接受规则属于 Ember 当前的内部适配合同；目录不存在是否使用 `state=false`、非零 `parent_id` 与同名目录选择仍未证实，不猜测错误码，也不把未知业务拒绝当作账号失效证据。
 
 #### 5.2.2 playback 目录路径解析
 
@@ -507,7 +510,7 @@ playbackAccountId + SHA1 + size
 1. Cookie 加密落库、替换和 API 永不回显明文。
 2. 登录状态端点 method、query、Cookie/User-Agent Header、`state` 正常/失效/非法响应和 UID 规范化；Cookie 客户端识别覆盖完整已知 `ssoent` 映射、`A1 → web`、未知编码人工兜底，以及创建/替换同步刷新 `app_type`。
 3. 上传信息端点 method、无 query、Cookie/User-Agent Header、UID 一致性、必需字段和业务拒绝映射。
-4. 源文件解析覆盖固定 `/files/get_path_id` method/query、`is_create=0`、顶层/嵌套目录 ID、缺失/零值/冲突 ID、根目录文件跳过路径接口，以及最终 `/files` 完整分页、无效 cid 回退、同名文件歧义、目录规模上限和非法相对路径。
+4. 源文件解析覆盖固定 `/files/get_path_id` method/query、`is_create=0`、顶层/嵌套目录 ID、缺失/零值/冲突 ID、根目录文件跳过路径接口，以及最终 `/files` 完整分页、无效 cid 回退、同名文件歧义、目录规模上限和非法相对路径。DirectPlay 另覆盖源解析失败不改变账号健康、释放新播放 reservation、随后正常路径可继续解析，以及 Gateway 保留源解析诊断并回退 Emby。
 5. playback 目录解析覆盖可选前导 `/`、多层目录、文件同名过滤、最终文件拒绝、同名目录歧义、分页、cid 回退和非法路径。
 6. SHA1 查重覆盖无 parent 的全局 `shasearch` 与有 parent 的目录作用域 `/files/search`，并覆盖 Web 短字段/app2 长字段命中、固定未命中、size/目录/parent 不匹配、多个精确候选和非法字段。
 7. 目标目录复核覆盖立即可见、延迟可见、最终截止查询、超时、取消、多精确候选和 Provider 错误不重试。
