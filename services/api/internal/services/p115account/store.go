@@ -78,18 +78,19 @@ func (s *gormAccountStore) GetByOwner(ctx context.Context, ownerUserID string) (
 func (s *gormAccountStore) UpdatePlaybackConfig(
 	ctx context.Context,
 	id, expectedCiphertext string,
-	expectedUpdatedAt time.Time,
+	expectedConfigVersion int64,
 	targetParentPath, targetParentID string,
 	maxConcurrentStreams int,
 ) (*models.P115Account, error) {
 	result := s.database(ctx).Model(&models.P115Account{}).
-		Where("id = ? AND owner_user_id IS NULL AND role = ? AND status = ? AND cookie_ciphertext = ? AND updated_at = ?",
-			id, models.P115AccountRolePlayback, models.P115AccountStatusActive, expectedCiphertext, expectedUpdatedAt).
+		Where("id = ? AND owner_user_id IS NULL AND role = ? AND status = ? AND cookie_ciphertext = ? AND config_version = ?",
+			id, models.P115AccountRolePlayback, models.P115AccountStatusActive, expectedCiphertext, expectedConfigVersion).
 		Updates(map[string]interface{}{
 			"target_parent_path":     targetParentPath,
 			"target_parent_id":       targetParentID,
 			"max_concurrent_streams": maxConcurrentStreams,
 			"updated_at":             gorm.Expr("CURRENT_TIMESTAMP"),
+			"config_version":         gorm.Expr("config_version + 1"),
 		})
 	if result.Error != nil {
 		return nil, safeP115AccountStoreError("update_playback_config", result.Error)
@@ -196,6 +197,7 @@ func (s *gormAccountStore) UpdateSourceLocation(ctx context.Context, id, embyPat
 			"emby_path_prefix": embyPathPrefix,
 			"source_root_id":   sourceRootID,
 			"updated_at":       gorm.Expr("CURRENT_TIMESTAMP"),
+			"config_version":   gorm.Expr("config_version + 1"),
 		}).Error; err != nil {
 			return err
 		}
@@ -227,6 +229,7 @@ func (s *gormAccountStore) ReplaceCredential(ctx context.Context, id string, rep
 				"last_error_code":    nil,
 				"last_error_message": nil,
 				"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
+				"config_version":     gorm.Expr("config_version + 1"),
 			})
 		if result.Error != nil {
 			return result.Error
@@ -270,6 +273,7 @@ func (s *gormAccountStore) ReplacePersonalCredential(ctx context.Context, ownerU
 			"last_error_code":    nil,
 			"last_error_message": nil,
 			"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
+			"config_version":     gorm.Expr("config_version + 1"),
 		}).Error; err != nil {
 			return mapP115AccountConstraintError(err)
 		}
@@ -316,6 +320,7 @@ func (s *gormAccountStore) RevokePersonal(ctx context.Context, ownerUserID strin
 			"last_error_code":        nil,
 			"last_error_message":     nil,
 			"updated_at":             gorm.Expr("CURRENT_TIMESTAMP"),
+			"config_version":         gorm.Expr("config_version + 1"),
 		}).Error
 	})
 	return safeP115AccountStoreError("revoke_personal", err)
@@ -396,7 +401,7 @@ func (s *gormAccountStore) CompleteRuntimeHealth(
 	}
 
 	result := s.database(ctx).Model(&models.P115Account{}).
-		Where("id = ? AND cookie_ciphertext = ? AND updated_at = ?", ref.accountID, ref.expectedCiphertext, ref.expectedUpdatedAt).
+		Where("id = ? AND cookie_ciphertext = ? AND config_version = ? AND updated_at = ?", ref.accountID, ref.expectedCiphertext, ref.expectedConfigVersion, ref.expectedUpdatedAt).
 		Updates(updates)
 	if result.Error != nil {
 		return safeP115AccountStoreError("complete_runtime_health", result.Error)
@@ -419,6 +424,7 @@ func (s *gormAccountStore) completeValidation(
 	id, expectedCiphertext string,
 	updates map[string]interface{},
 ) (*models.P115Account, error) {
+	updates["config_version"] = gorm.Expr("config_version + 1")
 	var account models.P115Account
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&models.P115Account{}).
@@ -465,8 +471,9 @@ func (s *gormAccountStore) SetEnabled(ctx context.Context, id string, enabled bo
 		if err := tx.Model(&models.P115Account{}).
 			Where("id = ?", id).
 			Updates(map[string]interface{}{
-				"enabled":    enabled,
-				"updated_at": gorm.Expr("CURRENT_TIMESTAMP"),
+				"enabled":        enabled,
+				"updated_at":     gorm.Expr("CURRENT_TIMESTAMP"),
+				"config_version": gorm.Expr("config_version + 1"),
 			}).Error; err != nil {
 			return mapP115AccountConstraintError(err)
 		}

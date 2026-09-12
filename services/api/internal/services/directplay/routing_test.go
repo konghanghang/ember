@@ -73,7 +73,7 @@ func routedPlaybackFixture() p115account.PlaybackRoute {
 		ProviderUserID: "100", TargetParentID: "200000002", TargetParentPath: "/Playback",
 		ConfiguredMaxConcurrentStreams: 2, EffectiveMaxConcurrentStreams: 2, SimultaneousStreamLimit: 3,
 		TransferHourlyLimit: 5, TransferDailyLimit: 10, Status: models.P115AccountStatusActive,
-		UpdatedAt: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
+		ConfigVersion: 1,
 	}
 }
 

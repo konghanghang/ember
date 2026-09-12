@@ -3,7 +3,6 @@ package p115account
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
@@ -25,16 +24,17 @@ func (s *gormAccountStore) GetPersonalPlanPolicy(ctx context.Context, ownerUserI
 func (s *gormAccountStore) UpdatePersonalDirectory(
 	ctx context.Context,
 	ownerUserID, expectedCiphertext string,
-	expectedUpdatedAt time.Time,
+	expectedConfigVersion int64,
 	targetParentPath, targetParentID string,
 ) (*models.P115Account, error) {
 	result := s.database(ctx).Model(&models.P115Account{}).
-		Where("owner_user_id = ? AND role = ? AND status = ? AND cookie_ciphertext = ? AND updated_at = ?",
-			ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusActive, expectedCiphertext, expectedUpdatedAt).
+		Where("owner_user_id = ? AND role = ? AND status = ? AND cookie_ciphertext = ? AND config_version = ?",
+			ownerUserID, models.P115AccountRolePlayback, models.P115AccountStatusActive, expectedCiphertext, expectedConfigVersion).
 		Updates(map[string]interface{}{
 			"target_parent_path": targetParentPath,
 			"target_parent_id":   targetParentID,
 			"updated_at":         gorm.Expr("CURRENT_TIMESTAMP"),
+			"config_version":     gorm.Expr("config_version + 1"),
 		})
 	if result.Error != nil {
 		return nil, safeP115AccountStoreError("update_personal_directory", result.Error)
@@ -70,6 +70,7 @@ func (s *gormAccountStore) UpdatePersonalConcurrency(ctx context.Context, ownerU
 		if err := tx.Model(&models.P115Account{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
 			"max_concurrent_streams": maxConcurrentStreams,
 			"updated_at":             gorm.Expr("CURRENT_TIMESTAMP"),
+			"config_version":         gorm.Expr("config_version + 1"),
 		}).Error; err != nil {
 			return err
 		}
@@ -116,8 +117,9 @@ func (s *gormAccountStore) SetPersonalEnabled(ctx context.Context, ownerUserID s
 			return nil
 		}
 		if err := tx.Model(&models.P115Account{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
-			"enabled":    enabled,
-			"updated_at": gorm.Expr("CURRENT_TIMESTAMP"),
+			"enabled":        enabled,
+			"updated_at":     gorm.Expr("CURRENT_TIMESTAMP"),
+			"config_version": gorm.Expr("config_version + 1"),
 		}).Error; err != nil {
 			return mapP115AccountConstraintError(err)
 		}

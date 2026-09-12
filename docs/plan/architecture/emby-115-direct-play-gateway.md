@@ -659,7 +659,15 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 - 内容锁等待不持续占 SQL 连接；同进程同内容先排队，有限池为任务 SQL 保留一个连接，取锁响应未知时丢弃连接。真实 Go 连接池 + fake SQL driver 回归覆盖等待者饥饿、不同内容的池准入、取消释放和未知锁状态丢弃；没有连接 PostgreSQL。
 - 单 Gateway 按 session 串行执行候选和失败清理，GET 在途续租及返回前原子确认；内存与 Lua 共用合同覆盖过期、Stopped、身份错配、只读 HEAD 和 active/paused 不续租。服务回归覆盖模拟 40 秒处理、同会话取消、Redis 续租失败和内部预算，Gateway 覆盖新增原因码的正常 Emby fallback。
 - 验证通过：API `go test ./... -skip 'Integration|PostgreSQL' -count=1`、P115/DirectPlay/账号/配额/Gateway 五包 race（同样跳过数据库集成）、`go vet ./...`、`go build ./...` 和差异检查。全部外部依赖使用 fake，本轮未执行真实 PostgreSQL、Redis、115 或播放器验证。
-- 沿用现有 Redis Key/值、SQL schema 和外部 API。账号 `updated_at` 与健康记录版本分离、成功记录限频仍为独立后续优化；真实 Redis/PostgreSQL/115 的并发负载和处理时长仍待受控验证。
+- 沿用现有 Redis Key/值、SQL schema 和外部 API。当时剩余账号版本分离与成功记录限频；版本分离进展见下文；真实 Redis/PostgreSQL/115 的并发负载和处理时长仍待受控验证。
+
+2026-09-12 账号配置版本分离已落地：
+
+- 新增内部 `config_version` 与前向 migration；既有账号初始化为 1，重复执行不重置。Cookie 替换、验证、启停、目录/并发配置及解绑递增该版本；成功/失败健康回写和冷却探测保持配置版本不变。
+- Redis 准入后的凭证获取与异步目录保存以配置版本防覆盖；健康回写额外匹配配置版本、Cookie 密文和 `updated_at`，防止旧配置/旧健康结果覆盖新状态。最新 enabled/status/cooldown 仍在获取时检查。
+- 单元回归已复现并修复并发成功导致误回退，覆盖同时间戳配置变化、旧健康结果、冷却拦截、个人/共享目录保存。已补 PostgreSQL 升级/重复 migration、获取与半开探测、目录保存并发回归；专用测试库在沙箱内外均连接超时，失败发生在创建临时 schema 之前，migration 和 SQL 行为尚未获得本轮 PostgreSQL 实测证据。
+- API 全量非数据库测试、账号/DirectPlay/Gateway race、`go vet ./...`、`go build ./...` 已通过。真实 115、Redis、播放器及生产负载未验证。
+- 成功记录限频为下一项独立优化；本次现行事实已同步架构、数据模型和端到端流程文档，真实外部验收仍未收口，计划暂不归档。
 
 测试分层：
 

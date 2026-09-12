@@ -43,7 +43,7 @@
 
 - 当前版本化协议和系统内置链路分别见 [115 Cookie 播放兼容合同](../../reference/p115-cookie-playback-contract.md)、[Emby 4.9 系列播放代理 API 合同](../../reference/emby-playback-proxy-contract.md) 与 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)。
 - `p115_accounts` 已同时表示管理员全局 `source|playback` 与用户个人 playback；owner 外键、非 revoked Provider UID/owner unique、共享启用角色 unique、字段 CHECK 和 revoked tombstone 由 `20260903_01` migration 维护。
-- `directplay.Service` 已按用户有效套餐选择 personal/shared playback，并在 Redis 准入后才按精确账号 ID、owner 和 `updated_at` 加载凭证。
+- `directplay.Service` 已按用户有效套餐选择 personal/shared playback，并在 Redis 准入后才按精确账号 ID、owner 和 `config_version` 加载凭证。
 - Cookie 已使用 `CONFIG_ENCRYPTION_KEY` 的用途隔离派生密钥加密；创建、替换和验证状态机已有 fake、race 和 PostgreSQL 测试保护。
 - `DetectCookieAppType` 已能从 Cookie 唯一 `UID` 的第二段 `ssoent` 识别已知客户端类型；当前 Cookie Provider 的生产请求不读取 `Credential.AppType` 选择端点或改变协议，它只作为账号诊断元数据保存和展示。
 - 当前管理员账号控制面要求手工配置 Provider User-Agent，但计划固定的 `p115client` 提交对普通 Cookie/Web 请求默认使用 `Mozilla/5.0`；这能作为个人账号后端默认值的公开源码依据，尚未经过目标个人 Cookie 的真实 115 验证。
@@ -184,7 +184,7 @@
 
 1. 事务内按 `owner_user_id` 锁定当前非 revoked 个人 playback；不存在时按幂等成功返回。
 2. 原子写入 `status=revoked + enabled=false`，并清空 `owner_user_id/cookie_ciphertext/provider_user_id/app_type/user_agent/emby_path_prefix/source_root_id/target_parent_id/target_parent_path/max_concurrent_streams`、验证/成功时间、冷却和错误字段。解绑不再派生 Redis cleanup handle；它只停止新的 DirectPlay 凭证加载和 `302` 签发，不伪装已签发 CDN URL 已被撤销。
-3. 保留账号 `id/role/alias/auth_mode/status/enabled/created_at/updated_at`，让既有 `playback_transfer_tasks` 继续通过 `ON DELETE RESTRICT` 引用同一个账号 ID；不删除 transfer provenance，也不调用 `DeleteFile`。个人账号 alias 使用后端固定值，不保留用户自由输入。
+3. 保留账号 `id/role/alias/auth_mode/status/enabled/config_version/created_at/updated_at`，让既有 `playback_transfer_tasks` 继续通过 `ON DELETE RESTRICT` 引用同一个账号 ID；不删除 transfer provenance，也不调用 `DeleteFile`。个人账号 alias 使用后端固定值，不保留用户自由输入。
 4. revoked 是不可复活终态：验证、启停、Cookie/目录/并发更新和 DirectPlay 加载全部拒绝。用户重新绑定必须创建新的账号 ID，不能让新凭证继承旧任务历史。
 5. 已存在的 Redis `reservation|active|paused`、account/user 索引和反向 session 不因解绑删除；已签发 CDN URL 仍可能播放，所以它们必须继续表示真实占用，由成功 `Stopped` 或各自 TTL 收口。同一 Provider UID 重绑后生成同一 `playbackAccountKey`，新请求必须继续受旧占用限制；不同 Provider UID 不继承旧账号占用。
 
@@ -342,7 +342,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 }
 ```
 
-两个字段都必填并执行完整替换，不支持部分更新。接口只接受 `owner_user_id IS NULL + role=playback + status=active` 的非 revoked 管理员共享账号；`maxConcurrentStreams` 必须为正整数，但不与任一用户套餐上限比较。后端先读取账号版本及当前凭证并调用 `ResolveDirectoryByPath`，解析失败时整次请求失败且不得写入任何字段；成功后以账号版本、凭证和状态未变化为条件，在同一数据库更新中保存规范化 `targetParentPath`、唯一 `targetParentId` 和 `maxConcurrentStreams`。解析期间若发生 Cookie 替换、状态变化或其他账号更新，条件更新失败并返回 `409`，禁止把旧凭证解析出的目录 ID 写给新账号状态。
+两个字段都必填并执行完整替换，不支持部分更新。接口只接受 `owner_user_id IS NULL + role=playback + status=active` 的非 revoked 管理员共享账号；`maxConcurrentStreams` 必须为正整数，但不与任一用户套餐上限比较。后端先读取独立 `config_version` 及当前凭证并调用 `ResolveDirectoryByPath`，解析失败时整次请求失败且不得写入任何字段；成功后以账号版本、凭证和状态未变化为条件，在同一数据库更新中保存规范化 `targetParentPath`、唯一 `targetParentId` 和 `maxConcurrentStreams`。解析期间若发生 Cookie 替换、非 active 状态或其他控制面配置更新，条件更新失败并返回 `409`，禁止把旧凭证解析出的目录 ID 写给新账号状态；单纯成功健康回写不造成配置版本冲突。
 
 已启用的共享 playback 允许调用该接口。新上限低于 Redis 当前 `occupiedStreams` 时仍保存配置，不中断既有播放、不删除租约；后续 reservation 按新上限失败关闭，直到占用降到新上限以下。该更新只影响新请求，不能宣称撤销已经签发的 CDN URL。
 
@@ -362,7 +362,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 6. `GET` 使用选中 playback 元数据申请 Redis `reservation`；个人账号先按当前有效套餐模板计算 `effectiveMaxConcurrentStreams`，共享账号直接使用自身配置上限。账号占用已满、套餐模板不可用或 Redis 不可用时 fallback，不申请半开探测。`HEAD` 只有命中同 session 既有租约才继续，否则直接 fallback。
 7. Redis 准入后按步骤 2/3 选定的精确 account ID 和 owner 加载运行期凭证。`active` 直接可用；已到期 `cooling_down` 在 PostgreSQL 行锁内将 `cooldown_until` 续租 1 分钟并只放行一个半开探测，其他并发请求 fallback。账号在两次读取之间被停用、解绑、替换 Cookie 或更新时失败关闭，并只释放本次新建的 reservation，不释放同 session 已有 `active|paused`。
 8. 目标查重命中则直接签发新下载 URL，不消费转存配额；缺失时进入 transfer lock 和 Redis 配额预留。
-9. 候选生成后必须再次原子确认播放租约；只有全部合同成立才返回空体 `302`，失败保持公共 fallback。Provider 结果继续通过现有 Cookie 密文 + `updated_at` 乐观并发保护回写账号健康；内部处理预算或租约续租取消不作为 Provider 故障回写。
+9. 候选生成后必须再次原子确认播放租约；只有全部合同成立才返回空体 `302`，失败保持公共 fallback。Provider 结果继续通过现有 Cookie 密文 + `config_version` + `updated_at` 乐观并发保护回写账号健康；内部处理预算或租约续租取消不作为 Provider 故障回写。
 
 套餐模式改变、个人账号停用、账号配置值调低或有效套餐的 `SimultaneousStreamLimit` 调低时不撤销已签发链接，也不删除文件；只影响新租约。套餐降低不会自动改写数据库中的 `max_concurrent_streams`，运行时通过 `effectiveMaxConcurrentStreams` 立即收紧新准入；当前占用数不低于有效值时，新 115 播放持续 fallback，直到 `reservation + active + paused` 占用数低于有效上限。套餐上限随后调高或改为 `0` 时，原配置值继续生效。
 

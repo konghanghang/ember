@@ -22,9 +22,10 @@ const (
 )
 
 type runtimeCredentialRef struct {
-	accountID          string
-	expectedCiphertext string
-	expectedUpdatedAt  time.Time
+	accountID             string
+	expectedCiphertext    string
+	expectedUpdatedAt     time.Time
+	expectedConfigVersion int64
 }
 
 type runtimeHealthMutation struct {

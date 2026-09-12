@@ -222,6 +222,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"user_media_library_preferences", "enabled", "20260527_01_user_media_library_policy"},
 	{"emby_policy_sync_batches", "failed_count", "20260527_01_user_media_library_policy"},
 	{"emby_policy_sync_tasks", "next_retry_at", "20260527_01_user_media_library_policy"},
+	{"p115_accounts", "config_version", "20260912_01_p115_account_config_version"},
 	{"p115_accounts", "cookie_ciphertext", "20260801_01_create_p115_accounts"},
 	{"p115_accounts", "emby_path_prefix", "20260822_02_add_p115_source_location"},
 	{"p115_accounts", "source_root_id", "20260822_02_add_p115_source_location"},

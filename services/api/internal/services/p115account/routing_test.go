@@ -9,6 +9,59 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 )
 
+// TestServicePlaybackRouteSurvivesConcurrentSuccess reproduces two requests
+// sharing a route while the first finishes its health write before the second acquires.
+func TestServicePlaybackRouteSurvivesConcurrentSuccess(t *testing.T) {
+	now := time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
+	account := &models.P115Account{
+		ID: "playback", Role: models.P115AccountRolePlayback,
+		ProviderUserID: stringPointer("100"), CookieCiphertext: stringPointer("encrypted:cookie"),
+		AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent"),
+		TargetParentID: stringPointer("200"), TargetParentPath: stringPointer("/Playback"),
+		MaxConcurrentStreams: intPointer(3), Enabled: true, Status: models.P115AccountStatusActive,
+		UpdatedAt: now.Add(-time.Minute),
+	}
+	store := &fakeAccountStore{accounts: map[string]*models.P115Account{account.ID: account},
+		personalPolicy: PersonalPlanPolicy{PlaybackMode: models.P115PlaybackModeSystem}}
+	service := newServiceWithDependencies(store, fakeCredentialCipher{})
+	service.now = func() time.Time { return now }
+	route, err := service.ResolvePlaybackRoute(context.Background(), "user-1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.AcquirePlaybackRoute(context.Background(), route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReportRuntimeHealth(context.Background(), first, RuntimeHealthSucceeded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AcquirePlaybackRoute(context.Background(), route); err != nil {
+		t.Fatalf("unmodified configuration rejected after another request succeeded: %v", err)
+	}
+	if err := service.ReportRuntimeHealth(context.Background(), first, RuntimeHealthCredentialRejected); !errors.Is(err, ErrRuntimeStateChanged) {
+		t.Fatalf("old observation replaced success: %v", err)
+	}
+	account.Status = models.P115AccountStatusCoolingDown
+	until := now.Add(time.Minute)
+	account.CooldownUntil = &until
+	if _, err := service.AcquirePlaybackRoute(context.Background(), route); !errors.Is(err, ErrAccountCoolingDown) {
+		t.Fatalf("latest cooldown bypassed: %v", err)
+	}
+	account.Status = models.P115AccountStatusActive
+	current, err := service.AcquirePlaybackRoute(context.Background(), route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.ConfigVersion++ // A control change is visible even at an identical timestamp.
+	if _, err := service.AcquirePlaybackRoute(context.Background(), route); !errors.Is(err, ErrRuntimeStateChanged) {
+		t.Fatalf("stale route accepted: %v", err)
+	}
+	if err := service.ReportRuntimeHealth(context.Background(), current, RuntimeHealthCredentialRejected); !errors.Is(err, ErrRuntimeStateChanged) {
+		t.Fatalf("stale configuration health accepted: %v", err)
+	}
+}
+
 func TestServiceResolvePlaybackRouteUsesPersonalAccountAndEffectivePlanLimit(t *testing.T) {
 	configured := 8
 	providerUserID := "100"
@@ -128,7 +181,7 @@ func TestServiceAcquirePlaybackRouteLoadsExactCredentialAfterAdmission(t *testin
 	credential, err := service.AcquirePlaybackRoute(context.Background(), PlaybackRoute{
 		AccountID: "personal", OwnerUserID: "user-1", ProviderUserID: "100",
 		TargetParentID: "200", TargetParentPath: "/Playback", ConfiguredMaxConcurrentStreams: 2,
-		Status: models.P115AccountStatusActive, UpdatedAt: updatedAt,
+		Status: models.P115AccountStatusActive, ConfigVersion: 0,
 	})
 	if err != nil {
 		t.Fatalf("AcquirePlaybackRoute() error = %v", err)

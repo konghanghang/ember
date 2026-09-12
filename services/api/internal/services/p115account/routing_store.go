@@ -12,7 +12,7 @@ import (
 
 var playbackRouteMetadataColumns = []string{
 	"id", "role", "owner_user_id", "provider_user_id", "target_parent_id", "target_parent_path",
-	"max_concurrent_streams", "status", "enabled", "cooldown_until", "updated_at",
+	"max_concurrent_streams", "status", "enabled", "cooldown_until", "config_version",
 }
 
 // ResolvePlaybackRouteMetadata locks the user's effective plan references and
@@ -85,14 +85,14 @@ func (s *gormAccountStore) GetSharedPlaybackMetadata(ctx context.Context) (*mode
 	return &account, nil
 }
 
-// AcquirePlaybackRoute loads credentials only for the exact account version
+// AcquirePlaybackRoute loads credentials only for the exact configuration version
 // admitted by Redis and serializes expired-cooldown half-open probes.
 func (s *gormAccountStore) AcquirePlaybackRoute(ctx context.Context, route PlaybackRoute, now, probeUntil time.Time) (*models.P115Account, error) {
 	var account models.P115Account
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND role = ? AND enabled = ? AND updated_at = ?",
-				route.AccountID, models.P115AccountRolePlayback, true, route.UpdatedAt)
+			Where("id = ? AND role = ? AND enabled = ? AND config_version = ?",
+				route.AccountID, models.P115AccountRolePlayback, true, route.ConfigVersion)
 		if route.OwnerUserID == "" {
 			query = query.Where("owner_user_id IS NULL")
 		} else {

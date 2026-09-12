@@ -39,41 +39,41 @@ func (c fakeCredentialCipher) Decrypt(ciphertext string) (string, error) {
 }
 
 type fakeAccountStore struct {
-	accounts                         map[string]*models.P115Account
-	createErr                        error
-	getErr                           error
-	replaceErr                       error
-	validationErr                    error
-	enableErr                        error
-	created                          *models.P115Account
-	replacement                      credentialReplacement
-	replacementID                    string
-	validationExpectedCiphertext     string
-	validationAt                     time.Time
-	enabledValue                     bool
-	createCallCount                  int
-	sourceLocationID                 string
-	sourceLocationPrefix             string
-	sourceLocationRootID             string
-	playbackConfigID                 string
-	playbackConfigExpectedCiphertext string
-	playbackConfigExpectedUpdatedAt  time.Time
-	playbackConfigPath               string
-	playbackConfigTargetID           string
-	playbackConfigMax                int
-	playbackConfigErr                error
-	personalPolicy                   PersonalPlanPolicy
-	personalPolicyErr                error
-	personalDirectoryOwner           string
-	personalDirectoryPath            string
-	personalDirectoryTargetID        string
-	personalDirectoryErr             error
-	personalConcurrencyOwner         string
-	personalConcurrencyMax           int
-	personalConcurrencyErr           error
-	personalEnabledOwner             string
-	personalEnabledValue             bool
-	personalEnableErr                error
+	accounts                            map[string]*models.P115Account
+	createErr                           error
+	getErr                              error
+	replaceErr                          error
+	validationErr                       error
+	enableErr                           error
+	created                             *models.P115Account
+	replacement                         credentialReplacement
+	replacementID                       string
+	validationExpectedCiphertext        string
+	validationAt                        time.Time
+	enabledValue                        bool
+	createCallCount                     int
+	sourceLocationID                    string
+	sourceLocationPrefix                string
+	sourceLocationRootID                string
+	playbackConfigID                    string
+	playbackConfigExpectedCiphertext    string
+	playbackConfigExpectedConfigVersion int64
+	playbackConfigPath                  string
+	playbackConfigTargetID              string
+	playbackConfigMax                   int
+	playbackConfigErr                   error
+	personalPolicy                      PersonalPlanPolicy
+	personalPolicyErr                   error
+	personalDirectoryOwner              string
+	personalDirectoryPath               string
+	personalDirectoryTargetID           string
+	personalDirectoryErr                error
+	personalConcurrencyOwner            string
+	personalConcurrencyMax              int
+	personalConcurrencyErr              error
+	personalEnabledOwner                string
+	personalEnabledValue                bool
+	personalEnableErr                   error
 }
 
 func TestNewServiceRequiresDatabaseAndEncryptionKey(t *testing.T) {
@@ -162,7 +162,7 @@ func (s *fakeAccountStore) ResolvePlaybackRouteMetadata(ctx context.Context, own
 
 func (s *fakeAccountStore) AcquirePlaybackRoute(_ context.Context, route PlaybackRoute, now, probeUntil time.Time) (*models.P115Account, error) {
 	account, ok := s.accounts[route.AccountID]
-	if !ok || !account.UpdatedAt.Equal(route.UpdatedAt) || !account.Enabled || account.Role != models.P115AccountRolePlayback {
+	if !ok || account.ConfigVersion != route.ConfigVersion || !account.Enabled || account.Role != models.P115AccountRolePlayback {
 		return nil, ErrRuntimeStateChanged
 	}
 	if route.OwnerUserID == "" {
@@ -364,7 +364,7 @@ func (s *fakeAccountStore) CompleteRuntimeHealth(_ context.Context, ref runtimeC
 	if !ok {
 		return ErrAccountNotFound
 	}
-	if stringValue(account.CookieCiphertext) != ref.expectedCiphertext || !account.UpdatedAt.Equal(ref.expectedUpdatedAt) {
+	if stringValue(account.CookieCiphertext) != ref.expectedCiphertext || !account.UpdatedAt.Equal(ref.expectedUpdatedAt) || account.ConfigVersion != ref.expectedConfigVersion {
 		return ErrRuntimeStateChanged
 	}
 	account.Status = mutation.Status
@@ -435,13 +435,13 @@ func (s *fakeAccountStore) UpdateSourceLocation(_ context.Context, id, embyPathP
 func (s *fakeAccountStore) UpdatePlaybackConfig(
 	_ context.Context,
 	id, expectedCiphertext string,
-	expectedUpdatedAt time.Time,
+	expectedConfigVersion int64,
 	targetParentPath, targetParentID string,
 	maxConcurrentStreams int,
 ) (*models.P115Account, error) {
 	s.playbackConfigID = id
 	s.playbackConfigExpectedCiphertext = expectedCiphertext
-	s.playbackConfigExpectedUpdatedAt = expectedUpdatedAt
+	s.playbackConfigExpectedConfigVersion = expectedConfigVersion
 	if s.playbackConfigErr != nil {
 		return nil, s.playbackConfigErr
 	}
@@ -449,12 +449,16 @@ func (s *fakeAccountStore) UpdatePlaybackConfig(
 	if !ok {
 		return nil, ErrAccountNotFound
 	}
+	if stringValue(account.CookieCiphertext) != expectedCiphertext || account.ConfigVersion != expectedConfigVersion {
+		return nil, ErrRuntimeStateChanged
+	}
 	s.playbackConfigPath = targetParentPath
 	s.playbackConfigTargetID = targetParentID
 	s.playbackConfigMax = maxConcurrentStreams
 	account.TargetParentPath = stringPointer(targetParentPath)
 	account.TargetParentID = stringPointer(targetParentID)
 	account.MaxConcurrentStreams = &maxConcurrentStreams
+	account.ConfigVersion++
 	copy := *account
 	return &copy, nil
 }
@@ -462,7 +466,7 @@ func (s *fakeAccountStore) UpdatePlaybackConfig(
 func (s *fakeAccountStore) UpdatePersonalDirectory(
 	_ context.Context,
 	ownerUserID, expectedCiphertext string,
-	expectedUpdatedAt time.Time,
+	expectedConfigVersion int64,
 	targetParentPath, targetParentID string,
 ) (*models.P115Account, error) {
 	s.personalDirectoryOwner = ownerUserID
@@ -473,7 +477,7 @@ func (s *fakeAccountStore) UpdatePersonalDirectory(
 	if err != nil {
 		return nil, err
 	}
-	if stringValue(account.CookieCiphertext) != expectedCiphertext || !account.UpdatedAt.Equal(expectedUpdatedAt) {
+	if stringValue(account.CookieCiphertext) != expectedCiphertext || account.ConfigVersion != expectedConfigVersion {
 		return nil, ErrRuntimeStateChanged
 	}
 	s.personalDirectoryPath = targetParentPath
@@ -481,6 +485,7 @@ func (s *fakeAccountStore) UpdatePersonalDirectory(
 	stored := s.accounts[account.ID]
 	stored.TargetParentPath = stringPointer(targetParentPath)
 	stored.TargetParentID = stringPointer(targetParentID)
+	stored.ConfigVersion++
 	copy := *stored
 	return &copy, nil
 }

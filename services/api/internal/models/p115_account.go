@@ -53,8 +53,10 @@ type P115Account struct {
 	CooldownUntil        *time.Time        `json:"cooldownUntil,omitempty" gorm:"column:cooldown_until"`
 	LastErrorCode        *string           `json:"lastErrorCode,omitempty" gorm:"column:last_error_code;type:varchar(100)"`
 	LastErrorMessage     *string           `json:"lastErrorMessage,omitempty" gorm:"column:last_error_message;type:varchar(500)"`
-	CreatedAt            time.Time         `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt            time.Time         `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
+	// ConfigVersion advances only on control-plane changes; runtime health keeps its own updated_at CAS.
+	ConfigVersion int64     `json:"-" gorm:"column:config_version;not null;default:1"`
+	CreatedAt     time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt     time.Time `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 // TableName returns the SQL table managed by the p115 account migration.

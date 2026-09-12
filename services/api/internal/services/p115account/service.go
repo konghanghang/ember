@@ -53,8 +53,8 @@ type accountStore interface {
 	CompleteRuntimeHealth(ctx context.Context, ref runtimeCredentialRef, mutation runtimeHealthMutation) error
 	SetEnabled(ctx context.Context, id string, enabled bool) (*models.P115Account, error)
 	UpdateSourceLocation(ctx context.Context, id, embyPathPrefix, sourceRootID string) (*models.P115Account, error)
-	UpdatePlaybackConfig(ctx context.Context, id, expectedCiphertext string, expectedUpdatedAt time.Time, targetParentPath, targetParentID string, maxConcurrentStreams int) (*models.P115Account, error)
-	UpdatePersonalDirectory(ctx context.Context, ownerUserID, expectedCiphertext string, expectedUpdatedAt time.Time, targetParentPath, targetParentID string) (*models.P115Account, error)
+	UpdatePlaybackConfig(ctx context.Context, id, expectedCiphertext string, expectedConfigVersion int64, targetParentPath, targetParentID string, maxConcurrentStreams int) (*models.P115Account, error)
+	UpdatePersonalDirectory(ctx context.Context, ownerUserID, expectedCiphertext string, expectedConfigVersion int64, targetParentPath, targetParentID string) (*models.P115Account, error)
 	UpdatePersonalConcurrency(ctx context.Context, ownerUserID string, maxConcurrentStreams int) (*models.P115Account, PersonalPlanPolicy, error)
 	SetPersonalEnabled(ctx context.Context, ownerUserID string, enabled bool) (*models.P115Account, PersonalPlanPolicy, error)
 	RevokePersonal(ctx context.Context, ownerUserID string) error
@@ -372,9 +372,10 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 			UserAgent: userAgent,
 		},
 		runtimeRef: runtimeCredentialRef{
-			accountID:          account.ID,
-			expectedCiphertext: ciphertext,
-			expectedUpdatedAt:  account.UpdatedAt,
+			accountID:             account.ID,
+			expectedCiphertext:    ciphertext,
+			expectedUpdatedAt:     account.UpdatedAt,
+			expectedConfigVersion: account.ConfigVersion,
 		},
 	}, nil
 }

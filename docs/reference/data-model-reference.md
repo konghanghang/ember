@@ -541,6 +541,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | AuthMode | enum | authMode | 当前固定 `legacy_cookie` |
 | OwnerUserID | *string(25) | ownerUserId | 个人 playback 的 Ember 用户；管理员账号与 revoked tombstone 为空，外键 `ON DELETE RESTRICT` |
 | ProviderUserID | *string(64) | providerUserId | 验证后写入的 115 用户标识，可空 |
+| ConfigVersion | int64 | config_version | 内部配置/凭证代次，默认 1；控制面修改递增，运行期健康不递增，JSON 不输出 |
 | CookieCiphertext | *text | cookie_ciphertext | `CONFIG_ENCRYPTION_KEY` 加密密文；仅 revoked 可空，JSON 永不序列化 |
 | AppType | *string(32) | appType | Cookie `UID.ssoent` 派生的客户端类型；个人未知编码固定 `unknown`，revoked 清空 |
 | UserAgent | *string(512) | userAgent | Provider 请求 User-Agent；个人固定 `Mozilla/5.0`，管理员保留显式值，revoked 清空 |

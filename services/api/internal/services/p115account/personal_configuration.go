@@ -59,7 +59,7 @@ func (s *Service) UpdatePersonalDirectory(ctx context.Context, ownerUserID, targ
 	if directory == nil || strings.TrimSpace(directory.ID) == "" || strings.TrimSpace(directory.Path) == "" {
 		return nil, p115integration.ErrProviderProtocol
 	}
-	updated, err := s.store.UpdatePersonalDirectory(ctx, ownerUserID, ciphertext, account.UpdatedAt, strings.TrimSpace(directory.Path), strings.TrimSpace(directory.ID))
+	updated, err := s.store.UpdatePersonalDirectory(ctx, ownerUserID, ciphertext, account.ConfigVersion, strings.TrimSpace(directory.Path), strings.TrimSpace(directory.ID))
 	if err != nil {
 		return nil, err
 	}

@@ -26,7 +26,7 @@ type PlaybackRoute struct {
 	TransferDailyLimit             int
 	Status                         models.P115AccountStatus
 	CooldownUntil                  *time.Time
-	UpdatedAt                      time.Time
+	ConfigVersion                  int64
 }
 
 // ResolvePlaybackRoute reads the current plan and one exact playback account
@@ -66,7 +66,7 @@ func (s *Service) ResolvePlaybackRoute(ctx context.Context, ownerUserID string, 
 		TargetParentPath: strings.TrimSpace(*account.TargetParentPath), ConfiguredMaxConcurrentStreams: configured,
 		EffectiveMaxConcurrentStreams: effective, SimultaneousStreamLimit: policy.SimultaneousStreamLimit,
 		TransferHourlyLimit: policy.TransferHourlyLimit, TransferDailyLimit: policy.TransferDailyLimit,
-		Status: account.Status, CooldownUntil: account.CooldownUntil, UpdatedAt: account.UpdatedAt,
+		Status: account.Status, CooldownUntil: account.CooldownUntil, ConfigVersion: account.ConfigVersion,
 	}, nil
 }
 
@@ -92,7 +92,7 @@ func (s *Service) AcquirePlaybackRoute(ctx context.Context, route PlaybackRoute)
 	return ActiveAccountCredential{
 		Role: models.P115AccountRolePlayback, ProviderUserID: route.ProviderUserID, TargetParentID: route.TargetParentID,
 		Credential: p115integration.Credential{AccountID: account.ID, Cookie: cookie, AppType: appType, UserAgent: userAgent},
-		runtimeRef: runtimeCredentialRef{accountID: account.ID, expectedCiphertext: ciphertext, expectedUpdatedAt: account.UpdatedAt},
+		runtimeRef: runtimeCredentialRef{accountID: account.ID, expectedCiphertext: ciphertext, expectedUpdatedAt: account.UpdatedAt, expectedConfigVersion: account.ConfigVersion},
 	}, nil
 }
 
@@ -129,7 +129,7 @@ func validatePlaybackRouteAccount(account *models.P115Account, mode models.P115P
 }
 
 func validateAcquiredPlaybackRoute(account *models.P115Account, route PlaybackRoute) error {
-	if account == nil || account.ID != route.AccountID || account.Role != models.P115AccountRolePlayback || !account.Enabled ||
+	if account == nil || account.ConfigVersion != route.ConfigVersion || account.ID != route.AccountID || account.Role != models.P115AccountRolePlayback || !account.Enabled ||
 		account.ProviderUserID == nil || strings.TrimSpace(*account.ProviderUserID) != route.ProviderUserID ||
 		account.TargetParentID == nil || strings.TrimSpace(*account.TargetParentID) != route.TargetParentID ||
 		account.TargetParentPath == nil || strings.TrimSpace(*account.TargetParentPath) != route.TargetParentPath ||

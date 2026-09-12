@@ -75,7 +75,7 @@ func (s *Service) UpdatePlaybackConfig(ctx context.Context, accountID string, in
 		ctx,
 		account.ID,
 		ciphertext,
-		account.UpdatedAt,
+		account.ConfigVersion,
 		strings.TrimSpace(directory.Path),
 		strings.TrimSpace(directory.ID),
 		input.MaxConcurrentStreams,

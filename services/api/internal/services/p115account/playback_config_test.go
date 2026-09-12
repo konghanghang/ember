@@ -3,6 +3,7 @@ package p115account
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,11 +12,12 @@ import (
 )
 
 type fakeDirectoryResolver struct {
-	directory  *p115integration.Directory
-	err        error
-	calls      int
-	credential p115integration.Credential
-	query      p115integration.DirectoryPathQuery
+	duringLookup func()
+	directory    *p115integration.Directory
+	err          error
+	calls        int
+	credential   p115integration.Credential
+	query        p115integration.DirectoryPathQuery
 }
 
 func (r *fakeDirectoryResolver) ResolveDirectoryByPath(
@@ -26,7 +28,52 @@ func (r *fakeDirectoryResolver) ResolveDirectoryByPath(
 	r.calls++
 	r.credential = credential
 	r.query = query
+	if r.duringLookup != nil {
+		r.duringLookup()
+	}
 	return r.directory, r.err
+}
+
+// TestDirectorySaveConfigurationGuard keeps health observations independent of
+// directory lookup while still rejecting a concurrent control-plane generation.
+func TestDirectorySaveConfigurationGuard(t *testing.T) {
+	for _, personal := range []bool{false, true} {
+		for _, changedConfig := range []bool{false, true} {
+			t.Run(fmt.Sprintf("personal=%t/control=%t", personal, changedConfig), func(t *testing.T) {
+				account := &models.P115Account{ID: "account", Role: models.P115AccountRolePlayback,
+					CookieCiphertext: stringPointer("encrypted:cookie"), AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent"),
+					Status: models.P115AccountStatusActive, ConfigVersion: 7, UpdatedAt: time.Now().Add(-time.Minute)}
+				if personal {
+					account.OwnerUserID = stringPointer("user-1")
+				}
+				store := &fakeAccountStore{accounts: map[string]*models.P115Account{account.ID: account}}
+				service := newServiceWithDependencies(store, fakeCredentialCipher{})
+				service.directoryResolver = &fakeDirectoryResolver{
+					directory: &p115integration.Directory{ID: "200", Path: "/Playback"},
+					duringLookup: func() {
+						if changedConfig {
+							account.ConfigVersion++
+						} else {
+							account.UpdatedAt = time.Now()
+						}
+					},
+				}
+				var err error
+				if personal {
+					_, err = service.UpdatePersonalDirectory(context.Background(), "user-1", "/Playback")
+				} else {
+					_, err = service.UpdatePlaybackConfig(context.Background(), account.ID, PlaybackConfigInput{TargetParentPath: "/Playback", MaxConcurrentStreams: 3})
+				}
+				if changedConfig {
+					if !errors.Is(err, ErrRuntimeStateChanged) || account.TargetParentID != nil {
+						t.Fatalf("stale directory saved: %v", err)
+					}
+				} else if err != nil || account.TargetParentID == nil || account.ConfigVersion != 8 {
+					t.Fatalf("health caused save conflict: %v", err)
+				}
+			})
+		}
+	}
 }
 
 func TestServiceUpdatePlaybackConfigResolvesAndPersistsAtomicFields(t *testing.T) {
@@ -35,7 +82,7 @@ func TestServiceUpdatePlaybackConfigResolvesAndPersistsAtomicFields(t *testing.T
 		"playback": {
 			ID: "playback", Role: models.P115AccountRolePlayback,
 			CookieCiphertext: stringPointer("encrypted:cookie"), AppType: stringPointer("web"), UserAgent: stringPointer("provider-agent"),
-			Status: models.P115AccountStatusActive, UpdatedAt: updatedAt,
+			Status: models.P115AccountStatusActive, UpdatedAt: updatedAt, ConfigVersion: 7,
 		},
 	}}
 	resolver := &fakeDirectoryResolver{directory: &p115integration.Directory{ID: "200", Path: "/Ember/Playback"}}
@@ -52,8 +99,8 @@ func TestServiceUpdatePlaybackConfigResolvesAndPersistsAtomicFields(t *testing.T
 	if resolver.calls != 1 || resolver.credential.Cookie != "cookie" || resolver.query.RootID != "0" || resolver.query.RelativePath != "Ember/Playback" {
 		t.Fatalf("resolver call = credential=%+v query=%+v calls=%d", resolver.credential, resolver.query, resolver.calls)
 	}
-	if store.playbackConfigID != "playback" || store.playbackConfigExpectedCiphertext != "encrypted:cookie" || !store.playbackConfigExpectedUpdatedAt.Equal(updatedAt) {
-		t.Fatalf("store guard = id=%q ciphertext=%q updatedAt=%s", store.playbackConfigID, store.playbackConfigExpectedCiphertext, store.playbackConfigExpectedUpdatedAt)
+	if store.playbackConfigID != "playback" || store.playbackConfigExpectedCiphertext != "encrypted:cookie" || store.playbackConfigExpectedConfigVersion != 7 {
+		t.Fatalf("store guard = id=%q ciphertext=%q configVersion=%d", store.playbackConfigID, store.playbackConfigExpectedCiphertext, store.playbackConfigExpectedConfigVersion)
 	}
 	if store.playbackConfigPath != "/Ember/Playback" || store.playbackConfigTargetID != "200" || store.playbackConfigMax != 3 {
 		t.Fatalf("stored config = path=%q target=%q max=%d", store.playbackConfigPath, store.playbackConfigTargetID, store.playbackConfigMax)

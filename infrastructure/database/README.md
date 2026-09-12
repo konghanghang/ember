@@ -12,6 +12,7 @@
 - `20260822_02_add_p115_source_location.sql`：source 账号的 Emby 挂载前缀和 115 源目录 ID
 - `20260822_03_create_emby_access_tokens.sql`：Emby AccessToken 单向摘要映射、本地撤销审计和活动用户/设备索引
 - `20260903_01_p115_personal_routing_and_quotas.sql`：套餐 115 路由/转存额度、用户个人 playback 所有权、目录/并发配置、revoked tombstone 与新 partial unique 约束
+- `20260912_01_p115_account_config_version.sql`：独立账号控制面配置/凭证代次，解除成功健康回写与播放路由/目录保存的误冲突
 - `archive/`：仅供追溯，不参与任何运行时链路
 
 当前升级支持窗口：
