@@ -56,6 +56,23 @@ type ReserveResult struct {
 	User               LeaseUsage
 }
 
+// ConfirmRequest binds a candidate to its admitted account and session.
+// Renewal only extends a live reservation, never active/paused or missing leases.
+type ConfirmRequest struct {
+	PlaybackAccountKey string
+	UserID             string
+	SessionFingerprint string
+	RenewReservation   bool
+}
+
+// ConfirmResult is one atomic lease and usage snapshot for HEAD or final admission.
+type ConfirmResult struct {
+	Found   bool
+	Session LeaseSession
+	Account LeaseUsage
+	User    LeaseUsage
+}
+
 // TransitionResult describes an event-driven state change. Missing reverse
 // sessions are a normal no-op and return Found=false.
 type TransitionResult struct {
@@ -70,12 +87,57 @@ type TransitionResult struct {
 // Callers supply one injectable business clock for every operation.
 type LeaseStore interface {
 	Reserve(context.Context, ReserveRequest, time.Time) (ReserveResult, error)
+	Confirm(context.Context, ConfirmRequest, time.Time) (ConfirmResult, error)
 	Session(context.Context, string, time.Time) (LeaseSession, bool, error)
 	Advance(context.Context, string, LeaseState, time.Time) (TransitionResult, error)
 	ReleaseReservation(context.Context, string, time.Time) (bool, error)
 	Stop(context.Context, string, time.Time) (TransitionResult, error)
 	AccountUsage(context.Context, string, time.Time) (LeaseUsage, error)
 	UserUsage(context.Context, string, time.Time) (LeaseUsage, error)
+}
+
+// Confirm reads one live, account-bound lease and optionally renews only its
+// reservation without resurrecting a stopped or expired playback session.
+func (s *MemoryLeaseStore) Confirm(ctx context.Context, request ConfirmRequest, now time.Time) (ConfirmResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ConfirmResult{}, err
+	}
+	if err := validateConfirmRequest(request); err != nil {
+		return ConfirmResult{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, found := s.sessionLocked(request.SessionFingerprint, now)
+	if !found {
+		return ConfirmResult{}, nil
+	}
+	if session.PlaybackAccountKey != request.PlaybackAccountKey || session.UserID != request.UserID {
+		return ConfirmResult{}, ErrLeaseIdentityInvalid
+	}
+	if request.RenewReservation && session.State == LeaseStateReservation {
+		session = s.renewReservationLocked(session, now)
+	}
+	return ConfirmResult{Found: true, Session: session, Account: s.accountUsageLocked(session.PlaybackAccountKey, now), User: s.userUsageLocked(session.UserID, now)}, nil
+}
+
+// renewReservationLocked updates the reservation and index TTLs while the
+// caller holds mu; event-owned active and paused states never call this helper.
+func (s *MemoryLeaseStore) renewReservationLocked(session LeaseSession, now time.Time) LeaseSession {
+	session.ExpiresAt = now.Add(ReservationTTL)
+	s.setIndexMemberLocked(s.accountLeases, session.PlaybackAccountKey, session.Fingerprint, session.ExpiresAt, now)
+	s.setIndexMemberLocked(s.userLeases, session.UserID, session.Fingerprint, session.ExpiresAt, now)
+	s.touchIndexLocked(s.accountActive, session.PlaybackAccountKey, now)
+	s.touchIndexLocked(s.userActive, session.UserID, now)
+	s.sessions[session.Fingerprint] = memoryLeaseSession{LeaseSession: session}
+	return session
+}
+
+// validateConfirmRequest rejects invalid identities before any lease operation.
+func validateConfirmRequest(request ConfirmRequest) error {
+	if !opaqueDigestPattern.MatchString(request.PlaybackAccountKey) || !opaqueDigestPattern.MatchString(request.SessionFingerprint) || !internalIDPattern.MatchString(request.UserID) {
+		return ErrLeaseIdentityInvalid
+	}
+	return nil
 }
 
 type memoryLeaseIndex struct {
@@ -112,8 +174,8 @@ func NewMemoryLeaseStore() *MemoryLeaseStore {
 	}
 }
 
-// Reserve atomically reuses an existing session or creates one short
-// reservation when the selected account still has capacity.
+// Reserve atomically renews an existing reservation or creates one when the
+// account has capacity; active/paused sessions retain their event-owned TTLs.
 func (s *MemoryLeaseStore) Reserve(ctx context.Context, request ReserveRequest, now time.Time) (ReserveResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ReserveResult{}, err
@@ -125,6 +187,9 @@ func (s *MemoryLeaseStore) Reserve(ctx context.Context, request ReserveRequest, 
 	defer s.mu.Unlock()
 
 	if existing, ok := s.sessionLocked(request.SessionFingerprint, now); ok {
+		if existing.PlaybackAccountKey == request.PlaybackAccountKey && existing.UserID == request.UserID && existing.State == LeaseStateReservation {
+			existing = s.renewReservationLocked(existing, now)
+		}
 		return ReserveResult{
 			Created: false, PlaybackAccountKey: existing.PlaybackAccountKey, UserID: existing.UserID,
 			State: existing.State, Account: s.accountUsageLocked(existing.PlaybackAccountKey, now),

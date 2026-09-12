@@ -349,6 +349,8 @@ flowchart TD
 
 其中 GET 会在 Provider 前申请 Redis reservation；HEAD 只有同一 session 已存在 `reservation|active|paused` 时才继续，未命中不创建租约、不调用 115，直接进入公共 fallback。
 
+单 Gateway 按同 session 串行执行候选、续租与清理；排队及主处理共用 2 分钟预算。GET 新建/复用 reservation 时刷新 30 秒有效期，处理期间每 10 秒续租，返回前原子确认并续租；HEAD 准入通过一次原子查询同时读取租约和账号/用户用量，返回前再次确认，但不创建或延长租约。active/paused 的到期仍只由播放事件管理。租约丢失/过期/Stopped 时不重新创建，固定 `playback_lease_lost` 回退；内部主处理预算耗尽为 `playback_resolve_timeout` 回退。客户端自己的取消/超时仍为 `499/504`，内部预算和续租错误不污染账号健康。所有后台续租都在请求收尾时停止并等待退出，之后才清理本次新建预留并放行下一请求。
+
 HLS/DASH manifest、转码分片、不完整参数、未映射路径、账号不可用、Provider 错误、秒传失败、目标复核失败、链接不兼容等都进入 fallback，不拒绝合法用户。
 
 其中按需 PlaybackInfo 成功时会补齐真实 PlaySessionId/Container，并可能获得 115 `302`；115 不适用或失败时使用与决策请求分离的权威 Emby fallback。失败后 plain `/stream` 再命中近期用户条目快照时，固定记录 `fallback/route/container_recovered`，该降级分支不尝试 115。
@@ -356,6 +358,8 @@ HLS/DASH manifest、转码分片、不完整参数、未映射路径、账号不
 ## 7. DirectPlay 保留式秒传
 
 源目录解析在 Cookie Adapter 内合并时间重叠的相同账号、精确凭证和父目录请求，多个文件共享一次路径解析与完整分页，再分别校验文件名唯一性。完成即移除，不缓存后续播放；等待者独立取消，全部离开取消上游，总预算 30 秒耗尽按 Provider unavailable 处理。该优化位于用户/账号/Redis 准入之后，不共享目标查重、转存记账或最终直链；详细隔离、日志及中间目录重名未验证边界见 [115 Cookie 合同](./p115-cookie-playback-contract.md#521-源文件路径解析)。
+
+内容锁在同进程先按内容键排队，再竞争 PostgreSQL advisory lock；未取得锁的轮询归还 SQL 连接，有限池的在途取锁/持锁任务不超过 `MaxOpenConns - 1`，避免所有连接都被锁请求占用而无法执行任务 SQL。成功持锁仍固定物理连接；取锁响应未知或解锁失败时丢弃连接。进程内排队不替代数据库锁，也不删除锁内第二次查重。
 
 ```mermaid
 sequenceDiagram
@@ -384,7 +388,7 @@ sequenceDiagram
     alt 目标已存在
         Provider-->>DP: 唯一精确目标文件
         DP->>Provider: GetDownloadURL(playback Cookie, ClientUA)
-        DP-->>Gateway: RedirectCandidate(preexisting=true)
+        DP->>DP: 保存 preexisting 候选
     else 目标不存在
         DP->>DB: 获取 playbackAccountId + SHA1 + size advisory lock
         DP->>Provider: 锁内第二次目标查重
@@ -411,9 +415,15 @@ sequenceDiagram
         end
         DP->>DB: 释放 advisory lock
         DP->>Provider: GetDownloadURL(playback Cookie, ClientUA)
-        DP-->>Gateway: RedirectCandidate
+        DP->>DP: 保存转存候选
     end
     DP->>Accounts: ReportRuntimeHealth(source/playback, succeeded)
+    DP->>Redis: 原子确认有效租约；GET reservation 续租
+    alt 租约有效且身份一致
+        DP-->>Gateway: RedirectCandidate
+    else 租约丢失或 Redis 失败
+        DP-->>Gateway: 清除候选 URL 并 fallback
+    end
 ```
 
 任一 Provider 调用返回账号级类型化错误时，DirectPlay 只把实际调用账号和固定 `credential_rejected/provider_unavailable/provider_protocol` 结果交给 `P115AccountService`；请求取消、目标文件不可见、下载 Header 不兼容和其他文件级失败不污染账号健康。健康回写使用独立 2 秒上限，失败或旧结果被拒绝都不替换原始 DirectPlay 错误、302 或 Gateway fallback。
@@ -573,7 +583,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 #### 【P2-3，自动化已关闭】HEAD 无租约不再进入完整 DirectPlay
 
-- 当前实现：HEAD 先按用途隔离 fingerprint 查询已有反向 session；未命中直接返回 `head_lease_missing` 并进入公共 fallback，不创建 reservation、不加载 Cookie、不调用 Provider。命中时才复用当前路由并签发新 URL。
+- 当前实现：HEAD 先按用途隔离 fingerprint 原子查询已有反向 session 与账号/用户用量；未命中直接返回 `head_lease_missing` 并进入公共 fallback，不创建 reservation、不加载 Cookie、不调用 Provider。命中时才继续，返回候选前再次确认；HEAD 全程不续租。
 - 证据边界：fake Gateway/DirectPlay 测试已覆盖；真实 Infuse HEAD/GET 顺序仍未重新取证。
 
 #### 【P2-4】playback 文件无限保留但没有容量治理

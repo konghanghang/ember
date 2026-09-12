@@ -19,6 +19,8 @@ var (
 	ErrRedisUnavailable           = errors.New("direct play Redis unavailable")
 	ErrHeadLeaseMissing           = errors.New("direct play HEAD lease missing")
 	ErrPlaybackRouteChanged       = errors.New("direct play playback route changed")
+	ErrPlaybackLeaseLost          = errors.New("direct play playback lease lost")
+	ErrPlaybackResolveTimeout     = errors.New("direct play preparation budget exhausted")
 	ErrTransferQuotaExceeded      = errors.New("direct play transfer quota exceeded")
 	ErrTransferQuotaCommitFailed  = errors.New("direct play transfer quota commit failed")
 )

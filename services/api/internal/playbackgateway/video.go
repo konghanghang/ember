@@ -389,6 +389,10 @@ func directPlayReasonCode(err error) string {
 		return "head_lease_missing"
 	case errors.Is(err, directplay.ErrPlaybackRouteChanged):
 		return "playback_route_changed"
+	case errors.Is(err, directplay.ErrPlaybackLeaseLost):
+		return "playback_lease_lost"
+	case errors.Is(err, directplay.ErrPlaybackResolveTimeout):
+		return "playback_resolve_timeout"
 	case errors.Is(err, directplay.ErrTransferQuotaExceeded):
 		return "transfer_quota_exceeded"
 	case errors.Is(err, directplay.ErrTransferQuotaCommitFailed):

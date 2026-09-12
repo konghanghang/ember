@@ -13,6 +13,11 @@ func (UnavailableLeaseStore) Reserve(context.Context, ReserveRequest, time.Time)
 	return ReserveResult{}, ErrRedisUnavailable
 }
 
+// Confirm fails closed when Redis cannot verify the candidate's lease.
+func (UnavailableLeaseStore) Confirm(context.Context, ConfirmRequest, time.Time) (ConfirmResult, error) {
+	return ConfirmResult{}, ErrRedisUnavailable
+}
+
 func (UnavailableLeaseStore) Session(context.Context, string, time.Time) (LeaseSession, bool, error) {
 	return LeaseSession{}, false, ErrRedisUnavailable
 }

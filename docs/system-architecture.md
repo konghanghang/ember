@@ -783,13 +783,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `TransferProvider` 只包含源路径解析、目标查重、Range Hash、秒传初始化、目标复核和下载 URL；接口刻意不包含 `DeleteFile`，第一阶段无法自动删除保留文件
 - `ResolveMediaPath` 加载唯一可运行的 source/playback 账号并核对 Provider UID 不同；未到期冷却直接返回账号不可用，由 Gateway fallback Emby，已到期冷却只允许一个数据库租约持有者探测。随后按 source 账号配置把 Emby `Path` 严格转换为 `rootId + relativePath`；Provider 唯一解析后返回的正数 Size/SHA1 才作为后续查重、锁、秒传和任务身份
 - 首次目录作用域查重命中时跳过任务与锁，成功签发直链后刷新最近成功任务的 `lastAccessedAt`；外部预存文件没有 Ember 任务时允许无行更新
-- 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；相同内容的并发请求只有一个进入秒传，其余请求复用目标文件
+- 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；同进程同内容先在借连接前排队，未拿到数据库锁的轮询立即归还连接。有限连接池最多允许 `MaxOpenConns - 1` 个在途取锁/持锁任务，为任务 SQL 保留连接；池上限为 1 时拒绝转存。相同内容仍只有一个请求进入秒传，其余请求复用目标文件
 - 锁内创建 `playback_transfer_tasks`，状态依次覆盖初始化、一次 challenge、目标复核和终态；真实 Provider message、Cookie、完整路径和签名 URL 均不落库
 - `status=1`、重复/越界 challenge、Provider 故障和目标复核失败均写入固定脱敏失败码；成功保存目标 fileId/pickCode、完成时间和 `lastAccessedAt`
-- advisory lock 固定在一条 PostgreSQL 物理连接上；释放使用独立超时 context，避免请求取消后把 session 锁带回连接池
+- 已取得的 advisory lock 固定在一条 PostgreSQL 物理连接上；释放使用独立超时 context。取锁响应丢失或解锁失败时丢弃连接，避免状态不明的 session 锁进入连接池
 - 任务成功并释放锁后才签发本次 playback 下载 URL；需要客户端 Cookie 的 HeaderMode 失败关闭，不向播放器泄露 playback Cookie
 - 可用直链签发并完成必要任务持久化后，source/playback 都回写运行期成功；Provider 凭证失效、临时不可用和协议错误只按实际调用账号回写固定状态。回写使用独立 2 秒上限且失败不改写 302/fallback 结果，请求取消和文件级错误不污染账号健康
 - 源路径解析的业务拒绝、协议异常及无效源文件身份统一限制在当前请求：不回写源账号 `error`，不进入查重/秒传，释放本次新播放 reservation，并保留 `providerOperation=resolve_source_path` 供 Gateway 的单条 fallback 日志排障。源解析明确返回凭证失效或临时不可用时仍执行原账号状态/冷却处理；其他 Provider 操作的协议故障仍按原合同回写账号 `error`
+- 单 Gateway 内同 `sessionFingerprint` 的候选请求串行，取消/失败清理结束后才放行下一个请求；排队和候选主流程共用固定 2 分钟预算，耗尽按 `playback_resolve_timeout` 回退 Emby，客户端自身取消/超时仍为 `499/504`。GET 新建或复用 reservation 时刷新 30 秒 TTL，处理期间每 10 秒续租，返回前原子确认并再次续租；丢失/过期/Stopped 的租约不重建，按 `playback_lease_lost` 回退。HEAD 使用同一原子确认同时取得租约与账号/用户用量，不创建或续租；active/paused 的 TTL 仍只由播放事件更新。内部预算或续租失败不污染 Provider 健康
 - PostgreSQL 集成测试在独立 `itest_*` schema 中执行完整 migration/`VerifySchema` 并重复执行新 migration，已证明两个并发请求只调用一次 fake `InitRapidUpload`、challenge 后 `attemptCount=2`、普通上传要求落为 `failed`，以及临时故障进入共享冷却、冷却期间不触达 Provider、过期冷却只放行一个探测、成功探测恢复、凭证失效停用和旧 Cookie 请求不覆盖新状态
 
 ### 5.26 EmbyTokenService (`services/embytoken/`, `security/tokenhash/`)

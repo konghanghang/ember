@@ -2,7 +2,7 @@
 
 > 状态：代码、自动化与 PostgreSQL 集成已完成，待受控真实验收
 > 负责人：Ember
-> 更新时间：2026-09-04
+> 更新时间：2026-09-12
 
 ## 背景
 
@@ -233,12 +233,15 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 1. 只有身份、PlaybackInfo 证明和静态原文件条件完整的 `GET` 才能申请新预留；首次实际播放、带 Range 的 GET 或预加载 GET 在网关侧无法可靠区分，因此都最多形成同 session 的一个短 reservation，不能直接形成 active。`HEAD` 和会话事件不能创建新预留。
 2. 使用同一 Gateway `nowMs` 清理 account/user `leases` 与 `active` 索引中 `score <= nowMs` 的 member，后续占用统计只计算 `score > nowMs`。
-3. 如果同一 session 已存在，只复用既有 `reservation|active|paused`，不重复计数，也不因视频重试把 `active|paused` 降级成 reservation。
+3. 如果同一 session 已存在，不重复计数；GET 复用 reservation 时刷新 30 秒 TTL，复用 `active|paused` 时不修改其状态或到期时间。
 4. 取得本次选中账号的运行时上限：个人账号使用当前有效套餐模板计算 `effectiveMaxConcurrentStreams`，管理员共享 playback 直接使用自身配置上限；账号 `leases` 占用数已满则返回 `account_concurrency_exceeded`。套餐组或模板无法解析时不得猜默认值，也不得申请 reservation。
 5. 未满时同时写入 account/user `leases` 和反向 session，状态为 `reservation`，TTL 固定 `30s`；此时不写 `active` 索引。
-6. DirectPlay 未能生成安全候选时立即原子释放本次 `reservation`；既有 `active|paused` 不能因一次重新签发失败被释放。成功返回 `302` 后只保留 `reservation`，等待成功的播放事件晋级。
+6. DirectPlay 未能生成安全候选时释放本次新建的 reservation；复用已有租约的失败请求不删除该租约，已有 `active|paused` 也不受影响。同一 Gateway 按 session 串行执行候选与清理，下一请求只在上一请求结束续租和清理后进入准入，防止取消的旧请求释放其他请求正在使用的预留。
+7. GET 候选生成期间每 10 秒原子确认并续租仍有效的 reservation；返回前再次确认账号/用户/session 一致、租约未过期，并刷新 reservation 的 30 秒 TTL。丢失或 Stopped 的 session 不重建，不返回无占用的候选；active/paused 只确认存在，不修改事件管理的 TTL。
 
-`HEAD` 处理固定为：已有同 session 的 `reservation|active|paused` 时可以复用并继续执行直链候选；没有既有租约时不创建新租约、不触发新的 115 DirectPlay，直接进入公共 fallback。
+`HEAD` 处理固定为：通过一次 Lua 原子取得同 session 的租约和账号/用户用量快照；已有 `reservation|active|paused` 时才继续，返回候选前再次确认。HEAD 不创建或续租，未命中直接进入公共 fallback。
+
+候选主流程（含同 session 排队）固定 2 分钟预算；续租 goroutine 随请求结束并等待退出，清理后才释放 session 队列。内部预算耗尽返回 `playback_resolve_timeout`，续租/最终确认发现租约不存在返回 `playback_lease_lost`，Redis 失败仍为 `redis_unavailable`；三者只使本次加速回退，不修改账号健康。客户端自己的取消/deadline 继续保持 `499/504`。2 分钟与 10 秒是当前代码保护边界，不代表已测得的最佳生产参数；既有独立持久化/清理预算仍可用于收尾。本次沿用现有 Redis Key/值格式和单 Gateway 边界，不支持多 Gateway 的同 session 协调，不增加配置或 SQL migration。
 
 事件语义：
 
@@ -359,7 +362,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 6. `GET` 使用选中 playback 元数据申请 Redis `reservation`；个人账号先按当前有效套餐模板计算 `effectiveMaxConcurrentStreams`，共享账号直接使用自身配置上限。账号占用已满、套餐模板不可用或 Redis 不可用时 fallback，不申请半开探测。`HEAD` 只有命中同 session 既有租约才继续，否则直接 fallback。
 7. Redis 准入后按步骤 2/3 选定的精确 account ID 和 owner 加载运行期凭证。`active` 直接可用；已到期 `cooling_down` 在 PostgreSQL 行锁内将 `cooldown_until` 续租 1 分钟并只放行一个半开探测，其他并发请求 fallback。账号在两次读取之间被停用、解绑、替换 Cookie 或更新时失败关闭，并只释放本次新建的 reservation，不释放同 session 已有 `active|paused`。
 8. 目标查重命中则直接签发新下载 URL，不消费转存配额；缺失时进入 transfer lock 和 Redis 配额预留。
-9. 只有全部合同成立才返回空体 `302`；任一步失败均保持现有公共 fallback。Provider 结果继续通过现有 Cookie 密文 + `updated_at` 乐观并发保护回写账号健康：半开成功恢复 `active`，失败按类型重新冷却、进入 `expired` 或 `error`。
+9. 候选生成后必须再次原子确认播放租约；只有全部合同成立才返回空体 `302`，失败保持公共 fallback。Provider 结果继续通过现有 Cookie 密文 + `updated_at` 乐观并发保护回写账号健康；内部处理预算或租约续租取消不作为 Provider 故障回写。
 
 套餐模式改变、个人账号停用、账号配置值调低或有效套餐的 `SimultaneousStreamLimit` 调低时不撤销已签发链接，也不删除文件；只影响新租约。套餐降低不会自动改写数据库中的 `max_concurrent_streams`，运行时通过 `effectiveMaxConcurrentStreams` 立即收紧新准入；当前占用数不低于有效值时，新 115 播放持续 fallback，直到 `reservation + active + paused` 占用数低于有效上限。套餐上限随后调高或改为 `0` 时，原配置值继续生效。
 
@@ -375,7 +378,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - `accountReservedStreams`、`accountOccupiedStreams`
 - `userReservedStreams`、`userOccupiedStreams`
 - `transferHourlyUsed/Limit`、`transferDailyUsed/Limit`（只有进入转存配额判断时记录）
-- `reasonCode=personal_account_missing|account_concurrency_exceeded|transfer_quota_exceeded|transfer_quota_commit_failed|redis_unavailable`
+- `reasonCode=personal_account_missing|account_concurrency_exceeded|transfer_quota_exceeded|transfer_quota_commit_failed|redis_unavailable|playback_lease_lost|playback_resolve_timeout`
 - 晚到成功额外记录固定诊断码 `transfer_pending_expired_before_commit`，但最终播放决策仍由 succeeded 记账和后续直链结果决定，不能把它映射为 Provider/账号健康错误。
 
 禁止记录 Cookie、Token、完整 SHA1、下载 URL、Redis 连接串、原始 PlaySessionId、Lua 参数原文或 Provider 原始错误。Redis Key 日志只允许固定模板名，不打印完整实例 Key。

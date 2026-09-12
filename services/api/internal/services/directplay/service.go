@@ -170,19 +170,22 @@ type transferQuotaContext struct {
 // Service serializes retained playback transfers and returns a validated 115
 // redirect candidate without exposing an HTTP endpoint.
 type Service struct {
-	accounts              accountRuntime
-	playbackRouter        playbackAccountRouter
-	provider              TransferProvider
-	store                 taskStore
-	locker                taskLocker
-	leases                p115quota.LeaseStore
-	transferQuotas        p115quota.TransferQuotaStore
-	keyDeriver            leaseKeyDeriver
-	serverID              string
-	businessTimezone      *time.Location
-	transferCommitBudget  time.Duration
-	transferRetryInterval time.Duration
-	now                   func() time.Time
+	sessionRequests        requestGate
+	leaseHeartbeatInterval time.Duration
+	resolveTimeout         time.Duration
+	accounts               accountRuntime
+	playbackRouter         playbackAccountRouter
+	provider               TransferProvider
+	store                  taskStore
+	locker                 taskLocker
+	leases                 p115quota.LeaseStore
+	transferQuotas         p115quota.TransferQuotaStore
+	keyDeriver             leaseKeyDeriver
+	serverID               string
+	businessTimezone       *time.Location
+	transferCommitBudget   time.Duration
+	transferRetryInterval  time.Duration
+	now                    func() time.Time
 }
 
 // NewService builds the production transfer service using PostgreSQL task
@@ -269,8 +272,28 @@ func (service *Service) Resolve(ctx context.Context, request ResolveRequest) (ca
 
 // ResolveMediaPath maps an Emby media path through the active source account
 // before entering transfer orchestration, preserving elapsed diagnostics even
-// when mapping, account admission or Provider operations fail.
+// when mapping, account admission or Provider operations fail. Routed playback
+// has a bounded preparation budget distinct from the client's own deadline.
 func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathResolveRequest) (candidate RedirectCandidate, resolveErr error) {
+	if service.playbackRouter != nil {
+		parentCtx := ctx
+		budget := service.resolveTimeout
+		if budget <= 0 {
+			budget = playbackResolveTimeout
+		}
+		budgetCtx, cancelBudget := context.WithTimeout(ctx, budget)
+		defer cancelBudget()
+		defer func() {
+			if parentCtx.Err() != nil {
+				resolveErr = parentCtx.Err()
+				candidate.URL = ""
+			} else if errors.Is(budgetCtx.Err(), context.DeadlineExceeded) {
+				resolveErr = ErrPlaybackResolveTimeout
+				candidate.URL = ""
+			}
+		}()
+		ctx = budgetCtx
+	}
 	ctx, timing := withTiming(ctx)
 	defer func() { candidate.Timing = timing.finish() }()
 	mapping := MediaPathMapping{OriginalPath: request.Path}
@@ -368,16 +391,18 @@ func (service *Service) HandlePlaybackSessionEvent(ctx context.Context, event Pl
 	return PlaybackSessionEventResult{Found: result.Found, State: result.State, Account: result.Account, User: result.User}, nil
 }
 
+// resolveRoutedMediaPath owns one bounded candidate attempt per session, including
+// reservation renewal, final lease confirmation and failure cleanup.
 func (service *Service) resolveRoutedMediaPath(
 	ctx context.Context,
 	request MediaPathResolveRequest,
 	fileQuery p115integration.FilePathQuery,
 	location p115account.SourceLocation,
-) (RedirectCandidate, error) {
+) (candidate RedirectCandidate, resolveErr error) {
+	parentCtx := ctx
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		return RedirectCandidate{}, ErrInvalidRequest
 	}
-	now := service.now().UTC()
 	fingerprint, err := service.keyDeriver.SessionFingerprint(p115quota.SessionIdentity{
 		ServerID: service.serverID, UserID: request.UserID, MappingID: request.MappingID,
 		DeviceID: request.DeviceID, PlaySessionID: request.PlaySessionID,
@@ -385,6 +410,13 @@ func (service *Service) resolveRoutedMediaPath(
 	if err != nil {
 		return RedirectCandidate{}, ErrInvalidRequest
 	}
+	releaseSession, err := service.sessionRequests.acquire(ctx, fingerprint)
+	if err != nil {
+		return RedirectCandidate{}, err
+	}
+	defer releaseSession()
+	// Admission uses the current clock after any same-session queue wait.
+	now := service.now().UTC()
 	route, err := service.playbackRouter.ResolvePlaybackRoute(ctx, request.UserID, now)
 	diagnostics := routingDiagnosticsFromRoute(route)
 	if err != nil {
@@ -396,28 +428,18 @@ func (service *Service) resolveRoutedMediaPath(
 	}
 
 	createdReservation := false
+	confirmationRequest := p115quota.ConfirmRequest{PlaybackAccountKey: accountKey, UserID: request.UserID, SessionFingerprint: fingerprint, RenewReservation: request.Method == http.MethodGet}
 	if request.Method == http.MethodHead {
-		session, found, leaseErr := service.leases.Session(ctx, fingerprint, now)
+		confirmation, leaseErr := service.leases.Confirm(ctx, confirmationRequest, now)
 		if leaseErr != nil {
-			return RedirectCandidate{Routing: diagnostics}, mapLeaseError(leaseErr)
+			return RedirectCandidate{Routing: diagnostics}, mapConfirmationError(leaseErr)
 		}
-		if !found {
+		if !confirmation.Found {
 			return RedirectCandidate{Routing: diagnostics}, ErrHeadLeaseMissing
 		}
-		if session.PlaybackAccountKey != accountKey || session.UserID != request.UserID {
-			return RedirectCandidate{Routing: diagnostics}, ErrPlaybackRouteChanged
-		}
-		accountUsage, leaseErr := service.leases.AccountUsage(ctx, accountKey, now)
-		if leaseErr != nil {
-			return RedirectCandidate{Routing: diagnostics}, mapLeaseError(leaseErr)
-		}
-		userUsage, leaseErr := service.leases.UserUsage(ctx, request.UserID, now)
-		if leaseErr != nil {
-			return RedirectCandidate{Routing: diagnostics}, mapLeaseError(leaseErr)
-		}
 		diagnostics.LeaseUsageAvailable = true
-		diagnostics.AccountUsage = accountUsage
-		diagnostics.UserUsage = userUsage
+		diagnostics.AccountUsage = confirmation.Account
+		diagnostics.UserUsage = confirmation.User
 	} else {
 		admission, leaseErr := service.leases.Reserve(ctx, p115quota.ReserveRequest{
 			PlaybackAccountKey: accountKey, UserID: request.UserID, SessionFingerprint: fingerprint,
@@ -439,14 +461,28 @@ func (service *Service) resolveRoutedMediaPath(
 		diagnostics.AccountUsage = admission.Account
 		diagnostics.UserUsage = admission.User
 	}
+	defer func() {
+		if resolveErr != nil || parentCtx.Err() != nil {
+			service.releaseNewReservation(parentCtx, fingerprint, createdReservation)
+		}
+	}()
+	if request.Method == http.MethodGet {
+		var finishHeartbeat func() error
+		ctx, finishHeartbeat = service.maintainPlaybackLease(ctx, confirmationRequest)
+		defer func() {
+			if err := finishHeartbeat(); err != nil && parentCtx.Err() == nil {
+				resolveErr = err
+				candidate.URL = ""
+			}
+		}()
+	}
 
 	source, playback, err := service.loadRoutedAccounts(ctx, route, location)
 	if err != nil {
-		service.releaseNewReservation(ctx, fingerprint, createdReservation)
 		return RedirectCandidate{Routing: diagnostics}, err
 	}
 	quotaContext := &transferQuotaContext{UserID: request.UserID, HourlyLimit: route.TransferHourlyLimit, DailyLimit: route.TransferDailyLimit}
-	candidate, err := service.resolveWithAccounts(
+	candidate, err = service.resolveWithAccounts(
 		ctx, source, playback,
 		ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent},
 		quotaContext,
@@ -456,9 +492,19 @@ func (service *Service) resolveRoutedMediaPath(
 	diagnostics.TransferUsage = quotaContext.Usage
 	candidate.Routing = diagnostics
 	if err != nil {
-		service.releaseNewReservation(ctx, fingerprint, createdReservation)
+		return candidate, err
 	}
-	return candidate, err
+	confirmation, err := service.leases.Confirm(ctx, confirmationRequest, service.now().UTC())
+	if err != nil {
+		candidate.URL = ""
+		return candidate, mapConfirmationError(err)
+	}
+	if !confirmation.Found {
+		candidate.URL = ""
+		return candidate, ErrPlaybackLeaseLost
+	}
+	candidate.Routing.AccountUsage, candidate.Routing.UserUsage = confirmation.Account, confirmation.User
+	return candidate, nil
 }
 
 // routingDiagnosticsFromRoute converts only policy labels, aggregate limits
@@ -552,7 +598,7 @@ func (service *Service) resolveWithAccounts(
 	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
 	finishSource()
 	if err != nil {
-		return RedirectCandidate{}, service.reportProviderFailure(source, failureOperationResolveSourcePath, err)
+		return RedirectCandidate{}, service.reportProviderFailure(ctx, source, failureOperationResolveSourcePath, err)
 	}
 	sha1Value, err := validateSourceFile(sourceFile)
 	if err != nil {
@@ -710,7 +756,7 @@ func (service *Service) resolveUnderLock(
 	})
 	finishPreID()
 	if err != nil {
-		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(source, failureOperationHashSourcePreID, err))
+		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(ctx, source, failureOperationHashSourcePreID, err))
 	}
 	preID, err := validateRangeHash(preIDHash, preIDRange)
 	if err != nil {
@@ -726,7 +772,7 @@ func (service *Service) resolveUnderLock(
 	result, err := service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
 	finishUpload()
 	if err != nil {
-		return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload initialization failed", service.reportProviderFailure(playback, failureOperationRapidUpload, err))
+		return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload initialization failed", service.reportProviderFailure(ctx, playback, failureOperationRapidUpload, err))
 	}
 	if result.Status == p115integration.RapidUploadRangeChallenge {
 		if !validChallenge(result.Challenge, sourceFile.Size) {
@@ -742,7 +788,7 @@ func (service *Service) resolveUnderLock(
 		})
 		finishChallenge()
 		if hashErr != nil {
-			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", service.reportProviderFailure(source, failureOperationHashSourceChallenge, hashErr))
+			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", service.reportProviderFailure(ctx, source, failureOperationHashSourceChallenge, hashErr))
 		}
 		signValue, hashErr := validateRangeHash(challengeHash, result.Challenge.Range)
 		if hashErr != nil {
@@ -761,7 +807,7 @@ func (service *Service) resolveUnderLock(
 		result, err = service.provider.InitRapidUpload(ctx, playback.Credential, uploadRequest)
 		finishUpload()
 		if err != nil {
-			return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload retry failed", service.reportProviderFailure(playback, failureOperationRapidUploadRetry, err))
+			return service.failTask(ctx, task.ID, providerFailureCode(err), "rapid upload retry failed", service.reportProviderFailure(ctx, playback, failureOperationRapidUploadRetry, err))
 		}
 		if result.Status == p115integration.RapidUploadRangeChallenge {
 			service.reportRuntimeHealth(playback, p115account.RuntimeHealthProviderProtocol)
@@ -784,7 +830,7 @@ func (service *Service) resolveUnderLock(
 	target, err = service.provider.FindTargetFile(ctx, playback.Credential, query)
 	finishVerify()
 	if err != nil {
-		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", service.reportProviderFailure(playback, failureOperationVerifyPlaybackTarget, err))
+		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", service.reportProviderFailure(ctx, playback, failureOperationVerifyPlaybackTarget, err))
 	}
 	if !validTargetFile(target, query) {
 		service.reportRuntimeHealth(playback, p115account.RuntimeHealthProviderProtocol)
@@ -878,7 +924,7 @@ func (service *Service) searchTarget(ctx context.Context, account p115account.Ac
 	files, err := service.provider.SearchBySHA1(ctx, account.Credential, query)
 	finishSearch()
 	if err != nil {
-		return nil, false, service.reportProviderFailure(account, failureOperationSearchPlaybackTarget, err)
+		return nil, false, service.reportProviderFailure(ctx, account, failureOperationSearchPlaybackTarget, err)
 	}
 	if len(files) > 1 {
 		service.reportRuntimeHealth(account, p115account.RuntimeHealthProviderProtocol)
@@ -909,7 +955,7 @@ func (service *Service) downloadCandidate(
 	})
 	finishDownload()
 	if err != nil {
-		return RedirectCandidate{}, service.reportProviderFailure(account, failureOperationGetDownloadURL, err)
+		return RedirectCandidate{}, service.reportProviderFailure(ctx, account, failureOperationGetDownloadURL, err)
 	}
 	if download.URL == "" || !download.ExpiresAt.After(service.now().UTC()) || download.ConcurrentOpenLimit <= 0 {
 		service.reportRuntimeHealth(account, p115account.RuntimeHealthProviderProtocol)
@@ -928,10 +974,15 @@ func (service *Service) downloadCandidate(
 // reportProviderFailure preserves the operation's safe fallback diagnostics
 // while reporting only failures with account-wide scope to the health state machine.
 func (service *Service) reportProviderFailure(
+	ctx context.Context,
 	account p115account.ActiveAccountCredential,
 	operation string,
 	providerErr error,
 ) error {
+	// Request budgets and lease cancellation do not diagnose Provider health.
+	if ctx.Err() != nil {
+		providerErr = ctx.Err()
+	}
 	mapped := mapProviderFailure(operation, providerErr)
 	if outcome, ok := runtimeHealthOutcome(operation, providerErr); ok {
 		service.reportRuntimeHealth(account, outcome)

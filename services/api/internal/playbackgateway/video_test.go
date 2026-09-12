@@ -354,6 +354,14 @@ func TestGatewayVideoAccelerationIneligibleOrInvalidFallsBack(t *testing.T) {
 			wantDirectCalls: 1, wantStage: "direct_play", wantReason: "provider_protocol", wantOperation: "resolve_source_path",
 		},
 		{
+			name: "lease lost", target: "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true",
+			directPlay: &fakeDirectPlayService{err: directplay.ErrPlaybackLeaseLost}, wantDirectCalls: 1, wantStage: "direct_play", wantReason: "playback_lease_lost",
+		},
+		{
+			name: "preparation budget exhausted", target: "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true",
+			directPlay: &fakeDirectPlayService{err: directplay.ErrPlaybackResolveTimeout}, wantDirectCalls: 1, wantStage: "direct_play", wantReason: "playback_resolve_timeout",
+		},
+		{
 			name: "invalid candidate", target: "/emby/Videos/item-1/stream.mkv?MediaSourceId=source-1&PlaySessionId=session-1&Static=true",
 			directPlay:      &fakeDirectPlayService{result: directplay.RedirectCandidate{URL: "http://unsafe.invalid/video.mkv", ExpiresAt: time.Now().Add(time.Minute), ConcurrentOpenLimit: 1}},
 			wantDirectCalls: 1, wantStage: "direct_play", wantReason: "provider_protocol",
@@ -842,6 +850,8 @@ func TestDirectPlayReasonCodeIsStable(t *testing.T) {
 		{directplay.ErrDownloadIncompatible, "download_incompatible"},
 		{directplay.ErrStoreUnavailable, "store_unavailable"},
 		{directplay.ErrLockUnavailable, "lock_unavailable"},
+		{directplay.ErrPlaybackLeaseLost, "playback_lease_lost"},
+		{directplay.ErrPlaybackResolveTimeout, "playback_resolve_timeout"},
 		{errors.New("unknown"), "provider_protocol"},
 	}
 	for _, test := range tests {

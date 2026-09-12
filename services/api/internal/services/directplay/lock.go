@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -25,6 +26,9 @@ const (
 type postgresTaskLocker struct {
 	database     *sql.DB
 	pollInterval time.Duration
+	gate         requestGate
+	slotsOnce    sync.Once
+	slots        chan struct{}
 }
 
 func newPostgresTaskLocker(database *gorm.DB) (*postgresTaskLocker, error) {
@@ -38,17 +42,55 @@ func newPostgresTaskLocker(database *gorm.DB) (*postgresTaskLocker, error) {
 	return &postgresTaskLocker{database: sqlDB, pollInterval: directPlayLockPollInterval}, nil
 }
 
-// Acquire waits with context cancellation for the content-scoped PostgreSQL
-// advisory lock while pinning one physical connection.
+// Acquire queues local contenders before borrowing SQL connections. Failed
+// lock attempts return the connection; holders reserve pool room for task SQL.
 func (locker *postgresTaskLocker) Acquire(ctx context.Context, playbackAccountID, sha1Value string, size int64) (taskLock, error) {
 	key := directPlayLockKey(playbackAccountID, sha1Value, size)
-	conn, err := locker.database.Conn(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%w: connection", ErrLockUnavailable)
+	maxOpen := locker.database.Stats().MaxOpenConnections
+	if maxOpen == 1 {
+		return nil, fmt.Errorf("%w: pool requires task connection", ErrLockUnavailable)
 	}
+	locker.slotsOnce.Do(func() {
+		if maxOpen > 1 {
+			locker.slots = make(chan struct{}, maxOpen-1)
+		}
+	})
+	releaseKey, err := locker.gate.acquire(ctx, strconv.FormatInt(int64(key), 10))
+	if err != nil {
+		return nil, err
+	}
+	if locker.slots != nil {
+		select {
+		case locker.slots <- struct{}{}:
+		case <-ctx.Done():
+			releaseKey()
+			return nil, ctx.Err()
+		}
+	}
+	release := func() {
+		if locker.slots != nil {
+			<-locker.slots
+		}
+		releaseKey()
+	}
+	held := false
+	defer func() {
+		if !held {
+			release()
+		}
+	}()
 	for {
+		conn, err := locker.database.Conn(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, fmt.Errorf("%w: connection", ErrLockUnavailable)
+		}
 		var acquired bool
 		if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1, $2)", directPlayLockNamespace, key).Scan(&acquired); err != nil {
+			// A missing response cannot prove the server did not acquire the lock.
+			_ = conn.Raw(func(interface{}) error { return driver.ErrBadConn })
 			_ = conn.Close()
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, ctxErr
@@ -59,13 +101,14 @@ func (locker *postgresTaskLocker) Acquire(ctx context.Context, playbackAccountID
 			return nil, fmt.Errorf("%w: acquire", ErrLockUnavailable)
 		}
 		if acquired {
-			return &postgresTaskLock{conn: conn, namespace: directPlayLockNamespace, key: key}, nil
+			held = true
+			return &postgresTaskLock{conn: conn, namespace: directPlayLockNamespace, key: key, release: release}, nil
 		}
+		_ = conn.Close()
 		timer := time.NewTimer(locker.pollInterval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			_ = conn.Close()
 			return nil, ctx.Err()
 		case <-timer.C:
 		}
@@ -76,6 +119,7 @@ type postgresTaskLock struct {
 	conn      *sql.Conn
 	namespace int32
 	key       int32
+	release   func()
 }
 
 // Release unlocks on the same physical connection using an independent
@@ -86,6 +130,9 @@ func (lock *postgresTaskLock) Release() error {
 	}
 	conn := lock.conn
 	lock.conn = nil
+	if lock.release != nil {
+		defer lock.release()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), directPlayUnlockTimeout)
 	defer cancel()
 	var unlocked bool

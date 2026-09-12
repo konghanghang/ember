@@ -39,6 +39,12 @@ if existing then
     if accountKey ~= ARGV[1] or userId ~= ARGV[2] then
       return {2, accountKey, userId, state}
     end
+    if state == 'reservation' then
+      redis.call('ZADD', KEYS[1], tonumber(ARGV[6]), ARGV[3])
+      redis.call('ZADD', KEYS[2], tonumber(ARGV[6]), ARGV[3])
+      for index = 1, 4 do redis.call('PEXPIRE', KEYS[index], tonumber(ARGV[8])) end
+      redis.call('SET', KEYS[5], ARGV[9], 'PX', tonumber(ARGV[7]))
+    end
     local accountReserved, accountActive, accountOccupied = counts(KEYS[1], KEYS[3])
     local userReserved, userActive, userOccupied = counts(KEYS[2], KEYS[4])
     return {0, state, accountReserved, accountActive, accountOccupied, userReserved, userActive, userOccupied}
@@ -156,8 +162,8 @@ func NewRedisLeaseStore(client redis.UniversalClient) (*RedisLeaseStore, error) 
 	return &RedisLeaseStore{client: client}, nil
 }
 
-// Reserve atomically cleans expired scores, enforces the account limit, and
-// writes account/user/reverse indexes for one new reservation.
+// Reserve atomically enforces capacity and renews same-session reservations;
+// active/paused sessions are reused without changing their TTL or state.
 func (s *RedisLeaseStore) Reserve(ctx context.Context, request ReserveRequest, now time.Time) (ReserveResult, error) {
 	if err := validateReserveRequest(request); err != nil {
 		return ReserveResult{}, err

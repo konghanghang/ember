@@ -489,6 +489,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 - 播放小号失败：禁止使用源账号向最终客户端签发直链。
 - 用户播放中被封禁：阻止新请求；已建立 CDN 连接可能持续到链接过期。
 - 单设备退出撤销该设备全部活动映射，用户全部退出撤销该用户全部映射；已签发的 CDN URL 只能通过停止重签和等待过期收口。
+- 候选主处理和同 session 排队使用 2 分钟预算；GET reservation 在准入、每 10 秒处理心跳与最终确认时续租，HEAD 不续租。内部预算或租约失效分别按 `playback_resolve_timeout` / `playback_lease_lost` 回退，不作为 Provider 健康故障；客户端自身取消/deadline 保持 `499/504`。
 - 多副本文件秒传：数据库唯一约束和 advisory lock 保证现有 transfer 任务幂等；后续播放活跃数与用户转存配额使用 Redis 原子语义，不能混成数据库会话表。
 - 未进入固定合同的 Emby/115 行为保持“未证实”，不能用一次偶然成功替代合同。
 
@@ -652,6 +653,13 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 - TDD 回归先复现路径拒绝/协议错误触发账号健康回写，以及无效文件身份丢失阶段诊断；最小实现后专项测试通过，覆盖失败后另一正常路径仍可返回直链候选。
 - 验证通过：`go test ./... -skip 'Integration|PostgreSQL' -count=1`、P115/DirectPlay/账号/Gateway 四包 `go test -race`（同样跳过数据库集成）、`go vet ./...`、`go build ./...` 和 `git diff --check`。本次只使用 fake 外部依赖与进程内租约存储，未执行数据库集成或真实 115/Emby/Redis 验证。
 - 本次保留父目录一次解析与最终目录完整分页，不新增目录查询或猜测 Provider 错误码。公开 `fs_dir_getid2` 方法未定义完整响应结构；真实成功/目录不存在响应、非零 `parent_id`、同名目录选择和耗时改善仍待明确授权后的只读验证，本计划继续进行中。
+
+2026-09-12 内容锁与播放预留优化已落地：
+
+- 内容锁等待不持续占 SQL 连接；同进程同内容先排队，有限池为任务 SQL 保留一个连接，取锁响应未知时丢弃连接。真实 Go 连接池 + fake SQL driver 回归覆盖等待者饥饿、不同内容的池准入、取消释放和未知锁状态丢弃；没有连接 PostgreSQL。
+- 单 Gateway 按 session 串行执行候选和失败清理，GET 在途续租及返回前原子确认；内存与 Lua 共用合同覆盖过期、Stopped、身份错配、只读 HEAD 和 active/paused 不续租。服务回归覆盖模拟 40 秒处理、同会话取消、Redis 续租失败和内部预算，Gateway 覆盖新增原因码的正常 Emby fallback。
+- 验证通过：API `go test ./... -skip 'Integration|PostgreSQL' -count=1`、P115/DirectPlay/账号/配额/Gateway 五包 race（同样跳过数据库集成）、`go vet ./...`、`go build ./...` 和差异检查。全部外部依赖使用 fake，本轮未执行真实 PostgreSQL、Redis、115 或播放器验证。
+- 沿用现有 Redis Key/值、SQL schema 和外部 API。账号 `updated_at` 与健康记录版本分离、成功记录限频仍为独立后续优化；真实 Redis/PostgreSQL/115 的并发负载和处理时长仍待受控验证。
 
 测试分层：
 
