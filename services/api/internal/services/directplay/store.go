@@ -146,28 +146,28 @@ func (store *gormTaskStore) MarkFailed(ctx context.Context, taskID, code, messag
 	return nil
 }
 
-// TouchSucceeded refreshes the most recent Ember-owned successful task when a
-// retained file is reused. External preexisting files legitimately affect no row.
+// taskAccessWriteInterval samples access observations, not transfer transitions.
+const taskAccessWriteInterval = time.Minute
+
+// TouchSucceeded samples access to the latest Ember-owned successful task in
+// one atomic statement. Recent accesses and external preexisting files are no-ops;
+// older requests cannot move the timestamp backwards or touch a different task.
 func (store *gormTaskStore) TouchSucceeded(ctx context.Context, playbackAccountID, sha1Value string, size int64, at time.Time) error {
-	database := store.database(ctx)
-	var task models.PlaybackTransferTask
-	err := database.Select("id").
-		Where("playback_account_id = ? AND sha1 = ? AND size = ? AND status = ?",
-			playbackAccountID, sha1Value, size, models.PlaybackTransferTaskStatusSucceeded).
-		Order("created_at DESC").Order("id DESC").First(&task).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
-	}
-	if err != nil {
-		return safeTaskStoreError("find_succeeded", err)
-	}
-	result := database.Model(&models.PlaybackTransferTask{}).Where("id = ?", task.ID).
-		Updates(map[string]interface{}{"last_accessed_at": at, "updated_at": at})
+	result := store.database(ctx).Exec(`
+UPDATE playback_transfer_tasks
+SET last_accessed_at = ?, updated_at = ?
+WHERE id = (
+    SELECT id FROM playback_transfer_tasks
+    WHERE playback_account_id = ? AND sha1 = ? AND size = ? AND status = ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+)
+AND status = ?
+AND (last_accessed_at IS NULL OR last_accessed_at <= ?)`,
+		at, at, playbackAccountID, sha1Value, size, models.PlaybackTransferTaskStatusSucceeded,
+		models.PlaybackTransferTaskStatusSucceeded, at.Add(-taskAccessWriteInterval))
 	if result.Error != nil {
 		return safeTaskStoreError("touch_succeeded", result.Error)
-	}
-	if result.RowsAffected != 1 {
-		return ErrStoreUnavailable
 	}
 	return nil
 }

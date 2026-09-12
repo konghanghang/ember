@@ -33,7 +33,7 @@
 - 最终下载直链继续使用 Gateway 收到的真实播放器 User-Agent，不能用固定 Provider User-Agent 替代；秒传初始化继续使用协议代码内的版本绑定上传 User-Agent。
 - 最大播放路数属于具体 playback 账号。个人账号配置时读取当前有效套餐模板：`SimultaneousStreamLimit > 0` 要求 `1 <= maxConcurrentStreams <= SimultaneousStreamLimit`，值为 `0` 时按 Ember 内部合同视为没有有限套餐上限，但账号配置仍限制为 `1..100`。运行时使用 `effectiveMaxConcurrentStreams = min(configuredMaxConcurrentStreams, positive SimultaneousStreamLimit)`；套餐降低不自动改写数据库配置。管理员共享 playback 按所有 `system` 使用者合计，不与单个套餐上限比较。
 - 管理员共享 playback 在显式验证为 `active` 后，通过 `PUT /api/v1/admin/p115-accounts/:id/playback-config` 原子提交已有目录路径和正整数 `maxConcurrentStreams`；两个字段都必填，目录解析失败时 path、ID 和并发配置全部不写，解析期间 Cookie、状态或账号版本变化则返回 `409`，禁止旧凭证解析结果覆盖新状态。已启用账号允许降低上限但不终止已有播放，新 reservation 等待合计占用降到新上限以下。现有管理员列表/详情直接返回该共享账号下由 `system` 路由建立的全部现存租约合计，不按用户当前套餐重新归类；Redis 查询成功且 Key 缺失时 `usageAvailable=true` 并返回零，Redis 不可用时 `usageAvailable=false` 且计数为 `null`，不新增独立用量端点。
-- 个人与共享 playback 复用同一运行期健康状态机：先按套餐路由选择不解密 Cookie 的精确账号元数据，Redis 准入成功后再按 account ID/owner 加载凭证。冷却未到期时 fallback；到期后 PostgreSQL 行锁只发放一个 1 分钟半开探测，成功恢复 `active`，失败按类型重新冷却、进入 `expired` 或 `error`。Redis 失败不消耗半开机会，两次读取间的停用、解绑、Cookie 替换或账号更新均失败关闭并只释放本次新 reservation。
+- 个人与共享 playback 复用同一运行期健康状态机：先按套餐路由选择不解密 Cookie 的精确账号元数据，Redis 准入成功后再按 account ID/owner 加载凭证。冷却未到期时 fallback；到期后 PostgreSQL 行锁只发放一个 1 分钟半开探测，成功恢复 `active`，失败按类型重新冷却、进入 `expired` 或 `error`。Redis 失败不消耗半开机会，两次读取间的停用、解绑、Cookie 替换或控制面配置更新均失败关闭并只释放本次新 reservation。
 - 个人账号 Cookie 替换回到 `pending + disabled`，清空旧 Provider UID 和目标目录 path/ID，保留待下次启用重新按套餐复验的并发配置；旧目录 ID 禁止跨 Provider 账号沿用。只有 `enabled` playback 必须同时具备 `active`、Cookie、Provider UID、成对目录 path/ID 和正整数并发配置；未配置完成的 pending/disabled 记录允许目录和并发为空。
 - 个人账号解绑使用不可复活的 `revoked` tombstone：在同一事务清空 owner、Cookie、Provider、`appType/UserAgent`、source/playback 目录、并发和健康等运行期数据，但保留账号 ID、role、后端固定 alias、auth mode、revoked/disabled 状态和时间供 transfer provenance 引用；owner 外键使用 `ON DELETE RESTRICT`，确保未完成 tombstone 的活动个人账号会阻止直接删除用户，revoked 状态则保证已清空 owner 的 tombstone 不会被共享账号加载器选中。
 - Redis 同时维护账号/用户的占用与真实活跃索引：合格 GET 在 302 前只建立 `30s reservation` 并参与账号并发准入，HEAD 无既有租约时直接 fallback；成功 Playing/Progress 才晋级为 `active` 并刷新 `2m` TTL，暂停继续占用并刷新 `15m` TTL，Stopped 成功转发后释放。Sorted Set 的过期 member 每次脚本按 Gateway 可注入时钟清理并不再计数，account/user `leases + active` 另使用 `16m` Key TTL 回收无后续请求的空闲索引。三类业务 TTL 首期使用代码常量，不增加环境变量或后台配置；用户索引只用于展示、归因和后续治理，不参与第二套并发门控。
@@ -192,6 +192,8 @@ stateDiagram-v2
 ```
 
 `enabled` 是独立布尔轴：`active` 不等于已启用。显式验证或播放调用确认 Cookie 失效时会进入 `expired + disabled`；显式验证的网络/协议错误进入 `error` 并保留 enabled。播放期间临时 Provider 故障进入固定 1 分钟 `cooling_down`，未到期时不读取 Cookie；到期后 PostgreSQL 行锁只发放一个 1 分钟半开探测租约，成功恢复 `active`，失败重新冷却。播放协议错误进入 `error`。路由和目录保存使用独立 `config_version`，健康成功不再使其他请求的配置快照失效；Cookie、显式验证、启停、目录/并发和解绑会推进配置版本。运行期回写同时匹配加载凭证时的 Cookie 密文、`config_version` 和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的结果。
+
+持续健康账号复用凭证读取快照，对 1 分钟内的干净成功跳过健康 SQL；错误、恢复和配置修改后的首次成功仍立即尝试条件写入。采样观察不会推进健康版本或清除新错误。保留文件复用的访问时间使用单条条件 UPDATE，先确定最近 succeeded 任务，再按 1 分钟窗口更新；旧请求不回退时间，窗口内及外部预存文件均允许零行更新。这两个时间是观察采样，不是逐次播放审计或活跃会话真相。
 
 源路径解析按请求范围处理：`/files/get_path_id` 或最终目录列表的业务拒绝、协议异常，以及返回的无效源文件身份，均不能单独证明源账号故障，因此不触发上述 `error` 状态。DirectPlay 停在源解析阶段，释放本次新建的播放 reservation；Gateway 保留 `providerOperation=resolve_source_path` 并回退 Emby。明确的凭证失效/临时不可用仍遵循原健康状态机；失败请求不会清除已有冷却状态或冒充成功探测。
 
@@ -570,7 +572,7 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 #### 【P2-1，已关闭】播放运行期已回写账号失效、冷却和成功状态
 
-- 关闭实现：`directplay.Service` 通过窄 `AccountHealthReporter` 只回传实际调用账号和四种固定结果；成功更新 source/playback `lastSucceededAt`，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。
+- 关闭实现：`directplay.Service` 通过窄 `AccountHealthReporter` 只回传实际调用账号和四种固定结果；成功按 1 分钟采样更新 source/playback `lastSucceededAt`（首次及恢复立即写入），凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。
 - 并发边界：冷却期间不读取 Cookie；到期后 `AcquireRuntimeByRole` 在 PostgreSQL 行锁内续租并只放行一个半开探测。回写同时匹配 Cookie 密文、`config_version` 和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的健康结果。
 - 失败边界：请求取消和文件级错误不改变账号状态；源路径解析的业务拒绝、响应协议异常和无效文件身份也属于请求级失败，不把源账号置为 `error`。明确凭证失效/临时不可用和其他 Provider 操作的健康处理保持原合同。健康回写使用独立 2 秒上限，失败不改写原始 302/fallback 结果。
 - 验证证据：Go 单元/race 与独立 PostgreSQL schema 已覆盖四类映射、冷却阻断、过期冷却并发单探测、成功恢复、凭证失效停用和旧 Cookie 结果丢弃；没有请求真实 115，生产自然故障的冷却时长仍待观察。

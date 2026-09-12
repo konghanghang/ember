@@ -553,7 +553,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | Status | enum | status | `pending` / `active` / `expired` / `error` / `cooling_down` / `revoked` |
 | Enabled | bool | enabled | 是否允许进入播放链路；创建和 Cookie 轮换后固定为 false |
 | LastValidatedAt | *time.Time | lastValidatedAt | 最近凭证验证时间 |
-| LastSucceededAt | *time.Time | lastSucceededAt | 最近显式验证成功或完整 DirectPlay 候选签发时间 |
+| LastSucceededAt | *time.Time | lastSucceededAt | 最近显式验证成功或完整 DirectPlay 候选成功采样时间；持续健康播放按 1 分钟限频，恢复立即写入 |
 | CooldownUntil | *time.Time | cooldownUntil | 账号共享冷却/半开探测租约截止时间；当前固定 1 分钟 |
 | LastErrorCode | *string(100) | lastErrorCode | 最近脱敏错误码 |
 | LastErrorMessage | *string(500) | lastErrorMessage | 最近脱敏错误信息 |
@@ -572,8 +572,8 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - Cookie 轮换会清空 Provider 用户、验证时间、成功时间、冷却和错误，并回到 `pending + disabled`
 - 启用前必须同时满足 `active`、非空 `provider_user_id` 和非空 `last_validated_at`；检查与更新在事务行锁内完成
 - 验证回写必须匹配发起请求时的 Cookie 密文，防止并发轮换后旧验证结果覆盖新凭证状态
-- DirectPlay 运行期回写同时匹配加载凭证时的 Cookie 密文和 `updated_at`；旧请求不能覆盖 Cookie 轮换、显式验证、手工启停或更新后的健康结果
-- `credential_rejected` 进入 `expired + disabled`；`provider_unavailable` 保留启用意图并进入 1 分钟 `cooling_down`；`provider_protocol` 进入 `error`；成功签发完整候选后恢复 `active`、更新 `last_succeeded_at` 并清空冷却和错误
+- DirectPlay 运行期回写同时匹配加载凭证时的 Cookie 密文、`config_version` 和 `updated_at`；旧请求不能覆盖 Cookie 轮换、显式验证、手工启停或更新后的健康结果
+- `credential_rejected` 进入 `expired + disabled`；`provider_unavailable` 保留启用意图并进入 1 分钟 `cooling_down`；`provider_protocol` 进入 `error`；成功签发完整候选后恢复 `active` 并清空冷却和错误；持续健康成功的 `last_succeeded_at` 按 1 分钟采样，错误和恢复不延迟
 - 未到期冷却不读取运行期 Cookie；冷却到期后在 PostgreSQL 行锁内延长 1 分钟租约并只放行一个半开探测，成功立即恢复，失败重新开始冷却
 - 个人账号解绑不物理删除：事务内写入不可复活 `revoked + disabled`，清空 owner、凭证、Provider、目录、并发和健康字段，保留 ID/role/alias/authMode/时间供 transfer provenance 引用
 - 个人 `maxConcurrentStreams` 在 Service 层限制为 `1..100`，并受当前有效套餐正数 `SimultaneousStreamLimit` 约束；已启用账号遇到套餐降低时数据库配置不回写，运行时使用两者较小值
@@ -599,7 +599,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 | LastErrorMessage | *string(500) | lastErrorMessage | Ember 生成的固定错误说明，不保存 Provider 原文 |
 | StartedAt | time.Time | startedAt | 本次任务开始时间 |
 | CompletedAt | *time.Time | completedAt | `succeeded` / `failed` 终态时间 |
-| LastAccessedAt | *time.Time | lastAccessedAt | 成功创建或再次复用 playback 文件的时间 |
+| LastAccessedAt | *time.Time | lastAccessedAt | 成功创建时间或复用访问的采样时间；复用按 1 分钟限频，时间不倒退 |
 | CreatedAt | time.Time | createdAt | 创建时间 |
 | UpdatedAt | time.Time | updatedAt | 更新时间 |
 

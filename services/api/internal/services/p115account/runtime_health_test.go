@@ -17,6 +17,8 @@ type runtimeHealthStore struct {
 	mutation          runtimeHealthMutation
 	mutationRef       runtimeCredentialRef
 	mutationErr       error
+	mutationCalls     int
+	acquiredAccount   *models.P115Account
 }
 
 func (store *runtimeHealthStore) AcquireRuntimeByRole(
@@ -30,6 +32,10 @@ func (store *runtimeHealthStore) AcquireRuntimeByRole(
 	if store.acquireErr != nil {
 		return nil, store.acquireErr
 	}
+	if store.acquiredAccount != nil {
+		copy := *store.acquiredAccount
+		return &copy, nil
+	}
 	return store.fakeAccountStore.GetActiveByRole(context.Background(), role)
 }
 
@@ -38,6 +44,7 @@ func (store *runtimeHealthStore) CompleteRuntimeHealth(
 	ref runtimeCredentialRef,
 	mutation runtimeHealthMutation,
 ) error {
+	store.mutationCalls++
 	store.mutationRef = ref
 	store.mutation = mutation
 	return store.mutationErr

@@ -751,7 +751,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `ResolvePlaybackRoute(ctx, userId, now)`：在同一 PostgreSQL 事务内读取用户有效套餐、Emby Policy 模板和精确 personal/shared playback 非敏感元数据；Redis 准入成功后 `AcquirePlaybackRoute` 才按 account ID/owner/`config_version` 锁定并解密凭证
 - 个人账号生命周期：只提交 Cookie 创建 `pending + disabled`，后端派生 `appType` 并固定 Provider UA；验证后分别配置已有目录和 `1..100` 播放路数，启用时复验当前套餐。解绑保留 transfer 引用的 revoked tombstone，用户删除固定先撤销 Gateway Token、再 tombstone、再删除 Emby/本地用户
 - 内部 `config_version` 从 1 开始，Cookie 替换、显式验证、启停、目录/并发修改和解绑原子递增；健康回写和半开探测只更新 `updated_at`。路由及目录解析后的保存以配置版本防并发覆盖，健康回写同时检查配置版本和健康时间；该字段不进入对外 DTO
-- `ReportRuntimeHealth(ctx, account, outcome)`：DirectPlay 只回传 `succeeded/credential_rejected/provider_unavailable/provider_protocol` 四种固定结果；成功更新 `last_succeeded_at` 并清除冷却/错误，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。回写同时匹配请求加载时的 Cookie 密文、`config_version` 和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的运行期结果
+- `ReportRuntimeHealth(ctx, account, outcome)`：DirectPlay 只回传 `succeeded/credential_rejected/provider_unavailable/provider_protocol` 四种固定结果；首次成功与冷却/错误恢复立即更新 `last_succeeded_at` 并清除冷却/错误，持续健康成功按 1 分钟采样，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。回写同时匹配请求加载时的 Cookie 密文、`config_version` 和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的运行期结果
+- 健康采样复用获取凭证时的快照：只有 active、无冷却/错误且 `last_succeeded_at = updated_at` 的近期成功才跳过 SQL；配置修改后的首次成功、失败及半开恢复仍立即尝试 CAS。跳过的观察不推进健康版本，不代表新状态已落库；不新增缓存、后台队列或工作协程
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
 - `integrations/p115.DetectCookieAppType`：只解析 Cookie `UID` 的第二段 `ssoent` 并映射固定客户端类型，不调用 115；`A1` 归一为 `web`，未知编码不猜测
 - `integrations/p115.CookieProvider`：组合 `CookieCredentialValidator` 与 `CookieHTTPAdapter`，通过编译期断言完整实现 Provider-neutral 接口；生产账号控制面注入该对象的验证边界，后续 direct play Service 可复用同一具体 Provider
@@ -783,7 +784,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - `TransferProvider` 只包含源路径解析、目标查重、Range Hash、秒传初始化、目标复核和下载 URL；接口刻意不包含 `DeleteFile`，第一阶段无法自动删除保留文件
 - `ResolveMediaPath` 加载唯一可运行的 source/playback 账号并核对 Provider UID 不同；未到期冷却直接返回账号不可用，由 Gateway fallback Emby，已到期冷却只允许一个数据库租约持有者探测。随后按 source 账号配置把 Emby `Path` 严格转换为 `rootId + relativePath`；Provider 唯一解析后返回的正数 Size/SHA1 才作为后续查重、锁、秒传和任务身份
-- 首次目录作用域查重命中时跳过任务与锁，成功签发直链后刷新最近成功任务的 `lastAccessedAt`；外部预存文件没有 Ember 任务时允许无行更新
+- 首次目录作用域查重命中时跳过任务与锁，成功签发直链后用单条条件 UPDATE 按 1 分钟窗口刷新最近成功任务的 `lastAccessedAt`；按 `created_at DESC, id DESC` 选定任务后再判断窗口，旧请求不回退时间，外部预存或窗口内访问允许零行更新
 - 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；同进程同内容先在借连接前排队，未拿到数据库锁的轮询立即归还连接。有限连接池最多允许 `MaxOpenConns - 1` 个在途取锁/持锁任务，为任务 SQL 保留连接；池上限为 1 时拒绝转存。相同内容仍只有一个请求进入秒传，其余请求复用目标文件
 - 锁内创建 `playback_transfer_tasks`，状态依次覆盖初始化、一次 challenge、目标复核和终态；真实 Provider message、Cookie、完整路径和签名 URL 均不落库
 - `status=1`、重复/越界 challenge、Provider 故障和目标复核失败均写入固定脱敏失败码；成功保存目标 fileId/pickCode、完成时间和 `lastAccessedAt`

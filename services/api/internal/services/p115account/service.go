@@ -371,12 +371,7 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 			AppType:   appType,
 			UserAgent: userAgent,
 		},
-		runtimeRef: runtimeCredentialRef{
-			accountID:             account.ID,
-			expectedCiphertext:    ciphertext,
-			expectedUpdatedAt:     account.UpdatedAt,
-			expectedConfigVersion: account.ConfigVersion,
-		},
+		runtimeRef: runtimeRefForAccount(account, ciphertext),
 	}, nil
 }
 

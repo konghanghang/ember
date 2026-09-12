@@ -132,7 +132,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 新增 `playback_transfer_tasks` 模型、幂等 migration、活动内容 partial unique、终态 provenance 和 `lastAccessedAt`；`VerifySchema` 同步校验新表、代表性列和三个索引。
 - 新增不暴露 HTTP 入口的 `internal/services/directplay`，按角色加载活动账号，以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，锁内二次查重后编排 preID、一次 challenge、秒传、目标复核和锁外直链签发；其窄 Provider 接口不包含 `DeleteFile`。
 - 专用 PostgreSQL 集成数据库的独立 schema 已验证 migration 可重复执行、两个相同内容并发请求只调用一次 fake `InitRapidUpload`、challenge 将 `attemptCount` 记为 2、普通上传要求落为脱敏失败终态；测试不访问真实 115。
-- DirectPlay 已通过窄 `AccountHealthReporter` 回写实际调用账号：完整候选成功后更新 source/playback `lastSucceededAt`，凭证失效进入 `expired + disabled`，临时 Provider 故障进入固定 1 分钟 `cooling_down`，协议错误进入 `error`；冷却期间不请求 115，过期后通过 PostgreSQL 行锁只放行一个半开探测。
+- DirectPlay 已通过窄 `AccountHealthReporter` 回写实际调用账号：完整候选成功后按 1 分钟采样更新 source/playback `lastSucceededAt`（首次/恢复立即写入），凭证失效进入 `expired + disabled`，临时 Provider 故障进入固定 1 分钟 `cooling_down`，协议错误进入 `error`；冷却期间不请求 115，过期后通过 PostgreSQL 行锁只放行一个半开探测。
 - 运行期健康回写同时匹配请求加载时的 Cookie 密文和 `updatedAt`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或较新的运行期结果；回写使用独立 2 秒上限，失败不改变原 302/fallback 结果。fake/race 与 PostgreSQL 集成测试已覆盖冷却阻断、单探测、成功恢复、凭证停用和旧结果丢弃。
 - source 账号新增 `embyPathPrefix/sourceRootId` 一对一运行位置、独立更新接口和管理员表单；`ResolveMediaPath` 已按完整目录边界转换 Emby 路径，拒绝兄弟前缀、空相对路径、`.`/`..`、反斜杠和非规范 root ID。
 - 新增 `emby_access_tokens` 模型和幂等 migration，只保存按 `emby-access-token` purpose 派生的 32 字节 HMAC；`VerifySchema` 同步校验代表性列和四个索引。
@@ -426,7 +426,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 3. Principal 合法后再检查证明、加速资格、客户端和并发；首期只有固定 `GET/HEAD` 视频路径同时带唯一 `MediaSourceId`、唯一 `PlaySessionId`、精确 `Static=true` 且容器匹配时尝试 115，任何不满足均 `fallback` 到原始 Emby 请求。
 4. 从进程内 PlaybackInfo 快照取得 Path，按 source 账号的 `embyPathPrefix/sourceRootId` 调用 `ResolveMediaPath`；Emby Size 仅留在观察日志。相对路径存在父目录时，Provider 使用 `GET /files/get_path_id` 配合 `parent_id=sourceRootId`、相对父目录路径和固定 `is_create=0` 一次取得父目录 ID；文件直接位于 source root 时跳过该调用。随后只在已确认父目录内完整分页，按精确文件名和非目录类型唯一取得 Provider 权威 `fileId/pickCode/SHA1/size/parentId`。
 5. 播放小号按 SHA1 查询，并再次校验 size 和非目录类型。
-6. 命中后更新对应任务的 `lastAccessedAt`，使用播放小号 pickCode 和真实客户端 UA 获取下载地址。
+6. 命中后使用播放小号 pickCode 和真实客户端 UA 获取兼容下载地址，再用单条条件 UPDATE 按 1 分钟采样刷新最近成功任务的 `lastAccessedAt`。
 7. 校验过期时间、Header 要求和域名 allowlist，兼容时返回空体 302；任一步失败都透明 fallback Emby。
 
 #### 6.4 播放小号缺文件
@@ -470,7 +470,7 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 1. Provider 识别凭证失效后，将账号标记为 `expired + disabled`，阻止新任务和新直链。
 2. 临时 Provider 不可用按实际 source/playback 账号进入固定 1 分钟 `cooling_down`，记录截止时间和脱敏原因；协议错误进入 `error`，不伪装成凭证失效。
 3. 冷却期间不读取 Cookie、不重复探测外部接口；到期后以 PostgreSQL 行锁和条件更新发放一个 1 分钟半开探测租约，跨 Gateway 副本也只有一个请求放行。
-4. 完整 DirectPlay 候选签发并完成必要持久化后，source/playback 都恢复 `active`、更新 `lastSucceededAt` 并清空冷却/错误；运行期回写失败不得改写原始 302/fallback 结果。
+4. 完整 DirectPlay 候选签发并完成必要持久化后，source/playback 恢复 `active` 并清空冷却/错误，首次和恢复立即写入 `lastSucceededAt`，持续健康成功按 1 分钟采样；运行期回写失败不得改写原始 302/fallback 结果。
 5. 所有回写匹配加载时的 Cookie 密文和 `updatedAt`；管理员更新 Cookie 后仍必须重新验证，旧播放请求不能覆盖新凭证的 `pending` 状态。
 
 ### 7. 失败与安全边界
@@ -546,7 +546,7 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 目标平台当前稳定版 Infuse Direct Play。
 - Token 映射、目标查重、秒传、目标复核、直链检查和 302。
 - 单 Token、单设备和用户全部登录撤销；设备强制退出后允许重新登录，用户硬禁用后新登录也不能恢复直连。
-- playback 文件作为持久缓存保留；重复播放命中后跳过秒传并刷新 `lastAccessedAt`，第一阶段不启用自动清理。
+- playback 文件作为持久缓存保留；重复播放命中后跳过秒传并按 1 分钟采样刷新 `lastAccessedAt`，第一阶段不启用自动清理。
 - 基础账号冷却、日志和 transfer 任务持久化；用户自有账号、Redis 当前播放和转存配额不作为本计划阶段 1 的完成条件。
 
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
@@ -667,7 +667,16 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 - Redis 准入后的凭证获取与异步目录保存以配置版本防覆盖；健康回写额外匹配配置版本、Cookie 密文和 `updated_at`，防止旧配置/旧健康结果覆盖新状态。最新 enabled/status/cooldown 仍在获取时检查。
 - 单元回归已复现并修复并发成功导致误回退，覆盖同时间戳配置变化、旧健康结果、冷却拦截、个人/共享目录保存。已补 PostgreSQL 升级/重复 migration、获取与半开探测、目录保存并发回归；专用测试库在沙箱内外均连接超时，失败发生在创建临时 schema 之前，migration 和 SQL 行为尚未获得本轮 PostgreSQL 实测证据。
 - API 全量非数据库测试、账号/DirectPlay/Gateway race、`go vet ./...`、`go build ./...` 已通过。真实 115、Redis、播放器及生产负载未验证。
-- 成功记录限频为下一项独立优化；本次现行事实已同步架构、数据模型和端到端流程文档，真实外部验收仍未收口，计划暂不归档。
+- 成功记录限频由下一节独立改动完成；本次现行事实已同步架构、数据模型和端到端流程文档，真实外部验收仍未收口，计划暂不归档。
+
+2026-09-12 成功记录读写优化已落地：
+
+- 健康回写复用已有凭证查询快照：active、无冷却/错误且最近一次修改就是成功记录时，1 分钟内不再执行成功健康 SQL；首次、配置更新后、错误及半开恢复立即尝试 CAS。没有新增账号缓存、后台队列或 goroutine；跳过的观察不推进健康版本。
+- 保留文件复用把先 SELECT 任务 ID 再 UPDATE 改成单条条件 UPDATE；先按创建时间/ID 选择最近 succeeded，再对该行限频。窗口内或外部预存文件为零行成功，较旧访问不回退时间；任务终态、初始 provenance 和 Redis 配额落地不采样。
+- TDD 覆盖 source/playback 快照、采样边界、配置更新、失败/恢复、不缓存写入失败、旧成功不覆盖新错误。fake SQL driver 覆盖一次 SQL 往返、参数/范围绑定、零行与安全错误映射；另补 PostgreSQL 最近任务选择、并发重复访问、行版本不变和时间不回退用例。
+- 验证通过：API `go test ./... -skip 'Integration|PostgreSQL' -count=1`、账号与 DirectPlay 两包 race（同样跳过数据库集成）、`go vet ./...`、`go build ./...` 和差异检查。
+- 专用 PostgreSQL 连接失败的外部条件未变化，本项未重复连接；新增数据库用例仅编译，未执行。真实 115、Redis、播放器及生产延迟收益未验证。两个采样时间不提供逐次播放审计；未来容量清理必须计入采样窗口并结合活跃会话，不得单凭采样时间判断可删除。
+- 本次两项代码优化均已完成；真实外部验收仍未收口，计划继续保留。
 
 测试分层：
 
@@ -692,7 +701,7 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 3. `status=7` 只读取源账号指定 Range，再次初始化并复核目标文件。
 4. `status=1` 明确失败，绝不下载和上传完整视频。
 5. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-6. 重复播放命中同一 playback 文件，跳过秒传、刷新最后访问时间并签发新临时直链；Stopped 和会话 TTL 不调用删除。
+6. 重复播放命中同一 playback 文件，跳过秒传、按 1 分钟采样刷新最后访问时间并签发新临时直链；Stopped 和会话 TTL 不调用删除。
 7. 下载链接通过过期时间、UA、Header 要求和域名 allowlist 校验。
 8. `f=3` 或需要额外 Cookie 的链接明确失败，不泄露凭证。
 9. Playing、Progress、Stopped 仍由 Emby 接收，播放进度正常。

@@ -92,7 +92,7 @@ func (s *Service) AcquirePlaybackRoute(ctx context.Context, route PlaybackRoute)
 	return ActiveAccountCredential{
 		Role: models.P115AccountRolePlayback, ProviderUserID: route.ProviderUserID, TargetParentID: route.TargetParentID,
 		Credential: p115integration.Credential{AccountID: account.ID, Cookie: cookie, AppType: appType, UserAgent: userAgent},
-		runtimeRef: runtimeCredentialRef{accountID: account.ID, expectedCiphertext: ciphertext, expectedUpdatedAt: account.UpdatedAt, expectedConfigVersion: account.ConfigVersion},
+		runtimeRef: runtimeRefForAccount(account, ciphertext),
 	}, nil
 }
 
