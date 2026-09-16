@@ -20,6 +20,8 @@ type fakeScanRecorder struct {
 	holder      *mediagappkg.MediaGapScanLockHandleHolder
 	finalizeCtx context.Context
 	finalizeErr error
+	done        chan struct{}
+	doneOnce    sync.Once
 }
 
 func (f *fakeScanRecorder) AcquireAndRecord(ctx context.Context) (*mediagappkg.MediaGapScanLockHandleHolder, string, error) {
@@ -43,6 +45,57 @@ func (f *fakeScanRecorder) FinishAndReleaseHolder(ctx context.Context, holder *m
 	}
 	f.busy = false
 	f.holder = nil
+	if f.done != nil {
+		f.doneOnce.Do(func() { close(f.done) })
+	}
+}
+
+// waitForFinish observes the recorder boundary only. Production updates the
+// manager status after this point, so tests that assert Status must also wait
+// through waitForManagerIdle.
+func (f *fakeScanRecorder) waitForFinish(t *testing.T) {
+	t.Helper()
+	f.mu.Lock()
+	if len(f.finishes) > 0 {
+		f.mu.Unlock()
+		return
+	}
+	if f.done == nil {
+		f.done = make(chan struct{})
+	}
+	done := f.done
+	f.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for scan finalization")
+	}
+}
+
+func (f *fakeScanRecorder) finalization() (context.Context, error, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.finalizeCtx, f.finalizeErr, len(f.finishes)
+}
+
+// waitForManagerIdle polls the manager under its Status lock until run has
+// finished both recorder finalization and the in-memory status transition.
+func waitForManagerIdle(t *testing.T, manager *mediaGapScanManager) mediaGapAsyncScanStatus {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status := manager.Status()
+		if !status.Running {
+			return status
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline:
+			t.Fatal("timed out waiting for scan manager to become idle")
+		}
+	}
 }
 
 func TestMediaGapScanManagerStartAndComplete(t *testing.T) {
@@ -81,11 +134,10 @@ func TestMediaGapScanManagerStartAndComplete(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for async scan to finish")
 	}
+	recorder := manager.recorder.(*fakeScanRecorder)
+	recorder.waitForFinish(t)
 
-	// 等待 run 内部 finalize 完成（finish 在 scanFn 之后）。
-	time.Sleep(20 * time.Millisecond)
-
-	finalStatus := manager.Status()
+	finalStatus := waitForManagerIdle(t, manager)
 	if finalStatus.Status != mediaGapScanStateSucceeded {
 		t.Fatalf("expected succeeded status, got %s", finalStatus.Status)
 	}
@@ -123,7 +175,8 @@ func TestMediaGapScanManagerRejectsConcurrentStart(t *testing.T) {
 
 	close(block)
 	// 让第一次扫描结束，避免 goroutine 泄漏到下一个测试。
-	time.Sleep(20 * time.Millisecond)
+	recorder.waitForFinish(t)
+	waitForManagerIdle(t, manager)
 }
 
 func TestMediaGapScanManagerMarksFailure(t *testing.T) {
@@ -143,9 +196,10 @@ func TestMediaGapScanManagerMarksFailure(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for failed async scan")
 	}
-	time.Sleep(20 * time.Millisecond)
+	recorder := manager.recorder.(*fakeScanRecorder)
+	recorder.waitForFinish(t)
 
-	status := manager.Status()
+	status := waitForManagerIdle(t, manager)
 	if status.Status != mediaGapScanStateFailed {
 		t.Fatalf("expected failed status, got %s", status.Status)
 	}
@@ -183,15 +237,16 @@ func TestMediaGapScanManagerFinalizesWithFreshContext(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for scanFn to return")
 	}
-	time.Sleep(20 * time.Millisecond)
+	recorder.waitForFinish(t)
 
-	if recorder.finalizeCtx == nil {
+	finalizeCtx, finalizeErr, finishCount := recorder.finalization()
+	if finalizeCtx == nil {
 		t.Fatal("recorder did not receive a finalize context")
 	}
-	if recorder.finalizeErr != nil {
-		t.Fatalf("finalize context must be live at call time; got err=%v", recorder.finalizeErr)
+	if finalizeErr != nil {
+		t.Fatalf("finalize context must be live at call time; got err=%v", finalizeErr)
 	}
-	if len(recorder.finishes) != 1 {
-		t.Fatalf("expected exactly 1 finalize call, got %d", len(recorder.finishes))
+	if finishCount != 1 {
+		t.Fatalf("expected exactly 1 finalize call, got %d", finishCount)
 	}
 }

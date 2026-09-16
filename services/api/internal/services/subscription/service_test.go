@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -692,22 +693,49 @@ func (s *stubSubscriptionMoviePilotClient) DispatchDownloadCandidate(req moviepi
 }
 
 type stubPersistMpError struct {
+	mu    sync.Mutex
 	calls []struct {
 		subscriptionID string
 		mpError        *string
 	}
+	waitCalls int
+	done      chan struct{}
+	doneOnce  sync.Once
 }
 
+// install replaces the package-level mpError persistence hook with a
+// race-safe recorder. The default two-call wait matches the auto-approval
+// create/resubmit fixture; synchronous tests override waitCalls explicitly.
 func (s *stubPersistMpError) install() func() {
 	original := persistSubscriptionMpError
+	if s.waitCalls == 0 {
+		s.waitCalls = 2
+	}
+	if s.waitCalls > 0 {
+		s.done = make(chan struct{})
+	}
 	persistSubscriptionMpError = func(subscriptionID string, mpError *string) error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.calls = append(s.calls, struct {
 			subscriptionID string
 			mpError        *string
 		}{subscriptionID: subscriptionID, mpError: mpError})
+		if s.waitCalls > 0 && len(s.calls) >= s.waitCalls {
+			s.doneOnce.Do(func() { close(s.done) })
+		}
 		return nil
 	}
-	return func() { persistSubscriptionMpError = original }
+	return func() {
+		if s.done != nil {
+			select {
+			case <-s.done:
+			case <-time.After(3 * time.Second):
+				panic("timed out waiting for stubPersistMpError calls")
+			}
+		}
+		persistSubscriptionMpError = original
+	}
 }
 
 func TestPrepareManualSubscriptionReturnsNotFoundForMissing(t *testing.T) {
@@ -897,7 +925,7 @@ func TestManualDispatchSubscriptionPassesSeasonToMoviePilotAndClearsMpError(t *t
 	restoreFetch := stub.install()
 	defer restoreFetch()
 
-	persistStub := &stubPersistMpError{}
+	persistStub := &stubPersistMpError{waitCalls: 1}
 	restorePersist := persistStub.install()
 	defer restorePersist()
 
@@ -938,7 +966,7 @@ func TestManualDispatchSubscriptionFailureDoesNotWriteMpError(t *testing.T) {
 	restoreFetch := stub.install()
 	defer restoreFetch()
 
-	persistStub := &stubPersistMpError{}
+	persistStub := &stubPersistMpError{waitCalls: -1}
 	restorePersist := persistStub.install()
 	defer restorePersist()
 
