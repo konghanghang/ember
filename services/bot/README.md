@@ -131,6 +131,8 @@ Bot 启动期配置来自环境变量；运行期设置优先从 Go API Internal
 
 ## 依赖的 Internal API
 
+拒绝审批使用 `reject-request/peek` 和 `reject-request/complete`，部署时先升级 API、再升级 Bot。新 Bot 不调用破坏性 `pop`；旧入口保留到所有旧 Bot 退出且无需回滚后清理。完整重试和有效期合同见 [Bot 架构参考](../../docs/reference/bot-architecture-reference.md)。
+
 - `POST /api/v1/internal/telegram/bind`
 - `POST /api/v1/internal/telegram/info`
 - `POST /api/v1/internal/telegram/media-libraries`

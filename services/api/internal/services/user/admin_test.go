@@ -3,10 +3,13 @@ package user
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	dbpkg "github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
 	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
@@ -154,6 +157,79 @@ func TestDeleteUserDeletesEmbyBeforeLocalRecord(t *testing.T) {
 	if deletedUserID != "user_1" {
 		t.Fatalf("expected local user record to be deleted, got %q", deletedUserID)
 	}
+}
+
+func TestExtendExpiryWithDBLocksUserAndCommitsRenewal(t *testing.T) {
+	database, mock, cleanup := newUserSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+
+	currentExpiry := time.Now().UTC().AddDate(0, 0, 7)
+	mock.ExpectBegin()
+	expectUserExpiryLock(mock, "user_1", currentExpiry)
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	user, err := (&UserService{}).extendExpiryWithDB("user_1", 14)
+	if err != nil {
+		t.Fatalf("extendExpiryWithDB(): %v", err)
+	}
+	if user == nil || user.ExpiresAt == nil || !user.ExpiresAt.After(currentExpiry) {
+		t.Fatalf("expected extended locked user, got %+v", user)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestExtendExpiryWithDBRollsBackWhenUpdateFails(t *testing.T) {
+	database, mock, cleanup := newUserSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+
+	mock.ExpectBegin()
+	expectUserExpiryLock(mock, "user_1", time.Now().UTC().AddDate(0, 0, 7))
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
+		WillReturnError(errors.New("update failed"))
+	mock.ExpectRollback()
+
+	user, err := (&UserService{}).extendExpiryWithDB("user_1", 14)
+	if err == nil {
+		t.Fatalf("expected update error, got user=%+v", user)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func newUserSQLMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New(): %v", err)
+	}
+	database, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatalf("gorm.Open(): %v", err)
+	}
+	previous := dbpkg.DB
+	return database, mock, func() {
+		dbpkg.DB = previous
+		_ = sqlDB.Close()
+	}
+}
+
+func expectUserExpiryLock(mock sqlmock.Sqlmock, userID string, currentExpiry time.Time) {
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users" WHERE id = $1 ORDER BY "users"."id" LIMIT $2 FOR UPDATE`)).
+		WithArgs(userID, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled", "telegram_id",
+			"plan_group", "applied_media_library_template_version", "expires_at", "is_active", "password_reset_required", "created_at", "updated_at",
+		}).AddRow(userID, userID+"_name", "user", "", userID+"@example.com", "", false, false, nil, nil, int64(1), currentExpiry, true, false, time.Now().UTC(), time.Now().UTC()))
 }
 
 func TestDeleteUserSkipsLocalDeleteWhenEmbyDeleteFails(t *testing.T) {

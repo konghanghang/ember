@@ -23,6 +23,8 @@ type Service struct {
 	embyClient       embyPolicyClient
 	db               *gorm.DB
 	revokeUserTokens func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error)
+	defaultRevoker   bool
+	syncLocker       policySyncLocker
 }
 
 // NewService 使用当前数据库句柄创建有效 Policy 服务。
@@ -33,13 +35,9 @@ func NewService(embyClient embyPolicyClient) *Service {
 // NewServiceWithDB 为测试或限定事务创建有效 Policy 服务。
 func NewServiceWithDB(database *gorm.DB, embyClient embyPolicyClient) *Service {
 	service := &Service{db: database, embyClient: embyClient}
-	service.revokeUserTokens = func(ctx context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
-		revoker, err := embytokenpkg.NewControlPlaneRevoker(database)
-		if err != nil {
-			return 0, err
-		}
-		return revoker.RevokeUserTokens(ctx, userID, reason, actor)
-	}
+	service.revokeUserTokens = newPolicyTokenRevoker(database)
+	service.defaultRevoker = true
+	service.syncLocker = postgresPolicySyncLocker{}
 	return service
 }
 
@@ -48,11 +46,28 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 	if s == nil || s.db == nil {
 		return errors.New("Policy 服务未配置数据库")
 	}
+	locker := s.syncLocker
+	if locker == nil {
+		locker = postgresPolicySyncLocker{}
+	}
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		reason = "unspecified"
 	}
+	ctx, cancel := policySyncOperationContext(s.db)
+	defer cancel()
+	return locker.WithUserLock(ctx, s.db, userID, reason, func(lockedDB *gorm.DB) error {
+		scoped := *s
+		scoped.db = lockedDB
+		if s.defaultRevoker {
+			scoped.revokeUserTokens = newPolicyTokenRevoker(lockedDB)
+		}
+		return scoped.applyEffectiveUserPolicyLocked(userID, reason)
+	})
+}
 
+// applyEffectiveUserPolicyLocked 在用户级串行边界内重读本地状态并同步 Emby Policy。
+func (s *Service) applyEffectiveUserPolicyLocked(userID, reason string) error {
 	var user models.User
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return normalizePolicyError("读取用户失败", err)
@@ -87,9 +102,16 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 		return err
 	}
 
+	syncCtx := policySyncDBContext(s.db)
+	if err := syncCtx.Err(); err != nil {
+		return normalizePolicyError("Emby Policy 同步已取消", err)
+	}
 	rawPolicy, err := s.embyClient.GetUserPolicyRaw(user.EmbyID)
 	if err != nil {
 		return normalizePolicyError("读取 Emby Policy 失败", err)
+	}
+	if err := syncCtx.Err(); err != nil {
+		return normalizePolicyError("Emby Policy 同步已取消", err)
 	}
 	if isEmbyAdministratorPolicy(rawPolicy) {
 		log.Printf("[Policy] 跳过 Emby Policy 同步：绑定的 Emby 账号是管理员 userID=%s embyID=%s reason=%s", user.ID, user.EmbyID, reason)
@@ -104,7 +126,11 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 		if !disabled {
 			revokeReason = embytokenpkg.RevokeReasonSecurityRevoke
 		}
-		count, revokeErr := s.revokeUserTokens(context.Background(), user.ID, revokeReason, "system:policy")
+		revokeCtx := context.Background()
+		if s.db != nil && s.db.Statement != nil && s.db.Statement.Context != nil {
+			revokeCtx = s.db.Statement.Context
+		}
+		count, revokeErr := s.revokeUserTokens(revokeCtx, user.ID, revokeReason, "system:policy")
 		if revokeErr != nil {
 			return ErrUserTokenRevocation
 		}
@@ -114,6 +140,9 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 
 	if err := s.embyClient.PatchUserPolicyFields(user.EmbyID, managedPolicy, fields); err != nil {
 		return normalizePolicyError("写入 Emby Policy 失败", err)
+	}
+	if err := syncCtx.Err(); err != nil {
+		return normalizePolicyError("Emby Policy 同步已取消", err)
 	}
 
 	if err := s.db.Model(&models.User{}).
@@ -129,6 +158,16 @@ func (s *Service) ApplyEffectiveUserPolicy(userID, reason string) error {
 	}
 
 	return nil
+}
+
+func newPolicyTokenRevoker(database *gorm.DB) func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+	return func(ctx context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
+		revoker, err := embytokenpkg.NewControlPlaneRevoker(database)
+		if err != nil {
+			return 0, err
+		}
+		return revoker.RevokeUserTokens(ctx, userID, reason, actor)
+	}
 }
 
 // ApplyEffectiveUserPolicyOrRecordFailure 应用用户当前有效 Policy；失败时写入单用户 failed 处理记录。

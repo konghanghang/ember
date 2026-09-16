@@ -2,18 +2,24 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
+import type { Tone } from '@/components/ember/tokens'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore } from '@/store/auth'
-import { User, Lock, ArrowLeft } from '@element-plus/icons-vue'
+import { useUserStore } from '@/store/user'
+import { resetAllStores } from '@/store/reset'
+import { User, Lock, ArrowLeft, RefreshRight } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const userStore = useUserStore()
 const form = ref({
   username: '',
   password: ''
 })
 const loading = ref(false)
+const recoveryLoading = ref(false)
 const redirectTarget = ref('/console/dashboard')
 const turnstileToken = ref('')
 const turnstileReady = ref(false)
@@ -72,6 +78,21 @@ const loginBlockedReason = computed(() => {
   }
   return ''
 })
+const isSessionRecovery = computed(() => authStore.isAuthenticated && route.query.recovery === 'profile')
+const recoveryTone: Tone = 'warning'
+
+/**
+ * 判断恢复重试是否收到认证失效。
+ *
+ * request.ts 的 401 回调在生产环境会先清理身份并跳登录页；这里保留同样的分支，
+ * 让组件测试和 fake API 路径也能稳定退出恢复态。
+ */
+function isUnauthorizedError(error: unknown) {
+  return typeof error === 'object'
+    && error !== null
+    && 'response' in error
+    && (error as { response?: { status?: number } }).response?.status === 401
+}
 
 const resetTurnstileState = () => {
   turnstileToken.value = ''
@@ -107,6 +128,32 @@ const loadProtectionConfig = async () => {
     configError.value = '登录保护配置加载失败，刷新页面重试'
   } finally {
     configLoading.value = false
+  }
+}
+
+/**
+ * 重试恢复当前 token 对应的 profile。
+ *
+ * 该路径只用于守卫已确认 token 存在但 /profile 暂时失败的会话；成功后回到原目标路由，
+ * 401 则清理本地身份并留在普通登录页，网络/5xx 继续停在恢复态等待下一次重试。
+ */
+const handleRecoveryRetry = async () => {
+  if (recoveryLoading.value) {
+    return
+  }
+
+  recoveryLoading.value = true
+  try {
+    await userStore.fetchProfile()
+    await router.replace(redirectTarget.value)
+  } catch (error) {
+    if (isUnauthorizedError(error)) {
+      resetAllStores()
+      await router.replace({ name: 'login', query: { redirect: redirectTarget.value } })
+      return
+    }
+  } finally {
+    recoveryLoading.value = false
   }
 }
 
@@ -193,6 +240,30 @@ const handleLogin = async () => {
           <h1 class="text-2xl font-bold text-text-primary tracking-tight mb-2">欢迎回来</h1>
           <p class="text-text-secondary text-sm">登录您的 Ember 账号</p>
         </div>
+
+        <EmberEmptyStateCard
+          v-if="isSessionRecovery"
+          class="mb-6"
+          title="会话暂时无法恢复"
+          :icon="RefreshRight"
+          :tone="recoveryTone"
+          compact
+          role="status"
+          aria-live="polite"
+        >
+          <template #actions>
+            <el-button
+              type="warning"
+              plain
+              :loading="recoveryLoading"
+              class="!rounded-xl !font-semibold"
+              @click="handleRecoveryRetry"
+            >
+              <el-icon class="mr-1"><RefreshRight /></el-icon>
+              重试
+            </el-button>
+          </template>
+        </EmberEmptyStateCard>
 
         <el-form :model="form" @submit.prevent="handleLogin" size="large" class="space-y-6">
           <div class="space-y-4">

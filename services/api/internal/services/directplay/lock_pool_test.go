@@ -160,6 +160,61 @@ func TestLockWaiterReturnsConnectionBetweenAttempts(t *testing.T) {
 	}
 }
 
+// TestMultipleLockersCancelWaitersWithoutStarvingSQL exercises independently
+// constructed lockers sharing one small SQL pool, as separate services do.
+func TestMultipleLockersCancelWaitersWithoutStarvingSQL(t *testing.T) {
+	state := &auditLockDB{waiting: make(chan struct{}, 2)}
+	database := sql.OpenDB(auditConnector{state})
+	defer database.Close()
+	database.SetMaxOpenConns(2)
+	holderLocker := &postgresTaskLocker{database: database, pollInterval: time.Millisecond}
+	waiterLockerA := &postgresTaskLocker{database: database, pollInterval: time.Millisecond}
+	waiterLockerB := &postgresTaskLocker{database: database, pollInterval: time.Millisecond}
+	holder, err := holderLocker.Acquire(context.Background(), "account", directPlaySourceSHA1, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 2)
+	for _, locker := range []*postgresTaskLocker{waiterLockerA, waiterLockerB} {
+		go func(locker *postgresTaskLocker) {
+			lock, err := locker.Acquire(ctx, "account", directPlaySourceSHA1, 1024)
+			if lock != nil {
+				_ = lock.Release()
+			}
+			done <- err
+		}(locker)
+	}
+	for index := 0; index < 2; index++ {
+		select {
+		case <-state.waiting:
+		case <-time.After(time.Second):
+			t.Fatalf("waiter %d never attempted lock", index+1)
+		}
+	}
+	queryCtx, cancelQuery := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancelQuery()
+	conn, err := database.Conn(queryCtx)
+	if err != nil {
+		t.Fatalf("multiple lockers starved task SQL: %v", err)
+	}
+	_ = conn.Close()
+
+	cancel()
+	for index := 0; index < 2; index++ {
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("waiter error=%v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("waiter %d did not cancel", index+1)
+		}
+	}
+}
+
 // TestContentLockAdmissionReservesTaskConnection verifies that distinct local
 // content locks cannot take the last connection needed by the holder's writes.
 func TestContentLockAdmissionReservesTaskConnection(t *testing.T) {

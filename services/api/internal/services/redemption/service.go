@@ -16,6 +16,7 @@ import (
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type RedemptionService struct {
@@ -89,8 +90,8 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 		return nil, ErrRedeemFailed
 	}
 
-	var user models.User
-	if err := tx.Where("id = ?", userID).First(&user).Error; err != nil {
+	user, err := lockUserForRedemptionRenewal(tx, userID)
+	if err != nil {
 		return nil, errors.New("用户不存在")
 	}
 
@@ -150,6 +151,15 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 		Days:      code.DefaultDays,
 		ExpiresAt: &newExpiry,
 	}, nil
+}
+
+// lockUserForRedemptionRenewal 读取并锁定续期目标用户，保证并发兑换在最新到期日上累加。
+func lockUserForRedemptionRenewal(tx *gorm.DB, userID string) (*models.User, error) {
+	var user models.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // calculateRedeemedExpiry 计算兑换后的用户到期日；仍有效的账号从原到期日续期，空或已过期账号从当前时间重新起算。

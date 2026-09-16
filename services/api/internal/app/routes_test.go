@@ -150,3 +150,26 @@ func TestP115PersonalAccountRoutesAreRegistered(t *testing.T) {
 		t.Fatal("personal p115 revoke route is not registered")
 	}
 }
+
+func TestTelegramPendingRejectRoutesAreRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	registerRoutes(router, &appHandlers{})
+
+	registered := make(map[string]struct{})
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = struct{}{}
+	}
+
+	expected := []string{
+		"POST /api/v1/internal/telegram/reject-request/enqueue",
+		"POST /api/v1/internal/telegram/reject-request/peek",
+		"POST /api/v1/internal/telegram/reject-request/pop",
+		"POST /api/v1/internal/telegram/reject-request/complete",
+	}
+	for _, route := range expected {
+		if _, ok := registered[route]; !ok {
+			t.Fatalf("telegram pending reject route is not registered: %s", route)
+		}
+	}
+}

@@ -117,9 +117,15 @@ func (s *Service) ProcessPendingEmbyPolicySyncTasks(ctx context.Context, limit i
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		if err := s.ApplyEffectiveUserPolicy(task.UserID, task.Reason); err != nil {
+		workerService := *s
+		workerService.db = s.db.WithContext(ctx)
+		if err := workerService.ApplyEffectiveUserPolicy(task.UserID, task.Reason); err != nil {
 			result.Failed++
-			if updateErr := s.finishPolicySyncTask(ctx, task, SyncStatusFailed, err); updateErr != nil {
+			finishCtx, cancel := policySyncTaskFinishContext(ctx)
+			if cancel != nil {
+				defer cancel()
+			}
+			if updateErr := s.finishPolicySyncTask(finishCtx, task, SyncStatusFailed, err); updateErr != nil {
 				return result, updateErr
 			}
 			log.Printf("[PolicyWorker] 用户 Emby Policy 同步失败: batchID=%s taskID=%s userID=%s reason=%s err=%v", stringValue(task.BatchID), task.ID, task.UserID, task.Reason, err)
@@ -137,6 +143,15 @@ func (s *Service) ProcessPendingEmbyPolicySyncTasks(ctx context.Context, limit i
 	}
 
 	return result, nil
+}
+
+// policySyncTaskFinishContext preserves cancellation for normal worker flow but
+// gives failed-task bookkeeping a short independent window after a sync was canceled.
+func policySyncTaskFinishContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil || ctx.Err() == nil {
+		return ctx, nil
+	}
+	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
 // claimPendingPolicySyncTasks 在事务中锁定到期 pending 任务并标记为 processing。

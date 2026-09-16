@@ -214,7 +214,9 @@
 | PUT | `/api/v1/internal/telegram/media-libraries/:libraryId/toggle` | Bot 切换单个媒体库显示状态 |
 | DELETE | `/api/v1/internal/telegram/media-libraries/preferences` | Bot 恢复分组默认媒体库偏好 |
 | POST | `/api/v1/internal/telegram/reject-request/enqueue` | Bot 入队拒绝待确认记录（请求体必须携带 `chatId`、`adminUserId`、`subscriptionId`） |
-| POST | `/api/v1/internal/telegram/reject-request/pop` | Bot 弹出拒绝待确认记录（请求体必须携带 `chatId`、`adminUserId`，且操作者必须与入队记录一致） |
+| POST | `/api/v1/internal/telegram/reject-request/peek` | 非破坏读取同一 `chatId + adminUserId` 最近点击的未过期记录，直接返回现有记录字段；无记录 404 |
+| POST | `/api/v1/internal/telegram/reject-request/complete` | 提交 `pendingRequestId/chatId/adminUserId/reason`，事务内完成拒绝；返回 `subscriptionId/status/changed/rejectReason`，终态重放不重复通知 |
+| POST | `/api/v1/internal/telegram/reject-request/pop` | 旧 Bot 升级过渡入口，仍弹出并删除记录；所有旧 Bot 退出且无需回滚后移除，新 Bot 禁止调用 |
 
 ## 6. API 响应格式约定
 

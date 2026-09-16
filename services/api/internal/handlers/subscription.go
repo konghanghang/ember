@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -23,11 +24,19 @@ type subscriptionHandlerService interface {
 	GetAllSubscriptions(status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
 	ApproveSubscription(subscriptionID string) error
 	RejectSubscription(subscriptionID, reason string) error
+	CompletePendingReject(ctx context.Context, pendingRequestID string, chatID int64, adminUserID, reason string) (*subscriptionpkg.PendingRejectCompleteResult, error)
 	MarkSubscriptionIngestedAsAdmin(subscriptionID string) error
 	RedispatchSubscription(subscriptionID string) error
 	ManualSearchSubscription(subscriptionID string, req subscriptionpkg.ManualSearchRequest) (*subscriptionpkg.ManualSearchResult, error)
 	ManualDispatchSubscription(subscriptionID string, req subscriptionpkg.ManualDispatchRequest) (*subscriptionpkg.ManualDispatchResult, error)
 	DeleteSubscriptionAsAdmin(subscriptionID string) error
+}
+
+type pendingRejectCompleteRequest struct {
+	PendingRequestID string `json:"pendingRequestId" binding:"required"`
+	ChatID           int64  `json:"chatId" binding:"required"`
+	AdminUserID      string `json:"adminUserId" binding:"required"`
+	Reason           string `json:"reason" binding:"required"`
 }
 
 // SubscriptionHandler 订阅处理器
@@ -384,6 +393,34 @@ func (h *SubscriptionHandler) RejectSubscription(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// CompletePendingReject 完成 Bot 拒绝原因提交，按 pending request 固定记录重试。
+func (h *SubscriptionHandler) CompletePendingReject(c *gin.Context) {
+	var req pendingRejectCompleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	result, err := h.service.CompletePendingReject(c.Request.Context(), req.PendingRequestID, req.ChatID, req.AdminUserID, req.Reason)
+	if err != nil {
+		switch {
+		case errors.Is(err, subscriptionpkg.ErrPendingRejectNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionRejectReason):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionStateConflict):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, subscriptionpkg.ErrSubscriptionHandled):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			httpx.InternalError(c, err)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // MarkSubscriptionIngested 校验库内存在后标记订阅已入库

@@ -5,6 +5,7 @@ go 1.23
 toolchain go1.24.13
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/andybalholm/brotli v1.2.3
 	github.com/gin-gonic/gin v1.10.0

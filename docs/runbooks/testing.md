@@ -41,6 +41,15 @@ go test -race -count=1 ./internal/playbackgateway ./internal/services/directplay
 
 上述命令只做 fake 上游、生命周期、统一子命令分发和构建验证，不启动 API/Gateway、不请求真实 Emby。默认构建验证不会在工作区生成二进制；需要单独产物时显式使用 `go build -o bin/ember ./cmd/ember`，且禁止提交 `bin/`。
 
+若环境中已设置集成数据库变量，但本次只验收 fake 链路，必须显式排除集成用例，避免包级命令自动连接数据库：
+
+```bash
+go test ./internal/services/directplay ./internal/services/p115quota ./internal/playbackgateway -skip Integration -count=1 -timeout=90s
+go test -race ./internal/services/directplay ./internal/services/p115quota ./internal/playbackgateway -skip Integration -count=1 -timeout=90s
+```
+
+2026-09-16 上述两种范围均通过。新增回归覆盖独立 locker 在真实 `database/sql` 小连接池上的 fake 锁竞争/取消、A 租约过期后 B 占满额度时 A 不得返回直链，以及 HEAD/Playing 不重建丢失租约。`TestIntegrationPostgresContentLockSmallPoolWaiterCancellation` 已保留为真实 PostgreSQL 专项，但本轮专用库不可达，用户确认采用 fake 验收，未执行该用例；不能将 fake driver 或 miniredis 结果写成数据库/真实 Redis 已验证。
+
 如果要跑本地 API 集成测试：
 
 - 必须通过 `EMBER_INTEGRATION_DATABASE_URL` 指向专用测试数据库

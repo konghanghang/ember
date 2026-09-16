@@ -90,6 +90,43 @@ func TestMemoryLeaseStoreLimitResultIncludesAtomicUsage(t *testing.T) {
 	}
 }
 
+func TestMemoryLeaseStoreExpiredReservationCannotConfirmAfterCapacityIsReused(t *testing.T) {
+	store := NewMemoryLeaseStore()
+	now := time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC)
+	accountKey := "1212121212121212121212121212121212121212121212121212121212121212"
+	first := ReserveRequest{
+		PlaybackAccountKey:   accountKey,
+		UserID:               "user-a",
+		SessionFingerprint:   "3434343434343434343434343434343434343434343434343434343434343434",
+		MaxConcurrentStreams: 1,
+	}
+	if _, err := store.Reserve(context.Background(), first, now); err != nil {
+		t.Fatalf("Reserve(first) error = %v", err)
+	}
+
+	afterExpiry := now.Add(ReservationTTL + time.Second)
+	second := first
+	second.UserID = "user-b"
+	second.SessionFingerprint = "5656565656565656565656565656565656565656565656565656565656565656"
+	if _, err := store.Reserve(context.Background(), second, afterExpiry); err != nil {
+		t.Fatalf("Reserve(second) error = %v", err)
+	}
+
+	confirmation, err := store.Confirm(context.Background(), ConfirmRequest{
+		PlaybackAccountKey: first.PlaybackAccountKey,
+		UserID:             first.UserID,
+		SessionFingerprint: first.SessionFingerprint,
+		RenewReservation:   true,
+	}, afterExpiry)
+	if err != nil || confirmation.Found {
+		t.Fatalf("expired first Confirm() = %+v, %v", confirmation, err)
+	}
+	usage, err := store.AccountUsage(context.Background(), accountKey, afterExpiry)
+	if err != nil || usage.OccupiedStreams != 1 || usage.ReservedStreams != 1 {
+		t.Fatalf("AccountUsage() = %+v, %v", usage, err)
+	}
+}
+
 func TestMemoryLeaseStorePromotesPausesStopsAndExpiresSessions(t *testing.T) {
 	store := NewMemoryLeaseStore()
 	now := time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC)

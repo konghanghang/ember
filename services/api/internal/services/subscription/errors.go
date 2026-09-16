@@ -22,4 +22,5 @@ var (
 	ErrSubscriptionInvalidTMDBID   = errors.New("订阅的 TMDB ID 无效或为空")
 	ErrSubscriptionEmbyUnlinked    = errors.New("当前账号未绑定 Emby，不能提交订阅")
 	ErrSubscriptionEmbyDisabled    = errors.New("当前账号的 Emby 已被禁用，不能提交订阅")
+	ErrPendingRejectNotFound       = errors.New("拒绝请求不存在或已过期")
 )

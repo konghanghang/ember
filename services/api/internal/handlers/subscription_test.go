@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,6 +23,7 @@ type stubSubscriptionService struct {
 	getUserPaginatedFn func(userID string, status *models.SubscriptionStatus, page, pageSize int) (*subscriptionpkg.GetAllSubscriptionsResponse, error)
 	manualSearchFn     func(subscriptionID string, req subscriptionpkg.ManualSearchRequest) (*subscriptionpkg.ManualSearchResult, error)
 	manualDispatchFn   func(subscriptionID string, req subscriptionpkg.ManualDispatchRequest) (*subscriptionpkg.ManualDispatchResult, error)
+	completeRejectFn   func(ctx context.Context, pendingRequestID string, chatID int64, adminUserID, reason string) (*subscriptionpkg.PendingRejectCompleteResult, error)
 }
 
 func (s *stubSubscriptionService) CreateSubscriptionWithResult(userID string, req subscriptionpkg.CreateSubscriptionRequest) (*subscriptionpkg.CreateSubscriptionResult, error) {
@@ -73,6 +75,13 @@ func (s *stubSubscriptionService) ApproveSubscription(subscriptionID string) err
 
 func (s *stubSubscriptionService) RejectSubscription(subscriptionID, reason string) error {
 	return nil
+}
+
+func (s *stubSubscriptionService) CompletePendingReject(ctx context.Context, pendingRequestID string, chatID int64, adminUserID, reason string) (*subscriptionpkg.PendingRejectCompleteResult, error) {
+	if s.completeRejectFn == nil {
+		return nil, nil
+	}
+	return s.completeRejectFn(ctx, pendingRequestID, chatID, adminUserID, reason)
 }
 
 func (s *stubSubscriptionService) MarkSubscriptionIngestedAsAdmin(subscriptionID string) error {
@@ -194,6 +203,80 @@ func TestSubscriptionHandlerCreateSubscriptionMapsEmbyStateErrorsToForbidden(t *
 
 			if recorder.Code != http.StatusForbidden {
 				t.Fatalf("expected status 403, got %d", recorder.Code)
+			}
+		})
+	}
+}
+
+func TestSubscriptionHandlerCompletePendingRejectMapsResult(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := &SubscriptionHandler{
+		service: &stubSubscriptionService{
+			completeRejectFn: func(ctx context.Context, pendingRequestID string, chatID int64, adminUserID, reason string) (*subscriptionpkg.PendingRejectCompleteResult, error) {
+				_ = ctx
+				if pendingRequestID != "pending_1" || chatID != 2002 || adminUserID != "1001" || reason != "资源不合适" {
+					t.Fatalf("unexpected complete args: pendingRequestID=%s chatID=%d adminUserID=%s reason=%s", pendingRequestID, chatID, adminUserID, reason)
+				}
+				return &subscriptionpkg.PendingRejectCompleteResult{
+					SubscriptionID: "sub_1",
+					Status:         models.SubscriptionRejected,
+					Changed:        true,
+					RejectReason:   "资源不合适",
+				}, nil
+			},
+		},
+	}
+
+	body := []byte(`{"pendingRequestId":"pending_1","chatId":2002,"adminUserId":"1001","reason":"资源不合适"}`)
+	ctx, recorder := newTestSubscriptionContext(http.MethodPost, "/api/v1/internal/telegram/reject-request/complete", body)
+
+	handler.CompletePendingReject(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var resp subscriptionpkg.PendingRejectCompleteResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.SubscriptionID != "sub_1" || resp.Status != models.SubscriptionRejected || !resp.Changed || resp.RejectReason != "资源不合适" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
+func TestSubscriptionHandlerCompletePendingRejectMapsErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name       string
+		err        error
+		statusCode int
+	}{
+		{name: "not found", err: subscriptionpkg.ErrPendingRejectNotFound, statusCode: http.StatusNotFound},
+		{name: "empty reason", err: subscriptionpkg.ErrSubscriptionRejectReason, statusCode: http.StatusBadRequest},
+		{name: "state conflict", err: subscriptionpkg.ErrSubscriptionStateConflict, statusCode: http.StatusConflict},
+		{name: "internal", err: errors.New("db failed"), statusCode: http.StatusInternalServerError},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := &SubscriptionHandler{
+				service: &stubSubscriptionService{
+					completeRejectFn: func(ctx context.Context, pendingRequestID string, chatID int64, adminUserID, reason string) (*subscriptionpkg.PendingRejectCompleteResult, error) {
+						_ = ctx
+						return nil, tc.err
+					},
+				},
+			}
+
+			body := []byte(`{"pendingRequestId":"pending_1","chatId":2002,"adminUserId":"1001","reason":"资源不合适"}`)
+			ctx, recorder := newTestSubscriptionContext(http.MethodPost, "/api/v1/internal/telegram/reject-request/complete", body)
+
+			handler.CompletePendingReject(ctx)
+
+			if recorder.Code != tc.statusCode {
+				t.Fatalf("expected status %d, got %d body=%s", tc.statusCode, recorder.Code, recorder.Body.String())
 			}
 		})
 	}

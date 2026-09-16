@@ -418,7 +418,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 **核心方法 `RedeemCode(userID, code)`**：
 1. 开启事务后查询兑换码并校验 `IsValid()`
 2. 在事务中检查 `redemptions(userId, code)` 是否已存在，存在则返回 `ErrRedemptionDuplicate`
-3. 查询用户并计算新 ExpiresAt，仅更新 `expiresAt/embyDisabled`（**Emby 调权移到 commit 后异步执行**）
+3. 对用户行执行 `FOR UPDATE` 后读取最新到期日并计算新 ExpiresAt，仅更新 `expiresAt`；管理员手动续期也在事务内使用同一用户行锁，避免不同兑换码、付款和人工续期丢失累计天数（**Emby 调权移到 commit 后执行**）
 4. 先插入 Redemption 记录（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
 5. 原子递增 usedCount（`WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）→ 提交
 6. commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "redemption_renewal")`：成功后刷新 Emby 禁用缓存；失败写入 `emby_policy_sync_tasks` 的单用户 `failed` 处理记录，由管理员在用户管理中手动重试
@@ -621,7 +621,8 @@ Stripe 一次性支付流程管理。
   - 首次 `INSERT ON CONFLICT DO NOTHING` 成功 → 进入业务分发
   - 命中冲突时回查 status：`processed / skipped` → 真正幂等 200 不再分发；`received / failed` → 视为上次未完成（崩溃中断 / 业务返回 5xx），允许 Stripe 自动重试驱动履约，同时把 `receivedAt` 刷新为本次重投时间
   - 分发完成后 UPDATE 写终态；`checkout.session.expired` → `MarkPaymentExpired(sessionID)` 把本地 pending 收口为 expired
-- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 事务内只做 Payment / User 状态更新和 `expiresAt` 延长（**Emby 调权移到 commit 后异步执行**）；引入 `event.created < payment.updatedAt` 乱序保护；commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "payment_fulfillment")`，Emby 写入失败不回滚支付履约，但会写入单用户 `failed` 处理记录供管理员手动重试
+- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 先非锁定定位订单归属，再按 `user → payment` 顺序加行锁并复验订单，保持与后台改分组的锁顺序一致；套餐按已提交快照读取，不在持有 payment 锁时再等待 plan 锁。只有 `completed` 是已履约终点，本地 failed/expired 与通用 updatedAt 不会吞掉真实付款成功。事务内更新权益和 completed，commit 后仍异步同步 Policy，外部失败不回滚付款权益
+- 成功付款遇到套餐分组不符会回滚履约并返回包含固定 `reasonCode=plan_group_mismatch` 与本地 paymentId 的错误，沿既有 `stripe_webhook_events.failed/error_message` 保留可重投事件；不新增支付状态、字段或处理页面。重复成功事件在订单锁内复验 completed，只发放一次；迟到失败/过期不会覆盖 completed
 - `markPaymentFailed(sessionID, eventCreated)` — 同样接受 `eventCreated`，做乱序保护
 - `MarkPaymentExpired(sessionID)` — `UPDATE payments SET status='expired' WHERE stripeSessionId=? AND status='pending'`，`RowsAffected=0` 视为已收口（noop）
 - 邀请码模板用户 Policy 复制链路已废弃；注册权益只来自 `registrationPlanGroup` 对应的分组媒体库模板和 Emby 权益模板
@@ -661,7 +662,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 **订阅管理员消息同步**：订阅审批通知接收人来自设置项 `telegram_approval_admin_ids`，语义是显式 Telegram 审批人员 user_id 列表；为空时回退 `TELEGRAM_ADMIN_CHAT_ID`，不会从 Telegram 群管理员或 Ember 后台 `role=admin` 推导。Bot 对每个审批人员私聊发送待审批消息，返回 `adminTelegramId/chatId/messageId/hasPhoto/deliveryStatus`，API 写入 `subscription_admin_notifications`。Web 后台或 Telegram 任一端审批成功后，API 调 `POST /notify/subscription-admin-sync`，Bot 逐条编辑消息为最终结果并移除按钮；编辑失败只写回 `edit_failed/deleted`，不回滚订阅审批状态。
 
-**审批拒绝上下文持久化**：Bot 管理员拒绝订阅时，待输入的 `adminUserId / subscriptionId / messageId / hasPhoto / originalText / expiresAt` 已落到 `bot_pending_reject_requests`，避免 Bot 重启或滚动发布导致 5 分钟内的待输入状态丢失；第二步提交拒绝原因时，Bot 调用 `reject-request/pop` 必须同时提交 `chatId + adminUserId`，API 只弹出同一操作者创建的待确认记录；搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
+**审批拒绝上下文持久化**：Bot 使用 `reject-request/peek` 非破坏读取同一 `chatId + adminUserId` 最近点击对应的未过期记录，再以固定 `pendingRequestId` 调用 `reject-request/complete`。API 在事务中锁上下文和订阅，只对 PENDING 转 REJECTED 的成功提交触发通知；重复提交返回订阅权威状态与原拒绝原因。上下文保留到原五分钟窗口结束再由既有任务清理，已完成的新记录不向旧记录回退；处理其他订阅需重新点击拒绝。旧 `pop` 仅用于 API 先升级、Bot 后升级的过渡，所有旧 Bot 退出且无需回滚后删除。搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
+
+**Bot HTML 预算**：通知在字段层裁剪后转义，最终按实体解析后的文本长度限制并闭合完整标签；审批结果优先保留终态。搜索海报和文本降级分别使用 caption/text 预算，附加无海报提示后仍在发送边界检查，避免超长或破损 HTML 使两条发送路径同时失败。
 
 ### 5.19 TVCalendarService (`services/tvcalendar/service.go`)
 
@@ -854,7 +857,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - root 或 `/emby` 形态的客户端 GET/POST PlaybackInfo 固定语义段大小写不敏感并继续透明代理；成功 `200 application/json` 响应按 `identity/gzip/deflate/br` 有界解码旁路副本并生成 `mappingId + itemId + mediaSourceId + playSessionId` 证明，同时保存 Path、Emby Size 观察值、Container 和 DirectPlay 能力，不改写原压缩响应。Emby Size 为零、缺失或异常都不阻断 proof 或 115 路径解析；只有后述缺 PlaySessionId 兼容分支会按需补取
 - GET 只有大小写不敏感的唯一 `UserId` key 等于 Principal.EmbyID 才可形成证明；POST 有界检查可选 UserId，错配、无效或超大请求仍透明转发但不缓存
 - 层级精确的 `GET /Users/{UserId}/Items/{ItemId}` 只有 path UserId 等于 Principal.EmbyID、上游 `200 application/json` 且响应 Id 匹配时，才从 `identity/gzip/deflate/br` 有界旁路副本缓存 `mappingId + itemId + mediaSourceId -> container`；有可用 MediaSource 时不使用顶层 Container 猜测其他 source。JSON 非法、响应 Id 缺失和响应 Id 错配分别记录固定 `response_json_invalid`、`response_item_id_missing`、`response_item_id_mismatch`，原响应仍透明返回。快照不含 Token、Path、Size 或响应体，TTL 5 分钟、最多 4096 条
-- 当前六段路径分类会把 Emby 静态集合路由 `/Users/{UserId}/Items/Latest` 误判为单条详情，列表响应因此产生无效 `response_json_invalid` Info 日志；原响应保持透明。该实现偏差由 [GitHub Issue #8](https://github.com/konghanghang/ember/issues/8) 跟踪，修复时必须补静态集合路由反例，不能通过吞掉全部解析错误规避
+- 用户条目详情分类显式排除 `Latest`、`Resume`、`Root` 静态端点，按普通受保护请求透明代理，不以路径字面值生成 ItemId 快照。fake 回归覆盖 root/`/emby`、大小写、HEAD 与 gzip 响应保持，静态端点不产生快照误报；动态详情解析错误仍正常记录
 - 证明缓存固定 5 分钟、最多 4096 条，延迟过期和最早到期淘汰，无后台 goroutine；不保存原始 Token。PlaybackInfo 响应级合同成立后，Info 按唯一有效 MediaSource ID 记录 `code=playback_info_media_source_observed`，包含完整 `MediaSources[].Path`、Size/DirectPlay/DirectStream 能力、`proofAccepted` 和固定 `proofRejectReason`；该观察不依赖 proof 写入成功。进程重启后证明丢失，115 加速不可用但合法请求应 fallback Emby
 - plain stream 具备唯一 MediaSourceId、`Static=true` 但完全没有 PlaySessionId 时，Gateway 先按 mapping/item/source 复用最新证明，并再次核对当前 server/user/Emby user/device 身份；未命中或身份变化则使用当前用户 AccessToken 对同一内部 Emby 执行 10 秒有界 GET PlaybackInfo。内部 URL 只有 UserId，不含 Token；相同 key 并发 singleflight 合并，等待方可独立取消
 - 按需 PlaybackInfo 内部请求只广告 gzip/deflate，并只接受无重定向 `200 application/json`、identity/gzip/deflate/br、匹配 item/source 的非重复 MediaSources 和非空 PlaySessionId；合格 source 写入原证明缓存。115 决策请求追加缺失 Container/PlaySessionId，正常 Emby fallback 则独立使用严格限定到当前 Item 的 DirectStreamUrl；缺失时使用官方 Web 的 `stream.{Container}` 形态
@@ -917,6 +920,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - **InternalAuth**：`middleware/internal_auth.go` — 校验 `X-Internal-Secret` header，用于 Bot ↔ API 内部通信；`INTERNAL_API_SECRET` 在 API 与 Bot 启动期均要求非空、长度至少 32 字符，并拒绝示例占位值
 - **Context 变量**：`userID`, `username`, `role`, `pwdSig`, `claims`, `principal`, `authType`
 - **密码存储**：bcrypt（DefaultCost），所有用户统一存本地 hash
+- **后台密码重置**：管理员账号（包括已绑定 Emby 的管理员）只重置 Ember 本地密码并清除强制改密标记，不依赖 Emby 配置；普通用户要求 EmbyID，先同步远端密码再保存本地 hash。密码 hash 变化继续通过 pwdSig 使旧 JWT 失效
 - **存量迁移**：`Password == ""` 时降级 Emby 认证，成功后自动补存本地 hash
 
 ---
@@ -932,6 +936,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - Store：基于 Pinia 维护认证态、用户态、管理员态
 - API：`request.ts` 负责 token 注入和 401 收口，各业务模块按职责拆分
 - Router：通过 `requiresAuth / role` 守卫做鉴权和 redirect 收口；刷新后先用 token 拉 `/profile`，再以服务端返回的 `role / passwordResetRequired` 判断 UI 权限
+- `/profile` 的网络/5xx 故障保留 token 与目标路由，在现有登录页展示可重试恢复态；401 清理身份。恢复标记只影响展示，重试成功后仍通过角色与强制改密守卫，不渲染未经资料确认的受保护页面
 - View：页面继续保留接口调用、路由状态、筛选参数和弹窗编排
 - Shared Components：`components/ember/` 承载稳定 UI 契约，不侵入业务
 - Build Metadata：`components/common/ProjectSourceLink.vue` 读取 Vite 构建期注入的 GitHub 仓库与 commit SHA，在首页导航和控制台侧边栏展示源码入口；控制台保留低干扰当前构建短 hash
@@ -956,6 +961,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - Bot 使用 Python 3.11 + python-telegram-bot + FastAPI，支持 `webhook` / `polling` 双模式
 - 与 Go API 通过 `X-Internal-Secret` 做双向内部通信
 - API → Bot 通过 `BotNotifier` 火忘式推送通知；Telegram 用户交互则通过 Bot 再调用 Go Internal API
+- Bot 运行期群配置的显式空值会清除缓存目的地，排行榜回退管理员；字段缺失或刷新失败仅保留最近缓存，不撤销已成功读取的清空结果
 
 ### 9.2 关键约束
 
@@ -980,6 +986,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - API 启动后默认会在 `15s` 后额外执行一次追剧日历补偿同步，用于预热周历缓存。
 - API 启动后默认会在 `15s` 后额外执行一次 Emby Policy 同步补偿，用于回收上次进程中断遗留的 processing 任务。
 - 单用户 Emby Policy 同步失败以 `failed` 终态保留给管理员处理；覆盖后台 Emby 启停、用户分组变更、过期封禁、支付履约和兑换续期等账号状态变更；管理员可在用户管理中手动重试，成功后旧失败任务会被收口为 `synced`。
+- 完整 Policy 同步以用户级 PostgreSQL advisory lock 跨实例串行，获锁后才重读当前权益，直到远端写入和本地成功状态收口后释放；等待者每次 try-lock 失败归还连接。锁内 SQL 与 token 撤销复用连接，池容量已满时明确失败并释放锁，为真实 Emby 配置刷新避免嵌套取连接阻塞；不新增 revision、任务表或 migration。
+- 同步数据库操作与锁等待使用从调用方 context 派生的两分钟预算；worker 的取消贯穿到同步入口。已发出的 Emby HTTP 仍受原客户端 timeout 管理，取消不代表远端未写入。解锁使用独立五秒窗口，panic 同样先清理，未知锁状态连接丢弃；worker 取消后的失败记账也有独立五秒窗口，剩余 processing 仍由既有超时回收处理。
 - 追剧日历启动补偿由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
 - `CRON_TIMEZONE` 是 Ember 唯一的全局业务时区，统一作为调度、日期边界、排行榜、播放记录、追剧日历状态和用户可见时间的判定基线。
 

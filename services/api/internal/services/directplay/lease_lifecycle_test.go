@@ -87,6 +87,36 @@ func TestCandidateRequiresLiveLease(t *testing.T) {
 	}
 }
 
+// TestExpiredCandidateCannotReturnAfterAnotherSessionFillsCapacity keeps a
+// slow Provider result behind the final lease confirmation gate.
+func TestExpiredCandidateCannotReturnAfterAnotherSessionFillsCapacity(t *testing.T) {
+	base := newFakeProvider()
+	base.searchResults = [][]p115.File{{base.targetFile}, {base.targetFile}}
+	leases := p115quota.NewMemoryLeaseStore()
+	accounts := &fakeRoutedAccountRuntime{route: routedPlaybackFixture()}
+	accounts.route.EffectiveMaxConcurrentStreams = 1
+	service := newRoutedDirectPlayForTest(t, accounts, base, leases)
+	service.leaseHeartbeatInterval = time.Hour
+	now := service.now()
+	service.now = func() time.Time { return now }
+
+	requestA := routedMediaPathRequest("GET", "slow-expired-session")
+	var injected atomic.Bool
+	service.provider = &lifecycleProvider{fakeProvider: base, downloadStep: func() {
+		if !injected.CompareAndSwap(false, true) {
+			return
+		}
+		now = now.Add(p115quota.ReservationTTL + time.Second)
+		if candidate, err := service.ResolveMediaPath(context.Background(), routedMediaPathRequest("GET", "replacement-session")); err != nil || candidate.URL == "" {
+			t.Fatalf("replacement ResolveMediaPath() candidate=%t error=%v", candidate.URL != "", err)
+		}
+	}}
+	candidate, err := service.ResolveMediaPath(context.Background(), requestA)
+	if !errors.Is(err, ErrPlaybackLeaseLost) || candidate.URL != "" {
+		t.Fatalf("expired candidate=%t error=%v", candidate.URL != "", err)
+	}
+}
+
 // TestSlowCandidateRenewsReservation advances forty business seconds while
 // synchronizing with real heartbeat completions instead of sleeping for TTLs.
 func TestSlowCandidateRenewsReservation(t *testing.T) {

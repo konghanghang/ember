@@ -595,7 +595,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
             original_text="<b>原始审批消息</b>",
         )
         message.reply_text.assert_awaited_once_with(
-            "请直接回复这条消息输入拒绝原因，5 分钟内有效。\n发送的下一条普通文本会作为拒绝原因提交。"
+            "请输入最近一次点击“拒绝”的原因，5 分钟内有效。处理其他订阅请重新点击对应的拒绝按钮。"
         )
         query.answer.assert_awaited_once_with("请发送拒绝原因")
 
@@ -674,6 +674,7 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
         message = _StubMessage(chat_id=2002, user_id=1001, text="  资源重复  ", bot=bot)
         update = _StubUpdate(message=message)
         popped_payload = {
+            "id": "pending_123",
             "subscriptionId": "sub_123",
             "messageId": 77,
             "chatId": 2002,
@@ -690,19 +691,19 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 telegram_handler.api_client,
-                "pop_pending_reject",
+                "peek_pending_reject",
                 AsyncMock(return_value=popped_payload),
             ) as pop_mock,
             patch.object(
                 telegram_handler.api_client,
-                "reject_subscription",
-                AsyncMock(return_value={"ok": True}),
+                "complete_pending_reject",
+                AsyncMock(return_value={"status": "REJECTED", "changed": True, "rejectReason": "资源重复"}),
             ) as reject_mock,
         ):
             await telegram_handler.handle_pending_reject_reason(update, None)
 
         pop_mock.assert_awaited_once_with(2002, "1001")
-        reject_mock.assert_awaited_once_with("sub_123", "资源重复")
+        reject_mock.assert_awaited_once_with("pending_123", 2002, "1001", "资源重复")
         message.reply_text.assert_awaited_once_with("已提交拒绝原因并完成拒绝。")
         bot.edit_message_text.assert_awaited_once_with(
             chat_id=2002,
@@ -724,12 +725,12 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 telegram_handler.api_client,
-                "pop_pending_reject",
+                "peek_pending_reject",
                 AsyncMock(return_value=None),
             ) as pop_mock,
             patch.object(
                 telegram_handler.api_client,
-                "reject_subscription",
+                "complete_pending_reject",
                 AsyncMock(),
             ) as reject_mock,
         ):
@@ -737,6 +738,118 @@ class TelegramHandlerTestCase(unittest.IsolatedAsyncioTestCase):
 
         pop_mock.assert_awaited_once_with(2002, "1001")
         reject_mock.assert_not_awaited()
+
+    async def test_pending_reject_failure_can_retry_with_same_context(self) -> None:
+        message = _StubMessage(chat_id=2002, user_id=1001, text="原因")
+        update = _StubUpdate(message=message)
+        record = {"id": "pending_1", "subscriptionId": "sub_1"}
+        with (
+            patch.object(bot_admin.runtime_settings_service, "get_approval_admin_ids", AsyncMock(return_value=(1001,))),
+            patch.object(telegram_handler.api_client, "peek_pending_reject", AsyncMock(return_value=record)) as peek,
+            patch.object(telegram_handler.api_client, "complete_pending_reject", AsyncMock(side_effect=[
+                None, {"status": "REJECTED", "changed": False, "rejectReason": "原因"},
+            ])) as complete,
+            patch.object(telegram_handler.api_client, "pop_pending_reject", AsyncMock()) as destructive_pop,
+        ):
+            await telegram_handler.handle_pending_reject_reason(update, None)
+            await telegram_handler.handle_pending_reject_reason(update, None)
+        self.assertEqual(peek.await_count, 2)
+        self.assertEqual(complete.await_count, 2)
+        self.assertEqual(complete.await_args_list[0], complete.await_args_list[1])
+        destructive_pop.assert_not_awaited()
+        self.assertEqual(message.reply_text.await_args_list[0].args, ("提交拒绝原因失败，请重试。",))
+        self.assertEqual(message.reply_text.await_args_list[1].args, ("该订阅已被拒绝，已保留原审批结果。",))
+
+    async def test_pending_reject_replay_uses_saved_reason_for_caption(self) -> None:
+        bot = _StubBot()
+        message = _StubMessage(chat_id=2002, user_id=1001, text="新的原因", bot=bot)
+        record = {"id": "pending_1", "subscriptionId": "sub_1", "messageId": 77,
+                  "chatId": 2002, "hasPhoto": True, "originalText": "原消息"}
+        with (
+            patch.object(bot_admin.runtime_settings_service, "get_approval_admin_ids", AsyncMock(return_value=(1001,))),
+            patch.object(telegram_handler.api_client, "peek_pending_reject", AsyncMock(return_value=record)),
+            patch.object(telegram_handler.api_client, "complete_pending_reject", AsyncMock(return_value={
+                "status": "REJECTED", "changed": False, "rejectReason": "原审批原因",
+            })),
+        ):
+            await telegram_handler.handle_pending_reject_reason(_StubUpdate(message=message), None)
+        bot.edit_message_caption.assert_awaited_once_with(
+            chat_id=2002, message_id=77,
+            caption=format_result_message("原消息", "reject", "原审批原因"), parse_mode="HTML",
+        )
+
+    async def test_pending_reject_approved_result_does_not_edit_as_rejected(self) -> None:
+        bot = _StubBot()
+        message = _StubMessage(chat_id=2002, user_id=1001, text="原因", bot=bot)
+        with (
+            patch.object(bot_admin.runtime_settings_service, "get_approval_admin_ids", AsyncMock(return_value=(1001,))),
+            patch.object(telegram_handler.api_client, "peek_pending_reject", AsyncMock(return_value={
+                "id": "pending_1", "subscriptionId": "sub_1", "messageId": 77,
+            })),
+            patch.object(telegram_handler.api_client, "complete_pending_reject", AsyncMock(return_value={
+                "status": "APPROVED", "changed": False,
+            })),
+        ):
+            await telegram_handler.handle_pending_reject_reason(_StubUpdate(message=message), None)
+        message.reply_text.assert_awaited_once_with("该订阅已通过审核，未执行拒绝。")
+        bot.edit_message_text.assert_not_awaited()
+        bot.edit_message_caption.assert_not_awaited()
+
+    async def test_pending_reject_read_failure_is_visible_and_does_not_submit(self) -> None:
+        message = _StubMessage(chat_id=2002, user_id=1001, text="原因")
+        message.reply_to_message = types.SimpleNamespace(
+            from_user=types.SimpleNamespace(id=message.get_bot().id),
+            text="请输入最近一次点击“拒绝”的原因，5 分钟内有效。处理其他订阅请重新点击对应的拒绝按钮。",
+        )
+        with (
+            patch.object(bot_admin.runtime_settings_service, "get_approval_admin_ids", AsyncMock(return_value=(1001,))),
+            patch.object(telegram_handler.api_client, "peek_pending_reject", AsyncMock(return_value={"error": "unavailable"})),
+            patch.object(telegram_handler.api_client, "complete_pending_reject", AsyncMock()) as complete,
+        ):
+            await telegram_handler.handle_pending_reject_reason(_StubUpdate(message=message), None)
+        complete.assert_not_awaited()
+        message.reply_text.assert_awaited_once_with("读取审批上下文失败，请重试。")
+
+    async def test_pending_reject_read_failure_does_not_reply_to_ordinary_chat(self) -> None:
+        message = _StubMessage(chat_id=2002, user_id=1001, text="普通聊天")
+        with (
+            patch.object(bot_admin.runtime_settings_service, "get_approval_admin_ids", AsyncMock(return_value=(1001,))),
+            patch.object(telegram_handler.api_client, "peek_pending_reject", AsyncMock(return_value={"error": "unavailable"})),
+        ):
+            await telegram_handler.handle_pending_reject_reason(_StubUpdate(message=message), None)
+        message.reply_text.assert_not_awaited()
+
+    async def test_search_photo_failure_rebuilds_text_with_text_budget(self) -> None:
+        from app.formatters.message_formatter import _html_text_length
+
+        message = _StubMessage(chat_id=2001, user_id=1001)
+        message.reply_photo = AsyncMock(side_effect=RuntimeError("fake photo failure"))
+        message.reply_text.return_value = types.SimpleNamespace(chat_id=2001, message_id=3001)
+        results = [{"id": i + 1, "title": "标题<&" * 100, "originalTitle": "original" * 80,
+                    "mediaType": "movie", "posterPath": "/fake.jpg"} for i in range(8)]
+        with patch.object(telegram_handler.api_client, "search_tmdb", AsyncMock(return_value={"data": results})):
+            await telegram_handler._do_search(message, 1001, "搜索" * 100, "multi")
+        caption = message.reply_photo.await_args.kwargs["caption"]
+        text = message.reply_text.await_args.kwargs["text"]
+        self.assertLessEqual(_html_text_length(caption), 1024)
+        self.assertLessEqual(_html_text_length(text), 4096)
+        self.assertGreater(_html_text_length(text), _html_text_length(caption))
+        self.assertIn("<b>8.</b>", caption)
+        self.assertIn("<b>8.</b>", text)
+
+    async def test_search_edit_bounds_final_caption_after_prefix_is_added(self) -> None:
+        from app.formatters.message_formatter import _html_text_length
+
+        bot = _StubBot()
+        bot.edit_message_media = AsyncMock()
+        await telegram_handler._edit_search_message(
+            bot=bot, chat_id=2001, message_id=3001, prefer_media=True,
+            poster_url="https://example.test/fake.jpg", caption="暂无海报\n<b>" + "字" * 1024 + "</b>",
+            reply_markup=None,
+        )
+        media = bot.edit_message_media.await_args.kwargs["media"]
+        self.assertLessEqual(_html_text_length(media.caption), 1024)
+        self.assertTrue(media.caption.endswith("</b>"))
 
     async def test_handle_libraries_renders_private_settings(self) -> None:
         message = _StubMessage(chat_id=1001, user_id=1001, text="/libraries")

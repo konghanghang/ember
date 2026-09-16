@@ -295,7 +295,7 @@
 
 **约束**：
 - `uq_emby_policy_sync_tasks_user_active` 是 partial unique index：`UNIQUE (user_id) WHERE status IN ('pending', 'processing')`
-- 当前第一阶段模板保存后会创建批次 / 任务并同步执行；完整后台 worker、历史 preview/apply 接管仍按计划后续收口
+- 现有 worker 领取 pending 任务并回收超时 processing；单用户 failed 供后台手动重试。完整 Policy 执行通过用户级 advisory lock 串行并在获锁后重读当前权益，继续使用本表原有字段，不新增同步 revision。worker 取消时用独立短窗口记录失败，未收尾的 processing 仍走既有回收逻辑
 
 ### 2.9 Payment（支付记录）
 

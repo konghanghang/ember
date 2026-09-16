@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timezone
-from html import escape
+from html import escape, unescape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,6 +11,8 @@ _SUBSCRIPTION_NAME_LIMIT = 160
 _SUBSCRIPTION_NOTE_LIMIT = 500
 _RESULT_REASON_LIMIT = 500
 _SEARCH_OVERVIEW_LIMIT = 300
+_SEARCH_QUERY_LIMIT_CAPTION = 80
+_SEARCH_QUERY_LIMIT_TEXT = 160
 _TEXT_TRUNCATION_SUFFIX = "..."
 _DEFAULT_DISPLAY_TIMEZONE = "Asia/Shanghai"
 
@@ -41,9 +43,117 @@ def _truncate_text(value: str, limit: int) -> str:
     return value[: limit - len(_TEXT_TRUNCATION_SUFFIX)] + _TEXT_TRUNCATION_SUFFIX
 
 
-def _clamp_telegram_text(value: str, *, is_caption: bool = False) -> str:
+def _escape_truncated_text(value: str, limit: int) -> str:
+    """按解析后文本预算裁剪字段，再转义成 Telegram HTML。"""
+    if limit <= 0:
+        return ""
+    if len(value) <= limit:
+        return escape(value)
+    if limit <= len(_TEXT_TRUNCATION_SUFFIX):
+        return escape(_TEXT_TRUNCATION_SUFFIX[:limit])
+    return escape(value[: limit - len(_TEXT_TRUNCATION_SUFFIX)] + _TEXT_TRUNCATION_SUFFIX)
+
+
+def _html_text_length(value: str) -> int:
+    """计算 Telegram HTML 解析后的可见文本长度，用于 Bot API 长度预算。"""
+    length = 0
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char == "<":
+            end = value.find(">", index + 1)
+            if end == -1:
+                length += 1
+                index += 1
+            else:
+                index = end + 1
+            continue
+        if char == "&":
+            end = value.find(";", index + 1)
+            if end != -1:
+                length += len(unescape(value[index : end + 1]))
+                index = end + 1
+            else:
+                length += 1
+                index += 1
+            continue
+        length += 1
+        index += 1
+    return length
+
+
+def _clamp_html_to_text_budget(value: str, limit: int) -> str:
+    """按 Telegram 解析后文本预算裁剪 HTML，保留合法标签和完整实体。"""
+    if limit <= 0:
+        return ""
+    if _html_text_length(value) <= limit:
+        return value
+    if limit <= len(_TEXT_TRUNCATION_SUFFIX):
+        return _TEXT_TRUNCATION_SUFFIX[:limit]
+
+    suffix = _TEXT_TRUNCATION_SUFFIX
+    text_budget = limit - len(suffix)
+    stack: list[str] = []
+    result: list[str] = []
+    visible_length = 0
+    index = 0
+
+    while index < len(value) and visible_length < text_budget:
+        char = value[index]
+        if char == "<":
+            end = value.find(">", index + 1)
+            if end == -1:
+                break
+            token = value[index : end + 1]
+            lower = token.lower()
+            if lower.startswith("</"):
+                tag = lower[2:-1].strip().split()[0] if lower[2:-1].strip() else ""
+                result.append(token)
+                if stack and stack[-1] == tag:
+                    stack.pop()
+            else:
+                tag = lower[1:-1].strip().split()[0].rstrip("/") if lower[1:-1].strip() else ""
+                result.append(token)
+                if tag and not lower.endswith("/>"):
+                    stack.append(tag)
+            index = end + 1
+            continue
+
+        if char == "&":
+            end = value.find(";", index + 1)
+            token = value[index : end + 1] if end != -1 else char
+            token_visible_length = len(unescape(token)) if end != -1 else 1
+            next_index = end + 1 if end != -1 else index + 1
+        else:
+            token = char
+            token_visible_length = 1
+            next_index = index + 1
+
+        if visible_length + token_visible_length > text_budget:
+            break
+        result.append(token)
+        visible_length += token_visible_length
+        index = next_index
+
+    result.append(suffix)
+    result.extend(f"</{tag}>" for tag in reversed(stack))
+    return "".join(result)
+
+
+def clamp_telegram_html(value: str, *, is_caption: bool = False) -> str:
+    """按 Telegram text/caption 解析后文本预算裁剪，并保持 HTML 结构完整。"""
     limit = TELEGRAM_CAPTION_LIMIT if is_caption else TELEGRAM_TEXT_LIMIT
-    return _truncate_text(value, limit)
+    return _clamp_html_to_text_budget(value, limit)
+
+
+def _format_result_with_budget(original_text: str, result: str, *, is_caption: bool) -> str:
+    """保留审批终态文本，必要时只压缩前面的原审批消息。"""
+    limit = TELEGRAM_CAPTION_LIMIT if is_caption else TELEGRAM_TEXT_LIMIT
+    separator = "\n\n────────────────────\n"
+    result_text = _clamp_html_to_text_budget(result, max(0, limit - _html_text_length(separator)))
+    original_limit = max(0, limit - _html_text_length(separator) - _html_text_length(result_text))
+    original = _clamp_html_to_text_budget(original_text.strip(), original_limit)
+    return f"{original}{separator}{result_text}" if original else result_text
 
 
 def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
@@ -82,7 +192,7 @@ def format_subscription_message(data: dict) -> tuple[str, InlineKeyboardMarkup]:
         ]
     )
 
-    return _clamp_telegram_text("\n".join(lines), is_caption=True), keyboard
+    return clamp_telegram_html("\n".join(lines), is_caption=True), keyboard
 
 
 def format_auto_approved_subscription_message(data: dict) -> str:
@@ -123,7 +233,7 @@ def format_auto_approved_subscription_message(data: dict) -> str:
     if note != "":
         lines.append(f"💬 备注：{escape(note)}")
 
-    return _clamp_telegram_text("\n".join(lines), is_caption=True)
+    return clamp_telegram_html("\n".join(lines), is_caption=True)
 
 
 def format_registration_message(data: dict) -> str:
@@ -142,7 +252,7 @@ def format_registration_message(data: dict) -> str:
         f"🛂 注册方式：{mode}",
         f"⏳ 到期时间：{expires_at}",
     ]
-    return _clamp_telegram_text("\n".join(lines))
+    return clamp_telegram_html("\n".join(lines))
 
 
 def _format_currency(amount: int, currency: str) -> str:
@@ -218,15 +328,15 @@ def format_payment_message(data: dict) -> str:
         f"🧾 支付记录：<code>{payment_id}</code>",
     ]
 
-    return _clamp_telegram_text("\n".join(lines))
+    return clamp_telegram_html("\n".join(lines))
 
 
 def format_result_message(original_text: str, action: str, reason: str | None = None) -> str:
     result = "✅ 已通过" if action == "approve" else "❌ 已拒绝"
-    text = original_text.strip()
     if action == "reject" and reason:
-        result = f"{result}\n📝 原因：{escape(_truncate_text(reason.strip(), _RESULT_REASON_LIMIT))}"
-    return _clamp_telegram_text(f"{text}\n\n────────────────────\n{result}", is_caption=True)
+        reason_budget = max(0, TELEGRAM_CAPTION_LIMIT - len(result) - len("\n📝 原因："))
+        result = f"{result}\n📝 原因：{_escape_truncated_text(reason.strip(), min(_RESULT_REASON_LIMIT, reason_budget))}"
+    return _format_result_with_budget(original_text, result, is_caption=True)
 
 
 def format_subscription_result_message(data: dict) -> str:
@@ -235,7 +345,7 @@ def format_subscription_result_message(data: dict) -> str:
     name = escape(_truncate_text(str(data.get("name", "") or "-"), _SUBSCRIPTION_NAME_LIMIT))
     tmdb_id = escape(str(data.get("tmdbId", "") or "-"))
     season = int(data.get("season", 0) or 0)
-    reject_reason = escape(str(data.get("rejectReason", "") or "").strip())
+    reject_reason = str(data.get("rejectReason", "") or "").strip()
     reviewed_at = _format_expiry(data.get("reviewedAt"))
     ingested_at = _format_expiry(data.get("ingestedAt"))
 
@@ -268,16 +378,19 @@ def format_subscription_result_message(data: dict) -> str:
     if status in ("APPROVED", "REJECTED") and reviewed_at != "永不过期":
         lines.append(f"🕒 审核时间：{reviewed_at}")
     if status == "REJECTED" and reject_reason:
-        lines.append(f"📝 拒绝原因：{_truncate_text(reject_reason, _RESULT_REASON_LIMIT)}")
+        prefix = "📝 拒绝原因："
+        base_text = "\n".join(lines + [prefix])
+        reason_budget = max(0, TELEGRAM_CAPTION_LIMIT - _html_text_length(base_text))
+        lines.append(f"{prefix}{_escape_truncated_text(reject_reason, min(_RESULT_REASON_LIMIT, reason_budget))}")
     if status == "INGESTED" and ingested_at != "永不过期":
         lines.append(f"📥 入库时间：{ingested_at}")
 
-    return _clamp_telegram_text("\n".join(lines), is_caption=True)
+    return clamp_telegram_html("\n".join(lines), is_caption=True)
 
 
 def format_bind_success(data: dict) -> str:
     username = escape(str(data.get("username", "") or ""))
-    return _clamp_telegram_text(
+    return clamp_telegram_html(
         (
         "✅ <b>绑定成功</b>\n\n"
         f"👤 已绑定账号：<b>{username}</b>"
@@ -318,7 +431,7 @@ def format_account_info(data: dict) -> str:
         lines.append("")
         lines.append("💡 使用 /redeem <code>兑换码</code> 续期")
 
-    return _clamp_telegram_text("\n".join(lines))
+    return clamp_telegram_html("\n".join(lines))
 
 
 def format_redeem_success(data: dict) -> str:
@@ -326,7 +439,7 @@ def format_redeem_success(data: dict) -> str:
     expires_at = str(data.get("expiresAt", "") or "")
     expires_display = _format_expiry(expires_at, date_only=True) if expires_at else "-"
 
-    return _clamp_telegram_text(
+    return clamp_telegram_html(
         (
         "🎉 <b>兑换成功</b>\n\n"
         f"📅 续期天数：<b>{days}</b> 天\n"
@@ -404,22 +517,32 @@ def format_ranking_message(data: dict) -> str:
     if not movies and not episodes:
         lines.append("📭 暂无播放数据")
 
-    return _clamp_telegram_text("\n".join(lines))
+    return clamp_telegram_html("\n".join(lines))
 
 
 def format_search_results(
     results: list[dict],
     query: str,
+    *,
+    is_caption: bool = True,
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """格式化搜索结果列表（混合展示电影和电视剧）"""
+    """格式化搜索结果列表，并按目标载荷类型控制字段预算。"""
+    limit = TELEGRAM_CAPTION_LIMIT if is_caption else TELEGRAM_TEXT_LIMIT
+    query_limit = _SEARCH_QUERY_LIMIT_CAPTION if is_caption else _SEARCH_QUERY_LIMIT_TEXT
 
     lines = [
-        f"🔍 搜索 <b>{escape(query)}</b> 的结果：",
+        f"🔍 搜索 <b>{_escape_truncated_text(query, query_limit)}</b> 的结果：",
         "",
     ]
+    row_count = max(len(results), 1)
+    header_budget = _html_text_length("\n".join(lines))
+    row_budget = max(24, (limit - header_budget) // row_count)
+    title_budget = max(8, min(56 if is_caption else 120, row_budget - 20))
+    original_budget = max(0, min(32 if is_caption else 80, row_budget - title_budget - 18))
 
     for i, item in enumerate(results):
-        title = escape(str(item.get("title", "")))
+        raw_title = str(item.get("title", ""))
+        title = _escape_truncated_text(raw_title, title_budget)
         original_title = str(item.get("originalTitle", "") or "")
         tmdb_id = item.get("id", "")
         release_date = str(item.get("releaseDate", "") or "")
@@ -438,8 +561,8 @@ def format_search_results(
         if year:
             line += f" ({year})"
         line += f" {type_emoji} {type_label}"
-        if original_title and original_title != str(item.get("title", "")):
-            line += f" - {escape(original_title)}"
+        if original_budget > 0 and original_title and original_title != raw_title:
+            line += f" - {_escape_truncated_text(original_title, original_budget)}"
         lines.append(line)
 
     buttons: list[list[InlineKeyboardButton]] = []
@@ -452,12 +575,13 @@ def format_search_results(
     if row:
         buttons.append(row)
 
-    return "\n".join(lines), InlineKeyboardMarkup(buttons)
+    return clamp_telegram_html("\n".join(lines), is_caption=is_caption), InlineKeyboardMarkup(buttons)
 
 
 def format_search_detail(item: dict, selected_season: int | None = None) -> str:
     """格式化选中结果的详情"""
-    title = escape(str(item.get("title", "")))
+    raw_title = str(item.get("title", ""))
+    title = _escape_truncated_text(raw_title, _SUBSCRIPTION_NAME_LIMIT)
     original_title = str(item.get("originalTitle", "") or "")
     tmdb_id = item.get("id", "")
     release_date = str(item.get("releaseDate", "") or "")
@@ -478,8 +602,8 @@ def format_search_detail(item: dict, selected_season: int | None = None) -> str:
         overview = _truncate_text(overview, _SEARCH_OVERVIEW_LIMIT)
 
     lines = [f"📌 <b>{title}</b>"]
-    if original_title and original_title != str(item.get("title", "")):
-        lines.append(f"   {escape(original_title)}")
+    if original_title and original_title != raw_title:
+        lines.append(f"   {_escape_truncated_text(original_title, _SUBSCRIPTION_NAME_LIMIT)}")
     lines.append(f"🎭 类型：{type_label}")
     if year:
         lines.append(f"📅 年份：{year}")
@@ -492,7 +616,7 @@ def format_search_detail(item: dict, selected_season: int | None = None) -> str:
         lines.append("")
         lines.append(escape(overview))
 
-    return _clamp_telegram_text("\n".join(lines), is_caption=True)
+    return clamp_telegram_html("\n".join(lines), is_caption=True)
 
 
 def make_movie_detail_keyboard() -> InlineKeyboardMarkup:

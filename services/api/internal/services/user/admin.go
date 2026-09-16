@@ -391,21 +391,14 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 	return s.GetUserByID(userID)
 }
 
+// ExtendExpiry 为管理员手动续期用户，生产路径在事务内锁定用户行后按最新到期日累加。
 func (s *UserService) ExtendExpiry(userID string, days int) (*UserView, error) {
-	user, err := s.findUserByID(userID)
-	if err != nil {
-		return nil, normalizeUserLookupError(err)
+	store := s.extendExpiryStore
+	if store == nil {
+		store = s.extendExpiryWithDB
 	}
-
-	now := time.Now().UTC()
-	newExpiry := calculateExtendedExpiry(now, user.ExpiresAt, days)
-
-	user.ExpiresAt = &newExpiry
-	if err := db.DB.Model(&models.User{}).
-		Where("id = ?", user.ID).
-		Updates(map[string]interface{}{
-			"expires_at": user.ExpiresAt,
-		}).Error; err != nil {
+	user, err := store(userID, days)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.syncEmbyPolicy(user, "user_expiry_extended"); err != nil {
@@ -413,6 +406,47 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*UserView, error) {
 	}
 
 	return s.GetUserByID(userID)
+}
+
+// extendExpiryWithDB 在事务中锁定用户行、基于最新到期日累加有效期并持久化结果。
+func (s *UserService) extendExpiryWithDB(userID string, days int) (*models.User, error) {
+	tx := db.DB.Begin()
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+
+	user, err := lockUserForExpiryExtension(tx, userID)
+	if err != nil {
+		tx.Rollback()
+		return nil, normalizeUserLookupError(err)
+	}
+
+	now := time.Now().UTC()
+	newExpiry := calculateExtendedExpiry(now, user.ExpiresAt, days)
+
+	user.ExpiresAt = &newExpiry
+	if err := tx.Model(&models.User{}).
+		Where("id = ?", user.ID).
+		Updates(map[string]interface{}{
+			"expires_at": user.ExpiresAt,
+		}).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+	log.Printf("[User] 管理员续期已提交: userID=%s days=%d newExpiresAt=%s", user.ID, days, newExpiry.Format(time.RFC3339))
+	return user, nil
+}
+
+// lockUserForExpiryExtension 读取并锁定管理员续期目标用户，保证累加基准来自已提交的最新到期日。
+func lockUserForExpiryExtension(tx *gorm.DB, userID string) (*models.User, error) {
+	var user models.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // calculateExtendedExpiry 计算管理员手动续期后的用户到期日；有效账号从原到期日累加，空或已过期账号从当前时间起算。

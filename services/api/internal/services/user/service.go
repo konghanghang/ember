@@ -47,6 +47,7 @@ type UserServiceDeps struct {
 	SaveUser                  func(user *models.User) error
 	DeleteUserRecord          func(user *models.User) error
 	UpdateUserActive          func(userID string, isActive bool) error
+	ExtendExpiryStore         func(userID string, days int) (*models.User, error)
 	GetUserViewByID           func(userID string) (*UserView, error)
 	UpdateEmailWithCode       func(userID, newEmail, code string) error
 	Compensation              *accountpkg.EmbyCompensation
@@ -69,6 +70,7 @@ type UserService struct {
 	saveUser                  func(user *models.User) error
 	deleteUserRecord          func(user *models.User) error
 	updateUserActive          func(userID string, isActive bool) error
+	extendExpiryStore         func(userID string, days int) (*models.User, error)
 	getUserViewByID           func(userID string) (*UserView, error)
 	updateEmailWithCode       func(userID, newEmail, code string) error
 	compensation              *accountpkg.EmbyCompensation
@@ -99,6 +101,7 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 		saveUser:                  deps.SaveUser,
 		deleteUserRecord:          deps.DeleteUserRecord,
 		updateUserActive:          deps.UpdateUserActive,
+		extendExpiryStore:         deps.ExtendExpiryStore,
 		getUserViewByID:           deps.GetUserViewByID,
 		updateEmailWithCode:       deps.UpdateEmailWithCode,
 		compensation:              deps.Compensation,
