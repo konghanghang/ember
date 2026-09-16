@@ -1,13 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import type { RouteLocationNormalized, Router, RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/store/auth'
 import { useUserStore } from '@/store/user'
+import { resetAllStores } from '@/store/reset'
 
 const adminRouteMeta = { role: 'admin' } as const
 
-const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [
+export const routes: RouteRecordRaw[] = [
     {
       path: '/',
       name: 'home',
@@ -256,53 +256,100 @@ const router = createRouter({
       name: 'not-found',
       component: () => import('../views/NotFoundView.vue'),
     },
-  ],
-})
+]
 
-// Navigation Guard
-router.beforeEach(async (to, _from, next) => {
-  const authStore = useAuthStore()
-  const userStore = useUserStore()
-  authStore.restoreAuth()
-  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth === true)
-  const requiredRole = to.matched.find((record) => typeof record.meta.role === 'string')?.meta.role
+/**
+ * 判断 profile 加载失败是否代表认证失效。
+ *
+ * 生产环境 request.ts 的 401 回调会同步清场；守卫仍保留这个判断，保证 fake API
+ * 测试和直接调用 userStore.fetchProfile 的路径也不会把 401 当成可恢复故障。
+ */
+function isProfileAuthFailure(error: unknown) {
+  return typeof error === 'object'
+    && error !== null
+    && 'response' in error
+    && (error as { response?: { status?: number } }).response?.status === 401
+}
 
-  if (to.name === 'login' && authStore.isAuthenticated) {
-    next({ name: authStore.passwordResetRequired ? 'console-account' : 'console-dashboard' })
-    return
-  }
+/**
+ * 判断当前 URL 是否请求登录页恢复展示。
+ *
+ * `recovery=profile` 只是 UI 展示开关，不是“已验证 profile 失败”的鉴权事实；
+ * 已有 profile 的会话会继续走普通已登录跳转，避免伪造 query 后误报服务器故障。
+ */
+function isLoginRecoveryRoute(to: Pick<RouteLocationNormalized, 'name' | 'query'>) {
+  return to.name === 'login' && to.query.recovery === 'profile'
+}
 
-  if (requiresAuth) {
-    if (!authStore.isAuthenticated) {
-      next({ name: 'login', query: { redirect: to.fullPath } })
+/**
+ * 安装认证导航守卫。
+ *
+ * 生产路由和测试路由共用同一套守卫，测试可以用 memory history 复现真实导航。
+ * `/profile` 的 401 会清理身份；网络错误和 5xx 保留 token，进入登录页恢复态并等待重试。
+ */
+export function installAuthGuards(targetRouter: Router) {
+  targetRouter.beforeEach(async (to, _from, next) => {
+    const authStore = useAuthStore()
+    const userStore = useUserStore()
+    authStore.restoreAuth()
+    const requiresAuth = to.matched.some((record) => record.meta.requiresAuth === true)
+    const requiredRole = to.matched.find((record) => typeof record.meta.role === 'string')?.meta.role
+
+    if (isLoginRecoveryRoute(to) && authStore.isAuthenticated && !userStore.profile) {
+      next()
       return
     }
 
-    if (!userStore.profile) {
-      try {
-        await userStore.fetchProfile()
-      } catch {
+    if (to.name === 'login' && authStore.isAuthenticated) {
+      next({ name: authStore.passwordResetRequired ? 'console-account' : 'console-dashboard' })
+      return
+    }
+
+    if (requiresAuth) {
+      if (!authStore.isAuthenticated) {
         next({ name: 'login', query: { redirect: to.fullPath } })
         return
       }
-    }
-    // profile 已就位时无需额外同步：role/passwordResetRequired 已从 userStore.profile 派生。
 
-    if (requiredRole && requiredRole !== authStore.role) {
-      ElMessage.warning('当前账号无权访问该页面')
-      next({ name: 'console-dashboard' })
-      return
+      if (!userStore.profile) {
+        try {
+          await userStore.fetchProfile()
+        } catch (error) {
+          if (isProfileAuthFailure(error)) {
+            resetAllStores()
+            next({ name: 'login', query: { redirect: to.fullPath } })
+            return
+          }
+
+          next({ name: 'login', query: { redirect: to.fullPath, recovery: 'profile' } })
+          return
+        }
+      }
+      // profile 已就位时无需额外同步：role/passwordResetRequired 已从 userStore.profile 派生。
+
+      if (requiredRole && requiredRole !== authStore.role) {
+        ElMessage.warning('当前账号无权访问该页面')
+        next({ name: 'console-dashboard' })
+        return
+      }
+
+      const resetRequired = authStore.passwordResetRequired || userStore.profile?.passwordResetRequired === true
+      if (resetRequired && to.name !== 'console-account') {
+        ElMessage.warning('当前账号必须先修改密码')
+        next({ name: 'console-account' })
+        return
+      }
     }
 
-    const resetRequired = authStore.passwordResetRequired || userStore.profile?.passwordResetRequired === true
-    if (resetRequired && to.name !== 'console-account') {
-      ElMessage.warning('当前账号必须先修改密码')
-      next({ name: 'console-account' })
-      return
-    }
-  }
+    next()
+  })
+}
 
-  next()
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes,
 })
+
+installAuthGuards(router)
 
 export default router

@@ -932,6 +932,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - Store：基于 Pinia 维护认证态、用户态、管理员态
 - API：`request.ts` 负责 token 注入和 401 收口，各业务模块按职责拆分
 - Router：通过 `requiresAuth / role` 守卫做鉴权和 redirect 收口；刷新后先用 token 拉 `/profile`，再以服务端返回的 `role / passwordResetRequired` 判断 UI 权限
+- `/profile` 的网络/5xx 故障保留 token 与目标路由，在现有登录页展示可重试恢复态；401 清理身份。恢复标记只影响展示，重试成功后仍通过角色与强制改密守卫，不渲染未经资料确认的受保护页面
 - View：页面继续保留接口调用、路由状态、筛选参数和弹窗编排
 - Shared Components：`components/ember/` 承载稳定 UI 契约，不侵入业务
 - Build Metadata：`components/common/ProjectSourceLink.vue` 读取 Vite 构建期注入的 GitHub 仓库与 commit SHA，在首页导航和控制台侧边栏展示源码入口；控制台保留低干扰当前构建短 hash

@@ -74,6 +74,7 @@
 ### 2.2 API 层
 
 - `api/request.ts` — 基础配置：baseURL=/api/v1, Bearer token 自动注入；普通接口 401 单例化收口为“清本地登录态 + 跳 `/login?redirect=`”；`/login` 和 `/logout` 走专门分支，不混入“登录过期”逻辑
+- 受保护路由首次加载 profile 遇到网络/5xx 时进入现有登录页的 `recovery=profile` 展示态，保留 token 和合法 redirect；重试成功后重新走角色/强制改密守卫，401 则清理身份。恢复态复用 `EmberEmptyStateCard` 和单一请求错误提示，不新增页面；已有 profile 的会话不能被伪造 recovery query 强制显示故障
 - `api/auth.ts` — login, getLoginProtectionConfig, register, getRegistrationMode, sendEmailCode, sendResetCode, resetPasswordByCode
 - `api/user.ts` — redeem, redemptions, tmdb
 - `api/admin.ts` — 管理后台全部接口（users, codes, settings, subscriptions, plans, payments, sessions, devices, rankings, p115-accounts）
