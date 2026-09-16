@@ -53,6 +53,7 @@
 - [API 端点目录](./api-endpoint-catalog.md) - HTTP / Internal API 路由分组与用途总表
 - [Emby 4.9.3.0 与 Playback Reporting API 合同](./playback-reporting-api-contract.md) - 播放排行榜依赖的 Emby / Playback Reporting 接口、字段、时间语义、兼容边界与固定版本出处
 - [Emby 4.9 系列播放代理 API 合同](./emby-playback-proxy-contract.md) - 播放网关依赖的认证、PlaybackInfo、视频流、字幕、会话事件与身份边界
+- [Emby 4.9.3.0 用户与条目路由合同补充](./emby-user-policy-and-item-route-contract.md) - 用户 Policy、密码接口与 Latest/Resume/Root 静态路由的固定版本边界
 - [Emby Gateway 客户端兼容矩阵](./emby-client-compatibility-matrix.md) - 多客户端 Token 载体、路径/query 大小写、响应保持、UA 观察与实机证据边界
 - [115 Cookie 直连播放端到端流程参考](./p115-playback-end-to-end-flow.md) - 管理员账号、Token/PlaybackInfo、秒传、302/fallback/reject、数据边界、验证证据和已知问题的完整链路图
 - [115 Cookie 播放兼容合同](./p115-cookie-playback-contract.md) - 尚无 OpenAPI AppID 时，Cookie Provider 的账号角色、查重、秒传加密、直链约束与验证边界
