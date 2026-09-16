@@ -97,6 +97,44 @@ class ApiClientRetryTestCase(unittest.IsolatedAsyncioTestCase):
             {"chatId": 2002, "adminUserId": "1001"},
         )
 
+    async def test_peek_pending_reject_distinguishes_absence_and_failure(self) -> None:
+        for response, expected in [
+            (httpx.Response(404, json={"error": "missing"}), None),
+            (None, 503),
+            (httpx.Response(503, json={"error": "unavailable"}), 503),
+            (httpx.Response(200, json=[]), 502),
+        ]:
+            with self.subTest(expected=expected), patch.object(api_client, "_request", AsyncMock(return_value=(response, 1.0))):
+                result = await api_client.peek_pending_reject(2002, "1001")
+            if expected is None:
+                self.assertIsNone(result)
+            else:
+                self.assertEqual(result["status"], expected)
+
+    async def test_complete_pending_reject_posts_stable_context_identity(self) -> None:
+        expected = {"status": "REJECTED", "changed": False, "rejectReason": "原原因"}
+        response = httpx.Response(200, json=expected)
+        with patch.object(api_client, "_request", AsyncMock(return_value=(response, 1.0))) as request:
+            result = await api_client.complete_pending_reject("pending_1", 2002, "1001", "新原因")
+        self.assertEqual(result, expected)
+        self.assertTrue(request.await_args.args[2].endswith("/telegram/reject-request/complete"))
+        self.assertEqual(request.await_args.kwargs["json"], {
+            "pendingRequestId": "pending_1", "chatId": 2002, "adminUserId": "1001", "reason": "新原因",
+        })
+        self.assertNotIn("reason", request.await_args.kwargs["log_fields"])
+
+    async def test_complete_pending_reject_preserves_retryable_and_expired_errors(self) -> None:
+        for response, expected in [
+            (None, None), (httpx.Response(404, json={"error": "上下文已过期"}), 404),
+            (httpx.Response(503, json={"error": "unavailable"}), 503),
+        ]:
+            with self.subTest(expected=expected), patch.object(api_client, "_request", AsyncMock(return_value=(response, 1.0))):
+                result = await api_client.complete_pending_reject("pending_1", 2002, "1001", "原因")
+            if expected is None:
+                self.assertIsNone(result)
+            else:
+                self.assertEqual(result["status"], expected)
+
     async def test_get_media_library_settings_posts_telegram_id(self) -> None:
         request = httpx.Request("POST", "https://example.com")
         response = httpx.Response(200, request=request, json={"data": {"enabledCount": 1}})

@@ -320,6 +320,56 @@ func TestTelegramHandlerPopPendingRejectPassesAdminUserID(t *testing.T) {
 	}
 }
 
+func TestTelegramHandlerPeekPendingRejectPassesAdminUserID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalPeekPendingReject := peekPendingReject
+	t.Cleanup(func() {
+		peekPendingReject = originalPeekPendingReject
+	})
+
+	peekPendingReject = func(ctx context.Context, chatID int64, adminUserID string) (*models.BotPendingRejectRequest, error) {
+		_ = ctx
+		if chatID != 2002 || adminUserID != "1001" {
+			t.Fatalf("unexpected peek args: chatID=%d adminUserID=%s", chatID, adminUserID)
+		}
+		messageID := int64(77)
+		return &models.BotPendingRejectRequest{
+			ID:             "pending_1",
+			ChatID:         chatID,
+			AdminUserID:    adminUserID,
+			SubscriptionID: "sub_123",
+			MessageID:      &messageID,
+			HasPhoto:       true,
+			OriginalText:   "<b>原始审批消息</b>",
+			ExpiresAt:      time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC),
+		}, nil
+	}
+
+	body := []byte(`{"chatId":2002,"adminUserId":"1001"}`)
+	ctx, recorder := newTestTelegramContext(http.MethodPost, "/api/v1/internal/telegram/reject-request/peek", body)
+
+	handler := &TelegramHandler{}
+	handler.PeekPendingReject(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+
+	var resp struct {
+		ID             string `json:"id"`
+		AdminUserID    string `json:"adminUserId"`
+		SubscriptionID string `json:"subscriptionId"`
+		MessageID      *int64 `json:"messageId"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.ID != "pending_1" || resp.AdminUserID != "1001" || resp.SubscriptionID != "sub_123" || resp.MessageID == nil || *resp.MessageID != 77 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
 func TestTelegramHandlerPopPendingRejectRequiresAdminUserID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

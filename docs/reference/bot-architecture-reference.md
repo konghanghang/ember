@@ -35,12 +35,20 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 
 ## 4. 命令与处理器
 
-- **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）；reject 两步确认上下文持久化在 API，第二步提交拒绝原因时按 `chatId + adminUserId` 弹出同一操作者的待确认记录
+- **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）；reject 上下文持久化在 API，Bot 先按 `chatId + adminUserId` peek 最近点击记录，再以固定记录 ID complete；两步间不删除记录，失败可重试，终态只回放不重复触发通知。普通文本只对应最近一次点击，处理其他订阅需重新点击；完成记录保留到现有五分钟 TTL，不能过滤终态后误消费旧请求
 - **NewChatMembers**：群组欢迎消息（读取 `notify_group_link` 与 `telegram_welcome_message_template` 配置）
 - **Commands**：`/search`（搜索影视并订阅；电影直接确认，电视剧先选季再确认）、`/bind`（绑定账号）、`/info`（查看账号信息）、`/redeem`（兑换续期码）、`/resetpw`（重置密码）、`/refresh_menu`（管理员强制刷新当前群菜单）
 - **群菜单策略**：仅私聊作用域写入命令菜单；default/group scope 保持为空，群聊默认不展示命令菜单，首次收到群消息时按群清理旧作用域菜单，并在当前 Bot 进程内缓存已同步群；`/refresh_menu` 强刷会额外重试清理 default / all-group 作用域
 - **Bot 管理员判定**：统一由 `app.bot_admin.is_bot_admin` 收口；订阅审批、拒绝原因提交和跨群菜单清理只认配置管理员，当前群 `/refresh_menu` 显式允许群管理员
 - **通知格式化**：`message_formatter.py` 统一格式化 Telegram 消息（HTML 模式）；`format_payment_message` 不再渲染 `email` / `stripeSessionId`，admin 通知载荷已在 API 侧脱敏（详见 `docs/system-architecture.md` §5.14）
+- **长度与重试**：HTML 标签和实体保持完整，按解析后文本长度分别限制 caption/text，审批状态优先保留；搜索文本降级重新使用 text 预算。读取审批上下文失败时，仅对明确回复本 Bot 审批提示的消息反馈错误，无法确认意图的普通聊天只记日志；已读取上下文后的提交失败明确提示重试
+
+### 拒绝审批 Internal API 升级边界
+
+- 先部署支持 `reject-request/peek`、`reject-request/complete` 的 API，再部署新 Bot；旧 `pop` 保留原语义，新 Bot 不调用它。
+- complete 通过记录 ID、chat/admin 归属及有效期校验；返回 `subscriptionId/status/changed/rejectReason`。已拒绝重试保留原原因，已通过/入库返回权威终态，只有真实变更提交后才发通知。
+- 所有旧 Bot 实例退出且不再需要回滚旧版本后，删除旧 pop 客户端和路由；该清理是部署后的明确后续项，不新增数据库结构。
+- 本轮 fake 测试证明状态转换、回滚、重放与通知触发次数；fire-and-forget 仍不保证任意崩溃下消息恰好送达一次。
 
 ## 5. 配置与运行期边界
 

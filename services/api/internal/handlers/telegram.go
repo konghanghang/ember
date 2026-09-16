@@ -31,6 +31,7 @@ type TelegramHandler struct {
 const telegramBindGenericError = "绑定失败，请重新生成验证码后再试"
 
 var popPendingReject = telegrampkg.PopPendingReject
+var peekPendingReject = telegrampkg.PeekPendingReject
 
 func NewTelegramHandler() *TelegramHandler {
 	return &TelegramHandler{
@@ -277,6 +278,36 @@ func (h *TelegramHandler) PopPendingReject(c *gin.Context) {
 	}
 
 	record, err := popPendingReject(c.Request.Context(), req.ChatID, req.AdminUserID)
+	if err != nil {
+		httpx.InternalError(c, err)
+		return
+	}
+	if record == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "无待处理的拒绝请求"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":             record.ID,
+		"chatId":         record.ChatID,
+		"adminUserId":    record.AdminUserID,
+		"subscriptionId": record.SubscriptionID,
+		"messageId":      record.MessageID,
+		"hasPhoto":       record.HasPhoto,
+		"originalText":   record.OriginalText,
+		"expiresAt":      record.ExpiresAt,
+	})
+}
+
+// PeekPendingReject Internal API: 非破坏性读取最新未过期的拒绝待确认记录
+func (h *TelegramHandler) PeekPendingReject(c *gin.Context) {
+	var req pendingRejectPopRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	record, err := peekPendingReject(c.Request.Context(), req.ChatID, req.AdminUserID)
 	if err != nil {
 		httpx.InternalError(c, err)
 		return

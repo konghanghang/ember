@@ -60,6 +60,27 @@ func PopPendingReject(ctx context.Context, chatID int64, adminUserID string) (*m
 	return &record, nil
 }
 
+// PeekPendingReject 非破坏性读取指定操作者最新未过期的拒绝待确认记录。
+func PeekPendingReject(ctx context.Context, chatID int64, adminUserID string) (*models.BotPendingRejectRequest, error) {
+	adminUserID = strings.TrimSpace(adminUserID)
+	if adminUserID == "" {
+		return nil, nil
+	}
+
+	var record models.BotPendingRejectRequest
+	err := db.DB.WithContext(ctx).
+		Where(`"chat_id" = ? AND "admin_user_id" = ? AND "expires_at" > ?`, chatID, adminUserID, time.Now().UTC()).
+		Order(`"created_at" DESC`).
+		First(&record).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &record, nil
+}
+
 // CleanupExpiredPendingRejects 清理过期的待确认拒绝记录
 func CleanupExpiredPendingRejects(ctx context.Context) (int64, error) {
 	result := db.DB.WithContext(ctx).

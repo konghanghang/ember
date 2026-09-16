@@ -17,6 +17,7 @@ from app.config import (
     TMDB_NO_POSTER_URL,
 )
 from app.formatters.message_formatter import (
+    clamp_telegram_html,
     format_account_info,
     format_auto_approved_subscription_message,
     format_bind_success,
@@ -312,6 +313,8 @@ async def _edit_search_message(
     final_failure_log: str | None = None,
     raise_on_failure: bool = False,
 ) -> bool:
+    """按实际消息类型限制最终 HTML，保留媒体失败后的文本降级。"""
+    media_caption = clamp_telegram_html(caption, is_caption=True)
     if prefer_media and poster_url:
         try:
             await bot.edit_message_media(
@@ -319,7 +322,7 @@ async def _edit_search_message(
                 message_id=message_id,
                 media=InputMediaPhoto(
                     media=poster_url,
-                    caption=caption,
+                    caption=media_caption,
                     parse_mode="HTML",
                 ),
                 reply_markup=reply_markup,
@@ -334,7 +337,7 @@ async def _edit_search_message(
             await bot.edit_message_caption(
                 chat_id=chat_id,
                 message_id=message_id,
-                caption=caption,
+                caption=media_caption,
                 parse_mode="HTML",
                 reply_markup=reply_markup,
             )
@@ -346,7 +349,7 @@ async def _edit_search_message(
         await bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text=caption,
+            text=clamp_telegram_html(caption),
             parse_mode="HTML",
             reply_markup=reply_markup,
             disable_web_page_preview=True,
@@ -754,7 +757,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         await message.reply_text(
-            "请直接回复这条消息输入拒绝原因，5 分钟内有效。\n发送的下一条普通文本会作为拒绝原因提交。"
+            "请输入最近一次点击“拒绝”的原因，5 分钟内有效。处理其他订阅请重新点击对应的拒绝按钮。"
         )
         await query.answer("请发送拒绝原因")
         return
@@ -782,6 +785,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """保留待输入上下文直到过期，按服务端最终状态安全重试并回写审批消息。"""
     del context
     message = update.message
     if message is None or message.from_user is None or message.text is None:
@@ -795,19 +799,28 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
         await message.reply_text("拒绝原因不能为空，请重新输入。")
         return
 
-    # 从 API 弹出待确认记录，取 subscriptionId；Bot 重启或滚动发布后仍可恢复待输入上下文。
-    # Bot 不再保留进程内副本，拒绝原因的两步交互统一以服务端持久化记录为准。
+    # 先非破坏读取，再以固定记录 ID 提交；超时和 Bot 重启不会消费掉上下文。
     admin_user_id = str(message.from_user.id)
-    popped = await api_client.pop_pending_reject(message.chat_id, admin_user_id)
+    popped = await api_client.peek_pending_reject(message.chat_id, admin_user_id)
     if popped is None:
+        return
+    if "error" in popped:
+        # 普通群聊也会进入该 handler；只有明确回复本 Bot 的审批提示才回报读取故障。
+        replied = getattr(message, "reply_to_message", None)
+        if (replied is not None
+                and getattr(getattr(replied, "from_user", None), "id", None) == message.get_bot().id
+                and str(getattr(replied, "text", "") or "").startswith("请输入最近一次点击“拒绝”的原因")):
+            await message.reply_text("读取审批上下文失败，请重试。")
+        logger.warning("读取拒绝上下文失败 chatId=%s adminUserId=%s", message.chat_id, admin_user_id)
         return
 
     subscription_id = str(popped.get("subscriptionId") or "").strip()
-    if not subscription_id:
+    pending_request_id = str(popped.get("id") or "").strip()
+    if not subscription_id or not pending_request_id:
         await message.reply_text("提交拒绝原因失败：无法获取订阅 ID，请重试。")
         return
 
-    result = await api_client.reject_subscription(subscription_id, reason)
+    result = await api_client.complete_pending_reject(pending_request_id, message.chat_id, admin_user_id, reason)
     if result is None:
         await message.reply_text("提交拒绝原因失败，请重试。")
         return
@@ -820,7 +833,17 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
             await message.reply_text("提交拒绝原因失败，请重试。")
         return
 
-    await message.reply_text("已提交拒绝原因并完成拒绝。")
+    final_status = result.get("status")
+    if final_status in {"APPROVED", "INGESTED"}:
+        await message.reply_text("该订阅已通过审核，未执行拒绝。")
+        return
+    if final_status != "REJECTED":
+        await message.reply_text("无法确认审批结果，请重试。")
+        return
+    await message.reply_text(
+        "已提交拒绝原因并完成拒绝。" if result.get("changed") is True
+        else "该订阅已被拒绝，已保留原审批结果。"
+    )
 
     review_message_id = popped.get("messageId")
     if not isinstance(review_message_id, int) or review_message_id <= 0:
@@ -838,7 +861,8 @@ async def handle_pending_reject_reason(update: Update, context: ContextTypes.DEF
 
     review_has_photo = bool(popped.get("hasPhoto"))
     review_original_text = str(popped.get("originalText") or "")
-    result_text = format_result_message(review_original_text, "reject", reason)
+    # 已处理响应可能来自其他管理员，必须用已落库原因，不能覆盖为本次输入。
+    result_text = format_result_message(review_original_text, "reject", str(result.get("rejectReason") or ""))
     try:
         if review_has_photo:
             await message.get_bot().edit_message_caption(
@@ -1326,8 +1350,9 @@ async def _do_search(message, user_id: int, query: str, media_type: str) -> None
         except Exception:
             logger.exception("发送搜索海报失败，降级为文本消息")
 
+    text, keyboard = format_search_results(valid_results, query, is_caption=False)
     sent = await message.reply_text(
-        text=caption,
+        text=text,
         parse_mode="HTML",
         reply_markup=keyboard,
         disable_web_page_preview=True,

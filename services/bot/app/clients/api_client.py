@@ -711,6 +711,49 @@ async def enqueue_pending_reject(
     return response is not None and response.status_code == 200
 
 
+async def peek_pending_reject(chat_id: int, admin_user_id: str) -> Optional[dict]:
+    """读取且保留最新上下文；仅无记录返回 None，读取失败返回可重试错误。"""
+    endpoint = "peek_pending_reject"
+    response, elapsed_ms = await _request(
+        endpoint, "POST", f"{API_URL}/api/v1/internal/telegram/reject-request/peek",
+        timeout=_DEFAULT_TIMEOUT, headers=_INTERNAL_HEADERS,
+        json={"chatId": chat_id, "adminUserId": admin_user_id},
+        log_fields={"chatId": chat_id, "adminUserId": admin_user_id},
+    )
+    if response is not None and response.status_code == 404:
+        return None
+    if response is None:
+        return {"error": "读取审批上下文失败，请重试", "status": 503}
+    payload = _load_json(response, endpoint, "POST", elapsed_ms=elapsed_ms, chatId=chat_id)
+    if not isinstance(payload, dict):
+        return {"error": "读取审批上下文失败，请重试", "status": 502}
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "读取审批上下文失败，请重试"), "status": response.status_code}
+
+
+async def complete_pending_reject(
+    pending_request_id: str, chat_id: int, admin_user_id: str, reason: str,
+) -> Optional[dict]:
+    """按已读取的上下文 ID 完成审批，重试由服务端订阅终态保证不重复转换。"""
+    endpoint = "complete_pending_reject"
+    response, elapsed_ms = await _request(
+        endpoint, "POST", f"{API_URL}/api/v1/internal/telegram/reject-request/complete",
+        timeout=_DEFAULT_TIMEOUT, headers=_INTERNAL_HEADERS,
+        json={"pendingRequestId": pending_request_id, "chatId": chat_id,
+              "adminUserId": admin_user_id, "reason": reason},
+        log_fields={"chatId": chat_id, "pendingRequestId": pending_request_id},
+    )
+    if response is None:
+        return None
+    payload = _load_json(response, endpoint, "POST", elapsed_ms=elapsed_ms, chatId=chat_id)
+    if not isinstance(payload, dict):
+        return None
+    if response.status_code == 200:
+        return payload
+    return {"error": payload.get("error", "提交拒绝原因失败，请重试"), "status": response.status_code}
+
+
 async def pop_pending_reject(chat_id: int, admin_user_id: str) -> Optional[dict]:
     """弹出最新未过期的拒绝待确认记录"""
     endpoint = "pop_pending_reject"

@@ -661,7 +661,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 **订阅管理员消息同步**：订阅审批通知接收人来自设置项 `telegram_approval_admin_ids`，语义是显式 Telegram 审批人员 user_id 列表；为空时回退 `TELEGRAM_ADMIN_CHAT_ID`，不会从 Telegram 群管理员或 Ember 后台 `role=admin` 推导。Bot 对每个审批人员私聊发送待审批消息，返回 `adminTelegramId/chatId/messageId/hasPhoto/deliveryStatus`，API 写入 `subscription_admin_notifications`。Web 后台或 Telegram 任一端审批成功后，API 调 `POST /notify/subscription-admin-sync`，Bot 逐条编辑消息为最终结果并移除按钮；编辑失败只写回 `edit_failed/deleted`，不回滚订阅审批状态。
 
-**审批拒绝上下文持久化**：Bot 管理员拒绝订阅时，待输入的 `adminUserId / subscriptionId / messageId / hasPhoto / originalText / expiresAt` 已落到 `bot_pending_reject_requests`，避免 Bot 重启或滚动发布导致 5 分钟内的待输入状态丢失；第二步提交拒绝原因时，Bot 调用 `reject-request/pop` 必须同时提交 `chatId + adminUserId`，API 只弹出同一操作者创建的待确认记录；搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
+**审批拒绝上下文持久化**：Bot 使用 `reject-request/peek` 非破坏读取同一 `chatId + adminUserId` 最近点击对应的未过期记录，再以固定 `pendingRequestId` 调用 `reject-request/complete`。API 在事务中锁上下文和订阅，只对 PENDING 转 REJECTED 的成功提交触发通知；重复提交返回订阅权威状态与原拒绝原因。上下文保留到原五分钟窗口结束再由既有任务清理，已完成的新记录不向旧记录回退；处理其他订阅需重新点击拒绝。旧 `pop` 仅用于 API 先升级、Bot 后升级的过渡，所有旧 Bot 退出且无需回滚后删除。搜索交互 `message_id` 仍保留为 10 分钟 TTL 的私聊会话态边界，只用于校验用户是否在操作最新一条搜索消息。
+
+**Bot HTML 预算**：通知在字段层裁剪后转义，最终按实体解析后的文本长度限制并闭合完整标签；审批结果优先保留终态。搜索海报和文本降级分别使用 caption/text 预算，附加无海报提示后仍在发送边界检查，避免超长或破损 HTML 使两条发送路径同时失败。
 
 ### 5.19 TVCalendarService (`services/tvcalendar/service.go`)
 
