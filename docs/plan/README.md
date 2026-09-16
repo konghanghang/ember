@@ -34,13 +34,12 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中仍在推进中的实施稿共 9 份：
+当前 `docs/plan/` 中仍在推进中的实施稿共 8 份：
 
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
 - `architecture/p115-personal-account-routing-and-redis-quotas.md`（代码与自动化已完成，待 PostgreSQL 集成执行与受控真实验收）
 - `architecture/runtime-settings-cache-evolution.md`
-- [architecture/github-issue-remediation.md](./architecture/github-issue-remediation.md)（GitHub 开放问题修复顺序、逐项方案与验收边界）
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
@@ -48,6 +47,7 @@
 
 最近已完成归档的实施稿包括：
 
+- [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md)（2026-09-16：9 项修复、2 项已有修复验收；用户确认 fake 验收，真实 PostgreSQL 未执行）
 - `architecture/gateway-media-path-diagnostics.md` → `docs/archive/plan/architecture/gateway-media-path-diagnostics.md`
 - `architecture/ember-gateway-transparent-proxy-and-web-access.md` → `docs/archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md`
 - `architecture/web-frontend-quality-improvement.md` → `docs/archive/plan/architecture/web-frontend-quality-improvement.md`

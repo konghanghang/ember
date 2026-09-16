@@ -1,10 +1,11 @@
 # GitHub 开放问题修复计划
 
-> 状态：实施中（已创建 goal；按独立语义切片验证并提交）
+> 状态：已完成并归档（按用户确认的 fake 验收范围；未发布）
 > 负责人：Ember
 > 更新时间：2026-09-16
 > 核对基线：本地 HEAD 与 GitHub 默认分支均为 `e678531dcef109d5bbb4b61967a8ca40e847eb22`
 > 实施约束：基于现有结构做最小修复；本轮方案不新增 SQL migration、表、列、索引或持久化版本机制
+> 验收调整：用户已确认专用 PostgreSQL 暂不可恢复，本轮允许以 fake 测试、race、编译和静态合同验收；真实 PostgreSQL 用例保留但不作为本轮完成阻塞项
 
 ## 背景
 
@@ -29,7 +30,9 @@ GitHub 当前有 11 个未关闭 issue：#8、#10–#19。#10–#19 来自 `bb1c
 - 每项先用失败测试证明缺口，再验证最小修复满足原 issue 的验收条件；不附带任务系统重构、通用幂等框架或完整崩溃恢复升级。
 - 如实施测试证明确有现有结构无法表达的必要状态，应说明具体失败场景再调整方案；不能预先为假设需求加字段，也不能为坚持零 migration 而漏掉必要功能。
 
-## 当前事实与问题总表
+## 实施前事实与问题总表
+
+下表记录 `e678531` 基线上的判断；修复后的结论、提交和验证以文末交付记录及现行参考文档为准。
 
 优先级沿用 issue 原标注；#8 根据目前只有误分类、额外解码和日志噪声的证据按 P3 排期。P0 暂无证据。
 
@@ -60,7 +63,7 @@ GitHub 当前有 11 个未关闭 issue：#8、#10–#19。#10–#19 来自 `bb1c
 
 | 阶段 | 工作 | 依赖与完成标志 |
 | --- | --- | --- |
-| 0 | 核验 #14/#15，记录已有提交、覆盖范围与缺口 | 不重复实现；真实数据库未验收不得写成完成 |
+| 0 | 核验 #14/#15，记录已有提交、覆盖范围与缺口 | 不重复实现；本轮 fake 验收与未执行的真实数据库验证分别记录 |
 | 1 | #11 → #10 → #12 | 先统一权益累加，再修付款履约，最后收口外部同步；作为同一轮权益链路验收 |
 | 2 | #13、#16 | 与权益后端实现无直接依赖，可提前独立交付；#16 优先于一般 P2 |
 | 3 | #17 → #18；#19 独立 | 审批状态与通知重试联测，密码重置单独验收 |
@@ -96,7 +99,7 @@ GitHub 当前有 11 个未关闭 issue：#8、#10–#19。#10–#19 来自 `bb1c
 - 保持现有支付/兑换提交后调用、worker 和人工重试结构。每次实际同步请求都排队执行并在取得锁后重读，不以“该用户已有正在同步的请求”为由直接丢弃本次同步；A 先持锁时 B 后执行，B 先持锁时 A 随后也读取 B 提交后的状态。
 - 失败、取消和未确认的远端结果继续使用现有 `emby_policy_sync_tasks` 的 failed/last_error 与后台人工重试；成功收口与失败记录的顺序纳入检查，避免旧失败覆盖后来的成功。未知远端结果不得记为同步成功。
 - 不新增 revision，不把所有入口改造成持久化队列，不在本轮承诺原系统尚无的“业务提交后任意时刻进程崩溃均自动恢复”。跨进程调用串行与现有失败可处理路径是本 issue 的修复边界。
-- 固定版本用户 Policy 合同见 [Emby 用户与条目路由合同补充](../../reference/emby-user-policy-and-item-route-contract.md)。保持非托管字段，撤销 Gateway token 的前置安全语义也要参与交错测试。
+- 固定版本用户 Policy 合同见 [Emby 用户与条目路由合同补充](../../../reference/emby-user-policy-and-item-route-contract.md)。保持非托管字段，撤销 Gateway token 的前置安全语义也要参与交错测试。
 - 用 fake Emby 屏障固定 A/B 两种获锁顺序，断言两次成功调用完成后远端 Policy 与本地缓存均反映续期后状态；覆盖两实例竞争、执行中再次续期、小连接池、远端成功本地失败、取消、解锁失败和现有失败任务重试。锁失败不能成为静默跳过同步。
 
 ### #13：认证失败与资料加载失败分开
@@ -104,7 +107,7 @@ GitHub 当前有 11 个未关闭 issue：#8、#10–#19。#10–#19 来自 `bb1c
 - 401 继续统一清理身份并进入登录；网络/5xx 保留 token 和原目标路由，允许停留在现有登录页的会话恢复状态，不自动往返 login/dashboard。
 - 在既有 LoginView 中增加一条失败说明和“重试”动作，不新建恢复路由或页面。守卫不能仅因 token 存在就把资料加载失败的会话踢回控制台；恢复状态以实际加载结果判断，不能把 query 标记当成鉴权依据。没有成功取得 profile 前不渲染受保护业务内容。
 - 重试成功后重新校验服务端角色、强制改密状态并回到合法目标；失败维持故障状态，限制重复点击和并发请求，错误提示只出现一次。
-- 前端实现必须遵守 Ember 风格，设计与交互基线以 [Web 设计规范](../../reference/web-design-guide.md) 为准；不引入新的设计系统或规范例外。失败说明需要可被辅助技术感知。
+- 前端实现必须遵守 Ember 风格，设计与交互基线以 [Web 设计规范](../../../reference/web-design-guide.md) 为准；不引入新的设计系统或规范例外。失败说明需要可被辅助技术感知。
 - 使用 Vue Router memory history + Pinia + fake API 做真实守卫集成测试，覆盖冷刷新、401、503、网络失败、恢复、角色不符、强制改密和后退；不能仅测路由元数据。
 
 ### #16：配置的空值必须具有清除语义
@@ -172,31 +175,56 @@ GitHub 当前有 11 个未关闭 issue：#8、#10–#19。#10–#19 来自 `bb1c
 
 数据库并发与事务验收使用 `EMBER_INTEGRATION_DATABASE_URL` 指定的专用集成库，由 harness 创建/清理隔离 schema；不连接共享开发库。环境缺失或用例跳过必须标为未验证。所有第三方业务调用都使用 fake/fixture，不启动项目服务。无 schema 变更时不新增无意义的迁移测试。
 
-## 本轮完成项与剩余项
+2026-09-16 经沙箱外限时复核，专用数据库仍连接超时。用户明确允许本轮使用 fake 测试，因此本轮执行 `go test ... -skip Integration`，必要的行锁/事务/会话竞争用真实 `database/sql` 与 fake driver 或 SQL mock 检查；这些结果不证明 PostgreSQL 引擎行为。保留的集成用例待环境恢复后执行，不启动替代数据库，不连接其他共享库。
+
+## 本轮交付记录
 
 - [x] 读取 11 个开放 issue，确认本地与 GitHub 当前基线一致。
 - [x] 对照当前代码，识别 #14/#15 已有修复及其测试层级。
 - [x] 核对固定 Emby 4.9.3.0 SDK 的条目、Policy 和密码接口，补充参考合同。
 - [x] 制定逐项方案、依赖顺序、状态/兼容边界和验收要求。
 - [x] 按最小改动要求复核既有结构，撤出新增支付状态/页面、Policy revision 与 Bot 幂等字段，本轮改为零新增 migration 方案。
-- [ ] 实施剩余 9 项代码修复。
-- [ ] 补齐 #14/#15 尚缺的精确场景与数据库证据。
-- [ ] 按切片同步文档、完成测试和独立 review。
-- [ ] 获得相应授权后提交、推送/PR、更新或关闭 GitHub issue。
+- [x] 完成 9 项代码修复。
+- [x] 补齐 #14/#15 的 fake 精确竞争场景和 race 验收，真实 PostgreSQL 证据明确留待环境恢复。
+- [x] 按切片同步文档、完成必要测试和系统链路复查；发现的锁顺序、取消、HTML 边界和异步测试夹具竞争均已收口。
+- [x] 完成本轮授权的本地 SSH 签名提交；没有推送、创建 PR、修改 issue 状态或发布。
+
+实际使用 `fix/github-issue-remediation` 分支分片提交。紧密关联的权益累加/付款，以及拒绝审批/通知安全分别合并为完整可回滚切片，其余独立提交。
+
+| Issue / 交付 | 提交 | 结果 |
+| --- | --- | --- |
+| #8 | `c82064e` | 静态条目路径不再进入快照，GET/HEAD、大小写和 gzip 透明代理 fake 回归通过 |
+| #14 / #15 | `e4003a2`，已有生产修复 `9663ec8` | 小池多 locker 取消、过期租约被占用、HEAD/Playing fake/race 通过；PG 专项未执行 |
+| #16 | `e1a0d6b` | 空群配置清除旧缓存、回退管理员且不恢复旧环境值 |
+| #13 | `7232c2b` | 登录页恢复态、401 清场、角色和强制改密边界通过 |
+| #19 | `f36aa3f` | 管理员本地重置、普通用户同步和旧 pwdSig 失效回归通过 |
+| #17 / #18 | `58ef742` | peek/complete、锁后 TTL、终态回放与通知不重复触发；HTML 解析后预算、搜索 caption/text 降级通过 |
+| #10 / #11 | `475fdc0` | 用户行锁累加，付款 user→payment 一致锁序，晚到成功幂等履约，异常事件可定位并重投 |
+| #12 | `66e0c0d` | 用户级跨实例锁、锁内重读、失败清理、worker 取消及两种交错次序通过 fake/race |
+| 测试夹具修复 | `4116032` | 等待异步写回和 manager 终态，消除既有 fixture race，不改生产逻辑 |
+| 初始计划与固定版本合同 | `80dc2c7` | 固定实施边界和协议证据 |
 
 本轮最初执行三个播放相关包的整包测试时，环境中已设置的集成数据库变量触发了真实 PostgreSQL 用例，数据库连接连续超时后中止该轮。`p115quota` 与 `playbackgateway` 当轮通过，`directplay` 整包未通过；不能把该现象判断成内容锁死锁，也不能宣称数据库验收完成。
 
-随后在 `services/api` 显式执行以下不依赖数据库的范围，三个包全部通过（2026-09-16）；跳过的集成用例仍是未验证项：
+最终在 `services/api` 执行以下范围并全部通过（2026-09-16）；跳过的集成用例仍是未验证项：
 
 ```bash
-go test ./internal/services/directplay ./internal/services/p115quota ./internal/playbackgateway -skip Integration -count=1 -timeout=60s
+go test ./... -skip Integration -count=1 -timeout=90s
+go test -race ./internal/services/payment ./internal/services/redemption ./internal/services/user ./internal/services/policy ./internal/services/subscription ./internal/services/telegram ./internal/handlers ./internal/app ./internal/services/directplay ./internal/services/p115quota ./internal/playbackgateway -skip Integration -count=1 -timeout=120s
+go vet ./...
+go build ./...
 ```
 
-本轮文档相对链接与空白检查通过；未修改业务代码。
+- Web：`npm run test` 结果为 256 passed / 3 skipped，`npm run build` 通过；真实 Router memory history、Pinia 与组件 fake 验证，不含浏览器或真实后端验收。
+- Bot：`.venv/bin/python -m pytest tests -q` 为 70 passed（另有 7 个 subtest），`py_compile` 通过；Telegram 与 Internal API 均 fake。
+- 新增 `go-sqlmock` 仅用于验证真实 GORM 事务/查询的测试；没有改动 `infrastructure/database`、initdb 或 GORM 模型，没有新增任何 migration。
+- 签名使用临时 allowed-signers 文件校验，不改本地/全局 Git 配置。文档相对链接、空白和迁移目录差异在归档收尾时检查。
 
-## 落地后文档处理与归档条件
+## 实际实现边界与后续事项
 
-- 代码落实后同步 `docs/system-architecture.md`、`data-model-reference.md`、`api-endpoint-catalog.md`、`web-information-architecture.md`、`bot-architecture-reference.md` 和相关部署/测试 runbook。
-- 通用 Web 规范不变，只复用现有规则；若实施确有通用规则变化，再同步 `web-design-guide.md`。
-- 支付既有失败事件重投、Policy 串行与现有失败重试、拒绝终态重放合同提炼到现行参考文档；不让本计划永久承担系统合同。
-- 全部 issue 有修复/撤回结论、验证证据和关联交付，兼容清理条件已满足或有明确后续跟踪后，收口状态并归档到 `docs/archive/plan/architecture/`，同步索引与直接引用。
+- 稳定合同已同步到系统架构、数据模型说明、API 端点目录、Web 信息架构、Bot 架构和部署/测试 runbook；通用 Web 设计基线未改变。
+- Policy 最终采用 try-lock 失败归还连接、成功后复用连接及池满时明确失败的方案，没有新增共享排队框架或 revision。worker 取消后的失败收尾有独立五秒窗口；已经发出的 Emby HTTP 仍依赖原客户端 timeout，不能宣称即时取消远端写入。
+- 拒绝原因采用最近一次点击语义，提示已明确；保留终态上下文用于重放，避免误消费旧订阅。旧 pop 清理条件和 API 先升级顺序已转入 [Bot 架构参考](../../../reference/bot-architecture-reference.md)，部署后确认无旧 Bot/回滚需求再清理。
+- 后续环境恢复后再执行保留的 PostgreSQL 续期/支付与内容锁专项；本轮 fake 结果不扩展为真实数据库、Emby、Stripe、Telegram 或播放器证据。
+- 历史支付事件对账/补偿、推送/PR、发布及 GitHub issue 关闭不属于本轮已授权动作，后续需单独执行。代码已修复不代表线上历史权益已经恢复。
+- 本轮代码、自动化、审查和本地提交已收口；稳定事实已提炼，剩余事项均有明确边界，因此本计划移入归档，仅保留追溯价值。
