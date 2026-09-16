@@ -218,6 +218,15 @@ cat backup.sql | docker compose exec -T postgres psql -U postgres ember
 - 生产升级环境却没执行 SQL 迁移
 - Webhook 地址是内网地址，却想接公网回调
 
+## 已付款但没有续期
+
+1. 在受控运维环境按 Stripe eventId 检查 `stripe_webhook_events` 的 `event_type/status/error_message`，结合本地 paymentId 日志定位订单与用户；不要导出完整支付响应体或凭据。
+2. 新实现中本地订单 `expired/failed` 不会阻止成功付款履约；若事件是 `failed`，先处理数据库故障或错误中的业务原因。`reasonCode=plan_group_mismatch paymentId=...` 表示当前用户与订单套餐分组不匹配，必须先按业务事实处理，不能直接将事件或订单改成成功。
+3. 故障排除后，通过 Stripe 既有事件重投入口再次发送该事件。API 会重新分发 `failed/received`，订单锁和 completed 终态防止重复发放。自动重试窗口有限，持续失败不能只等待，需要人工跟进。
+4. 升级前已被旧代码静默记成 `processed` 的事件，重投不会自动越过去重记录。历史订单需单独只读对账、确认未履约，再制定受控补偿；本次代码升级不自动改写历史事件或补发权益。
+
+以上是部署者的操作路径。本轮修复仅完成 fake 回归，没有执行真实 Stripe 重投、线上对账、补发或退款。
+
 ## 相关文档
 
 - [部署指南](./deployment.md)

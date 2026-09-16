@@ -418,7 +418,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 **核心方法 `RedeemCode(userID, code)`**：
 1. 开启事务后查询兑换码并校验 `IsValid()`
 2. 在事务中检查 `redemptions(userId, code)` 是否已存在，存在则返回 `ErrRedemptionDuplicate`
-3. 查询用户并计算新 ExpiresAt，仅更新 `expiresAt/embyDisabled`（**Emby 调权移到 commit 后异步执行**）
+3. 对用户行执行 `FOR UPDATE` 后读取最新到期日并计算新 ExpiresAt，仅更新 `expiresAt`；管理员手动续期也在事务内使用同一用户行锁，避免不同兑换码、付款和人工续期丢失累计天数（**Emby 调权移到 commit 后执行**）
 4. 先插入 Redemption 记录（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
 5. 原子递增 usedCount（`WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）→ 提交
 6. commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "redemption_renewal")`：成功后刷新 Emby 禁用缓存；失败写入 `emby_policy_sync_tasks` 的单用户 `failed` 处理记录，由管理员在用户管理中手动重试
@@ -621,7 +621,8 @@ Stripe 一次性支付流程管理。
   - 首次 `INSERT ON CONFLICT DO NOTHING` 成功 → 进入业务分发
   - 命中冲突时回查 status：`processed / skipped` → 真正幂等 200 不再分发；`received / failed` → 视为上次未完成（崩溃中断 / 业务返回 5xx），允许 Stripe 自动重试驱动履约，同时把 `receivedAt` 刷新为本次重投时间
   - 分发完成后 UPDATE 写终态；`checkout.session.expired` → `MarkPaymentExpired(sessionID)` 把本地 pending 收口为 expired
-- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 事务内只做 Payment / User 状态更新和 `expiresAt` 延长（**Emby 调权移到 commit 后异步执行**）；引入 `event.created < payment.updatedAt` 乱序保护；commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "payment_fulfillment")`，Emby 写入失败不回滚支付履约，但会写入单用户 `failed` 处理记录供管理员手动重试
+- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 先非锁定定位订单归属，再按 `user → payment` 顺序加行锁并复验订单，保持与后台改分组的锁顺序一致；套餐按已提交快照读取，不在持有 payment 锁时再等待 plan 锁。只有 `completed` 是已履约终点，本地 failed/expired 与通用 updatedAt 不会吞掉真实付款成功。事务内更新权益和 completed，commit 后仍异步同步 Policy，外部失败不回滚付款权益
+- 成功付款遇到套餐分组不符会回滚履约并返回包含固定 `reasonCode=plan_group_mismatch` 与本地 paymentId 的错误，沿既有 `stripe_webhook_events.failed/error_message` 保留可重投事件；不新增支付状态、字段或处理页面。重复成功事件在订单锁内复验 completed，只发放一次；迟到失败/过期不会覆盖 completed
 - `markPaymentFailed(sessionID, eventCreated)` — 同样接受 `eventCreated`，做乱序保护
 - `MarkPaymentExpired(sessionID)` — `UPDATE payments SET status='expired' WHERE stripeSessionId=? AND status='pending'`，`RowsAffected=0` 视为已收口（noop）
 - 邀请码模板用户 Policy 复制链路已废弃；注册权益只来自 `registrationPlanGroup` 对应的分组媒体库模板和 Emby 权益模板

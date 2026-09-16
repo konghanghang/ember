@@ -9,11 +9,15 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	dbpkg "github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -191,20 +195,20 @@ func TestSuccessfulPaymentFulfillmentSkipReason(t *testing.T) {
 			want:    paymentWebhookSkipCompleted,
 		},
 		{
-			name:    "failed payment blocks success event",
+			name:    "failed payment can still fulfill a paid success event",
 			payment: models.Payment{Status: models.PaymentFailed, UpdatedAt: updatedAt},
-			want:    paymentWebhookSkipFailed,
+			want:    paymentWebhookSkipNone,
 		},
 		{
-			name:    "expired payment blocks success event",
+			name:    "expired payment can still fulfill a paid success event",
 			payment: models.Payment{Status: models.PaymentExpired, UpdatedAt: updatedAt},
-			want:    paymentWebhookSkipExpired,
+			want:    paymentWebhookSkipNone,
 		},
 		{
-			name:         "older success event is ignored",
+			name:         "older paid success event can proceed",
 			payment:      models.Payment{Status: models.PaymentPending, UpdatedAt: updatedAt},
 			eventCreated: olderEvent,
-			want:         paymentWebhookSkipOutOfOrder,
+			want:         paymentWebhookSkipNone,
 		},
 		{
 			name:         "newer pending success event can proceed",
@@ -225,6 +229,134 @@ func TestSuccessfulPaymentFulfillmentSkipReason(t *testing.T) {
 				t.Fatalf("expected skip reason %q, got %q", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestFulfillPaymentFulfillsExpiredLatePaidPayment(t *testing.T) {
+	database, mock, cleanup := newPaymentSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+
+	currentExpiry := time.Now().UTC().AddDate(0, 0, 7)
+	payment := paymentFixture("pay_late", models.PaymentExpired, currentExpiry.Add(-time.Hour))
+	mock.ExpectBegin()
+	expectPaymentFulfillmentRef(mock, payment)
+	expectPaymentUserLock(mock, "user_1", "VIP_A", currentExpiry)
+	expectPaymentLock(mock, payment)
+	expectPaymentPlanRead(mock, "plan_1", "VIP_A")
+	expectPaymentPlanGroupLookup(mock, "VIP_A")
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "payments" SET "status"=\$1,"stripe_payment_intent_id"=\$2,"updated_at"=\$3 WHERE id = \$4`).
+		WithArgs(models.PaymentCompleted, "pi_late", sqlmock.AnyArg(), "pay_late").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", payment.UpdatedAt.Add(-time.Hour), nil)
+	if err != nil {
+		t.Fatalf("fulfillPayment(): %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestFulfillPaymentCompletedIsIdempotentWithoutGrant(t *testing.T) {
+	database, mock, cleanup := newPaymentSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+
+	payment := paymentFixture("pay_done", models.PaymentCompleted, time.Now().UTC())
+	mock.ExpectBegin()
+	expectPaymentFulfillmentRef(mock, payment)
+	mock.ExpectRollback()
+
+	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
+	if err != nil {
+		t.Fatalf("fulfillPayment(): %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestFulfillPaymentGroupMismatchRollsBackWithActionableError(t *testing.T) {
+	database, mock, cleanup := newPaymentSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+
+	currentExpiry := time.Now().UTC().AddDate(0, 0, 7)
+	payment := paymentFixture("pay_mismatch", models.PaymentExpired, time.Now().UTC())
+	mock.ExpectBegin()
+	expectPaymentFulfillmentRef(mock, payment)
+	expectPaymentUserLock(mock, "user_1", "VIP_B", currentExpiry)
+	expectPaymentLock(mock, payment)
+	expectPaymentPlanRead(mock, "plan_1", "VIP_A")
+	expectPaymentPlanGroupLookup(mock, "VIP_B")
+	mock.ExpectRollback()
+
+	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
+	if !errors.Is(err, ErrPaymentFailed) {
+		t.Fatalf("expected ErrPaymentFailed, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "reasonCode=plan_group_mismatch") || !strings.Contains(err.Error(), "paymentId=pay_mismatch") {
+		t.Fatalf("expected actionable group mismatch error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestFulfillPaymentUserMissingReturnsActionableError(t *testing.T) {
+	database, mock, cleanup := newPaymentSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+
+	payment := paymentFixture("pay_missing_user", models.PaymentExpired, time.Now().UTC())
+	mock.ExpectBegin()
+	expectPaymentFulfillmentRef(mock, payment)
+	mock.ExpectQuery(`SELECT \* FROM "users" WHERE id = \$1 ORDER BY "users"\."id" LIMIT \$2 FOR UPDATE`).
+		WithArgs("user_1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled", "telegram_id",
+			"plan_group", "applied_media_library_template_version", "expires_at", "is_active", "password_reset_required", "created_at", "updated_at",
+		}))
+	mock.ExpectRollback()
+
+	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
+	if !errors.Is(err, ErrPaymentFailed) || !strings.Contains(err.Error(), "reasonCode=payment_user_lookup_failed") || !strings.Contains(err.Error(), "paymentId=pay_missing_user") {
+		t.Fatalf("expected actionable user missing error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestFulfillPaymentIdentityChangedAfterUserLockRollsBack(t *testing.T) {
+	database, mock, cleanup := newPaymentSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+
+	currentExpiry := time.Now().UTC().AddDate(0, 0, 7)
+	payment := paymentFixture("pay_identity_changed", models.PaymentExpired, time.Now().UTC())
+	mock.ExpectBegin()
+	expectPaymentFulfillmentRef(mock, payment)
+	expectPaymentUserLock(mock, "user_1", "VIP_A", currentExpiry)
+	mock.ExpectQuery(`SELECT \* FROM "payments" WHERE "stripe_session_id" = \$1 AND "user_id" = \$2 ORDER BY "payments"\."id" LIMIT \$3 FOR UPDATE`).
+		WithArgs("cs_late", "user_1", 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "user_id", "plan_id", "stripe_session_id", "stripe_payment_intent_id", "checkout_url",
+			"amount", "currency", "days", "status", "expires_at", "created_at", "updated_at",
+		}))
+	mock.ExpectRollback()
+
+	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
+	if !errors.Is(err, ErrPaymentFailed) || !strings.Contains(err.Error(), "reasonCode=payment_recheck_failed") || !strings.Contains(err.Error(), "paymentId=pay_identity_changed") {
+		t.Fatalf("expected actionable identity changed error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
 	}
 }
 
@@ -328,6 +460,68 @@ func TestMarkPaymentExpiredRejectsBlankSessionBeforeStore(t *testing.T) {
 
 	if err := service.MarkPaymentExpired("  "); !errors.Is(err, ErrPaymentFailed) {
 		t.Fatalf("expected ErrPaymentFailed, got %v", err)
+	}
+}
+
+func TestHandleWebhookRedispatchesFailedEventAndClearsError(t *testing.T) {
+	database, mock, cleanup := newPaymentSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+	secret := "whsec_retry"
+	t.Setenv("STRIPE_WEBHOOK_SECRET", secret)
+
+	payload := []byte(`{"id":"evt_retry","type":"checkout.session.completed","created":1780000000,"livemode":false,"data":{"object":{"id":"cs_retry","payment_status":"paid","payment_intent":"pi_retry","metadata":{}}}}`)
+	timestamp := time.Now().Unix()
+	header := fmt.Sprintf("t=%d,v1=%s", timestamp, buildStripeTestSignature(t, timestamp, payload, secret))
+	service := &PaymentService{}
+	calls := 0
+	service.fulfillPaymentFn = func(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error {
+		calls++
+		if calls == 1 {
+			return fmt.Errorf("%w: reasonCode=plan_group_mismatch paymentId=pay_retry", ErrPaymentFailed)
+		}
+		return nil
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO "stripe_webhook_events"`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "stripe_webhook_events" SET .* WHERE "event_id" = .*`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	firstReq := newStripeWebhookTestRequest(payload, header)
+	if err := service.HandleWebhook(firstReq); !errors.Is(err, ErrPaymentFailed) {
+		t.Fatalf("expected first webhook to fail as retryable business error, got %v", err)
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO "stripe_webhook_events"`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT \* FROM "stripe_webhook_events" WHERE "event_id" = \$1 ORDER BY "stripe_webhook_events"\."event_id" LIMIT \$2`).
+		WithArgs("evt_retry", 1).
+		WillReturnRows(stripeWebhookEventRows("evt_retry", models.StripeWebhookEventFailed, "reasonCode=plan_group_mismatch paymentId=pay_retry"))
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "stripe_webhook_events" SET .* WHERE "event_id" = .*`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "stripe_webhook_events" SET .* WHERE "event_id" = .*`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	secondReq := newStripeWebhookTestRequest(payload, header)
+	if err := service.HandleWebhook(secondReq); err != nil {
+		t.Fatalf("expected redispatched webhook to succeed, got %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected failed event to be redispatched, calls=%d", calls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
 	}
 }
 
@@ -1312,6 +1506,100 @@ func buildStripeTestSignature(t *testing.T, timestamp int64, payload []byte, sec
 	_, _ = mac.Write([]byte("."))
 	_, _ = mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func newPaymentSQLMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New(): %v", err)
+	}
+	database, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{DisableAutomaticPing: true})
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatalf("gorm.Open(): %v", err)
+	}
+	previous := dbpkg.DB
+	return database, mock, func() {
+		dbpkg.DB = previous
+		_ = sqlDB.Close()
+	}
+}
+
+func paymentFixture(id string, status models.PaymentStatus, updatedAt time.Time) models.Payment {
+	expiresAt := updatedAt.Add(-time.Hour)
+	return models.Payment{
+		ID:                    id,
+		UserID:                "user_1",
+		PlanID:                "plan_1",
+		StripeSessionID:       "cs_late",
+		StripePaymentIntentID: "",
+		Amount:                1200,
+		Currency:              "usd",
+		Days:                  30,
+		Status:                status,
+		ExpiresAt:             &expiresAt,
+		CreatedAt:             updatedAt.Add(-2 * time.Hour),
+		UpdatedAt:             updatedAt,
+	}
+}
+
+func expectPaymentFulfillmentRef(mock sqlmock.Sqlmock, payment models.Payment) {
+	mock.ExpectQuery(`SELECT "id","user_id","status" FROM "payments" WHERE "stripe_session_id" = \$1 ORDER BY "payments"\."id" LIMIT \$2`).
+		WithArgs(payment.StripeSessionID, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status"}).AddRow(payment.ID, payment.UserID, payment.Status))
+}
+
+func expectPaymentLock(mock sqlmock.Sqlmock, payment models.Payment) {
+	mock.ExpectQuery(`SELECT \* FROM "payments" WHERE "stripe_session_id" = \$1 AND "user_id" = \$2 ORDER BY "payments"\."id" LIMIT \$3 FOR UPDATE`).
+		WithArgs(payment.StripeSessionID, payment.UserID, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "user_id", "plan_id", "stripe_session_id", "stripe_payment_intent_id", "checkout_url",
+			"amount", "currency", "days", "status", "expires_at", "created_at", "updated_at",
+		}).AddRow(
+			payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, payment.StripePaymentIntentID, payment.CheckoutURL,
+			payment.Amount, payment.Currency, payment.Days, payment.Status, payment.ExpiresAt, payment.CreatedAt, payment.UpdatedAt,
+		))
+}
+
+func expectPaymentUserLock(mock sqlmock.Sqlmock, userID, planGroup string, expiresAt time.Time) {
+	mock.ExpectQuery(`SELECT \* FROM "users" WHERE id = \$1 ORDER BY "users"\."id" LIMIT \$2 FOR UPDATE`).
+		WithArgs(userID, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled", "telegram_id",
+			"plan_group", "applied_media_library_template_version", "expires_at", "is_active", "password_reset_required", "created_at", "updated_at",
+		}).AddRow(userID, userID+"_name", "user", "", userID+"@example.com", "", false, false, nil, planGroup, int64(1), expiresAt, true, false, time.Now().UTC(), time.Now().UTC()))
+}
+
+func expectPaymentPlanRead(mock sqlmock.Sqlmock, planID, planGroup string) {
+	mock.ExpectQuery(`SELECT "id","name","plan_group" FROM "plans" WHERE id = \$1 ORDER BY "plans"\."id" LIMIT \$2`).
+		WithArgs(planID, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "plan_group"}).AddRow(planID, planID+"_name", planGroup))
+}
+
+func expectPaymentPlanGroupLookup(mock sqlmock.Sqlmock, key string) {
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "plan_groups" WHERE key = $1 ORDER BY "plan_groups"."key" LIMIT $2`)).
+		WithArgs(key, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"key", "name", "description", "is_default", "sort_order", "subscription_auto_approve_daily_limit", "p115_playback_mode",
+			"p115_transfer_hourly_limit", "p115_transfer_daily_limit", "media_library_template_version", "created_at", "updated_at",
+		}).AddRow(key, key, "", false, 0, 0, models.P115PlaybackModePersonal, 5, 10, int64(1), time.Now().UTC(), time.Now().UTC()))
+}
+
+func stripeWebhookEventRows(eventID string, status models.StripeWebhookEventStatus, errorMessage string) *sqlmock.Rows {
+	var errValue any
+	if errorMessage != "" {
+		errValue = errorMessage
+	}
+	return sqlmock.NewRows([]string{
+		"event_id", "event_type", "livemode", "received_at", "processed_at", "status", "error_message",
+	}).AddRow(eventID, "checkout.session.completed", false, time.Now().UTC(), nil, status, errValue)
+}
+
+func newStripeWebhookTestRequest(payload []byte, header string) *http.Request {
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/webhooks/stripe", strings.NewReader(string(payload)))
+	req.Header.Set("Stripe-Signature", header)
+	return req
 }
 
 func TestNormalizePaymentStatusFilter(t *testing.T) {

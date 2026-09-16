@@ -53,6 +53,9 @@ func TestUserHandlerAdminMutationsReturn404WhenUserMissing(t *testing.T) {
 		FindUserByID: func(userID string) (*models.User, error) {
 			return nil, userpkg.ErrUserNotFound
 		},
+		ExtendExpiryStore: func(userID string, days int) (*models.User, error) {
+			return nil, userpkg.ErrUserNotFound
+		},
 	})
 	handler := newTestUserHandler(service)
 

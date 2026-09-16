@@ -527,17 +527,11 @@ const (
 	paymentWebhookSkipOutOfOrder paymentWebhookSkipReason = "out_of_order"
 )
 
-func successfulPaymentFulfillmentSkipReason(payment models.Payment, eventCreated time.Time) paymentWebhookSkipReason {
-	switch payment.Status {
-	case models.PaymentCompleted:
+// successfulPaymentFulfillmentSkipReason 只把已完成订单视为成功付款的幂等终点。
+// 本地 failed/expired 或 Stripe 事件 created 早于 updated_at 都不能证明未收款，paid success 仍必须进入履约事务。
+func successfulPaymentFulfillmentSkipReason(payment models.Payment, _ time.Time) paymentWebhookSkipReason {
+	if payment.Status == models.PaymentCompleted {
 		return paymentWebhookSkipCompleted
-	case models.PaymentFailed:
-		return paymentWebhookSkipFailed
-	case models.PaymentExpired:
-		return paymentWebhookSkipExpired
-	}
-	if !eventCreated.IsZero() && eventCreated.Before(payment.UpdatedAt) {
-		return paymentWebhookSkipOutOfOrder
 	}
 	return paymentWebhookSkipNone
 }
@@ -1241,25 +1235,45 @@ func planGroupsMatchForFulfillment(userPlanGroup *string, planPlanGroup string) 
 }
 
 func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error {
-	if strings.TrimSpace(sessionID) == "" {
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
 		log.Printf("[Payment] 支付履约失败：缺少 sessionID")
 		return ErrPaymentFailed
 	}
-	log.Printf("[Payment] 开始履约支付: sessionID=%s paymentIntent=%s metadata=%v", strings.TrimSpace(sessionID), strings.TrimSpace(paymentIntentID), metadata)
+	log.Printf("[Payment] 开始履约支付: sessionID=%s paymentIntent=%s metadata=%v", sid, strings.TrimSpace(paymentIntentID), metadata)
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
-		log.Printf("[Payment] 开启支付履约事务失败: sessionID=%s err=%v", strings.TrimSpace(sessionID), tx.Error)
+		log.Printf("[Payment] 开启支付履约事务失败: sessionID=%s err=%v", sid, tx.Error)
 		return ErrPaymentFailed
+	}
+
+	ref, err := lookupPaymentFulfillmentRef(tx, sid)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[Payment] 支付履约定位订单失败: sessionID=%s err=%v", sid, err)
+		return ErrPaymentFailed
+	}
+	if ref.Status == models.PaymentCompleted {
+		tx.Rollback()
+		log.Printf("[Payment] 支付已履约，忽略重复 webhook: paymentID=%s sessionID=%s", ref.ID, sid)
+		return nil
+	}
+
+	var user models.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", ref.UserID).First(&user).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[Payment] 支付履约查询用户失败: paymentID=%s userID=%s err=%v", ref.ID, ref.UserID, err)
+		return fmt.Errorf("%w: reasonCode=payment_user_lookup_failed paymentId=%s", ErrPaymentFailed, ref.ID)
 	}
 
 	var payment models.Payment
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("\"stripe_session_id\" = ?", sessionID).
+		Where("\"stripe_session_id\" = ? AND \"user_id\" = ?", sid, ref.UserID).
 		First(&payment).Error; err != nil {
 		tx.Rollback()
-		log.Printf("[Payment] 支付履约查询订单失败: sessionID=%s err=%v", strings.TrimSpace(sessionID), err)
-		return ErrPaymentFailed
+		log.Printf("[Payment] 支付履约复验订单失败: paymentID=%s sessionID=%s userID=%s err=%v", ref.ID, sid, ref.UserID, err)
+		return fmt.Errorf("%w: reasonCode=payment_recheck_failed paymentId=%s", ErrPaymentFailed, ref.ID)
 	}
 
 	switch successfulPaymentFulfillmentSkipReason(payment, eventCreated) {
@@ -1268,31 +1282,10 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		tx.Rollback()
 		log.Printf("[Payment] 支付已履约，忽略重复 webhook: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
 		return nil
-	case paymentWebhookSkipFailed:
-		tx.Rollback()
-		log.Printf("[Payment] 支付已标记失败，忽略成功回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
-		return nil
-	case paymentWebhookSkipExpired:
-		tx.Rollback()
-		log.Printf("[Payment] 支付订单已过期，忽略成功回调: paymentID=%s sessionID=%s", payment.ID, payment.StripeSessionID)
-		return nil
-	case paymentWebhookSkipOutOfOrder:
-		tx.Rollback()
-		log.Printf("[Payment] 忽略乱序支付成功事件: paymentID=%s sessionID=%s eventCreated=%s paymentUpdatedAt=%s",
-			payment.ID, payment.StripeSessionID, eventCreated.Format(time.RFC3339), payment.UpdatedAt.Format(time.RFC3339))
-		return nil
-	}
-
-	var user models.User
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", payment.UserID).First(&user).Error; err != nil {
-		tx.Rollback()
-		log.Printf("[Payment] 支付履约查询用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
-		return ErrPaymentFailed
 	}
 
 	var plan models.Plan
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Select("id", "name", "plan_group").
+	if err := tx.Select("id", "name", "plan_group").
 		Where("id = ?", payment.PlanID).
 		First(&plan).Error; err != nil {
 		tx.Rollback()
@@ -1308,22 +1301,8 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		return ErrPaymentFailed
 	}
 	if !planGroupMatched {
-		payment.Status = models.PaymentExpired
-		if strings.TrimSpace(paymentIntentID) != "" {
-			payment.StripePaymentIntentID = paymentIntentID
-		}
-		if err := tx.Model(&models.Payment{}).
-			Where("id = ?", payment.ID).
-			Updates(map[string]interface{}{
-				"status":                   payment.Status,
-				"stripe_payment_intent_id": payment.StripePaymentIntentID,
-			}).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[Payment] 支付履约拒绝后保存订单失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
-			return ErrPaymentFailed
-		}
-		if err := tx.Commit().Error; err != nil {
-			log.Printf("[Payment] 支付履约拒绝后提交事务失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
+		if err := tx.Rollback().Error; err != nil {
+			log.Printf("[Payment] 支付履约拒绝后回滚事务失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
 			return ErrPaymentFailed
 		}
 		rawUserPlanGroup := ""
@@ -1332,7 +1311,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		}
 		log.Printf("[Payment] 支付履约拒绝：套餐分组已变更: paymentID=%s userID=%s planID=%s sessionID=%s userPlanGroup=%s planPlanGroup=%s",
 			payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, rawUserPlanGroup, strings.TrimSpace(plan.PlanGroup))
-		return nil
+		return fmt.Errorf("%w: reasonCode=plan_group_mismatch paymentId=%s", ErrPaymentFailed, payment.ID)
 	}
 
 	now := time.Now().UTC()
@@ -1410,6 +1389,24 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	})
 
 	return nil
+}
+
+type paymentFulfillmentRef struct {
+	ID     string
+	UserID string
+	Status models.PaymentStatus
+}
+
+// lookupPaymentFulfillmentRef 非锁定定位支付单的稳定用户 ID，使履约事务后续按 user -> payment 顺序加锁。
+func lookupPaymentFulfillmentRef(tx *gorm.DB, sessionID string) (*paymentFulfillmentRef, error) {
+	var ref paymentFulfillmentRef
+	if err := tx.Model(&models.Payment{}).
+		Select("id", "user_id", "status").
+		Where("\"stripe_session_id\" = ?", sessionID).
+		First(&ref).Error; err != nil {
+		return nil, err
+	}
+	return &ref, nil
 }
 
 // calculateFulfilledPaymentExpiry 计算支付履约后的用户到期日；有效账号从原到期日累加，空或已过期账号从当前时间起算。
