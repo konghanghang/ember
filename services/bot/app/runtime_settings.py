@@ -18,9 +18,12 @@ runtime_settings_keys = [
 ]
 
 
-def _parse_chat_id(raw: str, fallback: Optional[int]) -> Optional[int]:
+def _parse_chat_id(raw: str, fallback: Optional[int], *, empty_clears: bool = False) -> Optional[int]:
+    """解析运行期 Chat ID，允许特定配置用空值表达清除旧缓存。"""
     value = raw.strip()
     if not value:
+        if empty_clears:
+            return None
         return fallback
     try:
         return int(value)
@@ -114,6 +117,7 @@ class RuntimeSettingsService:
                     group_chat_id=_parse_chat_id(
                         settings["TELEGRAM_GROUP_CHAT_ID"],
                         current.group_chat_id,
+                        empty_clears=True,
                     ) if "TELEGRAM_GROUP_CHAT_ID" in settings else current.group_chat_id,
                     notify_group_link=settings.get("notify_group_link", current.notify_group_link).strip(),
                     welcome_message_template=settings.get(

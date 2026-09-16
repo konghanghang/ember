@@ -48,8 +48,8 @@ Bot 的环境变量清单、敏感性和回退规则统一维护在 [配置参�
 
 这里仅保留 Bot 架构本身必须知道的运行期边界：
 
-- Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；刷新失败时保留旧值，不把有效缓存覆盖为空
-- 当 API 未返回值时，Chat ID 回退到本地 env
+- Bot 在运行期通过 Internal API 读取 `TELEGRAM_ADMIN_CHAT_ID`、`TELEGRAM_GROUP_CHAT_ID`、`notify_group_link` 和 `telegram_welcome_message_template`，并做短 TTL 缓存；字段缺失或刷新失败时保留最近缓存，初始缓存来自本地环境配置
+- 成功读取到 `TELEGRAM_GROUP_CHAT_ID: ""` 表示明确清除群目的地，必须覆盖旧群缓存，排行榜回退管理员；后续缺失/失败也不能重新恢复旧环境群值。管理员 Chat ID 保持现有不可清空规则
 - `polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`
 - `polling` 模式启动前会通过 Internal API 申请 `bot_runtime_locks(name='telegram_polling')` 租约锁，并每 30 秒续租一次；拿不到锁的实例直接拒绝启动，续租失败的实例会主动停止 polling，避免多副本重复消费更新
 - `webhook` 模式下注册采用有限重试策略；达到最大重试次数仍失败时，Bot 停止继续重试，`GET /health` 返回 `degraded` 并附带最近错误与重试次数，便于部署侧探活与告警

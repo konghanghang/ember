@@ -956,6 +956,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - Bot 使用 Python 3.11 + python-telegram-bot + FastAPI，支持 `webhook` / `polling` 双模式
 - 与 Go API 通过 `X-Internal-Secret` 做双向内部通信
 - API → Bot 通过 `BotNotifier` 火忘式推送通知；Telegram 用户交互则通过 Bot 再调用 Go Internal API
+- Bot 运行期群配置的显式空值会清除缓存目的地，排行榜回退管理员；字段缺失或刷新失败仅保留最近缓存，不撤销已成功读取的清空结果
 
 ### 9.2 关键约束
 
