@@ -241,6 +241,33 @@ func TestRoutedResolveMediaPathHEADRequiresExistingLease(t *testing.T) {
 	}
 }
 
+func TestRoutedResolveMediaPathHEADRetryAndPlayingUseExistingLease(t *testing.T) {
+	accounts := &fakeRoutedAccountRuntime{}
+	provider := newFakeProvider()
+	provider.searchResults = [][]p115integration.File{{provider.targetFile}, {provider.targetFile}}
+	leases := p115quota.NewMemoryLeaseStore()
+	service := newRoutedDirectPlayForTest(t, accounts, provider, leases)
+	request := routedMediaPathRequest("GET", "session-head-retry")
+
+	if _, err := service.ResolveMediaPath(context.Background(), request); err != nil {
+		t.Fatalf("ResolveMediaPath(GET) error = %v", err)
+	}
+	head := request
+	head.Method = "HEAD"
+	if candidate, err := service.ResolveMediaPath(context.Background(), head); err != nil || candidate.URL == "" {
+		t.Fatalf("ResolveMediaPath(HEAD) candidate=%t error=%v", candidate.URL != "", err)
+	}
+	event := PlaybackSessionEvent{UserID: request.UserID, MappingID: request.MappingID, DeviceID: request.DeviceID, PlaySessionID: request.PlaySessionID}
+	if result, err := service.HandlePlaybackSessionEvent(context.Background(), event); err != nil || !result.Found || result.State != p115quota.LeaseStateActive {
+		t.Fatalf("HandlePlaybackSessionEvent(existing) = %+v, %v", result, err)
+	}
+	missing := event
+	missing.PlaySessionID = "missing-session"
+	if result, err := service.HandlePlaybackSessionEvent(context.Background(), missing); err != nil || result.Found {
+		t.Fatalf("HandlePlaybackSessionEvent(missing) = %+v, %v", result, err)
+	}
+}
+
 func TestRoutedPlaybackEventsPromotePauseAndStopExistingLease(t *testing.T) {
 	accounts := &fakeRoutedAccountRuntime{}
 	provider := newFakeProvider()

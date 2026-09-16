@@ -297,6 +297,69 @@ func TestIntegrationSuccessfulProbeClearsExpiredCooldown(t *testing.T) {
 	}
 }
 
+func TestIntegrationPostgresContentLockSmallPoolWaiterCancellation(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	sqlDB, err := database.DB()
+	if err != nil {
+		t.Fatalf("database.DB(): %v", err)
+	}
+	sqlDB.SetMaxOpenConns(2)
+	sqlDB.SetMaxIdleConns(2)
+
+	holderLocker := &postgresTaskLocker{database: sqlDB, pollInterval: 10 * time.Millisecond}
+	waiterLocker := &postgresTaskLocker{database: sqlDB, pollInterval: 10 * time.Millisecond}
+	holder, err := holderLocker.Acquire(context.Background(), "account", directPlaySourceSHA1, 1024)
+	if err != nil {
+		t.Fatalf("holder Acquire() error = %v", err)
+	}
+	defer holder.Release()
+
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		lock, err := waiterLocker.Acquire(waitCtx, "account", directPlaySourceSHA1, 1024)
+		if lock != nil {
+			_ = lock.Release()
+		}
+		done <- err
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		queryCtx, cancelQuery := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		var value int
+		queryErr := sqlDB.QueryRowContext(queryCtx, "SELECT 1").Scan(&value)
+		cancelQuery()
+		if queryErr == nil && value == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("ordinary SQL starved while waiter polled: %v", queryErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancelWait()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("waiter error=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiter did not cancel")
+	}
+	if err := holder.Release(); err != nil {
+		t.Fatalf("holder Release() error = %v", err)
+	}
+	next, err := waiterLocker.Acquire(context.Background(), "account", directPlaySourceSHA1, 1024)
+	if err != nil {
+		t.Fatalf("Acquire(after cancel) error = %v", err)
+	}
+	if err := next.Release(); err != nil {
+		t.Fatalf("Release(after cancel) error = %v", err)
+	}
+}
+
 func TestIntegrationStaleRuntimeFailureCannotOverrideReplacedCookie(t *testing.T) {
 	database := newDirectPlayIntegrationDatabase(t)
 	accounts := seedDirectPlayAccounts(t, database)
