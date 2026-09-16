@@ -917,6 +917,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - **InternalAuth**：`middleware/internal_auth.go` — 校验 `X-Internal-Secret` header，用于 Bot ↔ API 内部通信；`INTERNAL_API_SECRET` 在 API 与 Bot 启动期均要求非空、长度至少 32 字符，并拒绝示例占位值
 - **Context 变量**：`userID`, `username`, `role`, `pwdSig`, `claims`, `principal`, `authType`
 - **密码存储**：bcrypt（DefaultCost），所有用户统一存本地 hash
+- **后台密码重置**：管理员账号（包括已绑定 Emby 的管理员）只重置 Ember 本地密码并清除强制改密标记，不依赖 Emby 配置；普通用户要求 EmbyID，先同步远端密码再保存本地 hash。密码 hash 变化继续通过 pwdSig 使旧 JWT 失效
 - **存量迁移**：`Password == ""` 时降级 Emby 认证，成功后自动补存本地 hash
 
 ---
