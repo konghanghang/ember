@@ -155,7 +155,21 @@ func userItemDetailPath(requestURL *url.URL) (string, string, bool) {
 		!validProofValue(segments[3], maxProofEmbyUserIDBytes, false) || !validProofValue(segments[5], maxProofItemIDBytes, false) {
 		return "", "", false
 	}
+	if isUserItemsStaticEndpoint(segments[5]) {
+		return "", "", false
+	}
 	return segments[3], segments[5], true
+}
+
+// isUserItemsStaticEndpoint identifies fixed Emby user item endpoints whose
+// final segment is not a dynamic ItemId even when the response is a BaseItemDto.
+func isUserItemsStaticEndpoint(segment string) bool {
+	switch strings.ToLower(segment) {
+	case "latest", "resume", "root":
+		return true
+	default:
+		return false
+	}
 }
 
 // normalizedContainer keeps only the bounded token needed by Emby's required

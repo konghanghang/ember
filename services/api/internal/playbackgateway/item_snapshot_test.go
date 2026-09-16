@@ -65,6 +65,10 @@ func TestUserItemDetailPathRequiresExactDepthAndUnescapedIdentity(t *testing.T) 
 		{path: "/emby/users/user-1/items/item-1", wantUser: "user-1", wantItem: "item-1", wantOK: true},
 		{path: "/emby/Users/user-1/Items/item-1/LocalTrailers"},
 		{path: "/emby/Users/user%2D1/Items/item-1"},
+		{path: "/emby/Users/user-1/Items/Latest"},
+		{path: "/emby/Users/user-1/Items/Resume"},
+		{path: "/emby/Users/user-1/Items/Root"},
+		{path: "/emby/Users/user-1/Items/latest"},
 	}
 	for _, test := range tests {
 		request := httptest.NewRequest(http.MethodGet, test.path, nil)
@@ -72,6 +76,62 @@ func TestUserItemDetailPathRequiresExactDepthAndUnescapedIdentity(t *testing.T) 
 		if userID != test.wantUser || itemID != test.wantItem || ok != test.wantOK {
 			t.Fatalf("path=%s result=(%q,%q,%t)", test.path, userID, itemID, ok)
 		}
+	}
+}
+
+func TestGatewayProxiesStaticUserItemsWithoutSnapshotDiagnostics(t *testing.T) {
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		upstreamPath string
+		body         []byte
+		encoding     string
+	}{
+		{name: "latest root path", method: http.MethodGet, path: "/Users/emby-user-1/Items/Latest", body: []byte(`[{"Id":"item-1"}]`)},
+		{name: "latest emby path mixed case", method: http.MethodGet, path: "/emby/Users/emby-user-1/Items/lAtEsT", body: []byte(`[{"Id":"item-1"}]`)},
+		{name: "resume gzip list", method: http.MethodGet, path: "/Users/emby-user-1/Items/Resume", body: gzipFixture(t, []byte(`{"Items":[{"Id":"item-1"}],"TotalRecordCount":1}`)), encoding: "gzip"},
+		{name: "root head", method: http.MethodHead, path: "/Users/emby-user-1/Items/Root", body: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				wantPath := test.upstreamPath
+				if wantPath == "" {
+					wantPath = "/emby" + strings.TrimPrefix(test.path, "/emby")
+				}
+				if request.URL.Path != wantPath {
+					t.Fatalf("upstream path=%s", request.URL.Path)
+				}
+				writer.Header().Set("Content-Type", "application/json")
+				if test.encoding != "" {
+					writer.Header().Set("Content-Encoding", test.encoding)
+				}
+				if test.method != http.MethodHead {
+					_, _ = writer.Write(test.body)
+				}
+			}))
+			defer upstream.Close()
+
+			var logs bytes.Buffer
+			gateway := newTestGateway(t, upstream.URL, &fakeTokenService{principal: fixturePrincipal()}, &logs)
+			request := httptest.NewRequest(test.method, test.path, nil)
+			if test.encoding != "" {
+				request.Header.Set("Accept-Encoding", test.encoding)
+			}
+			request.Header.Set(accessTokenHeader, fixtureAccessToken)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), test.body) ||
+				response.Header().Get("Content-Encoding") != test.encoding {
+				t.Fatalf("response=%d encoding=%q bodyLength=%d", response.Code, response.Header().Get("Content-Encoding"), response.Body.Len())
+			}
+			if logsText := logs.String(); strings.Contains(logsText, "code=item_container_snapshot_unusable") ||
+				strings.Contains(logsText, "code=item_container_snapshot_recorded") {
+				t.Fatalf("static user item route produced snapshot log: %q", logsText)
+			}
+		})
 	}
 }
 
