@@ -986,6 +986,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - API 启动后默认会在 `15s` 后额外执行一次追剧日历补偿同步，用于预热周历缓存。
 - API 启动后默认会在 `15s` 后额外执行一次 Emby Policy 同步补偿，用于回收上次进程中断遗留的 processing 任务。
 - 单用户 Emby Policy 同步失败以 `failed` 终态保留给管理员处理；覆盖后台 Emby 启停、用户分组变更、过期封禁、支付履约和兑换续期等账号状态变更；管理员可在用户管理中手动重试，成功后旧失败任务会被收口为 `synced`。
+- 完整 Policy 同步以用户级 PostgreSQL advisory lock 跨实例串行，获锁后才重读当前权益，直到远端写入和本地成功状态收口后释放；等待者每次 try-lock 失败归还连接。锁内 SQL 与 token 撤销复用连接，池容量已满时明确失败并释放锁，为真实 Emby 配置刷新避免嵌套取连接阻塞；不新增 revision、任务表或 migration。
+- 同步数据库操作与锁等待使用从调用方 context 派生的两分钟预算；worker 的取消贯穿到同步入口。已发出的 Emby HTTP 仍受原客户端 timeout 管理，取消不代表远端未写入。解锁使用独立五秒窗口，panic 同样先清理，未知锁状态连接丢弃；worker 取消后的失败记账也有独立五秒窗口，剩余 processing 仍由既有超时回收处理。
 - 追剧日历启动补偿由 `TV_CALENDAR_STARTUP_SYNC_ENABLED` 控制，默认 `"true"`；关闭后不影响 `TV_CALENDAR_SYNC_SCHEDULE` 对应的定时同步。
 - `CRON_TIMEZONE` 是 Ember 唯一的全局业务时区，统一作为调度、日期边界、排行榜、播放记录、追剧日历状态和用户可见时间的判定基线。
 
