@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -383,6 +384,125 @@ func TestProcessPendingEmbyPolicySyncTasksCarriesContextIntoLockWait(t *testing.
 	}
 }
 
+// TestProcessPendingEmbyPolicySyncTasksCancellationLeavesWaitingTasksUnclaimed verifies
+// that a canceled sync finishes its own task without reserving the rest of the queue.
+func TestProcessPendingEmbyPolicySyncTasksCancellationLeavesWaitingTasksUnclaimed(t *testing.T) {
+	database, mock, closeDB := newPolicySQLMockDB(t, 4)
+	defer closeDB()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	locker := &cancelingPolicyLocker{cancel: cancel, entered: make(chan struct{}, 1)}
+	client := &recordingPolicyClient{raw: map[string]any{"SimultaneousStreamLimit": 1, "IsAdministrator": false}}
+	service := NewServiceWithDB(database, client)
+	service.syncLocker = locker
+	service.defaultRevoker = false
+	service.revokeUserTokens = func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
+		t.Fatal("token revoker must not run after worker context cancellation")
+		return 0, nil
+	}
+
+	now := time.Now().UTC()
+	expectWorkerClaimOneTask(mock, now)
+	expectWorkerFinishTaskFailed(mock)
+
+	result, err := service.ProcessPendingEmbyPolicySyncTasks(ctx, 3)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation, got %v", err)
+	}
+	if result == nil || result.Claimed != 1 || result.Failed != 1 || result.Succeeded != 0 {
+		t.Fatalf("unexpected worker result: %+v", result)
+	}
+	select {
+	case <-locker.entered:
+	default:
+		t.Fatal("expected worker to enter locker before cancellation")
+	}
+	if patches := client.patchesSnapshot(); len(patches) != 0 {
+		t.Fatalf("expected no Emby patch after cancellation, got %+v", patches)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+// TestProcessPendingEmbyPolicySyncTasksClaimsSequentially covers cancellation after
+// one completion, queue exhaustion, explicit limits, and the default limit.
+func TestProcessPendingEmbyPolicySyncTasksClaimsSequentially(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		limit        int
+		count        int
+		cancelSecond bool
+		empty        bool
+	}{
+		{name: "cancel second of three", limit: 3, count: 2, cancelSecond: true},
+		{name: "explicit limit", limit: 2, count: 2},
+		{name: "queue exhausted", limit: 3, count: 1, empty: true},
+		{name: "empty queue", limit: 3, count: 0, empty: true},
+		{name: "default limit", limit: 0, count: defaultPolicySyncWorkerLimit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database, mock, closeDB := newPolicySQLMockDB(t, 4)
+			defer closeDB()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			service := NewServiceWithDB(database, &stubPolicyClient{})
+			calls := 0
+			service.syncLocker = workerPolicyLockerFunc(func(ctx context.Context) error {
+				calls++
+				if tc.cancelSecond && calls == 2 {
+					cancel()
+					return ctx.Err()
+				}
+				return nil
+			})
+			mock.ExpectQuery(`SELECT \* FROM "emby_policy_sync_tasks" WHERE status = \$1 AND updated_at <= \$2`).
+				WithArgs(SyncStatusProcessing, anyTime{}).WillReturnRows(policyTaskRows())
+			for i := 1; i <= tc.count; i++ {
+				taskID := fmt.Sprintf("task_%d", i)
+				expectWorkerClaimTask(mock, time.Now().UTC(), taskID)
+				status := SyncStatusSynced
+				var lastError driver.Value
+				if tc.cancelSecond && i == 2 {
+					status = SyncStatusFailed
+					lastError = context.Canceled.Error()
+				}
+				mock.ExpectBegin()
+				mock.ExpectExec(`UPDATE "emby_policy_sync_tasks" SET "last_error"=\$1,"next_retry_at"=\$2,"status"=\$3,"updated_at"=\$4 WHERE id = \$5 AND status = \$6`).
+					WithArgs(lastError, nil, status, anyTime{}, taskID, SyncStatusProcessing).
+					WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectCommit()
+			}
+			if tc.empty {
+				expectWorkerClaimTask(mock, time.Now().UTC(), "")
+			}
+			result, err := service.ProcessPendingEmbyPolicySyncTasks(ctx, tc.limit)
+			wantFailed := 0
+			if tc.cancelSecond {
+				wantFailed = 1
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("expected cancellation, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if result == nil || result.Claimed != tc.count || result.Failed != wantFailed || result.Succeeded != tc.count-wantFailed || calls != tc.count {
+				t.Fatalf("unexpected result=%+v calls=%d", result, calls)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+type workerPolicyLockerFunc func(context.Context) error
+
+// WithUserLock substitutes only the sync outcome so worker queue behavior is isolated.
+func (fn workerPolicyLockerFunc) WithUserLock(ctx context.Context, _ *gorm.DB, _ string, _ string, _ func(*gorm.DB) error) error {
+	return fn(ctx)
+}
+
 type passthroughPolicyLocker struct{}
 
 // WithUserLock runs the body immediately while preserving the production callback shape.
@@ -560,19 +680,29 @@ func expectEffectivePolicySync(
 	mock.ExpectCommit()
 }
 
+// expectWorkerClaimOneTask covers stale recovery followed by a single claim.
 func expectWorkerClaimOneTask(mock sqlmock.Sqlmock, now time.Time) {
-	taskCreatedAt := now.Add(-time.Minute)
-	taskUpdatedAt := now.Add(-time.Minute)
 	mock.ExpectQuery(`SELECT \* FROM "emby_policy_sync_tasks" WHERE status = \$1 AND updated_at <= \$2`).
 		WithArgs(SyncStatusProcessing, anyTime{}).
 		WillReturnRows(policyTaskRows())
+	expectWorkerClaimTask(mock, now, "task_1")
+}
+
+// expectWorkerClaimTask models a queue that yields one task, or is empty for a blank ID.
+func expectWorkerClaimTask(mock sqlmock.Sqlmock, now time.Time, taskID string) {
+	rows := policyTaskRows()
+	if taskID != "" {
+		rows.AddRow(taskID, nil, "user_1", "emby_1", "VIP_A", "worker_retry", SyncStatusPending, 1, nil, nil, now.Add(-time.Minute), now.Add(-time.Minute))
+	}
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT \* FROM "emby_policy_sync_tasks" WHERE status = \$1 AND \(next_retry_at IS NULL OR next_retry_at <= \$2\) ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC LIMIT \$3 FOR UPDATE SKIP LOCKED`).
 		WithArgs(SyncStatusPending, anyTime{}, 1).
-		WillReturnRows(policyTaskRows().AddRow("task_1", nil, "user_1", "emby_1", "VIP_A", "worker_retry", SyncStatusPending, 1, nil, nil, taskCreatedAt, taskUpdatedAt))
-	mock.ExpectExec(`UPDATE "emby_policy_sync_tasks" SET "attempts"=attempts \+ 1,"last_error"=\$1,"next_retry_at"=\$2,"status"=\$3,"updated_at"=\$4 WHERE id IN \(\$5\)`).
-		WithArgs(nil, nil, SyncStatusProcessing, anyTime{}, "task_1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(rows)
+	if taskID != "" {
+		mock.ExpectExec(`UPDATE "emby_policy_sync_tasks" SET "attempts"=attempts \+ 1,"last_error"=\$1,"next_retry_at"=\$2,"status"=\$3,"updated_at"=\$4 WHERE id IN \(\$5\)`).
+			WithArgs(nil, nil, SyncStatusProcessing, anyTime{}, taskID).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
 	mock.ExpectCommit()
 }
 

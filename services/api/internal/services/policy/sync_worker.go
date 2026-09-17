@@ -77,7 +77,8 @@ func buildUserPolicySyncRetryTask(user *models.User, reason string, cause error,
 	}, nil
 }
 
-// ProcessPendingEmbyPolicySyncTasks 回收超时 processing 任务，并领取到期 pending 任务执行 Emby Policy 同步。
+// ProcessPendingEmbyPolicySyncTasks 回收超时 processing 任务，逐条领取并同步，最多执行 limit 条。
+// 未开始的任务保持 pending，避免 worker 取消后等待超时回收。
 func (s *Service) ProcessPendingEmbyPolicySyncTasks(ctx context.Context, limit int) (*EmbyPolicySyncWorkerResult, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("Policy 服务未配置数据库")
@@ -99,22 +100,21 @@ func (s *Service) ProcessPendingEmbyPolicySyncTasks(ctx context.Context, limit i
 		return nil, err
 	}
 
-	tasks, err := s.claimPendingPolicySyncTasks(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
-	result.Claimed = len(tasks)
-	if len(tasks) == 0 {
-		return result, nil
-	}
-
-	claimedBatchIDs := batchIDsFromTasks(tasks)
-	if err := s.refreshBatchIDs(claimedBatchIDs); err != nil {
-		return nil, err
-	}
-
-	for _, task := range tasks {
+	for result.Claimed < limit {
 		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		// 只领取马上执行的任务；取消或提前返回时，其他任务仍可由下一轮领取。
+		tasks, err := s.claimPendingPolicySyncTasks(ctx, 1)
+		if err != nil {
+			return result, err
+		}
+		if len(tasks) == 0 {
+			return result, nil
+		}
+		task := tasks[0]
+		result.Claimed++
+		if err := s.refreshBatchIDs(batchIDsFromTasks(tasks)); err != nil {
 			return result, err
 		}
 		workerService := *s
