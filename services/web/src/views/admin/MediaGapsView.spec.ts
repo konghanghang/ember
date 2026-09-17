@@ -13,6 +13,7 @@ import type {
 } from '@/types/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  dispatchMediaGap,
   getGroupedMediaGaps,
   getMediaGapScanStatus,
   getMediaGaps,
@@ -378,4 +379,43 @@ describe('MediaGapsView', () => {
     expect(dialog.attributes('data-width')).toBe('680px')
     expect(dialog.attributes('data-title')).toBe('搜索候选并下发')
   })
+
+  it.each(['search', 'dispatch'])('%s 状态冲突关闭候选并刷新列表，禁止旧候选再次下发', async (operation) => {
+    const gap = buildGap()
+    const candidate = { id: 'candidate-1', title: 'Demo', payload: { url: 'fake' } }
+    vi.mocked(searchMediaGap).mockResolvedValue({ data: { mediaGap: gap, candidates: [candidate] } })
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as {
+      openSearchDialog: (gap: MediaGapItem) => Promise<void>
+      handleDialogSearch: () => Promise<void>
+      handleDispatch: () => Promise<void>
+      currentGap: MediaGapItem | null
+      candidateResult: MediaGapSearchResult
+      selectedCandidateId: string
+    }
+    await vm.openSearchDialog(gap)
+    expect(wrapper.find('[data-test="form-dialog"]').exists()).toBe(true)
+    const previousFetches = vi.mocked(getGroupedMediaGaps).mock.calls.length
+    const conflict = { isAxiosError: true, response: { status: 409 } }
+    if (operation === 'search') {
+      vi.mocked(searchMediaGap).mockRejectedValueOnce(conflict)
+      await vm.handleDialogSearch()
+    } else {
+      vi.mocked(dispatchMediaGap).mockRejectedValueOnce(conflict)
+      await vm.handleDispatch()
+    }
+    await resolvePending()
+    expect(wrapper.find('[data-test="form-dialog"]').exists()).toBe(false)
+    expect(vm.currentGap).toBeNull()
+    expect(vm.candidateResult.candidates).toEqual([])
+    expect(vm.selectedCandidateId).toBe('')
+    expect(getGroupedMediaGaps).toHaveBeenCalledTimes(previousFetches + 1)
+    expect(ElMessage.error).not.toHaveBeenCalled()
+    const previousDispatches = vi.mocked(dispatchMediaGap).mock.calls.length
+    await vm.handleDispatch()
+    expect(dispatchMediaGap).toHaveBeenCalledTimes(previousDispatches)
+    wrapper.unmount()
+  })
+
 })

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAxiosError } from 'axios'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Component } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -717,6 +718,15 @@ const applySearchResult = (result: MediaGapSearchResult, fallbackGap: MediaGapIt
   patchGap(result.mediaGap ?? fallbackGap)
 }
 
+// 丢弃冲突操作持有的候选与目标，防止继续使用旧快照下发。
+const clearConflictedCandidates = () => {
+  dialogVisible.value = false
+  currentGap.value = null
+  candidateResult.value = { candidates: [] }
+  selectedCandidateId.value = ''
+}
+
+// 搜索当前工单；并发状态冲突关闭候选，列表由搜索入口统一刷新。
 const runSearch = async (gap: MediaGapItem) => {
   dialogLoading.value = true
   try {
@@ -729,7 +739,11 @@ const runSearch = async (gap: MediaGapItem) => {
     } else {
       ElMessage.warning('当前未搜索到可用候选')
     }
-  } catch {
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 409) {
+      clearConflictedCandidates()
+      return
+    }
     candidateResult.value = {
       mediaGap: gap,
       candidates: []
@@ -764,6 +778,7 @@ const handleDialogSearch = async () => {
   await fetchData()
 }
 
+// 下发选中候选；状态冲突时清除过期选择并刷新权威列表，错误提示由请求层统一处理。
 const handleDispatch = async () => {
   if (!currentGap.value || !selectedCandidate.value) {
     ElMessage.warning('请先选择一个候选资源')
@@ -781,8 +796,11 @@ const handleDispatch = async () => {
     dialogVisible.value = false
     ElMessage.success(res.data?.message || '补货下发成功')
     await fetchData()
-  } catch {
-    // handled
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 409) {
+      clearConflictedCandidates()
+      await fetchData()
+    }
   } finally {
     dispatching.value = false
   }

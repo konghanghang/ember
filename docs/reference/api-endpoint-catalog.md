@@ -175,8 +175,8 @@
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
 | GET | `/api/v1/admin/media-gaps/scan-status` | 查询缺集扫描后台任务状态 |
 | POST | `/api/v1/admin/media-gaps/scan` | 异步触发缺集扫描 |
-| POST | `/api/v1/admin/media-gaps/:id/search` | 搜索缺集候选资源 |
-| POST | `/api/v1/admin/media-gaps/:id/dispatch` | 下发缺集候选资源，请求 MoviePilot 下载入口时携带 `tmdbid` |
+| POST | `/api/v1/admin/media-gaps/:id/search` | 搜索缺集候选资源；回写遇到并发状态变化返回 409，前端清候选并刷新 |
+| POST | `/api/v1/admin/media-gaps/:id/dispatch` | 下发缺集候选资源，携带 `tmdbid`；结果回写状态冲突返回 409，不表示撤回远端请求 |
 | POST | `/api/v1/admin/media-gaps/:id/ignore` | 手动忽略缺集工单 |
 | POST | `/api/v1/admin/tv-calendar/sync` | 手动同步追剧日历 |
 | POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |

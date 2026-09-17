@@ -515,8 +515,10 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 - `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台管理入口已改为异步触发。**批次 2 新增跨副本互斥**：`mediaGapScanManager.Start` 通过 `pg_try_advisory_lock` 拿到独占锁后再写 `media_gap_scans (status='running')` 并启动 goroutine（`async.SafeGo` 包裹），结束时在 `defer` 内释放锁并写终态；锁被其他副本占有时返回 409
 - `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计
-- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；写入 `searchSnapshot` 与 `lastSearchedAt`
+- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；以读取时状态为条件写入 `searchSnapshot` 与 `lastSearchedAt`，仅 MISSING 推进 SEARCHED，保留 REQUESTED 的搜索入口
 - `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源，请求体带缺集 `tmdbId`；成功推进为 `REQUESTED` 并清空 `lastDispatchError`；**失败时写入 `lastDispatchError` 并切换为 `DISPATCH_FAILED`**：MoviePilot 业务拒绝保留已脱敏的 message，基础设施错误经 `upstream.SafeUpstreamError` 脱敏；前端可通过同一接口重试
+- 搜索及下发成功/失败均按 `id + 读取时状态` 条件回写，零行返回 409；成功后重读权威 DTO。前端冲突后关闭候选框、清空旧选择并刷新列表，避免旧结果覆盖 INGESTED/IGNORED。状态条件不保证同状态并行操作串行化，也不能撤回已发出的 MoviePilot 请求。
+- 扫描元数据不携带旧状态，历史空状态单独条件修复；Webhook 与扫描入库在 SQL 中保留 IGNORED 和已有 ingestedAt，核销及清理统计使用实际影响行数。
 - `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`；显式忽略写 `ignoreReasonCode='manual'`
 - `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后按状态分支处理：
   - `MISSING` / `SEARCHED` / `REQUESTED` / `DISPATCH_FAILED` → 收口为 `INGESTED`

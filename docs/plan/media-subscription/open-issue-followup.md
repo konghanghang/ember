@@ -37,7 +37,7 @@ API payment/playback/subscription/mediagap 及相关 handler；Web 订阅取消�
 - [x] #21 订单快照：失败重试/实际收费表单/履约与重复回调 SQL mock，payment 单测、race、vet、build 通过。名称与配置请求参数变化的幂等拒绝边界保留。
 - [x] #22 历史快照边界：日/周、新/旧批次、完整/部分周期 SQL mock 通过，明细半开区间回归保留；新增 HTTP/PostgreSQL 集成用例因未配置专用数据库而跳过，未作为已通过验收。
 - [x] #24 原子取消：SQL mock/GORM 屏障覆盖取消与批准/拒绝交错、404/409/数据库故障及管理员权限；subscription/handler 单测和 race、Web 取消组件测试与构建通过。真实 PostgreSQL 并发未执行。
-- [ ] #25 缺集状态竞争
+- [x] #25 缺集状态竞争：阻塞 fake MoviePilot 与 Ignore/Webhook 交错、扫描 SQL、权威 DTO、409 前端恢复回归通过；缺集包 race 与 Web 构建通过。没有真实外部或 PostgreSQL 并发验证。
 - [ ] #23 剧集榜完整聚合
 
 逐项同步 system-architecture 与相关 reference。完成验证后记录结果和边界，迁入 docs/archive/plan/media-subscription/，更新索引和盘点；未推送不代表未完成本轮本地交付。
