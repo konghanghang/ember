@@ -6,7 +6,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 
 从管理员配置到 Gateway/Emby/115 CDN 的整体调用关系、状态流转和当前缺口，见 [115 Cookie 直连播放端到端流程参考](./p115-playback-end-to-end-flow.md)。
 
-普通用户后续复用同一 Cookie Provider 绑定本人 playback 账号、按套餐路由到个人 playback 或管理员共享 playback，并使用 Redis 执行当前播放与转存配额的方案，见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。该方案尚未实现，不改变本文“首期只支持管理员账号”的当前合同。
+普通用户已复用同一 Cookie Provider 绑定本人 playback 账号、按套餐路由到个人 playback 或管理员共享 playback，并使用 Redis 执行当前播放与转存配额的方案，见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。该方案的代码与自动化已落地；个人 Cookie、Redis 与客户端真实验收仍未完成，管理员与个人输入合同分别见下文。
 
 ## 1. 状态与证据等级
 
@@ -90,7 +90,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 - Cookie、完整 `Set-Cookie`、上传加密材料、完整下载地址和 Provider 完整响应体不得进入日志、审计详情或测试快照。
 - 当前管理员账号的 `appType` 和 User-Agent 必须作为兼容参数显式保存；`appType` 优先从 Cookie `UID` 的 `ssoent` 自动识别，User-Agent 仍由管理员显式配置，不能在不同请求里随机切换客户端身份。
 
-后续个人账号不沿用管理员输入合同：创建和替换凭证时只提交 Cookie，不接收 `appType` 或 `userAgent`。后端从唯一合法 `UID` 的第二段 `ssoent` 派生 `app_type`；已知编码使用下表映射，未知编码保存固定诊断值 `unknown`，缺失、重复或非法 `UID` 直接拒绝。普通 Cookie/Web 请求的 Provider User-Agent 固定为 `Mozilla/5.0`，最终下载直链仍使用 Gateway 收到的真实播放器 User-Agent，秒传初始化继续使用协议代码内的版本绑定上传 User-Agent。该个人账号方案尚未实现，固定 Provider User-Agent 只有公开源码依据，尚未经过目标个人 Cookie 的真实 115 验证。
+个人账号不沿用管理员输入合同：创建和替换凭证时只提交 Cookie，不接收 `appType` 或 `userAgent`。后端从唯一合法 `UID` 的第二段 `ssoent` 派生 `app_type`；已知编码使用下表映射，未知编码保存固定诊断值 `unknown`，缺失、重复或非法 `UID` 直接拒绝。普通 Cookie/Web 请求的 Provider User-Agent 固定为 `Mozilla/5.0`，最终下载直链仍使用 Gateway 收到的真实播放器 User-Agent，秒传初始化继续使用协议代码内的版本绑定上传 User-Agent。该个人账号方案已实现，固定 Provider User-Agent 的外部适配仍只有公开源码依据，尚未经过目标个人 Cookie 的真实 115 验证。
 
 Cookie 失效后没有首期自动续期流程。账号状态应转为 `expired` 或 `error`，停止新秒传和新直链，由管理员替换 Cookie 并重新验证。
 
@@ -470,9 +470,9 @@ playbackAccountId + SHA1 + size
 6. 收到 `status=2` 后，使用 playback Cookie 和精确 `targetParentId` 调用 `FindTargetFile`；只有唯一候选同时满足 parent、SHA1、size 和非目录才算成功。
 7. 只有“锁内再次查重未命中 → 本任务初始化返回 `status=2` → 目标目录复核成功”的文件，才能记录为该任务创建的 playback 文件；任务保存 playback account、target parent、fileId、pickCode、SHA1、size、完成时间和 `lastAccessedAt`。这些 provenance 第一阶段用于复用、审计和外部删除恢复，第二阶段才能作为容量回收依据。
 8. 目标复核失败、超时或出现多个精确候选时，任务失败且不得签发任何下载地址；不确定归属的文件不得自动删除。
-9. 使用 playback Cookie、目标文件 pickCode 和本次真实播放器 User-Agent 调用 `GetDownloadURL`，校验 HTTPS hostname allowlist、`ExpiresAt`、并发上限和 HeaderMode；`f=3` 首期拒绝。
+9. 按第 9 节同设备缓存规则复用地址，未命中时使用 playback Cookie、目标文件 pickCode 和本次真实播放器 User-Agent 调用 `GetDownloadURL`，校验 HTTPS hostname allowlist、`ExpiresAt`、并发上限和 HeaderMode；`f=3` 首期拒绝。
 10. 播放网关只把第 9 步得到的 playback 下载 URL 作为 `Location` 返回 `302`。source 下载 URL 仅允许在服务端执行 preID/challenge Range，永远不能进入客户端、API、日志、数据库或缓存序列化。
-11. `Playing/Progress/Stopped` 继续透明转发给 Emby；当前只做脱敏旁路日志。独立后续计划落地后，成功的 115 `302` 使用 Redis sessionFingerprint 归并重复 `HEAD`、Range 和重连，Playing/Progress 续租账号/用户两个当前活跃索引，暂停继续占用，Stopped 成功转发后释放。每次成功复用 playback 文件时仍更新任务/缓存的 `lastAccessedAt`。
+11. `Playing/Progress/Stopped` 继续透明转发给 Emby；成功事件才更新已有 Redis sessionFingerprint 租约。GET 创建或复用 reservation，HEAD 只读既有租约；Playing/Progress 晋级或续租，暂停继续占用，Stopped 成功转发后释放。Stopped 不清除同设备直链缓存，新 session 必须重新准入。每次成功复用 playback 文件时仍按既有 1 分钟采样规则更新任务的 `lastAccessedAt`。
 12. 第一阶段不自动删除 playback 文件：会话停止、过期或用户短期重复打开都只影响会话状态，不触发 `DeleteFile`。文件持续保留在专用目录并作为后续播放缓存；如果管理员在 115 中手工删除，下一次播放必须以实时查重未命中为准重新秒传，不能只信任历史成功任务。
 
 首期不允许以下捷径：使用 source 账号直链播放、把 source Cookie 注入播放器、完整文件中转上传、未复核目标文件就返回 302、播放停止/会话过期后自动删除 playback 文件。Provider/DirectPlay Service 只返回类型化结果，不自行代理 Emby；Gateway 在 Principal 合法且 115 非成功时记录固定原因并显式 fallback 原始 Emby 请求。
@@ -486,6 +486,17 @@ playbackAccountId + SHA1 + size
 - 源账号用于 Range challenge 的直链永远不能返回给客户端。
 - `f=3` 或其他需要额外 Cookie 的链接，在证明 Infuse 能自然满足前按不兼容处理。
 - 不兼容、凭证失效或 Provider 不可用时向 Gateway 返回类型化内部错误，禁止改用 source 账号；Gateway 不签发 302，记录脱敏 fallback 原因并透明转发原始 Emby 视频请求。
+
+### 9.1 同设备短期直链缓存（Ember 内部合同）
+
+- Gateway 路由入口只缓存最终 playback 下载结果；源文件路径解析、内容身份校验、目标查重和账号/租约检查仍实时执行。没有设备/登录上下文的低层 `Resolve` 不缓存。
+- 缓存键对 Server、用户、登录映射、设备、playback 账号 ID/干净 active 配置版本、凭证及 Provider 参数、目标目录/文件 ID/pickCode/SHA1/size、真实播放器 UA 做长度编码后摘要；不保存原始 Cookie，不含 `PlaySessionId`，不跨设备或登录复用。摘要只在进程内使用，不输出日志。
+- 进程内 LRU 最多 1024 条，每条 URL 最多 16 KiB；缓存截至 `min(获取完成时间 + 30s, ExpiresAt - 10s)`，命中不续期，过期惰性删除并按容量淘汰，无后台刷新。时钟回退到写入之前时丢弃条目。URL 不进入 Redis、数据库、API 或日志。
+- 同一键的取链串行，等待者可独立取消；持有者取消或调用失败不填缓存，后续请求可重新获取。不缓存错误、额外 Cookie 链接、无效结果或已进入安全窗口的地址，不以过期地址兜底。
+- 每个请求独立执行 Redis 准入和最终确认；HEAD 无租约仍 fallback，缓存不能绕过停用、冷却、解绑或配额状态。新转存强制清除旧地址并重新获取，即使上游复用了文件标识。缓存只含下载结果，不共享任务 ID、首次/复用标记或用量。
+- 账号凭证加载暴露非持久化 `DownloadCacheVersion`：仅干净 active 状态为正数，冷却探测/错误恢复或未知版本为零并强制实际取链。缓存命中不回写 playback 健康成功；本次真实源解析的成功观察仍按原采样规则回写。
+- 决策日志增加固定 `downloadURLCache=hit|miss|bypass`，实际调用仍以 `downloadURLCalls` 计数；不打印 URL 或缓存键。
+- 自动化只证明 Ember 复用、隔离与门控。Gateway 无法观察 302 后 CDN 提前失效，跨播放 session 的真实客户端复用、CDN 并发/网络切换兼容性和实际延迟收益尚未实测。
 
 ## 10. 保留、冷却与未来清理
 
@@ -524,7 +535,7 @@ playbackAccountId + SHA1 + size
 15. 下载链接覆盖真实客户端 UA、RSA request/response seam、单记录/pickCode 校验、HTTPS allowlist、唯一 `t/c/f`、过期和未知 Header 模式；播放网关另测 `f=3` 拒绝。
 16. 删除 Adapter 覆盖单文件表单、同 Provider UID 串行、跨 UID 并行、锁等待取消和错误不重试；第一阶段业务测试必须反向确认 Stopped、会话过期和重复播放都不会调用 `DeleteFile`。
 17. 保留式秒传检查器覆盖双重查重、preID、零/一次 challenge、重复 challenge 拒绝、目标复核、preexisting 快速路径、playback UA Range、`retained=true`、`cleanup.attempted=false` 和 `databaseLockValidated=false`。
-18. 重复播放命中同一 playback 文件时跳过秒传、刷新 `lastAccessedAt` 并签发新临时直链；外部手工删除后查重未命中可以重新创建活动任务。
+18. 重复播放命中同一 playback 文件时跳过秒传、按既有采样规则刷新 `lastAccessedAt`，并复用合格缓存或签发新临时直链；外部手工删除后查重未命中可以重新创建活动任务。
 19. Cookie、完整直链、source 完整路径和 Provider 原始响应不进入日志或数据库；完整 SHA1、目标目录/fileId/pickCode 只进入 `playback_transfer_tasks` provenance，且不进入普通 JSON 或日志。
 20. `playback_transfer_tasks` migration 可重复执行，活动内容 partial unique、终态 provenance、challenge `attemptCount=2`、失败脱敏和 `lastAccessedAt` 均由 PostgreSQL 集成测试锁定。
 

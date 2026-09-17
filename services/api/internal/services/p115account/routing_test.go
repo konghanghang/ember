@@ -19,7 +19,7 @@ func TestServicePlaybackRouteSurvivesConcurrentSuccess(t *testing.T) {
 		AppType: stringPointer("web"), UserAgent: stringPointer("fixture-agent"),
 		TargetParentID: stringPointer("200"), TargetParentPath: stringPointer("/Playback"),
 		MaxConcurrentStreams: intPointer(3), Enabled: true, Status: models.P115AccountStatusActive,
-		UpdatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute), ConfigVersion: 7,
 	}
 	store := &fakeAccountStore{accounts: map[string]*models.P115Account{account.ID: account},
 		personalPolicy: PersonalPlanPolicy{PlaybackMode: models.P115PlaybackModeSystem}}
@@ -32,6 +32,9 @@ func TestServicePlaybackRouteSurvivesConcurrentSuccess(t *testing.T) {
 	first, err := service.AcquirePlaybackRoute(context.Background(), route)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if first.DownloadCacheVersion != account.ConfigVersion {
+		t.Fatal("acquired credential lost cache generation")
 	}
 	if err := service.ReportRuntimeHealth(context.Background(), first, RuntimeHealthSucceeded); err != nil {
 		t.Fatal(err)
@@ -52,6 +55,15 @@ func TestServicePlaybackRouteSurvivesConcurrentSuccess(t *testing.T) {
 	current, err := service.AcquirePlaybackRoute(context.Background(), route)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Acquisition must expose the latest half-open state, not the earlier active route.
+	account.Status = models.P115AccountStatusCoolingDown
+	expired := now.Add(-time.Second)
+	account.CooldownUntil = &expired
+	probe, err := service.AcquirePlaybackRoute(context.Background(), route)
+	if err != nil || probe.DownloadCacheVersion != 0 {
+		t.Fatalf("probe cache version=%d err=%v", probe.DownloadCacheVersion, err)
 	}
 	account.ConfigVersion++ // A control change is visible even at an identical timestamp.
 	if _, err := service.AcquirePlaybackRoute(context.Background(), route); !errors.Is(err, ErrRuntimeStateChanged) {
@@ -188,5 +200,40 @@ func TestServiceAcquirePlaybackRouteLoadsExactCredentialAfterAdmission(t *testin
 	}
 	if credential.Credential.Cookie != "cookie" || credential.Credential.AccountID != "personal" || credential.TargetParentID != "200" {
 		t.Fatalf("credential = %+v", credential)
+	}
+}
+
+// TestDownloadCacheVersionOnlyUsesCleanActiveSnapshots protects the metadata
+// boundary used by DirectPlay; probes and stale error states force Provider I/O.
+func TestDownloadCacheVersionOnlyUsesCleanActiveSnapshots(t *testing.T) {
+	now := time.Now()
+	for _, kind := range []string{"active", "disabled", "cooling", "cooldown-field", "error-code", "error-message", "unversioned"} {
+		t.Run(kind, func(t *testing.T) {
+			account := &models.P115Account{Enabled: true, Status: models.P115AccountStatusActive, ConfigVersion: 7}
+			switch kind {
+			case "disabled":
+				account.Enabled = false
+			case "cooling":
+				account.Status = models.P115AccountStatusCoolingDown
+			case "cooldown-field":
+				account.CooldownUntil = &now
+			case "error-code":
+				account.LastErrorCode = stringPointer("fixture")
+			case "error-message":
+				account.LastErrorMessage = stringPointer("fixture")
+			case "unversioned":
+				account.ConfigVersion = 0
+			}
+			want := int64(0)
+			if kind == "active" {
+				want = 7
+			}
+			if got := downloadCacheVersion(account); got != want {
+				t.Fatalf("version=%d want=%d", got, want)
+			}
+		})
+	}
+	if downloadCacheVersion(nil) != 0 {
+		t.Fatal("nil account enabled cache")
 	}
 }

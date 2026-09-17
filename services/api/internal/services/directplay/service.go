@@ -36,6 +36,7 @@ const (
 // ResolveRequest contains the already mapped source path and the actual
 // playback client's User-Agent. It never carries a signed URL or Cookie.
 type ResolveRequest struct {
+	downloadScope   *downloadCacheScope
 	SourceFile      p115integration.FilePathQuery
 	ClientUserAgent string
 }
@@ -65,6 +66,7 @@ type MediaPathMapping struct {
 // RedirectCandidate is the internal handoff to the future playback gateway.
 // URL is deliberately excluded from JSON and persistent task state.
 type RedirectCandidate struct {
+	downloadCacheHit    bool
 	URL                 string                             `json:"-"`
 	ExpiresAt           time.Time                          `json:"expiresAt"`
 	HeaderMode          p115integration.DownloadHeaderMode `json:"headerMode"`
@@ -171,6 +173,7 @@ type transferQuotaContext struct {
 // redirect candidate without exposing an HTTP endpoint.
 type Service struct {
 	sessionRequests        requestGate
+	downloadCache          *downloadURLCache
 	leaseHeartbeatInterval time.Duration
 	resolveTimeout         time.Duration
 	accounts               accountRuntime
@@ -251,6 +254,7 @@ func newRoutedServiceWithDependencies(
 		leases: leases, transferQuotas: transferQuotas, keyDeriver: keyDeriver, serverID: serverID,
 		businessTimezone: businessTimezone, transferCommitBudget: transferCommitTimeout,
 		transferRetryInterval: transferCommitRetryInterval, now: time.Now,
+		downloadCache: newDownloadURLCache(downloadCacheCapacity),
 	}, nil
 }
 
@@ -484,7 +488,8 @@ func (service *Service) resolveRoutedMediaPath(
 	quotaContext := &transferQuotaContext{UserID: request.UserID, HourlyLimit: route.TransferHourlyLimit, DailyLimit: route.TransferDailyLimit}
 	candidate, err = service.resolveWithAccounts(
 		ctx, source, playback,
-		ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent},
+		ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
+			downloadScope: &downloadCacheScope{serverID: service.serverID, userID: request.UserID, mappingID: request.MappingID, deviceID: request.DeviceID}},
 		quotaContext,
 	)
 	diagnostics.TransferChecked = quotaContext.Checked
@@ -612,14 +617,14 @@ func (service *Service) resolveWithAccounts(
 		return RedirectCandidate{}, err
 	}
 	if found {
-		candidate, err := service.downloadCandidate(ctx, playback, *target, request.ClientUserAgent, "", true)
+		candidate, err := service.downloadCandidate(ctx, playback, *target, request.ClientUserAgent, "", true, request.downloadScope)
 		if err != nil {
 			return RedirectCandidate{}, err
 		}
 		if err := service.touchSucceeded(ctx, playback.Credential.AccountID, sha1Value, sourceFile.Size); err != nil {
 			return RedirectCandidate{}, err
 		}
-		service.reportRuntimeSuccess(source, playback)
+		service.reportRuntimeSuccess(source, playback, !candidate.downloadCacheHit)
 		return candidate, nil
 	}
 
@@ -646,7 +651,7 @@ func (service *Service) resolveWithAccounts(
 		return RedirectCandidate{}, fmt.Errorf("%w: release", ErrLockUnavailable)
 	}
 	released = true
-	candidate, err := service.downloadCandidate(ctx, playback, lockedTarget, request.ClientUserAgent, taskID, preexisting)
+	candidate, err := service.downloadCandidate(ctx, playback, lockedTarget, request.ClientUserAgent, taskID, preexisting, request.downloadScope)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -655,7 +660,7 @@ func (service *Service) resolveWithAccounts(
 			return RedirectCandidate{}, err
 		}
 	}
-	service.reportRuntimeSuccess(source, playback)
+	service.reportRuntimeSuccess(source, playback, !candidate.downloadCacheHit)
 	return candidate, nil
 }
 
@@ -940,9 +945,9 @@ func (service *Service) searchTarget(ctx context.Context, account p115account.Ac
 	return &files[0], true, nil
 }
 
-// downloadCandidate validates the client-visible HeaderMode before returning
+// fetchDownloadCandidate validates the client-visible HeaderMode before returning
 // the short-lived URL; it never persists or logs that URL.
-func (service *Service) downloadCandidate(
+func (service *Service) fetchDownloadCandidate(
 	ctx context.Context,
 	account p115account.ActiveAccountCredential,
 	target p115integration.File,
@@ -990,13 +995,15 @@ func (service *Service) reportProviderFailure(
 	return mapped
 }
 
-// reportRuntimeSuccess marks both accounts healthy only after a usable download
-// candidate and required transfer persistence have completed.
-func (service *Service) reportRuntimeSuccess(source, playback p115account.ActiveAccountCredential) {
+// reportRuntimeSuccess records the fresh source observation after required
+// persistence; playback recovery requires an actual download endpoint call.
+func (service *Service) reportRuntimeSuccess(source, playback p115account.ActiveAccountCredential, playbackObserved bool) {
 	persistCtx, cancelPersist := context.WithTimeout(context.Background(), accountHealthWriteTimeout)
 	defer cancelPersist()
 	service.reportRuntimeHealthWithContext(persistCtx, source, p115account.RuntimeHealthSucceeded)
-	service.reportRuntimeHealthWithContext(persistCtx, playback, p115account.RuntimeHealthSucceeded)
+	if playbackObserved {
+		service.reportRuntimeHealthWithContext(persistCtx, playback, p115account.RuntimeHealthSucceeded)
+	}
 }
 
 // reportRuntimeHealth persists a bounded account outcome without changing the

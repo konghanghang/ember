@@ -91,8 +91,9 @@ func (s *Service) AcquirePlaybackRoute(ctx context.Context, route PlaybackRoute)
 	}
 	return ActiveAccountCredential{
 		Role: models.P115AccountRolePlayback, ProviderUserID: route.ProviderUserID, TargetParentID: route.TargetParentID,
-		Credential: p115integration.Credential{AccountID: account.ID, Cookie: cookie, AppType: appType, UserAgent: userAgent},
-		runtimeRef: runtimeRefForAccount(account, ciphertext),
+		Credential:           p115integration.Credential{AccountID: account.ID, Cookie: cookie, AppType: appType, UserAgent: userAgent},
+		runtimeRef:           runtimeRefForAccount(account, ciphertext),
+		DownloadCacheVersion: downloadCacheVersion(account),
 	}, nil
 }
 
@@ -147,4 +148,14 @@ func validateAcquiredPlaybackRoute(account *models.P115Account, route PlaybackRo
 		return ErrRuntimeStateChanged
 	}
 	return nil
+}
+
+// downloadCacheVersion prevents a cached URL from standing in for a cooldown
+// probe or recovery from a recorded Provider error. It carries no credentials.
+func downloadCacheVersion(account *models.P115Account) int64 {
+	if account == nil || !account.Enabled || account.Status != models.P115AccountStatusActive ||
+		account.CooldownUntil != nil || account.LastErrorCode != nil || account.LastErrorMessage != nil || account.ConfigVersion <= 0 {
+		return 0
+	}
+	return account.ConfigVersion
 }

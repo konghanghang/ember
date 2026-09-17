@@ -351,6 +351,8 @@ flowchart TD
 
 其中 GET 会在 Provider 前申请 Redis reservation；HEAD 只有同一 session 已存在 `reservation|active|paused` 时才继续，未命中不创建租约、不调用 115，直接进入公共 fallback。
 
+最终取链已增加同设备的进程内短期缓存：同一用户/登录映射/设备、账号配置及目标文件/UA 不变时，退出后新 `PlaySessionId` 可复用地址；仍实时解析源文件、查重目标，并为每个新 session 独立执行 Redis 准入/返回前确认。Stopped 释放租约但不删除缓存，HEAD 无租约仍 fallback。LRU 最多 1024 条、每条 URL 最多 16 KiB，截止时间为获取完成后 30 秒与直链到期前 10 秒的较早值，命中不续期；配置/凭证改变隔离旧条目，冷却恢复实际取链，新转存清除旧地址。命中只复用下载结果、不复用任务或用量，也不写 playback 健康成功；源解析的真实成功仍按原规则回写。同键取链串行且取消/错误不填缓存，决策日志输出 `downloadURLCache=hit|miss|bypass`。具体隔离与未验证边界见 [Cookie 合同 §9.1](./p115-cookie-playback-contract.md#91-同设备短期直链缓存ember-内部合同)。
+
 单 Gateway 按同 session 串行执行候选、续租与清理；排队及主处理共用 2 分钟预算。GET 新建/复用 reservation 时刷新 30 秒有效期，处理期间每 10 秒续租，返回前原子确认并续租；HEAD 准入通过一次原子查询同时读取租约和账号/用户用量，返回前再次确认，但不创建或延长租约。active/paused 的到期仍只由播放事件管理。租约丢失/过期/Stopped 时不重新创建，固定 `playback_lease_lost` 回退；内部主处理预算耗尽为 `playback_resolve_timeout` 回退。客户端自己的取消/超时仍为 `499/504`，内部预算和续租错误不污染账号健康。所有后台续租都在请求收尾时停止并等待退出，之后才清理本次新建预留并放行下一请求。
 
 HLS/DASH manifest、转码分片、不完整参数、未映射路径、账号不可用、Provider 错误、秒传失败、目标复核失败、链接不兼容等都进入 fallback，不拒绝合法用户。
@@ -389,7 +391,10 @@ sequenceDiagram
     DP->>Provider: SearchBySHA1(playback target, SHA1, size)
     alt 目标已存在
         Provider-->>DP: 唯一精确目标文件
-        DP->>Provider: GetDownloadURL(playback Cookie, ClientUA)
+        DP->>DP: 检查同设备短期直链缓存
+        opt 新转存、缓存未命中或需要真实探测
+            DP->>Provider: GetDownloadURL(playback Cookie, ClientUA)
+        end
         DP->>DP: 保存 preexisting 候选
     else 目标不存在
         DP->>DB: 获取 playbackAccountId + SHA1 + size advisory lock
@@ -416,10 +421,13 @@ sequenceDiagram
             DP->>DB: task=succeeded + target provenance
         end
         DP->>DB: 释放 advisory lock
-        DP->>Provider: GetDownloadURL(playback Cookie, ClientUA)
+        DP->>DP: 检查同设备短期直链缓存
+        opt 新转存、缓存未命中或需要真实探测
+            DP->>Provider: GetDownloadURL(playback Cookie, ClientUA)
+        end
         DP->>DP: 保存转存候选
     end
-    DP->>Accounts: ReportRuntimeHealth(source/playback, succeeded)
+    DP->>Accounts: source 实际成功回写；仅实际取链时回写 playback succeeded
     DP->>Redis: 原子确认有效租约；GET reservation 续租
     alt 租约有效且身份一致
         DP-->>Gateway: RedirectCandidate

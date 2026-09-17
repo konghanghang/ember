@@ -117,13 +117,15 @@ type ValidationResult struct {
 // ActiveAccountCredential carries the decrypted runtime credential and the
 // non-secret account metadata required by direct-play orchestration.
 type ActiveAccountCredential struct {
-	Role           models.P115AccountRole
-	ProviderUserID string
-	TargetParentID string
-	EmbyPathPrefix string
-	SourceRootID   string
-	Credential     p115integration.Credential
-	runtimeRef     runtimeCredentialRef
+	// DownloadCacheVersion is positive only for a clean active snapshot; zero forces a real Provider call.
+	DownloadCacheVersion int64
+	Role                 models.P115AccountRole
+	ProviderUserID       string
+	TargetParentID       string
+	EmbyPathPrefix       string
+	SourceRootID         string
+	Credential           p115integration.Credential
+	runtimeRef           runtimeCredentialRef
 }
 
 // SourceLocation contains only the non-sensitive source mapping metadata needed
@@ -371,7 +373,8 @@ func (s *Service) LoadActiveCredentialByRole(ctx context.Context, role models.P1
 			AppType:   appType,
 			UserAgent: userAgent,
 		},
-		runtimeRef: runtimeRefForAccount(account, ciphertext),
+		runtimeRef:           runtimeRefForAccount(account, ciphertext),
+		DownloadCacheVersion: downloadCacheVersion(account),
 	}, nil
 }
 

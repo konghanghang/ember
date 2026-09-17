@@ -2,7 +2,7 @@
 
 > 状态：进行中（阶段 1 核心闭环已落地并取得真实 302，完整 E2E 与阶段 2 未完成）
 > 负责人：Ember
-> 更新时间：2026-09-12
+> 更新时间：2026-09-17
 
 ## 背景
 
@@ -155,7 +155,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - `playback_transfer_tasks` 已落库，但管理员 transfer 查询、手工重试和失败趋势尚未实现。
 - 被动运行期健康回写和共享冷却已完成；主动账号健康检查、Bot 告警和自然发生的生产故障恢复观察尚未完成。
 - playback 文件仍无限保留；基于 `lastAccessedAt`、无活跃播放和容量水位的 dry-run/串行清理、删除前 provenance 复核与跨副本清理锁尚未实现。`DeleteFile` 当前只有 Adapter 和测试，没有生产业务调用方。
-- HEAD/预加载仍会同步进入完整 DirectPlay 查重、秒传和下载 URL 签发；短期直链缓存以及与同一播放 session 的归并尚未实现。
+- 同设备直链缓存的真实客户端复用表现与生产收益未验证；HEAD 无租约 fallback、同 session 请求串行及缓存代码已完成，源解析和目标查重仍实时执行。
 - 两次历史 Token Store error 已补分类诊断，但底层原因仍需后续自然日志复验；这属于观察项，不把旧日志猜测为连接池耗尽。
 
 已拆分、不再计入本计划欠账：
@@ -344,9 +344,9 @@ Gateway 已代理客户端 PlaybackInfo，当前先用有界 5 分钟进程内�
 
 #### 4.6 Redis 当前播放租约（独立计划）
 
-> 状态：需求边界已确认，尚未实现；不创建 `direct_play_sessions` 表。
+> 状态：Redis 租约代码与自动化已实现，真实 Redis/客户端验收未完成；不创建 `direct_play_sessions` 表。
 
-当前切片只维护 `mappingId + ItemId + MediaSourceId + PlaySessionId` 的进程内 PlaybackInfo 短期证明。后续 Redis 会把准入占用和真实活跃拆开：只有合格 `GET` 能在 302 前建立 `30s reservation` 并占用账号名额，`HEAD` 无既有租约时直接 fallback；成功的 Playing/Progress 才把 reservation 晋级为 `active` 并使用 `2m` TTL，暂停继续占用并使用 `15m` TTL，Stopped 成功转发后释放，无后续事件时自然过期。三类 TTL 首期使用代码常量，不增加运行时配置。
+当前保留 `mappingId + ItemId + MediaSourceId + PlaySessionId` 的进程内 PlaybackInfo 短期证明；Redis 已将准入占用和真实活跃拆开：只有合格 `GET` 能在 302 前建立 `30s reservation` 并占用账号名额，`HEAD` 无既有租约时直接 fallback；成功的 Playing/Progress 才把 reservation 晋级为 `active` 并使用 `2m` TTL，暂停继续占用并使用 `15m` TTL，Stopped 成功转发后释放，无后续事件时自然过期。三类 TTL 首期使用代码常量，不增加运行时配置。
 
 Redis 不保存完整 115 直链、Cookie、Token、完整 SHA1 或播放历史；详细 Key、原子更新和故障回退见 [115 用户自有账号路由与 Redis 配额实现方案](./p115-personal-account-routing-and-redis-quotas.md)。
 
@@ -559,7 +559,20 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 - 主动账号健康检查、Bot 告警、失败趋势，以及基于 `lastAccessedAt`、无活跃会话和容量水位的串行清理任务；被动播放结果回写和共享冷却不再属于本阶段剩余项。
 - transfer 秒传已由 PostgreSQL advisory lock 支持多 Gateway；仍需为清理任务补跨副本互斥，并在后续 Redis 租约可用后接入“无活跃播放”条件。
 - 本地媒体 fallback 已有 `206` 实机证据；仍需补 115 CDN 完整合同和自然发生的云端故障恢复证据。
-- 收口 HEAD/预加载重复进入完整 DirectPlay 的 Provider 开销：HEAD 无既有 Redis 租约时直接 fallback，有既有租约时按账号、目标文件和真实 UA 复用有界短期直链缓存；GET reservation 与缓存统一按 sessionFingerprint 归并。
+- 已收口 HEAD 无租约 fallback、同 session 请求串行和同设备最终直链缓存；GET reservation 仍按 sessionFingerprint 独立归并，URL 缓存不包含 PlaySessionId，具体边界见下节。真实客户端复用效果待验证。
+
+### 同设备短期直链缓存（2026-09-17，代码与非数据库自动化已完成）
+
+- 目标：同一设备在同一登录映射内退出后重新播放，即使 `PlaySessionId` 变化，也可复用刚获取的 playback 直链。只缓存最终下载地址，源文件解析与目标查重仍实时执行。
+- 隔离：Server、用户、登录映射、设备、playback 账号配置版本、目标文件身份及真实 UA；不跨设备或登录共享，不以播放 session 作为缓存键。
+- 生命周期：Gateway 进程内最多 1024 条 LRU；TTL 为获取完成后 30 秒与链接到期前 10 秒两者较早值，命中不续期，Stopped 不清除地址但仍释放原播放租约。无后台刷新、不落 Redis/数据库，不新增配置或 migration。
+- 门控：每次请求仍执行身份/证明、实时账号/套餐、Redis 准入和返回前租约确认；冷却恢复必须实际取直链；命中不作为 playback Provider 健康成功回写；源解析的实际成功仍按原规则回写，不共享任务或配额结果。
+- 并发与失败：相同缓存键的下载地址请求串行合并；等待者独立取消，错误不缓存，不使用过期地址兜底。新 session 仍独立占用名额。缓存不能观察 302 后 CDN 提前失效，实际播放器复用效果未证实。
+- 影响：DirectPlay、账号运行期元数据、现有决策日志与测试；Web/Bot 和外部 API 无变更。协议依据为固定版本 Cookie 合同第 9 节及 Emby 4.9 PlaybackInfo 合同。
+- 验证：先补退出/Stopped/新 session 重播的失败测试，再覆盖隔离、过期、淘汰、错误、取消、冷却与租约门控；执行 Go 非数据库测试、相关 race、vet/build。全部外部依赖 fake，不执行真实 PostgreSQL/Redis/Emby/115。
+- 已完成：缓存、设备/登录/账号/文件/UA 隔离、Stopped 后新 session 重播、HEAD 复用、冷却绕过、新转存强制重新取链和日志；架构、Cookie 合同、端到端流程及本计划的旧 Redis/HEAD 描述已同步。
+- 验证结果：先用回归测试复现退出重播调用两次下载接口，修复后为一次，源解析/目标查重仍各两次。API `go test ./... -skip 'Integration|PostgreSQL' -count=1`、DirectPlay/账号/配额/Gateway 四包 race、`go vet ./...`、`go build ./...` 均通过；新增测试覆盖期限/不续期、容量淘汰、隔离、取消、健康回写及配额/任务元数据不复用。全部外部依赖 fake，没有运行真实 PostgreSQL、Redis、Emby、115 或播放器。
+- 剩余：真实播放器复用和性能收益待具备条件并授权后验证；本计划其余运营功能仍未完成，继续保留总计划。
 
 ### 阶段 3：OpenAPI 与账号池
 
@@ -701,7 +714,7 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 3. `status=7` 只读取源账号指定 Range，再次初始化并复核目标文件。
 4. `status=1` 明确失败，绝不下载和上传完整视频。
 5. 并发 `HEAD`、预加载和 Range 只创建一个秒传任务。
-6. 重复播放命中同一 playback 文件，跳过秒传、按 1 分钟采样刷新最后访问时间并签发新临时直链；Stopped 和会话 TTL 不调用删除。
+6. 重复播放命中同一 playback 文件，跳过秒传、按 1 分钟采样刷新最后访问时间并复用同设备合格缓存或签发新临时直链；Stopped 和会话 TTL 不调用删除。
 7. 下载链接通过过期时间、UA、Header 要求和域名 allowlist 校验。
 8. `f=3` 或需要额外 Cookie 的链接明确失败，不泄露凭证。
 9. Playing、Progress、Stopped 仍由 Emby 接收，播放进度正常。

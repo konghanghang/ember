@@ -16,8 +16,9 @@ type stageTiming struct {
 // TimingDiagnostics carries only request-local numeric measurements, never
 // serialized or persisted. Stage names are filtered before logging.
 type TimingDiagnostics struct {
-	total  time.Duration
-	stages map[string]stageTiming
+	downloadCache string
+	total         time.Duration
+	stages        map[string]stageTiming
 }
 
 // LogFields emits measured stages in fixed order, aggregating repeated calls.
@@ -27,6 +28,10 @@ func (timing TimingDiagnostics) LogFields() []string {
 		return nil
 	}
 	fields := []string{"directPlayMs=" + strconv.FormatInt(timing.total.Milliseconds(), 10)}
+	switch timing.downloadCache {
+	case "hit", "miss", "bypass":
+		fields = append(fields, "downloadURLCache="+timing.downloadCache)
+	}
 	var measured time.Duration
 	for _, name := range timingStages {
 		stage, found := timing.stages[name]
@@ -45,10 +50,11 @@ func (timing TimingDiagnostics) LogFields() []string {
 
 type timingContextKey struct{}
 type timingRecorder struct {
-	started  time.Time
-	now      func() time.Time
-	prepared bool
-	stages   map[string]stageTiming
+	downloadCache string
+	started       time.Time
+	now           func() time.Time
+	prepared      bool
+	stages        map[string]stageTiming
 }
 
 // withTiming creates one recorder per resolve; shared Provider goroutines do
@@ -63,7 +69,7 @@ func (r *timingRecorder) finish() TimingDiagnostics {
 	if !r.prepared {
 		r.stages["prepare"] = stageTiming{duration: r.now().Sub(r.started), calls: 1}
 	}
-	return TimingDiagnostics{total: r.now().Sub(r.started), stages: r.stages}
+	return TimingDiagnostics{total: r.now().Sub(r.started), stages: r.stages, downloadCache: r.downloadCache}
 }
 
 // finishPreparation separates mapping, account loading and Redis admission
@@ -88,5 +94,13 @@ func measureStage(ctx context.Context, name string) func() {
 		stage.duration += r.now().Sub(started)
 		stage.calls++
 		r.stages[name] = stage
+	}
+}
+
+// recordDownloadCache adds only a fixed cache outcome to the existing decision
+// diagnostics; cache keys and download URLs never enter the recorder.
+func recordDownloadCache(ctx context.Context, outcome string) {
+	if r, ok := ctx.Value(timingContextKey{}).(*timingRecorder); ok {
+		r.downloadCache = outcome
 	}
 }

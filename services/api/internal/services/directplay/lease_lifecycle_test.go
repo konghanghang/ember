@@ -107,7 +107,11 @@ func TestExpiredCandidateCannotReturnAfterAnotherSessionFillsCapacity(t *testing
 			return
 		}
 		now = now.Add(p115quota.ReservationTTL + time.Second)
-		if candidate, err := service.ResolveMediaPath(context.Background(), routedMediaPathRequest("GET", "replacement-session")); err != nil || candidate.URL == "" {
+		// A distinct device can fill capacity while the first download is in flight;
+		// the same device now coalesces download work and cannot reenter it here.
+		replacement := routedMediaPathRequest("GET", "replacement-session")
+		replacement.DeviceID = "replacement-device"
+		if candidate, err := service.ResolveMediaPath(context.Background(), replacement); err != nil || candidate.URL == "" {
 			t.Fatalf("replacement ResolveMediaPath() candidate=%t error=%v", candidate.URL != "", err)
 		}
 	}}

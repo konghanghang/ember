@@ -63,7 +63,8 @@ func (runtime *fakeRoutedAccountRuntime) AcquirePlaybackRoute(_ context.Context,
 	}
 	return p115account.ActiveAccountCredential{
 		Role: models.P115AccountRolePlayback, ProviderUserID: route.ProviderUserID, TargetParentID: route.TargetParentID,
-		Credential: p115integration.Credential{AccountID: route.AccountID, Cookie: "playback-cookie", AppType: "web", UserAgent: "fixture-agent"},
+		DownloadCacheVersion: route.ConfigVersion,
+		Credential:           p115integration.Credential{AccountID: route.AccountID, Cookie: "playback-cookie", AppType: "web", UserAgent: "fixture-agent"},
 	}, nil
 }
 
