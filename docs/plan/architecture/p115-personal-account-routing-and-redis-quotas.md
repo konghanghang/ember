@@ -1,8 +1,8 @@
 # 115 用户自有账号路由与 Redis 配额实现方案
 
-> 状态：代码、自动化与 PostgreSQL 集成已完成，待受控真实验收
+> 状态：阶段 0–3 已落地，基础 PostgreSQL 集成已完成；后续数据库验证与受控真实验收待完成
 > 负责人：Ember
-> 更新时间：2026-09-12
+> 更新时间：2026-09-17（同步分批验证边界）
 
 ## 背景
 
@@ -498,17 +498,21 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - 稳定架构、数据模型、配置、API、Web 信息架构、115 端到端流程、数据库入口和部署/测试 runbook 已同步。
 - `go test ./...`、`go vet ./...`、`go build ./...` 通过；`p115quota/p115account/directplay/playbackgateway` race 通过；Web 30 个文件通过、1 个跳过（224 项通过、3 项跳过），生产构建通过；Compose Redis 合同通过 YAML 静态检查。
 
-剩余：
+历史验证记录（本次文档复核未重跑）：
 
 - 2026-09-05 已使用专用 `EMBER_INTEGRATION_DATABASE_URL` 执行 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`；新增 migration 幂等、约束、个人账号生命周期、tombstone、用户删除顺序等 PostgreSQL 集成用例全部通过。测试 harness 使用独立 `itest_*` schema，未启动项目服务或访问真实 115/Emby。
 - 2026-09-05 已使用占位必填配置并包含 `gateway`、`bot` profile 执行 `docker compose config --quiet`，解析通过；该结果不替代部署者在目标环境使用实际 `.env`、override 和只读 mount 执行同一检查。
+
+剩余：
+
+- 2026-09-12 后续账号 `config_version` migration、配置竞态与成功记录优化已完成非数据库自动化；新增 PostgreSQL 用例尚未执行，不能沿用 9 月 5 日记录宣称通过。具体通过范围和数据库连接失败记录见 [网关总计划](./emby-115-direct-play-gateway.md) 的对应日期验证章节。
 - 未启动项目服务，未访问真实 Redis、Emby 或 115；个人 Cookie 固定 `Mozilla/5.0`、真实 personal/system 路由、客户端事件间隔、配额边界和 Redis 故障回退均待用户另行授权后受控验证。
 - Emby `SimultaneousStreamLimit` 能否限制 115 `302` 分流仍未证实，本计划不新增 Gateway 用户级门控。
 
 归档条件：
 
 - 四个阶段全部落地并通过自动化验证。
-- 在专用 PostgreSQL 集成库实际执行新增 migration 用例（已于 2026-09-05 完成）。
+- 基础个人账号 migration 集成已于 2026-09-05 完成；在专用 PostgreSQL 集成库补跑 9 月 12 日后续配置版本 migration、配置竞态与成功记录优化的新增用例，并分别记录结果。
 - 真实验证按用户授权范围记录证据；未授权的外部 E2E 必须明确标为未验证，不能伪写通过。
 - 当前实现事实提炼到 `docs/system-architecture.md` 和对应 `docs/reference/`。
 - `docs/plan/README.md`、计划盘点和交叉引用同步完成后，移入 `docs/archive/plan/architecture/`。

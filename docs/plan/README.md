@@ -38,7 +38,7 @@
 
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
-- `architecture/p115-personal-account-routing-and-redis-quotas.md`（代码与自动化已完成，待 PostgreSQL 集成执行与受控真实验收）
+- `architecture/p115-personal-account-routing-and-redis-quotas.md`（阶段 0–3 已落地，基础 PostgreSQL 集成于 2026-09-05 通过；9 月 12 日后续改动的数据库验证与受控真实验收仍待完成）
 - `architecture/runtime-settings-cache-evolution.md`
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`

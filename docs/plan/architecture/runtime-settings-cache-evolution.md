@@ -2,7 +2,7 @@
 
 > 状态：草稿（观察期，尚未排期）
 > 负责人：Ember
-> 更新时间：2026-08-30
+> 更新时间：2026-09-17（同步 Bot 显式空值语义；演进仍处观察期）
 
 ## 背景
 
@@ -51,8 +51,10 @@ Ember 已为数据库 `settings` 建立按 key 的进程内缓存，解决同一
 | --- | --- | --- | --- | --- |
 | 普通 `ConfigService` 数据库 key | 加载后 `60s` 内命中；包含 negative cache | TTL 到期后的下一次访问同步查询数据库 | 数据库错误不缓存，下次访问继续重试 | 无；过期条目保留到再次读取或主动失效 |
 | `LOG_LEVEL`、`PLAYBACK_GATEWAY_WEB_ENABLED` | Gateway 专用 `5s` 进程缓存 | 下一次相关 Gateway 请求同步刷新；同 key 并发合并 | 错误退避 `5s`；日志级别保留上一次有效运行值，Web 开关读取失败返回 `503` | 无 |
-| Bot Telegram 运行期配置 | Bot 聚合结果缓存 `30s` | 下一次 Bot 调用通过 Internal API 刷新 | 保留上一次有效值，不以空结果覆盖 | 无 |
+| Bot Telegram 运行期配置 | Bot 聚合结果缓存 `30s` | 下一次 Bot 调用通过 Internal API 刷新 | 字段缺失或刷新失败保留最近缓存；显式空群 Chat ID 清除旧群目的地 | 无 |
 | API `BOT_NOTIFY_URL` | `30s` 刷新节流，底层仍经过 `ConfigService` | 下一次通知调用触发检查，支持显式 `Reload()` | 沿用 `ConfigService.GetString` 的空值语义 | 无 |
+
+Bot 成功读取 `TELEGRAM_GROUP_CHAT_ID: ""` 时必须清除旧群目的地，排行榜回退管理员；后续字段缺失或刷新失败不能恢复旧环境群值。管理员 Chat ID 仍不可清空。实现和回归分别见 `services/bot/app/runtime_settings.py`、`services/bot/tests/test_runtime_settings.py`，稳定语义见 [Bot 架构参考](../../reference/bot-architecture-reference.md)。未来缓存演进必须保持这些区别，不能把显式空值等同于读取失败。
 
 普通 Go 缓存还具备以下边界：
 

@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-09-16（本次仅增补 GitHub issue 修复归档记录）
+> 更新时间：2026-09-17（复核现行计划数量、剩余项与分批验证边界）
 
 本清单只回答三件事：
 
@@ -89,13 +89,15 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env` 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。Gateway 本地媒体直出已按产品边界撤销并归档，不再列为现行计划。当前 `docs/plan/` 仍保留以下 8 份。
+2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env` 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。Gateway 本地媒体直出已按产品边界撤销并归档，不再列为现行计划。
+
+2026-09-17 文档复核：上述通过记录只覆盖对应历史批次；9 月 12 日新增账号配置版本与成功记录优化的 PostgreSQL 用例尚未执行，详见 [网关总计划的验证记录](../plan/architecture/emby-115-direct-play-gateway.md)。本次仅核对文档与代码落点，未重跑历史测试。当前 `docs/plan/` 仍保留以下 8 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
 | `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 管理员 source + 管理员共享 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有权威 Emby fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
-| `architecture/p115-personal-account-routing-and-redis-quotas.md` | 代码与自动化已完成，待受控验收 | 阶段 0–3 已落地：套餐默认 personal 与 `5/10` 配额、个人账号四步 API/Web、管理员共享 playback 路径/并发原子配置、revoked tombstone、用户删除顺序、personal/system 两段式路由、Redis `reservation → active ↔ paused`、HEAD 不创建、成功事件更新、小时/自然日 pending/succeeded 配额、晚到成功和独立 2s 记账、null/zero 用量与固定诊断日志。Go 全量 test/vet/build、关键 race、Web 243 项测试通过且 3 项跳过、生产 build、专用 PostgreSQL migration 集成用例和占位配置 Compose 解析均通过；未执行真实 Redis/个人 115/客户端验收，Emby 对 115 `302` 分流的限制效果仍未证实 | 保留到用户授权范围内的真实验证完成，或由用户明确接受未验证限制后归档 |
+| `architecture/p115-personal-account-routing-and-redis-quotas.md` | 阶段 0–3 已落地，待后续数据库验证与受控验收 | 阶段 0–3 已落地：套餐默认 personal 与 `5/10` 配额、个人账号四步 API/Web、管理员共享 playback 路径/并发原子配置、revoked tombstone、用户删除顺序、personal/system 两段式路由、Redis `reservation → active ↔ paused`、HEAD 不创建、成功事件更新、小时/自然日 pending/succeeded 配额、晚到成功和独立 2s 记账、null/zero 用量与固定诊断日志。历史阶段 0–3 验证记录包含 Go test/vet/build、关键 race、Web 测试与生产 build；基础个人账号 PostgreSQL 集成与占位配置 Compose 解析于 2026-09-05 通过。9 月 12 日账号配置版本与成功记录优化仅完成非数据库自动化，新增 PostgreSQL 用例未执行；未执行真实 Redis/个人 115/客户端验收，Emby 对 115 `302` 分流的限制效果仍未证实 | 保留到后续 PostgreSQL 用例与授权范围内真实验收完成，或由用户明确接受相应未验证限制后归档 |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
@@ -205,8 +207,8 @@
 
 ## 当前结论
 
-`docs/plan/` 当前共有 10 份仍在推进或观察的实施稿；本轮识别出的 3 份完成计划已经正式归档。当前需要处理的是：
+截至 2026-09-17，`docs/plan/` 共有 8 份现行实施稿：5 份未落地草稿、1 份观察期缓存演进计划、2 份主要能力已落地但仍有验证或后续阶段未完成的 115 计划。前端工程质量计划的 MediaStats camelCase 与 TMDB `{data,total}` 合同已完成 API/Web/Bot 同步并归档，不再列为待办。当前需要处理的是：
 
 1. 继续以真实 E2E 边界约束 Gateway/115 计划，不能用 fake、发布 Tag 或 Gateway `302` 代替 CDN 字节与完整会话验收
-2. 完成前端工程质量计划剩余两处 API 合同，避免长期把“前端批次完成”误写成“整份计划完成”
+2. 补齐 9 月 12 日 115 后续改动的 PostgreSQL 验证；9 月 5 日基础个人账号集成通过记录不代表后续新增用例已通过
 3. 后续每次计划退场继续同步 plan/archive/proposals 三层索引和直接引用，避免再次出现状态漂移
