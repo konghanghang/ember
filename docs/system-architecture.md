@@ -593,7 +593,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 - `GenerateRanking(period)` — 无数据读取地校验 PlaybackActivity 六个必需字段 → 读取排行榜媒体库 allowlist 与管理员上下文 → 电影候选按 `ItemId` 扩窗；episode 候选回查详情后按 `SeriesId` 归并；再由同一管理员的 Items 接口按 `ParentId + Ids` 筛选候选与所选媒体库的交集 → 存入数据库 → 通知 Bot
 - `GetLatestRanking(period)` — 获取指定周期最近一批正式排行榜（按 `periodEnd` 排序，不按 `snapshotAt` 猜）
-- `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容
+- `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行，快照 `periodEnd <= rangeEnd` 包含完整周期上界并兼容周期内截点；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容。播放明细仍采用 `[start, end)`，不重复统计相邻周期边界
 - `NotifyRanking` 推送 payload 额外包含整期 `totalDuration`，用于 Telegram 展示当天/当周总播放时长
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
 - `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；空配置视为全部媒体库参与统计

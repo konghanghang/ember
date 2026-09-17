@@ -917,6 +917,8 @@ func (s *PlaybackRankingService) GetLatestRanking(period models.RankingPeriod) (
 	return s.loadRankingByBatchID(period, latest.BatchID)
 }
 
+// GetHistoryRanking 选择指定周期内最新快照，包含恰好覆盖整个周期的 period_end。
+// 快照元数据的闭合上界不改变播放明细的 [start, end) 统计边界。
 func (s *PlaybackRankingService) GetHistoryRanking(
 	period models.RankingPeriod,
 	rangeStart time.Time,
@@ -929,7 +931,7 @@ func (s *PlaybackRankingService) GetHistoryRanking(
 	var latestBatch models.PlaybackRanking
 	err := db.DB.
 		Where(
-			"period = ? AND batch_id <> '' AND period_start = ? AND period_end >= ? AND period_end < ?",
+			"period = ? AND batch_id <> '' AND period_start = ? AND period_end >= ? AND period_end <= ?",
 			period,
 			rangeStart,
 			rangeStart,
@@ -949,7 +951,7 @@ func (s *PlaybackRankingService) GetHistoryRanking(
 	var legacy models.PlaybackRanking
 	err = db.DB.
 		Where(
-			"period = ? AND (batch_id = '' OR batch_id IS NULL) AND period_start = ? AND period_end >= ? AND period_end < ?",
+			"period = ? AND (batch_id = '' OR batch_id IS NULL) AND period_start = ? AND period_end >= ? AND period_end <= ?",
 			period,
 			rangeStart,
 			rangeStart,
