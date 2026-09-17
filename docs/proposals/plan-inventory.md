@@ -35,7 +35,7 @@
 | 7 | `archive/plan/bot-telegram/bot-notification-and-info-leak-hardening.md` | 已归档 | `internal/async.SafeGo` fire-and-forget 收口、VerifyBind 反 DoS、错误模糊化、通知脱敏、runtime settings 保留旧值、pending reject 消息上下文持久化、Polling 单实例租约锁、BotNotifier 配置缓存、webhook 健康状态暴露均已完成；稳定结论已同步到架构文档 | 历史追溯 | 已迁入 `docs/archive/plan/bot-telegram/` |
 | 8 | `archive/plan/architecture/schema-deployment-and-baseline-cleanup.md` | 已归档 | 启动路径移除 `AutoMigrate`、`VerifySchema` fail-fast、initdb 隔离、schema 对齐、airDate、连接池、容器非 root、固定部署镜像、空库初始化入口收口均已完成；归档前入口与交叉引用已同步 | 历史追溯 | 已迁入 `docs/archive/plan/architecture/` |
 
-2026-09-17 新增：[支付与媒体状态问题修复计划](../plan/media-subscription/open-issue-followup.md)，跟踪 #21–#25 的逐项修复和提交。
+2026-09-17 归档：[支付与媒体状态问题修复计划](../archive/plan/media-subscription/open-issue-followup.md)，#21–#25 代码、回归、文档和逐项本地提交完成；API/Web 检查通过，真实 PostgreSQL 与外部验收未执行，尚未推送。
 
 ## A. 已落地，已完成归档
 

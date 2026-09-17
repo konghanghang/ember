@@ -1,6 +1,10 @@
 # Ember 代码审计记录
 
-## 当前检查点：第二轮复审
+## 2026-09-17 修复收口补记
+
+AUD-011–015 已在 `fix/open-issue-followup` 按 issue 完成本地修复与签名提交，详见 [修复归档](docs/archive/plan/media-subscription/open-issue-followup.md)。API 非集成、相关包 race、vet/build 与 Web 测试/构建通过；真实 PostgreSQL、第三方服务、生产容量和浏览器验收未执行，远端 issue 尚未关闭。以下复审正文与证据保留原审计基线，不能把其中的旧代码描述当作当前实现。
+
+## 审计检查点：第二轮复审
 
 - 日期：2026-09-17。
 - 仓库：`konghanghang/ember`；固定基线：`master@930b1cc9b653a1ae62c1fdc4dd0bc6dce8804c1f`。
@@ -19,11 +23,11 @@
 
 | 编号 | 等级 | 问题 | 证据 | 状态 |
 |---|---|---|---|---|
-| AUD-011 / P1-1 | P1 | Checkout 重试混用当前套餐收费与旧订单权益 | 静态调用链和跨请求状态推演 | [#21](https://github.com/konghanghang/ember/issues/21)，待修复 |
-| AUD-012 / P1-2 | P1 | 历史查询排除完整日榜、周榜快照 | 原 SQL 条件离线反例 | [#22](https://github.com/konghanghang/ember/issues/22)，待修复 |
-| AUD-013 / P2-1 | P2 | 白名单剧榜先截单集再聚合，漏掉高总时长剧集 | 提取窗口常量后的算法反例 | [#23](https://github.com/konghanghang/ember/issues/23)，待修复 |
-| AUD-014 / P2-2 | P2 | 普通用户取消与审批并发，可删除已审核订阅 | 静态并发交错 | [#24](https://github.com/konghanghang/ember/issues/24)，待修复 |
-| AUD-015 / P2-3 | P2 | 缺集搜索/下发的旧结果覆盖入库或忽略状态 | 静态并发交错 | [#25](https://github.com/konghanghang/ember/issues/25)，待修复 |
+| AUD-011 / P1-1 | P1 | Checkout 重试混用当前套餐收费与旧订单权益 | 静态调用链和跨请求状态推演 | [#21](https://github.com/konghanghang/ember/issues/21)，本地已修复，待推送 |
+| AUD-012 / P1-2 | P1 | 历史查询排除完整日榜、周榜快照 | 原 SQL 条件离线反例 | [#22](https://github.com/konghanghang/ember/issues/22)，本地已修复，待推送 |
+| AUD-013 / P2-1 | P2 | 白名单剧榜先截单集再聚合，漏掉高总时长剧集 | 提取窗口常量后的算法反例 | [#23](https://github.com/konghanghang/ember/issues/23)，本地已修复，待推送 |
+| AUD-014 / P2-2 | P2 | 普通用户取消与审批并发，可删除已审核订阅 | 静态并发交错 | [#24](https://github.com/konghanghang/ember/issues/24)，本地已修复，待推送 |
+| AUD-015 / P2-3 | P2 | 缺集搜索/下发的旧结果覆盖入库或忽略状态 | 静态并发交错 | [#25](https://github.com/konghanghang/ember/issues/25)，本地已修复，待推送 |
 
 ## 上轮问题逐项复核
 
@@ -174,7 +178,8 @@ weekly: stored=1, current returned=0, inclusive returned=1
 - [x] 检查媒体缺集搜索/下发/忽略/入库、排行榜查询和候选聚合、日历增量筛选及同步入口。
 - [x] 阅读播放锁、租约确认/续租、账号配置版本、成功采样及迁移相关变更；本轮未确认新增缺陷。
 - [x] 为 AUD-011–015 建立 Issue #21–#25，并关联到本报告。
-- [ ] 确认修复范围后，为 AUD-011–015 建立正式回归及独立修复 PR。
+- [x] 为 AUD-011–015 建立正式回归并按 issue 创建本地签名提交。
+- [ ] 推送修复并创建 PR（本轮未授权）。
 - [ ] 补专项 PostgreSQL advisory lock、兑换与支付交错、Redis/多实例验证。
 - [ ] 确认日历全量语义及密码边界；没有足够证据前不将待确认项计入确定缺陷。
 - [ ] 更广的安全审计、全部 API/DTO 和部署故障恢复仍未穷尽覆盖。
