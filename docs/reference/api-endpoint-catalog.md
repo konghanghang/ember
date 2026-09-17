@@ -26,7 +26,7 @@
 | POST | `/api/v1/subscriptions/check-existing` | 创建前检测库内是否已存在资源 |
 | POST | `/api/v1/subscriptions` | 创建订阅（支持可选 `season`，`0` 表示整剧；命中套餐分组当日额度时会直接自动通过） |
 | POST | `/api/v1/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note`；命中套餐分组当日额度时会直接自动通过 |
-| DELETE | `/api/v1/subscriptions/:id` | 删除订阅 |
+| DELETE | `/api/v1/subscriptions/:id` | 原子取消本人 PENDING 订阅；本人已审核返回 409，不存在/非本人返回 404 |
 | GET | `/api/v1/tmdb/search?query=&type=` | TMDB 搜索（需 JWT，服务端缓存；响应 `{data,total}`） |
 | GET | `/api/v1/tmdb/tv/:id/seasons` | TMDB 剧集季列表（需 JWT，服务端缓存） |
 | GET | `/api/v1/profile` | 个人信息 |
@@ -84,7 +84,7 @@
 | GET | `/api/v1/user/subscriptions` | 我的订阅 |
 | POST | `/api/v1/user/subscriptions` | 创建订阅（命中套餐分组当日额度时会直接自动通过） |
 | POST | `/api/v1/user/subscriptions/:id/resubmit` | 基于自己的 `REJECTED` 订阅重新发起，必须提交本次 `note`；命中套餐分组当日额度时会直接自动通过 |
-| DELETE | `/api/v1/user/subscriptions/:id` | 删除订阅 |
+| DELETE | `/api/v1/user/subscriptions/:id` | 同统一入口：原子取消本人 PENDING，已审核 409，不存在/非本人 404 |
 
 ## 4. 管理员路由（需认证 + role=admin）
 

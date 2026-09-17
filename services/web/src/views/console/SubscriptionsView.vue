@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
+import { isAxiosError } from 'axios'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { MessageBoxInputData } from 'element-plus'
@@ -180,6 +181,7 @@ const handleReject = async (sub: Subscription) => {
   }
 }
 
+// 取消本人待审核订阅或执行管理员删除；并发审批冲突后刷新列表，错误提示由请求层负责。
 const handleDelete = async (sub: Subscription) => {
   const isAdminDelete = isAdmin.value
 
@@ -204,9 +206,12 @@ const handleDelete = async (sub: Subscription) => {
       ElMessage.success('已取消订阅')
     }
 
-    fetchData()
-  } catch {
-    // cancelled
+    await fetchData()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    if (isAxiosError(error) && error.response?.status === 409) {
+      await fetchData()
+    }
   }
 }
 

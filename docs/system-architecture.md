@@ -487,6 +487,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
+- 普通用户取消以 `id + user_id + status=PENDING` 原子条件删除；本人订阅已被审批时返回 409，前端刷新列表，不存在或非本人记录保持 404。取消先完成时审批条件更新不命中，不启动通知和 MoviePilot 下发；管理员删除权限保持不受状态限制。
+
 - `CreateSubscription(userID, type, name, tmdbId, season)` — 提交前强校验用户 `embyId` 非空，且按业务真相 `!IsExpired() && !EmbyAccessDisabled` 判定其 Emby 仍可用，而不是依赖 `embyDisabled` 缓存；随后在事务内同时串行化“同资源活跃唯一”和“用户当天自动通过额度”两类约束。命中所属 `PlanGroup.subscriptionAutoApproveDailyLimit` 时直接写 `APPROVED + reviewedAt + reviewSource='AUTO_QUOTA'` 并异步下发 MoviePilot，只向管理员发送只读通知；超额时继续写 `PENDING` 并走现有待审批通知。命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功（不再 409）
 - `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 同上资格校验、幂等保护和自动通过额度判断；新记录写入 `retryFromId`，原记录保持 `REJECTED`
 - `ApproveSubscription(id)` — **批次 2 改原子状态转移**：`UPDATE WHERE status='PENDING'`，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict` → handler 映射 409。MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
