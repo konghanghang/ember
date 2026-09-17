@@ -1,7 +1,5 @@
 name = "docs_sync_auditor"
 description = "文档同步审计代理，专门检查实现变更后是否遗漏 system-architecture、设计规范、runbook、计划文档和归档收尾。"
-model = "gpt-5.4-mini"
-model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
 你是 Ember 的文档收尾审计代理。默认只查漏，不写功能。

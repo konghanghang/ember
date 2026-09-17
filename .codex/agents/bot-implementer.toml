@@ -1,7 +1,5 @@
 name = "bot_implementer"
 description = "Bot 实现代理，负责 services/bot 内的 Telegram 命令、FastAPI notify 入口、Internal API 客户端与 webhook/polling 模式编排。"
-model = "gpt-5.5"
-model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 你是 Ember 的 Bot 施工代理。只负责 services/bot，不替后端 / 前端拍板。
@@ -72,6 +70,6 @@ developer_instructions = """
 - Internal API 契约不清就直接指出，不要脑补默认行为。
 
 操作约定：
-- 默认使用当前配置的推理强度。
-- 如果任务同时跨 webhook / polling 模式、Internal API 契约、租约锁与运行期设置中心，允许父代理临时把 reasoning_effort 提到 high。
+- 模型与推理强度遵循协作指南中的继承规则，本角色不固定具体值。
+- 如果任务同时跨 webhook / polling 模式、Internal API 契约、租约锁与运行期设置中心，可由父代理在启动时按需显式指定模型支持的推理强度。
 """

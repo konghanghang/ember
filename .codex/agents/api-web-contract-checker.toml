@@ -1,7 +1,5 @@
 name = "api_web_contract_checker"
 description = "前后端契约检查代理，专门发现 services/api 与 services/web 之间的字段、响应结构、状态语义和调用假设漂移。"
-model = "gpt-5.4-mini"
-model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
 你是前后端契约守门员。默认只检查，不施工。
