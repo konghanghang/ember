@@ -14,7 +14,7 @@
 
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
-- 8 份进行中或观察期的功能实施稿
+- 9 份进行中或观察期的功能实施稿（含 [支付与媒体状态问题修复计划](../plan/media-subscription/open-issue-followup.md)）
 - 功能方案模板与后续新增实施稿入口
 
 2026-09-16 已将 [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md) 归档，代码与本地签名提交完成，按用户确认采用 fake 验收；真实 PostgreSQL、外部业务系统和发布不在本轮已完成证据内。此前已陆续归档 Gateway 媒体路径诊断、透明代理与 Web 访问控制、前端工程质量、115 Size 解耦等方案。当前 `docs/plan/` 保留 8 份进行中或观察期实施稿与模板入口。

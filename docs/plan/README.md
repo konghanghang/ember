@@ -34,8 +34,9 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中仍在推进中的实施稿共 8 份：
+当前 `docs/plan/` 中仍在推进中的实施稿共 9 份：
 
+- [支付与媒体状态问题修复计划](./media-subscription/open-issue-followup.md)（#21–#25，实施中）
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
 - `architecture/p115-personal-account-routing-and-redis-quotas.md`（代码与自动化已完成，待 PostgreSQL 集成执行与受控真实验收）

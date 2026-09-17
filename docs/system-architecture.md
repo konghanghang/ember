@@ -616,6 +616,7 @@ Stripe 一次性支付流程管理。
 
 - `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组除名称/排序外还承载 `subscriptionAutoApproveDailyLimit` 这类审核权益配置。分组存在性、引用检查（`plans` / `users` / `redemption_codes.registrationPlanGroup`）和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
 - `CreateCheckoutSession(userID, planID)` — **批次 2 改造为占位幂等模式**：先在事务里 `INSERT payments (status='pending', stripeSessionId='') ON CONFLICT (uq_payments_pending_user_plan) DO NOTHING`，命中冲突回查现有 pending 复用；事务外调 Stripe 时携带 `Idempotency-Key=checkout:<paymentId>`，并发的两个请求拿到同一 paymentId → Stripe 返回同一 Session；最后 `UPDATE payments SET stripeSessionId, checkoutUrl WHERE id=?` 回填
+- 同一订单重试收费的金额、币种及天数始终来自 `Payment.Amount/Currency/Days`，与履约共用不可变快照；改价仅影响新订单。名称/描述、跳转 URL 和支付方式未持久化为请求快照，它们变更后仍可能造成 Stripe 幂等参数不一致拒绝，不自动改写已有订单或生成替代身份。
 - `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐
 - `HandleWebhook(payload, signature)` — 签名验证后按 `event.id` 在 `stripe_webhook_events` 做去重 + 失败重试状态机：
   - 首次 `INSERT ON CONFLICT DO NOTHING` 成功 → 进入业务分发
