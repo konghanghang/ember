@@ -426,6 +426,7 @@ func (s *Service) IgnoreGap(ctx context.Context, id, reason string) (*models.Med
 	return s.Ignore(ctx, id, reason)
 }
 
+// SearchGap 保存候选快照时校验读取时状态，避免外部请求的旧结果覆盖新的状态。
 func (s *Service) SearchGap(ctx context.Context, id string) (*MediaGapDTO, error) {
 	gap, err := s.loadGapByID(ctx, id)
 	if err != nil {
@@ -451,28 +452,38 @@ func (s *Service) SearchGap(ctx context.Context, id string) (*MediaGapDTO, error
 		return nil, fmt.Errorf("序列化搜索快照失败: %w", err)
 	}
 
+	originalStatus := gap.Status
 	if gap.Status == models.MediaGapStatusMissing {
 		gap.Status = models.MediaGapStatusSearched
 	}
 	gap.SearchSnapshot = string(payload)
 	gap.LastSearchedAt = &now
-	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
-		Where("id = ?", gap.ID).
+	result := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+		Where("id = ? AND status = ?", gap.ID, originalStatus).
 		Updates(map[string]interface{}{
 			"status":           gap.Status,
 			"search_snapshot":  gap.SearchSnapshot,
 			"last_searched_at": gap.LastSearchedAt,
-		}).Error; err != nil {
-		return nil, fmt.Errorf("更新搜索快照失败: %w", err)
+		})
+	if result.Error != nil {
+		return nil, fmt.Errorf("更新搜索快照失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		log.Printf("[MediaGap] 搜索回写状态冲突 id=%s expectedStatus=%s", gap.ID, originalStatus)
+		return nil, ErrMediaGapStateConflict
+	}
+	gap, err = s.loadGapByID(ctx, gap.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	dto := toDTO(gap)
-	dto.SearchSnapshot = &snapshot
 	log.Printf("[MediaGap] 搜索候选完成 id=%s tmdbId=%s season=%d episode=%d query=%q fallbackQuery=%q matchMode=%q candidates=%d",
 		gap.ID, gap.TmdbID, gap.Season, gap.Episode, snapshot.Query, snapshot.FallbackQuery, snapshot.MatchMode, len(snapshot.Candidates))
 	return dto, nil
 }
 
+// DispatchGap 下发候选并条件回写结果；并发状态变化不会撤回已经发出的外部请求。
 func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchRequest) (*MediaGapDTO, error) {
 	gap, err := s.loadGapByID(ctx, id)
 	if err != nil {
@@ -507,14 +518,17 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 		if len(safeMsg) > 500 {
 			safeMsg = safeMsg[:500]
 		}
-		updateErr := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
-			Where("id = ?", gap.ID).
+		result := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+			Where("id = ? AND status = ?", gap.ID, gap.Status).
 			Updates(map[string]interface{}{
 				"status":              models.MediaGapStatusDispatchFailed,
 				"last_dispatch_error": safeMsg,
-			}).Error
-		if updateErr != nil {
-			log.Printf("[MediaGap] 写回 DISPATCH_FAILED 失败 id=%s err=%v", gap.ID, updateErr)
+			})
+		if result.Error != nil {
+			log.Printf("[MediaGap] 写回 DISPATCH_FAILED 失败 id=%s err=%v", gap.ID, result.Error)
+		} else if result.RowsAffected == 0 {
+			log.Printf("[MediaGap] 下发失败回写状态冲突 id=%s expectedStatus=%s", gap.ID, gap.Status)
+			return nil, ErrMediaGapStateConflict
 		}
 		log.Printf("[MediaGap] 候选资源下发被拒 id=%s tmdbId=%s season=%d episode=%d businessRejected=%t err=%v",
 			gap.ID, gap.TmdbID, gap.Season, gap.Episode, businessRejected, recordErr)
@@ -531,28 +545,38 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 		return nil, fmt.Errorf("序列化下发快照失败: %w", err)
 	}
 
+	originalStatus := gap.Status
 	gap.Status = models.MediaGapStatusRequested
 	gap.DispatchSnapshot = string(payload)
 	gap.RequestedAt = &now
 	gap.LastDispatchError = nil
-	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
-		Where("id = ?", gap.ID).
+	result := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+		Where("id = ? AND status = ?", gap.ID, originalStatus).
 		Updates(map[string]interface{}{
 			"status":              gap.Status,
 			"dispatch_snapshot":   gap.DispatchSnapshot,
 			"requested_at":        gap.RequestedAt,
 			"last_dispatch_error": gap.LastDispatchError,
-		}).Error; err != nil {
-		return nil, fmt.Errorf("更新下发状态失败: %w", err)
+		})
+	if result.Error != nil {
+		return nil, fmt.Errorf("更新下发状态失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		log.Printf("[MediaGap] 下发回写状态冲突 id=%s expectedStatus=%s", gap.ID, originalStatus)
+		return nil, ErrMediaGapStateConflict
+	}
+	gap, err = s.loadGapByID(ctx, gap.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	dto := toDTO(gap)
-	dto.DispatchSnapshot = &snapshot
 	log.Printf("[MediaGap] 候选资源下发完成 id=%s tmdbId=%s season=%d episode=%d payloadKeys=%d statusCode=%d message=%q",
 		gap.ID, gap.TmdbID, gap.Season, gap.Episode, len(req.Candidate.Payload), dispatchResp.StatusCode, strings.TrimSpace(dispatchResp.Message))
 	return dto, nil
 }
 
+// MarkIngestedByWebhook 核销匹配工单，写入时仍保留管理员的忽略决定。
 func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptionpkg.SubscriptionIngestWebhookPayload) (int64, error) {
 	if strings.ToLower(strings.TrimSpace(payload.ItemType)) != "episode" {
 		return 0, nil
@@ -608,16 +632,17 @@ func (s *Service) MarkIngestedByWebhook(ctx context.Context, payload subscriptio
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
-			Where("id = ?", gap.ID).
+		result := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+			Where("id = ? AND status <> ?", gap.ID, models.MediaGapStatusIgnored).
 			Updates(map[string]interface{}{
 				"status":         updatedGap.Status,
-				"ingested_at":    updatedGap.IngestedAt,
+				"ingested_at":    gorm.Expr("COALESCE(ingested_at, ?)", now),
 				"emby_series_id": updatedGap.EmbySeriesID,
-			}).Error; err != nil {
-			return updatedCount, fmt.Errorf("回写缺集工单入库状态失败: %w", err)
+			})
+		if result.Error != nil {
+			return updatedCount, fmt.Errorf("回写缺集工单入库状态失败: %w", result.Error)
 		}
-		updatedCount++
+		updatedCount += result.RowsAffected
 	}
 
 	log.Printf("[MediaGap] Webhook 核销完成 matchBy=%s tmdbId=%s seriesId=%s season=%d episode=%d updated=%d itemName=%q",
@@ -736,6 +761,7 @@ func (s *Service) findSeriesByTMDBID(tmdbID string) ([]embySeriesItem, error) {
 	return items, nil
 }
 
+// scanSingleSeries 汇总单剧缺集并刷新元数据，入库和清理状态在写入时校验并发边界。
 func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, scannedAt, today time.Time, force bool) (*scanSeriesStats, error) {
 	tmdbID := extractProviderID(series.ProviderIDs, "Tmdb")
 	seriesID := strings.TrimSpace(series.ID)
@@ -859,23 +885,13 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 			changed = true
 		}
 		if existing.Status == "" {
-			existing.Status = models.MediaGapStatusMissing
 			changed = true
 		}
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).
-			Model(&models.MediaGap{}).
-			Where("id = ?", existing.ID).
-			Updates(map[string]interface{}{
-				"emby_series_id":  existing.EmbySeriesID,
-				"series_name":     existing.SeriesName,
-				"air_date":        existing.AirDate,
-				"last_scanned_at": existing.LastScannedAt,
-				"status":          existing.Status,
-			}).Error; err != nil {
-			return nil, fmt.Errorf("更新缺集工单失败: %w", err)
+		if err := updateScannedGapMetadata(ctx, existing); err != nil {
+			return nil, err
 		}
 		stats.Updated++
 	}
@@ -916,18 +932,19 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).
+		result := db.DB.WithContext(ctx).
 			Model(&models.MediaGap{}).
 			Where("id = ? AND status <> ?", existing.ID, models.MediaGapStatusIgnored).
 			Updates(map[string]interface{}{
 				"status":          existing.Status,
-				"ingested_at":     existing.IngestedAt,
+				"ingested_at":     gorm.Expr("COALESCE(ingested_at, ?)", scannedAt),
 				"emby_series_id":  existing.EmbySeriesID,
 				"last_scanned_at": existing.LastScannedAt,
-			}).Error; err != nil {
-			return nil, fmt.Errorf("回写已入库缺集工单失败: %w", err)
+			})
+		if result.Error != nil {
+			return nil, fmt.Errorf("回写已入库缺集工单失败: %w", result.Error)
 		}
-		stats.Ingested++
+		stats.Ingested += int(result.RowsAffected)
 	}
 
 	log.Printf("[MediaGap] 单剧扫描完成 seriesId=%s tmdbId=%s seriesName=%q examined=%d created=%d updated=%d ingested=%d",
@@ -935,6 +952,27 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 	return stats, nil
 }
 
+// updateScannedGapMetadata 仅写扫描元数据；历史空状态独立条件修复，避免旧扫描覆盖并发人工或入库状态。
+func updateScannedGapMetadata(ctx context.Context, gap *models.MediaGap) error {
+	if gap.Status == "" {
+		if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+			Where("id = ? AND status = ?", gap.ID, "").Update("status", models.MediaGapStatusMissing).Error; err != nil {
+			return fmt.Errorf("修复缺集空状态失败: %w", err)
+		}
+	}
+	if err := db.DB.WithContext(ctx).Model(&models.MediaGap{}).Where("id = ?", gap.ID).
+		Updates(map[string]interface{}{
+			"emby_series_id":  gap.EmbySeriesID,
+			"series_name":     gap.SeriesName,
+			"air_date":        gap.AirDate,
+			"last_scanned_at": gap.LastScannedAt,
+		}).Error; err != nil {
+		return fmt.Errorf("更新缺集工单失败: %w", err)
+	}
+	return nil
+}
+
+// cleanupInactiveSeasonGaps 仅收口尚未下发的未激活季工单，按实际条件写入行数计数。
 func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, seriesName string, scannedAt time.Time, existingByKey map[string]*models.MediaGap, activeSeasons seasonSet) (int, error) {
 	cleaned := 0
 	for _, existing := range existingByKey {
@@ -985,7 +1023,7 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 		if !changed {
 			continue
 		}
-		if err := db.DB.WithContext(ctx).
+		result := db.DB.WithContext(ctx).
 			Model(&models.MediaGap{}).
 			Where("id = ? AND status IN ?", existing.ID, []models.MediaGapStatus{models.MediaGapStatusMissing, models.MediaGapStatusSearched}).
 			Updates(map[string]interface{}{
@@ -996,10 +1034,11 @@ func (s *Service) cleanupInactiveSeasonGaps(ctx context.Context, seriesID, serie
 				"emby_series_id":     existing.EmbySeriesID,
 				"series_name":        existing.SeriesName,
 				"last_scanned_at":    existing.LastScannedAt,
-			}).Error; err != nil {
-			return cleaned, fmt.Errorf("收口未激活季缺集工单失败: %w", err)
+			})
+		if result.Error != nil {
+			return cleaned, fmt.Errorf("收口未激活季缺集工单失败: %w", result.Error)
 		}
-		cleaned++
+		cleaned += int(result.RowsAffected)
 	}
 	if cleaned > 0 {
 		log.Printf("[MediaGap] 已收口未激活季缺集工单 seriesId=%s seriesName=%q cleaned=%d", seriesID, seriesName, cleaned)

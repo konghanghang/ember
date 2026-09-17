@@ -661,6 +661,7 @@ func (s *PaymentService) expireStripeCheckoutSession(secret, sessionID string) e
 	return upstream.SafeUpstreamHTTPError("stripe", resp.StatusCode)
 }
 
+// CreateCheckoutSession reserves an order and charges its stored snapshot, reusing a pending checkout on retries.
 func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckoutRequest) (*CreateCheckoutResponse, error) {
 	log.Printf("[Payment] 开始创建支付会话: userID=%s planID=%s", userID, strings.TrimSpace(req.PlanID))
 
@@ -727,8 +728,13 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		return &CreateCheckoutResponse{URL: payment.CheckoutURL}, nil
 	}
 
-	// 否则调 Stripe；并发的两个请求会复用同一 paymentId，Idempotency-Key 保证 Stripe 端只产生一条 Session。
-	sess, err := s.createCheckoutSession(stripeSecret, successURL, cancelURL, userID, plan, paymentMethods, payment.ID)
+	// 套餐可能在首次创建失败后被改价；收费和履约必须共用订单快照。
+	// 使用副本保留展示字段，不改写当前套餐；并发重试仍共用 paymentId 幂等键。
+	checkoutPlan := *plan
+	checkoutPlan.Price = payment.Amount
+	checkoutPlan.Currency = payment.Currency
+	checkoutPlan.Days = payment.Days
+	sess, err := s.createCheckoutSession(stripeSecret, successURL, cancelURL, userID, &checkoutPlan, paymentMethods, payment.ID)
 	if err != nil {
 		log.Printf("[Payment] Stripe 会话创建失败: userID=%s planID=%s paymentID=%s err=%v", userID, plan.ID, payment.ID, err)
 		return nil, err
@@ -745,7 +751,7 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		expiresAtStr = payment.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 	log.Printf("[Payment] 创建支付会话成功: userID=%s planID=%s paymentID=%s sessionID=%s amount=%d currency=%s days=%d expiresAt=%s methods=%v",
-		userID, plan.ID, payment.ID, sess.ID, plan.Price, plan.Currency, plan.Days, expiresAtStr, paymentMethods)
+		userID, plan.ID, payment.ID, sess.ID, payment.Amount, payment.Currency, payment.Days, expiresAtStr, paymentMethods)
 
 	return &CreateCheckoutResponse{URL: sess.URL}, nil
 }

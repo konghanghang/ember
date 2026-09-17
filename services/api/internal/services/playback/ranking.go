@@ -27,10 +27,7 @@ const (
 	rankingFilteredLogSampleLimit       = 10
 )
 
-var (
-	rankingMovieCandidateWindows   = []int{100, 300, 1000, 3000}
-	rankingEpisodeCandidateWindows = []int{300, 1000, 3000, 10000}
-)
+var rankingMovieCandidateWindows = []int{100, 300, 1000, 3000}
 
 type PlaybackRankingService struct {
 	embyService           *embyint.EmbyService
@@ -173,39 +170,21 @@ func (s *PlaybackRankingService) fetchEpisodeRanking(
 	return s.fetchEpisodeRankingWithFilter(columns, start, end, rankingLibraryFilter{allowAll: true})
 }
 
+// fetchEpisodeRankingWithFilter 完整读取单集聚合后再按 Series 和媒体库筛选，最后取前十。
+// 单集时长排名不能作为剧集总时长排名的候选截断条件；条目详情仍由集成层分批查询。
 func (s *PlaybackRankingService) fetchEpisodeRankingWithFilter(
 	columns playbackActivityColumns,
 	start, end time.Time,
 	filter rankingLibraryFilter,
 ) ([]models.PlaybackRanking, int64, error) {
+	rows, err := s.queryPlaybackAggregates("Episode", columns.itemID, columns.itemName, "episode_item", start, end, 0)
+	if err != nil {
+		return nil, 0, err
+	}
 	if filter.allowAll {
-		rows, err := s.queryPlaybackAggregates("Episode", columns.itemID, columns.itemName, "episode_item", start, end, 0)
-		if err != nil {
-			return nil, 0, err
-		}
 		return s.aggregateEpisodeRows(rows, start, end, "", nil)
 	}
-
-	var rows []playbackAggregateRow
-	var rankings []models.PlaybackRanking
-	var totalDuration int64
-	for _, window := range rankingEpisodeCandidateWindows {
-		var err error
-		rows, err = s.queryPlaybackAggregates("Episode", columns.itemID, columns.itemName, "episode_item", start, end, window)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		rankings, totalDuration, err = s.aggregateEpisodeRows(rows, start, end, filter.adminUserID, filter.allowedLibraryIDs)
-		if err != nil {
-			return nil, 0, err
-		}
-		if len(rankings) >= rankingLimit || len(rows) < window || window == rankingEpisodeCandidateWindows[len(rankingEpisodeCandidateWindows)-1] {
-			return rankings, totalDuration, nil
-		}
-	}
-
-	return rankings, totalDuration, nil
+	return s.aggregateEpisodeRows(rows, start, end, filter.adminUserID, filter.allowedLibraryIDs)
 }
 
 func (s *PlaybackRankingService) queryPlaybackAggregates(
@@ -917,6 +896,8 @@ func (s *PlaybackRankingService) GetLatestRanking(period models.RankingPeriod) (
 	return s.loadRankingByBatchID(period, latest.BatchID)
 }
 
+// GetHistoryRanking 选择指定周期内最新快照，包含恰好覆盖整个周期的 period_end。
+// 快照元数据的闭合上界不改变播放明细的 [start, end) 统计边界。
 func (s *PlaybackRankingService) GetHistoryRanking(
 	period models.RankingPeriod,
 	rangeStart time.Time,
@@ -929,7 +910,7 @@ func (s *PlaybackRankingService) GetHistoryRanking(
 	var latestBatch models.PlaybackRanking
 	err := db.DB.
 		Where(
-			"period = ? AND batch_id <> '' AND period_start = ? AND period_end >= ? AND period_end < ?",
+			"period = ? AND batch_id <> '' AND period_start = ? AND period_end >= ? AND period_end <= ?",
 			period,
 			rangeStart,
 			rangeStart,
@@ -949,7 +930,7 @@ func (s *PlaybackRankingService) GetHistoryRanking(
 	var legacy models.PlaybackRanking
 	err = db.DB.
 		Where(
-			"period = ? AND (batch_id = '' OR batch_id IS NULL) AND period_start = ? AND period_end >= ? AND period_end < ?",
+			"period = ? AND (batch_id = '' OR batch_id IS NULL) AND period_start = ? AND period_end >= ? AND period_end <= ?",
 			period,
 			rangeStart,
 			rangeStart,

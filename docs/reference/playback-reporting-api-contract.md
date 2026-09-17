@@ -257,7 +257,8 @@ COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0)
 
 1. 启动统计前通过 `LIMIT 0` 无数据查询校验 `DateCreated`、`ItemId`、`ItemType`、`ItemName`、`PlayDuration`、`PauseDuration` 六个字段，而不是读取真实播放记录或只校验展示字段。
 2. 解析插件响应时固定读取 `colums`，并把 `message` 中的 SQL 错误升级为业务错误。
-3. 电影从 Playback Reporting 的 `ItemId` 回查；Episode 先按 Episode `ItemId` 回查 `SeriesId` / `SeriesName`，再以 Series 为剧集榜聚合对象。
+3. 电影从 Playback Reporting 的 `ItemId` 回查；Episode 完整读取周期内单集聚合，按 Episode `ItemId` 分批回查 `SeriesId` / `SeriesName`，再以 Series 为剧集榜聚合对象。白名单分支同样在完整汇总与媒体库过滤后取前十，不能按单集时长先截候选，也不能以已得到十部剧作为提前结束依据。
+   - 详情请求继续每批最多 100 个唯一条目；完整读取的内存与请求批次数随周期内条目数增长，未执行生产容量验证。既有详情部分批次失败继续使用已解析结果、全失败降级空榜的边界保留，因此消除候选截断不等于保证上游故障时仍有完整结果。
 4. 从 `/Users/{adminUserId}/Views` 获取媒体库后，后续成员关系查询优先使用同一管理员的 `/Users/{adminUserId}/Items`，不要在没有证据时切换到全局 `/Items`。
 5. 找不到明确管理员用户时应失败并记录原因，不能回退到任意第一个普通用户，否则媒体库视图和可见条目会被静默缩小。
 6. `ParentId + Ids` 返回空结果时必须保留可排查日志，包括 `userId`、`libraryId`、候选数量、HTTP 状态和插件/Emby错误；禁止记录 API Key 或完整外部响应体。

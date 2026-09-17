@@ -10,6 +10,8 @@
 - [`docs/plan/`](../plan/) - 进行中的功能规划与实施方案
 - [`docs/archive/mvp/design.md`](../archive/mvp/design.md) - MVP 初始设计（历史资料，不代表当前实现）
 
+2026-09-17 已归档 [支付与媒体状态问题修复计划](../archive/plan/media-subscription/open-issue-followup.md)：#21–#25 本地修复与逐项提交完成，API/Web 验证通过；真实 PostgreSQL、外部业务链路和发布未执行。
+
 ## 当前剩余重点
 
 `docs/plan/` 经过整理后，当前主要剩余内容为：

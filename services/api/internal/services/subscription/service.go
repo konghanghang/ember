@@ -735,19 +735,27 @@ func (s *SubscriptionService) GetUserSubscriptionsPaginated(userID string, statu
 	}, nil
 }
 
-// DeleteSubscription 删除订阅（仅允许删除 PENDING 状态）
+// DeleteSubscription 原子删除本人仍为 PENDING 的订阅，避免取消覆盖并发审批。
+// 未命中时仅查询本人记录：已审核返回状态冲突，不存在或非本人返回未找到。
 func (s *SubscriptionService) DeleteSubscription(subscriptionID, userID string) error {
+	result := db.DB.Where("id = ? AND \"user_id\" = ? AND status = ?", subscriptionID, userID, models.SubscriptionPending).
+		Delete(&models.Subscription{})
+	if result.Error != nil {
+		return fmt.Errorf("删除订阅失败: %w", result.Error)
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
 	var subscription models.Subscription
 	if err := db.DB.Where("id = ? AND \"user_id\" = ?", subscriptionID, userID).First(&subscription).Error; err != nil {
-		return ErrSubscriptionNotFound
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrSubscriptionNotFound
+		}
+		return fmt.Errorf("查询订阅状态失败: %w", err)
 	}
-	if subscription.Status != models.SubscriptionPending {
-		return ErrSubscriptionNotFound
-	}
-	if err := db.DB.Delete(&subscription).Error; err != nil {
-		return fmt.Errorf("删除订阅失败: %w", err)
-	}
-	return nil
+	log.Printf("[Subscription] 取消状态冲突 subscriptionId=%s userId=%s currentStatus=%s", subscriptionID, userID, subscription.Status)
+	return ErrSubscriptionStateConflict
 }
 
 // DeleteSubscriptionAsAdmin 管理员删除订阅（不限制状态和所有权）

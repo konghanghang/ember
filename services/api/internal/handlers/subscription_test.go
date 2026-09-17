@@ -129,6 +129,7 @@ func TestSubscriptionHandlerDeleteSubscriptionMapsErrors(t *testing.T) {
 		statusCode int
 		wantError  string
 	}{
+		{name: "state conflict", err: subscriptionpkg.ErrSubscriptionStateConflict, statusCode: http.StatusConflict, wantError: subscriptionpkg.ErrSubscriptionStateConflict.Error()},
 		{name: "not found", err: subscriptionpkg.ErrSubscriptionNotFound, statusCode: http.StatusNotFound, wantError: subscriptionpkg.ErrSubscriptionNotFound.Error()},
 		{name: "delete forbidden", err: subscriptionpkg.ErrSubscriptionDeleteForbidden, statusCode: http.StatusNotFound, wantError: subscriptionpkg.ErrSubscriptionNotFound.Error()},
 		{name: "delete state", err: subscriptionpkg.ErrSubscriptionDeleteState, statusCode: http.StatusNotFound, wantError: subscriptionpkg.ErrSubscriptionNotFound.Error()},

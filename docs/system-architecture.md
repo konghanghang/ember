@@ -487,6 +487,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.9 SubscriptionService (`services/subscription.go`)
 
+- 普通用户取消以 `id + user_id + status=PENDING` 原子条件删除；本人订阅已被审批时返回 409，前端刷新列表，不存在或非本人记录保持 404。取消先完成时审批条件更新不命中，不启动通知和 MoviePilot 下发；管理员删除权限保持不受状态限制。
+
 - `CreateSubscription(userID, type, name, tmdbId, season)` — 提交前强校验用户 `embyId` 非空，且按业务真相 `!IsExpired() && !EmbyAccessDisabled` 判定其 Emby 仍可用，而不是依赖 `embyDisabled` 缓存；随后在事务内同时串行化“同资源活跃唯一”和“用户当天自动通过额度”两类约束。命中所属 `PlanGroup.subscriptionAutoApproveDailyLimit` 时直接写 `APPROVED + reviewedAt + reviewSource='AUTO_QUOTA'` 并异步下发 MoviePilot，只向管理员发送只读通知；超额时继续写 `PENDING` 并走现有待审批通知。命中已有活跃订阅返回 `AlreadyExists=true` 幂等成功（不再 409）
 - `ResubmitSubscription(userID, rejectedSubscriptionID, note)` — 同上资格校验、幂等保护和自动通过额度判断；新记录写入 `retryFromId`，原记录保持 `REJECTED`
 - `ApproveSubscription(id)` — **批次 2 改原子状态转移**：`UPDATE WHERE status='PENDING'`，`RowsAffected=0` 返回 `ErrSubscriptionStateConflict` → handler 映射 409。MoviePilot 调用从同步路径剥离到 commit 后 `async.SafeGo("subscription.dispatchMoviePilot", ...)`，失败仅写 `mpError`，状态保持 APPROVED；状态更新成功后异步同步所有已落库的 Telegram 管理员审批消息并移除按钮
@@ -513,8 +515,10 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 - `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台管理入口已改为异步触发。**批次 2 新增跨副本互斥**：`mediaGapScanManager.Start` 通过 `pg_try_advisory_lock` 拿到独占锁后再写 `media_gap_scans (status='running')` 并启动 goroutine（`async.SafeGo` 包裹），结束时在 `defer` 内释放锁并写终态；锁被其他副本占有时返回 409
 - `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计
-- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；写入 `searchSnapshot` 与 `lastSearchedAt`
+- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；以读取时状态为条件写入 `searchSnapshot` 与 `lastSearchedAt`，仅 MISSING 推进 SEARCHED，保留 REQUESTED 的搜索入口
 - `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源，请求体带缺集 `tmdbId`；成功推进为 `REQUESTED` 并清空 `lastDispatchError`；**失败时写入 `lastDispatchError` 并切换为 `DISPATCH_FAILED`**：MoviePilot 业务拒绝保留已脱敏的 message，基础设施错误经 `upstream.SafeUpstreamError` 脱敏；前端可通过同一接口重试
+- 搜索及下发成功/失败均按 `id + 读取时状态` 条件回写，零行返回 409；成功后重读权威 DTO。前端冲突后关闭候选框、清空旧选择并刷新列表，避免旧结果覆盖 INGESTED/IGNORED。状态条件不保证同状态并行操作串行化，也不能撤回已发出的 MoviePilot 请求。
+- 扫描元数据不携带旧状态，历史空状态单独条件修复；Webhook 与扫描入库在 SQL 中保留 IGNORED 和已有 ingestedAt，核销及清理统计使用实际影响行数。
 - `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`；显式忽略写 `ignoreReasonCode='manual'`
 - `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后按状态分支处理：
   - `MISSING` / `SEARCHED` / `REQUESTED` / `DISPATCH_FAILED` → 收口为 `INGESTED`
@@ -591,9 +595,9 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 
-- `GenerateRanking(period)` — 无数据读取地校验 PlaybackActivity 六个必需字段 → 读取排行榜媒体库 allowlist 与管理员上下文 → 电影候选按 `ItemId` 扩窗；episode 候选回查详情后按 `SeriesId` 归并；再由同一管理员的 Items 接口按 `ParentId + Ids` 筛选候选与所选媒体库的交集 → 存入数据库 → 通知 Bot
+- `GenerateRanking(period)` — 无数据读取地校验 PlaybackActivity 六个必需字段 → 读取排行榜媒体库 allowlist 与管理员上下文 → 电影候选按 `ItemId` 扩窗；episode 完整读取周期内单集聚合，按每批最多 100 个条目回查详情后按 `SeriesId` 归并；再由同一管理员的 Items 接口按 `ParentId + Ids` 筛选候选与所选媒体库的交集，剧集过滤后才取前十 → 存入数据库 → 通知 Bot
 - `GetLatestRanking(period)` — 获取指定周期最近一批正式排行榜（按 `periodEnd` 排序，不按 `snapshotAt` 猜）
-- `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容
+- `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行，快照 `periodEnd <= rangeEnd` 包含完整周期上界并兼容周期内截点；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容。播放明细仍采用 `[start, end)`，不重复统计相邻周期边界
 - `NotifyRanking` 推送 payload 额外包含整期 `totalDuration`，用于 Telegram 展示当天/当周总播放时长
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
 - `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；空配置视为全部媒体库参与统计
@@ -616,6 +620,7 @@ Stripe 一次性支付流程管理。
 
 - `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组除名称/排序外还承载 `subscriptionAutoApproveDailyLimit` 这类审核权益配置。分组存在性、引用检查（`plans` / `users` / `redemption_codes.registrationPlanGroup`）和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
 - `CreateCheckoutSession(userID, planID)` — **批次 2 改造为占位幂等模式**：先在事务里 `INSERT payments (status='pending', stripeSessionId='') ON CONFLICT (uq_payments_pending_user_plan) DO NOTHING`，命中冲突回查现有 pending 复用；事务外调 Stripe 时携带 `Idempotency-Key=checkout:<paymentId>`，并发的两个请求拿到同一 paymentId → Stripe 返回同一 Session；最后 `UPDATE payments SET stripeSessionId, checkoutUrl WHERE id=?` 回填
+- 同一订单重试收费的金额、币种及天数始终来自 `Payment.Amount/Currency/Days`，与履约共用不可变快照；改价仅影响新订单。名称/描述、跳转 URL 和支付方式未持久化为请求快照，它们变更后仍可能造成 Stripe 幂等参数不一致拒绝，不自动改写已有订单或生成替代身份。
 - `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐
 - `HandleWebhook(payload, signature)` — 签名验证后按 `event.id` 在 `stripe_webhook_events` 做去重 + 失败重试状态机：
   - 首次 `INSERT ON CONFLICT DO NOTHING` 成功 → 进入业务分发

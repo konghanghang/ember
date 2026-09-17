@@ -8,7 +8,7 @@ import {
   manualDispatchSubscription,
   manualSearchSubscription
 } from '@/api/admin'
-import { getSubscriptions, resubmitSubscription } from '@/api/console'
+import { deleteSubscription, getSubscriptions, resubmitSubscription } from '@/api/console'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 vi.mock('@/api/admin', () => ({
@@ -160,6 +160,7 @@ function mountView() {
         Film: passthroughStub,
         'el-tooltip': true,
         'el-pagination': true,
+        'el-input': true,
       },
     },
   })
@@ -556,5 +557,49 @@ describe('SubscriptionsView 分页与二次提交兜底', () => {
     expect(vm.resubmitting).toBe(false)
     // 二次确认弹窗确实被触发
     expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+describe('SubscriptionsView 取消订阅', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    authStoreState.isAdmin = false
+    vi.mocked(getSubscriptions).mockResolvedValue({ data: [buildSubscription({ status: 'PENDING' })], total: 1 })
+    vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
+  })
+
+  it('取消与审批冲突时刷新权威状态且不重复提示', async () => {
+    vi.mocked(deleteSubscription).mockRejectedValue({ isAxiosError: true, response: { status: 409 } })
+    const wrapper = mountView()
+    await flushPromises()
+    vi.mocked(getSubscriptions).mockResolvedValue({ data: [buildSubscription({ status: 'APPROVED' })], total: 1 })
+    await wrapper.findAll('button').find((button) => button.text() === '取消订阅')!.trigger('click')
+    await flushPromises()
+    expect(deleteSubscription).toHaveBeenCalledWith('sub_1')
+    expect(getSubscriptions).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).not.toContain('取消订阅')
+    expect(ElMessage.error).not.toHaveBeenCalled()
+    expect(ElMessage.success).not.toHaveBeenCalled()
+  })
+
+  it.each(['cancel', 'close'])('确认框%s时不发送取消请求或刷新', async (action) => {
+    vi.mocked(ElMessageBox.confirm).mockRejectedValue(action)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '取消订阅')!.trigger('click')
+    await flushPromises()
+    expect(deleteSubscription).not.toHaveBeenCalled()
+    expect(getSubscriptions).toHaveBeenCalledTimes(1)
+  })
+
+  it('取消成功后刷新列表并显示成功提示', async () => {
+    vi.mocked(deleteSubscription).mockResolvedValue(undefined as never)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '取消订阅')!.trigger('click')
+    await flushPromises()
+    expect(getSubscriptions).toHaveBeenCalledTimes(2)
+    expect(ElMessage.success).toHaveBeenCalledWith('已取消订阅')
   })
 })

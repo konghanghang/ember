@@ -201,6 +201,12 @@ func TestWriteMediaGapError(t *testing.T) {
 		wantError  string
 	}{
 		{
+			name:       "state conflict",
+			err:        mediagappkg.ErrMediaGapStateConflict,
+			statusCode: http.StatusConflict,
+			wantError:  mediagappkg.ErrMediaGapStateConflict.Error(),
+		},
+		{
 			name:       "not found",
 			err:        mediagappkg.ErrMediaGapNotFound,
 			statusCode: http.StatusNotFound,

@@ -47,6 +47,7 @@
 
 最近已完成归档的实施稿包括：
 
+- [支付与媒体状态问题修复计划](../archive/plan/media-subscription/open-issue-followup.md)（2026-09-17：#21–#25 已修复并逐项本地提交；真实 PostgreSQL/外部验证未执行）
 - [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md)（2026-09-16：9 项修复、2 项已有修复验收；用户确认 fake 验收，真实 PostgreSQL 未执行）
 - `architecture/gateway-media-path-diagnostics.md` → `docs/archive/plan/architecture/gateway-media-path-diagnostics.md`
 - `architecture/ember-gateway-transparent-proxy-and-web-access.md` → `docs/archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md`
