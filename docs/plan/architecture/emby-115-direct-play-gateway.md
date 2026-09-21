@@ -138,7 +138,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 新增 `emby_access_tokens` 模型和幂等 migration，只保存按 `emby-access-token` purpose 派生的 32 字节 HMAC；`VerifySchema` 同步校验代表性列和四个索引。
 - 新增无 HTTP 入口的 `internal/services/embytoken`，实现成功认证结果绑定、实时用户资格解析、`lastSeenAt` 限频，以及单 Token、单设备和用户全部登录软撤销；返回值、JSON、日志和错误均不包含 Token 明文或摘要。
 - 专用 PostgreSQL 集成数据库已验证 8 路并发认证只生成一条摘要映射、活动摘要不能换绑身份、三种撤销粒度、撤销后重新认证、动态到期，以及用户删除后已撤销审计保留；测试不请求真实 Emby。
-- 新增无监听器的 `internal/playbackgateway` 标准 HTTP Handler：认证路由透明代理并旁路写入 Token 映射，固定登录文档中的 public 用户列表/头像进入 bootstrap allowlist，其余请求使用唯一 `X-Emby-Token` 调用 `ResolvePrincipal` 后再转发；认证响应、普通 Header 和未知 JSON 字段不重编码。
+- 新增无监听器的 `internal/playbackgateway` 标准 HTTP Handler：认证路由透明代理并旁路写入 Token 映射，固定登录文档中的 public 用户列表/头像进入 bootstrap allowlist，其余请求按现行客户端兼容矩阵收集 Token 载体，确定唯一身份后调用 `ResolvePrincipal` 再转发；认证响应、普通 Header 和未知 JSON/XML 字段不重编码。
 - 初期按固定 SDK 实现严格应用头校验；2026-09-21 官方合同复核后调整为登录请求由 Emby 判定，应用元数据只做可选旁路采集。JSON/XML 成功响应建立 Token 映射，设备元数据优先来自 `SessionInfo`；登录后 Token 检查不再要求完整客户端元数据，身份冲突、资格与撤销门控保留。目标 Yamby 修复后实机验收仍待完成。
 - Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、应用头与 public bootstrap、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
 - 新增 `integrations/emby.ServerIdentityVerifier`，在监听前调用固定 `/emby/System/Info`；Runtime 只接受四段数字版本 `>= 4.9.0.0 && < 4.10.0.0` 与有界非空 ServerId，重定向、非 JSON、超大响应、状态失败、超时、版本越界和字段异常全部返回不含 URL/API Key/响应体的固定错误。
@@ -157,6 +157,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - playback 文件仍无限保留；基于 `lastAccessedAt`、无活跃播放和容量水位的 dry-run/串行清理、删除前 provenance 复核与跨副本清理锁尚未实现。`DeleteFile` 当前只有 Adapter 和测试，没有生产业务调用方。
 - 同设备直链缓存的真实客户端复用表现与生产收益未验证；HEAD 无租约 fallback、同 session 请求串行及缓存代码已完成，源解析和目标查重仍实时执行。
 - 两次历史 Token Store error 已补分类诊断，但底层原因仍需后续自然日志复验；这属于观察项，不把旧日志猜测为连接池耗尽。
+- `e611675` 认证透明化修复后的 Yamby 实机登录、资源和播放，以及 Infuse/SenPlayer 回归仍待验证；先前用户反馈和 fake 测试不替代本批验收。
 
 已拆分、不再计入本计划欠账：
 
@@ -306,7 +307,7 @@ services/api/internal/integrations/p115/
 
 服务边界：
 
-- `RecordAuthenticationResult`：只接收固定 `AuthenticationResult` 的 `User.Id/AccessToken/ServerId` 和请求设备元数据，先核对响应 ServerId 等于网关启动期确认的上游 ServerId，再按 `users.emby_id` 找到唯一用户并发安全 upsert；原始响应仍由网关逐字节透明返回。
+- `RecordAuthenticationResult`：接收 JSON/XML `AuthenticationResult` 的 `User.Id/AccessToken/ServerId` 和网关提取的有界设备元数据；元数据优先来自响应 `SessionInfo.DeviceId/Client`，缺失或无效时使用安全解析的请求值，无可用值允许为空。先核对响应 ServerId 等于启动期确认的上游 ServerId，再按 `users.emby_id` 找到唯一用户并发安全 upsert；元数据不决定用户身份，原始响应逐字节透明返回。
 - `ResolvePrincipal`：从已确认的 Token 载体提取明文，计算 HMAC 后按当前 ServerId 查询未撤销映射，再实时读取用户状态；客户端 `UserId` 永不作为身份输入。
 - `RevokeToken`：撤销一条 `server_id + token_hash` 映射。
 - `RevokeDevice`：撤销 `server_id + user_id + device_id` 下全部活动映射，使单个设备重新登录。
@@ -412,12 +413,12 @@ Token 撤销已复用现有设备/用户管理入口，没有创建第二套设�
 #### 6.2 Emby 登录与 Token 映射
 
 1. 客户端通过网关调用 `AuthenticateByName`。
-2. 网关转发给支持范围内的 Emby 4.9 Server。
-3. 成功后读取 `User.Id`、`AccessToken` 和 `ServerId`。
+2. 网关保留请求并转发给支持范围内的 Emby 4.9 Server，由 Emby 决定登录结果；应用元数据解析失败不构成本地登录拒绝。
+3. 仅在上游 `200` 后，从有界 JSON/XML 旁路副本读取 `User.Id`、`AccessToken` 和 `ServerId`，设备信息优先采用响应中的 `SessionInfo`。
 4. 按 `users.emby_id` 映射唯一 Ember 用户，使用 purpose 隔离的 HMAC-SHA256 计算摘要，并按 `serverId + tokenHash` upsert 设备元数据和最近访问时间。
-5. 用户不存在、EmbyID 错配或处于硬禁用状态时不建立可用映射；用户仅到期时可以保留身份映射，但后续直连动态拒绝，续期后无需因到期本身强制重登。
+5. 用户不存在、EmbyID 错配或处于硬禁用状态时不建立可用映射；用户仅到期时可以保留身份映射，但后续受保护请求动态拒绝，续期后无需因到期本身强制重登。
 6. 原始认证响应不修改地返回客户端；旁路持久化失败只记录脱敏错误，Token 保持未映射，不能把 Emby 成功响应改写为 Ember 自造响应。
-7. 首期只提取固定合同确认的 `X-Emby-Token`；Infuse 的其他 Token 载体必须实机确认后再加入。
+7. 登录后的 Token 载体与冲突处理以现行客户端兼容矩阵为准，包含直接 Token Header、应用头 Token 和固定 query aliases；不再限于 `X-Emby-Token`。非身份元数据不要求齐全，身份歧义、映射、资格和撤销检查仍保留。
 
 #### 6.3 播放小号已有文件
 
@@ -552,6 +553,12 @@ Cookie 不进入环境变量。Cookie 以密文保存；播放小号目标目录
 完成条件：小号已有文件和缺失秒传两条加速链路均通过；重复播放复用同一 playback 文件且不重复秒传；Stopped/会话过期不删除文件；302 分支的视频字节不经过 Ember/Emby；合法用户在任一加速失败时仍可 fallback Emby 正常播放；身份和硬状态能阻止未授权播放；任何失败都不借 source 账号播放。
 
 当前进度：`emby_access_tokens`、purpose 隔离 HMAC、并发安全映射、三种 Gateway 撤销、控制面硬状态联动、认证透明代理与 Token 门控、固定 SDK 的应用头解析/public bootstrap、启动期 Emby 身份核对、单 `ember` 二进制、`api/gateway` 子命令、同镜像 `ember-api/ember-gateway` Compose、外部 HTTPS、进程内 PlaybackInfo 当前授权证明与 MediaSource 快照、固定视频路由消费证明、生产 DirectPlay 装配、空体 302、权威 Emby fallback、单条脱敏决策日志、`playback_transfer_tasks`、session advisory lock、source 账号位置、账号按角色加载、direct play 传输编排、被动运行期健康回写和 1 分钟共享冷却已完成；对应 fake 单元/race 测试和既有 PostgreSQL 集成测试通过。实机已获得权威 Emby fallback `206`、首次/复用 Gateway `302`、字幕和 Playing/Progress/Stopped `204`；原始 Emby 隔离由部署管理员确认。完整 CDN 响应合同与阶段 2 运维能力仍待完成；用户自有账号、套餐来源和 Redis 配额已由独立计划完成代码与自动化，但不把尚未执行的个人/Redis真实链路写成实机证据。
+
+### 认证透明化修复（2026-09-21，代码与非数据库自动化已完成）
+
+- 对应提交：`e611675`；登录由 Emby 判定、元数据旁路与身份解析分离，JSON/XML 成功响应建立映射，公开用户列表/头像不再以元数据完整性决定准入。
+- 已通过 API 全量非数据库测试、Gateway/Emby 适配层/Token 服务 race 测试、vet 和 build；准确命令与覆盖范围见现行客户端兼容矩阵的本批验证记录。本次未执行数据库集成，也没有真实调用 Emby/115 或播放器，历史数据库测试结果不能归入本批。
+- 剩余：部署者按排障手册完成 Yamby 登录、媒体库、实际播放及相关功能复测，并补 Infuse/SenPlayer 回归；记录双方版本、平台、部署提交、日期/业务时区和分项结果后，才更新本批实机验收状态。本计划其他运营欠账不因此关闭。
 
 ### 阶段 2：运营与稳定性
 

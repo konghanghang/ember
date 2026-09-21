@@ -111,6 +111,35 @@ docker compose --profile gateway logs --tail=200 redis ember-gateway
 
 日志不会输出原始错误文本、数据库 DSN、Emby URL、API Key 或响应体；不要为了排障把这些值手工打印出来。
 
+#### 客户端无法登录或登录后立即失败
+
+先记录部署镜像的版本/提交、Emby Server 版本、客户端版本与平台，以及失败操作的时间和时区。以下步骤由部署者在现有服务上执行；AI 不因本文存在而自动发起真实客户端验证。
+
+1. 在 Ember 后台设置中心把 `LOG_LEVEL` 临时改为 `debug`。API/Gateway 不读取同名环境变量；等待至少 5 秒后发起一次客户端登录，Gateway 在业务请求边界刷新配置，无需重启。若没有 Debug 摘要，检查是否存在 `log_level_refresh_failed`，不能只凭保存设置就认定 Gateway 已生效。
+2. 在实际部署使用的 Compose 目录读取该时间窗口的日志；同一时间尽量只复测一个客户端，避免把其他客户端的成功映射当成本次结果。
+
+   ```bash
+   docker compose logs --since=5m --tail=500 ember-gateway
+   ```
+
+   重点保留相邻的 `request_completed`、`authentication_*`、`token_*`、`upstream_unavailable` 和 `[EmbyToken]` 行。`request_completed` 包含 method、path、route、状态、认证载体数量和客户端 family/version；不包含 Token 值。排障共享前隐藏主机名、用户/设备/映射标识及媒体路径，禁止附上真实密码、Token、完整认证头、query value 或外部响应体。
+3. 按下表判断失败阶段；仅凭时间相邻不能证明两条日志属于同一请求，缺少客户端/路径关联时标记“未证实”。
+
+   | 证据 | 判断与下一步 |
+   | --- | --- |
+   | 旧版 `code=application_header_invalid route=authentication` | Gateway 在请求到达 Emby 前返回 `401`，不是 Emby 已判定密码错误。修复提交 `e611675` 已移除此登录门槛；新部署仍出现时先核对运行镜像和实例版本 |
+   | `code=authentication_metadata_unavailable reasonCode=application_header_invalid` 等 Debug 记录 | 新版仅表示审计元数据无法采集，请求继续转发；不能把其中的 reasonCode 当成旧版本地拒绝 |
+   | 已确认运行修复版本，`request_completed route=authentication statusCode=400/401/403/500` | 精确认证路由保留了上游返回的状态；结合 Emby 侧同一请求证据判断原因，不能把所有 `401/403` 都归为密码错误 |
+   | `code=upstream_unavailable`，请求返回 `502` | Gateway 到上游的传输失败，先核对可达性与上游运行状态，不按凭据错误处理 |
+   | 登录 `200`，同时有 `authentication_response_invalid`、`authentication_response_decode_failed`、`authentication_response_read_failed`、`authentication_response_too_large` 或 `authentication_mapping_failed` | 上游成功响应已透传，但本地映射未建立；继续检查有界旁路解析、上游身份与用户绑定、存储错误。不能将客户端拿到 `200` 等同于整条登录链路通过 |
+   | 登录后出现 `token_header_invalid` 或 `token_rejected` | 查看失败请求的 path、载体数量和固定原因。前者涉及 Token 缺失/无效/歧义；后者涉及映射、撤销或身份不匹配。需与本次登录关联，不能用别的客户端的映射成功日志排除问题 |
+
+4. 复测结束后将 `LOG_LEVEL` 恢复为 `info`，按同一业务请求刷新机制生效。取证摘要只记录脱敏结果，不把整段生产日志写入仓库。
+
+`Latest/Resume` 的旧 `item_container_snapshot_unusable` 是列表路由被误当详情后的旁路观察错误，不是登录拒绝证据；该误判已由 `c82064e` 修复。`direct_play_fallback ... statusCode=206` 属于播放回退结果，不能解释前面的登录失败。
+
+部署认证修复后，按同一客户端依次复测：登录、媒体库与图片加载、打开详情、实际播放、字幕及进度/停止上报。分别记录“通过/失败/未执行”，并确认 Infuse、SenPlayer 的既有使用路径没有回归；`302/200/206/204` 日志只能证明对应 HTTP 步骤，不能代替播放器实际出画、声音或字幕结果。把部署提交、双方版本、平台、日期/业务时区及分项结论补入客户端兼容矩阵，未实测项不得写成已兼容。
+
 ### 5. Web 能打开，但页面请求 API 失败
 
 检查：
