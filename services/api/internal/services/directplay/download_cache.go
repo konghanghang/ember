@@ -18,7 +18,7 @@ import (
 
 const (
 	downloadCacheCapacity     = 1024
-	downloadCacheTTL          = 30 * time.Second
+	downloadCacheTTL          = 10 * time.Minute
 	downloadCacheSafetyWindow = 10 * time.Second
 	maxCachedDownloadURLBytes = 16 * 1024
 )

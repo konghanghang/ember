@@ -83,7 +83,7 @@ func TestMediaCacheFixedDeadline(t *testing.T) {
 				t.Fatal(err)
 			}
 			p.resolveErr = p115.ErrSourceFileNotFound
-			window := downloadCacheTTL
+			window := 10 * time.Minute
 			if lifetime-downloadCacheSafetyWindow < window {
 				window = lifetime - downloadCacheSafetyWindow
 			}
@@ -93,7 +93,13 @@ func TestMediaCacheFixedDeadline(t *testing.T) {
 			if err != nil || !strings.Contains(strings.Join(result.Timing.LogFields(), " "), "mediaResolutionCache=hit") {
 				t.Fatalf("before expiry: %v", err)
 			}
-			if result.TaskID != "" || result.Routing.TransferChecked || result.Routing.AccountUsage.OccupiedStreams != 2 {
+			// Media reuse outlives reservation TTL; expired reservations must not
+			// keep occupying a slot just because their URL is still cached.
+			occupied := 1
+			if window-time.Nanosecond < p115quota.ReservationTTL {
+				occupied = 2
+			}
+			if result.TaskID != "" || result.Routing.TransferChecked || result.Routing.AccountUsage.OccupiedStreams != occupied {
 				t.Fatal("cache copied request metadata or bypassed new session admission")
 			}
 			now = now.Add(time.Nanosecond)
@@ -123,7 +129,7 @@ func TestMediaCacheKeepsOriginalURLDeadline(t *testing.T) {
 	if _, err := s.ResolveMediaPath(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	now = now.Add(25 * time.Second)
+	now = now.Add(10*time.Minute - 5*time.Second)
 	result, err := s.ResolveMediaPath(context.Background(), r)
 	if err != nil || strings.Contains(strings.Join(result.Timing.LogFields(), " "), "mediaResolutionCache=hit") || countDownloadCalls(p) != 2 {
 		t.Fatalf("original deadline lost: err=%v downloads=%d", err, countDownloadCalls(p))

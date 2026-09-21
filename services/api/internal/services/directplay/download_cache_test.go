@@ -241,7 +241,7 @@ func TestDownloadCacheExpiryAndNoSlidingTTL(t *testing.T) {
 				return c
 			}
 			get()
-			window := downloadCacheTTL
+			window := 10 * time.Minute
 			if lifetime-downloadCacheSafetyWindow < window {
 				window = lifetime - downloadCacheSafetyWindow
 			}
