@@ -216,6 +216,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		logLevelContext = request.Context()
 	}
 	gateway.refreshLogLevel(logLevelContext)
+	request = withDiagnosticRequest(request)
 	requestLog := captureRequestLogSnapshot(request)
 	statusWriter := &requestStatusWriter{ResponseWriter: writer}
 	routeCode := "unclassified"
@@ -240,8 +241,13 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	kind := classifyRoute(request)
+	if kind == routeVideo {
+		gateway.logVideoRequestStart(request, requestLog)
+	}
 	routeCode = routeKindCode(kind)
 	playbackSessionEvent = newPlaybackSessionEventSnapshot(request)
+	playbackSessionEvent.requestID = diagnosticRequestID(request.Context())
+	playbackSessionEvent.sessionRef = "unavailable"
 	routeContext := requestRouteContext{kind: kind, pathMode: pathMode}
 	requestAccessToken := ""
 	switch kind {
@@ -300,6 +306,10 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			observed.correlationKey = playbackSessionEvent.correlationKey
 			observed.correlationPresent = playbackSessionEvent.correlationPresent
 			playbackSessionEvent = observed
+			playbackSessionEvent.requestID = diagnosticRequestID(request.Context())
+			playbackSessionEvent.sessionRef = diagnosticSessionRef(principal, observed.playSessionID)
+			gateway.debugf("[PlaybackGateway] level=debug code=playback_event_received requestId=%s sessionRef=%s event=%s snapshotState=%s itemId=%q",
+				playbackSessionEvent.requestID, playbackSessionEvent.sessionRef, observed.kind, observed.snapshotState, observed.itemID)
 		} else if kind == routePlaybackInfo {
 			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible = gateway.preparePlaybackInfoRequest(request, principal)
 		} else if kind == routeItemDetail {

@@ -717,6 +717,13 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 - 已完成：跨会话媒体缓存、同键昂贵查询串行、固定期限、账号/凭证隔离、实时准入/最终确认及 mediaResolutionCache 日志。回归先复现跨 session 源解析/查重各两次，优化后两者及取链各一次；Stopped 后新 session 保留独立名额与访问采样，不复制转存任务/额度或健康观察。API 全量非数据库测试、DirectPlay/账号/配额/Gateway 四包 race、vet/build 通过，架构、Cookie 合同和端到端流程已同步。
 - 剩余与归档条件：本批未连接真实 PostgreSQL/Redis/115/Emby，未启动服务；客户端实际起播收益及浏览预加载识别仍待受控验收。总计划保留原有阶段 2 欠账，不因这项优化完成而归档。参考 MediaWarp 固定提交 `070ad99` 的先查元数据缓存思路，未复制其实现或弱化 Ember 权限/租约边界。
 
+### 关键路径过程诊断（2026-09-21，已实现）
+
+- 在既有日志上增加进程生成 requestId、脱敏 sessionRef，连接视频入口、按需 PlaybackInfo、DirectPlay 固定步骤、Emby 回退和播放事件租约结果。Range 只记录规范化数字，预取标记只输出固定分类，不改变代理/准入/缓存行为。
+- 过程日志仅 Debug；Info 保持每请求唯一最终决策，租约更新错误保持 Warn 并补关联信息。started 在调用前输出，finished 只说明返回，不证明成功；缓存命中不伪造远端阶段。
+- 回归先复现入口与租约成功日志缺失，再覆盖日志顺序、固定字段、Header/会话脱敏、Debug 门控、上游取消、租约缺失与错误、缓存命中阶段省略。全量非数据库测试、Gateway/DirectPlay race、vet/build 已通过；未执行真实服务或客户端验收。
+- 架构、播放合同、端到端日志字段与排障 runbook 已同步；本批诊断已收口，总计划其他验收与运营剩余项继续保留。
+
 测试分层：
 
 - Emby 合同：固定认证、PlaybackInfo、视频流、字幕和播放事件 fixture。

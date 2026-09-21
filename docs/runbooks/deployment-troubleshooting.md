@@ -140,6 +140,17 @@ docker compose --profile gateway logs --tail=200 redis ember-gateway
 
 部署认证修复后，按同一客户端依次复测：登录、媒体库与图片加载、打开详情、实际播放、字幕及进度/停止上报。分别记录“通过/失败/未执行”，并确认 Infuse、SenPlayer 的既有使用路径没有回归；`302/200/206/204` 日志只能证明对应 HTTP 步骤，不能代替播放器实际出画、声音或字幕结果。把部署提交、双方版本、平台、日期/业务时区及分项结论补入客户端兼容矩阵，未实测项不得写成已兼容。
 
+#### 慢起播、重复 GET 与播放名额异常
+
+在设置中心临时开启 `LOG_LEVEL=debug`，等待至少 5 秒后分别复现“仅打开详情”和“点击播放直到出画，再停止”。记录客户端版本、平台、部署提交及操作时间，不收集原始鉴权 Header、事件 body 或 CDN URL。
+
+1. 找到 `video_request_started`，按 `requestId` 串起该请求。`rangeKind` 和合法字节区间帮助比较重复读取形态；`purpose/secPurpose` 仅作辅助，不能凭缺失标记就判断不是预加载。
+2. 查看 `playback_info_started/finished` 与 `video_context_resolved`，区分按需补全和客户端上下文。PlaybackInfo 成功不等于实际播放。
+3. 按 `direct_play_step step=... phase=started|finished` 找等待位置。尚未看到 finished 时，只能说明日志窗口内没有返回记录；取消、进程中断或日志级别变化也要排除。mediaResolutionCache=hit 时不应出现源解析/查重/取链步骤；先看本次请求的最终决策再判断失败原因。
+4. 回退时比较 `video_fallback_headers` 与 `video_fallback_completed` 的 durationMs：前者为等待上游响应头，后者包含代理后续处理；两者起点相同，不能相加。没有 headers 且 upstreamStatus=0 表示未观察到上游响应头，不是 Emby 返回了状态码 0。
+5. 画面开始后按 `sessionRef` 对照视频请求与播放事件，查看 `playback_event_received` 的 snapshotState，以及 `playback_lease_updated/not_found/skipped/update_failed`。成功更新应能看到 active/paused 等状态和用量；不同进程的 sessionRef 不可直接比较。Stopped 成功转发并释放租约不意味着清除短期媒体缓存。
+6. 复测后恢复 Info。Gateway 只观察自身及 Emby 上游，302 后客户端访问 CDN 的状态、字节和首帧时间仍需客户端侧证据，不能由这些日志推断。
+
 ### 5. Web 能打开，但页面请求 API 失败
 
 检查：

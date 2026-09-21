@@ -90,12 +90,14 @@ func finishPreparation(ctx context.Context) {
 // measureStage records a synchronous operation including its failing return.
 // The monotonic clock is independent of the configured business timezone.
 func measureStage(ctx context.Context, name string) func() {
+	finishDiagnostic := observeStep(ctx, name)
 	r, ok := ctx.Value(timingContextKey{}).(*timingRecorder)
 	if !ok {
-		return func() {}
+		return finishDiagnostic
 	}
 	started := r.now()
 	return func() {
+		finishDiagnostic()
 		stage := r.stages[name]
 		stage.duration += r.now().Sub(started)
 		stage.calls++
@@ -106,6 +108,7 @@ func measureStage(ctx context.Context, name string) func() {
 // recordDownloadCache adds only a fixed cache outcome to the existing decision
 // diagnostics; cache keys and download URLs never enter the recorder.
 func recordDownloadCache(ctx context.Context, outcome string) {
+	observeCache(ctx, "downloadURLCache", outcome)
 	if r, ok := ctx.Value(timingContextKey{}).(*timingRecorder); ok {
 		r.downloadCache = outcome
 	}
@@ -113,6 +116,7 @@ func recordDownloadCache(ctx context.Context, outcome string) {
 
 // recordMediaCache records a fixed outcome only, never paths or credential keys.
 func recordMediaCache(ctx context.Context, outcome string) {
+	observeCache(ctx, "mediaResolutionCache", outcome)
 	if r, ok := ctx.Value(timingContextKey{}).(*timingRecorder); ok {
 		r.mediaCache = outcome
 	}

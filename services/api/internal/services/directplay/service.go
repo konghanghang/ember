@@ -309,7 +309,9 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	if !validAbsoluteMediaPath(request.Path, maxDirectPlayMediaPath) {
 		return RedirectCandidate{PathMapping: mapping}, ErrPathNotMapped
 	}
+	finishLocation := observeStep(ctx, "sourceLocation")
 	location, err := service.accounts.LoadEnabledSourceLocation(ctx)
+	finishLocation()
 	if err != nil {
 		return RedirectCandidate{PathMapping: mapping}, withFailureContext(
 			ErrAccountUnavailable,
@@ -419,14 +421,18 @@ func (service *Service) resolveRoutedMediaPath(
 	if err != nil {
 		return RedirectCandidate{}, ErrInvalidRequest
 	}
+	finishSessionWait := observeStep(ctx, "sessionWait")
 	releaseSession, err := service.sessionRequests.acquire(ctx, fingerprint)
+	finishSessionWait()
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
 	defer releaseSession()
 	// Admission uses the current clock after any same-session queue wait.
 	now := service.now().UTC()
+	finishRouting := observeStep(ctx, "routing")
 	route, err := service.playbackRouter.ResolvePlaybackRoute(ctx, request.UserID, now)
+	finishRouting()
 	diagnostics := routingDiagnosticsFromRoute(route)
 	if err != nil {
 		return RedirectCandidate{Routing: diagnostics}, mapPlaybackRouteError(err)
@@ -439,7 +445,9 @@ func (service *Service) resolveRoutedMediaPath(
 	createdReservation := false
 	confirmationRequest := p115quota.ConfirmRequest{PlaybackAccountKey: accountKey, UserID: request.UserID, SessionFingerprint: fingerprint, RenewReservation: request.Method == http.MethodGet}
 	if request.Method == http.MethodHead {
+		finishAdmission := observeStep(ctx, "leaseAdmission")
 		confirmation, leaseErr := service.leases.Confirm(ctx, confirmationRequest, now)
+		finishAdmission()
 		if leaseErr != nil {
 			return RedirectCandidate{Routing: diagnostics}, mapConfirmationError(leaseErr)
 		}
@@ -450,10 +458,12 @@ func (service *Service) resolveRoutedMediaPath(
 		diagnostics.AccountUsage = confirmation.Account
 		diagnostics.UserUsage = confirmation.User
 	} else {
+		finishAdmission := observeStep(ctx, "leaseAdmission")
 		admission, leaseErr := service.leases.Reserve(ctx, p115quota.ReserveRequest{
 			PlaybackAccountKey: accountKey, UserID: request.UserID, SessionFingerprint: fingerprint,
 			MaxConcurrentStreams: route.EffectiveMaxConcurrentStreams,
 		}, now)
+		finishAdmission()
 		if leaseErr != nil {
 			if errors.Is(leaseErr, p115quota.ErrAccountConcurrencyExceeded) {
 				diagnostics.LeaseUsageAvailable = true
@@ -466,6 +476,7 @@ func (service *Service) resolveRoutedMediaPath(
 			return RedirectCandidate{Routing: diagnostics}, ErrPlaybackRouteChanged
 		}
 		createdReservation = admission.Created
+		observeLeaseAdmission(ctx, admission.Created)
 		diagnostics.LeaseUsageAvailable = true
 		diagnostics.AccountUsage = admission.Account
 		diagnostics.UserUsage = admission.User
@@ -493,13 +504,17 @@ func (service *Service) resolveRoutedMediaPath(
 	// owns its own lease; account snapshots are acquired only after the wait.
 	requestKey := mediaRequestKey(service.serverID, request)
 	if service.mediaCache != nil && requestKey != "" {
+		finishMediaWait := observeStep(ctx, "mediaWait")
 		releaseMedia, err := service.mediaCache.flights.acquire(ctx, requestKey)
+		finishMediaWait()
 		if err != nil {
 			return RedirectCandidate{Routing: diagnostics}, err
 		}
 		defer releaseMedia()
 	}
+	finishAccounts := observeStep(ctx, "accounts")
 	source, playback, err := service.loadRoutedAccounts(ctx, route, location)
+	finishAccounts()
 	if err != nil {
 		return RedirectCandidate{Routing: diagnostics}, err
 	}
@@ -536,7 +551,9 @@ func (service *Service) resolveRoutedMediaPath(
 			return candidate, heartbeatErr
 		}
 	}
+	finishConfirmation := observeStep(ctx, "leaseConfirm")
 	confirmation, err := service.leases.Confirm(ctx, confirmationRequest, service.now().UTC())
+	finishConfirmation()
 	if err != nil {
 		candidate.URL = ""
 		return candidate, mapConfirmationError(err)
@@ -675,7 +692,9 @@ func (service *Service) resolveWithAccounts(
 		if err := service.touchSucceeded(ctx, playback.Credential.AccountID, sha1Value, sourceFile.Size); err != nil {
 			return RedirectCandidate{}, err
 		}
+		finishHealth := observeStep(ctx, "healthUpdate")
 		service.reportRuntimeSuccess(source, playback, !candidate.downloadCacheHit)
+		finishHealth()
 		return candidate, nil
 	}
 
@@ -711,7 +730,9 @@ func (service *Service) resolveWithAccounts(
 			return RedirectCandidate{}, err
 		}
 	}
+	finishHealth := observeStep(ctx, "healthUpdate")
 	service.reportRuntimeSuccess(source, playback, !candidate.downloadCacheHit)
+	finishHealth()
 	return candidate, nil
 }
 
@@ -771,10 +792,12 @@ func (service *Service) resolveUnderLock(
 			return p115integration.File{}, "", false, ErrStoreUnavailable
 		}
 		dayStart, dayEnd := p115quota.DayWindow(now, service.businessTimezone)
+		finishQuota := observeStep(ctx, "transferAdmission")
 		reservation, err := service.transferQuotas.ReserveTransfer(ctx, p115quota.TransferReserveRequest{
 			UserID: quota.UserID, AttemptID: transferAttemptID,
 			HourlyLimit: quota.HourlyLimit, DailyLimit: quota.DailyLimit, DayStart: dayStart, DayEnd: dayEnd,
 		}, now)
+		finishQuota()
 		quota.Checked = true
 		quota.Usage = reservation.Usage
 		quota.UsageAvailable = err == nil || errors.Is(err, p115quota.ErrTransferQuotaExceeded)
@@ -791,11 +814,13 @@ func (service *Service) resolveUnderLock(
 			}
 		}()
 	}
+	finishTask := observeStep(ctx, "taskBegin")
 	task, err := service.store.BeginAttempt(ctx, beginAttemptInput{
 		SourceAccountID: source.Credential.AccountID, PlaybackAccountID: playback.Credential.AccountID,
 		SHA1: query.SHA1, Size: query.Size, FileName: sourceFile.Name,
 		TargetParentID: playback.TargetParentID, StartedAt: now,
 	})
+	finishTask()
 	if err != nil {
 		return p115integration.File{}, "", false, fmt.Errorf("%w: begin", ErrStoreUnavailable)
 	}
@@ -1114,6 +1139,8 @@ func (service *Service) markStatus(ctx context.Context, taskID string, status mo
 
 // touchSucceeded records access only after a compatible download URL was issued.
 func (service *Service) touchSucceeded(ctx context.Context, playbackAccountID, sha1Value string, size int64) error {
+	finish := observeStep(ctx, "accessTouch")
+	defer finish()
 	if err := service.store.TouchSucceeded(ctx, playbackAccountID, sha1Value, size, service.now().UTC()); err != nil {
 		return fmt.Errorf("%w: touch", ErrStoreUnavailable)
 	}

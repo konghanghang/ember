@@ -20,6 +20,7 @@ const (
 // requestLogSnapshot captures only bounded, non-secret request metadata before
 // path normalization mutates the request passed to the upstream proxy.
 type requestLogSnapshot struct {
+	requestID                  string
 	method                     string
 	host                       string
 	path                       string
@@ -105,6 +106,7 @@ func captureRequestLogSnapshot(request *http.Request) requestLogSnapshot {
 	userAgentFamily, userAgentVersion := userAgentDiagnostics(request.UserAgent())
 
 	return requestLogSnapshot{
+		requestID:                  diagnosticRequestID(request.Context()),
 		method:                     boundedRequestLogText(request.Method, maxLoggedMethodBytes),
 		host:                       boundedRequestLogText(request.Host, maxLoggedHostBytes),
 		path:                       path,
@@ -142,7 +144,7 @@ func (gateway *Gateway) logRequestCompletion(
 		return
 	}
 	gateway.logger.Printf(
-		"[PlaybackGateway] level=debug code=request_completed method=%s host=%q path=%q pathTruncated=%t queryKeys=%q queryKeyCount=%d queryKeysTruncated=%t route=%s pathMode=%s statusCode=%d outcome=%s durationMs=%d xEmbyTokenCount=%d xEmbyTokenState=%s xMediaBrowserTokenCount=%d xMediaBrowserTokenState=%s xEmbyAuthorizationCount=%d xMediaBrowserAuthorizationCount=%d authorizationCount=%d applicationScheme=%s embeddedTokenState=%s apiKeyQueryPresent=%t queryTokenSourceCount=%d queryTokenState=%s userAgentFamily=%s userAgentVersion=%q",
+		"[PlaybackGateway] level=debug code=request_completed method=%s host=%q path=%q pathTruncated=%t queryKeys=%q queryKeyCount=%d queryKeysTruncated=%t route=%s pathMode=%s statusCode=%d outcome=%s durationMs=%d xEmbyTokenCount=%d xEmbyTokenState=%s xMediaBrowserTokenCount=%d xMediaBrowserTokenState=%s xEmbyAuthorizationCount=%d xMediaBrowserAuthorizationCount=%d authorizationCount=%d applicationScheme=%s embeddedTokenState=%s apiKeyQueryPresent=%t queryTokenSourceCount=%d queryTokenState=%s userAgentFamily=%s userAgentVersion=%q requestId=%s",
 		snapshot.method,
 		snapshot.host,
 		snapshot.path,
@@ -169,6 +171,7 @@ func (gateway *Gateway) logRequestCompletion(
 		snapshot.queryTokenState,
 		snapshot.userAgentFamily,
 		snapshot.userAgentVersion,
+		snapshot.requestID,
 	)
 }
 

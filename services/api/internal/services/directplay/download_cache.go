@@ -146,7 +146,9 @@ func (service *Service) downloadCandidate(ctx context.Context, account p115accou
 		recordDownloadCache(ctx, "bypass")
 		return service.fetchDownloadCandidate(ctx, account, target, ua, taskID, preexisting)
 	}
+	finishWait := observeStep(ctx, "downloadWait")
 	release, err := service.downloadCache.flights.acquire(ctx, key)
+	finishWait()
 	if err != nil {
 		return RedirectCandidate{}, err
 	}

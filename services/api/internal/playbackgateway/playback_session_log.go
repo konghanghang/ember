@@ -38,6 +38,8 @@ type playbackSessionEventPayload struct {
 // playbackSessionEventSnapshot contains only bounded, non-secret playback
 // identifiers needed to diagnose whether an Emby session event was forwarded.
 type playbackSessionEventSnapshot struct {
+	requestID          string
+	sessionRef         string
 	kind               playbackSessionEventKind
 	itemID             string
 	mediaSourceID      string
@@ -169,10 +171,11 @@ func (gateway *Gateway) logPlaybackSessionEvent(
 	if result == "failure" {
 		gateway.playbackSessionFailures.Record(event, now)
 		gateway.logger.Printf(
-			"[PlaybackGateway] code=%s message=%q event=%s result=failure forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d",
+			"[PlaybackGateway] code=%s message=%q event=%s result=failure forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d requestId=%s sessionRef=%s",
 			playbackSessionFailureCode(event.kind), playbackSessionFailureMessage(event.kind), event.kind,
 			forwardState, statusCode, event.itemID, event.mediaSourceID,
 			event.positionTicks, event.positionPresent, event.pausedState(), event.snapshotState, durationMs,
+			event.requestID, event.sessionRef,
 		)
 		return
 	}
@@ -189,11 +192,12 @@ func (gateway *Gateway) logPlaybackSessionEvent(
 		gateway.playbackSessionFailures.Clear(event)
 	}
 
-	format := "[PlaybackGateway] code=%s message=%q event=%s result=success forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d"
+	format := "[PlaybackGateway] code=%s message=%q event=%s result=success forwardState=%s statusCode=%d itemId=%q mediaSourceId=%q positionTicks=%d positionPresent=%t isPaused=%s snapshotState=%s durationMs=%d requestId=%s sessionRef=%s"
 	args := []interface{}{
 		playbackSessionSuccessCode(event.kind), playbackSessionSuccessMessage(event.kind), event.kind,
 		forwardState, statusCode, event.itemID, event.mediaSourceID,
 		event.positionTicks, event.positionPresent, event.pausedState(), event.snapshotState, durationMs,
+		event.requestID, event.sessionRef,
 	}
 	if event.kind == playbackSessionEventProgress {
 		gateway.debugf("[PlaybackGateway] level=debug "+strings.TrimPrefix(format, "[PlaybackGateway] "), args...)

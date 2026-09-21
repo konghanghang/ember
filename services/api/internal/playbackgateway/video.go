@@ -45,6 +45,9 @@ type videoRequestInfo struct {
 }
 
 type videoDecision struct {
+	RequestID          string
+	SessionRef         string
+	FallbackStartedAt  time.Time
 	Decision           string
 	Stage              string
 	ReasonCode         string
@@ -89,7 +92,10 @@ func (gateway *Gateway) serveVideo(
 	resolvedMediaPath := ""
 	if itemID, mediaSourceID, eligible := onDemandPlaybackInfoCandidate(request); eligible {
 		clientRequest := request
+		resolveStarted := time.Now()
+		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_started requestId=%s itemId=%q", diagnosticRequestID(request.Context()), itemID)
 		resolved, reasonCode := gateway.resolvePlaybackInfoOnDemand(request, principal, accessToken, itemID, mediaSourceID)
+		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_finished requestId=%s itemId=%q reasonCode=%q durationMs=%d", diagnosticRequestID(request.Context()), itemID, reasonCode, time.Since(resolveStarted).Milliseconds())
 		if reasonCode == "" {
 			resolvedMediaPath = resolved.MediaSource.MediaPath
 			request, playbackInfoResolved = augmentVideoRequestWithPlaybackInfo(request, resolved)
@@ -125,6 +131,14 @@ func (gateway *Gateway) serveVideo(
 		info.FallbackReason = "container_recovered"
 	}
 	decision := newVideoDecision(request, info, &principal, startedAt)
+	contextSource := "unavailable"
+	if info.PlaySessionID != "" {
+		contextSource = "client"
+	}
+	if playbackInfoResolved {
+		contextSource = "supplemented"
+	}
+	gateway.debugf("[PlaybackGateway] level=debug code=video_context_resolved requestId=%s sessionRef=%s itemId=%q playbackContext=%s", decision.RequestID, decision.SessionRef, info.ItemID, contextSource)
 	decision.MediaPath = resolvedMediaPath
 	if !info.Accelerated {
 		decision.Stage = info.FallbackStage
@@ -154,7 +168,13 @@ func (gateway *Gateway) serveVideo(
 	}
 
 	decision.MediaPath = proof.Path
-	candidate, err := gateway.directPlayService.ResolveMediaPath(request.Context(), directplay.MediaPathResolveRequest{
+	directContext := request.Context()
+	if gateway.isDebugEnabled() {
+		directContext = directplay.WithStepObserver(directContext, func(step, phase string, elapsedMs int64) {
+			gateway.debugf("[PlaybackGateway] level=debug code=direct_play_step requestId=%s sessionRef=%s step=%s phase=%s durationMs=%d", decision.RequestID, decision.SessionRef, step, phase, elapsedMs)
+		})
+	}
+	candidate, err := gateway.directPlayService.ResolveMediaPath(directContext, directplay.MediaPathResolveRequest{
 		Path: proof.Path, ClientUserAgent: request.UserAgent(), Method: request.Method,
 		UserID: principal.User.ID, MappingID: principal.MappingID, DeviceID: principal.DeviceID, PlaySessionID: info.PlaySessionID,
 	})
@@ -232,6 +252,11 @@ func (gateway *Gateway) proxyVideoFallback(
 	decision.Decision = "fallback"
 	decision.FallbackTarget = "emby"
 	decision.FallbackSource = fallbackSource
+	decision.FallbackStartedAt = time.Now()
+	gateway.debugf("[PlaybackGateway] level=debug code=video_fallback_started requestId=%s sessionRef=%s reasonCode=%s", decision.RequestID, decision.SessionRef, decision.ReasonCode)
+	defer func() {
+		gateway.debugf("[PlaybackGateway] level=debug code=video_fallback_completed requestId=%s sessionRef=%s upstreamStatus=%d durationMs=%d", decision.RequestID, decision.SessionRef, decision.UpstreamStatus, time.Since(decision.FallbackStartedAt).Milliseconds())
+	}()
 	routeContext := requestRouteContext{kind: routeVideo, principal: &principal, videoDecision: &decision}
 	ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
 	gateway.proxy.ServeHTTP(writer, request.WithContext(ctx))
@@ -244,6 +269,8 @@ func (gateway *Gateway) observeVideoFallbackResponse(response *http.Response, ro
 		return
 	}
 	decision := *routeContext.videoDecision
+	routeContext.videoDecision.UpstreamStatus = response.StatusCode
+	gateway.debugf("[PlaybackGateway] level=debug code=video_fallback_headers requestId=%s sessionRef=%s upstreamStatus=%d durationMs=%d", decision.RequestID, decision.SessionRef, response.StatusCode, time.Since(decision.FallbackStartedAt).Milliseconds())
 	decision.StatusCode = response.StatusCode
 	decision.UpstreamStatus = response.StatusCode
 	gateway.logVideoDecision(decision)
@@ -447,8 +474,10 @@ func newVideoDecision(request *http.Request, info videoRequestInfo, principal *e
 	}
 	if request != nil {
 		decision.Method = request.Method
+		decision.RequestID = diagnosticRequestID(request.Context())
 	}
 	if principal != nil {
+		decision.SessionRef = diagnosticSessionRef(*principal, info.PlaySessionID)
 		decision.UserID = principal.User.ID
 		decision.MappingID = principal.MappingID
 		decision.DeviceID = principal.DeviceID
@@ -466,6 +495,8 @@ func (gateway *Gateway) logVideoDecision(decision videoDecision) {
 		duration = 0
 	}
 	fields := videoDecisionHeadline(decision)
+	fields = appendOptionalLogField(fields, "requestId", decision.RequestID, false)
+	fields = appendOptionalLogField(fields, "sessionRef", decision.SessionRef, false)
 	fields = appendVideoDecisionContext(fields, decision, duration)
 	gateway.logger.Print(strings.Join(fields, " "))
 }

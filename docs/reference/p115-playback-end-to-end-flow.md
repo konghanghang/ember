@@ -497,7 +497,14 @@ stateDiagram-v2
 
 排查 sourceResolve 耗时时，开启 Debug 后查看 `code=source_directory_resolved` 的 `parentResolveMs/listMs/listPages` 及 `shared/callers/entries/durationMs/success`。该明细每个共享任务一条，`listPages` 为实际尝试的列表请求数（含失败页），根目录文件的 `parentResolveMs=0`；不可把共享任务耗时乘以等待者人数视为串行耗时。明细不输出路径、凭证、Provider ID 或摘要。
 
-每个固定视频请求在默认 Info 只打印一条播放决策；设置中心数据库项 `LOG_LEVEL=debug` 时才额外打印 Gateway 统一的 `request_completed` 请求摘要，API 保存后由 Gateway 最多在 5 秒内从进程缓存刷新生效：
+每个固定视频请求在默认 Info 只打印一条播放决策；设置中心数据库项 `LOG_LEVEL=debug` 时额外打印入口、过程与统一的 `request_completed` 请求摘要，API 保存后由 Gateway 最多在 5 秒内从进程缓存刷新生效：
+
+- `requestId` 是 Gateway 进程随机前缀与原子序号生成的请求标识，不采信客户端 Header；贯穿视频入口、DirectPlay 阶段、回退、最终决策与请求完成。`sessionRef` 是带进程随机种子的 Server/用户/映射/设备/PlaySessionId 摘要，关联视频与播放事件；缺失身份为 `unavailable`，进程重启后不可关联，不使用原始会话或 Redis Key。
+- `video_request_started` 在视频身份校验及上游调用前记录 method/path、规范化 `rangeKind=none|bounded|open|suffix|multiple|invalid` 与合法数值，`purpose/secPurpose=none|prefetch|other` 仅为观测，绝不作为拦截依据。非法、超长和多 Range 不输出原文，日志不读取未认证请求体。
+- `playback_info_started/finished` 包含按需播放信息准备的时间；`video_context_resolved` 标记 `playbackContext=client|supplemented|unavailable`，播放证明不是用户点击播放的证据。
+- `direct_play_step` 使用固定 step 与 phase：远端阶段复用既有 sourceResolve/targetSearch/lockWait/preID/challenge/rapidUpload/targetVerify/transferCommit/downloadURL；增加 sourceLocation/sessionWait/mediaWait/downloadWait/routing/leaseAdmission/accounts/leaseConfirm/accessTouch/transferAdmission/taskBegin/healthUpdate。started 在调用前输出，finished 只表示返回，不表示成功；总结果仍以最终决策为准。等待与准备步骤不新增累计耗时列，避免与 prepareMs 重复计数。leaseAdmission 另记录 created/reused；两层缓存记录 hit/miss/bypass，媒体命中不会虚构 Provider 调用。
+- `video_fallback_started`、`video_fallback_headers`、`video_fallback_completed` 分别记录开始、上游响应头到达和代理退出；后两者 durationMs 均从本次回退开始计算。未收到响应头时没有 headers 日志且 upstreamStatus=0；completed 不等于客户端成功播放。原最终 fallback 决策仍由响应头或错误 hook 单次输出。
+- `playback_event_received` 记录通过身份校验后的事件类型与 snapshotState；`playback_lease_update_started/updated/not_found/skipped` 关联 requestId/sessionRef，成功包含当前状态与账号/用户 reserved/active/occupied。错误仍为 Warn，并补关联标识；不输出事件原始 body、原始 PlaySessionId、Token、Cookie、直链或未知错误内容。
 
 ```text
 level=info code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused
