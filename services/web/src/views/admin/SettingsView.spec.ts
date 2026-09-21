@@ -1,6 +1,8 @@
 import { defineComponent, h } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import ElCheckbox, { ElCheckboxGroup } from 'element-plus/es/components/checkbox/index'
 
 import SettingsView from './SettingsView.vue'
 import type { AdminConfigItem, ConfigGroupTestResult } from '@/types/api'
@@ -152,8 +154,8 @@ function mountView() {
         'el-input': ElInputStub,
         'el-input-number': ElInputNumberStub,
         'el-switch': ElSwitchStub,
-        'el-checkbox-group': passthroughStub,
-        'el-checkbox': passthroughStub,
+        'el-checkbox-group': ElCheckboxGroup,
+        'el-checkbox': ElCheckbox,
         'el-radio-group': passthroughStub,
         'el-radio-button': passthroughStub,
       },
@@ -168,6 +170,8 @@ function findButton(wrapper: ReturnType<typeof mountView>, label: string) {
 }
 
 describe('SettingsView', () => {
+  afterEach(() => vi.restoreAllMocks())
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(getExternalApiKeyStatus).mockResolvedValue({ data: { configured: false } } as never)
@@ -211,6 +215,36 @@ describe('SettingsView', () => {
     expect(getConfigs).toHaveBeenCalledTimes(2)
     expect(ElMessage.success).toHaveBeenCalledWith('基础业务保存成功')
     expect((wrapper.find('input[placeholder="https://t.me/ember"]').element as HTMLInputElement).value).toBe('https://t.me/updated')
+  })
+
+  it('多选配置保存选项值，勾选与取消不触发弃用警告', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const config = createConfigItem({
+      key: 'stripe_allowed_payment_methods',
+      label: '支付方式',
+      type: 'json_list',
+      value: '["card"]',
+      options: [
+        { label: '银行卡', value: 'card' },
+        { label: '支付宝', value: 'alipay' },
+      ],
+    })
+    vi.mocked(getConfigs).mockResolvedValue({ data: [config] })
+    vi.mocked(updateConfig).mockResolvedValue({ ...config, value: '["alipay"]' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('银行卡')
+    expect(wrapper.text()).toContain('支付宝')
+    expect(wrapper.find('input[value="card"]').element).toHaveProperty('checked', true)
+    await wrapper.find('input[value="alipay"]').setValue(true)
+    await wrapper.find('input[value="card"]').setValue(false)
+    await findButton(wrapper, '保存本组配置').trigger('click')
+    await flushPromises()
+
+    expect(updateConfig).toHaveBeenCalledWith('stripe_allowed_payment_methods', { value: '["alipay"]' })
+    expect(warn.mock.calls.flat().map(String).join('\n')).not.toContain('label act as value')
+    wrapper.unmount()
   })
 
   it('Gateway Emby 网页开关作为后台配置保存并标记立即生效', async () => {

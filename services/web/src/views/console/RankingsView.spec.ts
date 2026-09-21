@@ -1,6 +1,8 @@
-import { defineComponent, h, inject, provide, reactive } from 'vue'
+import { defineComponent, h, reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import ElCheckbox, { ElCheckboxGroup } from 'element-plus/es/components/checkbox/index'
 
 import RankingsView from './RankingsView.vue'
 import { getLatestRanking, getRankingHistory } from '@/api/console'
@@ -79,58 +81,6 @@ const EmberFormDialogStub = defineComponent({
   },
 })
 
-const checkboxGroupKey = Symbol('checkbox-group')
-
-const CheckboxGroupStub = defineComponent({
-  props: {
-    modelValue: {
-      type: Array as () => string[],
-      default: () => [],
-    },
-  },
-  emits: ['update:modelValue'],
-  setup(props, { emit, slots }) {
-    provide(checkboxGroupKey, {
-      isChecked: (label: string) => props.modelValue.includes(label),
-      toggle: (label: string, checked: boolean) => {
-        const next = new Set(props.modelValue)
-        if (checked) {
-          next.add(label)
-        } else {
-          next.delete(label)
-        }
-        emit('update:modelValue', Array.from(next))
-      },
-    })
-    return () => h('div', slots.default?.())
-  },
-})
-
-const CheckboxStub = defineComponent({
-  props: {
-    label: {
-      type: String,
-      required: true,
-    },
-  },
-  setup(props) {
-    const group = inject<{
-      isChecked: (label: string) => boolean
-      toggle: (label: string, checked: boolean) => void
-    }>(checkboxGroupKey)
-
-    return () =>
-      h('input', {
-        type: 'checkbox',
-        checked: group?.isChecked(props.label) ?? false,
-        'data-test': `library-checkbox-${props.label}`,
-        onChange: (event: Event) => {
-          group?.toggle(props.label, (event.target as HTMLInputElement).checked)
-        },
-      })
-  },
-})
-
 function mountView() {
   return mount(RankingsView, {
     global: {
@@ -143,8 +93,8 @@ function mountView() {
         'el-skeleton': true,
         'el-empty': true,
         'el-date-picker': true,
-        'el-checkbox-group': CheckboxGroupStub,
-        'el-checkbox': CheckboxStub,
+        'el-checkbox-group': ElCheckboxGroup,
+        'el-checkbox': ElCheckbox,
         Trophy: passthroughStub,
         Film: passthroughStub,
         VideoCamera: passthroughStub,
@@ -168,6 +118,8 @@ function emptyRankingResponse() {
 }
 
 describe('RankingsView 媒体库 allowlist', () => {
+  afterEach(() => vi.restoreAllMocks())
+
   beforeEach(() => {
     vi.clearAllMocks()
     authStoreState.isAdmin = true
@@ -212,7 +164,7 @@ describe('RankingsView 媒体库 allowlist', () => {
     expect(wrapper.text()).toContain('参与统计的媒体库')
     expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
 
-    await wrapper.find('[data-test="library-checkbox-lib_series"]').setValue(true)
+    await wrapper.find('input[value="lib_series"]').setValue(true)
     await flushPromises()
 
     const saveButton = wrapper
@@ -225,6 +177,25 @@ describe('RankingsView 媒体库 allowlist', () => {
     expect(updateRankingLibraryAllowlist).toHaveBeenCalledWith([])
     expect(ElMessage.success).toHaveBeenCalledWith('已恢复为全部媒体库参与统计')
     expect(wrapper.find('[data-test="allowlist-dialog"]').exists()).toBe(false)
+  })
+
+  it('媒体库使用显式选中值，取消与保存不触发弃用警告', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('input[value="lib_movie"]').element).toHaveProperty('checked', true)
+    await wrapper.find('input[value="lib_series"]').setValue(true)
+    await wrapper.find('input[value="lib_movie"]').setValue(false)
+    const save = wrapper.findAll('button').find(button => button.text().includes('保存媒体库范围'))!
+    await save.trigger('click')
+    await flushPromises()
+
+    expect(updateRankingLibraryAllowlist).toHaveBeenCalledWith(['lib_series'])
+    expect(warn.mock.calls.flat().map(String).join('\n')).not.toContain('label act as value')
+    wrapper.unmount()
   })
 
   it('普通用户不显示媒体库配置区块', async () => {
@@ -280,7 +251,7 @@ describe('RankingsView 媒体库 allowlist', () => {
     await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
     await flushPromises()
 
-    await wrapper.find('[data-test="library-checkbox-lib_series"]').setValue(true)
+    await wrapper.find('input[value="lib_series"]').setValue(true)
     await flushPromises()
 
     const saveButton = wrapper
@@ -312,7 +283,7 @@ describe('RankingsView 媒体库 allowlist', () => {
     // 共享决策：catch 内的 ElMessage.error 已删除（错误文案由 request 拦截器统一弹出），
     // 这里只验证本地状态被回滚到原有选择。
     expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
-    expect(wrapper.find('[data-test="library-checkbox-lib_movie"]').element).toHaveProperty('checked', true)
+    expect(wrapper.find('input[value="lib_movie"]').element).toHaveProperty('checked', true)
   })
 
   it('管理员首屏不会主动请求媒体库配置', async () => {

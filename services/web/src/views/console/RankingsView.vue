@@ -538,7 +538,7 @@ onMounted(() => {
                     : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-stone-50/60'"
                 >
                   <el-checkbox
-                    :label="library.id"
+                    :value="library.id"
                     :aria-label="`选择媒体库 ${library.name}`"
                     class="mt-1 !mr-0 shrink-0"
                   >

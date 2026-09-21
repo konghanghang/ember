@@ -809,7 +809,7 @@ onMounted(async () => {
                     <el-checkbox
                       v-for="option in item.options || []"
                       :key="option.value"
-                      :label="option.value"
+                      :value="option.value"
                       class="!mr-0 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2"
                     >
                       {{ option.label }}
