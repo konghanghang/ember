@@ -754,9 +754,8 @@ onBeforeUnmount(stopSyncBatchPolling)
                 <el-icon :size="18"><EditPen /></el-icon>
               </button>
             </el-tooltip>
-            <el-tooltip content="删除" placement="top">
+            <el-tooltip v-if="canDeletePlanGroup(row)" content="删除" placement="top">
               <button
-                v-if="canDeletePlanGroup(row)"
                 @click="handleDelete(row)"
                 class="cursor-pointer rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
                 aria-label="删除用户分组"

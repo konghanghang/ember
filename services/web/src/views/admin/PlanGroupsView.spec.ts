@@ -2,6 +2,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import ElTooltip from 'element-plus/es/components/tooltip/index'
 
 import PlanGroupsView from './PlanGroupsView.vue'
 import type { EmbyPolicySyncBatchDetail, ManagedPlanGroup } from '@/types/api'
@@ -180,7 +181,16 @@ function setupStateOf(wrapper: VueWrapper): PlanGroupsSetupState {
   return (wrapper.vm.$ as unknown as { setupState: PlanGroupsSetupState }).setupState
 }
 
-function mountView() {
+/** 指定操作行时渲染真实 Tooltip，覆盖表格操作插槽的条件渲染。 */
+function mountView(actionRows?: ManagedPlanGroup[]) {
+  const actionColumnStub = defineComponent({
+    props: ['label'],
+    setup(props, { slots }) {
+      return () => props.label === '操作'
+        ? h('div', actionRows?.map(row => h('div', { 'data-group': row.key }, slots.default?.({ row }))))
+        : null
+    },
+  })
   return mount(PlanGroupsView, {
     global: {
       directives: {
@@ -204,9 +214,9 @@ function mountView() {
         'el-select': passthroughStub,
         'el-progress': progressStub,
         'el-switch': passthroughStub,
-        'el-table-column': emptyStub,
+        'el-table-column': actionRows ? actionColumnStub : emptyStub,
         'el-tag': tagStub,
-        'el-tooltip': passthroughStub,
+        'el-tooltip': actionRows ? ElTooltip : passthroughStub,
       },
     },
   })
@@ -353,6 +363,31 @@ describe('PlanGroupsView', () => {
     expect(deletePlanGroup).not.toHaveBeenCalled()
 
     wrapper.unmount()
+  })
+
+  it('默认分组不渲染删除 Tooltip，普通分组可删除且没有空子节点警告', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const groups: ManagedPlanGroup[] = [
+      { key: 'DEFAULT', name: '默认分组', isDefault: true, sortOrder: 0,
+        p115PlaybackMode: 'personal', p115TransferHourlyLimit: 5, p115TransferDailyLimit: 10 },
+      { key: 'VIP', name: 'VIP', isDefault: false, sortOrder: 1,
+        p115PlaybackMode: 'personal', p115TransferHourlyLimit: 5, p115TransferDailyLimit: 10 },
+    ]
+    const wrapper = mountView(groups)
+    try {
+      await flushPromises()
+      expect(wrapper.find('[data-group="DEFAULT"] button[aria-label="删除用户分组"]').exists()).toBe(false)
+      expect(wrapper.findAllComponents(ElTooltip).filter(tooltip => tooltip.props('content') === '删除')).toHaveLength(1)
+
+      vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
+      await wrapper.get('[data-group="VIP"] button[aria-label="删除用户分组"]').trigger('click')
+      await flushPromises()
+      expect(deletePlanGroup).toHaveBeenCalledExactlyOnceWith('VIP')
+      expect(warn.mock.calls.flat().map(String).join('\n')).not.toContain('no valid child node found')
+    } finally {
+      wrapper.unmount()
+      warn.mockRestore()
+    }
   })
 
   it('创建分组时提交自动通过额度字段', async () => {
