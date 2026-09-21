@@ -139,7 +139,7 @@ Gateway 的通用透明代理、客户端根路径兼容、登录前 bootstrap �
 - 新增无 HTTP 入口的 `internal/services/embytoken`，实现成功认证结果绑定、实时用户资格解析、`lastSeenAt` 限频，以及单 Token、单设备和用户全部登录软撤销；返回值、JSON、日志和错误均不包含 Token 明文或摘要。
 - 专用 PostgreSQL 集成数据库已验证 8 路并发认证只生成一条摘要映射、活动摘要不能换绑身份、三种撤销粒度、撤销后重新认证、动态到期，以及用户删除后已撤销审计保留；测试不请求真实 Emby。
 - 新增无监听器的 `internal/playbackgateway` 标准 HTTP Handler：认证路由透明代理并旁路写入 Token 映射，固定登录文档中的 public 用户列表/头像进入 bootstrap allowlist，其余请求使用唯一 `X-Emby-Token` 调用 `ResolvePrincipal` 后再转发；认证响应、普通 Header 和未知 JSON 字段不重编码。
-- 按 SDK 固定提交实现 `Authorization/X-Emby-Authorization` 的严格 `Emby` 应用头解析，要求 `Client/Device/DeviceId/Version`，拒绝重复/未知字段、非空内嵌 Token、非法 quoted-string 和 Header 歧义；`Client/DeviceId` 只作为非权威映射元数据。
+- 初期按固定 SDK 实现严格应用头校验；2026-09-21 官方合同复核后调整为登录请求由 Emby 判定，应用元数据只做可选旁路采集。JSON/XML 成功响应建立 Token 映射，设备元数据优先来自 `SessionInfo`；登录后 Token 检查不再要求完整客户端元数据，身份冲突、资格与撤销门控保留。目标 Yamby 修复后实机验收仍待完成。
 - Gateway fake 测试覆盖认证 `200/401/403/500` 原样返回、应用头与 public bootstrap、旁路写入失败、无效/超大成功响应、Token 缺失/重复/撤销/到期、路由大小写/尾斜杠/escaped path 绕过、上游 transport 错误和日志脱敏；不请求真实 Emby。
 - 新增 `integrations/emby.ServerIdentityVerifier`，在监听前调用固定 `/emby/System/Info`；Runtime 只接受四段数字版本 `>= 4.9.0.0 && < 4.10.0.0` 与有界非空 ServerId，重定向、非 JSON、超大响应、状态失败、超时、版本越界和字段异常全部返回不含 URL/API Key/响应体的固定错误。
 - 新增 `cmd/ember` 和 `internal/entrypoint`，无参数/`api` 启动 API，`gateway` 启动 Gateway，help/未知参数保持无副作用；外部调用方确认不需要历史兼容后，`cmd/server` 与 `cmd/playback-gateway` 薄包装已删除。

@@ -235,8 +235,8 @@ func queryTokenDiagnostics(values url.Values) (int, string, bool) {
 	return sourceCount, "missing", apiKeyPresent
 }
 
-// applicationAuthorizationDiagnostics reports only fixed scheme and Token
-// presence labels, never the application authorization Header value.
+// applicationAuthorizationDiagnostics uses the same identity grammar as the
+// gate and reports only fixed scheme/Token presence labels, never Header values.
 func applicationAuthorizationDiagnostics(header http.Header) (string, string) {
 	standardValues := header.Values(standardAuthorizationHeader)
 	xEmbyValues := header.Values(embyAuthorizationHeader)
@@ -252,7 +252,7 @@ func applicationAuthorizationDiagnostics(header http.Header) (string, string) {
 		return "other", "unparseable"
 	}
 	scheme := applicationAuthorizationSchemeCode(value)
-	fields, ok := parseApplicationAuthorizationWithAccessToken(value, headerKind)
+	fields, ok := parseApplicationAuthorizationFields(value, headerKind, true, true)
 	if !ok {
 		return scheme, "unparseable"
 	}

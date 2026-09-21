@@ -32,14 +32,14 @@
 | `X-Emby-Token` query | key 大小写不敏感 | 接受唯一非空值 |
 | `X-MediaBrowser-Token` query | key 大小写不敏感 | 接受唯一非空值 |
 | `AccessToken` query | key 大小写不敏感 | 接受唯一非空值 |
-| `Authorization` / `X-Emby-Authorization` | 严格 `Emby ... Token="..."` grammar | 接受完整合法字段 |
-| `X-Emby-Authorization` / `X-MediaBrowser-Authorization` | 严格 `MediaBrowser ... Token="..."` grammar | 接受完整合法字段 |
+| `Authorization` / `X-Emby-Authorization` / `X-MediaBrowser-Authorization` | 有界 `Emby ... Token="..."` 或 `MediaBrowser ... Token="..."` grammar | 读取唯一 Token，不要求完整应用元数据；上游仍决定原生认证是否有效 |
 | 任意 Bearer、Quick Connect、PIN、插件 Token | 无版本化合同 | 不接受 |
 
-同一请求出现多个非空候选时，只有所有字节完全一致才接受；重复逻辑来源、空值、冲突、未知 scheme、缺字段、非法 quoted-string 均返回 `401`。Gateway 使用唯一候选执行 HMAC 映射和用户状态检查，原始 Header/query 不改写并继续透明转发。
+同一请求出现多个非空候选时，只有所有字节完全一致才接受；重复身份来源、空直接 Token、冲突、未知 scheme、非法 quoted-string 均返回 `401`；非身份元数据缺失、空值、扩展和重复不触发拒绝。Gateway 使用唯一候选执行 HMAC 映射和用户状态检查，原始 Header/query 不改写并继续透明转发。
 
-- `AuthenticateByName` 必须使用严格应用头或目标 Emby Web 已确认的严格 query 应用元数据，且所有外部 Token carrier 缺失；两种元数据载体同时出现时拒绝，避免元数据歧义或旧 Token 改变重新登录语义。
-- Public users/无 Index 用户头像在登录前接受严格空 Token 应用头，登录后也接受已经映射的通用 Token carrier；Public users 额外接受目标 Emby Web 已确认的四个必填 `X-Emby-*` query 应用元数据，非法或重复 query 不能借该入口绕过。
+- 精确 `AuthenticateByName` 请求由 Emby 判定，不再因元数据解析失败、多个元数据载体或旧 Token 在 Gateway 返回登录 `401`。上游成功响应才建立本地映射，元数据旁路失败仅记固定 Debug 原因。
+- Public users/无 Index 用户头像无 Token 时直接转发，由 Emby 决定响应；携 Token 时继续校验映射、撤销和用户资格。公开范围不扩展到其他用户接口。
+- 元数据采集与 Token 判定分离，完整应用头只作为可选审计 fallback。原生请求 grammar 不可解析、多个应用头或冲突身份仍不能绕过本地 Token 门控。
 
 query Token 可能被外层代理 access log 记录。部署必须只记录 `$uri` 和 query key 形态，禁止 `$request`、`$request_uri`、`$args` 等包含 query value 的字段。
 
@@ -56,7 +56,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 ### 2.3 响应与客户端名称
 
 - 普通 API、图片、字幕、会话和未知受保护 Surface 默认走同一个透明代理。
-- AuthenticationResult 与 PlaybackInfo 只对有界旁路副本按 `identity/gzip/deflate/br` 解码，客户端收到的状态、Content-Encoding、Header 和原始字节不重新编码。目标 Infuse 已确认 deflate，目标 Emby Web `4.9.3.0` 已确认 Brotli 登录响应。
+- AuthenticationResult 支持 JSON/XML，PlaybackInfo 保留 JSON 旁路；两者只对有界旁路副本按 `identity/gzip/deflate/br` 解码，客户端收到的状态、Content-Encoding、Header 和原始字节不重新编码。目标 Infuse 已确认 deflate，目标 Emby Web `4.9.3.0` 已确认 Brotli 登录响应。
 - 层级精确的用户条目响应同样保持原字节，只缓存当前 mapping 下的 Item/MediaSource Container。plain `/Videos/{Id}/stream` 缺 PlaySessionId 时，Gateway 优先使用当前用户 Token 向同一 Emby 补取 PlaybackInfo；成功后分离 115 决策请求与 Emby fallback，后者使用严格验证并移除 URL Token 的 DirectStreamUrl，缺失时使用 `stream.{Container}`。
 - 因此 `MediaStreams: []` 等空数组不会被 `omitempty` 丢失；这是 MediaWarp 源码标注的 [Yamby 兼容点](https://github.com/AkimioJR/MediaWarp/blob/070ad99cb32e940b2b8ccb7c55b6efb7d311eac5/internal/service/emby/schema.go#L224-L233)。
 - 日志识别 Infuse Direct/Library、SenPlayer、Yamby、VidHub、Fileball、Conflux 和官方 Emby family；未知 UA 仍代理，不因名称进入不同认证或播放逻辑。
@@ -67,7 +67,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 | --- | --- | --- |
 | Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认本地扩展名 fallback `206`、首次/复用 `302` 实际播放、外挂/内嵌字幕，以及 Playing/Progress/Stopped `204`。账号运行期四类回写、1 分钟共享冷却和半开单探测已有 fake/race 与 PostgreSQL 集成证据 | 115 CDN 完整响应头/Range/全文件字节取证，以及自然发生的生产 Provider 冷却/恢复时长；其他平台仍需按目标版本记录 |
 | SenPlayer | `emby-toolkit` 固定源码将其列为 native client；Ember 有 UA 与通用载体 fake 测试 | 真实 Header/query/path、播放和字幕行为 |
-| Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试 | 真实 Token 载体、路径与播放行为 |
+| Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试。2026-09-21 用户反馈无法登录，提供日志确认存在网关本地 `application_header_invalid` 拒绝；已实现通用认证透明化并补 fake 回归 | 日志缺少客户端请求形态，不能锁定 Yamby 的具体认证头；修复后真实登录、资源与播放仍待验证 |
 | Emby Web | 目标 Gateway 日志已确认浏览器请求 `/`、`/favicon.ico`、完整静态资源、单层语言 JSON、Branding CSS，以及携四个必填 `X-Emby-*` query 元数据的 Public users、Branding Configuration 和 AuthenticateByName。2026-08-31 真实浏览器进一步确认完整页面资源、query 登录、Primary、Backdrop Index `0/1` 与登录后 WebSocket OPEN；Web 关闭时 GET/HEAD 中文 `404`、禁缓存和 Infuse 不受影响均通过 | Web 播放 115 文件按用户当前无使用场景排除，不表述为已兼容；Cloudflare Browser Insights 注入被 CSP 拦截，属于接受的部署层偏差 |
 | iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |
 

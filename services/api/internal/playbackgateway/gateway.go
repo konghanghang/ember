@@ -8,7 +8,6 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -139,10 +138,14 @@ type requestRouteContextKey struct{}
 
 type authenticationResult struct {
 	User struct {
-		ID string `json:"Id"`
-	} `json:"User"`
-	AccessToken string `json:"AccessToken"`
-	ServerID    string `json:"ServerId"`
+		ID string `json:"Id" xml:"Id"`
+	} `json:"User" xml:"User"`
+	AccessToken string `json:"AccessToken" xml:"AccessToken"`
+	ServerID    string `json:"ServerId" xml:"ServerId"`
+	SessionInfo struct {
+		DeviceID string `json:"DeviceId" xml:"DeviceId"`
+		Client   string `json:"Client" xml:"Client"`
+	} `json:"SessionInfo" xml:"SessionInfo"`
 }
 
 // New builds a gateway handler without starting a listener or making an
@@ -246,33 +249,17 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		// PublicSystemInfo is the exact pre-login discovery endpoint. Emby is
 		// authoritative for its response and no local identity exists yet.
 	case routeAuthentication:
-		metadata, metadataCarrier, ok := extractAuthenticationApplicationMetadata(request)
-		if !ok {
-			gateway.logger.Printf("[PlaybackGateway] code=%s route=%s pathMode=%s", invalidApplicationMetadataLogCode(metadataCarrier), routeKindCode(kind), pathMode)
-			statusWriter.WriteHeader(http.StatusUnauthorized)
-			return
+		// Only Emby decides whether a login request is valid. Request metadata
+		// is an optional audit fallback, never an identity or admission gate.
+		metadata, carrier, ok := extractAuthenticationApplicationMetadata(request)
+		if ok {
+			routeContext.metadata = metadata
+		} else {
+			gateway.debugf("[PlaybackGateway] code=authentication_metadata_unavailable reasonCode=%s", invalidApplicationMetadataLogCode(carrier))
 		}
-		if _, reasonCode, tokenPresent := extractProtectedRequestAccessToken(request); tokenPresent || reasonCode != "token_missing" {
-			if tokenPresent {
-				reasonCode = "token_present"
-			}
-			gateway.logger.Printf("[PlaybackGateway] code=authentication_token_invalid reasonCode=%s", reasonCode)
-			statusWriter.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		routeContext.metadata = metadata
 	case routePublicBootstrap:
-		metadata, metadataCarrier, metadataOK := extractPublicBootstrapApplicationMetadata(request)
-		// The target Web query bundle is proven only for the exact public user
-		// list. Public images keep the existing application Header contract.
-		if metadataCarrier == applicationMetadataQuery && !exactRequestPathFold(request.URL, publicUsersPath) {
-			metadataOK = false
-		}
-		if metadataCarrier != applicationMetadataNone && !metadataOK {
-			gateway.logger.Printf("[PlaybackGateway] code=%s route=%s pathMode=%s", invalidApplicationMetadataLogCode(metadataCarrier), routeKindCode(kind), pathMode)
-			statusWriter.WriteHeader(http.StatusUnauthorized)
-			return
-		}
+		// Exact public login endpoints do not require local audit metadata.
+		// Supplied identities still obey local revocation and eligibility.
 		accessToken, reasonCode, tokenOK := extractProtectedRequestAccessToken(request)
 		if tokenOK {
 			principal, resolved := gateway.resolveRequestPrincipal(statusWriter, request, kind, startedAt, accessToken)
@@ -280,9 +267,6 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 				return
 			}
 			routeContext.principal = &principal
-			if metadataOK {
-				routeContext.metadata = metadata
-			}
 			break
 		}
 		if reasonCode != "token_missing" {
@@ -290,11 +274,6 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			statusWriter.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if metadataOK {
-			routeContext.metadata = metadata
-			break
-		}
-		fallthrough
 	default:
 		accessToken, reasonCode, ok := extractProtectedRequestAccessToken(request)
 		if !ok {
@@ -480,17 +459,18 @@ func (gateway *Gateway) observeAuthenticationResponse(response *http.Response) e
 		return nil
 	}
 
-	var result authenticationResult
-	if err := json.Unmarshal(decodedPrefix, &result); err != nil || !validAuthenticationResult(result) {
+	result, err := decodeAuthenticationResult(decodedPrefix, response.Header.Get("Content-Type"))
+	if err != nil || !validAuthenticationResult(result) {
 		gateway.logger.Printf("[PlaybackGateway] code=authentication_response_invalid errorType=%T", err)
 		return nil
 	}
-	_, err := gateway.tokenService.RecordAuthenticationResult(response.Request.Context(), embytoken.AuthenticationResultInput{
+	metadata := authenticationResultMetadata(result, routeContext.metadata)
+	_, err = gateway.tokenService.RecordAuthenticationResult(response.Request.Context(), embytoken.AuthenticationResultInput{
 		ServerID:    result.ServerID,
 		EmbyUserID:  result.User.ID,
 		AccessToken: result.AccessToken,
-		DeviceID:    routeContext.metadata.DeviceID,
-		ClientName:  routeContext.metadata.ClientName,
+		DeviceID:    metadata.DeviceID,
+		ClientName:  metadata.ClientName,
 	})
 	if err != nil {
 		gateway.logger.Printf("[PlaybackGateway] code=authentication_mapping_failed errorType=%T", err)

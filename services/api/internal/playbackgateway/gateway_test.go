@@ -1071,9 +1071,9 @@ func TestExtractProtectedAccessTokenUsesOneConsistentVersionedSource(t *testing.
 			wantReason: "token_missing",
 		},
 		{
-			name:       "embedded token has incomplete metadata",
-			header:     http.Header{embyAuthorizationHeader: {`MediaBrowser Client="Infuse", Token="` + fixtureAccessToken + `"`}},
-			wantReason: "token_invalid",
+			name:      "embedded token has incomplete metadata",
+			header:    http.Header{embyAuthorizationHeader: {`MediaBrowser Client="Infuse", Token="` + fixtureAccessToken + `"`}},
+			wantToken: fixtureAccessToken, wantAccept: true,
 		},
 		{
 			name: "unsupported scheme", header: http.Header{standardAuthorizationHeader: {`Bearer ` + fixtureAccessToken}},
@@ -1835,7 +1835,9 @@ func TestGatewayPublicUsersAcceptsWebQueryMetadataWithoutTokenMapping(t *testing
 	assertSecretsAbsent(t, logs.String(), "Emby Web", "web-device-1", "Chrome macOS", "zh-CN")
 }
 
-func TestGatewayPublicUsersRejectsInvalidWebQueryMetadata(t *testing.T) {
+// TestGatewayPublicUsersPreservesOptionalWebQueryMetadata keeps pre-login
+// metadata variations transparent without widening the set of public routes.
+func TestGatewayPublicUsersPreservesOptionalWebQueryMetadata(t *testing.T) {
 	validQuery := func() url.Values {
 		return url.Values{
 			"X-Emby-Client":         {"Emby Web"},
@@ -1882,7 +1884,7 @@ func TestGatewayPublicUsersRejectsInvalidWebQueryMetadata(t *testing.T) {
 			return values
 		}(), wantLog: "code=application_query_invalid"},
 		{name: "header and query carriers", query: validQuery(), header: fixtureApplicationAuthorization, wantLog: "code=application_metadata_ambiguous"},
-		{name: "public image does not inherit query metadata", path: "/emby/Users/public-user/Images/Primary", query: validQuery(), wantLog: "code=application_query_invalid"},
+		{name: "public image preserves query metadata", path: "/emby/Users/public-user/Images/Primary", query: validQuery(), wantLog: "code=application_query_invalid"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1906,11 +1908,11 @@ func TestGatewayPublicUsersRejectsInvalidWebQueryMetadata(t *testing.T) {
 			response := httptest.NewRecorder()
 			gateway.ServeHTTP(response, request)
 
-			if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 || upstreamCalls.Load() != 0 {
+			if response.Code != http.StatusNoContent || response.Body.Len() != 0 || upstreamCalls.Load() != 1 {
 				t.Fatalf("response=%d body=%q upstreamCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load())
 			}
-			if !strings.Contains(logs.String(), test.wantLog) {
-				t.Fatalf("logs=%q, want %s", logs.String(), test.wantLog)
+			if strings.Contains(logs.String(), test.wantLog) {
+				t.Fatalf("logs contain unexpected rejection %s", test.wantLog)
 			}
 			assertSecretsAbsent(t, logs.String(), "Emby Web", "web-device-1", "Chrome macOS", "Other Web")
 		})
@@ -1946,7 +1948,9 @@ func TestGatewayPublicBootstrapAcceptsMappedTokenCarrier(t *testing.T) {
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
 }
 
-func TestGatewayAuthenticationRejectsExternalTokenCarriers(t *testing.T) {
+// TestGatewayAuthenticationPreservesExternalTokenCarriers leaves old login
+// tokens for Emby to interpret instead of treating them as a local identity.
+func TestGatewayAuthenticationPreservesExternalTokenCarriers(t *testing.T) {
 	tests := []struct {
 		name   string
 		target string
@@ -1974,10 +1978,10 @@ func TestGatewayAuthenticationRejectsExternalTokenCarriers(t *testing.T) {
 			response := httptest.NewRecorder()
 			gateway.ServeHTTP(response, request)
 
-			if response.Code != http.StatusUnauthorized || upstreamCalls.Load() != 0 {
+			if response.Code != http.StatusNoContent || upstreamCalls.Load() != 1 {
 				t.Fatalf("response=%d upstreamCalls=%d", response.Code, upstreamCalls.Load())
 			}
-			if !strings.Contains(logs.String(), "code=authentication_token_invalid") {
+			if strings.Contains(logs.String(), "code=authentication_token_invalid") {
 				t.Fatalf("logs=%q", logs.String())
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureAccessToken)
@@ -1985,7 +1989,9 @@ func TestGatewayAuthenticationRejectsExternalTokenCarriers(t *testing.T) {
 	}
 }
 
-func TestGatewayAuthenticationWebQueryRejectsExternalTokenCarrier(t *testing.T) {
+// TestGatewayAuthenticationWebQueryPreservesExternalTokenCarrier keeps the Web
+// query bundle intact even when a client also supplies a previous token.
+func TestGatewayAuthenticationWebQueryPreservesExternalTokenCarrier(t *testing.T) {
 	query := validWebApplicationQuery()
 	query.Set("api_key", fixtureAccessToken)
 	var upstreamCalls atomic.Int32
@@ -2001,16 +2007,18 @@ func TestGatewayAuthenticationWebQueryRejectsExternalTokenCarrier(t *testing.T) 
 	response := httptest.NewRecorder()
 	gateway.ServeHTTP(response, request)
 
-	if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 || upstreamCalls.Load() != 0 {
+	if response.Code != http.StatusNoContent || response.Body.Len() != 0 || upstreamCalls.Load() != 1 {
 		t.Fatalf("response=%d body=%q upstreamCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load())
 	}
-	if !strings.Contains(logs.String(), "code=authentication_token_invalid reasonCode=token_present") {
+	if strings.Contains(logs.String(), "code=authentication_token_invalid") {
 		t.Fatalf("logs=%q", logs.String())
 	}
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "Emby Web", "web-device-1")
 }
 
-func TestGatewayAuthenticationRejectsInvalidWebQueryMetadata(t *testing.T) {
+// TestGatewayAuthenticationObservesInvalidWebQueryMetadata reports unusable
+// audit metadata without replacing the upstream login decision.
+func TestGatewayAuthenticationObservesInvalidWebQueryMetadata(t *testing.T) {
 	tests := []struct {
 		name    string
 		query   url.Values
@@ -2021,13 +2029,13 @@ func TestGatewayAuthenticationRejectsInvalidWebQueryMetadata(t *testing.T) {
 			values := validWebApplicationQuery()
 			values.Del("X-Emby-Device-Id")
 			return values
-		}(), wantLog: "code=application_query_invalid"},
+		}(), wantLog: "reasonCode=application_query_invalid"},
 		{name: "duplicate logical key", query: func() url.Values {
 			values := validWebApplicationQuery()
 			values["x-emby-client"] = []string{"Other Web"}
 			return values
-		}(), wantLog: "code=application_query_invalid"},
-		{name: "header and query carriers", query: validWebApplicationQuery(), header: fixtureApplicationAuthorization, wantLog: "code=application_metadata_ambiguous"},
+		}(), wantLog: "reasonCode=application_query_invalid"},
+		{name: "header and query carriers", query: validWebApplicationQuery(), header: fixtureApplicationAuthorization, wantLog: "reasonCode=application_metadata_ambiguous"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -2047,7 +2055,7 @@ func TestGatewayAuthenticationRejectsInvalidWebQueryMetadata(t *testing.T) {
 			response := httptest.NewRecorder()
 			gateway.ServeHTTP(response, request)
 
-			if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 || upstreamCalls.Load() != 0 {
+			if response.Code != http.StatusNoContent || response.Body.Len() != 0 || upstreamCalls.Load() != 1 {
 				t.Fatalf("response=%d body=%q upstreamCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load())
 			}
 			if !strings.Contains(logs.String(), test.wantLog) {
@@ -2058,7 +2066,9 @@ func TestGatewayAuthenticationRejectsInvalidWebQueryMetadata(t *testing.T) {
 	}
 }
 
-func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *testing.T) {
+// TestGatewayLoginMetadataAndBootstrapIdentityBoundaries distinguishes login
+// passthrough from ambiguous identities on a token-gated public request.
+func TestGatewayLoginMetadataAndBootstrapIdentityBoundaries(t *testing.T) {
 	tests := []struct {
 		name    string
 		method  string
@@ -2071,7 +2081,7 @@ func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *test
 			headers: http.Header{"Authorization": {`Bearer Client="Infuse", Device="iPhone", DeviceId="device-1", Version="8.0"`}},
 		},
 		{
-			name: "MediaBrowser on standard authorization is unsupported", method: http.MethodPost, path: authenticationPath,
+			name: "MediaBrowser login delegated to upstream", method: http.MethodPost, path: authenticationPath,
 			headers: http.Header{"Authorization": {fixtureMediaBrowserAuthorization}},
 		},
 		{
@@ -2099,14 +2109,12 @@ func TestGatewayAuthenticationAndBootstrapRejectInvalidApplicationHeader(t *test
 			response := httptest.NewRecorder()
 			gateway.ServeHTTP(response, request)
 
-			if response.Code != http.StatusUnauthorized || response.Body.Len() != 0 {
-				t.Fatalf("response = status %d body=%q", response.Code, response.Body.String())
+			wantStatus, wantCalls := http.StatusNoContent, int32(1)
+			if test.method == http.MethodGet {
+				wantStatus, wantCalls = http.StatusUnauthorized, 0
 			}
-			if upstreamCalls.Load() != 0 {
-				t.Fatalf("upstream calls = %d, want 0", upstreamCalls.Load())
-			}
-			if !strings.Contains(logs.String(), "code=application_header_invalid") {
-				t.Fatalf("logs = %q", logs.String())
+			if response.Code != wantStatus || response.Body.Len() != 0 || upstreamCalls.Load() != wantCalls {
+				t.Fatalf("response=%d calls=%d, want status=%d calls=%d", response.Code, upstreamCalls.Load(), wantStatus, wantCalls)
 			}
 			assertSecretsAbsent(t, logs.String(), fixtureApplicationAuthorization)
 		})

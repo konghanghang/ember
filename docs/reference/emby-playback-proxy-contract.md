@@ -121,7 +121,7 @@ Content-Type: application/json
 | `AccessToken` | `string` | 计算不可逆哈希后建立 Token 到 Ember 用户映射 |
 | `ServerId` | `string` | 识别目标 Emby Server，避免跨 Server Token 混用 |
 
-Gateway 接受两种已经固定证据的应用/设备元数据载体，且一次认证只能使用其中一种。原生客户端使用应用授权头，Header 名允许二选一：
+官方 SDK 示范以下应用授权头；这些是客户端请求形态证据，不是 Gateway 自行拒绝登录的白名单。Header 名允许二选一：
 
 ```http
 Authorization: Emby UserId="", Client="Infuse", Device="iPhone", DeviceId="device-id", Version="version", Token=""
@@ -145,30 +145,30 @@ X-Emby-Authorization: MediaBrowser UserId="", Client="Infuse", Device="...", Dev
 POST /emby/Users/AuthenticateByName?X-Emby-Client=Emby+Web&X-Emby-Device-Name=Google+Chrome+macOS&X-Emby-Device-Id=<device-id>&X-Emby-Client-Version=4.9.3.0&X-Emby-Language=zh-cn
 ```
 
-首期解析约束：
+当前认证边界（2026-09-21 官方合同复核）：
 
-- 应用头与 query 应用元数据只能选择一种；同时出现时以 `application_metadata_ambiguous` 失败关闭。`Authorization`、`X-Emby-Authorization`、`X-MediaBrowser-Authorization` 只能出现一个且只能有一个值；同时出现、重复值或空值都失败关闭。
-- `Emby` scheme 允许用于固定 SDK 声明的 `Authorization` 或 `X-Emby-Authorization`；`MediaBrowser` 允许用于目标 Infuse 实测的 `X-Emby-Authorization` 和兼容 `X-MediaBrowser-Authorization`，标准 `Authorization: MediaBrowser ...` 继续拒绝。scheme 大小写敏感；要求唯一的 `Client`、`Device`、`DeviceId` 和 `Version`，`UserId` 可空，其他组合失败关闭。
-- query 形态只允许四个必填且唯一的 `X-Emby-Client`、`X-Emby-Device-Name`、`X-Emby-Device-Id`、`X-Emby-Client-Version`，以及一个可选的 `X-Emby-Language`；值必须是有界 UTF-8、无控制字符且无首尾空白。未知 `X-Emby-*`、大小写重复逻辑 key、空值和超长值全部拒绝，原始 query 不改写。
-- 登录前 AuthenticateByName 的 `Token` 只允许缺失或空字符串；登录后受保护请求可以把非空 Token 放在严格合法的 `Emby` 应用头中，目标 Infuse `8.5` 实测还会放在 `X-Emby-Authorization: MediaBrowser ...` 中。
-- AuthenticateByName 无论使用应用头还是 query 元数据，都禁止直接 Token Header 和固定 query Token aliases；public users/无 Index 头像在登录前可使用空 Token 应用头，登录后可改用已经映射的通用 Token carrier；在 public bootstrap 中，仅精确 public users 额外接受目标 Web 的严格 query 应用元数据。
-- 值使用有界 quoted-string；重复字段、未知字段、控制字符、非法转义和超长值全部拒绝。
-- `Client` 保存为非权威 `clientName`，`DeviceId` 保存为非权威 `deviceId`；二者只用于审计和设备撤销，不能替代 `User.Id + ServerId + AccessToken` 身份绑定。
+- 固定 OpenAPI 的 `POST /Users/AuthenticateByName` 声明 `Username/Pw` 请求及 JSON/XML `AuthenticationResult` 成功响应；官方认证文档规定由 Emby 的 `200` 与 `4xx/5xx` 表示认证结果。SDK 的应用头示例不能推导为服务端对未知字段、重复元数据或额外 Token 的完整拒绝规则。
+- 精确认证路由原样转发请求 method、query、Header、body，由 Emby 判定格式、凭据和最终状态。缺失/未知/不完整元数据、多个载体或旧 Token 不再触发 Gateway 本地登录 `401`；这不表示 Emby 一定接受这些请求，也不扩展 Quick Connect、PIN 等路由。
+- 原有有界、唯一载体、严格 quoted-string 元数据解析仅作为可选审计 fallback；解析失败只记录 Debug `authentication_metadata_unavailable` 与固定原因，不阻断请求，不记录原值。
+- 登录后身份检查独立读取 Token，不再要求 `Client/Device/DeviceId/Version` 齐全。非身份字段允许缺失、空值、扩展字段和重复值；仍要求可无歧义读取 Token 的有界 quoted-string。多个应用头、重复逻辑 Token、冲突 Token、未知 scheme 或不可解析结构继续失败关闭，避免本地资格检查和 Emby 实际身份不一致。
+- 本地 Token 候选解析接受三个应用头中的 `Emby`/`MediaBrowser` grammar；`Authorization: MediaBrowser` 的目标 Emby/Yamby 行为仍未证实，候选解析不等于替上游认证成功。
 
 网关处理要求：
 
-1. 先验证唯一的应用/设备元数据载体，再将认证请求和响应透明转发，不修改 path、query、Header、请求体或 Emby 返回体。
-2. 成功响应后提取 `User.Id`、`AccessToken` 和 `ServerId`。
-3. 使用从 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生的密钥计算 HMAC-SHA256；数据库只保存 32 字节摘要，不保存明文。
-4. 根据 `users.emby_id` 查找 Ember 用户，并记录设备、客户端和最后访问时间。
-5. 映射写入失败不能篡改 Emby 已成功的认证响应；该 Token 保持未映射，后续受保护请求和直连失败关闭。
-6. 用户过期只做动态资格拒绝，不立即硬撤销映射；用户停用、Emby 访问禁用、Emby 账号解绑或删除时硬撤销。已发出的短期 CDN 链接不保证可以立即终止。
+1. 登录请求与上游响应透明转发，保留状态、普通 Header、压缩与原始正文。
+2. 仅在上游 `200` 后，从有界 JSON/XML 旁路副本提取 `User.Id`、`AccessToken`、`ServerId` 建立身份映射，不能使用请求携带的旧 Token 建立映射。
+3. `SessionInfo.DeviceId/Client` 优先作为设备和客户端审计字段；缺失或越界时使用安全解析的请求元数据，无可用值时允许为空。它们不参与身份真相判断。
+4. `ServerId` 必须匹配启动期上游身份；映射仍通过 `users.emby_id` 绑定用户，并受既有硬停用、到期及撤销语义约束。
+5. 使用从 `CONFIG_ENCRYPTION_KEY` 按 `emby-access-token` purpose 派生的密钥计算 HMAC-SHA256；数据库只保存 32 字节摘要，不保存明文。
+6. 解码/映射失败不篡改 Emby 响应，未映射 Token 的后续受保护请求仍失败关闭；短期 CDN 链接不保证可以立即撤销。
 
 认证响应传输边界：
 
+- 按响应 Content-Type 读取 `application/json`、`application/xml`（兼容 `text/xml`）；非 XML 或缺失/错误 Content-Type 保留既有 JSON 旁路行为。XML 只接受单一 `AuthenticationResult` 根和完整文档，不解析外部实体、不访问网络；错误根、截断、额外根及正文超限均不建立映射。该能力有 fake 合同测试，未做目标 Emby XML 实机验证。
+
 - 目标 Emby/Infuse 实测组合返回 `Content-Encoding: deflate`；2026-08-30 目标 Emby Web `4.9.3.0` 登录成功响应实测返回 `Content-Encoding: br`、`Content-Type: application/json; charset=utf-8` 和 `Content-Length: 1302`。旧 Gateway 将 `br` 归为 `encoding_unsupported`，仍向浏览器透明返回上游 `200`，但没有建立 Token 映射，随后 Sessions Capabilities、UserSettings 与 WebSocket 均因 `token_rejected` 在本地返回 `401`。
 - Gateway 的旁路检查白名单为 `identity`、`gzip`、`deflate` 和 `br`；必须原样保留响应 Header 和字节，只解码 Token 映射使用的旁路副本。gzip 是 fake 合同覆盖的兼容能力，不代表目标环境已返回 gzip。
-- `gzip` 使用标准 gzip 格式，`deflate` 同时兼容 zlib-wrapped 和 legacy raw DEFLATE，`br` 使用 Brotli 数据流；编码响应读取与解码后 JSON 都受 `1 MiB` 上限约束，防止压缩炸弹。
+- `gzip` 使用标准 gzip 格式，`deflate` 同时兼容 zlib-wrapped 和 legacy raw DEFLATE，`br` 使用 Brotli 数据流；编码响应读取与解码后 JSON/XML 都受 `1 MiB` 上限约束，防止压缩炸弹。
 - 无效 gzip/deflate/br、解码后超限或白名单外 Content-Encoding 不能改写 Emby 成功响应，只是不建立映射，并记录固定 `contentEncoding + reasonCode + errorType`；禁止输出响应体、AccessToken 或原始 Header 值。
 
 ### 3.2 登录前 bootstrap
@@ -178,16 +178,16 @@ POST /emby/Users/AuthenticateByName?X-Emby-Client=Emby+Web&X-Emby-Device-Name=Go
 | Method | Path | 用途 | 首期网关处理 |
 | --- | --- | --- | --- |
 | `GET` | `/System/Info/Public` 或 `/emby/System/Info/Public` | Infuse 登录前读取服务器公开信息 | 不做本地鉴权，规范化后透明转发并由 Emby 决定响应 |
-| `GET` | `/emby/Users/Public` | 获取允许显示在登录页的公开用户 | 验证应用/设备授权头，或目标 Web 已确认的严格 `X-Emby-Client`、`X-Emby-Device-Name`、`X-Emby-Device-Id`、`X-Emby-Client-Version` query 元数据后透明转发 |
-| `GET`, `HEAD` | `/emby/Users/{Id}/Images/{Type}` | 可选公开用户头像 | 验证应用/设备授权头和精确路径形态后透明转发 |
+| `GET` | `/emby/Users/Public` | 获取允许显示在登录页的公开用户 | 无 Token 时直接转发由 Emby 决定响应，不要求本地应用元数据；携 Token 时保留本地资格检查 |
+| `GET`, `HEAD` | `/emby/Users/{Id}/Images/{Type}` | 可选公开用户头像 | 精确路径无 Token 时直接转发；携 Token 时保留本地资格检查 |
 | `GET`, `HEAD` | `/emby/Branding/Css.css` | Web 登录前加载自定义 CSS | 精确路径不做本地 Token 门控，透明转发并由 Emby 决定响应 |
 | `GET` | `/emby/Branding/Configuration` | Web 登录前读取自定义 CSS 与登录免责声明配置 | 要求目标 Web 的严格 query 应用元数据，并受 Web Surface 开关控制后透明转发 |
 | `GET`, `HEAD` | `/web/strings/{locale}.json` | Web 登录前加载单层语言资源 | 进入 Web Surface；locale 文件名必须有界且只含字母、数字、`-`、`_` 并以 `.json` 结尾 |
 
 边界：
 
-- bootstrap 表示“不要求已映射 AccessToken”，不表示任意匿名请求；层级精确的 `GET System/Info/Public` 和 `GET/HEAD /emby/Branding/Css.css` 不要求应用头。公开用户与头像在登录前必须携带严格应用/设备授权头；仅公开用户同时接受严格 query 应用元数据。精确 `GET /emby/Branding/Configuration` 只接受严格 query 应用元数据并受 `PLAYBACK_GATEWAY_WEB_ENABLED` 控制。登录后仍可携带已经映射的兼容矩阵 Token carrier。
-- query 应用元数据只用于精确的登录前公开用户、Branding Configuration 和 AuthenticateByName 请求，不是 Token，也不能扩展到其他普通 API、视频或 WebSocket。四个必填值禁止为空、重复逻辑 key、控制字符和超长输入；`X-Emby-Language` 可选但不参与身份。Gateway 保持原始 query 不变并只提取非权威 `clientName/deviceId`。
+- 公开用户和无 Index 用户头像是官方认证文档明确描述的登录前接口，无 Token 时不要求本地元数据；携带 Token 时仍校验映射、用户资格和撤销，非法/歧义身份不能按匿名处理。精确 `GET System/Info/Public`、`GET/HEAD /emby/Branding/Css.css` 保持既有公开策略；Branding Configuration 仍受严格 Web query 元数据和 Web 开关控制。
+- query 应用元数据不属于 Token。AuthenticateByName 只做可选旁路采集，public users/公开头像不以其完整性决定准入；Branding Configuration 的既有 Web Surface 分类仍要求四个有界必填字段及可选语言字段。原始 query 不改写，普通 API/视频/WebSocket 不能仅凭元数据取得身份。
 - public 用户头像只放行文档明确引用的无 `Index` 形态；上传、删除、`/Delete`、带额外 path segment 或其他用户接口仍受 Token 门控。
 - `System/Info/Public` 固定参考页标记 `Requires authentication as user`，但 2026-08-23 两份运行证据推翻了这一生成标记：Infuse `8.5` 在取得用户 Token 前不带可解析应用头请求该路径；同一目标 Emby `4.9.3.0` 的精确接口在无登录请求下直接返回 `PublicSystemInfo`。Gateway 因此只对这个精确 `GET` 取消本地应用头和 Token 门控，保留原始 Header 并让 Emby 响应保持权威；其他匿名路径没有扩大。
 - 固定 SDK 将 `/Users/Public`、`/Branding/Css.css`、`/Branding/Configuration` 和精确 `/web/strings` 标记为 `Requires authentication as user`，但目标 Web 在登录前分别使用 query 应用元数据或完全匿名请求。2026-08-30 目标日志已确认 query 形态的 `/Users/Public` 经 Gateway 获得上游 `200`；同一目标 Web 随后对 `/Branding/Configuration` 和 `AuthenticateByName` 使用相同 query 元数据，两者分别被旧 Gateway 以 `token_missing` 和 `application_header_invalid` 在 `0ms` 内本地拒绝。当前只按这些目标日志收窄精确载体/路径并让 Emby 保持响应权威；后两条修复后的上游状态仍标记“未验证”。服务器发现、Quick Connect 和其他登录前路径继续失败关闭。
@@ -201,7 +201,7 @@ POST /emby/Users/AuthenticateByName?X-Emby-Client=Emby+Web&X-Emby-Device-Name=Go
 - `tokenHash` 使用 `BYTEA(32)`，不进入 JSON、日志、错误、指标 label 或管理页面；数据库摘要不能作为 Emby Token 重放。
 - `embyUserId` 必须等于当前 `users.emby_id`，`userId` 外键指向 Ember 用户；客户端提交的 `UserId`、`DeviceId` 和客户端名称都不能替代这一身份绑定。
 - `deviceId/clientName` 只作为设备归组和审计元数据。一个用户允许多个 Token；一个设备可能因重复登录存在多个活动 Token。
-- 受保护请求按 [客户端兼容矩阵](./emby-client-compatibility-matrix.md) 收集直接 Token Header、严格应用认证头和大小写不敏感的固定 query Token aliases；所有非空候选必须逐字节相同。重复逻辑来源、空值、冲突、未知 scheme、字段不全和非法 quoted-string 失败关闭；任意 Bearer、Quick Connect 和插件 Token 不作为 Gateway 身份来源。
+- 受保护请求按 [客户端兼容矩阵](./emby-client-compatibility-matrix.md) 收集直接 Token Header、应用头 Token 和固定 query aliases，非空候选须逐字节相同。非身份元数据缺失/扩展不触发拒绝；重复身份来源、空直接 Token、冲突、未知 scheme、非法 quoted-string 仍失败关闭。任意 Bearer、Quick Connect 和插件 Token 不作为 Gateway 身份来源。
 - `lastSeenAt` 只在成功通过映射和用户资格检查后更新，并至少按 5 分钟窗口限频，避免 `HEAD`、Range 和预加载制造逐请求数据库写入。
 - Infuse 扫库中的 `context.Canceled` 返回固定 `499/token_request_canceled`，deadline 返回 `504/token_request_deadline_exceeded`，不再伪装成数据库不可用；只有 driver 保证未发送到 PostgreSQL 的幂等读失败才重试一次，最终存储错误记录固定原因与连接池统计。
 
@@ -238,7 +238,7 @@ Ember 本地撤销固定三种粒度：
 当前 `internal/playbackgateway` 固定以下可测试行为：
 
 - 固定 OpenAPI 顶层 API family 的 root path 先规范化为单一 `/emby/...`；family 与 `/emby` 前缀比较大小写不敏感，已有规范前缀保持，重复大小写变体 `/emby/emby/...` 返回空体 `400`。Web UI Surface 不参与 API 规范化，四个固定 `/web` WebAppService API 例外仍规范化并受保护。
-- root 或 `/emby` 形态的 `GET System/Info/Public`，以及仅 `/emby` 形态的 `GET/HEAD Branding/Css.css` 在固定语义段上大小写不敏感且不做本地鉴权；`POST Users/AuthenticateByName` 接受严格应用头或目标 Web 的严格 query 应用元数据，公开用户额外接受同一 query 形态，无 Index 公开头像仍只接受应用头。精确 `GET /emby/Branding/Configuration` 只在 query 元数据有效且 Web Surface 开启时放行；仅 `/emby` 形态、层级精确且无 Token 的 `GET/HEAD /emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 `{Index}` 形态同样进入 Web Surface。尾斜杠、非法 Index、额外层级和 alternate escaping 不放宽，其余路径默认受保护。
+- root 或 `/emby` 的精确 `POST Users/AuthenticateByName` 由 Emby 决定认证结果；精确 `GET System/Info/Public`、public users/无 Index 公开头像允许登录前请求，后两者携 Token 时保留本地身份检查。仅 `/emby` 的 `GET/HEAD Branding/Css.css` 保持公开，Branding Configuration 及无 Token 媒体图片维持既有 Web Surface 策略。尾斜杠、额外层级、alternate escaping 不扩展公开权限，其余路径默认受保护。
 - 认证上游只有 `200` 才旁路解析；编码响应与解码副本检查上限均为 `1 MiB`。identity、gzip、deflate 或 br 响应逐字节恢复后返回，字段顺序、压缩编码和未知 JSON 字段不重编码。
 - 不合法、超过检查上限或映射写入失败的成功响应仍原样返回，但该 Token 不建立映射，下一次受保护请求失败关闭。
 - 受保护请求按兼容矩阵取得唯一 AccessToken，再调用 `ResolvePrincipal`；Token 来源缺失、非法、重复、冲突、未映射、已撤销和身份错配返回空体 `401`，当前用户不可用或到期返回空体 `403`，身份存储不可用返回空体 `503`。请求取消和 deadline 分别使用 `499/504`，不计作 Store outage。

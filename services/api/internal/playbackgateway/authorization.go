@@ -71,18 +71,11 @@ func extractApplicationHeaderMetadata(header http.Header, allowNonEmptyToken boo
 	return AuthenticationMetadata{DeviceID: fields["DeviceId"], ClientName: fields["Client"]}, true
 }
 
-// extractAuthenticationApplicationMetadata accepts one strict application
-// metadata carrier for AuthenticateByName. Header tokens remain empty-only,
-// while the Web query form never acts as a Token source.
+// extractAuthenticationApplicationMetadata observes one unambiguous request
+// metadata carrier as an optional audit fallback. Failure must never reject a
+// login; Emby's successful response supplies the authoritative identity.
 func extractAuthenticationApplicationMetadata(request *http.Request) (AuthenticationMetadata, applicationMetadataCarrier, bool) {
 	return extractRequestApplicationMetadata(request, false)
-}
-
-// extractPublicBootstrapApplicationMetadata accepts exactly one application
-// metadata carrier. The query form is limited to the target Emby Web login
-// bundle and never acts as an AccessToken source.
-func extractPublicBootstrapApplicationMetadata(request *http.Request) (AuthenticationMetadata, applicationMetadataCarrier, bool) {
-	return extractRequestApplicationMetadata(request, true)
 }
 
 // extractRequestApplicationMetadata enforces one Header-or-query carrier and
@@ -313,9 +306,10 @@ func (candidates accessTokenCandidates) result() (string, string, bool) {
 	return candidates.value, "", true
 }
 
-// protectedApplicationAccessToken validates an optional application Header
-// and returns only its non-empty Token candidate. Empty or missing Token fields
-// do not compete with a valid X-Emby-Token source.
+// protectedApplicationAccessToken reads identity independently of optional
+// audit metadata. Empty or missing Token fields do not compete with a direct
+// Token. Ambiguous carriers or malformed grammar still fail closed because
+// they can hide a different identity from the gateway.
 func protectedApplicationAccessToken(header http.Header) (string, bool, string) {
 	standardValues := header.Values(standardAuthorizationHeader)
 	embyValues := header.Values(embyAuthorizationHeader)
@@ -330,8 +324,8 @@ func protectedApplicationAccessToken(header http.Header) (string, bool, string) 
 	if !ok {
 		return "", false, "token_invalid"
 	}
-	fields, ok := parseApplicationAuthorizationWithAccessToken(rawValue, headerKind)
-	if !ok || fields["Client"] == "" || fields["Device"] == "" || fields["DeviceId"] == "" || fields["Version"] == "" {
+	fields, ok := parseApplicationAuthorizationFields(rawValue, headerKind, true, true)
+	if !ok {
 		return "", false, "token_invalid"
 	}
 	token := fields["Token"]
@@ -373,11 +367,22 @@ func parseApplicationAuthorizationWithAccessToken(value string, headerKind appli
 // parseApplicationAuthorizationWithTokenPolicy shares the strict grammar while
 // keeping login validation and request diagnostics on separate Token policies.
 func parseApplicationAuthorizationWithTokenPolicy(value string, headerKind applicationAuthorizationHeader, allowNonEmptyToken bool) (map[string]string, bool) {
+	return parseApplicationAuthorizationFields(value, headerKind, allowNonEmptyToken, false)
+}
+
+// parseApplicationAuthorizationFields shares the bounded quoted-string lexer.
+// Identity-only mode accepts optional/extended metadata without granting it
+// authority, and reads Emby/MediaBrowser tokens on any application header.
+// Duplicate Token fields and malformed grammar cannot mask an identity conflict.
+func parseApplicationAuthorizationFields(value string, headerKind applicationAuthorizationHeader, allowNonEmptyToken, identityOnly bool) (map[string]string, bool) {
 	if len(value) > maxApplicationAuthorizationSize || !utf8.ValidString(value) ||
 		strings.ContainsAny(value, "\r\n") {
 		return nil, false
 	}
 	position, ok := applicationAuthorizationFieldsStart(value, headerKind)
+	if identityOnly {
+		position, ok = applicationAuthorizationFieldsStart(value, applicationHeaderEmby)
+	}
 	if !ok {
 		return nil, false
 	}
@@ -393,10 +398,16 @@ func parseApplicationAuthorizationWithTokenPolicy(value string, headerKind appli
 		}
 		key := value[keyStart:position]
 		limit, allowEmpty, known := applicationFieldLimit(key, allowNonEmptyToken)
+		if identityOnly {
+			limit, allowEmpty, known = maxApplicationAuthorizationSize, true, true
+			if strings.EqualFold(key, "Token") {
+				key = "Token"
+			}
+		}
 		if key == "" || !known {
 			return nil, false
 		}
-		if _, duplicate := fields[key]; duplicate {
+		if _, duplicate := fields[key]; duplicate && (!identityOnly || key == "Token") {
 			return nil, false
 		}
 		position = skipOptionalWhitespace(value, position)
@@ -406,7 +417,7 @@ func parseApplicationAuthorizationWithTokenPolicy(value string, headerKind appli
 		position++
 		position = skipOptionalWhitespace(value, position)
 		fieldValue, nextPosition, ok := parseApplicationQuotedValue(value, position)
-		if !ok || !validApplicationFieldValue(fieldValue, limit, allowEmpty) {
+		if !ok || ((!identityOnly || key == "Token") && !validApplicationFieldValue(fieldValue, limit, allowEmpty)) {
 			return nil, false
 		}
 		fields[key] = fieldValue
@@ -510,5 +521,5 @@ func skipOptionalWhitespace(value string, position int) int {
 // isApplicationKeyCharacter limits field names to the ASCII token subset used
 // by the fixed Emby authorization schema.
 func isApplicationKeyCharacter(character byte) bool {
-	return character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9'
+	return character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' || character == '-'
 }
