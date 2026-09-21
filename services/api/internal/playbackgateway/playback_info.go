@@ -64,10 +64,11 @@ func (gateway *Gateway) preparePlaybackInfoRequest(request *http.Request, princi
 	}
 	switch request.Method {
 	case http.MethodGet:
+		gateway.logPlaybackInfoRequest(request, principal, itemID, "client", "not_applicable", nil)
 		userID, ok := singleBoundedQueryValue(request.URL.Query(), "UserId", maxApplicationUserIDSize)
 		return itemID, ok && userID == principal.User.EmbyID
 	case http.MethodPost:
-		return itemID, gateway.inspectPlaybackInfoPostRequest(request, principal.User.EmbyID)
+		return itemID, gateway.inspectPlaybackInfoPostRequest(request, principal, itemID)
 	default:
 		return itemID, false
 	}
@@ -75,25 +76,31 @@ func (gateway *Gateway) preparePlaybackInfoRequest(request *http.Request, princi
 
 // inspectPlaybackInfoPostRequest restores the exact body after reading a
 // bounded JSON copy and validates only the optional UserId field.
-func (gateway *Gateway) inspectPlaybackInfoPostRequest(request *http.Request, embyUserID string) bool {
+func (gateway *Gateway) inspectPlaybackInfoPostRequest(request *http.Request, principal embytoken.Principal, itemID string) bool {
+	state := "missing"
+	var observed []byte
+	defer func() { gateway.logPlaybackInfoRequest(request, principal, itemID, "client", state, observed) }()
 	if request.Body == nil {
 		return false
 	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
+		state = "unsupported_content_type"
 		return false
 	}
 	originalBody := request.Body
 	prefix, readErr := io.ReadAll(io.LimitReader(originalBody, gateway.maxPlaybackInfoRequestBytes+1))
 	request.Body = &replayedBody{Reader: io.MultiReader(bytes.NewReader(prefix), originalBody), closer: originalBody}
 	if readErr != nil || int64(len(prefix)) > gateway.maxPlaybackInfoRequestBytes {
+		state = "read_error_or_too_large"
 		return false
 	}
+	state, observed = "json", prefix
 	var payload playbackInfoRequestPayload
 	if err := json.Unmarshal(prefix, &payload); err != nil {
 		return false
 	}
-	return payload.UserID == "" || payload.UserID == embyUserID
+	return payload.UserID == "" || payload.UserID == principal.User.EmbyID
 }
 
 // observePlaybackInfoResponse records proofs from an exact successful response
@@ -146,6 +153,11 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 	if written == 0 {
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_proof_rejected")
 		return nil
+	}
+	if response.Request != nil {
+		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_response_observed requestId=%s itemRef=%s sessionRef=%s source=client statusCode=%d proofCount=%d",
+			diagnosticRequestID(response.Request.Context()), diagnosticItemRef(*routeContext.principal, routeContext.playbackInfoItemID),
+			diagnosticSessionRef(*routeContext.principal, proofs[0].PlaySessionID), response.StatusCode, written)
 	}
 	gateway.logger.Printf("[PlaybackGateway] code=playback_info_proof_recorded mappingId=%s itemId=%s count=%d",
 		routeContext.principal.MappingID, routeContext.playbackInfoItemID, written)

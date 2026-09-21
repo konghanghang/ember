@@ -61,7 +61,7 @@ func (gateway *Gateway) resolvePlaybackInfoOnDemand(
 	}
 	if proof, ok := gateway.proofs.LookupLatestMediaSource(principal.MappingID, itemID, mediaSourceID); ok &&
 		playbackProofMatchesPrincipal(proof, principal) {
-		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_reused_on_demand mappingId=%s itemId=%s", principal.MappingID, itemID)
+		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_reused_on_demand requestId=%s itemRef=%s sessionRef=%s source=proof_cache mappingId=%s itemId=%s", diagnosticRequestID(request.Context()), diagnosticItemRef(principal, itemID), diagnosticSessionRef(principal, proof.PlaySessionID), principal.MappingID, itemID)
 		return onDemandPlaybackInfo{
 			PlaySessionID: proof.PlaySessionID,
 			Container:     proof.Container,
@@ -112,6 +112,8 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 	}
 	upstreamRequest.Header.Set("Accept", "application/json")
 	upstreamRequest.Header.Set("Accept-Encoding", "gzip, deflate")
+	// Keep the initiating video's request ID; no raw upstream URL or Token is logged.
+	gateway.logPlaybackInfoRequest(upstreamRequest, principal, itemID, "gateway", "not_applicable", nil)
 
 	response, err := gateway.transport.RoundTrip(upstreamRequest)
 	if err != nil {

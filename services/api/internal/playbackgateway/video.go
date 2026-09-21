@@ -138,7 +138,7 @@ func (gateway *Gateway) serveVideo(
 	if playbackInfoResolved {
 		contextSource = "supplemented"
 	}
-	gateway.debugf("[PlaybackGateway] level=debug code=video_context_resolved requestId=%s sessionRef=%s itemId=%q playbackContext=%s", decision.RequestID, decision.SessionRef, info.ItemID, contextSource)
+	gateway.debugf("[PlaybackGateway] level=debug code=video_context_resolved requestId=%s itemRef=%s sessionRef=%s itemId=%q playbackContext=%s", decision.RequestID, diagnosticItemRef(principal, info.ItemID), decision.SessionRef, info.ItemID, contextSource)
 	decision.MediaPath = resolvedMediaPath
 	if !info.Accelerated {
 		decision.Stage = info.FallbackStage

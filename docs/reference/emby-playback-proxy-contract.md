@@ -310,6 +310,14 @@ X-Emby-Token: <access-token>
 
 PlaybackInfo 成功响应的编码体与解码旁路副本上限均为 `2 MiB`，支持 `identity/gzip/deflate/br`（deflate 含 zlib-wrapped/raw DEFLATE）。解码失败、超限或未知编码只使本次证明不可用，客户端仍收到原压缩字节、Header 和状态；Gateway 不通过删除 `Accept-Encoding` 换取旁路解析。
 
+#### PlaybackInfo 请求意图诊断（仅观察）
+
+2026-09-21 重新核对固定 SDK `6ee0155063bc85578196489926359a8f37419502` 的 [OpenAPI](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json)：`POST /Items/{Id}/PlaybackInfo` 的 `PlaybackInfoRequest` 包含布尔字段 `IsPlayback/EnableDirectPlay/EnableDirectStream/EnableTranscoding/AutoOpenLiveStream`、可空 int64 `StartTimeTicks`、字符串 `CurrentPlaySessionId/MediaSourceId` 及对象 `DeviceProfile`。GET 合同仅声明 Id/UserId，不把额外 query 猜测成意图字段。该 SDK 没有保证 Infuse 的详情探测和实际起播必然使用不同字段值；这一行为仍未证实。
+
+Gateway 在 Debug 级别旁路记录 `playback_info_request_observed`：布尔字段仅输出 `missing/null/true/false/invalid`；Ticks 仅输出 `missing/null/zero/positive/invalid`；字符串仅输出缺失、空、存在、null 或非法状态，DeviceProfile 仅输出对象存在性。异常 body 用固定 `bodyState` 标识；未知字段、完整请求体、配置内容及原始 session 均不输出。此诊断复用已有 1 MiB 有界读取并逐字节恢复转发，不改变原证明资格、认证、路由或配额。
+
+`source=client` 表示客户端 GET/POST；`source=gateway` 表示按需解析实际发出的 GET；`playback_info_reused_on_demand source=proof_cache` 表示复用已有证明、没有新的 Emby 请求。客户端成功写入证明后记录 `playback_info_response_observed`。`requestId` 串起单请求；`itemRef` 以当前进程种子对 server/user/mapping/device/item 生成脱敏关联值，不依赖播放 session，贯穿以上日志和 `video_context_resolved`；响应及证明复用日志提供脱敏 `sessionRef`。这些引用不跨进程稳定，不参与缓存键或准入，也不能证明用户点击了播放。
+
 ### 4.3 用户条目 Container 兼容快照
 
 固定 `4.9.3.0` OpenAPI 的 [`GET /Users/{UserId}/Items/{Id}`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L92839-L92889) 返回 `BaseItemDto`；该 DTO 明确包含顶层 `Container` 与 [`MediaSources`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L103723-L103755)，MediaSourceInfo 又包含 [`Id/Container/Path/Size/SupportsDirectPlay`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L104395-L104471)。

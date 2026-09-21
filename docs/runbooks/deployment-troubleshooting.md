@@ -145,7 +145,7 @@ docker compose --profile gateway logs --tail=200 redis ember-gateway
 在设置中心临时开启 `LOG_LEVEL=debug`，等待至少 5 秒后分别复现“仅打开详情”和“点击播放直到出画，再停止”。记录客户端版本、平台、部署提交及操作时间，不收集原始鉴权 Header、事件 body 或 CDN URL。
 
 1. 找到 `video_request_started`，按 `requestId` 串起该请求。`rangeKind` 和合法字节区间帮助比较重复读取形态；`purpose/secPurpose` 仅作辅助，不能凭缺失标记就判断不是预加载。
-2. 查看 `playback_info_started/finished` 与 `video_context_resolved`，区分按需补全和客户端上下文。PlaybackInfo 成功不等于实际播放。
+2. 查看 `playback_info_request_observed`：`source=client` 是客户端主动请求，`source=gateway` 是实际内部补查；`playback_info_reused_on_demand source=proof_cache` 表示没有新补查。按 `itemRef` 关联同一登录/设备/条目的请求、`playback_info_response_observed` 和 `video_context_resolved`，再按 `requestId/sessionRef` 对照视频及事件。比较“仅详情、点击播放、停止后再次播放”的 `bodyState/isPlayback/enableDirectPlay/enableDirectStream/enableTranscoding/autoOpenLiveStream/startTimeTicks/currentPlaySessionId/mediaSourceId/deviceProfile`。`missing` 不等于 false，body 无法解析时不能推断字段缺失；这些固定状态只供观察，不据此拦截。内部补全、PlaybackInfo 成功或 `IsPlayback=true` 均尚不能单独证明用户点击播放。
 3. 按 `direct_play_step step=... phase=started|finished` 找等待位置。尚未看到 finished 时，只能说明日志窗口内没有返回记录；取消、进程中断或日志级别变化也要排除。mediaResolutionCache=hit 时不应出现源解析/查重/取链步骤；先看本次请求的最终决策再判断失败原因。
 4. 回退时比较 `video_fallback_headers` 与 `video_fallback_completed` 的 durationMs：前者为等待上游响应头，后者包含代理后续处理；两者起点相同，不能相加。没有 headers 且 upstreamStatus=0 表示未观察到上游响应头，不是 Emby 返回了状态码 0。
 5. 画面开始后按 `sessionRef` 对照视频请求与播放事件，查看 `playback_event_received` 的 snapshotState，以及 `playback_lease_updated/not_found/skipped/update_failed`。成功更新应能看到 active/paused 等状态和用量；不同进程的 sessionRef 不可直接比较。Stopped 成功转发并释放租约不意味着清除短期媒体缓存。
