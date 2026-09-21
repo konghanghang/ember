@@ -15,14 +15,15 @@ var playbackRouteMetadataColumns = []string{
 	"max_concurrent_streams", "status", "enabled", "cooldown_until", "config_version",
 }
 
-// ResolvePlaybackRouteMetadata locks the user's effective plan references and
-// reads the matching personal/shared account in one transaction snapshot.
+// ResolvePlaybackRouteMetadata locks the administrator or user's effective plan
+// references and reads the matching personal/shared account in one transaction
+// snapshot. The plan, not the role, determines the playback account source.
 func (s *gormAccountStore) ResolvePlaybackRouteMetadata(ctx context.Context, ownerUserID string) (*models.P115Account, PersonalPlanPolicy, error) {
 	var account *models.P115Account
 	var policy PersonalPlanPolicy
 	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
 		var err error
-		policy, err = s.loadPersonalPlanPolicy(tx, ownerUserID, true)
+		policy, err = s.loadPlanPolicy(tx, ownerUserID, true, []string{"user", "admin"})
 		if err != nil {
 			return err
 		}

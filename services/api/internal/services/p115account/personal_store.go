@@ -135,13 +135,21 @@ func (s *gormAccountStore) SetPersonalEnabled(ctx context.Context, ownerUserID s
 	return &account, policy, nil
 }
 
+// loadPersonalPlanPolicy keeps personal account management limited to ordinary users.
 func (s *gormAccountStore) loadPersonalPlanPolicy(tx *gorm.DB, ownerUserID string, lock bool) (PersonalPlanPolicy, error) {
+	return s.loadPlanPolicy(tx, ownerUserID, lock, []string{"user"})
+}
+
+// loadPlanPolicy resolves the explicit/default group and persisted quotas for
+// the caller's allowed roles. Playback and personal management have different
+// role boundaries, but share policy validation and transaction locking.
+func (s *gormAccountStore) loadPlanPolicy(tx *gorm.DB, ownerUserID string, lock bool, roles []string) (PersonalPlanPolicy, error) {
 	query := tx
 	if lock {
 		query = query.Clauses(clause.Locking{Strength: "SHARE"})
 	}
 	var user models.User
-	if err := query.Select("id", "role", "plan_group").Where("id = ? AND role = ?", ownerUserID, "user").First(&user).Error; err != nil {
+	if err := query.Select("id", "role", "plan_group").Where("id = ? AND role IN ?", ownerUserID, roles).First(&user).Error; err != nil {
 		return PersonalPlanPolicy{}, ErrPersonalPlanPolicyUnavailable
 	}
 
