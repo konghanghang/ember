@@ -50,6 +50,16 @@ go test -race ./internal/services/directplay ./internal/services/p115quota ./int
 
 2026-09-16 上述两种范围均通过。新增回归覆盖独立 locker 在真实 `database/sql` 小连接池上的 fake 锁竞争/取消、A 租约过期后 B 占满额度时 A 不得返回直链，以及 HEAD/Playing 不重建丢失租约。`TestIntegrationPostgresContentLockSmallPoolWaiterCancellation` 已保留为真实 PostgreSQL 专项，但本轮专用库不可达，用户确认采用 fake 验收，未执行该用例；不能将 fake driver 或 miniredis 结果写成数据库/真实 Redis 已验证。
 
+2026-09-21 已在专用 `ember_integration_codex` PostgreSQL 数据库补跑 DirectPlay 专项：
+
+```bash
+go test ./internal/services/directplay -run '^TestIntegration' -count=1 -timeout=180s
+```
+
+13 个顶层测试及 2 个子测试全部通过，零跳过。覆盖配置版本与健康回写隔离、共享/个人目录保存竞争、配置版本 migration 幂等、并发转存、挑战/失败任务持久化、冷却探测、旧凭证结果防覆盖、小连接池锁等待取消及最近任务成功记录采样。首次运行发现测试 helper 在完整迁移后重放旧增量，重新引入已废弃的 `ck_p115_accounts_source_location`；已按顺序补齐后续个人账号与配置版本增量，再完整重跑通过。此修正只影响测试初始化，不改生产迁移或业务逻辑。
+
+本次使用真实 PostgreSQL 和独立 `itest_*` schema（测试后清理），115 Provider 为 fake；未启动项目服务，未验证真实 Redis、Emby、115 或播放器。当前 CI 只单独运行 `internal/app` 数据库集成，不包含上述 DirectPlay 专项，发布复验需显式执行。
+
 如果要跑本地 API 集成测试：
 
 - 必须通过 `EMBER_INTEGRATION_DATABASE_URL` 指向专用测试数据库

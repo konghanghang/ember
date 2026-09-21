@@ -485,12 +485,16 @@ func newDirectPlayIntegrationDatabase(t *testing.T) *gorm.DB {
 	return appDB
 }
 
+// assertDirectPlayMigrationsIdempotent replays the DirectPlay migration chain
+// in order so superseded constraints do not leak into business test fixtures.
 func assertDirectPlayMigrationsIdempotent(t *testing.T, database *gorm.DB) {
 	t.Helper()
 	for _, filename := range []string{
 		"20260822_01_create_playback_transfer_tasks.sql",
 		"20260822_02_add_p115_source_location.sql",
 		"20260822_03_create_emby_access_tokens.sql",
+		"20260903_01_p115_personal_routing_and_quotas.sql",
+		"20260912_01_p115_account_config_version.sql",
 	} {
 		path := filepath.Join(directPlayMigrationsDir(t), filename)
 		content, err := os.ReadFile(path)

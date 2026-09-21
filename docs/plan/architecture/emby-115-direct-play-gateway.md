@@ -698,6 +698,13 @@ Gateway 不读取或返回本地媒体文件。115 DirectPlay 不适用或失败
 - 专用 PostgreSQL 连接失败的外部条件未变化，本项未重复连接；新增数据库用例仅编译，未执行。真实 115、Redis、播放器及生产延迟收益未验证。两个采样时间不提供逐次播放审计；未来容量清理必须计入采样窗口并结合活跃会话，不得单凭采样时间判断可删除。
 - 本次两项代码优化均已完成；真实外部验收仍未收口，计划继续保留。
 
+### DirectPlay PostgreSQL 专项补验（2026-09-21）
+
+- 在专用 `ember_integration_codex` 执行 `go test ./internal/services/directplay -run '^TestIntegration' -count=1 -timeout=180s`，13 个顶层测试及 2 个子测试全部通过、零跳过。
+- 补齐配置版本 migration 幂等、配置/健康竞态、共享与个人目录保存、最近任务成功采样及小连接池锁等待取消的真实 PostgreSQL 证据；其他既有 DirectPlay 集成也一并通过。
+- 首跑发现测试初始化在完整迁移后重新引入旧 source location 约束，导致个人账号换 Cookie 清空目录失败；补齐后续迁移重放顺序后完整复跑通过。没有修改生产 SQL 或业务逻辑。
+- 上述结果补充历史批次“数据库未执行”的记录，不追溯改写当时证据。115 Provider 仍为 fake，未启动项目服务，真实 Redis/115/Emby/播放器及性能收益仍未验证。详见 [测试指南](../../runbooks/testing.md)。
+
 测试分层：
 
 - Emby 合同：固定认证、PlaybackInfo、视频流、字幕和播放事件 fixture。
