@@ -66,6 +66,9 @@ type MediaPathMapping struct {
 // RedirectCandidate is the internal handoff to the future playback gateway.
 // URL is deliberately excluded from JSON and persistent task state.
 type RedirectCandidate struct {
+	downloadCacheKey    string
+	resolvedSHA1        string
+	resolvedSize        int64
 	downloadCacheHit    bool
 	URL                 string                             `json:"-"`
 	ExpiresAt           time.Time                          `json:"expiresAt"`
@@ -174,6 +177,7 @@ type transferQuotaContext struct {
 type Service struct {
 	sessionRequests        requestGate
 	downloadCache          *downloadURLCache
+	mediaCache             *mediaResolutionCache
 	leaseHeartbeatInterval time.Duration
 	resolveTimeout         time.Duration
 	accounts               accountRuntime
@@ -255,6 +259,7 @@ func newRoutedServiceWithDependencies(
 		businessTimezone: businessTimezone, transferCommitBudget: transferCommitTimeout,
 		transferRetryInterval: transferCommitRetryInterval, now: time.Now,
 		downloadCache: newDownloadURLCache(downloadCacheCapacity),
+		mediaCache:    newMediaResolutionCache(downloadCacheCapacity),
 	}, nil
 }
 
@@ -470,10 +475,13 @@ func (service *Service) resolveRoutedMediaPath(
 			service.releaseNewReservation(parentCtx, fingerprint, createdReservation)
 		}
 	}()
+	var finishHeartbeat func() error
 	if request.Method == http.MethodGet {
-		var finishHeartbeat func() error
 		ctx, finishHeartbeat = service.maintainPlaybackLease(ctx, confirmationRequest)
 		defer func() {
+			if finishHeartbeat == nil {
+				return
+			}
 			if err := finishHeartbeat(); err != nil && parentCtx.Err() == nil {
 				resolveErr = err
 				candidate.URL = ""
@@ -481,23 +489,52 @@ func (service *Service) resolveRoutedMediaPath(
 		}()
 	}
 
+	// Serialize the expensive path across PlaySessionIds. Each waiter already
+	// owns its own lease; account snapshots are acquired only after the wait.
+	requestKey := mediaRequestKey(service.serverID, request)
+	if service.mediaCache != nil && requestKey != "" {
+		releaseMedia, err := service.mediaCache.flights.acquire(ctx, requestKey)
+		if err != nil {
+			return RedirectCandidate{Routing: diagnostics}, err
+		}
+		defer releaseMedia()
+	}
 	source, playback, err := service.loadRoutedAccounts(ctx, route, location)
 	if err != nil {
 		return RedirectCandidate{Routing: diagnostics}, err
 	}
 	quotaContext := &transferQuotaContext{UserID: request.UserID, HourlyLimit: route.TransferHourlyLimit, DailyLimit: route.TransferDailyLimit}
-	candidate, err = service.resolveWithAccounts(
-		ctx, source, playback,
-		ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
-			downloadScope: &downloadCacheScope{serverID: service.serverID, userID: request.UserID, mappingID: request.MappingID, deviceID: request.DeviceID}},
-		quotaContext,
-	)
+	mediaKey := mediaResolutionKey(requestKey, source, playback)
+	resolutionStarted := service.now()
+	candidate, mediaHit := service.cachedMediaCandidate(ctx, mediaKey, resolutionStarted)
+	if mediaHit {
+		err = service.touchSucceeded(ctx, playback.Credential.AccountID, candidate.resolvedSHA1, candidate.resolvedSize)
+	} else {
+		candidate, err = service.resolveWithAccounts(
+			ctx, source, playback,
+			ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
+				downloadScope: &downloadCacheScope{serverID: service.serverID, userID: request.UserID, mappingID: request.MappingID, deviceID: request.DeviceID}},
+			quotaContext,
+		)
+	}
 	diagnostics.TransferChecked = quotaContext.Checked
 	diagnostics.TransferUsageAvailable = quotaContext.UsageAvailable
 	diagnostics.TransferUsage = quotaContext.Usage
 	candidate.Routing = diagnostics
 	if err != nil {
+		candidate.URL = ""
 		return candidate, err
+	}
+	// Join the heartbeat before final admission and cache publication so a
+	// late renewal failure cannot publish a candidate from a failed request.
+	if finishHeartbeat != nil {
+		heartbeatErr := finishHeartbeat()
+		finishHeartbeat = nil
+		ctx = parentCtx
+		if heartbeatErr != nil {
+			candidate.URL = ""
+			return candidate, heartbeatErr
+		}
 	}
 	confirmation, err := service.leases.Confirm(ctx, confirmationRequest, service.now().UTC())
 	if err != nil {
@@ -509,6 +546,15 @@ func (service *Service) resolveRoutedMediaPath(
 		return candidate, ErrPlaybackLeaseLost
 	}
 	candidate.Routing.AccountUsage, candidate.Routing.UserUsage = confirmation.Account, confirmation.User
+	if err := ctx.Err(); err != nil {
+		candidate.URL = ""
+		return candidate, err
+	}
+	if !mediaHit && service.mediaCache != nil && service.downloadCache != nil {
+		if entry, found := service.downloadCache.getEntry(candidate.downloadCacheKey, service.now()); found {
+			service.mediaCache.put(mediaKey, candidate, resolutionStarted, service.now(), entry.expiresAt)
+		}
+	}
 	return candidate, nil
 }
 
@@ -597,7 +643,7 @@ func (service *Service) resolveWithAccounts(
 	source, playback p115account.ActiveAccountCredential,
 	request ResolveRequest,
 	quota *transferQuotaContext,
-) (RedirectCandidate, error) {
+) (candidate RedirectCandidate, resolveErr error) {
 	finishPreparation(ctx)
 	finishSource := measureStage(ctx, "sourceResolve")
 	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
@@ -610,6 +656,11 @@ func (service *Service) resolveWithAccounts(
 		// A malformed file identity cannot establish an account-wide failure.
 		return RedirectCandidate{}, withFailureContext(err, FailureContext{ProviderOperation: failureOperationResolveSourcePath})
 	}
+	defer func() {
+		if resolveErr == nil {
+			candidate.resolvedSHA1, candidate.resolvedSize = sha1Value, sourceFile.Size
+		}
+	}()
 	query := p115integration.FileQuery{SHA1: sha1Value, Size: sourceFile.Size, ParentID: playback.TargetParentID}
 
 	target, found, err := service.searchTarget(ctx, playback, query)
@@ -651,7 +702,7 @@ func (service *Service) resolveWithAccounts(
 		return RedirectCandidate{}, fmt.Errorf("%w: release", ErrLockUnavailable)
 	}
 	released = true
-	candidate, err := service.downloadCandidate(ctx, playback, lockedTarget, request.ClientUserAgent, taskID, preexisting, request.downloadScope)
+	candidate, err = service.downloadCandidate(ctx, playback, lockedTarget, request.ClientUserAgent, taskID, preexisting, request.downloadScope)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}

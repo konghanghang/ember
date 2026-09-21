@@ -489,20 +489,22 @@ playbackAccountId + SHA1 + size
 
 ### 9.1 同设备短期直链缓存（Ember 内部合同）
 
-- Gateway 路由入口只缓存最终 playback 下载结果；源文件路径解析、内容身份校验、目标查重和账号/租约检查仍实时执行。没有设备/登录上下文的低层 `Resolve` 不缓存。
+- Gateway 使用两层进程内缓存：跨播放会话的媒体解析结果缓存位于源路径解析与目标查重之前，命中后跳过这两类 Provider 调用并引用仍有效的最终直链缓存；未命中时执行完整内容校验。账号、套餐及 Redis 租约检查仍实时执行。没有设备/登录上下文的低层 `Resolve` 不缓存。
+- 媒体键对 Server、用户、登录映射、设备、原始媒体路径、真实播放器 UA、源和 playback 账号 ID/Provider 身份/干净 active 配置版本/精确凭证/Provider 参数、源挂载前缀/root 和目标目录做长度编码摘要；不含 PlaySessionId，也不按会话过期或 Stopped 清除。媒体条目仅保存源内容 SHA1/size 和直链缓存引用，最多 1024 条，容量满时淘汰最早到期项。
+- 媒体有效期截止于 `min(本次文件解析开始时间 + 30s, 引用直链缓存的原始截止时间)`，命中不续期，直链过期或被淘汰同样视为未命中；时钟回退丢弃条目。外部同路径替换/删除及目标文件删除最多在此窗口内延迟发现。不得用媒体重新填充延长原直链期限；媒体内容身份只在进程内使用，不输出日志或落库。
 - 缓存键对 Server、用户、登录映射、设备、playback 账号 ID/干净 active 配置版本、凭证及 Provider 参数、目标目录/文件 ID/pickCode/SHA1/size、真实播放器 UA 做长度编码后摘要；不保存原始 Cookie，不含 `PlaySessionId`，不跨设备或登录复用。摘要只在进程内使用，不输出日志。
 - 进程内 LRU 最多 1024 条，每条 URL 最多 16 KiB；缓存截至 `min(获取完成时间 + 30s, ExpiresAt - 10s)`，命中不续期，过期惰性删除并按容量淘汰，无后台刷新。时钟回退到写入之前时丢弃条目。URL 不进入 Redis、数据库、API 或日志。
 - 同一键的取链串行，等待者可独立取消；持有者取消或调用失败不填缓存，后续请求可重新获取。不缓存错误、额外 Cookie 链接、无效结果或已进入安全窗口的地址，不以过期地址兜底。
-- 每个请求独立执行 Redis 准入和最终确认；HEAD 无租约仍 fallback，缓存不能绕过停用、冷却、解绑或配额状态。新转存强制清除旧地址并重新获取，即使上游复用了文件标识。缓存只含下载结果，不共享任务 ID、首次/复用标记或用量。
-- 账号凭证加载暴露非持久化 `DownloadCacheVersion`：仅干净 active 状态为正数，冷却探测/错误恢复或未知版本为零并强制实际取链。缓存命中不回写 playback 健康成功；本次真实源解析的成功观察仍按原采样规则回写。
-- 决策日志增加固定 `downloadURLCache=hit|miss|bypass`，实际调用仍以 `downloadURLCalls` 计数；不打印 URL 或缓存键。
+- 每个请求独立执行 Redis 准入和最终确认；HEAD 无租约仍 fallback，缓存不能绕过停用、冷却、解绑或配额状态。相同用户/登录/设备/媒体路径/UA 的昂贵处理跨 session 串行，获锁后加载账号快照，等待者独立取消。只有完整成功且最终租约确认通过后才发布媒体条目；新转存强制清除旧直链并重新获取。媒体命中返回 `preexisting=true`，不复制旧任务 ID、首次创建标记或转存用量；仍调用既有成功访问采样，不再次消耗转存额度。
+- 账号凭证加载暴露非持久化 `DownloadCacheVersion`：仅干净 active 状态为正数；任一账号冷却探测/错误恢复或未知版本为零时绕过媒体缓存，执行真实文件查询。playback 探测同时绕过直链缓存并实际取链。媒体命中不回写任一账号健康成功；只命中直链缓存时，真实源解析成功仍按原规则采样。
+- 决策日志增加固定 `mediaResolutionCache=hit|miss|bypass`，保留 `downloadURLCache=hit|miss|bypass`。媒体命中不产生 `sourceResolveCalls`、`targetSearchCalls` 或 `downloadURLCalls`；不打印 URL、SHA1 或缓存键。
 - 自动化只证明 Ember 复用、隔离与门控。Gateway 无法观察 302 后 CDN 提前失效，跨播放 session 的真实客户端复用、CDN 并发/网络切换兼容性和实际延迟收益尚未实测。
 
 ## 10. 保留、冷却与未来清理
 
 - 第一阶段 playback 专用目录是持久缓存：秒传文件默认保留，direct play Service、Redis 租约 TTL 和受控写入检查器均不得调用 `DeleteFile`。
 - 重复播放先在精确 `targetParentId` 下按 SHA1 + size 查重；命中后直接刷新下载 URL并更新 `lastAccessedAt`，不创建新传输任务。
-- 成功任务必须保留完整 provenance；管理员手工删除 playback 文件后，实时查重未命中应允许重新秒传，历史 `succeeded` 不能永久阻止恢复。
+- 成功任务必须保留完整 provenance；管理员手工删除 playback 文件后，短期媒体缓存到期后的实际查重未命中应允许重新秒传，历史 `succeeded` 不能永久阻止恢复。
 - 第一阶段不承诺自动控制 playback 容量，管理员通过专用目录观察占用并手工处理；手工处理不属于 Ember 自动状态流转。
 - 第二阶段才设计自动回收。候选至少同时满足：无活跃会话、超过基于 `lastAccessedAt` 的最短保留期、容量策略要求回收、任务 provenance 完整、删除前 parent/fileId/SHA1/size 全量复核一致。
 - 第二阶段清理任务按账号串行执行，并补跨副本任务所有权/互斥；不能把 Adapter 进程内锁当成全局锁。

@@ -461,11 +461,12 @@ func (loader fakeAccountLoader) LoadActiveCredentialByRole(_ context.Context, ro
 		providerUserID = "provider-same"
 	}
 	return p115account.ActiveAccountCredential{
-		Role:           role,
-		ProviderUserID: providerUserID,
-		TargetParentID: targetParentID,
-		EmbyPathPrefix: "/mnt/cloudNAS/115lifetime",
-		SourceRootID:   "0",
+		DownloadCacheVersion: 1,
+		Role:                 role,
+		ProviderUserID:       providerUserID,
+		TargetParentID:       targetParentID,
+		EmbyPathPrefix:       "/mnt/cloudNAS/115lifetime",
+		SourceRootID:         "0",
 		Credential: p115integration.Credential{
 			AccountID: accountID,
 			Cookie:    "fixture-cookie",

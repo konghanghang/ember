@@ -15,7 +15,7 @@ import (
 )
 
 // TestDownloadCacheReplaysAfterStoppedWithNewSession locks down the requested
-// behavior while preserving real file lookup and a separate playback lease.
+// behavior while avoiding repeated file lookups and keeping a separate lease.
 func TestDownloadCacheReplaysAfterStoppedWithNewSession(t *testing.T) {
 	provider := newFakeProvider()
 	provider.searchResults = [][]p115.File{{provider.targetFile}, {provider.targetFile}}
@@ -41,7 +41,9 @@ func TestDownloadCacheReplaysAfterStoppedWithNewSession(t *testing.T) {
 	}
 
 	fields := strings.Join(replay.Timing.LogFields(), " ")
-	if !strings.Contains(fields, "downloadURLCache=hit") || strings.Contains(fields, "downloadURLCalls=") || strings.Contains(fields, "http") {
+	if !strings.Contains(fields, "mediaResolutionCache=hit") || !strings.Contains(fields, "downloadURLCache=hit") ||
+		strings.Contains(fields, "sourceResolveCalls=") || strings.Contains(fields, "targetSearchCalls=") ||
+		strings.Contains(fields, "downloadURLCalls=") || strings.Contains(fields, "http") {
 		t.Fatalf("replay diagnostics=%s", fields)
 	}
 	if !strings.Contains(strings.Join(result.Timing.LogFields(), " "), "downloadURLCache=miss") {
@@ -51,16 +53,19 @@ func TestDownloadCacheReplaysAfterStoppedWithNewSession(t *testing.T) {
 	for _, call := range provider.calls {
 		counts[call]++
 	}
-	if counts["download"] != 1 || counts["resolve_source"] != 2 || counts["search_target"] != 2 {
-		t.Fatalf("Provider calls = %v; want one download and two real file lookups", counts)
+	if counts["download"] != 1 || counts["resolve_source"] != 1 || counts["search_target"] != 1 {
+		t.Fatalf("Provider calls = %v; want one download and one file lookup across sessions", counts)
 	}
 	if replay.Routing.AccountUsage.ReservedStreams != 1 {
 		t.Fatalf("replay lease = %+v", replay.Routing.AccountUsage)
 	}
+	if service.store.(*fakeTaskStore).touchCount != 2 {
+		t.Fatal("media hit skipped sampled access recording")
+	}
 }
 
 // TestDownloadCacheIsolation checks the public routed behavior rather than
-// merely comparing keys, including content replacement at the same path.
+// merely comparing keys, including same-path replacement after the media TTL.
 func TestDownloadCacheIsolation(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -99,6 +104,11 @@ func TestDownloadCacheIsolation(t *testing.T) {
 			}
 			r.PlaySessionID = "second"
 			test.change(&r, accounts, provider)
+			// External file replacement becomes visible once the fixed media window expires.
+			if test.name == "target" || test.name == "content" {
+				now := service.now().Add(downloadCacheTTL)
+				service.now = func() time.Time { return now }
+			}
 			provider.searchResults = [][]p115.File{{provider.targetFile}}
 			if _, err := service.ResolveMediaPath(context.Background(), r); err != nil {
 				t.Fatal(err)
@@ -143,9 +153,13 @@ func TestDownloadCacheNeverBypassesAdmission(t *testing.T) {
 				service.leases = &cacheFailingLeaseStore{MemoryLeaseStore: leases}
 				want = ErrPlaybackLeaseLost
 			case "source-deleted":
+				now := service.now().Add(downloadCacheTTL)
+				service.now = func() time.Time { return now }
 				p.resolveErr = p115.ErrSourceFileNotFound
 				want = ErrProviderProtocol
 			case "target-deleted":
+				now := service.now().Add(downloadCacheTTL)
+				service.now = func() time.Time { return now }
 				p.searchResults = [][]p115.File{{}, {}}
 				p.downloadErr = p115.ErrProviderUnavailable
 				want = ErrProviderUnavailable
@@ -181,7 +195,7 @@ func (s *cacheFailingLeaseStore) Reserve(ctx context.Context, r p115quota.Reserv
 	return s.MemoryLeaseStore.Reserve(ctx, r, now)
 }
 
-// Confirm simulates Stopped/expiry during real file lookup on a cache hit.
+// Confirm simulates Stopped/expiry before final admission on a cache hit.
 func (s *cacheFailingLeaseStore) Confirm(context.Context, p115quota.ConfirmRequest, time.Time) (p115quota.ConfirmResult, error) {
 	return p115quota.ConfirmResult{}, nil
 }
@@ -313,8 +327,8 @@ func TestDownloadCacheLRUEvictionAndMetadata(t *testing.T) {
 	}
 }
 
-// TestDownloadCacheHitDoesNotReportPlaybackRecovery preserves real source
-// observations but never claims the cached download endpoint was probed again.
+// TestDownloadCacheHitDoesNotReportPlaybackRecovery never claims either
+// cached source or download endpoint was probed again.
 func TestDownloadCacheHitDoesNotReportPlaybackRecovery(t *testing.T) {
 	health := &fakeAccountHealthReporter{}
 	accounts := &fakeRoutedAccountRuntime{fakeAccountLoader: fakeAccountLoader{health: health}}
@@ -334,7 +348,7 @@ func TestDownloadCacheHitDoesNotReportPlaybackRecovery(t *testing.T) {
 			playback++
 		}
 	}
-	if source != 2 || playback != 1 {
+	if source != 1 || playback != 1 {
 		t.Fatalf("health source=%d playback=%d", source, playback)
 	}
 }
@@ -470,7 +484,7 @@ func TestDownloadCacheOwnerCancellationDoesNotPoisonRetry(t *testing.T) {
 }
 
 // TestDownloadCacheAfterFirstTransferDoesNotReuseTaskOrQuota ensures a replay
-// reuses only the URL while fresh lookup determines the current file outcome.
+// reuses media without duplicating the first transfer's task or quota results.
 func TestDownloadCacheAfterFirstTransferDoesNotReuseTaskOrQuota(t *testing.T) {
 	p := newFakeProvider()
 	p.searchResults = [][]p115.File{{}, {}, {p.targetFile}}

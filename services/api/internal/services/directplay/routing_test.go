@@ -341,7 +341,11 @@ func TestRoutedTransferQuotaChargesOnlyVerifiedNewTargets(t *testing.T) {
 	if _, err := service.ResolveMediaPath(context.Background(), routedMediaPathRequest("GET", "session-1")); err != nil {
 		t.Fatalf("ResolveMediaPath(first transfer) error = %v", err)
 	}
-	limited, err := service.ResolveMediaPath(context.Background(), routedMediaPathRequest("GET", "session-2"))
+	// A different media path still needs transfer quota; replaying the cached
+	// first file must not spend another transfer allowance.
+	other := routedMediaPathRequest("GET", "session-2")
+	other.Path = "/mnt/cloudNAS/115lifetime/Media/other.mkv"
+	limited, err := service.ResolveMediaPath(context.Background(), other)
 	if !errors.Is(err, ErrTransferQuotaExceeded) {
 		t.Fatalf("ResolveMediaPath(quota) error = %v", err)
 	}

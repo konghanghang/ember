@@ -66,4 +66,8 @@ func TestTimingAggregationUsesElapsedDurations(t *testing.T) {
 	if len((TimingDiagnostics{}).LogFields()) != 0 {
 		t.Fatal("unmeasured request emitted timing")
 	}
+	timing.mediaCache = "cookie-secret\nforged=true"
+	if strings.Contains(strings.Join(timing.LogFields(), " "), "cookie-secret") {
+		t.Fatal("unknown media cache outcome escaped the log allowlist")
+	}
 }

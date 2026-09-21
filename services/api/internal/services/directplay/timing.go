@@ -16,6 +16,7 @@ type stageTiming struct {
 // TimingDiagnostics carries only request-local numeric measurements, never
 // serialized or persisted. Stage names are filtered before logging.
 type TimingDiagnostics struct {
+	mediaCache    string
 	downloadCache string
 	total         time.Duration
 	stages        map[string]stageTiming
@@ -28,6 +29,10 @@ func (timing TimingDiagnostics) LogFields() []string {
 		return nil
 	}
 	fields := []string{"directPlayMs=" + strconv.FormatInt(timing.total.Milliseconds(), 10)}
+	switch timing.mediaCache {
+	case "hit", "miss", "bypass":
+		fields = append(fields, "mediaResolutionCache="+timing.mediaCache)
+	}
 	switch timing.downloadCache {
 	case "hit", "miss", "bypass":
 		fields = append(fields, "downloadURLCache="+timing.downloadCache)
@@ -50,6 +55,7 @@ func (timing TimingDiagnostics) LogFields() []string {
 
 type timingContextKey struct{}
 type timingRecorder struct {
+	mediaCache    string
 	downloadCache string
 	started       time.Time
 	now           func() time.Time
@@ -69,7 +75,7 @@ func (r *timingRecorder) finish() TimingDiagnostics {
 	if !r.prepared {
 		r.stages["prepare"] = stageTiming{duration: r.now().Sub(r.started), calls: 1}
 	}
-	return TimingDiagnostics{total: r.now().Sub(r.started), stages: r.stages, downloadCache: r.downloadCache}
+	return TimingDiagnostics{total: r.now().Sub(r.started), stages: r.stages, downloadCache: r.downloadCache, mediaCache: r.mediaCache}
 }
 
 // finishPreparation separates mapping, account loading and Redis admission
@@ -102,5 +108,12 @@ func measureStage(ctx context.Context, name string) func() {
 func recordDownloadCache(ctx context.Context, outcome string) {
 	if r, ok := ctx.Value(timingContextKey{}).(*timingRecorder); ok {
 		r.downloadCache = outcome
+	}
+}
+
+// recordMediaCache records a fixed outcome only, never paths or credential keys.
+func recordMediaCache(ctx context.Context, outcome string) {
+	if r, ok := ctx.Value(timingContextKey{}).(*timingRecorder); ok {
+		r.mediaCache = outcome
 	}
 }

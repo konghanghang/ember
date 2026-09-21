@@ -72,20 +72,27 @@ func (scope *downloadCacheScope) downloadKey(account p115account.ActiveAccountCr
 
 // get expires entries at the fixed deadline; hits change LRU order, not TTL.
 func (cache *downloadURLCache) get(key string, now time.Time) (p115.DownloadURLResult, bool) {
+	entry, ok := cache.getEntry(key, now)
+	return entry.result, ok
+}
+
+// getEntry exposes the original deadline to dependent media-cache entries;
+// a lookup must never extend either layer's lifetime.
+func (cache *downloadURLCache) getEntry(key string, now time.Time) (cachedDownload, bool) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	element := cache.entries[key]
 	if element == nil {
-		return p115.DownloadURLResult{}, false
+		return cachedDownload{}, false
 	}
 	entry := element.Value.(cachedDownload)
 	if now.Before(entry.createdAt) || !now.Before(entry.expiresAt) {
 		cache.lru.Remove(element)
 		delete(cache.entries, key)
-		return p115.DownloadURLResult{}, false
+		return cachedDownload{}, false
 	}
 	cache.lru.MoveToFront(element)
-	return entry.result, true
+	return entry, true
 }
 
 // put bounds both lifetime and retained URL bytes. Provider already validates
@@ -150,7 +157,7 @@ func (service *Service) downloadCandidate(ctx context.Context, account p115accou
 	if result, ok := service.downloadCache.get(key, service.now()); ok {
 		recordDownloadCache(ctx, "hit")
 		return RedirectCandidate{URL: result.URL, ExpiresAt: result.ExpiresAt, HeaderMode: result.HeaderMode,
-			ConcurrentOpenLimit: result.ConcurrentOpenLimit, TaskID: taskID, Preexisting: preexisting, downloadCacheHit: true}, nil
+			ConcurrentOpenLimit: result.ConcurrentOpenLimit, TaskID: taskID, Preexisting: preexisting, downloadCacheHit: true, downloadCacheKey: key}, nil
 	}
 	recordDownloadCache(ctx, "miss")
 	candidate, err := service.fetchDownloadCandidate(ctx, account, target, ua, taskID, preexisting)
@@ -162,5 +169,6 @@ func (service *Service) downloadCandidate(ctx context.Context, account p115accou
 	}
 	service.downloadCache.put(key, p115.DownloadURLResult{URL: candidate.URL, ExpiresAt: candidate.ExpiresAt,
 		HeaderMode: candidate.HeaderMode, ConcurrentOpenLimit: candidate.ConcurrentOpenLimit}, service.now())
+	candidate.downloadCacheKey = key
 	return candidate, nil
 }
