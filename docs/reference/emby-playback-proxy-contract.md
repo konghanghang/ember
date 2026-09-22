@@ -318,6 +318,21 @@ Gateway 在 Debug 级别旁路记录 `playback_info_request_observed`：布尔�
 
 `source=client` 表示客户端 GET/POST；`source=gateway` 表示按需解析实际发出的 GET；`playback_info_reused_on_demand source=proof_cache` 表示复用已有证明、没有新的 Emby 请求。客户端成功写入证明后记录 `playback_info_response_observed`。`requestId` 串起单请求；`itemRef` 以当前进程种子对 server/user/mapping/device/item 生成脱敏关联值，不依赖播放 session，贯穿以上日志和 `video_context_resolved`；响应及证明复用日志提供脱敏 `sessionRef`。这些引用不跨进程稳定，不参与缓存键或准入，也不能证明用户点击了播放。
 
+#### 新增转存起播许可（Ember 内部策略）
+
+2026-09-22 再次读取上述固定 SDK，确认 `PlaybackInfoRequest.IsPlayback` 为布尔，`MediaSourceId` 为字符串，`PlaybackStopInfo` 包含 `ItemId/MediaSourceId/PlaySessionId`。同日 Infuse `8.5.3` 详情浏览样本只有 Gateway GET 补查和视频 GET，产生一次新转存、没有播放事件；前一天三轮正式播放样本在视频前存在客户端 POST `IsPlayback=true`。这些样本支持当前优化，但不把“所有客户端必然发送此字段”升级为 Emby 协议保证。
+
+Gateway 保持普通 proof 的授权含义，另在同一个进程缓存中记录短期新增转存许可：
+
+- 仅合法客户端 JSON POST 中唯一、严格布尔 `IsPlayback=true`，且成功 Emby 响应形成匹配 proof 时授予。重复字段（含大小写变体）、null/类型错误或 POST query 另带 `IsPlayback/MediaSourceId` 不授予；仍透明转发请求、响应，不因意图不明确取消普通 proof。
+- 请求明确 `MediaSourceId` 时仅授予该 source；未指定时仅在响应有唯一合格 source 时授予。Gateway GET、客户端 GET、视频请求和缓存命中均不能授予或续期。
+- 许可从 proof 记录时固定有效 30 秒，不超过 proof 自身期限，按当前 server/user/mapping/device/item/source/session 及 proof 代次绑定。DirectPlay 在内容锁内二次确认目标不存在、申请转存配额和建立任务之前实时检查；旧排队请求不能使用替换 proof 的新许可。
+- 没有有效许可时，目标已存在或媒体缓存命中仍正常复用；目标不存在则以 `playback_intent_required` 回退 Emby，不申请转存配额、不建任务、不执行新转存，并释放本次新 reservation。HEAD 不创建新转存；该拒绝不属于账号健康故障。
+- 成功转发给 Emby 的 Stopped 撤销当时已记录的对应许可，独立于 Redis 是否有租约。事件不带 MediaSourceId 时清同身份、条目和 session 的全部 source；不影响其他会话、普通 proof 或十分钟跨会话缓存。不取消在途 PlaybackInfo；之后成功返回的显式客户端起播 POST 仍作为新的授予事件。
+- 这是“开始新转存时”的短期许可，TTL 内失败允许重试，不是一次性票据；通过该准入后，后续停止或过期不会回滚已开始的转存。Range、Purpose 和 Playing 仍不是首次转存的前置条件。
+
+未提供该明确信号的客户端在目标不存在时使用 Emby fallback，不能承诺首次 115 加速。此策略的自动化与真实客户端证据分别见 [实施方案](../plan/architecture/p115-transfer-playback-intent.md)；不新增 SQL、配置或对外字段。
+
 ### 4.3 用户条目 Container 兼容快照
 
 固定 `4.9.3.0` OpenAPI 的 [`GET /Users/{UserId}/Items/{Id}`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L92839-L92889) 返回 `BaseItemDto`；该 DTO 明确包含顶层 `Container` 与 [`MediaSources`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L103723-L103755)，MediaSourceInfo 又包含 [`Id/Container/Path/Size/SupportsDirectPlay`](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Resources/OpenApi/openapi_v3.json#L104395-L104471)。
@@ -495,10 +510,10 @@ Content-Type: application/json
 网关处理要求：
 
 - 三类会话请求必须继续转发给 Emby，保持播放历史和进度能力。
-- 网关当前只旁路观察事件；后续可以更新 Redis 当前播放租约，但不能篡改客户端上报内容，也不创建数据库播放会话。
-- 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，只提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
-- 后续 Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度。合格 GET 在 302 前只建立短期 `reservation` 并进入账号/用户占用索引；只有成功转发给 Emby 的 Playing 或 Progress 才能把已有 reservation 晋级为 `active`，API 真实活跃数不包含 reservation。
-- `Progress + IsPaused=true` 表示暂停，不是 Stopped；`paused` 继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放占用和活跃索引。
+- 网关旁路观察事件，在 Emby 成功接受后更新已有 Redis 播放租约，Stopped 同时撤销已记录的匹配新增转存许可；不能篡改客户端上报内容，也不创建数据库播放会话。
+- 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志、成功事件的租约更新及停止许可撤销；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
+- Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度。合格 GET 在 302 前只建立短期 `reservation` 并进入账号/用户占用索引；只有成功转发给 Emby 的 Playing 或 Progress 才能把已有 reservation 晋级为 `active`，API 真实活跃数不包含 reservation。
+- `Progress + IsPaused=true` 表示暂停，不是 Stopped；`paused` 继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放占用和活跃索引；对应新增转存许可撤销独立于租约是否存在，普通 proof 与媒体缓存保留。
 - `HEAD` 不能创建 reservation 或 active，只有命中同 session 既有租约时才允许复用 115 候选，否则继续 Emby fallback。符合条件的首次/预加载/带 Range GET 在网关侧无法可靠区分，因此最多创建同 session 的一个短 reservation；重复 GET/Range 只能复用，任何视频请求都不能绕过成功的会话事件直接形成 active。
 
 ## 8. 身份与访问策略

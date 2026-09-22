@@ -5,10 +5,13 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 const (
 	defaultPlaybackProofTTL        = 5 * time.Minute
+	playbackTransferIntentTTL      = 30 * time.Second
 	defaultPlaybackProofMaxEntries = 4096
 	maxProofMappingIDBytes         = 25
 	maxProofServerIDBytes          = 64
@@ -44,6 +47,9 @@ type PlaybackProof struct {
 	SupportsTranscoding  bool
 	AuthorizedAt         time.Time
 	ExpiresAt            time.Time
+	transferIntent       bool
+	transferIntentUntil  time.Time
+	generation           uint64
 }
 
 type playbackProofKey struct {
@@ -67,6 +73,7 @@ type playbackProofCache struct {
 	maxEntries int
 	ttl        time.Duration
 	now        func() time.Time
+	generation uint64
 }
 
 // newPlaybackProofCache creates a bounded cache with no background goroutine;
@@ -102,10 +109,63 @@ func (cache *playbackProofCache) Record(proofs []PlaybackProof) int {
 		}
 		proof.AuthorizedAt = now
 		proof.ExpiresAt = now.Add(cache.ttl)
+		cache.generation++
+		proof.generation = cache.generation
+		proof.transferIntentUntil = time.Time{}
+		if proof.transferIntent {
+			proof.transferIntentUntil = now.Add(playbackTransferIntentTTL)
+			if proof.ExpiresAt.Before(proof.transferIntentUntil) {
+				proof.transferIntentUntil = proof.ExpiresAt
+			}
+		}
 		cache.entries[key] = proof
 		written++
 	}
 	return written
+}
+
+// CanCreateTransfer rechecks the exact proof under the cache lock at the
+// transfer admission point. Reads never extend intent and replaced proofs
+// cannot lend a newer intent to an already queued video request.
+func (cache *playbackProofCache) CanCreateTransfer(snapshot PlaybackProof, principal embytoken.Principal) bool {
+	if cache == nil || cache.now == nil || snapshot.generation == 0 || !playbackProofMatchesPrincipal(snapshot, principal) {
+		return false
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	now := cache.now()
+	current, ok := cache.entries[playbackProofKey{
+		mappingID: snapshot.MappingID, itemID: snapshot.ItemID,
+		mediaSourceID: snapshot.MediaSourceID, playSessionID: snapshot.PlaySessionID,
+	}]
+	return ok && current.generation == snapshot.generation && current.Path == snapshot.Path &&
+		playbackProofMatchesPrincipal(current, principal) && !now.Before(current.AuthorizedAt) && current.ExpiresAt.After(now) &&
+		current.transferIntentUntil.After(now)
+}
+
+// RevokeTransferIntent clears only matching session intent after a successful
+// Stopped forward. An omitted source covers all sources of that item/session;
+// the reusable media proofs and other sessions remain available. This revokes
+// recorded grants, not a still-in-flight explicit PlaybackInfo response.
+func (cache *playbackProofCache) RevokeTransferIntent(principal embytoken.Principal, itemID, mediaSourceID, playSessionID string) int {
+	if cache == nil {
+		return 0
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	revoked := 0
+	for key, proof := range cache.entries {
+		if key.itemID != itemID || key.playSessionID != playSessionID ||
+			(mediaSourceID != "" && key.mediaSourceID != mediaSourceID) ||
+			!playbackProofMatchesPrincipal(proof, principal) || proof.transferIntentUntil.IsZero() {
+			continue
+		}
+		proof.transferIntent = false
+		proof.transferIntentUntil = time.Time{}
+		cache.entries[key] = proof
+		revoked++
+	}
+	return revoked
 }
 
 // Lookup requires the exact composite key and lazily removes an expired entry.

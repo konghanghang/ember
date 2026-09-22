@@ -28,7 +28,7 @@ func TestPlaybackInfoIntentDiagnostic(t *testing.T) {
 			g.debugEnabled = func() bool { return true }
 			r := withDiagnosticRequest(httptest.NewRequest(http.MethodPost, "/emby/Items/item-1/PlaybackInfo", strings.NewReader(tc.body)))
 			r.Header.Set("Content-Type", "application/json")
-			_, eligible := g.preparePlaybackInfoRequest(r, fixturePrincipal())
+			_, eligible, _ := g.preparePlaybackInfoRequest(r, fixturePrincipal())
 			if !eligible {
 				t.Fatal("diagnostics changed proof eligibility")
 			}
@@ -141,7 +141,7 @@ func TestPlaybackInfoDiagnosticBoundaries(t *testing.T) {
 			g.maxPlaybackInfoRequestBytes = 64
 			r := withDiagnosticRequest(httptest.NewRequest("POST", "/emby/Items/item-1/PlaybackInfo", strings.NewReader(tc.body)))
 			r.Header.Set("Content-Type", tc.contentType)
-			_, eligible := g.preparePlaybackInfoRequest(r, fixturePrincipal())
+			_, eligible, _ := g.preparePlaybackInfoRequest(r, fixturePrincipal())
 			body, err := io.ReadAll(r.Body)
 			if eligible != tc.eligible || err != nil || string(body) != tc.body || !strings.Contains(logs.String(), "bodyState="+tc.state) {
 				t.Fatalf("boundary changed: eligible=%t err=%v logs=%s", eligible, err, logs.String())

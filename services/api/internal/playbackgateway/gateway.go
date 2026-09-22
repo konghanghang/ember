@@ -129,6 +129,7 @@ type requestRouteContext struct {
 	principal            *embytoken.Principal
 	playbackInfoItemID   string
 	playbackInfoEligible bool
+	playbackInfoIntent   playbackTransferIntent
 	itemDetailItemID     string
 	itemDetailEligible   bool
 	videoDecision        *videoDecision
@@ -311,7 +312,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			gateway.debugf("[PlaybackGateway] level=debug code=playback_event_received requestId=%s sessionRef=%s event=%s snapshotState=%s itemId=%q",
 				playbackSessionEvent.requestID, playbackSessionEvent.sessionRef, observed.kind, observed.snapshotState, observed.itemID)
 		} else if kind == routePlaybackInfo {
-			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible = gateway.preparePlaybackInfoRequest(request, principal)
+			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible, routeContext.playbackInfoIntent = gateway.preparePlaybackInfoRequest(request, principal)
 		} else if kind == routeItemDetail {
 			userID, itemID, pathOK := userItemDetailPath(request.URL)
 			routeContext.itemDetailItemID = itemID

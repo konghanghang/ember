@@ -39,6 +39,9 @@ type ResolveRequest struct {
 	downloadScope   *downloadCacheScope
 	SourceFile      p115integration.FilePathQuery
 	ClientUserAgent string
+	// CanCreateTransfer rechecks current playback intent only when a new target
+	// must be created under the content lock. Nil denies creation, not reuse.
+	CanCreateTransfer func() bool
 }
 
 // MediaPathResolveRequest is the future gateway input before source-account
@@ -51,6 +54,9 @@ type MediaPathResolveRequest struct {
 	MappingID       string
 	DeviceID        string
 	PlaySessionID   string
+	// CanCreateTransfer authorizes only a new retained transfer; nil still
+	// permits existing targets and cached candidates. HEAD never creates files.
+	CanCreateTransfer func() bool
 }
 
 // MediaPathMapping keeps the exact Emby path and the source-account mapping
@@ -328,6 +334,11 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	if !validClientUserAgent(request.ClientUserAgent) {
 		return RedirectCandidate{PathMapping: mapping}, ErrInvalidRequest
 	}
+	// HEAD may inspect an existing lease and file, but cannot create a retained
+	// target even when the caller still has a valid playback intent.
+	if request.Method == http.MethodHead {
+		request.CanCreateTransfer = nil
+	}
 	if service.playbackRouter != nil {
 		candidate, err := service.resolveRoutedMediaPath(ctx, request, fileQuery, location)
 		candidate.PathMapping = mapping
@@ -346,6 +357,7 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	}
 	candidate, err = service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
 		SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
+		CanCreateTransfer: request.CanCreateTransfer,
 	}, nil)
 	candidate.PathMapping = mapping
 	return candidate, err
@@ -528,7 +540,8 @@ func (service *Service) resolveRoutedMediaPath(
 		candidate, err = service.resolveWithAccounts(
 			ctx, source, playback,
 			ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
-				downloadScope: &downloadCacheScope{serverID: service.serverID, userID: request.UserID, mappingID: request.MappingID, deviceID: request.DeviceID}},
+				CanCreateTransfer: request.CanCreateTransfer,
+				downloadScope:     &downloadCacheScope{serverID: service.serverID, userID: request.UserID, mappingID: request.MappingID, deviceID: request.DeviceID}},
 			quotaContext,
 		)
 	}
@@ -713,7 +726,7 @@ func (service *Service) resolveWithAccounts(
 		}
 	}()
 
-	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query, quota)
+	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query, quota, request.CanCreateTransfer)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -766,13 +779,15 @@ func (service *Service) loadAccounts(ctx context.Context) (p115account.ActiveAcc
 }
 
 // resolveUnderLock repeats target lookup under the content lock and owns the
-// complete task lifecycle only when the target is still absent.
+// complete task lifecycle only when the target is still absent and current
+// playback intent permits creation. Reuse never needs transfer permission.
 func (service *Service) resolveUnderLock(
 	ctx context.Context,
 	source, playback p115account.ActiveAccountCredential,
 	sourceFile p115integration.File,
 	query p115integration.FileQuery,
 	quota *transferQuotaContext,
+	canCreateTransfer func() bool,
 ) (p115integration.File, string, bool, error) {
 	target, found, err := service.searchTarget(ctx, playback, query)
 	if err != nil {
@@ -780,6 +795,12 @@ func (service *Service) resolveUnderLock(
 	}
 	if found {
 		return *target, "", true, nil
+	}
+	// Recheck after both the lock wait and target lookup, before consuming quota
+	// or beginning any task, preID read or retained Provider write.
+	if canCreateTransfer == nil || !canCreateTransfer() {
+		log.Printf("[DirectPlay] 跳过新增转存 code=playback_intent_required playbackAccountId=%s", playback.Credential.AccountID)
+		return p115integration.File{}, "", false, ErrPlaybackIntentRequired
 	}
 
 	now := service.now().UTC()

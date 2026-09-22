@@ -672,19 +672,23 @@ func (lock fakeTaskLock) Release() error {
 	return nil
 }
 
+// fixtureResolveRequest represents an explicitly authorized playback request.
 func fixtureResolveRequest() ResolveRequest {
 	return ResolveRequest{
 		SourceFile: p115integration.FilePathQuery{
 			RootID: "0", RelativePath: "Media/fixture.mkv",
 		},
-		ClientUserAgent: "Infuse-Fixture",
+		ClientUserAgent:   "Infuse-Fixture",
+		CanCreateTransfer: func() bool { return true },
 	}
 }
 
+// fixtureMediaPathResolveRequest opts transfer tests into explicit playback intent.
 func fixtureMediaPathResolveRequest() MediaPathResolveRequest {
 	return MediaPathResolveRequest{
-		Path:            "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
-		ClientUserAgent: "Infuse-Fixture",
+		Path:              "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
+		ClientUserAgent:   "Infuse-Fixture",
+		CanCreateTransfer: func() bool { return true },
 	}
 }
 

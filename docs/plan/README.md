@@ -34,11 +34,12 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中仍在推进中的实施稿共 8 份：
+当前 `docs/plan/` 中仍在推进中的实施稿共 9 份：
 
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
 - `architecture/p115-personal-account-routing-and-redis-quotas.md`（阶段 0–3 已落地，基础 PostgreSQL 集成于 2026-09-05 通过；后续 DirectPlay 数据库专项于 2026-09-21 补跑通过，受控真实外部验收仍待完成）
+- [115 新增转存起播许可](./architecture/p115-transfer-playback-intent.md)（代码与自动化已完成，保留已有文件和跨会话缓存复用；待受控客户端验收）
 - `architecture/runtime-settings-cache-evolution.md`
 - `bot-telegram/notification-mute-rules.md`
 - `console-admin/device-risk-automation.md`

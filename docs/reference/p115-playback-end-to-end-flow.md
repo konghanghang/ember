@@ -51,6 +51,14 @@
 - DirectPlay 返回取消/deadline 或 request context 已终止时返回 `499/504`，不发起 Emby fallback。
 - 其他 DirectPlay 不适用或失败场景直接代理权威 Emby 请求；Gateway 不读取媒体文件，也不自行实现 Range、缓存或传输编码语义。
 
+### 1.3 新增转存起播许可
+
+详情浏览的视频 GET 不等于点击播放。Gateway 在现有 proof 缓存中单独保存 30 秒新增转存许可：只有客户端 POST PlaybackInfo 的唯一布尔 `IsPlayback=true` 与成功响应匹配，才授予选定媒体源；未指定媒体源时要求响应唯一。Gateway GET 补查和缓存命中不签发或延长许可，意图解析歧义不改变普通 proof 和透明代理。严格字段与多源合同见 [Emby 播放合同](./emby-playback-proxy-contract.md#新增转存起播许可ember-内部策略)。
+
+DirectPlay 先保留现有缓存/目标查重行为；内容锁内再次确认目标缺失后，在转存配额、任务和 preID 之前调用 Gateway 提供的实时许可检查。缺失、过期、已停止或 proof 代次被替换时以 `playback_intent_required` fallback，不创建任务、不占转存配额、不污染账号健康，并释放本次新建 reservation。HEAD 只能复用已有目标。该策略仍允许详情探测复用已有文件及短暂预留播放并发，不表示详情页完全不请求 115。
+
+成功 Stopped 清对应身份/条目/session 的许可，缺少 MediaSourceId 时覆盖该 session 的全部 source；清理不依赖 Redis 租约是否存在。普通 proof、十分钟跨 session 媒体缓存和下载地址缓存保留。许可有效期不续期，TTL 内失败可重试；准入后已经开始的转存不因随后停止或过期回滚。未携明确起播字段的客户端首次目标缺失时回退 Emby，其他播放器兼容与优化后的真实 Infuse 行为仍需受控验证。
+
 用户账号、套餐来源和 Redis 租约/配额均已有代码与自动化 fake/fixture 证据；本轮没有启动项目服务，也没有执行真实 Redis、个人 115 Cookie、Emby/CloudDrive2 或客户端验收。
 
 ## 2. 组件与职责
@@ -353,7 +361,7 @@ flowchart TD
 
 其中 GET 会在 Provider 前申请 Redis reservation；HEAD 只有同一 session 已存在 `reservation|active|paused` 时才继续，未命中不创建租约、不调用 115，直接进入公共 fallback。
 
-媒体解析与最终直链使用两层进程内缓存。媒体键按同一 Server/用户/登录映射/设备/媒体路径/真实 UA、两类账号配置与凭证、源/目标目录隔离，不包含 PlaySessionId；退出重播与新会话可命中，Stopped 只释放租约。每个请求仍实时执行身份/证明、账号/套餐、Redis 准入与最终确认。媒体命中跳过源解析和目标查重，引用既有直链条目，返回 preexisting=true，不复用任务 ID 或转存用量；访问记录继续采样，双方账号都不写虚构的健康成功。未命中才进入下文完整查询/转存流程。
+媒体解析与最终直链使用两层进程内缓存。媒体键按同一 Server/用户/登录映射/设备/媒体路径/真实 UA、两类账号配置与凭证、源/目标目录隔离，不包含 PlaySessionId；退出重播与新会话可命中，Stopped 释放租约并撤销当时对应的起播许可，不清媒体缓存。每个请求仍实时执行身份/证明、账号/套餐、Redis 准入与最终确认。媒体命中跳过源解析和目标查重，引用既有直链条目，返回 preexisting=true，不复用任务 ID 或转存用量；访问记录继续采样，双方账号都不写虚构的健康成功。未命中才进入下文完整查询/转存流程。
 
 媒体缓存最多 1024 条，满时淘汰最早到期项；截止于文件解析开始后 10 分钟与原直链缓存截止时间的较早值。直链缓存仍为最多 1024 条 LRU、每条 URL 最大 16 KiB，截止于取链完成后 10 分钟与链接到期前 10 秒的较早值。两层命中都不续期，不落 Redis/数据库；URL 淘汰或到期令媒体引用失效，时钟回退丢弃条目。同路径文件替换、删除或目标文件删除最多延迟该短窗口后发现；配置/凭证变更隔离旧条目，任一账号恢复探测绕过媒体缓存。跨 session 同键昂贵处理串行，获锁后加载账号快照，错误/取消/最终租约确认失败不填媒体缓存。单条决策日志包含 mediaResolutionCache 和 downloadURLCache 的 hit/miss/bypass；媒体命中时没有源解析/查重/取链调用计数。具体合同见 [Cookie 合同 §9.1](./p115-cookie-playback-contract.md#91-同设备短期直链缓存ember-内部合同)。
 
@@ -381,7 +389,7 @@ sequenceDiagram
     participant Provider as CookieProvider
     participant P115 as 115
 
-    Gateway->>DP: ResolveMediaPath(Path, Method, User/Mapping/Device/PlaySession, ClientUA)
+    Gateway->>DP: ResolveMediaPath(Path, Method, identity, ClientUA, CanCreateTransfer)
     DP->>Accounts: ResolvePlaybackRoute(userId)
     Accounts-->>DP: 套餐 + personal/shared 非敏感元数据
     DP->>Redis: GET reservation / HEAD existing session
@@ -408,6 +416,10 @@ sequenceDiagram
         alt 其他请求已完成
             Provider-->>DP: 目标文件
         else 仍不存在
+            DP->>Gateway: 实时检查原 proof 的新增转存许可
+            break HEAD 或许可缺失/失效
+                DP-->>Gateway: playback_intent_required，释放本次新 reservation
+            end
             DP->>Redis: ReserveTransfer(user, hourly/day limits, attempt)
             alt 配额已满或 Redis 不可用
                 DP-->>Gateway: fallback，不调用 InitRapidUpload
@@ -462,7 +474,7 @@ stateDiagram-v2
 
 如果第一次查重直接命中外部预存文件，可以不创建 task；`preexisting=true` 仍允许播放。第一阶段所有 playback 文件都保留，Playing/Stopped/TTL 不调用 `DeleteFile`。
 
-转存配额只在 advisory lock 内第二次查重仍缺失时申请。pending 固定 `5m` 且不续租；Provider 或目标复核失败尽力立即释放。目标复核成功后，同一 opaque attempt 必须先幂等写入 succeeded 才能继续下载 URL/302；pending 已过期仍补记并记录 `transfer_pending_expired_before_commit`。独立 `2s` 预算耗尽时记录 `transfer_quota_commit_failed`，保留 Provider 文件和仍存在的 pending、标记 task 失败并 fallback，不污染账号健康。
+转存配额只在 advisory lock 内第二次查重仍缺失、且实时新增转存许可通过后申请。pending 固定 `5m` 且不续租；Provider 或目标复核失败尽力立即释放。目标复核成功后，同一 opaque attempt 必须先幂等写入 succeeded 才能继续下载 URL/302；pending 已过期仍补记并记录 `transfer_pending_expired_before_commit`。独立 `2s` 预算耗尽时记录 `transfer_quota_commit_failed`，保留 Provider 文件和仍存在的 pending、标记 task 失败并 fallback，不污染账号健康。
 
 ## 8. 302、fallback 与日志
 

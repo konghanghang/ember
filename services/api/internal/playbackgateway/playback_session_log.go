@@ -51,6 +51,8 @@ type playbackSessionEventSnapshot struct {
 	snapshotState      string
 	correlationKey     uint64
 	correlationPresent bool
+
+	intentRevocationEligible bool
 }
 
 type playbackSessionFailureKey struct {
@@ -143,6 +145,9 @@ func (gateway *Gateway) inspectPlaybackSessionRequest(request *http.Request) pla
 		event.isPausedPresent = true
 	}
 	event.snapshotState = "recorded"
+	if event.kind == playbackSessionEventStop {
+		event.intentRevocationEligible = validPlaybackIntentRevocation(prefix)
+	}
 	return event
 }
 

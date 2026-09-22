@@ -78,10 +78,13 @@ func routedPlaybackFixture() p115account.PlaybackRoute {
 	}
 }
 
+// routedMediaPathRequest models a client with explicit intent; probe tests
+// must clear or deny CanCreateTransfer to exercise the safe default.
 func routedMediaPathRequest(method, sessionID string) MediaPathResolveRequest {
 	return MediaPathResolveRequest{
 		Path: "/mnt/cloudNAS/115lifetime/Media/fixture.mkv", ClientUserAgent: "Infuse-Fixture",
 		Method: method, UserID: "user-1", MappingID: "mapping-1", DeviceID: "device-1", PlaySessionID: sessionID,
+		CanCreateTransfer: func() bool { return true },
 	}
 }
 

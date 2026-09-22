@@ -21,6 +21,7 @@ var (
 	ErrPlaybackRouteChanged       = errors.New("direct play playback route changed")
 	ErrPlaybackLeaseLost          = errors.New("direct play playback lease lost")
 	ErrPlaybackResolveTimeout     = errors.New("direct play preparation budget exhausted")
+	ErrPlaybackIntentRequired     = errors.New("direct play new transfer requires playback intent")
 	ErrTransferQuotaExceeded      = errors.New("direct play transfer quota exceeded")
 	ErrTransferQuotaCommitFailed  = errors.New("direct play transfer quota commit failed")
 )

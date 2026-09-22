@@ -20,6 +20,10 @@ func (gateway *Gateway) updatePlaybackSessionLease(
 	}
 	requestID := diagnosticRequestID(ctx)
 	sessionRef := diagnosticSessionRef(principal, event.playSessionID)
+	if event.kind == playbackSessionEventStop && event.snapshotState == "recorded" && event.intentRevocationEligible {
+		revoked := gateway.proofs.RevokeTransferIntent(principal, event.itemID, event.mediaSourceID, event.playSessionID)
+		gateway.debugf("[PlaybackGateway] level=debug code=playback_transfer_intent_revoked message=\"播放停止，撤销新增转存许可\" requestId=%s sessionRef=%s reasonCode=playback_stopped count=%d", requestID, sessionRef, revoked)
+	}
 	if gateway.playbackSessionService == nil || event.snapshotState != "recorded" {
 		reason := "snapshot_unavailable"
 		if gateway.playbackSessionService == nil {

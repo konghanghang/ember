@@ -57,50 +57,58 @@ type playbackInfoMediaSourceObservation struct {
 
 // preparePlaybackInfoRequest records only bounded request metadata in context.
 // Invalid or mismatched requests remain transparent but become proof-ineligible.
-func (gateway *Gateway) preparePlaybackInfoRequest(request *http.Request, principal embytoken.Principal) (string, bool) {
+func (gateway *Gateway) preparePlaybackInfoRequest(request *http.Request, principal embytoken.Principal) (string, bool, playbackTransferIntent) {
 	itemID := playbackInfoItemID(request.URL)
 	if itemID == "" || principal.MappingID == "" || principal.User.ID == "" || principal.User.EmbyID == "" {
-		return itemID, false
+		return itemID, false, playbackTransferIntent{}
 	}
 	switch request.Method {
 	case http.MethodGet:
 		gateway.logPlaybackInfoRequest(request, principal, itemID, "client", "not_applicable", nil)
 		userID, ok := singleBoundedQueryValue(request.URL.Query(), "UserId", maxApplicationUserIDSize)
-		return itemID, ok && userID == principal.User.EmbyID
+		return itemID, ok && userID == principal.User.EmbyID, playbackTransferIntent{}
 	case http.MethodPost:
-		return itemID, gateway.inspectPlaybackInfoPostRequest(request, principal, itemID)
+		eligible, intent := gateway.inspectPlaybackInfoPostRequest(request, principal, itemID)
+		return itemID, eligible, intent
 	default:
-		return itemID, false
+		return itemID, false, playbackTransferIntent{}
 	}
 }
 
 // inspectPlaybackInfoPostRequest restores the exact body after reading a
-// bounded JSON copy and validates only the optional UserId field.
-func (gateway *Gateway) inspectPlaybackInfoPostRequest(request *http.Request, principal embytoken.Principal, itemID string) bool {
+// bounded JSON copy. Proof eligibility retains its UserId contract; a separate
+// strict sidecar recognizes unambiguous client intent without changing bytes.
+func (gateway *Gateway) inspectPlaybackInfoPostRequest(request *http.Request, principal embytoken.Principal, itemID string) (bool, playbackTransferIntent) {
 	state := "missing"
 	var observed []byte
 	defer func() { gateway.logPlaybackInfoRequest(request, principal, itemID, "client", state, observed) }()
 	if request.Body == nil {
-		return false
+		return false, playbackTransferIntent{}
 	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		state = "unsupported_content_type"
-		return false
+		return false, playbackTransferIntent{}
 	}
 	originalBody := request.Body
 	prefix, readErr := io.ReadAll(io.LimitReader(originalBody, gateway.maxPlaybackInfoRequestBytes+1))
 	request.Body = &replayedBody{Reader: io.MultiReader(bytes.NewReader(prefix), originalBody), closer: originalBody}
 	if readErr != nil || int64(len(prefix)) > gateway.maxPlaybackInfoRequestBytes {
 		state = "read_error_or_too_large"
-		return false
+		return false, playbackTransferIntent{}
 	}
 	state, observed = "json", prefix
 	var payload playbackInfoRequestPayload
 	if err := json.Unmarshal(prefix, &payload); err != nil {
-		return false
+		return false, playbackTransferIntent{}
 	}
-	return payload.UserID == "" || payload.UserID == principal.User.EmbyID
+	eligible := payload.UserID == "" || payload.UserID == principal.User.EmbyID
+	if !eligible || queryKeyExistsFold(request.URL.Query(), "IsPlayback") || queryKeyExistsFold(request.URL.Query(), "MediaSourceId") {
+		// The fixed POST contract uses body fields; unknown query/body binding
+		// precedence must not grant permission to create a new 115 file.
+		return eligible, playbackTransferIntent{}
+	}
+	return eligible, parsePlaybackTransferIntent(prefix)
 }
 
 // observePlaybackInfoResponse records proofs from an exact successful response
@@ -161,6 +169,13 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 	}
 	gateway.logger.Printf("[PlaybackGateway] code=playback_info_proof_recorded mappingId=%s itemId=%s count=%d",
 		routeContext.principal.MappingID, routeContext.playbackInfoItemID, written)
+	for _, proof := range proofs {
+		if proof.transferIntent {
+			gateway.debugf("[PlaybackGateway] level=debug code=playback_transfer_intent_recorded message=\"客户端明确起播，授予短期新增转存许可\" itemRef=%s sessionRef=%s reasonCode=client_playback_requested ttlSeconds=%d",
+				diagnosticItemRef(*routeContext.principal, proof.ItemID), diagnosticSessionRef(*routeContext.principal, proof.PlaySessionID), int(playbackTransferIntentTTL.Seconds()))
+			break
+		}
+	}
 	return nil
 }
 
@@ -248,6 +263,9 @@ func buildPlaybackProofs(
 		}
 		observation.ProofRejectReason = playbackProofRejectionReason(proof)
 		if observation.ProofRejectReason == "" {
+			proof.transferIntent = routeContext.playbackInfoIntent.requested &&
+				(routeContext.playbackInfoIntent.mediaSourceID == source.ID ||
+					routeContext.playbackInfoIntent.mediaSourceID == "" && len(payload.MediaSources) == 1)
 			observation.ProofAccepted = true
 			observation.ProofRejectReason = "none"
 			proofs = append(proofs, proof)
