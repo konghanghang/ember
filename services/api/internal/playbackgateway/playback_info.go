@@ -117,7 +117,22 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 	if !routeContext.playbackInfoEligible || routeContext.principal == nil {
 		return nil
 	}
-	gateway.proofs.InvalidateItem(routeContext.principal.MappingID, routeContext.playbackInfoItemID)
+	guard := gateway.proofs.BeginClient(routeContext.principal.MappingID, routeContext.playbackInfoItemID)
+	if guard == nil {
+		gateway.logger.Printf("[PlaybackGateway] code=playback_info_proof_skipped reasonCode=playback_info_busy")
+		return nil
+	}
+	defer gateway.proofs.ReleasePublication(guard)
+	replaced := false
+	defer func() {
+		if !replaced {
+			// A resolver may start while this response body is being inspected.
+			// Reject it only if this client observation is still authoritative.
+			if _, published := gateway.proofs.PublishClient(guard, nil); !published {
+				gateway.debugf("[PlaybackGateway] code=playback_info_proof_skipped reasonCode=playback_info_superseded")
+			}
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -157,7 +172,12 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_response_unusable")
 		return nil
 	}
-	written := gateway.proofs.Record(proofs)
+	written, published := gateway.proofs.PublishClient(guard, proofs)
+	replaced = true
+	if !published {
+		gateway.debugf("[PlaybackGateway] code=playback_info_proof_skipped reasonCode=playback_info_superseded")
+		return nil
+	}
 	if written == 0 {
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_proof_rejected")
 		return nil

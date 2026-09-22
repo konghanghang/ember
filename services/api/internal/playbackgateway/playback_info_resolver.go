@@ -61,16 +61,7 @@ func (gateway *Gateway) resolvePlaybackInfoOnDemand(
 	}
 	if proof, ok := gateway.proofs.LookupLatestMediaSource(principal.MappingID, itemID, mediaSourceID); ok &&
 		playbackProofMatchesPrincipal(proof, principal) {
-		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_reused_on_demand requestId=%s itemRef=%s sessionRef=%s source=proof_cache mappingId=%s itemId=%s", diagnosticRequestID(request.Context()), diagnosticItemRef(principal, itemID), diagnosticSessionRef(principal, proof.PlaySessionID), principal.MappingID, itemID)
-		return onDemandPlaybackInfo{
-			PlaySessionID: proof.PlaySessionID,
-			Container:     proof.Container,
-			MediaSource: playbackInfoMediaSourceObservation{
-				MediaSourceID: proof.MediaSourceID, MediaPath: proof.Path, PathPresent: proof.Path != "",
-				Size: proof.Size, SizePresent: true, SupportsDirectPlay: proof.SupportsDirectPlay,
-				SupportsDirectStream: proof.SupportsDirectStream, ProofAccepted: true, ProofRejectReason: "none",
-			},
-		}, ""
+		return gateway.reuseOnDemandPlaybackProof(request, principal, proof), ""
 	}
 	key := principal.MappingID + "\x00" + itemID + "\x00" + mediaSourceID
 	return gateway.playbackInfoFlights.Do(request.Context(), key, func() (onDemandPlaybackInfo, string) {
@@ -95,6 +86,14 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 		!validProofValue(mediaSourceID, maxProofMediaSourceIDBytes, false) || accessToken == "" {
 		return onDemandPlaybackInfo{}, "invalid_request"
 	}
+	proof, guard := gateway.proofs.BeginOnDemand(principal, itemID, mediaSourceID)
+	if proof.generation != 0 {
+		return gateway.reuseOnDemandPlaybackProof(request, principal, proof), ""
+	}
+	if guard == nil {
+		return onDemandPlaybackInfo{}, "playback_info_busy"
+	}
+	defer gateway.proofs.ReleasePublication(guard)
 	requestURL, err := gateway.onDemandPlaybackInfoURL(itemID, principal.User.EmbyID)
 	if err != nil {
 		return onDemandPlaybackInfo{}, "invalid_request"
@@ -157,13 +156,29 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 		return onDemandPlaybackInfo{}, "response_unusable"
 	}
 	gateway.logPlaybackInfoMediaSourceObservations(principal.MappingID, itemID, []playbackInfoMediaSourceObservation{resolved.MediaSource})
-	gateway.proofs.InvalidateItem(principal.MappingID, itemID)
-	if len(proofs) > 0 {
-		resolved.ProofCount = gateway.proofs.Record(proofs)
+	var published bool
+	resolved.ProofCount, published = gateway.proofs.PublishOnDemand(guard, proofs)
+	if !published {
+		return onDemandPlaybackInfo{}, "playback_info_superseded"
 	}
 	gateway.logger.Printf("[PlaybackGateway] code=playback_info_resolved_on_demand mappingId=%s itemId=%s proofCount=%d",
 		principal.MappingID, itemID, resolved.ProofCount)
 	return resolved, ""
+}
+
+// reuseOnDemandPlaybackProof completes a missing-session URL from the exact
+// principal's existing proof without renewing proof or transfer-intent TTLs.
+func (gateway *Gateway) reuseOnDemandPlaybackProof(request *http.Request, principal embytoken.Principal, proof PlaybackProof) onDemandPlaybackInfo {
+	gateway.debugf("[PlaybackGateway] level=debug code=playback_info_reused_on_demand requestId=%s itemRef=%s sessionRef=%s source=proof_cache mappingId=%s itemId=%s", diagnosticRequestID(request.Context()), diagnosticItemRef(principal, proof.ItemID), diagnosticSessionRef(principal, proof.PlaySessionID), principal.MappingID, proof.ItemID)
+	return onDemandPlaybackInfo{
+		PlaySessionID: proof.PlaySessionID,
+		Container:     proof.Container,
+		MediaSource: playbackInfoMediaSourceObservation{
+			MediaSourceID: proof.MediaSourceID, MediaPath: proof.Path, PathPresent: proof.Path != "",
+			Size: proof.Size, SizePresent: true, SupportsDirectPlay: proof.SupportsDirectPlay,
+			SupportsDirectStream: proof.SupportsDirectStream, ProofAccepted: true, ProofRejectReason: "none",
+		},
+	}
 }
 
 // Do runs at most one bounded resolver for a key. The resolver goroutine uses

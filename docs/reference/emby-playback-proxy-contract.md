@@ -389,6 +389,7 @@ Gateway 对层级精确的用户条目 `200 application/json` 响应执行以下
 - 单次内部调用固定 10 秒超时；相同 mapping/item/mediaSource 的并发请求使用进程内 singleflight 合并。每个等待方可独立取消，resolver 使用自有超时，panic 转为固定 `internal_failure`。
 - 只接受无重定向 `200 application/json`、`identity/gzip/deflate/br`、非空有界 PlaySessionId、无重复 MediaSourceId，以及与请求 item/source 精确匹配且 Container 合法的 MediaSource。
 - 合格 DirectPlay MediaSource 继续通过现有 `buildPlaybackProofs` 写入原证明缓存；Path、Container、SupportsDirectPlay 或身份合同不合格时仍可用 PlaySessionId+Container 修复正常 Emby fallback，但不能获得 115 证明。Emby Size 只作为观察字段，零、缺失、负数或与 Provider 不一致都不影响 proof。
+- 实际 singleflight owner 在同一缓存锁内复查可复用 proof，未命中才登记有界、仅请求期的内部发布令牌。结果发布也在同一锁内校验令牌并替换整个 item 快照；客户端响应已更新该 item、或另一内部结果已先发布时，旧结果丢弃并 fallback，不能删除新起播 proof，也不能借用新许可。内部发布只使同 item 其他内部令牌失效，不撤销正在读取 body 的客户端观察。不同 mapping/item 相互隔离；令牌在实际内部请求退出时释放，单个等待方取消不提前释放仍在途令牌。
 - Gateway 将 115 决策请求与正常 Emby fallback 请求分开：决策请求只追加缺失的 Container/PlaySessionId；fallback 优先使用所选 MediaSource 的 `SupportsDirectStream=true + DirectStreamUrl`。
 - DirectStreamUrl 只接受无 scheme/host/user/fragment、当前 Item、固定 `/Videos/{Id}/stream[.{Container}]` 或文件名形态、匹配的 MediaSourceId/PlaySessionId/Static/Container。全部 URL Token aliases 在转发前删除，并由当前已映射用户 Token Header 替代；未知 Item、绝对 URL、编码 path、重复/错配参数和 manifest 全部拒绝采用。
 - DirectStreamUrl 缺失或未通过校验时，按 Emby 官方 Web 客户端行为把 plain stream 改为 `/Videos/{Id}/stream.{Container}`；无法形成单一安全扩展名时才保留补齐参数后的 plain stream。
@@ -417,7 +418,7 @@ mappingId + itemId + mediaSourceId + playSessionId
 - 请求 path `ItemId` 是条目真相；MediaSource.ItemId 可空，非空时必须与 path 一致。
 - MediaSource 必须具备唯一非空 Id、非空有界 Path 和 `SupportsDirectPlay=true`；重复 MediaSourceId 使整次响应不产生证明。Size 不参与 proof，115 候选归属由 Path 的 source 前缀映射决定。
 - 固定 TTL 为 5 分钟，最大 4096 条；写入和查询都延迟清理过期项，满载时淘汰最早过期项，不启动后台 goroutine。
-- 每个有资格形成证明的新版 PlaybackInfo 响应都会先清除相同 `mappingId + itemId` 的旧证明；非 `200`、错误或不可用响应不能继续复用旧成功结果。
+- 有资格形成证明的客户端 PlaybackInfo 响应在入口原子使同 `mappingId + itemId` 的旧 proof/两类在途令牌失效，并登记本次客户端观察；终态仅在自己的令牌仍有效时原子替换整个 item。非 `200`、错误或不可用响应以空快照结束，旧内部 GET 不得在其后恢复旧证明；较新客户端观察已开始后，旧客户端成功/失败收尾也不能删除其快照。两类令牌共用有界容量并随实际观察结束释放。内部 GET 保持整 item 快照语义，但只有令牌仍有效时才能原子发布；检查与写入不可分离。
 - 视频请求仍必须先重新执行 `ResolvePrincipal`，再用完全相同的 mapping/item/mediaSource/playSession 查询；缓存不能绕过撤销或用户实时状态。
 - 进程重启会丢失证明；此时视频请求不能获得 115 302，但应 fallback 到 Emby，Infuse 再次调用 PlaybackInfo 后重建证明。多 Gateway 共享 PlaybackInfo 证明仍未实现，也不能把后续 Redis 当前播放租约误当成持久证明缓存。
 - Token 和完整 PlaybackInfo 响应不进入日志；完整 Path 按运维授权进入上述 MediaSource 观察与最终视频决策日志。缓存对象只存在于 Gateway 进程内，不序列化为 API。
@@ -552,6 +553,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - 请求日志与事件成功/失败结果携带本地生成的 requestId；视频决策和已解析事件使用独立的进程种子 sessionRef 关联，不复用上述 Token 恢复观察键。Debug 在认证后记录 playback_event_received 及租约更新开始/成功/缺失/跳过，成功结果展示 reserved/active/occupied，Warn 更新失败补关联信息。所有新增观测不改变请求体、Emby 响应或 Redis 流转；范围与固定字段见 [播放链路日志](./p115-playback-end-to-end-flow.md#83-单条决策日志)。
 - 设置中心数据库项 `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。API 保存后 Gateway 最多在 5 秒内从进程缓存刷新；TTL 到期后的并发请求只触发一次数据库读取，读取失败保留上一次有效级别且不改变请求结果。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
 - 每个视频请求在默认 Info 额外只写一条最终决策日志，并把人工可读结论放在行首：直链成功使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；DirectPlay 失败使用 `code=direct_play_fallback message="115直链失败，Emby回退成功|失败" directPlayResult=failure fallbackResult=success|failure fallbackTarget=emby`；其他 fallback 和 reject 分别使用 `code=playback_fallback`、`code=playback_rejected`。全部继续记录 `decision=redirect|fallback|reject`、固定 `stage/reasonCode`、`fallbackSource` 和必要 ID/耗时。进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Debug 不重复生成第二条决策，日志不建表、不进入数据库。
+- `reasonCode=playback_intent_required` 是策略跳过，保持 `code=direct_play_fallback`，但使用 `directPlayResult=skipped` 和“无起播许可，跳过新增转存；Emby回退成功|失败”。上游真实状态、`fallbackResult` 及 info/warn 继续按实际响应记录；404 不伪装成成功，真正 Provider 失败也不会被降成 skipped。
 - 完整媒体 Path 已按运维排障需求明确允许进入持久日志；仍禁止记录 Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原始响应、Provider 原始错误或 Emby 代理原始错误。
 - Provider 失败只允许补充固定 `providerOperation=resolve_source_path|hash_source_preid|rapid_upload|hash_source_challenge|rapid_upload_retry|verify_playback_target|search_playback_target|get_download_url`；账号加载失败只允许补充 `accountRole=source|playback`。未知诊断值必须丢弃，不能进入日志。
 

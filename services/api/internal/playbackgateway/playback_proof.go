@@ -59,6 +59,16 @@ type playbackProofKey struct {
 	playSessionID string
 }
 
+// playbackProofPublishGuard belongs to one internal request or client response
+// observation. It prevents late completion replacing a newer item snapshot and
+// lives only until its owner returns; client observations supersede internals.
+type playbackProofPublishGuard struct {
+	mappingID   string
+	itemID      string
+	client      bool
+	invalidated bool
+}
+
 type playbackProofLookupStatus uint8
 
 const (
@@ -68,25 +78,28 @@ const (
 )
 
 type playbackProofCache struct {
-	mu         sync.Mutex
-	entries    map[playbackProofKey]PlaybackProof
-	maxEntries int
-	ttl        time.Duration
-	now        func() time.Time
-	generation uint64
+	mu           sync.Mutex
+	entries      map[playbackProofKey]PlaybackProof
+	maxEntries   int
+	ttl          time.Duration
+	now          func() time.Time
+	generation   uint64
+	publications map[*playbackProofPublishGuard]struct{}
 }
 
 // newPlaybackProofCache creates a bounded cache with no background goroutine;
-// expiration and capacity cleanup happen only on Record, Lookup and Len.
+// expiration and capacity cleanup happen lazily during cache operations.
 func newPlaybackProofCache(maxEntries int, ttl time.Duration) *playbackProofCache {
 	return &playbackProofCache{
 		entries: make(map[playbackProofKey]PlaybackProof), maxEntries: maxEntries,
-		ttl: ttl, now: time.Now,
+		publications: make(map[*playbackProofPublishGuard]struct{}),
+		ttl:          ttl, now: time.Now,
 	}
 }
 
 // Record validates and stores proofs with one shared authorization timestamp.
-// It returns the number of valid entries written.
+// Each write invalidates pending publishers for the same item. It returns the
+// number of valid entries written.
 func (cache *playbackProofCache) Record(proofs []PlaybackProof) int {
 	if cache == nil || cache.maxEntries <= 0 || cache.ttl <= 0 || cache.now == nil {
 		return 0
@@ -94,6 +107,17 @@ func (cache *playbackProofCache) Record(proofs []PlaybackProof) int {
 	now := cache.now().UTC()
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
+	for _, proof := range proofs {
+		if validPlaybackProof(proof) {
+			cache.invalidatePublicationsLocked(proof.MappingID, proof.ItemID, true)
+		}
+	}
+	return cache.recordLocked(proofs, now)
+}
+
+// recordLocked writes validated proofs with one timestamp and new generations;
+// callers own the cache lock and the decision to supersede an item snapshot.
+func (cache *playbackProofCache) recordLocked(proofs []PlaybackProof, now time.Time) int {
 	cache.pruneExpiredLocked(now)
 	written := 0
 	for _, proof := range proofs {
@@ -122,6 +146,95 @@ func (cache *playbackProofCache) Record(proofs []PlaybackProof) int {
 		written++
 	}
 	return written
+}
+
+// BeginOnDemand atomically rechecks current proof reuse before registering a
+// bounded request-lifetime publication guard. A zero proof and nil guard mean
+// capacity is exhausted; invalidated guards retain their slot until released.
+func (cache *playbackProofCache) BeginOnDemand(principal embytoken.Principal, itemID, mediaSourceID string) (PlaybackProof, *playbackProofPublishGuard) {
+	if cache == nil || cache.now == nil || cache.maxEntries <= 0 || cache.ttl <= 0 {
+		return PlaybackProof{}, nil
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.pruneExpiredLocked(cache.now().UTC())
+	if proof, ok := cache.lookupLatestMediaSourceLocked(principal.MappingID, itemID, mediaSourceID); ok && playbackProofMatchesPrincipal(proof, principal) {
+		return proof, nil
+	}
+	if len(cache.publications) >= cache.maxEntries {
+		return PlaybackProof{}, nil
+	}
+	guard := &playbackProofPublishGuard{mappingID: principal.MappingID, itemID: itemID}
+	cache.publications[guard] = struct{}{}
+	return PlaybackProof{}, guard
+}
+
+// BeginClient atomically clears the prior snapshot and supersedes older
+// observations before reading a client response body. Capacity rejection still
+// fails closed, but never permits an unguarded completion to write later.
+func (cache *playbackProofCache) BeginClient(mappingID, itemID string) *playbackProofPublishGuard {
+	if cache == nil {
+		return nil
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.invalidateItemLocked(mappingID, itemID, true)
+	if cache.now == nil || cache.maxEntries <= 0 || cache.ttl <= 0 || len(cache.publications) >= cache.maxEntries {
+		return nil
+	}
+	guard := &playbackProofPublishGuard{mappingID: mappingID, itemID: itemID, client: true}
+	cache.publications[guard] = struct{}{}
+	return guard
+}
+
+// ReleasePublication releases an internal or client guard on every completion,
+// cancellation, error or panic path without affecting any cached media proof.
+func (cache *playbackProofCache) ReleasePublication(guard *playbackProofPublishGuard) {
+	if cache == nil || guard == nil {
+		return
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	delete(cache.publications, guard)
+}
+
+// PublishOnDemand replaces the complete item snapshot only while its request
+// guard remains current. Publication invalidates competing internal requests,
+// including other sources, so late responses cannot reverse the newer state.
+func (cache *playbackProofCache) PublishOnDemand(guard *playbackProofPublishGuard, proofs []PlaybackProof) (int, bool) {
+	return cache.publishGuarded(guard, proofs, false)
+}
+
+// PublishClient conditionally replaces the complete item snapshot, including
+// an empty failed response. Superseded client bodies cannot undo newer intent.
+func (cache *playbackProofCache) PublishClient(guard *playbackProofPublishGuard, proofs []PlaybackProof) (int, bool) {
+	return cache.publishGuarded(guard, proofs, true)
+}
+
+// publishGuarded applies one current result under the cache lock. Internal
+// results cannot supersede client bodies still being inspected; their final
+// successful or empty client snapshot remains authoritative over those GETs.
+func (cache *playbackProofCache) publishGuarded(guard *playbackProofPublishGuard, proofs []PlaybackProof, client bool) (int, bool) {
+	if cache == nil || guard == nil {
+		return 0, false
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if _, active := cache.publications[guard]; !active || guard.invalidated || guard.client != client {
+		return 0, false
+	}
+	cache.invalidateItemLocked(guard.mappingID, guard.itemID, client)
+	return cache.recordLocked(proofs, cache.now().UTC()), true
+}
+
+// invalidatePublicationsLocked revokes only in-flight results for one item;
+// no tombstone survives after the owning requests release their guards.
+func (cache *playbackProofCache) invalidatePublicationsLocked(mappingID, itemID string, includeClients bool) {
+	for guard := range cache.publications {
+		if guard.mappingID == mappingID && guard.itemID == itemID && (includeClients || !guard.client) {
+			guard.invalidated = true
+		}
+	}
 }
 
 // CanCreateTransfer rechecks the exact proof under the cache lock at the
@@ -184,13 +297,20 @@ func (cache *playbackProofCache) LookupLatestMediaSource(mappingID, itemID, medi
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	cache.pruneExpiredLocked(now)
+	return cache.lookupLatestMediaSourceLocked(mappingID, itemID, mediaSourceID)
+}
+
+// lookupLatestMediaSourceLocked selects the newest proof without releasing the
+// lock, allowing the on-demand owner to combine reuse and guard registration.
+func (cache *playbackProofCache) lookupLatestMediaSourceLocked(mappingID, itemID, mediaSourceID string) (PlaybackProof, bool) {
 	var latest PlaybackProof
 	found := false
 	for key, proof := range cache.entries {
 		if key.mappingID != mappingID || key.itemID != itemID || key.mediaSourceID != mediaSourceID {
 			continue
 		}
-		if !found || proof.AuthorizedAt.After(latest.AuthorizedAt) {
+		if !found || proof.AuthorizedAt.After(latest.AuthorizedAt) ||
+			proof.AuthorizedAt.Equal(latest.AuthorizedAt) && proof.generation > latest.generation {
 			latest = proof
 			found = true
 		}
@@ -227,6 +347,14 @@ func (cache *playbackProofCache) InvalidateItem(mappingID, itemID string) {
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
+	cache.invalidateItemLocked(mappingID, itemID, true)
+}
+
+// invalidateItemLocked clears an item snapshot and invalidates its pending
+// internal publishers. Client observations are invalidated only when a newer
+// client observation or explicit invalidation supersedes their authority.
+func (cache *playbackProofCache) invalidateItemLocked(mappingID, itemID string, includeClients bool) {
+	cache.invalidatePublicationsLocked(mappingID, itemID, includeClients)
 	for key := range cache.entries {
 		if key.mappingID == mappingID && key.itemID == itemID {
 			delete(cache.entries, key)

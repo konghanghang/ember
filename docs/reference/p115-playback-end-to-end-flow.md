@@ -59,6 +59,10 @@ DirectPlay 先保留现有缓存/目标查重行为；内容锁内再次确认�
 
 成功 Stopped 清对应身份/条目/session 的许可，缺少 MediaSourceId 时覆盖该 session 的全部 source；清理不依赖 Redis 租约是否存在。普通 proof、十分钟跨 session 媒体缓存和下载地址缓存保留。许可有效期不续期，TTL 内失败可重试；准入后已经开始的转存不因随后停止或过期回滚。未携明确起播字段的客户端首次目标缺失时回退 Emby，其他播放器兼容与优化后的真实 Infuse 行为仍需受控验证。
 
+按需 PlaybackInfo 的内部 GET 与客户端响应观察共用 proof 缓存锁和有界请求期令牌。内部 owner 的缓存复查/登记及最终检查/整 item 替换均原子完成，内部发布只废弃同 item 其他内部结果，不撤销正在读取 body 的客户端观察。客户端响应入口使同 item 的旧 proof/两类旧令牌失效并登记自身，终态在自身令牌仍有效时发布成功或空快照；旧内部 GET 不能覆盖新起播许可，旧客户端失败收尾也不能清掉较新快照。不影响无关 item，过时内部结果不借用新许可；实际 owner/响应观察结束后清理令牌，不增加数据库或持久缓存。
+
+2026-09-22 用户确认当前部署只有 STRM 中的本地路径，没有对应媒体挂载，接受未明确起播的详情探测回退 404。STRM 存在不代表 Emby 可读其目标；这类部署中真正播放的 115 链路失败时也没有 Emby 视频源兜底。该部署取舍不改变 Gateway 透明返回真实状态的合同；正式首次转存/播放和重播仍需实测。
+
 用户账号、套餐来源和 Redis 租约/配额均已有代码与自动化 fake/fixture 证据；本轮没有启动项目服务，也没有执行真实 Redis、个人 115 Cookie、Emby/CloudDrive2 或客户端验收。
 
 ## 2. 组件与职责
@@ -523,10 +527,13 @@ stateDiagram-v2
 ```text
 level=info code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused
 level=info|warn code=direct_play_fallback message="115直链失败，Emby回退成功|失败" directPlayResult=failure fallbackResult=success|failure fallbackTarget=emby
+level=info|warn code=direct_play_fallback message="无起播许可，跳过新增转存；Emby回退成功|失败" directPlayResult=skipped fallbackResult=success|failure reasonCode=playback_intent_required
 level=warn code=playback_rejected message="播放请求已拒绝" result=rejected
 ```
 
 三类日志继续保留 `decision=redirect|fallback|reject`、固定 `stage/reasonCode` 和必要请求标识，便于机器检索。直链成功时 `targetState=created|reused` 明确区分首次转存与已有文件复用；DirectPlay 失败时仅允许记录固定 `providerOperation=resolve_source_path|hash_source_preid|rapid_upload|hash_source_challenge|rapid_upload_retry|verify_playback_target|search_playback_target|get_download_url`，账号加载失败只记录 `accountRole=source|playback`。这些字段来自内部类型化诊断，不接受 Provider 原始错误。
+
+缺少起播许可仅标记新增转存 skipped，不表述为 Provider 故障；最终 `fallbackResult/statusCode/upstreamStatus` 和 info/warn 仍反映真实上游响应，不统一隐藏 404 或连接错误。
 
 进入套餐路由后，最终同一条日志补充 `playbackMode`、`playbackAccountOwner`、账号配置/有效并发、账号和用户的 reserved/active/occupied；个人模式额外记录原始 `simultaneousStreamLimit`。只有实际进入转存准入且 Redis 返回有效快照时才记录小时/每日 used/limit，Redis 故障不伪造零。日志边界不接收原始 Provider UID、PlaySessionId、Redis Key 或 `transferAttemptId`。
 

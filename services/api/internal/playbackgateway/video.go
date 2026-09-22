@@ -505,7 +505,8 @@ func (gateway *Gateway) logVideoDecision(decision videoDecision) {
 }
 
 // videoDecisionHeadline puts the human and machine-readable outcome before
-// request identifiers so operators can classify a line without scanning it.
+// request identifiers. Intent policy skips are distinct from Provider errors;
+// fallback status and severity still describe the actual upstream response.
 func videoDecisionHeadline(decision videoDecision) []string {
 	fields := []string{"[PlaybackGateway]"}
 	switch decision.Decision {
@@ -529,13 +530,19 @@ func videoDecisionHeadline(decision videoDecision) []string {
 			level = "warn"
 		}
 		code := "playback_fallback"
+		directPlayResult := "failure"
 		if decision.Stage == "direct_play" {
 			code = "direct_play_fallback"
-			message = "115直链失败，" + message
+			if decision.ReasonCode == "playback_intent_required" {
+				directPlayResult = "skipped"
+				message = "无起播许可，跳过新增转存；" + message
+			} else {
+				message = "115直链失败，" + message
+			}
 		}
 		fields = append(fields, "level="+level, "code="+code, "message="+strconv.Quote(message))
 		if decision.Stage == "direct_play" {
-			fields = append(fields, "directPlayResult=failure")
+			fields = append(fields, "directPlayResult="+directPlayResult)
 		}
 		fields = append(fields,
 			"fallbackResult="+fallbackResult,
