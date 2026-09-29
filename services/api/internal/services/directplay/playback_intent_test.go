@@ -9,6 +9,8 @@ import (
 	"time"
 
 	p115 "github.com/konghang/ember/backend/internal/integrations/p115"
+	"github.com/konghang/ember/backend/internal/models"
+	"github.com/konghang/ember/backend/internal/services/p115account"
 	"github.com/konghang/ember/backend/internal/services/p115quota"
 )
 
@@ -37,7 +39,7 @@ func TestPlaybackIntentDenialHasNoTransferSideEffects(t *testing.T) {
 			if !errors.Is(err, ErrPlaybackIntentRequired) || candidate.URL != "" {
 				t.Fatalf("probe candidate=%t error=%v", candidate.URL != "", err)
 			}
-			if candidate.Routing.TransferChecked || len(health.events) != 0 {
+			if candidate.Routing.TransferChecked || len(health.events) != 1 || health.events[0].role != models.P115AccountRoleSource || health.events[0].outcome != p115account.RuntimeHealthSucceeded {
 				t.Fatalf("probe checked quota=%t health events=%d", candidate.Routing.TransferChecked, len(health.events))
 			}
 			if !absent && checks != 1 {

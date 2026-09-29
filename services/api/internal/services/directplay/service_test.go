@@ -333,8 +333,8 @@ func TestServiceResolveReportsRuntimeSuccessForBothAccounts(t *testing.T) {
 		t.Fatal("Resolve() returned empty URL")
 	}
 	want := []runtimeHealthEvent{
-		{accountID: "source_account", role: models.P115AccountRoleSource, outcome: p115account.RuntimeHealthSucceeded},
 		{accountID: "playback_account", role: models.P115AccountRolePlayback, outcome: p115account.RuntimeHealthSucceeded},
+		{accountID: "source_account", role: models.P115AccountRoleSource, outcome: p115account.RuntimeHealthSucceeded},
 	}
 	if !reflect.DeepEqual(health.events, want) {
 		t.Fatalf("runtime health events = %+v, want %+v", health.events, want)
@@ -404,6 +404,9 @@ func TestServiceResolveReportsAccountWideProviderFailures(t *testing.T) {
 				t.Fatalf("Resolve() error = %v, want %v", err, tt.wantErr)
 			}
 			want := []runtimeHealthEvent{{accountID: tt.wantAccount, role: tt.wantRole, outcome: tt.wantOutcome}}
+			if tt.wantRole == models.P115AccountRolePlayback {
+				want = append(want, runtimeHealthEvent{accountID: "source_account", role: models.P115AccountRoleSource, outcome: p115account.RuntimeHealthSucceeded})
+			}
 			if !reflect.DeepEqual(health.events, want) {
 				t.Fatalf("runtime health events = %+v, want %+v", health.events, want)
 			}

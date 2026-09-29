@@ -297,6 +297,86 @@ func TestIntegrationSuccessfulProbeClearsExpiredCooldown(t *testing.T) {
 	}
 }
 
+// TestIntegrationSuccessfulSourceProbeRecoversAfterIntentDenial locks the
+// production SQL transition without requiring a retained target or real 115.
+func TestIntegrationSuccessfulSourceProbeRecoversAfterIntentDenial(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	past := time.Now().UTC().Add(-time.Minute)
+	oldCode := "provider_unavailable"
+	oldMessage := "115 服务暂不可用"
+	if err := database.Model(&models.P115Account{}).
+		Where("role = ?", models.P115AccountRoleSource).
+		Updates(map[string]interface{}{
+			"status":             models.P115AccountStatusCoolingDown,
+			"cooldown_until":     past,
+			"last_error_code":    oldCode,
+			"last_error_message": oldMessage,
+			"updated_at":         past,
+		}).Error; err != nil {
+		t.Fatalf("seed expired cooldown: %v", err)
+	}
+	provider := newFakeProvider()
+	// No retained target: successful source recovery must survive policy refusal.
+	service, err := NewService(database, accounts, provider)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	request := fixtureMediaPathResolveRequest()
+	request.CanCreateTransfer = nil
+	if _, err := service.ResolveMediaPath(context.Background(), request); !errors.Is(err, ErrPlaybackIntentRequired) {
+		t.Fatalf("ResolveMediaPath() error = %v", err)
+	}
+	var source models.P115Account
+	if err := database.Where("role = ?", models.P115AccountRoleSource).First(&source).Error; err != nil {
+		t.Fatalf("load source account: %v", err)
+	}
+	if source.Status != models.P115AccountStatusActive || source.CooldownUntil != nil || source.LastSucceededAt == nil ||
+		source.LastErrorCode != nil || source.LastErrorMessage != nil {
+		t.Fatalf("source recovered state = %+v", source)
+	}
+
+	if _, err := accounts.LoadActiveCredentialByRole(context.Background(), models.P115AccountRoleSource); err != nil {
+		t.Fatalf("source remained unavailable after successful probe: %v", err)
+	}
+}
+
+// TestIntegrationSourceRecoveryPreservesConcurrentDisable proves deferred
+// success cannot undo a control-plane change after credentials were acquired.
+func TestIntegrationSourceRecoveryPreservesConcurrentDisable(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	var source models.P115Account
+	if err := database.Where("role = ?", models.P115AccountRoleSource).First(&source).Error; err != nil {
+		t.Fatal(err)
+	}
+	var disabled models.P115Account
+	provider := &lifecycleProvider{fakeProvider: newFakeProvider(), resolve: func(ctx context.Context) error {
+		_, err := accounts.SetEnabled(ctx, source.ID, false)
+		if err != nil {
+			return err
+		}
+		return database.First(&disabled, "id = ?", source.ID).Error
+	}}
+	service, err := NewService(database, accounts, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := fixtureMediaPathResolveRequest()
+	request.CanCreateTransfer = nil
+	if _, err := service.ResolveMediaPath(context.Background(), request); !errors.Is(err, ErrPlaybackIntentRequired) {
+		t.Fatalf("resolve error=%v", err)
+	}
+	var after models.P115Account
+	if err := database.First(&after, "id = ?", source.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.Enabled || after.ConfigVersion != source.ConfigVersion+1 || !after.UpdatedAt.Equal(disabled.UpdatedAt) || after.Status != disabled.Status {
+		t.Fatal("stale source success changed control state")
+	}
+}
+
 func TestIntegrationPostgresContentLockSmallPoolWaiterCancellation(t *testing.T) {
 	database := newDirectPlayIntegrationDatabase(t)
 	sqlDB, err := database.DB()

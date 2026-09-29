@@ -770,6 +770,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 个人账号生命周期：只提交 Cookie 创建 `pending + disabled`，后端派生 `appType` 并固定 Provider UA；验证后分别配置已有目录和 `1..100` 播放路数，启用时复验当前套餐。解绑保留 transfer 引用的 revoked tombstone，用户删除固定先撤销 Gateway Token、再 tombstone、再删除 Emby/本地用户
 - 内部 `config_version` 从 1 开始，Cookie 替换、显式验证、启停、目录/并发修改和解绑原子递增；健康回写和半开探测只更新 `updated_at`。路由及目录解析后的保存以配置版本防并发覆盖，健康回写同时检查配置版本和健康时间；该字段不进入对外 DTO
 - `ReportRuntimeHealth(ctx, account, outcome)`：DirectPlay 只回传 `succeeded/credential_rejected/provider_unavailable/provider_protocol` 四种固定结果；首次成功与冷却/错误恢复立即更新 `last_succeeded_at` 并清除冷却/错误，持续健康成功按 1 分钟采样，凭证失效进入 `expired + disabled`，临时不可用进入 1 分钟 `cooling_down`，协议错误进入 `error`。回写同时匹配请求加载时的 Cookie 密文、`config_version` 和 `updated_at`，旧请求不能覆盖 Cookie 替换、显式验证、手工启停或更新后的运行期结果
+- source 的真实路径解析及媒体身份校验成功后，后续因起播许可、播放账号、配额或存储失败退出仍独立报告源健康成功，结束半开探测；若后续源 preID/challenge 读取失败或协议无效则不报成功。写入推迟到源调用结束，仍使用凭证快照 CAS，不能覆盖较新故障、停用或 Cookie 替换。playback 恢复仍要求真实下载接口成功，缓存命中不算探测。
 - 健康采样复用获取凭证时的快照：只有 active、无冷却/错误且 `last_succeeded_at = updated_at` 的近期成功才跳过 SQL；配置修改后的首次成功、失败及半开恢复仍立即尝试 CAS。跳过的观察不推进健康版本，不代表新状态已落库；不新增缓存、后台队列或工作协程
 - `integrations/p115.CookieCredentialValidator`：固定请求 `GET https://my.115.com/?ct=guide&ac=status`，严格解析布尔 `state` 并从 Cookie `UID` 规范化 Provider 用户 ID；测试使用 fake HTTP server，不访问真实 115
 - `integrations/p115.DetectCookieAppType`：只解析 Cookie `UID` 的第二段 `ssoent` 并映射固定客户端类型，不调用 115；`A1` 归一为 `web`，未知编码不猜测

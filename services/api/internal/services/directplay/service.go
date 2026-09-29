@@ -687,6 +687,13 @@ func (service *Service) resolveWithAccounts(
 		return RedirectCandidate{}, withFailureContext(err, FailureContext{ProviderOperation: failureOperationResolveSourcePath})
 	}
 	defer func() {
+		// Finish source recovery even when an unrelated downstream step refuses
+		// playback. Wait until all source reads finish so a later source failure
+		// is not hidden by advancing the account's optimistic-lock version.
+		operation := InspectFailure(resolveErr).ProviderOperation
+		if operation != failureOperationHashSourcePreID && operation != failureOperationHashSourceChallenge {
+			service.reportRuntimeHealth(source, p115account.RuntimeHealthSucceeded)
+		}
 		if resolveErr == nil {
 			candidate.resolvedSHA1, candidate.resolvedSize = sha1Value, sourceFile.Size
 		}
@@ -706,7 +713,7 @@ func (service *Service) resolveWithAccounts(
 			return RedirectCandidate{}, err
 		}
 		finishHealth := observeStep(ctx, "healthUpdate")
-		service.reportRuntimeSuccess(source, playback, !candidate.downloadCacheHit)
+		service.reportPlaybackSuccess(playback, !candidate.downloadCacheHit)
 		finishHealth()
 		return candidate, nil
 	}
@@ -744,7 +751,7 @@ func (service *Service) resolveWithAccounts(
 		}
 	}
 	finishHealth := observeStep(ctx, "healthUpdate")
-	service.reportRuntimeSuccess(source, playback, !candidate.downloadCacheHit)
+	service.reportPlaybackSuccess(playback, !candidate.downloadCacheHit)
 	finishHealth()
 	return candidate, nil
 }
@@ -863,7 +870,7 @@ func (service *Service) resolveUnderLock(
 	preID, err := validateRangeHash(preIDHash, preIDRange)
 	if err != nil {
 		service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
-		return service.failTask(ctx, task.ID, "preid_invalid", "source preID range invalid", err)
+		return service.failTask(ctx, task.ID, "preid_invalid", "source preID range invalid", withFailureContext(err, FailureContext{ProviderOperation: failureOperationHashSourcePreID}))
 	}
 
 	uploadRequest := p115integration.RapidUploadRequest{
@@ -895,7 +902,7 @@ func (service *Service) resolveUnderLock(
 		signValue, hashErr := validateRangeHash(challengeHash, result.Challenge.Range)
 		if hashErr != nil {
 			service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
-			return service.failTask(ctx, task.ID, "challenge_invalid", "rapid upload challenge range invalid", hashErr)
+			return service.failTask(ctx, task.ID, "challenge_invalid", "rapid upload challenge range invalid", withFailureContext(hashErr, FailureContext{ProviderOperation: failureOperationHashSourceChallenge}))
 		}
 		uploadRequest.SignKey = result.Challenge.SignKey
 		uploadRequest.SignValue = signValue
@@ -1092,12 +1099,11 @@ func (service *Service) reportProviderFailure(
 	return mapped
 }
 
-// reportRuntimeSuccess records the fresh source observation after required
-// persistence; playback recovery requires an actual download endpoint call.
-func (service *Service) reportRuntimeSuccess(source, playback p115account.ActiveAccountCredential, playbackObserved bool) {
+// reportPlaybackSuccess recovers playback accounts only after a fresh download
+// endpoint call; a cached URL cannot prove that the account has recovered.
+func (service *Service) reportPlaybackSuccess(playback p115account.ActiveAccountCredential, playbackObserved bool) {
 	persistCtx, cancelPersist := context.WithTimeout(context.Background(), accountHealthWriteTimeout)
 	defer cancelPersist()
-	service.reportRuntimeHealthWithContext(persistCtx, source, p115account.RuntimeHealthSucceeded)
 	if playbackObserved {
 		service.reportRuntimeHealthWithContext(persistCtx, playback, p115account.RuntimeHealthSucceeded)
 	}
@@ -1178,7 +1184,9 @@ func (service *Service) failTask(
 	persistCtx, cancelPersist := context.WithTimeout(context.Background(), taskTerminalWriteTimeout)
 	defer cancelPersist()
 	if err := service.store.MarkFailed(persistCtx, taskID, code, message, service.now().UTC()); err != nil {
-		return p115integration.File{}, "", false, fmt.Errorf("%w: mark_failed", ErrStoreUnavailable)
+		// Preserve the failed provider operation: a persistence failure must
+		// not turn a failed source probe into a successful health observation.
+		return p115integration.File{}, "", false, withFailureContext(fmt.Errorf("%w: mark_failed", ErrStoreUnavailable), InspectFailure(cause))
 	}
 	log.Printf("[DirectPlay] transfer task 失败 taskId=%s code=%s", taskID, code)
 	return p115integration.File{}, "", false, cause
