@@ -566,7 +566,7 @@ func TestComputeRankingFiltersTotalDurationByLibraryAllowlist(t *testing.T) {
 	svc := &PlaybackRankingService{
 		embyService: embyint.NewEmbyService(),
 		loadLibraryAllowlist: func() ([]string, error) {
-			return []string{"lib_movie_only"}, nil
+			return []string{"lib_movie_only", "lib_missing"}, nil
 		},
 	}
 
@@ -577,16 +577,18 @@ func TestComputeRankingFiltersTotalDurationByLibraryAllowlist(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if result.TotalDuration != 5400 {
-		t.Fatalf("expected filtered totalDuration 5400, got %d", result.TotalDuration)
+	if result.TotalDuration != 5459 {
+		t.Fatalf("expected filtered totalDuration 5459 including short movies, got %d", result.TotalDuration)
 	}
 }
 
-func TestComputeRankingUsesFullDurationWhenAllowlistIsEmpty(t *testing.T) {
+func TestComputeRankingUsesMovieAndEpisodeDurationWhenAllowlistIsEmpty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/emby/user_usage_stats/submit_custom_query":
 			handlePlaybackQueryTestRequest(t, w, r)
+		case "/emby/Items":
+			handlePlaybackItemsTestRequest(t, w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -611,8 +613,8 @@ func TestComputeRankingUsesFullDurationWhenAllowlistIsEmpty(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if result.TotalDuration != 6600 {
-		t.Fatalf("expected full totalDuration 6600, got %d", result.TotalDuration)
+	if result.TotalDuration != 8759 {
+		t.Fatalf("expected Movie + Episode total 8759, including short movies, got %d", result.TotalDuration)
 	}
 }
 
@@ -700,8 +702,8 @@ func TestGenerateRankingNotifiesFilteredPayload(t *testing.T) {
 		t.Fatalf("expected one ranking payload, got %d", len(notifier.payloads))
 	}
 	payload := notifier.payloads[0]
-	if payload.TotalDuration != 5400 {
-		t.Fatalf("expected filtered totalDuration 5400, got %d", payload.TotalDuration)
+	if payload.TotalDuration != 5459 {
+		t.Fatalf("expected filtered totalDuration 5459 including short movies, got %d", payload.TotalDuration)
 	}
 	if len(payload.Movies) != 1 || payload.Movies[0].Name != "星际穿越" {
 		t.Fatalf("unexpected movie payload: %+v", payload.Movies)
@@ -799,7 +801,7 @@ func TestGetRankingLibraryAllowlistReportsInvalidIDs(t *testing.T) {
 	}
 }
 
-func TestGetRankingLibraryAllowlistClearsObsoleteGUIDConfig(t *testing.T) {
+func TestGetRankingLibraryAllowlistPreservesObsoleteConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/emby/Users":
@@ -815,14 +817,14 @@ func TestGetRankingLibraryAllowlistClearsObsoleteGUIDConfig(t *testing.T) {
 	t.Setenv("EMBY_URL", server.URL)
 	t.Setenv("EMBY_API_KEY", "test-key")
 
-	var savedIDs []string
+	saveCalls := 0
 	svc := &PlaybackRankingService{
 		embyService: embyint.NewEmbyService(),
 		loadLibraryAllowlist: func() ([]string, error) {
 			return []string{"048fb0c5744d4fbdabaeff3cb025e3d3"}, nil
 		},
 		saveLibraryAllowlist: func(ids []string, _ *string) error {
-			savedIDs = append([]string{}, ids...)
+			saveCalls++
 			return nil
 		},
 	}
@@ -831,11 +833,11 @@ func TestGetRankingLibraryAllowlistClearsObsoleteGUIDConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get ranking allowlist: %v", err)
 	}
-	if !settings.AllowAll || len(settings.LibraryIDs) != 0 || len(settings.InvalidLibraryIDs) != 0 {
-		t.Fatalf("expected obsolete guid config to be cleared, got %+v", settings)
+	if settings.AllowAll || len(settings.LibraryIDs) != 0 || len(settings.InvalidLibraryIDs) != 1 {
+		t.Fatalf("expected obsolete config to remain restricted, got %+v", settings)
 	}
-	if len(savedIDs) != 0 {
-		t.Fatalf("expected obsolete guid config to save as empty selection, got %+v", savedIDs)
+	if saveCalls != 0 {
+		t.Fatalf("configuration read must not write: %d", saveCalls)
 	}
 }
 
@@ -876,7 +878,7 @@ func TestUpdateRankingLibraryAllowlistNormalizesFullSelectionToAllowAll(t *testi
 	}
 }
 
-func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *testing.T) {
+func TestPreviewRankingReadsAllMovieCandidatesWithoutScanningLibraryItems(t *testing.T) {
 	var movieQueryCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -899,24 +901,7 @@ func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *test
 					"results": []any{},
 					"message": "",
 				})
-			case strings.Contains(sql, "ItemType = 'Movie'") && strings.Contains(sql, "LIMIT 100"):
-				movieQueryCalls++
-				rows := make([][]any, 0, 100)
-				for i := 0; i < 100; i++ {
-					rows = append(rows, []any{
-						"movie_block_" + strconv.Itoa(i),
-						"Blocked Movie " + strconv.Itoa(i),
-						"movie_item",
-						1,
-						4000 - i,
-					})
-				}
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"colums":  []string{"item_key", "item_name", "item_source_type", "play_count", "total_duration"},
-					"results": rows,
-					"message": "",
-				})
-			case strings.Contains(sql, "ItemType = 'Movie'") && strings.Contains(sql, "LIMIT 300"):
+			case strings.Contains(sql, "ItemType = 'Movie'"):
 				movieQueryCalls++
 				rows := make([][]any, 0, 101)
 				for i := 0; i < 100; i++ {
@@ -982,15 +967,15 @@ func TestPreviewRankingExpandsMovieCandidatesWithoutScanningLibraryItems(t *test
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if movieQueryCalls < 2 {
-		t.Fatalf("expected movie query to expand candidate window, got %d calls", movieQueryCalls)
+	if movieQueryCalls != 1 {
+		t.Fatalf("expected one complete movie query, got %d calls", movieQueryCalls)
 	}
 	if len(result.Movies) != 1 || result.Movies[0].ItemKey != "movie_allowed" {
 		t.Fatalf("expected expanded result to include allowed movie, got %+v", result.Movies)
 	}
 }
 
-func TestPreviewRankingKeepsSuccessfulEpisodeBatchesWhenSomeLookupsFail(t *testing.T) {
+func TestPreviewRankingFailsWhenAnyEpisodeLookupBatchFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/emby/user_usage_stats/submit_custom_query":
@@ -1011,22 +996,12 @@ func TestPreviewRankingKeepsSuccessfulEpisodeBatchesWhenSomeLookupsFail(t *testi
 		embyService: embyint.NewEmbyService(),
 	}
 	result, err := svc.PreviewRanking(models.RankingWeekly)
-	if err != nil {
-		t.Fatalf("preview ranking failed: %v", err)
-	}
-
-	if len(result.Episodes) != 1 {
-		t.Fatalf("expected 1 episode ranking after partial batch failure, got %d", len(result.Episodes))
-	}
-	if result.Episodes[0].ItemKey != "series_a" {
-		t.Fatalf("expected surviving series_a ranking, got %q", result.Episodes[0].ItemKey)
-	}
-	if result.Episodes[0].PlayCount != 100 {
-		t.Fatalf("expected aggregated playCount 100, got %d", result.Episodes[0].PlayCount)
+	if err == nil || result != nil {
+		t.Fatalf("request failure must not publish partial results: result=%+v err=%v", result, err)
 	}
 }
 
-func TestPreviewRankingReturnsMoviesWhenAllEpisodeLookupBatchesFail(t *testing.T) {
+func TestPreviewRankingFailsWhenAllEpisodeLookupBatchesFail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/emby/user_usage_stats/submit_custom_query":
@@ -1047,17 +1022,8 @@ func TestPreviewRankingReturnsMoviesWhenAllEpisodeLookupBatchesFail(t *testing.T
 		embyService: embyint.NewEmbyService(),
 	}
 	result, err := svc.PreviewRanking(models.RankingWeekly)
-	if err != nil {
-		t.Fatalf("expected preview ranking to degrade gracefully, got error: %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	if len(result.Movies) != 0 {
-		t.Fatalf("expected no movie rankings, got %d", len(result.Movies))
-	}
-	if len(result.Episodes) != 0 {
-		t.Fatalf("expected no episode rankings when all lookups fail, got %d", len(result.Episodes))
+	if err == nil || result != nil {
+		t.Fatalf("request failure must not become a valid empty ranking: result=%+v err=%v", result, err)
 	}
 }
 

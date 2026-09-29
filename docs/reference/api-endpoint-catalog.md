@@ -188,6 +188,8 @@
 | GET | `/api/v1/admin/rankings/library-allowlist` | 读取排行榜媒体库 allowlist 与当前 Emby 媒体库列表 |
 | PUT | `/api/v1/admin/rankings/library-allowlist` | 保存排行榜媒体库 allowlist（请求体 `{libraryIds}`；空数组表示统计全部媒体库） |
 
+排行榜媒体库配置 GET 只读返回有效 `libraryIds` 与 `invalidLibraryIds`；非空原配置全部失效时仍为 `allowAll: false`，不会自动清空。生成 / 预览只统计有效选择，全部失效产生空榜；正式生成继续保存并推送空榜。PUT 先验证全部 ID，只有合法全选才规范化为全库。新生成榜单的总时长统一只计电影 / 剧集，低于 60 秒和未入 Top 10 的有效条目也计入；旧快照不重算。
+
 追剧日历同步接口说明：
 
 - `POST /api/v1/admin/tv-calendar/sync`：请求体可选，默认同步 `[0,1]`（当前周 + 下周）

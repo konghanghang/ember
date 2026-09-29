@@ -328,7 +328,7 @@
 | PeriodStart | time.Time | period_start | 统计周期开始 |
 | PeriodEnd | time.Time | period_end | 原始查询结束边界；与 Period / PeriodStart 构成周期唯一键 |
 | SnapshotAt | time.Time | snapshot_at | 实际生成时间 |
-| TotalDuration | *int64 | total_duration | 本次聚合总时长；历史未保存，迁移保留 NULL |
+| TotalDuration | *int64 | total_duration | 当前新批次为所选范围电影 / 剧集总时长，含不足 60 秒与未入 Top 10 的有效条目；旧值不重算，迁移前未知值保留 NULL |
 | CreatedAt | time.Time | created_at | 创建时间 |
 
 批次与全部明细在一个事务中提交；空榜也保留批次。历史回填只保存已有信息，不能据残存 Top 条目推算完整总量。

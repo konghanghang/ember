@@ -21,7 +21,7 @@
 
 2026-09-16 已将 [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md) 归档，代码与本地签名提交完成，按用户确认采用 fake 验收；真实 PostgreSQL、外部业务系统和发布不在本轮已完成证据内。此前已陆续归档 Gateway 媒体路径诊断、透明代理与 Web 访问控制、前端工程质量、115 Size 解耦等方案。2026-09-22 新增 [115 转存起播许可方案](../plan/architecture/p115-transfer-playback-intent.md)，当时 `docs/plan/` 保留 9 份进行中、待验收或观察期实施稿与模板入口。
 
-2026-09-29 新增 [每日播放总结分步修复](../plan/media-subscription/playback-summary-improvements.md)，实施稿总数增至 10 份；第一步批次存储、最新榜读取和时间展示已完成，本地检查与专用 PostgreSQL 集成验证通过。第二步按用户要求收缩为基础发送反馈与测试，也已完成；投递管理 / 补发已取消，第三至四步待授权，第五步可选。
+2026-09-29 新增 [每日播放总结分步修复](../plan/media-subscription/playback-summary-improvements.md)，实施稿总数增至 10 份；第一步批次存储、最新榜读取和时间展示已完成，本地检查与专用 PostgreSQL 集成验证通过。第二步按用户要求收缩为基础发送反馈与测试；第三步已按四项确认口径统一总量、修正完整聚合与失效范围，Go、SQLite 内存与现有 Web 组件回归通过。投递管理 / 补发已取消，第四步待授权，第五步可选。
 
 2026-08-31 已完成前端工程质量实施稿的代码、自动化验证和正式归档；真实浏览器验收未执行且未写成已通过，具体限制和剩余计划状态见 [计划文档盘点](./plan-inventory.md)。
 

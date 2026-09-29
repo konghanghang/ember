@@ -597,12 +597,12 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 
-- `GenerateRanking(period)` — 无数据读取地校验 PlaybackActivity 六个必需字段 → 沿用媒体库筛选和电影 / Episode 聚合 → 在同一事务写入 `playback_ranking_batches` 与全部 `playback_rankings` 明细 → 只有新批次触发既有 Bot 通知。周期唯一约束在批次表，明细错误整体回滚；空榜也有批次并参与去重
+- `GenerateRanking(period)` — 读取媒体库范围 → 有效范围先无数据校验 PlaybackActivity 六个必需字段，再完整聚合电影 / Episode 并筛选 → 在同一事务写入 `playback_ranking_batches` 与全部 `playback_rankings` 明细 → 只有新批次触发既有 Bot 通知。非空选库全部失效时直接生成空榜，不查询全库播放记录；空榜同样保存并参与去重
 - `GetLatestRanking(period)` — 按 `periodEnd / snapshotAt / createdAt` 获取最近已生成批次，再读取该批次明细；只排除周期开始或生成时间在未来的记录，不等待当前自然日 / 周结束。空批次可覆盖上一期非空榜
 - `GetHistoryRanking(period, rangeStart, rangeEnd)` — 批次 `periodEnd <= rangeEnd` 包含完整周期上界并兼容周期内截点；旧空 `batchId` 已由 migration 确定性补齐，读取统一按批次进行。播放明细仍采用 `[start, end)`
 - `NotifyRanking` 推送 payload 包含关联日志的 `batchId`、整期 `totalDuration` 与业务时区 RFC3339 `snapshotAt`；Web / Bot 展示所属日期和实际生成时间。`periodEnd` 的日期展示将零点排他上界换算成最后一个覆盖日期，`cutoffAt` 保留为生成时分的兼容字段，不代表精确冻结时刻
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
-- `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；空配置视为全部媒体库参与统计
+- `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；读取只报告失效 ID，不清空配置。保存先校验全部 ID，再规范化显式全选；只有用户主动保存空选择 / 全选才使用全部媒体库语义
 
 **支持周期**：`daily`（日榜）、`weekly`（周榜）
 
@@ -610,11 +610,13 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 - 正式榜单按 `batchId` 组织；批次保存周期、生成时间与总时长，同一期电影榜和剧集榜共享批次。`20260929_01_playback_ranking_batches.sql` 回填历史关系并更换唯一约束，历史总时长未知保留 NULL，不还原缺失明细或触发历史通知
 - 最新榜不再按 `category` 分开读取，统一返回整期榜单
-- 当前电影 SQL 仍按 `ItemId + ItemName` 分组，同 ID 改名会分裂的已知问题留在[分步修复计划](./plan/media-subscription/playback-summary-improvements.md)第三步；第一步只修存储、查询和时间展示
+- 电影 / Episode 分别按稳定 `ItemId` 聚合，`MAX(ItemName)` 只选确定的展示名称，不代表最新名称；同 ID 改名不拆分，同名不同 ID 不合并
+- 电影和单集都先读取当前周期的完整聚合，按媒体库筛选、按 Series 汇总后，再应用 60 秒上榜门槛与 Top 10。总播放时长只包含本次可统计的电影 / 剧集正净时长，不受上榜门槛或 Top 10 限制；旧快照不重算
+- 聚合响应按 `colums` 的别名解析，缺列、短行或数值解析失败返回错误；缺失 ID / 名称、非正净时长以及成功回查后缺少条目 / Series 信息的记录跳过并按数量与有限样本记录日志。上游请求失败，包括部分批次失败，终止本次生成，不写快照或通知；不新增“不完整”标签
 - 电影榜直接依赖 PlaybackActivity 的 `ItemId`
 - 当前 PlaybackActivity 不返回 `SeriesId` / `SeriesName`，剧集榜需额外回查 Emby 媒体详情后按 `SeriesId` 归并
 - 排行榜媒体库范围使用全站统一 allowlist，而不是按用户可见媒体库拆分
-- allowlist 为空时默认统计全部媒体库；非空时把管理员 View ID 和电影 `ItemId` / 剧集 `SeriesId` 候选交给 `/Users/{adminUserId}/Items` 做范围查询，不在本地直接比较 Views、`ParentId`、Ancestors 的 ID
+- allowlist 为空时默认统计全部媒体库中的电影 / 剧集；非空时把管理员 View ID 和完整的电影 `ItemId` / 剧集 `SeriesId` 候选交给 `/Users/{adminUserId}/Items` 做范围查询。部分失效只统计有效库，全部失效仍保存并推送“暂无播放数据”的空榜；不自动改写配置或放开全库，接口组合筛选语义仍保留实机验证边界
 - 每天 20:00 是执行计划，查询当天范围内执行时已有数据，不要求精确 20:00 快照。生成成功表示快照已保存；异步发送 / 跳过结果与异常只记日志，不回滚快照、不补发。历史榜继续在页面查询，投递管理与补发已从计划范围移除
 
 ### 5.16 PaymentService (`services/payment/service.go`)

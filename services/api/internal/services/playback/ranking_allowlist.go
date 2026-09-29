@@ -47,6 +47,7 @@ type rankingLibraryContext struct {
 	libraries   []RankingLibraryOption
 }
 
+// GetRankingLibraryAllowlist 只读返回有效选择与失效 ID，不因配置失效改写用户的统计范围。
 func (s *PlaybackRankingService) GetRankingLibraryAllowlist() (*RankingLibraryAllowlistSettings, error) {
 	libraries, err := s.getRankingLibraries()
 	if err != nil {
@@ -59,17 +60,6 @@ func (s *PlaybackRankingService) GetRankingLibraryAllowlist() (*RankingLibraryAl
 	}
 
 	validIDs, invalidIDs := partitionRankingLibraryIDs(storedIDs, libraryOptionMap(libraries))
-	if len(storedIDs) > 0 && len(validIDs) == 0 {
-		log.Printf("[PlaybackRanking] allowlist stored IDs are obsolete, clearing old config stored=%v", storedIDs)
-		if s.saveLibraryAllowlist != nil {
-			if clearErr := s.saveLibraryAllowlist([]string{}, nil); clearErr != nil {
-				return nil, clearErr
-			}
-		}
-		storedIDs = []string{}
-		validIDs = []string{}
-		invalidIDs = []string{}
-	}
 	log.Printf(
 		"[PlaybackRanking] allowlist read stored=%v valid=%v invalid=%v libraries=%s",
 		storedIDs,
@@ -85,6 +75,7 @@ func (s *PlaybackRankingService) GetRankingLibraryAllowlist() (*RankingLibraryAl
 	}, nil
 }
 
+// UpdateRankingLibraryAllowlist 先验证全部 ID，再规范化显式全选，避免失效选择被误当作全库。
 func (s *PlaybackRankingService) UpdateRankingLibraryAllowlist(libraryIDs []string, updatedByUserID *string) (*RankingLibraryAllowlistSettings, error) {
 	libraries, err := s.getRankingLibraries()
 	if err != nil {
@@ -92,14 +83,14 @@ func (s *PlaybackRankingService) UpdateRankingLibraryAllowlist(libraryIDs []stri
 	}
 
 	normalizedIDs := normalizeRankingLibraryIDs(libraryIDs)
-	if len(normalizedIDs) == len(libraries) && len(libraries) > 0 {
-		normalizedIDs = []string{}
-	}
 	libraryByID := libraryOptionMap(libraries)
 	for _, id := range normalizedIDs {
 		if _, ok := libraryByID[id]; !ok {
 			return nil, ErrRankingLibraryIDInvalid
 		}
+	}
+	if len(normalizedIDs) == len(libraries) && len(libraries) > 0 {
+		normalizedIDs = []string{}
 	}
 
 	if s.saveLibraryAllowlist == nil {
@@ -122,6 +113,7 @@ func (s *PlaybackRankingService) UpdateRankingLibraryAllowlist(libraryIDs []stri
 	}, nil
 }
 
+// loadRankingLibraryFilter 保留显式全库与失效后的空范围两种语义，请求失败不视为媒体库失效。
 func (s *PlaybackRankingService) loadRankingLibraryFilter() (rankingLibraryFilter, error) {
 	ids, err := s.currentRankingLibraryAllowlistIDs()
 	if err != nil {
@@ -140,15 +132,6 @@ func (s *PlaybackRankingService) loadRankingLibraryFilter() (rankingLibraryFilte
 	validIDs, invalidIDs := partitionRankingLibraryIDs(ids, libraryOptionMap(libraries))
 	if len(invalidIDs) > 0 {
 		log.Printf("[PlaybackRanking] 排行榜媒体库 allowlist 包含失效库，将忽略这些库: ids=%s", strings.Join(invalidIDs, ","))
-	}
-	if len(ids) > 0 && len(validIDs) == 0 {
-		log.Printf("[PlaybackRanking] allowlist filter stored IDs are obsolete, clearing old config stored=%v", ids)
-		if s.saveLibraryAllowlist != nil {
-			if clearErr := s.saveLibraryAllowlist([]string{}, nil); clearErr != nil {
-				return rankingLibraryFilter{}, clearErr
-			}
-		}
-		return rankingLibraryFilter{allowAll: true}, nil
 	}
 	log.Printf(
 		"[PlaybackRanking] allowlist filter stored=%v valid=%v invalid=%v libraries=%s",
