@@ -1078,6 +1078,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 默认部署拓扑为 PostgreSQL 16 + Go API + Vue Web；Telegram Bot 由 `bot` profile 控制，Playback Gateway 与 Redis 由 `gateway` profile 控制，两个 profile 默认均不启动
 - Compose 主入口为 `infrastructure/docker/docker-compose.yml`
 - API 与 Web 使用独立镜像；Gateway 复用 API 镜像，Redis 使用浮动 `redis:alpine`、AOF 和独立持久卷，并只在 gateway profile 启用
+- Web 镜像的 Node builder 使用构建机原生架构（`$BUILDPLATFORM`），锁文件安装失败即终止；只复制静态产物到目标架构 Nginx，保留 amd64 / arm64 发布。Web 构建工作流设置 20 分钟任务超时，运行层 arm64 `apk` 仍通过 binfmt 支持。
 - PostgreSQL 默认仅监听 `127.0.0.1:5432`；远程访问应通过 SSH tunnel 或受控反代
 
 ### 关键约束

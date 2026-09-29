@@ -1,22 +1,22 @@
 # ==================== 第一阶段：构建 ====================
-FROM node:22.12.0-alpine AS builder
+# Vue 产物只有静态文件；在构建机原生架构运行 Node，避免 arm64 构建经过 QEMU。
+FROM --platform=$BUILDPLATFORM node:22.12.0-alpine AS builder
 
 WORKDIR /app
-
-ARG VITE_GIT_COMMIT_SHA=""
-ARG VITE_GITHUB_REPOSITORY="konghanghang/ember"
-ARG VITE_GITHUB_REPOSITORY_URL=""
 
 # 复制依赖文件
 COPY package*.json ./
 
-# 安装依赖
-RUN npm ci || npm install
+# 严格使用锁文件；安装失败立即终止，不回退到可能重新解析依赖的 npm install。
+RUN npm ci
 
 # 复制源代码
 COPY . ./
 
 # 构建 Vue 应用（生成静态文件）
+ARG VITE_GIT_COMMIT_SHA=""
+ARG VITE_GITHUB_REPOSITORY="konghanghang/ember"
+ARG VITE_GITHUB_REPOSITORY_URL=""
 ENV NODE_ENV=production
 ENV VITE_GIT_COMMIT_SHA=${VITE_GIT_COMMIT_SHA}
 ENV VITE_GITHUB_REPOSITORY=${VITE_GITHUB_REPOSITORY}

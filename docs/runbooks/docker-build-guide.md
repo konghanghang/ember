@@ -34,6 +34,10 @@ docker build -f services/api/Dockerfile -t ember-api:dev .
 
 ### Web
 
+Web 的 Node builder 固定使用 `$BUILDPLATFORM`，在构建机原生架构执行 `npm ci` 和前端编译，避免通过 QEMU 执行 arm64 Node。只将 `dist/` 静态产物复制到目标架构的 Nginx 镜像；最终镜像仍同时支持 `linux/amd64` 与 `linux/arm64`。运行层的 `apk` 仍可能需要 QEMU，因此保留工作流的 binfmt 初始化。
+
+依赖安装严格使用锁文件，失败立即终止，不回退到 `npm install`。构建元信息参数在依赖安装之后声明，避免仅 commit SHA 变化就使依赖层缓存失效。Web 镜像工作流设置 20 分钟任务超时；超过上限应检查失败日志，不反复盲目重跑。
+
 ```bash
 cd services/web
 docker build -t ember-web:dev .
