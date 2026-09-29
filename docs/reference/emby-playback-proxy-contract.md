@@ -532,6 +532,7 @@ Content-Type: application/json
 - 网关旁路观察事件，在 Emby 成功接受后更新已有 Redis 播放租约，Stopped 同时撤销已记录的匹配新增转存许可；不能篡改客户端上报内容，也不创建数据库播放会话。
 - 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志、成功事件的租约更新及停止许可撤销；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
 - Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度。合格 GET 在 302 前只建立短期 `reservation` 并进入账号/用户占用索引；只有成功转发给 Emby 的 Playing 或 Progress 才能把已有 reservation 晋级为 `active`，API 真实活跃数不包含 reservation。
+- 对于已通过完整身份与媒体匹配、继承客户端显式起播意图的内部 proof，Gateway 在建立租约时使用 proof 记录的原客户端 PlaySessionId，内部补查 PlaySessionId 仍只用于媒体证明查找。事件请求及发往 Emby 的 body 完全不改写；后续 Playing/Progress/暂停/Stopped 自然命中同一 Redis 租约。该租约身份不会在 30 秒意图或 5 分钟 proof 到期时切换，续期仍仅由真实成功事件驱动。Debug `playback_lease_session_bound` 用 sessionRef/proofSessionRef 关联两者，不输出原始会话 ID。未建立可信关联时维持原会话策略，不按 item/device 猜测匹配；缺失/过期租约仍不由事件重建。
 - `Progress + IsPaused=true` 表示暂停，不是 Stopped；`paused` 继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放占用和活跃索引；对应新增转存许可撤销独立于租约是否存在，普通 proof 与媒体缓存保留。
 - `HEAD` 不能创建 reservation 或 active，只有命中同 session 既有租约时才允许复用 115 候选，否则继续 Emby fallback。符合条件的首次/预加载/带 Range GET 在网关侧无法可靠区分，因此最多创建同 session 的一个短 reservation；重复 GET/Range 只能复用，任何视频请求都不能绕过成功的会话事件直接形成 active。
 

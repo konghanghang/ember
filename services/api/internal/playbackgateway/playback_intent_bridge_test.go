@@ -152,6 +152,9 @@ func TestGatewayInfuseExplicitIntentSurvivesUnsupportedResponse(t *testing.T) {
 	called := false
 	service := transferIntentDirectPlayFunc(func(_ context.Context, request directplay.MediaPathResolveRequest) (directplay.RedirectCandidate, error) {
 		called = true
+		if request.PlaySessionID != "session-1" {
+			t.Fatalf("lease session=%q, want original client session", request.PlaySessionID)
+		}
 		if request.CanCreateTransfer == nil || !request.CanCreateTransfer() {
 			t.Fatal("explicit intent did not reach transfer admission")
 		}

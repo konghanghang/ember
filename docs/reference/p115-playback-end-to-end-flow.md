@@ -51,6 +51,8 @@
 - DirectPlay 返回取消/deadline 或 request context 已终止时返回 `499/504`，不发起 Emby fallback。
 - 其他 DirectPlay 不适用或失败场景直接代理权威 Emby 请求；Gateway 不读取媒体文件，也不自行实现 Range、缓存或传输编码语义。
 
+继承显式起播意图的内部媒体证明，在视频准入阶段使用其记录的原客户端会话建立 115 租约；后续客户端事件无需会话翻译，原样转发 Emby 后更新相同租约。媒体证明仍按补查会话验证，日志以 `playback_lease_session_bound` 关联原会话与 proof 的脱敏引用。此修复解决收到事件却找不到对应租约的问题，不证明客户端为何出现上报空档；超过 reservation/active/paused 原 TTL 的租约仍不复活。升级前已使用内部会话建立的旧租约不会被迁移，应停止并重新起播建立新租约。
+
 ### 1.3 新增转存起播许可
 
 详情浏览的视频 GET 不等于点击播放。Gateway 在现有 proof 缓存中单独保存 30 秒新增转存许可：只有客户端 POST PlaybackInfo 的唯一布尔 `IsPlayback=true` 与成功响应匹配，才授予选定媒体源；未指定媒体源时要求响应唯一。DirectPlay 能力不足的显式客户端响应可独立保留意图；后续内部 proof 按完整身份、路径、Container 和已知 Size 匹配后仅继承原窗口剩余许可，并绑定一个补查会话。Gateway GET 补查和缓存命中不自行签发或延长许可，意图解析歧义不改变普通 proof 和透明代理。严格字段与多源合同见 [Emby 播放合同](./emby-playback-proxy-contract.md#新增转存起播许可ember-内部策略)。

@@ -179,6 +179,17 @@ func (gateway *Gateway) serveVideo(
 	if info.OriginalMP4 {
 		gateway.debugf("[PlaybackGateway] level=debug code=video_original_mp4_accepted requestId=%s sessionRef=%s evidence=local_mp4_proof", decision.RequestID, decision.SessionRef)
 	}
+	leaseSessionID := info.PlaySessionID
+	if proof.intentOriginSession != "" {
+		// The internal PlaybackInfo session authorizes the media proof, but
+		// clients report events using their original session. Reserve under
+		// that verified identity so events work beyond the proof/intent TTL.
+		leaseSessionID = proof.intentOriginSession
+		decision.PlaySessionID = leaseSessionID
+		decision.SessionRef = diagnosticSessionRef(principal, leaseSessionID)
+		gateway.debugf("[PlaybackGateway] code=playback_lease_session_bound requestId=%s sessionRef=%s proofSessionRef=%s reasonCode=verified_client_session",
+			decision.RequestID, decision.SessionRef, diagnosticSessionRef(principal, proof.PlaySessionID))
+	}
 	directContext := request.Context()
 	if gateway.isDebugEnabled() {
 		directContext = directplay.WithStepObserver(directContext, func(step, phase string, elapsedMs int64) {
@@ -187,7 +198,7 @@ func (gateway *Gateway) serveVideo(
 	}
 	candidate, err := gateway.directPlayService.ResolveMediaPath(directContext, directplay.MediaPathResolveRequest{
 		Path: proof.Path, ClientUserAgent: request.UserAgent(), Method: request.Method,
-		UserID: principal.User.ID, MappingID: principal.MappingID, DeviceID: principal.DeviceID, PlaySessionID: info.PlaySessionID,
+		UserID: principal.User.ID, MappingID: principal.MappingID, DeviceID: principal.DeviceID, PlaySessionID: leaseSessionID,
 		CanCreateTransfer: func() bool { return gateway.proofs.CanCreateTransfer(proof, principal) },
 	})
 	decision.Routing = candidate.Routing
