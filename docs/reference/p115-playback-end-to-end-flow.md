@@ -371,7 +371,7 @@ flowchart TD
 - `/emby/Videos/{Id}/stream`、`stream.{Container}` 或 `{StreamFileName}`；
 - 唯一非空 `MediaSourceId`；
 - 唯一非空 `PlaySessionId`；
-- 精确 `Static=true`；
+- 精确 `Static=true`；或满足[播放代理合同 5.1 节](./emby-playback-proxy-contract.md#51-senplayer-缺失-static-的证据边界)的受限 `original.mp4` 无 Static 请求（只有身份参数、有效本地 MP4 证明）；
 - 请求容器与证明中的 Container 匹配；
 - 证明中的 MediaSource 支持 Direct Play。
 

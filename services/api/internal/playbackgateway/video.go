@@ -40,6 +40,7 @@ type videoRequestInfo struct {
 	PlaySessionID  string
 	Container      string
 	Accelerated    bool
+	OriginalMP4    bool
 	FallbackStage  string
 	FallbackReason string
 }
@@ -154,6 +155,12 @@ func (gateway *Gateway) serveVideo(
 		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
 		return
 	}
+	if info.OriginalMP4 && !originalMP4ProofMatchesRequest(request, proof) {
+		decision.Stage = "eligibility"
+		decision.ReasonCode = "media_not_direct_play"
+		gateway.proxyVideoFallback(writer, fallbackRequest, decision, principal, fallbackSource)
+		return
+	}
 	if proof.Container != "" && info.Container != "" && !strings.EqualFold(proof.Container, info.Container) {
 		decision.Stage = "eligibility"
 		decision.ReasonCode = "media_not_direct_play"
@@ -168,6 +175,9 @@ func (gateway *Gateway) serveVideo(
 	}
 
 	decision.MediaPath = proof.Path
+	if info.OriginalMP4 {
+		gateway.debugf("[PlaybackGateway] level=debug code=video_original_mp4_accepted requestId=%s sessionRef=%s evidence=local_mp4_proof", decision.RequestID, decision.SessionRef)
+	}
 	directContext := request.Context()
 	if gateway.isDebugEnabled() {
 		directContext = directplay.WithStepObserver(directContext, func(step, phase string, elapsedMs int64) {
@@ -289,7 +299,8 @@ func (gateway *Gateway) rejectVideo(writer http.ResponseWriter, request *http.Re
 	gateway.logVideoDecision(decision)
 }
 
-// inspectVideoRequest accepts only a conservative static direct-play shape.
+// inspectVideoRequest accepts explicit static streams or the verified original
+// MP4 shape; the latter still requires additional source checks after proof lookup.
 // Anything ambiguous stays playable through Emby but never reaches 115.
 func inspectVideoRequest(request *http.Request) videoRequestInfo {
 	info := videoRequestInfo{FallbackStage: "route", FallbackReason: "request_not_eligible"}
@@ -312,13 +323,65 @@ func inspectVideoRequest(request *http.Request) videoRequestInfo {
 	info.MediaSourceID = mediaSourceID
 	info.PlaySessionID = playSessionID
 	info.Container = container
-	if !mediaSourceOK || !playSessionOK || !staticOK || !strings.EqualFold(staticValue, "true") {
+	if !mediaSourceOK || !playSessionOK {
 		return info
+	}
+	if !staticOK || !strings.EqualFold(staticValue, "true") {
+		// Only a completely absent Static can use the observed MP4 contract;
+		// false, empty and duplicate values retain their existing fallback.
+		if queryKeyExistsFold(request.URL.Query(), "Static") || !originalMP4RequestEligible(request, videoPath.StreamFileName) {
+			return info
+		}
+		info.OriginalMP4 = true
 	}
 	info.Accelerated = true
 	info.FallbackStage = ""
 	info.FallbackReason = ""
 	return info
+}
+
+// originalMP4RequestEligible limits the observed no-Static route to identity
+// parameters. Unknown or transformation options must retain Emby semantics.
+func originalMP4RequestEligible(request *http.Request, fileName string) bool {
+	if (request.Method != http.MethodGet && request.Method != http.MethodHead) || !strings.EqualFold(fileName, "original.mp4") {
+		return false
+	}
+	query, err := url.ParseQuery(request.URL.RawQuery)
+	if err != nil {
+		return false
+	}
+	for key := range query {
+		if _, tokenKey := canonicalTokenQueryKey(key); tokenKey {
+			// ServeHTTP already requires unambiguous, matching Token carriers.
+			continue
+		}
+		switch strings.ToLower(key) {
+		case "mediasourceid", "playsessionid":
+			// inspectVideoRequest already validated uniqueness and bounds.
+		case "deviceid":
+			if _, ok := singleBoundedQueryValue(query, "DeviceId", maxProofDeviceIDBytes); !ok {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// originalMP4ProofMatchesRequest requires a local source whose actual MP4
+// container and path match the observed endpoint; it never grants transfer intent.
+func originalMP4ProofMatchesRequest(request *http.Request, proof PlaybackProof) bool {
+	if proof.IsRemote || !proof.SupportsDirectStream || !strings.EqualFold(proof.Container, "mp4") ||
+		!strings.EqualFold(path.Ext(proof.Path), ".mp4") {
+		return false
+	}
+	query := request.URL.Query()
+	if queryKeyExistsFold(query, "DeviceId") {
+		deviceID, ok := singleBoundedQueryValue(query, "DeviceId", maxProofDeviceIDBytes)
+		return ok && deviceID == proof.DeviceID
+	}
+	return true
 }
 
 // videoPath recognizes the three fixed video shapes case-insensitively at one

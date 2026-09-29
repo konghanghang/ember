@@ -444,7 +444,7 @@ MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRej
 处理约束：
 
 - 不能看到 `/Videos/` 就一律返回 302；必须先判断 Token、用户状态、媒体源、路径规则和 Direct Play 能力。
-- 首期只有 query 同时提供唯一非空 `MediaSourceId`、唯一非空 `PlaySessionId` 和精确 `Static=true` 时才尝试 115；`/stream` 还必须提供唯一非空 `Container`。缺失、重复或其他值均透明 fallback Emby。
+- 一般请求只有 query 同时提供唯一非空 `MediaSourceId`、唯一非空 `PlaySessionId` 和精确 `Static=true` 时才尝试 115；`/stream` 还必须提供唯一非空 `Container`。缺失 Static 的唯一受限例外见 5.1 节 `original.mp4` 合同；显式 false、空值、重复值及其他不完整请求仍透明 fallback Emby。
 - plain `/stream` 缺 PlaySessionId 时先按 4.5 补取权威 PlaybackInfo。只有 resolver 失败、请求也完全没有 Container key、且同一 mapping/item/mediaSource 有近期用户条目快照时，才克隆 Emby fallback 并追加有界 Container；该降级分支固定 `container_recovered` 且不尝试 115。
 - 按需 PlaybackInfo 成功后，115 决策使用补齐参数的请求；任何 115 fallback 使用 4.5 的 DirectStreamUrl/扩展名权威 Emby 请求。二者不能共用同一个 URL，否则权威 Emby fallback 会继续继承客户端 plain stream 缺口。
 - 没有可用 Container 快照、客户端已经提交任意大小写的 Container key、快照过期或响应歧义时不猜测容器，继续使用原请求 fallback。
@@ -453,6 +453,20 @@ MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRej
 - 客户端可能在获得 302 后向 115 CDN 发出 `Range` 请求；网关必须通过客户端合同测试确认重定向、UA 和 Range 行为。
 - `/Items/{Id}/Download` 与播放流不是同一权益，必须复用套餐下载开关并单独审计。
 - 首版不改写 HLS、DASH、转码 manifest 和转码分片接口；这些请求继续透明转发 Emby，保持正常播放和转码能力。
+
+### 5.1 SenPlayer 缺失 Static 的证据边界
+
+2026-09-29 核对 `4.9.3.0` 固定 OpenAPI：`/Videos/{Id}/{StreamFileName}` 的 `Static` 是可选布尔参数，描述只保证 `true` 时不编码、静态返回原文件；没有规定文件名 `original.mp4` 会隐式设置 `Static=true`。官方 Web 客户端在未取得 `DirectStreamUrl` 时构造直出请求会显式传 `Static: true`（见第 1 节固定源码链接）。可选参数不等于省略时可以保证原文件直出。
+
+同日用户提供的 SenPlayer `6.0.4` / Emby `4.9.3.0` 日志确认：`/emby/videos/{Id}/original.mp4` 携带 `MediaSourceId`、`PlaySessionId`，但完整 query key 列表没有 `Static`。PlaybackInfo 已记录有效证明，视频仍先在 `inspectVideoRequest` 返回 `route/request_not_eligible`，没有进入证明读取或 115 编排；原请求回退取得 `200/206`。经授权只读查询同一条目的当天 Playback Reporting 记录，客户端为 SenPlayer、播放方式为 `DirectStream`；该记录不证明 Emby 响应与原文件逐字节相同。
+
+后续经授权对同一媒体源完成只读核对：GET PlaybackInfo 返回本地 `mp4`、支持 DirectPlay/DirectStream，但没有 `DirectStreamUrl`；分别以相同媒体源和会话对 `original.mp4` 发出缺失 Static 与 `Static=true` 的 HEAD，两者均为 `200 video/mp4`、相同非空 ETag、`Accept-Ranges: bytes` 和与媒体源 Size 一致的 Content-Length。未读取视频正文，不据此宣称 Range、完整文件字节或所有客户端均已验证。
+
+本次受限兼容只允许精确 `original.mp4`（大小写不敏感）、完全缺失 Static、唯一有效 MediaSourceId/PlaySessionId 的 GET/HEAD；query 只允许这两个身份字段、可选唯一 DeviceId 和既有 Token aliases。转码、选流、起始时间、Container 和未知参数继续 fallback。必须取得当前用户/设备/条目/媒体源/会话的未过期证明，证明要求本地源、DirectPlay/DirectStream 能力、Container=mp4、源路径扩展名为 mp4；请求携带 DeviceId 时必须与证明相同。该边界不按 UA 放行，不修改转存起播许可，任何失败保持客户端原请求回退。其他文件名和显式 Static 的语义不变。
+
+匹配时 Debug 记录 `code=video_original_mp4_accepted evidence=local_mp4_proof`，只关联 requestId/sessionRef，不输出 query 值或 Token。缺失/过期/错配证明继续使用既有 `playback_proof_*` 原因码，媒体源不满足条件使用 `media_not_direct_play`。SenPlayer 日志中的 POST PlaybackInfo 带 query IsPlayback/MediaSourceId，按现有起播许可规则不授予新增转存；已有目标与缓存仍可复用，缺少目标时仍可能以 `playback_intent_required` 回退。适配未扩展 query/body 绑定合同。
+
+验证：先由新增 fake 回归复现旧版 GET/HEAD 因缺失 Static 而回退，再完成适配；Go 全量非集成测试、Gateway race、vet、build 通过。新增覆盖从客户端 PlaybackInfo 响应观察到视频请求的完整 mock 链路、Token aliases、大小写、缺失/过期/错配证明、本地媒体约束、歧义/转码参数、原请求 fallback 与起播许可保持。未执行 PostgreSQL 专项（无 schema 变更），未部署修复或验证真实 115 重定向、CDN 字节和播放器完成播放。
 
 ## 6. 字幕合同
 
