@@ -68,6 +68,7 @@ type videoDecision struct {
 	UpstreamStatus     int
 	ProxyErrorCode     string
 	ProviderOperation  string
+	ProviderFailure    directplay.FailureContext
 	AccountRole        string
 	MediaPath          string
 	EmbyPathPrefix     string
@@ -209,6 +210,7 @@ func (gateway *Gateway) serveVideo(
 	if err != nil {
 		failureContext := directplay.InspectFailure(err)
 		decision.ProviderOperation = failureContext.ProviderOperation
+		decision.ProviderFailure = failureContext
 		decision.AccountRole = failureContext.AccountRole
 		decision.Stage = "direct_play"
 		decision.ReasonCode = directPlayReasonCode(err)
@@ -484,6 +486,8 @@ func directPlayReasonCode(err error) string {
 		return "playback_lease_lost"
 	case errors.Is(err, directplay.ErrPlaybackResolveTimeout):
 		return "playback_resolve_timeout"
+	case errors.Is(err, directplay.ErrSourceReadTimeout):
+		return "source_read_timeout"
 	case errors.Is(err, directplay.ErrTransferQuotaExceeded):
 		return "transfer_quota_exceeded"
 	case errors.Is(err, directplay.ErrPlaybackIntentRequired):
@@ -585,7 +589,7 @@ func videoDecisionHeadline(decision videoDecision) []string {
 		)
 	case "fallback":
 		fallbackResult := requestOutcome(decision.StatusCode)
-		message := "Emby回退成功"
+		message := "Emby已返回回退响应头"
 		level := "info"
 		if fallbackResult != "success" {
 			fallbackResult = "failure"
@@ -636,6 +640,15 @@ func appendVideoDecisionContext(fields []string, decision videoDecision, duratio
 	fields = appendOptionalLogField(fields, "fallbackSource", decision.FallbackSource, false)
 	fields = appendOptionalLogField(fields, "fallbackTarget", decision.FallbackTarget, false)
 	fields = appendOptionalLogField(fields, "providerOperation", decision.ProviderOperation, false)
+	if stage, reason, status := decision.ProviderFailure.ProviderDetail.Fields(); stage != "" {
+		fields = append(fields, "providerStage="+stage, "providerReason="+reason, "providerHTTPStatus="+strconv.Itoa(status))
+	}
+	if decision.Decision == "fallback" && decision.UpstreamStatus > 0 {
+		fields = append(fields, "fallbackPhase=response_headers")
+		if !decision.FallbackStartedAt.IsZero() {
+			fields = append(fields, "fallbackHeadersMs="+strconv.FormatInt(time.Since(decision.FallbackStartedAt).Milliseconds(), 10))
+		}
+	}
 	fields = appendOptionalLogField(fields, "accountRole", decision.AccountRole, false)
 	fields = appendOptionalLogField(fields, "method", decision.Method, false)
 	fields = appendOptionalLogField(fields, "userId", decision.UserID, true)

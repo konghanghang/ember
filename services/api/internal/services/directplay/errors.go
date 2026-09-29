@@ -1,8 +1,12 @@
 package directplay
 
-import "errors"
+import (
+	"errors"
+	p115 "github.com/konghang/ember/backend/internal/integrations/p115"
+)
 
 var (
+	ErrSourceReadTimeout          = errors.New("direct play source read budget exceeded")
 	ErrInvalidRequest             = errors.New("direct play request invalid")
 	ErrAccountUnavailable         = errors.New("direct play 115 account unavailable")
 	ErrAccountsSame               = errors.New("direct play source and playback accounts must differ")
@@ -30,8 +34,10 @@ var (
 // Gateway to identify which DirectPlay boundary failed. Provider responses,
 // credentials and signed URLs must never be stored in this context.
 type FailureContext struct {
-	ProviderOperation string
-	AccountRole       string
+	ProviderOperation  string
+	AccountRole        string
+	sourceHealthFailed bool
+	ProviderDetail     p115.FailureDetail
 }
 
 const (

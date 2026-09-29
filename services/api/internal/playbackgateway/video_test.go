@@ -188,8 +188,8 @@ func TestGatewayVideoDirectPlayFailureFallsBackToEmby(t *testing.T) {
 	}
 	assertSingleDecisionLog(t, logs.String(), "fallback", "direct_play", "provider_unavailable")
 	for _, expected := range []string{
-		"level=info", "code=direct_play_fallback", `message="115直链失败，Emby回退成功"`,
-		"directPlayResult=failure", "providerOperation=get_download_url", "fallbackResult=success", "statusCode=200",
+		"level=info", "code=direct_play_fallback", `message="115直链失败，Emby已返回回退响应头"`,
+		"fallbackPhase=response_headers", "fallbackHeadersMs=", "directPlayResult=failure", "providerOperation=get_download_url", "fallbackResult=success", "statusCode=200",
 		`mediaPath="/mnt/media/fixture.mkv"`, `embyPathPrefix="/mnt/media"`,
 		`sourceRootId="100"`, `mappedRelativePath="fixture.mkv"`,
 	} {
@@ -241,7 +241,7 @@ func TestGatewayVideoDirectPlayFailureAlwaysUsesAuthoritativeEmbyFallback(t *tes
 	if !strings.Contains(logs.String(), "directPlayMs=") || !strings.Contains(logs.String(), "prepareCalls=1") {
 		t.Fatalf("fallback dropped timing: %s", logs.String())
 	}
-	for _, expected := range []string{`message="115直链失败，Emby回退成功"`, "directPlayResult=failure", "fallbackTarget=emby", "fallbackResult=success", "statusCode=206"} {
+	for _, expected := range []string{`message="115直链失败，Emby已返回回退响应头"`, "directPlayResult=failure", "fallbackTarget=emby", "fallbackResult=success", "statusCode=206"} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Fatalf("logs=%q, want %s", logs.String(), expected)
 		}
@@ -578,7 +578,7 @@ func TestGatewayUsesPlaybackInfoDirectStreamURLWhenDirectPlayUnavailable(t *test
 	}
 	assertSingleDecisionLog(t, logs.String(), "fallback", "direct_play", "account_unavailable")
 	for _, expected := range []string{
-		`message="115直链失败，Emby回退成功"`, "accountRole=source",
+		`message="115直链失败，Emby已返回回退响应头"`, "accountRole=source",
 		"fallbackSource=playback_info_direct_stream", "fallbackResult=success", "statusCode=206",
 	} {
 		if !strings.Contains(logs.String(), expected) {

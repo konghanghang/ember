@@ -24,11 +24,12 @@ func TestGatewayVideoIntentSkipKeepsUpstreamOutcome(t *testing.T) {
 		wantLevel   string
 		wantMessage string
 	}{
-		{"intent_full_response", http.StatusOK, directplay.ErrPlaybackIntentRequired, "skipped", "success", "info", "无起播许可，跳过新增转存；Emby回退成功"},
-		{"intent_range_response", http.StatusPartialContent, directplay.ErrPlaybackIntentRequired, "skipped", "success", "info", "无起播许可，跳过新增转存；Emby回退成功"},
+		{"intent_full_response", http.StatusOK, directplay.ErrPlaybackIntentRequired, "skipped", "success", "info", "无起播许可，跳过新增转存；Emby已返回回退响应头"},
+		{"intent_range_response", http.StatusPartialContent, directplay.ErrPlaybackIntentRequired, "skipped", "success", "info", "无起播许可，跳过新增转存；Emby已返回回退响应头"},
 		{"intent_not_found", http.StatusNotFound, directplay.ErrPlaybackIntentRequired, "skipped", "failure", "warn", "无起播许可，跳过新增转存；Emby回退失败"},
 		{"intent_upstream_failure", http.StatusBadGateway, directplay.ErrPlaybackIntentRequired, "skipped", "failure", "warn", "无起播许可，跳过新增转存；Emby回退失败"},
 		{"provider_not_found", http.StatusNotFound, directplay.ErrProviderUnavailable, "failure", "failure", "warn", "115直链失败，Emby回退失败"},
+		{"source_budget_fallback", http.StatusPartialContent, directplay.ErrSourceReadTimeout, "failure", "success", "info", "115直链失败，Emby已返回回退响应头"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var logs bytes.Buffer
@@ -53,6 +54,9 @@ func TestGatewayVideoIntentSkipKeepsUpstreamOutcome(t *testing.T) {
 				t.Fatalf("fallback response changed: status=%d", response.Code)
 			}
 			assertSingleDecisionLog(t, logs.String(), "fallback", "direct_play", directPlayReasonCode(test.err))
+			if test.err == directplay.ErrSourceReadTimeout && !strings.Contains(logs.String(), "reasonCode=source_read_timeout") {
+				t.Fatal("local source budget was classified as provider failure or caller cancellation")
+			}
 			for _, want := range []string{
 				"code=direct_play_fallback", "level=" + test.wantLevel,
 				"directPlayResult=" + test.wantDirect, "fallbackResult=" + test.wantResult,

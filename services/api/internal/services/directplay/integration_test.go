@@ -342,6 +342,50 @@ func TestIntegrationSuccessfulSourceProbeRecoversAfterIntentDenial(t *testing.T)
 	}
 }
 
+// TestIntegrationSourceProbeRecoversAfterRangeProtocolFailure verifies file-scoped rejection cannot strand a healthy source probe.
+func TestIntegrationSourceProbeRecoversAfterRangeProtocolFailure(t *testing.T) {
+	database := newDirectPlayIntegrationDatabase(t)
+	accounts := seedDirectPlayAccounts(t, database)
+	past := time.Now().UTC().Add(-time.Minute)
+	oldCode := "provider_unavailable"
+	oldMessage := "115 服务暂不可用"
+	if err := database.Model(&models.P115Account{}).
+		Where("role = ?", models.P115AccountRoleSource).
+		Updates(map[string]interface{}{
+			"status":             models.P115AccountStatusCoolingDown,
+			"cooldown_until":     past,
+			"last_error_code":    oldCode,
+			"last_error_message": oldMessage,
+			"updated_at":         past,
+		}).Error; err != nil {
+		t.Fatalf("seed expired cooldown: %v", err)
+	}
+	provider := &failingSourceRangeProvider{fakeProvider: newFakeProvider(), failAt: 1, invalid: true}
+	// Source range protocol mismatch is file-scoped, not account-wide.
+	service, err := NewService(database, accounts, provider)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	request := fixtureMediaPathResolveRequest()
+	request.CanCreateTransfer = func() bool { return true }
+	if _, err := service.ResolveMediaPath(context.Background(), request); !errors.Is(err, ErrProviderProtocol) {
+		t.Fatalf("ResolveMediaPath() error = %v", err)
+	}
+	var source models.P115Account
+	if err := database.Where("role = ?", models.P115AccountRoleSource).First(&source).Error; err != nil {
+		t.Fatalf("load source account: %v", err)
+	}
+	if source.Status != models.P115AccountStatusActive || source.CooldownUntil != nil || source.LastSucceededAt == nil ||
+		source.LastErrorCode != nil || source.LastErrorMessage != nil {
+		t.Fatalf("source recovered state = %+v", source)
+	}
+
+	if _, err := accounts.LoadActiveCredentialByRole(context.Background(), models.P115AccountRoleSource); err != nil {
+		t.Fatalf("source remained unavailable after successful probe: %v", err)
+	}
+}
+
 // TestIntegrationSourceRecoveryPreservesConcurrentDisable proves deferred
 // success cannot undo a control-plane change after credentials were acquired.
 func TestIntegrationSourceRecoveryPreservesConcurrentDisable(t *testing.T) {

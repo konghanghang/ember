@@ -550,7 +550,9 @@ func (a *CookieHTTPAdapter) InitRapidUpload(ctx context.Context, credential Cred
 
 // GetDownloadURL signs one file URL with the actual playback client User-Agent
 // and returns only an HTTPS 115-owned URL with complete t/c/f semantics.
-func (a *CookieHTTPAdapter) GetDownloadURL(ctx context.Context, credential Credential, request DownloadURLRequest) (DownloadURLResult, error) {
+func (a *CookieHTTPAdapter) GetDownloadURL(ctx context.Context, credential Credential, request DownloadURLRequest) (result DownloadURLResult, resultErr error) {
+	ctx, observation := observeOperation(ctx, "download_url")
+	defer func() { resultErr = observation.finish(resultErr) }()
 	providerUserID, err := validateCookieHTTPCredential(credential)
 	if err != nil {
 		return DownloadURLResult{}, err
@@ -587,9 +589,9 @@ func (a *CookieHTTPAdapter) GetDownloadURL(ctx context.Context, credential Crede
 	httpRequest.Header.Set("Cookie", credential.Cookie)
 	httpRequest.Header.Set("User-Agent", userAgent)
 
-	response, err := a.client.Do(httpRequest)
+	response, err := observation.do(a.client, httpRequest)
 	if err != nil {
-		return DownloadURLResult{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
+		return DownloadURLResult{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -635,7 +637,9 @@ func (a *CookieHTTPAdapter) HashFileRange(
 	ctx context.Context,
 	credential Credential,
 	request FileRangeRequest,
-) (FileRangeHash, error) {
+) (result FileRangeHash, resultErr error) {
+	ctx, observation := observeOperation(ctx, "source_range")
+	defer func() { resultErr = observation.finish(resultErr) }()
 	if _, err := validateCookieHTTPCredential(credential); err != nil {
 		return FileRangeHash{}, err
 	}
@@ -671,12 +675,12 @@ func (a *CookieHTTPAdapter) HashFileRange(
 		return FileRangeHash{}, ErrDownloadURLIncompatible
 	}
 
-	response, err := a.client.Do(httpRequest)
+	response, err := observation.do(a.client, httpRequest)
 	if err != nil {
 		if ctx.Err() != nil {
 			return FileRangeHash{}, ctx.Err()
 		}
-		return FileRangeHash{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
+		return FileRangeHash{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusPartialContent {
@@ -772,7 +776,9 @@ func (a *CookieHTTPAdapter) getJSON(
 	params url.Values,
 	credential Credential,
 	target any,
-) error {
+) (resultErr error) {
+	ctx, observation := observeOperation(ctx, cookieGETStage(endpoint.Path))
+	defer func() { resultErr = observation.finish(resultErr) }()
 	requestURL := *endpoint
 	if params != nil {
 		requestURL.RawQuery = params.Encode()
@@ -785,9 +791,9 @@ func (a *CookieHTTPAdapter) getJSON(
 	request.Header.Set("Cookie", credential.Cookie)
 	request.Header.Set("User-Agent", credential.UserAgent)
 
-	response, err := a.client.Do(request)
+	response, err := observation.do(a.client, request)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
+		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -1654,7 +1660,7 @@ func waitForCookieTargetPoll(ctx context.Context, duration time.Duration) error 
 }
 
 func protocolError(reason string) error {
-	return fmt.Errorf("%w: %s", ErrProviderProtocol, reason)
+	return &protocolFailure{reason: reason}
 }
 
 func rapidUploadProtocolError(

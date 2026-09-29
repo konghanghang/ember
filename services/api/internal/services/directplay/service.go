@@ -26,6 +26,7 @@ const (
 	maxDirectPlayMediaPath       = 16 * 1024
 	maxMappedRelativePath        = 4 * 1024
 	maxMappedPathSegment         = 1024
+	sourceReadTimeout            = 5 * time.Second
 	taskTerminalWriteTimeout     = 5 * time.Second
 	accountHealthWriteTimeout    = 2 * time.Second
 	reservationReleaseTimeout    = time.Second
@@ -181,6 +182,7 @@ type transferQuotaContext struct {
 // Service serializes retained playback transfers and returns a validated 115
 // redirect candidate without exposing an HTTP endpoint.
 type Service struct {
+	sourceReadBudget       time.Duration // Test seam; production bounds each read-only source phase.
 	sessionRequests        requestGate
 	downloadCache          *downloadURLCache
 	mediaCache             *mediaResolutionCache
@@ -676,7 +678,10 @@ func (service *Service) resolveWithAccounts(
 ) (candidate RedirectCandidate, resolveErr error) {
 	finishPreparation(ctx)
 	finishSource := measureStage(ctx, "sourceResolve")
-	sourceFile, err := service.provider.ResolveFileByPath(ctx, source.Credential, request.SourceFile)
+	readCtx, cancelRead := context.WithTimeout(ctx, service.sourceReadLimit())
+	sourceFile, err := service.provider.ResolveFileByPath(readCtx, source.Credential, request.SourceFile)
+	err = sourceReadResult(ctx, readCtx, err)
+	cancelRead()
 	finishSource()
 	if err != nil {
 		return RedirectCandidate{}, service.reportProviderFailure(ctx, source, failureOperationResolveSourcePath, err)
@@ -690,8 +695,7 @@ func (service *Service) resolveWithAccounts(
 		// Finish source recovery even when an unrelated downstream step refuses
 		// playback. Wait until all source reads finish so a later source failure
 		// is not hidden by advancing the account's optimistic-lock version.
-		operation := InspectFailure(resolveErr).ProviderOperation
-		if operation != failureOperationHashSourcePreID && operation != failureOperationHashSourceChallenge {
+		if !InspectFailure(resolveErr).sourceHealthFailed {
 			service.reportRuntimeHealth(source, p115account.RuntimeHealthSucceeded)
 		}
 		if resolveErr == nil {
@@ -860,16 +864,18 @@ func (service *Service) resolveUnderLock(
 	}
 	preIDRange := boundedRange(sourceFile.Size)
 	finishPreID := measureStage(ctx, "preID")
-	preIDHash, err := service.provider.HashFileRange(ctx, source.Credential, p115integration.FileRangeRequest{
+	readCtx, cancelRead := context.WithTimeout(ctx, service.sourceReadLimit())
+	preIDHash, err := service.provider.HashFileRange(readCtx, source.Credential, p115integration.FileRangeRequest{
 		File: sourceFile, Range: preIDRange,
 	})
+	err = sourceReadResult(ctx, readCtx, err)
+	cancelRead()
 	finishPreID()
 	if err != nil {
 		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(ctx, source, failureOperationHashSourcePreID, err))
 	}
 	preID, err := validateRangeHash(preIDHash, preIDRange)
 	if err != nil {
-		service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
 		return service.failTask(ctx, task.ID, "preid_invalid", "source preID range invalid", withFailureContext(err, FailureContext{ProviderOperation: failureOperationHashSourcePreID}))
 	}
 
@@ -892,16 +898,18 @@ func (service *Service) resolveUnderLock(
 			return p115integration.File{}, "", false, err
 		}
 		finishChallenge := measureStage(ctx, "challenge")
-		challengeHash, hashErr := service.provider.HashFileRange(ctx, source.Credential, p115integration.FileRangeRequest{
+		readCtx, cancelRead := context.WithTimeout(ctx, service.sourceReadLimit())
+		challengeHash, hashErr := service.provider.HashFileRange(readCtx, source.Credential, p115integration.FileRangeRequest{
 			File: sourceFile, Range: result.Challenge.Range,
 		})
+		hashErr = sourceReadResult(ctx, readCtx, hashErr)
+		cancelRead()
 		finishChallenge()
 		if hashErr != nil {
 			return service.failTask(ctx, task.ID, "challenge_failed", "rapid upload challenge range failed", service.reportProviderFailure(ctx, source, failureOperationHashSourceChallenge, hashErr))
 		}
 		signValue, hashErr := validateRangeHash(challengeHash, result.Challenge.Range)
 		if hashErr != nil {
-			service.reportRuntimeHealth(source, p115account.RuntimeHealthProviderProtocol)
 			return service.failTask(ctx, task.ID, "challenge_invalid", "rapid upload challenge range invalid", withFailureContext(hashErr, FailureContext{ProviderOperation: failureOperationHashSourceChallenge}))
 		}
 		uploadRequest.SignKey = result.Challenge.SignKey
@@ -1088,13 +1096,22 @@ func (service *Service) reportProviderFailure(
 	operation string,
 	providerErr error,
 ) error {
+	if stage, reason, status := p115integration.FailureDiagnostic(providerErr); stage != "" {
+		log.Printf("[DirectPlay] code=provider_operation_failed accountId=%s operation=%s providerStage=%s providerReason=%s providerHTTPStatus=%d", account.Credential.AccountID, operation, stage, reason, status)
+	}
 	// Request budgets and lease cancellation do not diagnose Provider health.
 	if ctx.Err() != nil {
 		providerErr = ctx.Err()
 	}
 	mapped := mapProviderFailure(operation, providerErr)
+	detail := InspectFailure(mapped)
+	detail.ProviderDetail = p115integration.InspectFailureDetail(providerErr)
+	mapped = withFailureContext(mapped, detail)
 	if outcome, ok := runtimeHealthOutcome(operation, providerErr); ok {
 		service.reportRuntimeHealth(account, outcome)
+		failure := InspectFailure(mapped)
+		failure.sourceHealthFailed = account.Role == models.P115AccountRoleSource
+		mapped = withFailureContext(mapped, failure)
 	}
 	return mapped
 }
@@ -1147,7 +1164,7 @@ func runtimeHealthOutcome(operation string, err error) (p115account.RuntimeHealt
 	case errors.Is(err, p115integration.ErrProviderUnavailable):
 		return p115account.RuntimeHealthProviderUnavailable, true
 	case errors.Is(err, p115integration.ErrProviderRejected), errors.Is(err, p115integration.ErrProviderProtocol):
-		if operation == failureOperationResolveSourcePath {
+		if operation == failureOperationResolveSourcePath || operation == failureOperationHashSourcePreID || operation == failureOperationHashSourceChallenge {
 			return "", false
 		}
 		return p115account.RuntimeHealthProviderProtocol, true
@@ -1317,6 +1334,8 @@ func mapProviderFailure(operation string, err error) error {
 		return err
 	}
 	switch {
+	case errors.Is(err, ErrSourceReadTimeout):
+		return withFailureContext(ErrSourceReadTimeout, FailureContext{ProviderOperation: operation})
 	case errors.Is(err, p115integration.ErrCredentialRejected):
 		return withFailureContext(ErrAccountUnavailable, FailureContext{ProviderOperation: operation})
 	case errors.Is(err, p115integration.ErrProviderUnavailable):

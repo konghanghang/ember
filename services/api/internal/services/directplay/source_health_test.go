@@ -37,8 +37,8 @@ func (*failingTerminalStore) MarkFailed(context.Context, string, string, string,
 	return errors.New("fixture store failure")
 }
 
-// TestSourceRecoveryDoesNotOverwriteLaterSourceFailure covers both source
-// reads and task-write failure, where the original diagnostic must survive.
+// TestSourceRecoveryDoesNotOverwriteLaterSourceFailure keeps real transport
+// failures authoritative while isolating invalid file hashes, even if task persistence fails.
 func TestSourceRecoveryDoesNotOverwriteLaterSourceFailure(t *testing.T) {
 	for _, stage := range []int{1, 2} {
 		for _, invalid := range []bool{false, true} {
@@ -55,11 +55,28 @@ func TestSourceRecoveryDoesNotOverwriteLaterSourceFailure(t *testing.T) {
 				_, err := service.Resolve(context.Background(), fixtureResolveRequest())
 				want := p115account.RuntimeHealthProviderUnavailable
 				if invalid {
-					want = p115account.RuntimeHealthProviderProtocol
+					want = p115account.RuntimeHealthSucceeded
 				}
 				if err == nil || len(health.events) != 1 || health.events[0].outcome != want {
 					t.Fatalf("stage=%d invalid=%t storeFailure=%t error=%v events=%+v", stage, invalid, failStore, err, health.events)
 				}
+			}
+		}
+	}
+}
+
+// TestSourceRangeHealthClassification rejects account-wide conclusions from
+// file/CDN protocol errors but preserves explicit credential and transport failures.
+func TestSourceRangeHealthClassification(t *testing.T) {
+	for _, operation := range []string{failureOperationHashSourcePreID, failureOperationHashSourceChallenge} {
+		for _, failure := range []error{p115.ErrProviderProtocol, p115.ErrProviderRejected, ErrSourceReadTimeout, context.Canceled} {
+			if _, ok := runtimeHealthOutcome(operation, failure); ok {
+				t.Fatalf("file error poisoned account: %s %v", operation, failure)
+			}
+		}
+		for _, failure := range []error{p115.ErrCredentialRejected, p115.ErrProviderUnavailable} {
+			if _, ok := runtimeHealthOutcome(operation, failure); !ok {
+				t.Fatalf("account failure ignored: %s %v", operation, failure)
 			}
 		}
 	}

@@ -186,7 +186,7 @@ Emby `PlaybackInfo` 提供媒体源 `Path` 和可能缺失或不可靠的 `Size`
 - 最终文件在已经确定的父目录内使用“精确文件名 + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个同名候选即使 Size 不同也返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。唯一命中后必须由 115 响应提供合法 fileId、pickCode、SHA1、正数 Size 和正确 parentId；这些 Provider 字段才是后续文件身份。
 - 为了检测最终文件同名项，最终目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。中间目录由 Provider 路径接口选择，Ember 不再自行枚举并判断同名目录歧义。
 - 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
-- 源解析的业务拒绝、响应协议异常和无效源文件身份只使本次 DirectPlay 失败，不据此回写源账号 `error`；目录/文件未找到、同名文件歧义和目录超限同样属于请求级错误。Gateway 继续按 `providerOperation=resolve_source_path` 记录失败并回退 Emby，DirectPlay 释放本次新建的播放 reservation。明确的 `ErrCredentialRejected` 和 `ErrProviderUnavailable` 仍分别触发凭证停用与临时冷却；其他 Provider 操作的健康分类保持原合同。
+- 源解析的业务拒绝、响应协议异常和无效源文件身份只使本次 DirectPlay 失败，不据此回写源账号 `error`；目录/文件未找到、同名文件歧义和目录超限同样属于请求级错误。Gateway 继续按 `providerOperation=resolve_source_path` 记录失败并回退 Emby，DirectPlay 释放本次新建的播放 reservation。明确的 `ErrCredentialRejected` 和 `ErrProviderUnavailable` 仍分别触发凭证停用与临时冷却；源 preID/challenge 的文件级业务和协议错误同样不代表整个账号故障；播放账号操作保留既有健康分类。
 
 2026-09-08 源目录并发读取合同：
 
@@ -427,6 +427,14 @@ SHA1 + size + isDirectory=false
 - 最多读取“期望长度 + 1”字节用于检测上游越界，读取完成后只返回大写 SHA1 与 `BytesRead`；源字节、签名 URL 和 Cookie 不离开 Provider 边界。
 
 证据：固定提交的 [`read_range`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/fs/fs_base.py#L3827-L3884) 固定下载 URL Header 与 HTTP Range 用法；[`upload_file_init`](https://github.com/ChenyangGao/p115client/blob/608a44396fea08d36131a68beb245be1fe17aa6d/p115client/client.py#L4090-L4180) 固定 `status=7` Range callback 计算 SHA1 的公开实现语义。`1 MiB`、精确响应校验和只返回 Hash 是 Ember 的内部 fail-closed 合同。
+
+### 7.1 源读取故障诊断与预算（2026-09-29）
+
+- 生产日志先出现父目录解析约 10 秒失败，后又出现目录解析成功、起播许可继承通过，但 `hash_source_preid` 在约 1.21 秒失败。现有样本无法确定后者是直链响应解析、解密还是 Range 校验失败，不把任一假设当作协议事实。
+- Debug `provider_operation_completed` 区分 `source_parent/source_list/download_url/source_range/cookie_get`，记录固定 reason、数值 HTTP 状态、networkPhase、DNS/连接/TLS/首字节与总耗时；复用连接的前几项可以为零，source_range 的总耗时包含先取得下载 URL。HTTP trace 字段不携带域名、IP、URL、Cookie 或原始响应。
+- 失败元数据沿 Provider → DirectPlay → Gateway 传递，最终决策增加 `providerStage/providerReason/providerHTTPStatus`；嵌套直链失败保留 download_url 阶段，不误报为 CDN Range 失败。无精确细分的外部错误使用固定兜底原因，不输出原始错误。
+- DirectPlay 源路径读取及每次 preID/challenge 读取各设 5 秒预算，包含后者获取直链和 Range 两步。主动预算耗尽记 `source_read_timeout`，与真实网络错误分开，不污染账号健康。共享目录的 30 秒总预算、单 HTTP 10 秒底层上限仍保留；最后一个等待者退出会取消共享请求。
+- 不放宽 Range 的状态、范围、编码、长度校验，不自动重试 retained 写入，不把未经验证的外部响应当成功。真实 115 故障根因仍需要部署后细分日志确认；本次验证依赖 mock 和 PostgreSQL 隔离集成。
 
 ## 8. 秒传状态机
 

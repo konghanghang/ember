@@ -570,8 +570,8 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - 开始和停止成功在 Info 分别记录 `playback_session_started/playback_session_stopped`；正常 Progress 成功只在 Debug 记录 `playback_progress_reported`，避免心跳刷屏。失败后同一请求 Token 的首次 Start/Progress 成功在 Info 额外记录一次 `playback_progress_recovered` 和 `interruptionMs`；关联键由进程内随机 seed 生成且永不输出，恢复观察最多 4096 条、TTL 6 小时，不保存原始 Token 或可跨进程复用摘要，只服务日志，不参与授权、并发或响应决策。
 - 请求日志与事件成功/失败结果携带本地生成的 requestId；视频决策和已解析事件使用独立的进程种子 sessionRef 关联，不复用上述 Token 恢复观察键。Debug 在认证后记录 playback_event_received 及租约更新开始/成功/缺失/跳过，成功结果展示 reserved/active/occupied，Warn 更新失败补关联信息。所有新增观测不改变请求体、Emby 响应或 Redis 流转；范围与固定字段见 [播放链路日志](./p115-playback-end-to-end-flow.md#83-单条决策日志)。
 - 设置中心数据库项 `LOG_LEVEL=debug` 时，每个经过 Gateway Handler 的请求收尾写一条 `code=request_completed` 脱敏摘要：记录有界 method/Host/原始 path、query key 名称/数量、route、pathMode、statusCode、success/failure、耗时、直接 Token Header 数量、应用头 scheme/Token presence、query Token source 数量/状态、已知 User-Agent family/version。API 保存后 Gateway 最多在 5 秒内从进程缓存刷新；TTL 到期后的并发请求只触发一次数据库读取，读取失败保留上一次有效级别且不改变请求结果。默认 `info` 不逐请求打印该详细摘要；任何级别都不得记录 query value、Header 原值、Cookie、Token 或 Authorization 内容。
-- 每个视频请求在默认 Info 额外只写一条最终决策日志，并把人工可读结论放在行首：直链成功使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；DirectPlay 失败使用 `code=direct_play_fallback message="115直链失败，Emby回退成功|失败" directPlayResult=failure fallbackResult=success|failure fallbackTarget=emby`；其他 fallback 和 reject 分别使用 `code=playback_fallback`、`code=playback_rejected`。全部继续记录 `decision=redirect|fallback|reject`、固定 `stage/reasonCode`、`fallbackSource` 和必要 ID/耗时。进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Debug 不重复生成第二条决策，日志不建表、不进入数据库。
-- `reasonCode=playback_intent_required` 是策略跳过，保持 `code=direct_play_fallback`，但使用 `directPlayResult=skipped` 和“无起播许可，跳过新增转存；Emby回退成功|失败”。上游真实状态、`fallbackResult` 及 info/warn 继续按实际响应记录；404 不伪装成成功，真正 Provider 失败也不会被降成 skipped。
+- 每个视频请求在默认 Info 额外只写一条最终决策日志，并把人工可读结论放在行首：直链成功使用 `code=direct_play_redirect message="115直链成功" result=success statusCode=302 target=p115 targetState=created|reused`；DirectPlay 失败使用 `code=direct_play_fallback message="115直链失败，Emby已返回回退响应头|Emby回退失败" directPlayResult=failure fallbackResult=success|failure fallbackTarget=emby`；其他 fallback 和 reject 分别使用 `code=playback_fallback`、`code=playback_rejected`。全部继续记录 `decision=redirect|fallback|reject`、固定 `stage/reasonCode`、`fallbackSource` 和必要 ID/耗时。进入 DirectPlay 后还记录 quoted `mediaPath/embyPathPrefix/sourceRootId/mappedRelativePath`。Debug 不重复生成第二条决策，日志不建表、不进入数据库。
+- `reasonCode=playback_intent_required` 是策略跳过，保持 `code=direct_play_fallback`，但使用 `directPlayResult=skipped` 和“无起播许可，跳过新增转存；Emby已返回回退响应头|Emby回退失败”。上游真实状态、`fallbackResult` 及 info/warn 继续按实际响应记录；404 不伪装成成功，真正 Provider 失败也不会被降成 skipped。
 - 完整媒体 Path 已按运维排障需求明确允许进入持久日志；仍禁止记录 Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原始响应、Provider 原始错误或 Emby 代理原始错误。
 - Provider 失败只允许补充固定 `providerOperation=resolve_source_path|hash_source_preid|rapid_upload|hash_source_challenge|rapid_upload_retry|verify_playback_target|search_playback_target|get_download_url`；账号加载失败只允许补充 `accountRole=source|playback`。未知诊断值必须丢弃，不能进入日志。
 
@@ -635,3 +635,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - 目标 Emby 4.9 实例是否提供可安全调用的单 Token、单设备或会话撤销接口；确认前只能宣称 Ember 网关本地撤销。
 
 以上未确认项不能作为实现完成的依据。
+
+### 诊断补充：源读取与回退响应头（2026-09-29）
+
+DirectPlay 源读取本地预算耗尽使用 `reasonCode=source_read_timeout`，保持 Emby 回退；Provider 失败可带固定 `providerStage/providerReason/providerHTTPStatus`。回退响应头到达时记录 `fallbackPhase=response_headers`、`fallbackHeadersMs`，`fallbackResult=success` 仍仅表示该 HTTP 状态的成功分类；中文改为“Emby已返回回退响应头”，不代表客户端完成播放。2026-09-29 样本中 115 等待约 10 秒后，Emby 另等约 24.6 秒才返回头；缩短源读取预算不能证明 Emby 端延迟已解决。
