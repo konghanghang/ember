@@ -604,6 +604,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `NotifyRanking` 推送 payload 包含关联日志的 `batchId`、整期 `totalDuration` 与业务时区 RFC3339 `snapshotAt`；Web / Bot 展示所属日期和实际生成时间。`periodEnd` 的日期展示将零点排他上界换算成最后一个覆盖日期，`cutoffAt` 保留为生成时分的兼容字段，不代表精确冻结时刻
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
 - `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；读取只报告失效 ID，不清空配置。保存先校验全部 ID，再规范化显式全选；只有用户主动保存空选择 / 全选才使用全部媒体库语义
+- 媒体库选择器通过管理员 `Views?IncludeExternalContent=false` 读取候选；前端区分读取失败与成功空列表，两者均可重新读取。读取失败或加载期间禁止保存和恢复全库，避免将未确认的空列表误提交为全库统计
 
 **支持周期**：`daily`（日榜）、`weekly`（周榜）
 

@@ -92,6 +92,7 @@
   - 日期输入：`form-date`
   - 数字输入：`form-number`
 - 同类字段样式一旦进入全局基线，不再允许在页面内重复覆盖同一套 `el-select__wrapper`、`el-date-editor`、`el-input-number` 外观。
+- 单值日期 / 周选择器的 `form-date` 宽度必须跟随容器；共享规则需高于 Element Plus 异步样式的 `.el-date-editor.el-input`，避免默认 220px 宽度覆盖窄容器并与相邻按钮重叠。
 
 ### 3.4 Ember 基础组件使用规则
 

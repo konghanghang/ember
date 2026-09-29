@@ -196,6 +196,8 @@ body {
 }
 
 .form-date.el-date-editor.el-input {
+  /* 高于异步加载的 .el-date-editor.el-input，避免默认 220px 宽度溢出容器。 */
+  width: 100%;
   height: var(--ember-field-height);
 }
 

@@ -68,6 +68,8 @@ X-Emby-Token: <api-key>
 
 `UserId` 和 `IncludeExternalContent` 在 `4.9.3.0` OpenAPI 中均为必填参数。响应是 `QueryResult_BaseItemDto`：
 
+Ember 客户端显式传入 `IncludeExternalContent=false`，并用合同测试锁定该参数。2026-09-29 经授权只读对照，目标实例在省略参数及显式传入 `false` 时均返回 20 个视图，其中一个是系统合集；因此参数遗漏不能作为本次前端空列表的已证实根因。这一实测不代表其他实例可以省略合同必需参数。
+
 ```json
 {
   "Items": [],

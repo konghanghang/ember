@@ -222,6 +222,52 @@ func TestGetUserLibraryItemsByIDsUsesLibraryScopeAndBatchesCandidates(t *testing
 	}
 }
 
+// TestGetUserViewsUsesVersionedContract 锁定必需参数，并保留真实空列表和请求失败的区别。
+func TestGetUserViewsUsesVersionedContract(t *testing.T) {
+	for _, scenario := range []string{"libraries", "empty", "forbidden"} {
+		t.Run(scenario, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/emby/Users/admin/Views" || r.URL.Query().Get("IncludeExternalContent") != "false" {
+					http.Error(w, "missing required Views parameter", http.StatusBadRequest)
+					return
+				}
+				if scenario == "forbidden" {
+					http.Error(w, "fixture forbidden", http.StatusForbidden)
+					return
+				}
+				items := []map[string]string{}
+				if scenario == "libraries" {
+					items = []map[string]string{
+						{"Id": "movie", "Name": "电影库", "CollectionType": "movies"},
+						{"Id": "series", "Name": "剧集库", "CollectionType": "tvshows"},
+					}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"Items": items, "TotalRecordCount": len(items)})
+			}))
+			defer server.Close()
+			t.Setenv("EMBY_URL", server.URL)
+			t.Setenv("EMBY_API_KEY", "fixture-key")
+			libraries, err := NewEmbyService().GetUserViews("admin")
+			if scenario == "forbidden" {
+				if err == nil {
+					t.Fatal("failed request must not become an empty library list")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if scenario == "libraries" {
+				want = 2
+			}
+			if len(libraries) != want {
+				t.Fatalf("libraries=%v want count=%d", libraries, want)
+			}
+		})
+	}
+}
+
 func TestGetAdminLibraryContextRejectsMissingAdministrator(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/emby/Users" {

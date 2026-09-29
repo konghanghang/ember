@@ -247,6 +247,7 @@ func shouldRetryGetItemsByIDs(err error) bool {
 	return false
 }
 
+// GetUserViews 按版本合同读取用户的本地媒体视图，显式排除频道和直播等外部入口。
 func (s *EmbyService) GetUserViews(userID string) ([]EmbyLibrary, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
@@ -257,7 +258,7 @@ func (s *EmbyService) GetUserViews(userID string) ([]EmbyLibrary, error) {
 		return nil, errors.New("userId 不能为空")
 	}
 
-	body, err := s.getWithAPIKey("/emby/Users/"+url.PathEscape(userID)+"/Views", nil)
+	body, err := s.getWithAPIKey("/emby/Users/"+url.PathEscape(userID)+"/Views", map[string]string{"IncludeExternalContent": "false"})
 	if err != nil {
 		return nil, err
 	}
