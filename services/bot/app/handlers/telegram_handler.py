@@ -686,16 +686,12 @@ async def send_payment_notification(bot, data: dict) -> None:
     )
 
 
-async def send_ranking_notification(bot, data: dict) -> None:
-    """发送排行榜到 Telegram 群组
-
-    为了不破坏既有部署：
-    - 未配置 TELEGRAM_GROUP_CHAT_ID 时，回退到管理员 chat 推送
-    """
+async def send_ranking_notification(bot, data: dict) -> bool:
+    """单次发送排行榜；群组未配置时回退管理员，无目的地返回 False，异常交由入口处理。"""
     admin_chat_id, group_chat_id = await runtime_settings_service.get_chat_ids()
     if admin_chat_id is None and group_chat_id is None:
         logger.warning("TELEGRAM_ADMIN_CHAT_ID 和 TELEGRAM_GROUP_CHAT_ID 均未配置，跳过排行榜通知")
-        return
+        return False
 
     text = format_ranking_message(data)
     chat_id = group_chat_id or admin_chat_id
@@ -706,6 +702,7 @@ async def send_ranking_notification(bot, data: dict) -> None:
         text=text,
         parse_mode="HTML",
     )
+    return True
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

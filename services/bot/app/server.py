@@ -513,13 +513,32 @@ async def notify_payment(request: Request):
 
 @app.post("/notify/ranking")
 async def notify_ranking(request: Request):
+    """反馈本次排行发送或跳过；失败仅返回固定错误，不重试、不记录敏感异常原文。"""
     unauthorized = _verify_internal_secret(request)
     if unauthorized is not None:
         return unauthorized
 
     data = await request.json()
-    await send_ranking_notification(tg_app.bot, data)
-    return {"ok": True}
+    try:
+        sent = await send_ranking_notification(tg_app.bot, data)
+    except Exception as err:
+        logger.error(
+            "code=ranking_notify_failed batchId=%r period=%r errorType=%s",
+            data.get("batchId", ""),
+            data.get("period", "daily"),
+            type(err).__name__,
+        )
+        return JSONResponse(status_code=502, content={"ok": False, "error": "ranking_send_failed"})
+
+    logger.info(
+        "code=ranking_notify_completed batchId=%r period=%r sent=%s",
+        data.get("batchId", ""),
+        data.get("period", "daily"),
+        sent,
+    )
+    if not sent:
+        return {"ok": True, "sent": False, "reason": "chat_not_configured"}
+    return {"ok": True, "sent": True}
 
 
 def run() -> None:

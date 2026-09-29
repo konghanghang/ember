@@ -269,6 +269,55 @@ class LoggingConfigurationTestCase(unittest.TestCase):
             self.assertGreaterEqual(logging.getLogger(name).level, logging.WARNING)
 
 
+class RankingNotificationEndpointTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_ranking_endpoint_reports_sent_or_skipped(self) -> None:
+        """返回显式发送结果，ok 仅表示通知请求已正常处理。"""
+        for sent in (True, False):
+            with self.subTest(sent=sent):
+                payload = {"batchId": "batch_fixture", "period": "daily"}
+                request = types.SimpleNamespace(
+                    headers={"X-Internal-Secret": os.environ["INTERNAL_API_SECRET"]},
+                    json=AsyncMock(return_value=payload),
+                )
+                with patch.object(server, "send_ranking_notification", AsyncMock(return_value=sent)) as notify:
+                    response = await server.notify_ranking(request)
+                expected = {"ok": True, "sent": sent}
+                if not sent:
+                    expected["reason"] = "chat_not_configured"
+                self.assertEqual(response, expected)
+                notify.assert_awaited_once_with(server.tg_app.bot, payload)
+
+    async def test_ranking_endpoint_reports_error_without_leaking_exception_or_retrying(self) -> None:
+        """异常返回固定错误码，只记录错误类型，避免 Telegram 异常泄露 URL 或 Token。"""
+        for error in (RuntimeError("private-error-detail"), TimeoutError("private-error-detail")):
+            with self.subTest(error=type(error).__name__):
+                request = types.SimpleNamespace(
+                    headers={"X-Internal-Secret": os.environ["INTERNAL_API_SECRET"]},
+                    json=AsyncMock(return_value={"batchId": "batch_fixture", "period": "weekly"}),
+                )
+                with (
+                    patch.object(server, "send_ranking_notification", AsyncMock(side_effect=error)) as notify,
+                    self.assertLogs(server.logger, level="ERROR") as logs,
+                ):
+                    response = await server.notify_ranking(request)
+                self.assertEqual(response.status_code, 502)
+                self.assertEqual(response.content, {"ok": False, "error": "ranking_send_failed"})
+                notify.assert_awaited_once()
+                rendered = " ".join(logs.output)
+                self.assertIn("batch_fixture", rendered)
+                self.assertIn(type(error).__name__, rendered)
+                self.assertNotIn("private-error-detail", rendered)
+
+    async def test_ranking_endpoint_authenticates_before_dispatch(self) -> None:
+        """未授权请求不能解析载荷或调用 Telegram 发送。"""
+        request = types.SimpleNamespace(headers={"X-Internal-Secret": "wrong-secret"}, json=AsyncMock())
+        with patch.object(server, "send_ranking_notification", AsyncMock()) as notify:
+            response = await server.notify_ranking(request)
+        self.assertEqual(response.status_code, 401)
+        request.json.assert_not_awaited()
+        notify.assert_not_awaited()
+
+
 class ServerWebhookRetryTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_safe_request_log_uses_route_template_without_query(self) -> None:
         request = types.SimpleNamespace(

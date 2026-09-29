@@ -810,7 +810,7 @@ func sumRankingDuration(rows []models.PlaybackRanking) int64 {
 }
 
 // GenerateRanking 完整提交一个周期批次，仅本次创建成功的批次触发既有通知。
-// 同周期竞争者和空榜都由批次唯一约束去重，通知可靠恢复留给独立投递流程。
+// 同周期竞争者和空榜都由批次唯一约束去重；通知结果仅记日志，不会回滚快照或触发补发。
 func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, start, end *time.Time) error {
 	persist := s.persistBatch
 	if persist == nil {
@@ -960,6 +960,7 @@ func buildRankingNotificationPayload(res *RankingComputeResult) notifierint.Rank
 		generatedClock = res.ComputedAt.In(tz).Format("15:04")
 	}
 	return notifierint.RankingNotification{
+		BatchID:       res.BatchID,
 		Period:        string(res.Period),
 		PeriodStart:   res.Start.In(tz).Format("2006-01-02"),
 		PeriodEnd:     RankingDisplayEnd(res.Start, res.End, tz).Format("2006-01-02"),

@@ -577,6 +577,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 进程内通过 `GetSharedBotNotifier()` 复用单例，避免每次通知都重建客户端与配置解析
 - `BOT_NOTIFY_URL` 读取带 30 秒刷新节流；`Reload()` 可强制刷新配置缓存
 - 发送日志统一包含 `endpoint / event / payloadSize / requestId / latency`，便于串联 API → Bot 通知失败链路
+- 排行通知使用独立的结果解析：日志关联 `batchId / period`，只有 Bot 显式返回 `ok: true, sent: true` 才记录已发送；Bot 未配置或无接收目标明确跳过。HTTP / 网络错误、超时和无效 / 旧响应记录结果未确认，不输出异常原文、URL 或响应体，也不重试或写入投递表；其余通知行为保持不变
 
 **通知类型**：
 | 方法 | Bot 端点 | 触发时机 |
@@ -586,7 +587,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 | `NotifySubscriptionApproved` / `NotifySubscriptionRejected` / `NotifySubscriptionIngested` | `POST /notify/subscription-result` | 用户订阅审核结果 / 入库结果 |
 | `NotifyNewRegistration` | `POST /notify/registration` | 新用户注册 |
 | `NotifyPaymentSuccess` | `POST /notify/payment` | Stripe 支付履约成功 |
-| `NotifyRanking` | `POST /notify/ranking` | 排行榜生成完成 |
+| `NotifyRanking` | `POST /notify/ranking` | 排行榜整期提交后异步发送；核对本次发送 / 跳过反馈并记录日志 |
 
 **认证方式**：`X-Internal-Secret` 头（值 = `INTERNAL_API_SECRET`）
 
@@ -599,7 +600,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `GenerateRanking(period)` — 无数据读取地校验 PlaybackActivity 六个必需字段 → 沿用媒体库筛选和电影 / Episode 聚合 → 在同一事务写入 `playback_ranking_batches` 与全部 `playback_rankings` 明细 → 只有新批次触发既有 Bot 通知。周期唯一约束在批次表，明细错误整体回滚；空榜也有批次并参与去重
 - `GetLatestRanking(period)` — 按 `periodEnd / snapshotAt / createdAt` 获取最近已生成批次，再读取该批次明细；只排除周期开始或生成时间在未来的记录，不等待当前自然日 / 周结束。空批次可覆盖上一期非空榜
 - `GetHistoryRanking(period, rangeStart, rangeEnd)` — 批次 `periodEnd <= rangeEnd` 包含完整周期上界并兼容周期内截点；旧空 `batchId` 已由 migration 确定性补齐，读取统一按批次进行。播放明细仍采用 `[start, end)`
-- `NotifyRanking` 推送 payload 包含整期 `totalDuration` 与业务时区 RFC3339 `snapshotAt`；Web / Bot 展示所属日期和实际生成时间。`periodEnd` 的日期展示将零点排他上界换算成最后一个覆盖日期，`cutoffAt` 保留为生成时分的兼容字段，不代表精确冻结时刻
+- `NotifyRanking` 推送 payload 包含关联日志的 `batchId`、整期 `totalDuration` 与业务时区 RFC3339 `snapshotAt`；Web / Bot 展示所属日期和实际生成时间。`periodEnd` 的日期展示将零点排他上界换算成最后一个覆盖日期，`cutoffAt` 保留为生成时分的兼容字段，不代表精确冻结时刻
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
 - `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；空配置视为全部媒体库参与统计
 
@@ -614,7 +615,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 当前 PlaybackActivity 不返回 `SeriesId` / `SeriesName`，剧集榜需额外回查 Emby 媒体详情后按 `SeriesId` 归并
 - 排行榜媒体库范围使用全站统一 allowlist，而不是按用户可见媒体库拆分
 - allowlist 为空时默认统计全部媒体库；非空时把管理员 View ID 和电影 `ItemId` / 剧集 `SeriesId` 候选交给 `/Users/{adminUserId}/Items` 做范围查询，不在本地直接比较 Views、`ParentId`、Ancestors 的 ID
-- 每天 20:00 是执行计划，查询当天范围内执行时已有数据，不要求精确 20:00 快照。通知结果记录与补发属于后续第二步，当前生成成功仍不能代表 Telegram 已送达
+- 每天 20:00 是执行计划，查询当天范围内执行时已有数据，不要求精确 20:00 快照。生成成功表示快照已保存；异步发送 / 跳过结果与异常只记日志，不回滚快照、不补发。历史榜继续在页面查询，投递管理与补发已从计划范围移除
 
 ### 5.16 PaymentService (`services/payment/service.go`)
 

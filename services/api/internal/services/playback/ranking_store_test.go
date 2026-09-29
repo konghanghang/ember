@@ -109,12 +109,20 @@ func TestGenerateRankingPublishesOnlyCreatedBatch(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			notifier := &captureRankingNotifier{}
 			stored := false
+			batchID := ""
+			var notification func()
 			service := &PlaybackRankingService{
 				embyService: embyint.NewEmbyService(), notifier: notifier,
 				loadLibraryAllowlist: func() ([]string, error) { return nil, nil },
-				asyncGo:              func(_ string, work func()) { work() },
+				asyncGo: func(_ string, work func()) {
+					if !stored {
+						t.Fatal("notification must be scheduled after persistence")
+					}
+					notification = work
+				},
 				persistBatch: func(result *RankingComputeResult) (bool, error) {
 					stored = true
+					batchID = result.BatchID
 					if result.BatchID == "" || len(result.Movies)+len(result.Episodes) != 0 {
 						t.Fatal("expected a stable empty-batch identity before persistence")
 					}
@@ -128,12 +136,24 @@ func TestGenerateRankingPublishesOnlyCreatedBatch(t *testing.T) {
 			if !stored || (err != nil) != (scenario == "failed") {
 				t.Fatalf("stored=%v err=%v", stored, err)
 			}
+			if len(notifier.payloads) != 0 {
+				t.Fatal("generation must finish without waiting for the asynchronous notification")
+			}
+			if (notification != nil) != (scenario == "created") {
+				t.Fatal("only a newly committed batch may schedule a notification")
+			}
+			if notification != nil {
+				notification()
+			}
 			want := 0
 			if scenario == "created" {
 				want = 1
 			}
 			if len(notifier.payloads) != want {
 				t.Fatalf("notifications=%d want=%d", len(notifier.payloads), want)
+			}
+			if want == 1 && notifier.payloads[0].BatchID != batchID {
+				t.Fatal("notification must retain the saved batch identity")
 			}
 		})
 	}

@@ -33,7 +33,19 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 | `POST /notify/payment` | 接收支付成功通知 |
 | `POST /notify/ranking` | 接收排行榜通知 |
 
-排行榜载荷的 `snapshotAt` 为 API 按 `CRON_TIMEZONE` 输出的带 offset RFC3339，Bot 按该时区分量显示“生成于”，不再次套用进程本地时区。日期范围已由 API 转成实际覆盖日期；旧载荷兼容与清理条件见 [Playback Reporting 合同](./playback-reporting-api-contract.md#61-ember-快照存储与展示合同)。本次仅调整展示，实际投递结果记录和补发尚未实施。
+排行榜载荷的 `snapshotAt` 为 API 按 `CRON_TIMEZONE` 输出的带 offset RFC3339，Bot 按该时区分量显示“生成于”，不再次套用进程本地时区。日期范围已由 API 转成实际覆盖日期；旧载荷兼容与清理条件见 [Playback Reporting 合同](./playback-reporting-api-contract.md#61-ember-快照存储与展示合同)。可选 `batchId` 用于关联 API / Bot 日志，旧 API 缺失该字段仍可发送。
+
+`POST /notify/ranking` 沿用 Internal Secret 鉴权，群组优先、未配置群组时回退管理员，只尝试发送一次：
+
+| 情况 | HTTP | 返回 |
+| --- | --- | --- |
+| Telegram 发送调用成功 | 200 | `{ "ok": true, "sent": true }` |
+| 群组与管理员均未配置 | 200 | `{ "ok": true, "sent": false, "reason": "chat_not_configured" }` |
+| 发送调用报错或超时 | 502 | `{ "ok": false, "error": "ranking_send_failed" }` |
+
+`ok` 表示请求已正常处理，是否发送必须读取 `sent`。失败日志只记录批次、周期和错误类型，不输出敏感异常原文。API 的 HTTP / 网络错误、超时和缺失 `sent` 的旧响应均视为结果未确认，不推断 Telegram 未发送，不追加请求。可先升级 Bot 再升级 API；旧 API 会忽略新增响应字段，新 API 遇到旧 Bot 仍会发送，但只记录结果未确认。
+
+上述反馈仅用于日志，不新增投递状态存储、管理列表、人工补发或自动重试；异常不影响已保存的排行榜快照。
 
 ## 4. 命令与处理器
 

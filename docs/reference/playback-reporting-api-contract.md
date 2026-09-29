@@ -348,8 +348,8 @@ COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0)
 - 最新榜从已生成批次中按 `periodEnd / snapshotAt / createdAt` 排序，允许当前自然日 / 周尚未结束；历史读取继续包含完整周期上界。
 - 数据库存储原始周期边界；API / Bot 的 `periodStart / periodEnd` 是供展示的覆盖日期，零点排他上界显示为前一天。例如 `[9 月 29 日 00:00,9 月 30 日 00:00)` 展示日期为 `9 月 29 日`。
 - `snapshotAt` 在 Go 边界转成 `CRON_TIMEZONE` 下带 offset 的 RFC3339，Web / Bot 按该时区分量展示“生成于”，不再从周期结束时间生成“截至 00:00”。`cutoffAt` 兼容字段保留生成时分，不代表历史时点冻结。
-- 新 Bot 在滚动升级时仍接受缺失 / 无效 `snapshotAt` 的旧载荷并保留原 `cutoffAt` 文案。第二步通知合同升级时复查此过渡分支；最低支持 API 均提供 `snapshotAt` 且旧版回滚窗口结束后移除。
-- 第一阶段只改变存储、读取和展示，不改变本文件记录的聚合 SQL、媒体库过滤和 fire-and-forget 投递行为；后续问题见[分步修复计划](../plan/media-subscription/playback-summary-improvements.md)。
+- 新 Bot 在滚动升级时仍接受缺失 / 无效 `snapshotAt` 的旧载荷并保留原 `cutoffAt` 文案。第二步复查后继续保留该分支；最低支持 API 均提供 `snapshotAt` 且旧版回滚窗口结束后移除。
+- 第一阶段改变存储、读取和展示；第二阶段保留 fire-and-forget，只补充 `batchId` 日志关联和明确发送 / 跳过反馈，错误或超时不自动重试、不影响快照。没有新增投递记录或补发功能，协议见 [Bot 架构参考](./bot-architecture-reference.md)。聚合 SQL 和媒体库过滤尚未调整，后续问题见[分步修复计划](../plan/media-subscription/playback-summary-improvements.md)。
 
 ## 7. 推荐的只读验证清单
 

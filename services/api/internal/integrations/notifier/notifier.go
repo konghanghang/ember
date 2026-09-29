@@ -344,12 +344,13 @@ func (n *BotNotifier) NotifyPaymentSuccess(data PaymentSuccessNotification) {
 
 // RankingNotification 排行榜推送数据
 type RankingNotification struct {
-	Period        string              `json:"period"`        // "daily" 或 "weekly"
-	PeriodStart   string              `json:"periodStart"`   // "2026-02-14"
-	PeriodEnd     string              `json:"periodEnd"`     // "2026-02-14"
-	CutoffAt      string              `json:"cutoffAt"`      // 兼容旧 Bot 的生成时分，不代表精确统计截止
-	SnapshotAt    string              `json:"snapshotAt"`    // CRON_TIMEZONE 下的 RFC3339 生成时间
-	TotalDuration int64               `json:"totalDuration"` // 秒
+	BatchID       string              `json:"batchId,omitempty"` // 关联榜单与发送日志，不作为重试标识
+	Period        string              `json:"period"`            // "daily" 或 "weekly"
+	PeriodStart   string              `json:"periodStart"`       // "2026-02-14"
+	PeriodEnd     string              `json:"periodEnd"`         // "2026-02-14"
+	CutoffAt      string              `json:"cutoffAt"`          // 兼容旧 Bot 的生成时分，不代表精确统计截止
+	SnapshotAt    string              `json:"snapshotAt"`        // CRON_TIMEZONE 下的 RFC3339 生成时间
+	TotalDuration int64               `json:"totalDuration"`     // 秒
 	Movies        []RankingItemNotify `json:"movies"`
 	Episodes      []RankingItemNotify `json:"episodes"`
 }
@@ -360,11 +361,6 @@ type RankingItemNotify struct {
 	Name     string `json:"name"`
 	Duration int64  `json:"duration"` // 秒
 	Count    int    `json:"count"`
-}
-
-// NotifyRanking 通知 Bot 发送排行榜到 Telegram 群组（fire-and-forget）
-func (n *BotNotifier) NotifyRanking(data RankingNotification) {
-	n.post("/notify/ranking", data)
 }
 
 // NotifySubscriptionApproved 通知用户订阅已审核通过。
