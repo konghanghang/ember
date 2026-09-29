@@ -639,7 +639,8 @@ func filterPlaybackAggregateRows(rows []playbackAggregateRow, allowedItemIDs map
 	return filtered
 }
 
-// resolveEntityLibraries 沿用管理员 View 下的批量匹配，仅缓存成功归属；未匹配不能扩大统计范围。
+// resolveEntityLibraries 在已选 View 中批量匹配尚未归属的条目，首次匹配后不再查询其他库。
+// 任一已选库命中即可参与统计；仅沿用成功归属缓存，未匹配或请求失败不能扩大范围。
 func (s *PlaybackRankingService) resolveEntityLibraries(adminUserID string, kind string, ids []string, allowedLibraryIDs map[string]struct{}) (map[string]string, error) {
 	adminUserID = strings.TrimSpace(adminUserID)
 	if adminUserID == "" {
@@ -666,38 +667,51 @@ func (s *PlaybackRankingService) resolveEntityLibraries(adminUserID string, kind
 		return results, nil
 	}
 
+	cacheHits := len(ids) - len(unresolved)
 	requested := make(map[string]struct{}, len(unresolved))
 	unmatched := 0
 	for _, id := range unresolved {
 		requested[id] = struct{}{}
 	}
 	for _, libraryID := range allowedIDs {
+		if len(unresolved) == 0 {
+			break
+		}
+		candidateCount := len(unresolved)
 		items, err := s.embyService.GetUserLibraryItemsByIDs(adminUserID, libraryID, unresolved)
 		if err != nil {
 			return nil, err
 		}
+		matched := 0
 		for _, item := range items {
 			itemID := strings.TrimSpace(item.ID)
 			if _, ok := requested[itemID]; !ok {
 				continue
 			}
+			delete(requested, itemID)
+			matched++
 			results[itemID] = libraryID
 			cacheStoreString(s.entityLibraryCache, rankingEntityLibraryCacheKey(adminUserID, kind, itemID, allowedIDs), libraryID)
 		}
+		remaining := unresolved[:0]
+		for _, id := range unresolved {
+			if _, ok := requested[id]; ok {
+				remaining = append(remaining, id)
+			}
+		}
+		unresolved = remaining
 		log.Printf(
-			"[PlaybackRanking] %s library membership adminUserId=%s libraryId=%s candidates=%d matched=%d",
+			"[PlaybackRanking] %s library membership adminUserId=%s libraryId=%s candidates=%d matched=%d remaining=%d",
 			kind,
 			adminUserID,
 			libraryID,
+			candidateCount,
+			matched,
 			len(unresolved),
-			len(items),
 		)
 	}
 
 	for _, id := range unresolved {
-		if _, ok := results[id]; ok {
-			continue
-		}
 		results[id] = rankingUnknownLibraryID
 		unmatched++
 	}
@@ -706,7 +720,7 @@ func (s *PlaybackRankingService) resolveEntityLibraries(adminUserID string, kind
 		"[PlaybackRanking] %s library resolve summary candidates=%d cacheHits=%d unmatched=%d",
 		kind,
 		len(ids),
-		len(ids)-len(unresolved),
+		cacheHits,
 		unmatched,
 	)
 

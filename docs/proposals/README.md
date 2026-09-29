@@ -21,7 +21,7 @@
 
 2026-09-16 已将 [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md) 归档，代码与本地签名提交完成，按用户确认采用 fake 验收；真实 PostgreSQL、外部业务系统和发布不在本轮已完成证据内。此前已陆续归档 Gateway 媒体路径诊断、透明代理与 Web 访问控制、前端工程质量、115 Size 解耦等方案。2026-09-22 新增 [115 转存起播许可方案](../plan/architecture/p115-transfer-playback-intent.md)，当时 `docs/plan/` 保留 9 份进行中、待验收或观察期实施稿与模板入口。
 
-2026-09-29 新增 [每日播放总结分步修复](../plan/media-subscription/playback-summary-improvements.md)，实施稿总数增至 10 份；第一步批次存储、最新榜读取和时间展示已完成，本地检查与专用 PostgreSQL 集成验证通过。第二步按用户要求收缩为基础发送反馈与测试；第三步已按四项确认口径统一总量、修正完整聚合与失效范围，Go、SQLite 内存与现有 Web 组件回归通过。第四步已修正手动日期边界、配置说明与固定页面提示，Go / Web 测试、构建及 SQLite 边界验证通过。投递管理 / 补发已取消，第五步可选，待决定。
+2026-09-29 [每日播放总结分步修复](../archive/plan/media-subscription/playback-summary-improvements.md) 五步本地实施完成并归档，当前实施稿保留 9 份。第一步批次存储、最新榜读取和时间展示通过本地检查及专用 PostgreSQL 验收；第二步收缩为基础发送反馈与测试；第三、四步完成统计口径、完整性、日期边界与说明修复。第五步通过 Go 非集成测试、关键 race、vet、build 和 SQLite 成本对比，仅落地媒体库回查去重，SQL 合并因收益不稳定暂缓。投递管理 / 补发已取消，真实 Emby / Telegram、浏览器与部署未执行；历史批次验证不扩大为本轮证据。
 
 2026-08-31 已完成前端工程质量实施稿的代码、自动化验证和正式归档；真实浏览器验收未执行且未写成已通过，具体限制和剩余计划状态见 [计划文档盘点](./plan-inventory.md)。
 

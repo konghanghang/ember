@@ -34,7 +34,7 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中仍在推进中的实施稿共 10 份：
+当前 `docs/plan/` 中仍在推进中的实施稿共 9 份：
 
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
@@ -45,10 +45,10 @@
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
-- [每日播放总结分步修复](./media-subscription/playback-summary-improvements.md)（2026-09-29：第一至四步完成；统计口径、手动日期边界、配置说明与页面提示已收口，投递管理 / 补发已取消；第五步查询成本优化可选，待决定）
 
 最近已完成归档的实施稿包括：
 
+- [每日播放总结分步修复](../archive/plan/media-subscription/playback-summary-improvements.md)（2026-09-29：五步本地实施完成；回查去重已落地，SQL 合并经成本评估暂缓，真实 Emby / Telegram 与部署未执行）
 - [支付与媒体状态问题修复计划](../archive/plan/media-subscription/open-issue-followup.md)（2026-09-17：#21–#25 已修复并逐项本地提交；真实 PostgreSQL/外部验证未执行）
 - [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md)（2026-09-16：9 项修复、2 项已有修复验收；用户确认 fake 验收，真实 PostgreSQL 未执行）
 - `architecture/gateway-media-path-diagnostics.md` → `docs/archive/plan/architecture/gateway-media-path-diagnostics.md`

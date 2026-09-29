@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-09-29（每日播放总结第一至四步完成，手动日期边界与配置说明已通过本地验证）
+> 更新时间：2026-09-29（每日播放总结五步本地实施完成并归档，SQL 合并经成本评估暂缓）
 
 本清单只回答三件事：
 
@@ -42,6 +42,8 @@
 ## A. 已落地，已完成归档
 
 这些文档已经有明确代码落点，并已从 `docs/plan/` 退出。
+
+2026-09-29 归档：[每日播放总结分步修复](../archive/plan/media-subscription/playback-summary-improvements.md)。五步本地实施与验证完成：前四步修复存储、发送反馈、统计口径和日期边界，第五步将已匹配候选从后续媒体库回查中移除。300 个候选、4 库的有匹配 fake 场景从 12 次降为 3～7 次，全部未匹配仍为 12 次；SQL 合并在日 / 周 / 月合成窗口收益不稳定，暂不实施。Go 非集成测试、关键 race、vet、build 和 SQLite 成本脚本通过；第一步 PostgreSQL、第二步 Bot、第四步 Web 验收只覆盖对应批次，真实 Emby / Telegram、浏览器与部署未执行。
 
 2026-09-16 增补：[GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md) 已归档。#8/#10–#19 共 11 项完成本地代码修复或已有修复验收；用户明确接受 fake 验证，非集成 Go、关键包 race、Web 和 Bot 检查通过，未新增 migration。真实 PostgreSQL 不可达且未完成验证，推送/发布和旧 Bot pop 兼容清理保留独立后续边界。
 
@@ -93,7 +95,7 @@
 
 2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env` 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。Gateway 本地媒体直出已按产品边界撤销并归档，不再列为现行计划。
 
-2026-09-17 文档复核：上述通过记录只覆盖对应历史批次；当时 9 月 12 日新增账号配置版本与成功记录优化的 PostgreSQL 用例尚未执行。2026-09-21 已补跑 DirectPlay PostgreSQL 专项并全部通过，详见 [网关总计划的验证记录](../plan/architecture/emby-115-direct-play-gateway.md)；真实 Redis/115/客户端验收仍未完成。2026-09-22 增补起播许可、2026-09-29 新增每日播放总结计划后，当前 `docs/plan/` 保留以下 10 份。
+2026-09-17 文档复核：上述通过记录只覆盖对应历史批次；当时 9 月 12 日新增账号配置版本与成功记录优化的 PostgreSQL 用例尚未执行。2026-09-21 已补跑 DirectPlay PostgreSQL 专项并全部通过，详见 [网关总计划的验证记录](../plan/architecture/emby-115-direct-play-gateway.md)；真实 Redis/115/客户端验收仍未完成。2026-09-22 增补起播许可、2026-09-29 完成每日播放总结计划归档后，当前 `docs/plan/` 保留以下 9 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
@@ -106,9 +108,8 @@
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
-| [media-subscription/playback-summary-improvements.md](../plan/media-subscription/playback-summary-improvements.md) | 第一至四步完成，第五步可选，待决定 | 第一至三步已提交；第四步统一手动日期半开边界、说明调度开关依赖与数据库配置来源、移除固定生成时间提示。Go 非集成 test、vet、build、SQLite 内存边界验证通过；Web 266 项通过、3 项跳过，build 通过。第一步 PostgreSQL、第二步 Bot 与第三步 race 验收仍限于对应批次；第四步无模型 / migration 或 Bot 业务代码变更。真实 Emby / Telegram、浏览器与部署未执行 | 保留至可选第五步决策与验证边界收口 |
 
-2026-09-29 新增上述每日播放总结计划后，当前 `docs/plan/` 共 10 份实施稿；历史批次的验证记录不扩展为本轮验证结论。
+2026-09-29 每日播放总结计划完成归档后，当前 `docs/plan/` 共 9 份实施稿；历史批次的验证记录不扩展为本轮验证结论。
 
 ## C. 已完成的归档记录
 

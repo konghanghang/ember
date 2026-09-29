@@ -16,6 +16,7 @@
   - 例如：[管理员 API Key 实现方案](./plan/access-auth/admin-api-key.md)
 - `billing-redemption/`：Stripe、套餐分组、兑换码、一人一码、兑换目录重构、注册码绑定套餐分组
 - `media-subscription/`：追剧日历、媒体质量、播放历史、分季订阅、排行榜、最近入库、用户侧媒体库入口收口、订阅拒绝后重提、用户媒体库管理
+  - [每日播放总结分步修复](./plan/media-subscription/playback-summary-improvements.md)（五步本地实施完成；SQL 合并经评估暂缓，真实外部验收与部署未执行）
   - [支付与媒体状态问题修复计划](./plan/media-subscription/open-issue-followup.md)（#21–#25，本地代码与验证收口，未推送）
   - 例如：[订阅手动补偿下载实现方案](./plan/media-subscription/subscription-manual-moviepilot-dispatch.md)
   - 例如：[播放排行榜媒体库 allowlist 实现方案](./plan/media-subscription/playback-ranking-library-allowlist.md)
