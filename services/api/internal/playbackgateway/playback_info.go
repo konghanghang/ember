@@ -162,7 +162,7 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 		)
 		return nil
 	}
-	proofs, observations, ok := buildPlaybackProofs(decodedPrefix, routeContext)
+	proofs, intents, observations, ok := buildPlaybackEvidence(decodedPrefix, routeContext)
 	gateway.logPlaybackInfoMediaSourceObservations(
 		routeContext.principal.MappingID,
 		routeContext.playbackInfoItemID,
@@ -172,11 +172,14 @@ func (gateway *Gateway) observePlaybackInfoResponse(response *http.Response, rou
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_response_unusable")
 		return nil
 	}
-	written, published := gateway.proofs.PublishClient(guard, proofs)
+	written, retained, published := gateway.proofs.publishClientEvidence(guard, proofs, intents)
 	replaced = true
 	if !published {
 		gateway.debugf("[PlaybackGateway] code=playback_info_proof_skipped reasonCode=playback_info_superseded")
 		return nil
+	}
+	if retained > 0 {
+		gateway.debugf("[PlaybackGateway] code=playback_transfer_intent_retained itemRef=%s reasonCode=client_playback_requested ttlSeconds=%d", diagnosticItemRef(*routeContext.principal, routeContext.playbackInfoItemID), int(playbackTransferIntentTTL.Seconds()))
 	}
 	if written == 0 {
 		gateway.logger.Printf("[PlaybackGateway] code=playback_info_proof_rejected")
@@ -234,15 +237,23 @@ func buildPlaybackProofs(
 	body []byte,
 	routeContext requestRouteContext,
 ) ([]PlaybackProof, []playbackInfoMediaSourceObservation, bool) {
+	proofs, _, observations, _ := buildPlaybackEvidence(body, routeContext)
+	return proofs, observations, len(proofs) > 0
+}
+
+// buildPlaybackEvidence separates explicit client intent from media capability.
+// Unsupported sources can describe intent, but never become playable proofs.
+func buildPlaybackEvidence(body []byte, routeContext requestRouteContext) ([]PlaybackProof, []PlaybackProof, []playbackInfoMediaSourceObservation, bool) {
 	var payload playbackInfoResponsePayload
 	if err := json.Unmarshal(body, &payload); err != nil || payload.ErrorCode != "" ||
 		!validProofValue(payload.PlaySessionID, maxProofPlaySessionIDBytes, false) ||
 		len(payload.MediaSources) == 0 || len(payload.MediaSources) > maxPlaybackInfoMediaSources ||
 		routeContext.principal == nil {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	seen := make(map[string]struct{}, len(payload.MediaSources))
 	proofs := make([]PlaybackProof, 0, len(payload.MediaSources))
+	var intents []PlaybackProof
 	observations := make([]playbackInfoMediaSourceObservation, 0, len(payload.MediaSources))
 	principal := routeContext.principal
 	for _, source := range payload.MediaSources {
@@ -250,7 +261,7 @@ func buildPlaybackProofs(
 			continue
 		}
 		if _, duplicate := seen[source.ID]; duplicate {
-			return nil, nil, false
+			return nil, nil, nil, false
 		}
 		seen[source.ID] = struct{}{}
 		mediaPath, pathTruncated := boundedRequestLogValue(source.Path, maxProofPathBytes)
@@ -282,17 +293,21 @@ func buildPlaybackProofs(
 			SupportsTranscoding: source.SupportsTranscoding,
 		}
 		observation.ProofRejectReason = playbackProofRejectionReason(proof)
+		proof.transferIntent = routeContext.playbackInfoIntent.requested &&
+			(routeContext.playbackInfoIntent.mediaSourceID == source.ID ||
+				routeContext.playbackInfoIntent.mediaSourceID == "" && len(payload.MediaSources) == 1)
+		if proof.transferIntent && !proof.IsRemote && strings.HasPrefix(proof.Path, "/") &&
+			observation.ProofRejectReason == "direct_play_unsupported" {
+			intents = append(intents, proof)
+		}
 		if observation.ProofRejectReason == "" {
-			proof.transferIntent = routeContext.playbackInfoIntent.requested &&
-				(routeContext.playbackInfoIntent.mediaSourceID == source.ID ||
-					routeContext.playbackInfoIntent.mediaSourceID == "" && len(payload.MediaSources) == 1)
 			observation.ProofAccepted = true
 			observation.ProofRejectReason = "none"
 			proofs = append(proofs, proof)
 		}
 		observations = append(observations, observation)
 	}
-	return proofs, observations, len(proofs) > 0
+	return proofs, intents, observations, len(proofs) > 0 || len(intents) > 0
 }
 
 // playbackInfoItemID matches the fixed case-insensitive PlaybackInfo segments

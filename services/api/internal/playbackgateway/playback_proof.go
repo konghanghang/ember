@@ -49,7 +49,14 @@ type PlaybackProof struct {
 	ExpiresAt            time.Time
 	transferIntent       bool
 	transferIntentUntil  time.Time
+	intentOriginSession  string
 	generation           uint64
+}
+
+// playbackIntentGrant binds a retained client intent to at most one internal session.
+type playbackIntentGrant struct {
+	source         PlaybackProof
+	boundSessionID string
 }
 
 type playbackProofKey struct {
@@ -80,6 +87,7 @@ const (
 type playbackProofCache struct {
 	mu           sync.Mutex
 	entries      map[playbackProofKey]PlaybackProof
+	intents      map[playbackProofKey]playbackIntentGrant
 	maxEntries   int
 	ttl          time.Duration
 	now          func() time.Time
@@ -92,6 +100,7 @@ type playbackProofCache struct {
 func newPlaybackProofCache(maxEntries int, ttl time.Duration) *playbackProofCache {
 	return &playbackProofCache{
 		entries: make(map[playbackProofKey]PlaybackProof), maxEntries: maxEntries,
+		intents:      make(map[playbackProofKey]playbackIntentGrant),
 		publications: make(map[*playbackProofPublishGuard]struct{}),
 		ttl:          ttl, now: time.Now,
 	}
@@ -135,12 +144,15 @@ func (cache *playbackProofCache) recordLocked(proofs []PlaybackProof, now time.T
 		proof.ExpiresAt = now.Add(cache.ttl)
 		cache.generation++
 		proof.generation = cache.generation
-		proof.transferIntentUntil = time.Time{}
 		if proof.transferIntent {
-			proof.transferIntentUntil = now.Add(playbackTransferIntentTTL)
+			if proof.transferIntentUntil.IsZero() {
+				proof.transferIntentUntil = now.Add(playbackTransferIntentTTL)
+			}
 			if proof.ExpiresAt.Before(proof.transferIntentUntil) {
 				proof.transferIntentUntil = proof.ExpiresAt
 			}
+		} else {
+			proof.transferIntentUntil = time.Time{}
 		}
 		cache.entries[key] = proof
 		written++
@@ -211,20 +223,88 @@ func (cache *playbackProofCache) PublishClient(guard *playbackProofPublishGuard,
 	return cache.publishGuarded(guard, proofs, true)
 }
 
+// publishClientEvidence publishes intent and media under the same generation
+// guard. A slow or superseded response cannot resurrect either observation.
+func (cache *playbackProofCache) publishClientEvidence(guard *playbackProofPublishGuard, proofs, intents []PlaybackProof) (int, int, bool) {
+	return cache.publishEvidence(guard, proofs, intents, true)
+}
+
 // publishGuarded applies one current result under the cache lock. Internal
 // results cannot supersede client bodies still being inspected; their final
 // successful or empty client snapshot remains authoritative over those GETs.
 func (cache *playbackProofCache) publishGuarded(guard *playbackProofPublishGuard, proofs []PlaybackProof, client bool) (int, bool) {
+	written, _, published := cache.publishEvidence(guard, proofs, nil, client)
+	return written, published
+}
+
+// publishEvidence retains bounded client grants separately and only lends them
+// to an independently validated internal media proof of the same identity/path.
+func (cache *playbackProofCache) publishEvidence(guard *playbackProofPublishGuard, proofs, intents []PlaybackProof, client bool) (int, int, bool) {
 	if cache == nil || guard == nil {
-		return 0, false
+		return 0, 0, false
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if _, active := cache.publications[guard]; !active || guard.invalidated || guard.client != client {
-		return 0, false
+		return 0, 0, false
 	}
 	cache.invalidateItemLocked(guard.mappingID, guard.itemID, client)
-	return cache.recordLocked(proofs, cache.now().UTC()), true
+	now := cache.now().UTC()
+	cache.pruneExpiredLocked(now)
+	retained := 0
+	for _, intent := range intents {
+		if len(cache.intents) >= cache.maxEntries {
+			break
+		}
+		intent.AuthorizedAt = now
+		intent.transferIntentUntil = now.Add(playbackTransferIntentTTL)
+		cache.intents[playbackProofKey{intent.MappingID, intent.ItemID, intent.MediaSourceID, intent.PlaySessionID}] = playbackIntentGrant{source: intent}
+		retained++
+	}
+	if !client {
+		proofs = append([]PlaybackProof(nil), proofs...)
+		for i := range proofs {
+			proofs[i] = cache.inheritIntentLocked(proofs[i], now)
+		}
+	}
+	return cache.recordLocked(proofs, now), retained, true
+}
+
+// inheritIntentLocked binds one independently valid internal proof to the
+// remaining lifetime of a matching client grant. The caller holds cache.mu.
+func (cache *playbackProofCache) inheritIntentLocked(proof PlaybackProof, now time.Time) PlaybackProof {
+	proof.transferIntent = false
+	proof.transferIntentUntil = time.Time{}
+	proof.intentOriginSession = ""
+	if !validPlaybackProof(proof) {
+		return proof
+	}
+	for key, grant := range cache.intents {
+		intent := grant.source
+		if !matchingIntentMedia(intent, proof) || now.Before(intent.AuthorizedAt) || !intent.transferIntentUntil.After(now) ||
+			(grant.boundSessionID != "" && grant.boundSessionID != proof.PlaySessionID) {
+			continue
+		}
+		proof.transferIntent = true
+		proof.transferIntentUntil = intent.transferIntentUntil
+		proof.intentOriginSession = intent.PlaySessionID
+		// Each grant may bind to only one supplemented session.
+		grant.boundSessionID = proof.PlaySessionID
+		cache.intents[key] = grant
+		break
+	}
+	return proof
+}
+
+// matchingIntentMedia requires the complete principal and source location;
+// differing sessions are allowed only at guarded internal publication.
+func matchingIntentMedia(intent, proof PlaybackProof) bool {
+	return intent.MappingID == proof.MappingID && intent.ServerID == proof.ServerID &&
+		intent.UserID == proof.UserID && intent.EmbyUserID == proof.EmbyUserID &&
+		intent.DeviceID == proof.DeviceID && intent.ClientName == proof.ClientName &&
+		intent.ItemID == proof.ItemID && intent.MediaSourceID == proof.MediaSourceID &&
+		intent.Path == proof.Path && intent.Container == proof.Container && !proof.IsRemote &&
+		(intent.Size <= 0 || proof.Size == intent.Size)
 }
 
 // invalidatePublicationsLocked revokes only in-flight results for one item;
@@ -267,8 +347,16 @@ func (cache *playbackProofCache) RevokeTransferIntent(principal embytoken.Princi
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	revoked := 0
+	for key, grant := range cache.intents {
+		intent := grant.source
+		if key.itemID == itemID && (key.playSessionID == playSessionID || grant.boundSessionID == playSessionID) &&
+			(mediaSourceID == "" || key.mediaSourceID == mediaSourceID) && playbackProofMatchesPrincipal(intent, principal) {
+			delete(cache.intents, key)
+			revoked++
+		}
+	}
 	for key, proof := range cache.entries {
-		if key.itemID != itemID || key.playSessionID != playSessionID ||
+		if key.itemID != itemID || (key.playSessionID != playSessionID && proof.intentOriginSession != playSessionID) ||
 			(mediaSourceID != "" && key.mediaSourceID != mediaSourceID) ||
 			!playbackProofMatchesPrincipal(proof, principal) || proof.transferIntentUntil.IsZero() {
 			continue
@@ -355,6 +443,13 @@ func (cache *playbackProofCache) InvalidateItem(mappingID, itemID string) {
 // client observation or explicit invalidation supersedes their authority.
 func (cache *playbackProofCache) invalidateItemLocked(mappingID, itemID string, includeClients bool) {
 	cache.invalidatePublicationsLocked(mappingID, itemID, includeClients)
+	if includeClients {
+		for key := range cache.intents {
+			if key.mappingID == mappingID && key.itemID == itemID {
+				delete(cache.intents, key)
+			}
+		}
+	}
 	for key := range cache.entries {
 		if key.mappingID == mappingID && key.itemID == itemID {
 			delete(cache.entries, key)
@@ -377,6 +472,11 @@ func (cache *playbackProofCache) Len() int {
 
 // pruneExpiredLocked removes expired entries while the caller holds cache.mu.
 func (cache *playbackProofCache) pruneExpiredLocked(now time.Time) {
+	for key, grant := range cache.intents {
+		if !grant.source.transferIntentUntil.After(now) {
+			delete(cache.intents, key)
+		}
+	}
 	for key, proof := range cache.entries {
 		if !proof.ExpiresAt.After(now) {
 			delete(cache.entries, key)

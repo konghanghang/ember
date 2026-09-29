@@ -326,12 +326,14 @@ Gateway 在 Debug 级别旁路记录 `playback_info_request_observed`：布尔�
 
 Gateway 保持普通 proof 的授权含义，另在同一个进程缓存中记录短期新增转存许可：
 
-- 仅合法客户端 JSON POST 中唯一、严格布尔 `IsPlayback=true`，且成功 Emby 响应形成匹配 proof 时授予。重复字段（含大小写变体）、null/类型错误或 POST query 另带 `IsPlayback/MediaSourceId` 不授予；仍透明转发请求、响应，不因意图不明确取消普通 proof。
+- 仅合法客户端 JSON POST 中唯一、严格布尔 `IsPlayback=true`，且成功 Emby 响应提供匹配媒体身份时记录意图；实际转存仍必须取得独立合格 proof。重复字段（含大小写变体）、null/类型错误或 POST query 另带 `IsPlayback/MediaSourceId` 不授予；仍透明转发请求、响应，不因意图不明确取消普通 proof。
 - 请求明确 `MediaSourceId` 时仅授予该 source；未指定时仅在响应有唯一合格 source 时授予。Gateway GET、客户端 GET、视频请求和缓存命中均不能授予或续期。
-- 许可从 proof 记录时固定有效 30 秒，不超过 proof 自身期限，按当前 server/user/mapping/device/item/source/session 及 proof 代次绑定。DirectPlay 在内容锁内二次确认目标不存在、申请转存配额和建立任务之前实时检查；旧排队请求不能使用替换 proof 的新许可。
+- 许可从客户端响应记录时固定有效 30 秒，不超过 proof 自身期限，按当前 server/user/mapping/device/item/source/session 及 proof 代次绑定。DirectPlay 在内容锁内二次确认目标不存在、申请转存配额和建立任务之前实时检查；旧排队请求不能使用替换 proof 的新许可。
 - 没有有效许可时，目标已存在或媒体缓存命中仍正常复用；目标不存在则以 `playback_intent_required` 回退 Emby，不申请转存配额、不建任务、不执行新转存，并释放本次新 reservation。HEAD 不创建新转存；该拒绝不属于账号健康故障。
 - 成功转发给 Emby 的 Stopped 撤销当时已记录的对应许可，独立于 Redis 是否有租约。事件不带 MediaSourceId 时清同身份、条目和 session 的全部 source；不影响其他会话、普通 proof 或十分钟跨会话缓存。不取消在途 PlaybackInfo；之后成功返回的显式客户端起播 POST 仍作为新的授予事件。
 - 这是“开始新转存时”的短期许可，TTL 内失败允许重试，不是一次性票据；通过该准入后，后续停止或过期不会回滚已开始的转存。Range、Purpose 和 Playing 仍不是首次转存的前置条件。
+
+2026-09-29 Infuse `8.5.5` / 目标 Emby `4.9.3.0` 日志确认：客户端 JSON POST 明确 `IsPlayback=true`，但响应的 DirectPlay/DirectStream 均为 false；随后内部 GET 返回 true 且使用另一会话。能力差异的外部原因未证实，Gateway 不改写能力字段。当前实现将这种身份有效、本地路径明确、仅因 DirectPlay 不支持而拒绝的响应意图，保存在 proof 缓存同一锁内的有界集合（最多 4096 条），不把它变成媒体证明。之后独立合格的内部 proof 只有完整 principal、条目、source、路径、Container 匹配且已知 Size 一致时，才能继承剩余许可；每份意图最多绑定一个补查 session，不从 GET 重新计时。新的客户端响应清除旧意图；原客户端 session 或已绑定补查 session 的成功 Stopped 都撤销许可，停止期间在途内部 GET 不得恢复它。显式客户端响应仍遵循既有发布令牌规则。没有客户端明确信号的 GET、详情、Playing/Range 不能生成许可。Debug `playback_transfer_intent_retained` / `playback_transfer_intent_inherited` 分别标识保留与匹配继承；日志不输出原始 session。该变更已覆盖 mock 完整 POST→补查→视频→转存准入链路，真实播放器与 115 部署后验收仍待完成。
 
 未提供该明确信号的客户端在目标不存在时使用 Emby fallback，不能承诺首次 115 加速。此策略的自动化与真实客户端证据分别见 [实施方案](../plan/architecture/p115-transfer-playback-intent.md)；不新增 SQL、配置或对外字段。
 

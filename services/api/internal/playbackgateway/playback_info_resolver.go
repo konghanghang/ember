@@ -161,6 +161,10 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 	if !published {
 		return onDemandPlaybackInfo{}, "playback_info_superseded"
 	}
+	if proof, ok := gateway.proofs.Lookup(principal.MappingID, itemID, mediaSourceID, resolved.PlaySessionID); ok && proof.intentOriginSession != "" {
+		gateway.debugf("[PlaybackGateway] code=playback_transfer_intent_inherited itemRef=%s sessionRef=%s reasonCode=matching_client_intent",
+			diagnosticItemRef(principal, itemID), diagnosticSessionRef(principal, proof.PlaySessionID))
+	}
 	gateway.logger.Printf("[PlaybackGateway] code=playback_info_resolved_on_demand mappingId=%s itemId=%s proofCount=%d",
 		principal.MappingID, itemID, resolved.ProofCount)
 	return resolved, ""
