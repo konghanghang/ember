@@ -88,7 +88,6 @@ function mountView() {
         EmberPageHeaderCard: pageHeaderStub,
         EmberFormDialog: EmberFormDialogStub,
         EmberSegmentTabs: passthroughStub,
-        EmberEmptyStateCard: passthroughStub,
         'el-icon': passthroughStub,
         'el-skeleton': true,
         'el-empty': true,
@@ -299,6 +298,47 @@ describe('RankingsView 媒体库 allowlist', () => {
     // 这里只验证本地状态被回滚到原有选择。
     expect(wrapper.text()).toContain('当前按 1 个媒体库统计')
     expect(wrapper.find('input[value="lib_movie"]').element).toHaveProperty('checked', true)
+  })
+
+  it('读取失败明确显示错误、禁止保存，并可重试恢复选择列表', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(getRankingLibraryAllowlist).mockRejectedValueOnce(new Error('fixture unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('媒体库列表读取失败')
+    expect(wrapper.text()).not.toContain('当前没有可选媒体库')
+    const save = wrapper.findAll('button').find(button => button.text().includes('保存媒体库范围'))!
+    expect(save.element).toHaveProperty('disabled', true)
+    await save.trigger('click')
+    expect(updateRankingLibraryAllowlist).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-test="retry-allowlist"]').trigger('click')
+    await flushPromises()
+    expect(getRankingLibraryAllowlist).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).not.toContain('媒体库列表读取失败')
+    expect(wrapper.find('input[value="lib_movie"]').exists()).toBe(true)
+    expect(wrapper.find('input[value="lib_series"]').exists()).toBe(true)
+    expect(save.element).toHaveProperty('disabled', false)
+    wrapper.unmount()
+  })
+
+  it('成功返回空列表时显示空状态，并可重新读取', async () => {
+    vi.mocked(getRankingLibraryAllowlist).mockResolvedValueOnce({
+      data: { allowAll: true, libraryIds: [], libraries: [] },
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('[data-test="open-allowlist-dialog"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前没有可选媒体库')
+    expect(wrapper.text()).not.toContain('媒体库列表读取失败')
+    await wrapper.find('[data-test="retry-allowlist"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('input[value="lib_movie"]').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('管理员首屏不会主动请求媒体库配置', async () => {

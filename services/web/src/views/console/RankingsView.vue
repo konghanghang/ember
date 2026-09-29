@@ -33,6 +33,7 @@ const availableLibraries = ref<MediaLibraryOption[]>([])
 const selectedLibraryIds = ref<string[]>([])
 const invalidLibraryIds = ref<string[]>([])
 const allowlistAppliesToAll = ref(true)
+const canSaveAllowlist = computed(() => allowlistLoaded.value && !allowlistLoading.value && !allowlistLoadFailed.value && !allowlistSaving.value)
 
 const rangeText = computed(() => {
   const start = periodStart.value || ''
@@ -198,6 +199,7 @@ async function runPreview() {
   }
 }
 
+// 读取失败保留既有选择，并阻止将未确认的空列表保存为全库统计。
 async function fetchRankingAllowlist(force = false): Promise<boolean> {
   if (!authStore.isAdmin) return false
   if (allowlistLoaded.value && !force) {
@@ -263,8 +265,9 @@ async function handlePeriodChange() {
   await fetchLatestAll()
 }
 
+// 仅保存成功读取后的范围，失败重试不会隐式清空服务端配置。
 async function saveRankingAllowlist() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !canSaveAllowlist.value) return
 
   allowlistSaving.value = true
   try {
@@ -290,8 +293,9 @@ async function saveRankingAllowlist() {
   }
 }
 
+// 显式恢复全库；未读到配置时不允许提交，保存失败时还原选择。
 async function resetRankingAllowlistToAll() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !canSaveAllowlist.value) return
 
   const previousSelected = [...selectedLibraryIds.value]
   const previousAllowAll = allowlistAppliesToAll.value
@@ -512,12 +516,32 @@ onMounted(() => {
           <el-skeleton v-if="allowlistLoading" :rows="3" animated />
 
           <EmberEmptyStateCard
+            v-else-if="allowlistLoadFailed"
+            :icon="Trophy"
+            tone="danger"
+            title="媒体库列表读取失败"
+            description="请重试；持续失败时检查 Emby 连接和访问权限。"
+          >
+            <template #actions>
+              <button type="button" class="btn-ember" data-test="retry-allowlist" @click="fetchRankingAllowlist(true)">
+                重新读取
+              </button>
+            </template>
+          </EmberEmptyStateCard>
+
+          <EmberEmptyStateCard
             v-else-if="availableLibraries.length === 0"
             :icon="Trophy"
             tone="warning"
             title="当前没有可选媒体库"
             description="请先确认 Emby 已配置且媒体库列表可正常读取。"
-          />
+          >
+            <template #actions>
+              <button type="button" class="btn-ember" data-test="retry-allowlist" @click="fetchRankingAllowlist(true)">
+                重新读取
+              </button>
+            </template>
+          </EmberEmptyStateCard>
 
           <template v-else-if="availableLibraries.length > 0">
             <div class="max-h-[420px] overflow-y-auto px-5 py-4">
@@ -600,7 +624,7 @@ onMounted(() => {
           <button
             type="button"
             class="inline-flex h-[42px] cursor-pointer items-center justify-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="allowlistLoading || allowlistSaving || (allowlistAppliesToAll && invalidLibraryIds.length === 0 && !hasSelectedLibraries)"
+            :disabled="!canSaveAllowlist || (allowlistAppliesToAll && invalidLibraryIds.length === 0 && !hasSelectedLibraries)"
             @click="resetRankingAllowlistToAll"
           >
             恢复全库统计
@@ -608,7 +632,7 @@ onMounted(() => {
           <button
             type="button"
             class="btn-ember inline-flex h-[42px] cursor-pointer items-center justify-center rounded-xl px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="allowlistLoading || allowlistSaving"
+            :disabled="!canSaveAllowlist"
             @click="saveRankingAllowlist"
           >
             {{ allowlistSaving ? '保存中...' : '保存媒体库范围' }}
