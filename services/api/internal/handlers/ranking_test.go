@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/models"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
 )
 
 type stubRankingService struct {
+	generateFn        func(models.RankingPeriod, *time.Time, *time.Time) error
 	getAllowlistFn    func() (*playbackpkg.RankingLibraryAllowlistSettings, error)
 	updateAllowlistFn func([]string, *string) (*playbackpkg.RankingLibraryAllowlistSettings, error)
 }
@@ -21,7 +23,11 @@ func (s *stubRankingService) GetLatestRanking(period models.RankingPeriod) (*pla
 	return nil, nil
 }
 
+// GenerateRanking 捕获手动入口传给业务层的周期边界，不执行持久化或通知。
 func (s *stubRankingService) GenerateRanking(period models.RankingPeriod, start, end *time.Time) error {
+	if s.generateFn != nil {
+		return s.generateFn(period, start, end)
+	}
 	return nil
 }
 
@@ -45,6 +51,97 @@ func (s *stubRankingService) UpdateRankingLibraryAllowlist(libraryIDs []string, 
 		return nil, nil
 	}
 	return s.updateAllowlistFn(libraryIDs, updatedByUserID)
+}
+
+// TestRankingHandlerGenerateRankingPreservesRequestHandling 锁定默认周期、参数拒绝和业务错误响应。
+func TestRankingHandlerGenerateRankingPreservesRequestHandling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name    string
+		query   string
+		period  models.RankingPeriod
+		status  int
+		failure bool
+	}{
+		{name: "default daily", period: models.RankingDaily, status: http.StatusOK},
+		{name: "weekly without dates", query: "?type=weekly", period: models.RankingWeekly, status: http.StatusOK},
+		{name: "invalid period", query: "?type=monthly", status: http.StatusBadRequest},
+		{name: "missing end", query: "?start=2026-09-29", status: http.StatusBadRequest},
+		{name: "missing start", query: "?end=2026-09-29", status: http.StatusBadRequest},
+		{name: "invalid start", query: "?start=invalid&end=2026-09-29", status: http.StatusBadRequest},
+		{name: "invalid end", query: "?start=2026-09-29&end=2026-09-31", status: http.StatusBadRequest},
+		{name: "generation failed", period: models.RankingDaily, status: http.StatusInternalServerError, failure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			handler := &RankingHandler{service: &stubRankingService{
+				generateFn: func(period models.RankingPeriod, start, end *time.Time) error {
+					called = true
+					if period != tc.period || start != nil || end != nil {
+						t.Fatalf("unexpected generation arguments: period=%s start=%v end=%v", period, start, end)
+					}
+					if tc.failure {
+						return errors.New("fixture generation failure")
+					}
+					return nil
+				},
+			}}
+			ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/cron/generate-ranking"+tc.query, nil)
+			handler.GenerateRanking(ctx)
+			if recorder.Code != tc.status || called != (tc.status != http.StatusBadRequest) {
+				t.Fatalf("status=%d called=%v, want status=%d", recorder.Code, called, tc.status)
+			}
+		})
+	}
+}
+
+// TestRankingHandlerGenerateRankingIncludesEndDate 验证含首尾日期按全局时区转换，跨日使用日历运算。
+func TestRankingHandlerGenerateRankingIncludesEndDate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name      string
+		period    models.RankingPeriod
+		timezone  string
+		startDate string
+		endDate   string
+		wantStart string
+		wantEnd   string
+	}{
+		{"same day", models.RankingDaily, "Asia/Singapore", "2026-09-29", "2026-09-29", "2026-09-29T00:00:00+08:00", "2026-09-30T00:00:00+08:00"},
+		{"week crosses month", models.RankingWeekly, "Asia/Singapore", "2026-09-28", "2026-10-04", "2026-09-28T00:00:00+08:00", "2026-10-05T00:00:00+08:00"},
+		{"year end with non-hour offset", models.RankingDaily, "Asia/Kathmandu", "2026-12-31", "2026-12-31", "2026-12-31T00:00:00+05:45", "2027-01-01T00:00:00+05:45"},
+		{"leap day", models.RankingDaily, "Asia/Singapore", "2024-02-29", "2024-02-29", "2024-02-29T00:00:00+08:00", "2024-03-01T00:00:00+08:00"},
+		{"DST short day", models.RankingDaily, "America/New_York", "2026-03-08", "2026-03-08", "2026-03-08T00:00:00-05:00", "2026-03-09T00:00:00-04:00"},
+		{"DST long day", models.RankingDaily, "America/New_York", "2026-11-01", "2026-11-01", "2026-11-01T00:00:00-04:00", "2026-11-02T00:00:00-05:00"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CRON_TIMEZONE", tc.timezone)
+			configpkg.InvalidateCachedSetting("CRON_TIMEZONE")
+			t.Cleanup(func() { configpkg.InvalidateCachedSetting("CRON_TIMEZONE") })
+			called := false
+			handler := &RankingHandler{service: &stubRankingService{
+				generateFn: func(period models.RankingPeriod, start, end *time.Time) error {
+					called = true
+					if period != tc.period || start == nil || end == nil {
+						t.Fatalf("expected explicit %s date range, got %s %v~%v", tc.period, period, start, end)
+					}
+					if start.Format(time.RFC3339) != tc.wantStart || end.Format(time.RFC3339) != tc.wantEnd {
+						t.Fatalf("got %s~%s, want %s~%s", start.Format(time.RFC3339), end.Format(time.RFC3339), tc.wantStart, tc.wantEnd)
+					}
+					if start.Location().String() != tc.timezone || end.Location().String() != tc.timezone {
+						t.Fatalf("expected CRON_TIMEZONE=%s, got %s~%s", tc.timezone, start.Location(), end.Location())
+					}
+					return nil
+				},
+			}}
+			query := "?type=" + string(tc.period) + "&start=" + tc.startDate + "&end=" + tc.endDate
+			ctx, recorder := newTestConfigContext(http.MethodPost, "/api/v1/admin/cron/generate-ranking"+query, nil)
+			handler.GenerateRanking(ctx)
+			if recorder.Code != http.StatusOK || !called {
+				t.Fatalf("status=%d called=%v, want successful generation", recorder.Code, called)
+			}
+		})
+	}
 }
 
 func TestDateRangeByPeriodBuildsDailyRangeInLocation(t *testing.T) {

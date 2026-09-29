@@ -34,12 +34,6 @@ const selectedLibraryIds = ref<string[]>([])
 const invalidLibraryIds = ref<string[]>([])
 const allowlistAppliesToAll = ref(true)
 
-const periodHint = computed(() => {
-  return period.value === 'daily'
-    ? '暂无播放数据，日榜将在每天 20:00 自动生成（阶段榜）'
-    : '暂无播放数据，周榜将在每周日 20:30 自动生成（阶段榜）'
-})
-
 const rangeText = computed(() => {
   const start = periodStart.value || ''
   const end = periodEnd.value || ''
@@ -630,7 +624,6 @@ onMounted(() => {
         v-if="movies.length === 0 && episodes.length === 0"
         :icon="Trophy"
         title="暂无播放数据"
-        :description="periodHint"
       />
 
       <div v-else class="grid grid-cols-1 gap-6 xl:grid-cols-2">

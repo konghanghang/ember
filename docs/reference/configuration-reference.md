@@ -106,9 +106,9 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 | `CRON_ENABLED` | 否 | 是 | API 内置 cron 总开关 |
 | `CRON_SCHEDULE` | 否 | 是 | 过期检查 cron 表达式 |
 | `CRON_TIMEZONE` | 否 | 是 | Ember 全局业务时区，统一用于调度、日期边界、排行榜、播放记录和用户可见时间 |
-| `RANKING_CRON_ENABLED` | 否 | 是 | 播放排行榜 cron 开关 |
-| `RANKING_DAILY_SCHEDULE` | 否 | 是 | 日榜 cron 表达式 |
-| `RANKING_WEEKLY_SCHEDULE` | 否 | 是 | 周榜 cron 表达式 |
+| `RANKING_CRON_ENABLED` | 否 | 是 | 播放排行榜 cron 开关，默认 `false`；需同时开启 `CRON_ENABLED` |
+| `RANKING_DAILY_SCHEDULE` | 否 | 是 | 日榜 cron 表达式，默认 `0 20 * * *`（每天 20:00） |
+| `RANKING_WEEKLY_SCHEDULE` | 否 | 是 | 周榜 cron 表达式，默认 `30 20 * * 0`（周日 20:30） |
 | `TV_CALENDAR_STARTUP_SYNC_ENABLED` | 否 | 是 | API 启动后是否自动执行一次追剧日历补偿同步 |
 | `TV_CALENDAR_SYNC_SCHEDULE` | 否 | 是 | 追剧日历同步 cron 表达式 |
 
@@ -119,6 +119,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 
 - 上述配置已经由设置中心数据库托管，API 不再依赖 Docker 环境变量回退。
 - 调度相关配置虽然也在数据库中，但当前仍是“启动时装配调度器”的模型，所以修改后需要重启 API。
+- 排行榜按 `CRON_TIMEZONE` 执行：日榜读取当天、周榜读取本周日期范围内执行时已有的播放数据，调度时间不代表精确冻结的历史截止点。正式榜单保存后按 Bot 通知配置推送，页面空状态不承诺固定生成时间。
 
 ### 2.6 访问凭证
 

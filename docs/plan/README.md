@@ -45,7 +45,7 @@
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
-- [每日播放总结分步修复](./media-subscription/playback-summary-improvements.md)（2026-09-29：第一至三步完成；第三步已统一统计口径并修正失效范围与聚合，投递管理 / 补发已取消；第四步待授权，第五步可选）
+- [每日播放总结分步修复](./media-subscription/playback-summary-improvements.md)（2026-09-29：第一至四步完成；统计口径、手动日期边界、配置说明与页面提示已收口，投递管理 / 补发已取消；第五步查询成本优化可选，待决定）
 
 最近已完成归档的实施稿包括：
 

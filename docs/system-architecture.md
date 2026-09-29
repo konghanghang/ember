@@ -598,6 +598,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 从 Emby PlaybackActivity 数据库生成播放排行。
 
 - `GenerateRanking(period)` — 读取媒体库范围 → 有效范围先无数据校验 PlaybackActivity 六个必需字段，再完整聚合电影 / Episode 并筛选 → 在同一事务写入 `playback_ranking_batches` 与全部 `playback_rankings` 明细 → 只有新批次触发既有 Bot 通知。非空选库全部失效时直接生成空榜，不查询全库播放记录；空榜同样保存并参与去重
+- 手动生成的 `start/end` 接收含首尾的日期，按 `CRON_TIMEZONE` 转为 `[开始日零点,结束日次日零点)`；与自动榜单共用半开查询，包含结束日最后一秒及小数秒，旧快照不追溯改写
 - `GetLatestRanking(period)` — 按 `periodEnd / snapshotAt / createdAt` 获取最近已生成批次，再读取该批次明细；只排除周期开始或生成时间在未来的记录，不等待当前自然日 / 周结束。空批次可覆盖上一期非空榜
 - `GetHistoryRanking(period, rangeStart, rangeEnd)` — 批次 `periodEnd <= rangeEnd` 包含完整周期上界并兼容周期内截点；旧空 `batchId` 已由 migration 确定性补齐，读取统一按批次进行。播放明细仍采用 `[start, end)`
 - `NotifyRanking` 推送 payload 包含关联日志的 `batchId`、整期 `totalDuration` 与业务时区 RFC3339 `snapshotAt`；Web / Bot 展示所属日期和实际生成时间。`periodEnd` 的日期展示将零点排他上界换算成最后一个覆盖日期，`cutoffAt` 保留为生成时分的兼容字段，不代表精确冻结时刻
@@ -618,6 +619,7 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - 排行榜媒体库范围使用全站统一 allowlist，而不是按用户可见媒体库拆分
 - allowlist 为空时默认统计全部媒体库中的电影 / 剧集；非空时把管理员 View ID 和完整的电影 `ItemId` / 剧集 `SeriesId` 候选交给 `/Users/{adminUserId}/Items` 做范围查询。部分失效只统计有效库，全部失效仍保存并推送“暂无播放数据”的空榜；不自动改写配置或放开全库，接口组合筛选语义仍保留实机验证边界
 - 每天 20:00 是执行计划，查询当天范围内执行时已有数据，不要求精确 20:00 快照。生成成功表示快照已保存；异步发送 / 跳过结果与异常只记日志，不回滚快照、不补发。历史榜继续在页面查询，投递管理与补发已从计划范围移除
+- 排行榜页面空状态仅显示“暂无播放数据”，不在未读取调度配置时承诺固定生成时间；实际计划由设置中心管理
 
 ### 5.16 PaymentService (`services/payment/service.go`)
 
@@ -992,8 +994,8 @@ Telegram 账号绑定与 Bot 自助能力服务。
 |------|------|----------|------|
 | 过期用户检查 | `CRON_SCHEDULE`（默认 `0 2 * * *`）| `CRON_ENABLED` | 封禁过期 Emby 账号 |
 | 验证码清理 | `0 3 * * *` | `CRON_ENABLED` | 删除过期 EmailVerification + TelegramBindCode |
-| 日榜生成 | `RANKING_DAILY_SCHEDULE`（默认 `0 20 * * *`）| `RANKING_CRON_ENABLED` | 从 Emby 生成日播放排行 |
-| 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
+| 日榜生成 | `RANKING_DAILY_SCHEDULE`（默认 `0 20 * * *`）| `CRON_ENABLED` + `RANKING_CRON_ENABLED` | 从 Emby 生成日播放排行 |
+| 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `CRON_ENABLED` + `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
 | 追剧日历同步 | `TV_CALENDAR_SYNC_SCHEDULE`（默认 `0 */12 * * *`） | `CRON_ENABLED` | 同步 TMDB/Emby 追剧日历缓存 |
 | Emby Policy 同步 | `@every 1m` | `CRON_ENABLED` | 领取 pending Policy 同步任务，回收超时 processing 任务 |
 
@@ -1007,14 +1009,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - `CRON_TIMEZONE` 是 Ember 唯一的全局业务时区，统一作为调度、日期边界、排行榜、播放记录、追剧日历状态和用户可见时间的判定基线。
 
 **通用配置**：
-这些项由 `ConfigService` 统一解析，优先级为“数据库覆盖值 > 环境变量 > 默认值”；管理员可在设置中心修改，但属于启动期配置，保存后需重启 API 才会生效。
+这些项由 `ConfigService` 从设置中心数据库读取，未保存时使用默认值；正常数据库运行模式不回退到同名环境变量。旧环境值需通过设置中心显式导入。调度器在 API 启动时装配，保存后需重启 API 才会生效。
 
 | 配置项 | 默认值 | 说明 |
 |----------|--------|------|
-| `CRON_ENABLED` | `"true"` | 是否启用（过期检查 + 验证码清理 + 追剧日历同步 + Emby Policy 同步）|
+| `CRON_ENABLED` | `"true"` | API 内置 cron 总开关，关闭时排行榜定时生成也停用 |
 | `CRON_SCHEDULE` | `"0 2 * * *"` | 过期检查 cron 表达式 |
 | `CRON_TIMEZONE` | `"Asia/Shanghai"` | Ember 全局业务时区；统一用于调度、日期边界、排行榜、播放记录、追剧日历状态和用户可见时间 |
-| `RANKING_CRON_ENABLED` | `"false"` | 是否启用排行榜生成 |
+| `RANKING_CRON_ENABLED` | `"false"` | 排行榜定时生成开关；需同时开启 `CRON_ENABLED` |
 | `RANKING_DAILY_SCHEDULE` | `"0 20 * * *"` | 日榜 cron 表达式 |
 | `RANKING_WEEKLY_SCHEDULE` | `"30 20 * * 0"` | 周榜 cron 表达式 |
 | `TV_CALENDAR_STARTUP_SYNC_ENABLED` | `"true"` | 是否启用 API 启动后的追剧日历补偿同步 |

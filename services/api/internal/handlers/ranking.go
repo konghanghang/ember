@@ -78,7 +78,7 @@ func loadTimezone() *time.Location {
 	return configpkg.LoadConfiguredTimezone()
 }
 
-// GenerateRanking 手动触发排行榜生成
+// GenerateRanking 手动触发排行榜生成；start/end 是业务时区内含首尾的日期，转换为半开区间交给业务层。
 // POST /api/v1/admin/cron/generate-ranking?type=daily
 // POST /api/v1/admin/cron/generate-ranking?type=daily&start=2026-02-10&end=2026-02-13
 func (h *RankingHandler) GenerateRanking(c *gin.Context) {
@@ -118,7 +118,7 @@ func (h *RankingHandler) GenerateRanking(c *gin.Context) {
 		}
 
 		startTime := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, tz)
-		endTime := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, tz)
+		endTime := endDate.AddDate(0, 0, 1)
 		startPtr = &startTime
 		endPtr = &endTime
 	}

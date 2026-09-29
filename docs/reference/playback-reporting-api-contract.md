@@ -285,6 +285,7 @@ COALESCE(PlayDuration, 0) - COALESCE(PauseDuration, 0)
 - Ember 统一使用全局 `CRON_TIMEZONE` 解释 `DateCreated` 并生成 SQL 时间边界，不新增 Playback Reporting 专用时区配置。
 - Emby Server 进程的本地时区必须与 `CRON_TIMEZONE` 对齐；不一致时属于部署配置错误，不能通过猜测 UTC 或静默换算掩盖。
 - 统计周期应使用半开区间 `[start, end)`，即 `DateCreated >= start AND DateCreated < end`，避免相邻日榜或周榜重复统计边界时刻。
+- Ember 手动生成入口的日期参数包含结束日，因此将 `end=2026-09-29` 转为业务时区 `2026-09-30 00:00:00` 的排他上界；共用查询继续使用 `< end`，结束日最后一秒及其小数秒均包含，次日零点不包含。此修正不改变插件内置报表的 `end_date` 合同，也不重算历史快照。
 
 ### 5.2 累计更新与执行时采集
 

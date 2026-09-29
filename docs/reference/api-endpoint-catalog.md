@@ -188,6 +188,8 @@
 | GET | `/api/v1/admin/rankings/library-allowlist` | 读取排行榜媒体库 allowlist 与当前 Emby 媒体库列表 |
 | PUT | `/api/v1/admin/rankings/library-allowlist` | 保存排行榜媒体库 allowlist（请求体 `{libraryIds}`；空数组表示统计全部媒体库） |
 
+手动生成排行榜的 `type` 默认为 `daily`，支持 `daily/weekly`；可选 `start/end` 必须同时提供，格式为 `YYYY-MM-DD` 且包含首尾日期。API 按 `CRON_TIMEZONE` 转为 `[开始日零点,结束日次日零点)`，例如 `start=2026-09-29&end=2026-09-29` 完整统计 29 日，不包含 30 日零点；未提供日期时继续生成当前自然日 / 周。快照展示仍返回用户覆盖的结束日期，历史快照不重算。
+
 排行榜媒体库配置 GET 只读返回有效 `libraryIds` 与 `invalidLibraryIds`；非空原配置全部失效时仍为 `allowAll: false`，不会自动清空。生成 / 预览只统计有效选择，全部失效产生空榜；正式生成继续保存并推送空榜。PUT 先验证全部 ID，只有合法全选才规范化为全库。新生成榜单的总时长统一只计电影 / 剧集，低于 60 秒和未入 Top 10 的有效条目也计入；旧快照不重算。
 
 追剧日历同步接口说明：

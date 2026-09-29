@@ -62,9 +62,9 @@
 | `TMDB_API_KEY` | TMDB 搜索、追剧日历依赖 |
 | `TURNSTILE_SECRET_KEY` | 登录 Turnstile 服务端校验密钥 |
 | `MOVIEPILOT_URL` / `MOVIEPILOT_API_KEY` | 求片审批同步到 MoviePilot 时需要 |
-| `CRON_ENABLED` | API 内置 Cron 开关 |
-| `RANKING_CRON_ENABLED` | 播放排行 Cron 开关 |
-| `RANKING_DAILY_SCHEDULE` / `RANKING_WEEKLY_SCHEDULE` | 排行定时表达式 |
+| `CRON_ENABLED` | 设置中心的 API 内置 Cron 总开关；同名 env 不作为运行期回退 |
+| `RANKING_CRON_ENABLED` | 设置中心的播放排行开关，默认关闭，需同时开启 Cron 总开关 |
+| `RANKING_DAILY_SCHEDULE` / `RANKING_WEEKLY_SCHEDULE` | 设置中心的排行计划，默认每天 20:00 / 周日 20:30，按 `CRON_TIMEZONE` 执行；修改后重启 API |
 | `TV_CALENDAR_SYNC_SCHEDULE` | 追剧日历同步表达式 |
 
 更完整的配置边界见 [配置参考](../reference/configuration-reference.md)。

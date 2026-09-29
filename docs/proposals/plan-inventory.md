@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-09-29（每日播放总结第一至三步完成，第三步统计口径与完整性修复通过本地验证）
+> 更新时间：2026-09-29（每日播放总结第一至四步完成，手动日期边界与配置说明已通过本地验证）
 
 本清单只回答三件事：
 
@@ -106,7 +106,7 @@
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
-| [media-subscription/playback-summary-improvements.md](../plan/media-subscription/playback-summary-improvements.md) | 第一至三步完成，第四步待授权，第五步可选 | 第一、二步已提交；第三步统一电影 / 剧集总量、保留短时长和尾部数据、按 ID 聚合、跳过明确缺失条目、全失效范围仍发空榜且不改写配置。Go 非集成 test、关键 race、vet、build、SQLite 内存 SQL 验证与现有 Web 8 项组件回归通过。第一步 PostgreSQL 与第二步 Bot 验收仍限于对应批次；第三步无模型 / migration 或 Web / Bot 业务代码变更。真实 Emby / Telegram 与部署未执行 | 保留至分步实施与验证收口 |
+| [media-subscription/playback-summary-improvements.md](../plan/media-subscription/playback-summary-improvements.md) | 第一至四步完成，第五步可选，待决定 | 第一至三步已提交；第四步统一手动日期半开边界、说明调度开关依赖与数据库配置来源、移除固定生成时间提示。Go 非集成 test、vet、build、SQLite 内存边界验证通过；Web 266 项通过、3 项跳过，build 通过。第一步 PostgreSQL、第二步 Bot 与第三步 race 验收仍限于对应批次；第四步无模型 / migration 或 Bot 业务代码变更。真实 Emby / Telegram、浏览器与部署未执行 | 保留至可选第五步决策与验证边界收口 |
 
 2026-09-29 新增上述每日播放总结计划后，当前 `docs/plan/` 共 10 份实施稿；历史批次的验证记录不扩展为本轮验证结论。
 
