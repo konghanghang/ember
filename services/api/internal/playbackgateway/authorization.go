@@ -324,8 +324,8 @@ func protectedApplicationAccessToken(header http.Header) (string, bool, string) 
 	if !ok {
 		return "", false, "token_invalid"
 	}
-	fields, ok := parseApplicationAuthorizationFields(rawValue, headerKind, true, true)
-	if !ok {
+	fields, failure := parseApplicationAuthorizationFields(rawValue, headerKind, true, true)
+	if failure != nil {
 		return "", false, "token_invalid"
 	}
 	token := fields["Token"]
@@ -350,9 +350,10 @@ func singleApplicationAuthorization(header http.Header) (string, applicationAuth
 	return mediaBrowserValues[0], applicationHeaderMediaBrowser, mediaBrowserValues[0] != ""
 }
 
-// parseApplicationAuthorization parses the fixed Emby quoted field grammar.
+// parseApplicationAuthorization parses bounded Emby application parameters.
 // It supports commas inside quoted values but rejects unknown/duplicate fields,
-// control characters and all escapes except quoted quote/backslash.
+// control characters and all escapes except quoted quote/backslash. Metadata
+// also accepts the unquoted token form of HTTP authentication parameters.
 func parseApplicationAuthorization(value string, headerKind applicationAuthorizationHeader) (map[string]string, bool) {
 	return parseApplicationAuthorizationWithTokenPolicy(value, headerKind, false)
 }
@@ -367,30 +368,37 @@ func parseApplicationAuthorizationWithAccessToken(value string, headerKind appli
 // parseApplicationAuthorizationWithTokenPolicy shares the strict grammar while
 // keeping login validation and request diagnostics on separate Token policies.
 func parseApplicationAuthorizationWithTokenPolicy(value string, headerKind applicationAuthorizationHeader, allowNonEmptyToken bool) (map[string]string, bool) {
-	return parseApplicationAuthorizationFields(value, headerKind, allowNonEmptyToken, false)
+	fields, failure := parseApplicationAuthorizationFields(value, headerKind, allowNonEmptyToken, false)
+	return fields, failure == nil
 }
 
-// parseApplicationAuthorizationFields shares the bounded quoted-string lexer.
+// parseApplicationAuthorizationFields shares the bounded field-value lexer.
 // Identity-only mode accepts optional/extended metadata without granting it
 // authority, and reads Emby/MediaBrowser tokens on any application header.
 // Duplicate Token fields and malformed grammar cannot mask an identity conflict.
-func parseApplicationAuthorizationFields(value string, headerKind applicationAuthorizationHeader, allowNonEmptyToken, identityOnly bool) (map[string]string, bool) {
-	if len(value) > maxApplicationAuthorizationSize || !utf8.ValidString(value) ||
-		strings.ContainsAny(value, "\r\n") {
-		return nil, false
+// Failure describes only fixed labels and a byte offset, never raw field data.
+func parseApplicationAuthorizationFields(value string, headerKind applicationAuthorizationHeader, allowNonEmptyToken, identityOnly bool) (map[string]string, *applicationAuthorizationFailure) {
+	if len(value) > maxApplicationAuthorizationSize {
+		return nil, newApplicationAuthorizationFailure("header_too_long", "", value, -1)
+	}
+	if !utf8.ValidString(value) {
+		return nil, newApplicationAuthorizationFailure("invalid_utf8", "", value, -1)
+	}
+	if position := strings.IndexAny(value, "\r\n"); position >= 0 {
+		return nil, newApplicationAuthorizationFailure("header_line_break", "", value, position)
 	}
 	position, ok := applicationAuthorizationFieldsStart(value, headerKind)
 	if identityOnly {
 		position, ok = applicationAuthorizationFieldsStart(value, applicationHeaderEmby)
 	}
 	if !ok {
-		return nil, false
+		return nil, newApplicationAuthorizationFailure("unsupported_scheme", "", value, 0)
 	}
 	fields := make(map[string]string, 6)
 	for {
 		position = skipOptionalWhitespace(value, position)
 		if position >= len(value) {
-			return nil, false
+			return nil, newApplicationAuthorizationFailure("expected_field", "", value, position)
 		}
 		keyStart := position
 		for position < len(value) && isApplicationKeyCharacter(value[position]) {
@@ -405,20 +413,23 @@ func parseApplicationAuthorizationFields(value string, headerKind applicationAut
 			}
 		}
 		if key == "" || !known {
-			return nil, false
+			return nil, newApplicationAuthorizationFailure("invalid_field", key, value, keyStart)
 		}
 		if _, duplicate := fields[key]; duplicate && (!identityOnly || key == "Token") {
-			return nil, false
+			return nil, newApplicationAuthorizationFailure("duplicate_field", key, value, keyStart)
 		}
 		position = skipOptionalWhitespace(value, position)
 		if position >= len(value) || value[position] != '=' {
-			return nil, false
+			return nil, newApplicationAuthorizationFailure("expected_equals", key, value, position)
 		}
 		position++
 		position = skipOptionalWhitespace(value, position)
-		fieldValue, nextPosition, ok := parseApplicationQuotedValue(value, position)
-		if !ok || ((!identityOnly || key == "Token") && !validApplicationFieldValue(fieldValue, limit, allowEmpty)) {
-			return nil, false
+		fieldValue, nextPosition, reasonCode := parseApplicationFieldValue(value, position, key)
+		if reasonCode != "" {
+			return nil, newApplicationAuthorizationFailure(reasonCode, key, value, nextPosition)
+		}
+		if (!identityOnly || key == "Token") && !validApplicationFieldValue(fieldValue, limit, allowEmpty) {
+			return nil, newApplicationAuthorizationFailure("invalid_value", key, value, position)
 		}
 		fields[key] = fieldValue
 		position = skipOptionalWhitespace(value, nextPosition)
@@ -426,11 +437,11 @@ func parseApplicationAuthorizationFields(value string, headerKind applicationAut
 			break
 		}
 		if value[position] != ',' {
-			return nil, false
+			return nil, newApplicationAuthorizationFailure("expected_comma", key, value, position)
 		}
 		position++
 	}
-	return fields, true
+	return fields, nil
 }
 
 // applicationAuthorizationFieldsStart accepts Emby on its documented headers
@@ -447,11 +458,36 @@ func applicationAuthorizationFieldsStart(value string, headerKind applicationAut
 	}
 }
 
+// parseApplicationFieldValue accepts RFC 9110 auth-param token syntax for
+// non-identity metadata such as Yamby's unquoted UserId. Token keeps its quoted
+// grammar; no field is skipped and all duplicate/conflict checks still apply.
+func parseApplicationFieldValue(value string, position int, key string) (string, int, string) {
+	if key == "Token" || position >= len(value) || value[position] == '"' {
+		return parseApplicationQuotedValue(value, position)
+	}
+	start := position
+	for position < len(value) && isApplicationParameterTokenCharacter(value[position]) {
+		position++
+	}
+	if position == start {
+		return "", position, "expected_value"
+	}
+	return value[start:position], position, ""
+}
+
+// isApplicationParameterTokenCharacter follows RFC 9110 section 5.6.2 tchar;
+// delimiters and whitespace cannot hide a subsequent identity parameter.
+func isApplicationParameterTokenCharacter(character byte) bool {
+	return character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' ||
+		character >= '0' && character <= '9' || strings.IndexByte("!#$%&'*+-.^_`|~", character) >= 0
+}
+
 // parseApplicationQuotedValue returns one decoded quoted-string and the first
-// byte after its closing quote.
-func parseApplicationQuotedValue(value string, position int) (string, int, bool) {
+// byte after its closing quote. Failure returns the offending byte offset and
+// a fixed reason; end-of-input failures use len(value).
+func parseApplicationQuotedValue(value string, position int) (string, int, string) {
 	if position >= len(value) || value[position] != '"' {
-		return "", position, false
+		return "", position, "expected_quote"
 	}
 	position++
 	var builder strings.Builder
@@ -459,21 +495,21 @@ func parseApplicationQuotedValue(value string, position int) (string, int, bool)
 		character := value[position]
 		switch {
 		case character == '"':
-			return builder.String(), position + 1, true
+			return builder.String(), position + 1, ""
 		case character == '\\':
 			position++
 			if position >= len(value) || (value[position] != '\\' && value[position] != '"') {
-				return "", position, false
+				return "", position, "invalid_escape"
 			}
 			builder.WriteByte(value[position])
 		case character < 0x20 || character == 0x7f:
-			return "", position, false
+			return "", position, "control_character"
 		default:
 			builder.WriteByte(character)
 		}
 		position++
 	}
-	return "", position, false
+	return "", position, "unterminated_quote"
 }
 
 // validApplicationFieldValue applies field-specific byte bounds and rejects

@@ -149,9 +149,11 @@ POST /emby/Users/AuthenticateByName?X-Emby-Client=Emby+Web&X-Emby-Device-Name=Go
 
 - 固定 OpenAPI 的 `POST /Users/AuthenticateByName` 声明 `Username/Pw` 请求及 JSON/XML `AuthenticationResult` 成功响应；官方认证文档规定由 Emby 的 `200` 与 `4xx/5xx` 表示认证结果。SDK 的应用头示例不能推导为服务端对未知字段、重复元数据或额外 Token 的完整拒绝规则。
 - 精确认证路由原样转发请求 method、query、Header、body，由 Emby 判定格式、凭据和最终状态。缺失/未知/不完整元数据、多个载体或旧 Token 不再触发 Gateway 本地登录 `401`；这不表示 Emby 一定接受这些请求，也不扩展 Quick Connect、PIN 等路由。
-- 原有有界、唯一载体、严格 quoted-string 元数据解析仅作为可选审计 fallback；解析失败只记录 Debug `authentication_metadata_unavailable` 与固定原因，不阻断请求，不记录原值。
+- 有界、唯一载体的元数据解析仅作为可选审计 fallback；非 Token 字段接受 quoted-string 或 HTTP auth-param 的无引号 token 形式，解析失败只记录 Debug `authentication_metadata_unavailable` 与固定原因，不阻断请求，不记录原值。
 - 登录后身份检查独立读取 Token，不再要求 `Client/Device/DeviceId/Version` 齐全。非身份字段允许缺失、空值、扩展字段和重复值；仍要求可无歧义读取 Token 的有界 quoted-string。多个应用头、重复逻辑 Token、冲突 Token、未知 scheme 或不可解析结构继续失败关闭，避免本地资格检查和 Emby 实际身份不一致。
 - 本地 Token 候选解析接受三个应用头中的 `Emby`/`MediaBrowser` grammar；`Authorization: MediaBrowser` 的目标 Emby/Yamby 行为仍未证实，候选解析不等于替上游认证成功。
+- 2026-09-29 本地 Gateway 启动日志确认目标为 `4.9.3.0`；Yamby 登录返回 `200` 且记录映射，随后携直接 Token 的 `/emby/System/Info` 被本地拒绝，新增诊断定位到 `expected_quote field=user_id offset=12`。这证明客户端 UserId 值并非以双引号开始，不能据此推断其原值。[RFC 9110 §11.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-11.2) 允许 auth-param 值为 token 或 quoted-string；当前修补让非 Token 元数据接受 §5.6.2 的有界 tchar 形式，不跳过字段、不重写 Header，Token 的 quoted-string 与冲突检查保留。同日修补后，本地 Yamby 实际请求确认登录、SystemInfo、Views、Items、Resume 和 Latest 均返回 `200`，未再出现本地认证解析错误或 `401`；这一结果证明当前登录和列表链路；图片仍被 Web 关闭策略返回 `404`，作为独立已知问题保留。用户确认播放此前正常，本次按要求不复验。提交前补齐登录后请求、Token 冲突保护和脱敏诊断的 mock 回归。
+- Debug 下，应用头身份语法解析失败额外输出一条 `application_header_parse_failed`，与 `request_completed` 共用 `requestId`，包含 route、最终状态、固定原因码、字段类别、从零开始的字节偏移和字符类别。无具体位置的头部级错误使用 `offset=-1`；未知字段名统一为 `other`，不记录字段名原文、字段值或原始字符。诊断与准入共用解析器，不放宽语法或 Token 冲突检查；认证路由出现此日志仍可透传上游 `200`，不能仅凭解析日志认定登录被拒绝。
 
 网关处理要求：
 

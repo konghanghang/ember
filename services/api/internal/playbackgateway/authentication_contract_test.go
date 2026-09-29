@@ -303,8 +303,90 @@ func TestAuthenticationJSONSidecarKeepsLegacyContentTypes(t *testing.T) {
 func TestTokenDiagnosticsMatchRelaxedMetadataGrammar(t *testing.T) {
 	header := make(http.Header)
 	header.Set("Authorization", `MediaBrowser Extension="fixture", Token="`+fixtureAccessToken+`"`)
-	scheme, state := applicationAuthorizationDiagnostics(header)
-	if scheme != "media_browser" || state != "present" {
+	scheme, state, failure := applicationAuthorizationDiagnostics(header)
+	if scheme != "media_browser" || state != "present" || failure != nil {
 		t.Fatalf("scheme=%s state=%s", scheme, state)
+	}
+}
+
+// TestGatewayUnquotedMetadataLoginAndProtectedRequest reproduces the observed
+// login-to-SystemInfo flow with fictional metadata, preserving wire values and
+// deriving identity only from the successful response and direct access token.
+func TestGatewayUnquotedMetadataLoginAndProtectedRequest(t *testing.T) {
+	for _, scheme := range []string{"Emby", "MediaBrowser"} {
+		t.Run(scheme, func(t *testing.T) {
+			header := scheme + ` UserId=non-authoritative-user, Client=Fixture, Device="Fixture Phone", DeviceId=fixture-device, Version=1.0`
+			const body = `{"Username":"fixture-user","Pw":"fixture-password"}`
+			loginResponse := `{"User":{"Id":"emby-user-1"},"ServerId":"server-1","AccessToken":"` + fixtureAccessToken + `"}`
+			var logs bytes.Buffer
+			store := &fakeTokenService{principal: fixturePrincipal()}
+			gateway := newTestGateway(t, "http://upstream.invalid", store, &logs)
+			calls := 0
+			gateway.proxy.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if r.Header.Get(embyAuthorizationHeader) != header {
+					t.Fatal("application metadata changed in transit")
+				}
+				responseBody := `{"Version":"4.9.3.0"}`
+				if r.Method == http.MethodPost && r.URL.Path == authenticationPath {
+					data, err := io.ReadAll(r.Body)
+					if err != nil || string(data) != body {
+						t.Fatal("login body changed")
+					}
+					responseBody = loginResponse
+				} else if r.Method != http.MethodGet || r.URL.Path != "/emby/System/Info" || r.Header.Get(accessTokenHeader) != fixtureAccessToken {
+					t.Fatal("protected request changed")
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(responseBody)), Request: r}, nil
+			})
+			login := httptest.NewRequest(http.MethodPost, authenticationPath, strings.NewReader(body))
+			login.Header.Set(embyAuthorizationHeader, header)
+			response := httptest.NewRecorder()
+			gateway.ServeHTTP(response, login)
+			records, _ := store.snapshot()
+			if response.Code != http.StatusOK || response.Body.String() != loginResponse || len(records) != 1 ||
+				records[0].EmbyUserID != "emby-user-1" || records[0].DeviceID != "fixture-device" || records[0].ClientName != "Fixture" {
+				t.Fatal("login mapping did not preserve authoritative identity and metadata")
+			}
+			request := httptest.NewRequest(http.MethodGet, "/emby/System/Info", nil)
+			request.Header.Set(embyAuthorizationHeader, header)
+			request.Header.Set(accessTokenHeader, records[0].AccessToken)
+			response = httptest.NewRecorder()
+			gateway.ServeHTTP(response, request)
+			_, resolved := store.snapshot()
+			if response.Code != http.StatusOK || calls != 2 || !reflect.DeepEqual(resolved, []string{fixtureAccessToken}) {
+				t.Fatal("SystemInfo rejected direct token with unquoted metadata")
+			}
+			if strings.Contains(logs.String(), "application_header_parse_failed") || strings.Contains(logs.String(), "authentication_metadata_unavailable") {
+				t.Fatal("valid metadata generated a parse failure")
+			}
+			assertSecretsAbsent(t, logs.String(), fixtureAccessToken, header, "non-authoritative-user", "fixture-device", "fixture-password")
+		})
+	}
+}
+
+// TestUnquotedMetadataCannotMaskTokenConflicts prevents bare metadata from
+// bypassing token requirements, identity collisions or field delimiters.
+func TestUnquotedMetadataCannotMaskTokenConflicts(t *testing.T) {
+	for _, test := range []struct {
+		name, metadata, directToken, reason string
+	}{
+		{name: "metadata alone", metadata: `Emby UserId=fixture-user, Client=Fixture`, reason: "token_missing"},
+		{name: "conflicting token", metadata: `Emby UserId=fixture-user, Token="other"`, directToken: fixtureAccessToken, reason: "token_ambiguous"},
+		{name: "duplicate token", metadata: `Emby UserId=fixture-user, Token="same", token="same"`, directToken: fixtureAccessToken, reason: "token_invalid"},
+		{name: "missing delimiter", metadata: `Emby UserId=fixture-user Token="other"`, directToken: fixtureAccessToken, reason: "token_invalid"},
+		{name: "wrong delimiter", metadata: `Emby UserId=fixture-user; Token="other"`, directToken: fixtureAccessToken, reason: "token_invalid"},
+		{name: "oversized header", metadata: `Emby UserId=` + strings.Repeat("x", maxApplicationAuthorizationSize), directToken: fixtureAccessToken, reason: "token_invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/emby/System/Info", nil)
+			request.Header.Set(embyAuthorizationHeader, test.metadata)
+			if test.directToken != "" {
+				request.Header.Set(accessTokenHeader, test.directToken)
+			}
+			if _, reason, ok := extractProtectedRequestAccessToken(request); ok || reason != test.reason {
+				t.Fatalf("accepted=%t reason=%s, want rejection %s", ok, reason, test.reason)
+			}
+		})
 	}
 }

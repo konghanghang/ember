@@ -68,7 +68,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 | --- | --- | --- |
 | Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认本地扩展名 fallback `206`、首次/复用 `302` 实际播放、外挂/内嵌字幕，以及 Playing/Progress/Stopped `204`。账号运行期四类回写、1 分钟共享冷却和半开单探测已有 fake/race 与 PostgreSQL 集成证据 | 115 CDN 完整响应头/Range/全文件字节取证，以及自然发生的生产 Provider 冷却/恢复时长；其他平台仍需按目标版本记录 |
 | SenPlayer | 2026-09-21 用户反馈已测试、使用正常；该反馈来自认证修复前，不作为修复后的回归验收。`emby-toolkit` 固定源码将其列为 native client；Ember 有 UA 与通用载体 fake 测试 | 本次反馈未记录客户端/Server 精确版本、平台、部署提交和分项范围；真实 Header/query/path、字幕及认证修复后的回归结果待补 |
-| Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢；Ember 有原字节保持 fake 测试。2026-09-21 用户反馈无法登录，提供日志确认存在网关本地 `application_header_invalid` 拒绝；已实现通用认证透明化并补 fake 回归 | 日志缺少客户端请求形态，不能锁定 Yamby 的具体认证头；修复后真实登录、资源与播放仍待验证 |
+| Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢，Ember 保留原响应字节。2026-09-29 本地 Emby `4.9.3.0` 调试定位到 UserId 元数据没有双引号；支持有界无引号元数据后，真实 Yamby 登录、SystemInfo、Views、Items、Resume 和 Latest 均返回 `200`，未再出现解析错误或 `401` | 当前无 Token 图片被 Web 关闭开关返回 `404`，作为独立问题保留；客户端精确版本未记录；用户确认播放此前正常，本次不复验；无引号元数据与诊断已补 mock 回归 |
 | Emby Web | 目标 Gateway 日志已确认浏览器请求 `/`、`/favicon.ico`、完整静态资源、单层语言 JSON、Branding CSS，以及携四个必填 `X-Emby-*` query 元数据的 Public users、Branding Configuration 和 AuthenticateByName。2026-08-31 真实浏览器进一步确认完整页面资源、query 登录、Primary、Backdrop Index `0/1` 与登录后 WebSocket OPEN；Web 关闭时 GET/HEAD 中文 `404`、禁缓存和 Infuse 不受影响均通过 | Web 播放 115 文件按用户当前无使用场景排除，不表述为已兼容；Cloudflare Browser Insights 注入被 CSP 拦截，属于接受的部署层偏差 |
 | iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |
 
@@ -89,7 +89,7 @@ go build ./...
 
 覆盖登录成功/失败响应保留、可选元数据、旧 Token 原样转发、JSON/XML 与压缩响应映射、XML 非法/超限和实体边界、登录后 Token 检查、公开登录接口以及日志脱敏。外部依赖均使用 fake；数据库集成用例被显式排除，没有验证真实 PostgreSQL、Emby、115 或播放器行为。
 
-修复后 Yamby 登录、资源加载与播放，以及 Infuse/SenPlayer 的修复后回归仍待执行；真实 Emby XML 响应也未验证。实机取证按部署排障手册的客户端登录排障与复测步骤执行。后续记录至少包含部署提交、Emby/客户端精确版本、平台、日期/业务时区和各步骤“通过/失败/未执行”；本条不能用历史数据库集成或其他客户端结果代替。
+截至 2026-09-21，修复后 Yamby 登录、资源加载与播放，以及 Infuse/SenPlayer 的修复后回归仍待执行；真实 Emby XML 响应也未验证。2026-09-29 的 Yamby 登录与列表实测结果已更新到上表，不能把该历史待验证状态当作最新结论。实机取证按部署排障手册的客户端登录排障与复测步骤执行。后续记录至少包含部署提交、Emby/客户端精确版本、平台、日期/业务时区和各步骤“通过/失败/未执行”；本条不能用历史数据库集成或其他客户端结果代替。
 
 ## 4. Infuse 扫库与 Token Store
 

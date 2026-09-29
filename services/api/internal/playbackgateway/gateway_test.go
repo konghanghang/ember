@@ -1391,7 +1391,7 @@ func TestApplicationAuthorizationDiagnosticsHandlesEitherHeaderWithoutSecrets(t 
 			for _, value := range test.standardValues {
 				header.Add(standardAuthorizationHeader, value)
 			}
-			scheme, tokenState := applicationAuthorizationDiagnostics(header)
+			scheme, tokenState, _ := applicationAuthorizationDiagnostics(header)
 			if scheme != test.wantScheme || tokenState != test.wantTokenState {
 				t.Fatalf("diagnostics=(%s,%s), want (%s,%s)", scheme, tokenState, test.wantScheme, test.wantTokenState)
 			}

@@ -123,6 +123,15 @@ docker compose --profile gateway logs --tail=200 redis ember-gateway
    ```
 
    重点保留相邻的 `request_completed`、`authentication_*`、`token_*`、`upstream_unavailable` 和 `[EmbyToken]` 行。`request_completed` 包含 method、path、route、状态、认证载体数量和客户端 family/version；不包含 Token 值。排障共享前隐藏主机名、用户/设备/映射标识及媒体路径，禁止附上真实密码、Token、完整认证头、query value 或外部响应体。
+
+   若 `embeddedTokenState=unparseable`，同时查找同一 `requestId` 的 `code=application_header_parse_failed`。新增诊断仅在 Debug 输出，使用现有身份解析器的失败分支，不改变请求或认证结果：
+
+   - `reasonCode` 区分 `empty_header`、`header_too_long`、`invalid_utf8`、`header_line_break`、`unsupported_scheme`、`expected_field`、`invalid_field`、`duplicate_field`、`expected_equals`、`expected_value`、`expected_quote`、`unterminated_quote`、`invalid_escape`、`control_character`、`invalid_value` 和 `expected_comma`。
+   - `field` 仅输出 `client/device/device_id/version/user_id/token/other/none`；未知字段名不输出原文。
+   - `offset` 是原应用头中从零开始的字节偏移，头部级错误无法定位时为 `-1`；`characterClass` 只区分引号、分隔符、百分号、空白、控制字符、输入结束和 `other` 等固定类别，不输出字符原值。
+   - 例如 `reasonCode=expected_quote field=token offset=11 characterClass=single_quote` 表示 Token 值在期望双引号的位置使用了单引号；这是诊断格式示例，不代表任何真实客户端已确认采用该语法。非 Token 元数据已允许 HTTP token 形式，`expected_value` 表示值开头既不是双引号也不是合法 tchar。结合 `route/statusCode` 判断影响：认证路由 `200` 可以与旁路解析失败并存，受保护请求出现 `token_header_invalid` 才表示本地拒绝。
+
+   本地 GoLand 排查时，重启正确的 `cmd/ember gateway` 进程后，由操作者复现一次客户端请求；在 `services/api/logs/gateway-YYYY-MM-DD.log` 中按上述两种 code 和 requestId 取证，无需打印认证头或手动查看 Token。
 3. 按下表判断失败阶段；仅凭时间相邻不能证明两条日志属于同一请求，缺少客户端/路径关联时标记“未证实”。
 
    | 证据 | 判断与下一步 |

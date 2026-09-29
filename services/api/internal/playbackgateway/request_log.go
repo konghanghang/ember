@@ -37,6 +37,7 @@ type requestLogSnapshot struct {
 	standardAuthorizationCount int
 	applicationScheme          string
 	embeddedTokenState         string
+	applicationFailure         *applicationAuthorizationFailure
 	apiKeyQueryPresent         bool
 	queryTokenSourceCount      int
 	queryTokenState            string
@@ -102,7 +103,7 @@ func captureRequestLogSnapshot(request *http.Request) requestLogSnapshot {
 	xEmbyAuthorizationValues := request.Header.Values(embyAuthorizationHeader)
 	xMediaAuthorizationValues := request.Header.Values(mediaBrowserAuthorizationHeader)
 	standardAuthorizationValues := request.Header.Values(standardAuthorizationHeader)
-	applicationScheme, embeddedTokenState := applicationAuthorizationDiagnostics(request.Header)
+	applicationScheme, embeddedTokenState, applicationFailure := applicationAuthorizationDiagnostics(request.Header)
 	userAgentFamily, userAgentVersion := userAgentDiagnostics(request.UserAgent())
 
 	return requestLogSnapshot{
@@ -123,6 +124,7 @@ func captureRequestLogSnapshot(request *http.Request) requestLogSnapshot {
 		standardAuthorizationCount: len(standardAuthorizationValues),
 		applicationScheme:          applicationScheme,
 		embeddedTokenState:         embeddedTokenState,
+		applicationFailure:         applicationFailure,
 		apiKeyQueryPresent:         apiKeyQueryPresent,
 		queryTokenSourceCount:      queryTokenSourceCount,
 		queryTokenState:            queryTokenState,
@@ -142,6 +144,12 @@ func (gateway *Gateway) logRequestCompletion(
 ) {
 	if !gateway.isDebugEnabled() {
 		return
+	}
+	if failure := snapshot.applicationFailure; failure != nil {
+		gateway.logger.Printf(
+			"[PlaybackGateway] level=debug code=application_header_parse_failed requestId=%s route=%s pathMode=%s statusCode=%d reasonCode=%s field=%s offset=%d characterClass=%s",
+			snapshot.requestID, route, pathMode, statusCode, failure.reasonCode, failure.field, failure.offset, failure.characterClass,
+		)
 	}
 	gateway.logger.Printf(
 		"[PlaybackGateway] level=debug code=request_completed method=%s host=%q path=%q pathTruncated=%t queryKeys=%q queryKeyCount=%d queryKeysTruncated=%t route=%s pathMode=%s statusCode=%d outcome=%s durationMs=%d xEmbyTokenCount=%d xEmbyTokenState=%s xMediaBrowserTokenCount=%d xMediaBrowserTokenState=%s xEmbyAuthorizationCount=%d xMediaBrowserAuthorizationCount=%d authorizationCount=%d applicationScheme=%s embeddedTokenState=%s apiKeyQueryPresent=%t queryTokenSourceCount=%d queryTokenState=%s userAgentFamily=%s userAgentVersion=%q requestId=%s",
@@ -239,34 +247,35 @@ func queryTokenDiagnostics(values url.Values) (int, string, bool) {
 }
 
 // applicationAuthorizationDiagnostics uses the same identity grammar as the
-// gate and reports only fixed scheme/Token presence labels, never Header values.
-func applicationAuthorizationDiagnostics(header http.Header) (string, string) {
+// gate and reports fixed scheme/Token presence labels and a safe parse failure,
+// never Header values. Carrier absence/ambiguity remains in the existing labels.
+func applicationAuthorizationDiagnostics(header http.Header) (string, string, *applicationAuthorizationFailure) {
 	standardValues := header.Values(standardAuthorizationHeader)
 	xEmbyValues := header.Values(embyAuthorizationHeader)
 	xMediaValues := header.Values(mediaBrowserAuthorizationHeader)
 	if len(xEmbyValues)+len(xMediaValues)+len(standardValues) == 0 {
-		return "missing", "missing"
+		return "missing", "missing", nil
 	}
 	if len(xEmbyValues)+len(xMediaValues)+len(standardValues) != 1 {
-		return "ambiguous", "ambiguous"
+		return "ambiguous", "ambiguous", nil
 	}
 	value, headerKind, ok := singleApplicationAuthorization(header)
 	if !ok {
-		return "other", "unparseable"
+		return "other", "unparseable", newApplicationAuthorizationFailure("empty_header", "", "", 0)
 	}
 	scheme := applicationAuthorizationSchemeCode(value)
-	fields, ok := parseApplicationAuthorizationFields(value, headerKind, true, true)
-	if !ok {
-		return scheme, "unparseable"
+	fields, failure := parseApplicationAuthorizationFields(value, headerKind, true, true)
+	if failure != nil {
+		return scheme, "unparseable", failure
 	}
 	token, present := fields["Token"]
 	if !present {
-		return scheme, "missing"
+		return scheme, "missing", nil
 	}
 	if token == "" {
-		return scheme, "empty"
+		return scheme, "empty", nil
 	}
-	return scheme, "present"
+	return scheme, "present", nil
 }
 
 // applicationAuthorizationSchemeCode returns a fixed label instead of an
