@@ -10,6 +10,7 @@ import { useAuthStore } from '@/store/auth'
 import { getLatestRanking, getRankingHistory } from '@/api/console'
 import { getRankingLibraryAllowlist, previewRanking, updateRankingLibraryAllowlist } from '@/api/admin'
 import type { MediaLibraryOption, RankingItem, RankingPeriod, RankingResponse } from '@/types/api'
+import { formatSlashedDateTime } from '@/utils/date'
 
 const authStore = useAuthStore()
 
@@ -19,7 +20,7 @@ const loading = ref(false)
 const movies = ref<RankingItem[]>([])
 const episodes = ref<RankingItem[]>([])
 const mode = ref<'latest' | 'preview' | 'history'>('latest')
-const cutoffAt = ref('')
+const snapshotAt = ref('')
 const selectedDate = ref('')
 const periodStart = ref('')
 const periodEnd = ref('')
@@ -47,10 +48,11 @@ const rangeText = computed(() => {
   return ''
 })
 
-const rangeTextWithCutoff = computed(() => {
+// snapshotAt 已由 API 转为业务时区，按其字面分量展示，避免浏览器本地时区再次换算。
+const rangeTextWithGeneration = computed(() => {
   if (!rangeText.value) return ''
-  if (!cutoffAt.value) return rangeText.value
-  return `${rangeText.value} 截至 ${cutoffAt.value}`
+  if (!snapshotAt.value) return rangeText.value
+  return `${rangeText.value} · 生成于 ${formatSlashedDateTime(snapshotAt.value)}`
 })
 
 const periodTabs = computed(() => [
@@ -133,7 +135,7 @@ function rankBadgeClass(rank: number): string {
 function clearRankingState() {
   movies.value = []
   episodes.value = []
-  cutoffAt.value = ''
+  snapshotAt.value = ''
   periodStart.value = ''
   periodEnd.value = ''
 }
@@ -154,7 +156,7 @@ function applyAllowlistSettings(data?: {
 
 function applyRanking(source: 'latest' | 'preview' | 'history', res: RankingResponse) {
   mode.value = source
-  cutoffAt.value = res.cutoffAt || ''
+  snapshotAt.value = res.snapshotAt || ''
   periodStart.value = res.periodStart || ''
   periodEnd.value = res.periodEnd || ''
   movies.value = res.movies || []
@@ -419,7 +421,7 @@ onMounted(() => {
         <span
           class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
         >
-          统计窗口：{{ rangeTextWithCutoff || `${periodLabel}等待生成` }}
+          统计日期：{{ rangeTextWithGeneration || `${periodLabel}等待生成` }}
         </span>
         <span
           class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"

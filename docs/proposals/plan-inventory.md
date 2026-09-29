@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-09-22（补充 115 新增转存起播许可实施范围与验证边界）
+> 更新时间：2026-09-29（每日播放总结第一步完成，本地检查与 PostgreSQL 集成验证通过）
 
 本清单只回答三件事：
 
@@ -93,7 +93,7 @@
 
 2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env` 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。Gateway 本地媒体直出已按产品边界撤销并归档，不再列为现行计划。
 
-2026-09-17 文档复核：上述通过记录只覆盖对应历史批次；当时 9 月 12 日新增账号配置版本与成功记录优化的 PostgreSQL 用例尚未执行。2026-09-21 已补跑 DirectPlay PostgreSQL 专项并全部通过，详见 [网关总计划的验证记录](../plan/architecture/emby-115-direct-play-gateway.md)；真实 Redis/115/客户端验收仍未完成。2026-09-22 增补起播许可后，当前 `docs/plan/` 保留以下 9 份。
+2026-09-17 文档复核：上述通过记录只覆盖对应历史批次；当时 9 月 12 日新增账号配置版本与成功记录优化的 PostgreSQL 用例尚未执行。2026-09-21 已补跑 DirectPlay PostgreSQL 专项并全部通过，详见 [网关总计划的验证记录](../plan/architecture/emby-115-direct-play-gateway.md)；真实 Redis/115/客户端验收仍未完成。2026-09-22 增补起播许可、2026-09-29 新增每日播放总结计划后，当前 `docs/plan/` 保留以下 10 份。
 
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
@@ -106,6 +106,9 @@
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
+| [media-subscription/playback-summary-improvements.md](../plan/media-subscription/playback-summary-improvements.md) | 第一步完成，后续步骤待授权 | 批次事务、即时查询、时间展示与 mock 回归已落地；Go test/race/vet/build、Web 266 项与构建、Bot 72 项通过。专用 PostgreSQL 15.15 上的 6 个顶层测试及 4 个历史子用例全部通过，覆盖迁移、并发、回滚重试与查询；临时 schema 已清理，既有 public 结构指纹未变。真实 Emby / Telegram 与部署未执行 | 保留至分步实施与验证收口 |
+
+2026-09-29 新增上述每日播放总结计划后，当前 `docs/plan/` 共 10 份实施稿；历史批次的验证记录不扩展为本轮验证结论。
 
 ## C. 已完成的归档记录
 

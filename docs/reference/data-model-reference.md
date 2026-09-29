@@ -317,26 +317,42 @@
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
 
-### 2.10 PlaybackRanking（播放排行快照）
+### 2.10 PlaybackRankingBatch / PlaybackRanking（播放排行快照）
+
+**批次表**: `playback_ranking_batches` | **文件**: `models/playback_ranking_batch.go`
+
+| 字段 | 类型 | 列名 | 说明 |
+|------|------|------|------|
+| ID | string(32) | id | 新批次为 26 位 ULID；旧空批次 ID 回填为 `legacy_` 加原锚点行 ID |
+| Period | RankingPeriod | period | `daily` / `weekly` |
+| PeriodStart | time.Time | period_start | 统计周期开始 |
+| PeriodEnd | time.Time | period_end | 原始查询结束边界；与 Period / PeriodStart 构成周期唯一键 |
+| SnapshotAt | time.Time | snapshot_at | 实际生成时间 |
+| TotalDuration | *int64 | total_duration | 本次聚合总时长；历史未保存，迁移保留 NULL |
+| CreatedAt | time.Time | created_at | 创建时间 |
+
+批次与全部明细在一个事务中提交；空榜也保留批次。历史回填只保存已有信息，不能据残存 Top 条目推算完整总量。
 
 **表名**: `playback_rankings` | **文件**: `models/playback_ranking.go`
 
 | 字段 | 类型 | 列名 | 说明 |
 |------|------|------|------|
 | ID | string(25) | id | CUID |
-| BatchID | string(32) | batchId | 同一次生成的排行榜批次 ID（当前使用 26 位 ULID） |
+| BatchID | string(32) | batch_id | 引用批次 ID；外键删除级联，不再允许省略批次身份 |
 | Period | RankingPeriod | period | `"daily"` 或 `"weekly"` |
 | Category | RankingCategory | category | `"media_movie"` 或 `"media_episode"` |
 | Rank | int | rank | 排名 |
-| ItemKey | string(128) | itemKey | 稳定聚合键（电影使用 `ItemId`；剧集使用回查 Emby 条目详情得到的 `SeriesId`） |
-| ItemSourceType | string(32) | itemSourceType | 聚合键来源（如 `movie_item` / `series` / `episode_item`） |
-| ItemName | string(500) | itemName | 媒体名称 |
-| PlayCount | int | playCount | 播放次数 |
+| ItemKey | string(128) | item_key | 条目身份（电影 `ItemId`；剧集回查得到的 `SeriesId`） |
+| ItemSourceType | string(32) | item_source_type | 条目来源（如 `movie_item` / `series` / `episode_item`） |
+| ItemName | string(500) | item_name | 媒体名称 |
+| PlayCount | int | play_count | 播放次数 |
 | Duration | int64 | duration | 总时长（秒）|
-| SnapshotAt | time.Time | snapshotAt | 快照时间 |
-| PeriodStart | time.Time | periodStart | 周期开始 |
-| PeriodEnd | time.Time | periodEnd | 周期结束 |
-| CreatedAt | time.Time | createdAt | 自动 |
+| SnapshotAt | time.Time | snapshot_at | 快照时间；新记录与批次一致 |
+| PeriodStart | time.Time | period_start | 周期开始；新记录与批次一致 |
+| PeriodEnd | time.Time | period_end | 周期结束；新记录与批次一致 |
+| CreatedAt | time.Time | created_at | 自动 |
+
+明细唯一键为 `batch_id / category / rank`，允许同一期保存完整电影榜和剧集榜；原错误的明细周期唯一索引已由前向 migration 删除。整期查询以批次元数据为准，不用第一条明细判定是否有快照。
 
 ### 2.11 ClientBlacklist（客户端黑名单）
 
@@ -452,7 +468,7 @@ Setting                         （全局 KV 配置，无外键）
 User (1) ──→ (0..1) P115Account（当前非 revoked 的个人 playback；owner 外键 ON DELETE RESTRICT）
 P115Account                     （管理员全局 source/shared playback 的 owner 为空；revoked tombstone 也清空 owner）
 EmailVerification               （独立验证码，无外键）
-PlaybackRanking                 （独立排行快照，无外键）
+PlaybackRankingBatch (1) ──→ (N) PlaybackRanking（空榜为 0 条明细，批次外键 ON DELETE CASCADE）
 ClientBlacklist ──→ DeviceAction（按 clientName 审计）
 User (1) ──→ (N) TVCalendarSubscription（用户追剧订阅）
 TVCalendarSource (1) ──→ (N) TVCalendarItem（按 tmdbId 关联）

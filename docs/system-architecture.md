@@ -78,6 +78,7 @@ services/
 │     │  ├─ plan_group.go        # PlanGroup（套餐分组）
 │     │  ├─ payment.go           # Payment（支付记录）
 │     │  ├─ playback_ranking.go  # PlaybackRanking（播放排行快照）
+│     │  ├─ playback_ranking_batch.go # PlaybackRankingBatch（整期元数据与周期幂等）
 │     │  ├─ media_quality_cache.go # MediaQualityCache（媒体质量缓存）
 │     │  ├─ client_blacklist.go  # ClientBlacklist（客户端黑名单）
 │     │  ├─ device_action.go     # DeviceAction（设备操作日志）
@@ -327,7 +328,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 
 - 账号与认证：`users`、`email_verifications`、`telegram_bind_codes`、`p115_accounts`、`emby_access_tokens`
 - 兑换与支付：`redemption_codes`、`redemptions`、`plans`、`plan_groups`、`payments`、`stripe_webhook_events`
-- 内容与行为：`subscriptions`、`subscription_admin_notifications`、`playback_rankings`、`client_blacklists`、`device_actions`
+- 内容与行为：`subscriptions`、`subscription_admin_notifications`、`playback_ranking_batches`、`playback_rankings`、`client_blacklists`、`device_actions`
 - 追剧与媒体：`tv_calendar_sources`、`tv_calendar_items`、`tv_calendar_subscriptions`、`tmdb_cache`
 - 系统运行期：`settings`、`failed_emby_async_ops`、`media_gap_scans`、`bot_runtime_locks`、`playback_transfer_tasks`
 
@@ -595,10 +596,10 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 从 Emby PlaybackActivity 数据库生成播放排行。
 
-- `GenerateRanking(period)` — 无数据读取地校验 PlaybackActivity 六个必需字段 → 读取排行榜媒体库 allowlist 与管理员上下文 → 电影候选按 `ItemId` 扩窗；episode 完整读取周期内单集聚合，按每批最多 100 个条目回查详情后按 `SeriesId` 归并；再由同一管理员的 Items 接口按 `ParentId + Ids` 筛选候选与所选媒体库的交集，剧集过滤后才取前十 → 存入数据库 → 通知 Bot
-- `GetLatestRanking(period)` — 获取指定周期最近一批正式排行榜（按 `periodEnd` 排序，不按 `snapshotAt` 猜）
-- `GetHistoryRanking(period, rangeStart, rangeEnd)` — 按统计周期查询历史排行，快照 `periodEnd <= rangeEnd` 包含完整周期上界并兼容周期内截点；新格式按 `batchId` 读取，旧格式按 `snapshotAt` 兼容。播放明细仍采用 `[start, end)`，不重复统计相邻周期边界
-- `NotifyRanking` 推送 payload 额外包含整期 `totalDuration`，用于 Telegram 展示当天/当周总播放时长
+- `GenerateRanking(period)` — 无数据读取地校验 PlaybackActivity 六个必需字段 → 沿用媒体库筛选和电影 / Episode 聚合 → 在同一事务写入 `playback_ranking_batches` 与全部 `playback_rankings` 明细 → 只有新批次触发既有 Bot 通知。周期唯一约束在批次表，明细错误整体回滚；空榜也有批次并参与去重
+- `GetLatestRanking(period)` — 按 `periodEnd / snapshotAt / createdAt` 获取最近已生成批次，再读取该批次明细；只排除周期开始或生成时间在未来的记录，不等待当前自然日 / 周结束。空批次可覆盖上一期非空榜
+- `GetHistoryRanking(period, rangeStart, rangeEnd)` — 批次 `periodEnd <= rangeEnd` 包含完整周期上界并兼容周期内截点；旧空 `batchId` 已由 migration 确定性补齐，读取统一按批次进行。播放明细仍采用 `[start, end)`
+- `NotifyRanking` 推送 payload 包含整期 `totalDuration` 与业务时区 RFC3339 `snapshotAt`；Web / Bot 展示所属日期和实际生成时间。`periodEnd` 的日期展示将零点排他上界换算成最后一个覆盖日期，`cutoffAt` 保留为生成时分的兼容字段，不代表精确冻结时刻
 - `PreviewRanking(period)` — 即时预览当前周期排行（不持久化、不推送）
 - `GetRankingLibraryAllowlist()` / `UpdateRankingLibraryAllowlist()` — 管理员读取或保存排行榜参与统计的媒体库 allowlist；空配置视为全部媒体库参与统计
 
@@ -606,13 +607,14 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 **实现约束**：
 
-- 正式榜单按 `batchId` 组织，同一期电影榜和剧集榜共享同一批次
+- 正式榜单按 `batchId` 组织；批次保存周期、生成时间与总时长，同一期电影榜和剧集榜共享批次。`20260929_01_playback_ranking_batches.sql` 回填历史关系并更换唯一约束，历史总时长未知保留 NULL，不还原缺失明细或触发历史通知
 - 最新榜不再按 `category` 分开读取，统一返回整期榜单
-- 聚合键不再使用 `ItemName`
+- 当前电影 SQL 仍按 `ItemId + ItemName` 分组，同 ID 改名会分裂的已知问题留在[分步修复计划](./plan/media-subscription/playback-summary-improvements.md)第三步；第一步只修存储、查询和时间展示
 - 电影榜直接依赖 PlaybackActivity 的 `ItemId`
 - 当前 PlaybackActivity 不返回 `SeriesId` / `SeriesName`，剧集榜需额外回查 Emby 媒体详情后按 `SeriesId` 归并
 - 排行榜媒体库范围使用全站统一 allowlist，而不是按用户可见媒体库拆分
 - allowlist 为空时默认统计全部媒体库；非空时把管理员 View ID 和电影 `ItemId` / 剧集 `SeriesId` 候选交给 `/Users/{adminUserId}/Items` 做范围查询，不在本地直接比较 Views、`ParentId`、Ancestors 的 ID
+- 每天 20:00 是执行计划，查询当天范围内执行时已有数据，不要求精确 20:00 快照。通知结果记录与补发属于后续第二步，当前生成成功仍不能代表 Telegram 已送达
 
 ### 5.16 PaymentService (`services/payment/service.go`)
 

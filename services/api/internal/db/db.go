@@ -109,6 +109,7 @@ func VerifySchema() error {
 		{"subscriptions", &models.Subscription{}},
 		{"media_gaps", &models.MediaGap{}},
 		{"playback_rankings", &models.PlaybackRanking{}},
+		{"playback_ranking_batches", &models.PlaybackRankingBatch{}},
 		{"media_quality_caches", &models.MediaQualityCache{}},
 		{"p115_accounts", &models.P115Account{}},
 		{"playback_transfer_tasks", &models.PlaybackTransferTask{}},
@@ -199,6 +200,7 @@ type schemaFingerprintIndex struct {
 // 维护规则：每次在 infrastructure/database/ 新增顶层 migration 后，把其中"在已有表上 ADD COLUMN"
 // 的代表性列追加到这里；漏维护会导致 VerifySchema 放过缺该 migration 的环境。
 var schemaFingerprintColumns = []schemaFingerprintColumn{
+	{"playback_ranking_batches", "total_duration", "20260929_01_playback_ranking_batches"},
 	{"subscriptions", "reject_reason", "20260416_01_subscription_status_and_review_fields"},
 	{"subscriptions", "reviewed_at", "20260416_01_subscription_status_and_review_fields"},
 	{"subscriptions", "ingested_at", "20260416_01_subscription_status_and_review_fields"},
@@ -257,7 +259,8 @@ var schemaFingerprintIndexes = []schemaFingerprintIndex{
 	{"payments", "idx_payments_stripe_session_id", "20260426_04_payments_checkout_constraints"},
 	{"media_gap_scans", "idx_media_gap_scans_started", "20260426_07_media_gap_scans"},
 	{"users", "uq_users_telegram_id", "20260426_13_schema_alignment"},
-	{"playback_rankings", "uq_playback_rankings_period", "20260426_08_playback_rankings_idempotency"},
+	{"playback_ranking_batches", "uq_playback_ranking_batches_period", "20260929_01_playback_ranking_batches"},
+	{"playback_rankings", "uq_playback_rankings_batch_rank", "20260929_01_playback_ranking_batches"},
 	{"device_actions", "idx_device_actions_operator", "20260426_10_device_actions_operator_id"},
 	{"media_quality_caches", "idx_media_quality_caches_inflight", "20260426_09_media_quality_caches_inflight"},
 	{"bot_pending_reject_requests", "idx_bot_pending_reject_requests_chat", "20260426_12_bot_pending_reject_requests"},

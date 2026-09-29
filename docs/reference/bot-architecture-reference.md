@@ -33,6 +33,8 @@ Telegram 用户操作 → Telegram → Bot Polling → Bot 处理 → 调用 Go 
 | `POST /notify/payment` | 接收支付成功通知 |
 | `POST /notify/ranking` | 接收排行榜通知 |
 
+排行榜载荷的 `snapshotAt` 为 API 按 `CRON_TIMEZONE` 输出的带 offset RFC3339，Bot 按该时区分量显示“生成于”，不再次套用进程本地时区。日期范围已由 API 转成实际覆盖日期；旧载荷兼容与清理条件见 [Playback Reporting 合同](./playback-reporting-api-contract.md#61-ember-快照存储与展示合同)。本次仅调整展示，实际投递结果记录和补发尚未实施。
+
 ## 4. 命令与处理器
 
 - **CallbackQuery**：订阅审批按钮（approve/reject → 调用 Internal API）；reject 上下文持久化在 API，Bot 先按 `chatId + adminUserId` peek 最近点击记录，再以固定记录 ID complete；两步间不删除记录，失败可重试，终态只回放不重复触发通知。普通文本只对应最近一次点击，处理其他订阅需重新点击；完成记录保留到现有五分钟 TTL，不能过滤终态后误消费旧请求

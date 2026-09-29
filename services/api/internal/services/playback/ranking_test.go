@@ -617,6 +617,7 @@ func TestComputeRankingUsesFullDurationWhenAllowlistIsEmpty(t *testing.T) {
 }
 
 func TestBuildRankingNotificationPayloadKeepsFilteredTotalDuration(t *testing.T) {
+	t.Setenv("CRON_TIMEZONE", "UTC")
 	computeResult := &RankingComputeResult{
 		Period:        models.RankingWeekly,
 		Start:         time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
@@ -687,8 +688,8 @@ func TestGenerateRankingNotifiesFilteredPayload(t *testing.T) {
 		asyncGo: func(_ string, fn func()) {
 			fn()
 		},
-		persistRankings: func([]models.PlaybackRanking) (int64, error) {
-			return 1, nil
+		persistBatch: func(*RankingComputeResult) (bool, error) {
+			return true, nil
 		},
 	}
 
@@ -745,8 +746,8 @@ func TestGenerateRankingUsesDefaultAsyncGoWhenNil(t *testing.T) {
 		loadLibraryAllowlist: func() ([]string, error) {
 			return []string{"lib_movie_only"}, nil
 		},
-		notifier:        notifier,
-		persistRankings: func([]models.PlaybackRanking) (int64, error) { return 1, nil },
+		notifier:     notifier,
+		persistBatch: func(*RankingComputeResult) (bool, error) { return true, nil },
 	}
 
 	defer func() {

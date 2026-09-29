@@ -143,10 +143,10 @@ func TestBuildRankingResponseFormatsResultAndItems(t *testing.T) {
 	if resp.Period != "daily" || resp.BatchID != "batch_1" {
 		t.Fatalf("unexpected response basics: %+v", resp)
 	}
-	if resp.SnapshotAt != "2026-06-17T08:30:00Z" {
+	if resp.SnapshotAt != "2026-06-17T16:30:00+08:00" {
 		t.Fatalf("unexpected snapshot time: %s", resp.SnapshotAt)
 	}
-	if resp.PeriodStart != "2026-06-17" || resp.PeriodEnd != "2026-06-18" || resp.CutoffAt != "00:00" {
+	if resp.PeriodStart != "2026-06-17" || resp.PeriodEnd != "2026-06-17" || resp.CutoffAt != "16:30" {
 		t.Fatalf("unexpected localized range: %+v", resp)
 	}
 	if len(resp.Movies) != 1 || resp.Movies[0].ItemKey != "movie_1" || resp.Movies[0].Duration != 7200 {

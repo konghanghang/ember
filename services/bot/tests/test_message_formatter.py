@@ -27,6 +27,7 @@ from app.formatters.message_formatter import (
     format_account_info,
     format_auto_approved_subscription_message,
     format_payment_message,
+    format_ranking_message,
     format_result_message,
     format_search_detail,
     format_search_results,
@@ -61,6 +62,30 @@ def _assert_valid_html(text: str) -> None:
 
 
 class MessageFormatterTestCase(unittest.TestCase):
+    def test_ranking_displays_api_business_timezone_generation_time(self) -> None:
+        with patch.dict("os.environ", {"TZ": "America/New_York"}):
+            text = format_ranking_message({
+                "period": "daily",
+                "periodStart": "2026-09-29",
+                "periodEnd": "2026-09-29",
+                "snapshotAt": "2026-09-29T20:03:00+08:00",
+                "cutoffAt": "00:00",
+                "totalDuration": 0,
+            })
+        self.assertIn("生成于 2026-09-29 20:03", text)
+        self.assertNotIn("截至", text)
+        self.assertIn("暂无播放数据", text)
+
+    def test_ranking_retains_old_payload_display_without_a_valid_offset_time(self) -> None:
+        for value in ("", "invalid", "2026-09-29T20:00:00"):
+            with self.subTest(snapshot_at=value):
+                text = format_ranking_message({
+                    "periodStart": "2026-09-29", "periodEnd": "2026-09-29",
+                    "snapshotAt": value, "cutoffAt": "20:00",
+                })
+                self.assertIn("截至 20:00", text)
+                self.assertNotIn("生成于", text)
+
     def test_format_subscription_message_includes_season_and_note(self) -> None:
         text, keyboard = format_subscription_message(
             {

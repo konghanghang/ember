@@ -46,7 +46,7 @@
 | GET | `/api/v1/user/media-libraries` | 当前登录用户媒体库偏好与分组模板 |
 | PUT | `/api/v1/user/media-libraries` | 保存当前登录用户媒体库偏好（请求体 `{enabledLibraryIds}`） |
 | DELETE | `/api/v1/user/media-libraries/preferences` | 清除当前登录用户媒体库偏好，恢复分组默认 |
-| GET | `/api/v1/rankings/latest` | 最新整期排行（`period`） |
+| GET | `/api/v1/rankings/latest` | 最新已生成的整期排行（`period`）；当前周期生成后立即可读，空榜也有批次 |
 | GET | `/api/v1/rankings/history` | 按日期查询整期历史排行（`period` + `date`） |
 | GET | `/api/v1/plans` | 当前登录用户可购方案列表（认证兼容别名，按用户有效套餐分组过滤） |
 | GET | `/api/v1/payments/plans` | 当前登录用户可购方案列表（按用户有效套餐分组过滤） |
@@ -58,6 +58,8 @@
 | GET | `/api/v1/tv-calendar/subscriptions` | 我的关注列表 |
 | POST | `/api/v1/tv-calendar/subscriptions` | 关注剧集 |
 | DELETE | `/api/v1/tv-calendar/subscriptions/:tmdbId` | 取消关注剧集 |
+
+排行榜响应保留 `movies/episodes` 与原字段名；`periodStart/periodEnd` 展示实际覆盖日期，零点排他上界折算为前一天。`snapshotAt` 是业务时区下带 offset 的 RFC3339 生成时间；`cutoffAt` 兼容字段现在表示生成时分。数据库查询周期未因此改变，详细边界见 [Playback Reporting 合同](./playback-reporting-api-contract.md#61-ember-快照存储与展示合同)。
 
 ## 3. 用户路由（需认证 + role=user）
 

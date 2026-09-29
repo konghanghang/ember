@@ -34,7 +34,7 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中仍在推进中的实施稿共 9 份：
+当前 `docs/plan/` 中仍在推进中的实施稿共 10 份：
 
 - `access-auth/registration-user-capacity.md`
 - `architecture/emby-115-direct-play-gateway.md`
@@ -45,6 +45,7 @@
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
+- [每日播放总结分步修复](./media-subscription/playback-summary-improvements.md)（2026-09-29：第一步完成，本地检查与 PostgreSQL 集成验证通过；后续步骤待授权）
 
 最近已完成归档的实施稿包括：
 

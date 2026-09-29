@@ -17,7 +17,6 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/oklog/ulid/v2"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const (
@@ -35,7 +34,7 @@ type PlaybackRankingService struct {
 	loadLibraryAllowlist  func() ([]string, error)
 	saveLibraryAllowlist  func([]string, *string) error
 	asyncGo               func(string, func())
-	persistRankings       func([]models.PlaybackRanking) (int64, error)
+	persistBatch          func(*RankingComputeResult) (bool, error)
 	rankingLibrariesCache *sfCache[string, rankingLibraryContext]
 	entityLibraryCache    *sfCache[string, string]
 }
@@ -88,6 +87,7 @@ type playbackAggregateRow struct {
 	duration       int64
 }
 
+// NewPlaybackRankingService 装配排行聚合、批次存储与既有异步通知依赖。
 func NewPlaybackRankingService() *PlaybackRankingService {
 	return &PlaybackRankingService{
 		embyService:           embyint.GetSharedService(),
@@ -95,7 +95,7 @@ func NewPlaybackRankingService() *PlaybackRankingService {
 		loadLibraryAllowlist:  loadPlaybackRankingLibraryAllowlist,
 		saveLibraryAllowlist:  savePlaybackRankingLibraryAllowlist,
 		asyncGo:               async.SafeGo,
-		persistRankings:       persistPlaybackRankings,
+		persistBatch:          persistRankingBatch,
 		rankingLibrariesCache: newSFCache[string, rankingLibraryContext](10 * time.Minute),
 		entityLibraryCache:    newSFCache[string, string](time.Hour),
 	}
@@ -809,12 +809,16 @@ func sumRankingDuration(rows []models.PlaybackRanking) int64 {
 	return total
 }
 
+// GenerateRanking 完整提交一个周期批次，仅本次创建成功的批次触发既有通知。
+// 同周期竞争者和空榜都由批次唯一约束去重，通知可靠恢复留给独立投递流程。
 func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, start, end *time.Time) error {
-	if s.persistRankings == nil {
-		s.persistRankings = persistPlaybackRankings
+	persist := s.persistBatch
+	if persist == nil {
+		persist = persistRankingBatch
 	}
-	if s.asyncGo == nil {
-		s.asyncGo = async.SafeGo
+	runAsync := s.asyncGo
+	if runAsync == nil {
+		runAsync = async.SafeGo
 	}
 
 	res, err := s.computeRanking(period, start, end)
@@ -822,40 +826,21 @@ func (s *PlaybackRankingService) GenerateRanking(period models.RankingPeriod, st
 		return err
 	}
 
-	rankings := make([]models.PlaybackRanking, 0, len(res.Movies)+len(res.Episodes))
-	rankings = append(rankings, res.Movies...)
-	rankings = append(rankings, res.Episodes...)
-
-	batchID := ""
-	if len(rankings) > 0 {
-		batchID = generateRankingBatchID()
+	res.BatchID = generateRankingBatchID()
+	created, err := persist(res)
+	if err != nil {
+		return err
 	}
-	res.BatchID = batchID
-
-	for i := range rankings {
-		rankings[i].BatchID = batchID
-		rankings[i].Period = res.Period
-		rankings[i].SnapshotAt = res.ComputedAt
-		rankings[i].PeriodStart = res.Start
-		rankings[i].PeriodEnd = res.End
+	if !created {
+		log.Printf("[PlaybackRanking] duplicate period=%s start=%s end=%s; skip notification", period, res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339))
+		return nil
 	}
 
-	if len(rankings) > 0 {
-		rowsAffected, err := s.persistRankings(rankings)
-		if err != nil {
-			return err
-		}
-		if rowsAffected == 0 {
-			log.Printf("[Ranking] %s 榜 %s~%s 已存在，跳过", period, res.Start.Format("2006-01-02"), res.End.Format("2006-01-02"))
-			return nil
-		}
-	}
-
-	log.Printf("[PlaybackRanking] generate done period=%s batchId=%s movies=%d episodes=%d start=%s end=%s snapshot=%s", period, batchID, len(res.Movies), len(res.Episodes), res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339), res.ComputedAt.Format(time.RFC3339))
+	log.Printf("[PlaybackRanking] generate done period=%s batchId=%s movies=%d episodes=%d start=%s end=%s snapshot=%s", period, res.BatchID, len(res.Movies), len(res.Episodes), res.Start.Format(time.RFC3339), res.End.Format(time.RFC3339), res.ComputedAt.Format(time.RFC3339))
 
 	rankingPayload := buildRankingNotificationPayload(res)
 	if s.notifier != nil {
-		s.asyncGo("playback.notifyRanking", func() { s.notifier.NotifyRanking(rankingPayload) })
+		runAsync("playback.notifyRanking", func() { s.notifier.NotifyRanking(rankingPayload) })
 	}
 
 	return nil
@@ -871,6 +856,7 @@ func (s *PlaybackRankingService) PreviewRanking(period models.RankingPeriod) (*R
 	return buildRankingResult(res.Period, "", res.ComputedAt, res.Start, res.End, res.Movies, res.Episodes), nil
 }
 
+// GetLatestRanking 读取已经生成的最近周期，允许周期尚未结束，并保留空批次。
 func (s *PlaybackRankingService) GetLatestRanking(period models.RankingPeriod) (*RankingResult, error) {
 	if period != models.RankingDaily && period != models.RankingWeekly {
 		return nil, fmt.Errorf("无效的 period: %s", period)
@@ -878,9 +864,9 @@ func (s *PlaybackRankingService) GetLatestRanking(period models.RankingPeriod) (
 
 	now := time.Now().In(loadCronTimezone())
 
-	var latest models.PlaybackRanking
+	var latest models.PlaybackRankingBatch
 	err := db.DB.
-		Where("period = ? AND batch_id <> '' AND period_end <= ?", period, now).
+		Where("period = ? AND period_start <= ? AND snapshot_at <= ?", period, now, now).
 		Order("period_end DESC").
 		Order("snapshot_at DESC").
 		Order("created_at DESC").
@@ -892,8 +878,8 @@ func (s *PlaybackRankingService) GetLatestRanking(period models.RankingPeriod) (
 		return nil, err
 	}
 
-	log.Printf("[PlaybackRanking] latest period=%s batchId=%s periodStart=%s periodEnd=%s snapshot=%s", period, latest.BatchID, latest.PeriodStart.Format(time.RFC3339), latest.PeriodEnd.Format(time.RFC3339), latest.SnapshotAt.Format(time.RFC3339))
-	return s.loadRankingByBatchID(period, latest.BatchID)
+	log.Printf("[PlaybackRanking] latest period=%s batchId=%s periodStart=%s periodEnd=%s snapshot=%s", period, latest.ID, latest.PeriodStart.Format(time.RFC3339), latest.PeriodEnd.Format(time.RFC3339), latest.SnapshotAt.Format(time.RFC3339))
+	return s.loadRankingBatch(&latest)
 }
 
 // GetHistoryRanking 选择指定周期内最新快照，包含恰好覆盖整个周期的 period_end。
@@ -907,10 +893,10 @@ func (s *PlaybackRankingService) GetHistoryRanking(
 		return nil, fmt.Errorf("无效的 period: %s", period)
 	}
 
-	var latestBatch models.PlaybackRanking
+	var latestBatch models.PlaybackRankingBatch
 	err := db.DB.
 		Where(
-			"period = ? AND batch_id <> '' AND period_start = ? AND period_end >= ? AND period_end <= ?",
+			"period = ? AND period_start = ? AND period_end >= ? AND period_end <= ?",
 			period,
 			rangeStart,
 			rangeStart,
@@ -918,28 +904,7 @@ func (s *PlaybackRankingService) GetHistoryRanking(
 		).
 		Order("period_end DESC").
 		Order("snapshot_at DESC").
-		Order("created_at DESC").
 		First(&latestBatch).Error
-	if err == nil {
-		return s.loadRankingByBatchID(period, latestBatch.BatchID)
-	}
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-
-	var legacy models.PlaybackRanking
-	err = db.DB.
-		Where(
-			"period = ? AND (batch_id = '' OR batch_id IS NULL) AND period_start = ? AND period_end >= ? AND period_end <= ?",
-			period,
-			rangeStart,
-			rangeStart,
-			rangeEnd,
-		).
-		Order("period_end DESC").
-		Order("snapshot_at DESC").
-		Order("created_at DESC").
-		First(&legacy).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -947,39 +912,26 @@ func (s *PlaybackRankingService) GetHistoryRanking(
 		return nil, err
 	}
 
-	return s.loadLegacyRanking(period, legacy.SnapshotAt)
+	return s.loadRankingBatch(&latestBatch)
 }
 
-func (s *PlaybackRankingService) loadRankingByBatchID(period models.RankingPeriod, batchID string) (*RankingResult, error) {
+// loadRankingBatch 将批次作为元数据真相源，空明细仍返回一份有效的空榜。
+func (s *PlaybackRankingService) loadRankingBatch(batch *models.PlaybackRankingBatch) (*RankingResult, error) {
 	var rows []models.PlaybackRanking
 	if err := db.DB.
-		Where("period = ? AND batch_id = ?", period, batchID).
+		Where("period = ? AND batch_id = ?", batch.Period, batch.ID).
 		Order("category ASC").
 		Order("rank ASC").
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, nil
+	result := buildRankingResultFromRows(rows)
+	if result == nil {
+		result = buildRankingResult(batch.Period, batch.ID, batch.SnapshotAt, batch.PeriodStart, batch.PeriodEnd, nil, nil)
 	}
-
-	return buildRankingResultFromRows(rows), nil
-}
-
-func (s *PlaybackRankingService) loadLegacyRanking(period models.RankingPeriod, snapshotAt time.Time) (*RankingResult, error) {
-	var rows []models.PlaybackRanking
-	if err := db.DB.
-		Where("period = ? AND snapshot_at = ? AND (batch_id = '' OR batch_id IS NULL)", period, snapshotAt).
-		Order("category ASC").
-		Order("rank ASC").
-		Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
-
-	return buildRankingResultFromRows(rows), nil
+	result.Period, result.BatchID = batch.Period, batch.ID
+	result.SnapshotAt, result.PeriodStart, result.PeriodEnd = batch.SnapshotAt, batch.PeriodStart, batch.PeriodEnd
+	return result, nil
 }
 
 func toNotifyItems(rankings []models.PlaybackRanking) []notifierint.RankingItemNotify {
@@ -995,27 +947,28 @@ func toNotifyItems(rankings []models.PlaybackRanking) []notifierint.RankingItemN
 	return items
 }
 
+// buildRankingNotificationPayload 在业务时区生成展示日期和实际生成时间，不改变查询边界。
 func buildRankingNotificationPayload(res *RankingComputeResult) notifierint.RankingNotification {
 	if res == nil {
 		return notifierint.RankingNotification{}
 	}
+	tz := loadCronTimezone()
+	snapshotAt := ""
+	generatedClock := ""
+	if !res.ComputedAt.IsZero() {
+		snapshotAt = res.ComputedAt.In(tz).Format(time.RFC3339)
+		generatedClock = res.ComputedAt.In(tz).Format("15:04")
+	}
 	return notifierint.RankingNotification{
 		Period:        string(res.Period),
-		PeriodStart:   res.Start.Format("2006-01-02"),
-		PeriodEnd:     res.End.Format("2006-01-02"),
-		CutoffAt:      res.End.Format("15:04"),
+		PeriodStart:   res.Start.In(tz).Format("2006-01-02"),
+		PeriodEnd:     RankingDisplayEnd(res.Start, res.End, tz).Format("2006-01-02"),
+		CutoffAt:      generatedClock,
+		SnapshotAt:    snapshotAt,
 		TotalDuration: res.TotalDuration,
 		Movies:        toNotifyItems(res.Movies),
 		Episodes:      toNotifyItems(res.Episodes),
 	}
-}
-
-func persistPlaybackRankings(rankings []models.PlaybackRanking) (int64, error) {
-	result := db.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&rankings)
-	if result.Error != nil {
-		return 0, result.Error
-	}
-	return result.RowsAffected, nil
 }
 
 func (s *PlaybackRankingService) loadPlaybackActivityColumns() (playbackActivityColumns, error) {

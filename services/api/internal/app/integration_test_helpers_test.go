@@ -66,7 +66,8 @@ func newIntegrationHarnessWithP115Validator(t *testing.T, validator p115integrat
 		t.Fatalf("create schema %s: %v", schemaName, err)
 	}
 
-	appDB := openIntegrationDatabase(t, baseDSN, schemaName+",public")
+	// 迁移只能解析本用例的对象，防止重复 DROP INDEX 回退命中 public 下的同名索引。
+	appDB := openIntegrationDatabase(t, baseDSN, schemaName)
 	appSQLDB, err := appDB.DB()
 	if err != nil {
 		t.Fatalf("appDB.DB(): %v", err)

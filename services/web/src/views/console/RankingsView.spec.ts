@@ -148,6 +148,21 @@ describe('RankingsView 媒体库 allowlist', () => {
     })
   })
 
+  it('显示 API 业务时区的实际生成时间，而不是周期结束时间', async () => {
+    vi.mocked(getLatestRanking).mockResolvedValue({
+      ...emptyRankingResponse(),
+      periodStart: '2026-09-29',
+      periodEnd: '2026-09-29',
+      snapshotAt: '2026-09-29T20:03:00+08:00',
+      cutoffAt: '00:00',
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('生成于 2026/09/29 20:03')
+    expect(wrapper.text()).not.toContain('截至 00:00')
+    wrapper.unmount()
+  })
+
   it('管理员可以加载并保存排行榜媒体库范围', async () => {
     const wrapper = mountView()
     await flushPromises()

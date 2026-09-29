@@ -347,7 +347,8 @@ type RankingNotification struct {
 	Period        string              `json:"period"`        // "daily" 或 "weekly"
 	PeriodStart   string              `json:"periodStart"`   // "2026-02-14"
 	PeriodEnd     string              `json:"periodEnd"`     // "2026-02-14"
-	CutoffAt      string              `json:"cutoffAt"`      // "20:00" (阶段榜截止时间，可选)
+	CutoffAt      string              `json:"cutoffAt"`      // 兼容旧 Bot 的生成时分，不代表精确统计截止
+	SnapshotAt    string              `json:"snapshotAt"`    // CRON_TIMEZONE 下的 RFC3339 生成时间
 	TotalDuration int64               `json:"totalDuration"` // 秒
 	Movies        []RankingItemNotify `json:"movies"`
 	Episodes      []RankingItemNotify `json:"episodes"`

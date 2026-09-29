@@ -265,6 +265,7 @@ func (h *RankingHandler) GetHistoryRanking(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// buildRankingResponse 将存储时间转换为业务时区展示，保留空榜的批次和日期信息。
 func buildRankingResponse(period models.RankingPeriod, result *playbackpkg.RankingResult, tz *time.Location) RankingResponse {
 	if result == nil {
 		return RankingResponse{
@@ -277,10 +278,10 @@ func buildRankingResponse(period models.RankingPeriod, result *playbackpkg.Ranki
 	return RankingResponse{
 		Period:      string(result.Period),
 		BatchID:     result.BatchID,
-		SnapshotAt:  formatRFC3339(result.SnapshotAt),
+		SnapshotAt:  formatRFC3339(result.SnapshotAt.In(tz)),
 		PeriodStart: formatDateInLocation(result.PeriodStart, tz),
-		PeriodEnd:   formatDateInLocation(result.PeriodEnd, tz),
-		CutoffAt:    formatClockInLocation(result.PeriodEnd, tz),
+		PeriodEnd:   formatDateInLocation(playbackpkg.RankingDisplayEnd(result.PeriodStart, result.PeriodEnd, tz), tz),
+		CutoffAt:    formatClockInLocation(result.SnapshotAt, tz),
 		Movies:      buildRankingItemsResponse(result.Movies),
 		Episodes:    buildRankingItemsResponse(result.Episodes),
 	}

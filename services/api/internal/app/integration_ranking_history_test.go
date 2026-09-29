@@ -15,7 +15,7 @@ import (
 // ordering and date boundaries through the authenticated history endpoint.
 func TestIntegrationRankingHistorySelectsCompletePeriod(t *testing.T) {
 	h := newIntegrationHarness(t)
-	t.Setenv("CRON_TIMEZONE", "Asia/Singapore")
+	h.setSetting(t, "CRON_TIMEZONE", "Asia/Singapore")
 	loc, err := time.LoadLocation("Asia/Singapore")
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +23,7 @@ func TestIntegrationRankingHistorySelectsCompletePeriod(t *testing.T) {
 	for _, period := range []models.RankingPeriod{models.RankingDaily, models.RankingWeekly} {
 		for _, legacy := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/legacy=%t", period, legacy), func(t *testing.T) {
-				if err := h.database.Exec("DELETE FROM playback_rankings").Error; err != nil {
+				if err := h.database.Exec("DELETE FROM playback_ranking_batches").Error; err != nil {
 					t.Fatal(err)
 				}
 				start := time.Date(2026, 9, 14, 0, 0, 0, 0, loc)
@@ -34,7 +34,7 @@ func TestIntegrationRankingHistorySelectsCompletePeriod(t *testing.T) {
 				end := start.AddDate(0, 0, days)
 				batch := func(key string) string {
 					if legacy {
-						return ""
+						return "legacy_" + key
 					}
 					return key
 				}
@@ -46,6 +46,12 @@ func TestIntegrationRankingHistorySelectsCompletePeriod(t *testing.T) {
 					snapshot("complete", start, end),
 					snapshot("overrun", start, end.Add(time.Second)),
 					snapshot("next_period", end, end.AddDate(0, 0, days)),
+				}
+				for _, row := range rows {
+					metadata := models.PlaybackRankingBatch{ID: row.BatchID, Period: period, PeriodStart: row.PeriodStart, PeriodEnd: row.PeriodEnd, SnapshotAt: row.SnapshotAt}
+					if err := h.database.Create(&metadata).Error; err != nil {
+						t.Fatal(err)
+					}
 				}
 				if err := h.database.Create(&rows).Error; err != nil {
 					t.Fatal(err)
@@ -65,7 +71,7 @@ func TestIntegrationRankingHistorySelectsCompletePeriod(t *testing.T) {
 					}
 				}
 				check("complete")
-				if err := h.database.Where("id = ?", "complete").Delete(&models.PlaybackRanking{}).Error; err != nil {
+				if err := h.database.Where("id = ?", batch("complete")).Delete(&models.PlaybackRankingBatch{}).Error; err != nil {
 					t.Fatal(err)
 				}
 				check("partial")

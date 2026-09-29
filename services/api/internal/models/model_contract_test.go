@@ -37,6 +37,7 @@ func TestModelTableNames(t *testing.T) {
 		{name: "plan", model: Plan{}, want: "plans"},
 		{name: "plan group", model: PlanGroup{}, want: "plan_groups"},
 		{name: "playback ranking", model: PlaybackRanking{}, want: "playback_rankings"},
+		{name: "playback ranking batch", model: PlaybackRankingBatch{}, want: "playback_ranking_batches"},
 		{name: "redemption", model: Redemption{}, want: "redemptions"},
 		{name: "redemption code", model: RedemptionCode{}, want: "redemption_codes"},
 		{name: "setting", model: Setting{}, want: "settings"},

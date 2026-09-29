@@ -466,12 +466,13 @@ def _format_duration(seconds: int) -> str:
 
 
 def format_ranking_message(data: dict) -> str:
-    """格式化排行榜消息"""
+    """显示排行所属日期及 API 提供的业务时区生成时间；旧载荷保留原时间文案。"""
     period = data.get("period", "daily")
     title = "日榜" if period == "daily" else "周榜"
     period_start = str(data.get("periodStart", "") or "")
     period_end = str(data.get("periodEnd", "") or "")
     cutoff_at = str(data.get("cutoffAt", "") or "").strip()
+    snapshot_at = str(data.get("snapshotAt", "") or "").strip()
     total_duration = int(data.get("totalDuration", 0) or 0)
 
     date_line = (
@@ -479,7 +480,17 @@ def format_ranking_message(data: dict) -> str:
         if period_start == period_end
         else f"📅 {escape(period_start)} ~ {escape(period_end)}"
     )
-    if cutoff_at:
+    generated_at = ""
+    if snapshot_at:
+        try:
+            parsed = datetime.fromisoformat(snapshot_at.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                generated_at = parsed.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+    if generated_at:
+        date_line = f"{date_line} · 生成于 {escape(generated_at)}"
+    elif cutoff_at:
         date_line = f"{date_line} 截至 {escape(cutoff_at)}"
 
     lines: list[str] = [
