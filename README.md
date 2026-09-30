@@ -10,6 +10,12 @@ Ember 是一个面向 Emby 的用户管理系统，采用 Monorepo 管理 API、
 
 测试覆盖率请查看 GitHub Actions 中的 [Test workflow](https://github.com/konghanghang/ember/actions/workflows/test.yml) 运行结果。
 
+## 系统架构概览
+
+[![Ember 系统架构概览：Web、Telegram Bot、Playback Gateway、Go API、数据存储与外部集成](./docs/assets/ember-system-architecture.png)](./docs/assets/ember-system-architecture.png)
+
+点击图片查看原图。此图为概览快照；图中的兑换中心已并入计费中心，当前模块职责与运行链路以[系统架构文档](./docs/system-architecture.md)为准。
+
 ## 快速导航
 
 - 第一次了解项目：先看 [系统架构](./docs/system-architecture.md)
