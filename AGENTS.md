@@ -229,7 +229,9 @@
 
 - 涉及检查、拆分、暂存、生成提交信息或执行提交时，优先使用通用 `git-commit` Skill；Skill 不可用时按本节最小规则执行
 - 不主动执行 `git commit`、`git push` 或 `git commit --amend`；只有用户明确授权对应动作后才能执行
+- 默认沿用当前分支，不把“提交”或“push”自动扩展为创建新分支；只有用户明确要求或当前任务已获得创建分支授权时才新建
 - 创建开发分支时遵循 [Git 协作规范](docs/reference/git-workflow-guide.md)；分支名默认使用 `<type>/<short-topic>`，例如 `fix/user-expiry-status`
+- 任务中新建分支后，最终回复必须明确新建分支名、当前分支、改动所在分支，以及是否已合入 `master`；涉及推送时同时说明远端目标与推送状态。中途进度说明不能替代结束时的分支说明，避免用户误以为改动是在 `master` 上开发或已经进入 `master`
 - 提交前完成本任务要求的验证、SQL migration 和文档同步，然后询问用户 `✅ 变更已完成并验证，是否需要提交？`
 - 用户已明确同意提交后，不再重复询问；执行 `git commit` 时直接按提权路径执行，不先尝试沙箱版提交
 - Skill 不可用时，必须显式暂存目标文件，并检查 `git status --short`、`git diff --cached --name-status`、`git diff --cached --check`；禁止夹带敏感信息、生成物或无关改动
