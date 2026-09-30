@@ -39,7 +39,6 @@ const routeMeta: Record<string, { title: string }> = {
   'console-users': { title: '用户中心' },
   'console-user-profile': { title: '用户画像' },
   'console-playback': { title: '播放中心' },
-  'console-redemptions': { title: '兑换中心' },
   'console-settings': { title: '系统设置' },
   'console-p115-accounts': { title: '115 账号' },
   'console-sessions': { title: '活跃会话' },

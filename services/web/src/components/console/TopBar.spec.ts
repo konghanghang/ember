@@ -38,7 +38,6 @@ const routeTitles = [
   ['console-users', '用户中心'],
   ['console-billing', '计费中心'],
   ['console-playback', '播放中心'],
-  ['console-redemptions', '兑换中心'],
   ['console-media-gaps', '缺集管理'],
   ['console-p115-accounts', '115 账号'],
   ['console-p115', '115 网盘'],

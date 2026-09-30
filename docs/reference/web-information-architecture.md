@@ -39,7 +39,6 @@
   - `services/web/src/views/admin/UserCenterView.vue`
   - `services/web/src/views/admin/PaymentCenterView.vue`
   - `services/web/src/views/admin/PlaybackCenterView.vue`
-  - `services/web/src/views/admin/RedemptionCenterView.vue`
   - `services/web/src/views/admin/SettingsView.vue`
   - `services/web/src/views/admin/SessionsView.vue`
   - `services/web/src/views/admin/MediaQualityView.vue`
@@ -127,16 +126,17 @@
 - 子视图：`views/admin/UsersView.vue`
 - 容器统一承载“用户中心”页头，用户管理子视图以嵌入模式复用原有统计、操作、筛选和数据主体
 
-### 3.3 管理端兑换中心
+### 3.3 管理端兑换码与兑换记录
 
-- 路由：`/console/redemptions`（admin）
-- 兼容路由：
-  - `/console/redemption-codes` → `?tab=codes`
-  - `/console/redemption-history` → `?tab=history`
-- 视图：`views/admin/RedemptionCenterView.vue`
-- Tab 结构：
-  - `codes`：`views/admin/RedemptionCodesView.vue`
-  - `history`：`views/admin/RedemptionHistoryView.vue`
+- 主入口：计费中心 `/console/billing`（admin），与付费方案、支付记录、套餐分组同级，不再提供独立兑换中心容器或侧边栏菜单。
+- 分段与视图：
+  - `codes`（兑换码）：`views/admin/RedemptionCodesView.vue`，管理注册/续期兑换码
+  - `history`（兑换记录）：`views/admin/RedemptionHistoryView.vue`
+- 旧链接保留为书签兼容入口，统一重定向至 `/console/billing`，保留其他查询参数，最终路由仍执行管理员鉴权：
+  - `/console/redemptions?tab=history` → `?tab=history`；无 tab 或非法 tab → `?tab=codes`
+  - `/console/redemption-codes`、`/admin/redemption-codes` → `?tab=codes`
+  - `/console/redemption-history`、`/admin/redemption-history` → `?tab=history`
+- 旧路径不承载业务页面；外部书签仍可能使用时保留重定向，只有明确结束旧链接兼容后才删除，并同步清理路由测试与本节说明。
 - 数据源：
   - `GET /api/v1/admin/redemption-codes`（支持兑换码、状态、注册套餐分组筛选；返回 `notes`、`registrationPlanGroup`、`registrationPlanGroupName`）
   - `POST /api/v1/admin/redemption-codes`（必须提交 `registrationPlanGroup`，支持可选备注 `notes`）
@@ -155,8 +155,10 @@
 - Tab 结构：
   - `plans`：`views/admin/PlansView.vue`
   - `payments`：`views/admin/PaymentsView.vue`
+  - `codes`：`views/admin/RedemptionCodesView.vue`
+  - `history`：`views/admin/RedemptionHistoryView.vue`
   - `groups`：`views/admin/PlanGroupsView.vue`
-- 套餐分组作为计费中心第三个分段直接嵌入，不通过独立页面路由跳转。
+- 五个分段按付费方案、支付记录、兑换码、兑换记录、套餐分组排列，直接嵌入业务子页；统一页头与分段由计费中心容器承载，遵守 Ember 设计规范，不嵌套第二层中心页导航。
 - 数据源：
   - `GET /api/v1/admin/plans`
   - `POST /api/v1/admin/plans`

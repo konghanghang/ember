@@ -139,12 +139,16 @@ export const routes: RouteRecordRaw[] = [
           path: 'redemptions',
           name: 'console-redemptions',
           meta: adminRouteMeta,
-          component: () => import('../views/admin/RedemptionCenterView.vue'),
+          // 旧书签统一进入计费中心，兑换记录保留原 tab 语义。
+          redirect: (to) => ({
+            path: '/console/billing',
+            query: { ...to.query, tab: to.query.tab === 'history' ? 'history' : 'codes' },
+          }),
         },
         {
           path: 'redemption-codes',
           redirect: (to) => ({
-            path: '/console/redemptions',
+            path: '/console/billing',
             query: {
               ...to.query,
               tab: 'codes'
@@ -154,7 +158,7 @@ export const routes: RouteRecordRaw[] = [
         {
           path: 'redemption-history',
           redirect: (to) => ({
-            path: '/console/redemptions',
+            path: '/console/billing',
             query: {
               ...to.query,
               tab: 'history'
@@ -238,8 +242,8 @@ export const routes: RouteRecordRaw[] = [
 
     // Legacy redirects
     { path: '/admin/users', redirect: '/console/users' },
-    { path: '/admin/redemption-codes', redirect: '/console/redemptions?tab=codes' },
-    { path: '/admin/redemption-history', redirect: '/console/redemptions?tab=history' },
+    { path: '/admin/redemption-codes', redirect: (to) => ({ path: '/console/billing', query: { ...to.query, tab: 'codes' } }) },
+    { path: '/admin/redemption-history', redirect: (to) => ({ path: '/console/billing', query: { ...to.query, tab: 'history' } }) },
     { path: '/admin/plans', redirect: '/console/billing?tab=plans' },
     { path: '/admin/payments', redirect: '/console/billing?tab=payments' },
     { path: '/admin/subscriptions', redirect: '/console/subscriptions' },

@@ -272,10 +272,9 @@ services/
 │  │        ├─ PlaybackCenterView.vue # 播放中心（实时会话 + 用户画像 + 播放历史）
 │  │        ├─ UserPlaybackProfilesView.vue # 用户画像总览（嵌入播放中心容器）
 │  │        ├─ UserPlaybackProfileView.vue # 单用户画像（详情）
-│  │        ├─ RedemptionCenterView.vue # 兑换中心（兑换码池 + 兑换记录）
 │  │        ├─ RedemptionCodesView.vue # 兑换码管理
 │  │        ├─ RedemptionHistoryView.vue # 兑换历史
-│  │        ├─ PaymentCenterView.vue # 计费中心（付费方案 + 支付记录 + 套餐分组）
+│  │        ├─ PaymentCenterView.vue # 计费中心（付费方案 + 支付记录 + 兑换码 + 兑换记录 + 套餐分组）
 │  │        ├─ PlanGroupsView.vue # 用户分组 / 权益模板管理
 │  │        ├─ SettingsView.vue  # 设置中心
 │  │        ├─ P115AccountsView.vue # 115 源账号 / 播放账号控制面
@@ -972,8 +971,9 @@ Telegram 账号绑定与 Bot 自助能力服务。
 ### 8.2 高层页面边界
 
 - 用户侧重点页面：Dashboard、Renewal、Subscriptions、TV Calendar、Rankings、Profile Analytics
-- 管理侧重点页面：User Center、Playback Center、Billing Center、Redemption Center、Media Quality、Devices、Settings
+- 管理侧重点页面：User Center、Playback Center、Billing Center、Media Quality、Devices、Settings
 - 管理端中心页由容器 view 统一承载唯一页头与分段导航，嵌入子页只保留统计、操作、筛选和数据主体
+- 注册/续期兑换码和兑换记录作为计费中心同级分段（`codes/history`），直接复用原业务页面，不增加侧边栏菜单。旧兑换中心及兑换码/记录链接统一重定向至 `/console/billing` 对应分段并保留其他查询参数；最终路由仍受管理员权限保护。
 - 页面级职责、Tab 结构、兼容路由和关键数据源统一维护在 [docs/reference/web-information-architecture.md](./reference/web-information-architecture.md)
 
 ---

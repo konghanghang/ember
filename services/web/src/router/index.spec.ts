@@ -186,3 +186,37 @@ describe('plan group page routes', () => {
     expect(router.getRoutes().find(route => route.path === path)).toBeUndefined()
   })
 })
+
+
+describe('兑换入口并入计费中心', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    window.localStorage.clear()
+    warningMock.mockReset()
+    getProfileMock.mockReset()
+  })
+
+  it.each([
+    ['/console/redemptions', 'codes'],
+    ['/console/redemptions?tab=history', 'history'],
+    ['/console/redemptions?tab=invalid', 'codes'],
+    ['/console/redemption-codes', 'codes'],
+    ['/console/redemption-history', 'history'],
+    ['/admin/redemption-codes', 'codes'],
+    ['/admin/redemption-history', 'history'],
+  ])('%s 跳转到计费中心 %s 并保留查询参数', async (path, tab) => {
+    useAuthStore().setAuth('admin-test', buildUser({ role: 'admin' }))
+    const router = buildTestRouter()
+    await router.push(`${path}${path.includes('?') ? '&' : '?'}source=bookmark`)
+    expect(router.currentRoute.value.name).toBe('console-billing')
+    expect(router.currentRoute.value.query).toEqual({ tab, source: 'bookmark' })
+  })
+
+  it.each(['/console/billing?tab=codes', '/console/redemptions?tab=history', '/admin/redemption-codes'])('%s 仍拒绝普通用户', async (path) => {
+    useAuthStore().setAuth('user-test', buildUser())
+    const router = buildTestRouter()
+    await router.push(path)
+    expect(router.currentRoute.value.name).toBe('console-dashboard')
+    expect(warningMock).toHaveBeenCalledWith('当前账号无权访问该页面')
+  })
+})
