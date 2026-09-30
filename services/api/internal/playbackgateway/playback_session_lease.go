@@ -22,6 +22,7 @@ func (gateway *Gateway) updatePlaybackSessionLease(
 	sessionRef := diagnosticSessionRef(principal, event.playSessionID)
 	if event.kind == playbackSessionEventStop && event.snapshotState == "recorded" && event.intentRevocationEligible {
 		revoked := gateway.proofs.RevokeTransferIntent(principal, event.itemID, event.mediaSourceID, event.playSessionID)
+		gateway.proofs.stopPlaybackBinding(principal, event.itemID, event.mediaSourceID, event.playSessionID)
 		gateway.debugf("[PlaybackGateway] level=debug code=playback_transfer_intent_revoked message=\"播放停止，撤销新增转存许可\" requestId=%s sessionRef=%s reasonCode=playback_stopped count=%d", requestID, sessionRef, revoked)
 	}
 	if gateway.playbackSessionService == nil || event.snapshotState != "recorded" {
@@ -54,8 +55,12 @@ func (gateway *Gateway) updatePlaybackSessionLease(
 		return
 	}
 	if !result.Found {
+		gateway.proofs.updatePlaybackBinding(principal, event.itemID, event.mediaSourceID, event.playSessionID, result.State, false)
 		gateway.debugf("[PlaybackGateway] level=debug code=playback_lease_not_found event=%s requestId=%s sessionRef=%s itemId=%q", event.kind, requestID, sessionRef, event.itemID)
 		return
+	}
+	if event.kind != playbackSessionEventStop {
+		gateway.proofs.updatePlaybackBinding(principal, event.itemID, event.mediaSourceID, event.playSessionID, result.State, true)
 	}
 	gateway.debugf("[PlaybackGateway] level=debug code=playback_lease_updated requestId=%s sessionRef=%s event=%s found=true state=%s accountReservedStreams=%d accountActiveStreams=%d accountOccupiedStreams=%d userReservedStreams=%d userActiveStreams=%d userOccupiedStreams=%d",
 		requestID, sessionRef, event.kind, result.State, result.Account.ReservedStreams, result.Account.ActiveStreams, result.Account.OccupiedStreams,

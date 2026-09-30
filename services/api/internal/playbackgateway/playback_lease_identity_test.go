@@ -18,15 +18,17 @@ import (
 // leaseIdentityHarness uses the production key derivation and memory lease
 // contract while replacing provider and Redis I/O at the Gateway boundary.
 type leaseIdentityHarness struct {
-	keys    *p115quota.KeyDeriver
-	store   *p115quota.MemoryLeaseStore
-	now     time.Time
-	account string
-	result  p115quota.TransitionResult
+	keys     *p115quota.KeyDeriver
+	store    *p115quota.MemoryLeaseStore
+	now      time.Time
+	account  string
+	result   p115quota.TransitionResult
+	sessions []string
 }
 
 // ResolveMediaPath reserves the exact identity received from the real video route.
 func (h *leaseIdentityHarness) ResolveMediaPath(ctx context.Context, r directplay.MediaPathResolveRequest) (directplay.RedirectCandidate, error) {
+	h.sessions = append(h.sessions, r.PlaySessionID)
 	key, err := h.keys.SessionFingerprint(p115quota.SessionIdentity{ServerID: "server-1", UserID: r.UserID, MappingID: r.MappingID, DeviceID: r.DeviceID, PlaySessionID: r.PlaySessionID})
 	if err != nil {
 		return directplay.RedirectCandidate{}, err
@@ -67,6 +69,7 @@ func TestSupplementedVideoLeaseUsesClientLifecycle(t *testing.T) {
 	}
 	h := &leaseIdentityHarness{keys: keys, account: account, store: p115quota.NewMemoryLeaseStore(), now: time.Now()}
 	var forwarded string
+	internalCalls := 0
 	status := http.StatusNoContent
 	g := newVideoTestGateway(t, "http://emby.invalid", &fakeTokenService{principal: fixturePrincipal()}, h, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if strings.Contains(r.URL.Path, "/Sessions/Playing") {
@@ -78,7 +81,8 @@ func TestSupplementedVideoLeaseUsesClientLifecycle(t *testing.T) {
 		if r.Method == http.MethodPost {
 			body = strings.Replace(body, `"SupportsDirectPlay":true`, `"SupportsDirectPlay":false`, 1)
 		} else {
-			body = strings.Replace(body, `"session-1"`, `"internal-session"`, 1)
+			internalCalls++
+			body = strings.Replace(body, `"session-1"`, fmt.Sprintf("\"internal-session-%d\"", internalCalls), 1)
 		}
 		return transferIntentHTTPResponse(r, http.StatusOK, body), nil
 	}), &bytes.Buffer{})
@@ -124,11 +128,24 @@ func TestSupplementedVideoLeaseUsesClientLifecycle(t *testing.T) {
 	if !h.result.Found {
 		t.Fatal("a reporting gap shorter than active TTL lost the lease")
 	}
+	// A new Range request after proof expiry must keep the active client session.
+	g.ServeHTTP(httptest.NewRecorder(), newVideoRequest(http.MethodGet, "/Videos/item-1/stream?MediaSourceId=source-1&Static=true"))
+	if h.sessions[len(h.sessions)-1] != "session-1" {
+		t.Fatal("proof refresh replaced active playback identity")
+	}
+	usageAfterRefresh, _ := h.store.AccountUsage(context.Background(), account, h.now)
+	if usageAfterRefresh.OccupiedStreams != 1 {
+		t.Fatal("proof refresh reserved a second playback slot")
+	}
 	event("/Sessions/Playing/Progress", "session-1", true)
 	if h.result.State != p115quota.LeaseStatePaused {
 		t.Fatal("pause lost")
 	}
-	h.now = h.now.Add(3 * time.Minute)
+	h.now = h.now.Add(7 * time.Minute)
+	g.ServeHTTP(httptest.NewRecorder(), newVideoRequest(http.MethodGet, "/Videos/item-1/stream?MediaSourceId=source-1&Static=true"))
+	if h.sessions[len(h.sessions)-1] != "session-1" {
+		t.Fatal("paused playback lost its original session after proof expiry")
+	}
 	event("/Sessions/Playing", "session-1", false)
 	if !h.result.Found || h.result.State != p115quota.LeaseStateActive {
 		t.Fatal("resume lost")

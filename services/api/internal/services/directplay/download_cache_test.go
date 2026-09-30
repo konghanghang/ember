@@ -106,7 +106,7 @@ func TestDownloadCacheIsolation(t *testing.T) {
 			test.change(&r, accounts, provider)
 			// External file replacement becomes visible once the fixed media window expires.
 			if test.name == "target" || test.name == "content" {
-				now := service.now().Add(downloadCacheTTL)
+				now := service.now().Add(mediaResolutionFreshnessTTL)
 				service.now = func() time.Time { return now }
 			}
 			provider.searchResults = [][]p115.File{{provider.targetFile}}
@@ -153,12 +153,12 @@ func TestDownloadCacheNeverBypassesAdmission(t *testing.T) {
 				service.leases = &cacheFailingLeaseStore{MemoryLeaseStore: leases}
 				want = ErrPlaybackLeaseLost
 			case "source-deleted":
-				now := service.now().Add(downloadCacheTTL)
+				now := service.now().Add(mediaResolutionFreshnessTTL)
 				service.now = func() time.Time { return now }
 				p.resolveErr = p115.ErrSourceFileNotFound
 				want = ErrProviderProtocol
 			case "target-deleted":
-				now := service.now().Add(downloadCacheTTL)
+				now := service.now().Add(mediaResolutionFreshnessTTL)
 				service.now = func() time.Time { return now }
 				p.searchResults = [][]p115.File{{}, {}}
 				p.downloadErr = p115.ErrProviderUnavailable
@@ -241,10 +241,7 @@ func TestDownloadCacheExpiryAndNoSlidingTTL(t *testing.T) {
 				return c
 			}
 			get()
-			window := 10 * time.Minute
-			if lifetime-downloadCacheSafetyWindow < window {
-				window = lifetime - downloadCacheSafetyWindow
-			}
+			window := lifetime - downloadCacheSafetyWindow
 			now = now.Add(window - time.Nanosecond)
 			if !get().downloadCacheHit {
 				t.Fatal("missed before deadline")

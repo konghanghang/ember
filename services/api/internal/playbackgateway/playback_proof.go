@@ -88,6 +88,7 @@ type playbackProofCache struct {
 	mu           sync.Mutex
 	entries      map[playbackProofKey]PlaybackProof
 	intents      map[playbackProofKey]playbackIntentGrant
+	sessions     map[playbackProofKey]playbackSessionBinding
 	maxEntries   int
 	ttl          time.Duration
 	now          func() time.Time
@@ -101,6 +102,7 @@ func newPlaybackProofCache(maxEntries int, ttl time.Duration) *playbackProofCach
 	return &playbackProofCache{
 		entries: make(map[playbackProofKey]PlaybackProof), maxEntries: maxEntries,
 		intents:      make(map[playbackProofKey]playbackIntentGrant),
+		sessions:     make(map[playbackProofKey]playbackSessionBinding),
 		publications: make(map[*playbackProofPublishGuard]struct{}),
 		ttl:          ttl, now: time.Now,
 	}
@@ -279,6 +281,7 @@ func (cache *playbackProofCache) inheritIntentLocked(proof PlaybackProof, now ti
 	if !validPlaybackProof(proof) {
 		return proof
 	}
+	proof.intentOriginSession = cache.sessionOriginLocked(proof, now)
 	for key, grant := range cache.intents {
 		intent := grant.source
 		if !matchingIntentMedia(intent, proof) || now.Before(intent.AuthorizedAt) || !intent.transferIntentUntil.After(now) ||
@@ -444,6 +447,11 @@ func (cache *playbackProofCache) InvalidateItem(mappingID, itemID string) {
 func (cache *playbackProofCache) invalidateItemLocked(mappingID, itemID string, includeClients bool) {
 	cache.invalidatePublicationsLocked(mappingID, itemID, includeClients)
 	if includeClients {
+		for key := range cache.sessions {
+			if key.mappingID == mappingID && key.itemID == itemID {
+				delete(cache.sessions, key)
+			}
+		}
 		for key := range cache.intents {
 			if key.mappingID == mappingID && key.itemID == itemID {
 				delete(cache.intents, key)
@@ -472,6 +480,11 @@ func (cache *playbackProofCache) Len() int {
 
 // pruneExpiredLocked removes expired entries while the caller holds cache.mu.
 func (cache *playbackProofCache) pruneExpiredLocked(now time.Time) {
+	for key, binding := range cache.sessions {
+		if !binding.until.After(now) {
+			delete(cache.sessions, key)
+		}
+	}
 	for key, grant := range cache.intents {
 		if !grant.source.transferIntentUntil.After(now) {
 			delete(cache.intents, key)

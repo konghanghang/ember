@@ -241,6 +241,7 @@ func (gateway *Gateway) serveVideo(
 	decision.TaskID = candidate.TaskID
 	decision.Preexisting = candidate.Preexisting
 	decision.StatusCode = http.StatusFound
+	gateway.proofs.rememberPlaybackSession(proof, principal)
 	writer.Header().Set("Location", candidate.URL)
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.WriteHeader(http.StatusFound)

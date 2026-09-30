@@ -457,6 +457,7 @@ func (service *Service) resolveRoutedMediaPath(
 	}
 
 	createdReservation := false
+	activeSession := ""
 	confirmationRequest := p115quota.ConfirmRequest{PlaybackAccountKey: accountKey, UserID: request.UserID, SessionFingerprint: fingerprint, RenewReservation: request.Method == http.MethodGet}
 	if request.Method == http.MethodHead {
 		finishAdmission := observeStep(ctx, "leaseAdmission")
@@ -469,6 +470,9 @@ func (service *Service) resolveRoutedMediaPath(
 			return RedirectCandidate{Routing: diagnostics}, ErrHeadLeaseMissing
 		}
 		diagnostics.LeaseUsageAvailable = true
+		if confirmation.Session.State == p115quota.LeaseStateActive || confirmation.Session.State == p115quota.LeaseStatePaused {
+			activeSession = request.PlaySessionID
+		}
 		diagnostics.AccountUsage = confirmation.Account
 		diagnostics.UserUsage = confirmation.User
 	} else {
@@ -490,6 +494,9 @@ func (service *Service) resolveRoutedMediaPath(
 			return RedirectCandidate{Routing: diagnostics}, ErrPlaybackRouteChanged
 		}
 		createdReservation = admission.Created
+		if admission.State == p115quota.LeaseStateActive || admission.State == p115quota.LeaseStatePaused {
+			activeSession = request.PlaySessionID
+		}
 		observeLeaseAdmission(ctx, admission.Created)
 		diagnostics.LeaseUsageAvailable = true
 		diagnostics.AccountUsage = admission.Account
@@ -535,7 +542,7 @@ func (service *Service) resolveRoutedMediaPath(
 	quotaContext := &transferQuotaContext{UserID: request.UserID, HourlyLimit: route.TransferHourlyLimit, DailyLimit: route.TransferDailyLimit}
 	mediaKey := mediaResolutionKey(requestKey, source, playback)
 	resolutionStarted := service.now()
-	candidate, mediaHit := service.cachedMediaCandidate(ctx, mediaKey, resolutionStarted)
+	candidate, mediaHit := service.cachedMediaCandidate(ctx, mediaKey, resolutionStarted, activeSession)
 	if mediaHit {
 		err = service.touchSucceeded(ctx, playback.Credential.AccountID, candidate.resolvedSHA1, candidate.resolvedSize)
 	} else {
@@ -584,7 +591,7 @@ func (service *Service) resolveRoutedMediaPath(
 	}
 	if !mediaHit && service.mediaCache != nil && service.downloadCache != nil {
 		if entry, found := service.downloadCache.getEntry(candidate.downloadCacheKey, service.now()); found {
-			service.mediaCache.put(mediaKey, candidate, resolutionStarted, service.now(), entry.expiresAt)
+			service.mediaCache.put(mediaKey, candidate, resolutionStarted, service.now(), entry.expiresAt, request.PlaySessionID)
 		}
 	}
 	return candidate, nil

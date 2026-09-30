@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	downloadCacheCapacity     = 1024
-	downloadCacheTTL          = 10 * time.Minute
-	downloadCacheSafetyWindow = 10 * time.Second
-	maxCachedDownloadURLBytes = 16 * 1024
+	downloadCacheCapacity       = 1024
+	mediaResolutionFreshnessTTL = 10 * time.Minute
+	downloadCacheSafetyWindow   = 10 * time.Second
+	maxCachedDownloadURLBytes   = 16 * 1024
 )
 
 // downloadCacheScope deliberately excludes PlaySessionId: stopping playback
@@ -95,13 +95,10 @@ func (cache *downloadURLCache) getEntry(key string, now time.Time) (cachedDownlo
 	return entry, true
 }
 
-// put bounds both lifetime and retained URL bytes. Provider already validates
-// CDN policy; Gateway still validates every returned candidate on cache hits.
+// put retains a URL until its provider expiry minus the safety window, never
+// extending that deadline on access. Capacity bounds memory independently.
 func (cache *downloadURLCache) put(key string, result p115.DownloadURLResult, now time.Time) {
-	deadline := now.Add(downloadCacheTTL)
-	if safeExpiry := result.ExpiresAt.Add(-downloadCacheSafetyWindow); safeExpiry.Before(deadline) {
-		deadline = safeExpiry
-	}
+	deadline := result.ExpiresAt.Add(-downloadCacheSafetyWindow)
 	if cache.capacity <= 0 || len(result.URL) > maxCachedDownloadURLBytes || !deadline.After(now) {
 		return
 	}

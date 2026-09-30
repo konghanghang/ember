@@ -119,6 +119,7 @@ func TestMediaCacheKeepsOriginalURLDeadline(t *testing.T) {
 	a := &fakeRoutedAccountRuntime{}
 	s := newRoutedDirectPlayForTest(t, a, p, p115quota.NewMemoryLeaseStore())
 	now := s.now()
+	p.download.ExpiresAt = now.Add(10*time.Minute + downloadCacheSafetyWindow)
 	s.now = func() time.Time { return now }
 	r := routedMediaPathRequest("GET", "session")
 	if _, err := s.ResolveMediaPath(context.Background(), r); err != nil {
@@ -206,9 +207,9 @@ func TestMediaCacheBoundAndClockRollback(t *testing.T) {
 	cache := newMediaResolutionCache(2)
 	now := time.Now()
 	c := RedirectCandidate{downloadCacheKey: "opaque", resolvedSHA1: directPlaySourceSHA1, resolvedSize: 1}
-	cache.put("a", c, now, now, now.Add(time.Minute))
-	cache.put("b", c, now, now, now.Add(10*time.Second))
-	cache.put("c", c, now, now, now.Add(time.Minute))
+	cache.put("a", c, now, now, now.Add(time.Minute), "")
+	cache.put("b", c, now, now, now.Add(10*time.Second), "")
+	cache.put("c", c, now, now, now.Add(time.Minute), "")
 	if _, found := cache.get("b", now); found || len(cache.entries) != 2 {
 		t.Fatal("earliest-expiry eviction failed")
 	}
