@@ -998,10 +998,14 @@ func newTransferAttemptID() (string, error) {
 	return hex.EncodeToString(random), nil
 }
 
+// releaseTransferReservation refunds failed attempts independently of request
+// cancellation; Redis failures leave the original pending TTL to reclaim usage.
 func (service *Service) releaseTransferReservation(userID, attemptID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), reservationReleaseTimeout)
 	defer cancel()
-	_, _ = service.transferQuotas.ReleaseTransfer(ctx, userID, attemptID, service.now().UTC())
+	if _, err := service.transferQuotas.ReleaseTransfer(ctx, userID, attemptID, service.now().UTC()); err != nil {
+		log.Printf("[DirectPlay] level=warn code=transfer_quota_release_failed userId=%q errorType=%T", userID, err)
+	}
 }
 
 func (service *Service) commitTransferWithRetry(userID, attemptID string) (p115quota.TransferCommitResult, error) {

@@ -24,6 +24,8 @@ func NewLeaseStoreFromURL(rawURL string) (LeaseStore, io.Closer) {
 	options.DialTimeout = redisCommandTimeout
 	options.ReadTimeout = redisCommandTimeout
 	options.WriteTimeout = redisCommandTimeout
+	// Bound socket I/O by the caller's remaining quota bookkeeping budget.
+	options.ContextTimeoutEnabled = true
 	options.MaxRetries = -1
 	client := redis.NewClient(options)
 	store, err := NewRedisLeaseStore(client)

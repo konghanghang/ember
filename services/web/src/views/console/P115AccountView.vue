@@ -21,7 +21,7 @@ import type { P115AccountStatus, PersonalP115Account, PersonalP115Usage } from '
 type AccountAction = 'create' | 'replace' | 'validate' | 'directory' | 'concurrency' | 'enabled' | 'revoke'
 
 const account = ref<PersonalP115Account | null>(null)
-const usage = ref<PersonalP115Usage | null>(null)
+const usage = ref<PersonalP115Usage | PersonalP115Account | null>(null)
 const loading = ref(false)
 const loadFailed = ref(false)
 const activeAction = ref<AccountAction | null>(null)
@@ -74,23 +74,25 @@ function applyAccount(next: PersonalP115Account | null): void {
   maxConcurrentStreams.value = next?.maxConcurrentStreams ?? 1
 }
 
-/** 查询当前用户唯一的非 revoked 账号；404 是正常未绑定状态。 */
+/** 复用账号摘要的可用统计；未绑定、摘要失败或用量不可用时独立查询本人用量。 */
 async function loadAccount(): Promise<void> {
-	loading.value = true
-	loadFailed.value = false
-	const usageRequest = getPersonalP115Usage().catch(() => null)
-	try {
-		applyAccount(await getPersonalP115Account())
+  loading.value = true
+  loadFailed.value = false
+  usage.value = null
+  try {
+    const next = await getPersonalP115Account()
+    applyAccount(next)
+    if (next.usageAvailable) usage.value = next
   } catch (error) {
     if (isHTTPStatus(error, 404)) {
       applyAccount(null)
     } else {
-			loadFailed.value = true
-		}
-	} finally {
-		usage.value = await usageRequest
-		loading.value = false
-	}
+      loadFailed.value = true
+    }
+  } finally {
+    if (!usage.value) usage.value = await getPersonalP115Usage().catch(() => null)
+    loading.value = false
+  }
 }
 
 /** 创建请求只发送 Cookie，成功后立即销毁输入并重读完整摘要。 */

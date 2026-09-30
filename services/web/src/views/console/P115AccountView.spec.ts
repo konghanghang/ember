@@ -155,6 +155,7 @@ describe('P115AccountView', () => {
 
     expect(wrapper.text()).not.toContain('User-Agent')
     expect(wrapper.text()).not.toContain('客户端类型输入')
+    expect(getPersonalP115Usage).toHaveBeenCalledTimes(1)
     const cookie = wrapper.get('input[placeholder="粘贴完整 Cookie"]')
     await cookie.setValue('UID=100_F1_1700000000')
     await findButton(wrapper, '绑定账号').trigger('click')
@@ -258,10 +259,7 @@ describe('P115AccountView', () => {
     vi.mocked(getPersonalP115Account).mockResolvedValue(personalAccount({
       status: 'active', usageAvailable: true,
       reservedStreams: 1, activeStreams: 2, occupiedStreams: 3,
-    }))
-    vi.mocked(getPersonalP115Usage).mockResolvedValue({
       p115PlaybackMode: 'system',
-      usageAvailable: true,
       userReservedStreams: 1,
       userActiveStreams: 1,
       userOccupiedStreams: 2,
@@ -270,13 +268,80 @@ describe('P115AccountView', () => {
       transferHourlyLimit: 5,
       transferDailyUsed: 4,
       transferDailyLimit: 10,
-    })
+    }))
     const wrapper = mountView()
     await flushPromises()
 
     expect(wrapper.text()).toContain('本人播放中')
     expect(wrapper.text()).toContain('3 / 5')
     expect(wrapper.text()).toContain('4 / 10')
+    expect(getPersonalP115Usage).not.toHaveBeenCalled()
+  })
+
+  it('账号统计不可用时仍可独立读取本人用量', async () => {
+    vi.mocked(getPersonalP115Account).mockResolvedValue(personalAccount())
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(getPersonalP115Usage).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('用量不可用')
+    expect(wrapper.text()).toContain('0 / 5')
+  })
+
+  it('账号摘要的零用量是有效统计，不触发重复读取', async () => {
+    vi.mocked(getPersonalP115Account).mockResolvedValue(personalAccount({
+      usageAvailable: true, transferPending: 0,
+      transferHourlyUsed: 0, transferHourlyLimit: 5,
+      transferDailyUsed: 0, transferDailyLimit: 10,
+    }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('0 / 5')
+    expect(wrapper.text()).toContain('0 / 10')
+    expect(getPersonalP115Usage).not.toHaveBeenCalled()
+  })
+
+  it('独立用量明确不可用时保留空值展示', async () => {
+    vi.mocked(getPersonalP115Account).mockResolvedValue(personalAccount())
+    vi.mocked(getPersonalP115Usage).mockResolvedValue({
+      p115PlaybackMode: 'personal', usageAvailable: false,
+      userReservedStreams: null, userActiveStreams: null, userOccupiedStreams: null,
+      transferPending: null, transferHourlyUsed: null, transferDailyUsed: null,
+      transferHourlyLimit: 5, transferDailyLimit: 10,
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('用量不可用')
+    expect(wrapper.text()).not.toContain('0 / 5')
+    expect(wrapper.text()).not.toContain('0 / 10')
+  })
+
+  it('刷新后用量读取失败会清除旧统计，不显示为零', async () => {
+    vi.mocked(getPersonalP115Account)
+      .mockResolvedValueOnce(personalAccount({
+        status: 'active', usageAvailable: true,
+        transferHourlyUsed: 3, transferHourlyLimit: 5,
+        transferDailyUsed: 4, transferDailyLimit: 10,
+      }))
+      .mockResolvedValue(personalAccount({ status: 'active' }))
+    vi.mocked(getPersonalP115Usage).mockRejectedValue(new Error('unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('3 / 5')
+
+    await findButton(wrapper, '验证 Cookie').trigger('click')
+    await flushPromises()
+    expect(getPersonalP115Usage).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).not.toContain('3 / 5')
+    expect(wrapper.text()).not.toContain('0 / 5')
+  })
+
+  it('账号查询失败仍查询独立用量，保留页面错误状态', async () => {
+    vi.mocked(getPersonalP115Account).mockRejectedValue(new Error('unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(getPersonalP115Usage).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('重新加载')
   })
 
   it('解绑需要确认，成功后回到未绑定状态', async () => {
