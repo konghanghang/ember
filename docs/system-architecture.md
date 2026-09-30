@@ -810,6 +810,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 - 首次目录作用域查重命中时跳过任务与锁，成功签发直链后用单条条件 UPDATE 按 1 分钟窗口刷新最近成功任务的 `lastAccessedAt`；按 `created_at DESC, id DESC` 选定任务后再判断窗口，旧请求不回退时间，外部预存或窗口内访问允许零行更新
 - 未命中时以 `playbackAccountId + SHA1 + size` 获取 PostgreSQL session advisory lock，拿锁后再次查重；同进程同内容先在借连接前排队，未拿到数据库锁的轮询立即归还连接。有限连接池最多允许 `MaxOpenConns - 1` 个在途取锁/持锁任务，为任务 SQL 保留连接；池上限为 1 时拒绝转存。相同内容仍只有一个请求进入秒传，其余请求复用目标文件
 - 锁内二次查重仍缺失、且实时新增转存许可通过后才申请配额并创建 `playback_transfer_tasks`，状态依次覆盖初始化、一次 challenge、目标复核和终态；许可缺失以 `playback_intent_required` 回退，不创建任务、不消耗转存配额。真实 Provider message、Cookie、完整路径和签名 URL 均不落库
+- 新增转存的 Redis 提交在 Info 记录 `transfer_quota_committed`，关联 `userId/taskId/playbackAccountId`、幂等新增结果及 pending/小时/每日用量；预算耗尽在 Warn 记录 `transfer_quota_commit_failed usageAvailable=false`，不伪造零。控制台用户用量成功读取在 Debug 记录 `p115_user_usage_read`，包含同一用户的播放/转存快照与 `CRON_TIMEZONE` 日窗口，供对照 Gateway 写入端和 API 展示端；详见 [部署排障](./runbooks/deployment-troubleshooting.md)。不输出 Redis 连接串、完整 Key、attempt ID 或凭证
 - `status=1`、重复/越界 challenge、Provider 故障和目标复核失败均写入固定脱敏失败码；成功保存目标 fileId/pickCode、完成时间和 `lastAccessedAt`
 - 已取得的 advisory lock 固定在一条 PostgreSQL 物理连接上；释放使用独立超时 context。取锁响应丢失或解锁失败时丢弃连接，避免状态不明的 session 锁进入连接池
 - 任务成功并释放锁后才签发本次 playback 下载 URL；需要客户端 Cookie 的 HeaderMode 失败关闭，不向播放器泄露 playback Cookie

@@ -557,6 +557,10 @@ level=warn code=playback_rejected message="播放请求已拒绝" result=rejecte
 
 进入套餐路由后，最终同一条日志补充 `playbackMode`、`playbackAccountOwner`、账号配置/有效并发、账号和用户的 reserved/active/occupied；个人模式额外记录原始 `simultaneousStreamLimit`。只有实际进入转存准入且 Redis 返回有效快照时才记录小时/每日 used/limit，Redis 故障不伪造零。日志边界不接收原始 Provider UID、PlaySessionId、Redis Key 或 `transferAttemptId`。
 
+新转存另在 Redis 提交返回后记录一条 Info 业务事件 `transfer_quota_committed`，包含 `userId/taskId/playbackAccountId`、`added`、`pendingExpiredBeforeCommit`、`transferPending/transferHourlyUsed/transferDailyUsed`。`added=true` 表示本次幂等 attempt 首次记入；`added=false` 表示已经记入，不应再次增加。该事件只证明 Redis 提交完成，不代表后续任务写库、取链或客户端播放成功；预存命中和缓存复用不产生新的提交事件。提交预算耗尽时 Warn `transfer_quota_commit_failed` 关联相同用户与任务，并固定 `usageAvailable=false`，不打印未确认的用量。
+
+API 成功读取控制台用户用量时，Debug `p115_user_usage_read` 记录 `userId/playbackMode/usageAvailable`、用户 reserved/active/occupied、转存 pending/used/limit、`businessTimezone` 及 `sampledAtUnixMs/dayStartUnixMs/dayEndUnixMs`。时间来自本次读取时钟和全局 `CRON_TIMEZONE`；按相同用户及相近时间对照 Gateway 日志。读取失败仍返回 unavailable/null，并沿用读取失败日志，不生成成功零值快照。详情摘要与独立用量请求会分别读取，日志是各次读取的快照，不承诺跨请求原子性。
+
 Debug 请求摘要记录有界 method/Host/原始 request path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；Info 对响应级合同成立后的每个唯一 MediaSource 记录 `playback_info_media_source_observed`，完整显示合法 `mediaPath`、Size/播放能力和 proof 接受/拒绝原因。按需 PlaybackInfo 选中的路径即使没有形成 proof 也进入最终决策；真正进入 DirectPlay 后再记录 `embyPathPrefix/sourceRootId/mappedRelativePath`，以核对 Emby 原路径和 115 source 映射。Emby fallback 记录 `fallbackTarget/fallbackSource/upstreamStatus/proxyErrorCode`。Debug 不重复生成第二条决策。所有日志仍禁止 query value、Header 原值、Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
 
 ## 9. 数据与秘密边界

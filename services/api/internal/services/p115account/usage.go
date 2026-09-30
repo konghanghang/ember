@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konghang/ember/backend/internal/logging"
 	"github.com/konghang/ember/backend/internal/models"
 	"github.com/konghang/ember/backend/internal/services/p115quota"
 )
@@ -98,6 +99,10 @@ func (s *Service) personalUsage(ctx context.Context, ownerUserID string, policy 
 	summary.TransferPending = intPointer(transferUsage.Pending)
 	summary.TransferHourlyUsed = intPointer(transferUsage.HourlyUsed)
 	summary.TransferDailyUsed = intPointer(transferUsage.DailyUsed)
+	logging.Debugf("[P115Quota] level=debug code=p115_user_usage_read userId=%q playbackMode=%s usageAvailable=true userReservedStreams=%d userActiveStreams=%d userOccupiedStreams=%d transferPending=%d transferHourlyUsed=%d transferHourlyLimit=%d transferDailyUsed=%d transferDailyLimit=%d businessTimezone=%q sampledAtUnixMs=%d dayStartUnixMs=%d dayEndUnixMs=%d",
+		ownerUserID, policy.PlaybackMode, userUsage.ReservedStreams, userUsage.ActiveStreams, userUsage.OccupiedStreams,
+		transferUsage.Pending, transferUsage.HourlyUsed, policy.TransferHourlyLimit, transferUsage.DailyUsed, policy.TransferDailyLimit,
+		s.businessTimezone.String(), now.UnixMilli(), dayStart.UnixMilli(), dayEnd.UnixMilli())
 	return summary
 }
 

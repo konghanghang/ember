@@ -160,6 +160,16 @@ docker compose --profile gateway logs --tail=200 redis ember-gateway
 5. 画面开始后按 `sessionRef` 对照视频请求与播放事件，查看 `playback_event_received` 的 snapshotState，以及 `playback_lease_updated/not_found/skipped/update_failed`。成功更新应能看到 active/paused 等状态和用量；不同进程的 sessionRef 不可直接比较。Stopped 成功转发并释放租约不意味着清除短期媒体缓存。
 6. 复测后恢复 Info。Gateway 只观察自身及 Emby 上游，302 后客户端访问 CDN 的状态、字节和首帧时间仍需客户端侧证据，不能由这些日志推断。
 
+#### 播放器正在播放，控制台用量仍为零
+
+先刷新控制台页面，区分页面快照未刷新与后端读取到零。播放器出画不等于本次创建了新的 115 文件，也不证明 Redis 租约仍存在；已有文件复用不消耗转存额度，302 后视频字节直接来自 CDN。排查使用已经下载的 API/Gateway 日志，不需要启动服务或请求真实外部系统。
+
+1. 按操作时间查看 Gateway 的最终 `decision=redirect|fallback`。`redirect + preexisting=true` 表示复用已有文件，小时/每日转存不增加是预期；fallback 不建立新的 115 播放租约。核对日志的 `userId` 是否为当前控制台用户。
+2. 新文件以 `transfer_quota_committed` 的 `added` 和 `transferHourlyUsed/transferDailyUsed` 确认是否记账。`transfer task 成功` 出现在记账之后；`targetState=created`、任务成功和客户端播放成功是不同证据。出现 `transfer_quota_commit_failed usageAvailable=false` 时，不得把未确认结果解释成成功记账。按当前合同，这类故障保留文件，后续复用可能不再补计。
+3. 在设置中心临时开启 `LOG_LEVEL=debug` 后，API 立即生效，Gateway 在后续请求边界最多约 5 秒刷新级别。刷新控制台，查看 API `p115_user_usage_read` 的用户、播放及转存计数、`businessTimezone` 和日窗口；同一用户的 Gateway 写入非零、API 相近时间读取为零时，私下核对双方实际运行配置是否使用同一 Redis 实例与数据库编号、相同身份及业务时区。API 能读到一个空 Redis 库时仍会合法返回 `usageAvailable=true` 和零，不能只凭该标记证明读写端一致。不要打印 DSN 或凭证。
+4. 播放路数另按同一 Gateway 进程的 `sessionRef` 查看 `playback_event_received` 与 `playback_lease_updated/not_found/skipped/update_failed`。GET 首先只有 30 秒 reservation，成功 Playing/Progress 才续为 2 分钟 active；暂停为 15 分钟。事件缺失、被拒绝或身份不匹配会使租约到期，即使 CDN 播放仍在继续。`not_found` 不会复活过期租约，不能直接通过延长 TTL 或创建缺失租约掩盖原因。
+5. 收集同一时间段的 API 与 Gateway 脱敏日志后恢复 Info。新日志随包含本改动的版本上线后才可见；旧日志缺少这些 code 不证明对应步骤没执行。未取得实际日志前，读写端不一致、事件间隔或身份错配都只能作为待核对原因。
+
 ### 5. Web 能打开，但页面请求 API 失败
 
 检查：

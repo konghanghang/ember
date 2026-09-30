@@ -968,8 +968,13 @@ func (service *Service) resolveUnderLock(
 		commit, commitErr := service.commitTransferWithRetry(quota.UserID, transferAttemptID)
 		finishCommit()
 		if commitErr != nil {
+			log.Printf("[DirectPlay] level=warn code=transfer_quota_commit_failed userId=%q taskId=%q playbackAccountId=%q usageAvailable=false errorType=%T",
+				quota.UserID, task.ID, playback.Credential.AccountID, commitErr)
 			return service.failTask(ctx, task.ID, "transfer_quota_commit_failed", "transfer quota success bookkeeping failed", ErrTransferQuotaCommitFailed)
 		}
+		log.Printf("[DirectPlay] level=info code=transfer_quota_committed userId=%q taskId=%q playbackAccountId=%q added=%t pendingExpiredBeforeCommit=%t transferPending=%d transferHourlyUsed=%d transferDailyUsed=%d",
+			quota.UserID, task.ID, playback.Credential.AccountID, commit.Added, commit.PendingExpiredBeforeCommit,
+			commit.Usage.Pending, commit.Usage.HourlyUsed, commit.Usage.DailyUsed)
 		if commit.PendingExpiredBeforeCommit {
 			log.Printf("[DirectPlay] code=transfer_pending_expired_before_commit userId=%s", quota.UserID)
 		}
