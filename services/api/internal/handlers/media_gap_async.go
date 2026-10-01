@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -21,24 +23,26 @@ const (
 	mediaGapScanStateRunning   mediaGapScanState = "running"
 	mediaGapScanStateSucceeded mediaGapScanState = "succeeded"
 	mediaGapScanStateFailed    mediaGapScanState = "failed"
+	mediaGapScanStatePartial   mediaGapScanState = "partial"
 )
 
 type mediaGapAsyncScanStatus struct {
-	ScanID           string            `json:"scanId,omitempty"`
-	Scope            string            `json:"scope,omitempty"`
-	Status           mediaGapScanState `json:"status"`
-	Running          bool              `json:"running"`
-	StartedAt        *time.Time        `json:"startedAt,omitempty"`
-	FinishedAt       *time.Time        `json:"finishedAt,omitempty"`
-	Count            int               `json:"count"`
-	ScannedSeries    int               `json:"scannedSeries"`
-	SkippedSeries    int               `json:"skippedSeries"`
-	ExaminedEpisodes int               `json:"examinedEpisodes"`
-	Created          int               `json:"created"`
-	Updated          int               `json:"updated"`
-	Ingested         int               `json:"ingested"`
-	Error            string            `json:"error,omitempty"`
-	Message          string            `json:"message,omitempty"`
+	Failures         []mediagappkg.ScanFailure `json:"failures,omitempty"`
+	ScanID           string                    `json:"scanId,omitempty"`
+	Scope            string                    `json:"scope,omitempty"`
+	Status           mediaGapScanState         `json:"status"`
+	Running          bool                      `json:"running"`
+	StartedAt        *time.Time                `json:"startedAt,omitempty"`
+	FinishedAt       *time.Time                `json:"finishedAt,omitempty"`
+	Count            int                       `json:"count"`
+	ScannedSeries    int                       `json:"scannedSeries"`
+	SkippedSeries    int                       `json:"skippedSeries"`
+	ExaminedEpisodes int                       `json:"examinedEpisodes"`
+	Created          int                       `json:"created"`
+	Updated          int                       `json:"updated"`
+	Ingested         int                       `json:"ingested"`
+	Error            string                    `json:"error,omitempty"`
+	Message          string                    `json:"message,omitempty"`
 }
 
 // scanLockRecorder 抽象 advisory lock + media_gap_scans 持久化记录的依赖，
@@ -126,42 +130,62 @@ func (m *mediaGapScanManager) Status() mediaGapAsyncScanStatus {
 	return m.status
 }
 
+// run 无论正常返回、取消还是 panic，均使用独立上下文写终态并释放扫描锁。
 func (m *mediaGapScanManager) run(scanID string, req mediagappkg.ScanRequest, handle *mediagappkg.MediaGapScanLockHandleHolder) {
 	ctx, cancel := context.WithTimeout(context.Background(), mediaGapAsyncScanTimeout)
 	defer cancel()
+	var result *mediagappkg.ScanResult
+	var err error
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("[MediaGap] 扫描异常 scanId=%s panicType=%T", scanID, recovered)
+			err = errors.New("扫描异常中止，请重试")
+		}
+		m.finish(scanID, handle, result, err)
+	}()
+	result, err = m.scanFn(ctx, req)
+	if err == nil && ctx.Err() != nil {
+		err = errors.New("扫描已超时或取消")
+	}
+}
 
-	result, err := m.scanFn(ctx, req)
+// finish 将不完整扫描与成功区分；持久化仍使用 failed 并保存摘要，避免伪成功审计。
+func (m *mediaGapScanManager) finish(scanID string, handle *mediagappkg.MediaGapScanLockHandleHolder, result *mediagappkg.ScanResult, err error) {
 	finishedAt := time.Now().UTC()
-
-	finalStatus := models.MediaGapScanStatusSuccess
+	status := mediaGapScanStateSucceeded
+	message := "缺集扫描完成"
 	errMsg := ""
+	if result != nil && result.SkippedSeries > 0 {
+		status = mediaGapScanStatePartial
+		message = fmt.Sprintf("扫描部分完成：成功 %d 部，失败 %d 部", result.ScannedSeries, result.SkippedSeries)
+		if result.ScannedSeries == 0 {
+			status = mediaGapScanStateFailed
+			message = "扫描失败：所有剧集均未完成"
+		}
+		errMsg = message
+	}
 	if err != nil {
-		finalStatus = models.MediaGapScanStatusFailed
+		status = mediaGapScanStateFailed
+		message = "缺集扫描失败"
 		errMsg = err.Error()
 	}
-	// finalize 用独立 ctx：扫描业务 ctx 可能因超时 / cancel 失效，再用就把终态写不进去，
-	// 留下假 running，被周清理保留时还会持续误导排障。
-	finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer finalizeCancel()
+	finalStatus := models.MediaGapScanStatusSuccess
+	if status != mediaGapScanStateSucceeded {
+		finalStatus = models.MediaGapScanStatusFailed
+	}
+	finalizeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	m.recorder.FinishAndReleaseHolder(finalizeCtx, handle, scanID, finalStatus, errMsg)
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	if m.status.ScanID != scanID {
 		return
 	}
-
 	m.status.Running = false
-	m.status.FinishedAt = cloneTimePointer(finishedAt)
-
-	if err != nil {
-		m.status.Status = mediaGapScanStateFailed
-		m.status.Error = err.Error()
-		m.status.Message = "缺集扫描失败"
-		return
-	}
-
+	m.status.FinishedAt = &finishedAt
+	m.status.Status = status
+	m.status.Message = message
+	m.status.Error = errMsg
 	if result != nil {
 		m.status.Count = result.Created + result.Updated + result.Ingested
 		m.status.ScannedSeries = result.ScannedSeries
@@ -170,10 +194,8 @@ func (m *mediaGapScanManager) run(scanID string, req mediagappkg.ScanRequest, ha
 		m.status.Created = result.Created
 		m.status.Updated = result.Updated
 		m.status.Ingested = result.Ingested
+		m.status.Failures = result.Failures
 	}
-	m.status.Error = ""
-	m.status.Status = mediaGapScanStateSucceeded
-	m.status.Message = "缺集扫描完成"
 }
 
 func cloneTimePointer(value time.Time) *time.Time {

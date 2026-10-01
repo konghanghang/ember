@@ -3,6 +3,7 @@ package mediagap
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log"
@@ -25,11 +26,10 @@ var ErrMediaGapScanInProgress = errors.New("已有缺集扫描正在执行")
 
 // scanLockHandle 是一次成功获取的扫描锁句柄，必须在扫描结束后调用 Release。
 //
-// PG advisory lock 绑定在 session（连接）上：连接归还到池或断开时自动释放，
+// PG advisory lock 绑定在 session（连接）上：物理连接断开时自动释放；归还池不会释放，
 // 即便进程 crash 也由 PG 端做最终回收。
 type scanLockHandle struct {
 	conn *sql.Conn
-	ctx  context.Context
 }
 
 // tryAcquireScanLock 尝试以非阻塞方式获取 advisory lock。
@@ -50,6 +50,7 @@ func tryAcquireScanLock(ctx context.Context) (*scanLockHandle, error) {
 	row := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", scanLockKey)
 	var acquired bool
 	if err := row.Scan(&acquired); err != nil {
+		_ = conn.Raw(func(interface{}) error { return driver.ErrBadConn })
 		_ = conn.Close()
 		return nil, fmt.Errorf("缺集扫描锁：调用失败：%w", err)
 	}
@@ -57,23 +58,19 @@ func tryAcquireScanLock(ctx context.Context) (*scanLockHandle, error) {
 		_ = conn.Close()
 		return nil, ErrMediaGapScanInProgress
 	}
-	return &scanLockHandle{conn: conn, ctx: ctx}, nil
+	return &scanLockHandle{conn: conn}, nil
 }
 
 // Release 释放 advisory lock 并把底层连接归还。
 //
-// 在 panic / 异常路径上必须 defer 调用，否则连接被持有直到归还池才释放，
+// 在 panic / 异常路径上必须 defer 调用，否则连接及锁会一直被持有，
 // 期间其他节点会一直拿到 ErrMediaGapScanInProgress。
 func (h *scanLockHandle) Release() {
 	if h == nil || h.conn == nil {
 		return
 	}
-	if _, err := h.conn.ExecContext(h.ctx, "SELECT pg_advisory_unlock($1)", scanLockKey); err != nil {
-		log.Printf("[MediaGap] 释放扫描 advisory lock 失败 err=%v", err)
-	}
-	if err := h.conn.Close(); err != nil {
-		log.Printf("[MediaGap] 释放扫描连接失败 err=%v", err)
-	}
+	releaseSessionLock(h.conn, "SELECT pg_advisory_unlock($1)", scanLockKey)
+
 	h.conn = nil
 }
 

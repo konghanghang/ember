@@ -109,13 +109,14 @@ type ScanRequest struct {
 }
 
 type ScanResult struct {
-	ScannedAt        time.Time `json:"scannedAt"`
-	ScannedSeries    int       `json:"scannedSeries"`
-	SkippedSeries    int       `json:"skippedSeries"`
-	ExaminedEpisodes int       `json:"examinedEpisodes"`
-	Created          int       `json:"created"`
-	Updated          int       `json:"updated"`
-	Ingested         int       `json:"ingested"`
+	Failures         []ScanFailure `json:"failures,omitempty"`
+	ScannedAt        time.Time     `json:"scannedAt"`
+	ScannedSeries    int           `json:"scannedSeries"`
+	SkippedSeries    int           `json:"skippedSeries"`
+	ExaminedEpisodes int           `json:"examinedEpisodes"`
+	Created          int           `json:"created"`
+	Updated          int           `json:"updated"`
+	Ingested         int           `json:"ingested"`
 }
 
 type WebhookIngestPayload struct {
@@ -157,7 +158,9 @@ type DispatchSnapshot struct {
 }
 
 type DispatchRequest struct {
-	Candidate SearchCandidate `json:"candidate"`
+	Retry             bool
+	ExpectedUpdatedAt time.Time
+	Candidate         SearchCandidate `json:"candidate"`
 }
 
 type MediaGapDTO struct {

@@ -125,11 +125,18 @@ var loadGapByIDFunc = func(ctx context.Context, id string) (models.MediaGap, err
 	return gap, nil
 }
 
+// gapEmbyClient 为扫描提供库存读取边界，测试通过内存 fixture 隔离外部服务。
+type gapEmbyClient interface {
+	IsConfigured() bool
+	GetWithAPIKey(string, map[string]string) ([]byte, error)
+}
+
 type Service struct {
-	embyService *embyint.EmbyService
-	moviepilot  gapMoviePilotClient
-	httpClient  *http.Client
-	tmdbAPIKey  string
+	acquireDispatchLock func(context.Context, string) (func(), error)
+	embyService         gapEmbyClient
+	moviepilot          gapMoviePilotClient
+	httpClient          *http.Client
+	tmdbAPIKey          string
 
 	tmdbCache *tmdbcache.Store
 }
@@ -163,6 +170,7 @@ func (s *Service) IsConfigured() bool {
 	return s.tmdbAPIKey != "" && s.embyService.IsConfigured()
 }
 
+// buildListBaseQuery 统一状态及日期筛选；OPEN/ALL 是查询范围，不是持久化工单状态。
 func (s *Service) buildListBaseQuery(ctx context.Context, req ListRequest) (*gorm.DB, string, string, error) {
 	query := db.DB.WithContext(ctx).Model(&models.MediaGap{})
 
@@ -173,7 +181,9 @@ func (s *Service) buildListBaseQuery(ctx context.Context, req ListRequest) (*gor
 	}
 
 	status := normalizeMediaGapStatus(req.Status)
-	if status != "" {
+	if status == "OPEN" {
+		query = query.Where("status IN ?", []models.MediaGapStatus{models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested, models.MediaGapStatusDispatchFailed})
+	} else if status != "" && status != "ALL" {
 		if !isValidMediaGapStatus(status) {
 			return nil, keyword, status, ErrMediaGapInvalidStatus
 		}
@@ -254,6 +264,7 @@ func (s *Service) ListMediaGaps(ctx context.Context, query ListQuery) (*ListResp
 	return s.List(ctx, req)
 }
 
+// ListGrouped 默认只聚合未收口工单，历史筛选显式传 ALL 或终态；分页随结果收缩回退。
 func (s *Service) ListGrouped(ctx context.Context, req GroupedListRequest) (*GroupedListResponse, error) {
 	page := req.Page
 	if page <= 0 {
@@ -267,6 +278,9 @@ func (s *Service) ListGrouped(ctx context.Context, req GroupedListRequest) (*Gro
 		pageSize = 100
 	}
 
+	if strings.TrimSpace(req.Status) == "" {
+		req.Status = "OPEN"
+	}
 	baseReq := ListRequest{
 		Keyword:     req.Keyword,
 		Status:      req.Status,
@@ -294,6 +308,7 @@ func (s *Service) ListGrouped(ctx context.Context, req GroupedListRequest) (*Gro
 
 	grouped, summary := buildGroupedSeries(items, req.Sort)
 	groupTotal := len(grouped)
+	page = min(page, max(1, (groupTotal+pageSize-1)/pageSize))
 	offset := max(0, (page-1)*pageSize)
 	if offset > groupTotal {
 		offset = groupTotal
@@ -337,6 +352,7 @@ func (s *Service) ListGroupedMediaGaps(ctx context.Context, query GroupedListQue
 	return s.ListGrouped(ctx, req)
 }
 
+// Scan 扫描目标剧集并返回完整性结果；单剧失败保留安全定位信息供后台重试。
 func (s *Service) Scan(ctx context.Context, req ScanRequest) (*ScanResult, error) {
 	s.refreshConfig()
 	if !s.IsConfigured() {
@@ -359,20 +375,10 @@ func (s *Service) Scan(ctx context.Context, req ScanRequest) (*ScanResult, error
 		return result, nil
 	}
 
-	for _, series := range seriesItems {
-		stats, err := s.scanSingleSeries(ctx, series, scannedAt, today, req.Force)
-		if err != nil {
-			result.SkippedSeries++
-			log.Printf("[MediaGap] 跳过剧集扫描 seriesId=%s tmdbId=%s name=%q err=%v", strings.TrimSpace(series.ID), extractProviderID(series.ProviderIDs, "Tmdb"), strings.TrimSpace(series.Name), err)
-			continue
-		}
-
-		result.ScannedSeries++
-		result.ExaminedEpisodes += stats.Examined
-		result.Created += stats.Created
-		result.Updated += stats.Updated
-		result.Ingested += stats.Ingested
-	}
+	result = scanSeriesBatch(ctx, seriesItems, func(series embySeriesItem) (*scanSeriesStats, error) {
+		return s.scanSingleSeries(ctx, series, scannedAt, today, req.Force)
+	})
+	result.ScannedAt = scannedAt
 
 	log.Printf("[MediaGap] 扫描完成 tmdbId=%s scannedSeries=%d skippedSeries=%d examined=%d created=%d updated=%d ingested=%d",
 		strings.TrimSpace(req.TMDBID), result.ScannedSeries, result.SkippedSeries, result.ExaminedEpisodes, result.Created, result.Updated, result.Ingested)
@@ -483,8 +489,17 @@ func (s *Service) SearchGap(ctx context.Context, id string) (*MediaGapDTO, error
 	return dto, nil
 }
 
-// DispatchGap 下发候选并条件回写结果；并发状态变化不会撤回已经发出的外部请求。
+// DispatchGap 先跨副本互斥并持久化发送意图，再调用上游；结果未知保留 REQUESTED，禁止静默重试。
 func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchRequest) (*MediaGapDTO, error) {
+	acquire := s.acquireDispatchLock
+	if acquire == nil {
+		acquire = acquireGapDispatchLock
+	}
+	release, err := acquire(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	gap, err := s.loadGapByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -492,88 +507,69 @@ func (s *Service) DispatchGap(ctx context.Context, id string, req DispatchReques
 	if !isDispatchableMediaGapStatus(gap.Status) {
 		return nil, ErrMediaGapDispatchState
 	}
+	if gap.Status == models.MediaGapStatusRequested && (!req.Retry || req.ExpectedUpdatedAt.IsZero() || !req.ExpectedUpdatedAt.Equal(gap.UpdatedAt)) {
+		return nil, ErrMediaGapStateConflict
+	}
 	if len(req.Candidate.Payload) == 0 {
 		return nil, ErrMediaGapCandidate
 	}
-
-	dispatchResp, err := s.moviepilot.DispatchGapCandidate(moviepilotint.GapDispatchRequest{
-		CandidatePayload: req.Candidate.Payload,
-		TmdbID:           gap.TmdbID,
-	})
-	if err != nil {
-		// 失败时落入 DISPATCH_FAILED：管理员可在前端看到失败入口并手动触发本函数重试。
-		//
-		// 错误脱敏策略：
-		//   - ErrMoviePilotBusinessRejected（重复添加等业务拒绝）：上游服务正常，业务原因已脱敏，
-		//     直接透传，避免 last_dispatch_error 被截断成 "upstream moviepilot unavailable"，
-		//     让管理员能从工单上看到 MoviePilot 给出的拒绝原因。
-		//   - 其他（网络 / HTTP 5xx 等基础设施错误）：仍用 SafeUpstreamError 脱敏，避免回写凭证或 URL。
-		//     写入的 safeMsg 形如 "upstream moviepilot unavailable"，是可公开的安全文本。
-		recordErr := upstream.SafeUpstreamError(err, "moviepilot")
-		businessRejected := errors.Is(err, moviepilotint.ErrMoviePilotBusinessRejected)
-		if businessRejected {
-			recordErr = err
-		}
-		safeMsg := recordErr.Error()
-		if len(safeMsg) > 500 {
-			safeMsg = safeMsg[:500]
-		}
-		result := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
-			Where("id = ? AND status = ?", gap.ID, gap.Status).
-			Updates(map[string]interface{}{
-				"status":              models.MediaGapStatusDispatchFailed,
-				"last_dispatch_error": safeMsg,
-			})
-		if result.Error != nil {
-			log.Printf("[MediaGap] 写回 DISPATCH_FAILED 失败 id=%s err=%v", gap.ID, result.Error)
-		} else if result.RowsAffected == 0 {
-			log.Printf("[MediaGap] 下发失败回写状态冲突 id=%s expectedStatus=%s", gap.ID, gap.Status)
-			return nil, ErrMediaGapStateConflict
-		}
-		log.Printf("[MediaGap] 候选资源下发被拒 id=%s tmdbId=%s season=%d episode=%d businessRejected=%t err=%v",
-			gap.ID, gap.TmdbID, gap.Season, gap.Episode, businessRejected, recordErr)
-		return nil, fmt.Errorf("下发候选资源失败: %w", recordErr)
-	}
-
 	now := time.Now().UTC()
-	snapshot := DispatchSnapshot{
-		RequestedAt: now,
-		Candidate:   req.Candidate,
-	}
-	payload, err := json.Marshal(snapshot)
+	snapshot, err := json.Marshal(DispatchSnapshot{RequestedAt: now, Candidate: req.Candidate})
 	if err != nil {
 		return nil, fmt.Errorf("序列化下发快照失败: %w", err)
 	}
-
-	originalStatus := gap.Status
-	gap.Status = models.MediaGapStatusRequested
-	gap.DispatchSnapshot = string(payload)
-	gap.RequestedAt = &now
-	gap.LastDispatchError = nil
-	result := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
-		Where("id = ? AND status = ?", gap.ID, originalStatus).
-		Updates(map[string]interface{}{
-			"status":              gap.Status,
-			"dispatch_snapshot":   gap.DispatchSnapshot,
-			"requested_at":        gap.RequestedAt,
-			"last_dispatch_error": gap.LastDispatchError,
-		})
-	if result.Error != nil {
-		return nil, fmt.Errorf("更新下发状态失败: %w", result.Error)
+	// 进程中断、HTTP 取消或结果写回失败时，仍有可审计的意图；管理员需核对上游后显式重发。
+	unknownMessage := "下发结果待确认，请先核对 MoviePilot 任务"
+	claim := db.DB.WithContext(ctx).Model(&models.MediaGap{}).
+		Where("id = ? AND status = ? AND dispatch_snapshot = ?", gap.ID, gap.Status, gap.DispatchSnapshot).
+		Updates(map[string]interface{}{"status": models.MediaGapStatusRequested, "dispatch_snapshot": string(snapshot), "requested_at": now, "last_dispatch_error": unknownMessage})
+	if claim.Error != nil {
+		return nil, fmt.Errorf("记录下发意图失败: %w", claim.Error)
 	}
-	if result.RowsAffected == 0 {
-		log.Printf("[MediaGap] 下发回写状态冲突 id=%s expectedStatus=%s", gap.ID, originalStatus)
+	if claim.RowsAffected == 0 {
+		log.Printf("[MediaGap] 下发前状态冲突 id=%s expectedStatus=%s", gap.ID, gap.Status)
 		return nil, ErrMediaGapStateConflict
 	}
-	gap, err = s.loadGapByID(ctx, gap.ID)
+	log.Printf("[MediaGap] 开始下发 id=%s tmdbId=%s season=%d episode=%d retry=%t", gap.ID, gap.TmdbID, gap.Season, gap.Episode, req.Retry)
+	_, dispatchErr := s.moviepilot.DispatchGapCandidate(moviepilotint.GapDispatchRequest{CandidatePayload: req.Candidate.Payload, TmdbID: gap.TmdbID})
+	status := models.MediaGapStatusRequested
+	var lastError *string
+	var publicErr error
+	if dispatchErr != nil {
+		publicErr = upstream.SafeUpstreamError(dispatchErr, "moviepilot")
+		lastError = &unknownMessage
+		if errors.Is(dispatchErr, moviepilotint.ErrMoviePilotBusinessRejected) {
+			publicErr = dispatchErr
+			status = models.MediaGapStatusDispatchFailed
+			runes := []rune(dispatchErr.Error())
+			message := string(runes[:min(500, len(runes))])
+			lastError = &message
+		}
+		log.Printf("[MediaGap] 下发未成功 id=%s status=%s err=%v", gap.ID, status, publicErr)
+	}
+	// 请求 context 可能已取消；已发送外部请求的审计回写必须独立完成。
+	finalizeCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	result := db.DB.WithContext(finalizeCtx).Model(&models.MediaGap{}).
+		Where("id = ? AND status = ? AND dispatch_snapshot = ?", gap.ID, models.MediaGapStatusRequested, string(snapshot)).
+		Updates(map[string]interface{}{"status": status, "last_dispatch_error": lastError})
+	if result.Error != nil {
+		log.Printf("[MediaGap] 下发结果回写失败 id=%s status=%s", gap.ID, status)
+		return nil, fmt.Errorf("更新下发结果失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		log.Printf("[MediaGap] 下发结果状态冲突 id=%s status=%s", gap.ID, status)
+		return nil, ErrMediaGapStateConflict
+	}
+	if publicErr != nil {
+		return nil, fmt.Errorf("下发候选资源失败: %w", publicErr)
+	}
+	gap, err = s.loadGapByID(finalizeCtx, gap.ID)
 	if err != nil {
 		return nil, err
 	}
-
-	dto := toDTO(gap)
-	log.Printf("[MediaGap] 候选资源下发完成 id=%s tmdbId=%s season=%d episode=%d payloadKeys=%d statusCode=%d message=%q",
-		gap.ID, gap.TmdbID, gap.Season, gap.Episode, len(req.Candidate.Payload), dispatchResp.StatusCode, strings.TrimSpace(dispatchResp.Message))
-	return dto, nil
+	log.Printf("[MediaGap] 下发已受理 id=%s", gap.ID)
+	return toDTO(gap), nil
 }
 
 // MarkIngestedByWebhook 核销匹配工单，写入时仍保留管理员的忽略决定。
@@ -812,8 +808,8 @@ func (s *Service) scanSingleSeries(ctx context.Context, series embySeriesItem, s
 
 		seasonDetail, err := s.fetchSeasonDetail(ctx, tmdbID, seasonNumber, force)
 		if err != nil {
-			log.Printf("[MediaGap] 跳过季扫描 tmdbId=%s seriesId=%s season=%d err=%v", tmdbID, seriesID, seasonNumber, err)
-			continue
+			log.Printf("[MediaGap] 季扫描失败 tmdbId=%s seriesId=%s season=%d err=%v", tmdbID, seriesID, seasonNumber, upstream.SafeUpstreamError(err, "tmdb"))
+			return nil, &ScanFailure{TmdbID: tmdbID, SeriesName: seriesName, Season: seasonNumber, Reason: "季元数据获取失败"}
 		}
 
 		for _, episodeMeta := range seasonDetail.Episodes {
@@ -1235,7 +1231,8 @@ func isValidMediaGapStatus(status string) bool {
 		string(models.MediaGapStatusSearched),
 		string(models.MediaGapStatusRequested),
 		string(models.MediaGapStatusIngested),
-		string(models.MediaGapStatusIgnored):
+		string(models.MediaGapStatusIgnored),
+		string(models.MediaGapStatusDispatchFailed):
 		return true
 	default:
 		return false

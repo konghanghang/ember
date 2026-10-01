@@ -418,4 +418,86 @@ describe('MediaGapsView', () => {
     wrapper.unmount()
   })
 
+  it('默认查询未收口工单，下发普通失败也刷新列表并保留候选', async () => {
+    const gap = buildGap()
+    const candidate = { id: 'candidate-1', title: 'Demo', payload: { url: 'fake' } }
+    vi.mocked(searchMediaGap).mockResolvedValue({ data: { mediaGap: gap, candidates: [candidate] } })
+    const wrapper = mountView()
+    await resolvePending()
+    expect(getGroupedMediaGaps).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'OPEN' }))
+    const vm = wrapper.vm as unknown as {
+      openSearchDialog: (gap: MediaGapItem) => Promise<void>
+      handleDispatch: () => Promise<void>
+      candidateResult: MediaGapSearchResult
+    }
+    await vm.openSearchDialog(gap)
+    const before = vi.mocked(getGroupedMediaGaps).mock.calls.length
+    vi.mocked(dispatchMediaGap).mockRejectedValueOnce({ isAxiosError: true, response: { status: 500 } })
+    await vm.handleDispatch()
+    expect(getGroupedMediaGaps).toHaveBeenCalledTimes(before + 1)
+    expect(vm.candidateResult.candidates).toEqual([candidate])
+    wrapper.unmount()
+  })
+
+  it('历史筛选保留已入库季集，收口后采用后端回退页码', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as {
+      queryParams: { status: string; page: number }
+      fetchData: () => Promise<void>
+      actionableSeasonGroups: (series: { seasons: Array<{ season: number; gaps: MediaGapItem[] }> }) => Array<{ gaps: MediaGapItem[] }>
+    }
+    const season = { seasons: [{ season: 1, gaps: [buildGap({ status: 'INGESTED' }), buildGap({ id: 'ignored', status: 'IGNORED' })] }] }
+    expect(vm.actionableSeasonGroups(season)).toEqual([])
+    vm.queryParams.status = 'ALL'
+    expect(vm.actionableSeasonGroups(season)[0].gaps).toHaveLength(2)
+    vm.queryParams.page = 3
+    vi.mocked(getGroupedMediaGaps).mockResolvedValueOnce({ ...emptyGroupedResponse(), page: 1 })
+    await vm.fetchData()
+    expect(getGroupedMediaGaps).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ALL', page: 3 }))
+    expect(vm.queryParams.page).toBe(1)
+    wrapper.unmount()
+  })
+
+  it('已下发工单须确认重发并携带当前版本，取消不发送', async () => {
+    const gap = buildGap({ status: 'REQUESTED' })
+    const candidate = { id: 'candidate-1', title: 'Demo', payload: { url: 'fake' } }
+    vi.mocked(searchMediaGap).mockResolvedValue({ data: { mediaGap: gap, candidates: [candidate] } })
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as { openSearchDialog: (gap: MediaGapItem) => Promise<void>; handleDispatch: () => Promise<void> }
+    await vm.openSearchDialog(gap)
+    vi.mocked(ElMessageBox.confirm).mockRejectedValueOnce('cancel')
+    await vm.handleDispatch()
+    expect(dispatchMediaGap).not.toHaveBeenCalled()
+    vi.mocked(ElMessageBox.confirm).mockResolvedValueOnce('confirm' as never)
+    vi.mocked(dispatchMediaGap).mockResolvedValueOnce({ data: { mediaGap: gap } })
+    await vm.handleDispatch()
+    expect(dispatchMediaGap).toHaveBeenCalledWith(gap.id, expect.objectContaining({ retry: true, expectedUpdatedAt: gap.updatedAt }))
+    wrapper.unmount()
+  })
+
+  it('扫描部分完成显示失败项，支持只重试该剧', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as { scanStatus: MediaGapScanStatus; refreshScanStatus: (notify: boolean) => Promise<void> }
+    vm.scanStatus = { scanId: 'scan-1', status: 'running', running: true }
+    vi.mocked(getMediaGapScanStatus).mockResolvedValueOnce({ data: {
+      scanId: 'scan-1', status: 'partial', running: false, message: '扫描部分完成',
+      failures: [{ tmdbId: '123', seriesName: '失败剧集', season: 2, reason: '季元数据获取失败' }]
+    } })
+    const before = vi.mocked(getGroupedMediaGaps).mock.calls.length
+    await vm.refreshScanStatus(true)
+    await resolvePending()
+    expect(ElMessage.warning).toHaveBeenCalledWith('扫描部分完成')
+    expect(getGroupedMediaGaps).toHaveBeenCalledTimes(before + 1)
+    expect(wrapper.text()).toContain('失败剧集 S2：季元数据获取失败')
+    vi.mocked(ElMessageBox.confirm).mockResolvedValueOnce('confirm' as never)
+    vi.mocked(scanMediaGaps).mockResolvedValueOnce({ data: { scanId: 'retry-1', running: true, status: 'running' } })
+    await wrapper.findAll('button').find((button) => button.text() === '重试该剧')!.trigger('click')
+    await resolvePending()
+    expect(scanMediaGaps).toHaveBeenCalledWith({ tmdbId: '123', force: true })
+    wrapper.unmount()
+  })
+
 })

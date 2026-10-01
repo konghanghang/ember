@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
@@ -70,9 +71,11 @@ type mediaGapScanRequest struct {
 }
 
 type mediaGapDispatchRequest struct {
-	CandidateID      string                 `json:"candidateId"`
-	Candidate        map[string]interface{} `json:"candidate"`
-	CandidatePayload map[string]interface{} `json:"candidatePayload"`
+	Retry             bool                   `json:"retry"`
+	ExpectedUpdatedAt time.Time              `json:"expectedUpdatedAt"`
+	CandidateID       string                 `json:"candidateId"`
+	Candidate         map[string]interface{} `json:"candidate"`
+	CandidatePayload  map[string]interface{} `json:"candidatePayload"`
 }
 
 type mediaGapIgnoreRequest struct {
@@ -301,6 +304,7 @@ func (h *MediaGapHandler) DispatchMediaGap(c *gin.Context) {
 	}
 
 	resp, err := h.service.DispatchGap(c.Request.Context(), gapID, mediagappkg.DispatchRequest{
+		Retry: req.Retry, ExpectedUpdatedAt: req.ExpectedUpdatedAt,
 		Candidate: mediagappkg.SearchCandidate{
 			Title:   extractMapString(req.Candidate, "title"),
 			Site:    extractMapString(req.Candidate, "site", "source"),

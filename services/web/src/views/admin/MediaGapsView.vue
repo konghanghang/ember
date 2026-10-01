@@ -105,7 +105,7 @@ const queryParams = ref<MediaGapListQuery>({
   page: 1,
   pageSize: 9,
   keyword: '',
-  status: ''
+  status: 'OPEN'
 })
 
 const groupedPageSizes = [9, 18, 36]
@@ -275,8 +275,12 @@ const refreshScanStatus = async (notifyCompletion = false) => {
       if (nextStatus.status === 'succeeded') {
         ElMessage.success(nextStatus.message || '缺集扫描完成')
         await fetchData()
+      } else if (nextStatus.status === 'partial') {
+        ElMessage.warning(nextStatus.message || '扫描部分完成')
+        await fetchData()
       } else if (nextStatus.status === 'failed') {
         ElMessage.error(nextStatus.error || nextStatus.message || '缺集扫描失败')
+        await fetchData()
       }
     }
   } catch {
@@ -342,11 +346,12 @@ const toggleSeriesExpanded = (seriesKey: string) => {
   expandedSeriesKeys.value = [...expandedSeriesKeys.value, seriesKey]
 }
 
+// 显式历史筛选也展示季集明细，默认未收口仅保留仍需跟进的工单。
 const actionableSeasonGroups = (series: MediaGapGroupedSeries) => {
   return series.seasons
     .map((seasonGroup) => ({
       season: seasonGroup.season,
-      gaps: seasonGroup.gaps.filter((gap) => !isTerminalStatus(gap.status))
+      gaps: seasonGroup.gaps.filter((gap) => queryParams.value.status !== 'OPEN' || !isTerminalStatus(gap.status))
     }))
     .filter((seasonGroup) => seasonGroup.gaps.length > 0)
 }
@@ -578,6 +583,7 @@ const buildGroupedParams = () => {
   return params
 }
 
+// 读取后端权威分页，收口最后一条工单时回退到最后一个有效页。
 const fetchData = async () => {
   const requestToken = ++fetchRequestToken
   loading.value = true
@@ -587,6 +593,7 @@ const fetchData = async () => {
       if (requestToken !== fetchRequestToken) {
         return
       }
+      queryParams.value.page = res.page ?? queryParams.value.page
       groupedData.value = res.data ?? []
       tableData.value = groupedData.value.flatMap((series) => series.gaps)
       total.value = res.total ?? 0
@@ -649,7 +656,7 @@ const handleReset = () => {
     page: 1,
     pageSize: defaultPageSize.value,
     keyword: '',
-    status: ''
+    status: 'OPEN'
   }
   airDateRange.value = null
   fetchData()
@@ -665,10 +672,11 @@ const handlePageChange = () => {
   fetchData()
 }
 
-const handleScan = async () => {
+// 全库或失败剧集重扫共用启动状态；失败项重试只扫描指定 TMDB 剧集。
+const handleScan = async (tmdbId?: string) => {
   try {
     await ElMessageBox.confirm(
-      '将按当前后端规则触发一次全库缺集扫描。任务会在后台执行，完成后自动刷新当前列表。',
+      tmdbId ? '重新扫描这部剧集，完成后刷新列表。' : '将按当前后端规则触发一次全库缺集扫描。任务会在后台执行，完成后自动刷新当前列表。',
       '启动扫描',
       {
         confirmButtonText: '开始扫描',
@@ -689,7 +697,7 @@ const handleScan = async () => {
   // 请求在途期间锁定按钮（防重复提交），scanStatus.running 在响应后才置位；finally 复位保证抛错不卡死。
   scanSubmitting.value = true
   try {
-    const res = await scanMediaGaps()
+    const res = await scanMediaGaps(tmdbId ? { tmdbId, force: true } : undefined)
     applyScanStatus({
       scanId: res.data?.scanId,
       scope: res.data?.scope,
@@ -780,17 +788,32 @@ const handleDialogSearch = async () => {
 
 // 下发选中候选；状态冲突时清除过期选择并刷新权威列表，错误提示由请求层统一处理。
 const handleDispatch = async () => {
+  if (dispatching.value) return
   if (!currentGap.value || !selectedCandidate.value) {
     ElMessage.warning('请先选择一个候选资源')
     return
   }
 
+  const gap = currentGap.value
+  const candidate = selectedCandidate.value
   dispatching.value = true
   try {
-    const res = await dispatchMediaGap(currentGap.value.id, {
-      candidateId: selectedCandidate.value.id,
-      candidate: selectedCandidate.value,
-      candidatePayload: selectedCandidate.value.payload
+    if (gap.status === 'REQUESTED') {
+      try {
+        await ElMessageBox.confirm('该工单已发起过下发，请先核对 MoviePilot 任务。确认仍需重新下发？', '重新下发', {
+          confirmButtonText: '确认重新下发', cancelButtonText: '取消', type: 'warning'
+        })
+      } catch (error) {
+        if (isMessageBoxCancel(error)) return
+        throw error
+      }
+    }
+    const res = await dispatchMediaGap(gap.id, {
+      retry: gap.status === 'REQUESTED',
+      expectedUpdatedAt: gap.updatedAt,
+      candidateId: candidate.id,
+      candidate,
+      candidatePayload: candidate.payload
     })
     patchGap(res.data?.mediaGap ?? currentGap.value)
     dialogVisible.value = false
@@ -799,7 +822,13 @@ const handleDispatch = async () => {
   } catch (error) {
     if (isAxiosError(error) && error.response?.status === 409) {
       clearConflictedCandidates()
-      await fetchData()
+    }
+    await fetchData()
+    if (currentGap.value) {
+      const refreshed = tableData.value.find((item) => item.id === currentGap.value?.id)
+      // 当前筛选可能不包含新的失败/待确认状态，找不到时关闭弹窗，禁止拿旧状态继续发送。
+      if (refreshed) currentGap.value = refreshed
+      else dialogVisible.value = false
     }
   } finally {
     dispatching.value = false
@@ -925,7 +954,7 @@ watch(sortMode, () => {
           />
 
           <button
-            @click="handleScan"
+            @click="handleScan()"
             :disabled="scanStatus.running || scanSubmitting"
             class="btn-ember inline-flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -934,6 +963,16 @@ watch(sortMode, () => {
           </button>
         </div>
       </template>
+
+      <div v-if="scanStatus.status === 'partial' || scanStatus.status === 'failed'" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <p>{{ scanStatus.message }}</p>
+        <ul v-if="scanStatus.failures?.length" class="mt-2 space-y-2">
+          <li v-for="failure in scanStatus.failures" :key="`${failure.tmdbId}-${failure.season ?? 0}`" class="flex items-center justify-between gap-3">
+            <span>{{ failure.seriesName }}{{ failure.season ? ` S${failure.season}` : '' }}：{{ failure.reason }}</span>
+            <button v-if="failure.tmdbId" class="shrink-0 cursor-pointer rounded-lg border border-gray-200 bg-white px-3 py-1 text-gray-700 disabled:opacity-50" :disabled="scanStatus.running || scanSubmitting" @click="handleScan(failure.tmdbId)">重试该剧</button>
+          </li>
+        </ul>
+      </div>
 
       <EmberFilterPanel
         wrapper-class="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,max-content)_auto] 2xl:items-end"
@@ -954,10 +993,10 @@ watch(sortMode, () => {
         <EmberSelectField
           v-model="queryParams.status"
           label="状态"
-          placeholder="全部状态"
-          clearable
+          placeholder="未收口"
         >
-          <el-option label="全部状态" value="" />
+          <el-option label="未收口" value="OPEN" />
+          <el-option label="全部状态" value="ALL" />
           <el-option
             v-for="option in statusOptions"
             :key="option.value"
@@ -1175,11 +1214,11 @@ watch(sortMode, () => {
                 <span>{{ resolveActiveGap(series)!.ignoreReason }}</span>
               </div>
               <div
-                v-if="resolveActiveGap(series)!.status === 'DISPATCH_FAILED' && resolveActiveGap(series)!.lastDispatchError"
+                v-if="resolveActiveGap(series)!.lastDispatchError && !isTerminalStatus(resolveActiveGap(series)!.status)"
                 class="text-xs text-red-600"
                 :title="resolveActiveGap(series)!.lastDispatchError ?? ''"
               >
-                MoviePilot 下发失败：{{ resolveActiveGap(series)!.lastDispatchError }}
+                {{ resolveActiveGap(series)!.lastDispatchError }}
               </div>
             </div>
 
@@ -1261,6 +1300,7 @@ watch(sortMode, () => {
             <el-tag :type="statusMeta[row.status].type" effect="light" round>
               {{ statusMeta[row.status].label }}
             </el-tag>
+            <div v-if="row.lastDispatchError && !isTerminalStatus(row.status)" class="text-xs text-amber-700">{{ row.lastDispatchError }}</div>
             <div v-if="row.status === 'IGNORED' && (resolveIgnoreReasonLabel(row) || row.ignoreReason)" class="text-xs leading-5 text-gray-500">
               <span v-if="resolveIgnoreReasonLabel(row)" class="font-medium text-gray-700">{{ resolveIgnoreReasonLabel(row) }}</span>
               <span v-if="resolveIgnoreReasonLabel(row) && row.ignoreReason"> · </span>
@@ -1338,6 +1378,7 @@ watch(sortMode, () => {
       destroy-on-close
     >
       <div class="space-y-4">
+        <p v-if="currentGap?.lastDispatchError && !isTerminalStatus(currentGap.status)" class="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{{ currentGap.lastDispatchError }}</p>
         <div class="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="space-y-1">

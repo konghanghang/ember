@@ -9,6 +9,7 @@ import (
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"sync"
 	"testing"
 	"time"
 )
@@ -59,9 +60,12 @@ func TestExternalResultCannotOverwriteTerminalStatus(t *testing.T) {
 						return &moviepilotint.GapDispatchResponse{}, nil
 					},
 				}
+				if operation != "search" {
+					mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+				}
 				result := make(chan error, 1)
 				go func() {
-					svc := &Service{moviepilot: client}
+					svc := &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: client}
 					var err error
 					if operation == "search" {
 						_, err = svc.SearchGap(context.Background(), "gap")
@@ -144,12 +148,15 @@ func TestExternalSuccessReturnsCurrentRecord(t *testing.T) {
 			loadGapByIDFunc = func(context.Context, string) (models.MediaGap, error) {
 				reads++
 				if reads == 1 {
-					return models.MediaGap{ID: "gap", Status: models.MediaGapStatusRequested}, nil
+					return models.MediaGap{ID: "gap", Status: models.MediaGapStatusMissing}, nil
 				}
 				return models.MediaGap{ID: "gap", Status: models.MediaGapStatusIgnored}, nil
 			}
+			if operation == "dispatch" {
+				mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+			}
 			mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = \$[0-9]+ AND status = \$[0-9]+`).WillReturnResult(sqlmock.NewResult(0, 1))
-			svc := &Service{moviepilot: &stubGapMoviePilotClient{
+			svc := &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: &stubGapMoviePilotClient{
 				searchFn: func(moviepilotint.GapSearchRequest) (*moviepilotint.GapSearchResponse, error) {
 					return &moviepilotint.GapSearchResponse{}, nil
 				},
@@ -190,12 +197,192 @@ func TestDispatchFailurePersistsSafeError(t *testing.T) {
 	mock := newGapSQLMock(t)
 	restore := swapLoadGapByIDFunc(models.MediaGap{ID: "gap", Status: models.MediaGapStatusSearched})
 	defer restore()
-	mock.ExpectExec(`UPDATE "media_gaps" SET "last_dispatch_error"=\$1,"status"=\$2,"updated_at"=\$3 WHERE id = \$4 AND status = \$5`).WithArgs("upstream moviepilot unavailable", models.MediaGapStatusDispatchFailed, sqlmock.AnyArg(), "gap", models.MediaGapStatusSearched).WillReturnResult(sqlmock.NewResult(0, 1))
-	svc := &Service{moviepilot: &stubGapMoviePilotClient{dispatchFn: func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error) {
+	mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "media_gaps" SET "last_dispatch_error"=\$1,"status"=\$2,"updated_at"=\$3 WHERE id = \$4 AND status = \$5 AND dispatch_snapshot = \$6`).WithArgs("下发结果待确认，请先核对 MoviePilot 任务", models.MediaGapStatusRequested, sqlmock.AnyArg(), "gap", models.MediaGapStatusRequested, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	svc := &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: &stubGapMoviePilotClient{dispatchFn: func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error) {
 		return nil, errors.New("private network detail")
 	}}}
 	_, err := svc.DispatchGap(context.Background(), "gap", DispatchRequest{Candidate: SearchCandidate{Payload: map[string]interface{}{"title": "candidate"}}})
 	if err == nil || err.Error() != "下发候选资源失败: upstream moviepilot unavailable" {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// TestGroupedOpenFilterBeforePagination 验证默认查询先过滤终态；显式历史筛选仍可读取。
+func TestGroupedOpenFilterBeforePagination(t *testing.T) {
+	for _, status := range []string{"", "OPEN", "ALL", "INGESTED", "IGNORED", "DISPATCH_FAILED"} {
+		t.Run(status, func(t *testing.T) {
+			mock := newGapSQLMock(t)
+			predicate := ""
+			if status == "" || status == "OPEN" {
+				predicate = ` WHERE status IN \(.*\)`
+			} else if status != "ALL" {
+				predicate = ` WHERE status = .*`
+			}
+			countQuery := mock.ExpectQuery(`SELECT count\(\*\) FROM "media_gaps"` + predicate + `$`)
+			dataQuery := mock.ExpectQuery(`SELECT \* FROM "media_gaps"` + predicate + ` ORDER BY`)
+			if status == "" || status == "OPEN" {
+				countQuery.WithArgs(models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested, models.MediaGapStatusDispatchFailed)
+				dataQuery.WithArgs(models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested, models.MediaGapStatusDispatchFailed)
+			} else if status != "ALL" {
+				countQuery.WithArgs(status)
+				dataQuery.WithArgs(status)
+			}
+			countQuery.WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			dataQuery.WillReturnRows(sqlmock.NewRows([]string{"id"}))
+			result, err := (&Service{}).ListGrouped(context.Background(), GroupedListRequest{Status: status, Page: 3})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Total != 0 || len(result.Data) != 0 || result.Page != 1 {
+				t.Fatalf("invalid empty page: %+v", result)
+			}
+		})
+	}
+}
+
+// TestRequestedGapRequiresExplicitRetry 已下发工单不能被普通重复请求再次发送到上游。
+func TestRequestedGapRequiresExplicitRetry(t *testing.T) {
+	restore := swapLoadGapByIDFunc(models.MediaGap{ID: "gap", Status: models.MediaGapStatusRequested})
+	defer restore()
+	called := false
+	svc := &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: &stubGapMoviePilotClient{dispatchFn: func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error) {
+		called = true
+		return nil, errors.New("unexpected dispatch")
+	}}}
+	newGapSQLMock(t)
+	_, err := svc.DispatchGap(context.Background(), "gap", DispatchRequest{Candidate: SearchCandidate{Payload: map[string]interface{}{"title": "candidate"}}})
+	if err == nil || called {
+		t.Fatalf("err=%v called=%v", err, called)
+	}
+}
+
+// fakeDispatchLock 仅用于状态流转测试；锁的数据库语义由独立 SQL mock 用例覆盖。
+func fakeDispatchLock(context.Context, string) (func(), error) { return func() {}, nil }
+
+// TestDispatchSerializesAcrossServices 同一工单并发请求只有一个会访问 MoviePilot。
+func TestDispatchSerializesAcrossServices(t *testing.T) {
+	mock := newGapSQLMock(t)
+	restore := swapLoadGapByIDFunc(models.MediaGap{ID: "gap", Status: models.MediaGapStatusMissing})
+	defer restore()
+	mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+	var lock sync.Mutex
+	acquire := func(context.Context, string) (func(), error) {
+		if !lock.TryLock() {
+			return nil, ErrMediaGapStateConflict
+		}
+		return lock.Unlock, nil
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	client := &stubGapMoviePilotClient{dispatchFn: func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error) {
+		close(entered)
+		<-release
+		return &moviepilotint.GapDispatchResponse{}, nil
+	}}
+	first := &Service{acquireDispatchLock: acquire, moviepilot: client}
+	second := &Service{acquireDispatchLock: acquire, moviepilot: client}
+	req := DispatchRequest{Candidate: SearchCandidate{Payload: map[string]interface{}{"title": "candidate"}}}
+	done := make(chan error, 1)
+	go func() { _, err := first.DispatchGap(context.Background(), "gap", req); done <- err }()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("first dispatch stopped: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("dispatch did not start")
+	}
+	_, err := second.DispatchGap(context.Background(), "gap", req)
+	close(release)
+	if !errors.Is(err, ErrMediaGapStateConflict) {
+		t.Fatalf("second dispatch: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestDispatchClaimFailureNeverCallsUpstream 写意图失败或状态被抢先修改时，不能发出外部请求。
+func TestDispatchClaimFailureNeverCallsUpstream(t *testing.T) {
+	for _, databaseFailure := range []bool{false, true} {
+		mock := newGapSQLMock(t)
+		restore := swapLoadGapByIDFunc(models.MediaGap{ID: "gap", Status: models.MediaGapStatusMissing})
+		expectation := mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`)
+		if databaseFailure {
+			expectation.WillReturnError(errors.New("database unavailable"))
+		} else {
+			expectation.WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+		called := false
+		svc := &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: &stubGapMoviePilotClient{dispatchFn: func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error) {
+			called = true
+			return nil, nil
+		}}}
+		_, err := svc.DispatchGap(context.Background(), "gap", DispatchRequest{Candidate: SearchCandidate{Payload: map[string]interface{}{"title": "candidate"}}})
+		restore()
+		if err == nil || called {
+			t.Fatalf("err=%v called=%t", err, called)
+		}
+	}
+}
+
+// TestDispatchRetryRequiresCurrentVersion 显式重发仍须匹配当前版本，迟到的重复重试不得再次发送。
+func TestDispatchRetryRequiresCurrentVersion(t *testing.T) {
+	now := time.Now().UTC()
+	for _, stale := range []bool{false, true} {
+		mock := newGapSQLMock(t)
+		restore := swapLoadGapByIDFunc(models.MediaGap{ID: "gap", Status: models.MediaGapStatusRequested, UpdatedAt: now})
+		expected := now
+		if stale {
+			expected = now.Add(-time.Second)
+		} else {
+			mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+		}
+		called := false
+		svc := &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: &stubGapMoviePilotClient{dispatchFn: func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error) {
+			called = true
+			return &moviepilotint.GapDispatchResponse{}, nil
+		}}}
+		_, err := svc.DispatchGap(context.Background(), "gap", DispatchRequest{Retry: true, ExpectedUpdatedAt: expected, Candidate: SearchCandidate{Payload: map[string]interface{}{"title": "candidate"}}})
+		restore()
+		if stale && (!errors.Is(err, ErrMediaGapStateConflict) || called) {
+			t.Fatalf("stale retry err=%v called=%t", err, called)
+		}
+		if !stale && (err != nil || !called) {
+			t.Fatalf("fresh retry err=%v called=%t", err, called)
+		}
+	}
+}
+
+// TestGroupedPageClampsWithOpenRecords 收口使页数缩小时仍返回最后一页工单及一致摘要。
+func TestGroupedPageClampsWithOpenRecords(t *testing.T) {
+	mock := newGapSQLMock(t)
+	mock.ExpectQuery(`SELECT count`).WithArgs(models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested, models.MediaGapStatusDispatchFailed).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(`SELECT \* FROM "media_gaps" WHERE status IN`).WithArgs(models.MediaGapStatusMissing, models.MediaGapStatusSearched, models.MediaGapStatusRequested, models.MediaGapStatusDispatchFailed).WillReturnRows(sqlmock.NewRows([]string{"id", "tmdb_id", "series_name", "season", "episode", "status"}).AddRow("a", "1", "A", 1, 1, "REQUESTED").AddRow("b", "2", "B", 1, 1, "DISPATCH_FAILED"))
+	result, err := (&Service{}).ListGrouped(context.Background(), GroupedListRequest{Page: 3, PageSize: 1, Sort: "name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Page != 2 || result.Total != 2 || result.ItemTotal != 2 || len(result.Data) != 1 || result.Data[0].TmdbID != "2" || result.Summary.RequestedCount != 1 || result.Summary.DispatchFailedCount != 1 {
+		t.Fatalf("unexpected page: %+v", result)
+	}
+}
+
+// TestDispatchCanceledRequestStillFinalizes 客户端取消不能让已受理请求丢失结果回写。
+func TestDispatchCanceledRequestStillFinalizes(t *testing.T) {
+	mock := newGapSQLMock(t)
+	restore := swapLoadGapByIDFunc(models.MediaGap{ID: "gap", Status: models.MediaGapStatusMissing})
+	defer restore()
+	mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "media_gaps" SET "last_dispatch_error"=\$1,"status"=\$2,"updated_at"=\$3 WHERE id = \$4 AND status = \$5 AND dispatch_snapshot = \$6`).WithArgs(nil, models.MediaGapStatusRequested, sqlmock.AnyArg(), "gap", models.MediaGapStatusRequested, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: &stubGapMoviePilotClient{dispatchFn: func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error) {
+		cancel()
+		return &moviepilotint.GapDispatchResponse{}, nil
+	}}}
+	if _, err := svc.DispatchGap(ctx, "gap", DispatchRequest{Candidate: SearchCandidate{Payload: map[string]interface{}{"title": "candidate"}}}); err != nil {
+		t.Fatal(err)
 	}
 }

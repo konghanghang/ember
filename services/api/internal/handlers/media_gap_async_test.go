@@ -110,7 +110,7 @@ func TestMediaGapScanManagerStartAndComplete(t *testing.T) {
 		}
 		return &mediagappkg.ScanResult{
 			ScannedSeries:    2,
-			SkippedSeries:    1,
+			SkippedSeries:    0,
 			ExaminedEpisodes: 8,
 			Created:          3,
 			Updated:          2,
@@ -248,5 +248,49 @@ func TestMediaGapScanManagerFinalizesWithFreshContext(t *testing.T) {
 	}
 	if finishCount != 1 {
 		t.Fatalf("expected exactly 1 finalize call, got %d", finishCount)
+	}
+}
+
+// TestMediaGapScanPanicFinalizes 验证 panic 也会释放锁、落失败终态，允许再次扫描。
+func TestMediaGapScanPanicFinalizes(t *testing.T) {
+	recorder := &fakeScanRecorder{}
+	manager := newMediaGapScanManagerWithRecorder(func(context.Context, mediagappkg.ScanRequest) (*mediagappkg.ScanResult, error) {
+		panic("private upstream detail")
+	}, recorder)
+	manager.Start(mediagappkg.ScanRequest{})
+	recorder.waitForFinish(t)
+	status := waitForManagerIdle(t, manager)
+	if status.Status != mediaGapScanStateFailed || strings.Contains(status.Error, "private") {
+		t.Fatalf("unexpected status: %+v", status)
+	}
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	if recorder.busy || len(recorder.finishes) != 1 {
+		t.Fatal("scan lock not released exactly once")
+	}
+}
+
+// TestMediaGapScanIncompleteResults 部分失败不能冒充成功，全失败不能冒充部分成功。
+func TestMediaGapScanIncompleteResults(t *testing.T) {
+	for _, successes := range []int{0, 1} {
+		recorder := &fakeScanRecorder{}
+		manager := newMediaGapScanManagerWithRecorder(func(context.Context, mediagappkg.ScanRequest) (*mediagappkg.ScanResult, error) {
+			return &mediagappkg.ScanResult{ScannedSeries: successes, SkippedSeries: 1, Failures: []mediagappkg.ScanFailure{{TmdbID: "123", Reason: "季元数据获取失败"}}}, nil
+		}, recorder)
+		manager.Start(mediagappkg.ScanRequest{})
+		recorder.waitForFinish(t)
+		status := waitForManagerIdle(t, manager)
+		want := mediaGapScanStatePartial
+		if successes == 0 {
+			want = mediaGapScanStateFailed
+		}
+		if status.Status != want || status.SkippedSeries != 1 || len(status.Failures) != 1 {
+			t.Fatalf("unexpected status: %+v", status)
+		}
+		recorder.mu.Lock()
+		if recorder.finishes[0] != models.MediaGapScanStatusFailed {
+			t.Error("incomplete scan persisted as success")
+		}
+		recorder.mu.Unlock()
 	}
 }

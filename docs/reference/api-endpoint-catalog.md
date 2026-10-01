@@ -175,10 +175,12 @@
 | GET | `/api/v1/admin/payments` | 全部支付记录 |
 | GET | `/api/v1/admin/system/info` | 系统统计 |
 | POST | `/api/v1/admin/system/test-emby` | 测试 Emby 连接 |
-| GET | `/api/v1/admin/media-gaps/scan-status` | 查询缺集扫描后台任务状态 |
-| POST | `/api/v1/admin/media-gaps/scan` | 异步触发缺集扫描 |
+| GET | `/api/v1/admin/media-gaps` | 工单明细；`status=OPEN` 为未收口，`ALL` 或省略为全部，支持指定工单状态 |
+| GET | `/api/v1/admin/media-gaps/grouped` | 聚合列表；省略状态默认 `OPEN`，`ALL` / 指定终态可查历史；计数、摘要和分页同口径，超界页码回退 |
+| GET | `/api/v1/admin/media-gaps/scan-status` | 当前进程最近任务状态：`idle/running/succeeded/partial/failed`；`failures` 含 `tmdbId/seriesName/season?/reason`，原因脱敏 |
+| POST | `/api/v1/admin/media-gaps/scan` | 异步扫描；可传 `tmdbId` 和 `force` 定向重扫失败剧集 |
 | POST | `/api/v1/admin/media-gaps/:id/search` | 搜索缺集候选资源；回写遇到并发状态变化返回 409，前端清候选并刷新 |
-| POST | `/api/v1/admin/media-gaps/:id/dispatch` | 下发缺集候选资源，携带 `tmdbid`；结果回写状态冲突返回 409，不表示撤回远端请求 |
+| POST | `/api/v1/admin/media-gaps/:id/dispatch` | 工单级跨副本互斥下发；REQUESTED 重发需 `retry=true` 与当前 `expectedUpdatedAt`（RFC3339）；争锁/版本/状态冲突返回 409，不表示撤回远端请求。结果未知保持 REQUESTED，明确业务拒绝为 DISPATCH_FAILED |
 | POST | `/api/v1/admin/media-gaps/:id/ignore` | 手动忽略缺集工单 |
 | POST | `/api/v1/admin/tv-calendar/sync` | 手动同步追剧日历 |
 | POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |

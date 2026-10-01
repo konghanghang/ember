@@ -549,7 +549,7 @@ export type MediaGapIgnoreReasonCode = 'manual' | 'season_not_activated'
 
 export interface MediaGapListQuery extends PaginationQuery {
   keyword?: string
-  status?: MediaGapStatus | ''
+  status?: MediaGapStatus | 'OPEN' | 'ALL' | ''
   airDateFrom?: string
   airDateTo?: string
 }
@@ -582,7 +582,7 @@ export type MediaGapGroupedSortMode = 'missing' | 'updated' | 'requested' | 'nam
 
 export interface MediaGapGroupedQuery extends PaginationQuery {
   keyword?: string
-  status?: MediaGapStatus | ''
+  status?: MediaGapStatus | 'OPEN' | 'ALL' | ''
   airDateFrom?: string
   airDateTo?: string
   sort?: MediaGapGroupedSortMode
@@ -675,6 +675,8 @@ export interface MediaGapSearchResult {
 }
 
 export interface MediaGapDispatchRequest {
+  retry?: boolean
+  expectedUpdatedAt?: string
   candidateId: string
   candidate?: MediaGapSearchCandidate
   candidatePayload?: Record<string, unknown>
@@ -694,9 +696,10 @@ export interface MediaGapScanRequest {
   force?: boolean
 }
 
-export type MediaGapScanState = 'idle' | 'running' | 'succeeded' | 'failed'
+export type MediaGapScanState = 'idle' | 'running' | 'succeeded' | 'partial' | 'failed'
 
 export interface MediaGapScanStatus {
+  failures?: Array<{ tmdbId: string; seriesName: string; season?: number; reason: string }>
   scanId?: string
   scope?: 'all' | 'series'
   status: MediaGapScanState

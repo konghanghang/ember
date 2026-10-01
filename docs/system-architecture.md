@@ -513,11 +513,12 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 ### 5.11 MediaGapService (`services/mediagap/service.go`)
 
-- `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台管理入口已改为异步触发。**批次 2 新增跨副本互斥**：`mediaGapScanManager.Start` 通过 `pg_try_advisory_lock` 拿到独占锁后再写 `media_gap_scans (status='running')` 并启动 goroutine（`async.SafeGo` 包裹），结束时在 `defer` 内释放锁并写终态；锁被其他副本占有时返回 409
-- `ListGroupedMediaGaps(query)` — 按剧聚合缺集工单，后端完成分组、排序、分页与摘要统计
-- `SearchGap(id)` — 调用 MoviePilot 搜索当前缺集候选；以读取时状态为条件写入 `searchSnapshot` 与 `lastSearchedAt`，仅 MISSING 推进 SEARCHED，保留 REQUESTED 的搜索入口
-- `DispatchGap(id, candidate)` — 调用 MoviePilot 下载入口下发已选候选资源，请求体带缺集 `tmdbId`；成功推进为 `REQUESTED` 并清空 `lastDispatchError`；**失败时写入 `lastDispatchError` 并切换为 `DISPATCH_FAILED`**：MoviePilot 业务拒绝保留已脱敏的 message，基础设施错误经 `upstream.SafeUpstreamError` 脱敏；前端可通过同一接口重试
-- 搜索及下发成功/失败均按 `id + 读取时状态` 条件回写，零行返回 409；成功后重读权威 DTO。前端冲突后关闭候选框、清空旧选择并刷新列表，避免旧结果覆盖 INGESTED/IGNORED。状态条件不保证同状态并行操作串行化，也不能撤回已发出的 MoviePilot 请求。
+- `ScanMediaGaps(tmdbId?)` — 扫描 Emby 连载剧的已激活季，创建/更新/核销缺集工单；后台异步执行，PG advisory lock 保证跨副本扫描互斥。执行入口用 `defer` 覆盖正常、取消和 panic 收尾，以独立上下文写终态和释放锁；解锁失败销毁物理连接，不能把持锁 session 归还连接池。
+- 单季 TMDB 元数据失败时该剧扫描失败，不把残缺结果算成功；批次返回失败剧集、季号（已知时）和安全原因。状态接口区分 `succeeded / partial / failed`，全部失败为 `failed`；数据库沿用 `success / failed`，部分失败落 `failed` 并保存计数摘要。Web 展示失败项并支持指定 `tmdbId` 强制重扫；失败清单属于当前进程的最近一次任务状态，不是持久化历史清单。
+- `ListGroupedMediaGaps(query)` — 默认 `status=OPEN`，在查询阶段仅保留 MISSING / SEARCHED / REQUESTED / DISPATCH_FAILED，再分组、排序、统计和分页。全已入库、全已忽略或两种终态混合的剧集退出默认列表；不删除历史，也不把忽略当补全。`ALL` 或指定状态可查历史；页码超出结果范围时回退最后有效页，空结果为第 1 页。明细接口省略状态仍兼容全部工单，Web 两种视图默认选择未收口。
+- `SearchGap(id)` — MoviePilot 搜索候选，以读取时状态为条件回写；仅 MISSING 推进 SEARCHED，保留 REQUESTED 搜索入口。冲突返回 409，前端清空旧候选并刷新。
+- `DispatchGap(id, candidate)` — 先取得工单级 PG session advisory lock，再读取工单；持锁直到外部下发及结果回写结束。发送前以 `id + status + dispatchSnapshot` 条件记录 REQUESTED、候选快照、请求时间及“结果待确认”。同工单并发下发返回 409；普通请求不能重发 REQUESTED，显式重发必须携带 `retry=true` 和当前 `expectedUpdatedAt`，Web 二次确认提示先核对 MoviePilot。
+- 下发受理后清空 `lastDispatchError`；明确业务拒绝进入 DISPATCH_FAILED 并保留安全原因；网络/HTTP 等不能确认是否受理的错误保持 REQUESTED 和待确认提示。中断或回写失败也保留发送意图，禁止自动重试。结果回写使用独立上下文及快照条件，不能覆盖人工忽略或入库终态；409 不代表已撤回外部请求，也不承诺上游 exactly-once。失败后 Web 刷新权威列表与当前工单，保留有效候选；目标已不在当前筛选页时关闭弹窗。
 - 扫描元数据不携带旧状态，历史空状态单独条件修复；Webhook 与扫描入库在 SQL 中保留 IGNORED 和已有 ingestedAt，核销及清理统计使用实际影响行数。
 - `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`；显式忽略写 `ignoreReasonCode='manual'`
 - `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后按状态分支处理：

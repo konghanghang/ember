@@ -529,7 +529,8 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 
 **契约**：
 - 扫描入口 `mediaGapScanManager.Start` 先尝试 `pg_try_advisory_lock(scanLockKey)`；锁被占返回 `ErrMediaGapScanInProgress` → handler 映射 409
-- 拿到锁后写一条 `running` 记录，扫描结束在 `defer` 中写终态并释放 advisory lock
+- 拿到锁后写一条 `running` 记录，正常结束、取消或 panic 都在 `defer` 中以独立上下文写终态并释放 advisory lock；解锁失败销毁物理连接。
+- 单季元数据失败使该剧扫描失败；部分失败的 API 状态为 `partial`，数据库仍写 `failed` 并保存失败摘要；全部剧集失败不能记为 `success`。失败对象清单仅属于当前进程最近任务响应，不新增持久化字段。
 - advisory lock 绑定在持有连接的 PG session 上：进程 crash 时 PG 端会回收锁；`running` 记录留到 cron 清理时仍保留以便排查孤儿
 - cron `media-gap-scans-cleanup @weekly` 删除 7 天之前的 `success / failed` 记录
 

@@ -12,14 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/konghang/ember/backend/internal/common/tmdbcache"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	moviepilotint "github.com/konghang/ember/backend/internal/integrations/moviepilot"
 	"github.com/konghang/ember/backend/internal/models"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func TestIsScannableSeriesRequiresPhysicalSeriesAndTmdbID(t *testing.T) {
@@ -238,29 +237,13 @@ func (s *stubGapMoviePilotClient) DispatchGapCandidate(req moviepilotint.GapDisp
 	return s.dispatchFn(req)
 }
 
-// newDispatchGapTestService 构造一个注入了 mock MoviePilot client 的 Service，
-// 并通过 swapLoadGapByIDFunc 让 DispatchGap 内的 loadGapByID 不再依赖真实 DB。
-//
-// DryRun DB 用于拦截 DispatchGap 失败分支里的 db.DB.WithContext().Updates，
-// 让 SQL 只生成不执行（避免连真实 PostgreSQL）。本测试聚焦"返回的 error 是否透传业务原因"
-// 与"DISPATCH_FAILED 写入是否触发"，真实 DB 状态机字段断言由集成测试覆盖。
+// newDispatchGapTestService 用 SQL mock 验证意图与结果两次写入，外部下发由 fake 执行。
 func newDispatchGapTestService(t *testing.T, dispatchFn func(moviepilotint.GapDispatchRequest) (*moviepilotint.GapDispatchResponse, error)) (*Service, *gorm.DB) {
 	t.Helper()
-	database, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  "host=127.0.0.1 user=test dbname=test sslmode=disable",
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		DryRun:               true,
-		DisableAutomaticPing: true,
-		Logger:               logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		t.Fatalf("open dry-run database: %v", err)
-	}
-	return &Service{
-		moviepilot: &stubGapMoviePilotClient{dispatchFn: dispatchFn},
-		tmdbCache:  tmdbcache.NewStore(),
-	}, database
+	mock := newGapSQLMock(t)
+	mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "media_gaps" SET .* WHERE id = .* AND status = .* AND dispatch_snapshot = .*`).WillReturnResult(sqlmock.NewResult(0, 1))
+	return &Service{acquireDispatchLock: fakeDispatchLock, moviepilot: &stubGapMoviePilotClient{dispatchFn: dispatchFn}}, db.DB
 }
 
 // swapLoadGapByIDFunc 临时替换 loadGapByIDFunc 包级变量，让 DispatchGap 内的 loadGapByID
@@ -289,8 +272,7 @@ func swapGlobalDB(t *testing.T, database *gorm.DB) {
 // MoviePilot 返回业务拒绝（重复添加等）时，mediagap DispatchGap 必须把业务原因
 // 透传给调用方，而不是被 SafeUpstreamError 截断成 "upstream moviepilot unavailable"。
 //
-// DryRun DB 只能拦截 SQL 生成；本用例聚焦"返回 error 是否携带业务原因"这一关键断言，
-// 状态机字段的 DB 写入由集成测试覆盖。
+// SQL mock 同时保护前置意图和最终结果写入；业务原因必须保留。
 func TestDispatchGapBusinessRejectionTransparentlyPropagatesReason(t *testing.T) {
 	restoreGap := swapLoadGapByIDFunc(dispatchGapGapFixture())
 	defer restoreGap()
