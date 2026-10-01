@@ -63,6 +63,7 @@ type MediaGapViewMode = 'grouped' | 'table'
 type MediaGapSortMode = MediaGapGroupedSortMode
 
 const loading = ref(false)
+const loadError = ref('')
 const deleting = ref(false)
 const selectedDeleteGaps = ref<MediaGapItem[]>([])
 // 扫描按钮态只由 scanStatus.running 单一事实源驱动（P1-2），不再保留独立的 scanning 标志，
@@ -350,19 +351,14 @@ const toggleSeriesExpanded = (seriesKey: string) => {
   expandedSeriesKeys.value = [...expandedSeriesKeys.value, seriesKey]
 }
 
-// 显式历史筛选也展示季集明细，默认未收口仅保留仍需跟进的工单。
-const actionableSeasonGroups = (series: MediaGapGroupedSeries) => {
-  return series.seasons
-    .map((seasonGroup) => ({
-      season: seasonGroup.season,
-      gaps: seasonGroup.gaps.filter((gap) => queryParams.value.status !== 'OPEN' || !isTerminalStatus(gap.status))
-    }))
-    .filter((seasonGroup) => seasonGroup.gaps.length > 0)
+// 季集明细直接消费后端查询结果，未提交的筛选选项不能二次裁剪已有结果。
+const displayedSeasonGroups = (series: MediaGapGroupedSeries) => {
+  return series.seasons.filter((seasonGroup) => seasonGroup.gaps.length > 0)
 }
 
 const visibleSeasonGroups = (series: MediaGapGroupedSeries) => {
   const defaultVisibleSeasons = 1
-  const actionableSeasons = actionableSeasonGroups(series)
+  const actionableSeasons = displayedSeasonGroups(series)
   if (isSeriesExpanded(series.key)) {
     return actionableSeasons
   }
@@ -370,7 +366,7 @@ const visibleSeasonGroups = (series: MediaGapGroupedSeries) => {
 }
 
 const hiddenSeasonGroupCount = (series: MediaGapGroupedSeries) => {
-  return Math.max(0, actionableSeasonGroups(series).length - visibleSeasonGroups(series).length)
+  return Math.max(0, displayedSeasonGroups(series).length - visibleSeasonGroups(series).length)
 }
 
 const compactStatClass = (tone: Tone) => `compact-stat compact-stat-${tone}`
@@ -590,6 +586,7 @@ const buildGroupedParams = () => {
 // 读取后端权威分页，收口最后一条工单时回退到最后一个有效页。
 const fetchData = async () => {
   const requestToken = ++fetchRequestToken
+  loadError.value = ''
   loading.value = true
   try {
     if (viewMode.value === 'grouped') {
@@ -649,8 +646,18 @@ const fetchData = async () => {
     if (!selectedGapId.value && tableData.value.length > 0) {
       selectedGapId.value = tableData.value[0].id
     }
-  } catch {
-    // handled by interceptor
+  } catch (error) {
+    if (requestToken !== fetchRequestToken) return
+    // 查询失败不能把旧数据伪装成本次结果，也不能推断工单已经入库或被忽略。
+    groupedData.value = []
+    tableData.value = []
+    selectedDeleteGaps.value = []
+    selectedGapId.value = ''
+    total.value = 0
+    itemTotal.value = 0
+    groupedSummary.value = { missingCount: 0, searchedCount: 0, requestedCount: 0, dispatchFailedCount: 0, ingestedCount: 0, ignoredCount: 0 }
+    const status = isAxiosError(error) ? error.response?.status : undefined
+    loadError.value = status ? `查询失败（HTTP ${status}），请重试` : '查询失败，请重试'
   } finally {
     if (requestToken === fetchRequestToken) {
       loading.value = false
@@ -1047,9 +1054,9 @@ watch(sortMode, () => {
         <EmberSelectField
           v-model="queryParams.status"
           label="状态"
-          placeholder="未收口"
+          placeholder="待跟进"
         >
-          <el-option label="未收口" value="OPEN" />
+          <el-option label="待跟进" value="OPEN" />
           <el-option label="全部状态" value="ALL" />
           <el-option
             v-for="option in statusOptions"
@@ -1115,7 +1122,13 @@ watch(sortMode, () => {
       </div>
     </EmberPageHeaderCard>
 
-    <div v-if="viewMode === 'grouped'" class="space-y-4">
+    <EmberEmptyStateCard v-if="loadError" tone="danger" :title="loadError">
+      <template #actions>
+        <button class="btn-ember cursor-pointer rounded-xl px-4 py-2 text-sm" @click="fetchData">重新查询</button>
+      </template>
+    </EmberEmptyStateCard>
+
+    <div v-else-if="viewMode === 'grouped'" class="space-y-4">
       <div v-if="loading" class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
         <div
           v-for="index in 6"
@@ -1158,13 +1171,14 @@ watch(sortMode, () => {
               <div class="flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2">
                   <span class="season-pill">{{ formatSeasonCode(seasonGroup.season) }}</span>
-                  <span class="text-xs text-gray-500">缺 {{ seasonGroup.gaps.length }} 集</span>
+                  <span class="text-xs text-gray-500">{{ seasonGroup.gaps.length }} 条工单</span>
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2">
                   <span class="text-xs text-gray-400">
                     已下发 {{ seasonGroup.gaps.filter((gap) => gap.status === 'REQUESTED').length }}
                   </span>
                   <button
+                    v-if="seasonGroup.gaps.some((gap) => !isTerminalStatus(gap.status))"
                     @click="ignoreSeasonGroup(series, seasonGroup)"
                     class="season-action-btn season-action-btn-muted"
                   >
@@ -1206,11 +1220,10 @@ watch(sortMode, () => {
             </section>
 
             <EmberEmptyStateCard
-              v-if="actionableSeasonGroups(series).length === 0"
+              v-if="displayedSeasonGroups(series).length === 0"
               compact
               tone="neutral"
-              title="当前没有待处理缺集"
-              description="已收口到已忽略或已入库摘要。"
+              title="暂无季集明细"
             />
 
             <div
@@ -1218,7 +1231,7 @@ watch(sortMode, () => {
               class="series-expand-panel"
             >
               <div class="text-sm font-medium text-gray-600">
-                还有 {{ hiddenSeasonGroupCount(series) }} 个季存在缺集
+                还有 {{ hiddenSeasonGroupCount(series) }} 个季未展开
               </div>
               <button
                 @click="toggleSeriesExpanded(series.key)"
@@ -1229,11 +1242,11 @@ watch(sortMode, () => {
             </div>
 
             <div
-              v-else-if="actionableSeasonGroups(series).length > 2"
+              v-else-if="displayedSeasonGroups(series).length > 2"
               class="series-expand-panel"
             >
               <div class="text-sm font-medium text-gray-500">
-                当前已展开全部 {{ actionableSeasonGroups(series).length }} 个缺集季。
+                已展开全部 {{ displayedSeasonGroups(series).length }} 季。
               </div>
               <button
                 @click="toggleSeriesExpanded(series.key)"

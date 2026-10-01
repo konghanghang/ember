@@ -73,7 +73,12 @@ function mountView() {
         EmberPageHeaderCard: passthroughStub,
         EmberFilterPanel: passthroughStub,
         EmberTableCard: passthroughStub,
-        EmberEmptyStateCard: passthroughStub,
+        EmberEmptyStateCard: defineComponent({
+          props: { title: String, description: String },
+          setup(props, { slots }) {
+            return () => h('div', [props.title, props.description, slots.actions?.()])
+          },
+        }),
         EmberFormDialog: defineComponent({
           props: {
             modelValue: { type: Boolean, default: false },
@@ -452,12 +457,12 @@ describe('MediaGapsView', () => {
     const vm = wrapper.vm as unknown as {
       queryParams: { status: string; page: number }
       fetchData: () => Promise<void>
-      actionableSeasonGroups: (series: { seasons: Array<{ season: number; gaps: MediaGapItem[] }> }) => Array<{ gaps: MediaGapItem[] }>
+      displayedSeasonGroups: (series: { seasons: Array<{ season: number; gaps: MediaGapItem[] }> }) => Array<{ gaps: MediaGapItem[] }>
     }
     const season = { seasons: [{ season: 1, gaps: [buildGap({ status: 'INGESTED' }), buildGap({ id: 'ignored', status: 'IGNORED' })] }] }
-    expect(vm.actionableSeasonGroups(season)).toEqual([])
+    expect(vm.displayedSeasonGroups(season)[0].gaps).toHaveLength(2)
     vm.queryParams.status = 'ALL'
-    expect(vm.actionableSeasonGroups(season)[0].gaps).toHaveLength(2)
+    expect(vm.displayedSeasonGroups(season)[0].gaps).toHaveLength(2)
     vm.queryParams.page = 3
     vi.mocked(getGroupedMediaGaps).mockResolvedValueOnce({ ...emptyGroupedResponse(), page: 1 })
     await vm.fetchData()
@@ -588,6 +593,101 @@ describe('MediaGapsView', () => {
     confirm()
     await pending
     expect(deleteMediaGap).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('点击查询失败时不把旧历史卡片显示成已收口结果', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const gap = buildGap({ status: 'INGESTED', seriesName: '旧历史剧集' })
+    const series: MediaGapGroupedResponse['data'][number] = {
+      key: 'old', seriesName: gap.seriesName, gaps: [gap], seasons: [{ season: 1, gaps: [gap] }],
+      totalGaps: 1, missingCount: 0, searchedCount: 0, requestedCount: 0, ingestedCount: 1, ignoredCount: 0
+    }
+    const vm = wrapper.vm as unknown as {
+      queryParams: { status: string }
+      fetchData: () => Promise<void>
+      loadError: string
+      groupedData: MediaGapGroupedResponse['data']
+    }
+    vm.queryParams.status = 'ALL'
+    vi.mocked(getGroupedMediaGaps).mockResolvedValueOnce({ ...emptyGroupedResponse(), data: [series], total: 1, itemTotal: 1 })
+    await vm.fetchData()
+    await resolvePending()
+    expect(wrapper.text()).toContain('旧历史剧集')
+    vm.queryParams.status = 'OPEN'
+    vi.mocked(getGroupedMediaGaps).mockRejectedValueOnce({ isAxiosError: true, response: { status: 400 } })
+    await vm.fetchData()
+    await resolvePending()
+    expect(vm.loadError).toContain('查询失败')
+    expect(vm.loadError).toContain('400')
+    expect(vm.groupedData).toEqual([])
+    expect(wrapper.findAll('.series-card')).toHaveLength(0)
+    vi.mocked(getGroupedMediaGaps).mockResolvedValueOnce(emptyGroupedResponse())
+    await vm.fetchData()
+    expect(vm.loadError).toBe('')
+    wrapper.unmount()
+  })
+
+  it('尚未提交的状态选项不能隐藏上次成功查询返回的历史季集', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as {
+      queryParams: { status: string }
+      displayedSeasonGroups: (series: { seasons: Array<{ season: number; gaps: MediaGapItem[] }> }) => Array<{ gaps: MediaGapItem[] }>
+    }
+    const series = { seasons: [{ season: 1, gaps: [buildGap({ status: 'IGNORED' })] }] }
+    vm.queryParams.status = 'ALL'
+    expect(vm.displayedSeasonGroups(series)[0].gaps).toHaveLength(1)
+    vm.queryParams.status = 'OPEN'
+    expect(vm.displayedSeasonGroups(series)[0]?.gaps).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('旧查询的迟到失败不能覆盖较新的成功结果', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as { fetchData: () => Promise<void>; loadError: string; total: number }
+    let rejectOld!: (error: Error) => void
+    vi.mocked(getGroupedMediaGaps).mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    const oldRequest = vm.fetchData()
+    vi.mocked(getGroupedMediaGaps).mockResolvedValueOnce({ ...emptyGroupedResponse(), total: 2 })
+    await vm.fetchData()
+    rejectOld(new Error('late failure'))
+    await oldRequest
+    expect(vm.loadError).toBe('')
+    expect(vm.total).toBe(2)
+    wrapper.unmount()
+  })
+
+  it('成功响应返回期间切换筛选，不把返回的历史工单误标为已收口空卡或缺集', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as {
+      queryParams: { status: string }
+      fetchData: () => Promise<void>
+      groupedData: MediaGapGroupedResponse['data']
+    }
+    const gap = buildGap({ status: 'INGESTED', seriesName: '历史剧集' })
+    const response: MediaGapGroupedResponse = {
+      ...emptyGroupedResponse(), total: 1, itemTotal: 1,
+      data: [{ key: 'history', seriesName: gap.seriesName, gaps: [gap], seasons: [{ season: 1, gaps: [gap] }],
+        totalGaps: 1, missingCount: 0, searchedCount: 0, requestedCount: 0, ingestedCount: 1, ignoredCount: 0 }]
+    }
+    let finish!: (response: MediaGapGroupedResponse) => void
+    vi.mocked(getGroupedMediaGaps).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    vm.queryParams.status = 'ALL'
+    const pending = vm.fetchData()
+    expect(getGroupedMediaGaps).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'ALL' }))
+    vm.queryParams.status = 'OPEN'
+    finish(response)
+    await pending
+    await resolvePending()
+    expect(wrapper.findAll('.series-card')).toHaveLength(1)
+    expect(wrapper.findAll('.episode-chip')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('已收口到已忽略或已入库摘要')
+    expect(wrapper.text()).not.toContain('缺 1 集')
+    expect(wrapper.text()).not.toContain('忽略本季缺集')
     wrapper.unmount()
   })
 
