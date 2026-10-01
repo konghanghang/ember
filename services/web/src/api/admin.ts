@@ -24,6 +24,7 @@ import type {
   DeviceListResponse,
   DeviceStats,
   MediaGapActionResponse,
+  MediaGapDeleteResponse,
   MediaGapDispatchRequest,
   MediaGapGroupedQuery,
   MediaGapGroupedResponse,
@@ -365,6 +366,16 @@ export function ignoreMediaGap(id: string, data?: { reason?: string }): Promise<
     method: 'post',
     data: data ?? {}
   })
+}
+
+// deleteMediaGap 仅删除单条已入库或已忽略工单，不取消外部下载。
+export function deleteMediaGap(id: string): Promise<{ data: MediaGapDeleteResponse }> {
+  return request({ url: `/admin/media-gaps/${encodeURIComponent(id)}`, method: 'delete' })
+}
+
+// batchDeleteMediaGaps 原子删除显式选择的已收口记录，最多 100 条。
+export function batchDeleteMediaGaps(ids: string[]): Promise<{ data: MediaGapDeleteResponse }> {
+  return request({ url: '/admin/media-gaps/batch-delete', method: 'post', data: { ids } })
 }
 
 // ==================== 付费方案 ====================

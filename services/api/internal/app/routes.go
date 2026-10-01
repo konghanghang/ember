@@ -104,6 +104,8 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 	admin.GET("/media-gaps", h.mediaGap.ListMediaGaps)
 	admin.GET("/media-gaps/grouped", h.mediaGap.ListGroupedMediaGaps)
 	admin.GET("/media-gaps/scan-status", h.mediaGap.GetMediaGapScanStatus)
+	admin.DELETE("/media-gaps/:id", h.mediaGap.DeleteMediaGap)
+	admin.POST("/media-gaps/batch-delete", h.mediaGap.BatchDeleteMediaGaps)
 	admin.POST("/media-gaps/scan", h.mediaGap.ScanMediaGaps)
 	admin.POST("/media-gaps/:id/search", h.mediaGap.SearchMediaGap)
 	admin.POST("/media-gaps/:id/dispatch", h.mediaGap.DispatchMediaGap)

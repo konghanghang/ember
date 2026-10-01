@@ -182,6 +182,8 @@
 | POST | `/api/v1/admin/media-gaps/:id/search` | 搜索缺集候选资源；回写遇到并发状态变化返回 409，前端清候选并刷新 |
 | POST | `/api/v1/admin/media-gaps/:id/dispatch` | 工单级跨副本互斥下发；REQUESTED 重发需 `retry=true` 与当前 `expectedUpdatedAt`（RFC3339）；争锁/版本/状态冲突返回 409，不表示撤回远端请求。结果未知保持 REQUESTED，明确业务拒绝为 DISPATCH_FAILED |
 | POST | `/api/v1/admin/media-gaps/:id/ignore` | 手动忽略缺集工单 |
+| DELETE | `/api/v1/admin/media-gaps/:id` | 仅删除已入库/已忽略工单；缺失 404、未收口/状态冲突 409；成功 `data.deletedCount` |
+| POST | `/api/v1/admin/media-gaps/batch-delete` | `{ "ids": [...] }`，1–100 个非空 ID，去重后事务删除；任一缺失/未收口则整批回滚，参数非法 400；成功 `data.deletedCount` |
 | POST | `/api/v1/admin/tv-calendar/sync` | 手动同步追剧日历 |
 | POST | `/api/v1/admin/tv-calendar/refresh` | 手动刷新追剧日历 |
 | POST | `/api/v1/admin/cron/check-expired` | 手动执行过期检查 |

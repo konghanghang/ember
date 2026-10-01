@@ -367,13 +367,14 @@ func normalizeDispatchPayload(req mediaGapDispatchRequest) map[string]interface{
 
 func writeMediaGapError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, mediagappkg.ErrMediaGapStateConflict):
+	case errors.Is(err, mediagappkg.ErrMediaGapStateConflict), errors.Is(err, mediagappkg.ErrMediaGapDeleteState):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	case errors.Is(err, mediagappkg.ErrMediaGapNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
-	case errors.Is(err, mediagappkg.ErrMediaGapInvalidStatus),
+	case errors.Is(err, mediagappkg.ErrMediaGapDeleteIDs),
+		errors.Is(err, mediagappkg.ErrMediaGapInvalidStatus),
 		errors.Is(err, mediagappkg.ErrMediaGapSearchState),
 		errors.Is(err, mediagappkg.ErrMediaGapDispatchState),
 		errors.Is(err, mediagappkg.ErrMediaGapCandidate):

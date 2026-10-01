@@ -520,6 +520,8 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 - `DispatchGap(id, candidate)` — 先取得工单级 PG session advisory lock，再读取工单；持锁直到外部下发及结果回写结束。发送前以 `id + status + dispatchSnapshot` 条件记录 REQUESTED、候选快照、请求时间及“结果待确认”。同工单并发下发返回 409；普通请求不能重发 REQUESTED，显式重发必须携带 `retry=true` 和当前 `expectedUpdatedAt`，Web 二次确认提示先核对 MoviePilot。
 - 下发受理后清空 `lastDispatchError`；明确业务拒绝进入 DISPATCH_FAILED 并保留安全原因；网络/HTTP 等不能确认是否受理的错误保持 REQUESTED 和待确认提示。中断或回写失败也保留发送意图，禁止自动重试。结果回写使用独立上下文及快照条件，不能覆盖人工忽略或入库终态；409 不代表已撤回外部请求，也不承诺上游 exactly-once。失败后 Web 刷新权威列表与当前工单，保留有效候选；目标已不在当前筛选页时关闭弹窗。
 - 扫描元数据不携带旧状态，历史空状态单独条件修复；Webhook 与扫描入库在 SQL 中保留 IGNORED 和已有 ingestedAt，核销及清理统计使用实际影响行数。
+- `DeleteClosedGaps(ids)` — 管理员单条/批量删除已入库或已忽略工单；显式 ID 列表最多 100 条，去重后在事务内按 ID 顺序 `FOR UPDATE` 锁定并重新校验。任何记录缺失、未收口或删除失败都整批回滚；不取消 MoviePilot 下载、不删除媒体文件。删除忽略记录也移除其扫描抑制依据，仍缺集时后续扫描可重新生成。
+- 明细视图提供单条删除及当前页勾选删除，非终态不可选；确认框显示数量和忽略记录重新生成风险。删除成功或冲突后刷新列表，页码超界回退并清空旧选择，不提供按筛选条件一键清空。
 - `IgnoreGap(id, reason)` — 将单条缺集工单标记为 `IGNORED`；显式忽略写 `ignoreReasonCode='manual'`
 - `MarkIngestedByWebhook(payload)` — Emby webhook 命中缺集工单后按状态分支处理：
   - `MISSING` / `SEARCHED` / `REQUESTED` / `DISPATCH_FAILED` → 收口为 `INGESTED`

@@ -173,3 +173,17 @@ func TestTelegramPendingRejectRoutesAreRegistered(t *testing.T) {
 		}
 	}
 }
+
+// TestMediaGapDeleteRoutesRequireAdminCredentials 删除入口必须注册在管理员认证边界内。
+func TestMediaGapDeleteRoutesRequireAdminCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	registerRoutes(router, &appHandlers{})
+	for _, route := range []struct{ method, path string }{{http.MethodDelete, "/api/v1/admin/media-gaps/gap"}, {http.MethodPost, "/api/v1/admin/media-gaps/batch-delete"}} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(route.method, route.path, nil))
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s returned %d", route.method, route.path, recorder.Code)
+		}
+	}
+}

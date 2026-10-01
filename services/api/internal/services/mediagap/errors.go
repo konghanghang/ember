@@ -3,6 +3,8 @@ package mediagap
 import "errors"
 
 var (
+	ErrMediaGapDeleteState   = errors.New("仅允许删除已入库或已忽略的工单，请刷新后重试")
+	ErrMediaGapDeleteIDs     = errors.New("请选择 1 到 100 条有效工单")
 	ErrMediaGapStateConflict = errors.New("缺集工单状态已变化，请刷新后重试")
 	ErrMediaGapNotConfigured = errors.New("缺集管理所需的 Emby 或 TMDB 配置未完成")
 	ErrMediaGapInvalidStatus = errors.New("缺集状态无效")

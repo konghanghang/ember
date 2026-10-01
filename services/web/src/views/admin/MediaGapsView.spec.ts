@@ -14,6 +14,8 @@ import type {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   dispatchMediaGap,
+  deleteMediaGap,
+  batchDeleteMediaGaps,
   getGroupedMediaGaps,
   getMediaGapScanStatus,
   getMediaGaps,
@@ -23,6 +25,8 @@ import {
 
 vi.mock('@/api/admin', () => ({
   dispatchMediaGap: vi.fn(),
+  deleteMediaGap: vi.fn(),
+  batchDeleteMediaGaps: vi.fn(),
   getMediaGapScanStatus: vi.fn(),
   getMediaGaps: vi.fn(),
   getGroupedMediaGaps: vi.fn(),
@@ -46,7 +50,7 @@ vi.mock('element-plus', () => ({
 
 const passthroughStub = defineComponent({
   setup(_, { slots }) {
-    return () => h('div', [slots.default?.(), slots.actions?.(), slots.titleSuffix?.(), slots.pagination?.()])
+    return () => h('div', [slots.default?.(), slots.actions?.(), slots.header?.(), slots.titleSuffix?.(), slots.pagination?.()])
   },
 })
 
@@ -123,7 +127,8 @@ function mountView() {
         'el-icon': passthroughStub,
         'el-tag': passthroughStub,
         'el-pagination': trueStub,
-        'el-table-column': trueStub,
+        // 表格列的 scoped slot 由真实 el-table 提供 row，空表 stub 不调用它。
+        'el-table-column': defineComponent({ setup: () => () => h('div') }),
         'el-option': trueStub,
         Calendar: passthroughStub,
         CircleCheck: passthroughStub,
@@ -192,6 +197,8 @@ async function resolvePending(): Promise<void> {
 describe('MediaGapsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(deleteMediaGap).mockReset()
+    vi.mocked(batchDeleteMediaGaps).mockReset()
     vi.useFakeTimers()
     vi.mocked(getGroupedMediaGaps).mockResolvedValue(emptyGroupedResponse())
     vi.mocked(getMediaGaps).mockResolvedValue(emptyListResponse())
@@ -497,6 +504,90 @@ describe('MediaGapsView', () => {
     await wrapper.findAll('button').find((button) => button.text() === '重试该剧')!.trigger('click')
     await resolvePending()
     expect(scanMediaGaps).toHaveBeenCalledWith({ tmdbId: '123', force: true })
+    wrapper.unmount()
+  })
+
+  it('未收口工单不能删除，取消确认不发送请求', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as { handleDeleteGaps: (gaps: MediaGapItem[]) => Promise<void> }
+    for (const status of ['MISSING', 'SEARCHED', 'REQUESTED', 'DISPATCH_FAILED'] as const) {
+      await vm.handleDeleteGaps([buildGap({ status })])
+    }
+    expect(ElMessageBox.confirm).not.toHaveBeenCalled()
+    vi.mocked(ElMessageBox.confirm).mockRejectedValueOnce('cancel')
+    await vm.handleDeleteGaps([buildGap({ status: 'IGNORED' })])
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(expect.stringContaining('扫描可能重新生成'), '删除工单', expect.anything())
+    expect(deleteMediaGap).not.toHaveBeenCalled()
+    expect(batchDeleteMediaGaps).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([1, 2])('删除 %i 条已收口记录后刷新，不提供清空全部', async (count) => {
+    const gaps = [buildGap({ status: 'INGESTED' }), buildGap({ id: 'gap_2', status: 'IGNORED' })].slice(0, count)
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as { handleDeleteGaps: (gaps: MediaGapItem[]) => Promise<void> }
+    vi.mocked(deleteMediaGap).mockResolvedValueOnce({ data: { deletedCount: 1 } })
+    vi.mocked(batchDeleteMediaGaps).mockResolvedValueOnce({ data: { deletedCount: count } })
+    const before = vi.mocked(getGroupedMediaGaps).mock.calls.length
+    await vm.handleDeleteGaps(gaps)
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(expect.stringContaining(`永久删除 ${count} 条`), '删除工单', expect.anything())
+    if (count === 1) expect(deleteMediaGap).toHaveBeenCalledWith('gap_1')
+    else expect(batchDeleteMediaGaps).toHaveBeenCalledWith(['gap_1', 'gap_2'])
+    expect(getGroupedMediaGaps).toHaveBeenCalledTimes(before + 1)
+    expect(ElMessage.success).toHaveBeenCalledWith(`已删除 ${count} 条工单`)
+    wrapper.unmount()
+  })
+
+  it('删除状态冲突会刷新，明细页超出新总数时回退并清除选择', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const vm = wrapper.vm as unknown as {
+      viewMode: string; queryParams: { page: number; pageSize: number }
+      selectedDeleteGaps: MediaGapItem[]
+      handleDeleteGaps: (gaps: MediaGapItem[]) => Promise<void>
+    }
+    vm.viewMode = 'table'
+    await resolvePending()
+    vm.queryParams.page = 2
+    vm.queryParams.pageSize = 20
+    vm.selectedDeleteGaps = [buildGap({ status: 'IGNORED' })]
+    vi.mocked(deleteMediaGap).mockRejectedValueOnce({ isAxiosError: true, response: { status: 409 } })
+    vi.mocked(getMediaGaps).mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 20 })
+    await vm.handleDeleteGaps(vm.selectedDeleteGaps)
+    expect(vm.queryParams.page).toBe(1)
+    expect(vm.selectedDeleteGaps).toEqual([])
+    expect(ElMessage.success).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('勾选仅保留当前页终态记录，重复点击确认期间不重复发起删除', async () => {
+    const wrapper = mountView()
+    await resolvePending()
+    const closed = buildGap({ status: 'IGNORED' })
+    const open = buildGap({ id: 'open', status: 'REQUESTED' })
+    const vm = wrapper.vm as unknown as {
+      tableData: MediaGapItem[]; selectedDeleteGaps: MediaGapItem[]
+      canSelectForDelete: (gap: MediaGapItem) => boolean
+      handleDeleteSelection: (gaps: MediaGapItem[]) => void
+      handleDeleteGaps: (gaps: MediaGapItem[]) => Promise<void>
+    }
+    vm.tableData = [closed, open]
+    expect(vm.canSelectForDelete(closed)).toBe(true)
+    expect(vm.canSelectForDelete(open)).toBe(false)
+    vm.handleDeleteSelection([closed, open, buildGap({ id: 'other-page', status: 'INGESTED' })])
+    expect(vm.selectedDeleteGaps).toEqual([closed])
+    let confirm!: () => void
+    vi.mocked(ElMessageBox.confirm).mockImplementationOnce(() => new Promise((resolve) => { confirm = () => resolve('confirm' as never) }))
+    vi.mocked(deleteMediaGap).mockResolvedValueOnce({ data: { deletedCount: 1 } })
+    const pending = vm.handleDeleteGaps([closed])
+    await vm.handleDeleteGaps([closed])
+    expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1)
+    expect(deleteMediaGap).not.toHaveBeenCalled()
+    confirm()
+    await pending
+    expect(deleteMediaGap).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 

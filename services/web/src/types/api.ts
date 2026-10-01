@@ -682,6 +682,11 @@ export interface MediaGapDispatchRequest {
   candidatePayload?: Record<string, unknown>
 }
 
+export interface MediaGapDeleteResponse {
+  deletedCount: number
+  message?: string
+}
+
 export interface MediaGapIgnoreRequest {
   reason?: string
 }

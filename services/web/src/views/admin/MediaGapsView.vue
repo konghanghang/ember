@@ -23,6 +23,8 @@ import {
 } from '@element-plus/icons-vue'
 import {
   dispatchMediaGap,
+  deleteMediaGap,
+  batchDeleteMediaGaps,
   getMediaGapScanStatus,
   getMediaGaps,
   getGroupedMediaGaps,
@@ -61,6 +63,8 @@ type MediaGapViewMode = 'grouped' | 'table'
 type MediaGapSortMode = MediaGapGroupedSortMode
 
 const loading = ref(false)
+const deleting = ref(false)
+const selectedDeleteGaps = ref<MediaGapItem[]>([])
 // 扫描按钮态只由 scanStatus.running 单一事实源驱动（P1-2），不再保留独立的 scanning 标志，
 // 避免扫描接口抛错时本地标志无复位路径导致按钮永久禁用。
 const scanStatus = ref<MediaGapScanStatus>({
@@ -594,6 +598,7 @@ const fetchData = async () => {
         return
       }
       queryParams.value.page = res.page ?? queryParams.value.page
+      selectedDeleteGaps.value = []
       groupedData.value = res.data ?? []
       tableData.value = groupedData.value.flatMap((series) => series.gaps)
       total.value = res.total ?? 0
@@ -619,6 +624,13 @@ const fetchData = async () => {
     if (requestToken !== fetchRequestToken) {
       return
     }
+    const lastPage = Math.max(1, Math.ceil((res.total ?? 0) / (queryParams.value.pageSize ?? 20)))
+    if ((queryParams.value.page ?? 1) > lastPage) {
+      queryParams.value.page = lastPage
+      await fetchData()
+      return
+    }
+    selectedDeleteGaps.value = []
     groupedData.value = []
     tableData.value = res.data ?? []
     total.value = res.total ?? 0
@@ -835,6 +847,47 @@ const handleDispatch = async () => {
   }
 }
 
+// canSelectForDelete 仅允许选择当前页面的终态记录；查询及删除期间冻结选择。
+const canSelectForDelete = (gap: MediaGapItem) => !loading.value && !deleting.value && isTerminalStatus(gap.status)
+
+// handleDeleteSelection 不保留跨页选择，避免筛选后误删不可见工单。
+const handleDeleteSelection = (gaps: MediaGapItem[]) => {
+  selectedDeleteGaps.value = gaps.filter((gap) => isTerminalStatus(gap.status) && tableData.value.some((row) => row.id === gap.id))
+}
+
+// handleDeleteGaps 显式确认后删除所选终态工单；冲突也刷新列表，以后端状态为准。
+const handleDeleteGaps = async (gaps: MediaGapItem[]) => {
+  if (deleting.value || loading.value) return
+  if (!gaps.length || gaps.some((gap) => !isTerminalStatus(gap.status))) {
+    ElMessage.warning('仅允许删除已入库或已忽略的工单')
+    return
+  }
+  const ids = [...new Set(gaps.map((gap) => gap.id))]
+  const ignoredWarning = gaps.some((gap) => gap.status === 'IGNORED') ? '删除忽略记录后，扫描可能重新生成缺集工单。' : ''
+  deleting.value = true
+  try {
+    try {
+      await ElMessageBox.confirm(`确认永久删除 ${ids.length} 条工单？${ignoredWarning}此操作不取消 MoviePilot 下载，也不删除媒体文件。`, '删除工单', {
+        confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      })
+    } catch (error) {
+      if (isMessageBoxCancel(error)) return
+      throw error
+    }
+    try {
+      const res = ids.length === 1 ? await deleteMediaGap(ids[0]) : await batchDeleteMediaGaps(ids)
+      if (currentGap.value && ids.includes(currentGap.value.id)) clearConflictedCandidates()
+      ElMessage.success(`已删除 ${res.data.deletedCount} 条工单`)
+    } catch {
+      // 请求层统一提示，刷新后清除过期选择，不自动重试删除。
+    }
+    await fetchData()
+  } finally {
+    deleting.value = false
+  }
+}
+
 const handleIgnore = async (gap: MediaGapItem) => {
   let reason = ''
   try {
@@ -925,6 +978,7 @@ onBeforeUnmount(() => {
 })
 
 watch(viewMode, () => {
+  selectedDeleteGaps.value = []
   queryParams.value.page = 1
   if (!currentPageSizes.value.includes(queryParams.value.pageSize ?? 0)) {
     queryParams.value.pageSize = defaultPageSize.value
@@ -1274,7 +1328,19 @@ watch(sortMode, () => {
       :loading="loading"
       row-key="id"
       empty-text="暂无缺集工单"
+      @selection-change="handleDeleteSelection"
     >
+      <template #header>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-sm text-gray-600">已选择 {{ selectedDeleteGaps.length }} 条</span>
+          <button
+            :disabled="!selectedDeleteGaps.length || deleting || loading"
+            class="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="handleDeleteGaps(selectedDeleteGaps)"
+          >{{ deleting ? '删除中...' : '删除所选' }}</button>
+        </div>
+      </template>
+      <el-table-column type="selection" width="48" :selectable="canSelectForDelete" />
       <el-table-column prop="seriesName" label="剧集" min-width="280">
         <template #default="{ row }">
           <div class="space-y-1">
@@ -1353,6 +1419,11 @@ watch(sortMode, () => {
             >
               忽略
             </button>
+            <button
+              :disabled="!isTerminalStatus(row.status) || deleting || loading"
+              class="cursor-pointer rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+              @click="handleDeleteGaps([row])"
+            >删除</button>
           </div>
         </template>
       </el-table-column>
