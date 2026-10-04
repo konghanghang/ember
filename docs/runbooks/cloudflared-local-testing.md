@@ -1,6 +1,6 @@
 # Cloudflared 本地联调指南
 
-> 适用于 Telegram webhook 本地联调（Bot 在本机，公网入口由 cloudflared 提供）
+> 本文保留 Telegram webhook 的 Cloudflared 配置与网络排障。Stripe 的 API 8080 回调以及 Stripe CLI / Cloudflared / ngrok 操作统一见 [Stripe 支付测试指南](./stripe-payment-testing.md)。
 
 ---
 
@@ -59,13 +59,13 @@ https://xxxx.trycloudflare.com
 WEBHOOK_URL=https://xxxx.trycloudflare.com
 ```
 
-然后重启 Bot（Bot 启动时会注册 webhook）。
+先确认日志出现 `Registered tunnel connection`；仅生成域名不代表隧道已连通。然后重启 Bot（Bot 启动时会注册 webhook）。
 
 ---
 
-## 4. Surge 配置（关键）
+## 4. 已确认使用 Surge 时的排查参考
 
-如果遇到 `TLS handshake with edge error: EOF` 且日志出现 `ip=198.18.x.x`，通常是 Surge Fake-IP/代理链路影响。
+以下步骤只针对已确认由本机 Surge 接管的环境，不能直接套用到普通 DNS 或旁路由 PassWall。TLS EOF 本身不能证明 Fake-IP 有问题；是否直连应结合当前出口的实测连通性决定。
 
 ### 4.1 规则直连（放在前面）
 
@@ -128,9 +128,7 @@ curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getWebhookInfo"
 
 ### 6.1 `TLS handshake with edge error: EOF`
 
-现象：`cloudflared` 日志里出现 `ip=198.18.x.x`。  
-原因：请求仍在走 Surge Fake-IP/代理链路。  
-处理：按第 4 节配置直连 + Fake-IP 排除，并使用 `--protocol http2`。
+这表示到 Cloudflare 边缘节点的 TLS 握手被中断，尚未到达本地 Bot/API。先区分节点地址是否为虚拟地址，再检查实际路由、代理规则命中及节点出口。只有确认使用 Surge 时才参考第 4 节；真实 IP 环境也可能发生 EOF，不能直接判定为 Fake-IP 或证书问题。
 
 ### 6.2 QUIC 被拦截
 
@@ -146,3 +144,11 @@ curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getWebhookInfo"
 原因：Quick Tunnel 地址是临时的。  
 处理：更新 `WEBHOOK_URL` 并重启 Bot。
 
+### 6.5 非 Fake-IP、旁路由 PassWall 环境
+
+- 本机未开启系统代理不代表直连：默认网关可能是运行 PassWall 的旁路由。
+- HTTP/2 需要到边缘节点的 TCP 7844，QUIC 需要 UDP 7844。转发所有端口只证明端口范围覆盖，不能证明连接命中了代理或所选节点可达。
+- 添加域名代理规则后仍失败时，应核对实际目标 IP 的路由日志；cloudflared 发现边缘节点后按 IP 连接，不能仅凭域名已加入列表声称分流生效。
+- `Failed to fetch features, default to disable` 或 `Unable to lookup protocol percentage` 是探测失败信息；仍需看后续边缘连接日志，不能单独当成隧道最终失败原因。
+- 2026-10-04 本地排查中，真实边缘 IP 的 TCP 可连接，但 TLS 1.2/1.3 均 EOF，QUIC 多节点超时；功能域名的普通 DNS TXT 查询超时而 HTTPS DNS 查询成功。未取得旁路由规则命中及出口对照证据，具体故障点未证实，不记录为 PassWall 或 Fake-IP 的确定缺陷。
+- 同一轮 Stripe 验收改用 ngrok 后，真实沙盒回调与重放通过；这不代表 Cloudflared 问题已解决。操作入口见 [Stripe 支付测试指南](./stripe-payment-testing.md)。
