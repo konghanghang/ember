@@ -150,6 +150,8 @@ func seedVIPPlanGroup(database *gorm.DB) error {
 	return database.Create(&template).Error
 }
 
+// seedBoundUser atomically creates a permanent VIP holding and its active access projection.
+// This fixture is inserted after migrations, so migration backfill cannot initialize its entitlement.
 func seedBoundUser(database *gorm.DB) error {
 	planGroup := testVIPGroupKey
 	user := models.User{
@@ -160,11 +162,19 @@ func seedBoundUser(database *gorm.DB) error {
 		PlanGroup:                          &planGroup,
 		AppliedMediaLibraryTemplateVersion: 1,
 		IsActive:                           true,
+		ResourceAccessGranted:              true,
 	}
 	if err := user.SetPassword(testUserPassword); err != nil {
 		return err
 	}
-	return database.Create(&user).Error
+	return database.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.UserEntitlement{
+			UserID: user.ID, PlanGroup: planGroup, ValidityType: "permanent",
+		}).Error
+	})
 }
 
 func seedIntegrationSettings(database *gorm.DB) error {

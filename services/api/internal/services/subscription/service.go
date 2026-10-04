@@ -134,10 +134,12 @@ var fetchSubscriptionByID = func(subscriptionID string) (models.Subscription, er
 	return subscription, err
 }
 
+// loadSubscriptionSubmitter reads the persisted access projection for both creation and resubmission.
+// Expiry reconciliation belongs to the scheduled job, not this request-time query.
 var loadSubscriptionSubmitter = func(userID string) (*models.User, error) {
 	var user models.User
 	err := db.DB.
-		Select("id", "username", "plan_group", "emby_id", "emby_access_disabled", "expires_at").
+		Select("id", "username", "plan_group", "emby_id", "emby_access_disabled", "resource_access_granted", "expires_at").
 		Where("id = ?", strings.TrimSpace(userID)).
 		First(&user).Error
 	if err != nil {
