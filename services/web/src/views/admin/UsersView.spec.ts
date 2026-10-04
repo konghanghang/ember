@@ -265,6 +265,30 @@ describe('UsersView', () => {
     })
   })
 
+  it('换组冲突保留编辑内容，不向 Vue 事件处理器抛出已提示的错误', async () => {
+    vi.mocked(updateAdminUser).mockRejectedValueOnce(new Error('target group already owned'))
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { editForm: { planGroup: string }; editDialogVisible: boolean; savingUser: boolean; handleOpenEdit: (row: UserInfo) => void; handleUpdateUser: () => Promise<void> }
+    vm.handleOpenEdit(createUser({ planGroup: 'FIRST', effectivePlanGroup: 'FIRST' }))
+    vm.editForm.planGroup = 'DEFAULT'
+    await expect(vm.handleUpdateUser()).resolves.toBeUndefined()
+    expect(vm.editDialogVisible).toBe(true)
+    expect(vm.editForm.planGroup).toBe('DEFAULT')
+    expect(vm.savingUser).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['2099-01-01T00:00:00Z', '2020-01-01T00:00:00Z', undefined])('编辑分组不发送或重算期限：%s', async (expiresAt) => {
+    vi.mocked(updateAdminUser).mockResolvedValue(createUser())
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { editForm: { planGroup: string }; handleOpenEdit: (row: UserInfo) => void; handleUpdateUser: () => Promise<void> }
+    vm.handleOpenEdit(createUser({ planGroup: 'FIRST', effectivePlanGroup: 'FIRST', expiresAt }))
+    vm.editForm.planGroup = 'DEFAULT'
+    await vm.handleUpdateUser()
+    expect(updateAdminUser).toHaveBeenCalledWith('user_1', { planGroup: 'DEFAULT' })
+    wrapper.unmount()
+  })
+
   it('历史同步不一致时提交模板集合和偏好用户', async () => {
     vi.mocked(getPlanGroups).mockResolvedValue({
       data: [{

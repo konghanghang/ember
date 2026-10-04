@@ -331,7 +331,11 @@ const normalizeExpiresAt = (value?: string | null) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
+const editingAdmin = ref(false)
+
+/** 打开用户资料表单；管理员不提供普通用户的分组迁移。 */
 const handleOpenEdit = (row: UserInfo) => {
+  editingAdmin.value = row.role === 'admin'
   const expiresAt = normalizeExpiresAt(row.expiresAt)
   const planGroup = row.effectivePlanGroup || row.planGroup || defaultPlanGroup.value?.key || ''
   editForm.value = {
@@ -352,6 +356,7 @@ const handleOpenEdit = (row: UserInfo) => {
   editDialogVisible.value = true
 }
 
+/** 保存实际变更字段；单独改分组由后端原子迁移原权益，前端不重算期限。 */
 const handleUpdateUser = async () => {
   const email = editForm.value.email.trim()
   if (!email) {
@@ -368,6 +373,11 @@ const handleUpdateUser = async () => {
     payload.isActive = editForm.value.isActive
   }
 
+  if (editForm.value.planGroup !== editOriginal.value.planGroup) {
+    if (!editForm.value.planGroup) { ElMessage.warning('请选择分组'); return }
+    payload.planGroup = editForm.value.planGroup
+  }
+
   if (Object.keys(payload).length === 0) {
     ElMessage.warning('没有需要保存的修改')
     return
@@ -379,6 +389,8 @@ const handleUpdateUser = async () => {
     ElMessage.success('用户信息更新成功')
     editDialogVisible.value = false
     await fetchData()
+  } catch {
+    // 请求拦截器已提示错误；保留表单以便修正或重试，避免向 Vue 事件处理器重复抛错。
   } finally {
     savingUser.value = false
   }
@@ -1289,6 +1301,13 @@ const entitlementUser = ref<UserInfo | null>(null)
               placeholder="user@example.com" 
               class="input-ember" 
             />
+          </el-form-item>
+
+          <el-form-item v-if="!editingAdmin" label="分组">
+            <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择分组">
+              <el-option v-for="option in planGroupOptions" :key="option.value" :label="option.label" :value="option.value" />
+            </el-select>
+            <p class="mt-2 text-xs text-gray-500">更换分组保留原有效期。</p>
           </el-form-item>
 
           <el-form-item label="账号状态">

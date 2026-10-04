@@ -1,8 +1,8 @@
 package handlers
 
 import (
- entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	"errors"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	"log"
 	"net/http"
 	"strings"
@@ -67,7 +67,7 @@ func (h *UserHandler) CreateUserByAdmin(c *gin.Context) {
 			errors.Is(err, userpkg.ErrUsernameAlreadyExists),
 			errors.Is(err, userpkg.ErrEmailAlreadyExists):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)
@@ -173,6 +173,10 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 	user, err := h.userService.UpdateUserByAdminWithContext(c.Request.Context(), userID, &req, operatorID)
 	if err != nil {
 		switch {
+		case errors.Is(err, entitlementpkg.ErrTransferTargetExists):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, entitlementpkg.ErrTransferSourceMissing), errors.Is(err, entitlementpkg.ErrTransferTargetMissing), errors.Is(err, entitlementpkg.ErrInvalidHolding), errors.Is(err, userpkg.ErrRequestInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, userpkg.ErrUserNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, userpkg.ErrUpdateFieldsRequired),
@@ -182,7 +186,7 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 			errors.Is(err, userpkg.ErrExpiresAtFormatInvalid),
 			errors.Is(err, userpkg.ErrEmailAlreadyExists):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
+		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, userpkg.ErrInvalidPlanGroup), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)

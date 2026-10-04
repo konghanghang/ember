@@ -263,11 +263,8 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 	if req.ClearExpiresAt && req.ExpiresAt != nil {
 		return nil, ErrClearExpiresAtConflict
 	}
-	// Legacy callers must supply an explicit target deadline; changing group alone
-	// must never copy one group's remaining days into another group's entitlement.
-	if req.PlanGroup != nil && req.ExpiresAt == nil && !req.ClearExpiresAt {
-		return nil, ErrRequestInvalid
-	}
+	// A group-only edit transfers the existing grant without changing its term.
+	transferGroup := req.PlanGroup != nil && req.ExpiresAt == nil && !req.ClearExpiresAt
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
@@ -325,7 +322,24 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 		user.ExpiresAt = &expiresAtUTC
 	}
 
-	if req.PlanGroup != nil || req.ExpiresAt != nil || req.ClearExpiresAt {
+	if transferGroup {
+		if user.IsAdmin() || originalGroup == nil {
+			tx.Rollback()
+			return nil, ErrRequestInvalid
+		}
+		targetGroup := *user.PlanGroup
+		user.PlanGroup = originalGroup
+		if targetGroup != *originalGroup {
+			actor := operatorID
+			if actor == "" {
+				actor = "admin:api-key"
+			}
+			if err := entitlementpkg.TransferLocked(tx, &user, *originalGroup, targetGroup, "admin:"+ulid.Make().String(), actor); err != nil {
+				tx.Rollback()
+				return nil, err
+			}
+		}
+	} else if req.PlanGroup != nil || req.ExpiresAt != nil || req.ClearExpiresAt {
 		if user.IsAdmin() {
 			tx.Rollback()
 			return nil, ErrRequestInvalid
@@ -493,7 +507,7 @@ func adminUpdateChangesEmbyPolicy(req *AdminUpdateUserRequest) bool {
 	if req == nil {
 		return false
 	}
-	return req.ClearExpiresAt || req.ExpiresAt != nil
+	return req.PlanGroup != nil || req.ClearExpiresAt || req.ExpiresAt != nil
 }
 
 func (s *UserService) DeleteUser(userID string) error {

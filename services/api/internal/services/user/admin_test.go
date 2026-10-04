@@ -61,6 +61,11 @@ func TestAdminUpdateChangesEmbyPolicyIgnoresLocalActiveFlag(t *testing.T) {
 		t.Fatalf("expected local isActive and email update to skip Emby Policy sync")
 	}
 
+	group := "DEFAULT"
+	if !adminUpdateChangesEmbyPolicy(&AdminUpdateUserRequest{PlanGroup: &group}) {
+		t.Fatal("group edit must sync the target policy")
+	}
+
 	expiresAt := "2099-01-01T00:00:00Z"
 	if !adminUpdateChangesEmbyPolicy(&AdminUpdateUserRequest{ExpiresAt: &expiresAt}) {
 		t.Fatalf("expected expiry update to require Emby Policy sync")

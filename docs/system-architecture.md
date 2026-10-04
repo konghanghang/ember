@@ -334,6 +334,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 ### 4.2 关键关系
 
 - `User` 是核心主体，向外关联 `Redemption`、`Subscription`、`Payment`、`TelegramBindCode` 和追剧订阅
+- 后台“编辑用户”提供分组下拉；仅提交 `planGroup` 时在用户行锁事务内替换当前组权益与分组投影，原期限、访问状态、人工限制及其他权益不变。无需等级配置；目标组已持有返回 409，不覆盖或合并，历史订单不变；提交后复用 Policy 同步。
 - `Plan.planGroup/validityType/days → Payment.benefits（新订单单项快照）→ UserEntitlement` 构成售卖与发放主链路；`PlanGroup.entitlementRank` 决定当前生效组，`User.planGroup/expiresAt/resourceAccessGranted` 是重算后的访问投影，不用于限制套餐展示
 - `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动；`SubscriptionAdminNotification` 记录每条 Telegram 管理员审批消息的 `chatId/messageId`，用于 Web / Telegram 任一端审批后的消息同步
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
