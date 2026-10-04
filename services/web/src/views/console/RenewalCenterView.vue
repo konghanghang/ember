@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { CreditCard, Timer, Money, Ticket, Clock } from '@element-plus/icons-vue'
+import { CreditCard, Money, Ticket, Clock } from '@element-plus/icons-vue'
 import EmberEmptyStateCard from '@/components/ember/feedback/EmberEmptyStateCard.vue'
 import EmberTableCard from '@/components/ember/data-display/EmberTableCard.vue'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
@@ -10,7 +10,6 @@ import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
 import { formatDate } from '@/utils/date'
-import { planEntitlementText } from '@/utils/entitlements'
 import type { Payment, PaymentStatus, Plan, Redemption } from '@/types/api'
 
 type RenewalTab = 'online' | 'redeem'
@@ -238,10 +237,10 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div class="p-6 md:p-7">
+      <div class="p-4 md:p-7">
         <template v-if="activeRenewalTab === 'online'">
           <div class="flex flex-col gap-6" v-loading="plansLoading">
-            <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div>
               <div class="mb-4 flex items-center justify-between gap-3">
                 <h4 class="text-base font-bold text-gray-900">可购买方案</h4>
                 <div class="hidden rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-500 md:inline-flex">
@@ -259,39 +258,41 @@ onMounted(async () => {
                 <div
                   v-for="plan in plans"
                   :key="plan.id"
-                  class="flex h-full min-h-[22rem] flex-col rounded-2xl border border-gray-100 bg-white p-6 transition-all hover:border-ember/40 hover:shadow-md"
+                  class="flex h-full min-w-0 flex-col rounded-2xl border border-gray-100 bg-white p-5 transition-colors hover:border-ember/40 md:min-h-[22rem] md:p-6"
                 >
-                  <div class="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 class="text-lg font-bold text-gray-900">{{ plan.name }}</h3>
-                      <p class="mt-1 min-h-[36px] text-sm leading-5 text-gray-500">{{ plan.description || '付款成功后发放套餐权益' }}</p>
+                  <div class="min-w-0">
+                    <div class="flex items-start justify-between gap-3">
+                      <h3 class="min-w-0 break-words text-xl font-bold leading-7 text-gray-900">{{ plan.name }}</h3>
+                      <div aria-hidden="true" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ember/10 text-ember">
+                        <el-icon><Money /></el-icon>
+                      </div>
                     </div>
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ember/10 text-ember">
-                      <el-icon><Money /></el-icon>
+                    <p v-if="plan.description" class="mt-4 whitespace-pre-line break-words rounded-xl bg-ember/5 px-4 py-3 text-base font-medium leading-relaxed text-gray-700 ring-1 ring-ember/10">{{ plan.description }}</p>
+                  </div>
+
+                  <div class="mt-auto pt-6">
+                    <div class="mb-5">
+                      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span class="break-all text-3xl font-extrabold text-gray-900">{{ formatPrice(plan.price, plan.currency) }}</span>
+                        <span class="text-sm text-gray-600">{{ plan.validityType === 'permanent' ? '· 永久有效' : `/ ${plan.days} 天` }}</span>
+                      </div>
                     </div>
-                  </div>
 
-                  <div class="mt-6 flex items-end gap-2">
-                    <span class="text-3xl font-extrabold text-gray-900">{{ formatPrice(plan.price, plan.currency) }}</span>
-                    <span class="mb-1 text-sm text-gray-400">一次性</span>
-                  </div>
+                    <dl class="mb-4 flex items-start justify-between gap-4 border-t border-gray-100 pt-4 text-sm">
+                      <dt class="shrink-0 text-gray-500">所属分组</dt>
+                      <dd class="min-w-0 break-words text-right text-gray-600">{{ plan.planGroupName || plan.planGroup }}</dd>
+                    </dl>
 
-                  <div class="mt-4 inline-flex items-center gap-2 rounded-xl bg-ember/5 px-3 py-2 text-sm text-ember ring-1 ring-ember/10">
-                    <el-icon><Timer /></el-icon>
-                    <span class="font-medium">增加</span>
-                    <div class="text-sm font-medium">{{ planEntitlementText(plan) }}</div>
-                    <span class="font-medium">有效期</span>
+                    <button
+                      @click="handleCheckout(plan)"
+                      :disabled="!!buyingPlanID || plan.purchasable === false"
+                      class="btn-ember flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl py-3 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      <el-icon><CreditCard /></el-icon>
+                      <span>{{ buyingPlanID === plan.id ? '跳转中...' : (plan.purchasable === false ? (plan.purchaseReason === '已拥有对应永久权益' ? '已拥有' : '暂不可购买') : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买')) }}</span>
+                    </button>
+                    <p v-if="plan.purchaseReason" class="mt-2 text-sm text-gray-500">{{ plan.purchaseReason }}</p>
                   </div>
-
-                  <button
-                    @click="handleCheckout(plan)"
-                    :disabled="!!buyingPlanID || plan.purchasable === false"
-                    class="btn-ember mt-auto flex w-full items-center justify-center gap-2 rounded-xl py-3 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    <el-icon><CreditCard /></el-icon>
-                    <span>{{ buyingPlanID === plan.id ? '跳转中...' : (plan.purchasable === false ? (plan.purchaseReason === '已拥有对应永久权益' ? '已拥有' : '暂不可购买') : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买')) }}</span>
-                  </button>
-                  <p v-if="plan.purchaseReason" class="mt-2 text-sm text-gray-500">{{ plan.purchaseReason }}</p>
                 </div>
               </div>
             </div>
