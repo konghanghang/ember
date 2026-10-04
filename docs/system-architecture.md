@@ -987,6 +987,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 - 用户侧重点页面：Dashboard、Renewal、Subscriptions、TV Calendar、Rankings、Profile Analytics
 - Renewal 的套餐卡片以深色标题和右上角钱币图标标识套餐，浅红背景与淡红描边的独立区域展示完整描述，深色价格与有效期组合展示；价格、分组和购买区整体底部对齐，移动端减少容器嵌套留白并采用自然高度，购买与权益发放规则不变。
+- Renewal 仅对 HKD 套餐展示人民币参考价：前端按用户确认的固定汇率 `1 HKD = 0.85 CNY` 换算，保留两位小数；CNY 与其他币种不展示。页面提示参考金额不代表实际扣款，订单与 Stripe 仍按原币种、原金额处理，无数据库或后端配置变更。
 - 管理侧重点页面：User Center、Playback Center、Billing Center、Media Quality、Devices、Settings
 - 管理端中心页由容器 view 统一承载唯一页头与分段导航，嵌入子页只保留统计、操作、筛选和数据主体
 - 注册/续期兑换码和兑换记录作为计费中心同级分段（`codes/history`），直接复用原业务页面，不增加侧边栏菜单。旧兑换中心及兑换码/记录链接统一重定向至 `/console/billing` 对应分段并保留其他查询参数；最终路由仍受管理员权限保护。

@@ -10,6 +10,7 @@ import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
 import { formatDate } from '@/utils/date'
+import { formatCnyReferencePrice } from '@/utils/reference-price'
 import type { Payment, PaymentStatus, Plan, Redemption } from '@/types/api'
 
 type RenewalTab = 'online' | 'redeem'
@@ -19,6 +20,11 @@ const router = useRouter()
 const refreshProfile = inject<RefreshConsoleProfile>(refreshConsoleProfileKey, async () => {})
 
 const plans = ref<Plan[]>([])
+const displayPlans = computed(() => plans.value.map(plan => ({
+  ...plan,
+  cnyReferencePrice: formatCnyReferencePrice(plan.price, plan.currency)
+})))
+const hasCnyReferencePrice = computed(() => displayPlans.value.some(plan => plan.cnyReferencePrice !== null))
 const plansLoading = ref(false)
 const buyingPlanID = ref('')
 
@@ -256,7 +262,7 @@ onMounted(async () => {
 
               <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div
-                  v-for="plan in plans"
+                  v-for="plan in displayPlans"
                   :key="plan.id"
                   class="flex h-full min-w-0 flex-col rounded-2xl border border-gray-100 bg-white p-5 transition-colors hover:border-ember/40 md:min-h-[22rem] md:p-6"
                 >
@@ -276,6 +282,7 @@ onMounted(async () => {
                         <span class="break-all text-3xl font-extrabold text-gray-900">{{ formatPrice(plan.price, plan.currency) }}</span>
                         <span class="text-sm text-gray-600">{{ plan.validityType === 'permanent' ? '· 永久有效' : `/ ${plan.days} 天` }}</span>
                       </div>
+                      <p v-if="plan.cnyReferencePrice" class="mt-1 text-sm text-gray-500">{{ plan.cnyReferencePrice }}</p>
                     </div>
 
                     <dl class="mb-4 flex items-start justify-between gap-4 border-t border-gray-100 pt-4 text-sm">
@@ -295,6 +302,7 @@ onMounted(async () => {
                   </div>
                 </div>
               </div>
+              <p v-if="hasCnyReferencePrice" class="mt-4 text-xs leading-5 text-gray-500">人民币金额仅供参考，实际扣款以支付渠道为准。</p>
             </div>
 
           </div>
