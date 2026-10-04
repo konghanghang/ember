@@ -952,15 +952,18 @@ const entitlementUser = ref<UserInfo | null>(null)
         </el-table-column>
 
         <!-- Operations -->
-        <el-table-column label="操作" width="240" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right" align="right">
           <template #default="{ row }">
-            <button class="cursor-pointer px-2 py-1.5 text-sm text-ember" @click="entitlementUser = row">权益</button>
-            <div class="flex items-center justify-end gap-2">
+            <div class="flex items-center justify-end gap-2 whitespace-nowrap">
+              <button
+                class="inline-flex h-9 shrink-0 items-center justify-center rounded-lg px-2 text-sm text-ember transition-colors hover:bg-ember/10 cursor-pointer"
+                @click="entitlementUser = row"
+              >权益</button>
               <el-tooltip content="编辑信息" placement="top">
                 <button 
                   @click="handleOpenEdit(row)"
                   aria-label="编辑信息"
-                  class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                  class="inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                 >
                   <el-icon :size="18"><Edit /></el-icon>
                 </button>
@@ -970,16 +973,16 @@ const entitlementUser = ref<UserInfo | null>(null)
                 <button 
                   @click="handleExtend(row)"
                   aria-label="延长有效期"
-                  class="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
+                  class="inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
                 >
                   <el-icon :size="18"><Timer /></el-icon>
                 </button>
               </el-tooltip>
 
-              <el-dropdown trigger="click">
+              <el-dropdown trigger="click" class="shrink-0">
                 <button
                   aria-label="更多操作"
-                  class="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                  class="inline-flex h-9 w-9 items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
                 >
                   <el-icon :size="18"><MoreFilled /></el-icon>
                 </button>
