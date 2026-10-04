@@ -660,7 +660,7 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 
 ## 分组权益改版（2026-10-04）
 
-- `plans.benefits`：JSONB 权益明细，每项为 `planGroup/validityType/durationDays`；永久不填天数。`payments.benefits` 保存订单不可变快照，老订单为空不根据现售套餐补造。
+- `plans.plan_group/validity_type/days`：商品唯一权益分组、显式 `duration/permanent` 和天数；限时必须正数，永久规范化为 0，由 `ck_plans_validity` 约束。商品 `benefits` 已删除。`payments.benefits` 保存订单不可变数组快照，新订单恰好一项，历史组合订单保留多项；老订单为空不根据现售套餐补造。
 - `plan_groups.entitlement_rank`：可空的独立整数等级及唯一索引；空表示尚未配置，禁止新购。管理员保存全量等级映射并验证资源逐级包含。
 - `user_entitlements`：用户/分组复合主键，类型为 `duration` 时必须有 `expires_at`，`permanent` 时必须无期限；SQL 外键阻止删除被持有的组。
 - `entitlement_events`：`source_key` 幂等主键、用户、操作人、原因、前后 JSONB 状态和时间，不记录支付原始响应或敏感凭据。

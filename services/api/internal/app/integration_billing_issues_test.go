@@ -225,14 +225,14 @@ func TestIntegrationBillingAdminGroupChangeAndPaidWebhookDoNotDeadlock(t *testin
 func seedBillingIntegrationPlan(t *testing.T, harness *integrationHarness, id, planGroup string, days int) models.Plan {
 	t.Helper()
 	plan := models.Plan{
-		Benefits:  []models.PlanBenefit{{PlanGroup: planGroup, ValidityType: "duration", DurationDays: days}},
-		ID:        id,
-		Name:      id,
-		Days:      days,
-		Price:     1200,
-		Currency:  "usd",
-		PlanGroup: planGroup,
-		IsActive:  true,
+		ValidityType: "duration",
+		ID:           id,
+		Name:         id,
+		Days:         days,
+		Price:        1200,
+		Currency:     "usd",
+		PlanGroup:    planGroup,
+		IsActive:     true,
 	}
 	if err := harness.database.Create(&plan).Error; err != nil {
 		t.Fatalf("create plan %s: %v", id, err)

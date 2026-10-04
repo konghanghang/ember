@@ -14,7 +14,7 @@ func TestEntitlementMigrationContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	sql := string(content)
-	for _, fragment := range []string{"CREATE TABLE IF NOT EXISTS user_entitlements", "CREATE TABLE IF NOT EXISTS entitlement_events", "entitlement_rank", "resource_access_granted", "legacy_invalidated", "ON CONFLICT", "benefits", "manual_review_reason"} {
+	for _, fragment := range []string{"CREATE TABLE IF NOT EXISTS user_entitlements", "CREATE TABLE IF NOT EXISTS entitlement_events", "entitlement_rank", "resource_access_granted", "legacy_invalidated", "ON CONFLICT", "benefits", "manual_review_reason", "plans ADD COLUMN IF NOT EXISTS validity_type", "ck_plans_validity", "DROP COLUMN IF EXISTS benefits"} {
 		if !strings.Contains(sql, fragment) {
 			t.Errorf("missing %s", fragment)
 		}

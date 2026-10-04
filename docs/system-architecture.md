@@ -334,7 +334,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 ### 4.2 关键关系
 
 - `User` 是核心主体，向外关联 `Redemption`、`Subscription`、`Payment`、`TelegramBindCode` 和追剧订阅
-- `Plan.benefits → Payment.benefits → UserEntitlement` 构成售卖与发放主链路；`PlanGroup.entitlementRank` 决定当前生效组，`User.planGroup/expiresAt/resourceAccessGranted` 是重算后的访问投影，不用于限制套餐展示
+- `Plan.planGroup/validityType/days → Payment.benefits（新订单单项快照）→ UserEntitlement` 构成售卖与发放主链路；`PlanGroup.entitlementRank` 决定当前生效组，`User.planGroup/expiresAt/resourceAccessGranted` 是重算后的访问投影，不用于限制套餐展示
 - `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动；`SubscriptionAdminNotification` 记录每条 Telegram 管理员审批消息的 `chatId/messageId`，用于 Web / Telegram 任一端审批后的消息同步
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
@@ -632,7 +632,7 @@ Stripe 一次性支付流程管理。
 
 - `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组除名称/排序外还承载 `subscriptionAutoApproveDailyLimit` 这类审核权益配置。分组存在性及引用检查覆盖套餐权益、订单快照、用户权益和兑换码；默认分组变更不失效订单。权益等级通过完整映射保存并验证媒体库逐级包含，配置不齐时拒绝新购
 - `CreateCheckoutSession(userID, planID)` — **批次 2 改造为占位幂等模式**：先在事务里 `INSERT payments (status='pending', stripeSessionId='') ON CONFLICT (uq_payments_pending_user_plan) DO NOTHING`，命中冲突回查现有 pending 复用；事务外调 Stripe 时携带 `Idempotency-Key=checkout:<paymentId>`，并发的两个请求拿到同一 paymentId → Stripe 返回同一 Session；最后 `UPDATE payments SET stripeSessionId, checkoutUrl WHERE id=?` 回填
-- 套餐列表与创建/编辑响应批量解析权益的当前分组名称，覆盖旧迁移缺名和分组改名；只补响应副本，不回写套餐或历史订单快照。后台权益保存后同步刷新列表与打开弹窗的当前分组；用户不再匹配筛选时关闭旧弹窗。
+- 套餐列表与创建/编辑响应关联唯一分组的当前名称 `planGroupName`；商品不再接收或返回 `benefits`，历史订单快照保持不变。后台权益保存后同步刷新列表与打开弹窗的当前分组；用户不再匹配筛选时关闭旧弹窗。
 - 同一订单重试收费的金额、币种及天数始终来自 `Payment.Amount/Currency/Days`，与 `Payment.benefits` 一起形成不可变交付快照；改价或修改套餐权益仅影响新订单。名称/描述、跳转 URL 和支付方式未持久化为请求快照，它们变更后仍可能造成 Stripe 幂等参数不一致拒绝，不自动改写已有订单或生成替代身份。
 - `GetPlansForUser(userID)` — 向所有登录用户返回同一启用套餐目录，附 `purchasable/purchaseReason`；不按当前分组筛选，永久高等级覆盖的无增益购买会被拒绝
 - `HandleWebhook(payload, signature)` — 签名验证后按 `event.id` 在 `stripe_webhook_events` 做去重 + 失败重试状态机：
@@ -648,7 +648,7 @@ Stripe 一次性支付流程管理。
 ### 5.16.1 分组权益服务（`services/entitlement`）
 
 - `user_entitlements` 按用户/分组保存独立的 `duration/permanent` 授权；同组续期在尚有效期限上追加，已到期从履约时起算，使用 `CRON_TIMEZONE` 的自然日计算。
-- 跨组不相加、不暂停；组合套餐分别发放，永久授权不会被限时购买覆盖。仅最高等级有效组提供完整媒体库、求片及 115 模式/并发/配额，不合并配置或清零用量。
+- 跨组不相加、不暂停；新商品只发放一组，历史组合订单仍按完整快照分别发放，永久授权不会被限时购买覆盖。仅最高等级有效组提供完整媒体库、求片及 115 模式/并发/配额，不合并配置或清零用量。
 - `entitlement_events` 记录来源幂等键和前后权益。支付、兑换、注册及管理员调整在各自事务中共享用户行锁、发放和投影逻辑；兑换只续目标组，永久已拥有时不消耗次数。
 - 开放注册试用为 0 不创建权益；邀请码注册只发码指定组的期限；管理员可对指定组延长、设到期日/永久或撤销。
 - 存量用户按当前授权回填，不重放支付。空期限按既有永久语义映射，分组不自动猜等级；已持有权益和历史记录保留，旧码统一失效，新码不受迁移重跑影响。

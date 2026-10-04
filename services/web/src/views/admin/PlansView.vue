@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import PlanBenefitsEditor from '@/components/billing/PlanBenefitsEditor.vue'
-import { benefitText, validateBenefits } from '@/utils/entitlements'
+import { planEntitlementText, validateSinglePlan } from '@/utils/entitlements'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Refresh, EditPen, Goods } from '@element-plus/icons-vue'
 import { createPlan, deletePlan, getPlanGroups, getPlans, updatePlan } from '@/api/admin'
@@ -10,7 +9,7 @@ import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
-import type { CreatePlanRequest, ManagedPlanGroup, Plan, PlanGroup, PlanBenefit, UpdatePlanRequest } from '@/types/api'
+import type { CreatePlanRequest, ManagedPlanGroup, Plan, PlanGroup, UpdatePlanRequest } from '@/types/api'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -40,7 +39,7 @@ const form = ref({
   name: '',
   description: '',
   days: 30,
-  benefits: [{ planGroup: '', validityType: 'duration', durationDays: 30 }] as PlanBenefit[],
+  validityType: 'duration' as 'duration' | 'permanent',
   priceDisplay: 9.99,
   currency: 'usd',
   planGroup: '' as PlanGroup,
@@ -52,7 +51,7 @@ const editForm = ref({
   name: '',
   description: '',
   days: 30,
-  benefits: [{ planGroup: '', validityType: 'duration', durationDays: 30 }] as PlanBenefit[],
+  validityType: 'duration' as 'duration' | 'permanent',
   priceDisplay: 9.99,
   currency: 'usd',
   planGroup: '' as PlanGroup,
@@ -80,10 +79,11 @@ const handlePageSizeChange = (size: number) => {
   fetchData()
 }
 
+/** 为尚未选组的表单填充默认权益分组。 */
 const applyDefaultPlanGroupToForms = () => {
   const fallbackGroup = defaultPlanGroup.value?.key || planGroups.value[0]?.key || ''
   for (const target of [form.value, editForm.value]) {
-    if (target.benefits[0] && !target.benefits[0].planGroup) target.benefits[0].planGroup = fallbackGroup
+    if (!target.planGroup) target.planGroup = fallbackGroup
   }
 }
 
@@ -113,12 +113,13 @@ const formatPrice = (price: number, currency: string = 'usd') => {
   }).format(price / 100)
 }
 
+/** 创建后恢复单分组限时套餐默认值。 */
 const resetCreateForm = () => {
   form.value = {
     name: '',
     description: '',
     days: 30,
-  benefits: [{ planGroup: '', validityType: 'duration', durationDays: 30 }] as PlanBenefit[],
+    validityType: 'duration' as 'duration' | 'permanent',
     priceDisplay: 9.99,
     currency: 'usd',
     planGroup: defaultPlanGroup.value?.key || planGroups.value[0]?.key || '',
@@ -130,23 +131,25 @@ const validatePriceDisplay = (value: number) => {
   return Number.isFinite(value) && value > 0
 }
 
+/** 校验单组商品并提交明确的有效期类型，永久天数规范化为零。 */
 const handleCreate = async () => {
   if (!form.value.name.trim()) {
     ElMessage.warning('请输入方案名称')
     return
   }
-  const benefitError = validateBenefits(form.value.benefits)
+  const benefitError = validateSinglePlan(form.value)
   if (benefitError) { ElMessage.warning(benefitError); return }
   if (!validatePriceDisplay(form.value.priceDisplay)) {
     ElMessage.warning('请输入有效价格')
     return
   }
 
-
   const payload: CreatePlanRequest = {
     name: form.value.name.trim(),
     description: form.value.description.trim(),
-    benefits: form.value.benefits,
+    planGroup: form.value.planGroup,
+    validityType: form.value.validityType,
+    days: form.value.validityType === 'permanent' ? 0 : form.value.days,
     price: Math.round(form.value.priceDisplay * 100),
     currency: form.value.currency,
 
@@ -165,13 +168,14 @@ const handleCreate = async () => {
   }
 }
 
+/** 读取商品的唯一分组和有效期，永久转限时时提供默认天数。 */
 const openEditDialog = (row: Plan) => {
   editForm.value = {
     id: row.id,
     name: row.name,
     description: row.description || '',
-    days: row.days,
-    benefits: (row.benefits || [{ planGroup: row.planGroup, validityType: 'duration', durationDays: row.days }]).map(b => ({ ...b })),
+    days: row.validityType === 'permanent' ? 30 : row.days,
+    validityType: row.validityType,
     priceDisplay: row.price / 100,
     currency: row.currency || 'usd',
     planGroup: row.planGroup || defaultPlanGroup.value?.key || '',
@@ -181,23 +185,25 @@ const openEditDialog = (row: Plan) => {
   editDialogVisible.value = true
 }
 
+/** 保存商品当前字段，不修改历史订单权益快照。 */
 const handleUpdate = async () => {
   if (!editForm.value.name.trim()) {
     ElMessage.warning('请输入方案名称')
     return
   }
-  const benefitError = validateBenefits(editForm.value.benefits)
+  const benefitError = validateSinglePlan(editForm.value)
   if (benefitError) { ElMessage.warning(benefitError); return }
   if (!validatePriceDisplay(editForm.value.priceDisplay)) {
     ElMessage.warning('请输入有效价格')
     return
   }
 
-
   const payload: UpdatePlanRequest = {
     name: editForm.value.name.trim(),
     description: editForm.value.description.trim(),
-    benefits: editForm.value.benefits,
+    planGroup: editForm.value.planGroup,
+    validityType: editForm.value.validityType,
+    days: editForm.value.validityType === 'permanent' ? 0 : editForm.value.days,
     price: Math.round(editForm.value.priceDisplay * 100),
     currency: editForm.value.currency,
 
@@ -336,7 +342,7 @@ onMounted(async () => {
 
         <el-table-column label="权益" min-width="180">
           <template #default="{ row }">
-            <div v-for="benefit in row.benefits" :key="benefit.planGroup" class="text-sm text-gray-700">{{ benefitText(benefit, Object.fromEntries(planGroups.map(g => [g.key, g.name]))) }}</div>
+            <div class="text-sm text-gray-700">{{ planEntitlementText(row) }}</div>
           </template>
         </el-table-column>
 
@@ -433,7 +439,20 @@ onMounted(async () => {
             </el-select>
           </el-form-item>
 
-          <PlanBenefitsEditor v-model="form.benefits" :groups="planGroups" />
+          <el-form-item label="权益分组">
+            <el-select v-model="form.planGroup" class="w-full form-select" placeholder="选择分组">
+              <el-option v-for="group in planGroups" :key="group.key" :label="group.name" :value="group.key" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="有效期">
+            <el-select v-model="form.validityType" class="w-full form-select">
+              <el-option label="限时" value="duration" />
+              <el-option label="永久" value="permanent" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="form.validityType === 'duration'" label="有效天数">
+            <el-input-number v-model="form.days" :min="1" :precision="0" class="w-full !w-full form-number" />
+          </el-form-item>
 
           <el-form-item label="排序">
             <el-input-number v-model="form.sortOrder" :min="0" class="w-full !w-full form-number" />
@@ -492,7 +511,20 @@ onMounted(async () => {
             </el-select>
           </el-form-item>
 
-          <PlanBenefitsEditor v-model="editForm.benefits" :groups="planGroups" />
+          <el-form-item label="权益分组">
+            <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择分组">
+              <el-option v-for="group in planGroups" :key="group.key" :label="group.name" :value="group.key" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="有效期">
+            <el-select v-model="editForm.validityType" class="w-full form-select">
+              <el-option label="限时" value="duration" />
+              <el-option label="永久" value="permanent" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="editForm.validityType === 'duration'" label="有效天数">
+            <el-input-number v-model="editForm.days" :min="1" :precision="0" class="w-full !w-full form-number" />
+          </el-form-item>
 
           <div class="grid grid-cols-2 gap-6">
             <el-form-item label="排序">

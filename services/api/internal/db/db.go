@@ -205,7 +205,7 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"user_entitlements", "validity_type", "20261004_01_plan_group_entitlements"},
 	{"entitlement_events", "source_key", "20261004_01_plan_group_entitlements"},
 	{"plan_groups", "entitlement_rank", "20261004_01_plan_group_entitlements"},
-	{"plans", "benefits", "20261004_01_plan_group_entitlements"},
+	{"plans", "validity_type", "20261004_01_plan_group_entitlements"},
 	{"payments", "manual_review_reason", "20261004_01_plan_group_entitlements"},
 	{"users", "resource_access_granted", "20261004_01_plan_group_entitlements"},
 	{"redemption_codes", "legacy_invalidated", "20261004_01_plan_group_entitlements"},

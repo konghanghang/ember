@@ -8,18 +8,18 @@ import (
 
 // Plan 付费方案
 type Plan struct {
-	Benefits    []PlanBenefit `json:"benefits" gorm:"column:benefits;type:jsonb;serializer:json"`
-	ID          string        `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	Name        string        `json:"name" gorm:"column:name;size:100;not null"`
-	Description string        `json:"description" gorm:"column:description;size:500"`
-	Days        int           `json:"days" gorm:"column:days;not null"`
-	Price       int64         `json:"price" gorm:"column:price;not null"`
-	Currency    string        `json:"currency" gorm:"column:currency;size:3;not null;default:usd"`
-	PlanGroup   string        `json:"planGroup" gorm:"column:plan_group;size:50;not null;index"`
-	IsActive    bool          `json:"isActive" gorm:"column:is_active;default:true;not null"`
-	SortOrder   int           `json:"sortOrder" gorm:"column:sort_order;default:0;not null"`
-	CreatedAt   time.Time     `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt   time.Time     `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
+	ValidityType string    `json:"validityType" gorm:"column:validity_type;type:varchar(20);not null;default:duration"`
+	ID           string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+	Name         string    `json:"name" gorm:"column:name;size:100;not null"`
+	Description  string    `json:"description" gorm:"column:description;size:500"`
+	Days         int       `json:"days" gorm:"column:days;not null"`
+	Price        int64     `json:"price" gorm:"column:price;not null"`
+	Currency     string    `json:"currency" gorm:"column:currency;size:3;not null;default:usd"`
+	PlanGroup    string    `json:"planGroup" gorm:"column:plan_group;size:50;not null;index"`
+	IsActive     bool      `json:"isActive" gorm:"column:is_active;default:true;not null"`
+	SortOrder    int       `json:"sortOrder" gorm:"column:sort_order;default:0;not null"`
+	CreatedAt    time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt    time.Time `json:"updatedAt" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (Plan) TableName() string {
@@ -31,4 +31,10 @@ func (p *Plan) BeforeCreate(tx *gorm.DB) error {
 		p.ID = generateCUID()
 	}
 	return nil
+}
+
+// EntitlementBenefits creates the one-item immutable order payload from the current product.
+// Historical payments retain their own snapshots and must never call this to reconstruct grants.
+func (p Plan) EntitlementBenefits() []PlanBenefit {
+	return []PlanBenefit{{PlanGroup: p.PlanGroup, ValidityType: p.ValidityType, DurationDays: p.Days}}
 }

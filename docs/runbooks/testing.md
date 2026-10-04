@@ -169,3 +169,5 @@ make test-bot-report
 ### 分组权益改版专项
 
 在 `services/api` 工作目录执行 `go test ./internal/services/entitlement ./internal/services/payment ./internal/services/system ./internal/services/policy -skip Integration`，并按需补关键包 `-race`。专用 PostgreSQL 设置后执行 `go test ./internal/app -run 'TestIntegration(Entitlement|LegacyEntitlement|Billing)' -count=1 -v`，覆盖迁移重跑、保留人工限制/历史记录、旧码失效和并发续期。2026-10-04 已连接专用测试库执行上述 6 个用例并通过，临时 schema 已清理；升级步骤见 [权益升级说明](./entitlements-upgrade.md)。
+
+2026-10-04 单组商品收敛补充：`go test ./internal/app -run 'TestIntegration(SingleGroupPlan|HistoricalCombinationSnapshot|Entitlement|LegacyEntitlement|Billing)' -count=1`，共 9 个顶层用例通过，覆盖新商品 DTO、永久/限时转换、旧商品 SQL 转换及组合拒绝回滚、历史组合订单在商品下架/改天数后按原快照履约与重放幂等。配合 Web 单组表单 4 项回归及权益工具测试；完整 Web 测试 314 项通过、3 项按现有配置跳过。

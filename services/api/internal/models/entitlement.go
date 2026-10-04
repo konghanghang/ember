@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// PlanBenefit is a grant instruction embedded in product configuration and immutable order snapshots.
+// PlanBenefit is a grant instruction for immutable order snapshots and administrator compensation.
 type PlanBenefit struct {
 	PlanGroupName string `json:"planGroupName,omitempty" gorm:"-"`
 	PlanGroup     string `json:"planGroup" gorm:"column:plan_group"`

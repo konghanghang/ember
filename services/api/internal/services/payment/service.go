@@ -67,26 +67,26 @@ func NewPaymentService() *PaymentService {
 }
 
 type CreatePlanRequest struct {
-	Benefits    []models.PlanBenefit `json:"benefits"`
-	Name        string               `json:"name" binding:"required"`
-	Description string               `json:"description"`
-	Days        int                  `json:"days"`
-	Price       int64                `json:"price" binding:"required,min=1"`
-	Currency    string               `json:"currency"`
-	PlanGroup   string               `json:"planGroup"`
-	SortOrder   int                  `json:"sortOrder"`
+	ValidityType string `json:"validityType" binding:"required,oneof=duration permanent"`
+	Name         string `json:"name" binding:"required"`
+	Description  string `json:"description"`
+	Days         int    `json:"days"`
+	Price        int64  `json:"price" binding:"required,min=1"`
+	Currency     string `json:"currency"`
+	PlanGroup    string `json:"planGroup" binding:"required"`
+	SortOrder    int    `json:"sortOrder"`
 }
 
 type UpdatePlanRequest struct {
-	Benefits    *[]models.PlanBenefit `json:"benefits"`
-	Name        *string               `json:"name"`
-	Description *string               `json:"description"`
-	Days        *int                  `json:"days" binding:"omitempty,min=1"`
-	Price       *int64                `json:"price" binding:"omitempty,min=1"`
-	Currency    *string               `json:"currency"`
-	PlanGroup   *string               `json:"planGroup"`
-	IsActive    *bool                 `json:"isActive"`
-	SortOrder   *int                  `json:"sortOrder"`
+	ValidityType *string `json:"validityType" binding:"omitempty,oneof=duration permanent"`
+	Name         *string `json:"name"`
+	Description  *string `json:"description"`
+	Days         *int    `json:"days"`
+	Price        *int64  `json:"price" binding:"omitempty,min=1"`
+	Currency     *string `json:"currency"`
+	PlanGroup    *string `json:"planGroup"`
+	IsActive     *bool   `json:"isActive"`
+	SortOrder    *int    `json:"sortOrder"`
 }
 
 type GetPlansRequest struct {
@@ -228,11 +228,8 @@ func buildPlansWithGroupNameSelect(query *gorm.DB) *gorm.DB {
 		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."plan_group"`)
 }
 
-// CreatePlan validates and stores each explicitly configured group benefit.
+// CreatePlan stores one explicitly selected group and validity; orders snapshot it at checkout.
 func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
-	if req.Benefits != nil && len(req.Benefits) == 0 {
-		return nil, entitlementpkg.ErrInvalidBenefit
-	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, ErrPlanNameRequired
@@ -241,24 +238,26 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
 	if err != nil {
 		return nil, err
 	}
-	benefits, err := validatePlanBenefits(db.DB, req.Benefits, req.PlanGroup, req.Days)
+	group, err := GetPlanGroupByKey(db.DB, req.PlanGroup)
 	if err != nil {
 		return nil, err
 	}
-	planGroup := benefits[0].PlanGroup
 
 	plan := models.Plan{
-		Benefits:    benefits,
-		Name:        name,
-		Description: strings.TrimSpace(req.Description),
-		Days:        benefits[0].DurationDays,
-		Price:       req.Price,
-		Currency:    currency,
-		PlanGroup:   planGroup,
-		IsActive:    true,
-		SortOrder:   req.SortOrder,
+		ValidityType: req.ValidityType,
+		Name:         name,
+		Description:  strings.TrimSpace(req.Description),
+		Days:         req.Days,
+		Price:        req.Price,
+		Currency:     currency,
+		PlanGroup:    group.Key,
+		IsActive:     true,
+		SortOrder:    req.SortOrder,
 	}
 
+	if err := validateSinglePlan(&plan); err != nil {
+		return nil, err
+	}
 	if err := db.DB.Create(&plan).Error; err != nil {
 		return nil, errors.New("创建方案失败")
 	}
@@ -267,9 +266,6 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
 
 // UpdatePlan affects future orders only; existing order benefit snapshots remain immutable.
 func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanView, error) {
-	if req.Benefits != nil && len(*req.Benefits) == 0 {
-		return nil, entitlementpkg.ErrInvalidBenefit
-	}
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, errors.New("更新方案失败")
@@ -331,36 +327,26 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 		plan.Currency = "usd"
 	}
 
-	if req.Benefits != nil {
-		plan.Benefits = *req.Benefits
-	} else if req.PlanGroup != nil || req.Days != nil {
-		if len(plan.Benefits) > 1 {
-			tx.Rollback()
-			return nil, entitlementpkg.ErrInvalidBenefit
-		}
-		plan.Benefits = []models.PlanBenefit{{PlanGroup: plan.PlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: plan.Days}}
+	if req.ValidityType != nil {
+		plan.ValidityType = *req.ValidityType
 	}
-	benefits, err := validatePlanBenefits(tx, plan.Benefits, plan.PlanGroup, plan.Days)
-	if err != nil {
+	if err := validateSinglePlan(&plan); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
-	plan.Benefits = benefits
-	plan.PlanGroup, plan.Days = benefits[0].PlanGroup, benefits[0].DurationDays
-	benefitsJSON, _ := json.Marshal(benefits)
 
 	if err := tx.Model(&models.Plan{}).
 		Where("id = ?", plan.ID).
 		Updates(map[string]interface{}{
-			"benefits":    string(benefitsJSON),
-			"name":        plan.Name,
-			"description": plan.Description,
-			"days":        plan.Days,
-			"price":       plan.Price,
-			"currency":    plan.Currency,
-			"plan_group":  plan.PlanGroup,
-			"is_active":   plan.IsActive,
-			"sort_order":  plan.SortOrder,
+			"validity_type": plan.ValidityType,
+			"name":          plan.Name,
+			"description":   plan.Description,
+			"days":          plan.Days,
+			"price":         plan.Price,
+			"currency":      plan.Currency,
+			"plan_group":    plan.PlanGroup,
+			"is_active":     plan.IsActive,
+			"sort_order":    plan.SortOrder,
 		}).Error; err != nil {
 		tx.Rollback()
 		return nil, errors.New("更新方案失败")
@@ -414,7 +400,7 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 		if err != nil {
 			return nil, err
 		}
-		query = query.Where("benefits @> ?::jsonb", fmt.Sprintf(`[{"planGroup":%q}]`, planGroup))
+		query = query.Where("plans.plan_group = ?", planGroup)
 	}
 
 	var total int64
@@ -432,10 +418,6 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 		return nil, errors.New("获取方案列表失败")
 	}
 
-	if err := populatePlanBenefitNames(db.DB, plans); err != nil {
-		return nil, err
-	}
-
 	return &GetPlansResponse{
 		Data:       plans,
 		Total:      total,
@@ -449,9 +431,6 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 func (s *PaymentService) GetPlansForUser(userID string) ([]PlanView, error) {
 	plans := []PlanView{}
 	if err := buildPlansWithGroupNameSelect(db.DB.Model(&models.Plan{})).Where(`plans."is_active" = ?`, true).Order(`plans."sort_order" ASC, plans."created_at" DESC`).Find(&plans).Error; err != nil {
-		return nil, err
-	}
-	if err := populatePlanBenefitNames(db.DB, plans); err != nil {
 		return nil, err
 	}
 	owned, err := entitlementpkg.Load(db.DB, userID)
@@ -470,7 +449,7 @@ func (s *PaymentService) GetPlansForUser(userID string) ([]PlanView, error) {
 	for i := range plans {
 		reason := readyErr
 		if reason == nil {
-			_, reason = entitlementpkg.Grant(owned, plans[i].Benefits, ranks, time.Now(), location)
+			_, reason = entitlementpkg.Grant(owned, plans[i].EntitlementBenefits(), ranks, time.Now(), location)
 		}
 		plans[i].Purchasable = reason == nil
 		if reason != nil {
@@ -490,11 +469,7 @@ func (s *PaymentService) getPlanByID(id string) (*PlanView, error) {
 		}
 		return nil, errors.New("获取方案失败")
 	}
-	views := []PlanView{plan}
-	if err := populatePlanBenefitNames(db.DB, views); err != nil {
-		return nil, err
-	}
-	return &views[0], nil
+	return &plan, nil
 }
 
 func timePtr(value time.Time) *time.Time {
@@ -923,11 +898,11 @@ func (s *PaymentService) reservePendingPayment(userID string, plan *models.Plan,
 		tx.Rollback()
 		return nil, err
 	}
-	if _, err = entitlementpkg.Grant(owned, lockedPlan.Benefits, ranks, now, location); err != nil {
+	if _, err = entitlementpkg.Grant(owned, lockedPlan.EntitlementBenefits(), ranks, now, location); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
-	payment.Benefits = append([]models.PlanBenefit(nil), lockedPlan.Benefits...)
+	payment.Benefits = lockedPlan.EntitlementBenefits()
 	payment.Amount, payment.Currency, payment.Days = lockedPlan.Price, lockedPlan.Currency, lockedPlan.Days
 
 	result := tx.Clauses(clause.OnConflict{

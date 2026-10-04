@@ -100,7 +100,7 @@
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
-| [billing-redemption/plan-group-entitlements.md](../plan/billing-redemption/plan-group-entitlements.md) | 代码、本地 mock 与 PostgreSQL 针对性验证完成 | 统一套餐目录、多组独立权益、订单快照、人工处理、按组后台操作及原定时回退已实现；SQL 与文档同步，6 个权益、回填与支付 PostgreSQL 集成用例通过 | 保留在 `docs/plan/billing-redemption/`，交付收尾后归档 |
+| [billing-redemption/plan-group-entitlements.md](../plan/billing-redemption/plan-group-entitlements.md) | 单分组商品收敛及复验完成，待提交收尾 | 商品字段/原 SQL 已收敛，测试库与目标 checksum 已同步；D 转增强30天下架，历史快照不变；自动化、页面及新单组 Stripe 沙盒付款通过 | 保留在 `docs/plan/billing-redemption/`，提交收尾后归档 |
 | `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 管理员 source + 管理员共享 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有权威 Emby fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
 | `architecture/p115-personal-account-routing-and-redis-quotas.md` | 阶段 0–3 已落地，数据库专项已补齐，待受控外部验收 | 阶段 0–3 已落地：套餐默认 personal 与 `5/10` 配额、个人账号四步 API/Web、管理员共享 playback 路径/并发原子配置、revoked tombstone、用户删除顺序、personal/system 两段式路由、Redis `reservation → active ↔ paused`、HEAD 不创建、成功事件更新、小时/自然日 pending/succeeded 配额、晚到成功和独立 2s 记账、null/zero 用量与固定诊断日志。历史阶段 0–3 验证记录包含 Go test/vet/build、关键 race、Web 测试与生产 build；基础个人账号 PostgreSQL 集成与占位配置 Compose 解析于 2026-09-05 通过。2026-09-21 已补跑 DirectPlay PostgreSQL 专项，13 个顶层测试及 2 个子测试全部通过，覆盖账号配置版本、目录竞态、成功记录采样及小连接池锁等待取消；未执行真实 Redis/个人 115/客户端验收，Emby 对 115 `302` 分流的限制效果仍未证实 | 保留到授权范围内真实外部验收完成，或由用户明确接受相应未验证限制后归档 |
 | `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
@@ -110,7 +110,7 @@
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
 
-2026-10-04 新增套餐与分组权益改版计划后，当前 `docs/plan/` 共 10 份实施稿；本次代码、本地 mock 与 6 个 PostgreSQL 针对性集成用例已完成，待交付收尾；历史批次的验证记录不扩展为本轮验证结论。
+2026-10-04 新增套餐与分组权益改版计划后，当前 `docs/plan/` 共 10 份实施稿；首轮实现、PostgreSQL、页面与 Stripe 沙盒验收已完成；最新单分组商品收敛方案已确认，待实施；历史批次的验证记录不扩展为本轮验证结论。
 
 ## C. 已完成的归档记录
 

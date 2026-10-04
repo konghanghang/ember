@@ -10,7 +10,7 @@ import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
 import { formatDate } from '@/utils/date'
-import { benefitText } from '@/utils/entitlements'
+import { planEntitlementText } from '@/utils/entitlements'
 import type { Payment, PaymentStatus, Plan, Redemption } from '@/types/api'
 
 type RenewalTab = 'online' | 'redeem'
@@ -279,7 +279,7 @@ onMounted(async () => {
                   <div class="mt-4 inline-flex items-center gap-2 rounded-xl bg-ember/5 px-3 py-2 text-sm text-ember ring-1 ring-ember/10">
                     <el-icon><Timer /></el-icon>
                     <span class="font-medium">增加</span>
-                    <div class="space-y-1"><div v-for="benefit in plan.benefits" :key="benefit.planGroup" class="text-sm font-medium">{{ benefitText(benefit) }}</div></div>
+                    <div class="text-sm font-medium">{{ planEntitlementText(plan) }}</div>
                     <span class="font-medium">有效期</span>
                   </div>
 

@@ -1143,7 +1143,7 @@ export interface UserEntitlement {
 }
 
 export interface Plan {
- benefits?: PlanBenefit[]
+ validityType: 'duration' | 'permanent'
  purchasable?: boolean
  purchaseReason?: string
   id: string
@@ -1161,18 +1161,18 @@ export interface Plan {
 }
 
 export interface CreatePlanRequest {
- benefits?: PlanBenefit[]
+ validityType: 'duration' | 'permanent'
   name: string
   description?: string
   days?: number
   price: number
   currency?: string
-  planGroup?: PlanGroup
+  planGroup: PlanGroup
   sortOrder?: number
 }
 
 export interface UpdatePlanRequest {
- benefits?: PlanBenefit[]
+ validityType?: 'duration' | 'permanent'
   name?: string
   description?: string
   days?: number

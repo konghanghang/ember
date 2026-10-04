@@ -1,28 +1,46 @@
 package payment
 
 import (
+	"encoding/json"
 	"github.com/konghang/ember/backend/internal/models"
 	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
-	"gorm.io/gorm"
+	"strings"
 )
 
-// validatePlanBenefits checks explicit grants; the single-group input remains an additive API compatibility boundary.
-// Existing clients cannot overwrite a multi-benefit product through its legacy summary fields.
-func validatePlanBenefits(tx *gorm.DB, benefits []models.PlanBenefit, legacyGroup string, legacyDays int) ([]models.PlanBenefit, error) {
-	if len(benefits) == 0 {
-		benefits = []models.PlanBenefit{{PlanGroup: legacyGroup, ValidityType: entitlementpkg.Duration, DurationDays: legacyDays}}
+// validateSinglePlan enforces explicit duration/permanent semantics, normalizing unused permanent days.
+func validateSinglePlan(plan *models.Plan) error {
+	if strings.TrimSpace(plan.PlanGroup) == "" {
+		return entitlementpkg.ErrInvalidBenefit
 	}
-	benefits = append([]models.PlanBenefit(nil), benefits...)
-	for i, benefit := range benefits {
-		group, err := GetPlanGroupByKey(tx, benefit.PlanGroup)
-		if err != nil {
-			return nil, err
+	if plan.ValidityType == entitlementpkg.Permanent {
+		plan.Days = 0
+	}
+	return entitlementpkg.ValidateBenefits(plan.EntitlementBenefits())
+}
+
+// decodeSinglePlan rejects the removed product-array contract, including explicit null and empty arrays.
+// It does not affect immutable payment snapshots or the separate compensation contract.
+func decodeSinglePlan(data []byte, target any) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for key := range fields {
+		if strings.EqualFold(key, "benefits") {
+			return entitlementpkg.ErrInvalidBenefit
 		}
-		benefits[i].PlanGroup = group.Key
-		benefits[i].PlanGroupName = group.Name
 	}
-	if err := entitlementpkg.ValidateBenefits(benefits); err != nil {
-		return nil, err
-	}
-	return benefits, nil
+	return json.Unmarshal(data, target)
+}
+
+// UnmarshalJSON keeps obsolete product payloads from silently losing granted groups.
+func (r *CreatePlanRequest) UnmarshalJSON(data []byte) error {
+	type request CreatePlanRequest
+	return decodeSinglePlan(data, (*request)(r))
+}
+
+// UnmarshalJSON applies the same single-group boundary to partial product updates.
+func (r *UpdatePlanRequest) UnmarshalJSON(data []byte) error {
+	type request UpdatePlanRequest
+	return decodeSinglePlan(data, (*request)(r))
 }

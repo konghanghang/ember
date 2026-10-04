@@ -86,7 +86,7 @@ var (
 	}
 	paymentCountPlansByGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
-		err := tx.Model(&models.Plan{}).Where(`benefits @> ?::jsonb`, fmt.Sprintf(`[{"planGroup":%q}]`, key)).Count(&count).Error
+		err := tx.Model(&models.Plan{}).Where("plan_group = ?", key).Count(&count).Error
 		if err != nil {
 			return 0, err
 		}
@@ -299,7 +299,7 @@ func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 	views := make([]PlanGroupView, 0, len(groups))
 	for i := range groups {
 		view := buildPlanGroupView(groups[i])
-		if err := db.DB.Model(&models.Plan{}).Where(`benefits @> ?::jsonb`, fmt.Sprintf(`[{"planGroup":%q}]`, view.Key)).Count(&view.PlanCount).Error; err != nil {
+		if err := db.DB.Model(&models.Plan{}).Where("plan_group = ?", view.Key).Count(&view.PlanCount).Error; err != nil {
 			return nil, errors.New("获取套餐分组失败")
 		}
 		if err := db.DB.Model(&models.User{}).Where(`"plan_group" = ?`, view.Key).Count(&view.UserCount).Error; err != nil {
