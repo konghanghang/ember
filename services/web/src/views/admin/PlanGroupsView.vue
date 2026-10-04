@@ -563,8 +563,7 @@ async function saveRanks() {
       </template>
 
       <template #actions>
-        <button class="btn-ember px-4 py-2.5" @click="openRanks">权益等级</button>
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center justify-end gap-3">
           <button
             @click="fetchData"
             class="inline-flex h-11 w-11 items-center justify-center cursor-pointer rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
@@ -573,8 +572,16 @@ async function saveRanks() {
             <el-icon :size="20"><Refresh /></el-icon>
           </button>
           <button
+            type="button"
+            @click="openRanks"
+            class="inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 cursor-pointer"
+          >
+            <el-icon><Setting /></el-icon>
+            <span>权益等级</span>
+          </button>
+          <button
             @click="dialogVisible = true"
-            class="btn-ember inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer"
+            class="btn-ember inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold shadow-sm hover:shadow-md active:scale-[0.99] cursor-pointer"
           >
             <el-icon><Plus /></el-icon>
             <span>新建分组</span>
@@ -1113,11 +1120,30 @@ async function saveRanks() {
       </template>
     </EmberFormDialog>
   </div>
-  <EmberFormDialog v-model="rankDialog" title="配置权益等级">
-    <el-form label-position="top" class="p-6">
+  <EmberFormDialog v-model="rankDialog" title="配置权益等级" width="520px">
+    <div class="p-6 pt-2">
       <p class="mb-4 text-sm text-gray-500">等级越高越优先生效；高等级须包含低等级的全部媒体库。</p>
-      <el-form-item v-for="group in groups" :key="group.key" :label="group.name"><el-input-number v-model="rankDraft[group.key]" :min="0" :precision="0" class="form-number" /></el-form-item>
-    </el-form>
-    <template #footer><button class="btn-ember px-4 py-2.5" :disabled="rankSaving" @click="saveRanks">{{ rankSaving ? '保存中…' : '保存并校验' }}</button></template>
+      <el-form label-position="top" class="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+        <el-form-item v-for="group in groups" :key="group.key" :label="group.name">
+          <el-input-number v-model="rankDraft[group.key]" :min="0" :precision="0" class="w-full !w-full form-number" />
+        </el-form-item>
+      </el-form>
+    </div>
+    <template #footer>
+      <div class="flex justify-end gap-3 px-6 pb-6 pt-0">
+        <button
+          type="button"
+          :disabled="rankSaving"
+          @click="rankDialog = false"
+          class="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 disabled:opacity-70"
+        >取消</button>
+        <button
+          type="button"
+          :disabled="rankSaving"
+          @click="saveRanks"
+          class="btn-ember cursor-pointer rounded-xl px-6 py-2.5 text-sm font-semibold disabled:opacity-70"
+        >{{ rankSaving ? '保存中…' : '保存并校验' }}</button>
+      </div>
+    </template>
   </EmberFormDialog>
 </template>
