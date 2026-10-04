@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestUpdatePlanGroupSwitchesDefaultAndExpiresPendingPayments(t *testing.T) {
+func TestUpdatePlanGroupSwitchesDefaultWithoutExpiringSnapshotOrders(t *testing.T) {
 	origBegin := beginPlanGroupTx
 	origCommit := commitPlanGroupTx
 	origRollback := rollbackPlanGroupTx
@@ -84,8 +84,8 @@ func TestUpdatePlanGroupSwitchesDefaultAndExpiresPendingPayments(t *testing.T) {
 	if unsetOthersCalled != 1 || setDefaultCalled != 1 {
 		t.Fatalf("expected default switch updates once, got unset=%d set=%d", unsetOthersCalled, setDefaultCalled)
 	}
-	if expireCalled != 1 {
-		t.Fatalf("expected pending payments for default-following users to expire once, got %d", expireCalled)
+	if expireCalled != 0 {
+		t.Fatalf("default group changes must not expire snapshot orders, got %d", expireCalled)
 	}
 	if updated == nil || !updated.IsDefault {
 		t.Fatalf("expected updated group to be default")

@@ -3,6 +3,8 @@ package redemption
 import (
 	"errors"
 	"fmt"
+	configpkg "github.com/konghang/ember/backend/internal/config"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	"log"
 	"math"
 	"strings"
@@ -62,6 +64,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 
 // redeemCodeWithDB 在数据库事务内完成兑换码校验、用户有效期续期和兑换记录落库。
 func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
+	location := configpkg.LoadConfiguredTimezone()
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, ErrRedeemFailed
@@ -96,17 +99,23 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 	}
 
 	now := time.Now().UTC()
-	newExpiry := calculateRedeemedExpiry(now, user.ExpiresAt, code.DefaultDays)
-
-	updates := map[string]interface{}{
-		"expires_at": newExpiry,
-	}
-
-	// Emby Policy 同步移到事务外（commit 后异步执行）：避免事务持有 Emby 网络 I/O。
-	needsPolicySync := strings.TrimSpace(user.EmbyID) != ""
-
-	if err := tx.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
+	if err := entitlementpkg.GrantLocked(tx, user, []entitlementpkg.Benefit{{PlanGroup: code.RegistrationPlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: code.DefaultDays}}, "redemption:"+user.ID+":"+code.ID, "system:redemption", now, location); err != nil {
+		if errors.Is(err, entitlementpkg.ErrAlreadyOwned) || errors.Is(err, entitlementpkg.ErrGroupsNotReady) {
+			return nil, err
+		}
+		log.Printf("[Redemption] 权益发放失败 userId=%s codeId=%s errorType=%T", user.ID, code.ID, err)
 		return nil, ErrRedeemFailed
+	}
+	needsPolicySync := strings.TrimSpace(user.EmbyID) != ""
+	holdings, err := entitlementpkg.Load(tx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	var newExpiry *time.Time
+	for _, holding := range holdings {
+		if holding.PlanGroup == code.RegistrationPlanGroup {
+			newExpiry = holding.ExpiresAt
+		}
 	}
 
 	redemption := models.Redemption{
@@ -122,7 +131,7 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 	}
 
 	result := tx.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", req.Code, now).
+		Where("code = ? AND NOT legacy_invalidated AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", req.Code, now).
 		Update("used_count", gorm.Expr("\"used_count\" + 1"))
 	if result.Error != nil {
 		return nil, ErrRedeemFailed
@@ -149,7 +158,7 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 	return &RedeemCodeResponse{
 		Message:   fmt.Sprintf("兑换成功，有效期已延长 %d 天", code.DefaultDays),
 		Days:      code.DefaultDays,
-		ExpiresAt: &newExpiry,
+		ExpiresAt: newExpiry,
 	}, nil
 }
 

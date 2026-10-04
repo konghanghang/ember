@@ -723,10 +723,10 @@ func policyTaskRows() *sqlmock.Rows {
 
 func userRows(userID, embyID, planGroup string, expiresAt *time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled",
+		"resource_access_granted", "id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled",
 		"telegram_id", "plan_group", "applied_media_library_template_version", "expires_at", "is_active",
 		"password_reset_required", "created_at", "updated_at",
-	}).AddRow(userID, "fixture-user", "user", "", "", embyID, false, false, nil, planGroup, int64(1), expiresAt, true, false, time.Now().UTC(), time.Now().UTC())
+	}).AddRow(expiresAt == nil || expiresAt.After(time.Now()), userID, "fixture-user", "user", "", "", embyID, false, false, nil, planGroup, int64(1), expiresAt, true, false, time.Now().UTC(), time.Now().UTC())
 }
 
 func planGroupRows(key string, templateVersion int64) *sqlmock.Rows {

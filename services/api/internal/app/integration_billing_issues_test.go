@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
-	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
@@ -31,7 +30,7 @@ func TestIntegrationBillingRenewalsAccumulateWithRowLocks(t *testing.T) {
 		Code:                  "BILLINGLOCK1",
 		MaxUses:               1,
 		DefaultDays:           10,
-		RegistrationPlanGroup: "VIP",
+		RegistrationPlanGroup: *target.PlanGroup,
 	}
 	if err := harness.database.Create(&code).Error; err != nil {
 		t.Fatalf("create redemption code: %v", err)
@@ -77,7 +76,7 @@ func TestIntegrationBillingLatePaidWebhookFulfillsExpiredPayment(t *testing.T) {
 	secret := "whsec_billing_late_paid"
 	t.Setenv("STRIPE_WEBHOOK_SECRET", secret)
 
-	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_A", Name: "Billing A"})
+	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_A", Name: "Billing A", EntitlementRank: intRank(10)})
 	plan := seedBillingIntegrationPlan(t, harness, "plan_billing_a", "BILLING_A", 30)
 	initialExpiry := time.Now().UTC().AddDate(0, 0, 7).Truncate(time.Second)
 	planGroup := "BILLING_A"
@@ -113,13 +112,13 @@ func TestIntegrationBillingLatePaidWebhookFulfillsExpiredPayment(t *testing.T) {
 	}
 }
 
-func TestIntegrationBillingGroupMismatchKeepsWebhookRetryable(t *testing.T) {
+func TestIntegrationBillingCrossGroupPurchasePreservesCurrentHigherGroup(t *testing.T) {
 	harness := newIntegrationHarness(t)
 	secret := "whsec_billing_group_mismatch"
 	t.Setenv("STRIPE_WEBHOOK_SECRET", secret)
 
-	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_A", Name: "Billing A"})
-	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_B", Name: "Billing B"})
+	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_A", Name: "Billing A", EntitlementRank: intRank(10)})
+	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_B", Name: "Billing B", EntitlementRank: intRank(20)})
 	plan := seedBillingIntegrationPlan(t, harness, "plan_billing_mismatch", "BILLING_A", 30)
 	initialExpiry := time.Now().UTC().AddDate(0, 0, 7).Truncate(time.Second)
 	planGroup := "BILLING_B"
@@ -133,7 +132,7 @@ func TestIntegrationBillingGroupMismatchKeepsWebhookRetryable(t *testing.T) {
 
 	payload := billingStripeWebhookPayload("evt_group_mismatch", "checkout.session.completed", "cs_group_mismatch", "pi_group_mismatch", true, time.Now().UTC())
 	recorder := performBillingStripeWebhook(harness, payload, secret)
-	if recorder.Code != http.StatusInternalServerError {
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("group mismatch webhook status = %d body=%s", recorder.Code, recorder.Body.String())
 	}
 
@@ -141,11 +140,8 @@ func TestIntegrationBillingGroupMismatchKeepsWebhookRetryable(t *testing.T) {
 	if err := harness.database.Where("event_id = ?", "evt_group_mismatch").First(&webhook).Error; err != nil {
 		t.Fatalf("reload webhook event: %v", err)
 	}
-	if webhook.Status != models.StripeWebhookEventFailed {
-		t.Fatalf("webhook status = %s, want failed", webhook.Status)
-	}
-	if webhook.Error == nil || !strings.Contains(*webhook.Error, paymentpkg.ErrPaymentFailed.Error()) {
-		t.Fatalf("webhook errorMessage = %v, want payment failure", webhook.Error)
+	if webhook.Status != models.StripeWebhookEventProcessed {
+		t.Fatalf("webhook status = %s, want processed", webhook.Status)
 	}
 
 	var refreshedUser models.User
@@ -155,6 +151,14 @@ func TestIntegrationBillingGroupMismatchKeepsWebhookRetryable(t *testing.T) {
 	if refreshedUser.ExpiresAt == nil || !refreshedUser.ExpiresAt.Equal(initialExpiry) {
 		t.Fatalf("expiresAt = %v, want unchanged %s", refreshedUser.ExpiresAt, initialExpiry)
 	}
+	var acquired models.UserEntitlement
+	if err := harness.database.Where("user_id = ? AND plan_group = ?", target.ID, "BILLING_A").First(&acquired).Error; err != nil {
+		t.Fatal(err)
+	}
+	if acquired.ExpiresAt == nil {
+		t.Fatal("lower group purchase was not granted")
+	}
+
 }
 
 func TestIntegrationBillingAdminGroupChangeAndPaidWebhookDoNotDeadlock(t *testing.T) {
@@ -163,8 +167,8 @@ func TestIntegrationBillingAdminGroupChangeAndPaidWebhookDoNotDeadlock(t *testin
 	t.Setenv("STRIPE_WEBHOOK_SECRET", secret)
 	t.Setenv("STRIPE_SECRET_KEY", "")
 
-	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_A", Name: "Billing A"})
-	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_B", Name: "Billing B"})
+	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_A", Name: "Billing A", EntitlementRank: intRank(10)})
+	harness.seedPlanGroup(t, models.PlanGroup{Key: "BILLING_B", Name: "Billing B", EntitlementRank: intRank(20)})
 	plan := seedBillingIntegrationPlan(t, harness, "plan_billing_group_race", "BILLING_A", 30)
 	initialExpiry := time.Now().UTC().AddDate(0, 0, 7).Truncate(time.Second)
 	planGroup := "BILLING_A"
@@ -183,7 +187,7 @@ func TestIntegrationBillingAdminGroupChangeAndPaidWebhookDoNotDeadlock(t *testin
 	go func() {
 		defer wait.Done()
 		<-start
-		recorder := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/users/"+target.ID, []byte(`{"planGroup":"BILLING_B"}`))
+		recorder := harness.performAdminRequest(http.MethodPut, "/api/v1/admin/users/"+target.ID, []byte(`{"planGroup":"BILLING_B","expiresAt":"2030-01-01T00:00:00Z"}`))
 		if recorder.Code != http.StatusOK {
 			errs <- fmt.Sprintf("admin group update status=%d body=%s", recorder.Code, recorder.Body.String())
 		}
@@ -193,7 +197,7 @@ func TestIntegrationBillingAdminGroupChangeAndPaidWebhookDoNotDeadlock(t *testin
 		<-start
 		payload := billingStripeWebhookPayload("evt_group_race", "checkout.session.completed", "cs_group_race", "pi_group_race", true, time.Now().UTC())
 		recorder := performBillingStripeWebhook(harness, payload, secret)
-		if recorder.Code != http.StatusOK && recorder.Code != http.StatusInternalServerError {
+		if recorder.Code != http.StatusOK {
 			errs <- fmt.Sprintf("webhook status=%d body=%s", recorder.Code, recorder.Body.String())
 		}
 	}()
@@ -212,26 +216,16 @@ func TestIntegrationBillingAdminGroupChangeAndPaidWebhookDoNotDeadlock(t *testin
 	if err := harness.database.Where("event_id = ?", "evt_group_race").First(&webhook).Error; err != nil {
 		t.Fatalf("reload webhook: %v", err)
 	}
-	switch webhook.Status {
-	case models.StripeWebhookEventProcessed:
-		if payment.Status != models.PaymentCompleted {
-			t.Fatalf("processed webhook left payment status=%s, want completed", payment.Status)
-		}
-	case models.StripeWebhookEventFailed:
-		if payment.Status == models.PaymentCompleted {
-			t.Fatalf("failed webhook must not complete payment")
-		}
-		if webhook.Error == nil || !strings.Contains(*webhook.Error, "reasonCode=plan_group_mismatch") {
-			t.Fatalf("failed webhook error = %v, want group mismatch reason", webhook.Error)
-		}
-	default:
-		t.Fatalf("webhook status=%s, want processed or failed", webhook.Status)
+	if webhook.Status != models.StripeWebhookEventProcessed || payment.Status != models.PaymentCompleted {
+		t.Fatalf("webhook=%s payment=%s", webhook.Status, payment.Status)
 	}
+
 }
 
 func seedBillingIntegrationPlan(t *testing.T, harness *integrationHarness, id, planGroup string, days int) models.Plan {
 	t.Helper()
 	plan := models.Plan{
+		Benefits:  []models.PlanBenefit{{PlanGroup: planGroup, ValidityType: "duration", DurationDays: days}},
 		ID:        id,
 		Name:      id,
 		Days:      days,
@@ -250,6 +244,7 @@ func seedBillingIntegrationPayment(t *testing.T, harness *integrationHarness, us
 	t.Helper()
 	expiresAt := time.Now().UTC().Add(-time.Hour)
 	payment := models.Payment{
+		Benefits:        []models.PlanBenefit{{PlanGroup: plan.PlanGroup, ValidityType: "duration", DurationDays: days}},
 		UserID:          userID,
 		PlanID:          plan.ID,
 		StripeSessionID: sessionID,

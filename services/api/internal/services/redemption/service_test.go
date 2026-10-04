@@ -3,6 +3,7 @@ package redemption
 import (
 	"errors"
 	"fmt"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"regexp"
 	"testing"
 	"time"
@@ -103,13 +104,15 @@ func TestRedeemCodeWithDBLocksUserAndCommitsRenewal(t *testing.T) {
 	now := time.Now().UTC()
 	currentExpiry := now.AddDate(0, 0, 7)
 	expectRedemptionRenewalPrefix(mock, currentExpiry)
-	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
+	expectRenewalGrant(mock, currentExpiry, 10)
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"plan_group"=\$2,"resource_access_granted"=\$3,"updated_at"=\$4 WHERE id = \$5`).
+		WithArgs(sqlmock.AnyArg(), "VIP_A", true, sqlmock.AnyArg(), "user_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("user_1").WillReturnRows(sqlmock.NewRows([]string{"plan_group", "validity_type", "expires_at"}).AddRow("VIP_A", "duration", currentExpiry.AddDate(0, 0, 10)))
 	mock.ExpectExec(`INSERT INTO "redemptions"`).
 		WithArgs(sqlmock.AnyArg(), "user_1", "renew-code", 10, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "redemption_codes" SET "used_count"="used_count" + 1 WHERE code = $1 AND "used_count" < "max_uses" AND ("expires_at" IS NULL OR "expires_at" > $2)`)).
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "redemption_codes" SET "used_count"="used_count" + 1 WHERE code = $1 AND NOT legacy_invalidated AND "used_count" < "max_uses" AND ("expires_at" IS NULL OR "expires_at" > $2)`)).
 		WithArgs("renew-code", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -131,9 +134,11 @@ func TestRedeemCodeWithDBRollsBackWhenUserUpdateFails(t *testing.T) {
 	defer cleanup()
 	dbpkg.DB = database
 
-	expectRedemptionRenewalPrefix(mock, time.Now().UTC().AddDate(0, 0, 7))
-	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
+	expiry := time.Now().UTC().AddDate(0, 0, 7)
+	expectRedemptionRenewalPrefix(mock, expiry)
+	expectRenewalGrant(mock, expiry, 10)
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"plan_group"=\$2,"resource_access_granted"=\$3,"updated_at"=\$4 WHERE id = \$5`).
+		WithArgs(sqlmock.AnyArg(), "VIP_A", true, sqlmock.AnyArg(), "user_1").
 		WillReturnError(errors.New("update failed"))
 	mock.ExpectRollback()
 
@@ -147,6 +152,8 @@ func TestRedeemCodeWithDBRollsBackWhenUserUpdateFails(t *testing.T) {
 }
 
 func newRedemptionSQLMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	configpkg.InvalidateCachedSetting("CRON_TIMEZONE")
+	t.Cleanup(func() { configpkg.InvalidateCachedSetting("CRON_TIMEZONE") })
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -165,6 +172,7 @@ func newRedemptionSQLMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
 }
 
 func expectRedemptionRenewalPrefix(mock sqlmock.Sqlmock, currentExpiry time.Time) {
+	mock.ExpectQuery(`SELECT .*settings`).WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("CRON_TIMEZONE", "Asia/Shanghai"))
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT \* FROM "redemption_codes" WHERE code = \$1 ORDER BY "redemption_codes"\."id" LIMIT \$2`).
 		WithArgs("renew-code", 1).
@@ -180,7 +188,7 @@ func expectRedemptionRenewalPrefix(mock sqlmock.Sqlmock, currentExpiry time.Time
 func redemptionCodeRows(id, code string, days int) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "code", "max_uses", "used_count", "expires_at", "default_days", "registration_plan_group", "notes", "created_at",
-	}).AddRow(id, code, 1, 0, nil, days, "VIP", "", time.Now().UTC())
+	}).AddRow(id, code, 1, 0, nil, days, "VIP_A", "", time.Now().UTC())
 }
 
 func redemptionColumns() []string {
@@ -192,4 +200,14 @@ func redemptionUserRows(id string, expiresAt time.Time) *sqlmock.Rows {
 		"id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled", "telegram_id",
 		"plan_group", "applied_media_library_template_version", "expires_at", "is_active", "password_reset_required", "created_at", "updated_at",
 	}).AddRow(id, fmt.Sprintf("%s_name", id), "user", "", fmt.Sprintf("%s@example.com", id), "", false, false, nil, nil, int64(1), expiresAt, true, false, time.Now().UTC(), time.Now().UTC())
+}
+
+// expectRenewalGrant verifies the selected group's expiry is persisted with an audit before projecting the user.
+func expectRenewalGrant(mock sqlmock.Sqlmock, expiry time.Time, days int) {
+	mock.ExpectQuery(`SELECT .*entitlement_events`).WillReturnRows(sqlmock.NewRows([]string{"source_key"}))
+	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("user_1").WillReturnRows(sqlmock.NewRows([]string{"user_id", "plan_group", "validity_type", "expires_at"}).AddRow("user_1", "VIP_A", "duration", expiry))
+	mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("VIP_A", 10))
+	mock.ExpectExec(`DELETE FROM "user_entitlements"`).WithArgs("user_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs("user_1", "VIP_A", "duration", expiry.AddDate(0, 0, days), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "entitlement_events"`).WillReturnResult(sqlmock.NewResult(0, 1))
 }

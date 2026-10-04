@@ -8,6 +8,7 @@ import (
 
 // RedemptionCode 兑换码模型（统一用于注册门控和续期）
 type RedemptionCode struct {
+	LegacyInvalidated         bool       `json:"legacyInvalidated" gorm:"column:legacy_invalidated;not null;default:false"`
 	ID                        string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	Code                      string     `json:"code" gorm:"column:code;uniqueIndex;size:20;not null"`
 	MaxUses                   int        `json:"maxUses" gorm:"column:max_uses;not null;default:1"`
@@ -33,6 +34,9 @@ func (r *RedemptionCode) BeforeCreate(tx *gorm.DB) error {
 
 // IsValid 检查兑换码是否有效
 func (r *RedemptionCode) IsValid() bool {
+	if r.LegacyInvalidated {
+		return false
+	}
 	if r.UsedCount >= r.MaxUses {
 		return false
 	}

@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import { ElMessage } from 'element-plus'
+import { resolvePayment } from '@/api/entitlements'
+import { getPlanGroups } from '@/api/admin'
+import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
+import PlanBenefitsEditor from '@/components/billing/PlanBenefitsEditor.vue'
+import { benefitText, validateBenefits } from '@/utils/entitlements'
+import type { PlanBenefit, ManagedPlanGroup } from '@/types/api'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, RefreshRight, UserFilled, CreditCard, Goods, CollectionTag } from '@element-plus/icons-vue'
@@ -37,6 +44,8 @@ const activePlanId = computed(() => queryParams.value.planId.trim())
 const activeStatus = computed(() => queryParams.value.status)
 const planOptions = ref<Plan[]>([])
 const statusOptions: Array<{ label: string; value: PaymentStatus }> = [
+  { label: '待人工处理', value: 'paid_review' },
+  { label: '已人工处理', value: 'resolved' },
   { label: '待支付', value: 'pending' },
   { label: '支付成功', value: 'completed' },
   { label: '已过期', value: 'expired' },
@@ -54,6 +63,10 @@ const formatPrice = (price: number, currency: string = 'usd') => {
 
 const statusMeta = (status: PaymentStatus) => {
   switch (status) {
+    case 'paid_review':
+      return { text: '待人工处理', type: 'warning' as const }
+    case 'resolved':
+      return { text: '已人工处理', type: 'info' as const }
     case 'completed':
       return { text: '支付成功', type: 'success' as const }
     case 'expired':
@@ -173,6 +186,33 @@ watch(
 )
 
 onMounted(fetchPlans)
+const reviewPayment = ref<Payment | null>(null)
+const resolution = ref<'external_refund' | 'compensation'>('external_refund')
+const resolutionNote = ref('')
+const compensationBenefits = ref<PlanBenefit[]>([])
+const reviewGroups = ref<ManagedPlanGroup[]>([])
+const resolving = ref(false)
+/** 展示已付款异常原因，补偿配置复用套餐权益编辑器。 */
+async function openReview(payment: Payment) {
+  reviewGroups.value = (await getPlanGroups()).data
+  resolution.value = 'external_refund'
+  resolutionNote.value = ''
+  compensationBenefits.value = []
+  reviewPayment.value = payment
+}
+/** 退款仅记录管理员已在线下完成的结果，不声称此按钮执行退款。 */
+async function submitReview() {
+  if (!reviewPayment.value || resolving.value) return
+  if (!resolutionNote.value.trim()) { ElMessage.warning('请填写处理记录'); return }
+  if (resolution.value === 'compensation') { const error = validateBenefits(compensationBenefits.value); if (error) { ElMessage.warning(error); return } }
+  resolving.value = true
+  try {
+    await resolvePayment(reviewPayment.value.id, resolution.value, resolutionNote.value.trim(), compensationBenefits.value)
+    reviewPayment.value = null
+    ElMessage.success('人工处理已记录')
+    await fetchData()
+  } finally { resolving.value = false }
+}
 </script>
 
 <template>
@@ -277,11 +317,7 @@ onMounted(fetchPlans)
         </template>
       </el-table-column>
 
-      <el-table-column label="天数" width="100" align="center">
-        <template #default="{ row }">
-          <span class="text-gray-700">+{{ row.days }} 天</span>
-        </template>
-      </el-table-column>
+      <el-table-column label="购买权益" min-width="180"><template #default="{ row }"><div v-for="benefit in row.benefits" :key="benefit.planGroup">{{ benefitText(benefit) }}</div><span v-if="!row.benefits?.length">历史订单 · {{ row.days }} 天</span></template></el-table-column>
 
       <el-table-column label="状态" width="120" align="center">
         <template #default="{ row }">
@@ -291,6 +327,10 @@ onMounted(fetchPlans)
         </template>
       </el-table-column>
 
+      <el-table-column label="人工处理" min-width="200"><template #default="{ row }">
+        <button v-if="row.status === 'paid_review'" class="btn-ember px-3 py-2" @click="openReview(row)">处理订单</button>
+        <span v-else>{{ row.resolutionNote || '—' }}</span>
+      </template></el-table-column>
       <el-table-column prop="stripeSessionId" label="Session ID" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">
           <code class="text-xs text-gray-600">{{ row.stripeSessionId || '-' }}</code>
@@ -323,4 +363,13 @@ onMounted(fetchPlans)
       </template>
     </EmberTableCard>
   </div>
+  <EmberFormDialog :model-value="!!reviewPayment" title="处理已付款订单" width="680px" @update:model-value="value => { if (!value) reviewPayment = null }">
+    <el-form label-position="top" class="space-y-4 p-6">
+      <p class="text-sm text-gray-600">{{ reviewPayment?.manualReviewReason === 'already_owned' ? '付款时已拥有对应永久权益' : '订单权益信息无法确定，需要人工核对' }}</p>
+      <el-form-item label="处理方式"><el-select v-model="resolution" class="form-select w-full"><el-option label="记录线下已退款" value="external_refund" /><el-option label="发放补偿权益" value="compensation" /></el-select></el-form-item>
+      <PlanBenefitsEditor v-if="resolution === 'compensation'" v-model="compensationBenefits" :groups="reviewGroups" />
+      <el-form-item label="处理记录"><el-input v-model="resolutionNote" type="textarea" :maxlength="500" class="input-ember" /></el-form-item>
+    </el-form>
+    <template #footer><button class="btn-ember px-4 py-2.5" :disabled="resolving" @click="submitReview">{{ resolving ? '处理中…' : '确认处理' }}</button></template>
+  </EmberFormDialog>
 </template>

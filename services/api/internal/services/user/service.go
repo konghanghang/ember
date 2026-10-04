@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	"log"
 	"strings"
 	"time"
@@ -147,7 +148,19 @@ func NewUserServiceWithDeps(deps UserServiceDeps) *UserService {
 	}
 	if service.createUser == nil {
 		service.createUser = func(user *models.User) error {
-			return db.DB.Create(user).Error
+			return db.DB.Transaction(func(tx *gorm.DB) error {
+				if err := tx.Create(user).Error; err != nil {
+					return err
+				}
+				if user.PlanGroup == nil {
+					return ErrRequestInvalid
+				}
+				target := entitlementpkg.Holding{PlanGroup: *user.PlanGroup, ValidityType: entitlementpkg.Duration, ExpiresAt: user.ExpiresAt}
+				if user.ExpiresAt == nil {
+					target.ValidityType = entitlementpkg.Permanent
+				}
+				return entitlementpkg.AdjustLocked(tx, user, target, false, "admin-create:"+user.ID, "admin:create", time.Now())
+			})
 		}
 	}
 	if service.getPlanGroupByKey == nil {

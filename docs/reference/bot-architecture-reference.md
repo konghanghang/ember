@@ -77,3 +77,7 @@ Bot 的环境变量清单、敏感性和回退规则统一维护在 [配置参�
 - `polling` 模式下可移除 Telegram 使用的公网域名和 HTTPS 回调入口，但 Bot 仍需保留内网 HTTP 地址供 API 访问 `/notify/*`
 - `polling` 模式启动前会通过 Internal API 申请 `bot_runtime_locks(name='telegram_polling')` 租约锁，并每 30 秒续租一次；拿不到锁的实例直接拒绝启动，续租失败的实例会主动停止 polling，避免多副本重复消费更新
 - `webhook` 模式下注册采用有限重试策略；达到最大重试次数仍失败时，Bot 停止继续重试，`GET /health` 返回 `degraded` 并附带最近错误与重试次数，便于部署侧探活与告警
+
+## 分组权益展示（2026-10-04）
+
+Internal 账号信息增加 `entitlements/currentPlanGroup/resourceAccessGranted/businessTimezone`。Bot 按 API 已重算状态展示当前访问与各组期限，明确区分无权益和永久，不自行到期切组；期限按 API 的 `CRON_TIMEZONE` 展示。兑换沿用 API 统一发放，只续码指定组，永久已拥有时不消耗次数。支付通知携带订单 benefits 与业务时区，组合或永久权益逐项展示，不输出“延长 0 天”。

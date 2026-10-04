@@ -21,7 +21,7 @@ func TestMarkUsingDefaultPlanGroup(t *testing.T) {
 		{
 			name: "default plan group",
 			view: UserView{
-				User: models.User{},
+				User: models.User{ResourceAccessGranted: true},
 			},
 			wantDefault:    true,
 			wantPolicySync: "synced",
@@ -29,14 +29,14 @@ func TestMarkUsingDefaultPlanGroup(t *testing.T) {
 		{
 			name: "explicit plan group",
 			view: UserView{
-				User: models.User{PlanGroup: &explicitPlanGroup},
+				User: models.User{PlanGroup: &explicitPlanGroup, ResourceAccessGranted: true},
 			},
 			wantPolicySync: "synced",
 		},
 		{
 			name: "missing explicit plan group is not default",
 			view: UserView{
-				User:               models.User{},
+				User:               models.User{ResourceAccessGranted: true},
 				IsPlanGroupMissing: true,
 			},
 			wantPolicySync: "synced",
@@ -73,8 +73,8 @@ func TestMarkUsingDefaultPlanGroup(t *testing.T) {
 
 func TestMarkUsersUsingDefaultPlanGroup(t *testing.T) {
 	users := []UserView{
-		{User: models.User{}},
-		{User: models.User{}, IsPlanGroupMissing: true},
+		{User: models.User{ResourceAccessGranted: true}},
+		{User: models.User{ResourceAccessGranted: true}, IsPlanGroupMissing: true},
 	}
 
 	markUsersUsingDefaultPlanGroup(users)

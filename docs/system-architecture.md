@@ -334,7 +334,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 ### 4.2 关键关系
 
 - `User` 是核心主体，向外关联 `Redemption`、`Subscription`、`Payment`、`TelegramBindCode` 和追剧订阅
-- `PlanGroup → Plan → Payment` 构成套餐与支付主链路；`User.planGroup`、`RedemptionCode.registrationPlanGroup` 参与用户可见套餐边界
+- `Plan.benefits → Payment.benefits → UserEntitlement` 构成售卖与发放主链路；`PlanGroup.entitlementRank` 决定当前生效组，`User.planGroup/expiresAt/resourceAccessGranted` 是重算后的访问投影，不用于限制套餐展示
 - `Subscription` 承载媒体订阅状态流转，`APPROVED → INGESTED` 与 Emby 入库事件联动；`SubscriptionAdminNotification` 记录每条 Telegram 管理员审批消息的 `chatId/messageId`，用于 Web / Telegram 任一端审批后的消息同步
 - `TVCalendarSource / Item / Subscription` 构成追剧日历缓存和用户关注关系
 - `Setting` 作为运行期配置 KV 存储层，不通过外键耦合业务表；全局 Admin API Key 仅在该表保存 `external_api_key_hash`，不保存明文
@@ -395,7 +395,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 ### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
 
 - `GetUsers(page, pageSize, search, isActive, expiresAfter, embyStatus, planGroup)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`；`embyStatus` 支持 `available/disabled/unlinked`；`planGroup` 按“有效套餐分组”过滤：用户显式分组优先，否则回退系统默认分组）
-- `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态/套餐组/到期时间；`planGroup` 不传表示不改，传合法 key 表示绑定目标分组，传空字符串会被拒绝；有效分组变化后会同步把该用户关联的 `pending` 支付标记为 `expired`
+- `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态；分组权益通过独立新增、设期限、续期、撤销入口管理。旧更新合同若携带 `planGroup`，必须同时明确目标期限或永久，禁止把当前组剩余时间复制到另一个组；不再因用户切组失效订单快照
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
 - `GetProfile(userID)` — 获取用户个人资料
 - `UpdateEmail(userID, req)` — 邮箱变更落库；`UpdateEmailRequest{NewEmail string \`binding:"required,email"\`, Code string \`binding:"required,len=6"\`}`，先做 `unchangedEmailCheck` → 调用 `EmailService.IsRegistrationEmailAllowed(newEmail)` 做注册邮箱域名白名单门控（命中拒绝在事务开启前直接返回，不消费验证码、不写库；与 `SendEmailChangeCode` 共用同一份语义防御 send-code 通过后管理员收紧白名单的窗口）→ 事务内 `EmailService.ConsumeCodeTx(tx, newEmail, code, change_email)`（校验即消费）→ `UPDATE users.email`；返回 `*UpdateEmailResult{OldEmail, User}` 由 handler 用于 fire-and-forget 通知旧邮箱
@@ -410,7 +410,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 - `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, registrationPlanGroup, notes)` — 批量生成兑换码，`registrationPlanGroup` 必填，单次最多 100 个，整批事务提交
 - `GetRedemptionCodes(page, pageSize, showAll, code, status, registrationPlanGroup)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）和注册套餐分组过滤，并返回 `notes`、`registrationPlanGroupName`；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
 - `ValidateRegistrationCode(code)` — 注册场景兑换码校验；查找 + IsValid()，并强校验 `registrationPlanGroup` 仍存在
-- `ValidateRenewalCode(code)` — 续期场景兑换码校验；只查找 + IsValid()，忽略 `registrationPlanGroup`
+- `ValidateRenewalCode(code)` — 续期场景兑换码可用性校验；实际兑换只向 `registrationPlanGroup` 指定组发放权益；旧码由 migration 标记 `legacyInvalidated`，注册/续期均拒绝
 - `UseCode(code)` — 原子递增 usedCount
 
 ### 5.4 RedemptionService (`services/redemption/service.go`)
@@ -630,19 +630,28 @@ Emby 媒体服务器 HTTP 客户端，10 秒超时。
 
 Stripe 一次性支付流程管理。
 
-- `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组除名称/排序外还承载 `subscriptionAutoApproveDailyLimit` 这类审核权益配置。分组存在性、引用检查（`plans` / `users` / `redemption_codes.registrationPlanGroup`）和默认分组切换收口都在应用层完成，切换默认分组时会同步收口跟随默认用户的 `pending` 支付
+- `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组除名称/排序外还承载 `subscriptionAutoApproveDailyLimit` 这类审核权益配置。分组存在性及引用检查覆盖套餐权益、订单快照、用户权益和兑换码；默认分组变更不失效订单。权益等级通过完整映射保存并验证媒体库逐级包含，配置不齐时拒绝新购
 - `CreateCheckoutSession(userID, planID)` — **批次 2 改造为占位幂等模式**：先在事务里 `INSERT payments (status='pending', stripeSessionId='') ON CONFLICT (uq_payments_pending_user_plan) DO NOTHING`，命中冲突回查现有 pending 复用；事务外调 Stripe 时携带 `Idempotency-Key=checkout:<paymentId>`，并发的两个请求拿到同一 paymentId → Stripe 返回同一 Session；最后 `UPDATE payments SET stripeSessionId, checkoutUrl WHERE id=?` 回填
-- 同一订单重试收费的金额、币种及天数始终来自 `Payment.Amount/Currency/Days`，与履约共用不可变快照；改价仅影响新订单。名称/描述、跳转 URL 和支付方式未持久化为请求快照，它们变更后仍可能造成 Stripe 幂等参数不一致拒绝，不自动改写已有订单或生成替代身份。
-- `GetPlansForUser(userID)` — 登录态可购方案列表，仅返回当前用户有效分组下的启用套餐
+- 同一订单重试收费的金额、币种及天数始终来自 `Payment.Amount/Currency/Days`，与 `Payment.benefits` 一起形成不可变交付快照；改价或修改套餐权益仅影响新订单。名称/描述、跳转 URL 和支付方式未持久化为请求快照，它们变更后仍可能造成 Stripe 幂等参数不一致拒绝，不自动改写已有订单或生成替代身份。
+- `GetPlansForUser(userID)` — 向所有登录用户返回同一启用套餐目录，附 `purchasable/purchaseReason`；不按当前分组筛选，永久高等级覆盖的无增益购买会被拒绝
 - `HandleWebhook(payload, signature)` — 签名验证后按 `event.id` 在 `stripe_webhook_events` 做去重 + 失败重试状态机：
   - 首次 `INSERT ON CONFLICT DO NOTHING` 成功 → 进入业务分发
   - 命中冲突时回查 status：`processed / skipped` → 真正幂等 200 不再分发；`received / failed` → 视为上次未完成（崩溃中断 / 业务返回 5xx），允许 Stripe 自动重试驱动履约，同时把 `receivedAt` 刷新为本次重投时间
   - 分发完成后 UPDATE 写终态；`checkout.session.expired` → `MarkPaymentExpired(sessionID)` 把本地 pending 收口为 expired
-- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 先非锁定定位订单归属，再按 `user → payment` 顺序加行锁并复验订单，保持与后台改分组的锁顺序一致；套餐按已提交快照读取，不在持有 payment 锁时再等待 plan 锁。只有 `completed` 是已履约终点，本地 failed/expired 与通用 updatedAt 不会吞掉真实付款成功。事务内更新权益和 completed，commit 后仍异步同步 Policy，外部失败不回滚付款权益
-- 成功付款遇到套餐分组不符会回滚履约并返回包含固定 `reasonCode=plan_group_mismatch` 与本地 paymentId 的错误，沿既有 `stripe_webhook_events.failed/error_message` 保留可重投事件；不新增支付状态、字段或处理页面。重复成功事件在订单锁内复验 completed，只发放一次；迟到失败/过期不会覆盖 completed
+- `fulfillPayment(sessionID, paymentIntentID, eventCreated, metadata)` — 先非锁定定位订单归属，再按 `user → payment` 顺序加行锁并复验订单，保持与后台改分组的锁顺序一致；套餐按已提交快照读取，不在持有 payment 锁时再等待 plan 锁。`completed`、`paid_review`、`resolved` 都阻止重复发放，本地 failed/expired 与通用 updatedAt 不会吞掉真实付款成功。事务内按订单权益快照发放各组授权、写幂等审计并更新生效组；commit 后异步同步 Policy，外部失败不回滚付款权益
+- 付款时已无增益、历史订单缺权益快照或目标组等级不可用时，保存 `paidAt` 并进入 `paid_review`，不冒充正常履约。管理员可记录线下已退款或原子发放补偿，完成后为 `resolved`；不自动退款，重复回调/人工提交不重复发放
 - `markPaymentFailed(sessionID, eventCreated)` — 同样接受 `eventCreated`，做乱序保护
 - `MarkPaymentExpired(sessionID)` — `UPDATE payments SET status='expired' WHERE stripeSessionId=? AND status='pending'`，`RowsAffected=0` 视为已收口（noop）
 - 邀请码模板用户 Policy 复制链路已废弃；注册权益只来自 `registrationPlanGroup` 对应的分组媒体库模板和 Emby 权益模板
+
+### 5.16.1 分组权益服务（`services/entitlement`）
+
+- `user_entitlements` 按用户/分组保存独立的 `duration/permanent` 授权；同组续期在尚有效期限上追加，已到期从履约时起算，使用 `CRON_TIMEZONE` 的自然日计算。
+- 跨组不相加、不暂停；组合套餐分别发放，永久授权不会被限时购买覆盖。仅最高等级有效组提供完整媒体库、求片及 115 模式/并发/配额，不合并配置或清零用量。
+- `entitlement_events` 记录来源幂等键和前后权益。支付、兑换、注册及管理员调整在各自事务中共享用户行锁、发放和投影逻辑；兑换只续目标组，永久已拥有时不消耗次数。
+- 开放注册试用为 0 不创建权益；邀请码注册只发码指定组的期限；管理员可对指定组延长、设到期日/永久或撤销。
+- 存量用户按当前授权回填，不重放支付。空期限按既有永久语义映射，分组不自动猜等级；已持有权益和历史记录保留，旧码统一失效，新码不受迁移重跑影响。
+- 具体升级步骤见 [权益改版升级说明](runbooks/entitlements-upgrade.md)。
 
 ### 5.17 错误定义（按业务拆分）
 
@@ -1007,7 +1016,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 
 | 任务 | 调度 | 控制变量 | 说明 |
 |------|------|----------|------|
-| 过期用户检查 | `CRON_SCHEDULE`（默认 `0 2 * * *`）| `CRON_ENABLED` | 封禁过期 Emby 账号 |
+| 过期用户检查 | `CRON_SCHEDULE`（默认 `0 2 * * *`）| `CRON_ENABLED` | 重算到期权益：回退有效组或停用无权益账号 |
 | 验证码清理 | `0 3 * * *` | `CRON_ENABLED` | 删除过期 EmailVerification + TelegramBindCode |
 | 日榜生成 | `RANKING_DAILY_SCHEDULE`（默认 `0 20 * * *`）| `CRON_ENABLED` + `RANKING_CRON_ENABLED` | 从 Emby 生成日播放排行 |
 | 周榜生成 | `RANKING_WEEKLY_SCHEDULE`（默认 `30 20 * * 0`）| `CRON_ENABLED` + `RANKING_CRON_ENABLED` | 从 Emby 生成周播放排行 |
@@ -1037,7 +1046,7 @@ Telegram 账号绑定与 Bot 自助能力服务。
 | `TV_CALENDAR_STARTUP_SYNC_ENABLED` | `"true"` | 是否启用 API 启动后的追剧日历补偿同步 |
 | `TV_CALENDAR_SYNC_SCHEDULE` | `"0 */12 * * *"` | 追剧日历自动同步表达式 |
 
-**过期检查逻辑**：查询 `expiresAt < NOW() AND embyDisabled = false` → Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`。不修改 IsActive，不阻止用户登录。
+**过期检查逻辑**：沿用 `CRON_SCHEDULE` 的已配置时点（可每日多次）、`CRON_ENABLED` 和 `CRON_TIMEZONE`，不新增实时回退、每分钟到期轮询或启动兜底。扫描当前期限已到且本地仍有访问或远端尚未停用的普通用户，用户行锁内重读权益后选择最高等级有效组；有低组则回退，无有效权益才停用。Token 撤销继续由 Policy 在串行边界内根据最新状态决定。允许自然到期到下次检查之间延迟处理，本地权限消费者使用 `resourceAccessGranted` 与当前组，不自行按时钟切组；不解除人工封禁，也不修改 `isActive`。
 
 ---
 

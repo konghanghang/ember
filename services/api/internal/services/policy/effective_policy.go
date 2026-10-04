@@ -118,7 +118,7 @@ func (s *Service) applyEffectiveUserPolicyLocked(userID, reason string) error {
 		return s.resolveFailedUserPolicySyncTasks(user.ID)
 	}
 
-	managedPolicy, fields := buildManagedPolicyFields(rawPolicy, user.IsExpired() || user.EmbyAccessDisabled, template, libraryIDs)
+	managedPolicy, fields := buildManagedPolicyFields(rawPolicy, !user.ResourceAccessGranted || user.EmbyAccessDisabled, template, libraryIDs)
 	log.Printf("[Policy] 应用用户有效 Emby Policy: userID=%s embyID=%s planGroup=%s reason=%s libraryCount=%d isDisabled=%t",
 		user.ID, user.EmbyID, planGroupKey, reason, len(libraryIDs), managedPolicy["IsDisabled"])
 	if disabled, _ := managedPolicy["IsDisabled"].(bool); disabled || user.EmbyDisabled {

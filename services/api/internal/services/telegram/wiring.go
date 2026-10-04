@@ -1,6 +1,8 @@
 package telegram
 
 import (
+	configpkg "github.com/konghang/ember/backend/internal/config"
+	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	subscriptionpkg "github.com/konghang/ember/backend/internal/services/subscription"
@@ -37,9 +39,16 @@ func (defaultTelegramSubscriber) Create(userID string, req TelegramSubscriptionC
 }
 
 func NewDefaultService() *TelegramService {
-	return NewTelegramService(
+	service := NewTelegramService(
 		defaultTelegramRedeemer{},
 		defaultTelegramSubscriber{},
 		embyint.GetSharedService,
 	)
+	service.accountEntitlements = func(id string) ([]AccountEntitlement, error) {
+		rows := []AccountEntitlement{}
+		err := db.DB.Table("user_entitlements AS e").Select("e.plan_group, g.name AS plan_group_name, e.validity_type, e.expires_at").Joins("JOIN plan_groups g ON g.key=e.plan_group").Where("e.user_id = ?", id).Order("g.entitlement_rank DESC NULLS LAST, e.plan_group").Scan(&rows).Error
+		return rows, err
+	}
+	service.businessTimezone = configpkg.LoadConfiguredTimezone
+	return service
 }

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import PlanBenefitsEditor from '@/components/billing/PlanBenefitsEditor.vue'
+import { benefitText, validateBenefits } from '@/utils/entitlements'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, Refresh, EditPen, Goods } from '@element-plus/icons-vue'
 import { createPlan, deletePlan, getPlanGroups, getPlans, updatePlan } from '@/api/admin'
@@ -8,7 +10,7 @@ import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
-import type { CreatePlanRequest, ManagedPlanGroup, Plan, PlanGroup, UpdatePlanRequest } from '@/types/api'
+import type { CreatePlanRequest, ManagedPlanGroup, Plan, PlanGroup, PlanBenefit, UpdatePlanRequest } from '@/types/api'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -38,6 +40,7 @@ const form = ref({
   name: '',
   description: '',
   days: 30,
+  benefits: [{ planGroup: '', validityType: 'duration', durationDays: 30 }] as PlanBenefit[],
   priceDisplay: 9.99,
   currency: 'usd',
   planGroup: '' as PlanGroup,
@@ -49,6 +52,7 @@ const editForm = ref({
   name: '',
   description: '',
   days: 30,
+  benefits: [{ planGroup: '', validityType: 'duration', durationDays: 30 }] as PlanBenefit[],
   priceDisplay: 9.99,
   currency: 'usd',
   planGroup: '' as PlanGroup,
@@ -78,11 +82,8 @@ const handlePageSizeChange = (size: number) => {
 
 const applyDefaultPlanGroupToForms = () => {
   const fallbackGroup = defaultPlanGroup.value?.key || planGroups.value[0]?.key || ''
-  if (!form.value.planGroup) {
-    form.value.planGroup = fallbackGroup
-  }
-  if (!editForm.value.planGroup) {
-    editForm.value.planGroup = fallbackGroup
+  for (const target of [form.value, editForm.value]) {
+    if (target.benefits[0] && !target.benefits[0].planGroup) target.benefits[0].planGroup = fallbackGroup
   }
 }
 
@@ -117,6 +118,7 @@ const resetCreateForm = () => {
     name: '',
     description: '',
     days: 30,
+  benefits: [{ planGroup: '', validityType: 'duration', durationDays: 30 }] as PlanBenefit[],
     priceDisplay: 9.99,
     currency: 'usd',
     planGroup: defaultPlanGroup.value?.key || planGroups.value[0]?.key || '',
@@ -133,26 +135,21 @@ const handleCreate = async () => {
     ElMessage.warning('请输入方案名称')
     return
   }
-  if (form.value.days < 1) {
-    ElMessage.warning('天数必须大于 0')
-    return
-  }
+  const benefitError = validateBenefits(form.value.benefits)
+  if (benefitError) { ElMessage.warning(benefitError); return }
   if (!validatePriceDisplay(form.value.priceDisplay)) {
     ElMessage.warning('请输入有效价格')
     return
   }
-  if (!form.value.planGroup) {
-    ElMessage.warning('请选择套餐分组')
-    return
-  }
+
 
   const payload: CreatePlanRequest = {
     name: form.value.name.trim(),
     description: form.value.description.trim(),
-    days: form.value.days,
+    benefits: form.value.benefits,
     price: Math.round(form.value.priceDisplay * 100),
     currency: form.value.currency,
-    planGroup: form.value.planGroup,
+
     sortOrder: form.value.sortOrder
   }
 
@@ -174,6 +171,7 @@ const openEditDialog = (row: Plan) => {
     name: row.name,
     description: row.description || '',
     days: row.days,
+    benefits: (row.benefits || [{ planGroup: row.planGroup, validityType: 'duration', durationDays: row.days }]).map(b => ({ ...b })),
     priceDisplay: row.price / 100,
     currency: row.currency || 'usd',
     planGroup: row.planGroup || defaultPlanGroup.value?.key || '',
@@ -188,26 +186,21 @@ const handleUpdate = async () => {
     ElMessage.warning('请输入方案名称')
     return
   }
-  if (editForm.value.days < 1) {
-    ElMessage.warning('天数必须大于 0')
-    return
-  }
+  const benefitError = validateBenefits(editForm.value.benefits)
+  if (benefitError) { ElMessage.warning(benefitError); return }
   if (!validatePriceDisplay(editForm.value.priceDisplay)) {
     ElMessage.warning('请输入有效价格')
     return
   }
-  if (!editForm.value.planGroup) {
-    ElMessage.warning('请选择套餐分组')
-    return
-  }
+
 
   const payload: UpdatePlanRequest = {
     name: editForm.value.name.trim(),
     description: editForm.value.description.trim(),
-    days: editForm.value.days,
+    benefits: editForm.value.benefits,
     price: Math.round(editForm.value.priceDisplay * 100),
     currency: editForm.value.currency,
-    planGroup: editForm.value.planGroup,
+
     isActive: editForm.value.isActive,
     sortOrder: editForm.value.sortOrder
   }
@@ -341,9 +334,9 @@ onMounted(async () => {
           </template>
         </el-table-column>
 
-        <el-table-column label="时长" width="100">
+        <el-table-column label="权益" min-width="180">
           <template #default="{ row }">
-            <span class="font-medium text-gray-700">{{ row.days }} 天</span>
+            <div v-for="benefit in row.benefits" :key="benefit.planGroup" class="text-sm text-gray-700">{{ benefitText(benefit, Object.fromEntries(planGroups.map(g => [g.key, g.name]))) }}</div>
           </template>
         </el-table-column>
 
@@ -356,14 +349,6 @@ onMounted(async () => {
         <el-table-column label="币种" width="100">
           <template #default="{ row }">
             <span class="text-gray-600 uppercase">{{ row.currency }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="分组" min-width="140">
-          <template #default="{ row }">
-            <el-tag effect="light" round size="small" :type="row.planGroup === defaultPlanGroup?.key ? 'warning' : 'info'">
-              {{ row.planGroupName || row.planGroup }}{{ row.planGroup === defaultPlanGroup?.key ? '（默认）' : '' }}
-            </el-tag>
           </template>
         </el-table-column>
 
@@ -431,9 +416,6 @@ onMounted(async () => {
           </el-form-item>
 
           <div class="grid grid-cols-2 gap-6">
-            <el-form-item label="时长（天）">
-              <el-input-number v-model="form.days" :min="1" class="w-full !w-full form-number" />
-            </el-form-item>
 
             <el-form-item label="价格">
               <el-input-number v-model="form.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full form-number" />
@@ -451,16 +433,7 @@ onMounted(async () => {
             </el-select>
           </el-form-item>
 
-          <el-form-item label="套餐组">
-            <el-select v-model="form.planGroup" class="w-full form-select" placeholder="选择套餐组">
-              <el-option
-                v-for="option in planGroupOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </el-form-item>
+          <PlanBenefitsEditor v-model="form.benefits" :groups="planGroups" />
 
           <el-form-item label="排序">
             <el-input-number v-model="form.sortOrder" :min="0" class="w-full !w-full form-number" />
@@ -502,9 +475,6 @@ onMounted(async () => {
           </el-form-item>
 
           <div class="grid grid-cols-2 gap-6">
-            <el-form-item label="时长（天）">
-              <el-input-number v-model="editForm.days" :min="1" class="w-full !w-full form-number" />
-            </el-form-item>
 
             <el-form-item label="价格">
               <el-input-number v-model="editForm.priceDisplay" :min="0.01" :step="0.01" :precision="2" class="w-full !w-full form-number" />
@@ -522,16 +492,7 @@ onMounted(async () => {
             </el-select>
           </el-form-item>
 
-          <el-form-item label="套餐组">
-            <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
-              <el-option
-                v-for="option in planGroupOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </el-form-item>
+          <PlanBenefitsEditor v-model="editForm.benefits" :groups="planGroups" />
 
           <div class="grid grid-cols-2 gap-6">
             <el-form-item label="排序">

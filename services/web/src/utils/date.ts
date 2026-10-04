@@ -205,3 +205,11 @@ export function addDays(date: Date, days: number): Date {
   result.setDate(result.getDate() + days)
   return result
 }
+
+/** 权益时间使用 API 返回的全局业务时区，不依赖浏览器所在时区。 */
+export function formatDateTimeInTimezone(value: string, timezone: string): string {
+  if (!value || !timezone) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date)
+}

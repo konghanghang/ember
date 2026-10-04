@@ -184,3 +184,9 @@ baseline 必须与运行库 schema **字段级等价**，且与 `services/api/in
 - 多份 baseline 共存防御：`TestRunMigrate_MultipleBaselinesCoexist_FailFast`
 
 具体操作可参考 [`docs/runbooks/database-migration-baseline.md`](../../docs/runbooks/database-migration-baseline.md)。
+
+## 2026-10-04 分组权益迁移
+
+`20261004_01_plan_group_entitlements.sql` 引入独立权益、发放审计、订单快照、分组等级和人工处理字段，并同步启动指纹。旧用户按当前分组/期限回填，不重放订单；旧码统一失效，历史兑换记录保留；重跑不使新码失效或重发已撤销权益。等级须管理员配置，未完成包含校验前暂停新购。
+
+升级窗口、恢复限制及专用 PostgreSQL 验证见 [分组权益升级 runbook](../../docs/runbooks/entitlements-upgrade.md)。当前只有静态 migration 合同与 mock 证据；未配置专用测试库时集成用例跳过，不计为迁移执行通过。

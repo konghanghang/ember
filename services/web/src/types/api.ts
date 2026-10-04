@@ -6,6 +6,7 @@ export type SubscriptionReviewSource = 'MANUAL' | 'AUTO_QUOTA'
 export type P115PlaybackMode = 'personal' | 'system'
 
 export interface ManagedPlanGroup {
+ entitlementRank?: number | null
   key: string
   name: string
   description?: string
@@ -185,6 +186,7 @@ export interface RegisterRequest {
 }
 
 export interface UserInfo {
+ resourceAccessGranted?: boolean
   id: string
   username: string
   role: UserRole
@@ -278,6 +280,7 @@ export interface CreateAdminUserRequest {
 }
 
 export interface RedemptionCode {
+  legacyInvalidated?: boolean
   id: string
   code: string
   maxUses: number
@@ -1124,7 +1127,25 @@ export interface TVCalendarWeeklyData {
 }
 
 // ==================== 付费方案 ====================
+export interface PlanBenefit {
+ planGroupName?: string
+ planGroup: PlanGroup
+ validityType: 'duration' | 'permanent'
+ durationDays?: number
+}
+
+export interface UserEntitlement {
+ userId: string
+ planGroup: PlanGroup
+ planGroupName: string
+ validityType: 'duration' | 'permanent'
+ expiresAt: string | null
+}
+
 export interface Plan {
+ benefits?: PlanBenefit[]
+ purchasable?: boolean
+ purchaseReason?: string
   id: string
   name: string
   description: string
@@ -1140,9 +1161,10 @@ export interface Plan {
 }
 
 export interface CreatePlanRequest {
+ benefits?: PlanBenefit[]
   name: string
   description?: string
-  days: number
+  days?: number
   price: number
   currency?: string
   planGroup?: PlanGroup
@@ -1150,6 +1172,7 @@ export interface CreatePlanRequest {
 }
 
 export interface UpdatePlanRequest {
+ benefits?: PlanBenefit[]
   name?: string
   description?: string
   days?: number
@@ -1183,9 +1206,15 @@ export interface UpdatePlanGroupRequest {
   p115TransferDailyLimit?: number
 }
 
-export type PaymentStatus = 'pending' | 'completed' | 'expired' | 'failed'
+export type PaymentStatus = 'pending' | 'completed' | 'expired' | 'failed' | 'paid_review' | 'resolved'
 
 export interface Payment {
+ benefits?: PlanBenefit[]
+ manualReviewReason?: string
+ resolution?: string
+ resolutionNote?: string
+ paidAt?: string
+ resolvedAt?: string
   id: string
   userId: string
   planId: string

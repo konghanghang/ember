@@ -21,6 +21,7 @@ func TestCheckoutRetryUsesPaymentSnapshotThroughFulfillment(t *testing.T) {
 	var requests []url.Values
 	var keys []string
 	service := &PaymentService{
+		loadTimezone: func() *time.Location { return time.UTC },
 		getCheckoutConfig: func() (*checkoutConfig, error) {
 			return &checkoutConfig{StripeSecret: "sk_test", SuccessURL: "https://example.com/success", CancelURL: "https://example.com/cancel", PaymentMethods: []string{"card"}}, nil
 		},
@@ -29,7 +30,7 @@ func TestCheckoutRetryUsesPaymentSnapshotThroughFulfillment(t *testing.T) {
 		expirePendingPaymentsFn: func(string, string, time.Time) error { return nil },
 		reservePendingPaymentFn: func(userID string, p *models.Plan, now time.Time) (*models.Payment, error) {
 			if payment == nil {
-				payment = &models.Payment{ID: "pay_retry", UserID: userID, PlanID: p.ID, Amount: p.Price, Currency: p.Currency, Days: p.Days, Status: models.PaymentPending, CreatedAt: now, UpdatedAt: now}
+				payment = &models.Payment{ID: "pay_retry", UserID: userID, PlanID: p.ID, Amount: p.Price, Currency: p.Currency, Benefits: []models.PlanBenefit{{PlanGroup: p.PlanGroup, ValidityType: "duration", DurationDays: p.Days}}, Days: p.Days, Status: models.PaymentPending, CreatedAt: now, UpdatedAt: now}
 			}
 			return payment, nil
 		},
@@ -97,9 +98,8 @@ func TestCheckoutRetryUsesPaymentSnapshotThroughFulfillment(t *testing.T) {
 	expectPaymentUserLock(mock, payment.UserID, "VIP_A", currentExpiry)
 	expectPaymentLock(mock, *payment)
 	expectPaymentPlanRead(mock, payment.PlanID, "VIP_A")
-	expectPaymentPlanGroupLookup(mock, "VIP_A")
-	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).WithArgs(currentExpiry.AddDate(0, 0, 30), sqlmock.AnyArg(), payment.UserID).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE "payments" SET "status"=\$1,"stripe_payment_intent_id"=\$2,"updated_at"=\$3 WHERE id = \$4`).WithArgs(models.PaymentCompleted, "pi_retry", sqlmock.AnyArg(), payment.ID).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectEntitlementGrant(mock, *payment, currentExpiry)
+	mock.ExpectExec(`UPDATE "payments" SET "paid_at"=\$1,"status"=\$2,"stripe_payment_intent_id"=\$3,"updated_at"=\$4 WHERE id = \$5`).WithArgs(sqlmock.AnyArg(), models.PaymentCompleted, "pi_retry", sqlmock.AnyArg(), payment.ID).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	event := &stripeWebhookEvent{Type: "checkout.session.completed"}
 	event.Data.Object = stripeCheckoutSessionObject{ID: payment.StripeSessionID, PaymentIntent: "pi_retry", PaymentStatus: "paid", Metadata: map[string]string{"days": "90"}}

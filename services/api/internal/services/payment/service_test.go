@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -84,36 +85,6 @@ func TestNormalizePlanGroupKey(t *testing.T) {
 		}
 		if got != tc.want {
 			t.Fatalf("%s: want %s, got %s", tc.name, tc.want, got)
-		}
-	}
-}
-
-func TestPlanGroupsMatchForFulfillment(t *testing.T) {
-	tests := []struct {
-		name          string
-		userPlanGroup *string
-		planPlanGroup string
-		want          bool
-		wantErr       bool
-	}{
-		{name: "same group matches", userPlanGroup: strPtr("VIP-A"), planPlanGroup: "VIP-A", want: true},
-		{name: "different groups rejected", userPlanGroup: strPtr("VIP-A"), planPlanGroup: "VIP-B", want: false},
-		{name: "invalid group errors", userPlanGroup: strPtr("VIP A"), planPlanGroup: "VIP-A", wantErr: true},
-	}
-
-	for _, tc := range tests {
-		got, err := planGroupsMatchForFulfillment(tc.userPlanGroup, tc.planPlanGroup)
-		if tc.wantErr {
-			if err == nil {
-				t.Fatalf("%s: expected error, got nil", tc.name)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("%s: unexpected error: %v", tc.name, err)
-		}
-		if got != tc.want {
-			t.Fatalf("%s: want %t, got %t", tc.name, tc.want, got)
 		}
 	}
 }
@@ -244,16 +215,13 @@ func TestFulfillPaymentFulfillsExpiredLatePaidPayment(t *testing.T) {
 	expectPaymentUserLock(mock, "user_1", "VIP_A", currentExpiry)
 	expectPaymentLock(mock, payment)
 	expectPaymentPlanRead(mock, "plan_1", "VIP_A")
-	expectPaymentPlanGroupLookup(mock, "VIP_A")
-	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE "payments" SET "status"=\$1,"stripe_payment_intent_id"=\$2,"updated_at"=\$3 WHERE id = \$4`).
-		WithArgs(models.PaymentCompleted, "pi_late", sqlmock.AnyArg(), "pay_late").
+	expectEntitlementGrant(mock, payment, currentExpiry)
+	mock.ExpectExec(`UPDATE "payments" SET "paid_at"=\$1,"status"=\$2,"stripe_payment_intent_id"=\$3,"updated_at"=\$4 WHERE id = \$5`).
+		WithArgs(sqlmock.AnyArg(), models.PaymentCompleted, "pi_late", sqlmock.AnyArg(), "pay_late").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", payment.UpdatedAt.Add(-time.Hour), nil)
+	err := (&PaymentService{loadTimezone: func() *time.Location { return time.UTC }}).fulfillPayment("cs_late", "pi_late", payment.UpdatedAt.Add(-time.Hour), nil)
 	if err != nil {
 		t.Fatalf("fulfillPayment(): %v", err)
 	}
@@ -272,7 +240,7 @@ func TestFulfillPaymentCompletedIsIdempotentWithoutGrant(t *testing.T) {
 	expectPaymentFulfillmentRef(mock, payment)
 	mock.ExpectRollback()
 
-	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
+	err := (&PaymentService{loadTimezone: func() *time.Location { return time.UTC }}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
 	if err != nil {
 		t.Fatalf("fulfillPayment(): %v", err)
 	}
@@ -281,30 +249,33 @@ func TestFulfillPaymentCompletedIsIdempotentWithoutGrant(t *testing.T) {
 	}
 }
 
-func TestFulfillPaymentGroupMismatchRollsBackWithActionableError(t *testing.T) {
+// TestLegacyPaidOrderRequiresReview preserves the payment fact without inventing its historical benefits.
+func TestLegacyPaidOrderRequiresReview(t *testing.T) {
 	database, mock, cleanup := newPaymentSQLMockDB(t)
 	defer cleanup()
 	dbpkg.DB = database
-
-	currentExpiry := time.Now().UTC().AddDate(0, 0, 7)
-	payment := paymentFixture("pay_mismatch", models.PaymentExpired, time.Now().UTC())
+	payment := paymentFixture("pay_legacy", models.PaymentExpired, time.Now())
+	payment.Benefits = nil
 	mock.ExpectBegin()
 	expectPaymentFulfillmentRef(mock, payment)
-	expectPaymentUserLock(mock, "user_1", "VIP_B", currentExpiry)
+	expectPaymentUserLock(mock, "user_1", "VIP_B", time.Now())
 	expectPaymentLock(mock, payment)
 	expectPaymentPlanRead(mock, "plan_1", "VIP_A")
-	expectPaymentPlanGroupLookup(mock, "VIP_B")
-	mock.ExpectRollback()
-
-	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
-	if !errors.Is(err, ErrPaymentFailed) {
-		t.Fatalf("expected ErrPaymentFailed, got %v", err)
+	mock.ExpectExec(`UPDATE "payments" SET "manual_review_reason"=\$1,"paid_at"=\$2,"status"=\$3,"stripe_payment_intent_id"=\$4,"updated_at"=\$5 WHERE id = \$6`).WithArgs("legacy_snapshot_missing", sqlmock.AnyArg(), models.PaymentManualReview, "pi_late", sqlmock.AnyArg(), payment.ID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	service := &PaymentService{loadTimezone: func() *time.Location { return time.UTC }}
+	if err := service.fulfillPayment("cs_late", "pi_late", time.Now(), nil); err != nil {
+		t.Fatal(err)
 	}
-	if err == nil || !strings.Contains(err.Error(), "reasonCode=plan_group_mismatch") || !strings.Contains(err.Error(), "paymentId=pay_mismatch") {
-		t.Fatalf("expected actionable group mismatch error, got %v", err)
+	payment.Status = models.PaymentManualReview
+	mock.ExpectBegin()
+	expectPaymentFulfillmentRef(mock, payment)
+	mock.ExpectRollback()
+	if err := service.fulfillPayment("cs_late", "pi_late", time.Now(), nil); err != nil {
+		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("sql expectations: %v", err)
+		t.Fatal(err)
 	}
 }
 
@@ -324,7 +295,7 @@ func TestFulfillPaymentUserMissingReturnsActionableError(t *testing.T) {
 		}))
 	mock.ExpectRollback()
 
-	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
+	err := (&PaymentService{loadTimezone: func() *time.Location { return time.UTC }}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
 	if !errors.Is(err, ErrPaymentFailed) || !strings.Contains(err.Error(), "reasonCode=payment_user_lookup_failed") || !strings.Contains(err.Error(), "paymentId=pay_missing_user") {
 		t.Fatalf("expected actionable user missing error, got %v", err)
 	}
@@ -351,7 +322,7 @@ func TestFulfillPaymentIdentityChangedAfterUserLockRollsBack(t *testing.T) {
 		}))
 	mock.ExpectRollback()
 
-	err := (&PaymentService{}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
+	err := (&PaymentService{loadTimezone: func() *time.Location { return time.UTC }}).fulfillPayment("cs_late", "pi_late", time.Now().UTC(), nil)
 	if !errors.Is(err, ErrPaymentFailed) || !strings.Contains(err.Error(), "reasonCode=payment_recheck_failed") || !strings.Contains(err.Error(), "paymentId=pay_identity_changed") {
 		t.Fatalf("expected actionable identity changed error, got %v", err)
 	}
@@ -934,7 +905,7 @@ func TestCreateCheckoutSessionReusesExistingPendingCheckout(t *testing.T) {
 			return &models.User{ID: userID, PlanGroup: strPtr("VIP-A")}, nil
 		},
 		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
-			if planID != "plan_1" || planGroup != "VIP-A" {
+			if planID != "plan_1" || planGroup != "" {
 				t.Fatalf("unexpected plan lookup: planID=%s planGroup=%s", planID, planGroup)
 			}
 			return &models.Plan{
@@ -1245,7 +1216,7 @@ func TestCreateCheckoutSessionMapsUserLookupFailure(t *testing.T) {
 	}
 }
 
-func TestCreateCheckoutSessionRejectsInvalidUserPlanGroup(t *testing.T) {
+func TestCreateCheckoutSessionDoesNotFilterByUserPlanGroup(t *testing.T) {
 	service := &PaymentService{
 		getCheckoutConfig: func() (*checkoutConfig, error) {
 			return &checkoutConfig{
@@ -1258,15 +1229,17 @@ func TestCreateCheckoutSessionRejectsInvalidUserPlanGroup(t *testing.T) {
 			return &models.User{ID: userID, PlanGroup: strPtr("vip a")}, nil
 		},
 		getCheckoutPlan: func(planID, planGroup string) (*models.Plan, error) {
-			t.Fatalf("getCheckoutPlan must not run when user plan group is invalid")
-			return nil, nil
+			if planGroup != "" {
+				t.Fatal("catalog must not be filtered by current group")
+			}
+			return nil, gorm.ErrRecordNotFound
 		},
 	}
 
 	resp, err := service.CreateCheckoutSession("user_1", &CreateCheckoutRequest{PlanID: "plan_1"})
 
-	if !errors.Is(err, ErrPlanGroupInvalid) {
-		t.Fatalf("expected ErrPlanGroupInvalid, got resp=%+v err=%v", resp, err)
+	if !errors.Is(err, ErrPlanNotFound) {
+		t.Fatalf("expected catalog lookup, got resp=%+v err=%v", resp, err)
 	}
 	if resp != nil {
 		t.Fatalf("expected nil response on invalid user plan group, got %+v", resp)
@@ -1529,6 +1502,7 @@ func newPaymentSQLMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
 func paymentFixture(id string, status models.PaymentStatus, updatedAt time.Time) models.Payment {
 	expiresAt := updatedAt.Add(-time.Hour)
 	return models.Payment{
+		Benefits:              []models.PlanBenefit{{PlanGroup: "VIP_A", ValidityType: "duration", DurationDays: 30}},
 		ID:                    id,
 		UserID:                "user_1",
 		PlanID:                "plan_1",
@@ -1551,13 +1525,14 @@ func expectPaymentFulfillmentRef(mock sqlmock.Sqlmock, payment models.Payment) {
 }
 
 func expectPaymentLock(mock sqlmock.Sqlmock, payment models.Payment) {
+	benefits, _ := json.Marshal(payment.Benefits)
 	mock.ExpectQuery(`SELECT \* FROM "payments" WHERE "stripe_session_id" = \$1 AND "user_id" = \$2 ORDER BY "payments"\."id" LIMIT \$3 FOR UPDATE`).
 		WithArgs(payment.StripeSessionID, payment.UserID, 1).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "user_id", "plan_id", "stripe_session_id", "stripe_payment_intent_id", "checkout_url",
+			"benefits", "id", "user_id", "plan_id", "stripe_session_id", "stripe_payment_intent_id", "checkout_url",
 			"amount", "currency", "days", "status", "expires_at", "created_at", "updated_at",
 		}).AddRow(
-			payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, payment.StripePaymentIntentID, payment.CheckoutURL,
+			string(benefits), payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, payment.StripePaymentIntentID, payment.CheckoutURL,
 			payment.Amount, payment.Currency, payment.Days, payment.Status, payment.ExpiresAt, payment.CreatedAt, payment.UpdatedAt,
 		))
 }
@@ -1566,13 +1541,13 @@ func expectPaymentUserLock(mock sqlmock.Sqlmock, userID, planGroup string, expir
 	mock.ExpectQuery(`SELECT \* FROM "users" WHERE id = \$1 ORDER BY "users"\."id" LIMIT \$2 FOR UPDATE`).
 		WithArgs(userID, 1).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled", "telegram_id",
+			"resource_access_granted", "id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled", "telegram_id",
 			"plan_group", "applied_media_library_template_version", "expires_at", "is_active", "password_reset_required", "created_at", "updated_at",
-		}).AddRow(userID, userID+"_name", "user", "", userID+"@example.com", "", false, false, nil, planGroup, int64(1), expiresAt, true, false, time.Now().UTC(), time.Now().UTC()))
+		}).AddRow(true, userID, userID+"_name", "user", "", userID+"@example.com", "", false, false, nil, planGroup, int64(1), expiresAt, true, false, time.Now().UTC(), time.Now().UTC()))
 }
 
 func expectPaymentPlanRead(mock sqlmock.Sqlmock, planID, planGroup string) {
-	mock.ExpectQuery(`SELECT "id","name","plan_group" FROM "plans" WHERE id = \$1 ORDER BY "plans"\."id" LIMIT \$2`).
+	mock.ExpectQuery(`SELECT "id","name" FROM "plans" WHERE id = \$1 ORDER BY "plans"\."id" LIMIT \$2`).
 		WithArgs(planID, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "plan_group"}).AddRow(planID, planID+"_name", planGroup))
 }
@@ -1642,4 +1617,15 @@ func TestExpirePendingPaymentsByScopeRejectsEmptyScope(t *testing.T) {
 	}()
 
 	_, _ = expirePendingPaymentsByScope(nil, "", " ")
+}
+
+// expectEntitlementGrant verifies fulfillment persists the order's days rather than mutable product days.
+func expectEntitlementGrant(mock sqlmock.Sqlmock, payment models.Payment, expiry time.Time) {
+	mock.ExpectQuery(`SELECT .*entitlement_events`).WithArgs("payment:"+payment.ID, 1).WillReturnRows(sqlmock.NewRows([]string{"source_key"}))
+	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs(payment.UserID).WillReturnRows(sqlmock.NewRows([]string{"user_id", "plan_group", "validity_type", "expires_at"}).AddRow(payment.UserID, "VIP_A", "duration", expiry))
+	mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("VIP_A", 10))
+	mock.ExpectExec(`DELETE FROM "user_entitlements"`).WithArgs(payment.UserID).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs(payment.UserID, "VIP_A", "duration", expiry.AddDate(0, 0, 30), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "entitlement_events"`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"plan_group"=\$2,"resource_access_granted"=\$3,"updated_at"=\$4 WHERE id = \$5`).WithArgs(expiry.AddDate(0, 0, 30), "VIP_A", true, sqlmock.AnyArg(), payment.UserID).WillReturnResult(sqlmock.NewResult(0, 1))
 }

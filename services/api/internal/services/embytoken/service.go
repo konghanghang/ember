@@ -199,7 +199,7 @@ func (service *Service) ResolvePrincipal(ctx context.Context, accessToken string
 		return Principal{}, ErrUserUnavailable
 	}
 	now := service.now().UTC()
-	if user.ExpiresAt != nil && user.ExpiresAt.Before(now) {
+	if !user.IsAdmin() && !user.ResourceAccessGranted {
 		return Principal{}, ErrUserExpired
 	}
 	cutoff := now.Add(-lastSeenWriteInterval)

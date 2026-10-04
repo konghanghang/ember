@@ -22,7 +22,7 @@ type UserView struct {
 
 func (u *UserView) markUsingDefaultPlanGroup() {
 	u.IsUsingDefaultPlanGroup = u.PlanGroup == nil && !u.IsPlanGroupMissing
-	u.IsExpired = u.User.IsExpired()
+	u.IsExpired = u.User.IsAccessExpired()
 	if u.PolicySyncStatus == "" {
 		u.PolicySyncStatus = "synced"
 	}

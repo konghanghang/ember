@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"regexp"
 	"strings"
 	"testing"
@@ -165,10 +166,12 @@ func TestExtendExpiryWithDBLocksUserAndCommitsRenewal(t *testing.T) {
 	dbpkg.DB = database
 
 	currentExpiry := time.Now().UTC().AddDate(0, 0, 7)
+	mock.ExpectQuery(`SELECT .*settings`).WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("CRON_TIMEZONE", "Asia/Shanghai"))
 	mock.ExpectBegin()
 	expectUserExpiryLock(mock, "user_1", currentExpiry)
-	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
+	expectRenewalGrant(mock, currentExpiry, 14)
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"plan_group"=\$2,"resource_access_granted"=\$3,"updated_at"=\$4 WHERE id = \$5`).
+		WithArgs(sqlmock.AnyArg(), "VIP_A", true, sqlmock.AnyArg(), "user_1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -189,10 +192,13 @@ func TestExtendExpiryWithDBRollsBackWhenUpdateFails(t *testing.T) {
 	defer cleanup()
 	dbpkg.DB = database
 
+	expiry := time.Now().UTC().AddDate(0, 0, 7)
+	mock.ExpectQuery(`SELECT .*settings`).WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("CRON_TIMEZONE", "Asia/Shanghai"))
 	mock.ExpectBegin()
-	expectUserExpiryLock(mock, "user_1", time.Now().UTC().AddDate(0, 0, 7))
-	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"updated_at"=\$2 WHERE id = \$3`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1").
+	expectUserExpiryLock(mock, "user_1", expiry)
+	expectRenewalGrant(mock, expiry, 14)
+	mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"plan_group"=\$2,"resource_access_granted"=\$3,"updated_at"=\$4 WHERE id = \$5`).
+		WithArgs(sqlmock.AnyArg(), "VIP_A", true, sqlmock.AnyArg(), "user_1").
 		WillReturnError(errors.New("update failed"))
 	mock.ExpectRollback()
 
@@ -206,6 +212,8 @@ func TestExtendExpiryWithDBRollsBackWhenUpdateFails(t *testing.T) {
 }
 
 func newUserSQLMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	configpkg.InvalidateCachedSetting("CRON_TIMEZONE")
+	t.Cleanup(func() { configpkg.InvalidateCachedSetting("CRON_TIMEZONE") })
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -229,7 +237,7 @@ func expectUserExpiryLock(mock sqlmock.Sqlmock, userID string, currentExpiry tim
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "username", "role", "password", "email", "emby_id", "emby_disabled", "emby_access_disabled", "telegram_id",
 			"plan_group", "applied_media_library_template_version", "expires_at", "is_active", "password_reset_required", "created_at", "updated_at",
-		}).AddRow(userID, userID+"_name", "user", "", userID+"@example.com", "", false, false, nil, nil, int64(1), currentExpiry, true, false, time.Now().UTC(), time.Now().UTC()))
+		}).AddRow(userID, userID+"_name", "user", "", userID+"@example.com", "", false, false, nil, "VIP_A", int64(1), currentExpiry, true, false, time.Now().UTC(), time.Now().UTC()))
 }
 
 func TestDeleteUserSkipsLocalDeleteWhenEmbyDeleteFails(t *testing.T) {
@@ -615,4 +623,14 @@ func assertSQLContains(t *testing.T, sql string, fragment string) {
 	if !strings.Contains(sql, fragment) {
 		t.Fatalf("expected SQL to contain %q, got %s", fragment, sql)
 	}
+}
+
+// expectRenewalGrant verifies the selected group's expiry is persisted with an audit before projecting the user.
+func expectRenewalGrant(mock sqlmock.Sqlmock, expiry time.Time, days int) {
+	mock.ExpectQuery(`SELECT .*entitlement_events`).WillReturnRows(sqlmock.NewRows([]string{"source_key"}))
+	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("user_1").WillReturnRows(sqlmock.NewRows([]string{"user_id", "plan_group", "validity_type", "expires_at"}).AddRow("user_1", "VIP_A", "duration", expiry))
+	mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("VIP_A", 10))
+	mock.ExpectExec(`DELETE FROM "user_entitlements"`).WithArgs("user_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs("user_1", "VIP_A", "duration", expiry.AddDate(0, 0, days), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "entitlement_events"`).WillReturnResult(sqlmock.NewResult(0, 1))
 }

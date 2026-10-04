@@ -100,6 +100,8 @@ func VerifySchema() error {
 		model interface{}
 	}{
 		{"users", &models.User{}},
+		{"user_entitlements", &models.UserEntitlement{}},
+		{"entitlement_events", &models.EntitlementEvent{}},
 		{"redemption_codes", &models.RedemptionCode{}},
 		{"redemptions", &models.Redemption{}},
 		{"settings", &models.Setting{}},
@@ -200,6 +202,13 @@ type schemaFingerprintIndex struct {
 // 维护规则：每次在 infrastructure/database/ 新增顶层 migration 后，把其中"在已有表上 ADD COLUMN"
 // 的代表性列追加到这里；漏维护会导致 VerifySchema 放过缺该 migration 的环境。
 var schemaFingerprintColumns = []schemaFingerprintColumn{
+	{"user_entitlements", "validity_type", "20261004_01_plan_group_entitlements"},
+	{"entitlement_events", "source_key", "20261004_01_plan_group_entitlements"},
+	{"plan_groups", "entitlement_rank", "20261004_01_plan_group_entitlements"},
+	{"plans", "benefits", "20261004_01_plan_group_entitlements"},
+	{"payments", "manual_review_reason", "20261004_01_plan_group_entitlements"},
+	{"users", "resource_access_granted", "20261004_01_plan_group_entitlements"},
+	{"redemption_codes", "legacy_invalidated", "20261004_01_plan_group_entitlements"},
 	{"playback_ranking_batches", "total_duration", "20260929_01_playback_ranking_batches"},
 	{"subscriptions", "reject_reason", "20260416_01_subscription_status_and_review_fields"},
 	{"subscriptions", "reviewed_at", "20260416_01_subscription_status_and_review_fields"},
@@ -243,6 +252,8 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 // 维护规则：每次在 infrastructure/database/ 新增顶层 migration 后，把其中"CREATE [UNIQUE] INDEX"
 // 的代表性索引追加到这里；尤其是带业务约束（partial unique / 复合唯一）的索引必须列入。
 var schemaFingerprintIndexes = []schemaFingerprintIndex{
+	{"plan_groups", "uq_plan_groups_entitlement_rank", "20261004_01_plan_group_entitlements"},
+	{"user_entitlements", "idx_user_entitlements_expires_at", "20261004_01_plan_group_entitlements"},
 	{"media_gaps", "uk_media_gap_episode", "20260418_01_media_gaps"},
 	{"subscriptions", "uq_subscriptions_active_media", "20260424_01_subscription_resubmission_after_rejection"},
 	{"subscriptions", "idx_subscriptions_retry_from_id", "20260424_01_subscription_resubmission_after_rejection"},

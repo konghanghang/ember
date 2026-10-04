@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/konghang/ember/backend/internal/models"
 	"io"
 	"log"
 	"net/http"
@@ -127,16 +128,18 @@ type RegistrationNotification struct {
 // Email / StripeSessionID / StripePaymentIntentID 等可定位单笔支付的强标识；
 // 运维需要追溯单笔支付，请走后台审计页通过 paymentId / userId 查询。
 type PaymentSuccessNotification struct {
-	PaymentID    string  `json:"paymentId"`
-	UserID       string  `json:"userId"`
-	UserName     string  `json:"userName"`
-	PlanID       string  `json:"planId"`
-	PlanName     string  `json:"planName"`
-	Amount       int64   `json:"amount"`
-	Currency     string  `json:"currency"`
-	Days         int     `json:"days"`
-	OldExpiresAt *string `json:"oldExpiresAt"`
-	NewExpiresAt string  `json:"newExpiresAt"`
+	Benefits         []models.PlanBenefit `json:"benefits,omitempty"`
+	BusinessTimezone string               `json:"businessTimezone,omitempty"`
+	PaymentID        string               `json:"paymentId"`
+	UserID           string               `json:"userId"`
+	UserName         string               `json:"userName"`
+	PlanID           string               `json:"planId"`
+	PlanName         string               `json:"planName"`
+	Amount           int64                `json:"amount"`
+	Currency         string               `json:"currency"`
+	Days             int                  `json:"days"`
+	OldExpiresAt     *string              `json:"oldExpiresAt"`
+	NewExpiresAt     string               `json:"newExpiresAt"`
 }
 
 // BotNotifier Bot 通知客户端

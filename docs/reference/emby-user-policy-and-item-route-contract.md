@@ -23,6 +23,7 @@
 
 - 上述接口声明 `apikeyauth` 或 `embyauth`；API Key 可用 `X-Emby-Token` header 传递，禁止在日志或文档实例中保存真实凭证。OpenAPI 的认证声明不能单独证明任意普通用户 token 都具有修改其他用户的权限；Ember 管理链路继续使用配置的管理凭据。
 - `UserPolicy.IsDisabled`、`IsAdministrator` 为 boolean，`SimultaneousStreamLimit` 为 int32。
+- 2026-10-04 针对分组权益改版重新读取上述固定 OpenAPI：`UserPolicy.EnabledFolders` 为 string 数组，`EnableAllFolders` 为 boolean；限定分组库时沿用 `EnableAllFolders=false` 和库 ID 列表，不把多组模板叠加。用户已确认目标 Server 仍为 `4.9.3.0`，本功能不依赖插件；本轮只读取固定 SDK 文档，没有调用真实 Emby。该 schema 不证明既有播放会话会立即中断。
 - `UpdateUserPassword` 定义 `Id`、`NewPw`（string）与 `ResetPassword`（boolean）。本地管理员是否调用该接口属于 Ember 认证策略，不能从这些字段推导。
 - Policy 接口是 POST 完整策略 DTO，没有在本次核对的 operation 中声明 revision/CAS 条件写。Ember 的 `PatchUserPolicyFields` 是客户端读后合并再写，不是远端原子 PATCH；串行化与旧结果纠正必须由本地编排保证。
 - 当前客户端还存在 `GET /Users/{Id}/Policy` 兼容读取分支；本次固定 OpenAPI 仅在该 path 声明 POST，因此该 GET 分支不能写成已有 SDK 合同保证。优先使用有合同依据的 `GET /Users/{Id}` 读取 `UserDto.Policy`；兼容分支的目标环境行为保持未证实。

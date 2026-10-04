@@ -9,11 +9,11 @@ import (
 
 	"github.com/konghang/ember/backend/internal/db"
 	"github.com/konghang/ember/backend/internal/models"
-	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 // CheckExpiredUsersResult 定时任务结果
 type CheckExpiredUsersResult struct {
+	FallbackCount    int                      `json:"fallbackCount"`
 	DisabledCount    int                      `json:"disabledCount"`
 	TotalExpired     int                      `json:"totalExpired"`
 	Processed        int                      `json:"processed"`
@@ -34,10 +34,7 @@ type DisabledUserInfo struct {
 const (
 	maxCheckExpiredUsersErrors      = 20
 	maxCheckExpiredUsersFailedUsers = 20
-	expiryRevocationActor           = "system:expiry"
 )
-
-var ErrExpiredUserTokenRevocation = errors.New("撤销过期用户登录失败")
 
 func appendLimitedString(items []string, value string, truncated *bool, limit int) []string {
 	if len(items) >= limit {
@@ -78,6 +75,7 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 
 	errMessages := []string{}
 	disabledCount := 0
+	fallbackCount := 0
 	processedCount := 0
 	disabledUsers := []DisabledUserInfo{}
 	failedUsers := []map[string]interface{}{}
@@ -101,6 +99,7 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("[Cron] 过期用户检查被中断：processed=%d disabled=%d err=%v", processedCount, disabledCount, err)
 				return &CheckExpiredUsersResult{
+					FallbackCount:    fallbackCount,
 					DisabledCount:    disabledCount,
 					TotalExpired:     int(totalExpired),
 					Processed:        processedCount,
@@ -115,18 +114,27 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 		}
 
 		processedCount++
-		count, revokeErr := s.revokeUserTokens(ctx, user.ID, embytokenpkg.RevokeReasonEmbyDisabled, expiryRevocationActor)
-		if revokeErr != nil {
-			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, ErrExpiredUserTokenRevocation)
-			errMessages = appendLimitedString(errMessages, errorMsg, &failureTruncated, maxCheckExpiredUsersErrors)
-			failedUsers = appendLimitedFailedUser(failedUsers, map[string]interface{}{
-				"username": user.Username,
-				"error":    ErrExpiredUserTokenRevocation.Error(),
-			}, &failureTruncated, maxCheckExpiredUsersFailedUsers)
-			log.Printf("[Cron] 过期用户登录撤销失败 userId=%s errorType=%T", user.ID, revokeErr)
+		current, changed, err := s.reconcileUser(ctx, user.ID, cutoff)
+		if err != nil {
+			errMessages = appendLimitedString(errMessages, fmt.Sprintf("重算用户 %s 权益失败", user.Username), &failureTruncated, maxCheckExpiredUsersErrors)
+			log.Printf("[Cron] 权益重算失败 userId=%s err=%v", user.ID, err)
 			continue
 		}
-		log.Printf("[Cron] 过期用户登录已撤销 userId=%s count=%d", user.ID, count)
+		// A migrated overdue user may already have a denied local projection while
+		// the old remote account is still enabled. The scheduled task must close it.
+		if !changed && (current.ResourceAccessGranted || current.EmbyDisabled || current.EmbyID == "") {
+			continue
+		}
+		if current.ResourceAccessGranted {
+			if err := s.applyExpiredPolicy(current.ID); err != nil {
+				errMessages = appendLimitedString(errMessages, fmt.Sprintf("用户 %s 回退权限同步失败", user.Username), &failureTruncated, maxCheckExpiredUsersErrors)
+				log.Printf("[Cron] 回退同步失败 userId=%s err=%v", user.ID, err)
+				continue
+			}
+			fallbackCount++
+			log.Printf("[Cron] 用户权益已回退 userId=%s", user.ID)
+			continue
+		}
 
 		if err := s.applyExpiredPolicy(user.ID); err != nil {
 			errorMsg := fmt.Sprintf("禁用用户 %s 失败: %v", user.Username, err)
@@ -156,6 +164,7 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 	log.Printf("[Cron] 定时任务完成，新封禁 %d 个，处理 %d 个过期用户", disabledCount, processedCount)
 
 	return &CheckExpiredUsersResult{
+		FallbackCount:    fallbackCount,
 		DisabledCount:    disabledCount,
 		TotalExpired:     int(totalExpired),
 		Processed:        processedCount,
@@ -170,7 +179,7 @@ func (s *SystemService) CheckExpiredUsersWithContext(ctx context.Context) (*Chec
 func countExpiredUsers(ctx context.Context, cutoff time.Time) (int64, error) {
 	var totalExpired int64
 	err := db.DB.WithContext(ctx).Model(&models.User{}).
-		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
+		Where("role = 'user' AND expires_at <= ? AND (resource_access_granted = ? OR (emby_disabled = false AND emby_id <> ''))", cutoff, true).
 		Count(&totalExpired).Error
 	return totalExpired, err
 }
@@ -179,7 +188,7 @@ func countExpiredUsers(ctx context.Context, cutoff time.Time) (int64, error) {
 func findExpiredUsers(ctx context.Context, cutoff time.Time) ([]models.User, error) {
 	var expiredUsers []models.User
 	err := db.DB.WithContext(ctx).
-		Where("\"expires_at\" < ? AND \"emby_id\" <> '' AND \"emby_disabled\" = ?", cutoff, false).
+		Where("role = 'user' AND expires_at <= ? AND (resource_access_granted = ? OR (emby_disabled = false AND emby_id <> ''))", cutoff, true).
 		Find(&expiredUsers).Error
 	return expiredUsers, err
 }

@@ -293,7 +293,8 @@ def _parse_datetime(value: str) -> datetime | None:
     return parsed
 
 
-def _format_expiry(value: str | None, *, date_only: bool = False) -> str:
+def _format_expiry(value: str | None, *, date_only: bool = False, business_timezone: str | None = None) -> str:
+    """按 API 指定的全局业务时区展示权益；旧通知沿用原有显示配置。"""
     raw = str(value or "").strip()
     if raw == "":
         return "永不过期"
@@ -301,20 +302,21 @@ def _format_expiry(value: str | None, *, date_only: bool = False) -> str:
     if parsed is None:
         fallback = raw.replace("T", " ")
         return escape(fallback[:10] if date_only else fallback[:19])
-    local_value = parsed.astimezone(_get_display_timezone())
+    local_value = parsed.astimezone(ZoneInfo(business_timezone) if business_timezone else _get_display_timezone())
     pattern = "%Y-%m-%d" if date_only else "%Y-%m-%d %H:%M:%S"
     return escape(local_value.strftime(pattern))
 
 
 def format_payment_message(data: dict) -> str:
+    """按订单快照展示各项权益，组合或永久套餐不使用单一天数摘要。"""
     user_name = escape(str(data.get("userName", "") or "-"))
     plan_name = escape(str(data.get("planName", "") or "-"))
     amount = int(data.get("amount", 0) or 0)
     currency = str(data.get("currency", "") or "USD")
     days = int(data.get("days", 0) or 0)
     payment_id = escape(str(data.get("paymentId", "") or "-"))
-    old_expires_at = _format_expiry(data.get("oldExpiresAt"))
-    new_expires_at = _format_expiry(data.get("newExpiresAt"))
+    old_expires_at = _format_expiry(data.get("oldExpiresAt"), business_timezone=data.get("businessTimezone"))
+    new_expires_at = _format_expiry(data.get("newExpiresAt"), business_timezone=data.get("businessTimezone"))
 
     lines = [
         "💰 <b>支付成功</b>",
@@ -328,6 +330,12 @@ def format_payment_message(data: dict) -> str:
         f"🧾 支付记录：<code>{payment_id}</code>",
     ]
 
+    if data.get("benefits"):
+        lines = [line for line in lines if not line.startswith(("📅 延长：", "⏳ 原到期：", "✅ 新到期："))]
+        for benefit in data["benefits"]:
+            name = escape(str(benefit.get("planGroupName") or benefit.get("planGroup") or ""))
+            duration = "永久" if benefit.get("validityType") == "permanent" else f"{int(benefit.get('durationDays') or 0)} 天"
+            lines.append(f"• {name}：{duration}")
     return clamp_telegram_html("\n".join(lines))
 
 
@@ -399,6 +407,7 @@ def format_bind_success(data: dict) -> str:
 
 
 def format_account_info(data: dict) -> str:
+    """展示当前访问状态和独立权益，不自行触发或推断分组回退。"""
     username = escape(str(data.get("username", "") or ""))
     email = escape(str(data.get("email", "") or "-"))
     is_expired = bool(data.get("isExpired", False))
@@ -406,7 +415,10 @@ def format_account_info(data: dict) -> str:
     emby_disabled = bool(data.get("embyDisabled", False))
     expires_at = str(data.get("expiresAt", "") or "")
 
-    expires_display = _format_expiry(expires_at, date_only=True) if expires_at else "永久有效"
+    business_timezone = data.get("businessTimezone") or None
+    expires_display = _format_expiry(expires_at, date_only=True, business_timezone=business_timezone) if expires_at else "永久有效"
+    if data.get("resourceAccessGranted") is False:
+        expires_display = "无有效权益"
 
     if not is_expired and is_active and not emby_disabled:
         status_emoji = "🟢"
@@ -426,6 +438,13 @@ def format_account_info(data: dict) -> str:
         f"{status_emoji} 状态：{status_text}",
         f"⏳ 有效期至：{expires_display}",
     ]
+
+    for entitlement in data.get("entitlements") or []:
+        group = str(entitlement.get("planGroup") or "")
+        name = escape(str(entitlement.get("planGroupName") or group))
+        current = "（当前）" if group == data.get("currentPlanGroup") else ""
+        deadline = "永久" if entitlement.get("validityType") == "permanent" else _format_expiry(entitlement.get("expiresAt"), date_only=True, business_timezone=business_timezone)
+        lines.append(f"• {name}{current}：{deadline}")
 
     if is_expired:
         lines.append("")

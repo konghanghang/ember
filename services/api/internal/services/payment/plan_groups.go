@@ -2,7 +2,7 @@ package payment
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -86,13 +86,23 @@ var (
 	}
 	paymentCountPlansByGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
-		err := tx.Model(&models.Plan{}).Where(`"plan_group" = ?`, key).Count(&count).Error
-		return count, err
+		err := tx.Model(&models.Plan{}).Where(`benefits @> ?::jsonb`, fmt.Sprintf(`[{"planGroup":%q}]`, key)).Count(&count).Error
+		if err != nil {
+			return 0, err
+		}
+		var snapshots int64
+		err = tx.Model(&models.Payment{}).Where(`benefits @> ?::jsonb`, fmt.Sprintf(`[{"planGroup":%q}]`, key)).Count(&snapshots).Error
+		return count + snapshots, err
 	}
 	paymentCountUsersByGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
 		err := tx.Model(&models.User{}).Where(`"plan_group" = ?`, key).Count(&count).Error
-		return count, err
+		if err != nil {
+			return 0, err
+		}
+		var grants int64
+		err = tx.Model(&models.UserEntitlement{}).Where("plan_group = ?", key).Count(&grants).Error
+		return count + grants, err
 	}
 	paymentCountRedemptionCodesByRegistrationPlanGroup = func(tx *gorm.DB, key string) (int64, error) {
 		var count int64
@@ -289,7 +299,7 @@ func (s *PaymentService) GetPlanGroups() (*GetPlanGroupsResponse, error) {
 	views := make([]PlanGroupView, 0, len(groups))
 	for i := range groups {
 		view := buildPlanGroupView(groups[i])
-		if err := db.DB.Model(&models.Plan{}).Where(`"plan_group" = ?`, view.Key).Count(&view.PlanCount).Error; err != nil {
+		if err := db.DB.Model(&models.Plan{}).Where(`benefits @> ?::jsonb`, fmt.Sprintf(`[{"planGroup":%q}]`, view.Key)).Count(&view.PlanCount).Error; err != nil {
 			return nil, errors.New("获取套餐分组失败")
 		}
 		if err := db.DB.Model(&models.User{}).Where(`"plan_group" = ?`, view.Key).Count(&view.UserCount).Error; err != nil {
@@ -477,7 +487,6 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 		return nil, err
 	}
 
-	defaultChanged := false
 	requestDefault := group.IsDefault
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
@@ -511,7 +520,6 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 	}
 	if req.IsDefault != nil {
 		if *req.IsDefault {
-			defaultChanged = !group.IsDefault
 			requestDefault = true
 		} else if group.IsDefault {
 			rollbackPlanGroupTx(tx)
@@ -540,26 +548,8 @@ func (s *PaymentService) UpdatePlanGroup(key string, req *UpdatePlanGroupRequest
 		}
 	}
 
-	var expiredSessionIDs []string
-	if defaultChanged {
-		expiredSessionIDs, err = pendingStripeSessionIDsForDefaultFollowers(tx)
-		if err != nil {
-			rollbackPlanGroupTx(tx)
-			return nil, err
-		}
-		expiredCount, err := paymentExpirePendingPaymentsForUsersFollowingDefault(tx)
-		if err != nil {
-			rollbackPlanGroupTx(tx)
-			return nil, err
-		}
-		log.Printf("[Payment] 默认套餐分组已切换，已收口跟随默认用户的待支付订单: planGroup=%s expiredCount=%d", group.Key, expiredCount)
-	}
-
 	if err := commitPlanGroupTx(tx); err != nil {
 		return nil, errors.New("更新套餐分组失败")
-	}
-	if len(expiredSessionIDs) > 0 {
-		NewPaymentService().expireStripeCheckoutSessions(expiredSessionIDs)
 	}
 	view := buildPlanGroupView(*group)
 	return &view, nil

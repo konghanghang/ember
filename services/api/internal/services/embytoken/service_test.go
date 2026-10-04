@@ -100,7 +100,7 @@ func TestResolvePrincipalChecksMappingAndLiveUserState(t *testing.T) {
 		ClientName: "Infuse", LastSeenAt: now.Add(-10 * time.Minute),
 	}
 	store.usersByID[userID] = &models.User{
-		ID: userID, EmbyID: "emby-user-1", IsActive: true,
+		ID: userID, EmbyID: "emby-user-1", IsActive: true, ResourceAccessGranted: true,
 	}
 	service := newServiceWithDependencies(store, hasher, testServerID)
 	service.now = func() time.Time { return now }

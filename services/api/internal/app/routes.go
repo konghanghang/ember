@@ -125,6 +125,10 @@ func registerAdminRoutes(api *gin.RouterGroup, h *appHandlers) {
 
 	admin.GET("/media-libraries", h.payment.GetAdminMediaLibraries)
 	admin.GET("/plan-groups", h.payment.GetPlanGroups)
+	admin.PUT("/plan-groups/ranks", h.payment.SetEntitlementRanks)
+	admin.POST("/payments/:id/resolve", h.payment.ResolvePayment)
+	admin.GET("/users/:id/entitlements", h.user.GetUserEntitlements)
+	admin.POST("/users/:id/entitlements", h.user.AdjustUserEntitlement)
 	admin.POST("/plan-groups", h.payment.CreatePlanGroup)
 	admin.PUT("/plan-groups/:key", h.payment.UpdatePlanGroup)
 	admin.DELETE("/plan-groups/:key", h.payment.DeletePlanGroup)
@@ -232,6 +236,7 @@ func registerUserRoutes(api *gin.RouterGroup, h *appHandlers) {
 	user.Use(middleware.JWTAuth(), middleware.PasswordResetRequired(), middleware.UserOnly())
 
 	user.GET(apiroutes.ProfilePath, h.user.GetProfile)
+ user.GET("/entitlements", h.user.GetMyEntitlements)
 	user.PUT(apiroutes.PasswordPath, h.user.UpdatePassword)
 	user.POST("/email/send-code", h.user.SendEmailChangeCode)
 	user.PUT("/email", h.user.UpdateEmail)

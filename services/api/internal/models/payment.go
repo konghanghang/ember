@@ -9,14 +9,23 @@ import (
 type PaymentStatus string
 
 const (
-	PaymentPending   PaymentStatus = "pending"
-	PaymentCompleted PaymentStatus = "completed"
-	PaymentExpired   PaymentStatus = "expired"
-	PaymentFailed    PaymentStatus = "failed"
+	PaymentManualReview PaymentStatus = "paid_review"
+	PaymentResolved     PaymentStatus = "resolved"
+	PaymentPending      PaymentStatus = "pending"
+	PaymentCompleted    PaymentStatus = "completed"
+	PaymentExpired      PaymentStatus = "expired"
+	PaymentFailed       PaymentStatus = "failed"
 )
 
 // Payment 支付记录
 type Payment struct {
+	Benefits              []PlanBenefit `json:"benefits" gorm:"column:benefits;type:jsonb;serializer:json"`
+	PaidAt                *time.Time    `json:"paidAt" gorm:"column:paid_at"`
+	ManualReviewReason    string        `json:"manualReviewReason,omitempty" gorm:"column:manual_review_reason;type:varchar(100);not null;default:''"`
+	Resolution            string        `json:"resolution,omitempty" gorm:"column:resolution;type:varchar(30);not null;default:''"`
+	ResolutionNote        string        `json:"resolutionNote,omitempty" gorm:"column:resolution_note;type:varchar(500);not null;default:''"`
+	ResolvedBy            string        `json:"resolvedBy,omitempty" gorm:"column:resolved_by;type:varchar(100);not null;default:''"`
+	ResolvedAt            *time.Time    `json:"resolvedAt" gorm:"column:resolved_at"`
 	ID                    string        `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	UserID                string        `json:"userId" gorm:"column:user_id;size:25;index;not null"`
 	PlanID                string        `json:"planId" gorm:"column:plan_id;size:25;index;not null"`

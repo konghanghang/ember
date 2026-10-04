@@ -10,6 +10,7 @@ import { createCheckout, getActivePlans, getMyPayments } from '@/api/console'
 import { refreshConsoleProfileKey, type RefreshConsoleProfile } from '@/constants/consoleProfile'
 import { getRedemptions, redeemCode } from '@/api/user'
 import { formatDate } from '@/utils/date'
+import { benefitText } from '@/utils/entitlements'
 import type { Payment, PaymentStatus, Plan, Redemption } from '@/types/api'
 
 type RenewalTab = 'online' | 'redeem'
@@ -71,6 +72,10 @@ const formatPrice = (price: number, currency: string = 'usd') => {
 
 const paymentStatusMeta = (status: PaymentStatus) => {
   switch (status) {
+    case 'paid_review':
+      return { text: '已付款 · 待人工处理', type: 'warning' as const }
+    case 'resolved':
+      return { text: '已人工处理', type: 'info' as const }
     case 'completed':
       return { text: '支付成功', type: 'success' as const }
     case 'expired':
@@ -148,7 +153,9 @@ const redirectToCheckout = async (planID: string) => {
   }
 }
 
+/** 服务端决定购买资格，按钮和处理入口一致禁止无增益购买。 */
 const handleCheckout = async (plan: Plan) => {
+  if (plan.purchasable === false || buyingPlanID.value) return
   await redirectToCheckout(plan.id)
 }
 
@@ -272,18 +279,19 @@ onMounted(async () => {
                   <div class="mt-4 inline-flex items-center gap-2 rounded-xl bg-ember/5 px-3 py-2 text-sm text-ember ring-1 ring-ember/10">
                     <el-icon><Timer /></el-icon>
                     <span class="font-medium">增加</span>
-                    <span class="text-base font-bold leading-none">{{ plan.days }} 天</span>
+                    <div class="space-y-1"><div v-for="benefit in plan.benefits" :key="benefit.planGroup" class="text-sm font-medium">{{ benefitText(benefit) }}</div></div>
                     <span class="font-medium">有效期</span>
                   </div>
 
                   <button
                     @click="handleCheckout(plan)"
-                    :disabled="buyingPlanID === plan.id"
+                    :disabled="!!buyingPlanID || plan.purchasable === false"
                     class="btn-ember mt-auto flex w-full items-center justify-center gap-2 rounded-xl py-3 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     <el-icon><CreditCard /></el-icon>
-                    <span>{{ buyingPlanID === plan.id ? '跳转中...' : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买') }}</span>
+                    <span>{{ buyingPlanID === plan.id ? '跳转中...' : (plan.purchasable === false ? (plan.purchaseReason === '已拥有对应永久权益' ? '已拥有' : '暂不可购买') : (pendingPlanIDs.has(plan.id) ? '继续支付' : '立即购买')) }}</span>
                   </button>
+                  <p v-if="plan.purchaseReason" class="mt-2 text-sm text-gray-500">{{ plan.purchaseReason }}</p>
                 </div>
               </div>
             </div>

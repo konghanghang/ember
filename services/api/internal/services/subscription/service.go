@@ -499,7 +499,7 @@ func ensureUserCanSubmitSubscription(user *models.User) error {
 	if user == nil || strings.TrimSpace(user.EmbyID) == "" {
 		return ErrSubscriptionEmbyUnlinked
 	}
-	if user.EmbyAccessDisabled || user.IsExpired() {
+	if user.EmbyAccessDisabled || !user.ResourceAccessGranted {
 		return ErrSubscriptionEmbyDisabled
 	}
 	return nil

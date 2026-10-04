@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UserEntitlementsPanel from '@/components/billing/UserEntitlementsPanel.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -638,6 +639,7 @@ onMounted(() => {
       当前账号必须先修改密码
     </div>
 
+    <UserEntitlementsPanel v-if="user.role === 'user' && !passwordResetRequired" :current-group="user.planGroup || undefined" />
     <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
       <div class="border-b border-gray-100 px-4 py-4 sm:px-6">
         <div data-test="account-section-nav" class="w-full overflow-x-auto">
@@ -686,7 +688,7 @@ onMounted(() => {
             <div class="space-y-2 rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
               <p class="text-xs font-semibold text-gray-500">有效期</p>
               <p class="truncate text-base font-medium text-gray-900">
-                {{ user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效' }}
+                {{ user.role === 'user' && user.resourceAccessGranted === false ? '无有效权益' : (user.expiresAt ? formatDateTime(user.expiresAt, 'short') : '永久有效') }}
               </p>
             </div>
             <div class="space-y-2 rounded-2xl border border-gray-100 bg-gray-50/70 p-4 sm:col-span-2 xl:col-span-1">

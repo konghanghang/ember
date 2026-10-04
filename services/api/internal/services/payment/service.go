@@ -26,12 +26,14 @@ import (
 	notifierint "github.com/konghang/ember/backend/internal/integrations/notifier"
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type PaymentService struct {
+	loadTimezone                  func() *time.Location
 	embyService                   *embyint.EmbyService
 	httpClient                    *http.Client
 	notifier                      *notifierint.BotNotifier
@@ -65,24 +67,26 @@ func NewPaymentService() *PaymentService {
 }
 
 type CreatePlanRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	Days        int    `json:"days" binding:"required,min=1"`
-	Price       int64  `json:"price" binding:"required,min=1"`
-	Currency    string `json:"currency"`
-	PlanGroup   string `json:"planGroup"`
-	SortOrder   int    `json:"sortOrder"`
+	Benefits    []models.PlanBenefit `json:"benefits"`
+	Name        string               `json:"name" binding:"required"`
+	Description string               `json:"description"`
+	Days        int                  `json:"days"`
+	Price       int64                `json:"price" binding:"required,min=1"`
+	Currency    string               `json:"currency"`
+	PlanGroup   string               `json:"planGroup"`
+	SortOrder   int                  `json:"sortOrder"`
 }
 
 type UpdatePlanRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	Days        *int    `json:"days" binding:"omitempty,min=1"`
-	Price       *int64  `json:"price" binding:"omitempty,min=1"`
-	Currency    *string `json:"currency"`
-	PlanGroup   *string `json:"planGroup"`
-	IsActive    *bool   `json:"isActive"`
-	SortOrder   *int    `json:"sortOrder"`
+	Benefits    *[]models.PlanBenefit `json:"benefits"`
+	Name        *string               `json:"name"`
+	Description *string               `json:"description"`
+	Days        *int                  `json:"days" binding:"omitempty,min=1"`
+	Price       *int64                `json:"price" binding:"omitempty,min=1"`
+	Currency    *string               `json:"currency"`
+	PlanGroup   *string               `json:"planGroup"`
+	IsActive    *bool                 `json:"isActive"`
+	SortOrder   *int                  `json:"sortOrder"`
 }
 
 type GetPlansRequest struct {
@@ -224,7 +228,11 @@ func buildPlansWithGroupNameSelect(query *gorm.DB) *gorm.DB {
 		Joins(`LEFT JOIN plan_groups ON plan_groups.key = plans."plan_group"`)
 }
 
+// CreatePlan validates and stores each explicitly configured group benefit.
 func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
+	if req.Benefits != nil && len(req.Benefits) == 0 {
+		return nil, entitlementpkg.ErrInvalidBenefit
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, ErrPlanNameRequired
@@ -233,18 +241,17 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
 	if err != nil {
 		return nil, err
 	}
-	planGroup, err := NormalizePlanGroupKey(req.PlanGroup, false)
+	benefits, err := validatePlanBenefits(db.DB, req.Benefits, req.PlanGroup, req.Days)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := GetPlanGroupByKey(nil, planGroup); err != nil {
-		return nil, err
-	}
+	planGroup := benefits[0].PlanGroup
 
 	plan := models.Plan{
+		Benefits:    benefits,
 		Name:        name,
 		Description: strings.TrimSpace(req.Description),
-		Days:        req.Days,
+		Days:        benefits[0].DurationDays,
 		Price:       req.Price,
 		Currency:    currency,
 		PlanGroup:   planGroup,
@@ -258,7 +265,11 @@ func (s *PaymentService) CreatePlan(req *CreatePlanRequest) (*PlanView, error) {
 	return s.getPlanByID(plan.ID)
 }
 
+// UpdatePlan affects future orders only; existing order benefit snapshots remain immutable.
 func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanView, error) {
+	if req.Benefits != nil && len(*req.Benefits) == 0 {
+		return nil, entitlementpkg.ErrInvalidBenefit
+	}
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, errors.New("更新方案失败")
@@ -273,7 +284,6 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 		return nil, errors.New("获取方案失败")
 	}
 
-	planGroupChanged := false
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
@@ -309,7 +319,6 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 			tx.Rollback()
 			return nil, err
 		}
-		planGroupChanged = plan.PlanGroup != planGroup
 		plan.PlanGroup = planGroup
 	}
 	if req.IsActive != nil {
@@ -322,9 +331,28 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 		plan.Currency = "usd"
 	}
 
+	if req.Benefits != nil {
+		plan.Benefits = *req.Benefits
+	} else if req.PlanGroup != nil || req.Days != nil {
+		if len(plan.Benefits) > 1 {
+			tx.Rollback()
+			return nil, entitlementpkg.ErrInvalidBenefit
+		}
+		plan.Benefits = []models.PlanBenefit{{PlanGroup: plan.PlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: plan.Days}}
+	}
+	benefits, err := validatePlanBenefits(tx, plan.Benefits, plan.PlanGroup, plan.Days)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	plan.Benefits = benefits
+	plan.PlanGroup, plan.Days = benefits[0].PlanGroup, benefits[0].DurationDays
+	benefitsJSON, _ := json.Marshal(benefits)
+
 	if err := tx.Model(&models.Plan{}).
 		Where("id = ?", plan.ID).
 		Updates(map[string]interface{}{
+			"benefits":    string(benefitsJSON),
 			"name":        plan.Name,
 			"description": plan.Description,
 			"days":        plan.Days,
@@ -338,28 +366,10 @@ func (s *PaymentService) UpdatePlan(id string, req *UpdatePlanRequest) (*PlanVie
 		return nil, errors.New("更新方案失败")
 	}
 
-	var expiredSessionIDs []string
-	if planGroupChanged {
-		sessionIDs, err := PendingStripeSessionIDsForPlan(tx, plan.ID)
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-		expiredSessionIDs = sessionIDs
-		expiredCount, err := ExpirePendingPaymentsForPlan(tx, plan.ID)
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-		log.Printf("[Payment] 套餐分组变更，已收口待支付订单: planID=%s planGroup=%s expiredCount=%d", plan.ID, plan.PlanGroup, expiredCount)
-	}
-
 	if err := tx.Commit().Error; err != nil {
 		return nil, errors.New("更新方案失败")
 	}
-	if len(expiredSessionIDs) > 0 {
-		s.expireStripeCheckoutSessions(expiredSessionIDs)
-	}
+
 	return s.getPlanByID(plan.ID)
 }
 
@@ -404,7 +414,7 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 		if err != nil {
 			return nil, err
 		}
-		query = query.Where("\"plan_group\" = ?", planGroup)
+		query = query.Where("benefits @> ?::jsonb", fmt.Sprintf(`[{"planGroup":%q}]`, planGroup))
 	}
 
 	var total int64
@@ -431,23 +441,34 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 	}, nil
 }
 
+// GetPlansForUser returns the same enabled catalog to every user with personalized purchase eligibility.
 func (s *PaymentService) GetPlansForUser(userID string) ([]PlanView, error) {
-	var user models.User
-	if err := db.DB.Select("id", "plan_group").Where("id = ?", userID).First(&user).Error; err != nil {
-		return nil, errors.New("获取用户信息失败")
+	plans := []PlanView{}
+	if err := buildPlansWithGroupNameSelect(db.DB.Model(&models.Plan{})).Where(`plans."is_active" = ?`, true).Order(`plans."sort_order" ASC, plans."created_at" DESC`).Find(&plans).Error; err != nil {
+		return nil, err
 	}
-
-	planGroup, err := ResolveEffectivePlanGroupKey(nil, user.PlanGroup)
+	owned, err := entitlementpkg.Load(db.DB, userID)
 	if err != nil {
 		return nil, err
 	}
-
-	var plans []PlanView
-	if err := buildPlansWithGroupNameSelect(db.DB.Model(&models.Plan{})).
-		Where(`plans."is_active" = ? AND plans."plan_group" = ?`, true, planGroup).
-		Order(`plans."sort_order" ASC, plans."created_at" DESC`).
-		Find(&plans).Error; err != nil {
-		return nil, errors.New("获取方案列表失败")
+	ranks, err := entitlementpkg.Ranks(db.DB)
+	if err != nil {
+		return nil, err
+	}
+	readyErr := entitlementpkg.ValidateCatalog(db.DB)
+	if readyErr != nil && !errors.Is(readyErr, entitlementpkg.ErrGroupsNotReady) {
+		return nil, readyErr
+	}
+	location := s.businessTimezone()
+	for i := range plans {
+		reason := readyErr
+		if reason == nil {
+			_, reason = entitlementpkg.Grant(owned, plans[i].Benefits, ranks, time.Now(), location)
+		}
+		plans[i].Purchasable = reason == nil
+		if reason != nil {
+			plans[i].PurchaseReason = reason.Error()
+		}
 	}
 	return plans, nil
 }
@@ -530,7 +551,7 @@ const (
 // successfulPaymentFulfillmentSkipReason 只把已完成订单视为成功付款的幂等终点。
 // 本地 failed/expired 或 Stripe 事件 created 早于 updated_at 都不能证明未收款，paid success 仍必须进入履约事务。
 func successfulPaymentFulfillmentSkipReason(payment models.Payment, _ time.Time) paymentWebhookSkipReason {
-	if payment.Status == models.PaymentCompleted {
+	if payment.Status == models.PaymentCompleted || payment.Status == models.PaymentManualReview || payment.Status == models.PaymentResolved {
 		return paymentWebhookSkipCompleted
 	}
 	return paymentWebhookSkipNone
@@ -538,7 +559,7 @@ func successfulPaymentFulfillmentSkipReason(payment models.Payment, _ time.Time)
 
 func failedPaymentMarkSkipReason(payment models.Payment, eventCreated time.Time) paymentWebhookSkipReason {
 	switch payment.Status {
-	case models.PaymentCompleted:
+	case models.PaymentCompleted, models.PaymentManualReview, models.PaymentResolved:
 		return paymentWebhookSkipCompleted
 	case models.PaymentExpired:
 		return paymentWebhookSkipExpired
@@ -688,15 +709,8 @@ func (s *PaymentService) CreateCheckoutSession(userID string, req *CreateCheckou
 		log.Printf("[Payment] 查询用户套餐分组失败: userID=%s planID=%s err=%v", userID, strings.TrimSpace(req.PlanID), err)
 		return nil, errors.New("获取用户信息失败")
 	}
-	planGroup, err := ResolveEffectivePlanGroupKey(nil, user.PlanGroup)
-	if err != nil {
-		rawPlanGroup := ""
-		if user.PlanGroup != nil {
-			rawPlanGroup = strings.TrimSpace(*user.PlanGroup)
-		}
-		log.Printf("[Payment] 用户套餐分组无效: userID=%s rawPlanGroup=%s err=%v", userID, rawPlanGroup, err)
-		return nil, err
-	}
+	_ = user
+	planGroup := ""
 
 	plan, err := s.checkoutPlan(strings.TrimSpace(req.PlanID), planGroup)
 	if err != nil {
@@ -796,7 +810,7 @@ func (s *PaymentService) checkoutPlan(planID, planGroup string) (*models.Plan, e
 		return s.getCheckoutPlan(planID, planGroup)
 	}
 	var plan models.Plan
-	if err := db.DB.Where("id = ? AND \"is_active\" = ? AND \"plan_group\" = ?", planID, true, planGroup).First(&plan).Error; err != nil {
+	if err := db.DB.Where("id = ? AND \"is_active\" = ?", planID, true).First(&plan).Error; err != nil {
 		return nil, err
 	}
 	return &plan, nil
@@ -844,6 +858,7 @@ func (s *PaymentService) backfillCheckout(paymentID, sessionID, checkoutURL stri
 // 同 (userId, planId) 唯一冲突时，回查现有 pending 行返回。partial unique
 // uq_payments_pending_user_plan WHERE status='pending' 保证全表只能存在一条 pending。
 func (s *PaymentService) reservePendingPayment(userID string, plan *models.Plan, now time.Time) (*models.Payment, error) {
+	location := s.businessTimezone()
 	expiresAt := now.Add(pendingCheckoutTTL)
 	payment := models.Payment{
 		UserID:      userID,
@@ -874,10 +889,35 @@ func (s *PaymentService) reservePendingPayment(userID string, plan *models.Plan,
 		return nil, errors.New("获取用户信息失败")
 	}
 	var lockedPlan models.Plan
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").Where("id = ?", plan.ID).First(&lockedPlan).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", plan.ID).First(&lockedPlan).Error; err != nil {
 		tx.Rollback()
 		return nil, errors.New("获取方案失败")
 	}
+
+	if !lockedPlan.IsActive {
+		tx.Rollback()
+		return nil, ErrPlanNotFound
+	}
+	if err := entitlementpkg.ValidateCatalog(tx); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	owned, err := entitlementpkg.Load(tx, userID)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	ranks, err := entitlementpkg.Ranks(tx)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if _, err = entitlementpkg.Grant(owned, lockedPlan.Benefits, ranks, now, location); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	payment.Benefits = append([]models.PlanBenefit(nil), lockedPlan.Benefits...)
+	payment.Amount, payment.Currency, payment.Days = lockedPlan.Price, lockedPlan.Currency, lockedPlan.Days
 
 	result := tx.Clauses(clause.OnConflict{
 		Columns:     []clause.Column{{Name: "user_id"}, {Name: "plan_id"}},
@@ -1228,25 +1268,15 @@ func formatNotifyTime(t *time.Time) *string {
 	return &formatted
 }
 
-func planGroupsMatchForFulfillment(userPlanGroup *string, planPlanGroup string) (bool, error) {
-	normalizedUserPlanGroup, err := ResolveEffectivePlanGroupKey(nil, userPlanGroup)
-	if err != nil {
-		return false, err
-	}
-	normalizedPlanPlanGroup, err := NormalizePlanGroupKey(planPlanGroup, false)
-	if err != nil {
-		return false, err
-	}
-	return normalizedUserPlanGroup == normalizedPlanPlanGroup, nil
-}
-
+// fulfillPayment serializes payment delivery with all other grants, preserving paid facts for manual review.
 func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, eventCreated time.Time, metadata map[string]string) error {
 	sid := strings.TrimSpace(sessionID)
 	if sid == "" {
 		log.Printf("[Payment] 支付履约失败：缺少 sessionID")
 		return ErrPaymentFailed
 	}
-	log.Printf("[Payment] 开始履约支付: sessionID=%s paymentIntent=%s metadata=%v", sid, strings.TrimSpace(paymentIntentID), metadata)
+	log.Printf("[Payment] 开始履约支付")
+	location := s.businessTimezone()
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
@@ -1260,7 +1290,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		log.Printf("[Payment] 支付履约定位订单失败: sessionID=%s err=%v", sid, err)
 		return ErrPaymentFailed
 	}
-	if ref.Status == models.PaymentCompleted {
+	if ref.Status == models.PaymentCompleted || ref.Status == models.PaymentManualReview || ref.Status == models.PaymentResolved {
 		tx.Rollback()
 		log.Printf("[Payment] 支付已履约，忽略重复 webhook: paymentID=%s sessionID=%s", ref.ID, sid)
 		return nil
@@ -1290,57 +1320,46 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		return nil
 	}
 
-	var plan models.Plan
-	if err := tx.Select("id", "name", "plan_group").
-		Where("id = ?", payment.PlanID).
-		First(&plan).Error; err != nil {
+	if payment.Status == models.PaymentManualReview || payment.Status == models.PaymentResolved {
 		tx.Rollback()
-		log.Printf("[Payment] 支付履约查询套餐失败: paymentID=%s planID=%s err=%v", payment.ID, payment.PlanID, err)
-		return ErrPaymentFailed
+		return nil
 	}
-	planName := plan.Name
-
-	planGroupMatched, err := planGroupsMatchForFulfillment(user.PlanGroup, plan.PlanGroup)
-	if err != nil {
-		tx.Rollback()
-		log.Printf("[Payment] 支付履约校验套餐分组失败: paymentID=%s userID=%s planID=%s err=%v", payment.ID, payment.UserID, payment.PlanID, err)
-		return ErrPaymentFailed
-	}
-	if !planGroupMatched {
-		if err := tx.Rollback().Error; err != nil {
-			log.Printf("[Payment] 支付履约拒绝后回滚事务失败: paymentID=%s sessionID=%s err=%v", payment.ID, payment.StripeSessionID, err)
-			return ErrPaymentFailed
-		}
-		rawUserPlanGroup := ""
-		if user.PlanGroup != nil {
-			rawUserPlanGroup = strings.TrimSpace(*user.PlanGroup)
-		}
-		log.Printf("[Payment] 支付履约拒绝：套餐分组已变更: paymentID=%s userID=%s planID=%s sessionID=%s userPlanGroup=%s planPlanGroup=%s",
-			payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, rawUserPlanGroup, strings.TrimSpace(plan.PlanGroup))
-		return fmt.Errorf("%w: reasonCode=plan_group_mismatch paymentId=%s", ErrPaymentFailed, payment.ID)
-	}
-
 	now := time.Now().UTC()
-	var oldExpiry *time.Time
-	if user.ExpiresAt != nil {
-		copied := *user.ExpiresAt
-		oldExpiry = &copied
-	}
-	newExpiry := calculateFulfilledPaymentExpiry(now, user.ExpiresAt, payment.Days)
-
-	user.ExpiresAt = &newExpiry
-	// Emby Policy 同步移到事务外（commit 后异步），避免事务中持有 Emby 网络 I/O。
-	needsPolicySync := strings.TrimSpace(user.EmbyID) != ""
-
-	if err := tx.Model(&models.User{}).
-		Where("id = ?", user.ID).
-		Updates(map[string]interface{}{
-			"expires_at": user.ExpiresAt,
-		}).Error; err != nil {
+	oldExpiry := user.ExpiresAt
+	planName := ""
+	var plan models.Plan
+	// A deleted/downlisted product does not change the order's immutable delivery.
+	if err := tx.Select("id", "name").Where("id = ?", payment.PlanID).First(&plan).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		tx.Rollback()
-		log.Printf("[Payment] 支付履约保存用户失败: paymentID=%s userID=%s err=%v", payment.ID, payment.UserID, err)
-		return ErrPaymentFailed
+		return err
 	}
+	planName = plan.Name
+	reason := ""
+	if len(payment.Benefits) == 0 {
+		reason = "legacy_snapshot_missing"
+	} else {
+		err := entitlementpkg.GrantLocked(tx, &user, payment.Benefits, "payment:"+payment.ID, "system:payment", now, location)
+		if errors.Is(err, entitlementpkg.ErrAlreadyOwned) {
+			reason = "already_owned"
+		} else if errors.Is(err, entitlementpkg.ErrGroupsNotReady) {
+			reason = "group_configuration_missing"
+		} else if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	if reason != "" {
+		if err := tx.Model(&models.Payment{}).Where("id = ?", payment.ID).Updates(map[string]interface{}{"status": models.PaymentManualReview, "paid_at": now, "manual_review_reason": reason, "stripe_payment_intent_id": paymentIntentID}).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit().Error; err != nil {
+			return err
+		}
+		log.Printf("[Payment] 已付款订单待人工处理 paymentId=%s userId=%s reason=%s", payment.ID, user.ID, reason)
+		return nil
+	}
+	needsPolicySync := strings.TrimSpace(user.EmbyID) != ""
 
 	payment.Status = models.PaymentCompleted
 	if strings.TrimSpace(paymentIntentID) != "" {
@@ -1349,6 +1368,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	if err := tx.Model(&models.Payment{}).
 		Where("id = ?", payment.ID).
 		Updates(map[string]interface{}{
+			"paid_at":                  now,
 			"status":                   payment.Status,
 			"stripe_payment_intent_id": payment.StripePaymentIntentID,
 		}).Error; err != nil {
@@ -1362,7 +1382,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		return ErrPaymentFailed
 	}
 	log.Printf("[Payment] 支付履约成功: paymentID=%s userID=%s planID=%s sessionID=%s oldExpiresAt=%v newExpiresAt=%s days=%d",
-		payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, oldExpiry, newExpiry.Format(time.RFC3339), payment.Days)
+		payment.ID, payment.UserID, payment.PlanID, payment.StripeSessionID, oldExpiry, entitlementExpiryText(user.ExpiresAt), payment.Days)
 
 	if needsPolicySync {
 		paymentID := payment.ID
@@ -1376,6 +1396,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 	}
 
 	paymentPayload := notifierint.PaymentSuccessNotification{
+		Benefits: payment.Benefits, BusinessTimezone: location.String(),
 		PaymentID:    payment.ID,
 		UserID:       user.ID,
 		UserName:     user.Username,
@@ -1385,7 +1406,7 @@ func (s *PaymentService) fulfillPayment(sessionID, paymentIntentID string, event
 		Currency:     payment.Currency,
 		Days:         payment.Days,
 		OldExpiresAt: formatNotifyTime(oldExpiry),
-		NewExpiresAt: newExpiry.Format(time.RFC3339),
+		NewExpiresAt: entitlementExpiryText(user.ExpiresAt),
 	}
 	async.SafeGo("payment.notifySuccess", func() {
 		if s.notifier == nil || !s.notifier.IsConfigured() {
@@ -1636,6 +1657,10 @@ func normalizePaymentStatusFilter(raw string) models.PaymentStatus {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case string(models.PaymentPending):
 		return models.PaymentPending
+	case string(models.PaymentManualReview):
+		return models.PaymentManualReview
+	case string(models.PaymentResolved):
+		return models.PaymentResolved
 	case string(models.PaymentCompleted):
 		return models.PaymentCompleted
 	case string(models.PaymentExpired):
@@ -1645,4 +1670,20 @@ func normalizePaymentStatusFilter(raw string) models.PaymentStatus {
 	default:
 		return ""
 	}
+}
+
+// entitlementExpiryText renders permanent grants without fabricating an expiry instant.
+func entitlementExpiryText(expiresAt *time.Time) string {
+	if expiresAt == nil {
+		return "永久"
+	}
+	return expiresAt.Format(time.RFC3339)
+}
+
+// businessTimezone resolves the one global business timezone before transaction entry.
+func (s *PaymentService) businessTimezone() *time.Location {
+	if s.loadTimezone != nil {
+		return s.loadTimezone()
+	}
+	return configpkg.LoadConfiguredTimezone()
 }

@@ -39,10 +39,8 @@ const emptyStats: MediaStats = { movieCount: 0, seriesCount: 0, episodeCount: 0 
 const stats = ref<MediaStats>({ ...emptyStats })
 const loading = ref(false)
 
-const isExpired = computed(() => {
-  if (!user.value.expiresAt) return false
-  return new Date(user.value.expiresAt) < new Date()
-})
+// 使用后端最近一次重算结果，等待既有定时任务处理自然到期。
+const isExpired = computed(() => !authStore.isAdmin && (user.value.resourceAccessGranted === false || user.value.isExpired === true))
 
 const daysLeft = computed(() => {
   if (!user.value.expiresAt) return null
@@ -51,7 +49,7 @@ const daysLeft = computed(() => {
 })
 
 const showLockedServerState = computed(() => !authStore.isAdmin && isExpired.value)
-const isLifetimeMember = computed(() => !user.value.expiresAt)
+const isLifetimeMember = computed(() => !isExpired.value && !user.value.expiresAt)
 const membershipStatusLabel = computed(() => {
   if (isExpired.value) return '已过期'
   if (isLifetimeMember.value) return '永久有效'
@@ -72,7 +70,7 @@ const membershipStatusHint = computed(() => {
   // 过期态的提示统一交给 Emby 入口锁定空态 + 主卡续费按钮承担，主卡内不再重复。
   if (isExpired.value || isLifetimeMember.value) return ''
   if (daysLeft.value === null) return ''
-  return `剩余 ${daysLeft.value} 天`
+  return daysLeft.value <= 0 ? '等待到期检查' : `剩余 ${daysLeft.value} 天`
 })
 const hasEmbyAccessUrl = computed(() => Boolean(embyUrl.value))
 const embyAccessLinks = computed(() => {

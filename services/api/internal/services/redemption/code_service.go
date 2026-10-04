@@ -135,7 +135,7 @@ func (s *RedemptionCodeService) GetRedemptionCodes(req *GetRedemptionCodesReques
 			return nil, err
 		}
 	} else if !req.ShowAll {
-		query = query.Where("\"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", now)
+		query = query.Where("NOT legacy_invalidated AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", now)
 	}
 
 	if err := query.Count(&total).Error; err != nil {
@@ -264,7 +264,7 @@ func (s *RedemptionCodeService) UseCode(code string) error {
 // buildUsableCodeConsumptionQuery 构造可消费兑换码查询；只有未用尽且未过期的兑换码可被消费。
 func buildUsableCodeConsumptionQuery(database *gorm.DB, code string, now time.Time) *gorm.DB {
 	return database.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", strings.TrimSpace(code), now)
+		Where("code = ? AND NOT legacy_invalidated AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", strings.TrimSpace(code), now)
 }
 
 func (s *RedemptionCodeService) generateCode(length int) (string, error) {
@@ -428,9 +428,9 @@ func isRedemptionCodeConflict(err error) bool {
 func applyRedemptionCodeStatusFilter(query *gorm.DB, status RedemptionCodeStatus, now time.Time) (*gorm.DB, error) {
 	switch status {
 	case RedemptionCodeStatusActive:
-		return query.Where("\"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", now), nil
+		return query.Where("NOT legacy_invalidated AND \"used_count\" < \"max_uses\" AND (\"expires_at\" IS NULL OR \"expires_at\" > ?)", now), nil
 	case RedemptionCodeStatusExpired:
-		return query.Where("\"used_count\" < \"max_uses\" AND \"expires_at\" IS NOT NULL AND \"expires_at\" <= ?", now), nil
+		return query.Where("legacy_invalidated OR (\"used_count\" < \"max_uses\" AND \"expires_at\" IS NOT NULL AND \"expires_at\" <= ?)", now), nil
 	case RedemptionCodeStatusExhausted:
 		return query.Where("\"used_count\" >= \"max_uses\""), nil
 	case "":

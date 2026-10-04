@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
-	embytokenpkg "github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 func TestCheckExpiredUsersWithContextReturnsCanceledBeforeDB(t *testing.T) {
@@ -202,60 +201,59 @@ func TestCheckExpiredUsersWithContextTruncatesFailureDetails(t *testing.T) {
 	}
 }
 
-func TestCheckExpiredUsersRevokesBeforeApplyingExpiredPolicy(t *testing.T) {
-	var order []string
-	service := newTestSystemService()
-	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) { return 1, nil }
-	service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) {
-		return []models.User{{ID: "user_1", Username: "alice"}}, nil
-	}
-	service.revokeUserTokens = func(_ context.Context, userID string, reason embytokenpkg.RevokeReason, actor string) (int64, error) {
-		order = append(order, "revoke")
-		if userID != "user_1" || reason != embytokenpkg.RevokeReasonEmbyDisabled || actor != expiryRevocationActor {
-			t.Fatalf("revoke input user=%s reason=%s actor=%s", userID, reason, actor)
-		}
-		return 1, nil
-	}
-	service.applyExpiredPolicy = func(string) error {
-		order = append(order, "policy")
-		return nil
-	}
-	result, err := service.CheckExpiredUsersWithContext(context.Background())
-	if err != nil || result.DisabledCount != 1 {
-		t.Fatalf("CheckExpiredUsersWithContext() result=%+v error=%v", result, err)
-	}
-	if strings.Join(order, ",") != "revoke,policy" {
-		t.Fatalf("operation order = %#v", order)
+// TestScheduledReconciliationUsesLatestState separates fallback, no-op renewal and access loss.
+func TestScheduledReconciliationUsesLatestState(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		granted, changed   bool
+		fallback, disabled int
+	}{{"fallback", true, true, 1, 0}, {"renewed_before_task", true, false, 0, 0}, {"expired", false, true, 0, 1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := newTestSystemService()
+			service.countExpiredUsers = func(context.Context, time.Time) (int64, error) { return 1, nil }
+			service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) { return []models.User{{ID: "u1"}}, nil }
+			reconciled := false
+			service.reconcileUser = func(context.Context, string, time.Time) (*models.User, bool, error) {
+				reconciled = true
+				return &models.User{ID: "u1", ResourceAccessGranted: tc.granted}, tc.changed, nil
+			}
+			calls := 0
+			service.applyExpiredPolicy = func(string) error {
+				if !reconciled {
+					t.Fatal("sync ran before reconciliation")
+				}
+				calls++
+				return nil
+			}
+			result, err := service.CheckExpiredUsersWithContext(context.Background())
+			if err != nil || result.FallbackCount != tc.fallback || result.DisabledCount != tc.disabled || calls != tc.fallback+tc.disabled {
+				t.Fatalf("result=%+v calls=%d err=%v", result, calls, err)
+			}
+		})
 	}
 }
 
-func TestCheckExpiredUsersRevocationFailureSkipsPolicy(t *testing.T) {
+// TestReconciliationFailureDoesNotWritePolicy protects existing access on storage failure.
+func TestReconciliationFailureDoesNotWritePolicy(t *testing.T) {
 	service := newTestSystemService()
 	service.countExpiredUsers = func(context.Context, time.Time) (int64, error) { return 1, nil }
-	service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) {
-		return []models.User{{ID: "user_1", Username: "alice"}}, nil
+	service.findExpiredUsers = func(context.Context, time.Time) ([]models.User, error) { return []models.User{{ID: "u1"}}, nil }
+	service.reconcileUser = func(context.Context, string, time.Time) (*models.User, bool, error) {
+		return nil, false, errors.New("database unavailable")
 	}
-	service.revokeUserTokens = func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
-		return 0, errors.New("revoke failed")
-	}
-	service.applyExpiredPolicy = func(string) error {
-		t.Fatal("policy must not run after revoke failure")
-		return nil
-	}
+	service.applyExpiredPolicy = func(string) error { t.Fatal("must not synchronize unconfirmed state"); return nil }
 	result, err := service.CheckExpiredUsersWithContext(context.Background())
-	if err != nil {
-		t.Fatalf("CheckExpiredUsersWithContext() error = %v", err)
-	}
-	if result.DisabledCount != 0 || len(result.FailedUsers) != 1 || result.FailedUsers[0]["error"] != ErrExpiredUserTokenRevocation.Error() {
-		t.Fatalf("result = %+v", result)
+	if err != nil || len(result.Errors) != 1 || result.DisabledCount != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 
 func newTestSystemService() *SystemService {
 	service := NewSystemService()
-	service.revokeUserTokens = func(context.Context, string, embytokenpkg.RevokeReason, string) (int64, error) {
-		return 0, nil
+	service.reconcileUser = func(_ context.Context, id string, _ time.Time) (*models.User, bool, error) {
+		return &models.User{ID: id}, true, nil
 	}
+
 	return service
 }
 

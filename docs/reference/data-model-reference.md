@@ -27,8 +27,8 @@
 | EmbyDisabled | bool | embyDisabled | Emby 端 `Policy.IsDisabled` 同步缓存；只在有效 Policy 同步成功后更新 |
 | EmbyAccessDisabled | bool | embyAccessDisabled | 管理员显式禁用 Emby 访问的业务意图；不影响 Ember Web 登录 |
 | TelegramID | *int64 | telegramId | Telegram 绑定 ID（唯一，可空） |
-| PlanGroup | *string | planGroup | 用户绑定的套餐分组 key；新增 / 编辑用户必须显式写入有效分组，历史空值仅作为兼容态按系统默认分组读取 |
-| ExpiresAt | *time.Time | expiresAt | 到期时间（nil=永不过期）|
+| PlanGroup | *string | planGroup | 当前生效分组投影；由权益发放、管理员调整及定时到期任务计算，不能表示全部持有权益 |
+| ExpiresAt | *time.Time | expiresAt | 当前生效项期限；nil 必须结合 resourceAccessGranted 判断，不能单独认定永久|
 | IsActive | bool | isActive | 管理员手动开关 |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
@@ -57,7 +57,7 @@
 | UsedCount | int | usedCount | 已使用次数（默认 0）|
 | ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
 | DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
-| RegistrationPlanGroup | string(50) | registrationPlanGroup | 注册场景专用套餐分组 key（必填；仅注册时生效，续期忽略） |
+| RegistrationPlanGroup | string(50) | registrationPlanGroup | 兑换目标权益分组 key（注册及续期均使用；保留旧字段名以兼容调用方） |
 | Notes | string(500) | notes | 备注（可选，用于记录用途或来源） |
 | CreatedAt | time.Time | createdAt | 自动 |
 
@@ -197,7 +197,7 @@
 | Days | int | days | 天数 |
 | Price | int64 | price | 价格（分）|
 | Currency | string(3) | currency | 币种（当前支持 `"usd"` / `"hkd"` / `"cny"`）|
-| PlanGroup | string(50) | planGroup | 套餐所属分组 key（由应用层校验其存在性与删除约束）|
+| PlanGroup | string(50) | planGroup | 旧单组摘要；实际交付使用 benefits，不据此筛选购买资格|
 | IsActive | bool | isActive | 是否启用（默认 true，DELETE 接口仅置为 false 作为软删除）|
 | SortOrder | int | sortOrder | 排序（默认 0）|
 | CreatedAt | time.Time | createdAt | 自动 |
@@ -312,7 +312,7 @@
 | Amount | int64 | amount | 金额（分）|
 | Currency | string | currency | 支付币种快照 |
 | Days | int | days | 购买天数 |
-| Status | PaymentStatus | status | `pending`/`completed`/`expired`/`failed` |
+| Status | PaymentStatus | status | `pending`/`completed`/`expired`/`failed`/`paid_review`/`resolved` |
 | ExpiresAt | *time.Time | expiresAt | 本地待支付订单过期时间（默认 30 分钟） |
 | CreatedAt | time.Time | createdAt | 自动 |
 | UpdatedAt | time.Time | updatedAt | 自动 |
@@ -657,3 +657,14 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `services/embytoken.ControlPlaneRevoker` 已接入设备退出、用户停用/恢复、Emby 访问禁用/恢复、绑定前清理、解绑、删除和过期封禁；控制面只依赖 PostgreSQL，不持有明文 Token 或 HMAC 密钥
 - 用户删除前先软撤销，删除后依赖 `ON DELETE SET NULL` 保留审计行；恢复状态不会清除历史撤销，必须重新认证
 - 认证代理和独立 Gateway 进程已接入 Token 门控，但公开部署与 Infuse 实机仍未完成
+
+## 分组权益改版（2026-10-04）
+
+- `plans.benefits`：JSONB 权益明细，每项为 `planGroup/validityType/durationDays`；永久不填天数。`payments.benefits` 保存订单不可变快照，老订单为空不根据现售套餐补造。
+- `plan_groups.entitlement_rank`：可空的独立整数等级及唯一索引；空表示尚未配置，禁止新购。管理员保存全量等级映射并验证资源逐级包含。
+- `user_entitlements`：用户/分组复合主键，类型为 `duration` 时必须有 `expires_at`，`permanent` 时必须无期限；SQL 外键阻止删除被持有的组。
+- `entitlement_events`：`source_key` 幂等主键、用户、操作人、原因、前后 JSONB 状态和时间，不记录支付原始响应或敏感凭据。
+- `users.resource_access_granted`：最近一次业务重算的本地访问结果，与 `plan_group/expires_at` 共同形成投影；普通用户自然到期由现有定时任务更新，人工封禁字段独立保留。
+- `redemption_codes.legacy_invalidated`：切换前旧码统一为 true，新码默认 false；保留历史记录与已发放权益。
+- 支付补充 `paid_at/manual_review_reason/resolution/resolution_note/resolved_by/resolved_at`。`paid_review` 保留已付款事实并等待人工；`resolved` 表示人工已收口，不等于自动退款。
+- 旧 `Plan.days/planGroup` 与 `Payment.days` 保留摘要及历史读取兼容，不再是权益真相；组合消费方必须读取 `benefits`。旧单组请求仍可创建限时权益，但禁止用旧摘要字段覆写组合配置。移除条件为外部调用方完成 benefits 迁移并发布明确的接口破坏性变更版本；本次不直接删除数据库历史列。

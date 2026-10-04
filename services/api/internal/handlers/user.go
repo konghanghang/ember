@@ -1,6 +1,7 @@
 package handlers
 
 import (
+ entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	"errors"
 	"log"
 	"net/http"
@@ -522,7 +523,7 @@ func (h *UserHandler) RedeemCode(c *gin.Context) {
 	resp, err := h.redemptionService.RedeemCode(userID.(string), &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+		case errors.Is(err, entitlementpkg.ErrAlreadyOwned), errors.Is(err, entitlementpkg.ErrGroupsNotReady), errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
 			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid),
 			errors.Is(err, redemptionpkg.ErrRedemptionDuplicate):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -541,7 +542,7 @@ func (h *UserHandler) ValidateRedeemCode(c *gin.Context) {
 	resp, err := h.redemptionCodeService.ValidateRenewalCode(code)
 	if err != nil {
 		switch {
-		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
+		case errors.Is(err, entitlementpkg.ErrAlreadyOwned), errors.Is(err, entitlementpkg.ErrGroupsNotReady), errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound),
 			errors.Is(err, redemptionpkg.ErrRedemptionCodeInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:

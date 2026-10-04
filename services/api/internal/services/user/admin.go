@@ -3,6 +3,9 @@ package user
 import (
 	"context"
 	"errors"
+	configpkg "github.com/konghang/ember/backend/internal/config"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
+	"github.com/oklog/ulid/v2"
 	"log"
 	"net/mail"
 	"strings"
@@ -260,6 +263,11 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 	if req.ClearExpiresAt && req.ExpiresAt != nil {
 		return nil, ErrClearExpiresAtConflict
 	}
+	// Legacy callers must supply an explicit target deadline; changing group alone
+	// must never copy one group's remaining days into another group's entitlement.
+	if req.PlanGroup != nil && req.ExpiresAt == nil && !req.ClearExpiresAt {
+		return nil, ErrRequestInvalid
+	}
 
 	tx := db.DB.Begin()
 	if tx.Error != nil {
@@ -273,11 +281,8 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 		return nil, ErrUserNotFound
 	}
 	needSyncEmbyPolicy := adminUpdateChangesEmbyPolicy(req)
-	oldEffectivePlanGroup, err := paymentpkg.ResolveEffectivePlanGroupKey(tx, user.PlanGroup)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
+	originalGroup, originalExpiry := user.PlanGroup, user.ExpiresAt
+
 	if req.Email != nil {
 		email := strings.TrimSpace(*req.Email)
 		if email == "" {
@@ -320,6 +325,31 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 		user.ExpiresAt = &expiresAtUTC
 	}
 
+	if req.PlanGroup != nil || req.ExpiresAt != nil || req.ClearExpiresAt {
+		if user.IsAdmin() {
+			tx.Rollback()
+			return nil, ErrRequestInvalid
+		}
+		target := entitlementpkg.Holding{ValidityType: entitlementpkg.Duration, ExpiresAt: user.ExpiresAt}
+		if user.PlanGroup == nil {
+			tx.Rollback()
+			return nil, ErrRequestInvalid
+		}
+		target.PlanGroup = *user.PlanGroup
+		if target.ExpiresAt == nil {
+			target.ValidityType = entitlementpkg.Permanent
+		}
+		user.PlanGroup, user.ExpiresAt = originalGroup, originalExpiry
+		actor := operatorID
+		if actor == "" {
+			actor = "admin:api-key"
+		}
+		if err := entitlementpkg.AdjustLocked(tx, &user, target, false, "admin:"+ulid.Make().String(), actor, time.Now()); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+
 	updates := map[string]interface{}{
 		"email":      user.Email,
 		"is_active":  user.IsActive,
@@ -348,35 +378,6 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 			return nil, ErrEmailAlreadyExists
 		}
 		return nil, ErrUserUpdateFailed
-	}
-
-	newEffectivePlanGroup, err := paymentpkg.ResolveEffectivePlanGroupKey(tx, user.PlanGroup)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	if oldEffectivePlanGroup != newEffectivePlanGroup {
-		expiredSessionIDs, err := paymentpkg.PendingStripeSessionIDsForUser(tx, user.ID)
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-		expiredCount, err := paymentpkg.ExpirePendingPaymentsForUser(tx, user.ID)
-		if err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-		log.Printf("[User] 用户有效套餐分组变更，已收口待支付订单: userID=%s oldPlanGroup=%s newPlanGroup=%s expiredCount=%d",
-			user.ID, oldEffectivePlanGroup, newEffectivePlanGroup, expiredCount)
-		if err := tx.Commit().Error; err != nil {
-			return nil, ErrUserUpdateFailed
-		}
-		if err := s.syncEmbyPolicy(&user, "admin_plan_group_update"); err != nil {
-			return nil, err
-		}
-		paymentpkg.ExpireStripeCheckoutSessions(expiredSessionIDs)
-		return s.GetUserByID(userID)
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -410,6 +411,7 @@ func (s *UserService) ExtendExpiry(userID string, days int) (*UserView, error) {
 
 // extendExpiryWithDB 在事务中锁定用户行、基于最新到期日累加有效期并持久化结果。
 func (s *UserService) extendExpiryWithDB(userID string, days int) (*models.User, error) {
+	location := configpkg.LoadConfiguredTimezone()
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, tx.Error
@@ -421,22 +423,20 @@ func (s *UserService) extendExpiryWithDB(userID string, days int) (*models.User,
 		return nil, normalizeUserLookupError(err)
 	}
 
-	now := time.Now().UTC()
-	newExpiry := calculateExtendedExpiry(now, user.ExpiresAt, days)
-
-	user.ExpiresAt = &newExpiry
-	if err := tx.Model(&models.User{}).
-		Where("id = ?", user.ID).
-		Updates(map[string]interface{}{
-			"expires_at": user.ExpiresAt,
-		}).Error; err != nil {
+	now := time.Now()
+	if user.PlanGroup == nil {
+		tx.Rollback()
+		return nil, ErrRequestInvalid
+	}
+	if err := entitlementpkg.GrantLocked(tx, user, []entitlementpkg.Benefit{{PlanGroup: *user.PlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: days}}, "admin:"+ulid.Make().String(), "admin:legacy-extension", now, location); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
+
 	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
-	log.Printf("[User] 管理员续期已提交: userID=%s days=%d newExpiresAt=%s", user.ID, days, newExpiry.Format(time.RFC3339))
+	log.Printf("[User] 管理员续期已提交: userID=%s days=%d newExpiresAt=%s", user.ID, days, user.ExpiresAt.Format(time.RFC3339))
 	return user, nil
 }
 

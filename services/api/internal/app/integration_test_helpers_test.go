@@ -165,9 +165,29 @@ func (h *integrationHarness) seedUser(t *testing.T, user models.User) models.Use
 			t.Fatalf("SetPassword(): %v", err)
 		}
 	}
+	if user.Role == "user" {
+		if user.PlanGroup == nil {
+			var group models.PlanGroup
+			if err := h.database.Where("is_default = ?", true).First(&group).Error; err != nil {
+				t.Fatal(err)
+			}
+			user.PlanGroup = &group.Key
+		}
+		user.ResourceAccessGranted = user.ExpiresAt == nil || user.ExpiresAt.After(time.Now())
+	}
 	if err := h.database.Create(&user).Error; err != nil {
 		t.Fatalf("create user %s: %v", user.Username, err)
 	}
+	if user.Role == "user" {
+		validity := "duration"
+		if user.ExpiresAt == nil {
+			validity = "permanent"
+		}
+		if err := h.database.Create(&models.UserEntitlement{UserID: user.ID, PlanGroup: *user.PlanGroup, ValidityType: validity, ExpiresAt: user.ExpiresAt}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	return user
 }
 

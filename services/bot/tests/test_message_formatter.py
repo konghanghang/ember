@@ -4,6 +4,37 @@ import types
 from html.parser import HTMLParser
 from unittest.mock import patch
 
+
+class EntitlementAccountFormatTests(unittest.TestCase):
+    """账号摘要区分无权益与永久，并使用 API 提供的业务时区。"""
+
+    def test_no_access_is_not_permanent(self):
+        text = format_account_info({"username": "fixture", "resourceAccessGranted": False, "isExpired": True, "expiresAt": None})
+        self.assertIn("无有效权益", text)
+        self.assertNotIn("永久有效", text)
+
+    def test_payment_lists_bundle_instead_of_zero_days(self):
+        text = format_payment_message({"days": 0, "benefits": [
+            {"planGroup": "A", "planGroupName": "基础", "validityType": "permanent"},
+            {"planGroup": "B", "validityType": "duration", "durationDays": 30},
+        ]})
+        self.assertIn("基础：永久", text)
+        self.assertIn("B：30 天", text)
+        self.assertNotIn("延长：", text)
+
+    def test_lists_fallback_and_uses_business_timezone(self):
+        text = format_account_info({
+            "username": "fixture", "resourceAccessGranted": True,
+            "currentPlanGroup": "B", "businessTimezone": "Asia/Shanghai",
+            "expiresAt": "2026-10-04T18:00:00Z",
+            "entitlements": [
+                {"planGroup": "A", "planGroupName": "基础", "validityType": "permanent", "expiresAt": None},
+                {"planGroup": "B", "planGroupName": "全资源", "validityType": "duration", "expiresAt": "2026-10-04T18:00:00Z"},
+            ],
+        })
+        self.assertIn("基础：永久", text)
+        self.assertIn("全资源（当前）：2026-10-05", text)
+
 if "telegram" not in sys.modules:
     telegram_stub = types.ModuleType("telegram")
 

@@ -164,7 +164,7 @@ const handleCreate = async () => {
     return
   }
   if (!form.value.registrationPlanGroup) {
-    ElMessage.warning('请选择注册套餐分组')
+    ElMessage.warning('请选择权益分组')
     return
   }
   const trimmedNotes = form.value.notes?.trim() ?? ''
@@ -249,7 +249,7 @@ const handleUpdate = async () => {
     return
   }
   if (!editForm.value.registrationPlanGroup) {
-    ElMessage.warning('请选择注册套餐分组')
+    ElMessage.warning('请选择权益分组')
     return
   }
   const trimmedNotes = editForm.value.notes?.trim() ?? ''
@@ -317,6 +317,7 @@ const formatRegistrationPlanGroupHint = (row: RedemptionCode) => {
 
 const getUsageStatus = (row: RedemptionCode) => {
   if (row.usedCount >= row.maxUses) return { type: 'danger', text: '已耗尽' }
+  if (row.legacyInvalidated) return { type: 'danger', text: '已失效' }
   if (row.expiresAt && new Date(row.expiresAt) < new Date()) return { type: 'danger', text: '已过期' }
   return { type: 'success', text: '有效' }
 }
@@ -386,7 +387,7 @@ onMounted(async () => {
 
         <EmberSelectField
           v-model="queryParams.registrationPlanGroup"
-          label="注册套餐分组"
+          label="权益分组"
           placeholder="全部分组"
           clearable
           filterable
@@ -461,7 +462,7 @@ onMounted(async () => {
           </template>
         </el-table-column>
 
-        <el-table-column label="注册套餐分组" min-width="220">
+        <el-table-column label="权益分组" min-width="220">
           <template #default="{ row }">
             <div class="space-y-1">
               <div class="flex items-center gap-2">
@@ -565,11 +566,11 @@ onMounted(async () => {
             </div>
           </el-form-item>
 
-          <el-form-item label="注册套餐分组">
+          <el-form-item label="权益分组">
             <div class="w-full space-y-2">
               <el-select
                 v-model="form.registrationPlanGroup"
-                placeholder="选择注册后绑定的分组"
+                placeholder="选择兑换权益的分组"
                 filterable
                 class="w-full !w-full form-select"
               >
@@ -581,7 +582,7 @@ onMounted(async () => {
                 />
               </el-select>
               <div class="text-xs text-gray-400">
-                仅在注册场景生效；续期兑换不会修改用户分组。
+                注册和续期均向该分组发放权益。
               </div>
             </div>
           </el-form-item>
@@ -705,11 +706,11 @@ onMounted(async () => {
             </div>
           </el-form-item>
 
-          <el-form-item label="注册套餐分组">
+          <el-form-item label="权益分组">
             <div class="w-full space-y-2">
               <el-select
                 v-model="editForm.registrationPlanGroup"
-                placeholder="选择注册后绑定的分组"
+                placeholder="选择兑换权益的分组"
                 filterable
                 class="w-full !w-full form-select"
               >
@@ -721,7 +722,7 @@ onMounted(async () => {
                 />
               </el-select>
               <div class="text-xs text-gray-400">
-                仅注册时生效；续期兑换不会修改用户分组。
+                注册和续期均向该分组发放权益。
               </div>
             </div>
           </el-form-item>

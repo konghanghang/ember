@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UserEntitlementsPanel from '@/components/billing/UserEntitlementsPanel.vue'
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -354,30 +355,13 @@ const handleUpdateUser = async () => {
     return
   }
 
-  if (!editForm.value.neverExpire && !editForm.value.expiresAt) {
-    ElMessage.warning('请设置到期时间或选择永不过期')
-    return
-  }
-
   const payload: UpdateAdminUserRequest = {}
-  const currentExpiresAt = editForm.value.neverExpire
-    ? null
-    : editForm.value.expiresAt?.toISOString() ?? null
 
   if (email !== editOriginal.value.email) {
     payload.email = email
   }
   if (editForm.value.isActive !== editOriginal.value.isActive) {
     payload.isActive = editForm.value.isActive
-  }
-  if (editForm.value.planGroup !== editOriginal.value.planGroup) {
-    payload.planGroup = editForm.value.planGroup
-  }
-  if (editForm.value.neverExpire && editForm.value.neverExpire !== editOriginal.value.neverExpire) {
-    payload.clearExpiresAt = true
-  }
-  if (!editForm.value.neverExpire && currentExpiresAt !== editOriginal.value.expiresAt) {
-    payload.expiresAt = currentExpiresAt ?? undefined
   }
 
   if (Object.keys(payload).length === 0) {
@@ -759,6 +743,7 @@ onMounted(async () => {
   await fetchPlanGroups()
   await fetchData()
 })
+const entitlementUser = ref<UserInfo | null>(null)
 </script>
 
 <template>
@@ -963,8 +948,9 @@ onMounted(async () => {
         </el-table-column>
 
         <!-- Operations -->
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
+            <button class="cursor-pointer px-2 py-1.5 text-sm text-ember" @click="entitlementUser = row">权益</button>
             <div class="flex items-center justify-end gap-2">
               <el-tooltip content="编辑信息" placement="top">
                 <button 
@@ -1308,36 +1294,7 @@ onMounted(async () => {
             </div>
           </el-form-item>
 
-          <el-form-item label="套餐组">
-            <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择套餐组">
-              <el-option
-                v-for="option in planGroupOptions"
-                :key="option.value"
-                :label="option.label"
-                :value="option.value"
-              />
-            </el-select>
-          </el-form-item>
 
-          <el-form-item label="有效期设置">
-            <div class="w-full space-y-2">
-              <div class="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-3">
-                <span class="block text-sm font-medium text-gray-700">永不过期</span>
-                <el-switch v-model="editForm.neverExpire" />
-              </div>
-              <p class="text-xs text-gray-500">关闭后需要手动填写到期时间。</p>
-            </div>
-          </el-form-item>
-
-          <el-form-item label="到期时间" v-if="!editForm.neverExpire">
-            <el-date-picker
-              v-model="editForm.expiresAt"
-              type="datetime"
-              placeholder="选择日期时间"
-              :prefix-icon="Calendar"
-              class="w-full !w-full input-ember form-date"
-            />
-          </el-form-item>
         </el-form>
       </div>
       <template #footer>
@@ -1359,4 +1316,7 @@ onMounted(async () => {
       </template>
     </EmberFormDialog>
   </div>
+  <EmberFormDialog :model-value="!!entitlementUser" title="管理用户权益" width="680px" @update:model-value="value => { if (!value) entitlementUser = null }">
+    <UserEntitlementsPanel v-if="entitlementUser" :user-id="entitlementUser.id" :groups="planGroups" :current-group="entitlementUser.planGroup || undefined" @changed="fetchData" />
+  </EmberFormDialog>
 </template>

@@ -11,6 +11,7 @@ import (
 // role 字段区分角色：admin 使用本地密码，user 通过 Emby 认证
 // username/email 的唯一性由 SQL 层 lower(...) 函数唯一索引维护；线上不依赖 GORM AutoMigrate。
 type User struct {
+	ResourceAccessGranted              bool       `json:"resourceAccessGranted" gorm:"column:resource_access_granted;not null;default:false"`
 	ID                                 string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	Username                           string     `json:"username" gorm:"column:username;size:50;not null"`
 	Role                               string     `json:"role" gorm:"column:role;size:10;not null;default:user"`
@@ -46,6 +47,14 @@ func (u *User) IsExpired() bool {
 		return false
 	}
 	return u.ExpiresAt.Before(time.Now().UTC())
+}
+
+// IsAccessExpired reports the reconciled member state; administrator expiry display keeps its existing semantics.
+func (u *User) IsAccessExpired() bool {
+	if u.IsAdmin() {
+		return u.IsExpired()
+	}
+	return !u.ResourceAccessGranted
 }
 
 // IsAdmin 是否为管理员

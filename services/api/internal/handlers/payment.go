@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konghang/ember/backend/internal/common/httpx"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 )
 
@@ -29,6 +30,8 @@ func (h *PaymentHandler) GetUserPlans(c *gin.Context) {
 	plans, err := h.service.GetPlansForUser(userID.(string))
 	if err != nil {
 		switch {
+		case errors.Is(err, entitlementpkg.ErrInvalidBenefit), errors.Is(err, entitlementpkg.ErrAlreadyOwned), errors.Is(err, entitlementpkg.ErrGroupsNotReady):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
@@ -55,6 +58,8 @@ func (h *PaymentHandler) CreateCheckout(c *gin.Context) {
 	resp, err := h.service.CreateCheckoutSession(userID.(string), &req)
 	if err != nil {
 		switch {
+		case errors.Is(err, entitlementpkg.ErrInvalidBenefit), errors.Is(err, entitlementpkg.ErrAlreadyOwned), errors.Is(err, entitlementpkg.ErrGroupsNotReady):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrPlanNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
@@ -95,6 +100,8 @@ func (h *PaymentHandler) GetMyPayments(c *gin.Context) {
 func (h *PaymentHandler) HandleStripeWebhook(c *gin.Context) {
 	if err := h.service.HandleWebhook(c.Request); err != nil {
 		switch {
+		case errors.Is(err, entitlementpkg.ErrInvalidBenefit), errors.Is(err, entitlementpkg.ErrAlreadyOwned), errors.Is(err, entitlementpkg.ErrGroupsNotReady):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrStripeNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrStripeWebhookInvalid), errors.Is(err, paymentpkg.ErrStripeWebhookParseFailed):
@@ -223,7 +230,7 @@ func (h *PaymentHandler) CreatePlan(c *gin.Context) {
 	plan, err := h.service.CreatePlan(&req)
 	if err != nil {
 		switch {
-		case errors.Is(err, paymentpkg.ErrPlanNameRequired),
+		case errors.Is(err, entitlementpkg.ErrInvalidBenefit), errors.Is(err, paymentpkg.ErrPlanNameRequired),
 			errors.Is(err, paymentpkg.ErrPlanCurrencyInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupNotFound):
@@ -251,7 +258,7 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 		switch {
 		case errors.Is(err, paymentpkg.ErrPlanNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case errors.Is(err, paymentpkg.ErrPlanNameRequired),
+		case errors.Is(err, entitlementpkg.ErrInvalidBenefit), errors.Is(err, paymentpkg.ErrPlanNameRequired),
 			errors.Is(err, paymentpkg.ErrPlanCurrencyInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupNotFound):

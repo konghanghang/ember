@@ -50,7 +50,7 @@ func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
 	return &LoginResponse{
 		Token:                 token,
 		User:                  user,
-		IsExpired:             user.IsExpired(),
+		IsExpired:             user.IsAccessExpired(),
 		PasswordResetRequired: user.PasswordResetRequired,
 	}, nil
 }

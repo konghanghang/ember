@@ -12,6 +12,7 @@ const (
 
 // PlanGroup 套餐分组
 type PlanGroup struct {
+	EntitlementRank                   *int             `json:"entitlementRank" gorm:"column:entitlement_rank"`
 	Key                               string           `json:"key" gorm:"column:key;type:varchar(50);primaryKey"`
 	Name                              string           `json:"name" gorm:"column:name;size:100;not null"`
 	Description                       string           `json:"description,omitempty" gorm:"column:description;size:500"`

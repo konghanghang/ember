@@ -26,6 +26,11 @@ vi.mock('@/api/console', () => ({
   updatePassword: vi.fn(),
 }))
 
+vi.mock('@/api/entitlements', () => ({
+  getEntitlements: vi.fn().mockResolvedValue({ data: [], businessTimezone: 'Asia/Shanghai' }),
+  adjustEntitlement: vi.fn(),
+}))
+
 vi.mock('@/api/auth', () => ({
   // 默认返回空白名单 = 无注册邮箱域名限制；让现有用例完全不感知该 hook。
   // 需要测白名单生效行为的用例可在 beforeEach / it 内 vi.mocked(getRegistrationMode).mockResolvedValueOnce(...) 覆盖。

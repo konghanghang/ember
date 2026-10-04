@@ -165,3 +165,7 @@ make test-bot-report
 - [测试排障](./testing-troubleshooting.md)
 - [部署指南](./deployment.md)
 - [Cloudflared 本地联调](./cloudflared-local-testing.md)
+
+### 分组权益改版专项
+
+在 `services/api` 工作目录执行 `go test ./internal/services/entitlement ./internal/services/payment ./internal/services/system ./internal/services/policy -skip Integration`，并按需补关键包 `-race`。专用 PostgreSQL 设置后执行 `go test ./internal/app -run 'TestIntegration(Entitlement|LegacyEntitlement|Billing)' -count=1 -v`，覆盖迁移重跑、保留人工限制/历史记录、旧码失效和并发续期。2026-10-04 已连接专用测试库执行上述 6 个用例并通过，临时 schema 已清理；升级步骤见 [权益升级说明](./entitlements-upgrade.md)。

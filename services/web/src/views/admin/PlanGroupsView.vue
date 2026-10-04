@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { setEntitlementRanks } from '@/api/entitlements'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -533,6 +534,21 @@ onMounted(async () => {
   await loadSyncBatchFromRoute()
 })
 onBeforeUnmount(stopSyncBatchPolling)
+const rankDialog = ref(false)
+const rankSaving = ref(false)
+const rankDraft = ref<Record<string, number | undefined>>({})
+/** 等级必须由管理员明确填写，不复用页面展示排序。 */
+function openRanks() {
+  rankDraft.value = Object.fromEntries(groups.value.map(g => [g.key, g.entitlementRank ?? undefined]))
+  rankDialog.value = true
+}
+/** 一次提交完整等级映射，失败保留输入以便修正包含关系。 */
+async function saveRanks() {
+  const values = Object.values(rankDraft.value)
+  if (values.some(v => v === undefined || !Number.isInteger(v) || v < 0) || new Set(values).size !== values.length) { ElMessage.warning('请为每组填写不同的非负整数等级'); return }
+  rankSaving.value = true
+  try { await setEntitlementRanks(rankDraft.value as Record<string, number>); rankDialog.value = false; await fetchData(); ElMessage.success('权益等级已保存') } finally { rankSaving.value = false }
+}
 </script>
 
 <template>
@@ -547,6 +563,7 @@ onBeforeUnmount(stopSyncBatchPolling)
       </template>
 
       <template #actions>
+        <button class="btn-ember px-4 py-2.5" @click="openRanks">权益等级</button>
         <div class="flex items-center gap-3">
           <button
             @click="fetchData"
@@ -718,6 +735,7 @@ onBeforeUnmount(stopSyncBatchPolling)
         </template>
       </el-table-column>
 
+      <el-table-column label="权益等级" width="110"><template #default="{ row }">{{ row.entitlementRank ?? '未配置' }}</template></el-table-column>
       <el-table-column label="排序" width="90">
         <template #default="{ row }">
           <span class="text-gray-600">{{ row.sortOrder }}</span>
@@ -1095,4 +1113,11 @@ onBeforeUnmount(stopSyncBatchPolling)
       </template>
     </EmberFormDialog>
   </div>
+  <EmberFormDialog v-model="rankDialog" title="配置权益等级">
+    <el-form label-position="top" class="p-6">
+      <p class="mb-4 text-sm text-gray-500">等级越高越优先生效；高等级须包含低等级的全部媒体库。</p>
+      <el-form-item v-for="group in groups" :key="group.key" :label="group.name"><el-input-number v-model="rankDraft[group.key]" :min="0" :precision="0" class="form-number" /></el-form-item>
+    </el-form>
+    <template #footer><button class="btn-ember px-4 py-2.5" :disabled="rankSaving" @click="saveRanks">{{ rankSaving ? '保存中…' : '保存并校验' }}</button></template>
+  </EmberFormDialog>
 </template>

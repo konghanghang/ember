@@ -2,8 +2,11 @@ package auth
 
 import (
 	"errors"
+	configpkg "github.com/konghang/ember/backend/internal/config"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/common"
 	"github.com/konghang/ember/backend/internal/db"
@@ -24,6 +27,7 @@ func (s *AuthService) persistRegisteredUser(
 		return nil, "", err
 	}
 
+	location := configpkg.LoadConfiguredTimezone()
 	tx := db.DB.Begin()
 	if tx.Error != nil {
 		return nil, "", errors.New("创建用户失败")
@@ -39,6 +43,13 @@ func (s *AuthService) persistRegisteredUser(
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()
 		return nil, "", errors.New("创建用户失败")
+	}
+
+	if prepared.defaultDays > 0 {
+		if err := entitlementpkg.GrantLocked(tx, user, []entitlementpkg.Benefit{{PlanGroup: *user.PlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: prepared.defaultDays}}, "registration:"+user.ID, "system:registration", time.Now(), location); err != nil {
+			tx.Rollback()
+			return nil, "", err
+		}
 	}
 
 	if err := s.applyInviteRegistration(tx, req, prepared, user); err != nil {
@@ -124,7 +135,7 @@ func (s *AuthService) applyInviteRegistration(
 	}
 
 	result := tx.Model(&models.RedemptionCode{}).
-		Where("code = ? AND \"used_count\" < \"max_uses\"", strings.TrimSpace(req.Code)).
+		Where("code = ? AND NOT legacy_invalidated AND \"used_count\" < \"max_uses\" AND (expires_at IS NULL OR expires_at > ?)", strings.TrimSpace(req.Code), time.Now()).
 		Update("used_count", gorm.Expr("\"used_count\" + 1"))
 	if result.Error != nil {
 		return errors.New("创建用户失败")

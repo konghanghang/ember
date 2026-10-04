@@ -35,7 +35,7 @@
 | POST | `/api/v1/email/send-code` | 发送邮箱变更验证码到新邮箱（请求体 `{newEmail}`，必填合法邮箱；与 `PUT /api/v1/email` 共用 `change_email` 限流） |
 | PUT | `/api/v1/email` | 修改邮箱（请求体 `{newEmail, code}`，`code` 必填 6 位） |
 | POST | `/api/v1/redeem` | 通用兑换续期 |
-| GET | `/api/v1/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
+| GET | `/api/v1/redeem/:code/validate` | 续期兑换码可用性预验证；实际兑换只续 `registrationPlanGroup` 指定组，拒绝迁移失效码 |
 | GET | `/api/v1/redemptions` | 当前登录账号的兑换历史 |
 | POST | `/api/v1/telegram/bindcode` | 生成 Telegram 绑定验证码 |
 | DELETE | `/api/v1/telegram/unbind` | 解除 Telegram 绑定 |
@@ -70,7 +70,7 @@
 | POST | `/api/v1/user/email/send-code` | 发送邮箱变更验证码到新邮箱（请求体 `{newEmail}`，必填合法邮箱） |
 | PUT | `/api/v1/user/email` | 修改邮箱（请求体 `{newEmail, code}`，`code` 必填 6 位） |
 | POST | `/api/v1/user/redeem` | 兑换续期 |
-| GET | `/api/v1/user/redeem/:code/validate` | 续期兑换码预验证（忽略 `registrationPlanGroup`） |
+| GET | `/api/v1/user/redeem/:code/validate` | 续期兑换码可用性预验证；实际兑换只续 `registrationPlanGroup` 指定组，拒绝迁移失效码 |
 | GET | `/api/v1/user/redemptions` | 我的兑换历史 |
 | GET | `/api/v1/user/p115-account` | 当前用户个人 115 playback 安全摘要；不返回 Cookie、内部目录 ID、Provider User-Agent 或 owner |
 | POST | `/api/v1/user/p115-account` | 仅提交 `{cookie}` 创建 `pending + disabled` 个人账号；客户端类型由后端派生 |
@@ -235,3 +235,19 @@
 - **成功操作**：`{message: "xxx"}`
 - **错误**：`{error: "xxx"}`（400/401/404/500）
 - **字段命名**：camelCase
+
+## 分组权益合同补充（2026-10-04）
+
+| 方法 | 路径 | 权限与合同 |
+| --- | --- | --- |
+| GET | `/api/v1/user/entitlements` | 普通用户本人；返回 `{data,businessTimezone}`，逐项 `userId/planGroup/planGroupName/validityType/expiresAt`，包括仍保留的过期项 |
+| GET | `/api/v1/admin/users/:id/entitlements` | 管理员查看指定用户权益，同一列表结构 |
+| POST | `/api/v1/admin/users/:id/entitlements` | `operationId`（重试复用）、`planGroup`、`action=set\|extend\|revoke`；extend 提交正整数 `days`，set 提交 `validityType` 与限时 `expiresAt`；永久不填期限 |
+| PUT | `/api/v1/admin/plan-groups/ranks` | `{ranks:{分组key:等级}}`，完整唯一非负整数映射；校验高组资源包含低组后保存并重算用户 |
+| POST | `/api/v1/admin/payments/:id/resolve` | `{resolution:external_refund\|compensation,note,benefits?}`；退款只记录外部结果，补偿原子发放，已收口重复请求不重发 |
+
+套餐接口增加 `benefits[{planGroup,validityType,durationDays}]`；`duration` 的天数为正整数，`permanent` 不填天数。用户套餐列表仍使用 `data`，同一目录/价格附 `purchasable/purchaseReason`，不按当前组过滤。Profile 增加 `resourceAccessGranted`；`isExpired` 表示本地重算后的无权益状态，不是前端实时到期计算。
+
+管理员权益设置的无偏移时间 `YYYY-MM-DD HH:mm:ss` 按 `CRON_TIMEZONE` 解析，也接受带偏移 RFC3339；权益列表的 `businessTimezone` 用于输入标签及显示，不使用浏览器时区猜测。支付记录增加权益快照、`paidAt`、人工原因和处理结果；新状态 `paid_review/resolved` 与 `completed` 一样阻止重复付款发放。
+
+旧单组套餐输入保留兼容，组合消费者必须读取 benefits；禁止用旧摘要字段覆写组合。旧用户更新接口单独改 `planGroup` 会拒绝，必须带明确期限；新管理界面统一使用权益接口。

@@ -26,6 +26,8 @@ type telegramSubscriber interface {
 
 // TelegramService Telegram 绑定与 Bot 能力
 type TelegramService struct {
+	accountEntitlements  func(string) ([]AccountEntitlement, error)
+	businessTimezone     func() *time.Location
 	redemptionService    telegramRedeemer
 	subscriptionService  telegramSubscriber
 	newEmbyService       func() *embyint.EmbyService
@@ -117,12 +119,24 @@ type BindResult struct {
 
 // AccountInfoResponse Bot 查询账号信息响应
 type AccountInfoResponse struct {
-	Username     string     `json:"username"`
-	Email        string     `json:"email"`
-	ExpiresAt    *time.Time `json:"expiresAt"`
-	IsExpired    bool       `json:"isExpired"`
-	IsActive     bool       `json:"isActive"`
-	EmbyDisabled bool       `json:"embyDisabled"`
+	Entitlements          []AccountEntitlement `json:"entitlements"`
+	CurrentPlanGroup      *string              `json:"currentPlanGroup"`
+	BusinessTimezone      string               `json:"businessTimezone"`
+	ResourceAccessGranted bool                 `json:"resourceAccessGranted"`
+	Username              string               `json:"username"`
+	Email                 string               `json:"email"`
+	ExpiresAt             *time.Time           `json:"expiresAt"`
+	IsExpired             bool                 `json:"isExpired"`
+	IsActive              bool                 `json:"isActive"`
+	EmbyDisabled          bool                 `json:"embyDisabled"`
+}
+
+// AccountEntitlement is the Bot-facing grant summary; authorization is still resolved by API.
+type AccountEntitlement struct {
+	PlanGroup     string     `json:"planGroup" gorm:"column:plan_group"`
+	PlanGroupName string     `json:"planGroupName" gorm:"column:plan_group_name"`
+	ValidityType  string     `json:"validityType" gorm:"column:validity_type"`
+	ExpiresAt     *time.Time `json:"expiresAt" gorm:"column:expires_at"`
 }
 
 // TelegramBindRequest Bot 调 Internal API 验证绑定
@@ -316,11 +330,23 @@ func (s *TelegramService) GetAccountInfo(telegramID int64) (*AccountInfoResponse
 		return nil, errors.New("查询账号信息失败，请稍后重试")
 	}
 
+	var entitlements []AccountEntitlement
+	if s.accountEntitlements != nil {
+		entitlements, err = s.accountEntitlements(user.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	timezone := ""
+	if s.businessTimezone != nil {
+		timezone = s.businessTimezone().String()
+	}
 	return &AccountInfoResponse{
+		Entitlements: entitlements, CurrentPlanGroup: user.PlanGroup, BusinessTimezone: timezone, ResourceAccessGranted: user.ResourceAccessGranted,
 		Username:     user.Username,
 		Email:        user.Email,
 		ExpiresAt:    user.ExpiresAt,
-		IsExpired:    user.IsExpired(),
+		IsExpired:    user.IsAccessExpired(),
 		IsActive:     user.IsActive,
 		EmbyDisabled: user.EmbyDisabled,
 	}, nil
