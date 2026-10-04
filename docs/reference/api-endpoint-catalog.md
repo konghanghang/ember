@@ -246,7 +246,7 @@
 | PUT | `/api/v1/admin/plan-groups/ranks` | `{ranks:{分组key:等级}}`，完整唯一非负整数映射；校验高组资源包含低组后保存并重算用户 |
 | POST | `/api/v1/admin/payments/:id/resolve` | `{resolution:external_refund\|compensation,note,benefits?}`；退款只记录外部结果，补偿原子发放，已收口重复请求不重发 |
 
-套餐接口增加 `benefits[{planGroup,validityType,durationDays}]`；`duration` 的天数为正整数，`permanent` 不填天数。用户套餐列表仍使用 `data`，同一目录/价格附 `purchasable/purchaseReason`，不按当前组过滤。Profile 增加 `resourceAccessGranted`；`isExpired` 表示本地重算后的无权益状态，不是前端实时到期计算。
+套餐接口增加 `benefits[{planGroup,planGroupName,validityType,durationDays}]`；`duration` 的天数为正整数，`permanent` 不填天数。商品查询响应的 `planGroupName` 按当前分组名称批量补齐，不修改订单快照。用户套餐列表仍使用 `data`，同一目录/价格附 `purchasable/purchaseReason`，不按当前组过滤。Profile 增加 `resourceAccessGranted`；`isExpired` 表示本地重算后的无权益状态，不是前端实时到期计算。
 
 管理员权益设置的无偏移时间 `YYYY-MM-DD HH:mm:ss` 按 `CRON_TIMEZONE` 解析，也接受带偏移 RFC3339；权益列表的 `businessTimezone` 用于输入标签及显示，不使用浏览器时区猜测。支付记录增加权益快照、`paidAt`、人工原因和处理结果；新状态 `paid_review/resolved` 与 `completed` 一样阻止重复付款发放。
 

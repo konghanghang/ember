@@ -264,7 +264,7 @@ onMounted(async () => {
                   <div class="flex items-start justify-between gap-3">
                     <div>
                       <h3 class="text-lg font-bold text-gray-900">{{ plan.name }}</h3>
-                      <p class="mt-1 min-h-[36px] text-sm leading-5 text-gray-500">{{ plan.description || '付款成功后自动延长有效期' }}</p>
+                      <p class="mt-1 min-h-[36px] text-sm leading-5 text-gray-500">{{ plan.description || '付款成功后发放套餐权益' }}</p>
                     </div>
                     <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-ember/10 text-ember">
                       <el-icon><Money /></el-icon>
@@ -304,7 +304,7 @@ onMounted(async () => {
             <div class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div class="mb-4">
                 <h4 class="text-base font-bold text-gray-900">输入兑换码</h4>
-                <p class="mt-1 text-sm text-gray-500">同一兑换码仅可成功使用一次，兑换成功后时长直接叠加。</p>
+                <p class="mt-1 text-sm text-gray-500">每人每码仅可成功兑换一次，兑换后增加对应分组的有效期。</p>
               </div>
 
               <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-5">

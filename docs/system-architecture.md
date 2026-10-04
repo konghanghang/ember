@@ -632,6 +632,7 @@ Stripe 一次性支付流程管理。
 
 - `GetPlanGroups()` / `CreatePlanGroup()` / `UpdatePlanGroup()` / `DeletePlanGroup()` — 后台套餐分组管理；默认分组全局唯一；分组除名称/排序外还承载 `subscriptionAutoApproveDailyLimit` 这类审核权益配置。分组存在性及引用检查覆盖套餐权益、订单快照、用户权益和兑换码；默认分组变更不失效订单。权益等级通过完整映射保存并验证媒体库逐级包含，配置不齐时拒绝新购
 - `CreateCheckoutSession(userID, planID)` — **批次 2 改造为占位幂等模式**：先在事务里 `INSERT payments (status='pending', stripeSessionId='') ON CONFLICT (uq_payments_pending_user_plan) DO NOTHING`，命中冲突回查现有 pending 复用；事务外调 Stripe 时携带 `Idempotency-Key=checkout:<paymentId>`，并发的两个请求拿到同一 paymentId → Stripe 返回同一 Session；最后 `UPDATE payments SET stripeSessionId, checkoutUrl WHERE id=?` 回填
+- 套餐列表与创建/编辑响应批量解析权益的当前分组名称，覆盖旧迁移缺名和分组改名；只补响应副本，不回写套餐或历史订单快照。后台权益保存后同步刷新列表与打开弹窗的当前分组；用户不再匹配筛选时关闭旧弹窗。
 - 同一订单重试收费的金额、币种及天数始终来自 `Payment.Amount/Currency/Days`，与 `Payment.benefits` 一起形成不可变交付快照；改价或修改套餐权益仅影响新订单。名称/描述、跳转 URL 和支付方式未持久化为请求快照，它们变更后仍可能造成 Stripe 幂等参数不一致拒绝，不自动改写已有订单或生成替代身份。
 - `GetPlansForUser(userID)` — 向所有登录用户返回同一启用套餐目录，附 `purchasable/purchaseReason`；不按当前分组筛选，永久高等级覆盖的无增益购买会被拒绝
 - `HandleWebhook(payload, signature)` — 签名验证后按 `event.id` 在 `stripe_webhook_events` 做去重 + 失败重试状态机：

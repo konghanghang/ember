@@ -295,3 +295,11 @@
 实施时同步 [系统架构](../../system-architecture.md)、[API 目录](../../reference/api-endpoint-catalog.md)、[Web 信息架构](../../reference/web-information-architecture.md)、[Bot 架构](../../reference/bot-architecture-reference.md)、[数据库说明](../../../infrastructure/database/README.md)、[测试 runbook](../../runbooks/testing.md)及相关数据模型、升级和 Emby 合同文档。本轮不把目标设计写成现行架构事实。
 
 归档前必须完成业务待定项、代码/SQL/调用方迁移、过渡层清理、关键验证和现行文档同步，记录真实结果与未验证边界。满足条件后迁入 `docs/archive/plan/billing-redemption/`，同步 plan/archive/proposals 索引及所有直接引用；负责人保持 Ember。
+
+### 2026-10-04 页面验收与修复补充
+
+已通过 Ember 页面完成分组等级包含校验、四类套餐配置、多组独立权益、同组延长、自然到期任务回退/停用、人工禁用保留及兑换码拒绝/成功/重复使用验证；通过 Emby 4.9.3.0 页面核对增强库授予、回退收回及无权益停用。业务数据均通过页面操作，未直接改库。Stripe 及真实 115 播放/配额验证仍待执行。
+
+本轮发现并修复：后台权益弹窗当前分组滞后、续费说明未限定对应分组、旧套餐展示分组 key。前端补保存后刷新及用户移出筛选的回归测试；后端批量补齐商品响应名称，覆盖旧迁移、改名、购买资格、查询失败及不修改共享快照。页面复验添加/撤销权益后标签即时切换、新旧套餐中文名称一致、两处说明生效。
+
+修复后 Go 非集成测试、vet/build 通过；Web 308 项通过、3 项既有跳过，生产构建通过。未改变数据库 schema 或支付快照，未执行 Stripe 支付。

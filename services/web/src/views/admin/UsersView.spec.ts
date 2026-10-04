@@ -3,6 +3,7 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UsersView from './UsersView.vue'
+import UserEntitlementsPanel from '@/components/billing/UserEntitlementsPanel.vue'
 import {
   applyAdminUserCurrentPolicySync,
   applyPlanGroupMediaLibrarySync,
@@ -133,6 +134,36 @@ describe('UsersView', () => {
       page: 1,
       pageSize: 10,
     })
+  })
+
+  it('权益保存后刷新打开的弹窗当前分组，无需关闭重开', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { entitlementUser: UserInfo | null }
+    vm.entitlementUser = createUser({ planGroup: 'BASE' })
+    await flushPromises()
+    const panel = wrapper.findComponent(UserEntitlementsPanel)
+    expect(panel.props('currentGroup')).toBe('BASE')
+    vi.mocked(getUsers).mockResolvedValueOnce({ data: [createUser({ planGroup: 'PLUS' })], total: 1, page: 1, pageSize: 10 })
+
+    panel.vm.$emit('changed')
+    await flushPromises()
+
+    expect(wrapper.findComponent(UserEntitlementsPanel).props('currentGroup')).toBe('PLUS')
+    wrapper.unmount()
+  })
+
+  it('权益变更后用户不再匹配当前筛选时关闭旧弹窗', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { entitlementUser: UserInfo | null }
+    vm.entitlementUser = createUser({ planGroup: 'BASE' })
+    await flushPromises()
+
+    wrapper.findComponent(UserEntitlementsPanel).vm.$emit('changed')
+    await flushPromises()
+
+    expect(vm.entitlementUser).toBeNull()
+    expect(wrapper.findComponent(UserEntitlementsPanel).exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('不会把 Ember 本地账号禁用解释成 Emby 禁用来源', async () => {

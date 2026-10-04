@@ -432,6 +432,10 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 		return nil, errors.New("获取方案列表失败")
 	}
 
+	if err := populatePlanBenefitNames(db.DB, plans); err != nil {
+		return nil, err
+	}
+
 	return &GetPlansResponse{
 		Data:       plans,
 		Total:      total,
@@ -445,6 +449,9 @@ func (s *PaymentService) GetPlans(req *GetPlansRequest) (*GetPlansResponse, erro
 func (s *PaymentService) GetPlansForUser(userID string) ([]PlanView, error) {
 	plans := []PlanView{}
 	if err := buildPlansWithGroupNameSelect(db.DB.Model(&models.Plan{})).Where(`plans."is_active" = ?`, true).Order(`plans."sort_order" ASC, plans."created_at" DESC`).Find(&plans).Error; err != nil {
+		return nil, err
+	}
+	if err := populatePlanBenefitNames(db.DB, plans); err != nil {
 		return nil, err
 	}
 	owned, err := entitlementpkg.Load(db.DB, userID)
@@ -483,7 +490,11 @@ func (s *PaymentService) getPlanByID(id string) (*PlanView, error) {
 		}
 		return nil, errors.New("获取方案失败")
 	}
-	return &plan, nil
+	views := []PlanView{plan}
+	if err := populatePlanBenefitNames(db.DB, views); err != nil {
+		return nil, err
+	}
+	return &views[0], nil
 }
 
 func timePtr(value time.Time) *time.Time {

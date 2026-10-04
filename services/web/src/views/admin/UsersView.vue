@@ -131,12 +131,16 @@ const generatePassword = (length = 16) => {
   return Array.from(randomValues, (value) => charset[value % charset.length]).join('')
 }
 
+/** 刷新列表并同步正在管理的用户；移出当前筛选后关闭旧权益弹窗。 */
 const fetchData = async () => {
   loading.value = true
   try {
     const res = await getUsers(queryParams.value)
     tableData.value = res.data
     total.value = res.total
+    if (entitlementUser.value) {
+      entitlementUser.value = res.data.find(user => user.id === entitlementUser.value?.id) ?? null
+    }
   } finally {
     loading.value = false
   }
