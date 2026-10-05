@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
+import type { EntitlementAdjustment } from '@/api/entitlements'
 import { adjustEntitlement, getEntitlements } from '@/api/entitlements'
 import type { ManagedPlanGroup, UserEntitlement } from '@/types/api'
 import { formatDateTimeInTimezone } from '@/utils/date'
 
 const props = defineProps<{ userId?: string; groups?: ManagedPlanGroup[]; currentGroup?: string }>()
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{ changed: []; close: [] }>()
 const rows = ref<UserEntitlement[]>([])
 const loading = ref(false)
 const failed = ref(false)
 const saving = ref(false)
 const group = ref('')
-const action = ref<'set' | 'extend'>('extend')
-const validityType = ref<'duration' | 'permanent'>('duration')
+const action = ref('extend')
+const operationOptions = [
+  { key: 'extend', label: '延长天数' },
+  { key: 'set', label: '指定到期时间' },
+  { key: 'permanent', label: '设为永久' }
+]
 const days = ref(30)
 const expiresAt = ref('')
 const businessTimezone = ref('')
@@ -30,12 +36,16 @@ async function load() {
 /** 同一失败请求重试复用操作号，编辑操作内容后才生成新号。 */
 async function save(revokeGroup?: string) {
   if (!props.userId || saving.value) return
-  const payload = revokeGroup ? { planGroup: revokeGroup, action: 'revoke' as const } : {
-    planGroup: group.value, action: action.value, validityType: validityType.value,
-    days: days.value, expiresAt: action.value === 'set' && validityType.value === 'duration' ? expiresAt.value : null
-  }
+  const payload: Omit<EntitlementAdjustment, 'operationId'> = revokeGroup
+    ? { planGroup: revokeGroup, action: 'revoke' }
+    : action.value === 'extend'
+      ? { planGroup: group.value, action: 'extend', days: days.value }
+      : action.value === 'permanent'
+        ? { planGroup: group.value, action: 'set', validityType: 'permanent' }
+        : { planGroup: group.value, action: 'set', validityType: 'duration', expiresAt: expiresAt.value }
   if (!payload.planGroup) { ElMessage.warning('请选择权益分组'); return }
-  if (!revokeGroup && action.value === 'set' && validityType.value === 'duration' && !expiresAt.value) { ElMessage.warning('请选择到期时间'); return }
+  if (!revokeGroup && action.value === 'extend' && (!Number.isInteger(days.value) || days.value < 1)) { ElMessage.warning('增加天数必须为正整数'); return }
+  if (!revokeGroup && action.value === 'set' && !expiresAt.value) { ElMessage.warning('请选择到期时间'); return }
   if (revokeGroup) {
     try { await ElMessageBox.confirm('撤销该分组权益后，将重新计算当前生效分组。', '撤销权益', { type: 'warning', confirmButtonText: '撤销', cancelButtonText: '取消' }) } catch { return }
   }
@@ -55,7 +65,7 @@ watch(() => props.userId, () => { operationId = ''; void load() }, { immediate: 
 </script>
 
 <template>
-  <section v-loading="loading" class="space-y-4 rounded-2xl border border-gray-100 bg-white p-4 sm:p-6">
+  <section v-loading="loading" class="space-y-4" :class="userId ? 'p-6 pt-2' : 'rounded-2xl border border-gray-100 bg-white p-4 sm:p-6'">
     <h2 class="text-base font-semibold text-gray-900">持有权益</h2>
     <div v-if="failed" role="alert" class="text-sm text-red-600">权益加载失败 <button class="cursor-pointer underline" @click="load">重试</button></div>
     <p v-else-if="!loading && !rows.length" class="text-sm text-gray-500">暂无权益</p>
@@ -67,13 +77,17 @@ watch(() => props.userId, () => { operationId = ''; void load() }, { immediate: 
     </div>
     <el-form v-if="userId" label-position="top" class="border-t border-gray-100 pt-4" @submit.prevent="save()">
       <el-form-item label="目标权益分组"><el-select v-model="group" class="form-select w-full"><el-option v-for="item in groups" :key="item.key" :label="item.name" :value="item.key" /></el-select></el-form-item>
-      <el-form-item label="操作"><el-select v-model="action" class="form-select w-full"><el-option label="延长有效期" value="extend" /><el-option label="设置有效期" value="set" /></el-select></el-form-item>
+      <el-form-item label="操作">
+        <EmberSegmentTabs v-model="action" :tabs="operationOptions" ariaLabel="权益调整方式" />
+      </el-form-item>
       <el-form-item v-if="action === 'extend'" label="增加天数"><el-input-number v-model="days" :min="1" :precision="0" class="form-number" /></el-form-item>
-      <template v-else>
-        <el-form-item label="有效期"><el-select v-model="validityType" class="form-select w-full"><el-option label="指定到期时间" value="duration" /><el-option label="永久" value="permanent" /></el-select></el-form-item>
-        <el-form-item v-if="validityType === 'duration'" :label="`到期时间（${businessTimezone}）`"><el-date-picker v-model="expiresAt" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" class="form-date" /></el-form-item>
-      </template>
-      <button type="submit" class="btn-ember px-4 py-2.5 disabled:opacity-50" :disabled="saving">{{ saving ? '保存中…' : '保存权益' }}</button>
+      <el-form-item v-if="action === 'set'" :label="`到期时间（${businessTimezone}）`">
+        <el-date-picker v-model="expiresAt" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="选择到期时间" class="form-date w-full" />
+      </el-form-item>
+      <div class="mt-6 flex justify-end gap-3 border-t border-gray-100 pt-4">
+        <button type="button" class="cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50" @click="emit('close')">取消</button>
+        <button type="submit" class="btn-ember cursor-pointer rounded-xl px-6 py-2.5 text-sm font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-50" :disabled="saving || loading || failed">{{ saving ? '保存中…' : '保存权益' }}</button>
+      </div>
     </el-form>
   </section>
 </template>

@@ -213,3 +213,13 @@ export function formatDateTimeInTimezone(value: string, timezone: string): strin
   if (Number.isNaN(date.getTime())) return '—'
   return new Intl.DateTimeFormat('zh-CN', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date)
 }
+
+/** 将时间戳转为全局业务时区的日期控件值，交由后端按同一时区解析。 */
+export function formatBusinessDateTimeInput(value: string, timezone: string): string | null {
+  if (!value || !timezone) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date)
+  const fields = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return `${fields.year}-${fields.month}-${fields.day} ${fields.hour}:${fields.minute}:${fields.second}`
+}

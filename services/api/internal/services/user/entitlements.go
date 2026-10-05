@@ -50,10 +50,7 @@ func (s *UserService) AdjustEntitlement(ctx context.Context, userID, actor strin
 		if req.ExpiresAt == nil {
 			return ErrRequestInvalid
 		}
-		parsed, err := time.ParseInLocation("2006-01-02 15:04:05", *req.ExpiresAt, location)
-		if err != nil {
-			parsed, err = time.Parse(time.RFC3339, *req.ExpiresAt)
-		}
+		parsed, err := parseAdminExpiryInput(*req.ExpiresAt, location)
 		if err != nil {
 			return ErrExpiresAtFormatInvalid
 		}
@@ -81,4 +78,12 @@ func (s *UserService) AdjustEntitlement(ctx context.Context, userID, actor strin
 		return err
 	}
 	return s.syncEmbyPolicy(&user, "admin_entitlement_update")
+}
+
+// parseAdminExpiryInput accepts explicit-offset API timestamps or wall time in the global business timezone.
+func parseAdminExpiryInput(value string, location *time.Location) (time.Time, error) {
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, nil
+	}
+	return time.ParseInLocation("2006-01-02 15:04:05", value, location)
 }

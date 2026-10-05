@@ -396,7 +396,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 ### 5.2 UserService (`services/user/service.go`, `services/user/admin.go`, `services/user/profile.go`, `services/user/password.go`, `services/user/password_reset.go`)
 
 - `GetUsers(page, pageSize, search, isActive, expiresAfter, embyStatus, planGroup)` — 分页搜索（`expiresAfter` 格式 `YYYY-MM-DD`，筛选 `expiresAt > expiresAfter`；`embyStatus` 支持 `available/disabled/unlinked`；`planGroup` 按“有效套餐分组”过滤：用户显式分组优先，否则回退系统默认分组）
-- `UpdateUserByAdmin(userID, req)` — 管理员更新用户邮箱/状态；分组权益通过独立新增、设期限、续期、撤销入口管理。旧更新合同若携带 `planGroup`，必须同时明确目标期限或永久，禁止把当前组剩余时间复制到另一个组；不再因用户切组失效订单快照
+- `UpdateUserByAdmin(userID, req)` — 管理员更新邮箱/状态，并可通过 `expiresAt` 或 `clearExpiresAt=true` 设置当前组到期时间/永久；无偏移日期按 `CRON_TIMEZONE` 解析，继续兼容 RFC3339。编辑表单统一提供保持不变（默认）、延长天数、指定日期和设永久，移除操作列独立延期入口。`extendDays` 与资料在同一事务保存，必填 `operationId` 复用既有权益审计保证延期重试幂等；延期不能与换组、日期或永久混合提交。换组与改期限分开保存；单独换组沿用保留期限的原子迁移，其他组权益和人工限制保持不变，不影响订单快照。独立权益入口直接提供延长天数、指定到期时间、设为永久三种操作及撤销。
 - `ExtendExpiry(userID, days)` — 已过期从 now 起算，未过期从 ExpiresAt 叠加
 - `GetProfile(userID)` — 获取用户个人资料
 - `UpdateEmail(userID, req)` — 邮箱变更落库；`UpdateEmailRequest{NewEmail string \`binding:"required,email"\`, Code string \`binding:"required,len=6"\`}`，先做 `unchangedEmailCheck` → 调用 `EmailService.IsRegistrationEmailAllowed(newEmail)` 做注册邮箱域名白名单门控（命中拒绝在事务开启前直接返回，不消费验证码、不写库；与 `SendEmailChangeCode` 共用同一份语义防御 send-code 通过后管理员收紧白名单的窗口）→ 事务内 `EmailService.ConsumeCodeTx(tx, newEmail, code, change_email)`（校验即消费）→ `UPDATE users.email`；返回 `*UpdateEmailResult{OldEmail, User}` 由 handler 用于 fire-and-forget 通知旧邮箱

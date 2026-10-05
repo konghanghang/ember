@@ -23,6 +23,8 @@ const embyAdminPolicyProtectionText = "There must be at least one user in the sy
 
 // AdminUpdateUserRequest 管理员更新用户请求
 type AdminUpdateUserRequest struct {
+	ExtendDays     *int    `json:"extendDays" binding:"omitempty,min=1"`
+	OperationID    string  `json:"operationId" binding:"omitempty,max=64"`
 	Email          *string `json:"email"`
 	IsActive       *bool   `json:"isActive"`
 	PlanGroup      *string `json:"planGroup"`
@@ -253,15 +255,36 @@ func (s *UserService) UpdateUserByAdmin(userID string, req *AdminUpdateUserReque
 
 // UpdateUserByAdminWithContext preserves the existing transactional admin edit
 // while revoking old mappings before any explicit is_active assignment.
+// Date inputs without an offset use CRON_TIMEZONE; an explicit extension shares the transaction
+// with profile edits and reuses its operation key to prevent double extension on retries.
 func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID string, req *AdminUpdateUserRequest, operatorID string) (*UserView, error) {
 	if req == nil {
 		return nil, ErrRequestInvalid
 	}
-	if req.Email == nil && req.IsActive == nil && req.PlanGroup == nil && req.ExpiresAt == nil && !req.ClearExpiresAt {
+	if req.ExtendDays != nil && (*req.ExtendDays < 1 || strings.TrimSpace(req.OperationID) == "" || len(req.OperationID) > 64 || req.PlanGroup != nil || req.ExpiresAt != nil || req.ClearExpiresAt) {
+		return nil, ErrRequestInvalid
+	}
+	var extensionLocation *time.Location
+	if req.ExtendDays != nil {
+		extensionLocation = configpkg.LoadConfiguredTimezone()
+	}
+	if req.Email == nil && req.IsActive == nil && req.PlanGroup == nil && req.ExpiresAt == nil && !req.ClearExpiresAt && req.ExtendDays == nil {
 		return nil, ErrUpdateFieldsRequired
 	}
 	if req.ClearExpiresAt && req.ExpiresAt != nil {
 		return nil, ErrClearExpiresAtConflict
+	}
+	var requestedExpiry *time.Time
+	if req.ExpiresAt != nil {
+		parsed, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			parsed, err = parseAdminExpiryInput(*req.ExpiresAt, configpkg.LoadConfiguredTimezone())
+		}
+		if err != nil {
+			return nil, ErrExpiresAtFormatInvalid
+		}
+		parsed = parsed.UTC()
+		requestedExpiry = &parsed
 	}
 	// A group-only edit transfers the existing grant without changing its term.
 	transferGroup := req.PlanGroup != nil && req.ExpiresAt == nil && !req.ClearExpiresAt
@@ -312,14 +335,8 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 
 	if req.ClearExpiresAt {
 		user.ExpiresAt = nil
-	} else if req.ExpiresAt != nil {
-		expiresAt, err := time.Parse(time.RFC3339, *req.ExpiresAt)
-		if err != nil {
-			tx.Rollback()
-			return nil, ErrExpiresAtFormatInvalid
-		}
-		expiresAtUTC := expiresAt.UTC()
-		user.ExpiresAt = &expiresAtUTC
+	} else if requestedExpiry != nil {
+		user.ExpiresAt = requestedExpiry
 	}
 
 	if transferGroup {
@@ -359,6 +376,22 @@ func (s *UserService) UpdateUserByAdminWithContext(ctx context.Context, userID s
 			actor = "admin:api-key"
 		}
 		if err := entitlementpkg.AdjustLocked(tx, &user, target, false, "admin:"+ulid.Make().String(), actor, time.Now()); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+
+	if req.ExtendDays != nil {
+		if user.IsAdmin() || user.PlanGroup == nil {
+			tx.Rollback()
+			return nil, ErrRequestInvalid
+		}
+		actor := operatorID
+		if actor == "" {
+			actor = "admin:api-key"
+		}
+		key := "admin-edit-extension:" + user.ID + ":" + req.OperationID
+		if err := entitlementpkg.GrantLocked(tx, &user, []entitlementpkg.Benefit{{PlanGroup: *user.PlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: *req.ExtendDays}}, key, actor, time.Now(), extensionLocation); err != nil {
 			tx.Rollback()
 			return nil, err
 		}
@@ -507,7 +540,7 @@ func adminUpdateChangesEmbyPolicy(req *AdminUpdateUserRequest) bool {
 	if req == nil {
 		return false
 	}
-	return req.PlanGroup != nil || req.ClearExpiresAt || req.ExpiresAt != nil
+	return req.PlanGroup != nil || req.ClearExpiresAt || req.ExpiresAt != nil || req.ExtendDays != nil
 }
 
 func (s *UserService) DeleteUser(userID string) error {

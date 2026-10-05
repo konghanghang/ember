@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   addDays,
+  formatBusinessDateTimeInput,
   endOfMonthLocal,
   formatCompactDateTime,
   formatDateLocal,
@@ -134,5 +135,16 @@ describe('addDays', () => {
     const input = new Date(2026, 6, 26)
     addDays(input, 5)
     expect(input.getDate()).toBe(26)
+  })
+})
+
+
+describe('业务时区日期输入', () => {
+  it('保留秒数并按业务时区跨日，空值和非法日期不伪造期限', () => {
+    expect(formatBusinessDateTimeInput('2026-10-05T23:01:02Z', 'Asia/Shanghai')).toBe('2026-10-06 07:01:02')
+    expect(formatBusinessDateTimeInput('2026-10-05T23:01:02Z', 'America/New_York')).toBe('2026-10-05 19:01:02')
+    expect(formatBusinessDateTimeInput('bad', 'Asia/Shanghai')).toBeNull()
+    expect(formatBusinessDateTimeInput('', 'Asia/Shanghai')).toBeNull()
+    expect(formatBusinessDateTimeInput('2026-10-05T23:01:02Z', '')).toBeNull()
   })
 })

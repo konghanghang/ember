@@ -13,7 +13,10 @@ import {
   previewPlanGroupMediaLibrarySync,
   updateAdminUser
 } from '@/api/admin'
+import { getEntitlements } from '@/api/entitlements'
 import type { UserInfo } from '@/types/api'
+
+vi.mock('@/api/entitlements', () => ({ getEntitlements: vi.fn() }))
 
 vi.mock('@/api/admin', () => ({
   applyAdminUserCurrentPolicySync: vi.fn(),
@@ -109,6 +112,7 @@ async function mountView() {
         'el-icon': passthroughStub,
         'el-checkbox': emptyStub,
         'el-input': emptyStub,
+        'el-input-number': emptyStub,
         'el-option': emptyStub,
         'el-pagination': emptyStub,
         'el-select': passthroughStub,
@@ -126,6 +130,7 @@ async function mountView() {
 describe('UsersView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getEntitlements).mockResolvedValue({ data: [], businessTimezone: 'Asia/Shanghai' })
     vi.mocked(getPlanGroups).mockResolvedValue({ data: [] })
     vi.mocked(getAdminMediaLibraries).mockResolvedValue({ data: [] })
     vi.mocked(getUsers).mockResolvedValue({
@@ -230,13 +235,13 @@ describe('UsersView', () => {
   it('编辑用户时非法到期时间按无到期时间处理，不抛 RangeError', async () => {
     const wrapper = await mountView()
     const vm = wrapper.vm as unknown as {
-      editForm: { expiresAt: Date | null; neverExpire: boolean }
+      editExpiryAction: string; editForm: { expiresAt: string | null }
       handleOpenEdit: (row: UserInfo) => void
     }
 
     expect(() => vm.handleOpenEdit(createUser({ expiresAt: 'not-a-date' }))).not.toThrow()
     expect(vm.editForm.expiresAt).toBeNull()
-    expect(vm.editForm.neverExpire).toBe(false)
+    expect(vm.editExpiryAction).toBe('keep')
   })
 
   it('编辑用户时只提交实际变更字段', async () => {
@@ -286,6 +291,63 @@ describe('UsersView', () => {
     vm.editForm.planGroup = 'DEFAULT'
     await vm.handleUpdateUser()
     expect(updateAdminUser).toHaveBeenCalledWith('user_1', { planGroup: 'DEFAULT' })
+    wrapper.unmount()
+  })
+
+  it('编辑当前分组可设永久和业务时区的指定到期时间', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { editExpiryAction: string; editForm: { expiresAt: string | null }; handleOpenEdit: (row: UserInfo) => Promise<void>; handleUpdateUser: () => Promise<void> }
+    await vm.handleOpenEdit(createUser({ planGroup: 'VIP', expiresAt: '2099-01-01T00:00:00Z' }))
+    expect(vm.editForm.expiresAt).toBe('2099-01-01 08:00:00')
+    vm.editExpiryAction = 'permanent'
+    await vm.handleUpdateUser()
+    expect(updateAdminUser).toHaveBeenLastCalledWith('user_1', { clearExpiresAt: true })
+    await vm.handleOpenEdit(createUser({ planGroup: 'VIP', expiresAt: undefined }))
+    vm.editExpiryAction = 'set'; vm.editForm.expiresAt = '2099-02-01 12:00:00'
+    await vm.handleUpdateUser()
+    expect(updateAdminUser).toHaveBeenLastCalledWith('user_1', { expiresAt: '2099-02-01 12:00:00' })
+    wrapper.unmount()
+  })
+
+  it('日期未填写或同时换组改期限时不提交，避免误覆盖其他组', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { editExpiryAction: string; editForm: { expiresAt: string | null; planGroup: string }; handleOpenEdit: (row: UserInfo) => Promise<void>; handleUpdateUser: () => Promise<void> }
+    await vm.handleOpenEdit(createUser({ planGroup: 'VIP' }))
+    vm.editExpiryAction = 'set'; vm.editForm.expiresAt = null
+    await vm.handleUpdateUser()
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    vm.editExpiryAction = 'permanent'; vm.editForm.planGroup = 'BASE'
+    await vm.handleUpdateUser()
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('编辑默认保持期限不变，延期与资料一次提交，失败重试不更换操作号', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { editExpiryAction: string; editExtendDays: number; editForm: { email: string }; handleOpenEdit: (row: UserInfo) => Promise<void>; handleUpdateUser: () => Promise<void> }
+    await vm.handleOpenEdit(createUser({ planGroup: 'VIP' }))
+    expect(vm.editExpiryAction).toBe('keep')
+    expect(wrapper.find('[aria-label="延长有效期"]').exists()).toBe(false)
+    vm.editForm.email = 'changed@example.com'
+    vm.editExpiryAction = 'extend'; vm.editExtendDays = 45
+    vi.mocked(updateAdminUser).mockRejectedValueOnce(new Error('response lost'))
+    await vm.handleUpdateUser()
+    const first = vi.mocked(updateAdminUser).mock.calls[0]![1]
+    expect(first).toEqual({ email: 'changed@example.com', extendDays: 45, operationId: expect.any(String) })
+    await vm.handleUpdateUser()
+    expect(updateAdminUser).toHaveBeenLastCalledWith('user_1', first)
+    wrapper.unmount()
+  })
+
+  it('延期天数无效不提交，重新打开恢复保持不变', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as unknown as { editExpiryAction: string; editExtendDays: number; handleOpenEdit: (row: UserInfo) => Promise<void>; handleUpdateUser: () => Promise<void> }
+    await vm.handleOpenEdit(createUser({ planGroup: 'VIP' }))
+    vm.editExpiryAction = 'extend'; vm.editExtendDays = 0
+    await vm.handleUpdateUser()
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    await vm.handleOpenEdit(createUser({ planGroup: 'VIP' }))
+    expect(vm.editExpiryAction).toBe('keep')
     wrapper.unmount()
   })
 

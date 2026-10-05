@@ -250,10 +250,15 @@
 
 管理员权益设置的无偏移时间 `YYYY-MM-DD HH:mm:ss` 按 `CRON_TIMEZONE` 解析，也接受带偏移 RFC3339；权益列表的 `businessTimezone` 用于输入标签及显示，不使用浏览器时区猜测。支付记录增加权益快照、`paidAt`、人工原因和处理结果；新状态 `paid_review/resolved` 与 `completed` 一样阻止重复付款发放。
 
-商品创建/编辑明确拒绝旧 `benefits` 参数（包括空数组与 null）；支付历史及人工补偿仍使用多项快照。用户编辑接口仅提交 `planGroup` 时表示将当前组权益迁到目标组，保留原期限和状态；目标已持有返回 409，原组无权益返回 400，同组重试不重复迁移。仍需新增、延长或撤销权益时使用权益接口。
+商品创建/编辑明确拒绝旧 `benefits` 参数（包括空数组与 null）；支付历史及人工补偿仍使用多项快照。用户编辑接口仅提交 `planGroup` 时表示将当前组权益迁到目标组，保留原期限和状态；目标已持有返回 409，原组无权益返回 400，同组重试不重复迁移。仍需新增、延长或撤销权益时使用权益接口。编辑当前组期限可提交 `expiresAt`（RFC3339 或按 `CRON_TIMEZONE` 解释的 `YYYY-MM-DD HH:mm:ss`），设永久提交 `clearExpiresAt=true`；两者不能同时提交。用户中心将换组与改期限分开保存，继续保留单独换组的期限迁移语义。
 
 ### 兑换码权益有效期合同（2026-10-05）
 
 创建、批量创建、编辑兑换码均接收 `validityType`（`duration` / `permanent`）。兼容未传类型的旧请求，按 `duration` 处理；限时要求 `defaultDays > 0`，永久要求 `defaultDays=0`，非法组合返回 400。`registrationPlanGroup` 继续表示新老用户统一获得的权益分组，`expiresAt` 仅表示码本身的截止时间。
 
 兑换码列表与校验响应、兑换历史增加 `validityType`。用户兑换及 Telegram Internal 兑换成功响应同样携带 `validityType`：永久返回 `days=0/expiresAt=null` 和永久权益提示；限时仍返回所兑换组的新期限。列表仍使用 `data`。历史记录保存实际兑换时的类型，编辑或删除码不改变已授予权益和历史显示；旧历史迁移为 `duration`，不从当前码反推。
+
+
+### 编辑用户合并延期（2026-10-05）
+
+`PUT /api/v1/admin/users/:id` 增加可选 `extendDays`（正整数）与 `operationId`（延期时必填，最多 64 字符）。延期与邮箱/账号状态编辑在同一用户行锁事务内提交，复用权益审计键保证同一用户同一操作号不重复累加。不得同时提交 `planGroup`、`expiresAt` 或 `clearExpiresAt=true`；不传期限字段即保持原权益。原独立延期 API 保留兼容，仅移除用户列表上的独立按钮。永久已拥有或分组配置不可用沿用权益服务的拒绝规则，返回 400，失败不部分保存资料。

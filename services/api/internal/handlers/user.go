@@ -175,7 +175,7 @@ func (h *UserHandler) UpdateUserByAdmin(c *gin.Context) {
 		switch {
 		case errors.Is(err, entitlementpkg.ErrTransferTargetExists):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-		case errors.Is(err, entitlementpkg.ErrTransferSourceMissing), errors.Is(err, entitlementpkg.ErrTransferTargetMissing), errors.Is(err, entitlementpkg.ErrInvalidHolding), errors.Is(err, userpkg.ErrRequestInvalid):
+		case errors.Is(err, entitlementpkg.ErrAlreadyOwned), errors.Is(err, entitlementpkg.ErrGroupsNotReady), errors.Is(err, entitlementpkg.ErrInvalidBenefit), errors.Is(err, entitlementpkg.ErrTransferSourceMissing), errors.Is(err, entitlementpkg.ErrTransferTargetMissing), errors.Is(err, entitlementpkg.ErrInvalidHolding), errors.Is(err, userpkg.ErrRequestInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, userpkg.ErrUserNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

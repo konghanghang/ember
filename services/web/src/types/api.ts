@@ -263,6 +263,8 @@ export interface UserListResponse {
 }
 
 export interface UpdateAdminUserRequest {
+  extendDays?: number
+  operationId?: string
   email?: string
   isActive?: boolean
   planGroup?: PlanGroup

@@ -8,7 +8,6 @@ import {
   Calendar,
   Search,
   Edit,
-  Timer,
   Key,
   Plus,
   RefreshRight,
@@ -27,7 +26,8 @@ import EmberSelectField from '@/components/ember/filters/EmberSelectField.vue'
 import EmberFormDialog from '@/components/ember/forms/EmberFormDialog.vue'
 import EmberFilterPanel from '@/components/ember/layout/EmberFilterPanel.vue'
 import EmberPageHeaderCard from '@/components/ember/layout/EmberPageHeaderCard.vue'
-import { formatDateTime } from '@/utils/date'
+import { getEntitlements } from '@/api/entitlements'
+import { formatDateTime, formatBusinessDateTimeInput } from '@/utils/date'
 import { isMessageBoxCancel } from '@/utils/api-error'
 import { resolveUserPolicySyncPresentation } from '@/utils/policy-sync'
 import { formatMediaLibrarySummary } from '@/utils/media-library'
@@ -37,7 +37,6 @@ import {
   clearAdminUserMediaLibraryPreferences,
   createAdminUser,
   deleteUser,
-  extendUserExpiry,
   getAdminMediaLibraries,
   getPlanGroups,
   getUsers,
@@ -103,17 +102,26 @@ const editForm = ref({
   email: '',
   isActive: true,
   planGroup: '' as PlanGroup | '',
-  neverExpire: false,
-  expiresAt: null as Date | null
+  expiresAt: null as string | null
 })
 
 const editOriginal = ref({
   email: '',
   isActive: true,
   planGroup: '' as PlanGroup | '',
-  neverExpire: false,
   expiresAt: null as string | null
 })
+
+const editBusinessTimezone = ref('')
+const editExpiryReady = ref(false)
+const editExpiryLoading = ref(false)
+let editLoadVersion = 0
+const editGroupChanged = computed(() => editForm.value.planGroup !== editOriginal.value.planGroup)
+const editExpiryAction = ref('keep')
+const editExtendDays = ref(30)
+let editOperationId = ''
+let editOperationPayload = ''
+const editExpiryChanged = computed(() => editExpiryAction.value !== 'keep')
 
 const planGroupOptions = computed(() => planGroups.value.map(group => ({
   label: `${group.name} (${group.key})`,
@@ -333,8 +341,16 @@ const normalizeExpiresAt = (value?: string | null) => {
 
 const editingAdmin = ref(false)
 
-/** 打开用户资料表单；管理员不提供普通用户的分组迁移。 */
-const handleOpenEdit = (row: UserInfo) => {
+/** 打开用户资料表单，按全局业务时区回填当前分组期限；管理员不提供权益编辑。 */
+const handleOpenEdit = async (row: UserInfo) => {
+  const version = ++editLoadVersion
+  editExpiryReady.value = false
+  editExpiryLoading.value = false
+  editBusinessTimezone.value = ''
+  editExpiryAction.value = 'keep'
+  editExtendDays.value = 30
+  editOperationId = ''
+  editOperationPayload = ''
   editingAdmin.value = row.role === 'admin'
   const expiresAt = normalizeExpiresAt(row.expiresAt)
   const planGroup = row.effectivePlanGroup || row.planGroup || defaultPlanGroup.value?.key || ''
@@ -343,20 +359,33 @@ const handleOpenEdit = (row: UserInfo) => {
     email: row.email || '',
     isActive: row.isActive,
     planGroup,
-    neverExpire: !row.expiresAt,
-    expiresAt: expiresAt ? new Date(expiresAt) : null
+    expiresAt: null
   }
   editOriginal.value = {
     email: row.email || '',
     isActive: row.isActive,
     planGroup,
-    neverExpire: !row.expiresAt,
     expiresAt
   }
   editDialogVisible.value = true
+  if (editingAdmin.value) return
+  editExpiryLoading.value = true
+  try {
+    const result = await getEntitlements(row.id)
+    if (version !== editLoadVersion) return
+    editBusinessTimezone.value = result.businessTimezone
+    const formatted = expiresAt ? formatBusinessDateTimeInput(expiresAt, result.businessTimezone) : null
+    editForm.value.expiresAt = formatted
+    editOriginal.value.expiresAt = formatted
+    editExpiryReady.value = !!result.businessTimezone
+  } catch {
+    // 时区读取失败时只禁用期限编辑，其他资料仍可修改。
+  } finally {
+    if (version === editLoadVersion) editExpiryLoading.value = false
+  }
 }
 
-/** 保存实际变更字段；单独改分组由后端原子迁移原权益，前端不重算期限。 */
+/** 默认不改期限；资料和延期在同一事务保存，重试复用操作号，换组与改期限分开提交。 */
 const handleUpdateUser = async () => {
   const email = editForm.value.email.trim()
   if (!email) {
@@ -378,6 +407,35 @@ const handleUpdateUser = async () => {
     payload.planGroup = editForm.value.planGroup
   }
 
+  if (!editingAdmin.value && editExpiryChanged.value) {
+    if (editGroupChanged.value) {
+      ElMessage.warning('请分别保存分组和有效期的修改')
+      return
+    }
+    if (!editExpiryReady.value) {
+      ElMessage.warning('请等待业务时区加载完成后修改有效期')
+      return
+    }
+    if (editExpiryAction.value === 'extend') {
+      if (!Number.isInteger(editExtendDays.value) || editExtendDays.value < 1) {
+        ElMessage.warning('增加天数必须为正整数')
+        return
+      }
+      payload.extendDays = editExtendDays.value
+      const serialized = JSON.stringify(payload)
+      if (!editOperationId || editOperationPayload !== serialized) {
+        editOperationId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+        editOperationPayload = serialized
+      }
+      payload.operationId = editOperationId
+    } else if (editExpiryAction.value === 'permanent') {
+      payload.clearExpiresAt = true
+    } else if (editExpiryAction.value === 'set') {
+      if (!editForm.value.expiresAt) { ElMessage.warning('请选择到期时间'); return }
+      payload.expiresAt = editForm.value.expiresAt
+    }
+  }
+
   if (Object.keys(payload).length === 0) {
     ElMessage.warning('没有需要保存的修改')
     return
@@ -386,6 +444,7 @@ const handleUpdateUser = async () => {
   savingUser.value = true
   try {
     await updateAdminUser(editForm.value.id, payload)
+    editOperationId = ''
     ElMessage.success('用户信息更新成功')
     editDialogVisible.value = false
     await fetchData()
@@ -393,26 +452,6 @@ const handleUpdateUser = async () => {
     // 请求拦截器已提示错误；保留表单以便修正或重试，避免向 Vue 事件处理器重复抛错。
   } finally {
     savingUser.value = false
-  }
-}
-
-const handleExtend = async (row: UserInfo) => {
-  try {
-    const result = await ElMessageBox.prompt('请输入延长天数', '延长到期时间', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      inputPattern: /^\d+$/,
-      inputErrorMessage: '请输入数字',
-      inputValue: '30'
-    }) as MessageBoxInputData
-    // prompt 与 confirm 共用包含 Action 的声明；成功分支运行时固定返回输入对象。
-    await extendUserExpiry(row.id, parseInt(result.value, 10))
-    ElMessage.success('延长成功')
-    await fetchData()
-  } catch (error) {
-    if (!isMessageBoxCancel(error)) {
-      // handled
-    }
   }
 }
 
@@ -964,7 +1003,7 @@ const entitlementUser = ref<UserInfo | null>(null)
         </el-table-column>
 
         <!-- Operations -->
-        <el-table-column label="操作" width="200" fixed="right" align="right">
+        <el-table-column label="操作" width="160" fixed="right" align="right">
           <template #default="{ row }">
             <div class="flex items-center justify-end gap-2 whitespace-nowrap">
               <button
@@ -981,15 +1020,6 @@ const entitlementUser = ref<UserInfo | null>(null)
                 </button>
               </el-tooltip>
               
-              <el-tooltip content="延长有效期" placement="top">
-                <button 
-                  @click="handleExtend(row)"
-                  aria-label="延长有效期"
-                  class="inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
-                >
-                  <el-icon :size="18"><Timer /></el-icon>
-                </button>
-              </el-tooltip>
 
               <el-dropdown trigger="click" class="shrink-0">
                 <button
@@ -1304,11 +1334,33 @@ const entitlementUser = ref<UserInfo | null>(null)
           </el-form-item>
 
           <el-form-item v-if="!editingAdmin" label="分组">
-            <el-select v-model="editForm.planGroup" class="w-full form-select" placeholder="选择分组">
+            <el-select v-model="editForm.planGroup" :disabled="editExpiryChanged" class="w-full form-select" placeholder="选择分组">
               <el-option v-for="option in planGroupOptions" :key="option.value" :label="option.label" :value="option.value" />
             </el-select>
             <p class="mt-2 text-xs text-gray-500">更换分组保留原有效期。</p>
           </el-form-item>
+
+          <template v-if="!editingAdmin">
+            <el-form-item label="当前分组有效期">
+              <div class="w-full space-y-2">
+                <el-select v-model="editExpiryAction" :disabled="!editExpiryReady || editGroupChanged" class="w-full form-select" aria-label="当前分组有效期操作">
+                  <el-option label="保持不变" value="keep" />
+                  <el-option label="延长天数" value="extend" />
+                  <el-option label="指定到期时间" value="set" />
+                  <el-option label="设为永久" value="permanent" />
+                </el-select>
+                <p v-if="editExpiryLoading" class="text-xs text-gray-500">正在读取业务时区…</p>
+                <p v-else-if="!editExpiryReady" role="alert" class="text-xs text-red-600">业务时区读取失败，请重新打开弹窗后修改有效期。</p>
+                <p v-else class="text-xs text-gray-500">当前：{{ editOriginal.expiresAt ? `${editOriginal.expiresAt}（${editBusinessTimezone}）` : '无到期时间' }}</p>
+              </div>
+            </el-form-item>
+            <el-form-item v-if="editExpiryAction === 'extend'" label="增加天数">
+              <el-input-number v-model="editExtendDays" :min="1" :precision="0" class="w-full form-number" />
+            </el-form-item>
+            <el-form-item v-if="editExpiryAction === 'set'" :label="`到期时间（${editBusinessTimezone}）`">
+              <el-date-picker v-model="editForm.expiresAt" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="选择到期时间" :disabled="!editExpiryReady || editGroupChanged" class="w-full form-date" />
+            </el-form-item>
+          </template>
 
           <el-form-item label="账号状态">
             <div class="w-full space-y-2">
@@ -1343,6 +1395,6 @@ const entitlementUser = ref<UserInfo | null>(null)
     </EmberFormDialog>
   </div>
   <EmberFormDialog :model-value="!!entitlementUser" title="管理用户权益" width="680px" @update:model-value="value => { if (!value) entitlementUser = null }">
-    <UserEntitlementsPanel v-if="entitlementUser" :user-id="entitlementUser.id" :groups="planGroups" :current-group="entitlementUser.planGroup || undefined" @changed="fetchData" />
+    <UserEntitlementsPanel v-if="entitlementUser" :user-id="entitlementUser.id" :groups="planGroups" :current-group="entitlementUser.planGroup || undefined" @changed="fetchData" @close="entitlementUser = null" />
   </EmberFormDialog>
 </template>
