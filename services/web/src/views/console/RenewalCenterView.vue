@@ -428,7 +428,7 @@ onMounted(async () => {
           <template #default="{ row }">
             <div class="inline-flex items-center gap-1 text-gray-700">
               <el-icon class="text-emerald-600"><Clock /></el-icon>
-              <span>+{{ row.days }} 天</span>
+              <span>{{ row.validityType === 'permanent' ? '永久' : `+${row.days} 天` }}</span>
             </div>
           </template>
         </el-table-column>

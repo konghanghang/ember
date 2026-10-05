@@ -8,13 +8,14 @@ import (
 
 // RedemptionCode 兑换码模型（统一用于注册门控和续期）
 type RedemptionCode struct {
+	ValidityType              string     `json:"validityType" gorm:"column:validity_type;type:varchar(20);not null;default:duration"`
 	LegacyInvalidated         bool       `json:"legacyInvalidated" gorm:"column:legacy_invalidated;not null;default:false"`
 	ID                        string     `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
 	Code                      string     `json:"code" gorm:"column:code;uniqueIndex;size:20;not null"`
 	MaxUses                   int        `json:"maxUses" gorm:"column:max_uses;not null;default:1"`
 	UsedCount                 int        `json:"usedCount" gorm:"column:used_count;not null;default:0"`
 	ExpiresAt                 *time.Time `json:"expiresAt,omitempty" gorm:"column:expires_at"`
-	DefaultDays               int        `json:"defaultDays" gorm:"column:default_days;not null;default:30"`
+	DefaultDays               int        `json:"defaultDays" gorm:"column:default_days;not null"`
 	RegistrationPlanGroup     string     `json:"registrationPlanGroup" gorm:"column:registration_plan_group;size:50;not null;index"`
 	RegistrationPlanGroupName *string    `json:"registrationPlanGroupName,omitempty" gorm:"-"`
 	Notes                     string     `json:"notes,omitempty" gorm:"column:notes;size:500"`

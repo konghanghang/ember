@@ -367,8 +367,8 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 1. 通过 `ConfigService` 读取 `registration_mode` → `"invite"`: 调用注册场景兑换码校验（会额外校验 `registrationPlanGroup` 仍存在）→ `"open"`: 读取 `default_trial_days`
 2. 调用 `ConfigService.IsRegistrationEmailAllowed(email)` 做注册邮箱域名白名单门控；非空白名单且邮箱域名不在白名单内时直接返回 400，不消耗邀请码、不调用 Emby、不写库；空白名单视为关闭限制（详见 §5.5 与 §5.13；reset / change_email / 后台创建用户不走该门控）
 3. 如果 `ConfigService` 解析的 `email_verification` 开启，且 SMTP 已配置：校验邮箱验证码（VerifyCode 在事务中"校验即消费"，详见 §5.13）
-4. 创建 Emby 用户：`default_trial_days <= 0` 时，在设置 Emby 密码前先写入 `IsDisabled=true` 初始策略；随后设置 Emby 密码并创建本地用户（含 bcrypt hash）；invite 模式使用兑换码必填的 `registrationPlanGroup` 写入 `users.planGroup`；open 模式显式写入当前默认分组，避免新增用户继续依赖 `users.plan_group IS NULL` 的隐式跟随语义
-5. 本地事务提交后调用 `ApplyEffectiveUserPolicy(user_registered)` 全量写入当前有效 Emby Policy；若外部写入失败，注册仍按成功返回，响应带 `policySyncStatus=pending`，并记录 `emby_policy_sync_tasks(status=pending, reason=user_registered)` 交给 Policy worker 重试
+4. 创建 Emby 用户：开放注册且 `default_trial_days <= 0` 时，在设置 Emby 密码前先写入 `IsDisabled=true` 初始策略；随后设置 Emby 密码并创建本地用户（含 bcrypt hash）；invite 模式使用兑换码必填的 `registrationPlanGroup` 写入 `users.planGroup`；open 模式显式写入当前默认分组，避免新增用户继续依赖 `users.plan_group IS NULL` 的隐式跟随语义
+5. invite 模式按兑换码的限时/永久类型授予对应分组权益并记录兑换快照；永久码不走零天试用禁用分支，开放注册零天试用保持原行为。本地事务提交后调用 `ApplyEffectiveUserPolicy(user_registered)` 全量写入当前有效 Emby Policy；若外部写入失败，注册仍按成功返回，响应带 `policySyncStatus=pending`，并记录 `emby_policy_sync_tasks(status=pending, reason=user_registered)` 交给 Policy worker 重试
 6. 签发 JWT
 7. 火忘式通知 Bot（新用户注册）
 
@@ -407,11 +407,12 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 
 ### 5.3 RedemptionCodeService (`services/redemption/code_service.go`)
 
-- `CreateRedemptionCode(maxUses, defaultDays, expiresAt, registrationPlanGroup, notes)` — 生成 16 字符 hex 码；`registrationPlanGroup` 必填，创建时校验分组存在
-- `CreateRedemptionCodesBatch(count, maxUses, defaultDays, expiresAt, registrationPlanGroup, notes)` — 批量生成兑换码，`registrationPlanGroup` 必填，单次最多 100 个，整批事务提交
+- `CreateRedemptionCode(maxUses, validityType, defaultDays, expiresAt, registrationPlanGroup, notes)` — 生成 16 字符 hex 码；`registrationPlanGroup` 必填，创建时校验分组存在
+- `CreateRedemptionCodesBatch(count, maxUses, validityType, defaultDays, expiresAt, registrationPlanGroup, notes)` — 批量生成兑换码，`registrationPlanGroup` 必填，单次最多 100 个，整批事务提交
 - `GetRedemptionCodes(page, pageSize, showAll, code, status, registrationPlanGroup)` — 支持按兑换码关键字、状态（`active|expired|exhausted`）和注册套餐分组过滤，并返回 `notes`、`registrationPlanGroupName`；未指定 `status` 且 `showAll=false` 时仅返回当前仍可兑换的码
 - `ValidateRegistrationCode(code)` — 注册场景兑换码校验；查找 + IsValid()，并强校验 `registrationPlanGroup` 仍存在
 - `ValidateRenewalCode(code)` — 续期场景兑换码可用性校验；实际兑换只向 `registrationPlanGroup` 指定组发放权益；旧码由 migration 标记 `legacyInvalidated`，注册/续期均拒绝
+- 创建、批量和编辑统一支持 `validityType=duration|permanent`；省略类型按 `duration` 兼容旧请求。限时要求 `defaultDays > 0`，永久要求 `defaultDays=0`；`expiresAt` 仍仅控制兑换码截止时间。管理表单区分权益有效期与兑换截止时间，用户端和后台历史显示权益类型。
 - `UseCode(code)` — 原子递增 usedCount
 
 ### 5.4 RedemptionService (`services/redemption/service.go`)
@@ -419,8 +420,8 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 **核心方法 `RedeemCode(userID, code)`**：
 1. 开启事务后查询兑换码并校验 `IsValid()`
 2. 在事务中检查 `redemptions(userId, code)` 是否已存在，存在则返回 `ErrRedemptionDuplicate`
-3. 对用户行执行 `FOR UPDATE` 后读取最新到期日并计算新 ExpiresAt，仅更新 `expiresAt`；管理员手动续期也在事务内使用同一用户行锁，避免不同兑换码、付款和人工续期丢失累计天数（**Emby 调权移到 commit 后执行**）
-4. 先插入 Redemption 记录（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
+3. 对用户行执行 `FOR UPDATE`，通过与注册共用的 `CodeBenefit` 解析兑换码，再由权益服务授予 `registrationPlanGroup` 指定组：限时按既有规则累加，永久保存 `validityType=permanent/expiresAt=null`；重算当前生效组，不覆盖其他组权益或解除人工限制（**Emby 调权移到 commit 后执行**）
+4. 先插入含 `validityType/days` 快照的 Redemption 记录，后续修改兑换码不回写历史（依赖 `redemptions(userId, code)` 唯一约束兜底并发重复兑换）
 5. 原子递增 usedCount（`WHERE usedCount < maxUses AND (expiresAt IS NULL OR expiresAt > now)`）→ 提交
 6. commit 后异步调用 `ApplyEffectiveUserPolicyOrRecordFailure(userID, "redemption_renewal")`：成功后刷新 Emby 禁用缓存；失败写入 `emby_policy_sync_tasks` 的单用户 `failed` 处理记录，由管理员在用户管理中手动重试
 

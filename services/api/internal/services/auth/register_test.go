@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -402,5 +403,37 @@ func TestBuildRegisteredUserAppliesDefaultPlanGroup(t *testing.T) {
 	}
 	if user.PlanGroup == nil || *user.PlanGroup != "DEFAULT" {
 		t.Fatalf("expected persisted user plan group DEFAULT, got %+v", user.PlanGroup)
+	}
+}
+
+// TestPermanentInviteRegistration keeps zero-day permanent grants distinct from a disabled zero-day trial.
+func TestPermanentInviteRegistration(t *testing.T) {
+	var code models.RedemptionCode
+	if err := json.Unmarshal([]byte(`{"id":"fixture","registrationPlanGroup":"VIP_A","validityType":"permanent","defaultDays":0}`), &code); err != nil {
+		t.Fatal(err)
+	}
+	service := &AuthService{
+		getRegistrationMode:      func() string { return "invite" },
+		validateRegistrationCode: func(string) (*models.RedemptionCode, error) { return &code, nil },
+	}
+	req := &RegisterUserRequest{Code: "fixture", Username: "fixture", Password: "fixture-password", Email: "fixture@example.com"}
+	prepared, err := service.prepareRegister(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &stubAuthEmbyClient{createUserResp: &embyint.EmbyUser{ID: "fixture"}}
+	remote, err := service.createEmbyUserForRegistration(client, req, prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.lastInitialDisabled {
+		t.Error("permanent invite must not create a disabled zero-day trial")
+	}
+	user, err := service.buildRegisteredUser(req, prepared, remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.ExpiresAt != nil {
+		t.Errorf("permanent invite must have no expiry, got %v", user.ExpiresAt)
 	}
 }

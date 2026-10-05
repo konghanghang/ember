@@ -12,10 +12,12 @@ import (
 	"github.com/konghang/ember/backend/internal/models"
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	userpkg "github.com/konghang/ember/backend/internal/services/user"
 )
 
 type registerPreparation struct {
+	validityType          string
 	mode                  string
 	defaultDays           int
 	registrationPlanGroup *string
@@ -71,13 +73,13 @@ func (s *AuthService) RegisterUser(req *RegisterUserRequest) (*RegisterUserRespo
 }
 
 // createEmbyUserForRegistration 创建注册用户对应的 Emby 账号。
-// defaultDays <= 0 时要求 Emby 账号在设置密码前先写入禁用策略，避免 0 天试用用户获得短暂可用窗口。
+// 非永久权益且 defaultDays <= 0 时要求 Emby 账号在设置密码前先写入禁用策略，避免 0 天试用用户获得短暂可用窗口。
 func (s *AuthService) createEmbyUserForRegistration(
 	embyService authEmbyClient,
 	req *RegisterUserRequest,
 	prepared *registerPreparation,
 ) (*embyint.EmbyUser, error) {
-	initialDisabled := prepared != nil && prepared.defaultDays <= 0
+	initialDisabled := prepared != nil && prepared.validityType != "permanent" && prepared.defaultDays <= 0
 	return embyService.CreateEmbyUserWithInitialDisabled(req.Username, req.Password, initialDisabled)
 }
 
@@ -135,11 +137,13 @@ func registrationEmailDomain(email string) string {
 	return trimmed[at+1:]
 }
 
+// prepareRegister resolves invite grants through the same validity rules as existing-user redemption.
 func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPreparation, error) {
 	mode := s.currentRegistrationMode()
 
 	prepared := &registerPreparation{
-		mode: mode,
+		mode:         mode,
+		validityType: "duration",
 	}
 	if mode != "invite" {
 		prepared.defaultDays = s.currentDefaultTrialDays()
@@ -154,6 +158,11 @@ func (s *AuthService) prepareRegister(req *RegisterUserRequest) (*registerPrepar
 	if err != nil {
 		return nil, err
 	}
+	benefit, err := redemptionpkg.CodeBenefit(redemptionCode)
+	if err != nil {
+		return nil, err
+	}
+	prepared.validityType = benefit.ValidityType
 	prepared.redemptionCode = redemptionCode
 	prepared.defaultDays = redemptionCode.DefaultDays
 	registrationPlanGroup := redemptionCode.RegistrationPlanGroup

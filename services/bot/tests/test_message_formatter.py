@@ -347,5 +347,22 @@ class MessageFormatterTestCase(unittest.TestCase):
         _assert_valid_html(caption)
 
 
+class RedemptionValidityTests(unittest.TestCase):
+    """永久兑换不显示零天或未知到期时间。"""
+
+    def test_permanent_redemption(self):
+        from app.formatters.message_formatter import format_redeem_success
+        text = format_redeem_success({"validityType": "permanent", "days": 0, "expiresAt": None})
+        self.assertIn("永久", text)
+        self.assertNotIn("<b>0</b> 天", text)
+        self.assertNotIn("新到期时间：-", text)
+
+    def test_legacy_duration_redemption(self):
+        from app.formatters.message_formatter import format_redeem_success
+        text = format_redeem_success({"days": 30, "expiresAt": "2026-10-05T12:00:00Z"})
+        self.assertIn("30", text)
+        self.assertNotIn("永久", text)
+
+
 if __name__ == "__main__":
     unittest.main()

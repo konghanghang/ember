@@ -280,6 +280,7 @@ export interface CreateAdminUserRequest {
 }
 
 export interface RedemptionCode {
+  validityType: 'duration' | 'permanent'
   legacyInvalidated?: boolean
   id: string
   code: string
@@ -311,6 +312,7 @@ export interface RedemptionCodeListQuery extends PaginationQuery {
 }
 
 export interface CreateRedemptionCodeRequest {
+  validityType: 'duration' | 'permanent'
   maxUses: number
   defaultDays: number
   registrationPlanGroup: PlanGroup
@@ -328,6 +330,7 @@ export interface CreateRedemptionCodesBatchResponse {
 }
 
 export interface UpdateRedemptionCodeRequest {
+  validityType: 'duration' | 'permanent'
   maxUses: number
   defaultDays: number
   registrationPlanGroup: PlanGroup
@@ -336,6 +339,7 @@ export interface UpdateRedemptionCodeRequest {
 }
 
 export interface Redemption {
+  validityType: 'duration' | 'permanent'
   id: string
   userId: string
   code: string
@@ -741,9 +745,10 @@ export interface RedeemCodeRequest {
 }
 
 export interface RedeemCodeResponse {
+  validityType: 'duration' | 'permanent'
   message: string
   days: number
-  expiresAt: string
+  expiresAt: string | null
 }
 
 export interface TelegramBindCodeResponse {

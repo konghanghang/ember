@@ -209,6 +209,8 @@ var schemaFingerprintColumns = []schemaFingerprintColumn{
 	{"payments", "manual_review_reason", "20261004_01_plan_group_entitlements"},
 	{"users", "resource_access_granted", "20261004_01_plan_group_entitlements"},
 	{"redemption_codes", "legacy_invalidated", "20261004_01_plan_group_entitlements"},
+	{"redemption_codes", "validity_type", "20261005_01_redemption_permanent_validity"},
+	{"redemptions", "validity_type", "20261005_01_redemption_permanent_validity"},
 	{"playback_ranking_batches", "total_duration", "20260929_01_playback_ranking_batches"},
 	{"subscriptions", "reject_reason", "20260416_01_subscription_status_and_review_fields"},
 	{"subscriptions", "reviewed_at", "20260416_01_subscription_status_and_review_fields"},

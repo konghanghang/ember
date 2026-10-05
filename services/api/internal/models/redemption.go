@@ -8,11 +8,12 @@ import (
 
 // Redemption 兑换历史记录
 type Redemption struct {
-	ID        string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
-	UserID    string    `json:"userId" gorm:"column:user_id;size:25;index;not null"`
-	Code      string    `json:"code" gorm:"column:code;size:20;not null"`
-	Days      int       `json:"days" gorm:"column:days;not null"`
-	CreatedAt time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
+	ValidityType string    `json:"validityType" gorm:"column:validity_type;type:varchar(20);not null;default:duration"`
+	ID           string    `json:"id" gorm:"column:id;type:varchar(25);primaryKey"`
+	UserID       string    `json:"userId" gorm:"column:user_id;size:25;index;not null"`
+	Code         string    `json:"code" gorm:"column:code;size:20;not null"`
+	Days         int       `json:"days" gorm:"column:days;not null"`
+	CreatedAt    time.Time `json:"createdAt" gorm:"column:created_at;autoCreateTime"`
 }
 
 func (Redemption) TableName() string {

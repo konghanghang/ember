@@ -50,6 +50,7 @@ const editing = ref(false)
 const form = ref<CreateRedemptionCodeRequest & { count: number }>({
   count: 1,
   maxUses: 1,
+  validityType: 'duration',
   defaultDays: 30,
   registrationPlanGroup: '',
   expiresAt: null,
@@ -60,6 +61,7 @@ const editForm = ref({
   id: '',
   usedCount: 0,
   maxUses: 1,
+  validityType: 'duration' as 'duration' | 'permanent',
   defaultDays: 30,
   registrationPlanGroup: '' as PlanGroup | '',
   neverExpire: false,
@@ -124,10 +126,12 @@ const fetchPlanGroups = async () => {
   }
 }
 
+// 重置为限时权益，保留既有默认天数。
 const resetCreateForm = () => {
   form.value = {
     count: 1,
     maxUses: 1,
+    validityType: 'duration',
     defaultDays: 30,
     registrationPlanGroup: defaultPlanGroupKey.value,
     expiresAt: null,
@@ -154,12 +158,13 @@ const handleReset = () => {
   fetchData()
 }
 
+// 生成单个或批量兑换码，永久权益提交零天且独立保留兑换截止时间。
 const handleCreate = async () => {
   if (form.value.count < 1 || form.value.count > maxBatchCreateCount) {
     ElMessage.warning(`批量数量必须在 1 到 ${maxBatchCreateCount} 之间`)
     return
   }
-  if (form.value.maxUses < 1 || form.value.defaultDays < 1) {
+  if (form.value.maxUses < 1 || (form.value.validityType === 'duration' && (!Number.isInteger(form.value.defaultDays) || form.value.defaultDays < 1))) {
     ElMessage.warning('请输入有效的数值')
     return
   }
@@ -175,7 +180,8 @@ const handleCreate = async () => {
 
   const payload: CreateRedemptionCodeRequest = {
     maxUses: form.value.maxUses,
-    defaultDays: form.value.defaultDays,
+    validityType: form.value.validityType,
+    defaultDays: form.value.validityType === 'permanent' ? 0 : form.value.defaultDays,
     registrationPlanGroup: form.value.registrationPlanGroup,
     expiresAt: form.value.expiresAt,
     notes: trimmedNotes || undefined
@@ -221,12 +227,14 @@ const handleDelete = async (id: string) => {
   }
 }
 
+// 读取兑换码权益类型，永久切回按天时提供默认天数。
 const openEditDialog = (row: RedemptionCode) => {
   editForm.value = {
     id: row.id,
     usedCount: row.usedCount,
     maxUses: row.maxUses,
-    defaultDays: row.defaultDays,
+    validityType: row.validityType,
+    defaultDays: row.validityType === 'permanent' ? 30 : row.defaultDays,
     registrationPlanGroup: row.registrationPlanGroup || defaultPlanGroupKey.value,
     neverExpire: !row.expiresAt,
     expiresAt: row.expiresAt ? new Date(row.expiresAt) : null,
@@ -235,8 +243,9 @@ const openEditDialog = (row: RedemptionCode) => {
   editDialogVisible.value = true
 }
 
+// 只修改后续兑换规则，不改变已兑换用户的权益。
 const handleUpdate = async () => {
-  if (editForm.value.maxUses < 1 || editForm.value.defaultDays < 1) {
+  if (editForm.value.maxUses < 1 || (editForm.value.validityType === 'duration' && (!Number.isInteger(editForm.value.defaultDays) || editForm.value.defaultDays < 1))) {
     ElMessage.warning('请输入有效的数值')
     return
   }
@@ -245,7 +254,7 @@ const handleUpdate = async () => {
     return
   }
   if (!editForm.value.neverExpire && !editForm.value.expiresAt) {
-    ElMessage.warning('请设置过期时间或选择永久有效')
+    ElMessage.warning('请设置兑换截止时间或选择无截止时间')
     return
   }
   if (!editForm.value.registrationPlanGroup) {
@@ -260,7 +269,8 @@ const handleUpdate = async () => {
 
   const payload: UpdateRedemptionCodeRequest = {
     maxUses: editForm.value.maxUses,
-    defaultDays: editForm.value.defaultDays,
+    validityType: editForm.value.validityType,
+    defaultDays: editForm.value.validityType === 'permanent' ? 0 : editForm.value.defaultDays,
     registrationPlanGroup: editForm.value.registrationPlanGroup,
     expiresAt: editForm.value.neverExpire ? null : editForm.value.expiresAt?.toISOString() || null,
     notes: trimmedNotes || undefined
@@ -453,11 +463,11 @@ onMounted(async () => {
           </template>
         </el-table-column>
 
-        <el-table-column label="有效期" min-width="120">
+        <el-table-column label="权益有效期" min-width="120">
           <template #default="{ row }">
             <div class="flex items-center gap-1 text-gray-600">
               <el-icon><Clock /></el-icon>
-              <span>{{ row.defaultDays }} 天</span>
+              <span>{{ row.validityType === 'permanent' ? '永久' : `${row.defaultDays} 天` }}</span>
             </div>
           </template>
         </el-table-column>
@@ -479,7 +489,7 @@ onMounted(async () => {
           </template>
         </el-table-column>
 
-        <el-table-column label="过期时间" min-width="180">
+        <el-table-column label="兑换截止时间" min-width="180">
           <template #default="{ row }">
             <span :class="{ 'text-gray-400': !row.expiresAt }">{{ formatDate(row.expiresAt) }}</span>
           </template>
@@ -541,7 +551,13 @@ onMounted(async () => {
               <el-form-item label="最大使用次数" class="mb-0">
                 <el-input-number v-model="form.maxUses" :min="1" class="w-full !w-full form-number" />
               </el-form-item>
-              <el-form-item label="有效天数（激活后）" class="mb-0 md:col-span-2 xl:col-span-1">
+              <el-form-item label="权益有效期" class="mb-0">
+                <el-select v-model="form.validityType" class="w-full !w-full form-select">
+                  <el-option label="按天" value="duration" />
+                  <el-option label="永久" value="permanent" />
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="form.validityType === 'duration'" label="权益天数" class="mb-0">
                 <el-input-number v-model="form.defaultDays" :min="1" class="w-full !w-full form-number" />
               </el-form-item>
             </div>
@@ -551,13 +567,13 @@ onMounted(async () => {
             </div>
           </div>
 
-          <el-form-item label="兑换码过期时间（可选）">
+          <el-form-item label="兑换截止时间（可选）">
             <div class="w-full space-y-2">
               <el-date-picker
                 v-model="form.expiresAt"
                 type="datetime"
                 value-format="YYYY-MM-DDTHH:mm:ssZ"
-                placeholder="不填则永久有效"
+                placeholder="不填则无截止时间"
                 :prefix-icon="Calendar"
                 clearable
                 class="w-full !w-full input-ember form-date"
@@ -592,7 +608,7 @@ onMounted(async () => {
               <el-input
                 v-model="form.notes"
                 type="textarea"
-                rows="2"
+                :rows="2"
                 maxlength="500"
                 show-word-limit
                 placeholder="描述兑换码用途，最多 500 字"
@@ -674,11 +690,17 @@ onMounted(async () => {
     >
       <div class="p-6 pt-2">
         <el-form label-position="top" class="space-y-4">
-          <div class="grid grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <el-form-item label="最大使用次数">
               <el-input-number v-model="editForm.maxUses" :min="editForm.usedCount" class="w-full !w-full form-number" />
             </el-form-item>
-            <el-form-item label="有效天数 (激活后)">
+            <el-form-item label="权益有效期">
+              <el-select v-model="editForm.validityType" class="w-full !w-full form-select">
+                <el-option label="按天" value="duration" />
+                <el-option label="永久" value="permanent" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="editForm.validityType === 'duration'" label="权益天数">
               <el-input-number v-model="editForm.defaultDays" :min="1" class="w-full !w-full form-number" />
             </el-form-item>
           </div>
@@ -687,16 +709,16 @@ onMounted(async () => {
             已使用 {{ editForm.usedCount }} 次，最大使用次数不能小于该值。
           </div>
 
-          <el-form-item label="永久有效">
+          <el-form-item label="兑换码无截止时间">
             <el-switch v-model="editForm.neverExpire" />
           </el-form-item>
 
-          <el-form-item label="兑换码过期时间">
+          <el-form-item label="兑换截止时间">
             <div class="w-full space-y-2">
               <el-date-picker
                 v-model="editForm.expiresAt"
                 type="datetime"
-                placeholder="不填则永久有效"
+                placeholder="不填则无截止时间"
                 :prefix-icon="Calendar"
                 :disabled="editForm.neverExpire"
                 clearable
@@ -732,7 +754,7 @@ onMounted(async () => {
               <el-input
                 v-model="editForm.notes"
                 type="textarea"
-                rows="2"
+                :rows="2"
                 maxlength="500"
                 show-word-limit
                 placeholder="更新备注（可选）"

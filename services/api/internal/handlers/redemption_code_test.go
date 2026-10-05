@@ -237,3 +237,39 @@ func TestRedemptionCodeHandlerGetRedemptionCodesMapsInvalidStatus(t *testing.T) 
 		t.Fatalf("expected status 400, got %d", recorder.Code)
 	}
 }
+
+// TestCreateRedemptionValidityHTTP checks that permanent zero-day payloads reach the service while invalid enums do not.
+func TestCreateRedemptionValidityHTTP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		body   string
+		status int
+		called bool
+	}{
+		{`{"maxUses":1,"validityType":"permanent","defaultDays":0,"registrationPlanGroup":"BASE"}`, 200, true},
+		{`{"maxUses":1,"defaultDays":30,"registrationPlanGroup":"BASE"}`, 200, true},
+		{`{"maxUses":1,"validityType":"invalid","defaultDays":0,"registrationPlanGroup":"BASE"}`, 400, false},
+		{`{"maxUses":1,"validityType":"duration","defaultDays":0,"registrationPlanGroup":"BASE"}`, 400, true},
+	} {
+		called := false
+		handler := &RedemptionCodeHandler{service: &stubRedemptionCodeService{createFn: func(req *redemptionpkg.CreateRedemptionCodeRequest) (*models.RedemptionCode, error) {
+			called = true
+			code := &models.RedemptionCode{ValidityType: req.ValidityType, DefaultDays: req.DefaultDays, RegistrationPlanGroup: req.RegistrationPlanGroup}
+			benefit, err := redemptionpkg.CodeBenefit(code)
+			if err != nil {
+				return nil, err
+			}
+			code.ValidityType = benefit.ValidityType
+			return code, nil
+		}}}
+		router := gin.New()
+		router.POST("/codes", handler.CreateRedemptionCode)
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/codes", bytes.NewBufferString(tc.body))
+		request.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(response, request)
+		if response.Code != tc.status || called != tc.called {
+			t.Fatalf("body=%s status=%d called=%v", tc.body, response.Code, called)
+		}
+	}
+}

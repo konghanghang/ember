@@ -56,7 +56,8 @@
 | MaxUses | int | maxUses | 最大使用次数（默认 1）|
 | UsedCount | int | usedCount | 已使用次数（默认 0）|
 | ExpiresAt | *time.Time | expiresAt | 码本身的过期时间 |
-| DefaultDays | int | defaultDays | 每次兑换授予的天数（默认 30）|
+| ValidityType | string(20) | validity_type | 权益类型：duration / permanent，历史数据默认 duration |
+| DefaultDays | int | defaultDays | 限时权益天数须大于 0，永久须为 0；管理表单默认 30 天 |
 | RegistrationPlanGroup | string(50) | registrationPlanGroup | 兑换目标权益分组 key（注册及续期均使用；保留旧字段名以兼容调用方） |
 | Notes | string(500) | notes | 备注（可选，用于记录用途或来源） |
 | CreatedAt | time.Time | createdAt | 自动 |
@@ -65,7 +66,7 @@
 
 **双重角色**：
 - `registration_mode = "invite"` 时：注册门控（必须提供码才能注册）
-- 已注册用户：续期工具（兑换码延长有效期）
+- 新老用户统一按码向 `registrationPlanGroup` 发放限时或永久权益；码本身的截止时间不决定权益期限。永久已拥有、重复兑换等限制仍由现有权益及兑换规则判断。
 
 ### 2.3 Redemption（兑换历史）
 
@@ -76,7 +77,8 @@
 | ID | string(25) | id | CUID |
 | UserID | string(25) | userId | 用户 ID（有索引）|
 | Code | string(20) | code | 使用的兑换码 |
-| Days | int | days | 兑换天数 |
+| ValidityType | string(20) | validity_type | 兑换时的权益类型快照，不随码编辑变化 |
+| Days | int | days | 兑换天数；永久为 0 |
 | CreatedAt | time.Time | createdAt | 自动 |
 
 ### 2.4 Setting（系统配置）

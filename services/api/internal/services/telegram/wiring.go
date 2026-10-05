@@ -10,6 +10,7 @@ import (
 
 type defaultTelegramRedeemer struct{}
 
+// Redeem forwards the granted validity without inferring permanence from a nullable expiry.
 func (defaultTelegramRedeemer) Redeem(userID, code string) (*TelegramRedeemResponse, error) {
 	resp, err := (&redemptionpkg.RedemptionService{}).RedeemCode(userID, &redemptionpkg.RedeemCodeRequest{Code: code})
 	if err != nil {
@@ -19,9 +20,10 @@ func (defaultTelegramRedeemer) Redeem(userID, code string) (*TelegramRedeemRespo
 		return nil, nil
 	}
 	return &TelegramRedeemResponse{
-		Message:   resp.Message,
-		Days:      resp.Days,
-		ExpiresAt: resp.ExpiresAt,
+		ValidityType: resp.ValidityType,
+		Message:      resp.Message,
+		Days:         resp.Days,
+		ExpiresAt:    resp.ExpiresAt,
 	}, nil
 }
 

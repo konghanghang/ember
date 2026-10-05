@@ -150,11 +150,11 @@ onMounted(() => {
             </code>
           </template>
         </el-table-column>
-        <el-table-column prop="days" label="延长天数" width="120">
+        <el-table-column prop="days" label="权益有效期" width="120">
           <template #default="{ row }">
             <span class="inline-flex items-center gap-1 text-gray-700">
               <el-icon class="text-emerald-600"><Clock /></el-icon>
-              <span>+{{ row.days }} 天</span>
+              <span>{{ row.validityType === 'permanent' ? '永久' : `+${row.days} 天` }}</span>
             </span>
           </template>
         </el-table-column>

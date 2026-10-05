@@ -62,7 +62,7 @@ func (s *RedemptionService) RedeemCode(userID string, req *RedeemCodeRequest) (*
 	return s.redeemCodeWithDB(userID, &normalizedReq)
 }
 
-// redeemCodeWithDB 在数据库事务内完成兑换码校验、用户有效期续期和兑换记录落库。
+// redeemCodeWithDB 在事务内按兑换码类型授予分组权益，并保存不可变的兑换有效期快照。
 func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeRequest) (*RedeemCodeResponse, error) {
 	location := configpkg.LoadConfiguredTimezone()
 	tx := db.DB.Begin()
@@ -98,8 +98,12 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 		return nil, errors.New("用户不存在")
 	}
 
+	benefit, err := CodeBenefit(&code)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
-	if err := entitlementpkg.GrantLocked(tx, user, []entitlementpkg.Benefit{{PlanGroup: code.RegistrationPlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: code.DefaultDays}}, "redemption:"+user.ID+":"+code.ID, "system:redemption", now, location); err != nil {
+	if err := entitlementpkg.GrantLocked(tx, user, []entitlementpkg.Benefit{benefit}, "redemption:"+user.ID+":"+code.ID, "system:redemption", now, location); err != nil {
 		if errors.Is(err, entitlementpkg.ErrAlreadyOwned) || errors.Is(err, entitlementpkg.ErrGroupsNotReady) {
 			return nil, err
 		}
@@ -119,9 +123,10 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 	}
 
 	redemption := models.Redemption{
-		UserID: userID,
-		Code:   req.Code,
-		Days:   code.DefaultDays,
+		ValidityType: benefit.ValidityType,
+		UserID:       userID,
+		Code:         req.Code,
+		Days:         code.DefaultDays,
 	}
 	if err := tx.Create(&redemption).Error; err != nil {
 		if isRedemptionDuplicateInsert(err) {
@@ -155,10 +160,16 @@ func (s *RedemptionService) redeemCodeWithDB(userID string, req *RedeemCodeReque
 		})
 	}
 
+	message := fmt.Sprintf("兑换成功，有效期已延长 %d 天", code.DefaultDays)
+	if benefit.ValidityType == entitlementpkg.Permanent {
+		message = "兑换成功，已获得对应分组的永久权益"
+	}
+	log.Printf("[Redemption] 权益兑换完成 userId=%s codeId=%s planGroup=%s validityType=%s", user.ID, code.ID, benefit.PlanGroup, benefit.ValidityType)
 	return &RedeemCodeResponse{
-		Message:   fmt.Sprintf("兑换成功，有效期已延长 %d 天", code.DefaultDays),
-		Days:      code.DefaultDays,
-		ExpiresAt: newExpiry,
+		ValidityType: benefit.ValidityType,
+		Message:      message,
+		Days:         code.DefaultDays,
+		ExpiresAt:    newExpiry,
 	}, nil
 }
 
@@ -249,7 +260,7 @@ func (s *RedemptionService) GetAllRedemptions(req *GetAllRedemptionsRequest) (*G
 	var rows []RedemptionWithUser
 	offset := (page - 1) * pageSize
 	if err := base.
-		Select("r.id, r.\"user_id\", r.code, r.days, r.\"created_at\", COALESCE(u.username, '') AS username").
+		Select("r.id, r.\"user_id\", r.code, r.validity_type, r.days, r.\"created_at\", COALESCE(u.username, '') AS username").
 		Order("r.\"created_at\" DESC").
 		Offset(offset).
 		Limit(pageSize).

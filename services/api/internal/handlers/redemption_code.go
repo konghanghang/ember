@@ -118,7 +118,7 @@ func (h *RedemptionCodeHandler) UpdateRedemptionCode(c *gin.Context) {
 		switch {
 		case errors.Is(err, redemptionpkg.ErrRedemptionCodeNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case errors.Is(err, redemptionpkg.ErrRedemptionCodeUsedOver):
+		case errors.Is(err, redemptionpkg.ErrRedemptionCodeUsedOver), errors.Is(err, redemptionpkg.ErrRedemptionValidityInvalid):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupRequired),
 			errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
@@ -152,7 +152,7 @@ func (h *RedemptionCodeHandler) ValidateRegistrationCode(c *gin.Context) {
 }
 
 func isRedemptionCodeRequestError(err error) bool {
-	return errors.Is(err, redemptionpkg.ErrRedemptionCodeBatchCountInvalid) ||
+	return errors.Is(err, redemptionpkg.ErrRedemptionValidityInvalid) || errors.Is(err, redemptionpkg.ErrRedemptionCodeBatchCountInvalid) ||
 		errors.Is(err, redemptionpkg.ErrRegistrationPlanGroupRequired) ||
 		errors.Is(err, paymentpkg.ErrPlanGroupInvalid) ||
 		errors.Is(err, paymentpkg.ErrPlanGroupNotFound)

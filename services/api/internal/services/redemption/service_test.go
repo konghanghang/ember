@@ -110,7 +110,7 @@ func TestRedeemCodeWithDBLocksUserAndCommitsRenewal(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("user_1").WillReturnRows(sqlmock.NewRows([]string{"plan_group", "validity_type", "expires_at"}).AddRow("VIP_A", "duration", currentExpiry.AddDate(0, 0, 10)))
 	mock.ExpectExec(`INSERT INTO "redemptions"`).
-		WithArgs(sqlmock.AnyArg(), "user_1", "renew-code", 10, sqlmock.AnyArg()).
+		WithArgs("duration", sqlmock.AnyArg(), "user_1", "renew-code", 10, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "redemption_codes" SET "used_count"="used_count" + 1 WHERE code = $1 AND NOT legacy_invalidated AND "used_count" < "max_uses" AND ("expires_at" IS NULL OR "expires_at" > $2)`)).
 		WithArgs("renew-code", sqlmock.AnyArg()).
@@ -210,4 +210,75 @@ func expectRenewalGrant(mock sqlmock.Sqlmock, expiry time.Time, days int) {
 	mock.ExpectExec(`DELETE FROM "user_entitlements"`).WithArgs("user_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs("user_1", "VIP_A", "duration", expiry.AddDate(0, 0, days), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO "entitlement_events"`).WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+// TestPermanentRedemptionPersistsGrantAndHistory exercises the same transaction as duration redemption.
+func TestPermanentRedemptionPersistsGrantAndHistory(t *testing.T) {
+	database, mock, cleanup := newRedemptionSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+	mock.ExpectQuery(`SELECT .*settings`).WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("CRON_TIMEZONE", "Asia/Shanghai"))
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT .*redemption_codes`).WillReturnRows(sqlmock.NewRows([]string{"id", "code", "max_uses", "used_count", "validity_type", "default_days", "registration_plan_group"}).AddRow("code_1", "permanent-fixture", 2, 0, "permanent", 0, "VIP_A"))
+	mock.ExpectQuery(`SELECT .*redemptions`).WillReturnRows(sqlmock.NewRows(redemptionColumns()))
+	mock.ExpectQuery(`SELECT .*users.*FOR UPDATE`).WillReturnRows(redemptionUserRows("user_1", time.Now().AddDate(0, 0, 7)))
+	mock.ExpectQuery(`SELECT .*entitlement_events`).WillReturnRows(sqlmock.NewRows([]string{"source_key"}))
+	mock.ExpectQuery(`SELECT .*user_entitlements`).WillReturnRows(sqlmock.NewRows([]string{"plan_group", "validity_type", "expires_at"}).AddRow("VIP_A", "duration", time.Now().AddDate(0, 0, 7)))
+	mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("VIP_A", 10))
+	mock.ExpectExec(`DELETE FROM "user_entitlements"`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs("user_1", "VIP_A", "permanent", nil, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "entitlement_events"`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "users" SET`).WithArgs(nil, "VIP_A", true, sqlmock.AnyArg(), "user_1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT .*user_entitlements`).WillReturnRows(sqlmock.NewRows([]string{"plan_group", "validity_type", "expires_at"}).AddRow("VIP_A", "permanent", nil))
+	mock.ExpectExec(`INSERT INTO "redemptions"`).WithArgs("permanent", sqlmock.AnyArg(), "user_1", "permanent-fixture", 0, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "redemption_codes" SET`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	result, err := (&RedemptionService{}).RedeemCode("user_1", &RedeemCodeRequest{Code: "permanent-fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ValidityType != "permanent" || result.Days != 0 || result.ExpiresAt != nil || result.Message != "兑换成功，已获得对应分组的永久权益" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPermanentCodeDuplicateDoesNotGrantOrConsume preserves one-use-per-user for permanent codes.
+func TestPermanentCodeDuplicateDoesNotGrantOrConsume(t *testing.T) {
+	database, mock, cleanup := newRedemptionSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+	mock.ExpectQuery(`SELECT .*settings`).WillReturnRows(sqlmock.NewRows([]string{"key", "value"}).AddRow("CRON_TIMEZONE", "Asia/Shanghai"))
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT .*redemption_codes`).WillReturnRows(sqlmock.NewRows([]string{"id", "code", "max_uses", "used_count", "validity_type", "default_days", "registration_plan_group"}).AddRow("code_1", "permanent-fixture", 2, 1, "permanent", 0, "VIP_A"))
+	mock.ExpectQuery(`SELECT .*redemptions`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("used"))
+	mock.ExpectRollback()
+	_, err := (&RedemptionService{}).RedeemCode("user_1", &RedeemCodeRequest{Code: "permanent-fixture"})
+	if !errors.Is(err, ErrRedemptionDuplicate) {
+		t.Fatalf("got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAdminRedemptionHistoryIncludesValidity ensures the joined history query returns the saved type.
+func TestAdminRedemptionHistoryIncludesValidity(t *testing.T) {
+	database, mock, cleanup := newRedemptionSQLMockDB(t)
+	defer cleanup()
+	dbpkg.DB = database
+	mock.ExpectQuery(`SELECT count\(\*\) FROM redemptions`).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT .*r.validity_type.*FROM redemptions`).WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "code", "validity_type", "days", "username"}).AddRow("history1", "user_1", "fixture", "permanent", 0, "fixture"))
+	result, err := (&RedemptionService{}).GetAllRedemptions(&GetAllRedemptionsRequest{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Data) != 1 || result.Data[0].ValidityType != "permanent" || result.Data[0].Days != 0 {
+		t.Fatalf("bad history %+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }

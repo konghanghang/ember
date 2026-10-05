@@ -57,6 +57,7 @@ func (s *RedemptionCodeService) CreateRedemptionCodesBatch(req *CreateRedemption
 	}, nil
 }
 
+// createRedemptionCodes validates a shared group benefit before atomically generating the batch.
 func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCreateOptions, count int) ([]models.RedemptionCode, error) {
 	if count < 1 || count > maxCreateRedemptionCodesCount {
 		return nil, ErrRedemptionCodeBatchCountInvalid
@@ -68,6 +69,7 @@ func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCrea
 	}
 
 	baseCode := models.RedemptionCode{
+		ValidityType:          options.ValidityType,
 		MaxUses:               options.MaxUses,
 		DefaultDays:           options.DefaultDays,
 		ExpiresAt:             options.ExpiresAt,
@@ -75,6 +77,11 @@ func (s *RedemptionCodeService) createRedemptionCodes(options RedemptionCodeCrea
 		Notes:                 options.Notes,
 	}
 
+	benefit, err := CodeBenefit(&baseCode)
+	if err != nil {
+		return nil, err
+	}
+	baseCode.ValidityType = benefit.ValidityType
 	codes := make([]models.RedemptionCode, 0, count)
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := s.ensureRegistrationPlanGroupExists(tx, registrationPlanGroup, true); err != nil {
@@ -171,12 +178,17 @@ func (s *RedemptionCodeService) DeleteRedemptionCode(id string) error {
 	return nil
 }
 
+// UpdateRedemptionCode updates future grants only; redeemed benefit snapshots remain unchanged.
 func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedemptionCodeRequest) (*models.RedemptionCode, error) {
 	registrationPlanGroup, err := s.validateRegistrationPlanGroup(req.RegistrationPlanGroup)
 	if err != nil {
 		return nil, err
 	}
 
+	benefit, err := CodeBenefit(&models.RedemptionCode{ValidityType: req.ValidityType, DefaultDays: req.DefaultDays, RegistrationPlanGroup: registrationPlanGroup})
+	if err != nil {
+		return nil, err
+	}
 	var redemptionCode models.RedemptionCode
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ?", id).First(&redemptionCode).Error; err != nil {
@@ -196,6 +208,7 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 
 		redemptionCode.MaxUses = req.MaxUses
 		redemptionCode.DefaultDays = req.DefaultDays
+		redemptionCode.ValidityType = benefit.ValidityType
 		redemptionCode.ExpiresAt = req.ExpiresAt
 		redemptionCode.RegistrationPlanGroup = registrationPlanGroup
 		redemptionCode.Notes = req.Notes
@@ -205,6 +218,7 @@ func (s *RedemptionCodeService) UpdateRedemptionCode(id string, req *UpdateRedem
 			Updates(map[string]interface{}{
 				"max_uses":                redemptionCode.MaxUses,
 				"default_days":            redemptionCode.DefaultDays,
+				"validity_type":           redemptionCode.ValidityType,
 				"expires_at":              redemptionCode.ExpiresAt,
 				"registration_plan_group": redemptionCode.RegistrationPlanGroup,
 				"notes":                   redemptionCode.Notes,

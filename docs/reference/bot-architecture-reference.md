@@ -80,4 +80,4 @@ Bot 的环境变量清单、敏感性和回退规则统一维护在 [配置参�
 
 ## 分组权益展示（2026-10-04）
 
-Internal 账号信息增加 `entitlements/currentPlanGroup/resourceAccessGranted/businessTimezone`。Bot 按 API 已重算状态展示当前访问与各组期限，明确区分无权益和永久，不自行到期切组；期限按 API 的 `CRON_TIMEZONE` 展示。兑换沿用 API 统一发放，只续码指定组，永久已拥有时不消耗次数。支付通知携带订单 benefits 与业务时区，组合或永久权益逐项展示，不输出“延长 0 天”。
+Internal 账号信息增加 `entitlements/currentPlanGroup/resourceAccessGranted/businessTimezone`。Bot 按 API 已重算状态展示当前访问与各组期限，明确区分无权益和永久，不自行到期切组；期限按 API 的 `CRON_TIMEZONE` 展示。兑换沿用 API 统一发放，只向码指定组授予限时或永久权益，永久已拥有时不消耗次数。Internal 兑换结果透传 `validityType`，Bot 永久兑换显示“权益有效期：永久”，不将 `days=0/expiresAt=null` 显示成零天或未知到期时间。支付通知携带订单 benefits 与业务时区，组合或永久权益逐项展示，不输出“延长 0 天”。

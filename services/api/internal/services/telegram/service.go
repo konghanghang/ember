@@ -152,9 +152,10 @@ type TelegramRedeemRequest struct {
 }
 
 type TelegramRedeemResponse struct {
-	Message   string     `json:"message"`
-	Days      int        `json:"days"`
-	ExpiresAt *time.Time `json:"expiresAt"`
+	ValidityType string     `json:"validityType"`
+	Message      string     `json:"message"`
+	Days         int        `json:"days"`
+	ExpiresAt    *time.Time `json:"expiresAt"`
 }
 
 // TelegramResetPasswordRequest Bot 调 Internal API 重置密码

@@ -454,6 +454,9 @@ def format_account_info(data: dict) -> str:
 
 
 def format_redeem_success(data: dict) -> str:
+    """按兑换权益类型展示结果，永久权益与兑换码截止时间无关。"""
+    if data.get("validityType") == "permanent":
+        return "🎉 <b>兑换成功</b>\n\n📅 权益有效期：<b>永久</b>"
     days = int(data.get("days", 0) or 0)
     expires_at = str(data.get("expiresAt", "") or "")
     expires_display = _format_expiry(expires_at, date_only=True) if expires_at else "-"

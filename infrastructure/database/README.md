@@ -15,6 +15,7 @@
 - `20260912_01_p115_account_config_version.sql`：独立账号控制面配置/凭证代次，解除成功健康回写与播放路由/目录保存的误冲突
 - `20260929_01_playback_ranking_batches.sql`：排行榜批次表与周期唯一键、历史批次回填、明细位置唯一键和批次外键；移除错误的明细周期唯一索引，历史总时长保留 NULL
 - `20261004_01_plan_group_entitlements.sql`：单组商品显式有效期、用户独立权益、订单快照与人工处理；未发布阶段按用户确认原地收敛商品结构，已执行旧测试稿的库须按 [权益升级手册](../../docs/runbooks/entitlements-upgrade.md) 先转换并校验，不能仅改 checksum
+- `20261005_01_redemption_permanent_validity.sql`：兑换码与兑换历史显式有效期类型，旧记录保留 duration，永久码零天约束及启动指纹
 - `archive/`：仅供追溯，不参与任何运行时链路
 
 当前升级支持窗口：

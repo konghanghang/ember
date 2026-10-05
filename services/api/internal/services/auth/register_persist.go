@@ -2,21 +2,22 @@ package auth
 
 import (
 	"errors"
-	configpkg "github.com/konghang/ember/backend/internal/config"
-	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/konghang/ember/backend/internal/common"
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	"github.com/konghang/ember/backend/internal/db"
 	embyint "github.com/konghang/ember/backend/internal/integrations/emby"
 	"github.com/konghang/ember/backend/internal/models"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	policypkg "github.com/konghang/ember/backend/internal/services/policy"
 	redemptionpkg "github.com/konghang/ember/backend/internal/services/redemption"
 	"gorm.io/gorm"
 )
 
+// persistRegisteredUser atomically grants the registration benefit and consumes the invite code.
 func (s *AuthService) persistRegisteredUser(
 	req *RegisterUserRequest,
 	prepared *registerPreparation,
@@ -45,8 +46,12 @@ func (s *AuthService) persistRegisteredUser(
 		return nil, "", errors.New("创建用户失败")
 	}
 
-	if prepared.defaultDays > 0 {
-		if err := entitlementpkg.GrantLocked(tx, user, []entitlementpkg.Benefit{{PlanGroup: *user.PlanGroup, ValidityType: entitlementpkg.Duration, DurationDays: prepared.defaultDays}}, "registration:"+user.ID, "system:registration", time.Now(), location); err != nil {
+	if prepared.defaultDays > 0 || prepared.validityType == entitlementpkg.Permanent {
+		validityType := prepared.validityType
+		if validityType == "" {
+			validityType = entitlementpkg.Duration
+		}
+		if err := entitlementpkg.GrantLocked(tx, user, []entitlementpkg.Benefit{{PlanGroup: *user.PlanGroup, ValidityType: validityType, DurationDays: prepared.defaultDays}}, "registration:"+user.ID, "system:registration", time.Now(), location); err != nil {
 			tx.Rollback()
 			return nil, "", err
 		}
@@ -80,6 +85,7 @@ func (s *AuthService) applyRegisteredUserPolicy(user *models.User) string {
 	return policypkg.SyncStatusSynced
 }
 
+// buildRegisteredUser preserves nil expiry for permanent grants while retaining zero-day trial expiry.
 func (s *AuthService) buildRegisteredUser(
 	req *RegisterUserRequest,
 	prepared *registerPreparation,
@@ -98,6 +104,9 @@ func (s *AuthService) buildRegisteredUser(
 	planGroup, err := s.resolveRegistrationPlanGroup(prepared)
 	if err != nil {
 		return nil, err
+	}
+	if prepared.validityType == entitlementpkg.Permanent {
+		user.ExpiresAt = nil
 	}
 	user.PlanGroup = &planGroup
 	if err := user.SetPassword(req.Password); err != nil {
@@ -124,6 +133,7 @@ func (s *AuthService) resolveRegistrationPlanGroup(prepared *registerPreparation
 	return group.Key, nil
 }
 
+// applyInviteRegistration consumes one use and snapshots the granted validity in the registration transaction.
 func (s *AuthService) applyInviteRegistration(
 	tx *gorm.DB,
 	req *RegisterUserRequest,
@@ -145,9 +155,10 @@ func (s *AuthService) applyInviteRegistration(
 	}
 
 	redemption := models.Redemption{
-		UserID: user.ID,
-		Code:   strings.TrimSpace(req.Code),
-		Days:   prepared.defaultDays,
+		ValidityType: prepared.validityType,
+		UserID:       user.ID,
+		Code:         strings.TrimSpace(req.Code),
+		Days:         prepared.defaultDays,
 	}
 	if err := tx.Create(&redemption).Error; err != nil {
 		return errors.New("创建用户失败")

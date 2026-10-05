@@ -3,6 +3,7 @@ package redemption
 import "errors"
 
 var (
+	ErrRedemptionValidityInvalid       = errors.New("权益有效期无效：按天须大于零，永久须为零天")
 	ErrRedemptionCodeNotFound          = errors.New("兑换码不存在")
 	ErrRedemptionCodeInvalid           = errors.New("兑换码已失效")
 	ErrRedemptionCodeStatusInvalid     = errors.New("兑换码状态筛选值无效")

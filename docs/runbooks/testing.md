@@ -173,3 +173,29 @@ make test-bot-report
 2026-10-04 单组商品收敛补充：`go test ./internal/app -run 'TestIntegration(SingleGroupPlan|HistoricalCombinationSnapshot|Entitlement|LegacyEntitlement|Billing)' -count=1`，共 9 个顶层用例通过，覆盖新商品 DTO、永久/限时转换、旧商品 SQL 转换及组合拒绝回滚、历史组合订单在商品下架/改天数后按原快照履约与重放幂等。配合 Web 单组表单 4 项回归及权益工具测试；完整 Web 测试 314 项通过、3 项按现有配置跳过。
 
 2026-10-04 CI 求片回归修复：完整 `go test ./internal/app -run Integration -count=1` 在隔离 schema 中 33 个顶层用例通过（包括新建/重新提交的有效权益、无权益、人工禁用边界）。此前只跑权益/支付专项未覆盖求片的真实用户查询，不能用专项通过替代完整集成验证。Web 集成夹具在迁移之后建用户，须同时初始化访问投影和永久权益；无服务单测保护该初始化，完整 Web→API→数据库流程仍须 CI 复验。
+
+
+## 永久兑换码验证（2026-10-05）
+
+本轮在 `293c5d1` 基础上的未提交兑换码改动完成以下验证，范围涵盖创建/批量/编辑、注册与已有用户兑换、历史快照、Telegram 展示及前后端合同：
+
+- API：`go test ./...`、`go vet ./...`、`go build ./...` 通过；新增 mock 用例覆盖永久注册不按零天试用禁用、永久权益落库、消费失败回滚、重复兑换不消耗、零天不被 GORM 默认值覆盖和历史类型返回。
+- Web：`npm run build` 通过；新增兑换码表单测试覆盖默认限时、永久请求归一化、批量及编辑。首次默认并发全量测试有一条既有登录跳转等待断言失败，单独复验通过；`npm test -- --maxWorkers=2` 最终 323 项通过、3 项既有集成用例跳过，未改动该登录用例或放宽断言，偶发失败根因未证实。
+- Bot：使用 `services/bot/.venv/bin/python` 编译检查和 `pytest tests`，82 项通过；全局 `python3` 是旧版且没有 pytest，不能代替项目虚拟环境。
+- PostgreSQL：加载仓库根私有 `.env.integration.local` 的 `EMBER_INTEGRATION_DATABASE_URL` 后，在专用库的独立临时 schema 中实际执行 `TestIntegrationRedemptionPermanentValidity` 与 `TestIntegrationRedemptionValidityUpgrade`，两项通过。覆盖 fresh-install、旧列形态回填、重复执行、永久发放、重复兑换保护、编辑后历史不变及数据库约束；schema 由测试清理。该 dotenv 不会被直接执行的 `go test` 自动加载，运行前须显式将变量传入测试进程，不打印或提交连接串。
+
+数据库专项入口：在 `services/api` 工作目录并已加载上述测试变量后执行 `go test ./internal/app -run '^TestIntegrationRedemption(PermanentValidity|ValidityUpgrade)$' -count=1 -v`。测试不启动项目服务，也不调用真实 Emby、Telegram 或支付链路；真实 Emby、Telegram 或支付链路未验证；后续浏览器验收见下。
+
+
+### 永久兑换码浏览器追加验收
+
+2026-10-05 使用 Playwright MCP 验收用户已运行的 `http://localhost:3000/console/billing?tab=codes`，复用管理员登录；未启动项目服务。用户明确授权创建并清理临时兑换码，不兑换、不修改用户权益。
+
+- 默认按天 30 天；切换永久隐藏天数，切回按天恢复；输入 0 天失焦后限制到最少 1 天。
+- 单个永久码创建成功，页面真实 POST 返回 200，请求为 `validityType=permanent/defaultDays=0`，列表显示永久；编辑为 45 天再改回永久，两次 PUT 均返回 200，列表和重新打开表单的值一致。
+- 批量生成 2 个永久码并独立设置兑换截止时间，POST 返回 200；两条记录同时正确显示永久权益和设定的截止时间。
+- 创建/编辑弹窗在宽屏与 390px 窄屏下无页面或弹窗横向溢出。
+- 发现同页两处备注输入框 `rows="2"` 类型警告，改为数值绑定 `:rows="2"`；刷新后重新操作，控制台 0 errors / 0 warnings，兑换码组件 3 项测试复验通过。
+- 本轮 3 个临时码已通过页面逐一删除，列表恢复到原有 1 条记录，本轮测试备注匹配数为 0。MCP 浏览器已关闭，42 个本轮快照/日志已清理，原有产物保留。
+
+浏览器范围限于管理员生成、批量、编辑及删除；实际用户注册/兑换未在该运行环境执行，对应权益发放证据来自前述 mock 和专用 PostgreSQL 测试。

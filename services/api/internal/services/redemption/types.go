@@ -11,9 +11,10 @@ type RedeemCodeRequest struct {
 }
 
 type RedeemCodeResponse struct {
-	Message   string     `json:"message"`
-	Days      int        `json:"days"`
-	ExpiresAt *time.Time `json:"expiresAt"`
+	ValidityType string     `json:"validityType"`
+	Message      string     `json:"message"`
+	Days         int        `json:"days"`
+	ExpiresAt    *time.Time `json:"expiresAt"`
 }
 
 type GetRedemptionsRequest struct {
@@ -59,8 +60,9 @@ const (
 )
 
 type RedemptionCodeCreateOptions struct {
+	ValidityType          string     `json:"validityType" binding:"omitempty,oneof=duration permanent"`
 	MaxUses               int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays           int        `json:"defaultDays" binding:"required,min=1"`
+	DefaultDays           int        `json:"defaultDays" binding:"min=0"`
 	ExpiresAt             *time.Time `json:"expiresAt"`
 	RegistrationPlanGroup string     `json:"registrationPlanGroup" binding:"required"`
 	Notes                 string     `json:"notes" binding:"omitempty,max=500"`
@@ -81,8 +83,9 @@ type CreateRedemptionCodesBatchResponse struct {
 }
 
 type UpdateRedemptionCodeRequest struct {
+	ValidityType          string     `json:"validityType" binding:"omitempty,oneof=duration permanent"`
 	MaxUses               int        `json:"maxUses" binding:"required,min=1"`
-	DefaultDays           int        `json:"defaultDays" binding:"required,min=1"`
+	DefaultDays           int        `json:"defaultDays" binding:"min=0"`
 	ExpiresAt             *time.Time `json:"expiresAt"`
 	RegistrationPlanGroup string     `json:"registrationPlanGroup" binding:"required"`
 	Notes                 string     `json:"notes" binding:"omitempty,max=500"`
