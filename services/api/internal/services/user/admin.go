@@ -34,13 +34,14 @@ type AdminUpdateUserRequest struct {
 
 // GetUsersRequest 获取用户列表请求
 type GetUsersRequest struct {
-	Page         int    `form:"page" binding:"omitempty,min=1"`
-	PageSize     int    `form:"pageSize" binding:"omitempty,min=1"`
-	Search       string `form:"search"`
-	IsActive     *bool  `form:"isActive"`
-	ExpiresAfter string `form:"expiresAfter"`
-	EmbyStatus   string `form:"embyStatus"`
-	PlanGroup    string `form:"planGroup"`
+	Page             int    `form:"page" binding:"omitempty,min=1"`
+	PageSize         int    `form:"pageSize" binding:"omitempty,min=1"`
+	Search           string `form:"search"`
+	IsActive         *bool  `form:"isActive"`
+	ExpiresAfter     string `form:"expiresAfter"`
+	EmbyStatus       string `form:"embyStatus"`
+	PlanGroup        string `form:"planGroup"`
+	EntitlementGroup string `form:"entitlementGroup"`
 }
 
 // GetUsersResponse 获取用户列表响应
@@ -150,6 +151,7 @@ func markUsersUsingDefaultPlanGroup(users []UserView) {
 	}
 }
 
+// GetUsers combines current-group and active-holding filters without changing the user's access projection.
 func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) {
 	if req.Page == 0 {
 		req.Page = 1
@@ -202,6 +204,20 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 		} else {
 			query = query.Where(`"plan_group" = ?`, planGroup)
 		}
+	}
+
+	if strings.TrimSpace(req.EntitlementGroup) != "" {
+		group, err := normalizePlanGroupStrict(req.EntitlementGroup)
+		if err != nil {
+			return nil, err
+		}
+		// Capture one instant for both count and page; EXISTS never duplicates a user with multiple holdings.
+		query = query.Where(`EXISTS (
+			SELECT 1 FROM user_entitlements holdings
+			WHERE holdings.user_id = users.id AND holdings.plan_group = ?
+			AND ((holdings.validity_type = ? AND holdings.expires_at IS NULL)
+				OR (holdings.validity_type = ? AND holdings.expires_at > ?))
+		)`, group, entitlementpkg.Permanent, entitlementpkg.Duration, time.Now())
 	}
 
 	var total int64

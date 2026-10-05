@@ -238,6 +238,8 @@
 
 ## 分组权益合同补充（2026-10-04）
 
+`GET /api/v1/admin/users` 支持两个独立分组条件：`planGroup` 保持按已应用当前组过滤（NULL 归入默认组）；`entitlementGroup` 查询持有权益，只有 `permanent` 且无到期时间，或 `duration` 且到期时间严格晚于检查时刻才匹配。到期、已撤销权益不匹配，非当前组的有效权益可匹配。空值不限制，两个条件同时提供时取交集；分组 key 统一去空格、转大写，格式非法返回 400，不存在的 key 返回空列表。仍返回 `data/total/page/pageSize/totalPages`，不会因多条权益重复用户或计数，不会触发到期回退和外部同步。
+
 | 方法 | 路径 | 权限与合同 |
 | --- | --- | --- |
 | GET | `/api/v1/user/entitlements` | 普通用户本人；返回 `{data,businessTimezone}`，逐项 `userId/planGroup/planGroupName/validityType/expiresAt`，包括仍保留的过期项 |

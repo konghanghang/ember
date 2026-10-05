@@ -85,7 +85,8 @@ const queryParams = ref<UserListQuery>({
   search: '',
   expiresAfter: undefined,
   embyStatus: '',
-  planGroup: ''
+  planGroup: '',
+  entitlementGroup: ''
 })
 
 const createForm = ref({
@@ -169,11 +170,13 @@ const handleFilterChange = () => {
   fetchData()
 }
 
+// 清空所有列表条件，包含独立的当前分组和有效持有权益组。
 const handleResetFilters = () => {
   queryParams.value.search = ''
   queryParams.value.expiresAfter = undefined
   queryParams.value.embyStatus = ''
   queryParams.value.planGroup = ''
+  queryParams.value.entitlementGroup = ''
   queryParams.value.page = 1
   fetchData()
 }
@@ -538,7 +541,7 @@ const handleManualSyncLibraryChange = () => {
 const handleSyncHistoryLibraries = async () => {
   const group = selectedFilterPlanGroup.value
   if (!group) {
-    ElMessage.warning('请先在筛选区选择一个套餐组')
+    ElMessage.warning('请先在筛选区选择当前分组')
     return
   }
 
@@ -845,16 +848,6 @@ const entitlementUser = ref<UserInfo | null>(null)
           @enter="handleSearch"
         />
 
-        <EmberDateField
-          v-model="queryParams.expiresAfter"
-          label="到期晚于"
-          type="date"
-          value-format="YYYY-MM-DD"
-          placeholder="选择日期"
-          clearable
-          @change="handleFilterChange"
-        />
-
         <EmberSelectField
           v-model="queryParams.embyStatus"
           label="Emby 状态"
@@ -870,7 +863,7 @@ const entitlementUser = ref<UserInfo | null>(null)
 
         <EmberSelectField
           v-model="queryParams.planGroup"
-          label="套餐组"
+          label="当前分组"
           placeholder="全部分组"
           :icon="CreditCard"
           @change="handleFilterChange"
@@ -883,6 +876,39 @@ const entitlementUser = ref<UserInfo | null>(null)
             :value="option.value"
           />
         </EmberSelectField>
+
+        <EmberSelectField
+          v-model="queryParams.entitlementGroup"
+          label="持有权益组"
+          placeholder="全部分组"
+          :icon="CreditCard"
+          @change="handleFilterChange"
+        >
+          <el-option label="全部分组" value="" />
+          <el-option
+            v-for="option in planGroupOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
+        </EmberSelectField>
+
+        <details class="md:col-span-2 2xl:col-span-4">
+          <summary class="cursor-pointer text-sm text-gray-600 focus-visible:outline-ember">
+            更多筛选<span v-if="queryParams.expiresAfter" class="ml-1 text-ember">（1）</span>
+          </summary>
+          <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
+            <EmberDateField
+              v-model="queryParams.expiresAfter"
+              label="到期晚于"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="选择日期"
+              clearable
+              @change="handleFilterChange"
+            />
+          </div>
+        </details>
 
         <template #actions>
             <button

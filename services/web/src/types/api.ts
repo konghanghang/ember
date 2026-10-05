@@ -253,6 +253,7 @@ export interface UserListQuery extends PaginationQuery {
   expiresAfter?: string
   embyStatus?: 'available' | 'disabled' | 'unlinked' | ''
   planGroup?: PlanGroup | ''
+  entitlementGroup?: PlanGroup | ''
 }
 
 export interface UserListResponse {

@@ -88,6 +88,8 @@ func (h *UserHandler) CreateUserByAdmin(c *gin.Context) {
 // @Param isActive query bool false "是否启用"
 // @Param expiresAfter query string false "到期时间晚于该日期（YYYY-MM-DD）"
 // @Param embyStatus query string false "Emby 状态（available/disabled/unlinked）"
+// @Param planGroup query string false "当前分组（未设置时归入默认分组）"
+// @Param entitlementGroup query string false "持有权益组（仅永久或未到期权益，与当前分组取交集）"
 // @Success 200 {object} user.GetUsersResponse
 // @Router /api/v1/admin/users [get]
 // @Security BearerAuth

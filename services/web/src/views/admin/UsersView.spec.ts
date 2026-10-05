@@ -215,6 +215,33 @@ describe('UsersView', () => {
     expect(getUsers).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 50 }))
   })
 
+  it('持有权益组独立筛选并重置页码，重置清空两个分组条件', async () => {
+    const wrapper = await mountView()
+    const field = wrapper.find('[label="持有权益组"]')
+    expect(field.exists()).toBe(true)
+    expect(wrapper.find('[label="当前分组"]').exists()).toBe(true)
+    const vm = wrapper.vm as unknown as {
+      queryParams: { page: number; planGroup: string; entitlementGroup: string }
+      handleFilterChange: () => void
+      handleResetFilters: () => void
+      selectedFilterPlanGroup: unknown
+    }
+    vm.queryParams.page = 3
+    vm.queryParams.entitlementGroup = 'SECOND'
+    vm.handleFilterChange()
+    await flushPromises()
+    expect(getUsers).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, planGroup: '', entitlementGroup: 'SECOND' }))
+    expect(vm.selectedFilterPlanGroup).toBeNull()
+    vm.queryParams.planGroup = 'DEFAULT'
+    vm.handleFilterChange()
+    await flushPromises()
+    expect(getUsers).toHaveBeenLastCalledWith(expect.objectContaining({ planGroup: 'DEFAULT', entitlementGroup: 'SECOND' }))
+    vm.handleResetFilters()
+    await flushPromises()
+    expect(getUsers).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, planGroup: '', entitlementGroup: '' }))
+    wrapper.unmount()
+  })
+
   it('同步批次入口跳到计费中心的套餐分组并保留批次 ID', async () => {
     const wrapper = await mountView()
     const vm = wrapper.vm as unknown as {
