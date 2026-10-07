@@ -190,12 +190,6 @@ const mediaLibraryDirty = computed(() => {
     !== normalizeMediaLibraryIdKey(savedMediaLibraryIds.value)
 })
 
-const embySummary = computed(() => {
-  if (isEmbyLinked.value) return '已关联'
-  if (authStore.isAdmin) return '可关联'
-  return '待开通'
-})
-
 /** 媒体库同步状态标签的单一事实源；终端用户视角下 partial_failed 折叠为已同步。 */
 const mediaLibrarySyncPresentation = computed(() => {
   return resolveAccountPolicySyncPresentation(mediaLibrarySettings.value?.policySyncStatus)
@@ -673,7 +667,7 @@ onMounted(() => {
           </EmberEmptyStateCard>
           <P115AccountView v-else />
         </div>
-        <!-- 基本资料：账号信息 + 邮箱 + Emby/Telegram 绑定 -->
+        <!-- 基本资料：账号信息、邮箱、Telegram 绑定与管理员 Emby 关联。 -->
         <div
           v-show="activeTab === 'profile'"
           id="account-profile"
@@ -733,14 +727,16 @@ onMounted(() => {
           <div
             id="account-bindings"
             data-test="account-section-bindings"
-            class="grid gap-4 lg:grid-cols-2 lg:items-stretch"
+            class="grid gap-4 lg:items-stretch"
+            :class="{ 'lg:grid-cols-2': authStore.isAdmin }"
           >
             <article
+              v-if="authStore.isAdmin"
               data-test="binding-emby"
               class="flex min-h-[12rem] flex-col rounded-2xl border border-gray-100 bg-gray-50/50 p-5 sm:p-6"
             >
               <div class="flex items-start justify-between gap-3">
-                <h3 class="text-base font-semibold text-gray-900">Emby 账号</h3>
+                <h3 class="text-base font-semibold text-gray-900">Emby 关联</h3>
                 <span
                   class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
                   :class="isEmbyLinked ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'"
@@ -749,16 +745,16 @@ onMounted(() => {
                     class="h-1.5 w-1.5 rounded-full"
                     :class="isEmbyLinked ? 'bg-emerald-500' : 'bg-gray-400'"
                   ></span>
-                  {{ embySummary }}
+                  {{ isEmbyLinked ? '已关联' : '未关联' }}
                 </span>
               </div>
 
-              <div class="mt-5 flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-                <code class="min-w-0 flex-1 truncate rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
-                  {{ user.embyId || '待激活' }}
-                </code>
+              <div v-if="user.embyId" class="mt-5 flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+                <div class="min-w-0 flex-1 space-y-1">
+                  <p class="text-xs font-semibold text-gray-500">Emby 用户 ID</p>
+                  <code class="block truncate text-xs text-gray-500">{{ user.embyId }}</code>
+                </div>
                 <button
-                  v-if="user.embyId"
                   type="button"
                   aria-label="复制 Emby ID"
                   class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-ember cursor-pointer"
@@ -768,7 +764,7 @@ onMounted(() => {
                 </button>
               </div>
 
-              <div v-if="authStore.isAdmin" class="mt-auto flex flex-wrap gap-2 pt-5">
+              <div class="mt-auto flex flex-wrap gap-2 pt-5">
                 <button
                   v-if="!user.embyId"
                   type="button"

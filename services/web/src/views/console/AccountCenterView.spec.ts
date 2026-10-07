@@ -902,16 +902,18 @@ describe('AccountCenterView 布局与强制改密', () => {
     expect(wrapper.find('[data-test="account-section-security"]').isVisible()).toBe(true)
   })
 
-  it('连接区并入基本资料，使用统一双列卡片且无 sky 整块强调', async () => {
+  it.each(['emby_1', ''])('普通用户不展示 Emby 内部标识或关联卡片（embyId=%s）', async (embyId) => {
+    userStoreState.profile.embyId = embyId
     const wrapper = mountView()
     await flushPromises()
     // 默认就是基本资料分段，无需再切「连接与绑定」
 
     const embyCard = wrapper.find('[data-test="binding-emby"]')
     const telegramCard = wrapper.find('[data-test="binding-telegram"]')
-    expect(embyCard.exists()).toBe(true)
+    expect(embyCard.exists()).toBe(false)
     expect(telegramCard.exists()).toBe(true)
-    expect(embyCard.classes().join(' ')).toMatch(/border-gray/)
+    expect(wrapper.find('[aria-label="复制 Emby ID"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="account-section-bindings"]').classes()).not.toContain('lg:grid-cols-2')
     expect(telegramCard.classes().join(' ')).toMatch(/border-gray/)
     expect(telegramCard.html()).not.toMatch(/bg-sky/)
   })
@@ -966,6 +968,26 @@ describe('AccountCenterView 管理员 Emby 绑定', () => {
       isActive: true,
       createdAt: '2026-01-01T00:00:00Z',
       passwordResetRequired: false,
+    }
+  })
+
+  it.each(['emby_admin', ''])('管理员保留关联卡片并明确标识 ID（embyId=%s）', async (embyId) => {
+    userStoreState.profile.embyId = embyId
+    const wrapper = mountView()
+    await flushPromises()
+
+    const card = wrapper.find('[data-test="binding-emby"]')
+    expect(card.find('h3').text()).toBe('Emby 关联')
+    expect(wrapper.find('[data-test="account-section-bindings"]').classes()).toContain('lg:grid-cols-2')
+    if (embyId) {
+      expect(card.text()).toContain('Emby 用户 ID')
+      expect(card.text()).toContain(embyId)
+      expect(card.text()).toContain('解除关联')
+      expect(card.find('[aria-label="复制 Emby ID"]').exists()).toBe(true)
+    } else {
+      expect(card.text()).not.toContain('待激活')
+      expect(card.text()).toContain('关联 Emby 账号')
+      expect(card.find('code').exists()).toBe(false)
     }
   })
 
