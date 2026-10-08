@@ -37,7 +37,7 @@
 当前 `docs/plan/` 中待实施、推进中或待验收的实施稿共 11 份：
 
 - `access-auth/registration-user-capacity.md`
-- [分组观看保号](./billing-redemption/watch-activity-renewal.md)（2026-10-05：已确认永久权益、30 天观察期及滚动累计考核；播放合同与技术边界待核对，仅保存计划，暂缓实施）
+- [分组观看保号](./billing-redemption/watch-activity-renewal.md)（2026-10-08：已确认分组三项配置（开关、周期天数、分钟门槛），观察期与统计窗口共用周期（默认 30 天），实际接替后开始完整观察期，付费组替代期间暂停考核，再次接替重新起算；播放合同与技术边界待核对，仅保存计划，暂缓实施）
 - [套餐与分组权益改版](./billing-redemption/plan-group-entitlements.md)（2026-10-04：首轮实现与页面/Stripe 沙盒验收完成；单分组套餐收敛、测试库转换与 Stripe 沙盒复验完成，待提交收尾）
 - `architecture/emby-115-direct-play-gateway.md`
 - `architecture/p115-personal-account-routing-and-redis-quotas.md`（阶段 0–3 已落地，基础 PostgreSQL 集成于 2026-09-05 通过；后续 DirectPlay 数据库专项于 2026-09-21 补跑通过，受控真实外部验收仍待完成）
