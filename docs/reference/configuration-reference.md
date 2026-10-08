@@ -306,3 +306,7 @@ Bot 进程当前仍主要依赖环境变量启动；`.env.example` 保留启动�
 4. Bot 部署时，应显式提供 `INTERNAL_API_SECRET`、`TELEGRAM_BOT_TOKEN`；若使用 `webhook` 模式，还需额外提供 `TELEGRAM_WEBHOOK_SECRET` 和 `WEBHOOK_URL`。
 5. 如果需要把旧环境变量导入数据库，优先使用设置中心现有的导入能力，而不是手工改表。
 6. 轮换 Admin API Key 前先确认外部脚本可同步更新；重新生成后旧 key 会立即失效。
+
+## 观看保号调度
+
+`WATCH_RETENTION_SCHEDULE` 属于设置中心运行期数据库配置，默认 `0 2 * * *`；不读取同名环境变量，使用 `CRON_TIMEZONE`，受 `CRON_ENABLED` 控制。表达式禁止自带 `TZ`/`CRON_TZ`，修改后重启 API 生效。分组开关、周期与分钟数通过分组接口配置，不新增部署环境变量。详细行为见[观看保号运行手册](../runbooks/watch-retention.md)。

@@ -670,3 +670,9 @@ MediaGapScan                    （缺集扫描持久化记录，advisory lock �
 - `redemption_codes.legacy_invalidated`：切换前旧码统一为 true，新码默认 false；保留历史记录与已发放权益。
 - 支付补充 `paid_at/manual_review_reason/resolution/resolution_note/resolved_by/resolved_at`。`paid_review` 保留已付款事实并等待人工；`resolved` 表示人工已收口，不等于自动退款。
 - 旧 `Plan.days/planGroup` 与 `Payment.days` 保留摘要及历史读取兼容，不再是权益真相；组合消费方必须读取 `benefits`。旧单组请求仍可创建限时权益，但禁止用旧摘要字段覆写组合配置。移除条件为外部调用方完成 benefits 迁移并发布明确的接口破坏性变更版本；本次不直接删除数据库历史列。
+
+## 观看保号数据补充
+
+`plan_groups` 新增 `watch_retention_enabled`（默认 false）、`watch_retention_days`（默认 30）、`watch_retention_min_minutes`（默认 0，开启须正数）三项配置；内部 `watch_retention_reset_at` 标记最近启用/规则变化时间。`user_entitlements` 增加 `watch_retention_started_at` 与 `watch_retention_invalidated_at`，分别记录本轮实际接替及失效；永久期限不再等于无条件有效。`watch_retention_checks` 保存窗口、门槛、累计秒数和判定，用户删除时级联删除，不依赖当前分组仍存在。
+
+迁移为 `20261008_01_watch_retention.sql`，可重复执行，默认关闭且不回填历史失效；完整流转见[运行手册](../runbooks/watch-retention.md)。

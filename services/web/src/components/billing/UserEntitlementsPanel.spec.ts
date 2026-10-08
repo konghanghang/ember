@@ -20,6 +20,18 @@ function mountPanel(admin = false) {
 
 describe('用户权益管理', () => {
   beforeEach(() => { vi.clearAllMocks(); api.getEntitlements.mockResolvedValue({ data: [], businessTimezone: 'Asia/Shanghai' }); api.adjustEntitlement.mockResolvedValue(undefined) })
+  it('仅为开启保号的权益展示要求，失效权益不显示永久有效', async () => {
+    api.getEntitlements.mockResolvedValue({businessTimezone:'Asia/Shanghai',data:[
+      {userId:'user-1',planGroup:'A',planGroupName:'A',validityType:'permanent',expiresAt:null,watchRetentionInvalidatedAt:'2026-10-01T00:00:00Z',watchRetention:{days:14,minMinutes:90,state:'invalidated'}},
+      {userId:'user-1',planGroup:'B',planGroupName:'B',validityType:'duration',expiresAt:'2099-10-01T00:00:00Z'},
+    ]})
+    const wrapper=mountPanel();await flushPromises()
+    expect(wrapper.text().match(/观看要求：/g)).toHaveLength(1)
+    expect(wrapper.text()).toContain('最近 14 天累计观看至少 90 分钟')
+    expect(wrapper.text()).toContain('权益已失效')
+    expect(wrapper.text()).not.toContain('永久有效')
+    wrapper.unmount()
+  })
   it('没有权益时不显示永久，也不提供用户自行切组入口', async () => {
     const wrapper = mountPanel()
     await flushPromises()

@@ -636,6 +636,7 @@ func expectRenewalGrant(mock sqlmock.Sqlmock, expiry time.Time, days int) {
 	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("user_1").WillReturnRows(sqlmock.NewRows([]string{"user_id", "plan_group", "validity_type", "expires_at"}).AddRow("user_1", "VIP_A", "duration", expiry))
 	mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("VIP_A", 10))
 	mock.ExpectExec(`DELETE FROM "user_entitlements"`).WithArgs("user_1").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs("user_1", "VIP_A", "duration", expiry.AddDate(0, 0, days), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs(nil, nil, "user_1", "VIP_A", "duration", expiry.AddDate(0, 0, days), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO "entitlement_events"`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE "user_entitlements"`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1", "VIP_A").WillReturnResult(sqlmock.NewResult(0, 1))
 }

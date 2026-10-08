@@ -27,6 +27,9 @@ type Benefit = models.PlanBenefit
 
 // Holding separates permanent access from absence; a duration always has a deadline.
 type Holding struct {
+	WatchRetentionStartedAt     *time.Time `json:"watchRetentionStartedAt,omitempty" gorm:"column:watch_retention_started_at"`
+	WatchRetentionInvalidatedAt *time.Time `json:"watchRetentionInvalidatedAt,omitempty" gorm:"column:watch_retention_invalidated_at"`
+
 	PlanGroup    string     `json:"planGroup"`
 	ValidityType string     `json:"validityType"`
 	ExpiresAt    *time.Time `json:"expiresAt"`
@@ -87,7 +90,7 @@ func Resolve(owned []Holding, ranks map[string]int, at time.Time) (*Holding, err
 	}
 	var selected *Holding
 	for _, holding := range owned {
-		if holding.ValidityType == Duration && !holding.ExpiresAt.After(at) {
+		if holding.WatchRetentionInvalidatedAt != nil || holding.ValidityType == Duration && !holding.ExpiresAt.After(at) {
 			continue
 		}
 		if selected != nil && ranks[holding.PlanGroup] == ranks[selected.PlanGroup] {
@@ -127,7 +130,7 @@ func Grant(owned []Holding, benefits []Benefit, ranks map[string]int, at time.Ti
 		// must not erase the separate low-group permanent grant the customer bought.
 		covered := false
 		for _, holding := range owned {
-			if holding.ValidityType == Permanent && ranks[holding.PlanGroup] >= rank {
+			if holding.WatchRetentionInvalidatedAt == nil && holding.ValidityType == Permanent && ranks[holding.PlanGroup] >= rank {
 				covered = true
 				break
 			}
@@ -136,6 +139,9 @@ func Grant(owned []Holding, benefits []Benefit, ranks map[string]int, at time.Ti
 			continue
 		}
 		next := Holding{PlanGroup: benefit.PlanGroup, ValidityType: benefit.ValidityType}
+		if previous, ok := byGroup[benefit.PlanGroup]; ok && previous.WatchRetentionInvalidatedAt == nil {
+			next.WatchRetentionStartedAt = previous.WatchRetentionStartedAt
+		}
 		if benefit.ValidityType == Duration {
 			base := at
 			if previous, ok := byGroup[benefit.PlanGroup]; ok && previous.ExpiresAt != nil && previous.ExpiresAt.After(base) {

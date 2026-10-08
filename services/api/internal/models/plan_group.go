@@ -12,6 +12,11 @@ const (
 
 // PlanGroup 套餐分组
 type PlanGroup struct {
+	WatchRetentionEnabled    bool       `json:"watchRetentionEnabled" gorm:"column:watch_retention_enabled;not null;default:false"`
+	WatchRetentionDays       int        `json:"watchRetentionDays" gorm:"column:watch_retention_days;not null;default:30"`
+	WatchRetentionMinMinutes int        `json:"watchRetentionMinMinutes" gorm:"column:watch_retention_min_minutes;not null;default:0"`
+	WatchRetentionResetAt    *time.Time `json:"-" gorm:"column:watch_retention_reset_at"`
+
 	EntitlementRank                   *int             `json:"entitlementRank" gorm:"column:entitlement_rank"`
 	Key                               string           `json:"key" gorm:"column:key;type:varchar(50);primaryKey"`
 	Name                              string           `json:"name" gorm:"column:name;size:100;not null"`

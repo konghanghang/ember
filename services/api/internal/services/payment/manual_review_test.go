@@ -74,6 +74,7 @@ func TestRankChangeRollsBackWhenProjectionFails(t *testing.T) {
 	mock.ExpectQuery(`SELECT .*plan_group_media_libraries`).WillReturnRows(sqlmock.NewRows([]string{"plan_group_key", "library_id"}))
 	mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("A", 20))
 	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("user_1").WillReturnRows(sqlmock.NewRows([]string{"plan_group", "validity_type"}).AddRow("A", "permanent"))
+	mock.ExpectExec(`UPDATE "user_entitlements"`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user_1", "A").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE "users"`).WillReturnError(errors.New("projection write failed"))
 	mock.ExpectRollback()
 	if err := (&PaymentService{}).SetEntitlementRanks(context.Background(), SetEntitlementRanksRequest{Ranks: map[string]int{"A": 20}}); err == nil {

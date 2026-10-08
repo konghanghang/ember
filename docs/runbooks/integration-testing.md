@@ -55,7 +55,7 @@ export EMBER_INTEGRATION_DATABASE_URL='postgres://user:pass@127.0.0.1:5432/ember
 
 API 集成测试骨架会为每个用例创建独立 schema，并在结束后自动清理。
 
-本地可将上述 `export` 配置保存在仓库根目录 `.env.integration.local`（已被 Git 忽略，权限设为 `600`）。该文件不自动加载；在 `services/api` 工作目录执行测试前，先运行 `source ../../.env.integration.local`。不要将真实连接串写入文档或提交。
+本机专用连接现保存在 `~/.config/zsh/local.zsh`（权限 `600`），由 `.zshrc` 加载。已有终端可执行 `source ~/.config/zsh/local.zsh`；自动化进程必须确认变量已传入，不能假设所有非交互 Shell 都加载该文件。其他环境仍可使用仓库根目录私有 `.env.integration.local`（Git 忽略、权限 `600`），执行测试前显式加载。不要将真实连接串写入文档或提交。
 
 推荐做法：
 

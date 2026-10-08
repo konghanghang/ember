@@ -75,7 +75,7 @@ func TestPurchaseCoverage(t *testing.T) {
 		t.Fatalf("bundle failed %+v %v", owned, err)
 	}
 	expires := now.AddDate(0, 0, 30)
-	owned, err = Grant([]Holding{{"B", Duration, &expires}}, []Benefit{{PlanGroup: "A", ValidityType: Permanent, DurationDays: 0}}, ranks, now, loc)
+	owned, err = Grant([]Holding{{PlanGroup: "B", ValidityType: Duration, ExpiresAt: &expires}}, []Benefit{{PlanGroup: "A", ValidityType: Permanent, DurationDays: 0}}, ranks, now, loc)
 	if err != nil || len(owned) != 2 {
 		t.Fatalf("fallback purchase blocked: %v", err)
 	}

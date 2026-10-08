@@ -213,3 +213,11 @@ make test-bot-report
 - Playwright MCP 在用户已运行的本机用户中心只读验收：三种权益操作直接可见；保存按钮 12px 圆角、14px 字号、指针及右对齐生效；永久模式隐藏日期/天数，指定日期显示业务时区；编辑用户四种有效期操作切换正常，默认保持不变，延期显示默认 30 天，指定日期显示业务时区，永久不显示日期/天数。操作列独立延期按钮数量为 0。390px 窄屏下两个弹窗无横向溢出，控制台 0 errors / 0 warnings；只有读取请求，没有提交真实用户权益变化。浏览器已关闭，两轮本机验收的 12 个及 10 个快照均已清理。
 
 本轮无模型或 schema 变化，无新增 migration。后端新增的无偏移日期解析需 API 加载本次版本后生效；未代为重启用户服务。
+
+## 观看保号回归
+
+在 `services/api` 执行 `go test ./internal/services/entitlement ./internal/services/payment ./internal/services/user ./internal/services/system ./internal/integrations/emby -skip Integration`，覆盖保号起算、失效/恢复、调度边界、SQL mock 回滚及插件响应合同。`TestIntegrationWatchRetentionLifecycle` 仅在专用 `EMBER_INTEGRATION_DATABASE_URL` 配置后执行，验证真实 PostgreSQL 迁移重放与生命周期，外部播放及 Policy 使用 fake。
+
+Web 使用 `npm run test` 覆盖 `watch-retention`、分组表单、概览和持有权益；Bot 格式化回归验证失效永久权益不再显示为永久。测试不请求真实 Emby 或 Telegram，不启动项目服务。
+
+2026-10-08 补充 PostgreSQL 实测：从本机私有 `~/.config/zsh/local.zsh` 显式注入专用连接后，`TestIntegrationWatchRetentionLifecycle` 通过；另外 `TestIntegrationEntitlementMigrationAndFallback`、`TestIntegrationRedemptionPermanentValidity`、`TestIntegrationRedemptionValidityUpgrade`、`TestIntegrationAdminTransferGroup`、`TestIntegrationAdminTransferGroupRejectsConflict`、`TestIntegrationUserEntitlementFilter` 六项通过。均在独立 `itest_*` schema 中运行并自动清理，外部播放与权限同步为 fake；此次结果不扩展为真实 Emby 或浏览器验收。

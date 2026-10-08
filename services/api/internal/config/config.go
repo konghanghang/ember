@@ -1443,6 +1443,21 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:          normalizeTrimmedString,
 		},
 		{
+			Key:                "WATCH_RETENTION_SCHEDULE",
+			EnvKey:             "WATCH_RETENTION_SCHEDULE",
+			DisableEnvFallback: true,
+			Group:              ConfigGroupSchedule,
+			GroupLabel:         "任务调度",
+			Label:              "观看保号检查计划",
+			Description:        "观看保号考核 cron 表达式，按全局业务时区执行",
+			Type:               ConfigValueString,
+			Editable:           true,
+			RestartRequired:    true,
+			DefaultValue:       "0 2 * * *",
+			Validate:           validateWatchRetentionCron,
+			Normalize:          normalizeTrimmedString,
+		},
+		{
 			Key:                "CRON_TIMEZONE",
 			EnvKey:             "CRON_TIMEZONE",
 			DisableEnvFallback: true,
@@ -2237,4 +2252,12 @@ func TestHTTPReachable(rawURL string) error {
 	}
 
 	return nil
+}
+
+// validateWatchRetentionCron preserves the sole global timezone while accepting configurable cron times.
+func validateWatchRetentionCron(value string) error {
+	if strings.Contains(value, "TZ=") {
+		return errors.New("观看保号计划必须使用全局业务时区")
+	}
+	return validateCronExpression(value)
 }

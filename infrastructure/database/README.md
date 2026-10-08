@@ -192,3 +192,7 @@ baseline 必须与运行库 schema **字段级等价**，且与 `services/api/in
 `20261004_01_plan_group_entitlements.sql` 引入独立权益、发放审计、订单快照、分组等级和人工处理字段，并同步启动指纹。旧用户按当前分组/期限回填，不重放订单；旧码统一失效，历史兑换记录保留；重跑不使新码失效或重发已撤销权益。等级须管理员配置，未完成包含校验前暂停新购。
 
 升级窗口、恢复限制及专用 PostgreSQL 验证见 [分组权益升级 runbook](../../docs/runbooks/entitlements-upgrade.md)。当前只有静态 migration 合同与 mock 证据；未配置专用测试库时集成用例跳过，不计为迁移执行通过。
+
+## 2026-10-08 观看保号迁移
+
+`20261008_01_watch_retention.sql` 增加分组三项配置及内部重开时间、用户权益起点/失效标记和 `watch_retention_checks` 审计表。默认关闭、不使存量权益失效；可重复执行，启动指纹已同步。启用前核对插件版本、时区与播放历史保留范围，见[观看保号运行手册](../../docs/runbooks/watch-retention.md)。2026-10-08 已在专用 PostgreSQL 的隔离 schema 中执行观看保号生命周期用例，覆盖新库迁移、重复执行、起算、失效和重新购买；未在业务 schema 执行本次迁移。

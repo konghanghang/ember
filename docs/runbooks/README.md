@@ -4,6 +4,8 @@
 
 ## 文档列表
 
+- [观看保号配置与排障](./watch-retention.md) - 分组规则、考核调度、统计边界与权益恢复
+
 - [部署指南](./deployment.md) - Docker 部署入口与最小启动路径
 - [部署环境与配置](./deployment-environment.md) - 必填变量、迁移策略、管理员初始化
 - [数据库 Migration Baseline](./database-migration-baseline.md) - baseline 生成、验证与旧迁移归档流程

@@ -3,6 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DashboardView from './DashboardView.vue'
+import { getEntitlements } from '@/api/entitlements'
+vi.mock('@/api/entitlements', () => ({ getEntitlements: vi.fn() }))
 import { getMediaStats } from '@/api/console'
 
 vi.mock('@/api/console', () => ({
@@ -125,6 +127,7 @@ function mountView() {
 describe('DashboardView 过期用户概览', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getEntitlements).mockResolvedValue({data: [], businessTimezone: 'Asia/Shanghai'})
     authStoreState.isAdmin = false
     userStoreState.profile.expiresAt = '2026-01-01T00:00:00Z'
     userStoreState.profile.embyDisabled = true
@@ -144,6 +147,22 @@ describe('DashboardView 过期用户概览', () => {
         episodeCount: 6789,
       },
     })
+  })
+
+  it('仅展示当前生效权益的观看要求', async () => {
+    vi.mocked(getEntitlements).mockResolvedValue({businessTimezone: 'Asia/Shanghai',data:[
+      {userId:'user_1',planGroup:'A',planGroupName:'A',validityType:'permanent',expiresAt:null,isCurrent:false,watchRetention:{days:30,minMinutes:60,state:'waiting'}},
+      {userId:'user_1',planGroup:'B',planGroupName:'B',validityType:'permanent',expiresAt:null,isCurrent:true},
+    ]})
+    const wrapper=mountView(); await flushPromises()
+    expect(wrapper.text()).not.toContain('观看要求')
+    wrapper.unmount()
+    vi.mocked(getEntitlements).mockResolvedValue({businessTimezone:'Asia/Shanghai',data:[
+      {userId:'user_1',planGroup:'A',planGroupName:'A',validityType:'permanent',expiresAt:null,isCurrent:true,watchRetention:{days:14,minMinutes:90,state:'checking'}},
+    ]})
+    const active=mountView();await flushPromises()
+    expect(active.text()).toContain('观看要求：最近 14 天累计观看至少 90 分钟，每天检查。')
+    active.unmount()
   })
 
   it('过期用户仍请求并展示片库统计，同时保持 Emby 入口锁定', async () => {

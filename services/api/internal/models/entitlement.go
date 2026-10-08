@@ -12,6 +12,9 @@ type PlanBenefit struct {
 
 // UserEntitlement stores one independently expiring authorization per user and group.
 type UserEntitlement struct {
+	WatchRetentionStartedAt     *time.Time `json:"watchRetentionStartedAt,omitempty" gorm:"column:watch_retention_started_at"`
+	WatchRetentionInvalidatedAt *time.Time `json:"watchRetentionInvalidatedAt,omitempty" gorm:"column:watch_retention_invalidated_at"`
+
 	UserID       string     `json:"userId" gorm:"column:user_id;type:varchar(25);primaryKey"`
 	PlanGroup    string     `json:"planGroup" gorm:"column:plan_group;type:varchar(50);primaryKey"`
 	ValidityType string     `json:"validityType" gorm:"column:validity_type;type:varchar(20);not null"`

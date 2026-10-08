@@ -32,7 +32,7 @@ func (h *PaymentHandler) GetUserPlans(c *gin.Context) {
 		switch {
 		case errors.Is(err, entitlementpkg.ErrInvalidBenefit), errors.Is(err, entitlementpkg.ErrAlreadyOwned), errors.Is(err, entitlementpkg.ErrGroupsNotReady):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
+		case errors.Is(err, paymentpkg.ErrWatchRetentionInvalid), errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			httpx.InternalError(c, err)
@@ -62,7 +62,7 @@ func (h *PaymentHandler) CreateCheckout(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrPlanNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
+		case errors.Is(err, paymentpkg.ErrWatchRetentionInvalid), errors.Is(err, paymentpkg.ErrPlanGroupInvalid), errors.Is(err, paymentpkg.ErrPlanGroupNotFound), errors.Is(err, paymentpkg.ErrDefaultPlanGroupNotFound):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case errors.Is(err, paymentpkg.ErrStripeNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
@@ -155,7 +155,7 @@ func (h *PaymentHandler) CreatePlanGroup(c *gin.Context) {
 	group, err := h.service.CreatePlanGroup(&req)
 	if err != nil {
 		switch {
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
+		case errors.Is(err, paymentpkg.ErrWatchRetentionInvalid), errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupNameRequired),
 			errors.Is(err, paymentpkg.ErrPlanGroupKeyExists),
 			errors.Is(err, paymentpkg.ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid),
@@ -183,7 +183,7 @@ func (h *PaymentHandler) UpdatePlanGroup(c *gin.Context) {
 	group, err := h.service.UpdatePlanGroup(key, &req)
 	if err != nil {
 		switch {
-		case errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
+		case errors.Is(err, paymentpkg.ErrWatchRetentionInvalid), errors.Is(err, paymentpkg.ErrPlanGroupInvalid),
 			errors.Is(err, paymentpkg.ErrPlanGroupNameRequired),
 			errors.Is(err, paymentpkg.ErrPlanGroupKeyExists),
 			errors.Is(err, paymentpkg.ErrPlanGroupSubscriptionAutoApproveDailyLimitInvalid),

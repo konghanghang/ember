@@ -147,6 +147,9 @@ type PlanGroupsSetupState = {
     isDefault: boolean
     sortOrder: number
     subscriptionAutoApproveDailyLimit: number
+    watchRetentionEnabled: boolean
+    watchRetentionDays: number
+    watchRetentionMinMinutes: number
     p115PlaybackMode: 'personal' | 'system'
     p115TransferHourlyLimit: number
     p115TransferDailyLimit: number
@@ -158,6 +161,9 @@ type PlanGroupsSetupState = {
     isDefault: boolean
     sortOrder: number
     subscriptionAutoApproveDailyLimit: number
+    watchRetentionEnabled: boolean
+    watchRetentionDays: number
+    watchRetentionMinMinutes: number
     p115PlaybackMode: 'personal' | 'system'
     p115TransferHourlyLimit: number
     p115TransferDailyLimit: number
@@ -401,6 +407,9 @@ describe('PlanGroupsView', () => {
       isDefault: false,
       sortOrder: 10,
       subscriptionAutoApproveDailyLimit: 2,
+      watchRetentionEnabled: false,
+      watchRetentionDays: 30,
+      watchRetentionMinMinutes: 0,
       p115PlaybackMode: 'personal',
       p115TransferHourlyLimit: 7,
       p115TransferDailyLimit: 3,
@@ -416,6 +425,9 @@ describe('PlanGroupsView', () => {
       isDefault: false,
       sortOrder: 10,
       subscriptionAutoApproveDailyLimit: 2,
+      watchRetentionEnabled: false,
+      watchRetentionDays: 30,
+      watchRetentionMinMinutes: 0,
       p115PlaybackMode: 'personal',
       p115TransferHourlyLimit: 7,
       p115TransferDailyLimit: 3,
@@ -448,6 +460,9 @@ describe('PlanGroupsView', () => {
       isDefault: false,
       sortOrder: 0,
       subscriptionAutoApproveDailyLimit: 0,
+      watchRetentionEnabled: false,
+      watchRetentionDays: 30,
+      watchRetentionMinMinutes: 0,
       p115PlaybackMode: 'system',
       p115TransferHourlyLimit: 12,
       p115TransferDailyLimit: 4,
@@ -467,6 +482,9 @@ describe('PlanGroupsView', () => {
       isDefault: false,
       sortOrder: 0,
       subscriptionAutoApproveDailyLimit: 0,
+      watchRetentionEnabled: false,
+      watchRetentionDays: 30,
+      watchRetentionMinMinutes: 0,
       p115PlaybackMode: 'personal',
       p115TransferHourlyLimit: 101,
       p115TransferDailyLimit: 10,
@@ -545,4 +563,12 @@ describe('PlanGroupsView', () => {
 
     wrapper.unmount()
   })
+})
+
+it('分组保号三项配置随编辑提交', async () => {
+ const wrapper=mountView();await flushPromises()
+ setupStateOf(wrapper).openEditDialog({key:'VIP',name:'VIP',isDefault:false,sortOrder:0,p115PlaybackMode:'system',p115TransferHourlyLimit:5,p115TransferDailyLimit:10,watchRetentionEnabled:true,watchRetentionDays:14,watchRetentionMinMinutes:90})
+ await setupStateOf(wrapper).handleUpdate();await flushPromises()
+ expect(updatePlanGroup).toHaveBeenCalledWith('VIP',expect.objectContaining({watchRetentionEnabled:true,watchRetentionDays:14,watchRetentionMinMinutes:90}))
+ wrapper.unmount()
 })

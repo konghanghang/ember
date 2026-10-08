@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { getEntitlements } from '@/api/entitlements'
+import { watchRetentionText } from '@/utils/watch-retention'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -19,6 +21,8 @@ import type { MediaStats, UserInfo } from '@/types/api'
 const authStore = useAuthStore()
 const userStore = useUserStore()
 const router = useRouter()
+const viewingRequirement = ref('')
+let overviewGeneration = 0
 
 const emptyUser: UserInfo = {
   id: '',
@@ -85,16 +89,25 @@ const embyAccessLinks = computed(() => {
   ]
 })
 
+/** 加载概览与当前权益要求，用请求代次防止旧用户或旧权益响应覆盖新状态。 */
 const fetchOverview = async () => {
   if (!userStore.profile) return
 
+  const generation = ++overviewGeneration
+  viewingRequirement.value = ''
   loading.value = true
   try {
-    const [configResult, statsResult] = await Promise.allSettled([
+    const [configResult, statsResult, retentionResult] = await Promise.allSettled([
       userStore.fetchEmbyConfig(),
-      getMediaStats()
+      getMediaStats(),
+      authStore.isAdmin ? Promise.resolve(null) : getEntitlements()
     ])
 
+    if (generation !== overviewGeneration) return
+    if (retentionResult.status === 'fulfilled' && retentionResult.value) {
+      const response = retentionResult.value
+      viewingRequirement.value = watchRetentionText(response.data.find(row => row.isCurrent)?.watchRetention, response.businessTimezone)
+    }
     if (configResult.status === 'rejected') {
       // 仅在真实网络/异常时兜底；emby 未配置走 200 + configured:false，不再触发 reject。
       userStore.clearEmbyUrl()
@@ -111,7 +124,7 @@ const fetchOverview = async () => {
       stats.value = { ...emptyStats }
     }
   } finally {
-    loading.value = false
+    if (generation === overviewGeneration) loading.value = false
   }
 }
 
@@ -132,7 +145,7 @@ const openEmby = (url?: string) => {
 }
 
 watch(
-  () => [userStore.profile?.id, userStore.profile?.expiresAt, authStore.isAdmin],
+  () => [userStore.profile?.id, userStore.profile?.expiresAt, userStore.profile?.planGroup, authStore.isAdmin],
   async ([profileID]) => {
     if (!profileID) return
     await fetchOverview()
@@ -172,6 +185,8 @@ watch(
                 {{ membershipStatusHint }}
               </p>
             </div>
+
+            <p v-if="!authStore.isAdmin && viewingRequirement" class="text-sm text-gray-500">{{ viewingRequirement }}</p>
 
             <div v-if="!authStore.isAdmin" class="flex justify-start">
               <button

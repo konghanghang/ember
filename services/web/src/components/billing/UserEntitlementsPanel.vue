@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { watchRetentionText } from '@/utils/watch-retention'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import EmberSegmentTabs from '@/components/ember/layout/EmberSegmentTabs.vue'
 import type { EntitlementAdjustment } from '@/api/entitlements'
@@ -70,8 +71,9 @@ watch(() => props.userId, () => { operationId = ''; void load() }, { immediate: 
     <div v-if="failed" role="alert" class="text-sm text-red-600">权益加载失败 <button class="cursor-pointer underline" @click="load">重试</button></div>
     <p v-else-if="!loading && !rows.length" class="text-sm text-gray-500">暂无权益</p>
     <div v-for="row in rows" :key="row.planGroup" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 p-3">
-      <div><span class="font-medium">{{ row.planGroupName }}</span><el-tag v-if="currentGroup === row.planGroup" class="ml-2" size="small">当前分组</el-tag>
-        <p class="mt-1 text-sm text-gray-500">{{ row.validityType === 'permanent' ? '永久有效' : `到期时间：${formatDateTimeInTimezone(row.expiresAt || '', businessTimezone)}` }}</p>
+      <div><span class="font-medium">{{ row.planGroupName }}</span><el-tag v-if="row.isCurrent ?? (currentGroup === row.planGroup)" class="ml-2" size="small">当前分组</el-tag>
+        <p class="mt-1 text-sm text-gray-500">{{ row.watchRetentionInvalidatedAt ? '观看要求未达标，权益已失效' : row.validityType === 'permanent' ? '永久有效' : `到期时间：${formatDateTimeInTimezone(row.expiresAt || '', businessTimezone)}` }}</p>
+        <p v-if="row.watchRetention" class="mt-1 text-sm text-gray-500">{{ watchRetentionText(row.watchRetention, businessTimezone) }}</p>
       </div>
       <button v-if="userId" :disabled="saving" class="cursor-pointer rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 disabled:opacity-50" @click="save(row.planGroup)">撤销</button>
     </div>

@@ -6,6 +6,10 @@ export type SubscriptionReviewSource = 'MANUAL' | 'AUTO_QUOTA'
 export type P115PlaybackMode = 'personal' | 'system'
 
 export interface ManagedPlanGroup {
+  watchRetentionEnabled?: boolean
+  watchRetentionDays?: number
+  watchRetentionMinMinutes?: number
+
  entitlementRank?: number | null
   key: string
   name: string
@@ -1142,7 +1146,17 @@ export interface PlanBenefit {
  durationDays?: number
 }
 
+export interface WatchRetention {
+ days: number
+ minMinutes: number
+ state: 'waiting' | 'grace' | 'checking' | 'invalidated' | 'expired' | 'suspended'
+ firstCheckAt?: string
+}
+
 export interface UserEntitlement {
+ isCurrent?: boolean
+ watchRetention?: WatchRetention
+ watchRetentionInvalidatedAt?: string
  userId: string
  planGroup: PlanGroup
  planGroupName: string
@@ -1192,6 +1206,10 @@ export interface UpdatePlanRequest {
 }
 
 export interface CreatePlanGroupRequest {
+  watchRetentionEnabled?: boolean
+  watchRetentionDays?: number
+  watchRetentionMinMinutes?: number
+
   key: string
   name: string
   description?: string
@@ -1204,6 +1222,10 @@ export interface CreatePlanGroupRequest {
 }
 
 export interface UpdatePlanGroupRequest {
+  watchRetentionEnabled?: boolean
+  watchRetentionDays?: number
+  watchRetentionMinMinutes?: number
+
   name?: string
   description?: string
   isDefault?: boolean

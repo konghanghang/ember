@@ -20,7 +20,7 @@ func Load(tx *gorm.DB, userID string) ([]Holding, error) {
 	}
 	result := make([]Holding, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, Holding{row.PlanGroup, row.ValidityType, row.ExpiresAt})
+		result = append(result, Holding{PlanGroup: row.PlanGroup, ValidityType: row.ValidityType, ExpiresAt: row.ExpiresAt, WatchRetentionStartedAt: row.WatchRetentionStartedAt, WatchRetentionInvalidatedAt: row.WatchRetentionInvalidatedAt})
 	}
 	return result, nil
 }
@@ -118,7 +118,7 @@ func saveLocked(tx *gorm.DB, user *models.User, before, after []Holding, ranks m
 		return err
 	}
 	for _, holding := range after {
-		row := models.UserEntitlement{UserID: user.ID, PlanGroup: holding.PlanGroup, ValidityType: holding.ValidityType, ExpiresAt: holding.ExpiresAt}
+		row := models.UserEntitlement{UserID: user.ID, PlanGroup: holding.PlanGroup, ValidityType: holding.ValidityType, ExpiresAt: holding.ExpiresAt, WatchRetentionStartedAt: holding.WatchRetentionStartedAt, WatchRetentionInvalidatedAt: holding.WatchRetentionInvalidatedAt}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -146,6 +146,13 @@ func projectLocked(tx *gorm.DB, user *models.User, owned []Holding, ranks map[st
 	selected, err := Resolve(owned, ranks, at)
 	if err != nil {
 		return false, err
+	}
+	// Record every actual transition, including groups that enable retention later.
+	// Repeated reads/reconciliation of the same active group never restart its clock.
+	if selected != nil && (selected.WatchRetentionStartedAt == nil || !user.ResourceAccessGranted || user.PlanGroup == nil || *user.PlanGroup != selected.PlanGroup) {
+		if err := tx.Model(&models.UserEntitlement{}).Where("user_id = ? AND plan_group = ?", user.ID, selected.PlanGroup).Update("watch_retention_started_at", at).Error; err != nil {
+			return false, err
+		}
 	}
 	granted := selected != nil
 	group := user.PlanGroup
@@ -206,6 +213,11 @@ func ReconcileLocked(tx *gorm.DB, user *models.User, ranks map[string]int, at ti
 	owned, err := Load(tx, user.ID)
 	if err != nil {
 		return false, err
+	}
+	if len(owned) == 1 {
+		if _, ok := ranks[owned[0].PlanGroup]; !ok {
+			ranks[owned[0].PlanGroup] = 0
+		}
 	}
 	return projectLocked(tx, user, owned, ranks, at)
 }

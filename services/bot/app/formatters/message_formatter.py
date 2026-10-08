@@ -442,8 +442,11 @@ def format_account_info(data: dict) -> str:
     for entitlement in data.get("entitlements") or []:
         group = str(entitlement.get("planGroup") or "")
         name = escape(str(entitlement.get("planGroupName") or group))
-        current = "（当前）" if group == data.get("currentPlanGroup") else ""
+        current = "（当前）" if group == data.get("currentPlanGroup") and not entitlement.get("watchRetentionInvalidatedAt") else ""
         deadline = "永久" if entitlement.get("validityType") == "permanent" else _format_expiry(entitlement.get("expiresAt"), date_only=True, business_timezone=business_timezone)
+        # 永久只是期限类型；观看保号失效后不能继续显示为永久可用。
+        if entitlement.get("watchRetentionInvalidatedAt"):
+            deadline = "观看要求未达标，权益已失效"
         lines.append(f"• {name}{current}：{deadline}")
 
     if is_expired:

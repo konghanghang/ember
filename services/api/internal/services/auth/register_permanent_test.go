@@ -39,8 +39,9 @@ func TestPermanentRegistrationTransaction(t *testing.T) {
 			mock.ExpectQuery(`SELECT .*user_entitlements`).WillReturnRows(sqlmock.NewRows([]string{"plan_group"}))
 			mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("BASE", 1))
 			mock.ExpectExec(`DELETE FROM "user_entitlements"`).WillReturnResult(sqlmock.NewResult(0, 0))
-			mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs(sqlmock.AnyArg(), "BASE", "permanent", nil, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(`INSERT INTO "user_entitlements"`).WithArgs(nil, nil, sqlmock.AnyArg(), "BASE", "permanent", nil, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(`INSERT INTO "entitlement_events"`).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(`UPDATE "user_entitlements"`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "BASE").WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(`UPDATE "users" SET`).WithArgs(nil, "BASE", true, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 			affected := int64(0)
 			if consumed {

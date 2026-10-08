@@ -2,6 +2,7 @@ package emby
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -834,6 +835,16 @@ func (e *PlaybackReportingQueryError) Error() string {
 // 插件 API：POST /emby/user_usage_stats/submit_custom_query
 // 请求体：{"CustomQueryString": "SQL", "ReplaceUserId": false}
 func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, error) {
+	return s.queryPlaybackStatsContext(context.Background(), sql, false)
+}
+
+// QueryPlaybackStatsContext propagates cancellation to plugin transport; cancellation cannot undo server-side SQL.
+func (s *EmbyService) QueryPlaybackStatsContext(ctx context.Context, sql string) (*CustomQueryResponse, error) {
+	return s.queryPlaybackStatsContext(ctx, sql, true)
+}
+
+// queryPlaybackStatsContext shares transport while preserving the existing unbounded legacy query contract.
+func (s *EmbyService) queryPlaybackStatsContext(ctx context.Context, sql string, bounded bool) (*CustomQueryResponse, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
@@ -849,7 +860,7 @@ func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, erro
 	}
 
 	url := fmt.Sprintf("%s/emby/user_usage_stats/submit_custom_query", s.baseURL)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -863,11 +874,18 @@ func (s *EmbyService) QueryPlaybackStats(sql string) (*CustomQueryResponse, erro
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	var reader io.Reader = resp.Body
+	if bounded {
+		reader = io.LimitReader(reader, 8*1024*1024+1)
+	}
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
 	}
 
+	if bounded && len(body) > 8*1024*1024 {
+		return nil, fmt.Errorf("Playback Reporting 响应超出大小限制")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Playback Reporting 查询失败：HTTP %d", resp.StatusCode)
 	}

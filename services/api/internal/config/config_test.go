@@ -15,6 +15,7 @@ func TestScheduleConfigDefinitionsAreEditable(t *testing.T) {
 	keys := []string{
 		"CRON_ENABLED",
 		"CRON_SCHEDULE",
+		"WATCH_RETENTION_SCHEDULE",
 		"CRON_TIMEZONE",
 		"RANKING_CRON_ENABLED",
 		"RANKING_DAILY_SCHEDULE",
@@ -466,6 +467,7 @@ func TestRuntimeManagedConfigDefinitionsDisableEnvFallback(t *testing.T) {
 		"STRIPE_CANCEL_URL",
 		"CRON_ENABLED",
 		"CRON_SCHEDULE",
+		"WATCH_RETENTION_SCHEDULE",
 		"CRON_TIMEZONE",
 		"RANKING_CRON_ENABLED",
 		"RANKING_DAILY_SCHEDULE",
@@ -862,5 +864,15 @@ func TestReadOnlyBoundaryConfigDefinitionsExposeHints(t *testing.T) {
 		if def.MissingValueLevel != tc.missingValueLevel {
 			t.Fatalf("expected %s MissingValueLevel=%s, got %s", tc.key, tc.missingValueLevel, def.MissingValueLevel)
 		}
+	}
+}
+
+// TestWatchRetentionScheduleRejectsTimezoneOverride keeps all business dates on CRON_TIMEZONE.
+func TestWatchRetentionScheduleRejectsTimezoneOverride(t *testing.T) {
+	if err := validateWatchRetentionCron("0 4 * * *"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWatchRetentionCron("CRON_TZ=UTC 0 4 * * *"); err == nil {
+		t.Fatal("accepted timezone override")
 	}
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { validateWatchRetention } from '@/utils/watch-retention'
 import { setEntitlementRanks } from '@/api/entitlements'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -78,6 +79,9 @@ const createForm = ref({
   isDefault: false,
   sortOrder: 0,
   subscriptionAutoApproveDailyLimit: 0,
+  watchRetentionEnabled: false,
+  watchRetentionDays: 30,
+  watchRetentionMinMinutes: 0,
   p115PlaybackMode: 'personal' as 'personal' | 'system',
   p115TransferHourlyLimit: 5,
   p115TransferDailyLimit: 10
@@ -90,6 +94,9 @@ const editForm = ref({
   isDefault: false,
   sortOrder: 0,
   subscriptionAutoApproveDailyLimit: 0,
+  watchRetentionEnabled: false,
+  watchRetentionDays: 30,
+  watchRetentionMinMinutes: 0,
   p115PlaybackMode: 'personal' as 'personal' | 'system',
   p115TransferHourlyLimit: 5,
   p115TransferDailyLimit: 10
@@ -307,6 +314,9 @@ const resetCreateForm = () => {
     isDefault: false,
     sortOrder: 0,
     subscriptionAutoApproveDailyLimit: 0,
+  watchRetentionEnabled: false,
+  watchRetentionDays: 30,
+  watchRetentionMinMinutes: 0,
     p115PlaybackMode: 'personal',
     p115TransferHourlyLimit: 5,
     p115TransferDailyLimit: 10
@@ -321,6 +331,9 @@ const openEditDialog = (group: ManagedPlanGroup) => {
     isDefault: group.isDefault,
     sortOrder: group.sortOrder,
     subscriptionAutoApproveDailyLimit: group.subscriptionAutoApproveDailyLimit ?? 0,
+    watchRetentionEnabled: group.watchRetentionEnabled ?? false,
+    watchRetentionDays: group.watchRetentionDays ?? 30,
+    watchRetentionMinMinutes: group.watchRetentionMinMinutes ?? 0,
     p115PlaybackMode: group.p115PlaybackMode ?? 'personal',
     p115TransferHourlyLimit: group.p115TransferHourlyLimit ?? 5,
     p115TransferDailyLimit: group.p115TransferDailyLimit ?? 10
@@ -383,6 +396,8 @@ const openPolicyDialog = async (group: ManagedPlanGroup) => {
 }
 
 const handleCreate = async () => {
+  const retentionError = validateWatchRetention(createForm.value)
+  if (retentionError) { ElMessage.warning(retentionError); return }
   if (!createForm.value.key.trim() || !createForm.value.name.trim()) {
     ElMessage.warning('请填写分组标识和分组名称')
     return
@@ -403,6 +418,9 @@ const handleCreate = async () => {
     isDefault: createForm.value.isDefault,
     sortOrder: createForm.value.sortOrder,
     subscriptionAutoApproveDailyLimit: createForm.value.subscriptionAutoApproveDailyLimit,
+    watchRetentionEnabled: createForm.value.watchRetentionEnabled,
+    watchRetentionDays: createForm.value.watchRetentionDays,
+    watchRetentionMinMinutes: createForm.value.watchRetentionMinMinutes,
     p115PlaybackMode: createForm.value.p115PlaybackMode,
     p115TransferHourlyLimit: createForm.value.p115TransferHourlyLimit,
     p115TransferDailyLimit: createForm.value.p115TransferDailyLimit
@@ -421,6 +439,8 @@ const handleCreate = async () => {
 }
 
 const handleUpdate = async () => {
+  const retentionError = validateWatchRetention(editForm.value)
+  if (retentionError) { ElMessage.warning(retentionError); return }
   if (!editForm.value.name.trim()) {
     ElMessage.warning('请输入分组名称')
     return
@@ -440,6 +460,9 @@ const handleUpdate = async () => {
     isDefault: editForm.value.isDefault,
     sortOrder: editForm.value.sortOrder,
     subscriptionAutoApproveDailyLimit: editForm.value.subscriptionAutoApproveDailyLimit,
+    watchRetentionEnabled: editForm.value.watchRetentionEnabled,
+    watchRetentionDays: editForm.value.watchRetentionDays,
+    watchRetentionMinMinutes: editForm.value.watchRetentionMinMinutes,
     p115PlaybackMode: editForm.value.p115PlaybackMode,
     p115TransferHourlyLimit: editForm.value.p115TransferHourlyLimit,
     p115TransferDailyLimit: editForm.value.p115TransferDailyLimit
@@ -825,6 +848,11 @@ async function saveRanks() {
             </el-form-item>
           </div>
 
+          <el-form-item label="观看保号"><el-switch v-model="createForm.watchRetentionEnabled" /></el-form-item>
+          <template v-if="createForm.watchRetentionEnabled">
+            <el-form-item label="考核周期（天）"><el-input-number v-model="createForm.watchRetentionDays" :min="1" :max="3650" :precision="0" class="form-number w-full" /></el-form-item>
+            <el-form-item label="最低观看分钟数"><el-input-number v-model="createForm.watchRetentionMinMinutes" :min="1" :max="5256000" :precision="0" class="form-number w-full" /></el-form-item>
+          </template>
           <el-form-item label="每日自动通过订阅数">
             <el-input-number
               v-model="createForm.subscriptionAutoApproveDailyLimit"
@@ -920,6 +948,11 @@ async function saveRanks() {
             </el-form-item>
           </div>
 
+          <el-form-item label="观看保号"><el-switch v-model="editForm.watchRetentionEnabled" /></el-form-item>
+          <template v-if="editForm.watchRetentionEnabled">
+            <el-form-item label="考核周期（天）"><el-input-number v-model="editForm.watchRetentionDays" :min="1" :max="3650" :precision="0" class="form-number w-full" /></el-form-item>
+            <el-form-item label="最低观看分钟数"><el-input-number v-model="editForm.watchRetentionMinMinutes" :min="1" :max="5256000" :precision="0" class="form-number w-full" /></el-form-item>
+          </template>
           <el-form-item label="每日自动通过订阅数">
             <el-input-number
               v-model="editForm.subscriptionAutoApproveDailyLimit"

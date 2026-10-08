@@ -450,7 +450,7 @@ Web 共享组件层、状态管理、路由守卫、关键页面职责与兼容�
 ### 5.6 SystemService (`services/system/service.go`, `services/system/expiry.go`)
 
 - `GetSystemInfo()` — 统计：用户数、活跃数、兑换码数
-- `CheckExpiredUsersWithContext(ctx)` — **cron 核心**：查询 `expiresAt < NOW() AND embyDisabled = false` → 调用 Emby `SetUserPolicy(IsDisabled: true)` → 设置 `EmbyDisabled = true`；支持 `context cancel`，并对错误样本 / 失败用户返回做上限保护，避免长时间任务在中断或大量失败时继续无界膨胀
+- `CheckExpiredUsersWithContext(ctx)` — **cron 核心**：扫描当前期限已到的普通用户，在行锁内重算有效权益（排除保号失效项），有其他有效组则回退，无权益才停用；提交后复用完整 Policy 同步；支持 `context cancel`，并对错误样本 / 失败用户返回做上限保护，避免长时间任务在中断或大量失败时继续无界膨胀
 
 ### 5.7 EmbyService (`integrations/emby/emby.go`)
 
@@ -1055,6 +1055,14 @@ Telegram 账号绑定与 Bot 自助能力服务。
 **过期检查逻辑**：沿用 `CRON_SCHEDULE` 的已配置时点（可每日多次）、`CRON_ENABLED` 和 `CRON_TIMEZONE`，不新增实时回退、每分钟到期轮询或启动兜底。扫描当前期限已到且本地仍有访问或远端尚未停用的普通用户，用户行锁内重读权益后选择最高等级有效组；有低组则回退，无有效权益才停用。Token 撤销继续由 Policy 在串行边界内根据最新状态决定。允许自然到期到下次检查之间延迟处理，本地权限消费者使用 `resourceAccessGranted` 与当前组，不自行按时钟切组；不解除人工封禁，也不修改 `isActive`。
 
 ---
+
+### 10.1 分组观看保号
+
+- 分组三项配置为 `watchRetentionEnabled/watchRetentionDays/watchRetentionMinMinutes`；默认关闭，观察期与统计窗口共用周期，默认 30 天。`UserEntitlement` 保存本轮实际接替起点及保号失效时间，分组内部重开时间处理规则变更，不重复配置用户级门槛。
+- `WATCH_RETENTION_SCHEDULE` 为设置中心可配置 cron，默认 `0 2 * * *`，受 `CRON_ENABLED` 控制并统一使用 `CRON_TIMEZONE`，重启 API 后生效。只考核当前生效权益；被其他组替代时暂停，重新接替时重开完整周期。关闭保号不恢复已失效权益。
+- `WatchRetentionWorker` 在事务外调用固定版本 Playback Reporting 聚合电影/剧集累计秒数，事务内重查用户/组/起点后写入审计、失效标记及访问投影。查询故障不按零处理；没有任何有效权益才停用资源访问。提交后复用 Policy 失败记录/重试，不解除人工限制。
+- 概览“服务状态”显示当前组要求，账号中心持有权益逐条显示开启保号的要求，未开启则隐藏；服务端给出首次检查日期。Bot 权益摘要识别失效标记，避免将失效永久权益显示为永久可用。
+- 配置、实际流程、恢复及外部统计限制见[观看保号运行手册](./runbooks/watch-retention.md)。本轮已完成专用 PostgreSQL 隔离集成验证，未完成真实 Emby 或浏览器验收。
 
 ## 11. 配置与环境变量边界
 

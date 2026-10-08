@@ -215,7 +215,8 @@ func (s *UserService) GetUsers(req *GetUsersRequest) (*GetUsersResponse, error) 
 		query = query.Where(`EXISTS (
 			SELECT 1 FROM user_entitlements holdings
 			WHERE holdings.user_id = users.id AND holdings.plan_group = ?
-			AND ((holdings.validity_type = ? AND holdings.expires_at IS NULL)
+			AND holdings.watch_retention_invalidated_at IS NULL
+            AND ((holdings.validity_type = ? AND holdings.expires_at IS NULL)
 				OR (holdings.validity_type = ? AND holdings.expires_at > ?))
 		)`, group, entitlementpkg.Permanent, entitlementpkg.Duration, time.Now())
 	}

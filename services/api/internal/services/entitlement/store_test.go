@@ -51,6 +51,7 @@ func TestReconcileReReadsRenewal(t *testing.T) {
 	mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "plan_group", "validity_type", "expires_at"}).AddRow("u1", "B", Duration, expires))
 	mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("B", 20))
+	mock.ExpectExec(`UPDATE "user_entitlements"`).WithArgs(now, sqlmock.AnyArg(), "u1", "B").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	user, changed, err := Reconcile(db, "u1", now)
 	if err != nil || changed || !user.ResourceAccessGranted {
@@ -71,6 +72,7 @@ func TestReconcileFallsBackWithoutClearingManualBan(t *testing.T) {
 			mock.ExpectQuery(`SELECT .*users.*FOR UPDATE`).WithArgs("u1", 1).WillReturnRows(sqlmock.NewRows([]string{"id", "role", "plan_group", "expires_at", "resource_access_granted", "emby_access_disabled"}).AddRow("u1", "user", "B", now, true, true))
 			mock.ExpectQuery(`SELECT .*user_entitlements`).WithArgs("u1").WillReturnRows(sqlmock.NewRows([]string{"user_id", "plan_group", "validity_type", "expires_at"}).AddRow("u1", "A", Permanent, nil).AddRow("u1", "B", Duration, now))
 			mock.ExpectQuery(`SELECT .*plan_groups`).WillReturnRows(sqlmock.NewRows([]string{"key", "entitlement_rank"}).AddRow("A", 10).AddRow("B", 20))
+			mock.ExpectExec(`UPDATE "user_entitlements"`).WithArgs(now, sqlmock.AnyArg(), "u1", "A").WillReturnResult(sqlmock.NewResult(0, 1))
 			write := mock.ExpectExec(`UPDATE "users" SET "expires_at"=\$1,"plan_group"=\$2,"resource_access_granted"=\$3,"updated_at"=\$4 WHERE id = \$5`).WithArgs(nil, "A", true, sqlmock.AnyArg(), "u1")
 			if fail {
 				write.WillReturnError(errors.New("write failed"))

@@ -13,6 +13,7 @@ import (
 	accountpkg "github.com/konghang/ember/backend/internal/services/account"
 	devicepkg "github.com/konghang/ember/backend/internal/services/device"
 	emailpkg "github.com/konghang/ember/backend/internal/services/email"
+	entitlementpkg "github.com/konghang/ember/backend/internal/services/entitlement"
 	mediagappkg "github.com/konghang/ember/backend/internal/services/mediagap"
 	paymentpkg "github.com/konghang/ember/backend/internal/services/payment"
 	playbackpkg "github.com/konghang/ember/backend/internal/services/playback"
@@ -35,6 +36,11 @@ func initCronJobs() func() {
 		log.Printf("[Cron] CRON_ENABLED 配置无效（%q），回退为 true：%v", cronEnabledStr, err)
 		cronEnabled = true
 	}
+	retentionExpression := configService.GetString("WATCH_RETENTION_SCHEDULE")
+	if retentionExpression == "" {
+		retentionExpression = "0 2 * * *"
+	}
+	entitlementpkg.RegisterRetentionSchedule(retentionExpression, configpkg.LoadConfiguredTimezone(), cronEnabled)
 	if !cronEnabled {
 		return func() {}
 	}
@@ -105,6 +111,21 @@ func initCronJobs() func() {
 	}
 
 	taskRegistered := false
+	retentionSchedule := retentionExpression
+	retentionWorker := &entitlementpkg.WatchRetentionWorker{DB: db.DB, Location: tz, Schedule: retentionSchedule, Query: embyint.GetSharedService().WatchRetentionSeconds, Sync: func(id string) error {
+		return policyService.ApplyEffectiveUserPolicyOrRecordFailure(id, "watch_retention")
+	}}
+	if _, err := c.AddFunc(retentionSchedule, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := retentionWorker.Run(ctx, time.Now()); err != nil {
+			log.Printf("[WatchRetention] 任务未全部完成: %v", err)
+		}
+	}); err != nil {
+		log.Printf("观看保号调度注册失败: %v", err)
+	} else {
+		taskRegistered = true
+	}
 
 	if _, err := c.AddFunc("0 3 * * *", func() {
 		count, err := emailService.CleanupExpired()

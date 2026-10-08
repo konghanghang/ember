@@ -133,10 +133,11 @@ type AccountInfoResponse struct {
 
 // AccountEntitlement is the Bot-facing grant summary; authorization is still resolved by API.
 type AccountEntitlement struct {
-	PlanGroup     string     `json:"planGroup" gorm:"column:plan_group"`
-	PlanGroupName string     `json:"planGroupName" gorm:"column:plan_group_name"`
-	ValidityType  string     `json:"validityType" gorm:"column:validity_type"`
-	ExpiresAt     *time.Time `json:"expiresAt" gorm:"column:expires_at"`
+	WatchRetentionInvalidatedAt *time.Time `json:"watchRetentionInvalidatedAt,omitempty" gorm:"column:watch_retention_invalidated_at"`
+	PlanGroup                   string     `json:"planGroup" gorm:"column:plan_group"`
+	PlanGroupName               string     `json:"planGroupName" gorm:"column:plan_group_name"`
+	ValidityType                string     `json:"validityType" gorm:"column:validity_type"`
+	ExpiresAt                   *time.Time `json:"expiresAt" gorm:"column:expires_at"`
 }
 
 // TelegramBindRequest Bot 调 Internal API 验证绑定

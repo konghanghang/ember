@@ -48,7 +48,7 @@ func NewDefaultService() *TelegramService {
 	)
 	service.accountEntitlements = func(id string) ([]AccountEntitlement, error) {
 		rows := []AccountEntitlement{}
-		err := db.DB.Table("user_entitlements AS e").Select("e.plan_group, g.name AS plan_group_name, e.validity_type, e.expires_at").Joins("JOIN plan_groups g ON g.key=e.plan_group").Where("e.user_id = ?", id).Order("g.entitlement_rank DESC NULLS LAST, e.plan_group").Scan(&rows).Error
+		err := db.DB.Table("user_entitlements AS e").Select("e.plan_group, g.name AS plan_group_name, e.validity_type, e.expires_at, e.watch_retention_invalidated_at").Joins("JOIN plan_groups g ON g.key=e.plan_group").Where("e.user_id = ?", id).Order("g.entitlement_rank DESC NULLS LAST, e.plan_group").Scan(&rows).Error
 		return rows, err
 	}
 	service.businessTimezone = configpkg.LoadConfiguredTimezone

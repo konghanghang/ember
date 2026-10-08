@@ -8,6 +8,12 @@ from unittest.mock import patch
 class EntitlementAccountFormatTests(unittest.TestCase):
     """账号摘要区分无权益与永久，并使用 API 提供的业务时区。"""
 
+    def test_invalidated_retention_is_not_permanent(self):
+        text = format_account_info({"username": "fixture", "resourceAccessGranted": False,
+            "entitlements": [{"planGroup": "A", "validityType": "permanent", "watchRetentionInvalidatedAt": "2026-10-08T00:00:00Z"}]})
+        self.assertIn("A：观看要求未达标，权益已失效", text)
+        self.assertNotIn("A：永久", text)
+
     def test_no_access_is_not_permanent(self):
         text = format_account_info({"username": "fixture", "resourceAccessGranted": False, "isExpired": True, "expiresAt": None})
         self.assertIn("无有效权益", text)

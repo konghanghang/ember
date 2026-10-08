@@ -6,6 +6,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/konghang/ember/backend/internal/models"
 	"gorm.io/gorm"
@@ -63,7 +64,11 @@ func TransferLocked(tx *gorm.DB, user *models.User, source, target, key, actor s
 	if err != nil {
 		return err
 	}
-	result := tx.Model(&models.UserEntitlement{}).Where("user_id = ? AND plan_group = ?", user.ID, source).Update("plan_group", target)
+	changes := map[string]interface{}{"plan_group": target}
+	if user.PlanGroup != nil && *user.PlanGroup == source && user.ResourceAccessGranted {
+		changes["watch_retention_started_at"] = time.Now()
+	}
+	result := tx.Model(&models.UserEntitlement{}).Where("user_id = ? AND plan_group = ?", user.ID, source).Updates(changes)
 	if result.Error != nil {
 		return result.Error
 	}

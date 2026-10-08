@@ -264,3 +264,9 @@
 ### 编辑用户合并延期（2026-10-05）
 
 `PUT /api/v1/admin/users/:id` 增加可选 `extendDays`（正整数）与 `operationId`（延期时必填，最多 64 字符）。延期与邮箱/账号状态编辑在同一用户行锁事务内提交，复用权益审计键保证同一用户同一操作号不重复累加。不得同时提交 `planGroup`、`expiresAt` 或 `clearExpiresAt=true`；不传期限字段即保持原权益。原独立延期 API 保留兼容，仅移除用户列表上的独立按钮。永久已拥有或分组配置不可用沿用权益服务的拒绝规则，返回 400，失败不部分保存资料。
+
+## 观看保号接口补充
+
+- 既有分组创建/更新与列表 DTO 增加 `watchRetentionEnabled/watchRetentionDays/watchRetentionMinMinutes`；更新省略字段保留原值，重复保存不重置周期，非法组合返回 400。
+- 既有用户权益列表保持 `{data,businessTimezone}`，各项新增 `isCurrent`、可选 `watchRetentionStartedAt/watchRetentionInvalidatedAt`；开启保号时返回 `watchRetention: {days,minMinutes,state,firstCheckAt?}`。`state` 为 `waiting/grace/checking/invalidated/expired/suspended`，不由前端推算资格。
+- Internal API 权益摘要增加可选 `watchRetentionInvalidatedAt`，Bot 不再把失效的永久权益展示为永久可用。未新增 Bot 命令或通知。
