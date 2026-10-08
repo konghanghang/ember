@@ -34,7 +34,7 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中待实施、推进中或待验收的实施稿共 11 份：
+当前 `docs/plan/` 中待实施、推进中或待验收的实施稿共 12 份：
 
 - `access-auth/registration-user-capacity.md`
 - [分组观看保号](./billing-redemption/watch-activity-renewal.md)（2026-10-08：已确认分组三项配置（开关、周期天数、分钟门槛），观察期与统计窗口共用周期（默认 30 天），实际接替后开始完整观察期，付费组替代期间暂停考核，再次接替重新起算；代码与本地自动化已落地，专用 PostgreSQL 验收通过，真实播放/浏览器验收待完成）
@@ -44,6 +44,7 @@
 - [115 新增转存起播许可](./architecture/p115-transfer-playback-intent.md)（代码与自动化已完成，保留已有文件和跨会话缓存复用；待受控客户端验收）
 - `architecture/runtime-settings-cache-evolution.md`
 - `bot-telegram/notification-mute-rules.md`
+- [群签到与双途径保号](./bot-telegram/group-checkin-retention.md)（2026-10-08：产品规则已确认，待实施；单开关、共用 N 天，观看或签到任一达标即可保号；签到默认 5 天，PostgreSQL 明细保留 3 个日历月并自动清理；权益保存首次检查日期，修改规则不重置起点；技术检查与迁移验证待执行）
 - `console-admin/device-risk-automation.md`
 - `console-admin/in-app-notification-center.md`
 - `media-subscription/media-dedupe-and-quality-governance.md`
