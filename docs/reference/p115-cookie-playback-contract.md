@@ -14,7 +14,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 
 | 能力 | 证据 | 当前结论 |
 | --- | --- | --- |
-| Cookie 客户端行为 | [`p115client` 提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
+| Cookie 客户端行为 | [`p115client` `0.0.9.6.4`，提交 `608a44396fea08d36131a68beb245be1fe17aa6d`](https://github.com/ChenyangGao/p115client/tree/608a44396fea08d36131a68beb245be1fe17aa6d) | 可作为协议调查和测试向量来源，不作为 Ember 运行时依赖 |
 | Cookie 登录状态检查 | 同提交内 `login_status` 与 `user_id`；2026-08-22 两个真实 Cookie | 固定 GET 端点、`state` 和 Cookie `UID` 取值已在两个不同账号上通过；长期稳定性、风控和其他客户端仍未证实 |
 | Cookie 上传初始化加解密 | 同提交内 `p115cipher` `0.0.5.4` 黑盒输出；2026-08-22 受控写入验证 | Ember 已用无敏感信息固定向量锁定 token、AES-CBC、LZ4、签名和完整上传表单；真实端点曾返回 220/236 字节二进制响应，均由完整 AES blocks 加 12 字节短尾部组成。对齐固定实现的完整 block 解密与 LZ4 终止语义后，真实 `range_challenge → reused` 已通过 |
 | 源路径解析与 Range 校验 | 同提交内 `fs_dir_getid2`、`fs_files`、`read_range` 和秒传 Range callback；父目录快速解析已有 fake HTTP 合同；2026-08-22 本地真实只读检查仍是旧逐级 `/files` 路径 | 父目录路径一次解析、最终目录完整分页与文件唯一性已由自动化锁定；旧真实源文件曾按 root-relative path/size 成功解析并完成精确 128 KiB Range，但尚未真实验证 `/files/get_path_id` 的响应和非零 `parent_id` 行为 |
@@ -31,6 +31,54 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 - **未实机确认**：必须在用户明确授权后，用受控账号和文件验证；验证前不能写成生产事实。
 
 许可证边界：Ember 不复制 `emby-toolkit` 的 AGPL 实现。`p115client` / `p115cipher` 的固定提交已完成一次保守审查：上游许可声明互相冲突，因此 Ember 不复制或逐行翻译其实现，也不把 Python 包作为构建或运行时依赖；只把固定提交临时执行产生的无敏感信息输入/输出当作兼容性事实，并使用 Go 标准算法和独立依赖实现。若后续希望直接复用上游源码，仍必须先取得明确许可结论。
+
+### 1.1 上游参考基线与已核对范围
+
+本节是 Cookie Provider 后续跟进 `p115client` / `p115cipher` 的版本入口。Ember 运行时使用原生 Go `CookieProvider`，没有这两个 Python 包的安装或升级步骤；“已采用基线”和“已核对上游”分别记录，不能因为核对了新版本就改写既有实现和测试向量的来源。
+
+| 用途 | 固定版本与提交 | 当前处理 |
+| --- | --- | --- |
+| 已采用的 Cookie 协议参考 | `p115client 0.0.9.6.4`；`608a44396fea08d36131a68beb245be1fe17aa6d` | 保留为本文各端点合同的原始依据 |
+| 已采用的加密向量来源 | `p115cipher 0.0.5.4`；同一 `608a44396fea08d36131a68beb245be1fe17aa6d` 提交 | 保留 `p115cipher-0.0.5.4.json` / `p115rsa-0.0.5.4.json` 及其 `sourceCommit`、`moduleVersion` |
+| 最近已核对的客户端 | [`p115client 0.0.9.7.2`](https://pypi.org/project/p115client/0.0.9.7.2/)；[`856e4f8f09ce034534bd458f06d3dee4474a1698`](https://github.com/ChenyangGao/p115client/tree/856e4f8f09ce034534bd458f06d3dee4474a1698) | 2026-10-25 完成与已采用基线的源码差异核对，未发现当前 Cookie 链路必须跟进的协议改动 |
+| 最近已核对的加密模块 | [`p115cipher 0.0.6`](https://pypi.org/project/p115cipher/0.0.6/)；上述 `856e4f8f09ce034534bd458f06d3dee4474a1698` 提交内的模块 | 现有默认 RSA、AES/LZ4、上传签名行为没有需要移植的变化；未重新生成该版本向量 |
+
+已核对范围是 [`608a443…856e4f8` 的源码差异](https://github.com/ChenyangGao/p115client/compare/608a44396fea08d36131a68beb245be1fe17aa6d...856e4f8f09ce034534bd458f06d3dee4474a1698)，不是对区间内每个发布版本逐个验收，也不是 Python 依赖的兼容版本声明。后续提交和版本不自动纳入结论。
+
+OpenAPI 合同仍单独引用 `dc13e14132006f877183dd6347fa6da3aca6b48e`，它属于尚未启用的 OpenAPI Provider 调查依据，不作为当前 Cookie Provider 基线；本次没有复验 OpenAPI 授权、Token 或官方端点。
+
+### 1.2 2026-10-25 上游重构核对结果
+
+上游在 [`0.0.9.7` 重构提示](https://github.com/ChenyangGao/p115client/blob/856e4f8f09ce034534bd458f06d3dee4474a1698/readme.md#L8-L13) 中明确说明工具函数大幅调整并删除部分函数。核对结论限定于 Ember 实际使用的协议：
+
+| 检查面 | 基线至核对提交的差异 | Ember 结论 |
+| --- | --- | --- |
+| Python 工具层 | 目录遍历、下载等工具调整，删除 `tool/pool.py`，新增 `tool/iter_nodes.py` | 不调用这些 Python 工具，无需跟随目录、函数或依赖重构 |
+| 登录、上传信息、父目录查询 | `login_status`、`upload_info_app`、`fs_dir_getid2` 实现未变 | 保留现有请求与响应合同 |
+| 目录列表、SHA1 搜索与文件字段 | `fs_files` 将排序参数 `custom_order` 的覆盖改为默认填充；`fs_search` 默认 `limit` 从 `32` 改为 `1150` 并增加整数入参；属性工具调整未改变 Ember 使用的文件身份字段映射 | Ember 自行构造请求，目标搜索显式传 `limit=100` 和 SHA1；未发现必须迁移的端点或身份字段 |
+| 秒传初始化 | `upload_init`、上传版本 `36.2.28`、版本绑定 UA、签名构造未变 | 保留 `/4.0/initupload.php`、AES/LZ4 与 `status=1/2/7` 处理 |
+| 下载直链 | `download_url_web` 新增 RSA 加密 POST 并作为默认方式；`download_url_app` 的 Chrome 分支没有行为变化 | Ember 使用 `/app/chrome/downurl`，不迁移到 Web 下载分支；真实播放器 UA 规则保持 |
+| 加密模块 | `p115cipher 0.0.6` 新增公钥解析和可配置 RSA 块大小、公钥参数，默认仍为原 128 字节块和原公钥；AES/LZ4、token 和上传签名实现未变 | 保留独立 Go 实现和原固定向量；不引入本链路未使用的通用 RSA 能力 |
+| Range 与删除 | `read_range`、`fs_delete` 实现未变 | 保留有界 Range；删除仍只是容量回收预留能力 |
+
+关键上游定位：[`download_url_app` / `download_url_web`](https://github.com/ChenyangGao/p115client/blob/856e4f8f09ce034534bd458f06d3dee4474a1698/p115client/client.py#L8974-L9144)、[`fs_search`](https://github.com/ChenyangGao/p115client/blob/856e4f8f09ce034534bd458f06d3dee4474a1698/p115client/client.py#L17474-L17573)、[`upload_init`](https://github.com/ChenyangGao/p115client/blob/856e4f8f09ce034534bd458f06d3dee4474a1698/p115client/client.py#L27538-L27594)、[`p115cipher` RSA 默认参数](https://github.com/ChenyangGao/p115client/blob/856e4f8f09ce034534bd458f06d3dee4474a1698/modules/p115cipher/p115cipher/util.py#L343-L382)。
+
+验证记录：
+
+- Ember 基线为 `master` 提交 `7667ec47b251d0a8cb952e1a9f3fd3ad1a5ae30a`，核对时工作区干净。
+- 校验了上述两个 PyPI 版本 wheel 的 SHA-256；`p115client` 的 `client.py` / `tool/attr.py` / `const.py` 和 `p115cipher` 的 `__init__.py` / `util.py` / `aes.py` 与核对提交内容一致，未安装这些包。
+- 在 `services/api` 执行 `go test -count=1 -timeout=90s ./internal/integrations/p115/...`，适配器和加密包均通过；使用现有 fake HTTP 与 `0.0.5.4` 固定向量，没有执行 `0.0.6` 包的黑盒向量验证。
+- 本次未启动服务、未请求真实 115、未执行播放器验收；公开源码比对与离线测试不能证明当前真实端点、账号或 CDN 行为。此前尚未实机确认的父目录路径接口、个人 Cookie 与客户端边界继续保留。
+
+本轮未发现因上游重构而需要修复的问题，保持已采用基线。
+
+### 1.3 后续跟进方式
+
+1. 从 [PyPI 客户端发布历史](https://pypi.org/project/p115client/#history)、[加密模块发布历史](https://pypi.org/project/p115cipher/#history) 和上游 README 确认新版本，再固定待核对提交；版本号与 Git 提交分别记录。当前增量入口为 [`856e4f8…main`](https://github.com/ChenyangGao/p115client/compare/856e4f8f09ce034534bd458f06d3dee4474a1698...main)，该链接会变化，不能代替固定提交证据。
+2. 优先检查 `p115client/client.py`、`p115client/const.py`、`p115client/tool/attr.py`、`p115client/fs/fs_base.py`、`modules/p115cipher/`，沿本次改变的 helper 和依赖继续追踪；只影响未使用的 Python 工具时记录结论即可。
+3. 对照本文 §5–§7 核对 method/path、请求字段、响应身份字段、上传版本与 UA、加解密、状态码、错误分类、下载 URL 的 `t/c/f` 约束及 Range。涉及已采用协议时，同时与 `608a443` 基线比较，不能只看两个最新版本之间的差异。
+4. 必须适配时，先补无敏感信息的 fixture/合同测试，再调整 Go Adapter 与本文；影响账号状态或播放回退时，继续覆盖 `p115account`、`directplay` 和 Gateway 的相关 fake 测试。真实外部验证仍须单独获得授权。
+5. 更新本节“最近已核对”版本，并保留每次核对的日期、Ember SHA、固定上游提交、结论、测试和未验证边界。现有向量来源不随核对版本改名；只有按新固定版本实际生成并验证向量后，才记录新来源。若正式调整已采用基线，保留旧来源及迁移记录，同步受影响的合同、实现、测试和计划引用。
 
 ## 2. 首期范围
 
