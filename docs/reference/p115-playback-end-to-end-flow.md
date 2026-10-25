@@ -7,7 +7,7 @@
 - Emby method/path/Header/DTO：看 [Emby 4.9 系列播放代理 API 合同](./emby-playback-proxy-contract.md)。
 - 115 Cookie/Web API、上传加密和直链安全：看 [115 Cookie 播放兼容合同](./p115-cookie-playback-contract.md)。
 - 当前系统内置链路的尚未完成项和阶段安排：看 [Emby 115 直连播放网关实施计划](../plan/architecture/emby-115-direct-play-gateway.md)。
-- 用户自有账号、套餐来源、Redis 当前活跃数与转存配额的实现约束及未执行受控验证：看 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
+- 用户自有账号、套餐来源和 Redis 活跃数/转存配额的现行行为：看本文第 1.1 节；未执行受控验证由 [12.1 待验收清单](#121-个人账号与-redis-待验收清单) 维护。[个人账号实现方案](../archive/plan/architecture/p115-personal-account-routing-and-redis-quotas.md) 仅保留历史决策与验证记录。
 
 ## 1. 核心原则
 
@@ -85,9 +85,9 @@ DirectPlay 先保留现有缓存/目标查重行为；内容锁内再次确认�
 - **门控后的结果**：`gateway-2026-09-22.log` 中，20:26:37—20:26:39 以及 21:12:51—21:12:53 的单集 `itemId=85716` 请求均因 `playback_intent_required` 跳过新增转存，Emby fallback 返回 404；对应窗口未见 Playing/Progress/Stopped。详情页视频请求仍存在，不能把阻止转存写成消除了客户端探测。
 - **缺少的证据**：尚未核对该单集的图片文件及 Emby 图片元数据，也未进行补齐 thumb 前后的受控对照；现有日志不足以建立“缺图 → 视频取图”的因果链。
 
-当前保留新增转存起播许可，不因详情页可能需要截图而放开转存。用户已接受本部署未挂载真实媒体时的详情探测 404，并于同日反馈正常播放没有问题；若缺图假设成立，视频读取失败仍可能使自动生成缩略图失败。正常播放的用户实测结果不证明缺图假设，也不替代首次新转存、停止后重播等分项取证。
+默认严格模式保留新增转存起播许可，不因详情页可能需要截图而放开转存；管理员另行开启兼容模式时沿用前节的独立准入策略。用户已接受本部署未挂载真实媒体时的详情探测 404，并于同日反馈正常播放没有问题；若缺图假设成立，视频读取失败仍可能使自动生成缩略图失败。正常播放的用户实测结果不证明缺图假设，也不替代首次新转存、停止后重播等分项取证。
 
-后续验证先核对单集 thumb 是否存在且能由 Emby 提供，再通过既有刮削流程补齐图片，对比相同客户端、相同浏览操作下的视频请求；记录 Infuse 缓存状态，并用此前未打开的单集作对照，避免把缓存命中误判为补图效果。本次只记录现象和验证方向，尚未执行补图或真实客户端对照。
+该假设由 [Gateway 主计划的独立观察项](../plan/architecture/gateway-client-compatibility.md#独立观察infuse-thumb-与详情视频探测) 继续维护。后续如获授权，先核对单集 thumb 是否存在且能由 Emby 提供；若确有缺图且决定执行对照，再通过既有刮削流程补齐图片，对比相同客户端、相同浏览操作下的视频请求。记录 Infuse 缓存状态，并用此前未打开的单集作对照，避免把缓存命中误判为补图效果。尚未执行补图或真实客户端对照，当前记录不要求必须补图，也不把假设观察并入播放通过结论。
 
 ## 2. 组件与职责
 
@@ -747,5 +747,28 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 ## 12. 建议的后续顺序
 
 1. 需要数据库复验时，在专用 `EMBER_INTEGRATION_DATABASE_URL` 隔离库重跑既有 migration/约束及相关生命周期用例；A–C 没有新增 schema，tombstone 提交后 UID 清理的 SQL mock 不能代替真实 PostgreSQL 验证。
-2. 用户明确授权后，再验证个人 Cookie 固定 UA、单 Gateway Redis 断连/恢复、HEAD/Playing/Progress/Stopped 与 `5/10` 配额边界；日志不得携带凭证、UID、session、Redis Key 或 attempt ID。
+2. 用户明确授权后，按下列清单验证个人 Cookie 固定 UA、单 Gateway Redis 断连/恢复、HEAD/Playing/Progress/Stopped 与 `5/10` 配额边界。起播许可、SenPlayer 和其他客户端的播放分项由 [Gateway 主计划](../plan/architecture/gateway-client-compatibility.md#历史计划验收承接) 维护。
 3. 独立推进 115 CDN 完整响应合同、保留文件容量治理和主动账号健康告警；不得把这些后续项塞回当前 Redis 配额状态机。
+
+### 12.1 个人账号与 Redis 待验收清单
+
+负责人：Ember。2026-10-25 从 [个人账号路由与 Redis 配额历史计划](../archive/plan/architecture/p115-personal-account-routing-and-redis-quotas.md) 接收全部未完成受控验证。四阶段实现、fake/race/Web 验证及 2026-09-05、2026-09-21 PostgreSQL 专项是历史实施证据；它们不证明真实个人 Cookie、Redis 或播放器链路通过。下面各项仍未验收，本次仅整理文档，没有执行真实操作。
+
+后续须由用户明确授权具体环境、测试账号/文件、配置变更及故障范围。每项记录实际部署 revision、Emby/客户端精确版本与平台、单 Gateway/Redis 环境、`CRON_TIMEZONE`、操作时序、脱敏日志和可观察结果。已有共享账号的 `302` 或客户端播放记录不替代个人路由验收；fallback 日志也不证明 Emby 在该部署中有可读媒体或已完成播放。
+
+| 编号 / 验收项 | 待核对行为与所需证据 | 当前状态与已有证据边界 |
+| --- | --- | --- |
+| P115-01：personal/system 路由 | 核对历史及新套餐组默认 `personal`、管理员显式切换 `system`、未绑定个人账号时 Emby fallback；`system` 忽略已绑定个人账号，`personal` 不借用共享账号。用配置快照、`playbackMode/playbackAccountOwner` 和最终决策对照实际所选目标。 | 未验收；默认值、迁移和两段式路由已有 fake/PostgreSQL 证据。 |
+| P115-02：个人 Cookie 与 UA | 用测试账号走只提交 Cookie → 显式验证 → 已有目录/最大路数配置 → 启用；核对固定 `Mozilla/5.0` 是否实际支持验证、目录解析和目标查重，再验证个人目标秒传。分别记录 Provider UA、实际播放器 UA 和版本绑定上传 UA 的作用与结果，不保存凭证或原始外部响应。 | 未验收；固定 UA 有公开源码和 fake 依据，尚无目标个人 Cookie 的真实结果。 |
+| P115-03：个人账号并发 | 分别核对配置上限、正数套餐上限、套餐值 `0`、套餐降低后的有效值与越界拒绝；降级保留数据库配置值，新准入按较小有效值收紧，达到占用上限只 fallback。对照 configured/effective/套餐值、reserved/active/occupied 及请求结果。 | 未验收；已有配置与运行期 fake/race 证据；`0` 只表示 Ember 内部“无有限套餐上限”。 |
+| P115-04：共享账号合计并发 | 两个或多个 `system` 用户共用账号时，核对跨用户合计上限、个人绑定不影响选路、共享账号不与单个套餐比较；降低上限不终止旧播放，新准入等待占用下降。记录账号与用户统计及最终决策。 | 未验收；已有账号合计准入与用量 fake 证据，历史共享 `302` 不证明并发边界。 |
+| P115-05：HEAD 与事件时序 | 分别记录 HEAD 无租约/已有同会话租约、首次 GET、Playing、暂停 Progress、恢复 Progress、Stopped、预加载未播放；HEAD 不建 reservation/转存、不续租，只有 Emby 成功接受且命中既有会话的事件更新租约。对照客户端事件间隔、上游结果和脱敏 sessionRef，不从 `204` 单独推断 Redis 已更新。 | 未验收；fake 已覆盖门控，历史 Infuse 事件 `204` 未证明个人租约及暂停持续上报时序。 |
+| P115-06：三类 TTL 与计数 | 对照 `reservation=30s`、`active=2m`、`paused=15m` 的晋级、续期和到期，覆盖预读未起播、事件中断、无 Stopped、暂停后恢复；确认 reservation 单列“准备中”，active/paused 才计活跃，过期占用释放，空闲索引按 `16m` Key TTL 回收。 | 未验收；可注入时钟的 fake 已覆盖三类业务 TTL 与索引回收，真实事件间隔尚未对照。 |
+| P115-07：成功转存配额 | 在有效起播/兼容准入下，分别核对第 5/6 个滚动小时请求、第 10/11 个自然日请求，以及预存命中、重复请求和失败退款；只给新成功文件计一次，超限不秒传，时间边界使用实际 `CRON_TIMEZONE`。记录每用户用量、目标复核和配额事件，避免把两种窗口混用。 | 未验收；默认 `5/10`、滚动小时/自然日、去重及退款已有 fake 证据。 |
+| P115-08：pending 与晚到成功 | 核对固定 `5m` pending 不续期、失败释放和到期释放；pending 过期后的成功仍幂等补记一次。对照 `transfer_pending_expired_before_commit`、`transfer_quota_committed`、用量与目标状态；核对独立 `2s` succeeded 提交预算、重试成功与最终失败 fallback，失败保留外部文件及尚存 pending，不签发未记账 `302`。 | 未验收；已有晚到成功/重复完成/取消/预算耗尽 fake 回归；不得为归档自行制造真实长任务或记账故障。 |
+| P115-09：Redis 故障回退 | 获得对应故障操作授权后，核对短暂不可用、超时或脚本失败时只停止新的 115 加速，无未计数的新直链，不污染账号健康、不消耗半开探测机会。对照 `redis_unavailable`、账号状态与 Emby 实际响应；需要验证回退可播放时，使用 Emby 确有可读媒体的测试条目。 | 未验收；已有 fake 故障与恢复边界，尚无真实 Redis 故障下的播放证据。 |
+| P115-10：Redis 恢复与缺失 Key | 区分保留数据后的重连与经授权的数据重置：前者按现有 Key，后者缺失 Key 按零占用/零用量恢复，不等待、不重建数据库历史，不由迟到事件复活已丢失租约。记录恢复前后统计、请求与事件结果；不扩大为多 Gateway/Cluster 验收。 | 未验收；已有重连/空数据 fake 证据，接受计数随 Redis 数据丢失而重置不等于已实测恢复。 |
+| P115-11：用量 null/zero | 核对用户及管理员摘要、独立用户用量与 Web 展示：查询成功且 Key 缺失为 `usageAvailable=true` 和零；Redis 故障为 `usageAvailable=false` 和 `null`，刷新失败清旧值，不把故障显示成零。与同用户、相近时间的统计日志对照，跨请求快照不当作原子结果。 | 未验收；API/Web fake 已覆盖空值与零值，尚无真实 Redis 故障时的界面对照。 |
+| P115-12：Emby 对 302 分流的并发约束 | 独立记录 Emby `SimultaneousStreamLimit` 是否会限制视频字节绕开 Emby 的 115 `302` 播放；需要精确版本、限制值、操作与拒绝/放行来源证据，不能以 Ember 账号并发拦截代替。 | 未证实；没有已确认的外部保证，本项不引入 Gateway 用户级总并发门控。 |
+
+完成一项时更新该行实际结果和证据位置；未覆盖项继续保留“未验收”或“未证实”。记录不得包含 Cookie、Token、完整 URL/SHA1、Provider UID、原始 session、Redis DSN/Key、attempt ID 或 Provider 原始响应；只保留现有脱敏关联字段。需要配置写入、故障注入、重启或数据重置的步骤必须另获相应授权，清单本身不授权执行。

@@ -16,14 +16,16 @@
 
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
-- 11 份待实施、进行中、待验收或观察期的功能实施稿
+- 10 份现行实施稿：3 份继续推进实现或验收、6 份待开发、1 份观察期
 - 功能方案模板与后续新增实施稿入口
 
-2026-10-08 更新[分组观看保号计划](../plan/billing-redemption/watch-activity-renewal.md)：已确认分组三项配置（开关、周期天数、分钟门槛）、永久权益、实际接替后按配置周期开始观察期（与滚动统计共用，默认 30 天）、付费组替代期间暂停考核、再次接替重开完整观察期及每日滚动累计考核，不达标权益失效；代码与本地自动化已落地，专用 PostgreSQL 验收通过，真实播放/浏览器验收待完成。
+2026-10-25 完成计划复核和四份归档：套餐权益、个人 115/Redis 的实施已收尾；起播许可和 SenPlayer 旧专项由客户端兼容主计划接替。未完成业务/外部验收分别保留在[权益升级手册](../runbooks/entitlements-upgrade.md)、[115 端到端参考](../reference/p115-playback-end-to-end-flow.md)和[客户端兼容主计划](../plan/architecture/gateway-client-compatibility.md)，不因归档改写为通过。现行数量与逐项状态见[计划盘点](./plan-inventory.md#当前结论)。
 
-2026-09-16 已将 [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md) 归档，代码与本地签名提交完成，按用户确认采用 fake 验收；真实 PostgreSQL、外部业务系统和发布不在本轮已完成证据内。此前已陆续归档 Gateway 媒体路径诊断、透明代理与 Web 访问控制、前端工程质量、115 Size 解耦等方案。2026-09-22 新增 [115 转存起播许可方案](../plan/architecture/p115-transfer-playback-intent.md)，当时 `docs/plan/` 保留 9 份进行中、待验收或观察期实施稿与模板入口。
+[分组观看保号计划](../plan/billing-redemption/watch-activity-renewal.md)的代码、专用 PostgreSQL 与管理员配置页面已验收，10 月 18 日保留权益起点修复已落地，并有 10 月 23 日包含该修复的历史部署记录；用户端页面、真实观看考核及远端权限同步仍待验收。群签到只同步了此前置边界，整体仍待实施。
 
-2026-09-29 [每日播放总结分步修复](../archive/plan/media-subscription/playback-summary-improvements.md) 五步本地实施完成并归档，当前实施稿保留 9 份。第一步批次存储、最新榜读取和时间展示通过本地检查及专用 PostgreSQL 验收；第二步收缩为基础发送反馈与测试；第三、四步完成统计口径、完整性、日期边界与说明修复。第五步通过 Go 非集成测试、关键 race、vet、build 和 SQLite 成本对比，仅落地媒体库回查去重，SQL 合并因收益不稳定暂缓。投递管理 / 补发已取消，真实 Emby / Telegram、浏览器与部署未执行；历史批次验证不扩大为本轮证据。
+2026-09-16 已将 [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md) 归档，代码与本地签名提交完成，按用户确认采用 fake 验收；真实 PostgreSQL、外部业务系统和发布不在本轮已完成证据内。此前已陆续归档 Gateway 媒体路径诊断、透明代理与 Web 访问控制、前端工程质量、115 Size 解耦等方案。2026-09-22 新增 [115 转存起播许可方案](../archive/plan/architecture/p115-transfer-playback-intent.md)，当时 `docs/plan/` 保留 9 份进行中、待验收或观察期实施稿与模板入口。
+
+2026-09-29 [每日播放总结分步修复](../archive/plan/media-subscription/playback-summary-improvements.md) 五步本地实施完成并归档，当时实施稿保留 9 份。第一步批次存储、最新榜读取和时间展示通过本地检查及专用 PostgreSQL 验收；第二步收缩为基础发送反馈与测试；第三、四步完成统计口径、完整性、日期边界与说明修复。第五步通过 Go 非集成测试、关键 race、vet、build 和 SQLite 成本对比，仅落地媒体库回查去重，SQL 合并因收益不稳定暂缓。投递管理 / 补发已取消，真实 Emby / Telegram、浏览器与部署未执行；历史批次验证不扩大为本轮证据。
 
 2026-08-31 已完成前端工程质量实施稿的代码、自动化验证和正式归档；真实浏览器验收未执行且未写成已通过，具体限制和剩余计划状态见 [计划文档盘点](./plan-inventory.md)。
 

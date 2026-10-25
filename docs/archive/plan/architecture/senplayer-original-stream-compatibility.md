@@ -1,14 +1,16 @@
 # SenPlayer 原文件播放兼容方案
 
-> 状态：实现与本地验证完成，待部署后实机验收
+> 状态：已归档（实现与本地验证完成，后续验收由 Gateway 客户端兼容主计划接替）
 > 负责人：Ember
-> 更新时间：2026-10-25（同步可选兼容模式实现，严格默认保持）
+> 更新时间：2026-10-25（补记历史部署并完成验收交接）
 
-2026-10-25 后续决策：用户确认在保留严格默认行为的基础上，新增管理员可开启的全局转存兼容模式，并接受开启后合格视频预读也可能产生首次转存。该扩展及图片、会话、续播问题统一由 [Gateway 客户端兼容与转存策略](./gateway-client-compatibility.md) 承接，当前代码与本地验证已完成，尚未部署或完成真实客户端验收。本文件继续记录 2026-10-14 的受限原文件复用实现和当时确认的策略，不把新实现视为已部署或实机通过。
+本文保留 2026-10-14 的受限原文件复用实现及历史证据。现行原文件资格以 [播放代理合同 5.2](../../../reference/emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14) 为准，当前转存策略以 [端到端参考 1.3](../../../reference/p115-playback-end-to-end-flow.md#13-新增转存起播许可) 为准；全部未完成客户端分项转交 [Gateway 主计划的历史计划验收承接](../../../plan/architecture/gateway-client-compatibility.md#历史计划验收承接)。
+
+2026-10-25 后续决策：用户确认在保留严格默认行为的基础上，新增管理员可开启的全局转存兼容模式，并接受开启后合格视频预读也可能产生首次转存。该扩展及图片、会话、续播问题统一由 [Gateway 客户端兼容与转存策略](../../../plan/architecture/gateway-client-compatibility.md) 承接；10 月 25 日增量已完成代码与本地验证，尚未部署或完成真实客户端验收。10 月 14 日的受限 MKV 复用已包含在下述 10 月 23 日历史部署中，两批状态分别记录。
 
 ## 背景与目标
 
-SenPlayer `6.0.4` 实际播放 MKV 时使用缺失 `Static` 的 `original.mkv`。抓包时部署的 Gateway 只为同类 `original.mp4` 请求提供受限兼容，导致本轮 14 个视频请求全部在路由准入阶段回退 Emby，已有 115 目标也无法进入复用判断。本次工作区已完成 MKV 受限匹配，目标部署尚未更新。
+SenPlayer `6.0.4` 实际播放 MKV 时使用缺失 `Static` 的 `original.mkv`。2026-10-14 抓包时部署的 Gateway 只为同类 `original.mp4` 请求提供受限兼容，导致该轮 14 个视频请求全部在路由准入阶段回退 Emby，已有 115 目标也无法进入复用判断。截至当日实现收尾，工作区已完成 MKV 受限匹配，目标部署尚未更新；这不是截至 10 月 25 日的线上版本判断。
 
 目标是在当前身份、媒体证明和并发规则内兼容这类 MKV 请求，使已有目标和有效缓存能够用于 115 加速。用户已于 2026-10-14 明确选择保留“预读不新增转存”：缺少明确起播许可且目标不存在时继续回退 Emby。
 
@@ -16,11 +18,12 @@ SenPlayer `6.0.4` 实际播放 MKV 时使用缺失 `Static` 的 `original.mkv`�
 
 ## 当前事实与协议依据
 
-- 目标版本沿用项目已确认的 Emby `4.9.3.0`，固定 SDK 为 `6ee0155063bc85578196489926359a8f37419502`。原生协议和本轮证据见 [播放代理合同 5.2](../../reference/emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14)。
+- 目标版本沿用项目已确认的 Emby `4.9.3.0`，固定 SDK 为 `6ee0155063bc85578196489926359a8f37419502`。原生协议和本轮证据见 [播放代理合同 5.2](../../../reference/emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14)。
 - 固定 OpenAPI 仅对显式 `Static=true` 承诺无编码原文件播放，不声明省略该参数的任意流文件名都等价；POST PlaybackInfo 的起播字段属于 JSON `PlaybackInfoRequest`。
 - 抓包时 Gateway 运行 revision 为 `f18c84e10f4e47010500900a777d8d8c18afa8f8`。本轮 3 次 PlaybackInfo 均得到合格 MKV 媒体证明，大小为 `27117028268` 字节，支持 DirectPlay 与 DirectStream；视频响应均为 `video/x-matroska`，支持 byte Range，ETag 在本轮内一致，响应总长度与媒体源 Size 一致。本轮实现与本地验证在 master 完成，不归属该旧部署 revision。
 - 14 个视频 GET 均缺失 Static，身份 query 只有 MediaSourceId、PlaySessionId、DeviceId 和既有 Token aliases。Gateway 统一以 `route / request_not_eligible` 回退；200/206 和媒体字段支持本样本的原文件范围响应形态，不证明所有 MKV 或全文件字节相同。
 - 3 次 PlaybackInfo query 均为 `IsPlayback=false`，JSON 无 IsPlayback，当前实现不授予新增转存许可。已有目标查重先于 `CanCreateTransfer` 门控；该许可只在内容锁内确认目标仍缺失后检查。
+- 受限 MKV 复用提交为 `4c9730808f32dd64783a44ae36b0eb2aa3089dc6`。2026-10-23 经 `local → dmit → hz` 更新四个业务容器，历史部署 revision 从 `2a213f35` 更新为 `b1f524f5a81b5507d505b272b96355c82ce7da38`；本地 Git 祖先关系确认后者包含该 MKV 实现。该记录只说明截至 10 月 23 日的部署，不是 10 月 25 日本轮线上读数，也不证明 SenPlayer 已接受 115 `302`、CDN Range、字幕或完整播放。
 
 ## 方案设计
 
@@ -50,7 +53,7 @@ SenPlayer `6.0.4` 实际播放 MKV 时使用缺失 `Static` 的 `original.mkv`�
 | proof 不匹配、媒体或 query 不合格 | 不调用 DirectPlay，保持原请求 Emby 回退 |
 | 115 解析或复用失败 | 保持客户端原始 path/query/method/Range/Header 回退，不注入 Static |
 
-用户策略及新增转存门控继续以 [起播许可方案](./p115-transfer-playback-intent.md) 为准。某次独立请求已经取得合法显式许可时仍按既有规则处理；本方案不增加第二种授予来源。
+本阶段用户策略及新增转存门控的历史过程见 [起播许可方案](p115-transfer-playback-intent.md)；现行规则以 [端到端参考 1.3](../../../reference/p115-playback-end-to-end-flow.md#13-新增转存起播许可) 为准。某次独立请求已经取得合法显式许可时仍按既有规则处理；本阶段实现不增加第二种授予来源。
 
 ### 3. 实施范围与日志
 
@@ -72,8 +75,10 @@ SenPlayer `6.0.4` 实际播放 MKV 时使用缺失 `Static` 的 `original.mkv`�
 - [x] 抓包工具先复现原文件路径丢失与固定诊断被丢弃，再完成修复；`python3 -B -m unittest discover -s scripts/gateway-capture/tests -v` 17 项通过，含未知路径/evidence 和凭证脱敏保护。
 - [x] 当前工具离线回放本轮原始 PCAP，得到 330 个 HTTP 事件、14 个视频配对、0 个新 TLS 连接；条目/Range/状态/响应头耗时与之前受限补充解析一致。该回放对应旧部署的 Emby 回退样本，不是新 Gateway 的实际 302 验收。
 - [x] 自查触达链路：身份/证明 → 原文件匹配 → 账号/缓存/租约 → 锁内许可/配额/任务 → 代理回退及采集输出。P0/P1/P2/P3 本轮未发现需要修复的问题；现行文档已同步，链接与 diff 一致性检查完成。
-- [ ] 经用户授权部署后，由操作者分别复验已有目标/缓存、缺失目标、详情浏览、拖动、暂停、停止和重播；确认 SenPlayer 接受 302，CDN Range 与字幕实际可用。当前抓包只证明 Emby 回退样本，真实 115 重定向与播放器效果未验收。
+- [x] 已转交（未验收）：已有目标/缓存、缺失目标、详情浏览、拖动、暂停、停止和重播，以及真实 `302`、CDN Range、字幕和完整播放，见 [Gateway 主计划承接清单](../../../plan/architecture/gateway-client-compatibility.md#历史计划验收承接)。10 月 14 日抓包只证明 Emby 回退样本，10 月 23 日部署记录不替代上述实机验收。
 
 ## 落地后文档处理
 
-实现和自动化完成后，将正式适用条件提炼到播放代理合同、客户端矩阵和系统架构，并更新计划状态。真实客户端验收完成，或用户明确接受未验证边界后，归档到 `docs/archive/plan/architecture/`，同步计划、归档和盘点索引。原始 PCAP、源码下载和私有分析产物始终保留在仓库外，不作为 fixture 提交。
+实现和自动化已完成，正式适用条件已进入 [播放代理合同](../../../reference/emby-playback-proxy-contract.md)、[客户端矩阵](../../../reference/emby-client-compatibility-matrix.md) 和 [系统架构](../../../system-architecture.md)。2026-10-25 按已确认的盘点处理范围，把全部剩余客户端验收交给 [Gateway 主计划](../../../plan/architecture/gateway-client-compatibility.md#历史计划验收承接)，本计划归档到 `docs/archive/plan/architecture/`，同步计划、归档和盘点索引。
+
+本文只保留历史实现、10 月 14 日本地检查及旧部署抓包、10 月 23 日部署记录；真实 115 重定向与播放器效果继续保持未验收，不由归档动作关闭。本次未重跑业务测试、读取当前线上状态或执行真实播放。原始 PCAP、源码下载和私有分析产物始终保留在仓库外，不作为 fixture 提交。

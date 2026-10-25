@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-10-25（Gateway 采集、缓存诊断与 preID 复用本地完成，待真实验收；现行实施稿仍为 14 份）
+> 更新时间：2026-10-25（四份计划完成归档与待办交接，现行实施稿 10 份）
 
 本清单只回答三件事：
 
@@ -37,7 +37,7 @@
 
 2026-09-17 归档：[支付与媒体状态问题修复计划](../archive/plan/media-subscription/open-issue-followup.md)，#21–#25 代码、回归、文档和逐项本地提交完成；API/Web 检查通过，真实 PostgreSQL 与外部验收未执行，尚未推送。
 
-2026-09-22 增补：[115 新增转存起播许可](../plan/architecture/p115-transfer-playback-intent.md) 代码与自动化验证已完成。仅对新建转存增加客户端明确起播许可，复用现有 proof、内容锁、租约清理和 Emby fallback；不新增 SQL，已有文件及十分钟跨会话缓存保持复用。全量非集成 Go、关键包 race、vet/build 通过；真实客户端验收尚未执行，继续保留该边界。
+2026-09-22 增补：[115 新增转存起播许可](../archive/plan/architecture/p115-transfer-playback-intent.md) 代码与自动化验证已完成。仅对新建转存增加客户端明确起播许可，复用现有 proof、内容锁、租约清理和 Emby fallback；不新增 SQL，已有文件及十分钟跨会话缓存保持复用。全量非集成 Go、关键包 race、vet/build 通过；真实客户端验收尚未执行，继续保留该边界。
 
 ## A. 已落地，已完成归档
 
@@ -93,38 +93,38 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
+以下为分批历史记录，数量及未验收边界只描述当时版本；本轮 10 份现行实施稿以本节末表格为准。
+
 2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env` 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。Gateway 本地媒体直出已按产品边界撤销并归档，不再列为现行计划。
 
-2026-09-17 文档复核：上述通过记录只覆盖对应历史批次；当时 9 月 12 日新增账号配置版本与成功记录优化的 PostgreSQL 用例尚未执行。2026-09-21 已补跑 DirectPlay PostgreSQL 专项并全部通过，详见 [网关总计划的验证记录](../plan/architecture/emby-115-direct-play-gateway.md)；真实 Redis/115/客户端验收仍未完成。2026-09-22 增补起播许可、2026-09-29 完成每日播放总结计划归档、2026-10-04 新增套餐与分组权益改版、分组观看保号计划后，当前 `docs/plan/` 保留以下 11 份。
+2026-09-17 文档复核：上述通过记录只覆盖对应历史批次；当时 9 月 12 日新增账号配置版本与成功记录优化的 PostgreSQL 用例尚未执行。2026-09-21 已补跑 DirectPlay PostgreSQL 专项并全部通过，详见 [网关总计划的验证记录](../plan/architecture/emby-115-direct-play-gateway.md)；真实 Redis/115/客户端验收仍未完成。2026-09-22 增补起播许可、2026-09-29 完成每日播放总结计划归档、2026-10-04 新增套餐与分组权益改版、分组观看保号计划后，当时 `docs/plan/` 保留 11 份。
 
-2026-10-14 增补：计入 2026-10-08 的群签到计划和本次 [SenPlayer 原文件播放兼容](../plan/architecture/senplayer-original-stream-compatibility.md)，当前共 13 份实施稿。SenPlayer 的版本化协议、MKV 抓包及受限适配实现已完成，用户选择保留预读不新增转存；Go 非集成全量、关键三包 race、vet/build 和抓包工具 17 项测试通过。实现与本地验证在 master 完成，尚未部署，不能把本轮 Emby 回退样本写成 115 加速验收。
+2026-10-14 增补：计入 2026-10-08 的群签到计划和本次 [SenPlayer 原文件播放兼容](../archive/plan/architecture/senplayer-original-stream-compatibility.md)，当时共 13 份实施稿。SenPlayer 的版本化协议、MKV 抓包及受限适配实现已完成，用户选择保留预读不新增转存；Go 非集成全量、关键三包 race、vet/build 和抓包工具 17 项测试通过。实现与本地验证在 master 完成，尚未部署，不能把本轮 Emby 回退样本写成 115 加速验收。
 
 2026-10-17 二轮修复 A–C（`080be97`、`da4d64a`、`d3f6fed`）已补齐文件/账号失败分类、停止释放、设备与缓存容量隔离、源阶段预算、取消观测及 tombstone 后限流桶清理。对应 Go 全量 vet/test/build、定向 race、fake/SQL mock 证据已同步到三份相关计划与稳定合同；本批没有新增真实 PostgreSQL/Redis/115/Emby/客户端验收，不改变计划数量、剩余验收项或归档条件。
 
-2026-10-25 增补：[Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) 的首轮三批次已在 `30fb9a4d` 完成代码、本地验证和独立审查，当前仍为 14 份实施稿。用户确认默认严格、管理员可开启全局兼容模式，并接受开启后预读可能转存；图片与网页开关解耦、会话路径大小写、活跃固定会话续播重新核验和兼容模式均已落地。首轮 Go 全量非集成测试、关键五包 race、vet/build、Web 10 项组件测试与构建、采集工具 19 项离线测试通过；随后获授权的认证 scheme、协议请求矩阵与无会话首请求补查增量也已完成实现、定向回归、全量非数据库 Go 测试、Gateway/DirectPlay/EmbyToken race、vet/build 和独立代码审查，结果见主计划第 7 节。尚未部署或执行真实客户端验收，不能把本地自动化结果扩大为线上播放结论；本次不归档。
+2026-10-25 增补：[Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) 的首轮三批次已在 `30fb9a4d` 完成代码、本地验证和独立审查，当时为 14 份实施稿。用户确认默认严格、管理员可开启全局兼容模式，并接受开启后预读可能转存；图片与网页开关解耦、会话路径大小写、活跃固定会话续播重新核验和兼容模式均已落地。首轮 Go 全量非集成测试、关键五包 race、vet/build、Web 10 项组件测试与构建、采集工具 19 项离线测试通过；随后获授权的认证 scheme、协议请求矩阵与无会话首请求补查增量也已完成实现、定向回归、全量非数据库 Go 测试、Gateway/DirectPlay/EmbyToken race、vet/build 和独立代码审查，结果见主计划第 7 节。尚未部署或执行真实客户端验收，不能把本地自动化结果扩大为线上播放结论；本次不归档。
 
 同日后续优化以 `8799688` 为基线，完成采集工具的固定认证/路由/UA 过滤和离线 `diagnosticSummary`、媒体/直链固定 miss 原因及累计容量快照，以及独立 preID 成功哈希复用。两个用户和两个个人目标的顺序/重叠 fake，在任务、写入与配额工作量相同的条件下确认实际前缀读取从 2 次减至 1 次；全量非数据库 Go 测试、五包 race、vet/build、独立审查、原目录/独立目录 39 项 Python 离线测试、10 个源文件编译/AST 和 Go 日志→Python 摘要串接复验均完成，结果见主计划第 8 节。未部署或请求真实 Emby/115/数据库，真实缓存命中率、准备耗时、首帧和客户端收益未测；不增加 Web UI、配置或 migration，计划数不变且不归档。
 
 同日以 `3e1cd42` 为基线补齐持续自动化：采集 Python 3.9/3.11 矩阵、五包 race、Go→Python 实际日志合同分别接入 CI，统一测试入口和失败/跳过状态汇总同步完成。三个 runner 本地通过：双 Python 各 39 项采集加 20 项入口/校验器测试、五包 race、31 个字段和 4 类 Gateway 日志合同，以及相关 vet/配置检查与独立审查，详见主计划第 9 节。用户明确按单 Gateway 维护；远端 CI 尚未运行，真实客户端及性能验收仍待完成，计划数和归档条件不变。
 
+2026-10-25 本轮收尾：四份计划已转入 C 节归档记录，现行实施稿从 14 份收敛为 10 份。个人 115/Redis 按正文既定条件以“实施完成、未授权真实 E2E 明确保留未验证”归档；索引不再额外要求所有外部验收先通过。起播许可与 SenPlayer 的剩余取证由新主计划逐项接替，套餐业务/运维项由升级手册承接；归档不代表豁免或通过这些验收。
+
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
-| `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
-| [billing-redemption/plan-group-entitlements.md](../plan/billing-redemption/plan-group-entitlements.md) | 单分组商品收敛及复验完成，待提交收尾 | 商品字段/原 SQL 已收敛，测试库与目标 checksum 已同步；D 转增强30天下架，历史快照不变；自动化、页面及新单组 Stripe 沙盒付款通过 | 保留在 `docs/plan/billing-redemption/`，提交收尾后归档 |
-| [billing-redemption/watch-activity-renewal.md](../plan/billing-redemption/watch-activity-renewal.md) | 已实现，待真实验收 | 已记录分组三项配置（开关、周期天数、分钟门槛）、永久权益、实际接替后按配置周期开始观察期（与滚动统计共用，默认 30 天）、付费组替代期间暂停考核、再次接替重开完整观察期、每日滚动累计考核和权益失效；插件合同、调度和幂等已接入并补本地测试，专用 PostgreSQL 验收通过，真实播放待验收 | 完成授权范围内真实播放与浏览器验收，继续保留计划 |
-| `architecture/emby-115-direct-play-gateway.md` | 继续保留 | 管理员 source + 管理员共享 playback、账号控制面、Cookie 客户端类型自动识别、被动运行期健康回写和 1 分钟共享冷却已落地，并已有权威 Emby fallback `206`、首次/复用 Gateway `302` 实际播放、外挂/内嵌字幕和 Playing/Progress/Stopped 实证；CDN 完整响应合同、运维查询、主动健康告警与阶段 2 未完成；数据库会话与套餐并发设想已撤销 | 保留当前系统内置链路边界；用户自有账号和 Redis 配额转由独立计划 |
-| `architecture/p115-personal-account-routing-and-redis-quotas.md` | 阶段 0–3 已落地，数据库专项已补齐，待受控外部验收 | 阶段 0–3 已落地：套餐默认 personal 与 `5/10` 配额、个人账号四步 API/Web、管理员共享 playback 路径/并发原子配置、revoked tombstone、用户删除顺序、personal/system 两段式路由、Redis `reservation → active ↔ paused`、HEAD 不创建、成功事件更新、小时/自然日 pending/succeeded 配额、晚到成功和独立 2s 记账、null/zero 用量与固定诊断日志。历史阶段 0–3 验证记录包含 Go test/vet/build、关键 race、Web 测试与生产 build；基础个人账号 PostgreSQL 集成与占位配置 Compose 解析于 2026-09-05 通过。2026-09-21 已补跑 DirectPlay PostgreSQL 专项，13 个顶层测试及 2 个子测试全部通过，覆盖账号配置版本、目录竞态、成功记录采样及小连接池锁等待取消；未执行真实 Redis/个人 115/客户端验收，Emby 对 115 `302` 分流的限制效果仍未证实 | 保留到授权范围内真实外部验收完成，或由用户明确接受相应未验证限制后归档 |
-| `architecture/runtime-settings-cache-evolution.md` | 继续保留 | 明确处于观察期；尚无替换启动条件实证，也未决定 Go 1.24 基线 | 保留在 `docs/plan/architecture/` |
-| `architecture/p115-transfer-playback-intent.md` | 代码与自动化完成，待受控客户端验收 | Gateway 严格起播意图、短期许可、DirectPlay 锁内新增转存门控已落地；已有文件与跨会话缓存保留；全量非集成 Go、关键 race、vet/build 通过 | 受控客户端验收完成或用户接受未验证边界后归档 |
-| `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
-| [bot-telegram/group-checkin-retention.md](../plan/bot-telegram/group-checkin-retention.md) | 规则已确认，待实施 | 2026-10-08 计划记录观看或签到任一达标、共用周期与签到门槛；不将方案记录视为实现证据 | 保留在 `docs/plan/bot-telegram/` |
-| [architecture/senplayer-original-stream-compatibility.md](../plan/architecture/senplayer-original-stream-compatibility.md) | 实现与本地验证完成，待实机验收 | MKV 受限原文件匹配、现有目标复用与无许可零转存写入回归完成，MP4/HEAD/Size=0 原规则受保护；Go 非集成/race/vet/build 与抓包工具测试通过；尚未部署 | 按授权部署，完成 SenPlayer 302/CDN/字幕与播放分项验收后归档 |
-| [architecture/gateway-client-compatibility.md](../plan/architecture/gateway-client-compatibility.md) | 协议、优化与持续自动化本地完成，待远端 CI 和真实验收 | 优化提交 `3e1cd42` 后增加采集双 Python、五包 race 与日志合同 CI；三个 runner、本地反向回归及独立审查通过，真实客户端和性能证据仍缺失 | 按单 Gateway 范围完成远端 CI、授权客户端分项及实际收益验证后归档 |
-| `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
-| `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
-| `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
+| [自助注册人数上限](../plan/access-auth/registration-user-capacity.md) | 待开发 | 当前未发现容量配置、人数统计、满员门控和公开容量字段 | 继续保留实施计划 |
+| [分组观看保号](../plan/billing-redemption/watch-activity-renewal.md) | 实现完成，待分项验收 | 专用 PostgreSQL 与管理员页面已有记录；10/18 保留起点修复已落地，10/23 历史镜像包含该修复；用户端页面、真实考核与权限同步未验收 | 保留验收计划，不重复要求已完成的管理员页面验收 |
+| [Emby–115 DirectPlay 总计划](../plan/architecture/emby-115-direct-play-gateway.md) | 播放数据面主体完成，运维待实施 | 任务查询/重试、主动健康告警、文件容量清理和部分 CDN 取证未完成；目录与 Redis 已落地 | 按单 Gateway 保留当前剩余项，不把多实例列为归档门槛 |
+| [运行期配置缓存演进](../plan/architecture/runtime-settings-cache-evolution.md) | 观察期 | 未取得替换启动条件实证，未提升最低 Go 语言版本；5s 专用策略已有修补不等于通用刷新演进完成 | 无实证不替换，继续观察 |
+| [Telegram 通知静音规则](../plan/bot-telegram/notification-mute-rules.md) | 待开发 | 已有订阅结果通知，但没有事件规则、用户偏好和统一静音入口 | 继续保留实施计划 |
+| [群签到与双途径保号](../plan/bot-telegram/group-checkin-retention.md) | 规则已确认，待实施 | 已同步10/18起点边界；签到、首次日期持久化、迁移及双条件考核仍未实现 | 保留实施计划，不能把前置修复算成签到完成 |
+| [Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) | 本地实施完成，待远端 CI 与真实验收 | 30fb9a4/8799688/3e1cd42/33eb11f 已提交并完成各自本地验证；新增镜像部署、客户端、命中率与准备耗时待验证 | 承接旧专项取证，按单 Gateway 完成授权范围内验收 |
+| [设备风控自动化](../plan/console-admin/device-risk-automation.md) | 待开发 | 已有人工设备处置，未发现风险记录、自动判定和告警闭环 | 继续保留实施计划 |
+| [站内通知中心](../plan/console-admin/in-app-notification-center.md) | 待开发 | 已有 Telegram 消息引用表不等于站内通知，未读/已读 API 与页面未实现 | 继续保留实施计划 |
+| [媒体去重与质量治理](../plan/media-subscription/media-dedupe-and-quality-governance.md) | 待开发 | 已有质量报告，未发现重复版本组、评分、保留建议和忽略能力 | 继续保留实施计划 |
 
-2026-10-04 新增分组观看保号计划后，当前 `docs/plan/` 共 11 份实施稿。观看保号仅完成规则记录，尚未实施；其他计划的历史验证记录不扩展为本轮验证结论。
+历史快照（2026-10-04）：当时新增分组观看保号后为 11 份实施稿，观看保号当时仅完成规则记录；当前实现与验收状态以本节表格为准，不沿用该历史判断。
 
 ## C. 已完成的归档记录
 
@@ -132,6 +132,10 @@
 
 | 文档 | 盘点结论 | 主要证据 | 建议动作 |
 |------|----------|----------|----------|
+| [套餐与分组权益改版](../archive/plan/billing-redemption/plan-group-entitlements.md) | 2026-10-25 实施收尾归档 | c20080cc/2c320f36/065f1b3a 已提交，历史数据库/页面/Stripe 沙盒验证有记录；10/23 镜像包含这些改动 | 业务验收、种子用户迁组状态和外部边界由[升级手册](../runbooks/entitlements-upgrade.md)承接 |
+| [115 个人账号与 Redis 配额](../archive/plan/architecture/p115-personal-account-routing-and-redis-quotas.md) | 2026-10-25 实施收尾归档 | 四阶段代码、基础及9/21后续 PostgreSQL 专项已完成；真实个人 Cookie/Redis/配额尚未验收 | 现行实现及逐项真实验收清单由[端到端参考](../reference/p115-playback-end-to-end-flow.md)承接 |
+| [115 新增转存起播许可](../archive/plan/architecture/p115-transfer-playback-intent.md) | 2026-10-25 被新主计划接替 | 严格许可已实现；兼容模式不伪造许可；首次/停止/重播取证和 thumb 假设仍未完成 | 由[客户端兼容主计划](../plan/architecture/gateway-client-compatibility.md)接替，不写成实机验收通过 |
+| [SenPlayer 原文件播放兼容](../archive/plan/architecture/senplayer-original-stream-compatibility.md) | 2026-10-25 被新主计划接替 | 4c973080 已实现并包含于10/23历史部署镜像；真实302/CDN Range/字幕与播放分项仍缺证据 | 由[客户端兼容主计划](../plan/architecture/gateway-client-compatibility.md)逐项跟踪 |
 | `archive/plan/architecture/gateway-media-path-diagnostics.md` | 已归档 | `5189ff3` 已进入 v2.0.3，新中文决策、完整 `mediaPath`、首次/复用 302、映射字段与 `path_not_mapped` 均有部署日志；生产未故障注入 Provider/账号失败，保留 fake 证据边界；`Items/Latest` 误分类转由 [Issue #8](https://github.com/konghanghang/ember/issues/8) 跟踪 | 历史追溯；稳定日志合同由系统架构、Emby 代理合同和 115 端到端参考接管 |
 | `archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md` | 已归档 | v2.0.3 已完成 root/`/emby` bootstrap、Infuse 登录/资源/字幕、本地 fallback `206`、首次/复用 `302`、Playing/Progress/Stopped，以及 Web 开启/关闭、完整资源、query 登录、Primary/Backdrop 和 WebSocket 验收；115 Web 播放按用户无使用场景排除，原始 Emby 隔离按部署管理员确认收口 | 历史追溯；稳定合同由系统架构、Emby 代理合同、客户端矩阵与部署 runbook 接管 |
 | `archive/plan/architecture/web-frontend-quality-improvement.md` | 已归档 | MediaStats camelCase、TMDB `{data,total}`、Web/Bot 调用方、注册跨 tab 会话替换和设备页全量刷新均有自动化测试；API/Web/Bot 全量验证与 Web build 通过；真实浏览器验收未执行，按用户决定不再阻塞归档 | 历史追溯，不表述为 E2E 或人工验收通过 |
@@ -229,9 +233,14 @@
 
 ## 当前结论
 
-截至 2026-10-25，`docs/plan/` 共有 14 份现行实施稿，逐项状态见 B 节。Gateway 客户端兼容首轮、协议增量、采集/缓存/preID 优化及持续自动化已完成本地实现、验证与审查；新增 CI 尚未远端运行，真实客户端及性能收益未验收。各历史批次的测试、数据库和客户端结果仍只覆盖当时版本，不能作为新方案已经完成的证据。当前需要处理的是：
+截至 2026-10-25，`docs/plan/` 共 10 份现行实施稿：3 份推进实现或验收、6 份待开发、1 份观察期；逐项状态见 B 节，四份本轮归档见 C 节。实施归档不删除未完成验收，所有待办已有现行承接位置。
 
-1. 继续以真实 E2E 边界约束 Gateway/115 计划，不能用 fake、发布 Tag 或 Gateway `302` 代替 CDN 字节与完整会话验收
-2. 9 月 12 日后续改动的 DirectPlay PostgreSQL 专项已于 9 月 21 日补跑通过；仍需保留真实 Redis、115 与客户端未验收边界
-3. 后续每次计划退场继续同步 plan/archive/proposals 三层索引和直接引用，避免再次出现状态漂移
-4. 按授权完成 Gateway 部署、客户端分项及实际收益测量；本地 fake 调用次数不代替命中率或首帧证据，默认严格策略保持，兼容模式由管理员显式开启
+10 月 23 日历史部署记录确认 hz 四个应用容器的镜像 revision 为 `b1f524f5a81b5507d505b272b96355c82ce7da38`；本轮本地 Git 祖先核对确认其包含套餐迁组、观看保号起点修复与 SenPlayer MKV 适配。这是历史部署事实，不是本轮线上版本或业务验收；10 月 25 日新增 Gateway 兼容、优化与 CI 仍只有本地证据。
+
+当前剩余事项：
+
+1. Gateway 兼容主计划承接旧起播/SenPlayer取证，新增 CI 的远端执行、最新部署和真实客户端/性能证据分别记录，不能用 fake、Tag 或 302 代替完整播放。
+2. 个人 Cookie、单 Gateway Redis、配额及故障回退按端到端参考清单等待授权验证；套餐业务验收与种子用户操作状态按升级手册跟踪。
+3. 分组观看保号保留用户端页面、真实考核与远端权限同步验收；群签到及另五份功能计划仍待开发，通用配置缓存维持观察期。
+4. DirectPlay 总计划只保留当前单 Gateway 的运维与合同取证欠账；多实例能力不作为本次推进或归档门槛。
+5. 后续状态变动同时同步计划、归档、提案索引和直接引用；历史测试、数据库与部署结果始终限定到对应日期和版本。

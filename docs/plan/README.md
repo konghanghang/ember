@@ -34,25 +34,25 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-当前 `docs/plan/` 中待实施、推进中或待验收的实施稿共 14 份：
+截至 2026-10-25，`docs/plan/` 共 10 份现行实施稿：3 份继续推进实现或验收、6 份待开发、1 份处于观察期。实施归档和外部验收分开记录，未验证事项由主计划或现行 runbook/reference 跟踪。
 
-- `access-auth/registration-user-capacity.md`
-- [分组观看保号](./billing-redemption/watch-activity-renewal.md)（2026-10-08：已确认分组三项配置（开关、周期天数、分钟门槛），观察期与统计窗口共用周期（默认 30 天），实际接替后开始完整观察期，付费组替代期间暂停考核，再次接替重新起算；代码与本地自动化已落地，专用 PostgreSQL 验收通过，真实播放/浏览器验收待完成）
-- [套餐与分组权益改版](./billing-redemption/plan-group-entitlements.md)（2026-10-04：首轮实现与页面/Stripe 沙盒验收完成；单分组套餐收敛、测试库转换与 Stripe 沙盒复验完成，待提交收尾）
-- `architecture/emby-115-direct-play-gateway.md`
-- `architecture/p115-personal-account-routing-and-redis-quotas.md`（阶段 0–3 已落地，基础 PostgreSQL 集成于 2026-09-05 通过；后续 DirectPlay 数据库专项于 2026-09-21 补跑通过，受控真实外部验收仍待完成）
-- [115 新增转存起播许可](./architecture/p115-transfer-playback-intent.md)（代码与自动化已完成，保留已有文件和跨会话缓存复用；待受控客户端验收）
-- [SenPlayer 原文件播放兼容](./architecture/senplayer-original-stream-compatibility.md)（2026-10-14：受限 MKV 匹配与本地 mock/race 验证完成，抓包工具同步原文件识别；保留预读不新增转存，待部署后实机验收）
-- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（2026-10-25：协议兼容、采集摘要/缓存原因/preID 复用及持续自动化均已完成本地实现、验证与审查；新增采集双 Python 矩阵、五包 race 与 Go→Python 日志合同 CI。按单 Gateway 范围维护，远端 CI、真实客户端、命中率与延迟收益待验收；默认严格、管理员可开启全局兼容模式并接受预读可能转存）
-- `architecture/runtime-settings-cache-evolution.md`
-- `bot-telegram/notification-mute-rules.md`
-- [群签到与双途径保号](./bot-telegram/group-checkin-retention.md)（2026-10-08：产品规则已确认，待实施；单开关、共用 N 天，观看或签到任一达标即可保号；签到默认 5 天，PostgreSQL 明细保留 3 个日历月并自动清理；权益保存首次检查日期，修改规则不重置起点；技术检查与迁移验证待执行）
-- `console-admin/device-risk-automation.md`
-- `console-admin/in-app-notification-center.md`
-- `media-subscription/media-dedupe-and-quality-governance.md`
+- [自助注册人数上限](./access-auth/registration-user-capacity.md)（待开发）
+- [分组观看保号](./billing-redemption/watch-activity-renewal.md)（实现、专用 PostgreSQL 与管理员页面验收完成；10 月 18 日起点修复已落地，10 月 23 日有包含该修复的历史部署记录；用户端页面、真实考核与权限同步仍待验收）
+- [Emby–115 DirectPlay 总计划](./architecture/emby-115-direct-play-gateway.md)（播放数据面主体完成，单 Gateway 运维功能与部分真实取证待完成）
+- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（协议、诊断、preID 与持续自动化本地完成；承接起播许可和 SenPlayer 分项验收，远端 CI、真实客户端与性能收益待验证；默认严格，兼容模式由管理员开启）
+- [运行期配置缓存演进](./architecture/runtime-settings-cache-evolution.md)（观察期，尚未排期；没有实证不替换）
+- [Telegram 通知静音规则](./bot-telegram/notification-mute-rules.md)（待开发；已有结果通知不等于静音治理）
+- [群签到与双途径保号](./bot-telegram/group-checkin-retention.md)（产品规则已确认，整体待实施；正文已同步 10 月 18 日观看保号起点边界，首次日期持久化、签到、迁移与双条件考核尚未实现）
+- [设备风控自动化](./console-admin/device-risk-automation.md)（待开发）
+- [站内通知中心](./console-admin/in-app-notification-center.md)（待开发）
+- [媒体去重与质量治理](./media-subscription/media-dedupe-and-quality-governance.md)（待开发）
 
 最近已完成归档的实施稿包括：
 
+- [套餐与分组权益改版](../archive/plan/billing-redemption/plan-group-entitlements.md)（2026-10-25：实施与本地/沙盒验收收尾；剩余业务验收和种子用户迁组状态由[升级手册](../runbooks/entitlements-upgrade.md)维护）
+- [115 个人账号与 Redis 配额](../archive/plan/architecture/p115-personal-account-routing-and-redis-quotas.md)（2026-10-25：四阶段实施与数据库专项完成；真实个人 Cookie/Redis/配额验收留在[端到端参考](../reference/p115-playback-end-to-end-flow.md)）
+- [115 新增转存起播许可](../archive/plan/architecture/p115-transfer-playback-intent.md)（2026-10-25：实施完成，剩余取证由客户端兼容主计划接替，未标为真实验收通过）
+- [SenPlayer 原文件播放兼容](../archive/plan/architecture/senplayer-original-stream-compatibility.md)（2026-10-25：适配已实现，剩余 302/CDN/字幕等分项由客户端兼容主计划接替）
 - [每日播放总结分步修复](../archive/plan/media-subscription/playback-summary-improvements.md)（2026-09-29：五步本地实施完成；回查去重已落地，SQL 合并经成本评估暂缓，真实 Emby / Telegram 与部署未执行）
 - [支付与媒体状态问题修复计划](../archive/plan/media-subscription/open-issue-followup.md)（2026-09-17：#21–#25 已修复并逐项本地提交；真实 PostgreSQL/外部验证未执行）
 - [GitHub 开放问题零迁移修复计划](../archive/plan/architecture/github-issue-remediation.md)（2026-09-16：9 项修复、2 项已有修复验收；用户确认 fake 验收，真实 PostgreSQL 未执行）

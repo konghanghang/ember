@@ -248,7 +248,7 @@ Ember 本地撤销固定三种粒度：
 - 上游网络和 transport 失败返回空体 `502`。日志只允许固定错误 code 和 Go 错误类型，禁止写入请求 URL、密码、AccessToken、认证响应体或上游原始错误文本。
 - 固定 SDK 已确认 `Authorization/X-Emby-Authorization` 的 `Emby` scheme，目标 Infuse `8.5` 已确认 `X-Emby-Authorization: MediaBrowser ...`；兼容矩阵额外接受严格 `X-MediaBrowser-Authorization: MediaBrowser ...`，但不扩展到任意 Header/scheme。真实目标环境同时确认 SystemInfoPublic 无登录可访问，Gateway 对该公开路由记录不含 Header value、URL query 或响应体的上游状态日志。
 
-当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同与目标浏览器实机验收，Redis 播放租约及 personal/system 路由已有自动化证据但尚未真实验收，且不建立数据库播放会话。Infuse 登录、普通资源 API、按需 PlaybackInfo、权威 Emby fallback `206`、source 映射、首次/复用 `302`、字幕和 Playing/Progress/Stopped 已有实机证据；115 CDN 完整响应合同以及 SenPlayer、Yamby 等其他客户端仍未实机确认。历史收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)，后续账号路由与租约见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
+当前 HTTP 核心还会让大小写兼容的 root PlaybackInfo、视频和普通进度请求复用既有证明、115 `302`、Emby fallback 与默认代理处理器；Web Surface 已完成 fake 合同与目标浏览器实机验收，Redis 播放租约及 personal/system 路由已有自动化证据但尚未真实验收，且不建立数据库播放会话。Infuse 登录、普通资源 API、按需 PlaybackInfo、权威 Emby fallback `206`、source 映射、首次/复用 `302`、字幕和 Playing/Progress/Stopped 已有实机证据；115 CDN 完整响应合同、SenPlayer 的真实 115 播放分项及 10 月 25 日新增兼容修复仍待验收；Yamby 在 9 月 29 日已有登录与多项资源 API 成功记录，首页图片修复后的复测和完整播放仍缺证据，详见[客户端矩阵](./emby-client-compatibility-matrix.md)。历史收尾见 [Ember Gateway 透明代理与 Web 访问控制实现方案](../archive/plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)，账号路由与租约的现行边界及未验收项见[端到端参考](./p115-playback-end-to-end-flow.md#121-个人账号与-redis-待验收清单)，实施历史见[个人账号与 Redis 配额归档方案](../archive/plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
 
 ### 3.5 Emby Web Surface 与根 WebSocket
 
@@ -336,7 +336,7 @@ Gateway 保持普通 proof 的授权含义，另在同一个进程缓存中记�
 
 2026-09-29 Infuse `8.5.5` / 目标 Emby `4.9.3.0` 日志确认：客户端 JSON POST 明确 `IsPlayback=true`，但响应的 DirectPlay/DirectStream 均为 false；随后内部 GET 返回 true 且使用另一会话。能力差异的外部原因未证实，Gateway 不改写能力字段。当前实现将这种身份有效、本地路径明确、仅因 DirectPlay 不支持而拒绝的响应意图，保存在 proof 缓存同一锁内的有界集合（全局最多 4096 条、每 mapping 最多 64 条，满载优先淘汰本 mapping 最旧记录），不把它变成媒体证明。之后独立合格的内部 proof 只有完整 principal、条目、source、路径、Container 匹配且已知 Size 一致时，才能继承剩余许可；每份意图最多绑定一个补查 session，不从 GET 重新计时。新的客户端响应清除旧意图；原客户端 session 或已绑定补查 session 的成功 Stopped 都撤销许可，停止期间在途内部 GET 不得恢复它。显式客户端响应仍遵循既有发布令牌规则。没有客户端明确信号的 GET、详情、Playing/Range 不能生成许可。Debug `playback_transfer_intent_retained` / `playback_transfer_intent_inherited` 分别标识保留与匹配继承；日志不输出原始 session。该变更已覆盖 mock 完整 POST→补查→视频→转存准入链路，真实播放器与 115 部署后验收仍待完成。
 
-以上是默认严格模式的明确起播合同，原始实施证据见 [实施方案](../plan/architecture/p115-transfer-playback-intent.md)。未提供该明确信号的客户端在严格模式下目标不存在时仍使用 Emby fallback。
+以上是默认严格模式的明确起播合同，原始实施证据见 [实施方案](../archive/plan/architecture/p115-transfer-playback-intent.md)。未提供该明确信号的客户端在严格模式下目标不存在时仍使用 Emby fallback。
 
 #### 首次转存兼容策略（2026-10-25）
 
@@ -502,7 +502,7 @@ MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRej
 
 抓包时运行的 revision 只有 5.1 的 MP4 例外，本轮 14 个请求统一在 `route / request_not_eligible` 回退，没有进入 115 编排。3 次 PlaybackInfo 的 query IsPlayback 均为 false，JSON 无 IsPlayback；普通媒体证明不会授予新增转存许可。Playing/Progress/Stopped 共 13 个事件得到 Emby 204，仅证明会话上报成功，不等于首帧或全程流畅。
 
-同日重新核对第 1 节固定 SDK：Static 仍为可选参数，但只明确 true 时静态返回原文件；POST PlaybackInfo 的起播字段在 JSON PlaybackInfoRequest，不能将该客户端 query false 推断为 true。用户确认保留“预读不新增转存”，并授权实施 [SenPlayer 原文件播放兼容方案](../plan/architecture/senplayer-original-stream-compatibility.md)。
+同日重新核对第 1 节固定 SDK：Static 仍为可选参数，但只明确 true 时静态返回原文件；POST PlaybackInfo 的起播字段在 JSON PlaybackInfoRequest，不能将该客户端 query false 推断为 true。用户确认保留“预读不新增转存”，并授权实施 [SenPlayer 原文件播放兼容方案](../archive/plan/architecture/senplayer-original-stream-compatibility.md)。
 
 工作区实现将 MP4/MKV 收敛为相同的受限原文件匹配：GET/HEAD、精确 original.mp4/original.mkv、Static key 完全缺失、唯一有效媒体源和会话，query 仅接受身份字段及已有 Token aliases；需要身份完全匹配、未过期的本地 DirectPlay/DirectStream 证明，Container 和源路径扩展名必须与请求一致。新增 MKV 例外仅接受 Size>0；MP4 及显式 Static=true 的 Size=0 路径保持。显式 false/空/重复 Static、未知/转码/选流参数继续回退，非法身份仍拒绝；不按 UA 放行，不注入 Static 或改写原始回退请求。
 

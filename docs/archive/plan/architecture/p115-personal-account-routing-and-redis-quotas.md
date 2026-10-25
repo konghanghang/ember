@@ -1,8 +1,10 @@
 # 115 用户自有账号路由与 Redis 配额实现方案
 
-> 状态：阶段 0–3 已落地，基础及后续 DirectPlay PostgreSQL 专项已完成；受控真实外部验收待完成
+> 状态：已归档（实施完成，真实个人 Cookie / Redis / 配额验收转交现行参考）
 > 负责人：Ember
-> 更新时间：2026-10-17（同步停止释放与 tombstone 限流清理；历史 PostgreSQL 证据不外推）
+> 更新时间：2026-10-25（完成归档交接，保留历史验证边界）
+
+本文仅保留阶段 0–3 的实施决策与历史验证记录。现行账号路由、租约和配额行为以 [115 端到端流程参考](../../../reference/p115-playback-end-to-end-flow.md) 为准；真实个人 Cookie、Redis 和配额验收已完整转交该参考的 [12.1 个人账号与 Redis 待验收清单](../../../reference/p115-playback-end-to-end-flow.md#121-个人账号与-redis-待验收清单)。归档表示实施任务收口，不表示这些真实链路已经通过。
 
 ## 背景
 
@@ -41,7 +43,7 @@
 
 ## 当前事实
 
-- 当前版本化协议和系统内置链路分别见 [115 Cookie 播放兼容合同](../../reference/p115-cookie-playback-contract.md)、[Emby 4.9 系列播放代理 API 合同](../../reference/emby-playback-proxy-contract.md) 与 [115 Cookie 直连播放端到端流程参考](../../reference/p115-playback-end-to-end-flow.md)。
+- 当前版本化协议和系统内置链路分别见 [115 Cookie 播放兼容合同](../../../reference/p115-cookie-playback-contract.md)、[Emby 4.9 系列播放代理 API 合同](../../../reference/emby-playback-proxy-contract.md) 与 [115 Cookie 直连播放端到端流程参考](../../../reference/p115-playback-end-to-end-flow.md)。
 - `p115_accounts` 已同时表示管理员全局 `source|playback` 与用户个人 playback；owner 外键、非 revoked Provider UID/owner unique、共享启用角色 unique、字段 CHECK 和 revoked tombstone 由 `20260903_01` migration 维护。
 - `directplay.Service` 已按用户有效套餐选择 personal/shared playback，并在 Redis 准入后才按精确账号 ID、owner 和 `config_version` 加载凭证。
 - Cookie 已使用 `CONFIG_ENCRYPTION_KEY` 的用途隔离派生密钥加密；创建、替换和验证状态机已有 fake、race 和 PostgreSQL 测试保护。
@@ -423,7 +425,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - 配置/部署：新增 Redis 客户端、`REDIS_URL`、Compose Redis、healthcheck、AOF、数据卷和故障说明。
 - 文档：实现时同步系统架构、配置参考、数据模型、API 目录、Web 信息架构、部署和测试 runbook。
 
-前端实现必须遵守 Ember 风格；设计与交互基线以 [Web 设计规范](../../reference/web-design-guide.md) 为准。当前没有偏离规范的特例。页面应通过字段、状态和动作表达能力，不堆叠解释性文案。
+前端实现必须遵守 Ember 风格；设计与交互基线以 [Web 设计规范](../../../reference/web-design-guide.md) 为准。当前没有偏离规范的特例。页面应通过字段、状态和动作表达能力，不堆叠解释性文案。
 
 ## 验证方式
 
@@ -445,16 +447,9 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 ### 受控验证
 
-真实验证必须由用户另行明确授权，并逐项执行：
+2026-10-25 已将原六项受控验证及 pending/晚到成功、Redis 恢复、用量 null/zero 和 Emby 分流并发证据边界，完整转交 [现行参考 12.1](../../../reference/p115-playback-end-to-end-flow.md#121-个人账号与-redis-待验收清单)。该处逐项维护操作范围、所需证据和未验收状态；本历史计划不再维护执行清单。
 
-1. 先确认套餐组默认 personal、system 显式切换和无个人账号时 Emby fallback。
-2. 使用测试用户/测试 115 账号验证只提交 Cookie 时，固定 `Mozilla/5.0` 能完成账号验证、目录解析和目标查重，再验证已有目录、最大路数和个人目标秒传；记录该默认 UA 的真实结果，不能用固定源码或 fake 测试代替。
-3. 分别验证 personal 账号配置上限、正数套餐上限、套餐值 `0`、套餐降低后的运行时有效值与 system 共享账号跨用户总上限；确认个人账号越界配置被拒绝、降级不改数据库配置、共享账号不与单一套餐比较，超限只进入公共 fallback。
-4. 验证 HEAD、首次 GET、Playing、暂停 Progress、恢复 Progress、Stopped、预加载未播放和无 Stopped TTL；记录目标客户端精确版本、事件顺序以及 reservation 是否按期晋级或释放。
-5. 验证第 5/6 个小时请求、第 10/11 个每日请求、预存文件和失败退款边界。
-6. 验证 Redis 短暂不可用时 Gateway 仍可通过 Emby 播放，且没有未计数的 115 新直链。
-
-真实验证不得输出 Cookie、Token、完整 URL、完整 SHA1、Redis DSN 或 Provider 原始响应。
+转交未执行任何真实验证。后续仍须取得用户对具体范围的明确授权，使用测试账号/文件，并遵守现行参考的敏感信息边界。
 
 ## 分阶段落地
 
@@ -488,7 +483,7 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 
 完成条件：并发请求不能穿透 `5/10` 默认值，小时 `1..100` 与每日 `1..1000` 在 API/Web/SQL CHECK 中一致，预存文件和失败不误扣，日界线复用 `CRON_TIMEZONE`。
 
-## 已完成项、剩余项与归档条件
+## 已完成项、剩余项与归档结论
 
 已完成：
 
@@ -500,29 +495,29 @@ Redis 官方合同依据：Lua 脚本在服务端原子执行，并允许跨多�
 - 稳定架构、数据模型、配置、API、Web 信息架构、115 端到端流程、数据库入口和部署/测试 runbook 已同步。
 - `go test ./...`、`go vet ./...`、`go build ./...` 通过；`p115quota/p115account/directplay/playbackgateway` race 通过；Web 30 个文件通过、1 个跳过（224 项通过、3 项跳过），生产构建通过；Compose Redis 合同通过 YAML 静态检查。
 
-分批验证记录（历史批次未重跑，本次仅补跑 DirectPlay PostgreSQL 专项）：
+分批验证记录（以下均为历史证据，2026-10-25 文档归档未重跑业务测试）：
 
 - 2026-09-05 已使用专用 `EMBER_INTEGRATION_DATABASE_URL` 执行 `go test ./internal/app -run 'Integration|PostgreSQL|P115' -count=1 -v`；新增 migration 幂等、约束、个人账号生命周期、tombstone、用户删除顺序等 PostgreSQL 集成用例全部通过。测试 harness 使用独立 `itest_*` schema，未启动项目服务或访问真实 115/Emby。
 - 2026-09-05 已使用占位必填配置并包含 `gateway`、`bot` profile 执行 `docker compose config --quiet`，解析通过；该结果不替代部署者在目标环境使用实际 `.env`、override 和只读 mount 执行同一检查。
 
-- 2026-09-21 已在专用 PostgreSQL 补跑 `go test ./internal/services/directplay -run '^TestIntegration' -count=1 -timeout=180s`：13 个顶层测试及 2 个子测试全部通过、零跳过。覆盖后续配置版本 migration、配置/健康竞态、目录保存、成功记录采样和小连接池锁等待取消；修正测试迁移重放顺序后完整复跑通过。详见 [测试指南](../../runbooks/testing.md)。
+- 2026-09-21 已在专用 PostgreSQL 补跑 `go test ./internal/services/directplay -run '^TestIntegration' -count=1 -timeout=180s`：13 个顶层测试及 2 个子测试全部通过、零跳过。覆盖后续配置版本 migration、配置/健康竞态、目录保存、成功记录采样和小连接池锁等待取消；修正测试迁移重放顺序后完整复跑通过。详见 [测试指南](../../../runbooks/testing.md)。
 
 剩余：
 
-- 未启动项目服务，未访问真实 Redis、Emby 或 115；个人 Cookie 固定 `Mozilla/5.0`、真实 personal/system 路由、客户端事件间隔、配额边界和 Redis 故障回退均待用户另行授权后受控验证。
-- Emby `SimultaneousStreamLimit` 能否限制 115 `302` 分流仍未证实，本计划不新增 Gateway 用户级门控。
+- 本计划无剩余实现项；真实个人 Cookie 固定 UA、personal/system 路由、账号并发、HEAD/事件时序与三类 TTL、配额、Redis 故障/恢复和用量展示仍未完成受控验收，已转交 [现行参考 12.1](../../../reference/p115-playback-end-to-end-flow.md#121-个人账号与-redis-待验收清单)。
+- Emby `SimultaneousStreamLimit` 能否限制 115 `302` 分流仍未证实；该独立观察项一并转交，不新增 Gateway 用户级门控，也不作为已实现保证。
 
-归档条件：
+归档结论：
 
-- 四个阶段全部落地并通过自动化验证。
+- 四个阶段全部落地并通过自动化验证，实施任务已完成。
 - 基础个人账号 migration 集成已于 2026-09-05 完成；9 月 12 日后续配置版本 migration、配置竞态与成功记录优化的新增 PostgreSQL 用例已于 2026-09-21 补跑通过。
-- 真实验证按用户授权范围记录证据；未授权的外部 E2E 必须明确标为未验证，不能伪写通过。
-- 当前实现事实提炼到 `docs/system-architecture.md` 和对应 `docs/reference/`。
-- `docs/plan/README.md`、计划盘点和交叉引用同步完成后，移入 `docs/archive/plan/architecture/`。
+- 稳定实现已进入 [系统架构](../../../system-architecture.md) 与下列现行参考；本文件仅保留历史设计、批次和验证追溯。
+- 原归档条件允许未授权外部 E2E 明确保留未验证；2026-10-25 按已确认的盘点处理范围转交真实验收并归档，不把交接记成验收通过。
+- 归档落点为 `docs/archive/plan/architecture/`，计划、归档、盘点索引及直接引用随归档同步。
 
 ## 落地后文档处理
 
-实现后同步：
+以下现行文档承接稳定实现；后续规则在对应入口维护，不回写历史计划：
 
 - `docs/system-architecture.md`：账号归属、套餐路由、Redis 边界和 fallback。
 - `docs/reference/data-model-reference.md`：套餐组和账号长期配置字段。

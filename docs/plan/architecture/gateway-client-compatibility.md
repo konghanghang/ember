@@ -35,7 +35,7 @@
 - `playback_session_log.go` 的 `playbackSessionEventKindForRequest` 只匹配标准大小写路径；小写事件仍可代理成功，但不触发本地租约与停止处理。
 - `playback_proof.go` 的证明期限为五分钟；`playback_info_resolver.go` 的 `onDemandPlaybackInfoCandidate` 只接纳不带 `PlaySessionId` 的 plain static stream。固定会话的 `original.mp4/mkv` 和 `stream.*` 过期后在 `video.go` 回退，Progress 不刷新证明。
 - `playback_info.go` 排除 query 起播字段，`playback_transfer_intent.go` 要求 JSON 唯一布尔 `IsPlayback=true`；`services/directplay/service.go` 在锁内二次查重后检查许可，先于配额、任务、preID/challenge 和秒传。已记录 SenPlayer query `IsPlayback=false`、body 缺该字段，只能复用已有目标。
-- 严格模式依赖 [起播许可方案 §1–§3](./p115-transfer-playback-intent.md)；原文件资格依赖 [SenPlayer 方案 §1–§2](./senplayer-original-stream-compatibility.md)。两份旧方案的历史实现与验证记录保留，本方案新增兼容策略，不将其写成旧行为已经失效。
+- 严格模式现行合同见 [端到端参考 1.3](../../reference/p115-playback-end-to-end-flow.md#13-新增转存起播许可) 与 [Emby 播放合同](../../reference/emby-playback-proxy-contract.md#新增转存起播许可ember-内部策略)；原文件资格见 [播放合同 5.2](../../reference/emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14)。[起播许可方案](../../archive/plan/architecture/p115-transfer-playback-intent.md) 与 [SenPlayer 方案](../../archive/plan/architecture/senplayer-original-stream-compatibility.md) 仅保留历史实现和验证记录，未完成验收由本计划的 [承接清单](#历史计划验收承接) 维护。
 - 调查阶段四个相关包的 fake 测试通过；图片定向测试锁定关闭时 `404/upstream=0`。仓库外临时九个场景证明：六种标准/小写会话路径的本地事件次数为 `1/0`；三种视频路径在 Progress `204` 后，五分一秒时 Range 从首次 `302` 转为 Emby `206`。这些是现状复现，不是修复完成或真实客户端证据。
 
 外部参考固定为 [MediaWarp `09fac019`](https://github.com/AkimioJR/MediaWarp/blob/09fac019f228999dadd400d4421ab1c25be7fc20/constants/regexp.go)、[embyExternalUrl `91798cc2`](https://github.com/bpking1/embyExternalUrl/blob/91798cc2ce5e14646c6b939b9f5d1d8d137541e9/emby2Alist/nginx/conf.d/emby.conf) 和 [emby-toolkit `cbc60e7a`](https://github.com/hbq0405/emby-toolkit/blob/cbc60e7a8f3af63f83eecae18b7a68c40f7864fc/reverse_proxy.py#L1924-L1994)。仅参考协议形态、图片/视频职责分离与按需准备流程，不复制上游实现、管理员 Key 注入或 UA 绕过，也不据上游声明承诺 Ember 客户端兼容。
@@ -163,6 +163,39 @@ preID 查询仍位于目标双查、转存许可、配额预留及任务开始�
 
 本节随主计划保留；完成本地自动化不替代部署、真实客户端与性能验收，也不触发多实例实现或自动外部验证。
 
+## 历史计划验收承接
+
+负责人：Ember。2026-10-25 承接 [起播许可历史计划](../../archive/plan/architecture/p115-transfer-playback-intent.md) 和 [SenPlayer 原文件历史计划](../../archive/plan/architecture/senplayer-original-stream-compatibility.md) 的全部未完成客户端分项，两份旧计划归档后在此维护结果。个人 Cookie、账号路由与 Redis/配额的受控清单独立由 [端到端参考 12.1](../../reference/p115-playback-end-to-end-flow.md#121-个人账号与-redis-待验收清单) 承接。
+
+验收基线与证据范围：
+
+- 2026-09-22 用户反馈正常播放没有问题；当日详情探测日志证明无明确许可时跳过新增转存并回退 Emby `404`。这些记录不覆盖首次新增转存、停止后浏览/重播或 thumb 因果验证。
+- 2026-10-14 SenPlayer `6.0.4` 样本为旧 Gateway 的 Emby 回退，受限 MKV 复用提交 `4c9730808f32dd64783a44ae36b0eb2aa3089dc6` 的已有目标/缓存、无目标拒绝及 HEAD 仅有本地 fake/race 证据。
+- 2026-10-23 经 `local → dmit → hz` 更新四个业务容器的历史 revision 为 `b1f524f5a81b5507d505b272b96355c82ce7da38`，原 revision 为 `2a213f35`；Git 祖先关系确认其中包含上述 MKV 和既有账号实现。这是截至该日的部署记录，不是本轮线上版本读数，也不补齐任何客户端分项验收。
+- 2026-10-25 的兼容实现 `30fb9a4`、协议增量 `8799688`、诊断/preID `3e1cd42` 和持续自动化 `33eb11f7` 仍只有前文记录的本地证据；未取得本轮远端 CI、部署、真实客户端或性能结果。后续验收须先记录实际部署 revision，不能用 10 月 23 日版本验收这些增量。
+
+后续真实操作继续单独授权，并按 [抓包手册](../../runbooks/gateway-packet-capture.md) 记录客户端精确版本/平台、Emby 版本、实际模式、账号路由、目标是否已存在、缓存条件、操作时序和脱敏日志。以下状态均为“未验收”；旧计划的“已转交”只表示交接完成，不表示操作通过。
+
+| 编号 / 原待验收项 | 操作与所需证据 | 当前状态 |
+| --- | --- | --- |
+| GW-H01：严格模式首次新转存 | 使用缺失目标，在 `strict` 下对照客户端明确起播 POST、有效许可、锁内目标检查、一次任务/配额提交与最终视频决策；记录实际播放器结果。不能由普通播放反馈推断本次确实新建了目标。 | 未验收；许可/无副作用门控已有 fake，9 月 22 日正常播放反馈未分离首次目标场景。 |
+| GW-H02：严格模式停止后再次浏览 | 成功 Stopped 后只浏览详情，不重新明确起播；核对旧许可已撤销，缺失目标不新建任务/配额/转存，已有目标仍可按合同复用。记录实际详情请求、上游停止结果和后续决策。 | 未验收；停止撤销和旧请求隔离已有 fake/race，未取得分项实机对照。 |
+| GW-H03：严格模式重播 | 停止后重新点击播放，记录新的明确起播、原/新会话、旧缓存复用或新目标准入；核对旧许可没有被补查或缓存命中续期，并记录重播实际效果。 | 未验收；自动化覆盖停止、过期、代次替换，不替代客户端重播。 |
+| GW-H04：SenPlayer 已有目标 | 选定账号已有匹配文件、媒体缓存未命中时，请求合格 `original.mp4/mkv`；确认目标查重复用、无新增任务/转存计费及实际 `302`。同时记录严格或兼容模式，避免把模式变化误记为原文件识别修复。 | 未验收；10 月 14 日分层 fake 覆盖已有/锁内出现目标，旧实机样本只有 Emby 回退。 |
+| GW-H05：SenPlayer 缓存复用 | 先取得有效目标与缓存，再同会话或跨会话访问；分别记录媒体/直链 hit、身份/租约检查和目标未重复写入，停止后重播仍须独立满足当前许可/复用合同。 | 未验收；缓存、租约和跨会话复用已有 fake，未取得真实命中与播放结果对照。 |
+| GW-H06：SenPlayer 缺失目标 | 缺少明确起播许可时，`strict` 应以 `playback_intent_required` 回退且不执行任务/配额/preID/challenge/秒传；另在已部署且经授权开启 `compatible` 后核对独立兼容准入，允许预读产生首次转存。HEAD 两种模式都不新增。 | 未验收；严格拒绝与兼容准入各有本地回归，10 月 23 日部署不包含 10 月 25 日兼容增量。 |
+| GW-H07：详情浏览 | 分别记录 Infuse/SenPlayer 只进详情而不点击播放时的图片、PlaybackInfo、视频及事件请求；区分已有目标复用、严格拒绝和兼容预读转存，不把视频 GET 视为明确起播。Emby `404` 的部署媒体可读性与客户端显示效果分别记录。 | 未验收；Infuse 有 9 月 22 日详情探测日志，SenPlayer 尚无本轮分项对照；thumb 原因见下方独立观察项。 |
+| GW-H08：拖动与续播 | 对照首次读取、连续 Range、五分钟 proof 到期后拖动及重新核验；记录原会话关联、最终 302/Emby 回退、CDN 状态与实际跳转/恢复效果。 | 未验收；本地时间控制回归不证明真实客户端与 CDN 的续播表现。 |
+| GW-H09：暂停、停止与重播 | 分别操作暂停/恢复、停止、再次播放，对照 Playing/Progress/Stopped 时序和成功响应、租约续期/释放、许可撤销、新会话与实际播放；事件 `204`、租约更新和播放器结果分别记录。 | 未验收；已有事件/TTL fake，客户端暂停上报间隔和这些操作的完整实机链路未分项取得。 |
+| GW-H10：真实 302 与 CDN Range | 确认 SenPlayer 实际跟随 playback `302`，按实际请求核对 CDN `200/206/416`、Content-Range、字节范围、总长度和 UA 适配；按手册脱敏保存证据，不把 Gateway 空体 `302` 或旧 Emby `206` 当作 CDN 通过。 | 未验收；10 月 14 日抓包是旧部署回退，10 月 23 日镜像部署不提供 CDN 字节证据。 |
+| GW-H11：字幕与完整播放 | 分别观察所用内嵌/外挂字幕、首帧、拖动后显示和完整播放；记录客户端/媒体条件与操作者结果。短 Range、Playing、响应头到达或首帧均不替代完整播放验收。 | 未验收；历史 Infuse 样本不扩展为 SenPlayer 或 10 月 25 日新增形态通过。 |
+
+### 独立观察：Infuse thumb 与详情视频探测
+
+该项从起播许可计划独立转交，当前为 **未证实**，不作为必须补图的实施任务。2026-09-22 用户提出“单集缺少 thumb 诱发 Infuse 详情视频探测”的假设；已确认的是详情视频 GET 和严格门控后的 fallback `404`，尚未核对图片文件/Emby 元数据，亦未执行补图前后对照。原始现象与版本范围保留在 [端到端参考 1.4](../../reference/p115-playback-end-to-end-flow.md#14-infuse-详情页读取视频与缺失-thumb-的排查记录)。
+
+若后续获授权，先核对同一单集 thumb 是否存在且能由 Emby 提供；确有缺图且决定做对照时，再按既有刮削流程补齐。保持客户端版本、浏览动作和媒体条件一致，记录 Infuse 缓存状态，并使用此前未打开的单集作对照，分别比较图片请求、视频探测和详情显示。只有该对照才能补充因果证据；正常播放通过或探测 404 均不能证明假设，也不能把该观察项记为正式播放验收通过。
+
 ## 影响范围
 
 | 子系统 | 影响 |
@@ -188,5 +221,5 @@ preID 查询仍位于目标双查、转存许可、配额预留及任务开始�
 ## 落地后文档处理
 
 1. 各批次完成后同步 [系统架构](../../system-architecture.md)、[播放代理合同](../../reference/emby-playback-proxy-contract.md)、[客户端矩阵](../../reference/emby-client-compatibility-matrix.md)、[115 端到端参考](../../reference/p115-playback-end-to-end-flow.md)；批次 3 同步 [配置参考](../../reference/configuration-reference.md)。未实施时不得将方案写成现行行为。
-2. 更新两份关联计划的适用边界与本计划入口，保留原严格策略和旧客户端样本的历史来源；同步测试与排障文档，不把旧真实记录当成新行为验收。
-3. 当三个批次均满足各自归档条件，代码/测试/文档已收口，真实验收完成或用户明确接受具体未验证边界后，本计划迁入 `docs/archive/plan/architecture/`；同步计划、归档、盘点索引及全部直接引用。未满足时保留“待实施/待验收”的准确状态。
+2. 两份关联计划已完成历史状态收口，2026-10-25 归档并把未完成项交给本计划的 [历史计划验收承接](#历史计划验收承接)；严格策略和原文件资格的当前规则维护在现行参考，旧稿只保留过程证据，不把旧真实记录当成新行为验收。
+3. 当各实施批次、后续协议/性能与持续自动化项满足各自完成条件，代码/测试/文档已收口，主计划及承接清单的真实验收完成或用户明确接受具体未验证边界后，本计划迁入 `docs/archive/plan/architecture/`；thumb 假设单独记录观察结论或明确未证实边界。同步计划、归档、盘点索引及全部直接引用。未满足时继续保留准确的待验收状态。

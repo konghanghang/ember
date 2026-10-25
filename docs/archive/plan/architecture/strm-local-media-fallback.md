@@ -20,7 +20,7 @@ Emby 媒体库只收录由 115 媒体目录生成的 STRM，不扫描本地硬�
 
 本计划只在现有 Gateway 播放链路中增加一个透明的本地回退层：成功的 115 `302` 保持不变；原本准备回退 Emby 的请求，先用 STRM 对应的真实媒体路径计算相对路径，本地精确路径存在时由 Gateway 直接提供视频字节，本地不存在或不可用时再保持当前 Emby/CloudDrive2 回退。
 
-当前 115 组件、时序和证据边界见 [115 Cookie 直连播放端到端流程参考](../../../reference/p115-playback-end-to-end-flow.md)；管理员全局账号 DirectPlay 主计划见 [Emby 115 直连播放网关实现方案](../../../plan/architecture/emby-115-direct-play-gateway.md)；用户个人账号和 Redis 配额见 [115 用户自有账号路由与 Redis 配额实现方案](../../../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。
+当前 115 组件、时序和证据边界见 [115 Cookie 直连播放端到端流程参考](../../../reference/p115-playback-end-to-end-flow.md)；管理员全局账号 DirectPlay 主计划见 [Emby 115 直连播放网关实现方案](../../../plan/architecture/emby-115-direct-play-gateway.md)；用户个人账号和 Redis 配额见 [115 用户自有账号路由与 Redis 配额实现方案](p115-personal-account-routing-and-redis-quotas.md)。
 
 ## 目标
 
@@ -242,7 +242,7 @@ decision=fallback directPlayResult=failure fallbackTarget=local fallbackResult=s
 ## 与其他计划的关系
 
 - [Emby 115 直连播放网关实现方案](../../../plan/architecture/emby-115-direct-play-gateway.md) 继续负责管理员全局 source/共享 playback、Provider、秒传、302、身份门控和权威 Emby fallback。本计划只在其 fallback 出口前增加本地媒体目标。
-- [115 用户自有账号路由与 Redis 配额实现方案](../../../plan/architecture/p115-personal-account-routing-and-redis-quotas.md) 继续按 `personal|system` 套餐模式选择个人 playback 或管理员共享 playback，以及决定何时因账号、并发、Redis 或配额进入 fallback。本计划统一消费这些 fallback，不改变账号选择和计数规则。
+- [115 用户自有账号路由与 Redis 配额实现方案](p115-personal-account-routing-and-redis-quotas.md) 继续按 `personal|system` 套餐模式选择个人 playback 或管理员共享 playback，以及决定何时因账号、并发、Redis 或配额进入 fallback。本计划统一消费这些 fallback，不改变账号选择和计数规则。
 - 两个计划都不得分别实现本地文件映射或本地 HTTP 响应；本地回退必须只有一个 Gateway 公共实现。
 - 本计划可独立于个人账号计划先落地；个人账号计划后续只需要把类型化失败交给同一个 fallback 选择器。
 

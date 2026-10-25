@@ -6,7 +6,7 @@ OpenAPI 获批后的正式授权、Token 生命周期和官方端点合同见 [1
 
 从管理员配置到 Gateway/Emby/115 CDN 的整体调用关系、状态流转和当前缺口，见 [115 Cookie 直连播放端到端流程参考](./p115-playback-end-to-end-flow.md)。
 
-普通用户已复用同一 Cookie Provider 绑定本人 playback 账号、按套餐路由到个人 playback 或管理员共享 playback，并使用 Redis 执行当前播放与转存配额的方案，见 [115 用户自有账号路由与 Redis 配额实现方案](../plan/architecture/p115-personal-account-routing-and-redis-quotas.md)。该方案的代码与自动化已落地；个人 Cookie、Redis 与客户端真实验收仍未完成，管理员与个人输入合同分别见下文。
+普通用户已复用同一 Cookie Provider 绑定本人 playback 账号、按套餐路由到个人或管理员共享 playback，并使用 Redis 执行播放租约与转存配额。现行边界及[个人账号与 Redis 待验收清单](./p115-playback-end-to-end-flow.md#121-个人账号与-redis-待验收清单)由端到端参考维护；[归档方案](../archive/plan/architecture/p115-personal-account-routing-and-redis-quotas.md)仅保留实施和历史自动化证据。个人 Cookie、Redis 与客户端真实验收仍未完成，管理员与个人输入合同分别见下文。
 
 ## 1. 状态与证据等级
 

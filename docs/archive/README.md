@@ -15,6 +15,7 @@
 - `access-auth/`：注册、登录保护、邮箱验证、找回密码
   - 例如：[管理员 API Key 实现方案](./plan/access-auth/admin-api-key.md)
 - `billing-redemption/`：Stripe、套餐分组、兑换码、一人一码、兑换目录重构、注册码绑定套餐分组
+  - [套餐与分组权益改版](./plan/billing-redemption/plan-group-entitlements.md)（2026-10-25：实施与本地/沙盒验收收尾；剩余业务验收和种子用户操作由[升级手册](../runbooks/entitlements-upgrade.md)承接）
 - `media-subscription/`：追剧日历、媒体质量、播放历史、分季订阅、排行榜、最近入库、用户侧媒体库入口收口、订阅拒绝后重提、用户媒体库管理
   - [每日播放总结分步修复](./plan/media-subscription/playback-summary-improvements.md)（五步本地实施完成；SQL 合并经评估暂缓，真实外部验收与部署未执行）
   - [支付与媒体状态问题修复计划](./plan/media-subscription/open-issue-followup.md)（#21–#25，本地代码与验证收口，未推送）
@@ -37,6 +38,8 @@
   - 例如：[「播放分析」菜单合并方案](./plan/console-admin/playback-center-merge.md)
   - 例如：[控制台概览与账号中心布局改造方案](./plan/console-admin/console-overview-account-layout-redesign.md)
 - `architecture/`：设置中心、邮箱鉴权边界、前端工程质量、项目级日志、数据库迁移 baseline、数据库迁移自动应用、OSS 部署体验、schema 与部署基线等结构性方案
+  - [115 个人账号与 Redis 配额](./plan/architecture/p115-personal-account-routing-and-redis-quotas.md)（2026-10-25：四阶段实施与数据库专项完成，真实外部验收由[端到端参考](../reference/p115-playback-end-to-end-flow.md)承接）
+  - [115 新增转存起播许可](./plan/architecture/p115-transfer-playback-intent.md)、[SenPlayer 原文件播放兼容](./plan/architecture/senplayer-original-stream-compatibility.md)（2026-10-25：实现已完成，未完成取证和观察项转交[客户端兼容主计划](../plan/architecture/gateway-client-compatibility.md)，不等于实机验收通过）
   - 例如：[GitHub 开放问题零迁移修复计划](./plan/architecture/github-issue-remediation.md)（本地签名提交与 fake 验收完成，未发布）
   - 例如：[Gateway 媒体路径诊断日志方案](./plan/architecture/gateway-media-path-diagnostics.md)
   - 例如：[Gateway 透明代理与 Web 访问控制方案](./plan/architecture/ember-gateway-transparent-proxy-and-web-access.md)
